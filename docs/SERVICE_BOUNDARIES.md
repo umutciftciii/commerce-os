@@ -21,6 +21,20 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 - Yapar: Queue joblarini calistirir, background isleri ilgili servis kontratlarina gore tetikler.
 - Yapmaz: Servis sahipligini atlayarak farkli domain tablolarini rastgele guncellemez.
 
+## Frontend App'ler (admin-web, store-admin-web, storefront-web)
+
+- Yapar: Kullanici arayuzu, layout, routing, ortak UI shell ve presentation. Backend ile yalnizca
+  API gateway uzerinden ve `packages/api-client` ile konusur.
+- Yapmaz: Domain is kurali, DB erisimi, gercek auth/session, odeme veya pazaryeri logic'i icermez.
+  Servis tablolarina veya Prisma'ya dogrudan erismez.
+
+## packages/ui ve packages/api-client
+
+- `packages/ui`: Yalnizca sunum katmani primitive'leri. Domain bilgisi, network cagrisi veya is
+  kurali tasimaz; framework-agnostik ve presentational kalir.
+- `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
+  bozmadan `packages/contracts` tiplerini kullanir; auth/token sorumlulugu sonraki fazda eklenecek.
+
 ## Commerce Service
 
 - Yapar: Product, catalog, inventory, customer, order ve commerce core kurallarini sahiplenir.

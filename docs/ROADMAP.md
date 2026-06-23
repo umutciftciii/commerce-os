@@ -10,6 +10,15 @@
   seed verify gecer; public/internal health endpointleri beklenen cevaplari verir;
   lint/typecheck/test/build basarili olur; docs kapanisi tamamlanir.
 
+## UI Foundation (faz-disi on hazirlik)
+
+- Durum: DONE
+- Amac: Backend foundation uzerine frontend shell kurmak (commerce feature olmadan).
+- Kapsam: `apps/admin-web`, `apps/store-admin-web`, `apps/storefront-web` Next.js App Router shell'leri;
+  `packages/ui` design system; `packages/api-client` placeholder; ortak Tailwind preset; design-first
+  kurali. Tum sayfalar placeholder/empty state.
+- Not: Gercek veri, auth ve aksiyonlar ilgili fazlarda (Faz 1/2/3/4) baglanacak.
+
 ## Faz 1 Multi-Tenant Foundation
 
 - Durum: PLANNED

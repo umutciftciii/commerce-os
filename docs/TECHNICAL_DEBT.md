@@ -2,10 +2,12 @@
 
 ## TD-001 Frontend app'ler henuz yok
 
-- Durum: OPEN
+- Durum: RESOLVED
 - Oncelik: HIGH
 - Etki: Admin, super admin ve storefront deneyimleri henuz kullanici tarafindan dogrulanamiyor.
 - Cozum onerisi: Faz 1 ve Faz 3 kapsaminda admin/storefront foundation app'lerini baslatmak.
+- Cozum: `apps/admin-web`, `apps/store-admin-web` ve `apps/storefront-web` shell'leri eklendi
+  (placeholder/empty state seviyesinde). Gercek veri ve aksiyonlar yeni TD/TODO altinda takip edilir.
 - Hedef faz: Faz 1, Faz 3
 
 ## TD-002 Gercek auth/session implementasyonu yok
@@ -56,3 +58,77 @@
 - Etki: Host ve container `DATABASE_URL` farki yanlis migration/seed calistirmaya yol acabilir.
 - Cozum onerisi: README'deki notu docs/ARCHITECTURE.md ve faz kapanis kurallarina baglamak.
 - Hedef faz: Faz 0
+
+## TD-008 Frontend app'ler Docker Compose'a eklenmedi
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: admin-web, store-admin-web ve storefront-web container olarak compose ile ayaga kalkmiyor;
+  su an lokal `pnpm dev:*` ile calisiyorlar. Backend runtime ve mevcut compose davranisi bilincli
+  olarak degistirilmedi.
+- Cozum onerisi: Frontend app'ler icin Next.js production Dockerfile ve compose servisleri eklemek;
+  `API_GATEWAY_URL`'i container network'une gore set etmek.
+- Hedef faz: Faz 3+
+
+## TD-009 API client placeholder (auth/token yok)
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: `packages/api-client` yalnizca public health/version cagrilarini yapar; auth, token, session
+  ve per-domain resource'lar (stores, products, orders...) yok.
+- Cozum onerisi: Auth/session fazinda token stratejisi ve type-safe resource gruplarini eklemek
+  (TD-002 ile birlikte).
+- Hedef faz: Faz 1
+
+## TD-010 Frontend ekranlari placeholder; gercek veri/aksiyon yok
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Tum frontend sayfalari empty state/placeholder; form submit, listeleme, mutation ve gercek
+  is akislari yok. Storefront sepet/checkout aksiyonlari devre disi.
+- Cozum onerisi: Ilgili commerce/storefront fazlarinda sayfalari gercek API'ye baglamak.
+- Hedef faz: Faz 2, Faz 3, Faz 4
+
+## TD-011 Storefront multi-tenant store resolver yok
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: storefront-web tek demo store render eder; demo.localhost / custom domain / slug -> store
+  cozumleyici yok.
+- Cozum onerisi: Storefront foundation fazinda domain/slug routing ve tenant cozumleme eklemek.
+- Hedef faz: Faz 3
+
+## TD-012 Frontend testleri smoke seviyesinde
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: UI testleri `react-dom/server` ile render smoke testleri ve health route guard'lari ile
+  sinirli; jsdom tabanli etkilesim/erisilebilirlik testleri yok.
+- Cozum onerisi: Etkilesim gerektiren ekranlar gelistikce jsdom + Testing Library tabanli testler
+  eklemek.
+- Hedef faz: Faz 2+
+
+## TD-013 Frontend UI Ingilizce ve basic/starter template gorunum
+
+- Durum: RESOLVED
+- Oncelik: HIGH
+- Etki: Ilk UI foundation tum ekranlari Ingilizce uretmisti; oysa proje Turkiye pazari odakli ve
+  varsayilan dil Turkce olmali. Ayrica tasarim fazla basic/starter template hissi veriyordu;
+  premium SaaS karakteri zayifti.
+- Cozum: Dil/tasarim revizyonu yapildi. Varsayilan urun dili Turkce'ye cekildi (ADR-013); uc app'in
+  tum gorunur metni Turkce'ye cevrildi ve `packages/i18n` tipli sozluk sisteminden okunur hale
+  getirildi (ADR-014). `packages/ui` ve ekranlar premium, sade, kurumsal SaaS yonunde rafine edildi
+  (canvas tuval, katmanli golge, rafine sidebar/topbar, UserChip, urunlesmis empty state'ler, nav
+  ikonlari, storefront premium vitrin). Dark theme/neon/agir gradient eklenmedi.
+- Hedef faz: Faz 1 (UI revizyonu)
+
+## TD-014 Locale switcher / URL locale stratejisi yok
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: `packages/i18n` tr/en sozluk parite ile hazir ancak runtime locale switcher, `/tr`-`/en`
+  route prefix, tarayici dil tespiti, kullanici/mağaza locale tercihi ve DB locale alani yok.
+  Su an uc app varsayilan olarak Turkce render eder.
+- Cozum onerisi: Locale switcher, URL locale stratejisi ve kullanici/mağaza locale tercihini ileride
+  ayri islerde eklemek; gerekirse storefront icin mağaza bazli locale cozumlemesi.
+- Hedef faz: Faz 3+

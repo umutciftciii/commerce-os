@@ -13,6 +13,18 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   sorumlulugu burada buyuyecek.
 - `apps/worker`: Background job runtime foundation'i. Redis/BullMQ tabanli queue islerinin calisacagi
   runtime alanidir.
+- `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Dashboard, stores, plans,
+  system health ve settings shell sayfalari ile `/api/health` route handler. Su an placeholder/empty
+  state seviyesinde; gercek veri ve aksiyonlar ileride baglanacak.
+- `apps/store-admin-web`: Magaza yoneticisi paneli (Next.js App Router). Dashboard, products, orders,
+  inventory, customers, marketplace, theme ve settings shell sayfalari ile `/api/health`.
+- `apps/storefront-web`: Public magaza vitrini (Next.js App Router). Home, product listing, product
+  detail, cart ve checkout placeholder sayfalari, tema-hazir layout ve `/api/health`. Multi-tenant
+  store slug/domain cozumleyici henuz implement edilmedi; tek demo store render edilir.
+
+Frontend app'ler backend domain logic icermez. Backend ile tek temas noktalari API gateway'dir ve
+bu erisim `packages/api-client` uzerinden type-safe sekilde yapilir (su an yalnizca health/version
+placeholder). Next.js build ciktilari `.next/` altindadir.
 
 ## Services
 
@@ -39,6 +51,51 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
 - `packages/integrations-sdk`: Connector gelistirme icin hedef SDK paketi.
 - `packages/validators`: Paylasimli validation semalari icin hedef paket.
 - `packages/utils`: Genel yardimci fonksiyonlar icin hedef paket.
+- `packages/ui`: Paylasimli, light-first premium SaaS tasarim sistemi primitive'leri (Button, Card,
+  SectionCard, Badge, Input, PageHeader, EmptyState, StatCard, Container, AppShell, Topbar,
+  SidebarNav, `cn`). TypeScript kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler.
+  Ortak Tailwind preset'i (`tailwind-preset.cjs`) tasarim token'larini merkezilestirir.
+- `packages/api-client`: Frontend app'lerin API gateway ile konustugu type-safe client placeholder'i.
+  `API_GATEWAY_URL` env'inden base URL cozer, health/version helper'lari sunar. Auth/token yoktur.
+- `packages/i18n`: Frontend i18n altyapisi. Basit, tipli sozluk sistemi; varsayilan urun dili
+  Turkce'dir. Tum gorunur UI metni buradan okunur (hardcoded gorunur metin yasaktir). TypeScript
+  kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler. Yeni bagimlilik eklenmez.
+
+### packages/i18n yapisi
+
+```
+packages/i18n/
+  package.json
+  tsconfig.json
+  turbo.json
+  src/
+    index.ts            # defaultLocale, supportedLocales, Locale, getDictionary, getDefaultDictionary,
+                        # isSupportedLocale, format, allDictionaries
+    locales/
+      tr/               # KAYNAK sozluk (tip parite kaynagi)
+        common.ts  admin.ts  storeAdmin.ts  storefront.ts
+      en/               # tr sekline tip-bagli ayna (key parity zorunlu)
+        common.ts  admin.ts  storeAdmin.ts  storefront.ts
+  test/
+    i18n.test.ts        # defaultLocale, supportedLocales, parity, fallback testleri
+```
+
+- `defaultLocale = "tr"`, `supportedLocales = ["tr", "en"]`, `type Locale = "tr" | "en"`.
+- `getDictionary(locale?)` desteklenmeyen/eksik locale'de guvenli sekilde Turkce'ye duser.
+- EN sozlukleri TR tipine (`AdminDictionary` vb.) bagli yazilir; derleme zamani key parity garantisi.
+- Kapsam disi (bilincli): runtime locale switcher, `/tr`-`/en` route prefix, tarayici dil tespiti,
+  DB locale alani, Next middleware. Bunlar `docs/TODO.md` altinda takip edilir.
+
+## Frontend Stack
+
+- Next.js App Router, React 19, TypeScript strict.
+- Tailwind CSS v3, ortak preset `packages/ui/tailwind-preset.cjs` uzerinden.
+- Light-first premium SaaS gorunum; dark theme, neon/AI look ve agir gradient kullanilmaz.
+- Tasarim-first calisma: yeni ana ekranlar once kisa "Claude Design Plan" ile tasarlanir
+  (bkz. `docs/PROMPT_RULES.md`).
+- i18n-first: varsayilan UI dili Turkce'dir. Tum gorunur UI metni `packages/i18n` sozlugunden gelir;
+  bilesenlerde hardcoded gorunur metin yazilmaz. Her app'te locale cozumleme `lib/i18n.ts` icinde tek
+  noktada toplanir (su an varsayilan `tr`).
 
 ## DB
 

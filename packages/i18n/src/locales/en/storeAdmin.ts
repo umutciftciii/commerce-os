@@ -1,0 +1,140 @@
+import type { StoreAdminDictionary } from "../tr/storeAdmin";
+
+/** Store admin panel (store-admin-web) — English mirror of the TR source. */
+export const enStoreAdmin: StoreAdminDictionary = {
+  meta: {
+    title: "commerce-os · Store Admin",
+    description: "Store management panel for merchants selling on commerce-os.",
+  },
+  shell: {
+    brandName: "Demo Store",
+    brandSubtitle: "Store Admin",
+    topbarTitle: "Store panel",
+    userName: "Store Owner",
+    userRole: "Store manager",
+  },
+  nav: {
+    heading: "Operations",
+    dashboard: "Store Dashboard",
+    products: "Products",
+    orders: "Orders",
+    inventory: "Inventory",
+    customers: "Customers",
+    marketplace: "Marketplaces",
+    theme: "Theme",
+    settings: "Settings",
+  },
+  dashboard: {
+    eyebrow: "Store",
+    title: "Store Dashboard",
+    description: "Operations overview for sales, orders, inventory and marketplace sync.",
+    rangeLabel: "Last 30 days",
+    stats: {
+      sales: "Sales today",
+      salesHint: "Orders connect in Phase 2",
+      openOrders: "Open orders",
+      openOrdersHint: "Awaiting fulfilment",
+      lowStock: "Low stock",
+      lowStockHint: "Inventory tracking pending",
+      marketplaceSync: "Marketplace sync",
+    },
+    ordersCard: {
+      title: "Recent orders",
+      description: "Latest orders across all channels",
+      emptyTag: "Phase 2",
+      emptyTitle: "No orders yet",
+      emptyDescription:
+        "Storefront and marketplace orders will merge here; incoming orders are listed with their channel.",
+    },
+    inventoryCard: {
+      title: "Stock alerts",
+      description: "Products needing attention",
+      emptyTag: "Phase 2",
+      emptyTitle: "Nothing to restock",
+      emptyDescription:
+        "Low and out-of-stock alerts will be listed here once inventory tracking is enabled.",
+    },
+  },
+  products: {
+    eyebrow: "Catalogue",
+    title: "Products",
+    description: "Product catalogue, variants, pricing and media for your store.",
+    addProduct: "Add product",
+    cardTitle: "Catalogue",
+    cardDescription: "All products",
+    emptyTag: "Phase 2",
+    emptyTitle: "Your catalogue is empty",
+    emptyDescription:
+      "Product creation, variants, pricing and media management will live here. The product catalogue is managed with live data in Phase 2.",
+    emptyAction: "Add your first product",
+  },
+  orders: {
+    eyebrow: "Operations",
+    title: "Orders",
+    description: "Track, fulfil and refund orders from every sales channel.",
+    cardTitle: "All orders",
+    cardDescription: "Storefront and marketplace orders",
+    emptyTag: "Phase 2",
+    emptyTitle: "No orders yet",
+    emptyDescription:
+      "Storefront and marketplace orders will merge here; order details, fulfilment status and payment status are managed from here.",
+  },
+  inventory: {
+    eyebrow: "Operations",
+    title: "Inventory",
+    description: "Stock levels across locations, warehouses and stock movements.",
+    adjustStock: "Adjust stock",
+    cardTitle: "Stock by location",
+    cardDescription: "Warehouses and quantities",
+    emptyTag: "Phase 2",
+    emptyTitle: "No stock tracking yet",
+    emptyDescription:
+      "Warehouse, reserved stock and channel-based stock rules are managed here; stock counts and movement history will be listed.",
+  },
+  customers: {
+    eyebrow: "Relationship",
+    title: "Customers",
+    description: "Customer profiles, contact details and order history.",
+    cardTitle: "All customers",
+    cardDescription: "Customer directory",
+    emptyTag: "Phase 2",
+    emptyTitle: "No customers yet",
+    emptyDescription:
+      "Customer records and addresses will be listed here; segments and lifetime value appear as orders arrive.",
+  },
+  marketplace: {
+    eyebrow: "Integration",
+    title: "Marketplaces",
+    description: "Connect external marketplaces; keep listings and orders in sync.",
+    cardTitle: "Channels",
+    cardDescription: "Available integrations",
+    channels: [
+      { name: "Trendyol", detail: "Marketplace listing and order sync" },
+      { name: "Hepsiburada", detail: "Marketplace listing and order sync" },
+    ],
+    note: "Trendyol and Hepsiburada connections go live in Phase 6; OAuth/credential flows and product/order synchronisation are added in that phase.",
+  },
+  theme: {
+    eyebrow: "Storefront",
+    title: "Theme",
+    description: "Choose and customise the look of your store's storefront.",
+    cardTitle: "Available themes",
+    cardDescription: "Storefront presentation",
+    themes: [
+      { name: "Aurora", detail: "Clean, conversion-focused default theme" },
+      { name: "Boutique", detail: "Editorial layout for fashion" },
+      { name: "Market", detail: "Dense grid for large catalogues" },
+    ],
+    note: "Storefront theme selection and editing happen here; live preview and customisation connect to the storefront in a later phase.",
+  },
+  settings: {
+    eyebrow: "Store",
+    title: "Settings",
+    description: "Store details, domain, tax and operations settings will be managed here.",
+    cardTitle: "General",
+    cardDescription: "Store identity (read-only placeholder)",
+    storeName: "Store name",
+    contactEmail: "Contact email",
+    note: "Editable store settings and persistence will be wired in a later phase.",
+  },
+};
