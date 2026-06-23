@@ -1,18 +1,24 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { PlanIcon } from "../../components/icons";
+import { getAdminDict } from "../../lib/i18n";
 
 export default function PlansPage() {
+  const t = getAdminDict().plans;
+
   return (
     <>
       <PageHeader
-        title="Plans"
-        description="Subscription tiers, usage limits and pricing offered to tenants."
-        actions={<Button>New plan</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button>{t.newPlan}</Button>}
       />
-      <SectionCard title="Subscription plans" description="Packages & limits">
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<PlanIcon />}>
         <EmptyState
-          title="No plans configured yet"
-          description="Define tiers, entitlements and pricing here once the billing module is connected."
-          action={<Button size="sm">Define a plan</Button>}
+          tag={t.emptyTag}
+          title={t.emptyTitle}
+          description={t.emptyDescription}
+          action={<Button size="sm">{t.emptyAction}</Button>}
         />
       </SectionCard>
     </>

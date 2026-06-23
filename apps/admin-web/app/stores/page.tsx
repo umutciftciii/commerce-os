@@ -1,18 +1,24 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { StoreIcon } from "../../components/icons";
+import { getAdminDict } from "../../lib/i18n";
 
 export default function StoresPage() {
+  const t = getAdminDict().stores;
+
   return (
     <>
       <PageHeader
-        title="Stores"
-        description="Provision, suspend and inspect every tenant store on the platform."
-        actions={<Button>New store</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button>{t.newStore}</Button>}
       />
-      <SectionCard title="All stores" description="Tenant directory">
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<StoreIcon />}>
         <EmptyState
-          title="No stores onboarded yet"
-          description="Store provisioning, plan assignment and tenant lifecycle controls will appear here in a later phase."
-          action={<Button size="sm">Create the first store</Button>}
+          tag={t.emptyTag}
+          title={t.emptyTitle}
+          description={t.emptyDescription}
+          action={<Button size="sm">{t.emptyAction}</Button>}
         />
       </SectionCard>
     </>

@@ -24,5 +24,11 @@ export type { StatCardProps } from "./stat-card";
 
 export { Container } from "./container";
 
-export { AppShell, Topbar, SidebarNav } from "./app-shell";
-export type { AppShellProps, TopbarProps, NavItem } from "./app-shell";
+export { AppShell, Topbar, SidebarNav, UserChip } from "./app-shell";
+export type {
+  AppShellProps,
+  TopbarProps,
+  SidebarNavProps,
+  NavItem,
+  UserChipProps,
+} from "./app-shell";

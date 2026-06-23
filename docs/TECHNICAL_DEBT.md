@@ -107,3 +107,28 @@
 - Cozum onerisi: Etkilesim gerektiren ekranlar gelistikce jsdom + Testing Library tabanli testler
   eklemek.
 - Hedef faz: Faz 2+
+
+## TD-013 Frontend UI Ingilizce ve basic/starter template gorunum
+
+- Durum: RESOLVED
+- Oncelik: HIGH
+- Etki: Ilk UI foundation tum ekranlari Ingilizce uretmisti; oysa proje Turkiye pazari odakli ve
+  varsayilan dil Turkce olmali. Ayrica tasarim fazla basic/starter template hissi veriyordu;
+  premium SaaS karakteri zayifti.
+- Cozum: Dil/tasarim revizyonu yapildi. Varsayilan urun dili Turkce'ye cekildi (ADR-013); uc app'in
+  tum gorunur metni Turkce'ye cevrildi ve `packages/i18n` tipli sozluk sisteminden okunur hale
+  getirildi (ADR-014). `packages/ui` ve ekranlar premium, sade, kurumsal SaaS yonunde rafine edildi
+  (canvas tuval, katmanli golge, rafine sidebar/topbar, UserChip, urunlesmis empty state'ler, nav
+  ikonlari, storefront premium vitrin). Dark theme/neon/agir gradient eklenmedi.
+- Hedef faz: Faz 1 (UI revizyonu)
+
+## TD-014 Locale switcher / URL locale stratejisi yok
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: `packages/i18n` tr/en sozluk parite ile hazir ancak runtime locale switcher, `/tr`-`/en`
+  route prefix, tarayici dil tespiti, kullanici/mağaza locale tercihi ve DB locale alani yok.
+  Su an uc app varsayilan olarak Turkce render eder.
+- Cozum onerisi: Locale switcher, URL locale stratejisi ve kullanici/mağaza locale tercihini ileride
+  ayri islerde eklemek; gerekirse storefront icin mağaza bazli locale cozumlemesi.
+- Hedef faz: Faz 3+

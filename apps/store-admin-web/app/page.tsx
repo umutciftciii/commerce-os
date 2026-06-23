@@ -1,54 +1,69 @@
 import Link from "next/link";
 import { Button, EmptyState, PageHeader, SectionCard, StatCard } from "@commerce-os/ui";
+import { InventoryIcon, OrderIcon } from "../components/icons";
+import { getCommonDict, getStoreAdminDict } from "../lib/i18n";
 
 export default function StoreDashboardPage() {
+  const t = getStoreAdminDict().dashboard;
+  const c = getCommonDict();
+
   return (
     <>
       <PageHeader
-        title="Store dashboard"
-        description="Today's sales, orders, stock and marketplace sync at a glance."
-        actions={<Button variant="secondary">Last 30 days</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button variant="secondary">{t.rangeLabel}</Button>}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Sales (today)" value="—" hint="Connect orders in Faz 2" />
-        <StatCard label="Open orders" value="—" hint="Fulfilment pending" />
-        <StatCard label="Low stock items" value="—" hint="Inventory pending" />
-        <StatCard label="Marketplace sync" value="—" badge="Idle" />
+        <StatCard label={t.stats.sales} value="—" hint={t.stats.salesHint} />
+        <StatCard label={t.stats.openOrders} value="—" hint={t.stats.openOrdersHint} />
+        <StatCard label={t.stats.lowStock} value="—" hint={t.stats.lowStockHint} />
+        <StatCard
+          label={t.stats.marketplaceSync}
+          value="—"
+          badge={c.status.idle}
+          badgeTone="warning"
+        />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard
-          title="Recent orders"
-          description="Latest orders across all channels"
+          title={t.ordersCard.title}
+          description={t.ordersCard.description}
+          icon={<OrderIcon />}
           actions={
             <Link href="/orders">
               <Button variant="ghost" size="sm">
-                View all
+                {c.actions.viewAll}
               </Button>
             </Link>
           }
         >
           <EmptyState
-            title="No orders yet"
-            description="Incoming orders from your storefront and marketplaces will appear here."
+            tag={t.ordersCard.emptyTag}
+            title={t.ordersCard.emptyTitle}
+            description={t.ordersCard.emptyDescription}
           />
         </SectionCard>
 
         <SectionCard
-          title="Inventory alerts"
-          description="Items that need attention"
+          title={t.inventoryCard.title}
+          description={t.inventoryCard.description}
+          icon={<InventoryIcon />}
           actions={
             <Link href="/inventory">
               <Button variant="ghost" size="sm">
-                Manage stock
+                {c.actions.manage}
               </Button>
             </Link>
           }
         >
           <EmptyState
-            title="Nothing to restock"
-            description="Low-stock and out-of-stock warnings will be listed here once inventory is tracked."
+            tag={t.inventoryCard.emptyTag}
+            title={t.inventoryCard.emptyTitle}
+            description={t.inventoryCard.emptyDescription}
           />
         </SectionCard>
       </div>

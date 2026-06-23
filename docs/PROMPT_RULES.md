@@ -41,3 +41,19 @@ Ek kurallar:
 - Ortak component kullanilabilecek yerde tekrar eden markup yazilmaz; `packages/ui` primitive'leri
   tercih edilir.
 - Light-first premium SaaS gorunumu korunur; ortak Tailwind preset kullanilir.
+
+## Dil ve i18n Kurali (Frontend/UI)
+
+- Varsayilan urun dili Turkce'dir. Tum yeni gorunur UI metni varsayilan olarak Turkce uretilir
+  (bkz. ADR-013).
+- Tum gorunur UI metni `packages/i18n` sozlugunden okunur. Bilesenlerde, sayfalarda veya layout'larda
+  hardcoded gorunur metin yazmak YASAKTIR (bkz. ADR-014). Buna sidebar, topbar, sayfa basligi ve
+  aciklamasi, buton, badge, empty state, kart basligi, footer notu ve storefront metinleri dahildir.
+- Yeni bir gorunur metin eklerken once ilgili namespace sozlugune (`common`, `admin`, `storeAdmin`,
+  `storefront`) Turkce key eklenir; ardindan ayni key Ingilizce (`en`) ayna sozluge eklenir. tr/en
+  key parity her zaman korunur ve testle dogrulanir.
+- Sabit kimlikler (urun `handle`, route segmenti, env adlari) gorunur metin degildir ve cevrilmez.
+- Locale cozumleme her app'te tek noktada (`lib/i18n.ts`) toplanir; su an varsayilan `tr`. Runtime
+  locale switcher, URL locale prefix ve tarayici dil tespiti bu asamada kapsam disidir.
+- Yeni i18n ihtiyaclari icin agir framework veya yeni dependency eklenmez; mevcut basit tipli sozluk
+  sistemi genisletilir.

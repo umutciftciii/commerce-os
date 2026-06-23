@@ -1,47 +1,43 @@
 import { resolveApiGatewayUrl } from "@commerce-os/api-client";
 import { Badge, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
-
-const components = [
-  { name: "API gateway", detail: "Fastify HTTP gateway" },
-  { name: "Worker", detail: "BullMQ background jobs" },
-  { name: "PostgreSQL", detail: "Primary datastore" },
-  { name: "Redis", detail: "Queue & cache" },
-];
+import { HealthIcon } from "../../components/icons";
+import { getAdminDict, getCommonDict } from "../../lib/i18n";
 
 export default function SystemHealthPage() {
+  const t = getAdminDict().systemHealth;
+  const c = getCommonDict();
   const gatewayUrl = resolveApiGatewayUrl();
 
   return (
     <>
       <PageHeader
-        title="System health"
-        description="Live status of the platform runtime components."
-        breadcrumb="Platform · Operations"
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        breadcrumb={t.breadcrumb}
       />
 
       <SectionCard
-        title="Runtime components"
-        description={`Health probes will call the gateway at ${gatewayUrl}`}
-        actions={<Badge tone="warning">Not wired</Badge>}
+        title={t.cardTitle}
+        description={`${t.cardDescriptionPrefix} ${gatewayUrl}`}
+        icon={<HealthIcon />}
+        actions={<Badge tone="warning">{c.status.notWired}</Badge>}
       >
         <ul className="divide-y divide-slate-100">
-          {components.map((component) => (
+          {t.components.map((component) => (
             <li key={component.name} className="flex items-center justify-between py-3">
               <div>
                 <p className="text-sm font-medium text-slate-900">{component.name}</p>
                 <p className="text-xs text-slate-500">{component.detail}</p>
               </div>
-              <Badge tone="neutral">Pending</Badge>
+              <Badge tone="neutral">{c.status.pending}</Badge>
             </li>
           ))}
         </ul>
       </SectionCard>
 
       <div className="mt-6">
-        <EmptyState
-          title="Live probes not connected yet"
-          description="This page will poll the gateway internal health endpoints (DB & Redis) and surface worker queue depth. The API client placeholder already resolves the gateway URL from API_GATEWAY_URL."
-        />
+        <EmptyState tag={t.emptyTag} title={t.emptyTitle} description={t.emptyDescription} />
       </div>
     </>
   );

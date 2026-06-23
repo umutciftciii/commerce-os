@@ -1,28 +1,29 @@
 import { Button, Input, PageHeader, SectionCard } from "@commerce-os/ui";
+import { SettingsIcon } from "../../components/icons";
+import { getAdminDict, getCommonDict } from "../../lib/i18n";
 
 export default function SettingsPage() {
+  const t = getAdminDict().settings;
+  const c = getCommonDict();
+
   return (
     <>
-      <PageHeader
-        title="Platform settings"
-        description="Global configuration for the commerce-os platform."
-      />
+      <PageHeader eyebrow={t.eyebrow} title={t.title} description={t.description} />
       <SectionCard
-        title="General"
-        description="Platform identity (read-only placeholder)"
+        title={t.cardTitle}
+        description={t.cardDescription}
+        icon={<SettingsIcon />}
         actions={
           <Button size="sm" disabled>
-            Save
+            {c.actions.save}
           </Button>
         }
       >
         <div className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input label="Platform name" defaultValue="commerce-os" disabled />
-          <Input label="Support email" defaultValue="support@commerce-os.dev" disabled />
+          <Input label={t.platformName} defaultValue="commerce-os" disabled />
+          <Input label={t.supportEmail} defaultValue="destek@commerce-os.dev" disabled />
         </div>
-        <p className="mt-4 text-xs text-slate-400">
-          Editable platform settings and persistence will be wired up in a later phase.
-        </p>
+        <p className="mt-4 text-xs text-slate-400">{t.note}</p>
       </SectionCard>
     </>
   );

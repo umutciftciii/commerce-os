@@ -26,12 +26,19 @@ Project tracking and technical context live under `docs/`:
 - Zod config/contracts
 - Vitest, ESLint, Prettier
 - Frontend: Next.js App Router (15), React 19, Tailwind CSS 3, shared `@commerce-os/ui` design system
+- i18n: shared `@commerce-os/i18n` typed dictionary, default product language **Turkish** (`tr`)
 
 ## Frontend Apps
 
-Light-first, premium SaaS UI foundation. All pages are currently placeholders/empty states — no
-commerce business logic, no real auth, no payment. Frontends talk to the backend only through the API
-gateway via the `@commerce-os/api-client` placeholder.
+Light-first, premium SaaS UI foundation. **Varsayilan UI dili Turkce'dir** (`defaultLocale = "tr"`).
+Tum gorunur UI metni `@commerce-os/i18n` sozlugunden okunur; bilesenlerde hardcoded gorunur metin
+yazilmaz (bkz. ADR-013, ADR-014, `docs/PROMPT_RULES.md`). Ingilizce (`en`) ikinci dil olarak tam key
+parity ile saglanir ancak varsayilan degildir; runtime locale switcher / URL locale stratejisi bu
+asamada kapsam disidir.
+
+All pages are currently placeholders/empty states — no commerce business logic, no real auth, no
+payment. Frontends talk to the backend only through the API gateway via the `@commerce-os/api-client`
+placeholder.
 
 - `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
 - `apps/store-admin-web` — store manager panel (dashboard, products, orders, inventory, customers, marketplace, theme, settings). `pnpm dev:store-admin` → `http://localhost:3002`
@@ -47,9 +54,14 @@ curl http://localhost:3000/api/health   # storefront-web
 
 Each returns `200` with `{ "status": "ok", "service": "<app>", "timestamp": "…" }`.
 
-Shared UI primitives live in `packages/ui` (Button, Card, Badge, Input, PageHeader, EmptyState,
-StatCard, AppShell, Topbar, SidebarNav, …) with a shared Tailwind preset. New UI screens follow the
-design-first rule in `docs/PROMPT_RULES.md`.
+Shared UI primitives live in `packages/ui` (Button, Card, SectionCard, Badge, Input, PageHeader,
+EmptyState, StatCard, AppShell, Topbar, SidebarNav, UserChip, …) with a shared Tailwind preset. New
+UI screens follow the design-first rule in `docs/PROMPT_RULES.md`.
+
+Visible UI copy lives in `packages/i18n` as a typed dictionary (`tr` source + `en` mirror, full key
+parity). Default locale is Turkish; `getDictionary(locale)` resolves a dictionary and falls back
+safely to Turkish. Each app centralises locale resolution in its `lib/i18n.ts`. See ADR-013/ADR-014
+and the i18n rule in `docs/PROMPT_RULES.md`.
 
 ## İlk Kurulum
 

@@ -1,18 +1,24 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { ProductIcon } from "../../components/icons";
+import { getStoreAdminDict } from "../../lib/i18n";
 
 export default function ProductsPage() {
+  const t = getStoreAdminDict().products;
+
   return (
     <>
       <PageHeader
-        title="Products"
-        description="Catalogue, variants, pricing and media for your store."
-        actions={<Button>Add product</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button>{t.addProduct}</Button>}
       />
-      <SectionCard title="Catalogue" description="All products">
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<ProductIcon />}>
         <EmptyState
-          title="Your catalogue is empty"
-          description="Product creation, variants, pricing and media management will live here in the commerce phase."
-          action={<Button size="sm">Add your first product</Button>}
+          tag={t.emptyTag}
+          title={t.emptyTitle}
+          description={t.emptyDescription}
+          action={<Button size="sm">{t.emptyAction}</Button>}
         />
       </SectionCard>
     </>

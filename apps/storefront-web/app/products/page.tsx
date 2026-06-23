@@ -1,28 +1,26 @@
-import Link from "next/link";
-import { Card, Container } from "@commerce-os/ui";
-import { sampleProducts } from "../../components/sample-products";
+import { Container } from "@commerce-os/ui";
+import { format } from "@commerce-os/i18n";
+import { ProductCard } from "../../components/product-card";
+import { getSampleProducts } from "../../components/sample-products";
+import { getStorefrontDict } from "../../lib/i18n";
 
 export default function ProductListingPage() {
+  const t = getStorefrontDict().listing;
+  const products = getSampleProducts();
+
   return (
     <Container className="py-12">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">All products</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Demo catalogue — placeholder products previewing the listing grid.
+      <header className="mb-8 border-b border-slate-200 pb-6">
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">{t.eyebrow}</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+        <p className="mt-1.5 text-sm text-slate-500">
+          {format(t.description, { count: products.length })}
         </p>
       </header>
 
-      <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
-        {sampleProducts.map((product) => (
-          <Link key={product.handle} href={`/products/${product.handle}`}>
-            <Card className="overflow-hidden transition-shadow hover:shadow-md">
-              <div className="aspect-square bg-slate-100" />
-              <div className="p-4">
-                <p className="text-sm font-medium text-slate-900">{product.name}</p>
-                <p className="mt-1 text-sm text-slate-500">{product.priceLabel}</p>
-              </div>
-            </Card>
-          </Link>
+      <div className="grid grid-cols-2 gap-5 sm:gap-6 lg:grid-cols-4">
+        {products.map((product) => (
+          <ProductCard key={product.handle} product={product} />
         ))}
       </div>
     </Container>

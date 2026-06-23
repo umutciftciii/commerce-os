@@ -1,18 +1,20 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { InventoryIcon } from "../../components/icons";
+import { getStoreAdminDict } from "../../lib/i18n";
 
 export default function InventoryPage() {
+  const t = getStoreAdminDict().inventory;
+
   return (
     <>
       <PageHeader
-        title="Inventory"
-        description="Stock levels, warehouses and movements across locations."
-        actions={<Button variant="secondary">Adjust stock</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button variant="secondary">{t.adjustStock}</Button>}
       />
-      <SectionCard title="Stock by location" description="Warehouses & quantities">
-        <EmptyState
-          title="No stock tracked yet"
-          description="Warehouse setup, stock counts and movement history will appear here once inventory is enabled."
-        />
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<InventoryIcon />}>
+        <EmptyState tag={t.emptyTag} title={t.emptyTitle} description={t.emptyDescription} />
       </SectionCard>
     </>
   );

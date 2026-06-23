@@ -44,6 +44,9 @@ importers:
       '@commerce-os/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@commerce-os/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -99,6 +102,9 @@ importers:
       '@commerce-os/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@commerce-os/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -133,6 +139,9 @@ importers:
       '@commerce-os/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@commerce-os/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -212,6 +221,8 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
+
+  packages/i18n: {}
 
   packages/integrations-sdk: {}
 

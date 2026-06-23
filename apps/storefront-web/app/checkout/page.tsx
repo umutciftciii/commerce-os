@@ -1,22 +1,19 @@
 import { Card, Container } from "@commerce-os/ui";
-
-const steps = [
-  { title: "Information", detail: "Contact & shipping address" },
-  { title: "Shipping", detail: "Delivery method & rates" },
-  { title: "Payment", detail: "Secure payment capture" },
-];
+import { getStorefrontDict } from "../../lib/i18n";
 
 export default function CheckoutPage() {
+  const t = getStorefrontDict().checkout;
+
   return (
     <Container className="py-12">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-slate-900">Checkout</h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
 
       <ol className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {steps.map((step, index) => (
+        {t.steps.map((step, index) => (
           <li key={step.title}>
             <Card className="p-4">
               <div className="flex items-center gap-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
                   {index + 1}
                 </span>
                 <div>
@@ -30,10 +27,7 @@ export default function CheckoutPage() {
       </ol>
 
       <Card className="p-6">
-        <p className="text-sm text-slate-500">
-          Checkout is a placeholder. Real shipping, tax and payment steps will be wired to the
-          checkout service in a later phase — no payment logic runs here.
-        </p>
+        <p className="text-sm leading-relaxed text-slate-500">{t.note}</p>
       </Card>
     </Container>
   );

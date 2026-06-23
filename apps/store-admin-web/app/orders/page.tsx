@@ -1,18 +1,21 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { OrderIcon } from "../../components/icons";
+import { getCommonDict, getStoreAdminDict } from "../../lib/i18n";
 
 export default function OrdersPage() {
+  const t = getStoreAdminDict().orders;
+  const c = getCommonDict();
+
   return (
     <>
       <PageHeader
-        title="Orders"
-        description="Track, fulfil and refund orders from every sales channel."
-        actions={<Button variant="secondary">Export</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button variant="secondary">{c.actions.export}</Button>}
       />
-      <SectionCard title="All orders" description="Storefront & marketplace orders">
-        <EmptyState
-          title="No orders yet"
-          description="Order details, fulfilment status and payment state will be managed here."
-        />
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<OrderIcon />}>
+        <EmptyState tag={t.emptyTag} title={t.emptyTitle} description={t.emptyDescription} />
       </SectionCard>
     </>
   );

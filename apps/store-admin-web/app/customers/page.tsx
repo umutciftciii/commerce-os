@@ -1,18 +1,21 @@
 import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { CustomerIcon } from "../../components/icons";
+import { getCommonDict, getStoreAdminDict } from "../../lib/i18n";
 
 export default function CustomersPage() {
+  const t = getStoreAdminDict().customers;
+  const c = getCommonDict();
+
   return (
     <>
       <PageHeader
-        title="Customers"
-        description="Customer profiles, contact details and order history."
-        actions={<Button variant="secondary">Export</Button>}
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.description}
+        actions={<Button variant="secondary">{c.actions.export}</Button>}
       />
-      <SectionCard title="All customers" description="Customer directory">
-        <EmptyState
-          title="No customers yet"
-          description="Customer records, segments and lifetime value will be shown here as orders come in."
-        />
+      <SectionCard title={t.cardTitle} description={t.cardDescription} icon={<CustomerIcon />}>
+        <EmptyState tag={t.emptyTag} title={t.emptyTitle} description={t.emptyDescription} />
       </SectionCard>
     </>
   );

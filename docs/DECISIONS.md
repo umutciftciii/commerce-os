@@ -105,3 +105,30 @@
   Kural `docs/PROMPT_RULES.md` icinde kalici proje kurali olarak tanimlandi.
 - Sonuc: UI calismalari tutarli bilgi hiyerarsisi, empty/loading/error yaklasimi ve light-first
   gorsel ton ile ilerler.
+
+## ADR-013 Varsayilan urun dili Turkce
+
+- Durum: ACCEPTED
+- Baglam: Urun oncelikli olarak Turkiye pazarina hitap ediyor. Ilk UI foundation tum ekranlari
+  Ingilizce uretmisti; UI smoke review'da bunun yanlis varsayilan oldugu tespit edildi.
+- Karar: commerce-os'un varsayilan urun dili Turkce'dir. Tum gorunur UI metni (admin, store-admin,
+  storefront) varsayilan olarak Turkce render edilir. Ingilizce ikinci dil olarak desteklenir ancak
+  varsayilan degildir.
+- Sonuc: `packages/i18n` icinde `defaultLocale = "tr"` tanimlandi; uc frontend app varsayilan olarak
+  Turkce render eder. Gelecekteki tum UI metni de Turkce varsayilanla uretilecek.
+
+## ADR-014 i18n-first frontend gelistirme (tipli sozluk)
+
+- Durum: ACCEPTED
+- Baglam: Sadece bir kerelik Turkce ceviri, ileride dil tutarsizligi ve hardcoded metin borcu
+  uretir. Coklu dil ihtiyaci (en az tr/en) bastan ele alinmali; ancak agir bir i18n framework'u bu
+  asamada gereksiz runtime ve bagimlilik karmasasi getirir.
+- Karar: Frontend i18n-first gelistirilir. Tum gorunur UI metni `packages/i18n` icindeki tipli
+  sozlukten okunur; bilesenlerde hardcoded gorunur metin yazmak yasaktir. Basit, bagimliliksiz bir
+  sozluk sistemi kurulur: `defaultLocale = "tr"`, `supportedLocales = ["tr", "en"]`,
+  `getDictionary(locale)` ve guvenli fallback. EN sozlukleri TR tip sekline bagli yazilarak derleme
+  zamani key parity garanti edilir.
+- Bilincli kapsam disi: runtime locale switcher, `/tr`-`/en` route prefix, tarayici dil tespiti, DB
+  locale alani, Next middleware ve agir i18n framework. Bunlar ileride ayri islerde ele alinacak.
+- Sonuc: `packages/i18n` eklendi; uc app tum gorunur metnini sozlukten okur. Yeni dependency
+  eklenmedi. tr/en key parity testle korunur.

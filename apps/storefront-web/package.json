@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@commerce-os/api-client": "workspace:*",
+    "@commerce-os/i18n": "workspace:*",
     "@commerce-os/ui": "workspace:*",
     "next": "^15.5.19",
     "react": "^19.2.7",

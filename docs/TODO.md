@@ -15,3 +15,12 @@
 - TODO-011: Storefront store slug/domain resolver (TD-011).
 - TODO-012: Frontend app'ler icin Docker Compose servisleri (TD-008).
 - TODO-013: Frontend etkilesim/erisilebilirlik testleri (jsdom + Testing Library) (TD-012).
+- TODO-014: Frontend UI dil/tasarim revizyonu — varsayilan Turkce + premium SaaS polish.
+  (DONE — uc app Turkce'ye cevrildi, packages/ui rafine edildi; TD-013 RESOLVED)
+- TODO-015: i18n foundation — packages/i18n tipli sozluk, tr/en parity, getDictionary.
+  (DONE — defaultLocale "tr", supportedLocales ["tr","en"], parity testleri)
+- TODO-016: Runtime locale switcher ve UI'da dil secimi (TD-014).
+- TODO-017: URL locale stratejisi (`/tr`-`/en` prefix) ve/veya tarayici dil tespiti (TD-014).
+- TODO-018: Kullanici ve mağaza bazli locale tercihi (gerekirse DB locale alani) (TD-014).
+- TODO-019: UI polish takibi — gercek veri baglandikca StatCard trend/delta, tablo ve liste
+  gorunumleri, loading/skeleton durumlari (TD-010 ile birlikte).

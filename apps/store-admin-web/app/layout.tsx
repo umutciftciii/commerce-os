@@ -1,28 +1,33 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { AppShell, Badge, Topbar } from "@commerce-os/ui";
+import { AppShell, Badge, Topbar, UserChip } from "@commerce-os/ui";
+import { defaultLocale } from "@commerce-os/i18n";
 import { StoreNav } from "../components/store-nav";
+import { getCommonDict, getStoreAdminDict } from "../lib/i18n";
 import "./globals.css";
 
+const store = getStoreAdminDict();
+const common = getCommonDict();
+
 export const metadata: Metadata = {
-  title: "commerce-os · Store Admin",
-  description: "Store management panel for merchants running on commerce-os.",
+  title: store.meta.title,
+  description: store.meta.description,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang={defaultLocale}>
       <body>
         <AppShell
-          brand={{ name: "Demo Store", subtitle: "Store Admin" }}
+          brand={{ name: store.shell.brandName, subtitle: store.shell.brandSubtitle }}
           nav={<StoreNav />}
           topbar={
-            <Topbar title="Store dashboard">
-              <Badge tone="info">Foundation</Badge>
-              <span className="text-sm text-slate-500">owner@demo-store</span>
+            <Topbar title={store.shell.topbarTitle}>
+              <Badge tone="info">{common.badges.foundation}</Badge>
+              <UserChip name={store.shell.userName} role={store.shell.userRole} />
             </Topbar>
           }
-          footer={<span>UI foundation · placeholder data</span>}
+          footer={<span>{common.footer}</span>}
         >
           {children}
         </AppShell>
