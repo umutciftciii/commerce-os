@@ -101,11 +101,52 @@ gercek secret yazilmaz.
 docker compose -f infra/docker/docker-compose.yml up --build
 ```
 
-Servisler:
+Backend servisleri:
 
 - API Gateway: `http://localhost:4000`
 - PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
+- Worker: arka plan (port yok)
+
+Frontend web app servisleri (Next.js dev runtime, backend ile aynı `node.Dockerfile` imajı):
+
+- `admin-web` → `http://localhost:3001`
+- `store-admin-web` → `http://localhost:3002`
+- `storefront-web` → `http://localhost:3000`
+
+Üç frontend app de aynı imaj + `pnpm --filter <app> dev` target'ı ile çalışır; her birinin
+kendi `/api/health` liveness endpoint'i compose healthcheck olarak kullanılır. `store-admin-web`
+ve `storefront-web` henüz canlı API'ye bağlı değildir, shell olarak ayağa kalkar (bkz. TD-010/011).
+
+### Frontend env ayrımı (host vs compose)
+
+`API_GATEWAY_URL` ortama göre ayrışır:
+
+- **Host / `pnpm dev:*`**: `http://localhost:4000` (`.env.example` varsayılanı).
+- **Compose içi**: `http://api-gateway:4000` — frontend servislerine `environment` ile verilir;
+  böylece admin-web BFF route handler'ları gateway'e container network üzerinden erişir.
+
+`admin-web` compose servisine `.env.example` `env_file` olarak verilir; `INTERNAL_API_TOKEN`
+**yalnızca server env**'inde tutulur (BFF internal health proxy için), `NEXT_PUBLIC` ile
+taşınmadığından client bundle'a girmez. `store-admin-web`/`storefront-web` secret almaz; yalnızca
+`API_GATEWAY_URL` alır.
+
+> Kubernetes / Nginx reverse proxy / SSL / production image optimizasyonu kapsam dışıdır
+> (bkz. `docs/TODO.md`, `docs/DECISIONS.md` ADR-019).
+
+### Docker cache / image temizliği (güvenli)
+
+Disk şişerse yalnızca **kullanılmayan** build cache ve dangling image temizlenir; named volume
+(özellikle `docker_postgres-data`) ve çalışan container'lara dokunulmaz:
+
+```bash
+docker builder prune -f    # kullanılmayan build cache
+docker image prune -f      # yalnızca dangling (tag'siz) image — -a DEĞİL
+```
+
+> `docker volume prune`, `docker system prune -a --volumes` ve `docker container prune`
+> (diğer projelerin stopped container'larını da silebilir) bilinçli olarak **kullanılmaz**.
+> Temizlik öncesi/sonrası `docker system df` ve `docker compose ... ps` ile durum doğrulanır.
 
 ## DATABASE_URL Farkı
 

@@ -15,7 +15,9 @@
   stores/plans eklendi; commerce resource'lari bekliyor)
 - TODO-010: Frontend ekranlarini gercek API'ye baglamak (TD-010).
 - TODO-011: Storefront store slug/domain resolver (TD-011).
-- TODO-012: Frontend app'ler icin Docker Compose servisleri (TD-008).
+- TODO-012: Frontend app'ler icin Docker Compose servisleri (TD-008). (DONE — admin-web/store-admin-web/
+  storefront-web compose servisleri eklendi, paylasimli node.Dockerfile + `next dev`, compose ici
+  `API_GATEWAY_URL=http://api-gateway:4000`, `/api/health` healthcheck; smoke gecti; TD-008 RESOLVED)
 - TODO-013: Frontend etkilesim/erisilebilirlik testleri (jsdom + Testing Library) (TD-012).
 - TODO-014: Frontend UI dil/tasarim revizyonu — varsayilan Turkce + premium SaaS polish.
   (DONE — uc app Turkce'ye cevrildi, packages/ui rafine edildi; TD-013 RESOLVED)
@@ -46,3 +48,7 @@
 - TODO-026: Admin stores/plans icin sayfalama UI'si (gateway limit/offset destekliyor; UI su an ilk
   sayfayi gosterir) ve liste arama/filtre.
 - TODO-027: Faz 2 store-admin-web ve storefront-web gercek API baglama (TD-010, TD-011).
+- TODO-028: Production deploy hattI — frontend icin Next.js standalone/production image (non-root,
+  optimize layer), Nginx reverse proxy + domain routing + SSL/TLS, ortam bazli env yonetimi ve
+  deploy pipeline. Su an compose frontend servisleri `next dev` ile calisir (gelistirme runtime'i);
+  production image optimizasyonu ve reverse proxy/SSL bilincli olarak sonraya birakildi (bkz. ADR-019).

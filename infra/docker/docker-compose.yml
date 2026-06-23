@@ -78,5 +78,90 @@ services:
       redis:
         condition: service_healthy
 
+  # --- Frontend web app'leri (Next.js dev runtime) ---------------------------
+  # Backend ile ayni paylasimli node.Dockerfile imajini kullanir; her servis
+  # ilgili workspace'i `next dev` ile calistirir. Uretim image optimizasyonu
+  # kapsam disi (bkz. docs/DECISIONS.md ADR-019, docs/TODO.md production deploy).
+
+  # Platform super admin konsolu. BFF route handler'lari gateway'e container
+  # network'u uzerinden (api-gateway:4000) erisir; INTERNAL_API_TOKEN yalnizca
+  # server env'inde tutulur (env_file), NEXT_PUBLIC ile client bundle'a girmez.
+  admin-web:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/admin-web dev
+    env_file:
+      - ../../.env.example
+    environment:
+      SERVICE_NAME: admin-web
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3001:3001"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:3001/api/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # Magaza yoneticisi paneli. Henuz canli API'ye baglanmiyor; shell olarak
+  # ayaga kalkar. Gateway adresi ileride baglandiginda hazir olsun diye verilir.
+  store-admin-web:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/store-admin-web dev
+    environment:
+      SERVICE_NAME: store-admin-web
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:3002/api/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # Genel storefront demo. Henuz canli API'ye baglanmiyor; shell olarak kalkar.
+  storefront-web:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/storefront-web dev
+    environment:
+      SERVICE_NAME: storefront-web
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:3000/api/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
 volumes:
   postgres-data:

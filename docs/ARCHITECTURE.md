@@ -100,6 +100,10 @@ packages/i18n/
 - Next.js App Router, React 19, TypeScript strict.
 - Tailwind CSS v3, ortak preset `packages/ui/tailwind-preset.cjs` uzerinden.
 - Light-first premium SaaS gorunum; dark theme, neon/AI look ve agir gradient kullanilmaz.
+- Accent rengi tek merkezi noktadan yonetilir: ortak preset'teki `brand` skalasi (anchor
+  `brand-600 = #9743CD`, olculu menekse). Componentler yalnizca `brand-*` token'i tuketir; CTA,
+  aktif durum ve accent rozetlerinde kullanilir, govde metni/genis yuzeyler notr slate kalir
+  (bkz. ADR-019).
 - Tasarim-first calisma: yeni ana ekranlar once kisa "Claude Design Plan" ile tasarlanir
   (bkz. `docs/PROMPT_RULES.md`).
 - i18n-first: varsayilan UI dili Turkce'dir. Tum gorunur UI metni `packages/i18n` sozlugunden gelir;
@@ -149,6 +153,16 @@ Bunun yerine ayni-origin Next route handler'lari (BFF) kullanilir:
 Host makineden dogrudan Prisma CLI kullanilirken `127.0.0.1` tabanli `DATABASE_URL` gerekir. Root
 `db:migrate`, `db:seed` ve `db:verify-seed` scriptleri ise Docker Compose icindeki `api-gateway`
 container'inda calisir ve container network servis adlarini kullanir.
+
+## Frontend Docker runtime
+
+Backend (postgres/redis/api-gateway/worker) yaninda uc frontend app de Docker Compose ile ayaga
+kalkar: admin-web (3001), store-admin-web (3002), storefront-web (3000). Hepsi backend ile ayni
+paylasimli `infra/docker/node.Dockerfile` imajini kullanip `pnpm --filter <app> dev` ile Next.js dev
+runtime olarak calisir; her servisin `/api/health` liveness'i compose healthcheck'tir. compose icinde
+`API_GATEWAY_URL=http://api-gateway:4000` verilir; admin-web BFF gateway'e container network uzerinden
+erisir. `INTERNAL_API_TOKEN` yalnizca admin-web server env'inde tutulur, client bundle'a girmez.
+Production-grade image, reverse proxy ve SSL kapsam disidir (bkz. ADR-019, TODO-028).
 
 ## Redis ve Queue
 
