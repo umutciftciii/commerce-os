@@ -1,6 +1,7 @@
 # commerce-os
 
-Backend foundation for a multi-tenant commerce operations SaaS.
+Multi-tenant commerce operations SaaS — backend foundation plus the frontend admin/store/storefront
+UI foundation.
 
 ## Docs
 
@@ -24,6 +25,31 @@ Project tracking and technical context live under `docs/`:
 - Redis, BullMQ
 - Zod config/contracts
 - Vitest, ESLint, Prettier
+- Frontend: Next.js App Router (15), React 19, Tailwind CSS 3, shared `@commerce-os/ui` design system
+
+## Frontend Apps
+
+Light-first, premium SaaS UI foundation. All pages are currently placeholders/empty states — no
+commerce business logic, no real auth, no payment. Frontends talk to the backend only through the API
+gateway via the `@commerce-os/api-client` placeholder.
+
+- `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
+- `apps/store-admin-web` — store manager panel (dashboard, products, orders, inventory, customers, marketplace, theme, settings). `pnpm dev:store-admin` → `http://localhost:3002`
+- `apps/storefront-web` — public demo storefront (home, products, product detail, cart, checkout). `pnpm dev:storefront` → `http://localhost:3000`
+
+Each app exposes its own `/api/health` route handler:
+
+```bash
+curl http://localhost:3001/api/health   # admin-web
+curl http://localhost:3002/api/health   # store-admin-web
+curl http://localhost:3000/api/health   # storefront-web
+```
+
+Each returns `200` with `{ "status": "ok", "service": "<app>", "timestamp": "…" }`.
+
+Shared UI primitives live in `packages/ui` (Button, Card, Badge, Input, PageHeader, EmptyState,
+StatCard, AppShell, Topbar, SidebarNav, …) with a shared Tailwind preset. New UI screens follow the
+design-first rule in `docs/PROMPT_RULES.md`.
 
 ## İlk Kurulum
 
@@ -115,6 +141,9 @@ olarak test edilir.
 - `pnpm test:unit`
 - `pnpm test:integration`
 - `pnpm build`
+- `pnpm dev:admin`
+- `pnpm dev:store-admin`
+- `pnpm dev:storefront`
 - `pnpm db:generate`
 - `pnpm db:migrate`
 - `pnpm db:deploy`

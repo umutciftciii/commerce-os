@@ -66,3 +66,42 @@
 - Karar: Her faz ve anlamli degisiklik docs guncellemesiyle kapanacak.
 - Sonuc: Yeni teknik borc TECHNICAL_DEBT.md'ye, yeni karar DECISIONS.md'ye, yeni is TODO.md'ye,
   faz notu PHASE_LOG.md'ye yazilir; docs guncelligi kabul kriteridir.
+
+## ADR-009 Frontend stack: Next.js App Router + React 19 + Tailwind v3
+
+- Durum: ACCEPTED
+- Baglam: Uc frontend (super admin, store admin, public storefront) ortak monorepo icinde
+  build/test/lint/typecheck uyumlu calismali; light-first premium SaaS gorunumu hedefleniyor.
+- Karar: Frontend app'ler Next.js App Router, React 19 ve TypeScript strict ile kurulur. Styling
+  Tailwind CSS v3 ile yapilir. Bilerek en yeni surum yerine stabil/iyi dokumante kombinasyon secildi
+  (Next 15.5, React 19.2, Tailwind 3.4) cunku foundation'in deterministik build'i onceliklidir.
+- Sonuc: App'ler `apps/admin-web`, `apps/store-admin-web`, `apps/storefront-web` olarak eklendi;
+  Turborepo build/test grafigine dahil. Backend runtime ve Docker davranisi degismedi.
+
+## ADR-010 Paylasimli UI paketi kaynak-transpile modeliyle
+
+- Durum: ACCEPTED
+- Baglam: Tekrar eden markup yerine ortak, light-first design system primitive'leri gerekiyor.
+- Karar: `packages/ui` TypeScript/TSX kaynagi olarak yayinlanir (exports -> src). App'ler bu paketi
+  `transpilePackages` ile derler. Ortak tasarim token'lari `tailwind-preset.cjs` icinde merkezilesir.
+- Sonuc: Asiri soyutlamadan kacinilarak kucuk, yeniden kullanilabilir primitive seti olusturuldu;
+  app'ler dist build adimi olmadan kaynaktan derler.
+
+## ADR-011 API client placeholder paketi
+
+- Durum: ACCEPTED
+- Baglam: Frontend'in backend ile temasinin tek, type-safe ve genisletilebilir bir kanaldan olmasi
+  isteniyor; ancak bu fazda gercek auth/token yok.
+- Karar: `packages/api-client` eklenir. Base URL `API_GATEWAY_URL` env'inden cozulur, health/version
+  helper'lari `packages/contracts` tipleriyle saglanir. Auth/token sonraki fazda eklenecek.
+- Sonuc: Frontend -> gateway erisimi tek yerde toplandi; backend API kontrati bozulmadi.
+
+## ADR-012 Design-first UI calisma kurali
+
+- Durum: ACCEPTED
+- Baglam: Placeholder ekranlarin bile tutarli, premium urun kalitesinde durmasi ve dagilmamasi
+  gerekiyor.
+- Karar: Yeni ana UI ekranlari once kisa "Claude Design Plan" ile tasarlanir, sonra kodlanir.
+  Kural `docs/PROMPT_RULES.md` icinde kalici proje kurali olarak tanimlandi.
+- Sonuc: UI calismalari tutarli bilgi hiyerarsisi, empty/loading/error yaklasimi ve light-first
+  gorsel ton ile ilerler.
