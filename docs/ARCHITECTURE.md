@@ -14,9 +14,12 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   tutarli JSON hata zarfi dondurur ve admin mutation'larinda audit log yazar.
 - `apps/worker`: Background job runtime foundation'i. Redis/BullMQ tabanli queue islerinin calisacagi
   runtime alanidir.
-- `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Dashboard, stores, plans,
-  system health ve settings shell sayfalari ile `/api/health` route handler. Su an placeholder/empty
-  state seviyesinde; gercek veri ve aksiyonlar ileride baglanacak.
+- `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Faz 1B'de canli gateway'e
+  bagli: kabuk disi login ekrani, oturum guard'li `(app)` route group kabugu (dashboard, stores,
+  plans, system health, settings) ve canli stores/plans liste + create/update modallari. Tarayici
+  yalnizca ayni-origin BFF route handler'larini (`/api/auth/*`, `/api/admin/*`, `/api/system/*` ve
+  app liveness `/api/health`) cagirir; bu handler'lar `packages/api-client` ile gateway'e gider
+  (bkz. ADR-017). Tum gorunur metin `packages/i18n`'den Turkce gelir.
 - `apps/store-admin-web`: Magaza yoneticisi paneli (Next.js App Router). Dashboard, products, orders,
   inventory, customers, marketplace, theme ve settings shell sayfalari ile `/api/health`.
 - `apps/storefront-web`: Public magaza vitrini (Next.js App Router). Home, product listing, product
@@ -24,8 +27,9 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   store slug/domain cozumleyici henuz implement edilmedi; tek demo store render edilir.
 
 Frontend app'ler backend domain logic icermez. Backend ile tek temas noktalari API gateway'dir ve
-bu erisim `packages/api-client` uzerinden type-safe sekilde yapilir (su an yalnizca health/version
-placeholder). Next.js build ciktilari `.next/` altindadir.
+bu erisim `packages/api-client` uzerinden type-safe sekilde yapilir. admin-web bu erisimi Next route
+handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici dogrudan gateway'e gitmez. store-admin-web
+ve storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.next/` altindadir.
 
 ## Services
 
@@ -58,8 +62,10 @@ placeholder). Next.js build ciktilari `.next/` altindadir.
   SidebarNav, `cn`). TypeScript kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler.
   Ortak Tailwind preset'i (`tailwind-preset.cjs`) tasarim token'larini merkezilestirir.
 - `packages/api-client`: Frontend app'lerin API gateway ile konustugu type-safe client.
-  `API_GATEWAY_URL` env'inden base URL cozer; health/version, platform auth ve admin store/plan
-  helper'lari sunar. Frontend UI henuz bu endpointlere baglanmamistir.
+  `API_GATEWAY_URL` env'inden base URL cozer; health/version, internal DB/Redis health (token-gated),
+  platform auth ve admin store/plan helper'lari sunar. Hatada gateway `code`/`status` tasiyan tipli
+  `ApiError` firlatir ve frontend'in tek kanaldan erismesi icin gerekli kontrat tiplerini re-export
+  eder. admin-web bu client'i BFF route handler'lari icinde kullanir.
 - `packages/i18n`: Frontend i18n altyapisi. Basit, tipli sozluk sistemi; varsayilan urun dili
   Turkce'dir. Tum gorunur UI metni buradan okunur (hardcoded gorunur metin yasaktir). TypeScript
   kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler. Yeni bagimlilik eklenmez.
@@ -117,6 +123,24 @@ alir ve raw token'i yalnizca response'ta dondurur. `/auth/platform/me` ve admin 
 `SESSION_SECRET` ile hashleyip DB'deki aktif session ile eslestirir. `/auth/platform/logout` session'i
 revoke eder. Cookie tabanli browser detaylari ileriki UI baglama fazina birakildi; cookie adi env'i
 hazir tutulur.
+
+### admin-web auth akisi (Faz 1B BFF)
+
+admin-web tarayicisi gateway'e dogrudan gitmez (gateway'de CORS yok ve token istemciye sizdirilmez).
+Bunun yerine ayni-origin Next route handler'lari (BFF) kullanilir:
+
+1. Login: tarayici `POST /api/auth/login` cagirir; handler gateway `/auth/platform/login`'i cagirir,
+   donen bearer token'i **httpOnly cookie**'ye (`ADMIN_AUTH_COOKIE_NAME`, sameSite=lax, prod'da secure)
+   yazar ve istemciye yalnizca kullanici bilgisini doner (token govdede/log'da yer almaz).
+2. Oturum dogrulama: `(app)` kabugu mount'ta `GET /api/auth/me` cagirir; handler cookie token'i ile
+   gateway `/auth/platform/me`'yi cagirir. Oturum yoksa istemci `/login`'e yonlendirir.
+3. Admin islemleri: `/api/admin/stores`, `/api/admin/plans` (+`/:id`) handler'lari cookie token'i ile
+   gateway admin endpointlerine proxy yapar; gateway hata `code`'u i18n ile Turkce mesaja cevrilir.
+4. Logout: `POST /api/auth/logout` cookie'yi temizler ve gateway `/auth/platform/logout` ile session'i
+   revoke eder.
+5. System health: `/api/system/health` public gateway health/version'i proxy'ler; `/api/system/internal`
+   yalnizca admin-web sunucu env'inde `INTERNAL_API_TOKEN` tanimliysa DB/Redis durumunu doner, aksi
+   halde "dahili token gerektirir" durumu gosterilir (secret client'a girmez).
 
 Host makineden dogrudan Prisma CLI kullanilirken `127.0.0.1` tabanli `DATABASE_URL` gerekir. Root
 `db:migrate`, `db:seed` ve `db:verify-seed` scriptleri ise Docker Compose icindeki `api-gateway`

@@ -227,3 +227,83 @@
 ### Commit Onerisi
 
 `feat(ui): default Turkish UI, i18n foundation and premium SaaS polish`
+
+## Faz 1B Admin UI Canli API Baglama Kapanis Logu
+
+Kapsam: yalnizca `apps/admin-web` canli gateway'e baglandi. `store-admin-web` ve `storefront-web`
+gercek API'ye baglanmadi; backend davranisi degistirilmedi; commerce business logic eklenmedi.
+
+### Design-First Yaklasimi
+
+Koddan once kisa Claude Design Plan cikarildi: login ekrani (kabuk disi, ortalanmis), oturum guard'li
+`(app)` kabugu, mağazalar/paketler canli liste + create/update modal UX'i, sistem sagligi canli/dahili
+durum, loading/error/empty yaklasimi, gecici token saklama (httpOnly cookie), i18n copy yaklasimi ve
+kapsam disi maddeler. Mimari karar: gateway'de CORS olmadigi ve backend degismeyecegi icin BFF (Next
+route handler proxy) zorunlu; token httpOnly cookie'de server-side tutuldu (ADR-017).
+
+### Yapilanlar
+
+- `packages/ui`: yeni sunum primitive'leri — `Spinner`, `Skeleton`/`SkeletonRows`, `Alert`, `Select`/
+  `Textarea`, `Modal` (role=dialog, aria-modal, ESC/backdrop, odak), `DataTable`.
+- `packages/api-client`: tipli `ApiError` (gateway `code`/`status`/`apiMessage`), internal DB/Redis
+  health helper'lari (`internal.dbHealth/redisHealth`), frontend icin contract tipi re-export'lari;
+  hata govdesi `{ error: { code } }` parse edilir.
+- `packages/i18n`: admin namespace genisledi (auth/login, errors kod->mesaj, stores/plans tablo+form,
+  canli dashboard, system health dahili-token copy) + common (actions/states/status). tr kaynak + en
+  ayna tam parity.
+- `apps/admin-web`: BFF route handler'lari (`/api/auth/{login,me,logout}`, `/api/admin/stores(/:id)`,
+  `/api/admin/plans(/:id)`, `/api/system/{health,internal}`); httpOnly cookie session helper'lari;
+  kabuk disi login; oturum guard'li `(app)` kabugu (canli kullanici + cikis); canli dashboard KPI;
+  mağazalar ve paketler canli liste + create/update modal; sistem sagligi public + guvenli dahili
+  proxy. App liveness `/api/health` korundu.
+
+### Guvenlik Notlari (token/secret)
+
+- Platform bearer token yalnizca httpOnly cookie'de (server-side); yanit govdesine, UI'a, console/log'a
+  veya client bundle'a girmez. Parola loglanmaz. Hata mesajlari kullanici dostu Turkce; ham gateway
+  mesaji/kodu UI'da gosterilmez (kod -> i18n esleme).
+- Internal DB/Redis token yalnizca admin-web sunucu env'inde; `/api/system/internal` proxy ile.
+  Tanimli degilse "dahili token gerektirir" guvenli durumu gosterilir.
+
+### Dogrulananlar (Gate Sonuclari)
+
+- `pnpm lint` (34/34), `pnpm typecheck` (hatasiz), `pnpm test` (api-client 11, i18n 19, admin-web 11
+  dahil hepsi gecti), `pnpm build` (24/24). Gate sirasi: db:generate + build -> typecheck.
+- Runtime smoke (canli Docker backend, gateway :4000, admin-web :3001): login (token govdede YOK,
+  httpOnly cookie set), me, stores list (cookie'siz 401), create 201, duplicate slug 409
+  `STORE_SLUG_EXISTS`, update 200, bad slug 400 `VALIDATION_ERROR`, plans list/create, logout sonrasi
+  eski token revoke (401), hatali parola `INVALID_CREDENTIALS`, public system health (ok/0.1.0),
+  internal `available:false` (token yokken) ve token verilince `{available:true, db:ok, redis:ok}`
+  (secret sizmadan) — hepsi dogrulandi.
+
+### Bilinen Riskler / Eksikler
+
+- Cookie hardening (CSRF, prod secure davranisi, refresh, rate limit) acik (TD-015).
+- BFF/internal operasyonel notlari (compose env, hata-kodu senkronu, server-side oturum korumasi)
+  TD-017; gercek DOM etkilesim testleri TD-012/TODO-023; smoke test verisi yerelde TD-018.
+- Gateway store list/get `domain` dondurmedigi icin UI'da domain kolonu yok (TODO-025).
+
+### Final Smoke Review (2026-06-24)
+
+- Git: degisiklikler Faz 1B kapsamiyla sinirli (admin-web, packages/ui, api-client, i18n, docs, README).
+  Backend (api-gateway/worker/services/db/contracts/auth/config) ve store-admin-web/storefront-web
+  dokunulmadi. `.env`, `node_modules`, `.next`, `.turbo`, `*.tsbuildinfo` gitignore disinda (dogrulandi).
+- Security sanity: `NEXT_PUBLIC` ile secret tasinmiyor; admin-web kaynakta `console.*` yok (token/parola
+  loglanmaz); `INTERNAL_API_TOKEN` yalnizca server route handler'da; login token'i yalnizca httpOnly
+  cookie'ye yaziliyor, yanit govdesi yalnizca `user` (tokenInBody=false, runtime dogrulandi); cookie
+  `httpOnly`+`sameSite=lax`+`secure=IS_PROD`.
+- Health/API smoke (canli backend :4000, admin-web :3001): login yanlis parola 401
+  `INVALID_CREDENTIALS`, dogru 200 (token govdede yok), me cookie'siz 401 / cookie'li 200, stores/plans
+  session'siz 401 / session'li 200, system/health 200, logout 200, logout sonrasi eski cookie ile me &
+  stores 401 (revoke). Store create 201 / duplicate slug 409 `STORE_SLUG_EXISTS` / update 200; plan
+  create 201 / duplicate code 409 `PLAN_CODE_EXISTS` / update 200; system/internal token yokken
+  `available:false`. Korumali sayfalar (`/`, `/stores`, `/plans`, `/system-health`, `/settings`) SSR 200.
+- UI: `<html lang="tr">`, `bg-canvas` (light), gorunur Ingilizce sizinti yok (Sign in / Verifying
+  session / Dashboard = 0), dark theme/`data-theme=dark` yok, dev log'da runtime hata/uyari yok.
+- Gate: `pnpm lint` 34/34, `pnpm typecheck` exit 0, `pnpm test` 34/34, `pnpm build` 24/24 — hepsi gecti.
+- Smoke verisi: yerel dev DB'sine `rev-store-*`/`rev-plan-*` kayitlari kaldi; delete kapsam disi,
+  TD-018 altinda takipli. Sonuc: kod duzeltmesi gerekmedi; commit'e hazir.
+
+### Commit Onerisi
+
+`feat(admin-web): wire admin console to live API via BFF session`

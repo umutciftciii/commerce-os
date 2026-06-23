@@ -13,6 +13,24 @@ export type { BadgeProps } from "./badge";
 export { Input } from "./input";
 export type { InputProps } from "./input";
 
+export { Select, Textarea } from "./select";
+export type { SelectProps, SelectOption, TextareaProps } from "./select";
+
+export { Alert } from "./alert";
+export type { AlertProps } from "./alert";
+
+export { Spinner } from "./spinner";
+export type { SpinnerProps } from "./spinner";
+
+export { Skeleton, SkeletonRows } from "./skeleton";
+export type { SkeletonProps, SkeletonRowsProps } from "./skeleton";
+
+export { Modal } from "./modal";
+export type { ModalProps } from "./modal";
+
+export { DataTable } from "./table";
+export type { DataTableProps, DataTableColumn } from "./table";
+
 export { PageHeader } from "./page-header";
 export type { PageHeaderProps } from "./page-header";
 

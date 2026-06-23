@@ -15,16 +15,66 @@ import type {
 } from "@commerce-os/contracts";
 
 /**
- * commerce-os API client — FOUNDATION PLACEHOLDER.
+ * Frontend'in ihtiyac duydugu kontrat tipleri buradan re-export edilir. Boylece
+ * app'ler `packages/contracts`'a dogrudan bagimli olmadan (tek type-safe kanal
+ * api-client uzerinden) bu tiplere erisir.
+ */
+export type {
+  AdminStore,
+  AdminStoreCreateRequest,
+  AdminStoreListResponse,
+  AdminStoreUpdateRequest,
+  HealthResponse,
+  Plan,
+  PlanCreateRequest,
+  PlanListResponse,
+  PlanUpdateRequest,
+  PlatformLoginRequest,
+  PlatformLoginResponse,
+  PlatformLogoutResponse,
+  PlatformMeResponse,
+  PlatformUserContract,
+} from "@commerce-os/contracts";
+
+/**
+ * commerce-os API client — thin, type-safe client over the API gateway.
  *
- * This is an intentionally thin, type-safe client over the API gateway. It only
- * exposes the public health/version endpoints today. It does NOT implement auth,
- * tokens, sessions or per-domain resources yet (see docs/TECHNICAL_DEBT.md TD-002).
- * The shape is designed to grow: add resource groups (stores, products, orders…)
- * without breaking existing callers.
+ * Exposes public health/version, internal DB/Redis health (token-gated), platform
+ * auth (login/me/logout) and platform-admin store/plan helpers. Bearer token is
+ * passed per call or via {@link ApiClientOptions.token}. Failed requests throw an
+ * {@link ApiError} carrying the gateway error `code`/`status` so callers can map to
+ * user-facing messages. Commerce per-domain resources (products, orders…) are not
+ * implemented yet; the shape is designed to grow without breaking existing callers.
  */
 
 export const DEFAULT_API_GATEWAY_URL = "http://localhost:4000";
+
+/**
+ * API gateway hata zarfini ({ error: { code, message, details } }) tasiyan tipli
+ * hata. UI/BFF katmani ham status yerine `code` uzerinden kullanici dostu
+ * (Turkce) mesaj uretebilir. Token veya gizli deger tasimaz.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly apiMessage: string;
+  readonly details?: unknown;
+
+  constructor(status: number, code: string, apiMessage: string, details?: unknown) {
+    super(`API gateway request failed: ${code} (${status})`);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.apiMessage = apiMessage;
+    this.details = details;
+  }
+}
+
+function isErrorEnvelope(
+  value: unknown,
+): value is { error: { code?: unknown; message?: unknown; details?: unknown } } {
+  return typeof value === "object" && value !== null && "error" in value;
+}
 
 export interface ApiClientOptions {
   /** Base URL of the API gateway, e.g. http://localhost:4000 */
@@ -41,10 +91,22 @@ export interface VersionResponse {
   version: string;
 }
 
+export interface InternalHealthResponse {
+  status: "ok" | "degraded";
+}
+
 export interface ApiClient {
   readonly baseUrl: string;
   health(): Promise<HealthResponse>;
   version(): Promise<VersionResponse>;
+  /**
+   * Internal DB/Redis health. Yalnizca gecerli `INTERNAL_API_TOKEN` ile cagrilir;
+   * bu token client bundle'a girmemeli, sadece server tarafindan saglanmalidir.
+   */
+  internal: {
+    dbHealth(token: string): Promise<InternalHealthResponse>;
+    redisHealth(token: string): Promise<InternalHealthResponse>;
+  };
   auth: {
     platformLogin(input: PlatformLoginRequest): Promise<PlatformLoginResponse>;
     platformLogout(token?: string): Promise<PlatformLogoutResponse>;
@@ -95,7 +157,20 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 
     const response = await doFetch(`${baseUrl}${path}`, { ...init, headers });
     if (!response.ok) {
-      throw new Error(`API gateway request failed: ${path} (${response.status})`);
+      let code = "UNKNOWN";
+      let message = `API gateway request failed: ${path} (${response.status})`;
+      let details: unknown;
+      try {
+        const body: unknown = await response.json();
+        if (isErrorEnvelope(body)) {
+          if (typeof body.error.code === "string") code = body.error.code;
+          if (typeof body.error.message === "string") message = body.error.message;
+          details = body.error.details;
+        }
+      } catch {
+        // Govde JSON degilse status tabanli genel hata ile devam edilir.
+      }
+      throw new ApiError(response.status, code, message, details);
     }
     return (await response.json()) as T;
   }
@@ -116,6 +191,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     baseUrl,
     health: () => getJson<HealthResponse>("/health"),
     version: () => getJson<VersionResponse>("/version"),
+    internal: {
+      dbHealth: (token) => getJson<InternalHealthResponse>("/internal/health/db", token),
+      redisHealth: (token) => getJson<InternalHealthResponse>("/internal/health/redis", token),
+    },
     auth: {
       platformLogin: (input) =>
         sendJson<PlatformLoginResponse>("/auth/platform/login", "POST", input),

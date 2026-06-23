@@ -27,17 +27,23 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 ## Frontend App'ler (admin-web, store-admin-web, storefront-web)
 
 - Yapar: Kullanici arayuzu, layout, routing, ortak UI shell ve presentation. Backend ile yalnizca
-  API gateway uzerinden ve `packages/api-client` ile konusur.
-- Yapmaz: Domain is kurali, DB erisimi, gercek auth/session, odeme veya pazaryeri logic'i icermez.
-  Servis tablolarina veya Prisma'ya dogrudan erismez.
+  API gateway uzerinden ve `packages/api-client` ile konusur. admin-web bu gateway erisimini Next
+  route handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici yalnizca ayni-origin `/api/*`
+  uclarini cagirir. Platform bearer token httpOnly cookie'de server-side tutulur (ADR-017).
+- Yapmaz: Domain is kurali, DB erisimi, gercek auth/session logic'i (token uretme/dogrulama gateway'in
+  isidir; admin-web yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
+  tablolarina veya Prisma'ya dogrudan erismez. BFF route handler'lari gateway'i cagirmanin disinda
+  domain karari vermez; gizli degeri (internal token) yalnizca sunucuda tutar, istemciye sizdirmaz.
 
 ## packages/ui ve packages/api-client
 
 - `packages/ui`: Yalnizca sunum katmani primitive'leri. Domain bilgisi, network cagrisi veya is
   kurali tasimaz; framework-agnostik ve presentational kalir.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
-  bozmadan `packages/contracts` tiplerini kullanir; bearer token alabilen auth/admin helper'lari
-  vardir. UI baglama sonraki fazdadir.
+  bozmadan `packages/contracts` tiplerini kullanir (ve frontend'in tek kanaldan erismesi icin gerekli
+  contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health helper'lari ve
+  tipli `ApiError` saglar. Faz 1B'de admin-web bu client'i BFF route handler'lari icinde kullanir.
+  Network cagrisi yapar ama UI/DOM veya domain is kurali tasimaz.
 
 ## Commerce Service
 
