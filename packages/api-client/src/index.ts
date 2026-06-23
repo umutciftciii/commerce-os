@@ -1,4 +1,18 @@
-import type { HealthResponse } from "@commerce-os/contracts";
+import type {
+  AdminStore,
+  AdminStoreCreateRequest,
+  AdminStoreListResponse,
+  AdminStoreUpdateRequest,
+  HealthResponse,
+  Plan,
+  PlanCreateRequest,
+  PlanListResponse,
+  PlanUpdateRequest,
+  PlatformLoginRequest,
+  PlatformLoginResponse,
+  PlatformLogoutResponse,
+  PlatformMeResponse,
+} from "@commerce-os/contracts";
 
 /**
  * commerce-os API client — FOUNDATION PLACEHOLDER.
@@ -17,6 +31,8 @@ export interface ApiClientOptions {
   baseUrl?: string;
   /** Optional fetch override (defaults to the global fetch). Useful in tests. */
   fetch?: typeof fetch;
+  /** Optional bearer token for platform-admin endpoints. */
+  token?: string;
 }
 
 export interface VersionResponse {
@@ -29,6 +45,25 @@ export interface ApiClient {
   readonly baseUrl: string;
   health(): Promise<HealthResponse>;
   version(): Promise<VersionResponse>;
+  auth: {
+    platformLogin(input: PlatformLoginRequest): Promise<PlatformLoginResponse>;
+    platformLogout(token?: string): Promise<PlatformLogoutResponse>;
+    platformMe(token?: string): Promise<PlatformMeResponse>;
+  };
+  admin: {
+    stores: {
+      list(token?: string): Promise<AdminStoreListResponse>;
+      create(input: AdminStoreCreateRequest, token?: string): Promise<AdminStore>;
+      get(id: string, token?: string): Promise<AdminStore>;
+      update(id: string, input: AdminStoreUpdateRequest, token?: string): Promise<AdminStore>;
+    };
+    plans: {
+      list(token?: string): Promise<PlanListResponse>;
+      create(input: PlanCreateRequest, token?: string): Promise<Plan>;
+      get(id: string, token?: string): Promise<Plan>;
+      update(id: string, input: PlanUpdateRequest, token?: string): Promise<Plan>;
+    };
+  };
 }
 
 /**
@@ -45,17 +80,64 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const baseUrl = resolveApiGatewayUrl(options.baseUrl);
   const doFetch = options.fetch ?? fetch;
 
-  async function getJson<T>(path: string): Promise<T> {
-    const response = await doFetch(`${baseUrl}${path}`);
+  async function requestJson<T>(
+    path: string,
+    init: RequestInit = {},
+    token = options.token,
+  ): Promise<T> {
+    const headers = new Headers(init.headers);
+    if (!headers.has("content-type") && init.body) {
+      headers.set("content-type", "application/json");
+    }
+    if (token) {
+      headers.set("authorization", `Bearer ${token}`);
+    }
+
+    const response = await doFetch(`${baseUrl}${path}`, { ...init, headers });
     if (!response.ok) {
       throw new Error(`API gateway request failed: ${path} (${response.status})`);
     }
     return (await response.json()) as T;
   }
 
+  function getJson<T>(path: string, token?: string): Promise<T> {
+    return requestJson<T>(path, {}, token);
+  }
+
+  function sendJson<T>(path: string, method: string, body?: unknown, token?: string): Promise<T> {
+    return requestJson<T>(
+      path,
+      { method, body: body === undefined ? undefined : JSON.stringify(body) },
+      token,
+    );
+  }
+
   return {
     baseUrl,
     health: () => getJson<HealthResponse>("/health"),
     version: () => getJson<VersionResponse>("/version"),
+    auth: {
+      platformLogin: (input) =>
+        sendJson<PlatformLoginResponse>("/auth/platform/login", "POST", input),
+      platformLogout: (token) =>
+        sendJson<PlatformLogoutResponse>("/auth/platform/logout", "POST", undefined, token),
+      platformMe: (token) => getJson<PlatformMeResponse>("/auth/platform/me", token),
+    },
+    admin: {
+      stores: {
+        list: (token) => getJson<AdminStoreListResponse>("/admin/stores", token),
+        create: (input, token) => sendJson<AdminStore>("/admin/stores", "POST", input, token),
+        get: (id, token) => getJson<AdminStore>(`/admin/stores/${id}`, token),
+        update: (id, input, token) =>
+          sendJson<AdminStore>(`/admin/stores/${id}`, "PATCH", input, token),
+      },
+      plans: {
+        list: (token) => getJson<PlanListResponse>("/admin/plans", token),
+        create: (input, token) => sendJson<Plan>("/admin/plans", "POST", input, token),
+        get: (id, token) => getJson<Plan>(`/admin/plans/${id}`, token),
+        update: (id, input, token) =>
+          sendJson<Plan>(`/admin/plans/${id}`, "PATCH", input, token),
+      },
+    },
   };
 }

@@ -12,11 +12,14 @@
     "test": "vitest run test"
   },
   "dependencies": {
+    "@commerce-os/auth": "workspace:*",
     "@commerce-os/config": "workspace:*",
     "@commerce-os/contracts": "workspace:*",
     "@commerce-os/db": "workspace:*",
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/queues": "workspace:*",
-    "fastify": "^5.2.1"
+    "@prisma/client": "^6.2.1",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
   }
 }

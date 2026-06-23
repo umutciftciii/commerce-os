@@ -74,6 +74,18 @@ pnpm db:generate
 `.env` dosyası commitlenmez. `.env.example` içindeki değerler local geliştirme placeholder
 değerleridir; gerçek secret içermez.
 
+Auth/session icin zorunlu local env alanlari:
+
+```bash
+SESSION_SECRET=replace-with-local-session-secret-32-chars-min
+SESSION_TTL_SECONDS=28800
+PASSWORD_HASH_PEPPER=
+ADMIN_AUTH_COOKIE_NAME=commerce_os_admin_session
+```
+
+`SESSION_SECRET` gercek ortamlarda guclu ve ortam disindan yonetilen bir secret olmalidir. Repo'ya
+gercek secret yazilmaz.
+
 ## Docker İle Ayağa Kaldırma
 
 ```bash
@@ -118,6 +130,13 @@ pnpm db:verify-seed
 Seed idempotent tasarlanmıştır. Arka arkaya çalıştırıldığında demo platform admin, demo plan, demo
 store, demo domain ve demo store user kayıtlarını duplicate üretmeden korur.
 
+Local demo platform admin:
+
+- Email: `platform-admin@example.local`
+- Password: `local-admin-password`
+
+Seed bu parolayi scrypt ile hashler; raw parola DB'ye yazilmaz.
+
 Not: Root `db:migrate`, `db:seed` ve `db:verify-seed` komutları host makineden tetiklenir; Prisma
 işlemi Docker Compose içindeki `api-gateway` container'ında çalışır. Böylece container runtime için
 geçerli `postgres` servis adı ve aynı image bağımlılıkları doğrulanır. Host makineden doğrudan Prisma
@@ -144,6 +163,45 @@ curl -i -H "Authorization: Bearer replace-with-local-internal-token" \
 
 Token yokken internal endpointler `401` döner. Geçerli token ile DB ve Redis bağlantısı gerçek
 olarak test edilir.
+
+## Faz 1A Auth ve Admin API
+
+Platform admin session endpointleri bearer token kullanir. Login response'u raw token'i bir kez
+dondurur; DB'de yalnizca secret ile hashlenmis `tokenHash` tutulur.
+
+```bash
+curl -i -X POST http://localhost:4000/auth/platform/login \
+  -H "content-type: application/json" \
+  -d '{"email":"platform-admin@example.local","password":"local-admin-password"}'
+
+curl -i http://localhost:4000/auth/platform/me \
+  -H "Authorization: Bearer <token>"
+
+curl -i -X POST http://localhost:4000/auth/platform/logout \
+  -H "Authorization: Bearer <token>"
+```
+
+Platform admin token gerektiren endpointler:
+
+- `GET /admin/stores`
+- `POST /admin/stores`
+- `GET /admin/stores/:id`
+- `PATCH /admin/stores/:id`
+- `GET /admin/plans`
+- `POST /admin/plans`
+- `GET /admin/plans/:id`
+- `PATCH /admin/plans/:id`
+
+Hatalar su zarfta doner:
+
+```json
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Unauthorized."
+  }
+}
+```
 
 ## Scriptler
 

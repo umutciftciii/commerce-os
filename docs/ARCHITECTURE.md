@@ -8,9 +8,10 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
 
 ## Apps
 
-- `apps/api-gateway`: Fastify tabanli giris noktasi. Public health/version endpointleri ve internal
-  DB/Redis health endpointleri burada bulunur. Ileride auth, tenant context ve route composition
-  sorumlulugu burada buyuyecek.
+- `apps/api-gateway`: Fastify tabanli giris noktasi. Public health/version endpointleri, internal
+  DB/Redis health endpointleri, platform admin auth/session endpointleri ve Faz 1A platform admin
+  store/plan yonetim endpointleri burada bulunur. Route'lar Zod contract'lariyla input validate eder,
+  tutarli JSON hata zarfi dondurur ve admin mutation'larinda audit log yazar.
 - `apps/worker`: Background job runtime foundation'i. Redis/BullMQ tabanli queue islerinin calisacagi
   runtime alanidir.
 - `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Dashboard, stores, plans,
@@ -43,7 +44,8 @@ placeholder). Next.js build ciktilari `.next/` altindadir.
 ## Packages
 
 - `packages/db`: Prisma schema, Prisma client lifecycle, seed ve tenant query pattern'leri.
-- `packages/auth`: Platform/store context ve tenant foundation yardimcilari.
+- `packages/auth`: Platform/store context ve tenant foundation yardimcilari; scrypt tabanli parola
+  hash/dogrulama, platform admin guard ve store role guard foundation'i.
 - `packages/config`: Environment config parsing ve validation.
 - `packages/contracts`: Paylasimli API/domain kontratlari icin hedef paket.
 - `packages/logger`: Ortak logger factory ve log formatlama.
@@ -55,8 +57,9 @@ placeholder). Next.js build ciktilari `.next/` altindadir.
   SectionCard, Badge, Input, PageHeader, EmptyState, StatCard, Container, AppShell, Topbar,
   SidebarNav, `cn`). TypeScript kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler.
   Ortak Tailwind preset'i (`tailwind-preset.cjs`) tasarim token'larini merkezilestirir.
-- `packages/api-client`: Frontend app'lerin API gateway ile konustugu type-safe client placeholder'i.
-  `API_GATEWAY_URL` env'inden base URL cozer, health/version helper'lari sunar. Auth/token yoktur.
+- `packages/api-client`: Frontend app'lerin API gateway ile konustugu type-safe client.
+  `API_GATEWAY_URL` env'inden base URL cozer; health/version, platform auth ve admin store/plan
+  helper'lari sunar. Frontend UI henuz bu endpointlere baglanmamistir.
 - `packages/i18n`: Frontend i18n altyapisi. Basit, tipli sozluk sistemi; varsayilan urun dili
   Turkce'dir. Tum gorunur UI metni buradan okunur (hardcoded gorunur metin yasaktir). TypeScript
   kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler. Yeni bagimlilik eklenmez.
@@ -100,8 +103,20 @@ packages/i18n/
 ## DB
 
 Baslangicta tek PostgreSQL 16 cluster kullanilir. Prisma schema `packages/db/prisma/schema.prisma`
-altindadir. Faz 0 modeli platform user, store, store user, domain, plan, subscription, audit log,
-event log ve queue job log varliklarini icerir.
+altindadir. Model platform user, platform session, store, store user, domain, plan, subscription,
+audit log, event log ve queue job log varliklarini icerir.
+
+Platform session raw token saklamaz; secret ile hashlenmis `tokenHash`, `expiresAt`, opsiyonel
+revoke/user-agent/ip placeholder alanlari tutulur.
+
+## Auth / Session
+
+Faz 1A'da platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed
+admin parolasini scrypt hash uzerinden dogrular, session TTL'ini `SESSION_TTL_SECONDS` env'inden
+alir ve raw token'i yalnizca response'ta dondurur. `/auth/platform/me` ve admin endpointleri token'i
+`SESSION_SECRET` ile hashleyip DB'deki aktif session ile eslestirir. `/auth/platform/logout` session'i
+revoke eder. Cookie tabanli browser detaylari ileriki UI baglama fazina birakildi; cookie adi env'i
+hazir tutulur.
 
 Host makineden dogrudan Prisma CLI kullanilirken `127.0.0.1` tabanli `DATABASE_URL` gerekir. Root
 `db:migrate`, `db:seed` ve `db:verify-seed` scriptleri ise Docker Compose icindeki `api-gateway`

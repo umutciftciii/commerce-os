@@ -11,10 +11,13 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 
 ## API Gateway
 
-- Yapar: HTTP giris noktasi, health/version endpointleri, internal health kontrolleri, ileride auth
-  ve tenant context cozumleme.
-- Yapmaz: Domain is kurallarini kendi icinde buyutmez; commerce, checkout veya integration davranisini
-  DB'ye direkt yazarak sahiplenmez.
+- Yapar: HTTP giris noktasi, health/version endpointleri, internal health kontrolleri, platform
+  admin auth/session cozumleme, platform admin store/plan foundation endpointleri ve audit log
+  yazimi. Store/plan endpointleri platform operasyon alanidir; commerce product/order/stok logic'i
+  icermez.
+- Yapmaz: Commerce, checkout veya integration davranisini DB'ye direkt yazarak sahiplenmez. Store
+  admin UI, storefront resolver, urun/kategori/siparis/stok/odeme/pazaryeri modulleri bu sinirin
+  disindadir.
 
 ## Worker
 
@@ -33,7 +36,8 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 - `packages/ui`: Yalnizca sunum katmani primitive'leri. Domain bilgisi, network cagrisi veya is
   kurali tasimaz; framework-agnostik ve presentational kalir.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
-  bozmadan `packages/contracts` tiplerini kullanir; auth/token sorumlulugu sonraki fazda eklenecek.
+  bozmadan `packages/contracts` tiplerini kullanir; bearer token alabilen auth/admin helper'lari
+  vardir. UI baglama sonraki fazdadir.
 
 ## Commerce Service
 

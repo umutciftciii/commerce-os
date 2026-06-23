@@ -132,3 +132,28 @@
   locale alani, Next middleware ve agir i18n framework. Bunlar ileride ayri islerde ele alinacak.
 - Sonuc: `packages/i18n` eklendi; uc app tum gorunur metnini sozlukten okur. Yeni dependency
   eklenmedi. tr/en key parity testle korunur.
+
+## ADR-015 Platform admin session token yaklasimi
+
+- Durum: ACCEPTED
+- Baglam: Faz 1A'da platform admin login, session dogrulama, logout/revoke ve admin endpoint guard'i
+  gerekiyor. OAuth, 2FA, password reset ve browser cookie hardening bu fazin kapsaminda degil.
+- Karar: API bearer token donduren session modeli kullanir. Raw token yalnizca login response'unda
+  verilir; DB'de `SESSION_SECRET` ile uretilen SHA-256 `tokenHash`, TTL, revoke bilgisi ve opsiyonel
+  user-agent/ip placeholder alanlari saklanir. Parola hash/dogrulama Node `crypto.scrypt` ile
+  yapilir; ek auth dependency eklenmez.
+- Sonuc: Backend endpointleri ve testleri cookie bagimliligi olmadan dogrulanir.
+  `ADMIN_AUTH_COOKIE_NAME` ileride browser-cookie baglamina hazir env olarak tutulur. Rate limit,
+  cookie security ve refresh token kararlarinin ayrintisi sonraki fazlara birakildi.
+
+## ADR-016 Auth guard ve admin API contract yaklasimi
+
+- Durum: ACCEPTED
+- Baglam: Platform admin store/plan endpointleri auth gerektirmeli, ama Faz 1A commerce domain
+  logic'i eklememeli. Frontend sonraki fazda bu endpointlere baglanacak.
+- Karar: `packages/contracts` icinde basit Zod schema + exported type modeli kullanilir. API gateway
+  route'lari platform session'i dogrular, platform admin guard uygular, input'u Zod ile validate eder
+  ve tutarli `{ error: { code, message, details } }` zarfi dondurur. Store-scoped helper'lar
+  `packages/auth` icinde role sirasi ve access assertion olarak hazir tutulur.
+- Sonuc: Faz 1A endpointleri type-safe contract, test ve audit log ile hazir; asiri typed API
+  framework veya frontend UI baglama eklenmedi.

@@ -1,5 +1,54 @@
 # Phase Log
 
+## Faz 1A Multi-Tenant API + Auth/Session Foundation
+
+- Tarih: 2026-06-23
+- Final review: 2026-06-24
+- Durum: READY_FOR_COMMIT
+- Kapsam: Platform admin auth/session foundation, platform admin store/plan API baslangici,
+  store access helper foundation, audit log, contracts/api-client genisletmesi ve testler. Frontend
+  UI baglama, commerce business logic, OAuth/2FA/password reset/refresh token ve payment/marketplace
+  modulleri eklenmedi.
+
+### Eklenenler
+
+- `PlatformSession` modeli ve migration eklendi; raw token DB'ye yazilmaz, `tokenHash` saklanir.
+- `packages/auth`: scrypt password hash/verify, `requireAuthenticatedPlatformUser`,
+  `requirePlatformAdmin`, `requireStoreAccess`, `assertStoreRole`.
+- `apps/api-gateway`: `/auth/platform/login`, `/auth/platform/logout`, `/auth/platform/me`;
+  `/admin/stores` ve `/admin/plans` list/create/get/update endpointleri.
+- Audit log: login, logout, store create/update, plan create/update.
+- `packages/contracts`: auth/admin Zod schema ve ortak error response.
+- `packages/api-client`: bearer token destekli auth/admin stores/plans helper'lari.
+- Config/env: `SESSION_SECRET`, `SESSION_TTL_SECONDS`, `PASSWORD_HASH_PEPPER`,
+  `ADMIN_AUTH_COOKIE_NAME`.
+- Seed: demo platform admin parolasi scrypt hash ile idempotent guncellenir.
+
+### Dogrulananlar
+
+- `pnpm db:generate` gecti.
+- `pnpm typecheck` gecti.
+- `pnpm lint` gecti.
+- `pnpm build` gecti.
+- `pnpm test` gecti.
+- Docker Compose image rebuild/recreate sonrasi `pnpm db:migrate` gecti; 2 migration goruldu ve
+  `20260623143000_add_platform_sessions` uygulandi.
+- `pnpm db:seed` arka arkaya iki kez gecti; `pnpm db:verify-seed` gecti.
+- Canli API smoke: platform admin login `200`, me `200`, logout `200`, revoke sonrasi me `401`.
+- Final security/runtime review'da expired session `401` ve Prisma unique race durumlari icin
+  kontrollu `409` davranisi testle netlestirildi.
+
+### Bilinen Riskler / Eksikler
+
+- Login rate limit, brute-force korumasi ve cookie hardening henuz yok (TD-015).
+- Admin UI henuz backend auth/admin endpointlerine baglanmadi (TD-016).
+- Store-admin gercek endpointleri yok; store role helper'lari foundation olarak testlendi.
+- Refresh token, OAuth, 2FA, password reset ve email invite flow kapsam disi.
+
+### Commit Onerisi
+
+`feat(api): add platform auth sessions and admin store plan endpoints`
+
 ## Faz 0 Backend Foundation Kapanis Logu
 
 - Tarih: 2026-06-23

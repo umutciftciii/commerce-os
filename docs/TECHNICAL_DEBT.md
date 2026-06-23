@@ -12,18 +12,25 @@
 
 ## TD-002 Gercek auth/session implementasyonu yok
 
-- Durum: OPEN
+- Durum: RESOLVED
 - Oncelik: HIGH
 - Etki: Tenant context ve permission kararlari henuz gercek oturum uzerinden uretilmiyor.
 - Cozum onerisi: Session modeli, token stratejisi ve auth middleware'i Faz 1'de netlestirmek.
+- Cozum: Faz 1A'da `PlatformSession`, bearer token hash dogrulama, login/me/logout endpointleri ve
+  platform admin guard eklendi. OAuth, 2FA, password reset, refresh token ve browser cookie hardening
+  bilincli olarak sonraki fazlara birakildi.
 - Hedef faz: Faz 1
 
 ## TD-003 Permission sistemi henuz gercek endpointlerde uygulanmadi
 
-- Durum: OPEN
+- Durum: PARTIAL
 - Oncelik: HIGH
 - Etki: Roller ve yetkiler foundation seviyesinde; davranissal guvence endpointlerde eksik.
 - Cozum onerisi: Permission guard'lari API gateway ve servis adapter'larinda zorunlu hale getirmek.
+- Not: Faz 1A platform admin guard'i admin store/plan endpointlerinde uygulanir. Store admin
+  endpointleri, store-user token/session tipi ve granular permission matrisi henuz yok. Bu nedenle
+  platform admin endpointleri yalnizca `PlatformSession` uzerinden dogrulanir; ileride store-user
+  token'i eklendiginde platform admin endpointlerine kabul edilmemesi ayrica test edilecek.
 - Hedef faz: Faz 1
 
 ## TD-004 Tenant isolation helperlari foundation seviyesinde
@@ -32,6 +39,8 @@
 - Oncelik: HIGH
 - Etki: Store-scoped sorgular icin desen var, ancak gercek endpoint kapsaminda genisletilmeli.
 - Cozum onerisi: TenantContext kullanan repository/service pattern'lerini Faz 1 endpointlerine tasimak.
+- Not: `requireStoreAccess` ve `assertStoreRole` helper'lari eklendi ve testlendi; gercek store-admin
+  endpointlerine uygulanmasi sonraki fazda devam edecek.
 - Hedef faz: Faz 1
 
 ## TD-005 Integration/search/analytics servisleri skeleton seviyesinde
@@ -72,13 +81,34 @@
 
 ## TD-009 API client placeholder (auth/token yok)
 
-- Durum: OPEN
+- Durum: PARTIAL
 - Oncelik: HIGH
 - Etki: `packages/api-client` yalnizca public health/version cagrilarini yapar; auth, token, session
   ve per-domain resource'lar (stores, products, orders...) yok.
 - Cozum onerisi: Auth/session fazinda token stratejisi ve type-safe resource gruplarini eklemek
   (TD-002 ile birlikte).
+- Not: Faz 1A'da auth ve admin store/plan helper'lari eklendi. Commerce per-domain resource'lari
+  henuz yok.
 - Hedef faz: Faz 1
+
+## TD-015 Auth rate limit ve cookie hardening eksik
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Login endpointinde production-grade rate limit, lockout, cookie security ayarlari, CSRF
+  stratejisi ve refresh token rotasyonu henuz yok.
+- Cozum onerisi: UI baglama ve production hardening fazinda Fastify rate limit, browser cookie
+  stratejisi, secure/sameSite/httpOnly ayarlari ve brute-force izleme eklemek.
+- Hedef faz: Faz 1B/Faz 2
+
+## TD-016 Admin UI auth baglama yok
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Backend auth/admin endpointleri hazir olsa da `apps/admin-web` henuz login formu, token
+  saklama, me kontrolu, store/plan liste/form baglantisi yapmiyor.
+- Cozum onerisi: Faz 1B'de admin-web'i `packages/api-client` auth/admin helper'larina baglamak.
+- Hedef faz: Faz 1B
 
 ## TD-010 Frontend ekranlari placeholder; gercek veri/aksiyon yok
 

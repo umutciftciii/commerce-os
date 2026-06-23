@@ -1,18 +1,25 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "@commerce-os/auth";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  const passwordHash = await hashPassword(
+    "local-admin-password",
+    process.env.PASSWORD_HASH_PEPPER ?? "",
+  );
+
   const platformAdmin = await prisma.platformUser.upsert({
     where: { email: "platform-admin@example.local" },
     update: {
       name: "Demo Platform Admin",
+      passwordHash,
       role: "SUPER_ADMIN",
     },
     create: {
       email: "platform-admin@example.local",
       name: "Demo Platform Admin",
-      passwordHash: "placeholder-password-hash",
+      passwordHash,
       role: "SUPER_ADMIN",
     },
   });

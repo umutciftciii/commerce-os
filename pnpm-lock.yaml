@@ -78,6 +78,9 @@ importers:
 
   apps/api-gateway:
     dependencies:
+      '@commerce-os/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@commerce-os/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -93,9 +96,15 @@ importers:
       '@commerce-os/queues':
         specifier: workspace:*
         version: link:../../packages/queues
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       fastify:
         specifier: ^5.2.1
         version: 5.8.5
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   apps/store-admin-web:
     dependencies:

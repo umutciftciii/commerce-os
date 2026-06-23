@@ -42,4 +42,38 @@ describe("api client", () => {
     const client = createApiClient({ baseUrl: "http://localhost:4000", fetch: fakeFetch });
     await expect(client.health()).rejects.toThrow(/503/);
   });
+
+  it("sends bearer tokens and JSON bodies for admin requests", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "store_1",
+          name: "Demo",
+          slug: "demo",
+          status: "ACTIVE",
+          metadata: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:4000",
+      fetch: fakeFetch,
+      token: "default-token",
+    });
+    await client.admin.stores.create({ name: "Demo", slug: "demo", status: "ACTIVE" });
+
+    const headers = calls[0]?.init?.headers as Headers;
+    expect(calls[0]?.url).toBe("http://localhost:4000/admin/stores");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(headers.get("authorization")).toBe("Bearer default-token");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(calls[0]?.init?.body).toBe(JSON.stringify({ name: "Demo", slug: "demo", status: "ACTIVE" }));
+  });
 });

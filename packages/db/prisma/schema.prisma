@@ -81,6 +81,24 @@ model PlatformUser {
 
   storeUsers StoreUser[]
   auditLogs  AuditLog[]
+  sessions   PlatformSession[]
+}
+
+model PlatformSession {
+  id             String    @id @default(cuid())
+  platformUserId String
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  userAgent      String?
+  ipAddress      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+
+  @@index([platformUserId])
+  @@index([expiresAt])
 }
 
 model Store {
