@@ -70,14 +70,18 @@
 
 ## TD-008 Frontend app'ler Docker Compose'a eklenmedi
 
-- Durum: OPEN
+- Durum: RESOLVED (UI accent polish + frontend Docker runtime gorevi)
 - Oncelik: MEDIUM
-- Etki: admin-web, store-admin-web ve storefront-web container olarak compose ile ayaga kalkmiyor;
-  su an lokal `pnpm dev:*` ile calisiyorlar. Backend runtime ve mevcut compose davranisi bilincli
-  olarak degistirilmedi.
-- Cozum onerisi: Frontend app'ler icin Next.js production Dockerfile ve compose servisleri eklemek;
-  `API_GATEWAY_URL`'i container network'une gore set etmek.
-- Hedef faz: Faz 3+
+- Etki: admin-web (3001), store-admin-web (3002) ve storefront-web (3000) artik compose ile ayaga
+  kalkar; backend ile ayni paylasimli `node.Dockerfile` imajini kullanip `pnpm --filter <app> dev`
+  ile calisir. Her servisin `/api/health` liveness'i compose healthcheck olarak kullanilir.
+- Cozum: Uc frontend servisi `infra/docker/docker-compose.yml`'e eklendi. `API_GATEWAY_URL` compose
+  icinde `http://api-gateway:4000` olarak override edilir; admin-web BFF gateway'e container network
+  uzerinden erisir (smoke ile dogrulandi). `INTERNAL_API_TOKEN` yalnizca admin-web server env'inde
+  (`env_file`) tutulur, client bundle'a girmez. store-admin/storefront henuz canli API'ye bagli
+  degil; shell olarak kalkar (bkz. TD-010/TD-011). Karar: ADR-019.
+- Kalan: Production-grade image (standalone build, non-root, healthcheck tuning), Nginx/SSL ve deploy
+  pipeline kapsam disi — TODO-028 altinda takip edilir.
 
 ## TD-009 API client placeholder (auth/token yok)
 

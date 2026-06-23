@@ -369,3 +369,31 @@ dokumanlarla sinirli tutuldu.
 - Refresh token/rotasyon, OAuth, 2FA ve password reset kapsam disi kaldi.
 - Frontend compose secret dagitimi ve gateway hata kodlarini paylasimli kaynaktan turetme TD-017
   altinda devam eder.
+
+## UI Accent Polish + Frontend Docker Runtime + Docker Cleanup
+
+- Tarih: 2026-06-24
+- Durum: READY_FOR_COMMIT (rapor onayina bagli)
+- Kapsam: Backend/security/commerce feature degisikligi yok. Sadece (1) UI accent renk revizyonu,
+  (2) frontend Docker compose runtime, (3) guvenli Docker cache temizligi ve docs.
+- UI accent: Tek merkezi degisiklik — `packages/ui/tailwind-preset.cjs` `brand` ramp'i indigo'dan
+  `brand-600 = #9743CD` (rgb 151 67 205) ankrajli olculu menekse ramp'ina cevrildi. Tum app'ler bu
+  preset'i, componentler yalnizca `brand-*` token'ini kullandigi icin CTA, eyebrow/accent, badge
+  `info`, aktif nav, EmptyState etiketi, StatCard, login ve storefront hero/CTA accentleri tek
+  noktadan guncellendi. App kodunda hardcoded hex tekrarI yok. Govde metni/genis yuzeyler notr slate
+  kaldi; kontrast korundu (brand-600 uzerine beyaz ~5.3:1, text-brand-700 beyaz uzerinde ~7:1). Dark
+  theme/neon yok. Karar: ADR-019.
+- Frontend Docker: `infra/docker/docker-compose.yml`'e admin-web (3001), store-admin-web (3002),
+  storefront-web (3000) servisleri eklendi; backend ile ayni `node.Dockerfile` imaji + `pnpm --filter
+  <app> dev`. compose ici `API_GATEWAY_URL=http://api-gateway:4000`; admin-web BFF gateway'e container
+  network uzerinden ulasti (`/api/system/health` -> `gatewayUrl: http://api-gateway:4000`, 200).
+  `INTERNAL_API_TOKEN` yalnizca admin-web server env'inde; client bundle taramasinda sizinti yok.
+  TD-008 RESOLVED. Backend compose (postgres/redis/api-gateway/worker) degismedi.
+- Docker temizlik: `docker system df` ile durum raporlandi; yalnizca `docker builder prune -f`
+  (~10.39GB kullanilmayan build cache) ve `docker image prune -f` (dangling) calistirildi. Volume'lara
+  ve calisan container'lara dokunulmadi; `docker_postgres-data` korundu. Stopped container'lar diger
+  projelere (cmd-ledger/atila) ait oldugundan `docker container prune` calistirilmadi, sadece
+  raporlandi. Temizlik sonrasi tum 7 servis healthy.
+- Smoke: 7 servis compose healthcheck ile healthy; `/health` (gateway) ve uc app `/api/health` 200;
+  admin login render (200, dogru title), storefront home 200, store-admin shell 200.
+- Gate: `pnpm db:generate`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test` — hepsi gecti.

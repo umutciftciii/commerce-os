@@ -210,3 +210,31 @@
 - Karar: Store list/get response'u `domain: string | null` ile genisletildi; StoreDomain tablosundaki
   ilk domain gosterilir. Delete endpoint eklenmedi; smoke temizligi icin production/staging'de
   calismayi reddeden `pnpm db:cleanup-smoke` script'i eklendi.
+
+## ADR-019 Frontend Docker dev runtime + merkezi accent token
+
+- Durum: ACCEPTED
+- Baglam: Uc frontend app (admin-web, store-admin-web, storefront-web) compose'da yoktu (TD-008) ve
+  UI accent rengi indigo idi; premium tek-marka vurgu rengi olarak `#9743CD` (rgb 151 67 205)
+  istendi. Hedef: minimum/kontrollu degisiklik, backend compose'u bozmadan, secret sizdirmadan.
+- Karar (container): Frontend app'ler icin ayri production Dockerfile uretmek yerine, backend ile
+  ayni paylasimli `infra/docker/node.Dockerfile` imaji kullanilir; her servis `pnpm --filter <app> dev`
+  ile Next.js dev runtime olarak calisir. Gerekce: monorepo tutarliligi, dusuk bakim yuku ve "ayaga
+  kalksin" hedefi icin yeterli. Production-grade standalone image/optimizasyon, Nginx reverse proxy,
+  SSL ve deploy pipeline bilincli olarak kapsam disi (TODO-028).
+- Karar (env/secret): `API_GATEWAY_URL` host'ta `http://localhost:4000`, compose icinde
+  `http://api-gateway:4000` (servis `environment` override). admin-web BFF gateway'e container network
+  uzerinden erisir. `INTERNAL_API_TOKEN` yalnizca admin-web server env'inde (`env_file`) verilir;
+  `NEXT_PUBLIC` ile tasinmadigindan client bundle'a girmez (smoke ile dogrulandi). store-admin/
+  storefront secret almaz, shell olarak kalkar.
+- Karar (accent token): Accent rengi tek merkezi noktadan — `packages/ui/tailwind-preset.cjs`
+  icindeki `brand` skalasi — yonetilir; tum app'ler bu preset'i kullanir ve componentler yalnizca
+  `brand-*` token'i tuketir. Bu yuzden indigo ramp'i, `brand-600 = #9743CD` ankrajli olculu bir
+  menekse ramp'i ile degistirildi; app kodunda hicbir hardcoded hex tekrarI olmadan accent her yere
+  yayildi. Renk yalnizca CTA, aktif durum ve accent rozetlerinde kullanilir; govde metni ve genis
+  yuzeyler notr slate kalir. Kontrast: `brand-600` uzerine beyaz ~5.3:1 (AA), `text-brand-700`
+  beyaz uzerinde ~7:1. Dark theme / neon / agir gradient yok; light-first premium ton korunur.
+- Karar (Docker temizlik): Disk yonetimi icin yalnizca `docker builder prune` (kullanilmayan build
+  cache) ve `docker image prune` (dangling) guvenli kabul edilir. `docker volume prune`,
+  `docker system prune -a --volumes` ve `docker container prune` (diger projelerin stopped
+  container'larini etkiler) kullanilmaz; named volume'lar (ozellikle `docker_postgres-data`) korunur.

@@ -2,25 +2,28 @@
  * commerce-os frontend'leri icin paylasimli Tailwind preset.
  *
  * Gorsel ton: light-first, premium, sakin kurumsal SaaS. Tek olculu marka
- * vurgusu (indigo), notr slate yuzeyler, yumusak katmanli golgeler. Dark theme
- * yok, neon yok, agir gradient yok.
+ * vurgusu (menekse / amethyst), notr slate yuzeyler, yumusak katmanli golgeler.
+ * Dark theme yok, neon yok, agir gradient yok.
  */
 module.exports = {
   theme: {
     extend: {
       colors: {
-        // Olculu indigo marka vurgusu. Birincil aksiyonlar ve aktif durumlar icin.
+        // Olculu menekse marka vurgusu (anchor: brand-600 = #9743CD / rgb(151 67 205)).
+        // Yalnizca birincil aksiyonlar, aktif durumlar ve accent rozetleri icin; govde
+        // metni ve genis yuzeyler notr slate kalir. brand-600 uzerine beyaz metin ~5.3:1
+        // (AA gecer), text-brand-700 beyaz uzerinde ~7:1.
         brand: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
+          50: "#f8f2fc",
+          100: "#f0e1f9",
+          200: "#e1c4f1",
+          300: "#cb9ee7",
+          400: "#b375db",
+          500: "#a154d3",
+          600: "#9743cd",
+          700: "#7e34ac",
+          800: "#672b8b",
+          900: "#4f226d",
         },
         // Uygulama tuvali: notr slate yerine cok hafif sicaklik tasiyan kirik beyaz.
         canvas: {
