@@ -1,0 +1,22 @@
+{
+  "name": "@commerce-os/api-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run test"
+  },
+  "dependencies": {
+    "@commerce-os/config": "workspace:*",
+    "@commerce-os/contracts": "workspace:*",
+    "@commerce-os/db": "workspace:*",
+    "@commerce-os/logger": "workspace:*",
+    "@commerce-os/queues": "workspace:*",
+    "fastify": "^5.2.1"
+  }
+}

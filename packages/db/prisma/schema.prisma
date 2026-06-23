@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformUserRole {
+  SUPER_ADMIN
+  SUPPORT_ADMIN
+}
+
+enum StoreUserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+enum StoreStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum DomainType {
+  SYSTEM_SUBDOMAIN
+  CUSTOM_DOMAIN
+}
+
+enum DomainStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  SYSTEM
+}
+
+enum EventType {
+  STORE_CREATED
+  STORE_UPDATED
+  USER_INVITED
+  SUBSCRIPTION_CHANGED
+  SYSTEM_EVENT
+}
+
+enum QueueJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+model PlatformUser {
+  id           String           @id @default(cuid())
+  email        String           @unique
+  name         String?
+  passwordHash String
+  role         PlatformUserRole @default(SUPPORT_ADMIN)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  storeUsers StoreUser[]
+  auditLogs  AuditLog[]
+}
+
+model Store {
+  id        String      @id @default(cuid())
+  name      String
+  slug      String      @unique
+  status    StoreStatus @default(DRAFT)
+  metadata  Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  users         StoreUser[]
+  domains       StoreDomain[]
+  subscriptions Subscription[]
+  auditLogs     AuditLog[]
+  eventLogs     EventLog[]
+  queueJobLogs  QueueJobLog[]
+}
+
+model StoreUser {
+  id             String        @id @default(cuid())
+  storeId        String
+  userId         String
+  role           StoreUserRole @default(VIEWER)
+  invitedAt      DateTime?
+  acceptedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  store Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@index([storeId])
+}
+
+model StoreDomain {
+  id        String       @id @default(cuid())
+  storeId   String
+  domain    String       @unique
+  type      DomainType   @default(SYSTEM_SUBDOMAIN)
+  status    DomainStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model Plan {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  storeId   String
+  planId    String
+  status    SubscriptionStatus @default(TRIALING)
+  startsAt  DateTime           @default(now())
+  endsAt    DateTime?
+  metadata  Json?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  plan  Plan  @relation(fields: [planId], references: [id])
+
+  @@index([storeId])
+  @@index([planId])
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  storeId        String?
+  platformUserId String?
+  action         AuditAction
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  platformUser PlatformUser? @relation(fields: [platformUserId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([platformUserId])
+}
+
+model EventLog {
+  id        String    @id @default(cuid())
+  storeId   String?
+  type      EventType
+  payload   Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([type])
+}
+
+model QueueJobLog {
+  id        String         @id @default(cuid())
+  storeId   String?
+  jobName   String
+  queueName String
+  status    QueueJobStatus @default(PENDING)
+  attempts  Int            @default(0)
+  payload   Json?
+  error     Json?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  store Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([queueName, jobName])
+  @@index([status])
+}

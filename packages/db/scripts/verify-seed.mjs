@@ -1,0 +1,76 @@
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  const [platformAdmin, plan, store, domain, storeUser] = await Promise.all([
+    prisma.platformUser.findUnique({ where: { email: "platform-admin@example.local" } }),
+    prisma.plan.findUnique({ where: { code: "demo" } }),
+    prisma.store.findUnique({ where: { slug: "demo-store" } }),
+    prisma.storeDomain.findUnique({ where: { domain: "demo.localhost" } }),
+    prisma.storeUser.findFirst({
+      where: {
+        user: { email: "platform-admin@example.local" },
+        store: { slug: "demo-store" },
+      },
+    }),
+  ]);
+
+  const missing = [
+    ["platformAdmin", platformAdmin],
+    ["plan", plan],
+    ["store", store],
+    ["domain", domain],
+    ["storeUser", storeUser],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(`Seed verification failed. Missing: ${missing.join(", ")}`);
+  }
+
+  const duplicateCounts = {
+    platformAdmins: await prisma.platformUser.count({
+      where: { email: "platform-admin@example.local" },
+    }),
+    plans: await prisma.plan.count({ where: { code: "demo" } }),
+    stores: await prisma.store.count({ where: { slug: "demo-store" } }),
+    domains: await prisma.storeDomain.count({ where: { domain: "demo.localhost" } }),
+    storeUsers: await prisma.storeUser.count({
+      where: {
+        userId: platformAdmin?.id,
+        storeId: store?.id,
+      },
+    }),
+  };
+
+  const duplicates = Object.entries(duplicateCounts)
+    .filter(([, count]) => count !== 1)
+    .map(([name, count]) => `${name}=${count}`);
+
+  if (duplicates.length > 0) {
+    throw new Error(`Seed verification found unexpected counts: ${duplicates.join(", ")}`);
+  }
+
+  console.log(
+    JSON.stringify({
+      ok: true,
+      platformAdmin: platformAdmin?.email,
+      plan: plan?.code,
+      store: store?.slug,
+      domain: domain?.domain,
+      storeUserRole: storeUser?.role,
+    }),
+  );
+}
+
+main()
+  .then(async () => {
+    await prisma.$disconnect();
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

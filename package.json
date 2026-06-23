@@ -1,0 +1,34 @@
+{
+  "name": "commerce-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",
+    "test": "turbo run test",
+    "test:unit": "vitest run tests/unit packages/*/test apps/*/test",
+    "test:integration": "vitest run tests/integration",
+    "db:generate": "pnpm exec prisma generate --schema packages/db/prisma/schema.prisma",
+    "db:migrate": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway pnpm exec prisma migrate deploy --schema packages/db/prisma/schema.prisma",
+    "db:deploy": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway pnpm exec prisma migrate deploy --schema packages/db/prisma/schema.prisma",
+    "db:seed": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/seed.mjs",
+    "db:verify-seed": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/verify-seed.mjs",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.8"
+  }
+}

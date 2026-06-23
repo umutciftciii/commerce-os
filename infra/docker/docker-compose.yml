@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: commerce_os
+      POSTGRES_PASSWORD: commerce_os_password
+      POSTGRES_DB: commerce_os
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commerce_os -d commerce_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/api-gateway dev
+    env_file:
+      - ../../.env.example
+    environment:
+      SERVICE_NAME: api-gateway
+      DATABASE_URL: postgresql://commerce_os:commerce_os_password@postgres:5432/commerce_os?schema=public
+      REDIS_URL: redis://redis:6379
+      API_GATEWAY_PORT: 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:4000/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/worker dev
+    env_file:
+      - ../../.env.example
+    environment:
+      SERVICE_NAME: worker
+      DATABASE_URL: postgresql://commerce_os:commerce_os_password@postgres:5432/commerce_os?schema=public
+      REDIS_URL: redis://redis:6379
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -q '[t]sx.*watch src/main.ts'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
