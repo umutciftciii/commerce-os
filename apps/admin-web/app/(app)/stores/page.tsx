@@ -82,6 +82,10 @@ export default function StoresPage() {
       cell: (store) => <span className="font-mono text-xs text-slate-500">{store.slug}</span>,
     },
     {
+      header: t.table.domain,
+      cell: (store) => <span className="font-mono text-xs text-slate-500">{store.domain ?? "—"}</span>,
+    },
+    {
       header: t.table.status,
       cell: (store) => <Badge tone={STATUS_TONES[store.status]}>{statusLabels[store.status]}</Badge>,
     },

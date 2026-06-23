@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { adminApi, UiError } from "../lib/client/api.js";
+import { adminApi, resetCsrfTokenCacheForTest, UiError } from "../lib/client/api.js";
 import { messageForCode, messageForError } from "../lib/client/messages.js";
 
 /** Ayni-origin BFF cagrilarini kaydeden global fetch sahtesi. */
-function mockFetch(response: { ok: boolean; status: number; body: unknown }) {
+function mockFetch(response: { ok: boolean; status: number; body: unknown } | Array<{ ok: boolean; status: number; body: unknown }>) {
+  const responses = Array.isArray(response) ? response : [response];
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const impl = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url: String(url), init });
+    const next = responses[Math.min(calls.length - 1, responses.length - 1)];
     return {
-      ok: response.ok,
-      status: response.status,
-      json: async () => response.body,
+      ok: next.ok,
+      status: next.status,
+      json: async () => next.body,
     } as Response;
   });
   vi.stubGlobal("fetch", impl);
@@ -19,6 +21,7 @@ function mockFetch(response: { ok: boolean; status: number; body: unknown }) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetCsrfTokenCacheForTest();
 });
 
 describe("adminApi auth flow", () => {
@@ -44,10 +47,15 @@ describe("adminApi auth flow", () => {
     expect(me.user.id).toBe("u1");
     expect(meCalls[0]?.url).toBe("/api/auth/me");
 
-    const outCalls = mockFetch({ ok: true, status: 200, body: { ok: true } });
+    const outCalls = mockFetch([
+      { ok: true, status: 200, body: { csrfToken: "csrf-token", headerName: "x-commerce-os-csrf" } },
+      { ok: true, status: 200, body: { ok: true } },
+    ]);
     await adminApi.logout();
-    expect(outCalls[0]?.url).toBe("/api/auth/logout");
-    expect(outCalls[0]?.init?.method).toBe("POST");
+    expect(outCalls[0]?.url).toBe("/api/auth/csrf");
+    expect(outCalls[1]?.url).toBe("/api/auth/logout");
+    expect(outCalls[1]?.init?.method).toBe("POST");
+    expect((outCalls[1]?.init?.headers as Record<string, string>)["x-commerce-os-csrf"]).toBe("csrf-token");
   });
 });
 
@@ -58,15 +66,19 @@ describe("adminApi stores + plans flow", () => {
     expect(list.pagination.total).toBe(0);
     expect(listCalls[0]?.url).toBe("/api/admin/stores");
 
-    const createCalls = mockFetch({
-      ok: true,
-      status: 201,
-      body: { id: "s1", name: "Demo", slug: "demo", status: "DRAFT", metadata: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    });
+    const createCalls = mockFetch([
+      { ok: true, status: 200, body: { csrfToken: "csrf-token", headerName: "x-commerce-os-csrf" } },
+      {
+        ok: true,
+        status: 201,
+        body: { id: "s1", name: "Demo", slug: "demo", domain: null, status: "DRAFT", metadata: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      },
+    ]);
     const store = await adminApi.createStore({ name: "Demo", slug: "demo", status: "DRAFT" });
     expect(store.slug).toBe("demo");
-    expect(createCalls[0]?.init?.method).toBe("POST");
-    expect(createCalls[0]?.url).toBe("/api/admin/stores");
+    expect(createCalls[1]?.init?.method).toBe("POST");
+    expect(createCalls[1]?.url).toBe("/api/admin/stores");
+    expect((createCalls[1]?.init?.headers as Record<string, string>)["x-commerce-os-csrf"]).toBe("csrf-token");
   });
 
   it("lists and creates plans against the BFF endpoints", async () => {
@@ -74,20 +86,26 @@ describe("adminApi stores + plans flow", () => {
     await adminApi.listPlans();
     expect(listCalls[0]?.url).toBe("/api/admin/plans");
 
-    const createCalls = mockFetch({
-      ok: true,
-      status: 201,
-      body: { id: "p1", code: "starter", name: "Starter", description: null, metadata: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    });
+    const createCalls = mockFetch([
+      { ok: true, status: 200, body: { csrfToken: "csrf-token", headerName: "x-commerce-os-csrf" } },
+      {
+        ok: true,
+        status: 201,
+        body: { id: "p1", code: "starter", name: "Starter", description: null, metadata: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      },
+    ]);
     const plan = await adminApi.createPlan({ code: "starter", name: "Starter" });
     expect(plan.code).toBe("starter");
-    expect(createCalls[0]?.url).toBe("/api/admin/plans");
+    expect(createCalls[1]?.url).toBe("/api/admin/plans");
   });
 });
 
 describe("adminApi error handling", () => {
   it("throws a UiError carrying the gateway error code", async () => {
-    mockFetch({ ok: false, status: 409, body: { error: { code: "STORE_SLUG_EXISTS" } } });
+    mockFetch([
+      { ok: true, status: 200, body: { csrfToken: "csrf-token", headerName: "x-commerce-os-csrf" } },
+      { ok: false, status: 409, body: { error: { code: "STORE_SLUG_EXISTS" } } },
+    ]);
     const error = await adminApi.createStore({ name: "Demo", slug: "demo", status: "DRAFT" }).catch((caught) => caught);
     expect(error).toBeInstanceOf(UiError);
     expect((error as UiError).code).toBe("STORE_SLUG_EXISTS");

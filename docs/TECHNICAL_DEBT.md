@@ -95,16 +95,18 @@
 
 ## TD-015 Auth rate limit ve cookie hardening eksik
 
-- Durum: OPEN
+- Durum: PARTIAL
 - Oncelik: HIGH
 - Etki: Login endpointinde production-grade rate limit, lockout, cookie security ayarlari, CSRF
-  stratejisi ve refresh token rotasyonu henuz yok.
+  stratejisi ve refresh token rotasyonu eksikleri vardi.
 - Cozum onerisi: UI baglama ve production hardening fazinda Fastify rate limit, browser cookie
   stratejisi, secure/sameSite/httpOnly ayarlari ve brute-force izleme eklemek.
 - Not: Faz 1B'de admin-web BFF, platform token'i httpOnly + sameSite=lax + (prod) secure cookie'ye
-  yazar (ADR-017). Kalan production hardening hala acik: gateway rate limit/lockout, CSRF token,
-  refresh token rotasyonu ve `secure` flag'in prod dağıtım davranisinin dogrulanmasi.
-- Hedef faz: Faz 1B/Faz 2
+  yazar (ADR-017). Faz 1C'de gateway login icin IP/e-posta bazli proses ici rate limit, admin-web
+  BFF mutation'lari icin double-submit CSRF, env kontrollu session/CSRF cookie adlari ve secure/sameSite
+  ayarlari eklendi (ADR-018). Kalan borc: coklu instance production icin Redis/dagitik rate limit veya
+  izleme, refresh token/rotasyon ve daha gelismis lockout politikasi.
+- Hedef faz: Faz 2
 
 ## TD-016 Admin UI auth baglama yok
 
@@ -140,7 +142,7 @@
 
 ## TD-012 Frontend testleri smoke seviyesinde
 
-- Durum: OPEN
+- Durum: PARTIAL
 - Oncelik: MEDIUM
 - Etki: UI testleri `react-dom/server` ile render smoke testleri ve health route guard'lari ile
   sinirli; jsdom tabanli etkilesim/erisilebilirlik testleri yok.
@@ -150,6 +152,9 @@
   stores/plans list+create, hata->kod, NETWORK), hata-kodu->Turkce mesaj esleme testi, login SSR
   smoke ve i18n copy/parity testleri eklendi. Gercek DOM etkilesimi (form submit, modal acma, satir
   aksiyonu, erisilebilirlik) hala jsdom + Testing Library bekliyor.
+- Not: Faz 1C'de admin-web icin Testing Library/jsdom eklendi; login validation + hatali giris,
+  stores/plans create modal happy path ve logout flow mock testleri kapsandi. Kalan borc: update
+  modal, system health render ve daha genis erisilebilirlik kontrolleri.
 - Hedef faz: Faz 2+
 
 ## TD-013 Frontend UI Ingilizce ve basic/starter template gorunum
@@ -179,7 +184,7 @@
 
 ## TD-017 admin-web BFF/internal-health operasyonel notlari
 
-- Durum: OPEN
+- Durum: PARTIAL
 - Oncelik: MEDIUM
 - Etki: (1) `/api/system/internal` dahili DB/Redis durumu yalnizca admin-web SUNUCU env'inde
   `INTERNAL_API_TOKEN` tanimliysa canli doner; tanimli degilse UI "dahili token gerektirir" durumunu
@@ -192,14 +197,19 @@
 - Cozum onerisi: Faz 1C'de internal health icin guvenli ops ekrani/secret dagitimini netlestirmek;
   gateway hata kodlarini paylasimli bir kaynaktan turetmek; gerekirse Next middleware ile sunucu
   tarafli oturum korumasi eklemek.
-- Hedef faz: Faz 1C/Faz 2
+- Not: Faz 1C'de `/api/system/internal` token yokken `available:false`, token varken timeout kontrollu
+  server-side proxy davranisini testlerle sabitledi. `(app)` route group server tarafinda session
+  cookie varligini kontrol eder; asil dogrulama BFF `/api/auth/me` ile devam eder. Kalan borc: frontend
+  compose servisine secret dagitimi ve hata kodu kaynagini paylasimli hale getirmek.
+- Hedef faz: Faz 2
 
 ## TD-018 admin-web canli smoke test verisi yerel DB'de kaliyor
 
-- Durum: OPEN
+- Durum: RESOLVED
 - Oncelik: LOW
 - Etki: Faz 1B runtime smoke'unda yerel dev DB'sine ornek `smoke-*` mağaza/paket kayitlari olusturuldu;
   delete endpoint'i kapsam disi oldugu icin temizlenmedi. Yalnizca yerel gelistirme verisini etkiler.
-- Cozum onerisi: Delete/bulk action fazinda temizleme; veya gerekirse `pnpm db:seed` oncesi yerel DB
-  reset akisini dokumante etmek.
-- Hedef faz: Faz 2+
+- Cozum: Faz 1C'de delete endpoint eklenmeden `pnpm db:cleanup-smoke` script'i eklendi. Script yalnizca
+  `smoke-`, `rev-`, `test-` prefiksli store slug/name ve plan code/name kayitlarini siler; APP_ENV
+  production/staging ise calismayi reddeder. Seed demo kayitlari hedeflenmez.
+- Hedef faz: Faz 1C

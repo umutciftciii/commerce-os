@@ -82,7 +82,14 @@ Auth/session icin zorunlu local env alanlari:
 SESSION_SECRET=replace-with-local-session-secret-32-chars-min
 SESSION_TTL_SECONDS=28800
 PASSWORD_HASH_PEPPER=
+AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS=60
+AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5
+ADMIN_SESSION_COOKIE_NAME=commerce_os_admin_session
 ADMIN_AUTH_COOKIE_NAME=commerce_os_admin_session
+ADMIN_CSRF_COOKIE_NAME=commerce_os_admin_csrf
+ADMIN_CSRF_HEADER_NAME=x-commerce-os-csrf
+ADMIN_COOKIE_SECURE=false
+ADMIN_COOKIE_SAME_SITE=lax
 ```
 
 `SESSION_SECRET` gercek ortamlarda guclu ve ortam disindan yonetilen bir secret olmalidir. Repo'ya
@@ -169,7 +176,10 @@ olarak test edilir.
 ## Faz 1A Auth ve Admin API
 
 Platform admin session endpointleri bearer token kullanir. Login response'u raw token'i bir kez
-dondurur; DB'de yalnizca secret ile hashlenmis `tokenHash` tutulur.
+dondurur; DB'de yalnizca secret ile hashlenmis `tokenHash` tutulur. Login brute-force korumasi
+varsayilan olarak IP + e-posta bazli 60 saniye / 5 deneme penceresiyle calisir; limit asilinca
+`429 AUTH_RATE_LIMITED` doner. Degerler `AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS` ve
+`AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` ile ayarlanir.
 
 ```bash
 curl -i -X POST http://localhost:4000/auth/platform/login \
@@ -194,6 +204,9 @@ Platform admin token gerektiren endpointler:
 - `GET /admin/plans/:id`
 - `PATCH /admin/plans/:id`
 
+`GET /admin/stores` ve `GET /admin/stores/:id` response'lari `domain: string | null` alanini dondurur.
+Bu alan StoreDomain tablosundaki ilk sistem/primary domain bilgisini admin UI'da gostermek icindir.
+
 Hatalar su zarfta doner:
 
 ```json
@@ -210,6 +223,8 @@ Hatalar su zarfta doner:
 `apps/admin-web` canli gateway'e baglidir. Tarayici gateway'e dogrudan gitmez; ayni-origin Next route
 handler'lari (BFF) gateway'i SUNUCU tarafinda cagirir ve platform bearer token'i httpOnly cookie'de
 saklar (bkz. ADR-017). Token UI'da gosterilmez, log'a/console'a yazilmaz, client bundle'a girmez.
+Mutating BFF route'lari (logout, stores/plans create/update) double-submit CSRF ister; login CSRF
+disinda tutulur ve gateway rate limit ile korunur.
 
 Yerel calistirma:
 
@@ -227,7 +242,8 @@ API_GATEWAY_URL=http://localhost:4000 pnpm dev:admin   # http://localhost:3001
   `local-admin-password`). Basarili giriste panele yonlendirir; oturum varsa `/login` otomatik panele
   gider; "Cikis yap" oturumu sonlandirir (gateway session revoke).
 - Mağazalar ve Paketler sayfalari canli listeler; create/update modallari calisir, basarida liste
-  yenilenir. Duplicate slug/kod ve validation hatalari kullanici dostu Turkce gosterilir.
+  yenilenir. Mağaza listesinde domain kolonu gosterilir. Duplicate slug/kod ve validation hatalari
+  kullanici dostu Turkce gosterilir.
 - Sistem Sağlığı sayfasi public `/health` + `/version`'i canli gosterir. Dahili DB/Redis durumu icin
   admin-web SUNUCU env'ine gateway ile ayni `INTERNAL_API_TOKEN` verilirse canli baglanir; verilmezse
   "dahili token gerektirir" durumu gosterilir (secret istemciye sizmaz):
@@ -252,6 +268,8 @@ INTERNAL_API_TOKEN=<gateway-ile-ayni-token> API_GATEWAY_URL=http://localhost:400
 - `pnpm db:deploy`
 - `pnpm db:seed`
 - `pnpm db:verify-seed`
+- `pnpm db:cleanup-smoke` — yalnizca development/test ortaminda `smoke-`, `rev-`, `test-` prefiksli
+  dev store/plan kayitlarini temizler; production/staging'de calismayi reddeder.
 
 ## Project Tracking & Documentation Discipline
 

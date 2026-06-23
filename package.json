@@ -20,6 +20,7 @@
     "db:deploy": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway pnpm exec prisma migrate deploy --schema packages/db/prisma/schema.prisma",
     "db:seed": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/seed.mjs",
     "db:verify-seed": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/verify-seed.mjs",
+    "db:cleanup-smoke": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway pnpm --filter @commerce-os/db db:cleanup-smoke",
     "format": "prettier --write ."
   },
   "devDependencies": {

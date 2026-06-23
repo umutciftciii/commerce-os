@@ -29,11 +29,13 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 - Yapar: Kullanici arayuzu, layout, routing, ortak UI shell ve presentation. Backend ile yalnizca
   API gateway uzerinden ve `packages/api-client` ile konusur. admin-web bu gateway erisimini Next
   route handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici yalnizca ayni-origin `/api/*`
-  uclarini cagirir. Platform bearer token httpOnly cookie'de server-side tutulur (ADR-017).
+  uclarini cagirir. Platform bearer token httpOnly cookie'de server-side tutulur; mutating BFF
+  istekleri CSRF header/cookie dogrulamasi ister (ADR-017, ADR-018).
 - Yapmaz: Domain is kurali, DB erisimi, gercek auth/session logic'i (token uretme/dogrulama gateway'in
   isidir; admin-web yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
   tablolarina veya Prisma'ya dogrudan erismez. BFF route handler'lari gateway'i cagirmanin disinda
   domain karari vermez; gizli degeri (internal token) yalnizca sunucuda tutar, istemciye sizdirmaz.
+  CSRF token'i auth token degildir; session bearer token'i istemci JS'ine verilmez.
 
 ## packages/ui ve packages/api-client
 

@@ -71,6 +71,7 @@ export const adminStoreSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   slug: z.string().min(1),
+  domain: z.string().min(3).max(255).nullable(),
   status: storeStatusSchema,
   metadata: jsonRecordSchema.nullable(),
   createdAt: z.string().datetime(),

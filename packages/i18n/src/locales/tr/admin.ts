@@ -36,8 +36,10 @@ export const trAdmin = {
   },
   errors: {
     INVALID_CREDENTIALS: "E-posta veya parola hatalı.",
+    AUTH_RATE_LIMITED: "Çok fazla hatalı giriş denemesi yapıldı. Lütfen biraz sonra tekrar deneyin.",
     UNAUTHORIZED: "Oturumunuz sona ermiş. Lütfen tekrar giriş yapın.",
     FORBIDDEN: "Bu işlem için yetkiniz yok.",
+    CSRF_TOKEN_INVALID: "Güvenlik doğrulaması başarısız oldu. Sayfayı yenileyip tekrar deneyin.",
     VALIDATION_ERROR: "Girdiğiniz bilgileri kontrol edin.",
     STORE_SLUG_EXISTS: "Bu kısa ad (slug) zaten kullanılıyor.",
     STORE_DOMAIN_EXISTS: "Bu alan adı zaten kullanılıyor.",
@@ -117,6 +119,7 @@ export const trAdmin = {
     table: {
       name: "Mağaza",
       slug: "Kısa ad",
+      domain: "Alan adı",
       status: "Durum",
       created: "Oluşturulma",
       actions: "İşlem",

@@ -12,6 +12,8 @@ const validEnv = {
   SESSION_TTL_SECONDS: "3600",
   PASSWORD_HASH_PEPPER: "test-pepper",
   ADMIN_AUTH_COOKIE_NAME: "commerce_os_admin_session",
+  AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: "30",
+  AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: "4",
   API_GATEWAY_PORT: "4000",
   WORKER_CONCURRENCY: "3",
 };
@@ -21,6 +23,8 @@ describe("loadConfig", () => {
     expect(loadConfig(validEnv).API_GATEWAY_PORT).toBe(4000);
     expect(loadConfig(validEnv).WORKER_CONCURRENCY).toBe(3);
     expect(loadConfig(validEnv).SESSION_TTL_SECONDS).toBe(3600);
+    expect(loadConfig(validEnv).AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS).toBe(30);
+    expect(loadConfig(validEnv).AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS).toBe(4);
   });
 
   it("rejects short internal tokens", () => {

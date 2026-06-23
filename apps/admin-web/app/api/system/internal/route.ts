@@ -7,9 +7,27 @@ export const dynamic = "force-dynamic";
 
 type Probe = "ok" | "degraded" | "unknown";
 
+const INTERNAL_HEALTH_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("internal health timeout")), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function probe(call: () => Promise<InternalHealthResponse>): Promise<Probe> {
   try {
-    const result = await call();
+    const result = await withTimeout(call(), INTERNAL_HEALTH_TIMEOUT_MS);
     return result.status === "ok" ? "ok" : "degraded";
   } catch (error) {
     // Gateway 503 -> bileşen sorunlu; diğer hatalarda durum bilinmiyor.

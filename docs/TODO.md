@@ -29,16 +29,20 @@
 - TODO-020: Faz 1B admin-web login/me/logout akisi ve stores/plans liste/formlarini backend
   endpointlerine baglamak (TD-016). (DONE — BFF proxy + httpOnly cookie + canli stores/plans/health)
 - TODO-021: Auth rate limit, cookie hardening, CSRF ve production session security kararlarini
-  netlestirmek (TD-015, TD-017).
+  netlestirmek (TD-015, TD-017). (PARTIAL — gateway login rate limit, BFF CSRF, cookie env hardening
+  ve server-side cookie guard eklendi; refresh/dagitik rate limit Faz 2)
 - TODO-022: Store-admin backend endpointleri geldiginde `requireStoreAccess`/`assertStoreRole`
   helper'larini gercek store-scoped route'larda zorunlu kilmak.
 - TODO-023: admin-web etkilesim testleri (jsdom + Testing Library): login form submit, oturum guard
-  redirect, stores/plans modal create/update, system health durum render (TD-012).
+  redirect, stores/plans modal create/update, system health durum render (TD-012). (PARTIAL — login
+  validation/hata, stores/plans create modal ve logout flow eklendi; update/system-health daha sonra)
 - TODO-024: Faz 1C dahili health guvenli ops baglamasi — admin-web container env'ine `INTERNAL_API_TOKEN`
   vermek (frontend compose servisiyle, TD-008) veya ayri ops ekrani; gateway hata kodlarini paylasimli
-  kaynaktan turetmek (TD-017).
+  kaynaktan turetmek (TD-017). (PARTIAL — server-side proxy timeout ve token yok/var testleri eklendi;
+  compose secret dagitimi bekliyor)
 - TODO-025: admin-web stores listesinde domain gosterimi — gateway store list/get response'u `domain`
   dondurmuyor (StoreDomain ayri tablo). Gerekirse contract'i genisletip UI'da domain kolonu eklemek.
+  (DONE — contract response `domain: string | null`, gateway list/get ve UI domain kolonu eklendi)
 - TODO-026: Admin stores/plans icin sayfalama UI'si (gateway limit/offset destekliyor; UI su an ilk
   sayfayi gosterir) ve liste arama/filtre.
 - TODO-027: Faz 2 store-admin-web ve storefront-web gercek API baglama (TD-010, TD-011).

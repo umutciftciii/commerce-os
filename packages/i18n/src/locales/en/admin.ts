@@ -36,8 +36,10 @@ export const enAdmin: AdminDictionary = {
   },
   errors: {
     INVALID_CREDENTIALS: "Email or password is incorrect.",
+    AUTH_RATE_LIMITED: "Too many failed sign-in attempts. Please try again later.",
     UNAUTHORIZED: "Your session has expired. Please sign in again.",
     FORBIDDEN: "You don’t have permission for this action.",
+    CSRF_TOKEN_INVALID: "Security verification failed. Refresh the page and try again.",
     VALIDATION_ERROR: "Please check the information you entered.",
     STORE_SLUG_EXISTS: "This slug is already in use.",
     STORE_DOMAIN_EXISTS: "This domain is already in use.",
@@ -117,6 +119,7 @@ export const enAdmin: AdminDictionary = {
     table: {
       name: "Store",
       slug: "Slug",
+      domain: "Domain",
       status: "Status",
       created: "Created",
       actions: "Action",

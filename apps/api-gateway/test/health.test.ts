@@ -14,6 +14,8 @@ const config = {
   SESSION_TTL_SECONDS: 3600,
   PASSWORD_HASH_PEPPER: "test-pepper",
   ADMIN_AUTH_COOKIE_NAME: "commerce_os_admin_session",
+  AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: 60,
+  AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: 2,
   API_GATEWAY_PORT: 3000,
   WORKER_CONCURRENCY: 5,
 };
@@ -72,6 +74,7 @@ class MemoryDataAccess implements AppDataAccess {
       metadata: { seeded: true },
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: "demo.localhost",
     },
   ];
   readonly domains = new Map<string, string>([["demo.localhost", "store_demo"]]);
@@ -137,11 +140,23 @@ class MemoryDataAccess implements AppDataAccess {
   }
 
   async listStores({ limit, offset }: { limit: number; offset: number }) {
-    return { data: this.stores.slice(offset, offset + limit), total: this.stores.length };
+    return {
+      data: this.stores.slice(offset, offset + limit).map((store) => ({
+        ...store,
+        domain: store.domain ?? [...this.domains.entries()].find(([, storeId]) => storeId === store.id)?.[0] ?? null,
+      })),
+      total: this.stores.length,
+    };
   }
 
   async findStoreById(id: string) {
-    return this.stores.find((store) => store.id === id) ?? null;
+    const store = this.stores.find((item) => item.id === id);
+    return store
+      ? {
+          ...store,
+          domain: store.domain ?? [...this.domains.entries()].find(([, storeId]) => storeId === store.id)?.[0] ?? null,
+        }
+      : null;
   }
 
   async findStoreBySlug(slug: string) {
@@ -176,6 +191,7 @@ class MemoryDataAccess implements AppDataAccess {
       metadata: input.metadata ?? null,
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      domain: input.domain ?? null,
     };
     this.stores.push(store);
     if (input.domain) {
@@ -363,6 +379,52 @@ describe("api gateway", () => {
     await app.close();
   });
 
+  it("rate limits repeated invalid platform login attempts with the standard error envelope", async () => {
+    const { app } = await createTestApp();
+    for (let attempt = 0; attempt < config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/platform/login",
+        payload: { email: "platform-admin@example.local", password: "wrong" },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    const limitedResponse = await app.inject({
+      method: "POST",
+      url: "/auth/platform/login",
+      payload: { email: "platform-admin@example.local", password: "wrong" },
+    });
+    expect(limitedResponse.statusCode).toBe(429);
+    expect(limitedResponse.json()).toMatchObject({ error: { code: "AUTH_RATE_LIMITED" } });
+    await app.close();
+  });
+
+  it("keeps normal login working and resets the failed-attempt counter after success", async () => {
+    const { app } = await createTestApp();
+    const failedResponse = await app.inject({
+      method: "POST",
+      url: "/auth/platform/login",
+      payload: { email: "platform-admin@example.local", password: "wrong" },
+    });
+    expect(failedResponse.statusCode).toBe(401);
+
+    const successResponse = await app.inject({
+      method: "POST",
+      url: "/auth/platform/login",
+      payload: { email: "platform-admin@example.local", password: "local-admin-password" },
+    });
+    expect(successResponse.statusCode).toBe(200);
+
+    const nextFailedResponse = await app.inject({
+      method: "POST",
+      url: "/auth/platform/login",
+      payload: { email: "platform-admin@example.local", password: "wrong" },
+    });
+    expect(nextFailedResponse.statusCode).toBe(401);
+    await app.close();
+  });
+
   it("rejects expired sessions", async () => {
     const { app, dataAccess, login } = await createTestApp();
     const token = await login();
@@ -404,7 +466,7 @@ describe("api gateway", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toMatchObject({ data: [{ slug: "demo-store" }] });
+    expect(listResponse.json()).toMatchObject({ data: [{ slug: "demo-store", domain: "demo.localhost" }] });
 
     const createResponse = await app.inject({
       method: "POST",
@@ -413,7 +475,15 @@ describe("api gateway", () => {
       payload: { name: "Second Store", slug: "second-store", domain: "second.localhost" },
     });
     expect(createResponse.statusCode).toBe(201);
-    expect(createResponse.json()).toMatchObject({ slug: "second-store" });
+    expect(createResponse.json()).toMatchObject({ slug: "second-store", domain: "second.localhost" });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/admin/stores/store_2",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toMatchObject({ slug: "second-store", domain: "second.localhost" });
 
     const duplicateResponse = await app.inject({
       method: "POST",

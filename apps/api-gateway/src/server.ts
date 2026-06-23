@@ -40,7 +40,9 @@ type PlatformUserRecord = Pick<PlatformUser, "id" | "email" | "name" | "password
 type PlatformSessionRecord = Pick<PlatformSession, "id" | "expiresAt" | "revokedAt"> & {
   platformUser: PlatformUserRecord;
 };
-type StoreRecord = Pick<Store, "id" | "name" | "slug" | "status" | "metadata" | "createdAt" | "updatedAt">;
+type StoreRecord = Pick<Store, "id" | "name" | "slug" | "status" | "metadata" | "createdAt" | "updatedAt"> & {
+  domain?: string | null;
+};
 type PlanRecord = Pick<
   Plan,
   "id" | "code" | "name" | "description" | "metadata" | "createdAt" | "updatedAt"
@@ -121,10 +123,66 @@ function hashSessionToken(token: string, secret: string): string {
 function serializeStore(store: StoreRecord) {
   return adminStoreSchema.parse({
     ...store,
+    domain: store.domain ?? null,
     metadata: store.metadata ?? null,
     createdAt: store.createdAt.toISOString(),
     updatedAt: store.updatedAt.toISOString(),
   });
+}
+
+type LoginRateLimitEntry = { attempts: number; resetAt: number };
+
+function createLoginRateLimiter(config: AppConfig) {
+  const attempts = new Map<string, LoginRateLimitEntry>();
+  const windowMs = config.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const maxAttempts = config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS;
+
+  function normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+  }
+
+  function keyForIp(ip: string) {
+    return `ip:${ip}`;
+  }
+
+  function keyForEmail(email: string) {
+    return `email:${normalizeEmail(email)}`;
+  }
+
+  function activeEntry(key: string, now: number) {
+    const entry = attempts.get(key);
+    if (!entry || entry.resetAt <= now) {
+      attempts.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  function isLimited(ip: string, email: string, now = Date.now()) {
+    return [keyForIp(ip), keyForEmail(email)].some((key) => {
+      const entry = activeEntry(key, now);
+      return entry ? entry.attempts >= maxAttempts : false;
+    });
+  }
+
+  function recordFailure(ip: string, email: string, now = Date.now()) {
+    for (const key of [keyForIp(ip), keyForEmail(email)]) {
+      const entry = activeEntry(key, now);
+      attempts.set(
+        key,
+        entry
+          ? { attempts: entry.attempts + 1, resetAt: entry.resetAt }
+          : { attempts: 1, resetAt: now + windowMs },
+      );
+    }
+  }
+
+  function reset(ip: string, email: string) {
+    attempts.delete(keyForIp(ip));
+    attempts.delete(keyForEmail(email));
+  }
+
+  return { isLimited, recordFailure, reset };
 }
 
 function serializePlan(plan: PlanRecord) {
@@ -167,6 +225,11 @@ function createPrismaDataAccess(): AppDataAccess {
     metadata: true,
     createdAt: true,
     updatedAt: true,
+    domains: {
+      orderBy: { createdAt: "asc" },
+      take: 1,
+      select: { domain: true },
+    },
   } satisfies Prisma.StoreSelect;
   const planSelect = {
     id: true,
@@ -218,9 +281,12 @@ function createPrismaDataAccess(): AppDataAccess {
         }),
         prisma.store.count(),
       ]);
-      return { data, total };
+      return { data: data.map((store) => ({ ...store, domain: store.domains[0]?.domain ?? null })), total };
     },
-    findStoreById: (id) => prisma.store.findUnique({ where: { id }, select: storeSelect }),
+    findStoreById: async (id) => {
+      const store = await prisma.store.findUnique({ where: { id }, select: storeSelect });
+      return store ? { ...store, domain: store.domains[0]?.domain ?? null } : null;
+    },
     findStoreBySlug: (slug) => prisma.store.findUnique({ where: { slug }, select: storeSelect }),
     findStoreDomain: (domain) => prisma.storeDomain.findUnique({ where: { domain }, select: { id: true } }),
     createStore: (input) =>
@@ -239,15 +305,16 @@ function createPrismaDataAccess(): AppDataAccess {
             data: { storeId: store.id, domain: input.domain, type: "SYSTEM_SUBDOMAIN", status: "PENDING" },
           });
         }
-        return store;
+        return { ...store, domain: input.domain ?? null };
       }),
     updateStore: async (id, input) => {
       try {
-        return await prisma.store.update({
+        const store = await prisma.store.update({
           where: { id },
           data: { ...input, metadata: toPrismaJsonObject(input.metadata) },
           select: storeSelect,
         });
+        return { ...store, domain: store.domains[0]?.domain ?? null };
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
           return null;
@@ -307,6 +374,7 @@ export function createServer(
   const dbHealthCheck = dependencies.checkDatabaseHealth ?? checkDatabaseHealth;
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
   const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
+  const loginRateLimiter = createLoginRateLimiter(config);
   const app = Fastify({ logger: false });
 
   async function authenticatePlatform(request: FastifyRequest, reply: FastifyReply) {
@@ -394,16 +462,24 @@ export function createServer(
 
   app.post("/auth/platform/login", async (request, reply) => {
     const input = platformLoginRequestSchema.parse(request.body);
+    if (loginRateLimiter.isLimited(request.ip, input.email)) {
+      return reply
+        .code(429)
+        .send(errorBody("AUTH_RATE_LIMITED", "Too many login attempts. Please try again later."));
+    }
+
     const user = await dataAccess.findPlatformUserByEmail(input.email.toLowerCase());
     const passwordOk = user
       ? await verifyPassword(input.password, user.passwordHash, config.PASSWORD_HASH_PEPPER)
       : false;
 
     if (!user || !passwordOk) {
+      loginRateLimiter.recordFailure(request.ip, input.email);
       return reply
         .code(401)
         .send(errorBody("INVALID_CREDENTIALS", "Invalid email or password."));
     }
+    loginRateLimiter.reset(request.ip, input.email);
 
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + config.SESSION_TTL_SECONDS * 1000);

@@ -26,6 +26,32 @@ export class UiError extends Error {
   }
 }
 
+let csrfTokenCache: { token: string; headerName: string } | null = null;
+
+export function resetCsrfTokenCacheForTest(): void {
+  csrfTokenCache = null;
+}
+
+async function csrfHeaders(): Promise<Record<string, string>> {
+  if (!csrfTokenCache) {
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/csrf");
+    } catch {
+      throw new UiError("NETWORK");
+    }
+    if (!response.ok) {
+      throw new UiError("CSRF_TOKEN_INVALID");
+    }
+    const body = (await response.json()) as { csrfToken?: unknown; headerName?: unknown };
+    if (typeof body.csrfToken !== "string" || typeof body.headerName !== "string") {
+      throw new UiError("CSRF_TOKEN_INVALID");
+    }
+    csrfTokenCache = { token: body.csrfToken, headerName: body.headerName };
+  }
+  return { [csrfTokenCache.headerName]: csrfTokenCache.token };
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -61,6 +87,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function mutatingCall<T>(path: string, init: RequestInit): Promise<T> {
+  const headers = await csrfHeaders();
+  return call<T>(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
+}
+
 export type AdminUser = PlatformUserContract;
 
 export interface SystemHealth {
@@ -83,21 +114,21 @@ export const adminApi = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => call<PlatformMeResponse>("/api/auth/me"),
-  logout: () => call<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+  logout: () => mutatingCall<{ ok: true }>("/api/auth/logout", { method: "POST" }),
 
   // Stores
   listStores: () => call<AdminStoreListResponse>("/api/admin/stores"),
   createStore: (input: AdminStoreCreateRequest) =>
-    call<AdminStore>("/api/admin/stores", { method: "POST", body: JSON.stringify(input) }),
+    mutatingCall<AdminStore>("/api/admin/stores", { method: "POST", body: JSON.stringify(input) }),
   updateStore: (id: string, input: AdminStoreUpdateRequest) =>
-    call<AdminStore>(`/api/admin/stores/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+    mutatingCall<AdminStore>(`/api/admin/stores/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 
   // Plans
   listPlans: () => call<PlanListResponse>("/api/admin/plans"),
   createPlan: (input: PlanCreateRequest) =>
-    call<Plan>("/api/admin/plans", { method: "POST", body: JSON.stringify(input) }),
+    mutatingCall<Plan>("/api/admin/plans", { method: "POST", body: JSON.stringify(input) }),
   updatePlan: (id: string, input: PlanUpdateRequest) =>
-    call<Plan>(`/api/admin/plans/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+    mutatingCall<Plan>(`/api/admin/plans/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
 
   // System health
   systemHealth: () => call<SystemHealth>("/api/system/health"),

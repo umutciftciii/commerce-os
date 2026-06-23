@@ -182,3 +182,31 @@
 - Sonuc: admin-web backend'i degistirmeden, CORS gerektirmeden ve token'i istemciye sizdirmadan canli
   API'ye baglanir. `packages/api-client` tek server->gateway kanali olarak kalir; frontend boundary
   korunur. Runtime smoke ile login/me/logout/revoke, stores/plans CRUD ve health akislari dogrulandi.
+
+## ADR-018 Faz 1C admin auth hardening stratejisi
+
+- Durum: ACCEPTED
+- Baglam: Faz 1C'de commerce feature eklemeden admin auth/session/BFF hattindaki guvenlik ve
+  operasyon borclari azaltildi. Ana riskler brute-force login, cookie tabanli BFF mutation'larinda
+  CSRF, internal health token sizintisi, dev smoke verisi ve store domain contract gap'iydi.
+- Karar: Gateway `POST /auth/platform/login` icin IP + normalize e-posta bazli proses ici rate limit
+  eklendi (`AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS`). Redis tabanli
+  dagitik sayaç bu fazda eklenmedi; production'da coklu instance icin takipli borc olarak kalir.
+  Basarili login ilgili IP/e-posta sayacini sifirlar; basarisiz denemeler pencere sonuna kadar tutulur.
+- Karar: admin-web BFF mutation'lari icin double-submit CSRF kullanilir. `GET /api/auth/csrf` token
+  uretir, JS tarafindan alinabilen ayri CSRF cookie'sine yazar ve token/header adini JSON dondurur.
+  Session cookie httpOnly kalir; CSRF token auth token degildir. Login CSRF disinda birakildi; pre-session
+  login riski rate limit + credential dogrulamasi ile sinirlanir. Logout, stores/plans create/update
+  CSRF header+cookie eslesmesi ister.
+- Karar: Session cookie adi `ADMIN_SESSION_COOKIE_NAME` (geri uyum icin `ADMIN_AUTH_COOKIE_NAME`
+  fallback), `ADMIN_COOKIE_SECURE`, `ADMIN_COOKIE_SAME_SITE` ile merkezilestirildi. Varsayilan
+  sameSite `lax`; production'da secure varsayilan true. Path `/` tutuldu; clear parametreleri set ile
+  ayni.
+- Karar: Korumali admin route group server tarafinda once session cookie varligini kontrol eder; asil
+  session dogrulamasi yine BFF `/api/auth/me` ile yapilir. Login sayfasi session cookie varsa erken
+  panele yonlendirir. Token client bundle'a girmez.
+- Karar: `/api/system/internal` server-side token proxy olarak kalir; token yoksa `available:false`,
+  token varsa timeout kontrollu DB/Redis probe yapar. Secret istemciye donmez ve loglanmaz.
+- Karar: Store list/get response'u `domain: string | null` ile genisletildi; StoreDomain tablosundaki
+  ilk domain gosterilir. Delete endpoint eklenmedi; smoke temizligi icin production/staging'de
+  calismayi reddeden `pnpm db:cleanup-smoke` script'i eklendi.

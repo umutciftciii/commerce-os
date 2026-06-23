@@ -20,6 +20,11 @@ export function unauthorizedResponse(): NextResponse {
   return NextResponse.json({ error: { code: "UNAUTHORIZED" } }, { status: 401 });
 }
 
+/** CSRF token/header dogrulamasi basarisiz oldugunda kullanilan standart 403 yaniti. */
+export function csrfForbiddenResponse(): NextResponse {
+  return NextResponse.json({ error: { code: "CSRF_TOKEN_INVALID" } }, { status: 403 });
+}
+
 /** Govde JSON degilse kullanilan standart 400 yaniti. */
 export function badRequestResponse(): NextResponse {
   return NextResponse.json({ error: { code: "VALIDATION_ERROR" } }, { status: 400 });

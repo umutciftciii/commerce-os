@@ -307,3 +307,65 @@ route handler proxy) zorunlu; token httpOnly cookie'de server-side tutuldu (ADR-
 ### Commit Onerisi
 
 `feat(admin-web): wire admin console to live API via BFF session`
+
+## Faz 1C Auth Hardening + Operasyon Temizligi Logu
+
+Kapsam: yeni commerce feature eklenmedi; `store-admin-web` ve `storefront-web` canli API'ye
+baglanmadi. Calisma API gateway, admin-web BFF, contract/config, dev ops scriptleri, testler ve
+dokumanlarla sinirli tutuldu.
+
+### Yapilanlar
+
+- `apps/api-gateway`: `POST /auth/platform/login` icin IP + e-posta bazli env kontrollu rate limit
+  eklendi. Hatalar mevcut `{ error: { code, message, details } }` zarfinda `AUTH_RATE_LIMITED` koduyla
+  429 doner. Basarili login ilgili sayaci sifirlar.
+- `packages/contracts` + gateway: `AdminStore` response'u `domain: string | null` ile genisledi;
+  store list/get ilk StoreDomain bilgisini dondurur. admin-web stores tablosuna domain kolonu eklendi.
+- `apps/admin-web`: double-submit CSRF eklendi (`/api/auth/csrf` + CSRF cookie/header). Logout ve
+  stores/plans create/update CSRF ister; GET'ler istemez. Session cookie env kontrollu
+  (`ADMIN_SESSION_COOKIE_NAME`, `ADMIN_COOKIE_SECURE`, `ADMIN_COOKIE_SAME_SITE`) hale getirildi.
+- `apps/admin-web`: `(app)` route group server tarafinda session cookie varligini kontrol eder; login
+  sayfasi mevcut session cookie varsa erken panele yonlendirir. Token client bundle'a girmez.
+- `apps/admin-web`: internal health proxy token yokken `available:false`, token varken timeout kontrollu
+  server-side DB/Redis probe davranisini korur; secret istemciye donmez.
+- `packages/db`: `pnpm db:cleanup-smoke` script'i eklendi. `smoke-`, `rev-`, `test-` prefiksli store/
+  plan kayitlarini development/test ortaminda temizler; production/staging'de calismayi reddeder.
+- `apps/admin-web`: Testing Library/jsdom eklendi; login validation/hata, stores/plans create modal,
+  logout flow, CSRF helper ve BFF CSRF/internal health route testleri eklendi.
+
+### Dogrulananlar
+
+- `pnpm --filter @commerce-os/api-gateway test` -> 13 test gecti.
+- `pnpm --filter @commerce-os/admin-web test` -> 22 test gecti.
+- `pnpm --filter @commerce-os/config test`, `pnpm --filter @commerce-os/{config,contracts,api-client,db,i18n,api-gateway} build`
+  ve `pnpm --filter @commerce-os/admin-web build` gecti.
+
+### Final Security / Runtime Review (2026-06-24)
+
+- Git diff Faz 1C kapsamiyla sinirli: api-gateway auth/domain response, admin-web BFF/session/CSRF,
+  config/contracts/i18n, db cleanup scriptleri ve docs. `store-admin-web`/`storefront-web` kaynaklari
+  degismedi; `.env`, `node_modules`, `.next`, `.turbo`, `dist` ve tsbuildinfo dosyalari commit
+  kapsaminda degil.
+- Security review: password/token loglanmiyor; session bearer token yalnizca httpOnly cookie'de;
+  CSRF token ayri readable cookie/header degeri ve auth token degil; `INTERNAL_API_TOKEN` client
+  bundle'a girmiyor. Login CSRF disinda, gateway rate limit ile korunuyor.
+- Runtime DB: `pnpm db:migrate` bekleyen migration yok, `pnpm db:seed` idempotent, `pnpm db:verify-seed`
+  gecti. Cleanup sonrasi verify-seed tekrar gecti.
+- Runtime smoke: gateway dogru login 200, yanlis login 401, art arda yanlis login sonrasi
+  `429 AUTH_RATE_LIMITED`, pencere bittikten sonra dogru login tekrar 200. BFF `me` cookie yokken 401,
+  cookie varken 200, logout CSRF yokken 403, CSRF varken 200 ve logout sonrasi `me` 401.
+- CSRF/admin smoke: store create CSRF yokken 403; CSRF ile store create 201, update 200; plan create
+  201, update 200. Store list response'u domain alanini dondurdu.
+- Internal/cleanup smoke: `/api/system/internal` token yokken `available:false`; `pnpm db:cleanup-smoke`
+  development ortaminda prefiksli smoke/rev/test store/plan kayitlarini temizledi, seed kayitlarini
+  korudu; `APP_ENV=production` ile calismayi reddetti.
+- Gate: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` commit oncesi yeniden calistirilacak
+  ve gecmeden commit atilmayacak.
+
+### Kalan Bilincli Borclar
+
+- Rate limit proses ici memory fallback'tir; coklu instance production icin Redis/dagitik sayaç veya
+  merkezi brute-force izleme Faz 2 borcu olarak kalir.
+- Refresh token/rotasyon, OAuth, 2FA ve password reset kapsam disi kaldi.
+- Frontend compose secret dagitimi ve gateway hata kodlarini paylasimli kaynaktan turetme TD-017
+  altinda devam eder.

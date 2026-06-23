@@ -117,30 +117,34 @@ revoke/user-agent/ip placeholder alanlari tutulur.
 
 ## Auth / Session
 
-Faz 1A'da platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed
+Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed
 admin parolasini scrypt hash uzerinden dogrular, session TTL'ini `SESSION_TTL_SECONDS` env'inden
 alir ve raw token'i yalnizca response'ta dondurur. `/auth/platform/me` ve admin endpointleri token'i
 `SESSION_SECRET` ile hashleyip DB'deki aktif session ile eslestirir. `/auth/platform/logout` session'i
-revoke eder. Cookie tabanli browser detaylari ileriki UI baglama fazina birakildi; cookie adi env'i
-hazir tutulur.
+revoke eder. Login brute-force korumasi IP + normalize e-posta bazli proses ici sayaçla uygulanir
+(`AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS`); basarili login ilgili
+sayaçlari sifirlar.
 
-### admin-web auth akisi (Faz 1B BFF)
+### admin-web auth akisi (Faz 1B/1C BFF)
 
 admin-web tarayicisi gateway'e dogrudan gitmez (gateway'de CORS yok ve token istemciye sizdirilmez).
 Bunun yerine ayni-origin Next route handler'lari (BFF) kullanilir:
 
 1. Login: tarayici `POST /api/auth/login` cagirir; handler gateway `/auth/platform/login`'i cagirir,
-   donen bearer token'i **httpOnly cookie**'ye (`ADMIN_AUTH_COOKIE_NAME`, sameSite=lax, prod'da secure)
+   donen bearer token'i **httpOnly cookie**'ye (`ADMIN_SESSION_COOKIE_NAME`, sameSite=lax, prod'da secure)
    yazar ve istemciye yalnizca kullanici bilgisini doner (token govdede/log'da yer almaz).
-2. Oturum dogrulama: `(app)` kabugu mount'ta `GET /api/auth/me` cagirir; handler cookie token'i ile
-   gateway `/auth/platform/me`'yi cagirir. Oturum yoksa istemci `/login`'e yonlendirir.
+2. Oturum dogrulama: `(app)` route group server tarafinda once session cookie varligini kontrol eder;
+   mount'ta `GET /api/auth/me` cagirir ve handler cookie token'i ile gateway `/auth/platform/me`'yi
+   dogrular. Oturum yoksa `/login`'e yonlendirir; login sayfasi cookie varsa erken panele gider.
 3. Admin islemleri: `/api/admin/stores`, `/api/admin/plans` (+`/:id`) handler'lari cookie token'i ile
    gateway admin endpointlerine proxy yapar; gateway hata `code`'u i18n ile Turkce mesaja cevrilir.
-4. Logout: `POST /api/auth/logout` cookie'yi temizler ve gateway `/auth/platform/logout` ile session'i
-   revoke eder.
+   Mutating BFF istekleri double-submit CSRF ister: `/api/auth/csrf` token/header adini verir,
+   logout ve stores/plans create/update bu header ile gelir. GET istekleri CSRF istemez.
+4. Logout: `POST /api/auth/logout` CSRF dogrular, cookie'yi temizler ve gateway `/auth/platform/logout`
+   ile session'i revoke eder.
 5. System health: `/api/system/health` public gateway health/version'i proxy'ler; `/api/system/internal`
-   yalnizca admin-web sunucu env'inde `INTERNAL_API_TOKEN` tanimliysa DB/Redis durumunu doner, aksi
-   halde "dahili token gerektirir" durumu gosterilir (secret client'a girmez).
+   yalnizca admin-web sunucu env'inde `INTERNAL_API_TOKEN` tanimliysa timeout kontrollu DB/Redis
+   durumunu doner, aksi halde "dahili token gerektirir" durumu gosterilir (secret client'a girmez).
 
 Host makineden dogrudan Prisma CLI kullanilirken `127.0.0.1` tabanli `DATABASE_URL` gerekir. Root
 `db:migrate`, `db:seed` ve `db:verify-seed` scriptleri ise Docker Compose icindeki `api-gateway`

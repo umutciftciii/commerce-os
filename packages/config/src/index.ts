@@ -11,6 +11,8 @@ export const envSchema = z.object({
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 8),
   PASSWORD_HASH_PEPPER: z.string().optional().default(""),
   ADMIN_AUTH_COOKIE_NAME: z.string().min(1).default("commerce_os_admin_session"),
+  AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   API_GATEWAY_PORT: z.coerce.number().int().positive().default(3000),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
 });
