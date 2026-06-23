@@ -157,3 +157,28 @@
   `packages/auth` icinde role sirasi ve access assertion olarak hazir tutulur.
 - Sonuc: Faz 1A endpointleri type-safe contract, test ve audit log ile hazir; asiri typed API
   framework veya frontend UI baglama eklenmedi.
+
+## ADR-017 admin-web BFF (Next route handler proxy) + httpOnly cookie token saklama
+
+- Durum: ACCEPTED
+- Baglam: Faz 1B'de `apps/admin-web` canli gateway'e baglanmali (login, me, logout, stores, plans,
+  system health). Iki kisit var: (1) api-gateway'de CORS yok ve backend Faz 1B'de degistirilmeyecek,
+  bu yuzden tarayici dogrudan gateway'e gidemez; (2) gateway bearer token donduruyor ve token UI'a,
+  log'a veya client bundle'a dusmemeli. Internal health uclari ayrica `INTERNAL_API_TOKEN` gerektirir.
+- Karar: admin-web icinde **Backend-for-Frontend (BFF)** deseni kullanilir. Tarayici yalnizca
+  ayni-origin Next route handler'larini (`/api/auth/*`, `/api/admin/*`, `/api/system/*`) cagirir;
+  bu handler'lar `packages/api-client` ile gateway'e gider. Platform bearer token login'de **httpOnly
+  cookie**'ye SERVER tarafinda yazilir (`ADMIN_AUTH_COOKIE_NAME`, `sameSite=lax`, prod'da `secure`);
+  token hicbir zaman yanit govdesine, istemci JS'ine veya log'a dusmez. BFF yalnizca makine-okunur
+  hata `code`'unu ve HTTP status'u tarayiciya doner; ham gateway mesaji sizdirilmaz ve UI kodu i18n
+  sozluguyle Turkce mesaja cevirir. Internal DB/Redis health icin `INTERNAL_API_TOKEN` yalnizca
+  sunucu env'inde tutulur ve `/api/system/internal` server-side proxy ile cagrilir; token yoksa uc
+  `available:false` doner ve UI "dahili token gerektirir" durumunu gosterir. localStorage tabanli
+  token saklama bilincli olarak REDDEDILDI (XSS yuzeyi daha genis; httpOnly cookie daha guvenli ve
+  esit eforda).
+- Bilincli kapsam disi (gecici): CSRF token, `secure` cookie matrisi disindaki production hardening,
+  refresh token rotasyonu, rate limit, server-side render'da oturum on-yuklemesi. Bunlar TD-015 ve
+  TD-017 altinda takip edilir.
+- Sonuc: admin-web backend'i degistirmeden, CORS gerektirmeden ve token'i istemciye sizdirmadan canli
+  API'ye baglanir. `packages/api-client` tek server->gateway kanali olarak kalir; frontend boundary
+  korunur. Runtime smoke ile login/me/logout/revoke, stores/plans CRUD ve health akislari dogrulandi.

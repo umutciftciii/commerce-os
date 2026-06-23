@@ -1,6 +1,6 @@
 import { Button, Input, PageHeader, SectionCard } from "@commerce-os/ui";
-import { SettingsIcon } from "../../components/icons";
-import { getAdminDict, getCommonDict } from "../../lib/i18n";
+import { SettingsIcon } from "../../../components/icons";
+import { getAdminDict, getCommonDict } from "../../../lib/i18n";
 
 export default function SettingsPage() {
   const t = getAdminDict().settings;

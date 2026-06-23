@@ -36,9 +36,11 @@ yazilmaz (bkz. ADR-013, ADR-014, `docs/PROMPT_RULES.md`). Ingilizce (`en`) ikinc
 parity ile saglanir ancak varsayilan degildir; runtime locale switcher / URL locale stratejisi bu
 asamada kapsam disidir.
 
-All pages are currently placeholders/empty states — no commerce business logic, no real auth, no
-payment. Frontends talk to the backend only through the API gateway via the `@commerce-os/api-client`
-placeholder.
+`apps/admin-web` is wired to the live API gateway (Faz 1B): platform admin login, session, and live
+stores/plans/system-health (see "Faz 1B admin-web" below). `store-admin-web` and `storefront-web`
+remain placeholders/empty states — no commerce business logic, no payment. Frontends talk to the
+backend only through the API gateway via `@commerce-os/api-client`; admin-web does this server-side
+inside Next route handlers (BFF), the browser never calls the gateway directly.
 
 - `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
 - `apps/store-admin-web` — store manager panel (dashboard, products, orders, inventory, customers, marketplace, theme, settings). `pnpm dev:store-admin` → `http://localhost:3002`
@@ -201,6 +203,37 @@ Hatalar su zarfta doner:
     "message": "Unauthorized."
   }
 }
+```
+
+## Faz 1B admin-web (canli yonetim konsolu)
+
+`apps/admin-web` canli gateway'e baglidir. Tarayici gateway'e dogrudan gitmez; ayni-origin Next route
+handler'lari (BFF) gateway'i SUNUCU tarafinda cagirir ve platform bearer token'i httpOnly cookie'de
+saklar (bkz. ADR-017). Token UI'da gosterilmez, log'a/console'a yazilmaz, client bundle'a girmez.
+
+Yerel calistirma:
+
+```bash
+# 1) Backend runtime (postgres + redis + api-gateway + worker)
+docker compose -f infra/docker/docker-compose.yml up -d
+pnpm db:migrate
+pnpm db:seed
+
+# 2) admin-web dev (gateway adresi varsayilan http://localhost:4000)
+API_GATEWAY_URL=http://localhost:4000 pnpm dev:admin   # http://localhost:3001
+```
+
+- Giris: `http://localhost:3001/login` → seed admin (`platform-admin@example.local` /
+  `local-admin-password`). Basarili giriste panele yonlendirir; oturum varsa `/login` otomatik panele
+  gider; "Cikis yap" oturumu sonlandirir (gateway session revoke).
+- Mağazalar ve Paketler sayfalari canli listeler; create/update modallari calisir, basarida liste
+  yenilenir. Duplicate slug/kod ve validation hatalari kullanici dostu Turkce gosterilir.
+- Sistem Sağlığı sayfasi public `/health` + `/version`'i canli gosterir. Dahili DB/Redis durumu icin
+  admin-web SUNUCU env'ine gateway ile ayni `INTERNAL_API_TOKEN` verilirse canli baglanir; verilmezse
+  "dahili token gerektirir" durumu gosterilir (secret istemciye sizmaz):
+
+```bash
+INTERNAL_API_TOKEN=<gateway-ile-ayni-token> API_GATEWAY_URL=http://localhost:4000 pnpm dev:admin
 ```
 
 ## Scriptler

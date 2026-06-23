@@ -16,6 +16,21 @@ export const trCommon = {
     connect: "Bağlan",
     preview: "Önizle",
     customize: "Özelleştir",
+    cancel: "Vazgeç",
+    create: "Oluştur",
+    update: "Güncelle",
+    edit: "Düzenle",
+    retry: "Tekrar dene",
+    refresh: "Yenile",
+    logout: "Çıkış yap",
+    signIn: "Giriş yap",
+    dismiss: "Kapat",
+  },
+  states: {
+    loading: "Yükleniyor…",
+    saving: "Kaydediliyor…",
+    loadErrorTitle: "Veriler yüklenemedi",
+    loadErrorBody: "İçerik alınırken bir sorun oluştu. Lütfen tekrar deneyin.",
   },
   status: {
     live: "Canlı",
@@ -25,6 +40,9 @@ export const trCommon = {
     notConnected: "Bağlı değil",
     notWired: "Henüz bağlı değil",
     active: "Etkin",
+    ok: "Çalışıyor",
+    degraded: "Sorunlu",
+    unknown: "Bilinmiyor",
   },
 };
 

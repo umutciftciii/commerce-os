@@ -87,8 +87,10 @@
   ve per-domain resource'lar (stores, products, orders...) yok.
 - Cozum onerisi: Auth/session fazinda token stratejisi ve type-safe resource gruplarini eklemek
   (TD-002 ile birlikte).
-- Not: Faz 1A'da auth ve admin store/plan helper'lari eklendi. Commerce per-domain resource'lari
-  henuz yok.
+- Not: Faz 1A'da auth ve admin store/plan helper'lari eklendi. Faz 1B'de tipli `ApiError` (gateway
+  hata `code`/`status`), internal DB/Redis health helper'lari ve frontend'in tek kanaldan erismesi
+  icin kontrat tipi re-export'lari eklendi. Commerce per-domain resource'lari (product/order...) henuz
+  yok.
 - Hedef faz: Faz 1
 
 ## TD-015 Auth rate limit ve cookie hardening eksik
@@ -99,15 +101,23 @@
   stratejisi ve refresh token rotasyonu henuz yok.
 - Cozum onerisi: UI baglama ve production hardening fazinda Fastify rate limit, browser cookie
   stratejisi, secure/sameSite/httpOnly ayarlari ve brute-force izleme eklemek.
+- Not: Faz 1B'de admin-web BFF, platform token'i httpOnly + sameSite=lax + (prod) secure cookie'ye
+  yazar (ADR-017). Kalan production hardening hala acik: gateway rate limit/lockout, CSRF token,
+  refresh token rotasyonu ve `secure` flag'in prod dağıtım davranisinin dogrulanmasi.
 - Hedef faz: Faz 1B/Faz 2
 
 ## TD-016 Admin UI auth baglama yok
 
-- Durum: OPEN
+- Durum: RESOLVED
 - Oncelik: HIGH
 - Etki: Backend auth/admin endpointleri hazir olsa da `apps/admin-web` henuz login formu, token
   saklama, me kontrolu, store/plan liste/form baglantisi yapmiyor.
 - Cozum onerisi: Faz 1B'de admin-web'i `packages/api-client` auth/admin helper'larina baglamak.
+- Cozum: Faz 1B'de admin-web BFF (Next route handler proxy) ile canli gateway'e baglandi: login/me/
+  logout akisi, httpOnly cookie token saklama (ADR-017), oturum guard'li yonetim kabugu, stores/plans
+  canli liste + create/update modallari, system health public bağlama ve dahili token gerektiren
+  DB/Redis durumu icin guvenli server-side proxy. Tum gorunur metin `packages/i18n` uzerinden Turkce.
+  Kalan hardening TD-015 ve TD-017'de takip edilir.
 - Hedef faz: Faz 1B
 
 ## TD-010 Frontend ekranlari placeholder; gercek veri/aksiyon yok
@@ -136,6 +146,10 @@
   sinirli; jsdom tabanli etkilesim/erisilebilirlik testleri yok.
 - Cozum onerisi: Etkilesim gerektiren ekranlar gelistikce jsdom + Testing Library tabanli testler
   eklemek.
+- Not: Faz 1B'de admin-web icin BFF/data-katmani testleri (adminApi fake-fetch ile login/me/logout,
+  stores/plans list+create, hata->kod, NETWORK), hata-kodu->Turkce mesaj esleme testi, login SSR
+  smoke ve i18n copy/parity testleri eklendi. Gercek DOM etkilesimi (form submit, modal acma, satir
+  aksiyonu, erisilebilirlik) hala jsdom + Testing Library bekliyor.
 - Hedef faz: Faz 2+
 
 ## TD-013 Frontend UI Ingilizce ve basic/starter template gorunum
@@ -162,3 +176,30 @@
 - Cozum onerisi: Locale switcher, URL locale stratejisi ve kullanici/mağaza locale tercihini ileride
   ayri islerde eklemek; gerekirse storefront icin mağaza bazli locale cozumlemesi.
 - Hedef faz: Faz 3+
+
+## TD-017 admin-web BFF/internal-health operasyonel notlari
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: (1) `/api/system/internal` dahili DB/Redis durumu yalnizca admin-web SUNUCU env'inde
+  `INTERNAL_API_TOKEN` tanimliysa canli doner; tanimli degilse UI "dahili token gerektirir" durumunu
+  gosterir. Compose'da bu env admin-web container'ina henuz verilmedi (frontend compose servisi de yok,
+  bkz. TD-008), bu yuzden Faz 1C'de guvenli ops baglama planlanir. (2) BFF hata->kod esleme listesi
+  (`packages/i18n` admin.errors) gateway hata kodlariyla elle senkron tutulur; gateway yeni kod
+  eklerse UI'da genel UNKNOWN mesajina duser. (3) Oturum guard istemci tarafinda `/api/auth/me`
+  ile yapilir; server-side render on-yuklemesi/middleware korumasi yoktur, bu yuzden korumali sayfa
+  ilk frame'de kisa bir spinner gosterir.
+- Cozum onerisi: Faz 1C'de internal health icin guvenli ops ekrani/secret dagitimini netlestirmek;
+  gateway hata kodlarini paylasimli bir kaynaktan turetmek; gerekirse Next middleware ile sunucu
+  tarafli oturum korumasi eklemek.
+- Hedef faz: Faz 1C/Faz 2
+
+## TD-018 admin-web canli smoke test verisi yerel DB'de kaliyor
+
+- Durum: OPEN
+- Oncelik: LOW
+- Etki: Faz 1B runtime smoke'unda yerel dev DB'sine ornek `smoke-*` mağaza/paket kayitlari olusturuldu;
+  delete endpoint'i kapsam disi oldugu icin temizlenmedi. Yalnizca yerel gelistirme verisini etkiler.
+- Cozum onerisi: Delete/bulk action fazinda temizleme; veya gerekirse `pnpm db:seed` oncesi yerel DB
+  reset akisini dokumante etmek.
+- Hedef faz: Faz 2+
