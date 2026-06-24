@@ -128,8 +128,10 @@ Frontend web app servisleri (Next.js dev runtime, backend ile aynı `node.Docker
 - `storefront-web` → `http://localhost:3000`
 
 Üç frontend app de aynı imaj + `pnpm --filter <app> dev` target'ı ile çalışır; her birinin
-kendi `/api/health` liveness endpoint'i compose healthcheck olarak kullanılır. `store-admin-web`
-ve `storefront-web` henüz canlı API'ye bağlı değildir, shell olarak ayağa kalkar (bkz. TD-010/011).
+kendi `/api/health` liveness endpoint'i compose healthcheck olarak kullanılır. `admin-web` canlı
+API gateway'e, `store-admin-web` ise Faz 2B'den beri canlı catalog/inventory API'sine BFF deseniyle
+(ADR-023) bağlıdır. `storefront-web` hâlâ demo/static shell olarak ayağa kalkar; gerçek resolver
+sonraki faza kalmıştır (bkz. TD-011).
 
 ### Frontend env ayrımı (host vs compose)
 

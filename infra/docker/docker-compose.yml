@@ -114,8 +114,8 @@ services:
       retries: 30
       start_period: 40s
 
-  # Magaza yoneticisi paneli. Henuz canli API'ye baglanmiyor; shell olarak
-  # ayaga kalkar. Gateway adresi ileride baglandiginda hazir olsun diye verilir.
+  # Magaza yoneticisi paneli. Faz 2B'den beri canli catalog/inventory API'sine
+  # gateway uzerinden BFF deseniyle baglidir (API_GATEWAY_URL).
   store-admin-web:
     restart: unless-stopped
     build:
