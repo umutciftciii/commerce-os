@@ -80,7 +80,15 @@
   backend contract/model kararlarini eklemek. (DONE — F2D backend/model/contract/API foundation,
   order purchasability guard ve seed/verify eklendi; UI/storefront baglama kapsam disi.)
 - TODO-036: Faz 2E Runtime Language Switch — TR/EN switch, locale cookie ve admin-web,
-  store-admin-web, storefront-web entegrasyonu. Bu F2D final review kapsaminda implement edilmedi.
+  store-admin-web, storefront-web entegrasyonu. (DONE — `commerce_os_locale` cookie, `packages/i18n`
+  locale yardimcilari, `packages/ui` `LocaleProvider`/`useLocale`/`LanguageSwitcher`, uc app server+
+  client entegrasyonu, TR varsayilan + TR fallback, key parity korundu; bkz. ADR-026, TD-028.)
+- TODO-044: User/DB locale preference — store-user auth (TD-019) tamamlandiginda kalici, store-scoped
+  kullanici dil tercihini DB'ye yazmak ve cookie ile birlikte cozumleme onceligini tanimlamak (TD-028).
+- TODO-045: URL locale prefix / public i18n routing — ileride public SEO/i18n gerekirse `/tr`-`/en`
+  (veya domain/locale negotiation) routing, middleware ve canonical kararlarini ayri is olarak ele
+  almak; mevcut prefix'siz cookie stratejisinin uzerine katmanlanir (TD-028).
+- TODO-046: Faz 2F Store-admin Product Sales Model UI — sirada (F2D alanlarini urun formuna baglamak).
 - TODO-037: Faz 2F Store-admin Product Sales Model UI — F2D product sales model alanlarini store-admin
   urun formuna baglamak; sales mode, price visibility, CTA behavior ve tutarlilik hatalarini Turkce
   gostermek.

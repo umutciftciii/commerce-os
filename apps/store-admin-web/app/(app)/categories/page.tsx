@@ -13,6 +13,7 @@ import {
   SectionCard,
   Select,
   SkeletonRows,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -36,7 +37,8 @@ const STATUS_TONES: Record<CategoryStatus, "success" | "neutral"> = {
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export default function CategoriesPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.categories;
   const c = dict.common;
   const statusLabels = t.statusLabels as Record<CategoryStatus, string>;
@@ -51,9 +53,9 @@ export default function CategoriesPage() {
       const result = await storeApi.listCategories();
       setState({ status: "ready", categories: result.data, total: result.pagination.total });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -212,7 +214,8 @@ function CategoryEditor({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.categories;
   const c = dict.common;
   const f = t.form;
@@ -278,7 +281,7 @@ function CategoryEditor({
         onSaved(t.createdToast);
       }
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

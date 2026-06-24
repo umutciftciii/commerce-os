@@ -9,6 +9,7 @@ import {
   SectionCard,
   Skeleton,
   StatCard,
+  useLocale,
 } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { CategoryIcon, InventoryIcon, ProductIcon } from "../../components/icons";
@@ -21,7 +22,8 @@ type LoadState =
   | { status: "ready"; summary: DashboardSummary };
 
 export default function StoreDashboardPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.dashboard;
   const c = dict.common;
   const statusLabels = dict.storeAdmin.storeStatusLabels as Record<StoreContext["status"], string>;
@@ -34,9 +36,9 @@ export default function StoreDashboardPage() {
       const summary = await storeApi.dashboardSummary();
       setState({ status: "ready", summary });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();

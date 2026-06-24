@@ -43,4 +43,9 @@ export const enCommon: CommonDictionary = {
     degraded: "Degraded",
     unknown: "Unknown",
   },
+  language: {
+    ariaLabel: "Interface language",
+    turkish: "Turkish",
+    english: "English",
+  },
 };

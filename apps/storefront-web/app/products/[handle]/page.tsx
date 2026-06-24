@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Badge, Button, Container } from "@commerce-os/ui";
-import { findSampleProduct, getSampleProducts } from "../../../components/sample-products";
+import { findSampleProduct, sampleProductHandles } from "../../../components/sample-products";
 import { getStorefrontDict } from "../../../lib/i18n";
 
 export function generateStaticParams() {
-  return getSampleProducts().map((product) => ({ handle: product.handle }));
+  return sampleProductHandles().map((handle) => ({ handle }));
 }
 
 export default async function ProductDetailPage({
@@ -13,8 +13,8 @@ export default async function ProductDetailPage({
   params: Promise<{ handle: string }>;
 }) {
   const { handle } = await params;
-  const t = getStorefrontDict().detail;
-  const product = findSampleProduct(handle);
+  const t = (await getStorefrontDict()).detail;
+  const product = await findSampleProduct(handle);
   const name = product?.name ?? t.fallbackName;
   const category = product?.category ?? t.fallbackCategory;
   const priceLabel = product?.priceLabel ?? "₺—";

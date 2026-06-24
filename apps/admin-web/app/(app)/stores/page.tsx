@@ -13,6 +13,7 @@ import {
   SectionCard,
   Select,
   SkeletonRows,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -39,7 +40,8 @@ const STATUS_TONES: Record<StoreStatus, "success" | "neutral" | "warning" | "dan
 const SLUG_PATTERN = /^[a-z0-9-]{3,}$/;
 
 export default function StoresPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.stores;
   const c = dict.common;
   const statusLabels = t.statusLabels as Record<StoreStatus, string>;
@@ -58,9 +60,9 @@ export default function StoresPage() {
         total: result.pagination.total,
       });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -185,7 +187,8 @@ function StoreEditor({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.stores;
   const c = dict.common;
   const f = t.form;
@@ -227,7 +230,7 @@ function StoreEditor({
         onSaved(t.createdToast);
       }
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

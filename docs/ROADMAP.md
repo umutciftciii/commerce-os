@@ -31,7 +31,7 @@
 
 ## Faz 2 Commerce Core
 
-- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama + Faz 2C order core + Faz 2D product sales model eklendi)
+- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama + Faz 2C order core + Faz 2D product sales model + Faz 2E runtime TR/EN language switch eklendi)
 - Amac: Ticaret cekirdegini erken parcalamadan urun, stok, musteri ve siparis modellerini kurmak.
 - Kapsam: Product/catalog, inventory, customer, order, basic pricing ve order status akislari.
 - Kabul kriterleri: Commerce modelleri migration ile gelir; temel CRUD/API akislari testlidir;
@@ -78,10 +78,13 @@
 
 ### Faz 2E Runtime Language Switch
 
-- Durum: PLANNED
-- Kapsam: TR/EN runtime language switch, locale cookie ve admin-web, store-admin-web,
-  storefront-web entegrasyonu.
-- Kapsam disi: Bu F2D final review'da implement edilmedi.
+- Durum: IMPLEMENTED_GATE_PENDING
+- Kapsam: TR/EN runtime language switch, `commerce_os_locale` cookie ve admin-web, store-admin-web,
+  storefront-web entegrasyonu. `packages/i18n` locale yardimcilari, `packages/ui`
+  `LocaleProvider`/`useLocale`/`LanguageSwitcher`; varsayilan TR + TR fallback + key parity korundu
+  (bkz. ADR-026).
+- Kapsam disi: Kullanici/DB locale tercihi, URL locale prefix, tarayici dil tespiti (TD-028,
+  TODO-044/045).
 
 ### Faz 2F Store-admin Product Sales Model UI
 

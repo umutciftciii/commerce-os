@@ -50,3 +50,9 @@ export type {
   NavItem,
   UserChipProps,
 } from "./app-shell";
+
+export { LocaleProvider, useLocale } from "./locale-context";
+export type { LocaleProviderProps } from "./locale-context";
+
+export { LanguageSwitcher } from "./language-switcher";
+export type { LanguageSwitcherProps, LanguageSwitcherLabels } from "./language-switcher";

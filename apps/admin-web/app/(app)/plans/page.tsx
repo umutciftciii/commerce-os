@@ -12,6 +12,7 @@ import {
   SectionCard,
   SkeletonRows,
   Textarea,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -30,7 +31,8 @@ type Editor = { mode: "create" } | { mode: "edit"; plan: Plan } | null;
 const CODE_PATTERN = /^[a-z0-9-]{2,}$/;
 
 export default function PlansPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.plans;
   const c = dict.common;
 
@@ -44,9 +46,9 @@ export default function PlansPage() {
       const result = await adminApi.listPlans();
       setState({ status: "ready", plans: result.data, total: result.pagination.total });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -153,7 +155,8 @@ function PlanEditor({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.plans;
   const c = dict.common;
   const f = t.form;
@@ -193,7 +196,7 @@ function PlanEditor({
         onSaved(t.createdToast);
       }
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

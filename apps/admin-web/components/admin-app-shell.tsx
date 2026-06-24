@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell, Button, Spinner, Topbar, UserChip } from "@commerce-os/ui";
+import { AppShell, Button, LanguageSwitcher, Spinner, Topbar, UserChip, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { AdminNav } from "./admin-nav";
 import { SessionProvider } from "./session-context";
@@ -18,7 +18,9 @@ export function AdminAppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [state, setState] = useState<GuardState>({ status: "loading" });
 
-  const admin = getDictionary().admin;
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const admin = dict.admin;
 
   useEffect(() => {
     let active = true;
@@ -64,6 +66,7 @@ export function AdminAppShell({ children }: { children: ReactNode }) {
         nav={<AdminNav />}
         topbar={
           <Topbar title={admin.shell.topbarTitle}>
+            <LanguageSwitcher value={locale} labels={dict.common.language} />
             <UserChip name={displayName} role={roleLabel} />
             <Button variant="ghost" size="sm" onClick={onLogout}>
               {admin.shell.logout}

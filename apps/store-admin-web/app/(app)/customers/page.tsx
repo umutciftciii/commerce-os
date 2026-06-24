@@ -2,9 +2,9 @@ import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
 import { CustomerIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 
-export default function CustomersPage() {
-  const t = getStoreAdminDict().customers;
-  const c = getCommonDict();
+export default async function CustomersPage() {
+  const t = (await getStoreAdminDict()).customers;
+  const c = await getCommonDict();
 
   return (
     <>

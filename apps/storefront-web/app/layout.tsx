@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Container } from "@commerce-os/ui";
-import { defaultLocale } from "@commerce-os/i18n";
-import { getStorefrontDict } from "../lib/i18n";
+import { Container, LanguageSwitcher } from "@commerce-os/ui";
+import { getDictionary } from "@commerce-os/i18n";
+import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import "./globals.css";
 
-const t = getStorefrontDict();
-
-export const metadata: Metadata = {
-  title: t.meta.title,
-  description: t.meta.description,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getStorefrontDict();
+  return {
+    title: t.meta.title,
+    description: t.meta.description,
+  };
+}
 
 /**
  * Tema hazir genel vitrin cercevesi.
@@ -19,12 +20,18 @@ export const metadata: Metadata = {
  * `data-theme` per-store temalama icin yer tutucu bir kancadir. Cok kiracili
  * mağaza cozumlemesi (ornegin demo.localhost / ozel domain / slug -> mağaza)
  * HENUZ uygulanmadi; bu uygulama su an tek bir demo mağaza render eder.
+ *
+ * Aktif arayuz dili cookie'den cozulur (`getRequestLocale`); header'daki
+ * LanguageSwitcher TR/EN gecisini saglar ve `data-theme`/shell yapisini bozmaz.
  */
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const locale = await getRequestLocale();
+  const dict = getDictionary(locale);
+  const t = dict.storefront;
   const s = t.shell;
 
   return (
-    <html lang={defaultLocale} data-theme="default">
+    <html lang={locale} data-theme="default">
       <body>
         <div className="flex min-h-screen flex-col bg-white">
           <div className="bg-slate-900 py-2 text-center text-xs font-medium text-slate-100">
@@ -51,6 +58,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                     {t.cartCount}
                   </span>
                 </Link>
+                <LanguageSwitcher value={locale} labels={dict.common.language} />
               </nav>
             </Container>
           </header>

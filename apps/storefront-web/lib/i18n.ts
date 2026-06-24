@@ -1,10 +1,23 @@
-import { getDictionary } from "@commerce-os/i18n";
+import { cookies } from "next/headers";
+import {
+  getDictionary,
+  localeCookieName,
+  resolveLocaleFromCookieValue,
+  type Locale,
+} from "@commerce-os/i18n";
 
 /**
- * Bu app icin aktif vitrin sozlugu. Varsayilan locale Turkce'dir; runtime locale
- * switcher / URL locale stratejisi sonraki bir fazda eklenecek (docs/TODO.md).
- * Cok kiracili mağaza locale tercihi de o asamada degerlendirilecek.
+ * Sunucu tarafi locale cozumlemesi. Aktif vitrin dili `commerce_os_locale`
+ * cookie'sinden okunur; gecersiz/bos deger guvenli sekilde varsayilana (Turkce)
+ * duser. Vitrin sayfalari sunucu bilesenleridir; locale her istekte cookie'den
+ * cozulur. Cok kiracili mağaza locale tercihi sonraki bir fazda degerlendirilecek.
  */
-export function getStorefrontDict() {
-  return getDictionary().storefront;
+export async function getRequestLocale(): Promise<Locale> {
+  const cookieStore = await cookies();
+  return resolveLocaleFromCookieValue(cookieStore.get(localeCookieName)?.value);
+}
+
+/** Aktif locale icin vitrin sozlugu (sunucu). */
+export async function getStorefrontDict() {
+  return getDictionary(await getRequestLocale()).storefront;
 }

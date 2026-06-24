@@ -44,6 +44,11 @@ export const trCommon = {
     degraded: "Sorunlu",
     unknown: "Bilinmiyor",
   },
+  language: {
+    ariaLabel: "Arayüz dili",
+    turkish: "Türkçe",
+    english: "İngilizce",
+  },
 };
 
 export type CommonDictionary = typeof trCommon;

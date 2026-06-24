@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, EmptyState, PageHeader, SectionCard, SkeletonRows } from "@commerce-os/ui";
+import { Alert, Badge, Button, EmptyState, PageHeader, SectionCard, SkeletonRows, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { HealthIcon } from "../../../components/icons";
 import { adminApi, type InternalProbe, type SystemHealth, type SystemInternal } from "../../../lib/client/api";
@@ -19,7 +19,8 @@ function probeTone(probe: InternalProbe): "success" | "warning" | "neutral" {
 }
 
 export default function SystemHealthPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.systemHealth;
   const c = dict.common;
   const components = t.components;
@@ -38,9 +39,9 @@ export default function SystemHealthPage() {
       setHealth({ status: "ready", health: healthResult });
       setInternal(internalResult);
     } catch (error) {
-      setHealth({ status: "error", message: messageForError(error) });
+      setHealth({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -160,7 +161,7 @@ function InternalBadge({
   internal: SystemInternal | null;
   pick: (value: { db: InternalProbe; redis: InternalProbe }) => InternalProbe;
 }) {
-  const dict = getDictionary();
+  const dict = getDictionary(useLocale());
   const c = dict.common;
   if (!internal || internal.available === false) {
     return <Badge tone="neutral">{c.status.pending}</Badge>;

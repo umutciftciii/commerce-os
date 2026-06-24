@@ -90,7 +90,9 @@ packages/i18n/
   turbo.json
   src/
     index.ts            # defaultLocale, supportedLocales, Locale, getDictionary, getDefaultDictionary,
-                        # isSupportedLocale, format, allDictionaries
+                        # isSupportedLocale, format, allDictionaries,
+                        # localeCookieName, localeCookieMaxAge,
+                        # resolveLocaleFromCookieValue, localeCookieString
     locales/
       tr/               # KAYNAK sozluk (tip parite kaynagi)
         common.ts  admin.ts  storeAdmin.ts  storefront.ts
@@ -98,13 +100,31 @@ packages/i18n/
         common.ts  admin.ts  storeAdmin.ts  storefront.ts
   test/
     i18n.test.ts        # defaultLocale, supportedLocales, parity, fallback testleri
+    locale-cookie.test.ts  # cookie cozumleme, cookie dizesi, switcher copy paritesi
 ```
 
 - `defaultLocale = "tr"`, `supportedLocales = ["tr", "en"]`, `type Locale = "tr" | "en"`.
 - `getDictionary(locale?)` desteklenmeyen/eksik locale'de guvenli sekilde Turkce'ye duser.
 - EN sozlukleri TR tipine (`AdminDictionary` vb.) bagli yazilir; derleme zamani key parity garantisi.
-- Kapsam disi (bilincli): runtime locale switcher, `/tr`-`/en` route prefix, tarayici dil tespiti,
-  DB locale alani, Next middleware. Bunlar `docs/TODO.md` altinda takip edilir.
+
+### Runtime locale switch (Faz 2E)
+
+Kullanici arayuz dilini TR/EN arasinda degistirebilir. Akis (bkz. ADR-026):
+
+- Secim `commerce_os_locale` cookie'sinde tutulur (`localeCookieName`). Auth token degildir;
+  `sameSite=lax`, `path=/`, uzun `max-age`, HTTPS'te `Secure`. URL prefix (`/tr`, `/en`) yoktur.
+- **Sunucu** (server components / layout / metadata): her app'in `lib/i18n.ts` modulu
+  `next/headers` `cookies()` ile `getRequestLocale()` cozer; `resolveLocaleFromCookieValue`
+  gecersiz/bos degeri Turkce'ye duser. Kok layout `<html lang>` ve sozlugu bu locale ile secer.
+- **Istemci** (client components): kok layout cozulen locale'i `@commerce-os/ui` `LocaleProvider`
+  ile istemci agacina (login dahil) tasir; bilesenler `useLocale()` + `getDictionary(locale)`
+  kullanir. Saglayicisiz render varsayilan dile (Turkce) duser.
+- **Switch**: `@commerce-os/ui` `LanguageSwitcher` cookie'yi `localeCookieString` ile yazar ve tam
+  sayfa yenilemesiyle sunucu-render sozlugu yeniden uretir. Auth/session/CSRF cookie'leri korunur.
+- API hata mesajlari `messageForError(error, locale)` ile aktif dilde gosterilir; ham kod sizmaz.
+
+Kapsam disi (bilincli): `/tr`-`/en` route prefix, tarayici dil tespiti, DB/kullanici locale tercihi,
+Next middleware. Bunlar `docs/TODO.md` ve `docs/TECHNICAL_DEBT.md` altinda takip edilir.
 
 ## Frontend Stack
 

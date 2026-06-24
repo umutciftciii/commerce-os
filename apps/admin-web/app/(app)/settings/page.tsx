@@ -2,9 +2,9 @@ import { Button, Input, PageHeader, SectionCard } from "@commerce-os/ui";
 import { SettingsIcon } from "../../../components/icons";
 import { getAdminDict, getCommonDict } from "../../../lib/i18n";
 
-export default function SettingsPage() {
-  const t = getAdminDict().settings;
-  const c = getCommonDict();
+export default async function SettingsPage() {
+  const t = (await getAdminDict()).settings;
+  const c = await getCommonDict();
 
   return (
     <>

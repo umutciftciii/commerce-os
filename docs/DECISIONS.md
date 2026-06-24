@@ -357,3 +357,32 @@
 - Sonuc: Katalog ve order cekirdegi teklif/randevu/vitrin urunlerini online checkout'tan ayiracak
   foundation'a sahip olur; UI ve public storefront davranisi sonraki fazlarda bu contract uzerinden
   baglanir.
+
+## ADR-026 Runtime locale (TR/EN) cookie stratejisi
+
+- Durum: ACCEPTED
+- Baglam: `packages/i18n` tip-guvenli TR/EN sozluk altyapisini sagliyordu ancak dil secimi statikti
+  (her zaman varsayilan TR). Faz 2E kullanicinin admin-web, store-admin-web ve storefront-web arayuz
+  dilini runtime'da TR/EN arasinda degistirebilmesini hedefler. Varsayilan dil Turkce kalir.
+- Karar (tasima): Secim `commerce_os_locale` cookie'sinde tutulur. Desteklenen degerler `tr`, `en`;
+  gecersiz/bos deger `resolveLocaleFromCookieValue` ile guvenli sekilde `tr`'ye duser. Sunucu
+  bilesenleri cookie'yi `next/headers` ile okuyup sozlugu secer; istemci bilesenleri kok layout'tan
+  `LocaleProvider`/`useLocale` ile cozulen locale'i alir. Degisim `LanguageSwitcher` ile cookie'ye
+  yazilir ve tam sayfa yenilemesiyle sunucu-render sozluk yeniden uretilir.
+- Neden cookie? Hem sunucu (server components, metadata, `<html lang>`) hem istemci ayni tek kaynaktan
+  okuyabilir; SSR ile istemci arasinda tutarlilik saglanir; login dahil tum rotalar kapsanir;
+  ek bagimlilik veya istemci state store'u gerekmez.
+- Neden URL prefix (`/tr`, `/en`) degil? Mevcut rota yapisi, BFF proxy'leri ve auth redirect'leri
+  prefix'siz tasarlandi. Prefix tum linkleri, middleware'i ve canonical/SEO kararlarini etkilerdi;
+  bu fazin kapsami arayuz dili tercihidir, public SEO/i18n routing degil. Ileride gerekirse ayri is.
+- Neden default TR? Urun birincil pazari Turkiye; kaynak sozluk TR'dir ve tum tip paritesi TR sekline
+  baglidir. Cookie yoksa veya gecersizse davranis hicbir regresyon olmadan onceki (TR) ile aynidir.
+- Neden kullanici tercihi DB'ye yazilmadi? Bu faz store-user auth/role modeli (TD-019) tamamlanmadan
+  ilerler; kalici kullanici-bazli tercih icin guvenilir bir kullanici kimligi ve store-scoped tercih
+  modeli gerekir. Cookie, oturum boyunca ve cihazda yeterli; DB tercihi ileride katmanlanabilir
+  (bkz. TODO, TD-028).
+- Guvenlik: Locale cookie bir tercih sinyalidir, gizli token degildir; httpOnly zorunlu degildir.
+  `sameSite=lax`, `path=/`, uzun `max-age`, HTTPS'te `Secure`. Auth/session/CSRF cookie'leri
+  ayri ve degismeden korunur; switcher sadece kendi cookie'sini yazar.
+- Sonuc: Uc frontend uygulamasi da gorunur metni aktif dile gore sunar; key parity ve TR fallback
+  korunur; hardcoded gorunur metin eklenmez.

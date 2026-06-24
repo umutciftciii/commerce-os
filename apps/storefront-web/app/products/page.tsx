@@ -4,9 +4,9 @@ import { ProductCard } from "../../components/product-card";
 import { getSampleProducts } from "../../components/sample-products";
 import { getStorefrontDict } from "../../lib/i18n";
 
-export default function ProductListingPage() {
-  const t = getStorefrontDict().listing;
-  const products = getSampleProducts();
+export default async function ProductListingPage() {
+  const t = (await getStorefrontDict()).listing;
+  const products = await getSampleProducts();
 
   return (
     <Container className="py-12">

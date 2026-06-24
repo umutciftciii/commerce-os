@@ -1,8 +1,8 @@
 import { Card, Container } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 
-export default function CheckoutPage() {
-  const t = getStorefrontDict().checkout;
+export default async function CheckoutPage() {
+  const t = (await getStorefrontDict()).checkout;
 
   return (
     <Container className="py-12">

@@ -336,3 +336,18 @@
   ayrica Product inquiry request model, Appointment request model ve WhatsApp redirect/store contact
   config islerini ayri backend/UI slice'lari olarak eklemek.
 - Hedef faz: Faz 2F, Faz 3+
+
+## TD-028 Runtime locale: kullanici tercihi, URL prefix ve dil tespiti eksik
+
+- Durum: OPEN
+- Oncelik: LOW
+- Etki: Faz 2E TR/EN runtime switch'i `commerce_os_locale` cookie ile cozer (bkz. ADR-026). Tercih
+  oturum/cihaz duzeyindedir; kullanici-bazli (DB) kalici locale tercihi yoktur — store-user auth
+  (TD-019) gelmeden guvenilir kullanici kimligi ve store-scoped tercih modeli kurulamaz. URL locale
+  prefix (`/tr`-`/en`) ve public i18n routing yoktur; bu nedenle public storefront icin locale'e
+  ozel canonical/SEO ve paylasilabilir dil-bazli URL yoktur. Tarayici dil tespiti (Accept-Language)
+  yoktur; ilk ziyaret her zaman varsayilan TR'dir.
+- Cozum onerisi: TODO-044 (user/DB locale preference) ve TODO-045 (URL locale prefix / public i18n
+  routing). Mevcut cookie stratejisi bu katmanlarin uzerine genisletilebilir; cozumleme onceligi
+  (URL > user > cookie > default) eklenirken yeniden degerlendirilmeli.
+- Hedef faz: Faz 3+ (public storefront ve store-user auth ile birlikte)

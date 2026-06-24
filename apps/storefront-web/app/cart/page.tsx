@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 
-export default function CartPage() {
-  const t = getStorefrontDict().cart;
+export default async function CartPage() {
+  const t = (await getStorefrontDict()).cart;
 
   return (
     <Container className="py-12">
