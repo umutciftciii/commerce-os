@@ -4,9 +4,11 @@
  * Basit, tipli sozluk sistemi. Varsayilan urun dili Turkce'dir. Tum gorunur UI
  * metni bu sozlukten okunur; bilesenlerde hardcoded gorunur metin yazilmaz.
  *
- * Kapsam disi (bilincli): runtime locale switcher, /tr veya /en route prefix,
- * tarayici dil tespiti, DB locale alani, Next middleware. Bunlar ileride ayri
- * islerde ele alinacak (bkz. docs/TODO.md).
+ * Runtime dil secimi (F2E): kullanici arayuz dilini TR/EN arasinda degistirebilir.
+ * Secim `commerce_os_locale` cookie'sinde tutulur ve server-side sozluk secimini
+ * belirler (bkz. resolveLocaleFromCookieValue, localeCookieName). URL prefix
+ * (/tr, /en), tarayici dil tespiti ve DB/kullanici locale tercihi bilincli olarak
+ * kapsam disidir (bkz. docs/TODO.md, docs/DECISIONS.md).
  */
 import { trCommon } from "./locales/tr/common";
 import { trAdmin } from "./locales/tr/admin";
@@ -51,6 +53,35 @@ export type Dictionary = (typeof dictionaries)[typeof defaultLocale];
 /** Verilen deger desteklenen bir locale mi? (tip daraltma ile.) */
 export function isSupportedLocale(value: unknown): value is Locale {
   return typeof value === "string" && (supportedLocales as readonly string[]).includes(value);
+}
+
+/** Runtime locale cookie adi. Auth token degildir; httpOnly olmasi gerekmez. */
+export const localeCookieName = "commerce_os_locale";
+
+/** Locale cookie omru: ~1 yil (saniye). Tercih kalici hissettirilir. */
+export const localeCookieMaxAge = 60 * 60 * 24 * 365;
+
+/**
+ * Cookie degerinden (ya da herhangi bir ham girdiden) desteklenen bir locale
+ * cozer. Bos, gecersiz veya desteklenmeyen deger guvenli sekilde varsayilana
+ * (Turkce) duser. Hem server (cookie okuma) hem client tarafinda kullanilir.
+ */
+export function resolveLocaleFromCookieValue(value?: string | null): Locale {
+  return isSupportedLocale(value) ? value : defaultLocale;
+}
+
+/**
+ * Client tarafinda `document.cookie`'ye yazilabilir bir locale cookie dizesi
+ * uretir. sameSite=lax, path=/, uzun omur. HTTPS uzerinde Secure eklenir
+ * (mevcut prod cookie davranisiyla uyumlu). httpOnly DEGILDIR; bu bir tercih
+ * sinyalidir, gizli bir token degildir.
+ */
+export function localeCookieString(locale: Locale): string {
+  // DOM tipine bagimli olmamak icin globalThis uzerinden okunur (i18n paketi
+  // DOM lib'i icermez; helper hem server hem client'ta cagrilabilir).
+  const loc = (globalThis as { location?: { protocol?: string } }).location;
+  const secure = loc?.protocol === "https:" ? "; Secure" : "";
+  return `${localeCookieName}=${locale}; Path=/; Max-Age=${localeCookieMaxAge}; SameSite=Lax${secure}`;
 }
 
 /**

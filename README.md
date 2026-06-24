@@ -33,8 +33,19 @@ Project tracking and technical context live under `docs/`:
 Light-first, premium SaaS UI foundation. **Varsayilan UI dili Turkce'dir** (`defaultLocale = "tr"`).
 Tum gorunur UI metni `@commerce-os/i18n` sozlugunden okunur; bilesenlerde hardcoded gorunur metin
 yazilmaz (bkz. ADR-013, ADR-014, `docs/PROMPT_RULES.md`). Ingilizce (`en`) ikinci dil olarak tam key
-parity ile saglanir ancak varsayilan degildir; runtime locale switcher / URL locale stratejisi bu
-asamada kapsam disidir.
+parity ile saglanir.
+
+### Dil degistirme (TR/EN runtime switch — Faz 2E)
+
+Uc frontend uygulamasinda da (admin-web, store-admin-web, storefront-web) arayuz dili TR/EN arasinda
+degistirilebilir; varsayilan Turkce kalir. Topbar'daki (storefront'ta header'daki) **TR/EN secici**
+ile dil degistirilir:
+
+- Secim `commerce_os_locale` cookie'sine yazilir (`sameSite=lax`, `path=/`; auth token degildir).
+- Secimden sonra sayfa yenilenir ve sunucu-render sozluk yeni dile gore uretilir; `<html lang>` da
+  guncellenir. Gecersiz/bos cookie guvenli sekilde Turkce'ye duser.
+- Login ekranlarinda da secici erisilebilir. URL prefix (`/tr`, `/en`), kullanici/DB tercihi ve
+  tarayici dil tespiti bilincli olarak kapsam disidir (bkz. ADR-026, TD-028).
 
 `apps/admin-web` is wired to the live API gateway (Faz 1B): platform admin login, session, and live
 stores/plans/system-health (see "Faz 1B admin-web" below). `apps/store-admin-web` is wired to the

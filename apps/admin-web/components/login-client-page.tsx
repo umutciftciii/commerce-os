@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, Spinner } from "@commerce-os/ui";
+import { Alert, Button, Input, LanguageSwitcher, Spinner, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { adminApi } from "../lib/client/api";
 import { messageForError } from "../lib/client/messages";
@@ -12,7 +12,9 @@ type FormState = "checking" | "idle" | "submitting" | "redirecting";
 /** Kabuk disi, ortalanmis platform admin giris ekrani. */
 export function LoginClientPage() {
   const router = useRouter();
-  const admin = getDictionary().admin;
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const admin = dict.admin;
   const t = admin.auth;
 
   const [formState, setFormState] = useState<FormState>("checking");
@@ -57,7 +59,7 @@ export function LoginClientPage() {
       setFormState("redirecting");
       router.replace("/");
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setFormState("idle");
     }
   }
@@ -73,7 +75,10 @@ export function LoginClientPage() {
   const busy = formState === "submitting";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
+    <main className="relative flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher value={locale} labels={dict.common.language} />
+      </div>
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-base font-bold text-white shadow-card ring-1 ring-brand-700/20">

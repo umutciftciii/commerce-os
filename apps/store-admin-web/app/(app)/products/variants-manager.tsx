@@ -11,6 +11,7 @@ import {
   Modal,
   Select,
   SkeletonRows,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -40,7 +41,8 @@ const SKU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Bir ürünün varyantlarını listeleyen ve oluşturma/düzenleme akışını yöneten modal. */
 export function VariantsManager({ product, onClose }: { product: Product; onClose: () => void }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.variants;
   const c = dict.common;
   const statusLabels = t.statusLabels as Record<VariantStatus, string>;
@@ -55,9 +57,9 @@ export function VariantsManager({ product, onClose }: { product: Product; onClos
       const result = await storeApi.listVariants(product.id);
       setState({ status: "ready", variants: result.data });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, [product.id]);
+  }, [product.id, locale]);
 
   useEffect(() => {
     void load();
@@ -205,7 +207,8 @@ function VariantEditor({
   onBack: () => void;
   onSaved: (message: string) => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.variants;
   const c = dict.common;
   const f = t.form;
@@ -293,7 +296,7 @@ function VariantEditor({
         onSaved(t.createdToast);
       }
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

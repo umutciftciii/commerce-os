@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell, Badge, Button, Spinner, Topbar, UserChip } from "@commerce-os/ui";
+import {
+  AppShell,
+  Badge,
+  Button,
+  LanguageSwitcher,
+  Spinner,
+  Topbar,
+  UserChip,
+  useLocale,
+} from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { StoreNav } from "./store-nav";
 import { StoreContextProvider } from "./store-context";
@@ -23,7 +32,9 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [state, setState] = useState<GuardState>({ status: "loading" });
 
-  const store = getDictionary().storeAdmin;
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const store = dict.storeAdmin;
 
   useEffect(() => {
     let active = true;
@@ -66,6 +77,7 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
         nav={<StoreNav />}
         topbar={
           <Topbar title={store.shell.topbarTitle}>
+            <LanguageSwitcher value={locale} labels={dict.common.language} />
             <Badge tone="info">{statusLabels[state.store.status]}</Badge>
             <UserChip name={displayName} role={store.shell.userRole} />
             <Button variant="ghost" size="sm" onClick={onLogout}>

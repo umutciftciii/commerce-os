@@ -590,3 +590,42 @@ dokumanlarla sinirli tutuldu.
   ve aktif reservation temizledi; son `pnpm db:verify-seed` gecti.
 - Sonraki faz: F2D Product Sales Model Foundation (`ONLINE`, `INQUIRY`, `APPOINTMENT`, `WHATSAPP`,
   `CATALOG_ONLY`, price visibility, CTA behavior).
+
+## Faz 2E Runtime Language Switch (TR/EN)
+
+### Yapilanlar
+
+- `packages/i18n`: Cookie/locale yardimcilari eklendi — `localeCookieName` (`commerce_os_locale`),
+  `localeCookieMaxAge`, `resolveLocaleFromCookieValue` (gecersiz/bos -> `tr`), `localeCookieString`
+  (sameSite=lax, path=/, uzun max-age, HTTPS'te Secure; httpOnly degil). `common` sozlugune switcher
+  copy'si (`language.ariaLabel/turkish/english`) TR/EN paritesiyle eklendi. `getDictionary` fallback
+  davranisi korundu.
+- `packages/ui`: `LocaleProvider`/`useLocale` (aktif dili istemci agacina tasiyan baglam; saglayicisiz
+  Turkce'ye duser) ve erisilebilir `LanguageSwitcher` (TR/EN, `aria-pressed`, grup `aria-label`;
+  cookie yazip tam sayfa yeniler). `@commerce-os/i18n` workspace bagimliligi eklendi; `next`'e bagimli
+  degil.
+- App entegrasyonu (uc app): Sunucu `lib/i18n.ts` modulleri `getRequestLocale()` ile cookie'den
+  locale cozer; kok layout `<html lang>` + `generateMetadata`'yi aktif dile gore uretir ve istemci
+  agacini (login dahil) `LocaleProvider` ile sarar. admin-web ve store-admin-web istemci sayfalari/
+  kabuk/nav/login `useLocale()` + `getDictionary(locale)` kullanir; topbar ve login ekrani
+  `LanguageSwitcher` gosterir. storefront sunucu sayfalari her istekte cookie'den dili cozer; header'a
+  switcher eklendi (`data-theme`/shell korunur). API hata mesajlari `messageForError(error, locale)`
+  ile aktif dilde gosterilir.
+- store-admin sunucu sayfalari (orders/customers/settings/marketplace/theme) ve storefront sayfalari
+  cookie okudugu icin dinamik render olur; `generateStaticParams` locale-bagimsiz handle listesi
+  (`sampleProductHandles`) kullanir.
+
+### Dogrulananlar
+
+- Testler: `packages/i18n` cookie cozumleme + switcher copy paritesi; `packages/ui` switcher render/
+  aktif durum/erisilebilir etiket + provider/fallback; admin/store-admin/storefront default TR ve
+  `locale=en` (storefront'ta gecersiz->TR fallback dahil) smoke. Mevcut auth/BFF/interaction testleri
+  bozulmadi (158 test gecti).
+- Gate: `pnpm db:generate` + `pnpm build` (24/24) + `pnpm typecheck` (0) + `pnpm test:unit`
+  (158/158) + `pnpm lint` (34/34) gecti.
+
+### Kalan Bilincli Borclar
+
+- Kullanici-bazli (DB) locale tercihi yok; URL locale prefix yok; tarayici dil tespiti yok
+  (TD-028, TODO). Cookie tercih oturum/cihaz duzeyinde kalir.
+- Sonraki faz: F2F Store-admin Product Sales Model UI.

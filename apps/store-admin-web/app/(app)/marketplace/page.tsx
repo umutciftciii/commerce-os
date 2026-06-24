@@ -2,9 +2,9 @@ import { Badge, Button, Card, PageHeader, SectionCard } from "@commerce-os/ui";
 import { MarketplaceIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 
-export default function MarketplacePage() {
-  const t = getStoreAdminDict().marketplace;
-  const c = getCommonDict();
+export default async function MarketplacePage() {
+  const t = (await getStoreAdminDict()).marketplace;
+  const c = await getCommonDict();
 
   return (
     <>

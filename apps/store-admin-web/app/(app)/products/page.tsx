@@ -14,6 +14,7 @@ import {
   Select,
   SkeletonRows,
   Textarea,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -43,7 +44,8 @@ const STATUS_TONES: Record<ProductStatus, "success" | "neutral" | "warning"> = {
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export default function ProductsPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.products;
   const c = dict.common;
   const statusLabels = t.statusLabels as Record<ProductStatus, string>;
@@ -64,9 +66,9 @@ export default function ProductsPage() {
       setCategories(cats.data);
       setState({ status: "ready", products: products.data, total: products.pagination.total });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -240,7 +242,8 @@ function ProductEditor({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.products;
   const c = dict.common;
   const f = t.form;
@@ -309,7 +312,7 @@ function ProductEditor({
         onSaved(t.createdToast);
       }
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

@@ -4,9 +4,9 @@ import { ProductCard } from "../components/product-card";
 import { getSampleProducts } from "../components/sample-products";
 import { getStorefrontDict } from "../lib/i18n";
 
-export default function HomePage() {
-  const t = getStorefrontDict().home;
-  const featured = getSampleProducts().slice(0, 3);
+export default async function HomePage() {
+  const t = (await getStorefrontDict()).home;
+  const featured = (await getSampleProducts()).slice(0, 3);
 
   return (
     <>

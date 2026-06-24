@@ -46,10 +46,18 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   gizli degeri (internal token) yalnizca sunucuda tutar, istemciye sizdirmaz. CSRF token'i auth token
   degildir; session bearer token'i istemci JS'ine verilmez.
 
-## packages/ui ve packages/api-client
+## packages/ui, packages/i18n ve packages/api-client
 
 - `packages/ui`: Yalnizca sunum katmani primitive'leri. Domain bilgisi, network cagrisi veya is
-  kurali tasimaz; framework-agnostik ve presentational kalir.
+  kurali tasimaz; framework-agnostik ve presentational kalir. Locale icin yalnizca tasima/sunum
+  parcalarini icerir: `LocaleProvider`/`useLocale` (aktif dili istemci agacina tasiyan baglam) ve
+  `LanguageSwitcher` (cookie yazip sayfayi yenileyen erisilebilir TR/EN secici). Lokalize metin
+  tutmaz; gorunur etiketleri prop olarak `packages/i18n` sozlugunden alir. `next`'e bagimli degildir.
+- `packages/i18n`: Tip-guvenli TR/EN sozluk + locale yardimcilari (`getDictionary`, `defaultLocale`,
+  `supportedLocales`, `localeCookieName`, `resolveLocaleFromCookieValue`, `localeCookieString`). Saf;
+  React/Next/DOM'a bagimli degildir. Cookie OKUMA/yazma kararini app'lere birakir: app `lib/i18n.ts`
+  sunucuda `next/headers` ile cozer, kok layout istemci agacina `LocaleProvider` ile tasir. UI ve
+  i18n siniri net: locale degeri i18n'de cozulur/uretilir, UI yalnizca sunar ve cookie'yi yazar.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
   bozmadan `packages/contracts` tiplerini kullanir (ve frontend'in tek kanaldan erismesi icin gerekli
   contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health/catalog/

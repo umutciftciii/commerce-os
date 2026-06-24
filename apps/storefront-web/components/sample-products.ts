@@ -7,15 +7,26 @@
  * sabit bir kimliktir ve cevrilmez. Gercek katalog verisi sonraki bir fazda
  * storefront/commerce servisleri tarafindan sunulacak.
  */
-import { getStorefrontDict } from "../lib/i18n";
+import { getDefaultDictionary } from "@commerce-os/i18n";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
+import { getStorefrontDict } from "../lib/i18n";
 
 export type SampleProduct = StorefrontDictionary["products"][number];
 
-export function getSampleProducts(): readonly SampleProduct[] {
-  return getStorefrontDict().products;
+/** Aktif locale'deki demo urunler (sunucu; cookie'den cozulur). */
+export async function getSampleProducts(): Promise<readonly SampleProduct[]> {
+  return (await getStorefrontDict()).products;
 }
 
-export function findSampleProduct(handle: string): SampleProduct | undefined {
-  return getSampleProducts().find((product) => product.handle === handle);
+export async function findSampleProduct(handle: string): Promise<SampleProduct | undefined> {
+  return (await getSampleProducts()).find((product) => product.handle === handle);
+}
+
+/**
+ * Statik route uretimi icin urun handle listesi. Handle'lar locale'den
+ * bagimsizdir; bu yardimci cookie OKUMAZ ve `generateStaticParams` icinde
+ * (istek baglami yokken) guvenle kullanilir.
+ */
+export function sampleProductHandles(): string[] {
+  return getDefaultDictionary().storefront.products.map((product) => product.handle);
 }

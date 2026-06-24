@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, Spinner } from "@commerce-os/ui";
+import { Alert, Button, Input, LanguageSwitcher, Spinner, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { storeApi } from "../lib/client/api";
 import { messageForError } from "../lib/client/messages";
@@ -12,7 +12,9 @@ type FormState = "checking" | "idle" | "submitting" | "redirecting";
 /** Kabuk dışı, ortalanmış mağaza yöneticisi giriş ekranı. */
 export function StoreLoginClient() {
   const router = useRouter();
-  const store = getDictionary().storeAdmin;
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const store = dict.storeAdmin;
   const t = store.auth;
 
   const [formState, setFormState] = useState<FormState>("checking");
@@ -57,7 +59,7 @@ export function StoreLoginClient() {
       setFormState("redirecting");
       router.replace("/");
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setFormState("idle");
     }
   }
@@ -73,7 +75,10 @@ export function StoreLoginClient() {
   const busy = formState === "submitting";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
+    <main className="relative flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher value={locale} labels={dict.common.language} />
+      </div>
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-base font-bold text-white shadow-card ring-1 ring-brand-700/20">

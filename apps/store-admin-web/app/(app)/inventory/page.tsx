@@ -13,6 +13,7 @@ import {
   SectionCard,
   SkeletonRows,
   Textarea,
+  useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
@@ -31,7 +32,8 @@ function isLowStock(item: InventoryItem): boolean {
 }
 
 export default function InventoryPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.inventory;
   const c = dict.common;
 
@@ -45,9 +47,9 @@ export default function InventoryPage() {
       const result = await storeApi.listInventory();
       setState({ status: "ready", items: result.data, total: result.pagination.total });
     } catch (error) {
-      setState({ status: "error", message: messageForError(error) });
+      setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void load();
@@ -182,7 +184,8 @@ function AdjustModal({
   onClose: () => void;
   onAdjusted: () => void;
 }) {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.storeAdmin.inventory;
   const c = dict.common;
   const f = t.form;
@@ -210,7 +213,7 @@ function AdjustModal({
       });
       onAdjusted();
     } catch (caught) {
-      setError(messageForError(caught));
+      setError(messageForError(caught, locale));
       setSaving(false);
     }
   }

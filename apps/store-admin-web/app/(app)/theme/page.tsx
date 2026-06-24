@@ -2,9 +2,9 @@ import { Badge, Button, Card, PageHeader, SectionCard } from "@commerce-os/ui";
 import { ThemeIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 
-export default function ThemePage() {
-  const t = getStoreAdminDict().theme;
-  const c = getCommonDict();
+export default async function ThemePage() {
+  const t = (await getStoreAdminDict()).theme;
+  const c = await getCommonDict();
 
   return (
     <>

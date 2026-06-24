@@ -11,6 +11,7 @@ import {
   SectionCard,
   Skeleton,
   StatCard,
+  useLocale,
 } from "@commerce-os/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { AdminStore, Plan } from "@commerce-os/api-client";
@@ -41,7 +42,8 @@ const STATUS_TONES: Record<StoreStatus, "success" | "neutral" | "warning" | "dan
 };
 
 export default function DashboardPage() {
-  const dict = getDictionary();
+  const locale = useLocale();
+  const dict = getDictionary(locale);
   const t = dict.admin.dashboard;
   const c = dict.common;
   const statusLabels = dict.admin.stores.statusLabels as Record<StoreStatus, string>;
@@ -70,14 +72,14 @@ export default function DashboardPage() {
           health,
         });
       } catch (error) {
-        if (active) setState({ status: "error", message: messageForError(error) });
+        if (active) setState({ status: "error", message: messageForError(error, locale) });
       }
     }
     void load();
     return () => {
       active = false;
     };
-  }, []);
+  }, [locale]);
 
   const greetingName = user?.name ?? user?.email ?? "";
   const ready = state.status === "ready" ? state : null;
