@@ -386,3 +386,24 @@
   ayri ve degismeden korunur; switcher sadece kendi cookie'sini yazar.
 - Sonuc: Uc frontend uygulamasi da gorunur metni aktif dile gore sunar; key parity ve TR fallback
   korunur; hardcoded gorunur metin eklenmez.
+
+## ADR-027 Entity detail = dedicated route/page (modal degil)
+
+- Durum: ACCEPTED
+- Baglam: F2G store-admin sipariş detayi modal olarak, F2D/F2F ürün düzenleme de modal olarak
+  tasarlanmisti. Bu ekranlar uzun form, timeline, finansal özet, tablo, lifecycle aksiyon ve
+  audit/event icerir; modal kapsamini asar ve derin-linklenemez/paylasilamaz.
+- Karar: Ana entity detay ekranlari modal olamaz; her biri dedicated route/page olur. Modal yalnizca
+  kisa, gecici, dusuk kapsamli aksiyonlar icindir (create/edit/confirm/quick action/adjust).
+  Sipariş, ürün, müşteri, mağaza, stok, varyant, plan gibi detay ekranlari route/page'dir.
+- Kural sinifi:
+  - Detail = dedicated route/page (`/orders/[id]`, `/products/[id]`, gelecekte `/customers/[id]`,
+    `/inventory/items/[id]`, `/stores/[id]`, `/plans/[id]`, `/products/[id]/variants/[variantId]`).
+  - Modal = kisa create/edit/confirm/adjust. Mevcut kisa modallar (ürün/kategori/varyant create-edit,
+    stok adjust, taslak sipariş create) korunur.
+  - Uzun form, timeline, finansal özet, tablolu detay, lifecycle aksiyon veya audit/event varsa
+    route/page zorunludur.
+- Tasarim plani kurali: Her yeni ekran tasarim planinda "detail route vs modal" karari acikca yazilir.
+- Sonuc: F2H'de sipariş detay modali `/orders/[id]`, ürün düzenleme modali `/products/[id]` route'una
+  tasindi; varyant yonetimi ürün detay sayfasinda inline bölüm oldu. Backend/business logic ve BFF
+  guvenligi (server-side store context, CSRF, token sizmamasi) degismeden korundu.

@@ -42,6 +42,17 @@ Ek kurallar:
   tercih edilir.
 - Light-first premium SaaS gorunumu korunur; ortak Tailwind preset kullanilir.
 
+### Detail Route vs Modal Kurali (bkz. ADR-027)
+
+- Ana entity detay ekranlari MODAL OLAMAZ; ayri route/page olarak tasarlanir.
+- Modal yalnizca kisa, gecici, dusuk kapsamli aksiyonlar icindir (create/edit/confirm/quick
+  action/adjust).
+- Sipariş, ürün, müşteri, mağaza, stok, varyant, plan gibi detay ekranlari modal degildir; route/page
+  olur (`/orders/[id]`, `/products/[id]`, …).
+- Uzun form, timeline, finansal özet, tablolu detay, lifecycle aksiyon veya audit/event iceren ekran
+  route/page olmak zorundadir.
+- Her tasarim planinda "detail route vs modal" karari acikca yazilir.
+
 ## Dil ve i18n Kurali (Frontend/UI)
 
 - Varsayilan urun dili Turkce'dir. Tum yeni gorunur UI metni varsayilan olarak Turkce uretilir

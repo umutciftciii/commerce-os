@@ -117,3 +117,19 @@
   ayarlari ve product `whatsappMessageTemplate` render kurali.
 - TODO-043: Faz 3 Storefront CTA behavior — product sales model alanlarina gore sepete ekle, fiyat
   sor, randevu al, WhatsApp ve katalog-only davranisini public storefront'ta render etmek.
+- TODO-044: Faz 2H Entity Detail Pages Route Standardization. (DONE — sipariş detayi `/orders/[id]`,
+  ürün detay/düzenleme `/products/[id]` route'una tasindi; liste detay/düzenle aksiyonlari route'a
+  linklenir; kisa create/adjust modallari korundu; kural ADR-027 + PROMPT_RULES'a yazildi; TR/EN
+  detail copy; backend/BFF kontratlari degismedi.)
+- TODO-050: Customer detail dedicated route `/customers/[id]` — müşteri profili, iletişim, adresler ve
+  sipariş geçmişi. (Bekliyor — customers ekrani henuz placeholder; canli olunca route/page olur,
+  modal degil; bkz. ADR-027.)
+- TODO-051: Inventory detail dedicated route `/inventory/items/[id]` (veya `/inventory/[id]`) — varyant
+  stok detayi, hareketler ve rezervasyonlar. (Bekliyor — kisa stok adjust modali kalir; detay
+  route/page olur.)
+- TODO-052: Variant detail dedicated route `/products/[id]/variants/[variantId]` — varyant yonetimi
+  su an ürün detay sayfasinda inline bölum; gerekirse ayri detail route'a tasinir.
+- TODO-053: admin-web store detail dedicated route `/stores/[id]` — mağaza detayi (su an create/edit
+  modali). (Bekliyor — admin-web ayri faz; TD-031.)
+- TODO-054: admin-web plan detail dedicated route `/plans/[id]` — plan detayi (su an create/edit
+  modali). (Bekliyor — TD-031.)

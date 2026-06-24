@@ -1,5 +1,47 @@
 # Phase Log
 
+## Faz 2H Entity Detail Pages Route Standardization
+
+- Tarih: 2026-06-25
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: Ana entity detay ekranlari modal yaklasimindan cikarilip dedicated route/page standardina
+  tasindi ve kural kalici olarak dokumante edildi (ADR-027). Frontend/UI agirlikli; backend
+  order/catalog business logic, DB model/migration ve BFF guvenlik kontratlari degismedi. Payment/
+  shipping/fulfillment, storefront checkout/cart ve inquiry/appointment modelleri kapsam disidir.
+- Kural (ADR-027): Detail = dedicated route/page; Modal = kisa create/edit/confirm/adjust. Sipariş,
+  ürün, müşteri, mağaza, stok, varyant, plan gibi detay ekranlari modal olamaz. Uzun form, timeline,
+  finansal özet, tablolu detay, lifecycle aksiyon veya audit/event iceren ekran route/page zorunludur.
+- Orders: `/orders` listesindeki detay modali kaldirildi; "Detay" artik `/orders/[id]` route'una
+  linklenir (gercek `href`). Yeni `/orders/[id]` detail page PageHeader (sipariş no, açiklama, listeye
+  dön linki, status/payment/fulfillment rozetleri, DRAFT→place / PLACED-CONFIRMED→cancel aksiyonlari)
+  + müşteri, tutar özeti, sipariş kalemleri, adresler, rezervasyonlar ve event timeline bölumlerini
+  dogal sayfa scroll'u ile gosterir. Liste place/cancel hizli aksiyonlari korundu; kisa "yeni taslak
+  sipariş" modali kaldi ve create sonrasi `/orders/[id]`'e yonlendirir.
+- Products: `/products` listesindeki ürün düzenleme + varyant yonetimi modallari kaldirildi; "Detay"
+  artik `/products/[id]` route'una linklenir. Yeni `/products/[id]` detail/edit page temel bilgiler +
+  kategoriler + satis davranisi (F2D/F2F alanlari) formunu, inline varyant bölumunu ve stok özeti
+  baglantisini barindirir; kaydet aksiyonu PageHeader'da. Ürün create modali bu fazda kaldi ve create
+  sonrasi `/products/[id]`'e yonlendirir. Form mantigi `product-form.tsx` (paylasilan ProductForm) ve
+  `variants-manager.tsx` (inline VariantsSection + kisa VariantEditor modali) olarak ayristirildi.
+- BFF: Yeni `GET /api/catalog/products/[productId]` proxy'si eklendi (store context server-side,
+  `admin.products.get`, token sizmaz). `storeApi.getProduct` istemci helper'i eklendi. Mutating
+  route'larin CSRF korumasi ve mevcut order place/cancel akislari degismedi.
+- Customers/inventory/store/plan: Bu fazda canli detay implement edilmedi; dedicated route hedefleri
+  TODO'ya yazildi (TODO-050..054). admin-web stores/plans hala create/edit modali kullanir (detay
+  ekrani degil); F2H kapsami disinda, TD-031 altinda takip edilir.
+- i18n: `storeAdmin.orders.detail.backToList/notFound` ve yeni `storeAdmin.products.detail.*`
+  (backToList, pageDescription, loadError, notFound, savedToast, saveAction, basicInfoTitle,
+  basicInfoSubtitle, categoriesTitle, variantsTitle, inventoryTitle, inventoryNote, inventoryLink) +
+  `products.detailAction` TR/EN tam paritede eklendi. Ham API kod UI'da gosterilmez.
+- Testler: `orders-ui.test.tsx` detay modal testleri route/link testine cevrildi; yeni
+  `order-detail-page.test.tsx` (lines/totals/events, DRAFT place / PLACED cancel / CANCELLED gizleme,
+  TR+EN, no invalid nesting) ve `product-detail-page.test.tsx` (sales-behavior alanlari render, save
+  update body, lokalize backend hata, inline varyant create, TR+EN) eklendi.
+  `store-admin-interactions.test.tsx` ürün edit/varyant modal testleri route linkine cevrildi; create
+  modali testleri korundu. Tum app'lerde `next/navigation` mock'landi.
+- Gate: `pnpm db:generate`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test` (turbo, 34/34
+  task; store-admin 70/70 test) gecti.
+
 ## Faz 2G Store Admin Orders UI
 
 - Tarih: 2026-06-25
