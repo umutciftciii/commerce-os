@@ -199,6 +199,27 @@ describe("store-admin products & variants", () => {
     );
   });
 
+  it("opens the edit modal with sales-behavior fields inside a scrollable, viewport-constrained panel", async () => {
+    storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    const user = userEvent.setup();
+
+    render(<ProductsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Düzenle" }));
+
+    // Uzun edit formundaki satis davranisi alanlari hala render olmali.
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getByText("Satış davranışı")).toBeTruthy();
+    expect(screen.getByLabelText("Satış tipi")).toBeTruthy();
+    expect(screen.getByLabelText("Min. sipariş adedi")).toBeTruthy();
+
+    // Panel viewport icinde kalmali; govde kendi icinde kaydirilabilir olmali.
+    expect(dialog.className).toContain("max-h-[calc(100vh-2rem)]");
+    expect(dialog.className).toContain("flex-col");
+    expect(dialog.querySelector(".overflow-y-auto")).toBeTruthy();
+  });
+
   it("creates a variant with lira price converted to minor units", async () => {
     storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
