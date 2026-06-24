@@ -182,6 +182,10 @@ pnpm db:verify-seed
 Seed idempotent tasarlanmıştır. Arka arkaya çalıştırıldığında demo platform admin, demo plan, demo
 store, demo domain ve demo store user kayıtlarını duplicate üretmeden korur.
 
+Demo katalog seed'i iki online satilabilir urun olusturur/gunceller: Demo Hoodie ve Demo Tote Bag.
+Ikisi de product sales model defaultlariyla gelir (`ONLINE`, `VISIBLE`, `ADD_TO_CART`,
+`purchasable=true`, `minOrderQuantity=1`). `pnpm db:verify-seed` bu alanlari da dogrular.
+
 Local demo platform admin:
 
 - Email: `platform-admin@example.local`
@@ -428,6 +432,26 @@ pnpm db:cleanup-smoke
 pnpm db:verify-seed
 ```
 
+## Faz 2D product sales model backend smoke
+
+Faz 2D store-admin urun formu veya storefront CTA render baglamaz; gateway contract/API ve order
+guard smoke'u yapilir. Demo urunler `ONLINE` / `VISIBLE` / `ADD_TO_CART` / `purchasable=true`
+defaultlariyla order line olabilir. `f2d-smoke-*` urunlerde asagidaki davranis beklenir:
+
+```bash
+# Product create/update payload'lari sales model alanlarini kabul eder.
+salesMode=INQUIRY      # order create/add-line -> PRODUCT_REQUIRES_INQUIRY
+salesMode=APPOINTMENT  # order create/add-line -> PRODUCT_REQUIRES_APPOINTMENT
+salesMode=WHATSAPP     # order create/add-line -> PRODUCT_REQUIRES_WHATSAPP
+salesMode=CATALOG_ONLY # order create/add-line -> PRODUCT_CATALOG_ONLY
+
+# ONLINE olsa bile purchasable=false veya HIDDEN/ON_REQUEST fiyat gorunurlugu online order'a kapatir.
+salesMode=ONLINE purchasable=false # -> PRODUCT_NOT_PURCHASABLE
+```
+
+Smoke kayitlari `pnpm db:cleanup-smoke` ile temizlenir ve ardindan `pnpm db:verify-seed` demo
+catalog sales model defaultlarini tekrar dogrular.
+
 ## Scriptler
 
 - `pnpm lint`
@@ -445,7 +469,7 @@ pnpm db:verify-seed
 - `pnpm db:seed`
 - `pnpm db:verify-seed`
 - `pnpm db:cleanup-smoke` — yalnizca development/test ortaminda `smoke-`, `rev-`, `test-`,
-  `f2a-smoke-` prefiksli dev store/plan/catalog/order/customer kayitlarini temizler; aktif smoke
+  `f2a-smoke-`, `f2d-smoke-` prefiksli dev store/plan/catalog/order/customer kayitlarini temizler; aktif smoke
   reservation varsa once release eder; production/staging'de calismayi reddeder.
 
 ## Project Tracking & Documentation Discipline

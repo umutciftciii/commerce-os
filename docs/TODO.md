@@ -77,9 +77,23 @@
   tam sayim (TD-024).
 - TODO-035: Faz 2D Product Sales Model Foundation — product sales model enum/kurallari:
   `ONLINE`, `INQUIRY`, `APPOINTMENT`, `WHATSAPP`, `CATALOG_ONLY`; price visibility ve CTA behavior
-  backend contract/model kararlarini eklemek. Bu F2C review kapsaminda implement edilmedi.
-- TODO-036: Faz 2E Store-admin Orders UI — F2C order list/detail, place/cancel durumlari ve timeline
+  backend contract/model kararlarini eklemek. (DONE — F2D backend/model/contract/API foundation,
+  order purchasability guard ve seed/verify eklendi; UI/storefront baglama kapsam disi.)
+- TODO-036: Faz 2E Runtime Language Switch — TR/EN switch, locale cookie ve admin-web,
+  store-admin-web, storefront-web entegrasyonu. Bu F2D final review kapsaminda implement edilmedi.
+- TODO-037: Faz 2F Store-admin Product Sales Model UI — F2D product sales model alanlarini store-admin
+  urun formuna baglamak; sales mode, price visibility, CTA behavior ve tutarlilik hatalarini Turkce
+  gostermek.
+- TODO-038: Faz 2G Store-admin Orders UI — F2C order list/detail, place/cancel durumlari ve timeline
   icin BFF + ekran baglama; store-user auth gelene kadar mevcut server-side store context deseniyle
   sinirli kalacak.
-- TODO-037: Faz 4 payment — payment provider abstraction, authorization/capture, webhook/idempotency,
+- TODO-039: Faz 4 payment — payment provider abstraction, authorization/capture, webhook/idempotency,
   refund durumlari ve `paymentStatus` lifecycle entegrasyonu (TD-025).
+- TODO-040: Product inquiry request model — `INQUIRY` urunleri icin tenant-scoped talep kaydi,
+  durum akisi, audit/event ve store-admin listeleme.
+- TODO-041: Appointment request model — `APPOINTMENT` urunleri icin randevu talebi, musaitlik ve
+  store-admin takip akisi.
+- TODO-042: WhatsApp redirect/store contact config — store-level public contact/WhatsApp telefon
+  ayarlari ve product `whatsappMessageTemplate` render kurali.
+- TODO-043: Faz 3 Storefront CTA behavior — product sales model alanlarina gore sepete ekle, fiyat
+  sor, randevu al, WhatsApp ve katalog-only davranisini public storefront'ta render etmek.

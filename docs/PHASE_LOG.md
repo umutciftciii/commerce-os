@@ -1,5 +1,40 @@
 # Phase Log
 
+## Faz 2D Product Sales Model Foundation
+
+- Tarih: 2026-06-24
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: Product modeline sales model foundation eklendi: `ProductSalesMode`,
+  `ProductPriceVisibility`, `ProductPrimaryAction`, yardimci flow flag'leri, `purchasable`, min/max
+  order quantity ve CTA/template/not alanlari. Migration mevcut urunleri
+  `ONLINE/VISIBLE/ADD_TO_CART/purchasable=true` defaultlariyla korur.
+- Contracts/API: `packages/contracts` product create/update/response schema'lari genisletildi;
+  tutarlilik kurallari eklendi (`ONLINE` urunler add-to-cart + visible/starting-from; `purchasable=false`
+  online urunu order'a kapatir, `WHATSAPP` icin `primaryAction=WHATSAPP` ve `whatsappEnabled=true`,
+  `HIDDEN/ON_REQUEST` icin `purchasable=false`). Product list/get/create/update response'lari yeni
+  alanlari doner.
+- Order guard: order create, add-line, update-line quantity ve place akislari product/variant ACTIVE
+  durumunu ve product sales davranisini kontrol eder. Online satin alma disi urunler stabil kodlarla
+  reddedilir: `PRODUCT_NOT_PURCHASABLE`, `PRODUCT_REQUIRES_INQUIRY`,
+  `PRODUCT_REQUIRES_APPOINTMENT`, `PRODUCT_REQUIRES_WHATSAPP`, `PRODUCT_CATALOG_ONLY`.
+- Seed/cleanup: Demo Hoodie ve Demo Tote Bag online/visible/add-to-cart defaultlariyla idempotent
+  guncellenir; verify-seed bu alanlari dogrular. `f2d-smoke-` cleanup prefix'i eklendi.
+- Kapsam disi: Store-admin urun formu baglama, storefront CTA render, inquiry request modeli,
+  appointment request modeli, WhatsApp store contact config, checkout/payment/shipping/marketplace.
+- Dokuman: ADR-025, Roadmap, Architecture, Service Boundaries ve TODO guncellendi.
+- Final review (2026-06-24): Product PATCH consistency mevcut urun + partial update adayi uzerinden
+  tekrar dogrulanacak sekilde sertlestirildi; tek alanla tutarsiz sales mode gecisi `VALIDATION_ERROR`
+  doner. `ONLINE/purchasable=false` bilincli order kapatma flag'i olarak kabul edilir ve order create
+  `PRODUCT_NOT_PURCHASABLE` ile bloklanir. Runtime `.mjs` seed/verify scriptleri TS kaynakla
+  esitlendi; demo catalog `onlineProducts=2` dogrulamasi container icinde calisir.
+- Runtime gate: `docker compose -f infra/docker/docker-compose.yml up --build -d`, `pnpm db:migrate`,
+  `pnpm db:seed`, `pnpm db:verify-seed` gecti. Canli smoke: platform admin login 200; product list
+  sales model alanlari mevcut; demo ONLINE product ile draft order create 201; `f2d-smoke-*`
+  INQUIRY/APPOINTMENT/WHATSAPP/CATALOG_ONLY/ONLINE purchasable=false urunleri beklenen stabil order
+  hata kodlariyla bloklandi; product salesMode update 200; api-gateway/admin-web/store-admin-web/
+  storefront-web health endpointleri 200; `pnpm db:cleanup-smoke` sonrasi `pnpm db:verify-seed`
+  tekrar gecti.
+
 ## Faz 2B Store Admin Catalog UI Baglama
 
 - Tarih: 2026-06-24

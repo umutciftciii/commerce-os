@@ -57,6 +57,17 @@ async function main() {
         hoodieSku: await prisma.productVariant.count({
           where: { storeId: store.id, sku: "DEMO-HOODIE-BLK-M" },
         }),
+        onlineProducts: await prisma.product.count({
+          where: {
+            storeId: store.id,
+            slug: { in: ["demo-hoodie", "demo-tote"] },
+            salesMode: "ONLINE",
+            priceVisibility: "VISIBLE",
+            primaryAction: "ADD_TO_CART",
+            purchasable: true,
+            minOrderQuantity: 1,
+          },
+        }),
       }
     : {
         categories: 0,
@@ -65,6 +76,7 @@ async function main() {
         inventoryItems: 0,
         hoodieSlugs: 0,
         hoodieSku: 0,
+        onlineProducts: 0,
       };
 
   const duplicates = Object.entries(duplicateCounts)
@@ -81,7 +93,8 @@ async function main() {
     catalogCounts.variants < 3 ||
     catalogCounts.inventoryItems < 3 ||
     catalogCounts.hoodieSlugs !== 1 ||
-    catalogCounts.hoodieSku !== 1
+    catalogCounts.hoodieSku !== 1 ||
+    catalogCounts.onlineProducts !== 2
   ) {
     throw new Error(`Seed verification found incomplete catalog: ${JSON.stringify(catalogCounts)}`);
   }

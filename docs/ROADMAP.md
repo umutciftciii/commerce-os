@@ -31,7 +31,7 @@
 
 ## Faz 2 Commerce Core
 
-- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama + Faz 2C order core eklendi)
+- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama + Faz 2C order core + Faz 2D product sales model eklendi)
 - Amac: Ticaret cekirdegini erken parcalamadan urun, stok, musteri ve siparis modellerini kurmak.
 - Kapsam: Product/catalog, inventory, customer, order, basic pricing ve order status akislari.
 - Kabul kriterleri: Commerce modelleri migration ile gelir; temel CRUD/API akislari testlidir;
@@ -69,12 +69,28 @@
 
 ### Faz 2D Product Sales Model Foundation
 
-- Durum: PLANNED
+- Durum: IMPLEMENTED_GATE_PENDING
 - Kapsam: Product sales model karar ve backend foundation'i: `ONLINE`, `INQUIRY`, `APPOINTMENT`,
-  `WHATSAPP`, `CATALOG_ONLY`; price visibility ve CTA behavior kurallari.
-- Kapsam disi: Bu F2C review'da implement edilmedi; UI/checkout/payment davranisi eklenmeyecek.
+  `WHATSAPP`, `CATALOG_ONLY`; price visibility ve CTA behavior kurallari; product create/update/list/get
+  contract/API response genisletmesi; order create/add-line/place purchasability guard.
+- Kapsam disi: Store-admin UI form baglama, storefront CTA render, inquiry/appointment modelleri,
+  WhatsApp store contact config, checkout/payment/shipping/marketplace.
 
-### Faz 2E Store Admin Orders UI
+### Faz 2E Runtime Language Switch
+
+- Durum: PLANNED
+- Kapsam: TR/EN runtime language switch, locale cookie ve admin-web, store-admin-web,
+  storefront-web entegrasyonu.
+- Kapsam disi: Bu F2D final review'da implement edilmedi.
+
+### Faz 2F Store-admin Product Sales Model UI
+
+- Durum: PLANNED
+- Kapsam: F2D product sales model alanlarini store-admin urun formuna baglamak; sales mode,
+  price visibility, CTA behavior ve validation hatalarini UI'da Turkce gostermek.
+- Kapsam disi: Storefront CTA render, inquiry/appointment modelleri ve WhatsApp contact config.
+
+### Faz 2G Store Admin Orders UI
 
 - Durum: PLANNED
 - Kapsam: F2C order list/detail, status/timeline, place/cancel operasyonlarini store-admin BFF ve UI

@@ -12,8 +12,9 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   DB/Redis health endpointleri, platform admin auth/session endpointleri ve Faz 1A platform admin
   store/plan yonetim endpointleri burada bulunur. Faz 2A ile store-scoped catalog/inventory
   foundation endpointleri de burada yayinlanir (`/stores/:storeId/categories`, `/products`,
-  `/variants`, `/inventory`). Route'lar Zod contract'lariyla input validate eder, tutarli JSON hata
-  zarfi dondurur ve admin/catalog/inventory mutation'larinda audit log yazar.
+  `/variants`, `/inventory`); Faz 2C/F2D ile order lifecycle ve product sales model guard'lari ayni
+  gecici commerce core uygulamasinda calisir. Route'lar Zod contract'lariyla input validate eder,
+  tutarli JSON hata zarfi dondurur ve admin/catalog/inventory/order mutation'larinda audit log yazar.
 - `apps/worker`: Background job runtime foundation'i. Redis/BullMQ tabanli queue islerinin calisacagi
   runtime alanidir.
 - `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Faz 1B'de canli gateway'e
@@ -129,6 +130,9 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
 ### Catalog / Inventory Foundation (Faz 2A)
 
 - `Product`: store-scoped urun kaydi; `slug` store bazinda unique, `status` ile arsivleme.
+  Faz 2D ile urun bazli sales model alanlari eklenir: `salesMode`, `priceVisibility`,
+  `primaryAction`, yardimci flow flag'leri, `purchasable`, min/max order quantity ve CTA not/template
+  alanlari. Varsayilan `ONLINE/VISIBLE/ADD_TO_CART/purchasable=true` mevcut urun davranisini korur.
 - `ProductVariant`: store-scoped varyant; `sku` store bazinda unique, fiyatlar integer minor unit
   (`priceMinor`, `compareAtMinor`) ve `currency` ile saklanir. `storeId` tenant guard icin bilincli
   denormalized tutulur.
@@ -141,8 +145,12 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
 - `InventoryMovement`: her manual adjustment icin ledger kaydi; `quantityDelta`, reason/reference ve
   actor id metadata'si tutulur.
 
-Bu fazda order, cart, checkout, payment, shipping, marketplace sync, media/images, product options
-modeli, import/export ve storefront resolver yoktur. Store-admin UI henuz bu endpointlere baglanmadi.
+Order core Faz 2C'de gateway icindeki gecici commerce uygulamasina eklendi. Faz 2D'de order create,
+line add/update ve place akislari product sales modelini dogrular; `INQUIRY`, `APPOINTMENT`,
+`WHATSAPP` ve `CATALOG_ONLY` urunler online order line'a eklenemez. Cart, checkout, payment,
+shipping, marketplace sync, media/images, product options modeli, import/export, inquiry/appointment
+talep modelleri, WhatsApp store contact config ve storefront resolver/render davranisi kapsam disidir.
+Store-admin UI urun formu henuz yeni sales model alanlarina baglanmadi.
 
 Platform session raw token saklamaz; secret ile hashlenmis `tokenHash`, `expiresAt`, opsiyonel
 revoke/user-agent/ip placeholder alanlari tutulur.

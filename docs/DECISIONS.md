@@ -326,3 +326,34 @@
   degisse bile order line snapshot degismez. Bu fazda discount/shipping/tax 0, total=subtotal.
 - Sonuc: F2C backend cekirdegi checkout/payment bagimsiz calisir. Payment capture, fulfillment,
   consumed reservation, cart ve tax/discount engine sonraki fazlara birakildi.
+
+## ADR-025 Product sales model ve order purchasability guard
+
+- Durum: ACCEPTED
+- Baglam: Commerce core artik her aktif urunun online sepete eklenebilir oldugunu varsaymamali.
+  Teklif/randevu/WhatsApp/katalog odakli urunler storefront ve checkout fazlari gelmeden once
+  backend contract/model seviyesinde ayirt edilmelidir.
+- Karar: Product uzerinde ana karar enumlarla tutulur: `salesMode` (`ONLINE`, `INQUIRY`,
+  `APPOINTMENT`, `WHATSAPP`, `CATALOG_ONLY`), `priceVisibility` (`VISIBLE`, `HIDDEN`,
+  `STARTING_FROM`, `ON_REQUEST`) ve `primaryAction` (`ADD_TO_CART`, `REQUEST_PRICE`,
+  `BOOK_APPOINTMENT`, `WHATSAPP`, `CONTACT_FORM`, `NONE`). Yardimci boolean alanlar yalnizca UI/akis
+  sinyali olarak kalir (`inquiryEnabled`, `appointmentRequired`, `whatsappEnabled`, `purchasable`).
+  Mevcut urunler migration defaultlariyla `ONLINE/VISIBLE/ADD_TO_CART/purchasable=true` kalir.
+- Karar (tutarlilik): `ONLINE` urunlerde `primaryAction=ADD_TO_CART`, `priceVisibility` yalnizca
+  `VISIBLE` veya `STARTING_FROM` kabul edilir. `purchasable=false`, online urunu gecici/bilincli
+  olarak order'a kapatan bir override flag'i olarak gecerlidir ve order guard
+  `PRODUCT_NOT_PURCHASABLE` doner. `HIDDEN` veya `ON_REQUEST` fiyat gorunurlugu online satin alma ile
+  birlikte kullanilmaz; bu urunler `purchasable=false` olmalidir.
+  `INQUIRY`, `APPOINTMENT`, `WHATSAPP`, `CATALOG_ONLY` urunler online order line'a eklenemez.
+  `WHATSAPP` icin `primaryAction=WHATSAPP` ve `whatsappEnabled=true` zorunludur.
+- Karar (order guard): Order create/add-line/place product ve variant status'unu `ACTIVE` olarak
+  tekrar dogrular; product `salesMode=ONLINE` ve `purchasable=true` degilse kontrollu, stabil hata
+  kodlari doner: `PRODUCT_NOT_PURCHASABLE`, `PRODUCT_REQUIRES_INQUIRY`,
+  `PRODUCT_REQUIRES_APPOINTMENT`, `PRODUCT_REQUIRES_WHATSAPP`, `PRODUCT_CATALOG_ONLY`. Place
+  asamasindaki tekrar dogrulama, eski DRAFT order'lar veya urun davranisi sonradan degistiginde
+  rezervasyon olusmadan durur.
+- Bilincli kapsam disi: Inquiry request, appointment request, WhatsApp redirect/store contact config
+  ve storefront CTA render modelleri bu fazda eklenmez.
+- Sonuc: Katalog ve order cekirdegi teklif/randevu/vitrin urunlerini online checkout'tan ayiracak
+  foundation'a sahip olur; UI ve public storefront davranisi sonraki fazlarda bu contract uzerinden
+  baglanir.

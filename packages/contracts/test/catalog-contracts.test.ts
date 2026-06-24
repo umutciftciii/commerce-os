@@ -4,6 +4,8 @@ import {
   orderCreateRequestSchema,
   orderSchema,
   productCreateRequestSchema,
+  productSchema,
+  productUpdateRequestSchema,
   productVariantCreateRequestSchema,
 } from "../src/index.js";
 
@@ -15,7 +17,98 @@ describe("catalog contracts", () => {
       status: "ACTIVE",
       categoryIds: ["cat_1"],
     });
-    expect(parsed).toMatchObject({ type: "PHYSICAL", categoryIds: ["cat_1"] });
+    expect(parsed).toMatchObject({
+      type: "PHYSICAL",
+      categoryIds: ["cat_1"],
+      salesMode: "ONLINE",
+      priceVisibility: "VISIBLE",
+      primaryAction: "ADD_TO_CART",
+      purchasable: true,
+      minOrderQuantity: 1,
+    });
+  });
+
+  it("parses product sales model fields and rejects inconsistent CTA behavior", () => {
+    const parsed = productCreateRequestSchema.parse({
+      title: "Appointment Dress",
+      slug: "appointment-dress",
+      salesMode: "APPOINTMENT",
+      priceVisibility: "ON_REQUEST",
+      primaryAction: "BOOK_APPOINTMENT",
+      appointmentRequired: true,
+      purchasable: false,
+      minOrderQuantity: 1,
+      maxOrderQuantity: 1,
+      appointmentNote: "Randevu ile gosterilir.",
+    });
+    expect(parsed).toMatchObject({
+      salesMode: "APPOINTMENT",
+      priceVisibility: "ON_REQUEST",
+      primaryAction: "BOOK_APPOINTMENT",
+      purchasable: false,
+    });
+    expect(
+      productCreateRequestSchema.parse({
+        title: "Paused Online Product",
+        slug: "paused-online-product",
+        salesMode: "ONLINE",
+        priceVisibility: "VISIBLE",
+        primaryAction: "ADD_TO_CART",
+        purchasable: false,
+      }),
+    ).toMatchObject({ salesMode: "ONLINE", purchasable: false });
+    expect(() =>
+      productCreateRequestSchema.parse({
+        title: "Bad WhatsApp",
+        slug: "bad-whatsapp",
+        salesMode: "WHATSAPP",
+        primaryAction: "ADD_TO_CART",
+        whatsappEnabled: false,
+        purchasable: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      productUpdateRequestSchema.parse({
+        salesMode: "ONLINE",
+        priceVisibility: "ON_REQUEST",
+        primaryAction: "ADD_TO_CART",
+        purchasable: true,
+      }),
+    ).toThrow();
+  });
+
+  it("parses product responses with sales model fields", () => {
+    const now = new Date().toISOString();
+    const parsed = productSchema.parse({
+      id: "product_1",
+      storeId: "store_1",
+      title: "Demo Hoodie",
+      slug: "demo-hoodie",
+      description: null,
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      vendor: null,
+      brand: null,
+      seoTitle: null,
+      seoDescription: null,
+      salesMode: "ONLINE",
+      priceVisibility: "VISIBLE",
+      primaryAction: "ADD_TO_CART",
+      inquiryEnabled: false,
+      appointmentRequired: false,
+      whatsappEnabled: false,
+      purchasable: true,
+      minOrderQuantity: 1,
+      maxOrderQuantity: null,
+      callToActionLabel: null,
+      whatsappMessageTemplate: null,
+      inquiryFormTitle: null,
+      appointmentNote: null,
+      categoryIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(parsed.salesMode).toBe("ONLINE");
   });
 
   it("requires minor-unit integer prices and compare-at not below price", () => {

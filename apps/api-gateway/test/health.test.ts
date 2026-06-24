@@ -5,6 +5,9 @@ import {
   type InventoryMovementType,
   type PlatformUserRole,
   type ProductCategoryStatus,
+  type ProductPriceVisibility,
+  type ProductPrimaryAction,
+  type ProductSalesMode,
   type ProductStatus,
   type ProductType,
   type ProductVariantStatus,
@@ -92,6 +95,19 @@ type ProductRecord = {
   brand: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  salesMode: ProductSalesMode;
+  priceVisibility: ProductPriceVisibility;
+  primaryAction: ProductPrimaryAction;
+  inquiryEnabled: boolean;
+  appointmentRequired: boolean;
+  whatsappEnabled: boolean;
+  purchasable: boolean;
+  minOrderQuantity: number;
+  maxOrderQuantity: number | null;
+  callToActionLabel: string | null;
+  whatsappMessageTemplate: string | null;
+  inquiryFormTitle: string | null;
+  appointmentNote: string | null;
   categoryIds: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -278,6 +294,19 @@ class MemoryDataAccess implements AppDataAccess {
       brand: "Commerce OS",
       seoTitle: null,
       seoDescription: null,
+      salesMode: "ONLINE",
+      priceVisibility: "VISIBLE",
+      primaryAction: "ADD_TO_CART",
+      inquiryEnabled: false,
+      appointmentRequired: false,
+      whatsappEnabled: false,
+      purchasable: true,
+      minOrderQuantity: 1,
+      maxOrderQuantity: null,
+      callToActionLabel: null,
+      whatsappMessageTemplate: null,
+      inquiryFormTitle: null,
+      appointmentNote: null,
       categoryIds: ["cat_apparel"],
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -559,6 +588,19 @@ class MemoryDataAccess implements AppDataAccess {
       brand?: string | null;
       seoTitle?: string | null;
       seoDescription?: string | null;
+      salesMode: ProductSalesMode;
+      priceVisibility: ProductPriceVisibility;
+      primaryAction: ProductPrimaryAction;
+      inquiryEnabled: boolean;
+      appointmentRequired: boolean;
+      whatsappEnabled: boolean;
+      purchasable: boolean;
+      minOrderQuantity: number;
+      maxOrderQuantity?: number | null;
+      callToActionLabel?: string | null;
+      whatsappMessageTemplate?: string | null;
+      inquiryFormTitle?: string | null;
+      appointmentNote?: string | null;
       categoryIds: string[];
     },
   ) {
@@ -574,6 +616,19 @@ class MemoryDataAccess implements AppDataAccess {
       brand: input.brand ?? null,
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      salesMode: input.salesMode,
+      priceVisibility: input.priceVisibility,
+      primaryAction: input.primaryAction,
+      inquiryEnabled: input.inquiryEnabled,
+      appointmentRequired: input.appointmentRequired,
+      whatsappEnabled: input.whatsappEnabled,
+      purchasable: input.purchasable,
+      minOrderQuantity: input.minOrderQuantity,
+      maxOrderQuantity: input.maxOrderQuantity ?? null,
+      callToActionLabel: input.callToActionLabel ?? null,
+      whatsappMessageTemplate: input.whatsappMessageTemplate ?? null,
+      inquiryFormTitle: input.inquiryFormTitle ?? null,
+      appointmentNote: input.appointmentNote ?? null,
       categoryIds: input.categoryIds,
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -722,6 +777,21 @@ class MemoryDataAccess implements AppDataAccess {
     return { subtotalAmount, discountAmount: 0, shippingAmount: 0, taxAmount: 0, totalAmount: subtotalAmount };
   }
 
+  productSalesError(product: ProductRecord, quantity: number) {
+    if (product.salesMode === "INQUIRY") return "PRODUCT_REQUIRES_INQUIRY" as const;
+    if (product.salesMode === "APPOINTMENT") return "PRODUCT_REQUIRES_APPOINTMENT" as const;
+    if (product.salesMode === "WHATSAPP") return "PRODUCT_REQUIRES_WHATSAPP" as const;
+    if (product.salesMode === "CATALOG_ONLY") return "PRODUCT_CATALOG_ONLY" as const;
+    if (!product.purchasable || product.priceVisibility === "HIDDEN" || product.priceVisibility === "ON_REQUEST") {
+      return "PRODUCT_NOT_PURCHASABLE" as const;
+    }
+    if (quantity < product.minOrderQuantity) return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE" as const;
+    if (product.maxOrderQuantity !== null && quantity > product.maxOrderQuantity) {
+      return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE" as const;
+    }
+    return null;
+  }
+
   async listOrders(storeId: string, { limit, offset }: { limit: number; offset: number }) {
     const data = this.orders.filter((order) => order.storeId === storeId);
     return { data: data.slice(offset, offset + limit), total: data.length };
@@ -761,6 +831,8 @@ class MemoryDataAccess implements AppDataAccess {
       if (!product || product.status !== "ACTIVE" || variant.status !== "ACTIVE" || variant.currency !== input.currency) {
         return "INVALID_VARIANT" as const;
       }
+      const salesError = this.productSalesError(product, inputLine.quantity);
+      if (salesError) return salesError;
       lines.push({
         id: `line_${lines.length + 1}`,
         storeId,
@@ -846,6 +918,8 @@ class MemoryDataAccess implements AppDataAccess {
     if (!product || product.status !== "ACTIVE" || variant.status !== "ACTIVE" || variant.currency !== order.currency) {
       return "INVALID_VARIANT" as const;
     }
+    const salesError = this.productSalesError(product, input.quantity);
+    if (salesError) return salesError;
     order.lines.push({
       id: `line_${order.lines.length + 1}`,
       storeId,
@@ -871,6 +945,11 @@ class MemoryDataAccess implements AppDataAccess {
     if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED" as const;
     const line = order.lines.find((item) => item.id === lineId);
     if (!line) return "ORDER_LINE_NOT_FOUND" as const;
+    const product = this.products.find((item) => item.storeId === storeId && item.id === line.productId);
+    if (product) {
+      const salesError = this.productSalesError(product, input.quantity);
+      if (salesError === "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE") return salesError;
+    }
     line.quantity = input.quantity;
     line.totalAmount = line.unitPriceAmount * input.quantity;
     Object.assign(order, this.orderTotals(order.lines));
@@ -883,6 +962,11 @@ class MemoryDataAccess implements AppDataAccess {
     if (order.status === "PLACED") return order;
     if (order.status !== "DRAFT") return "INVALID_STATUS" as const;
     for (const line of order.lines) {
+      const variant = this.variants.find((item) => item.storeId === storeId && item.id === line.variantId);
+      const product = variant ? this.products.find((item) => item.storeId === storeId && item.id === variant.productId) : null;
+      if (!variant || !product || product.status !== "ACTIVE" || variant.status !== "ACTIVE") return "INVALID_VARIANT" as const;
+      const salesError = this.productSalesError(product, line.quantity);
+      if (salesError) return salesError;
       const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === line.variantId);
       if (!item) return "RESERVATION_FAILED" as const;
       if (item.quantityOnHand - item.quantityReserved < line.quantity) return "INSUFFICIENT_STOCK" as const;
@@ -1362,16 +1446,38 @@ describe("api gateway", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(listResponse.statusCode).toBe(200);
-    expect(listResponse.json()).toMatchObject({ data: [{ slug: "demo-hoodie", categoryIds: ["cat_apparel"] }] });
+    expect(listResponse.json()).toMatchObject({
+      data: [{
+        slug: "demo-hoodie",
+        categoryIds: ["cat_apparel"],
+        salesMode: "ONLINE",
+        priceVisibility: "VISIBLE",
+        primaryAction: "ADD_TO_CART",
+        purchasable: true,
+      }],
+    });
 
     const createResponse = await app.inject({
       method: "POST",
       url: "/stores/store_demo/products",
       headers: { authorization: `Bearer ${token}` },
-      payload: { title: "Demo Tee", slug: "demo-tee", status: "ACTIVE", categoryIds: ["cat_apparel"] },
+      payload: {
+        title: "Demo Tee",
+        slug: "demo-tee",
+        status: "ACTIVE",
+        salesMode: "ONLINE",
+        priceVisibility: "VISIBLE",
+        primaryAction: "ADD_TO_CART",
+        categoryIds: ["cat_apparel"],
+      },
     });
     expect(createResponse.statusCode).toBe(201);
-    expect(createResponse.json()).toMatchObject({ slug: "demo-tee", categoryIds: ["cat_apparel"] });
+    expect(createResponse.json()).toMatchObject({
+      slug: "demo-tee",
+      categoryIds: ["cat_apparel"],
+      salesMode: "ONLINE",
+      purchasable: true,
+    });
 
     const duplicateResponse = await app.inject({
       method: "POST",
@@ -1382,14 +1488,35 @@ describe("api gateway", () => {
     expect(duplicateResponse.statusCode).toBe(409);
     expect(duplicateResponse.json()).toMatchObject({ error: { code: "PRODUCT_SLUG_EXISTS" } });
 
+    const inconsistentUpdateResponse = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_2",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { salesMode: "APPOINTMENT" },
+    });
+    expect(inconsistentUpdateResponse.statusCode).toBe(400);
+    expect(inconsistentUpdateResponse.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+
     const updateResponse = await app.inject({
       method: "PATCH",
       url: "/stores/store_demo/products/product_2",
       headers: { authorization: `Bearer ${token}` },
-      payload: { status: "ARCHIVED" },
+      payload: {
+        status: "ARCHIVED",
+        salesMode: "APPOINTMENT",
+        priceVisibility: "ON_REQUEST",
+        primaryAction: "BOOK_APPOINTMENT",
+        appointmentRequired: true,
+        purchasable: false,
+      },
     });
     expect(updateResponse.statusCode).toBe(200);
-    expect(updateResponse.json()).toMatchObject({ status: "ARCHIVED" });
+    expect(updateResponse.json()).toMatchObject({
+      status: "ARCHIVED",
+      salesMode: "APPOINTMENT",
+      primaryAction: "BOOK_APPOINTMENT",
+      purchasable: false,
+    });
     expect(dataAccess.auditLogs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ action: "CREATE", entityType: "Product", entityId: "product_2" }),
@@ -1717,6 +1844,98 @@ describe("api gateway", () => {
     });
     expect(inactiveResponse.statusCode).toBe(400);
     expect(inactiveResponse.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+    await app.close();
+  });
+
+  it("rejects non-online product sales modes in order create, add-line and place", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    dataAccess.products[0]!.salesMode = "INQUIRY";
+    dataAccess.products[0]!.primaryAction = "REQUEST_PRICE";
+    dataAccess.products[0]!.inquiryEnabled = true;
+    dataAccess.products[0]!.purchasable = false;
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+    expect(createResponse.statusCode).toBe(400);
+    expect(createResponse.json()).toMatchObject({ error: { code: "PRODUCT_REQUIRES_INQUIRY" } });
+
+    dataAccess.products[0]!.salesMode = "ONLINE";
+    dataAccess.products[0]!.primaryAction = "ADD_TO_CART";
+    dataAccess.products[0]!.inquiryEnabled = false;
+    dataAccess.products[0]!.purchasable = true;
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+
+    dataAccess.products.push({
+      ...dataAccess.products[0]!,
+      id: "product_catalog",
+      slug: "catalog-only-product",
+      title: "Catalog Only Product",
+      salesMode: "CATALOG_ONLY",
+      primaryAction: "NONE",
+      purchasable: false,
+    });
+    dataAccess.variants.push({
+      ...dataAccess.variants[0]!,
+      id: "variant_catalog",
+      productId: "product_catalog",
+      sku: "CATALOG-ONLY",
+    });
+    const addLineResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/lines",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { variantId: "variant_catalog", quantity: 1 },
+    });
+    expect(addLineResponse.statusCode).toBe(400);
+    expect(addLineResponse.json()).toMatchObject({ error: { code: "PRODUCT_CATALOG_ONLY" } });
+
+    dataAccess.products[0]!.salesMode = "WHATSAPP";
+    dataAccess.products[0]!.primaryAction = "WHATSAPP";
+    dataAccess.products[0]!.whatsappEnabled = true;
+    dataAccess.products[0]!.purchasable = false;
+    const placeResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/place",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(placeResponse.statusCode).toBe(400);
+    expect(placeResponse.json()).toMatchObject({ error: { code: "PRODUCT_REQUIRES_WHATSAPP" } });
+
+    dataAccess.products[0]!.salesMode = "ONLINE";
+    dataAccess.products[0]!.primaryAction = "ADD_TO_CART";
+    dataAccess.products[0]!.priceVisibility = "VISIBLE";
+    dataAccess.products[0]!.whatsappEnabled = false;
+    dataAccess.products[0]!.purchasable = false;
+    const notPurchasableResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer2@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+    expect(notPurchasableResponse.statusCode).toBe(400);
+    expect(notPurchasableResponse.json()).toMatchObject({ error: { code: "PRODUCT_NOT_PURCHASABLE" } });
     await app.close();
   });
 

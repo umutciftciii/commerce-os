@@ -147,6 +147,16 @@ export const planUpdateRequestSchema = z
 
 export const productStatusSchema = z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]);
 export const productTypeSchema = z.enum(["PHYSICAL"]);
+export const productSalesModeSchema = z.enum(["ONLINE", "INQUIRY", "APPOINTMENT", "WHATSAPP", "CATALOG_ONLY"]);
+export const productPriceVisibilitySchema = z.enum(["VISIBLE", "HIDDEN", "STARTING_FROM", "ON_REQUEST"]);
+export const productPrimaryActionSchema = z.enum([
+  "ADD_TO_CART",
+  "REQUEST_PRICE",
+  "BOOK_APPOINTMENT",
+  "WHATSAPP",
+  "CONTACT_FORM",
+  "NONE",
+]);
 export const productVariantStatusSchema = z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]);
 export const productCategoryStatusSchema = z.enum(["ACTIVE", "ARCHIVED"]);
 export const inventoryMovementTypeSchema = z.enum([
@@ -216,6 +226,19 @@ export const productSchema = z.object({
   brand: z.string().nullable(),
   seoTitle: z.string().nullable(),
   seoDescription: z.string().nullable(),
+  salesMode: productSalesModeSchema,
+  priceVisibility: productPriceVisibilitySchema,
+  primaryAction: productPrimaryActionSchema,
+  inquiryEnabled: z.boolean(),
+  appointmentRequired: z.boolean(),
+  whatsappEnabled: z.boolean(),
+  purchasable: z.boolean(),
+  minOrderQuantity: z.number().int().positive(),
+  maxOrderQuantity: z.number().int().positive().nullable(),
+  callToActionLabel: z.string().nullable(),
+  whatsappMessageTemplate: z.string().nullable(),
+  inquiryFormTitle: z.string().nullable(),
+  appointmentNote: z.string().nullable(),
   categoryIds: z.array(z.string().min(1)).default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -230,18 +253,84 @@ export const productListResponseSchema = z.object({
   }),
 });
 
-export const productCreateRequestSchema = z.object({
-  title: z.string().min(1).max(220),
-  slug: slugSchema,
-  description: optionalNullableStringSchema,
-  status: productStatusSchema.default("DRAFT"),
-  type: productTypeSchema.default("PHYSICAL"),
-  vendor: z.string().max(120).nullable().optional(),
-  brand: z.string().max(120).nullable().optional(),
-  seoTitle: z.string().max(160).nullable().optional(),
-  seoDescription: z.string().max(320).nullable().optional(),
-  categoryIds: z.array(z.string().min(1)).default([]),
-});
+function isConsistentSalesModel(value: {
+  salesMode?: z.infer<typeof productSalesModeSchema>;
+  priceVisibility?: z.infer<typeof productPriceVisibilitySchema>;
+  primaryAction?: z.infer<typeof productPrimaryActionSchema>;
+  whatsappEnabled?: boolean;
+  purchasable?: boolean;
+}) {
+  if (value.salesMode === "ONLINE") {
+    if (value.primaryAction !== undefined && value.primaryAction !== "ADD_TO_CART") return false;
+    if (
+      value.priceVisibility !== undefined &&
+      !["VISIBLE", "STARTING_FROM"].includes(value.priceVisibility)
+    ) {
+      return false;
+    }
+  }
+  if (value.salesMode === "INQUIRY") {
+    if (
+      value.primaryAction !== undefined &&
+      !["REQUEST_PRICE", "CONTACT_FORM"].includes(value.primaryAction)
+    ) {
+      return false;
+    }
+    if (value.purchasable !== undefined && value.purchasable !== false) return false;
+  }
+  if (value.salesMode === "APPOINTMENT") {
+    if (value.primaryAction !== undefined && value.primaryAction !== "BOOK_APPOINTMENT") return false;
+    if (value.purchasable !== undefined && value.purchasable !== false) return false;
+  }
+  if (value.salesMode === "WHATSAPP") {
+    if (value.primaryAction !== undefined && value.primaryAction !== "WHATSAPP") return false;
+    if (value.whatsappEnabled !== undefined && value.whatsappEnabled !== true) return false;
+    if (value.purchasable !== undefined && value.purchasable !== false) return false;
+  }
+  if (value.salesMode === "CATALOG_ONLY") {
+    if (value.primaryAction !== undefined && !["NONE", "CONTACT_FORM"].includes(value.primaryAction)) return false;
+    if (value.purchasable !== undefined && value.purchasable !== false) return false;
+  }
+  if (["HIDDEN", "ON_REQUEST"].includes(value.priceVisibility ?? "")) {
+    if (value.purchasable !== undefined && value.purchasable !== false) return false;
+  }
+  return true;
+}
+
+export const productCreateRequestSchema = z
+  .object({
+    title: z.string().min(1).max(220),
+    slug: slugSchema,
+    description: optionalNullableStringSchema,
+    status: productStatusSchema.default("DRAFT"),
+    type: productTypeSchema.default("PHYSICAL"),
+    vendor: z.string().max(120).nullable().optional(),
+    brand: z.string().max(120).nullable().optional(),
+    seoTitle: z.string().max(160).nullable().optional(),
+    seoDescription: z.string().max(320).nullable().optional(),
+    salesMode: productSalesModeSchema.default("ONLINE"),
+    priceVisibility: productPriceVisibilitySchema.default("VISIBLE"),
+    primaryAction: productPrimaryActionSchema.default("ADD_TO_CART"),
+    inquiryEnabled: z.boolean().default(false),
+    appointmentRequired: z.boolean().default(false),
+    whatsappEnabled: z.boolean().default(false),
+    purchasable: z.boolean().default(true),
+    minOrderQuantity: z.number().int().positive().default(1),
+    maxOrderQuantity: z.number().int().positive().nullable().optional(),
+    callToActionLabel: z.string().max(120).nullable().optional(),
+    whatsappMessageTemplate: z.string().max(500).nullable().optional(),
+    inquiryFormTitle: z.string().max(160).nullable().optional(),
+    appointmentNote: z.string().max(500).nullable().optional(),
+    categoryIds: z.array(z.string().min(1)).default([]),
+  })
+  .refine((value) => value.maxOrderQuantity == null || value.maxOrderQuantity >= value.minOrderQuantity, {
+    message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
+    path: ["maxOrderQuantity"],
+  })
+  .refine(isConsistentSalesModel, {
+    message: "Product sales model fields are inconsistent.",
+    path: ["salesMode"],
+  });
 
 export const productUpdateRequestSchema = z
   .object({
@@ -254,10 +343,37 @@ export const productUpdateRequestSchema = z
     brand: z.string().max(120).nullable().optional(),
     seoTitle: z.string().max(160).nullable().optional(),
     seoDescription: z.string().max(320).nullable().optional(),
+    salesMode: productSalesModeSchema.optional(),
+    priceVisibility: productPriceVisibilitySchema.optional(),
+    primaryAction: productPrimaryActionSchema.optional(),
+    inquiryEnabled: z.boolean().optional(),
+    appointmentRequired: z.boolean().optional(),
+    whatsappEnabled: z.boolean().optional(),
+    purchasable: z.boolean().optional(),
+    minOrderQuantity: z.number().int().positive().optional(),
+    maxOrderQuantity: z.number().int().positive().nullable().optional(),
+    callToActionLabel: z.string().max(120).nullable().optional(),
+    whatsappMessageTemplate: z.string().max(500).nullable().optional(),
+    inquiryFormTitle: z.string().max(160).nullable().optional(),
+    appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
+  })
+  .refine(
+    (value) =>
+      value.minOrderQuantity === undefined ||
+      value.maxOrderQuantity == null ||
+      value.maxOrderQuantity >= value.minOrderQuantity,
+    {
+      message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
+      path: ["maxOrderQuantity"],
+    },
+  )
+  .refine(isConsistentSalesModel, {
+    message: "Product sales model fields are inconsistent.",
+    path: ["salesMode"],
   });
 
 export const productVariantSchema = z.object({
@@ -548,6 +664,9 @@ export type PlanCreateRequest = z.infer<typeof planCreateRequestSchema>;
 export type PlanUpdateRequest = z.infer<typeof planUpdateRequestSchema>;
 export type ProductStatus = z.infer<typeof productStatusSchema>;
 export type ProductType = z.infer<typeof productTypeSchema>;
+export type ProductSalesMode = z.infer<typeof productSalesModeSchema>;
+export type ProductPriceVisibility = z.infer<typeof productPriceVisibilitySchema>;
+export type ProductPrimaryAction = z.infer<typeof productPrimaryActionSchema>;
 export type ProductVariantStatus = z.infer<typeof productVariantStatusSchema>;
 export type ProductCategoryStatus = z.infer<typeof productCategoryStatusSchema>;
 export type InventoryMovementType = z.infer<typeof inventoryMovementTypeSchema>;
@@ -563,7 +682,7 @@ export type ProductCategoryCreateRequest = z.infer<typeof productCategoryCreateR
 export type ProductCategoryUpdateRequest = z.infer<typeof productCategoryUpdateRequestSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
-export type ProductCreateRequest = z.infer<typeof productCreateRequestSchema>;
+export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
 export type ProductUpdateRequest = z.infer<typeof productUpdateRequestSchema>;
 export type ProductVariant = z.infer<typeof productVariantSchema>;
 export type ProductVariantListResponse = z.infer<typeof productVariantListResponseSchema>;

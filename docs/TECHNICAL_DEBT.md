@@ -323,3 +323,16 @@
 - Cozum onerisi: Queue tabanli expiration/release job'u, fulfillment consume akisi ve ileride warehouse
   bazli stok modeli eklenirken ayni lock stratejisi yeniden degerlendirilmeli.
 - Hedef faz: Faz 4+
+
+## TD-027 Product sales model UI ve request modelleri eksik
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: Faz 2D product sales model backend/model/contract/API foundation'i hazirlar, ancak store-admin
+  urun formu bu alanlara henuz bagli degildir. Public storefront sales model'e gore CTA render etmez.
+  `INQUIRY` ve `APPOINTMENT` icin gercek talep/randevu kayit modelleri yoktur; `WHATSAPP` aksiyonu
+  icin store-level public contact/telefon config'i ve redirect davranisi da eksiktir.
+- Cozum onerisi: Faz 2F'de store-admin Product Sales Model UI; Faz 3'te Storefront CTA behavior;
+  ayrica Product inquiry request model, Appointment request model ve WhatsApp redirect/store contact
+  config islerini ayri backend/UI slice'lari olarak eklemek.
+- Hedef faz: Faz 2F, Faz 3+

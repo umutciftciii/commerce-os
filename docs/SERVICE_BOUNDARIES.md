@@ -13,9 +13,10 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 
 - Yapar: HTTP giris noktasi, health/version endpointleri, internal health kontrolleri, platform
   admin auth/session cozumleme, platform admin store/plan foundation endpointleri, Faz 2A
-  store-scoped catalog/inventory API foundation endpointleri ve audit log yazimi. Catalog/inventory
-  endpointleri su an gateway icinde yayinlanir; store-user auth tamamlanana kadar platform admin
-  bearer session + explicit `storeId` context ile korunur.
+  store-scoped catalog/inventory API foundation endpointleri, Faz 2C order lifecycle endpointleri,
+  Faz 2D product sales model validation/response contract'i ve audit log yazimi. Catalog/inventory/
+  order endpointleri su an gateway icinde yayinlanir; store-user auth tamamlanana kadar platform
+  admin bearer session + explicit `storeId` context ile korunur.
 - Yapmaz: Commerce, checkout veya integration davranisini DB'ye direkt yazarak sahiplenmez. Store
   admin UI, storefront resolver, sepet/siparis/checkout/odeme/kargo/pazaryeri modulleri bu sinirin
   disindadir. Faz 2A catalog/inventory yalnizca foundation CRUD ve manual stock adjustment'tir;
@@ -67,6 +68,10 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   order draft/place/cancel, price snapshot, inventory reservation/release, order timeline ve audit
   davranisini sahiplenir. Payment authorization/capture, cart/checkout session ve shipment/fulfillment
   state machine'leri bu sinirin disindadir.
+- Faz 2D notu: Product sales model commerce domain'inin parcasidir. `salesMode`, `priceVisibility`,
+  `primaryAction`, `purchasable` ve order quantity limitleri product contract'inda tutulur; order
+  create/add-line/place akislari yalnizca `ONLINE` ve `purchasable=true` urunlere izin verir. Inquiry,
+  appointment ve WhatsApp redirect kayit/iletisim modelleri sonraki fazlara aittir.
 - Yapmaz: Odeme provider detaylarini, pazaryeri credential'larini veya storefront tema render
   davranisini sahiplenmez.
 

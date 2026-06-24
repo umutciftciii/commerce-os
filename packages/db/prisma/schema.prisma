@@ -80,6 +80,30 @@ enum ProductType {
   PHYSICAL
 }
 
+enum ProductSalesMode {
+  ONLINE
+  INQUIRY
+  APPOINTMENT
+  WHATSAPP
+  CATALOG_ONLY
+}
+
+enum ProductPriceVisibility {
+  VISIBLE
+  HIDDEN
+  STARTING_FROM
+  ON_REQUEST
+}
+
+enum ProductPrimaryAction {
+  ADD_TO_CART
+  REQUEST_PRICE
+  BOOK_APPOINTMENT
+  WHATSAPP
+  CONTACT_FORM
+  NONE
+}
+
 enum ProductCategoryStatus {
   ACTIVE
   ARCHIVED
@@ -311,19 +335,32 @@ model QueueJobLog {
 }
 
 model Product {
-  id             String        @id @default(cuid())
-  storeId        String
-  title          String
-  slug           String
-  description    String?
-  status         ProductStatus @default(DRAFT)
-  type           ProductType   @default(PHYSICAL)
-  vendor         String?
-  brand          String?
-  seoTitle       String?
-  seoDescription String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                      String                 @id @default(cuid())
+  storeId                 String
+  title                   String
+  slug                    String
+  description             String?
+  status                  ProductStatus          @default(DRAFT)
+  type                    ProductType            @default(PHYSICAL)
+  vendor                  String?
+  brand                   String?
+  seoTitle                String?
+  seoDescription          String?
+  salesMode               ProductSalesMode       @default(ONLINE)
+  priceVisibility         ProductPriceVisibility @default(VISIBLE)
+  primaryAction           ProductPrimaryAction   @default(ADD_TO_CART)
+  inquiryEnabled          Boolean                @default(false)
+  appointmentRequired     Boolean                @default(false)
+  whatsappEnabled         Boolean                @default(false)
+  purchasable             Boolean                @default(true)
+  minOrderQuantity        Int                    @default(1)
+  maxOrderQuantity        Int?
+  callToActionLabel       String?
+  whatsappMessageTemplate String?
+  inquiryFormTitle        String?
+  appointmentNote         String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
 
   store       Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   variants    ProductVariant[]
@@ -333,6 +370,8 @@ model Product {
   @@unique([storeId, slug])
   @@index([storeId])
   @@index([status])
+  @@index([salesMode])
+  @@index([purchasable])
 }
 
 model ProductVariant {

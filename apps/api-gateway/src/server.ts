@@ -57,12 +57,23 @@ import type {
   PlatformUser,
   Product,
   ProductCategory,
+  ProductPriceVisibility,
+  ProductPrimaryAction,
+  ProductSalesMode,
   ProductVariant,
   Store,
   StoreStatus,
 } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+
+type ProductSalesOrderCode =
+  | "PRODUCT_NOT_PURCHASABLE"
+  | "PRODUCT_REQUIRES_INQUIRY"
+  | "PRODUCT_REQUIRES_APPOINTMENT"
+  | "PRODUCT_REQUIRES_WHATSAPP"
+  | "PRODUCT_CATALOG_ONLY";
+type ProductOrderValidationCode = ProductSalesOrderCode | "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE";
 
 export interface ServerHealthChecks {
   checkDatabaseHealth?: () => Promise<boolean>;
@@ -97,6 +108,19 @@ type ProductRecord = Pick<
   | "brand"
   | "seoTitle"
   | "seoDescription"
+  | "salesMode"
+  | "priceVisibility"
+  | "primaryAction"
+  | "inquiryEnabled"
+  | "appointmentRequired"
+  | "whatsappEnabled"
+  | "purchasable"
+  | "minOrderQuantity"
+  | "maxOrderQuantity"
+  | "callToActionLabel"
+  | "whatsappMessageTemplate"
+  | "inquiryFormTitle"
+  | "appointmentNote"
   | "createdAt"
   | "updatedAt"
 > & { categoryIds: string[] };
@@ -295,6 +319,19 @@ export interface AppDataAccess {
       brand?: string | null;
       seoTitle?: string | null;
       seoDescription?: string | null;
+      salesMode: ProductSalesMode;
+      priceVisibility: ProductPriceVisibility;
+      primaryAction: ProductPrimaryAction;
+      inquiryEnabled: boolean;
+      appointmentRequired: boolean;
+      whatsappEnabled: boolean;
+      purchasable: boolean;
+      minOrderQuantity: number;
+      maxOrderQuantity?: number | null;
+      callToActionLabel?: string | null;
+      whatsappMessageTemplate?: string | null;
+      inquiryFormTitle?: string | null;
+      appointmentNote?: string | null;
       categoryIds: string[];
     },
   ): Promise<ProductRecord>;
@@ -311,6 +348,19 @@ export interface AppDataAccess {
       brand?: string | null;
       seoTitle?: string | null;
       seoDescription?: string | null;
+      salesMode?: ProductSalesMode;
+      priceVisibility?: ProductPriceVisibility;
+      primaryAction?: ProductPrimaryAction;
+      inquiryEnabled?: boolean;
+      appointmentRequired?: boolean;
+      whatsappEnabled?: boolean;
+      purchasable?: boolean;
+      minOrderQuantity?: number;
+      maxOrderQuantity?: number | null;
+      callToActionLabel?: string | null;
+      whatsappMessageTemplate?: string | null;
+      inquiryFormTitle?: string | null;
+      appointmentNote?: string | null;
       categoryIds?: string[];
     },
   ): Promise<ProductRecord | null>;
@@ -393,7 +443,9 @@ export interface AppDataAccess {
       }>;
       actorUserId?: string;
     },
-  ): Promise<OrderRecord | "CUSTOMER_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INVALID_VARIANT">;
+  ): Promise<
+    OrderRecord | "CUSTOMER_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INVALID_VARIANT" | ProductOrderValidationCode
+  >;
   updateOrder(
     storeId: string,
     orderId: string,
@@ -403,18 +455,22 @@ export interface AppDataAccess {
     storeId: string,
     orderId: string,
     input: { variantId: string; quantity: number; actorUserId?: string },
-  ): Promise<OrderRecord | null | "VARIANT_NOT_FOUND" | "INVALID_VARIANT" | "MUTATION_NOT_ALLOWED">;
+  ): Promise<
+    OrderRecord | null | "VARIANT_NOT_FOUND" | "INVALID_VARIANT" | "MUTATION_NOT_ALLOWED" | ProductOrderValidationCode
+  >;
   updateOrderLine(
     storeId: string,
     orderId: string,
     lineId: string,
     input: { quantity: number; actorUserId?: string },
-  ): Promise<OrderRecord | null | "ORDER_LINE_NOT_FOUND" | "MUTATION_NOT_ALLOWED">;
+  ): Promise<OrderRecord | null | "ORDER_LINE_NOT_FOUND" | "MUTATION_NOT_ALLOWED" | ProductOrderValidationCode>;
   placeOrder(
     storeId: string,
     orderId: string,
     input: { actorUserId?: string },
-  ): Promise<OrderRecord | null | "INVALID_STATUS" | "INSUFFICIENT_STOCK" | "RESERVATION_FAILED">;
+  ): Promise<
+    OrderRecord | null | "INVALID_STATUS" | "INVALID_VARIANT" | "INSUFFICIENT_STOCK" | "RESERVATION_FAILED" | ProductOrderValidationCode
+  >;
   cancelOrder(
     storeId: string,
     orderId: string,
@@ -560,6 +616,11 @@ function serializeProduct(product: ProductRecord) {
     brand: product.brand ?? null,
     seoTitle: product.seoTitle ?? null,
     seoDescription: product.seoDescription ?? null,
+    maxOrderQuantity: product.maxOrderQuantity ?? null,
+    callToActionLabel: product.callToActionLabel ?? null,
+    whatsappMessageTemplate: product.whatsappMessageTemplate ?? null,
+    inquiryFormTitle: product.inquiryFormTitle ?? null,
+    appointmentNote: product.appointmentNote ?? null,
     categoryIds: product.categoryIds,
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
@@ -648,6 +709,48 @@ function uniqueConstraintTargets(error: Prisma.PrismaClientKnownRequestError): s
   return Array.isArray(target) ? target.filter((item): item is string => typeof item === "string") : [];
 }
 
+const productSalesOrderErrors = new Set<ProductSalesOrderCode>([
+  "PRODUCT_NOT_PURCHASABLE",
+  "PRODUCT_REQUIRES_INQUIRY",
+  "PRODUCT_REQUIRES_APPOINTMENT",
+  "PRODUCT_REQUIRES_WHATSAPP",
+  "PRODUCT_CATALOG_ONLY",
+]);
+
+function isProductSalesOrderError(value: unknown): value is ProductSalesOrderCode {
+  return typeof value === "string" && productSalesOrderErrors.has(value as ProductSalesOrderCode);
+}
+
+function productSalesOrderErrorBody(code: string) {
+  return errorBody(code, "Product is not available for online order.");
+}
+
+function isConsistentProductSalesModel(
+  product: Pick<
+    ProductRecord,
+    "salesMode" | "priceVisibility" | "primaryAction" | "whatsappEnabled" | "purchasable" | "minOrderQuantity" | "maxOrderQuantity"
+  >,
+) {
+  if (product.minOrderQuantity < 1) return false;
+  if (product.maxOrderQuantity !== null && product.maxOrderQuantity < product.minOrderQuantity) return false;
+  if (product.salesMode === "ONLINE") {
+    return (
+      product.primaryAction === "ADD_TO_CART" &&
+      ["VISIBLE", "STARTING_FROM"].includes(product.priceVisibility)
+    );
+  }
+  if (product.salesMode === "INQUIRY") {
+    return ["REQUEST_PRICE", "CONTACT_FORM"].includes(product.primaryAction) && !product.purchasable;
+  }
+  if (product.salesMode === "APPOINTMENT") {
+    return product.primaryAction === "BOOK_APPOINTMENT" && !product.purchasable;
+  }
+  if (product.salesMode === "WHATSAPP") {
+    return product.primaryAction === "WHATSAPP" && product.whatsappEnabled && !product.purchasable;
+  }
+  return ["NONE", "CONTACT_FORM"].includes(product.primaryAction) && !product.purchasable;
+}
+
 function requireInternalToken(config: AppConfig) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const token = bearerToken(request);
@@ -704,6 +807,19 @@ function createPrismaDataAccess(): AppDataAccess {
     brand: true,
     seoTitle: true,
     seoDescription: true,
+    salesMode: true,
+    priceVisibility: true,
+    primaryAction: true,
+    inquiryEnabled: true,
+    appointmentRequired: true,
+    whatsappEnabled: true,
+    purchasable: true,
+    minOrderQuantity: true,
+    maxOrderQuantity: true,
+    callToActionLabel: true,
+    whatsappMessageTemplate: true,
+    inquiryFormTitle: true,
+    appointmentNote: true,
     createdAt: true,
     updatedAt: true,
     assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
@@ -848,6 +964,27 @@ function createPrismaDataAccess(): AppDataAccess {
       taxAmount: 0,
       totalAmount: subtotalAmount,
     };
+  }
+
+  function productSalesError(
+    product: Pick<
+      Product,
+      "salesMode" | "purchasable" | "priceVisibility" | "minOrderQuantity" | "maxOrderQuantity"
+    >,
+    quantity: number,
+  ) {
+    if (product.salesMode === "INQUIRY") return "PRODUCT_REQUIRES_INQUIRY";
+    if (product.salesMode === "APPOINTMENT") return "PRODUCT_REQUIRES_APPOINTMENT";
+    if (product.salesMode === "WHATSAPP") return "PRODUCT_REQUIRES_WHATSAPP";
+    if (product.salesMode === "CATALOG_ONLY") return "PRODUCT_CATALOG_ONLY";
+    if (!product.purchasable || product.priceVisibility === "HIDDEN" || product.priceVisibility === "ON_REQUEST") {
+      return "PRODUCT_NOT_PURCHASABLE";
+    }
+    if (quantity < product.minOrderQuantity) return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE";
+    if (product.maxOrderQuantity !== null && quantity > product.maxOrderQuantity) {
+      return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE";
+    }
+    return null;
   }
 
   return {
@@ -1035,6 +1172,19 @@ function createPrismaDataAccess(): AppDataAccess {
             brand: input.brand ?? null,
             seoTitle: input.seoTitle ?? null,
             seoDescription: input.seoDescription ?? null,
+            salesMode: input.salesMode,
+            priceVisibility: input.priceVisibility,
+            primaryAction: input.primaryAction,
+            inquiryEnabled: input.inquiryEnabled,
+            appointmentRequired: input.appointmentRequired,
+            whatsappEnabled: input.whatsappEnabled,
+            purchasable: input.purchasable,
+            minOrderQuantity: input.minOrderQuantity,
+            maxOrderQuantity: input.maxOrderQuantity ?? null,
+            callToActionLabel: input.callToActionLabel ?? null,
+            whatsappMessageTemplate: input.whatsappMessageTemplate ?? null,
+            inquiryFormTitle: input.inquiryFormTitle ?? null,
+            appointmentNote: input.appointmentNote ?? null,
           },
           select: productSelect,
         });
@@ -1061,6 +1211,12 @@ function createPrismaDataAccess(): AppDataAccess {
             brand: data.brand === undefined ? undefined : data.brand,
             seoTitle: data.seoTitle === undefined ? undefined : data.seoTitle,
             seoDescription: data.seoDescription === undefined ? undefined : data.seoDescription,
+            maxOrderQuantity: data.maxOrderQuantity === undefined ? undefined : data.maxOrderQuantity,
+            callToActionLabel: data.callToActionLabel === undefined ? undefined : data.callToActionLabel,
+            whatsappMessageTemplate:
+              data.whatsappMessageTemplate === undefined ? undefined : data.whatsappMessageTemplate,
+            inquiryFormTitle: data.inquiryFormTitle === undefined ? undefined : data.inquiryFormTitle,
+            appointmentNote: data.appointmentNote === undefined ? undefined : data.appointmentNote,
           },
         });
         if (categoryIds) {
@@ -1251,7 +1407,18 @@ function createPrismaDataAccess(): AppDataAccess {
             priceMinor: true,
             currency: true,
             status: true,
-            product: { select: { id: true, title: true, status: true } },
+            product: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                salesMode: true,
+                purchasable: true,
+                priceVisibility: true,
+                minOrderQuantity: true,
+                maxOrderQuantity: true,
+              },
+            },
           },
         });
         const variantById = new Map(variants.map((variant) => [variant.id, variant]));
@@ -1261,6 +1428,8 @@ function createPrismaDataAccess(): AppDataAccess {
           if (!variant) return "VARIANT_NOT_FOUND";
           if (variant.status !== "ACTIVE" || variant.product.status !== "ACTIVE") return "INVALID_VARIANT";
           if (variant.currency !== input.currency) return "INVALID_VARIANT";
+          const salesError = productSalesError(variant.product, line.quantity);
+          if (salesError) return salesError;
           const totalAmount = variant.priceMinor * line.quantity;
           if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
           orderLines.push({
@@ -1373,13 +1542,25 @@ function createPrismaDataAccess(): AppDataAccess {
             priceMinor: true,
             currency: true,
             status: true,
-            product: { select: { title: true, status: true } },
+            product: {
+              select: {
+                title: true,
+                status: true,
+                salesMode: true,
+                purchasable: true,
+                priceVisibility: true,
+                minOrderQuantity: true,
+                maxOrderQuantity: true,
+              },
+            },
           },
         });
         if (!variant) return "VARIANT_NOT_FOUND";
         if (variant.status !== "ACTIVE" || variant.product.status !== "ACTIVE" || variant.currency !== order.currency) {
           return "INVALID_VARIANT";
         }
+        const salesError = productSalesError(variant.product, input.quantity);
+        if (salesError) return salesError;
         const totalAmount = variant.priceMinor * input.quantity;
         if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
         await transaction.orderLine.create({
@@ -1425,9 +1606,17 @@ function createPrismaDataAccess(): AppDataAccess {
         if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED";
         const line = await transaction.orderLine.findFirst({
           where: { id: lineId, orderId, storeId },
-          select: { id: true, unitPriceAmount: true },
+          select: {
+            id: true,
+            unitPriceAmount: true,
+            product: { select: { minOrderQuantity: true, maxOrderQuantity: true } },
+          },
         });
         if (!line) return "ORDER_LINE_NOT_FOUND";
+        if (input.quantity < line.product.minOrderQuantity) return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE";
+        if (line.product.maxOrderQuantity !== null && input.quantity > line.product.maxOrderQuantity) {
+          return "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE";
+        }
         const totalAmount = line.unitPriceAmount * input.quantity;
         if (totalAmount > maxPostgresInt) return "MUTATION_NOT_ALLOWED";
         await transaction.orderLine.update({
@@ -1461,7 +1650,29 @@ function createPrismaDataAccess(): AppDataAccess {
         if (!order) return null;
         if (order.status === "PLACED") return order;
         if (order.status !== "DRAFT" || order.lines.length === 0) return "INVALID_STATUS";
+        const variants = await transaction.productVariant.findMany({
+          where: { storeId, id: { in: order.lines.map((line) => line.variantId) } },
+          select: {
+            id: true,
+            status: true,
+            product: {
+              select: {
+                status: true,
+                salesMode: true,
+                purchasable: true,
+                priceVisibility: true,
+                minOrderQuantity: true,
+                maxOrderQuantity: true,
+              },
+            },
+          },
+        });
+        const variantById = new Map(variants.map((variant) => [variant.id, variant]));
         for (const line of order.lines) {
+          const variant = variantById.get(line.variantId);
+          if (!variant || variant.status !== "ACTIVE" || variant.product.status !== "ACTIVE") return "INVALID_VARIANT";
+          const salesError = productSalesError(variant.product, line.quantity);
+          if (salesError) return salesError;
           const rows = await transaction.$queryRaw<Array<{ quantityOnHand: number; quantityReserved: number }>>`
             SELECT "quantityOnHand", "quantityReserved"
             FROM "InventoryItem"
@@ -2113,6 +2324,8 @@ export function createServer(
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
     const input = productUpdateRequestSchema.parse(request.body);
+    const current = await dataAccess.findProductById(params.storeId, params.productId);
+    if (!current) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
     const categoryIds =
       input.categoryIds === undefined
         ? undefined
@@ -2123,6 +2336,9 @@ export function createServer(
       if (existing && existing.id !== params.productId) {
         return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
       }
+    }
+    if (!isConsistentProductSalesModel({ ...current, ...input })) {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Product sales model fields are inconsistent."));
     }
     const product = await dataAccess.updateProduct(params.storeId, params.productId, {
       ...input,
@@ -2301,6 +2517,12 @@ export function createServer(
     if (order === "INVALID_VARIANT") {
       return reply.code(400).send(errorBody("VALIDATION_ERROR", "Variant is not active or currency does not match."));
     }
+    if (order === "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Order line quantity is outside product limits."));
+    }
+    if (isProductSalesOrderError(order)) {
+      return reply.code(400).send(productSalesOrderErrorBody(order));
+    }
     await dataAccess.createAuditLog({
       action: "CREATE",
       platformUserId: access.session.platformUser.id,
@@ -2364,6 +2586,12 @@ export function createServer(
     if (order === "INVALID_VARIANT") {
       return reply.code(400).send(errorBody("VALIDATION_ERROR", "Variant is not active or currency does not match."));
     }
+    if (order === "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Order line quantity is outside product limits."));
+    }
+    if (isProductSalesOrderError(order)) {
+      return reply.code(400).send(productSalesOrderErrorBody(order));
+    }
     if (order === "MUTATION_NOT_ALLOWED") {
       return reply.code(409).send(errorBody("ORDER_MUTATION_NOT_ALLOWED", "Order mutation is not allowed."));
     }
@@ -2394,6 +2622,12 @@ export function createServer(
     if (order === "MUTATION_NOT_ALLOWED") {
       return reply.code(409).send(errorBody("ORDER_MUTATION_NOT_ALLOWED", "Order mutation is not allowed."));
     }
+    if (order === "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Order line quantity is outside product limits."));
+    }
+    if (isProductSalesOrderError(order)) {
+      return reply.code(400).send(productSalesOrderErrorBody(order));
+    }
     await dataAccess.createAuditLog({
       action: "UPDATE",
       platformUserId: access.session.platformUser.id,
@@ -2415,6 +2649,15 @@ export function createServer(
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "INVALID_STATUS") {
       return reply.code(409).send(errorBody("ORDER_INVALID_STATUS", "Order cannot be placed in its current status."));
+    }
+    if (order === "INVALID_VARIANT") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Variant is not active or currency does not match."));
+    }
+    if (order === "PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Order line quantity is outside product limits."));
+    }
+    if (isProductSalesOrderError(order)) {
+      return reply.code(400).send(productSalesOrderErrorBody(order));
     }
     if (order === "INSUFFICIENT_STOCK") {
       return reply.code(409).send(errorBody("ORDER_INSUFFICIENT_STOCK", "Insufficient stock for order reservation."));

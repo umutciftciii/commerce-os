@@ -33,6 +33,9 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
   inventory movement modelleri; manuel stok adjustment API'leri.
 - Faz 2C order/reservation foundation: customer/address, draft/placed/cancelled order lifecycle,
   order line price snapshot, inventory reservation/release ve order timeline modelleri/API'leri.
+- Faz 2D product sales model foundation: online satin alma, fiyat sor, randevu, WhatsApp ve
+  katalog-only urun davranislarini product contract/model/API seviyesinde ayiran sales mode,
+  price visibility, CTA behavior ve order purchasability guard.
 - Health, version, internal DB ve Redis health endpointleri.
 - Idempotent seed ve seed dogrulama akislari.
 - Servis skeletonlari ve paylasimli paketler.
@@ -46,5 +49,7 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
 - Canli odeme, kargo, fatura ve pazaryeri entegrasyonlari.
 - Public storefront resolver, sepet, checkout, payment provider, shipping/fulfillment, invoice,
   notification, campaign ve marketplace akislari.
+- Store-admin product sales model UI, storefront CTA render, inquiry/appointment request modelleri
+  ve WhatsApp redirect/store contact config.
 - Production-grade observability, alerting ve deployment otomasyonu.
 - Buyume asistaninin AI destekli son kullanici ozellikleri.

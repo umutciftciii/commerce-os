@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const SMOKE_PREFIXES = ["smoke-", "rev-", "test-", "f2a-smoke-"] as const;
+const SMOKE_PREFIXES = ["smoke-", "rev-", "test-", "f2a-smoke-", "f2d-smoke-"] as const;
 const SAFE_APP_ENVS = new Set(["development", "test", undefined]);
 
 export function assertSafeCleanupEnv(appEnv = process.env.APP_ENV): void {
