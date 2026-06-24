@@ -32,7 +32,7 @@ export function StatCard({ label, value, hint, badge, badgeTone = "neutral", ico
           </Badge>
         ) : null}
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tightish text-slate-900">{value}</p>
+      <div className="mt-3 text-2xl font-semibold tracking-tightish text-slate-900">{value}</div>
       {hint ? <p className="mt-1 text-xs text-slate-400">{hint}</p> : null}
     </Card>
   );
