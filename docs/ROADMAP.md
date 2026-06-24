@@ -31,7 +31,7 @@
 
 ## Faz 2 Commerce Core
 
-- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama eklendi)
+- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama + Faz 2C order core eklendi)
 - Amac: Ticaret cekirdegini erken parcalamadan urun, stok, musteri ve siparis modellerini kurmak.
 - Kapsam: Product/catalog, inventory, customer, order, basic pricing ve order status akislari.
 - Kabul kriterleri: Commerce modelleri migration ile gelir; temel CRUD/API akislari testlidir;
@@ -55,6 +55,31 @@
 - Kapsam disi: backend catalog/inventory davranisi degisikligi, order/checkout/payment/shipping,
   storefront resolver, marketplace, media/options/import, delete endpointleri, store-user auth
   (gecici platform-admin store context ile calisir — bkz. ADR-023, TD-019).
+
+### Faz 2C Order / Reservation Core
+
+- Durum: IMPLEMENTED_GATE_PENDING
+- Kapsam: Customer/CustomerAddress foundation, Order/OrderLine/OrderAddress/OrderEvent,
+  InventoryReservation ve OrderNumberCounter modelleri; store-scoped order list/create/get/update,
+  line add/update, place ve cancel endpointleri; price snapshot, minor-unit total hesaplama,
+  PostgreSQL row-level lock ile reservation, audit/order event, contracts/api-client ve cleanup-smoke
+  genisletmesi.
+- Kapsam disi: store-admin orders UI, storefront checkout, payment provider, shipping/fulfillment,
+  invoice, cart, notification, refund/return, marketplace ve production deploy.
+
+### Faz 2D Product Sales Model Foundation
+
+- Durum: PLANNED
+- Kapsam: Product sales model karar ve backend foundation'i: `ONLINE`, `INQUIRY`, `APPOINTMENT`,
+  `WHATSAPP`, `CATALOG_ONLY`; price visibility ve CTA behavior kurallari.
+- Kapsam disi: Bu F2C review'da implement edilmedi; UI/checkout/payment davranisi eklenmeyecek.
+
+### Faz 2E Store Admin Orders UI
+
+- Durum: PLANNED
+- Kapsam: F2C order list/detail, status/timeline, place/cancel operasyonlarini store-admin BFF ve UI
+  ekranlarina baglamak.
+- Kapsam disi: Storefront checkout, payment, shipping/fulfillment ve marketplace.
 
 ## Faz 3 Storefront + Theme Foundation
 

@@ -505,3 +505,53 @@ dokumanlarla sinirli tutuldu.
 - Smoke: 7 servis compose healthcheck ile healthy; `/health` (gateway) ve uc app `/api/health` 200;
   admin login render (200, dogru title), storefront home 200, store-admin shell 200.
 - Gate: `pnpm db:generate`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test` — hepsi gecti.
+
+## Faz 2C Order / Reservation Core
+
+- Tarih: 2026-06-24
+- Durum: IMPLEMENTED_GATE_PENDING (commit atilmadi; final gate ve runtime smoke raporlanacak)
+- Kapsam: Customer/CustomerAddress, Order/OrderLine/OrderAddress/OrderEvent,
+  InventoryReservation ve OrderNumberCounter Prisma modelleri + migration eklendi. Store-scoped
+  order API: list/create/get/update, line add/update, place, cancel. Contracts ve api-client order
+  helper'lari eklendi.
+- Lifecycle: Order DRAFT olarak lines ile olusur; line snapshot sku/title/variantTitle/unitPrice
+  create aninda variant/product'tan alinir. DRAFT line mutation'a aciktir. Place order stok
+  rezervasyonu yapar ve PLACED yapar. Cancel aktif rezervasyonlari RELEASED yapar, reserved stogu
+  geri dusurur ve CANCELLED yapar. Double cancel double release yapmaz; placed/cancelled line
+  mutation engellenir.
+- Concurrency: Place transaction icinde `InventoryItem` satirlarini `SELECT ... FOR UPDATE` ile
+  kilitler; available stok yetersizse `ORDER_INSUFFICIENT_STOCK` ile 409 doner. Cancel release de
+  aktif rezervasyonlar uzerinden idempotent calisir.
+- Audit/event: Order create/update/line mutation/place/cancel icin `AuditLog`; order timeline icin
+  `OrderEvent`; reservation create/release icin `InventoryMovement` (`SALE_RESERVATION`,
+  `SALE_RELEASE`) yazilir.
+- Seed/cleanup: Demo order seed edilmedi; `db:verify-seed` order'a bagimli degil. `db:cleanup-smoke`
+  smoke order/customer kayitlarini ve aktif smoke rezervasyonlarini guvenli release/delete edecek
+  sekilde genisletildi; production/staging guard korunur.
+- Kapsam disi: Store-admin orders UI, storefront checkout, payment provider, shipping/fulfillment,
+  invoice, cart, email notification, refund/return, marketplace, multi-warehouse.
+- Ara dogrulama: `pnpm db:generate`, `pnpm --filter @commerce-os/contracts build`,
+  `pnpm --filter @commerce-os/api-gateway test`, `pnpm --filter @commerce-os/contracts test`,
+  `pnpm --filter @commerce-os/api-client test`, `pnpm --filter @commerce-os/api-client build`,
+  `pnpm typecheck` gecti.
+
+### Final Review / Gate (2026-06-24)
+
+- Scope review: Degisiklikler F2C backend/contracts/client/db/docs/test kapsami ile sinirli; store-admin
+  order UI, storefront checkout, payment/shipping/marketplace implementasyonu eklenmedi.
+- Security/tenant review: Store-scoped order endpointleri platform admin bearer + explicit `storeId`
+  guard'i ile korunur; order/customer/reservation/event query'leri storeId ile scoped; cross-store
+  variant create/place engellenir; audit/event metadata token/password/secret tasimaz. Store-user auth
+  TD-019 altinda acik kalir.
+- Concurrency review: Place transaction icinde `SELECT ... FOR UPDATE` ile inventory satirini kilitler;
+  oversell kontrollu `409 ORDER_INSUFFICIENT_STOCK` doner. Cancel yalniz ACTIVE reservation release
+  eder; reserved quantity yetersiz/corrupt ise `ORDER_RESERVATION_FAILED` ile durur ve
+  `quantityReserved` negatife dusmez.
+- Gate: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` gecti.
+- Runtime: Docker compose rebuild/recreate sonrasi 7 servis healthy. `pnpm db:migrate`, `pnpm db:seed`,
+  `pnpm db:verify-seed` gecti. Canli smoke: login 200, draft order 201, get/list 200, place 200,
+  reserved 0->1, available dustu, insufficient stock 409, cancel 200, reserved 1->0, double cancel
+  idempotent, placed/cancelled line mutation engelli, health 200. `pnpm db:cleanup-smoke` smoke order
+  ve aktif reservation temizledi; son `pnpm db:verify-seed` gecti.
+- Sonraki faz: F2D Product Sales Model Foundation (`ONLINE`, `INQUIRY`, `APPOINTMENT`, `WHATSAPP`,
+  `CATALOG_ONLY`, price visibility, CTA behavior).

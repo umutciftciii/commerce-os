@@ -156,6 +156,12 @@ export const inventoryMovementTypeSchema = z.enum([
   "RETURN",
   "IMPORT",
 ]);
+export const customerStatusSchema = z.enum(["ACTIVE", "ARCHIVED"]);
+export const addressTypeSchema = z.enum(["SHIPPING", "BILLING"]);
+export const orderStatusSchema = z.enum(["DRAFT", "PLACED", "CONFIRMED", "CANCELLED", "FULFILLED"]);
+export const paymentStatusSchema = z.enum(["UNPAID", "AUTHORIZED", "PAID", "REFUNDED"]);
+export const fulfillmentStatusSchema = z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED", "CANCELLED"]);
+export const inventoryReservationStatusSchema = z.enum(["ACTIVE", "RELEASED", "CONSUMED"]);
 
 export const productCategorySchema = z.object({
   id: z.string().min(1),
@@ -370,6 +376,159 @@ export const inventoryAdjustmentResponseSchema = z.object({
   }),
 });
 
+export const customerSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  email: z.string().email(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  phone: z.string().nullable(),
+  status: customerStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const addressInputSchema = z.object({
+  type: addressTypeSchema,
+  fullName: z.string().min(1).max(220),
+  phone: z.string().max(80).nullable().optional(),
+  countryCode: z.string().length(2).regex(/^[A-Z]{2}$/),
+  city: z.string().min(1).max(120),
+  district: z.string().max(120).nullable().optional(),
+  addressLine1: z.string().min(1).max(500),
+  addressLine2: z.string().max(500).nullable().optional(),
+  postalCode: z.string().max(40).nullable().optional(),
+});
+
+export const orderAddressSchema = addressInputSchema.extend({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  orderId: z.string().min(1),
+  phone: z.string().nullable(),
+  district: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  postalCode: z.string().nullable(),
+});
+
+export const orderLineInputSchema = z.object({
+  variantId: z.string().min(1),
+  quantity: z.number().int().positive().max(10000),
+});
+
+export const orderLineUpdateRequestSchema = z.object({
+  quantity: z.number().int().positive().max(10000),
+});
+
+export const orderLineSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  orderId: z.string().min(1),
+  productId: z.string().min(1),
+  variantId: z.string().min(1),
+  sku: skuSchema,
+  title: z.string().min(1),
+  variantTitle: z.string().min(1),
+  quantity: z.number().int().positive(),
+  unitPriceAmount: z.number().int().nonnegative(),
+  totalAmount: z.number().int().nonnegative(),
+  currency: currencySchema,
+  createdAt: z.string().datetime(),
+});
+
+export const inventoryReservationSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  orderId: z.string().min(1),
+  orderLineId: z.string().min(1),
+  variantId: z.string().min(1),
+  quantity: z.number().int().positive(),
+  status: inventoryReservationStatusSchema,
+  expiresAt: z.string().datetime().nullable(),
+  releasedAt: z.string().datetime().nullable(),
+  consumedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const orderEventSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  orderId: z.string().min(1),
+  type: z.string().min(1),
+  message: z.string().nullable(),
+  metadata: jsonRecordSchema.nullable(),
+  actorUserId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const orderSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  orderNumber: z.string().min(1),
+  customerId: z.string().min(1).nullable(),
+  customerEmail: z.string().email(),
+  currency: currencySchema,
+  status: orderStatusSchema,
+  paymentStatus: paymentStatusSchema,
+  fulfillmentStatus: fulfillmentStatusSchema,
+  subtotalAmount: z.number().int().nonnegative(),
+  discountAmount: z.number().int().nonnegative(),
+  shippingAmount: z.number().int().nonnegative(),
+  taxAmount: z.number().int().nonnegative(),
+  totalAmount: z.number().int().nonnegative(),
+  placedAt: z.string().datetime().nullable(),
+  cancelledAt: z.string().datetime().nullable(),
+  cancelReason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  lines: z.array(orderLineSchema).default([]),
+  addresses: z.array(orderAddressSchema).default([]),
+  reservations: z.array(inventoryReservationSchema).default([]),
+  events: z.array(orderEventSchema).default([]),
+});
+
+export const orderListResponseSchema = z.object({
+  data: z.array(orderSchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export const orderCreateRequestSchema = z
+  .object({
+    customerId: z.string().min(1).nullable().optional(),
+    customerEmail: z.string().email(),
+    currency: currencySchema.default("TRY"),
+    lines: z.array(orderLineInputSchema).min(1),
+    addresses: z.array(addressInputSchema).max(2).default([]),
+  })
+  .refine(
+    (value) => {
+      const seen = new Set<string>();
+      return value.addresses.every((address) => {
+        if (seen.has(address.type)) return false;
+        seen.add(address.type);
+        return true;
+      });
+    },
+    { message: "Only one address per type is allowed.", path: ["addresses"] },
+  );
+
+export const orderUpdateRequestSchema = z
+  .object({
+    customerEmail: z.string().email().optional(),
+    customerId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const orderCancelRequestSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 export type TenantContextContract = z.infer<typeof tenantContextSchema>;
@@ -392,6 +551,12 @@ export type ProductType = z.infer<typeof productTypeSchema>;
 export type ProductVariantStatus = z.infer<typeof productVariantStatusSchema>;
 export type ProductCategoryStatus = z.infer<typeof productCategoryStatusSchema>;
 export type InventoryMovementType = z.infer<typeof inventoryMovementTypeSchema>;
+export type CustomerStatus = z.infer<typeof customerStatusSchema>;
+export type AddressType = z.infer<typeof addressTypeSchema>;
+export type OrderStatus = z.infer<typeof orderStatusSchema>;
+export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
+export type FulfillmentStatus = z.infer<typeof fulfillmentStatusSchema>;
+export type InventoryReservationStatus = z.infer<typeof inventoryReservationStatusSchema>;
 export type ProductCategory = z.infer<typeof productCategorySchema>;
 export type ProductCategoryListResponse = z.infer<typeof productCategoryListResponseSchema>;
 export type ProductCategoryCreateRequest = z.infer<typeof productCategoryCreateRequestSchema>;
@@ -408,3 +573,15 @@ export type InventoryItem = z.infer<typeof inventoryItemSchema>;
 export type InventoryListResponse = z.infer<typeof inventoryListResponseSchema>;
 export type InventoryAdjustRequest = z.infer<typeof inventoryAdjustRequestSchema>;
 export type InventoryAdjustmentResponse = z.infer<typeof inventoryAdjustmentResponseSchema>;
+export type Customer = z.infer<typeof customerSchema>;
+export type OrderAddress = z.infer<typeof orderAddressSchema>;
+export type OrderLine = z.infer<typeof orderLineSchema>;
+export type OrderLineInput = z.infer<typeof orderLineInputSchema>;
+export type OrderLineUpdateRequest = z.infer<typeof orderLineUpdateRequestSchema>;
+export type InventoryReservation = z.infer<typeof inventoryReservationSchema>;
+export type OrderEvent = z.infer<typeof orderEventSchema>;
+export type Order = z.infer<typeof orderSchema>;
+export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
+export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
+export type OrderUpdateRequest = z.infer<typeof orderUpdateRequestSchema>;
+export type OrderCancelRequest = z.infer<typeof orderCancelRequestSchema>;

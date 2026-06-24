@@ -8,6 +8,13 @@ import type {
   InventoryAdjustmentResponse,
   InventoryItem,
   InventoryListResponse,
+  Order,
+  OrderCancelRequest,
+  OrderCreateRequest,
+  OrderLineInput,
+  OrderLineUpdateRequest,
+  OrderListResponse,
+  OrderUpdateRequest,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -45,6 +52,13 @@ export type {
   InventoryAdjustmentResponse,
   InventoryItem,
   InventoryListResponse,
+  Order,
+  OrderCancelRequest,
+  OrderCreateRequest,
+  OrderLineInput,
+  OrderLineUpdateRequest,
+  OrderListResponse,
+  OrderUpdateRequest,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -213,6 +227,22 @@ export interface ApiClient {
         token?: string,
       ): Promise<InventoryAdjustmentResponse>;
     };
+    orders: {
+      list(storeId: string, token?: string): Promise<OrderListResponse>;
+      create(storeId: string, input: OrderCreateRequest, token?: string): Promise<Order>;
+      get(storeId: string, orderId: string, token?: string): Promise<Order>;
+      update(storeId: string, orderId: string, input: OrderUpdateRequest, token?: string): Promise<Order>;
+      addLine(storeId: string, orderId: string, input: OrderLineInput, token?: string): Promise<Order>;
+      updateLine(
+        storeId: string,
+        orderId: string,
+        lineId: string,
+        input: OrderLineUpdateRequest,
+        token?: string,
+      ): Promise<Order>;
+      place(storeId: string, orderId: string, token?: string): Promise<Order>;
+      cancel(storeId: string, orderId: string, input?: OrderCancelRequest, token?: string): Promise<Order>;
+    };
   };
 }
 
@@ -362,6 +392,28 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+      },
+      orders: {
+        list: (storeId, token) => getJson<OrderListResponse>(`/stores/${storeId}/orders`, token),
+        create: (storeId, input, token) =>
+          sendJson<Order>(`/stores/${storeId}/orders`, "POST", input, token),
+        get: (storeId, orderId, token) =>
+          getJson<Order>(`/stores/${storeId}/orders/${orderId}`, token),
+        update: (storeId, orderId, input, token) =>
+          sendJson<Order>(`/stores/${storeId}/orders/${orderId}`, "PATCH", input, token),
+        addLine: (storeId, orderId, input, token) =>
+          sendJson<Order>(`/stores/${storeId}/orders/${orderId}/lines`, "POST", input, token),
+        updateLine: (storeId, orderId, lineId, input, token) =>
+          sendJson<Order>(
+            `/stores/${storeId}/orders/${orderId}/lines/${lineId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        place: (storeId, orderId, token) =>
+          sendJson<Order>(`/stores/${storeId}/orders/${orderId}/place`, "POST", undefined, token),
+        cancel: (storeId, orderId, input = {}, token) =>
+          sendJson<Order>(`/stores/${storeId}/orders/${orderId}/cancel`, "POST", input, token),
       },
     },
   };

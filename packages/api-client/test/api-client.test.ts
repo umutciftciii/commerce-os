@@ -270,6 +270,96 @@ describe("catalog and inventory helpers", () => {
   });
 });
 
+describe("order helpers", () => {
+  it("calls order lifecycle endpoints with typed paths", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const now = new Date().toISOString();
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return {
+        ok: true,
+        status: init?.method === "POST" ? 201 : 200,
+        json: async () => {
+          if (String(url).endsWith("/orders")) {
+            return init?.method === "POST"
+              ? {
+                  id: "order_1",
+                  storeId: "store_1",
+                  orderNumber: "OS-000001",
+                  customerId: null,
+                  customerEmail: "buyer@example.com",
+                  currency: "TRY",
+                  status: "DRAFT",
+                  paymentStatus: "UNPAID",
+                  fulfillmentStatus: "UNFULFILLED",
+                  subtotalAmount: 1000,
+                  discountAmount: 0,
+                  shippingAmount: 0,
+                  taxAmount: 0,
+                  totalAmount: 1000,
+                  placedAt: null,
+                  cancelledAt: null,
+                  cancelReason: null,
+                  createdAt: now,
+                  updatedAt: now,
+                  lines: [],
+                  addresses: [],
+                  reservations: [],
+                  events: [],
+                }
+              : { data: [], pagination: { limit: 50, offset: 0, total: 0 } };
+          }
+          return {
+            id: "order_1",
+            storeId: "store_1",
+            orderNumber: "OS-000001",
+            customerId: null,
+            customerEmail: "buyer@example.com",
+            currency: "TRY",
+            status: "PLACED",
+            paymentStatus: "UNPAID",
+            fulfillmentStatus: "UNFULFILLED",
+            subtotalAmount: 1000,
+            discountAmount: 0,
+            shippingAmount: 0,
+            taxAmount: 0,
+            totalAmount: 1000,
+            placedAt: now,
+            cancelledAt: null,
+            cancelReason: null,
+            createdAt: now,
+            updatedAt: now,
+            lines: [],
+            addresses: [],
+            reservations: [],
+            events: [],
+          };
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const client = createApiClient({ baseUrl: "http://localhost:4000", fetch: fakeFetch });
+    await client.admin.orders.list("store_1", "tok");
+    await client.admin.orders.create(
+      "store_1",
+      { customerEmail: "buyer@example.com", currency: "TRY", lines: [{ variantId: "variant_1", quantity: 1 }], addresses: [] },
+      "tok",
+    );
+    await client.admin.orders.place("store_1", "order_1", "tok");
+    await client.admin.orders.cancel("store_1", "order_1", { reason: "buyer request" }, "tok");
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://localhost:4000/stores/store_1/orders",
+      "http://localhost:4000/stores/store_1/orders",
+      "http://localhost:4000/stores/store_1/orders/order_1/place",
+      "http://localhost:4000/stores/store_1/orders/order_1/cancel",
+    ]);
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect(calls[2]?.init?.method).toBe("POST");
+    expect(calls[3]?.init?.body).toBe(JSON.stringify({ reason: "buyer request" }));
+  });
+});
+
 describe("error handling", () => {
   it("throws a typed ApiError carrying the gateway error code and status", async () => {
     const { fetchImpl } = stubFetch({

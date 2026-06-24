@@ -139,6 +139,87 @@ type MovementRecord = {
   createdAt: Date;
 };
 
+type OrderLineRecord = {
+  id: string;
+  storeId: string;
+  orderId: string;
+  productId: string;
+  variantId: string;
+  sku: string;
+  title: string;
+  variantTitle: string;
+  quantity: number;
+  unitPriceAmount: number;
+  totalAmount: number;
+  currency: string;
+  createdAt: Date;
+};
+
+type ReservationRecord = {
+  id: string;
+  storeId: string;
+  orderId: string;
+  orderLineId: string;
+  variantId: string;
+  quantity: number;
+  status: "ACTIVE" | "RELEASED" | "CONSUMED";
+  expiresAt: Date | null;
+  releasedAt: Date | null;
+  consumedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type EventRecord = {
+  id: string;
+  storeId: string;
+  orderId: string;
+  type: string;
+  message: string | null;
+  metadata: Record<string, unknown> | null;
+  actorUserId: string | null;
+  createdAt: Date;
+};
+
+type OrderRecord = {
+  id: string;
+  storeId: string;
+  orderNumber: string;
+  customerId: string | null;
+  customerEmail: string;
+  currency: string;
+  status: "DRAFT" | "PLACED" | "CONFIRMED" | "CANCELLED" | "FULFILLED";
+  paymentStatus: "UNPAID" | "AUTHORIZED" | "PAID" | "REFUNDED";
+  fulfillmentStatus: "UNFULFILLED" | "PARTIAL" | "FULFILLED" | "CANCELLED";
+  subtotalAmount: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  placedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  lines: OrderLineRecord[];
+  addresses: Array<{
+    id: string;
+    storeId: string;
+    orderId: string;
+    type: "SHIPPING" | "BILLING";
+    fullName: string;
+    phone: string | null;
+    countryCode: string;
+    city: string;
+    district: string | null;
+    addressLine1: string;
+    addressLine2: string | null;
+    postalCode: string | null;
+  }>;
+  reservations: ReservationRecord[];
+  events: EventRecord[];
+};
+
 class MemoryDataAccess implements AppDataAccess {
   throwStoreUniqueTarget: string | null = null;
   throwPlanUnique = false;
@@ -234,6 +315,8 @@ class MemoryDataAccess implements AppDataAccess {
     },
   ];
   readonly movements: MovementRecord[] = [];
+  readonly orders: OrderRecord[] = [];
+  orderSequence = 1;
   readonly auditLogs: AuditRecord[] = [];
 
   constructor(passwordHash: string) {
@@ -632,6 +715,243 @@ class MemoryDataAccess implements AppDataAccess {
     };
     this.movements.push(movement);
     return { item, movement };
+  }
+
+  orderTotals(lines: Array<{ totalAmount: number }>) {
+    const subtotalAmount = lines.reduce((sum, line) => sum + line.totalAmount, 0);
+    return { subtotalAmount, discountAmount: 0, shippingAmount: 0, taxAmount: 0, totalAmount: subtotalAmount };
+  }
+
+  async listOrders(storeId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.orders.filter((order) => order.storeId === storeId);
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async findOrderById(storeId: string, orderId: string) {
+    return this.orders.find((order) => order.storeId === storeId && order.id === orderId) ?? null;
+  }
+
+  async createOrder(
+    storeId: string,
+    input: {
+      customerId?: string | null;
+      customerEmail: string;
+      currency: string;
+      lines: Array<{ variantId: string; quantity: number }>;
+      addresses: Array<{
+        type: "SHIPPING" | "BILLING";
+        fullName: string;
+        phone?: string | null;
+        countryCode: string;
+        city: string;
+        district?: string | null;
+        addressLine1: string;
+        addressLine2?: string | null;
+        postalCode?: string | null;
+      }>;
+      actorUserId?: string;
+    },
+  ) {
+    const orderId = `order_${this.orders.length + 1}`;
+    const lines: OrderLineRecord[] = [];
+    for (const inputLine of input.lines) {
+      const variant = this.variants.find((item) => item.storeId === storeId && item.id === inputLine.variantId);
+      if (!variant) return "VARIANT_NOT_FOUND" as const;
+      const product = this.products.find((item) => item.storeId === storeId && item.id === variant.productId);
+      if (!product || product.status !== "ACTIVE" || variant.status !== "ACTIVE" || variant.currency !== input.currency) {
+        return "INVALID_VARIANT" as const;
+      }
+      lines.push({
+        id: `line_${lines.length + 1}`,
+        storeId,
+        orderId,
+        productId: product.id,
+        variantId: variant.id,
+        sku: variant.sku,
+        title: product.title,
+        variantTitle: variant.title,
+        quantity: inputLine.quantity,
+        unitPriceAmount: variant.priceMinor,
+        totalAmount: variant.priceMinor * inputLine.quantity,
+        currency: input.currency,
+        createdAt: new Date("2026-01-05T00:00:00.000Z"),
+      });
+    }
+    const totals = this.orderTotals(lines);
+    const order: OrderRecord = {
+      id: orderId,
+      storeId,
+      orderNumber: `OS-${String(this.orderSequence).padStart(6, "0")}`,
+      customerId: input.customerId ?? null,
+      customerEmail: input.customerEmail,
+      currency: input.currency,
+      status: "DRAFT",
+      paymentStatus: "UNPAID",
+      fulfillmentStatus: "UNFULFILLED",
+      ...totals,
+      placedAt: null,
+      cancelledAt: null,
+      cancelReason: null,
+      createdAt: new Date("2026-01-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-05T00:00:00.000Z"),
+      lines,
+      addresses: input.addresses.map((address, index) => ({
+        id: `addr_${index + 1}`,
+        storeId,
+        orderId,
+        type: address.type,
+        fullName: address.fullName,
+        phone: address.phone ?? null,
+        countryCode: address.countryCode,
+        city: address.city,
+        district: address.district ?? null,
+        addressLine1: address.addressLine1,
+        addressLine2: address.addressLine2 ?? null,
+        postalCode: address.postalCode ?? null,
+      })),
+      reservations: [],
+      events: [{
+        id: "event_1",
+        storeId,
+        orderId,
+        type: "ORDER_CREATED",
+        message: "Order draft created.",
+        metadata: { lineCount: lines.length },
+        actorUserId: input.actorUserId ?? null,
+        createdAt: new Date("2026-01-05T00:00:00.000Z"),
+      }],
+    };
+    this.orderSequence += 1;
+    this.orders.push(order);
+    return order;
+  }
+
+  async updateOrder(storeId: string, orderId: string, input: { customerEmail?: string; customerId?: string | null }) {
+    const order = await this.findOrderById(storeId, orderId);
+    if (!order) return null;
+    if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED" as const;
+    if (input.customerEmail) order.customerEmail = input.customerEmail;
+    if ("customerId" in input) order.customerId = input.customerId ?? null;
+    order.updatedAt = new Date("2026-01-06T00:00:00.000Z");
+    return order;
+  }
+
+  async addOrderLine(storeId: string, orderId: string, input: { variantId: string; quantity: number }) {
+    const order = await this.findOrderById(storeId, orderId);
+    if (!order) return null;
+    if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED" as const;
+    const variant = this.variants.find((item) => item.storeId === storeId && item.id === input.variantId);
+    if (!variant) return "VARIANT_NOT_FOUND" as const;
+    const product = this.products.find((item) => item.storeId === storeId && item.id === variant.productId);
+    if (!product || product.status !== "ACTIVE" || variant.status !== "ACTIVE" || variant.currency !== order.currency) {
+      return "INVALID_VARIANT" as const;
+    }
+    order.lines.push({
+      id: `line_${order.lines.length + 1}`,
+      storeId,
+      orderId,
+      productId: product.id,
+      variantId: variant.id,
+      sku: variant.sku,
+      title: product.title,
+      variantTitle: variant.title,
+      quantity: input.quantity,
+      unitPriceAmount: variant.priceMinor,
+      totalAmount: variant.priceMinor * input.quantity,
+      currency: order.currency,
+      createdAt: new Date("2026-01-06T00:00:00.000Z"),
+    });
+    Object.assign(order, this.orderTotals(order.lines));
+    return order;
+  }
+
+  async updateOrderLine(storeId: string, orderId: string, lineId: string, input: { quantity: number }) {
+    const order = await this.findOrderById(storeId, orderId);
+    if (!order) return null;
+    if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED" as const;
+    const line = order.lines.find((item) => item.id === lineId);
+    if (!line) return "ORDER_LINE_NOT_FOUND" as const;
+    line.quantity = input.quantity;
+    line.totalAmount = line.unitPriceAmount * input.quantity;
+    Object.assign(order, this.orderTotals(order.lines));
+    return order;
+  }
+
+  async placeOrder(storeId: string, orderId: string, input: { actorUserId?: string }) {
+    const order = await this.findOrderById(storeId, orderId);
+    if (!order) return null;
+    if (order.status === "PLACED") return order;
+    if (order.status !== "DRAFT") return "INVALID_STATUS" as const;
+    for (const line of order.lines) {
+      const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === line.variantId);
+      if (!item) return "RESERVATION_FAILED" as const;
+      if (item.quantityOnHand - item.quantityReserved < line.quantity) return "INSUFFICIENT_STOCK" as const;
+    }
+    for (const line of order.lines) {
+      const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === line.variantId)!;
+      item.quantityReserved += line.quantity;
+      item.updatedAt = new Date("2026-01-07T00:00:00.000Z");
+      order.reservations.push({
+        id: `reservation_${order.reservations.length + 1}`,
+        storeId,
+        orderId,
+        orderLineId: line.id,
+        variantId: line.variantId,
+        quantity: line.quantity,
+        status: "ACTIVE",
+        expiresAt: null,
+        releasedAt: null,
+        consumedAt: null,
+        createdAt: new Date("2026-01-07T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-07T00:00:00.000Z"),
+      });
+      this.movements.push({
+        id: `movement_${this.movements.length + 1}`,
+        storeId,
+        variantId: line.variantId,
+        type: "SALE_RESERVATION",
+        quantityDelta: line.quantity,
+        reason: "Order placed.",
+        referenceType: "Order",
+        referenceId: orderId,
+        actorUserId: input.actorUserId ?? null,
+        createdAt: new Date("2026-01-07T00:00:00.000Z"),
+      });
+    }
+    order.status = "PLACED";
+    order.placedAt = new Date("2026-01-07T00:00:00.000Z");
+    return order;
+  }
+
+  async cancelOrder(storeId: string, orderId: string, input: { reason?: string; actorUserId?: string }) {
+    const order = await this.findOrderById(storeId, orderId);
+    if (!order) return null;
+    if (order.status === "CANCELLED") return order;
+    if (order.status === "FULFILLED") return "INVALID_STATUS" as const;
+    for (const reservation of order.reservations.filter((item) => item.status === "ACTIVE")) {
+      const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === reservation.variantId);
+      if (!item || item.quantityReserved < reservation.quantity) return "RESERVATION_FAILED" as const;
+      item.quantityReserved -= reservation.quantity;
+      reservation.status = "RELEASED";
+      reservation.releasedAt = new Date("2026-01-08T00:00:00.000Z");
+      this.movements.push({
+        id: `movement_${this.movements.length + 1}`,
+        storeId,
+        variantId: reservation.variantId,
+        type: "SALE_RELEASE",
+        quantityDelta: -reservation.quantity,
+        reason: "Order cancelled.",
+        referenceType: "Order",
+        referenceId: orderId,
+        actorUserId: input.actorUserId ?? null,
+        createdAt: new Date("2026-01-08T00:00:00.000Z"),
+      });
+    }
+    order.status = "CANCELLED";
+    order.fulfillmentStatus = "CANCELLED";
+    order.cancelReason = input.reason ?? null;
+    order.cancelledAt = new Date("2026-01-08T00:00:00.000Z");
+    return order;
   }
 
   async createAuditLog(input: AuditRecord) {
@@ -1202,6 +1522,252 @@ describe("api gateway", () => {
         }),
       ]),
     );
+    await app.close();
+  });
+
+  it("creates draft orders with line snapshots and lists/gets them", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 2 }],
+        addresses: [{
+          type: "SHIPPING",
+          fullName: "Demo Buyer",
+          countryCode: "TR",
+          city: "Istanbul",
+          addressLine1: "Smoke Street 1",
+        }],
+      },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({
+      status: "DRAFT",
+      customerEmail: "buyer@example.com",
+      subtotalAmount: 259800,
+      lines: [{
+        sku: "DEMO-HOODIE-BLK-M",
+        title: "Demo Hoodie",
+        variantTitle: "Black / M",
+        unitPriceAmount: 129900,
+        totalAmount: 259800,
+      }],
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/orders/order_1",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(getResponse.statusCode).toBe(200);
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ action: "CREATE", entityType: "Order" })]),
+    );
+    await app.close();
+  });
+
+  it("places orders by reserving stock and blocks oversell", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 15 }],
+      },
+    });
+    const placeResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/place",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(placeResponse.statusCode).toBe(200);
+    expect(placeResponse.json()).toMatchObject({
+      status: "PLACED",
+      reservations: [{ status: "ACTIVE", quantity: 15 }],
+    });
+    expect(dataAccess.inventory.find((item) => item.variantId === "variant_hoodie_m")).toMatchObject({
+      quantityReserved: 15,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer2@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+    const oversellResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_2/place",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(oversellResponse.statusCode).toBe(409);
+    expect(oversellResponse.json()).toMatchObject({ error: { code: "ORDER_INSUFFICIENT_STOCK" } });
+    await app.close();
+  });
+
+  it("cancels orders by releasing reservations exactly once and blocks later line mutation", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 3 }],
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/place",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const mutationResponse = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/orders/order_1/lines/line_1",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { quantity: 1 },
+    });
+    expect(mutationResponse.statusCode).toBe(409);
+    expect(mutationResponse.json()).toMatchObject({ error: { code: "ORDER_MUTATION_NOT_ALLOWED" } });
+
+    const cancelResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/cancel",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: "buyer request" },
+    });
+    const doubleCancelResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/cancel",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: "repeat" },
+    });
+    expect(cancelResponse.statusCode).toBe(200);
+    expect(doubleCancelResponse.statusCode).toBe(200);
+    expect(dataAccess.inventory.find((item) => item.variantId === "variant_hoodie_m")).toMatchObject({
+      quantityReserved: 0,
+    });
+    expect(dataAccess.movements.filter((movement) => movement.type === "SALE_RELEASE")).toHaveLength(1);
+    await app.close();
+  });
+
+  it("rejects missing auth, cross-store variants and inactive products for orders", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const missingAuth = await app.inject({ method: "GET", url: "/stores/store_demo/orders" });
+    expect(missingAuth.statusCode).toBe(401);
+
+    const token = await login();
+    dataAccess.stores.push({
+      id: "store_other",
+      name: "Other Store",
+      slug: "other-store",
+      status: "ACTIVE",
+      metadata: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: null,
+    });
+    const crossStoreResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_other/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+    expect(crossStoreResponse.statusCode).toBe(404);
+    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "VARIANT_NOT_FOUND" } });
+
+    dataAccess.products[0]!.status = "ARCHIVED";
+    const inactiveResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+      },
+    });
+    expect(inactiveResponse.statusCode).toBe(400);
+    expect(inactiveResponse.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+    await app.close();
+  });
+
+  it("rejects excessive order quantity before DB integer overflow", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const response = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 10001 }],
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+    await app.close();
+  });
+
+  it("does not let reservation release make reserved stock negative", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        customerEmail: "buyer@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 2 }],
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/place",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const item = dataAccess.inventory.find((inventory) => inventory.variantId === "variant_hoodie_m");
+    if (item) item.quantityReserved = 1;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders/order_1/cancel",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: "corrupt reserved smoke" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: "ORDER_RESERVATION_FAILED" } });
+    expect(item?.quantityReserved).toBe(1);
     await app.close();
   });
 });

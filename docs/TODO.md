@@ -12,8 +12,8 @@
 - TODO-007: Auth/session gercek implementasyon. (DONE — platform admin login/me/logout/session revoke)
 - TODO-008: Storefront UI foundation. (DONE — apps/storefront-web shell)
 - TODO-009: API client'a auth/token ve per-domain resource'lari eklemek. (PARTIAL — auth, admin
-  stores/plans ve Faz 2A catalog/inventory helper'lari eklendi; order/customer/checkout resource'lari
-  bekliyor)
+  stores/plans, Faz 2A catalog/inventory ve Faz 2C order lifecycle helper'lari eklendi; checkout/
+  storefront public resource'lari bekliyor)
 - TODO-010: Frontend ekranlarini gercek API'ye baglamak (TD-010).
 - TODO-011: Storefront store slug/domain resolver (TD-011).
 - TODO-012: Frontend app'ler icin Docker Compose servisleri (TD-008). (DONE — admin-web/store-admin-web/
@@ -61,9 +61,11 @@
   tr/en parity, BFF + jsdom UI testleri. Store-user auth gecici platform-admin context ile vekaleten
   cozuldu; gercek store-user auth TODO-033'te acik.)
 - TODO-030: Faz 2C order core — order/customer temel modelleri, fiyat snapshot, stok rezervasyonu
-  (`SALE_RESERVATION`/`SALE_RELEASE`) ve audit/event davranisini eklemek (TD-021).
-- TODO-031: Faz 3 storefront resolver — domain/slug -> store cozumleme, public catalog read API,
-  storefront-web veri baglama ve cache stratejisi (TD-022).
+  (`SALE_RESERVATION`/`SALE_RELEASE`) ve audit/event davranisini eklemek (TD-021). (DONE — backend
+  modeller/API/contracts/api-client/test/docs eklendi; UI/checkout/payment kapsam disi.)
+- TODO-031: Faz 3 storefront resolver / checkout plani — domain/slug -> store cozumleme, public
+  catalog read API, storefront-web veri baglama, cart/checkout taslagi ve cache stratejisi (TD-022,
+  TD-025).
 - TODO-032: Catalog media/options/import backlog — product image/media, zengin option modeli,
   metafields/collections/tags ve bulk import/export ihtiyaclarini ayri fazlara bolmek (TD-020).
 - TODO-033: Store-user auth + role guard — store-scoped session/token tipi, granular store role
@@ -73,3 +75,11 @@
 - TODO-034: Store-admin dashboard pagination-aware aggregation — aktif urun ve kritik stok sayilari
   su an ilk sayfa uzerinden hesaplanir; gateway sayim/aggregate ucu veya api-client limit/offset ile
   tam sayim (TD-024).
+- TODO-035: Faz 2D Product Sales Model Foundation — product sales model enum/kurallari:
+  `ONLINE`, `INQUIRY`, `APPOINTMENT`, `WHATSAPP`, `CATALOG_ONLY`; price visibility ve CTA behavior
+  backend contract/model kararlarini eklemek. Bu F2C review kapsaminda implement edilmedi.
+- TODO-036: Faz 2E Store-admin Orders UI — F2C order list/detail, place/cancel durumlari ve timeline
+  icin BFF + ekran baglama; store-user auth gelene kadar mevcut server-side store context deseniyle
+  sinirli kalacak.
+- TODO-037: Faz 4 payment — payment provider abstraction, authorization/capture, webhook/idempotency,
+  refund durumlari ve `paymentStatus` lifecycle entegrasyonu (TD-025).

@@ -52,7 +52,7 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
   bozmadan `packages/contracts` tiplerini kullanir (ve frontend'in tek kanaldan erismesi icin gerekli
   contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health/catalog/
-  inventory helper'lari ve tipli `ApiError` saglar. Faz 1B'de admin-web, Faz 2B'de store-admin-web bu
+  inventory/order helper'lari ve tipli `ApiError` saglar. Faz 1B'de admin-web, Faz 2B'de store-admin-web bu
   client'i BFF route handler'lari icinde (SUNUCU tarafinda, asla istemci JS'inde) kullanir. Network
   cagrisi yapar ama UI/DOM veya domain is kurali tasimaz.
 
@@ -63,6 +63,10 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   eklendi; ancak `services/commerce-service` henuz runtime sahibi olarak genisletilmedi. Bu gecici
   gateway uygulamasi, commerce-service ayrismasi ve store-user guard tamamlanana kadar kontrollu
   foundation'dir.
+- Faz 2C notu: Order/reservation core da ayni gecici gateway uygulamasinda calisir. Commerce domain'i
+  order draft/place/cancel, price snapshot, inventory reservation/release, order timeline ve audit
+  davranisini sahiplenir. Payment authorization/capture, cart/checkout session ve shipment/fulfillment
+  state machine'leri bu sinirin disindadir.
 - Yapmaz: Odeme provider detaylarini, pazaryeri credential'larini veya storefront tema render
   davranisini sahiplenmez.
 
@@ -70,6 +74,9 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 
 - Yapar: Cart, checkout session, payment abstraction ve odeme sonucuna bagli commerce entegrasyon
   akisini sahiplenir.
+- Faz 2C notu: Checkout henuz yoktur; order API platform-admin guarded backend lifecycle olarak
+  vardir. Storefront checkout geldiginde cart/checkout, order create/place ve payment status gecisleri
+  bu boundary uzerinden tasarlanacaktir.
 - Yapmaz: Product katalog dogrulugunun tek kaynagi olmaz; pazaryeri sync veya fatura provider
   detaylarini sahiplenmez.
 

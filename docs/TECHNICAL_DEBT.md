@@ -253,17 +253,17 @@
 
 ## TD-021 Order/reservation core henuz yok
 
-- Durum: OPEN
+- Durum: RESOLVED
 - Oncelik: HIGH
-- Etki: Inventory `quantityReserved` alanina sahip ama Faz 2A'da order/checkout yok; rezervasyon
-  hareketleri yazilmaz. `SALE_RESERVATION` ve `SALE_RELEASE` movement tipleri ilerisi icin enum'da
-  hazirdir ancak davranis uygulanmadi.
-- Cozum onerisi: Faz 2C/Faz 4 kapsaminda cart/order/checkout akislariyla stok rezervasyonu, release,
-  oversell politikasi ve order fiyat snapshot modellerini eklemek.
-- Not: Faz 2A manual adjustment transaction icinde calisir ve negatif stok engellenir; ancak yuksek
-  eszamanli adjustment/reservation senaryolari icin satir kilidi veya optimistic concurrency politikasi
-  henuz netlestirilmedi. Order/reservation eklenirken bu race riski ayrica cozulmeli.
-- Hedef faz: Faz 2C, Faz 4
+- Etki: Inventory `quantityReserved` alanina sahip ama Faz 2A'da order/checkout yoktu; rezervasyon
+  hareketleri yazilmiyordu.
+- Cozum: Faz 2C'de Customer/Address, Order/OrderLine/OrderAddress/OrderEvent,
+  InventoryReservation ve OrderNumberCounter modelleri eklendi. `POST /place` transaction icinde
+  `SELECT ... FOR UPDATE` ile inventory satirini kilitler, oversell'i `ORDER_INSUFFICIENT_STOCK`
+  ile engeller, `quantityReserved` artirir ve `SALE_RESERVATION` movement yazar. `POST /cancel`
+  aktif rezervasyonlari idempotent release eder, `quantityReserved` dusurur ve `SALE_RELEASE` yazar.
+- Kalan not: Fulfillment fazinda `CONSUMED` rezervasyon akisi ve onHand dusumu ayrica eklenecek.
+- Hedef faz: Faz 2C
 
 ## TD-022 Storefront catalog resolver yok
 
@@ -301,3 +301,25 @@
   limit/offset/filter ekleyip dashboard'da sayfalama ile toplamak, ya da aktif/kritik sayimlari
   dogrudan dondurmek. Faz 2B kapsaminda backend davranisi degistirilmedigi icin ertelendi.
 - Hedef faz: Faz 2C+
+
+## TD-025 Payment, shipping, fulfillment, cart ve notification eksik
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Faz 2C order/reservation backend cekirdegi payment provider, cart/checkout session, shipment,
+  invoice, refund/return ve email notification olmadan calisir. `paymentStatus`/`fulfillmentStatus`
+  enumlari hazirdir ancak harici provider veya fulfillment state machine yoktur.
+- Cozum onerisi: Faz 3/Faz 4'te storefront resolver + cart/checkout; Faz 4'te payment abstraction;
+  Faz 5'te fulfillment/shipping/invoice; notification ve refund/return ayri slice olarak eklenmeli.
+- Hedef faz: Faz 3, Faz 4, Faz 5
+
+## TD-026 Reservation concurrency kalan riskler
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: F2C place/cancel akislari PostgreSQL row-level lock ile oversell'i engeller. Ancak expired
+  reservation job'u, multi-warehouse stok, uzun sureli checkout hold, consumed reservation ve retry/
+  dead-letter stratejileri henuz yoktur.
+- Cozum onerisi: Queue tabanli expiration/release job'u, fulfillment consume akisi ve ileride warehouse
+  bazli stok modeli eklenirken ayni lock stratejisi yeniden degerlendirilmeli.
+- Hedef faz: Faz 4+

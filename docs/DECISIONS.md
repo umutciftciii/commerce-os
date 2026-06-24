@@ -300,3 +300,29 @@
   session/role modeli geldiginde login proxy gercek store-user akisina, server-side store context
   secimi store-user'in erisim listesine bagli secime ve `requireStoreAccess`/role guard'a tasinacak
   (TD-019). Cok-mağazali store-user secici de o zaman eklenecek.
+
+## ADR-024 Order lifecycle, reservation locking ve order number
+
+- Durum: ACCEPTED
+- Baglam: Faz 2C siparis cekirdegi checkout/payment/fulfillment olmadan kuruluyor. Stok
+  rezervasyonu oversell yaratmamali, tenant isolation store bazli kalmali ve store-admin UI baglama
+  sonraki faza birakilmali.
+- Karar (lifecycle): Order `DRAFT -> PLACED -> CANCELLED` akisini bu fazda destekler. `CONFIRMED` ve
+  `FULFILLED` sonraki payment/fulfillment fazlari icin enum olarak hazir tutulur. DRAFT order line
+  mutation'a aciktir; PLACED/CANCELLED sonrasi line mutation `ORDER_MUTATION_NOT_ALLOWED` doner.
+  `POST /place` PLACED order icin idempotent order response doner; `POST /cancel` CANCELLED order
+  icin double release yapmadan mevcut order response doner.
+- Karar (reservation/locking): Place islemi tek transaction'da calisir. Her line icin ilgili
+  `InventoryItem` satiri PostgreSQL `SELECT ... FOR UPDATE` ile kilitlenir, available
+  (`quantityOnHand - quantityReserved`) kontrol edilir, sonra `quantityReserved` increment edilir ve
+  `InventoryReservation ACTIVE` + `InventoryMovement SALE_RESERVATION` yazilir. Cancel, aktif
+  rezervasyonlari `RELEASED` yapar ve `quantityReserved` decrement eder; RELEASED kayitlari tekrar
+  islenmez.
+- Karar (order number): Store-scoped `OrderNumberCounter` kullanilir. Counter transaction icinde
+  upsert/increment edilir ve `OS-000001` biciminde store bazli unique `orderNumber` uretilir. Global
+  siralilik hedeflenmez; magaza icinde deterministik ve race-safe siralama yeterlidir.
+- Karar (money): Order ve line para alanlari integer minor unit olarak tutulur. Line snapshot
+  `ProductVariant.priceMinor/currency/sku/title` degerlerinden olusturulur; product/variant sonradan
+  degisse bile order line snapshot degismez. Bu fazda discount/shipping/tax 0, total=subtotal.
+- Sonuc: F2C backend cekirdegi checkout/payment bagimsiz calisir. Payment capture, fulfillment,
+  consumed reservation, cart ve tax/discount engine sonraki fazlara birakildi.

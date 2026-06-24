@@ -31,6 +31,8 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
 - Tenant foundation modelleri: platform user, store, store user, domain, plan, subscription.
 - Faz 2A katalog/stok foundation: store-scoped product, category, variant, inventory item ve
   inventory movement modelleri; manuel stok adjustment API'leri.
+- Faz 2C order/reservation foundation: customer/address, draft/placed/cancelled order lifecycle,
+  order line price snapshot, inventory reservation/release ve order timeline modelleri/API'leri.
 - Health, version, internal DB ve Redis health endpointleri.
 - Idempotent seed ve seed dogrulama akislari.
 - Servis skeletonlari ve paylasimli paketler.
@@ -42,7 +44,7 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
 - Gercek auth/session implementasyonu.
 - Tam permission enforcement.
 - Canli odeme, kargo, fatura ve pazaryeri entegrasyonlari.
-- Store-admin UI catalog baglama, public storefront resolver, sepet, siparis, checkout, payment,
-  shipping, campaign ve marketplace akislari.
+- Public storefront resolver, sepet, checkout, payment provider, shipping/fulfillment, invoice,
+  notification, campaign ve marketplace akislari.
 - Production-grade observability, alerting ve deployment otomasyonu.
 - Buyume asistaninin AI destekli son kullanici ozellikleri.

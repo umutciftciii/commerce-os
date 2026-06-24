@@ -12,6 +12,13 @@ import {
   inventoryAdjustmentResponseSchema,
   inventoryItemSchema,
   inventoryListResponseSchema,
+  orderCancelRequestSchema,
+  orderCreateRequestSchema,
+  orderLineInputSchema,
+  orderLineUpdateRequestSchema,
+  orderListResponseSchema,
+  orderSchema,
+  orderUpdateRequestSchema,
   planCreateRequestSchema,
   planListResponseSchema,
   planSchema,
@@ -40,6 +47,11 @@ import type {
   AuditAction,
   InventoryItem,
   InventoryMovement,
+  InventoryReservation,
+  Order as PrismaOrder,
+  OrderAddress,
+  OrderEvent,
+  OrderLine,
   Plan,
   PlatformSession,
   PlatformUser,
@@ -121,6 +133,83 @@ type InventoryMovementRecord = Pick<
   | "actorUserId"
   | "createdAt"
 >;
+type OrderLineRecord = Pick<
+  OrderLine,
+  | "id"
+  | "storeId"
+  | "orderId"
+  | "productId"
+  | "variantId"
+  | "sku"
+  | "title"
+  | "variantTitle"
+  | "quantity"
+  | "unitPriceAmount"
+  | "totalAmount"
+  | "currency"
+  | "createdAt"
+>;
+type OrderAddressRecord = Pick<
+  OrderAddress,
+  | "id"
+  | "storeId"
+  | "orderId"
+  | "type"
+  | "fullName"
+  | "phone"
+  | "countryCode"
+  | "city"
+  | "district"
+  | "addressLine1"
+  | "addressLine2"
+  | "postalCode"
+>;
+type InventoryReservationRecord = Pick<
+  InventoryReservation,
+  | "id"
+  | "storeId"
+  | "orderId"
+  | "orderLineId"
+  | "variantId"
+  | "quantity"
+  | "status"
+  | "expiresAt"
+  | "releasedAt"
+  | "consumedAt"
+  | "createdAt"
+  | "updatedAt"
+>;
+type OrderEventRecord = Pick<
+  OrderEvent,
+  "id" | "storeId" | "orderId" | "type" | "message" | "metadata" | "actorUserId" | "createdAt"
+>;
+type OrderRecord = Pick<
+  PrismaOrder,
+  | "id"
+  | "storeId"
+  | "orderNumber"
+  | "customerId"
+  | "customerEmail"
+  | "currency"
+  | "status"
+  | "paymentStatus"
+  | "fulfillmentStatus"
+  | "subtotalAmount"
+  | "discountAmount"
+  | "shippingAmount"
+  | "taxAmount"
+  | "totalAmount"
+  | "placedAt"
+  | "cancelledAt"
+  | "cancelReason"
+  | "createdAt"
+  | "updatedAt"
+> & {
+  lines: OrderLineRecord[];
+  addresses: OrderAddressRecord[];
+  reservations: InventoryReservationRecord[];
+  events: OrderEventRecord[];
+};
 
 export interface AppDataAccess {
   findPlatformUserByEmail(email: string): Promise<PlatformUserRecord | null>;
@@ -279,6 +368,58 @@ export interface AppDataAccess {
       actorUserId?: string;
     },
   ): Promise<{ item: InventoryRecord; movement: InventoryMovementRecord } | null | "NEGATIVE_STOCK">;
+  listOrders(
+    storeId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: OrderRecord[]; total: number }>;
+  findOrderById(storeId: string, orderId: string): Promise<OrderRecord | null>;
+  createOrder(
+    storeId: string,
+    input: {
+      customerId?: string | null;
+      customerEmail: string;
+      currency: string;
+      lines: Array<{ variantId: string; quantity: number }>;
+      addresses: Array<{
+        type: "SHIPPING" | "BILLING";
+        fullName: string;
+        phone?: string | null;
+        countryCode: string;
+        city: string;
+        district?: string | null;
+        addressLine1: string;
+        addressLine2?: string | null;
+        postalCode?: string | null;
+      }>;
+      actorUserId?: string;
+    },
+  ): Promise<OrderRecord | "CUSTOMER_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INVALID_VARIANT">;
+  updateOrder(
+    storeId: string,
+    orderId: string,
+    input: { customerId?: string | null; customerEmail?: string; actorUserId?: string },
+  ): Promise<OrderRecord | null | "CUSTOMER_NOT_FOUND" | "MUTATION_NOT_ALLOWED">;
+  addOrderLine(
+    storeId: string,
+    orderId: string,
+    input: { variantId: string; quantity: number; actorUserId?: string },
+  ): Promise<OrderRecord | null | "VARIANT_NOT_FOUND" | "INVALID_VARIANT" | "MUTATION_NOT_ALLOWED">;
+  updateOrderLine(
+    storeId: string,
+    orderId: string,
+    lineId: string,
+    input: { quantity: number; actorUserId?: string },
+  ): Promise<OrderRecord | null | "ORDER_LINE_NOT_FOUND" | "MUTATION_NOT_ALLOWED">;
+  placeOrder(
+    storeId: string,
+    orderId: string,
+    input: { actorUserId?: string },
+  ): Promise<OrderRecord | null | "INVALID_STATUS" | "INSUFFICIENT_STOCK" | "RESERVATION_FAILED">;
+  cancelOrder(
+    storeId: string,
+    orderId: string,
+    input: { reason?: string; actorUserId?: string },
+  ): Promise<OrderRecord | null | "INVALID_STATUS" | "RESERVATION_FAILED">;
   createAuditLog(input: {
     action: AuditAction;
     platformUserId?: string;
@@ -308,6 +449,13 @@ const variantParamSchema = z.object({
   variantId: z.string().min(1),
 });
 const inventoryParamSchema = z.object({ storeId: z.string().min(1), variantId: z.string().min(1) });
+const orderParamSchema = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) });
+const orderLineParamSchema = z.object({
+  storeId: z.string().min(1),
+  orderId: z.string().min(1),
+  lineId: z.string().min(1),
+});
+const maxPostgresInt = 2_147_483_647;
 
 function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
@@ -449,6 +597,44 @@ function serializeInventoryMovement(movement: InventoryMovementRecord) {
   };
 }
 
+function serializeOrder(order: OrderRecord) {
+  return orderSchema.parse({
+    ...order,
+    customerId: order.customerId ?? null,
+    placedAt: order.placedAt?.toISOString() ?? null,
+    cancelledAt: order.cancelledAt?.toISOString() ?? null,
+    cancelReason: order.cancelReason ?? null,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+    lines: order.lines.map((line) => ({
+      ...line,
+      createdAt: line.createdAt.toISOString(),
+    })),
+    addresses: order.addresses.map((address) => ({
+      ...address,
+      phone: address.phone ?? null,
+      district: address.district ?? null,
+      addressLine2: address.addressLine2 ?? null,
+      postalCode: address.postalCode ?? null,
+    })),
+    reservations: order.reservations.map((reservation) => ({
+      ...reservation,
+      expiresAt: reservation.expiresAt?.toISOString() ?? null,
+      releasedAt: reservation.releasedAt?.toISOString() ?? null,
+      consumedAt: reservation.consumedAt?.toISOString() ?? null,
+      createdAt: reservation.createdAt.toISOString(),
+      updatedAt: reservation.updatedAt.toISOString(),
+    })),
+    events: order.events.map((event) => ({
+      ...event,
+      message: event.message ?? null,
+      metadata: (event.metadata as Record<string, unknown> | null) ?? null,
+      actorUserId: event.actorUserId ?? null,
+      createdAt: event.createdAt.toISOString(),
+    })),
+  });
+}
+
 function toPrismaJsonObject(value: Record<string, unknown> | undefined) {
   return value as Prisma.InputJsonObject | undefined;
 }
@@ -559,6 +745,80 @@ function createPrismaDataAccess(): AppDataAccess {
     actorUserId: true,
     createdAt: true,
   } satisfies Prisma.InventoryMovementSelect;
+  const orderSelect = {
+    id: true,
+    storeId: true,
+    orderNumber: true,
+    customerId: true,
+    customerEmail: true,
+    currency: true,
+    status: true,
+    paymentStatus: true,
+    fulfillmentStatus: true,
+    subtotalAmount: true,
+    discountAmount: true,
+    shippingAmount: true,
+    taxAmount: true,
+    totalAmount: true,
+    placedAt: true,
+    cancelledAt: true,
+    cancelReason: true,
+    createdAt: true,
+    updatedAt: true,
+    lines: { orderBy: { createdAt: "asc" }, select: {
+      id: true,
+      storeId: true,
+      orderId: true,
+      productId: true,
+      variantId: true,
+      sku: true,
+      title: true,
+      variantTitle: true,
+      quantity: true,
+      unitPriceAmount: true,
+      totalAmount: true,
+      currency: true,
+      createdAt: true,
+    } },
+    addresses: { orderBy: { type: "asc" }, select: {
+      id: true,
+      storeId: true,
+      orderId: true,
+      type: true,
+      fullName: true,
+      phone: true,
+      countryCode: true,
+      city: true,
+      district: true,
+      addressLine1: true,
+      addressLine2: true,
+      postalCode: true,
+    } },
+    reservations: { orderBy: { createdAt: "asc" }, select: {
+      id: true,
+      storeId: true,
+      orderId: true,
+      orderLineId: true,
+      variantId: true,
+      quantity: true,
+      status: true,
+      expiresAt: true,
+      releasedAt: true,
+      consumedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    } },
+    events: { orderBy: { createdAt: "asc" }, select: {
+      id: true,
+      storeId: true,
+      orderId: true,
+      type: true,
+      message: true,
+      metadata: true,
+      actorUserId: true,
+      createdAt: true,
+    } },
+  } satisfies Prisma.OrderSelect;
 
   function withCategoryIds(product: Prisma.ProductGetPayload<{ select: typeof productSelect }>): ProductRecord {
     return { ...product, categoryIds: product.assignments.map((assignment) => assignment.categoryId) };
@@ -572,6 +832,21 @@ function createPrismaDataAccess(): AppDataAccess {
       productId: item.variant.productId,
       sku: item.variant.sku,
       title: item.variant.title,
+    };
+  }
+
+  async function reloadOrder(transaction: TransactionClient, storeId: string, orderId: string) {
+    return transaction.order.findFirst({ where: { id: orderId, storeId }, select: orderSelect });
+  }
+
+  function orderTotals(lines: Array<{ totalAmount: number }>) {
+    const subtotalAmount = lines.reduce((sum, line) => sum + line.totalAmount, 0);
+    return {
+      subtotalAmount,
+      discountAmount: 0,
+      shippingAmount: 0,
+      taxAmount: 0,
+      totalAmount: subtotalAmount,
     };
   }
 
@@ -939,6 +1214,386 @@ function createPrismaDataAccess(): AppDataAccess {
           select: movementSelect,
         });
         return { item: withInventoryVariant(updated), movement };
+      }),
+    listOrders: async (storeId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.order.findMany({
+          where: { storeId },
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit,
+          select: orderSelect,
+        }),
+        prisma.order.count({ where: { storeId } }),
+      ]);
+      return { data, total };
+    },
+    findOrderById: (storeId, orderId) =>
+      prisma.order.findFirst({ where: { id: orderId, storeId }, select: orderSelect }),
+    createOrder: (storeId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        if (input.customerId) {
+          const customer = await transaction.customer.findFirst({
+            where: { id: input.customerId, storeId, status: "ACTIVE" },
+            select: { id: true },
+          });
+          if (!customer) return "CUSTOMER_NOT_FOUND";
+        }
+
+        const variants = await transaction.productVariant.findMany({
+          where: { storeId, id: { in: input.lines.map((line) => line.variantId) } },
+          select: {
+            id: true,
+            productId: true,
+            storeId: true,
+            title: true,
+            sku: true,
+            priceMinor: true,
+            currency: true,
+            status: true,
+            product: { select: { id: true, title: true, status: true } },
+          },
+        });
+        const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+        const orderLines = [];
+        for (const line of input.lines) {
+          const variant = variantById.get(line.variantId);
+          if (!variant) return "VARIANT_NOT_FOUND";
+          if (variant.status !== "ACTIVE" || variant.product.status !== "ACTIVE") return "INVALID_VARIANT";
+          if (variant.currency !== input.currency) return "INVALID_VARIANT";
+          const totalAmount = variant.priceMinor * line.quantity;
+          if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
+          orderLines.push({
+            storeId,
+            productId: variant.productId,
+            variantId: variant.id,
+            sku: variant.sku,
+            title: variant.product.title,
+            variantTitle: variant.title,
+            quantity: line.quantity,
+            unitPriceAmount: variant.priceMinor,
+            totalAmount,
+            currency: input.currency,
+          });
+        }
+
+        const counter = await transaction.orderNumberCounter.upsert({
+          where: { storeId },
+          update: { nextValue: { increment: 1 } },
+          create: { storeId, nextValue: 2 },
+          select: { nextValue: true },
+        });
+        const orderNumber = `OS-${String(counter.nextValue - 1).padStart(6, "0")}`;
+        const totals = orderTotals(orderLines);
+        const order = await transaction.order.create({
+          data: {
+            storeId,
+            orderNumber,
+            customerId: input.customerId ?? null,
+            customerEmail: input.customerEmail,
+            currency: input.currency,
+            ...totals,
+            lines: { create: orderLines },
+            addresses: {
+              create: input.addresses.map((address) => ({
+                storeId,
+                type: address.type,
+                fullName: address.fullName,
+                phone: address.phone ?? null,
+                countryCode: address.countryCode,
+                city: address.city,
+                district: address.district ?? null,
+                addressLine1: address.addressLine1,
+                addressLine2: address.addressLine2 ?? null,
+                postalCode: address.postalCode ?? null,
+              })),
+            },
+            events: {
+              create: {
+                storeId,
+                type: "ORDER_CREATED",
+                message: "Order draft created.",
+                actorUserId: input.actorUserId,
+                metadata: { lineCount: orderLines.length },
+              },
+            },
+          },
+          select: { id: true },
+        });
+        return (await reloadOrder(transaction, storeId, order.id))!;
+      }),
+    updateOrder: (storeId, orderId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const order = await transaction.order.findFirst({
+          where: { id: orderId, storeId },
+          select: { id: true, status: true },
+        });
+        if (!order) return null;
+        if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED";
+        if (input.customerId) {
+          const customer = await transaction.customer.findFirst({
+            where: { id: input.customerId, storeId, status: "ACTIVE" },
+            select: { id: true },
+          });
+          if (!customer) return "CUSTOMER_NOT_FOUND";
+        }
+        await transaction.order.update({
+          where: { id: orderId },
+          data: {
+            customerId: input.customerId === undefined ? undefined : input.customerId,
+            customerEmail: input.customerEmail,
+            events: {
+              create: {
+                storeId,
+                type: "ORDER_UPDATED",
+                message: "Order draft updated.",
+                actorUserId: input.actorUserId,
+                metadata: { fields: Object.keys(input).filter((key) => key !== "actorUserId") },
+              },
+            },
+          },
+        });
+        return (await reloadOrder(transaction, storeId, orderId))!;
+      }),
+    addOrderLine: (storeId, orderId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const order = await transaction.order.findFirst({
+          where: { id: orderId, storeId },
+          select: { id: true, status: true, currency: true },
+        });
+        if (!order) return null;
+        if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED";
+        const variant = await transaction.productVariant.findFirst({
+          where: { id: input.variantId, storeId },
+          select: {
+            id: true,
+            productId: true,
+            title: true,
+            sku: true,
+            priceMinor: true,
+            currency: true,
+            status: true,
+            product: { select: { title: true, status: true } },
+          },
+        });
+        if (!variant) return "VARIANT_NOT_FOUND";
+        if (variant.status !== "ACTIVE" || variant.product.status !== "ACTIVE" || variant.currency !== order.currency) {
+          return "INVALID_VARIANT";
+        }
+        const totalAmount = variant.priceMinor * input.quantity;
+        if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
+        await transaction.orderLine.create({
+          data: {
+            storeId,
+            orderId,
+            productId: variant.productId,
+            variantId: variant.id,
+            sku: variant.sku,
+            title: variant.product.title,
+            variantTitle: variant.title,
+            quantity: input.quantity,
+            unitPriceAmount: variant.priceMinor,
+            totalAmount,
+            currency: order.currency,
+          },
+        });
+        const lines = await transaction.orderLine.findMany({ where: { orderId }, select: { totalAmount: true } });
+        await transaction.order.update({
+          where: { id: orderId },
+          data: {
+            ...orderTotals(lines),
+            events: {
+              create: {
+                storeId,
+                type: "ORDER_LINE_ADDED",
+                message: "Order line added.",
+                actorUserId: input.actorUserId,
+                metadata: { variantId: input.variantId, quantity: input.quantity },
+              },
+            },
+          },
+        });
+        return (await reloadOrder(transaction, storeId, orderId))!;
+      }),
+    updateOrderLine: (storeId, orderId, lineId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const order = await transaction.order.findFirst({
+          where: { id: orderId, storeId },
+          select: { id: true, status: true },
+        });
+        if (!order) return null;
+        if (order.status !== "DRAFT") return "MUTATION_NOT_ALLOWED";
+        const line = await transaction.orderLine.findFirst({
+          where: { id: lineId, orderId, storeId },
+          select: { id: true, unitPriceAmount: true },
+        });
+        if (!line) return "ORDER_LINE_NOT_FOUND";
+        const totalAmount = line.unitPriceAmount * input.quantity;
+        if (totalAmount > maxPostgresInt) return "MUTATION_NOT_ALLOWED";
+        await transaction.orderLine.update({
+          where: { id: lineId },
+          data: { quantity: input.quantity, totalAmount },
+        });
+        const lines = await transaction.orderLine.findMany({ where: { orderId }, select: { totalAmount: true } });
+        await transaction.order.update({
+          where: { id: orderId },
+          data: {
+            ...orderTotals(lines),
+            events: {
+              create: {
+                storeId,
+                type: "ORDER_LINE_UPDATED",
+                message: "Order line updated.",
+                actorUserId: input.actorUserId,
+                metadata: { lineId, quantity: input.quantity },
+              },
+            },
+          },
+        });
+        return (await reloadOrder(transaction, storeId, orderId))!;
+      }),
+    placeOrder: (storeId, orderId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const order = await transaction.order.findFirst({
+          where: { id: orderId, storeId },
+          select: orderSelect,
+        });
+        if (!order) return null;
+        if (order.status === "PLACED") return order;
+        if (order.status !== "DRAFT" || order.lines.length === 0) return "INVALID_STATUS";
+        for (const line of order.lines) {
+          const rows = await transaction.$queryRaw<Array<{ quantityOnHand: number; quantityReserved: number }>>`
+            SELECT "quantityOnHand", "quantityReserved"
+            FROM "InventoryItem"
+            WHERE "storeId" = ${storeId} AND "variantId" = ${line.variantId}
+            FOR UPDATE
+          `;
+          const item = rows[0];
+          if (!item) return "RESERVATION_FAILED";
+          if (item.quantityOnHand - item.quantityReserved < line.quantity) return "INSUFFICIENT_STOCK";
+          await transaction.inventoryItem.update({
+            where: { variantId: line.variantId },
+            data: { quantityReserved: { increment: line.quantity } },
+          });
+          await transaction.inventoryReservation.create({
+            data: {
+              storeId,
+              orderId,
+              orderLineId: line.id,
+              variantId: line.variantId,
+              quantity: line.quantity,
+              status: "ACTIVE",
+            },
+          });
+          await transaction.inventoryMovement.create({
+            data: {
+              storeId,
+              variantId: line.variantId,
+              type: "SALE_RESERVATION",
+              quantityDelta: line.quantity,
+              reason: "Order placed.",
+              referenceType: "Order",
+              referenceId: orderId,
+              actorUserId: input.actorUserId,
+            },
+          });
+        }
+        await transaction.order.update({
+          where: { id: orderId },
+          data: {
+            status: "PLACED",
+            placedAt: new Date(),
+            events: {
+              create: [
+                {
+                  storeId,
+                  type: "ORDER_PLACED",
+                  message: "Order placed and inventory reserved.",
+                  actorUserId: input.actorUserId,
+                  metadata: { lineCount: order.lines.length },
+                },
+                {
+                  storeId,
+                  type: "RESERVATION_CREATED",
+                  message: "Inventory reservations created.",
+                  actorUserId: input.actorUserId,
+                  metadata: { lineCount: order.lines.length },
+                },
+              ],
+            },
+          },
+        });
+        return (await reloadOrder(transaction, storeId, orderId))!;
+      }),
+    cancelOrder: (storeId, orderId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const order = await transaction.order.findFirst({
+          where: { id: orderId, storeId },
+          select: orderSelect,
+        });
+        if (!order) return null;
+        if (order.status === "CANCELLED") return order;
+        if (order.status === "FULFILLED") return "INVALID_STATUS";
+        const now = new Date();
+        const activeReservations = order.reservations.filter((reservation) => reservation.status === "ACTIVE");
+        for (const reservation of activeReservations) {
+          const rows = await transaction.$queryRaw<Array<{ quantityReserved: number }>>`
+            SELECT "quantityReserved"
+            FROM "InventoryItem"
+            WHERE "storeId" = ${storeId} AND "variantId" = ${reservation.variantId}
+            FOR UPDATE
+          `;
+          const item = rows[0];
+          if (!item || item.quantityReserved < reservation.quantity) return "RESERVATION_FAILED";
+          await transaction.inventoryItem.update({
+            where: { variantId: reservation.variantId },
+            data: { quantityReserved: { decrement: reservation.quantity } },
+          });
+          await transaction.inventoryReservation.update({
+            where: { id: reservation.id },
+            data: { status: "RELEASED", releasedAt: now },
+          });
+          await transaction.inventoryMovement.create({
+            data: {
+              storeId,
+              variantId: reservation.variantId,
+              type: "SALE_RELEASE",
+              quantityDelta: -reservation.quantity,
+              reason: "Order cancelled.",
+              referenceType: "Order",
+              referenceId: orderId,
+              actorUserId: input.actorUserId,
+            },
+          });
+        }
+        await transaction.order.update({
+          where: { id: orderId },
+          data: {
+            status: "CANCELLED",
+            fulfillmentStatus: "CANCELLED",
+            cancelledAt: now,
+            cancelReason: input.reason,
+            events: {
+              create: [
+                {
+                  storeId,
+                  type: "ORDER_CANCELLED",
+                  message: "Order cancelled.",
+                  actorUserId: input.actorUserId,
+                  metadata: { reason: input.reason ?? null },
+                },
+                {
+                  storeId,
+                  type: "RESERVATION_RELEASED",
+                  message: "Active inventory reservations released.",
+                  actorUserId: input.actorUserId,
+                  metadata: { releasedCount: activeReservations.length },
+                },
+              ],
+            },
+          },
+        });
+        return (await reloadOrder(transaction, storeId, orderId))!;
       }),
     createAuditLog: async (input) => {
       await prisma.auditLog.create({
@@ -1614,6 +2269,195 @@ export function createServer(
       item: serializeInventoryItem(result.item),
       movement: serializeInventoryMovement(result.movement),
     });
+  });
+
+  app.get("/stores/:storeId/orders", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const orders = await dataAccess.listOrders(params.storeId, pagination);
+    return orderListResponseSchema.parse({
+      data: orders.data.map(serializeOrder),
+      pagination: { ...pagination, total: orders.total },
+    });
+  });
+
+  app.post("/stores/:storeId/orders", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = orderCreateRequestSchema.parse(request.body);
+    const order = await dataAccess.createOrder(params.storeId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (order === "CUSTOMER_NOT_FOUND") {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Customer not found."));
+    }
+    if (order === "VARIANT_NOT_FOUND") {
+      return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+    }
+    if (order === "INVALID_VARIANT") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Variant is not active or currency does not match."));
+    }
+    await dataAccess.createAuditLog({
+      action: "CREATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Order",
+      entityId: order.id,
+      metadata: { orderNumber: order.orderNumber, lineCount: order.lines.length },
+    });
+    return reply.code(201).send(serializeOrder(order));
+  });
+
+  app.get("/stores/:storeId/orders/:orderId", async (request, reply) => {
+    const params = orderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const order = await dataAccess.findOrderById(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    return serializeOrder(order);
+  });
+
+  app.patch("/stores/:storeId/orders/:orderId", async (request, reply) => {
+    const params = orderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = orderUpdateRequestSchema.parse(request.body);
+    const order = await dataAccess.updateOrder(params.storeId, params.orderId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    if (order === "CUSTOMER_NOT_FOUND") {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Customer not found."));
+    }
+    if (order === "MUTATION_NOT_ALLOWED") {
+      return reply.code(409).send(errorBody("ORDER_MUTATION_NOT_ALLOWED", "Order mutation is not allowed."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Order",
+      entityId: order.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return serializeOrder(order);
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/lines", async (request, reply) => {
+    const params = orderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = orderLineInputSchema.parse(request.body);
+    const order = await dataAccess.addOrderLine(params.storeId, params.orderId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    if (order === "VARIANT_NOT_FOUND") {
+      return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+    }
+    if (order === "INVALID_VARIANT") {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Variant is not active or currency does not match."));
+    }
+    if (order === "MUTATION_NOT_ALLOWED") {
+      return reply.code(409).send(errorBody("ORDER_MUTATION_NOT_ALLOWED", "Order mutation is not allowed."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "OrderLine",
+      entityId: order.lines.at(-1)?.id,
+      metadata: { orderId: params.orderId, variantId: input.variantId, quantity: input.quantity },
+    });
+    return reply.code(201).send(serializeOrder(order));
+  });
+
+  app.patch("/stores/:storeId/orders/:orderId/lines/:lineId", async (request, reply) => {
+    const params = orderLineParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = orderLineUpdateRequestSchema.parse(request.body);
+    const order = await dataAccess.updateOrderLine(params.storeId, params.orderId, params.lineId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    if (order === "ORDER_LINE_NOT_FOUND") {
+      return reply.code(404).send(errorBody("ORDER_LINE_NOT_FOUND", "Order line not found."));
+    }
+    if (order === "MUTATION_NOT_ALLOWED") {
+      return reply.code(409).send(errorBody("ORDER_MUTATION_NOT_ALLOWED", "Order mutation is not allowed."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "OrderLine",
+      entityId: params.lineId,
+      metadata: { orderId: params.orderId, quantity: input.quantity },
+    });
+    return serializeOrder(order);
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/place", async (request, reply) => {
+    const params = orderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const order = await dataAccess.placeOrder(params.storeId, params.orderId, {
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    if (order === "INVALID_STATUS") {
+      return reply.code(409).send(errorBody("ORDER_INVALID_STATUS", "Order cannot be placed in its current status."));
+    }
+    if (order === "INSUFFICIENT_STOCK") {
+      return reply.code(409).send(errorBody("ORDER_INSUFFICIENT_STOCK", "Insufficient stock for order reservation."));
+    }
+    if (order === "RESERVATION_FAILED") {
+      return reply.code(409).send(errorBody("ORDER_RESERVATION_FAILED", "Inventory reservation failed."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Order",
+      entityId: order.id,
+      metadata: { status: order.status, reservations: order.reservations.length },
+    });
+    return serializeOrder(order);
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/cancel", async (request, reply) => {
+    const params = orderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = orderCancelRequestSchema.parse(request.body ?? {});
+    const order = await dataAccess.cancelOrder(params.storeId, params.orderId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+    if (order === "INVALID_STATUS") {
+      return reply.code(409).send(errorBody("ORDER_INVALID_STATUS", "Order cannot be cancelled in its current status."));
+    }
+    if (order === "RESERVATION_FAILED") {
+      return reply.code(409).send(errorBody("ORDER_RESERVATION_FAILED", "Inventory reservation release failed."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Order",
+      entityId: order.id,
+      metadata: { status: order.status, reason: input.reason ?? null },
+    });
+    return serializeOrder(order);
   });
 
   return app;

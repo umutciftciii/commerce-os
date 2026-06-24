@@ -231,3 +231,23 @@ icin kullanilir ve commitlenmez. `.env.example` secret olmayan placeholder deger
 
 Paylasimli kontratlar `packages/contracts` icinde tutulur. Servisler arasi veri sekli, API response
 formatlari ve event payload'lari burada tip guvencesiyle tanimlanmalidir.
+
+## Order / Reservation Domain (Faz 2C)
+
+Faz 2C order/reservation cekirdegi henuz ayri `commerce-service` runtime'ina tasinmadi; mevcut
+gateway icinde store-scoped API olarak uygulanir. Veri modeli `Customer`, `CustomerAddress`,
+`Order`, `OrderLine`, `OrderAddress`, `OrderEvent`, `InventoryReservation` ve
+`OrderNumberCounter` tablolarindan olusur. Her tablo `storeId` tasir ve gateway route'lari explicit
+`/stores/:storeId/*` tenant guard'i ile calisir.
+
+Order DRAFT olarak lines ile olusur. Line snapshot'i product/variant aktifken alinan sku, product
+title, variant title, minor-unit unit price ve currency degerlerini saklar; katalog fiyat/title
+degisikligi mevcut order line'i degistirmez. Place islemi PostgreSQL row-level lock ile
+`InventoryItem` satirini kilitler, available stogu kontrol eder, `quantityReserved` artirir ve
+`InventoryReservation ACTIVE` olusturur. Cancel aktif reservation'lari `RELEASED` yapar ve reserved
+stogu geri dusurur; double cancel idempotenttir. `CONSUMED`, fulfillment fazinda onHand dusumu icin
+hazir tutulur.
+
+Bu domain payment capture, cart/checkout session, shipment, invoice, notification ve marketplace
+sync davranisini sahiplenmez; bu akislara ait state machine'ler sonraki servis/faz sinirlarinda
+eklenecektir.

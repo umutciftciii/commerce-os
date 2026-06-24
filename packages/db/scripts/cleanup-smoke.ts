@@ -28,24 +28,62 @@ async function main() {
   const productWhere = prefixedWhere(["slug", "title"]);
   const categoryWhere = prefixedWhere(["slug", "name"]);
   const variantWhere = prefixedWhere(["sku", "title"]);
+  const orderWhere = prefixedWhere(["orderNumber", "customerEmail", "cancelReason"]);
+  const customerWhere = prefixedWhere(["email", "firstName", "lastName"]);
 
-  const [variants, products, categories, stores, plans] = await prisma.$transaction([
-    prisma.productVariant.deleteMany({ where: variantWhere }),
-    prisma.product.deleteMany({ where: productWhere }),
-    prisma.productCategory.deleteMany({ where: categoryWhere }),
-    prisma.store.deleteMany({ where: storeWhere }),
-    prisma.plan.deleteMany({ where: planWhere }),
-  ]);
+  const result = await prisma.$transaction(async (transaction) => {
+    const activeReservations = await transaction.inventoryReservation.findMany({
+      where: { status: "ACTIVE", order: orderWhere },
+      select: { id: true, variantId: true, quantity: true },
+    });
+    for (const reservation of activeReservations) {
+      const inventoryItem = await transaction.inventoryItem.findUnique({
+        where: { variantId: reservation.variantId },
+        select: { id: true, quantityReserved: true },
+      });
+      if (inventoryItem) {
+        await transaction.inventoryItem.update({
+          where: { id: inventoryItem.id },
+          data: { quantityReserved: Math.max(0, inventoryItem.quantityReserved - reservation.quantity) },
+        });
+      }
+      await transaction.inventoryReservation.update({
+        where: { id: reservation.id },
+        data: { status: "RELEASED", releasedAt: new Date() },
+      });
+    }
+
+    const orders = await transaction.order.deleteMany({ where: orderWhere });
+    const customers = await transaction.customer.deleteMany({ where: customerWhere });
+    const variants = await transaction.productVariant.deleteMany({ where: variantWhere });
+    const products = await transaction.product.deleteMany({ where: productWhere });
+    const categories = await transaction.productCategory.deleteMany({ where: categoryWhere });
+    const stores = await transaction.store.deleteMany({ where: storeWhere });
+    const plans = await transaction.plan.deleteMany({ where: planWhere });
+    return {
+      releasedReservations: activeReservations.length,
+      orders,
+      customers,
+      variants,
+      products,
+      categories,
+      stores,
+      plans,
+    };
+  });
 
   console.log(
     JSON.stringify({
       ok: true,
       deleted: {
-        variants: variants.count,
-        products: products.count,
-        categories: categories.count,
-        stores: stores.count,
-        plans: plans.count,
+        releasedReservations: result.releasedReservations,
+        orders: result.orders.count,
+        customers: result.customers.count,
+        variants: result.variants.count,
+        products: result.products.count,
+        categories: result.categories.count,
+        stores: result.stores.count,
+        plans: result.plans.count,
       },
     }),
   );
