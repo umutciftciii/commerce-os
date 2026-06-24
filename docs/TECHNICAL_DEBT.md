@@ -324,18 +324,20 @@
   bazli stok modeli eklenirken ayni lock stratejisi yeniden degerlendirilmeli.
 - Hedef faz: Faz 4+
 
-## TD-027 Product sales model UI ve request modelleri eksik
+## TD-027 Storefront CTA render ve sales-model request modelleri eksik
 
-- Durum: OPEN
+- Durum: OPEN (store-admin UI kismi F2F'de kapandi)
 - Oncelik: MEDIUM
-- Etki: Faz 2D product sales model backend/model/contract/API foundation'i hazirlar, ancak store-admin
-  urun formu bu alanlara henuz bagli degildir. Public storefront sales model'e gore CTA render etmez.
-  `INQUIRY` ve `APPOINTMENT` icin gercek talep/randevu kayit modelleri yoktur; `WHATSAPP` aksiyonu
-  icin store-level public contact/telefon config'i ve redirect davranisi da eksiktir.
-- Cozum onerisi: Faz 2F'de store-admin Product Sales Model UI; Faz 3'te Storefront CTA behavior;
-  ayrica Product inquiry request model, Appointment request model ve WhatsApp redirect/store contact
-  config islerini ayri backend/UI slice'lari olarak eklemek.
-- Hedef faz: Faz 2F, Faz 3+
+- Etki: Faz 2F ile store-admin urun listesi ve create/update formu sales model alanlarina baglandi
+  (rozetler, "Satis davranisi" bolumu, dinamik default, client validasyon, lokalize guard hatalari).
+  Kalan eksikler: public storefront sales model'e gore CTA render etmez (Faz 3); `INQUIRY` ve
+  `APPOINTMENT` icin gercek talep/randevu kayit modelleri yoktur; `WHATSAPP` aksiyonu icin store-level
+  public contact/telefon config'i ve redirect davranisi yoktur. Store-admin yalnizca catalog API
+  alanlarini yonetir; herhangi bir inquiry/appointment kaydi yaratmaz.
+- Cozum onerisi: Faz 3'te Storefront CTA behavior; ayrica Product inquiry request model, Appointment
+  request model ve WhatsApp redirect/store contact config islerini ayri backend/UI slice'lari olarak
+  eklemek (TODO-040/041/042/043).
+- Hedef faz: Faz 3+
 
 ## TD-028 Runtime locale: kullanici tercihi, URL prefix ve dil tespiti eksik
 

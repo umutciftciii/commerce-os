@@ -170,7 +170,14 @@ line add/update ve place akislari product sales modelini dogrular; `INQUIRY`, `A
 `WHATSAPP` ve `CATALOG_ONLY` urunler online order line'a eklenemez. Cart, checkout, payment,
 shipping, marketplace sync, media/images, product options modeli, import/export, inquiry/appointment
 talep modelleri, WhatsApp store contact config ve storefront resolver/render davranisi kapsam disidir.
-Store-admin UI urun formu henuz yeni sales model alanlarina baglanmadi.
+Faz 2F'de store-admin UI sales model alanlarina baglandi: urun listesinde kompakt "Satis" kolonu
+(salesMode rozeti + priceVisibility/primaryAction metni + purchasable gostergesi) ve create/update
+formundaki "Satis davranisi" bolumu. Form, salesMode degisiminde backend `isConsistentSalesModel`
+kurallariyla uyumlu guvenli default'lar uygular ve client-side min/max adet + uzunluk validasyonu
+yapar; tutarsizliklarda gateway `VALIDATION_ERROR`'i ve sales-model guard kodlari (`PRODUCT_*`) UI'da
+TR/EN lokalize gosterilir. Yeni alanlar store-admin BFF route handler'larinda body pass-through ile
+ek kod olmadan gateway'e tasinir; storefront CTA render ve inquiry/appointment/WhatsApp kayit
+modelleri hala kapsam disidir.
 
 Platform session raw token saklamaz; secret ile hashlenmis `tokenHash`, `expiresAt`, opsiyonel
 revoke/user-agent/ip placeholder alanlari tutulur.

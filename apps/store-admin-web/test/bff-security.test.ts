@@ -191,6 +191,79 @@ describe("store-admin BFF — categories proxy", () => {
 });
 
 describe("store-admin BFF — products & variants proxy", () => {
+  it("carries the sales-model fields through product creation with CSRF", async () => {
+    apiClient.admin.products.create.mockResolvedValue({ id: "p1" });
+    const { POST } = await import("../app/api/catalog/products/route.js");
+    const salesBody = {
+      title: "Danışmanlık",
+      slug: "danismanlik",
+      salesMode: "INQUIRY",
+      priceVisibility: "ON_REQUEST",
+      primaryAction: "REQUEST_PRICE",
+      purchasable: false,
+      inquiryEnabled: true,
+      minOrderQuantity: 1,
+      maxOrderQuantity: null,
+      inquiryFormTitle: "Fiyat isteyin",
+    };
+    const response = await POST(
+      request("/api/catalog/products", jsonInit("POST", SESSION + CSRF_COOKIE, salesBody, true)),
+    );
+    expect(response.status).toBe(201);
+    expect(apiClient.admin.products.create).toHaveBeenCalledWith(
+      "store-1",
+      expect.objectContaining({
+        salesMode: "INQUIRY",
+        priceVisibility: "ON_REQUEST",
+        primaryAction: "REQUEST_PRICE",
+        purchasable: false,
+        inquiryEnabled: true,
+        inquiryFormTitle: "Fiyat isteyin",
+      }),
+      "platform-token",
+    );
+  });
+
+  it("rejects product creation without a CSRF token before any upstream call", async () => {
+    const { POST } = await import("../app/api/catalog/products/route.js");
+    const response = await POST(
+      request(
+        "/api/catalog/products",
+        jsonInit("POST", SESSION, { title: "X", slug: "x", salesMode: "ONLINE" }),
+      ),
+    );
+    expect(response.status).toBe(403);
+    expect(apiClient.admin.products.create).not.toHaveBeenCalled();
+  });
+
+  it("carries the sales-model fields through product update with CSRF", async () => {
+    apiClient.admin.products.update.mockResolvedValue({ id: "p1" });
+    const { PATCH } = await import("../app/api/catalog/products/[productId]/route.js");
+    const response = await PATCH(
+      request(
+        "/api/catalog/products/p1",
+        jsonInit(
+          "PATCH",
+          SESSION + CSRF_COOKIE,
+          { salesMode: "APPOINTMENT", primaryAction: "BOOK_APPOINTMENT", purchasable: false },
+          true,
+        ),
+      ),
+      { params: Promise.resolve({ productId: "p1" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(apiClient.admin.products.update).toHaveBeenCalledWith(
+      "store-1",
+      "p1",
+      expect.objectContaining({
+        salesMode: "APPOINTMENT",
+        primaryAction: "BOOK_APPOINTMENT",
+        purchasable: false,
+      }),
+      "platform-token",
+    );
+  });
+
   it("updates a product through the dynamic route with CSRF", async () => {
     apiClient.admin.products.update.mockResolvedValue({ id: "p1" });
     const { PATCH } = await import("../app/api/catalog/products/[productId]/route.js");

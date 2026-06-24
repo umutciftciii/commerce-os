@@ -22,6 +22,9 @@ import type {
   Product,
   ProductCategory,
   ProductCreateRequest,
+  ProductPriceVisibility,
+  ProductPrimaryAction,
+  ProductSalesMode,
 } from "@commerce-os/api-client";
 import { ProductIcon } from "../../../components/icons";
 import { storeApi } from "../../../lib/client/api";
@@ -41,6 +44,42 @@ const STATUS_TONES: Record<ProductStatus, "success" | "neutral" | "warning"> = {
   ARCHIVED: "warning",
 };
 
+const SALES_MODE_TONES: Record<ProductSalesMode, "success" | "info" | "warning" | "neutral"> = {
+  ONLINE: "success",
+  INQUIRY: "info",
+  APPOINTMENT: "warning",
+  WHATSAPP: "success",
+  CATALOG_ONLY: "neutral",
+};
+
+const SALES_MODES: ProductSalesMode[] = [
+  "ONLINE",
+  "INQUIRY",
+  "APPOINTMENT",
+  "WHATSAPP",
+  "CATALOG_ONLY",
+];
+const PRICE_VISIBILITIES: ProductPriceVisibility[] = [
+  "VISIBLE",
+  "HIDDEN",
+  "STARTING_FROM",
+  "ON_REQUEST",
+];
+const PRIMARY_ACTIONS: ProductPrimaryAction[] = [
+  "ADD_TO_CART",
+  "REQUEST_PRICE",
+  "BOOK_APPOINTMENT",
+  "WHATSAPP",
+  "CONTACT_FORM",
+  "NONE",
+];
+
+// Sozlukten gelen string sabitleri (CTA/sablon uzunluk siniri kontrat ile ayni).
+const CTA_MAX = 120;
+const WHATSAPP_MAX = 500;
+const INQUIRY_TITLE_MAX = 160;
+const APPOINTMENT_NOTE_MAX = 500;
+
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export default function ProductsPage() {
@@ -48,6 +87,7 @@ export default function ProductsPage() {
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.products;
   const c = dict.common;
+  const sm = t.salesModel;
   const statusLabels = t.statusLabels as Record<ProductStatus, string>;
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -96,6 +136,29 @@ export default function ProductsPage() {
       cell: (product) => (
         <Badge tone={STATUS_TONES[product.status]}>{statusLabels[product.status]}</Badge>
       ),
+    },
+    {
+      header: sm.columnHeader,
+      cell: (product) => {
+        // Eski (F2D oncesi) kayitlar icin guvenli varsayilanlar.
+        const mode = (product.salesMode ?? "ONLINE") as ProductSalesMode;
+        const visibility = (product.priceVisibility ?? "VISIBLE") as ProductPriceVisibility;
+        const action = (product.primaryAction ?? "ADD_TO_CART") as ProductPrimaryAction;
+        const purchasable = product.purchasable ?? true;
+        return (
+          <div className="space-y-1">
+            <Badge tone={SALES_MODE_TONES[mode]}>{sm.modeLabels[mode]}</Badge>
+            <p className="text-xs text-slate-400">
+              {sm.priceVisibilityLabels[visibility]} · {sm.actionLabels[action]}
+            </p>
+            {!purchasable ? (
+              <p className="text-xs font-medium text-amber-600">{sm.notPurchasableBadge}</p>
+            ) : mode === "ONLINE" ? (
+              <p className="text-xs font-medium text-emerald-600">{sm.purchasableBadge}</p>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       header: t.table.brand,
@@ -247,7 +310,9 @@ function ProductEditor({
   const t = dict.storeAdmin.products;
   const c = dict.common;
   const f = t.form;
+  const sm = t.salesModel;
   const isEdit = editor.mode === "edit";
+  const initial = isEdit ? editor.product : null;
 
   const [title, setTitle] = useState(isEdit ? editor.product.title : "");
   const [slug, setSlug] = useState(isEdit ? editor.product.slug : "");
@@ -258,8 +323,74 @@ function ProductEditor({
   const [categoryIds, setCategoryIds] = useState<string[]>(
     isEdit ? editor.product.categoryIds : [],
   );
+
+  // Satis davranisi (F2D alanlari).
+  const [salesMode, setSalesMode] = useState<ProductSalesMode>(initial?.salesMode ?? "ONLINE");
+  const [priceVisibility, setPriceVisibility] = useState<ProductPriceVisibility>(
+    initial?.priceVisibility ?? "VISIBLE",
+  );
+  const [primaryAction, setPrimaryAction] = useState<ProductPrimaryAction>(
+    initial?.primaryAction ?? "ADD_TO_CART",
+  );
+  const [purchasable, setPurchasable] = useState<boolean>(initial?.purchasable ?? true);
+  const [inquiryEnabled, setInquiryEnabled] = useState<boolean>(initial?.inquiryEnabled ?? false);
+  const [appointmentRequired, setAppointmentRequired] = useState<boolean>(
+    initial?.appointmentRequired ?? false,
+  );
+  const [whatsappEnabled, setWhatsappEnabled] = useState<boolean>(initial?.whatsappEnabled ?? false);
+  const [minOrderQuantity, setMinOrderQuantity] = useState<string>(
+    String(initial?.minOrderQuantity ?? 1),
+  );
+  const [maxOrderQuantity, setMaxOrderQuantity] = useState<string>(
+    initial?.maxOrderQuantity != null ? String(initial.maxOrderQuantity) : "",
+  );
+  const [callToActionLabel, setCallToActionLabel] = useState(initial?.callToActionLabel ?? "");
+  const [whatsappMessageTemplate, setWhatsappMessageTemplate] = useState(
+    initial?.whatsappMessageTemplate ?? "",
+  );
+  const [inquiryFormTitle, setInquiryFormTitle] = useState(initial?.inquiryFormTitle ?? "");
+  const [appointmentNote, setAppointmentNote] = useState(initial?.appointmentNote ?? "");
+
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Satis tipi degisince backend tutarlilik kurallarina uyumlu guvenli
+  // varsayilanlar uygulanir; kullanicinin yazdigi metin alanlari ezilmez.
+  function changeSalesMode(mode: ProductSalesMode) {
+    setSalesMode(mode);
+    if (mode === "ONLINE") {
+      setPurchasable(true);
+      setPrimaryAction("ADD_TO_CART");
+      setPriceVisibility((current) =>
+        current === "VISIBLE" || current === "STARTING_FROM" ? current : "VISIBLE",
+      );
+    } else if (mode === "INQUIRY") {
+      setPurchasable(false);
+      setPrimaryAction("REQUEST_PRICE");
+      setInquiryEnabled(true);
+    } else if (mode === "APPOINTMENT") {
+      setPurchasable(false);
+      setPrimaryAction("BOOK_APPOINTMENT");
+      setAppointmentRequired(true);
+    } else if (mode === "WHATSAPP") {
+      setPurchasable(false);
+      setPrimaryAction("WHATSAPP");
+      setWhatsappEnabled(true);
+    } else if (mode === "CATALOG_ONLY") {
+      setPurchasable(false);
+      setPrimaryAction("NONE");
+    }
+  }
+
+  // Gizli/talep-uzerine fiyat gorunurlugunde online satin alma kapatilir.
+  function changePriceVisibility(value: ProductPriceVisibility) {
+    setPriceVisibility(value);
+    if (value === "HIDDEN" || value === "ON_REQUEST") setPurchasable(false);
+  }
+
+  const showInquiryTitle = salesMode === "INQUIRY" || inquiryEnabled;
+  const showAppointmentNote = salesMode === "APPOINTMENT" || appointmentRequired;
+  const showWhatsappTemplate = salesMode === "WHATSAPP" || whatsappEnabled;
 
   const statusOptions = (Object.keys(statusLabels) as ProductStatus[]).map((value) => ({
     value,
@@ -285,6 +416,54 @@ function ProductEditor({
       return;
     }
 
+    // Satis davranisi client-side dogrulama (backend nihai otorite).
+    const min = Number(minOrderQuantity);
+    if (!Number.isInteger(min) || min < 1) {
+      setError(sm.minQtyError);
+      return;
+    }
+    let max: number | null = null;
+    if (maxOrderQuantity.trim() !== "") {
+      max = Number(maxOrderQuantity);
+      if (!Number.isInteger(max) || max < min) {
+        setError(sm.maxQtyError);
+        return;
+      }
+    }
+    if (callToActionLabel.trim().length > CTA_MAX) {
+      setError(sm.ctaTooLong);
+      return;
+    }
+    if (whatsappMessageTemplate.trim().length > WHATSAPP_MAX) {
+      setError(sm.whatsappTooLong);
+      return;
+    }
+    if (inquiryFormTitle.trim().length > INQUIRY_TITLE_MAX) {
+      setError(sm.inquiryTitleTooLong);
+      return;
+    }
+    if (appointmentNote.trim().length > APPOINTMENT_NOTE_MAX) {
+      setError(sm.appointmentNoteTooLong);
+      return;
+    }
+
+    const salesFields = {
+      salesMode,
+      priceVisibility,
+      primaryAction,
+      purchasable,
+      inquiryEnabled,
+      appointmentRequired,
+      whatsappEnabled,
+      minOrderQuantity: min,
+      maxOrderQuantity: max,
+      callToActionLabel: callToActionLabel.trim() === "" ? null : callToActionLabel.trim(),
+      whatsappMessageTemplate:
+        whatsappMessageTemplate.trim() === "" ? null : whatsappMessageTemplate.trim(),
+      inquiryFormTitle: inquiryFormTitle.trim() === "" ? null : inquiryFormTitle.trim(),
+      appointmentNote: appointmentNote.trim() === "" ? null : appointmentNote.trim(),
+    };
+
     setSaving(true);
     try {
       if (isEdit) {
@@ -295,6 +474,7 @@ function ProductEditor({
           vendor: vendor.trim() === "" ? null : vendor.trim(),
           description: description.trim() === "" ? null : description.trim(),
           categoryIds,
+          ...salesFields,
         });
         onSaved(t.updatedToast);
       } else {
@@ -304,6 +484,7 @@ function ProductEditor({
           status,
           type: "PHYSICAL",
           categoryIds,
+          ...salesFields,
         };
         if (brand.trim() !== "") payload.brand = brand.trim();
         if (vendor.trim() !== "") payload.vendor = vendor.trim();
@@ -429,7 +610,192 @@ function ProductEditor({
             </>
           )}
         </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">{sm.sectionTitle}</h3>
+            <p className="mt-0.5 text-xs text-slate-400">{sm.sectionSubtitle}</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Select
+              id="product-sales-mode"
+              label={sm.modeLabel}
+              value={salesMode}
+              onChange={(event) => changeSalesMode(event.target.value as ProductSalesMode)}
+              disabled={saving}
+              options={SALES_MODES.map((value) => ({ value, label: sm.modeLabels[value] }))}
+            />
+            <Select
+              id="product-price-visibility"
+              label={sm.priceVisibilityLabel}
+              value={priceVisibility}
+              onChange={(event) =>
+                changePriceVisibility(event.target.value as ProductPriceVisibility)
+              }
+              disabled={saving}
+              options={PRICE_VISIBILITIES.map((value) => ({
+                value,
+                label: sm.priceVisibilityLabels[value],
+              }))}
+            />
+            <Select
+              id="product-primary-action"
+              label={sm.actionLabel}
+              value={primaryAction}
+              onChange={(event) => setPrimaryAction(event.target.value as ProductPrimaryAction)}
+              disabled={saving}
+              options={PRIMARY_ACTIONS.map((value) => ({
+                value,
+                label: sm.actionLabels[value],
+              }))}
+            />
+          </div>
+
+          {!purchasable ? (
+            <Alert tone="info">
+              {salesMode === "ONLINE" ? sm.onlineNotPurchasableHint : sm.notPurchasableHint}
+            </Alert>
+          ) : null}
+          {priceVisibility === "HIDDEN" || priceVisibility === "ON_REQUEST" ? (
+            <Alert tone="info">{sm.hiddenPriceHint}</Alert>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <SalesToggle
+              id="product-purchasable"
+              label={sm.purchasableToggle}
+              checked={purchasable}
+              onChange={setPurchasable}
+              disabled={saving}
+            />
+            <SalesToggle
+              id="product-inquiry-enabled"
+              label={sm.inquiryEnabledToggle}
+              checked={inquiryEnabled}
+              onChange={setInquiryEnabled}
+              disabled={saving}
+            />
+            <SalesToggle
+              id="product-appointment-required"
+              label={sm.appointmentRequiredToggle}
+              checked={appointmentRequired}
+              onChange={setAppointmentRequired}
+              disabled={saving}
+            />
+            <SalesToggle
+              id="product-whatsapp-enabled"
+              label={sm.whatsappEnabledToggle}
+              checked={whatsappEnabled}
+              onChange={setWhatsappEnabled}
+              disabled={saving}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Input
+              id="product-min-qty"
+              type="number"
+              min={1}
+              label={sm.minQtyLabel}
+              value={minOrderQuantity}
+              onChange={(event) => setMinOrderQuantity(event.target.value)}
+              disabled={saving}
+            />
+            <Input
+              id="product-max-qty"
+              type="number"
+              min={1}
+              label={sm.maxQtyLabel}
+              placeholder={sm.maxQtyPlaceholder}
+              value={maxOrderQuantity}
+              onChange={(event) => setMaxOrderQuantity(event.target.value)}
+              disabled={saving}
+            />
+          </div>
+
+          <Input
+            id="product-cta-label"
+            label={sm.ctaLabelLabel}
+            placeholder={sm.ctaLabelPlaceholder}
+            value={callToActionLabel}
+            onChange={(event) => setCallToActionLabel(event.target.value)}
+            disabled={saving}
+            maxLength={CTA_MAX}
+          />
+
+          {showInquiryTitle ? (
+            <Input
+              id="product-inquiry-title"
+              label={sm.inquiryTitleLabel}
+              placeholder={sm.inquiryTitlePlaceholder}
+              value={inquiryFormTitle}
+              onChange={(event) => setInquiryFormTitle(event.target.value)}
+              disabled={saving}
+              maxLength={INQUIRY_TITLE_MAX}
+            />
+          ) : null}
+
+          {showAppointmentNote ? (
+            <Textarea
+              id="product-appointment-note"
+              label={sm.appointmentNoteLabel}
+              placeholder={sm.appointmentNotePlaceholder}
+              value={appointmentNote}
+              onChange={(event) => setAppointmentNote(event.target.value)}
+              disabled={saving}
+              rows={2}
+              maxLength={APPOINTMENT_NOTE_MAX}
+            />
+          ) : null}
+
+          {showWhatsappTemplate ? (
+            <Textarea
+              id="product-whatsapp-template"
+              label={sm.whatsappTemplateLabel}
+              placeholder={sm.whatsappTemplatePlaceholder}
+              value={whatsappMessageTemplate}
+              onChange={(event) => setWhatsappMessageTemplate(event.target.value)}
+              disabled={saving}
+              rows={2}
+              maxLength={WHATSAPP_MAX}
+            />
+          ) : null}
+        </div>
       </form>
     </Modal>
+  );
+}
+
+function SalesToggle({
+  id,
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+        checked ? "border-brand-300 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600"
+      }`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        className="h-3.5 w-3.5 accent-brand-600"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        disabled={disabled}
+      />
+      {label}
+    </label>
   );
 }
