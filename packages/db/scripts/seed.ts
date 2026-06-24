@@ -116,6 +116,167 @@ async function main() {
       payload: { message: "Seed completed." },
     },
   });
+
+  const apparelCategory = await prisma.productCategory.upsert({
+    where: { storeId_slug: { storeId: store.id, slug: "apparel" } },
+    update: { name: "Apparel", sortOrder: 10, status: "ACTIVE" },
+    create: {
+      storeId: store.id,
+      name: "Apparel",
+      slug: "apparel",
+      sortOrder: 10,
+      status: "ACTIVE",
+    },
+  });
+
+  const accessoriesCategory = await prisma.productCategory.upsert({
+    where: { storeId_slug: { storeId: store.id, slug: "accessories" } },
+    update: { name: "Accessories", sortOrder: 20, status: "ACTIVE" },
+    create: {
+      storeId: store.id,
+      name: "Accessories",
+      slug: "accessories",
+      sortOrder: 20,
+      status: "ACTIVE",
+    },
+  });
+
+  const hoodie = await prisma.product.upsert({
+    where: { storeId_slug: { storeId: store.id, slug: "demo-hoodie" } },
+    update: {
+      title: "Demo Hoodie",
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      brand: "Commerce OS",
+    },
+    create: {
+      storeId: store.id,
+      title: "Demo Hoodie",
+      slug: "demo-hoodie",
+      description: "Seeded hoodie product for local catalog smoke tests.",
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      brand: "Commerce OS",
+    },
+  });
+
+  const tote = await prisma.product.upsert({
+    where: { storeId_slug: { storeId: store.id, slug: "demo-tote" } },
+    update: {
+      title: "Demo Tote Bag",
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      brand: "Commerce OS",
+    },
+    create: {
+      storeId: store.id,
+      title: "Demo Tote Bag",
+      slug: "demo-tote",
+      description: "Seeded tote product for local catalog smoke tests.",
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      brand: "Commerce OS",
+    },
+  });
+
+  await prisma.productCategoryAssignment.createMany({
+    data: [
+      { storeId: store.id, productId: hoodie.id, categoryId: apparelCategory.id },
+      { storeId: store.id, productId: tote.id, categoryId: accessoriesCategory.id },
+    ],
+    skipDuplicates: true,
+  });
+
+  const variants = await Promise.all([
+    prisma.productVariant.upsert({
+      where: { storeId_sku: { storeId: store.id, sku: "DEMO-HOODIE-BLK-M" } },
+      update: {
+        productId: hoodie.id,
+        title: "Black / M",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Black", size: "M" },
+      },
+      create: {
+        storeId: store.id,
+        productId: hoodie.id,
+        title: "Black / M",
+        sku: "DEMO-HOODIE-BLK-M",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Black", size: "M" },
+      },
+    }),
+    prisma.productVariant.upsert({
+      where: { storeId_sku: { storeId: store.id, sku: "DEMO-HOODIE-BLK-L" } },
+      update: {
+        productId: hoodie.id,
+        title: "Black / L",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Black", size: "L" },
+      },
+      create: {
+        storeId: store.id,
+        productId: hoodie.id,
+        title: "Black / L",
+        sku: "DEMO-HOODIE-BLK-L",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Black", size: "L" },
+      },
+    }),
+    prisma.productVariant.upsert({
+      where: { storeId_sku: { storeId: store.id, sku: "DEMO-TOTE-NAT" } },
+      update: {
+        productId: tote.id,
+        title: "Natural",
+        priceMinor: 39900,
+        compareAtMinor: null,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Natural" },
+      },
+      create: {
+        storeId: store.id,
+        productId: tote.id,
+        title: "Natural",
+        sku: "DEMO-TOTE-NAT",
+        priceMinor: 39900,
+        currency: "TRY",
+        status: "ACTIVE",
+        optionValues: { color: "Natural" },
+      },
+    }),
+  ]);
+
+  await Promise.all(
+    variants.map((variant, index) =>
+      prisma.inventoryItem.upsert({
+        where: { variantId: variant.id },
+        update: {
+          storeId: store.id,
+          quantityReserved: 0,
+          lowStockThreshold: index === 2 ? 5 : 10,
+        },
+        create: {
+          storeId: store.id,
+          variantId: variant.id,
+          quantityOnHand: index === 2 ? 25 : 15,
+          quantityReserved: 0,
+          lowStockThreshold: index === 2 ? 5 : 10,
+        },
+      }),
+    ),
+  );
 }
 
 main()

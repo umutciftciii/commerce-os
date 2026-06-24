@@ -238,3 +238,45 @@
   cache) ve `docker image prune` (dangling) guvenli kabul edilir. `docker volume prune`,
   `docker system prune -a --volumes` ve `docker container prune` (diger projelerin stopped
   container'larini etkiler) kullanilmaz; named volume'lar (ozellikle `docker_postgres-data`) korunur.
+
+## ADR-020 Catalog fiyat alanlari integer minor unit
+
+- Durum: ACCEPTED
+- Baglam: Faz 2A katalog foundation'da variant fiyatlari eklenirken para alanlarinin decimal mi
+  integer minor unit mu tutulacagi netlestirildi. Decimal alanlar yuvarlama/format farklarina acik;
+  order/payment fazlarinda fiyat snapshot ve vergi/kargo hesaplari daha kritik hale gelecek.
+- Karar: `ProductVariant.priceMinor` ve `compareAtMinor` integer minor unit olarak tutulur; `currency`
+  ISO-4217 uc harfli kod olarak zorunludur. API contract'lari integer ve `>= 0` validasyonu yapar.
+  `compareAtMinor` verildiginde `priceMinor`'dan dusuk olamaz. Display formatlama UI katmanina
+  birakilir.
+- Sonuc: Para saklama deterministik ve yuvarlama bagimsizdir. Order/checkout fazinda fiyat snapshot
+  modelleri ayni minor-unit yaklasimi ile genisletilecek.
+
+## ADR-021 Inventory movement ledger ve negatif stok politikasi
+
+- Durum: ACCEPTED
+- Baglam: Faz 2A'da order/checkout yok; rezervasyon akisi henuz kurulmadigi icin stok davranisi
+  manuel adjustment ile sinirli kalmali. Buna ragmen stok degisimleri audit edilebilir olmalidir.
+- Karar: Her manual adjustment `InventoryMovement` kaydi yazar ve `InventoryItem.quantityOnHand`
+  ayni transaction'da guncellenir. `quantityReserved` bu fazda 0 kalabilir; `quantityAvailable`
+  API response'unda `quantityOnHand - quantityReserved` olarak turetilir, DB'de materialize edilmez.
+  Adjustment sonucu `quantityOnHand < 0` olacaksa `INVALID_INVENTORY_ADJUSTMENT` ile 400 doner.
+  Eksik inventory item, variant mevcut oldugu surece adjustment sirasinda repair/create edilebilir;
+  variant yoksa kontrollu not-found doner.
+- Sonuc: Siparis/rezervasyon olmadan stok ledger'i baslar, negatif stok engellenir ve ileride order
+  rezervasyon hareket tipleri ayni ledger uzerinden genisletilir.
+
+## ADR-022 Product archival status ve store-scoped catalog tenant guard
+
+- Durum: ACCEPTED
+- Baglam: Katalog entity'lerinde delete endpointleri bu fazin kapsaminda degil. Store-user auth henuz
+  tamamlanmadigi icin store-admin endpointlerinin nasil korunacagi gecici olarak netlesmeli.
+- Karar: Product, variant ve category icin soft delete modeli yerine status tabanli `ARCHIVED`
+  kullanilir; DELETE endpoint eklenmez. Store-scoped catalog endpointleri bu fazda platform admin
+  bearer session ile korunur ve path'teki explicit `storeId` once mevcut store'a cozulur. `storeId`
+  ProductVariant/InventoryItem/Movement uzerinde bilincli olarak denormalize edilir; her sorgu ve
+  unique constraint store bazli tenant guard'i dogrudan uygular (`Product(storeId, slug)`,
+  `ProductVariant(storeId, sku)`, `ProductCategory(storeId, slug)`).
+- Sonuc: UI baglama gelmeden backend smoke/test mumkun olur. Store-user session/role modeli geldiginde
+  ayni endpointlerde platform admin store context secimi ve `requireStoreAccess`/role guard'i ayrica
+  sertlestirilecek.

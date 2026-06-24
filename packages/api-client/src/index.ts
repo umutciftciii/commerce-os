@@ -4,6 +4,10 @@ import type {
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
   HealthResponse,
+  InventoryAdjustRequest,
+  InventoryAdjustmentResponse,
+  InventoryItem,
+  InventoryListResponse,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -12,6 +16,18 @@ import type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  Product,
+  ProductCategory,
+  ProductCategoryCreateRequest,
+  ProductCategoryListResponse,
+  ProductCategoryUpdateRequest,
+  ProductCreateRequest,
+  ProductListResponse,
+  ProductUpdateRequest,
+  ProductVariant,
+  ProductVariantCreateRequest,
+  ProductVariantListResponse,
+  ProductVariantUpdateRequest,
 } from "@commerce-os/contracts";
 
 /**
@@ -25,6 +41,10 @@ export type {
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
   HealthResponse,
+  InventoryAdjustRequest,
+  InventoryAdjustmentResponse,
+  InventoryItem,
+  InventoryListResponse,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -33,6 +53,18 @@ export type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  Product,
+  ProductCategory,
+  ProductCategoryCreateRequest,
+  ProductCategoryListResponse,
+  ProductCategoryUpdateRequest,
+  ProductCreateRequest,
+  ProductListResponse,
+  ProductUpdateRequest,
+  ProductVariant,
+  ProductVariantCreateRequest,
+  ProductVariantListResponse,
+  ProductVariantUpdateRequest,
   PlatformUserContract,
 } from "@commerce-os/contracts";
 
@@ -125,6 +157,62 @@ export interface ApiClient {
       get(id: string, token?: string): Promise<Plan>;
       update(id: string, input: PlanUpdateRequest, token?: string): Promise<Plan>;
     };
+    categories: {
+      list(storeId: string, token?: string): Promise<ProductCategoryListResponse>;
+      create(
+        storeId: string,
+        input: ProductCategoryCreateRequest,
+        token?: string,
+      ): Promise<ProductCategory>;
+      get(storeId: string, categoryId: string, token?: string): Promise<ProductCategory>;
+      update(
+        storeId: string,
+        categoryId: string,
+        input: ProductCategoryUpdateRequest,
+        token?: string,
+      ): Promise<ProductCategory>;
+    };
+    products: {
+      list(storeId: string, token?: string): Promise<ProductListResponse>;
+      create(storeId: string, input: ProductCreateRequest, token?: string): Promise<Product>;
+      get(storeId: string, productId: string, token?: string): Promise<Product>;
+      update(
+        storeId: string,
+        productId: string,
+        input: ProductUpdateRequest,
+        token?: string,
+      ): Promise<Product>;
+      variants: {
+        list(
+          storeId: string,
+          productId: string,
+          token?: string,
+        ): Promise<ProductVariantListResponse>;
+        create(
+          storeId: string,
+          productId: string,
+          input: ProductVariantCreateRequest,
+          token?: string,
+        ): Promise<ProductVariant>;
+        update(
+          storeId: string,
+          productId: string,
+          variantId: string,
+          input: ProductVariantUpdateRequest,
+          token?: string,
+        ): Promise<ProductVariant>;
+      };
+    };
+    inventory: {
+      list(storeId: string, token?: string): Promise<InventoryListResponse>;
+      get(storeId: string, variantId: string, token?: string): Promise<InventoryItem>;
+      adjust(
+        storeId: string,
+        variantId: string,
+        input: InventoryAdjustRequest,
+        token?: string,
+      ): Promise<InventoryAdjustmentResponse>;
+    };
   };
 }
 
@@ -216,6 +304,64 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         get: (id, token) => getJson<Plan>(`/admin/plans/${id}`, token),
         update: (id, input, token) =>
           sendJson<Plan>(`/admin/plans/${id}`, "PATCH", input, token),
+      },
+      categories: {
+        list: (storeId, token) =>
+          getJson<ProductCategoryListResponse>(`/stores/${storeId}/categories`, token),
+        create: (storeId, input, token) =>
+          sendJson<ProductCategory>(`/stores/${storeId}/categories`, "POST", input, token),
+        get: (storeId, categoryId, token) =>
+          getJson<ProductCategory>(`/stores/${storeId}/categories/${categoryId}`, token),
+        update: (storeId, categoryId, input, token) =>
+          sendJson<ProductCategory>(
+            `/stores/${storeId}/categories/${categoryId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+      },
+      products: {
+        list: (storeId, token) =>
+          getJson<ProductListResponse>(`/stores/${storeId}/products`, token),
+        create: (storeId, input, token) =>
+          sendJson<Product>(`/stores/${storeId}/products`, "POST", input, token),
+        get: (storeId, productId, token) =>
+          getJson<Product>(`/stores/${storeId}/products/${productId}`, token),
+        update: (storeId, productId, input, token) =>
+          sendJson<Product>(`/stores/${storeId}/products/${productId}`, "PATCH", input, token),
+        variants: {
+          list: (storeId, productId, token) =>
+            getJson<ProductVariantListResponse>(
+              `/stores/${storeId}/products/${productId}/variants`,
+              token,
+            ),
+          create: (storeId, productId, input, token) =>
+            sendJson<ProductVariant>(
+              `/stores/${storeId}/products/${productId}/variants`,
+              "POST",
+              input,
+              token,
+            ),
+          update: (storeId, productId, variantId, input, token) =>
+            sendJson<ProductVariant>(
+              `/stores/${storeId}/products/${productId}/variants/${variantId}`,
+              "PATCH",
+              input,
+              token,
+            ),
+        },
+      },
+      inventory: {
+        list: (storeId, token) => getJson<InventoryListResponse>(`/stores/${storeId}/inventory`, token),
+        get: (storeId, variantId, token) =>
+          getJson<InventoryItem>(`/stores/${storeId}/inventory/${variantId}`, token),
+        adjust: (storeId, variantId, input, token) =>
+          sendJson<InventoryAdjustmentResponse>(
+            `/stores/${storeId}/inventory/${variantId}/adjust`,
+            "POST",
+            input,
+            token,
+          ),
       },
     },
   };

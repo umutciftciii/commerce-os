@@ -248,6 +248,60 @@ Platform admin token gerektiren endpointler:
 `GET /admin/stores` ve `GET /admin/stores/:id` response'lari `domain: string | null` alanini dondurur.
 Bu alan StoreDomain tablosundaki ilk sistem/primary domain bilgisini admin UI'da gostermek icindir.
 
+## Faz 2A Catalog + Inventory API
+
+Faz 2A store-admin UI baglamaz; API foundation platform admin bearer token ile test edilir. Store-user
+auth tamamlanana kadar store-scoped endpointler explicit `storeId` path parametresi ve platform admin
+session guard'i kullanir.
+
+Endpointler:
+
+- `GET|POST /stores/:storeId/categories`
+- `GET|PATCH /stores/:storeId/categories/:categoryId`
+- `GET|POST /stores/:storeId/products`
+- `GET|PATCH /stores/:storeId/products/:productId`
+- `GET|POST /stores/:storeId/products/:productId/variants`
+- `PATCH /stores/:storeId/products/:productId/variants/:variantId`
+- `GET /stores/:storeId/inventory`
+- `GET /stores/:storeId/inventory/:variantId`
+- `POST /stores/:storeId/inventory/:variantId/adjust`
+
+Catalog smoke ornegi:
+
+```bash
+TOKEN="<platform-admin-token>"
+STORE_ID="<demo-store-id>"
+
+curl -i "http://localhost:4000/stores/$STORE_ID/categories" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -i -X POST "http://localhost:4000/stores/$STORE_ID/categories" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"name":"Smoke Category","slug":"smoke-category"}'
+
+curl -i -X POST "http://localhost:4000/stores/$STORE_ID/products" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"title":"Smoke Product","slug":"smoke-product","status":"ACTIVE"}'
+
+curl -i -X POST "http://localhost:4000/stores/$STORE_ID/products/<product-id>/variants" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"title":"Default","sku":"SMOKE-SKU-1","priceMinor":1000,"currency":"TRY"}'
+
+curl -i -X POST "http://localhost:4000/stores/$STORE_ID/inventory/<variant-id>/adjust" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"quantityDelta":5,"reason":"smoke"}'
+```
+
+Fiyat alanlari integer minor unit'tir (`priceMinor`, `compareAtMinor`). Variant create edildiginde
+inventory item otomatik olusur. Inventory adjustment `InventoryMovement` yazar; adjustment sonucu
+stok negatif olacaksa `400 INVALID_INVENTORY_ADJUSTMENT` doner. Store bazli duplicate slug/SKU
+durumlari stabil `409` hata kodlariyla doner (`PRODUCT_SLUG_EXISTS`, `CATEGORY_SLUG_EXISTS`,
+`VARIANT_SKU_EXISTS`).
+
 Hatalar su zarfta doner:
 
 ```json

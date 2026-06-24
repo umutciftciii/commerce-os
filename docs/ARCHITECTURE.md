@@ -10,8 +10,10 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
 
 - `apps/api-gateway`: Fastify tabanli giris noktasi. Public health/version endpointleri, internal
   DB/Redis health endpointleri, platform admin auth/session endpointleri ve Faz 1A platform admin
-  store/plan yonetim endpointleri burada bulunur. Route'lar Zod contract'lariyla input validate eder,
-  tutarli JSON hata zarfi dondurur ve admin mutation'larinda audit log yazar.
+  store/plan yonetim endpointleri burada bulunur. Faz 2A ile store-scoped catalog/inventory
+  foundation endpointleri de burada yayinlanir (`/stores/:storeId/categories`, `/products`,
+  `/variants`, `/inventory`). Route'lar Zod contract'lariyla input validate eder, tutarli JSON hata
+  zarfi dondurur ve admin/catalog/inventory mutation'larinda audit log yazar.
 - `apps/worker`: Background job runtime foundation'i. Redis/BullMQ tabanli queue islerinin calisacagi
   runtime alanidir.
 - `apps/admin-web`: Platform super admin arayuzu (Next.js App Router). Faz 1B'de canli gateway'e
@@ -51,7 +53,8 @@ ve storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.nex
 - `packages/auth`: Platform/store context ve tenant foundation yardimcilari; scrypt tabanli parola
   hash/dogrulama, platform admin guard ve store role guard foundation'i.
 - `packages/config`: Environment config parsing ve validation.
-- `packages/contracts`: Paylasimli API/domain kontratlari icin hedef paket.
+- `packages/contracts`: Paylasimli API/domain kontratlari icin hedef paket. Faz 2A ile catalog ve
+  inventory Zod schema'lari, request/response tipleri ve stabil hata zarfi tipleri burada tutulur.
 - `packages/logger`: Ortak logger factory ve log formatlama.
 - `packages/queues`: Redis/BullMQ queue connection ve job naming foundation.
 - `packages/integrations-sdk`: Connector gelistirme icin hedef SDK paketi.
@@ -63,9 +66,10 @@ ve storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.nex
   Ortak Tailwind preset'i (`tailwind-preset.cjs`) tasarim token'larini merkezilestirir.
 - `packages/api-client`: Frontend app'lerin API gateway ile konustugu type-safe client.
   `API_GATEWAY_URL` env'inden base URL cozer; health/version, internal DB/Redis health (token-gated),
-  platform auth ve admin store/plan helper'lari sunar. Hatada gateway `code`/`status` tasiyan tipli
-  `ApiError` firlatir ve frontend'in tek kanaldan erismesi icin gerekli kontrat tiplerini re-export
-  eder. admin-web bu client'i BFF route handler'lari icinde kullanir.
+  platform auth, admin store/plan ve Faz 2A catalog/inventory helper'lari sunar. Hatada gateway
+  `code`/`status` tasiyan tipli `ApiError` firlatir ve frontend'in tek kanaldan erismesi icin gerekli
+  kontrat tiplerini re-export eder. admin-web bu client'i BFF route handler'lari icinde kullanir;
+  store-admin-web henuz catalog helper'larina baglanmadi.
 - `packages/i18n`: Frontend i18n altyapisi. Basit, tipli sozluk sistemi; varsayilan urun dili
   Turkce'dir. Tum gorunur UI metni buradan okunur (hardcoded gorunur metin yasaktir). TypeScript
   kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler. Yeni bagimlilik eklenmez.
@@ -114,7 +118,25 @@ packages/i18n/
 
 Baslangicta tek PostgreSQL 16 cluster kullanilir. Prisma schema `packages/db/prisma/schema.prisma`
 altindadir. Model platform user, platform session, store, store user, domain, plan, subscription,
-audit log, event log ve queue job log varliklarini icerir.
+audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklarini icerir.
+
+### Catalog / Inventory Foundation (Faz 2A)
+
+- `Product`: store-scoped urun kaydi; `slug` store bazinda unique, `status` ile arsivleme.
+- `ProductVariant`: store-scoped varyant; `sku` store bazinda unique, fiyatlar integer minor unit
+  (`priceMinor`, `compareAtMinor`) ve `currency` ile saklanir. `storeId` tenant guard icin bilincli
+  denormalized tutulur.
+- `ProductCategory`: store-scoped kategori agaci; `slug` store bazinda unique, `parentId` ayni store
+  icinde validate edilir.
+- `ProductCategoryAssignment`: urun-kategori baglantisi; storeId ile tenant sorgulari ve unique guard
+  net tutulur.
+- `InventoryItem`: varyant basina tek stok kaydi; `quantityAvailable` DB'de kolon degildir, response'ta
+  `quantityOnHand - quantityReserved` olarak hesaplanir.
+- `InventoryMovement`: her manual adjustment icin ledger kaydi; `quantityDelta`, reason/reference ve
+  actor id metadata'si tutulur.
+
+Bu fazda order, cart, checkout, payment, shipping, marketplace sync, media/images, product options
+modeli, import/export ve storefront resolver yoktur. Store-admin UI henuz bu endpointlere baglanmadi.
 
 Platform session raw token saklamaz; secret ile hashlenmis `tokenHash`, `expiresAt`, opsiyonel
 revoke/user-agent/ip placeholder alanlari tutulur.

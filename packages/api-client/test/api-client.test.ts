@@ -181,6 +181,95 @@ describe("admin plan + internal health helpers", () => {
   });
 });
 
+describe("catalog and inventory helpers", () => {
+  it("calls category, product, variant and inventory endpoints with typed paths", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return {
+        ok: true,
+        status: init?.method === "POST" ? 201 : 200,
+        json: async () => {
+          if (String(url).endsWith("/categories")) {
+            return { data: [], pagination: { limit: 50, offset: 0, total: 0 } };
+          }
+          if (String(url).endsWith("/products")) {
+            return { data: [], pagination: { limit: 50, offset: 0, total: 0 } };
+          }
+          if (String(url).endsWith("/variants")) {
+            return {
+              id: "variant_1",
+              productId: "product_1",
+              storeId: "store_1",
+              title: "Default",
+              sku: "SKU-1",
+              barcode: null,
+              priceMinor: 1000,
+              compareAtMinor: null,
+              currency: "TRY",
+              status: "ACTIVE",
+              optionValues: null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return {
+            item: {
+              id: "inventory_1",
+              storeId: "store_1",
+              variantId: "variant_1",
+              productId: "product_1",
+              sku: "SKU-1",
+              title: "Default",
+              quantityOnHand: 3,
+              quantityReserved: 0,
+              quantityAvailable: 3,
+              lowStockThreshold: null,
+              updatedAt: new Date().toISOString(),
+            },
+            movement: {
+              id: "movement_1",
+              storeId: "store_1",
+              variantId: "variant_1",
+              type: "ADJUSTMENT",
+              quantityDelta: 3,
+              reason: null,
+              referenceType: null,
+              referenceId: null,
+              actorUserId: null,
+              createdAt: new Date().toISOString(),
+            },
+          };
+        },
+      };
+    }) as unknown as typeof fetch;
+
+    const client = createApiClient({ baseUrl: "http://localhost:4000", fetch: fakeFetch });
+    await client.admin.categories.list("store_1", "tok");
+    await client.admin.products.list("store_1", "tok");
+    await client.admin.products.variants.create(
+      "store_1",
+      "product_1",
+      { title: "Default", sku: "SKU-1", priceMinor: 1000 },
+      "tok",
+    );
+    await client.admin.inventory.adjust("store_1", "variant_1", { quantityDelta: 3 }, "tok");
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://localhost:4000/stores/store_1/categories",
+      "http://localhost:4000/stores/store_1/products",
+      "http://localhost:4000/stores/store_1/products/product_1/variants",
+      "http://localhost:4000/stores/store_1/inventory/variant_1/adjust",
+    ]);
+    expect(calls[2]?.init?.method).toBe("POST");
+    expect(calls[2]?.init?.body).toBe(
+      JSON.stringify({ title: "Default", sku: "SKU-1", priceMinor: 1000 }),
+    );
+    expect(calls[3]?.init?.method).toBe("POST");
+    expect(calls[3]?.init?.body).toBe(JSON.stringify({ quantityDelta: 3 }));
+  });
+});
+
 describe("error handling", () => {
   it("throws a typed ApiError carrying the gateway error code and status", async () => {
     const { fetchImpl } = stubFetch({

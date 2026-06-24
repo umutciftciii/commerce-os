@@ -1,5 +1,73 @@
 # Phase Log
 
+## Faz 2A Catalog + Inventory Foundation
+
+- Tarih: 2026-06-24
+- Durum: READY_FOR_COMMIT
+- Kapsam: Store-scoped product/category/variant/inventory foundation modelleri, migration, platform
+  admin guarded API endpointleri, Zod contract'lari, api-client helper'lari, idempotent demo catalog
+  seed'i, audit log ve gateway/client/contract testleri. Store-admin UI baglama, storefront resolver,
+  cart/order/checkout/payment/shipping/marketplace/media/import/export kapsam disi tutuldu.
+
+### Eklenenler
+
+- Prisma: `Product`, `ProductVariant`, `ProductCategory`, `ProductCategoryAssignment`,
+  `InventoryItem`, `InventoryMovement` ve ilgili enum/index/foreign key'ler.
+- Multi-tenant guard: product/category slug ve variant SKU store bazli unique; variant/inventory/
+  movement uzerinde `storeId` bilincli denormalized.
+- Fiyat karari: `priceMinor`/`compareAtMinor` integer minor unit, `currency` ISO-4217 kodu.
+- API gateway: `/stores/:storeId/categories`, `/stores/:storeId/products`,
+  `/stores/:storeId/products/:productId/variants`, `/stores/:storeId/inventory` endpointleri.
+- Inventory: variant create inventory item olusturur; manual adjustment hareket yazar; negatif stok
+  engellenir; `quantityAvailable` response'ta turetilir.
+- Audit log: category/product/variant create/update ve inventory adjustment islemleri audit log yazar;
+  token/secret metadata'ya yazilmaz.
+- Contracts/api-client: catalog/inventory request/response schema ve store-scoped helper'lar eklendi.
+- Seed: demo store icin iki kategori, iki urun, uc varyant ve stok itemleri idempotent eklendi;
+  verify-seed katalog sayimlarini da kontrol eder.
+
+### Bilinen Eksikler / Sonraki Fazlar
+
+- Store-user auth/session ve store-admin role guard henuz yok; endpointler gecici olarak platform
+  admin bearer token + explicit `storeId` ile korunur (TD-019).
+- Store-admin UI baglama Faz 2B'ye birakildi (TODO-029).
+- Order/reservation core Faz 2C/Faz 4'e birakildi (TODO-030, TD-021).
+- Storefront resolver/public catalog Faz 3'e birakildi (TODO-031, TD-022).
+- Media/options/metafields/import/export kapsam disi (TODO-032, TD-020).
+
+### Commit Onerisi
+
+`feat(catalog): add store catalog and inventory foundation`
+
+### Dogrulananlar
+
+- Baslangic repo durumu: `main`, clean working tree, `origin/main` ile senkron, tek worktree, son
+  commit `9c283b6`.
+- `pnpm db:generate` gecti.
+- `pnpm lint` gecti (34/34 task).
+- `pnpm typecheck` gecti.
+- `pnpm test` gecti (34/34 task; api-gateway 18 test, api-client 12 test, contracts 3 test dahil).
+- `pnpm build` gecti (24/24 task).
+- `docker compose -f infra/docker/docker-compose.yml up --build -d` gecti; api-gateway, worker,
+  postgres, redis, admin-web, store-admin-web ve storefront-web healthy.
+- `pnpm db:migrate` gecti; `20260624120000_add_catalog_inventory_foundation` uygulandi.
+- `pnpm db:seed` arka arkaya iki kez gecti.
+- `pnpm db:verify-seed` gecti; katalog sayimlari: categories=2, products=2, variants=3,
+  inventoryItems=3, duplicate demo slug/SKU yok.
+- Canli API smoke: platform admin login `200`; categories list `200`, category create `201`,
+  duplicate category slug `409 CATEGORY_SLUG_EXISTS`; products list `200`, product create `201`,
+  duplicate product slug `409 PRODUCT_SLUG_EXISTS`; variant create `201`, duplicate SKU
+  `409 VARIANT_SKU_EXISTS`; inventory get `200`; inventory adjust `200` + movement `ADJUSTMENT`;
+  negatif stok adjustment `400 INVALID_INVENTORY_ADJUSTMENT`.
+- Health smoke: api-gateway `/health`, admin-web/store-admin-web/storefront-web `/api/health` hepsi
+  `200`.
+- Final review (2026-06-24): Tenant isolation review'da inventory repair yolunda variant'in ayni
+  store'a ait oldugu ayrica dogrulandi; cross-store inventory adjustment `404 INVENTORY_ITEM_NOT_FOUND`
+  regresyon testi eklendi. `pnpm db:cleanup-smoke`, production/staging guard'ini koruyarak
+  `f2a-smoke-` catalog kayitlarini temizleyecek sekilde genisletildi; cleanup sonrasi
+  `pnpm db:verify-seed` yeniden categories=2/products=2/variants=3/inventoryItems=3 sonucuyla gecti.
+  Concurrent adjustment/reservation race riski TD-021 altinda acik teknik borc olarak kayda alindi.
+
 ## Faz 1A Multi-Tenant API + Auth/Session Foundation
 
 - Tarih: 2026-06-23

@@ -12,12 +12,14 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 ## API Gateway
 
 - Yapar: HTTP giris noktasi, health/version endpointleri, internal health kontrolleri, platform
-  admin auth/session cozumleme, platform admin store/plan foundation endpointleri ve audit log
-  yazimi. Store/plan endpointleri platform operasyon alanidir; commerce product/order/stok logic'i
-  icermez.
+  admin auth/session cozumleme, platform admin store/plan foundation endpointleri, Faz 2A
+  store-scoped catalog/inventory API foundation endpointleri ve audit log yazimi. Catalog/inventory
+  endpointleri su an gateway icinde yayinlanir; store-user auth tamamlanana kadar platform admin
+  bearer session + explicit `storeId` context ile korunur.
 - Yapmaz: Commerce, checkout veya integration davranisini DB'ye direkt yazarak sahiplenmez. Store
-  admin UI, storefront resolver, urun/kategori/siparis/stok/odeme/pazaryeri modulleri bu sinirin
-  disindadir.
+  admin UI, storefront resolver, sepet/siparis/checkout/odeme/kargo/pazaryeri modulleri bu sinirin
+  disindadir. Faz 2A catalog/inventory yalnizca foundation CRUD ve manual stock adjustment'tir;
+  order reservation veya marketplace sync davranisi degildir.
 
 ## Worker
 
@@ -43,13 +45,18 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   kurali tasimaz; framework-agnostik ve presentational kalir.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
   bozmadan `packages/contracts` tiplerini kullanir (ve frontend'in tek kanaldan erismesi icin gerekli
-  contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health helper'lari ve
-  tipli `ApiError` saglar. Faz 1B'de admin-web bu client'i BFF route handler'lari icinde kullanir.
-  Network cagrisi yapar ama UI/DOM veya domain is kurali tasimaz.
+  contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health/catalog/
+  inventory helper'lari ve tipli `ApiError` saglar. Faz 1B'de admin-web bu client'i BFF route
+  handler'lari icinde kullanir; Faz 2B'de store-admin-web catalog helper'larina baglanacak. Network
+  cagrisi yapar ama UI/DOM veya domain is kurali tasimaz.
 
 ## Commerce Service
 
 - Yapar: Product, catalog, inventory, customer, order ve commerce core kurallarini sahiplenir.
+- Faz 2A notu: Product/category/variant/inventory foundation modelleri ve gateway endpointleri
+  eklendi; ancak `services/commerce-service` henuz runtime sahibi olarak genisletilmedi. Bu gecici
+  gateway uygulamasi, commerce-service ayrismasi ve store-user guard tamamlanana kadar kontrollu
+  foundation'dir.
 - Yapmaz: Odeme provider detaylarini, pazaryeri credential'larini veya storefront tema render
   davranisini sahiplenmez.
 

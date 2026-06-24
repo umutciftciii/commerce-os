@@ -217,3 +217,63 @@
   `smoke-`, `rev-`, `test-` prefiksli store slug/name ve plan code/name kayitlarini siler; APP_ENV
   production/staging ise calismayi reddeder. Seed demo kayitlari hedeflenmez.
 - Hedef faz: Faz 1C
+
+## TD-019 Store-user auth ve store-admin catalog guard eksik
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Faz 2A catalog/inventory endpointleri platform admin bearer token + explicit `storeId` ile
+  korunur. `packages/auth` icindeki `requireStoreAccess` foundation'i hazir olsa da store-user
+  session/token tipi, granular store role permission matrisi ve store-admin UI token akisi henuz yok.
+- Cozum onerisi: Faz 2B'de store-admin-web baglanirken store-user auth akisini veya platform admin
+  store context secimini netlestirmek; catalog/inventory endpointlerinde `requireStoreAccess` ve
+  role guard'larini gercek context ile zorunlu kilmak.
+- Hedef faz: Faz 2B
+
+## TD-020 Catalog model eksikleri: media, options, metafields, import/export
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: Faz 2A bilerek minimum katalog modeli kurdu. Product image/media upload, zengin option modeli,
+  metafields, collections/tags ve bulk import/export yok. `ProductVariant.optionValues` JSON ile
+  baslangic esnekligi saglar ancak tam option matrix kurali degildir.
+- Cozum onerisi: Store-admin UI ve marketplace/import ihtiyaci netlestikce media, options ve import/
+  export alanlarini ayri migration + contract + test fazlarinda eklemek.
+- Hedef faz: Faz 2B, Faz 6
+
+## TD-021 Order/reservation core henuz yok
+
+- Durum: OPEN
+- Oncelik: HIGH
+- Etki: Inventory `quantityReserved` alanina sahip ama Faz 2A'da order/checkout yok; rezervasyon
+  hareketleri yazilmaz. `SALE_RESERVATION` ve `SALE_RELEASE` movement tipleri ilerisi icin enum'da
+  hazirdir ancak davranis uygulanmadi.
+- Cozum onerisi: Faz 2C/Faz 4 kapsaminda cart/order/checkout akislariyla stok rezervasyonu, release,
+  oversell politikasi ve order fiyat snapshot modellerini eklemek.
+- Not: Faz 2A manual adjustment transaction icinde calisir ve negatif stok engellenir; ancak yuksek
+  eszamanli adjustment/reservation senaryolari icin satir kilidi veya optimistic concurrency politikasi
+  henuz netlestirilmedi. Order/reservation eklenirken bu race riski ayrica cozulmeli.
+- Hedef faz: Faz 2C, Faz 4
+
+## TD-022 Storefront catalog resolver yok
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: Product/category modelleri ve store-scoped API hazir olsa da public storefront resolver,
+  domain/slug -> store cozumleme ve public catalog read modeli yok. Storefront-web demo/placeholder
+  kalir.
+- Cozum onerisi: Faz 3'te domain/slug resolver, public catalog query contract'i, cache stratejisi ve
+  storefront UI veri baglamasini eklemek.
+- Hedef faz: Faz 3
+
+## TD-023 F2A smoke catalog temizligi
+
+- Durum: RESOLVED
+- Oncelik: LOW
+- Etki: F2A canli API smoke'u yerel DB'de `f2a-smoke-*` category/product/variant/inventory/movement
+  kayitlari birakabilir. Delete endpointleri kapsam disi oldugu icin temizlik script seviyesinde
+  yapilmaliydi.
+- Cozum: `pnpm db:cleanup-smoke` script'i production/staging guard'ini koruyarak `f2a-smoke-`
+  prefix'li product/category/variant kayitlarini da temizleyecek sekilde genisletildi. Variant/product
+  cascade ile inventory ve movement kayitlari da temizlenir; seed demo verisi hedeflenmez.
+- Hedef faz: Faz 2A final review

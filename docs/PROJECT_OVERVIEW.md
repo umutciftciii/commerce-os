@@ -29,6 +29,8 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
 - PostgreSQL 16 ve Prisma tabanli veri modeli.
 - Redis ve BullMQ kuyruk altyapisi.
 - Tenant foundation modelleri: platform user, store, store user, domain, plan, subscription.
+- Faz 2A katalog/stok foundation: store-scoped product, category, variant, inventory item ve
+  inventory movement modelleri; manuel stok adjustment API'leri.
 - Health, version, internal DB ve Redis health endpointleri.
 - Idempotent seed ve seed dogrulama akislari.
 - Servis skeletonlari ve paylasimli paketler.
@@ -40,6 +42,7 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
 - Gercek auth/session implementasyonu.
 - Tam permission enforcement.
 - Canli odeme, kargo, fatura ve pazaryeri entegrasyonlari.
-- Urun katalogu, stok, sepet, siparis ve kampanya akislari.
+- Store-admin UI catalog baglama, public storefront resolver, sepet, siparis, checkout, payment,
+  shipping, campaign ve marketplace akislari.
 - Production-grade observability, alerting ve deployment otomasyonu.
 - Buyume asistaninin AI destekli son kullanici ozellikleri.

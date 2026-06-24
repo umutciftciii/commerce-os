@@ -1,5 +1,15 @@
 import { hashPassword } from "@commerce-os/auth";
-import { Prisma, type AuditAction, type PlatformUserRole, type StoreStatus } from "@prisma/client";
+import {
+  Prisma,
+  type AuditAction,
+  type InventoryMovementType,
+  type PlatformUserRole,
+  type ProductCategoryStatus,
+  type ProductStatus,
+  type ProductType,
+  type ProductVariantStatus,
+  type StoreStatus,
+} from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
 
@@ -36,6 +46,7 @@ type StoreRecord = {
   metadata: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
+  domain?: string | null;
 };
 
 type PlanRecord = {
@@ -55,6 +66,77 @@ type AuditRecord = {
   entityType: string;
   entityId?: string;
   metadata?: Record<string, unknown>;
+};
+
+type CategoryRecord = {
+  id: string;
+  storeId: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+  sortOrder: number;
+  status: ProductCategoryStatus;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type ProductRecord = {
+  id: string;
+  storeId: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  status: ProductStatus;
+  type: ProductType;
+  vendor: string | null;
+  brand: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  categoryIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type VariantRecord = {
+  id: string;
+  productId: string;
+  storeId: string;
+  title: string;
+  sku: string;
+  barcode: string | null;
+  priceMinor: number;
+  compareAtMinor: number | null;
+  currency: string;
+  status: ProductVariantStatus;
+  optionValues: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type InventoryRecord = {
+  id: string;
+  storeId: string;
+  variantId: string;
+  productId: string;
+  sku: string;
+  title: string;
+  quantityOnHand: number;
+  quantityReserved: number;
+  lowStockThreshold: number | null;
+  updatedAt: Date;
+};
+
+type MovementRecord = {
+  id: string;
+  storeId: string;
+  variantId: string;
+  type: InventoryMovementType;
+  quantityDelta: number;
+  reason: string | null;
+  referenceType: string | null;
+  referenceId: string | null;
+  actorUserId: string | null;
+  createdAt: Date;
 };
 
 class MemoryDataAccess implements AppDataAccess {
@@ -89,6 +171,69 @@ class MemoryDataAccess implements AppDataAccess {
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     },
   ];
+  readonly categories: CategoryRecord[] = [
+    {
+      id: "cat_apparel",
+      storeId: "store_demo",
+      name: "Apparel",
+      slug: "apparel",
+      parentId: null,
+      sortOrder: 10,
+      status: "ACTIVE",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+  ];
+  readonly products: ProductRecord[] = [
+    {
+      id: "product_hoodie",
+      storeId: "store_demo",
+      title: "Demo Hoodie",
+      slug: "demo-hoodie",
+      description: "Seeded hoodie product.",
+      status: "ACTIVE",
+      type: "PHYSICAL",
+      vendor: null,
+      brand: "Commerce OS",
+      seoTitle: null,
+      seoDescription: null,
+      categoryIds: ["cat_apparel"],
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+  ];
+  readonly variants: VariantRecord[] = [
+    {
+      id: "variant_hoodie_m",
+      productId: "product_hoodie",
+      storeId: "store_demo",
+      title: "Black / M",
+      sku: "DEMO-HOODIE-BLK-M",
+      barcode: null,
+      priceMinor: 129900,
+      compareAtMinor: 149900,
+      currency: "TRY",
+      status: "ACTIVE",
+      optionValues: { color: "Black", size: "M" },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+  ];
+  readonly inventory: InventoryRecord[] = [
+    {
+      id: "inventory_hoodie_m",
+      storeId: "store_demo",
+      variantId: "variant_hoodie_m",
+      productId: "product_hoodie",
+      sku: "DEMO-HOODIE-BLK-M",
+      title: "Black / M",
+      quantityOnHand: 15,
+      quantityReserved: 0,
+      lowStockThreshold: 10,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    },
+  ];
+  readonly movements: MovementRecord[] = [];
   readonly auditLogs: AuditRecord[] = [];
 
   constructor(passwordHash: string) {
@@ -261,6 +406,232 @@ class MemoryDataAccess implements AppDataAccess {
     }
     Object.assign(plan, input, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
     return plan;
+  }
+
+  async listCategories(storeId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.categories.filter((category) => category.storeId === storeId);
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async findCategoryById(storeId: string, categoryId: string) {
+    return this.categories.find((category) => category.storeId === storeId && category.id === categoryId) ?? null;
+  }
+
+  async findCategoryBySlug(storeId: string, slug: string) {
+    return this.categories.find((category) => category.storeId === storeId && category.slug === slug) ?? null;
+  }
+
+  async createCategory(
+    storeId: string,
+    input: { name: string; slug: string; parentId?: string | null; sortOrder: number; status: ProductCategoryStatus },
+  ) {
+    const category = {
+      id: `cat_${this.categories.length + 1}`,
+      storeId,
+      name: input.name,
+      slug: input.slug,
+      parentId: input.parentId ?? null,
+      sortOrder: input.sortOrder,
+      status: input.status,
+      createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    };
+    this.categories.push(category);
+    return category;
+  }
+
+  async updateCategory(
+    storeId: string,
+    categoryId: string,
+    input: { name?: string; slug?: string; parentId?: string | null; sortOrder?: number; status?: ProductCategoryStatus },
+  ) {
+    const category = this.categories.find((item) => item.storeId === storeId && item.id === categoryId);
+    if (!category) return null;
+    Object.assign(category, input, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
+    return category;
+  }
+
+  async listProducts(storeId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.products.filter((product) => product.storeId === storeId);
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async findProductById(storeId: string, productId: string) {
+    return this.products.find((product) => product.storeId === storeId && product.id === productId) ?? null;
+  }
+
+  async findProductBySlug(storeId: string, slug: string) {
+    return this.products.find((product) => product.storeId === storeId && product.slug === slug) ?? null;
+  }
+
+  async createProduct(
+    storeId: string,
+    input: {
+      title: string;
+      slug: string;
+      description?: string | null;
+      status: ProductStatus;
+      type: ProductType;
+      vendor?: string | null;
+      brand?: string | null;
+      seoTitle?: string | null;
+      seoDescription?: string | null;
+      categoryIds: string[];
+    },
+  ) {
+    const product = {
+      id: `product_${this.products.length + 1}`,
+      storeId,
+      title: input.title,
+      slug: input.slug,
+      description: input.description ?? null,
+      status: input.status,
+      type: input.type,
+      vendor: input.vendor ?? null,
+      brand: input.brand ?? null,
+      seoTitle: input.seoTitle ?? null,
+      seoDescription: input.seoDescription ?? null,
+      categoryIds: input.categoryIds,
+      createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    };
+    this.products.push(product);
+    return product;
+  }
+
+  async updateProduct(
+    storeId: string,
+    productId: string,
+    input: Partial<Omit<ProductRecord, "id" | "storeId" | "createdAt" | "updatedAt">>,
+  ) {
+    const product = this.products.find((item) => item.storeId === storeId && item.id === productId);
+    if (!product) return null;
+    Object.assign(product, input, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
+    return product;
+  }
+
+  async listVariants(storeId: string, productId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.variants.filter((variant) => variant.storeId === storeId && variant.productId === productId);
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async findVariantById(storeId: string, productId: string, variantId: string) {
+    return (
+      this.variants.find(
+        (variant) => variant.storeId === storeId && variant.productId === productId && variant.id === variantId,
+      ) ?? null
+    );
+  }
+
+  async findVariantBySku(storeId: string, sku: string) {
+    return this.variants.find((variant) => variant.storeId === storeId && variant.sku === sku) ?? null;
+  }
+
+  async createVariant(
+    storeId: string,
+    productId: string,
+    input: {
+      title: string;
+      sku: string;
+      barcode?: string | null;
+      priceMinor: number;
+      compareAtMinor?: number | null;
+      currency: string;
+      status: ProductVariantStatus;
+      optionValues?: Record<string, unknown> | null;
+      lowStockThreshold?: number | null;
+    },
+  ) {
+    const variant = {
+      id: `variant_${this.variants.length + 1}`,
+      productId,
+      storeId,
+      title: input.title,
+      sku: input.sku,
+      barcode: input.barcode ?? null,
+      priceMinor: input.priceMinor,
+      compareAtMinor: input.compareAtMinor ?? null,
+      currency: input.currency,
+      status: input.status,
+      optionValues: input.optionValues ?? null,
+      createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    };
+    this.variants.push(variant);
+    this.inventory.push({
+      id: `inventory_${this.inventory.length + 1}`,
+      storeId,
+      variantId: variant.id,
+      productId,
+      sku: variant.sku,
+      title: variant.title,
+      quantityOnHand: 0,
+      quantityReserved: 0,
+      lowStockThreshold: input.lowStockThreshold ?? null,
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+    return variant;
+  }
+
+  async updateVariant(
+    storeId: string,
+    productId: string,
+    variantId: string,
+    input: Partial<Omit<VariantRecord, "id" | "storeId" | "productId" | "createdAt" | "updatedAt">> & {
+      lowStockThreshold?: number | null;
+    },
+  ) {
+    const variant = this.variants.find(
+      (item) => item.storeId === storeId && item.productId === productId && item.id === variantId,
+    );
+    if (!variant) return null;
+    const { lowStockThreshold, ...variantInput } = input;
+    Object.assign(variant, variantInput, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
+    const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === variantId);
+    if (item && lowStockThreshold !== undefined) item.lowStockThreshold = lowStockThreshold;
+    return variant;
+  }
+
+  async listInventory(storeId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.inventory.filter((item) => item.storeId === storeId);
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async findInventoryByVariantId(storeId: string, variantId: string) {
+    return this.inventory.find((item) => item.storeId === storeId && item.variantId === variantId) ?? null;
+  }
+
+  async adjustInventory(
+    storeId: string,
+    variantId: string,
+    input: {
+      quantityDelta: number;
+      reason?: string;
+      referenceType?: string;
+      referenceId?: string;
+      actorUserId?: string;
+    },
+  ) {
+    const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === variantId);
+    if (!item) return null;
+    const nextOnHand = item.quantityOnHand + input.quantityDelta;
+    if (nextOnHand < 0) return "NEGATIVE_STOCK" as const;
+    item.quantityOnHand = nextOnHand;
+    item.updatedAt = new Date("2026-01-04T00:00:00.000Z");
+    const movement = {
+      id: `movement_${this.movements.length + 1}`,
+      storeId,
+      variantId,
+      type: "ADJUSTMENT" as const,
+      quantityDelta: input.quantityDelta,
+      reason: input.reason ?? null,
+      referenceType: input.referenceType ?? null,
+      referenceId: input.referenceId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      createdAt: new Date("2026-01-04T00:00:00.000Z"),
+    };
+    this.movements.push(movement);
+    return { item, movement };
   }
 
   async createAuditLog(input: AuditRecord) {
@@ -589,6 +960,248 @@ describe("api gateway", () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: "PLAN_CODE_EXISTS" } });
+    await app.close();
+  });
+
+  it("requires platform admin auth for store catalog endpoints", async () => {
+    const { app } = await createTestApp();
+    const missingToken = await app.inject({ method: "GET", url: "/stores/store_demo/products" });
+    const invalidToken = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/categories",
+      headers: { authorization: "Bearer invalid-token" },
+    });
+    expect(missingToken.statusCode).toBe(401);
+    expect(invalidToken.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("lists, creates and updates categories with store-scoped slug validation", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/categories",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toMatchObject({ data: [{ slug: "apparel" }] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Sale", slug: "sale", parentId: "cat_apparel" },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({ slug: "sale", parentId: "cat_apparel" });
+
+    const duplicateResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Sale 2", slug: "sale" },
+    });
+    expect(duplicateResponse.statusCode).toBe(409);
+    expect(duplicateResponse.json()).toMatchObject({ error: { code: "CATEGORY_SLUG_EXISTS" } });
+
+    const invalidParentResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Bad", slug: "bad", parentId: "other_store_category" },
+    });
+    expect(invalidParentResponse.statusCode).toBe(400);
+    expect(invalidParentResponse.json()).toMatchObject({ error: { code: "CATEGORY_NOT_FOUND" } });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/categories/cat_2",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: "ARCHIVED", sortOrder: 30 },
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({ status: "ARCHIVED", sortOrder: 30 });
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "CREATE", entityType: "ProductCategory", entityId: "cat_2" }),
+        expect.objectContaining({ action: "UPDATE", entityType: "ProductCategory", entityId: "cat_2" }),
+      ]),
+    );
+    await app.close();
+  });
+
+  it("lists, creates and updates products with category assignments", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/products",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toMatchObject({ data: [{ slug: "demo-hoodie", categoryIds: ["cat_apparel"] }] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "Demo Tee", slug: "demo-tee", status: "ACTIVE", categoryIds: ["cat_apparel"] },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({ slug: "demo-tee", categoryIds: ["cat_apparel"] });
+
+    const duplicateResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "Duplicate Tee", slug: "demo-tee" },
+    });
+    expect(duplicateResponse.statusCode).toBe(409);
+    expect(duplicateResponse.json()).toMatchObject({ error: { code: "PRODUCT_SLUG_EXISTS" } });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_2",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: "ARCHIVED" },
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({ status: "ARCHIVED" });
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "CREATE", entityType: "Product", entityId: "product_2" }),
+        expect.objectContaining({ action: "UPDATE", entityType: "Product", entityId: "product_2" }),
+      ]),
+    );
+    await app.close();
+  });
+
+  it("creates variants, enforces store-scoped SKU uniqueness and creates inventory items", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        title: "Black / L",
+        sku: "DEMO-HOODIE-BLK-L",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        lowStockThreshold: 8,
+      },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toMatchObject({ sku: "DEMO-HOODIE-BLK-L", priceMinor: 129900 });
+    expect(dataAccess.inventory).toContainEqual(
+      expect.objectContaining({ variantId: "variant_2", quantityOnHand: 0, lowStockThreshold: 8 }),
+    );
+
+    const duplicateResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: "Duplicate", sku: "DEMO-HOODIE-BLK-L", priceMinor: 1000 },
+    });
+    expect(duplicateResponse.statusCode).toBe(409);
+    expect(duplicateResponse.json()).toMatchObject({ error: { code: "VARIANT_SKU_EXISTS" } });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_hoodie/variants/variant_2",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: "ARCHIVED", priceMinor: 119900 },
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({ status: "ARCHIVED", priceMinor: 119900 });
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "CREATE", entityType: "ProductVariant", entityId: "variant_2" }),
+        expect.objectContaining({ action: "UPDATE", entityType: "ProductVariant", entityId: "variant_2" }),
+      ]),
+    );
+    await app.close();
+  });
+
+  it("lists inventory and records movements for non-negative adjustments", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    dataAccess.stores.push({
+      id: "store_other",
+      name: "Other Store",
+      slug: "other-store",
+      status: "ACTIVE",
+      metadata: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: null,
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/inventory",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toMatchObject({
+      data: [{ variantId: "variant_hoodie_m", quantityOnHand: 15, quantityAvailable: 15 }],
+    });
+
+    const positiveResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/inventory/variant_hoodie_m/adjust",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { quantityDelta: 5, reason: "cycle count", referenceType: "manual", referenceId: "adj-1" },
+    });
+    expect(positiveResponse.statusCode).toBe(200);
+    expect(positiveResponse.json()).toMatchObject({
+      item: { quantityOnHand: 20, quantityAvailable: 20 },
+      movement: { type: "ADJUSTMENT", quantityDelta: 5 },
+    });
+
+    const negativeValidResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/inventory/variant_hoodie_m/adjust",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { quantityDelta: -3 },
+    });
+    expect(negativeValidResponse.statusCode).toBe(200);
+    expect(negativeValidResponse.json()).toMatchObject({ item: { quantityOnHand: 17, quantityAvailable: 17 } });
+
+    const negativeInvalidResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/inventory/variant_hoodie_m/adjust",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { quantityDelta: -100 },
+    });
+    expect(negativeInvalidResponse.statusCode).toBe(400);
+    expect(negativeInvalidResponse.json()).toMatchObject({
+      error: { code: "INVALID_INVENTORY_ADJUSTMENT" },
+    });
+
+    const crossStoreResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_other/inventory/variant_hoodie_m/adjust",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { quantityDelta: 1 },
+    });
+    expect(crossStoreResponse.statusCode).toBe(404);
+    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "INVENTORY_ITEM_NOT_FOUND" } });
+    expect(dataAccess.movements).toHaveLength(2);
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "UPDATE",
+          entityType: "InventoryItem",
+          metadata: expect.objectContaining({ quantityDelta: 5 }),
+        }),
+      ]),
+    );
     await app.close();
   });
 });

@@ -11,8 +11,9 @@
   admin store/plan endpointlerinde uygulandi; store-admin endpointleri bekliyor)
 - TODO-007: Auth/session gercek implementasyon. (DONE — platform admin login/me/logout/session revoke)
 - TODO-008: Storefront UI foundation. (DONE — apps/storefront-web shell)
-- TODO-009: API client'a auth/token ve per-domain resource'lari eklemek. (PARTIAL — auth ve admin
-  stores/plans eklendi; commerce resource'lari bekliyor)
+- TODO-009: API client'a auth/token ve per-domain resource'lari eklemek. (PARTIAL — auth, admin
+  stores/plans ve Faz 2A catalog/inventory helper'lari eklendi; order/customer/checkout resource'lari
+  bekliyor)
 - TODO-010: Frontend ekranlarini gercek API'ye baglamak (TD-010).
 - TODO-011: Storefront store slug/domain resolver (TD-011).
 - TODO-012: Frontend app'ler icin Docker Compose servisleri (TD-008). (DONE — admin-web/store-admin-web/
@@ -52,3 +53,12 @@
   optimize layer), Nginx reverse proxy + domain routing + SSL/TLS, ortam bazli env yonetimi ve
   deploy pipeline. Su an compose frontend servisleri `next dev` ile calisir (gelistirme runtime'i);
   production image optimizasyonu ve reverse proxy/SSL bilincli olarak sonraya birakildi (bkz. ADR-019).
+- TODO-029: Faz 2B store-admin UI baglama — category/product/variant/inventory endpointlerini
+  `apps/store-admin-web` BFF/form/list ekranlarina baglamak; store-user auth/context kararini
+  netlestirmek (TD-019).
+- TODO-030: Faz 2C order core — order/customer temel modelleri, fiyat snapshot, stok rezervasyonu
+  (`SALE_RESERVATION`/`SALE_RELEASE`) ve audit/event davranisini eklemek (TD-021).
+- TODO-031: Faz 3 storefront resolver — domain/slug -> store cozumleme, public catalog read API,
+  storefront-web veri baglama ve cache stratejisi (TD-022).
+- TODO-032: Catalog media/options/import backlog — product image/media, zengin option modeli,
+  metafields/collections/tags ve bulk import/export ihtiyaclarini ayri fazlara bolmek (TD-020).

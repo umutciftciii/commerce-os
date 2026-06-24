@@ -8,6 +8,10 @@ import {
   adminStoreSchema,
   adminStoreUpdateRequestSchema,
   healthResponseSchema,
+  inventoryAdjustRequestSchema,
+  inventoryAdjustmentResponseSchema,
+  inventoryItemSchema,
+  inventoryListResponseSchema,
   planCreateRequestSchema,
   planListResponseSchema,
   planSchema,
@@ -16,15 +20,32 @@ import {
   platformLoginResponseSchema,
   platformLogoutResponseSchema,
   platformMeResponseSchema,
+  productCategoryCreateRequestSchema,
+  productCategoryListResponseSchema,
+  productCategorySchema,
+  productCategoryUpdateRequestSchema,
+  productCreateRequestSchema,
+  productListResponseSchema,
+  productSchema,
+  productUpdateRequestSchema,
+  productVariantCreateRequestSchema,
+  productVariantListResponseSchema,
+  productVariantSchema,
+  productVariantUpdateRequestSchema,
 } from "@commerce-os/contracts";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
 import type {
   AuditAction,
+  InventoryItem,
+  InventoryMovement,
   Plan,
   PlatformSession,
   PlatformUser,
+  Product,
+  ProductCategory,
+  ProductVariant,
   Store,
   StoreStatus,
 } from "@prisma/client";
@@ -46,6 +67,59 @@ type StoreRecord = Pick<Store, "id" | "name" | "slug" | "status" | "metadata" | 
 type PlanRecord = Pick<
   Plan,
   "id" | "code" | "name" | "description" | "metadata" | "createdAt" | "updatedAt"
+>;
+type CategoryRecord = Pick<
+  ProductCategory,
+  "id" | "storeId" | "name" | "slug" | "parentId" | "sortOrder" | "status" | "createdAt" | "updatedAt"
+>;
+type ProductRecord = Pick<
+  Product,
+  | "id"
+  | "storeId"
+  | "title"
+  | "slug"
+  | "description"
+  | "status"
+  | "type"
+  | "vendor"
+  | "brand"
+  | "seoTitle"
+  | "seoDescription"
+  | "createdAt"
+  | "updatedAt"
+> & { categoryIds: string[] };
+type VariantRecord = Pick<
+  ProductVariant,
+  | "id"
+  | "productId"
+  | "storeId"
+  | "title"
+  | "sku"
+  | "barcode"
+  | "priceMinor"
+  | "compareAtMinor"
+  | "currency"
+  | "status"
+  | "optionValues"
+  | "createdAt"
+  | "updatedAt"
+>;
+type InventoryRecord = Pick<
+  InventoryItem,
+  "id" | "storeId" | "variantId" | "quantityOnHand" | "quantityReserved" | "lowStockThreshold" | "updatedAt"
+> & { productId: string; sku: string; title: string };
+type InventoryMovementRecord = Pick<
+  InventoryMovement,
+  | "id"
+  | "storeId"
+  | "variantId"
+  | "type"
+  | "quantityDelta"
+  | "reason"
+  | "referenceType"
+  | "referenceId"
+  | "actorUserId"
+  | "createdAt"
 >;
 
 export interface AppDataAccess {
@@ -87,6 +161,124 @@ export interface AppDataAccess {
     id: string,
     input: { name?: string; description?: string | null; metadata?: Record<string, unknown> },
   ): Promise<PlanRecord | null>;
+  listCategories(
+    storeId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: CategoryRecord[]; total: number }>;
+  findCategoryById(storeId: string, categoryId: string): Promise<CategoryRecord | null>;
+  findCategoryBySlug(storeId: string, slug: string): Promise<CategoryRecord | null>;
+  createCategory(
+    storeId: string,
+    input: {
+      name: string;
+      slug: string;
+      parentId?: string | null;
+      sortOrder: number;
+      status: "ACTIVE" | "ARCHIVED";
+    },
+  ): Promise<CategoryRecord>;
+  updateCategory(
+    storeId: string,
+    categoryId: string,
+    input: {
+      name?: string;
+      slug?: string;
+      parentId?: string | null;
+      sortOrder?: number;
+      status?: "ACTIVE" | "ARCHIVED";
+    },
+  ): Promise<CategoryRecord | null>;
+  listProducts(
+    storeId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: ProductRecord[]; total: number }>;
+  findProductById(storeId: string, productId: string): Promise<ProductRecord | null>;
+  findProductBySlug(storeId: string, slug: string): Promise<ProductRecord | null>;
+  createProduct(
+    storeId: string,
+    input: {
+      title: string;
+      slug: string;
+      description?: string | null;
+      status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+      type: "PHYSICAL";
+      vendor?: string | null;
+      brand?: string | null;
+      seoTitle?: string | null;
+      seoDescription?: string | null;
+      categoryIds: string[];
+    },
+  ): Promise<ProductRecord>;
+  updateProduct(
+    storeId: string,
+    productId: string,
+    input: {
+      title?: string;
+      slug?: string;
+      description?: string | null;
+      status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+      type?: "PHYSICAL";
+      vendor?: string | null;
+      brand?: string | null;
+      seoTitle?: string | null;
+      seoDescription?: string | null;
+      categoryIds?: string[];
+    },
+  ): Promise<ProductRecord | null>;
+  listVariants(
+    storeId: string,
+    productId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: VariantRecord[]; total: number }>;
+  findVariantById(storeId: string, productId: string, variantId: string): Promise<VariantRecord | null>;
+  findVariantBySku(storeId: string, sku: string): Promise<VariantRecord | null>;
+  createVariant(
+    storeId: string,
+    productId: string,
+    input: {
+      title: string;
+      sku: string;
+      barcode?: string | null;
+      priceMinor: number;
+      compareAtMinor?: number | null;
+      currency: string;
+      status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+      optionValues?: Record<string, unknown> | null;
+      lowStockThreshold?: number | null;
+    },
+  ): Promise<VariantRecord>;
+  updateVariant(
+    storeId: string,
+    productId: string,
+    variantId: string,
+    input: {
+      title?: string;
+      sku?: string;
+      barcode?: string | null;
+      priceMinor?: number;
+      compareAtMinor?: number | null;
+      currency?: string;
+      status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+      optionValues?: Record<string, unknown> | null;
+      lowStockThreshold?: number | null;
+    },
+  ): Promise<VariantRecord | null>;
+  listInventory(
+    storeId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: InventoryRecord[]; total: number }>;
+  findInventoryByVariantId(storeId: string, variantId: string): Promise<InventoryRecord | null>;
+  adjustInventory(
+    storeId: string,
+    variantId: string,
+    input: {
+      quantityDelta: number;
+      reason?: string;
+      referenceType?: string;
+      referenceId?: string;
+      actorUserId?: string;
+    },
+  ): Promise<{ item: InventoryRecord; movement: InventoryMovementRecord } | null | "NEGATIVE_STOCK">;
   createAuditLog(input: {
     action: AuditAction;
     platformUserId?: string;
@@ -107,6 +299,15 @@ const paginationQuerySchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.string().min(1) });
+const storeParamSchema = z.object({ storeId: z.string().min(1) });
+const categoryParamSchema = z.object({ storeId: z.string().min(1), categoryId: z.string().min(1) });
+const productParamSchema = z.object({ storeId: z.string().min(1), productId: z.string().min(1) });
+const variantParamSchema = z.object({
+  storeId: z.string().min(1),
+  productId: z.string().min(1),
+  variantId: z.string().min(1),
+});
+const inventoryParamSchema = z.object({ storeId: z.string().min(1), variantId: z.string().min(1) });
 
 function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
@@ -194,6 +395,60 @@ function serializePlan(plan: PlanRecord) {
   });
 }
 
+function serializeCategory(category: CategoryRecord) {
+  return productCategorySchema.parse({
+    ...category,
+    parentId: category.parentId ?? null,
+    createdAt: category.createdAt.toISOString(),
+    updatedAt: category.updatedAt.toISOString(),
+  });
+}
+
+function serializeProduct(product: ProductRecord) {
+  return productSchema.parse({
+    ...product,
+    description: product.description ?? null,
+    vendor: product.vendor ?? null,
+    brand: product.brand ?? null,
+    seoTitle: product.seoTitle ?? null,
+    seoDescription: product.seoDescription ?? null,
+    categoryIds: product.categoryIds,
+    createdAt: product.createdAt.toISOString(),
+    updatedAt: product.updatedAt.toISOString(),
+  });
+}
+
+function serializeVariant(variant: VariantRecord) {
+  return productVariantSchema.parse({
+    ...variant,
+    barcode: variant.barcode ?? null,
+    compareAtMinor: variant.compareAtMinor ?? null,
+    optionValues: variant.optionValues ?? null,
+    createdAt: variant.createdAt.toISOString(),
+    updatedAt: variant.updatedAt.toISOString(),
+  });
+}
+
+function serializeInventoryItem(item: InventoryRecord) {
+  return inventoryItemSchema.parse({
+    ...item,
+    quantityAvailable: item.quantityOnHand - item.quantityReserved,
+    lowStockThreshold: item.lowStockThreshold ?? null,
+    updatedAt: item.updatedAt.toISOString(),
+  });
+}
+
+function serializeInventoryMovement(movement: InventoryMovementRecord) {
+  return {
+    ...movement,
+    reason: movement.reason ?? null,
+    referenceType: movement.referenceType ?? null,
+    referenceId: movement.referenceId ?? null,
+    actorUserId: movement.actorUserId ?? null,
+    createdAt: movement.createdAt.toISOString(),
+  };
+}
+
 function toPrismaJsonObject(value: Record<string, unknown> | undefined) {
   return value as Prisma.InputJsonObject | undefined;
 }
@@ -240,6 +495,85 @@ function createPrismaDataAccess(): AppDataAccess {
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.PlanSelect;
+  const categorySelect = {
+    id: true,
+    storeId: true,
+    name: true,
+    slug: true,
+    parentId: true,
+    sortOrder: true,
+    status: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies Prisma.ProductCategorySelect;
+  const productSelect = {
+    id: true,
+    storeId: true,
+    title: true,
+    slug: true,
+    description: true,
+    status: true,
+    type: true,
+    vendor: true,
+    brand: true,
+    seoTitle: true,
+    seoDescription: true,
+    createdAt: true,
+    updatedAt: true,
+    assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
+  } satisfies Prisma.ProductSelect;
+  const variantSelect = {
+    id: true,
+    productId: true,
+    storeId: true,
+    title: true,
+    sku: true,
+    barcode: true,
+    priceMinor: true,
+    compareAtMinor: true,
+    currency: true,
+    status: true,
+    optionValues: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies Prisma.ProductVariantSelect;
+  const inventorySelect = {
+    id: true,
+    storeId: true,
+    variantId: true,
+    quantityOnHand: true,
+    quantityReserved: true,
+    lowStockThreshold: true,
+    updatedAt: true,
+    variant: { select: { productId: true, sku: true, title: true } },
+  } satisfies Prisma.InventoryItemSelect;
+  const movementSelect = {
+    id: true,
+    storeId: true,
+    variantId: true,
+    type: true,
+    quantityDelta: true,
+    reason: true,
+    referenceType: true,
+    referenceId: true,
+    actorUserId: true,
+    createdAt: true,
+  } satisfies Prisma.InventoryMovementSelect;
+
+  function withCategoryIds(product: Prisma.ProductGetPayload<{ select: typeof productSelect }>): ProductRecord {
+    return { ...product, categoryIds: product.assignments.map((assignment) => assignment.categoryId) };
+  }
+
+  function withInventoryVariant(
+    item: Prisma.InventoryItemGetPayload<{ select: typeof inventorySelect }>,
+  ): InventoryRecord {
+    return {
+      ...item,
+      productId: item.variant.productId,
+      sku: item.variant.sku,
+      title: item.variant.title,
+    };
+  }
 
   return {
     findPlatformUserByEmail: (email) =>
@@ -355,6 +689,257 @@ function createPrismaDataAccess(): AppDataAccess {
         throw error;
       }
     },
+    listCategories: async (storeId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.productCategory.findMany({
+          where: { storeId },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          skip: offset,
+          take: limit,
+          select: categorySelect,
+        }),
+        prisma.productCategory.count({ where: { storeId } }),
+      ]);
+      return { data, total };
+    },
+    findCategoryById: (storeId, categoryId) =>
+      prisma.productCategory.findFirst({ where: { id: categoryId, storeId }, select: categorySelect }),
+    findCategoryBySlug: (storeId, slug) =>
+      prisma.productCategory.findUnique({ where: { storeId_slug: { storeId, slug } }, select: categorySelect }),
+    createCategory: (storeId, input) =>
+      prisma.productCategory.create({
+        data: { ...input, storeId, parentId: input.parentId ?? null },
+        select: categorySelect,
+      }),
+    updateCategory: async (storeId, categoryId, input) => {
+      try {
+        return await prisma.productCategory.update({
+          where: { id: categoryId, storeId },
+          data: input,
+          select: categorySelect,
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+          return null;
+        }
+        throw error;
+      }
+    },
+    listProducts: async (storeId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.product.findMany({
+          where: { storeId },
+          orderBy: { createdAt: "asc" },
+          skip: offset,
+          take: limit,
+          select: productSelect,
+        }),
+        prisma.product.count({ where: { storeId } }),
+      ]);
+      return { data: data.map(withCategoryIds), total };
+    },
+    findProductById: async (storeId, productId) => {
+      const product = await prisma.product.findFirst({ where: { id: productId, storeId }, select: productSelect });
+      return product ? withCategoryIds(product) : null;
+    },
+    findProductBySlug: async (storeId, slug) => {
+      const product = await prisma.product.findUnique({ where: { storeId_slug: { storeId, slug } }, select: productSelect });
+      return product ? withCategoryIds(product) : null;
+    },
+    createProduct: (storeId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const product = await transaction.product.create({
+          data: {
+            storeId,
+            title: input.title,
+            slug: input.slug,
+            description: input.description ?? null,
+            status: input.status,
+            type: input.type,
+            vendor: input.vendor ?? null,
+            brand: input.brand ?? null,
+            seoTitle: input.seoTitle ?? null,
+            seoDescription: input.seoDescription ?? null,
+          },
+          select: productSelect,
+        });
+        if (input.categoryIds.length > 0) {
+          await transaction.productCategoryAssignment.createMany({
+            data: input.categoryIds.map((categoryId) => ({ storeId, productId: product.id, categoryId })),
+            skipDuplicates: true,
+          });
+        }
+        const reloaded = await transaction.product.findUniqueOrThrow({ where: { id: product.id }, select: productSelect });
+        return withCategoryIds(reloaded);
+      }),
+    updateProduct: (storeId, productId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const existing = await transaction.product.findFirst({ where: { id: productId, storeId }, select: { id: true } });
+        if (!existing) return null;
+        const { categoryIds, ...data } = input;
+        await transaction.product.update({
+          where: { id: productId },
+          data: {
+            ...data,
+            description: data.description === undefined ? undefined : data.description,
+            vendor: data.vendor === undefined ? undefined : data.vendor,
+            brand: data.brand === undefined ? undefined : data.brand,
+            seoTitle: data.seoTitle === undefined ? undefined : data.seoTitle,
+            seoDescription: data.seoDescription === undefined ? undefined : data.seoDescription,
+          },
+        });
+        if (categoryIds) {
+          await transaction.productCategoryAssignment.deleteMany({ where: { productId, storeId } });
+          if (categoryIds.length > 0) {
+            await transaction.productCategoryAssignment.createMany({
+              data: categoryIds.map((categoryId) => ({ storeId, productId, categoryId })),
+              skipDuplicates: true,
+            });
+          }
+        }
+        const product = await transaction.product.findUniqueOrThrow({ where: { id: productId }, select: productSelect });
+        return withCategoryIds(product);
+      }),
+    listVariants: async (storeId, productId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.productVariant.findMany({
+          where: { storeId, productId },
+          orderBy: { createdAt: "asc" },
+          skip: offset,
+          take: limit,
+          select: variantSelect,
+        }),
+        prisma.productVariant.count({ where: { storeId, productId } }),
+      ]);
+      return { data, total };
+    },
+    findVariantById: (storeId, productId, variantId) =>
+      prisma.productVariant.findFirst({ where: { id: variantId, storeId, productId }, select: variantSelect }),
+    findVariantBySku: (storeId, sku) =>
+      prisma.productVariant.findUnique({ where: { storeId_sku: { storeId, sku } }, select: variantSelect }),
+    createVariant: (storeId, productId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const variant = await transaction.productVariant.create({
+          data: {
+            storeId,
+            productId,
+            title: input.title,
+            sku: input.sku,
+            barcode: input.barcode ?? null,
+            priceMinor: input.priceMinor,
+            compareAtMinor: input.compareAtMinor ?? null,
+            currency: input.currency,
+            status: input.status,
+            optionValues: input.optionValues as Prisma.InputJsonObject | undefined,
+          },
+          select: variantSelect,
+        });
+        await transaction.inventoryItem.create({
+          data: {
+            storeId,
+            variantId: variant.id,
+            quantityOnHand: 0,
+            quantityReserved: 0,
+            lowStockThreshold: input.lowStockThreshold ?? null,
+          },
+        });
+        return variant;
+      }),
+    updateVariant: async (storeId, productId, variantId, input) => {
+      try {
+        const { lowStockThreshold, ...variantInput } = input;
+        return await prisma.$transaction(async (transaction: TransactionClient) => {
+          const variant = await transaction.productVariant.update({
+            where: { id: variantId, storeId, productId },
+            data: {
+              ...variantInput,
+              barcode: variantInput.barcode === undefined ? undefined : variantInput.barcode,
+              compareAtMinor:
+                variantInput.compareAtMinor === undefined ? undefined : variantInput.compareAtMinor,
+              optionValues:
+                variantInput.optionValues === undefined
+                  ? undefined
+                  : (variantInput.optionValues as Prisma.InputJsonObject | Prisma.JsonNullValueInput),
+            },
+            select: variantSelect,
+          });
+          if (lowStockThreshold !== undefined) {
+            await transaction.inventoryItem.upsert({
+              where: { variantId },
+              update: { lowStockThreshold },
+              create: { storeId, variantId, lowStockThreshold, quantityOnHand: 0, quantityReserved: 0 },
+            });
+          }
+          return variant;
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+          return null;
+        }
+        throw error;
+      }
+    },
+    listInventory: async (storeId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.inventoryItem.findMany({
+          where: { storeId },
+          orderBy: { updatedAt: "desc" },
+          skip: offset,
+          take: limit,
+          select: inventorySelect,
+        }),
+        prisma.inventoryItem.count({ where: { storeId } }),
+      ]);
+      return { data: data.map(withInventoryVariant), total };
+    },
+    findInventoryByVariantId: async (storeId, variantId) => {
+      const item = await prisma.inventoryItem.findFirst({ where: { storeId, variantId }, select: inventorySelect });
+      return item ? withInventoryVariant(item) : null;
+    },
+    adjustInventory: (storeId, variantId, input) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const item =
+          (await transaction.inventoryItem.findFirst({ where: { storeId, variantId }, select: inventorySelect })) ??
+          (await (async () => {
+            const variant = await transaction.productVariant.findFirst({
+              where: { id: variantId, storeId },
+              select: { id: true },
+            });
+            if (!variant) {
+              return null;
+            }
+            return transaction.inventoryItem.create({
+              data: { storeId, variantId, quantityOnHand: 0, quantityReserved: 0 },
+              select: inventorySelect,
+            });
+          })());
+        if (!item) {
+          return null;
+        }
+        const nextOnHand = item.quantityOnHand + input.quantityDelta;
+        if (nextOnHand < 0) {
+          return "NEGATIVE_STOCK";
+        }
+        const updated = await transaction.inventoryItem.update({
+          where: { variantId },
+          data: { quantityOnHand: nextOnHand },
+          select: inventorySelect,
+        });
+        const movement = await transaction.inventoryMovement.create({
+          data: {
+            storeId,
+            variantId,
+            type: "ADJUSTMENT",
+            quantityDelta: input.quantityDelta,
+            reason: input.reason,
+            referenceType: input.referenceType,
+            referenceId: input.referenceId,
+            actorUserId: input.actorUserId,
+          },
+          select: movementSelect,
+        });
+        return { item: withInventoryVariant(updated), movement };
+      }),
     createAuditLog: async (input) => {
       await prisma.auditLog.create({
         data: {
@@ -405,6 +990,23 @@ export function createServer(
       return null;
     }
     return session;
+  }
+
+  async function requireStorePlatformAdmin(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    storeId: string,
+  ) {
+    const session = await requirePlatformAdmin(request, reply);
+    if (!session) {
+      return null;
+    }
+    const store = await dataAccess.findStoreById(storeId);
+    if (!store) {
+      await reply.code(404).send(errorBody("STORE_ACCESS_DENIED", "Store access denied."));
+      return null;
+    }
+    return { session, store };
   }
 
   app.setErrorHandler(async (error, _request, reply) => {
@@ -705,6 +1307,313 @@ export function createServer(
       metadata: { fields: Object.keys(input) },
     });
     return serializePlan(plan);
+  });
+
+  app.get("/stores/:storeId/categories", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const categories = await dataAccess.listCategories(params.storeId, pagination);
+    return productCategoryListResponseSchema.parse({
+      data: categories.data.map(serializeCategory),
+      pagination: { ...pagination, total: categories.total },
+    });
+  });
+
+  app.post("/stores/:storeId/categories", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = productCategoryCreateRequestSchema.parse(request.body);
+    if (input.parentId && !(await dataAccess.findCategoryById(params.storeId, input.parentId))) {
+      return reply.code(400).send(errorBody("CATEGORY_NOT_FOUND", "Parent category not found."));
+    }
+    if (await dataAccess.findCategoryBySlug(params.storeId, input.slug)) {
+      return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
+    }
+    let category: CategoryRecord;
+    try {
+      category = await dataAccess.createCategory(params.storeId, input);
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
+      }
+      throw error;
+    }
+    await dataAccess.createAuditLog({
+      action: "CREATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "ProductCategory",
+      entityId: category.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return reply.code(201).send(serializeCategory(category));
+  });
+
+  app.get("/stores/:storeId/categories/:categoryId", async (request, reply) => {
+    const params = categoryParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const category = await dataAccess.findCategoryById(params.storeId, params.categoryId);
+    if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
+    return serializeCategory(category);
+  });
+
+  app.patch("/stores/:storeId/categories/:categoryId", async (request, reply) => {
+    const params = categoryParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = productCategoryUpdateRequestSchema.parse(request.body);
+    if (input.parentId && !(await dataAccess.findCategoryById(params.storeId, input.parentId))) {
+      return reply.code(400).send(errorBody("CATEGORY_NOT_FOUND", "Parent category not found."));
+    }
+    if (input.parentId === params.categoryId) {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Category cannot be its own parent."));
+    }
+    if (input.slug) {
+      const existing = await dataAccess.findCategoryBySlug(params.storeId, input.slug);
+      if (existing && existing.id !== params.categoryId) {
+        return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
+      }
+    }
+    const category = await dataAccess.updateCategory(params.storeId, params.categoryId, input);
+    if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "ProductCategory",
+      entityId: category.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return serializeCategory(category);
+  });
+
+  async function validateCategoryIds(reply: FastifyReply, storeId: string, categoryIds: string[]) {
+    const uniqueCategoryIds = [...new Set(categoryIds)];
+    for (const categoryId of uniqueCategoryIds) {
+      if (!(await dataAccess.findCategoryById(storeId, categoryId))) {
+        await reply.code(400).send(errorBody("CATEGORY_NOT_FOUND", "Category not found.", { categoryId }));
+        return null;
+      }
+    }
+    return uniqueCategoryIds;
+  }
+
+  app.get("/stores/:storeId/products", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const products = await dataAccess.listProducts(params.storeId, pagination);
+    return productListResponseSchema.parse({
+      data: products.data.map(serializeProduct),
+      pagination: { ...pagination, total: products.total },
+    });
+  });
+
+  app.post("/stores/:storeId/products", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = productCreateRequestSchema.parse(request.body);
+    const categoryIds = await validateCategoryIds(reply, params.storeId, input.categoryIds);
+    if (!categoryIds) return;
+    if (await dataAccess.findProductBySlug(params.storeId, input.slug)) {
+      return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
+    }
+    let product: ProductRecord;
+    try {
+      product = await dataAccess.createProduct(params.storeId, { ...input, categoryIds });
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
+      }
+      throw error;
+    }
+    await dataAccess.createAuditLog({
+      action: "CREATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Product",
+      entityId: product.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return reply.code(201).send(serializeProduct(product));
+  });
+
+  app.get("/stores/:storeId/products/:productId", async (request, reply) => {
+    const params = productParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const product = await dataAccess.findProductById(params.storeId, params.productId);
+    if (!product) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    return serializeProduct(product);
+  });
+
+  app.patch("/stores/:storeId/products/:productId", async (request, reply) => {
+    const params = productParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = productUpdateRequestSchema.parse(request.body);
+    const categoryIds =
+      input.categoryIds === undefined
+        ? undefined
+        : await validateCategoryIds(reply, params.storeId, input.categoryIds);
+    if (categoryIds === null) return;
+    if (input.slug) {
+      const existing = await dataAccess.findProductBySlug(params.storeId, input.slug);
+      if (existing && existing.id !== params.productId) {
+        return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
+      }
+    }
+    const product = await dataAccess.updateProduct(params.storeId, params.productId, {
+      ...input,
+      ...(categoryIds === undefined ? {} : { categoryIds }),
+    });
+    if (!product) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "Product",
+      entityId: product.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return serializeProduct(product);
+  });
+
+  app.get("/stores/:storeId/products/:productId/variants", async (request, reply) => {
+    const params = productParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    if (!(await dataAccess.findProductById(params.storeId, params.productId))) {
+      return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    }
+    const pagination = paginationQuerySchema.parse(request.query);
+    const variants = await dataAccess.listVariants(params.storeId, params.productId, pagination);
+    return productVariantListResponseSchema.parse({
+      data: variants.data.map(serializeVariant),
+      pagination: { ...pagination, total: variants.total },
+    });
+  });
+
+  app.post("/stores/:storeId/products/:productId/variants", async (request, reply) => {
+    const params = productParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    if (!(await dataAccess.findProductById(params.storeId, params.productId))) {
+      return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    }
+    const input = productVariantCreateRequestSchema.parse(request.body);
+    if (await dataAccess.findVariantBySku(params.storeId, input.sku)) {
+      return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+    }
+    let variant: VariantRecord;
+    try {
+      variant = await dataAccess.createVariant(params.storeId, params.productId, input);
+    } catch (error) {
+      if (isPrismaUniqueConstraintError(error)) {
+        return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+      }
+      throw error;
+    }
+    await dataAccess.createAuditLog({
+      action: "CREATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "ProductVariant",
+      entityId: variant.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return reply.code(201).send(serializeVariant(variant));
+  });
+
+  app.patch("/stores/:storeId/products/:productId/variants/:variantId", async (request, reply) => {
+    const params = variantParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const current = await dataAccess.findVariantById(params.storeId, params.productId, params.variantId);
+    if (!current) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+    const rawInput = productVariantUpdateRequestSchema.parse(request.body);
+    const candidatePrice = rawInput.priceMinor ?? current.priceMinor;
+    if (rawInput.compareAtMinor !== undefined && rawInput.compareAtMinor !== null && rawInput.compareAtMinor < candidatePrice) {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "compareAtMinor must be greater than or equal to priceMinor."));
+    }
+    if (rawInput.sku) {
+      const existing = await dataAccess.findVariantBySku(params.storeId, rawInput.sku);
+      if (existing && existing.id !== params.variantId) {
+        return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+      }
+    }
+    const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, rawInput);
+    if (!variant) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "ProductVariant",
+      entityId: variant.id,
+      metadata: { fields: Object.keys(rawInput) },
+    });
+    return serializeVariant(variant);
+  });
+
+  app.get("/stores/:storeId/inventory", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const inventory = await dataAccess.listInventory(params.storeId, pagination);
+    return inventoryListResponseSchema.parse({
+      data: inventory.data.map(serializeInventoryItem),
+      pagination: { ...pagination, total: inventory.total },
+    });
+  });
+
+  app.get("/stores/:storeId/inventory/:variantId", async (request, reply) => {
+    const params = inventoryParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const item = await dataAccess.findInventoryByVariantId(params.storeId, params.variantId);
+    if (!item) return reply.code(404).send(errorBody("INVENTORY_ITEM_NOT_FOUND", "Inventory item not found."));
+    return serializeInventoryItem(item);
+  });
+
+  app.post("/stores/:storeId/inventory/:variantId/adjust", async (request, reply) => {
+    const params = inventoryParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = inventoryAdjustRequestSchema.parse(request.body);
+    const result = await dataAccess.adjustInventory(params.storeId, params.variantId, {
+      ...input,
+      actorUserId: access.session.platformUser.id,
+    });
+    if (!result) return reply.code(404).send(errorBody("INVENTORY_ITEM_NOT_FOUND", "Inventory item not found."));
+    if (result === "NEGATIVE_STOCK") {
+      return reply
+        .code(400)
+        .send(errorBody("INVALID_INVENTORY_ADJUSTMENT", "Inventory adjustment would make stock negative."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "InventoryItem",
+      entityId: result.item.id,
+      metadata: {
+        variantId: params.variantId,
+        quantityDelta: input.quantityDelta,
+        referenceType: input.referenceType,
+        referenceId: input.referenceId,
+      },
+    });
+    return inventoryAdjustmentResponseSchema.parse({
+      item: serializeInventoryItem(result.item),
+      movement: serializeInventoryMovement(result.movement),
+    });
   });
 
   return app;

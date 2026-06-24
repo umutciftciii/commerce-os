@@ -31,11 +31,19 @@
 
 ## Faz 2 Commerce Core
 
-- Durum: PLANNED
+- Durum: IN_PROGRESS (Faz 2A catalog/inventory foundation eklendi)
 - Amac: Ticaret cekirdegini erken parcalamadan urun, stok, musteri ve siparis modellerini kurmak.
 - Kapsam: Product/catalog, inventory, customer, order, basic pricing ve order status akislari.
 - Kabul kriterleri: Commerce modelleri migration ile gelir; temel CRUD/API akislari testlidir;
   tenant isolation commerce endpointlerinde uygulanir; servis sinirlari guncellenir.
+
+### Faz 2A Catalog + Inventory Foundation
+
+- Durum: FINAL_GATE_PENDING
+- Kapsam: Product/category/variant/inventory modelleri, store-scoped catalog API, manual inventory
+  adjustment, movement ledger, audit log, contracts/api-client ve idempotent demo catalog seed'i.
+- Kapsam disi: store-admin UI baglama, order/reservation, cart/checkout/payment/shipping,
+  marketplace sync, media/options/import/export ve storefront resolver.
 
 ## Faz 3 Storefront + Theme Foundation
 

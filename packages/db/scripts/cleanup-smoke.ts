@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-const SMOKE_PREFIXES = ["smoke-", "rev-", "test-"] as const;
+const SMOKE_PREFIXES = ["smoke-", "rev-", "test-", "f2a-smoke-"] as const;
 const SAFE_APP_ENVS = new Set(["development", "test", undefined]);
 
 export function assertSafeCleanupEnv(appEnv = process.env.APP_ENV): void {
@@ -25,13 +25,30 @@ async function main() {
 
   const storeWhere = prefixedWhere(["slug", "name"]);
   const planWhere = prefixedWhere(["code", "name"]);
+  const productWhere = prefixedWhere(["slug", "title"]);
+  const categoryWhere = prefixedWhere(["slug", "name"]);
+  const variantWhere = prefixedWhere(["sku", "title"]);
 
-  const [stores, plans] = await prisma.$transaction([
+  const [variants, products, categories, stores, plans] = await prisma.$transaction([
+    prisma.productVariant.deleteMany({ where: variantWhere }),
+    prisma.product.deleteMany({ where: productWhere }),
+    prisma.productCategory.deleteMany({ where: categoryWhere }),
     prisma.store.deleteMany({ where: storeWhere }),
     prisma.plan.deleteMany({ where: planWhere }),
   ]);
 
-  console.log(JSON.stringify({ ok: true, deleted: { stores: stores.count, plans: plans.count } }));
+  console.log(
+    JSON.stringify({
+      ok: true,
+      deleted: {
+        variants: variants.count,
+        products: products.count,
+        categories: categories.count,
+        stores: stores.count,
+        plans: plans.count,
+      },
+    }),
+  );
 }
 
 main()
