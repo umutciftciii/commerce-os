@@ -29,15 +29,21 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 ## Frontend App'ler (admin-web, store-admin-web, storefront-web)
 
 - Yapar: Kullanici arayuzu, layout, routing, ortak UI shell ve presentation. Backend ile yalnizca
-  API gateway uzerinden ve `packages/api-client` ile konusur. admin-web bu gateway erisimini Next
-  route handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici yalnizca ayni-origin `/api/*`
-  uclarini cagirir. Platform bearer token httpOnly cookie'de server-side tutulur; mutating BFF
-  istekleri CSRF header/cookie dogrulamasi ister (ADR-017, ADR-018).
+  API gateway uzerinden ve `packages/api-client` ile konusur. admin-web ve store-admin-web bu gateway
+  erisimini Next route handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici yalnizca ayni-origin
+  `/api/*` uclarini cagirir. Platform bearer token httpOnly cookie'de server-side tutulur; mutating BFF
+  istekleri CSRF header/cookie dogrulamasi ister (ADR-017, ADR-018, ADR-023).
+- store-admin-web BFF sinirlari (Faz 2B, ADR-023): store-admin'e ozel cookie adlari kullanir; hedef
+  `storeId` istemciden ALINMAZ, her istekte session token ile server-side cozulur (tarayici keyfi
+  mağaza secemez). UI'a yalnizca mağaza meta'si (id/ad/slug/durum) doner; bearer token UI/JS/log/client
+  bundle'a girmez. Fiyat TL<->minor unit donusumu UI helper'inda yapilir; backend her zaman minor unit
+  (integer) alir/doner. Gateway hata `code`'u UI'da ham gosterilmez, i18n ile Turkce mesaja cevrilir.
 - Yapmaz: Domain is kurali, DB erisimi, gercek auth/session logic'i (token uretme/dogrulama gateway'in
-  isidir; admin-web yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
+  isidir; BFF yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
   tablolarina veya Prisma'ya dogrudan erismez. BFF route handler'lari gateway'i cagirmanin disinda
-  domain karari vermez; gizli degeri (internal token) yalnizca sunucuda tutar, istemciye sizdirmaz.
-  CSRF token'i auth token degildir; session bearer token'i istemci JS'ine verilmez.
+  domain karari vermez (store context cozumleme haric — o da yalnizca gateway store list cagrisidir);
+  gizli degeri (internal token) yalnizca sunucuda tutar, istemciye sizdirmaz. CSRF token'i auth token
+  degildir; session bearer token'i istemci JS'ine verilmez.
 
 ## packages/ui ve packages/api-client
 
@@ -46,8 +52,8 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 - `packages/api-client`: Frontend -> API gateway erisiminin tek type-safe kanali. Backend kontratini
   bozmadan `packages/contracts` tiplerini kullanir (ve frontend'in tek kanaldan erismesi icin gerekli
   contract tiplerini re-export eder); bearer/internal token alabilen auth/admin/health/catalog/
-  inventory helper'lari ve tipli `ApiError` saglar. Faz 1B'de admin-web bu client'i BFF route
-  handler'lari icinde kullanir; Faz 2B'de store-admin-web catalog helper'larina baglanacak. Network
+  inventory helper'lari ve tipli `ApiError` saglar. Faz 1B'de admin-web, Faz 2B'de store-admin-web bu
+  client'i BFF route handler'lari icinde (SUNUCU tarafinda, asla istemci JS'inde) kullanir. Network
   cagrisi yapar ama UI/DOM veya domain is kurali tasimaz.
 
 ## Commerce Service

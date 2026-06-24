@@ -48,17 +48,28 @@
   (DONE — contract response `domain: string | null`, gateway list/get ve UI domain kolonu eklendi)
 - TODO-026: Admin stores/plans icin sayfalama UI'si (gateway limit/offset destekliyor; UI su an ilk
   sayfayi gosterir) ve liste arama/filtre.
-- TODO-027: Faz 2 store-admin-web ve storefront-web gercek API baglama (TD-010, TD-011).
+- TODO-027: Faz 2 store-admin-web ve storefront-web gercek API baglama (TD-010, TD-011). (PARTIAL —
+  store-admin-web Faz 2B'de canli baglandi; storefront-web resolver bekliyor (TODO-031).)
 - TODO-028: Production deploy hattI — frontend icin Next.js standalone/production image (non-root,
   optimize layer), Nginx reverse proxy + domain routing + SSL/TLS, ortam bazli env yonetimi ve
   deploy pipeline. Su an compose frontend servisleri `next dev` ile calisir (gelistirme runtime'i);
   production image optimizasyonu ve reverse proxy/SSL bilincli olarak sonraya birakildi (bkz. ADR-019).
 - TODO-029: Faz 2B store-admin UI baglama — category/product/variant/inventory endpointlerini
   `apps/store-admin-web` BFF/form/list ekranlarina baglamak; store-user auth/context kararini
-  netlestirmek (TD-019).
+  netlestirmek (TD-019). (DONE — dashboard/categories/products/variants/inventory canli baglandi,
+  guvenli BFF + server-side store context (ADR-023), CSRF, TL<->minor unit, Turkce hata esleme,
+  tr/en parity, BFF + jsdom UI testleri. Store-user auth gecici platform-admin context ile vekaleten
+  cozuldu; gercek store-user auth TODO-033'te acik.)
 - TODO-030: Faz 2C order core — order/customer temel modelleri, fiyat snapshot, stok rezervasyonu
   (`SALE_RESERVATION`/`SALE_RELEASE`) ve audit/event davranisini eklemek (TD-021).
 - TODO-031: Faz 3 storefront resolver — domain/slug -> store cozumleme, public catalog read API,
   storefront-web veri baglama ve cache stratejisi (TD-022).
 - TODO-032: Catalog media/options/import backlog — product image/media, zengin option modeli,
   metafields/collections/tags ve bulk import/export ihtiyaclarini ayri fazlara bolmek (TD-020).
+- TODO-033: Store-user auth + role guard — store-scoped session/token tipi, granular store role
+  permission matrisi; store-admin-web login proxy'sini gercek store-user akisina, server-side store
+  context'i store-user erisim listesine baglamak (cok-mağazali secici), catalog/inventory
+  endpointlerinde `requireStoreAccess`/role guard'i zorunlu kilmak (TD-019, ADR-023).
+- TODO-034: Store-admin dashboard pagination-aware aggregation — aktif urun ve kritik stok sayilari
+  su an ilk sayfa uzerinden hesaplanir; gateway sayim/aggregate ucu veya api-client limit/offset ile
+  tam sayim (TD-024).

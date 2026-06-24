@@ -1,5 +1,45 @@
 # Phase Log
 
+## Faz 2B Store Admin Catalog UI Baglama
+
+- Tarih: 2026-06-24
+- Durum: READY_FOR_COMMIT (rapor onayina bagli)
+- Kapsam: `apps/store-admin-web` dashboard/categories/products/variants/inventory ekranlari Faz 2A
+  catalog/inventory endpointlerine canli baglandi. Backend/schema/API davranisi degismedi.
+- Auth/BFF/store context: admin-web BFF deseni store-admin'e tasindi. Platform admin login proxy
+  (`/api/auth/login`) bearer token'i store-admin'e ozel httpOnly cookie'ye yazar
+  (`commerce_os_store_admin_session`); token istemci JS/UI/log/client bundle'a hic dusmez. Tum gateway
+  cagrilari ayni-origin `/api/*` route handler'lari uzerinden gecer. Secili mağaza, session token ile
+  `admin.stores.list`'ten server-side cozulur (`STORE_ADMIN_DEMO_STORE_SLUG` -> default `demo-store`,
+  yoksa ilk mağaza); `storeId` istemci tarafindan tasinmaz. Mutating route'lar double-submit CSRF ile
+  korunur. Karar: ADR-023. Store-user auth borcu TD-019'da acik kalir.
+- Dashboard: canli ozet (`/api/dashboard/summary`) — toplam/aktif urun, kategori sayisi, kritik stok
+  ve toplam eldeki stok server-side hesaplanir; loading skeleton, hata ve empty state. Toplamlar
+  pagination'dan kesin; aktif/kritik sayimlar ilk sayfa uzerinden (TD-024).
+- Kategoriler: canli list/create/update; ad/slug/parent/sortOrder/status, status badge, parent
+  gosterimi, duplicate slug ve validation Turkce hata, basari sonrasi refresh. Delete/drag-drop/deep
+  tree kapsam disi.
+- Urunler: canli list/create/update; baslik/slug/status/marka-tedarikci/kategori, kategori atama
+  (checkbox), status badge, duplicate slug/validation Turkce hata. Media/rich text/SEO panel/delete
+  kapsam disi.
+- Varyantlar: urun satirindan acilan modal ile list/create/update; SKU/baslik/fiyat/compareAt/barkod/
+  status; fiyat TL girisi minor unit'e cevrilir (virgul/nokta ondalik destegi), compareAt < price
+  ve gecersiz fiyat kontrollu Turkce hata; duplicate SKU Turkce hata; create sonrasi inventory kaydi
+  otomatik (note ile bildirildi). Option matrix/generator kapsam disi.
+- Stok: canli list/adjust; SKU/varyant/onHand/reserved/available/threshold, low stock badge,
+  delta+reason adjustment modal; negatif stok `INVALID_INVENTORY_ADJUSTMENT` Turkce gosterilir.
+  Reservation/movement timeline kapsam disi.
+- i18n: tum gorunur metin `packages/i18n` storeAdmin/common'dan; yeni `storeAdmin.errors` (API
+  code -> Turkce), auth/categories/variants/dashboard bloklari; ham API code UI'da gosterilmez; tr/en
+  tam key parity korundu.
+- Testler: store-admin-web BFF (token expose etmiyor, CSRF, store context, categories/products/
+  variants/inventory proxy happy path + duplicate/negatif stok kod esleme, dashboard aggregation) +
+  jsdom UI smoke (dashboard live + invalid-nesting regression, categories/products/variant create,
+  inventory adjust, Turkce hata esleme) + fiyat helper unit + i18n storeAdmin copy/parity. 29 yeni
+  store-admin testi gecti; admin-web (22), api-gateway (18), contracts (3), i18n (23) regresyon gecti.
+- Gate: `pnpm db:generate`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test` — hepsi gecti.
+  Client bundle taramasinda token/secret/Bearer/createApiClient sizintisi yok.
+
 ## Faz 2A Catalog + Inventory Foundation
 
 - Tarih: 2026-06-24

@@ -36,6 +36,15 @@ export function ProductIcon() {
   );
 }
 
+export function CategoryIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h5l2 2.5h8A1.5 1.5 0 0 1 21 8v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17Z" />
+      <path d="M3 9.5h18" />
+    </svg>
+  );
+}
+
 export function OrderIcon() {
   return (
     <svg {...base} aria-hidden>
