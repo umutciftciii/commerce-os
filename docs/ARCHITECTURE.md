@@ -46,6 +46,19 @@ tutar ozeti, adresler, stok rezervasyonlari ve order events timeline gosterir; D
 PLACED/CONFIRMED siparis cancel edilir. Lean "yeni taslak siparis" modali inventory varyant
 listesinden kalem secerek `createOrder` cagirir. Backend order business logic'i degismez; UI yalniz
 lifecycle aksiyonlarini tetikler (payment/shipping yapmaz).
+
+### Entity detail route standardizasyonu (Faz 2H, bkz. ADR-027)
+
+Ana entity detay ekranlari modal degil dedicated route/page'dir. F2H'de sipariş detayi `/orders/[id]`,
+ürün detay/düzenleme `/products/[id]` route'una tasindi; liste sayfalarindaki detay/düzenle aksiyonlari
+artik route'a linklenir (`next/link`, gercek `href`). `/orders` ve `/products` listeleri sade kalir;
+sipariş place/cancel hizli aksiyonlari listede durur, kisa create modallari korunur ve create sonrasi
+yeni kaydin detay route'una `router.push` ile yonlendirilir. Ürün detay sayfasi temel bilgiler + satis
+davranisi (F2D/F2F alanlari) formunu ve varyantlari inline bölüm olarak barindirir; varyant
+create/edit hala kisa modaldir. Uzun icerik dogal sayfa scroll'u ile akar. BFF tarafinda yeni
+`GET /api/catalog/products/[productId]` proxy'si eklendi (store context server-side, token sizmaz);
+mutating route'larin CSRF korumasi degismedi. Modal yalnizca kisa create/edit/confirm/adjust
+aksiyonlari icin kullanilir.
 - `apps/storefront-web`: Public magaza vitrini (Next.js App Router). Home, product listing, product
   detail, cart ve checkout placeholder sayfalari, tema-hazir layout ve `/api/health`. Multi-tenant
   store slug/domain cozumleyici henuz implement edilmedi; tek demo store render edilir.

@@ -150,6 +150,8 @@ export const storeApi = {
 
   // Products
   listProducts: () => call<ProductListResponse>("/api/catalog/products"),
+  getProduct: (productId: string) =>
+    call<Product>(`/api/catalog/products/${productId}`),
   createProduct: (input: ProductCreateRequest) =>
     mutatingCall<Product>("/api/catalog/products", {
       method: "POST",

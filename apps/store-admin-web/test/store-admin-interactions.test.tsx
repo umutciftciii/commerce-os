@@ -40,6 +40,11 @@ vi.mock("../lib/client/api.js", () => ({
   UiError: MockUiError,
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useParams: () => ({ id: "p1" }),
+}));
+
 function page(total: number, data: unknown[]) {
   return { data, pagination: { limit: 50, offset: 0, total } };
 }
@@ -199,49 +204,20 @@ describe("store-admin products & variants", () => {
     );
   });
 
-  it("opens the edit modal with sales-behavior fields inside a scrollable, viewport-constrained panel", async () => {
+  it("links each product row to its detail/edit route instead of opening a modal", async () => {
     storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
-    const user = userEvent.setup();
 
     render(<ProductsPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Düzenle" }));
+    await screen.findByText("Sweatshirt");
+    const link = screen.getByRole("link", { name: "Detay" });
+    expect(link.getAttribute("href")).toBe("/products/p1");
 
-    // Uzun edit formundaki satis davranisi alanlari hala render olmali.
-    const dialog = await screen.findByRole("dialog");
-    expect(screen.getByText("Satış davranışı")).toBeTruthy();
-    expect(screen.getByLabelText("Satış tipi")).toBeTruthy();
-    expect(screen.getByLabelText("Min. sipariş adedi")).toBeTruthy();
-
-    // Panel viewport icinde kalmali; govde kendi icinde kaydirilabilir olmali.
-    expect(dialog.className).toContain("max-h-[calc(100vh-2rem)]");
-    expect(dialog.className).toContain("flex-col");
-    expect(dialog.querySelector(".overflow-y-auto")).toBeTruthy();
-  });
-
-  it("creates a variant with lira price converted to minor units", async () => {
-    storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
-    storeApiMock.listCategories.mockResolvedValue(page(0, []));
-    storeApiMock.listVariants.mockResolvedValue(page(0, []));
-    storeApiMock.createVariant.mockResolvedValue({ id: "v1" });
-    const user = userEvent.setup();
-
-    render(<ProductsPage />);
-
-    await user.click(await screen.findByRole("button", { name: "Varyantlar" }));
-    await user.click(await screen.findByRole("button", { name: "İlk varyantı ekle" }));
-
-    await user.type(screen.getByLabelText("Başlık"), "Siyah / M");
-    await user.type(screen.getByLabelText("SKU"), "SWT-SYH-M");
-    await user.type(screen.getByLabelText("Fiyat (₺)"), "199,90");
-    await user.click(screen.getByRole("button", { name: "Varyant oluştur" }));
-
-    await waitFor(() => expect(storeApiMock.createVariant).toHaveBeenCalledTimes(1));
-    expect(storeApiMock.createVariant).toHaveBeenCalledWith(
-      "p1",
-      expect.objectContaining({ sku: "SWT-SYH-M", priceMinor: 19990, currency: "TRY" }),
-    );
+    // Edit artik liste modal'i degil; liste hicbir dialog acmamali.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Düzenle" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Varyantlar" })).toBeNull();
   });
 });
 

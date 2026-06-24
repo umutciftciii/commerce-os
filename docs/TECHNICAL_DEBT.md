@@ -384,3 +384,16 @@
   kullanmak, veya cleanup-smoke'a F2G icin `f2g-smoke-` prefix'i eklemek; mevcut artik tek kayit
   manuel silinebilir.
 - Hedef faz: Faz 2G takip
+
+## TD-031 admin-web store/plan detay ekranlari hala modal (ADR-027 disinda)
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: ADR-027 (entity detail = dedicated route/page) F2H'de store-admin orders/products icin
+  uygulandi; ancak `apps/admin-web` stores ve plans ekranlari hala create/edit modali kullaniyor.
+  Bu ekranlar su an kisa edit formu (detay timeline/audit icermiyor) oldugundan kural ihlali
+  sinir durumunda, fakat Store/Plan birer ana entity'dir ve detaylari buyudukce (audit, kullanim,
+  fatura/abonelik, store kullanicilari) route/page olmalidir.
+- Cozum onerisi: `/stores/[id]` ve `/plans/[id]` dedicated detail/edit route'lari; kisa create
+  modali kalabilir. Mevcut edit modallari detail page'e tasinir.
+- Hedef faz: admin-web ileri turu (bkz. TODO-053, TODO-054)

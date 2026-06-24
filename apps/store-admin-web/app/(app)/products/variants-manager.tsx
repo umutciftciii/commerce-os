@@ -39,8 +39,12 @@ const STATUS_TONES: Record<VariantStatus, "success" | "neutral" | "warning"> = {
 
 const SKU_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** Bir ürünün varyantlarını listeleyen ve oluşturma/düzenleme akışını yöneten modal. */
-export function VariantsManager({ product, onClose }: { product: Product; onClose: () => void }) {
+/**
+ * Bir ürünün varyantlarını listeleyen inline bölüm. Ürün detay sayfası (`/products/[id]`)
+ * içinde yer alır; modal değildir. Varyant oluştur/düzenle ise kısa bir modal akışıdır
+ * (kısa create/edit = modal kuralına uygun).
+ */
+export function VariantsSection({ product }: { product: Product }) {
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.variants;
@@ -117,80 +121,70 @@ export function VariantsManager({ product, onClose }: { product: Product; onClos
     void load();
   }
 
-  if (view.mode !== "list") {
-    return (
-      <VariantEditor
-        product={product}
-        editor={view}
-        statusLabels={statusLabels}
-        onBack={() => setView({ mode: "list" })}
-        onSaved={onSaved}
-      />
-    );
-  }
-
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t.cardTitle}
-      description={format(t.subtitle, { product: product.title })}
-      closeLabel={t.closeLabel}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            {t.closeLabel}
-          </Button>
-          <Button onClick={() => setView({ mode: "create" })}>{t.addVariant}</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {notice ? <Alert tone="success">{notice}</Alert> : null}
-
-        {state.status === "loading" ? <SkeletonRows rows={3} /> : null}
-
-        {state.status === "error" ? (
-          <Alert
-            tone="error"
-            title={t.loadError}
-            action={
-              <Button variant="secondary" size="sm" onClick={() => void load()}>
-                {c.actions.retry}
-              </Button>
-            }
-          >
-            {state.message}
-          </Alert>
-        ) : null}
-
-        {state.status === "ready" && variants.length === 0 ? (
-          <EmptyState
-            tag={t.cardTitle}
-            title={t.emptyTitle}
-            description={t.emptyDescription}
-            action={
-              <Button size="sm" onClick={() => setView({ mode: "create" })}>
-                {t.emptyAction}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {state.status === "ready" && variants.length > 0 ? (
-          <>
-            <p className="text-xs text-slate-500">{format(t.countLabel, { count: variants.length })}</p>
-            <DataTable
-              columns={columns}
-              rows={variants}
-              rowKey={(variant) => variant.id}
-              caption={t.cardTitle}
-            />
-            <p className="text-xs text-slate-400">{t.inventoryNote}</p>
-          </>
-        ) : null}
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Button size="sm" onClick={() => setView({ mode: "create" })}>
+          {t.addVariant}
+        </Button>
       </div>
-    </Modal>
+
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+
+      {state.status === "loading" ? <SkeletonRows rows={3} /> : null}
+
+      {state.status === "error" ? (
+        <Alert
+          tone="error"
+          title={t.loadError}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              {c.actions.retry}
+            </Button>
+          }
+        >
+          {state.message}
+        </Alert>
+      ) : null}
+
+      {state.status === "ready" && variants.length === 0 ? (
+        <EmptyState
+          tag={t.cardTitle}
+          title={t.emptyTitle}
+          description={t.emptyDescription}
+          action={
+            <Button size="sm" onClick={() => setView({ mode: "create" })}>
+              {t.emptyAction}
+            </Button>
+          }
+        />
+      ) : null}
+
+      {state.status === "ready" && variants.length > 0 ? (
+        <>
+          <p className="text-xs text-slate-500">
+            {format(t.countLabel, { count: variants.length })}
+          </p>
+          <DataTable
+            columns={columns}
+            rows={variants}
+            rowKey={(variant) => variant.id}
+            caption={t.cardTitle}
+          />
+          <p className="text-xs text-slate-400">{t.inventoryNote}</p>
+        </>
+      ) : null}
+
+      {view.mode !== "list" ? (
+        <VariantEditor
+          product={product}
+          editor={view}
+          statusLabels={statusLabels}
+          onBack={() => setView({ mode: "list" })}
+          onSaved={onSaved}
+        />
+      ) : null}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@commerce-os/ui";
@@ -30,6 +30,11 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
 vi.mock("../lib/client/api.js", () => ({
   storeApi: storeApiMock,
   UiError: MockUiError,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useParams: () => ({ id: "o1" }),
 }));
 
 function page(total: number, data: unknown[]) {
@@ -180,7 +185,7 @@ describe("store-admin orders — lifecycle actions", () => {
     await screen.findByText("ORD-1001");
     expect(screen.queryByRole("button", { name: "Siparişi ver" })).toBeNull();
     expect(screen.queryByRole("button", { name: "İptal et" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Detay" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Detay" })).toBeTruthy();
   });
 
   it("shows a localized error when a place action fails", async () => {
@@ -198,57 +203,18 @@ describe("store-admin orders — lifecycle actions", () => {
   });
 });
 
-describe("store-admin orders — detail modal", () => {
-  it("opens a scrollable, viewport-constrained detail modal with lines and the money summary", async () => {
+describe("store-admin orders — detail is a route, not a modal", () => {
+  it("renders a Details link to /orders/[id] and never opens a detail modal", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
-    storeApiMock.getOrder.mockResolvedValue(
-      makeOrder({
-        events: [
-          {
-            id: "e1",
-            storeId: "s1",
-            orderId: "o1",
-            type: "ORDER_CREATED",
-            message: null,
-            metadata: null,
-            actorUserId: null,
-            createdAt: new Date("2026-06-01T10:00:00.000Z").toISOString(),
-          },
-        ],
-      }),
-    );
-    const user = userEvent.setup();
 
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
-    await user.click(screen.getByRole("button", { name: "Detay" }));
 
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Sipariş kalemleri")).toBeTruthy();
-    expect(within(dialog).getByText("Pamuklu Tişört")).toBeTruthy();
-    expect(within(dialog).getByText("TSH-BLK-M")).toBeTruthy();
-    expect(within(dialog).getByText("Tutar özeti")).toBeTruthy();
-    expect(within(dialog).getByText("ORDER_CREATED")).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Detay" });
+    expect(link.getAttribute("href")).toBe("/orders/o1");
 
-    // Paylasilan Modal scroll fix regresyonu: panel viewport icinde, govde kaydirilabilir.
-    expect(dialog.className).toContain("max-h-[calc(100vh-2rem)]");
-    expect(dialog.className).toContain("flex-col");
-    expect(dialog.querySelector(".overflow-y-auto")).toBeTruthy();
-  });
-
-  it("exposes a Place action inside the detail modal for a DRAFT order", async () => {
-    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ status: "DRAFT" })]));
-    storeApiMock.getOrder.mockResolvedValue(makeOrder({ status: "DRAFT" }));
-    storeApiMock.placeOrder.mockResolvedValue(makeOrder({ status: "PLACED" }));
-    const user = userEvent.setup();
-
-    render(<OrdersPage />);
-    await screen.findByText("ORD-1001");
-    await user.click(screen.getByRole("button", { name: "Detay" }));
-
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Siparişi ver" }));
-    await waitFor(() => expect(storeApiMock.placeOrder).toHaveBeenCalledWith("o1"));
+    // Detay artik modal degil; liste hicbir dialog acmamali.
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
