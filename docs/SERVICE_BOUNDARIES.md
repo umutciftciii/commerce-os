@@ -39,6 +39,13 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   mağaza secemez). UI'a yalnizca mağaza meta'si (id/ad/slug/durum) doner; bearer token UI/JS/log/client
   bundle'a girmez. Fiyat TL<->minor unit donusumu UI helper'inda yapilir; backend her zaman minor unit
   (integer) alir/doner. Gateway hata `code`'u UI'da ham gosterilmez, i18n ile Turkce mesaja cevrilir.
+- store-admin product sales model UI siniri (Faz 2F): UI yalnizca catalog product API alanlarini
+  (`salesMode`, `priceVisibility`, `primaryAction`, `purchasable`, `inquiryEnabled`,
+  `appointmentRequired`, `whatsappEnabled`, min/max adet ve CTA/sablon/baslik/not metinleri) okur ve
+  create/update body'siyle gateway'e tasir. salesMode degisiminde uygulanan default'lar yalnizca form
+  kolayligidir; tutarlilik/satin-alinabilirlik kurallarinin nihai otoritesi gateway'dir. UI hicbir
+  inquiry/appointment/WhatsApp talep kaydi YARATMAZ ve storefront CTA render ETMEZ — bunlar sonraki
+  faz/backend slice'larina aittir (TD-027).
 - Yapmaz: Domain is kurali, DB erisimi, gercek auth/session logic'i (token uretme/dogrulama gateway'in
   isidir; BFF yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
   tablolarina veya Prisma'ya dogrudan erismez. BFF route handler'lari gateway'i cagirmanin disinda

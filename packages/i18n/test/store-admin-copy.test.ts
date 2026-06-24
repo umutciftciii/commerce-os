@@ -42,4 +42,39 @@ describe("storeAdmin Faz 2B copy", () => {
     expect(tr.dashboard.stats.lowStock).toBe("Kritik stok");
     expect(typeof en.dashboard.stats.products).toBe("string");
   });
+
+  it("ships product sales-model labels in both locales", () => {
+    const trSm = tr.products.salesModel;
+    const enSm = en.products.salesModel;
+
+    expect(trSm.sectionTitle).toBe("Satış davranışı");
+    expect(enSm.sectionTitle).toBe("Sales behavior");
+
+    // Sales mode labels — iki dilde de tam.
+    expect(Object.keys(enSm.modeLabels).sort()).toEqual(Object.keys(trSm.modeLabels).sort());
+    expect(trSm.modeLabels.INQUIRY).toBe("Fiyat sor");
+    expect(enSm.modeLabels.INQUIRY).toBe("Request price");
+
+    // Price visibility labels.
+    expect(Object.keys(enSm.priceVisibilityLabels).sort()).toEqual(
+      Object.keys(trSm.priceVisibilityLabels).sort(),
+    );
+    expect(trSm.priceVisibilityLabels.ON_REQUEST).toBe("Talep üzerine");
+    expect(enSm.priceVisibilityLabels.ON_REQUEST).toBe("On request");
+
+    // Primary action labels.
+    expect(Object.keys(enSm.actionLabels).sort()).toEqual(Object.keys(trSm.actionLabels).sort());
+    expect(trSm.actionLabels.ADD_TO_CART).toBe("Sepete ekle");
+    expect(enSm.actionLabels.ADD_TO_CART).toBe("Add to cart");
+
+    // Purchasable durum metinleri.
+    expect(trSm.notPurchasableBadge).toBe("Sepete eklenemez");
+    expect(enSm.notPurchasableBadge).toBe("Not purchasable");
+  });
+
+  it("maps product sales-model guard error codes in both locales", () => {
+    expect(tr.errors.PRODUCT_NOT_PURCHASABLE).toBe("Bu ürün doğrudan satın alınamaz.");
+    expect(typeof en.errors.PRODUCT_REQUIRES_APPOINTMENT).toBe("string");
+    expect(typeof en.errors.PRODUCT_CATALOG_ONLY).toBe("string");
+  });
 });

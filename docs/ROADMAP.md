@@ -88,10 +88,14 @@
 
 ### Faz 2F Store-admin Product Sales Model UI
 
-- Durum: PLANNED
-- Kapsam: F2D product sales model alanlarini store-admin urun formuna baglamak; sales mode,
-  price visibility, CTA behavior ve validation hatalarini UI'da Turkce gostermek.
-- Kapsam disi: Storefront CTA render, inquiry/appointment modelleri ve WhatsApp contact config.
+- Durum: IMPLEMENTED_GATE_PENDING
+- Kapsam: F2D product sales model alanlari store-admin urun listesi ve create/update formuna
+  baglandi; sales mode / price visibility / primary action / purchasable liste rozetleri,
+  formda "Satis davranisi" bolumu, sales mode degisiminde guvenli default uygulama, client-side
+  min/max adet + uzunluk validasyonu ve backend guard hatalarinin (PRODUCT_NOT_PURCHASABLE vb.)
+  TR/EN lokalize gosterimi. BFF body pass-through ile yeni alanlar gateway'e tasinir.
+- Kapsam disi: Storefront CTA render, inquiry/appointment kayit modelleri, WhatsApp redirect
+  endpoint, store-admin orders UI.
 
 ### Faz 2G Store Admin Orders UI
 

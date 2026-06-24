@@ -629,3 +629,56 @@ dokumanlarla sinirli tutuldu.
 - Kullanici-bazli (DB) locale tercihi yok; URL locale prefix yok; tarayici dil tespiti yok
   (TD-028, TODO). Cookie tercih oturum/cihaz duzeyinde kalir.
 - Sonraki faz: F2F Store-admin Product Sales Model UI.
+
+## Faz 2F Store-admin Product Sales Model UI
+
+- Tarih: 2026-06-24
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+
+### Yapilanlar
+
+- `apps/store-admin-web` urun listesi: Mevcut kolonlar korunarak `Durum` ile `Marka` arasina
+  kompakt "Satis" kolonu eklendi — ust satir `salesMode` rozeti (tonlu), alt satir
+  `priceVisibility` · `primaryAction` kucuk metin, satin alinabilirlik gostergesi
+  (`purchasable=false` -> "Sepete eklenemez" amber; `ONLINE`+`true` -> "Sepete eklenebilir"
+  yesil). Eski (F2D oncesi) kayitlar icin guvenli varsayilanlar (`?? ONLINE/VISIBLE/...`).
+- Urun create/update formu: "Satis davranisi" bolumu eklendi — sales mode / price visibility /
+  primary action select'leri, dort toggle (purchasable, inquiryEnabled, appointmentRequired,
+  whatsappEnabled), min/max siparis adedi, CTA etiketi, WhatsApp sablonu, fiyat sorma formu
+  basligi ve randevu notu alanlari. Yardimci metin alanlari satis tipine gore kosullu gosterilir.
+- Dinamik davranis: `salesMode` degisince backend `isConsistentSalesModel` kurallariyla uyumlu
+  guvenli default'lar uygulanir (orn. INQUIRY -> purchasable false + primaryAction REQUEST_PRICE
+  + inquiryEnabled true); kullanicinin yazdigi metin alanlari ezilmez. `priceVisibility`
+  HIDDEN/ON_REQUEST secilince purchasable otomatik kapanir. purchasable=false ve gizli fiyat
+  durumlari icin lokalize bilgi notlari gosterilir.
+- Validasyon: client-side min>=1, max bos veya >=min, CTA/sablon/baslik/not uzunluk sinirlari
+  (kontrat ile ayni: 120/500/160/500). Backend nihai otorite; tutarsiz kombinasyonlar gateway'den
+  `VALIDATION_ERROR` ile doner ve UI'da lokalize gosterilir.
+- i18n: `storeAdmin.products.salesModel.*` alt yapisi (mode/priceVisibility/action label'lari,
+  bolum/toggle/hint/validasyon metinleri) TR kaynak + EN ayna; `errors`'a bes guard kodu
+  (`PRODUCT_NOT_PURCHASABLE`, `PRODUCT_REQUIRES_INQUIRY/APPOINTMENT/WHATSAPP`,
+  `PRODUCT_CATALOG_ONLY`) eklendi. Tam path paritesi korundu.
+- BFF: Product create/update route'lari body'yi degistirmeden gateway'e pass-through eder; yeni
+  sales model alanlari ek kod olmadan tasinir. CSRF/store-context/token gizliligi korundu.
+- Ops: `packages/db/scripts/cleanup-smoke.ts` prefix listesine `f2f-smoke-` eklendi.
+
+### Dogrulananlar
+
+- Testler: store-admin interaction testlerine sales-mode rozet render (ONLINE/INQUIRY/APPOINTMENT/
+  WHATSAPP/CATALOG_ONLY), form bolumu render, sales mode degisiminde helper alan + guvenli default,
+  min/max validasyon, lokalize backend guard hatasi; BFF testlerine create/update sales model body
+  pass-through + CSRF korumasi; i18n'e sales-model label paritesi ve guard kod testleri eklendi.
+- Gate: `pnpm db:generate` + `pnpm lint` (store-admin/i18n/db temiz) + `pnpm typecheck` (0) +
+  `pnpm test` (34/34 task) + `pnpm build` (24/24) gecti.
+- Docker smoke: 7 servis healthy; store-admin imaji yeniden build edildi; `/api/health` 200.
+  Canli BFF akisi: login 200, urun listesi demo urunleri `ONLINE/VISIBLE/ADD_TO_CART` ile dondurdu;
+  `f2f-smoke-` INQUIRY urun create 201 (INQUIRY/ON_REQUEST/REQUEST_PRICE/purchasable=false), ayni
+  urun APPOINTMENT'a update 200, tutarsiz ONLINE+REQUEST_PRICE create 400 `VALIDATION_ERROR`.
+  Smoke kaydi temizlendi; `db:verify-seed` tekrar gecti (2 urun).
+
+### Kalan Bilincli Borclar
+
+- Storefront CTA render yok (F3); inquiry/appointment/WhatsApp kayit modelleri yok (sonraki faz).
+- Store-admin orders UI yok (F2G).
+- `db:cleanup-smoke` calisan container icindeki eski kodu kullanir; `f2f-smoke-` prefix temizligi
+  ancak api-gateway imaji yeniden build edildikten sonra container icinden calisir (kaynakta hazir).

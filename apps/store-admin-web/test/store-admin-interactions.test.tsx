@@ -44,6 +44,39 @@ function page(total: number, data: unknown[]) {
   return { data, pagination: { limit: 50, offset: 0, total } };
 }
 
+function makeProduct(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "p1",
+    storeId: "s1",
+    title: "Sweatshirt",
+    slug: "sweatshirt",
+    description: null,
+    status: "ACTIVE",
+    type: "PHYSICAL",
+    vendor: null,
+    brand: null,
+    seoTitle: null,
+    seoDescription: null,
+    salesMode: "ONLINE",
+    priceVisibility: "VISIBLE",
+    primaryAction: "ADD_TO_CART",
+    inquiryEnabled: false,
+    appointmentRequired: false,
+    whatsappEnabled: false,
+    purchasable: true,
+    minOrderQuantity: 1,
+    maxOrderQuantity: null,
+    callToActionLabel: null,
+    whatsappMessageTemplate: null,
+    inquiryFormTitle: null,
+    appointmentNote: null,
+    categoryIds: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   vi.clearAllMocks();
   cleanup();
@@ -152,31 +185,22 @@ describe("store-admin products & variants", () => {
 
     await waitFor(() => expect(storeApiMock.createProduct).toHaveBeenCalledTimes(1));
     expect(storeApiMock.createProduct).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Sweatshirt", slug: "sweatshirt" }),
+      expect.objectContaining({
+        title: "Sweatshirt",
+        slug: "sweatshirt",
+        // ONLINE varsayilan satis davranisi gonderilmeli.
+        salesMode: "ONLINE",
+        priceVisibility: "VISIBLE",
+        primaryAction: "ADD_TO_CART",
+        purchasable: true,
+        minOrderQuantity: 1,
+        maxOrderQuantity: null,
+      }),
     );
   });
 
   it("creates a variant with lira price converted to minor units", async () => {
-    storeApiMock.listProducts.mockResolvedValue(
-      page(1, [
-        {
-          id: "p1",
-          storeId: "s1",
-          title: "Sweatshirt",
-          slug: "sweatshirt",
-          description: null,
-          status: "ACTIVE",
-          type: "PHYSICAL",
-          vendor: null,
-          brand: null,
-          seoTitle: null,
-          seoDescription: null,
-          categoryIds: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ]),
-    );
+    storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
     storeApiMock.createVariant.mockResolvedValue({ id: "v1" });
@@ -197,6 +221,141 @@ describe("store-admin products & variants", () => {
       "p1",
       expect.objectContaining({ sku: "SWT-SYH-M", priceMinor: 19990, currency: "TRY" }),
     );
+  });
+});
+
+describe("store-admin product sales model", () => {
+  it("renders the sales-mode badge and purchasable hint for a default ONLINE product", async () => {
+    storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+
+    render(<ProductsPage />);
+
+    await screen.findByText("Sweatshirt");
+    expect(screen.getByText("Online satış")).toBeTruthy();
+    expect(screen.getByText("Sepete eklenebilir")).toBeTruthy();
+  });
+
+  it("renders distinct badges for INQUIRY, APPOINTMENT, WHATSAPP and CATALOG_ONLY rows", async () => {
+    storeApiMock.listProducts.mockResolvedValue(
+      page(4, [
+        makeProduct({
+          id: "p2",
+          slug: "danisma",
+          title: "Danışma",
+          salesMode: "INQUIRY",
+          priceVisibility: "ON_REQUEST",
+          primaryAction: "REQUEST_PRICE",
+          purchasable: false,
+          inquiryEnabled: true,
+        }),
+        makeProduct({
+          id: "p3",
+          slug: "randevu",
+          title: "Randevu",
+          salesMode: "APPOINTMENT",
+          primaryAction: "BOOK_APPOINTMENT",
+          purchasable: false,
+          appointmentRequired: true,
+        }),
+        makeProduct({
+          id: "p4",
+          slug: "wp",
+          title: "WP",
+          salesMode: "WHATSAPP",
+          primaryAction: "WHATSAPP",
+          purchasable: false,
+          whatsappEnabled: true,
+        }),
+        makeProduct({
+          id: "p5",
+          slug: "katalog",
+          title: "Katalog",
+          salesMode: "CATALOG_ONLY",
+          primaryAction: "NONE",
+          purchasable: false,
+        }),
+      ]),
+    );
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+
+    render(<ProductsPage />);
+
+    await screen.findByText("Danışma");
+    expect(screen.getByText("Fiyat sor")).toBeTruthy();
+    expect(screen.getByText("Randevu al")).toBeTruthy();
+    expect(screen.getByText("WhatsApp ile sor")).toBeTruthy();
+    expect(screen.getByText("Sadece katalog")).toBeTruthy();
+    // Satis dışı urunlerde net uyari.
+    expect(screen.getAllByText("Sepete eklenemez").length).toBe(4);
+  });
+
+  it("applies safe defaults and reveals helper fields when sales mode changes to INQUIRY", async () => {
+    storeApiMock.listProducts.mockResolvedValue(page(0, []));
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.createProduct.mockResolvedValue({ id: "p9" });
+    const user = userEvent.setup();
+
+    render(<ProductsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "İlk ürünü ekle" }));
+    expect(screen.getByText("Satış davranışı")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Ürün adı"), "Danışmanlık");
+    await user.type(screen.getByLabelText("Kısa ad (slug)"), "danismanlik");
+    await user.selectOptions(screen.getByLabelText("Satış tipi"), "INQUIRY");
+
+    // INQUIRY secimi fiyat sorma formu basligini gosterir.
+    expect(await screen.findByLabelText("Fiyat sorma formu başlığı (opsiyonel)")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Ürün oluştur" }));
+
+    await waitFor(() => expect(storeApiMock.createProduct).toHaveBeenCalledTimes(1));
+    expect(storeApiMock.createProduct).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salesMode: "INQUIRY",
+        primaryAction: "REQUEST_PRICE",
+        purchasable: false,
+        inquiryEnabled: true,
+      }),
+    );
+  });
+
+  it("blocks an invalid max-order-quantity client side with a localized message", async () => {
+    storeApiMock.listProducts.mockResolvedValue(page(0, []));
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    const user = userEvent.setup();
+
+    render(<ProductsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "İlk ürünü ekle" }));
+    await user.type(screen.getByLabelText("Ürün adı"), "Sweatshirt");
+    await user.type(screen.getByLabelText("Kısa ad (slug)"), "sweatshirt");
+    await user.clear(screen.getByLabelText("Min. sipariş adedi"));
+    await user.type(screen.getByLabelText("Min. sipariş adedi"), "5");
+    await user.type(screen.getByLabelText("Maks. sipariş adedi (opsiyonel)"), "2");
+    await user.click(screen.getByRole("button", { name: "Ürün oluştur" }));
+
+    expect(
+      await screen.findByText("Maks. sipariş adedi min. sipariş adedinden küçük olamaz."),
+    ).toBeTruthy();
+    expect(storeApiMock.createProduct).not.toHaveBeenCalled();
+  });
+
+  it("maps a backend sales-model guard error to a localized message", async () => {
+    storeApiMock.listProducts.mockResolvedValue(page(0, []));
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.createProduct.mockRejectedValue(new MockUiError("PRODUCT_NOT_PURCHASABLE"));
+    const user = userEvent.setup();
+
+    render(<ProductsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "İlk ürünü ekle" }));
+    await user.type(screen.getByLabelText("Ürün adı"), "Sweatshirt");
+    await user.type(screen.getByLabelText("Kısa ad (slug)"), "sweatshirt");
+    await user.click(screen.getByRole("button", { name: "Ürün oluştur" }));
+
+    expect(await screen.findByText("Bu ürün doğrudan satın alınamaz.")).toBeTruthy();
   });
 });
 

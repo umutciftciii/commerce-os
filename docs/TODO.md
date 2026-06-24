@@ -88,13 +88,15 @@
 - TODO-045: URL locale prefix / public i18n routing — ileride public SEO/i18n gerekirse `/tr`-`/en`
   (veya domain/locale negotiation) routing, middleware ve canonical kararlarini ayri is olarak ele
   almak; mevcut prefix'siz cookie stratejisinin uzerine katmanlanir (TD-028).
-- TODO-046: Faz 2F Store-admin Product Sales Model UI — sirada (F2D alanlarini urun formuna baglamak).
+- TODO-046: Faz 2F Store-admin Product Sales Model UI. (DONE — F2D alanlari urun listesi rozetlerine
+  ve create/update formundaki "Satis davranisi" bolumune baglandi; dinamik default'lar, client
+  validasyon ve lokalize guard hatalari eklendi.)
 - TODO-037: Faz 2F Store-admin Product Sales Model UI — F2D product sales model alanlarini store-admin
   urun formuna baglamak; sales mode, price visibility, CTA behavior ve tutarlilik hatalarini Turkce
-  gostermek.
-- TODO-038: Faz 2G Store-admin Orders UI — F2C order list/detail, place/cancel durumlari ve timeline
-  icin BFF + ekran baglama; store-user auth gelene kadar mevcut server-side store context deseniyle
-  sinirli kalacak.
+  gostermek. (DONE — TR/EN paritesiyle; backend business/catalog/order logic degismedi.)
+- TODO-038: Faz 2G Store-admin Orders UI — sirada. F2C order list/detail, place/cancel durumlari ve
+  timeline icin BFF + ekran baglama; store-user auth gelene kadar mevcut server-side store context
+  deseniyle sinirli kalacak.
 - TODO-039: Faz 4 payment — payment provider abstraction, authorization/capture, webhook/idempotency,
   refund durumlari ve `paymentStatus` lifecycle entegrasyonu (TD-025).
 - TODO-040: Product inquiry request model — `INQUIRY` urunleri icin tenant-scoped talep kaydi,
