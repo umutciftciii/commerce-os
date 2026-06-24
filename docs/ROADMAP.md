@@ -31,7 +31,7 @@
 
 ## Faz 2 Commerce Core
 
-- Durum: IN_PROGRESS (Faz 2A catalog/inventory foundation eklendi)
+- Durum: IN_PROGRESS (Faz 2A backend foundation + Faz 2B store-admin UI baglama eklendi)
 - Amac: Ticaret cekirdegini erken parcalamadan urun, stok, musteri ve siparis modellerini kurmak.
 - Kapsam: Product/catalog, inventory, customer, order, basic pricing ve order status akislari.
 - Kabul kriterleri: Commerce modelleri migration ile gelir; temel CRUD/API akislari testlidir;
@@ -44,6 +44,17 @@
   adjustment, movement ledger, audit log, contracts/api-client ve idempotent demo catalog seed'i.
 - Kapsam disi: store-admin UI baglama, order/reservation, cart/checkout/payment/shipping,
   marketplace sync, media/options/import/export ve storefront resolver.
+
+### Faz 2B Store Admin Catalog UI Baglama
+
+- Durum: FINAL_GATE_PENDING
+- Kapsam: `apps/store-admin-web` dashboard/categories/products/variants/inventory ekranlarini Faz 2A
+  endpointlerine canli bagladi. Guvenli BFF (admin-web deseni): platform admin login -> httpOnly
+  cookie -> ayni-origin `/api/*` proxy + server-side store context cozumleme; CSRF korumali mutating
+  route'lar; TL<->minor unit fiyat donusumu; tum hata kodlari Turkce i18n esleme; tr/en parity.
+- Kapsam disi: backend catalog/inventory davranisi degisikligi, order/checkout/payment/shipping,
+  storefront resolver, marketplace, media/options/import, delete endpointleri, store-user auth
+  (gecici platform-admin store context ile calisir — bkz. ADR-023, TD-019).
 
 ## Faz 3 Storefront + Theme Foundation
 

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { SidebarNav } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import {
+  CategoryIcon,
   CustomerIcon,
   DashboardIcon,
   InventoryIcon,
@@ -19,6 +20,7 @@ const t = getDictionary().storeAdmin.nav;
 const items = [
   { href: "/", label: t.dashboard, icon: <DashboardIcon /> },
   { href: "/products", label: t.products, icon: <ProductIcon /> },
+  { href: "/categories", label: t.categories, icon: <CategoryIcon /> },
   { href: "/orders", label: t.orders, icon: <OrderIcon /> },
   { href: "/inventory", label: t.inventory, icon: <InventoryIcon /> },
   { href: "/customers", label: t.customers, icon: <CustomerIcon /> },

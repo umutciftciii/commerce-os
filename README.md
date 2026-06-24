@@ -37,13 +37,15 @@ parity ile saglanir ancak varsayilan degildir; runtime locale switcher / URL loc
 asamada kapsam disidir.
 
 `apps/admin-web` is wired to the live API gateway (Faz 1B): platform admin login, session, and live
-stores/plans/system-health (see "Faz 1B admin-web" below). `store-admin-web` and `storefront-web`
-remain placeholders/empty states — no commerce business logic, no payment. Frontends talk to the
-backend only through the API gateway via `@commerce-os/api-client`; admin-web does this server-side
-inside Next route handlers (BFF), the browser never calls the gateway directly.
+stores/plans/system-health (see "Faz 1B admin-web" below). `apps/store-admin-web` is wired to the
+live catalog/inventory API (Faz 2B): login, server-side store context and live dashboard/categories/
+products/variants/inventory (see "Faz 2B store-admin-web" below). `storefront-web` remains a
+placeholder/empty state — no commerce business logic, no payment. Frontends talk to the backend only
+through the API gateway via `@commerce-os/api-client`; admin-web and store-admin-web do this
+server-side inside Next route handlers (BFF), the browser never calls the gateway directly.
 
 - `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
-- `apps/store-admin-web` — store manager panel (dashboard, products, orders, inventory, customers, marketplace, theme, settings). `pnpm dev:store-admin` → `http://localhost:3002`
+- `apps/store-admin-web` — store manager panel: live dashboard, products, categories, variants, inventory (orders/customers/marketplace/theme/settings placeholder). `pnpm dev:store-admin` → `http://localhost:3002`
 - `apps/storefront-web` — public demo storefront (home, products, product detail, cart, checkout). `pnpm dev:storefront` → `http://localhost:3000`
 
 Each app exposes its own `/api/health` route handler:
@@ -346,6 +348,43 @@ API_GATEWAY_URL=http://localhost:4000 pnpm dev:admin   # http://localhost:3001
 ```bash
 INTERNAL_API_TOKEN=<gateway-ile-ayni-token> API_GATEWAY_URL=http://localhost:4000 pnpm dev:admin
 ```
+
+## Faz 2B store-admin-web (canli katalog/stok paneli)
+
+`apps/store-admin-web` Faz 2A catalog/inventory endpointlerine canli baglidir. admin-web ile ayni
+guvenli BFF desenini kullanir (ADR-023): platform admin login proxy bearer token'i store-admin'e ozel
+httpOnly cookie'de SUNUCU tarafinda tutar; tarayici yalnizca ayni-origin `/api/*` uclarini cagirir ve
+secili mağaza her istekte server-side cozulur (`storeId` istemciden gelmez). Token UI/log/client
+bundle'a girmez; mutating route'lar double-submit CSRF ister.
+
+Demo asamasinda store-user auth henuz olmadigindan platform admin hesabiyla giris yapilir
+(store-user auth borcu: TD-019).
+
+Yerel calistirma:
+
+```bash
+# 1) Backend runtime + seed (demo-store, kategoriler, urunler, varyantlar, stok)
+docker compose -f infra/docker/docker-compose.yml up -d
+pnpm db:migrate
+pnpm db:seed
+
+# 2) store-admin-web dev
+API_GATEWAY_URL=http://localhost:4000 pnpm dev:store-admin   # http://localhost:3002
+```
+
+- Giris: `http://localhost:3002/login` → seed admin (`platform-admin@example.local` /
+  `local-admin-password`). Giriste seed `demo-store` server-side secilir; mağaza adi topbar ve
+  dashboard'da gosterilir.
+- Dashboard canli urun/aktif urun/kategori/kritik stok/toplam stok ozetini gosterir.
+- Kategoriler, Ürünler (+ Varyantlar modal), Stok ekranlari canli list/create/update/adjust calisir;
+  basarida liste yenilenir. Fiyat TL olarak girilir, minor unit'e cevrilir. Duplicate slug/SKU,
+  validation ve negatif stok hatalari kullanici dostu Turkce gosterilir.
+- Hedef mağaza varsayilani `STORE_ADMIN_DEMO_STORE_SLUG` (default `demo-store`) ile degistirilebilir;
+  bulunamazsa listenin ilk mağazasi secilir.
+
+Smoke ozeti (canli): `/api/health` 200; login → dashboard render + seçili mağaza görünür; categories/
+products/variants/inventory list canlı; create/update/adjust çalışır; duplicate slug/SKU ve negatif
+stok Türkçe; client bundle taramasında token/secret yok.
 
 ## Scriptler
 

@@ -22,16 +22,22 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   yalnizca ayni-origin BFF route handler'larini (`/api/auth/*`, `/api/admin/*`, `/api/system/*` ve
   app liveness `/api/health`) cagirir; bu handler'lar `packages/api-client` ile gateway'e gider
   (bkz. ADR-017). Tum gorunur metin `packages/i18n`'den Turkce gelir.
-- `apps/store-admin-web`: Magaza yoneticisi paneli (Next.js App Router). Dashboard, products, orders,
-  inventory, customers, marketplace, theme ve settings shell sayfalari ile `/api/health`.
+- `apps/store-admin-web`: Magaza yoneticisi paneli (Next.js App Router). Faz 2B'de canli gateway'e
+  bagli: kabuk disi login ekrani, oturum guard'li `(app)` route group kabugu ve canli
+  dashboard/categories/products/variants/inventory ekranlari (orders, customers, marketplace, theme,
+  settings hala placeholder). Tarayici yalnizca ayni-origin BFF route handler'larini (`/api/auth/*`,
+  `/api/store/context`, `/api/catalog/*`, `/api/dashboard/summary`, `/api/health`) cagirir; bu
+  handler'lar `packages/api-client` ile gateway'e gider ve secili mağaza server-side cozulur
+  (bkz. ADR-023). Mutating route'lar CSRF korumalidir. Tum gorunur metin `packages/i18n`'den Turkce
+  gelir.
 - `apps/storefront-web`: Public magaza vitrini (Next.js App Router). Home, product listing, product
   detail, cart ve checkout placeholder sayfalari, tema-hazir layout ve `/api/health`. Multi-tenant
   store slug/domain cozumleyici henuz implement edilmedi; tek demo store render edilir.
 
 Frontend app'ler backend domain logic icermez. Backend ile tek temas noktalari API gateway'dir ve
-bu erisim `packages/api-client` uzerinden type-safe sekilde yapilir. admin-web bu erisimi Next route
-handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici dogrudan gateway'e gitmez. store-admin-web
-ve storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.next/` altindadir.
+bu erisim `packages/api-client` uzerinden type-safe sekilde yapilir. admin-web ve store-admin-web bu
+erisimi Next route handler'lari (BFF) icinde SUNUCU tarafinda yapar; tarayici dogrudan gateway'e
+gitmez. storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.next/` altindadir.
 
 ## Services
 
@@ -69,7 +75,7 @@ ve storefront-web hala placeholder seviyesindedir. Next.js build ciktilari `.nex
   platform auth, admin store/plan ve Faz 2A catalog/inventory helper'lari sunar. Hatada gateway
   `code`/`status` tasiyan tipli `ApiError` firlatir ve frontend'in tek kanaldan erismesi icin gerekli
   kontrat tiplerini re-export eder. admin-web bu client'i BFF route handler'lari icinde kullanir;
-  store-admin-web henuz catalog helper'larina baglanmadi.
+  store-admin-web Faz 2B'de catalog/inventory helper'larini ayni sekilde BFF icinde tuketir.
 - `packages/i18n`: Frontend i18n altyapisi. Basit, tipli sozluk sistemi; varsayilan urun dili
   Turkce'dir. Tum gorunur UI metni buradan okunur (hardcoded gorunur metin yasaktir). TypeScript
   kaynak olarak yayinlanir; app'ler `transpilePackages` ile derler. Yeni bagimlilik eklenmez.
@@ -171,6 +177,26 @@ Bunun yerine ayni-origin Next route handler'lari (BFF) kullanilir:
 5. System health: `/api/system/health` public gateway health/version'i proxy'ler; `/api/system/internal`
    yalnizca admin-web sunucu env'inde `INTERNAL_API_TOKEN` tanimliysa timeout kontrollu DB/Redis
    durumunu doner, aksi halde "dahili token gerektirir" durumu gosterilir (secret client'a girmez).
+
+### store-admin-web auth + store context akisi (Faz 2B BFF)
+
+store-admin-web ayni BFF desenini kullanir (ADR-023); store-user auth henuz olmadigi icin demo
+asamasinda platform admin login'i vekaleten kullanir:
+
+1. Login: `POST /api/auth/login` gateway platform login'i proxy'ler ve bearer token'i store-admin'e
+   ozel **httpOnly cookie**'ye (`STORE_ADMIN_SESSION_COOKIE_NAME`, varsayilan
+   `commerce_os_store_admin_session`) yazar; istemciye yalnizca kullanici doner. Cookie adi
+   admin-web'den ayridir.
+2. Store context: catalog/inventory/dashboard handler'lari her istekte `requireStoreContext` ile
+   cookie token'i dogrular ve hedef mağazayi gateway `admin.stores.list`'ten server-side cozer
+   (`STORE_ADMIN_DEMO_STORE_SLUG`, varsayilan `demo-store`; yoksa ilk mağaza). `storeId` istemciden
+   gelmez; `GET /api/store/context` UI'a yalnizca mağaza meta'sini (id/ad/slug/durum) doner.
+3. Katalog islemleri: `/api/catalog/categories`, `/api/catalog/products` (+`/:id`),
+   `.../variants` (+`/:id`), `/api/catalog/inventory` (+`/:variantId/adjust`) cozulen `storeId` ve
+   cookie token ile gateway store-scoped endpointlerine proxy yapar. `/api/dashboard/summary` urun/
+   kategori/stok ozetini server-side hesaplar. Mutating route'lar double-submit CSRF ister
+   (`/api/auth/csrf`); GET istemez. Gateway hata `code`'u `storeAdmin.errors` ile Turkce mesaja cevrilir.
+4. Logout: `POST /api/auth/logout` CSRF dogrular, cookie'yi temizler, gateway session'i revoke eder.
 
 Host makineden dogrudan Prisma CLI kullanilirken `127.0.0.1` tabanli `DATABASE_URL` gerekir. Root
 `db:migrate`, `db:seed` ve `db:verify-seed` scriptleri ise Docker Compose icindeki `api-gateway`

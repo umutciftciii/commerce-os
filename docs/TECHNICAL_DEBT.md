@@ -159,6 +159,10 @@
 - Not: Faz 1C'de admin-web icin Testing Library/jsdom eklendi; login validation + hatali giris,
   stores/plans create modal happy path ve logout flow mock testleri kapsandi. Kalan borc: update
   modal, system health render ve daha genis erisilebilirlik kontrolleri.
+- Not: Faz 2B'de store-admin-web icin jsdom + Testing Library etkilesim testleri eklendi (dashboard
+  live + invalid-nesting regression, categories/products/variant create form, inventory adjust,
+  duplicate/negatif stok Turkce hata esleme). Kalan borc: edit-modal genis kapsami, erisilebilirlik
+  (focus trap/odak yonetimi) ve gercek E2E (Playwright) hala acik.
 - Hedef faz: Faz 2+
 
 ## TD-013 Frontend UI Ingilizce ve basic/starter template gorunum
@@ -228,7 +232,13 @@
 - Cozum onerisi: Faz 2B'de store-admin-web baglanirken store-user auth akisini veya platform admin
   store context secimini netlestirmek; catalog/inventory endpointlerinde `requireStoreAccess` ve
   role guard'larini gercek context ile zorunlu kilmak.
-- Hedef faz: Faz 2B
+- Faz 2B notu: store-admin-web canli baglandi ancak store-user auth HALA EKSIK. Gecici cozum olarak
+  store-admin-web platform admin login'i BFF uzerinden kullanir ve hedef mağazayi server-side cozer
+  (ADR-023). Bu OPEN borc: (1) store-user session/token tipi, (2) granular store role permission
+  matrisi, (3) login proxy'nin gercek store-user akisina tasinmasi, (4) server-side store context
+  seciminin store-user erisim listesine baglanmasi ve cok-mağazali secici, (5) catalog/inventory
+  endpointlerinde `requireStoreAccess`/role guard'in gercek context ile zorunlu kilinmasi.
+- Hedef faz: Faz 2C / store-user auth fazi
 
 ## TD-020 Catalog model eksikleri: media, options, metafields, import/export
 
@@ -277,3 +287,17 @@
   prefix'li product/category/variant kayitlarini da temizleyecek sekilde genisletildi. Variant/product
   cascade ile inventory ve movement kayitlari da temizlenir; seed demo verisi hedeflenmez.
 - Hedef faz: Faz 2A final review
+
+## TD-024 Store-admin dashboard pagination-aware aggregation eksik
+
+- Durum: OPEN
+- Oncelik: LOW
+- Etki: `apps/store-admin-web` dashboard ozeti (`/api/dashboard/summary`) toplam urun/kategori/stok
+  sayilarini gateway pagination `total`'inden kesin alir; ancak "aktif urun" ve "kritik stok" sayilari
+  yalnizca ilk sayfa (gateway varsayilan limit 50) uzerinden hesaplanir. Demo veri seti icin dogru,
+  ama 50'den fazla urun/varyantta bu iki sayi eksik kalir. api-client list helper'lari su an
+  limit/offset query'si gondermiyor.
+- Cozum onerisi: Ya gateway'e hafif sayim/aggregate ucu eklemek, ya api-client list helper'larina
+  limit/offset/filter ekleyip dashboard'da sayfalama ile toplamak, ya da aktif/kritik sayimlari
+  dogrudan dondurmek. Faz 2B kapsaminda backend davranisi degistirilmedigi icin ertelendi.
+- Hedef faz: Faz 2C+
