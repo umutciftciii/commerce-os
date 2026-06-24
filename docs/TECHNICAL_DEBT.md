@@ -353,3 +353,34 @@
   routing). Mevcut cookie stratejisi bu katmanlarin uzerine genisletilebilir; cozumleme onceligi
   (URL > user > cookie > default) eklenirken yeniden degerlendirilmeli.
 - Hedef faz: Faz 3+ (public storefront ve store-user auth ile birlikte)
+
+## TD-029 Store-admin orders UI sinirli (F2G)
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: Faz 2G `/orders` ekranini F2C order/reservation core'a baglar ama bilincli olarak dar
+  kapsamlidir. (1) Sipariş listesinde arama/filtre ve pagination UI yoktur; liste tek sayfa olarak
+  gelir (backend pagination mevcut). (2) Yasam dongusu yalniz place/cancel'dir; payment, shipping/
+  fulfillment, invoice/refund/return UI yoktur — `paymentStatus`/`fulfillmentStatus` rozet olarak
+  gosterilir ama UI'dan degistirilemez (gercek payment/shipping akisi yoktur). (3) Taslak sipariş
+  olusturma minimaldir: stoktaki varyant + adet + musteri e-postasi; customerId secimi, adres girisi
+  ve placed-order satir duzenleme yoktur. (4) Store context hala server-side platform-admin token
+  deseniyle cozulur (store-user auth TD-019 bekler).
+- Cozum onerisi: TODO-047 (storefront checkout/cart), TODO-048 (payment/shipping/fulfillment UI +
+  arama/filtre/pagination), TODO-049 (gelismis draft order creation UI) ve TD-019 (store-user auth).
+- Hedef faz: Faz 3+ / Faz 4
+
+## TD-030 Canli order smoke artiklari cleanup-smoke ile eslesmiyor
+
+- Durum: OPEN
+- Oncelik: LOW
+- Etki: F2G canli BFF smoke'u store-admin-web uzerinden gercek bir order olusturup place/cancel eder.
+  cleanup-smoke yalniz `smoke-`/`rev-`/`test-`/`f2a-smoke-`/`f2d-smoke-`/`f2f-smoke-` prefix'leriyle
+  baslayan orderNumber/customerEmail/cancelReason kayitlarini siler. F2G smoke'unda kullanilan
+  `smoke@example.local` / `F2G smoke cleanup` bu prefix'lere uymadigi icin tek bir CANCELLED order
+  (OS-000009) dev DB'de kaldi. Rezervasyonlari RELEASED oldugundan stok/seed etkisi yoktur ve
+  verify-seed gecer.
+- Cozum onerisi: Gelecek canli order smoke'larinda `smoke-` prefix'li customerEmail/cancelReason
+  kullanmak, veya cleanup-smoke'a F2G icin `f2g-smoke-` prefix'i eklemek; mevcut artik tek kayit
+  manuel silinebilir.
+- Hedef faz: Faz 2G takip

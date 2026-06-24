@@ -17,6 +17,13 @@ const apiClient = {
       variants: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
     },
     inventory: { list: vi.fn(), adjust: vi.fn() },
+    orders: {
+      list: vi.fn(),
+      create: vi.fn(),
+      get: vi.fn(),
+      place: vi.fn(),
+      cancel: vi.fn(),
+    },
   },
 };
 
@@ -336,6 +343,120 @@ describe("store-admin BFF — inventory proxy", () => {
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: { code: "INVALID_INVENTORY_ADJUSTMENT" } });
+  });
+});
+
+describe("store-admin BFF — orders proxy (F2G)", () => {
+  it("rejects the orders list without a session cookie", async () => {
+    const { GET } = await import("../app/api/orders/route.js");
+    const response = await GET(request("/api/orders"));
+    expect(response.status).toBe(401);
+    expect(apiClient.admin.orders.list).not.toHaveBeenCalled();
+  });
+
+  it("lists orders for the resolved store with the server-side token (storeId not from client)", async () => {
+    apiClient.admin.orders.list.mockResolvedValue({
+      data: [],
+      pagination: { limit: 50, offset: 0, total: 0 },
+    });
+    const { GET } = await import("../app/api/orders/route.js");
+    // Istemci storeId gondermeye calissa bile sunucu kendi bağlamini kullanir.
+    const response = await GET(
+      request("/api/orders?storeId=attacker-store", { headers: { cookie: SESSION } }),
+    );
+    expect(response.status).toBe(200);
+    expect(apiClient.admin.orders.list).toHaveBeenCalledWith("store-1", "platform-token");
+  });
+
+  it("proxies a single order detail through the dynamic route", async () => {
+    apiClient.admin.orders.get.mockResolvedValue({ id: "o1", orderNumber: "ORD-1" });
+    const { GET } = await import("../app/api/orders/[id]/route.js");
+    const response = await GET(request("/api/orders/o1", { headers: { cookie: SESSION } }), {
+      params: Promise.resolve({ id: "o1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(apiClient.admin.orders.get).toHaveBeenCalledWith("store-1", "o1", "platform-token");
+  });
+
+  it("rejects placing an order without a CSRF token before any upstream call", async () => {
+    const { POST } = await import("../app/api/orders/[id]/place/route.js");
+    const response = await POST(request("/api/orders/o1/place", jsonInit("POST", SESSION)), {
+      params: Promise.resolve({ id: "o1" }),
+    });
+    expect(response.status).toBe(403);
+    expect(apiClient.admin.stores.list).not.toHaveBeenCalled();
+    expect(apiClient.admin.orders.place).not.toHaveBeenCalled();
+  });
+
+  it("places an order with a matching CSRF cookie and header", async () => {
+    apiClient.admin.orders.place.mockResolvedValue({ id: "o1", status: "PLACED" });
+    const { POST } = await import("../app/api/orders/[id]/place/route.js");
+    const response = await POST(
+      request("/api/orders/o1/place", jsonInit("POST", SESSION + CSRF_COOKIE, undefined, true)),
+      { params: Promise.resolve({ id: "o1" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(apiClient.admin.orders.place).toHaveBeenCalledWith("store-1", "o1", "platform-token");
+  });
+
+  it("rejects cancelling an order without a CSRF token", async () => {
+    const { POST } = await import("../app/api/orders/[id]/cancel/route.js");
+    const response = await POST(
+      request("/api/orders/o1/cancel", jsonInit("POST", SESSION, { reason: "x" })),
+      { params: Promise.resolve({ id: "o1" }) },
+    );
+    expect(response.status).toBe(403);
+    expect(apiClient.admin.orders.cancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels an order with CSRF and forwards the reason to the api-client", async () => {
+    apiClient.admin.orders.cancel.mockResolvedValue({ id: "o1", status: "CANCELLED" });
+    const { POST } = await import("../app/api/orders/[id]/cancel/route.js");
+    const response = await POST(
+      request(
+        "/api/orders/o1/cancel",
+        jsonInit("POST", SESSION + CSRF_COOKIE, { reason: "Stok yok" }, true),
+      ),
+      { params: Promise.resolve({ id: "o1" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(apiClient.admin.orders.cancel).toHaveBeenCalledWith(
+      "store-1",
+      "o1",
+      { reason: "Stok yok" },
+      "platform-token",
+    );
+  });
+
+  it("creates a draft order with CSRF and never leaks the bearer token in the response", async () => {
+    apiClient.admin.orders.create.mockResolvedValue({ id: "o2", orderNumber: "ORD-2" });
+    const { POST } = await import("../app/api/orders/route.js");
+    const body = {
+      customerEmail: "buyer@example.local",
+      currency: "TRY",
+      lines: [{ variantId: "v1", quantity: 2 }],
+      addresses: [],
+    };
+    const response = await POST(
+      request("/api/orders", jsonInit("POST", SESSION + CSRF_COOKIE, body, true)),
+    );
+    const raw = await response.text();
+    expect(response.status).toBe(201);
+    expect(raw).not.toContain("platform-token");
+    expect(apiClient.admin.orders.create).toHaveBeenCalledWith("store-1", body, "platform-token");
+  });
+
+  it("maps an insufficient-stock ApiError on place to the gateway code and status", async () => {
+    apiClient.admin.orders.place.mockRejectedValue(
+      new MockApiError(409, "ORDER_INSUFFICIENT_STOCK"),
+    );
+    const { POST } = await import("../app/api/orders/[id]/place/route.js");
+    const response = await POST(
+      request("/api/orders/o1/place", jsonInit("POST", SESSION + CSRF_COOKIE, undefined, true)),
+      { params: Promise.resolve({ id: "o1" }) },
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "ORDER_INSUFFICIENT_STOCK" } });
   });
 });
 

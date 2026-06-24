@@ -99,10 +99,18 @@
 
 ### Faz 2G Store Admin Orders UI
 
-- Durum: PLANNED
-- Kapsam: F2C order list/detail, status/timeline, place/cancel operasyonlarini store-admin BFF ve UI
-  ekranlarina baglamak.
-- Kapsam disi: Storefront checkout, payment, shipping/fulfillment ve marketplace.
+- Durum: IMPLEMENTED_GATE_PENDING
+- Kapsam: F2C order list/detail/lifecycle store-admin BFF + UI ekranlarina baglandi. `/orders`
+  canli API'den listelenir; sipariş no, müşteri, toplam, order/payment/fulfillment durum rozetleri
+  ve kalem adedi gösterilir. Detay modal kalemleri, tutar özetini (subtotal/discount/shipping/tax/
+  total), adresleri, stok rezervasyonlarini ve sipariş geçmişini (events) gösterir. DRAFT sipariş
+  "Siparişi ver" (place), PLACED/CONFIRMED sipariş "İptal et" (cancel) ile yönetilir; CANCELLED/
+  FULFILLED siparişlerde aksiyon gizlenir. Lean "Yeni taslak sipariş" modali stoklu varyantlardan
+  kalem seçerek draft order oluşturur. Yeni BFF route'lari: `/api/orders`, `/api/orders/[id]`,
+  `/api/orders/[id]/place`, `/api/orders/[id]/cancel` (mutating'lerde CSRF zorunlu, store context
+  server-side, token client'a sizmaz). TR/EN order copy + lifecycle hata kodlari lokalize.
+- Kapsam disi: Storefront checkout/cart, payment provider, shipping/fulfillment implementasyonu,
+  invoice/refund/return, marketplace, placed-order satir düzenleme, e-posta bildirimi.
 
 ## Faz 3 Storefront + Theme Foundation
 

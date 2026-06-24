@@ -94,9 +94,19 @@
 - TODO-037: Faz 2F Store-admin Product Sales Model UI — F2D product sales model alanlarini store-admin
   urun formuna baglamak; sales mode, price visibility, CTA behavior ve tutarlilik hatalarini Turkce
   gostermek. (DONE — TR/EN paritesiyle; backend business/catalog/order logic degismedi.)
-- TODO-038: Faz 2G Store-admin Orders UI — sirada. F2C order list/detail, place/cancel durumlari ve
-  timeline icin BFF + ekran baglama; store-user auth gelene kadar mevcut server-side store context
-  deseniyle sinirli kalacak.
+- TODO-038: Faz 2G Store-admin Orders UI. (DONE — `/orders` canli API'ye baglandi; list status/payment/
+  fulfillment rozetleri, detay modal (lines/tutar/adres/rezervasyon/events), DRAFT place / PLACED
+  cancel, lean taslak sipariş olusturma, yeni BFF route'lari CSRF + server-side store context ile,
+  TR/EN order copy. Backend order/catalog logic degismedi.)
+- TODO-047: Faz 3 Storefront checkout/cart + public CTA davranisi — sirada. Storefront'ta sepet/cart
+  modeli, checkout akisi ve product sales model'e gore CTA render (sepete ekle / fiyat sor / randevu /
+  WhatsApp / katalog-only). (TODO-043 ile iliskili.)
+- TODO-048: Store-admin orders UI sonraki tur — payment/shipping/fulfillment UI, invoice/refund/return,
+  placed-order satir duzenleme ve sipariş arama/filtre/pagination (su an list pagination UI yok). Bu
+  faz disinda birakildi (TD-029).
+- TODO-049: Manual draft order creation UI ileri tur — F2G'de lean (inventory varyant secimli) create
+  modali eklendi; musteri secimi (customerId), adres girisi ve coklu kalem UX iyilestirmesi sonraya
+  birakildi.
 - TODO-039: Faz 4 payment — payment provider abstraction, authorization/capture, webhook/idempotency,
   refund durumlari ve `paymentStatus` lifecycle entegrasyonu (TD-025).
 - TODO-040: Product inquiry request model — `INQUIRY` urunleri icin tenant-scoped talep kaydi,

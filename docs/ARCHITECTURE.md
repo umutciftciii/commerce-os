@@ -25,12 +25,27 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   (bkz. ADR-017). Tum gorunur metin `packages/i18n`'den Turkce gelir.
 - `apps/store-admin-web`: Magaza yoneticisi paneli (Next.js App Router). Faz 2B'de canli gateway'e
   bagli: kabuk disi login ekrani, oturum guard'li `(app)` route group kabugu ve canli
-  dashboard/categories/products/variants/inventory ekranlari (orders, customers, marketplace, theme,
-  settings hala placeholder). Tarayici yalnizca ayni-origin BFF route handler'larini (`/api/auth/*`,
-  `/api/store/context`, `/api/catalog/*`, `/api/dashboard/summary`, `/api/health`) cagirir; bu
-  handler'lar `packages/api-client` ile gateway'e gider ve secili mağaza server-side cozulur
-  (bkz. ADR-023). Mutating route'lar CSRF korumalidir. Tum gorunur metin `packages/i18n`'den Turkce
-  gelir.
+  dashboard/categories/products/variants/inventory ekranlari; Faz 2G'de `orders` ekrani da canli
+  baglandi (customers, marketplace, theme, settings hala placeholder). Tarayici yalnizca ayni-origin
+  BFF route handler'larini (`/api/auth/*`, `/api/store/context`, `/api/catalog/*`, `/api/orders/*`,
+  `/api/dashboard/summary`, `/api/health`) cagirir; bu handler'lar `packages/api-client` ile gateway'e
+  gider ve secili mağaza server-side cozulur (bkz. ADR-023). Mutating route'lar CSRF korumalidir. Tum
+  gorunur metin `packages/i18n`'den TR/EN runtime switch ile gelir.
+
+### store-admin orders UI/BFF akisi (Faz 2G)
+
+`/orders` ekrani F2C order/reservation core'unu store-admin BFF uzerinden tuketir. Akis: tarayici
+`/api/orders` (GET list), `/api/orders/[id]` (GET detail), `/api/orders/[id]/place` (POST) ve
+`/api/orders/[id]/cancel` (POST) route handler'larini cagirir. Her handler `requireStoreContext` ile
+oturum token'ini ve hedef mağazayi SUNUCU tarafinda cozer (client `storeId` gondermez), sonra
+`packages/api-client` `admin.orders.*` helper'i ile gateway'in `/stores/:storeId/orders*` uclarina
+gider. GET route'lari CSRF istemez; place/cancel/create gibi mutating route'lar double-submit CSRF
+zorunlu kilar ve gateway hatasini `{ error: { code } }` zarfina indirger (bearer token yanit
+govdesine dusmez). UI list'te order/payment/fulfillment durum rozetleri, detay modal'da kalemler,
+tutar ozeti, adresler, stok rezervasyonlari ve order events timeline gosterir; DRAFT siparis place,
+PLACED/CONFIRMED siparis cancel edilir. Lean "yeni taslak siparis" modali inventory varyant
+listesinden kalem secerek `createOrder` cagirir. Backend order business logic'i degismez; UI yalniz
+lifecycle aksiyonlarini tetikler (payment/shipping yapmaz).
 - `apps/storefront-web`: Public magaza vitrini (Next.js App Router). Home, product listing, product
   detail, cart ve checkout placeholder sayfalari, tema-hazir layout ve `/api/health`. Multi-tenant
   store slug/domain cozumleyici henuz implement edilmedi; tek demo store render edilir.
