@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   SidebarNav,
   StatCard,
   Topbar,
@@ -69,6 +70,37 @@ describe("ui primitives", () => {
     expect(html).toContain("Platform yöneticisi");
     // İlk harf rozeti
     expect(html).toContain(">S<");
+  });
+});
+
+describe("modal · viewport-constrained scroll layout", () => {
+  it("renders a flex-column panel that stays within the viewport", () => {
+    const html = renderToStaticMarkup(
+      <Modal open onClose={() => {}} title="Ürünü düzenle" closeLabel="Vazgeç">
+        <p>Form içeriği</p>
+      </Modal>,
+    );
+    // Panel viewport yuksekligine gore sinirli ve dikey flex kolon olmali.
+    expect(html).toContain("max-h-[calc(100vh-2rem)]");
+    expect(html).toContain("flex-col");
+  });
+
+  it("makes the body scrollable so long forms and the footer stay reachable", () => {
+    const html = renderToStaticMarkup(
+      <Modal
+        open
+        onClose={() => {}}
+        title="Ürünü düzenle"
+        closeLabel="Vazgeç"
+        footer={<Button>Kaydet</Button>}
+      >
+        <p>Uzun form içeriği</p>
+      </Modal>,
+    );
+    // Govde kendi icinde kayar; footer aksiyonlari erisilebilir kalir.
+    expect(html).toContain("overflow-y-auto");
+    expect(html).toContain("Kaydet");
+    expect(html).toContain("Uzun form içeriği");
   });
 });
 
