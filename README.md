@@ -50,13 +50,14 @@ ile dil degistirilir:
 `apps/admin-web` is wired to the live API gateway (Faz 1B): platform admin login, session, and live
 stores/plans/system-health (see "Faz 1B admin-web" below). `apps/store-admin-web` is wired to the
 live catalog/inventory API (Faz 2B): login, server-side store context and live dashboard/categories/
-products/variants/inventory (see "Faz 2B store-admin-web" below). `storefront-web` remains a
+products/variants/inventory, plus the live orders screen (Faz 2G: list/detail/place/cancel) — see
+"Faz 2B store-admin-web" and "Siparişler (Faz 2G)" below. `storefront-web` remains a
 placeholder/empty state — no commerce business logic, no payment. Frontends talk to the backend only
 through the API gateway via `@commerce-os/api-client`; admin-web and store-admin-web do this
 server-side inside Next route handlers (BFF), the browser never calls the gateway directly.
 
 - `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
-- `apps/store-admin-web` — store manager panel: live dashboard, products, categories, variants, inventory (orders/customers/marketplace/theme/settings placeholder). `pnpm dev:store-admin` → `http://localhost:3002`
+- `apps/store-admin-web` — store manager panel: live dashboard, products, categories, variants, inventory, orders (customers/marketplace/theme/settings placeholder). `pnpm dev:store-admin` → `http://localhost:3002`
 - `apps/storefront-web` — public demo storefront (home, products, product detail, cart, checkout). `pnpm dev:storefront` → `http://localhost:3000`
 
 Each app exposes its own `/api/health` route handler:
@@ -419,6 +420,31 @@ stok Türkçe; client bundle taramasında token/secret yok.
 - Tüm yeni metinler `commerce_os_locale` cookie ile TR/EN runtime switch'e bağlıdır. Yeni alanlar BFF
   body pass-through ile gateway'e taşınır; UI herhangi bir inquiry/appointment kaydı yaratmaz,
   storefront CTA render etmez.
+
+### Siparişler (Faz 2G)
+
+`http://localhost:3002/orders` ekranı F2C order/reservation core'una canlı bağlıdır:
+
+- **Liste**: Sipariş No, Müşteri/e-posta, Toplam, **Sipariş durumu** (Taslak/Sipariş verildi/Onaylandı/
+  İptal edildi/Tamamlandı), **Ödeme durumu** (Ödenmedi/Yetkilendirildi/Ödendi/İade edildi),
+  **Karşılama durumu** (Gönderilmedi/Kısmi/Gönderildi/İptal edildi) rozetleri, kalem adedi ve işlemler.
+  Loading skeleton, hata + tekrar dene, boş durum ve **Yenile** aksiyonu vardır.
+- **Detay** (modal): durum rozetleri, müşteri/tarih bilgileri, tutar özeti (ara toplam, indirim, kargo,
+  vergi, genel toplam), sipariş kalemleri (SKU/başlık/varyant/adet/birim fiyat/kalem toplamı), varsa
+  teslimat/fatura adres kartları, stok rezervasyonları ve sipariş geçmişi (events). Uzun içerikte
+  modal gövdesi kendi içinde kayar (paylaşılan Modal scroll davranışı).
+- **Yaşam döngüsü**: DRAFT sipariş **Siparişi ver** (place) ile siparişe çevrilir (stok rezerve edilir);
+  PLACED/CONFIRMED sipariş **İptal et** (cancel) ile iptal edilir (rezervasyonlar serbest bırakılır);
+  CANCELLED/FULFILLED siparişlerde aksiyon gizlenir.
+- **Yeni taslak sipariş**: Stoktaki varyantlardan kalem seçilip müşteri e-postası ve adet girilerek
+  taslak oluşturulur; oluşturma sonrası detay açılır. (Müşteri/adres seçimi sonraki tura bırakıldı.)
+- Tüm metinler TR/EN runtime switch'e bağlıdır; hata kodları (örn. `ORDER_INSUFFICIENT_STOCK`)
+  lokalize gösterilir. İstekler ayni-origin BFF (`/api/orders*`) üzerinden gider; `storeId` server-side
+  çözülür, mutating route'lar CSRF korumalıdır ve bearer token istemciye sızmaz. UI payment/shipping
+  YAPMAZ — yalnızca order lifecycle aksiyonlarını tetikler.
+
+Hızlı doğrulama (giriş yaptıktan sonra): bir DRAFT sipariş oluştur → **Siparişi ver** → ilgili varyantın
+**Stok** ekranındaki kullanılabilir adedi düşer (rezerve artar) → **İptal et** → adet geri yükselir.
 
 ## Faz 2C order/reservation backend smoke
 

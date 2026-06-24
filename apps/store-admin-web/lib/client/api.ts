@@ -2,6 +2,10 @@ import type {
   InventoryAdjustRequest,
   InventoryAdjustmentResponse,
   InventoryListResponse,
+  Order,
+  OrderCancelRequest,
+  OrderCreateRequest,
+  OrderListResponse,
   PlatformMeResponse,
   PlatformUserContract,
   Product,
@@ -175,6 +179,19 @@ export const storeApi = {
   listInventory: () => call<InventoryListResponse>("/api/catalog/inventory"),
   adjustInventory: (variantId: string, input: InventoryAdjustRequest) =>
     mutatingCall<InventoryAdjustmentResponse>(`/api/catalog/inventory/${variantId}/adjust`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // Orders (F2G) — lifecycle aksiyonlari mutating; CSRF zorunlu.
+  listOrders: () => call<OrderListResponse>("/api/orders"),
+  getOrder: (orderId: string) => call<Order>(`/api/orders/${orderId}`),
+  createOrder: (input: OrderCreateRequest) =>
+    mutatingCall<Order>("/api/orders", { method: "POST", body: JSON.stringify(input) }),
+  placeOrder: (orderId: string) =>
+    mutatingCall<Order>(`/api/orders/${orderId}/place`, { method: "POST" }),
+  cancelOrder: (orderId: string, input: OrderCancelRequest = {}) =>
+    mutatingCall<Order>(`/api/orders/${orderId}/cancel`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

@@ -77,4 +77,51 @@ describe("storeAdmin Faz 2B copy", () => {
     expect(typeof en.errors.PRODUCT_REQUIRES_APPOINTMENT).toBe("string");
     expect(typeof en.errors.PRODUCT_CATALOG_ONLY).toBe("string");
   });
+
+  it("ships F2G orders screen copy and status labels in both locales", () => {
+    expect(tr.orders.newOrder).toBe("Yeni sipariş");
+    expect(tr.orders.placeAction).toBe("Siparişi ver");
+    expect(tr.orders.cancelAction).toBe("İptal et");
+    expect(typeof en.orders.newOrder).toBe("string");
+    expect(en.orders.placeAction).not.toBe(tr.orders.placeAction);
+
+    // Order status labels — iki dilde de tam parite.
+    expect(Object.keys(en.orders.statusLabels).sort()).toEqual(
+      Object.keys(tr.orders.statusLabels).sort(),
+    );
+    expect(tr.orders.statusLabels.DRAFT).toBe("Taslak");
+    expect(en.orders.statusLabels.DRAFT).toBe("Draft");
+    expect(tr.orders.statusLabels.FULFILLED).toBe("Tamamlandı");
+
+    // Payment + fulfillment label parity.
+    expect(Object.keys(en.orders.paymentLabels).sort()).toEqual(
+      Object.keys(tr.orders.paymentLabels).sort(),
+    );
+    expect(tr.orders.paymentLabels.PAID).toBe("Ödendi");
+    expect(en.orders.paymentLabels.PAID).toBe("Paid");
+    expect(Object.keys(en.orders.fulfillmentLabels).sort()).toEqual(
+      Object.keys(tr.orders.fulfillmentLabels).sort(),
+    );
+    expect(tr.orders.fulfillmentLabels.UNFULFILLED).toBe("Gönderilmedi");
+  });
+
+  it("maps F2G order lifecycle error codes in both locales", () => {
+    expect(tr.errors.ORDER_NOT_FOUND).toBe("Sipariş bulunamadı.");
+    expect(tr.errors.ORDER_INSUFFICIENT_STOCK).toBe(
+      "Yeterli stok yok. Sipariş için stok ayrılamadı.",
+    );
+    for (const code of [
+      "ORDER_INVALID_STATUS",
+      "ORDER_LINE_NOT_FOUND",
+      "ORDER_NUMBER_CONFLICT",
+      "ORDER_RESERVATION_FAILED",
+      "ORDER_ALREADY_PLACED",
+      "ORDER_ALREADY_CANCELLED",
+      "ORDER_MUTATION_NOT_ALLOWED",
+      "CUSTOMER_NOT_FOUND",
+    ] as const) {
+      expect(typeof tr.errors[code]).toBe("string");
+      expect(typeof en.errors[code]).toBe("string");
+    }
+  });
 });

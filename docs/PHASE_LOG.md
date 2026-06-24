@@ -1,5 +1,56 @@
 # Phase Log
 
+## Faz 2G Store Admin Orders UI
+
+- Tarih: 2026-06-25
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: F2C order/reservation core'u `apps/store-admin-web` sipariş ekranina baglandi. `/orders`
+  placeholder'dan canli listeye cevrildi; detay modal + yasam dongusu aksiyonlari + lean taslak
+  sipariş olusturma eklendi. Bu faz frontend/UI agirliklidir; backend order/catalog business logic
+  degistirilmedi.
+- Orders list: Sipariş No, Müşteri/e-posta, Toplam, order/payment/fulfillment durum rozetleri, kalem
+  adedi ve İşlemler kolonlari. Loading skeleton, lokalize error + retry, empty state, refresh ve
+  uygun durumlarda satir bazli Place/Cancel aksiyonlari.
+- Order detail: Paylasilan Modal (scroll fix) icinde sipariş no, customer email, durum rozetleri,
+  tutar özeti (subtotal/discount/shipping/tax/total/currency), order lines (sku/title/variantTitle/
+  quantity/unit price/line total), shipping/billing adres kartlari (varsa), stok rezervasyonlari
+  (varsa; yoksa kapsam notu) ve order events timeline. DRAFT icin "Siparişi ver", PLACED/CONFIRMED
+  icin "İptal et"; CANCELLED/FULFILLED icin bilgilendirme ve aksiyon gizleme.
+- Create draft (Secenek A, minimal): "Yeni taslak sipariş" modali stok (inventory) listesinden
+  varyant seçer (`SKU — başlık`), müşteri e-postasi + adet alir, çok kalem destekler ve
+  `createOrder` ile draft olusturup detayini açar. Stoklu varyant yoksa lokalize uyari + submit
+  kapali.
+- BFF: `/api/orders` (GET list, POST create), `/api/orders/[id]` (GET), `/api/orders/[id]/place`
+  (POST), `/api/orders/[id]/cancel` (POST). Store context server-side cozulur (client storeId
+  gondermez), GET'ler CSRF istemez, mutating route'larda double-submit CSRF zorunlu, hatalar
+  `{ error: { code } }` formatinda lokalize edilir, bearer token client'a sizmaz.
+- api-client/contracts: F2C'de eklenen `admin.orders` helper'lari ve order tipleri oldugu gibi
+  kullanildi; bu pakette degisiklik yapilmadi.
+- i18n: `storeAdmin.orders` namespace'i list/detail/form/lifecycle copy + order/payment/fulfillment/
+  reservation durum etiketleriyle genisletildi. Yeni hata kodlari: ORDER_NOT_FOUND,
+  ORDER_INVALID_STATUS, ORDER_LINE_NOT_FOUND, ORDER_NUMBER_CONFLICT, ORDER_INSUFFICIENT_STOCK,
+  ORDER_RESERVATION_FAILED, ORDER_ALREADY_PLACED, ORDER_ALREADY_CANCELLED, ORDER_MUTATION_NOT_ALLOWED,
+  CUSTOMER_NOT_FOUND, PRODUCT_ORDER_QUANTITY_OUT_OF_RANGE. TR/EN tam key paritesi korundu.
+- Testler: store-admin-web BFF testlerine orders proxy kapsamasi (401/CSRF 403/place+cancel CSRF ile
+  api-client'a gider/token sizmaz/storeId server-side); yeni `orders-ui.test.tsx` (loading/empty/error,
+  TR+EN durum rozetleri, DRAFT place / PLACED cancel / CANCELLED gizleme, lokalize aksiyon hatasi,
+  detay modal lines+tutar+events render, Modal scroll fix regresyonu, create draft). i18n parity
+  testlerine order copy + lifecycle hata kodu kapsamasi eklendi.
+- Gate: `pnpm db:generate`, `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm test` (turbo, 34/34
+  task) gecti.
+- Runtime: `docker compose up -d --build store-admin-web` (7 servis healthy), store-admin
+  `/api/health` 200. Canli BFF smoke (store-admin-web uzerinden): platform admin login 200; orders
+  list 200 (bos); draft order create 201 (OS-000009, total ₺2.598,00); place sonrasi PLACED +
+  reservation ACTIVE, available 15→13 (reserved stock artti); cancel sonrasi CANCELLED + reservation
+  RELEASED, available 13→15. Negatif: place CSRF'siz 403, list cookie'siz 401, detay govdesinde
+  bearer token 0 kez. `db:verify-seed` gecti.
+- Bilinen artik: Canli smoke tek bir CANCELLED order (OS-000009, customerEmail `smoke@example.local`)
+  birakir; cleanup-smoke prefix'leriyle (`smoke-`/`test-` vb.) eslesmedigi icin geri alinmadi.
+  Stok/seed etkisi yok (rezervasyon RELEASED, verify-seed gecer). TD'ye not dusuldu.
+- Kapsam disi: Backend order/catalog business logic, payment provider, shipping/fulfillment,
+  storefront checkout/cart, invoice/refund/return, marketplace, public order tracking, e-posta
+  bildirimi, placed-order ileri duzey duzenleme, multi-warehouse, production deploy.
+
 ## Faz 2D Product Sales Model Foundation
 
 - Tarih: 2026-06-24

@@ -46,6 +46,15 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   kolayligidir; tutarlilik/satin-alinabilirlik kurallarinin nihai otoritesi gateway'dir. UI hicbir
   inquiry/appointment/WhatsApp talep kaydi YARATMAZ ve storefront CTA render ETMEZ — bunlar sonraki
   faz/backend slice'larina aittir (TD-027).
+- store-admin orders UI siniri (Faz 2G, TD-029): UI yalnizca F2C order API'sini tuketir; backend order
+  business logic'i, fiyat snapshot'i, stok reservation/release ve order timeline uretimi tamamen
+  gateway/commerce domain'inde kalir. UI order lifecycle aksiyonlarini (DRAFT place, PLACED/CONFIRMED
+  cancel) ve lean taslak order create'i TETIKLER; ama PAYMENT veya SHIPPING/FULFILLMENT YAPMAZ —
+  `paymentStatus`/`fulfillmentStatus` yalnizca rozet olarak GOSTERILIR, UI'dan degistirilemez. UI
+  invoice/refund/return, placed-order satir duzenleme, marketplace sync veya public order tracking
+  YAPMAZ. Reservation davranisinin (place'te ayrilan, cancel'da serbest birakilan stok) otoritesi
+  backend'dir; UI yalnizca response/event uzerinden gosterir. storeId yine istemciden alinmaz, server
+  context kullanilir; mutating order route'lari CSRF korumalidir ve bearer token client'a sizmaz.
 - Yapmaz: Domain is kurali, DB erisimi, gercek auth/session logic'i (token uretme/dogrulama gateway'in
   isidir; BFF yalnizca cookie tasir/proxy yapar), odeme veya pazaryeri logic'i icermez. Servis
   tablolarina veya Prisma'ya dogrudan erismez. BFF route handler'lari gateway'i cagirmanin disinda
