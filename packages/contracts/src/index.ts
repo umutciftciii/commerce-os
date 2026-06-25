@@ -401,6 +401,70 @@ export const productVariantListResponseSchema = z.object({
   }),
 });
 
+/**
+ * Public storefront catalog DTO'lari (TD-032 / TODO-061).
+ *
+ * Bu semalar, auth gerektirmeyen public-read katalog uclarinin DONDURDUGU
+ * govdedir ve bir ALLOWLIST'tir: yalnizca vitrinde gosterilmesi guvenli olan
+ * alanlar tanimlidir. Ic/yonetim alanlari (storeId, status, type, seo*, audit
+ * zaman damgalari, tedarikci/maliyet/marj, ozel not, kategori id listesi vb.)
+ * bilincli olarak DISARIDA birakilmistir. Gateway, kayitlari bu semalarla
+ * `parse` ederek serialize eder; semada olmayan her alan otomatik dusturulur.
+ *
+ * Fiyat gizliligi: priceVisibility HIDDEN/ON_REQUEST oldugunda numerik fiyat
+ * (priceMinor/compareAtMinor) gateway tarafinda `null` yapilir; sayisal fiyat
+ * public govdede ASLA gorunmez (yalnizca etiket davranisina karar verecek
+ * priceVisibility bayragi doner).
+ */
+export const publicProductVariantSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  sku: skuSchema,
+  /** priceVisibility VISIBLE/STARTING_FROM degilse null (fiyat sizmaz). */
+  priceMinor: z.number().int().nonnegative().nullable(),
+  compareAtMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema,
+  /** Satilabilir stok adedi; bilinmiyorsa null. */
+  available: z.number().int().nullable(),
+  inStock: z.boolean(),
+});
+
+export const publicProductSchema = z.object({
+  id: z.string().min(1),
+  slug: slugSchema,
+  title: z.string().min(1),
+  brand: z.string().nullable(),
+  categoryLabel: z.string().nullable(),
+  salesMode: productSalesModeSchema,
+  priceVisibility: productPriceVisibilitySchema,
+  primaryAction: productPrimaryActionSchema,
+  purchasable: z.boolean(),
+  whatsappEnabled: z.boolean(),
+  inquiryEnabled: z.boolean(),
+  appointmentRequired: z.boolean(),
+  minOrderQuantity: z.number().int().positive(),
+  maxOrderQuantity: z.number().int().positive().nullable(),
+  variants: z.array(publicProductVariantSchema),
+});
+
+export const publicProductListResponseSchema = z.object({
+  data: z.array(publicProductSchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export const publicProductDetailSchema = publicProductSchema.extend({
+  description: z.string().nullable(),
+  callToActionLabel: z.string().nullable(),
+  whatsappMessageTemplate: z.string().nullable(),
+  inquiryFormTitle: z.string().nullable(),
+  appointmentNote: z.string().nullable(),
+  related: z.array(publicProductSchema),
+});
+
 export const productVariantCreateRequestSchema = z
   .object({
     title: z.string().min(1).max(220),
@@ -686,6 +750,10 @@ export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
 export type ProductUpdateRequest = z.infer<typeof productUpdateRequestSchema>;
 export type ProductVariant = z.infer<typeof productVariantSchema>;
 export type ProductVariantListResponse = z.infer<typeof productVariantListResponseSchema>;
+export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
+export type PublicProduct = z.infer<typeof publicProductSchema>;
+export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
+export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;
 export type ProductVariantCreateRequest = z.infer<typeof productVariantCreateRequestSchema>;
 export type ProductVariantUpdateRequest = z.infer<typeof productVariantUpdateRequestSchema>;
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;

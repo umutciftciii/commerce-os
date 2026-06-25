@@ -1,5 +1,48 @@
 # Phase Log
 
+## Faz 3A.1 Public Catalog Read Endpoint (TD-032 / TODO-061)
+
+- Tarih: 2026-06-25
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: F3A'da vitrin canli katalogu gecici platform-admin (yuksek yetkili) sunucu-tarafi token
+  resolver ile okuyordu — PROD BLOCKER (TD-032). Bu is, gateway'de AUTH GEREKTIRMEYEN, store-scoped,
+  salt-okunur public katalog ucu ekleyip vitrini token resolver'dan tamamen kopartir. Kapsam disi:
+  cart/checkout/payment/shipping, review/Q&A, media pipeline, DB migration, buyuk UI polish.
+- Gateway (`apps/api-gateway/src/server.ts`): iki yeni public uc (auth YOK, yalniz GET):
+  `GET /public/stores/:storeSlug/products` ve `GET /public/stores/:storeSlug/products/:productSlug`.
+  Store slug ile cozulur; store yok/ACTIVE degil -> guvenli 404; yalniz ACTIVE store + ACTIVE urun/
+  varyant doner. Govde `publicProduct*` ALLOWLIST semalariyla `parse` edilir (ic/yonetim alanlari
+  dusturulur). Fiyat gizliligi HIDDEN/ON_REQUEST'te numerik fiyat gateway'de null'lanir.
+- Kontratlar (`packages/contracts`): `publicProductVariantSchema`, `publicProductSchema`,
+  `publicProductListResponseSchema`, `publicProductDetailSchema` + tipleri eklendi; `packages/api-client`
+  bu tipleri (type-only) re-export eder.
+- Storefront (`apps/storefront-web`): katalog cozumleyici (`lib/server/catalog.ts`) artik public
+  uclari TOKEN'SIZ (`fetch`, Authorization yok) cagirir ve public DTO'yu mevcut vitrin gorunum
+  modellerine cevirir (sales-model CTA + para bicimlendirme korundu). Gecici token modulu
+  (`lib/server/api-token.ts`) silindi; `env.ts`'ten platform kimligi cikarildi; docker-compose ve
+  `.env.example`'dan `STOREFRONT_PLATFORM_EMAIL/PASSWORD` kaldirildi. Vitrin `createApiClient`/Bearer/
+  platformLogin KULLANMAZ. Sayfalar (`/`, `/products`, `/products/[handle]`) ve placeholder cart/
+  checkout davranisi degismedi.
+- Karar kaydi: ADR-030. Backend business logic, DB modeli ve mevcut admin kontratlari degismedi.
+
+### Dogrulananlar
+
+- Testler: gateway public katalog (9 yeni `it`: auth'suz list/detail 200, draft/inactive haric,
+  cross-store izolasyon, salesMode kontrat alanlari, HIDDEN/ON_REQUEST fiyat gizleme, admin/internal
+  alan yoklugu, store/inactive-store/product 404). Storefront resolver testi public `fetch` mock'una
+  yeniden yazildi (Authorization header yok, fiyat gizliligi sizmaz, no-store/unknown-handle/5xx).
+  Mevcut sales-model/product-card/listing/detail/locale testleri korundu.
+- Gate: `pnpm db:generate` + `pnpm build` (24/24) + `pnpm typecheck` (0) + `pnpm lint` (34/34) +
+  `pnpm test` (api-gateway 33, storefront 33 dahil tum task) + `git diff --check` temiz.
+- Docker smoke: 7 servis healthy. api-gateway `/health` 200; `/public/stores/demo-store/products` ve
+  `/.../demo-hoodie` auth'suz 200; bilinmeyen store/product 404; POST 404 (read-only). Storefront
+  `/` `/products` `/products/demo-hoodie` `/cart` `/checkout` 200; gecersiz handle graceful 200
+  (vitrin empty state). `/products` canli Demo Hoodie + ₺1.299 render. Gateway log: vitrin trafigi
+  YALNIZCA `/public/*`'a gider (platform-admin login/`/stores/:id/*` cagrisi yok). HTML ve `.next/
+  static` bundle'da token/Bearer/createApiClient/platformLogin/credential YOK; tek `SUPER_ADMIN`
+  esmesi paylasimli i18n rol-etiketidir (`packages/i18n`, bu degisiklikten bagimsiz, gizli deger degil).
+- Sonuc: TD-032 RESOLVED, public catalog read endpoint prod blocker cozuldu; F3B'ye gecilebilir.
+
 ## Faz 2I Store-admin Products & Orders Premium UI Polish
 
 - Tarih: 2026-06-25

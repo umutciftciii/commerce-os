@@ -1,11 +1,11 @@
-import {
-  ApiError,
-  createApiClient,
-  type Product,
-  type ProductCategory,
-  type ProductVariant,
+import type {
+  PublicProduct,
+  PublicProductDetail,
+  PublicProductListResponse,
+  PublicProductVariant,
 } from "@commerce-os/api-client";
 import type {
+  PriceDisplayMode,
   StorefrontPrice,
   StorefrontProductDetail,
   StorefrontProductSummary,
@@ -14,157 +14,141 @@ import type {
 import { deriveProductCommerceView } from "../sales-model";
 import { formatLowest, formatMinor, formatPriceRange } from "../money";
 import { demoStoreSlug } from "./env";
-import { getCatalogToken, invalidateCatalogToken } from "./api-token";
 
 /**
- * Vitrin katalog cozumleyici (F3A). Sunucu-tarafi token ile gateway'in
- * platform-admin korumali katalog uclarini cagirir; ham urun/varyant/stok
- * verisini saf vitrin gorunum modellerine (catalog-types) cevirir. Token bu
- * katmandan disari (istemciye) cikmaz. Yalnizca ACTIVE urun/varyantlar
- * gosterilir; vitrin yalnizca okuma yapar.
+ * Vitrin katalog cozumleyici (TD-032 / F3A.1). Gateway'in AUTH GEREKTIRMEYEN
+ * public-read katalog uclarini ({@link https} `/public/stores/:slug/...`)
+ * token'siz cagirir ve donen public-safe DTO'yu saf vitrin gorunum modellerine
+ * (catalog-types) cevirir.
+ *
+ * F3A'daki gecici platform-admin (SUPER_ADMIN) sunucu-tarafi token resolver'i
+ * KALDIRILDI: vitrin artik hicbir yuksek-yetkili kimlik tasimaz, login yapmaz
+ * ve Bearer token kullanmaz. Numerik fiyat gizliligi gateway'de uygulanir
+ * (HIDDEN/ON_REQUEST'te priceMinor null gelir); bu katman yine de yalnizca
+ * gorunur fiyat etiketlerini turetir.
  */
 
 export type CatalogFailure = "no-store" | "error";
 
 export type CatalogResult<T> = { ok: true; data: T } | { ok: false; reason: CatalogFailure };
 
-export interface StoreContext {
-  id: string;
-  name: string;
-  slug: string;
+/** Gateway taban URL'i (yalnizca sunucu env'i; client'a sizmaz, NEXT_PUBLIC degil). */
+function gatewayBaseUrl(): string {
+  return (process.env.API_GATEWAY_URL ?? "http://localhost:4000").replace(/\/+$/, "");
 }
 
-/**
- * Token ile bir api cagrisi yapar; 401 (oturum gecersiz) durumunda token'i
- * tazeleyip bir kez daha dener. Token argumana enjekte edilir, donen veriye
- * dahil edilmez.
- */
-async function withToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
-  const token = await getCatalogToken();
-  try {
-    return await fn(token);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      invalidateCatalogToken();
-      const fresh = await getCatalogToken();
-      return fn(fresh);
-    }
-    throw error;
+type FetchOutcome<T> = { ok: true; data: T } | { ok: false; status: number };
+
+/** Public katalog GET cagrisi. Hicbir auth header gondermez; her istekte taze. */
+async function getPublic<T>(path: string): Promise<FetchOutcome<T>> {
+  const response = await fetch(`${gatewayBaseUrl()}${path}`, { cache: "no-store" });
+  if (!response.ok) {
+    return { ok: false, status: response.status };
   }
+  return { ok: true, data: (await response.json()) as T };
 }
 
-/** Demo/hedef mağazayi slug ile (yoksa listenin ilki) sunucu-tarafinda cozer. */
-export async function resolveStoreContext(): Promise<StoreContext | null> {
-  const slug = demoStoreSlug();
-  const result = await withToken((token) => createApiClient().admin.stores.list(token));
-  const stores = result.data.filter((store) => store.status === "ACTIVE");
-  if (stores.length === 0) return null;
-  const preferred = stores.find((store) => store.slug === slug) ?? stores[0];
-  return { id: preferred.id, name: preferred.name, slug: preferred.slug };
-}
-
-function activeVariantPrices(variants: ProductVariant[]) {
+/** Yalnizca numerik fiyati gorunur (null olmayan) varyantlarin fiyat listesi. */
+function visiblePrices(variants: PublicProductVariant[]) {
   return variants
-    .filter((variant) => variant.status === "ACTIVE")
-    .map((variant) => ({ priceMinor: variant.priceMinor, currency: variant.currency }));
+    .filter((variant) => variant.priceMinor !== null)
+    .map((variant) => ({ priceMinor: variant.priceMinor as number, currency: variant.currency }));
 }
 
-function buildPrice(product: Product, variants: ProductVariant[]): StorefrontPrice {
-  const commerce = deriveProductCommerceView(product);
-  const active = variants.filter((variant) => variant.status === "ACTIVE");
-  const prices = activeVariantPrices(variants);
+function buildPrice(priceMode: PriceDisplayMode, variants: PublicProductVariant[]): StorefrontPrice {
+  const prices = visiblePrices(variants);
 
   let amountLabel: string | null = null;
-  if (commerce.priceMode === "amount") amountLabel = formatPriceRange(prices);
-  else if (commerce.priceMode === "startingFrom") amountLabel = formatLowest(prices);
+  if (priceMode === "amount") amountLabel = formatPriceRange(prices);
+  else if (priceMode === "startingFrom") amountLabel = formatLowest(prices);
 
   // Indirim: en dusuk fiyatli varyantta gecerli bir compareAt varsa goster.
   let compareAtLabel: string | null = null;
-  if (commerce.priceMode === "amount" && active.length > 0) {
-    const cheapest = active.reduce((min, v) => (v.priceMinor < min.priceMinor ? v : min), active[0]);
-    if (cheapest.compareAtMinor !== null && cheapest.compareAtMinor > cheapest.priceMinor) {
-      compareAtLabel = formatMinor(cheapest.compareAtMinor, cheapest.currency);
+  if (priceMode === "amount") {
+    const priced = variants.filter((variant) => variant.priceMinor !== null);
+    if (priced.length > 0) {
+      const cheapest = priced.reduce(
+        (min, variant) => ((variant.priceMinor as number) < (min.priceMinor as number) ? variant : min),
+        priced[0],
+      );
+      if (
+        cheapest.compareAtMinor !== null &&
+        cheapest.compareAtMinor > (cheapest.priceMinor as number)
+      ) {
+        compareAtLabel = formatMinor(cheapest.compareAtMinor, cheapest.currency);
+      }
     }
   }
 
-  return { mode: commerce.priceMode, amountLabel, compareAtLabel };
+  return { mode: priceMode, amountLabel, compareAtLabel };
 }
 
-function categoryLabel(product: Product, categories: Map<string, ProductCategory>): string | null {
-  const first = product.categoryIds.find((id) => categories.has(id));
-  return first ? (categories.get(first)?.name ?? null) : null;
-}
-
-function buildSummary(
-  product: Product,
-  variants: ProductVariant[],
-  categories: Map<string, ProductCategory>,
-): StorefrontProductSummary {
-  const price = buildPrice(product, variants);
+/** Public urun DTO'sunu liste/kart ozet gorunumune cevirir. */
+function toSummary(product: PublicProduct): StorefrontProductSummary {
+  const commerce = deriveProductCommerceView(product);
+  const price = buildPrice(commerce.priceMode, product.variants);
   return {
     handle: product.slug,
     title: product.title,
-    brand: product.brand ?? product.vendor ?? null,
-    categoryLabel: categoryLabel(product, categories),
+    brand: product.brand,
+    categoryLabel: product.categoryLabel,
     price,
-    commerce: deriveProductCommerceView(product),
+    commerce,
     badgeKind: price.compareAtLabel ? "discount" : null,
   };
 }
 
-async function loadCategories(storeId: string): Promise<Map<string, ProductCategory>> {
-  const result = await withToken((token) =>
-    createApiClient().admin.categories.list(storeId, token),
-  );
-  return new Map(result.data.map((category) => [category.id, category]));
+function toVariantView(variant: PublicProductVariant): StorefrontVariantView {
+  const priceVisible = variant.priceMinor !== null;
+  return {
+    id: variant.id,
+    title: variant.title,
+    sku: variant.sku,
+    priceLabel: priceVisible ? formatMinor(variant.priceMinor as number, variant.currency) : null,
+    compareAtLabel:
+      priceVisible &&
+      variant.compareAtMinor !== null &&
+      variant.compareAtMinor > (variant.priceMinor as number)
+        ? formatMinor(variant.compareAtMinor, variant.currency)
+        : null,
+    available: variant.available,
+    inStock: variant.inStock,
+  };
 }
 
-async function loadActiveProducts(storeId: string): Promise<Product[]> {
-  const result = await withToken((token) => createApiClient().admin.products.list(storeId, token));
-  return result.data.filter((product) => product.status === "ACTIVE");
+/** Public detay DTO'sunu tam vitrin detay gorunumune cevirir. */
+function toDetail(detail: PublicProductDetail): StorefrontProductDetail {
+  const summary = toSummary(detail);
+  const variants = detail.variants.map(toVariantView);
+  return {
+    ...summary,
+    description: detail.description,
+    sku: variants[0]?.sku ?? null,
+    variants,
+    callToActionLabel: detail.callToActionLabel,
+    whatsappMessageTemplate: detail.whatsappMessageTemplate,
+    inquiryFormTitle: detail.inquiryFormTitle,
+    appointmentNote: detail.appointmentNote,
+    related: detail.related.map(toSummary),
+  };
 }
 
-async function loadVariants(storeId: string, productId: string): Promise<ProductVariant[]> {
-  const result = await withToken((token) =>
-    createApiClient().admin.products.variants.list(storeId, productId, token),
-  );
-  return result.data;
-}
-
-async function loadInventoryMap(storeId: string): Promise<Map<string, number>> {
-  const result = await withToken((token) => createApiClient().admin.inventory.list(storeId, token));
-  return new Map(result.data.map((item) => [item.variantId, item.quantityAvailable]));
-}
-
-/** Bir urun kumesini varyantlariyla ozet gorunume cevirir (fiyatli kartlar). */
-async function summarize(
-  storeId: string,
-  products: Product[],
-  categories: Map<string, ProductCategory>,
-): Promise<StorefrontProductSummary[]> {
-  return Promise.all(
-    products.map(async (product) =>
-      buildSummary(product, await loadVariants(storeId, product.id), categories),
-    ),
-  );
-}
-
-/** Vitrin liste sayfasi: tum ACTIVE urunlerin ozet gorunumu. */
+/** Vitrin liste sayfasi: tum yayinlanabilir urunlerin ozet gorunumu. */
 export async function getStorefrontListing(): Promise<CatalogResult<StorefrontProductSummary[]>> {
   try {
-    const store = await resolveStoreContext();
-    if (!store) return { ok: false, reason: "no-store" };
-    const [products, categories] = await Promise.all([
-      loadActiveProducts(store.id),
-      loadCategories(store.id),
-    ]);
-    return { ok: true, data: await summarize(store.id, products, categories) };
+    const result = await getPublic<PublicProductListResponse>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/products`,
+    );
+    if (!result.ok) {
+      return { ok: false, reason: result.status === 404 ? "no-store" : "error" };
+    }
+    return { ok: true, data: result.data.data.map(toSummary) };
   } catch {
     return { ok: false, reason: "error" };
   }
 }
 
-/** Ana sayfa one cikan urunler (ilk N ACTIVE urun). */
+/** Ana sayfa one cikan urunler (ilk N urun). */
 export async function getFeaturedProducts(
   limit: number,
 ): Promise<CatalogResult<StorefrontProductSummary[]>> {
@@ -173,68 +157,22 @@ export async function getFeaturedProducts(
   return { ok: true, data: listing.data.slice(0, limit) };
 }
 
-function buildVariantViews(
-  variants: ProductVariant[],
-  priceVisible: boolean,
-  inventory: Map<string, number>,
-): StorefrontVariantView[] {
-  return variants
-    .filter((variant) => variant.status === "ACTIVE")
-    .map((variant) => {
-      const available = inventory.has(variant.id) ? inventory.get(variant.id)! : null;
-      return {
-        id: variant.id,
-        title: variant.title,
-        sku: variant.sku,
-        priceLabel: priceVisible ? formatMinor(variant.priceMinor, variant.currency) : null,
-        compareAtLabel:
-          priceVisible && variant.compareAtMinor !== null && variant.compareAtMinor > variant.priceMinor
-            ? formatMinor(variant.compareAtMinor, variant.currency)
-            : null,
-        available,
-        // Stok bilinmiyorsa (null) urunu yanlislikla tukenmis gostermeyiz.
-        inStock: available === null ? true : available > 0,
-      };
-    });
-}
-
-/** Urun detayi: slug ile cozulur; varyant/stok/benzer urunlerle zenginlestirilir. */
+/** Urun detayi: slug ile public detay ucundan cozulur. */
 export async function getStorefrontProductByHandle(
   handle: string,
 ): Promise<CatalogResult<StorefrontProductDetail | null>> {
   try {
-    const store = await resolveStoreContext();
-    if (!store) return { ok: false, reason: "no-store" };
-    const [products, categories, inventory] = await Promise.all([
-      loadActiveProducts(store.id),
-      loadCategories(store.id),
-      loadInventoryMap(store.id),
-    ]);
-    const product = products.find((item) => item.slug === handle);
-    if (!product) return { ok: true, data: null };
-
-    const variants = await loadVariants(store.id, product.id);
-    const summary = buildSummary(product, variants, categories);
-    const priceVisible = summary.commerce.priceMode === "amount" || summary.commerce.priceMode === "startingFrom";
-    const variantViews = buildVariantViews(variants, priceVisible, inventory);
-    const related = await summarize(
-      store.id,
-      products.filter((item) => item.id !== product.id).slice(0, 4),
-      categories,
+    const result = await getPublic<PublicProductDetail>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/products/${encodeURIComponent(handle)}`,
     );
-
-    const detail: StorefrontProductDetail = {
-      ...summary,
-      description: product.description ?? null,
-      sku: variantViews[0]?.sku ?? null,
-      variants: variantViews,
-      callToActionLabel: product.callToActionLabel ?? null,
-      whatsappMessageTemplate: product.whatsappMessageTemplate ?? null,
-      inquiryFormTitle: product.inquiryFormTitle ?? null,
-      appointmentNote: product.appointmentNote ?? null,
-      related,
-    };
-    return { ok: true, data: detail };
+    if (!result.ok) {
+      // Store yok -> no-store; urun yok -> graceful bos durum (404 -> data: null).
+      if (result.status === 404) {
+        return { ok: true, data: null };
+      }
+      return { ok: false, reason: "error" };
+    }
+    return { ok: true, data: toDetail(result.data) };
   } catch {
     return { ok: false, reason: "error" };
   }

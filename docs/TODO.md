@@ -156,5 +156,8 @@
   ve "birlikte alinanlar" oneri motoru.
 - TODO-061: Gateway public-read katalog ucu — auth gerektirmeyen, store-scoped, yalniz ACTIVE/yayinda
   urun donen public katalog uclari; storefront resolver'in platform-admin token'i birakmasi (TD-032).
+  (DONE — F3A.1: `GET /public/stores/:storeSlug/products` + `/:productSlug`, `publicProduct*` allowlist
+  DTO, fiyat gizliligi gateway'de uygulanir; vitrin token'siz okur, platform-admin resolver kaldirildi;
+  TD-032 RESOLVED, ADR-030)
 - TODO-062: Storefront medya/gorsel pipeline — gercek urun gorseli yukleme/CDN ve detay galeri
   zoom/lightbox/video (F3A'da galeri placeholder).

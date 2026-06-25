@@ -451,3 +451,34 @@
   cozumdur — kalici hedef gateway'de auth gerektirmeyen public-read katalog ucudur (TD-032).
 - Sonuc: F3A'da home/listing/detail canli veriye baglandi; cart/checkout musteri-dostu placeholder
   olarak kaldi (gercek akis F3B). Backend business logic, DB modeli ve API kontratlari degismedi.
+
+## ADR-030 Gateway public-read katalog ucu + storefront token resolver kaldirildi
+
+- Durum: ACCEPTED
+- Baglam: ADR-029'da public vitrin, gateway'de auth gerektirmeyen bir katalog ucu olmadigindan
+  GECICI olarak sunucu-tarafinda platform-admin kimligiyle oturum acip token'i sunucu belleginde
+  tutuyordu (TD-032, PROD BLOCKER). Token istemciye sizmasa da public bir uygulamanin yuksek-yetkili
+  bir kimlik tasimasi asiri yetkiydi ve vitrin uretime acilamiyordu.
+- Karar 1 — Public-read katalog ucu: Gateway'e auth GEREKTIRMEYEN, store-scoped, salt-okunur iki uc
+  eklendi: `GET /public/stores/:storeSlug/products` ve `GET /public/stores/:storeSlug/products/:productSlug`.
+  Yalnizca GET; mutation ucu yoktur. Store slug ile cozulur; store yok ya da ACTIVE degilse guvenli
+  404 doner (cross-store/inactive sizinti yok). Yalnizca ACTIVE store + ACTIVE urun/varyant gosterilir;
+  draft/archived urun donmez.
+- Karar 2 — Allowlist DTO (ic alan sizdirmama): Govde, ic DB modeli yerine `packages/contracts`
+  icindeki `publicProduct*` (publicProductSchema/publicProductVariantSchema/publicProductDetailSchema)
+  semalariyla `parse` edilerek uretilir. Bu semalar bir ALLOWLIST'tir: yalnizca vitrine uygun alanlar
+  tanimlidir; storeId, status, type, vendor, seoTitle/seoDescription, categoryIds, audit zaman damgalari
+  ve maliyet/tedarikci/ozel-not gibi alanlar bilincli olarak DISARIDA birakilir (zod bilinmeyen anahtari
+  dusturur).
+- Karar 3 — Fiyat gizliligi gateway'de uygulanir: priceVisibility HIDDEN/ON_REQUEST oldugunda numerik
+  fiyat (priceMinor/compareAtMinor) gateway tarafinda `null` yapilir; sayisal fiyat public govdeye
+  HIC girmez. Vitrin yalnizca gorunur etiket davranisina priceVisibility ile karar verir (F2D/F3A
+  satis-modeli davranisi korunur). Stok durumu (inStock + adet) public kabul edilir.
+- Karar 4 — Storefront token resolver kaldirildi: `apps/storefront-web` katalog cozumleyici artik bu
+  public uclari TOKEN'SIZ (`fetch`, Authorization header yok) cagirir. Gecici platform-admin login/
+  token modulu (`lib/server/api-token.ts`) ve kimlik bilgileri env'leri (`STOREFRONT_PLATFORM_EMAIL/
+  PASSWORD`) tamamen silindi; vitrin `createApiClient`/Bearer/platformLogin KULLANMAZ. Tip guvenligi
+  icin yalnizca `import type` ile public DTO tipleri alinir.
+- Sonuc: TD-032 RESOLVED, prod blocker kalkti. Docker smoke: vitrin trafigi yalnizca `/public/*`'a
+  gider; HTML ve `.next/static` bundle'da token/secret/credential YOK. DB modeli ve mevcut admin
+  kontratlari degismedi (yalniz yeni public read DTO/uc eklendi).

@@ -55,9 +55,11 @@ products/variants/inventory, plus the live orders screen (Faz 2G: list/detail/pl
 catalog (Faz 3A): the public home/products/product-detail pages render real products/variants/stock
 and switch CTA + price behaviour by the product sales model (ONLINE → add to cart, INQUIRY → request
 price, APPOINTMENT → book, WHATSAPP, CATALOG_ONLY → info); cart/checkout stay as customer-friendly
-placeholders (no real cart/payment yet). Because the gateway has no public catalog endpoint yet, the
-storefront resolves catalog data **server-side** with a platform-admin login whose token never
-reaches the client (temporary — see TD-032). Frontends talk to the backend only through the API
+placeholders (no real cart/payment yet). The gateway exposes **auth-free, store-scoped, read-only**
+public catalog endpoints (`GET /public/stores/:storeSlug/products[/:productSlug]`) that serialize an
+allowlist DTO (no internal fields; numeric price hidden when priceVisibility is HIDDEN/ON_REQUEST);
+the storefront calls them **without any token** — the former temporary platform-admin resolver was
+removed (TD-032 resolved — see ADR-030). Frontends talk to the backend only through the API
 gateway via `@commerce-os/api-client`; admin-web and store-admin-web do this server-side inside Next
 route handlers (BFF), and storefront-web resolves reads inside server components — the browser never
 calls the gateway directly.
@@ -137,9 +139,9 @@ Frontend web app servisleri (Next.js dev runtime, backend ile aynı `node.Docker
 Üç frontend app de aynı imaj + `pnpm --filter <app> dev` target'ı ile çalışır; her birinin
 kendi `/api/health` liveness endpoint'i compose healthcheck olarak kullanılır. `admin-web` canlı
 API gateway'e, `store-admin-web` ise Faz 2B'den beri canlı catalog/inventory API'sine BFF deseniyle
-(ADR-023) bağlıdır. `storefront-web` Faz 3A'dan beri canlı kataloğa sunucu-tarafı resolver ile
-bağlıdır (ADR-029); platform-admin kimliğiyle SUNUCUDA oturum açar, token istemciye sızmaz (geçici
-çözüm, public-read ucu için bkz. TD-032).
+(ADR-023) bağlıdır. `storefront-web` Faz 3A.1'den beri canlı kataloğu gateway'in auth gerektirmeyen
+public-read uçlarından (`/public/stores/:slug/...`) TOKEN'SIZ okur (ADR-030); F3A'daki geçici
+platform-admin token resolver kaldırıldı (TD-032 çözüldü).
 
 ### Frontend env ayrımı (host vs compose)
 

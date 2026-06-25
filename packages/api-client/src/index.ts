@@ -82,6 +82,10 @@ export type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  PublicProduct,
+  PublicProductVariant,
+  PublicProductListResponse,
+  PublicProductDetail,
   PlatformUserContract,
 } from "@commerce-os/contracts";
 

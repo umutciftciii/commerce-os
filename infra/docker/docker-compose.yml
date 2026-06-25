@@ -139,10 +139,10 @@ services:
       retries: 30
       start_period: 40s
 
-  # Genel storefront demo. F3A'dan beri canli katalog API'sine gateway uzerinden
-  # sunucu-tarafi resolver ile baglidir. Platform-admin kimligiyle SUNUCUDA
-  # oturum acar; token istemciye sizmaz (cookie yok). Kalici cozum gateway'de
-  # public-read katalog ucudur (bkz. docs/TECHNICAL_DEBT.md).
+  # Genel storefront demo. F3A.1'den (TD-032) beri canli katalog verisini
+  # gateway'in AUTH GEREKTIRMEYEN public-read uclarindan (`/public/stores/...`)
+  # token'siz okur. Platform-admin login/token resolver KALDIRILDI; vitrin
+  # hicbir yuksek-yetkili kimlik tasimaz.
   storefront-web:
     restart: unless-stopped
     build:
@@ -154,8 +154,6 @@ services:
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
       STOREFRONT_DEMO_STORE_SLUG: demo-store
-      STOREFRONT_PLATFORM_EMAIL: platform-admin@example.local
-      STOREFRONT_PLATFORM_PASSWORD: local-admin-password
     depends_on:
       api-gateway:
         condition: service_healthy

@@ -1,24 +1,12 @@
 /**
  * Vitrin sunucu-tarafi yapilandirmasi. Bu modul YALNIZCA sunucuda calisir;
  * icindeki hicbir deger NEXT_PUBLIC_ ile baslamaz, dolayisiyla client bundle'a
- * girmez. Demo asamasinda gateway'de public katalog ucu olmadigindan vitrin,
- * platform-admin kimligiyle sunucu-tarafinda oturum acar (bkz.
- * docs/TECHNICAL_DEBT.md — F3A gecici resolver). Kimlik bilgileri ve token
- * istemciye asla sizmaz.
+ * girmez. Vitrin, katalog verisini gateway'in AUTH GEREKTIRMEYEN public-read
+ * uclarindan okur (TD-032 / TODO-061); herhangi bir platform-admin kimligi,
+ * login ya da token KULLANMAZ.
  */
 
-/** Cozulecek demo mağaza slug'i (istemciden alinmaz). */
+/** Cozulecek demo mağaza slug'i (istemciden alinmaz; gateway store'u slug ile cozer). */
 export function demoStoreSlug(): string {
   return process.env.STOREFRONT_DEMO_STORE_SLUG ?? "demo-store";
-}
-
-/**
- * Vitrin sunucu kimligi. Seed edilen demo platform admin'e duser; uretimde
- * dusuk yetkili, public-read amacli bir kimlikle degistirilmelidir (TODO/TD).
- */
-export function storefrontPlatformCredentials(): { email: string; password: string } {
-  return {
-    email: process.env.STOREFRONT_PLATFORM_EMAIL ?? "platform-admin@example.local",
-    password: process.env.STOREFRONT_PLATFORM_PASSWORD ?? "local-admin-password",
-  };
 }
