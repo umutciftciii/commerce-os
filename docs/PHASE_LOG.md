@@ -913,3 +913,90 @@ dokumanlarla sinirli tutuldu.
   kullanir (TD-032). Kalici cozum: gateway'de auth gerektirmeyen public-read katalog ucu.
 - Gercek sepet/checkout/payment/shipping yok (F3B); review/Q&A/seller-rating modeli, recommendation
   engine, login-gated fiyat (priceVisibility LOGIN_REQUIRED kontratta yok) sonraki fazlara birakildi.
+
+## Faz 3B.1 Storefront Cart + Checkout Order Foundation
+
+### Yapilanlar
+
+- Cart persistence: Imzali (HMAC-SHA256) httpOnly cookie cart (`commerce_os_cart`). Cookie YALNIZCA
+  `{variantId, quantity}` referansi tutar; fiyat/baslik/SKU/salesMode/stok cookie'de YOK. Saf token
+  modulu (`lib/cart-token.ts`: encode/decode/imza + sanitize/upsert/remove/add) + sunucu-yalniz cookie
+  katmani (`lib/server/cart-cookie.ts`). Kurcalanmis/yanlis-imzali cookie bos sepete duser. Mutasyon
+  yalniz Server Action'larda; `STOREFRONT_CART_SECRET` server-only (NEXT_PUBLIC degil).
+- Gateway public uclar (auth YOK, store-scoped): `POST /public/stores/:slug/cart` (sepet referansini
+  sunucu-otoriter cozer → satir bazli fiyat/stok/uygunluk + subtotal/itemCount/checkoutReady) ve
+  `POST /public/stores/:slug/checkout` (createOrder DRAFT → placeOrder rezervasyon → PLACED/UNPAID).
+  Cozumleme mevcut katalog/stok loader'larini kullanir (yeni DB metodu yok); cross-store/cozulemeyen
+  varyant index'te olmadigindan dusurulur (stale reconcile + tenant izolasyonu).
+- Guvenlik kapilari: Yalniz `ONLINE` + `purchasable` + gorunur fiyatli varyant sepete/siparise duser.
+  CATALOG_ONLY/INQUIRY/APPOINTMENT/WHATSAPP ve HIDDEN/ON_REQUEST → `UNAVAILABLE` (fiyat 0, sizmaz),
+  checkout engellenir. Stok yetersiz → `OUT_OF_STOCK`; adet kisilirsa → `QUANTITY_ADJUSTED`. Istemciden
+  gelen price/title/sku/salesMode KABUL EDILMEZ (zod allowlist dusturur); order aninda her sey sunucuda
+  yeniden hesaplanir. Allowlist DTO'lar (`publicCart*`, `publicOrderConfirmation*`) ic alan (storeId/
+  customerId/reservation/event/adres PII) dondurmez.
+- Payment temsili (ADR-031): gercek odeme YOK. Basarili checkout `status=PLACED`, `paymentStatus=UNPAID`
+  (odeme bekliyor), `fulfillmentStatus=UNFULFILLED`. F3B.2 provider-ready contract icin TODO-063.
+- Storefront UI: `/cart` (gercek satirlar, adet +/−, kaldir, subtotal/sayac, empty/error state,
+  stale reconcile bildirimi, uygunsuz satir uyarisi, checkout CTA) ve `/checkout` (iletisim + teslimat
+  formu, sunucu+gateway validasyon, payment placeholder, useActionState ile order olusturma, basari
+  onay paneli, empty/error state). BuyBox ADD_TO_CART/BUY_NOW artik cookie sepete ekleyip /cart veya
+  /checkout'a yonlendirir. Nav rozeti gercek sepet adedini gosterir (cookie'den, gateway cagrisi yok).
+- i18n: `cart`/`checkout` namespace'leri genisletildi (placeholder kaldirildi); TR kaynak + EN ayna,
+  tam path paritesi korundu (i18n parite testi gecer). Demo-disi operasyon vaadi eklenmedi (kargo demo
+  akista hesaplanmaz notu).
+- Kontratlar: `packages/contracts`'a `publicCart*` + `publicCheckout*` + `publicOrderConfirmation*`
+  sema/tipleri; `packages/api-client` re-export. DB modeli/migration DEGISMEDI.
+
+### Dogrulananlar
+
+- Testler: gateway `health.test.ts`'e 15 yeni cart/checkout testi (ONLINE sepete eklenir; 4 ONLINE-disi
+  mod UNAVAILABLE + checkout 409; HIDDEN/ON_REQUEST fiyat sizmaz; client price/title manipulasyonu yok
+  sayilir; stok clamp QUANTITY_ADJUSTED; sifir stok OUT_OF_STOCK; cross-store/unknown varyant dusurulur;
+  eksik contact 400 + order yok; valid checkout 201 PLACED/UNPAID + stok rezerve; ic alan donmez; 404
+  store). Storefront `cart-token.test.ts` (8: round-trip/imza/tamper/sanitize/upsert/remove/add/cap) +
+  `cart-resolver.test.ts` (4: DTO→view, auth header yok, checkout onay/hata mapping). i18n parite testi
+  cart/checkout dahil gecer.
+- Gate: `pnpm db:generate` + build (storefront `next build`: /cart 1.88kB, /checkout 1.91kB; gateway
+  tsc) + `pnpm typecheck` (0) + lint (degisen 5 paket temiz) + `pnpm test:unit` (268 gecti) +
+  `git diff --check` temiz.
+- Docker smoke: 7 servis healthy; storefront imaji worktree'den build. `/health` (gw) 200, `/api/health`
+  (sf) 200, `/products` `/products/demo-hoodie` `/cart` `/checkout` 200. Gercek Postgres uzerinde:
+  `POST /cart` OK satir + sunucu fiyat; client `priceMinor:1`/`title:"HACK"` GORMEZDEN gelinir (server
+  39900/gercek baslik); `POST /checkout` → 201 `OS-000012` PLACED/UNPAID, totals dogru; eksik contact →
+  400 VALIDATION_ERROR (order yok). Secret marker taramasi (HTML + 7 JS chunk + cart API yaniti):
+  INTERNAL_API_TOKEN/SESSION_SECRET/PASSWORD_HASH_PEPPER/Bearer/createApiClient/STOREFRONT_PLATFORM_*/
+  platformLogin/cart-secret degeri = 0 hit.
+
+### Kalan Bilincli Borclar
+
+- TD-033: public checkout create+place iki ayri transaction (yetim DRAFT riski); anonim checkout'ta
+  odeme alinmadan stok PLACED ile rezerve (terk edilen siparis icin expiry/iptal job'i yok). Cozum
+  F3B.2'de (rezerv-on-auth) + worker temizlik job'i (TODO-064/065).
+- Payment provider entegrasyonu yok (F3B.2 / TODO-063); kargo/teslimat ucreti, vergi motoru, kupon,
+  iade modeli, billing/shipping ayrimi (su an tek teslimat adresi) sonraki fazlara birakildi.
+- Customer hesabi/login yok (anonim checkout; `customerId=null`); abandoned cart reminder yok.
+
+### UX revizyonu (ayni faz, ikinci commit)
+
+- Sepete ekle davranisi: "Sepete ekle" YONLENDIRMEZ; urun detayda kalir, nav sayaci guncellenir, inline
+  "sepete eklendi" + opsiyonel "sepete git". "Simdi Al" sepete ekleyip checkout'a yonlendirir.
+- Sunucu-otoriter siparis ozeti: gateway cart/checkout yaniti `summary` (itemsSubtotal/shipping/discount/
+  taxIncluded/grandTotal + couponStatus) doner; genel toplam SUNUCUDAN gelir. DEMO kurallar (gercek motor
+  YOK): KDV %20 fiyatlara DAHIL (taxIncluded gosterge, toplam'a eklenmez), kargo ₺750 ustu ucretsiz /
+  alti ₺49,90, kupon `DEMO10` %10 (digerleri INVALID). shipping/discount siparise yazilir (createOrder
+  + orderTotals genisletildi; total=subtotal-discount+shipping, taxAmount 0).
+- Cart sidebar zenginlesti: ara toplam + adet, indirim (kupon kodu), kargo (ucretsiz/tutar + esik ipucu),
+  KDV-dahil gosterge, genel toplam, kupon uygula/kaldir alani. Checkout ozeti ayni dokumu + onay panelinde
+  breakdown gosterir.
+- Checkout teslimat: TR il/ilce BAGIMLI dropdown (`lib/tr-location-data.ts`, 81 il + ilce; il secilmeden
+  ilce kapali, il degisince ilce sifirlanir) + sunucu il/ilce tutarlilik dogrulamasi. Telefon TR cep
+  formatli (+90 onek, `5XX XXX XX XX`) + sunucu normalize/validasyon (`lib/phone.ts`). Posta kodundan
+  "opsiyonel" etiketi kaldirildi. Mock odeme korunur. Kupon kodu ayri httpOnly cookie'de.
+- Dogrulananlar: `pnpm test:unit` 281 gecti (gateway 52 — ozet/kupon/persist dahil; tr-location-data 5;
+  phone 4; cart-resolver 4; i18n parite). typecheck 0, lint temiz, build (storefront /checkout 8.45kB —
+  81 il/ilce verisi client'ta), git diff --check temiz. Docker smoke (gercek Postgres): cart `summary`
+  dogru (tote ₺399 esik alti → kargo ₺49,90; `DEMO10` → ₺39,90 indirim, grandTotal ₺409; invalid → INVALID),
+  `POST /checkout` DEMO10 → 201 `OS-000014`, indirim/kargo siparise persist. Secret marker taramasi
+  (HTML + 7 chunk + cart API): tum marker'lar (cart-secret + `commerce_os_coupon` dahil) 0 hit.
+- Bilincli borc: shipping/tax/coupon "demo calculation"dir (gercek motor F3B.2+, TODO-059/063); il/ilce
+  veri seti statik (guncel resmi ilce listesi; degisirse manuel guncellenir).

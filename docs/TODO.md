@@ -147,10 +147,17 @@
 - TODO-057: Categories/inventory/dashboard ekranlarinin da ayni glass-inspired premium dile
   hizalanmasi (F2I yalniz products/orders kapsadi). (Bekliyor — gorsel tutarlilik icin.)
 - TODO-058: Faz 3B Storefront cart + checkout — gercek sepet cekirdegi (oturum/anon cart), satir/
-  adet/toplam, order create/place akisinin storefront'tan baglanmasi. (Bekliyor — F3A'da
-  cart/checkout profesyonel placeholder; CTA kontrollu /cart yonlendirir.)
+  adet/toplam, order create/place akisinin storefront'tan baglanmasi. (DONE — F3B.1: imzali httpOnly
+  cookie cart (yalniz {variantId, quantity} referansi), gateway public `POST /public/stores/:slug/cart`
+  (sunucu-otoriter cozumleme) + `POST /public/stores/:slug/checkout` (createOrder→placeOrder, stok
+  rezervasyonu, PLACED/UNPAID); ONLINE disi + gizli fiyat sepete/siparise dusmez; fiyat/baslik/salesMode
+  istemciden kabul edilmez; allowlist DTO; tenant izolasyonu iki katmanli; cart/checkout sayfalari
+  gercek veriye bagli (empty/error/success/quantity/remove/reconcile); TR/EN parite; bkz. ADR-031, TD-033.)
 - TODO-059: Storefront payment + shipping + fulfillment — odeme provider, kargo/teslimat secimi ve
-  vergi hesaplamasinin checkout'a baglanmasi (TODO-039/payment ile birlikte).
+  vergi hesaplamasinin checkout'a baglanmasi (TODO-039/payment ile birlikte). NOT: F3B.1 UX
+  revizyonunda gateway'e SUNUCU-OTORITER DEMO ozet eklendi (KDV %20 dahil, kargo ₺750 ustu ucretsiz/
+  alti ₺49,90, `DEMO10` %10 kupon); shipping/discount siparise yazilir. Bunlar "demo calculation";
+  gercek shipping/tax/coupon motoru bu TODO'da yapilacak (bkz. ADR-031 revizyon notu).
 - TODO-060: Storefront review + Q&A + seller rating modeli — gercek yorum/soru-cevap/satici puani
   veri modeli ve store-admin moderasyonu (F3A'da yer tutucu); ardindan recommendation/recently-viewed
   ve "birlikte alinanlar" oneri motoru.
@@ -161,3 +168,13 @@
   TD-032 RESOLVED, ADR-030)
 - TODO-062: Storefront medya/gorsel pipeline — gercek urun gorseli yukleme/CDN ve detay galeri
   zoom/lightbox/video (F3A'da galeri placeholder).
+- TODO-063: Faz 3B.2 Storefront payment provider abstraction — checkout'a gercek odeme adimini
+  baglamak (Masterpass/iyzico/Stripe). F3B.1 siparisi PLACED/UNPAID (odeme bekliyor) olarak yaratir;
+  paymentStatus gecisleri (AUTHORIZED/PAID) ve payment intent/webhook contract'i eklenecek (TODO-059
+  ile birlikte; bkz. ADR-031, TD-033).
+- TODO-064: Public checkout atomicligi — F3B.1'de createOrder (DRAFT) ve placeOrder (rezervasyon) iki
+  ayri transaction; placeOrder basarisiz olursa DRAFT siparis kalir. Tek transaction'da create+place
+  yapan public-checkout data-access metodu ve/veya basarisiz place'te DRAFT temizleme/expiry (TD-033).
+- TODO-065: Anonim sepet/rezervasyon yasam dongusu — anonim checkout'ta stok PLACED ile rezerve
+  edilir; odeme alinmadan terk edilen siparisler icin reservation expiry/iptal job'i (worker) ve
+  abandoned-order temizligi (TD-033).

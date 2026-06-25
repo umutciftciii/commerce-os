@@ -1,34 +1,66 @@
-import { Card, Container } from "@commerce-os/ui";
+import Link from "next/link";
+import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
+import { readCartItems, readCoupon } from "../../lib/server/cart-cookie";
+import { resolveCart } from "../../lib/server/cart";
+import { CheckoutForm } from "../../components/checkout-form";
 
+export const dynamic = "force-dynamic";
+
+/**
+ * Checkout sayfasi (F3B.1). Sepet sunucu-otoriter cozulur; bos/uygunsuz sepette
+ * form gosterilmez. Form submit'i Server Action ile gateway public checkout
+ * ucuna gider; order olusumu/stok rezervasyonu sunucu tarafindadir.
+ */
 export default async function CheckoutPage() {
   const t = (await getStorefrontDict()).checkout;
+  const items = await readCartItems();
+
+  if (items.length === 0) {
+    return <EmptyCheckout t={t} />;
+  }
+
+  const coupon = await readCoupon();
+  const result = await resolveCart(items, coupon);
+  if (!result.ok) {
+    return (
+      <Container className="py-12">
+        <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+        <Alert tone="error">{t.errorNoStore}</Alert>
+      </Container>
+    );
+  }
+
+  if (result.data.isEmpty) {
+    return <EmptyCheckout t={t} />;
+  }
 
   return (
     <Container className="py-12">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+        <Link href="/cart" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+          ← {t.backToCart}
+        </Link>
+      </div>
+      <CheckoutForm view={result.data} t={t} />
+    </Container>
+  );
+}
+
+function EmptyCheckout({ t }: { t: Awaited<ReturnType<typeof getStorefrontDict>>["checkout"] }) {
+  return (
+    <Container className="py-12">
       <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-
-      <ol className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {t.steps.map((step, index) => (
-          <li key={step.title}>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
-                  {index + 1}
-                </span>
-                <div>
-                  <p className="text-sm font-medium text-slate-900">{step.title}</p>
-                  <p className="text-xs text-slate-500">{step.detail}</p>
-                </div>
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ol>
-
-      <Card className="p-6">
-        <p className="text-sm leading-relaxed text-slate-500">{t.note}</p>
-      </Card>
+      <EmptyState
+        title={t.emptyTitle}
+        description={t.emptyDescription}
+        action={
+          <Link href="/products">
+            <Button>{t.emptyAction}</Button>
+          </Link>
+        }
+      />
     </Container>
   );
 }

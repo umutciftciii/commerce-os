@@ -86,6 +86,18 @@ export type {
   PublicProductVariant,
   PublicProductListResponse,
   PublicProductDetail,
+  PublicCartItemInput,
+  PublicCartRequest,
+  PublicCartLineStatus,
+  PublicCartLine,
+  PublicCouponStatus,
+  PublicCartSummary,
+  PublicCart,
+  PublicCheckoutContact,
+  PublicCheckoutAddress,
+  PublicCheckoutRequest,
+  PublicOrderConfirmationLine,
+  PublicOrderConfirmation,
   PlatformUserContract,
 } from "@commerce-os/contracts";
 

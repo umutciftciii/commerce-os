@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge, Button } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductDetail, StorefrontVariantView } from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
+import { addToCartAction } from "../lib/server/cart-actions";
 
 const LOW_STOCK = 5;
 
@@ -25,8 +27,11 @@ function stockLabel(variant: StorefrontVariantView | undefined, t: StorefrontDic
  */
 export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: StorefrontDictionary }) {
   const { commerce, variants, price } = detail;
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [selectedId, setSelectedId] = useState(variants[0]?.id ?? null);
   const [quantity, setQuantity] = useState(commerce.minQuantity);
+  const [added, setAdded] = useState(false);
 
   const selected = variants.find((variant) => variant.id === selectedId) ?? variants[0];
   const numeric = showsNumericPrice(price);
@@ -34,6 +39,29 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
   const maxQty = commerce.maxQuantity ?? 99;
   const clamp = (value: number) => Math.min(Math.max(value, commerce.minQuantity), maxQty);
+
+  // ADD_TO_CART: secili varyanti cookie sepete ekler (Server Action) ve SAYFADA
+  // KALIR — yonlendirme YOK; nav sayaci revalidate ile guncellenir, inline bir
+  // "sepete eklendi" geri bildirimi gosterilir. BUY_NOW (Simdi Al): sepete ekleyip
+  // checkout'a yonlendirir. Adet/varyant istemci state'idir; fiyat/stok/uygunluk
+  // gateway tarafinda yeniden dogrulanir.
+  const canAddToCart = commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected;
+
+  function addToCart() {
+    if (!selected) return;
+    startTransition(async () => {
+      await addToCartAction(selected.id, quantity);
+      setAdded(true);
+    });
+  }
+
+  function buyNow() {
+    if (!selected) return;
+    startTransition(async () => {
+      await addToCartAction(selected.id, quantity);
+      router.push("/checkout");
+    });
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
@@ -75,7 +103,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                   key={variant.id}
                   type="button"
                   aria-pressed={active}
-                  onClick={() => setSelectedId(variant.id)}
+                  onClick={() => {
+                    setSelectedId(variant.id);
+                    setAdded(false);
+                  }}
                   className={[
                     "rounded-lg border px-3 py-2 text-sm transition-colors",
                     active
@@ -104,7 +135,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             <button
               type="button"
               aria-label="-"
-              onClick={() => setQuantity((q) => clamp(q - 1))}
+              onClick={() => {
+                setQuantity((q) => clamp(q - 1));
+                setAdded(false);
+              }}
               className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50"
             >
               −
@@ -113,7 +147,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             <button
               type="button"
               aria-label="+"
-              onClick={() => setQuantity((q) => clamp(q + 1))}
+              onClick={() => {
+                setQuantity((q) => clamp(q + 1));
+                setAdded(false);
+              }}
               className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50"
             >
               +
@@ -129,17 +166,30 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       <div className="mt-5 flex flex-col gap-2">
         {commerce.primaryCta === "ADD_TO_CART" ? (
           <>
-            <Link href="/cart" className="w-full">
-              <Button className="w-full" disabled={commerce.primaryCtaDisabled}>
-                {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
-              </Button>
-            </Link>
+            <Button className="w-full" disabled={!canAddToCart || isPending} onClick={addToCart}>
+              {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
+            </Button>
             {commerce.secondaryCta ? (
-              <Link href="/cart" className="w-full">
-                <Button variant="secondary" className="w-full">
-                  {ctaLabel(commerce.secondaryCta, t)}
-                </Button>
-              </Link>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={!canAddToCart || isPending}
+                onClick={buyNow}
+              >
+                {ctaLabel(commerce.secondaryCta, t)}
+              </Button>
+            ) : null}
+            {/* Sepete eklendi geri bildirimi (yonlendirme yok) */}
+            {added ? (
+              <div
+                role="status"
+                className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+              >
+                <span className="font-medium">✓ {t.buyBox.addedToCart}</span>
+                <Link href="/cart" className="text-xs font-semibold underline hover:text-emerald-900">
+                  {t.buyBox.goToCart}
+                </Link>
+              </div>
             ) : null}
           </>
         ) : (

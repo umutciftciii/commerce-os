@@ -11,6 +11,15 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+// BuyBox (client) artik useRouter + add-to-cart Server Action kullanir; statik
+// markup smoke'unda router/aksiyon davranisi calistirilmaz, yalniz mount edilir.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+vi.mock("../lib/server/cart-actions", () => ({
+  addToCartAction: vi.fn(),
+}));
+
 const byHandle = vi.fn();
 vi.mock("../lib/server/catalog", () => ({
   getStorefrontProductByHandle: (handle: string) => byHandle(handle),

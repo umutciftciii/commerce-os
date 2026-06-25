@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Container, LanguageSwitcher } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
+import { getCartCount } from "../lib/server/cart-cookie";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -29,6 +30,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const dict = getDictionary(locale);
   const t = dict.storefront;
   const s = t.shell;
+  const cartCount = await getCartCount();
 
   return (
     <html lang={locale} data-theme="default">
@@ -54,8 +56,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   className="inline-flex items-center gap-1.5 transition-colors hover:text-slate-900"
                 >
                   {s.navCart}
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">
-                    {t.cartCount}
+                  <span
+                    className={[
+                      "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
+                      cartCount > 0 ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500",
+                    ].join(" ")}
+                  >
+                    {cartCount}
                   </span>
                 </Link>
                 <LanguageSwitcher value={locale} labels={dict.common.language} />

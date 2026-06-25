@@ -154,6 +154,9 @@ services:
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
       STOREFRONT_DEMO_STORE_SLUG: demo-store
+      # Sepet cookie imza anahtari (server-only; httpOnly imza, client bundle'a
+      # girmez). Demo degeri; uretimde gizli bir degerle override edilmeli.
+      STOREFRONT_CART_SECRET: storefront-demo-cart-secret
     depends_on:
       api-gateway:
         condition: service_healthy
