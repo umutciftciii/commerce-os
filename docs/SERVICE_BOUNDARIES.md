@@ -112,7 +112,14 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
 ## Storefront Service
 
 - Yapar: Public storefront okuma, tema foundation ve domain routing davranislarini sahiplenir.
-- Yapmaz: Admin operasyonlarini, odeme yakalama davranisini veya pazaryeri sync islerini sahiplenmez.
+- Faz 3A notu: storefront-web canli katalog verisini (urun/varyant/stok/kategori) sunucu-tarafi
+  resolver ile gateway uzerinden YALNIZ-OKUR; urun satis-modeli alanlarina gore CTA/fiyat davranisini
+  render eder (ADR-029). Resolver bearer token'i yalniz sunucuda tutar, istemciye sizdirmaz (gecici
+  cozum, TD-032). Cart, checkout, payment, shipping, review/Q&A/seller-rating ve recommendation bu
+  fazda KAPSAM DISIDIR; cart/checkout musteri-dostu placeholder olarak durur (F3B+, Commerce/Payment
+  boundary'leri uzerinden tasarlanacak).
+- Yapmaz: Admin operasyonlarini, gercek sepet/odeme yakalama davranisini, katalog dogrulugunun tek
+  kaynagi olmayi veya pazaryeri sync islerini sahiplenmez; veriyi yazmaz (yalniz okur).
 
 ## Integration Service
 

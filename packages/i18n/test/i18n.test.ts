@@ -89,10 +89,17 @@ describe("tr/en key parity", () => {
     });
   }
 
-  it("keeps stable product handles identical across locales", () => {
-    const trHandles = allDictionaries.tr.storefront.products.map((p) => p.handle);
-    const enHandles = allDictionaries.en.storefront.products.map((p) => p.handle);
-    expect(enHandles).toEqual(trHandles);
+  it("exposes the F3A storefront sales-mode CTA labels in both locales", () => {
+    // Vitrin canli katalogtan beslendiginden statik urun listesi kaldirildi;
+    // CTA etiketleri (satis-modeli davranisi) her iki dilde de bulunmali.
+    for (const locale of ["tr", "en"] as const) {
+      const cta = allDictionaries[locale].storefront.cta;
+      expect(cta.addToCart.length).toBeGreaterThan(0);
+      expect(cta.requestPrice.length).toBeGreaterThan(0);
+      expect(cta.bookAppointment.length).toBeGreaterThan(0);
+      expect(cta.whatsapp.length).toBeGreaterThan(0);
+      expect(cta.requestInfo.length).toBeGreaterThan(0);
+    }
   });
 });
 

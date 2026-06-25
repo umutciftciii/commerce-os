@@ -51,10 +51,16 @@ ile dil degistirilir:
 stores/plans/system-health (see "Faz 1B admin-web" below). `apps/store-admin-web` is wired to the
 live catalog/inventory API (Faz 2B): login, server-side store context and live dashboard/categories/
 products/variants/inventory, plus the live orders screen (Faz 2G: list/detail/place/cancel) — see
-"Faz 2B store-admin-web" and "Siparişler (Faz 2G)" below. `storefront-web` remains a
-placeholder/empty state — no commerce business logic, no payment. Frontends talk to the backend only
-through the API gateway via `@commerce-os/api-client`; admin-web and store-admin-web do this
-server-side inside Next route handlers (BFF), the browser never calls the gateway directly.
+"Faz 2B store-admin-web" and "Siparişler (Faz 2G)" below. `storefront-web` is wired to the live
+catalog (Faz 3A): the public home/products/product-detail pages render real products/variants/stock
+and switch CTA + price behaviour by the product sales model (ONLINE → add to cart, INQUIRY → request
+price, APPOINTMENT → book, WHATSAPP, CATALOG_ONLY → info); cart/checkout stay as customer-friendly
+placeholders (no real cart/payment yet). Because the gateway has no public catalog endpoint yet, the
+storefront resolves catalog data **server-side** with a platform-admin login whose token never
+reaches the client (temporary — see TD-032). Frontends talk to the backend only through the API
+gateway via `@commerce-os/api-client`; admin-web and store-admin-web do this server-side inside Next
+route handlers (BFF), and storefront-web resolves reads inside server components — the browser never
+calls the gateway directly.
 
 - `apps/admin-web` — platform super admin (dashboard, stores, plans, system health, settings). `pnpm dev:admin` → `http://localhost:3001`
 - `apps/store-admin-web` — store manager panel: live dashboard, products, categories, variants, inventory, orders (customers/marketplace/theme/settings placeholder). `pnpm dev:store-admin` → `http://localhost:3002`
@@ -131,8 +137,9 @@ Frontend web app servisleri (Next.js dev runtime, backend ile aynı `node.Docker
 Üç frontend app de aynı imaj + `pnpm --filter <app> dev` target'ı ile çalışır; her birinin
 kendi `/api/health` liveness endpoint'i compose healthcheck olarak kullanılır. `admin-web` canlı
 API gateway'e, `store-admin-web` ise Faz 2B'den beri canlı catalog/inventory API'sine BFF deseniyle
-(ADR-023) bağlıdır. `storefront-web` hâlâ demo/static shell olarak ayağa kalkar; gerçek resolver
-sonraki faza kalmıştır (bkz. TD-011).
+(ADR-023) bağlıdır. `storefront-web` Faz 3A'dan beri canlı kataloğa sunucu-tarafı resolver ile
+bağlıdır (ADR-029); platform-admin kimliğiyle SUNUCUDA oturum açar, token istemciye sızmaz (geçici
+çözüm, public-read ucu için bkz. TD-032).
 
 ### Frontend env ayrımı (host vs compose)
 

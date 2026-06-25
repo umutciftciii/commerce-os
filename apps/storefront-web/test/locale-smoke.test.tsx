@@ -11,6 +11,11 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+// Ana sayfa canli katalogu cozer; smoke testte resolver sahtelenir (ag yok).
+vi.mock("../lib/server/catalog", () => ({
+  getFeaturedProducts: async () => ({ ok: true, data: [] }),
+}));
+
 import HomePage from "../app/page.js";
 
 afterEach(() => {

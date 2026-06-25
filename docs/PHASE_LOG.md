@@ -816,3 +816,57 @@ dokumanlarla sinirli tutuldu.
 - Store-admin orders UI yok (F2G).
 - `db:cleanup-smoke` calisan container icindeki eski kodu kullanir; `f2f-smoke-` prefix temizligi
   ancak api-gateway imaji yeniden build edildikten sonra container icinden calisir (kaynakta hazir).
+
+## Faz 3A Storefront Resolver ve CTA Davranisi
+
+### Yapilanlar
+
+- Storefront-web demo/static kabuktan cikti; public vitrin artik CANLI katalog verisine baglanir.
+  Ana sayfa one cikan urunler, `/products` listesi ve `/products/[handle]` detayi gateway'den gelen
+  gercek urun/varyant/stok/kategori verisini gosterir. Statik `sample-products` + sozlukteki demo
+  urun listesi kaldirildi.
+- Resolver/BFF (sunucu-tarafi): gateway'de public katalog ucu olmadigindan vitrin, platform-admin
+  kimligiyle SUNUCUDA oturum acar; bearer token sunucu belleginde onbelleklenir (login + expiry/401
+  yenileme), cookie'ye YAZILMAZ, istemciye/HTML'e/log'a serialize edilmez. Mağaza `demo-store` slug'i
+  ile sunucuda cozulur (storeId istemciden alinmaz). `lib/server/{env,api-token,catalog}.ts`.
+- Sales-model CTA mapping (saf `lib/sales-model.ts`): ONLINE→Sepete ekle (+Hemen al, adet, fiyat),
+  INQUIRY→Fiyat sor, APPOINTMENT→Randevu al, WHATSAPP→WhatsApp ile sor, CATALOG_ONLY→Bilgi al/pasif.
+  Fiyat gorunurlugu: VISIBLE→tutar, STARTING_FROM→"…'den baslayan", ON_REQUEST→"Fiyat icin iletisime
+  gecin", HIDDEN→numerik fiyat gizli. ONLINE disi modlarda sepete ekle/adet YOK.
+- Product detail = satin alma karar merkezi (ADR-029): breadcrumb, baslik/marka/SKU, rating/yorum
+  yer tutuculari, medya galerisi (placeholder + thumb rayi), fayda/aciklama/teknik ozellik (gercek
+  veriden)/paket/kullanim, varyant secici (canli SKU/fiyat/stok), buy box (fiyat/compare-at,
+  satis-modu CTA, adet yalniz ONLINE, stok, teslimat/iade/guvenli odeme/satici guven kartlari),
+  altta yorumlar/soru-cevap/birlikte-alinanlar/son-bakilanlar yer tutuculari + canli benzer urunler.
+  Yer tutucular sakin, profesyonel copy ("yakinda" yok).
+- Cart/checkout: gercek sepet/odeme YOK; musteri-dostu profesyonel placeholder. CTA'lar kontrollu
+  (ONLINE sepete ekle/hemen al → /cart yonlendirir).
+- i18n: `storefront` sozlugu yeni namespace'lerle yeniden yapilandirildi (cta, price, salesMode,
+  buyBox, reviews, questions, related, badges + genisletilmis detail/listing/home). TR kaynak + EN
+  ayna, tam path paritesi korundu. Gorunur metin hardcoded degil; ham API kodu UI'da yok.
+- Config: `.env.example` + docker-compose storefront-web env (`STOREFRONT_DEMO_STORE_SLUG`,
+  `STOREFRONT_PLATFORM_EMAIL/PASSWORD`) + `depends_on api-gateway`. Backend/business logic, DB
+  migration/model, kontratlar DEGISMEDI.
+
+### Dogrulananlar
+
+- Testler (storefront 35/35): sales-model CTA mapping (5 mod) + fiyat gorunurlugu; resolver
+  (store context sunucuda cozulur, canli liste, token donen veride yok, 401 retry, gecersiz handle),
+  ProductCard CTA/fiyat per mod, listing (canli kart/empty/error/EN), detail (baslik/SKU/fiyat/
+  galeri/buy box/varyant/trust/reviews/questions/related, CATALOG_ONLY add-to-cart yok + numerik
+  fiyat yok, not-found, EN). i18n parite testi guncellendi (statik urun listesi yerine CTA paritesi).
+- Gate: `pnpm db:generate` + `pnpm build` (24/24) + `pnpm typecheck` (0) + `pnpm lint` (34/34) +
+  `pnpm test` (34/34 task; store-admin 72, i18n parite dahil) gecti.
+- Docker smoke: 7 servis healthy; storefront-web imaji worktree'den yeniden build edildi;
+  `/api/health` 200. `/` `/products` `/products/demo-hoodie` `/cart` `/checkout` 200; gecersiz handle
+  graceful not-found 200. `/products` canli Demo Hoodie/Demo Tote + gercek fiyat (₺1.299,00 / ₺399,00)
+  + "Sepete ekle"; detayda SKU `DEMO-HOODIE-BLK-M`, compare-at ₺1.499,00, Stokta, teslimat/benzer
+  urunler. `locale=en` → "All products"/"Add to cart". Token/secret HTML'de ve `.next/static`
+  bundle'larinda YOK. `db:verify-seed` gecti (2 urun / 3 varyant).
+
+### Kalan Bilincli Borclar
+
+- Public katalog read ucu gateway'de yok; vitrin gecici olarak server-side platform-admin token'i
+  kullanir (TD-032). Kalici cozum: gateway'de auth gerektirmeyen public-read katalog ucu.
+- Gercek sepet/checkout/payment/shipping yok (F3B); review/Q&A/seller-rating modeli, recommendation
+  engine, login-gated fiyat (priceVisibility LOGIN_REQUIRED kontratta yok) sonraki fazlara birakildi.

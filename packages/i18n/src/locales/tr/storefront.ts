@@ -1,7 +1,11 @@
 /**
  * Genel demo vitrin (storefront-web) gorunur metinleri. TR kaynak sozlugu.
- * Demo urun katalogu da burada tutulur (yer tutucu icerik); handle alanlari
- * sabit kimliklerdir, gorunur metin degildir ve cevrilmez.
+ *
+ * F3A'dan itibaren vitrin canli katalog verisine baglidir; urun adi/fiyat/aciklama
+ * gibi alanlar API'den gelir. Bu sozluk YALNIZCA cerceve metnini, CTA etiketlerini,
+ * satis-modeli aciklamalarini ve yer tutucu (review/Q&A/teslimat vb.) bolum
+ * metinlerini tutar. Ham API kodlari (salesMode, primaryAction...) UI'da gosterilmez;
+ * bu sozlukteki insan-okunur etiketlere eslenir.
  */
 export const trStorefront = {
   meta: {
@@ -30,7 +34,7 @@ export const trStorefront = {
     badge: "Demo Mağaza",
     heroTitle: "Günlük yaşamın özenle üretilmiş parçaları.",
     heroDescription:
-      "commerce-os üzerinde çalışan bir demo vitrin. Aşağıdaki ürünler, sepet ve ödeme akışı, alışveriş deneyimini önizleyen yer tutuculardır.",
+      "commerce-os üzerinde çalışan canlı bir demo vitrin. Aşağıdaki ürünler mağazanın gerçek kataloğundan gelir.",
     shopCta: "Ürünleri keşfet",
     cartCta: "Sepete göz at",
     valueProps: [
@@ -41,28 +45,136 @@ export const trStorefront = {
     featuredEyebrow: "Seçtiklerimiz",
     featuredTitle: "Öne çıkan ürünler",
     featuredViewAll: "Tümünü gör",
+    emptyTitle: "Vitrin hazırlanıyor",
+    emptyDescription: "Mağaza kataloğu henüz yayında değil. Ürünler eklendiğinde burada görünecek.",
   },
   listing: {
     eyebrow: "Koleksiyon",
     title: "Tüm ürünler",
     // {count} yer tutucusu urun sayisi ile degistirilir.
-    description: "Demo katalog — listeleme ızgarasını önizleyen {count} örnek ürün.",
+    description: "Mağaza kataloğundan {count} ürün.",
+    emptyTitle: "Mağazada henüz ürün yok",
+    emptyDescription: "Katalog yayınlandığında ürünler burada listelenecek.",
+    errorTitle: "Ürünler yüklenemedi",
+    errorDescription: "Şu an kataloğa ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
   },
   detail: {
     breadcrumbProducts: "Ürünler",
-    fallbackName: "Örnek ürün",
-    fallbackCategory: "Demo",
-    fallbackBlurb: "Bu, vitrin altyapısı için bir örnek ürün detay sayfasıdır.",
-    sizeLabel: "Beden",
+    notFoundTitle: "Ürün bulunamadı",
+    notFoundDescription: "Aradığınız ürün kaldırılmış veya bağlantı geçersiz olabilir.",
+    notFoundAction: "Tüm ürünlere dön",
+    errorTitle: "Ürün yüklenemedi",
+    errorDescription: "Şu an ürüne ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
+    brandLabel: "Marka",
+    skuLabel: "Ürün kodu",
+    ratingPlaceholder: "Henüz değerlendirme yok",
+    reviewCountPlaceholder: "İlk değerlendirmeyi sen yap",
+    galleryAlt: "Ürün görseli",
+    galleryThumbAlt: "Ürün küçük görseli",
+    galleryHint: "Görseller hazırlanıyor",
+    benefitsTitle: "Öne çıkanlar",
+    benefits: [
+      "Özenle seçilmiş malzeme ve işçilik",
+      "Günlük kullanıma uygun dayanıklı tasarım",
+      "Mağaza güvencesiyle gönderim",
+    ],
+    descriptionTitle: "Ürün açıklaması",
+    descriptionFallback: "Bu ürün için ayrıntılı açıklama yakında mağaza tarafından eklenecek.",
+    specsTitle: "Teknik özellikler",
+    specBrand: "Marka",
+    specCategory: "Kategori",
+    specSku: "Ürün kodu",
+    specOptions: "Seçenekler",
+    specSalesMode: "Satış türü",
+    packageTitle: "Paket içeriği",
+    packageBody: "1 × ürün, mağaza standardı koruyucu ambalajıyla gönderilir.",
+    usageTitle: "Kullanım ve bakım",
+    usageBody: "Ürünü serin ve kuru bir ortamda saklayın; etiketindeki bakım önerilerini izleyin.",
+    variantTitle: "Seçenek",
+    variantSelectHint: "Bir seçenek belirleyin",
+    quantityLabel: "Adet",
+    stockIn: "Stokta",
+    stockLow: "Son birkaç ürün",
+    stockOut: "Tükendi",
+    stockUnknown: "Stok durumu mağazadan teyit edilir",
+  },
+  buyBox: {
+    priceNote: "KDV dahildir",
+    delivery: {
+      title: "Tahmini teslimat",
+      body: "Türkiye geneli 1–3 iş günü içinde kargoda.",
+    },
+    returns: {
+      title: "Kolay iade",
+      body: "14 gün içinde koşulsuz iade hakkı.",
+    },
+    secure: {
+      title: "Güvenli alışveriş",
+      body: "256-bit SSL korumalı altyapı ile.",
+    },
+    seller: {
+      title: "Satıcı",
+      badge: "Mağaza güvencesi",
+      body: "Bu ürün doğrudan mağaza tarafından gönderilir.",
+    },
+    favorite: "Favorilere ekle",
+    share: "Paylaş",
+  },
+  cta: {
     addToCart: "Sepete ekle",
     buyNow: "Hemen al",
-    note: "Sepet ve ödeme aksiyonları yer tutucudur; henüz gerçek satın alma işlemi çalışmaz.",
+    requestPrice: "Fiyat sor",
+    bookAppointment: "Randevu al",
+    whatsapp: "WhatsApp ile sor",
+    requestInfo: "Bilgi al",
+    catalogOnly: "Katalog ürünü",
+    askQuestion: "Satıcıya soru sor",
+  },
+  price: {
+    onRequest: "Fiyat için iletişime geçin",
+    hidden: "Fiyat görüntülenemiyor",
+    // {price} en dusuk fiyatla degistirilir.
+    startingFrom: "{price}'den başlayan fiyatlarla",
+    compareAtLabel: "Liste fiyatı",
+    loginRequired: "Fiyat, giriş yaptıktan sonra görünür",
+  },
+  salesMode: {
+    online: "Çevrimiçi satış",
+    inquiry: "Teklif usulü",
+    appointment: "Randevu ile",
+    whatsapp: "WhatsApp ile",
+    catalogOnly: "Katalog ürünü",
+    inquiryLead: "Bu ürün için mağazadan fiyat teklifi alabilirsiniz.",
+    appointmentLead: "Bu ürün için mağazadan randevu alarak ilerleyin.",
+    whatsappLead: "Mağaza ile WhatsApp üzerinden hızlıca iletişime geçin.",
+    catalogLead: "Bu ürün katalogda yer alır; çevrimiçi satışa kapalıdır.",
+    whatsappTemplateTitle: "Hazır mesaj",
+    inquiryTitleFallback: "Fiyat teklifi isteyin",
+    appointmentNoteFallback: "Uygun gün ve saat için mağaza ile iletişime geçin.",
+  },
+  reviews: {
+    title: "Değerlendirmeler",
+    emptyTitle: "Henüz değerlendirme yok",
+    emptyBody: "Bu ürünü satın alan müşterilerin yorumları burada yer alacak.",
+  },
+  questions: {
+    title: "Soru & cevap",
+    emptyTitle: "Henüz soru sorulmamış",
+    emptyBody: "Ürünle ilgili merak ettiklerinizi satıcıya sorabilirsiniz.",
+    askCta: "Soru sor",
+  },
+  related: {
+    title: "Benzer ürünler",
+    boughtTogetherTitle: "Birlikte alınanlar",
+    boughtTogetherBody: "Bu ürünle birlikte alınan ürün önerileri burada görünecek.",
+    recentlyViewedTitle: "Son baktıklarınız",
+    recentlyViewedBody: "Gezdiğiniz ürünler bu alanda hatırlatılacak.",
   },
   cart: {
     title: "Sepetim",
     emptyTitle: "Sepetiniz boş",
     emptyDescription:
-      "Sepet satırlarını, adetleri ve toplamı önizlemek için demo ürünler ekleyin. Sepet içeriği henüz kalıcı olarak saklanmıyor.",
+      "Beğendiğiniz ürünleri keşfedin. Sepet ve sipariş akışı bir sonraki aşamada bu vitrine bağlanacak.",
     emptyAction: "Ürünlere göz at",
   },
   checkout: {
@@ -72,43 +184,13 @@ export const trStorefront = {
       { title: "Kargo", detail: "Teslimat yöntemi ve ücretleri" },
       { title: "Ödeme", detail: "Güvenli ödeme alımı" },
     ],
-    note: "Ödeme akışı yer tutucudur. Gerçek kargo, vergi ve ödeme adımları sonraki bir fazda ödeme servisine bağlanacak — burada hiçbir ödeme işlemi çalışmaz.",
+    note: "Ödeme akışı bir sonraki aşamada hazırlanacak. Şu an bu sayfada herhangi bir ödeme işlemi gerçekleşmez.",
+  },
+  badges: {
+    discount: "İndirim",
+    new: "Yeni",
   },
   cartCount: "0",
-  products: [
-    {
-      handle: "merinos-yuvarlak-yaka-kazak",
-      name: "Merinos Yuvarlak Yaka Kazak",
-      category: "Giyim",
-      priceLabel: "₺1.290",
-      tag: "Yeni",
-      blurb: "Yumuşak merinos yününden, her güne uygun hafif örgü.",
-    },
-    {
-      handle: "kanvas-haftasonu-cantasi",
-      name: "Kanvas Hafta Sonu Çantası",
-      category: "Aksesuar",
-      priceLabel: "₺1.850",
-      tag: "Çok satan",
-      blurb: "Deri detaylı, dayanıklı pamuklu kanvas seyahat çantası.",
-    },
-    {
-      handle: "seramik-filtre-kahve-demligi",
-      name: "Seramik Filtre Kahve Demliği",
-      category: "Ev & Yaşam",
-      priceLabel: "₺640",
-      tag: "",
-      blurb: "Sakin sabahlar için tek fincanlık seramik demlik.",
-    },
-    {
-      handle: "keten-masa-runneri",
-      name: "Keten Masa Örtüsü Runner",
-      category: "Ev & Yaşam",
-      priceLabel: "₺420",
-      tag: "",
-      blurb: "Her gün kullanım için taş yıkamalı keten runner.",
-    },
-  ],
 };
 
 export type StorefrontDictionary = typeof trStorefront;
