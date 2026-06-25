@@ -116,6 +116,13 @@ describe("store-admin order detail — dedicated route page", () => {
     expect(screen.getByText("Tutar özeti")).toBeTruthy();
     expect(screen.getByText("ORDER_CREATED")).toBeTruthy();
 
+    // Operasyon ozeti tile'lari (ust serit).
+    expect(screen.getByText("Kalem sayısı")).toBeTruthy();
+    expect(screen.getByText("Rezervasyon durumu")).toBeTruthy();
+    // Sag baglam rayi: musteri bilgileri + kunye kartlari.
+    expect(screen.getByText("Müşteri bilgileri")).toBeTruthy();
+    expect(screen.getByText("Künye")).toBeTruthy();
+
     // Detay artik route; modal acilmamali.
     expect(screen.queryByRole("dialog")).toBeNull();
     // Listeye don linki bulunmali.

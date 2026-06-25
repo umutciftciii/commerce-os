@@ -133,3 +133,13 @@
   modali). (Bekliyor — admin-web ayri faz; TD-031.)
 - TODO-054: admin-web plan detail dedicated route `/plans/[id]` — plan detayi (su an create/edit
   modali). (Bekliyor — TD-031.)
+- TODO-055: Faz 2I Store-admin Products & Orders Premium UI Polish. (DONE — `/products`,
+  `/products/[id]`, `/orders`, `/orders/[id]` glass-inspired premium dile tasindi; app-local premium
+  primitive'ler eklendi; ozet/metric tile'lar canli listeden hesaplanir; product/order detail hero +
+  iki kolon + baglam rayi; TR/EN summary/rail copy; entity detail route standardi ADR-027 korundu;
+  backend/BFF kontratlari degismedi; bkz. ADR-028.)
+- TODO-056: Premium primitive'lerin (`SurfaceCard`/`DetailHero`/`MetricTile`/`DetailLayout`/`RailCard`/
+  `Timeline`) admin-web'de de kullanilmasi gerekirse `packages/ui`'ye tasinmasi ve ortak design token
+  haline getirilmesi. (Bekliyor — su an store-admin app-local; ortaklasma ihtiyaci dogunca.)
+- TODO-057: Categories/inventory/dashboard ekranlarinin da ayni glass-inspired premium dile
+  hizalanmasi (F2I yalniz products/orders kapsadi). (Bekliyor — gorsel tutarlilik icin.)

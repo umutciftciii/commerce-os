@@ -204,6 +204,32 @@ describe("store-admin products & variants", () => {
     );
   });
 
+  it("renders the premium summary tiles computed from the live list", async () => {
+    storeApiMock.listProducts.mockResolvedValue(
+      page(2, [
+        makeProduct(),
+        makeProduct({
+          id: "p2",
+          slug: "katalog",
+          title: "Katalog",
+          status: "DRAFT",
+          salesMode: "CATALOG_ONLY",
+          purchasable: false,
+        }),
+      ]),
+    );
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+
+    render(<ProductsPage />);
+
+    await screen.findByText("Sweatshirt");
+    // Ozet tile etiketleri (canli listeden hesaplanir).
+    expect(screen.getByText("Toplam ürün")).toBeTruthy();
+    expect(screen.getByText("Aktif ürünler")).toBeTruthy();
+    expect(screen.getByText("Satın alınabilir ürünler")).toBeTruthy();
+    expect(screen.getByText("Katalog ürünleri")).toBeTruthy();
+  });
+
   it("links each product row to its detail/edit route instead of opening a modal", async () => {
     storeApiMock.listProducts.mockResolvedValue(page(1, [makeProduct()]));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));

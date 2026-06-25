@@ -12,7 +12,6 @@ import {
   Input,
   Modal,
   PageHeader,
-  SectionCard,
   Select,
   SkeletonRows,
   useLocale,
@@ -24,6 +23,7 @@ import { OrderIcon } from "../../../components/icons";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../lib/client/format";
+import { MetricGrid, MetricTile, SurfaceCard } from "../../components/premium";
 import {
   canCancel,
   canPlace,
@@ -76,6 +76,24 @@ export default function OrdersPage() {
   }, [load]);
 
   const orders = state.status === "ready" ? state.orders : [];
+
+  // Operasyon ozeti canli listeden hesaplanir (yeni API cagrisi yok).
+  const metrics = useMemo(() => {
+    let draft = 0;
+    let inProgress = 0;
+    let cancelled = 0;
+    let revenue = 0;
+    for (const order of orders) {
+      if (order.status === "DRAFT") draft += 1;
+      else if (order.status === "CANCELLED") cancelled += 1;
+      else {
+        inProgress += 1;
+        revenue += order.totalAmount;
+      }
+    }
+    const currency = orders[0]?.currency ?? "TRY";
+    return { draft, inProgress, cancelled, revenue, currency };
+  }, [orders]);
 
   const place = useCallback(
     async (orderId: string) => {
@@ -250,7 +268,38 @@ export default function OrdersPage() {
         </div>
       ) : null}
 
-      <SectionCard
+      {state.status === "ready" && orders.length > 0 ? (
+        <div className="mb-5">
+          <MetricGrid columns={5}>
+            <MetricTile
+              label={t.summary.total}
+              value={state.total}
+              hint={t.summary.totalHint}
+              tone="brand"
+            />
+            <MetricTile label={t.summary.draft} value={metrics.draft} hint={t.summary.draftHint} />
+            <MetricTile
+              label={t.summary.inProgress}
+              value={metrics.inProgress}
+              hint={t.summary.inProgressHint}
+              tone="success"
+            />
+            <MetricTile
+              label={t.summary.cancelled}
+              value={metrics.cancelled}
+              hint={t.summary.cancelledHint}
+              tone="danger"
+            />
+            <MetricTile
+              label={t.summary.revenue}
+              value={formatMinor(metrics.revenue, metrics.currency)}
+              hint={t.summary.revenueHint}
+            />
+          </MetricGrid>
+        </div>
+      ) : null}
+
+      <SurfaceCard
         title={t.cardTitle}
         description={
           state.status === "ready" ? format(t.countLabel, { count: state.total }) : t.cardDescription
@@ -295,7 +344,7 @@ export default function OrdersPage() {
             caption={t.cardTitle}
           />
         ) : null}
-      </SectionCard>
+      </SurfaceCard>
 
       {creating ? (
         <CreateOrder
