@@ -31,6 +31,33 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   `/api/dashboard/summary`, `/api/health`) cagirir; bu handler'lar `packages/api-client` ile gateway'e
   gider ve secili mağaza server-side cozulur (bkz. ADR-023). Mutating route'lar CSRF korumalidir. Tum
   gorunur metin `packages/i18n`'den TR/EN runtime switch ile gelir.
+- `apps/storefront-web`: Public demo vitrin (Next.js App Router). Faz 3A'da canli katalog verisine
+  bagli: home/`/products`/`/products/[handle]` gercek urun/varyant/stok/kategori gosterir ve urun
+  satis-modeline gore CTA/fiyat davranisi render eder (ADR-029). Veri SUNUCU bilesenlerinde
+  resolver ile cozulur; cart/checkout musteri-dostu placeholder'dir. Tum gorunur metin
+  `packages/i18n` `storefront` sozlugunden TR/EN gelir.
+
+### storefront-web canli katalog resolver + public-read yaklasimi (Faz 3A)
+
+Public vitrin, gateway'de auth gerektirmeyen bir public-read katalog ucu OLMADIGINDAN gecici bir
+sunucu-tarafi resolver kullanir (bkz. TD-032, ADR-029). Akis tamamen sunucu bilesenlerinde calisir:
+
+1. `lib/server/api-token.ts` — platform-admin kimligiyle (`STOREFRONT_PLATFORM_EMAIL/PASSWORD`)
+   gateway'de oturum acar; bearer token'i SUNUCU BELLEGINDE onbellekler (expiry/401 yenileme). Token
+   cookie'ye yazilmaz, istemciye/HTML/bundle'a serialize edilmez. (Platform admin session cookie'si
+   public vitrinde KULLANILMAZ.)
+2. `lib/server/catalog.ts` — `demo-store` slug'i ile mağazayi sunucuda cozer (storeId istemciden
+   alinmaz), `packages/api-client` `admin.{stores,products,categories,inventory}` helper'lariyla
+   gateway'in `/stores/:storeId/*` uclarini token ile cagirir ve ham veriyi saf vitrin gorunum
+   modellerine cevirir. Yalniz ACTIVE urun/varyant gosterilir; vitrin yalniz okur.
+3. `lib/sales-model.ts` — F2D satis-modeli alanlarini (salesMode/priceVisibility/primaryAction/
+   purchasable) saf bir sekilde CTA + fiyat gorunum bayraklarina cevirir; gorunur etiketler
+   `lib/labels.ts` ile i18n'den cozulur (ham API kodu UI'da gosterilmez).
+
+Bu resolver GECICIDIR; kalici cozum gateway'de public-read katalog ucudur (TODO-061). store-admin'in
+BFF deseninden farki: storefront okuma akisi sunucu bilesenlerinde dogrudan cozulur (interaktif yazma
+olmadigindan ayri `/api/*` proxy route'lari gerekmez); buy box varyant/adet secimi yereldir (gercek
+sepet yok).
 
 ### store-admin orders UI/BFF akisi (Faz 2G)
 

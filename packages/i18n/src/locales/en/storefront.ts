@@ -2,8 +2,10 @@ import type { StorefrontDictionary } from "../tr/storefront";
 
 /**
  * Public demo storefront (storefront-web) — English mirror of the TR source.
- * Product `handle` values are stable ids (not visible copy) and stay identical
- * across locales.
+ * From F3A the storefront is bound to live catalog data; product name/price/
+ * description come from the API. This dictionary only holds shell copy, CTA
+ * labels, sales-mode explainers and placeholder section text. Raw API codes are
+ * never shown — they map to the human-readable labels here.
  */
 export const enStorefront: StorefrontDictionary = {
   meta: {
@@ -32,7 +34,7 @@ export const enStorefront: StorefrontDictionary = {
     badge: "Demo Store",
     heroTitle: "Everyday essentials, thoughtfully made.",
     heroDescription:
-      "A demo storefront running on commerce-os. The products, cart and checkout flow below are placeholders previewing the shopping experience.",
+      "A live demo storefront running on commerce-os. The products below come from the store's real catalogue.",
     shopCta: "Explore products",
     cartCta: "View cart",
     valueProps: [
@@ -43,27 +45,134 @@ export const enStorefront: StorefrontDictionary = {
     featuredEyebrow: "Our picks",
     featuredTitle: "Featured products",
     featuredViewAll: "View all",
+    emptyTitle: "Storefront is getting ready",
+    emptyDescription: "The store catalogue isn't live yet. Products will appear here once added.",
   },
   listing: {
     eyebrow: "Collection",
     title: "All products",
-    description: "Demo catalogue — {count} sample products previewing the listing grid.",
+    description: "{count} products from the store catalogue.",
+    emptyTitle: "No products yet",
+    emptyDescription: "Products will be listed here once the catalogue is published.",
+    errorTitle: "Couldn't load products",
+    errorDescription: "We can't reach the catalogue right now. Please try again shortly.",
   },
   detail: {
     breadcrumbProducts: "Products",
-    fallbackName: "Sample product",
-    fallbackCategory: "Demo",
-    fallbackBlurb: "This is a sample product detail page for the storefront foundation.",
-    sizeLabel: "Size",
+    notFoundTitle: "Product not found",
+    notFoundDescription: "The product you're looking for may have been removed or the link is invalid.",
+    notFoundAction: "Back to all products",
+    errorTitle: "Couldn't load product",
+    errorDescription: "We can't reach this product right now. Please try again shortly.",
+    brandLabel: "Brand",
+    skuLabel: "Product code",
+    ratingPlaceholder: "No ratings yet",
+    reviewCountPlaceholder: "Be the first to review",
+    galleryAlt: "Product image",
+    galleryThumbAlt: "Product thumbnail",
+    galleryHint: "Images coming together",
+    benefitsTitle: "Highlights",
+    benefits: [
+      "Carefully selected materials and craftsmanship",
+      "Durable design suited to everyday use",
+      "Shipped with the store's guarantee",
+    ],
+    descriptionTitle: "Product description",
+    descriptionFallback: "A detailed description for this product will be added by the store soon.",
+    specsTitle: "Specifications",
+    specBrand: "Brand",
+    specCategory: "Category",
+    specSku: "Product code",
+    specOptions: "Options",
+    specSalesMode: "Sales type",
+    packageTitle: "In the box",
+    packageBody: "1 × item, shipped in the store's standard protective packaging.",
+    usageTitle: "Use and care",
+    usageBody: "Store in a cool, dry place and follow the care guidance on the label.",
+    variantTitle: "Option",
+    variantSelectHint: "Choose an option",
+    quantityLabel: "Quantity",
+    stockIn: "In stock",
+    stockLow: "Only a few left",
+    stockOut: "Out of stock",
+    stockUnknown: "Stock is confirmed with the store",
+  },
+  buyBox: {
+    priceNote: "VAT included",
+    delivery: {
+      title: "Estimated delivery",
+      body: "On its way within 1–3 business days across Türkiye.",
+    },
+    returns: {
+      title: "Easy returns",
+      body: "No-questions returns within 14 days.",
+    },
+    secure: {
+      title: "Secure shopping",
+      body: "Backed by 256-bit SSL-protected infrastructure.",
+    },
+    seller: {
+      title: "Seller",
+      badge: "Store guarantee",
+      body: "This product ships directly from the store.",
+    },
+    favorite: "Add to favorites",
+    share: "Share",
+  },
+  cta: {
     addToCart: "Add to cart",
     buyNow: "Buy now",
-    note: "Cart and checkout actions are placeholders; no real purchase runs yet.",
+    requestPrice: "Request price",
+    bookAppointment: "Book appointment",
+    whatsapp: "Ask on WhatsApp",
+    requestInfo: "Get info",
+    catalogOnly: "Catalogue item",
+    askQuestion: "Ask the seller",
+  },
+  price: {
+    onRequest: "Contact us for pricing",
+    hidden: "Price unavailable",
+    startingFrom: "Starting from {price}",
+    compareAtLabel: "List price",
+    loginRequired: "Price is shown after you sign in",
+  },
+  salesMode: {
+    online: "Online sales",
+    inquiry: "By quote",
+    appointment: "By appointment",
+    whatsapp: "Via WhatsApp",
+    catalogOnly: "Catalogue item",
+    inquiryLead: "You can request a price quote from the store for this product.",
+    appointmentLead: "Proceed by booking an appointment with the store for this product.",
+    whatsappLead: "Reach the store quickly over WhatsApp.",
+    catalogLead: "This product is shown in the catalogue and isn't for online sale.",
+    whatsappTemplateTitle: "Ready-to-send message",
+    inquiryTitleFallback: "Request a price quote",
+    appointmentNoteFallback: "Contact the store to arrange a suitable day and time.",
+  },
+  reviews: {
+    title: "Reviews",
+    emptyTitle: "No reviews yet",
+    emptyBody: "Reviews from customers who bought this product will appear here.",
+  },
+  questions: {
+    title: "Questions & answers",
+    emptyTitle: "No questions yet",
+    emptyBody: "You can ask the seller anything you'd like to know about this product.",
+    askCta: "Ask a question",
+  },
+  related: {
+    title: "Related products",
+    boughtTogetherTitle: "Frequently bought together",
+    boughtTogetherBody: "Suggestions bought alongside this product will appear here.",
+    recentlyViewedTitle: "Recently viewed",
+    recentlyViewedBody: "Products you've browsed will be recalled in this area.",
   },
   cart: {
     title: "My cart",
     emptyTitle: "Your cart is empty",
     emptyDescription:
-      "Add demo products to preview cart lines, quantities and totals. Cart contents are not persisted yet.",
+      "Explore products you like. The cart and order flow connects to this storefront in the next phase.",
     emptyAction: "Browse products",
   },
   checkout: {
@@ -73,41 +182,11 @@ export const enStorefront: StorefrontDictionary = {
       { title: "Shipping", detail: "Delivery method and rates" },
       { title: "Payment", detail: "Secure payment capture" },
     ],
-    note: "The checkout flow is a placeholder. Real shipping, tax and payment steps connect to the payment service in a later phase — no payment runs here.",
+    note: "The checkout flow will be built in the next phase. No payment is processed on this page right now.",
+  },
+  badges: {
+    discount: "Sale",
+    new: "New",
   },
   cartCount: "0",
-  products: [
-    {
-      handle: "merinos-yuvarlak-yaka-kazak",
-      name: "Merino Crew-Neck Sweater",
-      category: "Apparel",
-      priceLabel: "₺1,290",
-      tag: "New",
-      blurb: "A lightweight everyday knit in soft merino wool.",
-    },
-    {
-      handle: "kanvas-haftasonu-cantasi",
-      name: "Canvas Weekender Bag",
-      category: "Accessories",
-      priceLabel: "₺1,850",
-      tag: "Best seller",
-      blurb: "A durable cotton canvas travel bag with leather detailing.",
-    },
-    {
-      handle: "seramik-filtre-kahve-demligi",
-      name: "Ceramic Pour-Over Dripper",
-      category: "Home & Living",
-      priceLabel: "₺640",
-      tag: "",
-      blurb: "A single-cup ceramic dripper for slow mornings.",
-    },
-    {
-      handle: "keten-masa-runneri",
-      name: "Linen Table Runner",
-      category: "Home & Living",
-      priceLabel: "₺420",
-      tag: "",
-      blurb: "A stonewashed linen runner for everyday use.",
-    },
-  ],
 };

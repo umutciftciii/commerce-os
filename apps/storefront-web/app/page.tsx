@@ -1,12 +1,17 @@
 import Link from "next/link";
-import { Button, Container } from "@commerce-os/ui";
+import { Button, Container, EmptyState } from "@commerce-os/ui";
 import { ProductCard } from "../components/product-card";
-import { getSampleProducts } from "../components/sample-products";
 import { getStorefrontDict } from "../lib/i18n";
+import { getFeaturedProducts } from "../lib/server/catalog";
+
+// One cikan urunler canli katalogtan gelir; her istekte cozulur.
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const t = (await getStorefrontDict()).home;
-  const featured = (await getSampleProducts()).slice(0, 3);
+  const dict = await getStorefrontDict();
+  const t = dict.home;
+  const featuredResult = await getFeaturedProducts(4);
+  const featured = featuredResult.ok ? featuredResult.data : [];
 
   return (
     <>
@@ -18,9 +23,7 @@ export default async function HomePage() {
           <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tightish text-slate-900 sm:text-5xl">
             {t.heroTitle}
           </h1>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-500">
-            {t.heroDescription}
-          </p>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-500">{t.heroDescription}</p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/products">
               <Button>{t.shopCta}</Button>
@@ -54,18 +57,28 @@ export default async function HomePage() {
                 {t.featuredTitle}
               </h2>
             </div>
-            <Link
-              href="/products"
-              className="text-sm font-medium text-brand-600 hover:text-brand-700"
-            >
+            <Link href="/products" className="text-sm font-medium text-brand-600 hover:text-brand-700">
               {t.featuredViewAll}
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.map((product) => (
-              <ProductCard key={product.handle} product={product} />
-            ))}
-          </div>
+
+          {featured.length === 0 ? (
+            <EmptyState
+              title={t.emptyTitle}
+              description={t.emptyDescription}
+              action={
+                <Link href="/products">
+                  <Button variant="secondary">{t.shopCta}</Button>
+                </Link>
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+              {featured.map((product) => (
+                <ProductCard key={product.handle} product={product} t={dict} />
+              ))}
+            </div>
+          )}
         </Container>
       </section>
     </>

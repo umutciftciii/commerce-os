@@ -397,3 +397,21 @@
 - Cozum onerisi: `/stores/[id]` ve `/plans/[id]` dedicated detail/edit route'lari; kisa create
   modali kalabilir. Mevcut edit modallari detail page'e tasinir.
 - Hedef faz: admin-web ileri turu (bkz. TODO-053, TODO-054)
+
+## TD-032 Storefront public katalog read'i platform-admin token ile (gecici)
+
+- Durum: OPEN
+- Oncelik: HIGH — **PROD BLOCKER** (gateway public-read katalog ucu / TODO-061 gelmeden vitrin
+  uretime acilamaz)
+- Etki: F3A'da public storefront canli katalog verisine baglandi, ancak gateway'de auth gerektirmeyen
+  bir public-read katalog ucu YOK; tum `/stores/:storeId/*` katalog uclari `requireStorePlatformAdmin`
+  (platform-admin session) ister. Bu nedenle vitrin, gecici olarak sunucu-tarafinda platform-admin
+  kimligiyle (`STOREFRONT_PLATFORM_EMAIL/PASSWORD`, seed admin'e duser) oturum acar ve token'i sunucu
+  belleginde tutar. Token cookie'ye yazilmaz, istemciye/HTML/bundle'a sizmaz (smoke ile dogrulandi),
+  ama public bir uygulamanin yuksek-yetkili (SUPER_ADMIN) bir kimlik tasimasi asiri yetkidir; ayrica
+  vitrin admin-only urunleri de okuyabilir (yalnizca ACTIVE filtrelenir, yetki ile degil).
+- Cozum onerisi: Gateway'de auth gerektirmeyen, store-scoped, yalniz-okuma ve yalniz ACTIVE/yayinda
+  urun donen public katalog uclari (`GET /public/stores/:slug/products` vb.) eklemek; vitrin bu
+  uclari token'siz cagirir ve platform-admin kimligini birakir. Alternatif: dusuk yetkili,
+  public-read amacli ozel bir servis kimligi. Bu TD kapanmadan once vitrin uretimde acilmamalidir.
+- Hedef faz: Faz 3+ (backend public catalog read) — bkz. TODO-061, ADR-029.

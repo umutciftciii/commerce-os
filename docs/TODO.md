@@ -115,8 +115,11 @@
   store-admin takip akisi.
 - TODO-042: WhatsApp redirect/store contact config — store-level public contact/WhatsApp telefon
   ayarlari ve product `whatsappMessageTemplate` render kurali.
-- TODO-043: Faz 3 Storefront CTA behavior — product sales model alanlarina gore sepete ekle, fiyat
-  sor, randevu al, WhatsApp ve katalog-only davranisini public storefront'ta render etmek.
+- TODO-043: Faz 3A Storefront Resolver ve CTA behavior. (DONE — storefront-web canli katalog
+  verisine baglandi; home/listing/detail gercek urun/varyant/stok gosterir; CTA sales-model'e gore
+  degisir (ONLINE/INQUIRY/APPOINTMENT/WHATSAPP/CATALOG_ONLY) ve fiyat gorunurlugu uygulanir;
+  detail = satin alma karar merkezi iskeleti (ADR-029); cart/checkout musteri-dostu placeholder;
+  sunucu-tarafi resolver + token gizliligi (TD-032); TR/EN parite; backend/kontrat degismedi.)
 - TODO-044: Faz 2H Entity Detail Pages Route Standardization. (DONE — sipariş detayi `/orders/[id]`,
   ürün detay/düzenleme `/products/[id]` route'una tasindi; liste detay/düzenle aksiyonlari route'a
   linklenir; kisa create/adjust modallari korundu; kural ADR-027 + PROMPT_RULES'a yazildi; TR/EN
@@ -143,3 +146,15 @@
   haline getirilmesi. (Bekliyor — su an store-admin app-local; ortaklasma ihtiyaci dogunca.)
 - TODO-057: Categories/inventory/dashboard ekranlarinin da ayni glass-inspired premium dile
   hizalanmasi (F2I yalniz products/orders kapsadi). (Bekliyor — gorsel tutarlilik icin.)
+- TODO-058: Faz 3B Storefront cart + checkout — gercek sepet cekirdegi (oturum/anon cart), satir/
+  adet/toplam, order create/place akisinin storefront'tan baglanmasi. (Bekliyor — F3A'da
+  cart/checkout profesyonel placeholder; CTA kontrollu /cart yonlendirir.)
+- TODO-059: Storefront payment + shipping + fulfillment — odeme provider, kargo/teslimat secimi ve
+  vergi hesaplamasinin checkout'a baglanmasi (TODO-039/payment ile birlikte).
+- TODO-060: Storefront review + Q&A + seller rating modeli — gercek yorum/soru-cevap/satici puani
+  veri modeli ve store-admin moderasyonu (F3A'da yer tutucu); ardindan recommendation/recently-viewed
+  ve "birlikte alinanlar" oneri motoru.
+- TODO-061: Gateway public-read katalog ucu — auth gerektirmeyen, store-scoped, yalniz ACTIVE/yayinda
+  urun donen public katalog uclari; storefront resolver'in platform-admin token'i birakmasi (TD-032).
+- TODO-062: Storefront medya/gorsel pipeline — gercek urun gorseli yukleme/CDN ve detay galeri
+  zoom/lightbox/video (F3A'da galeri placeholder).

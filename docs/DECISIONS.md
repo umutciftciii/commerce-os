@@ -425,3 +425,29 @@
   tasinir. Asiri soyutlama yapilmaz.
 - Sonuc: F2I'de `/products`, `/products/[id]`, `/orders`, `/orders/[id]` bu dile tasindi; backend
   business logic, API kontratlari ve BFF guvenligi degismedi (UI-only).
+
+## ADR-029 Storefront product detail = satin alma karar merkezi + sunucu-tarafi resolver
+
+- Durum: ACCEPTED
+- Baglam: F3A'da public storefront demo kabuktan cikip canli katalog verisine baglandi. Iki karar
+  netlestirilmesi gerekti: (1) urun detay sayfasinin standardi, (2) gateway'de public katalog ucu
+  olmadan vitrinin veriye nasil, token sizdirmadan erisecegi.
+- Karar 1 — Product detail standardi: Urun detay sayfasi yalnizca ad/fiyat/aciklama degil, bir
+  "satin alma karar merkezi"dir (Amazon/Hepsiburada'dan ilham; birebir kopya degil). Asgari iskelet:
+  breadcrumb, baslik/marka/SKU, rating+yorum yer tutucu, medya galerisi, fayda/aciklama/teknik
+  ozellik/paket/kullanim, varyant secici (canli SKU/fiyat/stok), buy box (fiyat+compare-at,
+  satis-modu CTA, adet yalniz ONLINE purchasable, stok, teslimat/iade/guvenli-odeme/satici guven
+  kartlari), altta yorumlar/soru-cevap/birlikte-alinanlar/son-bakilanlar yer tutuculari + canli
+  benzer urunler. Yer tutucular sakin/profesyonel; "yakinda" tarzi ucuz copy yasak.
+- Karar 2 — CTA = satis-modeli fonksiyonu: CTA ve fiyat gorunumu, F2D urun satis-modeli alanlarinin
+  (salesMode/priceVisibility/primaryAction/purchasable) saf bir fonksiyonudur (`lib/sales-model.ts`).
+  ONLINE disindaki modlarda sepete ekleme/adet GOSTERILMEZ; gizli/talep fiyatlarda numerik fiyat
+  gosterilmez. Mapping: ONLINE→sepete ekle/hemen al, INQUIRY→fiyat sor, APPOINTMENT→randevu al,
+  WHATSAPP→WhatsApp, CATALOG_ONLY→bilgi al/pasif.
+- Karar 3 — Sunucu-tarafi resolver (token gizliligi): Public vitrin, platform-admin session cookie'si
+  KULLANMAZ. Gateway'de public-read ucu gelene kadar vitrin, sunucu-tarafinda platform-admin
+  kimligiyle oturum acar ve token'i yalnizca sunucu belleginde tutar (cookie yok; istemciye/HTML/
+  bundle'a sizmaz). Mağaza slug ile sunucuda cozulur; storeId istemciden alinmaz. Bu GECICI bir
+  cozumdur — kalici hedef gateway'de auth gerektirmeyen public-read katalog ucudur (TD-032).
+- Sonuc: F3A'da home/listing/detail canli veriye baglandi; cart/checkout musteri-dostu placeholder
+  olarak kaldi (gercek akis F3B). Backend business logic, DB modeli ve API kontratlari degismedi.
