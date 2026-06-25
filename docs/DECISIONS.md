@@ -482,3 +482,44 @@
 - Sonuc: TD-032 RESOLVED, prod blocker kalkti. Docker smoke: vitrin trafigi yalnizca `/public/*`'a
   gider; HTML ve `.next/static` bundle'da token/secret/credential YOK. DB modeli ve mevcut admin
   kontratlari degismedi (yalniz yeni public read DTO/uc eklendi).
+
+## ADR-031 Storefront cart + checkout order foundation (F3B.1)
+
+- Durum: ACCEPTED
+- Baglam: ADR-029/030 sonrasi vitrin canli katalogu okur ama cart/checkout hala placeholder'di.
+  Gercek sepet + checkout + guvenli order draft/placed olusturma gerekiyordu. ONLINE disi satis
+  modlari ve gizli fiyat sepete/siparise dusmemeli; istemci tarafi manipulasyon order'i etkilememeli.
+  Bu faz ODEME PROVIDER ENTEGRASYONU DEGILDIR (F3B.2).
+- Karar 1 — Cart persistence = imzali httpOnly cookie cart: Vitrin TD-032 sonrasi bilincli olarak
+  stateless (DB/auth/session yok); repoda anonim-session altyapisi yok. Bu yuzden DB-backed cart
+  yerine imzali (HMAC-SHA256) httpOnly cookie secildi (`commerce_os_cart`). Cookie YALNIZCA
+  `{variantId, quantity}` REFERANSI tutar; fiyat/baslik/SKU/salesMode/stok cookie'de TUTULMAZ. Imza
+  bicimsel butunluk icindir; kurcalanmis/bozuk cookie bos sepete duser. Cookie mutasyonu yalniz Next.js
+  Server Action'larinda yapilir; `STOREFRONT_CART_SECRET` server-only'dir (NEXT_PUBLIC degil, client
+  bundle'a girmez).
+- Karar 2 — Sunucu-otoriter cozumleme: Gateway'e auth GEREKTIRMEYEN iki public-write uc eklendi:
+  `POST /public/stores/:storeSlug/cart` (sepet referansini cozer) ve `POST /public/stores/:storeSlug/checkout`
+  (order olusturur). Her ikisi de urun/varyant/fiyat/stok/salesMode'u her istekte store-scoped olarak
+  katalog/stok domaininden YENIDEN okur. Istemciden gelen price/title/sku/salesMode KABUL EDILMEZ
+  (zod allowlist semasi bunlari dusturur). Cart state cihazda manipule edilse bile order aninda her sey
+  sunucuda yeniden hesaplanir.
+- Karar 3 — Satis-modeli/fiyat gizliligi kapisi: Yalniz `salesMode === ONLINE` + `purchasable` +
+  gorunur fiyatli (VISIBLE/STARTING_FROM) varyant sepete/siparise dusebilir. CATALOG_ONLY/INQUIRY/
+  APPOINTMENT/WHATSAPP ve HIDDEN/ON_REQUEST satirlar `UNAVAILABLE` isaretlenir, fiyat tasimaz
+  (unitPriceMinor 0; numerik fiyat sizmaz) ve checkout'u engeller. Stok yetersiz → `OUT_OF_STOCK`;
+  min/max veya stok nedeniyle kisilen adet → `QUANTITY_ADJUSTED`. checkout yalniz tum satirlar `OK` ise
+  ilerler.
+- Karar 4 — Order olusumu mevcut F2C cekirdegini kullanir: checkout, `createOrder` (DRAFT) →
+  `placeOrder` (stok `FOR UPDATE` ile yeniden dogrulanip rezerve edilir) kompoze eder. Yeni reservation
+  mantigi yazilmadi. Cozulemeyen/cross-store varyant index'te olmadigindan dusurulur (tenant izolasyonu
+  iki katmanli: index + order create store-scoped).
+- Karar 5 — Payment-status temsili: Bu fazda gercek odeme yok. Basarili checkout siparisi `status =
+  PLACED`, `paymentStatus = UNPAID` (DB default; "odeme bekliyor") yaratir; `fulfillmentStatus =
+  UNFULFILLED`. F3B.2 provider-ready contract: payment intent + webhook ile `AUTHORIZED`/`PAID` gecisleri
+  (bkz. TODO-063). Allowlist order-confirmation DTO yalniz onay ozeti doner (orderNumber/status/
+  paymentStatus/totals/lines/contactEmail); storeId/customerId/reservation/event/adres PII donmez.
+- Sonuc: Gercek cart + checkout + order placement calisir; container smoke'ta gercek Postgres uzerinde
+  201 PLACED/UNPAID order olustu, client fiyat manipulasyonu yok sayildi, eksik form 400 dondu,
+  ONLINE-disi sepete dusmedi. HTML/bundle/response'ta secret/token YOK. DB modeli/migration DEGISMEDI
+  (cookie cart + mevcut order/reservation cekirdegi). Bilincli borclar: TD-033 (create+place
+  atomicligi, anonim rezervasyon expiry).

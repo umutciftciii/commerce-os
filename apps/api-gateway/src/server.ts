@@ -39,6 +39,10 @@ import {
   productVariantListResponseSchema,
   productVariantSchema,
   productVariantUpdateRequestSchema,
+  publicCartRequestSchema,
+  publicCartSchema,
+  publicCheckoutRequestSchema,
+  publicOrderConfirmationSchema,
   publicProductDetailSchema,
   publicProductListResponseSchema,
   publicProductSchema,
@@ -771,6 +775,120 @@ function buildPublicProduct(
     maxOrderQuantity: product.maxOrderQuantity ?? null,
     variants: activeVariants.map((variant) => buildPublicVariant(product, variant, stockByVariantId)),
   });
+}
+
+/**
+ * Public sepet cozumlemesi (F3B.1). Bir sepet referansi ({variantId, quantity})
+ * yalnizca SUNUCUDAN okunan otoriter veriye (urun/varyant/stok) gore cozulur;
+ * istemciden gelen fiyat/baslik/salesMode KABUL EDILMEZ. ONLINE + satilabilir +
+ * gorunur fiyatli olmayan varyant UNAVAILABLE; stok yetersizse OUT_OF_STOCK;
+ * min/max veya stok nedeniyle adet kisilirsa QUANTITY_ADJUSTED isaretlenir.
+ */
+interface CartResolvableVariant {
+  variantId: string;
+  productSlug: string;
+  productTitle: string;
+  variantTitle: string;
+  sku: string;
+  salesMode: ProductSalesMode;
+  purchasable: boolean;
+  priceVisibility: ProductPriceVisibility;
+  priceMinor: number;
+  currency: string;
+  minOrderQuantity: number;
+  maxOrderQuantity: number | null;
+  /** Satilabilir stok adedi; bilinmiyorsa null (tukenmis sayilmaz). */
+  available: number | null;
+}
+
+type PublicCartLineResult = ReturnType<typeof buildPublicCartLine>;
+
+function buildPublicCartLine(entry: CartResolvableVariant, requestedQuantity: number) {
+  const base = {
+    variantId: entry.variantId,
+    productSlug: entry.productSlug,
+    title: entry.productTitle,
+    variantTitle: entry.variantTitle,
+    sku: entry.sku,
+    quantity: requestedQuantity,
+    currency: entry.currency,
+    minOrderQuantity: entry.minOrderQuantity,
+    maxOrderQuantity: entry.maxOrderQuantity,
+  };
+
+  // ONLINE disi / satilamaz / gizli fiyat -> siparise dusemez, fiyat tasimaz.
+  const orderable =
+    entry.salesMode === "ONLINE" && entry.purchasable && isPublicPriceVisible(entry.priceVisibility);
+  if (!orderable) {
+    return {
+      ...base,
+      availableQuantity: 0,
+      unitPriceMinor: 0,
+      lineTotalMinor: 0,
+      inStock: false,
+      status: "UNAVAILABLE" as const,
+    };
+  }
+
+  // min/max limitlerine gore hedef adet.
+  let target = Math.max(requestedQuantity, entry.minOrderQuantity);
+  if (entry.maxOrderQuantity !== null) target = Math.min(target, entry.maxOrderQuantity);
+  let status: "OK" | "OUT_OF_STOCK" | "QUANTITY_ADJUSTED" =
+    target === requestedQuantity ? "OK" : "QUANTITY_ADJUSTED";
+
+  const inStock = entry.available === null ? true : entry.available > 0;
+  let availableQuantity = target;
+  if (!inStock) {
+    availableQuantity = 0;
+    status = "OUT_OF_STOCK";
+  } else if (entry.available !== null && availableQuantity > entry.available) {
+    availableQuantity = entry.available;
+    status = "QUANTITY_ADJUSTED";
+  }
+
+  const unitPriceMinor = entry.priceMinor;
+  return {
+    ...base,
+    availableQuantity,
+    unitPriceMinor,
+    lineTotalMinor: unitPriceMinor * availableQuantity,
+    inStock,
+    status,
+  };
+}
+
+/** Ayni varyanttan birden cok satiri tek satira indirger (adetler toplanir). */
+function mergeCartItems(items: Array<{ variantId: string; quantity: number }>) {
+  const merged = new Map<string, number>();
+  for (const item of items) {
+    merged.set(item.variantId, Math.min((merged.get(item.variantId) ?? 0) + item.quantity, 999));
+  }
+  return [...merged.entries()].map(([variantId, quantity]) => ({ variantId, quantity }));
+}
+
+function assemblePublicCart(
+  storeSlug: string,
+  index: Map<string, CartResolvableVariant>,
+  items: Array<{ variantId: string; quantity: number }>,
+) {
+  const lines: PublicCartLineResult[] = [];
+  for (const item of mergeCartItems(items)) {
+    const entry = index.get(item.variantId);
+    // Cozulemeyen referans (silinmis/pasif/baska store) sessizce dusurulur
+    // (stale-cart reconciliation): yanit otoriterdir, istemci cookie'sini buna
+    // gore yeniden yazar.
+    if (!entry) continue;
+    lines.push(buildPublicCartLine(entry, item.quantity));
+  }
+  const orderableCurrency = lines.find((line) => line.status !== "UNAVAILABLE")?.currency;
+  const currency = orderableCurrency ?? lines[0]?.currency ?? "TRY";
+  const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
+  const itemCount = lines.reduce(
+    (sum, line) => sum + (line.status === "UNAVAILABLE" ? 0 : line.availableQuantity),
+    0,
+  );
+  const checkoutReady = lines.length > 0 && lines.every((line) => line.status === "OK");
+  return publicCartSchema.parse({ storeSlug, currency, lines, subtotalMinor, itemCount, checkoutReady });
 }
 
 function toPrismaJsonObject(value: Record<string, unknown> | undefined) {
@@ -2109,6 +2227,155 @@ export function createServer(
       appointmentNote: product.appointmentNote ?? null,
       related,
     });
+  });
+
+  // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
+  // F3B.1: Vitrin cookie'si yalnizca {variantId, quantity} referansi tasir.
+  // Sepet/checkout gateway tarafinda her istekte ACTIVE store + ACTIVE urun/
+  // varyant + stok uzerinden YENIDEN cozulur; fiyat/baslik/salesMode istemciden
+  // KABUL EDILMEZ. Tenant izolasyonu iki katmanlidir: (1) index yalnizca bu
+  // store'un ACTIVE varyantlarini icerir, (2) order create store-scoped'tur.
+
+  /** Bu store'un ACTIVE urun/varyantlarini variantId -> cozulebilir kayit map'i. */
+  async function buildPublicCartIndex(storeId: string) {
+    const [products, stockMap] = await Promise.all([
+      loadActivePublicProducts(storeId),
+      loadPublicStockMap(storeId),
+    ]);
+    const index = new Map<string, CartResolvableVariant>();
+    await Promise.all(
+      products.map(async (product) => {
+        const variants = await loadActivePublicVariants(storeId, product.id);
+        for (const variant of variants) {
+          index.set(variant.id, {
+            variantId: variant.id,
+            productSlug: product.slug,
+            productTitle: product.title,
+            variantTitle: variant.title,
+            sku: variant.sku,
+            salesMode: product.salesMode,
+            purchasable: product.purchasable,
+            priceVisibility: product.priceVisibility,
+            priceMinor: variant.priceMinor,
+            currency: variant.currency,
+            minOrderQuantity: product.minOrderQuantity,
+            maxOrderQuantity: product.maxOrderQuantity ?? null,
+            available: stockMap.has(variant.id) ? stockMap.get(variant.id)! : null,
+          });
+        }
+      }),
+    );
+    return index;
+  }
+
+  app.post("/public/stores/:storeSlug/cart", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const body = publicCartRequestSchema.parse(request.body ?? {});
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const index = await buildPublicCartIndex(store.id);
+    return assemblePublicCart(store.slug, index, body.items);
+  });
+
+  app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const body = publicCheckoutRequestSchema.parse(request.body);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+
+    // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout
+    //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
+    const index = await buildPublicCartIndex(store.id);
+    const cart = assemblePublicCart(store.slug, index, body.items);
+    if (!cart.checkoutReady) {
+      return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
+    }
+
+    // 2) Siparis taslagini olustur (createOrder salesMode/currency/limit'i ic
+    //    katmanda yeniden dogrular). Adres: teslimat zorunlu; fatura verilmezse
+    //    teslimatla ayni kabul edilir (bu fazda basit tutulur).
+    const shipping = body.shippingAddress;
+    const billing = body.billingAddress ?? null;
+    const order = await dataAccess.createOrder(store.id, {
+      customerId: null,
+      customerEmail: body.contact.email,
+      currency: cart.currency,
+      lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
+      addresses: [
+        {
+          type: "SHIPPING",
+          fullName: body.contact.fullName,
+          phone: body.contact.phone,
+          countryCode: shipping.country,
+          city: shipping.city,
+          district: shipping.district ?? null,
+          addressLine1: shipping.addressLine1,
+          addressLine2: shipping.addressLine2 ?? null,
+          postalCode: shipping.postalCode ?? null,
+        },
+        ...(billing
+          ? [
+              {
+                type: "BILLING" as const,
+                fullName: body.contact.fullName,
+                phone: body.contact.phone,
+                countryCode: billing.country,
+                city: billing.city,
+                district: billing.district ?? null,
+                addressLine1: billing.addressLine1,
+                addressLine2: billing.addressLine2 ?? null,
+                postalCode: billing.postalCode ?? null,
+              },
+            ]
+          : []),
+      ],
+    });
+    // Ic hata kodlarini guvenli, jenerik yanitlara esler (ic alan sizdirmaz).
+    if (typeof order === "string") {
+      if (order === "VARIANT_NOT_FOUND" || order === "INVALID_VARIANT") {
+        return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items."));
+      }
+      return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
+    }
+
+    // 3) Siparisi PLACE et -> stok FOR UPDATE ile yeniden dogrulanip rezerve
+    //    edilir. paymentStatus UNPAID (odeme bekliyor) olarak kalir (F3B.2'de
+    //    odeme provider'i ile genisletilecek).
+    const placed = await dataAccess.placeOrder(store.id, order.id, {});
+    if (typeof placed === "string") {
+      if (placed === "INSUFFICIENT_STOCK" || placed === "RESERVATION_FAILED") {
+        return reply.code(409).send(errorBody("CART_NOT_READY", "Some items went out of stock."));
+      }
+      return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
+    }
+    if (!placed) {
+      return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
+    }
+
+    return reply.code(201).send(
+      publicOrderConfirmationSchema.parse({
+        orderNumber: placed.orderNumber,
+        status: placed.status,
+        paymentStatus: placed.paymentStatus,
+        currency: placed.currency,
+        subtotalMinor: placed.subtotalAmount,
+        totalMinor: placed.totalAmount,
+        contactEmail: placed.customerEmail,
+        lines: placed.lines.map((line) => ({
+          title: line.title,
+          variantTitle: line.variantTitle,
+          quantity: line.quantity,
+          unitPriceMinor: line.unitPriceAmount,
+          lineTotalMinor: line.totalAmount,
+          currency: line.currency,
+        })),
+        createdAt: placed.createdAt.toISOString(),
+      }),
+    );
   });
 
   app.post("/auth/platform/login", async (request, reply) => {

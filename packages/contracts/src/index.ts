@@ -465,6 +465,125 @@ export const publicProductDetailSchema = publicProductSchema.extend({
   related: z.array(publicProductSchema),
 });
 
+/* -------------------------------------------------------------------------- */
+/* Public storefront cart + checkout (F3B.1)                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Public sepet + checkout kontratlari (F3B.1).
+ *
+ * GUVENLIK MODELI: Istemci (vitrin cookie'si) yalnizca {variantId, quantity}
+ * REFERANSI gonderir. Fiyat, baslik, SKU, salesMode, stok GIBI hicbir alan
+ * istemciden KABUL EDILMEZ; gateway bunlari her istekte store-scoped olarak
+ * katalog/stok domaininden YENIDEN okur ve hesaplar. Bu yuzden istek semasi
+ * bilincli olarak sadece referans+adet+iletisim/adres alir; yanit semalari ise
+ * birer ALLOWLIST'tir (storeId/customerId/audit/reservation gibi ic alanlar
+ * disarida birakilir). ONLINE disi satis modlari ve gizli fiyat (HIDDEN/
+ * ON_REQUEST) sepete/siparise DUSEMEZ; numerik fiyat yalnizca gorunur fiyatli
+ * ONLINE satilabilir varyantlarda doner.
+ */
+export const publicCartItemInputSchema = z.object({
+  variantId: z.string().min(1).max(120),
+  quantity: z.number().int().positive().max(999),
+});
+
+export const publicCartRequestSchema = z.object({
+  items: z.array(publicCartItemInputSchema).max(100).default([]),
+});
+
+/** Bir sepet satirinin cozumleme/uygunluk durumu. */
+export const publicCartLineStatusSchema = z.enum([
+  "OK",
+  "UNAVAILABLE",
+  "OUT_OF_STOCK",
+  "QUANTITY_ADJUSTED",
+]);
+
+/**
+ * Gateway tarafindan cozulmus (sunucu-otoriter) tek sepet satiri. unitPriceMinor/
+ * lineTotalMinor yalnizca ONLINE + gorunur fiyatli satilabilir varyant icindir;
+ * boyle olmayan referanslar UNAVAILABLE olarak isaretlenir ve fiyat tasimaz.
+ */
+export const publicCartLineSchema = z.object({
+  variantId: z.string().min(1),
+  productSlug: slugSchema,
+  title: z.string().min(1),
+  variantTitle: z.string().min(1),
+  sku: skuSchema,
+  /** Talep edilen adet (kullaniciya gosterilen). */
+  quantity: z.number().int().positive(),
+  /** Stok/limit nedeniyle siparise dusebilecek nihai adet (<= quantity). */
+  availableQuantity: z.number().int().nonnegative(),
+  unitPriceMinor: z.number().int().nonnegative(),
+  lineTotalMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  minOrderQuantity: z.number().int().positive(),
+  maxOrderQuantity: z.number().int().positive().nullable(),
+  inStock: z.boolean(),
+  status: publicCartLineStatusSchema,
+});
+
+export const publicCartSchema = z.object({
+  storeSlug: slugSchema,
+  currency: currencySchema,
+  lines: z.array(publicCartLineSchema),
+  /** Yalnizca OK satirlarin toplami. */
+  subtotalMinor: z.number().int().nonnegative(),
+  /** OK satirlarin toplam adedi (rozet/nav sayaci). */
+  itemCount: z.number().int().nonnegative(),
+  /** Tum satirlar OK ve en az bir satir varsa true (checkout'a gecilebilir). */
+  checkoutReady: z.boolean(),
+});
+
+export const publicCheckoutContactSchema = z.object({
+  fullName: z.string().min(1).max(220),
+  email: z.string().email().max(320),
+  phone: z.string().min(1).max(40),
+});
+
+export const publicCheckoutAddressSchema = z.object({
+  country: z.string().length(2).regex(/^[A-Z]{2}$/),
+  city: z.string().min(1).max(120),
+  district: z.string().max(120).nullable().optional(),
+  addressLine1: z.string().min(1).max(500),
+  addressLine2: z.string().max(500).nullable().optional(),
+  postalCode: z.string().max(40).nullable().optional(),
+});
+
+export const publicCheckoutRequestSchema = z.object({
+  items: z.array(publicCartItemInputSchema).min(1).max(100),
+  contact: publicCheckoutContactSchema,
+  shippingAddress: publicCheckoutAddressSchema,
+  /** Verilmezse fatura adresi teslimat adresiyle ayni kabul edilir. */
+  billingAddress: publicCheckoutAddressSchema.nullable().optional(),
+});
+
+/**
+ * Basarili checkout sonrasi guvenli siparis onayi (ALLOWLIST). Ic alanlar
+ * (storeId, customerId, reservation/event detaylari, adres PII tam dokumu)
+ * disarida birakilir; yalnizca onay icin gereken ozet doner.
+ */
+export const publicOrderConfirmationLineSchema = z.object({
+  title: z.string().min(1),
+  variantTitle: z.string().min(1),
+  quantity: z.number().int().positive(),
+  unitPriceMinor: z.number().int().nonnegative(),
+  lineTotalMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+});
+
+export const publicOrderConfirmationSchema = z.object({
+  orderNumber: z.string().min(1),
+  status: orderStatusSchema,
+  paymentStatus: paymentStatusSchema,
+  currency: currencySchema,
+  subtotalMinor: z.number().int().nonnegative(),
+  totalMinor: z.number().int().nonnegative(),
+  contactEmail: z.string().email(),
+  lines: z.array(publicOrderConfirmationLineSchema),
+  createdAt: z.string().datetime(),
+});
+
 export const productVariantCreateRequestSchema = z
   .object({
     title: z.string().min(1).max(220),
@@ -754,6 +873,16 @@ export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
 export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;
+export type PublicCartItemInput = z.infer<typeof publicCartItemInputSchema>;
+export type PublicCartRequest = z.infer<typeof publicCartRequestSchema>;
+export type PublicCartLineStatus = z.infer<typeof publicCartLineStatusSchema>;
+export type PublicCartLine = z.infer<typeof publicCartLineSchema>;
+export type PublicCart = z.infer<typeof publicCartSchema>;
+export type PublicCheckoutContact = z.infer<typeof publicCheckoutContactSchema>;
+export type PublicCheckoutAddress = z.infer<typeof publicCheckoutAddressSchema>;
+export type PublicCheckoutRequest = z.infer<typeof publicCheckoutRequestSchema>;
+export type PublicOrderConfirmationLine = z.infer<typeof publicOrderConfirmationLineSchema>;
+export type PublicOrderConfirmation = z.infer<typeof publicOrderConfirmationSchema>;
 export type ProductVariantCreateRequest = z.infer<typeof productVariantCreateRequestSchema>;
 export type ProductVariantUpdateRequest = z.infer<typeof productVariantUpdateRequestSchema>;
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;

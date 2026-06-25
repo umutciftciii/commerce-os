@@ -421,3 +421,21 @@
   static` bundle'da token/Bearer/createApiClient/platformLogin/credential YOK.
 - Karar kaydi: ADR-030. Bkz. TODO-061 (DONE).
 - Hedef faz: Faz 3 (F3A.1)
+
+## TD-033 Public checkout atomicligi + anonim rezervasyon yasam dongusu
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: F3B.1 public checkout, mevcut F2C cekirdegini kompoze eder: `createOrder` (DRAFT) ve
+  `placeOrder` (stok `FOR UPDATE` ile rezervasyon) AYRI iki transaction'dir. (1) `createOrder` ile
+  `placeOrder` arasinda kucuk bir yaris penceresi vardir (placeOrder stok'u yine de FOR UPDATE ile
+  yeniden dogrular, asiri-satis olmaz; en kotu durum INSUFFICIENT_STOCK ile 409). (2) `placeOrder`
+  basarisiz olursa olusturulan DRAFT siparis kalir (yetim draft); su an temizlenmez. (3) Anonim
+  checkout'ta odeme alinmadan stok PLACED ile rezerve edilir; terk edilen siparisler icin rezervasyon
+  expiry/iptal mekanizmasi yoktur (stok suresiz rezerve kalabilir).
+- Cozum onerisi: (a) Tek transaction'da create+place yapan bir public-checkout data-access metodu;
+  (b) basarisiz place'te DRAFT'i otomatik iptal/temizleme; (c) worker'da rezervasyon expiry + abandoned
+  DRAFT/PLACED-UNPAID temizlik job'i. F3B.2 odeme adimi geldiginde stok rezervasyonunu odeme
+  authorize'a baglamak (rezerv-on-auth) bu borcu buyuk olcude kapatir.
+- Karar kaydi: ADR-031. Bkz. TODO-064, TODO-065.
+- Hedef faz: Faz 3B.2

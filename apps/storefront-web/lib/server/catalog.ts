@@ -14,6 +14,7 @@ import type {
 import { deriveProductCommerceView } from "../sales-model";
 import { formatLowest, formatMinor, formatPriceRange } from "../money";
 import { demoStoreSlug } from "./env";
+import { getPublic } from "./gateway";
 
 /**
  * Vitrin katalog cozumleyici (TD-032 / F3A.1). Gateway'in AUTH GEREKTIRMEYEN
@@ -31,22 +32,6 @@ import { demoStoreSlug } from "./env";
 export type CatalogFailure = "no-store" | "error";
 
 export type CatalogResult<T> = { ok: true; data: T } | { ok: false; reason: CatalogFailure };
-
-/** Gateway taban URL'i (yalnizca sunucu env'i; client'a sizmaz, NEXT_PUBLIC degil). */
-function gatewayBaseUrl(): string {
-  return (process.env.API_GATEWAY_URL ?? "http://localhost:4000").replace(/\/+$/, "");
-}
-
-type FetchOutcome<T> = { ok: true; data: T } | { ok: false; status: number };
-
-/** Public katalog GET cagrisi. Hicbir auth header gondermez; her istekte taze. */
-async function getPublic<T>(path: string): Promise<FetchOutcome<T>> {
-  const response = await fetch(`${gatewayBaseUrl()}${path}`, { cache: "no-store" });
-  if (!response.ok) {
-    return { ok: false, status: response.status };
-  }
-  return { ok: true, data: (await response.json()) as T };
-}
 
 /** Yalnizca numerik fiyati gorunur (null olmayan) varyantlarin fiyat listesi. */
 function visiblePrices(variants: PublicProductVariant[]) {

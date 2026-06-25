@@ -2203,3 +2203,239 @@ describe("api gateway · public catalog (TD-032)", () => {
     await app.close();
   });
 });
+
+describe("api gateway · public cart + checkout (F3B.1)", () => {
+  // Bu uclar AUTH GEREKTIRMEZ; vitrin cookie'si yalnizca {variantId, quantity}
+  // referansi gonderir. Fiyat/baslik/salesMode/stok sunucu-otoriterdir.
+  const VARIANT = "variant_hoodie_m";
+
+  function cartReq(app: Awaited<ReturnType<typeof createTestApp>>["app"], items: unknown, slug = "demo-store") {
+    return app.inject({ method: "POST", url: `/public/stores/${slug}/cart`, payload: { items } });
+  }
+
+  const validContact = { fullName: "Ada Lovelace", email: "ada@example.com", phone: "+905551112233" };
+  const validAddress = {
+    country: "TR",
+    city: "Istanbul",
+    district: "Kadikoy",
+    addressLine1: "Bagdat Cad. 1",
+    postalCode: "34000",
+  };
+
+  function checkoutReq(
+    app: Awaited<ReturnType<typeof createTestApp>>["app"],
+    payload: unknown,
+    slug = "demo-store",
+  ) {
+    return app.inject({ method: "POST", url: `/public/stores/${slug}/checkout`, payload });
+  }
+
+  it("resolves an ONLINE variant into a purchasable cart line (subtotal computed server-side)", async () => {
+    const { app } = await createTestApp();
+    const response = await cartReq(app, [{ variantId: VARIANT, quantity: 2 }]);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.lines).toHaveLength(1);
+    expect(body.lines[0]).toMatchObject({
+      variantId: VARIANT,
+      productSlug: "demo-hoodie",
+      title: "Demo Hoodie",
+      variantTitle: "Black / M",
+      quantity: 2,
+      availableQuantity: 2,
+      unitPriceMinor: 129900,
+      lineTotalMinor: 259800,
+      currency: "TRY",
+      status: "OK",
+    });
+    expect(body.subtotalMinor).toBe(259800);
+    expect(body.itemCount).toBe(2);
+    expect(body.checkoutReady).toBe(true);
+    await app.close();
+  });
+
+  it("returns an empty, non-checkout-ready cart for no items", async () => {
+    const { app } = await createTestApp();
+    const response = await cartReq(app, []);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ lines: [], subtotalMinor: 0, itemCount: 0, checkoutReady: false });
+    await app.close();
+  });
+
+  for (const mode of ["CATALOG_ONLY", "INQUIRY", "APPOINTMENT", "WHATSAPP"] as const) {
+    it(`marks a ${mode} variant UNAVAILABLE and blocks checkout (no price leak)`, async () => {
+      const { app, dataAccess } = await createTestApp();
+      dataAccess.products[0]!.salesMode = mode;
+      dataAccess.products[0]!.purchasable = false;
+
+      const cart = await cartReq(app, [{ variantId: VARIANT, quantity: 1 }]);
+      const body = cart.json();
+      expect(body.lines[0]).toMatchObject({ status: "UNAVAILABLE", unitPriceMinor: 0, lineTotalMinor: 0 });
+      expect(body.checkoutReady).toBe(false);
+      // Numerik fiyat (gizli) govdede sizmamali.
+      expect(cart.body).not.toContain("129900");
+
+      const checkout = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+      });
+      expect(checkout.statusCode).toBe(409);
+      expect(checkout.json()).toMatchObject({ error: { code: "CART_NOT_READY" } });
+      await app.close();
+    });
+  }
+
+  it("never leaks numeric price for HIDDEN/ON_REQUEST price visibility in the cart", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.salesMode = "INQUIRY";
+    dataAccess.products[0]!.priceVisibility = "ON_REQUEST";
+    dataAccess.products[0]!.purchasable = false;
+
+    const response = await cartReq(app, [{ variantId: VARIANT, quantity: 1 }]);
+    expect(response.json().lines[0]).toMatchObject({ status: "UNAVAILABLE", unitPriceMinor: 0 });
+    expect(response.body).not.toContain("129900");
+    expect(response.body).not.toContain("149900");
+    await app.close();
+  });
+
+  it("ignores client-supplied price/title/salesMode (server is authoritative)", async () => {
+    const { app } = await createTestApp();
+    const response = await cartReq(app, [
+      { variantId: VARIANT, quantity: 1, priceMinor: 1, title: "HACKED", salesMode: "CATALOG_ONLY" },
+    ]);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().lines[0]).toMatchObject({
+      title: "Demo Hoodie",
+      unitPriceMinor: 129900,
+      status: "OK",
+    });
+    await app.close();
+  });
+
+  it("clamps quantity to available stock (QUANTITY_ADJUSTED) and blocks checkout until reconciled", async () => {
+    const { app } = await createTestApp();
+    const response = await cartReq(app, [{ variantId: VARIANT, quantity: 20 }]);
+    const body = response.json();
+    expect(body.lines[0]).toMatchObject({ availableQuantity: 15, status: "QUANTITY_ADJUSTED" });
+    expect(body.checkoutReady).toBe(false);
+    await app.close();
+  });
+
+  it("marks a zero-stock variant OUT_OF_STOCK and blocks checkout", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.inventory[0]!.quantityOnHand = 0;
+
+    const cart = await cartReq(app, [{ variantId: VARIANT, quantity: 1 }]);
+    expect(cart.json().lines[0]).toMatchObject({ status: "OUT_OF_STOCK", availableQuantity: 0, inStock: false });
+
+    const checkout = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(checkout.statusCode).toBe(409);
+    await app.close();
+  });
+
+  it("drops references to unknown or cross-store variants (tenant isolation + stale reconcile)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    // Ikinci ACTIVE store + urun/varyant.
+    dataAccess.stores.push({
+      id: "store_other",
+      name: "Other Store",
+      slug: "other-store",
+      status: "ACTIVE",
+      metadata: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: null,
+    });
+    dataAccess.products.push({ ...dataAccess.products[0]!, id: "product_other", storeId: "store_other", slug: "other-product" });
+    dataAccess.variants.push({ ...dataAccess.variants[0]!, id: "variant_other", productId: "product_other", storeId: "store_other", sku: "OTHER-SKU" });
+
+    const cart = await cartReq(app, [
+      { variantId: "variant_other", quantity: 1 },
+      { variantId: "does-not-exist", quantity: 1 },
+    ]);
+    expect(cart.json().lines).toHaveLength(0);
+
+    const checkout = await checkoutReq(app, {
+      items: [{ variantId: "variant_other", quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(checkout.statusCode).toBe(409);
+    expect(checkout.json()).toMatchObject({ error: { code: "CART_NOT_READY" } });
+    await app.close();
+  });
+
+  it("rejects checkout with missing/invalid contact fields (no order created)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    const response = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: { fullName: "", email: "not-an-email", phone: "" },
+      shippingAddress: validAddress,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+    expect(dataAccess.orders).toHaveLength(0);
+    await app.close();
+  });
+
+  it("creates a PLACED, UNPAID order on valid checkout and reserves stock", async () => {
+    const { app, dataAccess } = await createTestApp();
+    const response = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 2 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    expect(body).toMatchObject({
+      status: "PLACED",
+      paymentStatus: "UNPAID",
+      currency: "TRY",
+      subtotalMinor: 259800,
+      totalMinor: 259800,
+      contactEmail: "ada@example.com",
+    });
+    expect(body.orderNumber).toMatch(/^OS-/);
+    expect(body.lines[0]).toMatchObject({ title: "Demo Hoodie", quantity: 2, unitPriceMinor: 129900, lineTotalMinor: 259800 });
+    // Stok rezerve edildi (placeOrder).
+    expect(dataAccess.inventory[0]!.quantityReserved).toBe(2);
+    await app.close();
+  });
+
+  it("does not expose internal/admin fields in cart or order confirmation", async () => {
+    const { app } = await createTestApp();
+    const cart = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
+    expect(cart).not.toHaveProperty("storeId");
+    expect(cart.lines[0]).not.toHaveProperty("storeId");
+
+    const confirmation = (
+      await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+      })
+    ).json();
+    for (const internalKey of ["storeId", "customerId", "reservations", "events", "addresses", "fulfillmentStatus"]) {
+      expect(confirmation).not.toHaveProperty(internalKey);
+    }
+    await app.close();
+  });
+
+  it("returns a safe 404 for an unknown/inactive store on cart and checkout", async () => {
+    const { app } = await createTestApp();
+    const cart = await cartReq(app, [{ variantId: VARIANT, quantity: 1 }], "nope");
+    expect(cart.statusCode).toBe(404);
+    const checkout = await checkoutReq(
+      app,
+      { items: [{ variantId: VARIANT, quantity: 1 }], contact: validContact, shippingAddress: validAddress },
+      "nope",
+    );
+    expect(checkout.statusCode).toBe(404);
+    await app.close();
+  });
+});

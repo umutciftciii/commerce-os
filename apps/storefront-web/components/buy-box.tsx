@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Badge, Button } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductDetail, StorefrontVariantView } from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
+import { addToCartAction } from "../lib/server/cart-actions";
 
 const LOW_STOCK = 5;
 
@@ -25,6 +26,8 @@ function stockLabel(variant: StorefrontVariantView | undefined, t: StorefrontDic
  */
 export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: StorefrontDictionary }) {
   const { commerce, variants, price } = detail;
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [selectedId, setSelectedId] = useState(variants[0]?.id ?? null);
   const [quantity, setQuantity] = useState(commerce.minQuantity);
 
@@ -34,6 +37,18 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
   const maxQty = commerce.maxQuantity ?? 99;
   const clamp = (value: number) => Math.min(Math.max(value, commerce.minQuantity), maxQty);
+
+  // ADD_TO_CART/BUY_NOW: secili varyanti cookie sepete ekler (Server Action),
+  // ardindan sepete/checkout'a yonlendirir. Adet/varyant istemci state'idir;
+  // fiyat/stok/uygunluk gateway tarafinda yeniden dogrulanir.
+  const canAddToCart = commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected;
+  function addToCart(destination: "/cart" | "/checkout") {
+    if (!selected) return;
+    startTransition(async () => {
+      await addToCartAction(selected.id, quantity);
+      router.push(destination);
+    });
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
@@ -129,17 +144,22 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       <div className="mt-5 flex flex-col gap-2">
         {commerce.primaryCta === "ADD_TO_CART" ? (
           <>
-            <Link href="/cart" className="w-full">
-              <Button className="w-full" disabled={commerce.primaryCtaDisabled}>
-                {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
-              </Button>
-            </Link>
+            <Button
+              className="w-full"
+              disabled={!canAddToCart || isPending}
+              onClick={() => addToCart("/cart")}
+            >
+              {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
+            </Button>
             {commerce.secondaryCta ? (
-              <Link href="/cart" className="w-full">
-                <Button variant="secondary" className="w-full">
-                  {ctaLabel(commerce.secondaryCta, t)}
-                </Button>
-              </Link>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={!canAddToCart || isPending}
+                onClick={() => addToCart("/checkout")}
+              >
+                {ctaLabel(commerce.secondaryCta, t)}
+              </Button>
             ) : null}
           </>
         ) : (
