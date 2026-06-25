@@ -90,6 +90,8 @@ export type {
   PublicCartRequest,
   PublicCartLineStatus,
   PublicCartLine,
+  PublicCouponStatus,
+  PublicCartSummary,
   PublicCart,
   PublicCheckoutContact,
   PublicCheckoutAddress,

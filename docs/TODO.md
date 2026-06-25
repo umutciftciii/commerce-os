@@ -154,7 +154,10 @@
   istemciden kabul edilmez; allowlist DTO; tenant izolasyonu iki katmanli; cart/checkout sayfalari
   gercek veriye bagli (empty/error/success/quantity/remove/reconcile); TR/EN parite; bkz. ADR-031, TD-033.)
 - TODO-059: Storefront payment + shipping + fulfillment — odeme provider, kargo/teslimat secimi ve
-  vergi hesaplamasinin checkout'a baglanmasi (TODO-039/payment ile birlikte).
+  vergi hesaplamasinin checkout'a baglanmasi (TODO-039/payment ile birlikte). NOT: F3B.1 UX
+  revizyonunda gateway'e SUNUCU-OTORITER DEMO ozet eklendi (KDV %20 dahil, kargo ₺750 ustu ucretsiz/
+  alti ₺49,90, `DEMO10` %10 kupon); shipping/discount siparise yazilir. Bunlar "demo calculation";
+  gercek shipping/tax/coupon motoru bu TODO'da yapilacak (bkz. ADR-031 revizyon notu).
 - TODO-060: Storefront review + Q&A + seller rating modeli — gercek yorum/soru-cevap/satici puani
   veri modeli ve store-admin moderasyonu (F3A'da yer tutucu); ardindan recommendation/recently-viewed
   ve "birlikte alinanlar" oneri motoru.

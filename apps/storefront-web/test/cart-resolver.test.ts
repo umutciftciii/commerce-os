@@ -33,6 +33,18 @@ function publicCart(overrides: Record<string, unknown> = {}) {
     subtotalMinor: 259800,
     itemCount: 2,
     checkoutReady: true,
+    summary: {
+      itemsSubtotalMinor: 259800,
+      shippingMinor: 0,
+      discountMinor: 0,
+      taxIncludedMinor: 43300,
+      grandTotalMinor: 259800,
+      currency: "TRY",
+      freeShippingThresholdMinor: 75000,
+      taxRatePercent: 20,
+      couponCode: null,
+      couponStatus: "NONE",
+    },
     lines: [
       {
         variantId: "v1",
@@ -77,6 +89,10 @@ describe("storefront-web · cart resolver", () => {
     expect(result.data.lines[0]).toMatchObject({ title: "Demo Hoodie", quantity: 2, status: "OK" });
     // Bicimli etiketler turetilmis (tr-TR para bicimi).
     expect(result.data.lines[0].lineTotalLabel).toContain("2.598");
+    // Ozet (server-otoriter) gorunum modeline cevrildi.
+    expect(result.data.summary.shippingIsFree).toBe(true);
+    expect(result.data.summary.grandTotalLabel).toContain("2.598");
+    expect(result.data.summary.couponStatus).toBe("NONE");
 
     // Auth header gonderilmemeli (public-write).
     const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
@@ -101,7 +117,12 @@ describe("storefront-web · cart resolver", () => {
         paymentStatus: "UNPAID",
         currency: "TRY",
         subtotalMinor: 259800,
+        shippingMinor: 0,
+        discountMinor: 0,
+        taxIncludedMinor: 43300,
         totalMinor: 259800,
+        couponCode: null,
+        couponStatus: "NONE",
         contactEmail: "ada@example.com",
         lines: [
           {

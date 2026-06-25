@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
-import { readCartItems } from "../../lib/server/cart-cookie";
+import { readCartItems, readCoupon } from "../../lib/server/cart-cookie";
 import { resolveCart } from "../../lib/server/cart";
 import { CheckoutForm } from "../../components/checkout-form";
 
@@ -20,7 +20,8 @@ export default async function CheckoutPage() {
     return <EmptyCheckout t={t} />;
   }
 
-  const result = await resolveCart(items);
+  const coupon = await readCoupon();
+  const result = await resolveCart(items, coupon);
   if (!result.ok) {
     return (
       <Container className="py-12">

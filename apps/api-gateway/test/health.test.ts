@@ -772,9 +772,20 @@ class MemoryDataAccess implements AppDataAccess {
     return { item, movement };
   }
 
-  orderTotals(lines: Array<{ totalAmount: number }>) {
+  orderTotals(
+    lines: Array<{ totalAmount: number }>,
+    extras: { discountAmount?: number; shippingAmount?: number } = {},
+  ) {
     const subtotalAmount = lines.reduce((sum, line) => sum + line.totalAmount, 0);
-    return { subtotalAmount, discountAmount: 0, shippingAmount: 0, taxAmount: 0, totalAmount: subtotalAmount };
+    const discountAmount = Math.max(0, Math.min(extras.discountAmount ?? 0, subtotalAmount));
+    const shippingAmount = Math.max(0, extras.shippingAmount ?? 0);
+    return {
+      subtotalAmount,
+      discountAmount,
+      shippingAmount,
+      taxAmount: 0,
+      totalAmount: Math.max(0, subtotalAmount - discountAmount + shippingAmount),
+    };
   }
 
   productSalesError(product: ProductRecord, quantity: number) {
@@ -808,6 +819,8 @@ class MemoryDataAccess implements AppDataAccess {
       customerEmail: string;
       currency: string;
       lines: Array<{ variantId: string; quantity: number }>;
+      shippingAmount?: number;
+      discountAmount?: number;
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
         fullName: string;
@@ -849,7 +862,10 @@ class MemoryDataAccess implements AppDataAccess {
         createdAt: new Date("2026-01-05T00:00:00.000Z"),
       });
     }
-    const totals = this.orderTotals(lines);
+    const totals = this.orderTotals(lines, {
+      discountAmount: input.discountAmount,
+      shippingAmount: input.shippingAmount,
+    });
     const order: OrderRecord = {
       id: orderId,
       storeId,
@@ -2423,6 +2439,81 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     for (const internalKey of ["storeId", "customerId", "reservations", "events", "addresses", "fulfillmentStatus"]) {
       expect(confirmation).not.toHaveProperty(internalKey);
     }
+    await app.close();
+  });
+
+  it("computes a server-authoritative summary: free shipping above threshold", async () => {
+    const { app } = await createTestApp();
+    // 1x hoodie = 129900 >= 75000 esik -> kargo ucretsiz; KDV dahil.
+    const body = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
+    expect(body.summary).toMatchObject({
+      itemsSubtotalMinor: 129900,
+      shippingMinor: 0,
+      discountMinor: 0,
+      grandTotalMinor: 129900,
+      taxRatePercent: 20,
+      couponStatus: "NONE",
+    });
+    // taxIncluded = round(129900 * 20 / 120) = 21650.
+    expect(body.summary.taxIncludedMinor).toBe(21650);
+    await app.close();
+  });
+
+  it("charges a demo shipping fee below the free-shipping threshold", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.variants[0]!.priceMinor = 5000; // ₺50 -> esik altinda
+    const body = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
+    expect(body.summary).toMatchObject({ itemsSubtotalMinor: 5000, shippingMinor: 4990, grandTotalMinor: 9990 });
+    await app.close();
+  });
+
+  it("applies a valid DEMO10 coupon and rejects unknown codes", async () => {
+    const { app } = await createTestApp();
+    const applied = (await app.inject({
+      method: "POST",
+      url: "/public/stores/demo-store/cart",
+      payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "demo10" },
+    })).json();
+    expect(applied.summary).toMatchObject({
+      discountMinor: 12990, // %10 of 129900
+      couponCode: "DEMO10",
+      couponStatus: "APPLIED",
+      grandTotalMinor: 116910,
+    });
+
+    const invalid = (await app.inject({
+      method: "POST",
+      url: "/public/stores/demo-store/cart",
+      payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "NOPE" },
+    })).json();
+    expect(invalid.summary).toMatchObject({ discountMinor: 0, couponCode: "NOPE", couponStatus: "INVALID" });
+    await app.close();
+  });
+
+  it("persists demo shipping/discount into the placed order and confirmation", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.variants[0]!.priceMinor = 5000; // esik alti -> kargo ucreti
+    const response = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+      couponCode: "DEMO10",
+    });
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    // subtotal 5000, discount 500 (%10), shipping 4990 -> total 9490.
+    expect(body).toMatchObject({
+      subtotalMinor: 5000,
+      discountMinor: 500,
+      shippingMinor: 4990,
+      totalMinor: 9490,
+      couponCode: "DEMO10",
+      couponStatus: "APPLIED",
+    });
+    // Siparise de yazildi.
+    expect(dataAccess.orders[0]!.discountAmount).toBe(500);
+    expect(dataAccess.orders[0]!.shippingAmount).toBe(4990);
+    expect(dataAccess.orders[0]!.totalAmount).toBe(9490);
     await app.close();
   });
 

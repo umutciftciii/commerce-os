@@ -437,6 +437,10 @@ export interface AppDataAccess {
       customerEmail: string;
       currency: string;
       lines: Array<{ variantId: string; quantity: number }>;
+      /** Opsiyonel demo kargo ucreti (minor); verilmezse 0. */
+      shippingAmount?: number;
+      /** Opsiyonel demo indirim tutari (minor); verilmezse 0. */
+      discountAmount?: number;
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
         fullName: string;
@@ -866,10 +870,61 @@ function mergeCartItems(items: Array<{ variantId: string; quantity: number }>) {
   return [...merged.entries()].map(([variantId, quantity]) => ({ variantId, quantity }));
 }
 
+/**
+ * Sepet ozeti DEMO hesabi (F3B.1 UX). Gercek shipping/tax/coupon motoru YOKTUR;
+ * acik demo kurallari (bkz. ADR-031):
+ *   - KDV (%20) fiyatlara DAHILDIR; toplam uzerine EKLENMEZ. taxIncludedMinor
+ *     yalnizca grand total icindeki KDV gostergesidir.
+ *   - Kargo: itemsSubtotal >= FREE_SHIPPING_THRESHOLD ise 0, altinda SHIPPING_FEE
+ *     (sepet bos/0 ise 0).
+ *   - Kupon: yalnizca DEMO_COUPON_CODE (DEMO10) %10 indirim uygular; baska kod
+ *     INVALID, kod yok ise NONE.
+ * grandTotal = itemsSubtotal - discount + shipping.
+ */
+const CART_FREE_SHIPPING_THRESHOLD_MINOR = 75_000; // ₺750
+const CART_SHIPPING_FEE_MINOR = 4_990; // ₺49,90
+const CART_TAX_RATE_PERCENT = 20; // KDV (fiyatlara dahil)
+const DEMO_COUPON_CODE = "DEMO10";
+const DEMO_COUPON_RATE_PERCENT = 10;
+
+function computeCartSummary(subtotalMinor: number, currency: string, couponCode?: string | null) {
+  const code = couponCode?.trim().toUpperCase() || null;
+  let discountMinor = 0;
+  let couponStatus: "NONE" | "APPLIED" | "INVALID" = "NONE";
+  if (code) {
+    if (code === DEMO_COUPON_CODE && subtotalMinor > 0) {
+      discountMinor = Math.round((subtotalMinor * DEMO_COUPON_RATE_PERCENT) / 100);
+      couponStatus = "APPLIED";
+    } else {
+      couponStatus = "INVALID";
+    }
+  }
+  const shippingMinor =
+    subtotalMinor <= 0 ? 0 : subtotalMinor >= CART_FREE_SHIPPING_THRESHOLD_MINOR ? 0 : CART_SHIPPING_FEE_MINOR;
+  const grandTotalMinor = Math.max(0, subtotalMinor - discountMinor + shippingMinor);
+  // KDV dahil: grand total icindeki KDV payi = total * rate / (100 + rate).
+  const taxIncludedMinor = Math.round(
+    (grandTotalMinor * CART_TAX_RATE_PERCENT) / (100 + CART_TAX_RATE_PERCENT),
+  );
+  return {
+    itemsSubtotalMinor: subtotalMinor,
+    shippingMinor,
+    discountMinor,
+    taxIncludedMinor,
+    grandTotalMinor,
+    currency,
+    freeShippingThresholdMinor: CART_FREE_SHIPPING_THRESHOLD_MINOR,
+    taxRatePercent: CART_TAX_RATE_PERCENT,
+    couponCode: couponStatus === "NONE" ? null : code,
+    couponStatus,
+  };
+}
+
 function assemblePublicCart(
   storeSlug: string,
   index: Map<string, CartResolvableVariant>,
   items: Array<{ variantId: string; quantity: number }>,
+  couponCode?: string | null,
 ) {
   const lines: PublicCartLineResult[] = [];
   for (const item of mergeCartItems(items)) {
@@ -888,7 +943,18 @@ function assemblePublicCart(
     0,
   );
   const checkoutReady = lines.length > 0 && lines.every((line) => line.status === "OK");
-  return publicCartSchema.parse({ storeSlug, currency, lines, subtotalMinor, itemCount, checkoutReady });
+  // Kupon indirimi yalnizca checkout'a hazir (tum satirlar OK) sepete uygulanir;
+  // aksi halde yanlis bir grand total gosterilmez.
+  const summary = computeCartSummary(subtotalMinor, currency, checkoutReady ? couponCode : null);
+  return publicCartSchema.parse({
+    storeSlug,
+    currency,
+    lines,
+    subtotalMinor,
+    itemCount,
+    checkoutReady,
+    summary,
+  });
 }
 
 function toPrismaJsonObject(value: Record<string, unknown> | undefined) {
@@ -1150,14 +1216,20 @@ function createPrismaDataAccess(): AppDataAccess {
     return transaction.order.findFirst({ where: { id: orderId, storeId }, select: orderSelect });
   }
 
-  function orderTotals(lines: Array<{ totalAmount: number }>) {
+  function orderTotals(
+    lines: Array<{ totalAmount: number }>,
+    extras: { discountAmount?: number; shippingAmount?: number } = {},
+  ) {
     const subtotalAmount = lines.reduce((sum, line) => sum + line.totalAmount, 0);
+    const discountAmount = Math.max(0, Math.min(extras.discountAmount ?? 0, subtotalAmount));
+    const shippingAmount = Math.max(0, extras.shippingAmount ?? 0);
+    // KDV fiyatlara dahil (F3B.1 demo); taxAmount ayrica eklenmez.
     return {
       subtotalAmount,
-      discountAmount: 0,
-      shippingAmount: 0,
+      discountAmount,
+      shippingAmount,
       taxAmount: 0,
-      totalAmount: subtotalAmount,
+      totalAmount: Math.max(0, subtotalAmount - discountAmount + shippingAmount),
     };
   }
 
@@ -1648,7 +1720,10 @@ function createPrismaDataAccess(): AppDataAccess {
           select: { nextValue: true },
         });
         const orderNumber = `OS-${String(counter.nextValue - 1).padStart(6, "0")}`;
-        const totals = orderTotals(orderLines);
+        const totals = orderTotals(orderLines, {
+          discountAmount: input.discountAmount,
+          shippingAmount: input.shippingAmount,
+        });
         const order = await transaction.order.create({
           data: {
             storeId,
@@ -2276,7 +2351,7 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
     const index = await buildPublicCartIndex(store.id);
-    return assemblePublicCart(store.slug, index, body.items);
+    return assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null);
   });
 
   app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
@@ -2290,13 +2365,16 @@ export function createServer(
     // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout
     //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
     const index = await buildPublicCartIndex(store.id);
-    const cart = assemblePublicCart(store.slug, index, body.items);
+    const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null);
     if (!cart.checkoutReady) {
       return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
     }
+    // Ozet (kargo/indirim) sunucuda hesaplandi; siparise yansitilir.
+    const summary = cart.summary;
 
     // 2) Siparis taslagini olustur (createOrder salesMode/currency/limit'i ic
-    //    katmanda yeniden dogrular). Adres: teslimat zorunlu; fatura verilmezse
+    //    katmanda yeniden dogrular). Kargo/indirim siparise yazilir; KDV dahil
+    //    oldugundan taxAmount 0. Adres: teslimat zorunlu; fatura verilmezse
     //    teslimatla ayni kabul edilir (bu fazda basit tutulur).
     const shipping = body.shippingAddress;
     const billing = body.billingAddress ?? null;
@@ -2305,6 +2383,8 @@ export function createServer(
       customerEmail: body.contact.email,
       currency: cart.currency,
       lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
+      shippingAmount: summary.shippingMinor,
+      discountAmount: summary.discountMinor,
       addresses: [
         {
           type: "SHIPPING",
@@ -2363,7 +2443,12 @@ export function createServer(
         paymentStatus: placed.paymentStatus,
         currency: placed.currency,
         subtotalMinor: placed.subtotalAmount,
+        shippingMinor: placed.shippingAmount,
+        discountMinor: placed.discountAmount,
+        taxIncludedMinor: summary.taxIncludedMinor,
         totalMinor: placed.totalAmount,
+        couponCode: summary.couponCode,
+        couponStatus: summary.couponStatus,
         contactEmail: placed.customerEmail,
         lines: placed.lines.map((line) => ({
           title: line.title,

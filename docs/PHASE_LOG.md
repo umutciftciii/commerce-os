@@ -975,3 +975,28 @@ dokumanlarla sinirli tutuldu.
 - Payment provider entegrasyonu yok (F3B.2 / TODO-063); kargo/teslimat ucreti, vergi motoru, kupon,
   iade modeli, billing/shipping ayrimi (su an tek teslimat adresi) sonraki fazlara birakildi.
 - Customer hesabi/login yok (anonim checkout; `customerId=null`); abandoned cart reminder yok.
+
+### UX revizyonu (ayni faz, ikinci commit)
+
+- Sepete ekle davranisi: "Sepete ekle" YONLENDIRMEZ; urun detayda kalir, nav sayaci guncellenir, inline
+  "sepete eklendi" + opsiyonel "sepete git". "Simdi Al" sepete ekleyip checkout'a yonlendirir.
+- Sunucu-otoriter siparis ozeti: gateway cart/checkout yaniti `summary` (itemsSubtotal/shipping/discount/
+  taxIncluded/grandTotal + couponStatus) doner; genel toplam SUNUCUDAN gelir. DEMO kurallar (gercek motor
+  YOK): KDV %20 fiyatlara DAHIL (taxIncluded gosterge, toplam'a eklenmez), kargo ₺750 ustu ucretsiz /
+  alti ₺49,90, kupon `DEMO10` %10 (digerleri INVALID). shipping/discount siparise yazilir (createOrder
+  + orderTotals genisletildi; total=subtotal-discount+shipping, taxAmount 0).
+- Cart sidebar zenginlesti: ara toplam + adet, indirim (kupon kodu), kargo (ucretsiz/tutar + esik ipucu),
+  KDV-dahil gosterge, genel toplam, kupon uygula/kaldir alani. Checkout ozeti ayni dokumu + onay panelinde
+  breakdown gosterir.
+- Checkout teslimat: TR il/ilce BAGIMLI dropdown (`lib/tr-location-data.ts`, 81 il + ilce; il secilmeden
+  ilce kapali, il degisince ilce sifirlanir) + sunucu il/ilce tutarlilik dogrulamasi. Telefon TR cep
+  formatli (+90 onek, `5XX XXX XX XX`) + sunucu normalize/validasyon (`lib/phone.ts`). Posta kodundan
+  "opsiyonel" etiketi kaldirildi. Mock odeme korunur. Kupon kodu ayri httpOnly cookie'de.
+- Dogrulananlar: `pnpm test:unit` 281 gecti (gateway 52 — ozet/kupon/persist dahil; tr-location-data 5;
+  phone 4; cart-resolver 4; i18n parite). typecheck 0, lint temiz, build (storefront /checkout 8.45kB —
+  81 il/ilce verisi client'ta), git diff --check temiz. Docker smoke (gercek Postgres): cart `summary`
+  dogru (tote ₺399 esik alti → kargo ₺49,90; `DEMO10` → ₺39,90 indirim, grandTotal ₺409; invalid → INVALID),
+  `POST /checkout` DEMO10 → 201 `OS-000014`, indirim/kargo siparise persist. Secret marker taramasi
+  (HTML + 7 chunk + cart API): tum marker'lar (cart-secret + `commerce_os_coupon` dahil) 0 hit.
+- Bilincli borc: shipping/tax/coupon "demo calculation"dir (gercek motor F3B.2+, TODO-059/063); il/ilce
+  veri seti statik (guncel resmi ilce listesi; degisirse manuel guncellenir).

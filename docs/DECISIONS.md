@@ -523,3 +523,18 @@
   ONLINE-disi sepete dusmedi. HTML/bundle/response'ta secret/token YOK. DB modeli/migration DEGISMEDI
   (cookie cart + mevcut order/reservation cekirdegi). Bilincli borclar: TD-033 (create+place
   atomicligi, anonim rezervasyon expiry).
+- Revizyon (UX correction, ayni faz): (1) "Sepete ekle" artik YONLENDIRME YAPMAZ — urun detayda kalir,
+  nav sayaci revalidate ile guncellenir, inline "sepete eklendi" geri bildirimi + opsiyonel "sepete git";
+  "Simdi Al" sepete ekleyip checkout'a yonlendirir. (2) Sunucu-otoriter siparis OZETI gateway cart/
+  checkout yanitina eklendi (`summary`): itemsSubtotal/shipping/discount/taxIncluded/grandTotal +
+  couponStatus. Genel toplam SUNUCUDAN gelir; istemci kendi toplamini uretmez. DEMO hesap kurallari
+  (gercek motor YOK): KDV %20 FIYATLARA DAHIL (toplam uzerine eklenmez; taxIncluded yalniz gosterge),
+  kargo itemsSubtotal>=₺750 ise 0 / altinda ₺49,90, kupon yalniz `DEMO10` %10 (digerleri INVALID).
+  shipping/discount siparise de yazilir (createOrder genisletildi; total=subtotal-discount+shipping).
+  (3) Checkout teslimat adresi: TR il/ilce BAGIMLI dropdown (81 il + ilce, `lib/tr-location-data.ts`;
+  il secilmeden ilce kapali, il degisince ilce sifirlanir), sunucu-tarafi il/ilce tutarlilik dogrulamasi.
+  (4) Telefon TR cep formatli (`5XX XXX XX XX`, +90 onek) + sunucu normalize/validasyon
+  (`lib/phone.ts` → `+90XXXXXXXXXX`). (5) Posta kodundan "opsiyonel" etiketi kaldirildi (alan opsiyonel
+  kalir). Mock odeme korunur; gercek provider yok. Kupon kodu ayri httpOnly cookie'de (hassas degil;
+  gateway her istekte yeniden dogrular). Shipping/tax/coupon "demo calculation"dir; gercek motor F3B.2+
+  (TODO-059/063).

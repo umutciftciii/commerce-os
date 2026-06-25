@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import type { OrderConfirmationView } from "./cart";
 import { submitCheckout } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
-import { readCartItems, writeCartItems } from "./cart-cookie";
+import { readCartItems, readCoupon, writeCartItems, writeCoupon } from "./cart-cookie";
+import { isProvince, isValidProvinceDistrict } from "../tr-location-data";
+import { normalizeTrPhone } from "../phone";
 
 /**
  * Vitrin sepet/checkout Server Action'lari (F3B.1). Cookie mutasyonu yalnizca bu
@@ -14,9 +16,22 @@ import { readCartItems, writeCartItems } from "./cart-cookie";
  */
 
 function revalidateCart(): void {
-  // Nav rozeti (layout) + sepet sayfasi tazelenir.
+  // Nav rozeti (layout) + sepet/checkout sayfalari tazelenir.
   revalidatePath("/", "layout");
   revalidatePath("/cart");
+  revalidatePath("/checkout");
+}
+
+/** Kupon kodunu uygular (cookie'ye yazar; gateway gercek dogrulamayi yapar). */
+export async function applyCouponAction(code: string): Promise<void> {
+  await writeCoupon(code);
+  revalidateCart();
+}
+
+/** Uygulanan kuponu kaldirir. */
+export async function removeCouponAction(): Promise<void> {
+  await writeCoupon(null);
+  revalidateCart();
 }
 
 /** Bir varyanti sepete ekler (mevcut adede ekleyerek). */
@@ -82,13 +97,16 @@ export async function submitCheckoutAction(
   const addressLine2 = field(formData, "addressLine2");
   const postalCode = field(formData, "postalCode");
 
-  // Sunucu-tarafi form dogrulama (gateway de bagimsiz dogrular).
+  // Sunucu-tarafi form dogrulama (gateway de bagimsiz dogrular). Telefon TR cep
+  // formatina, il/ilce ise TR il/ilce verisine gore dogrulanir.
+  const normalizedPhone = normalizeTrPhone(phone);
   const fieldErrors: Record<string, boolean> = {};
   if (!fullName) fieldErrors.fullName = true;
   if (!email || !EMAIL_RE.test(email)) fieldErrors.email = true;
-  if (!phone) fieldErrors.phone = true;
+  if (!normalizedPhone) fieldErrors.phone = true;
   if (!/^[A-Z]{2}$/.test(country)) fieldErrors.country = true;
-  if (!city) fieldErrors.city = true;
+  if (!city || !isProvince(city)) fieldErrors.city = true;
+  if (!district || !isValidProvinceDistrict(city, district)) fieldErrors.district = true;
   if (!addressLine1) fieldErrors.addressLine1 = true;
   if (Object.keys(fieldErrors).length > 0) {
     return { status: "error", errorReason: "validation", fieldErrors };
@@ -98,18 +116,20 @@ export async function submitCheckoutAction(
   if (items.length === 0) {
     return { status: "error", errorReason: "cart-not-ready" };
   }
+  const coupon = await readCoupon();
 
   const result = await submitCheckout(
     items,
-    { fullName, email, phone },
+    { fullName, email, phone: normalizedPhone! },
     {
       country,
       city,
-      district: optional(district),
+      district,
       addressLine1,
       addressLine2: optional(addressLine2),
       postalCode: optional(postalCode),
     },
+    coupon,
   );
 
   if (!result.ok) {

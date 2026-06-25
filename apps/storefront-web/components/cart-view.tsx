@@ -6,8 +6,10 @@ import { Alert, Badge, Button, Card } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CartView as CartViewModel, CartLineView } from "../lib/server/cart";
 import {
+  applyCouponAction,
   reconcileCartAction,
   removeCartItemAction,
+  removeCouponAction,
   updateCartItemAction,
 } from "../lib/server/cart-actions";
 
@@ -179,19 +181,55 @@ function CartLineRow({
 }
 
 function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; pending: boolean }) {
+  const s = view.summary;
   return (
     <aside className="lg:sticky lg:top-24 lg:self-start">
       <Card className="p-5">
         <h2 className="text-base font-semibold text-slate-900">{t.summaryTitle}</h2>
-        <dl className="mt-4 space-y-2 text-sm">
+
+        <dl className="mt-4 space-y-2.5 text-sm">
           <div className="flex items-center justify-between">
-            <dt className="text-slate-500">{t.subtotal}</dt>
-            <dd className="font-semibold text-slate-900">{view.subtotalLabel}</dd>
+            <dt className="text-slate-500">
+              {t.subtotal}{" "}
+              <span className="text-xs text-slate-400">· {format(t.itemsLabel, { count: view.itemCount })}</span>
+            </dt>
+            <dd className="font-medium text-slate-900">{s.subtotalLabel}</dd>
+          </div>
+
+          {s.discountLabel ? (
+            <div className="flex items-center justify-between text-emerald-700">
+              <dt>
+                {t.discount}
+                {s.couponCode ? <span className="ml-1 text-xs font-medium">({s.couponCode})</span> : null}
+              </dt>
+              <dd className="font-medium">−{s.discountLabel}</dd>
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between">
+            <dt className="text-slate-500">{t.shipping}</dt>
+            <dd className="font-medium text-slate-900">
+              {s.shippingIsFree ? <span className="text-emerald-700">{t.shippingFree}</span> : s.shippingLabel}
+            </dd>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
+            <dt className="font-semibold text-slate-900">{t.grandTotal}</dt>
+            <dd className="text-base font-semibold text-slate-900">{s.grandTotalLabel}</dd>
           </div>
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <dt>{format(t.itemsLabel, { count: view.itemCount })}</dt>
+            <dt>{format(t.taxIncludedLabel, { rate: s.taxRatePercent })}</dt>
+            <dd>{s.taxIncludedLabel}</dd>
           </div>
         </dl>
+
+        {!s.shippingIsFree ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {format(t.freeShippingHint, { amount: s.freeShippingThresholdLabel })}
+          </p>
+        ) : null}
+
+        <CouponForm summary={s} t={t} disabled={pending} />
 
         {!view.checkoutReady ? (
           <Alert tone="warning" className="mt-4">
@@ -216,6 +254,76 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
         <p className="mt-3 text-xs leading-relaxed text-slate-400">{t.summaryNote}</p>
       </Card>
     </aside>
+  );
+}
+
+function CouponForm({
+  summary,
+  t,
+  disabled,
+}: {
+  summary: CartViewModel["summary"];
+  t: CartDict;
+  disabled: boolean;
+}) {
+  const [code, setCode] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const applied = summary.couponStatus === "APPLIED";
+  const invalid = summary.couponStatus === "INVALID";
+
+  function apply() {
+    const value = code.trim();
+    if (!value) return;
+    startTransition(() => {
+      void applyCouponAction(value);
+    });
+  }
+
+  function remove() {
+    startTransition(() => {
+      void removeCouponAction();
+    });
+  }
+
+  if (applied) {
+    return (
+      <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+        <span className="font-medium text-emerald-700">
+          {format(t.couponApplied, { code: summary.couponCode ?? "" })}
+        </span>
+        <button
+          type="button"
+          onClick={remove}
+          disabled={disabled || isPending}
+          className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
+        >
+          {t.couponRemove}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder={t.couponPlaceholder}
+          aria-label={t.couponLabel}
+          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm uppercase text-slate-900 placeholder:text-slate-400 placeholder:normal-case focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+        />
+        <Button variant="secondary" onClick={apply} disabled={disabled || isPending || !code.trim()}>
+          {t.couponApply}
+        </Button>
+      </div>
+      {invalid ? (
+        <p className="mt-1.5 text-xs text-red-600">
+          {format(t.couponInvalid, { code: summary.couponCode ?? "" })}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

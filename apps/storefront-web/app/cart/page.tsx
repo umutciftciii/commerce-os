@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
-import { readCartItems } from "../../lib/server/cart-cookie";
+import { readCartItems, readCoupon } from "../../lib/server/cart-cookie";
 import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
 
@@ -20,7 +20,8 @@ export default async function CartPage() {
     return <EmptyCart t={t} />;
   }
 
-  const result = await resolveCartWithCanonicalItems(items);
+  const coupon = await readCoupon();
+  const result = await resolveCartWithCanonicalItems(items, coupon);
   if (!result.ok) {
     return (
       <Container className="py-12">
