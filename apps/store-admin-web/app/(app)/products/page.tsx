@@ -11,7 +11,6 @@ import {
   EmptyState,
   Modal,
   PageHeader,
-  SectionCard,
   SkeletonRows,
   useLocale,
   type DataTableColumn,
@@ -27,6 +26,7 @@ import type {
 import { ProductIcon } from "../../../components/icons";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
+import { MetricGrid, MetricTile, SurfaceCard } from "../../components/premium";
 import { ProductForm } from "./product-form";
 
 type ProductStatus = Product["status"];
@@ -92,6 +92,14 @@ export default function ProductsPage() {
     return map;
   }, [categories]);
 
+  // Ozet metrikleri canli listeden hesaplanir (yeni API cagrisi yok).
+  const metrics = useMemo(() => {
+    const active = products.filter((p) => p.status === "ACTIVE").length;
+    const purchasable = products.filter((p) => (p.purchasable ?? true) === true).length;
+    const catalogOnly = products.filter((p) => (p.salesMode ?? "ONLINE") === "CATALOG_ONLY").length;
+    return { active, purchasable, catalogOnly };
+  }, [products]);
+
   const columns: DataTableColumn<Product>[] = [
     {
       header: t.table.title,
@@ -117,16 +125,20 @@ export default function ProductsPage() {
         const action = (product.primaryAction ?? "ADD_TO_CART") as ProductPrimaryAction;
         const purchasable = product.purchasable ?? true;
         return (
-          <div className="space-y-1">
-            <Badge tone={SALES_MODE_TONES[mode]}>{sm.modeLabels[mode]}</Badge>
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge tone={SALES_MODE_TONES[mode]} dot>
+                {sm.modeLabels[mode]}
+              </Badge>
+              {!purchasable ? (
+                <Badge tone="warning">{sm.notPurchasableBadge}</Badge>
+              ) : mode === "ONLINE" ? (
+                <Badge tone="success">{sm.purchasableBadge}</Badge>
+              ) : null}
+            </div>
             <p className="text-xs text-slate-400">
               {sm.priceVisibilityLabels[visibility]} · {sm.actionLabels[action]}
             </p>
-            {!purchasable ? (
-              <p className="text-xs font-medium text-amber-600">{sm.notPurchasableBadge}</p>
-            ) : mode === "ONLINE" ? (
-              <p className="text-xs font-medium text-emerald-600">{sm.purchasableBadge}</p>
-            ) : null}
           </div>
         );
       },
@@ -188,7 +200,36 @@ export default function ProductsPage() {
         </div>
       ) : null}
 
-      <SectionCard
+      {state.status === "ready" && products.length > 0 ? (
+        <div className="mb-5">
+          <MetricGrid columns={4}>
+            <MetricTile
+              label={t.summary.total}
+              value={state.total}
+              hint={t.summary.totalHint}
+              tone="brand"
+            />
+            <MetricTile
+              label={t.summary.active}
+              value={metrics.active}
+              hint={t.summary.activeHint}
+              tone="success"
+            />
+            <MetricTile
+              label={t.summary.purchasable}
+              value={metrics.purchasable}
+              hint={t.summary.purchasableHint}
+            />
+            <MetricTile
+              label={t.summary.catalog}
+              value={metrics.catalogOnly}
+              hint={t.summary.catalogHint}
+            />
+          </MetricGrid>
+        </div>
+      ) : null}
+
+      <SurfaceCard
         title={t.cardTitle}
         description={
           state.status === "ready" ? format(t.countLabel, { count: state.total }) : t.cardDescription
@@ -233,7 +274,7 @@ export default function ProductsPage() {
             caption={t.cardTitle}
           />
         ) : null}
-      </SectionCard>
+      </SurfaceCard>
 
       {creating ? (
         <CreateProduct

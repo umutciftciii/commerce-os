@@ -53,6 +53,23 @@ Ek kurallar:
   route/page olmak zorundadir.
 - Her tasarim planinda "detail route vs modal" karari acikca yazilir.
 
+### Premium / Demo-Ready UI Kurali (bkz. F2I)
+
+- Musteri onune cikan ekranlar "demo-ready" kalitede olur: yalniz islevsel degil, satilabilir
+  gorunum. Tasarim once yapilir (design-first), sonra kod yazilir.
+- Gorsel dil "glass-inspired premium SaaS"tir (Apple cam dilinden ilham; birebir kopya degil):
+  light-first, kirik beyaz zemin, translucent yuzeyler (`bg-white/70`), olculu `backdrop-blur`,
+  ince white/silver kenar (`ring-1 ring-slate-200/70`), dusuk yogunluklu katmanli golge,
+  `rounded-2xl/3xl` olculu. `#9743CD` marka vurgusu yalnizca CTA/accent/aktif gostergede.
+- Detay sayfasi "form yiginina" benzemez: guclu kimlik basligi (hero), iki kolonlu yerlesim
+  (sol ana icerik + sag kompakt baglam rayi) ve bolumlenmis cam yuzeyler kullanilir.
+- Liste sayfalari ust ozet/metric tile seridi, rafine filtre/aksiyon alani ve urun hissinde
+  empty/loading/error state tasir.
+- Erisilebilirlik korunur: glass effect okunabilirligi/kontrasti dusurmez, tum etkilesimli
+  ogelerde focus state kalir, `backdrop-blur` performans/okunabilirlik bozacak kadar kullanilmaz.
+- Store-admin'e ozel premium primitive'ler app-local olabilir; admin-web ile ortaklasirsa
+  `packages/ui`'ye tasinir. Asiri soyutlamadan kacinilir.
+
 ## Dil ve i18n Kurali (Frontend/UI)
 
 - Varsayilan urun dili Turkce'dir. Tum yeni gorunur UI metni varsayilan olarak Turkce uretilir

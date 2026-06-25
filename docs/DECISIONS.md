@@ -407,3 +407,21 @@
 - Sonuc: F2H'de sipariş detay modali `/orders/[id]`, ürün düzenleme modali `/products/[id]` route'una
   tasindi; varyant yonetimi ürün detay sayfasinda inline bölüm oldu. Backend/business logic ve BFF
   guvenligi (server-side store context, CSRF, token sizmamasi) degismeden korundu.
+
+## ADR-028 Premium glass-inspired UI direction (store-admin)
+
+- Durum: ACCEPTED
+- Baglam: Store-admin ürün/sipariş ekranlari islevsel olarak calisiyordu ama musteri demosu icin
+  yeterince premium degildi (F2I). Tutarli, satilabilir bir gorsel dil gerekti.
+- Karar: Musteri onune cikan store-admin ekranlari "glass-inspired premium SaaS" gorsel dilini
+  kullanir: light-first, kirik beyaz zemin, translucent yuzeyler (`bg-white/70`), olculu
+  `backdrop-blur`, ince white/silver kenar (`ring-1 ring-slate-200/70`), dusuk yogunluklu katmanli
+  golge, `rounded-2xl/3xl`. `#9743CD` marka vurgusu yalnizca CTA/accent/aktif gostergede. Apple cam
+  dilinden ilham alinir ama birebir kopya degildir; dark theme/neon/agir gradient yoktur.
+- Detay sayfasi standardi (ADR-027 ile uyumlu): hero kimlik basligi + iki kolon (sol ana icerik,
+  sag kompakt baglam rayi) + bolumlenmis cam yuzeyler; "form yigini" gorunumu yasaktir.
+- Primitive politikasi: store-admin'e ozel premium primitive'ler app-local tutulur
+  (`apps/store-admin-web/app/components/premium.tsx`); admin-web ile ortaklasirsa `packages/ui`'ye
+  tasinir. Asiri soyutlama yapilmaz.
+- Sonuc: F2I'de `/products`, `/products/[id]`, `/orders`, `/orders/[id]` bu dile tasindi; backend
+  business logic, API kontratlari ve BFF guvenligi degismedi (UI-only).

@@ -112,6 +112,23 @@ describe("store-admin orders — list states", () => {
     expect(screen.getByRole("button", { name: "Tekrar dene" })).toBeTruthy();
   });
 
+  it("renders the operations summary tiles computed from the live list", async () => {
+    storeApiMock.listOrders.mockResolvedValue(
+      page(2, [
+        makeOrder({ status: "DRAFT" }),
+        makeOrder({ id: "o2", orderNumber: "ORD-1002", status: "PLACED" }),
+      ]),
+    );
+    render(<OrdersPage />);
+
+    await screen.findByText("ORD-1001");
+    expect(screen.getByText("Toplam sipariş")).toBeTruthy();
+    expect(screen.getByText("İşlemde")).toBeTruthy();
+    expect(screen.getByText("Toplam ciro")).toBeTruthy();
+    // "Taslak" hem tile etiketi hem satir rozeti olabilir; en az bir kez gorunur.
+    expect(screen.getAllByText("Taslak").length).toBeGreaterThan(0);
+  });
+
   it("renders order/payment/fulfillment status badges in Turkish without invalid DOM nesting", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     storeApiMock.listOrders.mockResolvedValue(

@@ -3,19 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import {
-  Alert,
-  Badge,
-  Button,
-  PageHeader,
-  SectionCard,
-  SkeletonRows,
-  useLocale,
-} from "@commerce-os/ui";
+import { Alert, Badge, Button, SkeletonRows, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
-import type { Product, ProductCategory } from "@commerce-os/api-client";
+import type {
+  Product,
+  ProductCategory,
+  ProductPriceVisibility,
+  ProductPrimaryAction,
+  ProductSalesMode,
+} from "@commerce-os/api-client";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
+import { formatDate } from "../../../../lib/client/format";
+import {
+  DetailHero,
+  DetailLayout,
+  RailCard,
+  RailRow,
+  SurfaceCard,
+} from "../../../components/premium";
+import { ProductIcon } from "../../../../components/icons";
 import { ProductForm } from "../product-form";
 import { VariantsSection } from "../variants-manager";
 
@@ -27,6 +34,14 @@ const STATUS_TONES: Record<ProductStatus, "success" | "neutral" | "warning"> = {
   ARCHIVED: "warning",
 };
 
+const SALES_MODE_TONES: Record<ProductSalesMode, "success" | "info" | "warning" | "neutral"> = {
+  ONLINE: "success",
+  INQUIRY: "info",
+  APPOINTMENT: "warning",
+  WHATSAPP: "success",
+  CATALOG_ONLY: "neutral",
+};
+
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -36,8 +51,9 @@ const FORM_ID = "product-edit-form";
 
 /**
  * Ürün detay/düzenleme: modal değil, kendi route'unda (`/products/[id]`) tam sayfa.
- * Temel bilgiler + satış davranışı tek formda; varyantlar inline bölüm olarak yer alır.
- * Uzun form doğal sayfa scroll'u ile akar.
+ * Üstte güçlü kimlik başlığı (DetailHero), altında iki kolon: solda form + varyantlar,
+ * sağda kompakt bağlam rayı (satış profili, künye, yönetim notu). Uzun form doğal
+ * sayfa scroll'u ile akar.
  */
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
@@ -47,6 +63,7 @@ export default function ProductDetailPage() {
   const t = dict.storeAdmin.products;
   const c = dict.common;
   const d = t.detail;
+  const sm = t.salesModel;
   const statusLabels = t.statusLabels as Record<ProductStatus, string>;
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -73,31 +90,50 @@ export default function ProductDetailPage() {
   const product = state.status === "ready" ? state.product : null;
   const categories = state.status === "ready" ? state.categories : [];
 
+  const mode = (product?.salesMode ?? "ONLINE") as ProductSalesMode;
+  const visibility = (product?.priceVisibility ?? "VISIBLE") as ProductPriceVisibility;
+  const action = (product?.primaryAction ?? "ADD_TO_CART") as ProductPrimaryAction;
+  const purchasable = product?.purchasable ?? true;
+
   return (
     <>
-      <PageHeader
+      <DetailHero
         eyebrow={t.eyebrow}
         title={product ? product.title : t.title}
+        subtitle={
+          product ? <span className="font-mono text-xs text-slate-400">{product.slug}</span> : null
+        }
         description={d.pageDescription}
-        breadcrumb={
-          <Link href="/products" className="text-brand-600 hover:text-brand-700 hover:underline">
-            ← {d.backToList}
-          </Link>
+        backHref="/products"
+        backLabel={d.backToList}
+        badges={
+          product ? (
+            <>
+              <Badge tone={STATUS_TONES[product.status]} dot>
+                {statusLabels[product.status]}
+              </Badge>
+              <Badge tone={SALES_MODE_TONES[mode]}>{sm.modeLabels[mode]}</Badge>
+              {purchasable ? (
+                mode === "ONLINE" ? (
+                  <Badge tone="success">{sm.purchasableBadge}</Badge>
+                ) : null
+              ) : (
+                <Badge tone="warning">{sm.notPurchasableBadge}</Badge>
+              )}
+            </>
+          ) : null
         }
         actions={
           product ? (
-            <div className="flex items-center gap-2">
-              <Badge tone={STATUS_TONES[product.status]}>{statusLabels[product.status]}</Badge>
-              <Button type="submit" form={FORM_ID} disabled={saving}>
-                {saving ? c.states.saving : d.saveAction}
-              </Button>
-            </div>
+            <Button type="submit" form={FORM_ID} disabled={saving}>
+              {saving ? c.states.saving : d.saveAction}
+            </Button>
           ) : null
         }
       />
 
       {notice ? (
-        <div className="mb-4">
+        <div className="mb-5">
           <Alert
             tone="success"
             action={
@@ -132,35 +168,79 @@ export default function ProductDetailPage() {
       ) : null}
 
       {product ? (
-        <div className="space-y-5">
-          <SectionCard title={d.basicInfoTitle} description={d.basicInfoSubtitle}>
-            <ProductForm
-              mode="edit"
-              product={product}
-              categories={categories}
-              statusLabels={statusLabels}
-              formId={FORM_ID}
-              onSavingChange={setSaving}
-              onSaved={(message, updated) => {
-                setState({ status: "ready", product: updated, categories });
-                setNotice(message);
-              }}
-            />
-          </SectionCard>
+        <DetailLayout
+          main={
+            <>
+              <SurfaceCard
+                title={d.basicInfoTitle}
+                description={d.basicInfoSubtitle}
+                icon={<ProductIcon />}
+              >
+                <ProductForm
+                  mode="edit"
+                  product={product}
+                  categories={categories}
+                  statusLabels={statusLabels}
+                  formId={FORM_ID}
+                  onSavingChange={setSaving}
+                  onSaved={(message, updated) => {
+                    setState({ status: "ready", product: updated, categories });
+                    setNotice(message);
+                  }}
+                />
+              </SurfaceCard>
 
-          <SectionCard title={d.variantsTitle}>
-            <VariantsSection product={product} />
-          </SectionCard>
+              <SurfaceCard title={d.variantsTitle}>
+                <VariantsSection product={product} />
+              </SurfaceCard>
+            </>
+          }
+          rail={
+            <>
+              <RailCard title={d.rail.salesProfile}>
+                <div className="divide-y divide-slate-100">
+                  <RailRow label={d.rail.status} value={statusLabels[product.status]} />
+                  <RailRow label={d.rail.salesMode} value={sm.modeLabels[mode]} />
+                  <RailRow
+                    label={d.rail.priceVisibility}
+                    value={sm.priceVisibilityLabels[visibility]}
+                  />
+                  <RailRow label={d.rail.primaryAction} value={sm.actionLabels[action]} />
+                  <RailRow
+                    label={d.rail.purchasability}
+                    value={
+                      <Badge tone={purchasable ? "success" : "warning"}>
+                        {purchasable ? sm.purchasableBadge : sm.notPurchasableBadge}
+                      </Badge>
+                    }
+                  />
+                </div>
+              </RailCard>
 
-          <SectionCard title={d.inventoryTitle} description={d.inventoryNote}>
-            <Link
-              href="/inventory"
-              className="text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-            >
-              {d.inventoryLink} →
-            </Link>
-          </SectionCard>
-        </div>
+              <RailCard title={d.rail.stockProfile}>
+                <p className="text-sm text-slate-500">{d.inventoryNote}</p>
+                <Link
+                  href="/inventory"
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 transition-colors hover:text-brand-700"
+                >
+                  {d.inventoryLink} <span aria-hidden>→</span>
+                </Link>
+              </RailCard>
+
+              <RailCard title={d.rail.metadata}>
+                <div className="divide-y divide-slate-100">
+                  <RailRow label={t.form.slugLabel} value={product.slug} />
+                  <RailRow label={d.rail.created} value={formatDate(product.createdAt)} />
+                  <RailRow label={d.rail.lastUpdated} value={formatDate(product.updatedAt)} />
+                </div>
+              </RailCard>
+
+              <RailCard title={d.rail.managementNoteTitle}>
+                <p className="text-sm leading-relaxed text-slate-500">{d.rail.managementNote}</p>
+              </RailCard>
+            </>
+          }
+        />
       ) : null}
     </>
   );

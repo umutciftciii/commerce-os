@@ -97,6 +97,13 @@ describe("store-admin product detail — dedicated route page", () => {
       "/products",
     );
 
+    // Premium DetailHero: durum rozeti + kaydet aksiyonu basligin icinde.
+    expect(screen.getByRole("button", { name: "Değişiklikleri kaydet" })).toBeTruthy();
+    // Sag baglam rayi: satis profili, kunye ve yonetim notu kartlari.
+    expect(screen.getByText("Satış profili")).toBeTruthy();
+    expect(screen.getByText("Künye")).toBeTruthy();
+    expect(screen.getByText("Yönetim notu")).toBeTruthy();
+
     // Edit detay sayfasi modal degildir.
     expect(screen.queryByRole("dialog")).toBeNull();
 

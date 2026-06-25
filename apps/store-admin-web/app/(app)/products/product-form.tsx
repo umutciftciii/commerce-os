@@ -359,10 +359,13 @@ export function ProductForm({
         )}
       </div>
 
-      <div className="space-y-4 border-t border-slate-100 pt-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">{sm.sectionTitle}</h3>
-          <p className="mt-0.5 text-xs text-slate-400">{sm.sectionSubtitle}</p>
+      <div className="space-y-4 rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 sm:p-5">
+        <div className="flex items-start gap-2.5">
+          <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-brand-500" />
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">{sm.sectionTitle}</h3>
+            <p className="mt-0.5 text-xs text-slate-500">{sm.sectionSubtitle}</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

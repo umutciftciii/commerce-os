@@ -1,5 +1,46 @@
 # Phase Log
 
+## Faz 2I Store-admin Products & Orders Premium UI Polish
+
+- Tarih: 2026-06-25
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: Store-admin ürün ve sipariş ekranlarinin (`/products`, `/products/[id]`, `/orders`,
+  `/orders/[id]`) gorsel kalitesini "Apple glass-inspired" premium SaaS dilinde yukseltmek.
+  Yalnizca stil/layout/kompozisyon polish; islev, backend business logic, yeni API endpoint,
+  DB model/migration, storefront checkout/cart ve payment/shipping/fulfillment kapsam disidir.
+  Entity detail = dedicated route/page standardi (ADR-027) korundu; detay modal'a donulmedi.
+- Tasarim dili: light-first, kirik beyaz zemin uzerinde translucent cam yuzeyler (`bg-white/70`,
+  `backdrop-blur-xl`, `ring-1 ring-slate-200/70`, ince white/silver kenar, dusuk yogunluklu katmanli
+  golge). `#9743CD` marka vurgusu yalnizca CTA/accent/aktif gostergede. Asiri gradient/neon/dark yok.
+- Yeni app-local primitive'ler (`apps/store-admin-web/app/components/premium.tsx`): `GlassPanel`,
+  `SurfaceCard`, `DetailHero`, `MetricTile`, `MetricGrid`, `DetailLayout`, `RailCard`, `RailRow`,
+  `Timeline`, `TimelineItem`. Store-admin'e ozel oldugundan app-local tutuldu (ortaklasirsa
+  `packages/ui`'ye tasinabilir).
+- Products list: PageHeader + canli listeden hesaplanan dort ozet tile (toplam / aktif / satin
+  alinabilir / katalog-only), rafine satis kolonu (sales mode badge + purchasable rozeti + price
+  visibility/aksiyon), cam yuzeyli tablo karti. Create modali ve `/products/[id]` detay linki korundu.
+- Product detail: DetailHero (baslik, slug, durum + satis rozetleri, kaydet, ürünlere dön) + iki
+  kolon: solda temel bilgiler formu ve varyantlar; sagda kompakt baglam rayi (satis profili, stok
+  profili, künye, yönetim notu). Satis davranisi bolumu form icinde belirgin sub-surface oldu.
+- Orders list: bes ozet tile (toplam / taslak / işlemde / iptal / toplam ciro — canli listeden),
+  cam yuzeyli tablo karti, korunan status/payment/fulfillment rozetleri ve satir lifecycle aksiyonlari.
+- Order detail: DetailHero (sipariş no, müşteri, status/payment/fulfillment rozetleri, place/cancel) +
+  operasyon ozeti tile'lari (total / kalem sayisi / rezervasyon durumu / oluşturma) + iki kolon: solda
+  kalemler, tutar özeti ve premium event timeline; sagda müşteri bilgileri, adresler, rezervasyonlar ve
+  künye rayi. Lifecycle copy/loading state korundu.
+- i18n: `storeAdmin.products.summary`, `storeAdmin.products.detail.rail`, `storeAdmin.orders.summary`,
+  `storeAdmin.orders.detail` (overview/tiles/rail/metadata) TR kaynak + EN ayna eklendi; tam tr/en
+  key parity korundu. Hicbir ham API kodu UI'da gosterilmez.
+
+### Dogrulananlar
+
+- Testler: products list ozet tile render, product detail hero + sag ray (satis profili/künye/yönetim
+  notu) render, orders list operasyon ozeti tile render, order detail ozet tile + müşteri/künye ray
+  render eklendi; mevcut detay-route/modal-yok, sales model, lifecycle ve locale=en testleri korundu.
+- Gate: `pnpm db:generate` + `pnpm build` (24/24) + `pnpm typecheck` (0) + `pnpm lint` (34/34) +
+  `pnpm test` (34/34 task; store-admin 72, i18n 34) gecti. BFF/security ve i18n parity testleri yesil.
+- Backend/BFF kontratlari, auth/session/CSRF ve token gizliligi degismedi (UI-only faz).
+
 ## Faz 2H Entity Detail Pages Route Standardization
 
 - Tarih: 2026-06-25
