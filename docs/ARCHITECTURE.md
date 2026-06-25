@@ -37,27 +37,27 @@ API gateway, worker, PostgreSQL, Redis, Prisma, queue ve paylasimli paketler cal
   resolver ile cozulur; cart/checkout musteri-dostu placeholder'dir. Tum gorunur metin
   `packages/i18n` `storefront` sozlugunden TR/EN gelir.
 
-### storefront-web canli katalog resolver + public-read yaklasimi (Faz 3A)
+### storefront-web canli katalog resolver + public-read uclari (Faz 3A.1)
 
-Public vitrin, gateway'de auth gerektirmeyen bir public-read katalog ucu OLMADIGINDAN gecici bir
-sunucu-tarafi resolver kullanir (bkz. TD-032, ADR-029). Akis tamamen sunucu bilesenlerinde calisir:
+Public vitrin, katalog verisini gateway'in AUTH GEREKTIRMEYEN, store-scoped, salt-okunur public-read
+uclarindan okur (bkz. TD-032 RESOLVED, ADR-030). F3A'daki gecici platform-admin token resolver
+KALDIRILDI: vitrin artik hicbir yuksek-yetkili kimlik tasimaz, login yapmaz, Bearer token kullanmaz.
+Akis sunucu bilesenlerinde calisir:
 
-1. `lib/server/api-token.ts` — platform-admin kimligiyle (`STOREFRONT_PLATFORM_EMAIL/PASSWORD`)
-   gateway'de oturum acar; bearer token'i SUNUCU BELLEGINDE onbellekler (expiry/401 yenileme). Token
-   cookie'ye yazilmaz, istemciye/HTML/bundle'a serialize edilmez. (Platform admin session cookie'si
-   public vitrinde KULLANILMAZ.)
-2. `lib/server/catalog.ts` — `demo-store` slug'i ile mağazayi sunucuda cozer (storeId istemciden
-   alinmaz), `packages/api-client` `admin.{stores,products,categories,inventory}` helper'lariyla
-   gateway'in `/stores/:storeId/*` uclarini token ile cagirir ve ham veriyi saf vitrin gorunum
-   modellerine cevirir. Yalniz ACTIVE urun/varyant gosterilir; vitrin yalniz okur.
+1. Gateway — `GET /public/stores/:storeSlug/products` ve `GET /public/stores/:storeSlug/products/:productSlug`
+   (auth YOK, yalniz GET). Store slug ile cozulur; yok/ACTIVE degil -> 404; yalniz ACTIVE store + ACTIVE
+   urun/varyant doner. Govde `packages/contracts` `publicProduct*` ALLOWLIST semalariyla serialize
+   edilir; ic/yonetim alanlari sizmaz. Fiyat gizliligi (HIDDEN/ON_REQUEST) durumunda numerik fiyat
+   gateway'de null'lanir.
+2. `lib/server/catalog.ts` — `demo-store` slug'i ile public uclari TOKEN'SIZ (`fetch`, Authorization
+   header yok) cagirir ve public DTO'yu saf vitrin gorunum modellerine cevirir. Yalniz okur.
 3. `lib/sales-model.ts` — F2D satis-modeli alanlarini (salesMode/priceVisibility/primaryAction/
    purchasable) saf bir sekilde CTA + fiyat gorunum bayraklarina cevirir; gorunur etiketler
    `lib/labels.ts` ile i18n'den cozulur (ham API kodu UI'da gosterilmez).
 
-Bu resolver GECICIDIR; kalici cozum gateway'de public-read katalog ucudur (TODO-061). store-admin'in
-BFF deseninden farki: storefront okuma akisi sunucu bilesenlerinde dogrudan cozulur (interaktif yazma
-olmadigindan ayri `/api/*` proxy route'lari gerekmez); buy box varyant/adet secimi yereldir (gercek
-sepet yok).
+store-admin'in BFF deseninden farki: storefront okuma akisi sunucu bilesenlerinde dogrudan cozulur
+(interaktif yazma olmadigindan ayri `/api/*` proxy route'lari gerekmez); buy box varyant/adet secimi
+yereldir (gercek sepet yok).
 
 ### store-admin orders UI/BFF akisi (Faz 2G)
 

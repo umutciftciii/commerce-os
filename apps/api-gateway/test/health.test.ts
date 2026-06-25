@@ -1990,3 +1990,216 @@ describe("api gateway", () => {
     await app.close();
   });
 });
+
+describe("api gateway · public catalog (TD-032)", () => {
+  // Bu uclar AUTH GEREKTIRMEZ; token gonderilmeden cagrilir.
+  function seedDraftProduct(dataAccess: MemoryDataAccess) {
+    dataAccess.products.push({
+      ...dataAccess.products[0]!,
+      id: "product_draft",
+      slug: "draft-product",
+      title: "Draft Product",
+      status: "DRAFT",
+    });
+    dataAccess.variants.push({
+      ...dataAccess.variants[0]!,
+      id: "variant_draft",
+      productId: "product_draft",
+      sku: "DRAFT-SKU",
+    });
+  }
+
+  function seedSecondActiveStore(dataAccess: MemoryDataAccess) {
+    dataAccess.stores.push({
+      id: "store_other",
+      name: "Other Store",
+      slug: "other-store",
+      status: "ACTIVE",
+      metadata: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: null,
+    });
+    dataAccess.products.push({
+      ...dataAccess.products[0]!,
+      id: "product_other",
+      storeId: "store_other",
+      slug: "other-product",
+      title: "Other Store Product",
+      status: "ACTIVE",
+    });
+    dataAccess.variants.push({
+      ...dataAccess.variants[0]!,
+      id: "variant_other",
+      productId: "product_other",
+      storeId: "store_other",
+      sku: "OTHER-SKU",
+    });
+  }
+
+  it("serves the product list without any auth token (200)", async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]).toMatchObject({ slug: "demo-hoodie", title: "Demo Hoodie", categoryLabel: "Apparel" });
+    expect(body.data[0].variants[0]).toMatchObject({ sku: "DEMO-HOODIE-BLK-M", priceMinor: 129900, inStock: true });
+    await app.close();
+  });
+
+  it("serves product detail without any auth token (200)", async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/demo-hoodie",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      slug: "demo-hoodie",
+      description: "Seeded hoodie product.",
+      salesMode: "ONLINE",
+      priceVisibility: "VISIBLE",
+      primaryAction: "ADD_TO_CART",
+      variants: [{ sku: "DEMO-HOODIE-BLK-M", available: 15, inStock: true }],
+    });
+    await app.close();
+  });
+
+  it("never exposes draft/inactive products in list or detail", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedDraftProduct(dataAccess);
+
+    const listResponse = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(listResponse.json().data.map((p: { slug: string }) => p.slug)).toEqual(["demo-hoodie"]);
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/draft-product",
+    });
+    expect(detailResponse.statusCode).toBe(404);
+    expect(detailResponse.json()).toMatchObject({ error: { code: "PRODUCT_NOT_FOUND" } });
+    await app.close();
+  });
+
+  it("does not leak products from another store (tenant isolation)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedSecondActiveStore(dataAccess);
+
+    const demoList = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(demoList.json().data.map((p: { slug: string }) => p.slug)).toEqual(["demo-hoodie"]);
+
+    // Diger store'un urunu demo-store detayindan da cozulemez.
+    const crossDetail = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/other-product",
+    });
+    expect(crossDetail.statusCode).toBe(404);
+
+    const otherList = await app.inject({ method: "GET", url: "/public/stores/other-store/products" });
+    expect(otherList.json().data.map((p: { slug: string }) => p.slug)).toEqual(["other-product"]);
+    await app.close();
+  });
+
+  it("returns the sales-mode contract fields used by the storefront CTA mapping", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.salesMode = "WHATSAPP";
+    dataAccess.products[0]!.primaryAction = "WHATSAPP";
+    dataAccess.products[0]!.whatsappEnabled = true;
+    dataAccess.products[0]!.purchasable = false;
+    dataAccess.products[0]!.priceVisibility = "VISIBLE";
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/demo-hoodie",
+    });
+    expect(response.json()).toMatchObject({
+      salesMode: "WHATSAPP",
+      primaryAction: "WHATSAPP",
+      whatsappEnabled: true,
+      purchasable: false,
+    });
+    await app.close();
+  });
+
+  it("hides numeric prices when priceVisibility is HIDDEN/ON_REQUEST", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.salesMode = "INQUIRY";
+    dataAccess.products[0]!.primaryAction = "REQUEST_PRICE";
+    dataAccess.products[0]!.priceVisibility = "ON_REQUEST";
+    dataAccess.products[0]!.inquiryEnabled = true;
+    dataAccess.products[0]!.purchasable = false;
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/demo-hoodie",
+    });
+    expect(response.statusCode).toBe(200);
+    const variant = response.json().variants[0];
+    expect(variant.priceMinor).toBeNull();
+    expect(variant.compareAtMinor).toBeNull();
+    // Stok durumu hala public; yalniz numerik fiyat gizlenir.
+    expect(variant.inStock).toBe(true);
+    // Ham gizli fiyat (129900 / 149900) govdede hicbir yerde gorunmemeli.
+    expect(response.body).not.toContain("129900");
+    expect(response.body).not.toContain("149900");
+    await app.close();
+  });
+
+  it("does not serialize admin/internal-only fields", async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/demo-hoodie",
+    });
+    const body = response.json();
+    for (const internalKey of [
+      "storeId",
+      "status",
+      "type",
+      "vendor",
+      "seoTitle",
+      "seoDescription",
+      "categoryIds",
+      "createdAt",
+      "updatedAt",
+    ]) {
+      expect(body).not.toHaveProperty(internalKey);
+      expect(body.variants[0]).not.toHaveProperty(internalKey);
+    }
+    await app.close();
+  });
+
+  it("returns a safe 404 for an unknown store, inactive store and unknown product", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.stores.push({
+      id: "store_suspended",
+      name: "Suspended Store",
+      slug: "suspended-store",
+      status: "SUSPENDED",
+      metadata: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      domain: null,
+    });
+
+    const unknownStore = await app.inject({ method: "GET", url: "/public/stores/nope/products" });
+    expect(unknownStore.statusCode).toBe(404);
+    expect(unknownStore.json()).toMatchObject({ error: { code: "STORE_NOT_FOUND" } });
+
+    const inactiveStore = await app.inject({
+      method: "GET",
+      url: "/public/stores/suspended-store/products",
+    });
+    expect(inactiveStore.statusCode).toBe(404);
+    expect(inactiveStore.json()).toMatchObject({ error: { code: "STORE_NOT_FOUND" } });
+
+    const unknownProduct = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/missing",
+    });
+    expect(unknownProduct.statusCode).toBe(404);
+    expect(unknownProduct.json()).toMatchObject({ error: { code: "PRODUCT_NOT_FOUND" } });
+    await app.close();
+  });
+});

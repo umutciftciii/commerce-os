@@ -39,6 +39,9 @@ import {
   productVariantListResponseSchema,
   productVariantSchema,
   productVariantUpdateRequestSchema,
+  publicProductDetailSchema,
+  publicProductListResponseSchema,
+  publicProductSchema,
 } from "@commerce-os/contracts";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
@@ -513,6 +516,16 @@ const orderLineParamSchema = z.object({
 });
 const maxPostgresInt = 2_147_483_647;
 
+const publicStoreParamSchema = z.object({ storeSlug: z.string().min(1).max(120) });
+const publicProductParamSchema = z.object({
+  storeSlug: z.string().min(1).max(120),
+  productSlug: z.string().min(1).max(120),
+});
+// Public katalog kompozisyonu icin ust sinir; demo olcekte tum aktif urun/
+// varyant/stok kaydini tek seferde toplamaya yeter (pagination query'si bunun
+// uzerinde uygulanir).
+const PUBLIC_CATALOG_MAX = 200;
+
 function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
 }
@@ -693,6 +706,70 @@ function serializeOrder(order: OrderRecord) {
       actorUserId: event.actorUserId ?? null,
       createdAt: event.createdAt.toISOString(),
     })),
+  });
+}
+
+/**
+ * Public katalog DTO insaasi (TD-032). Bu builder'lar ham urun/varyant/stok
+ * kayitlarini `publicProduct*` semalariyla (allowlist) serialize eder. Ic/
+ * yonetim alanlari semada yer almadigindan `parse` sirasinda dusturulur ve
+ * disari cikmaz. Fiyat gizliligi (HIDDEN/ON_REQUEST) durumunda numerik fiyat
+ * null'lanir; sayisal fiyat public govdeye girmez.
+ */
+function isPublicPriceVisible(visibility: ProductPriceVisibility): boolean {
+  return visibility === "VISIBLE" || visibility === "STARTING_FROM";
+}
+
+function publicCategoryLabel(
+  product: Pick<ProductRecord, "categoryIds">,
+  categoryNames: Map<string, string>,
+): string | null {
+  const first = product.categoryIds.find((id) => categoryNames.has(id));
+  return first ? (categoryNames.get(first) ?? null) : null;
+}
+
+function buildPublicVariant(
+  product: Pick<ProductRecord, "priceVisibility">,
+  variant: VariantRecord,
+  stockByVariantId: Map<string, number>,
+) {
+  const visible = isPublicPriceVisible(product.priceVisibility);
+  const available = stockByVariantId.has(variant.id) ? stockByVariantId.get(variant.id)! : null;
+  return {
+    id: variant.id,
+    title: variant.title,
+    sku: variant.sku,
+    priceMinor: visible ? variant.priceMinor : null,
+    compareAtMinor: visible ? (variant.compareAtMinor ?? null) : null,
+    currency: variant.currency,
+    available,
+    // Stok bilinmiyorsa (null) urunu yanlislikla tukenmis gostermeyiz.
+    inStock: available === null ? true : available > 0,
+  };
+}
+
+function buildPublicProduct(
+  product: ProductRecord,
+  activeVariants: VariantRecord[],
+  categoryNames: Map<string, string>,
+  stockByVariantId: Map<string, number>,
+) {
+  return publicProductSchema.parse({
+    id: product.id,
+    slug: product.slug,
+    title: product.title,
+    brand: product.brand ?? product.vendor ?? null,
+    categoryLabel: publicCategoryLabel(product, categoryNames),
+    salesMode: product.salesMode,
+    priceVisibility: product.priceVisibility,
+    primaryAction: product.primaryAction,
+    purchasable: product.purchasable,
+    whatsappEnabled: product.whatsappEnabled,
+    inquiryEnabled: product.inquiryEnabled,
+    appointmentRequired: product.appointmentRequired,
+    minOrderQuantity: product.minOrderQuantity,
+    maxOrderQuantity: product.maxOrderQuantity ?? null,
+    variants: activeVariants.map((variant) => buildPublicVariant(product, variant, stockByVariantId)),
   });
 }
 
@@ -1927,6 +2004,112 @@ export function createServer(
       return reply.code(ok ? 200 : 503).send({ status: ok ? "ok" : "degraded" });
     },
   );
+
+  // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
+  // TD-032 / TODO-061: Public vitrin bu uclari token'siz cagirir; platform-admin
+  // resolver'a ihtiyac kalmaz. Yalnizca ACTIVE store + ACTIVE urun/varyant doner;
+  // govde `publicProduct*` semalariyla (allowlist) serialize edilir, ic/yonetim
+  // alanlari sizmaz. Yalnizca GET (read-only); mutation ucu yoktur.
+  async function resolvePublicStore(slug: string) {
+    const store = await dataAccess.findStoreBySlug(slug);
+    if (!store || store.status !== "ACTIVE") {
+      return null;
+    }
+    return store;
+  }
+
+  async function loadActivePublicProducts(storeId: string) {
+    const page = await dataAccess.listProducts(storeId, { limit: PUBLIC_CATALOG_MAX, offset: 0 });
+    return page.data.filter((product) => product.status === "ACTIVE");
+  }
+
+  async function loadPublicCategoryNames(storeId: string) {
+    const page = await dataAccess.listCategories(storeId, { limit: PUBLIC_CATALOG_MAX, offset: 0 });
+    return new Map(page.data.map((category) => [category.id, category.name]));
+  }
+
+  async function loadPublicStockMap(storeId: string) {
+    const page = await dataAccess.listInventory(storeId, { limit: PUBLIC_CATALOG_MAX, offset: 0 });
+    return new Map(page.data.map((item) => [item.variantId, item.quantityOnHand - item.quantityReserved]));
+  }
+
+  async function loadActivePublicVariants(storeId: string, productId: string) {
+    const page = await dataAccess.listVariants(storeId, productId, {
+      limit: PUBLIC_CATALOG_MAX,
+      offset: 0,
+    });
+    return page.data.filter((variant) => variant.status === "ACTIVE");
+  }
+
+  app.get("/public/stores/:storeSlug/products", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const pagination = paginationQuerySchema.parse(request.query);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const [products, categoryNames, stockMap] = await Promise.all([
+      loadActivePublicProducts(store.id),
+      loadPublicCategoryNames(store.id),
+      loadPublicStockMap(store.id),
+    ]);
+    const slice = products.slice(pagination.offset, pagination.offset + pagination.limit);
+    const data = await Promise.all(
+      slice.map(async (product) =>
+        buildPublicProduct(
+          product,
+          await loadActivePublicVariants(store.id, product.id),
+          categoryNames,
+          stockMap,
+        ),
+      ),
+    );
+    return publicProductListResponseSchema.parse({
+      data,
+      pagination: { limit: pagination.limit, offset: pagination.offset, total: products.length },
+    });
+  });
+
+  app.get("/public/stores/:storeSlug/products/:productSlug", async (request, reply) => {
+    const params = publicProductParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const products = await loadActivePublicProducts(store.id);
+    const product = products.find((item) => item.slug === params.productSlug);
+    if (!product) {
+      return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    }
+    const [categoryNames, stockMap] = await Promise.all([
+      loadPublicCategoryNames(store.id),
+      loadPublicStockMap(store.id),
+    ]);
+    const variants = await loadActivePublicVariants(store.id, product.id);
+    const summary = buildPublicProduct(product, variants, categoryNames, stockMap);
+    const related = await Promise.all(
+      products
+        .filter((item) => item.id !== product.id)
+        .slice(0, 4)
+        .map(async (item) =>
+          buildPublicProduct(
+            item,
+            await loadActivePublicVariants(store.id, item.id),
+            categoryNames,
+            stockMap,
+          ),
+        ),
+    );
+    return publicProductDetailSchema.parse({
+      ...summary,
+      description: product.description ?? null,
+      callToActionLabel: product.callToActionLabel ?? null,
+      whatsappMessageTemplate: product.whatsappMessageTemplate ?? null,
+      inquiryFormTitle: product.inquiryFormTitle ?? null,
+      appointmentNote: product.appointmentNote ?? null,
+      related,
+    });
+  });
 
   app.post("/auth/platform/login", async (request, reply) => {
     const input = platformLoginRequestSchema.parse(request.body);

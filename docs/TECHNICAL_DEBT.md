@@ -400,18 +400,24 @@
 
 ## TD-032 Storefront public katalog read'i platform-admin token ile (gecici)
 
-- Durum: OPEN
-- Oncelik: HIGH — **PROD BLOCKER** (gateway public-read katalog ucu / TODO-061 gelmeden vitrin
-  uretime acilamaz)
+- Durum: RESOLVED (F3A.1 / TODO-061) — **PROD BLOCKER KALDIRILDI**
+- Oncelik: HIGH
 - Etki: F3A'da public storefront canli katalog verisine baglandi, ancak gateway'de auth gerektirmeyen
-  bir public-read katalog ucu YOK; tum `/stores/:storeId/*` katalog uclari `requireStorePlatformAdmin`
-  (platform-admin session) ister. Bu nedenle vitrin, gecici olarak sunucu-tarafinda platform-admin
-  kimligiyle (`STOREFRONT_PLATFORM_EMAIL/PASSWORD`, seed admin'e duser) oturum acar ve token'i sunucu
-  belleginde tutar. Token cookie'ye yazilmaz, istemciye/HTML/bundle'a sizmaz (smoke ile dogrulandi),
-  ama public bir uygulamanin yuksek-yetkili (SUPER_ADMIN) bir kimlik tasimasi asiri yetkidir; ayrica
-  vitrin admin-only urunleri de okuyabilir (yalnizca ACTIVE filtrelenir, yetki ile degil).
-- Cozum onerisi: Gateway'de auth gerektirmeyen, store-scoped, yalniz-okuma ve yalniz ACTIVE/yayinda
-  urun donen public katalog uclari (`GET /public/stores/:slug/products` vb.) eklemek; vitrin bu
-  uclari token'siz cagirir ve platform-admin kimligini birakir. Alternatif: dusuk yetkili,
-  public-read amacli ozel bir servis kimligi. Bu TD kapanmadan once vitrin uretimde acilmamalidir.
-- Hedef faz: Faz 3+ (backend public catalog read) — bkz. TODO-061, ADR-029.
+  bir public-read katalog ucu YOKTU; tum `/stores/:storeId/*` katalog uclari `requireStorePlatformAdmin`
+  (platform-admin session) isterdi. Bu nedenle vitrin, gecici olarak sunucu-tarafinda platform-admin
+  kimligiyle (`STOREFRONT_PLATFORM_EMAIL/PASSWORD`, seed admin'e duserdi) oturum acip token'i sunucu
+  belleginde tutardi. Token sizmasa da public bir uygulamanin yuksek-yetkili bir kimlik tasimasi asiri
+  yetkiydi ve prod blocker'di.
+- Cozum (F3A.1 / TODO-061): Gateway'de auth gerektirmeyen, store-scoped, yalniz-okuma, yalniz ACTIVE
+  store + ACTIVE urun/varyant donen public katalog uclari eklendi:
+  `GET /public/stores/:storeSlug/products` ve `GET /public/stores/:storeSlug/products/:productSlug`.
+  Govde, `packages/contracts` icindeki `publicProduct*` ALLOWLIST semalariyla serialize edilir; ic/
+  yonetim alanlari (storeId, status, type, vendor, seo*, audit zaman damgalari, categoryIds...) disari
+  cikmaz. Fiyat gizliligi (HIDDEN/ON_REQUEST) durumunda numerik fiyat gateway'de null'lanir; sayisal
+  fiyat public govdeye girmez. Store inactive/yok -> guvenli 404; cross-store sizinti yok.
+  Vitrin (`apps/storefront-web/lib/server/catalog.ts`) artik bu uclari TOKEN'SIZ cagirir; gecici
+  platform-admin login/token resolver (`lib/server/api-token.ts`) ve kimlik bilgileri (env) tamamen
+  KALDIRILDI. Docker smoke ile dogrulandi: vitrin trafigi yalnizca `/public/*`'a gider; HTML/`.next/
+  static` bundle'da token/Bearer/createApiClient/platformLogin/credential YOK.
+- Karar kaydi: ADR-030. Bkz. TODO-061 (DONE).
+- Hedef faz: Faz 3 (F3A.1)
