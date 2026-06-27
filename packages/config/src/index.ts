@@ -15,6 +15,20 @@ export const envSchema = z.object({
   AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   API_GATEWAY_PORT: z.coerce.number().int().positive().default(3000),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  // F3B.2: Payment provider credential'larini AES-256-GCM ile sifrelemek icin
+  // 32 byte'lik anahtar (base64 veya hex). Yoksa development/test'te guvensiz
+  // dev fallback kullanilir (yuksek sesli uyari); staging/production'da eksikse
+  // odeme sifreleme islemi hata verir (bkz. apps/api-gateway/src/payments/encryption.ts).
+  PAYMENT_ENCRYPTION_KEY: z.string().optional(),
+  // F3B.2: Gercek provider sandbox/live HTTP cagrilarini acar. Varsayilan KAPALI;
+  // bu fazda canli/sandbox HTTP YAPILMAZ (provider adapter'lari request/response
+  // mapping'i uretir ama transport kapaliyken cagri SANDBOX_HTTP_DISABLED doner).
+  // Sozlesme/test credential sonrasi true yapilarak ayni adapter aktive edilir.
+  PAYMENT_SANDBOX_HTTP_ENABLED: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .optional()
+    .default(false)
+    .transform((value) => value === true || value === "true"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

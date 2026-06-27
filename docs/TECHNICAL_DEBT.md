@@ -439,3 +439,20 @@
   authorize'a baglamak (rezerv-on-auth) bu borcu buyuk olcude kapatir.
 - Karar kaydi: ADR-031. Bkz. TODO-064, TODO-065.
 - Hedef faz: Faz 3B.2
+
+## TD-034 Payment provider canli adaptorleri + gercek webhook imza dogrulamasi yok
+
+- Durum: OPEN
+- Oncelik: MEDIUM
+- Etki: F3B.2 provider-ready operasyon altyapisini kurar ancak CANLI tahsilat yapmaz. IYZICO/STRIPE/
+  PAYTR/GENERIC_REDIRECT icin provider-specific adapter iskeleti (request/response/status mapping +
+  credential validation + webhook event-id/status mapping) HAZIR; ancak gercek sandbox/live HTTP
+  `PAYMENT_SANDBOX_HTTP_ENABLED` ile gate'li ve bu fazda KAPALI (canli cagri yapilmaz). Webhook shell
+  imzayi placeholder olarak kabul eder. Gercek odeme icin saglayici sozlesmesi + flag aktivasyonu +
+  kanit + gercek imza dogrulama gerekir.
+- Cozum onerisi: Saglayici sozlesmesi sonrasi her provider icin canli/sandbox adaptor (TODO-066..069):
+  `createPayment/confirmPayment/cancelPayment/refundPayment/getPaymentStatus/handleWebhook` gercek HTTP;
+  provider basina webhook imza dogrulamasi (raw-body + HMAC/signature, TODO-071); refund/dispute/
+  settlement is akislari + `/payments` operations ekrani (TODO-070).
+- Hedef faz: F3B.3+ (saglayici sozlesmesine bagli)
+- Bagli: ADR-033, TODO-066..071, Faz 3B.2 phase log.

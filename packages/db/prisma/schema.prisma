@@ -161,6 +161,59 @@ enum InventoryReservationStatus {
   CONSUMED
 }
 
+enum PaymentProviderType {
+  MOCK
+  IYZICO
+  STRIPE
+  PAYTR
+  GENERIC_REDIRECT
+}
+
+enum PaymentProviderMode {
+  TEST
+  LIVE
+}
+
+enum PaymentMethodType {
+  CARD
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+  PAYMENT_LINK
+}
+
+enum PaymentProviderStatus {
+  ENABLED
+  DISABLED
+}
+
+enum ThreeDsMode {
+  DISABLED
+  OPTIONAL
+  REQUIRED
+}
+
+enum PaymentAttemptStatus {
+  CREATED
+  PENDING
+  REQUIRES_ACTION
+  AUTHORIZED
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProviderEventType {
+  PAYMENT_CREATED
+  PAYMENT_CONFIRMED
+  PAYMENT_FAILED
+  PAYMENT_CANCELLED
+  PAYMENT_REFUNDED
+  WEBHOOK_RECEIVED
+  CONNECTION_TEST
+  STATUS_CHANGED
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -220,6 +273,9 @@ model Store {
   auditLogs     AuditLog[]
   eventLogs     EventLog[]
   queueJobLogs  QueueJobLog[]
+  paymentProviderConfigs PaymentProviderConfig[]
+  paymentAttempts        PaymentAttempt[]
+  paymentProviderEvents  PaymentProviderEvent[]
 }
 
 model StoreUser {
@@ -555,6 +611,8 @@ model Order {
   addresses    OrderAddress[]
   events       OrderEvent[]
   reservations InventoryReservation[]
+  paymentAttempts PaymentAttempt[]
+  paymentEvents   PaymentProviderEvent[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -652,4 +710,105 @@ model InventoryReservation {
   @@index([orderLineId])
   @@index([variantId])
   @@index([status])
+}
+
+// F3B.2 Payment Operations Foundation.
+// Saglayici credential'lari yalniz ciphertext (apiKeyCipher/secretKeyCipher/
+// webhookSecretCipher) olarak saklanir; duz metin DB'ye asla yazilmaz, client'a
+// asla maskesiz donmez. Canli odeme bu fazda YOK; provider-ready operasyon katmani.
+model PaymentProviderConfig {
+  id                  String                @id @default(cuid())
+  storeId             String
+  provider            PaymentProviderType
+  displayName         String
+  status              PaymentProviderStatus @default(DISABLED)
+  mode                PaymentProviderMode   @default(TEST)
+  priority            Int                   @default(100)
+  supportedMethods    PaymentMethodType[]
+  supportedCurrencies String[]
+  minAmount           Int?
+  maxAmount           Int?
+  threeDsMode         ThreeDsMode           @default(DISABLED)
+  installmentEnabled  Boolean               @default(false)
+  fallbackEnabled     Boolean               @default(false)
+  merchantId          String?
+  callbackUrl         String?
+  apiKeyCipher        String?
+  secretKeyCipher     String?
+  webhookSecretCipher String?
+  lastTestStatus      String?
+  lastTestMessage     String?
+  lastTestAt          DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  store    Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  attempts PaymentAttempt[]
+  events   PaymentProviderEvent[]
+
+  @@unique([storeId, provider, mode])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, priority])
+}
+
+model PaymentAttempt {
+  id                  String               @id @default(cuid())
+  storeId             String
+  orderId             String
+  providerConfigId    String
+  provider            PaymentProviderType
+  mode                PaymentProviderMode
+  method              PaymentMethodType
+  amount              Int
+  currency            String
+  status              PaymentAttemptStatus @default(CREATED)
+  threeDsApplied      Boolean              @default(false)
+  scenario            String?
+  providerReference   String?
+  failureCode         String?
+  failureMessage      String?
+  // Kisa omurlu public odeme erisim token'inin hash'i; plain token DB'ye yazilmaz.
+  accessTokenHash     String?
+  accessTokenExpiresAt DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  providerConfig PaymentProviderConfig  @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  events         PaymentProviderEvent[]
+
+  @@index([storeId])
+  @@index([orderId])
+  @@index([providerConfigId])
+  @@index([status])
+  @@index([accessTokenHash])
+}
+
+model PaymentProviderEvent {
+  id               String                   @id @default(cuid())
+  storeId          String
+  providerConfigId String?
+  attemptId        String?
+  orderId          String?
+  provider         PaymentProviderType
+  type             PaymentProviderEventType
+  // Provider/webhook external event id varsa set edilir; internal eventlerde null.
+  eventId          String?
+  message          String?
+  metadata         Json?
+  createdAt        DateTime                 @default(now())
+
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  providerConfig PaymentProviderConfig? @relation(fields: [providerConfigId], references: [id], onDelete: SetNull)
+  attempt        PaymentAttempt?        @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  order          Order?                 @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, provider, eventId], map: "payment_provider_event_unique_external_event")
+  @@index([storeId])
+  @@index([providerConfigId])
+  @@index([attemptId])
+  @@index([orderId])
+  @@index([type])
 }

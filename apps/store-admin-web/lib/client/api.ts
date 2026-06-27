@@ -6,6 +6,14 @@ import type {
   OrderCancelRequest,
   OrderCreateRequest,
   OrderListResponse,
+  PaymentProviderConfig,
+  PaymentProviderConfigCreateRequest,
+  PaymentProviderConfigListResponse,
+  PaymentProviderConfigUpdateRequest,
+  PaymentProviderEventListResponse,
+  PaymentProviderReorderRequest,
+  PaymentProviderStatusUpdateRequest,
+  PaymentProviderTestConnectionResponse,
   PlatformMeResponse,
   PlatformUserContract,
   Product,
@@ -197,4 +205,37 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // Payment providers (F3B.2) — secret'lar BFF/gateway'de maskeli; mutating aksiyonlar CSRF'li.
+  listPaymentProviders: () =>
+    call<PaymentProviderConfigListResponse>("/api/payment-providers"),
+  createPaymentProvider: (input: PaymentProviderConfigCreateRequest) =>
+    mutatingCall<PaymentProviderConfig>("/api/payment-providers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getPaymentProvider: (configId: string) =>
+    call<PaymentProviderConfig>(`/api/payment-providers/${configId}`),
+  updatePaymentProvider: (configId: string, input: PaymentProviderConfigUpdateRequest) =>
+    mutatingCall<PaymentProviderConfig>(`/api/payment-providers/${configId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  setPaymentProviderStatus: (configId: string, input: PaymentProviderStatusUpdateRequest) =>
+    mutatingCall<PaymentProviderConfig>(`/api/payment-providers/${configId}/status`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  reorderPaymentProviders: (input: PaymentProviderReorderRequest) =>
+    mutatingCall<PaymentProviderConfigListResponse>("/api/payment-providers/reorder", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  testPaymentProviderConnection: (configId: string) =>
+    mutatingCall<PaymentProviderTestConnectionResponse>(
+      `/api/payment-providers/${configId}/test-connection`,
+      { method: "POST" },
+    ),
+  listPaymentProviderEvents: (configId: string) =>
+    call<PaymentProviderEventListResponse>(`/api/payment-providers/${configId}/events`),
 };

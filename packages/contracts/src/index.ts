@@ -608,6 +608,29 @@ export const publicOrderConfirmationLineSchema = z.object({
   currency: currencySchema,
 });
 
+/** F3B.2 — Public test ödeme senaryolari (MOCK provider). */
+export const publicPaymentScenarioSchema = z.enum([
+  "success",
+  "failure",
+  "three_ds_required",
+  "insufficient_funds",
+  "cancelled",
+]);
+
+/**
+ * F3B.2 — Checkout sonrasi ödeme yönlendirme objesi. Yalnizca uygun bir TEST/MOCK
+ * provider config varsa eklenir; provider yoksa bu alan HİÇ serialize edilmez
+ * (mevcut checkout response shape'i birebir korunur). `token` kisa omurludur ve
+ * yalnizca bu yanitta doner.
+ */
+export const publicPaymentRedirectSchema = z.object({
+  required: z.literal(true),
+  attemptId: z.string().min(1),
+  token: z.string().min(1),
+  paymentPath: z.string().min(1),
+  scenarios: z.array(publicPaymentScenarioSchema),
+});
+
 export const publicOrderConfirmationSchema = z.object({
   orderNumber: z.string().min(1),
   status: orderStatusSchema,
@@ -626,6 +649,65 @@ export const publicOrderConfirmationSchema = z.object({
   contactEmail: z.string().email(),
   lines: z.array(publicOrderConfirmationLineSchema),
   createdAt: z.string().datetime(),
+  /**
+   * Opsiyonel ödeme yönlendirme. Provider yoksa alan eklenmez (undefined) →
+   * mevcut response birebir kalir. Uygun TEST/MOCK provider varsa doldurulur.
+   */
+  payment: publicPaymentRedirectSchema.optional(),
+});
+
+/** F3B.2 — Public ödeme test sayfasi durumu (secret/credential ASLA donmez). */
+export const publicPaymentStateSchema = z.object({
+  orderNumber: z.string().min(1),
+  paymentStatus: paymentStatusSchema,
+  currency: currencySchema,
+  totalMinor: z.number().int().nonnegative(),
+  contactEmail: z.string().email(),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
+  mode: z.enum(["TEST", "LIVE"]),
+  attempt: z.object({
+    id: z.string().min(1),
+    status: z.enum([
+      "CREATED",
+      "PENDING",
+      "REQUIRES_ACTION",
+      "AUTHORIZED",
+      "PAID",
+      "FAILED",
+      "CANCELLED",
+      "REFUNDED",
+    ]),
+    threeDsApplied: z.boolean(),
+  }),
+  scenarios: z.array(publicPaymentScenarioSchema),
+});
+
+export const publicPaymentSubmitRequestSchema = z.object({
+  token: z.string().min(1),
+  scenario: publicPaymentScenarioSchema,
+});
+
+export const publicPaymentResultSchema = z.object({
+  orderNumber: z.string().min(1),
+  paymentStatus: paymentStatusSchema,
+  attempt: z.object({
+    id: z.string().min(1),
+    status: z.enum([
+      "CREATED",
+      "PENDING",
+      "REQUIRES_ACTION",
+      "AUTHORIZED",
+      "PAID",
+      "FAILED",
+      "CANCELLED",
+      "REFUNDED",
+    ]),
+    threeDsApplied: z.boolean(),
+    failureCode: z.string().nullable(),
+    failureMessage: z.string().nullable(),
+  }),
+  /** 3D Secure senaryosunda ikinci adim gerekiyorsa true. */
+  requiresAction: z.boolean(),
 });
 
 export const productVariantCreateRequestSchema = z
@@ -872,6 +954,164 @@ export const orderCancelRequestSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+// --- F3B.2 Payment provider operasyon altyapisi (provider-ready; canli odeme YOK) ---
+export const paymentProviderTypeSchema = z.enum([
+  "MOCK",
+  "IYZICO",
+  "STRIPE",
+  "PAYTR",
+  "GENERIC_REDIRECT",
+]);
+export const paymentProviderModeSchema = z.enum(["TEST", "LIVE"]);
+export const paymentMethodTypeSchema = z.enum([
+  "CARD",
+  "BANK_TRANSFER",
+  "CASH_ON_DELIVERY",
+  "PAYMENT_LINK",
+]);
+export const paymentProviderStatusSchema = z.enum(["ENABLED", "DISABLED"]);
+export const threeDsModeSchema = z.enum(["DISABLED", "OPTIONAL", "REQUIRED"]);
+export const paymentAttemptStatusSchema = z.enum([
+  "CREATED",
+  "PENDING",
+  "REQUIRES_ACTION",
+  "AUTHORIZED",
+  "PAID",
+  "FAILED",
+  "CANCELLED",
+  "REFUNDED",
+]);
+export const paymentProviderEventTypeSchema = z.enum([
+  "PAYMENT_CREATED",
+  "PAYMENT_CONFIRMED",
+  "PAYMENT_FAILED",
+  "PAYMENT_CANCELLED",
+  "PAYMENT_REFUNDED",
+  "WEBHOOK_RECEIVED",
+  "CONNECTION_TEST",
+  "STATUS_CHANGED",
+]);
+
+/**
+ * Provider config CLIENT yaniti — MASKELI. Secret alanlar (apiKey/secretKey/
+ * webhookSecret) asla duz metin/ciphertext donmez; yalnizca apiKeyMasked (son-4)
+ * ve *Set boolean'lari doner.
+ */
+export const paymentProviderConfigSchema = z.object({
+  id: z.string().min(1),
+  provider: paymentProviderTypeSchema,
+  displayName: z.string().min(1),
+  status: paymentProviderStatusSchema,
+  mode: paymentProviderModeSchema,
+  priority: z.number().int(),
+  supportedMethods: z.array(paymentMethodTypeSchema),
+  supportedCurrencies: z.array(currencySchema),
+  minAmount: z.number().int().nonnegative().nullable(),
+  maxAmount: z.number().int().nonnegative().nullable(),
+  threeDsMode: threeDsModeSchema,
+  installmentEnabled: z.boolean(),
+  fallbackEnabled: z.boolean(),
+  merchantId: z.string().nullable(),
+  callbackUrl: z.string().nullable(),
+  apiKeySet: z.boolean(),
+  apiKeyMasked: z.string().nullable(),
+  secretKeySet: z.boolean(),
+  webhookSecretSet: z.boolean(),
+  lastTestStatus: z.string().nullable(),
+  lastTestMessage: z.string().nullable(),
+  lastTestAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const paymentProviderConfigListResponseSchema = z.object({
+  data: z.array(paymentProviderConfigSchema),
+});
+
+const optionalSecretInputSchema = z.string().min(1).max(2000).nullable().optional();
+
+export const paymentProviderConfigCreateRequestSchema = z.object({
+  provider: paymentProviderTypeSchema,
+  displayName: z.string().min(1).max(120),
+  status: paymentProviderStatusSchema.default("DISABLED"),
+  mode: paymentProviderModeSchema.default("TEST"),
+  priority: z.number().int().min(0).max(100000).default(100),
+  supportedMethods: z.array(paymentMethodTypeSchema).min(1).default(["CARD"]),
+  supportedCurrencies: z.array(currencySchema).min(1).default(["TRY"]),
+  minAmount: z.number().int().nonnegative().nullable().optional(),
+  maxAmount: z.number().int().nonnegative().nullable().optional(),
+  threeDsMode: threeDsModeSchema.default("DISABLED"),
+  installmentEnabled: z.boolean().default(false),
+  fallbackEnabled: z.boolean().default(false),
+  merchantId: z.string().max(255).nullable().optional(),
+  callbackUrl: z.string().url().max(2000).nullable().optional(),
+  // Secret alanlari: girilirse encrypt edilir; verilmezse set edilmez.
+  apiKey: optionalSecretInputSchema,
+  secretKey: optionalSecretInputSchema,
+  webhookSecret: optionalSecretInputSchema,
+});
+
+/**
+ * Update: tum alanlar opsiyonel. Secret semantigi — alan GONDERILMEZSE (undefined)
+ * mevcut cipher KORUNUR; bos string ("") gonderilirse secret TEMIZLENIR; dolu deger
+ * gonderilirse DEGISTIRILIR. (Route katmani uygular.)
+ */
+export const paymentProviderConfigUpdateRequestSchema = z
+  .object({
+    displayName: z.string().min(1).max(120).optional(),
+    status: paymentProviderStatusSchema.optional(),
+    mode: paymentProviderModeSchema.optional(),
+    priority: z.number().int().min(0).max(100000).optional(),
+    supportedMethods: z.array(paymentMethodTypeSchema).min(1).optional(),
+    supportedCurrencies: z.array(currencySchema).min(1).optional(),
+    minAmount: z.number().int().nonnegative().nullable().optional(),
+    maxAmount: z.number().int().nonnegative().nullable().optional(),
+    threeDsMode: threeDsModeSchema.optional(),
+    installmentEnabled: z.boolean().optional(),
+    fallbackEnabled: z.boolean().optional(),
+    merchantId: z.string().max(255).nullable().optional(),
+    callbackUrl: z.string().url().max(2000).nullable().optional(),
+    apiKey: z.string().max(2000).nullable().optional(),
+    secretKey: z.string().max(2000).nullable().optional(),
+    webhookSecret: z.string().max(2000).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const paymentProviderStatusUpdateRequestSchema = z.object({
+  status: paymentProviderStatusSchema,
+});
+
+export const paymentProviderReorderRequestSchema = z.object({
+  items: z
+    .array(z.object({ id: z.string().min(1), priority: z.number().int().min(0).max(100000) }))
+    .min(1)
+    .max(100),
+});
+
+export const paymentProviderTestConnectionResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  testedAt: z.string().datetime(),
+});
+
+export const paymentProviderEventSchema = z.object({
+  id: z.string().min(1),
+  provider: paymentProviderTypeSchema,
+  type: paymentProviderEventTypeSchema,
+  providerConfigId: z.string().nullable(),
+  attemptId: z.string().nullable(),
+  orderId: z.string().nullable(),
+  eventId: z.string().nullable(),
+  message: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const paymentProviderEventListResponseSchema = z.object({
+  data: z.array(paymentProviderEventSchema),
+});
+
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;
 export type TenantContextContract = z.infer<typeof tenantContextSchema>;
@@ -929,6 +1169,39 @@ export type PublicCheckoutAddress = z.infer<typeof publicCheckoutAddressSchema>;
 export type PublicCheckoutRequest = z.infer<typeof publicCheckoutRequestSchema>;
 export type PublicOrderConfirmationLine = z.infer<typeof publicOrderConfirmationLineSchema>;
 export type PublicOrderConfirmation = z.infer<typeof publicOrderConfirmationSchema>;
+export type PublicPaymentScenario = z.infer<typeof publicPaymentScenarioSchema>;
+export type PublicPaymentRedirect = z.infer<typeof publicPaymentRedirectSchema>;
+export type PublicPaymentState = z.infer<typeof publicPaymentStateSchema>;
+export type PublicPaymentSubmitRequest = z.infer<typeof publicPaymentSubmitRequestSchema>;
+export type PublicPaymentResult = z.infer<typeof publicPaymentResultSchema>;
+export type PaymentProviderTypeContract = z.infer<typeof paymentProviderTypeSchema>;
+export type PaymentProviderModeContract = z.infer<typeof paymentProviderModeSchema>;
+export type PaymentMethodTypeContract = z.infer<typeof paymentMethodTypeSchema>;
+export type PaymentProviderStatusContract = z.infer<typeof paymentProviderStatusSchema>;
+export type ThreeDsModeContract = z.infer<typeof threeDsModeSchema>;
+export type PaymentAttemptStatusContract = z.infer<typeof paymentAttemptStatusSchema>;
+export type PaymentProviderEventTypeContract = z.infer<typeof paymentProviderEventTypeSchema>;
+export type PaymentProviderConfig = z.infer<typeof paymentProviderConfigSchema>;
+export type PaymentProviderConfigListResponse = z.infer<
+  typeof paymentProviderConfigListResponseSchema
+>;
+export type PaymentProviderConfigCreateRequest = z.infer<
+  typeof paymentProviderConfigCreateRequestSchema
+>;
+export type PaymentProviderConfigUpdateRequest = z.infer<
+  typeof paymentProviderConfigUpdateRequestSchema
+>;
+export type PaymentProviderStatusUpdateRequest = z.infer<
+  typeof paymentProviderStatusUpdateRequestSchema
+>;
+export type PaymentProviderReorderRequest = z.infer<typeof paymentProviderReorderRequestSchema>;
+export type PaymentProviderTestConnectionResponse = z.infer<
+  typeof paymentProviderTestConnectionResponseSchema
+>;
+export type PaymentProviderEvent = z.infer<typeof paymentProviderEventSchema>;
+export type PaymentProviderEventListResponse = z.infer<
+  typeof paymentProviderEventListResponseSchema
+>;
 export type ProductVariantCreateRequest = z.infer<typeof productVariantCreateRequestSchema>;
 export type ProductVariantUpdateRequest = z.infer<typeof productVariantUpdateRequestSchema>;
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;

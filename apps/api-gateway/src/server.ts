@@ -19,6 +19,14 @@ import {
   orderListResponseSchema,
   orderSchema,
   orderUpdateRequestSchema,
+  paymentProviderConfigCreateRequestSchema,
+  paymentProviderConfigListResponseSchema,
+  paymentProviderConfigSchema,
+  paymentProviderConfigUpdateRequestSchema,
+  paymentProviderEventListResponseSchema,
+  paymentProviderReorderRequestSchema,
+  paymentProviderStatusUpdateRequestSchema,
+  paymentProviderTestConnectionResponseSchema,
   planCreateRequestSchema,
   planListResponseSchema,
   planSchema,
@@ -43,6 +51,9 @@ import {
   publicCartSchema,
   publicCheckoutRequestSchema,
   publicOrderConfirmationSchema,
+  publicPaymentResultSchema,
+  publicPaymentStateSchema,
+  publicPaymentSubmitRequestSchema,
   publicProductDetailSchema,
   publicProductListResponseSchema,
   publicProductSchema,
@@ -50,6 +61,23 @@ import {
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
+import {
+  PAYMENT_SCENARIOS,
+  PaymentConfigError,
+  createDisabledHttpTransport,
+  createFetchHttpTransport,
+  createPaymentAccessToken,
+  createPaymentAdapterRegistry,
+  createSecretCipher,
+  resolvePaymentProviders,
+  serializeProviderConfig,
+  verifyPaymentAccessToken,
+  type PaymentActionContext,
+  type PaymentScenario,
+  type ResolvableProviderConfig,
+  type ResolvedCredentials,
+  type SecretCipher,
+} from "./payments/index.js";
 import type {
   AuditAction,
   InventoryItem,
@@ -59,6 +87,16 @@ import type {
   OrderAddress,
   OrderEvent,
   OrderLine,
+  PaymentAttempt as PrismaPaymentAttempt,
+  PaymentAttemptStatus,
+  PaymentMethodType,
+  PaymentProviderConfig as PrismaPaymentProviderConfig,
+  PaymentProviderEvent as PrismaPaymentProviderEvent,
+  PaymentProviderEventType,
+  PaymentProviderMode,
+  PaymentProviderStatus,
+  PaymentProviderType,
+  PaymentStatus,
   Plan,
   PlatformSession,
   PlatformUser,
@@ -70,6 +108,7 @@ import type {
   ProductVariant,
   Store,
   StoreStatus,
+  ThreeDsMode,
 } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -241,6 +280,98 @@ type OrderRecord = Pick<
   reservations: InventoryReservationRecord[];
   events: OrderEventRecord[];
 };
+
+// --- F3B.2 Payment data-access record/input tipleri --------------------------
+// Secret'lar yalniz ciphertext olarak tasinir; sifreleme/decrypt route katmaninda.
+export type PaymentProviderConfigRecord = PrismaPaymentProviderConfig;
+export type PaymentAttemptRecord = PrismaPaymentAttempt;
+export type PaymentProviderEventRecord = PrismaPaymentProviderEvent;
+
+export interface PaymentProviderConfigCreateInput {
+  provider: PaymentProviderType;
+  displayName: string;
+  status: PaymentProviderStatus;
+  mode: PaymentProviderMode;
+  priority: number;
+  supportedMethods: PaymentMethodType[];
+  supportedCurrencies: string[];
+  minAmount?: number | null;
+  maxAmount?: number | null;
+  threeDsMode: ThreeDsMode;
+  installmentEnabled: boolean;
+  fallbackEnabled: boolean;
+  merchantId?: string | null;
+  callbackUrl?: string | null;
+  apiKeyCipher?: string | null;
+  secretKeyCipher?: string | null;
+  webhookSecretCipher?: string | null;
+}
+
+export interface PaymentProviderConfigUpdateInput {
+  displayName?: string;
+  status?: PaymentProviderStatus;
+  mode?: PaymentProviderMode;
+  priority?: number;
+  supportedMethods?: PaymentMethodType[];
+  supportedCurrencies?: string[];
+  minAmount?: number | null;
+  maxAmount?: number | null;
+  threeDsMode?: ThreeDsMode;
+  installmentEnabled?: boolean;
+  fallbackEnabled?: boolean;
+  merchantId?: string | null;
+  callbackUrl?: string | null;
+  // undefined => mevcut cipher KORUNUR; null => TEMIZLE; string => DEGISTIR.
+  apiKeyCipher?: string | null;
+  secretKeyCipher?: string | null;
+  webhookSecretCipher?: string | null;
+}
+
+export interface PaymentAttemptCreateInput {
+  orderId: string;
+  providerConfigId: string;
+  provider: PaymentProviderType;
+  mode: PaymentProviderMode;
+  method: PaymentMethodType;
+  amount: number;
+  currency: string;
+  status: PaymentAttemptStatus;
+  accessTokenHash: string;
+  accessTokenExpiresAt: Date;
+}
+
+export interface PaymentAttemptOutcomeInput {
+  attemptId: string;
+  orderId: string;
+  attemptStatus: PaymentAttemptStatus;
+  threeDsApplied: boolean;
+  scenario?: string | null;
+  providerReference?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  /** null/undefined => order paymentStatus degismez. */
+  orderPaymentStatus?: PaymentStatus | null;
+  /** true => attempt access token gecersiz kilinir (tek kullanim / final). */
+  clearAccessToken: boolean;
+  event: {
+    type: PaymentProviderEventType;
+    provider: PaymentProviderType;
+    eventId?: string | null;
+    message?: string | null;
+    metadata?: Record<string, unknown> | null;
+  };
+}
+
+export interface PaymentProviderEventCreateInput {
+  providerConfigId?: string | null;
+  attemptId?: string | null;
+  orderId?: string | null;
+  provider: PaymentProviderType;
+  type: PaymentProviderEventType;
+  eventId?: string | null;
+  message?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
 
 export interface AppDataAccess {
   findPlatformUserByEmail(email: string): Promise<PlatformUserRecord | null>;
@@ -487,6 +618,64 @@ export interface AppDataAccess {
     orderId: string,
     input: { reason?: string; actorUserId?: string },
   ): Promise<OrderRecord | null | "INVALID_STATUS" | "RESERVATION_FAILED">;
+  // --- F3B.2 Payment provider operasyon altyapisi --------------------------
+  listPaymentProviderConfigs(storeId: string): Promise<PaymentProviderConfigRecord[]>;
+  findPaymentProviderConfigById(
+    storeId: string,
+    configId: string,
+  ): Promise<PaymentProviderConfigRecord | null>;
+  createPaymentProviderConfig(
+    storeId: string,
+    input: PaymentProviderConfigCreateInput,
+  ): Promise<PaymentProviderConfigRecord | "PROVIDER_MODE_EXISTS">;
+  updatePaymentProviderConfig(
+    storeId: string,
+    configId: string,
+    input: PaymentProviderConfigUpdateInput,
+  ): Promise<PaymentProviderConfigRecord | null | "PROVIDER_MODE_EXISTS">;
+  setPaymentProviderStatus(
+    storeId: string,
+    configId: string,
+    status: PaymentProviderStatus,
+  ): Promise<PaymentProviderConfigRecord | null>;
+  reorderPaymentProviderPriorities(
+    storeId: string,
+    items: Array<{ id: string; priority: number }>,
+  ): Promise<PaymentProviderConfigRecord[] | "CONFIG_NOT_FOUND">;
+  recordPaymentProviderTest(
+    storeId: string,
+    configId: string,
+    input: { status: string; message: string; at: Date },
+  ): Promise<PaymentProviderConfigRecord | null>;
+  createPaymentAttempt(
+    storeId: string,
+    input: PaymentAttemptCreateInput,
+  ): Promise<PaymentAttemptRecord>;
+  findPaymentAttemptById(
+    storeId: string,
+    attemptId: string,
+  ): Promise<PaymentAttemptRecord | null>;
+  findLatestPaymentAttemptForOrder(
+    storeId: string,
+    orderId: string,
+  ): Promise<PaymentAttemptRecord | null>;
+  recordPaymentAttemptOutcome(
+    storeId: string,
+    input: PaymentAttemptOutcomeInput,
+  ): Promise<PaymentAttemptRecord>;
+  createPaymentProviderEvent(
+    storeId: string,
+    input: PaymentProviderEventCreateInput,
+  ): Promise<PaymentProviderEventRecord>;
+  findPaymentProviderEventByEventId(
+    storeId: string,
+    provider: PaymentProviderType,
+    eventId: string,
+  ): Promise<PaymentProviderEventRecord | null>;
+  listPaymentProviderEvents(
+    storeId: string,
+    input: { providerConfigId?: string; limit: number; offset: number },
+  ): Promise<PaymentProviderEventRecord[]>;
   createAuditLog(input: {
     action: AuditAction;
     platformUserId?: string;
@@ -2076,6 +2265,162 @@ function createPrismaDataAccess(): AppDataAccess {
         });
         return (await reloadOrder(transaction, storeId, orderId))!;
       }),
+    // --- F3B.2 Payment provider operasyon altyapisi ------------------------
+    listPaymentProviderConfigs: (storeId) =>
+      prisma.paymentProviderConfig.findMany({
+        where: { storeId },
+        orderBy: [{ priority: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      }),
+    findPaymentProviderConfigById: (storeId, configId) =>
+      prisma.paymentProviderConfig.findFirst({ where: { id: configId, storeId } }),
+    createPaymentProviderConfig: async (storeId, input) => {
+      try {
+        return await prisma.paymentProviderConfig.create({
+          data: { storeId, ...input } satisfies Prisma.PaymentProviderConfigUncheckedCreateInput,
+        });
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          return "PROVIDER_MODE_EXISTS";
+        }
+        throw error;
+      }
+    },
+    updatePaymentProviderConfig: async (storeId, configId, input) => {
+      const existing = await prisma.paymentProviderConfig.findFirst({
+        where: { id: configId, storeId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return null;
+      }
+      try {
+        return await prisma.paymentProviderConfig.update({
+          where: { id: configId },
+          data: input satisfies Prisma.PaymentProviderConfigUncheckedUpdateInput,
+        });
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          return "PROVIDER_MODE_EXISTS";
+        }
+        throw error;
+      }
+    },
+    setPaymentProviderStatus: async (storeId, configId, status) => {
+      const existing = await prisma.paymentProviderConfig.findFirst({
+        where: { id: configId, storeId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return null;
+      }
+      return prisma.paymentProviderConfig.update({ where: { id: configId }, data: { status } });
+    },
+    reorderPaymentProviderPriorities: async (storeId, items) => {
+      const ids = items.map((item) => item.id);
+      const owned = await prisma.paymentProviderConfig.findMany({
+        where: { storeId, id: { in: ids } },
+        select: { id: true },
+      });
+      if (owned.length !== ids.length) {
+        return "CONFIG_NOT_FOUND";
+      }
+      await prisma.$transaction(
+        items.map((item) =>
+          prisma.paymentProviderConfig.update({
+            where: { id: item.id },
+            data: { priority: item.priority },
+          }),
+        ),
+      );
+      return prisma.paymentProviderConfig.findMany({
+        where: { storeId },
+        orderBy: [{ priority: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      });
+    },
+    recordPaymentProviderTest: async (storeId, configId, input) => {
+      const existing = await prisma.paymentProviderConfig.findFirst({
+        where: { id: configId, storeId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return null;
+      }
+      return prisma.paymentProviderConfig.update({
+        where: { id: configId },
+        data: { lastTestStatus: input.status, lastTestMessage: input.message, lastTestAt: input.at },
+      });
+    },
+    createPaymentAttempt: (storeId, input) =>
+      prisma.paymentAttempt.create({
+        data: { storeId, ...input } satisfies Prisma.PaymentAttemptUncheckedCreateInput,
+      }),
+    findPaymentAttemptById: (storeId, attemptId) =>
+      prisma.paymentAttempt.findFirst({ where: { id: attemptId, storeId } }),
+    findLatestPaymentAttemptForOrder: (storeId, orderId) =>
+      prisma.paymentAttempt.findFirst({
+        where: { storeId, orderId },
+        orderBy: { createdAt: "desc" },
+      }),
+    recordPaymentAttemptOutcome: (storeId, input) =>
+      prisma.$transaction(async (transaction) => {
+        const attempt = await transaction.paymentAttempt.update({
+          where: { id: input.attemptId },
+          data: {
+            status: input.attemptStatus,
+            threeDsApplied: input.threeDsApplied,
+            scenario: input.scenario ?? undefined,
+            providerReference: input.providerReference ?? undefined,
+            failureCode: input.failureCode ?? null,
+            failureMessage: input.failureMessage ?? null,
+            ...(input.clearAccessToken
+              ? { accessTokenHash: null, accessTokenExpiresAt: null }
+              : {}),
+          },
+        });
+        if (input.orderPaymentStatus) {
+          await transaction.order.update({
+            where: { id: input.orderId },
+            data: { paymentStatus: input.orderPaymentStatus },
+          });
+        }
+        await transaction.paymentProviderEvent.create({
+          data: {
+            storeId,
+            providerConfigId: attempt.providerConfigId,
+            attemptId: attempt.id,
+            orderId: input.orderId,
+            provider: input.event.provider,
+            type: input.event.type,
+            eventId: input.event.eventId ?? null,
+            message: input.event.message ?? null,
+            metadata: toPrismaJsonObject(input.event.metadata ?? undefined),
+          } satisfies Prisma.PaymentProviderEventUncheckedCreateInput,
+        });
+        return attempt;
+      }),
+    createPaymentProviderEvent: (storeId, input) =>
+      prisma.paymentProviderEvent.create({
+        data: {
+          storeId,
+          providerConfigId: input.providerConfigId ?? null,
+          attemptId: input.attemptId ?? null,
+          orderId: input.orderId ?? null,
+          provider: input.provider,
+          type: input.type,
+          eventId: input.eventId ?? null,
+          message: input.message ?? null,
+          metadata: toPrismaJsonObject(input.metadata ?? undefined),
+        } satisfies Prisma.PaymentProviderEventUncheckedCreateInput,
+      }),
+    findPaymentProviderEventByEventId: (storeId, provider, eventId) =>
+      prisma.paymentProviderEvent.findFirst({ where: { storeId, provider, eventId } }),
+    listPaymentProviderEvents: (storeId, input) =>
+      prisma.paymentProviderEvent.findMany({
+        where: { storeId, ...(input.providerConfigId ? { providerConfigId: input.providerConfigId } : {}) },
+        orderBy: { createdAt: "desc" },
+        take: input.limit,
+        skip: input.offset,
+      }),
     createAuditLog: async (input) => {
       await prisma.auditLog.create({
         data: {
@@ -2096,6 +2441,44 @@ export function createServer(
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
   const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
+  // F3B.2: Payment credential cipher (encryption-at-rest). Dev fallback uyarisi
+  // yalnizca bir kez loglanir. Calisma ortami canli mi? (LIVE-MOCK guard icin).
+  let cipherWarned = false;
+  const secretCipher: SecretCipher = createSecretCipher({
+    key: config.PAYMENT_ENCRYPTION_KEY,
+    appEnv: config.APP_ENV,
+    warn: (message) => {
+      if (!cipherWarned) {
+        cipherWarned = true;
+        logger.warn(message);
+      }
+    },
+  });
+  const isLiveEnv = config.APP_ENV === "production" || config.APP_ENV === "staging";
+  // F3B.2: Provider adapter registry. Gercek provider HTTP transport'u yalnizca
+  // PAYMENT_SANDBOX_HTTP_ENABLED acikken aktiftir (varsayilan KAPALI → bu fazda
+  // canli/sandbox cagri yapilmaz; MOCK transport gerektirmez).
+  const paymentTransport = config.PAYMENT_SANDBOX_HTTP_ENABLED
+    ? createFetchHttpTransport()
+    : createDisabledHttpTransport();
+  const paymentAdapters = createPaymentAdapterRegistry(paymentTransport);
+  // F3B.2: Public checkout handler (yukaridaki) ile odeme yonlendirme uretici
+  // (asagidaki F3B.2 blogu) arasinda kopru. Provider yoksa null doner ve checkout
+  // response shape'i birebir korunur.
+  const paymentRedirectBuilderRef: {
+    current:
+      | ((
+          storeId: string,
+          order: OrderRecord,
+        ) => Promise<{
+          required: true;
+          attemptId: string;
+          token: string;
+          paymentPath: string;
+          scenarios: PaymentScenario[];
+        } | null>)
+      | null;
+  } = { current: null };
   const app = Fastify({ logger: false });
 
   async function authenticatePlatform(request: FastifyRequest, reply: FastifyReply) {
@@ -2436,6 +2819,13 @@ export function createServer(
       return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
     }
 
+    // F3B.2: Uygun TEST/MOCK provider config varsa odeme yonlendirme objesi
+    // uretilir (PaymentAttempt + kisa omurlu access token). Provider yoksa
+    // `payment` alani HIC eklenmez → mevcut checkout response shape'i birebir korunur.
+    const payment = paymentRedirectBuilderRef.current
+      ? await paymentRedirectBuilderRef.current(store.id, placed)
+      : null;
+
     return reply.code(201).send(
       publicOrderConfirmationSchema.parse({
         orderNumber: placed.orderNumber,
@@ -2459,6 +2849,7 @@ export function createServer(
           currency: line.currency,
         })),
         createdAt: placed.createdAt.toISOString(),
+        ...(payment ? { payment } : {}),
       }),
     );
   });
@@ -3236,6 +3627,525 @@ export function createServer(
       metadata: { status: order.status, reason: input.reason ?? null },
     });
     return serializeOrder(order);
+  });
+
+  // ========================================================================
+  // F3B.2 — Payment provider operasyon altyapisi (provider-ready; canli odeme YOK)
+  // ========================================================================
+  const paymentProviderParamSchema = z.object({
+    storeId: z.string().min(1),
+    configId: z.string().min(1),
+  });
+  const publicOrderPaymentParamSchema = z.object({
+    storeSlug: z.string().min(1),
+    orderId: z.string().min(1),
+  });
+  const publicPaymentTokenQuerySchema = z.object({ token: z.string().min(1) });
+  const paymentWebhookParamSchema = z.object({ provider: z.string().min(1) });
+  const paymentWebhookBodySchema = z
+    .object({ storeId: z.string().min(1), eventId: z.string().min(1) })
+    .passthrough();
+
+  /** Secret cipher'lari decrypt eder; cozulemezse null (sizdirmaz). */
+  function decryptCredentials(config: PaymentProviderConfigRecord): ResolvedCredentials {
+    const dec = (cipher: string | null) => {
+      if (!cipher) return null;
+      try {
+        return secretCipher.decrypt(cipher);
+      } catch {
+        return null;
+      }
+    };
+    return {
+      apiKey: dec(config.apiKeyCipher),
+      secretKey: dec(config.secretKeyCipher),
+      webhookSecret: dec(config.webhookSecretCipher),
+      merchantId: config.merchantId ?? null,
+    };
+  }
+
+  function toResolvable(config: PaymentProviderConfigRecord): ResolvableProviderConfig {
+    return {
+      id: config.id,
+      provider: config.provider,
+      status: config.status,
+      mode: config.mode,
+      priority: config.priority,
+      supportedMethods: config.supportedMethods,
+      supportedCurrencies: config.supportedCurrencies,
+      minAmount: config.minAmount,
+      maxAmount: config.maxAmount,
+      fallbackEnabled: config.fallbackEnabled,
+      createdAt: config.createdAt,
+    };
+  }
+
+  function buildActionContext(
+    config: PaymentProviderConfigRecord,
+    attempt: PaymentAttemptRecord,
+  ): PaymentActionContext {
+    return {
+      provider: attempt.provider,
+      mode: attempt.mode,
+      threeDsMode: config.threeDsMode,
+      method: attempt.method,
+      amount: attempt.amount,
+      currency: attempt.currency,
+      credentials: decryptCredentials(config),
+    };
+  }
+
+  /** undefined => dokunma; null/"" => temizle; deger => encrypt. */
+  function encryptOptionalSecret(value: string | null | undefined): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null || value === "") return null;
+    return secretCipher.encrypt(value);
+  }
+
+  function serializeConfig(config: PaymentProviderConfigRecord) {
+    return paymentProviderConfigSchema.parse(serializeProviderConfig(config, { cipher: secretCipher }));
+  }
+
+  function serializeProviderEvent(event: PaymentProviderEventRecord) {
+    return {
+      id: event.id,
+      provider: event.provider,
+      type: event.type,
+      providerConfigId: event.providerConfigId,
+      attemptId: event.attemptId,
+      orderId: event.orderId,
+      eventId: event.eventId,
+      message: event.message,
+      createdAt: event.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * Checkout sonrasi: uygun bir TEST/MOCK provider varsa PaymentAttempt + kisa
+   * omurlu access token uretir ve odeme yonlendirme objesi doner. Provider yoksa
+   * NULL doner — bu durumda checkout response shape'i BIREBIR korunur (zero-regression).
+   * Bu fazda yalnizca MOCK operasyonel; stub provider'lar test akisini SURMEZ.
+   */
+  async function buildPaymentRedirect(storeId: string, order: OrderRecord) {
+    const configs = await dataAccess.listPaymentProviderConfigs(storeId);
+    const resolved = resolvePaymentProviders(configs.map(toResolvable), {
+      currency: order.currency,
+      amount: order.totalAmount,
+      method: "CARD",
+      mode: "TEST",
+      isLiveEnv,
+    });
+    // Bu fazda test odeme akisini yalnizca MOCK provider surdurur.
+    const mock = resolved.find((candidate) => candidate.provider === "MOCK");
+    if (!mock) {
+      return null;
+    }
+    const accessToken = createPaymentAccessToken(config.SESSION_SECRET);
+    const attempt = await dataAccess.createPaymentAttempt(storeId, {
+      orderId: order.id,
+      providerConfigId: mock.id,
+      provider: "MOCK",
+      mode: "TEST",
+      method: "CARD",
+      amount: order.totalAmount,
+      currency: order.currency,
+      status: "CREATED",
+      accessTokenHash: accessToken.tokenHash,
+      accessTokenExpiresAt: accessToken.expiresAt,
+    });
+    await dataAccess.createPaymentProviderEvent(storeId, {
+      providerConfigId: mock.id,
+      attemptId: attempt.id,
+      orderId: order.id,
+      provider: "MOCK",
+      type: "PAYMENT_CREATED",
+      message: "Payment attempt created (mock test flow).",
+    });
+    return {
+      required: true as const,
+      attemptId: attempt.id,
+      token: accessToken.token,
+      paymentPath: `/checkout/payment?orderId=${order.id}&token=${accessToken.token}`,
+      scenarios: [...PAYMENT_SCENARIOS],
+    };
+  }
+  // Checkout handler buildPaymentRedirect'i kullanir (asagidaki public checkout).
+  paymentRedirectBuilderRef.current = buildPaymentRedirect;
+
+  // --- Admin: provider config yonetimi (store-scoped, maskeli yanit) --------
+  app.get("/stores/:storeId/payment-providers", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const configs = await dataAccess.listPaymentProviderConfigs(params.storeId);
+    return paymentProviderConfigListResponseSchema.parse({ data: configs.map(serializeConfig) });
+  });
+
+  app.post("/stores/:storeId/payment-providers", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = paymentProviderConfigCreateRequestSchema.parse(request.body);
+    if (input.minAmount != null && input.maxAmount != null && input.minAmount > input.maxAmount) {
+      return reply.code(400).send(errorBody("PAYMENT_AMOUNT_RANGE_INVALID", "minAmount maxAmount'tan buyuk olamaz."));
+    }
+    const created = await dataAccess.createPaymentProviderConfig(params.storeId, {
+      provider: input.provider,
+      displayName: input.displayName,
+      status: input.status,
+      mode: input.mode,
+      priority: input.priority,
+      supportedMethods: input.supportedMethods,
+      supportedCurrencies: input.supportedCurrencies,
+      minAmount: input.minAmount ?? null,
+      maxAmount: input.maxAmount ?? null,
+      threeDsMode: input.threeDsMode,
+      installmentEnabled: input.installmentEnabled,
+      fallbackEnabled: input.fallbackEnabled,
+      merchantId: input.merchantId ?? null,
+      callbackUrl: input.callbackUrl ?? null,
+      apiKeyCipher: encryptOptionalSecret(input.apiKey),
+      secretKeyCipher: encryptOptionalSecret(input.secretKey),
+      webhookSecretCipher: encryptOptionalSecret(input.webhookSecret),
+    });
+    if (created === "PROVIDER_MODE_EXISTS") {
+      return reply.code(409).send(errorBody("PAYMENT_PROVIDER_MODE_EXISTS", "Bu provider+mode zaten tanimli."));
+    }
+    await dataAccess.createAuditLog({
+      action: "CREATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "PaymentProviderConfig",
+      entityId: created.id,
+      // Secret degerleri DEGIL, yalnizca hangi alanlarin set edildigi loglanir.
+      metadata: { provider: created.provider, mode: created.mode, fields: Object.keys(input) },
+    });
+    return reply.code(201).send(serializeConfig(created));
+  });
+
+  app.get("/stores/:storeId/payment-providers/:configId", async (request, reply) => {
+    const params = paymentProviderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
+    if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    return serializeConfig(config);
+  });
+
+  app.patch("/stores/:storeId/payment-providers/:configId", async (request, reply) => {
+    const params = paymentProviderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = paymentProviderConfigUpdateRequestSchema.parse(request.body);
+    const existing = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
+    if (!existing) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    const effectiveMin = input.minAmount !== undefined ? input.minAmount : existing.minAmount;
+    const effectiveMax = input.maxAmount !== undefined ? input.maxAmount : existing.maxAmount;
+    if (effectiveMin != null && effectiveMax != null && effectiveMin > effectiveMax) {
+      return reply.code(400).send(errorBody("PAYMENT_AMOUNT_RANGE_INVALID", "minAmount maxAmount'tan buyuk olamaz."));
+    }
+    const { apiKey, secretKey, webhookSecret, ...rest } = input;
+    const updated = await dataAccess.updatePaymentProviderConfig(params.storeId, params.configId, {
+      ...rest,
+      apiKeyCipher: encryptOptionalSecret(apiKey),
+      secretKeyCipher: encryptOptionalSecret(secretKey),
+      webhookSecretCipher: encryptOptionalSecret(webhookSecret),
+    });
+    if (updated === "PROVIDER_MODE_EXISTS") {
+      return reply.code(409).send(errorBody("PAYMENT_PROVIDER_MODE_EXISTS", "Bu provider+mode zaten tanimli."));
+    }
+    if (!updated) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "PaymentProviderConfig",
+      entityId: updated.id,
+      metadata: { fields: Object.keys(input) },
+    });
+    return serializeConfig(updated);
+  });
+
+  app.post("/stores/:storeId/payment-providers/:configId/status", async (request, reply) => {
+    const params = paymentProviderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = paymentProviderStatusUpdateRequestSchema.parse(request.body);
+    const updated = await dataAccess.setPaymentProviderStatus(params.storeId, params.configId, input.status);
+    if (!updated) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    await dataAccess.createPaymentProviderEvent(params.storeId, {
+      providerConfigId: updated.id,
+      provider: updated.provider,
+      type: "STATUS_CHANGED",
+      message: `Status ${updated.status}.`,
+    });
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "PaymentProviderConfig",
+      entityId: updated.id,
+      metadata: { status: updated.status },
+    });
+    return serializeConfig(updated);
+  });
+
+  app.post("/stores/:storeId/payment-providers/reorder", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = paymentProviderReorderRequestSchema.parse(request.body);
+    const result = await dataAccess.reorderPaymentProviderPriorities(params.storeId, input.items);
+    if (result === "CONFIG_NOT_FOUND") {
+      return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "One or more configs not found."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "PaymentProviderConfig",
+      metadata: { reordered: input.items.length },
+    });
+    return paymentProviderConfigListResponseSchema.parse({ data: result.map(serializeConfig) });
+  });
+
+  app.post("/stores/:storeId/payment-providers/:configId/test-connection", async (request, reply) => {
+    const params = paymentProviderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
+    if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    const adapter = paymentAdapters.get(config.provider);
+    let result: { ok: boolean; message: string };
+    try {
+      result = await adapter.testConnection({
+        context: { provider: config.provider, mode: config.mode, credentials: decryptCredentials(config) },
+      });
+    } catch (error) {
+      if (error instanceof PaymentConfigError) {
+        result = { ok: false, message: `${error.code}: ${error.message}` };
+      } else {
+        throw error;
+      }
+    }
+    const testedAt = new Date();
+    await dataAccess.recordPaymentProviderTest(params.storeId, params.configId, {
+      status: result.ok ? "OK" : "FAILED",
+      message: result.message,
+      at: testedAt,
+    });
+    await dataAccess.createPaymentProviderEvent(params.storeId, {
+      providerConfigId: config.id,
+      provider: config.provider,
+      type: "CONNECTION_TEST",
+      message: result.message,
+    });
+    return paymentProviderTestConnectionResponseSchema.parse({
+      ok: result.ok,
+      message: result.message,
+      testedAt: testedAt.toISOString(),
+    });
+  });
+
+  app.get("/stores/:storeId/payment-providers/:configId/events", async (request, reply) => {
+    const params = paymentProviderParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
+    if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
+    const pagination = paginationQuerySchema.parse(request.query);
+    const events = await dataAccess.listPaymentProviderEvents(params.storeId, {
+      providerConfigId: params.configId,
+      ...pagination,
+    });
+    return paymentProviderEventListResponseSchema.parse({ data: events.map(serializeProviderEvent) });
+  });
+
+  app.get("/stores/:storeId/payment-events", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const events = await dataAccess.listPaymentProviderEvents(params.storeId, pagination);
+    return paymentProviderEventListResponseSchema.parse({ data: events.map(serializeProviderEvent) });
+  });
+
+  // --- Public: test odeme akisi (token-korumalı; secret/credential ASLA donmez) ---
+  /** Token + order payable + attempt TEST/MOCK dogrulamasi yapip baglami yukler. */
+  async function loadPublicPaymentContext(
+    storeSlug: string,
+    orderId: string,
+    token: string,
+    reply: FastifyReply,
+  ) {
+    const store = await resolvePublicStore(storeSlug);
+    if (!store) {
+      await reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+      return null;
+    }
+    const attempt = await dataAccess.findLatestPaymentAttemptForOrder(store.id, orderId);
+    if (!attempt) {
+      await reply.code(404).send(errorBody("PAYMENT_NOT_FOUND", "Payment attempt not found."));
+      return null;
+    }
+    if (!verifyPaymentAccessToken(token, attempt, config.SESSION_SECRET)) {
+      await reply.code(403).send(errorBody("PAYMENT_TOKEN_INVALID", "Payment token invalid or expired."));
+      return null;
+    }
+    // Bu fazda yalnizca TEST/MOCK attempt'leri ilerletilebilir.
+    if (attempt.provider !== "MOCK" || attempt.mode !== "TEST") {
+      await reply.code(409).send(errorBody("PAYMENT_NOT_AVAILABLE", "Payment method not available."));
+      return null;
+    }
+    const order = await dataAccess.findOrderById(store.id, orderId);
+    if (!order) {
+      await reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
+      return null;
+    }
+    const providerConfig = await dataAccess.findPaymentProviderConfigById(store.id, attempt.providerConfigId);
+    if (!providerConfig) {
+      await reply.code(409).send(errorBody("PAYMENT_NOT_AVAILABLE", "Payment provider not available."));
+      return null;
+    }
+    return { store, attempt, order, providerConfig };
+  }
+
+  app.get("/public/stores/:storeSlug/orders/:orderId/payment", async (request, reply) => {
+    const params = publicOrderPaymentParamSchema.parse(request.params);
+    const query = publicPaymentTokenQuerySchema.parse(request.query);
+    const ctx = await loadPublicPaymentContext(params.storeSlug, params.orderId, query.token, reply);
+    if (!ctx) return;
+    return publicPaymentStateSchema.parse({
+      orderNumber: ctx.order.orderNumber,
+      paymentStatus: ctx.order.paymentStatus,
+      currency: ctx.order.currency,
+      totalMinor: ctx.order.totalAmount,
+      contactEmail: ctx.order.customerEmail,
+      provider: ctx.attempt.provider,
+      mode: ctx.attempt.mode,
+      attempt: {
+        id: ctx.attempt.id,
+        status: ctx.attempt.status,
+        threeDsApplied: ctx.attempt.threeDsApplied,
+      },
+      scenarios: [...PAYMENT_SCENARIOS],
+    });
+  });
+
+  app.post("/public/stores/:storeSlug/orders/:orderId/payment", async (request, reply) => {
+    const params = publicOrderPaymentParamSchema.parse(request.params);
+    const body = publicPaymentSubmitRequestSchema.parse(request.body);
+    const ctx = await loadPublicPaymentContext(params.storeSlug, params.orderId, body.token, reply);
+    if (!ctx) return;
+    if (ctx.order.paymentStatus !== "UNPAID") {
+      return reply.code(409).send(errorBody("PAYMENT_NOT_PAYABLE", "Order is not awaiting payment."));
+    }
+
+    const adapter = paymentAdapters.get("MOCK");
+    const result = await adapter.confirmPayment({
+      context: buildActionContext(ctx.providerConfig, ctx.attempt),
+      attemptId: ctx.attempt.id,
+      currentStatus: ctx.attempt.status,
+      scenario: body.scenario as PaymentScenario,
+    });
+
+    let orderPaymentStatus: PaymentStatus | null = null;
+    let eventType: PaymentProviderEventType = "STATUS_CHANGED";
+    let clearAccessToken = false;
+    switch (result.status) {
+      case "PAID":
+        orderPaymentStatus = "PAID";
+        eventType = "PAYMENT_CONFIRMED";
+        clearAccessToken = true;
+        break;
+      case "AUTHORIZED":
+        orderPaymentStatus = "AUTHORIZED";
+        eventType = "PAYMENT_CONFIRMED";
+        clearAccessToken = true;
+        break;
+      case "REQUIRES_ACTION":
+        eventType = "STATUS_CHANGED";
+        break;
+      case "CANCELLED":
+        eventType = "PAYMENT_CANCELLED";
+        break;
+      case "FAILED":
+      default:
+        eventType = "PAYMENT_FAILED";
+        break;
+    }
+
+    await dataAccess.recordPaymentAttemptOutcome(ctx.store.id, {
+      attemptId: ctx.attempt.id,
+      orderId: ctx.order.id,
+      attemptStatus: result.status,
+      threeDsApplied: result.threeDsApplied ?? false,
+      scenario: body.scenario,
+      providerReference: result.providerReference ?? null,
+      failureCode: result.failureCode ?? null,
+      failureMessage: result.failureMessage ?? null,
+      orderPaymentStatus,
+      clearAccessToken,
+      event: {
+        type: eventType,
+        provider: "MOCK",
+        message: `Mock payment ${body.scenario} → ${result.status}.`,
+        metadata: { scenario: body.scenario },
+      },
+    });
+
+    const updatedOrder = await dataAccess.findOrderById(ctx.store.id, ctx.order.id);
+    return publicPaymentResultSchema.parse({
+      orderNumber: ctx.order.orderNumber,
+      paymentStatus: updatedOrder?.paymentStatus ?? ctx.order.paymentStatus,
+      attempt: {
+        id: ctx.attempt.id,
+        status: result.status,
+        threeDsApplied: result.threeDsApplied ?? false,
+        failureCode: result.failureCode ?? null,
+        failureMessage: result.failureMessage ?? null,
+      },
+      requiresAction: result.status === "REQUIRES_ACTION",
+    });
+  });
+
+  // --- Webhook shell: imza dogrulamasi placeholder; idempotency + event log hazir ---
+  app.post("/payments/webhooks/:provider", async (request, reply) => {
+    const params = paymentWebhookParamSchema.parse(request.params);
+    const providerUpper = params.provider.toUpperCase();
+    const validProviders: PaymentProviderType[] = ["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"];
+    if (!validProviders.includes(providerUpper as PaymentProviderType)) {
+      return reply.code(404).send(errorBody("PAYMENT_PROVIDER_UNKNOWN", "Unknown payment provider."));
+    }
+    const provider = providerUpper as PaymentProviderType;
+    const body = paymentWebhookBodySchema.parse(request.body ?? {});
+    const store = await dataAccess.findStoreById(body.storeId);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    // Idempotency: ayni (store, provider, eventId) daha once islendiyse no-op.
+    const existing = await dataAccess.findPaymentProviderEventByEventId(store.id, provider, body.eventId);
+    if (existing) {
+      return reply.code(200).send({ received: true, duplicate: true });
+    }
+    // Bu fazda imza dogrulamasi placeholder'dir (gercek verification sonraki faz).
+    const signature = (request.headers["x-payment-signature"] as string | undefined) ?? null;
+    const adapter = paymentAdapters.get(provider);
+    const result = await adapter.handleWebhook({
+      provider,
+      credentials: { apiKey: null, secretKey: null, webhookSecret: null, merchantId: null },
+      signature,
+      rawBody: JSON.stringify(request.body ?? {}),
+      payload: request.body ?? {},
+    });
+    await dataAccess.createPaymentProviderEvent(store.id, {
+      provider,
+      type: "WEBHOOK_RECEIVED",
+      eventId: body.eventId,
+      message: "Webhook received (shell; signature verification deferred).",
+      metadata: { signatureValid: result.signatureValid, handled: result.handled },
+    });
+    return reply.code(200).send({ received: true, duplicate: false });
   });
 
   return app;

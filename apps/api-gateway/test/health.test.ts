@@ -14,7 +14,19 @@ import {
   type StoreStatus,
 } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { type AppDataAccess, createServer } from "../src/server.js";
+import {
+  type AppDataAccess,
+  type PaymentAttemptCreateInput,
+  type PaymentAttemptOutcomeInput,
+  type PaymentAttemptRecord,
+  type PaymentProviderConfigCreateInput,
+  type PaymentProviderConfigRecord,
+  type PaymentProviderConfigUpdateInput,
+  type PaymentProviderEventCreateInput,
+  type PaymentProviderEventRecord,
+  createServer,
+} from "../src/server.js";
+import type { PaymentProviderStatus, PaymentProviderType } from "@prisma/client";
 
 const config = {
   APP_ENV: "test" as const,
@@ -31,6 +43,7 @@ const config = {
   AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: 2,
   API_GATEWAY_PORT: 3000,
   WORKER_CONCURRENCY: 5,
+  PAYMENT_SANDBOX_HTTP_ENABLED: false,
 };
 
 type UserRecord = {
@@ -347,6 +360,10 @@ class MemoryDataAccess implements AppDataAccess {
   readonly orders: OrderRecord[] = [];
   orderSequence = 1;
   readonly auditLogs: AuditRecord[] = [];
+  readonly paymentProviderConfigs: PaymentProviderConfigRecord[] = [];
+  readonly paymentAttempts: PaymentAttemptRecord[] = [];
+  readonly paymentProviderEvents: PaymentProviderEventRecord[] = [];
+  paymentSequence = 1;
 
   constructor(passwordHash: string) {
     this.users = [
@@ -1052,6 +1069,270 @@ class MemoryDataAccess implements AppDataAccess {
     order.cancelReason = input.reason ?? null;
     order.cancelledAt = new Date("2026-01-08T00:00:00.000Z");
     return order;
+  }
+
+  // --- F3B.2 Payment provider operasyon altyapisi (in-memory test double) ---
+  async listPaymentProviderConfigs(storeId: string) {
+    return this.paymentProviderConfigs
+      .filter((config) => config.storeId === storeId)
+      .sort((a, b) =>
+        a.priority !== b.priority
+          ? a.priority - b.priority
+          : a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1),
+      );
+  }
+
+  async findPaymentProviderConfigById(storeId: string, configId: string) {
+    return (
+      this.paymentProviderConfigs.find((config) => config.storeId === storeId && config.id === configId) ??
+      null
+    );
+  }
+
+  async createPaymentProviderConfig(storeId: string, input: PaymentProviderConfigCreateInput) {
+    const duplicate = this.paymentProviderConfigs.find(
+      (config) => config.storeId === storeId && config.provider === input.provider && config.mode === input.mode,
+    );
+    if (duplicate) {
+      return "PROVIDER_MODE_EXISTS" as const;
+    }
+    const now = new Date("2026-02-01T00:00:00.000Z");
+    const config: PaymentProviderConfigRecord = {
+      id: `ppc_${this.paymentSequence++}`,
+      storeId,
+      provider: input.provider,
+      displayName: input.displayName,
+      status: input.status,
+      mode: input.mode,
+      priority: input.priority,
+      supportedMethods: input.supportedMethods,
+      supportedCurrencies: input.supportedCurrencies,
+      minAmount: input.minAmount ?? null,
+      maxAmount: input.maxAmount ?? null,
+      threeDsMode: input.threeDsMode,
+      installmentEnabled: input.installmentEnabled,
+      fallbackEnabled: input.fallbackEnabled,
+      merchantId: input.merchantId ?? null,
+      callbackUrl: input.callbackUrl ?? null,
+      apiKeyCipher: input.apiKeyCipher ?? null,
+      secretKeyCipher: input.secretKeyCipher ?? null,
+      webhookSecretCipher: input.webhookSecretCipher ?? null,
+      lastTestStatus: null,
+      lastTestMessage: null,
+      lastTestAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.paymentProviderConfigs.push(config);
+    return config;
+  }
+
+  async updatePaymentProviderConfig(
+    storeId: string,
+    configId: string,
+    input: PaymentProviderConfigUpdateInput,
+  ) {
+    const config = this.paymentProviderConfigs.find(
+      (item) => item.storeId === storeId && item.id === configId,
+    );
+    if (!config) {
+      return null;
+    }
+    const nextProvider = input.provider ?? config.provider;
+    const nextMode = input.mode ?? config.mode;
+    const duplicate = this.paymentProviderConfigs.find(
+      (item) =>
+        item.id !== configId &&
+        item.storeId === storeId &&
+        item.provider === nextProvider &&
+        item.mode === nextMode,
+    );
+    if (duplicate) {
+      return "PROVIDER_MODE_EXISTS" as const;
+    }
+    // undefined olan alanlar dokunulmaz (secret cipher dahil); null TEMIZLER.
+    for (const key of Object.keys(input) as Array<keyof PaymentProviderConfigUpdateInput>) {
+      const value = input[key];
+      if (value !== undefined) {
+        (config as Record<string, unknown>)[key] = value;
+      }
+    }
+    config.updatedAt = new Date("2026-02-02T00:00:00.000Z");
+    return config;
+  }
+
+  async setPaymentProviderStatus(storeId: string, configId: string, status: PaymentProviderStatus) {
+    const config = this.paymentProviderConfigs.find(
+      (item) => item.storeId === storeId && item.id === configId,
+    );
+    if (!config) {
+      return null;
+    }
+    config.status = status;
+    config.updatedAt = new Date("2026-02-02T00:00:00.000Z");
+    return config;
+  }
+
+  async reorderPaymentProviderPriorities(
+    storeId: string,
+    items: Array<{ id: string; priority: number }>,
+  ) {
+    for (const item of items) {
+      const config = this.paymentProviderConfigs.find(
+        (candidate) => candidate.storeId === storeId && candidate.id === item.id,
+      );
+      if (!config) {
+        return "CONFIG_NOT_FOUND" as const;
+      }
+    }
+    for (const item of items) {
+      const config = this.paymentProviderConfigs.find(
+        (candidate) => candidate.storeId === storeId && candidate.id === item.id,
+      )!;
+      config.priority = item.priority;
+    }
+    return this.listPaymentProviderConfigs(storeId);
+  }
+
+  async recordPaymentProviderTest(
+    storeId: string,
+    configId: string,
+    input: { status: string; message: string; at: Date },
+  ) {
+    const config = this.paymentProviderConfigs.find(
+      (item) => item.storeId === storeId && item.id === configId,
+    );
+    if (!config) {
+      return null;
+    }
+    config.lastTestStatus = input.status;
+    config.lastTestMessage = input.message;
+    config.lastTestAt = input.at;
+    return config;
+  }
+
+  async createPaymentAttempt(storeId: string, input: PaymentAttemptCreateInput) {
+    const now = new Date("2026-02-03T00:00:00.000Z");
+    const attempt: PaymentAttemptRecord = {
+      id: `pa_${this.paymentSequence++}`,
+      storeId,
+      orderId: input.orderId,
+      providerConfigId: input.providerConfigId,
+      provider: input.provider,
+      mode: input.mode,
+      method: input.method,
+      amount: input.amount,
+      currency: input.currency,
+      status: input.status,
+      threeDsApplied: false,
+      scenario: null,
+      providerReference: null,
+      failureCode: null,
+      failureMessage: null,
+      accessTokenHash: input.accessTokenHash,
+      accessTokenExpiresAt: input.accessTokenExpiresAt,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.paymentAttempts.push(attempt);
+    return attempt;
+  }
+
+  async findPaymentAttemptById(storeId: string, attemptId: string) {
+    return (
+      this.paymentAttempts.find((attempt) => attempt.storeId === storeId && attempt.id === attemptId) ??
+      null
+    );
+  }
+
+  async findLatestPaymentAttemptForOrder(storeId: string, orderId: string) {
+    const matches = this.paymentAttempts
+      .filter((attempt) => attempt.storeId === storeId && attempt.orderId === orderId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return matches[0] ?? null;
+  }
+
+  async recordPaymentAttemptOutcome(storeId: string, input: PaymentAttemptOutcomeInput) {
+    const attempt = this.paymentAttempts.find(
+      (item) => item.storeId === storeId && item.id === input.attemptId,
+    )!;
+    attempt.status = input.attemptStatus;
+    attempt.threeDsApplied = input.threeDsApplied;
+    if (input.scenario !== undefined && input.scenario !== null) attempt.scenario = input.scenario;
+    if (input.providerReference !== undefined && input.providerReference !== null) {
+      attempt.providerReference = input.providerReference;
+    }
+    attempt.failureCode = input.failureCode ?? null;
+    attempt.failureMessage = input.failureMessage ?? null;
+    if (input.clearAccessToken) {
+      attempt.accessTokenHash = null;
+      attempt.accessTokenExpiresAt = null;
+    }
+    attempt.updatedAt = new Date("2026-02-04T00:00:00.000Z");
+    if (input.orderPaymentStatus) {
+      const order = this.orders.find((item) => item.storeId === storeId && item.id === input.orderId);
+      if (order) {
+        order.paymentStatus = input.orderPaymentStatus;
+      }
+    }
+    this.paymentProviderEvents.push({
+      id: `ppe_${this.paymentSequence++}`,
+      storeId,
+      providerConfigId: attempt.providerConfigId,
+      attemptId: attempt.id,
+      orderId: input.orderId,
+      provider: input.event.provider,
+      type: input.event.type,
+      eventId: input.event.eventId ?? null,
+      message: input.event.message ?? null,
+      metadata: (input.event.metadata ?? null) as PaymentProviderEventRecord["metadata"],
+      createdAt: new Date("2026-02-04T00:00:00.000Z"),
+    });
+    return attempt;
+  }
+
+  async createPaymentProviderEvent(storeId: string, input: PaymentProviderEventCreateInput) {
+    const event: PaymentProviderEventRecord = {
+      id: `ppe_${this.paymentSequence++}`,
+      storeId,
+      providerConfigId: input.providerConfigId ?? null,
+      attemptId: input.attemptId ?? null,
+      orderId: input.orderId ?? null,
+      provider: input.provider,
+      type: input.type,
+      eventId: input.eventId ?? null,
+      message: input.message ?? null,
+      metadata: (input.metadata ?? null) as PaymentProviderEventRecord["metadata"],
+      createdAt: new Date("2026-02-05T00:00:00.000Z"),
+    };
+    this.paymentProviderEvents.push(event);
+    return event;
+  }
+
+  async findPaymentProviderEventByEventId(
+    storeId: string,
+    provider: PaymentProviderType,
+    eventId: string,
+  ) {
+    return (
+      this.paymentProviderEvents.find(
+        (event) => event.storeId === storeId && event.provider === provider && event.eventId === eventId,
+      ) ?? null
+    );
+  }
+
+  async listPaymentProviderEvents(
+    storeId: string,
+    input: { providerConfigId?: string; limit: number; offset: number },
+  ) {
+    return this.paymentProviderEvents
+      .filter(
+        (event) =>
+          event.storeId === storeId &&
+          (input.providerConfigId ? event.providerConfigId === input.providerConfigId : true),
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(input.offset, input.offset + input.limit);
   }
 
   async createAuditLog(input: AuditRecord) {
@@ -2527,6 +2808,248 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       "nope",
     );
     expect(checkout.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe("api gateway · payment providers (F3B.2)", () => {
+  const STORE = "store_demo";
+  const SLUG = "demo-store";
+  const VARIANT = "variant_hoodie_m";
+  const contact = { fullName: "Ada Lovelace", email: "ada@example.com", phone: "+905551112233" };
+  const address = { country: "TR", city: "Istanbul", district: "Kadikoy", addressLine1: "Bagdat Cad. 1" };
+
+  function createProvider(
+    app: Awaited<ReturnType<typeof createTestApp>>["app"],
+    token: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    return app.inject({
+      method: "POST",
+      url: `/stores/${STORE}/payment-providers`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        provider: "MOCK",
+        displayName: "Mock TEST",
+        status: "ENABLED",
+        mode: "TEST",
+        supportedMethods: ["CARD"],
+        supportedCurrencies: ["TRY"],
+        ...overrides,
+      },
+    });
+  }
+
+  function checkout(app: Awaited<ReturnType<typeof createTestApp>>["app"]) {
+    return app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/checkout`,
+      payload: { items: [{ variantId: VARIANT, quantity: 1 }], contact, shippingAddress: address },
+    });
+  }
+
+  it("requires platform admin auth for provider listing", async () => {
+    const { app } = await createTestApp();
+    const res = await app.inject({ method: "GET", url: `/stores/${STORE}/payment-providers` });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("creates a provider, masks secrets in the response, and never leaks plaintext", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const res = await createProvider(app, token, {
+      apiKey: "ak_secret_value_1234",
+      secretKey: "sk_secret_value_abcd",
+      webhookSecret: "wh_secret_value_zzzz",
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body).toMatchObject({ apiKeySet: true, secretKeySet: true, webhookSecretSet: true });
+    expect(body.apiKeyMasked).toBe("••••1234");
+    expect(body.secretKey).toBeUndefined();
+    // Secret leakage guard: hicbir duz metin secret yanitta gorunmemeli.
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("ak_secret_value_1234");
+    expect(raw).not.toContain("sk_secret_value_abcd");
+    expect(raw).not.toContain("wh_secret_value_zzzz");
+    await app.close();
+  });
+
+  it("preserves an existing secret when the field is omitted, replaces it when provided", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token, { apiKey: "ak_first_1111", secretKey: "sk_keep_2222" });
+    const stored = dataAccess.paymentProviderConfigs[0]!;
+    const originalSecretCipher = stored.secretKeyCipher;
+    const originalApiCipher = stored.apiKeyCipher;
+
+    // Secret alanlari gonderilmez → korunur.
+    const keep = await app.inject({
+      method: "PATCH",
+      url: `/stores/${STORE}/payment-providers/${stored.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { displayName: "Renamed" },
+    });
+    expect(keep.statusCode).toBe(200);
+    expect(stored.secretKeyCipher).toBe(originalSecretCipher);
+    expect(stored.apiKeyCipher).toBe(originalApiCipher);
+
+    // Yeni apiKey gonderilir → degisir; secretKey hala korunur.
+    const replace = await app.inject({
+      method: "PATCH",
+      url: `/stores/${STORE}/payment-providers/${stored.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { apiKey: "ak_second_9999" },
+    });
+    expect(replace.statusCode).toBe(200);
+    expect(stored.apiKeyCipher).not.toBe(originalApiCipher);
+    expect(stored.secretKeyCipher).toBe(originalSecretCipher);
+    await app.close();
+  });
+
+  it("rejects a duplicate provider+mode and enforces amount range", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token);
+    const dup = await createProvider(app, token);
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json()).toMatchObject({ error: { code: "PAYMENT_PROVIDER_MODE_EXISTS" } });
+
+    const badRange = await createProvider(app, token, { provider: "STRIPE", minAmount: 5000, maxAmount: 1000 });
+    expect(badRange.statusCode).toBe(400);
+    expect(badRange.json()).toMatchObject({ error: { code: "PAYMENT_AMOUNT_RANGE_INVALID" } });
+    await app.close();
+  });
+
+  it("toggles status and reorders priorities deterministically", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const a = (await createProvider(app, token, { provider: "MOCK", priority: 50 })).json();
+    const b = (await createProvider(app, token, { provider: "STRIPE", priority: 20, apiKey: "k", secretKey: "s" })).json();
+
+    const disabled = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE}/payment-providers/${a.id}/status`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { status: "DISABLED" },
+    });
+    expect(disabled.json().status).toBe("DISABLED");
+
+    const reorder = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE}/payment-providers/reorder`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { items: [{ id: a.id, priority: 5 }, { id: b.id, priority: 90 }] },
+    });
+    expect(reorder.statusCode).toBe(200);
+    expect(reorder.json().data.map((c: { id: string }) => c.id)).toEqual([a.id, b.id]);
+    await app.close();
+  });
+
+  it("runs a mock test-connection and records the result", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const config = (await createProvider(app, token)).json();
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE}/payment-providers/${config.id}/test-connection`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    await app.close();
+  });
+
+  it("ignores duplicate webhooks by external event id (idempotency shell)", async () => {
+    const { app } = await createTestApp();
+    const first = await app.inject({
+      method: "POST",
+      url: "/payments/webhooks/mock",
+      payload: { storeId: STORE, eventId: "evt_1" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ received: true, duplicate: false });
+    const second = await app.inject({
+      method: "POST",
+      url: "/payments/webhooks/mock",
+      payload: { storeId: STORE, eventId: "evt_1" },
+    });
+    expect(second.json()).toEqual({ received: true, duplicate: true });
+    await app.close();
+  });
+
+  it("REGRESSION: checkout with no provider keeps the exact response shape (no payment field, UNPAID)", async () => {
+    const { app } = await createTestApp();
+    const res = await checkout(app);
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.payment).toBeUndefined();
+    expect(body.paymentStatus).toBe("UNPAID");
+    await app.close();
+  });
+
+  it("wires a token-protected test payment when a MOCK TEST provider exists (success → PAID)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token);
+
+    const res = await checkout(app);
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.paymentStatus).toBe("UNPAID");
+    expect(body.payment).toMatchObject({ required: true });
+    const url = new URL(`http://x${body.payment.paymentPath}`);
+    const orderId = url.searchParams.get("orderId")!;
+    const accessToken = body.payment.token as string;
+
+    // State: dogru token ile 200; token'siz/yanlis token ile reddedilir.
+    const state = await app.inject({
+      method: "GET",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment?token=${accessToken}`,
+    });
+    expect(state.statusCode).toBe(200);
+    expect(state.json().attempt.status).toBe("CREATED");
+
+    const wrongToken = await app.inject({
+      method: "GET",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment?token=not-the-token`,
+    });
+    expect(wrongToken.statusCode).toBe(403);
+
+    // Submit success → order PAID; state/credential sizdirmaz.
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: { token: accessToken, scenario: "success" },
+    });
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({ paymentStatus: "PAID", attempt: { status: "PAID" } });
+
+    // Token tek kullanim: PAID sonrasi yeniden gonderim reddedilir.
+    const replay = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: { token: accessToken, scenario: "success" },
+    });
+    expect(replay.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("keeps the order UNPAID and the attempt FAILED on a failure scenario", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token);
+    const body = (await checkout(app)).json();
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: { token: body.payment.token, scenario: "failure" },
+    });
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({ paymentStatus: "UNPAID", attempt: { status: "FAILED" } });
     await app.close();
   });
 });

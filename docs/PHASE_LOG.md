@@ -1090,3 +1090,74 @@ dokumanlarla sinirli tutuldu.
 - Dogrulama: typecheck 0, store-admin 72/72 test gecti; store-admin-web imaji rebuild edildi,
   localhost:3002 healthy + `/login` 200; mobil drawer gercek seed veriyle `mobile-nav.png`'de
   dogrulandi.
+
+## Faz 3B.2 Payment Operations Foundation
+
+Hedef: Gercek odeme saglayicisi sozlesmesi YOK; canli tahsilat yapilmaz. Sozlesme sonrasi admin
+panelinden credential girildiginde canli adaptor baglanabilecek "provider-ready" odeme operasyon
+altyapisini kurmak. Cikti "para cekiyor" degil, "parametreler girildiginde canli adaptor takilabilir"
+seviyesidir (bkz. ADR-033).
+
+### Yapilanlar
+
+- DB/Prisma: `PaymentProviderConfig`, `PaymentAttempt`, `PaymentProviderEvent` modelleri + 7 enum
+  (`PaymentProviderType`/`PaymentProviderMode`/`PaymentMethodType`/`PaymentProviderStatus`/`ThreeDsMode`/
+  `PaymentAttemptStatus`/`PaymentProviderEventType`). Secret'lar yalniz ciphertext
+  (`apiKeyCipher`/`secretKeyCipher`/`webhookSecretCipher`); PaymentAttempt'te kisa omurlu access token
+  HMAC hash + TTL alanlari. Webhook idempotency `@@unique([storeId, provider, eventId])`. Migration:
+  `20260627120000_add_payment_provider_foundation`.
+- Payment cekirdek (`apps/api-gateway/src/payments/`): `encryption.ts` (AES-256-GCM + dev fallback +
+  mask), `tokens.ts` (public odeme access token: plain yalniz response'ta, DB'de hash+TTL), `resolver.ts`
+  (saf; deterministik priority asc→createdAt asc→id asc; LIVE-MOCK yasagi; fallback), `serialize.ts`
+  (maskeli/client-guvenli config), `types.ts` (PaymentProviderAdapter arayuzu + PaymentConfigError),
+  `adapters/` — MOCK tam calisir; IYZICO/STRIPE/PAYTR/GENERIC_REDIRECT icin **provider-specific adapter
+  iskeleti**: her provider `contracts/<provider>.ts` (gercek request payload builder + response parser +
+  status mapping + credential validation) + `provider-adapter.ts` (7 metod) + `http.ts` (config-gate'li
+  transport). Gercek sandbox/live HTTP `PAYMENT_SANDBOX_HTTP_ENABLED` ile acilir; bu fazda KAPALI
+  (mapping uretilir, canli cagri yok → `SANDBOX_HTTP_DISABLED`). Credential: eksik → `MISSING_CREDENTIALS`,
+  format gecersiz → `CREDENTIALS_INVALID_FORMAT`. iyzico: Checkout Form initialize/detail + IYZWSv2 imza;
+  Stripe: PaymentIntents (Bearer sk_…); PayTR: get-token + callback hash; status→PaymentAttemptStatus.
+- Gateway route'lari: Admin (store-scoped, platform admin guard, audit log, MASKELI yanit) —
+  list/create/get/patch/status/reorder/test-connection/events + store-wide payment-events. Secret update
+  semantigi: gonderilmezse korunur, dolu gonderilirse encrypt edilip degisir.
+- Checkout wiring (additive, zero-regression): `POST /public/stores/:slug/checkout` siparisi bugunku
+  gibi olusturur; uygun TEST/MOCK provider varsa PaymentAttempt + access token uretir ve confirmation'a
+  opsiyonel `payment` objesi ekler. **Provider yoksa `payment` alani HIC eklenmez** → response birebir,
+  order UNPAID. Public token-korumalı uclar: `GET/POST /public/stores/:slug/orders/:orderId/payment`
+  (token hash + expiry + store/order/attempt eslesmesi + order odenebilir + attempt TEST/MOCK; secret
+  ASLA donmez). MOCK senaryolari: success→PAID, failure/insufficient_funds→FAILED, cancelled→CANCELLED,
+  three_ds_required→REQUIRES_ACTION (ikinci confirm ile PAID). Webhook shell:
+  `POST /payments/webhooks/:provider` (idempotency + event log; imza dogrulama placeholder).
+- Contracts + api-client: provider config (maskeli)/create/update/reorder/test/event semalari + public
+  payment state/submit/result; `admin.paymentProviders` client metotlari + tip re-export'lari.
+- store-admin: `/payment-providers` sayfasi (liste + create/edit modal: ad/aktif-pasif/mode/oncelik/
+  metotlar/para birimi/min-maks/3DS/taksit/son test; secret alanlari masked, "bos birakilirsa korunur")
+  + BFF route'lari (CSRF + server-side store context + secret pass-through) + nav item ("Satis" grubu)
+  + ikon + i18n (`nav.paymentProviders` + payment error kodlari). Paylasilan `@commerce-os/ui`
+  etkilenmedi (yerel koyu kit, ADR-032).
+- storefront: `/checkout/payment` test odeme sayfasi (token zorunlu; MOCK test kart senaryolari) +
+  `payment-tester` client bileseni; checkout-form yanitta `payment` varsa odeme sayfasina yonlendirir,
+  yoksa bugunku onay ekrani. i18n `payment` namespace (tr + en ayna).
+- Guvenlik: Platform/store admin authorization zorunlu; store context disindaki config erisilmez;
+  secret response'ta maskeli; loglarda yalniz alan adlari (deger degil). Secret leakage guard testleri.
+
+### Dogrulananlar
+
+- `pnpm db:generate` OK (sema gecerli), `pnpm build` 24/24 OK, `pnpm typecheck` 0 hata, `pnpm lint`
+  34/34 OK, `pnpm test` 34/34 OK — api-gateway 89/89 (62 entegrasyon + 27 unit: resolver/encryption/
+  adapters[provider mapping dahil]/token), store-admin-web 78/78 (6 yeni BFF payment guvenlik testi
+  dahil). `git diff --check` temiz. Docker: izole tek-kullanimlik Postgres 16'da tum migration'lar
+  (yenisi dahil) temiz uygulandi (kullanici DB'sine dokunulmadi).
+- Regresyon: provider yokken public checkout response shape'i BIREBIR (payment alani yok, UNPAID) —
+  ozel regresyon testiyle dogrulandi. Mevcut F3B.1 cart/checkout testleri korundu.
+- Token guard: token'siz/yanlis/expired istek 403; basarili odeme sonrasi token tek kullanim (replay
+  403). Secret leakage guard: yanitlarda duz metin secret yok.
+
+### Kalan Bilincli Borclar
+
+- Canli odeme YOK; gercek provider HTTP/sandbox adaptorleri ayri maddeler: iyzico (TODO-066), Stripe
+  (TODO-067), PayTR (TODO-068), banka sanal POS/GENERIC_REDIRECT (TODO-069).
+- Refund/dispute/settlement fazi + ayri `/payments` (operations) ekrani: TODO-070.
+- Webhook imza dogrulamasi placeholder; gercek HMAC/signature verification: TODO-071.
+- Checkout odeme yonlendirmesi bu fazda yalnizca MOCK provider'i surdurur (stub provider'lar test
+  akisini surdurmez; canli adaptor gelince genisletilir).

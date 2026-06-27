@@ -564,3 +564,49 @@
 - Gorsel kanit: lokal/dev gercek seed veriyle alinan ekran goruntuleri
   `docs/screenshots/store-admin-glass-redesign/` altinda (login/dashboard/orders/products/
   product-detail/inventory/theme); prod DB'ye dokunulmadi (ayrinti: Faz 2J phase log).
+
+## ADR-033 Payment provider foundation = provider-ready operasyon katmani (canli odeme degil)
+
+- Durum: ACCEPTED
+- Baglam: F3B.1 checkout siparisi `PLACED`/`paymentStatus=UNPAID` olarak yaratir; gercek odeme
+  yoktu (ADR-031). Gercek odeme saglayicisi (iyzico/Stripe/PayTR/banka sanal POS) SOZLESMESI henuz
+  yok; bu yuzden canli tahsilat YAPILMAYACAK. Ancak altyapi, sozlesme sonrasi admin panelinden
+  credential girildiginde canli adaptor baglanabilecek sekilde hazir olmali.
+- Karar: Bu faz "para cekiyor" degil, **"provider-ready odeme operasyon altyapisi"** kurar:
+  PaymentProviderConfig/PaymentAttempt/PaymentProviderEvent modelleri, PaymentProviderAdapter
+  arayuzu (`createPayment/confirmPayment/cancelPayment/refundPayment/getPaymentStatus/handleWebhook/
+  testConnection`), store-bazli resolver, admin provider yonetimi (`/payment-providers`), TEST/LIVE
+  mode, oncelik/fallback, webhook shell ve attempt/event log. MOCK adapter TAM calisir; IYZICO/STRIPE/
+  PAYTR/GENERIC_REDIRECT icin **provider-specific adapter iskeleti** hazirlandi: gercek request payload
+  builder, response parser, provider status mapping (success→PAID/AUTHORIZED, failure→FAILED, 3D/
+  callback-pending→REQUIRES_ACTION/PENDING), credential validation (missing/invalid-format) ve webhook
+  event-id + status mapping. Gercek HTTP transport `PAYMENT_SANDBOX_HTTP_ENABLED` ile gate'lenir ve bu
+  fazda KAPALI'dir (kapaliyken mapping uretilir ama canli cagri yapilmaz → `SANDBOX_HTTP_DISABLED`).
+  Sozlesme/test credential sonrasi flag acilinca AYNI adapter sandbox/live cagriyi yapar. Canli HTTP
+  aktivasyonu + gercek imza dogrulama ayri fazda (TODO-066..069, TODO-071).
+- Karar (checkout wiring — additive, zero-regression): Public checkout siparisi bugunku gibi guvenle
+  olusturur. Uygun bir **TEST/MOCK** provider config varsa `placeOrder` sonrasi bir PaymentAttempt +
+  kisa omurlu **access token** uretilir ve confirmation'a opsiyonel `payment` objesi eklenir (kullanici
+  test odeme sayfasina yonlenir). **Provider yoksa `payment` alani HIC eklenmez** → mevcut checkout
+  response shape'i ve davranisi (UNPAID) birebir korunur. Boylece F3B.1 regresyon riski yok.
+- Karar (fallback + LIVE-MOCK yasagi): Resolver enabled provider'lari currency/amount/method/mode'a
+  gore filtreler; siralama DETERMINISTIK'tir (priority asc → createdAt asc → id asc). `fallbackEnabled`
+  ise primary basarisizliginda siradaki uygun provider denenebilir. **LIVE/production ortaminda MOCK
+  provider asla secilmez/fallback olmaz** (test saglayicisi canli tahsilat gibi davranamaz); TEST/dev/
+  demo ortaminda MOCK serbesttir.
+- Karar (credential guvenligi): Secret'lar (apiKey/secretKey/webhookSecret) DB'de yalnizca ciphertext
+  (AES-256-GCM, `PAYMENT_ENCRYPTION_KEY`) olarak saklanir; duz metin asla DB'ye yazilmaz, client'a
+  asla maskesiz donmez. Yanitlarda yalnizca `apiKeyMasked` (son-4) + `*Set` boolean'lari doner. Update
+  semantigi: secret alani GONDERILMEZSE mevcut deger KORUNUR, dolu deger gonderilirse DEGISTIRILIR.
+  `PAYMENT_ENCRYPTION_KEY` yoksa development/test'te guvensiz dev fallback (yuksek sesli uyari);
+  staging/production'da eksikse odeme sifreleme hata verir.
+- Karar (public odeme sayfasi guvenligi): Test odeme sayfasi yalnizca `orderId` ile acilamaz; kisa
+  omurlu token (DB'de yalnizca HMAC hash + TTL) zorunludur. State/submit uclari token hash'i + expiry +
+  store/order/attempt eslesmesi + order'in hala odenebilir (UNPAID) olmasi + attempt'in TEST/MOCK
+  olmasini dogrular. Basarili odemede token tek kullanim (gecersiz kilinir).
+- Karar (webhook shell): `POST /payments/webhooks/:provider` — external event id ile idempotency
+  (`@@unique([storeId, provider, eventId])`), event log. Bu fazda imza dogrulamasi PLACEHOLDER'dir
+  (gercek HMAC/signature verification TODO-071); mimari (signature/rawBody param'lari) hazirdir.
+- Sonuc: typecheck 0, lint 0, build OK, api-gateway 85/85 + store-admin 78/78 test gecti. Mevcut
+  mock checkout regresyonu yok (provider yoksa response birebir/UNPAID). `@commerce-os/ui` etkilenmedi
+  (store-admin yerel kit, ADR-032). Bkz. Faz 3B.2 phase log; backlog TODO-066..071.
