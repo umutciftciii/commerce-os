@@ -70,6 +70,15 @@ export interface StorefrontVariantView {
   sku: string;
   priceLabel: string | null;
   compareAtLabel: string | null;
+  /**
+   * Ham birim fiyat (minor/kurus) — adet x birim toplamini ISTEMCIDE bicimlemek
+   * icin (buy box). Numerik fiyat gizli/talep modunda null. Nihai tutar yine
+   * gateway'de yeniden hesaplanir; bu yalniz gosterim icindir.
+   */
+  priceMinor: number | null;
+  compareAtMinor: number | null;
+  /** Para birimi (tr-TR bicimleme icin). */
+  currency: string;
   /** Stok adedi (bilinmiyorsa null). */
   available: number | null;
   inStock: boolean;

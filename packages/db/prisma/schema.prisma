@@ -133,6 +133,11 @@ enum AddressType {
   BILLING
 }
 
+enum BillingType {
+  INDIVIDUAL
+  CORPORATE
+}
+
 enum OrderStatus {
   DRAFT
   PLACED
@@ -602,6 +607,17 @@ model Order {
   placedAt          DateTime?
   cancelledAt       DateTime?
   cancelReason      String?
+  // Fatura kimlik bilgileri (F3B.2). Fatura ADRESI OrderAddress(type=BILLING)
+  // kaydinda tutulur; burada yalnizca fatura tipi + vergi/kimlik kimlik alanlari
+  // bulunur. Bireysel: billingTaxId = T.C. Kimlik No (11 hane). Kurumsal: firma
+  // unvani + vergi dairesi + vergi no. PII gereksiz log/event metadata'ya yazilmaz.
+  billingType       BillingType?
+  billingName       String?
+  billingTaxId      String?
+  billingCompanyName String?
+  billingTaxOffice  String?
+  billingTaxNumber  String?
+  billingEmail      String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -765,9 +781,17 @@ model PaymentAttempt {
   status              PaymentAttemptStatus @default(CREATED)
   threeDsApplied      Boolean              @default(false)
   scenario            String?
+  // Odeme gozlemlenebilirligi (F3B.2). Full PAN/CVC ASLA saklanmaz; yalniz
+  // turetilmis guvenli alanlar: kart markasi + son 4 hane + taksit sayisi.
+  installmentCount    Int                  @default(1)
+  cardBrand           String?
+  cardLast4           String?
+  // providerReference = saglayici islem (transaction) referansi.
   providerReference   String?
   failureCode         String?
   failureMessage      String?
+  paidAt              DateTime?
+  failedAt            DateTime?
   // Kisa omurlu public odeme erisim token'inin hash'i; plain token DB'ye yazilmaz.
   accessTokenHash     String?
   accessTokenExpiresAt DateTime?

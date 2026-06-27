@@ -6,6 +6,75 @@ const skuSchema = z.string().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const currencySchema = z.string().length(3).regex(/^[A-Z]{3}$/);
 const optionalNullableStringSchema = z.string().max(500).nullable().optional();
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * F3B.2 — Paylasilan dogrulama yardimcilari (fatura + kart). Tek otorite burada;
+ * gateway (server-otoriter) ve vitrin (client UX) ayni mantigi kullanir. Kart
+ * yardimcilari yalniz dogrulama/turetme icindir; FULL PAN/CVC asla saklanmaz.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Bir degerden yalnizca rakamlari birakir. */
+export function digitsOnly(value: string): string {
+  return value.replace(/\D+/g, "");
+}
+
+/**
+ * T.C. Kimlik No dogrulamasi (resmi algoritma): 11 hane, ilk hane 0 olamaz;
+ * 10. ve 11. hane checksum kurallarina uyar.
+ */
+export function isValidTckn(value: string): boolean {
+  const tckn = digitsOnly(value);
+  if (!/^[1-9][0-9]{10}$/.test(tckn)) return false;
+  const d = tckn.split("").map(Number);
+  const oddSum = d[0] + d[2] + d[4] + d[6] + d[8];
+  const evenSum = d[1] + d[3] + d[5] + d[7];
+  const tenth = (((oddSum * 7 - evenSum) % 10) + 10) % 10;
+  if (tenth !== d[9]) return false;
+  const firstTenSum = d.slice(0, 10).reduce((sum, digit) => sum + digit, 0);
+  return firstTenSum % 10 === d[10];
+}
+
+/** Vergi numarasi (TR VKN): 10 haneli sayisal. */
+export function isValidTaxNumber(value: string): boolean {
+  return /^[0-9]{10}$/.test(digitsOnly(value));
+}
+
+/** Luhn saglama (kart numarasi). PAN saklanmaz; yalniz dogrulama icin. */
+export function luhnValid(pan: string): boolean {
+  const digits = digitsOnly(pan);
+  if (digits.length < 12 || digits.length > 19) return false;
+  let sum = 0;
+  let double = false;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    let digit = digits.charCodeAt(i) - 48;
+    if (double) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+export type CardBrand = "VISA" | "MASTERCARD" | "AMEX" | "TROY" | "CARD";
+
+/** Kart markasini BIN aralidan turetir (gosterim icin; PAN saklanmaz). */
+export function detectCardBrand(pan: string): CardBrand {
+  const digits = digitsOnly(pan);
+  if (/^4/.test(digits)) return "VISA";
+  if (/^3[47]/.test(digits)) return "AMEX";
+  if (/^9792/.test(digits) || /^65/.test(digits)) return "TROY";
+  const first2 = Number(digits.slice(0, 2));
+  const first4 = Number(digits.slice(0, 4));
+  if ((first2 >= 51 && first2 <= 55) || (first4 >= 2221 && first4 <= 2720)) return "MASTERCARD";
+  return "CARD";
+}
+
+/** PAN'in son 4 hanesi (gosterim/observability; full PAN saklanmaz). */
+export function cardLast4(pan: string): string {
+  return digitsOnly(pan).slice(-4);
+}
+
 export const healthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   service: z.string(),
@@ -584,15 +653,71 @@ export const publicCheckoutAddressSchema = z.object({
   postalCode: z.string().max(40).nullable().optional(),
 });
 
-export const publicCheckoutRequestSchema = z.object({
-  items: z.array(publicCartItemInputSchema).min(1).max(100),
-  contact: publicCheckoutContactSchema,
-  shippingAddress: publicCheckoutAddressSchema,
-  /** Verilmezse fatura adresi teslimat adresiyle ayni kabul edilir. */
-  billingAddress: publicCheckoutAddressSchema.nullable().optional(),
-  /** Opsiyonel kupon kodu; sunucu dogrular ve indirimi siparise yansitir. */
-  couponCode: z.string().max(40).nullable().optional(),
-});
+/**
+ * F3B.2 — Fatura bilgileri. Bireysel: ad-soyad + T.C. Kimlik No (zorunlu, dogrulanir).
+ * Kurumsal: firma unvani + vergi dairesi + vergi no (zorunlu, dogrulanir).
+ * `sameAsShipping=false` ise ayri fatura adresi (`billingAddress`) beklenir.
+ * PII (TCKN/VKN) gereksiz log/event metadata'ya yazilmaz; public receipt'te TCKN donmez.
+ */
+export const publicCheckoutBillingSchema = z
+  .object({
+    type: z.enum(["INDIVIDUAL", "CORPORATE"]),
+    sameAsShipping: z.boolean().default(true),
+    name: z.string().max(220).nullable().optional(),
+    tckn: z.string().max(20).nullable().optional(),
+    companyName: z.string().max(255).nullable().optional(),
+    taxOffice: z.string().max(255).nullable().optional(),
+    taxNumber: z.string().max(20).nullable().optional(),
+    email: z.string().email().max(320).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === "INDIVIDUAL") {
+      if (!value.name || value.name.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["name"], message: "Ad soyad zorunlu." });
+      }
+      if (!value.tckn || !isValidTckn(value.tckn)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tckn"], message: "Gecerli T.C. Kimlik No zorunlu." });
+      }
+    } else {
+      if (!value.companyName || value.companyName.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["companyName"], message: "Firma unvani zorunlu." });
+      }
+      if (!value.taxOffice || value.taxOffice.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["taxOffice"], message: "Vergi dairesi zorunlu." });
+      }
+      if (!value.taxNumber || !isValidTaxNumber(value.taxNumber)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["taxNumber"], message: "Gecerli vergi no zorunlu." });
+      }
+    }
+  });
+
+export const publicCheckoutRequestSchema = z
+  .object({
+    items: z.array(publicCartItemInputSchema).min(1).max(100),
+    contact: publicCheckoutContactSchema,
+    shippingAddress: publicCheckoutAddressSchema,
+    /**
+     * F3B.2 — Fatura bilgileri OPSIYONEL. Verilmezse (varsayilan checkout)
+     * sunucu fatura bilgisini iletisim/teslimat bilgisinden TURETIR ve T.C.
+     * Kimlik No / VKN ISTEMEZ. Yalnizca kullanici "Fatura bilgilerim farkli"
+     * derse gonderilir; o zaman asagidaki superRefine ile sikica dogrulanir
+     * (Bireysel → gecerli TCKN; Kurumsal → firma/vergi dairesi/gecerli VKN).
+     */
+    billing: publicCheckoutBillingSchema.nullable().optional(),
+    /** sameAsShipping=false ise ayri fatura adresi. */
+    billingAddress: publicCheckoutAddressSchema.nullable().optional(),
+    /** Opsiyonel kupon kodu; sunucu dogrular ve indirimi siparise yansitir. */
+    couponCode: z.string().max(40).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.billing && value.billing.sameAsShipping === false && !value.billingAddress) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["billingAddress"],
+        message: "Fatura adresi zorunlu.",
+      });
+    }
+  });
 
 /**
  * Basarili checkout sonrasi guvenli siparis onayi (ALLOWLIST). Ic alanlar
@@ -606,6 +731,67 @@ export const publicOrderConfirmationLineSchema = z.object({
   unitPriceMinor: z.number().int().nonnegative(),
   lineTotalMinor: z.number().int().nonnegative(),
   currency: currencySchema,
+});
+
+/**
+ * F3B.2 — Public (token-korumalı) GUVENLI fatura ozeti. PII allowlist: bireysel
+ * faturada T.C. Kimlik No CLIENT'A DONMEZ (yalniz ad + tip). Kurumsal alanlar
+ * (firma/vergi dairesi/vergi no) is kimligi oldugundan donebilir.
+ */
+export const publicBillingSummarySchema = z.object({
+  type: z.enum(["INDIVIDUAL", "CORPORATE"]),
+  name: z.string().nullable(),
+  companyName: z.string().nullable(),
+  taxOffice: z.string().nullable(),
+  taxNumber: z.string().nullable(),
+  email: z.string().nullable(),
+  sameAsShipping: z.boolean(),
+});
+
+/** F3B.2 — Public GUVENLI adres ozeti (teslimat/fatura gosterimi icin). */
+export const publicAddressSummarySchema = z.object({
+  fullName: z.string(),
+  phone: z.string().nullable(),
+  country: z.string(),
+  city: z.string(),
+  district: z.string().nullable(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullable(),
+  postalCode: z.string().nullable(),
+});
+
+/**
+ * F3B.2 — Public GUVENLI ödeme bilgisi. Full PAN/CVC ASLA donmez; yalniz
+ * marka + son 4 + taksit + saglayici islem referansi (transaction id) + durum.
+ */
+const publicAttemptStatusEnum = z.enum([
+  "CREATED",
+  "PENDING",
+  "REQUIRES_ACTION",
+  "AUTHORIZED",
+  "PAID",
+  "FAILED",
+  "CANCELLED",
+  "REFUNDED",
+]);
+const publicPaymentMethodEnum = z.enum([
+  "CARD",
+  "BANK_TRANSFER",
+  "CASH_ON_DELIVERY",
+  "PAYMENT_LINK",
+]);
+
+export const publicPaymentInfoSchema = z.object({
+  attemptId: z.string().min(1),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
+  mode: z.enum(["TEST", "LIVE"]),
+  method: publicPaymentMethodEnum,
+  status: publicAttemptStatusEnum,
+  cardBrand: z.string().nullable(),
+  cardLast4: z.string().nullable(),
+  installmentCount: z.number().int().positive(),
+  providerReference: z.string().nullable(),
+  paidAt: z.string().datetime().nullable(),
 });
 
 /** F3B.2 — Public test ödeme senaryolari (MOCK provider). */
@@ -649,11 +835,38 @@ export const publicOrderConfirmationSchema = z.object({
   contactEmail: z.string().email(),
   lines: z.array(publicOrderConfirmationLineSchema),
   createdAt: z.string().datetime(),
+  /** F3B.2 — Teslimat/fatura ozeti (success ekraninda gosterim). Opsiyonel (geri uyum). */
+  shippingAddress: publicAddressSummarySchema.optional(),
+  billing: publicBillingSummarySchema.nullable().optional(),
   /**
    * Opsiyonel ödeme yönlendirme. Provider yoksa alan eklenmez (undefined) →
    * mevcut response birebir kalir. Uygun TEST/MOCK provider varsa doldurulur.
    */
   payment: publicPaymentRedirectSchema.optional(),
+});
+
+/**
+ * F3B.2 — Public GUVENLI siparis fisi (success ekrani + ödeme sayfasi ozeti).
+ * Tek allowlist'li sema; ödeme sayfasinda payment=null (henuz odenmedi), basarili
+ * odeme sonrasinda payment dolu doner. Full PAN/CVC ASLA; bireysel TCKN donmez.
+ */
+export const publicOrderReceiptSchema = z.object({
+  orderNumber: z.string().min(1),
+  status: orderStatusSchema,
+  paymentStatus: paymentStatusSchema,
+  currency: currencySchema,
+  subtotalMinor: z.number().int().nonnegative(),
+  shippingMinor: z.number().int().nonnegative(),
+  discountMinor: z.number().int().nonnegative(),
+  taxIncludedMinor: z.number().int().nonnegative(),
+  totalMinor: z.number().int().nonnegative(),
+  couponCode: z.string().max(40).nullable(),
+  contactEmail: z.string().email(),
+  lines: z.array(publicOrderConfirmationLineSchema),
+  shippingAddress: publicAddressSummarySchema.nullable(),
+  billing: publicBillingSummarySchema.nullable(),
+  payment: publicPaymentInfoSchema.nullable(),
+  createdAt: z.string().datetime(),
 });
 
 /** F3B.2 — Public ödeme test sayfasi durumu (secret/credential ASLA donmez). */
@@ -662,52 +875,73 @@ export const publicPaymentStateSchema = z.object({
   paymentStatus: paymentStatusSchema,
   currency: currencySchema,
   totalMinor: z.number().int().nonnegative(),
+  subtotalMinor: z.number().int().nonnegative(),
+  shippingMinor: z.number().int().nonnegative(),
+  discountMinor: z.number().int().nonnegative(),
+  taxIncludedMinor: z.number().int().nonnegative(),
   contactEmail: z.string().email(),
   provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
   mode: z.enum(["TEST", "LIVE"]),
+  method: publicPaymentMethodEnum,
+  threeDsMode: z.enum(["DISABLED", "OPTIONAL", "REQUIRED"]),
+  installmentEnabled: z.boolean(),
+  /** Provider config + tutara gore izin verilen taksit secenekleri (1 = tek cekim). */
+  installmentOptions: z.array(z.number().int().positive()),
   attempt: z.object({
     id: z.string().min(1),
-    status: z.enum([
-      "CREATED",
-      "PENDING",
-      "REQUIRES_ACTION",
-      "AUTHORIZED",
-      "PAID",
-      "FAILED",
-      "CANCELLED",
-      "REFUNDED",
-    ]),
+    status: publicAttemptStatusEnum,
     threeDsApplied: z.boolean(),
   }),
   scenarios: z.array(publicPaymentScenarioSchema),
+  lines: z.array(publicOrderConfirmationLineSchema),
+  shippingAddress: publicAddressSummarySchema.nullable(),
+  billing: publicBillingSummarySchema.nullable(),
 });
 
-export const publicPaymentSubmitRequestSchema = z.object({
-  token: z.string().min(1),
-  scenario: publicPaymentScenarioSchema,
+/**
+ * F3B.2 — Test kart bilgileri. SUNUCU dogrular; full PAN/CVC saklanmaz/serialize
+ * edilmez/loglanmaz. Senaryo (success/failure/3DS...) kart numarasindan turetilir.
+ */
+export const publicPaymentCardSchema = z.object({
+  holder: z.string().min(1).max(120),
+  number: z.string().min(12).max(32),
+  expMonth: z.number().int().min(1).max(12),
+  expYear: z.number().int().min(2000).max(2100),
+  cvc: z.string().min(3).max(4).regex(/^[0-9]+$/),
 });
+
+export const publicPaymentSubmitRequestSchema = z
+  .object({
+    token: z.string().min(1),
+    /** Yeni akis: gercekci test kart formu. Senaryo karttan turetilir. */
+    card: publicPaymentCardSchema.optional(),
+    /** Eski akis (geri uyum): dogrudan senaryo secimi. */
+    scenario: publicPaymentScenarioSchema.optional(),
+    installmentCount: z.number().int().min(1).max(12).default(1),
+  })
+  .refine((value) => Boolean(value.card) || Boolean(value.scenario), {
+    message: "card or scenario is required.",
+    path: ["card"],
+  });
 
 export const publicPaymentResultSchema = z.object({
   orderNumber: z.string().min(1),
   paymentStatus: paymentStatusSchema,
   attempt: z.object({
     id: z.string().min(1),
-    status: z.enum([
-      "CREATED",
-      "PENDING",
-      "REQUIRES_ACTION",
-      "AUTHORIZED",
-      "PAID",
-      "FAILED",
-      "CANCELLED",
-      "REFUNDED",
-    ]),
+    status: publicAttemptStatusEnum,
     threeDsApplied: z.boolean(),
     failureCode: z.string().nullable(),
     failureMessage: z.string().nullable(),
+    cardBrand: z.string().nullable(),
+    cardLast4: z.string().nullable(),
+    installmentCount: z.number().int().positive(),
+    providerReference: z.string().nullable(),
   }),
   /** 3D Secure senaryosunda ikinci adim gerekiyorsa true. */
   requiresAction: z.boolean(),
+  /** Basarili odeme sonrasi zengin success fisi; aksi halde null. */
+  receipt: publicOrderReceiptSchema.nullable(),
 });
 
 /**
@@ -896,6 +1130,53 @@ export const orderEventSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+/**
+ * F3B.2 — Admin (authenticated) sipariş ödeme denemesi (gözlemlenebilirlik).
+ * Full PAN/CVC ASLA; yalniz turetilmis guvenli alanlar (marka/son4/taksit) +
+ * saglayici islem referansi + durum + zaman damgalari. Enum'lar inline (sira bagimsiz).
+ */
+export const orderPaymentAttemptSchema = z.object({
+  id: z.string().min(1),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
+  mode: z.enum(["TEST", "LIVE"]),
+  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
+  amount: z.number().int().nonnegative(),
+  currency: currencySchema,
+  status: z.enum([
+    "CREATED",
+    "PENDING",
+    "REQUIRES_ACTION",
+    "AUTHORIZED",
+    "PAID",
+    "FAILED",
+    "CANCELLED",
+    "REFUNDED",
+  ]),
+  threeDsApplied: z.boolean(),
+  scenario: z.string().nullable(),
+  installmentCount: z.number().int().positive(),
+  cardBrand: z.string().nullable(),
+  cardLast4: z.string().nullable(),
+  providerReference: z.string().nullable(),
+  failureCode: z.string().nullable(),
+  failureMessage: z.string().nullable(),
+  paidAt: z.string().datetime().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+/** F3B.2 — Sipariş fatura bilgisi (admin; allowlist). PII gereksiz yere loglanmaz. */
+export const orderBillingSchema = z.object({
+  type: z.enum(["INDIVIDUAL", "CORPORATE"]).nullable(),
+  name: z.string().nullable(),
+  taxId: z.string().nullable(),
+  companyName: z.string().nullable(),
+  taxOffice: z.string().nullable(),
+  taxNumber: z.string().nullable(),
+  email: z.string().nullable(),
+});
+
 export const orderSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -914,12 +1195,14 @@ export const orderSchema = z.object({
   placedAt: z.string().datetime().nullable(),
   cancelledAt: z.string().datetime().nullable(),
   cancelReason: z.string().nullable(),
+  billing: orderBillingSchema.nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   lines: z.array(orderLineSchema).default([]),
   addresses: z.array(orderAddressSchema).default([]),
   reservations: z.array(inventoryReservationSchema).default([]),
   events: z.array(orderEventSchema).default([]),
+  paymentAttempts: z.array(orderPaymentAttemptSchema).default([]),
 });
 
 export const orderListResponseSchema = z.object({
@@ -1179,6 +1462,12 @@ export type PublicCheckoutAddress = z.infer<typeof publicCheckoutAddressSchema>;
 export type PublicCheckoutRequest = z.infer<typeof publicCheckoutRequestSchema>;
 export type PublicOrderConfirmationLine = z.infer<typeof publicOrderConfirmationLineSchema>;
 export type PublicOrderConfirmation = z.infer<typeof publicOrderConfirmationSchema>;
+export type PublicCheckoutBilling = z.infer<typeof publicCheckoutBillingSchema>;
+export type PublicBillingSummary = z.infer<typeof publicBillingSummarySchema>;
+export type PublicAddressSummary = z.infer<typeof publicAddressSummarySchema>;
+export type PublicPaymentInfo = z.infer<typeof publicPaymentInfoSchema>;
+export type PublicOrderReceipt = z.infer<typeof publicOrderReceiptSchema>;
+export type PublicPaymentCard = z.infer<typeof publicPaymentCardSchema>;
 export type PublicPaymentScenario = z.infer<typeof publicPaymentScenarioSchema>;
 export type PublicPaymentRedirect = z.infer<typeof publicPaymentRedirectSchema>;
 export type PublicPaymentState = z.infer<typeof publicPaymentStateSchema>;
@@ -1226,6 +1515,8 @@ export type OrderLineInput = z.infer<typeof orderLineInputSchema>;
 export type OrderLineUpdateRequest = z.infer<typeof orderLineUpdateRequestSchema>;
 export type InventoryReservation = z.infer<typeof inventoryReservationSchema>;
 export type OrderEvent = z.infer<typeof orderEventSchema>;
+export type OrderPaymentAttempt = z.infer<typeof orderPaymentAttemptSchema>;
+export type OrderBilling = z.infer<typeof orderBillingSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;

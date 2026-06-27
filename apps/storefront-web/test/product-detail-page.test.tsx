@@ -63,7 +63,18 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     description: "Cozy hoodie for everyday wear",
     sku: "DEMO-HOODIE-BLK-M",
     variants: [
-      { id: "v1", title: "Black / M", sku: "DEMO-HOODIE-BLK-M", priceLabel: "₺1.299,00", compareAtLabel: "₺1.499,00", available: 15, inStock: true },
+      {
+        id: "v1",
+        title: "Black / M",
+        sku: "DEMO-HOODIE-BLK-M",
+        priceLabel: "₺1.299,00",
+        compareAtLabel: "₺1.499,00",
+        priceMinor: 129900,
+        compareAtMinor: 149900,
+        currency: "TRY",
+        available: 15,
+        inStock: true,
+      },
     ],
     callToActionLabel: null,
     whatsappMessageTemplate: null,
@@ -129,7 +140,18 @@ describe("storefront · product detail (decision center)", () => {
         price: { mode: "hidden", amountLabel: null, compareAtLabel: null },
         badgeKind: null,
         variants: [
-          { id: "v1", title: "Standart", sku: "CAT-1", priceLabel: null, compareAtLabel: null, available: null, inStock: true },
+          {
+            id: "v1",
+            title: "Standart",
+            sku: "CAT-1",
+            priceLabel: null,
+            compareAtLabel: null,
+            priceMinor: null,
+            compareAtMinor: null,
+            currency: "TRY",
+            available: null,
+            inStock: true,
+          },
         ],
         // Benzer urunler bos: sayfa-duzeyi "Sepete ekle"/"₺" kontrolu yalniz bu
         // urunun buy box'ina bakar (ONLINE benzer urun karti kirletmesin).

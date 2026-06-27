@@ -561,11 +561,17 @@ export function Modal({
   className,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // onClose'u ref'te tut: cagiran taraf onClose'u inline tanimlasa bile (her render'da
+  // yeni kimlik) bu efekt YALNIZCA `open` degisince calisir. Aksi halde her render'da
+  // (or. input'a her tus vurusunda) efekt yeniden kosup panelRef.focus() ile odagi
+  // input'tan calardi — "yeni saglayici" modalindaki focus firlamasi bug'i buydu.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
     panelRef.current?.focus();
@@ -575,7 +581,7 @@ export function Modal({
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

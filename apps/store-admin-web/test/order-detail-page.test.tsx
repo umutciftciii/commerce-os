@@ -78,6 +78,8 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
     addresses: [],
     reservations: [],
     events: [],
+    paymentAttempts: [],
+    billing: null,
     ...overrides,
   };
 }
@@ -135,6 +137,66 @@ describe("store-admin order detail — dedicated route page", () => {
     );
     expect(nesting).toEqual([]);
     consoleError.mockRestore();
+  });
+
+  it("shows the payment observability panel and localizes order-history events in Turkish", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        paymentStatus: "PAID",
+        events: [
+          {
+            id: "e1",
+            storeId: "s1",
+            orderId: "o1",
+            type: "ORDER_PLACED",
+            // DB'de İngilizce saklı; UI render'da TR'ye çevrilmeli.
+            message: "Order placed and inventory reserved.",
+            metadata: null,
+            actorUserId: null,
+            createdAt: new Date("2026-06-01T10:00:00.000Z").toISOString(),
+          },
+        ],
+        paymentAttempts: [
+          {
+            id: "pa1",
+            provider: "MOCK",
+            mode: "TEST",
+            method: "CARD",
+            amount: 39980,
+            currency: "TRY",
+            status: "PAID",
+            threeDsApplied: false,
+            scenario: "success",
+            installmentCount: 3,
+            cardBrand: "MASTERCARD",
+            cardLast4: "0008",
+            providerReference: "mock_pa1",
+            failureCode: null,
+            failureMessage: null,
+            paidAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+            failedAt: null,
+            createdAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+            updatedAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+          },
+        ],
+      }),
+    );
+
+    render(<OrderDetailPage />);
+    await screen.findByText("Sipariş ORD-1001");
+
+    // Ödeme paneli: maskeli kart (son 4), işlem (transaction) no, taksit.
+    expect(screen.getByText("Ödeme")).toBeTruthy();
+    expect(screen.getByText(/0008/)).toBeTruthy();
+    expect(screen.getByText("mock_pa1")).toBeTruthy();
+    expect(screen.getByText("3 taksit")).toBeTruthy();
+
+    // Olay açıklaması TR'ye çevrilmiş; ham İngilizce DB mesajı görünmemeli.
+    expect(screen.getByText("Sipariş verildi ve stok rezerve edildi.")).toBeTruthy();
+    expect(screen.queryByText("Order placed and inventory reserved.")).toBeNull();
+
+    // Full PAN hiçbir yerde görünmemeli.
+    expect(document.body.textContent ?? "").not.toContain("5528790000000008");
   });
 
   it("shows Place for a DRAFT order and triggers placeOrder", async () => {

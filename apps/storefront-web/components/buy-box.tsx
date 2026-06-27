@@ -4,9 +4,10 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@commerce-os/ui";
-import type { StorefrontDictionary } from "@commerce-os/i18n";
+import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductDetail, StorefrontVariantView } from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
+import { formatMinor } from "../lib/money";
 import { addToCartAction } from "../lib/server/cart-actions";
 
 const LOW_STOCK = 5;
@@ -40,6 +41,24 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const maxQty = commerce.maxQuantity ?? 99;
   const clamp = (value: number) => Math.min(Math.max(value, commerce.minQuantity), maxQty);
 
+  // Buy box'ta gosterilen tutar = secili varyant birim fiyati x adet. Ham minor
+  // tutarlar varsa istemcide bicimlenir; yoksa tekil etiketlere geri dusulur
+  // (gizli/talep modunda numeric zaten false). Sepet/odeme tutari gateway'de
+  // yeniden hesaplanir — bu yalniz gosterimdir.
+  const currency = selected?.currency ?? "TRY";
+  const unitMinor = selected?.priceMinor ?? null;
+  const compareMinor = selected?.compareAtMinor ?? null;
+  const totalLabel =
+    numeric && unitMinor !== null
+      ? formatMinor(unitMinor * quantity, currency)
+      : (selected?.priceLabel ?? price.amountLabel);
+  const compareTotalLabel =
+    numeric && compareMinor !== null
+      ? formatMinor(compareMinor * quantity, currency)
+      : (selected?.compareAtLabel ?? price.compareAtLabel);
+  // Adet > 1 iken birim fiyat ipucu ("Birim fiyat ₺1.299,00") gosterilir.
+  const showUnitNote = numeric && unitMinor !== null && quantity > 1;
+
   // ADD_TO_CART: secili varyanti cookie sepete ekler (Server Action) ve SAYFADA
   // KALIR — yonlendirme YOK; nav sayaci revalidate ile guncellenir, inline bir
   // "sepete eklendi" geri bildirimi gosterilir. BUY_NOW (Simdi Al): sepete ekleyip
@@ -65,23 +84,24 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
-      {/* Fiyat */}
+      {/* Fiyat (adet x birim fiyat) */}
       <div className="flex items-baseline gap-2">
         {numeric ? (
           <>
-            <span className="text-2xl font-semibold text-slate-900">
-              {selected?.priceLabel ?? price.amountLabel}
-            </span>
-            {selected?.compareAtLabel ?? price.compareAtLabel ? (
-              <span className="text-sm text-slate-400 line-through">
-                {selected?.compareAtLabel ?? price.compareAtLabel}
-              </span>
+            <span className="text-2xl font-semibold text-slate-900">{totalLabel}</span>
+            {compareTotalLabel ? (
+              <span className="text-sm text-slate-400 line-through">{compareTotalLabel}</span>
             ) : null}
           </>
         ) : (
           <span className="text-lg font-semibold text-slate-900">{primaryPriceText(price, t)}</span>
         )}
       </div>
+      {showUnitNote ? (
+        <p className="mt-1 text-xs text-slate-500">
+          {format(t.buyBox.unitEach, { price: formatMinor(unitMinor as number, currency) })}
+        </p>
+      ) : null}
       {numeric ? <p className="mt-1 text-xs text-slate-400">{t.buyBox.priceNote}</p> : null}
 
       {/* Stok durumu */}

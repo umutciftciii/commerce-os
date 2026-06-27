@@ -106,12 +106,21 @@ export type {
   PublicCheckoutRequest,
   PublicOrderConfirmationLine,
   PublicOrderConfirmation,
+  PublicCheckoutBilling,
+  PublicBillingSummary,
+  PublicAddressSummary,
+  PublicPaymentInfo,
+  PublicOrderReceipt,
+  PublicPaymentCard,
   PublicPaymentScenario,
   PublicPaymentRedirect,
   PublicPaymentState,
   PublicPaymentSubmitRequest,
   PublicPaymentResult,
   PublicPaymentAvailability,
+  OrderPaymentAttempt,
+  OrderBilling,
+  CardBrand,
   PlatformUserContract,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
@@ -122,6 +131,19 @@ export type {
   PaymentProviderTestConnectionResponse,
   PaymentProviderEvent,
   PaymentProviderEventListResponse,
+} from "@commerce-os/contracts";
+
+/**
+ * F3B.2 — Paylasilan dogrulama yardimcilari (DEGER re-export). Vitrin (client UX)
+ * ve diger tuketiciler, gateway ile AYNI dogrulama otoritesini kullanir.
+ */
+export {
+  isValidTckn,
+  isValidTaxNumber,
+  luhnValid,
+  detectCardBrand,
+  cardLast4,
+  digitsOnly,
 } from "@commerce-os/contracts";
 
 /**

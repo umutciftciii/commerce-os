@@ -59,6 +59,48 @@ export function CheckoutSuccess({
         </dl>
       </div>
 
+      {confirmation.shippingAddress ? (
+        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
+          <p className="mb-1 font-semibold text-slate-700">{t.success.shippingTitle}</p>
+          <p className="text-slate-700">{confirmation.shippingAddress.fullName}</p>
+          <p className="text-slate-500">
+            {confirmation.shippingAddress.addressLine1}
+            {confirmation.shippingAddress.addressLine2
+              ? `, ${confirmation.shippingAddress.addressLine2}`
+              : ""}
+          </p>
+          <p className="text-slate-500">
+            {confirmation.shippingAddress.district ? `${confirmation.shippingAddress.district}, ` : ""}
+            {confirmation.shippingAddress.city} {confirmation.shippingAddress.postalCode ?? ""}
+          </p>
+        </div>
+      ) : null}
+
+      {confirmation.billing ? (
+        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
+          <p className="mb-1 font-semibold text-slate-700">{t.success.billingTitle}</p>
+          <p className="text-slate-700">
+            {confirmation.billing.type === "CORPORATE"
+              ? t.success.billingCorporate
+              : t.success.billingIndividual}
+          </p>
+          {confirmation.billing.type === "CORPORATE" ? (
+            <>
+              {confirmation.billing.companyName ? (
+                <p className="text-slate-500">{confirmation.billing.companyName}</p>
+              ) : null}
+              {confirmation.billing.taxOffice || confirmation.billing.taxNumber ? (
+                <p className="text-slate-500">
+                  {confirmation.billing.taxOffice} {confirmation.billing.taxNumber}
+                </p>
+              ) : null}
+            </>
+          ) : confirmation.billing.name ? (
+            <p className="text-slate-500">{confirmation.billing.name}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {confirmation.paymentPending ? (
         <Alert tone="info" className="mt-4 text-left">
           {t.success.paymentPendingNote}

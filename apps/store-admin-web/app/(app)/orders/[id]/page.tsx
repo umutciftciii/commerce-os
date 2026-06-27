@@ -46,6 +46,128 @@ function MoneyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+type DetailDict = ReturnType<typeof getDictionary>["storeAdmin"]["orders"]["detail"];
+type AttemptStatus = Order["paymentAttempts"][number]["status"];
+
+/** Olay tipini locale'e gore cevirir; eslesme yoksa DB mesajina dusurur (F3B.2 i18n). */
+function localizedEvent(d: DetailDict, type: string, message: string | null): string | undefined {
+  const map = d.eventMessages as Record<string, string>;
+  return map[type] ?? message ?? undefined;
+}
+
+const ATTEMPT_STATUS_TONES: Record<AttemptStatus, "success" | "danger" | "warning" | "neutral" | "info"> = {
+  CREATED: "neutral",
+  PENDING: "warning",
+  REQUIRES_ACTION: "warning",
+  AUTHORIZED: "success",
+  PAID: "success",
+  FAILED: "danger",
+  CANCELLED: "danger",
+  REFUNDED: "info",
+};
+
+const CARD_BRAND_LABEL: Record<string, string> = {
+  VISA: "Visa",
+  MASTERCARD: "Mastercard",
+  AMEX: "Amex",
+  TROY: "Troy",
+  CARD: "Kart",
+};
+
+/** Maskeli kart etiketi (marka + son 4). Full PAN ASLA gosterilmez. */
+function maskedCardLabel(brand: string | null, last4: string | null): string | null {
+  if (!last4) return null;
+  const prefix = brand && CARD_BRAND_LABEL[brand] ? `${CARD_BRAND_LABEL[brand]} ` : "";
+  return `${prefix}•••• ${last4}`;
+}
+
+/**
+ * F3B.2 — Ödeme gözlemlenebilirlik paneli. Provider/mod/yöntem, maskeli kart,
+ * taksit, işlem (transaction) No, deneme No/durumu, ödeme/başarısızlık tarihi ve
+ * başarısızlık nedeni. Deneme yoksa empty state. Full PAN/CVC ASLA gosterilmez.
+ */
+function PaymentPanel({ order, d }: { order: Order; d: DetailDict }) {
+  const attempts = order.paymentAttempts ?? [];
+  const statusLabels = d.attemptStatusLabels as Record<string, string>;
+  if (attempts.length === 0) {
+    return (
+      <SurfaceCard title={d.paymentTitle}>
+        <p className="text-sm text-white/30">{d.noPaymentAttempt}</p>
+      </SurfaceCard>
+    );
+  }
+  const ordered = [...attempts].reverse(); // en guncel deneme once
+  return (
+    <SurfaceCard title={d.paymentTitle}>
+      <div className="space-y-3">
+        {ordered.map((attempt) => {
+          const card = maskedCardLabel(attempt.cardBrand, attempt.cardLast4);
+          return (
+            <div
+              key={attempt.id}
+              className="rounded-xl border border-white/[0.09] bg-white/[0.04] p-3"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-white/80">
+                  {attempt.provider} · {attempt.mode}
+                </span>
+                <Badge tone={ATTEMPT_STATUS_TONES[attempt.status]} dot>
+                  {statusLabels[attempt.status] ?? attempt.status}
+                </Badge>
+              </div>
+              <div className="divide-y divide-white/[0.06]">
+                <RailRow label={d.paymentMethodLabel} value={attempt.method} />
+                {card ? (
+                  <RailRow
+                    label={d.paymentCardLabel}
+                    value={<span className="font-mono text-xs">{card}</span>}
+                  />
+                ) : null}
+                <RailRow
+                  label={d.paymentInstallmentLabel}
+                  value={
+                    attempt.installmentCount > 1
+                      ? format(d.paymentInstallmentValue, { count: attempt.installmentCount })
+                      : d.paymentSingleShot
+                  }
+                />
+                {attempt.providerReference ? (
+                  <RailRow
+                    label={d.paymentTransactionLabel}
+                    value={<span className="font-mono text-xs">{attempt.providerReference}</span>}
+                  />
+                ) : null}
+                <RailRow
+                  label={d.paymentAttemptLabel}
+                  value={<span className="font-mono text-xs">{attempt.id}</span>}
+                />
+                {attempt.paidAt ? (
+                  <RailRow label={d.paymentPaidAtLabel} value={formatDate(attempt.paidAt)} />
+                ) : null}
+                {attempt.failedAt ? (
+                  <RailRow label={d.paymentFailedAtLabel} value={formatDate(attempt.failedAt)} />
+                ) : null}
+                {attempt.failureMessage || attempt.failureCode ? (
+                  <RailRow
+                    label={d.paymentFailureLabel}
+                    value={attempt.failureMessage ?? attempt.failureCode ?? ""}
+                  />
+                ) : null}
+                {attempt.scenario ? (
+                  <RailRow
+                    label={d.paymentScenarioLabel}
+                    value={<span className="font-mono text-xs">{attempt.scenario}</span>}
+                  />
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </SurfaceCard>
+  );
+}
+
 /**
  * Sipariş detayı: modal değil, kendi route'unda (`/orders/[id]`) tam sayfa.
  * Üstte kimlik başlığı (DetailHero) + operasyon özeti tile'ları; altında iki kolon:
@@ -88,6 +210,19 @@ export default function OrderDetailPage() {
     () => (order ? order.reservations.filter((r) => r.status === "ACTIVE").length : 0),
     [order],
   );
+
+  // Ödenen tutar: PAID/AUTHORIZED bir ödeme denemesi varsa onun tutari; yoksa sipariş
+  // ödeme durumu PAID/AUTHORIZED ise genel toplam; aksi halde 0.
+  const paidAmount = useMemo(() => {
+    if (!order) return 0;
+    const settled = (order.paymentAttempts ?? []).find(
+      (a) => a.status === "PAID" || a.status === "AUTHORIZED",
+    );
+    if (settled) return settled.amount;
+    return order.paymentStatus === "PAID" || order.paymentStatus === "AUTHORIZED"
+      ? order.totalAmount
+      : 0;
+  }, [order]);
 
   const runAction = useCallback(
     async (type: "place" | "cancel") => {
@@ -258,7 +393,18 @@ export default function OrderDetailPage() {
                       {formatMinor(order.totalAmount, order.currency)}
                     </span>
                   </div>
+                  {order.paymentStatus !== "UNPAID" || paidAmount > 0 ? (
+                    <>
+                      <MoneyRow label={d.paidAmount} value={formatMinor(paidAmount, order.currency)} />
+                      <MoneyRow
+                        label={d.remainingAmount}
+                        value={formatMinor(Math.max(order.totalAmount - paidAmount, 0), order.currency)}
+                      />
+                    </>
+                  ) : null}
                 </SurfaceCard>
+
+                <PaymentPanel order={order} d={d} />
 
                 <SurfaceCard title={d.eventsTitle}>
                   {order.events.length === 0 ? (
@@ -271,7 +417,7 @@ export default function OrderDetailPage() {
                           last={index === order.events.length - 1}
                           title={<span className="font-mono text-xs">{event.type}</span>}
                           meta={formatDate(event.createdAt)}
-                          description={event.message ?? undefined}
+                          description={localizedEvent(d, event.type, event.message)}
                         />
                       ))}
                     </Timeline>
@@ -327,6 +473,54 @@ export default function OrderDetailPage() {
                         </div>
                       ))}
                     </div>
+                  )}
+                </RailCard>
+
+                <RailCard title={d.billingTitle}>
+                  {order.billing ? (
+                    <div className="divide-y divide-white/[0.06]">
+                      <RailRow
+                        label={d.billingTypeLabel}
+                        value={
+                          order.billing.type === "CORPORATE"
+                            ? d.billingTypeCorporate
+                            : d.billingTypeIndividual
+                        }
+                      />
+                      {order.billing.type === "CORPORATE" ? (
+                        <>
+                          {order.billing.companyName ? (
+                            <RailRow label={d.billingCompanyLabel} value={order.billing.companyName} />
+                          ) : null}
+                          {order.billing.taxOffice ? (
+                            <RailRow label={d.billingTaxOfficeLabel} value={order.billing.taxOffice} />
+                          ) : null}
+                          {order.billing.taxNumber ? (
+                            <RailRow
+                              label={d.billingTaxNumberLabel}
+                              value={<span className="font-mono text-xs">{order.billing.taxNumber}</span>}
+                            />
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          {order.billing.name ? (
+                            <RailRow label={d.billingNameLabel} value={order.billing.name} />
+                          ) : null}
+                          {order.billing.taxId ? (
+                            <RailRow
+                              label={d.billingTaxIdLabel}
+                              value={<span className="font-mono text-xs">{order.billing.taxId}</span>}
+                            />
+                          ) : null}
+                        </>
+                      )}
+                      {order.billing.email ? (
+                        <RailRow label={d.billingEmailLabel} value={order.billing.email} />
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-white/30">{d.noBilling}</p>
                   )}
                 </RailCard>
 

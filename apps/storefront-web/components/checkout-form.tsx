@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
+import { isValidTckn } from "@commerce-os/api-client";
 import type { CartView } from "../lib/server/cart";
 import { type CheckoutFormState, submitCheckoutAction } from "../lib/server/cart-actions";
 import { districtsOf, trProvinceNames } from "../lib/tr-location-data";
@@ -65,6 +66,11 @@ export function CheckoutForm({
         </Card>
 
         <Card className="p-6">
+          <h2 className="mb-4 text-base font-semibold text-slate-900">{t.billing.title}</h2>
+          <BillingFields t={t} fieldErrors={fieldErrors} />
+        </Card>
+
+        <Card className="p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">{t.paymentTitle}</h2>
             <span
@@ -89,8 +95,168 @@ export function CheckoutForm({
         </Card>
       </div>
 
-      <CheckoutSummary view={view} t={t} isPending={isPending} />
+      <CheckoutSummary view={view} t={t} isPending={isPending} paymentTestEnabled={paymentTestEnabled} />
     </form>
+  );
+}
+
+/**
+ * F3B.2 — Fatura bölümü. VARSAYILAN: "Fatura bilgilerim farklı" KAPALI → fatura
+ * bilgisi teslimat/iletişimden türetilir, T.C. Kimlik No / VKN İSTENMEZ. Kullanıcı
+ * checkbox'ı işaretlerse Bireysel/Kurumsal seçimi ve ilgili alanlar (Bireysel:
+ * ad soyad + TCKN; Kurumsal: firma + vergi dairesi + vergi no) ve istenirse ayrı
+ * fatura adresi açılır. TCKN istemci-tarafı anlık doğrulanır (server da doğrular).
+ */
+function BillingFields({ t, fieldErrors }: { t: CheckoutDict; fieldErrors: Record<string, boolean> }) {
+  const [different, setDifferent] = useState(false);
+  const [type, setType] = useState<"INDIVIDUAL" | "CORPORATE">("INDIVIDUAL");
+  const [sameAsShipping, setSameAsShipping] = useState(true);
+  const [province, setProvince] = useState("");
+  const [tckn, setTckn] = useState("");
+  const [tcknTouched, setTcknTouched] = useState(false);
+  const districts = useMemo(() => districtsOf(province), [province]);
+  const b = t.billing;
+
+  // TCKN istemci-tarafı UX doğrulaması (server bağımsız doğrular). Yalnızca
+  // bireysel + farklı fatura açıkken anlamlı; boş değilse ve geçersizse hata.
+  // tcknTouched: kullanıcı alandan çıkınca ya da server hata döndürünce gösterilir.
+  const tcknLocalInvalid = different && type === "INDIVIDUAL" && tckn.length > 0 && !isValidTckn(tckn);
+  const showTcknError = (tcknLocalInvalid && tcknTouched) || Boolean(fieldErrors.tckn);
+
+  return (
+    <div className="space-y-4">
+      <input type="hidden" name="billingDifferent" value={different ? "true" : "false"} />
+
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input type="checkbox" checked={different} onChange={(event) => setDifferent(event.target.checked)} />
+        {b.differentToggle}
+      </label>
+      {!different ? <p className="text-xs text-slate-400">{b.defaultNote}</p> : null}
+
+      {different ? (
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <input type="hidden" name="billingType" value={type} />
+          <input type="hidden" name="billingSameAsShipping" value={sameAsShipping ? "true" : "false"} />
+
+          <div>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">{b.typeLabel}</span>
+            <div className="flex gap-3">
+              {(["INDIVIDUAL", "CORPORATE"] as const).map((value) => (
+                <label
+                  key={value}
+                  className={[
+                    "flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium",
+                    type === value
+                      ? "border-brand-500 bg-brand-50 text-brand-700"
+                      : "border-slate-200 text-slate-600 hover:border-slate-300",
+                  ].join(" ")}
+                >
+                  <input
+                    type="radio"
+                    name="billingTypeRadio"
+                    className="sr-only"
+                    checked={type === value}
+                    onChange={() => setType(value)}
+                  />
+                  {value === "INDIVIDUAL" ? b.individual : b.corporate}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {type === "INDIVIDUAL" ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field name="billingName" label={b.nameLabel} error={fieldErrors.billingName} autoComplete="name" />
+              <div>
+                <Input
+                  id="checkout-tckn"
+                  name="tckn"
+                  label={b.tcknLabel}
+                  inputMode="numeric"
+                  placeholder={b.tcknPlaceholder}
+                  value={tckn}
+                  onChange={(event) => setTckn(event.target.value.replace(/\D+/g, "").slice(0, 11))}
+                  onBlur={() => setTcknTouched(true)}
+                  aria-invalid={showTcknError ? true : undefined}
+                  className={
+                    showTcknError ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined
+                  }
+                />
+                <p className={["mt-1 text-xs", showTcknError ? "text-red-600" : "text-slate-400"].join(" ")}>
+                  {showTcknError ? b.tcknInvalid : b.tcknHint}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field name="companyName" label={b.companyLabel} error={fieldErrors.companyName} />
+              <Field name="taxOffice" label={b.taxOfficeLabel} error={fieldErrors.taxOffice} />
+              <Field
+                name="taxNumber"
+                label={b.taxNumberLabel}
+                error={fieldErrors.taxNumber}
+                inputMode="numeric"
+                placeholder={b.taxNumberPlaceholder}
+              />
+              <Field name="billingEmail" label={b.emailLabel} type="email" autoComplete="email" />
+            </div>
+          )}
+
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={!sameAsShipping}
+              onChange={(event) => setSameAsShipping(!event.target.checked)}
+            />
+            {b.differentAddressToggle}
+          </label>
+
+          {!sameAsShipping ? (
+            <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm font-medium text-slate-700">{b.addressTitle}</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">{t.city}</span>
+                  <Select
+                    name="billingCity"
+                    value={province}
+                    onChange={(event) => setProvince(event.target.value)}
+                    className={
+                      fieldErrors.billingCity ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined
+                    }
+                    aria-invalid={fieldErrors.billingCity ? true : undefined}
+                    options={[
+                      { value: "", label: t.cityPlaceholder },
+                      ...trProvinceNames.map((name) => ({ value: name, label: name })),
+                    ]}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-700">{t.district}</span>
+                  <Select
+                    name="billingDistrict"
+                    disabled={!province}
+                    className={
+                      fieldErrors.billingDistrict ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined
+                    }
+                    aria-invalid={fieldErrors.billingDistrict ? true : undefined}
+                    options={[
+                      { value: "", label: province ? t.districtPlaceholder : t.districtSelectCityFirst },
+                      ...districts.map((name) => ({ value: name, label: name })),
+                    ]}
+                  />
+                </label>
+              </div>
+              <Field name="billingAddressLine1" label={t.addressLine1} error={fieldErrors.billingAddressLine1} />
+              <Field name="billingAddressLine2" label={`${t.addressLine2} (${t.optional})`} />
+              <div className="sm:max-w-[200px]">
+                <Field name="billingPostalCode" label={t.postalCode} inputMode="numeric" />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -202,6 +368,7 @@ function Field({
   required?: boolean;
   autoComplete?: string;
   inputMode?: "numeric" | "text";
+  placeholder?: string;
 }) {
   return (
     <Input
@@ -215,7 +382,17 @@ function Field({
   );
 }
 
-function CheckoutSummary({ view, t, isPending }: { view: CartView; t: CheckoutDict; isPending: boolean }) {
+function CheckoutSummary({
+  view,
+  t,
+  isPending,
+  paymentTestEnabled,
+}: {
+  view: CartView;
+  t: CheckoutDict;
+  isPending: boolean;
+  paymentTestEnabled: boolean;
+}) {
   const s = view.summary;
   return (
     <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -261,7 +438,7 @@ function CheckoutSummary({ view, t, isPending }: { view: CartView; t: CheckoutDi
         </dl>
 
         <Button type="submit" className="mt-5 w-full" disabled={isPending}>
-          {isPending ? t.submitting : t.submit}
+          {isPending ? t.submitting : paymentTestEnabled ? t.submitContinue : t.submit}
         </Button>
         <p className="mt-3 text-xs leading-relaxed text-slate-400">{t.summaryNote}</p>
       </Card>

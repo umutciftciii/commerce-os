@@ -849,6 +849,15 @@ class MemoryDataAccess implements AppDataAccess {
         addressLine2?: string | null;
         postalCode?: string | null;
       }>;
+      billing?: {
+        type: "INDIVIDUAL" | "CORPORATE";
+        name?: string | null;
+        taxId?: string | null;
+        companyName?: string | null;
+        taxOffice?: string | null;
+        taxNumber?: string | null;
+        email?: string | null;
+      } | null;
       actorUserId?: string;
     },
   ) {
@@ -897,9 +906,17 @@ class MemoryDataAccess implements AppDataAccess {
       placedAt: null,
       cancelledAt: null,
       cancelReason: null,
+      billingType: input.billing?.type ?? null,
+      billingName: input.billing?.name ?? null,
+      billingTaxId: input.billing?.taxId ?? null,
+      billingCompanyName: input.billing?.companyName ?? null,
+      billingTaxOffice: input.billing?.taxOffice ?? null,
+      billingTaxNumber: input.billing?.taxNumber ?? null,
+      billingEmail: input.billing?.email ?? null,
       createdAt: new Date("2026-01-05T00:00:00.000Z"),
       updatedAt: new Date("2026-01-05T00:00:00.000Z"),
       lines,
+      paymentAttempts: [],
       addresses: input.addresses.map((address, index) => ({
         id: `addr_${index + 1}`,
         storeId,
@@ -1226,15 +1243,23 @@ class MemoryDataAccess implements AppDataAccess {
       status: input.status,
       threeDsApplied: false,
       scenario: null,
+      installmentCount: 1,
+      cardBrand: null,
+      cardLast4: null,
       providerReference: null,
       failureCode: null,
       failureMessage: null,
       accessTokenHash: input.accessTokenHash,
       accessTokenExpiresAt: input.accessTokenExpiresAt,
+      paidAt: null,
+      failedAt: null,
       createdAt: now,
       updatedAt: now,
     };
     this.paymentAttempts.push(attempt);
+    // Siparise de bagla ki findOrderById gozlemlenebilir denemeleri dondurebilsin.
+    const order = this.orders.find((o) => o.storeId === storeId && o.id === input.orderId);
+    if (order) order.paymentAttempts.push(attempt);
     return attempt;
   }
 
@@ -1264,6 +1289,11 @@ class MemoryDataAccess implements AppDataAccess {
     }
     attempt.failureCode = input.failureCode ?? null;
     attempt.failureMessage = input.failureMessage ?? null;
+    if (input.installmentCount !== undefined) attempt.installmentCount = input.installmentCount;
+    if (input.cardBrand !== undefined) attempt.cardBrand = input.cardBrand;
+    if (input.cardLast4 !== undefined) attempt.cardLast4 = input.cardLast4;
+    if (input.paidAt !== undefined) attempt.paidAt = input.paidAt;
+    if (input.failedAt !== undefined) attempt.failedAt = input.failedAt;
     if (input.clearAccessToken) {
       attempt.accessTokenHash = null;
       attempt.accessTokenExpiresAt = null;
@@ -2518,13 +2548,25 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     addressLine1: "Bagdat Cad. 1",
     postalCode: "34000",
   };
+  // F3B.2 — Fatura zorunlu. Gecerli T.C. Kimlik No (10000000146) ile bireysel fatura.
+  const validBilling = {
+    type: "INDIVIDUAL" as const,
+    sameAsShipping: true,
+    name: "Ada Lovelace",
+    tckn: "10000000146",
+  };
 
   function checkoutReq(
     app: Awaited<ReturnType<typeof createTestApp>>["app"],
     payload: unknown,
     slug = "demo-store",
   ) {
-    return app.inject({ method: "POST", url: `/public/stores/${slug}/checkout`, payload });
+    // Test gövdeleri billing belirtmezse varsayilan gecerli bireysel faturayi ekle.
+    const withBilling =
+      payload && typeof payload === "object" && !Array.isArray(payload) && !("billing" in payload)
+        ? { ...(payload as Record<string, unknown>), billing: validBilling }
+        : payload;
+    return app.inject({ method: "POST", url: `/public/stores/${slug}/checkout`, payload: withBilling });
   }
 
   it("resolves an ONLINE variant into a purchasable cart line (subtotal computed server-side)", async () => {
@@ -2844,7 +2886,13 @@ describe("api gateway · payment providers (F3B.2)", () => {
     return app.inject({
       method: "POST",
       url: `/public/stores/${SLUG}/checkout`,
-      payload: { items: [{ variantId: VARIANT, quantity: 1 }], contact, shippingAddress: address },
+      payload: {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact,
+        shippingAddress: address,
+        // F3B.2 — Fatura zorunlu (gecerli T.C. Kimlik No ile bireysel).
+        billing: { type: "INDIVIDUAL", sameAsShipping: true, name: "Ada Lovelace", tckn: "10000000146" },
+      },
     });
   }
 
@@ -3050,6 +3098,192 @@ describe("api gateway · payment providers (F3B.2)", () => {
     });
     expect(submit.statusCode).toBe(200);
     expect(submit.json()).toMatchObject({ paymentStatus: "UNPAID", attempt: { status: "FAILED" } });
+    await app.close();
+  });
+
+  // F3B.2 — Test kart formu akisi: senaryo karttan turetilir; maskeli kart + taksit
+  // yazilir; FULL PAN/CVC hicbir response'ta gorunmez.
+  it("pays via the card form (success card → PAID), stores masked card + installment, never leaks the PAN", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token, { installmentEnabled: true });
+    const body = (await checkout(app)).json();
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: {
+        token: body.payment.token,
+        card: { holder: "ADA LOVELACE", number: "5528790000000008", expMonth: 12, expYear: 2030, cvc: "123" },
+        installmentCount: 3,
+      },
+    });
+    expect(submit.statusCode).toBe(200);
+    const result = submit.json();
+    expect(result).toMatchObject({
+      paymentStatus: "PAID",
+      attempt: { status: "PAID", cardBrand: "MASTERCARD", cardLast4: "0008", installmentCount: 3 },
+    });
+    expect(result.receipt).not.toBeNull();
+    expect(result.receipt.payment).toMatchObject({ cardLast4: "0008", installmentCount: 3 });
+    // FULL PAN / CVC hicbir yerde gorunmez.
+    const raw = JSON.stringify(result);
+    expect(raw).not.toContain("5528790000000008");
+    expect(raw).not.toContain("123");
+    await app.close();
+  });
+
+  it("derives a declined scenario from a known failure test card (order stays UNPAID)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token);
+    const body = (await checkout(app)).json();
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: {
+        token: body.payment.token,
+        card: { holder: "T", number: "4000000000000002", expMonth: 1, expYear: 2031, cvc: "000" },
+      },
+    });
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({ paymentStatus: "UNPAID", attempt: { status: "FAILED", cardLast4: "0002" } });
+    await app.close();
+  });
+
+  it("rejects an invalid (non-Luhn) card number without faking success", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    await createProvider(app, token);
+    const body = (await checkout(app)).json();
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: {
+        token: body.payment.token,
+        card: { holder: "T", number: "1234567812345678", expMonth: 12, expYear: 2030, cvc: "123" },
+      },
+    });
+    expect(submit.statusCode).toBe(400);
+    expect(submit.json().error.code).toBe("CARD_NUMBER_INVALID");
+    await app.close();
+  });
+
+  it("returns a controlled error for a non-MOCK provider (IYZICO) instead of a fake success", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    // Yalniz IYZICO TEST provider (MOCK yok). Odeme adimi gosterilir ama submit
+    // kontrollu hata doner; ASLA fake success.
+    await createProvider(app, token, { provider: "IYZICO", displayName: "Iyzico TEST" });
+    const body = (await checkout(app)).json();
+    expect(body.payment).toMatchObject({ required: true });
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: {
+        token: body.payment.token,
+        card: { holder: "T", number: "5528790000000008", expMonth: 12, expYear: 2030, cvc: "123" },
+      },
+    });
+    expect(submit.statusCode).toBe(409);
+    expect(submit.json().error.code).toBe("PAYMENT_PROVIDER_NOT_CONFIGURED");
+    // Siparis odenmemis kalir.
+    const state = await app.inject({
+      method: "GET",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment?token=${body.payment.token}`,
+    });
+    expect(state.json().paymentStatus).toBe("UNPAID");
+    await app.close();
+  });
+
+  it("blocks checkout when corporate billing is missing tax details and accepts a valid corporate billing", async () => {
+    const { app } = await createTestApp();
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/checkout`,
+      payload: {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact,
+        shippingAddress: address,
+        billing: { type: "CORPORATE", sameAsShipping: true, companyName: "Acme A.Ş." },
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const valid = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/checkout`,
+      payload: {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact,
+        shippingAddress: address,
+        billing: {
+          type: "CORPORATE",
+          sameAsShipping: true,
+          companyName: "Acme A.Ş.",
+          taxOffice: "Kadıköy",
+          taxNumber: "1234567890",
+        },
+      },
+    });
+    expect(valid.statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("derives billing from contact/shipping when billing is omitted (no TCKN required)", async () => {
+    const { app } = await createTestApp();
+    // Varsayilan checkout: fatura bilgisi GONDERILMEZ → sunucu iletisim/teslimattan
+    // turetir ve T.C. Kimlik No ISTEMEZ. (checkoutReq helper'i degil, dogrudan
+    // inject — boylece otomatik billing enjeksiyonu devreye girmez.)
+    const res = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/checkout`,
+      payload: {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact,
+        shippingAddress: address,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("prefers the MOCK provider for the test flow even when a real provider has higher priority", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    // IYZICO daha yuksek oncelikli (kucuk priority) ama test odemeyi tamamlayamaz;
+    // MOCK daha dusuk oncelikli. Checkout yine de MOCK attempt'i uretmeli ki
+    // "MOCK aktifken test odeme calismiyor" durumu olusmasin.
+    await createProvider(app, token, { provider: "IYZICO", displayName: "Iyzico TEST", priority: 10 });
+    await createProvider(app, token, { provider: "MOCK", displayName: "Mock TEST", priority: 90 });
+    const body = (await checkout(app)).json();
+    expect(body.payment).toMatchObject({ required: true });
+    const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
+
+    const state = await app.inject({
+      method: "GET",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment?token=${body.payment.token}`,
+    });
+    expect(state.json().provider).toBe("MOCK");
+
+    // Ve MOCK ile gercek test karti basarili odemeyi tamamlar.
+    const submit = await app.inject({
+      method: "POST",
+      url: `/public/stores/${SLUG}/orders/${orderId}/payment`,
+      payload: {
+        token: body.payment.token,
+        card: { holder: "T", number: "5528790000000008", expMonth: 12, expYear: 2030, cvc: "123" },
+      },
+    });
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({ paymentStatus: "PAID", attempt: { status: "PAID" } });
     await app.close();
   });
 });
