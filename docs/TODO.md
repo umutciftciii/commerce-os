@@ -196,3 +196,6 @@
 - TODO-065: Anonim sepet/rezervasyon yasam dongusu — anonim checkout'ta stok PLACED ile rezerve
   edilir; odeme alinmadan terk edilen siparisler icin reservation expiry/iptal job'i (worker) ve
   abandoned-order temizligi (TD-033).
+- TODO-072: F3B.2 follow-up UI polish — manuel izole smoke'ta gozlemlenen birkac ufak UI bug
+  (F3B.2 revizyon checkpoint'inde bilinçli ertelendi; akis/gate'leri bloke etmiyor). Bir sonraki
+  buyuk is sonrasinda toplu ele alinacak. Detayli liste kullanici tarafindan netlestirilecek.

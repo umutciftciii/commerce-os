@@ -58,7 +58,14 @@ import {
   publicProductDetailSchema,
   publicProductListResponseSchema,
   publicProductSchema,
+  digitsOnly,
+  type PublicCheckoutBilling,
 } from "@commerce-os/contracts";
+import {
+  installmentOptionsFor,
+  scenarioFromCardNumber,
+  validateCard,
+} from "./payments/card.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
@@ -273,6 +280,13 @@ type OrderRecord = Pick<
   | "placedAt"
   | "cancelledAt"
   | "cancelReason"
+  | "billingType"
+  | "billingName"
+  | "billingTaxId"
+  | "billingCompanyName"
+  | "billingTaxOffice"
+  | "billingTaxNumber"
+  | "billingEmail"
   | "createdAt"
   | "updatedAt"
 > & {
@@ -280,6 +294,7 @@ type OrderRecord = Pick<
   addresses: OrderAddressRecord[];
   reservations: InventoryReservationRecord[];
   events: OrderEventRecord[];
+  paymentAttempts: PaymentAttemptRecord[];
 };
 
 // --- F3B.2 Payment data-access record/input tipleri --------------------------
@@ -350,6 +365,12 @@ export interface PaymentAttemptOutcomeInput {
   providerReference?: string | null;
   failureCode?: string | null;
   failureMessage?: string | null;
+  // F3B.2 — turetilmis guvenli kart/taksit alanlari (full PAN/CVC ASLA).
+  installmentCount?: number;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  paidAt?: Date | null;
+  failedAt?: Date | null;
   /** null/undefined => order paymentStatus degismez. */
   orderPaymentStatus?: PaymentStatus | null;
   /** true => attempt access token gecersiz kilinir (tek kullanim / final). */
@@ -584,6 +605,16 @@ export interface AppDataAccess {
         addressLine2?: string | null;
         postalCode?: string | null;
       }>;
+      /** F3B.2 — Fatura kimlik/vergi bilgileri (adres OrderAddress BILLING'de). */
+      billing?: {
+        type: "INDIVIDUAL" | "CORPORATE";
+        name?: string | null;
+        taxId?: string | null;
+        companyName?: string | null;
+        taxOffice?: string | null;
+        taxNumber?: string | null;
+        email?: string | null;
+      } | null;
       actorUserId?: string;
     },
   ): Promise<
@@ -903,6 +934,40 @@ function serializeOrder(order: OrderRecord) {
       metadata: (event.metadata as Record<string, unknown> | null) ?? null,
       actorUserId: event.actorUserId ?? null,
       createdAt: event.createdAt.toISOString(),
+    })),
+    // F3B.2 — Fatura ozeti (admin allowlist). billingType yoksa null.
+    billing: order.billingType
+      ? {
+          type: order.billingType,
+          name: order.billingName ?? null,
+          taxId: order.billingTaxId ?? null,
+          companyName: order.billingCompanyName ?? null,
+          taxOffice: order.billingTaxOffice ?? null,
+          taxNumber: order.billingTaxNumber ?? null,
+          email: order.billingEmail ?? null,
+        }
+      : null,
+    // F3B.2 — Odeme denemeleri (gozlemlenebilirlik). accessTokenHash ASLA serialize edilmez.
+    paymentAttempts: (order.paymentAttempts ?? []).map((attempt) => ({
+      id: attempt.id,
+      provider: attempt.provider,
+      mode: attempt.mode,
+      method: attempt.method,
+      amount: attempt.amount,
+      currency: attempt.currency,
+      status: attempt.status,
+      threeDsApplied: attempt.threeDsApplied,
+      scenario: attempt.scenario ?? null,
+      installmentCount: attempt.installmentCount,
+      cardBrand: attempt.cardBrand ?? null,
+      cardLast4: attempt.cardLast4 ?? null,
+      providerReference: attempt.providerReference ?? null,
+      failureCode: attempt.failureCode ?? null,
+      failureMessage: attempt.failureMessage ?? null,
+      paidAt: attempt.paidAt?.toISOString() ?? null,
+      failedAt: attempt.failedAt?.toISOString() ?? null,
+      createdAt: attempt.createdAt.toISOString(),
+      updatedAt: attempt.updatedAt.toISOString(),
     })),
   });
 }
@@ -1330,8 +1395,41 @@ function createPrismaDataAccess(): AppDataAccess {
     placedAt: true,
     cancelledAt: true,
     cancelReason: true,
+    billingType: true,
+    billingName: true,
+    billingTaxId: true,
+    billingCompanyName: true,
+    billingTaxOffice: true,
+    billingTaxNumber: true,
+    billingEmail: true,
     createdAt: true,
     updatedAt: true,
+    paymentAttempts: { orderBy: { createdAt: "asc" }, select: {
+      id: true,
+      storeId: true,
+      orderId: true,
+      providerConfigId: true,
+      provider: true,
+      mode: true,
+      method: true,
+      amount: true,
+      currency: true,
+      status: true,
+      threeDsApplied: true,
+      scenario: true,
+      installmentCount: true,
+      cardBrand: true,
+      cardLast4: true,
+      providerReference: true,
+      failureCode: true,
+      failureMessage: true,
+      accessTokenHash: true,
+      accessTokenExpiresAt: true,
+      paidAt: true,
+      failedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    } },
     lines: { orderBy: { createdAt: "asc" }, select: {
       id: true,
       storeId: true,
@@ -1922,6 +2020,14 @@ function createPrismaDataAccess(): AppDataAccess {
             customerEmail: input.customerEmail,
             currency: input.currency,
             ...totals,
+            // F3B.2 — Fatura kimlik/vergi alanlari (adres OrderAddress BILLING'de).
+            billingType: input.billing?.type ?? null,
+            billingName: input.billing?.name ?? null,
+            billingTaxId: input.billing?.taxId ?? null,
+            billingCompanyName: input.billing?.companyName ?? null,
+            billingTaxOffice: input.billing?.taxOffice ?? null,
+            billingTaxNumber: input.billing?.taxNumber ?? null,
+            billingEmail: input.billing?.email ?? null,
             lines: { create: orderLines },
             addresses: {
               create: input.addresses.map((address) => ({
@@ -2373,6 +2479,11 @@ function createPrismaDataAccess(): AppDataAccess {
             providerReference: input.providerReference ?? undefined,
             failureCode: input.failureCode ?? null,
             failureMessage: input.failureMessage ?? null,
+            ...(input.installmentCount !== undefined ? { installmentCount: input.installmentCount } : {}),
+            ...(input.cardBrand !== undefined ? { cardBrand: input.cardBrand } : {}),
+            ...(input.cardLast4 !== undefined ? { cardLast4: input.cardLast4 } : {}),
+            ...(input.paidAt !== undefined ? { paidAt: input.paidAt } : {}),
+            ...(input.failedAt !== undefined ? { failedAt: input.failedAt } : {}),
             ...(input.clearAccessToken
               ? { accessTokenHash: null, accessTokenExpiresAt: null }
               : {}),
@@ -2761,7 +2872,27 @@ export function createServer(
     //    oldugundan taxAmount 0. Adres: teslimat zorunlu; fatura verilmezse
     //    teslimatla ayni kabul edilir (bu fazda basit tutulur).
     const shipping = body.shippingAddress;
-    const billing = body.billingAddress ?? null;
+    // Fatura bilgisi verilmediyse (varsayilan checkout) iletisim/teslimattan
+    // TURETILIR: Bireysel, teslimatla ayni adres, ad = iletisim adi, TCKN YOK.
+    // Kullanici "Fatura bilgilerim farkli" derse body.billing dolu gelir ve
+    // sema tarafinda zaten sikica dogrulanmistir (TCKN/VKN).
+    const billingInfo: PublicCheckoutBilling = body.billing ?? {
+      type: "INDIVIDUAL",
+      sameAsShipping: true,
+      name: body.contact.fullName,
+      tckn: null,
+      companyName: null,
+      taxOffice: null,
+      taxNumber: null,
+      email: null,
+    };
+    // Fatura adresi: "teslimatla ayni" ise teslimat adresi kopyalanir; degilse
+    // ayri fatura adresi kullanilir (sema sameAsShipping=false iken zorunlu kilar).
+    const billingAddr = billingInfo.sameAsShipping ? shipping : (body.billingAddress ?? shipping);
+    const billingFullName =
+      billingInfo.type === "CORPORATE"
+        ? (billingInfo.companyName ?? body.contact.fullName)
+        : (billingInfo.name ?? body.contact.fullName);
     const order = await dataAccess.createOrder(store.id, {
       customerId: null,
       customerEmail: body.contact.email,
@@ -2769,6 +2900,20 @@ export function createServer(
       lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
       shippingAmount: summary.shippingMinor,
       discountAmount: summary.discountMinor,
+      billing: {
+        type: billingInfo.type,
+        name: billingInfo.type === "INDIVIDUAL" ? (billingInfo.name ?? null) : null,
+        // TCKN normalize edilerek saklanir; log/event metadata'ya yazilmaz.
+        taxId:
+          billingInfo.type === "INDIVIDUAL" && billingInfo.tckn ? digitsOnly(billingInfo.tckn) : null,
+        companyName: billingInfo.type === "CORPORATE" ? (billingInfo.companyName ?? null) : null,
+        taxOffice: billingInfo.type === "CORPORATE" ? (billingInfo.taxOffice ?? null) : null,
+        taxNumber:
+          billingInfo.type === "CORPORATE" && billingInfo.taxNumber
+            ? digitsOnly(billingInfo.taxNumber)
+            : null,
+        email: billingInfo.email ?? null,
+      },
       addresses: [
         {
           type: "SHIPPING",
@@ -2781,21 +2926,17 @@ export function createServer(
           addressLine2: shipping.addressLine2 ?? null,
           postalCode: shipping.postalCode ?? null,
         },
-        ...(billing
-          ? [
-              {
-                type: "BILLING" as const,
-                fullName: body.contact.fullName,
-                phone: body.contact.phone,
-                countryCode: billing.country,
-                city: billing.city,
-                district: billing.district ?? null,
-                addressLine1: billing.addressLine1,
-                addressLine2: billing.addressLine2 ?? null,
-                postalCode: billing.postalCode ?? null,
-              },
-            ]
-          : []),
+        {
+          type: "BILLING" as const,
+          fullName: billingFullName,
+          phone: body.contact.phone,
+          countryCode: billingAddr.country,
+          city: billingAddr.city,
+          district: billingAddr.district ?? null,
+          addressLine1: billingAddr.addressLine1,
+          addressLine2: billingAddr.addressLine2 ?? null,
+          postalCode: billingAddr.postalCode ?? null,
+        },
       ],
     });
     // Ic hata kodlarini guvenli, jenerik yanitlara esler (ic alan sizdirmaz).
@@ -2850,6 +2991,9 @@ export function createServer(
           currency: line.currency,
         })),
         createdAt: placed.createdAt.toISOString(),
+        // F3B.2 — Success ekrani icin teslimat/fatura ozeti (provider-less akista).
+        shippingAddress: safeAddressSummary(placed.addresses.find((a) => a.type === "SHIPPING") ?? null),
+        billing: publicBillingSummaryOf(placed),
         ...(payment ? { payment } : {}),
       }),
     );
@@ -3747,9 +3891,11 @@ export function createServer(
       return false;
     }
     const configs = await dataAccess.listPaymentProviderConfigs(storeId);
+    // Herhangi bir ENABLED + TEST + CARD provider odeme adimini SURDURUR. MOCK tam
+    // calisir; gercek provider odeme sayfasini gosterir ama submit'te kontrollu hata
+    // doner (fake success yok). CTA "Ödeme adımına ilerle" buna gore gosterilir.
     return configs.some(
       (candidate) =>
-        candidate.provider === "MOCK" &&
         candidate.status === "ENABLED" &&
         candidate.mode === "TEST" &&
         candidate.supportedMethods.includes("CARD"),
@@ -3771,16 +3917,21 @@ export function createServer(
       mode: "TEST",
       isLiveEnv,
     });
-    // Bu fazda test odeme akisini yalnizca MOCK provider surdurur.
-    const mock = resolved.find((candidate) => candidate.provider === "MOCK");
-    if (!mock) {
+    // Test odeme akisini bu fazda yalnizca MOCK adapter TAMAMLAYABILIR; gercek
+    // provider'lar (IYZICO/STRIPE/PAYTR) submit'te kontrollu hata doner (fake
+    // success YOK). Bu nedenle uygun adaylar arasinda MOCK varsa onceligi MOCK'a
+    // verir — priority sirasi gercek bir provider'i one alsa bile. Boylece "MOCK
+    // aktifken test odeme calismiyor" durumu olusmaz. MOCK yoksa birincil gercek
+    // provider secilir (kullanici odeme ekraninda kontrollu hata/yonlendirme gorur).
+    const primary = resolved.find((candidate) => candidate.provider === "MOCK") ?? resolved[0];
+    if (!primary) {
       return null;
     }
     const accessToken = createPaymentAccessToken(config.SESSION_SECRET);
     const attempt = await dataAccess.createPaymentAttempt(storeId, {
       orderId: order.id,
-      providerConfigId: mock.id,
-      provider: "MOCK",
+      providerConfigId: primary.id,
+      provider: primary.provider,
       mode: "TEST",
       method: "CARD",
       amount: order.totalAmount,
@@ -3790,12 +3941,12 @@ export function createServer(
       accessTokenExpiresAt: accessToken.expiresAt,
     });
     await dataAccess.createPaymentProviderEvent(storeId, {
-      providerConfigId: mock.id,
+      providerConfigId: primary.id,
       attemptId: attempt.id,
       orderId: order.id,
-      provider: "MOCK",
+      provider: primary.provider,
       type: "PAYMENT_CREATED",
-      message: "Payment attempt created (mock test flow).",
+      message: "Payment attempt created (test flow).",
     });
     return {
       required: true as const,
@@ -4028,8 +4179,9 @@ export function createServer(
       await reply.code(403).send(errorBody("PAYMENT_TOKEN_INVALID", "Payment token invalid or expired."));
       return null;
     }
-    // Bu fazda yalnizca TEST/MOCK attempt'leri ilerletilebilir.
-    if (attempt.provider !== "MOCK" || attempt.mode !== "TEST") {
+    // Bu fazda yalnizca TEST mod attempt'leri ilerletilebilir. MOCK tam calisir;
+    // gercek provider (IYZICO/STRIPE/PAYTR) submit'te KONTROLLU hata doner (fake yok).
+    if (attempt.mode !== "TEST") {
       await reply.code(409).send(errorBody("PAYMENT_NOT_AVAILABLE", "Payment method not available."));
       return null;
     }
@@ -4046,25 +4198,135 @@ export function createServer(
     return { store, attempt, order, providerConfig };
   }
 
+  /** KDV-dahil gostergesi (%20 dahil): toplam - round(toplam / 1.2). */
+  function taxIncludedOf(totalMinor: number): number {
+    return totalMinor - Math.round(totalMinor / 1.2);
+  }
+
+  function safeAddressSummary(address: OrderAddressRecord | null) {
+    if (!address) return null;
+    return {
+      fullName: address.fullName,
+      phone: address.phone ?? null,
+      country: address.countryCode,
+      city: address.city,
+      district: address.district ?? null,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2 ?? null,
+      postalCode: address.postalCode ?? null,
+    };
+  }
+
+  /** Public fatura ozeti — bireysel TCKN CLIENT'A DONMEZ (PII allowlist). */
+  function publicBillingSummaryOf(order: OrderRecord) {
+    if (!order.billingType) return null;
+    const addresses = order.addresses ?? [];
+    const shipping = addresses.find((a) => a.type === "SHIPPING") ?? null;
+    const billing = addresses.find((a) => a.type === "BILLING") ?? null;
+    const sameAsShipping =
+      !!shipping &&
+      !!billing &&
+      shipping.addressLine1 === billing.addressLine1 &&
+      shipping.city === billing.city &&
+      (shipping.postalCode ?? null) === (billing.postalCode ?? null);
+    return {
+      type: order.billingType,
+      name: order.billingName ?? null,
+      companyName: order.billingCompanyName ?? null,
+      taxOffice: order.billingTaxOffice ?? null,
+      taxNumber: order.billingTaxNumber ?? null,
+      email: order.billingEmail ?? null,
+      sameAsShipping,
+    };
+  }
+
+  function publicPaymentInfoOf(attempt: PaymentAttemptRecord) {
+    return {
+      attemptId: attempt.id,
+      provider: attempt.provider,
+      mode: attempt.mode,
+      method: attempt.method,
+      status: attempt.status,
+      cardBrand: attempt.cardBrand ?? null,
+      cardLast4: attempt.cardLast4 ?? null,
+      installmentCount: attempt.installmentCount,
+      providerReference: attempt.providerReference ?? null,
+      paidAt: attempt.paidAt?.toISOString() ?? null,
+    };
+  }
+
+  /** Token-korumalı GUVENLI siparis fisi (success ekrani + odeme sayfasi ozeti). */
+  function buildPublicReceipt(order: OrderRecord, attempt: PaymentAttemptRecord | null) {
+    return {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      currency: order.currency,
+      subtotalMinor: order.subtotalAmount,
+      shippingMinor: order.shippingAmount,
+      discountMinor: order.discountAmount,
+      taxIncludedMinor: taxIncludedOf(order.totalAmount),
+      totalMinor: order.totalAmount,
+      couponCode: null,
+      contactEmail: order.customerEmail,
+      lines: (order.lines ?? []).map((line) => ({
+        title: line.title,
+        variantTitle: line.variantTitle,
+        quantity: line.quantity,
+        unitPriceMinor: line.unitPriceAmount,
+        lineTotalMinor: line.totalAmount,
+        currency: line.currency,
+      })),
+      shippingAddress: safeAddressSummary(
+        (order.addresses ?? []).find((a) => a.type === "SHIPPING") ?? null,
+      ),
+      billing: publicBillingSummaryOf(order),
+      payment: attempt ? publicPaymentInfoOf(attempt) : null,
+      createdAt: order.createdAt.toISOString(),
+    };
+  }
+
   app.get("/public/stores/:storeSlug/orders/:orderId/payment", async (request, reply) => {
     const params = publicOrderPaymentParamSchema.parse(request.params);
     const query = publicPaymentTokenQuerySchema.parse(request.query);
     const ctx = await loadPublicPaymentContext(params.storeSlug, params.orderId, query.token, reply);
     if (!ctx) return;
+    const installmentOptions = installmentOptionsFor({
+      installmentEnabled: ctx.providerConfig.installmentEnabled,
+      method: ctx.attempt.method,
+    });
     return publicPaymentStateSchema.parse({
       orderNumber: ctx.order.orderNumber,
       paymentStatus: ctx.order.paymentStatus,
       currency: ctx.order.currency,
       totalMinor: ctx.order.totalAmount,
+      subtotalMinor: ctx.order.subtotalAmount,
+      shippingMinor: ctx.order.shippingAmount,
+      discountMinor: ctx.order.discountAmount,
+      taxIncludedMinor: taxIncludedOf(ctx.order.totalAmount),
       contactEmail: ctx.order.customerEmail,
       provider: ctx.attempt.provider,
       mode: ctx.attempt.mode,
+      method: ctx.attempt.method,
+      threeDsMode: ctx.providerConfig.threeDsMode,
+      installmentEnabled: ctx.providerConfig.installmentEnabled,
+      installmentOptions,
       attempt: {
         id: ctx.attempt.id,
         status: ctx.attempt.status,
         threeDsApplied: ctx.attempt.threeDsApplied,
       },
       scenarios: [...PAYMENT_SCENARIOS],
+      lines: ctx.order.lines.map((line) => ({
+        title: line.title,
+        variantTitle: line.variantTitle,
+        quantity: line.quantity,
+        unitPriceMinor: line.unitPriceAmount,
+        lineTotalMinor: line.totalAmount,
+        currency: line.currency,
+      })),
+      shippingAddress: safeAddressSummary(ctx.order.addresses.find((a) => a.type === "SHIPPING") ?? null),
+      billing: publicBillingSummaryOf(ctx.order),
     });
   });
 
@@ -4077,37 +4339,98 @@ export function createServer(
       return reply.code(409).send(errorBody("PAYMENT_NOT_PAYABLE", "Order is not awaiting payment."));
     }
 
+    // Gercek provider (IYZICO/STRIPE/PAYTR/GENERIC_REDIRECT): bu fazda canli/sandbox
+    // tahsilat YOK. Credential olsun olmasin FAKE SUCCESS URETILMEZ — kontrollu hata.
+    // (Secret/credential ASLA serialize edilmez; sadece guvenli kod/mesaj doner.)
+    if (ctx.attempt.provider !== "MOCK") {
+      await dataAccess.createPaymentProviderEvent(ctx.store.id, {
+        providerConfigId: ctx.providerConfig.id,
+        attemptId: ctx.attempt.id,
+        orderId: ctx.order.id,
+        provider: ctx.attempt.provider,
+        type: "PAYMENT_FAILED",
+        message: "Live/sandbox charge not available in this phase; no fake success.",
+      });
+      return reply
+        .code(409)
+        .send(
+          errorBody(
+            "PAYMENT_PROVIDER_NOT_CONFIGURED",
+            "Bu sağlayıcı için test ödeme çalıştırılamıyor. Sağlayıcı test bilgileri eksik veya canlı tahsilat bu fazda kapalı.",
+          ),
+        );
+    }
+
+    // Kart girdisi (yeni akis) varsa SUNUCU-OTORITER dogrulanir ve senaryo karttan
+    // turetilir. Full PAN/CVC ASLA saklanmaz; yalniz marka + son 4 turetilir.
+    let scenario: PaymentScenario;
+    let cardBrand: string | null = null;
+    let cardLast4: string | null = null;
+    if (body.card) {
+      const validation = validateCard(body.card);
+      if (!validation.ok) {
+        return reply.code(400).send(
+          errorBody(
+            validation.code,
+            validation.code === "CARD_EXPIRED"
+              ? "Kartın son kullanma tarihi geçersiz."
+              : "Kart numarası geçersiz.",
+          ),
+        );
+      }
+      cardBrand = validation.brand;
+      cardLast4 = validation.last4;
+      scenario = scenarioFromCardNumber(body.card.number);
+    } else {
+      scenario = body.scenario as PaymentScenario;
+    }
+
+    // Taksit: provider config + tutara gore izin verilenle sinirla (aksi halde tek cekim).
+    const installmentOptions = installmentOptionsFor({
+      installmentEnabled: ctx.providerConfig.installmentEnabled,
+      method: ctx.attempt.method,
+    });
+    const installmentCount = installmentOptions.includes(body.installmentCount)
+      ? body.installmentCount
+      : 1;
+
     const adapter = paymentAdapters.get("MOCK");
     const result = await adapter.confirmPayment({
       context: buildActionContext(ctx.providerConfig, ctx.attempt),
       attemptId: ctx.attempt.id,
       currentStatus: ctx.attempt.status,
-      scenario: body.scenario as PaymentScenario,
+      scenario,
     });
 
     let orderPaymentStatus: PaymentStatus | null = null;
     let eventType: PaymentProviderEventType = "STATUS_CHANGED";
     let clearAccessToken = false;
+    let paidAt: Date | null = null;
+    let failedAt: Date | null = null;
     switch (result.status) {
       case "PAID":
         orderPaymentStatus = "PAID";
         eventType = "PAYMENT_CONFIRMED";
         clearAccessToken = true;
+        paidAt = new Date();
         break;
       case "AUTHORIZED":
         orderPaymentStatus = "AUTHORIZED";
         eventType = "PAYMENT_CONFIRMED";
         clearAccessToken = true;
+        paidAt = new Date();
         break;
       case "REQUIRES_ACTION":
         eventType = "STATUS_CHANGED";
         break;
       case "CANCELLED":
         eventType = "PAYMENT_CANCELLED";
+        failedAt = new Date();
         break;
       case "FAILED":
       default:
         eventType = "PAYMENT_FAILED";
+        failedAt = new Date();
         break;
     }
 
@@ -4116,21 +4439,30 @@ export function createServer(
       orderId: ctx.order.id,
       attemptStatus: result.status,
       threeDsApplied: result.threeDsApplied ?? false,
-      scenario: body.scenario,
+      scenario,
       providerReference: result.providerReference ?? null,
       failureCode: result.failureCode ?? null,
       failureMessage: result.failureMessage ?? null,
+      installmentCount,
+      cardBrand,
+      cardLast4,
+      paidAt: paidAt ?? undefined,
+      failedAt: failedAt ?? undefined,
       orderPaymentStatus,
       clearAccessToken,
       event: {
         type: eventType,
         provider: "MOCK",
-        message: `Mock payment ${body.scenario} → ${result.status}.`,
-        metadata: { scenario: body.scenario },
+        // PAN/CVC ASLA loglanmaz; yalniz senaryo + taksit + maskeli son 4.
+        message: `Mock payment ${scenario} → ${result.status}.`,
+        metadata: { scenario, installmentCount, cardLast4 },
       },
     });
 
     const updatedOrder = await dataAccess.findOrderById(ctx.store.id, ctx.order.id);
+    const succeeded = result.status === "PAID" || result.status === "AUTHORIZED";
+    const updatedAttempt =
+      updatedOrder?.paymentAttempts?.find((a) => a.id === ctx.attempt.id) ?? null;
     return publicPaymentResultSchema.parse({
       orderNumber: ctx.order.orderNumber,
       paymentStatus: updatedOrder?.paymentStatus ?? ctx.order.paymentStatus,
@@ -4140,8 +4472,13 @@ export function createServer(
         threeDsApplied: result.threeDsApplied ?? false,
         failureCode: result.failureCode ?? null,
         failureMessage: result.failureMessage ?? null,
+        cardBrand,
+        cardLast4,
+        installmentCount,
+        providerReference: result.providerReference ?? null,
       },
       requiresAction: result.status === "REQUIRES_ACTION",
+      receipt: succeeded && updatedOrder ? buildPublicReceipt(updatedOrder, updatedAttempt) : null,
     });
   });
 

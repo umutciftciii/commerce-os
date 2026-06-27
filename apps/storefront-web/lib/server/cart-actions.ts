@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { PublicPaymentResult, PublicPaymentScenario } from "@commerce-os/api-client";
+import type {
+  PublicCheckoutBilling,
+  PublicCheckoutRequest,
+  PublicPaymentCard,
+  PublicPaymentResult,
+  PublicPaymentScenario,
+} from "@commerce-os/api-client";
+import { isValidTaxNumber, isValidTckn } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
 import { submitCheckout, submitTestPayment } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
@@ -106,6 +113,24 @@ export async function submitCheckoutAction(
   const addressLine2 = field(formData, "addressLine2");
   const postalCode = field(formData, "postalCode");
 
+  // Fatura alanlari. "Fatura bilgilerim farkli" isaretli DEGILSE fatura bilgisi
+  // teslimat/iletisimden turetilir; TCKN/VKN ISTENMEZ ve dogrulanmaz (varsayilan
+  // checkout). Yalnizca isaretliyse asagidaki alanlar okunup dogrulanir.
+  const billingDifferent = field(formData, "billingDifferent") === "true";
+  const billingType = field(formData, "billingType") === "CORPORATE" ? "CORPORATE" : "INDIVIDUAL";
+  const billingName = field(formData, "billingName") || fullName;
+  const tckn = field(formData, "tckn");
+  const companyName = field(formData, "companyName");
+  const taxOffice = field(formData, "taxOffice");
+  const taxNumber = field(formData, "taxNumber");
+  const billingEmail = field(formData, "billingEmail");
+  const billingSameAsShipping = field(formData, "billingSameAsShipping") !== "false";
+  const billingCity = field(formData, "billingCity");
+  const billingDistrict = field(formData, "billingDistrict");
+  const billingAddressLine1 = field(formData, "billingAddressLine1");
+  const billingAddressLine2 = field(formData, "billingAddressLine2");
+  const billingPostalCode = field(formData, "billingPostalCode");
+
   // Sunucu-tarafi form dogrulama (gateway de bagimsiz dogrular). Telefon TR cep
   // formatina, il/ilce ise TR il/ilce verisine gore dogrulanir.
   const normalizedPhone = normalizeTrPhone(phone);
@@ -117,6 +142,28 @@ export async function submitCheckoutAction(
   if (!city || !isProvince(city)) fieldErrors.city = true;
   if (!district || !isValidProvinceDistrict(city, district)) fieldErrors.district = true;
   if (!addressLine1) fieldErrors.addressLine1 = true;
+
+  // Fatura dogrulama YALNIZCA "fatura bilgilerim farkli" isaretliyse: Bireysel →
+  // ad soyad + gecerli TCKN; Kurumsal → firma + vergi dairesi + gecerli vergi no.
+  // (PII gateway'de de bagimsiz dogrulanir; loglanmaz.) Varsayilan checkout'ta
+  // (billingDifferent=false) hicbir fatura alani zorunlu degildir.
+  if (billingDifferent) {
+    if (billingType === "INDIVIDUAL") {
+      if (!billingName) fieldErrors.billingName = true;
+      if (!tckn || !isValidTckn(tckn)) fieldErrors.tckn = true;
+    } else {
+      if (!companyName) fieldErrors.companyName = true;
+      if (!taxOffice) fieldErrors.taxOffice = true;
+      if (!taxNumber || !isValidTaxNumber(taxNumber)) fieldErrors.taxNumber = true;
+    }
+    if (!billingSameAsShipping) {
+      if (!billingCity || !isProvince(billingCity)) fieldErrors.billingCity = true;
+      if (!billingDistrict || !isValidProvinceDistrict(billingCity, billingDistrict))
+        fieldErrors.billingDistrict = true;
+      if (!billingAddressLine1) fieldErrors.billingAddressLine1 = true;
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     return { status: "error", errorReason: "validation", fieldErrors };
   }
@@ -126,6 +173,32 @@ export async function submitCheckoutAction(
     return { status: "error", errorReason: "cart-not-ready" };
   }
   const coupon = await readCoupon();
+
+  // Fatura bilgisi YALNIZCA "farkli" isaretliyse gateway'e gonderilir; aksi halde
+  // undefined birakilir ve gateway iletisim/teslimattan TURETIR (TCKN/VKN istemez).
+  const billing: PublicCheckoutBilling | undefined = billingDifferent
+    ? {
+        type: billingType,
+        sameAsShipping: billingSameAsShipping,
+        name: billingType === "INDIVIDUAL" ? billingName : null,
+        tckn: billingType === "INDIVIDUAL" ? tckn : null,
+        companyName: billingType === "CORPORATE" ? companyName : null,
+        taxOffice: billingType === "CORPORATE" ? taxOffice : null,
+        taxNumber: billingType === "CORPORATE" ? taxNumber : null,
+        email: optional(billingEmail),
+      }
+    : undefined;
+  const billingAddress: PublicCheckoutRequest["shippingAddress"] | null =
+    billingDifferent && !billingSameAsShipping
+      ? {
+          country,
+          city: billingCity,
+          district: billingDistrict,
+          addressLine1: billingAddressLine1,
+          addressLine2: optional(billingAddressLine2),
+          postalCode: optional(billingPostalCode),
+        }
+      : null;
 
   const result = await submitCheckout(
     items,
@@ -138,6 +211,8 @@ export async function submitCheckoutAction(
       addressLine2: optional(addressLine2),
       postalCode: optional(postalCode),
     },
+    billing,
+    billingAddress,
     coupon,
   );
 
@@ -174,16 +249,19 @@ export type TestPaymentActionState =
   | { status: "error"; reason: string };
 
 /**
- * F3B.2 — Test ödeme senaryosu gönderir (MOCK provider). Token + orderId ile
- * gateway public submit ucuna gider; secret/credential client'a asla dönmez.
+ * F3B.2 — Test ödeme gönderir. Gerçekçi test kartı (veya geri-uyum senaryosu) +
+ * taksit gateway public submit ucuna gider; secret/credential client'a asla dönmez.
+ * Hata KODU (CARD_NUMBER_INVALID, CARD_EXPIRED, PAYMENT_PROVIDER_NOT_CONFIGURED …)
+ * UI'da net mesaja eslenir. FULL PAN/CVC bu action'dan geri DÖNMEZ.
  */
 export async function submitTestPaymentAction(
   orderId: string,
   token: string,
-  scenario: PublicPaymentScenario,
+  payload: { card?: PublicPaymentCard; scenario?: PublicPaymentScenario; installmentCount?: number },
 ): Promise<TestPaymentActionState> {
-  const outcome = await submitTestPayment(orderId, token, scenario);
+  const outcome = await submitTestPayment(orderId, token, payload);
   if (!outcome.ok) {
+    if (outcome.code) return { status: "error", reason: outcome.code };
     if (outcome.status === 403) return { status: "error", reason: "PAYMENT_TOKEN_INVALID" };
     if (outcome.status === 409) return { status: "error", reason: "PAYMENT_NOT_PAYABLE" };
     return { status: "error", reason: "error" };

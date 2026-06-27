@@ -1,11 +1,15 @@
 import type {
+  PublicAddressSummary,
+  PublicBillingSummary,
   PublicCart,
   PublicCartLineStatus,
   PublicCartSummary,
+  PublicCheckoutBilling,
   PublicCheckoutRequest,
   PublicCouponStatus,
   PublicOrderConfirmation,
   PublicPaymentAvailability,
+  PublicPaymentCard,
   PublicPaymentResult,
   PublicPaymentScenario,
   PublicPaymentState,
@@ -78,7 +82,16 @@ export interface OrderConfirmationView {
   couponCode: string | null;
   couponStatus: PublicCouponStatus;
   contactEmail: string;
-  lines: Array<{ title: string; variantTitle: string; quantity: number; lineTotalLabel: string }>;
+  lines: Array<{
+    title: string;
+    variantTitle: string;
+    quantity: number;
+    unitPriceLabel: string;
+    lineTotalLabel: string;
+  }>;
+  /** F3B.2 — Success ekrani teslimat/fatura ozeti (varsa). */
+  shippingAddress: PublicAddressSummary | null;
+  billing: PublicBillingSummary | null;
   /**
    * F3B.2: Uygun TEST/MOCK provider varsa ödeme test sayfasinin yolu (token dahil).
    * Provider yoksa undefined → mevcut onay akisi birebir korunur.
@@ -195,6 +208,8 @@ export async function submitCheckout(
   items: CartItem[],
   contact: PublicCheckoutRequest["contact"],
   shippingAddress: PublicCheckoutRequest["shippingAddress"],
+  billing?: PublicCheckoutBilling,
+  billingAddress?: PublicCheckoutRequest["shippingAddress"] | null,
   couponCode?: string | null,
 ): Promise<CheckoutResult> {
   try {
@@ -202,6 +217,8 @@ export async function submitCheckout(
       items,
       contact,
       shippingAddress,
+      ...(billing ? { billing } : {}),
+      ...(billingAddress ? { billingAddress } : {}),
       couponCode: couponCode ?? null,
     });
     if (!result.ok) {
@@ -231,8 +248,11 @@ export async function submitCheckout(
           title: line.title,
           variantTitle: line.variantTitle,
           quantity: line.quantity,
+          unitPriceLabel: formatMinor(line.unitPriceMinor, line.currency),
           lineTotalLabel: formatMinor(line.lineTotalMinor, line.currency),
         })),
+        shippingAddress: confirmation.shippingAddress ?? null,
+        billing: confirmation.billing ?? null,
         // Provider yoksa confirmation.payment undefined → alan eklenmez.
         paymentRedirectPath: confirmation.payment?.paymentPath,
       },
@@ -256,10 +276,21 @@ export async function getOrderPaymentState(
   );
 }
 
+export interface TestPaymentPayload {
+  card?: PublicPaymentCard;
+  scenario?: PublicPaymentScenario;
+  installmentCount?: number;
+}
+
 export async function submitTestPayment(
   orderId: string,
   token: string,
-  scenario: PublicPaymentScenario,
+  payload: TestPaymentPayload,
 ): Promise<FetchOutcome<PublicPaymentResult>> {
-  return postPublic<PublicPaymentResult>(orderPaymentPath(orderId), { token, scenario });
+  return postPublic<PublicPaymentResult>(orderPaymentPath(orderId), {
+    token,
+    ...(payload.card ? { card: payload.card } : {}),
+    ...(payload.scenario ? { scenario: payload.scenario } : {}),
+    installmentCount: payload.installmentCount ?? 1,
+  });
 }

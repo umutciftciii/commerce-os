@@ -16,7 +16,8 @@ export default async function CheckoutPaymentPage({
 }: {
   searchParams: Promise<{ orderId?: string; token?: string }>;
 }) {
-  const t = (await getStorefrontDict()).payment;
+  const dict = await getStorefrontDict();
+  const t = dict.payment;
   const { orderId, token } = await searchParams;
 
   if (!orderId || !token) {
@@ -30,7 +31,7 @@ export default async function CheckoutPaymentPage({
 
   return (
     <Container className="py-12">
-      <PaymentTester state={outcome.data} orderId={orderId} token={token} t={t} />
+      <PaymentTester state={outcome.data} orderId={orderId} token={token} t={t} c={dict.checkout} />
     </Container>
   );
 }

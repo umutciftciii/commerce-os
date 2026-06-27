@@ -96,6 +96,16 @@ function toVariantView(variant: PublicProductVariant): StorefrontVariantView {
       variant.compareAtMinor > (variant.priceMinor as number)
         ? formatMinor(variant.compareAtMinor, variant.currency)
         : null,
+    // Ham tutarlar: buy box'ta adet x birim toplamini bicimlemek icin (gizli/talep
+    // modunda priceMinor zaten null gelir → numerik gosterim yapilmaz).
+    priceMinor: priceVisible ? (variant.priceMinor as number) : null,
+    compareAtMinor:
+      priceVisible &&
+      variant.compareAtMinor !== null &&
+      variant.compareAtMinor > (variant.priceMinor as number)
+        ? variant.compareAtMinor
+        : null,
+    currency: variant.currency,
     available: variant.available,
     inStock: variant.inStock,
   };

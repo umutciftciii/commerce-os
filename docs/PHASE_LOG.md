@@ -1161,3 +1161,34 @@ seviyesidir (bkz. ADR-033).
 - Webhook imza dogrulamasi placeholder; gercek HMAC/signature verification: TODO-071.
 - Checkout odeme yonlendirmesi bu fazda yalnizca MOCK provider'i surdurur (stub provider'lar test
   akisini surdurmez; canli adaptor gelince genisletilir).
+
+### F3B.2 Revizyon — checkout/quantity/TCKN/MOCK (manuel smoke sonrasi)
+
+Manuel izole smoke'ta gorulen 4 problem giderildi:
+
+- **Product detail subtotal**: buy box artik adet × birim fiyati gosterir (compare-at de adetle
+  carpilir). `StorefrontVariantView` ham `priceMinor/compareAtMinor/currency` tasir; istemci
+  `formatMinor(unitMinor * quantity)` ile bicimler. Gizli/talep modunda davranis degismedi.
+- **Checkout fatura varsayilani**: fatura bloğu tek "Fatura bilgilerim farkli" checkbox'ina baglandi
+  (varsayilan KAPALI). Kapaliyken tip secimi/TCKN render edilmez; fatura iletisim/teslimattan TURETILIR
+  ve TCKN/VKN ISTENMEZ. Contract'ta `billing` OPSIYONEL; verilmezse gateway varsayilan bireysel
+  faturayi (ad = iletisim adi, TCKN yok) turetir. Verilirse strict dogrulama aynen (Bireysel→gecerli
+  TCKN; Kurumsal→firma/vergi dairesi/gecerli VKN). "TCKN zorunlu" karari yalnizca farkli+bireysel
+  fatura aciksa gecerlidir.
+- **TCKN UX**: TCKN alani kontrollu input; blur/server hatasi sonrasi input-alti net hata
+  ("Geçerli 11 haneli T.C. Kimlik No girin."). Server checksum dogrulamasi degismedi.
+- **MOCK odeme secimi**: `buildPaymentRedirect` test akisi icin uygun adaylar arasinda MOCK varsa
+  priority'den bagimsiz MOCK'u secer; boylece ENABLED MOCK, credential'siz IYZICO/STRIPE/PAYTR daha
+  yuksek oncelikli olsa bile bloke olmaz. payment-tester: attempt provider MOCK degilse kart formu/
+  odeme butonu gosterilmez, net "MOCK kullanin" uyarisi cikar.
+
+Dogrulananlar: `db:generate`/`build` (24/24)/`typecheck`/`lint` (34/34)/`test` OK — api-gateway 96
+(2 yeni regresyon: billing-omitted varsayilan yol; yuksek-oncelikli gercek provider'a ragmen MOCK
+tercihi). İzole gateway API smoke: billing'siz checkout 201 + turetilmis fatura (TCKN yok); IYZICO
+priority 0 + MOCK iken secilen provider MOCK; MOCK success → PAID, yalniz cardBrand+last4 (PAN/CVC/
+secret sizmaz). `git diff --check` temiz.
+
+**Bilincli ertelenenler (known minor UI issues):** Manuel smoke'ta birkac ufak UI bug gozlemlendi;
+F3B.2'yi bloke etmiyor. Bilinçli olarak ertelendi ve bir sonraki buyuk is sonrasinda toplu ele
+alinacak (bkz. TODO-072 "F3B.2 follow-up UI polish"). Smoke override (`docker-compose.smoke.yml`)
+commit kapsami DISINDA (untracked) tutulur.
