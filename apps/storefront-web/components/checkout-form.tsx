@@ -1,8 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useActionState, useMemo, useState } from "react";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CartView } from "../lib/server/cart";
@@ -31,28 +29,12 @@ export function CheckoutForm({
   /** F3B.2: Aktif TEST/MOCK provider varsa ödeme bölümü test-akış metnini gösterir. */
   paymentTestEnabled?: boolean;
 }) {
-  const router = useRouter();
   const [state, formAction, isPending] = useActionState(submitCheckoutAction, initialState);
 
-  // F3B.2: Uygun TEST/MOCK provider varsa order sonrasi ödeme test sayfasina
-  // yönlendir; yoksa (paymentRedirectPath undefined) bugünkü onay ekrani gösterilir.
-  const paymentRedirectPath =
-    state.status === "success" ? state.confirmation?.paymentRedirectPath : undefined;
-  useEffect(() => {
-    if (paymentRedirectPath) router.push(paymentRedirectPath);
-  }, [paymentRedirectPath, router]);
-
-  if (state.status === "success" && state.confirmation) {
-    if (state.confirmation.paymentRedirectPath) {
-      return (
-        <Card className="mx-auto max-w-xl p-8 text-center">
-          <p className="text-sm text-slate-500">{t.paymentRedirecting}</p>
-        </Card>
-      );
-    }
-    return <CheckoutSuccess confirmation={state.confirmation} t={t} />;
-  }
-
+  // F3B.2: Order olusumu basariliysa Server Action SUNUCU-TARAFI redirect yapar
+  // (/checkout/payment veya /checkout/success). Bu nedenle burada "success" durumu
+  // RENDER EDILMEZ; yalniz validasyon/hata durumlari client'ta gosterilir. Onceki
+  // client-side redirect, bos-sepet revalidate'i ile clobber oluyordu (F3B.1 bug).
   const fieldErrors = state.fieldErrors ?? {};
   const bannerError = state.status === "error" ? bannerMessage(state.errorReason, t) : null;
 
@@ -85,13 +67,25 @@ export function CheckoutForm({
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">{t.paymentTitle}</h2>
-            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">
-              {t.paymentMock}
+            <span
+              className={[
+                "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                paymentTestEnabled
+                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  : "bg-slate-100 text-slate-500",
+              ].join(" ")}
+            >
+              {paymentTestEnabled ? t.paymentTestBadge : t.paymentMock}
             </span>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            {paymentTestEnabled ? t.paymentTestNote : t.paymentNote}
-          </p>
+          {paymentTestEnabled ? (
+            <>
+              <p className="mt-2 text-sm font-medium text-slate-700">{t.paymentTestNote}</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-500">{t.paymentTestHint}</p>
+            </>
+          ) : (
+            <p className="mt-2 text-sm leading-relaxed text-slate-500">{t.paymentNote}</p>
+          )}
         </Card>
       </div>
 
@@ -283,66 +277,6 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "dis
       <dt className="text-slate-500">{label}</dt>
       <dd className={valueClass}>{value}</dd>
     </div>
-  );
-}
-
-function CheckoutSuccess({
-  confirmation,
-  t,
-}: {
-  confirmation: NonNullable<CheckoutFormState["confirmation"]>;
-  t: CheckoutDict;
-}) {
-  return (
-    <Card className="mx-auto max-w-xl p-8 text-center">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200">
-        ✓
-      </div>
-      <h2 className="text-xl font-semibold text-slate-900">{t.success.title}</h2>
-      <p className="mt-1 text-sm text-slate-500">{t.success.subtitle}</p>
-
-      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">{t.success.orderNumberLabel}</span>
-          <span className="font-semibold text-slate-900">{confirmation.orderNumber}</span>
-        </div>
-        <ul className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-sm">
-          {confirmation.lines.map((line, index) => (
-            <li key={`${line.title}-${index}`} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-slate-600">
-                {line.title} · {line.variantTitle} · {line.quantity}×
-              </span>
-              <span className="shrink-0 font-medium text-slate-900">{line.lineTotalLabel}</span>
-            </li>
-          ))}
-        </ul>
-        <dl className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-sm">
-          <Row label={t.subtotal} value={confirmation.subtotalLabel} />
-          {confirmation.discountLabel ? (
-            <Row label={t.discount} value={`−${confirmation.discountLabel}`} tone="discount" />
-          ) : null}
-          <Row
-            label={t.shipping}
-            value={confirmation.shippingIsFree ? t.shippingFree : confirmation.shippingLabel}
-            tone={confirmation.shippingIsFree ? "free" : undefined}
-          />
-          <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-            <dt className="font-semibold text-slate-700">{t.grandTotal}</dt>
-            <dd className="text-base font-semibold text-slate-900">{confirmation.totalLabel}</dd>
-          </div>
-        </dl>
-      </div>
-
-      {confirmation.paymentPending ? (
-        <Alert tone="info" className="mt-4 text-left">
-          {t.success.paymentPendingNote}
-        </Alert>
-      ) : null}
-
-      <Link href="/products" className="mt-6 inline-block">
-        <Button variant="secondary">{t.success.continueShopping}</Button>
-      </Link>
-    </Card>
   );
 }
 

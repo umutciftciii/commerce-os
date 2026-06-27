@@ -238,9 +238,12 @@ export const trStorefront = {
     optional: "opsiyonel",
     paymentTitle: "Ödeme",
     paymentMock: "Demo",
+    paymentTestBadge: "Test",
     paymentNote:
       "Bu demo akışında gerçek ödeme alınmaz. Sipariş, ödeme bekliyor durumunda oluşturulur.",
-    paymentTestNote: "Sipariş sonrası test ödeme adımına geçilecektir.",
+    paymentTestNote: "Test ödeme yöntemi aktif.",
+    paymentTestHint:
+      "Siparişi oluşturduğunuzda güvenli test ödeme adımına yönlendirileceksiniz. Bu ortamda gerçek tahsilat yapılmaz.",
     summaryTitle: "Sipariş özeti",
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
     subtotal: "Ara toplam",
@@ -267,6 +270,9 @@ export const trStorefront = {
         "Ödemeniz henüz alınmadı; siparişiniz ödeme bekliyor durumunda. Ödeme adımı bir sonraki sürümde eklenecek.",
       total: "Toplam",
       continueShopping: "Alışverişe devam et",
+      noOrderTitle: "Görüntülenecek sipariş yok",
+      noOrderDescription:
+        "Yakın zamanda oluşturulmuş bir sipariş bulunamadı. Alışverişe devam edebilirsiniz.",
     },
   },
   payment: {

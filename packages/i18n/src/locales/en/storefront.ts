@@ -236,9 +236,12 @@ export const enStorefront: StorefrontDictionary = {
     optional: "optional",
     paymentTitle: "Payment",
     paymentMock: "Demo",
+    paymentTestBadge: "Test",
     paymentNote:
       "No real payment is taken in this demo flow. The order is created as awaiting payment.",
-    paymentTestNote: "You'll proceed to a test payment step after placing the order.",
+    paymentTestNote: "Test payment method is active.",
+    paymentTestHint:
+      "After placing your order you'll be taken to a secure test payment step. No real charge is made in this environment.",
     summaryTitle: "Order summary",
     summaryNote: "Prices include VAT. Amounts are re-validated when your order is placed.",
     subtotal: "Subtotal",
@@ -265,6 +268,9 @@ export const enStorefront: StorefrontDictionary = {
         "No payment has been taken yet; your order is awaiting payment. The payment step ships in a later release.",
       total: "Total",
       continueShopping: "Continue shopping",
+      noOrderTitle: "No order to show",
+      noOrderDescription:
+        "We couldn't find a recently placed order. Feel free to continue shopping.",
     },
   },
   payment: {
