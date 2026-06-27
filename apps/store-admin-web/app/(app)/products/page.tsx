@@ -14,7 +14,7 @@ import {
   SkeletonRows,
   useLocale,
   type DataTableColumn,
-} from "@commerce-os/ui";
+} from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
@@ -51,7 +51,7 @@ const SALES_MODE_TONES: Record<ProductSalesMode, "success" | "info" | "warning" 
 
 // Detay/düzenle = `/products/[id]` (modal değil). Liste sadece linkler.
 const DETAIL_LINK_CLASS =
-  "inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-card transition-colors hover:border-slate-300 hover:bg-slate-50";
+  "inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-white/[0.11] bg-white/[0.06] px-3 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.1] hover:text-white/80";
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -105,8 +105,8 @@ export default function ProductsPage() {
       header: t.table.title,
       cell: (product) => (
         <div>
-          <p className="font-medium text-slate-900">{product.title}</p>
-          <p className="font-mono text-xs text-slate-400">{product.slug}</p>
+          <p className="font-medium text-white/90">{product.title}</p>
+          <p className="font-mono text-xs text-white/30">{product.slug}</p>
         </div>
       ),
     },
@@ -136,7 +136,7 @@ export default function ProductsPage() {
                 <Badge tone="success">{sm.purchasableBadge}</Badge>
               ) : null}
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-white/30">
               {sm.priceVisibilityLabels[visibility]} · {sm.actionLabels[action]}
             </p>
           </div>
@@ -146,13 +146,13 @@ export default function ProductsPage() {
     {
       header: t.table.brand,
       cell: (product) => (
-        <span className="text-slate-500">{product.brand ?? product.vendor ?? t.noBrand}</span>
+        <span className="text-white/45">{product.brand ?? product.vendor ?? t.noBrand}</span>
       ),
     },
     {
       header: t.table.categories,
       cell: (product) => (
-        <span className="text-slate-500">
+        <span className="text-white/45">
           {product.categoryIds.length === 0
             ? "—"
             : product.categoryIds.map((id) => categoryNameById.get(id) ?? id).join(", ")}
@@ -188,7 +188,7 @@ export default function ProductsPage() {
             action={
               <button
                 type="button"
-                className="text-emerald-700 underline"
+                className="text-emerald-300 underline"
                 onClick={() => setNotice(null)}
               >
                 {c.actions.dismiss}

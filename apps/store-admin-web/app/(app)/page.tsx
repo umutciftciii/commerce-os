@@ -10,7 +10,7 @@ import {
   Skeleton,
   StatCard,
   useLocale,
-} from "@commerce-os/ui";
+} from "../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { CategoryIcon, InventoryIcon, ProductIcon } from "../../components/icons";
 import { storeApi, type DashboardSummary, type StoreContext } from "../../lib/client/api";
@@ -122,15 +122,15 @@ export default function StoreDashboardPage() {
           ) : summary ? (
             <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-slate-400">{t.storeCard.nameLabel}</dt>
-                <dd className="mt-0.5 font-medium text-slate-900">{summary.store.name}</dd>
+                <dt className="text-white/30">{t.storeCard.nameLabel}</dt>
+                <dd className="mt-0.5 font-medium text-white/90">{summary.store.name}</dd>
               </div>
               <div>
-                <dt className="text-slate-400">{t.storeCard.slugLabel}</dt>
-                <dd className="mt-0.5 font-mono text-xs text-slate-600">{summary.store.slug}</dd>
+                <dt className="text-white/30">{t.storeCard.slugLabel}</dt>
+                <dd className="mt-0.5 font-mono text-xs text-white/60">{summary.store.slug}</dd>
               </div>
               <div>
-                <dt className="text-slate-400">{t.storeCard.statusLabel}</dt>
+                <dt className="text-white/30">{t.storeCard.statusLabel}</dt>
                 <dd className="mt-1">
                   <Badge tone="info">{statusLabels[summary.store.status]}</Badge>
                 </dd>
@@ -144,11 +144,11 @@ export default function StoreDashboardPage() {
             <Skeleton className="h-8 w-24" />
           ) : empty ? (
             <div>
-              <p className="text-sm font-medium text-slate-900">{t.emptyTitle}</p>
-              <p className="mt-1 text-sm text-slate-500">{t.emptyDescription}</p>
+              <p className="text-sm font-medium text-white/90">{t.emptyTitle}</p>
+              <p className="mt-1 text-sm text-white/45">{t.emptyDescription}</p>
             </div>
           ) : summary ? (
-            <div className="text-3xl font-semibold tracking-tightish text-slate-900">
+            <div className="text-3xl font-semibold tracking-tightish text-white/90">
               {summary.inventory.totalOnHand}
             </div>
           ) : null}

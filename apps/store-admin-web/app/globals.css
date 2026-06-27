@@ -3,9 +3,48 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
+/*
+ * Mağaza paneli görsel kimliği: koyu "glassmorphism".
+ * Arka plan radial + linear gradient'leri, cam yüzeyler (blur + düşük opaklık),
+ * indigo aksan. Bu kimlik yalnızca store-admin-web'e özeldir; paylaşılan
+ * @commerce-os/ui paketi (storefront + admin-web tarafından kullanılır) açık
+ * tema olarak kalır.
+ */
 body {
-  @apply bg-canvas text-slate-900 antialiased;
+  @apply text-white antialiased;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  background:
+    radial-gradient(ellipse 90% 55% at 95% 5%, rgba(99, 102, 241, 0.22) 0%, transparent 48%),
+    radial-gradient(ellipse 65% 70% at 0% 100%, rgba(151, 67, 205, 0.14) 0%, transparent 52%),
+    linear-gradient(165deg, #080a18 0%, #05060f 45%, #030409 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* İnce, koyu temaya uygun kaydırma çubukları. */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 99px;
+}
+
+/* Canlı durum noktası (SSL / aktif rozet) yanıp sönme animasyonu. */
+@keyframes pdot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }

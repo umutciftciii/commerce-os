@@ -15,7 +15,7 @@ import {
   Textarea,
   useLocale,
   type DataTableColumn,
-} from "@commerce-os/ui";
+} from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { InventoryItem } from "@commerce-os/api-client";
 import { InventoryIcon } from "../../../components/icons";
@@ -62,34 +62,34 @@ export default function InventoryPage() {
       header: t.table.product,
       cell: (item) => (
         <div className="flex items-center gap-2">
-          <span className="font-medium text-slate-900">{item.title}</span>
+          <span className="font-medium text-white/90">{item.title}</span>
           {isLowStock(item) ? <Badge tone="warning">{t.lowStockBadge}</Badge> : null}
         </div>
       ),
     },
     {
       header: t.table.sku,
-      cell: (item) => <span className="font-mono text-xs text-slate-500">{item.sku}</span>,
+      cell: (item) => <span className="font-mono text-xs text-white/45">{item.sku}</span>,
     },
     {
       header: t.table.onHand,
       align: "right",
-      cell: (item) => <span className="text-slate-700">{item.quantityOnHand}</span>,
+      cell: (item) => <span className="text-white/70">{item.quantityOnHand}</span>,
     },
     {
       header: t.table.reserved,
       align: "right",
-      cell: (item) => <span className="text-slate-500">{item.quantityReserved}</span>,
+      cell: (item) => <span className="text-white/45">{item.quantityReserved}</span>,
     },
     {
       header: t.table.available,
       align: "right",
-      cell: (item) => <span className="font-medium text-slate-900">{item.quantityAvailable}</span>,
+      cell: (item) => <span className="font-medium text-white/90">{item.quantityAvailable}</span>,
     },
     {
       header: t.table.threshold,
       align: "right",
-      cell: (item) => <span className="text-slate-400">{item.lowStockThreshold ?? "—"}</span>,
+      cell: (item) => <span className="text-white/30">{item.lowStockThreshold ?? "—"}</span>,
     },
     {
       header: t.table.actions,
@@ -119,7 +119,7 @@ export default function InventoryPage() {
             action={
               <button
                 type="button"
-                className="text-emerald-700 underline"
+                className="text-emerald-300 underline"
                 onClick={() => setNotice(null)}
               >
                 {c.actions.dismiss}
@@ -238,9 +238,9 @@ function AdjustModal({
     >
       <form id="adjust-form" onSubmit={onSubmit} className="space-y-4" noValidate>
         {error ? <Alert tone="error">{error}</Alert> : null}
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-          <span className="text-slate-500">{f.currentLabel}: </span>
-          <span className="font-semibold text-slate-900">{item.quantityAvailable}</span>
+        <div className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm">
+          <span className="text-white/45">{f.currentLabel}: </span>
+          <span className="font-semibold text-white/90">{item.quantityAvailable}</span>
         </div>
         <div>
           <Input
@@ -252,7 +252,7 @@ function AdjustModal({
             disabled={saving}
             required
           />
-          <p className="mt-1.5 text-xs text-slate-400">{f.deltaHint}</p>
+          <p className="mt-1.5 text-xs text-white/30">{f.deltaHint}</p>
         </div>
         <Textarea
           id="adjust-reason"

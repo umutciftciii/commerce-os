@@ -1,4 +1,4 @@
-import { Button, EmptyState, PageHeader, SectionCard } from "@commerce-os/ui";
+import { Button, EmptyState, PageHeader, SectionCard } from "../../../components/ui";
 import { CustomerIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 

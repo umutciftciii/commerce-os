@@ -1,4 +1,4 @@
-import { Button, Input, PageHeader, SectionCard } from "@commerce-os/ui";
+import { Button, Input, PageHeader, SectionCard } from "../../../components/ui";
 import { SettingsIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 
@@ -23,7 +23,7 @@ export default async function StoreSettingsPage() {
           <Input label={t.storeName} defaultValue="Demo Mağaza" disabled />
           <Input label={t.contactEmail} defaultValue="sahip@demo-magaza.dev" disabled />
         </div>
-        <p className="mt-4 text-xs text-slate-400">{t.note}</p>
+        <p className="mt-4 text-xs text-white/30">{t.note}</p>
       </SectionCard>
     </>
   );

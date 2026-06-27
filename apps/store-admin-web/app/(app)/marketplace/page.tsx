@@ -1,4 +1,4 @@
-import { Badge, Button, Card, PageHeader, SectionCard } from "@commerce-os/ui";
+import { Badge, Button, Card, PageHeader, SectionCard } from "../../../components/ui";
 import { MarketplaceIcon } from "../../../components/icons";
 import { getCommonDict, getStoreAdminDict } from "../../../lib/i18n";
 
@@ -15,10 +15,10 @@ export default async function MarketplacePage() {
             <Card key={channel.name} className="flex items-center justify-between p-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-slate-900">{channel.name}</p>
+                  <p className="text-sm font-semibold text-white/90">{channel.name}</p>
                   <Badge tone="neutral">{c.status.notConnected}</Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">{channel.detail}</p>
+                <p className="mt-0.5 text-xs text-white/45">{channel.detail}</p>
               </div>
               <Button size="sm" variant="secondary" disabled>
                 {c.actions.connect}
@@ -26,7 +26,7 @@ export default async function MarketplacePage() {
             </Card>
           ))}
         </div>
-        <p className="mt-4 text-xs text-slate-400">{t.note}</p>
+        <p className="mt-4 text-xs text-white/30">{t.note}</p>
       </SectionCard>
     </>
   );

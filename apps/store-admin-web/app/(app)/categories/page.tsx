@@ -15,7 +15,7 @@ import {
   SkeletonRows,
   useLocale,
   type DataTableColumn,
-} from "@commerce-os/ui";
+} from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { ProductCategory, ProductCategoryCreateRequest } from "@commerce-os/api-client";
 import { CategoryIcon } from "../../../components/icons";
@@ -71,16 +71,16 @@ export default function CategoriesPage() {
   const columns: DataTableColumn<ProductCategory>[] = [
     {
       header: t.table.name,
-      cell: (category) => <span className="font-medium text-slate-900">{category.name}</span>,
+      cell: (category) => <span className="font-medium text-white/90">{category.name}</span>,
     },
     {
       header: t.table.slug,
-      cell: (category) => <span className="font-mono text-xs text-slate-500">{category.slug}</span>,
+      cell: (category) => <span className="font-mono text-xs text-white/45">{category.slug}</span>,
     },
     {
       header: t.table.parent,
       cell: (category) => (
-        <span className="text-slate-500">
+        <span className="text-white/45">
           {category.parentId ? (nameById.get(category.parentId) ?? category.parentId) : t.noParent}
         </span>
       ),
@@ -88,7 +88,7 @@ export default function CategoriesPage() {
     {
       header: t.table.sortOrder,
       align: "right",
-      cell: (category) => <span className="text-slate-500">{category.sortOrder}</span>,
+      cell: (category) => <span className="text-white/45">{category.sortOrder}</span>,
     },
     {
       header: t.table.status,
@@ -129,7 +129,7 @@ export default function CategoriesPage() {
             action={
               <button
                 type="button"
-                className="text-emerald-700 underline"
+                className="text-emerald-300 underline"
                 onClick={() => setNotice(null)}
               >
                 {c.actions.dismiss}
@@ -325,7 +325,7 @@ function CategoryEditor({
             disabled={saving || isEdit}
             required={!isEdit}
           />
-          <p className="mt-1.5 text-xs text-slate-400">{isEdit ? f.slugLockedHint : f.slugHint}</p>
+          <p className="mt-1.5 text-xs text-white/30">{isEdit ? f.slugLockedHint : f.slugHint}</p>
         </div>
         <Select
           id="category-parent"
@@ -344,7 +344,7 @@ function CategoryEditor({
             onChange={(event) => setSortOrder(event.target.value)}
             disabled={saving}
           />
-          <p className="mt-1.5 text-xs text-slate-400">{f.sortOrderHint}</p>
+          <p className="mt-1.5 text-xs text-white/30">{f.sortOrderHint}</p>
         </div>
         <Select
           id="category-status"
