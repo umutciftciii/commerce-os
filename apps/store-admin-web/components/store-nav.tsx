@@ -11,6 +11,7 @@ import {
   InventoryIcon,
   MarketplaceIcon,
   OrderIcon,
+  PaymentIcon,
   ProductIcon,
   SettingsIcon,
   ThemeIcon,
@@ -52,6 +53,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       items: [
         { href: "/orders", label: t.orders, icon: <OrderIcon /> },
         { href: "/customers", label: t.customers, icon: <CustomerIcon /> },
+        { href: "/payment-providers", label: t.paymentProviders, icon: <PaymentIcon /> },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
       ],
     },

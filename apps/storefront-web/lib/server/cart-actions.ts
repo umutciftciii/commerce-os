@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { PublicPaymentResult, PublicPaymentScenario } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
-import { submitCheckout } from "./cart";
+import { submitCheckout, submitTestPayment } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
 import { readCartItems, readCoupon, writeCartItems, writeCoupon } from "./cart-cookie";
 import { isProvince, isValidProvinceDistrict } from "../tr-location-data";
@@ -144,4 +145,27 @@ export async function submitCheckoutAction(
   await writeCartItems([]);
   revalidateCart();
   return { status: "success", confirmation: result.confirmation };
+}
+
+export type TestPaymentActionState =
+  | { status: "idle" }
+  | { status: "ok"; result: PublicPaymentResult }
+  | { status: "error"; reason: string };
+
+/**
+ * F3B.2 — Test ödeme senaryosu gönderir (MOCK provider). Token + orderId ile
+ * gateway public submit ucuna gider; secret/credential client'a asla dönmez.
+ */
+export async function submitTestPaymentAction(
+  orderId: string,
+  token: string,
+  scenario: PublicPaymentScenario,
+): Promise<TestPaymentActionState> {
+  const outcome = await submitTestPayment(orderId, token, scenario);
+  if (!outcome.ok) {
+    if (outcome.status === 403) return { status: "error", reason: "PAYMENT_TOKEN_INVALID" };
+    if (outcome.status === 409) return { status: "error", reason: "PAYMENT_NOT_PAYABLE" };
+    return { status: "error", reason: "error" };
+  }
+  return { status: "ok", result: outcome.data };
 }

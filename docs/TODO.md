@@ -168,10 +168,28 @@
   TD-032 RESOLVED, ADR-030)
 - TODO-062: Storefront medya/gorsel pipeline — gercek urun gorseli yukleme/CDN ve detay galeri
   zoom/lightbox/video (F3A'da galeri placeholder).
-- TODO-063: Faz 3B.2 Storefront payment provider abstraction — checkout'a gercek odeme adimini
-  baglamak (Masterpass/iyzico/Stripe). F3B.1 siparisi PLACED/UNPAID (odeme bekliyor) olarak yaratir;
-  paymentStatus gecisleri (AUTHORIZED/PAID) ve payment intent/webhook contract'i eklenecek (TODO-059
-  ile birlikte; bkz. ADR-031, TD-033).
+- TODO-063: Faz 3B.2 Payment Operations Foundation. (DONE — provider abstraction + admin provider
+  yonetimi (`/payment-providers`) + resolver/fallback + TEST/LIVE mode + credential encryption-at-rest
+  (AES-256-GCM) + masking + checkout resolver (additive) + token-korumalı MOCK test odeme akisi +
+  webhook shell (idempotency) + PaymentAttempt/PaymentProviderEvent log. CANLI odeme YOK; gercek
+  provider HTTP adaptorleri ayri maddelerde (TODO-066..069). Bkz. ADR-033, Faz 3B.2 phase log.)
+- TODO-066: iyzico canli/sandbox HTTP AKTIVASYONU — provider-specific adapter iskeleti hazir
+  (`contracts/iyzico.ts`: Checkout Form initialize/detail request builder + response parser + IYZWSv2
+  imza + status mapping + credential validation). Kalan: `PAYMENT_SANDBOX_HTTP_ENABLED=true` ile gercek
+  sandbox/live cagriyi test/kanit + buyer/sepet zenginlestirme + gercek callback imza dogrulama (TODO-071).
+- TODO-067: Stripe canli/sandbox HTTP AKTIVASYONU — adapter iskeleti hazir (`contracts/stripe.ts`:
+  PaymentIntents request/response/status mapping + Bearer auth + credential format). Kalan: gercek
+  sandbox cagri + Stripe-Signature webhook dogrulama (TODO-071).
+- TODO-068: PayTR canli/sandbox HTTP AKTIVASYONU — adapter iskeleti hazir (`contracts/paytr.ts`:
+  get-token request + paytr_token hash + callback status mapping). Kalan: gercek cagri + callback hash
+  dogrulama (TODO-071).
+- TODO-069: Banka sanal POS (GENERIC_REDIRECT) HTTP AKTIVASYONU — iskelet hazir
+  (`contracts/generic-redirect.ts`: redirect create + callback status mapping). Kalan: gercek PSP
+  endpoint/imza entegrasyonu.
+- TODO-070: Refund/dispute/settlement fazi — refundPayment canli implementasyonu, mutabakat raporlari,
+  iade/itiraz is akislari ve ayri `/payments` (operations) operasyon ekrani (musteri odeme hareketleri).
+- TODO-071: Gercek webhook signature verification — F3B.2 webhook shell imzayi placeholder olarak
+  kabul eder; provider basina HMAC/imza dogrulamasi ve raw-body koruma eklenecek.
 - TODO-064: Public checkout atomicligi — F3B.1'de createOrder (DRAFT) ve placeOrder (rezervasyon) iki
   ayri transaction; placeOrder basarisiz olursa DRAFT siparis kalir. Tek transaction'da create+place
   yapan public-checkout data-access metodu ve/veya basarisiz place'te DRAFT temizleme/expiry (TD-033).

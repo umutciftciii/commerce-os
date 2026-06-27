@@ -15,6 +15,14 @@ import type {
   OrderLineUpdateRequest,
   OrderListResponse,
   OrderUpdateRequest,
+  PaymentProviderConfig,
+  PaymentProviderConfigCreateRequest,
+  PaymentProviderConfigListResponse,
+  PaymentProviderConfigUpdateRequest,
+  PaymentProviderEventListResponse,
+  PaymentProviderReorderRequest,
+  PaymentProviderStatusUpdateRequest,
+  PaymentProviderTestConnectionResponse,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -98,7 +106,21 @@ export type {
   PublicCheckoutRequest,
   PublicOrderConfirmationLine,
   PublicOrderConfirmation,
+  PublicPaymentScenario,
+  PublicPaymentRedirect,
+  PublicPaymentState,
+  PublicPaymentSubmitRequest,
+  PublicPaymentResult,
   PlatformUserContract,
+  PaymentProviderConfig,
+  PaymentProviderConfigCreateRequest,
+  PaymentProviderConfigListResponse,
+  PaymentProviderConfigUpdateRequest,
+  PaymentProviderStatusUpdateRequest,
+  PaymentProviderReorderRequest,
+  PaymentProviderTestConnectionResponse,
+  PaymentProviderEvent,
+  PaymentProviderEventListResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -261,6 +283,39 @@ export interface ApiClient {
       ): Promise<Order>;
       place(storeId: string, orderId: string, token?: string): Promise<Order>;
       cancel(storeId: string, orderId: string, input?: OrderCancelRequest, token?: string): Promise<Order>;
+    };
+    paymentProviders: {
+      list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
+      create(
+        storeId: string,
+        input: PaymentProviderConfigCreateRequest,
+        token?: string,
+      ): Promise<PaymentProviderConfig>;
+      get(storeId: string, configId: string, token?: string): Promise<PaymentProviderConfig>;
+      update(
+        storeId: string,
+        configId: string,
+        input: PaymentProviderConfigUpdateRequest,
+        token?: string,
+      ): Promise<PaymentProviderConfig>;
+      setStatus(
+        storeId: string,
+        configId: string,
+        input: PaymentProviderStatusUpdateRequest,
+        token?: string,
+      ): Promise<PaymentProviderConfig>;
+      reorder(
+        storeId: string,
+        input: PaymentProviderReorderRequest,
+        token?: string,
+      ): Promise<PaymentProviderConfigListResponse>;
+      testConnection(
+        storeId: string,
+        configId: string,
+        token?: string,
+      ): Promise<PaymentProviderTestConnectionResponse>;
+      events(storeId: string, configId: string, token?: string): Promise<PaymentProviderEventListResponse>;
+      storeEvents(storeId: string, token?: string): Promise<PaymentProviderEventListResponse>;
     };
   };
 }
@@ -433,6 +488,49 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/place`, "POST", undefined, token),
         cancel: (storeId, orderId, input = {}, token) =>
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/cancel`, "POST", input, token),
+      },
+      paymentProviders: {
+        list: (storeId, token) =>
+          getJson<PaymentProviderConfigListResponse>(`/stores/${storeId}/payment-providers`, token),
+        create: (storeId, input, token) =>
+          sendJson<PaymentProviderConfig>(`/stores/${storeId}/payment-providers`, "POST", input, token),
+        get: (storeId, configId, token) =>
+          getJson<PaymentProviderConfig>(`/stores/${storeId}/payment-providers/${configId}`, token),
+        update: (storeId, configId, input, token) =>
+          sendJson<PaymentProviderConfig>(
+            `/stores/${storeId}/payment-providers/${configId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        setStatus: (storeId, configId, input, token) =>
+          sendJson<PaymentProviderConfig>(
+            `/stores/${storeId}/payment-providers/${configId}/status`,
+            "POST",
+            input,
+            token,
+          ),
+        reorder: (storeId, input, token) =>
+          sendJson<PaymentProviderConfigListResponse>(
+            `/stores/${storeId}/payment-providers/reorder`,
+            "POST",
+            input,
+            token,
+          ),
+        testConnection: (storeId, configId, token) =>
+          sendJson<PaymentProviderTestConnectionResponse>(
+            `/stores/${storeId}/payment-providers/${configId}/test-connection`,
+            "POST",
+            undefined,
+            token,
+          ),
+        events: (storeId, configId, token) =>
+          getJson<PaymentProviderEventListResponse>(
+            `/stores/${storeId}/payment-providers/${configId}/events`,
+            token,
+          ),
+        storeEvents: (storeId, token) =>
+          getJson<PaymentProviderEventListResponse>(`/stores/${storeId}/payment-events`, token),
       },
     },
   };

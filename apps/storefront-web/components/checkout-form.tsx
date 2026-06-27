@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CartView } from "../lib/server/cart";
@@ -21,9 +22,25 @@ const initialState: CheckoutFormState = { status: "idle" };
  * Order olusumu/validasyon nihai olarak gateway'dedir.
  */
 export function CheckoutForm({ view, t }: { view: CartView; t: CheckoutDict }) {
+  const router = useRouter();
   const [state, formAction, isPending] = useActionState(submitCheckoutAction, initialState);
 
+  // F3B.2: Uygun TEST/MOCK provider varsa order sonrasi ödeme test sayfasina
+  // yönlendir; yoksa (paymentRedirectPath undefined) bugünkü onay ekrani gösterilir.
+  const paymentRedirectPath =
+    state.status === "success" ? state.confirmation?.paymentRedirectPath : undefined;
+  useEffect(() => {
+    if (paymentRedirectPath) router.push(paymentRedirectPath);
+  }, [paymentRedirectPath, router]);
+
   if (state.status === "success" && state.confirmation) {
+    if (state.confirmation.paymentRedirectPath) {
+      return (
+        <Card className="mx-auto max-w-xl p-8 text-center">
+          <p className="text-sm text-slate-500">{t.paymentRedirecting}</p>
+        </Card>
+      );
+    }
     return <CheckoutSuccess confirmation={state.confirmation} t={t} />;
   }
 

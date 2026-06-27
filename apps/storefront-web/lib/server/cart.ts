@@ -5,11 +5,14 @@ import type {
   PublicCheckoutRequest,
   PublicCouponStatus,
   PublicOrderConfirmation,
+  PublicPaymentResult,
+  PublicPaymentScenario,
+  PublicPaymentState,
 } from "@commerce-os/api-client";
 import type { CartItem } from "../cart-token";
 import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
-import { postPublic } from "./gateway";
+import { getPublic, postPublic, type FetchOutcome } from "./gateway";
 
 /**
  * Vitrin sepet/checkout cozumleyici (F3B.1). Cookie'deki referans kalemlerini
@@ -75,6 +78,11 @@ export interface OrderConfirmationView {
   couponStatus: PublicCouponStatus;
   contactEmail: string;
   lines: Array<{ title: string; variantTitle: string; quantity: number; lineTotalLabel: string }>;
+  /**
+   * F3B.2: Uygun TEST/MOCK provider varsa ödeme test sayfasinin yolu (token dahil).
+   * Provider yoksa undefined → mevcut onay akisi birebir korunur.
+   */
+  paymentRedirectPath?: string;
 }
 
 export type CartFailure = "no-store" | "error";
@@ -208,9 +216,33 @@ export async function submitCheckout(
           quantity: line.quantity,
           lineTotalLabel: formatMinor(line.lineTotalMinor, line.currency),
         })),
+        // Provider yoksa confirmation.payment undefined → alan eklenmez.
+        paymentRedirectPath: confirmation.payment?.paymentPath,
       },
     };
   } catch {
     return { ok: false, reason: "error" };
   }
+}
+
+/** F3B.2 — Public ödeme test sayfasi durumunu/sonucunu cozme yardimcilari. */
+function orderPaymentPath(orderId: string): string {
+  return `/public/stores/${encodeURIComponent(demoStoreSlug())}/orders/${encodeURIComponent(orderId)}/payment`;
+}
+
+export async function getOrderPaymentState(
+  orderId: string,
+  token: string,
+): Promise<FetchOutcome<PublicPaymentState>> {
+  return getPublic<PublicPaymentState>(
+    `${orderPaymentPath(orderId)}?token=${encodeURIComponent(token)}`,
+  );
+}
+
+export async function submitTestPayment(
+  orderId: string,
+  token: string,
+  scenario: PublicPaymentScenario,
+): Promise<FetchOutcome<PublicPaymentResult>> {
+  return postPublic<PublicPaymentResult>(orderPaymentPath(orderId), { token, scenario });
 }
