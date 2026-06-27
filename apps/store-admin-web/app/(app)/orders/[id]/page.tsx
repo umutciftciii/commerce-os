@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Alert, Badge, Button, SkeletonRows, useLocale } from "@commerce-os/ui";
+import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { Order } from "@commerce-os/api-client";
 import { storeApi } from "../../../../lib/client/api";
@@ -40,8 +40,8 @@ type LoadState =
 function MoneyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-1 text-sm">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-medium text-slate-700">{value}</span>
+      <span className="text-white/45">{label}</span>
+      <span className="font-medium text-white/70">{value}</span>
     </div>
   );
 }
@@ -203,9 +203,9 @@ export default function OrderDetailPage() {
             main={
               <>
                 <SurfaceCard title={d.linesTitle}>
-                  <div className="overflow-hidden rounded-xl border border-slate-200/70">
+                  <div className="overflow-hidden rounded-xl border border-white/[0.09]">
                     <table className="w-full text-sm">
-                      <thead className="bg-slate-50/80 text-left text-xs text-slate-500">
+                      <thead className="bg-white/[0.03] text-left text-xs text-white/45">
                         <tr>
                           <th className="px-3 py-2 font-medium">{d.lineProduct}</th>
                           <th className="px-3 py-2 text-right font-medium">{d.lineQuantity}</th>
@@ -213,22 +213,22 @@ export default function OrderDetailPage() {
                           <th className="px-3 py-2 text-right font-medium">{d.lineTotal}</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/[0.06]">
                         {order.lines.map((line) => (
                           <tr key={line.id}>
                             <td className="px-3 py-2.5">
-                              <p className="font-medium text-slate-800">{line.title}</p>
-                              <p className="text-xs text-slate-400">
+                              <p className="font-medium text-white/80">{line.title}</p>
+                              <p className="text-xs text-white/30">
                                 {line.variantTitle} · <span className="font-mono">{line.sku}</span>
                               </p>
                             </td>
-                            <td className="px-3 py-2.5 text-right text-slate-600">
+                            <td className="px-3 py-2.5 text-right text-white/60">
                               {line.quantity}
                             </td>
-                            <td className="px-3 py-2.5 text-right text-slate-600">
+                            <td className="px-3 py-2.5 text-right text-white/60">
                               {formatMinor(line.unitPriceAmount, line.currency)}
                             </td>
-                            <td className="px-3 py-2.5 text-right font-medium text-slate-800">
+                            <td className="px-3 py-2.5 text-right font-medium text-white/80">
                               {formatMinor(line.totalAmount, line.currency)}
                             </td>
                           </tr>
@@ -252,9 +252,9 @@ export default function OrderDetailPage() {
                     value={formatMinor(order.shippingAmount, order.currency)}
                   />
                   <MoneyRow label={d.tax} value={formatMinor(order.taxAmount, order.currency)} />
-                  <div className="mt-1 flex items-center justify-between border-t border-slate-200/70 pt-2 text-sm">
-                    <span className="font-semibold text-slate-900">{d.total}</span>
-                    <span className="font-semibold text-slate-900">
+                  <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+                    <span className="font-semibold text-white/90">{d.total}</span>
+                    <span className="font-semibold text-white/90">
                       {formatMinor(order.totalAmount, order.currency)}
                     </span>
                   </div>
@@ -262,7 +262,7 @@ export default function OrderDetailPage() {
 
                 <SurfaceCard title={d.eventsTitle}>
                   {order.events.length === 0 ? (
-                    <p className="text-sm text-slate-400">{d.noEvents}</p>
+                    <p className="text-sm text-white/30">{d.noEvents}</p>
                   ) : (
                     <Timeline>
                       {order.events.map((event, index) => (
@@ -282,7 +282,7 @@ export default function OrderDetailPage() {
             rail={
               <>
                 <RailCard title={d.customerInfoTitle}>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-white/[0.06]">
                     <RailRow label={d.customerLabel} value={order.customerEmail} />
                     <RailRow
                       label={d.placedAtLabel}
@@ -303,27 +303,27 @@ export default function OrderDetailPage() {
 
                 <RailCard title={d.addressesTitle}>
                   {order.addresses.length === 0 ? (
-                    <p className="text-sm text-slate-400">{d.noAddresses}</p>
+                    <p className="text-sm text-white/30">{d.noAddresses}</p>
                   ) : (
                     <div className="space-y-3">
                       {order.addresses.map((address) => (
                         <div
                           key={address.id}
-                          className="rounded-xl border border-slate-200/70 bg-white/50 px-3 py-2.5 text-sm"
+                          className="rounded-xl border border-white/[0.09] bg-white/[0.04] px-3 py-2.5 text-sm"
                         >
-                          <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                          <p className="text-[11px] uppercase tracking-wide text-white/30">
                             {address.type === "SHIPPING" ? d.shippingAddress : d.billingAddress}
                           </p>
-                          <p className="font-medium text-slate-700">{address.fullName}</p>
-                          <p className="text-slate-500">
+                          <p className="font-medium text-white/70">{address.fullName}</p>
+                          <p className="text-white/45">
                             {address.addressLine1}
                             {address.addressLine2 ? `, ${address.addressLine2}` : ""}
                           </p>
-                          <p className="text-slate-500">
+                          <p className="text-white/45">
                             {address.district ? `${address.district}, ` : ""}
                             {address.city} {address.postalCode ?? ""} · {address.countryCode}
                           </p>
-                          {address.phone ? <p className="text-slate-500">{address.phone}</p> : null}
+                          {address.phone ? <p className="text-white/45">{address.phone}</p> : null}
                         </div>
                       ))}
                     </div>
@@ -332,13 +332,13 @@ export default function OrderDetailPage() {
 
                 <RailCard title={d.reservationsTitle}>
                   {order.reservations.length === 0 ? (
-                    <p className="text-sm text-slate-400">{d.noReservations}</p>
+                    <p className="text-sm text-white/30">{d.noReservations}</p>
                   ) : (
                     <ul className="space-y-2">
                       {order.reservations.map((reservation) => (
                         <li
                           key={reservation.id}
-                          className="flex items-center gap-2 text-sm text-slate-600"
+                          className="flex items-center gap-2 text-sm text-white/60"
                         >
                           <Badge tone={RESERVATION_STATUS_TONES[reservation.status]}>
                             {reservationLabels[reservation.status]}
@@ -356,7 +356,7 @@ export default function OrderDetailPage() {
                 </RailCard>
 
                 <RailCard title={d.metadataTitle}>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-white/[0.06]">
                     <RailRow
                       label={d.orderIdLabel}
                       value={<span className="font-mono text-xs">{order.orderNumber}</span>}

@@ -13,7 +13,7 @@ import {
   SkeletonRows,
   useLocale,
   type DataTableColumn,
-} from "@commerce-os/ui";
+} from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
@@ -74,24 +74,24 @@ export function VariantsSection({ product }: { product: Product }) {
   const columns: DataTableColumn<ProductVariant>[] = [
     {
       header: t.table.sku,
-      cell: (variant) => <span className="font-mono text-xs text-slate-600">{variant.sku}</span>,
+      cell: (variant) => <span className="font-mono text-xs text-white/60">{variant.sku}</span>,
     },
     {
       header: t.table.title,
-      cell: (variant) => <span className="font-medium text-slate-900">{variant.title}</span>,
+      cell: (variant) => <span className="font-medium text-white/90">{variant.title}</span>,
     },
     {
       header: t.table.price,
       align: "right",
       cell: (variant) => (
-        <span className="text-slate-700">{formatMinor(variant.priceMinor, variant.currency)}</span>
+        <span className="text-white/70">{formatMinor(variant.priceMinor, variant.currency)}</span>
       ),
     },
     {
       header: t.table.compareAt,
       align: "right",
       cell: (variant) => (
-        <span className="text-slate-400">
+        <span className="text-white/30">
           {variant.compareAtMinor === null
             ? "—"
             : formatMinor(variant.compareAtMinor, variant.currency)}
@@ -162,7 +162,7 @@ export function VariantsSection({ product }: { product: Product }) {
 
       {state.status === "ready" && variants.length > 0 ? (
         <>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-white/45">
             {format(t.countLabel, { count: variants.length })}
           </p>
           <DataTable
@@ -171,7 +171,7 @@ export function VariantsSection({ product }: { product: Product }) {
             rowKey={(variant) => variant.id}
             caption={t.cardTitle}
           />
-          <p className="text-xs text-slate-400">{t.inventoryNote}</p>
+          <p className="text-xs text-white/30">{t.inventoryNote}</p>
         </>
       ) : null}
 
@@ -334,7 +334,7 @@ function VariantEditor({
             disabled={saving || isEdit}
             required={!isEdit}
           />
-          {isEdit ? <p className="mt-1.5 text-xs text-slate-400">{f.skuLockedHint}</p> : null}
+          {isEdit ? <p className="mt-1.5 text-xs text-white/30">{f.skuLockedHint}</p> : null}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -348,7 +348,7 @@ function VariantEditor({
               disabled={saving}
               required
             />
-            <p className="mt-1.5 text-xs text-slate-400">{f.priceHint}</p>
+            <p className="mt-1.5 text-xs text-white/30">{f.priceHint}</p>
           </div>
           <div>
             <Input
@@ -360,7 +360,7 @@ function VariantEditor({
               onChange={(event) => setCompareAt(event.target.value)}
               disabled={saving}
             />
-            <p className="mt-1.5 text-xs text-slate-400">{f.compareAtHint}</p>
+            <p className="mt-1.5 text-xs text-white/30">{f.compareAtHint}</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

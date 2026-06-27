@@ -538,3 +538,29 @@
   kalir). Mock odeme korunur; gercek provider yok. Kupon kodu ayri httpOnly cookie'de (hassas degil;
   gateway her istekte yeniden dogrular). Shipping/tax/coupon "demo calculation"dir; gercek motor F3B.2+
   (TODO-059/063).
+
+## ADR-032 Store-admin koyu glassmorphism tema = app-local UI kit (paylasilan ui'ye dokunulmadi)
+
+- Durum: ACCEPTED
+- Baglam: Claude Design handoff'u store-admin tum ekranlari icin koyu "glassmorphism" bir gorunum
+  istedi (ADR-028'deki light-first premium yonun yerine). Ancak gorsel primitive'ler paylasilan
+  `@commerce-os/ui` paketinden gelir ve bu paket ayni anda storefront-web + admin-web tarafindan da
+  kullanilir (acik tema). Paketi koyulastirmak diger iki uygulamayi bozardi.
+- Karar: Paylasilan `@commerce-os/ui` DEGISTIRILMEDI. Store-admin'e ozel, **API-uyumlu koyu karsilik**
+  primitive'leri `apps/store-admin-web/components/ui/index.tsx` icinde toplandi (ayni prop'lar; yalniz
+  gorunum farkli). Sayfalar UI primitive'lerini bu yerel kit'ten import eder; degisiklik yalniz import
+  kaynagi + inline sinif token'lari, hicbir state/handler/API cagrisi degismedi. Locale akisi
+  (`useLocale`/`LocaleProvider`/`LanguageSwitcher`) ve `cn` yerel kit'ten paylasilan pakete aynen
+  re-export edilir (akis degil, gorunum yeniden uretilmez).
+- Karar (kapsam): app-local `premium.tsx` koyu glass'a cevrildi; tema kimligi `app/globals.css` (koyu
+  gradient zemin) + `store-app-shell`/`store-nav` (koyu cam kabuk) ile tasinir. ADR-027 (entity detail
+  = dedicated route) korundu.
+- Bilincli kabul: topbar `LanguageSwitcher` paylasilan paketten geldigi icin acik (beyaz) segmented
+  control kalir; koyu zeminde okunabilir, paketi bozmamak adina koyu varyant yapilmadi (gerekirse
+  ileride yerel sarmalayici).
+- Sonuc: store-admin koyu glassmorphism; storefront-web + admin-web acik temada etkilenmedi. typecheck
+  0, store-admin 72/72 test gecti (akislar korundu). Bkz. Faz 2J phase log. Borc: paylasma ihtiyaci
+  dogarsa koyu tema `packages/ui`'ye theming destegiyle tasinabilir; `LanguageSwitcher` koyu varyanti.
+- Gorsel kanit: lokal/dev gercek seed veriyle alinan ekran goruntuleri
+  `docs/screenshots/store-admin-glass-redesign/` altinda (login/dashboard/orders/products/
+  product-detail/inventory/theme); prod DB'ye dokunulmadi (ayrinti: Faz 2J phase log).

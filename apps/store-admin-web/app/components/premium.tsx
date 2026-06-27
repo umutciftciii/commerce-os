@@ -3,18 +3,18 @@ import Link from "next/link";
 import { cn } from "@commerce-os/ui";
 
 /**
- * Store-admin'e ozel "glass-inspired" premium yuzey primitive'leri. Apple cam
- * dilinden ilham alir ama birebir kopya degildir: light-first, kirik beyaz zemin,
- * ince gumus kenar (ring), translucent yuzey ve olculu backdrop-blur. #9743CD
- * marka vurgusu yalnizca accent/aktif gosterge icin kullanilir.
+ * Store-admin'e ozel KOYU "glassmorphism" premium yuzey primitive'leri.
+ * Tasarim dili: koyu zemin (radial + linear gradient), translucent cam yuzey
+ * (white/[0.06] + backdrop-blur), ince beyaz kenar ve indigo aksan.
  *
- * Yalnizca products & orders ekranlarinda kullanildigi icin app-local tutuldu;
- * admin-web ile ortaklasmasi gerekirse packages/ui'ye tasinabilir.
+ * Yalnizca store-admin-web ekranlarinda kullanildigi icin app-local tutuldu.
+ * Bu dosyada yalnizca GORUNUM degisti; tum prop API'leri ve kullanim sekli ayni
+ * kaldi, dolayisiyla cagiran sayfalardaki mantik etkilenmez.
  */
 
-/** Tum cam yuzeylerin ortak kenar/golge/blur dili. */
+/** Tum cam yuzeylerin ortak kenar/golge/blur dili (koyu tema). */
 export const GLASS_SURFACE =
-  "rounded-2xl border border-white/70 bg-white/70 shadow-[0_1px_2px_0_rgb(15_23_42_/_0.04),0_18px_36px_-20px_rgb(15_23_42_/_0.18)] ring-1 ring-slate-200/70 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60";
+  "rounded-2xl border border-white/[0.09] bg-white/[0.06] shadow-[0_1px_2px_0_rgb(0_0_0_/_0.2),0_18px_36px_-20px_rgb(0_0_0_/_0.5)] backdrop-blur-2xl backdrop-saturate-150";
 
 /** Ham cam panel; baslik istemeyen serbest icerik bloklari icin. */
 export function GlassPanel({
@@ -58,24 +58,24 @@ export function SurfaceCard({
   return (
     <section className={cn(GLASS_SURFACE, "overflow-hidden", className)}>
       {hasHeader ? (
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 px-5 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-3.5">
           <div className="flex items-start gap-3">
             {icon ? (
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/80 bg-white/70 text-brand-600 shadow-card ring-1 ring-slate-200/70">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-400/20 bg-indigo-500/15 text-indigo-300">
                 {icon}
               </span>
             ) : null}
             <div className="min-w-0">
               {eyebrow ? (
-                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand-600">
+                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-indigo-300/80">
                   {eyebrow}
                 </p>
               ) : null}
               {title ? (
-                <h2 className="text-sm font-semibold tracking-tightish text-slate-900">{title}</h2>
+                <h2 className="text-[13px] font-semibold text-white/90">{title}</h2>
               ) : null}
               {description ? (
-                <p className="mt-0.5 text-sm leading-relaxed text-slate-500">{description}</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-white/30">{description}</p>
               ) : null}
             </div>
           </div>
@@ -117,16 +117,16 @@ export function DetailHero({
   return (
     <div className="relative mb-6 overflow-hidden">
       <div className={cn(GLASS_SURFACE, "relative overflow-hidden px-6 py-5 sm:px-7 sm:py-6")}>
-        {/* Cok hafif marka aurasi: sag ust kosede olculu accent. */}
+        {/* Hafif marka aurasi: sag ust kosede olculu indigo accent. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-brand-200/30 blur-3xl"
+          className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl"
         />
         <div className="relative">
           {backHref ? (
             <Link
               href={backHref}
-              className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-brand-600 transition-colors hover:text-brand-700"
+              className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-indigo-300 transition-colors hover:text-indigo-200"
             >
               <span aria-hidden>←</span>
               {backLabel}
@@ -135,18 +135,18 @@ export function DetailHero({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               {eyebrow ? (
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-brand-600">
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-indigo-300/80">
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="truncate text-2xl font-semibold tracking-tightish text-slate-900">
+              <h1 className="truncate text-2xl font-bold tracking-tight text-white/95">
                 {title}
               </h1>
               {subtitle ? (
-                <div className="mt-1 text-sm text-slate-500">{subtitle}</div>
+                <div className="mt-1 text-sm text-white/40">{subtitle}</div>
               ) : null}
               {description ? (
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/40">
                   {description}
                 </p>
               ) : null}
@@ -165,11 +165,11 @@ export function DetailHero({
 type MetricTone = "neutral" | "brand" | "success" | "warning" | "danger";
 
 const METRIC_ACCENTS: Record<MetricTone, string> = {
-  neutral: "before:bg-slate-300",
-  brand: "before:bg-brand-500",
-  success: "before:bg-emerald-500",
-  warning: "before:bg-amber-500",
-  danger: "before:bg-red-500",
+  neutral: "before:bg-white/20",
+  brand: "before:bg-indigo-500",
+  success: "before:bg-emerald-400",
+  warning: "before:bg-amber-400",
+  danger: "before:bg-red-400",
 };
 
 export interface MetricTileProps {
@@ -192,11 +192,11 @@ export function MetricTile({ label, value, hint, tone = "neutral", icon }: Metri
       )}
     >
       <div className="flex items-center justify-between gap-2 pl-2.5">
-        <p className="text-xs font-medium text-slate-500">{label}</p>
-        {icon ? <span className="text-slate-300">{icon}</span> : null}
+        <p className="text-xs font-medium text-white/40">{label}</p>
+        {icon ? <span className="text-white/20">{icon}</span> : null}
       </div>
-      <p className="mt-2 pl-2.5 text-2xl font-semibold tracking-tightish text-slate-900">{value}</p>
-      {hint ? <p className="mt-0.5 pl-2.5 text-xs text-slate-400">{hint}</p> : null}
+      <p className="mt-2 pl-2.5 text-2xl font-extrabold tracking-tight text-white/95">{value}</p>
+      {hint ? <p className="mt-0.5 pl-2.5 text-xs text-white/30">{hint}</p> : null}
     </div>
   );
 }
@@ -244,9 +244,9 @@ export function RailCard({
 }) {
   return (
     <section className={cn(GLASS_SURFACE, "overflow-hidden")}>
-      <header className="flex items-center gap-2 border-b border-slate-200/60 px-4 py-3">
-        {icon ? <span className="text-brand-600">{icon}</span> : null}
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h2>
+      <header className="flex items-center gap-2 border-b border-white/[0.07] px-4 py-3">
+        {icon ? <span className="text-indigo-300">{icon}</span> : null}
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-white/40">{title}</h2>
       </header>
       <div className="px-4 py-3.5">{children}</div>
     </section>
@@ -257,8 +257,8 @@ export function RailCard({
 export function RailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1.5 text-sm">
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="min-w-0 text-right font-medium text-slate-700">{value}</span>
+      <span className="shrink-0 text-white/40">{label}</span>
+      <span className="min-w-0 text-right font-medium text-white/70">{value}</span>
     </div>
   );
 }
@@ -278,11 +278,11 @@ export interface TimelineItemProps {
 }
 
 const DOT_TONES: Record<MetricTone, string> = {
-  neutral: "bg-slate-300 ring-slate-100",
-  brand: "bg-brand-500 ring-brand-100",
-  success: "bg-emerald-500 ring-emerald-100",
-  warning: "bg-amber-500 ring-amber-100",
-  danger: "bg-red-500 ring-red-100",
+  neutral: "bg-white/30 ring-white/10",
+  brand: "bg-indigo-500 ring-indigo-500/20",
+  success: "bg-emerald-400 ring-emerald-400/20",
+  warning: "bg-amber-400 ring-amber-400/20",
+  danger: "bg-red-400 ring-red-400/20",
 };
 
 export function TimelineItem({
@@ -297,7 +297,7 @@ export function TimelineItem({
       {!last ? (
         <span
           aria-hidden
-          className="absolute left-[5px] top-3 h-full w-px bg-gradient-to-b from-slate-200 to-transparent"
+          className="absolute left-[5px] top-3 h-full w-px bg-gradient-to-b from-white/15 to-transparent"
         />
       ) : null}
       <span
@@ -308,10 +308,10 @@ export function TimelineItem({
         )}
       />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="text-sm font-medium text-slate-800">{title}</span>
-        {meta ? <span className="text-xs text-slate-400">{meta}</span> : null}
+        <span className="text-sm font-medium text-white/80">{title}</span>
+        {meta ? <span className="text-xs text-white/30">{meta}</span> : null}
       </div>
-      {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
+      {description ? <p className="mt-0.5 text-sm text-white/50">{description}</p> : null}
     </li>
   );
 }

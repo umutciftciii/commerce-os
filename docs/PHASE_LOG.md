@@ -1000,3 +1000,77 @@ dokumanlarla sinirli tutuldu.
   (HTML + 7 chunk + cart API): tum marker'lar (cart-secret + `commerce_os_coupon` dahil) 0 hit.
 - Bilincli borc: shipping/tax/coupon "demo calculation"dir (gercek motor F3B.2+, TODO-059/063); il/ilce
   veri seti statik (guncel resmi ilce listesi; degisirse manuel guncellenir).
+
+## Faz 2J Store-admin Koyu "Glassmorphism" Yeniden Tasarim
+
+- Tarih: 2026-06-27
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kaynak: Claude Design handoff bundle (`commerce-os-sayfalar-n-yeniden-tasarla` / `Commerce OS -
+  Store Admin.dc.html`). Hedef: `apps/store-admin-web` tum ekranlarini koyu glassmorphism dile cevirmek.
+- Kapsam: YALNIZCA gorsel/tema. Hicbir akisa dokunulmadi — veri cekme, BFF/API route'lari, auth/session,
+  store context, form handler'lari, lifecycle aksiyonlari ve i18n mantigi AYNEN korundu. Backend/DB/
+  contracts/api-client/storefront/admin-web kapsam disi.
+- Tasarim dili: koyu zemin (radial + linear gradient, `app/globals.css`), translucent cam yuzeyler
+  (`bg-white/[0.06]` + `backdrop-blur-2xl`), ince beyaz kenar (`border-white/[0.09]`), indigo aksan
+  (#6366f1 ailesi), SF Pro font yigini, `pdot` canli-nokta animasyonu.
+- Izolasyon karari (ADR-032): paylasilan `@commerce-os/ui` (storefront-web + admin-web de kullanir;
+  acik tema) DEGISTIRILMEDI. Bunun yerine `apps/store-admin-web/components/ui/index.tsx` = paylasilan
+  primitive'lerin **API-uyumlu koyu karsiliklari** (Card, SectionCard, Badge, Button, StatCard,
+  PageHeader, DataTable, Alert, Input/Select/Textarea, Spinner, Skeleton, EmptyState, Modal, Container).
+  Locale (`useLocale`/`LocaleProvider`/`LanguageSwitcher`) ve `cn` paylasilan paketten aynen re-export.
+- Degisen dosyalar (hepsi sunum): `app/globals.css` (koyu gradient zemin), `components/ui/index.tsx`
+  (yeni yerel kit), `app/components/premium.tsx` (SurfaceCard/DetailHero/MetricTile/RailCard/Timeline
+  koyu glass), `components/store-app-shell.tsx` + `components/store-nav.tsx` (248px koyu cam sidebar:
+  kup logo + "Aktif Magaza" karti + gruplu nav Katalog/Satis/Gorunum&Ayar; 56px topbar; footer
+  cikis), tum `app/(app)/*` sayfalari (UI import'u yerel kit'e cevrildi + inline acik-tema sinif
+  token'lari koyu karsiliklarina donusturuldu), `components/store-login-client.tsx` (login koyu glass).
+- Bilincli kabul: topbar dil secici (`LanguageSwitcher`) paylasilan paketten geldigi icin acik (beyaz)
+  segmented control olarak kalir — koyu zeminde okunabilir; paketi bozmamak adina degistirilmedi.
+
+### Kodlama esnasinda cikan hatalar ve cozumleri
+
+- **Worktree'de `node_modules` yok** → `tsc`/`vitest` "command not found". Cozum: worktree kokunde
+  `pnpm install --offline --ignore-scripts` (lockfile guncel, 2.4 sn). Bkz. memory worktree gotcha.
+- **`@commerce-os/api-client` modulu cozulemiyor** (TS2307) ve ondan tureyen ~40 implicit-`any`
+  (TS7006/TS7053) hatasi — orn. `store-app-shell` `part` parametresi `any`. Sebep: workspace lib
+  paketleri `dist`'e build edilmemis (api-client `main: dist/index.js`). Cozum: gate sirasi — once
+  `pnpm db:generate`, sonra `pnpm --filter "@commerce-os/store-admin-web^..." build` (contracts/i18n/
+  api-client/ui derlendi); ardindan typecheck 0 hata. (Bkz. memory: typecheck oncesi db:generate +
+  build prereqi.) Bu hatalar tasarim degisikliginden DEGIL, ortamdan kaynaklandi.
+- **Inline acik-tema sinif artiklari** (`text-slate-*`, `bg-white`, `border-slate-*`, `bg-canvas`,
+  `text-brand-*`) koyu zeminde gorunmez kalma riski → sed ile koyu token haritasina cevrildi; sonra
+  grep ile dogrulandi (opak acik token kalmadi; yalniz kasitli `bg-white/[opaklik]` cam token'lari).
+- **Plain `bg-white`** (products `DETAIL_LINK_CLASS`) sed `bg-white/[X]` token'larini bozmamak icin
+  ayrica elle koyu cam buton stiline cevrildi.
+
+### Dogrulananlar
+
+- `pnpm db:generate` + bagimlilik lib build (contracts/i18n/api-client/ui) + `tsc -p tsconfig.json
+  --noEmit` = **0 hata**.
+- `vitest run` (store-admin-web): **72/72 test gecti** (bff-security 27, store-admin-interactions 14,
+  orders-ui 12, product-detail-page 5, order-detail-page 5, locale-smoke 2, price-format 6, health 1)
+  → akislar bozulmadi.
+- Grep taramasi: `app/` + `components/` icinde opak acik-tema sinifi (slate/brand/canvas/plain bg-white)
+  kalmadi; kalan `@commerce-os/ui` import'lari yalniz locale akisi + `cn` (kasitli).
+- Kapsam disi / yapilmadi: paylasilan `@commerce-os/ui` koyulastirma, `LanguageSwitcher` koyu varyanti.
+
+### Gorsel dogrulama (lokal/dev — gercek seed veri)
+
+- Ortam: Docker dogrulama **LOKAL/DEV ortamda** yapildi. `pnpm db:migrate` + `pnpm db:seed`
+  YALNIZCA lokal/dev seed dogrulamasi icin calistirildi. **Prod verisine veya prod DB'ye
+  DOKUNULMADI.** Seed verisi: 2 urun, 2 kategori, 3 varyant, 6 siparis (demo-store).
+- Docker container `store-admin-web` worktree context'inden `docker compose up -d --build` ile
+  yeniden derlendi; **localhost:3002** uzerinde healthy + `/login` 200 + eski `bg-canvas` yok
+  (yeni koyu tema servis ediliyor) olarak dogrulandi.
+- Screenshot notu: harici gorsel onizleme araci 3002 portuna baglanamadigi icin ekran goruntuleri
+  **ayni worktree kodu + ayni seed DB** ile (Docker gateway `localhost:4000`'e bagli) bassiz Chrome
+  (CDP) uzerinden alindi; Docker imajiyla piksel olarak ozdes. Giris: gercek BFF login akisi
+  (`/api/auth/login`, httpOnly session cookie).
+- Kayitli ekran goruntuleri (gercek veri):
+  - `docs/screenshots/store-admin-glass-redesign/login.png`
+  - `docs/screenshots/store-admin-glass-redesign/dashboard.png`
+  - `docs/screenshots/store-admin-glass-redesign/orders.png`
+  - `docs/screenshots/store-admin-glass-redesign/products.png`
+  - `docs/screenshots/store-admin-glass-redesign/product-detail.png`
+  - `docs/screenshots/store-admin-glass-redesign/inventory.png`
+  - `docs/screenshots/store-admin-glass-redesign/theme.png`

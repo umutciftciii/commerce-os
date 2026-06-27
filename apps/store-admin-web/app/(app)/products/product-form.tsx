@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Alert, Input, Select, Textarea, useLocale } from "@commerce-os/ui";
+import { Alert, Input, Select, Textarea, useLocale } from "../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
@@ -287,7 +287,7 @@ export function ProductForm({
           disabled={saving || isEdit}
           required={!isEdit}
         />
-        <p className="mt-1.5 text-xs text-slate-400">{isEdit ? f.slugLockedHint : f.slugHint}</p>
+        <p className="mt-1.5 text-xs text-white/30">{isEdit ? f.slugLockedHint : f.slugHint}</p>
       </div>
       <Select
         id="product-status"
@@ -325,12 +325,12 @@ export function ProductForm({
         rows={3}
       />
       <div>
-        <span className="mb-1.5 block text-sm font-medium text-slate-700">{f.categoriesLabel}</span>
+        <span className="mb-1.5 block text-sm font-medium text-white/70">{f.categoriesLabel}</span>
         {categories.length === 0 ? (
-          <p className="text-sm text-slate-400">{f.categoriesEmpty}</p>
+          <p className="text-sm text-white/30">{f.categoriesEmpty}</p>
         ) : (
           <>
-            <p className="mb-2 text-xs text-slate-400">{f.categoriesHint}</p>
+            <p className="mb-2 text-xs text-white/30">{f.categoriesHint}</p>
             <div className="flex flex-wrap gap-2">
               {categories.map((category) => {
                 const checked = categoryIds.includes(category.id);
@@ -339,13 +339,13 @@ export function ProductForm({
                     key={category.id}
                     className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
                       checked
-                        ? "border-brand-300 bg-brand-50 text-brand-700"
-                        : "border-slate-200 text-slate-600"
+                        ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-200"
+                        : "border-white/10 text-white/60"
                     }`}
                   >
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 accent-brand-600"
+                      className="h-3.5 w-3.5 accent-indigo-500"
                       checked={checked}
                       onChange={() => toggleCategory(category.id)}
                       disabled={saving}
@@ -359,12 +359,12 @@ export function ProductForm({
         )}
       </div>
 
-      <div className="space-y-4 rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 sm:p-5">
+      <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
         <div className="flex items-start gap-2.5">
-          <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-brand-500" />
+          <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">{sm.sectionTitle}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">{sm.sectionSubtitle}</p>
+            <h3 className="text-sm font-semibold text-white/90">{sm.sectionTitle}</h3>
+            <p className="mt-0.5 text-xs text-white/45">{sm.sectionSubtitle}</p>
           </div>
         </div>
 
@@ -532,13 +532,13 @@ function SalesToggle({
     <label
       htmlFor={id}
       className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-        checked ? "border-brand-300 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600"
+        checked ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-200" : "border-white/10 text-white/60"
       }`}
     >
       <input
         id={id}
         type="checkbox"
-        className="h-3.5 w-3.5 accent-brand-600"
+        className="h-3.5 w-3.5 accent-indigo-500"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         disabled={disabled}

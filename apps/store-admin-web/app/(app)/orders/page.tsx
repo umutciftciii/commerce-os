@@ -16,7 +16,7 @@ import {
   SkeletonRows,
   useLocale,
   type DataTableColumn,
-} from "@commerce-os/ui";
+} from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { InventoryItem, Order, OrderCreateRequest } from "@commerce-os/api-client";
 import { OrderIcon } from "../../../components/icons";
@@ -42,7 +42,7 @@ type LoadState =
 
 // Detay = `/orders/[id]` (modal degil). Liste yalniz hizli aksiyonlari barindirir.
 const DETAIL_LINK_CLASS =
-  "inline-flex h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900";
+  "inline-flex h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90";
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -134,8 +134,8 @@ export default function OrdersPage() {
       header: t.table.number,
       cell: (order) => (
         <div>
-          <p className="font-mono text-sm font-medium text-slate-900">{order.orderNumber}</p>
-          <p className="text-xs text-slate-400">
+          <p className="font-mono text-sm font-medium text-white/90">{order.orderNumber}</p>
+          <p className="text-xs text-white/30">
             {order.placedAt ? formatDate(order.placedAt) : formatDate(order.createdAt)}
           </p>
         </div>
@@ -143,12 +143,12 @@ export default function OrdersPage() {
     },
     {
       header: t.table.customer,
-      cell: (order) => <span className="text-slate-600">{order.customerEmail}</span>,
+      cell: (order) => <span className="text-white/60">{order.customerEmail}</span>,
     },
     {
       header: t.table.total,
       cell: (order) => (
-        <span className="font-medium text-slate-900">
+        <span className="font-medium text-white/90">
           {formatMinor(order.totalAmount, order.currency)}
         </span>
       ),
@@ -178,7 +178,7 @@ export default function OrdersPage() {
     {
       header: t.table.lines,
       cell: (order) => (
-        <span className="text-slate-500">
+        <span className="text-white/45">
           {format(t.lineCountLabel, { count: order.lines.length })}
         </span>
       ),
@@ -237,7 +237,7 @@ export default function OrdersPage() {
             action={
               <button
                 type="button"
-                className="text-emerald-700 underline"
+                className="text-emerald-300 underline"
                 onClick={() => setNotice(null)}
               >
                 {c.actions.dismiss}
@@ -256,7 +256,7 @@ export default function OrdersPage() {
             action={
               <button
                 type="button"
-                className="text-red-700 underline"
+                className="text-red-300 underline"
                 onClick={() => setActionError(null)}
               >
                 {c.actions.dismiss}
@@ -495,10 +495,10 @@ function CreateOrder({
           required
         />
 
-        <div className="space-y-3 border-t border-slate-100 pt-4">
+        <div className="space-y-3 border-t border-white/[0.07] pt-4">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">{f.linesTitle}</h3>
-            <p className="mt-0.5 text-xs text-slate-400">{f.linesHint}</p>
+            <h3 className="text-sm font-semibold text-white/90">{f.linesTitle}</h3>
+            <p className="mt-0.5 text-xs text-white/30">{f.linesHint}</p>
           </div>
 
           {lines.map((line, index) => (

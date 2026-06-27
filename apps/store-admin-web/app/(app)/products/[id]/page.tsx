@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Alert, Badge, Button, SkeletonRows, useLocale } from "@commerce-os/ui";
+import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
@@ -101,7 +101,7 @@ export default function ProductDetailPage() {
         eyebrow={t.eyebrow}
         title={product ? product.title : t.title}
         subtitle={
-          product ? <span className="font-mono text-xs text-slate-400">{product.slug}</span> : null
+          product ? <span className="font-mono text-xs text-white/30">{product.slug}</span> : null
         }
         description={d.pageDescription}
         backHref="/products"
@@ -139,7 +139,7 @@ export default function ProductDetailPage() {
             action={
               <button
                 type="button"
-                className="text-emerald-700 underline"
+                className="text-emerald-300 underline"
                 onClick={() => setNotice(null)}
               >
                 {c.actions.dismiss}
@@ -198,7 +198,7 @@ export default function ProductDetailPage() {
           rail={
             <>
               <RailCard title={d.rail.salesProfile}>
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-white/[0.06]">
                   <RailRow label={d.rail.status} value={statusLabels[product.status]} />
                   <RailRow label={d.rail.salesMode} value={sm.modeLabels[mode]} />
                   <RailRow
@@ -218,17 +218,17 @@ export default function ProductDetailPage() {
               </RailCard>
 
               <RailCard title={d.rail.stockProfile}>
-                <p className="text-sm text-slate-500">{d.inventoryNote}</p>
+                <p className="text-sm text-white/45">{d.inventoryNote}</p>
                 <Link
                   href="/inventory"
-                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-600 transition-colors hover:text-brand-700"
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-indigo-300 transition-colors hover:text-indigo-200"
                 >
                   {d.inventoryLink} <span aria-hidden>→</span>
                 </Link>
               </RailCard>
 
               <RailCard title={d.rail.metadata}>
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-white/[0.06]">
                   <RailRow label={t.form.slugLabel} value={product.slug} />
                   <RailRow label={d.rail.created} value={formatDate(product.createdAt)} />
                   <RailRow label={d.rail.lastUpdated} value={formatDate(product.updatedAt)} />
@@ -236,7 +236,7 @@ export default function ProductDetailPage() {
               </RailCard>
 
               <RailCard title={d.rail.managementNoteTitle}>
-                <p className="text-sm leading-relaxed text-slate-500">{d.rail.managementNote}</p>
+                <p className="text-sm leading-relaxed text-white/45">{d.rail.managementNote}</p>
               </RailCard>
             </>
           }
