@@ -196,6 +196,20 @@
 - TODO-065: Anonim sepet/rezervasyon yasam dongusu — anonim checkout'ta stok PLACED ile rezerve
   edilir; odeme alinmadan terk edilen siparisler icin reservation expiry/iptal job'i (worker) ve
   abandoned-order temizligi (TD-033).
-- TODO-072: F3B.2 follow-up UI polish — manuel izole smoke'ta gozlemlenen birkac ufak UI bug
-  (F3B.2 revizyon checkpoint'inde bilinçli ertelendi; akis/gate'leri bloke etmiyor). Bir sonraki
-  buyuk is sonrasinda toplu ele alinacak. Detayli liste kullanici tarafindan netlestirilecek.
+- TODO-072: F3B.2 follow-up UI polish — manuel izole smoke'ta gozlemlenen, F3B.2'yi bloke ETMEYEN
+  ufak UI eksikleri (revizyon checkpoint 8fdcbb7'de bilinçli ertelendi). Bir sonraki buyuk is sonrasi
+  toplu ele alinacak. Maddeler:
+  - 3D Secure test akisi: "3DS gerekli" karti secilince gercekci dogrulama/simulasyon ekrani gelmiyor
+    (dogrudan onay → basarili). Ayri dogrulama adimi + net "3D basarili/basarisiz" test aksiyonlari +
+    PaymentAttempt timeline'da 3DS_REQUIRED/3DS_AUTHORIZED/3DS_FAILED izlenebilirligi (F3B.3 ile de
+    birlesebilir).
+  - Inventory-aware PDP quantity: PDP adet secici stok limitini bilmeli; stok 2 iken 3 secilememeli
+    veya "En fazla N adet" uyarisiyla sepete eklemeden once engellenmeli (server-side reconcile zaten
+    dogru; bu UX iyilestirmesi).
+  - Taksit UX: odeme adiminda taksit ozeti ("3 taksit × ₺…"/aylik plan) + siparis detayinda taksit
+    tutari/toplam/yontem daha acik. Gercek hesap motoru yokken SAHTE oran YAZILMAZ; faiz yoksa
+    "vade farksiz" gibi net bilgi.
+- TODO-073: Store-admin orders filters — admin/store-admin siparisler listesinde temel filtreler yok.
+  Eklenecek: odeme durumu (Odenmedi/Odendi/Basarisiz/Iade), siparis durumu, tarih araligi, musteri/
+  e-posta arama, (opsiyonel) toplam tutar araligi. Kucuk UI bug degil; admin-list UX gelistirmesi.
+  Hedef: F3B.2 follow-up veya F3B.3 Admin Orders UX.
