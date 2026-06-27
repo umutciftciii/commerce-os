@@ -240,6 +240,7 @@ export const trStorefront = {
     paymentMock: "Demo",
     paymentNote:
       "Bu demo akışında gerçek ödeme alınmaz. Sipariş, ödeme bekliyor durumunda oluşturulur.",
+    paymentTestNote: "Sipariş sonrası test ödeme adımına geçilecektir.",
     summaryTitle: "Sipariş özeti",
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
     subtotal: "Ara toplam",

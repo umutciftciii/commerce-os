@@ -21,7 +21,16 @@ const initialState: CheckoutFormState = { status: "idle" };
  * ilce sifirlanir). Telefon TR cep formatinda yazilir; sunucu normalize/dogrular.
  * Order olusumu/validasyon nihai olarak gateway'dedir.
  */
-export function CheckoutForm({ view, t }: { view: CartView; t: CheckoutDict }) {
+export function CheckoutForm({
+  view,
+  t,
+  paymentTestEnabled = false,
+}: {
+  view: CartView;
+  t: CheckoutDict;
+  /** F3B.2: Aktif TEST/MOCK provider varsa ödeme bölümü test-akış metnini gösterir. */
+  paymentTestEnabled?: boolean;
+}) {
   const router = useRouter();
   const [state, formAction, isPending] = useActionState(submitCheckoutAction, initialState);
 
@@ -80,7 +89,9 @@ export function CheckoutForm({ view, t }: { view: CartView; t: CheckoutDict }) {
               {t.paymentMock}
             </span>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">{t.paymentNote}</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
+            {paymentTestEnabled ? t.paymentTestNote : t.paymentNote}
+          </p>
         </Card>
       </div>
 

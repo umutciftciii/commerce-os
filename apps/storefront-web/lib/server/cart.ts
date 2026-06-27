@@ -5,6 +5,7 @@ import type {
   PublicCheckoutRequest,
   PublicCouponStatus,
   PublicOrderConfirmation,
+  PublicPaymentAvailability,
   PublicPaymentResult,
   PublicPaymentScenario,
   PublicPaymentState,
@@ -139,6 +140,22 @@ function toCartView(cart: PublicCart): CartView {
       status: line.status,
     })),
   };
+}
+
+/**
+ * F3B.2 — Checkout ONCESI ipucu: store'da checkout sonrasi test odeme adimini
+ * surduren bir provider var mi? Hata/ulasilamama durumunda guvenli varsayilan
+ * `false` (mevcut demo/UNPAID metni gosterilir). Secret/credential DONMEZ.
+ */
+export async function getPaymentAvailability(): Promise<boolean> {
+  try {
+    const result = await getPublic<PublicPaymentAvailability>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/payment-availability`,
+    );
+    return result.ok ? result.data.testPaymentEnabled : false;
+  } catch {
+    return false;
+  }
 }
 
 /** Cookie kalemlerini gateway'de coz; gorunum modeli + (gerekirse) reconcile veri. */

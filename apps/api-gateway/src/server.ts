@@ -51,6 +51,7 @@ import {
   publicCartSchema,
   publicCheckoutRequestSchema,
   publicOrderConfirmationSchema,
+  publicPaymentAvailabilitySchema,
   publicPaymentResultSchema,
   publicPaymentStateSchema,
   publicPaymentSubmitRequestSchema,
@@ -2854,6 +2855,20 @@ export function createServer(
     );
   });
 
+  // F3B.2: Checkout ONCESI bilgilendirme — store'da checkout sonrasi test odeme
+  // adimini SURDUREN bir provider var mi? `buildPaymentRedirect` ile ayni kosulu
+  // yansitir (hasTestPaymentProvider). Secret/credential donmez; sadece boolean.
+  app.get("/public/stores/:storeSlug/payment-availability", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    return publicPaymentAvailabilitySchema.parse({
+      testPaymentEnabled: await hasTestPaymentProvider(store.id),
+    });
+  });
+
   app.post("/auth/platform/login", async (request, reply) => {
     const input = platformLoginRequestSchema.parse(request.body);
     if (loginRateLimiter.isLimited(request.ip, input.email)) {
@@ -3718,6 +3733,27 @@ export function createServer(
       message: event.message,
       createdAt: event.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * Checkout ONCESI bilgilendirme: store'da checkout sonrasi test odeme adimini
+   * SURDUREN bir provider var mi? `buildPaymentRedirect` ile AYNI kosulu yansitir
+   * (bu fazda yalnizca MOCK test akisini surdurur; LIVE ortamda MOCK devre disi).
+   * Tutar/para-birimi'ne bagli min/maks kapsam disi (cart-bagimsiz ipucu); kesin
+   * karar yine checkout aninda `buildPaymentRedirect` tarafindan verilir.
+   */
+  async function hasTestPaymentProvider(storeId: string): Promise<boolean> {
+    if (isLiveEnv) {
+      return false;
+    }
+    const configs = await dataAccess.listPaymentProviderConfigs(storeId);
+    return configs.some(
+      (candidate) =>
+        candidate.provider === "MOCK" &&
+        candidate.status === "ENABLED" &&
+        candidate.mode === "TEST" &&
+        candidate.supportedMethods.includes("CARD"),
+    );
   }
 
   /**

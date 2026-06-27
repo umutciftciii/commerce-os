@@ -111,6 +111,7 @@ export type {
   PublicPaymentState,
   PublicPaymentSubmitRequest,
   PublicPaymentResult,
+  PublicPaymentAvailability,
   PlatformUserContract,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,

@@ -710,6 +710,16 @@ export const publicPaymentResultSchema = z.object({
   requiresAction: z.boolean(),
 });
 
+/**
+ * F3B.2 — Public ödeme uygunlugu (checkout ÖNCESI bilgilendirme icin). Yalnizca
+ * "checkout sonrasi test ödeme adimina gecilecek mi?" sorusunu yanitlar; secret
+ * /credential ASLA donmez. `testPaymentEnabled`, checkout sonrasi redirect'i
+ * URETEN resolver ile ayni kosulu yansitir (uygun TEST/MOCK provider varligi).
+ */
+export const publicPaymentAvailabilitySchema = z.object({
+  testPaymentEnabled: z.boolean(),
+});
+
 export const productVariantCreateRequestSchema = z
   .object({
     title: z.string().min(1).max(220),
@@ -1174,6 +1184,7 @@ export type PublicPaymentRedirect = z.infer<typeof publicPaymentRedirectSchema>;
 export type PublicPaymentState = z.infer<typeof publicPaymentStateSchema>;
 export type PublicPaymentSubmitRequest = z.infer<typeof publicPaymentSubmitRequestSchema>;
 export type PublicPaymentResult = z.infer<typeof publicPaymentResultSchema>;
+export type PublicPaymentAvailability = z.infer<typeof publicPaymentAvailabilitySchema>;
 export type PaymentProviderTypeContract = z.infer<typeof paymentProviderTypeSchema>;
 export type PaymentProviderModeContract = z.infer<typeof paymentProviderModeSchema>;
 export type PaymentMethodTypeContract = z.infer<typeof paymentMethodTypeSchema>;

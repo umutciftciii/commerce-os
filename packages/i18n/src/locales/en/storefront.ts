@@ -238,6 +238,7 @@ export const enStorefront: StorefrontDictionary = {
     paymentMock: "Demo",
     paymentNote:
       "No real payment is taken in this demo flow. The order is created as awaiting payment.",
+    paymentTestNote: "You'll proceed to a test payment step after placing the order.",
     summaryTitle: "Order summary",
     summaryNote: "Prices include VAT. Amounts are re-validated when your order is placed.",
     subtotal: "Subtotal",
