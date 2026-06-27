@@ -213,3 +213,17 @@
   Eklenecek: odeme durumu (Odenmedi/Odendi/Basarisiz/Iade), siparis durumu, tarih araligi, musteri/
   e-posta arama, (opsiyonel) toplam tutar araligi. Kucuk UI bug degil; admin-list UX gelistirmesi.
   Hedef: F3B.2 follow-up veya F3B.3 Admin Orders UX.
+
+- F3B.3: Customer Account Auth + Checkout Guard + Address Book Foundation. (DONE — bkz. ADR-034 +
+  Faz 3B.3 phase log. Mevcut `Customer` storefront uyelik hesabi olacak sekilde genisletildi;
+  CustomerCredential/Session/OtpVerification/Iban/CommunicationPreference; checkout guard + adres
+  defteri; `/auth/login`, `/auth/register` (3 adim OTP), `/account` shell + dropdown. Migration
+  20260628120000.)
+- TODO-074: E-posta/telefon DEGISIKLIGI OTP dogrulamasi — Uyelik Bilgilerim'de e-posta/telefon su an
+  salt-okunur (+"dogrulama gerekir" notu). Gercek degisiklik icin OTP akisi (REGISTER ile ayni altyapi,
+  purpose=VERIFY_CONTACT zaten sema'da) sonraki faz.
+- TODO-075: Password reset / "sifremi unuttum" akisi (F3B.3 kapsam disiydi). OTP + yeni sifre.
+- TODO-076: Gercek SMS/e-posta OTP teslimat saglayici entegrasyonu. Su an provider-ready dev/mock;
+  `CUSTOMER_OTP_DEV_CODE` yalniz development/test bypass'i (plain kod loglanmaz).
+- TODO-077: Guest gecmis siparis baglama — F3B.3'te yalniz checkout anindaki yeni siparis customerId'ye
+  baglanir; mevcut guest order'larin (customerEmail ile) hesaba retro baglanmasi sonraki faz.

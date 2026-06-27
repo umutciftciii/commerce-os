@@ -59,3 +59,45 @@ export async function postPublic<T>(path: string, body: unknown): Promise<FetchO
   }
   return { ok: true, data: (await response.json()) as T };
 }
+
+/**
+ * F3B.3 — Musteri oturumu gerektiren public uclar icin server-to-server fetch.
+ * `token` (raw musteri oturum jetonu) httpOnly cookie'den OKUNUR ve YALNIZCA
+ * `x-customer-session` header'i ile gateway'e iletilir; NEXT_PUBLIC degildir,
+ * client bundle'a girmez. Token degeri response/log'a yazilmaz.
+ */
+function customerHeaders(token: string | null, json = false): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (json) headers["content-type"] = "application/json";
+  if (token) headers["x-customer-session"] = token;
+  return headers;
+}
+
+export async function getCustomer<T>(path: string, token: string | null): Promise<FetchOutcome<T>> {
+  const response = await fetch(`${gatewayBaseUrl()}${path}`, {
+    headers: customerHeaders(token),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    return { ok: false, status: response.status, code: await errorCodeOf(response) };
+  }
+  return { ok: true, data: (await response.json()) as T };
+}
+
+export async function sendCustomer<T>(
+  method: "POST" | "PUT" | "DELETE",
+  path: string,
+  token: string | null,
+  body?: unknown,
+): Promise<FetchOutcome<T>> {
+  const response = await fetch(`${gatewayBaseUrl()}${path}`, {
+    method,
+    headers: customerHeaders(token, body !== undefined),
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    return { ok: false, status: response.status, code: await errorCodeOf(response) };
+  }
+  return { ok: true, data: (await response.json()) as T };
+}

@@ -5,6 +5,8 @@ import { Container, LanguageSwitcher } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getCartCount } from "../lib/server/cart-cookie";
+import { getCurrentCustomer } from "../lib/server/customer";
+import { AccountMenu } from "../components/account/account-menu";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -31,6 +33,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const t = dict.storefront;
   const s = t.shell;
   const cartCount = await getCartCount();
+  const customer = await getCurrentCustomer();
 
   return (
     <html lang={locale} data-theme="default">
@@ -65,6 +68,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                     {cartCount}
                   </span>
                 </Link>
+                <AccountMenu customer={customer} t={t.account} />
                 <LanguageSwitcher value={locale} labels={dict.common.language} />
               </nav>
             </Container>

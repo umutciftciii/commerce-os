@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
-import { isValidTckn } from "@commerce-os/api-client";
+import { isValidTckn, type CustomerAddress } from "@commerce-os/api-client";
 import type { CartView } from "../lib/server/cart";
 import { type CheckoutFormState, submitCheckoutAction } from "../lib/server/cart-actions";
 import { districtsOf, trProvinceNames } from "../lib/tr-location-data";
@@ -24,11 +24,22 @@ export function CheckoutForm({
   view,
   t,
   paymentTestEnabled = false,
+  addressBook,
 }: {
   view: CartView;
   t: CheckoutDict;
   /** F3B.2: Aktif TEST/MOCK provider varsa ödeme bölümü test-akış metnini gösterir. */
   paymentTestEnabled?: boolean;
+  /**
+   * F3B.3: Oturum acmis musteride teslimat, adres defterinden secilir. Verilirse
+   * iletisim/teslimat kartlari yerine adres secici + e-posta render edilir; secilen
+   * adres action'in bekledigi alan adlarini (fullName/phone/city/...) hidden input
+   * olarak yayar. Fatura ("fatura farkli") akisi degismeden korunur.
+   */
+  addressBook?: {
+    addresses: CustomerAddress[];
+    accountEmail: string | null;
+  };
 }) {
   const [state, formAction, isPending] = useActionState(submitCheckoutAction, initialState);
 
@@ -44,26 +55,40 @@ export function CheckoutForm({
       <div className="space-y-6">
         {bannerError ? <Alert tone="error">{bannerError}</Alert> : null}
 
-        <Card className="p-6">
-          <h2 className="mb-4 text-base font-semibold text-slate-900">{t.contactTitle}</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field name="fullName" label={t.fullName} error={fieldErrors.fullName} autoComplete="name" required />
-            <Field
-              name="email"
-              label={t.email}
-              type="email"
-              error={fieldErrors.email}
-              autoComplete="email"
-              required
+        {addressBook ? (
+          <Card className="p-6">
+            <h2 className="mb-4 text-base font-semibold text-slate-900">{t.addressBook.title}</h2>
+            <CheckoutAddressBook
+              t={t}
+              addresses={addressBook.addresses}
+              accountEmail={addressBook.accountEmail}
+              emailError={fieldErrors.email}
             />
-            <PhoneField label={t.phone} placeholder={t.phonePlaceholder} hint={t.phoneHint} error={fieldErrors.phone} />
-          </div>
-        </Card>
+          </Card>
+        ) : (
+          <>
+            <Card className="p-6">
+              <h2 className="mb-4 text-base font-semibold text-slate-900">{t.contactTitle}</h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field name="fullName" label={t.fullName} error={fieldErrors.fullName} autoComplete="name" required />
+                <Field
+                  name="email"
+                  label={t.email}
+                  type="email"
+                  error={fieldErrors.email}
+                  autoComplete="email"
+                  required
+                />
+                <PhoneField label={t.phone} placeholder={t.phonePlaceholder} hint={t.phoneHint} error={fieldErrors.phone} />
+              </div>
+            </Card>
 
-        <Card className="p-6">
-          <h2 className="mb-4 text-base font-semibold text-slate-900">{t.addressTitle}</h2>
-          <AddressFields t={t} fieldErrors={fieldErrors} />
-        </Card>
+            <Card className="p-6">
+              <h2 className="mb-4 text-base font-semibold text-slate-900">{t.addressTitle}</h2>
+              <AddressFields t={t} fieldErrors={fieldErrors} />
+            </Card>
+          </>
+        )}
 
         <Card className="p-6">
           <h2 className="mb-4 text-base font-semibold text-slate-900">{t.billing.title}</h2>
@@ -470,4 +495,135 @@ function bannerMessage(reason: string | undefined, t: CheckoutDict): string {
     default:
       return t.errorGeneric;
   }
+}
+
+/**
+ * F3B.3 — Checkout adres defteri secici (oturum acmis musteri). Secilen adres,
+ * Server Action'in bekledigi alan adlarini (fullName/phone/country/city/district/
+ * addressLine1/2/postalCode) hidden input olarak yayar. Varsayilan teslimat adresi
+ * onceden secili gelir; "Degistir" ile diger kayitli adresler arasinda gecilir.
+ * E-posta adres defterinde tutulmadigindan ayrica alinir (hesap e-postasi onerilir).
+ */
+function CheckoutAddressBook({
+  t,
+  addresses,
+  accountEmail,
+  emailError,
+}: {
+  t: CheckoutDict;
+  addresses: CustomerAddress[];
+  accountEmail: string | null;
+  emailError?: boolean;
+}) {
+  const defaultId = addresses.find((a) => a.isDefaultShipping)?.id ?? addresses[0].id;
+  const [selectedId, setSelectedId] = useState(defaultId);
+  const [changing, setChanging] = useState(false);
+  const selected = addresses.find((a) => a.id === selectedId) ?? addresses[0];
+  const ab = t.addressBook;
+
+  return (
+    <div className="space-y-4">
+      <input type="hidden" name="fullName" value={selected.fullName} />
+      <input type="hidden" name="phone" value={selected.phone ?? ""} />
+      <input type="hidden" name="country" value="TR" />
+      <input type="hidden" name="city" value={selected.city} />
+      <input type="hidden" name="district" value={selected.district ?? ""} />
+      <input type="hidden" name="addressLine1" value={selected.addressLine1} />
+      <input type="hidden" name="addressLine2" value={selected.addressLine2 ?? ""} />
+      <input type="hidden" name="postalCode" value={selected.postalCode ?? ""} />
+
+      {!changing ? (
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-brand-200 bg-brand-50/40 p-4">
+          <div className="text-sm text-slate-700">
+            <p className="font-medium text-slate-900">
+              {selected.addressName ? `${selected.addressName} · ` : ""}
+              {selected.fullName}
+              {selected.isDefaultShipping ? (
+                <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                  {ab.default}
+                </span>
+              ) : null}
+            </p>
+            <p className="mt-1 leading-relaxed text-slate-600">
+              {selected.addressLine1}
+              {selected.addressLine2 ? `, ${selected.addressLine2}` : ""}
+            </p>
+            <p className="text-slate-600">
+              {selected.district ? `${selected.district} / ` : ""}
+              {selected.city}
+              {selected.postalCode ? ` ${selected.postalCode}` : ""}
+            </p>
+            {selected.phone ? <p className="text-slate-500">{selected.phone}</p> : null}
+          </div>
+          {addresses.length > 1 ? (
+            <button
+              type="button"
+              className="shrink-0 text-sm font-medium text-brand-700 hover:text-brand-800"
+              onClick={() => setChanging(true)}
+            >
+              {ab.change}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {addresses.map((address) => (
+            <label
+              key={address.id}
+              className={[
+                "flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-sm",
+                address.id === selectedId
+                  ? "border-brand-500 bg-brand-50"
+                  : "border-slate-200 hover:border-slate-300",
+              ].join(" ")}
+            >
+              <input
+                type="radio"
+                name="addressBookChoice"
+                className="mt-1"
+                checked={address.id === selectedId}
+                onChange={() => setSelectedId(address.id)}
+              />
+              <span className="text-slate-700">
+                <span className="font-medium text-slate-900">
+                  {address.addressName ? `${address.addressName} · ` : ""}
+                  {address.fullName}
+                </span>
+                <span className="mt-0.5 block text-slate-600">
+                  {address.addressLine1}
+                  {address.district ? `, ${address.district}` : ""} / {address.city}
+                </span>
+              </span>
+            </label>
+          ))}
+          <button
+            type="button"
+            className="text-sm font-medium text-brand-700 hover:text-brand-800"
+            onClick={() => setChanging(false)}
+          >
+            {ab.use}
+          </button>
+        </div>
+      )}
+
+      <div>
+        <Input
+          id="checkout-account-email"
+          name="email"
+          type="email"
+          label={t.email}
+          autoComplete="email"
+          defaultValue={accountEmail ?? ""}
+          aria-invalid={emailError ? true : undefined}
+          className={emailError ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined}
+        />
+        <a
+          href="/account?section=addresses"
+          className="mt-1.5 inline-block text-xs font-medium text-brand-700 hover:text-brand-800"
+        >
+          {ab.manageCta}
+        </a>
+      </div>
+    </div>
+  );
 }
