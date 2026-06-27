@@ -1074,3 +1074,19 @@ dokumanlarla sinirli tutuldu.
   - `docs/screenshots/store-admin-glass-redesign/product-detail.png`
   - `docs/screenshots/store-admin-glass-redesign/inventory.png`
   - `docs/screenshots/store-admin-glass-redesign/theme.png`
+  - `docs/screenshots/store-admin-glass-redesign/mobile-nav.png` (PR review sonrasi eklendi)
+
+### PR review sonrasi — responsive nav hardening (commit `fix(store-admin): harden glass shell navigation`)
+
+- PR review geri bildirimi uzerine kabuk navigasyonu sertlestirildi. Onceki halde kenar menu
+  `hidden lg:flex` oldugu icin <1024px ekranlarda navigasyon tamamen kayboluyordu.
+- **Mobile/tablet nav erisimi korundu:** topbar'a yalniz `lg:hidden` hamburger butonu eklendi;
+  tiklayinca masaustu menunun AYNI icerigini (marka, aktif magaza karti, gruplu nav, kullanici/
+  cikis) tasiyan bir drawer (karartilmis backdrop + kapatma) acilir. Bir route'a gecince drawer
+  kapanir. Masaustu sabit sidebar tasarimi degismedi; auth/store context/logout akisina dokunulmadi.
+- **StoreNav `next/link`'e gecirildi:** ozel `<a href>` yerine Next.js `Link`; aktif-route mantigi
+  ve gorunum birebir ayni, tam sayfa reload yerine client-side gecis. `onNavigate` prop'u drawer'i
+  kapatmak icin eklendi.
+- Dogrulama: typecheck 0, store-admin 72/72 test gecti; store-admin-web imaji rebuild edildi,
+  localhost:3002 healthy + `/login` 200; mobil drawer gercek seed veriyle `mobile-nav.png`'de
+  dogrulandi.

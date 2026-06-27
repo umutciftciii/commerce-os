@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
@@ -29,7 +30,7 @@ const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   appearance: { tr: "Görünüm & Ayar", en: "Appearance & Settings" },
 };
 
-export function StoreNav() {
+export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const locale = useLocale();
   const t = getDictionary(locale).storeAdmin.nav;
@@ -77,9 +78,10 @@ export function StoreNav() {
           {group.items.map((item) => {
             const active = isActive(item.href);
             return (
-              <a
+              <Link
                 key={item.href}
                 href={item.href}
+                onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={[
                   "flex items-center gap-2.5 rounded-[10px] px-[11px] py-2 text-[13px] leading-tight transition-colors",
@@ -93,7 +95,7 @@ export function StoreNav() {
                   {item.icon}
                 </span>
                 {item.label}
-              </a>
+              </Link>
             );
           })}
         </div>
