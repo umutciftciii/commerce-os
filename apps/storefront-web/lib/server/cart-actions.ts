@@ -1,11 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import type { PublicPaymentResult, PublicPaymentScenario } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
 import { submitCheckout, submitTestPayment } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
-import { readCartItems, readCoupon, writeCartItems, writeCoupon } from "./cart-cookie";
+import {
+  clearCartCookie,
+  readCartItems,
+  readCoupon,
+  writeCartItems,
+  writeCheckoutConfirmationCookie,
+  writeCoupon,
+} from "./cart-cookie";
 import { isProvince, isValidProvinceDistrict } from "../tr-location-data";
 import { normalizeTrPhone } from "../phone";
 
@@ -141,10 +149,23 @@ export async function submitCheckoutAction(
     return { status: "error", errorReason: result.reason };
   }
 
-  // Basarili: sepeti temizle, nav/sepet'i tazele, onayi geri don.
-  await writeCartItems([]);
-  revalidateCart();
-  return { status: "success", confirmation: result.confirmation };
+  // Basarili: order olustu. Sepeti temizle ve nav rozetini tazele; ancak /checkout'u
+  // REVALIDATE ETME — bos sepetle /checkout server bileseni EmptyCheckout render edip
+  // CheckoutForm'u (ve client-side yonlendirmeyi) clobber ederdi (F3B.1 regression).
+  // Bunun yerine kullanici, sepetten BAGIMSIZ onay/odeme rotasina SUNUCU-TARAFI
+  // redirect ile gonderilir; boylece order context (URL token / imzali cookie) korunur.
+  await clearCartCookie();
+  revalidatePath("/", "layout"); // yalniz nav rozeti (cart count -> 0)
+  revalidatePath("/cart");
+
+  // Uygun TEST/MOCK provider varsa: token'li odeme test sayfasi (cart-bagimsiz).
+  const paymentPath = result.confirmation.paymentRedirectPath;
+  if (paymentPath) {
+    redirect(paymentPath);
+  }
+  // Provider yoksa: onay gorunumunu kisa omurlu imzali cookie'ye yazip success'e git.
+  await writeCheckoutConfirmationCookie(result.confirmation);
+  redirect("/checkout/success");
 }
 
 export type TestPaymentActionState =
