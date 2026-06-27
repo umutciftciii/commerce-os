@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 import { readCartItems, readCoupon } from "../../lib/server/cart-cookie";
-import { resolveCart } from "../../lib/server/cart";
+import { getPaymentAvailability, resolveCart } from "../../lib/server/cart";
 import { CheckoutForm } from "../../components/checkout-form";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,10 @@ export default async function CheckoutPage() {
     return <EmptyCheckout t={t} />;
   }
 
+  // F3B.2: Aktif TEST/MOCK provider varsa odeme bolumu metni "test odeme adimina
+  // gecilecek" der; yoksa mevcut demo/UNPAID metni gosterilir.
+  const paymentTestEnabled = await getPaymentAvailability();
+
   return (
     <Container className="py-12">
       <div className="mb-6 flex items-center justify-between">
@@ -43,7 +47,7 @@ export default async function CheckoutPage() {
           ← {t.backToCart}
         </Link>
       </div>
-      <CheckoutForm view={result.data} t={t} />
+      <CheckoutForm view={result.data} t={t} paymentTestEnabled={paymentTestEnabled} />
     </Container>
   );
 }
