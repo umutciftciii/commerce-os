@@ -15,6 +15,17 @@ export const envSchema = z.object({
   AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   API_GATEWAY_PORT: z.coerce.number().int().positive().default(3000),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  // F3B.3: Storefront musteri oturum/OTP ayarlari. Oturum TTL'i admin'den uzun
+  // (alisveris devamliligi). OTP kisa omurlu + denemesi sinirli + resend cooldown.
+  CUSTOMER_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
+  CUSTOMER_OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  CUSTOMER_OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+  // F3B.3: Gercek SMS/e-posta saglayici YOK; OTP teslimat dev/mock. Bu deger
+  // SET ise (yalnizca development/test'te etkili) OTP dogrulamada bu sabit kod da
+  // kabul edilir; boylece izole smoke gercek kod sizdirmadan akisi tamamlar.
+  // Plain OTP loglara/response'a ASLA yazilmaz; bu yalniz dev/test bypass'idir.
+  CUSTOMER_OTP_DEV_CODE: z.string().regex(/^[0-9]{6}$/).optional(),
   // F3B.2: Payment provider credential'larini AES-256-GCM ile sifrelemek icin
   // 32 byte'lik anahtar (base64 veya hex). Yoksa development/test'te guvensiz
   // dev fallback kullanilir (yuksek sesli uyari); staging/production'da eksikse

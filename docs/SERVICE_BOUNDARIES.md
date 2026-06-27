@@ -21,6 +21,12 @@ foundation tercihidir; servis sinirlarini gevsetme izni degildir.
   admin UI, storefront resolver, sepet/siparis/checkout/odeme/kargo/pazaryeri modulleri bu sinirin
   disindadir. Faz 2A catalog/inventory yalnizca foundation CRUD ve manual stock adjustment'tir;
   order reservation veya marketplace sync davranisi degildir.
+- F3B.3 musteri auth siniri (ADR-034): Storefront musteri hesabi auth/session/profil/adres/IBAN
+  uclari gateway'in `/public/stores/:slug/customer/*` public prefix'inde yayinlanir; platform/store
+  ADMIN auth'undan (PlatformUser/StoreUser bearer session) AYRIDIR. Musteri oturumu opak jeton ->
+  `sha256` tokenHash (CustomerSession) ile dogrulanir ve istemciden `x-customer-session` header'i ile
+  gelir (bearer DEGIL). Domain mantigi ayri injectable `CustomerDataAccess` portundadir; store-scope +
+  ownership her sorguda zorunludur. Plain OTP/sifre saklanmaz/loglanmaz; TCKN/VKN/IBAN response'ta maskeli.
 
 ## Worker
 

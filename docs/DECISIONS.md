@@ -610,3 +610,39 @@
 - Sonuc: typecheck 0, lint 0, build OK, api-gateway 85/85 + store-admin 78/78 test gecti. Mevcut
   mock checkout regresyonu yok (provider yoksa response birebir/UNPAID). `@commerce-os/ui` etkilenmedi
   (store-admin yerel kit, ADR-032). Bkz. Faz 3B.2 phase log; backlog TODO-066..071.
+
+## ADR-034 Storefront customer auth = mevcut store-scoped Customer'in genisletilmesi (F3B.3)
+
+- Durum: ACCEPTED
+- Not: Kullanici brief'inde bu karar "ADR-032" olarak adlandirilmisti; ADR-032 (store-admin tema)
+  ve ADR-033 (payment foundation) zaten kullanimda oldugundan ADR-034 olarak numaralandirildi.
+- Baglam: F3B.2'ye kadar storefront tamamen guest'ti; checkout guard, musteri uyeligi/oturumu ve
+  adres defteri yoktu. Sema'da zaten store-scoped bir `Customer` (CRM + order/adres cipasi) ve
+  `CustomerAddress` vardi; admin auth (`PlatformUser`/`StoreUser`) bundan ayri bir domain.
+- Karar: Storefront musteri kimligi AYRI bir `CustomerAccount` domaini olarak DEGIL, mevcut
+  `Customer` modelinin genisletilmesi olarak kurulur (tek musteri kavrami). `Customer`'a auth/profil
+  alanlari eklenir (`birthDate`, `gender`, `emailVerifiedAt`, `phoneVerifiedAt`, `status`'a PASSIVE/
+  BLOCKED; `email`/`phone` store-scope'ta unique + nullable — GSM-only/email-only kayit). Sifre/oturum/
+  OTP/IBAN/iletisim tercihi AYRI alt tablolara baglanir: `CustomerCredential`, `CustomerSession`,
+  `CustomerOtpVerification`, `CustomerIban`, `CustomerCommunicationPreference`. `CustomerAddress`
+  adres-adi/varsayilan/fatura kimligi/soft-delete ile genisletilir.
+- Gerekce: `Customer` zaten store-scoped ve order/adres cipasi; ayri bir hesap modeli ileride
+  Customer↔Account eslestirme ve veri uzlastirma borcu yaratirdi. Store-admin musteri listesi,
+  storefront uyeligi, checkout order, adres defteri, ileride B2B/kupon/wishlist/review hep ayni
+  `Customer` uzerinden baglanir. "Admin auth ile karistirma" kurali ihlal edilmez (Customer admin
+  auth degil; PlatformUser/StoreUser ayri kalir).
+- Oturum mimarisi: Storefront httpOnly `commerce_os_customer_session` cookie'si opak jetonu tutar;
+  gateway DB'de yalnizca `sha256(token)` (`CustomerSession.tokenHash`) saklar (PlatformSession deseni).
+  Storefront, jetonu gateway'in public musteri uclarina YALNIZCA `x-customer-session` header'i ile
+  server-to-server iletir (client bundle'a girmez). Gateway store-scope + suresi + ACTIVE durum +
+  ownership dogrular. Checkout, oturum varsa ayni header'la gonderilir ve order `customerId`'ye baglanir.
+- OTP/teslimat: Gercek SMS/e-posta saglayicisi YOK; teslimat provider-ready dev/mock. Plain OTP/sifre
+  ASLA DB'ye yazilmaz/loglanmaz (yalniz sha256/scrypt hash). Izole smoke icin `CUSTOMER_OTP_DEV_CODE`
+  (yalniz development/test) bypass kodu; gercek kod sizdirilmadan akis tamamlanabilir.
+- PII: TCKN/VKN/IBAN response'larda MASKELI doner (son 2 hane / IBAN head+son2); event/log metadata'ya
+  yazilmaz. Sifre degisikliginde oturum KORUNUR (yeniden giris istenmez), `passwordChangedAt` guncellenir.
+- Kapsam disi (bu faz): password reset, social login, gercek SMS/e-posta provider, admin musteri yonetimi,
+  e-posta/telefon DEGISIKLIGI (OTP gerektirir — disabled/not), guest gecmis siparis baglama (yalniz
+  checkout anindaki yeni siparis baglanir).
+- Sonuc: typecheck 0, lint 0, build 24/24, test 34/34 (contracts +8, api-gateway +12 musteri testi).
+  Bkz. Faz 3B.3 phase log; backlog TODO-074..077.

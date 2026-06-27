@@ -17,7 +17,8 @@ import type {
 import type { CartItem } from "../cart-token";
 import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
-import { getPublic, postPublic, type FetchOutcome } from "./gateway";
+import { getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
+import { readCustomerToken } from "./customer-cookie";
 
 /**
  * Vitrin sepet/checkout cozumleyici (F3B.1). Cookie'deki referans kalemlerini
@@ -213,14 +214,26 @@ export async function submitCheckout(
   couponCode?: string | null,
 ): Promise<CheckoutResult> {
   try {
-    const result = await postPublic<PublicOrderConfirmation>(checkoutPath(), {
+    // F3B.3: Oturum acmis musteride checkout, `x-customer-session` ile gonderilir;
+    // gateway order'i customerId'ye baglar. Oturum yoksa anonim public POST.
+    // Cookie okuma istek-disi baglamlarda (or. unit test) hata verirse anonim sayilir.
+    let customerToken: string | null = null;
+    try {
+      customerToken = await readCustomerToken();
+    } catch {
+      customerToken = null;
+    }
+    const body = {
       items,
       contact,
       shippingAddress,
       ...(billing ? { billing } : {}),
       ...(billingAddress ? { billingAddress } : {}),
       couponCode: couponCode ?? null,
-    });
+    };
+    const result = customerToken
+      ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)
+      : await postPublic<PublicOrderConfirmation>(checkoutPath(), body);
     if (!result.ok) {
       if (result.status === 404) return { ok: false, reason: "no-store" };
       if (result.status === 409) return { ok: false, reason: "cart-not-ready" };

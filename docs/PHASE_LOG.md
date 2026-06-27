@@ -1213,3 +1213,55 @@ Admin siparis listesi filtreleri (odeme/siparis durumu, tarih araligi, musteri/e
 araligi) ayri bir admin-list UX gelistirmesi olarak TODO-073'e alindi.
 
 Smoke override (`docker-compose.smoke.yml`) commit kapsami DISINDA (untracked) tutulur.
+
+## Faz 3B.3 Customer Account Auth + Checkout Guard + Address Book Foundation
+
+Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 4b8f634.
+
+### Yapilanlar
+- **Veri modeli (ADR-034):** Ayri `CustomerAccount` domaini ACILMADI; mevcut store-scoped `Customer`
+  storefront uyelik hesabi olacak sekilde genisletildi. `Customer`'a `birthDate/gender/emailVerifiedAt/
+  phoneVerifiedAt` eklendi; `status` enum'una `PASSIVE`/`BLOCKED`; `email` nullable yapildi ve `(storeId,
+  phone)` unique eklendi (GSM-only/email-only kayit). Yeni alt tablolar: `CustomerCredential`,
+  `CustomerSession`, `CustomerOtpVerification`, `CustomerIban`, `CustomerCommunicationPreference`.
+  `CustomerAddress` genisletildi: `addressName`, `isDefaultShipping/Billing`, `billingType`, `tckn`,
+  `companyName/taxOffice/taxNumber`, `deletedAt` (soft delete). Migration:
+  `20260628120000_add_customer_account_auth_address_book` (additive; order migration gerekmedi).
+- **Contracts/validation:** IBAN mod-97 (`isValidIban`), `normalizeIban`/`maskIban`, `maskTaxId`, TR
+  telefon `normalizeTrPhone`/`isValidTrPhone`, `classifyIdentifier` (email|GSM tespiti) eklendi.
+  Musteri auth/profil/adres/IBAN/iletisim/siparis semalari + sifre politikasi semasi. api-client bu
+  yardimcilari ve tipleri re-export eder (vitrin tek type-safe kanali).
+- **Gateway (yeni `customers/` modulu):** Ayri injectable `CustomerDataAccess` portu (prisma impl +
+  testte in-memory fake). Public uclar `/public/stores/:slug/customer/*`: register start/verify/complete,
+  login, logout, me, profile, password, communication-preferences, addresses CRUD + default, ibans
+  CRUD + default, orders. Oturum `x-customer-session` header'i ile cozulur (store-scope + ownership).
+  Checkout, oturum varsa order'i `customerId`'ye baglar (geriye donuk uyumlu; oturum yoksa anonim).
+- **Storefront:** httpOnly `commerce_os_customer_session` cookie; gateway authed fetch katmani
+  (`getCustomer`/`sendCustomer`). Auth Server Action'lari (kayit 3 adim/giris/cikis) + hesap mutasyon
+  action'lari. Sayfalar: `/auth/login`, `/auth/register` (identifier→OTP→profil/sifre/onaylar),
+  `/account` (sol sidebar her zaman gorunur, `?section=...`). Header'a oturum-duyarli "Hesabim"
+  dropdown'i. Checkout guard: oturum yoksa `/auth/login?next=/checkout`; adres yoksa "adres ekle";
+  adres varsa varsayilan secili adres defteri secici (F3B.2 fatura "farkli" akisi korundu).
+- **i18n:** `auth` + `account` bolumleri ve checkout `addressBook` anahtarlari TR/EN paritesiyle eklendi.
+
+### Dogrulananlar
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` 34/34, `test` 34/34,
+  `git diff --check` temiz.
+- Yeni testler: contracts +8 (IBAN/TCKN/VKN/identifier/sifre/adres semasi), api-gateway +12 musteri
+  entegrasyon testi (3-adim kayit, OTP hata, email+GSM giris, cikis, adres TCKN + maskeleme, IBAN
+  dogrulama + maskeleme, store-scope ownership izolasyonu, yalniz kendi siparisleri). Mevcut F3B.1/3B.2
+  cart/checkout testleri korundu (submitCheckout cookie okumasi istek-disi baglamda guvenli).
+- Secret/PII: storefront client bundle marker taramasi temiz (SESSION_SECRET/PASSWORD_HASH_PEPPER/
+  x-customer-session/STOREFRONT_CART_SECRET yok). Plain OTP/sifre loglanmiyor (yalniz maskeli hedef).
+  TCKN/VKN/IBAN response'ta maskeli; full IBAN/TCKN public yanitta yok (testle dogrulandi).
+
+### Kalan Bilincli Borclar (backlog)
+- TODO-074: E-posta/telefon DEGISIKLIGI OTP dogrulamasi — bu fazda Uyelik Bilgilerim'de salt-okunur +
+  "dogrulama gerekir" notu. Gercek degisiklik OTP akisi sonraki faz.
+- TODO-075: Password reset / "sifremi unuttum" akisi (kapsam disiydi).
+- TODO-076: Gercek SMS/e-posta OTP teslimat saglayici entegrasyonu (su an dev/mock; `CUSTOMER_OTP_DEV_CODE`
+  yalniz development/test bypass'i).
+- TODO-077: Guest gecmis siparis baglama — bu fazda yalniz checkout anindaki yeni siparis customerId'ye
+  baglanir; mevcut guest order'larin hesaba retro baglanmasi sonraki faz.
+- Hesabim empty-state modulleri (Soru&Talepler, Degerlendirmeler, Begendiklerim, Listeler, Kuponlar)
+  gercek modul degil; ilgili fazlarda (review/wishlist TODO-064/kupon F3F) doldurulacak.

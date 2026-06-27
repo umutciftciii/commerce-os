@@ -144,6 +144,38 @@ export {
   detectCardBrand,
   cardLast4,
   digitsOnly,
+  // F3B.3 — Musteri hesabi/adres defteri dogrulama yardimcilari (client UX).
+  isValidIban,
+  normalizeIban,
+  maskIban,
+  maskTaxId,
+  isValidTrPhone,
+  normalizeTrPhone,
+  classifyIdentifier,
+} from "@commerce-os/contracts";
+
+/**
+ * F3B.3 — Storefront musteri hesabi kontrat tipleri (type-only re-export).
+ */
+export type {
+  CustomerAccount,
+  CustomerAddress,
+  CustomerAddressInput,
+  CustomerAddressListResponse,
+  CustomerIban,
+  CustomerIbanInput,
+  CustomerIbanListResponse,
+  CustomerCommunicationPreference,
+  CustomerProfileUpdateRequest,
+  CustomerPasswordChangeRequest,
+  CustomerLoginRequest,
+  CustomerRegisterStartRequest,
+  CustomerRegisterCompleteRequest,
+  CustomerOtpChallengeResponse,
+  CustomerSessionResponse,
+  CustomerMeResponse,
+  CustomerOrderSummary,
+  CustomerOrderListResponse,
 } from "@commerce-os/contracts";
 
 /**

@@ -125,7 +125,29 @@ enum InventoryMovementType {
 
 enum CustomerStatus {
   ACTIVE
+  PASSIVE
+  BLOCKED
   ARCHIVED
+}
+
+// Storefront uyelik profili icin cinsiyet (F3B.3). Zorunlu degil (nullable).
+enum CustomerGender {
+  FEMALE
+  MALE
+  OTHER
+}
+
+// Musteri OTP dogrulama amaci (F3B.3). Kayit/giris/iletisim dogrulama.
+enum CustomerOtpPurpose {
+  REGISTER
+  LOGIN
+  VERIFY_CONTACT
+}
+
+// OTP teslimat kanali (F3B.3). Gercek saglayici yok; dev/mock provider-ready.
+enum CustomerOtpChannel {
+  EMAIL
+  SMS
 }
 
 enum AddressType {
@@ -269,6 +291,11 @@ model Store {
   movements     InventoryMovement[]
   customers     Customer[]
   customerAddresses CustomerAddress[]
+  customerCredentials CustomerCredential[]
+  customerSessions CustomerSession[]
+  customerOtpVerifications CustomerOtpVerification[]
+  customerIbans CustomerIban[]
+  customerCommunicationPreferences CustomerCommunicationPreference[]
   orders        Order[]
   orderLines    OrderLine[]
   orderAddresses OrderAddress[]
@@ -536,41 +563,168 @@ model InventoryMovement {
   @@index([type])
 }
 
+// Storefront musteri kimligi (F3B.3). Tek kavram: hem store-admin CRM kaydi hem
+// storefront uyelik hesabi ayni Customer satiridir (ADR-032). email/phone store
+// scope'unda unique ve NULL'lanabilir (GSM-only ya da email-only kayit). Auth/
+// profil alanlari burada; sifre/otp/session/iban/iletisim tercihi alt tablolarda.
 model Customer {
-  id        String         @id @default(cuid())
-  storeId   String
-  email     String
-  firstName String?
-  lastName  String?
-  phone     String?
-  status    CustomerStatus @default(ACTIVE)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id              String          @id @default(cuid())
+  storeId         String
+  email           String?
+  firstName       String?
+  lastName        String?
+  phone           String?
+  birthDate       DateTime?
+  gender          CustomerGender?
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  status          CustomerStatus  @default(ACTIVE)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  store     Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  addresses CustomerAddress[]
-  orders    Order[]
+  store                   Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  addresses               CustomerAddress[]
+  orders                  Order[]
+  credential              CustomerCredential?
+  sessions                CustomerSession[]
+  otpVerifications        CustomerOtpVerification[]
+  ibans                   CustomerIban[]
+  communicationPreference CustomerCommunicationPreference?
 
   @@unique([storeId, email])
+  @@unique([storeId, phone])
   @@index([storeId])
   @@index([status])
 }
 
-model CustomerAddress {
-  id           String      @id @default(cuid())
+// Sifre kimligi (F3B.3). Plain sifre ASLA saklanmaz; scrypt hash @commerce-os/auth.
+model CustomerCredential {
+  id                String   @id @default(cuid())
+  storeId           String
+  customerId        String   @unique
+  passwordHash      String
+  passwordChangedAt DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+// Musteri oturumu (F3B.3). PlatformSession deseni: raw token DB'de tutulmaz,
+// yalnizca sha256 tokenHash. Storefront httpOnly cookie -> gateway server-to-server.
+model CustomerSession {
+  id         String    @id @default(cuid())
+  storeId    String
+  customerId String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+// OTP dogrulama (F3B.3). Plain kod ASLA saklanmaz/loglanmaz; yalnizca codeHash.
+// destination, koda ait hedef (kullanicinin kendi email/telefonu) eslestirme icin.
+model CustomerOtpVerification {
+  id           String             @id @default(cuid())
   storeId      String
   customerId   String
-  type         AddressType
+  purpose      CustomerOtpPurpose
+  channel      CustomerOtpChannel
+  destination  String
+  codeHash     String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  attemptCount Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+// IBAN bilgisi (F3B.3). Iade/iptal sureci icin saklanir. DB'de tam IBAN tutulur;
+// API response'larinda MASKELI doner. Event/log metadata'ya IBAN yazilmaz.
+model CustomerIban {
+  id                String    @id @default(cuid())
+  storeId           String
+  customerId        String
+  accountHolderName String
+  iban              String
+  isDefault         Boolean   @default(false)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([customerId])
+}
+
+// Iletisim tercihleri (F3B.3, KVKK izin modeli). Musteri basina tek satir.
+// smsEnabled = "Anlik / Kisa Mesaj"; phoneEnabled = telefon ile arama izni.
+model CustomerCommunicationPreference {
+  id           String   @id @default(cuid())
+  storeId      String
+  customerId   String   @unique
+  smsEnabled   Boolean  @default(false)
+  emailEnabled Boolean  @default(true)
+  phoneEnabled Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+// Adres defteri (F3B.3, F3B.2 fatura ile uyumlu). Bir adres hem teslimat hem
+// fatura kimligi tasiyabilir. Bireysel: tckn (11 hane); Kurumsal: companyName +
+// taxOffice + taxNumber (VKN 10 hane). TCKN/VKN response'ta maskeli; log'a yazilmaz.
+// Soft delete: deletedAt set edilir, satir korunur (gecmis siparis butunlugu).
+model CustomerAddress {
+  id           String       @id @default(cuid())
+  storeId      String
+  customerId   String
+  type         AddressType  @default(SHIPPING)
+  addressName  String       @default("")
   fullName     String
   phone        String?
-  countryCode  String
+  countryCode  String       @default("TR")
   city         String
   district     String?
   addressLine1 String
   addressLine2 String?
   postalCode   String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  isDefaultShipping Boolean  @default(false)
+  isDefaultBilling  Boolean  @default(false)
+  billingType  BillingType?
+  tckn         String?
+  companyName  String?
+  taxOffice    String?
+  taxNumber    String?
+  deletedAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)

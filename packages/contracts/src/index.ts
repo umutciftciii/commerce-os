@@ -38,6 +38,89 @@ export function isValidTaxNumber(value: string): boolean {
   return /^[0-9]{10}$/.test(digitsOnly(value));
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * F3B.3 — Musteri hesabi/adres defteri dogrulama yardimcilari. IBAN (mod-97) ve
+ * TR telefon normalize tek otorite burada; gateway + vitrin ayni mantigi kullanir.
+ * IBAN tam degeri yalniz authenticated own-account icin; response'larda maskeli.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** IBAN'i normalize eder: bosluk/ayrac temizler, buyuk harfe cevirir. */
+export function normalizeIban(value: string): string {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * IBAN dogrulamasi (ISO 13616 mod-97). TR icin uzunluk 26. Genel kontrol:
+ * 2 harf ulke + 2 kontrol hane + BBAN; ilk 4 karakter sona alinir, harfler
+ * 10..35'e cevrilir, mod 97 == 1 olmali.
+ */
+export function isValidIban(value: string): boolean {
+  const iban = normalizeIban(value);
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(iban)) return false;
+  if (iban.startsWith("TR") && iban.length !== 26) return false;
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  let remainder = 0;
+  for (const ch of rearranged) {
+    const code = ch.charCodeAt(0);
+    const part = code >= 65 ? (code - 55).toString() : ch; // A=10..Z=35
+    for (const digit of part) {
+      remainder = (remainder * 10 + (digit.charCodeAt(0) - 48)) % 97;
+    }
+  }
+  return remainder === 1;
+}
+
+/** IBAN'i gosterim icin maskeler: TR12 **** **** **** **** **34 gibi. */
+export function maskIban(value: string): string {
+  const iban = normalizeIban(value);
+  if (iban.length < 8) return "****";
+  const head = iban.slice(0, 4);
+  const tail = iban.slice(-2);
+  return `${head} **** **** **** **** ${tail}`;
+}
+
+/** TCKN/VKN gosterim maskesi: yalniz son 2 hane (PII minimizasyonu). */
+export function maskTaxId(value: string): string {
+  const digits = digitsOnly(value);
+  if (digits.length < 2) return "****";
+  return `${"*".repeat(digits.length - 2)}${digits.slice(-2)}`;
+}
+
+/**
+ * TR cep telefonunu yerel 10 haneye indirger (0/+90/90 onekleri temizler).
+ * Ornek: "+90 532 111 22 33" -> "5321112233".
+ */
+export function normalizeTrPhone(value: string): string {
+  let digits = digitsOnly(value);
+  if (digits.startsWith("90")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+
+/** Gecerli TR cep numarasi mi? (10 hane, "5" ile baslar). */
+export function isValidTrPhone(value: string): boolean {
+  const d = normalizeTrPhone(value);
+  return d.length === 10 && d.startsWith("5");
+}
+
+/**
+ * Kayit/giris tanimlayicisi (email|GSM) tipini tespit eder. "@" iceriyorsa email,
+ * aksi halde TR telefon olarak normalize edilir. Gecersizse type="invalid".
+ */
+export function classifyIdentifier(
+  raw: string,
+): { type: "email"; value: string } | { type: "phone"; value: string } | { type: "invalid" } {
+  const trimmed = raw.trim();
+  if (trimmed.includes("@")) {
+    const parsed = z.string().email().max(320).safeParse(trimmed.toLowerCase());
+    return parsed.success ? { type: "email", value: parsed.data } : { type: "invalid" };
+  }
+  if (isValidTrPhone(trimmed)) {
+    return { type: "phone", value: normalizeTrPhone(trimmed) };
+  }
+  return { type: "invalid" };
+}
+
 /** Luhn saglama (kart numarasi). PAN saklanmaz; yalniz dogrulama icin. */
 export function luhnValid(pan: string): boolean {
   const digits = digitsOnly(pan);
@@ -1522,3 +1605,255 @@ export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
 export type OrderUpdateRequest = z.infer<typeof orderUpdateRequestSchema>;
 export type OrderCancelRequest = z.infer<typeof orderCancelRequestSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * F3B.3 — Storefront musteri hesabi: auth (kayit/giris/otp/session), profil,
+ * sifre, iletisim tercihleri, adres defteri, IBAN. Tek otorite (gateway server-
+ * otoriter + vitrin UX). Plain sifre/OTP ASLA; TCKN/VKN/IBAN response'ta maskeli.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** Sifre politikasi: min 8, en az bir buyuk + kucuk harf + rakam. */
+export const customerPasswordSchema = z
+  .string()
+  .min(8, "Sifre en az 8 karakter olmali.")
+  .max(200)
+  .refine((v) => /[a-z]/.test(v), "Sifre kucuk harf icermeli.")
+  .refine((v) => /[A-Z]/.test(v), "Sifre buyuk harf icermeli.")
+  .refine((v) => /[0-9]/.test(v), "Sifre rakam icermeli.");
+
+export const customerGenderSchema = z.enum(["FEMALE", "MALE", "OTHER"]);
+export const customerOtpChannelSchema = z.enum(["EMAIL", "SMS"]);
+
+/** Kayit/giris tanimlayici girisi (email veya GSM, tek input). */
+export const customerIdentifierSchema = z.string().min(1).max(320);
+
+/* ── Kayit (3 adim) ───────────────────────────────────────────────────────── */
+
+export const customerRegisterStartRequestSchema = z.object({
+  identifier: customerIdentifierSchema,
+});
+
+/** OTP gonderim sonucu. Kod ASLA donmez; yalniz kanal + maskeli hedef + sayaclar. */
+export const customerOtpChallengeResponseSchema = z.object({
+  otpRequired: z.literal(true),
+  channel: customerOtpChannelSchema,
+  maskedDestination: z.string().min(1),
+  expiresInSeconds: z.number().int().positive(),
+  resendAvailableInSeconds: z.number().int().nonnegative(),
+});
+
+export const customerOtpVerifyRequestSchema = z.object({
+  identifier: customerIdentifierSchema,
+  code: z.string().regex(/^[0-9]{6}$/, "6 haneli kod girin."),
+});
+
+export const customerOtpVerifyResponseSchema = z.object({
+  verified: z.literal(true),
+});
+
+export const customerRegisterCompleteRequestSchema = z.object({
+  identifier: customerIdentifierSchema,
+  code: z.string().regex(/^[0-9]{6}$/, "6 haneli kod girin."),
+  firstName: z.string().min(1, "Ad zorunlu.").max(120),
+  lastName: z.string().min(1, "Soyad zorunlu.").max(120),
+  password: customerPasswordSchema,
+  kvkkConsent: z.literal(true, { errorMap: () => ({ message: "KVKK onayi zorunlu." }) }),
+  clarificationConsent: z.literal(true, {
+    errorMap: () => ({ message: "Aydinlatma metni onayi zorunlu." }),
+  }),
+});
+
+/* ── Giris / oturum ───────────────────────────────────────────────────────── */
+
+export const customerLoginRequestSchema = z.object({
+  identifier: customerIdentifierSchema,
+  password: z.string().min(1).max(200),
+});
+
+/** Oturum acan musterinin guvenli profili (kendi hesabi). */
+export const customerAccountSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  birthDate: z.string().nullable(),
+  gender: customerGenderSchema.nullable(),
+  emailVerified: z.boolean(),
+  phoneVerified: z.boolean(),
+  status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED"]),
+});
+
+export const customerSessionResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  customer: customerAccountSchema,
+});
+
+export const customerMeResponseSchema = z.object({
+  customer: customerAccountSchema,
+  session: z.object({ expiresAt: z.string().datetime() }),
+});
+
+export const customerLogoutResponseSchema = z.object({ revoked: z.boolean() });
+
+/* ── Profil / sifre / iletisim tercihleri ─────────────────────────────────── */
+
+export const customerProfileUpdateRequestSchema = z.object({
+  firstName: z.string().min(1).max(120),
+  lastName: z.string().min(1).max(120),
+  birthDate: z.string().date().nullable().optional(),
+  gender: customerGenderSchema.nullable().optional(),
+});
+
+export const customerPasswordChangeRequestSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: customerPasswordSchema,
+});
+
+export const customerCommunicationPreferenceSchema = z.object({
+  smsEnabled: z.boolean(),
+  emailEnabled: z.boolean(),
+  phoneEnabled: z.boolean(),
+});
+
+/* ── Adres defteri ────────────────────────────────────────────────────────── */
+
+/**
+ * Adres olustur/guncelle. Teslimat alanlari + opsiyonel fatura kimligi. Fatura
+ * tipi verilirse F3B.2 ile ayni katilikta dogrulanir (Bireysel→TCKN; Kurumsal→
+ * firma/vergi dairesi/VKN). Guncellemede maskeli tax alani bos birakilirsa mevcut
+ * korunur (gateway karari).
+ */
+export const customerAddressInputSchema = z
+  .object({
+    addressName: z.string().min(1, "Adres adi zorunlu.").max(120),
+    fullName: z.string().min(1, "Ad soyad zorunlu.").max(220),
+    phone: z.string().min(1, "Telefon zorunlu.").max(40),
+    city: z.string().min(1, "Il zorunlu.").max(120),
+    district: z.string().min(1, "Ilce zorunlu.").max(120),
+    addressLine1: z.string().min(1, "Adres bilgisi zorunlu.").max(500),
+    addressLine2: z.string().max(500).nullable().optional(),
+    postalCode: z.string().max(40).nullable().optional(),
+    isDefaultShipping: z.boolean().optional(),
+    billingType: z.enum(["INDIVIDUAL", "CORPORATE"]).nullable().optional(),
+    tckn: z.string().max(20).nullable().optional(),
+    companyName: z.string().max(255).nullable().optional(),
+    taxOffice: z.string().max(255).nullable().optional(),
+    taxNumber: z.string().max(20).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.phone || !isValidTrPhone(value.phone)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phone"], message: "Gecerli telefon girin." });
+    }
+    if (value.billingType === "INDIVIDUAL") {
+      // Guncellemede maskeli/bos gelebilir; doluysa gecerli olmali.
+      if (value.tckn && value.tckn.trim().length > 0 && !isValidTckn(value.tckn)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tckn"], message: "Gecerli T.C. Kimlik No girin." });
+      }
+    } else if (value.billingType === "CORPORATE") {
+      if (!value.companyName || value.companyName.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["companyName"], message: "Firma unvani zorunlu." });
+      }
+      if (!value.taxOffice || value.taxOffice.trim().length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["taxOffice"], message: "Vergi dairesi zorunlu." });
+      }
+      if (value.taxNumber && value.taxNumber.trim().length > 0 && !isValidTaxNumber(value.taxNumber)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["taxNumber"], message: "Gecerli vergi no girin." });
+      }
+    }
+  });
+
+/** Adres listesi/gosterimi (own account). TCKN/VKN MASKELI doner. */
+export const customerAddressSchema = z.object({
+  id: z.string().min(1),
+  addressName: z.string(),
+  fullName: z.string(),
+  phone: z.string().nullable(),
+  city: z.string(),
+  district: z.string().nullable(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  isDefaultShipping: z.boolean(),
+  isDefaultBilling: z.boolean(),
+  billingType: z.enum(["INDIVIDUAL", "CORPORATE"]).nullable(),
+  tcknMasked: z.string().nullable(),
+  companyName: z.string().nullable(),
+  taxOffice: z.string().nullable(),
+  taxNumberMasked: z.string().nullable(),
+});
+
+export const customerAddressListResponseSchema = z.object({
+  data: z.array(customerAddressSchema),
+});
+
+/* ── IBAN ─────────────────────────────────────────────────────────────────── */
+
+export const customerIbanInputSchema = z.object({
+  accountHolderName: z.string().min(1, "Hesap sahibi adi zorunlu.").max(220),
+  iban: z.string().min(1).max(40).refine((v) => isValidIban(v), "Gecerli IBAN girin."),
+  isDefault: z.boolean().optional(),
+});
+
+/** IBAN listesi/gosterimi. Tam IBAN ASLA donmez; yalniz maskeli. */
+export const customerIbanSchema = z.object({
+  id: z.string().min(1),
+  accountHolderName: z.string(),
+  ibanMasked: z.string(),
+  isDefault: z.boolean(),
+});
+
+export const customerIbanListResponseSchema = z.object({
+  data: z.array(customerIbanSchema),
+});
+
+/* ── Tipler ───────────────────────────────────────────────────────────────── */
+
+export type CustomerRegisterStartRequest = z.infer<typeof customerRegisterStartRequestSchema>;
+export type CustomerOtpChallengeResponse = z.infer<typeof customerOtpChallengeResponseSchema>;
+export type CustomerOtpVerifyRequest = z.infer<typeof customerOtpVerifyRequestSchema>;
+export type CustomerRegisterCompleteRequest = z.infer<
+  typeof customerRegisterCompleteRequestSchema
+>;
+export type CustomerLoginRequest = z.infer<typeof customerLoginRequestSchema>;
+export type CustomerAccount = z.infer<typeof customerAccountSchema>;
+export type CustomerSessionResponse = z.infer<typeof customerSessionResponseSchema>;
+export type CustomerMeResponse = z.infer<typeof customerMeResponseSchema>;
+export type CustomerProfileUpdateRequest = z.infer<typeof customerProfileUpdateRequestSchema>;
+export type CustomerPasswordChangeRequest = z.infer<typeof customerPasswordChangeRequestSchema>;
+export type CustomerCommunicationPreference = z.infer<
+  typeof customerCommunicationPreferenceSchema
+>;
+export type CustomerAddressInput = z.infer<typeof customerAddressInputSchema>;
+export type CustomerAddress = z.infer<typeof customerAddressSchema>;
+export type CustomerAddressListResponse = z.infer<typeof customerAddressListResponseSchema>;
+export type CustomerIbanInput = z.infer<typeof customerIbanInputSchema>;
+export type CustomerIban = z.infer<typeof customerIbanSchema>;
+export type CustomerIbanListResponse = z.infer<typeof customerIbanListResponseSchema>;
+
+/* ── Hesabim > Siparislerim (own account) ─────────────────────────────────── */
+
+export const customerOrderLineSummarySchema = z.object({
+  title: z.string(),
+  variantTitle: z.string(),
+  quantity: z.number().int().positive(),
+});
+
+export const customerOrderSummarySchema = z.object({
+  orderNumber: z.string(),
+  status: z.enum(["DRAFT", "PLACED", "CONFIRMED", "CANCELLED", "FULFILLED"]),
+  paymentStatus: z.enum(["UNPAID", "AUTHORIZED", "PAID", "REFUNDED"]),
+  currency: currencySchema,
+  totalMinor: z.number().int().nonnegative(),
+  itemCount: z.number().int().nonnegative(),
+  lines: z.array(customerOrderLineSummarySchema),
+  createdAt: z.string().datetime(),
+});
+
+export const customerOrderListResponseSchema = z.object({
+  data: z.array(customerOrderSummarySchema),
+});
+
+export type CustomerOrderSummary = z.infer<typeof customerOrderSummarySchema>;
+export type CustomerOrderListResponse = z.infer<typeof customerOrderListResponseSchema>;

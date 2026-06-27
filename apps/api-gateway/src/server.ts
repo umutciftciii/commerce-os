@@ -66,6 +66,12 @@ import {
   scenarioFromCardNumber,
   validateCard,
 } from "./payments/card.js";
+import {
+  createPrismaCustomerDataAccess,
+  registerCustomerRoutes,
+  resolveCustomerFromRequest,
+  type CustomerDataAccess,
+} from "./customers/index.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
@@ -720,6 +726,9 @@ export interface AppDataAccess {
 
 export interface ServerDependencies extends ServerHealthChecks {
   dataAccess?: AppDataAccess;
+  // F3B.3: Storefront musteri hesabi domaini icin ayri port (ADR-032). Varsayilan
+  // prisma-backed; testlerde in-memory fake enjekte edilebilir.
+  customerDataAccess?: CustomerDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -2552,6 +2561,7 @@ export function createServer(
   const dbHealthCheck = dependencies.checkDatabaseHealth ?? checkDatabaseHealth;
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
   const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
+  const customers = dependencies.customerDataAccess ?? createPrismaCustomerDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
   // F3B.2: Payment credential cipher (encryption-at-rest). Dev fallback uyarisi
   // yalnizca bir kez loglanir. Calisma ortami canli mi? (LIVE-MOCK guard icin).
@@ -2857,6 +2867,11 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
 
+    // F3B.3: Oturum acmis musteri varsa siparis ona baglanir (customerId). Guard
+    // storefront tarafinda; burada oturum yoksa customerId null kalir (geriye donuk
+    // uyumlu). Oturum store scope'u resolveCustomerFromRequest icinde dogrulanir.
+    const checkoutCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
+
     // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout
     //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
     const index = await buildPublicCartIndex(store.id);
@@ -2894,7 +2909,7 @@ export function createServer(
         ? (billingInfo.companyName ?? body.contact.fullName)
         : (billingInfo.name ?? body.contact.fullName);
     const order = await dataAccess.createOrder(store.id, {
-      customerId: null,
+      customerId: checkoutCustomer?.id ?? null,
       customerEmail: body.contact.email,
       currency: cart.currency,
       lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
@@ -3012,6 +3027,12 @@ export function createServer(
       testPaymentEnabled: await hasTestPaymentProvider(store.id),
     });
   });
+
+  // F3B.3: Storefront musteri hesabi uclari (kayit/giris/otp/oturum, profil,
+  // sifre, iletisim tercihi, adres defteri, IBAN, siparislerim). Auth YOK gerektiren
+  // public prefix altinda; oturum `x-customer-session` header'i ile cozulur ve
+  // store scope + ownership zorunludur. resolvePublicStore yukarida tanimlidir.
+  registerCustomerRoutes(app, { config, customers, logger, resolvePublicStore });
 
   app.post("/auth/platform/login", async (request, reply) => {
     const input = platformLoginRequestSchema.parse(request.body);
