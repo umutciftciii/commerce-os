@@ -13,6 +13,7 @@ import type {
   PublicPaymentResult,
   PublicPaymentScenario,
   PublicPaymentState,
+  PublicPaymentThreeDsAction,
 } from "@commerce-os/api-client";
 import type { CartItem } from "../cart-token";
 import { formatMinor } from "../money";
@@ -293,6 +294,7 @@ export interface TestPaymentPayload {
   card?: PublicPaymentCard;
   scenario?: PublicPaymentScenario;
   installmentCount?: number;
+  threeDsAction?: PublicPaymentThreeDsAction;
 }
 
 export async function submitTestPayment(
@@ -305,5 +307,6 @@ export async function submitTestPayment(
     ...(payload.card ? { card: payload.card } : {}),
     ...(payload.scenario ? { scenario: payload.scenario } : {}),
     installmentCount: payload.installmentCount ?? 1,
+    ...(payload.threeDsAction ? { threeDsAction: payload.threeDsAction } : {}),
   });
 }

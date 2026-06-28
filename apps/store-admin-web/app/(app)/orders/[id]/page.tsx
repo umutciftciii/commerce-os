@@ -74,6 +74,14 @@ const CARD_BRAND_LABEL: Record<string, string> = {
   CARD: "Kart",
 };
 
+/** 3D Secure durumu: deneme statusune gore gerekli/dogrulandi/basarisiz/bekliyor. */
+function threeDsStateLabel(status: AttemptStatus, d: DetailDict): string {
+  if (status === "PAID" || status === "AUTHORIZED") return d.paymentThreeDsVerified;
+  if (status === "FAILED" || status === "CANCELLED") return d.paymentThreeDsFailed;
+  if (status === "REQUIRES_ACTION") return d.paymentThreeDsPending;
+  return d.paymentThreeDsRequired;
+}
+
 /** Maskeli kart etiketi (marka + son 4). Full PAN ASLA gosterilmez. */
 function maskedCardLabel(brand: string | null, last4: string | null): string | null {
   if (!last4) return null;
@@ -123,14 +131,32 @@ function PaymentPanel({ order, d }: { order: Order; d: DetailDict }) {
                     value={<span className="font-mono text-xs">{card}</span>}
                   />
                 ) : null}
-                <RailRow
-                  label={d.paymentInstallmentLabel}
-                  value={
-                    attempt.installmentCount > 1
-                      ? format(d.paymentInstallmentValue, { count: attempt.installmentCount })
-                      : d.paymentSingleShot
-                  }
-                />
+                {attempt.threeDsApplied ? (
+                  <RailRow
+                    label={d.paymentThreeDsLabel}
+                    value={threeDsStateLabel(attempt.status, d)}
+                  />
+                ) : null}
+                {attempt.installmentCount > 1 ? (
+                  <>
+                    <RailRow
+                      label={d.paymentInstallmentLabel}
+                      value={format(d.paymentInstallmentSummaryValue, {
+                        count: attempt.installmentCount,
+                        amount: formatMinor(
+                          Math.round(attempt.amount / attempt.installmentCount),
+                          attempt.currency,
+                        ),
+                      })}
+                    />
+                    <RailRow
+                      label={d.paymentInstallmentTotalLabel}
+                      value={`${formatMinor(attempt.amount, attempt.currency)} · ${d.paymentNoInterest}`}
+                    />
+                  </>
+                ) : (
+                  <RailRow label={d.paymentInstallmentLabel} value={d.paymentSingleShot} />
+                )}
                 {attempt.providerReference ? (
                   <RailRow
                     label={d.paymentTransactionLabel}

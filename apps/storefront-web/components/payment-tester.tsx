@@ -30,6 +30,15 @@ function money(minor: number, currency: string): string {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency }).format(minor / 100);
 }
 
+/**
+ * Taksit basina tutar (gosterim). GERCEK FAIZ/ORAN MOTORU YOK — toplam degismez,
+ * yalnizca esit bolunur (vade farksiz). Sade tam-bolme; son taksitte kurus farki
+ * olabilecegi UI'da iddia edilmez.
+ */
+function perInstallmentMinor(totalMinor: number, count: number): number {
+  return Math.round(totalMinor / count);
+}
+
 function formatCardNumber(value: string): string {
   return value
     .replace(/\D+/g, "")
@@ -101,8 +110,12 @@ export function PaymentTester({
     return Object.keys(next).length === 0;
   }
 
-  async function pay(retryRequiresAction = false) {
-    if (!retryRequiresAction && !validate()) return;
+  // threeDsAction verildiginde bu cagri 3DS dogrulama adimidir (kart yeniden
+  // dogrulanmaz; ilk submit'teki kart state'i korunur). "fail" → dogrulama
+  // basarisiz; "success"/yok → tamam. Aksi halde ilk odeme submit'idir.
+  async function pay(opts: { threeDsAction?: "success" | "fail" } = {}) {
+    const isThreeDsStep = Boolean(opts.threeDsAction);
+    if (!isThreeDsStep && !validate()) return;
     setPhase({ kind: "processing" });
     const yearNum = Number(expYear);
     const outcome = await submitTestPaymentAction(orderId, token, {
@@ -114,6 +127,7 @@ export function PaymentTester({
         cvc,
       },
       installmentCount: installment,
+      ...(opts.threeDsAction ? { threeDsAction: opts.threeDsAction } : {}),
     });
     if (outcome.status !== "ok") {
       const reason = outcome.status === "error" ? outcome.reason : "error";
@@ -128,6 +142,8 @@ export function PaymentTester({
       setPhase({ kind: "requires_action" });
     } else if (status === "CANCELLED") {
       setPhase({ kind: "failed", title: t.cancelledTitle, description: t.failedDescription });
+    } else if (result.attempt.failureCode === "THREE_DS_FAILED") {
+      setPhase({ kind: "failed", title: t.threeDsFailedTitle, description: t.threeDsFailedDescription });
     } else {
       setPhase({ kind: "failed", title: t.failedTitle, description: t.failedDescription });
     }
@@ -170,14 +186,7 @@ export function PaymentTester({
       <OrderSummaryBox state={state} t={t} c={c} />
 
       {phase.kind === "requires_action" ? (
-        <div className="mt-6">
-          <Alert tone="info">
-            <span className="font-semibold">{t.threeDsTitle}.</span> {t.threeDsDescription}
-          </Alert>
-          <Button className="mt-4 w-full" onClick={() => void pay(true)} disabled={busy}>
-            {busy ? t.processing : t.completeThreeDs}
-          </Button>
-        </div>
+        <ThreeDsChallenge state={state} t={t} busy={busy} onResolve={(action) => void pay({ threeDsAction: action })} />
       ) : (
         <div className="mt-6">
           {phase.kind === "failed" ? (
@@ -243,15 +252,25 @@ export function PaymentTester({
             {errors.cvc ? <p className="text-xs text-red-600">{t.cvcInvalid}</p> : null}
 
             {state.installmentEnabled && state.installmentOptions.length > 1 ? (
-              <Select
-                label={t.installmentLabel}
-                value={String(installment)}
-                onChange={(event) => setInstallment(Number(event.target.value))}
-                options={state.installmentOptions.map((count) => ({
-                  value: String(count),
-                  label: count === 1 ? t.singleShot : format(t.installmentValue, { count }),
-                }))}
-              />
+              <div className="space-y-3">
+                <Select
+                  label={t.installmentLabel}
+                  value={String(installment)}
+                  onChange={(event) => setInstallment(Number(event.target.value))}
+                  options={state.installmentOptions.map((count) => ({
+                    value: String(count),
+                    label: count === 1 ? t.singleShot : format(t.installmentValue, { count }),
+                  }))}
+                />
+                {installment > 1 ? (
+                  <InstallmentSummary
+                    totalMinor={state.totalMinor}
+                    currency={state.currency}
+                    count={installment}
+                    t={t}
+                  />
+                ) : null}
+              </div>
             ) : null}
           </div>
 
@@ -418,19 +437,33 @@ function PaymentSuccess({
             <Row label={s.providerLabel} value={`${payment.provider} · ${payment.mode}`} />
             <Row label={s.methodLabel} value={payment.method} />
             {card ? <Row label={s.cardLabel} value={card} mono /> : null}
-            <Row
-              label={s.installmentLabel}
-              value={
-                payment.installmentCount > 1
-                  ? format(s.installmentValue, { count: payment.installmentCount })
-                  : s.singleShot
-              }
-            />
+            {payment.threeDsApplied ? <Row label={s.threeDsLabel} value={s.threeDsVerified} /> : null}
+            {payment.installmentCount > 1 ? (
+              <>
+                <Row
+                  label={s.installmentLabel}
+                  value={format(s.installmentSummaryValue, {
+                    count: payment.installmentCount,
+                    amount: money(
+                      perInstallmentMinor(receipt?.totalMinor ?? state.totalMinor, payment.installmentCount),
+                      currency,
+                    ),
+                  })}
+                />
+                <Row label={s.total} value={money(receipt?.totalMinor ?? state.totalMinor, currency)} />
+                <p className="text-xs text-slate-400">{s.noInterestNote}</p>
+              </>
+            ) : (
+              <Row label={s.installmentLabel} value={s.singleShot} />
+            )}
             {payment.providerReference ? (
               <Row label={s.transactionLabel} value={payment.providerReference} mono />
             ) : null}
             {payment.paidAt ? (
               <Row label={s.paidAtLabel} value={new Date(payment.paidAt).toLocaleString("tr-TR")} />
+            ) : null}
+            {payment.mode === "TEST" ? (
+              <p className="mt-2 text-xs text-slate-400">{s.testModeNote}</p>
             ) : null}
           </div>
         ) : null}
@@ -474,12 +507,110 @@ function PaymentSuccess({
         ) : null}
       </div>
 
-      <Link href="/products" className="mt-6 block">
-        <Button variant="secondary" className="w-full">
-          {s.continueShopping}
-        </Button>
-      </Link>
+      <div className="mt-6 flex flex-col gap-2">
+        <Link href="/account?section=orders" className="block">
+          <Button className="w-full">{s.goToOrders}</Button>
+        </Link>
+        <Link href="/products" className="block">
+          <Button variant="secondary" className="w-full">
+            {s.continueShopping}
+          </Button>
+        </Link>
+      </div>
     </Card>
+  );
+}
+
+/**
+ * Taksit ozeti (odeme adimi): "N taksit × ₺X" + toplam + vade farksiz notu.
+ * SAHTE FAIZ/ORAN YOK — toplam degismez; taksit basina esit bolunur.
+ */
+function InstallmentSummary({
+  totalMinor,
+  currency,
+  count,
+  t,
+}: {
+  totalMinor: number;
+  currency: string;
+  count: number;
+  t: PaymentDict;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-slate-500">{t.installmentLabel}</span>
+        <span className="font-semibold text-slate-900">
+          {format(t.installmentSummaryValue, {
+            count,
+            amount: money(perInstallmentMinor(totalMinor, count), currency),
+          })}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-slate-500">{t.installmentTotalLabel}</span>
+        <span className="font-medium text-slate-700">{money(totalMinor, currency)}</span>
+      </div>
+      <p className="mt-1 text-xs text-emerald-600">{t.noInterestNote}</p>
+    </div>
+  );
+}
+
+/**
+ * 3D Secure dogrulama simulasyonu (MOCK). Gercek banka redirect YOK; demo amacli
+ * banka dogrulama ekranini taklit eder. Kullanici dogrulamayi basariyla tamamlar
+ * (→ PAID) ya da basarisiz yapar (→ FAILED, tekrar deneme imkani). Bu adim olmadan
+ * 3DS karti ANINDA PAID olmaz.
+ */
+function ThreeDsChallenge({
+  state,
+  t,
+  busy,
+  onResolve,
+}: {
+  state: PublicPaymentState;
+  t: PaymentDict;
+  busy: boolean;
+  onResolve: (action: "success" | "fail") => void;
+}) {
+  return (
+    <div className="mt-6">
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-xs font-bold text-white">
+            3D
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">{t.threeDsTitle}</p>
+            <p className="text-xs text-slate-500">{t.threeDsBankSim}</p>
+          </div>
+        </div>
+        <dl className="mt-3 space-y-1 border-t border-indigo-200/70 pt-3 text-sm">
+          <div className="flex items-center justify-between">
+            <dt className="text-slate-500">{t.orderLabel}</dt>
+            <dd className="font-medium text-slate-900">{state.orderNumber}</dd>
+          </div>
+          <div className="flex items-center justify-between">
+            <dt className="text-slate-500">{t.totalLabel}</dt>
+            <dd className="font-semibold text-slate-900">{money(state.totalMinor, state.currency)}</dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs text-slate-500">{t.threeDsDescription}</p>
+      </div>
+      <div className="mt-4 flex flex-col gap-2">
+        <Button className="w-full" onClick={() => onResolve("success")} disabled={busy}>
+          {busy ? t.processing : t.threeDsCompleteSuccess}
+        </Button>
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={() => onResolve("fail")}
+          disabled={busy}
+        >
+          {t.threeDsCompleteFail}
+        </Button>
+      </div>
+    </div>
   );
 }
 

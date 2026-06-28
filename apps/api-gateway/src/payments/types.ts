@@ -58,6 +58,11 @@ export interface ConfirmPaymentInput {
   attemptId: string;
   currentStatus: PaymentAttemptStatus;
   scenario?: PaymentScenario;
+  /**
+   * 3DS dogrulama adimindaki kullanici secimi (REQUIRES_ACTION sonrasi ikinci confirm).
+   * "fail" → dogrulama basarisiz (FAILED). Verilmezse/"success" → dogrulama tamam (PAID).
+   */
+  threeDsOutcome?: "success" | "fail";
 }
 
 export interface CancelPaymentInput {

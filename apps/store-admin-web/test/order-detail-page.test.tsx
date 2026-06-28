@@ -185,11 +185,13 @@ describe("store-admin order detail — dedicated route page", () => {
     render(<OrderDetailPage />);
     await screen.findByText("Sipariş ORD-1001");
 
-    // Ödeme paneli: maskeli kart (son 4), işlem (transaction) no, taksit.
+    // Ödeme paneli: maskeli kart (son 4), işlem (transaction) no, taksit özeti.
     expect(screen.getByText("Ödeme")).toBeTruthy();
     expect(screen.getByText(/0008/)).toBeTruthy();
     expect(screen.getByText("mock_pa1")).toBeTruthy();
-    expect(screen.getByText("3 taksit")).toBeTruthy();
+    // Taksit özeti: "3 taksit × ₺…" + toplam + vade farksız (tek "3 taksit" değil).
+    expect(screen.getByText(/3 taksit ×/)).toBeTruthy();
+    expect(screen.getByText(/Vade farksız/)).toBeTruthy();
 
     // Olay açıklaması TR'ye çevrilmiş; ham İngilizce DB mesajı görünmemeli.
     expect(screen.getByText("Sipariş verildi ve stok rezerve edildi.")).toBeTruthy();
@@ -197,6 +199,44 @@ describe("store-admin order detail — dedicated route page", () => {
 
     // Full PAN hiçbir yerde görünmemeli.
     expect(document.body.textContent ?? "").not.toContain("5528790000000008");
+  });
+
+  it("shows 3D Secure verification state in the payment panel", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        status: "PLACED",
+        paymentStatus: "PAID",
+        paymentAttempts: [
+          {
+            id: "pa-3ds",
+            provider: "MOCK",
+            mode: "TEST",
+            method: "CARD",
+            amount: 39980,
+            currency: "TRY",
+            status: "PAID",
+            threeDsApplied: true,
+            scenario: "three_ds_required",
+            installmentCount: 1,
+            cardBrand: "MASTERCARD",
+            cardLast4: "0016",
+            providerReference: "mock_pa3ds",
+            failureCode: null,
+            failureMessage: null,
+            paidAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+            failedAt: null,
+            createdAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+            updatedAt: new Date("2026-06-01T10:05:00.000Z").toISOString(),
+          },
+        ],
+      }),
+    );
+
+    render(<OrderDetailPage />);
+    await screen.findByText("Sipariş ORD-1001");
+    // 3DS uygulanan denemede "3D Secure" + "Doğrulandı" görünür.
+    expect(screen.getByText("3D Secure")).toBeTruthy();
+    expect(screen.getByText("Doğrulandı")).toBeTruthy();
   });
 
   it("shows Place for a DRAFT order and triggers placeOrder", async () => {

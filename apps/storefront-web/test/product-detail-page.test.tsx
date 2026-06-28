@@ -165,6 +165,34 @@ describe("storefront · product detail (decision center)", () => {
     expect(html).not.toContain("₺"); // numerik fiyat yok
   });
 
+  it("disables add-to-cart and shows an out-of-stock message for a sold-out variant", async () => {
+    byHandle.mockResolvedValue({
+      ok: true,
+      data: detail({
+        variants: [
+          {
+            id: "v1",
+            title: "Black / M",
+            sku: "DEMO-HOODIE-BLK-M",
+            priceLabel: "₺1.299,00",
+            compareAtLabel: null,
+            priceMinor: 129900,
+            compareAtMinor: null,
+            currency: "TRY",
+            available: 0,
+            inStock: false,
+          },
+        ],
+        related: [],
+      }),
+    });
+    const html = renderToStaticMarkup(await render());
+    // Stokta yok mesaji + tukenmis rozeti; sepete ekle butonu disabled.
+    expect(html).toContain("Bu ürün şu an stokta yok.");
+    expect(html).toContain("Tükendi");
+    expect(html).toContain("disabled");
+  });
+
   it("renders a friendly not-found state for an unknown handle", async () => {
     byHandle.mockResolvedValue({ ok: true, data: null });
     const html = renderToStaticMarkup(await render("nope"));

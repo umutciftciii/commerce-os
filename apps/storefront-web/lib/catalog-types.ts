@@ -63,6 +63,22 @@ export interface StorefrontProductSummary {
   badgeKind: "discount" | "new" | null;
 }
 
+/**
+ * Satin alinabilir azami adet (saf turetme): magaza max siniri ile (biliniyorsa)
+ * varyant stok limitinin kucugu, min adetin altina dusmez. Stok bilinmiyorsa
+ * (available === null) yalniz magaza siniri gecerlidir. Server reconcile yine son
+ * guvenliktir; bu yalniz istemci clamp'i icindir.
+ */
+export function maxPurchasableQuantity(opts: {
+  minQuantity: number;
+  storeMax: number | null;
+  available: number | null;
+}): number {
+  const storeMax = opts.storeMax ?? 99;
+  if (opts.available === null) return storeMax;
+  return Math.max(opts.minQuantity, Math.min(storeMax, opts.available));
+}
+
 /** Detaydaki tek varyant gorunumu. */
 export interface StorefrontVariantView {
   id: string;

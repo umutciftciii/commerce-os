@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
-import type { StorefrontProductDetail, StorefrontVariantView } from "../lib/catalog-types";
+import {
+  maxPurchasableQuantity,
+  type StorefrontProductDetail,
+  type StorefrontVariantView,
+} from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor } from "../lib/money";
 import { addToCartAction } from "../lib/server/cart-actions";
@@ -38,8 +42,27 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const numeric = showsNumericPrice(price);
   const stock = stockLabel(selected, t.detail);
 
-  const maxQty = commerce.maxQuantity ?? 99;
+  // Satin alinabilir azami adet = magaza max sinir ile (biliniyorsa) varyant stok
+  // limitinin kucugu. Stok bilinmiyorsa (available === null) yalniz magaza siniri
+  // gecerlidir; server reconcile yine son guvenliktir. Stok 0/yok ise satilamaz.
+  const storeMax = commerce.maxQuantity ?? 99;
+  const stockLimit = selected?.available ?? null;
+  const outOfStock = !!selected && selected.inStock === false;
+  const maxQty = maxPurchasableQuantity({
+    minQuantity: commerce.minQuantity,
+    storeMax: commerce.maxQuantity,
+    available: stockLimit,
+  });
   const clamp = (value: number) => Math.min(Math.max(value, commerce.minQuantity), maxQty);
+  // Stok, magaza sinirindan once devreye giren baglayici kisit mi? (uyari metni icin)
+  const stockIsBinding = stockLimit !== null && !outOfStock && stockLimit <= storeMax;
+  const atStockLimit = stockIsBinding && quantity >= maxQty;
+
+  // Varyant degisince (veya stok limiti dususe) adet yeni maksimuma normalize edilir.
+  // Bagimliliklar bilincli olarak [selectedId, maxQty]; setQuantity sabittir.
+  useEffect(() => {
+    setQuantity((q) => Math.min(Math.max(q, commerce.minQuantity), maxQty));
+  }, [selectedId, maxQty, commerce.minQuantity]);
 
   // Buy box'ta gosterilen tutar = secili varyant birim fiyati x adet. Ham minor
   // tutarlar varsa istemcide bicimlenir; yoksa tekil etiketlere geri dusulur
@@ -64,7 +87,8 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   // "sepete eklendi" geri bildirimi gosterilir. BUY_NOW (Simdi Al): sepete ekleyip
   // checkout'a yonlendirir. Adet/varyant istemci state'idir; fiyat/stok/uygunluk
   // gateway tarafinda yeniden dogrulanir.
-  const canAddToCart = commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected;
+  const canAddToCart =
+    commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected && !outOfStock;
 
   function addToCart() {
     if (!selected) return;
@@ -147,36 +171,51 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         </div>
       ) : null}
 
-      {/* Adet (yalniz ONLINE satilabilir) */}
+      {/* Adet (yalniz ONLINE satilabilir) — stok limitine duyarli */}
       {commerce.showQuantity ? (
         <div className="mt-5">
           <p className="mb-2 text-sm font-medium text-slate-700">{t.detail.quantityLabel}</p>
           <div className="inline-flex items-center rounded-lg border border-slate-200">
             <button
               type="button"
-              aria-label="-"
+              aria-label={t.buyBox.decrease}
+              disabled={outOfStock || quantity <= commerce.minQuantity}
               onClick={() => {
                 setQuantity((q) => clamp(q - 1));
                 setAdded(false);
               }}
-              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50"
+              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
             >
               −
             </button>
             <span className="w-10 text-center text-sm font-medium text-slate-900">{quantity}</span>
             <button
               type="button"
-              aria-label="+"
+              aria-label={t.buyBox.increase}
+              disabled={outOfStock || quantity >= maxQty}
               onClick={() => {
                 setQuantity((q) => clamp(q + 1));
                 setAdded(false);
               }}
-              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50"
+              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
             >
               +
             </button>
           </div>
+          {/* Stok sinir uyarisi: kullanici en fazla stok kadar secebilir. */}
+          {atStockLimit ? (
+            <p role="status" className="mt-2 text-xs font-medium text-amber-600">
+              {format(t.buyBox.maxQtyNote, { max: maxQty })}
+            </p>
+          ) : null}
         </div>
+      ) : null}
+
+      {/* Stokta yok: adet/CTA devre disi + net mesaj */}
+      {outOfStock ? (
+        <p role="status" className="mt-4 text-sm font-medium text-red-600">
+          {t.buyBox.outOfStock}
+        </p>
       ) : null}
 
       {/* Satis-modeli aciklamasi (ONLINE disi) */}

@@ -4458,6 +4458,7 @@ export function createServer(
       mode: attempt.mode,
       method: attempt.method,
       status: attempt.status,
+      threeDsApplied: attempt.threeDsApplied,
       cardBrand: attempt.cardBrand ?? null,
       cardLast4: attempt.cardLast4 ?? null,
       installmentCount: attempt.installmentCount,
@@ -4611,6 +4612,7 @@ export function createServer(
       attemptId: ctx.attempt.id,
       currentStatus: ctx.attempt.status,
       scenario,
+      ...(body.threeDsAction ? { threeDsOutcome: body.threeDsAction } : {}),
     });
 
     let orderPaymentStatus: PaymentStatus | null = null;

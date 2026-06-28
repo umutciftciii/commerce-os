@@ -1437,3 +1437,43 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   OK; revoke → revokedCount 1 + sonra /me 401; dup email/phone 409. Client bundle + gateway log taramasi:
   createApiClient/SESSION_SECRET/passwordHash/tokenHash/raw-token/Bearer YOK.
 - Iliski: TODO-075 (musteri self-service "sifremi unuttum") ve TODO-076 (gercek e-posta/SMS teslimat) ACIK.
+
+## TODO-072 F3B.2 Follow-up Payment/Stock/Installment Polish
+
+- Kapsam: F3B.2 sonrasi manuel smoke'ta gozlemlenen, F3B.2'yi bloke ETMEYEN UI/UX eksiklerinin toplu
+  giderilmesi. MOCK simulasyon; gercek provider/iyzico sandbox/3DS redirect KAPSAM DISI (ADR-036).
+- Inventory-aware PDP quantity (Kapsam 1): `apps/storefront-web/lib/catalog-types.ts` icine saf
+  `maxPurchasableQuantity({minQuantity, storeMax, available})` turetmesi (magaza max ile varyant stok
+  limitinin kucugu, min altina dusmez, stok bilinmiyorsa yalniz magaza siniri). BuyBox bunu kullanir:
+  stok limitinde `+` disabled + "Bu üründen en fazla N adet ekleyebilirsiniz."; varyant degisince adet
+  yeni limite normalize (useEffect clamp); stok yoksa (`inStock === false`) adet kontrolleri + sepete ekle
+  disabled + "Bu ürün şu an stokta yok." Gateway public DTO zaten `available` tasiyordu → DTO degisikligi
+  YOK; server cart reconcile son guvenlik olarak korunur.
+- 3D Secure simulasyon (Kapsam 2): "3DS gerekli" kart artik ANINDA PAID olmaz. Ilk submit REQUIRES_ACTION
+  → ayri banka dogrulama simulasyon ekrani (ThreeDsChallenge: siparis no + tutar + "Doğrulamayı başarılı
+  tamamla"/"Doğrulamayı başarısız yap"). MOCK adapter `ConfirmPaymentInput.threeDsOutcome` (success/fail)
+  ile fail yolu eklendi (FAILED + THREE_DS_FAILED, order UNPAID kalir, retry mumkun). Sozlesme:
+  `publicPaymentSubmitRequest.threeDsAction` (opsiyonel enum), `publicPaymentInfo.threeDsApplied` (safe
+  boolean). Store-admin order detail payment paneli 3DS durumu gosterir (Gerekli/Doğrulama bekleniyor/
+  Doğrulandı/Başarısız); success ekrani "3D Secure: Doğrulandı".
+- Installment + success UI (Kapsam 3+4): odeme adimi/success ekrani/store-admin panelinde taksit ozeti
+  ("N taksit × ₺X" + toplam + "Vade farksız"). SAHTE oran/faiz YOK — toplam degismez, esit bolunur
+  (computed UI; yeni DB alani yok, mevcut `installmentCount`). Success ekrani: siparis no, urunler, odeme
+  (saglayici/yontem/maskeli kart/3DS/taksit/islem no/tarih), teslimat + fatura ozeti, test modu notu,
+  "Siparişlerime git" (`/account?section=orders`) + "Alışverişe devam et" CTA.
+- Guvenlik: full PAN/CVC sunucuya gider, dogrulanir, ASLA saklanmaz/serialize edilmez/loglanmaz (yalniz
+  marka + son 4 + scenario + taksit). Yanit serializer'lara eklenen tek yeni alan `threeDsApplied`
+  (boolean). i18n TR/EN parite (stok limiti/stokta yok, 3DS aksiyonlari, taksit ozeti/vade farksiz,
+  siparislerime git).
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` temiz (worktree path turbo gotcha
+  nedeniyle dogrudan eslint ile dogrulandi), `test` yesil — storefront 60 (+buy-box-quantity saf clamp
+  testi + SSR out-of-stock), store-admin 89 (+3DS panel testi), api-gateway 139 (+MOCK 3DS fail testi),
+  contracts 21. `git diff --check` temiz.
+- Docker smoke (worktree context = build context; postgres+redis+3 servis `--build`): tum servisler
+  healthy; api-gateway `/health` 200, storefront `/api/health` 200 + `/products` 200, store-admin
+  `/login` 200. Public DTO `available` dogrulandi (demo-hoodie 6/15/24). Payment POST `threeDsAction`
+  alani kabul (bogus order → 404 kontrollu, 400/500 degil). Diff secret/PII taramasi: yeni full PAN/CVC/
+  token/hash sizintisi YOK.
+- Not (worktree gotcha): bu oturumda ilk duzenlemeler yanlislikla main worktree path'ine yazildi; degisikler
+  `git stash -u` ile dogru worktree branch'ine tasindi, main temiz birakildi, gate'ler worktree'de tekrar
+  kosuldu.
