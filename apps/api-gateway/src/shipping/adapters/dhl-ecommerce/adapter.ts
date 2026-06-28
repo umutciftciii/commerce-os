@@ -1,0 +1,229 @@
+import { ShippingConfigError } from "../../errors.js";
+import type { ShippingHttpResponse, ShippingHttpTransport } from "../http.js";
+import {
+  assertBarcodeCreateAllowed,
+  assertOrderCreateAllowed,
+} from "../guards.js";
+import type {
+  CalculateRateInput,
+  CreateBarcodeInput,
+  CreateOrderInput,
+  CreateReturnOrderInput,
+  ListGeoCitiesInput,
+  ListGeoDistrictsInput,
+  ReferenceLookupInput,
+  ResolvedShippingCredential,
+  ShippingActionContext,
+  ShippingBarcodeResult,
+  ShippingGeoResult,
+  ShippingOrderCreateResult,
+  ShippingProviderAdapter,
+  ShippingRateResult,
+  ShippingShipmentStatusResult,
+  ShippingTrackingEventResult,
+  TestConnectionInput,
+  TestConnectionResult,
+  WebhookResult,
+} from "../../types.js";
+import {
+  buildCalculateRequest,
+  buildCbsGetRequest,
+  buildCreateBarcodeRequest,
+  buildCreateOrderRequest,
+  buildIdentityTokenRequest,
+  buildQueryGetRequest,
+} from "./client.js";
+import {
+  mapCalculateResponse,
+  mapCitiesResponse,
+  mapCreateBarcodeResponse,
+  mapCreateOrderResponse,
+  mapDistrictsResponse,
+  mapShipmentStatusResponse,
+  mapTokenResponse,
+  mapTrackResponse,
+} from "./mappers.js";
+
+/**
+ * F3C.1 — DHL eCommerce (api.mngkargo.com.tr) adapter.
+ *
+ * Bu fazda CANLI destructive islem (createOrder/createbarcode) varsayilan KAPALIdir
+ * (ctx.guards + explicitConfirm). Transport varsayilan KAPALI: read/quote metotlari
+ * mapping uretir ama canli HTTP yalniz `SHIPPING_SANDBOX_HTTP_ENABLED` acikken yapilir;
+ * aksi halde SHIPPING_HTTP_DISABLED doner. JWT/secret asla loglanmaz/serialize edilmez.
+ *
+ * TODO(F3C.x): Identity refresh-token akisi (OpenAPI'de /refresh belirsiz) ve token
+ * kalici/dagitik cache. Su an cache yalnizca process-ici, kisa omurlu.
+ */
+export class DhlEcommerceAdapter implements ShippingProviderAdapter {
+  readonly provider = "DHL_ECOMMERCE" as const;
+  /** Process-ici, kisa omurlu JWT cache. Plain token DB'ye yazilmaz/loglanmaz. */
+  private readonly tokenCache = new Map<string, { token: string; expiresAtMs: number }>();
+
+  constructor(private readonly transport: ShippingHttpTransport) {}
+
+  private requireCredential(
+    ctx: ShippingActionContext,
+    type: ResolvedShippingCredential["type"],
+  ): ResolvedShippingCredential {
+    const cred = ctx.credentials.byType[type];
+    if (!cred || !cred.key || !cred.secret) {
+      throw new ShippingConfigError(
+        "CONFIG_INCOMPLETE",
+        `DHL eCommerce için ${type} kimlik bilgisi eksik.`,
+      );
+    }
+    return cred;
+  }
+
+  private requireIdentity(ctx: ShippingActionContext): ResolvedShippingCredential {
+    const identity = ctx.credentials.byType.IDENTITY;
+    if (!identity || !identity.key || !identity.secret || !identity.customerNumber || !identity.customerPassword) {
+      throw new ShippingConfigError(
+        "CONFIG_INCOMPLETE",
+        "DHL eCommerce için IDENTITY kimlik bilgisi (müşteri no/şifre + X-IBM) eksik.",
+      );
+    }
+    return identity;
+  }
+
+  /** JWT alir/cache'ler. Transport kapaliyken SHIPPING_HTTP_DISABLED firlatir. */
+  private async getToken(ctx: ShippingActionContext): Promise<string> {
+    const identity = this.requireIdentity(ctx);
+    const cacheKey = identity.customerNumber!;
+    const cached = this.tokenCache.get(cacheKey);
+    if (cached && cached.expiresAtMs > Date.now() + 30_000) {
+      return cached.token;
+    }
+    const request = buildIdentityTokenRequest(identity);
+    const response = await this.transport.send(request); // transport kapaliysa burada hata.
+    const json = parseJson(response);
+    const auth = mapTokenResponse(json);
+    if (!auth.ok) {
+      throw new ShippingConfigError("AUTH_FAILED", "DHL eCommerce kimlik doğrulaması başarısız.");
+    }
+    // Plain JWT yalnizca process-ici cache'te tutulur; loglanmaz/DB'ye yazilmaz.
+    const token = String((json as Record<string, unknown>).jwt);
+    this.tokenCache.set(cacheKey, { token, expiresAtMs: Date.now() + 5 * 60_000 });
+    return token;
+  }
+
+  async testConnection(input: TestConnectionInput): Promise<TestConnectionResult> {
+    const ctx = input.context;
+    // IDENTITY + minimum required credential'larin VARLIK + formatini dogrular.
+    this.requireIdentity(ctx);
+    for (const type of ["STANDARD_COMMAND", "STANDARD_QUERY", "BARCODE_COMMAND"] as const) {
+      this.requireCredential(ctx, type);
+    }
+    if (!this.transport.enabled) {
+      // Transport kapali: token request mapping uretilebilir ama canli dogrulama yok.
+      buildIdentityTokenRequest(this.requireIdentity(ctx));
+      return {
+        ok: true,
+        message:
+          "DHL eCommerce kimlik bilgileri eksiksiz. Canlı doğrulama kapalı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
+      };
+    }
+    await this.getToken(ctx);
+    return { ok: true, message: "DHL eCommerce kimlik doğrulaması başarılı." };
+  }
+
+  async calculateRate(input: CalculateRateInput): Promise<ShippingRateResult> {
+    const product = this.requireCredential(input.context, "STANDARD_QUERY");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(buildCalculateRequest(input, product, token));
+    return mapCalculateResponse(parseJson(response));
+  }
+
+  async createOrder(input: CreateOrderInput): Promise<ShippingOrderCreateResult> {
+    assertOrderCreateAllowed(input.context, input.explicitConfirm);
+    const product = this.requireCredential(input.context, "STANDARD_COMMAND");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(buildCreateOrderRequest(input, product, token));
+    return mapCreateOrderResponse(parseJson(response), input.referenceId);
+  }
+
+  async createReturnOrder(input: CreateReturnOrderInput): Promise<ShippingOrderCreateResult> {
+    // TODO(F3C.x): createReturnOrder canli akisi. Su an guard + skeleton.
+    assertOrderCreateAllowed(input.context, input.explicitConfirm);
+    throw new ShippingConfigError("NOT_IMPLEMENTED", "createReturnOrder bu fazda etkin değil.");
+  }
+
+  async createBarcodeOrLabel(input: CreateBarcodeInput): Promise<ShippingBarcodeResult> {
+    assertBarcodeCreateAllowed(input.context, input.explicitConfirm);
+    const product = this.requireCredential(input.context, "BARCODE_COMMAND");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(buildCreateBarcodeRequest(input, product, token));
+    return mapCreateBarcodeResponse(parseJson(response), input.referenceId);
+  }
+
+  async getOrder(input: ReferenceLookupInput): Promise<ShippingShipmentStatusResult> {
+    return this.queryStatus(input, `/getorder/${encodeURIComponent(input.referenceId ?? "")}`);
+  }
+
+  async getShipment(input: ReferenceLookupInput): Promise<ShippingShipmentStatusResult> {
+    const suffix = input.shipmentId
+      ? `/getshipmentByShipmentId/${encodeURIComponent(input.shipmentId)}`
+      : `/getshipment/${encodeURIComponent(input.referenceId ?? "")}`;
+    return this.queryStatus(input, suffix);
+  }
+
+  async getShipmentStatus(input: ReferenceLookupInput): Promise<ShippingShipmentStatusResult> {
+    const suffix = input.shipmentId
+      ? `/getshipmentstatusByShipmentId/${encodeURIComponent(input.shipmentId)}`
+      : `/getshipmentstatus/${encodeURIComponent(input.referenceId ?? "")}`;
+    return this.queryStatus(input, suffix);
+  }
+
+  async trackShipment(input: ReferenceLookupInput): Promise<ShippingTrackingEventResult[]> {
+    const product = this.requireCredential(input.context, "STANDARD_QUERY");
+    const token = await this.getToken(input.context);
+    const suffix = input.shipmentId
+      ? `/trackshipmentByShipmentId/${encodeURIComponent(input.shipmentId)}`
+      : `/trackshipment/${encodeURIComponent(input.referenceId ?? "")}`;
+    const response = await this.transport.send(buildQueryGetRequest(suffix, product, token));
+    return mapTrackResponse(parseJson(response));
+  }
+
+  async cancelShipment(): Promise<{ cancelled: boolean }> {
+    // TODO(F3C.x): cancelorder/cancelshipment guard'li canli akis.
+    throw new ShippingConfigError("NOT_IMPLEMENTED", "cancelShipment bu fazda etkin değil.");
+  }
+
+  async handleWebhook(): Promise<WebhookResult> {
+    // TODO(F3C.x): DHL webhook dogrulama. Su an no-op.
+    return { handled: false, eventId: null, signatureValid: false };
+  }
+
+  async listGeoCities(input: ListGeoCitiesInput): Promise<ShippingGeoResult> {
+    const product = this.requireCredential(input.context, "CBS_INFO");
+    const response = await this.transport.send(buildCbsGetRequest("/getcities", product));
+    return mapCitiesResponse(parseJson(response));
+  }
+
+  async listGeoDistricts(input: ListGeoDistrictsInput): Promise<ShippingGeoResult> {
+    const product = this.requireCredential(input.context, "CBS_INFO");
+    const response = await this.transport.send(
+      buildCbsGetRequest(`/getdistricts/${encodeURIComponent(input.cityCode)}`, product),
+    );
+    return mapDistrictsResponse(parseJson(response));
+  }
+
+  private async queryStatus(
+    input: ReferenceLookupInput,
+    suffix: string,
+  ): Promise<ShippingShipmentStatusResult> {
+    const product = this.requireCredential(input.context, "STANDARD_QUERY");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(buildQueryGetRequest(suffix, product, token));
+    return mapShipmentStatusResponse(parseJson(response));
+  }
+}
+
+function parseJson(response: ShippingHttpResponse): unknown {
+  try {
+    return JSON.parse(response.body) as unknown;
+  } catch {
+    return {};
+  }
+}

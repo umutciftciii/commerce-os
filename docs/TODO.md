@@ -334,3 +334,25 @@
   `@commerce-os/api-client/validators` alt-yolu eklendi, 5 client component (address/iban/checkout/
   payment-tester/register-flow) ona gecirildi; classifyIdentifier zod'dan arindirildi. Dogrulama:
   `grep createApiClient .next/static` bos; secret/token grep bos; typecheck/lint/test/build yesil.)
+- TODO-094: F3C.1 Shipping provider foundation (DHL eCommerce + Geliver + MOCK). Mağaza-scoped opsiyonel
+  kargo saglayici altyapisi: ShippingProviderConfig/Credential/Shipment/ShipmentEvent/ShipmentQuote modelleri
+  + migration; ayri SHIPPING_ENCRYPTION_KEY (AES-256-GCM, fallback YOK → CONFIG_MISSING); provider-bagimsiz
+  adapter sozlesmesi + MOCK/DHL/Geliver adapter foundation; gateway store-admin uclari (provider CRUD +
+  credential upsert/clear + test + order rate/create-order/create-barcode + CBS preview); api-client +
+  contracts; destructive guard'lar (createOrder/createbarcode/label-purchase varsayilan 409); unit testler.
+  Isimlendirme: UI "DHL eCommerce", teknik "MNG/api.mngkargo.com.tr". (Faz A backend DONE — bkz. ADR-039..042,
+  PHASE_LOG F3C.1. Faz B = store-admin settings UI + order detail shipping panel + BFF + runtime smoke: ACIK.)
+- TODO-095: DHL eCommerce canli createOrder controlled rollout. Env+config+explicitConfirm guard'i ile gercek
+  Standard Command /createOrder; idempotent referenceId, hata sinifları, sipariş→Shipment yasam dongusu.
+- TODO-096: DHL eCommerce canli createbarcode controlled rollout. Barcode Command /createbarcode (faturalastirma
+  → shipmentId/invoiceId/barcodes); etiket URL/PDF saklama; updateshipment/cancelshipment guard'li akis.
+- TODO-097: Geliver canli etiket satin alma (transactions.acceptOffer) controlled rollout. Offer polling →
+  normalized rate, acceptOffer guard kaldirma kriterleri, createReturn.
+- TODO-098: Checkout shipping price engine. Sepette/checkout'ta tahmini kargo ucreti (calculate/offer) — su an
+  checkout'a BAGLANMADI.
+- TODO-099: Customer-facing kargo takip UI (storefront). trackShipment/status → musteri tracking ekrani.
+- TODO-100: DHL Bulk Query toplu gonderi sync (getShipmentByDate/getStatusChangedShipments) runtime entegrasyonu.
+- TODO-101: DHL Finance Query fatura/komisyon mutabakat entegrasyonu.
+- TODO-102: DHL CBS sehir/ilce/mahalle kod cache/sync production hardening (su an read-only preview).
+- TODO-103: DHL Identity token refresh akisi (OpenAPI /refresh belirsiz) + kalici/dagitik token cache.
+- TODO-104: Shipping webhook production verification (DHL/Geliver event imza dogrulama + ShipmentEvent yazimi).

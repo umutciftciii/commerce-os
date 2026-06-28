@@ -1599,3 +1599,49 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
 - Gate: `db:generate` OK, `build` 24/24, `typecheck` 0 hata, storefront `lint` temiz, storefront `test`
   79/79 (yeni sentinel 4 dahil), `git diff --check` temiz.
 - Degisiklik: yalniz yeni sentinel test dosyasi + docs (urun kodu degismedi).
+
+## TODO-094 F3C.1 Shipping Provider Foundation — Faz A (Backend)
+
+- Kapsam: Mağaza-scoped opsiyonel kargo saglayici altyapisi (MOCK / GELIVER / DHL_ECOMMERCE). Admin-kontrollu
+  foundation: checkout'ta otomatik kargo YOK, odeme sonrasi otomatik kargo/barkod YOK. Pattern: F3B.2 payment
+  provider foundation (ADR-033). Bkz. ADR-039..042. Faz B (store-admin UI + order detail shipping panel + BFF +
+  runtime smoke) AYRI birakildi.
+- Veri modeli (`packages/db/prisma/schema.prisma` + migration 20260628160000_add_shipping_provider_foundation):
+  ShippingProviderConfig, ShippingProviderCredential (type bazli; IDENTITY ayrica customerNumber/customerPassword/
+  identityType), Shipment, ShipmentEvent, ShipmentQuote + enumlar (ShippingProviderType/Mode/Status,
+  ShippingCredentialType, ShipmentStatus/EventType). Store/Order ters iliskileri eklendi. Secret alanlar yalniz
+  encrypted* ciphertext olarak saklanir.
+- Sifreleme (`apps/api-gateway/src/shipping/encryption.ts`): ayri SHIPPING_ENCRYPTION_KEY (AES-256-GCM). Anahtar
+  yoksa HICBIR ortamda fallback YOK → CONFIG_MISSING (lazy cipher). PAYMENT_ENCRYPTION_KEY fallback'i yok. Config:
+  `packages/config` (+ guard bayraklari). `.env.example` + docker-compose api-gateway env'i guncellendi (local dev
+  key yalniz docker smoke icin, gercek secret degil).
+- Provider abstraction (`apps/api-gateway/src/shipping/`): `ShippingProviderAdapter` sozlesmesi + normalized result
+  modelleri; varsayilan KAPALI HTTP transport (SHIPPING_HTTP_DISABLED); registry; ALLOWLIST serializer (secret/
+  ciphertext/JWT/customerPassword DONMEZ). MOCK tam calisir. DHL adapter (client/mappers/adapter): X-IBM headers,
+  Identity token (sanitize: jwt/refreshToken result'a cikmaz, kisa omurlu in-memory cache), calculate/get/track/CBS
+  mapper'lari, createOrder/createbarcode guard. Geliver adapter: testConnection + createTest (test-only) + label
+  purchase guard; canli shipments.create/acceptOffer cagrilmaz.
+- Destructive guard'lar (uc katmanli: env flag && providerConfig.allow* && request.explicitConfirm): createOrder →
+  409 ORDER_CREATE_DISABLED, createbarcode → 409 BARCODE_CREATE_DISABLED, Geliver label → 409 LABEL_PURCHASE_DISABLED.
+  Hepsi varsayilan KAPALI.
+- Gateway uclari (`apps/api-gateway/src/shipping/routes.ts`, server.ts'e register): GET/POST providers, PATCH :id,
+  POST/DELETE :id/credentials, POST :id/test, order rate/create-order/create-barcode, GET order shipping, DHL CBS
+  preview. Tumu requireStorePlatformAdmin + store-scope (cross-store → 404) + ALLOWLIST + audit (yalniz alan adlari).
+- api-client + contracts: `admin.shippingProviders.*` + `admin.orderShipping.*`; zod request/response semalari.
+- Testler: 24 yeni unit (shipping-encryption 5, shipping-mappers 8, shipping-adapters 11). Kanit: cipher fallback-yok/
+  CONFIG_MISSING; token sanitize (JWT/refreshToken result'ta yok); Identity request X-IBM+body; calculate/status/
+  barcode/CBS mapper normalize; serializer secret dondurmez; createOrder/createbarcode/label guard 409; Geliver
+  createTest destructive degil (transport disabled). Cross-store route izolasyonu Faz A docker smoke'a birakildi.
+- Gate: db:generate OK, build (pnpm -r) tum paketler OK, typecheck 0 hata, lint temiz, test yesil (api-gateway 166
+  — 24 yeni dahil; storefront 79, store-admin 89, admin-web 24, contracts/api-client/ui vb. degismeden gecti).
+  git diff --check temiz.
+- Secret kontrolu: local dev key dist/client bundle'a sizmadi (0); store-admin client bundle shipping secret yok (0,
+  UI Faz B); kaynak shipping kodunda JWT literal yok (0); repo disi shipping env MISSING (gercek credential yok).
+- Faz A docker smoke (api-gateway worktree kodundan rebuild, shared postgres/redis; migration deploy OK):
+  /health 200; platform admin login → store; provider create MOCK/DHL eCommerce/Geliver → 201; DHL IDENTITY
+  credential upsert → 200 ALLOWLIST yanit (configured:true, maskedKey "••••XYZ7", secretSet/customerNumberSet/
+  customerPasswordSet:true; raw secret/customerPassword/ciphertext DONMEDI — grep 0); DHL testConnection canli
+  cagri YOK (transport kapali; eksik STANDARD_COMMAND → ok:false net mesaj); destructive guard'lar: DHL create-order
+  → 409 ORDER_CREATE_DISABLED, DHL create-barcode → 409 BARCODE_CREATE_DISABLED, Geliver create-barcode → 409
+  LABEL_PURCHASE_DISABLED; list 3 provider; olmayan config → 404; tum yanitlarda raw secret/JWT grep 0. Canli
+  destructive (DHL createOrder/createbarcode, Geliver acceptOffer) ve gercek credential smoke YAPILMADI (kapsam disi).

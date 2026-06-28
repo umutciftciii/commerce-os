@@ -249,6 +249,59 @@ enum PaymentProviderEventType {
   STATUS_CHANGED
 }
 
+// ─────────────────────── F3C.1 Shipping provider foundation ───────────────────────
+// Magaza bazli opsiyonel kargo saglayici altyapisi. UI/domain dilinde "DHL eCommerce"
+// kullanilir; "MNG" yalnizca teknik endpoint/dokuman referansinda gecer (api.mngkargo.com.tr).
+enum ShippingProviderType {
+  MOCK
+  GELIVER
+  DHL_ECOMMERCE
+}
+
+enum ShippingProviderMode {
+  TEST
+  LIVE
+}
+
+enum ShippingProviderStatus {
+  ENABLED
+  DISABLED
+}
+
+// DHL/MNG portalinda her API urunu icin ayri "Anahtar" + "Guvenlik dizgisi" uretilebilir;
+// bu yuzden config tek apiKey/secret varsaymaz, credential type bazli saklar.
+enum ShippingCredentialType {
+  DEFAULT
+  IDENTITY
+  STANDARD_COMMAND
+  STANDARD_QUERY
+  BARCODE_COMMAND
+  CBS_INFO
+  BULK_QUERY
+  FINANCE_QUERY
+}
+
+enum ShipmentStatus {
+  DRAFT
+  ORDER_CREATED
+  LABEL_CREATED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+  CANCELLED
+  FAILED
+}
+
+enum ShipmentEventType {
+  CREATED
+  ORDER_CREATED
+  BARCODE_CREATED
+  STATUS_CHANGED
+  TRACKING_UPDATED
+  CANCELLED
+  WEBHOOK_RECEIVED
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -317,6 +370,10 @@ model Store {
   paymentProviderConfigs PaymentProviderConfig[]
   paymentAttempts        PaymentAttempt[]
   paymentProviderEvents  PaymentProviderEvent[]
+  shippingProviderConfigs ShippingProviderConfig[]
+  shipments               Shipment[]
+  shipmentEvents          ShipmentEvent[]
+  shipmentQuotes          ShipmentQuote[]
 }
 
 model StoreUser {
@@ -817,6 +874,8 @@ model Order {
   reservations InventoryReservation[]
   paymentAttempts PaymentAttempt[]
   paymentEvents   PaymentProviderEvent[]
+  shipments       Shipment[]
+  shipmentQuotes  ShipmentQuote[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -1023,4 +1082,152 @@ model PaymentProviderEvent {
   @@index([attemptId])
   @@index([orderId])
   @@index([type])
+}
+
+// ─────────────────────── F3C.1 Shipping provider foundation ───────────────────────
+
+model ShippingProviderConfig {
+  id                 String                 @id @default(cuid())
+  storeId            String
+  provider           ShippingProviderType
+  mode               ShippingProviderMode   @default(TEST)
+  status             ShippingProviderStatus @default(DISABLED)
+  displayName        String
+  // Destructive/costly operasyon guard'lari. Hepsi varsayilan KAPALI; canli
+  // createOrder/createbarcode/acceptOffer ancak ilgili env flag + bu alan + request
+  // explicitConfirm uclusu saglaninca calisir (aksi halde 409).
+  allowOrderCreate   Boolean                @default(false)
+  allowBarcodeCreate Boolean                @default(false)
+  allowLabelPurchase Boolean                @default(false)
+  lastTestedAt       DateTime?
+  lastTestStatus     String?
+  lastErrorCode      String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  store       Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  credentials ShippingProviderCredential[]
+  shipments   Shipment[]
+  quotes      ShipmentQuote[]
+
+  @@unique([storeId, provider, mode])
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+model ShippingProviderCredential {
+  id                       String                 @id @default(cuid())
+  providerConfigId         String
+  type                     ShippingCredentialType @default(DEFAULT)
+  // Secret alanlar AES-256-GCM ciphertext olarak saklanir; duz metin ASLA yazilmaz.
+  // DHL IDENTITY tipi ayrica customerNumber/customerPassword tutar.
+  encryptedKey             String?
+  encryptedSecret          String?
+  encryptedCustomerNumber  String?
+  encryptedCustomerPassword String?
+  identityType             Int?
+  // maskedKey yalnizca son-4 gosterimi icin; tam secret degildir.
+  maskedKey                String?
+  configured               Boolean                @default(false)
+  lastTestedAt             DateTime?
+  lastTestStatus           String?
+  lastErrorCode            String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([providerConfigId, type])
+  @@index([providerConfigId])
+}
+
+model Shipment {
+  id                   String               @id @default(cuid())
+  storeId              String
+  orderId              String
+  providerConfigId     String
+  provider             ShippingProviderType
+  externalOrderId      String?
+  externalShipmentId   String?
+  externalInvoiceId    String?
+  referenceId          String
+  status               ShipmentStatus       @default(DRAFT)
+  shipmentStatusCode   Int?
+  trackingNumber       String?
+  trackingUrl          String?
+  labelUrl             String?
+  // Yalnizca sanitize edilmis barkod ozeti (pieceNumber + value); JWT/secret icermez.
+  barcodeJsonSafe      Json?
+  pieceCount           Int                  @default(1)
+  totalKg              Float                @default(0)
+  totalDesi            Float                @default(0)
+  packagingType        Int?
+  shipmentServiceType  Int?
+  paymentType          Int?
+  deliveryType         Int?
+  recipientName        String?
+  recipientEmail       String?
+  recipientPhone       String?
+  recipientCityCode    Int?
+  recipientDistrictCode Int?
+  recipientCityName    String?
+  recipientDistrictName String?
+  recipientAddress     String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  events         ShipmentEvent[]
+
+  @@unique([storeId, referenceId])
+  @@index([storeId])
+  @@index([orderId])
+  @@index([providerConfigId])
+  @@index([status])
+}
+
+model ShipmentEvent {
+  id          String               @id @default(cuid())
+  storeId     String
+  shipmentId  String
+  provider    ShippingProviderType
+  eventType   ShipmentEventType
+  statusCode  Int?
+  statusText  String?
+  location    String?
+  occurredAt  DateTime?
+  trackingUrl String?
+  // Yalnizca sanitize edilmis saglayici payload ozeti; secret/JWT/Authorization icermez.
+  rawSafeJson Json?
+  createdAt   DateTime             @default(now())
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([shipmentId])
+  @@index([eventType])
+}
+
+model ShipmentQuote {
+  id               String               @id @default(cuid())
+  storeId          String
+  orderId          String?
+  providerConfigId String
+  provider         ShippingProviderType
+  amountMinor      Int
+  currency         String               @default("TRY")
+  // Yalnizca sanitize edilmis ucret kalemleri ozeti; secret icermez.
+  rawSafeJson      Json?
+  createdAt        DateTime             @default(now())
+
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order?                 @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([orderId])
+  @@index([providerConfigId])
 }

@@ -2049,3 +2049,208 @@ export const customerActivateResponseSchema = z.object({
 
 export type CustomerActivateRequest = z.infer<typeof customerActivateRequestSchema>;
 export type CustomerActivateResponse = z.infer<typeof customerActivateResponseSchema>;
+
+/* ─────────────────────── F3C.1 Shipping provider foundation ───────────────────────
+ * Magaza bazli opsiyonel kargo saglayici altyapisi. UI/domain dilinde "DHL eCommerce";
+ * "MNG" yalniz teknik endpoint referansinda. Secret alanlar create/update REQUEST'inde
+ * plain alinir; RESPONSE allowlist'tir — secret/ciphertext/JWT/customerPassword DONMEZ,
+ * yalniz configured + maskedKey (son-4) + *Set boolean'lari doner.
+ */
+export const shippingProviderTypeSchema = z.enum(["MOCK", "GELIVER", "DHL_ECOMMERCE"]);
+export const shippingProviderModeSchema = z.enum(["TEST", "LIVE"]);
+export const shippingProviderStatusSchema = z.enum(["ENABLED", "DISABLED"]);
+export const shippingCredentialTypeSchema = z.enum([
+  "DEFAULT",
+  "IDENTITY",
+  "STANDARD_COMMAND",
+  "STANDARD_QUERY",
+  "BARCODE_COMMAND",
+  "CBS_INFO",
+  "BULK_QUERY",
+  "FINANCE_QUERY",
+]);
+
+/** Credential CLIENT yaniti — ALLOWLIST. Secret/customerPassword/JWT DONMEZ. */
+export const shippingCredentialSchema = z.object({
+  type: shippingCredentialTypeSchema,
+  configured: z.boolean(),
+  maskedKey: z.string().nullable(),
+  secretSet: z.boolean(),
+  customerNumberSet: z.boolean(),
+  customerPasswordSet: z.boolean(),
+  identityType: z.number().int().nullable(),
+  lastTestedAt: z.string().datetime().nullable(),
+  lastTestStatus: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+});
+
+export const shippingProviderConfigSchema = z.object({
+  id: z.string().min(1),
+  provider: shippingProviderTypeSchema,
+  mode: shippingProviderModeSchema,
+  status: shippingProviderStatusSchema,
+  displayName: z.string().min(1),
+  allowOrderCreate: z.boolean(),
+  allowBarcodeCreate: z.boolean(),
+  allowLabelPurchase: z.boolean(),
+  lastTestedAt: z.string().datetime().nullable(),
+  lastTestStatus: z.string().nullable(),
+  lastErrorCode: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  credentials: z.array(shippingCredentialSchema),
+});
+
+export const shippingProviderConfigListResponseSchema = z.object({
+  data: z.array(shippingProviderConfigSchema),
+});
+
+export const shippingProviderConfigCreateRequestSchema = z.object({
+  provider: shippingProviderTypeSchema,
+  displayName: z.string().min(1).max(120),
+  mode: shippingProviderModeSchema.default("TEST"),
+  status: shippingProviderStatusSchema.default("DISABLED"),
+  allowOrderCreate: z.boolean().default(false),
+  allowBarcodeCreate: z.boolean().default(false),
+  allowLabelPurchase: z.boolean().default(false),
+});
+
+export const shippingProviderConfigUpdateRequestSchema = z
+  .object({
+    displayName: z.string().min(1).max(120).optional(),
+    mode: shippingProviderModeSchema.optional(),
+    status: shippingProviderStatusSchema.optional(),
+    allowOrderCreate: z.boolean().optional(),
+    allowBarcodeCreate: z.boolean().optional(),
+    allowLabelPurchase: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "En az bir alan güncellenmelidir.",
+  });
+
+export const shippingProviderStatusUpdateRequestSchema = z.object({
+  status: shippingProviderStatusSchema,
+});
+
+/**
+ * Credential upsert REQUEST'i. Secret alanlar (key/secret/customerNumber/
+ * customerPassword) yalniz BURADA plain alinir; server-side encrypt edilir.
+ * identityType DHL IDENTITY icin (varsayilan 1). Bos string ("") gonderim ilgili
+ * alani TEMIZLER; alan verilmezse (undefined) mevcut deger KORUNUR (route uygular).
+ */
+const optionalShippingSecretSchema = z.string().max(2000).nullable().optional();
+export const shippingCredentialUpsertRequestSchema = z.object({
+  type: shippingCredentialTypeSchema,
+  key: optionalShippingSecretSchema,
+  secret: optionalShippingSecretSchema,
+  customerNumber: optionalShippingSecretSchema,
+  customerPassword: optionalShippingSecretSchema,
+  identityType: z.number().int().min(1).max(99).nullable().optional(),
+});
+
+export const shippingProviderTestResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+  testedAt: z.string().datetime(),
+});
+
+/* ── Order detail shipping operasyonlari ── */
+const shipmentPieceSchema = z.object({
+  barcode: z.string().max(120).optional(),
+  desi: z.number().nonnegative(),
+  kg: z.number().nonnegative(),
+  content: z.string().max(255).optional(),
+});
+
+const shipmentRecipientSchema = z.object({
+  fullName: z.string().max(255).optional(),
+  email: z.string().max(255).optional(),
+  phone: z.string().max(40).optional(),
+  cityCode: z.number().int().optional(),
+  districtCode: z.number().int().optional(),
+  cityName: z.string().max(120).optional(),
+  districtName: z.string().max(120).optional(),
+  address: z.string().max(1000).optional(),
+});
+
+export const shippingRateRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  shipmentServiceType: z.number().int().optional(),
+  packagingType: z.number().int().optional(),
+  paymentType: z.number().int().optional(),
+  pickUpType: z.number().int().optional(),
+  deliveryType: z.number().int().optional(),
+  recipient: shipmentRecipientSchema,
+  pieces: z.array(shipmentPieceSchema).min(1),
+});
+
+export const shippingRateResponseSchema = z.object({
+  amountMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  breakdownSafe: z.record(z.number()).optional(),
+});
+
+export const shippingCreateOrderRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  referenceId: z.string().min(1).max(120),
+  shipmentServiceType: z.number().int().optional(),
+  packagingType: z.number().int().optional(),
+  paymentType: z.number().int().optional(),
+  deliveryType: z.number().int().optional(),
+  content: z.string().max(255).optional(),
+  recipient: shipmentRecipientSchema,
+  pieces: z.array(shipmentPieceSchema).min(1),
+  // Destructive guard: canli order create yalniz bu true iken (+env+config izni).
+  explicitConfirm: z.boolean().default(false),
+});
+
+export const shippingCreateBarcodeRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  referenceId: z.string().min(1).max(120),
+  packagingType: z.number().int().optional(),
+  pieces: z.array(shipmentPieceSchema).min(1),
+  explicitConfirm: z.boolean().default(false),
+});
+
+export const shipmentSchema = z.object({
+  id: z.string(),
+  orderId: z.string(),
+  provider: shippingProviderTypeSchema,
+  referenceId: z.string(),
+  status: z.enum([
+    "DRAFT",
+    "ORDER_CREATED",
+    "LABEL_CREATED",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "RETURNED",
+    "CANCELLED",
+    "FAILED",
+  ]),
+  externalOrderId: z.string().nullable(),
+  externalShipmentId: z.string().nullable(),
+  externalInvoiceId: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  labelUrl: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const orderShippingResponseSchema = z.object({
+  shipments: z.array(shipmentSchema),
+});
+
+export type ShippingProviderConfigResponse = z.infer<typeof shippingProviderConfigSchema>;
+export type ShippingProviderConfigListResponse = z.infer<typeof shippingProviderConfigListResponseSchema>;
+export type ShippingProviderConfigCreateRequest = z.infer<typeof shippingProviderConfigCreateRequestSchema>;
+export type ShippingProviderConfigUpdateRequest = z.infer<typeof shippingProviderConfigUpdateRequestSchema>;
+export type ShippingProviderStatusUpdateRequest = z.infer<typeof shippingProviderStatusUpdateRequestSchema>;
+export type ShippingCredentialUpsertRequest = z.infer<typeof shippingCredentialUpsertRequestSchema>;
+export type ShippingProviderTestResponse = z.infer<typeof shippingProviderTestResponseSchema>;
+export type ShippingRateRequest = z.infer<typeof shippingRateRequestSchema>;
+export type ShippingRateResponse = z.infer<typeof shippingRateResponseSchema>;
+export type ShippingCreateOrderRequest = z.infer<typeof shippingCreateOrderRequestSchema>;
+export type ShippingCreateBarcodeRequest = z.infer<typeof shippingCreateBarcodeRequestSchema>;
+export type OrderShippingResponse = z.infer<typeof orderShippingResponseSchema>;
+export type ShipmentResponse = z.infer<typeof shipmentSchema>;

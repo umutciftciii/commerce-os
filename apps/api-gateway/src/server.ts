@@ -76,6 +76,7 @@ import {
   resolveCustomerFromRequest,
   type CustomerDataAccess,
 } from "./customers/index.js";
+import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
@@ -3204,6 +3205,16 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+  });
+
+  // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
+  registerShippingAdminRoutes(app, {
+    config,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   app.post("/auth/platform/login", async (request, reply) => {

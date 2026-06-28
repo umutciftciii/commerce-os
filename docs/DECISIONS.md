@@ -755,3 +755,65 @@
   karistirilmasidir; uygulama kaynakli sizinti yok, urun kodu degismedi.
 - Iliski: F3B.3 musteri oturum cizgisini (ADR-034) ve TODO-090 client bundle hygiene'ini tamamlar; ayni
   "client-delivered output'ta secret/raw value olmaz" prensibinin oturum jetonuna uygulanmis halidir.
+
+## ADR-039 Shipping provider abstraction = mağaza-scoped, opsiyonel, admin-kontrollü kargo foundation (F3C.1 / TODO-094)
+
+- Durum: ACCEPTED
+- Baglam: Commerce OS'a kargo saglayici entegrasyonu gerekiyor (ilk: MOCK, GELIVER, DHL_ECOMMERCE).
+  Core platform hicbir saglayiciya hard-coded bagli OLMAMALI; her magaza kendi credential'ini girer,
+  aktif/pasif yonetir. Checkout'ta otomatik canli kargo satin alma ve odeme sonrasi otomatik kargo/barkod
+  olusturma bu fazda KAPSAM DISI. Pattern olarak F3B.2 payment provider foundation (ADR-033) alindi.
+- Karar: Provider-bagimsiz `ShippingProviderAdapter` sozlesmesi (testConnection/calculateRate/createOrder/
+  createReturnOrder/createBarcodeOrLabel/get*/track/cancel/handleWebhook/listGeo*) + normalized result
+  modelleri (`apps/api-gateway/src/shipping/types.ts`). MOCK tam calisir (credential gerektirmez); DHL/Geliver
+  request mapping URETIR ama HTTP transport varsayilan KAPALI (`SHIPPING_SANDBOX_HTTP_ENABLED=false` →
+  SHIPPING_HTTP_DISABLED). Store-scoped modeller: ShippingProviderConfig/Credential, Shipment, ShipmentEvent,
+  ShipmentQuote. Gateway uclari `requireStorePlatformAdmin` + store-scope (cross-store → 404) + ALLOWLIST
+  serializer ile korunur. DHL credential tek apiKey varsaymaz: type bazli (IDENTITY/STANDARD_COMMAND/
+  STANDARD_QUERY/BARCODE_COMMAND/CBS_INFO/BULK_QUERY/FINANCE_QUERY); IDENTITY ayrica customerNumber/
+  customerPassword/identityType tutar.
+- Isimlendirme: UI/domain dilinde "DHL eCommerce"; "MNG" yalniz teknik endpoint/dokuman referansinda
+  (api.mngkargo.com.tr, /mngapi/...). Adapter klasoru `dhl-ecommerce`.
+- Sonuc: Store-admin kontrollu kargo operasyon foundation. Checkout/odeme akisina BAGLANMAZ; UI Faz B'ye birakildi.
+
+## ADR-040 DHL eCommerce destructive operasyon guard'i (createOrder/createbarcode varsayilan 409)
+
+- Durum: ACCEPTED
+- Baglam: DHL Standard Command `createOrder` canli sipariş kaydi olusturur; Barcode Command `createbarcode`
+  siparisi faturalastirip gonderiye cevirir (maliyetli/geri donulemez). Bu fazda canli destructive islem
+  ISTENMEZ; ancak adapter/route foundation hazir olmali.
+- Karar: Uc katmanli guard. Canli createOrder yalniz `DHL_ECOMMERCE_ALLOW_ORDER_CREATE==="true"` (env) &&
+  `providerConfig.allowOrderCreate===true` (mağaza) && request `explicitConfirm===true` saglaninca calisir;
+  aksi halde 409 `ORDER_CREATE_DISABLED`. createbarcode icin ayni uclu → 409 `BARCODE_CREATE_DISABLED`
+  (`DHL_ECOMMERCE_ALLOW_BARCODE_CREATE`). Guard adapter katmaninda uygulanir (`adapters/guards.ts`); env&config
+  izinleri route'ta birlestirilip `ctx.guards`'a verilir. Tum bayraklar varsayilan KAPALI.
+- Sonuc: Default kurulumda canli sipariş/barkod olusturulamaz; etkinlestirme bilincli, cok-katmanli ve
+  kayda gecer (audit yalniz alan adlarini yazar, secret degil).
+
+## ADR-041 Geliver etiket satin alma guard'i + test-only akis (acceptOffer varsayilan 409)
+
+- Durum: ACCEPTED
+- Baglam: Geliver SDK'da `shipments.createTest` (test gonderi) ve `transactions.acceptOffer` (etiket satin
+  alma — ucretli) var. Bu fazda canli etiket satin alma ISTENMEZ; yalniz test/dry-run akisi.
+- Karar: Geliver `createOrder` = `createTest` (test gonderi; destructive DEGIL, guard YOK ama transport
+  kapaliyken SHIPPING_HTTP_DISABLED). `createBarcodeOrLabel` = acceptOffer = etiket satin alma → uc katmanli
+  guard: `GELIVER_ALLOW_LABEL_PURCHASE==="true"` && `providerConfig.allowLabelPurchase===true` &&
+  `explicitConfirm===true` degilse 409 `LABEL_PURCHASE_DISABLED`. Canli `shipments.create`/acceptOffer bu
+  fazda HIC cagrilmaz (guard gecse bile NOT_IMPLEMENTED). Geliver REST yollari SDK metod adlarindan turetildi;
+  canli dogrulama yapilmadi (transport kapali).
+- Sonuc: Geliver foundation test-guvenli; canli etiket maliyeti olusturulamaz.
+
+## ADR-042 Shipping secret domain ayrimi = ayri SHIPPING_ENCRYPTION_KEY (zorunlu, fallback yok)
+
+- Durum: ACCEPTED
+- Baglam: Kargo credential'lari (X-IBM client id/secret, DHL musteri no/sifre, Geliver token) sifrelenmeli.
+  Payment F3B.2 generic `createSecretCipher` (AES-256-GCM) helper'ini saglar ama payment dev/test'te guvensiz
+  fallback anahtari kullanir. Kargo icin bu davranis ISTENMEZ.
+- Karar: Kargo kendi domain anahtarini kullanir: `SHIPPING_ENCRYPTION_KEY`. PAYMENT_ENCRYPTION_KEY'e FALLBACK
+  YOKTUR. Anahtar yoksa HICBIR ortamda (development/test/staging/production) guvensiz/hardcoded fallback
+  kullanilmaz: kargo credential save/test/decrypt gerektiren TUM islemler `CONFIG_MISSING` doner (cipher lazy
+  kurulur — anahtar yokken config listeleme gibi islemler calismaya devam eder). Test ortaminda anahtar test
+  env'i ile acikca saglanir. Secret degerleri yalniz create/update request body'sinde plain alinir; response
+  ALLOWLIST'tir (configured + maskedKey son-4 + *Set boolean); ciphertext/secret/JWT/customerPassword ASLA
+  response/log/docs/test snapshot/client bundle'a cikmaz.
+- Sonuc: Kargo gizli anahtar yonetimi odemeden bagimsiz; "anahtar yoksa fallback degil net hata" ilkesi.
