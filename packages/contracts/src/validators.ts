@@ -6,7 +6,8 @@
  * Bu dosya bilincli olarak `@commerce-os/contracts` ana index'inden ayri tutulur:
  * boylece client component'ler `@commerce-os/api-client/validators` alt-modulu
  * uzerinden yalniz bu saf yardimcilari import edebilir ve client bundle'a zod /
- * kontrat semalari / `createApiClient` SIZMAZ.
+ * kontrat semalari / gateway'e baglanan API istemci fabrikasi SIZMAZ. (Fabrika
+ * adi bundle sentinel grep token'idir; yorumda literal yazilmaz.)
  *
  * Kart yardimcilari yalniz dogrulama/turetme icindir; FULL PAN/CVC asla saklanmaz.
  * ──────────────────────────────────────────────────────────────────────────── */
