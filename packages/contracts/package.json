@@ -5,6 +5,16 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./validators": {
+      "types": "./dist/validators.d.ts",
+      "default": "./dist/validators.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",

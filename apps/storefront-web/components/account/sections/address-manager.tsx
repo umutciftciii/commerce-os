@@ -4,7 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Input, Select } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
-import { isValidTaxNumber, isValidTckn, isValidTrPhone, type CustomerAddress } from "@commerce-os/api-client";
+import type { CustomerAddress } from "@commerce-os/api-client";
+import { isValidTaxNumber, isValidTckn, isValidTrPhone } from "@commerce-os/api-client/validators";
 import { districtsOf, trProvinceNames } from "../../../lib/tr-location-data";
 import {
   createAddressAction,

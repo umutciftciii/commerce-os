@@ -11,7 +11,7 @@ import type {
   PublicPaymentScenario,
   PublicPaymentState,
 } from "@commerce-os/api-client";
-import { luhnValid } from "@commerce-os/api-client";
+import { luhnValid } from "@commerce-os/api-client/validators";
 import { submitTestPaymentAction } from "../lib/server/cart-actions";
 
 type PaymentDict = StorefrontDictionary["payment"];

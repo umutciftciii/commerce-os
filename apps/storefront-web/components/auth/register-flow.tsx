@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Alert, Button, Input } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
-import { classifyIdentifier } from "@commerce-os/api-client";
+import { classifyIdentifier } from "@commerce-os/api-client/validators";
 import {
   registerCompleteAction,
   registerStartAction,
