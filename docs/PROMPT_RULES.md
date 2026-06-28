@@ -14,6 +14,23 @@
   ayni degisiklikte guncellenecek.
 - Faz kapanisi, docs guncelligi dogrulanmadan tamamlanmis sayilmayacak.
 
+## Worktree Path Guard (Izole Worktree)
+
+Izole bir git worktree icinde calisirken tum dosya islemleri AKTIF worktree path'ine baglanir.
+Ana repo path'i `/Users/umutciftci/ProjectsLocal/commerce-os` yalnizca baslangic kontrolu, main
+guard ve merge icin kullanilir; feature gelistirme orada yapilmaz.
+
+- Izole worktree'de tum dosya okuma/yazma/edit komutlari MUTLAKA aktif worktree path'iyle yapilir.
+- Ana repo path'i `/Users/umutciftci/ProjectsLocal/commerce-os` sadece baslangic kontrolu, main
+  guard ve merge islemleri icin kullanilir.
+- Feature gelistirme sirasinda `Edit` / `Write` / `Bash` komutlari worktree root'u disinda bir path
+  kullaniyorsa once DURULUR ve durum raporlanir.
+- Ilk kod degisikliginden ONCE su ciktilar alinir: `pwd`, `git branch --show-current`,
+  `git rev-parse --show-toplevel`.
+- `git rev-parse --show-toplevel` ciktisi aktif feature worktree path'i degilse gelistirme yapilmaz.
+- Yanlislikla ana repo path'ine degisiklik yapilirsa: commit ATILMADAN durulur, degisiklik
+  patch/stash ile worktree'ye tasinir, ana repo temizlenir ve durum raporlanir.
+
 ## Design-First Kurali (Frontend/UI)
 
 Yeni bir page, layout, dashboard, panel, shell veya onemli UI ekrani olustururken once kisa bir

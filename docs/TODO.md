@@ -316,4 +316,8 @@
   baglanmaz; olu/tree-shake edilmemis util — secret icermez) ama proje kurali "createApiClient client
   bundle'da olmamali". Cozum: TR validator'lari client-safe bagimsiz bir alt-modulden export et
   (`@commerce-os/api-client/validators` veya contracts saf modulu) ve client component'leri ona gecir.
-  Dogrulama: build sonrasi `grep -rE createApiClient apps/storefront-web/.next/static` bos donmeli. ACIK.
+  Dogrulama: build sonrasi `grep -rE createApiClient apps/storefront-web/.next/static` bos donmeli.
+  (DONE — commit de66ae3: TR validator'lar saf `@commerce-os/contracts/validators` modulune tasindi,
+  `@commerce-os/api-client/validators` alt-yolu eklendi, 5 client component (address/iban/checkout/
+  payment-tester/register-flow) ona gecirildi; classifyIdentifier zod'dan arindirildi. Dogrulama:
+  `grep createApiClient .next/static` bos; secret/token grep bos; typecheck/lint/test/build yesil.)

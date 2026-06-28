@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Input } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
-import { isValidIban, type CustomerIban } from "@commerce-os/api-client";
+import type { CustomerIban } from "@commerce-os/api-client";
+import { isValidIban } from "@commerce-os/api-client/validators";
 import {
   createIbanAction,
   deleteIbanAction,

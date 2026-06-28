@@ -3,7 +3,8 @@
 import { useActionState, useMemo, useState } from "react";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
-import { isValidTckn, type CustomerAddress } from "@commerce-os/api-client";
+import type { CustomerAddress } from "@commerce-os/api-client";
+import { isValidTckn } from "@commerce-os/api-client/validators";
 import type { CartView } from "../lib/server/cart";
 import { type CheckoutFormState, submitCheckoutAction } from "../lib/server/cart-actions";
 import { districtsOf, trProvinceNames } from "../lib/tr-location-data";
