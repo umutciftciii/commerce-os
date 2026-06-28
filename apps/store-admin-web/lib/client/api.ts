@@ -28,6 +28,15 @@ import type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  StoreAdminCustomerListResponse,
+  StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerUpdateRequest,
+  CustomerAccount,
+  CustomerAddress,
+  CustomerAddressInput,
+  CustomerIban,
+  CustomerIbanInput,
+  CustomerCommunicationPreference,
 } from "@commerce-os/api-client";
 
 /**
@@ -204,6 +213,51 @@ export const storeApi = {
     mutatingCall<Order>(`/api/orders/${orderId}/cancel`, {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+
+  // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
+  listCustomers: () => call<StoreAdminCustomerListResponse>("/api/customers"),
+  getCustomer: (id: string) => call<StoreAdminCustomerDetailResponse>(`/api/customers/${id}`),
+  updateCustomer: (id: string, input: StoreAdminCustomerUpdateRequest) =>
+    mutatingCall<{ customer: CustomerAccount }>(`/api/customers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  updateCustomerCommPref: (id: string, input: CustomerCommunicationPreference) =>
+    mutatingCall<CustomerCommunicationPreference>(`/api/customers/${id}/communication-preferences`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  createCustomerAddress: (id: string, input: CustomerAddressInput) =>
+    mutatingCall<{ address: CustomerAddress }>(`/api/customers/${id}/addresses`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateCustomerAddress: (id: string, addressId: string, input: CustomerAddressInput) =>
+    mutatingCall<{ address: CustomerAddress }>(`/api/customers/${id}/addresses/${addressId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteCustomerAddress: (id: string, addressId: string) =>
+    mutatingCall<{ deleted: boolean }>(`/api/customers/${id}/addresses/${addressId}`, {
+      method: "DELETE",
+    }),
+  setDefaultCustomerAddress: (id: string, addressId: string) =>
+    mutatingCall<{ updated: boolean }>(`/api/customers/${id}/addresses/${addressId}/default`, {
+      method: "POST",
+    }),
+  createCustomerIban: (id: string, input: CustomerIbanInput) =>
+    mutatingCall<{ iban: CustomerIban }>(`/api/customers/${id}/ibans`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteCustomerIban: (id: string, ibanId: string) =>
+    mutatingCall<{ deleted: boolean }>(`/api/customers/${id}/ibans/${ibanId}`, {
+      method: "DELETE",
+    }),
+  setDefaultCustomerIban: (id: string, ibanId: string) =>
+    mutatingCall<{ updated: boolean }>(`/api/customers/${id}/ibans/${ibanId}/default`, {
+      method: "POST",
     }),
 
   // Payment providers (F3B.2) — secret'lar BFF/gateway'de maskeli; mutating aksiyonlar CSRF'li.

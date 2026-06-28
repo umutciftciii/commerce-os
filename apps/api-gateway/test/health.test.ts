@@ -26,6 +26,7 @@ import {
   type PaymentProviderEventRecord,
   createServer,
 } from "../src/server.js";
+import type { CustomerDataAccess } from "../src/customers/index.js";
 import type { PaymentProviderStatus, PaymentProviderType } from "@prisma/client";
 
 const config = {
@@ -358,6 +359,84 @@ class MemoryDataAccess implements AppDataAccess {
   ];
   readonly movements: MovementRecord[] = [];
   readonly orders: OrderRecord[] = [];
+  // F3B.3 — store-admin müşteri dizini için bellek seed'i (güvenli alanlar).
+  readonly customers: Array<{
+    id: string;
+    storeId: string;
+    email: string | null;
+    phone: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    status: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+    emailVerifiedAt: Date | null;
+    phoneVerifiedAt: Date | null;
+    hasCredential: boolean;
+    orderCount: number;
+    totalSpentMinor: number;
+    currency: string;
+    lastOrderAt: Date | null;
+    addressCount: number;
+    defaultAddressSummary: string | null;
+    createdAt: Date;
+  }> = [
+    {
+      id: "cust_member",
+      storeId: "store_demo",
+      email: "member@example.local",
+      phone: "+905551112233",
+      firstName: "Ayşe",
+      lastName: "Yılmaz",
+      status: "ACTIVE",
+      emailVerifiedAt: new Date("2026-02-01T00:00:00.000Z"),
+      phoneVerifiedAt: null,
+      hasCredential: true,
+      orderCount: 2,
+      totalSpentMinor: 259800,
+      currency: "TRY",
+      lastOrderAt: new Date("2026-06-01T00:00:00.000Z"),
+      addressCount: 1,
+      defaultAddressSummary: "İstanbul, Kadıköy",
+      createdAt: new Date("2026-01-15T00:00:00.000Z"),
+    },
+    {
+      id: "cust_guest",
+      storeId: "store_demo",
+      email: "guest@example.local",
+      phone: null,
+      firstName: null,
+      lastName: null,
+      status: "ACTIVE",
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
+      hasCredential: false,
+      orderCount: 0,
+      totalSpentMinor: 0,
+      currency: "TRY",
+      lastOrderAt: null,
+      addressCount: 0,
+      defaultAddressSummary: null,
+      createdAt: new Date("2026-03-20T00:00:00.000Z"),
+    },
+    {
+      id: "cust_other_store",
+      storeId: "store_other",
+      email: "other@example.local",
+      phone: null,
+      firstName: "Other",
+      lastName: "Tenant",
+      status: "ACTIVE",
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
+      hasCredential: true,
+      orderCount: 1,
+      totalSpentMinor: 99900,
+      currency: "TRY",
+      lastOrderAt: new Date("2026-05-01T00:00:00.000Z"),
+      addressCount: 1,
+      defaultAddressSummary: "İzmir, Konak",
+      createdAt: new Date("2026-04-01T00:00:00.000Z"),
+    },
+  ];
   orderSequence = 1;
   readonly auditLogs: AuditRecord[] = [];
   readonly paymentProviderConfigs: PaymentProviderConfigRecord[] = [];
@@ -823,6 +902,13 @@ class MemoryDataAccess implements AppDataAccess {
   async listOrders(storeId: string, { limit, offset }: { limit: number; offset: number }) {
     const data = this.orders.filter((order) => order.storeId === storeId);
     return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async listCustomers(storeId: string, { limit, offset }: { limit: number; offset: number }) {
+    const matched = this.customers.filter((customer) => customer.storeId === storeId);
+    // serializeStoreAdminCustomer zod ile parse eder; fazladan storeId alanı düşer.
+    const data = matched.slice(offset, offset + limit);
+    return { data, total: matched.length };
   }
 
   async findOrderById(storeId: string, orderId: string) {
@@ -1370,11 +1456,290 @@ class MemoryDataAccess implements AppDataAccess {
   }
 }
 
+// F3B.3 — Store-admin müşteri yönetimi uçları için bellek CustomerDataAccess mock'u.
+// Yalnız admin route'larının dokunduğu metotlar gerçekçi; gerisi kullanılmaz (cast).
+interface MockCustomer {
+  id: string;
+  storeId: string;
+  email: string | null;
+  phone: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  birthDate: Date | null;
+  gender: null;
+  emailVerifiedAt: Date | null;
+  phoneVerifiedAt: Date | null;
+  status: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+  createdAt: Date;
+  hasCredential: boolean;
+}
+
+function createCustomerAdminMock() {
+  const customers: MockCustomer[] = [
+    {
+      id: "cust_member",
+      storeId: "store_demo",
+      email: "member@example.local",
+      phone: "+905551112233",
+      firstName: "Ayşe",
+      lastName: "Yılmaz",
+      birthDate: null,
+      gender: null,
+      emailVerifiedAt: new Date("2026-02-01T00:00:00.000Z"),
+      phoneVerifiedAt: null,
+      status: "ACTIVE",
+      createdAt: new Date("2026-01-15T00:00:00.000Z"),
+      hasCredential: true,
+    },
+    {
+      id: "cust_existing_email",
+      storeId: "store_demo",
+      email: "taken@example.local",
+      phone: null,
+      firstName: "Veli",
+      lastName: "Demir",
+      birthDate: null,
+      gender: null,
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
+      status: "ACTIVE",
+      createdAt: new Date("2026-01-10T00:00:00.000Z"),
+      hasCredential: false,
+    },
+    {
+      id: "cust_other_store",
+      storeId: "store_other",
+      email: "other@example.local",
+      phone: null,
+      firstName: "Other",
+      lastName: "Tenant",
+      birthDate: null,
+      gender: null,
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
+      status: "ACTIVE",
+      createdAt: new Date("2026-04-01T00:00:00.000Z"),
+      hasCredential: true,
+    },
+  ];
+  type Addr = {
+    id: string;
+    addressName: string;
+    fullName: string;
+    phone: string | null;
+    city: string;
+    district: string | null;
+    addressLine1: string;
+    addressLine2: string | null;
+    postalCode: string | null;
+    isDefaultShipping: boolean;
+    isDefaultBilling: boolean;
+    billingType: "INDIVIDUAL" | "CORPORATE" | null;
+    tckn: string | null;
+    companyName: string | null;
+    taxOffice: string | null;
+    taxNumber: string | null;
+  };
+  const addresses = new Map<string, Addr[]>();
+  type Iban = { id: string; accountHolderName: string; iban: string; isDefault: boolean };
+  const ibans = new Map<string, Iban[]>();
+  const prefs = new Map<string, { smsEnabled: boolean; emailEnabled: boolean; phoneEnabled: boolean }>();
+  const orders = new Map<
+    string,
+    {
+      orderNumber: string;
+      status: string;
+      paymentStatus: string;
+      currency: string;
+      totalAmount: number;
+      createdAt: Date;
+      lines: { title: string; variantTitle: string; quantity: number }[];
+    }[]
+  >();
+  orders.set("cust_member", [
+    {
+      orderNumber: "OS-0001",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      currency: "TRY",
+      totalAmount: 129900,
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      lines: [{ title: "Tişört", variantTitle: "M", quantity: 1 }],
+    },
+  ]);
+  let seq = 1;
+  const find = (storeId: string, id: string) =>
+    customers.find((customer) => customer.id === id && customer.storeId === storeId) ?? null;
+  const authShape = (customer: MockCustomer) => ({
+    id: customer.id,
+    storeId: customer.storeId,
+    email: customer.email,
+    phone: customer.phone,
+    firstName: customer.firstName,
+    lastName: customer.lastName,
+    birthDate: customer.birthDate,
+    gender: customer.gender,
+    emailVerifiedAt: customer.emailVerifiedAt,
+    phoneVerifiedAt: customer.phoneVerifiedAt,
+    status: customer.status,
+  });
+
+  const mock = {
+    async adminFindDetail(storeId: string, id: string) {
+      const customer = find(storeId, id);
+      if (!customer) return null;
+      return { ...authShape(customer), createdAt: customer.createdAt, hasCredential: customer.hasCredential };
+    },
+    async adminUpdateCustomer(
+      storeId: string,
+      id: string,
+      input: {
+        firstName?: string | null;
+        lastName?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        status?: MockCustomer["status"];
+        birthDate?: Date | null;
+        gender?: null;
+      },
+    ) {
+      const customer = find(storeId, id);
+      if (!customer) return "NOT_FOUND" as const;
+      if (input.email !== undefined && input.email !== customer.email) {
+        if (
+          input.email &&
+          customers.some((other) => other.storeId === storeId && other.id !== id && other.email === input.email)
+        ) {
+          return "EMAIL_TAKEN" as const;
+        }
+        customer.email = input.email;
+        customer.emailVerifiedAt = null;
+      }
+      if (input.phone !== undefined && input.phone !== customer.phone) {
+        if (
+          input.phone &&
+          customers.some((other) => other.storeId === storeId && other.id !== id && other.phone === input.phone)
+        ) {
+          return "PHONE_TAKEN" as const;
+        }
+        customer.phone = input.phone;
+        customer.phoneVerifiedAt = null;
+      }
+      if (input.firstName !== undefined) customer.firstName = input.firstName;
+      if (input.lastName !== undefined) customer.lastName = input.lastName;
+      if (input.status !== undefined) customer.status = input.status;
+      if (input.birthDate !== undefined) customer.birthDate = input.birthDate;
+      return authShape(customer);
+    },
+    async listAddresses(_storeId: string, customerId: string) {
+      return addresses.get(customerId) ?? [];
+    },
+    async findAddress(_storeId: string, customerId: string, id: string) {
+      return (addresses.get(customerId) ?? []).find((address) => address.id === id) ?? null;
+    },
+    async createAddress(_storeId: string, customerId: string, input: Omit<Addr, "id" | "isDefaultBilling">) {
+      const list = addresses.get(customerId) ?? [];
+      const makeDefault = list.length === 0 || input.isDefaultShipping === true;
+      if (makeDefault) list.forEach((a) => { a.isDefaultShipping = false; a.isDefaultBilling = false; });
+      const created: Addr = {
+        ...input,
+        id: `addr_${seq++}`,
+        isDefaultShipping: makeDefault,
+        isDefaultBilling: makeDefault,
+      };
+      list.push(created);
+      addresses.set(customerId, list);
+      return created;
+    },
+    async updateAddress(_storeId: string, customerId: string, id: string, input: Omit<Addr, "id" | "isDefaultBilling">) {
+      const list = addresses.get(customerId) ?? [];
+      const target = list.find((address) => address.id === id);
+      if (!target) return null;
+      if (input.isDefaultShipping === true) {
+        list.forEach((a) => { a.isDefaultShipping = false; a.isDefaultBilling = false; });
+        target.isDefaultShipping = true;
+        target.isDefaultBilling = true;
+      }
+      Object.assign(target, {
+        addressName: input.addressName,
+        fullName: input.fullName,
+        phone: input.phone,
+        city: input.city,
+        district: input.district,
+        addressLine1: input.addressLine1,
+        addressLine2: input.addressLine2,
+        postalCode: input.postalCode,
+        billingType: input.billingType,
+        tckn: input.tckn,
+        companyName: input.companyName,
+        taxOffice: input.taxOffice,
+        taxNumber: input.taxNumber,
+      });
+      return target;
+    },
+    async softDeleteAddress(_storeId: string, customerId: string, id: string) {
+      const list = addresses.get(customerId) ?? [];
+      const index = list.findIndex((address) => address.id === id);
+      if (index < 0) return false;
+      list.splice(index, 1);
+      return true;
+    },
+    async setDefaultAddress(_storeId: string, customerId: string, id: string) {
+      const list = addresses.get(customerId) ?? [];
+      const target = list.find((address) => address.id === id);
+      if (!target) return false;
+      list.forEach((a) => { a.isDefaultShipping = false; a.isDefaultBilling = false; });
+      target.isDefaultShipping = true;
+      target.isDefaultBilling = true;
+      return true;
+    },
+    async listIbans(_storeId: string, customerId: string) {
+      return ibans.get(customerId) ?? [];
+    },
+    async createIban(_storeId: string, customerId: string, input: { accountHolderName: string; iban: string; isDefault: boolean }) {
+      const list = ibans.get(customerId) ?? [];
+      const makeDefault = list.length === 0 || input.isDefault;
+      if (makeDefault) list.forEach((i) => { i.isDefault = false; });
+      const created: Iban = { id: `iban_${seq++}`, accountHolderName: input.accountHolderName, iban: input.iban, isDefault: makeDefault };
+      list.push(created);
+      ibans.set(customerId, list);
+      return created;
+    },
+    async softDeleteIban(_storeId: string, customerId: string, id: string) {
+      const list = ibans.get(customerId) ?? [];
+      const index = list.findIndex((iban) => iban.id === id);
+      if (index < 0) return false;
+      list.splice(index, 1);
+      return true;
+    },
+    async setDefaultIban(_storeId: string, customerId: string, id: string) {
+      const list = ibans.get(customerId) ?? [];
+      const target = list.find((iban) => iban.id === id);
+      if (!target) return false;
+      list.forEach((i) => { i.isDefault = false; });
+      target.isDefault = true;
+      return true;
+    },
+    async getCommPref(_storeId: string, customerId: string) {
+      return prefs.get(customerId) ?? { smsEnabled: false, emailEnabled: true, phoneEnabled: false };
+    },
+    async upsertCommPref(_storeId: string, customerId: string, input: { smsEnabled: boolean; emailEnabled: boolean; phoneEnabled: boolean }) {
+      prefs.set(customerId, input);
+    },
+    async listOrders(_storeId: string, customerId: string) {
+      return orders.get(customerId) ?? [];
+    },
+  };
+  return mock as unknown as CustomerDataAccess;
+}
+
 async function createTestApp() {
   const passwordHash = await hashPassword("local-admin-password", config.PASSWORD_HASH_PEPPER);
   const dataAccess = new MemoryDataAccess(passwordHash);
+  const customerDataAccess = createCustomerAdminMock();
   const app = createServer(config, {
     dataAccess,
+    customerDataAccess,
     checkDatabaseHealth: async () => true,
     checkRedisHealth: async () => true,
   });
@@ -2315,6 +2680,295 @@ describe("api gateway", () => {
     expect(response.json()).toMatchObject({ error: { code: "ORDER_RESERVATION_FAILED" } });
     expect(item?.quantityReserved).toBe(1);
     await app.close();
+  });
+});
+
+describe("api gateway · store-admin customers (F3B.3)", () => {
+  it("requires auth for the customers directory", async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({ method: "GET", url: "/stores/store_demo/customers" });
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("lists store customers with safe account/membership fields only", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const response = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/customers",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.pagination.total).toBe(2);
+    expect(body.data).toHaveLength(2);
+
+    const member = body.data.find((customer: { id: string }) => customer.id === "cust_member");
+    expect(member).toMatchObject({
+      email: "member@example.local",
+      fullName: "Ayşe Yılmaz",
+      status: "ACTIVE",
+      emailVerified: true,
+      phoneVerified: false,
+      hasCredential: true,
+      orderCount: 2,
+      totalSpentMinor: 259800,
+      addressCount: 1,
+      defaultAddressSummary: "İstanbul, Kadıköy",
+    });
+
+    const guest = body.data.find((customer: { id: string }) => customer.id === "cust_guest");
+    expect(guest).toMatchObject({ hasCredential: false, orderCount: 0, defaultAddressSummary: null });
+
+    // PII/secret minimizasyonu: hash/token/OTP/tam PII yüzeye çıkmaz.
+    const serialized = response.body;
+    for (const leaked of [
+      "passwordHash",
+      "tokenHash",
+      "codeHash",
+      "credential",
+      "sessions",
+      "otpVerifications",
+      "tckn",
+      "iban",
+    ]) {
+      expect(serialized).not.toContain(leaked);
+    }
+    await app.close();
+  });
+
+  it("never returns another store's customers (tenant scope)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const response = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/customers",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = response.json();
+    const ids = body.data.map((customer: { id: string }) => customer.id);
+    expect(ids).not.toContain("cust_other_store");
+    await app.close();
+  });
+});
+
+describe("api gateway · store-admin customer detail & management (F3B.3)", () => {
+  async function auth() {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    return { app, token, close: () => app.close() };
+  }
+
+  it("requires auth for the customer detail", async () => {
+    const { app } = await createTestApp();
+    const response = await app.inject({ method: "GET", url: "/stores/store_demo/customers/cust_member" });
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("returns a tenant-scoped detail with addresses/ibans/orders/preferences", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/customers/cust_member",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.customer).toMatchObject({ id: "cust_member", fullName: "Ayşe Yılmaz", hasCredential: true });
+    expect(body.customer.orderCount).toBe(1);
+    expect(body.customer.totalSpentMinor).toBe(129900);
+    expect(Array.isArray(body.addresses)).toBe(true);
+    expect(Array.isArray(body.ibans)).toBe(true);
+    expect(body.orders).toHaveLength(1);
+    expect(body.communicationPreference).toMatchObject({ emailEnabled: true });
+    // Secret/PII sızıntısı yok.
+    for (const leaked of ["passwordHash", "tokenHash", "codeHash", "otp"]) {
+      expect(response.body.toLowerCase()).not.toContain(leaked.toLowerCase());
+    }
+    await close();
+  });
+
+  it("returns 404 for a customer from another store", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/customers/cust_other_store",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(404);
+    await close();
+  });
+
+  it("updates basic info and resets email verification when email changes", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/customers/cust_member",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { firstName: "Ayşegül", email: "new@example.local" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().customer).toMatchObject({ firstName: "Ayşegül", email: "new@example.local", emailVerified: false });
+    await close();
+  });
+
+  it("rejects an email already used in the same store (409)", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/customers/cust_member",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { email: "taken@example.local" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: "EMAIL_TAKEN" } });
+    await close();
+  });
+
+  it("updates status ACTIVE/PASSIVE/BLOCKED", async () => {
+    const { app, token, close } = await auth();
+    for (const status of ["PASSIVE", "BLOCKED", "ACTIVE"] as const) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: "/stores/store_demo/customers/cust_member",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { status },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().customer.status).toBe(status);
+    }
+    await close();
+  });
+
+  it("does not let PATCH touch another store's customer (404)", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/customers/cust_other_store",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { firstName: "Hacked" },
+    });
+    expect(response.statusCode).toBe(404);
+    await close();
+  });
+
+  it("creates, updates, sets-default and deletes an address with TCKN validation", async () => {
+    const { app, token, close } = await auth();
+    const base = {
+      addressName: "Ev",
+      fullName: "Ayşe Yılmaz",
+      phone: "5551112233",
+      city: "İstanbul",
+      district: "Kadıköy",
+      addressLine1: "Caferağa Mah.",
+    };
+    // Geçersiz TCKN reddedilir.
+    const bad = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/customers/cust_member/addresses",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ...base, billingType: "INDIVIDUAL", tckn: "123" },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/customers/cust_member/addresses",
+      headers: { authorization: `Bearer ${token}` },
+      payload: base,
+    });
+    expect(created.statusCode).toBe(201);
+    const addressId = created.json().address.id;
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/customers/cust_member/addresses/${addressId}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ...base, addressName: "İş" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().address.addressName).toBe("İş");
+
+    const def = await app.inject({
+      method: "POST",
+      url: `/stores/store_demo/customers/cust_member/addresses/${addressId}/default`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(def.statusCode).toBe(200);
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/stores/store_demo/customers/cust_member/addresses/${addressId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toMatchObject({ deleted: true });
+    await close();
+  });
+
+  it("rejects a corporate address with an invalid VKN", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/customers/cust_member/addresses",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        addressName: "Ofis",
+        fullName: "Acme A.Ş.",
+        phone: "5551112233",
+        city: "İstanbul",
+        district: "Şişli",
+        addressLine1: "Plaza",
+        billingType: "CORPORATE",
+        companyName: "Acme",
+        taxOffice: "Şişli",
+        taxNumber: "123",
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    await close();
+  });
+
+  it("updates communication preferences", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "PUT",
+      url: "/stores/store_demo/customers/cust_member/communication-preferences",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { smsEnabled: true, emailEnabled: false, phoneEnabled: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ smsEnabled: true, emailEnabled: false, phoneEnabled: true });
+    await close();
+  });
+
+  it("adds an IBAN and returns it masked (never full)", async () => {
+    const { app, token, close } = await auth();
+    const fullIban = "TR330006100519786457841326";
+    const response = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/customers/cust_member/ibans",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { accountHolderName: "Ayşe Yılmaz", iban: fullIban, isDefault: true },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().iban.ibanMasked).toBeTruthy();
+    expect(response.body).not.toContain(fullIban);
+    await close();
+  });
+
+  it("returns only the customer's own orders in detail", async () => {
+    const { app, token, close } = await auth();
+    const response = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/customers/cust_member",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = response.json();
+    expect(body.orders.every((order: { orderNumber: string }) => order.orderNumber === "OS-0001")).toBe(true);
+    await close();
   });
 });
 

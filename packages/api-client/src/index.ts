@@ -43,6 +43,15 @@ import type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  StoreAdminCustomerListResponse,
+  StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerUpdateRequest,
+  CustomerAccount,
+  CustomerAddress,
+  CustomerAddressInput,
+  CustomerIban,
+  CustomerIbanInput,
+  CustomerCommunicationPreference,
 } from "@commerce-os/contracts";
 
 /**
@@ -131,6 +140,12 @@ export type {
   PaymentProviderTestConnectionResponse,
   PaymentProviderEvent,
   PaymentProviderEventListResponse,
+  StoreAdminCustomerStatus,
+  StoreAdminCustomerSummary,
+  StoreAdminCustomerListResponse,
+  StoreAdminCustomerDetail,
+  StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerUpdateRequest,
 } from "@commerce-os/contracts";
 
 /**
@@ -339,6 +354,69 @@ export interface ApiClient {
       place(storeId: string, orderId: string, token?: string): Promise<Order>;
       cancel(storeId: string, orderId: string, input?: OrderCancelRequest, token?: string): Promise<Order>;
     };
+    customers: {
+      list(storeId: string, token?: string): Promise<StoreAdminCustomerListResponse>;
+      get(storeId: string, customerId: string, token?: string): Promise<StoreAdminCustomerDetailResponse>;
+      update(
+        storeId: string,
+        customerId: string,
+        input: StoreAdminCustomerUpdateRequest,
+        token?: string,
+      ): Promise<{ customer: CustomerAccount }>;
+      updateCommunicationPreferences(
+        storeId: string,
+        customerId: string,
+        input: CustomerCommunicationPreference,
+        token?: string,
+      ): Promise<CustomerCommunicationPreference>;
+      addresses: {
+        create(
+          storeId: string,
+          customerId: string,
+          input: CustomerAddressInput,
+          token?: string,
+        ): Promise<{ address: CustomerAddress }>;
+        update(
+          storeId: string,
+          customerId: string,
+          addressId: string,
+          input: CustomerAddressInput,
+          token?: string,
+        ): Promise<{ address: CustomerAddress }>;
+        remove(
+          storeId: string,
+          customerId: string,
+          addressId: string,
+          token?: string,
+        ): Promise<{ deleted: boolean }>;
+        setDefault(
+          storeId: string,
+          customerId: string,
+          addressId: string,
+          token?: string,
+        ): Promise<{ updated: boolean }>;
+      };
+      ibans: {
+        create(
+          storeId: string,
+          customerId: string,
+          input: CustomerIbanInput,
+          token?: string,
+        ): Promise<{ iban: CustomerIban }>;
+        remove(
+          storeId: string,
+          customerId: string,
+          ibanId: string,
+          token?: string,
+        ): Promise<{ deleted: boolean }>;
+        setDefault(
+          storeId: string,
+          customerId: string,
+          ibanId: string,
+          token?: string,
+        ): Promise<{ updated: boolean }>;
+      };
+    };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
       create(
@@ -543,6 +621,82 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/place`, "POST", undefined, token),
         cancel: (storeId, orderId, input = {}, token) =>
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/cancel`, "POST", input, token),
+      },
+      customers: {
+        list: (storeId, token) =>
+          getJson<StoreAdminCustomerListResponse>(`/stores/${storeId}/customers`, token),
+        get: (storeId, customerId, token) =>
+          getJson<StoreAdminCustomerDetailResponse>(
+            `/stores/${storeId}/customers/${customerId}`,
+            token,
+          ),
+        update: (storeId, customerId, input, token) =>
+          sendJson<{ customer: CustomerAccount }>(
+            `/stores/${storeId}/customers/${customerId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        updateCommunicationPreferences: (storeId, customerId, input, token) =>
+          sendJson<CustomerCommunicationPreference>(
+            `/stores/${storeId}/customers/${customerId}/communication-preferences`,
+            "PUT",
+            input,
+            token,
+          ),
+        addresses: {
+          create: (storeId, customerId, input, token) =>
+            sendJson<{ address: CustomerAddress }>(
+              `/stores/${storeId}/customers/${customerId}/addresses`,
+              "POST",
+              input,
+              token,
+            ),
+          update: (storeId, customerId, addressId, input, token) =>
+            sendJson<{ address: CustomerAddress }>(
+              `/stores/${storeId}/customers/${customerId}/addresses/${addressId}`,
+              "PATCH",
+              input,
+              token,
+            ),
+          remove: (storeId, customerId, addressId, token) =>
+            sendJson<{ deleted: boolean }>(
+              `/stores/${storeId}/customers/${customerId}/addresses/${addressId}`,
+              "DELETE",
+              undefined,
+              token,
+            ),
+          setDefault: (storeId, customerId, addressId, token) =>
+            sendJson<{ updated: boolean }>(
+              `/stores/${storeId}/customers/${customerId}/addresses/${addressId}/default`,
+              "POST",
+              undefined,
+              token,
+            ),
+        },
+        ibans: {
+          create: (storeId, customerId, input, token) =>
+            sendJson<{ iban: CustomerIban }>(
+              `/stores/${storeId}/customers/${customerId}/ibans`,
+              "POST",
+              input,
+              token,
+            ),
+          remove: (storeId, customerId, ibanId, token) =>
+            sendJson<{ deleted: boolean }>(
+              `/stores/${storeId}/customers/${customerId}/ibans/${ibanId}`,
+              "DELETE",
+              undefined,
+              token,
+            ),
+          setDefault: (storeId, customerId, ibanId, token) =>
+            sendJson<{ updated: boolean }>(
+              `/stores/${storeId}/customers/${customerId}/ibans/${ibanId}/default`,
+              "POST",
+              undefined,
+              token,
+            ),
+        },
       },
       paymentProviders: {
         list: (storeId, token) =>

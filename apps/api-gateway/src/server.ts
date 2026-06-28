@@ -58,6 +58,8 @@ import {
   publicProductDetailSchema,
   publicProductListResponseSchema,
   publicProductSchema,
+  storeAdminCustomerListResponseSchema,
+  storeAdminCustomerSummarySchema,
   digitsOnly,
   type PublicCheckoutBilling,
 } from "@commerce-os/contracts";
@@ -68,6 +70,7 @@ import {
 } from "./payments/card.js";
 import {
   createPrismaCustomerDataAccess,
+  registerCustomerAdminRoutes,
   registerCustomerRoutes,
   resolveCustomerFromRequest,
   type CustomerDataAccess,
@@ -301,6 +304,27 @@ type OrderRecord = Pick<
   reservations: InventoryReservationRecord[];
   events: OrderEventRecord[];
   paymentAttempts: PaymentAttemptRecord[];
+};
+
+// F3B.3 — Store-admin müşteri dizini kaydı. Aggregate alanlar data-access'te
+// hesaplanır; hash/token/OTP/tam PII ASLA bu kayda alınmaz.
+type StoreAdminCustomerRecord = {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  status: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+  emailVerifiedAt: Date | null;
+  phoneVerifiedAt: Date | null;
+  hasCredential: boolean;
+  orderCount: number;
+  totalSpentMinor: number;
+  currency: string;
+  lastOrderAt: Date | null;
+  addressCount: number;
+  defaultAddressSummary: string | null;
+  createdAt: Date;
 };
 
 // --- F3B.2 Payment data-access record/input tipleri --------------------------
@@ -588,6 +612,10 @@ export interface AppDataAccess {
     storeId: string,
     input: { limit: number; offset: number },
   ): Promise<{ data: OrderRecord[]; total: number }>;
+  listCustomers(
+    storeId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: StoreAdminCustomerRecord[]; total: number }>;
   findOrderById(storeId: string, orderId: string): Promise<OrderRecord | null>;
   createOrder(
     storeId: string,
@@ -978,6 +1006,31 @@ function serializeOrder(order: OrderRecord) {
       createdAt: attempt.createdAt.toISOString(),
       updatedAt: attempt.updatedAt.toISOString(),
     })),
+  });
+}
+
+// F3B.3 — Store-admin müşteri özeti. Yalnız güvenli/maskeli alanlar; hash/token/
+// OTP/tam PII (TCKN/VKN/IBAN) bu yüzeyde yer almaz.
+function serializeStoreAdminCustomer(customer: StoreAdminCustomerRecord) {
+  const fullName = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
+  return storeAdminCustomerSummarySchema.parse({
+    id: customer.id,
+    email: customer.email ?? null,
+    phone: customer.phone ?? null,
+    firstName: customer.firstName ?? null,
+    lastName: customer.lastName ?? null,
+    fullName: fullName.length > 0 ? fullName : (customer.email ?? customer.phone ?? customer.id),
+    status: customer.status,
+    emailVerified: Boolean(customer.emailVerifiedAt),
+    phoneVerified: Boolean(customer.phoneVerifiedAt),
+    hasCredential: customer.hasCredential,
+    orderCount: customer.orderCount,
+    totalSpentMinor: customer.totalSpentMinor,
+    currency: customer.currency,
+    lastOrderAt: customer.lastOrderAt?.toISOString() ?? null,
+    addressCount: customer.addressCount,
+    defaultAddressSummary: customer.defaultAddressSummary ?? null,
+    createdAt: customer.createdAt.toISOString(),
   });
 }
 
@@ -1946,6 +1999,81 @@ function createPrismaDataAccess(): AppDataAccess {
         }),
         prisma.order.count({ where: { storeId } }),
       ]);
+      return { data, total };
+    },
+    listCustomers: async (storeId, { limit, offset }) => {
+      const [rows, total] = await Promise.all([
+        prisma.customer.findMany({
+          where: { storeId },
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit,
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+            status: true,
+            emailVerifiedAt: true,
+            phoneVerifiedAt: true,
+            createdAt: true,
+            // hash/token ASLA seçilmez; yalnız varlık göstergesi için id.
+            credential: { select: { id: true } },
+            orders: {
+              select: { totalAmount: true, currency: true, status: true, createdAt: true },
+              orderBy: { createdAt: "desc" },
+            },
+            addresses: {
+              where: { deletedAt: null },
+              select: {
+                city: true,
+                district: true,
+                isDefaultShipping: true,
+                isDefaultBilling: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        }),
+        prisma.customer.count({ where: { storeId } }),
+      ]);
+
+      const data: StoreAdminCustomerRecord[] = rows.map((row) => {
+        // İptal edilenler harcama toplamına dahil edilmez; geri kalan tüm siparişler sayılır.
+        const billable = row.orders.filter((order) => order.status !== "CANCELLED");
+        const totalSpentMinor = billable.reduce((sum, order) => sum + order.totalAmount, 0);
+        const lastOrderAt = row.orders[0]?.createdAt ?? null;
+        const currency = billable[0]?.currency ?? row.orders[0]?.currency ?? "TRY";
+        const defaultAddress =
+          row.addresses.find((address) => address.isDefaultShipping) ??
+          row.addresses.find((address) => address.isDefaultBilling) ??
+          row.addresses[0] ??
+          null;
+        const defaultAddressSummary = defaultAddress
+          ? [defaultAddress.city, defaultAddress.district].filter(Boolean).join(", ") || null
+          : null;
+        return {
+          id: row.id,
+          email: row.email,
+          phone: row.phone,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          status: row.status,
+          emailVerifiedAt: row.emailVerifiedAt,
+          phoneVerifiedAt: row.phoneVerifiedAt,
+          hasCredential: row.credential !== null,
+          orderCount: row.orders.length,
+          totalSpentMinor,
+          currency,
+          lastOrderAt,
+          addressCount: row.addresses.length,
+          defaultAddressSummary,
+          createdAt: row.createdAt,
+        };
+      });
+
       return { data, total };
     },
     findOrderById: (storeId, orderId) =>
@@ -3033,6 +3161,15 @@ export function createServer(
   // public prefix altinda; oturum `x-customer-session` header'i ile cozulur ve
   // store scope + ownership zorunludur. resolvePublicStore yukarida tanimlidir.
   registerCustomerRoutes(app, { config, customers, logger, resolvePublicStore });
+  // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).
+  registerCustomerAdminRoutes(app, {
+    customers,
+    logger,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
 
   app.post("/auth/platform/login", async (request, reply) => {
     const input = platformLoginRequestSchema.parse(request.body);
@@ -3602,6 +3739,20 @@ export function createServer(
     return orderListResponseSchema.parse({
       data: orders.data.map(serializeOrder),
       pagination: { ...pagination, total: orders.total },
+    });
+  });
+
+  // F3B.3 — Store-admin müşteri dizini. Store-scope zorunlu; başka mağaza müşterisi
+  // dönmez. Response yalnız güvenli/maskeli alanlar taşır (hash/token/OTP/tam PII yok).
+  app.get("/stores/:storeId/customers", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const pagination = paginationQuerySchema.parse(request.query);
+    const customers = await dataAccess.listCustomers(params.storeId, pagination);
+    return storeAdminCustomerListResponseSchema.parse({
+      data: customers.data.map(serializeStoreAdminCustomer),
+      pagination: { ...pagination, total: customers.total },
     });
   });
 
