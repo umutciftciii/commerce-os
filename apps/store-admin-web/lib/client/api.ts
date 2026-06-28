@@ -32,6 +32,9 @@ import type {
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
+  StoreAdminCustomerCreateRequest,
+  StoreAdminCustomerSummary,
+  StoreAdminRevokeSessionsResponse,
   CustomerAccount,
   CustomerAddress,
   CustomerAddressInput,
@@ -69,6 +72,21 @@ export interface DashboardSummary {
   products: { total: number; active: number };
   categories: { total: number };
   inventory: { records: number; lowStock: number; totalOnHand: number };
+}
+
+/**
+ * TODO-087 — BFF'in döndürdüğü TEK SEFERLİK aktivasyon/parola-sıfırlama linki.
+ * `link` raw token'ı içerir; UI'da bir kez gösterilir, tekrar çağrılamaz.
+ */
+export interface ActivationInfo {
+  link: string;
+  purpose: "ADMIN_ACTIVATION" | "ADMIN_PASSWORD_RESET";
+  expiresAt: string;
+}
+
+export interface CreateCustomerResult {
+  customer: StoreAdminCustomerSummary;
+  activation: ActivationInfo | null;
 }
 
 let csrfTokenCache: { token: string; headerName: string } | null = null;
@@ -243,10 +261,28 @@ export const storeApi = {
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
   listCustomers: () => call<StoreAdminCustomerListResponse>("/api/customers"),
   getCustomer: (id: string) => call<StoreAdminCustomerDetailResponse>(`/api/customers/${id}`),
+  // TODO-087 — müşteri oluşturma + admin tetikli credential/oturum yönetimi.
+  createCustomer: (input: StoreAdminCustomerCreateRequest) =>
+    mutatingCall<CreateCustomerResult>("/api/customers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   updateCustomer: (id: string, input: StoreAdminCustomerUpdateRequest) =>
     mutatingCall<{ customer: CustomerAccount }>(`/api/customers/${id}`, {
       method: "PATCH",
       body: JSON.stringify(input),
+    }),
+  createCustomerCredential: (id: string) =>
+    mutatingCall<{ activation: ActivationInfo }>(`/api/customers/${id}/credential`, {
+      method: "POST",
+    }),
+  resetCustomerCredential: (id: string) =>
+    mutatingCall<{ activation: ActivationInfo }>(`/api/customers/${id}/credential/reset`, {
+      method: "POST",
+    }),
+  revokeCustomerSessions: (id: string) =>
+    mutatingCall<StoreAdminRevokeSessionsResponse>(`/api/customers/${id}/sessions/revoke`, {
+      method: "POST",
     }),
   updateCustomerCommPref: (id: string, input: CustomerCommunicationPreference) =>
     mutatingCall<CustomerCommunicationPreference>(`/api/customers/${id}/communication-preferences`, {

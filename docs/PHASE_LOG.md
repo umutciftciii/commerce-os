@@ -1390,3 +1390,50 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   `git diff --check` temiz.
 - Worktree notu: dosyalar once yanlislikla ana repo path'iyle duzenlendi; patch ile dogru worktree'ye
   tasinip ana repo `git restore` ile temizlendi (main = origin/main = 86ff496, dokunulmadi).
+
+## TODO-087 Store-Admin Customer Creation + Credential Management
+
+- Tarih: 2026-06-28
+- Durum: READY_FOR_REVIEW (commit atilmadi). Branch: claude/todo-087-store-admin-customer-creation-credential.
+  Base: main = origin/main = b5959c1 (dokunulmadi).
+- Kapsam: Store-admin panelden (1) yeni musteri olusturma ve (2) admin-tetikli credential/oturum yonetimi.
+  Karar ADR-035: admin KALICI SIFRE BELIRLEMEZ; tek seferlik aktivasyon/parola-sifirlama token'i uretir.
+- Sema/migration: yeni `CustomerCredentialToken` (`purpose` ADMIN_ACTIVATION|ADMIN_PASSWORD_RESET, sha256
+  `tokenHash` @unique, `expiresAt`, `consumedAt`, `createdByUserId`; store+customer FK, indexler). Enum
+  `CustomerCredentialTokenPurpose`. Migration `20260628150000_add_customer_credential_token` (additive).
+  Config: `CUSTOMER_CREDENTIAL_TOKEN_TTL_SECONDS` (varsayilan 24s).
+- Sozlesme (contracts): `storeAdminCustomerCreateRequest/Response` (fullName + e-posta/telefon en az biri +
+  status + createMembership; fullName→ad/soyad gateway'de bolunur), `storeAdminCredentialSetup` (tek
+  seferlik token + purpose + expiresAt), `storeAdminCredentialTokenResponse`, `storeAdminRevokeSessions
+  Response`, `customerActivateRequest/Response`. Detail response'a `security` blogu (hasCredential,
+  passwordChangedAt, activeSessionCount). serializer allowlist; hash/token ASLA semada degil.
+- Gateway: `POST /stores/:storeId/customers` (create + opsiyonel ADMIN_ACTIVATION token), `POST .../:id/
+  credential` (uyelik yoksa), `POST .../:id/credential/reset` (uyelik varsa), `POST .../:id/sessions/
+  revoke`. Public `POST /public/stores/:storeSlug/customer/activate` token'i (hash ile) bulur, atomik
+  tek seferlik tuketir, scrypt ile parola set eder; ADMIN_ACTIVATION → musteri ACTIVE; her iki amac da
+  parola set edildiginde mevcut TUM oturumlari revoke eder. Store-scope: cross-store erisim 404; raw
+  token yalniz uretim response'unda, log'a yalniz `purpose`/`customerId`/`revokedCount`.
+- api-client + BFF: `admin.customers.create/createCredential/resetCredential/revokeSessions`. Store-admin
+  BFF (CSRF'li) gateway setup token'ini `STOREFRONT_BASE_URL` (server-only env) ile tek seferlik LINKE
+  cevirir; raw token client'a yalniz link string'i icinde, bir kez ulasir.
+- Store-admin UI: customers list "Yeni musteri" CTA + create modal (uyelik istenirse once tek seferlik
+  link gosterilir, sonra `/customers/[id]`'ye yonlendirir — detail route kurali korunur). Detail'e
+  "Guvenlik / Uyelik durumu" karti: credential yok → "Uyelik hesabi yok" + olustur; var → "Giris yapabilir"
+  + son sifre degisimi + aktif oturum sayisi + parola sifirlama + tum oturumlari sonlandir. Tek seferlik
+  link modali guvenlik uyarisi + kopyala (premium dark/glass dili).
+- Storefront: `/auth/activate?token=` sayfasi + `activateAction` (oturum ACMAZ; basari → girise yonlendir).
+  Token eksik/gecersiz/tuketilmis net hata. i18n TR/EN parite (store-admin create/link/security +
+  storefront activate).
+- Status davranisi: PASSIVE/BLOCKED login/session/checkout zaten engelliydi (`status === "ACTIVE"`
+  kontrolu login + resolveCustomerFromRequest). DEGISIKLIK YAPILMADI; test ile dogrulandi.
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` 34/34, `test` 34/34 (api-gateway
+  138 test; +15 yeni customer-credential.test.ts: create, dup email/phone 409, cross-store 404, detail
+  security no-hash, token tek seferlik + hash saklama, activate, reuse-fail, login, reset + eski-sifre-fail,
+  session revoke + revoked-session 401, PASSIVE login engeli). `git diff --check` temiz.
+- Docker smoke (worktree context = build context; 3 servis `--build` + `prisma migrate deploy`):
+  api-gateway `/health` 200, store-admin `/login` 200, storefront `/api/health` 200, `/auth/activate` 200.
+  Uctan uca: create+membership → DB'de yalniz `tokenHash` (raw token count=0), activate PASSIVE→ACTIVE +
+  token consumed, reuse 400 INVALID_TOKEN, login OK; reset → eski oturum 401 + eski sifre 401 + yeni sifre
+  OK; revoke → revokedCount 1 + sonra /me 401; dup email/phone 409. Client bundle + gateway log taramasi:
+  createApiClient/SESSION_SECRET/passwordHash/tokenHash/raw-token/Bearer YOK.
+- Iliski: TODO-075 (musteri self-service "sifremi unuttum") ve TODO-076 (gercek e-posta/SMS teslimat) ACIK.

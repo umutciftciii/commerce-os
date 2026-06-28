@@ -150,6 +150,14 @@ enum CustomerOtpChannel {
   SMS
 }
 
+// Admin tetikli credential token amaci (TODO-087, ADR-035). ADMIN_ACTIVATION:
+// credential'i olmayan musteriye uyelik hesabi actirir + ACTIVE yapar.
+// ADMIN_PASSWORD_RESET: mevcut credential'in parolasini yeniler.
+enum CustomerCredentialTokenPurpose {
+  ADMIN_ACTIVATION
+  ADMIN_PASSWORD_RESET
+}
+
 enum AddressType {
   SHIPPING
   BILLING
@@ -292,6 +300,7 @@ model Store {
   customers     Customer[]
   customerAddresses CustomerAddress[]
   customerCredentials CustomerCredential[]
+  customerCredentialTokens CustomerCredentialToken[]
   customerSessions CustomerSession[]
   customerOtpVerifications CustomerOtpVerification[]
   customerIbans CustomerIban[]
@@ -586,6 +595,7 @@ model Customer {
   addresses               CustomerAddress[]
   orders                  Order[]
   credential              CustomerCredential?
+  credentialTokens        CustomerCredentialToken[]
   sessions                CustomerSession[]
   otpVerifications        CustomerOtpVerification[]
   ibans                   CustomerIban[]
@@ -611,6 +621,30 @@ model CustomerCredential {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
+}
+
+// Admin tetikli aktivasyon/parola-sifirlama token'i (TODO-087, ADR-035). Plain
+// token ASLA saklanmaz/loglanmaz; yalnizca sha256 tokenHash (SESSION_SECRET ile).
+// Raw token yalniz uretim response'unda tek seferlik doner. createdByUserId:
+// token'i ureten platform-admin. Tek seferlik: consumedAt ile tuketilir.
+model CustomerCredentialToken {
+  id            String                         @id @default(cuid())
+  storeId       String
+  customerId    String
+  purpose       CustomerCredentialTokenPurpose
+  tokenHash     String                         @unique
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdByUserId String
+  createdAt     DateTime                       @default(now())
+  updatedAt     DateTime                       @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([customerId])
+  @@index([expiresAt])
 }
 
 // Musteri oturumu (F3B.3). PlatformSession deseni: raw token DB'de tutulmaz,

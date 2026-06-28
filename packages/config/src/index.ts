@@ -26,6 +26,9 @@ export const envSchema = z.object({
   // kabul edilir; boylece izole smoke gercek kod sizdirmadan akisi tamamlar.
   // Plain OTP loglara/response'a ASLA yazilmaz; bu yalniz dev/test bypass'idir.
   CUSTOMER_OTP_DEV_CODE: z.string().regex(/^[0-9]{6}$/).optional(),
+  // TODO-087: Admin tetikli aktivasyon/parola-sifirlama token'inin omru. Kisa
+  // tutulur (varsayilan 24 saat); link tek seferlik ve hash olarak saklanir.
+  CUSTOMER_CREDENTIAL_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24),
   // F3B.2: Payment provider credential'larini AES-256-GCM ile sifrelemek icin
   // 32 byte'lik anahtar (base64 veya hex). Yoksa development/test'te guvensiz
   // dev fallback kullanilir (yuksek sesli uyari); staging/production'da eksikse

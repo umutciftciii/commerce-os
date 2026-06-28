@@ -3197,6 +3197,7 @@ export function createServer(
   registerCustomerRoutes(app, { config, customers, logger, resolvePublicStore });
   // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).
   registerCustomerAdminRoutes(app, {
+    config,
     customers,
     logger,
     requireStoreAdmin: async (request, reply, storeId) => {

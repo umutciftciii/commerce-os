@@ -47,6 +47,10 @@ import type {
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
+  StoreAdminCustomerCreateRequest,
+  StoreAdminCustomerCreateResponse,
+  StoreAdminCredentialTokenResponse,
+  StoreAdminRevokeSessionsResponse,
   CustomerAccount,
   CustomerAddress,
   CustomerAddressInput,
@@ -146,8 +150,16 @@ export type {
   StoreAdminCustomerSummary,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetail,
+  StoreAdminCustomerSecurity,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
+  StoreAdminCustomerCreateRequest,
+  StoreAdminCustomerCreateResponse,
+  StoreAdminCredentialSetup,
+  StoreAdminCredentialTokenResponse,
+  StoreAdminRevokeSessionsResponse,
+  CustomerActivateRequest,
+  CustomerActivateResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -358,6 +370,11 @@ export interface ApiClient {
     };
     customers: {
       list(storeId: string, token?: string): Promise<StoreAdminCustomerListResponse>;
+      create(
+        storeId: string,
+        input: StoreAdminCustomerCreateRequest,
+        token?: string,
+      ): Promise<StoreAdminCustomerCreateResponse>;
       get(storeId: string, customerId: string, token?: string): Promise<StoreAdminCustomerDetailResponse>;
       update(
         storeId: string,
@@ -365,6 +382,21 @@ export interface ApiClient {
         input: StoreAdminCustomerUpdateRequest,
         token?: string,
       ): Promise<{ customer: CustomerAccount }>;
+      createCredential(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCredentialTokenResponse>;
+      resetCredential(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCredentialTokenResponse>;
+      revokeSessions(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminRevokeSessionsResponse>;
       updateCommunicationPreferences(
         storeId: string,
         customerId: string,
@@ -654,6 +686,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       customers: {
         list: (storeId, token) =>
           getJson<StoreAdminCustomerListResponse>(`/stores/${storeId}/customers`, token),
+        create: (storeId, input, token) =>
+          sendJson<StoreAdminCustomerCreateResponse>(
+            `/stores/${storeId}/customers`,
+            "POST",
+            input,
+            token,
+          ),
         get: (storeId, customerId, token) =>
           getJson<StoreAdminCustomerDetailResponse>(
             `/stores/${storeId}/customers/${customerId}`,
@@ -664,6 +703,27 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/customers/${customerId}`,
             "PATCH",
             input,
+            token,
+          ),
+        createCredential: (storeId, customerId, token) =>
+          sendJson<StoreAdminCredentialTokenResponse>(
+            `/stores/${storeId}/customers/${customerId}/credential`,
+            "POST",
+            undefined,
+            token,
+          ),
+        resetCredential: (storeId, customerId, token) =>
+          sendJson<StoreAdminCredentialTokenResponse>(
+            `/stores/${storeId}/customers/${customerId}/credential/reset`,
+            "POST",
+            undefined,
+            token,
+          ),
+        revokeSessions: (storeId, customerId, token) =>
+          sendJson<StoreAdminRevokeSessionsResponse>(
+            `/stores/${storeId}/customers/${customerId}/sessions/revoke`,
+            "POST",
+            undefined,
             token,
           ),
         updateCommunicationPreferences: (storeId, customerId, input, token) =>

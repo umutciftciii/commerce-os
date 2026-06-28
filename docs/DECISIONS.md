@@ -646,3 +646,36 @@
   checkout anindaki yeni siparis baglanir).
 - Sonuc: typecheck 0, lint 0, build 24/24, test 34/34 (contracts +8, api-gateway +12 musteri testi).
   Bkz. Faz 3B.3 phase log; backlog TODO-074..077.
+
+## ADR-035 Admin-tetikli musteri aktivasyon/parola-sifirlama = tek seferlik token (TODO-087)
+
+- Durum: ACCEPTED
+- Baglam: Store-admin panelden yeni musteri olusturma + var olan musteriye uyelik/credential yonetimi
+  gerekiyordu (TODO-087). F3B.3 guvenlik kurali: admin musteri credential'ini DOGRUDAN degistirmez.
+  Gercek e-posta/SMS saglayici YOK (ADR-034). Soru: musteri hesabi olusturulunca/sifre sifirlanmaca
+  musteri parolasini nasil belirler?
+- Karar: Admin KALICI SIFRE BELIRLEMEZ ve parolayi goremez. Bunun yerine `CustomerCredentialToken`
+  (yeni model) uretir: `purpose` (ADMIN_ACTIVATION | ADMIN_PASSWORD_RESET), `tokenHash`
+  (sha256(`cred.<token>.<SESSION_SECRET>`), `@unique`), `expiresAt`, `consumedAt`, `createdByUserId`.
+  Raw token DB/log/event/test snapshot/client bundle'a ASLA yazilmaz; yalniz uretim response'unda
+  TEK SEFERLIK doner. Storefront `/auth/activate?token=` sayfasi + public `POST /public/stores/
+  :storeSlug/customer/activate` token'i (hash ile) bulur, tek seferlik atomik tuketir (`consumedAt`),
+  parolayi scrypt ile set eder.
+- Tek seferlik link gosterimi: Mail provider olmadigindan, uretilen link admin UI'da BIR KEZ
+  guvenlik uyarisiyla gosterilir (tekrar goruntulenemez; gerekirse yeni link uretilir). Guvenlik
+  degerlendirmesi: link kisa omurlu (varsayilan 24s, `CUSTOMER_CREDENTIAL_TOKEN_TTL_SECONDS`),
+  hash-saklanir, tek-kullanimlik; raw token yalniz transient response/DOM'da bulunur. Bu kabul
+  EDILEN bir gecici cozumdur; gercek e-posta gonderimi TODO-076 ile gelir. Test ile sinirlandi
+  (token bir kez kullanilir; tekrar 400 INVALID_TOKEN).
+- Davranis: ADMIN_ACTIVATION parola set + musteriyi ACTIVE yapar. ADMIN_PASSWORD_RESET yalniz
+  parolayi gunceller. HER IKI amac da parola set edildiginde (token tuketildiginde, uretildiginde
+  DEGIL) mevcut TUM oturumlari revoke eder — guvenli varsayilan. Activation sonrasi otomatik login
+  YOK; UI giris sayfasina yonlendirir (sade/guvenli akis). Aktivasyon dogrulama (emailVerifiedAt)
+  set ETMEZ: link admin'e gosterildigi icin kanal sahipligi kanitlanmaz (muhafazakar).
+- Status davranisi: PASSIVE/BLOCKED musteri login olamaz + oturumu resolve edilmez (gateway zaten
+  `status === "ACTIVE"` zorunlu kiliyordu — `resolveCustomerFromRequest` + login). TODO-087'de
+  DEGISIKLIK YAPILMADI; test ile dogrulandi.
+- Iliski: TODO-075 (musteri self-service "sifremi unuttum") bu foundation'i yeniden kullanabilir
+  ama ACIK kalir; TODO-076 (gercek teslimat) ACIK kalir.
+- Sonuc: typecheck 0, lint 0, build 24/24, test 34/34 (api-gateway +15 credential testi). Docker
+  smoke ile uctan uca dogrulandi (asagidaki phase log).

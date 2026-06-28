@@ -24,12 +24,14 @@ import type {
   CustomerIban,
   StoreAdminCustomerDetail,
   StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerSecurity,
 } from "@commerce-os/api-client";
 import { CustomerIcon } from "../../../../components/icons";
-import { storeApi } from "../../../../lib/client/api";
+import { storeApi, type ActivationInfo } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../lib/client/format";
 import { SurfaceCard } from "../../../components/premium";
+import { ActivationLinkModal } from "../activation-link-modal";
 
 type Tone = "neutral" | "success" | "warning" | "info" | "danger";
 
@@ -130,7 +132,7 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const { customer, addresses, ibans, communicationPreference, orders } = state.data;
+  const { customer, security, addresses, ibans, communicationPreference, orders } = state.data;
 
   return (
     <>
@@ -198,6 +200,12 @@ export default function CustomerDetailPage() {
         <div className="space-y-5 lg:col-span-2">
           <ProfileCard customer={customer} onSaved={() => { flash(d.profile.saved); void load(); }} onError={fail} />
           <StatusCard customer={customer} onSaved={() => { flash(d.status.saved); void load(); }} onError={fail} />
+          <SecurityCard
+            customerId={customerId}
+            security={security}
+            onChanged={(message) => { flash(message); void load(); }}
+            onError={fail}
+          />
           <AddressesCard
             customerId={customerId}
             addresses={addresses}
@@ -483,6 +491,123 @@ function StatusCard({
           </Button>
         </div>
       </div>
+    </SurfaceCard>
+  );
+}
+
+/* ── Güvenlik / Üyelik durumu (TODO-087) ──────────────────────────────────────
+ * Credential yok → "Üyelik hesabı yok" + aktivasyon linki üret. Credential var →
+ * giriş yapabilir + son şifre değişimi + aktif oturum sayısı + parola sıfırlama.
+ * "Tüm oturumları sonlandır" her durumda. Admin parola GÖRMEZ; yalnız tek seferlik
+ * link üretir. Link bir kez gösterilir; raw token kalıcı yerde tutulmaz. */
+function SecurityCard({
+  customerId,
+  security,
+  onChanged,
+  onError,
+}: {
+  customerId: string;
+  security: StoreAdminCustomerSecurity;
+  onChanged: (message: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const dict = getDictionary(useLocale());
+  const s = dict.storeAdmin.customers.detail.security;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [activation, setActivation] = useState<ActivationInfo | null>(null);
+
+  async function createMembership() {
+    setBusy("create");
+    try {
+      const result = await storeApi.createCustomerCredential(customerId);
+      setActivation(result.activation);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resetPassword() {
+    setBusy("reset");
+    try {
+      const result = await storeApi.resetCustomerCredential(customerId);
+      setActivation(result.activation);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function revokeSessions() {
+    if (!window.confirm(s.revokeConfirm)) return;
+    setBusy("revoke");
+    try {
+      const result = await storeApi.revokeCustomerSessions(customerId);
+      onChanged(format(s.revoked, { count: result.revokedCount }));
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <SurfaceCard title={s.title} description={s.description} icon={<CustomerIcon />}>
+      {security.hasCredential ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Badge tone="success" dot>
+              {s.canLogin}
+            </Badge>
+          </div>
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-white/35">{s.lastPasswordChange}</dt>
+              <dd className="mt-0.5 text-sm text-white/85">
+                {security.passwordChangedAt ? formatDate(security.passwordChangedAt) : s.never}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-white/35">{s.activeSessions}</dt>
+              <dd className="mt-0.5 text-sm text-white/85 tabular-nums">{security.activeSessionCount}</dd>
+            </div>
+          </dl>
+          <div className="flex flex-wrap gap-2 border-t border-white/[0.07] pt-4">
+            <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void resetPassword()}>
+              {s.resetPassword}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy !== null || security.activeSessionCount === 0}
+              onClick={() => void revokeSessions()}
+            >
+              {s.revokeSessions}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <Badge tone="neutral">{s.noCredential}</Badge>
+          <p className="text-sm text-white/55">{s.noCredentialDesc}</p>
+          <div className="border-t border-white/[0.07] pt-4">
+            <Button size="sm" disabled={busy !== null} onClick={() => void createMembership()}>
+              {s.createMembership}
+            </Button>
+          </div>
+        </div>
+      )}
+      {activation ? (
+        <ActivationLinkModal
+          activation={activation}
+          onClose={() => {
+            setActivation(null);
+            onChanged(s.linkGenerated);
+          }}
+        />
+      ) : null}
     </SurfaceCard>
   );
 }

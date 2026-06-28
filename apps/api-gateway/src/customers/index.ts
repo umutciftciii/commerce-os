@@ -21,6 +21,7 @@ import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
 import type {
   BillingType,
+  CustomerCredentialTokenPurpose,
   CustomerGender,
   CustomerOtpChannel,
   CustomerOtpPurpose,
@@ -28,6 +29,8 @@ import type {
 } from "@prisma/client";
 import {
   classifyIdentifier,
+  customerActivateRequestSchema,
+  customerActivateResponseSchema,
   customerAddressInputSchema,
   customerAddressListResponseSchema,
   customerCommunicationPreferenceSchema,
@@ -51,8 +54,12 @@ import {
   maskTaxId,
   normalizeIban,
   normalizeTrPhone,
+  storeAdminCredentialTokenResponseSchema,
+  storeAdminCustomerCreateRequestSchema,
+  storeAdminCustomerCreateResponseSchema,
   storeAdminCustomerDetailResponseSchema,
   storeAdminCustomerUpdateRequestSchema,
+  storeAdminRevokeSessionsResponseSchema,
 } from "@commerce-os/contracts";
 
 /* ── Tipler ───────────────────────────────────────────────────────────────── */
@@ -282,6 +289,42 @@ export interface CustomerDataAccess {
       gender?: CustomerGender | null;
     },
   ): Promise<CustomerAuthRecord | "NOT_FOUND" | "EMAIL_TAKEN" | "PHONE_TAKEN">;
+  // TODO-087 store-admin — müşteri oluşturma. E-posta/telefon store-scope unique;
+  // çakışırsa sentinel döner. status admin tarafından set edilir (default ACTIVE).
+  adminCreateCustomer(
+    storeId: string,
+    input: {
+      firstName: string;
+      lastName: string;
+      email: string | null;
+      phone: string | null;
+      status: CustomerStatus;
+    },
+  ): Promise<CustomerAuthRecord | "EMAIL_TAKEN" | "PHONE_TAKEN">;
+  // TODO-087 — admin tetikli credential token. Yalnız tokenHash saklanır.
+  createCredentialToken(input: {
+    storeId: string;
+    customerId: string;
+    purpose: CustomerCredentialTokenPurpose;
+    tokenHash: string;
+    expiresAt: Date;
+    createdByUserId: string;
+  }): Promise<void>;
+  findCredentialTokenByHash(tokenHash: string): Promise<CustomerCredentialTokenRecord | null>;
+  consumeCredentialToken(id: string): Promise<boolean>;
+  setCustomerActive(storeId: string, customerId: string): Promise<void>;
+  getCredentialMeta(customerId: string): Promise<{ passwordChangedAt: Date } | null>;
+  countActiveSessions(storeId: string, customerId: string): Promise<number>;
+  revokeAllSessions(storeId: string, customerId: string): Promise<number>;
+}
+
+export interface CustomerCredentialTokenRecord {
+  id: string;
+  storeId: string;
+  customerId: string;
+  purpose: CustomerCredentialTokenPurpose;
+  expiresAt: Date;
+  consumedAt: Date | null;
 }
 
 export function createPrismaCustomerDataAccess(): CustomerDataAccess {
@@ -683,7 +726,106 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         throw error;
       }
     },
+    async adminCreateCustomer(storeId, input) {
+      // Store-scope unique ön-kontrol; yarış için DB unique constraint son güvenlik ağı.
+      if (input.email) {
+        const clash = await prisma.customer.findFirst({
+          where: { storeId, email: input.email },
+          select: { id: true },
+        });
+        if (clash) return "EMAIL_TAKEN";
+      }
+      if (input.phone) {
+        const clash = await prisma.customer.findFirst({
+          where: { storeId, phone: input.phone },
+          select: { id: true },
+        });
+        if (clash) return "PHONE_TAKEN";
+      }
+      try {
+        return await prisma.customer.create({
+          data: {
+            storeId,
+            firstName: input.firstName,
+            lastName: input.lastName,
+            email: input.email,
+            phone: input.phone,
+            status: input.status,
+          },
+          select: customerAuthSelect,
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const target = (error.meta?.target as string[] | undefined)?.join(",") ?? "";
+          return target.includes("phone") ? "PHONE_TAKEN" : "EMAIL_TAKEN";
+        }
+        throw error;
+      }
+    },
+    async createCredentialToken(input) {
+      await prisma.customerCredentialToken.create({
+        data: {
+          storeId: input.storeId,
+          customerId: input.customerId,
+          purpose: input.purpose,
+          tokenHash: input.tokenHash,
+          expiresAt: input.expiresAt,
+          createdByUserId: input.createdByUserId,
+        },
+      });
+    },
+    async findCredentialTokenByHash(tokenHash) {
+      return prisma.customerCredentialToken.findUnique({
+        where: { tokenHash },
+        select: {
+          id: true,
+          storeId: true,
+          customerId: true,
+          purpose: true,
+          expiresAt: true,
+          consumedAt: true,
+        },
+      });
+    },
+    async consumeCredentialToken(id) {
+      const result = await prisma.customerCredentialToken.updateMany({
+        where: { id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      return result.count > 0;
+    },
+    async setCustomerActive(storeId, customerId) {
+      await prisma.customer.updateMany({
+        where: { id: customerId, storeId },
+        data: { status: "ACTIVE" },
+      });
+    },
+    async getCredentialMeta(customerId) {
+      return prisma.customerCredential.findUnique({
+        where: { customerId },
+        select: { passwordChangedAt: true },
+      });
+    },
+    async countActiveSessions(storeId, customerId) {
+      return prisma.customerSession.count({
+        where: { storeId, customerId, revokedAt: null, expiresAt: { gt: new Date() } },
+      });
+    },
+    async revokeAllSessions(storeId, customerId) {
+      const result = await prisma.customerSession.updateMany({
+        where: { storeId, customerId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      return result.count;
+    },
   };
+}
+
+/** "Ad Soyad" tek girdisini ad/soyad'a böler (son kelime soyad). */
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { firstName: parts[0] ?? fullName.trim(), lastName: "" };
+  return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] };
 }
 
 /* ── Serializers (guvenli/maskeli response) ───────────────────────────────── */
@@ -746,6 +888,12 @@ function hashSessionToken(token: string, secret: string): string {
 
 function hashOtpCode(code: string, secret: string): string {
   return createHash("sha256").update(`otp.${code}.${secret}`).digest("hex");
+}
+
+/** Admin credential token hash'i (TODO-087). Raw token DB'de tutulmaz; session
+ *  deseniyle aynı: sha256(prefix.token.secret). */
+function hashCredentialToken(token: string, secret: string): string {
+  return createHash("sha256").update(`cred.${token}.${secret}`).digest("hex");
 }
 
 function maskDestination(channel: CustomerOtpChannel, value: string): string {
@@ -1118,6 +1266,40 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     });
   });
 
+  // --- Aktivasyon / parola belirleme (admin token'i ile, TODO-087) ----------
+  // Admin tetikli ADMIN_ACTIVATION/ADMIN_PASSWORD_RESET token'ini tuketir; parolayi
+  // set eder. Token tek seferlik (consumedAt). ADMIN_ACTIVATION ayrica musteriyi
+  // ACTIVE yapar. Parola degisince mevcut tum oturumlar revoke edilir. Hatalar
+  // jenerik; token'in durumu (expired/consumed/invalid) sizdirilmaz.
+  app.post("/public/stores/:storeSlug/customer/activate", async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const body = customerActivateRequestSchema.parse(request.body);
+    const invalid = () =>
+      reply.code(400).send(errorBody("INVALID_TOKEN", "Baglanti gecersiz veya suresi dolmus."));
+    const token = await customers.findCredentialTokenByHash(
+      hashCredentialToken(body.token, config.SESSION_SECRET),
+    );
+    if (!token) return invalid();
+    if (token.storeId !== store.id) return invalid();
+    if (token.consumedAt) return invalid();
+    if (token.expiresAt.getTime() <= Date.now()) return invalid();
+
+    // Once atomik tuket (cifte kullanim yarisini onler); ardindan parolayi set et.
+    const consumed = await customers.consumeCredentialToken(token.id);
+    if (!consumed) return invalid();
+
+    const passwordHash = await hashPassword(body.password, config.PASSWORD_HASH_PEPPER);
+    await customers.setCredential(store.id, token.customerId, passwordHash);
+    if (token.purpose === "ADMIN_ACTIVATION") {
+      await customers.setCustomerActive(store.id, token.customerId);
+    }
+    await customers.revokeAllSessions(store.id, token.customerId);
+    // Plain token/parola ASLA loglanmaz; yalniz amac.
+    logger.info("customer credential token consumed", { purpose: token.purpose });
+    return customerActivateResponseSchema.parse({ activated: true });
+  });
+
   // --- Cikis ----------------------------------------------------------------
   app.post("/public/stores/:storeSlug/customer/logout", async (request, reply) => {
     const store = await requireStore(request, reply);
@@ -1369,6 +1551,7 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
  * credential/session/OTP hash response'a ÇIKMAZ; TCKN/VKN/IBAN MASKELİ döner. */
 
 export interface CustomerAdminRoutesDeps {
+  config: AppConfig;
   customers: CustomerDataAccess;
   logger: CustomerLogger;
   requireStoreAdmin: (
@@ -1384,11 +1567,34 @@ interface AdminParams {
 }
 
 export function registerCustomerAdminRoutes(app: FastifyInstance, deps: CustomerAdminRoutesDeps): void {
-  const { customers, requireStoreAdmin } = deps;
+  const { config, customers, logger, requireStoreAdmin } = deps;
 
   function adminParams(request: FastifyRequest): AdminParams {
     const { storeId, customerId } = request.params as AdminParams;
     return { storeId, customerId };
+  }
+
+  // Tek seferlik kurulum jetonu uretir + hash'ini saklar. Raw token YALNIZ
+  // donus degerinde gecer (response'ta tek seferlik); DB'de yalniz hash tutulur.
+  async function issueCredentialToken(
+    storeId: string,
+    customerId: string,
+    purpose: CustomerCredentialTokenPurpose,
+    createdByUserId: string,
+  ): Promise<{ token: string; purpose: CustomerCredentialTokenPurpose; expiresAt: string }> {
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + config.CUSTOMER_CREDENTIAL_TOKEN_TTL_SECONDS * 1000);
+    await customers.createCredentialToken({
+      storeId,
+      customerId,
+      purpose,
+      tokenHash: hashCredentialToken(token, config.SESSION_SECRET),
+      expiresAt,
+      createdByUserId,
+    });
+    // Plain token ASLA loglanmaz; yalniz amac + maskesiz olmayan musteri id.
+    logger.info("customer credential token issued", { purpose, customerId });
+    return { token, purpose, expiresAt: expiresAt.toISOString() };
   }
 
   // İptal edilenler harcamaya dahil edilmez (liste ucu ile aynı kural).
@@ -1414,12 +1620,15 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
     if (!detail) {
       return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
     }
-    const [addresses, ibans, commPref, orders] = await Promise.all([
-      customers.listAddresses(storeId, customerId),
-      customers.listIbans(storeId, customerId),
-      customers.getCommPref(storeId, customerId),
-      customers.listOrders(storeId, customerId),
-    ]);
+    const [addresses, ibans, commPref, orders, credentialMeta, activeSessionCount] =
+      await Promise.all([
+        customers.listAddresses(storeId, customerId),
+        customers.listIbans(storeId, customerId),
+        customers.getCommPref(storeId, customerId),
+        customers.listOrders(storeId, customerId),
+        customers.getCredentialMeta(customerId),
+        customers.countActiveSessions(storeId, customerId),
+      ]);
     const stats = summarizeOrders(orders);
     const fullName = [detail.firstName, detail.lastName].filter(Boolean).join(" ").trim();
     return storeAdminCustomerDetailResponseSchema.parse({
@@ -1441,6 +1650,12 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
         currency: stats.currency,
         lastOrderAt: stats.lastOrderAt?.toISOString() ?? null,
         createdAt: detail.createdAt.toISOString(),
+      },
+      security: {
+        hasCredential: detail.hasCredential,
+        // passwordHash ASLA dönmez; yalnız son değişim zamanı (varsa).
+        passwordChangedAt: credentialMeta?.passwordChangedAt.toISOString() ?? null,
+        activeSessionCount,
       },
       addresses: addresses.map(toAddress),
       ibans: ibans.map(toIban),
@@ -1487,6 +1702,113 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
       return reply.code(409).send(errorBody("PHONE_TAKEN", "Bu telefon bu mağazada kullanımda."));
     }
     return { customer: toAccount(result) };
+  });
+
+  // --- Müşteri oluştur (TODO-087) -------------------------------------------
+  // Ad Soyad + e-posta/telefon (en az biri) + durum. createMembership=true ise
+  // ADMIN_ACTIVATION token üretir ve tek seferlik kurulum jetonu döner.
+  app.post("/stores/:storeId/customers", async (request, reply) => {
+    const { storeId } = request.params as { storeId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const body = storeAdminCustomerCreateRequestSchema.parse(request.body);
+    const { firstName, lastName } = splitFullName(body.fullName);
+    const email = body.email && body.email.trim().length > 0 ? body.email.trim().toLowerCase() : null;
+    const phone = body.phone && body.phone.trim().length > 0 ? normalizeTrPhone(body.phone) : null;
+    const created = await customers.adminCreateCustomer(storeId, {
+      firstName,
+      lastName,
+      email,
+      phone,
+      status: body.status,
+    });
+    if (created === "EMAIL_TAKEN") {
+      return reply.code(409).send(errorBody("EMAIL_TAKEN", "Bu e-posta bu mağazada kullanımda."));
+    }
+    if (created === "PHONE_TAKEN") {
+      return reply.code(409).send(errorBody("PHONE_TAKEN", "Bu telefon bu mağazada kullanımda."));
+    }
+
+    const setup = body.createMembership
+      ? await issueCredentialToken(storeId, created.id, "ADMIN_ACTIVATION", access.actorUserId)
+      : null;
+
+    const fullName = [created.firstName, created.lastName].filter(Boolean).join(" ").trim();
+    return reply.code(201).send(
+      storeAdminCustomerCreateResponseSchema.parse({
+        customer: {
+          id: created.id,
+          email: created.email,
+          phone: created.phone,
+          firstName: created.firstName,
+          lastName: created.lastName,
+          fullName: fullName.length > 0 ? fullName : (created.email ?? created.phone ?? created.id),
+          status: created.status,
+          emailVerified: Boolean(created.emailVerifiedAt),
+          phoneVerified: Boolean(created.phoneVerifiedAt),
+          // Yeni kayıt: credential henüz yok (aktivasyon ile gelir), agregalar sıfır.
+          hasCredential: false,
+          orderCount: 0,
+          totalSpentMinor: 0,
+          currency: "TRY",
+          lastOrderAt: null,
+          addressCount: 0,
+          defaultAddressSummary: null,
+          createdAt: new Date().toISOString(),
+        },
+        setup,
+      }),
+    );
+  });
+
+  // --- Üyelik hesabı oluştur (credential yok → ADMIN_ACTIVATION) ------------
+  app.post("/stores/:storeId/customers/:customerId/credential", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    if (detail.hasCredential) {
+      return reply.code(409).send(errorBody("CREDENTIAL_EXISTS", "Bu müşterinin zaten üyelik hesabı var."));
+    }
+    // Aktivasyon linkini tüketebilmek için bir tanımlayıcı (e-posta/telefon) gerekir.
+    if (!detail.email && !detail.phone) {
+      return reply.code(400).send(errorBody("IDENTIFIER_REQUIRED", "Üyelik için e-posta veya telefon gerekli."));
+    }
+    const setup = await issueCredentialToken(storeId, customerId, "ADMIN_ACTIVATION", access.actorUserId);
+    return reply.code(201).send(storeAdminCredentialTokenResponseSchema.parse({ setup }));
+  });
+
+  // --- Parola sıfırlama (credential var → ADMIN_PASSWORD_RESET) -------------
+  app.post("/stores/:storeId/customers/:customerId/credential/reset", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    if (!detail.hasCredential) {
+      return reply.code(409).send(errorBody("NO_CREDENTIAL", "Bu müşterinin üyelik hesabı yok."));
+    }
+    const setup = await issueCredentialToken(storeId, customerId, "ADMIN_PASSWORD_RESET", access.actorUserId);
+    return reply.code(201).send(storeAdminCredentialTokenResponseSchema.parse({ setup }));
+  });
+
+  // --- Tüm oturumları sonlandır ---------------------------------------------
+  app.post("/stores/:storeId/customers/:customerId/sessions/revoke", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    const revokedCount = await customers.revokeAllSessions(storeId, customerId);
+    logger.info("customer sessions revoked", { customerId, revokedCount });
+    return storeAdminRevokeSessionsResponseSchema.parse({ revokedCount });
   });
 
   // --- İletişim tercihleri --------------------------------------------------
