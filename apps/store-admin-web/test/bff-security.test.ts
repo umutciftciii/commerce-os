@@ -365,7 +365,28 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
       request("/api/orders?storeId=attacker-store", { headers: { cookie: SESSION } }),
     );
     expect(response.status).toBe(200);
-    expect(apiClient.admin.orders.list).toHaveBeenCalledWith("store-1", "platform-token");
+    // storeId daima server bağlamından; client'tan gelen storeId yok sayılır.
+    expect(apiClient.admin.orders.list).toHaveBeenCalledWith("store-1", {}, "platform-token");
+  });
+
+  it("forwards only known order filter keys to the gateway (TODO-073)", async () => {
+    apiClient.admin.orders.list.mockResolvedValue({
+      data: [],
+      pagination: { limit: 50, offset: 0, total: 0 },
+    });
+    const { GET } = await import("../app/api/orders/route.js");
+    const response = await GET(
+      request("/api/orders?status=PLACED&paymentStatus=PAID&search=ahmet&bogus=x", {
+        headers: { cookie: SESSION },
+      }),
+    );
+    expect(response.status).toBe(200);
+    // Yalnız bilinen filtreler taşınır; storeId server'dan, token server'dan.
+    expect(apiClient.admin.orders.list).toHaveBeenCalledWith(
+      "store-1",
+      { status: "PLACED", paymentStatus: "PAID", search: "ahmet" },
+      "platform-token",
+    );
   });
 
   it("proxies a single order detail through the dynamic route", async () => {

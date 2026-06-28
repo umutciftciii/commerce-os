@@ -1297,6 +1297,27 @@ export const orderListResponseSchema = z.object({
   }),
 });
 
+// TODO-073 — Store-admin sipariş listesi operasyonel filtreleri. Tüm filtreler
+// opsiyonel; verilmeyen filtre kısıt getirmez. Tarihler yalnız gün (YYYY-MM-DD);
+// gateway gün başı/sonu (UTC) sınırına genişletir. `search` sipariş no, müşteri
+// e-postası ve müşteri adı/soyadı içinde (case-insensitive) arar. Filtreler DB
+// tarafında uygulanır; store-scope route düzeyinde zorlanır (burada taşınmaz).
+const orderListDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format.");
+
+export const orderListQuerySchema = z.object({
+  // Pagination opsiyonel; verilmezse gateway varsayılanı uygular (limit=50, offset=0).
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+  status: orderStatusSchema.optional(),
+  paymentStatus: paymentStatusSchema.optional(),
+  fulfillmentStatus: fulfillmentStatusSchema.optional(),
+  search: z.string().trim().min(1).max(120).optional(),
+  dateFrom: orderListDateSchema.optional(),
+  dateTo: orderListDateSchema.optional(),
+});
+
 export const orderCreateRequestSchema = z
   .object({
     customerId: z.string().min(1).nullable().optional(),
@@ -1602,6 +1623,7 @@ export type OrderPaymentAttempt = z.infer<typeof orderPaymentAttemptSchema>;
 export type OrderBilling = z.infer<typeof orderBillingSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
+export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
 export type OrderUpdateRequest = z.infer<typeof orderUpdateRequestSchema>;
 export type OrderCancelRequest = z.infer<typeof orderCancelRequestSchema>;

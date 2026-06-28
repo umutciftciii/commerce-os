@@ -209,12 +209,15 @@
   - Taksit UX: odeme adiminda taksit ozeti ("3 taksit × ₺…"/aylik plan) + siparis detayinda taksit
     tutari/toplam/yontem daha acik. Gercek hesap motoru yokken SAHTE oran YAZILMAZ; faiz yoksa
     "vade farksiz" gibi net bilgi.
-- TODO-073: Store-admin orders filters — admin/store-admin siparisler listesinde temel filtreler yok.
-  Eklenecek: odeme durumu (Odenmedi/Odendi/Basarisiz/Iade), siparis durumu, tarih araligi, musteri/
-  e-posta arama, (opsiyonel) toplam tutar araligi. Kucuk UI bug degil; admin-list UX gelistirmesi.
-  Hedef: F3B.2 follow-up veya F3B.3 Admin Orders UX. NOT (2026-06-28): F3B.3 admin regression fix'te
-  orders tablo layout'u (siparis no nowrap, e-posta ellipsis, badge/islem hizasi) duzeltildi; filtre
-  bar kapsam disi birakildi, bu TODO acik kaliyor.
+- TODO-073: Store-admin orders filters — DONE (2026-06-28). Store-admin `/orders` listesine operasyonel
+  filtre bar eklendi: siparis durumu, odeme durumu, karsilama durumu (mevcut enum'lar; "Basarisiz/kismi
+  iade" enum'da yok), tarih araligi (gun bazli, UTC sinir), musteri/e-posta/siparis-no arama. Filtreler
+  DB tarafinda (gateway `listOrders` where), store-scope korunur; cross-store sizmaz. URL query string =
+  tek dogruluk kaynagi (yenilemede korunur), "Filtrele"/"Temizle" CTA + aktif filtre ozeti, filtreye
+  duyarli bos durum ("Bu filtrelere uyan siparis bulunamadi."). Layout regression (siparis no nowrap,
+  badge hizasi) korundu. Kapsam disi/ertelendi: toplam tutar araligi (min/max) — opsiyonel, ayri TODO.
+  Sozlesme: `orderListQuerySchema`/`OrderListQuery` (contracts), api-client `orders.list(storeId,query,
+  token)`. i18n TR/EN `orders.filters.*` paritesi eklendi.
 
 - F3B.3: Customer Account Auth + Checkout Guard + Address Book Foundation. (DONE — bkz. ADR-034 +
   Faz 3B.3 phase log. Mevcut `Customer` storefront uyelik hesabi olacak sekilde genisletildi;
@@ -236,5 +239,9 @@
   musteri credential/parola admin akisi, guvenli parola reset/aktivasyon yaklasimi. Su an admin yalniz
   mevcut musteriyi yonetir/duzenler; olusturma ve credential/parola kapsam disi (F3B.3 guvenlik kurali:
   admin credential dogrudan degistirmez). Sonraki faz.
+- TODO-088: Store-admin orders — tutar araligi (min/max total) filtresi. TODO-073'te erteleme: temel 5
+  filtre (siparis/odeme/karsilama durumu, tarih, arama) tamamlandi; tutar araligi opsiyoneldi ve scope'u
+  buyutmemek icin ertelendi. Gateway `orderListQuerySchema`'ya `minTotal`/`maxTotal` + where (`totalAmount`
+  gte/lte), UI'da iki sayisal alan + URL query. Kucuk ek; ayri PR.
 - TODO-077: Guest gecmis siparis baglama — F3B.3'te yalniz checkout anindaki yeni siparis customerId'ye
   baglanir; mevcut guest order'larin (customerEmail ile) hesaba retro baglanmasi sonraki faz.

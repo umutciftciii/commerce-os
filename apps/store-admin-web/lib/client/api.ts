@@ -5,6 +5,7 @@ import type {
   Order,
   OrderCancelRequest,
   OrderCreateRequest,
+  OrderListQuery,
   OrderListResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
@@ -136,6 +137,28 @@ async function mutatingCall<T>(path: string, init: RequestInit): Promise<T> {
   return call<T>(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
 }
 
+/**
+ * TODO-073 — Sipariş filtre query string'i. Yalnız tanımlı/boş-olmayan filtreler
+ * eklenir. Çıktı baştaki `?` ile gelir veya boştur.
+ */
+export function orderListQueryString(query?: OrderListQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  const append = (key: string, value: string | number | undefined): void => {
+    if (value === undefined) return;
+    const str = String(value).trim();
+    if (str.length > 0) params.set(key, str);
+  };
+  append("status", query.status);
+  append("paymentStatus", query.paymentStatus);
+  append("fulfillmentStatus", query.fulfillmentStatus);
+  append("search", query.search);
+  append("dateFrom", query.dateFrom);
+  append("dateTo", query.dateTo);
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
 export const storeApi = {
   // Auth / session
   login: (email: string, password: string) =>
@@ -203,7 +226,9 @@ export const storeApi = {
     }),
 
   // Orders (F2G) — lifecycle aksiyonlari mutating; CSRF zorunlu.
-  listOrders: () => call<OrderListResponse>("/api/orders"),
+  // TODO-073 — Operasyonel filtreler query string olarak BFF'e taşınır.
+  listOrders: (query?: OrderListQuery) =>
+    call<OrderListResponse>(`/api/orders${orderListQueryString(query)}`),
   getOrder: (orderId: string) => call<Order>(`/api/orders/${orderId}`),
   createOrder: (input: OrderCreateRequest) =>
     mutatingCall<Order>("/api/orders", { method: "POST", body: JSON.stringify(input) }),

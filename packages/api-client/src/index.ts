@@ -13,6 +13,7 @@ import type {
   OrderCreateRequest,
   OrderLineInput,
   OrderLineUpdateRequest,
+  OrderListQuery,
   OrderListResponse,
   OrderUpdateRequest,
   PaymentProviderConfig,
@@ -74,6 +75,7 @@ export type {
   OrderCreateRequest,
   OrderLineInput,
   OrderLineUpdateRequest,
+  OrderListQuery,
   OrderListResponse,
   OrderUpdateRequest,
   Plan,
@@ -339,7 +341,7 @@ export interface ApiClient {
       ): Promise<InventoryAdjustmentResponse>;
     };
     orders: {
-      list(storeId: string, token?: string): Promise<OrderListResponse>;
+      list(storeId: string, query?: OrderListQuery, token?: string): Promise<OrderListResponse>;
       create(storeId: string, input: OrderCreateRequest, token?: string): Promise<Order>;
       get(storeId: string, orderId: string, token?: string): Promise<Order>;
       update(storeId: string, orderId: string, input: OrderUpdateRequest, token?: string): Promise<Order>;
@@ -461,6 +463,32 @@ export interface ApiClient {
 export function resolveApiGatewayUrl(explicit?: string): string {
   const fromEnv = typeof process !== "undefined" ? process.env.API_GATEWAY_URL : undefined;
   return (explicit ?? fromEnv ?? DEFAULT_API_GATEWAY_URL).replace(/\/+$/, "");
+}
+
+/**
+ * TODO-073 — Sipariş listesi filtre sorgu dizesi. Yalnız tanımlı/boş-olmayan
+ * filtreler eklenir; `undefined` ve boş string atlanır. Deterministik sıra
+ * (anahtar bazlı) testleri sade tutar. Çıktı baştaki `?` ile gelir veya boştur.
+ */
+function orderListQueryString(query?: OrderListQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  const append = (key: string, value: string | number | undefined): void => {
+    if (value === undefined) return;
+    const str = String(value).trim();
+    if (str.length > 0) params.set(key, str);
+  };
+  append("status", query.status);
+  append("paymentStatus", query.paymentStatus);
+  append("fulfillmentStatus", query.fulfillmentStatus);
+  append("search", query.search);
+  append("dateFrom", query.dateFrom);
+  append("dateTo", query.dateTo);
+  // limit/offset yalnız varsayılan dışıysa taşınır (pagination korunur).
+  if (query.limit !== undefined) append("limit", query.limit);
+  if (query.offset !== undefined && query.offset > 0) append("offset", query.offset);
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
 }
 
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
@@ -601,7 +629,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
       },
       orders: {
-        list: (storeId, token) => getJson<OrderListResponse>(`/stores/${storeId}/orders`, token),
+        list: (storeId, query, token) =>
+          getJson<OrderListResponse>(`/stores/${storeId}/orders${orderListQueryString(query)}`, token),
         create: (storeId, input, token) =>
           sendJson<Order>(`/stores/${storeId}/orders`, "POST", input, token),
         get: (storeId, orderId, token) =>

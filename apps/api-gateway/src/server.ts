@@ -16,6 +16,7 @@ import {
   orderCreateRequestSchema,
   orderLineInputSchema,
   orderLineUpdateRequestSchema,
+  orderListQuerySchema,
   orderListResponseSchema,
   orderSchema,
   orderUpdateRequestSchema,
@@ -97,6 +98,7 @@ import {
 } from "./payments/index.js";
 import type {
   AuditAction,
+  FulfillmentStatus,
   InventoryItem,
   InventoryMovement,
   InventoryReservation,
@@ -104,6 +106,7 @@ import type {
   OrderAddress,
   OrderEvent,
   OrderLine,
+  OrderStatus,
   PaymentAttempt as PrismaPaymentAttempt,
   PaymentAttemptStatus,
   PaymentMethodType,
@@ -610,7 +613,16 @@ export interface AppDataAccess {
   ): Promise<{ item: InventoryRecord; movement: InventoryMovementRecord } | null | "NEGATIVE_STOCK">;
   listOrders(
     storeId: string,
-    input: { limit: number; offset: number },
+    input: {
+      limit: number;
+      offset: number;
+      status?: OrderStatus;
+      paymentStatus?: PaymentStatus;
+      fulfillmentStatus?: FulfillmentStatus;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    },
   ): Promise<{ data: OrderRecord[]; total: number }>;
   listCustomers(
     storeId: string,
@@ -1988,16 +2000,38 @@ function createPrismaDataAccess(): AppDataAccess {
         });
         return { item: withInventoryVariant(updated), movement };
       }),
-    listOrders: async (storeId, { limit, offset }) => {
+    listOrders: async (storeId, query) => {
+      // TODO-073 — Filtreler DB tarafında uygulanır (where). Store-scope zorunlu:
+      // her zaman { storeId } ile başlar; filtreler yalnız o küme içinde daraltır.
+      const where: Prisma.OrderWhereInput = { storeId };
+      if (query.status) where.status = query.status;
+      if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
+      if (query.fulfillmentStatus) where.fulfillmentStatus = query.fulfillmentStatus;
+      if (query.dateFrom || query.dateTo) {
+        const createdAt: Prisma.DateTimeFilter = {};
+        // Gün sınırları UTC olarak yorumlanır (dateFrom gün başı, dateTo gün sonu dahil).
+        if (query.dateFrom) createdAt.gte = new Date(`${query.dateFrom}T00:00:00.000Z`);
+        if (query.dateTo) createdAt.lte = new Date(`${query.dateTo}T23:59:59.999Z`);
+        where.createdAt = createdAt;
+      }
+      if (query.search) {
+        const term = query.search;
+        where.OR = [
+          { orderNumber: { contains: term, mode: "insensitive" } },
+          { customerEmail: { contains: term, mode: "insensitive" } },
+          { customer: { is: { firstName: { contains: term, mode: "insensitive" } } } },
+          { customer: { is: { lastName: { contains: term, mode: "insensitive" } } } },
+        ];
+      }
       const [data, total] = await Promise.all([
         prisma.order.findMany({
-          where: { storeId },
+          where,
           orderBy: { createdAt: "desc" },
-          skip: offset,
-          take: limit,
+          skip: query.offset,
+          take: query.limit,
           select: orderSelect,
         }),
-        prisma.order.count({ where: { storeId } }),
+        prisma.order.count({ where }),
       ]);
       return { data, total };
     },
@@ -3734,11 +3768,15 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    const pagination = paginationQuerySchema.parse(request.query);
-    const orders = await dataAccess.listOrders(params.storeId, pagination);
+    // TODO-073 — Operasyonel filtreler. Store-scope yukarıda zorlanır; filtreler
+    // yalnız o mağaza içinde daraltır, başka mağaza siparişine erişim açmaz.
+    const query = orderListQuerySchema.parse(request.query);
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    const orders = await dataAccess.listOrders(params.storeId, { ...query, limit, offset });
     return orderListResponseSchema.parse({
       data: orders.data.map(serializeOrder),
-      pagination: { ...pagination, total: orders.total },
+      pagination: { limit, offset, total: orders.total },
     });
   });
 
