@@ -1536,3 +1536,27 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   goruluyor; kaynak F3B.3 `address-manager`/`iban-manager`'in api-client VALUE import'u (validator'lar) — TODO-079
   order bilesenleri api-client'tan yalniz `import type` kullanir. Ikisi de F3B.3 deseni; ayri temizlik TODO'su
   onerildi.
+
+## TODO-090 Storefront Client Bundle Hygiene (api-client out of client)
+
+- Kapsam: Storefront "use client" component'lerinin `@commerce-os/api-client`'tan VALUE import etmesi
+  nedeniyle gateway'e baglanan `createApiClient`'in client bundle'a sizmasini kesmek. TODO-079 smoke'unda
+  gozlemlenen pre-existing (F3B.3 deseni) sorun; urun davranisi degismez.
+- Cozum: TR dogrulama yardimcilari (`isValidTckn`/`isValidTaxNumber`/`isValidTrPhone`/`isValidIban`/
+  `detectCardBrand`/`cardLast4`/`luhnValid`/`classifyIdentifier` + maske/normalize) saf, bagimsiz
+  `packages/contracts/src/validators.ts` modulune tasindi (zod bagimliligi YOK). `contracts` index `export *
+  from "./validators.js"` ile tum public yuzeyi korur. `@commerce-os/api-client/validators` ve
+  `@commerce-os/contracts/validators` alt-yollari `package.json` `exports` ile eklendi; api-client validators
+  alt-modulu `index.ts`'ten (dolayisiyla `createApiClient`'tan) bagimsiz.
+- `classifyIdentifier` zod'dan arindirildi: zod v3 `z.string().email()` regex'i birebir kopyalandi; gateway +
+  vitrin tek dogrulama otoritesi korunur (contracts testleri yesil).
+- Migrasyon: 5 client component value import'larini alt-yola gecirdi — `account/sections/address-manager`,
+  `account/sections/iban-manager`, `checkout-form`, `payment-tester`, `auth/register-flow`; tip import'lari
+  barrel'da kaldi (erased, bundle etkisi yok).
+- Dogrulama: `grep -rE createApiClient apps/storefront-web/.next/static` → BOS; secret/token grep
+  (`INTERNAL_API_TOKEN|SESSION_SECRET|PASSWORD_HASH_PEPPER|Bearer`) → BOS; `git diff --check` temiz;
+  `db:generate` OK, `build` 24/24, `typecheck` 0, `lint` 34/34, `test` 34/34 (contracts 21, gateway 142 dahil).
+- Operasyon kurali: `docs/PROMPT_RULES.md` icine Worktree Path Guard eklendi (izole worktree'de tum dosya
+  islemleri aktif worktree path'ine baglanir; yanlislikla main repo'ya yazimda commit'siz dur → stash/patch ile
+  worktree'ye tasi → main temizle → raporla). Bu fix sirasinda yasanan gotcha'dan turetildi.
+- Commit: `de66ae3` (urun + exports + dokumantasyon); docs kapanis ayri commit.
