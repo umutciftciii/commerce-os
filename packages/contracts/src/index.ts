@@ -1944,8 +1944,20 @@ export const storeAdminCustomerDetailSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+/**
+ * Müşteri güvenlik / üyelik durumu (TODO-087). passwordHash/tokenHash/sessionToken
+ * ASLA dönmez. activeSessionCount: revoke edilmemiş + süresi geçmemiş oturum sayısı.
+ * passwordChangedAt: credential varsa son şifre değişimi; yoksa null.
+ */
+export const storeAdminCustomerSecuritySchema = z.object({
+  hasCredential: z.boolean(),
+  passwordChangedAt: z.string().datetime().nullable(),
+  activeSessionCount: z.number().int().nonnegative(),
+});
+
 export const storeAdminCustomerDetailResponseSchema = z.object({
   customer: storeAdminCustomerDetailSchema,
+  security: storeAdminCustomerSecuritySchema,
   addresses: z.array(customerAddressSchema),
   ibans: z.array(customerIbanSchema),
   communicationPreference: customerCommunicationPreferenceSchema,
@@ -1976,5 +1988,81 @@ export const storeAdminCustomerUpdateRequestSchema = z
   });
 
 export type StoreAdminCustomerDetail = z.infer<typeof storeAdminCustomerDetailSchema>;
+export type StoreAdminCustomerSecurity = z.infer<typeof storeAdminCustomerSecuritySchema>;
 export type StoreAdminCustomerDetailResponse = z.infer<typeof storeAdminCustomerDetailResponseSchema>;
 export type StoreAdminCustomerUpdateRequest = z.infer<typeof storeAdminCustomerUpdateRequestSchema>;
+
+/* ── Store-admin müşteri oluşturma + credential yönetimi (TODO-087, ADR-035) ────
+ * Admin panelden müşteri kaydı + opsiyonel üyelik (activation token) oluşturma ve
+ * mevcut müşteride credential/oturum yönetimi. Admin KALICI ŞİFRE belirlemez;
+ * activation/reset token üretir. Plain/raw token DB/log/event/snapshot'a YAZILMAZ;
+ * yalnız üretim response'unda TEK SEFERLİK döner (mail provider yok — ADR-035).
+ */
+
+/** Admin müşteri oluşturma. fullName zorunlu; e-posta veya telefon en az biri
+ *  zorunlu (üyelik/giriş tanımlayıcısı). createMembership=true ise ADMIN_ACTIVATION
+ *  token üretilir ve tek seferlik kurulum linki döner. */
+export const storeAdminCustomerCreateRequestSchema = z
+  .object({
+    fullName: z.string().min(1, "Ad soyad zorunlu.").max(220),
+    email: z.string().email("Geçerli e-posta girin.").nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+    status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED"]).default("ACTIVE"),
+    createMembership: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    const hasEmail = Boolean(value.email && value.email.trim().length > 0);
+    const hasPhone = Boolean(value.phone && value.phone.trim().length > 0);
+    if (!hasEmail && !hasPhone) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["email"],
+        message: "E-posta veya telefon zorunlu.",
+      });
+    }
+    if (hasPhone && !isValidTrPhone(value.phone as string)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phone"], message: "Geçerli telefon girin." });
+    }
+  });
+
+/** Üretim response'unda TEK SEFERLİK dönen kurulum jetonu. Raw token kalıcı yerde
+ *  tutulmaz; istemciye yalnız bu yanıtla ulaşır ve admin UI'da bir kez gösterilir. */
+export const storeAdminCredentialSetupSchema = z.object({
+  token: z.string().min(1),
+  purpose: z.enum(["ADMIN_ACTIVATION", "ADMIN_PASSWORD_RESET"]),
+  expiresAt: z.string().datetime(),
+});
+
+export const storeAdminCustomerCreateResponseSchema = z.object({
+  customer: storeAdminCustomerSummarySchema,
+  setup: storeAdminCredentialSetupSchema.nullable(),
+});
+
+/** Mevcut müşteride credential/aktivasyon veya parola sıfırlama jetonu üretimi. */
+export const storeAdminCredentialTokenResponseSchema = z.object({
+  setup: storeAdminCredentialSetupSchema,
+});
+
+export const storeAdminRevokeSessionsResponseSchema = z.object({
+  revokedCount: z.number().int().nonnegative(),
+});
+
+export type StoreAdminCustomerCreateRequest = z.infer<typeof storeAdminCustomerCreateRequestSchema>;
+export type StoreAdminCredentialSetup = z.infer<typeof storeAdminCredentialSetupSchema>;
+export type StoreAdminCustomerCreateResponse = z.infer<typeof storeAdminCustomerCreateResponseSchema>;
+export type StoreAdminCredentialTokenResponse = z.infer<typeof storeAdminCredentialTokenResponseSchema>;
+export type StoreAdminRevokeSessionsResponse = z.infer<typeof storeAdminRevokeSessionsResponseSchema>;
+
+/** Storefront aktivasyon / parola belirleme (admin token'ı ile). Token tek
+ *  seferlik; consumedAt sonrası reddedilir. Parola politikası kayıt ile aynı. */
+export const customerActivateRequestSchema = z.object({
+  token: z.string().min(1).max(512),
+  password: customerPasswordSchema,
+});
+
+export const customerActivateResponseSchema = z.object({
+  activated: z.boolean(),
+});
+
+export type CustomerActivateRequest = z.infer<typeof customerActivateRequestSchema>;
+export type CustomerActivateResponse = z.infer<typeof customerActivateResponseSchema>;

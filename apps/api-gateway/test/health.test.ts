@@ -1775,6 +1775,13 @@ function createCustomerAdminMock() {
     async listOrders(_storeId: string, customerId: string) {
       return orders.get(customerId) ?? [];
     },
+    // TODO-087 — detay güvenlik bloğu: bu mock'ta credential/oturum yok.
+    async getCredentialMeta() {
+      return null;
+    },
+    async countActiveSessions() {
+      return 0;
+    },
   };
   return mock as unknown as CustomerDataAccess;
 }

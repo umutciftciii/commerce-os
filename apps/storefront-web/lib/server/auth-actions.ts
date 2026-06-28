@@ -11,7 +11,7 @@ import type {
   CustomerOtpChallengeResponse,
   CustomerSessionResponse,
 } from "@commerce-os/api-client";
-import { sendCustomer } from "./gateway";
+import { postPublic, sendCustomer } from "./gateway";
 import { customerBasePath } from "./customer";
 import { clearCustomerToken, readCustomerToken, writeCustomerToken } from "./customer-cookie";
 
@@ -95,6 +95,23 @@ export async function loginAction(
   }
   await writeCustomerToken(result.data.token);
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * Aktivasyon / parola belirleme (TODO-087). Admin tetikli ADMIN_ACTIVATION veya
+ * ADMIN_PASSWORD_RESET token'i ile parola belirler. Oturum AÇMAZ; başarı sonrası
+ * UI giriş sayfasına yönlendirir (güvenli/sade akış). Token tek seferlik; geçersiz/
+ * süresi geçmiş/tüketilmiş ise gateway jenerik INVALID_TOKEN döner.
+ */
+export async function activateAction(token: string, password: string): Promise<AuthActionResult> {
+  const result = await postPublic<{ activated: boolean }>(`${customerBasePath()}/activate`, {
+    token,
+    password,
+  });
+  if (!result.ok) {
+    return { ok: false, code: result.code ?? "INVALID_TOKEN" };
+  }
   return { ok: true };
 }
 
