@@ -1560,3 +1560,42 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   islemleri aktif worktree path'ine baglanir; yanlislikla main repo'ya yazimda commit'siz dur → stash/patch ile
   worktree'ye tasi → main temizle → raporla). Bu fix sirasinda yasanan gotcha'dan turetildi.
 - Commit: `de66ae3` (urun + exports + dokumantasyon); docs kapanis ayri commit.
+
+## TODO-089 Storefront RSC Cookie Serialization Audit
+
+- Kapsam: TODO-079 smoke'unda "account sayfalari istemcinin KENDI httpOnly oturum cookie'sini RSC flight
+  payload'una serialize ediyor" raporlanmisti. Bu denetim, raw oturum jetonu / cookie DEGERININ herhangi bir
+  client-delivered ciktida (HTML / RSC payload / client bundle / Server Action sonucu / API response) gorunup
+  gorunmedigini netlestirir. Urun davranisi degismez; salt denetim + regresyon sentinel'i.
+- Bulgu: Uygulama kodu raw jetonu HICBIR yere sizdirmiyor.
+  - Statik analiz: jeton yalniz sunucuda `readCustomerToken()` (`lib/server/customer-cookie.ts`) ile okunur ve
+    YALNIZCA `x-customer-session` server-to-server fetch header'ina konur (`lib/server/gateway.ts`
+    `customerHeaders`). `lib/server/customer.ts` okuma yardimcilari yalniz `CustomerAccount`/orders/addresses/
+    iban/comm-pref view model'leri dondurur (jeton/hash alani YOK). Server Action'lar (`auth-actions.ts`,
+    `account-actions.ts`, `order-actions.ts`) yalniz `{ ok, code, data? }` dondurur; `loginAction`/
+    `registerCompleteAction` jetonu yalniz `writeCustomerToken` ile httpOnly cookie'ye yazar — donus degerine
+    KOYMAZ. Account page/order-detail page hicbir client component'e jeton/cookie/header prop'lamaz.
+  - Build grep: `apps/storefront-web/.next/static` (client'a teslim edilen chunk'lar) tum marker'lardan
+    (`commerce_os_customer_session|x-customer-session|SESSION_SECRET|PASSWORD_HASH_PEPPER|passwordHash|
+    tokenHash|codeHash`) TEMIZ. `commerce_os_customer_session` yalniz server-only `.next/server/chunks/170.js`
+    icinde LITERAL COOKIE ADI sabiti olarak (`a.get("commerce_os_customer_session")?.value`) gecer — raw
+    deger degil, server-side okuma. `x-customer-session` de yalniz server chunk'inda.
+  - Sentinel test: `apps/storefront-web/test/account-session-boundary.test.tsx` (4 test) — `next/headers`
+    cookie'sine SENTINEL jeton konur, gateway fetch mock'lanir: (1) tum account bolumleri (orders/profile/
+    addresses/iban/communication) render edilir → HTML SENTINEL ICERMEZ; (2) jeton gateway fetch'inde
+    `x-customer-session` olarak GIDER (sunucu-yanli kullanim kaniti); (3) `getCurrentCustomer()` view
+    model'i SENTINEL icermez; (4) `loginAction` sonucu (gateway yaniti raw token tasisa da) SENTINEL
+    ICERMEZ — RSC payload boundary'si.
+- Kok neden / yorum: Orijinal gozlem buyuk olasilikla RSC navigation (`?_rsc=`) ISTEK `Cookie` header'inin
+  (tarayicinin same-origin httpOnly cookie'yi otomatik gondermesi — httpOnly amacina UYGUN, JS erisemez) YANIT
+  payload'u ile karistirilmasidir. Uygulama kaynakli serialize sizinti tespit edilmedi; fix gerekmedi.
+- Runtime smoke karari: Logged-in full runtime RSC smoke YAPILMADI (karar geregi). Gerekce: shared
+  api-gateway'i gecici `CUSTOMER_OTP_DEV_CODE` ile restart etmeyi gerektirir (login icin tum mesru yollar
+  korunan secret ister: session forge → `SESSION_SECRET`, parola set → `PASSWORD_HASH_PEPPER`, kayit → OTP
+  dev-code + gateway restart); shared stack'i bozmanin operasyonel riski ek kanit degerinden yuksek. Yapilan
+  runtime smoke: api-gateway `/health` 200, storefront `/api/health` 200, guest `/account` → 307
+  `/auth/login?next=/account`. "runtime logged-in smoke skipped by decision; static/build/sentinel evidence
+  sufficient." Ileride gerekirse izole stack ya da dev OTP'li ayri smoke ile yapilabilir.
+- Gate: `db:generate` OK, `build` 24/24, `typecheck` 0 hata, storefront `lint` temiz, storefront `test`
+  79/79 (yeni sentinel 4 dahil), `git diff --check` temiz.
+- Degisiklik: yalniz yeni sentinel test dosyasi + docs (urun kodu degismedi).
