@@ -1868,7 +1868,35 @@ export type CustomerIbanListResponse = z.infer<typeof customerIbanListResponseSc
 
 /* ── Hesabim > Siparislerim (own account) ─────────────────────────────────── */
 
+export const customerOrderStatusSchema = z.enum([
+  "DRAFT",
+  "PLACED",
+  "CONFIRMED",
+  "CANCELLED",
+  "FULFILLED",
+]);
+export const customerOrderPaymentStatusSchema = z.enum([
+  "UNPAID",
+  "AUTHORIZED",
+  "PAID",
+  "REFUNDED",
+]);
+export const customerOrderFulfillmentStatusSchema = z.enum([
+  "UNFULFILLED",
+  "PARTIAL",
+  "FULFILLED",
+  "CANCELLED",
+]);
+
+/**
+ * Sipariş kartı/arama satırı. `variantId` "tekrar satın al" için geçerli güncel
+ * varyant referansını taşır (eski fiyata GÜVENİLMEZ; sepet çözümlemede güncel
+ * katalogdan doğrulanır). `productSlug` müşteri-facing ürün bağlantısı içindir.
+ */
 export const customerOrderLineSummarySchema = z.object({
+  variantId: z.string(),
+  productSlug: z.string(),
+  sku: z.string(),
   title: z.string(),
   variantTitle: z.string(),
   quantity: z.number().int().positive(),
@@ -1876,8 +1904,9 @@ export const customerOrderLineSummarySchema = z.object({
 
 export const customerOrderSummarySchema = z.object({
   orderNumber: z.string(),
-  status: z.enum(["DRAFT", "PLACED", "CONFIRMED", "CANCELLED", "FULFILLED"]),
-  paymentStatus: z.enum(["UNPAID", "AUTHORIZED", "PAID", "REFUNDED"]),
+  status: customerOrderStatusSchema,
+  paymentStatus: customerOrderPaymentStatusSchema,
+  fulfillmentStatus: customerOrderFulfillmentStatusSchema,
   currency: currencySchema,
   totalMinor: z.number().int().nonnegative(),
   itemCount: z.number().int().nonnegative(),
@@ -1891,6 +1920,84 @@ export const customerOrderListResponseSchema = z.object({
 
 export type CustomerOrderSummary = z.infer<typeof customerOrderSummarySchema>;
 export type CustomerOrderListResponse = z.infer<typeof customerOrderListResponseSchema>;
+
+/* ── Sipariş detayı (own account) ─────────────────────────────────────────────
+ * Müşteri-facing dedicated detay route'unun (account/orders/[orderNumber]) veri
+ * sözleşmesi. Yalnız KENDİ siparişi döner (başka müşteri → 404). Allowlist:
+ * tutar kırılımı + satırlar + teslimat adresi + fatura özeti (taxId MASKELİ) +
+ * ödeme GÜVENLİ alanları. PAN/CVC/token/hash ASLA dönmez. */
+export const customerOrderDetailLineSchema = customerOrderLineSummarySchema.extend({
+  unitPriceMinor: z.number().int().nonnegative(),
+  lineTotalMinor: z.number().int().nonnegative(),
+});
+
+export const customerOrderAddressSummarySchema = z.object({
+  fullName: z.string(),
+  phone: z.string().nullable(),
+  countryCode: z.string(),
+  city: z.string(),
+  district: z.string().nullable(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullable(),
+  postalCode: z.string().nullable(),
+});
+
+export const customerOrderBillingSummarySchema = z.object({
+  type: z.enum(["INDIVIDUAL", "CORPORATE"]),
+  name: z.string().nullable(),
+  companyName: z.string().nullable(),
+  taxOffice: z.string().nullable(),
+  // Bireysel: T.C. Kimlik No (MASKELİ); Kurumsal: vergi no (MASKELİ).
+  taxId: z.string().nullable(),
+});
+
+/**
+ * Ödeme GÜVENLİ alanları (F3B.2 PaymentAttempt allowlist). Yalnız türetilmiş
+ * güvenli alanlar: kart markası + son 4 + taksit + güvenli sağlayıcı referansı.
+ * Full PAN/CVC/token/hash ASLA bu yüzeyde yer almaz.
+ */
+export const customerOrderPaymentSummarySchema = z.object({
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
+  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
+  cardBrand: z.string().nullable(),
+  cardLast4: z.string().nullable(),
+  installmentCount: z.number().int().positive(),
+  transactionId: z.string().nullable(),
+  threeDsApplied: z.boolean(),
+  paidAt: z.string().datetime().nullable(),
+});
+
+export const customerOrderDetailSchema = z.object({
+  orderNumber: z.string(),
+  status: customerOrderStatusSchema,
+  paymentStatus: customerOrderPaymentStatusSchema,
+  fulfillmentStatus: customerOrderFulfillmentStatusSchema,
+  currency: currencySchema,
+  createdAt: z.string().datetime(),
+  placedAt: z.string().datetime().nullable(),
+  cancelledAt: z.string().datetime().nullable(),
+  subtotalMinor: z.number().int().nonnegative(),
+  discountMinor: z.number().int().nonnegative(),
+  shippingMinor: z.number().int().nonnegative(),
+  taxMinor: z.number().int().nonnegative(),
+  totalMinor: z.number().int().nonnegative(),
+  itemCount: z.number().int().nonnegative(),
+  lines: z.array(customerOrderDetailLineSchema),
+  shippingAddress: customerOrderAddressSummarySchema.nullable(),
+  billing: customerOrderBillingSummarySchema.nullable(),
+  payment: customerOrderPaymentSummarySchema.nullable(),
+});
+
+export const customerOrderDetailResponseSchema = z.object({
+  order: customerOrderDetailSchema,
+});
+
+export type CustomerOrderDetailLine = z.infer<typeof customerOrderDetailLineSchema>;
+export type CustomerOrderAddressSummary = z.infer<typeof customerOrderAddressSummarySchema>;
+export type CustomerOrderBillingSummary = z.infer<typeof customerOrderBillingSummarySchema>;
+export type CustomerOrderPaymentSummary = z.infer<typeof customerOrderPaymentSummarySchema>;
+export type CustomerOrderDetail = z.infer<typeof customerOrderDetailSchema>;
+export type CustomerOrderDetailResponse = z.infer<typeof customerOrderDetailResponseSchema>;
 
 /* ── Store-admin müşteri dizini (F3B.3) ───────────────────────────────────────
  * Mağaza paneli müşteri listesi. PII minimizasyonu: hash/token/OTP ASLA dönmez;

@@ -1477,3 +1477,62 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
 - Not (worktree gotcha): bu oturumda ilk duzenlemeler yanlislikla main worktree path'ine yazildi; degisikler
   `git stash -u` ile dogru worktree branch'ine tasindi, main temiz birakildi, gate'ler worktree'de tekrar
   kosuldu.
+
+## TODO-079 Account Orders Detail + Post-Order Actions
+
+- Kapsam: Hesabim > Siparislerim'i musteri-facing operasyonel seviyeye cikarmak. Gercek iade/destek/review/
+  kargo-takip lifecycle KAPSAM DISI (placeholder; bkz. TODO-080..083).
+- Ust yapi (Kapsam 1-2): `OrdersSection` (sunucu bileseni) — baslik + aciklama, URL query ile korunan 3 sekme
+  (`?section=orders&tab=all|buy-again|not-shipped`) + "tum siparislerde ara" (GET form, `&q=`). Filtre/arama
+  saf fonksiyonlarda (`apps/storefront-web/lib/orders.ts`): `filterOrdersByTab` (buy-again = iptal/taslak
+  haric; not-shipped = UNFULFILLED/PARTIAL & iptal degil), `searchOrders` (sipariş no / urun adi / varyant /
+  SKU, TR-duyarsiz). Veri gateway'de zaten store+customer scoped doner; filtre yalniz sunum.
+- Sipariş karti (Kapsam 3): `OrderStatusBadges` (durum/odeme/karsilama, dürüst i18n label + ton), tutar,
+  satirlar (gorsel ALTYAPISI YOK → harf placeholder), `OrderActions` (istemci) CTA grubu.
+- Detay route (Kapsam 4): `app/account/orders/[orderNumber]/page.tsx` — oturum zorunlu (yoksa login redirect),
+  `getCustomerOrderDetail` yalniz kendi siparisini doner; `null` → `notFound()` (404). Tutar kirilimi (ara
+  toplam/indirim/kargo/KDV dahil/toplam), satirlar (urun link + SKU + adet + satir toplami), teslimat adresi,
+  fatura ozeti (taxId MASKELI), odeme bilgisi (varsa).
+- Post-order CTA kararlari (Kapsam 5-8): iade CTA yalniz FULFILLED/PARTIAL + iptal/iade DEGIL gorunur,
+  15 gün penceresi dolunca "İade süresi doldu" notuyla pasif (`returnEligibility` saf fonksiyon); destek CTA
+  dürüst placeholder ("yakında aktif olacak"); yorum CTA yalniz teslimat (FULFILLED) sonrasi aktif
+  (`canWriteReview`), aksi halde "Teslimattan sonra yorum yazabilirsiniz." Hicbiri yanlis vaat icermez.
+- Buy-again (Kapsam 7): `lib/server/order-actions.ts#buyAgainAction` Server Action. Yalniz KENDI siparisi
+  (`getCustomerOrderDetail` own-only). Sipariş satirlari GÜNCEL katalogdan dogrulanir (`resolveCart` → gateway):
+  yalniz `status !== UNAVAILABLE && inStock && availableQuantity > 0` varyantlar uygun adetle sepete eklenir;
+  digerleri "mevcut degil" sayilir → kismi ekleme + "Bazı ürünler artık mevcut değil." Eski sipariş satiri
+  FIYATINA GÜVENILMEZ (fiyat/uygunluk guncelden gelir). Bkz. DECISIONS ADR-037.
+- Backend (Kapsam 10): `customerOrderSummarySchema` genisletildi (`fulfillmentStatus` + line `variantId/
+  productSlug/sku`); yeni `customerOrderDetailSchema` (+ address/billing/payment alt-semalari). Gateway
+  `CustomerDataAccess.listOrders` genisletildi + yeni `getOrderDetail` (own-scoped). Yeni route
+  `GET /public/stores/:slug/customer/orders/:orderNumber` (allowlist serializer; baska musteri/yok → 404).
+  Ödeme GÜVENLI alanlari: provider/method/cardBrand/cardLast4/installmentCount/transactionId(=providerReference)/
+  threeDsApplied/paidAt; PAN/CVC/accessTokenHash ASLA select EDILMEZ. Fatura taxId `maskTaxId` ile maskeli.
+  `serializeCustomerOrderSummary` admin detay yuzeyinde de yeniden kullanildi (tek serializer).
+- i18n: TR/EN `account.orders` genisletildi (subtitle, tabs, search, card, actions, fulfillmentValues,
+  buyAgain, return, support, review, detail). Parite testi (i18n) yesil.
+- Testler: gateway (`customer-account.test.ts`) — own-list (+fulfillmentStatus/line alanlari), detay own +
+  GÜVENLI ödeme + maskeli taxId + PAN/token sizinti yok, baska musteri detay 404, guest 401. Storefront
+  (`orders-filter.test.ts`) — sekme/arama/applyFilters/iade penceresi (15 gün sinir)/yorum gorunurlugu.
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` temiz, `test` yesil — storefront 75,
+  api-gateway 142, i18n 35 (parite dahil), store-admin 89. `git diff --check` temiz.
+- Docker smoke (shared `docker` stack, worktree koduyla `api-gateway`+`storefront-web` `--build`; postgres/redis
+  volume + seed KORUNDU — bilincli secim, final merge sonrasi merged main'den yeniden build edilecek):
+  api-gateway `/health` 200, storefront `/api/health` 200; guest `/account?section=orders` → 307
+  `/auth/login?next=/account`; yeni order endpoint'leri guest 401, bad-store 404. Customer-auth E2E icin
+  GEÇICI `CUSTOMER_OTP_DEV_CODE=000000` ile YALNIZ api-gateway recreate (commit edilmeyen scratchpad override;
+  DB/seed dokunulmadi) → yeni test musteri register + checkout ile gercek sipariş (OS-000043, Tote ×2 +
+  Hoodie-L ×1, PLACED/UNPAID/UNFULFILLED). Dogrulananlar: liste (fulfillmentStatus + line variantId/sku),
+  detay (tum allowlist + maskeli fatura + payment null cunku UNPAID), arama (eslesme + dogal dilli bos durum),
+  sekme all/buy-again/not-shipped, detay sayfa render + olmayan sipariş 404, buy-again güncel-katalog
+  dogrulamasi (available varyantlar OK, OUT_OF_STOCK varyant `unavailable` branch). Cross-customer izolasyon:
+  ikinci musteri A'nin siparisine 404 + bos liste. Teardown: dev-code kaldirildi, api-gateway plain config ile
+  recreate, `000000` artik `INVALID_OTP` (400) — bypass kapali, health 200.
+- Secret/PII/payment kontrolu: order detay JSON yalniz GÜVENLI alanlar (PAN/cvc/tokenHash/passwordHash/codeHash
+  yok); gateway log'da plain OTP/parola yok; order serializer maskeli taxId. NOT (pre-existing, TODO-079 DISI):
+  (a) Next `force-dynamic`+`cookies()` account sayfalarinda istemcinin KENDI httpOnly oturum cookie'sini RSC
+  payload'una serialize ediyor — `addresses`/`profile` (bu fazda dokunulmayan) bolumlerde de ayni; uucuncu-taraf
+  sizintisi degil (cross-customer 404 izolasyonu kanitli). (b) `createApiClient` storefront client bundle'inda
+  goruluyor; kaynak F3B.3 `address-manager`/`iban-manager`'in api-client VALUE import'u (validator'lar) — TODO-079
+  order bilesenleri api-client'tan yalniz `import type` kullanir. Ikisi de F3B.3 deseni; ayri temizlik TODO'su
+  onerildi.

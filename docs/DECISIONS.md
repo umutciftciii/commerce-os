@@ -705,3 +705,27 @@
 - Iliski: gercek provider/3DS redirect/iade-iptal ve faiz motoru ACIK (TODO-076 ve ilgili payment TODO'lari).
 - Sonuc: typecheck 0, build 24/24, lint temiz, test yesil (storefront 60, store-admin 89, api-gateway 139,
   contracts 21). Docker smoke healthy.
+
+## ADR-037 Buy-again = GÜNCEL katalog/stok dogrulamasi (eski sipariş fiyatina güvenilmez) (TODO-079)
+
+- Durum: ACCEPTED
+- Baglam: Hesabim > Siparislerim "Tekrar satin al" (TODO-079). Bir musteri eski siparisindeki urunleri
+  tekrar sepete eklemek istiyor. Sipariş satiri (OrderLine) o anki fiyat/baslik/SKU'yu TARIHSEL olarak
+  saklar; urun/varyant o gunden beri pasifleşmis, silinmis, fiyati degismis veya stoğu tukenmis olabilir.
+- Karar: Buy-again AYRI bir backend endpoint'i DEGILDIR; storefront Server Action (`buyAgainAction`)
+  olarak gerceklenir. Akis: (1) `getCustomerOrderDetail(orderNumber)` ile YALNIZ kendi siparisini al
+  (own-only; baska musteri/yok → islem yok). (2) Sipariş satirlarinin `variantId`'lerini GÜNCEL katalogdan
+  dogrula — mevcut `resolveCart` (gateway public cart cozumleyici) ile; bu zaten fiyat/stok/satilabilirlik
+  otoritesidir. (3) Yalniz `status !== "UNAVAILABLE" && inStock && availableQuantity > 0` varyantlari
+  `min(siparis adedi, mevcut stok)` ile sepete ekle. (4) Eklenemeyen varyantlari say → kismi ekleme +
+  "Bazı ürünler artık mevcut değil." uyarisi; hicbiri uygun degilse "artık satın alınamıyor."
+- Gerekce: Eski sipariş satiri FIYATINA/uygunluğuna GÜVENMEK yanlis fiyatla satis veya stoksuz urun ekleme
+  riski tasir. Cart cozumleyici tek dogrulama otoritesi oldugundan (F3B.1 cizgisi: istemci/eski veriye
+  güvenme), buy-again da ayni otoriteyi kullanir; yeni paralel dogrulama yuzeyi acilmaz. Ayri endpoint yerine
+  Server Action: daha az backend yuzeyi + cart cookie mutasyonu zaten action/route baglaminda yapilabilir.
+- Guvenlik: own-only order erisimi (x-customer-session); baska musteri siparisi tekrar satin alinamaz.
+  Eklenen sepet kalemleri yalniz `{variantId, quantity}` referansi tutar (fiyat/baslik tasinmaz).
+- Iliski: Gercek iade (TODO-081), destek (TODO-080), review (TODO-082), kargo takip (TODO-083) ile birlikte
+  TODO-079 post-order CTA ailesini tamamlar (digerleri bu fazda placeholder).
+- Sonuc: typecheck 0, build 24/24, lint temiz, test yesil (storefront 75, api-gateway 142). Docker smoke:
+  gercek sipariş (OS-000043) ile buy-again güncel-katalog dogrulamasi (available + OUT_OF_STOCK branch) dogrulandi.

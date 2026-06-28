@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { Container, EmptyState } from "@commerce-os/ui";
-import { format } from "@commerce-os/i18n";
 import { getStorefrontDict } from "../../lib/i18n";
-import { formatMinor } from "../../lib/money";
+import { resolveOrdersTab } from "../../lib/orders";
 import {
   getCurrentCustomer,
   getCustomerCommunicationPreferences,
@@ -14,6 +13,7 @@ import {
   AccountSidebar,
   type AccountSection,
 } from "../../components/account/account-sidebar";
+import { OrdersSection } from "../../components/account/sections/orders-section";
 import { ProfileForm } from "../../components/account/sections/profile-form";
 import { PasswordForm } from "../../components/account/sections/password-form";
 import { CommunicationForm } from "../../components/account/sections/communication-form";
@@ -50,14 +50,15 @@ function resolveSection(value: string | undefined): AccountSection {
 export default async function AccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string }>;
+  searchParams: Promise<{ section?: string; tab?: string; q?: string }>;
 }) {
   const customer = await getCurrentCustomer();
   if (!customer) {
     redirect("/auth/login?next=/account");
   }
   const t = (await getStorefrontDict()).account;
-  const section = resolveSection((await searchParams).section);
+  const params = await searchParams;
+  const section = resolveSection(params.section);
 
   return (
     <Container className="py-12">
@@ -65,7 +66,12 @@ export default async function AccountPage({
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <AccountSidebar t={t} section={section} />
         </aside>
-        <section>{await renderSection(section, t)}</section>
+        <section>
+          {await renderSection(section, t, {
+            tab: params.tab,
+            q: params.q,
+          })}
+        </section>
       </div>
     </Container>
   );
@@ -74,11 +80,19 @@ export default async function AccountPage({
 async function renderSection(
   section: AccountSection,
   t: Awaited<ReturnType<typeof getStorefrontDict>>["account"],
+  ordersParams: { tab?: string; q?: string },
 ) {
   switch (section) {
     case "orders": {
       const orders = await listCustomerOrders();
-      return <OrdersList t={t} orders={orders} />;
+      return (
+        <OrdersSection
+          t={t}
+          orders={orders}
+          tab={resolveOrdersTab(ordersParams.tab)}
+          query={(ordersParams.q ?? "").trim()}
+        />
+      );
     }
     case "profile": {
       const customer = await getCurrentCustomer();
@@ -118,53 +132,6 @@ function Placeholder({ title, description }: { title: string; description: strin
     <div>
       <h1 className="mb-6 text-xl font-semibold text-slate-900">{title}</h1>
       <EmptyState title={title} description={description} />
-    </div>
-  );
-}
-
-function OrdersList({
-  t,
-  orders,
-}: {
-  t: Awaited<ReturnType<typeof getStorefrontDict>>["account"];
-  orders: Awaited<ReturnType<typeof listCustomerOrders>>;
-}) {
-  const o = t.orders;
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-900">{o.title}</h1>
-      {orders.length === 0 ? (
-        <EmptyState title={o.title} description={o.empty} />
-      ) : (
-        <ul className="space-y-3">
-          {orders.map((order) => (
-            <li key={order.orderNumber} className="rounded-xl border border-slate-200 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">
-                    {o.orderNumber}: {order.orderNumber}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {new Date(order.createdAt).toLocaleDateString()} ·{" "}
-                    {format(o.items, { count: order.itemCount })}
-                  </p>
-                </div>
-                <div className="text-right text-sm">
-                  <p className="font-semibold text-slate-900">
-                    {formatMinor(order.totalMinor, order.currency)}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {o.statusValues[order.status]} · {o.paymentValues[order.paymentStatus]}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-2 text-sm text-slate-600">
-                {order.lines.map((line) => `${line.title} ×${line.quantity}`).join(", ")}
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

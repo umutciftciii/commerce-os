@@ -10,6 +10,7 @@ import type {
   CustomerAddress,
   CustomerCommunicationPreference,
   CustomerIban,
+  CustomerOrderDetail,
   CustomerOrderSummary,
 } from "@commerce-os/api-client";
 import { demoStoreSlug } from "./env";
@@ -72,4 +73,21 @@ export async function listCustomerOrders(): Promise<CustomerOrderSummary[]> {
     token,
   );
   return result.ok ? result.data.data : [];
+}
+
+/**
+ * TODO-079 — Tek sipariş detayı (yalnız kendi siparişi). Başka müşterinin
+ * siparişi veya yoksa gateway 404 döner → burada null. Çağıran (detail route)
+ * null'da notFound() ile 404 sayfası gösterir.
+ */
+export async function getCustomerOrderDetail(
+  orderNumber: string,
+): Promise<CustomerOrderDetail | null> {
+  const token = await readCustomerToken();
+  if (!token) return null;
+  const result = await getCustomer<{ order: CustomerOrderDetail }>(
+    `${customerBasePath()}/orders/${encodeURIComponent(orderNumber)}`,
+    token,
+  );
+  return result.ok ? result.data.order : null;
 }
