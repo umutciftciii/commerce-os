@@ -43,7 +43,12 @@ import {
   type ShippingHttpTransport,
 } from "./adapters/http.js";
 import { createShippingAdapterRegistry } from "./adapters/registry.js";
-import { serializeShippingProviderConfig } from "./serialize.js";
+import {
+  computeShippingCapabilities,
+  serializeShippingProviderConfig,
+  type SerializedShippingProviderConfig,
+  type ShippingEnvGuards,
+} from "./serialize.js";
 import type {
   ResolvedShippingCredential,
   ResolvedShippingCredentials,
@@ -80,8 +85,8 @@ const credentialParam = z.object({
 });
 const orderParam = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) });
 
-function errorBody(code: string, message: string) {
-  return { error: { code, message } };
+function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
+  return { error: { code, message, ...(extra ?? {}) } };
 }
 
 /** ShippingConfigError -> guvenli HTTP yaniti (ic detay/secret sizdirmadan). */
@@ -96,10 +101,13 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       LABEL_PURCHASE_DISABLED: 409,
       SHIPPING_HTTP_DISABLED: 409,
       NOT_IMPLEMENTED: 409,
+      OPERATION_NOT_SUPPORTED: 409,
       AUTH_FAILED: 502,
     };
-    const status = statusByCode[error.code] ?? 400;
-    return reply.code(status).send(errorBody(error.code, error.message));
+    // NOT_IMPLEMENTED (adapter capability) UI'da net gosterilsin diye OPERATION_NOT_SUPPORTED'a eslenir.
+    const code = error.code === "NOT_IMPLEMENTED" ? "OPERATION_NOT_SUPPORTED" : error.code;
+    const status = statusByCode[code] ?? 400;
+    return reply.code(status).send(errorBody(code, error.message));
   }
   throw error;
 }
@@ -109,6 +117,15 @@ export function registerShippingAdminRoutes(
   deps: ShippingAdminRoutesDeps,
 ): void {
   const { config } = deps;
+
+  // Canli destructive operasyon ortam bayraklari → capability hesaplamasinda kullanilir.
+  const envGuards: ShippingEnvGuards = {
+    orderCreate: config.DHL_ECOMMERCE_ALLOW_ORDER_CREATE,
+    barcodeCreate: config.DHL_ECOMMERCE_ALLOW_BARCODE_CREATE,
+    labelPurchase: config.GELIVER_ALLOW_LABEL_PURCHASE,
+  };
+  const serialize = (cfg: ConfigWithCredentials): SerializedShippingProviderConfig =>
+    serializeShippingProviderConfig(cfg, envGuards);
 
   const transport: ShippingHttpTransport = config.SHIPPING_SANDBOX_HTTP_ENABLED
     ? createFetchHttpTransport()
@@ -168,7 +185,7 @@ export function registerShippingAdminRoutes(
       orderBy: { createdAt: "asc" },
     });
     return shippingProviderConfigListResponseSchema.parse({
-      data: configs.map(serializeShippingProviderConfig),
+      data: configs.map(serialize),
     });
   });
 
@@ -212,7 +229,7 @@ export function registerShippingAdminRoutes(
       entityId: created.id,
       metadata: { provider: created.provider, mode: created.mode },
     });
-    return reply.code(201).send(serializeShippingProviderConfig(created));
+    return reply.code(201).send(serialize(created));
   });
 
   app.get("/stores/:storeId/shipping/providers/:id", async (request, reply) => {
@@ -221,7 +238,7 @@ export function registerShippingAdminRoutes(
     if (!access) return;
     const cfg = await loadConfig(params.storeId, params.id);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
-    return serializeShippingProviderConfig(cfg);
+    return serialize(cfg);
   });
 
   app.patch("/stores/:storeId/shipping/providers/:id", async (request, reply) => {
@@ -251,7 +268,7 @@ export function registerShippingAdminRoutes(
       entityId: updated.id,
       metadata: { fields: Object.keys(input) },
     });
-    return serializeShippingProviderConfig(updated);
+    return serialize(updated);
   });
 
   /* ───────────── Credential upsert / clear ───────────── */
@@ -333,7 +350,7 @@ export function registerShippingAdminRoutes(
       metadata: { credentialType: input.type, fields: Object.keys(input).filter((k) => k !== "type") },
     });
     const reloaded = await loadConfig(params.storeId, params.id);
-    return serializeShippingProviderConfig(reloaded!);
+    return serialize(reloaded!);
   });
 
   app.delete("/stores/:storeId/shipping/providers/:id/credentials/:type", async (request, reply) => {
@@ -358,7 +375,7 @@ export function registerShippingAdminRoutes(
       metadata: { credentialType: parsedType.data },
     });
     const reloaded = await loadConfig(params.storeId, params.id);
-    return serializeShippingProviderConfig(reloaded!);
+    return serialize(reloaded!);
   });
 
   /* ───────────── Test connection ───────────── */
@@ -414,6 +431,17 @@ export function registerShippingAdminRoutes(
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    // Capability guard: rate desteklenmiyorsa adapter'a gitmeden net kod don.
+    if (!computeShippingCapabilities(cfg, envGuards).canCalculateRate) {
+      return reply
+        .code(409)
+        .send(
+          errorBody("OPERATION_NOT_SUPPORTED", "Bu sağlayıcı için bu işlem desteklenmiyor.", {
+            operation: "RATE",
+            provider: cfg.provider,
+          }),
+        );
+    }
     try {
       const result = await registry.get(cfg.provider).calculateRate({
         context: buildContext(cfg),

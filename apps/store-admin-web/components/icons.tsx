@@ -96,6 +96,17 @@ export function PaymentIcon() {
   );
 }
 
+export function ShippingIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M2.5 7.5h10v9h-10z" />
+      <path d="M12.5 10.5h4l4 3.5v2.5h-8z" />
+      <circle cx="6.5" cy="18" r="1.6" />
+      <circle cx="16.5" cy="18" r="1.6" />
+    </svg>
+  );
+}
+
 export function ThemeIcon() {
   return (
     <svg {...base} aria-hidden>

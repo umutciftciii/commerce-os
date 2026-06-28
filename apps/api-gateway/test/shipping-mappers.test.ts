@@ -9,7 +9,7 @@ import {
   mapTrackResponse,
 } from "../src/shipping/adapters/dhl-ecommerce/mappers.js";
 import { buildIdentityTokenRequest } from "../src/shipping/adapters/dhl-ecommerce/client.js";
-import { serializeShippingProviderConfig } from "../src/shipping/serialize.js";
+import { computeShippingCapabilities, serializeShippingProviderConfig } from "../src/shipping/serialize.js";
 import type { ResolvedShippingCredential } from "../src/shipping/types.js";
 
 const SAMPLE_JWT =
@@ -126,30 +126,28 @@ describe("shipping provider config serializer (allowlist)", () => {
     createdAt: now,
     updatedAt: now,
   };
+  const NO_ENV = { orderCreate: false, barcodeCreate: false, labelPurchase: false };
+
+  const identityCred = {
+    id: "cred_1",
+    providerConfigId: "cfg_1",
+    type: "IDENTITY" as const,
+    encryptedKey: "v1:gcm:aaa:bbb:ccc",
+    encryptedSecret: "v1:gcm:ddd:eee:fff",
+    encryptedCustomerNumber: "v1:gcm:ggg:hhh:iii",
+    encryptedCustomerPassword: "v1:gcm:jjj:kkk:lll",
+    identityType: 1,
+    maskedKey: "••••6789",
+    configured: true,
+    lastTestedAt: null,
+    lastTestStatus: null,
+    lastErrorCode: null,
+    createdAt: now,
+    updatedAt: now,
+  };
 
   it("returns maskedKey + configured but never raw/encrypted secret values", () => {
-    const serialized = serializeShippingProviderConfig({
-      ...baseConfig,
-      credentials: [
-        {
-          id: "cred_1",
-          providerConfigId: "cfg_1",
-          type: "IDENTITY",
-          encryptedKey: "v1:gcm:aaa:bbb:ccc",
-          encryptedSecret: "v1:gcm:ddd:eee:fff",
-          encryptedCustomerNumber: "v1:gcm:ggg:hhh:iii",
-          encryptedCustomerPassword: "v1:gcm:jjj:kkk:lll",
-          identityType: 1,
-          maskedKey: "••••6789",
-          configured: true,
-          lastTestedAt: null,
-          lastTestStatus: null,
-          lastErrorCode: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
-    });
+    const serialized = serializeShippingProviderConfig({ ...baseConfig, credentials: [identityCred] }, NO_ENV);
     const cred = serialized.credentials[0];
     expect(cred.configured).toBe(true);
     expect(cred.maskedKey).toBe("••••6789");
@@ -160,5 +158,74 @@ describe("shipping provider config serializer (allowlist)", () => {
     expect(blob).not.toContain("v1:gcm:");
     expect(blob).not.toContain("encryptedSecret");
     expect(blob).not.toContain("encryptedCustomerPassword");
+  });
+});
+
+describe("shipping capability derivation", () => {
+  const now = new Date("2026-06-28T12:00:00.000Z");
+  const base = {
+    id: "c",
+    storeId: "s",
+    mode: "TEST" as const,
+    displayName: "x",
+    allowOrderCreate: false,
+    allowBarcodeCreate: false,
+    allowLabelPurchase: false,
+    lastTestedAt: null,
+    lastTestStatus: null,
+    lastErrorCode: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const cred = (type: string, configured: boolean) => ({
+    id: `cr_${type}`,
+    providerConfigId: "c",
+    type: type as "DEFAULT",
+    encryptedKey: configured ? "v1:gcm:x" : null,
+    encryptedSecret: null,
+    encryptedCustomerNumber: null,
+    encryptedCustomerPassword: null,
+    identityType: null,
+    maskedKey: configured ? "••••1" : null,
+    configured,
+    lastTestedAt: null,
+    lastTestStatus: null,
+    lastErrorCode: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const NO_ENV = { orderCreate: false, barcodeCreate: false, labelPurchase: false };
+  const ALL_ENV = { orderCreate: true, barcodeCreate: true, labelPurchase: true };
+
+  it("MOCK enabled supports rate + create; disabled supports nothing operational", () => {
+    const en = computeShippingCapabilities({ ...base, provider: "MOCK", status: "ENABLED", credentials: [] }, NO_ENV);
+    expect(en.canCalculateRate).toBe(true);
+    expect(en.canCreateTestShipment).toBe(true);
+    const dis = computeShippingCapabilities({ ...base, provider: "MOCK", status: "DISABLED", credentials: [] }, NO_ENV);
+    expect(dis.canCalculateRate).toBe(false);
+  });
+
+  it("GELIVER never supports calculateRate; test shipment needs DEFAULT cred + enabled", () => {
+    const noCred = computeShippingCapabilities({ ...base, provider: "GELIVER", status: "ENABLED", credentials: [] }, NO_ENV);
+    expect(noCred.canCalculateRate).toBe(false);
+    expect(noCred.canCreateTestShipment).toBe(false);
+    const withCred = computeShippingCapabilities({ ...base, provider: "GELIVER", status: "ENABLED", credentials: [cred("DEFAULT", true)] }, NO_ENV);
+    expect(withCred.canCreateTestShipment).toBe(true);
+    expect(withCred.canPurchaseLabel).toBe(false); // env+config kapali
+    expect(withCred.destructiveActionsDisabledReason).toBe("LABEL_PURCHASE_DISABLED");
+  });
+
+  it("DHL calculateRate needs STANDARD_QUERY cred + enabled; destructive needs allow+env", () => {
+    const noQuery = computeShippingCapabilities({ ...base, provider: "DHL_ECOMMERCE", status: "ENABLED", credentials: [] }, NO_ENV);
+    expect(noQuery.canCalculateRate).toBe(false);
+    const withQuery = computeShippingCapabilities({ ...base, provider: "DHL_ECOMMERCE", status: "ENABLED", credentials: [cred("STANDARD_QUERY", true)] }, NO_ENV);
+    expect(withQuery.canCalculateRate).toBe(true);
+    expect(withQuery.canCreateOrder).toBe(false);
+    const live = computeShippingCapabilities(
+      { ...base, provider: "DHL_ECOMMERCE", status: "ENABLED", allowOrderCreate: true, allowBarcodeCreate: true, credentials: [cred("STANDARD_QUERY", true)] },
+      ALL_ENV,
+    );
+    expect(live.canCreateOrder).toBe(true);
+    expect(live.canCreateBarcode).toBe(true);
   });
 });

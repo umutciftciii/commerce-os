@@ -340,8 +340,11 @@
   adapter sozlesmesi + MOCK/DHL/Geliver adapter foundation; gateway store-admin uclari (provider CRUD +
   credential upsert/clear + test + order rate/create-order/create-barcode + CBS preview); api-client +
   contracts; destructive guard'lar (createOrder/createbarcode/label-purchase varsayilan 409); unit testler.
-  Isimlendirme: UI "DHL eCommerce", teknik "MNG/api.mngkargo.com.tr". (Faz A backend DONE — bkz. ADR-039..042,
-  PHASE_LOG F3C.1. Faz B = store-admin settings UI + order detail shipping panel + BFF + runtime smoke: ACIK.)
+  Isimlendirme: UI "DHL eCommerce", teknik "MNG/api.mngkargo.com.tr". (DONE — bkz. ADR-039..042, PHASE_LOG
+  F3C.1 Faz A + Faz B. Faz A backend foundation + Faz B store-admin Kargo Sağlayıcıları ayar sayfası + sipariş
+  detayı kargo paneli + BFF + i18n + testler + docker runtime smoke tamam. Canlı destructive operasyonlar
+  varsayılan guard altında; controlled rollout TODO-095..097'de. Geliver REST yolları SDK'dan türetildi,
+  canlı doğrulanmadı.)
 - TODO-095: DHL eCommerce canli createOrder controlled rollout. Env+config+explicitConfirm guard'i ile gercek
   Standard Command /createOrder; idempotent referenceId, hata sinifları, sipariş→Shipment yasam dongusu.
 - TODO-096: DHL eCommerce canli createbarcode controlled rollout. Barcode Command /createbarcode (faturalastirma

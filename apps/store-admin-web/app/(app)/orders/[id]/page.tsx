@@ -31,6 +31,7 @@ import {
   type PaymentStatus,
   type ReservationStatus,
 } from "../order-shared";
+import { ShippingPanel } from "./shipping-panel";
 
 type LoadState =
   | { status: "loading" }
@@ -431,6 +432,8 @@ export default function OrderDetailPage() {
                 </SurfaceCard>
 
                 <PaymentPanel order={order} d={d} />
+
+                <ShippingPanel order={order} locale={locale as "tr" | "en"} />
 
                 <SurfaceCard title={d.eventsTitle}>
                   {order.events.length === 0 ? (

@@ -1645,3 +1645,69 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   → 409 ORDER_CREATE_DISABLED, DHL create-barcode → 409 BARCODE_CREATE_DISABLED, Geliver create-barcode → 409
   LABEL_PURCHASE_DISABLED; list 3 provider; olmayan config → 404; tum yanitlarda raw secret/JWT grep 0. Canli
   destructive (DHL createOrder/createbarcode, Geliver acceptOffer) ve gercek credential smoke YAPILMADI (kapsam disi).
+
+## TODO-094 F3C.1 Shipping Provider Foundation — Faz B (Store-admin UI)
+
+- Kapsam: Faz A backend foundation üzerine store-admin kullanıcı arayüzü. Kargo Sağlayıcıları
+  ayar sayfası + sipariş detayı kargo paneli + BFF pass-through + i18n + testler + runtime smoke.
+  Gerçek canlı DHL createOrder/createbarcode, Geliver acceptOffer, checkout shipping engine,
+  customer-facing tracking, return lifecycle KAPSAM DIŞI (önceki fazlarla aynı çizgi).
+- Settings sayfası (`app/(app)/shipping/providers/page.tsx`): provider listesi (MOCK / Geliver /
+  DHL eCommerce — UI'da "DHL eCommerce"; "MNG" yok), kart/tablo (status, mode, configured cred sayısı,
+  canlı işlem guard durumu, son test, enable/disable, test CTA). Create modal (provider/displayName/mode).
+  Edit modal (status/mode + allowOrderCreate/allowBarcodeCreate/allowLabelPurchase toggle + guard uyarısı).
+  Credentials modal: Geliver DEFAULT API key; DHL Identity (X-IBM id/secret + müşteri no/şifre + identityType) +
+  Standard Command/Standard Query/Barcode Command (zorunlu) + CBS/Bulk/Finance (opsiyonel). Her credential:
+  configured + maskedKey + save/clear; secret input'ları `type="password"`; "boş bırakılırsa korunur"
+  semantiği; kaydedilen secret tekrar düz gösterilmez.
+- Order detail paneli (`app/(app)/orders/[id]/shipping-panel.tsx`): provider seçimi, alıcı snapshot
+  (sipariş kargo adresinden), paket bilgileri (parça/kg/desi/packaging/service/payment/delivery + DHL için
+  city/district kodu), calculate CTA (tahmini ücret), createOrder/createBarcode CTA (default guarded → 409),
+  Geliver test gönderi CTA, mevcut gönderi listesi, provider-yok empty state, "canlı işlem kapalı" uyarısı.
+- BFF (`app/api/shipping/providers/*` + `app/api/orders/[id]/shipping/*`): 9 route, `requireStoreContext`
+  + `isValidCsrfRequest` + pass-through (payment BFF deseni). Raw credential response'a dönmez; api-client
+  client bundle'a girmez (yalnız server BFF kullanır).
+- i18n: `storeAdmin.nav.shippingProviders` (TR "Kargo Sağlayıcıları" / EN "Shipping Providers"); sayfa/panel
+  metinleri locale-farkındalıklı yerel TR/EN sözlüğüyle (parite korunur). ShippingIcon + store-nav öğesi.
+- Testler (+13): store-admin BFF güvenlik (9 — session/CSRF guard, server-context store/token, token sızmaz,
+  masked-only yanıt, destructive op CSRF-gated, plain secret echo yok) + page render (4 — empty state,
+  DHL eCommerce label & "MNG yok", credential modal masked + password-type secret inputlar, guard uyarısı).
+  i18n parite (store-admin-copy) yeşil.
+- Gate: build (pnpm -r) ✓, typecheck 0, lint temiz, test yeşil (store-admin 102 — 13 yeni dahil; api-gateway 166,
+  i18n 35, contracts 21, api-client 13, storefront 79, admin-web 24). git diff --check temiz.
+- Docker runtime smoke (api-gateway + store-admin-web worktree kodundan rebuild): api-gateway /health 200;
+  store-admin /login 200; /shipping/providers & /orders 307 (auth guard login'e yönlendirir); gateway destructive
+  guard'lar 409 (DHL create-order/create-barcode, Geliver create-barcode); store-admin authenticated BFF akışı
+  (csrf → login 200 → GET /api/shipping/providers 200) — 3 provider, credential maskeli (••••XYZ7), yanıtta
+  secret/ciphertext/token sızıntısı 0.
+- Secret kontrolü: store-admin client bundle (.next/static) grep — X-IBM-Client-Secret / SHIPPING_ENCRYPTION_KEY
+  değeri / createApiClient / JWT / refreshToken / customerPassword değeri / Bearer literal = 0. BFF yanıtlarında
+  plain secret 0. Test snapshot yok (toMatchSnapshot kullanılmadı).
+
+## TODO-094 F3C.1 — Faz B düzeltme: provider capability modeli (runtime UX bug)
+
+- Bağlam: Faz B runtime testinde yakalandı — sipariş kargo panelinde Geliver seçiliyken "Ücret hesapla"
+  butonu açıktı ve tıklanınca backend `NOT_IMPLEMENTED` (Geliver `calculateRate` desteklemiyor) → 409
+  dönüyor, UI bunu "Beklenmeyen bir hata oluştu" olarak gösteriyordu. Provider "test OK" olması rate/create/
+  label operasyonlarının desteklendiği anlamına gelmiyordu.
+- Backend: Config response'una türetilmiş `capabilities` eklendi (`apps/api-gateway/src/shipping/serialize.ts`
+  `computeShippingCapabilities`): canTestConnection / canCalculateRate / canCreateTestShipment / canCreateOrder /
+  canCreateBarcode / canPurchaseLabel + destructiveActionsDisabledReason. Karar: MOCK rate+create (ENABLED iken);
+  Geliver canCalculateRate=false (offer akışı yok), canCreateTestShipment yalnız ENABLED + DEFAULT cred; DHL
+  canCalculateRate yalnız ENABLED + STANDARD_QUERY cred, destructive yalnız allow*+env. Tüm yetenekler ENABLED
+  şartına bağlı. Capability env-guard'larıyla hesaplanır (route serialize'a `ShippingEnvGuards` geçirir).
+- Backend: rate endpoint capability guard'ı — `canCalculateRate=false` ise adapter'a gitmeden 409
+  `OPERATION_NOT_SUPPORTED` (operation/provider detaylı). `sendShippingError` adapter `NOT_IMPLEMENTED`'ini de
+  `OPERATION_NOT_SUPPORTED`'a eşler. Mevcut destructive guard kodları (ORDER/BARCODE/LABEL) korundu.
+- i18n: `storeAdmin.errors`'a shipping hata kodları (TR+EN paritesi) — OPERATION_NOT_SUPPORTED, PROVIDER_DISABLED,
+  CONFIG_INCOMPLETE, CONFIG_MISSING, ORDER/BARCODE/LABEL_..._DISABLED, SHIPPING_HTTP_DISABLED, AUTH_FAILED →
+  `messageForError` artık net localize mesaj döner ("Beklenmeyen hata" değil).
+- UI panel: capability-aware — DISABLED provider seçilince "aktif değil, önce aktifleştirin" uyarısı + tüm
+  aksiyonlar disabled; `canCalculateRate=false` → "Ücret hesapla" disabled + "ücret hesaplama desteklenmiyor"
+  notu; Geliver → "Test gönderi oluştur" CTA (createTestShipment); DHL createOrder/barcode capability'e göre disabled.
+- Testler (+6): capability türetme (3 — MOCK/GELIVER/DHL) + panel render (3 — Geliver rate disabled & test CTA,
+  DISABLED provider aktivasyon uyarısı & disabled aksiyonlar, empty state). Toplam api-gateway 169, store-admin 105.
+- Gate yeşil (build/typecheck 0/lint temiz/test). Docker runtime smoke: capabilities serialize doğru (Geliver
+  canCalculateRate=false, canCreateTestShipment=true); Geliver rate → 409 OPERATION_NOT_SUPPORTED {operation:RATE,
+  provider:GELIVER}; destructive guard kodları korundu (ORDER_CREATE_DISABLED/BARCODE_CREATE_DISABLED/
+  LABEL_PURCHASE_DISABLED); settings page 200 / panel 307 (auth guard).

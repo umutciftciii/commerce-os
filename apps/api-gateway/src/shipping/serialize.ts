@@ -30,6 +30,29 @@ export interface SerializedShippingCredential {
   lastErrorCode: string | null;
 }
 
+/**
+ * Turetilmis yetenek (capability) bayraklari. UI bunlara gore CTA'lari acar/kapatir;
+ * provider "test OK" olmasi rate/create/label desteklendigi anlamina GELMEZ. Tum
+ * yetenekler provider ENABLED + ilgili credential + (destructive icin) env guard'a baglidir.
+ * `destructiveActionsDisabledReason` bir i18n hata KODudur (UI lokalize eder) ya da null.
+ */
+export interface ShippingCapabilities {
+  canTestConnection: boolean;
+  canCalculateRate: boolean;
+  canCreateTestShipment: boolean;
+  canCreateOrder: boolean;
+  canCreateBarcode: boolean;
+  canPurchaseLabel: boolean;
+  destructiveActionsDisabledReason: string | null;
+}
+
+/** Server ortam bayraklari (route'tan gelir): canli destructive operasyon izinleri. */
+export interface ShippingEnvGuards {
+  orderCreate: boolean;
+  barcodeCreate: boolean;
+  labelPurchase: boolean;
+}
+
 export interface SerializedShippingProviderConfig {
   id: string;
   provider: ShippingProviderType;
@@ -45,6 +68,70 @@ export interface SerializedShippingProviderConfig {
   createdAt: string;
   updatedAt: string;
   credentials: SerializedShippingCredential[];
+  capabilities: ShippingCapabilities;
+}
+
+/**
+ * Provider tipi + status + configured credential + env guard'larina gore turetilmis
+ * yetenekleri hesaplar. Geliver `calculateRate` DESTEKLENMEZ (offer akisi yok);
+ * DHL `calculateRate` yalniz STANDARD_QUERY credential + ENABLED ise; tum destructive
+ * operasyonlar provider izni + env guard gerektirir.
+ */
+export function computeShippingCapabilities(
+  config: ShippingProviderConfig & { credentials?: ShippingProviderCredential[] },
+  env: ShippingEnvGuards,
+): ShippingCapabilities {
+  const enabled = config.status === "ENABLED";
+  const creds = config.credentials ?? [];
+  const has = (type: ShippingCredentialType): boolean => creds.some((c) => c.type === type && c.configured);
+
+  switch (config.provider) {
+    case "MOCK":
+      return {
+        canTestConnection: true,
+        canCalculateRate: enabled,
+        canCreateTestShipment: enabled,
+        canCreateOrder: enabled,
+        canCreateBarcode: enabled,
+        canPurchaseLabel: false,
+        destructiveActionsDisabledReason: null,
+      };
+    case "GELIVER": {
+      const canLabel = enabled && config.allowLabelPurchase && env.labelPurchase;
+      return {
+        canTestConnection: true,
+        canCalculateRate: false,
+        canCreateTestShipment: enabled && has("DEFAULT"),
+        canCreateOrder: false,
+        canCreateBarcode: false,
+        canPurchaseLabel: canLabel,
+        destructiveActionsDisabledReason: canLabel ? null : "LABEL_PURCHASE_DISABLED",
+      };
+    }
+    case "DHL_ECOMMERCE": {
+      const canOrder = enabled && config.allowOrderCreate && env.orderCreate;
+      const canBarcode = enabled && config.allowBarcodeCreate && env.barcodeCreate;
+      return {
+        canTestConnection: true,
+        canCalculateRate: enabled && has("STANDARD_QUERY"),
+        canCreateTestShipment: false,
+        canCreateOrder: canOrder,
+        canCreateBarcode: canBarcode,
+        canPurchaseLabel: false,
+        destructiveActionsDisabledReason: canOrder || canBarcode ? null : "ORDER_CREATE_DISABLED",
+      };
+    }
+    default:
+      return {
+        canTestConnection: true,
+        canCalculateRate: false,
+        canCreateTestShipment: false,
+        canCreateOrder: false,
+        canCreateBarcode: false,
+        canPurchaseLabel: false,
+        destructiveActionsDisabledReason: null,
+      };
+  }
 }
 
 export function serializeShippingCredential(
@@ -66,6 +153,7 @@ export function serializeShippingCredential(
 
 export function serializeShippingProviderConfig(
   config: ShippingProviderConfig & { credentials?: ShippingProviderCredential[] },
+  env: ShippingEnvGuards,
 ): SerializedShippingProviderConfig {
   return {
     id: config.id,
@@ -82,5 +170,6 @@ export function serializeShippingProviderConfig(
     createdAt: config.createdAt.toISOString(),
     updatedAt: config.updatedAt.toISOString(),
     credentials: (config.credentials ?? []).map(serializeShippingCredential),
+    capabilities: computeShippingCapabilities(config, env),
   };
 }

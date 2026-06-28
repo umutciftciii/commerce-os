@@ -226,6 +226,26 @@ export type {
 } from "@commerce-os/contracts";
 
 /**
+ * F3C.1 — Shipping provider foundation kontrat tipleri (type-only re-export).
+ * RESPONSE tipleri ALLOWLIST'tir (secret/ciphertext/JWT/customerPassword içermez).
+ */
+export type {
+  ShippingProviderConfigResponse,
+  ShippingProviderConfigListResponse,
+  ShippingProviderConfigCreateRequest,
+  ShippingProviderConfigUpdateRequest,
+  ShippingProviderStatusUpdateRequest,
+  ShippingCredentialUpsertRequest,
+  ShippingProviderTestResponse,
+  ShippingRateRequest,
+  ShippingRateResponse,
+  ShippingCreateOrderRequest,
+  ShippingCreateBarcodeRequest,
+  OrderShippingResponse,
+  ShipmentResponse,
+} from "@commerce-os/contracts";
+
+/**
  * commerce-os API client — thin, type-safe client over the API gateway.
  *
  * Exposes public health/version, internal DB/Redis health (token-gated), platform

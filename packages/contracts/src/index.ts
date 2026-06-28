@@ -2084,6 +2084,17 @@ export const shippingCredentialSchema = z.object({
   lastErrorCode: z.string().nullable(),
 });
 
+/** Turetilmis yetenekler — UI CTA'lari bunlara gore acilir/kapanir. */
+export const shippingCapabilitiesSchema = z.object({
+  canTestConnection: z.boolean(),
+  canCalculateRate: z.boolean(),
+  canCreateTestShipment: z.boolean(),
+  canCreateOrder: z.boolean(),
+  canCreateBarcode: z.boolean(),
+  canPurchaseLabel: z.boolean(),
+  destructiveActionsDisabledReason: z.string().nullable(),
+});
+
 export const shippingProviderConfigSchema = z.object({
   id: z.string().min(1),
   provider: shippingProviderTypeSchema,
@@ -2099,6 +2110,7 @@ export const shippingProviderConfigSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   credentials: z.array(shippingCredentialSchema),
+  capabilities: shippingCapabilitiesSchema,
 });
 
 export const shippingProviderConfigListResponseSchema = z.object({

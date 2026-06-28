@@ -41,6 +41,17 @@ import type {
   CustomerIban,
   CustomerIbanInput,
   CustomerCommunicationPreference,
+  ShippingProviderConfigResponse,
+  ShippingProviderConfigListResponse,
+  ShippingProviderConfigCreateRequest,
+  ShippingProviderConfigUpdateRequest,
+  ShippingCredentialUpsertRequest,
+  ShippingProviderTestResponse,
+  ShippingRateRequest,
+  ShippingRateResponse,
+  ShippingCreateOrderRequest,
+  ShippingCreateBarcodeRequest,
+  OrderShippingResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -353,4 +364,50 @@ export const storeApi = {
     ),
   listPaymentProviderEvents: (configId: string) =>
     call<PaymentProviderEventListResponse>(`/api/payment-providers/${configId}/events`),
+
+  // F3C.1 — Kargo sağlayıcıları. Secret alanlar gateway'de maskeli döner; bu katman
+  // yalnızca BFF pass-through'a fetch yapar. Plain secret hiçbir yanıtta dönmez.
+  listShippingProviders: () =>
+    call<ShippingProviderConfigListResponse>("/api/shipping/providers"),
+  createShippingProvider: (input: ShippingProviderConfigCreateRequest) =>
+    mutatingCall<ShippingProviderConfigResponse>("/api/shipping/providers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateShippingProvider: (configId: string, input: ShippingProviderConfigUpdateRequest) =>
+    mutatingCall<ShippingProviderConfigResponse>(`/api/shipping/providers/${configId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  upsertShippingCredential: (configId: string, input: ShippingCredentialUpsertRequest) =>
+    mutatingCall<ShippingProviderConfigResponse>(`/api/shipping/providers/${configId}/credentials`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingCredential: (configId: string, type: string) =>
+    mutatingCall<ShippingProviderConfigResponse>(
+      `/api/shipping/providers/${configId}/credentials/${type}`,
+      { method: "DELETE" },
+    ),
+  testShippingProvider: (configId: string) =>
+    mutatingCall<ShippingProviderTestResponse>(`/api/shipping/providers/${configId}/test`, {
+      method: "POST",
+    }),
+  getOrderShipping: (orderId: string) =>
+    call<OrderShippingResponse>(`/api/orders/${orderId}/shipping`),
+  calculateOrderShippingRate: (orderId: string, input: ShippingRateRequest) =>
+    mutatingCall<ShippingRateResponse>(`/api/orders/${orderId}/shipping/rate`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createOrderShipment: (orderId: string, input: ShippingCreateOrderRequest) =>
+    mutatingCall<{ referenceId: string; externalOrderId: string | null }>(
+      `/api/orders/${orderId}/shipping/create-order`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  createOrderShipmentBarcode: (orderId: string, input: ShippingCreateBarcodeRequest) =>
+    mutatingCall<{ referenceId: string; externalShipmentId: string | null; barcodeCount: number }>(
+      `/api/orders/${orderId}/shipping/create-barcode`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
 };
