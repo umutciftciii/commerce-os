@@ -729,3 +729,29 @@
   TODO-079 post-order CTA ailesini tamamlar (digerleri bu fazda placeholder).
 - Sonuc: typecheck 0, build 24/24, lint temiz, test yesil (storefront 75, api-gateway 142). Docker smoke:
   gercek sipariş (OS-000043) ile buy-again güncel-katalog dogrulamasi (available + OUT_OF_STOCK branch) dogrulandi.
+
+## ADR-038 Storefront raw musteri oturum jetonu SUNUCU-YALNIZ kalir (RSC payload'una girmez) (TODO-089)
+
+- Durum: ACCEPTED
+- Baglam: Vitrin musteri oturumu opak bir jeton tasir; `commerce_os_customer_session` httpOnly cookie'de
+  saklanir, gateway'de `sha256(token + SESSION_SECRET) = tokenHash` ile dogrulanir (raw jeton DB'ye yazilmaz).
+  Account sayfalari `force-dynamic` Server Component'lerdir ve `cookies()` ile jetonu okur. TODO-079 smoke'unda
+  jetonun RSC flight payload'una serialize edildigi gozlemi raporlandi (TODO-089 denetimi).
+- Karar: Raw oturum jetonu (ve cookie DEGERI) SUNUCU-YALNIZ kalir. Izin verilen tek kullanim:
+  (1) Server Component / Server Action icinde `readCustomerToken()` ile okuma; (2) gateway'e YALNIZCA
+  `x-customer-session` server-to-server fetch header'i olarak iletme. Jeton/cookie DEGERI ASLA bir client
+  component prop'una, RSC flight payload'una, server-rendered HTML'e, Server Action donus degerine, API/BFF
+  response'una veya log'a girmez. Client'a yalniz GÜVENLI view model gecer (`CustomerAccount`: id/email/phone/
+  ad/soyad/dogum/cinsiyet/dogrulama/status — jeton/hash alani YOK). Cookie mutasyonu (`writeCustomerToken`/
+  `clearCustomerToken`) yalniz Server Action/Route Handler baglaminda yapilir; jetonu donus degerine koymaz.
+- Gerekce: httpOnly cookie'nin amaci jetonu JS/client erisiminden uzak tutmaktir; jetonun client-delivered
+  herhangi bir ciktida (ozellikle RSC payload) gorunmesi bu siniri ihlal eder. Sunucu-yalniz sinir, jeton'u
+  XSS/serialize sizinti yuzeyinden uzak tutar.
+- Dogrulama / sentinel: `apps/storefront-web/test/account-session-boundary.test.tsx` bu siniri korur (cookie'de
+  SENTINEL jeton → render ciktisi/loginAction sonucu/view model jetonu icermez, ama gateway fetch header'i
+  tasir). Build grep: `.next/static` client chunk'lari jeton/marker icermez; cookie ADI yalniz server-only
+  build output'unda literal sabit. Denetim sonucu: TODO-079 gozlemi muhtemelen RSC navigation ISTEK Cookie
+  header'inin (tarayicinin same-origin httpOnly cookie'yi otomatik gondermesi) YANIT payload'u ile
+  karistirilmasidir; uygulama kaynakli sizinti yok, urun kodu degismedi.
+- Iliski: F3B.3 musteri oturum cizgisini (ADR-034) ve TODO-090 client bundle hygiene'ini tamamlar; ayni
+  "client-delivered output'ta secret/raw value olmaz" prensibinin oturum jetonuna uygulanmis halidir.
