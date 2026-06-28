@@ -339,7 +339,13 @@ describe("order helpers", () => {
     }) as unknown as typeof fetch;
 
     const client = createApiClient({ baseUrl: "http://localhost:4000", fetch: fakeFetch });
-    await client.admin.orders.list("store_1", "tok");
+    await client.admin.orders.list("store_1", undefined, "tok");
+    // TODO-073 — Filtreler query string olarak taşınır; boş/tanımsız alanlar atlanır.
+    await client.admin.orders.list(
+      "store_1",
+      { status: "PLACED", paymentStatus: "PAID", search: "ahmet", dateFrom: "2026-06-01" },
+      "tok",
+    );
     await client.admin.orders.create(
       "store_1",
       { customerEmail: "buyer@example.com", currency: "TRY", lines: [{ variantId: "variant_1", quantity: 1 }], addresses: [] },
@@ -350,13 +356,14 @@ describe("order helpers", () => {
 
     expect(calls.map((call) => call.url)).toEqual([
       "http://localhost:4000/stores/store_1/orders",
+      "http://localhost:4000/stores/store_1/orders?status=PLACED&paymentStatus=PAID&search=ahmet&dateFrom=2026-06-01",
       "http://localhost:4000/stores/store_1/orders",
       "http://localhost:4000/stores/store_1/orders/order_1/place",
       "http://localhost:4000/stores/store_1/orders/order_1/cancel",
     ]);
-    expect(calls[1]?.init?.method).toBe("POST");
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(calls[3]?.init?.body).toBe(JSON.stringify({ reason: "buyer request" }));
+    expect(calls[3]?.init?.method).toBe("POST");
+    expect(calls[4]?.init?.body).toBe(JSON.stringify({ reason: "buyer request" }));
   });
 });
 

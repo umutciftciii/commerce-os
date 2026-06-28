@@ -899,9 +899,55 @@ class MemoryDataAccess implements AppDataAccess {
     return null;
   }
 
-  async listOrders(storeId: string, { limit, offset }: { limit: number; offset: number }) {
-    const data = this.orders.filter((order) => order.storeId === storeId);
-    return { data: data.slice(offset, offset + limit), total: data.length };
+  async listOrders(
+    storeId: string,
+    {
+      limit,
+      offset,
+      status,
+      paymentStatus,
+      fulfillmentStatus,
+      search,
+      dateFrom,
+      dateTo,
+    }: {
+      limit: number;
+      offset: number;
+      status?: string;
+      paymentStatus?: string;
+      fulfillmentStatus?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    },
+  ) {
+    // TODO-073 — Gerçek prisma where ile aynı daraltma davranışını taklit eder.
+    const fromTs = dateFrom ? Date.parse(`${dateFrom}T00:00:00.000Z`) : undefined;
+    const toTs = dateTo ? Date.parse(`${dateTo}T23:59:59.999Z`) : undefined;
+    const needle = search?.toLowerCase();
+    const matched = this.orders.filter((order) => {
+      if (order.storeId !== storeId) return false;
+      if (status && order.status !== status) return false;
+      if (paymentStatus && order.paymentStatus !== paymentStatus) return false;
+      if (fulfillmentStatus && order.fulfillmentStatus !== fulfillmentStatus) return false;
+      const createdTs = new Date(order.createdAt).getTime();
+      if (fromTs !== undefined && createdTs < fromTs) return false;
+      if (toTs !== undefined && createdTs > toTs) return false;
+      if (needle) {
+        const customer = this.customers.find((c) => c.id === order.customerId);
+        const haystack = [
+          order.orderNumber,
+          order.customerEmail,
+          customer?.firstName ?? "",
+          customer?.lastName ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+    return { data: matched.slice(offset, offset + limit), total: matched.length };
   }
 
   async listCustomers(storeId: string, { limit, offset }: { limit: number; offset: number }) {
@@ -2394,6 +2440,69 @@ describe("api gateway", () => {
     expect(dataAccess.auditLogs).toEqual(
       expect.arrayContaining([expect.objectContaining({ action: "CREATE", entityType: "Order" })]),
     );
+    await app.close();
+  });
+
+  it("filters orders by status, payment, fulfillment, search and date range (TODO-073)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+
+    for (const email of ["alice@example.com", "bob@example.com", "carol@example.com"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/orders",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          customerEmail: email,
+          currency: "TRY",
+          lines: [{ variantId: "variant_hoodie_m", quantity: 1 }],
+        },
+      });
+      expect(res.statusCode).toBe(201);
+    }
+
+    const [o1, o2, o3] = dataAccess.orders;
+    o1!.status = "PLACED";
+    o1!.paymentStatus = "PAID";
+    o1!.fulfillmentStatus = "FULFILLED";
+    o1!.createdAt = new Date("2026-06-10T10:00:00.000Z");
+    o2!.status = "CANCELLED";
+    o2!.paymentStatus = "REFUNDED";
+    o2!.fulfillmentStatus = "CANCELLED";
+    o2!.createdAt = new Date("2026-06-20T10:00:00.000Z");
+    o3!.status = "DRAFT";
+    o3!.paymentStatus = "UNPAID";
+    o3!.fulfillmentStatus = "UNFULFILLED";
+    o3!.createdAt = new Date("2026-07-01T10:00:00.000Z");
+
+    const get = (qs: string) =>
+      app.inject({
+        method: "GET",
+        url: `/stores/store_demo/orders${qs}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+    const emails = (response: Awaited<ReturnType<typeof get>>): string[] =>
+      (response.json().data as Array<{ customerEmail: string }>).map((o) => o.customerEmail);
+
+    expect(emails(await get("?status=PLACED"))).toEqual(["alice@example.com"]);
+    expect(emails(await get("?paymentStatus=REFUNDED"))).toEqual(["bob@example.com"]);
+    expect(emails(await get("?fulfillmentStatus=FULFILLED"))).toEqual(["alice@example.com"]);
+    expect(emails(await get("?search=carol"))).toEqual(["carol@example.com"]);
+
+    const dated = await get("?dateFrom=2026-06-01&dateTo=2026-06-30");
+    expect(dated.json().pagination.total).toBe(2);
+
+    const combo = await get("?dateFrom=2026-06-01&dateTo=2026-06-30&paymentStatus=PAID");
+    expect(emails(combo)).toEqual(["alice@example.com"]);
+
+    const none = await get("?status=PLACED&paymentStatus=REFUNDED");
+    expect(none.json().pagination.total).toBe(0);
+    expect(none.json().data).toEqual([]);
+
+    const invalid = await get("?status=BOGUS");
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+
     await app.close();
   });
 

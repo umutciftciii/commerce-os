@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Badge,
@@ -18,9 +18,9 @@ import {
   type DataTableColumn,
 } from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { InventoryItem, Order, OrderCreateRequest } from "@commerce-os/api-client";
+import type { InventoryItem, Order, OrderCreateRequest, OrderListQuery } from "@commerce-os/api-client";
 import { OrderIcon } from "../../../components/icons";
-import { storeApi } from "../../../lib/client/api";
+import { orderListQueryString, storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../lib/client/format";
 import { MetricGrid, MetricTile, SurfaceCard } from "../../components/premium";
@@ -44,8 +44,69 @@ type LoadState =
 const DETAIL_LINK_CLASS =
   "inline-flex h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90";
 
+// Filtre değer kümeleri tek kaynaktan (ton sözlükleri) türetilir; enum'la senkron kalır.
+const ORDER_STATUS_VALUES = Object.keys(ORDER_STATUS_TONES) as OrderStatus[];
+const PAYMENT_STATUS_VALUES = Object.keys(PAYMENT_STATUS_TONES) as PaymentStatus[];
+const FULFILLMENT_STATUS_VALUES = Object.keys(FULFILLMENT_STATUS_TONES) as FulfillmentStatus[];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// URL'den okunan ham filtre formu (controlled input state'i). Boş string = filtre yok.
+type OrderFilters = {
+  search: string;
+  status: string;
+  paymentStatus: string;
+  fulfillmentStatus: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+const EMPTY_FILTERS: OrderFilters = {
+  search: "",
+  status: "",
+  paymentStatus: "",
+  fulfillmentStatus: "",
+  dateFrom: "",
+  dateTo: "",
+};
+
+function readFilters(params: { get(name: string): string | null }): OrderFilters {
+  return {
+    search: params.get("search")?.trim() ?? "",
+    status: params.get("status") ?? "",
+    paymentStatus: params.get("paymentStatus") ?? "",
+    fulfillmentStatus: params.get("fulfillmentStatus") ?? "",
+    dateFrom: params.get("dateFrom") ?? "",
+    dateTo: params.get("dateTo") ?? "",
+  };
+}
+
+// Ham formu yalnız geçerli değerleri taşıyan tipli query'ye çevirir (garbage atılır).
+function toQuery(f: OrderFilters): OrderListQuery {
+  const q: OrderListQuery = {};
+  if (f.search) q.search = f.search;
+  if ((ORDER_STATUS_VALUES as string[]).includes(f.status)) q.status = f.status as OrderStatus;
+  if ((PAYMENT_STATUS_VALUES as string[]).includes(f.paymentStatus)) {
+    q.paymentStatus = f.paymentStatus as PaymentStatus;
+  }
+  if ((FULFILLMENT_STATUS_VALUES as string[]).includes(f.fulfillmentStatus)) {
+    q.fulfillmentStatus = f.fulfillmentStatus as FulfillmentStatus;
+  }
+  if (DATE_RE.test(f.dateFrom)) q.dateFrom = f.dateFrom;
+  if (DATE_RE.test(f.dateTo)) q.dateTo = f.dateTo;
+  return q;
+}
+
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={<SkeletonRows rows={4} />}>
+      <OrdersView />
+    </Suspense>
+  );
+}
+
+function OrdersView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.orders;
@@ -54,26 +115,50 @@ export default function OrdersPage() {
   const paymentLabels = t.paymentLabels as Record<PaymentStatus, string>;
   const fulfillmentLabels = t.fulfillmentLabels as Record<FulfillmentStatus, string>;
 
+  // URL = filtrelerin tek doğruluk kaynağı; sayfa yenilense de korunur.
+  const appliedFilters = useMemo(() => readFilters(searchParams), [searchParams]);
+  const query = useMemo(() => toQuery(appliedFilters), [appliedFilters]);
+  const activeCount = Object.keys(query).length;
+
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Filtre bar form state'i; harici navigasyonda (URL değişimi) URL'ye senkronlanır.
+  const [form, setForm] = useState<OrderFilters>(appliedFilters);
   // Satir bazli aksiyon yuklemesi (cift tiklama / kilit gostergesi).
   const [acting, setActing] = useState<{ id: string; type: "place" | "cancel" } | null>(null);
+
+  useEffect(() => {
+    setForm(appliedFilters);
+  }, [appliedFilters]);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const orders = await storeApi.listOrders();
+      const orders = await storeApi.listOrders(query);
       setState({ status: "ready", orders: orders.data, total: orders.pagination.total });
     } catch (error) {
       setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, [locale]);
+  }, [locale, query]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const applyFilters = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      router.replace(`/orders${orderListQueryString(toQuery(form))}`);
+    },
+    [form, router],
+  );
+
+  const clearFilters = useCallback(() => {
+    setForm(EMPTY_FILTERS);
+    router.replace("/orders");
+  }, [router]);
 
   const orders = state.status === "ready" ? state.orders : [];
 
@@ -313,6 +398,91 @@ export default function OrdersPage() {
         </div>
       ) : null}
 
+      <div className="mb-5">
+        <SurfaceCard
+          title={t.filters.title}
+          description={
+            activeCount > 0 ? format(t.filters.activeSummary, { count: activeCount }) : undefined
+          }
+        >
+          <form onSubmit={applyFilters} className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Input
+                id="orders-filter-search"
+                label={t.filters.searchLabel}
+                placeholder={t.filters.searchPlaceholder}
+                value={form.search}
+                onChange={(event) => setForm((prev) => ({ ...prev, search: event.target.value }))}
+              />
+              <Select
+                id="orders-filter-status"
+                label={t.filters.statusLabel}
+                value={form.status}
+                onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
+                options={[
+                  { value: "", label: t.filters.all },
+                  ...ORDER_STATUS_VALUES.map((value) => ({ value, label: statusLabels[value] })),
+                ]}
+              />
+              <Select
+                id="orders-filter-payment"
+                label={t.filters.paymentLabel}
+                value={form.paymentStatus}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, paymentStatus: event.target.value }))
+                }
+                options={[
+                  { value: "", label: t.filters.all },
+                  ...PAYMENT_STATUS_VALUES.map((value) => ({ value, label: paymentLabels[value] })),
+                ]}
+              />
+              <Select
+                id="orders-filter-fulfillment"
+                label={t.filters.fulfillmentLabel}
+                value={form.fulfillmentStatus}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, fulfillmentStatus: event.target.value }))
+                }
+                options={[
+                  { value: "", label: t.filters.all },
+                  ...FULFILLMENT_STATUS_VALUES.map((value) => ({
+                    value,
+                    label: fulfillmentLabels[value],
+                  })),
+                ]}
+              />
+              <Input
+                id="orders-filter-date-from"
+                type="date"
+                label={t.filters.dateFromLabel}
+                value={form.dateFrom}
+                max={form.dateTo || undefined}
+                onChange={(event) => setForm((prev) => ({ ...prev, dateFrom: event.target.value }))}
+              />
+              <Input
+                id="orders-filter-date-to"
+                type="date"
+                label={t.filters.dateToLabel}
+                value={form.dateTo}
+                min={form.dateFrom || undefined}
+                onChange={(event) => setForm((prev) => ({ ...prev, dateTo: event.target.value }))}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={clearFilters}
+                disabled={activeCount === 0}
+              >
+                {t.filters.clear}
+              </Button>
+              <Button type="submit">{t.filters.apply}</Button>
+            </div>
+          </form>
+        </SurfaceCard>
+      </div>
+
       <SurfaceCard
         title={t.cardTitle}
         description={
@@ -336,7 +506,21 @@ export default function OrdersPage() {
           </Alert>
         ) : null}
 
-        {state.status === "ready" && orders.length === 0 ? (
+        {state.status === "ready" && orders.length === 0 && activeCount > 0 ? (
+          <EmptyState
+            tag={t.filters.title}
+            title={t.filters.emptyTitle}
+            description={t.filters.emptyDescription}
+            icon={<OrderIcon />}
+            action={
+              <Button size="sm" variant="secondary" onClick={clearFilters}>
+                {t.filters.clear}
+              </Button>
+            }
+          />
+        ) : null}
+
+        {state.status === "ready" && orders.length === 0 && activeCount === 0 ? (
           <EmptyState
             tag={t.emptyTag}
             title={t.emptyTitle}

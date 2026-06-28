@@ -105,6 +105,16 @@ describe("storeAdmin Faz 2B copy", () => {
     expect(tr.orders.fulfillmentLabels.UNFULFILLED).toBe("Gönderilmedi");
   });
 
+  it("ships TODO-073 order filter copy in both locales", () => {
+    expect(tr.orders.filters.apply).toBe("Filtrele");
+    expect(tr.orders.filters.clear).toBe("Temizle");
+    expect(tr.orders.filters.emptyDescription).toBe("Bu filtrelere uyan sipariş bulunamadı.");
+    expect(en.orders.filters.apply).toBe("Filter");
+    expect(en.orders.filters.clear).toBe("Clear");
+    // Tam yol paritesi i18n.test.ts'te; burada anahtar kümesi paritesini doğrularız.
+    expect(Object.keys(en.orders.filters).sort()).toEqual(Object.keys(tr.orders.filters).sort());
+  });
+
   it("maps F2G order lifecycle error codes in both locales", () => {
     expect(tr.errors.ORDER_NOT_FOUND).toBe("Sipariş bulunamadı.");
     expect(tr.errors.ORDER_INSUFFICIENT_STOCK).toBe(

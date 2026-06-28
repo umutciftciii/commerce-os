@@ -1351,3 +1351,42 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   (orders/order-detail/product-detail/payment-providers/store-admin-interactions) yesil.
 - Acik kalan: TODO-073 (orders filter bar), TODO-087 (panelden musteri olusturma + credential/parola
   admin akisi — guvenlik kurali geregi bu fazda kapsam disi).
+
+## TODO-073 Store-Admin Orders Filters (Operational Filter Bar)
+
+- Tarih: 2026-06-28
+- Durum: READY_FOR_REVIEW (commit atilmadi). Branch: claude/todo-073-store-admin-orders-filters.
+- Kapsam: Store-admin `/orders` liste ekranina operasyonel filtre bar. Filtreler DB tarafinda uygulanir
+  (client-side filtre YOK). Kapsam disi: order detail yeni ozellik, iade/iptal akisi, kargo, export/CSV,
+  bulk action. Ertelendi: toplam tutar araligi (min/max) — TODO-088 (opsiyoneldi, scope buyutmemek icin).
+- Filtreler (mevcut enum'lar; sozlesme tek kaynak): siparis durumu (DRAFT/PLACED/CONFIRMED/CANCELLED/
+  FULFILLED), odeme durumu (UNPAID/AUTHORIZED/PAID/REFUNDED — "Basarisiz" enum'da yok), karsilama durumu
+  (UNFULFILLED/PARTIAL/FULFILLED/CANCELLED), tarih araligi (gun bazli `YYYY-MM-DD`; gateway UTC gun
+  basi/sonu sinirina genisletir), arama (siparis no + musteri e-postasi + musteri ad/soyad, case-insensitive).
+- Sozlesme/Backend: `contracts` `orderListQuerySchema`/`OrderListQuery` (tum alanlar opsiyonel; limit/offset
+  opsiyonel, gateway varsayilan limit=50/offset=0). Gateway `GET /stores/:storeId/orders` query'yi parse
+  eder, `listOrders` prisma `where` ile filtreler (`status/paymentStatus/fulfillmentStatus`, `createdAt`
+  gte/lte, `OR` arama). **Store-scope korunur:** `where` daima `{ storeId }` ile baslar; filtre yalniz o
+  kume icinde daraltir, cross-store siparis sizmaz. Gecersiz enum/tarih → gateway 400 (zod error handler).
+- api-client: `orders.list(storeId, query?, token?)` (imza degisti; query string `orderListQueryString`
+  ile uretilir, bos/tanimsiz alan atlanir). Store-admin web katmani contracts'a DOGRUDAN baglanmaz —
+  BFF `/api/orders` GET yalniz bilinen filtre anahtarlarini secip api-client'a tasir, nihai dogrulama
+  gateway'de. storeApi `listOrders(query?)` + `orderListQueryString` export.
+- UI (`app/(app)/orders/page.tsx`): tablo ustunde premium dark/glass filtre bar (SurfaceCard). URL query
+  string = filtrelerin TEK dogruluk kaynagi (`useSearchParams`); sayfa yenilense de korunur. "Filtrele"
+  (URL'e yazar, `router.replace`) ve "Temizle" (sifirlar) CTA'lari; aktif filtre ozeti ("{n} filtre etkin").
+  Filtreye duyarli bos durum: filtre aktifken "Bu filtrelere uyan siparis bulunamadi." + Temizle; filtresiz
+  klasik "ilk siparisi olustur". `useSearchParams` Suspense sinirina sarildi (build-safe). Mevcut layout
+  fix korundu: siparis no nowrap, badge kolon hizasi, islem butonlari tasmaz.
+- i18n: TR/EN `orders.filters.*` (title/search/status/payment/fulfillment/date/all/apply/clear/activeSummary/
+  emptyTitle/emptyDescription) tam parite (i18n.test.ts tam-yol + store-admin-copy.test.ts odakli test).
+- PII/secret: response yalniz mevcut serializeOrder alanlari; ek PII donmez. Filtre query'sinde hash/token/
+  OTP/Bearer YOK; `createApiClient` yalniz server-side BFF'te. Secret/PII taramasi temiz.
+- Gate: `pnpm db:generate` OK, `build` 24/24 (force), `typecheck` 0, `lint` 34/34 (force), `test` 34/34
+  (force) — api-gateway health.test.ts 85 test (+1: status/payment/fulfillment/arama/tarih/kombinasyon/bos/
+  gecersiz-enum), store-admin orders-ui 19 test (+7 filtre: default bos query, URL→query+ozet, payment
+  apply, arama apply, kombinasyon, temizle, filtreye-duyarli bos durum), bff-security 28 test (+1 filtre
+  forward; orders.list imza guncellendi), api-client 13 test (query string + imza), i18n filtre parite.
+  `git diff --check` temiz.
+- Worktree notu: dosyalar once yanlislikla ana repo path'iyle duzenlendi; patch ile dogru worktree'ye
+  tasinip ana repo `git restore` ile temizlendi (main = origin/main = 86ff496, dokunulmadi).

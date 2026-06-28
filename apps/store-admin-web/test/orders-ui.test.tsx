@@ -27,13 +27,24 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
   };
 });
 
-vi.mock("../lib/client/api.js", () => ({
-  storeApi: storeApiMock,
-  UiError: MockUiError,
+vi.mock("../lib/client/api.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/client/api.js")>("../lib/client/api.js");
+  return {
+    storeApi: storeApiMock,
+    UiError: MockUiError,
+    // orderListQueryString gercek implementasyon; filtre query'si dogru uretilsin.
+    orderListQueryString: actual.orderListQueryString,
+  };
+});
+
+const { routerMock, searchParamsRef } = vi.hoisted(() => ({
+  routerMock: { push: vi.fn(), replace: vi.fn() },
+  searchParamsRef: { current: new URLSearchParams() },
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => routerMock,
+  useSearchParams: () => searchParamsRef.current,
   useParams: () => ({ id: "o1" }),
 }));
 
@@ -91,6 +102,7 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  searchParamsRef.current = new URLSearchParams();
   cleanup();
 });
 
@@ -137,9 +149,10 @@ describe("store-admin orders — list states", () => {
     render(<OrdersPage />);
 
     await screen.findByText("ORD-1001");
-    expect(screen.getByText("Sipariş verildi")).toBeTruthy();
-    expect(screen.getByText("Ödendi")).toBeTruthy();
-    expect(screen.getByText("Kısmi")).toBeTruthy();
+    // Filtre dropdown'ları aynı etiketleri <option> olarak da taşır; rozetler <span>.
+    expect(screen.getByText("Sipariş verildi", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("Ödendi", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("Kısmi", { selector: "span" })).toBeTruthy();
 
     const nesting = consoleError.mock.calls.filter((args) =>
       String(args[0]).includes("validateDOMNesting"),
@@ -158,10 +171,84 @@ describe("store-admin orders — list states", () => {
       </LocaleProvider>,
     );
     await screen.findByText("ORD-1001");
-    expect(screen.getByText("Placed")).toBeTruthy();
-    expect(screen.getByText("Paid")).toBeTruthy();
+    // Rozetler <span>; aynı etiketler filtre <option>'larında da bulunur.
+    expect(screen.getByText("Placed", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("Paid", { selector: "span" })).toBeTruthy();
     // En az bir "Fulfilled" rozeti (karşılama) görünür.
-    expect(screen.getAllByText("Fulfilled").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Fulfilled", { selector: "span" }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("store-admin orders — filters (TODO-073)", () => {
+  it("loads with an empty query by default and shows all orders", async () => {
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(storeApiMock.listOrders).toHaveBeenCalledWith({});
+  });
+
+  it("drives the API query and the active summary from URL params on mount", async () => {
+    searchParamsRef.current = new URLSearchParams("paymentStatus=PAID");
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ paymentStatus: "PAID" })]));
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(storeApiMock.listOrders).toHaveBeenCalledWith({ paymentStatus: "PAID" });
+    expect(screen.getByText("1 filtre etkin")).toBeTruthy();
+  });
+
+  it("applies the payment status filter to the URL via Filtrele", async () => {
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
+    const user = userEvent.setup();
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+
+    await user.selectOptions(screen.getByLabelText("Ödeme durumu"), "PAID");
+    await user.click(screen.getByRole("button", { name: "Filtrele" }));
+    expect(routerMock.replace).toHaveBeenCalledWith("/orders?paymentStatus=PAID");
+  });
+
+  it("searches by customer/email/order number via Filtrele", async () => {
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
+    const user = userEvent.setup();
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+
+    await user.type(screen.getByLabelText("Ara"), "ahmet");
+    await user.click(screen.getByRole("button", { name: "Filtrele" }));
+    expect(routerMock.replace).toHaveBeenCalledWith("/orders?search=ahmet");
+  });
+
+  it("combines multiple filters into the URL query", async () => {
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
+    const user = userEvent.setup();
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+
+    await user.selectOptions(screen.getByLabelText("Sipariş durumu"), "PLACED");
+    await user.selectOptions(screen.getByLabelText("Ödeme durumu"), "PAID");
+    await user.click(screen.getByRole("button", { name: "Filtrele" }));
+    expect(routerMock.replace).toHaveBeenCalledWith("/orders?status=PLACED&paymentStatus=PAID");
+  });
+
+  it("clears filters and navigates back to /orders", async () => {
+    searchParamsRef.current = new URLSearchParams("status=CANCELLED");
+    // Dolu sonuç: yalnız filtre bar'daki "Temizle" görünür (boş durum CTA'sı değil).
+    storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ status: "CANCELLED" })]));
+    const user = userEvent.setup();
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+
+    await user.click(screen.getByRole("button", { name: "Temizle" }));
+    expect(routerMock.replace).toHaveBeenCalledWith("/orders");
+  });
+
+  it("shows a filter-aware empty state when no order matches", async () => {
+    searchParamsRef.current = new URLSearchParams("status=CANCELLED");
+    storeApiMock.listOrders.mockResolvedValue(page(0, []));
+    render(<OrdersPage />);
+    expect(await screen.findByText("Bu filtrelere uyan sipariş bulunamadı.")).toBeTruthy();
+    // Filtresiz "ilk siparişi oluştur" boş durumu burada GÖRÜNMEMELI.
+    expect(screen.queryByText("Henüz sipariş yok")).toBeNull();
   });
 });
 
