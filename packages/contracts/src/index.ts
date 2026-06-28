@@ -870,6 +870,8 @@ export const publicPaymentInfoSchema = z.object({
   mode: z.enum(["TEST", "LIVE"]),
   method: publicPaymentMethodEnum,
   status: publicAttemptStatusEnum,
+  /** 3D Secure dogrulamasi uygulandi mi (safe gozlem alani; secret degil). */
+  threeDsApplied: z.boolean(),
   cardBrand: z.string().nullable(),
   cardLast4: z.string().nullable(),
   installmentCount: z.number().int().positive(),
@@ -993,6 +995,13 @@ export const publicPaymentCardSchema = z.object({
   cvc: z.string().min(3).max(4).regex(/^[0-9]+$/),
 });
 
+/**
+ * F3B.2 — 3D Secure simulasyon adimi aksiyonu. Ilk submit REQUIRES_ACTION urettikten
+ * sonra, kullanicinin banka dogrulama ekranindaki secimi: dogrulamayi tamamla
+ * (success) veya basarisiz yap (fail). Yalnizca MOCK 3DS akisinda anlamlidir.
+ */
+export const publicPaymentThreeDsActionSchema = z.enum(["success", "fail"]);
+
 export const publicPaymentSubmitRequestSchema = z
   .object({
     token: z.string().min(1),
@@ -1001,6 +1010,8 @@ export const publicPaymentSubmitRequestSchema = z
     /** Eski akis (geri uyum): dogrudan senaryo secimi. */
     scenario: publicPaymentScenarioSchema.optional(),
     installmentCount: z.number().int().min(1).max(12).default(1),
+    /** 3DS dogrulama adimindaki kullanici secimi (REQUIRES_ACTION sonrasi). */
+    threeDsAction: publicPaymentThreeDsActionSchema.optional(),
   })
   .refine((value) => Boolean(value.card) || Boolean(value.scenario), {
     message: "card or scenario is required.",
@@ -1573,6 +1584,7 @@ export type PublicPaymentInfo = z.infer<typeof publicPaymentInfoSchema>;
 export type PublicOrderReceipt = z.infer<typeof publicOrderReceiptSchema>;
 export type PublicPaymentCard = z.infer<typeof publicPaymentCardSchema>;
 export type PublicPaymentScenario = z.infer<typeof publicPaymentScenarioSchema>;
+export type PublicPaymentThreeDsAction = z.infer<typeof publicPaymentThreeDsActionSchema>;
 export type PublicPaymentRedirect = z.infer<typeof publicPaymentRedirectSchema>;
 export type PublicPaymentState = z.infer<typeof publicPaymentStateSchema>;
 export type PublicPaymentSubmitRequest = z.infer<typeof publicPaymentSubmitRequestSchema>;

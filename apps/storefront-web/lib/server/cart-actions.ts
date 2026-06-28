@@ -8,6 +8,7 @@ import type {
   PublicPaymentCard,
   PublicPaymentResult,
   PublicPaymentScenario,
+  PublicPaymentThreeDsAction,
 } from "@commerce-os/api-client";
 import { isValidTaxNumber, isValidTckn } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
@@ -257,7 +258,12 @@ export type TestPaymentActionState =
 export async function submitTestPaymentAction(
   orderId: string,
   token: string,
-  payload: { card?: PublicPaymentCard; scenario?: PublicPaymentScenario; installmentCount?: number },
+  payload: {
+    card?: PublicPaymentCard;
+    scenario?: PublicPaymentScenario;
+    installmentCount?: number;
+    threeDsAction?: PublicPaymentThreeDsAction;
+  },
 ): Promise<TestPaymentActionState> {
   const outcome = await submitTestPayment(orderId, token, payload);
   if (!outcome.ok) {

@@ -679,3 +679,29 @@
   ama ACIK kalir; TODO-076 (gercek teslimat) ACIK kalir.
 - Sonuc: typecheck 0, lint 0, build 24/24, test 34/34 (api-gateway +15 credential testi). Docker
   smoke ile uctan uca dogrulandi (asagidaki phase log).
+
+## ADR-036 MOCK 3D Secure simulasyon + computed taksit ozeti (TODO-072)
+
+- Durum: ACCEPTED
+- Baglam: F3B.2 follow-up UI polish (TODO-072). MOCK test odemede "3DS gerekli" kart secilince gercekci
+  bir dogrulama adimi yoktu (dogrudan tek "tamamla" butonu → her zaman PAID); taksit secilse de odeme/
+  success/store-admin tarafinda taksit detayi zayifti. Gercek provider HTTP entegrasyonu (iyzico sandbox),
+  gercek 3DS redirect ve gercek faiz/oran motoru bu fazda KAPSAM DISI (ADR-033 cizgisi korunur).
+- Karar (3DS): MOCK 3DS iki adimli kalir ama ikinci adim kullanici secimine baglanir. `three_ds_required`
+  ilk confirm → REQUIRES_ACTION (threeDsApplied=true). Storefront ayri bir banka dogrulama SIMULASYON
+  ekrani (ThreeDsChallenge) gosterir; kullanici "başarılı tamamla" (→ PAID) ya da "başarısız yap"
+  (→ FAILED, code THREE_DS_FAILED, order UNPAID, retry) secer. Adapter sozlesmesine
+  `ConfirmPaymentInput.threeDsOutcome` ("success"|"fail"), public sozlesmeye opsiyonel
+  `publicPaymentSubmitRequest.threeDsAction` eklendi. Bu GERCEK 3DS redirect DEGILDIR ve oyle iddia
+  edilmez — net "test simülasyonu" metni ile. Boylece "3DS karti → ANINDA PAID" yanlis pozitifi ortadan
+  kalkar ve basarisiz yol da test edilebilir.
+- Karar (taksit): Taksit ozeti CALISMA-ZAMANI HESAPLANAN bir UI alanidir; YENI DB ALANI YOK. Mevcut
+  `PaymentAttempt.installmentCount` kullanilir; taksit basina tutar = round(total / count). SAHTE
+  oran/faiz/komisyon YAZILMAZ — toplam degismez, "Vade farksız" notu acikca gosterilir. Gercek oran motoru
+  geldiginde bu hesap degisecek (TODO acilabilir).
+- Gozlemlenebilirlik/guvenlik: yanit serializer'lara eklenen tek yeni alan `publicPaymentInfo.threeDsApplied`
+  (safe boolean). Full PAN/CVC/raw token ASLA serialize/log/snapshot edilmez (mevcut F3B.2 kurali korunur).
+  Store-admin order detail 3DS durumu attempt.status + threeDsApplied'tan turetir (yeni veri sizmaz).
+- Iliski: gercek provider/3DS redirect/iade-iptal ve faiz motoru ACIK (TODO-076 ve ilgili payment TODO'lari).
+- Sonuc: typecheck 0, build 24/24, lint temiz, test yesil (storefront 60, store-admin 89, api-gateway 139,
+  contracts 21). Docker smoke healthy.

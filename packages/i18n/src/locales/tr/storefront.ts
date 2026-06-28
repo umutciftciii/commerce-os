@@ -123,6 +123,11 @@ export const trStorefront = {
     share: "Paylaş",
     addedToCart: "Ürün sepete eklendi",
     goToCart: "Sepete git",
+    increase: "Adet artır",
+    decrease: "Adet azalt",
+    // {max} stok limiti ile degistirilir.
+    maxQtyNote: "Bu üründen en fazla {max} adet ekleyebilirsiniz.",
+    outOfStock: "Bu ürün şu an stokta yok.",
   },
   cta: {
     addToCart: "Sepete ekle",
@@ -315,13 +320,20 @@ export const trStorefront = {
       installmentLabel: "Taksit",
       singleShot: "Tek çekim",
       installmentValue: "{count} taksit",
+      // {count} taksit sayisi, {amount} taksit basina tutar ile degistirilir.
+      installmentSummaryValue: "{count} taksit × {amount}",
+      noInterestNote: "Vade farksız",
+      threeDsLabel: "3D Secure",
+      threeDsVerified: "Doğrulandı",
       transactionLabel: "İşlem No",
       paidAtLabel: "Ödeme tarihi",
+      testModeNote: "Bu bir test ödemesidir; gerçek tahsilat yapılmamıştır.",
       shippingTitle: "Teslimat adresi",
       billingTitle: "Fatura bilgisi",
       billingIndividual: "Bireysel",
       billingCorporate: "Kurumsal",
       total: "Toplam",
+      goToOrders: "Siparişlerime git",
       continueShopping: "Alışverişe devam et",
       noOrderTitle: "Görüntülenecek sipariş yok",
       noOrderDescription:
@@ -348,6 +360,10 @@ export const trStorefront = {
     installmentLabel: "Taksit",
     singleShot: "Tek çekim",
     installmentValue: "{count} taksit",
+    // {count} taksit sayisi, {amount} taksit basina tutar ile degistirilir.
+    installmentSummaryValue: "{count} taksit × {amount}",
+    installmentTotalLabel: "Toplam",
+    noInterestNote: "Vade farksız",
     testCardsTitle: "Test kartları",
     testCardsHint: "Bir senaryo seçince kart bilgileri otomatik doldurulur.",
     useTestCard: "Kullan",
@@ -368,8 +384,15 @@ export const trStorefront = {
     failedTitle: "Ödeme başarısız",
     failedDescription: "Test ödemesi tamamlanamadı. Farklı bir test kartı deneyebilirsiniz.",
     cancelledTitle: "Ödeme iptal edildi",
-    threeDsTitle: "3D Secure gerekli",
-    threeDsDescription: "Bu senaryo ek doğrulama gerektirir. Tamamlamak için aşağıdaki adımı kullanın.",
+    threeDsTitle: "3D Secure doğrulaması",
+    threeDsDescription:
+      "Bankanız bu ödeme için kimlik doğrulaması istiyor. Bu bir test simülasyonudur; aşağıdan doğrulamayı tamamlayın.",
+    threeDsBankSim: "Banka doğrulama simülasyonu",
+    threeDsCompleteSuccess: "Doğrulamayı başarılı tamamla",
+    threeDsCompleteFail: "Doğrulamayı başarısız yap",
+    threeDsFailedTitle: "3D Secure doğrulaması başarısız",
+    threeDsFailedDescription:
+      "Doğrulama tamamlanamadı; ödeme alınmadı. Yeniden deneyebilirsiniz.",
     scenarios: {
       success: "Başarılı ödeme",
       failure: "Başarısız ödeme",

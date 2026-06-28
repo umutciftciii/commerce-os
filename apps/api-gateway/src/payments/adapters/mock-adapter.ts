@@ -22,7 +22,8 @@ import type {
  *   failure            → FAILED (PAYMENT_DECLINED)
  *   insufficient_funds → FAILED (INSUFFICIENT_FUNDS)
  *   cancelled          → CANCELLED
- *   three_ds_required  → REQUIRES_ACTION (ikinci confirm 'success' ile PAID olur)
+ *   three_ds_required  → REQUIRES_ACTION; ikinci confirm threeDsOutcome'a gore:
+ *                        "success"/varsayilan → PAID, "fail" → FAILED (THREE_DS_FAILED)
  */
 export class MockPaymentAdapter implements PaymentProviderAdapter {
   readonly provider = "MOCK" as const;
@@ -38,9 +39,20 @@ export class MockPaymentAdapter implements PaymentProviderAdapter {
     const scenario = input.scenario ?? "success";
     const reference = `mock_${input.attemptId}`;
 
-    // 3D Secure: ilk confirm REQUIRES_ACTION; tekrar (REQUIRES_ACTION iken) PAID.
+    // 3D Secure: ilk confirm REQUIRES_ACTION; banka dogrulama adimindan donen
+    // ikinci confirm (REQUIRES_ACTION iken) kullanici secimine gore PAID ya da
+    // FAILED olur. Boylece "3DS karti → ANINDA PAID" durumu OLUSMAZ.
     if (scenario === "three_ds_required") {
       if (input.currentStatus === "REQUIRES_ACTION") {
+        if (input.threeDsOutcome === "fail") {
+          return {
+            status: "FAILED",
+            providerReference: reference,
+            threeDsApplied: true,
+            failureCode: "THREE_DS_FAILED",
+            failureMessage: "3D Secure dogrulamasi basarisiz (test senaryosu).",
+          };
+        }
         return { status: "PAID", providerReference: reference, threeDsApplied: true };
       }
       return { status: "REQUIRES_ACTION", providerReference: reference, threeDsApplied: true };

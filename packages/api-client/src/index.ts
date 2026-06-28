@@ -128,6 +128,7 @@ export type {
   PublicOrderReceipt,
   PublicPaymentCard,
   PublicPaymentScenario,
+  PublicPaymentThreeDsAction,
   PublicPaymentRedirect,
   PublicPaymentState,
   PublicPaymentSubmitRequest,

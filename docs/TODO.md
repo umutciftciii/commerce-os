@@ -196,19 +196,30 @@
 - TODO-065: Anonim sepet/rezervasyon yasam dongusu — anonim checkout'ta stok PLACED ile rezerve
   edilir; odeme alinmadan terk edilen siparisler icin reservation expiry/iptal job'i (worker) ve
   abandoned-order temizligi (TD-033).
-- TODO-072: F3B.2 follow-up UI polish — manuel izole smoke'ta gozlemlenen, F3B.2'yi bloke ETMEYEN
-  ufak UI eksikleri (revizyon checkpoint 8fdcbb7'de bilinçli ertelendi). Bir sonraki buyuk is sonrasi
-  toplu ele alinacak. Maddeler:
-  - 3D Secure test akisi: "3DS gerekli" karti secilince gercekci dogrulama/simulasyon ekrani gelmiyor
-    (dogrudan onay → basarili). Ayri dogrulama adimi + net "3D basarili/basarisiz" test aksiyonlari +
-    PaymentAttempt timeline'da 3DS_REQUIRED/3DS_AUTHORIZED/3DS_FAILED izlenebilirligi (F3B.3 ile de
-    birlesebilir).
-  - Inventory-aware PDP quantity: PDP adet secici stok limitini bilmeli; stok 2 iken 3 secilememeli
-    veya "En fazla N adet" uyarisiyla sepete eklemeden once engellenmeli (server-side reconcile zaten
-    dogru; bu UX iyilestirmesi).
-  - Taksit UX: odeme adiminda taksit ozeti ("3 taksit × ₺…"/aylik plan) + siparis detayinda taksit
-    tutari/toplam/yontem daha acik. Gercek hesap motoru yokken SAHTE oran YAZILMAZ; faiz yoksa
-    "vade farksiz" gibi net bilgi.
+- TODO-072: F3B.2 follow-up UI polish — DONE (2026-06-28). Manuel izole smoke'ta gozlemlenen, F3B.2'yi
+  bloke ETMEYEN ufak UI/UX eksikleri toplu ele alindi (MOCK simulasyon; gercek provider/iyzico/3DS
+  redirect KAPSAM DISI — bkz. ADR-036). Cozulen maddeler:
+  - Inventory-aware PDP quantity: buy box adet secici secili varyantin `available` stok limitine duyarli
+    (`maxPurchasableQuantity` saf turetme; magaza max ile stok limitinin kucugu). Stok limitinde `+`
+    disabled + "Bu üründen en fazla N adet ekleyebilirsiniz." uyarisi; varyant degisince adet yeni
+    limite normalize edilir (useEffect clamp); stok yoksa adet kontrolu + sepete ekle disabled + "Bu
+    ürün şu an stokta yok." Gateway public DTO zaten `available` tasiyordu (DTO degisikligi gerekmedi);
+    server reconcile son guvenlik olarak korunur.
+  - 3D Secure test akisi: "3DS gerekli" kart artik ANINDA PAID olmaz. Ilk submit REQUIRES_ACTION → ayri
+    gercekci banka dogrulama simulasyon ekrani (ThreeDsChallenge): "Doğrulamayı başarılı tamamla" → PAID,
+    "Doğrulamayı başarısız yap" → FAILED (THREE_DS_FAILED) + retry. MOCK adapter `threeDsOutcome`
+    (success/fail) ile fail yolu eklendi; `publicPaymentSubmitRequest.threeDsAction` alani. Store-admin
+    order detail payment panelinde 3DS durumu (Gerekli/Doğrulama bekleniyor/Doğrulandı/Başarısız) +
+    success ekraninda "3D Secure: Doğrulandı". `publicPaymentInfo.threeDsApplied` (safe boolean) eklendi.
+  - Taksit UX: odeme adiminda taksit ozeti ("N taksit × ₺X" + toplam + "Vade farksız"), success ekrani
+    ve store-admin panelinde ayni ozet. SAHTE oran/faiz YOK — toplam degismez, esit bolunur (computed UI
+    alani; yeni DB alani yok, mevcut `installmentCount` kullanildi).
+  - Payment success ekrani zenginlestirildi: siparis no, urunler (varyant/adet/birim/satir toplami),
+    odeme (saglayici/yontem/maskeli kart/3DS/taksit ozeti/islem no/tarih), teslimat + fatura ozeti, test
+    modu notu, "Siparişlerime git" + "Alışverişe devam et" CTA. Full PAN/CVC/token ASLA serialize edilmez.
+  - i18n TR/EN paritesi: stok limit/stokta yok, 3DS dogrulama aksiyonlari, taksit ozeti/vade farksiz,
+    siparislerime git eklendi. Testler: PDP clamp (saf + SSR out-of-stock), MOCK 3DS fail, store-admin
+    3DS paneli, taksit ozeti. Docker smoke (worktree context) healthy; public DTO `available` dogrulandi.
 - TODO-073: Store-admin orders filters — DONE (2026-06-28). Store-admin `/orders` listesine operasyonel
   filtre bar eklendi: siparis durumu, odeme durumu, karsilama durumu (mevcut enum'lar; "Basarisiz/kismi
   iade" enum'da yok), tarih araligi (gun bazli, UTC sinir), musteri/e-posta/siparis-no arama. Filtreler

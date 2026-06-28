@@ -36,8 +36,20 @@ describe("mock payment adapter", () => {
     const ctx = context();
     const first = await adapter.confirmPayment({ context: ctx, attemptId: "a", currentStatus: "CREATED", scenario: "three_ds_required" });
     expect(first.status).toBe("REQUIRES_ACTION");
-    const second = await adapter.confirmPayment({ context: ctx, attemptId: "a", currentStatus: "REQUIRES_ACTION", scenario: "three_ds_required" });
+    expect(first.threeDsApplied).toBe(true);
+    const second = await adapter.confirmPayment({ context: ctx, attemptId: "a", currentStatus: "REQUIRES_ACTION", scenario: "three_ds_required", threeDsOutcome: "success" });
     expect(second.status).toBe("PAID");
+    expect(second.threeDsApplied).toBe(true);
+  });
+
+  it("fails 3D Secure when the verification step is rejected (no fake success)", async () => {
+    const ctx = context();
+    const first = await adapter.confirmPayment({ context: ctx, attemptId: "a", currentStatus: "CREATED", scenario: "three_ds_required" });
+    expect(first.status).toBe("REQUIRES_ACTION");
+    const failed = await adapter.confirmPayment({ context: ctx, attemptId: "a", currentStatus: "REQUIRES_ACTION", scenario: "three_ds_required", threeDsOutcome: "fail" });
+    expect(failed.status).toBe("FAILED");
+    expect(failed.failureCode).toBe("THREE_DS_FAILED");
+    expect(failed.threeDsApplied).toBe(true);
   });
 
   it("reports a healthy test connection without credentials", async () => {
