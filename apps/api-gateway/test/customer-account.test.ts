@@ -9,7 +9,12 @@ import type {
   CustomerOtpRecord,
   CustomerSessionRecord,
 } from "../src/customers/index.js";
-import type { CustomerGender, CustomerOtpChannel, CustomerOtpPurpose } from "@prisma/client";
+import type {
+  BillingType,
+  CustomerGender,
+  CustomerOtpChannel,
+  CustomerOtpPurpose,
+} from "@prisma/client";
 
 /**
  * F3B.3 — Storefront musteri hesabi gateway entegrasyon testleri. In-memory
@@ -60,15 +65,60 @@ const dataAccess = {
   },
 } as unknown as AppDataAccess;
 
+interface SeededOrderLine {
+  variantId: string;
+  productSlug: string;
+  sku: string;
+  title: string;
+  variantTitle: string;
+  quantity: number;
+  unitPriceAmount?: number;
+}
+
 interface SeededOrder {
   customerId: string;
   orderNumber: string;
   status: string;
   paymentStatus: string;
+  fulfillmentStatus: string;
   currency: string;
   totalAmount: number;
   createdAt: Date;
-  lines: { title: string; variantTitle: string; quantity: number }[];
+  lines: SeededOrderLine[];
+  // Detay (opsiyonel; verilmezse güvenli varsayılan türetilir).
+  subtotalAmount?: number;
+  discountAmount?: number;
+  shippingAmount?: number;
+  taxAmount?: number;
+  placedAt?: Date | null;
+  cancelledAt?: Date | null;
+  billingType?: BillingType | null;
+  billingName?: string | null;
+  billingCompanyName?: string | null;
+  billingTaxOffice?: string | null;
+  billingTaxId?: string | null;
+  billingTaxNumber?: string | null;
+  addresses?: {
+    type: string;
+    fullName: string;
+    phone: string | null;
+    countryCode: string;
+    city: string;
+    district: string | null;
+    addressLine1: string;
+    addressLine2: string | null;
+    postalCode: string | null;
+  }[];
+  payment?: {
+    provider: string;
+    method: string;
+    cardBrand: string | null;
+    cardLast4: string | null;
+    installmentCount: number;
+    providerReference: string | null;
+    threeDsApplied: boolean;
+    paidAt: Date | null;
+  } | null;
 }
 
 class MemoryCustomerDataAccess implements CustomerDataAccess {
@@ -350,7 +400,66 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
   async listOrders(storeId: string, customerId: string) {
     return this.orders
       .filter((o) => o.storeId === storeId && o.customerId === customerId)
-      .map((o) => o.order);
+      .map((o) => ({
+        orderNumber: o.order.orderNumber,
+        status: o.order.status,
+        paymentStatus: o.order.paymentStatus,
+        fulfillmentStatus: o.order.fulfillmentStatus,
+        currency: o.order.currency,
+        totalAmount: o.order.totalAmount,
+        createdAt: o.order.createdAt,
+        lines: o.order.lines.map((line) => ({
+          variantId: line.variantId,
+          productSlug: line.productSlug,
+          sku: line.sku,
+          title: line.title,
+          variantTitle: line.variantTitle,
+          quantity: line.quantity,
+        })),
+      }));
+  }
+  async getOrderDetail(storeId: string, customerId: string, orderNumber: string) {
+    const found = this.orders.find(
+      (o) =>
+        o.storeId === storeId &&
+        o.customerId === customerId &&
+        o.order.orderNumber === orderNumber,
+    );
+    if (!found) return null;
+    const order = found.order;
+    return {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      currency: order.currency,
+      createdAt: order.createdAt,
+      placedAt: order.placedAt ?? null,
+      cancelledAt: order.cancelledAt ?? null,
+      subtotalAmount: order.subtotalAmount ?? order.totalAmount,
+      discountAmount: order.discountAmount ?? 0,
+      shippingAmount: order.shippingAmount ?? 0,
+      taxAmount: order.taxAmount ?? 0,
+      totalAmount: order.totalAmount,
+      billingType: order.billingType ?? null,
+      billingName: order.billingName ?? null,
+      billingCompanyName: order.billingCompanyName ?? null,
+      billingTaxOffice: order.billingTaxOffice ?? null,
+      billingTaxId: order.billingTaxId ?? null,
+      billingTaxNumber: order.billingTaxNumber ?? null,
+      lines: order.lines.map((line) => ({
+        variantId: line.variantId,
+        productSlug: line.productSlug,
+        sku: line.sku,
+        title: line.title,
+        variantTitle: line.variantTitle,
+        quantity: line.quantity,
+        unitPriceAmount: line.unitPriceAmount ?? order.totalAmount,
+        totalAmount: (line.unitPriceAmount ?? order.totalAmount) * line.quantity,
+      })),
+      addresses: order.addresses ?? [],
+      payment: order.payment ?? null,
+    };
   }
 }
 
@@ -601,20 +710,26 @@ describe("api gateway · customer account (F3B.3)", () => {
       orderNumber: "OS-1",
       status: "PLACED",
       paymentStatus: "UNPAID",
+      fulfillmentStatus: "UNFULFILLED",
       currency: "TRY",
       totalAmount: 1000,
       createdAt: new Date(),
-      lines: [{ title: "Hoodie", variantTitle: "M", quantity: 1 }],
+      lines: [
+        { variantId: "var_1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1 },
+      ],
     });
     customers.seedOrder({
       customerId: "someone_else",
       orderNumber: "OS-2",
       status: "PLACED",
       paymentStatus: "UNPAID",
+      fulfillmentStatus: "UNFULFILLED",
       currency: "TRY",
       totalAmount: 5000,
       createdAt: new Date(),
-      lines: [{ title: "Other", variantTitle: "L", quantity: 1 }],
+      lines: [
+        { variantId: "var_2", productSlug: "other", sku: "OT-L", title: "Other", variantTitle: "L", quantity: 1 },
+      ],
     });
     const orders = await app.inject({
       method: "GET",
@@ -624,5 +739,110 @@ describe("api gateway · customer account (F3B.3)", () => {
     const data = orders.json().data;
     expect(data).toHaveLength(1);
     expect(data[0].orderNumber).toBe("OS-1");
+    expect(data[0].fulfillmentStatus).toBe("UNFULFILLED");
+    expect(data[0].lines[0]).toMatchObject({ variantId: "var_1", sku: "HD-M", productSlug: "hoodie" });
+  });
+
+  it("returns own order detail with safe payment fields only", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-10",
+      status: "FULFILLED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "FULFILLED",
+      currency: "TRY",
+      totalAmount: 12000,
+      subtotalAmount: 10000,
+      shippingAmount: 0,
+      taxAmount: 2000,
+      createdAt: new Date(),
+      billingType: "INDIVIDUAL",
+      billingName: "Ada Lovelace",
+      billingTaxId: "12345678901",
+      addresses: [
+        {
+          type: "SHIPPING",
+          fullName: "Ada Lovelace",
+          phone: "5321112233",
+          countryCode: "TR",
+          city: "İstanbul",
+          district: "Kadıköy",
+          addressLine1: "Moda 1",
+          addressLine2: null,
+          postalCode: "34710",
+        },
+      ],
+      payment: {
+        provider: "MOCK",
+        method: "CARD",
+        cardBrand: "VISA",
+        cardLast4: "0008",
+        installmentCount: 3,
+        providerReference: "txn_abc123",
+        threeDsApplied: true,
+        paidAt: new Date(),
+      },
+      lines: [
+        { variantId: "var_1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 2, unitPriceAmount: 5000 },
+      ],
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${base}/orders/OS-10`,
+      headers: { "x-customer-session": token },
+    });
+    expect(res.statusCode).toBe(200);
+    const order = res.json().order;
+    expect(order.orderNumber).toBe("OS-10");
+    expect(order.itemCount).toBe(2);
+    expect(order.payment).toMatchObject({
+      provider: "MOCK",
+      cardBrand: "VISA",
+      cardLast4: "0008",
+      installmentCount: 3,
+      transactionId: "txn_abc123",
+      threeDsApplied: true,
+    });
+    // Fatura kimlik no MASKELİ; ham değer DÖNMEZ.
+    expect(order.billing.taxId).not.toBe("12345678901");
+    // PAN/CVC/token/hash hiçbir biçimde sızmaz.
+    const raw = JSON.stringify(order);
+    expect(raw).not.toContain("12345678901");
+    expect(raw).not.toMatch(/cvc|accessToken|tokenHash|passwordHash/i);
+  });
+
+  it("does not expose another customer's order detail (404)", async () => {
+    const { app, customers } = makeApp();
+    const tokenA = (await registerCustomer(app, "ada@example.com")).json().token;
+    await registerCustomer(app, "grace@example.com");
+    const graceId = customers.customers.find((c) => c.email === "grace@example.com")!.id;
+    customers.seedOrder({
+      customerId: graceId,
+      orderNumber: "OS-99",
+      status: "PLACED",
+      paymentStatus: "UNPAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 4000,
+      createdAt: new Date(),
+      lines: [
+        { variantId: "var_x", productSlug: "secret", sku: "SC-1", title: "Secret", variantTitle: "—", quantity: 1 },
+      ],
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${base}/orders/OS-99`,
+      headers: { "x-customer-session": tokenA },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("requires a customer session to list orders (guest 401)", async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: "GET", url: `${base}/orders` });
+    expect(res.statusCode).toBe(401);
   });
 });

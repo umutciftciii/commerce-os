@@ -206,6 +206,12 @@ export type {
   CustomerMeResponse,
   CustomerOrderSummary,
   CustomerOrderListResponse,
+  CustomerOrderDetailLine,
+  CustomerOrderAddressSummary,
+  CustomerOrderBillingSummary,
+  CustomerOrderPaymentSummary,
+  CustomerOrderDetail,
+  CustomerOrderDetailResponse,
 } from "@commerce-os/contracts";
 
 /**

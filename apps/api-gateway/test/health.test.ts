@@ -1596,10 +1596,18 @@ function createCustomerAdminMock() {
       orderNumber: string;
       status: string;
       paymentStatus: string;
+      fulfillmentStatus: string;
       currency: string;
       totalAmount: number;
       createdAt: Date;
-      lines: { title: string; variantTitle: string; quantity: number }[];
+      lines: {
+        variantId: string;
+        productSlug: string;
+        sku: string;
+        title: string;
+        variantTitle: string;
+        quantity: number;
+      }[];
     }[]
   >();
   orders.set("cust_member", [
@@ -1607,10 +1615,20 @@ function createCustomerAdminMock() {
       orderNumber: "OS-0001",
       status: "PLACED",
       paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
       currency: "TRY",
       totalAmount: 129900,
       createdAt: new Date("2026-06-01T00:00:00.000Z"),
-      lines: [{ title: "Tişört", variantTitle: "M", quantity: 1 }],
+      lines: [
+        {
+          variantId: "variant_tshirt_m",
+          productSlug: "tisort",
+          sku: "TS-M",
+          title: "Tişört",
+          variantTitle: "M",
+          quantity: 1,
+        },
+      ],
     },
   ]);
   let seq = 1;

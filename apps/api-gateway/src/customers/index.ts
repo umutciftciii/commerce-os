@@ -40,6 +40,7 @@ import {
   customerLogoutResponseSchema,
   customerMeResponseSchema,
   customerOrderListResponseSchema,
+  customerOrderDetailResponseSchema,
   customerOtpChallengeResponseSchema,
   customerOtpVerifyRequestSchema,
   customerPasswordChangeRequestSchema,
@@ -137,6 +138,82 @@ export interface CustomerAddressInputRecord {
   companyName: string | null;
   taxOffice: string | null;
   taxNumber: string | null;
+}
+
+/* ── Sipariş okuma kayıtları (TODO-079) ───────────────────────────────────── */
+
+export interface CustomerOrderLineRecord {
+  variantId: string;
+  productSlug: string;
+  sku: string;
+  title: string;
+  variantTitle: string;
+  quantity: number;
+}
+
+export interface CustomerOrderRecord {
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  fulfillmentStatus: string;
+  currency: string;
+  totalAmount: number;
+  createdAt: Date;
+  lines: CustomerOrderLineRecord[];
+}
+
+export interface CustomerOrderDetailLineRecord extends CustomerOrderLineRecord {
+  unitPriceAmount: number;
+  totalAmount: number;
+}
+
+export interface CustomerOrderAddressRecord {
+  type: string;
+  fullName: string;
+  phone: string | null;
+  countryCode: string;
+  city: string;
+  district: string | null;
+  addressLine1: string;
+  addressLine2: string | null;
+  postalCode: string | null;
+}
+
+/** Ödeme GÜVENLİ alanları; full PAN/CVC/token/hash ASLA taşınmaz. */
+export interface CustomerOrderPaymentRecord {
+  provider: string;
+  method: string;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  installmentCount: number;
+  providerReference: string | null;
+  threeDsApplied: boolean;
+  paidAt: Date | null;
+}
+
+export interface CustomerOrderDetailRecord {
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  fulfillmentStatus: string;
+  currency: string;
+  createdAt: Date;
+  placedAt: Date | null;
+  cancelledAt: Date | null;
+  subtotalAmount: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  billingType: BillingType | null;
+  billingName: string | null;
+  billingCompanyName: string | null;
+  billingTaxOffice: string | null;
+  billingTaxId: string | null;
+  billingTaxNumber: string | null;
+  lines: CustomerOrderDetailLineRecord[];
+  addresses: CustomerOrderAddressRecord[];
+  payment: CustomerOrderPaymentRecord | null;
 }
 
 const customerAuthSelect = {
@@ -255,20 +332,14 @@ export interface CustomerDataAccess {
   ): Promise<CustomerIbanRecord>;
   softDeleteIban(storeId: string, customerId: string, id: string): Promise<boolean>;
   setDefaultIban(storeId: string, customerId: string, id: string): Promise<boolean>;
-  listOrders(
+  listOrders(storeId: string, customerId: string): Promise<CustomerOrderRecord[]>;
+  // TODO-079 — Hesabım > Sipariş detayı. YALNIZ kendi siparişi (store+customer
+  // scoped). Başka müşterinin siparişi eşleşmez → null → route 404.
+  getOrderDetail(
     storeId: string,
     customerId: string,
-  ): Promise<
-    {
-      orderNumber: string;
-      status: string;
-      paymentStatus: string;
-      currency: string;
-      totalAmount: number;
-      createdAt: Date;
-      lines: { title: string; variantTitle: string; quantity: number }[];
-    }[]
-  >;
+    orderNumber: string,
+  ): Promise<CustomerOrderDetailRecord | null>;
   // F3B.3 store-admin — müşteri detay/yönetim. createdAt + üyelik (hasCredential) ile.
   adminFindDetail(
     storeId: string,
@@ -655,13 +726,164 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           orderNumber: true,
           status: true,
           paymentStatus: true,
+          fulfillmentStatus: true,
           currency: true,
           totalAmount: true,
           createdAt: true,
-          lines: { select: { title: true, variantTitle: true, quantity: true } },
+          lines: {
+            select: {
+              variantId: true,
+              sku: true,
+              title: true,
+              variantTitle: true,
+              quantity: true,
+              product: { select: { slug: true } },
+            },
+          },
         },
       });
-      return orders;
+      return orders.map((order) => ({
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        fulfillmentStatus: order.fulfillmentStatus,
+        currency: order.currency,
+        totalAmount: order.totalAmount,
+        createdAt: order.createdAt,
+        lines: order.lines.map((line) => ({
+          variantId: line.variantId,
+          productSlug: line.product.slug,
+          sku: line.sku,
+          title: line.title,
+          variantTitle: line.variantTitle,
+          quantity: line.quantity,
+        })),
+      }));
+    },
+    async getOrderDetail(storeId, customerId, orderNumber) {
+      // Ownership: store + customer + orderNumber birlikte eşleşmeli; başka
+      // müşterinin siparişi customerId ile EŞLEŞMEZ → null → route 404.
+      const order = await prisma.order.findFirst({
+        where: { storeId, customerId, orderNumber },
+        select: {
+          orderNumber: true,
+          status: true,
+          paymentStatus: true,
+          fulfillmentStatus: true,
+          currency: true,
+          createdAt: true,
+          placedAt: true,
+          cancelledAt: true,
+          subtotalAmount: true,
+          discountAmount: true,
+          shippingAmount: true,
+          taxAmount: true,
+          totalAmount: true,
+          billingType: true,
+          billingName: true,
+          billingCompanyName: true,
+          billingTaxOffice: true,
+          billingTaxId: true,
+          billingTaxNumber: true,
+          lines: {
+            select: {
+              variantId: true,
+              sku: true,
+              title: true,
+              variantTitle: true,
+              quantity: true,
+              unitPriceAmount: true,
+              totalAmount: true,
+              product: { select: { slug: true } },
+            },
+          },
+          addresses: {
+            select: {
+              type: true,
+              fullName: true,
+              phone: true,
+              countryCode: true,
+              city: true,
+              district: true,
+              addressLine1: true,
+              addressLine2: true,
+              postalCode: true,
+            },
+          },
+          // Ödeme yöntemi özeti: GÜVENLİ alanlar; gerçekten ödenen (paidAt dolu)
+          // en son denemeyi tercih ederiz. accessTokenHash/PAN/CVC SELECT EDİLMEZ.
+          paymentAttempts: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              provider: true,
+              method: true,
+              cardBrand: true,
+              cardLast4: true,
+              installmentCount: true,
+              providerReference: true,
+              threeDsApplied: true,
+              paidAt: true,
+            },
+          },
+        },
+      });
+      if (!order) return null;
+      const paid = order.paymentAttempts.find((attempt) => attempt.paidAt !== null);
+      const payment = paid ?? null;
+      return {
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        fulfillmentStatus: order.fulfillmentStatus,
+        currency: order.currency,
+        createdAt: order.createdAt,
+        placedAt: order.placedAt,
+        cancelledAt: order.cancelledAt,
+        subtotalAmount: order.subtotalAmount,
+        discountAmount: order.discountAmount,
+        shippingAmount: order.shippingAmount,
+        taxAmount: order.taxAmount,
+        totalAmount: order.totalAmount,
+        billingType: order.billingType,
+        billingName: order.billingName,
+        billingCompanyName: order.billingCompanyName,
+        billingTaxOffice: order.billingTaxOffice,
+        billingTaxId: order.billingTaxId,
+        billingTaxNumber: order.billingTaxNumber,
+        lines: order.lines.map((line) => ({
+          variantId: line.variantId,
+          productSlug: line.product.slug,
+          sku: line.sku,
+          title: line.title,
+          variantTitle: line.variantTitle,
+          quantity: line.quantity,
+          unitPriceAmount: line.unitPriceAmount,
+          totalAmount: line.totalAmount,
+        })),
+        addresses: order.addresses.map((address) => ({
+          type: address.type,
+          fullName: address.fullName,
+          phone: address.phone,
+          countryCode: address.countryCode,
+          city: address.city,
+          district: address.district,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2,
+          postalCode: address.postalCode,
+        })),
+        payment: payment
+          ? {
+              provider: payment.provider,
+              method: payment.method,
+              cardBrand: payment.cardBrand,
+              cardLast4: payment.cardLast4,
+              installmentCount: payment.installmentCount,
+              providerReference: payment.providerReference,
+              threeDsApplied: payment.threeDsApplied,
+              paidAt: payment.paidAt,
+            }
+          : null,
+      };
     },
     async adminFindDetail(storeId, customerId) {
       const customer = await prisma.customer.findFirst({
@@ -873,6 +1095,109 @@ function toIban(rec: CustomerIbanRecord) {
     accountHolderName: rec.accountHolderName,
     ibanMasked: maskIban(rec.iban),
     isDefault: rec.isDefault,
+  };
+}
+
+/* ── Sipariş serializasyonu (TODO-079) ────────────────────────────────────────
+ * Müşteri-facing allowlist. Sipariş kartı/arama satırı yalnız güncel `variantId`
+ * (tekrar satın al) + ürün bağlantısı/SKU taşır; eski sipariş fiyatı sepete
+ * eklenmez (güncel katalogdan doğrulanır). */
+function serializeCustomerOrderSummary(order: CustomerOrderRecord) {
+  return {
+    orderNumber: order.orderNumber,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    fulfillmentStatus: order.fulfillmentStatus,
+    currency: order.currency,
+    totalMinor: order.totalAmount,
+    itemCount: order.lines.reduce((sum, line) => sum + line.quantity, 0),
+    lines: order.lines.map((line) => ({
+      variantId: line.variantId,
+      productSlug: line.productSlug,
+      sku: line.sku,
+      title: line.title,
+      variantTitle: line.variantTitle,
+      quantity: line.quantity,
+    })),
+    createdAt: order.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Sipariş detayı allowlist: tutar kırılımı + satırlar + teslimat adresi + fatura
+ * özeti (taxId MASKELİ) + ödeme GÜVENLİ alanları. transactionId = sağlayıcı
+ * işlem referansı (providerReference). PAN/CVC/token/hash ASLA dönmez.
+ */
+function serializeCustomerOrderDetail(order: CustomerOrderDetailRecord) {
+  const shipping = order.addresses.find((address) => address.type === "SHIPPING") ?? null;
+  let billing: {
+    type: BillingType;
+    name: string | null;
+    companyName: string | null;
+    taxOffice: string | null;
+    taxId: string | null;
+  } | null = null;
+  if (order.billingType) {
+    const rawTaxId =
+      order.billingType === "INDIVIDUAL" ? order.billingTaxId : order.billingTaxNumber;
+    billing = {
+      type: order.billingType,
+      name: order.billingName,
+      companyName: order.billingCompanyName,
+      taxOffice: order.billingTaxOffice,
+      taxId: rawTaxId ? maskTaxId(rawTaxId) : null,
+    };
+  }
+  return {
+    orderNumber: order.orderNumber,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    fulfillmentStatus: order.fulfillmentStatus,
+    currency: order.currency,
+    createdAt: order.createdAt.toISOString(),
+    placedAt: order.placedAt ? order.placedAt.toISOString() : null,
+    cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
+    subtotalMinor: order.subtotalAmount,
+    discountMinor: order.discountAmount,
+    shippingMinor: order.shippingAmount,
+    taxMinor: order.taxAmount,
+    totalMinor: order.totalAmount,
+    itemCount: order.lines.reduce((sum, line) => sum + line.quantity, 0),
+    lines: order.lines.map((line) => ({
+      variantId: line.variantId,
+      productSlug: line.productSlug,
+      sku: line.sku,
+      title: line.title,
+      variantTitle: line.variantTitle,
+      quantity: line.quantity,
+      unitPriceMinor: line.unitPriceAmount,
+      lineTotalMinor: line.totalAmount,
+    })),
+    shippingAddress: shipping
+      ? {
+          fullName: shipping.fullName,
+          phone: shipping.phone,
+          countryCode: shipping.countryCode,
+          city: shipping.city,
+          district: shipping.district,
+          addressLine1: shipping.addressLine1,
+          addressLine2: shipping.addressLine2,
+          postalCode: shipping.postalCode,
+        }
+      : null,
+    billing,
+    payment: order.payment
+      ? {
+          provider: order.payment.provider,
+          method: order.payment.method,
+          cardBrand: order.payment.cardBrand,
+          cardLast4: order.payment.cardLast4,
+          installmentCount: order.payment.installmentCount,
+          transactionId: order.payment.providerReference,
+          threeDsApplied: order.payment.threeDsApplied,
+          paidAt: order.payment.paidAt ? order.payment.paidAt.toISOString() : null,
+        }
+      : null,
   };
 }
 
@@ -1526,20 +1851,23 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     if (!customer) return;
     const orders = await customers.listOrders(store.id, customer.id);
     return customerOrderListResponseSchema.parse({
-      data: orders.map((order) => ({
-        orderNumber: order.orderNumber,
-        status: order.status,
-        paymentStatus: order.paymentStatus,
-        currency: order.currency,
-        totalMinor: order.totalAmount,
-        itemCount: order.lines.reduce((sum, line) => sum + line.quantity, 0),
-        lines: order.lines.map((line) => ({
-          title: line.title,
-          variantTitle: line.variantTitle,
-          quantity: line.quantity,
-        })),
-        createdAt: order.createdAt.toISOString(),
-      })),
+      data: orders.map(serializeCustomerOrderSummary),
+    });
+  });
+
+  // Sipariş detayı — YALNIZ kendi siparişi; başka müşteri/yok → 404.
+  app.get("/public/stores/:storeSlug/customer/orders/:orderNumber", async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const { orderNumber } = request.params as { orderNumber: string };
+    const order = await customers.getOrderDetail(store.id, customer.id, orderNumber);
+    if (!order) {
+      return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    }
+    return customerOrderDetailResponseSchema.parse({
+      order: serializeCustomerOrderDetail(order),
     });
   });
 }
@@ -1660,20 +1988,7 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
       addresses: addresses.map(toAddress),
       ibans: ibans.map(toIban),
       communicationPreference: commPref,
-      orders: orders.map((order) => ({
-        orderNumber: order.orderNumber,
-        status: order.status,
-        paymentStatus: order.paymentStatus,
-        currency: order.currency,
-        totalMinor: order.totalAmount,
-        itemCount: order.lines.reduce((sum, line) => sum + line.quantity, 0),
-        lines: order.lines.map((line) => ({
-          title: line.title,
-          variantTitle: line.variantTitle,
-          quantity: line.quantity,
-        })),
-        createdAt: order.createdAt.toISOString(),
-      })),
+      orders: orders.map(serializeCustomerOrderSummary),
     });
   });
 

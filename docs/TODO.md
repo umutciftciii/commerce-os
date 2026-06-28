@@ -271,3 +271,49 @@
   gte/lte), UI'da iki sayisal alan + URL query. Kucuk ek; ayri PR.
 - TODO-077: Guest gecmis siparis baglama — F3B.3'te yalniz checkout anindaki yeni siparis customerId'ye
   baglanir; mevcut guest order'larin (customerEmail ile) hesaba retro baglanmasi sonraki faz.
+- TODO-079: Account orders detail and post-order actions — DONE (2026-06-28). Hesabim > Siparislerim
+  musteri-facing operasyonel seviyeye cikarildi. Ust baslik + aciklama; URL query ile korunan 3 sekme
+  (Siparisler / Tekrar Satin Al / Henuz Kargoya Verilmedi: `?section=orders&tab=all|buy-again|not-shipped`)
+  ve "tum siparislerde ara" (sipariş no / urun adi / varyant / SKU; `&q=`, dogal dilli arama-bos durumu).
+  Sipariş karti: durum/odeme/karsilama rozetleri (musteri-facing dürüst label), tutar, satirlar (gorsel
+  ALTYAPISI YOK → harf placeholder), post-order CTA'lar. Dedicated detay route `/account/orders/[orderNumber]`
+  (yalniz kendi siparisi; baska musteri/yok → notFound 404): tutar kirilimi, satirlar, teslimat adresi,
+  fatura ozeti (taxId MASKELI), odeme GÜVENLI alanlari (saglayici/maskeli kart/taksit/islem no/3DS/odeme
+  tarihi; PAN/CVC/token/hash YOK). Backend: `GET /public/stores/:slug/customer/orders` genisletildi
+  (fulfillmentStatus + line variantId/productSlug/sku), yeni `GET .../customer/orders/:orderNumber` (allowlist
+  + own-only). "Tekrar satin al" storefront Server Action: order satirlarini GÜNCEL katalogdan dogrular
+  (`resolveCart`); yalniz hala satilabilir + stokta varyantlari uygun adetle sepete ekler, mevcut olmayan
+  urunler icin "Bazı ürünler artık mevcut değil." uyarisi (eski sipariş FIYATINA güvenilmez — bkz. DECISIONS
+  buy-again karari). Iade/destek/yorum CTA'lari bu fazda PLACEHOLDER (gercek lifecycle yok): iade 15 gün
+  penceresi + FULFILLED/PARTIAL kosulu UI'da uygulanir, süre dolunca "İade süresi doldu" notu; yorum yalniz
+  teslimat (FULFILLED) sonrasi aktif. i18n TR/EN paritesi (sekme/arama/kart/detay/iade/destek/yorum/buy-again/
+  rozet/bos durumlar). Testler: gateway (own-list, detay own + GÜVENLI ödeme alanlari + maskeli taxId, baska
+  musteri detay 404, guest 401), storefront saf fonksiyonlar (sekme/arama/iade penceresi/yorum). Gercek
+  iade=TODO-081 (F3C/F3K), gercek destek ticket=TODO-080 (F3K), gercek review=TODO-082 (F3E), gercek kargo
+  takip=TODO-083 ile baglandi.
+- TODO-080: Musteri destek / "Bize Ulasin" ticket sistemi (F3K). TODO-079'da "Ürün desteği al" CTA dürüst
+  placeholder ("yakında aktif olacak"); gercek ticket olusturma + `?section=contact&topic=order-support&
+  order=...` hedef bolumu bu faz. ACIK.
+- TODO-081: Gercek iade talebi lifecycle (F3C/F3K). TODO-079'da iade CTA yalniz 15 gün penceresi + FULFILLED/
+  PARTIAL gorunurluk kurali (placeholder panel). Gercek iade workflow (talep olusturma, durum, onay/red,
+  stok/odeme iadesi) bu faz. ACIK.
+- TODO-082: Gercek urun degerlendirme/yorum modeli (F3E). TODO-079'da "Ürün yorumu yaz" CTA teslimat sonrasi
+  aktif placeholder; gercek review entity + form + moderasyon bu faz. ACIK.
+- TODO-083: Gercek kargo takip saglayici entegrasyonu. TODO-079 fulfillment rozetleri enum'dan türetilir
+  (takip no üretilmez); gercek kargo provider + takip no/link bu faz. ACIK.
+- TODO-089: Storefront RSC cookie serialization audit. TODO-079 smoke'unda gozlemlendi (pre-existing,
+  F3B.3 deseni): Next `force-dynamic` + `cookies()` kullanan account sayfalari, istemcinin KENDI httpOnly
+  oturum cookie'sini RSC flight payload'una serialize ediyor (`addresses`/`profile`/`orders` bolumlerinde
+  ayni). Ucuncu-taraf sizintisi DEGIL (cross-customer 404 izolasyonu kanitli) ve TODO-079'u bloke ETMEZ,
+  ancak httpOnly amaci geregi denetlenmeli: cookie degerinin RSC payload'una girmemesi icin desen gozden
+  gecirilmeli (or. server bilesenlerinde `cookies()` erisimini izole etme / sadece gerekli turetilmis veriyi
+  prop'lama). ACIK.
+- TODO-090: Storefront client bundle'indan api-client VALUE import'larini cikar. TODO-079 smoke'unda
+  gozlemlendi (pre-existing, F3B.3): `apps/storefront-web/components/account/sections/address-manager.tsx`
+  ve `iban-manager.tsx` `@commerce-os/api-client`'tan VALUE import yapiyor (`isValidTckn`/`isValidTaxNumber`/
+  `isValidTrPhone`/`isValidIban`); bu "use client" component'lerinde tum api-client (gateway'e baglanan
+  `createApiClient` dahil) client bundle'a giriyor. Guvenlik etkisi dusuk (client gateway'e dogrudan
+  baglanmaz; olu/tree-shake edilmemis util — secret icermez) ama proje kurali "createApiClient client
+  bundle'da olmamali". Cozum: TR validator'lari client-safe bagimsiz bir alt-modulden export et
+  (`@commerce-os/api-client/validators` veya contracts saf modulu) ve client component'leri ona gecir.
+  Dogrulama: build sonrasi `grep -rE createApiClient apps/storefront-web/.next/static` bos donmeli. ACIK.
