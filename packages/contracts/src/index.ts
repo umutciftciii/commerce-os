@@ -2059,6 +2059,21 @@ export type CustomerActivateResponse = z.infer<typeof customerActivateResponseSc
 export const shippingProviderTypeSchema = z.enum(["MOCK", "GELIVER", "DHL_ECOMMERCE"]);
 export const shippingProviderModeSchema = z.enum(["TEST", "LIVE"]);
 export const shippingProviderStatusSchema = z.enum(["ENABLED", "DISABLED"]);
+/**
+ * TODO-094B — "kimlik bilgisi kayitli" ile "gercek baglanti dogrulandi" AYRI kavramlardir.
+ * credentialStatus: credential'larin eksiksiz girilip girilmedigi (HTTP cagrisindan bagimsiz).
+ * connectionStatus: SON gercek provider HTTP testinin sonucu. HTTP transport kapaliyken
+ *   (SHIPPING_SANDBOX_HTTP_ENABLED=false) test ASLA OK donmez; HTTP_DISABLED doner.
+ *   UNTESTED = henuz gercek test calistirilmadi.
+ */
+export const shippingCredentialStatusSchema = z.enum(["CONFIGURED", "INCOMPLETE", "MISSING"]);
+export const shippingConnectionStatusSchema = z.enum([
+  "UNTESTED",
+  "OK",
+  "FAILED",
+  "HTTP_DISABLED",
+  "SKIPPED",
+]);
 export const shippingCredentialTypeSchema = z.enum([
   "DEFAULT",
   "IDENTITY",
@@ -2107,6 +2122,14 @@ export const shippingProviderConfigSchema = z.object({
   lastTestedAt: z.string().datetime().nullable(),
   lastTestStatus: z.string().nullable(),
   lastErrorCode: z.string().nullable(),
+  // TODO-094B — credential "kayitli mi" vs gercek baglanti "test edildi mi" ayrimi.
+  credentialStatus: shippingCredentialStatusSchema.optional(),
+  connectionStatus: shippingConnectionStatusSchema.optional(),
+  // Son GERCEK provider HTTP testinin meta'si (transport kapaliyken null/HTTP_DISABLED).
+  lastProviderHttpStatus: z.number().int().nullable().optional(),
+  lastProviderTestType: z.string().nullable().optional(),
+  lastProviderTestAt: z.string().datetime().nullable().optional(),
+  lastProviderErrorCode: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   credentials: z.array(shippingCredentialSchema),
@@ -2160,10 +2183,22 @@ export const shippingCredentialUpsertRequestSchema = z.object({
   identityType: z.number().int().min(1).max(99).nullable().optional(),
 });
 
+/**
+ * Baglanti testi yaniti. KRITIK (TODO-094B): `ok` yalnizca GERCEK provider HTTP
+ * cagrisindan basarili yanit alindiginda true olur. Transport kapaliyken
+ * (SHIPPING_SANDBOX_HTTP_ENABLED=false) `ok=false` + status="HTTP_DISABLED" doner;
+ * "credential kayitli ama gercek cagri yapilmadi" anlamina gelir.
+ */
 export const shippingProviderTestResponseSchema = z.object({
   ok: z.boolean(),
+  status: shippingConnectionStatusSchema,
   message: z.string(),
   testedAt: z.string().datetime(),
+  /** Gercek HTTP cagrisi yapildiysa provider'in dondurdugu HTTP status; aksi halde null. */
+  providerHttpStatus: z.number().int().nullable().optional(),
+  /** Hangi gercek test calistirildi (or. IDENTITY_TOKEN, GEO_CITIES); yapilmadiysa null. */
+  testType: z.string().nullable().optional(),
+  errorCode: z.string().nullable().optional(),
 });
 
 /* ── Order detail shipping operasyonlari ── */
@@ -2253,6 +2288,8 @@ export const orderShippingResponseSchema = z.object({
   shipments: z.array(shipmentSchema),
 });
 
+export type ShippingCredentialStatus = z.infer<typeof shippingCredentialStatusSchema>;
+export type ShippingConnectionStatus = z.infer<typeof shippingConnectionStatusSchema>;
 export type ShippingProviderConfigResponse = z.infer<typeof shippingProviderConfigSchema>;
 export type ShippingProviderConfigListResponse = z.infer<typeof shippingProviderConfigListResponseSchema>;
 export type ShippingProviderConfigCreateRequest = z.infer<typeof shippingProviderConfigCreateRequestSchema>;

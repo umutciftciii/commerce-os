@@ -392,15 +392,25 @@ export function registerShippingAdminRoutes(
     let ok = false;
     let message: string;
     let errorCode: string | null = null;
+    // connectionStatus GERCEK testin sonucu: OK yalniz canli HTTP basariliysa.
+    let connectionStatus: "OK" | "FAILED" | "HTTP_DISABLED" | "SKIPPED" = "FAILED";
+    let providerHttpStatus: number | null = null;
+    let testType: string | null = null;
     try {
       const result = await adapter.testConnection({ context: buildContext(cfg) });
       ok = result.ok;
       message = result.message;
+      connectionStatus = result.status;
+      providerHttpStatus = result.providerHttpStatus ?? null;
+      testType = result.testType ?? null;
     } catch (error) {
       if (error instanceof ShippingConfigError) {
         ok = false;
         message = error.message;
         errorCode = error.code;
+        // Transport kapaliyken read-only metot/SHIPPING_HTTP_DISABLED hatasi gercek
+        // bir baglanti basarisizligi DEGILdir — HTTP_DISABLED olarak ayirt edilir.
+        connectionStatus = error.code === "SHIPPING_HTTP_DISABLED" ? "HTTP_DISABLED" : "FAILED";
       } else {
         throw error;
       }
@@ -409,11 +419,22 @@ export function registerShippingAdminRoutes(
       where: { id: cfg.id },
       data: {
         lastTestedAt: testedAt,
-        lastTestStatus: ok ? "OK" : "FAILED",
+        // OK ASLA gercek cagri olmadan yazilmaz; HTTP_DISABLED/SKIPPED/FAILED da olabilir.
+        lastTestStatus: connectionStatus,
         lastErrorCode: errorCode,
+        lastProviderHttpStatus: providerHttpStatus,
+        lastProviderTestType: testType,
       },
     });
-    return shippingProviderTestResponseSchema.parse({ ok, message, testedAt: testedAt.toISOString() });
+    return shippingProviderTestResponseSchema.parse({
+      ok,
+      status: connectionStatus,
+      message,
+      testedAt: testedAt.toISOString(),
+      providerHttpStatus,
+      testType,
+      errorCode,
+    });
   });
 
   /* ───────────── Order detail shipping operasyonlari ───────────── */

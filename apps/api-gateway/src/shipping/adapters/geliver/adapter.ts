@@ -61,20 +61,33 @@ export class GeliverAdapter implements ShippingProviderAdapter {
   async testConnection(input: TestConnectionInput): Promise<TestConnectionResult> {
     this.requireToken(input.context);
     if (!this.transport.enabled) {
+      // Transport KAPALI: API anahtari kayitli ama GERCEK cagri YOK. "OK" DONMEZ.
       return {
-        ok: true,
+        ok: false,
+        status: "HTTP_DISABLED",
         message:
-          "Geliver API anahtarı tanımlı. Canlı doğrulama kapalı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
+          "Geliver API anahtarı kayıtlı; gerçek API çağrısı yapılmadı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
+        providerHttpStatus: null,
+        testType: "GEO_CITIES",
       };
     }
     const cred = this.requireToken(input.context);
-    // Canli: hafif bir GET (geo/cities) ile token gecerliligini dogrula.
-    await this.transport.send({
+    // Canli: hafif bir GET (geo/cities) ile token gecerliligini dogrula. Bearer ASLA loglanmaz.
+    const response = await this.transport.send({
       method: "GET",
       url: `${this.baseUrl}/geo/cities`,
       headers: this.authHeaders(cred),
     });
-    return { ok: true, message: "Geliver bağlantısı doğrulandı." };
+    const ok = response.status >= 200 && response.status < 300;
+    return {
+      ok,
+      status: ok ? "OK" : "FAILED",
+      message: ok
+        ? "Geliver bağlantısı doğrulandı (gerçek API çağrısı)."
+        : "Geliver bağlantısı doğrulanamadı (gerçek API çağrısı).",
+      providerHttpStatus: response.status,
+      testType: "GEO_CITIES",
+    };
   }
 
   async calculateRate(): Promise<ShippingRateResult> {

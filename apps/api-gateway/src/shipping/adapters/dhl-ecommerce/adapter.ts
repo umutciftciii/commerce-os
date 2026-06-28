@@ -111,21 +111,41 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
   async testConnection(input: TestConnectionInput): Promise<TestConnectionResult> {
     const ctx = input.context;
     // IDENTITY + minimum required credential'larin VARLIK + formatini dogrular.
-    this.requireIdentity(ctx);
+    const identity = this.requireIdentity(ctx);
     for (const type of ["STANDARD_COMMAND", "STANDARD_QUERY", "BARCODE_COMMAND"] as const) {
       this.requireCredential(ctx, type);
     }
     if (!this.transport.enabled) {
-      // Transport kapali: token request mapping uretilebilir ama canli dogrulama yok.
-      buildIdentityTokenRequest(this.requireIdentity(ctx));
+      // Transport KAPALI: token request mapping uretilir (test edilir) ama GERCEK cagri YOK.
+      // "OK" DONMEZ — credential kayitli ama dogrulanmadi: HTTP_DISABLED.
+      buildIdentityTokenRequest(identity);
       return {
-        ok: true,
+        ok: false,
+        status: "HTTP_DISABLED",
         message:
-          "DHL eCommerce kimlik bilgileri eksiksiz. Canlı doğrulama kapalı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
+          "DHL eCommerce kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
+        providerHttpStatus: null,
+        testType: "IDENTITY_TOKEN",
       };
     }
-    await this.getToken(ctx);
-    return { ok: true, message: "DHL eCommerce kimlik doğrulaması başarılı." };
+    // Transport ACIK: gercek Identity token cagrisi. HTTP status + jwt varligi raporlanir;
+    // JWT/secret ASLA sonuca/loga girmez (yalniz process-ici cache'e).
+    const response = await this.transport.send(buildIdentityTokenRequest(identity));
+    const json = parseJson(response);
+    const auth = mapTokenResponse(json);
+    if (auth.ok) {
+      const token = String((json as Record<string, unknown>).jwt);
+      this.tokenCache.set(identity.customerNumber!, { token, expiresAtMs: Date.now() + 5 * 60_000 });
+    }
+    return {
+      ok: auth.ok,
+      status: auth.ok ? "OK" : "FAILED",
+      message: auth.ok
+        ? "DHL eCommerce kimlik doğrulaması başarılı (gerçek API çağrısı)."
+        : "DHL eCommerce kimlik doğrulaması başarısız (gerçek API çağrısı).",
+      providerHttpStatus: response.status,
+      testType: "IDENTITY_TOKEN",
+    };
   }
 
   async calculateRate(input: CalculateRateInput): Promise<ShippingRateResult> {

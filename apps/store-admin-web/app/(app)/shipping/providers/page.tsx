@@ -115,8 +115,18 @@ const L = {
     statusChanged: "Durum güncellendi.",
     testOk: "Bağlantı testi başarılı",
     testFail: "Bağlantı testi başarısız",
+    testHttpDisabled: "Kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı.",
     dhlRequiredHeading: "Zorunlu kimlik bilgileri",
     dhlOptionalHeading: "Opsiyonel kimlik bilgileri",
+    colConn: "Son gerçek API testi",
+    connOK: "Doğrulandı",
+    connFailed: "Başarısız",
+    connHttpDisabled: "Test edilmedi (HTTP kapalı)",
+    connUntested: "Henüz test edilmedi",
+    connSkipped: "Atlandı",
+    credConfigured: "Tam",
+    credIncomplete: "Eksik",
+    credMissing: "Yok",
   },
   en: {
     eyebrow: "Sales",
@@ -177,8 +187,18 @@ const L = {
     statusChanged: "Status updated.",
     testOk: "Connection test succeeded",
     testFail: "Connection test failed",
+    testHttpDisabled: "Credentials are stored; no real API call was made.",
     dhlRequiredHeading: "Required credentials",
     dhlOptionalHeading: "Optional credentials",
+    colConn: "Last real API test",
+    connOK: "Verified",
+    connFailed: "Failed",
+    connHttpDisabled: "Not tested (HTTP off)",
+    connUntested: "Not tested yet",
+    connSkipped: "Skipped",
+    credConfigured: "Complete",
+    credIncomplete: "Incomplete",
+    credMissing: "Missing",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -393,7 +413,14 @@ export default function ShippingProvidersPage() {
     setActionError(null);
     try {
       const result = await storeApi.testShippingProvider(config.id);
-      setNotice(`${result.ok ? t.testOk : t.testFail}: ${result.message}`);
+      // OK yalniz gercek HTTP basariliysa. HTTP_DISABLED => "gercek cagri yapilmadi".
+      const headline =
+        result.status === "OK"
+          ? t.testOk
+          : result.status === "HTTP_DISABLED"
+            ? t.testHttpDisabled
+            : t.testFail;
+      setNotice(`${headline}: ${result.message}`);
       await load();
     } catch (error) {
       setActionError(messageForError(error, locale));
@@ -430,7 +457,18 @@ export default function ShippingProvidersPage() {
       { header: t.colMode, cell: (row) => <Badge tone={row.mode === "LIVE" ? "warning" : "info"}>{row.mode}</Badge> },
       {
         header: t.colCreds,
-        cell: (row) => <span className="text-[11px] text-white/50">{credentialSummary(row)}</span>,
+        cell: (row) => {
+          if (row.provider === "MOCK") return <span className="text-[11px] text-white/40">{t.none}</span>;
+          const cs = row.credentialStatus ?? "MISSING";
+          const tone = cs === "CONFIGURED" ? "success" : cs === "INCOMPLETE" ? "warning" : "neutral";
+          const label = cs === "CONFIGURED" ? t.credConfigured : cs === "INCOMPLETE" ? t.credIncomplete : t.credMissing;
+          return (
+            <div className="flex items-center gap-1.5">
+              <Badge tone={tone}>{label}</Badge>
+              <span className="text-[10px] text-white/30">{credentialSummary(row)}</span>
+            </div>
+          );
+        },
       },
       {
         header: t.colGuards,
@@ -445,16 +483,36 @@ export default function ShippingProvidersPage() {
         ),
       },
       {
-        header: t.colTest,
-        cell: (row) =>
-          row.lastTestedAt ? (
-            <div className="flex flex-col">
-              <Badge tone={row.lastTestStatus === "OK" ? "success" : "danger"}>{row.lastTestStatus ?? t.none}</Badge>
-              <span className="mt-0.5 text-[10px] text-white/30">{formatDate(row.lastTestedAt)}</span>
+        header: t.colConn,
+        cell: (row) => {
+          const conn = row.connectionStatus ?? "UNTESTED";
+          const tone = conn === "OK" ? "success" : conn === "FAILED" ? "danger" : "neutral";
+          const label =
+            conn === "OK"
+              ? t.connOK
+              : conn === "FAILED"
+                ? t.connFailed
+                : conn === "HTTP_DISABLED"
+                  ? t.connHttpDisabled
+                  : conn === "SKIPPED"
+                    ? t.connSkipped
+                    : t.connUntested;
+          return (
+            <div className="flex flex-col gap-0.5">
+              <Badge tone={tone}>{label}</Badge>
+              {conn === "HTTP_DISABLED" ? (
+                <span className="text-[10px] text-white/30">{t.testHttpDisabled}</span>
+              ) : null}
+              {row.lastProviderTestAt ? (
+                <span className="text-[10px] text-white/30">
+                  {formatDate(row.lastProviderTestAt)}
+                  {row.lastProviderTestType ? ` · ${row.lastProviderTestType}` : ""}
+                  {typeof row.lastProviderHttpStatus === "number" ? ` · HTTP ${row.lastProviderHttpStatus}` : ""}
+                </span>
+              ) : null}
             </div>
-          ) : (
-            <span className="text-[11px] text-white/30">{t.none}</span>
-          ),
+          );
+        },
       },
       {
         header: t.colActions,

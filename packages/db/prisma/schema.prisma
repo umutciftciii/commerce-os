@@ -1099,9 +1099,14 @@ model ShippingProviderConfig {
   allowOrderCreate   Boolean                @default(false)
   allowBarcodeCreate Boolean                @default(false)
   allowLabelPurchase Boolean                @default(false)
+  // TODO-094B — son test "durumu". connectionStatus degerleri: OK/FAILED/HTTP_DISABLED/
+  // SKIPPED (null => UNTESTED). HTTP transport kapaliyken test ASLA OK yazmaz.
   lastTestedAt       DateTime?
   lastTestStatus     String?
   lastErrorCode      String?
+  // Son GERCEK provider HTTP testinin meta'si. Transport kapaliyken httpStatus null kalir.
+  lastProviderHttpStatus Int?
+  lastProviderTestType   String?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 

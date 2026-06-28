@@ -53,6 +53,11 @@ export interface ShippingEnvGuards {
   labelPurchase: boolean;
 }
 
+/** Credential "kayitli mi" durumu — GERCEK baglanti testinden BAGIMSIZDIR. */
+export type ShippingCredentialStatus = "CONFIGURED" | "INCOMPLETE" | "MISSING";
+/** Son GERCEK provider HTTP testinin sonucu (null lastTestStatus => UNTESTED). */
+export type SerializedConnectionStatus = "UNTESTED" | "OK" | "FAILED" | "HTTP_DISABLED" | "SKIPPED";
+
 export interface SerializedShippingProviderConfig {
   id: string;
   provider: ShippingProviderType;
@@ -65,10 +70,49 @@ export interface SerializedShippingProviderConfig {
   lastTestedAt: string | null;
   lastTestStatus: string | null;
   lastErrorCode: string | null;
+  // TODO-094B — "credential kayitli" ile "gercek baglanti dogrulandi" AYRIMI.
+  credentialStatus: ShippingCredentialStatus;
+  connectionStatus: SerializedConnectionStatus;
+  lastProviderHttpStatus: number | null;
+  lastProviderTestType: string | null;
+  lastProviderTestAt: string | null;
+  lastProviderErrorCode: string | null;
   createdAt: string;
   updatedAt: string;
   credentials: SerializedShippingCredential[];
   capabilities: ShippingCapabilities;
+}
+
+/** Provider'a gore zorunlu credential tipleri (MOCK credential gerektirmez). */
+const REQUIRED_CREDENTIALS: Partial<Record<ShippingProviderType, ShippingCredentialType[]>> = {
+  GELIVER: ["DEFAULT"],
+  DHL_ECOMMERCE: ["IDENTITY", "STANDARD_COMMAND", "STANDARD_QUERY", "BARCODE_COMMAND"],
+};
+
+/** credentialStatus: zorunlu tiplerin kaci `configured`? hepsi/bir kismi/hicbiri. */
+export function computeCredentialStatus(
+  config: ShippingProviderConfig & { credentials?: ShippingProviderCredential[] },
+): ShippingCredentialStatus {
+  const required = REQUIRED_CREDENTIALS[config.provider];
+  if (!required || required.length === 0) return "CONFIGURED"; // MOCK
+  const creds = config.credentials ?? [];
+  const setCount = required.filter((type) => creds.some((c) => c.type === type && c.configured)).length;
+  if (setCount === 0) return "MISSING";
+  if (setCount < required.length) return "INCOMPLETE";
+  return "CONFIGURED";
+}
+
+/** connectionStatus: persistli lastTestStatus -> bilinen degerlerden biri; yoksa UNTESTED. */
+export function deriveConnectionStatus(lastTestStatus: string | null): SerializedConnectionStatus {
+  switch (lastTestStatus) {
+    case "OK":
+    case "FAILED":
+    case "HTTP_DISABLED":
+    case "SKIPPED":
+      return lastTestStatus;
+    default:
+      return "UNTESTED";
+  }
 }
 
 /**
@@ -167,6 +211,12 @@ export function serializeShippingProviderConfig(
     lastTestedAt: config.lastTestedAt ? config.lastTestedAt.toISOString() : null,
     lastTestStatus: config.lastTestStatus,
     lastErrorCode: config.lastErrorCode,
+    credentialStatus: computeCredentialStatus(config),
+    connectionStatus: deriveConnectionStatus(config.lastTestStatus),
+    lastProviderHttpStatus: config.lastProviderHttpStatus ?? null,
+    lastProviderTestType: config.lastProviderTestType ?? null,
+    lastProviderTestAt: config.lastTestedAt ? config.lastTestedAt.toISOString() : null,
+    lastProviderErrorCode: config.lastErrorCode,
     createdAt: config.createdAt.toISOString(),
     updatedAt: config.updatedAt.toISOString(),
     credentials: (config.credentials ?? []).map(serializeShippingCredential),

@@ -51,6 +51,8 @@ const L = {
     statusLabel: "Durum",
     providerNotActive: "Bu sağlayıcı aktif değil. İşlemleri kullanmak için önce “Kargo Sağlayıcıları” sayfasından aktifleştirin.",
     rateNotSupported: "Bu sağlayıcı için ücret hesaplama desteklenmiyor.",
+    httpDisabledNote:
+      "Test bağlantısı bu ortamda kapalı. Sandbox HTTP doğrulaması açılmadan gerçek sağlayıcıya istek atılmaz.",
     done: "Tamam",
   },
   en: {
@@ -82,6 +84,8 @@ const L = {
     statusLabel: "Status",
     providerNotActive: "This provider is not active. Activate it from the “Shipping Providers” page to use operations.",
     rateNotSupported: "Rate calculation is not supported for this provider.",
+    httpDisabledNote:
+      "Test connection is disabled in this environment. No request is sent to the real provider until sandbox HTTP verification is enabled.",
     done: "Done",
   },
 } satisfies Record<Locale, Record<string, string>>;
@@ -326,6 +330,12 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
           ) : (
             <Alert tone="warning">{isGeliver ? t.labelOffNote : t.liveOffNote}</Alert>
           )}
+
+          {/* TODO-094B — gercek saglayici (MOCK haric) henuz canli HTTP ile dogrulanmadiysa
+              "gercek istek atilmadi" uyarisini goster. connectionStatus OK degilse. */}
+          {selected && selected.provider !== "MOCK" && (selected.connectionStatus ?? "UNTESTED") !== "OK" ? (
+            <Alert tone="info">{t.httpDisabledNote}</Alert>
+          ) : null}
 
           {/* Rate sonucu */}
           {rate ? (

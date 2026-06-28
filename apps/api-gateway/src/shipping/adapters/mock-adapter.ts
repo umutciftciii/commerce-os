@@ -29,7 +29,15 @@ export class MockShippingAdapter implements ShippingProviderAdapter {
   readonly provider = "MOCK" as const;
 
   async testConnection(): Promise<TestConnectionResult> {
-    return { ok: true, message: "Mock kargo sağlayıcı hazır (test modu, credential gerekmez)." };
+    // MOCK gercek ag cagrisi yapmaz; "OK" burada gercek bir baglanti dogrulamasi DEGIL,
+    // dahili test akisinin hazir oldugudur. testType=MOCK ile bu net ayirt edilir.
+    return {
+      ok: true,
+      status: "OK",
+      message: "Mock kargo sağlayıcı hazır (test modu, credential gerekmez).",
+      providerHttpStatus: null,
+      testType: "MOCK",
+    };
   }
 
   async calculateRate(input: CalculateRateInput): Promise<ShippingRateResult> {

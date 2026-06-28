@@ -126,9 +126,25 @@ export interface ShippingGeoResult {
   districts?: ShippingGeoDistrict[];
 }
 
+/**
+ * Baglanti testi sonucu (TODO-094B).
+ *
+ * KRITIK: `ok` yalnizca GERCEK provider HTTP cagrisi basariliysa true olur.
+ *  - HTTP transport KAPALI ise: ok=false, status="HTTP_DISABLED", httpStatus=null.
+ *    Bu, "credential kayitli ama gercek cagri yapilmadi" durumudur (OK DEGIL).
+ *  - Transport ACIK + gercek yanit: status=OK/FAILED, httpStatus dolu.
+ * JWT/secret ASLA bu sonuca girmez; yalniz HTTP status + test tipi tasinir.
+ */
+export type ShippingConnectionStatus = "OK" | "FAILED" | "HTTP_DISABLED" | "SKIPPED";
+
 export interface TestConnectionResult {
   ok: boolean;
+  status: ShippingConnectionStatus;
   message: string;
+  /** Gercek HTTP cagrisi yapildiysa provider'in dondurdugu status; aksi halde null. */
+  providerHttpStatus?: number | null;
+  /** Hangi gercek test calistirildi (or. IDENTITY_TOKEN, GEO_CITIES); yapilmadiysa null. */
+  testType?: string | null;
 }
 
 export interface WebhookResult {

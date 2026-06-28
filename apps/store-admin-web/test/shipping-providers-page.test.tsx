@@ -67,6 +67,32 @@ describe("shipping providers page (F3C.1 Faz B)", () => {
     expect(screen.queryByText(/MNG/)).toBeNull();
   });
 
+  it("shows 'not tested yet' for a configured provider that was never connection-tested", async () => {
+    // DHL_CONFIG: credential dolu ama connectionStatus yok → UNTESTED.
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [DHL_CONFIG] });
+    render(<ShippingProvidersPage />);
+    expect(await screen.findByText("Henüz test edilmedi")).toBeTruthy();
+  });
+
+  it("shows 'no real API call was made' copy when the last test is HTTP_DISABLED", async () => {
+    const httpDisabled = {
+      ...DHL_CONFIG,
+      lastTestStatus: "HTTP_DISABLED",
+      lastTestedAt: "2026-06-29T10:00:00.000Z",
+      credentialStatus: "CONFIGURED",
+      connectionStatus: "HTTP_DISABLED",
+      lastProviderHttpStatus: null,
+      lastProviderTestType: "IDENTITY_TOKEN",
+      lastProviderTestAt: "2026-06-29T10:00:00.000Z",
+      lastProviderErrorCode: null,
+    };
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [httpDisabled] });
+    render(<ShippingProvidersPage />);
+    // "Gercek API cagrisi yapilmadi" uyarisi + "Test edilmedi (HTTP kapalı)" rozeti.
+    expect(await screen.findByText("Kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı.")).toBeTruthy();
+    expect(screen.getByText("Test edilmedi (HTTP kapalı)")).toBeTruthy();
+  });
+
   it("opens the credentials modal with masked state and password-type secret inputs", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [DHL_CONFIG] });
     const user = userEvent.setup();

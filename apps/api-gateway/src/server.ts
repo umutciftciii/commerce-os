@@ -1211,8 +1211,12 @@ function mergeCartItems(items: Array<{ variantId: string; quantity: number }>) {
  *     INVALID, kod yok ise NONE.
  * grandTotal = itemsSubtotal - discount + shipping.
  */
-const CART_FREE_SHIPPING_THRESHOLD_MINOR = 75_000; // ₺750
-const CART_SHIPPING_FEE_MINOR = 4_990; // ₺49,90
+// TODO-094B NOT: Bu ₺49,90 sabit MAGAZA KARGO KURALIDIR; kargo SAGLAYICI (DHL/Geliver)
+// quote'u DEGILDIR. F3C.1 shipping provider altyapisi checkout sepet hesabina BAGLI
+// DEGILDIR — provider calculateRate yalniz admin sipariş panelinden manuel cagrilir.
+// Checkout'a canli provider ucreti baglanmasi ayri bir faz isidir (bkz. ADR-031).
+const CART_FREE_SHIPPING_THRESHOLD_MINOR = 75_000; // ₺750 (sabit magaza kurali)
+const CART_SHIPPING_FEE_MINOR = 4_990; // ₺49,90 (sabit magaza kurali; provider quote DEGIL)
 const CART_TAX_RATE_PERCENT = 20; // KDV (fiyatlara dahil)
 const DEMO_COUPON_CODE = "DEMO10";
 const DEMO_COUPON_RATE_PERCENT = 10;

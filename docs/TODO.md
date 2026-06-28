@@ -345,6 +345,18 @@
   detayı kargo paneli + BFF + i18n + testler + docker runtime smoke tamam. Canlı destructive operasyonlar
   varsayılan guard altında; controlled rollout TODO-095..097'de. Geliver REST yolları SDK'dan türetildi,
   canlı doğrulanmadı.)
+- TODO-094B: Shipping provider safe external verification. (1) UI/backend dürüstlük düzeltmesi (DONE):
+  testConnection artık GERÇEK provider HTTP yanıtı alınmadan "OK" dönmez — SHIPPING_SANDBOX_HTTP_ENABLED=false
+  iken `status=HTTP_DISABLED`, `lastTestStatus` OK yerine HTTP_DISABLED/SKIPPED/FAILED yazılır; provider config
+  yanıtına `credentialStatus` (CONFIGURED/INCOMPLETE/MISSING) ve `connectionStatus` (UNTESTED/OK/FAILED/
+  HTTP_DISABLED/SKIPPED) + `lastProviderHttpStatus/TestType/TestAt/ErrorCode` eklendi (migration
+  20260629120000); UI "Kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı." gösterir; sipariş paneli
+  HTTP kapalı uyarısı; sepetteki ₺49,90'ın provider quote DEĞİL sabit mağaza kuralı olduğu netleştirildi.
+  (2) GERÇEK external verification (AÇIK/BLOCKED): repo-dışı credential dosyası
+  (.secrets/commerce-os-shipping.local.env) bu makinede yok → DHL Identity token / CBS getcities-getdistricts /
+  Standard Query calculate ve Geliver createTest GERÇEK çağrıları henüz doğrulanMADI. Credential geldiğinde
+  api-gateway runtime'da SHIPPING_SANDBOX_HTTP_ENABLED=true (destructive guard'lar KAPALI) ile safe doğrulama
+  yapılacak; createOrder/createbarcode/acceptOffer ÇALIŞTIRILMAYACAK.
 - TODO-095: DHL eCommerce canli createOrder controlled rollout. Env+config+explicitConfirm guard'i ile gercek
   Standard Command /createOrder; idempotent referenceId, hata sinifları, sipariş→Shipment yasam dongusu.
 - TODO-096: DHL eCommerce canli createbarcode controlled rollout. Barcode Command /createbarcode (faturalastirma

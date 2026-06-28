@@ -123,7 +123,7 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
     );
   });
 
-  it("testConnection with disabled transport validates credentials without a live call", async () => {
+  it("testConnection with disabled transport does NOT return OK — HTTP_DISABLED, no live call", async () => {
     const result = await adapter.testConnection({
       context: ctx("DHL_ECOMMERCE", {
         credentials: {
@@ -134,8 +134,56 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
         },
       }),
     });
+    // Credential eksiksiz ama GERCEK cagri yapilmadi: ok=false, HTTP_DISABLED.
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("HTTP_DISABLED");
+    expect(result.providerHttpStatus).toBeNull();
+    expect(result.message).toContain("gerçek API çağrısı yapılmadı");
+  });
+
+  it("testConnection with enabled transport returns OK + provider HTTP status (real Identity call)", async () => {
+    const enabled = getShippingAdapter(
+      "DHL_ECOMMERCE",
+      sequencedTransport([
+        { status: 200, body: JSON.stringify({ jwt: "jwt.value.x", jwtExpireDate: "10.03.2030 16:05:00" }) },
+      ]),
+    );
+    const result = await enabled.testConnection({
+      context: ctx("DHL_ECOMMERCE", {
+        credentials: {
+          IDENTITY: dhlIdentity(),
+          STANDARD_COMMAND: product("STANDARD_COMMAND"),
+          STANDARD_QUERY: product("STANDARD_QUERY"),
+          BARCODE_COMMAND: product("BARCODE_COMMAND"),
+        },
+      }),
+    });
     expect(result.ok).toBe(true);
-    expect(result.message).toContain("Canlı doğrulama kapalı");
+    expect(result.status).toBe("OK");
+    expect(result.providerHttpStatus).toBe(200);
+    expect(result.testType).toBe("IDENTITY_TOKEN");
+    // JWT plain deger sonuca SIZMAZ.
+    expect(JSON.stringify(result)).not.toContain("jwt.value.x");
+  });
+
+  it("testConnection enabled but auth fails → FAILED (not OK), with provider HTTP status", async () => {
+    const enabled = getShippingAdapter(
+      "DHL_ECOMMERCE",
+      sequencedTransport([{ status: 401, body: JSON.stringify({ message: "unauthorized" }) }]),
+    );
+    const result = await enabled.testConnection({
+      context: ctx("DHL_ECOMMERCE", {
+        credentials: {
+          IDENTITY: dhlIdentity(),
+          STANDARD_COMMAND: product("STANDARD_COMMAND"),
+          STANDARD_QUERY: product("STANDARD_QUERY"),
+          BARCODE_COMMAND: product("BARCODE_COMMAND"),
+        },
+      }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("FAILED");
+    expect(result.providerHttpStatus).toBe(401);
   });
 
   it("read-only metotlar transport kapaliyken SHIPPING_HTTP_DISABLED döner", async () => {
@@ -199,5 +247,29 @@ describe("Geliver adapter — test-only, label purchase guarded", () => {
       adapter.testConnection({ context: ctx("GELIVER", { credentials: {} }) }),
       "CONFIG_INCOMPLETE",
     );
+  });
+
+  it("testConnection with disabled transport does NOT return OK — HTTP_DISABLED", async () => {
+    const result = await adapter.testConnection({
+      context: ctx("GELIVER", { credentials: { DEFAULT: product("DEFAULT") } }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("HTTP_DISABLED");
+    expect(result.providerHttpStatus).toBeNull();
+    expect(result.message).toContain("gerçek API çağrısı yapılmadı");
+  });
+
+  it("testConnection with enabled transport returns OK + HTTP status (real geo/cities call)", async () => {
+    const enabled = getShippingAdapter(
+      "GELIVER",
+      sequencedTransport([{ status: 200, body: JSON.stringify([{ code: "34", name: "İstanbul" }]) }]),
+    );
+    const result = await enabled.testConnection({
+      context: ctx("GELIVER", { credentials: { DEFAULT: product("DEFAULT") } }),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe("OK");
+    expect(result.providerHttpStatus).toBe(200);
+    expect(result.testType).toBe("GEO_CITIES");
   });
 });
