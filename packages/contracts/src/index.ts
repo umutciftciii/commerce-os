@@ -1857,3 +1857,102 @@ export const customerOrderListResponseSchema = z.object({
 
 export type CustomerOrderSummary = z.infer<typeof customerOrderSummarySchema>;
 export type CustomerOrderListResponse = z.infer<typeof customerOrderListResponseSchema>;
+
+/* ── Store-admin müşteri dizini (F3B.3) ───────────────────────────────────────
+ * Mağaza paneli müşteri listesi. PII minimizasyonu: hash/token/OTP ASLA dönmez;
+ * adres yalnızca şehir/ilçe özeti taşır (TCKN/VKN/IBAN bu yüzeyde yer almaz). */
+export const storeAdminCustomerStatusSchema = z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED"]);
+
+export const storeAdminCustomerSummarySchema = z.object({
+  id: z.string().min(1),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  fullName: z.string(),
+  status: storeAdminCustomerStatusSchema,
+  emailVerified: z.boolean(),
+  phoneVerified: z.boolean(),
+  // hasCredential=false => kimlik kaydı yok (misafir/parolasız); true => üye.
+  hasCredential: z.boolean(),
+  orderCount: z.number().int().nonnegative(),
+  totalSpentMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  lastOrderAt: z.string().datetime().nullable(),
+  addressCount: z.number().int().nonnegative(),
+  // Varsayılan adresin kısa özeti (örn. "İstanbul, Kadıköy"); tam adres/PII içermez.
+  defaultAddressSummary: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const storeAdminCustomerListResponseSchema = z.object({
+  data: z.array(storeAdminCustomerSummarySchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export type StoreAdminCustomerStatus = z.infer<typeof storeAdminCustomerStatusSchema>;
+export type StoreAdminCustomerSummary = z.infer<typeof storeAdminCustomerSummarySchema>;
+export type StoreAdminCustomerListResponse = z.infer<typeof storeAdminCustomerListResponseSchema>;
+
+/* ── Store-admin müşteri detay + yönetim (F3B.3) ───────────────────────────────
+ * Dedicated detail route'unun (modal değil) veri sözleşmesi. account + agregalar +
+ * adresler (TCKN/VKN MASKELİ) + IBAN (MASKELİ) + iletişim tercihleri + siparişler.
+ * credential/session/OTP hash ASLA dönmez. */
+export const storeAdminCustomerDetailSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  fullName: z.string(),
+  birthDate: z.string().nullable(),
+  gender: customerGenderSchema.nullable(),
+  status: storeAdminCustomerStatusSchema,
+  emailVerified: z.boolean(),
+  phoneVerified: z.boolean(),
+  hasCredential: z.boolean(),
+  orderCount: z.number().int().nonnegative(),
+  totalSpentMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  lastOrderAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const storeAdminCustomerDetailResponseSchema = z.object({
+  customer: storeAdminCustomerDetailSchema,
+  addresses: z.array(customerAddressSchema),
+  ibans: z.array(customerIbanSchema),
+  communicationPreference: customerCommunicationPreferenceSchema,
+  orders: z.array(customerOrderSummarySchema),
+});
+
+/**
+ * Admin müşteri PATCH. Tüm alanlar opsiyonel (partial). status yalnızca
+ * ACTIVE/PASSIVE/BLOCKED (ARCHIVED admin panelinden set edilmez). E-posta/telefon
+ * admin tarafından değiştirilirse ilgili verifiedAt gateway'de null'a çekilir
+ * ("admin verified override yok" yaklaşımı).
+ */
+export const storeAdminCustomerUpdateRequestSchema = z
+  .object({
+    firstName: z.string().max(120).nullable().optional(),
+    lastName: z.string().max(120).nullable().optional(),
+    email: z.string().email("Geçerli e-posta girin.").nullable().optional(),
+    phone: z.string().max(40).nullable().optional(),
+    status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED"]).optional(),
+    birthDate: z.string().date().nullable().optional(),
+    gender: customerGenderSchema.nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "En az bir alan gönderin.")
+  .superRefine((value, ctx) => {
+    if (value.phone && value.phone.trim().length > 0 && !isValidTrPhone(value.phone)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["phone"], message: "Geçerli telefon girin." });
+    }
+  });
+
+export type StoreAdminCustomerDetail = z.infer<typeof storeAdminCustomerDetailSchema>;
+export type StoreAdminCustomerDetailResponse = z.infer<typeof storeAdminCustomerDetailResponseSchema>;
+export type StoreAdminCustomerUpdateRequest = z.infer<typeof storeAdminCustomerUpdateRequestSchema>;

@@ -132,9 +132,12 @@ export default function OrdersPage() {
   const columns: DataTableColumn<Order>[] = [
     {
       header: t.table.number,
+      className: "whitespace-nowrap",
       cell: (order) => (
-        <div>
-          <p className="font-mono text-sm font-medium text-white/90">{order.orderNumber}</p>
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-medium tracking-tight text-white/90">
+            {order.orderNumber}
+          </p>
           <p className="text-xs text-white/30">
             {order.placedAt ? formatDate(order.placedAt) : formatDate(order.createdAt)}
           </p>
@@ -143,24 +146,32 @@ export default function OrdersPage() {
     },
     {
       header: t.table.customer,
-      cell: (order) => <span className="text-white/60">{order.customerEmail}</span>,
+      className: "max-w-[16rem]",
+      cell: (order) => (
+        <span className="block truncate text-white/60" title={order.customerEmail}>
+          {order.customerEmail}
+        </span>
+      ),
     },
     {
       header: t.table.total,
+      className: "whitespace-nowrap",
       cell: (order) => (
-        <span className="font-medium text-white/90">
+        <span className="font-medium tabular-nums text-white/90">
           {formatMinor(order.totalAmount, order.currency)}
         </span>
       ),
     },
     {
       header: t.table.status,
+      className: "whitespace-nowrap",
       cell: (order) => (
         <Badge tone={ORDER_STATUS_TONES[order.status]}>{statusLabels[order.status]}</Badge>
       ),
     },
     {
       header: t.table.payment,
+      className: "whitespace-nowrap",
       cell: (order) => (
         <Badge tone={PAYMENT_STATUS_TONES[order.paymentStatus]}>
           {paymentLabels[order.paymentStatus]}
@@ -169,6 +180,7 @@ export default function OrdersPage() {
     },
     {
       header: t.table.fulfillment,
+      className: "whitespace-nowrap",
       cell: (order) => (
         <Badge tone={FULFILLMENT_STATUS_TONES[order.fulfillmentStatus]}>
           {fulfillmentLabels[order.fulfillmentStatus]}
@@ -177,6 +189,7 @@ export default function OrdersPage() {
     },
     {
       header: t.table.lines,
+      className: "whitespace-nowrap",
       cell: (order) => (
         <span className="text-white/45">
           {format(t.lineCountLabel, { count: order.lines.length })}
@@ -186,6 +199,7 @@ export default function OrdersPage() {
     {
       header: t.table.actions,
       align: "right",
+      className: "whitespace-nowrap",
       cell: (order) => {
         const busy = acting?.id === order.id;
         return (

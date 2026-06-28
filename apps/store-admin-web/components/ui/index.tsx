@@ -22,7 +22,8 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@commerce-os/ui";
 
 export { cn } from "@commerce-os/ui";
@@ -567,6 +568,11 @@ export function Modal({
   // input'tan calardi — "yeni saglayici" modalindaki focus firlamasi bug'i buydu.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Portal yalnız mount sonrası (client). SSR'da document yok; ayrıca portal,
+  // backdrop-blur'lu ata kartların (containing block) `position: fixed`'i hapsetmesini
+  // engeller — modal her zaman viewport'a göre tam ekran açılır.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;
@@ -583,9 +589,9 @@ export function Modal({
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onMouseDown={(event) => {
@@ -636,7 +642,8 @@ export function Modal({
           </footer>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

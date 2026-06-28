@@ -212,7 +212,9 @@
 - TODO-073: Store-admin orders filters — admin/store-admin siparisler listesinde temel filtreler yok.
   Eklenecek: odeme durumu (Odenmedi/Odendi/Basarisiz/Iade), siparis durumu, tarih araligi, musteri/
   e-posta arama, (opsiyonel) toplam tutar araligi. Kucuk UI bug degil; admin-list UX gelistirmesi.
-  Hedef: F3B.2 follow-up veya F3B.3 Admin Orders UX.
+  Hedef: F3B.2 follow-up veya F3B.3 Admin Orders UX. NOT (2026-06-28): F3B.3 admin regression fix'te
+  orders tablo layout'u (siparis no nowrap, e-posta ellipsis, badge/islem hizasi) duzeltildi; filtre
+  bar kapsam disi birakildi, bu TODO acik kaliyor.
 
 - F3B.3: Customer Account Auth + Checkout Guard + Address Book Foundation. (DONE — bkz. ADR-034 +
   Faz 3B.3 phase log. Mevcut `Customer` storefront uyelik hesabi olacak sekilde genisletildi;
@@ -225,5 +227,14 @@
 - TODO-075: Password reset / "sifremi unuttum" akisi (F3B.3 kapsam disiydi). OTP + yeni sifre.
 - TODO-076: Gercek SMS/e-posta OTP teslimat saglayici entegrasyonu. Su an provider-ready dev/mock;
   `CUSTOMER_OTP_DEV_CODE` yalniz development/test bypass'i (plain kod loglanmaz).
+- TODO-078: Store-admin customers DETAIL route — DONE (F3B.3 Store-Admin Customer Management Fix).
+  Dedicated route `/customers/[id]` (modal degil); gateway `GET/PATCH /stores/:storeId/customers/:customerId`
+  + adres/IBAN/iletisim tercihleri alt uclari (CustomerDataAccess yeniden kullanildi). Profil/durum
+  guncelleme, adres CRUD + default, IBAN ekle/sil + default (maskeli), iletisim tercihleri, siparis
+  ozeti. PII minimizasyonu korunur (hash/token/OTP/plain secret yok; TCKN/VKN/IBAN maskeli).
+- TODO-087: Store-admin customer creation and credential management — panelden yeni musteri olusturma,
+  musteri credential/parola admin akisi, guvenli parola reset/aktivasyon yaklasimi. Su an admin yalniz
+  mevcut musteriyi yonetir/duzenler; olusturma ve credential/parola kapsam disi (F3B.3 guvenlik kurali:
+  admin credential dogrudan degistirmez). Sonraki faz.
 - TODO-077: Guest gecmis siparis baglama — F3B.3'te yalniz checkout anindaki yeni siparis customerId'ye
   baglanir; mevcut guest order'larin (customerEmail ile) hesaba retro baglanmasi sonraki faz.

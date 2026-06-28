@@ -1265,3 +1265,89 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   baglanir; mevcut guest order'larin hesaba retro baglanmasi sonraki faz.
 - Hesabim empty-state modulleri (Soru&Talepler, Degerlendirmeler, Begendiklerim, Listeler, Kuponlar)
   gercek modul degil; ilgili fazlarda (review/wishlist TODO-064/kupon F3F) doldurulacak.
+
+## Faz 3B.3 Store-Admin Regression Fix (Orders Layout + Customers Binding)
+
+- Tarih: 2026-06-28
+- Durum: READY_FOR_REVIEW (commit atilmadi)
+- Kapsam: F3B.3 sonrasi store-admin panelinde tespit edilen iki regresyon. (1) `/orders` liste
+  tablosu kolon dagilimi bozuk: siparis no "OS-\n000041" gibi satir kiriyor, badge/islem kolonlari
+  daginik, uzun musteri e-postasi tabloyu eziyordu. (2) `/customers` sayfasi F3B.3 ile genisleyen
+  Customer modeline hic bagli degildi — sabit `EmptyState` placeholder gosteriyordu. Kapsam disi:
+  buyuk admin customer management modulu, customer edit/delete/password-reset, gercek support/review/
+  wishlist, orders filter bar (TODO-073 acik birakildi), customers detail route (TODO-078).
+
+- Orders layout (`apps/store-admin-web/app/(app)/orders/page.tsx`): kok neden, generic `DataTable`
+  hucrelerinde `whitespace-nowrap`/genislik kisiti olmamasiydi; 8 kolon `w-full` icine sikisinca
+  auto table-layout en uzun icerige (e-posta) yer acip siparis no kolonunu eziyordu. Cozum kolon
+  bazli: siparis no/tutar/durum/odeme/karsilama/kalem/islem kolonlarina `whitespace-nowrap`
+  (header+hucre `column.className` ile birlikte gelir, boylece "SIPARIS DURUMU" basliklari da tek
+  satir), tutarlara `tabular-nums`, musteri e-postasi `max-w-[16rem]` + `truncate` + `title`
+  (tasma yerine ellipsis). `DataTable` bilesenine dokunulmadi → diger admin tablolarinda regresyon yok.
+
+- Customers binding: yeni store-scoped salt-okunur uc `GET /stores/:storeId/customers`
+  (`requireStorePlatformAdmin`; tenant scope zorunlu). Data-access `listCustomers` Customer'i
+  credential varligi (yalniz `id`), siparis ozeti (adet/iptal-disi harcama/son siparis), adres
+  ozeti (varsayilan adres "Sehir, Ilce") ile toparlar. Serializer yalniz guvenli/maskeli alanlari
+  dondurur. Kontratlar: `storeAdminCustomerSummarySchema` + list response. api-client:
+  `admin.customers.list`. BFF: `app/api/customers/route.ts` (store baglami server-side). Sayfa
+  client component'e cevrildi (orders deseni): ad, e-posta/telefon, durum, uyelik (Uye/Misafir),
+  dogrulama rozetleri, siparis adedi, toplam harcama, varsayilan adres, katilim tarihi + 3 ozet kart.
+- PII/secret: passwordHash/tokenHash/codeHash/session/OTP ve tam TCKN/VKN/IBAN bu yuzeye HIC cikmaz;
+  adres ozeti yalniz sehir/ilce. Test ile dogrulandi (response string'inde sizinti markeri yok).
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` 34/34, `test` 34/34 (api-gateway
+  +3 musteri dizini testi: auth zorunlu, guvenli alan listesi + sizinti yok, cross-store izolasyon),
+  `git diff --check` temiz.
+- Acik kalan: TODO-073 (orders filter bar — layout fix'i buyutmemek icin acik), TODO-078 (customers
+  detail route — liste dogru veriye baglandi, ayrintili profil/adres/siparis ekrani sonraki is).
+
+## Faz 3B.3 Store-Admin Customer Management Fix (Detail Route + Update)
+
+- Tarih: 2026-06-28
+- Durum: READY_FOR_REVIEW (commit atilmadi). Ayni branch: claude/f3b3-store-admin-regression-fix.
+- Kapsam: Onceki adimda `/customers` listesi baglandi ama musteri DETAY + GUNCELLEME yoktu (operasyonel
+  eksik). Bu is dedicated detay route'u + tenant-scoped yonetim uclari ekler. Proje kurali geregi ana
+  entity detayi MODAL DEGIL: `/customers/[id]` ayri sayfa; modal yalniz kisa adres/IBAN form'u icin.
+  Kapsam disi: panelden musteri olusturma, credential/parola sifirlama (TODO-087), gercek OTP provider,
+  merge/dedup, segment/B2B, support/review/wishlist.
+
+- Eklenen uclar (gateway, store-scoped, `requireStorePlatformAdmin`): `GET /stores/:storeId/customers/:id`
+  (detay: account + agregalar + adresler + IBAN + tercihler + siparisler), `PATCH .../:id` (temel bilgi
+  + durum), `PUT .../:id/communication-preferences`, adres `POST` / `PATCH` / `DELETE` / `POST .../default`,
+  IBAN `POST` / `DELETE` / `POST .../default`. Storefront `CustomerDataAccess` (adres/IBAN/tercih/siparis
+  CRUD) ve serializer'lar yeniden kullanildi; yeni metotlar yalniz `adminFindDetail` + `adminUpdateCustomer`.
+  `registerCustomerAdminRoutes` customers/index.ts'te; guard server.ts'ten enjekte edilir.
+- Update davranisi/validation kararlari:
+  - E-posta/telefon store-scope UNIQUE (uygulama on-kontrol + DB constraint son guvenlik agi; cakisma
+    409 EMAIL_TAKEN/PHONE_TAKEN).
+  - **Dogrulama karari:** admin e-posta/telefon DEGISTIRIRSE ilgili `emailVerifiedAt`/`phoneVerifiedAt`
+    NULL'a cekilir ("admin verified override yok"; yeni deger yeniden dogrulama gerektirir).
+  - status yalniz ACTIVE/PASSIVE/BLOCKED (ARCHIVED panelden set EDILMEZ).
+  - Adres TCKN (Bireysel) / VKN (Kurumsal) F3B.2 ile ayni katilikta dogrulanir; guncellemede maskeli/bos
+    tax alani mevcut degeri korur. credential/parola admin tarafindan DEGISTIRILMEZ.
+- Adres yonetimi: ekle/duzenle/sil (soft delete) + varsayilan teslimat&fatura adresi sec. Siparis bolumu
+  yalniz o musterinin siparisleri. IBAN: maskeli liste + ekle/sil + varsayilan; tam IBAN yalniz yazma
+  yonunde gider, yanit MASKELI. Iletisim tercihleri (SMS/e-posta/telefon) update.
+- UI: `app/(app)/customers/[id]/page.tsx` — kimlik header (ad/e-posta/telefon/durum/uyelik/dogrulama
+  rozetleri), sag baglam rail'i (kayit/son siparis/adet/harcama/varsayilan adres), kartlar: Profil&Iletisim
+  (edit modal), Uyelik&Durum (status select + dogrulama), Adresler (CRUD + default, kisa form modal),
+  Siparisler (tablo), Iletisim Tercihleri (toggle), IBAN (maskeli + form modal). Liste ekranina "Yonet"
+  CTA kolonu eklendi. Premium dark/glass dili korundu; uzun e-posta/adres ellipsis/nowrap.
+- BFF: `app/api/customers/[id]/...` route handler'lari (GET/PATCH + alt kaynaklar; mutasyonlar CSRF'li,
+  store baglami server-side). api-client `admin.customers.{get,update,updateCommunicationPreferences,
+  addresses.*,ibans.*}`; storeApi karsiliklari.
+- PII/secret: detay/yonetim response'larinda passwordHash/tokenHash/codeHash/session/OTP YOK; TCKN/VKN/
+  IBAN MASKELI; tam IBAN/TCKN/VKN list/response'a CIKMAZ. Test ile dogrulandi.
+- Modal portal fix (`components/ui/index.tsx`): müşteri detay modalları (Profil edit, Adres ekle/düzenle,
+  IBAN ekle) cam kart içinde açıldığında BOZUK görünüyordu — kök neden: `backdrop-filter`'lı ata kart
+  (SurfaceCard/GLASS) `position: fixed` için containing block oluşturup modalı kartın içine hapsediyordu
+  (overlay tam ekranı kaplamıyor, panel saydam, sayfa içeriği sızıyor). Çözüm: `Modal` artık
+  `createPortal(document.body)` ile render edilir (SSR-safe mounted guard); her zaman viewport'a göre
+  tam ekran açılır. Tüm modal kullanan ekranlar (orders/products/payment) testleriyle korundu.
+- Gate: `pnpm db:generate` OK, `build` 24/24, `typecheck` 0, `lint` 34/34, `test` 34/34 (api-gateway
+  health.test.ts 84 test; +12 yeni: detay auth/tenant-scope/404, PATCH temel+status, EMAIL_TAKEN 409,
+  cross-store PATCH 404, adres CRUD+default+TCKN/VKN validation, iletisim tercihleri, IBAN maskeli,
+  siparis izolasyonu), `git diff --check` temiz. Modal portal sonrası store-admin modal testleri
+  (orders/order-detail/product-detail/payment-providers/store-admin-interactions) yesil.
+- Acik kalan: TODO-073 (orders filter bar), TODO-087 (panelden musteri olusturma + credential/parola
+  admin akisi — guvenlik kurali geregi bu fazda kapsam disi).

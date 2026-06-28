@@ -51,6 +51,8 @@ import {
   maskTaxId,
   normalizeIban,
   normalizeTrPhone,
+  storeAdminCustomerDetailResponseSchema,
+  storeAdminCustomerUpdateRequestSchema,
 } from "@commerce-os/contracts";
 
 /* ── Tipler ───────────────────────────────────────────────────────────────── */
@@ -260,6 +262,26 @@ export interface CustomerDataAccess {
       lines: { title: string; variantTitle: string; quantity: number }[];
     }[]
   >;
+  // F3B.3 store-admin — müşteri detay/yönetim. createdAt + üyelik (hasCredential) ile.
+  adminFindDetail(
+    storeId: string,
+    customerId: string,
+  ): Promise<(CustomerAuthRecord & { createdAt: Date; hasCredential: boolean }) | null>;
+  // Admin temel bilgi/durum güncellemesi. E-posta/telefon store-scope unique; çakışırsa
+  // sentinel döner. E-posta/telefon değişirse ilgili verifiedAt null'a çekilir.
+  adminUpdateCustomer(
+    storeId: string,
+    customerId: string,
+    input: {
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      status?: CustomerStatus;
+      birthDate?: Date | null;
+      gender?: CustomerGender | null;
+    },
+  ): Promise<CustomerAuthRecord | "NOT_FOUND" | "EMAIL_TAKEN" | "PHONE_TAKEN">;
 }
 
 export function createPrismaCustomerDataAccess(): CustomerDataAccess {
@@ -598,6 +620,69 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
       });
       return orders;
     },
+    async adminFindDetail(storeId, customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: { id: customerId, storeId },
+        select: { ...customerAuthSelect, createdAt: true, credential: { select: { id: true } } },
+      });
+      if (!customer) return null;
+      const { credential, ...rest } = customer;
+      return { ...rest, hasCredential: credential !== null };
+    },
+    async adminUpdateCustomer(storeId, customerId, input) {
+      const current = await prisma.customer.findFirst({
+        where: { id: customerId, storeId },
+        select: { id: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true },
+      });
+      if (!current) return "NOT_FOUND";
+
+      const data: Prisma.CustomerUpdateInput = {};
+      if (input.firstName !== undefined) data.firstName = input.firstName;
+      if (input.lastName !== undefined) data.lastName = input.lastName;
+      if (input.birthDate !== undefined) data.birthDate = input.birthDate;
+      if (input.gender !== undefined) data.gender = input.gender;
+      if (input.status !== undefined) data.status = input.status;
+
+      // E-posta değişimi: store-scope unique + admin doğrulama override etmez.
+      if (input.email !== undefined && input.email !== current.email) {
+        if (input.email) {
+          const clash = await prisma.customer.findFirst({
+            where: { storeId, email: input.email, NOT: { id: customerId } },
+            select: { id: true },
+          });
+          if (clash) return "EMAIL_TAKEN";
+        }
+        data.email = input.email;
+        data.emailVerifiedAt = null;
+      }
+      // Telefon değişimi: store-scope unique + admin doğrulama override etmez.
+      if (input.phone !== undefined && input.phone !== current.phone) {
+        if (input.phone) {
+          const clash = await prisma.customer.findFirst({
+            where: { storeId, phone: input.phone, NOT: { id: customerId } },
+            select: { id: true },
+          });
+          if (clash) return "PHONE_TAKEN";
+        }
+        data.phone = input.phone;
+        data.phoneVerifiedAt = null;
+      }
+
+      try {
+        return await prisma.customer.update({
+          where: { id: customerId },
+          data,
+          select: customerAuthSelect,
+        });
+      } catch (error) {
+        // Yarış durumunda DB unique constraint son güvenlik ağı.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const target = (error.meta?.target as string[] | undefined)?.join(",") ?? "";
+          return target.includes("phone") ? "PHONE_TAKEN" : "EMAIL_TAKEN";
+        }
+        throw error;
+      }
+    },
   };
 }
 
@@ -693,6 +778,34 @@ function resolveTaxFields(
     return { tckn: null, taxNumber: provided ?? existing?.taxNumber ?? null };
   }
   return { tckn: null, companyName: null, taxOffice: null, taxNumber: null };
+}
+
+/** Adres form girdisini DB kaydına normalize eder (storefront + admin ortak). */
+function normalizeAddressInput(
+  body: ReturnType<typeof customerAddressInputSchema.parse>,
+  existing: { tckn: string | null; taxNumber: string | null } | null,
+): CustomerAddressInputRecord {
+  const billingType = body.billingType ?? null;
+  const tax = resolveTaxFields(
+    { billingType, tckn: body.tckn ?? null, taxNumber: body.taxNumber ?? null },
+    existing,
+  );
+  return {
+    addressName: body.addressName,
+    fullName: body.fullName,
+    phone: normalizeTrPhone(body.phone),
+    city: body.city,
+    district: body.district ?? null,
+    addressLine1: body.addressLine1,
+    addressLine2: body.addressLine2 ?? null,
+    postalCode: body.postalCode ?? null,
+    isDefaultShipping: body.isDefaultShipping,
+    billingType,
+    tckn: tax.tckn ?? null,
+    companyName: billingType === "CORPORATE" ? (body.companyName ?? null) : null,
+    taxOffice: billingType === "CORPORATE" ? (body.taxOffice ?? null) : null,
+    taxNumber: tax.taxNumber ?? null,
+  };
 }
 
 interface SimpleRateLimiter {
@@ -1103,33 +1216,6 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     return customerAddressListResponseSchema.parse({ data: addresses.map(toAddress) });
   });
 
-  function normalizeAddressInput(
-    body: ReturnType<typeof customerAddressInputSchema.parse>,
-    existing: { tckn: string | null; taxNumber: string | null } | null,
-  ): CustomerAddressInputRecord {
-    const billingType = body.billingType ?? null;
-    const tax = resolveTaxFields(
-      { billingType, tckn: body.tckn ?? null, taxNumber: body.taxNumber ?? null },
-      existing,
-    );
-    return {
-      addressName: body.addressName,
-      fullName: body.fullName,
-      phone: normalizeTrPhone(body.phone),
-      city: body.city,
-      district: body.district ?? null,
-      addressLine1: body.addressLine1,
-      addressLine2: body.addressLine2 ?? null,
-      postalCode: body.postalCode ?? null,
-      isDefaultShipping: body.isDefaultShipping,
-      billingType,
-      tckn: tax.tckn ?? null,
-      companyName: billingType === "CORPORATE" ? (body.companyName ?? null) : null,
-      taxOffice: billingType === "CORPORATE" ? (body.taxOffice ?? null) : null,
-      taxNumber: tax.taxNumber ?? null,
-    };
-  }
-
   app.post("/public/stores/:storeSlug/customer/addresses", async (request, reply) => {
     const store = await requireStore(request, reply);
     if (!store) return;
@@ -1273,5 +1359,255 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
         createdAt: order.createdAt.toISOString(),
       })),
     });
+  });
+}
+
+/* ── Store-admin müşteri yönetimi (F3B.3) ─────────────────────────────────────
+ * Mağaza paneli müşteri DETAY + yönetim uçları. `requireStoreAdmin` guard'ı
+ * server.ts'ten (platform-admin + store scope) enjekte edilir. Tüm sorgular
+ * store+customer scoped; başka mağaza müşterisi görülemez/değiştirilemez.
+ * credential/session/OTP hash response'a ÇIKMAZ; TCKN/VKN/IBAN MASKELİ döner. */
+
+export interface CustomerAdminRoutesDeps {
+  customers: CustomerDataAccess;
+  logger: CustomerLogger;
+  requireStoreAdmin: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    storeId: string,
+  ) => Promise<{ actorUserId: string } | null>;
+}
+
+interface AdminParams {
+  storeId: string;
+  customerId: string;
+}
+
+export function registerCustomerAdminRoutes(app: FastifyInstance, deps: CustomerAdminRoutesDeps): void {
+  const { customers, requireStoreAdmin } = deps;
+
+  function adminParams(request: FastifyRequest): AdminParams {
+    const { storeId, customerId } = request.params as AdminParams;
+    return { storeId, customerId };
+  }
+
+  // İptal edilenler harcamaya dahil edilmez (liste ucu ile aynı kural).
+  function summarizeOrders(
+    orders: Awaited<ReturnType<CustomerDataAccess["listOrders"]>>,
+  ): { orderCount: number; totalSpentMinor: number; currency: string; lastOrderAt: Date | null } {
+    const billable = orders.filter((order) => order.status !== "CANCELLED");
+    const totalSpentMinor = billable.reduce((sum, order) => sum + order.totalAmount, 0);
+    return {
+      orderCount: orders.length,
+      totalSpentMinor,
+      currency: billable[0]?.currency ?? orders[0]?.currency ?? "TRY",
+      lastOrderAt: orders[0]?.createdAt ?? null,
+    };
+  }
+
+  // --- Detay ----------------------------------------------------------------
+  app.get("/stores/:storeId/customers/:customerId", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    const [addresses, ibans, commPref, orders] = await Promise.all([
+      customers.listAddresses(storeId, customerId),
+      customers.listIbans(storeId, customerId),
+      customers.getCommPref(storeId, customerId),
+      customers.listOrders(storeId, customerId),
+    ]);
+    const stats = summarizeOrders(orders);
+    const fullName = [detail.firstName, detail.lastName].filter(Boolean).join(" ").trim();
+    return storeAdminCustomerDetailResponseSchema.parse({
+      customer: {
+        id: detail.id,
+        email: detail.email,
+        phone: detail.phone,
+        firstName: detail.firstName,
+        lastName: detail.lastName,
+        fullName: fullName.length > 0 ? fullName : (detail.email ?? detail.phone ?? detail.id),
+        birthDate: detail.birthDate ? detail.birthDate.toISOString().slice(0, 10) : null,
+        gender: detail.gender,
+        status: detail.status,
+        emailVerified: Boolean(detail.emailVerifiedAt),
+        phoneVerified: Boolean(detail.phoneVerifiedAt),
+        hasCredential: detail.hasCredential,
+        orderCount: stats.orderCount,
+        totalSpentMinor: stats.totalSpentMinor,
+        currency: stats.currency,
+        lastOrderAt: stats.lastOrderAt?.toISOString() ?? null,
+        createdAt: detail.createdAt.toISOString(),
+      },
+      addresses: addresses.map(toAddress),
+      ibans: ibans.map(toIban),
+      communicationPreference: commPref,
+      orders: orders.map((order) => ({
+        orderNumber: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        currency: order.currency,
+        totalMinor: order.totalAmount,
+        itemCount: order.lines.reduce((sum, line) => sum + line.quantity, 0),
+        lines: order.lines.map((line) => ({
+          title: line.title,
+          variantTitle: line.variantTitle,
+          quantity: line.quantity,
+        })),
+        createdAt: order.createdAt.toISOString(),
+      })),
+    });
+  });
+
+  // --- Temel bilgi / durum güncelleme ---------------------------------------
+  app.patch("/stores/:storeId/customers/:customerId", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const body = storeAdminCustomerUpdateRequestSchema.parse(request.body);
+    const result = await customers.adminUpdateCustomer(storeId, customerId, {
+      ...(body.firstName !== undefined ? { firstName: body.firstName } : {}),
+      ...(body.lastName !== undefined ? { lastName: body.lastName } : {}),
+      ...(body.email !== undefined ? { email: body.email } : {}),
+      ...(body.phone !== undefined ? { phone: body.phone ? normalizeTrPhone(body.phone) : body.phone } : {}),
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.birthDate !== undefined ? { birthDate: body.birthDate ? new Date(body.birthDate) : null } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+    });
+    if (result === "NOT_FOUND") {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    if (result === "EMAIL_TAKEN") {
+      return reply.code(409).send(errorBody("EMAIL_TAKEN", "Bu e-posta bu mağazada kullanımda."));
+    }
+    if (result === "PHONE_TAKEN") {
+      return reply.code(409).send(errorBody("PHONE_TAKEN", "Bu telefon bu mağazada kullanımda."));
+    }
+    return { customer: toAccount(result) };
+  });
+
+  // --- İletişim tercihleri --------------------------------------------------
+  app.put("/stores/:storeId/customers/:customerId/communication-preferences", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    const body = customerCommunicationPreferenceSchema.parse(request.body);
+    await customers.upsertCommPref(storeId, customerId, body);
+    return customerCommunicationPreferenceSchema.parse(body);
+  });
+
+  // --- Adres defteri --------------------------------------------------------
+  app.post("/stores/:storeId/customers/:customerId/addresses", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    const body = customerAddressInputSchema.parse(request.body);
+    if (body.billingType === "INDIVIDUAL" && (!body.tckn || !isValidTckn(body.tckn))) {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Geçerli T.C. Kimlik No zorunlu."));
+    }
+    if (body.billingType === "CORPORATE" && (!body.taxNumber || !isValidTaxNumber(body.taxNumber))) {
+      return reply.code(400).send(errorBody("VALIDATION_ERROR", "Geçerli vergi no zorunlu."));
+    }
+    const created = await customers.createAddress(storeId, customerId, normalizeAddressInput(body, null));
+    return reply.code(201).send({ address: toAddress(created) });
+  });
+
+  app.patch("/stores/:storeId/customers/:customerId/addresses/:addressId", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const { addressId } = request.params as { addressId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const existing = await customers.findAddress(storeId, customerId, addressId);
+    if (!existing) {
+      return reply.code(404).send(errorBody("ADDRESS_NOT_FOUND", "Adres bulunamadı."));
+    }
+    const body = customerAddressInputSchema.parse(request.body);
+    const updated = await customers.updateAddress(
+      storeId,
+      customerId,
+      addressId,
+      normalizeAddressInput(body, { tckn: existing.tckn, taxNumber: existing.taxNumber }),
+    );
+    if (!updated) {
+      return reply.code(404).send(errorBody("ADDRESS_NOT_FOUND", "Adres bulunamadı."));
+    }
+    return { address: toAddress(updated) };
+  });
+
+  app.delete("/stores/:storeId/customers/:customerId/addresses/:addressId", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const { addressId } = request.params as { addressId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const deleted = await customers.softDeleteAddress(storeId, customerId, addressId);
+    if (!deleted) {
+      return reply.code(404).send(errorBody("ADDRESS_NOT_FOUND", "Adres bulunamadı."));
+    }
+    return { deleted: true };
+  });
+
+  app.post("/stores/:storeId/customers/:customerId/addresses/:addressId/default", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const { addressId } = request.params as { addressId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const ok = await customers.setDefaultAddress(storeId, customerId, addressId);
+    if (!ok) {
+      return reply.code(404).send(errorBody("ADDRESS_NOT_FOUND", "Adres bulunamadı."));
+    }
+    return { updated: true };
+  });
+
+  // --- IBAN -----------------------------------------------------------------
+  app.post("/stores/:storeId/customers/:customerId/ibans", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const detail = await customers.adminFindDetail(storeId, customerId);
+    if (!detail) {
+      return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    const body = customerIbanInputSchema.parse(request.body);
+    const created = await customers.createIban(storeId, customerId, {
+      accountHolderName: body.accountHolderName,
+      iban: normalizeIban(body.iban),
+      isDefault: body.isDefault ?? false,
+    });
+    return reply.code(201).send({ iban: toIban(created) });
+  });
+
+  app.delete("/stores/:storeId/customers/:customerId/ibans/:ibanId", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const { ibanId } = request.params as { ibanId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const deleted = await customers.softDeleteIban(storeId, customerId, ibanId);
+    if (!deleted) {
+      return reply.code(404).send(errorBody("IBAN_NOT_FOUND", "IBAN bulunamadı."));
+    }
+    return { deleted: true };
+  });
+
+  app.post("/stores/:storeId/customers/:customerId/ibans/:ibanId/default", async (request, reply) => {
+    const { storeId, customerId } = adminParams(request);
+    const { ibanId } = request.params as { ibanId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const ok = await customers.setDefaultIban(storeId, customerId, ibanId);
+    if (!ok) {
+      return reply.code(404).send(errorBody("IBAN_NOT_FOUND", "IBAN bulunamadı."));
+    }
+    return { updated: true };
   });
 }
