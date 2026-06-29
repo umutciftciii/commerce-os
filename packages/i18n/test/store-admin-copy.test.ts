@@ -72,6 +72,20 @@ describe("storeAdmin Faz 2B copy", () => {
     expect(enSm.notPurchasableBadge).toBe("Not purchasable");
   });
 
+  it("F3C.2: ships product/variant shipping-dimension copy in both locales", () => {
+    expect(tr.products.form.shippingSectionTitle).toBe("Kargo ölçüleri");
+    expect(en.products.form.shippingSectionTitle).toBe("Shipping dimensions");
+    expect(tr.products.form.shippingWeightLabel).toBe("Kargo ağırlığı (kg)");
+    expect(tr.products.form.shippingDesiLabel).toBe("Kargo desisi");
+    expect(typeof en.products.form.shippingDesiHint).toBe("string");
+    expect(typeof en.products.form.shippingPositiveError).toBe("string");
+    // Varyant formu da kargo ölçüsü kopyasını taşır.
+    expect(tr.variants.form.shippingWeightLabel).toBe("Kargo ağırlığı (kg)");
+    expect(en.variants.form.shippingWeightLabel).toBe("Shipping weight (kg)");
+    expect(typeof en.variants.form.shippingDesiLabel).toBe("string");
+    expect(typeof en.variants.form.shippingDesiHint).toBe("string");
+  });
+
   it("maps product sales-model guard error codes in both locales", () => {
     expect(tr.errors.PRODUCT_NOT_PURCHASABLE).toBe("Bu ürün doğrudan satın alınamaz.");
     expect(typeof en.errors.PRODUCT_REQUIRES_APPOINTMENT).toBe("string");

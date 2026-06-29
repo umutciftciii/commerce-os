@@ -77,6 +77,14 @@ import {
   type CustomerDataAccess,
 } from "./customers/index.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
+import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
+import {
+  computeStoreShippingQuote,
+  resolveActiveRatePlan,
+  toEnginePlan,
+} from "./shipping/rate-plan-service.js";
+import { resolveShippingDims } from "./shipping/price-engine.js";
+import type { EngineAddress, EngineCart, EngineRatePlan } from "./shipping/price-engine.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
@@ -188,6 +196,8 @@ type ProductRecord = Pick<
   | "whatsappMessageTemplate"
   | "inquiryFormTitle"
   | "appointmentNote"
+  | "shippingWeightKg"
+  | "shippingDesi"
   | "createdAt"
   | "updatedAt"
 > & { categoryIds: string[] };
@@ -204,6 +214,8 @@ type VariantRecord = Pick<
   | "currency"
   | "status"
   | "optionValues"
+  | "shippingWeightKg"
+  | "shippingDesi"
   | "createdAt"
   | "updatedAt"
 >;
@@ -288,6 +300,10 @@ type OrderRecord = Pick<
   | "subtotalAmount"
   | "discountAmount"
   | "shippingAmount"
+  | "shippingCurrency"
+  | "shippingSource"
+  | "shippingRatePlanId"
+  | "shippingRatePlanName"
   | "taxAmount"
   | "totalAmount"
   | "placedAt"
@@ -527,6 +543,8 @@ export interface AppDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds: string[];
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<ProductRecord>;
   updateProduct(
@@ -556,6 +574,8 @@ export interface AppDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds?: string[];
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<ProductRecord | null>;
   listVariants(
@@ -578,6 +598,8 @@ export interface AppDataAccess {
       status: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<VariantRecord>;
   updateVariant(
@@ -594,6 +616,8 @@ export interface AppDataAccess {
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<VariantRecord | null>;
   listInventory(
@@ -630,6 +654,23 @@ export interface AppDataAccess {
     input: { limit: number; offset: number },
   ): Promise<{ data: StoreAdminCustomerRecord[]; total: number }>;
   findOrderById(storeId: string, orderId: string): Promise<OrderRecord | null>;
+  /**
+   * F3C.2 — Magazanin AKTIF DEFAULT kargo TARIFE planini (engine sekli) cozer.
+   * Yoksa null. Kargo ucreti bu plandan hesaplanir; provider canli quote DEGIL.
+   */
+  resolveActiveShippingRatePlan(storeId: string): Promise<EngineRatePlan | null>;
+  /**
+   * F3C.2 — Sepet kargo quote PREVIEW'i icin teslimat adresinin sehir/ilce bilgisi.
+   * Once isDefaultShipping=true; YOKSA en eski (createdAt asc) kayitli adrese duser —
+   * checkout adres defterinin onsecimiyle (default ?? addresses[0]) AYNI sirada — ki
+   * default isaretlenmemis ama adresi olan musteride preview ADDRESS_REQUIRED'da
+   * takilmasin. Hicbir adres yoksa null. Nihai ucret checkout'ta SECILEN adresten
+   * yeniden hesaplanir; bu yalniz onizleme adresidir.
+   */
+  findDefaultShippingAddress(
+    storeId: string,
+    customerId: string,
+  ): Promise<{ city: string; district: string | null } | null>;
   createOrder(
     storeId: string,
     input: {
@@ -637,8 +678,15 @@ export interface AppDataAccess {
       customerEmail: string;
       currency: string;
       lines: Array<{ variantId: string; quantity: number }>;
-      /** Opsiyonel demo kargo ucreti (minor); verilmezse 0. */
+      /** Kargo ucreti (minor); store tarifesinden hesaplanir, verilmezse 0. */
       shippingAmount?: number;
+      /** F3C.2 — Kargo ucreti SNAPSHOT meta'si (kaynak + plan kimligi). */
+      shippingSnapshot?: {
+        currency: string;
+        source: "STORE_FIXED_RULE" | "STORE_SHIPPING_TARIFF" | "MOCK";
+        ratePlanId: string | null;
+        ratePlanName: string | null;
+      } | null;
       /** Opsiyonel demo indirim tutari (minor); verilmezse 0. */
       discountAmount?: number;
       addresses: Array<{
@@ -914,6 +962,9 @@ function serializeProduct(product: ProductRecord) {
     inquiryFormTitle: product.inquiryFormTitle ?? null,
     appointmentNote: product.appointmentNote ?? null,
     categoryIds: product.categoryIds,
+    // F3C.2 — Decimal -> number (sema number bekler).
+    shippingWeightKg: decimalToNumber(product.shippingWeightKg),
+    shippingDesi: decimalToNumber(product.shippingDesi),
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
   });
@@ -925,6 +976,9 @@ function serializeVariant(variant: VariantRecord) {
     barcode: variant.barcode ?? null,
     compareAtMinor: variant.compareAtMinor ?? null,
     optionValues: variant.optionValues ?? null,
+    // F3C.2 — Decimal -> number.
+    shippingWeightKg: decimalToNumber(variant.shippingWeightKg),
+    shippingDesi: decimalToNumber(variant.shippingDesi),
     createdAt: variant.createdAt.toISOString(),
     updatedAt: variant.updatedAt.toISOString(),
   });
@@ -1133,6 +1187,10 @@ interface CartResolvableVariant {
   maxOrderQuantity: number | null;
   /** Satilabilir stok adedi; bilinmiyorsa null (tukenmis sayilmaz). */
   available: number | null;
+  /** F3C.2 — Kargo olcumu: varyant degeri ?? urun fallback (desi). null = eksik. */
+  shippingDesi: number | null;
+  /** F3C.2 — Kargo olcumu: varyant degeri ?? urun fallback (kg). null = eksik. */
+  shippingWeightKg: number | null;
 }
 
 type PublicCartLineResult = ReturnType<typeof buildPublicCartLine>;
@@ -1200,28 +1258,38 @@ function mergeCartItems(items: Array<{ variantId: string; quantity: number }>) {
   return [...merged.entries()].map(([variantId, quantity]) => ({ variantId, quantity }));
 }
 
+/** Prisma Decimal (veya number) -> number | null. Eksik olcum null doner. */
+function decimalToNumber(value: Prisma.Decimal | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "number" ? value : value.toNumber();
+}
+
 /**
- * Sepet ozeti DEMO hesabi (F3B.1 UX). Gercek shipping/tax/coupon motoru YOKTUR;
- * acik demo kurallari (bkz. ADR-031):
- *   - KDV (%20) fiyatlara DAHILDIR; toplam uzerine EKLENMEZ. taxIncludedMinor
- *     yalnizca grand total icindeki KDV gostergesidir.
- *   - Kargo: itemsSubtotal >= FREE_SHIPPING_THRESHOLD ise 0, altinda SHIPPING_FEE
- *     (sepet bos/0 ise 0).
- *   - Kupon: yalnizca DEMO_COUPON_CODE (DEMO10) %10 indirim uygular; baska kod
- *     INVALID, kod yok ise NONE.
+ * Sepet ozeti hesabi. KDV (%20) fiyatlara DAHILDIR; toplam uzerine EKLENMEZ.
+ * Kupon: yalnizca DEMO_COUPON_CODE (DEMO10) %10 indirim uygular.
+ *
+ * F3C.2 — Kargo artik HARDCODED degildir; magaza kargo TARIFE planindan
+ * hesaplanir (bkz. ADR-036, price-engine.ts). shipping parametresi quote
+ * sonucunu tasir: includeInTotal=false ise (adres yok/plan yok/hata) kargo
+ * grand total'a DAHIL EDILMEZ ve 0 gosterilir.
  * grandTotal = itemsSubtotal - discount + shipping.
  */
-// TODO-094B NOT: Bu ₺49,90 sabit MAGAZA KARGO KURALIDIR; kargo SAGLAYICI (DHL/Geliver)
-// quote'u DEGILDIR. F3C.1 shipping provider altyapisi checkout sepet hesabina BAGLI
-// DEGILDIR — provider calculateRate yalniz admin sipariş panelinden manuel cagrilir.
-// Checkout'a canli provider ucreti baglanmasi ayri bir faz isidir (bkz. ADR-031).
-const CART_FREE_SHIPPING_THRESHOLD_MINOR = 75_000; // ₺750 (sabit magaza kurali)
-const CART_SHIPPING_FEE_MINOR = 4_990; // ₺49,90 (sabit magaza kurali; provider quote DEGIL)
 const CART_TAX_RATE_PERCENT = 20; // KDV (fiyatlara dahil)
 const DEMO_COUPON_CODE = "DEMO10";
 const DEMO_COUPON_RATE_PERCENT = 10;
 
-function computeCartSummary(subtotalMinor: number, currency: string, couponCode?: string | null) {
+interface CartSummaryShipping {
+  shippingMinor: number;
+  includeInTotal: boolean;
+  freeThresholdMinor: number | null;
+}
+
+function computeCartSummary(
+  subtotalMinor: number,
+  currency: string,
+  couponCode: string | null | undefined,
+  shipping: CartSummaryShipping,
+) {
   const code = couponCode?.trim().toUpperCase() || null;
   let discountMinor = 0;
   let couponStatus: "NONE" | "APPLIED" | "INVALID" = "NONE";
@@ -1233,8 +1301,7 @@ function computeCartSummary(subtotalMinor: number, currency: string, couponCode?
       couponStatus = "INVALID";
     }
   }
-  const shippingMinor =
-    subtotalMinor <= 0 ? 0 : subtotalMinor >= CART_FREE_SHIPPING_THRESHOLD_MINOR ? 0 : CART_SHIPPING_FEE_MINOR;
+  const shippingMinor = shipping.includeInTotal ? Math.max(0, shipping.shippingMinor) : 0;
   const grandTotalMinor = Math.max(0, subtotalMinor - discountMinor + shippingMinor);
   // KDV dahil: grand total icindeki KDV payi = total * rate / (100 + rate).
   const taxIncludedMinor = Math.round(
@@ -1247,18 +1314,52 @@ function computeCartSummary(subtotalMinor: number, currency: string, couponCode?
     taxIncludedMinor,
     grandTotalMinor,
     currency,
-    freeShippingThresholdMinor: CART_FREE_SHIPPING_THRESHOLD_MINOR,
+    freeShippingThresholdMinor: shipping.freeThresholdMinor ?? 0,
     taxRatePercent: CART_TAX_RATE_PERCENT,
     couponCode: couponStatus === "NONE" ? null : code,
     couponStatus,
   };
 }
 
+/**
+ * Sepet kargo olcumu (desi/kg) toplami. Yalniz siparise dusebilecek (UNAVAILABLE
+ * olmayan) satirlar sayilir; bir satirda olcum eksikse ilgili missing bayragi
+ * set edilir (DESI/WEIGHT tablosu modunda MISSING_DIMENSIONS'a yol acar).
+ */
+function computeCartDims(
+  index: Map<string, CartResolvableVariant>,
+  lines: PublicCartLineResult[],
+): Pick<EngineCart, "totalDesi" | "totalWeightKg" | "missingDesi" | "missingWeight"> {
+  let totalDesi = 0;
+  let totalWeightKg = 0;
+  let missingDesi = false;
+  let missingWeight = false;
+  for (const line of lines) {
+    if (line.status === "UNAVAILABLE") continue;
+    const entry = index.get(line.variantId);
+    if (!entry) continue;
+    const qty = line.availableQuantity;
+    if (entry.shippingDesi == null) missingDesi = true;
+    else totalDesi += entry.shippingDesi * qty;
+    if (entry.shippingWeightKg == null) missingWeight = true;
+    else totalWeightKg += entry.shippingWeightKg * qty;
+  }
+  return { totalDesi, totalWeightKg, missingDesi, missingWeight };
+}
+
+interface CartShippingContext {
+  plan: EngineRatePlan | null;
+  address: EngineAddress | null;
+  addressKnown: boolean;
+  now?: Date;
+}
+
 function assemblePublicCart(
   storeSlug: string,
   index: Map<string, CartResolvableVariant>,
   items: Array<{ variantId: string; quantity: number }>,
-  couponCode?: string | null,
+  couponCode: string | null | undefined,
+  shippingCtx: CartShippingContext,
 ) {
   const lines: PublicCartLineResult[] = [];
   for (const item of mergeCartItems(items)) {
@@ -1277,9 +1378,24 @@ function assemblePublicCart(
     0,
   );
   const checkoutReady = lines.length > 0 && lines.every((line) => line.status === "OK");
+
+  // F3C.2 — Kargo ucreti store tarife planindan hesaplanir (provider quote DEGIL).
+  const dims = computeCartDims(index, lines);
+  const quote = computeStoreShippingQuote(
+    shippingCtx.plan,
+    { subtotalMinor, ...dims },
+    shippingCtx.address,
+    { addressKnown: shippingCtx.addressKnown, now: shippingCtx.now },
+  );
+  const shippingOk = quote.outcome.status === "OK";
+
   // Kupon indirimi yalnizca checkout'a hazir (tum satirlar OK) sepete uygulanir;
   // aksi halde yanlis bir grand total gosterilmez.
-  const summary = computeCartSummary(subtotalMinor, currency, checkoutReady ? couponCode : null);
+  const summary = computeCartSummary(subtotalMinor, currency, checkoutReady ? couponCode : null, {
+    shippingMinor: shippingOk ? quote.outcome.amountMinor ?? 0 : 0,
+    includeInTotal: shippingOk,
+    freeThresholdMinor: shippingCtx.plan?.freeShippingThresholdMinor ?? null,
+  });
   return publicCartSchema.parse({
     storeSlug,
     currency,
@@ -1288,6 +1404,7 @@ function assemblePublicCart(
     itemCount,
     checkoutReady,
     summary,
+    shipping: quote.response,
   });
 }
 
@@ -1415,6 +1532,8 @@ function createPrismaDataAccess(): AppDataAccess {
     whatsappMessageTemplate: true,
     inquiryFormTitle: true,
     appointmentNote: true,
+    shippingWeightKg: true,
+    shippingDesi: true,
     createdAt: true,
     updatedAt: true,
     assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
@@ -1431,6 +1550,8 @@ function createPrismaDataAccess(): AppDataAccess {
     currency: true,
     status: true,
     optionValues: true,
+    shippingWeightKg: true,
+    shippingDesi: true,
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.ProductVariantSelect;
@@ -1469,6 +1590,10 @@ function createPrismaDataAccess(): AppDataAccess {
     subtotalAmount: true,
     discountAmount: true,
     shippingAmount: true,
+    shippingCurrency: true,
+    shippingSource: true,
+    shippingRatePlanId: true,
+    shippingRatePlanName: true,
     taxAmount: true,
     totalAmount: true,
     placedAt: true,
@@ -1819,6 +1944,8 @@ function createPrismaDataAccess(): AppDataAccess {
             whatsappMessageTemplate: input.whatsappMessageTemplate ?? null,
             inquiryFormTitle: input.inquiryFormTitle ?? null,
             appointmentNote: input.appointmentNote ?? null,
+            shippingWeightKg: input.shippingWeightKg ?? null,
+            shippingDesi: input.shippingDesi ?? null,
           },
           select: productSelect,
         });
@@ -1896,6 +2023,8 @@ function createPrismaDataAccess(): AppDataAccess {
             currency: input.currency,
             status: input.status,
             optionValues: input.optionValues as Prisma.InputJsonObject | undefined,
+            shippingWeightKg: input.shippingWeightKg ?? null,
+            shippingDesi: input.shippingDesi ?? null,
           },
           select: variantSelect,
         });
@@ -2117,6 +2246,21 @@ function createPrismaDataAccess(): AppDataAccess {
     },
     findOrderById: (storeId, orderId) =>
       prisma.order.findFirst({ where: { id: orderId, storeId }, select: orderSelect }),
+    resolveActiveShippingRatePlan: async (storeId) => {
+      const plan = await resolveActiveRatePlan(prisma, storeId);
+      return plan ? toEnginePlan(plan) : null;
+    },
+    findDefaultShippingAddress: async (storeId, customerId) => {
+      // Default ?? en eski adres (checkout adres defteri onsecimiyle ayni sira):
+      // isDefaultShipping desc, sonra createdAt asc. Default isaretli adres yoksa
+      // ilk kayitli adrese duser ki preview quote hesaplanabilsin.
+      const addr = await prisma.customerAddress.findFirst({
+        where: { storeId, customerId, deletedAt: null },
+        orderBy: [{ isDefaultShipping: "desc" }, { createdAt: "asc" }],
+        select: { city: true, district: true },
+      });
+      return addr ? { city: addr.city, district: addr.district } : null;
+    },
     createOrder: (storeId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
         if (input.customerId) {
@@ -2196,6 +2340,11 @@ function createPrismaDataAccess(): AppDataAccess {
             customerEmail: input.customerEmail,
             currency: input.currency,
             ...totals,
+            // F3C.2 — Kargo ucreti SNAPSHOT'i (kaynak + plan kimligi). Tutar totals'da.
+            shippingCurrency: input.shippingSnapshot?.currency ?? null,
+            shippingSource: input.shippingSnapshot?.source ?? null,
+            shippingRatePlanId: input.shippingSnapshot?.ratePlanId ?? null,
+            shippingRatePlanName: input.shippingSnapshot?.ratePlanName ?? null,
             // F3B.2 — Fatura kimlik/vergi alanlari (adres OrderAddress BILLING'de).
             billingType: input.billing?.type ?? null,
             billingName: input.billing?.name ?? null,
@@ -3008,6 +3157,11 @@ export function createServer(
             minOrderQuantity: product.minOrderQuantity,
             maxOrderQuantity: product.maxOrderQuantity ?? null,
             available: stockMap.has(variant.id) ? stockMap.get(variant.id)! : null,
+            // Kargo olcumu: varyant degeri urun-seviyesi fallback'i override eder.
+            ...resolveShippingDims(
+              { shippingDesi: decimalToNumber(variant.shippingDesi), shippingWeightKg: decimalToNumber(variant.shippingWeightKg) },
+              { shippingDesi: decimalToNumber(product.shippingDesi), shippingWeightKg: decimalToNumber(product.shippingWeightKg) },
+            ),
           });
         }
       }),
@@ -3023,7 +3177,26 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
     const index = await buildPublicCartIndex(store.id);
-    return assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null);
+    // F3C.2 — Kargo quote'u store tarife planindan hesaplanir. Oturum acmis musteri
+    // + default teslimat adresi varsa ucret hesaplanir; aksi halde ADDRESS_REQUIRED.
+    const plan = await dataAccess.resolveActiveShippingRatePlan(store.id);
+    const cartCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
+    let address: EngineAddress | null = null;
+    let addressKnown = false;
+    if (cartCustomer) {
+      const def = await dataAccess.findDefaultShippingAddress(store.id, cartCustomer.id);
+      if (def) {
+        // zoneCode: adresten zon cozumlemesi (city->zone) ileride wire edilecek (TODO);
+        // su an null -> zoneId'li kurallar eslesmez, city/district specificity calisir.
+        address = { cityCode: def.city, districtCode: def.district, regionCode: null, zoneCode: null };
+        addressKnown = true;
+      }
+    }
+    return assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
+      plan,
+      address,
+      addressKnown,
+    });
   });
 
   app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
@@ -3041,10 +3214,33 @@ export function createServer(
 
     // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout
     //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
+    //    F3C.2 — Kargo quote'u checkout teslimat adresinden hesaplanir (adres her
+    //    zaman mevcut → addressKnown=true). Quote OK degilse odeme adimina gecilmez.
     const index = await buildPublicCartIndex(store.id);
-    const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null);
+    const ratePlan = await dataAccess.resolveActiveShippingRatePlan(store.id);
+    const checkoutAddress: EngineAddress = {
+      cityCode: body.shippingAddress.city,
+      districtCode: body.shippingAddress.district ?? null,
+      regionCode: null,
+      // zoneCode: city->zone cozumlemesi ileride (TODO); su an null.
+      zoneCode: null,
+    };
+    const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
+      plan: ratePlan,
+      address: checkoutAddress,
+      addressKnown: true,
+    });
     if (!cart.checkoutReady) {
       return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
+    }
+    // Kargo ucreti hesaplanamadiysa (tarife yok / kural yok / olcum eksik) odeme
+    // adimina gecilmez; net kod + quote dondurulur.
+    if (cart.shipping.status !== "OK") {
+      return reply.code(409).send(
+        errorBody("SHIPPING_QUOTE_UNAVAILABLE", "Shipping fee could not be calculated.", {
+          shipping: cart.shipping,
+        }),
+      );
     }
     // Ozet (kargo/indirim) sunucuda hesaplandi; siparise yansitilir.
     const summary = cart.summary;
@@ -3081,6 +3277,17 @@ export function createServer(
       currency: cart.currency,
       lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
       shippingAmount: summary.shippingMinor,
+      // F3C.2 — Kargo ucreti SNAPSHOT'i siparise yazilir (kaynak + plan kimligi).
+      // Quote source DHL_ECOMMERCE bu fazda olusmaz; defansif olarak TARIFF'e duser.
+      shippingSnapshot: {
+        currency: cart.shipping.currency ?? cart.currency,
+        source:
+          cart.shipping.source === "MOCK" || cart.shipping.source === "STORE_FIXED_RULE"
+            ? cart.shipping.source
+            : "STORE_SHIPPING_TARIFF",
+        ratePlanId: cart.shipping.ratePlanId,
+        ratePlanName: cart.shipping.ratePlanName,
+      },
       discountAmount: summary.discountMinor,
       billing: {
         type: billingInfo.type,
@@ -3214,6 +3421,16 @@ export function createServer(
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
   registerShippingAdminRoutes(app, {
     config,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar
+  // + set-default). Kargo ucreti bu planlardan hesaplanir; provider canli quote DEGIL.
+  registerShippingRatePlanRoutes(app, {
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

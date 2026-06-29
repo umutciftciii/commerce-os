@@ -7,6 +7,7 @@ import {
   productSchema,
   productUpdateRequestSchema,
   productVariantCreateRequestSchema,
+  productVariantUpdateRequestSchema,
 } from "../src/index.js";
 
 describe("catalog contracts", () => {
@@ -105,10 +106,46 @@ describe("catalog contracts", () => {
       inquiryFormTitle: null,
       appointmentNote: null,
       categoryIds: [],
+      shippingWeightKg: null,
+      shippingDesi: null,
       createdAt: now,
       updatedAt: now,
     });
     expect(parsed.salesMode).toBe("ONLINE");
+  });
+
+  it("F3C.2: accepts product shipping dimensions, rejects non-positive", () => {
+    const parsed = productCreateRequestSchema.parse({
+      title: "Dim Product",
+      slug: "dim-product",
+      shippingWeightKg: 0.6,
+      shippingDesi: 5,
+    });
+    expect(parsed.shippingWeightKg).toBe(0.6);
+    expect(parsed.shippingDesi).toBe(5);
+    // Bos birakilabilir (alanlar olmadan da gecerli).
+    expect(productCreateRequestSchema.parse({ title: "No Dim", slug: "no-dim" }).shippingDesi).toBeUndefined();
+    // null = temizle (update) gecerli.
+    expect(productUpdateRequestSchema.parse({ shippingDesi: null }).shippingDesi).toBeNull();
+    // 0 ve negatif reddedilir.
+    expect(() => productCreateRequestSchema.parse({ title: "Z", slug: "z", shippingDesi: 0 })).toThrow();
+    expect(() => productCreateRequestSchema.parse({ title: "N", slug: "n", shippingWeightKg: -1 })).toThrow();
+  });
+
+  it("F3C.2: accepts variant shipping dimensions, rejects non-positive", () => {
+    const parsed = productVariantCreateRequestSchema.parse({
+      title: "Dim Variant",
+      sku: "DIM-1",
+      priceMinor: 1000,
+      shippingWeightKg: 0.4,
+      shippingDesi: 3,
+    });
+    expect(parsed.shippingWeightKg).toBe(0.4);
+    expect(parsed.shippingDesi).toBe(3);
+    expect(productVariantUpdateRequestSchema.parse({ shippingDesi: null }).shippingDesi).toBeNull();
+    expect(() =>
+      productVariantCreateRequestSchema.parse({ title: "Z", sku: "Z-1", priceMinor: 1000, shippingDesi: 0 }),
+    ).toThrow();
   });
 
   it("requires minor-unit integer prices and compare-at not below price", () => {

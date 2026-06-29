@@ -26,6 +26,7 @@ import {
   type PaymentProviderEventRecord,
   createServer,
 } from "../src/server.js";
+import type { EngineRatePlan } from "../src/shipping/price-engine.js";
 import type { CustomerDataAccess } from "../src/customers/index.js";
 import type { PaymentProviderStatus, PaymentProviderType } from "@prisma/client";
 
@@ -961,6 +962,37 @@ class MemoryDataAccess implements AppDataAccess {
     return this.orders.find((order) => order.storeId === storeId && order.id === orderId) ?? null;
   }
 
+  // F3C.2 — In-memory kargo TARİFE planı (seed ile aynı: FREE_THRESHOLD 4990 / 75000).
+  // Testler bunu null'layarak NO_RATE_PLAN, ya da değiştirerek diğer modları sınar.
+  shippingRatePlan: EngineRatePlan | null = {
+    id: "ratePlan_demo",
+    name: "Standart Kargo",
+    provider: null,
+    status: "ACTIVE",
+    isDefault: true,
+    pricingMode: "FREE_THRESHOLD",
+    currency: "TRY",
+    fixedAmountMinor: 4990,
+    freeShippingThresholdMinor: 75000,
+    validFrom: null,
+    validTo: null,
+    rules: [],
+  };
+  // Müşteri default teslimat adresi (cart quote için); guest senaryoda null.
+  defaultShippingAddress: { city: string; district: string | null } | null = null;
+
+  async resolveActiveShippingRatePlan(storeId: string): Promise<EngineRatePlan | null> {
+    return storeId === "store_demo" ? this.shippingRatePlan : null;
+  }
+
+  async findDefaultShippingAddress(
+    storeId: string,
+    customerId: string,
+  ): Promise<{ city: string; district: string | null } | null> {
+    // store/customer scope simgesel; in-memory testte tek varsayilan adres tutulur.
+    return storeId && customerId ? this.defaultShippingAddress : null;
+  }
+
   async createOrder(
     storeId: string,
     input: {
@@ -969,6 +1001,12 @@ class MemoryDataAccess implements AppDataAccess {
       currency: string;
       lines: Array<{ variantId: string; quantity: number }>;
       shippingAmount?: number;
+      shippingSnapshot?: {
+        currency: string;
+        source: "STORE_FIXED_RULE" | "STORE_SHIPPING_TARIFF" | "MOCK";
+        ratePlanId: string | null;
+        ratePlanName: string | null;
+      } | null;
       discountAmount?: number;
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
@@ -1035,6 +1073,10 @@ class MemoryDataAccess implements AppDataAccess {
       paymentStatus: "UNPAID",
       fulfillmentStatus: "UNFULFILLED",
       ...totals,
+      shippingCurrency: input.shippingSnapshot?.currency ?? null,
+      shippingSource: input.shippingSnapshot?.source ?? null,
+      shippingRatePlanId: input.shippingSnapshot?.ratePlanId ?? null,
+      shippingRatePlanName: input.shippingSnapshot?.ratePlanName ?? null,
       placedAt: null,
       cancelledAt: null,
       cancelReason: null,
@@ -3553,9 +3595,10 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     await app.close();
   });
 
-  it("computes a server-authoritative summary: free shipping above threshold", async () => {
+  it("F3C.2: guest cart defers shipping to address selection (no fake price)", async () => {
     const { app } = await createTestApp();
-    // 1x hoodie = 129900 >= 75000 esik -> kargo ucretsiz; KDV dahil.
+    // Guest (oturum yok) -> teslimat adresi bilinmiyor -> kargo hesaplanmaz.
+    // Subtotal esik ustunde olsa bile cart endpoint'inde ucret 0 + ADDRESS_REQUIRED.
     const body = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
     expect(body.summary).toMatchObject({
       itemsSubtotalMinor: 129900,
@@ -3565,16 +3608,18 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       taxRatePercent: 20,
       couponStatus: "NONE",
     });
-    // taxIncluded = round(129900 * 20 / 120) = 21650.
-    expect(body.summary.taxIncludedMinor).toBe(21650);
+    expect(body.shipping.status).toBe("ADDRESS_REQUIRED");
+    expect(body.shipping.amountMinor).toBeNull();
     await app.close();
   });
 
-  it("charges a demo shipping fee below the free-shipping threshold", async () => {
+  it("F3C.2: guest cart below threshold still shows address-required, not a hardcoded fee", async () => {
     const { app, dataAccess } = await createTestApp();
     dataAccess.variants[0]!.priceMinor = 5000; // ₺50 -> esik altinda
     const body = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
-    expect(body.summary).toMatchObject({ itemsSubtotalMinor: 5000, shippingMinor: 4990, grandTotalMinor: 9990 });
+    // Eski hardcoded ₺49,90 ARTIK YOK; guest icin ucret adres secilince hesaplanir.
+    expect(body.summary).toMatchObject({ itemsSubtotalMinor: 5000, shippingMinor: 0, grandTotalMinor: 5000 });
+    expect(body.shipping.status).toBe("ADDRESS_REQUIRED");
     await app.close();
   });
 
@@ -3625,6 +3670,70 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     expect(dataAccess.orders[0]!.discountAmount).toBe(500);
     expect(dataAccess.orders[0]!.shippingAmount).toBe(4990);
     expect(dataAccess.orders[0]!.totalAmount).toBe(9490);
+    await app.close();
+  });
+
+  it("F3C.2: checkout writes the shipping snapshot (source + plan id/name) to the order", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.variants[0]!.priceMinor = 5000; // esik alti -> ucret hesaplanir
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(res.statusCode).toBe(201);
+    const order = dataAccess.orders[0]!;
+    expect(order.shippingAmount).toBe(4990);
+    expect(order.shippingSource).toBe("STORE_SHIPPING_TARIFF");
+    expect(order.shippingRatePlanId).toBe("ratePlan_demo");
+    expect(order.shippingRatePlanName).toBe("Standart Kargo");
+    // Odeme/total kargoyu icerir: 5000 + 4990.
+    expect(res.json().totalMinor).toBe(9990);
+    await app.close();
+  });
+
+  it("F3C.2: no active rate plan blocks the checkout payment step (SHIPPING_QUOTE_UNAVAILABLE)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.shippingRatePlan = null; // aktif/default tarife yok
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("SHIPPING_QUOTE_UNAVAILABLE");
+    expect(res.json().error.details.shipping.status).toBe("NO_RATE_PLAN");
+    await app.close();
+  });
+
+  it("F3C.2: a FIXED store tariff (not the old hardcoded 49.90) drives the fee", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.variants[0]!.priceMinor = 5000;
+    dataAccess.shippingRatePlan = {
+      ...dataAccess.shippingRatePlan!,
+      pricingMode: "FIXED",
+      fixedAmountMinor: 2500,
+      freeShippingThresholdMinor: null,
+    };
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    const body = res.json();
+    expect(body.shippingMinor).toBe(2500); // tarife belirler; 4990 DEGIL
+    expect(body.totalMinor).toBe(7500);
+    await app.close();
+  });
+
+  it("F3C.2: free-shipping threshold yields free shipping at checkout", async () => {
+    const { app } = await createTestApp(); // hoodie 129900 >= 75000 esik
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(res.json().shippingMinor).toBe(0);
     await app.close();
   });
 

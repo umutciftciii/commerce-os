@@ -52,6 +52,15 @@ import type {
   ShippingCreateOrderRequest,
   ShippingCreateBarcodeRequest,
   OrderShippingResponse,
+  ShippingRatePlanResponse,
+  ShippingRatePlanListResponse,
+  ShippingRatePlanCreateRequest,
+  ShippingRatePlanUpdateRequest,
+  ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
 } from "@commerce-os/api-client";
 
 /**
@@ -410,4 +419,66 @@ export const storeApi = {
       `/api/orders/${orderId}/shipping/create-barcode`,
       { method: "POST", body: JSON.stringify(input) },
     ),
+
+  // F3C.2 — Kargo TARİFE planları (price engine). Provider canlı quote DEĞİL;
+  // ücret store tarifesinden hesaplanır. Secret içermez.
+  listShippingRatePlans: () =>
+    call<ShippingRatePlanListResponse>("/api/shipping/rate-plans"),
+  createShippingRatePlan: (input: ShippingRatePlanCreateRequest) =>
+    mutatingCall<ShippingRatePlanResponse>("/api/shipping/rate-plans", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateShippingRatePlan: (planId: string, input: ShippingRatePlanUpdateRequest) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRatePlan: (planId: string) =>
+    mutatingCall<{ ok: boolean }>(`/api/shipping/rate-plans/${planId}`, { method: "DELETE" }),
+  setDefaultShippingRatePlan: (planId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/default`, {
+      method: "POST",
+    }),
+  addShippingRateRule: (planId: string, input: ShippingRateRuleInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/rules`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateShippingRateRule: (planId: string, ruleId: string, input: ShippingRateRulePatch) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/rules/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRateRule: (planId: string, ruleId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/rules/${ruleId}`, {
+      method: "DELETE",
+    }),
+  addShippingRateTier: (planId: string, input: ShippingRateTierInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/tiers`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRateTier: (planId: string, tierId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/tiers/${tierId}`, {
+      method: "DELETE",
+    }),
+  addShippingRateZone: (planId: string, input: ShippingRateZoneInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/zones`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRateZone: (planId: string, zoneId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/zones/${zoneId}`, {
+      method: "DELETE",
+    }),
+  addShippingSurcharge: (planId: string, input: ShippingSurchargeInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/surcharges`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingSurcharge: (planId: string, surchargeId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/surcharges/${surchargeId}`, {
+      method: "DELETE",
+    }),
 };

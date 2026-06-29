@@ -1746,3 +1746,95 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   ve testteki sahte negatif-assertion JWT'si).
 - Docker smoke: bu turda ÇALIŞTIRILMADI (kapsam: backend foundation + contract + güvenli dış doğrulama; cart UI
   ucu açık). DHL canlı destructive operasyon (createRecipient/createOrder/createbarcode/cancel) ÇALIŞTIRILMADI.
+
+## Faz 3C.2 Shipping Price Engine — mağaza tarifesi (TODO-108, ADR-044)
+
+Branch: claude/f3c2-shipping-price-engine. Temel karar: kargo ücreti SAĞLAYICI quote'u DEĞİLDİR; mağaza/admin
+kargo TARİFE planından hesaplanır. DHL eCommerce operasyon sağlayıcısı olarak kalır (F3C.1); fiyat motoru ondan
+bağımsız ve sağlayıcıya istek atmaz.
+
+- Veri modeli (migration 20260629140000_add_shipping_price_engine):
+  - Enum: ShippingRatePlanStatus (ACTIVE/PASSIVE), ShippingRatePricingMode (FIXED/FREE_THRESHOLD/DESI_TABLE/
+    WEIGHT_TABLE/DESI_AND_REGION_TABLE), ShippingRateSource (STORE_FIXED_RULE/STORE_SHIPPING_TARIFF/MOCK).
+  - ShippingRatePlan (storeId, provider nullable, name, status, isDefault, pricingMode, currency, fixedAmountMinor,
+    freeShippingThresholdMinor, validFrom/To) + ShippingRateRule (min/max desi & kg, city/district/region kodu,
+    amountMinor, extraAmountMinor, sortOrder).
+  - Order kargo snapshot: shippingCurrency / shippingSource / shippingRatePlanId / shippingRatePlanName (tutar
+    zaten Order.shippingAmount'ta). Product/ProductVariant: shippingWeightKg / shippingDesi (nullable; varyant
+    ürünü override eder).
+- Hesaplama motoru: apps/api-gateway/src/shipping/price-engine.ts (saf, deterministik). FIXED/FREE_THRESHOLD adres
+  gerektirmez; DESI/WEIGHT tablo modları sepet desi/kg + min–max bracket; DESI_AND_REGION_TABLE adres ister.
+  Spesifiklik: ilçe>şehir>bölge>generic, eşitlikte sortOrder. Ölçüm eksik → MISSING_SHIPPING_DIMENSIONS; eşleşen
+  kural yok → RATE_NOT_FOUND; aktif/default plan yok → NO_RATE_PLAN. Free threshold tüm modlarda geçerli.
+- Gateway: store-admin rate-plan CRUD + rules + set-default uçları (rate-plan-routes.ts; tek default guard
+  transaction). Cart endpoint quote'u (guest/no-address → ADDRESS_REQUIRED) ve checkout quote'u (teslimat adresi
+  ile; OK değilse 409 SHIPPING_QUOTE_UNAVAILABLE) eklendi. Rate plan çözümü dataAccess üzerinden (in-memory test
+  + prisma ortak yol). Eski hardcoded ₺49,90 / ₺750 kaldırıldı → store tarifesinden gelir.
+- Contracts: shippingRatePlan/rule CRUD + list/detail şemaları; cartShippingQuoteResponseSchema genişletildi
+  (status: OK/ADDRESS_REQUIRED/NO_RATE_PLAN/RATE_NOT_FOUND/MISSING_DIMENSIONS/UNAVAILABLE/ERROR; source +
+  STORE_SHIPPING_TARIFF; ratePlanId/ratePlanName/freeShipping). publicCartSchema'ya `shipping` alanı.
+- Store-admin: /shipping/rates sayfası (liste + tarife formu + kural editörü + set-default/enable-disable/sil),
+  BFF route'ları, api-client.admin.shippingRatePlans.*, sidebar "Kargo Tarifeleri" + i18n TR/EN.
+- Storefront: cart-view kargo satırı duruma göre mesaj (ADDRESS_REQUIRED/NO_RATE_PLAN/UNAVAILABLE) veya fiyat/
+  ücretsiz; i18n shippingPending/shippingNoRatePlan/shippingUnavailable (TR/EN). Quote fail → checkout ödeme
+  adımı bloke.
+- Seed: demo store default rate plan "Standart Kargo" (FREE_THRESHOLD, 4990 / 75000) — eski sabit kural artık
+  store tarifesi.
+- Testler: price-engine birim (14), gateway cart/checkout shipping + snapshot (guest ADDRESS_REQUIRED, FIXED
+  tarife, free threshold, NO_RATE_PLAN bloke, snapshot yazımı), store-admin rate-plans BFF (7). Tüm workspace test
+  task'ları yeşil (api-gateway 202, store-admin 114, storefront, contracts, admin).
+- Gate: db:generate ✓; build (tüm workspace) ✓; typecheck ✓; lint ✓; test ✓; git diff --check temiz.
+- Kapsam dışı (TODO): bölge yönetimi UI/regionCode türetme (TODO-109), ürün kargo ölçümü admin UI (TODO-110),
+  CSV import/export (TODO-111), sipariş sonrası DHL operasyon otomasyonu (TODO-112). DHL canlı destructive
+  operasyon ve canlı fiyat çekme ÇALIŞTIRILMADI (tasarım gereği yok).
+
+## F3C.2 REVİZYON — Generic Shipping Tariff Engine (ADR-044 revizyon)
+
+- Karar: her provider için ayrı fiyat motoru YAZILMADI. Tek generic tariff engine; provider fiyat listeleri
+  generic modele (tier/zone/rule/surcharge) maplenir. Provider'a özel işler ileride CSV/Excel import mapper
+  (TODO-111).
+- Model: yeni `ShippingRateTier` / `ShippingRateZone` / `ShippingSurcharge` + `ShippingChargeType` enum
+  (FLAT/PER_KG/PER_DESI/PER_KG_OR_DESI/PER_ADDITIONAL_KG_OR_DESI). `ShippingRateRule` + tierId/zoneId/chargeType/
+  unitAmountMinor/baseAmountMinor/baseThreshold; amountMinor nullable. Geriye uyumlu migration
+  (20260629150000_revise_shipping_tariff_engine): amountMinor NOT NULL kaldırıldı, chargeType DEFAULT 'FLAT'
+  backfill — mevcut sabit-ücret kuralları birebir korunur.
+- Engine: billableWeight = max(totalWeightKg, totalDesi); seçim sırası plan→tarih→free-threshold→tier→zone/geo→
+  bracket→chargeType→surcharge. 30+/31+ = PER_ADDITIONAL_KG_OR_DESI (base + (billable−threshold)×unit). Frontend
+  AUTHORITATIVE hesap yapmaz; backend yeniden hesaplar.
+- Gerçek fiyat listesi çıkarımı (model doğrulaması için):
+  - **DHL eCommerce**: aylık gönderi adedi SEGMENTİ (Tarife I/II/III sözleşme grubu) → `ShippingRateTier`
+    (monthlyShipmentMin/Max). Segment içinde DESİ ARALIKLARI (0–1, 1–2, ... 30+) → `ShippingRateRule`
+    (minDesi/maxDesi FLAT; 30+ → PER_ADDITIONAL_KG_OR_DESI).
+  - **Aras Kargo**: MESAFE ZONU (şehir içi/yakın/kısa/orta/uzak/KKTC/mobil alan) → `ShippingRateZone`
+    (code CITY/NEAR/SHORT/MEDIUM/FAR/KKTC/MOBILE). Zon × KG/DESİ ARALIĞI → `ShippingRateRule`; 31+ KG →
+    PER_ADDITIONAL_KG_OR_DESI. Ek hizmetler (SMS, taşıma güvencesi, mobil alan, hamaliye/ağır gönderi) →
+    `ShippingSurcharge`.
+  - **Yurtiçi Kargo**: en/boy/yükseklik/ağırlık → desi/ücrete-esas ağırlık (= billableWeight=max(kg,desi)) +
+    standart taşıma + ek hizmet + KDV + genel toplam ayrımı. Ek hizmet kalemleri `ShippingSurcharge`.
+  - Açık teyitler: 30+/31+ toplam mı ek-birim mi (TODO-113); adres→zon çözümleme (TODO-114); gerçek boyut alanları
+    + volumetrik divisor (TODO-110).
+- Admin UI: /shipping/rates modal yerine TAM GENİŞLİK panel; Basit (sabit/eşik/desi) ve Gelişmiş (tier/zone/rule/
+  chargeType/surcharge) görünüm. Backend + API + BFF tier/zone/surcharge CRUD hazır.
+- Testler: price-engine 25 (16 mevcut korundu + 9 yeni: DHL tier 100/250/700, Aras zone, 31+, billableWeight,
+  zone+tier+desi, surcharge). api-gateway 213, store-admin 114, contracts 21, api-client 13 — yeşil.
+- Gate: db:generate ✓; build (db/contracts/api-client/api-gateway/store-admin Next) ✓; typecheck (pnpm -r) ✓;
+  lint ✓; test ✓; git diff --check temiz.
+
+## F3C.2 BLOCKER FIX — Ürün/varyant kargo ölçüsü admin UI (TODO-110 DONE)
+
+- Root cause: Şema kolonları (Product/ProductVariant.shippingWeightKg/shippingDesi) ve cart hesaplaması F3C.2'de
+  hazırdı; ANCAK contracts (input/response), serialize ve admin UI bu alanları taşımıyordu → DESI_TABLE/WEIGHT_TABLE/
+  PER_KG_OR_DESI tarifeleri gerçek checkout'ta çalışamıyordu (ölçü girilemiyor).
+- Çözüm: contracts product/variant create/update + response şemalarına shippingWeightKg/shippingDesi (>0 nullable);
+  serializeProduct/serializeVariant Decimal→number; createProduct/createVariant persist; cart fallback
+  resolveShippingDims (varyant→ürün; saf, test edilir). Admin: ürün formu + varyant editörüne "Kargo ölçüleri"
+  bölümü (i18n TR/EN). Seed: demo-tote (desi 3 / 0.4 kg) + demo-hoodie (desi 5 / 0.6 kg).
+- Testler: contracts validation (0/negatif red, null/omit kabul); resolveShippingDims (override/fallback/null);
+  UI render + payload (product-detail-page); i18n parity. Suites: contracts 23, i18n 36, api-gateway 214,
+  store-admin 114 — yeşil.
+- Runtime smoke (Docker, worktree image): admin API PATCH demo-tote dims 200 (desi 0 → 400; DB precision 0.400/3.00);
+  DESI_TABLE default plan (0–10 desi → 5500); demo-tote checkout OS-000048 subtotal 39900 + kargo 5500 = 45400,
+  snapshot source STORE_SHIPPING_TARIFF; demo-hoodie (ölçü yok) checkout → 409 SHIPPING_QUOTE_UNAVAILABLE
+  (shipping.status MISSING_DIMENSIONS, ödeme bloke). Secret scan temiz.
+- Gate: db:generate ✓; build ✓; typecheck ✓; lint ✓; test ✓; git diff --check temiz.
+- Kalan: TODO-115 (gerçek en/boy/yükseklik + otomatik volumetrik desi).

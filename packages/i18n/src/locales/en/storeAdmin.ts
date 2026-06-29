@@ -104,6 +104,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     marketplace: "Marketplaces",
     paymentProviders: "Payment Providers",
     shippingProviders: "Shipping Providers",
+    shippingRates: "Shipping Rates",
     theme: "Theme",
     settings: "Settings",
   },
@@ -238,6 +239,14 @@ export const enStoreAdmin: StoreAdminDictionary = {
       submitEdit: "Save changes",
       requiredTitle: "Product name is required.",
       requiredSlug: "Enter a valid slug (a-z, 0-9, -).",
+      shippingSectionTitle: "Shipping dimensions",
+      shippingSectionSubtitle:
+        "Used by desi/kg-based shipping rates. A value on the variant overrides the product-level value.",
+      shippingWeightLabel: "Shipping weight (kg)",
+      shippingDesiLabel: "Shipping desi",
+      shippingDesiHint:
+        "Desi is usually width × length × height / 3000. For now, enter the already-computed desi value.",
+      shippingPositiveError: "Shipping dimensions must be greater than 0 (may be left empty).",
     },
     salesModel: {
       columnHeader: "Sales",
@@ -350,6 +359,11 @@ export const enStoreAdmin: StoreAdminDictionary = {
       barcodePlaceholder: "8690000000000",
       lowStockLabel: "Low stock threshold (optional)",
       lowStockPlaceholder: "5",
+      shippingWeightLabel: "Shipping weight (kg)",
+      shippingDesiLabel: "Shipping desi",
+      shippingDesiHint:
+        "Used by desi/kg-based shipping rates; when set, overrides the product-level value. Desi ≈ width × length × height / 3000.",
+      shippingPositiveError: "Shipping dimensions must be greater than 0 (may be left empty).",
       statusLabel: "Status",
       submitCreate: "Create variant",
       submitEdit: "Save changes",

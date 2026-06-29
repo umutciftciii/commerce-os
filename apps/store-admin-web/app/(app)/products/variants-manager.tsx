@@ -216,6 +216,13 @@ function VariantEditor({
   const [barcode, setBarcode] = useState(variant?.barcode ?? "");
   const [lowStock, setLowStock] = useState("");
   const [status, setStatus] = useState<VariantStatus>(variant?.status ?? "ACTIVE");
+  // F3C.2 — Kargo ölçüleri (varyant override; boş ise ürün-seviyesi fallback).
+  const [shippingWeightKg, setShippingWeightKg] = useState<string>(
+    variant?.shippingWeightKg != null ? String(variant.shippingWeightKg) : "",
+  );
+  const [shippingDesi, setShippingDesi] = useState<string>(
+    variant?.shippingDesi != null ? String(variant.shippingDesi) : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -259,6 +266,20 @@ function VariantEditor({
 
     const lowStockThreshold = lowStock.trim() === "" ? null : Number.parseInt(lowStock, 10);
 
+    // Kargo ölçüleri: boş = null; doluysa > 0 olmalı.
+    const parseDim = (raw: string): number | null | "ERR" => {
+      const value = raw.trim();
+      if (value === "") return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : "ERR";
+    };
+    const weightValue = parseDim(shippingWeightKg);
+    const desiValue = parseDim(shippingDesi);
+    if (weightValue === "ERR" || desiValue === "ERR") {
+      setError(f.shippingPositiveError);
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEdit && variant) {
@@ -268,6 +289,8 @@ function VariantEditor({
           compareAtMinor,
           barcode: barcode.trim() === "" ? null : barcode.trim(),
           status,
+          shippingWeightKg: weightValue,
+          shippingDesi: desiValue,
           ...(lowStockThreshold !== null && !Number.isNaN(lowStockThreshold)
             ? { lowStockThreshold }
             : {}),
@@ -283,6 +306,8 @@ function VariantEditor({
         };
         if (compareAtMinor !== null) payload.compareAtMinor = compareAtMinor;
         if (barcode.trim() !== "") payload.barcode = barcode.trim();
+        if (weightValue !== null) payload.shippingWeightKg = weightValue;
+        if (desiValue !== null) payload.shippingDesi = desiValue;
         if (lowStockThreshold !== null && !Number.isNaN(lowStockThreshold)) {
           payload.lowStockThreshold = lowStockThreshold;
         }
@@ -382,6 +407,29 @@ function VariantEditor({
             disabled={saving}
           />
         </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input
+            id="variant-shipping-weight"
+            type="number"
+            min={0}
+            step="0.001"
+            label={f.shippingWeightLabel}
+            value={shippingWeightKg}
+            onChange={(event) => setShippingWeightKg(event.target.value)}
+            disabled={saving}
+          />
+          <Input
+            id="variant-shipping-desi"
+            type="number"
+            min={0}
+            step="0.01"
+            label={f.shippingDesiLabel}
+            value={shippingDesi}
+            onChange={(event) => setShippingDesi(event.target.value)}
+            disabled={saving}
+          />
+        </div>
+        <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
         <Select
           id="variant-status"
           label={f.statusLabel}

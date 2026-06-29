@@ -68,6 +68,15 @@ import type {
   ShippingCreateOrderRequest,
   ShippingCreateBarcodeRequest,
   OrderShippingResponse,
+  ShippingRatePlanResponse,
+  ShippingRatePlanListResponse,
+  ShippingRatePlanCreateRequest,
+  ShippingRatePlanUpdateRequest,
+  ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
 } from "@commerce-os/contracts";
 
 /**
@@ -243,6 +252,18 @@ export type {
   ShippingCreateBarcodeRequest,
   OrderShippingResponse,
   ShipmentResponse,
+  ShippingRatePlanResponse,
+  ShippingRatePlanListResponse,
+  ShippingRatePlanCreateRequest,
+  ShippingRatePlanUpdateRequest,
+  ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
+  ShippingChargeType,
+  ShippingRateRule,
+  CartShippingQuoteResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -549,6 +570,78 @@ export interface ApiClient {
         token?: string,
       ): Promise<ShippingProviderConfigResponse>;
       test(storeId: string, configId: string, token?: string): Promise<ShippingProviderTestResponse>;
+    };
+    shippingRatePlans: {
+      list(storeId: string, token?: string): Promise<ShippingRatePlanListResponse>;
+      create(
+        storeId: string,
+        input: ShippingRatePlanCreateRequest,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      get(storeId: string, planId: string, token?: string): Promise<ShippingRatePlanResponse>;
+      update(
+        storeId: string,
+        planId: string,
+        input: ShippingRatePlanUpdateRequest,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      remove(storeId: string, planId: string, token?: string): Promise<void>;
+      setDefault(storeId: string, planId: string, token?: string): Promise<ShippingRatePlanResponse>;
+      addRule(
+        storeId: string,
+        planId: string,
+        input: ShippingRateRuleInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      updateRule(
+        storeId: string,
+        planId: string,
+        ruleId: string,
+        input: ShippingRateRulePatch,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteRule(
+        storeId: string,
+        planId: string,
+        ruleId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addTier(
+        storeId: string,
+        planId: string,
+        input: ShippingRateTierInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteTier(
+        storeId: string,
+        planId: string,
+        tierId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addZone(
+        storeId: string,
+        planId: string,
+        input: ShippingRateZoneInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteZone(
+        storeId: string,
+        planId: string,
+        zoneId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addSurcharge(
+        storeId: string,
+        planId: string,
+        input: ShippingSurchargeInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteSurcharge(
+        storeId: string,
+        planId: string,
+        surchargeId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
     };
     orderShipping: {
       get(storeId: string, orderId: string, token?: string): Promise<OrderShippingResponse>;
@@ -949,6 +1042,93 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<ShippingProviderTestResponse>(
             `/stores/${storeId}/shipping/providers/${configId}/test`,
             "POST",
+            undefined,
+            token,
+          ),
+      },
+      shippingRatePlans: {
+        list: (storeId, token) =>
+          getJson<ShippingRatePlanListResponse>(`/stores/${storeId}/shipping/rate-plans`, token),
+        create: (storeId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(`/stores/${storeId}/shipping/rate-plans`, "POST", input, token),
+        get: (storeId, planId, token) =>
+          getJson<ShippingRatePlanResponse>(`/stores/${storeId}/shipping/rate-plans/${planId}`, token),
+        update: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        remove: (storeId, planId, token) =>
+          sendJson<void>(`/stores/${storeId}/shipping/rate-plans/${planId}`, "DELETE", undefined, token),
+        setDefault: (storeId, planId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/default`,
+            "POST",
+            undefined,
+            token,
+          ),
+        addRule: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/rules`,
+            "POST",
+            input,
+            token,
+          ),
+        updateRule: (storeId, planId, ruleId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/rules/${ruleId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        deleteRule: (storeId, planId, ruleId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/rules/${ruleId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addTier: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/tiers`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteTier: (storeId, planId, tierId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/tiers/${tierId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addZone: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/zones`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteZone: (storeId, planId, zoneId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/zones/${zoneId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addSurcharge: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/surcharges`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteSurcharge: (storeId, planId, surchargeId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/surcharges/${surchargeId}`,
+            "DELETE",
             undefined,
             token,
           ),

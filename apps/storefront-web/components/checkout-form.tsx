@@ -420,6 +420,16 @@ function CheckoutSummary({
   paymentTestEnabled: boolean;
 }) {
   const s = view.summary;
+  // F3C.2 — Kargo TARİFE quote'u OK değilse (adres yok / tarife yok / kural yok /
+  // ölçü eksik) ödeme adımına geçilmez: satır boş kalmaz, net mesaj basılır ve
+  // submit bloklanır (gateway de 409 ile bloklar; bu istemci-tarafı eşleğidir).
+  const shippingBlocked = s.shippingStatus !== "OK";
+  const shippingStatusMessage =
+    s.shippingStatus === "ADDRESS_REQUIRED"
+      ? t.shippingPending
+      : s.shippingStatus === "NO_RATE_PLAN"
+        ? t.shippingNoRatePlan
+        : t.shippingUnavailable;
   return (
     <aside className="lg:sticky lg:top-24 lg:self-start">
       <Card className="p-6">
@@ -448,11 +458,18 @@ function CheckoutSummary({
               tone="discount"
             />
           ) : null}
-          <Row
-            label={t.shipping}
-            value={s.shippingIsFree ? t.shippingFree : s.shippingLabel}
-            tone={s.shippingIsFree ? "free" : undefined}
-          />
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-slate-500">{t.shipping}</dt>
+            <dd className="text-right">
+              {shippingBlocked ? (
+                <span className="text-xs font-normal text-slate-500">{shippingStatusMessage}</span>
+              ) : s.shippingIsFree ? (
+                <span className="font-medium text-emerald-700">{t.shippingFree}</span>
+              ) : (
+                <span className="font-medium text-slate-900">{s.shippingLabel}</span>
+              )}
+            </dd>
+          </div>
           <div className="flex items-center justify-between border-t border-slate-100 pt-2">
             <dt className="font-semibold text-slate-900">{t.grandTotal}</dt>
             <dd className="text-lg font-semibold text-slate-900">{s.grandTotalLabel}</dd>
@@ -463,7 +480,13 @@ function CheckoutSummary({
           </div>
         </dl>
 
-        <Button type="submit" className="mt-5 w-full" disabled={isPending}>
+        {shippingBlocked ? (
+          <Alert tone="warning" className="mt-4">
+            {t.shippingBlockedNotice}
+          </Alert>
+        ) : null}
+
+        <Button type="submit" className="mt-5 w-full" disabled={isPending || shippingBlocked}>
           {isPending ? t.submitting : paymentTestEnabled ? t.submitContinue : t.submit}
         </Button>
         <p className="mt-3 text-xs leading-relaxed text-slate-400">{t.summaryNote}</p>

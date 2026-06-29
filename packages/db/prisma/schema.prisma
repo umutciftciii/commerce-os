@@ -303,6 +303,42 @@ enum ShipmentEventType {
   WEBHOOK_RECEIVED
 }
 
+// ─────────────────────── F3C.2 Shipping price engine (store tarife) ───────────────────────
+// Kargo ucreti SAGLAYICI quote'u DEGILDIR; magaza/admin tarafindan girilen tarife
+// uzerinden hesaplanir (bkz. ADR-036). provider yalnizca operasyon sağlayıcısıyla
+// gevsek iliskilendirme icindir; fiyat provider'dan canli cekilmez.
+enum ShippingRatePlanStatus {
+  ACTIVE
+  PASSIVE
+}
+
+enum ShippingRatePricingMode {
+  FIXED
+  FREE_THRESHOLD
+  DESI_TABLE
+  WEIGHT_TABLE
+  DESI_AND_REGION_TABLE
+}
+
+enum ShippingRateSource {
+  STORE_FIXED_RULE
+  STORE_SHIPPING_TARIFF
+  MOCK
+}
+
+// F3C.2 revizyon — Generic tariff engine ucret tipi (ADR-044). Provider'a ozel
+// fiyat kodu YOKTUR; DHL/Aras/Yurtici fiyat listeleri bu generic kurallara
+// maplenir. PER_ADDITIONAL_KG_OR_DESI = DHL/Aras "30+/31+" satirlarini temsil eder
+// (base + esik ustu birim ucret); satirin toplam mi ek-birim mi oldugu provider
+// teyidine kadar ek-birim varsayilir (docs TODO).
+enum ShippingChargeType {
+  FLAT
+  PER_KG
+  PER_DESI
+  PER_KG_OR_DESI
+  PER_ADDITIONAL_KG_OR_DESI
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -375,6 +411,8 @@ model Store {
   shipments               Shipment[]
   shipmentEvents          ShipmentEvent[]
   shipmentQuotes          ShipmentQuote[]
+  shippingRatePlans       ShippingRatePlan[]
+  shippingRateRules       ShippingRateRule[]
 }
 
 model StoreUser {
@@ -514,6 +552,11 @@ model Product {
   whatsappMessageTemplate String?
   inquiryFormTitle        String?
   appointmentNote         String?
+  // F3C.2 — Kargo olcumu (desi/agirlik). Varyant uzerindeki ayni alanlar onceliklidir;
+  // burasi urun-seviyesi fallback. DESI_TABLE/WEIGHT_TABLE tarifelerinde eksikse
+  // hesaplama MISSING_SHIPPING_DIMENSIONS doner (admin UI TODO-110).
+  shippingWeightKg        Decimal?               @db.Decimal(10, 3)
+  shippingDesi            Decimal?               @db.Decimal(10, 2)
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
@@ -541,6 +584,9 @@ model ProductVariant {
   currency       String
   status         ProductVariantStatus @default(ACTIVE)
   optionValues   Json?
+  // F3C.2 — Kargo olcumu (desi/agirlik); urun-seviyesi degerleri override eder.
+  shippingWeightKg Decimal?           @db.Decimal(10, 3)
+  shippingDesi     Decimal?           @db.Decimal(10, 2)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -848,6 +894,13 @@ model Order {
   subtotalAmount    Int               @default(0)
   discountAmount    Int               @default(0)
   shippingAmount    Int               @default(0)
+  // F3C.2 — Kargo ucreti SNAPSHOT'i (siparis aninda magaza tarifesinden hesaplanan
+  // tutarin kaynagi ve plan kimligi). Tutar shippingAmount'tadir; bu alanlar
+  // izlenebilirlik icindir. Provider canli quote DEGILDIR (bkz. ADR-036).
+  shippingCurrency     String?
+  shippingSource       ShippingRateSource?
+  shippingRatePlanId   String?
+  shippingRatePlanName String?
   taxAmount         Int               @default(0)
   totalAmount       Int               @default(0)
   placedAt          DateTime?
@@ -1238,4 +1291,141 @@ model ShipmentQuote {
   @@index([storeId])
   @@index([orderId])
   @@index([providerConfigId])
+}
+
+// ─────────────────────── F3C.2 Shipping price engine (store tarife) ───────────────────────
+// Magaza bazli kargo tarife plani. Kargo ucreti bu plan + kurallar uzerinden
+// hesaplanir; SAGLAYICI canli quote DEGILDIR (bkz. ADR-036). Tek default guard
+// uygulama katmanindadir (Prisma partial unique olmadigi icin set-default
+// transaction'inda digerleri kapatilir).
+model ShippingRatePlan {
+  id                         String                  @id @default(cuid())
+  storeId                    String
+  // Operasyon sağlayıcısıyla gevsek iliskilendirme (UI/rapor icin); fiyat etkisi YOK.
+  provider                   ShippingProviderType?
+  name                       String
+  status                     ShippingRatePlanStatus  @default(ACTIVE)
+  isDefault                  Boolean                 @default(false)
+  pricingMode                ShippingRatePricingMode @default(FIXED)
+  currency                   String                  @default("TRY")
+  fixedAmountMinor           Int?
+  freeShippingThresholdMinor Int?
+  validFrom                  DateTime?
+  validTo                    DateTime?
+  createdAt                  DateTime                @default(now())
+  updatedAt                  DateTime                @updatedAt
+
+  store      Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  rules      ShippingRateRule[]
+  tiers      ShippingRateTier[]
+  zones      ShippingRateZone[]
+  surcharges ShippingSurcharge[]
+
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+// F3C.2 revizyon — Aylik gonderi hacmi segmenti / sozlesme grubu (DHL Tarife I/II/III).
+// Bir kural tierId ile bu segmente baglanir; tier secimi monthlyShipmentCount'a gore
+// yapilir (bilinmiyorsa en kucuk sortOrder; ADR-044). storeId yok — plan'a kapsali.
+model ShippingRateTier {
+  id                 String   @id @default(cuid())
+  ratePlanId         String
+  name               String
+  monthlyShipmentMin Int?
+  monthlyShipmentMax Int?
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  ratePlan ShippingRatePlan   @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  rules    ShippingRateRule[]
+
+  @@index([ratePlanId])
+}
+
+// F3C.2 revizyon — Mesafe/bolge zonu (Aras sehir-ici/yakin/kisa/orta/uzak/KKTC/MOBILE).
+// code plan icinde unique. Kural zoneId ile baglanir; ince geo (city/district) ayrica
+// ShippingRateRule uzerinde korunur. minDistanceKm/maxDistanceKm ilerideki firma bolge
+// tablolari icin opsiyonel.
+model ShippingRateZone {
+  id            String   @id @default(cuid())
+  ratePlanId    String
+  code          String
+  name          String
+  minDistanceKm Decimal? @db.Decimal(10, 2)
+  maxDistanceKm Decimal? @db.Decimal(10, 2)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ratePlan ShippingRatePlan   @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  rules    ShippingRateRule[]
+
+  @@unique([ratePlanId, code])
+  @@index([ratePlanId])
+}
+
+// F3C.2 revizyon — Ek hizmet bedelleri (SMS bildirim, taşıma güvencesi, mobil alan,
+// hamaliye, agir gonderi, kapida odeme farki). chargeType FLAT/PER_KG/PER_DESI/...
+// olabilir. isOptional=false ise her quote'a eklenir; true ise conditionJsonSafe
+// degerlendirilir (SQL-injection riski yok; saf JSON, sadece engine tarafindan okunur).
+model ShippingSurcharge {
+  id                String             @id @default(cuid())
+  ratePlanId        String
+  code              String
+  name              String
+  chargeType        ShippingChargeType @default(FLAT)
+  amountMinor       Int?
+  unitAmountMinor   Int?
+  conditionJsonSafe Json?
+  isOptional        Boolean            @default(false)
+  sortOrder         Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  ratePlan ShippingRatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@unique([ratePlanId, code])
+  @@index([ratePlanId])
+}
+
+model ShippingRateRule {
+  id               String             @id @default(cuid())
+  ratePlanId       String
+  storeId          String
+  tierId           String?
+  zoneId           String?
+  minDesi          Decimal?           @db.Decimal(10, 2)
+  maxDesi          Decimal?           @db.Decimal(10, 2)
+  minWeightKg      Decimal?           @db.Decimal(10, 3)
+  maxWeightKg      Decimal?           @db.Decimal(10, 3)
+  cityCode         String?
+  districtCode     String?
+  regionCode       String?
+  // chargeType FLAT (varsayilan) mevcut amountMinor yolunu birebir korur. Yeni
+  // tipler unitAmountMinor / baseAmountMinor / baseThreshold kullanir. amountMinor
+  // artik nullable (FLAT disinda zorunlu degil); mevcut veriler backfill ile korunur.
+  chargeType       ShippingChargeType @default(FLAT)
+  amountMinor      Int?
+  unitAmountMinor  Int?
+  baseAmountMinor  Int?
+  baseThreshold    Decimal?           @db.Decimal(10, 2)
+  // Legacy/simple-extra: yeni gelismis hesabin merkezi DEGIL; ek ucretler
+  // ShippingSurcharge ile yonetilir (ADR-044 revizyon). Geriye uyumluluk icin korunur.
+  extraAmountMinor Int?
+  sortOrder        Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  store    Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  ratePlan ShippingRatePlan  @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  tier     ShippingRateTier? @relation(fields: [tierId], references: [id], onDelete: SetNull)
+  zone     ShippingRateZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  @@index([ratePlanId])
+  @@index([cityCode, districtCode])
+  @@index([storeId])
+  @@index([tierId])
+  @@index([zoneId])
 }

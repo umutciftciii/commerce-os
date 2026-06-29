@@ -256,6 +256,10 @@ export const productSchema = z.object({
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
   categoryIds: z.array(z.string().min(1)).default([]),
+  // F3C.2 — Kargo olcumu (desi/kg). DESI_TABLE/WEIGHT_TABLE/PER_KG_OR_DESI tarifelerinde
+  // kullanilir; varyant degeri urun-seviyesini override eder (bkz. productVariantSchema).
+  shippingWeightKg: z.number().nullable(),
+  shippingDesi: z.number().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -338,6 +342,9 @@ export const productCreateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).default([]),
+    // F3C.2 — Kargo olcumu. 0/negatif anlamsiz: >0 olmali; bos birakilabilir (null).
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => value.maxOrderQuantity == null || value.maxOrderQuantity >= value.minOrderQuantity, {
     message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
@@ -373,6 +380,9 @@ export const productUpdateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).optional(),
+    // F3C.2 — Kargo olcumu. >0 olmali; null = temizle.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -404,6 +414,9 @@ export const productVariantSchema = z.object({
   currency: currencySchema,
   status: productVariantStatusSchema,
   optionValues: jsonRecordSchema.nullable(),
+  // F3C.2 — Kargo olcumu; urun-seviyesi degerini override eder (varyantta bos ise fallback).
+  shippingWeightKg: z.number().nullable(),
+  shippingDesi: z.number().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -583,6 +596,10 @@ export const publicCartSchema = z.object({
   checkoutReady: z.boolean(),
   /** Sunucu-otoriter siparis ozeti (kargo/KDV/indirim/genel toplam). */
   summary: publicCartSummarySchema,
+  // F3C.2 — Kargo TARIFE quote sonucu (status/source/amount/plan). Adres yoksa
+  // ADDRESS_REQUIRED; aktif tarife yoksa NO_RATE_PLAN. (Sema asagida tanimli —
+  // ileri referans icin z.lazy kullanilir.)
+  shipping: z.lazy(() => cartShippingQuoteResponseSchema),
 });
 
 export const publicCheckoutContactSchema = z.object({
@@ -923,6 +940,9 @@ export const productVariantCreateRequestSchema = z
     status: productVariantStatusSchema.default("ACTIVE"),
     optionValues: jsonRecordSchema.nullable().optional(),
     lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // F3C.2 — Kargo olcumu (varyant override). >0 olmali; bos = null.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => value.compareAtMinor == null || value.compareAtMinor >= value.priceMinor, {
     message: "compareAtMinor must be greater than or equal to priceMinor.",
@@ -940,6 +960,9 @@ export const productVariantUpdateRequestSchema = z
     status: productVariantStatusSchema.optional(),
     optionValues: jsonRecordSchema.nullable().optional(),
     lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // F3C.2 — Kargo olcumu (varyant override). >0 olmali; null = temizle.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -2252,14 +2275,38 @@ export const shippingRateResponseSchema = z.object({
  * status=UNAVAILABLE ise amountMinor checkout total'a DAHIL EDILMEZ; UI "kargo
  * hesaplanamiyor" mesaji gosterir ve odeme adimina gecisi gerektiginde engeller.
  */
-export const shippingQuoteSourceSchema = z.enum(["DHL_ECOMMERCE", "MOCK", "STORE_FIXED_RULE"]);
-export const shippingQuoteStatusSchema = z.enum(["OK", "UNAVAILABLE", "ADDRESS_REQUIRED"]);
+// F3C.2 — Kargo ucreti store TARIFE'sinden hesaplanir (provider quote DEGIL).
+//  - STORE_SHIPPING_TARIFF: admin kargo tarife planindan hesaplanan ucret.
+//  - STORE_FIXED_RULE      : eski sabit magaza kurali (geriye donuk fallback).
+//  - MOCK                  : dev/test mock plani.
+//  - DHL_ECOMMERCE         : (bu fazda kullanILMAZ; sema geriye donuk korunur).
+export const shippingQuoteSourceSchema = z.enum([
+  "DHL_ECOMMERCE",
+  "MOCK",
+  "STORE_FIXED_RULE",
+  "STORE_SHIPPING_TARIFF",
+]);
+// status: OK=ucret hesaplandi; ADDRESS_REQUIRED=teslimat adresi gerekli;
+// NO_RATE_PLAN=aktif/default tarife yok; RATE_NOT_FOUND=uygun kural yok;
+// MISSING_DIMENSIONS=desi/kg olcumu eksik; UNAVAILABLE/ERROR=genel hata.
+export const shippingQuoteStatusSchema = z.enum([
+  "OK",
+  "ADDRESS_REQUIRED",
+  "NO_RATE_PLAN",
+  "RATE_NOT_FOUND",
+  "MISSING_DIMENSIONS",
+  "UNAVAILABLE",
+  "ERROR",
+]);
 export const cartShippingQuoteResponseSchema = z.object({
   provider: shippingProviderTypeSchema.nullable(),
   source: shippingQuoteSourceSchema.nullable(),
   status: shippingQuoteStatusSchema,
   amountMinor: z.number().int().nonnegative().nullable(),
   currency: currencySchema.nullable(),
+  ratePlanId: z.string().nullable(),
+  ratePlanName: z.string().nullable(),
+  freeShipping: z.boolean(),
   errorCode: z.string().nullable(),
   message: z.string().nullable(),
   calculatedAt: z.string().datetime().nullable(),
@@ -2317,6 +2364,250 @@ export const orderShippingResponseSchema = z.object({
   shipments: z.array(shipmentSchema),
 });
 
+/* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
+ * Kargo ucreti SAGLAYICI quote'u DEGILDIR; magaza/admin tarife planindan hesaplanir
+ * (ADR-044). Generic Tariff Engine: provider'a ozel fiyat kodu yok; DHL (tier=aylik
+ * hacim) / Aras (zone=mesafe) / Yurtici fiyat listeleri ayni generic kurallara maplenir.
+ * `provider` yalniz operasyon sağlayıcısıyla gevsek iliskilendirme icindir; fiyat etkisi YOK.
+ */
+export const shippingRatePlanStatusSchema = z.enum(["ACTIVE", "PASSIVE"]);
+export const shippingRatePricingModeSchema = z.enum([
+  "FIXED",
+  "FREE_THRESHOLD",
+  "DESI_TABLE",
+  "WEIGHT_TABLE",
+  "DESI_AND_REGION_TABLE",
+]);
+export const shippingRateSourceSchema = z.enum([
+  "STORE_FIXED_RULE",
+  "STORE_SHIPPING_TARIFF",
+  "MOCK",
+]);
+export const shippingChargeTypeSchema = z.enum([
+  "FLAT",
+  "PER_KG",
+  "PER_DESI",
+  "PER_KG_OR_DESI",
+  "PER_ADDITIONAL_KG_OR_DESI",
+]);
+
+const decimalStringSchema = z
+  .number()
+  .nonnegative()
+  .nullable();
+
+const codeSchema = z.string().min(1).max(40);
+
+export const shippingRateRuleSchema = z.object({
+  id: z.string().min(1),
+  tierId: z.string().nullable(),
+  zoneId: z.string().nullable(),
+  minDesi: decimalStringSchema,
+  maxDesi: decimalStringSchema,
+  minWeightKg: decimalStringSchema,
+  maxWeightKg: decimalStringSchema,
+  cityCode: z.string().max(40).nullable(),
+  districtCode: z.string().max(40).nullable(),
+  regionCode: z.string().max(40).nullable(),
+  chargeType: shippingChargeTypeSchema,
+  amountMinor: z.number().int().nonnegative().nullable(),
+  unitAmountMinor: z.number().int().nonnegative().nullable(),
+  baseAmountMinor: z.number().int().nonnegative().nullable(),
+  baseThreshold: decimalStringSchema,
+  extraAmountMinor: z.number().int().nonnegative().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+/**
+ * chargeType zorunlu alan dogrulamasi (ADR-044): FLAT->amountMinor; PER_*->unitAmountMinor;
+ * PER_ADDITIONAL_KG_OR_DESI ayrica baseAmountMinor + baseThreshold ister.
+ */
+const shippingRateRuleInputBaseSchema = z.object({
+  tierId: z.string().nullable().optional(),
+  zoneId: z.string().nullable().optional(),
+  minDesi: z.number().nonnegative().nullable().optional(),
+  maxDesi: z.number().nonnegative().nullable().optional(),
+  minWeightKg: z.number().nonnegative().nullable().optional(),
+  maxWeightKg: z.number().nonnegative().nullable().optional(),
+  cityCode: z.string().max(40).nullable().optional(),
+  districtCode: z.string().max(40).nullable().optional(),
+  regionCode: z.string().max(40).nullable().optional(),
+  chargeType: shippingChargeTypeSchema.default("FLAT"),
+  amountMinor: z.number().int().nonnegative().nullable().optional(),
+  unitAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  baseAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  baseThreshold: z.number().nonnegative().nullable().optional(),
+  extraAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  sortOrder: z.number().int().min(0).max(100000).default(0),
+});
+
+export const shippingRateRuleInputSchema = shippingRateRuleInputBaseSchema
+  .superRefine((val, ctx) => {
+    if (val.chargeType === "FLAT") {
+      if (val.amountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amountMinor"], message: "FLAT requires amountMinor" });
+      }
+    } else if (val.chargeType === "PER_ADDITIONAL_KG_OR_DESI") {
+      if (val.baseAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["baseAmountMinor"], message: "PER_ADDITIONAL requires baseAmountMinor" });
+      }
+      if (val.unitAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: "PER_ADDITIONAL requires unitAmountMinor" });
+      }
+      if (val.baseThreshold == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["baseThreshold"], message: "PER_ADDITIONAL requires baseThreshold" });
+      }
+    } else {
+      // PER_KG / PER_DESI / PER_KG_OR_DESI -> unitAmountMinor zorunlu.
+      if (val.unitAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: `${val.chargeType} requires unitAmountMinor` });
+      }
+    }
+  });
+
+/** Kismi guncelleme: zorunlu-alan refine'i uygulanmaz (mevcut degerlerle birlesir). */
+export const shippingRateRulePatchSchema = shippingRateRuleInputBaseSchema.partial();
+
+export const shippingRateTierSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  monthlyShipmentMin: z.number().int().nonnegative().nullable(),
+  monthlyShipmentMax: z.number().int().nonnegative().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRateTierInputSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    monthlyShipmentMin: z.number().int().nonnegative().nullable().optional(),
+    monthlyShipmentMax: z.number().int().nonnegative().nullable().optional(),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.monthlyShipmentMin != null && val.monthlyShipmentMax != null && val.monthlyShipmentMin > val.monthlyShipmentMax) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["monthlyShipmentMax"], message: "min must be <= max" });
+    }
+  });
+
+export const shippingRateZoneSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  minDistanceKm: decimalStringSchema,
+  maxDistanceKm: decimalStringSchema,
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRateZoneInputSchema = z
+  .object({
+    code: codeSchema,
+    name: z.string().min(1).max(120),
+    minDistanceKm: z.number().nonnegative().nullable().optional(),
+    maxDistanceKm: z.number().nonnegative().nullable().optional(),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.minDistanceKm != null && val.maxDistanceKm != null && val.minDistanceKm > val.maxDistanceKm) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["maxDistanceKm"], message: "min must be <= max" });
+    }
+  });
+
+const surchargeConditionSchema = z
+  .object({
+    minBillable: z.number().nonnegative().optional(),
+    maxBillable: z.number().nonnegative().optional(),
+    minSubtotalMinor: z.number().int().nonnegative().optional(),
+    maxSubtotalMinor: z.number().int().nonnegative().optional(),
+    zoneCode: z.string().max(40).optional(),
+  })
+  .nullable();
+
+export const shippingSurchargeSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  chargeType: shippingChargeTypeSchema,
+  amountMinor: z.number().int().nonnegative().nullable(),
+  unitAmountMinor: z.number().int().nonnegative().nullable(),
+  conditionJsonSafe: surchargeConditionSchema,
+  isOptional: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingSurchargeInputSchema = z
+  .object({
+    code: codeSchema,
+    name: z.string().min(1).max(120),
+    chargeType: shippingChargeTypeSchema.default("FLAT"),
+    amountMinor: z.number().int().nonnegative().nullable().optional(),
+    unitAmountMinor: z.number().int().nonnegative().nullable().optional(),
+    conditionJsonSafe: surchargeConditionSchema.optional(),
+    isOptional: z.boolean().default(false),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.chargeType === "FLAT") {
+      if (val.amountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amountMinor"], message: "FLAT surcharge requires amountMinor" });
+      }
+    } else if (val.unitAmountMinor == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: `${val.chargeType} surcharge requires unitAmountMinor` });
+    }
+  });
+
+export const shippingRatePlanSchema = z.object({
+  id: z.string().min(1),
+  provider: shippingProviderTypeSchema.nullable(),
+  name: z.string().min(1),
+  status: shippingRatePlanStatusSchema,
+  isDefault: z.boolean(),
+  pricingMode: shippingRatePricingModeSchema,
+  currency: currencySchema,
+  fixedAmountMinor: z.number().int().nonnegative().nullable(),
+  freeShippingThresholdMinor: z.number().int().nonnegative().nullable(),
+  validFrom: z.string().datetime().nullable(),
+  validTo: z.string().datetime().nullable(),
+  ruleCount: z.number().int().nonnegative(),
+  rules: z.array(shippingRateRuleSchema),
+  tiers: z.array(shippingRateTierSchema),
+  zones: z.array(shippingRateZoneSchema),
+  surcharges: z.array(shippingSurchargeSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRatePlanListResponseSchema = z.object({
+  data: z.array(shippingRatePlanSchema),
+});
+
+export const shippingRatePlanCreateRequestSchema = z.object({
+  provider: shippingProviderTypeSchema.nullable().optional(),
+  name: z.string().min(1).max(160),
+  status: shippingRatePlanStatusSchema.default("ACTIVE"),
+  isDefault: z.boolean().default(false),
+  pricingMode: shippingRatePricingModeSchema.default("FIXED"),
+  currency: currencySchema.default("TRY"),
+  fixedAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  freeShippingThresholdMinor: z.number().int().nonnegative().nullable().optional(),
+  validFrom: z.string().datetime().nullable().optional(),
+  validTo: z.string().datetime().nullable().optional(),
+});
+
+export const shippingRatePlanUpdateRequestSchema = shippingRatePlanCreateRequestSchema
+  .partial()
+  .extend({
+    // name kismi guncellemede de bos olamaz.
+    name: z.string().min(1).max(160).optional(),
+  });
+
 export type ShippingCredentialStatus = z.infer<typeof shippingCredentialStatusSchema>;
 export type ShippingConnectionStatus = z.infer<typeof shippingConnectionStatusSchema>;
 export type ShippingProviderConfigResponse = z.infer<typeof shippingProviderConfigSchema>;
@@ -2332,3 +2623,22 @@ export type ShippingCreateOrderRequest = z.infer<typeof shippingCreateOrderReque
 export type ShippingCreateBarcodeRequest = z.infer<typeof shippingCreateBarcodeRequestSchema>;
 export type OrderShippingResponse = z.infer<typeof orderShippingResponseSchema>;
 export type ShipmentResponse = z.infer<typeof shipmentSchema>;
+export type ShippingRatePlanStatus = z.infer<typeof shippingRatePlanStatusSchema>;
+export type ShippingRatePricingMode = z.infer<typeof shippingRatePricingModeSchema>;
+export type ShippingRateSource = z.infer<typeof shippingRateSourceSchema>;
+export type ShippingChargeType = z.infer<typeof shippingChargeTypeSchema>;
+export type ShippingRateRule = z.infer<typeof shippingRateRuleSchema>;
+export type ShippingRateRuleInput = z.infer<typeof shippingRateRuleInputSchema>;
+export type ShippingRateRulePatch = z.infer<typeof shippingRateRulePatchSchema>;
+export type ShippingRateTier = z.infer<typeof shippingRateTierSchema>;
+export type ShippingRateTierInput = z.infer<typeof shippingRateTierInputSchema>;
+export type ShippingRateZone = z.infer<typeof shippingRateZoneSchema>;
+export type ShippingRateZoneInput = z.infer<typeof shippingRateZoneInputSchema>;
+export type ShippingSurcharge = z.infer<typeof shippingSurchargeSchema>;
+export type ShippingSurchargeInput = z.infer<typeof shippingSurchargeInputSchema>;
+export type ShippingRatePlanResponse = z.infer<typeof shippingRatePlanSchema>;
+export type ShippingRatePlanListResponse = z.infer<typeof shippingRatePlanListResponseSchema>;
+export type ShippingRatePlanCreateRequest = z.infer<typeof shippingRatePlanCreateRequestSchema>;
+export type ShippingRatePlanUpdateRequest = z.infer<typeof shippingRatePlanUpdateRequestSchema>;
+export type ShippingQuoteSource = z.infer<typeof shippingQuoteSourceSchema>;
+export type ShippingQuoteStatus = z.infer<typeof shippingQuoteStatusSchema>;

@@ -161,6 +161,9 @@ async function main() {
       whatsappMessageTemplate: null,
       inquiryFormTitle: null,
       appointmentNote: null,
+      // F3C.2 — Ürün-seviyesi kargo ölçüsü; varyantlar boş bırakıp buradan fallback alır.
+      shippingWeightKg: 0.6,
+      shippingDesi: 5,
     },
     create: {
       storeId: store.id,
@@ -178,6 +181,8 @@ async function main() {
       whatsappEnabled: false,
       purchasable: true,
       minOrderQuantity: 1,
+      shippingWeightKg: 0.6,
+      shippingDesi: 5,
     },
   });
 
@@ -201,6 +206,9 @@ async function main() {
       whatsappMessageTemplate: null,
       inquiryFormTitle: null,
       appointmentNote: null,
+      // F3C.2 — Kargo ölçüleri (desi tarifesi runtime smoke için).
+      shippingWeightKg: 0.4,
+      shippingDesi: 3,
     },
     create: {
       storeId: store.id,
@@ -218,6 +226,8 @@ async function main() {
       whatsappEnabled: false,
       purchasable: true,
       minOrderQuantity: 1,
+      shippingWeightKg: 0.4,
+      shippingDesi: 3,
     },
   });
 
@@ -319,6 +329,33 @@ async function main() {
       }),
     ),
   );
+
+  // F3C.2 — Demo magaza icin VARSAYILAN kargo TARIFE plani. Eski hardcoded ₺49,90 /
+  // ₺750 ucretsiz kargo esigi artik "magic" degil; store tarifesi olarak tutulur
+  // (FREE_THRESHOLD: esik altinda 4990, esik ustunde 0). Provider canli quote DEGIL.
+  await prisma.shippingRatePlan.upsert({
+    where: { id: `${store.id}-default-shipping` },
+    update: {
+      name: "Standart Kargo",
+      status: "ACTIVE",
+      isDefault: true,
+      pricingMode: "FREE_THRESHOLD",
+      currency: "TRY",
+      fixedAmountMinor: 4990,
+      freeShippingThresholdMinor: 75000,
+    },
+    create: {
+      id: `${store.id}-default-shipping`,
+      storeId: store.id,
+      name: "Standart Kargo",
+      status: "ACTIVE",
+      isDefault: true,
+      pricingMode: "FREE_THRESHOLD",
+      currency: "TRY",
+      fixedAmountMinor: 4990,
+      freeShippingThresholdMinor: 75000,
+    },
+  });
 }
 
 main()

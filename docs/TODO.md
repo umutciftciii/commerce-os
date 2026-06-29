@@ -396,8 +396,35 @@
 - TODO-107: DHL production static IP authorization checklist — canlı (api.mngkargo.com.tr) erişim için sabit IP
   beyanı/whitelist süreci, API Zone abonelik onayı (CBS_INFO/STANDARD_QUERY/STANDARD_COMMAND/BARCODE_COMMAND/
   PLUS_COMMAND ürünleri), callback URL kaydı doğrulaması.
-- TODO-108: F3C.2 Shipping Price Engine (AYRI FAZ). Sepet/checkout kargo bedeli provider'dan CANLI çekilmez;
-  mağaza/admin tarafından girilen kargo tarife/rate-plan modeli ile hesaplanır. Kapsam: shipping tariff/rate plan
-  veri modeli (ağırlık/desi/bölge/ücretsiz-kargo eşiği), admin tarife yönetimi UI, storefront cart/checkout kargo
-  satırı (source=STORE_RATE_PLAN), mevcut sabit kuralın tarife motoruna taşınması. NOT: DHL eCommerce operasyon
-  sağlayıcısı olarak kalır (F3C.1); fiyat motoru ondan bağımsızdır.
+- TODO-108: F3C.2 Shipping Price Engine — DONE (ADR-044). Kargo bedeli mağaza TARİFE planından hesaplanır
+  (ShippingRatePlan + ShippingRateRule; price-engine.ts saf fonksiyon). Admin tarife yönetimi UI
+  (/shipping/rates), storefront cart/checkout kargo satırı (ADDRESS_REQUIRED/NO_RATE_PLAN/free/amount), sipariş
+  kargo snapshot'ı, demo store default rate plan seed (eski ₺49,90/₺750 buraya taşındı). DHL eCommerce operasyon
+  sağlayıcısı olarak kalır; fiyat motoru ondan bağımsızdır.
+- TODO-109: Kargo bölge yönetimi UI + şehir/ilçe → bölge (regionCode) eşleme. DESI_AND_REGION_TABLE modeli
+  destekler ama admin UI ilk sürümde minimal (şehir/ilçe kodu serbest metin); regionCode storefront adresinden
+  henüz türetilmiyor (EngineAddress.regionCode = null). DHL CBS geo kod cache'iyle (TODO-102) entegre edilebilir.
+- TODO-110: Ürün/varyant kargo ölçümü admin UI alanları — DONE. Ürün formuna (product-form.tsx) ve varyant
+  editörüne (variants-manager.tsx) "Kargo ölçüleri" bölümü eklendi (shippingWeightKg / shippingDesi; >0 doğrulama,
+  boş=null). Contracts product/variant create/update + response şemaları alanları kabul/dönüyor; serialize Decimal→
+  number; cart hesaplaması varyant→ürün fallback (resolveShippingDims). i18n TR/EN, testler (contracts validation,
+  resolveShippingDims, UI render, i18n parity) ve runtime smoke (demo-tote checkout kargo hesaplandı; dims yoksa
+  MISSING_SHIPPING_DIMENSIONS → ödeme bloke). KALAN (yeni TODO-115): gerçek en/boy/yükseklik boyut alanları +
+  volumetrik desi otomatik hesabı (en×boy×yükseklik / divisor, default 3000); şimdilik kullanıcı hesaplanmış desiyi
+  girer (billableWeight = max(kg, desi) precomputed shippingDesi ile çalışır).
+- TODO-115: Gerçek ürün boyut alanları (en/boy/yükseklik) + otomatik volumetrik desi (divisor default 3000). Şu an
+  admin yalnız hesaplanmış desi/ağırlık girer; ölçü alanlarından otomatik desi türetme ileride.
+- TODO-111: Kargo tarife CSV/Excel import/export — GÜÇLENDİRİLDİ. Generic Tariff Engine (ADR-044 revizyon) ile
+  her provider'ın fiyat listesi (DHL Tarife I/II/III desi tablosu, Aras zone+kg/desi+31+, Yurtiçi desi/ücrete-esas
+  ağırlık) aynı generic modele (tier/zone/rule/surcharge) maplenir. Provider'a ÖZEL fiyat kodu YOK; bunun yerine
+  her provider için bir **CSV/Excel import mapper** (kolon eşleme şablonu) ileride eklenecek: yüklenen tablo →
+  ShippingRateTier/Zone/Rule/Surcharge kayıtları. Toplu export da bu kapsamda.
+- TODO-113: 30+/31+ satır semantiği provider teyidi. PER_ADDITIONAL_KG_OR_DESI şu an ek-birim varsayar
+  (base + (billable−threshold)×unit). DHL/Aras fiyat listesinde "30+/31+" satırının TOPLAM fiyat mı yoksa ek-birim
+  fiyat mı olduğu resmi tarifeden teyit edilmeli; gerekirse mapper'da işaretlenir.
+- TODO-114: Adres → zon (zoneCode) çözümleme. EngineAddress.zoneCode şu an null (server city→zone maplemiyor);
+  zoneId'li kurallar yalnız zoneCode upstream çözülünce eşleşir. Şehir/ilçe → zon eşleme tablosu (Aras bölge
+  tanımları / DHL CBS geo cache TODO-102) ile doldurulacak.
+- TODO-112: Sipariş sonrası DHL operasyon otomasyonu — checkout sonrası createRecipient/createOrder/createbarcode
+  akışının (admin onaylı veya otomatik) tarife motoruyla ilişkilendirilmesi. Marketplace TRND/N11 kargo alanları
+  (bkz. TODO-105) bu akışa bağlanır.

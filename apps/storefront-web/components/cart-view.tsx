@@ -209,7 +209,19 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           <div className="flex items-center justify-between">
             <dt className="text-slate-500">{t.shipping}</dt>
             <dd className="font-medium text-slate-900">
-              {s.shippingIsFree ? <span className="text-emerald-700">{t.shippingFree}</span> : s.shippingLabel}
+              {s.shippingStatus !== "OK" ? (
+                <span className="text-right text-xs font-normal text-slate-500">
+                  {s.shippingStatus === "ADDRESS_REQUIRED"
+                    ? t.shippingPending
+                    : s.shippingStatus === "NO_RATE_PLAN"
+                      ? t.shippingNoRatePlan
+                      : t.shippingUnavailable}
+                </span>
+              ) : s.shippingIsFree ? (
+                <span className="text-emerald-700">{t.shippingFree}</span>
+              ) : (
+                s.shippingLabel
+              )}
             </dd>
           </div>
 
@@ -223,7 +235,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           </div>
         </dl>
 
-        {!s.shippingIsFree ? (
+        {s.shippingStatus === "OK" && !s.shippingIsFree ? (
           <p className="mt-2 text-xs text-slate-400">
             {format(t.freeShippingHint, { amount: s.freeShippingThresholdLabel })}
           </p>
