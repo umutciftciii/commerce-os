@@ -1838,3 +1838,24 @@ bağımsız ve sağlayıcıya istek atmaz.
   (shipping.status MISSING_DIMENSIONS, ödeme bloke). Secret scan temiz.
 - Gate: db:generate ✓; build ✓; typecheck ✓; lint ✓; test ✓; git diff --check temiz.
 - Kalan: TODO-115 (gerçek en/boy/yükseklik + otomatik volumetrik desi).
+
+### F3C.3 — DHL Sandbox Operation Verification + Admin Order Shipping Action
+- Sandbox smoke (testapi.mngkargo.com.tr, process-only guard flag'leri): Identity token 200, CBS
+  getcities/getdistricts 200, Standard Query abonelik OK. **createRecipient** (recipient wrapper) 200,
+  **createOrder** (marketPlaceShortCode:"") 200 → array[{orderInvoiceId,orderInvoiceDetailId,shipperBranchCode}],
+  **getorder** 200, **createbarcode** 200 → {invoiceId,shipmentId,barcodes[],...} ZPL üretildi (Üsküdar/87),
+  **getshipmentstatus/trackshipment** 200 (barcode sonrası). Branch routing ilçeye bağlı: Tuzla/Üsküdar/
+  Sancaktepe/Arnavutköy/Ataşehir OK; Küçükçekmece kalıcı "HAT KODU BULUNAMADI"; Sultangazi geçici "tekrar deneyin".
+  cancel: tüm path varyantları 404 → ENDPOINT_UNRESOLVED. Hiçbir secret/jwt/refreshToken/ZPL loglanmadı.
+- Wiring: client.ts (recipient wrapper + marketPlaceShortCode) + mappers (array createOrder, boolean isDelivered,
+  no-ZPL barcode, single-object track) fix'leri. Yeni gateway route'ları /dhl/prepare|barcode|sync|cancel
+  (ShipmentEvent timeline + duplicate createOrder guard + sanitize persist). BFF pass-through (CSRF +
+  requireStoreContext). store-admin order detail paneli: prepare/barcode/sync aksiyonları + durum kartı
+  (shipmentId/invoiceId/trackingNumber kopyala + trackingUrl link) + event timeline; cancel disabled.
+- Runtime smoke (worktree gateway :4010 + gerçek MNG sandbox): prepare→duplicate→barcode→sync
+  uçtan uca yeşil (Shipment ORDER_CREATED→LABEL_CREATED, 4 ShipmentEvent, gerçek tracking
+  "İSTANBUL (BAĞCILAR) Gönderi Hazırlandı"); cancel 409 ENDPOINT_UNRESOLVED. **Bulgu:** MNG
+  sandbox createRecipient/createOrder/createbarcode/getcities çağrıları runtime'da ~15s
+  sürebiliyor; eski sabit 15s transport timeout'u sınırda abort/500 üretiyordu. **Çözüm:**
+  sağlayıcı HTTP timeout'u env-configurable yapıldı (DHL_ECOMMERCE_HTTP_TIMEOUT_MS, default
+  60000); timeout aşımı ham AbortError yerine sanitize SHIPPING_HTTP_TIMEOUT (504) döner.

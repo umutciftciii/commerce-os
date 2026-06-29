@@ -70,6 +70,10 @@ export const envSchema = z.object({
   DHL_ECOMMERCE_LIVE_BASE_URL: z.string().url().optional().default("https://api.mngkargo.com.tr"),
   // DHL test/live isteklerinde zorunlu IBM API Connect surum header'i (x-api-version).
   DHL_ECOMMERCE_API_VERSION: z.string().optional(),
+  // F3C.3 — Saglayici HTTP cagri timeout'u (ms). MNG sandbox createRecipient/createOrder/
+  // createbarcode/getcities cagrilari runtime'da ~15s surebildigi icin default 60s; eski
+  // sabit 15s sinirda abort/timeout uretiyordu. Test/dev'de override edilebilir.
+  DHL_ECOMMERCE_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   // F3C.1 — Plus Command / createRecipient destructive guard'i. Varsayilan KAPALI.
   // Canli createRecipient yalniz bu flag true + providerConfig.allowRecipientCreate true
   // + request explicitConfirm true uclusu saglandiginda calisir; aksi halde

@@ -40,13 +40,24 @@ export function createDisabledHttpTransport(): ShippingHttpTransport {
   };
 }
 
-/** Gercek transport: `fetch` ile sandbox/live cagri (flag acikken). */
-export function createFetchHttpTransport(timeoutMs = 15000): ShippingHttpTransport {
+/**
+ * Gercek transport: `fetch` ile sandbox/live cagri (flag acikken).
+ *
+ * timeoutMs: saglayici cevap suresi siniri. MNG sandbox bazi operasyon cagrilarinda
+ * ~15s surebildiginden default 60s; config.DHL_ECOMMERCE_HTTP_TIMEOUT_MS ile gelir.
+ * Timeout asilirsa ham AbortError yerine SANITIZE `SHIPPING_HTTP_TIMEOUT` (secret/token
+ * icermez) firlatilir; route bunu kontrollu 504'e esler.
+ */
+export function createFetchHttpTransport(timeoutMs = 60000): ShippingHttpTransport {
   return {
     enabled: true,
     async send(request: ShippingHttpRequest): Promise<ShippingHttpResponse> {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
       try {
         const response = await fetch(request.url, {
           method: request.method,
@@ -55,6 +66,15 @@ export function createFetchHttpTransport(timeoutMs = 15000): ShippingHttpTranspo
           signal: controller.signal,
         });
         return { status: response.status, body: await response.text() };
+      } catch (error) {
+        // Abort = bizim timeout'umuz → sanitize hata (URL/header/secret SIZDIRMADAN).
+        if (timedOut || (error instanceof Error && error.name === "AbortError")) {
+          throw new ShippingConfigError(
+            "SHIPPING_HTTP_TIMEOUT",
+            `Kargo sağlayıcı yanıtı zaman aşımına uğradı (${timeoutMs} ms).`,
+          );
+        }
+        throw error;
       } finally {
         clearTimeout(timer);
       }

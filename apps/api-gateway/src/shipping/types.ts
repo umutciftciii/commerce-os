@@ -94,7 +94,10 @@ export interface ShippingOrderCreateResult {
 
 export interface ShippingBarcodeItem {
   pieceNumber: number;
-  value: string;
+  /** Kisa takip barkodu (sanitize). ZPL/etiket icerigi (`value`) ASLA tasinmaz. */
+  barcode: string | null;
+  /** `value` (etiket/ZPL) alani doluydu mu — zplPresent tespiti icin; icerik tutulmaz. */
+  labelPresent: boolean;
 }
 
 export interface ShippingBarcodeResult {

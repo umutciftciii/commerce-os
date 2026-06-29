@@ -2335,6 +2335,28 @@ export const shippingCreateBarcodeRequestSchema = z.object({
   explicitConfirm: z.boolean().default(false),
 });
 
+// F3C.3 — Gonderi olay tipi (DHL post-order operasyon timeline'i). rawSafeJson sanitize.
+export const shipmentEventTypeSchema = z.enum([
+  "CREATED",
+  "ORDER_CREATED",
+  "BARCODE_CREATED",
+  "STATUS_CHANGED",
+  "TRACKING_UPDATED",
+  "CANCELLED",
+  "WEBHOOK_RECEIVED",
+]);
+
+export const shipmentEventSchema = z.object({
+  id: z.string(),
+  eventType: shipmentEventTypeSchema,
+  statusCode: z.number().int().nullable(),
+  statusText: z.string().nullable(),
+  location: z.string().nullable(),
+  occurredAt: z.string().datetime().nullable(),
+  trackingUrl: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
 export const shipmentSchema = z.object({
   id: z.string(),
   orderId: z.string(),
@@ -2356,12 +2378,59 @@ export const shipmentSchema = z.object({
   trackingNumber: z.string().nullable(),
   trackingUrl: z.string().nullable(),
   labelUrl: z.string().nullable(),
+  // F3C.3 — operasyon paneli icin zengin alanlar (secret icermez).
+  shipmentStatusCode: z.number().int().nullable(),
+  // Barkod/ZPL etiketi olusturuldu mu (yalniz BOOLEAN; raw ZPL DB'ye yazilmaz/donmez).
+  barcodeHasLabel: z.boolean(),
+  recipientName: z.string().nullable(),
+  // Son provider senkronu (en yeni STATUS/TRACKING event'inden turetilir).
+  lastSyncedAt: z.string().datetime().nullable(),
+  lastProviderStatus: z.string().nullable(),
+  events: z.array(shipmentEventSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
 export const orderShippingResponseSchema = z.object({
   shipments: z.array(shipmentSchema),
+});
+
+/* ─────────────────── F3C.3 DHL post-order operasyon admin aksiyonlari ───────────────────
+ * Sipariş OLUSTUKTAN SONRA admin aksiyonu: createRecipient+createOrder (prepare) →
+ * createbarcode → status/track sync. Checkout DHL'e operasyon cagrisi YAPMAZ (ADR-044).
+ * referenceId backend'de order'dan turetilir; client'tan gelen provider/order id GUVENILMEZ.
+ */
+export const shippingPrepareRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  shipmentServiceType: z.number().int().optional(),
+  packagingType: z.number().int().optional(),
+  paymentType: z.number().int().optional(),
+  deliveryType: z.number().int().optional(),
+  content: z.string().max(255).optional(),
+  recipient: shipmentRecipientSchema,
+  pieces: z.array(shipmentPieceSchema).min(1),
+  // Destructive guard: canli createRecipient+createOrder yalniz bu true iken (+env+config izni).
+  explicitConfirm: z.boolean().default(false),
+});
+
+export const shippingBarcodeActionRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  packagingType: z.number().int().optional(),
+  explicitConfirm: z.boolean().default(false),
+});
+
+export const shippingSyncRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+});
+
+export const shippingCancelRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  explicitConfirm: z.boolean().default(false),
+});
+
+export const shippingShipmentMutationResponseSchema = z.object({
+  shipment: shipmentSchema,
+  alreadyExisted: z.boolean().default(false),
 });
 
 /* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
@@ -2623,6 +2692,13 @@ export type ShippingCreateOrderRequest = z.infer<typeof shippingCreateOrderReque
 export type ShippingCreateBarcodeRequest = z.infer<typeof shippingCreateBarcodeRequestSchema>;
 export type OrderShippingResponse = z.infer<typeof orderShippingResponseSchema>;
 export type ShipmentResponse = z.infer<typeof shipmentSchema>;
+export type ShipmentEventResponse = z.infer<typeof shipmentEventSchema>;
+export type ShipmentEventType = z.infer<typeof shipmentEventTypeSchema>;
+export type ShippingPrepareRequest = z.infer<typeof shippingPrepareRequestSchema>;
+export type ShippingBarcodeActionRequest = z.infer<typeof shippingBarcodeActionRequestSchema>;
+export type ShippingSyncRequest = z.infer<typeof shippingSyncRequestSchema>;
+export type ShippingCancelRequest = z.infer<typeof shippingCancelRequestSchema>;
+export type ShippingShipmentMutationResponse = z.infer<typeof shippingShipmentMutationResponseSchema>;
 export type ShippingRatePlanStatus = z.infer<typeof shippingRatePlanStatusSchema>;
 export type ShippingRatePricingMode = z.infer<typeof shippingRatePricingModeSchema>;
 export type ShippingRateSource = z.infer<typeof shippingRateSourceSchema>;

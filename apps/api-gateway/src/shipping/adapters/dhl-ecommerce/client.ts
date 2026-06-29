@@ -142,20 +142,24 @@ export function buildCreateRecipientRequest(
   apiVersion: string | null,
 ): ShippingHttpRequest {
   const referenceId = input.referenceId.toUpperCase();
+  // F3C.3 sandbox dogrulama: govde `recipient` WRAPPER ister; flat alanlar 500 (Code 1001
+  // "Unexpected error") doner. Dogru sekil: { referenceId, recipient: {...} }.
   return {
     method: "POST",
     url: `${host}${DHL_BASE_PATHS.plusCommand}/createRecipient`,
     headers: authedHeaders(product, token, apiVersion),
     body: JSON.stringify({
       referenceId,
-      cityCode: input.recipient.cityCode ?? 0,
-      districtCode: input.recipient.districtCode ?? 0,
-      cityName: input.recipient.cityName ?? "",
-      districtName: input.recipient.districtName ?? "",
-      address: input.recipient.address ?? "",
-      email: input.recipient.email ?? "",
-      fullName: input.recipient.fullName ?? "",
-      mobilePhoneNumber: input.recipient.phone ?? "",
+      recipient: {
+        cityCode: input.recipient.cityCode ?? 0,
+        districtCode: input.recipient.districtCode ?? 0,
+        cityName: input.recipient.cityName ?? "",
+        districtName: input.recipient.districtName ?? "",
+        address: input.recipient.address ?? "",
+        email: input.recipient.email ?? "",
+        fullName: input.recipient.fullName ?? "",
+        mobilePhoneNumber: input.recipient.phone ?? "",
+      },
     }),
   };
 }
@@ -188,6 +192,10 @@ export function buildCreateOrderRequest(
         paymentType: input.paymentType ?? 1,
         deliveryType: input.deliveryType ?? 1,
         description: input.content ?? "",
+        // F3C.3 sandbox dogrulama: marketPlaceShortCode ZORUNLU (yoksa 400 code 26029).
+        // Marketplace gonderisi degil → bos string (gecerli enum: TRND/GG/N11/"").
+        marketPlaceShortCode: "",
+        marketPlaceSaleCode: "",
       },
       orderPieceList: piecesToOrderList(input.pieces, referenceId),
       recipient: {

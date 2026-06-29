@@ -60,7 +60,10 @@ export function mapCalculateResponse(json: unknown): ShippingRateResult {
 }
 
 export function mapCreateOrderResponse(json: unknown, referenceId: string): ShippingOrderCreateResult {
-  const rec = asRecord(json);
+  // F3C.3 sandbox dogrulama: createOrder yaniti ARRAY doner
+  // ([{ orderInvoiceId, orderInvoiceDetailId, shipperBranchCode, referenceId }]).
+  // asRecord(array) alanlari bulamiyordu (BUG); ilk elemani al.
+  const rec = asRecord(Array.isArray(json) ? json[0] : json);
   return {
     referenceId: toStringOrNull(rec.referenceId) ?? referenceId,
     externalOrderId: toStringOrNull(rec.orderInvoiceId),
@@ -71,6 +74,10 @@ export function mapCreateOrderResponse(json: unknown, referenceId: string): Ship
 }
 
 export function mapCreateBarcodeResponse(json: unknown, referenceId: string): ShippingBarcodeResult {
+  // F3C.3 sandbox dogrulama: yanit { referenceId, invoiceId, shipmentId,
+  // barcodes:[{pieceNumber,value,barcode}], referenceBarcodeOnError }. `value` ZPL/etiket
+  // icerebilir (UZUN) → result'a tasinmaz; yalniz pieceNumber + kisa takip barkodu (`barcode`)
+  // ve raw uzunlugu (zplPresent tespiti icin) tasinir. Raw ZPL ASLA loglanmaz/DB'ye yazilmaz.
   const rec = asRecord(json);
   const rawBarcodes = Array.isArray(rec.barcodes) ? rec.barcodes : [];
   return {
@@ -79,9 +86,12 @@ export function mapCreateBarcodeResponse(json: unknown, referenceId: string): Sh
     externalInvoiceId: toStringOrNull(rec.invoiceId),
     barcodes: rawBarcodes.map((b, i) => {
       const br = asRecord(b);
+      const value = typeof br.value === "string" ? br.value : "";
       return {
         pieceNumber: toNumber(br.pieceNumber) ?? i + 1,
-        value: toStringOrNull(br.value) ?? "",
+        barcode: toStringOrNull(br.barcode),
+        // labelPresent: `value` alani etiket/ZPL icerigi tasiyor mu (uzunluk/marker).
+        labelPresent: value.length > 0,
       };
     }),
   };
@@ -97,21 +107,23 @@ export function mapShipmentStatusResponse(json: unknown): ShippingShipmentStatus
     externalShipmentId: toStringOrNull(s.shipmentId),
     statusCode: toNumber(s.shipmentStatusCode),
     statusText: toStringOrNull(s.shipmentStatus),
-    isDelivered: toNumber(s.isDelivered) === 1,
+    // F3C.3 sandbox dogrulama: isDelivered BOOLEAN da olabilir (number degil).
+    isDelivered: s.isDelivered === true || toNumber(s.isDelivered) === 1,
     trackingUrl: toStringOrNull(s.trackingUrl),
     deliveryDateTime: toStringOrNull(s.deliveryDateTime ?? s.deliveryDate),
     deliveryTo: toStringOrNull(s.deliveryTo),
   };
 }
 
-/** trackshipment → hareket listesi normalize. */
+/** trackshipment → hareket listesi normalize. Yanit array VEYA tek obje olabilir. */
 export function mapTrackResponse(json: unknown): ShippingTrackingEventResult[] {
-  const arr = Array.isArray(json) ? json : [];
+  const arr = Array.isArray(json) ? json : json && typeof json === "object" ? [json] : [];
   return arr.map((e) => {
     const rec = asRecord(e);
     return {
       sequence: toNumber(rec.eventSequence),
-      statusText: toStringOrNull(rec.eventStatus),
+      statusCode: toNumber(rec.eventStatusCode),
+      statusText: toStringOrNull(rec.eventStatus ?? rec.eventStatusEn),
       location: toStringOrNull(rec.location),
       occurredAt: toStringOrNull(rec.eventDateTime2 ?? rec.eventDateTime),
     };

@@ -51,6 +51,11 @@ import type {
   ShippingRateResponse,
   ShippingCreateOrderRequest,
   ShippingCreateBarcodeRequest,
+  ShippingPrepareRequest,
+  ShippingBarcodeActionRequest,
+  ShippingSyncRequest,
+  ShippingCancelRequest,
+  ShippingShipmentMutationResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -419,6 +424,27 @@ export const storeApi = {
       `/api/orders/${orderId}/shipping/create-barcode`,
       { method: "POST", body: JSON.stringify(input) },
     ),
+  // F3C.3 — DHL sipariş sonrası operasyon admin aksiyonları (BFF pass-through).
+  prepareDhlShipment: (orderId: string, input: ShippingPrepareRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/prepare`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  createDhlBarcode: (orderId: string, input: ShippingBarcodeActionRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/barcode`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  syncDhlShipment: (orderId: string, input: ShippingSyncRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/sync`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  cancelDhlShipment: (orderId: string, input: ShippingCancelRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   // F3C.2 — Kargo TARİFE planları (price engine). Provider canlı quote DEĞİL;
   // ücret store tarifesinden hesaplanır. Secret içermez.

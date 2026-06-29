@@ -281,8 +281,14 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
   }
 
   async cancelShipment(): Promise<{ cancelled: boolean }> {
-    // TODO(F3C.x): cancelorder/cancelshipment guard'li canli akis.
-    throw new ShippingConfigError("NOT_IMPLEMENTED", "cancelShipment bu fazda etkin değil.");
+    // F3C.3: cancel endpoint'i HENUZ TEYIT EDILMEDI. Sandbox'ta standardcmd/barcodecmd
+    // altinda cancelOrder/cancelShipment/deleteOrder/cancelbarcode varyantlarinin TUMU
+    // 404 ("No resources match requested URI") dondu. Dogru path/urun MNG dokumanindan
+    // teyit edilene kadar guard altinda ENDPOINT_UNRESOLVED doner (bkz. docs/TODO.md).
+    throw new ShippingConfigError(
+      "ENDPOINT_UNRESOLVED",
+      "DHL kargo iptal (cancel) endpoint'i henüz teyit edilmedi; bu işlem şu an etkin değil.",
+    );
   }
 
   async handleWebhook(): Promise<WebhookResult> {

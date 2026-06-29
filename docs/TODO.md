@@ -428,3 +428,15 @@
 - TODO-112: Sipariş sonrası DHL operasyon otomasyonu — checkout sonrası createRecipient/createOrder/createbarcode
   akışının (admin onaylı veya otomatik) tarife motoruyla ilişkilendirilmesi. Marketplace TRND/N11 kargo alanları
   (bkz. TODO-105) bu akışa bağlanır.
+- TODO-116: DHL kargo İPTAL (cancel) endpoint'i — MNG dokümanından doğru path/ürün teyidi. Sandbox'ta
+  cancelOrder/cancelShipment/deleteOrder/cancelbarcode (POST+DELETE) hepsi 404. Teyit edilince
+  `DhlEcommerceAdapter.cancelShipment` + `/dhl/cancel` route + UI iptal aksiyonu etkinleştirilecek
+  (şu an ENDPOINT_UNRESOLVED / UI disabled).
+- TODO-117: Müşteri tarafı kargo takip UI'si — Shipment.trackingNumber/trackingUrl + ShipmentEvent timeline'ının
+  storefront sipariş detayında (müşteri hesabı) gösterimi. Şu an yalnız store-admin paneli.
+- TODO-118: DHL canlı (production) rollout checklist — statik IP / client onayı, LIVE base URL geçişi,
+  guard flag'lerinin canlıda kontrollü açılması, gerçek müşteri adresi → MNG cityCode/districtCode çözümleme
+  (CBS geo cache, TODO-102), barcode "varış şubesi hat kodu" başarısızlıklarında retry/uyarı.
+- TODO-119 (ÇÖZÜLDÜ): Sağlayıcı HTTP timeout env-configurable (DHL_ECOMMERCE_HTTP_TIMEOUT_MS,
+  default 60000; timeout→SHIPPING_HTTP_TIMEOUT 504). F3C.3 runtime smoke'ta MNG sandbox ~15s
+  latency'sinin sabit 15s timeout'u sınırda abort etmesi üzerine eklendi.

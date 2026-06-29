@@ -906,3 +906,28 @@
      PER_ADDITIONAL→base+unit+threshold); amount/unit ≥ 0. **Aynı tier+zone içinde kg/desi aralık çakışması
      SERT engellenmez; sortOrder + specificity ile DETERMİNİSTİK çözülür** (Karar: brittle olmayan yaklaşım; engine
      en spesifik + en küçük sortOrder kuralı seçer).
+
+## F3C.3 — DHL operasyon aksiyonları sipariş SONRASI admindir (ADR-045)
+
+- **Karar:** DHL eCommerce (teknik: MNG Kargo) operasyon çağrıları (createRecipient/createOrder/
+  createbarcode/getshipmentstatus/trackshipment) **checkout'ta YAPILMAZ**. Checkout yalnız store tarife
+  motoruyla (ADR-044) kargo ÜCRETİNİ hesaplar. Operasyon, sipariş oluştuktan sonra store-admin sipariş
+  detayındaki admin aksiyonlarıyla tetiklenir: `prepare` (createRecipient+createOrder) → `barcode`
+  (createbarcode) → `sync` (status/track).
+- **createOrder ≠ fiziksel teslim.** `createOrder` 2xx = "DHL gönderi kaydı/kargo talebi oluşturuldu";
+  `createbarcode` 2xx = "barkod oluşturuldu". **"Kargoya verildi" YALNIZCA** manuel admin durumu veya DHL
+  tracking status (getshipmentstatus/trackshipment) ile söylenir; createOrder/createbarcode bunu ifade etmez.
+- **cancel endpoint belirsiz.** Sandbox'ta standardcmd/barcodecmd altında cancelOrder/cancelShipment/
+  deleteOrder/cancelbarcode varyantlarının tümü 404 döndü. Doğru endpoint MNG dokümanından teyit edilene kadar
+  adapter `cancelShipment` → `ENDPOINT_UNRESOLVED` (409); UI'da iptal aksiyonu disabled.
+- **Sandbox request-shape teyitleri:** createOrder order objesi zorunlu `marketPlaceShortCode:""`;
+  createRecipient gövdesi `recipient` wrapper; createOrder yanıtı array; createbarcode `value` alanı ZPL
+  içerir → DB'ye/loglara yalnız sanitize özet (`barcodeJsonSafe`: pieceNumber/barcodeCount/zplPresent/
+  shipmentId/invoiceId) yazılır, raw ZPL ASLA. Bazı ilçelerde (örn. Küçükçekmece) sandbox "varış şubesi hat
+  kodu" yok → barcode 500; routable ilçe gerekir.
+
+## F3C.3 — Sağlayıcı HTTP timeout env-configurable (ek not)
+
+- Kargo sağlayıcı HTTP çağrı timeout'u `DHL_ECOMMERCE_HTTP_TIMEOUT_MS` (default 60000ms) ile
+  yapılandırılır; sabit 15s kaldırıldı (MNG sandbox ~15s latency'de sınırda abort üretiyordu).
+  Timeout aşımı SANITIZE `SHIPPING_HTTP_TIMEOUT` → HTTP 504; URL/secret/token sızdırmaz.
