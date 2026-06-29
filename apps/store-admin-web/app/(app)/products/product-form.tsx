@@ -113,6 +113,14 @@ export function ProductForm({
   const [inquiryFormTitle, setInquiryFormTitle] = useState(initial?.inquiryFormTitle ?? "");
   const [appointmentNote, setAppointmentNote] = useState(initial?.appointmentNote ?? "");
 
+  // F3C.2 — Kargo ölçüleri (ürün-seviyesi; varyat fallback'i). String tutulur (boş = null).
+  const [shippingWeightKg, setShippingWeightKg] = useState<string>(
+    initial?.shippingWeightKg != null ? String(initial.shippingWeightKg) : "",
+  );
+  const [shippingDesi, setShippingDesi] = useState<string>(
+    initial?.shippingDesi != null ? String(initial.shippingDesi) : "",
+  );
+
   const [error, setError] = useState<string | null>(null);
   const [saving, setSavingState] = useState(false);
 
@@ -214,6 +222,21 @@ export function ProductForm({
       return;
     }
 
+    // Kargo ölçüleri: boş = null; doluysa > 0 olmalı (backend nihai otorite).
+    const parseDim = (raw: string): number | null | "ERR" => {
+      const value = raw.trim();
+      if (value === "") return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : "ERR";
+    };
+    const weightValue = parseDim(shippingWeightKg);
+    const desiValue = parseDim(shippingDesi);
+    if (weightValue === "ERR" || desiValue === "ERR") {
+      setError(f.shippingPositiveError);
+      return;
+    }
+    const shippingFields = { shippingWeightKg: weightValue, shippingDesi: desiValue };
+
     const salesFields = {
       salesMode,
       priceVisibility,
@@ -242,6 +265,7 @@ export function ProductForm({
           description: description.trim() === "" ? null : description.trim(),
           categoryIds,
           ...salesFields,
+          ...shippingFields,
         });
         onSaved(dict.storeAdmin.products.detail.savedToast, updated);
       } else {
@@ -252,6 +276,7 @@ export function ProductForm({
           type: "PHYSICAL",
           categoryIds,
           ...salesFields,
+          ...shippingFields,
         };
         if (brand.trim() !== "") payload.brand = brand.trim();
         if (vendor.trim() !== "") payload.vendor = vendor.trim();
@@ -510,6 +535,39 @@ export function ProductForm({
             maxLength={WHATSAPP_MAX}
           />
         ) : null}
+      </div>
+
+      <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
+        <div className="flex items-start gap-2.5">
+          <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
+          <div>
+            <h3 className="text-sm font-semibold text-white/90">{f.shippingSectionTitle}</h3>
+            <p className="mt-0.5 text-xs text-white/45">{f.shippingSectionSubtitle}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input
+            id="product-shipping-weight"
+            type="number"
+            min={0}
+            step="0.001"
+            label={f.shippingWeightLabel}
+            value={shippingWeightKg}
+            onChange={(event) => setShippingWeightKg(event.target.value)}
+            disabled={saving}
+          />
+          <Input
+            id="product-shipping-desi"
+            type="number"
+            min={0}
+            step="0.01"
+            label={f.shippingDesiLabel}
+            value={shippingDesi}
+            onChange={(event) => setShippingDesi(event.target.value)}
+            disabled={saving}
+          />
+        </div>
+        <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
       </div>
     </form>
   );

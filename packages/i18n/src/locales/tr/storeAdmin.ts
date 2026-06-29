@@ -239,6 +239,14 @@ export const trStoreAdmin = {
       submitEdit: "Değişiklikleri kaydet",
       requiredTitle: "Ürün adı gerekli.",
       requiredSlug: "Geçerli bir kısa ad girin (a-z, 0-9, -).",
+      shippingSectionTitle: "Kargo ölçüleri",
+      shippingSectionSubtitle:
+        "Desi/kg bazlı kargo tarifelerinde kullanılır. Varyantta değer varsa ürün genelindeki değeri override eder.",
+      shippingWeightLabel: "Kargo ağırlığı (kg)",
+      shippingDesiLabel: "Kargo desisi",
+      shippingDesiHint:
+        "Desi genellikle en × boy × yükseklik / 3000 formülüyle hesaplanır. Şimdilik hesaplanmış desi değerini girin.",
+      shippingPositiveError: "Kargo ölçüleri 0'dan büyük olmalı (boş bırakılabilir).",
     },
     salesModel: {
       columnHeader: "Satış",
@@ -351,6 +359,11 @@ export const trStoreAdmin = {
       barcodePlaceholder: "8690000000000",
       lowStockLabel: "Kritik stok eşiği (opsiyonel)",
       lowStockPlaceholder: "5",
+      shippingWeightLabel: "Kargo ağırlığı (kg)",
+      shippingDesiLabel: "Kargo desisi",
+      shippingDesiHint:
+        "Desi/kg bazlı kargo tarifelerinde kullanılır; doluysa ürün-seviyesi değeri override eder. Desi ≈ en × boy × yükseklik / 3000.",
+      shippingPositiveError: "Kargo ölçüleri 0'dan büyük olmalı (boş bırakılabilir).",
       statusLabel: "Durum",
       submitCreate: "Varyant oluştur",
       submitEdit: "Değişiklikleri kaydet",

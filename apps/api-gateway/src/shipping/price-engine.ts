@@ -175,6 +175,22 @@ function modeRequiresAddress(mode: ShippingPricingMode): boolean {
 }
 
 /**
+ * Bir satirin kargo olcumu: varyant degeri urun-seviyesini override eder; varyantta
+ * yoksa (null) urun-seviyesi fallback. Ikisi de null ise null (DESI/WEIGHT tablosunda
+ * MISSING_SHIPPING_DIMENSIONS'a yol acar). Saf tutulur (test edilebilir).
+ */
+export interface ShippingDims {
+  shippingDesi: number | null;
+  shippingWeightKg: number | null;
+}
+export function resolveShippingDims(variant: ShippingDims, product: ShippingDims): ShippingDims {
+  return {
+    shippingDesi: variant.shippingDesi ?? product.shippingDesi,
+    shippingWeightKg: variant.shippingWeightKg ?? product.shippingWeightKg,
+  };
+}
+
+/**
  * Sepetin ucrete-esas agirligi: billableWeight = max(kg, desi) (ADR-044 / Karar 5).
  * Volumetrik desi su an Product/Variant.shippingDesi'den (precomputed) gelir; gercek
  * en/boy/yukseklik alanlari ileride (TODO). Kullanilmayan eksen 0 oldugundan

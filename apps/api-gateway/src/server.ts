@@ -83,6 +83,7 @@ import {
   resolveActiveRatePlan,
   toEnginePlan,
 } from "./shipping/rate-plan-service.js";
+import { resolveShippingDims } from "./shipping/price-engine.js";
 import type { EngineAddress, EngineCart, EngineRatePlan } from "./shipping/price-engine.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
@@ -542,6 +543,8 @@ export interface AppDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds: string[];
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<ProductRecord>;
   updateProduct(
@@ -571,6 +574,8 @@ export interface AppDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds?: string[];
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<ProductRecord | null>;
   listVariants(
@@ -593,6 +598,8 @@ export interface AppDataAccess {
       status: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<VariantRecord>;
   updateVariant(
@@ -609,6 +616,8 @@ export interface AppDataAccess {
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
+      shippingWeightKg?: number | null;
+      shippingDesi?: number | null;
     },
   ): Promise<VariantRecord | null>;
   listInventory(
@@ -949,6 +958,9 @@ function serializeProduct(product: ProductRecord) {
     inquiryFormTitle: product.inquiryFormTitle ?? null,
     appointmentNote: product.appointmentNote ?? null,
     categoryIds: product.categoryIds,
+    // F3C.2 — Decimal -> number (sema number bekler).
+    shippingWeightKg: decimalToNumber(product.shippingWeightKg),
+    shippingDesi: decimalToNumber(product.shippingDesi),
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
   });
@@ -960,6 +972,9 @@ function serializeVariant(variant: VariantRecord) {
     barcode: variant.barcode ?? null,
     compareAtMinor: variant.compareAtMinor ?? null,
     optionValues: variant.optionValues ?? null,
+    // F3C.2 — Decimal -> number.
+    shippingWeightKg: decimalToNumber(variant.shippingWeightKg),
+    shippingDesi: decimalToNumber(variant.shippingDesi),
     createdAt: variant.createdAt.toISOString(),
     updatedAt: variant.updatedAt.toISOString(),
   });
@@ -1925,6 +1940,8 @@ function createPrismaDataAccess(): AppDataAccess {
             whatsappMessageTemplate: input.whatsappMessageTemplate ?? null,
             inquiryFormTitle: input.inquiryFormTitle ?? null,
             appointmentNote: input.appointmentNote ?? null,
+            shippingWeightKg: input.shippingWeightKg ?? null,
+            shippingDesi: input.shippingDesi ?? null,
           },
           select: productSelect,
         });
@@ -2002,6 +2019,8 @@ function createPrismaDataAccess(): AppDataAccess {
             currency: input.currency,
             status: input.status,
             optionValues: input.optionValues as Prisma.InputJsonObject | undefined,
+            shippingWeightKg: input.shippingWeightKg ?? null,
+            shippingDesi: input.shippingDesi ?? null,
           },
           select: variantSelect,
         });
@@ -3131,8 +3150,10 @@ export function createServer(
             maxOrderQuantity: product.maxOrderQuantity ?? null,
             available: stockMap.has(variant.id) ? stockMap.get(variant.id)! : null,
             // Kargo olcumu: varyant degeri urun-seviyesi fallback'i override eder.
-            shippingDesi: decimalToNumber(variant.shippingDesi ?? product.shippingDesi),
-            shippingWeightKg: decimalToNumber(variant.shippingWeightKg ?? product.shippingWeightKg),
+            ...resolveShippingDims(
+              { shippingDesi: decimalToNumber(variant.shippingDesi), shippingWeightKg: decimalToNumber(variant.shippingWeightKg) },
+              { shippingDesi: decimalToNumber(product.shippingDesi), shippingWeightKg: decimalToNumber(product.shippingWeightKg) },
+            ),
           });
         }
       }),

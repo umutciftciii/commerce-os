@@ -256,6 +256,10 @@ export const productSchema = z.object({
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
   categoryIds: z.array(z.string().min(1)).default([]),
+  // F3C.2 — Kargo olcumu (desi/kg). DESI_TABLE/WEIGHT_TABLE/PER_KG_OR_DESI tarifelerinde
+  // kullanilir; varyant degeri urun-seviyesini override eder (bkz. productVariantSchema).
+  shippingWeightKg: z.number().nullable(),
+  shippingDesi: z.number().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -338,6 +342,9 @@ export const productCreateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).default([]),
+    // F3C.2 — Kargo olcumu. 0/negatif anlamsiz: >0 olmali; bos birakilabilir (null).
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => value.maxOrderQuantity == null || value.maxOrderQuantity >= value.minOrderQuantity, {
     message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
@@ -373,6 +380,9 @@ export const productUpdateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).optional(),
+    // F3C.2 — Kargo olcumu. >0 olmali; null = temizle.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -404,6 +414,9 @@ export const productVariantSchema = z.object({
   currency: currencySchema,
   status: productVariantStatusSchema,
   optionValues: jsonRecordSchema.nullable(),
+  // F3C.2 — Kargo olcumu; urun-seviyesi degerini override eder (varyantta bos ise fallback).
+  shippingWeightKg: z.number().nullable(),
+  shippingDesi: z.number().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -927,6 +940,9 @@ export const productVariantCreateRequestSchema = z
     status: productVariantStatusSchema.default("ACTIVE"),
     optionValues: jsonRecordSchema.nullable().optional(),
     lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // F3C.2 — Kargo olcumu (varyant override). >0 olmali; bos = null.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => value.compareAtMinor == null || value.compareAtMinor >= value.priceMinor, {
     message: "compareAtMinor must be greater than or equal to priceMinor.",
@@ -944,6 +960,9 @@ export const productVariantUpdateRequestSchema = z
     status: productVariantStatusSchema.optional(),
     optionValues: jsonRecordSchema.nullable().optional(),
     lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // F3C.2 — Kargo olcumu (varyant override). >0 olmali; null = temizle.
+    shippingWeightKg: z.number().positive().nullable().optional(),
+    shippingDesi: z.number().positive().nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",

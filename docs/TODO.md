@@ -404,11 +404,16 @@
 - TODO-109: Kargo bölge yönetimi UI + şehir/ilçe → bölge (regionCode) eşleme. DESI_AND_REGION_TABLE modeli
   destekler ama admin UI ilk sürümde minimal (şehir/ilçe kodu serbest metin); regionCode storefront adresinden
   henüz türetilmiyor (EngineAddress.regionCode = null). DHL CBS geo kod cache'iyle (TODO-102) entegre edilebilir.
-- TODO-110: Ürün/varyant kargo ölçümü admin ürün UI alanları. AÇIK. Şema + cart hesaplaması hazır
-  (shippingWeightKg / shippingDesi); DESI_TABLE/WEIGHT_TABLE için ölçüm eksikse MISSING_SHIPPING_DIMENSIONS. Şu an
-  alanlar yalnız veri modelinde (admin form yok). REVİZYON NOTU: gerçek en/boy/yükseklik boyut alanları + volumetrik
-  desi (en×boy×yükseklik / divisor, default 3000) ileride eklenecek; engine şimdilik precomputed shippingDesi'yi
-  billableWeight=max(kg,desi) içinde kullanıyor.
+- TODO-110: Ürün/varyant kargo ölçümü admin UI alanları — DONE. Ürün formuna (product-form.tsx) ve varyant
+  editörüne (variants-manager.tsx) "Kargo ölçüleri" bölümü eklendi (shippingWeightKg / shippingDesi; >0 doğrulama,
+  boş=null). Contracts product/variant create/update + response şemaları alanları kabul/dönüyor; serialize Decimal→
+  number; cart hesaplaması varyant→ürün fallback (resolveShippingDims). i18n TR/EN, testler (contracts validation,
+  resolveShippingDims, UI render, i18n parity) ve runtime smoke (demo-tote checkout kargo hesaplandı; dims yoksa
+  MISSING_SHIPPING_DIMENSIONS → ödeme bloke). KALAN (yeni TODO-115): gerçek en/boy/yükseklik boyut alanları +
+  volumetrik desi otomatik hesabı (en×boy×yükseklik / divisor, default 3000); şimdilik kullanıcı hesaplanmış desiyi
+  girer (billableWeight = max(kg, desi) precomputed shippingDesi ile çalışır).
+- TODO-115: Gerçek ürün boyut alanları (en/boy/yükseklik) + otomatik volumetrik desi (divisor default 3000). Şu an
+  admin yalnız hesaplanmış desi/ağırlık girer; ölçü alanlarından otomatik desi türetme ileride.
 - TODO-111: Kargo tarife CSV/Excel import/export — GÜÇLENDİRİLDİ. Generic Tariff Engine (ADR-044 revizyon) ile
   her provider'ın fiyat listesi (DHL Tarife I/II/III desi tablosu, Aras zone+kg/desi+31+, Yurtiçi desi/ücrete-esas
   ağırlık) aynı generic modele (tier/zone/rule/surcharge) maplenir. Provider'a ÖZEL fiyat kodu YOK; bunun yerine

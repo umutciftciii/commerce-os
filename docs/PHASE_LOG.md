@@ -1819,3 +1819,22 @@ bağımsız ve sağlayıcıya istek atmaz.
   zone+tier+desi, surcharge). api-gateway 213, store-admin 114, contracts 21, api-client 13 — yeşil.
 - Gate: db:generate ✓; build (db/contracts/api-client/api-gateway/store-admin Next) ✓; typecheck (pnpm -r) ✓;
   lint ✓; test ✓; git diff --check temiz.
+
+## F3C.2 BLOCKER FIX — Ürün/varyant kargo ölçüsü admin UI (TODO-110 DONE)
+
+- Root cause: Şema kolonları (Product/ProductVariant.shippingWeightKg/shippingDesi) ve cart hesaplaması F3C.2'de
+  hazırdı; ANCAK contracts (input/response), serialize ve admin UI bu alanları taşımıyordu → DESI_TABLE/WEIGHT_TABLE/
+  PER_KG_OR_DESI tarifeleri gerçek checkout'ta çalışamıyordu (ölçü girilemiyor).
+- Çözüm: contracts product/variant create/update + response şemalarına shippingWeightKg/shippingDesi (>0 nullable);
+  serializeProduct/serializeVariant Decimal→number; createProduct/createVariant persist; cart fallback
+  resolveShippingDims (varyant→ürün; saf, test edilir). Admin: ürün formu + varyant editörüne "Kargo ölçüleri"
+  bölümü (i18n TR/EN). Seed: demo-tote (desi 3 / 0.4 kg) + demo-hoodie (desi 5 / 0.6 kg).
+- Testler: contracts validation (0/negatif red, null/omit kabul); resolveShippingDims (override/fallback/null);
+  UI render + payload (product-detail-page); i18n parity. Suites: contracts 23, i18n 36, api-gateway 214,
+  store-admin 114 — yeşil.
+- Runtime smoke (Docker, worktree image): admin API PATCH demo-tote dims 200 (desi 0 → 400; DB precision 0.400/3.00);
+  DESI_TABLE default plan (0–10 desi → 5500); demo-tote checkout OS-000048 subtotal 39900 + kargo 5500 = 45400,
+  snapshot source STORE_SHIPPING_TARIFF; demo-hoodie (ölçü yok) checkout → 409 SHIPPING_QUOTE_UNAVAILABLE
+  (shipping.status MISSING_DIMENSIONS, ödeme bloke). Secret scan temiz.
+- Gate: db:generate ✓; build ✓; typecheck ✓; lint ✓; test ✓; git diff --check temiz.
+- Kalan: TODO-115 (gerçek en/boy/yükseklik + otomatik volumetrik desi).

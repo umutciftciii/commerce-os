@@ -161,6 +161,9 @@ async function main() {
       whatsappMessageTemplate: null,
       inquiryFormTitle: null,
       appointmentNote: null,
+      // F3C.2 — Ürün-seviyesi kargo ölçüsü; varyantlar boş bırakıp buradan fallback alır.
+      shippingWeightKg: 0.6,
+      shippingDesi: 5,
     },
     create: {
       storeId: store.id,
@@ -178,6 +181,8 @@ async function main() {
       whatsappEnabled: false,
       purchasable: true,
       minOrderQuantity: 1,
+      shippingWeightKg: 0.6,
+      shippingDesi: 5,
     },
   });
 
@@ -201,6 +206,9 @@ async function main() {
       whatsappMessageTemplate: null,
       inquiryFormTitle: null,
       appointmentNote: null,
+      // F3C.2 — Kargo ölçüleri (desi tarifesi runtime smoke için).
+      shippingWeightKg: 0.4,
+      shippingDesi: 3,
     },
     create: {
       storeId: store.id,
@@ -218,6 +226,8 @@ async function main() {
       whatsappEnabled: false,
       purchasable: true,
       minOrderQuantity: 1,
+      shippingWeightKg: 0.4,
+      shippingDesi: 3,
     },
   });
 

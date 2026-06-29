@@ -7,6 +7,7 @@ import {
   calculateShippingQuote,
   billableWeight,
   selectTier,
+  resolveShippingDims,
   type EngineCart,
   type EngineRatePlan,
   type EngineRateRule,
@@ -406,6 +407,29 @@ describe("F3C.2 revizyon — tier/zone/charge/surcharge", () => {
     });
     expect(out.appliedRuleId).toBe("match");
     expect(out.amountMinor).toBe(8000);
+  });
+
+  it("resolveShippingDims: variant overrides product; falls back when null; null when both null", () => {
+    // Varyant degeri urun-seviyesini override eder.
+    expect(resolveShippingDims({ shippingDesi: 4, shippingWeightKg: 0.5 }, { shippingDesi: 3, shippingWeightKg: 0.4 })).toEqual({
+      shippingDesi: 4,
+      shippingWeightKg: 0.5,
+    });
+    // Varyantta yoksa urun-seviyesi fallback.
+    expect(resolveShippingDims({ shippingDesi: null, shippingWeightKg: null }, { shippingDesi: 3, shippingWeightKg: 0.4 })).toEqual({
+      shippingDesi: 3,
+      shippingWeightKg: 0.4,
+    });
+    // Kismi: desi varyanttan, kg urunden.
+    expect(resolveShippingDims({ shippingDesi: 6, shippingWeightKg: null }, { shippingDesi: 3, shippingWeightKg: 0.4 })).toEqual({
+      shippingDesi: 6,
+      shippingWeightKg: 0.4,
+    });
+    // Ikisi de null -> null (MISSING_SHIPPING_DIMENSIONS'a yol acar).
+    expect(resolveShippingDims({ shippingDesi: null, shippingWeightKg: null }, { shippingDesi: null, shippingWeightKg: null })).toEqual({
+      shippingDesi: null,
+      shippingWeightKg: null,
+    });
   });
 
   it("FLAT default preserves legacy amount + extra (backward compatible)", () => {

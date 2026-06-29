@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@commerce-os/ui";
@@ -92,6 +92,10 @@ describe("store-admin product detail — dedicated route page", () => {
     expect(screen.getByText("Satış davranışı")).toBeTruthy();
     expect(screen.getByLabelText("Satış tipi")).toBeTruthy();
     expect(screen.getByLabelText("Min. sipariş adedi")).toBeTruthy();
+    // F3C.2 — Kargo ölçüleri bölümü ve alanları render edilir.
+    expect(screen.getByText("Kargo ölçüleri")).toBeTruthy();
+    expect(screen.getByLabelText("Kargo ağırlığı (kg)")).toBeTruthy();
+    expect(screen.getByLabelText("Kargo desisi")).toBeTruthy();
     expect(screen.getAllByText("Varyantlar").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /Ürünlere dön/ }).getAttribute("href")).toBe(
       "/products",
@@ -171,15 +175,19 @@ describe("store-admin product detail — dedicated route page", () => {
     await screen.findByText("Temel bilgiler");
 
     await user.click(await screen.findByRole("button", { name: "İlk varyantı ekle" }));
-    await user.type(screen.getByLabelText("Başlık"), "Siyah / M");
-    await user.type(screen.getByLabelText("SKU"), "SWT-SYH-M");
-    await user.type(screen.getByLabelText("Fiyat (₺)"), "199,90");
+    const dialog = within(screen.getByRole("dialog"));
+    await user.type(dialog.getByLabelText("Başlık"), "Siyah / M");
+    await user.type(dialog.getByLabelText("SKU"), "SWT-SYH-M");
+    await user.type(dialog.getByLabelText("Fiyat (₺)"), "199,90");
+    // F3C.2 — Varyant kargo desisi girilir; payload'a yansır (modal'a scope edilir,
+    // çünkü ürün formunda da aynı etiket var).
+    await user.type(dialog.getByLabelText("Kargo desisi"), "4");
     await user.click(screen.getByRole("button", { name: "Varyant oluştur" }));
 
     await waitFor(() => expect(storeApiMock.createVariant).toHaveBeenCalledTimes(1));
     expect(storeApiMock.createVariant).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ sku: "SWT-SYH-M", priceMinor: 19990, currency: "TRY" }),
+      expect.objectContaining({ sku: "SWT-SYH-M", priceMinor: 19990, currency: "TRY", shippingDesi: 4 }),
     );
   });
 
