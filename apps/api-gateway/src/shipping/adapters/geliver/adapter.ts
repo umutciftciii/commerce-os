@@ -4,6 +4,7 @@ import { assertLabelPurchaseAllowed } from "../guards.js";
 import type {
   CreateBarcodeInput,
   CreateOrderInput,
+  CreateRecipientResult,
   CreateReturnOrderInput,
   ListGeoCitiesInput,
   ListGeoDistrictsInput,
@@ -68,14 +69,16 @@ export class GeliverAdapter implements ShippingProviderAdapter {
         message:
           "Geliver API anahtarı kayıtlı; gerçek API çağrısı yapılmadı (SHIPPING_SANDBOX_HTTP_ENABLED=false).",
         providerHttpStatus: null,
-        testType: "GEO_CITIES",
+        testType: "PROVIDERS",
       };
     }
     const cred = this.requireToken(input.context);
-    // Canli: hafif bir GET (geo/cities) ile token gecerliligini dogrula. Bearer ASLA loglanmaz.
+    // Canli: hafif bir read-only GET (/providers) ile token gecerliligini dogrula.
+    // (Dogrulandi: GET /api/v1/providers -> 200; eski /geo/cities yolu 404 donuyordu.)
+    // Bearer ASLA loglanmaz.
     const response = await this.transport.send({
       method: "GET",
-      url: `${this.baseUrl}/geo/cities`,
+      url: `${this.baseUrl}/providers`,
       headers: this.authHeaders(cred),
     });
     const ok = response.status >= 200 && response.status < 300;
@@ -86,8 +89,13 @@ export class GeliverAdapter implements ShippingProviderAdapter {
         ? "Geliver bağlantısı doğrulandı (gerçek API çağrısı)."
         : "Geliver bağlantısı doğrulanamadı (gerçek API çağrısı).",
       providerHttpStatus: response.status,
-      testType: "GEO_CITIES",
+      testType: "PROVIDERS",
     };
+  }
+
+  async createRecipient(): Promise<CreateRecipientResult> {
+    // Plus Command / createRecipient DHL'e özgü bir akıştır; Geliver'da karşılığı yok.
+    throw new ShippingConfigError("OPERATION_NOT_SUPPORTED", "Geliver createRecipient desteklemiyor.");
   }
 
   async calculateRate(): Promise<ShippingRateResult> {

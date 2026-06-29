@@ -64,6 +64,7 @@ export interface SerializedShippingProviderConfig {
   mode: ShippingProviderMode;
   status: ShippingProviderStatus;
   displayName: string;
+  allowRecipientCreate: boolean;
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
   allowLabelPurchase: boolean;
@@ -205,6 +206,7 @@ export function serializeShippingProviderConfig(
     mode: config.mode,
     status: config.status,
     displayName: config.displayName,
+    allowRecipientCreate: config.allowRecipientCreate,
     allowOrderCreate: config.allowOrderCreate,
     allowBarcodeCreate: config.allowBarcodeCreate,
     allowLabelPurchase: config.allowLabelPurchase,

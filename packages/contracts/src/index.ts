@@ -2077,6 +2077,7 @@ export const shippingConnectionStatusSchema = z.enum([
 export const shippingCredentialTypeSchema = z.enum([
   "DEFAULT",
   "IDENTITY",
+  "PLUS_COMMAND",
   "STANDARD_COMMAND",
   "STANDARD_QUERY",
   "BARCODE_COMMAND",
@@ -2116,6 +2117,7 @@ export const shippingProviderConfigSchema = z.object({
   mode: shippingProviderModeSchema,
   status: shippingProviderStatusSchema,
   displayName: z.string().min(1),
+  allowRecipientCreate: z.boolean(),
   allowOrderCreate: z.boolean(),
   allowBarcodeCreate: z.boolean(),
   allowLabelPurchase: z.boolean(),
@@ -2145,6 +2147,7 @@ export const shippingProviderConfigCreateRequestSchema = z.object({
   displayName: z.string().min(1).max(120),
   mode: shippingProviderModeSchema.default("TEST"),
   status: shippingProviderStatusSchema.default("DISABLED"),
+  allowRecipientCreate: z.boolean().default(false),
   allowOrderCreate: z.boolean().default(false),
   allowBarcodeCreate: z.boolean().default(false),
   allowLabelPurchase: z.boolean().default(false),
@@ -2155,6 +2158,7 @@ export const shippingProviderConfigUpdateRequestSchema = z
     displayName: z.string().min(1).max(120).optional(),
     mode: shippingProviderModeSchema.optional(),
     status: shippingProviderStatusSchema.optional(),
+    allowRecipientCreate: z.boolean().optional(),
     allowOrderCreate: z.boolean().optional(),
     allowBarcodeCreate: z.boolean().optional(),
     allowLabelPurchase: z.boolean().optional(),
@@ -2236,6 +2240,31 @@ export const shippingRateResponseSchema = z.object({
   currency: currencySchema,
   breakdownSafe: z.record(z.number()).optional(),
 });
+
+/**
+ * Cart/checkout provider kargo teklifi (quote) yaniti.
+ *
+ * Kritik ayrim: `source` teklif fiyatinin GERCEK kaynagini belirtir; UI bunu net
+ * gostermelidir (DHL fiyati MOCK/sabit kural gibi gosterilmemeli):
+ *  - DHL_ECOMMERCE  : gercek DHL Standard Query /calculate fiyati.
+ *  - MOCK           : dev/test mock fiyati (DHL aktifken kullanICILMAZ).
+ *  - STORE_FIXED_RULE: magaza sabit kargo kurali (provider quote DEGIL).
+ * status=UNAVAILABLE ise amountMinor checkout total'a DAHIL EDILMEZ; UI "kargo
+ * hesaplanamiyor" mesaji gosterir ve odeme adimina gecisi gerektiginde engeller.
+ */
+export const shippingQuoteSourceSchema = z.enum(["DHL_ECOMMERCE", "MOCK", "STORE_FIXED_RULE"]);
+export const shippingQuoteStatusSchema = z.enum(["OK", "UNAVAILABLE", "ADDRESS_REQUIRED"]);
+export const cartShippingQuoteResponseSchema = z.object({
+  provider: shippingProviderTypeSchema.nullable(),
+  source: shippingQuoteSourceSchema.nullable(),
+  status: shippingQuoteStatusSchema,
+  amountMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema.nullable(),
+  errorCode: z.string().nullable(),
+  message: z.string().nullable(),
+  calculatedAt: z.string().datetime().nullable(),
+});
+export type CartShippingQuoteResponse = z.infer<typeof cartShippingQuoteResponseSchema>;
 
 export const shippingCreateOrderRequestSchema = z.object({
   providerConfigId: z.string().min(1),

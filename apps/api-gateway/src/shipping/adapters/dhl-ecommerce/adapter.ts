@@ -3,12 +3,16 @@ import type { ShippingHttpResponse, ShippingHttpTransport } from "../http.js";
 import {
   assertBarcodeCreateAllowed,
   assertOrderCreateAllowed,
+  assertRecipientCreateAllowed,
 } from "../guards.js";
 import type {
   CalculateRateInput,
   CreateBarcodeInput,
   CreateOrderInput,
+  CreateRecipientInput,
+  CreateRecipientResult,
   CreateReturnOrderInput,
+  DhlEndpointConfig,
   ListGeoCitiesInput,
   ListGeoDistrictsInput,
   ReferenceLookupInput,
@@ -30,9 +34,17 @@ import {
   buildCbsGetRequest,
   buildCreateBarcodeRequest,
   buildCreateOrderRequest,
+  buildCreateRecipientRequest,
   buildIdentityTokenRequest,
   buildQueryGetRequest,
 } from "./client.js";
+
+/** Env yoksa makul varsayilan: LIVE host bilinir, TEST host yok (TEST_BASE_URL_MISSING). */
+export const DEFAULT_DHL_ENDPOINTS: DhlEndpointConfig = {
+  testBaseUrl: null,
+  liveBaseUrl: "https://api.mngkargo.com.tr",
+  apiVersion: null,
+};
 import {
   mapCalculateResponse,
   mapCitiesResponse,
@@ -59,8 +71,36 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
   readonly provider = "DHL_ECOMMERCE" as const;
   /** Process-ici, kisa omurlu JWT cache. Plain token DB'ye yazilmaz/loglanmaz. */
   private readonly tokenCache = new Map<string, { token: string; expiresAtMs: number }>();
+  private readonly endpoints: DhlEndpointConfig;
 
-  constructor(private readonly transport: ShippingHttpTransport) {}
+  constructor(
+    private readonly transport: ShippingHttpTransport,
+    endpoints: DhlEndpointConfig = DEFAULT_DHL_ENDPOINTS,
+  ) {
+    this.endpoints = endpoints;
+  }
+
+  /**
+   * Mode'a gore host cozumler:
+   *  - TEST: testBaseUrl; YOKSA TEST_BASE_URL_MISSING (CANLI host'a fallback YOK).
+   *  - LIVE: liveBaseUrl.
+   */
+  private resolveHost(ctx: ShippingActionContext): string {
+    if (ctx.mode === "TEST") {
+      if (!this.endpoints.testBaseUrl) {
+        throw new ShippingConfigError(
+          "TEST_BASE_URL_MISSING",
+          "DHL eCommerce TEST modu icin test base URL tanimli degil (DHL_ECOMMERCE_TEST_BASE_URL).",
+        );
+      }
+      return this.endpoints.testBaseUrl;
+    }
+    return this.endpoints.liveBaseUrl;
+  }
+
+  private get apiVersion(): string | null {
+    return this.endpoints.apiVersion;
+  }
 
   private requireCredential(
     ctx: ShippingActionContext,
@@ -95,7 +135,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     if (cached && cached.expiresAtMs > Date.now() + 30_000) {
       return cached.token;
     }
-    const request = buildIdentityTokenRequest(identity);
+    const request = buildIdentityTokenRequest(identity, this.resolveHost(ctx), this.apiVersion);
     const response = await this.transport.send(request); // transport kapaliysa burada hata.
     const json = parseJson(response);
     const auth = mapTokenResponse(json);
@@ -116,9 +156,8 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
       this.requireCredential(ctx, type);
     }
     if (!this.transport.enabled) {
-      // Transport KAPALI: token request mapping uretilir (test edilir) ama GERCEK cagri YOK.
-      // "OK" DONMEZ — credential kayitli ama dogrulanmadi: HTTP_DISABLED.
-      buildIdentityTokenRequest(identity);
+      // Transport KAPALI: GERCEK cagri YOK ve host cozulmez (TEST_BASE_URL_MISSING
+      // yalniz GERCEK cagri denenince anlamli). "OK" DONMEZ: HTTP_DISABLED.
       return {
         ok: false,
         status: "HTTP_DISABLED",
@@ -130,7 +169,9 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     }
     // Transport ACIK: gercek Identity token cagrisi. HTTP status + jwt varligi raporlanir;
     // JWT/secret ASLA sonuca/loga girmez (yalniz process-ici cache'e).
-    const response = await this.transport.send(buildIdentityTokenRequest(identity));
+    const response = await this.transport.send(
+      buildIdentityTokenRequest(identity, this.resolveHost(ctx), this.apiVersion),
+    );
     const json = parseJson(response);
     const auth = mapTokenResponse(json);
     if (auth.ok) {
@@ -151,15 +192,45 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
   async calculateRate(input: CalculateRateInput): Promise<ShippingRateResult> {
     const product = this.requireCredential(input.context, "STANDARD_QUERY");
     const token = await this.getToken(input.context);
-    const response = await this.transport.send(buildCalculateRequest(input, product, token));
+    const response = await this.transport.send(
+      buildCalculateRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapCalculateResponse(parseJson(response));
+  }
+
+  /**
+   * Plus Command / createRecipient — paketleme öncesi varış şube tespiti için alıcı
+   * adresini DHL'e iletir. Destructive/operasyonel kabul edilir; default GUARD altında.
+   * Bu fazda canlı/sandbox createRecipient YOK (guard kapalı); skeleton hazır.
+   */
+  async createRecipient(input: CreateRecipientInput): Promise<CreateRecipientResult> {
+    assertRecipientCreateAllowed(input.context, input.explicitConfirm);
+    const product = this.requireCredential(input.context, "PLUS_COMMAND");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(
+      buildCreateRecipientRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
+    const rec = (parseJson(response) ?? {}) as Record<string, unknown>;
+    return {
+      referenceId: input.referenceId,
+      externalRecipientId:
+        typeof rec.recipientId === "string"
+          ? rec.recipientId
+          : typeof rec.id === "string"
+            ? rec.id
+            : null,
+      destinationBranchCode: typeof rec.branchCode === "string" ? rec.branchCode : null,
+      destinationBranchName: typeof rec.branchName === "string" ? rec.branchName : null,
+    };
   }
 
   async createOrder(input: CreateOrderInput): Promise<ShippingOrderCreateResult> {
     assertOrderCreateAllowed(input.context, input.explicitConfirm);
     const product = this.requireCredential(input.context, "STANDARD_COMMAND");
     const token = await this.getToken(input.context);
-    const response = await this.transport.send(buildCreateOrderRequest(input, product, token));
+    const response = await this.transport.send(
+      buildCreateOrderRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapCreateOrderResponse(parseJson(response), input.referenceId);
   }
 
@@ -173,7 +244,9 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     assertBarcodeCreateAllowed(input.context, input.explicitConfirm);
     const product = this.requireCredential(input.context, "BARCODE_COMMAND");
     const token = await this.getToken(input.context);
-    const response = await this.transport.send(buildCreateBarcodeRequest(input, product, token));
+    const response = await this.transport.send(
+      buildCreateBarcodeRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapCreateBarcodeResponse(parseJson(response), input.referenceId);
   }
 
@@ -201,7 +274,9 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const suffix = input.shipmentId
       ? `/trackshipmentByShipmentId/${encodeURIComponent(input.shipmentId)}`
       : `/trackshipment/${encodeURIComponent(input.referenceId ?? "")}`;
-    const response = await this.transport.send(buildQueryGetRequest(suffix, product, token));
+    const response = await this.transport.send(
+      buildQueryGetRequest(suffix, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapTrackResponse(parseJson(response));
   }
 
@@ -217,14 +292,21 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
 
   async listGeoCities(input: ListGeoCitiesInput): Promise<ShippingGeoResult> {
     const product = this.requireCredential(input.context, "CBS_INFO");
-    const response = await this.transport.send(buildCbsGetRequest("/getcities", product));
+    const response = await this.transport.send(
+      buildCbsGetRequest("/getcities", product, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapCitiesResponse(parseJson(response));
   }
 
   async listGeoDistricts(input: ListGeoDistrictsInput): Promise<ShippingGeoResult> {
     const product = this.requireCredential(input.context, "CBS_INFO");
     const response = await this.transport.send(
-      buildCbsGetRequest(`/getdistricts/${encodeURIComponent(input.cityCode)}`, product),
+      buildCbsGetRequest(
+        `/getdistricts/${encodeURIComponent(input.cityCode)}`,
+        product,
+        this.resolveHost(input.context),
+        this.apiVersion,
+      ),
     );
     return mapDistrictsResponse(parseJson(response));
   }
@@ -235,7 +317,9 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
   ): Promise<ShippingShipmentStatusResult> {
     const product = this.requireCredential(input.context, "STANDARD_QUERY");
     const token = await this.getToken(input.context);
-    const response = await this.transport.send(buildQueryGetRequest(suffix, product, token));
+    const response = await this.transport.send(
+      buildQueryGetRequest(suffix, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
     return mapShipmentStatusResponse(parseJson(response));
   }
 }

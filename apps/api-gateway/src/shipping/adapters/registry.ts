@@ -1,8 +1,8 @@
 import type { ShippingProviderType } from "@prisma/client";
-import type { ShippingProviderAdapter } from "../types.js";
+import type { DhlEndpointConfig, ShippingProviderAdapter } from "../types.js";
 import { createDisabledHttpTransport, type ShippingHttpTransport } from "./http.js";
 import { MockShippingAdapter } from "./mock-adapter.js";
-import { DhlEcommerceAdapter } from "./dhl-ecommerce/adapter.js";
+import { DhlEcommerceAdapter, DEFAULT_DHL_ENDPOINTS } from "./dhl-ecommerce/adapter.js";
 import { GeliverAdapter } from "./geliver/adapter.js";
 
 /**
@@ -18,10 +18,11 @@ export interface ShippingAdapterRegistry {
 
 export function createShippingAdapterRegistry(
   transport: ShippingHttpTransport = createDisabledHttpTransport(),
+  dhlEndpoints: DhlEndpointConfig = DEFAULT_DHL_ENDPOINTS,
 ): ShippingAdapterRegistry {
   const adapters: Record<ShippingProviderType, ShippingProviderAdapter> = {
     MOCK: new MockShippingAdapter(),
-    DHL_ECOMMERCE: new DhlEcommerceAdapter(transport),
+    DHL_ECOMMERCE: new DhlEcommerceAdapter(transport, dhlEndpoints),
     GELIVER: new GeliverAdapter(transport),
   };
   return {
@@ -34,8 +35,9 @@ export function createShippingAdapterRegistry(
 export function getShippingAdapter(
   provider: ShippingProviderType,
   transport?: ShippingHttpTransport,
+  dhlEndpoints?: DhlEndpointConfig,
 ): ShippingProviderAdapter {
-  return createShippingAdapterRegistry(transport).get(provider);
+  return createShippingAdapterRegistry(transport, dhlEndpoints).get(provider);
 }
 
 /** MOCK yalnizca test/dev/demo ortaminda canli is yapar. */

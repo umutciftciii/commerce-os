@@ -2,6 +2,8 @@ import type {
   CalculateRateInput,
   CreateBarcodeInput,
   CreateOrderInput,
+  CreateRecipientInput,
+  CreateRecipientResult,
   CreateReturnOrderInput,
   HandleWebhookInput,
   ListGeoDistrictsInput,
@@ -48,6 +50,16 @@ export class MockShippingAdapter implements ShippingProviderAdapter {
       amountMinor,
       currency: "TRY",
       breakdownSafe: { base: 2990, weight: totalDesi * 500 },
+    };
+  }
+
+  async createRecipient(input: CreateRecipientInput): Promise<CreateRecipientResult> {
+    // MOCK destructive degildir; deterministik alici/sube doner (guard'a tabi degil).
+    return {
+      referenceId: input.referenceId,
+      externalRecipientId: `mock_recipient_${input.referenceId}`,
+      destinationBranchCode: "MOCK_BRANCH",
+      destinationBranchName: "Mock Varış Şubesi",
     };
   }
 

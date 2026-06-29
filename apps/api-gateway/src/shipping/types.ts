@@ -36,6 +36,7 @@ export interface ResolvedShippingCredentials {
 
 /** Birlesik destructive-operasyon izinleri (route'ta env-flag && config.allow* hesaplanir). */
 export interface ShippingGuardFlags {
+  allowRecipientCreate: boolean;
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
   allowLabelPurchase: boolean;
@@ -46,6 +47,19 @@ export interface ShippingActionContext {
   mode: ShippingProviderMode;
   credentials: ResolvedShippingCredentials;
   guards: ShippingGuardFlags;
+}
+
+/**
+ * DHL eCommerce host/version cozumleme ayarlari (env'den route'ta doldurulur).
+ * - testBaseUrl: TEST mode host'u; YOKSA TEST_BASE_URL_MISSING (canli fallback YOK).
+ * - liveBaseUrl: LIVE mode host'u.
+ * - apiVersion : x-api-version header degeri (DHL test/live'da zorunlu).
+ * OpenAPI path'leri (/mngapi/api/...) base URL'ye EKLENIR; base URL'ye path eklenmez.
+ */
+export interface DhlEndpointConfig {
+  testBaseUrl: string | null;
+  liveBaseUrl: string;
+  apiVersion: string | null;
 }
 
 /* ───────────────────────── Normalized result modelleri ───────────────────────── */
@@ -188,6 +202,26 @@ export interface CalculateRateInput {
   pieces: ShipmentPieceInput[];
 }
 
+/**
+ * DHL Plus Command / createRecipient input (paketleme öncesi varış şube tespiti için
+ * alıcı adresini DHL'e iletir). Destructive/operasyonel kabul edilir; guard altındadır.
+ */
+export interface CreateRecipientInput {
+  context: ShippingActionContext;
+  referenceId: string;
+  recipient: ShipmentRecipientInput;
+  /** Destructive guard: canli createRecipient yalniz bu true iken (+env+config izni). */
+  explicitConfirm?: boolean;
+}
+
+export interface CreateRecipientResult {
+  referenceId: string;
+  externalRecipientId: string | null;
+  /** Varış şube kodu/adı (tespit edildiyse). Secret içermez. */
+  destinationBranchCode?: string | null;
+  destinationBranchName?: string | null;
+}
+
 export interface CreateOrderInput {
   context: ShippingActionContext;
   referenceId: string;
@@ -250,6 +284,8 @@ export interface ShippingProviderAdapter {
   readonly provider: ShippingProviderType;
   testConnection(input: TestConnectionInput): Promise<TestConnectionResult>;
   calculateRate(input: CalculateRateInput): Promise<ShippingRateResult>;
+  /** DHL Plus Command / createRecipient (guard altında; bu fazda canlı çalışmaz). */
+  createRecipient(input: CreateRecipientInput): Promise<CreateRecipientResult>;
   createOrder(input: CreateOrderInput): Promise<ShippingOrderCreateResult>;
   createReturnOrder(input: CreateReturnOrderInput): Promise<ShippingOrderCreateResult>;
   createBarcodeOrLabel(input: CreateBarcodeInput): Promise<ShippingBarcodeResult>;

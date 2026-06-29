@@ -39,6 +39,7 @@ const PROVIDER_LABEL: Record<(typeof PROVIDERS)[number], string> = {
 
 type DhlCredType =
   | "IDENTITY"
+  | "PLUS_COMMAND"
   | "STANDARD_COMMAND"
   | "STANDARD_QUERY"
   | "BARCODE_COMMAND"
@@ -47,7 +48,8 @@ type DhlCredType =
   | "FINANCE_QUERY";
 
 const DHL_REQUIRED: DhlCredType[] = ["IDENTITY", "STANDARD_COMMAND", "STANDARD_QUERY", "BARCODE_COMMAND"];
-const DHL_OPTIONAL: DhlCredType[] = ["CBS_INFO", "BULK_QUERY", "FINANCE_QUERY"];
+// Plus Command opsiyoneldir: paketleme öncesi createRecipient (varış şube tespiti) için.
+const DHL_OPTIONAL: DhlCredType[] = ["PLUS_COMMAND", "CBS_INFO", "BULK_QUERY", "FINANCE_QUERY"];
 
 /**
  * F3C.1 (Faz B) — Kargo Sağlayıcıları yönetim sayfası. Secret alanlar gateway
@@ -102,6 +104,7 @@ const L = {
     fCustomerPassword: "DHL Müşteri Şifresi",
     fIdentityType: "identityType (varsayılan 1)",
     mockNote: "MOCK sağlayıcı kimlik bilgisi gerektirmez; test akışı için hazırdır.",
+    allowRecipientCreate: "Canlı alıcı (Plus Command) oluşturmaya izin ver",
     allowOrderCreate: "Canlı sipariş oluşturmaya izin ver",
     allowBarcodeCreate: "Canlı barkod oluşturmaya izin ver",
     allowLabelPurchase: "Etiket satın almaya izin ver",
@@ -118,6 +121,17 @@ const L = {
     testHttpDisabled: "Kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı.",
     dhlRequiredHeading: "Zorunlu kimlik bilgileri",
     dhlOptionalHeading: "Opsiyonel kimlik bilgileri",
+    dhlInfo: [
+      "API Zone (Client ID/Secret): https://apizone.mngkargo.com.tr/tr/",
+      "Sandbox portal (test uygulama/API ürünleri): https://sandbox.mngkargo.com.tr/",
+      "Online Şube (Müşteri No/Şifre): https://onlinesube.dhlecommerce.com.tr/Misafir/YeniUyelik",
+      "Test API base URL: https://testapi.mngkargo.com.tr",
+      "Kayıtlı callback URL: https://api.cmddigital.com/integrations/mng/oauth/callback",
+      "Plus Command / createRecipient: paketleme öncesi varış şube tespiti (önerilir).",
+      "Standard Command / createOrder: sipariş aktarımı. Barcode Command / createbarcode: ZPL/takip/barkod.",
+      "Canlı createRecipient/createOrder/createbarcode/cancelshipment varsayılan KAPALIDIR.",
+      "Her mağaza kendi DHL kimlik bilgilerini girmelidir.",
+    ].join("\n"),
     colConn: "Son gerçek API testi",
     connOK: "Doğrulandı",
     connFailed: "Başarısız",
@@ -174,6 +188,7 @@ const L = {
     fCustomerPassword: "DHL Customer Password",
     fIdentityType: "identityType (default 1)",
     mockNote: "The MOCK provider requires no credentials; it is ready for the test flow.",
+    allowRecipientCreate: "Allow live recipient (Plus Command) creation",
     allowOrderCreate: "Allow live order creation",
     allowBarcodeCreate: "Allow live barcode creation",
     allowLabelPurchase: "Allow label purchase",
@@ -190,6 +205,17 @@ const L = {
     testHttpDisabled: "Credentials are stored; no real API call was made.",
     dhlRequiredHeading: "Required credentials",
     dhlOptionalHeading: "Optional credentials",
+    dhlInfo: [
+      "API Zone (Client ID/Secret): https://apizone.mngkargo.com.tr/tr/",
+      "Sandbox portal (test apps/API products): https://sandbox.mngkargo.com.tr/",
+      "Online branch (Customer No/Password): https://onlinesube.dhlecommerce.com.tr/Misafir/YeniUyelik",
+      "Test API base URL: https://testapi.mngkargo.com.tr",
+      "Registered callback URL: https://api.cmddigital.com/integrations/mng/oauth/callback",
+      "Plus Command / createRecipient: destination-branch detection before packaging (recommended).",
+      "Standard Command / createOrder: order transfer. Barcode Command / createbarcode: ZPL/tracking/barcode.",
+      "Live createRecipient/createOrder/createbarcode/cancelshipment are disabled by default.",
+      "Each store must enter its own DHL credentials.",
+    ].join("\n"),
     colConn: "Last real API test",
     connOK: "Verified",
     connFailed: "Failed",
@@ -218,6 +244,7 @@ interface EditForm {
   displayName: string;
   mode: (typeof MODES)[number];
   status: "ENABLED" | "DISABLED";
+  allowRecipientCreate: boolean;
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
   allowLabelPurchase: boolean;
@@ -287,6 +314,7 @@ export default function ShippingProvidersPage() {
         displayName: createForm.displayName.trim(),
         mode: createForm.mode,
         status: "DISABLED",
+        allowRecipientCreate: false,
         allowOrderCreate: false,
         allowBarcodeCreate: false,
         allowLabelPurchase: false,
@@ -308,6 +336,7 @@ export default function ShippingProvidersPage() {
       displayName: config.displayName,
       mode: config.mode,
       status: config.status,
+      allowRecipientCreate: config.allowRecipientCreate,
       allowOrderCreate: config.allowOrderCreate,
       allowBarcodeCreate: config.allowBarcodeCreate,
       allowLabelPurchase: config.allowLabelPurchase,
@@ -325,6 +354,7 @@ export default function ShippingProvidersPage() {
         displayName: editForm.displayName.trim(),
         mode: editForm.mode,
         status: editForm.status,
+        allowRecipientCreate: editForm.allowRecipientCreate,
         allowOrderCreate: editForm.allowOrderCreate,
         allowBarcodeCreate: editForm.allowBarcodeCreate,
         allowLabelPurchase: editForm.allowLabelPurchase,
@@ -474,7 +504,7 @@ export default function ShippingProvidersPage() {
         header: t.colGuards,
         cell: (row) => (
           <span className="text-[11px] text-white/40">
-            {row.allowOrderCreate || row.allowBarcodeCreate || row.allowLabelPurchase ? (
+            {row.allowRecipientCreate || row.allowOrderCreate || row.allowBarcodeCreate || row.allowLabelPurchase ? (
               <Badge tone="warning">on</Badge>
             ) : (
               <Badge tone="neutral">off</Badge>
@@ -633,6 +663,10 @@ export default function ShippingProvidersPage() {
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-[12px] text-white/75">
+                  <input type="checkbox" checked={editForm.allowRecipientCreate} onChange={(e) => setEditForm({ ...editForm, allowRecipientCreate: e.target.checked })} />
+                  {t.allowRecipientCreate}
+                </label>
+                <label className="flex items-center gap-2 text-[12px] text-white/75">
                   <input type="checkbox" checked={editForm.allowOrderCreate} onChange={(e) => setEditForm({ ...editForm, allowOrderCreate: e.target.checked })} />
                   {t.allowOrderCreate}
                 </label>
@@ -686,6 +720,13 @@ export default function ShippingProvidersPage() {
             ) : (
               <>
                 <Alert tone="info">{t.liveOffNote}</Alert>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-[11px] leading-relaxed text-white/55">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {t.dhlInfo.split("\n").map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">{t.dhlRequiredHeading}</p>
                 {DHL_REQUIRED.map((type) => (
                   <CredentialSection
@@ -735,6 +776,8 @@ function dhlHeading(type: DhlCredType): string {
   switch (type) {
     case "IDENTITY":
       return "Identity";
+    case "PLUS_COMMAND":
+      return "Plus Command (createRecipient)";
     case "STANDARD_COMMAND":
       return "Standard Command";
     case "STANDARD_QUERY":

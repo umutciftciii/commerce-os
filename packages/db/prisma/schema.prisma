@@ -273,6 +273,7 @@ enum ShippingProviderStatus {
 enum ShippingCredentialType {
   DEFAULT
   IDENTITY
+  PLUS_COMMAND
   STANDARD_COMMAND
   STANDARD_QUERY
   BARCODE_COMMAND
@@ -1096,6 +1097,8 @@ model ShippingProviderConfig {
   // Destructive/costly operasyon guard'lari. Hepsi varsayilan KAPALI; canli
   // createOrder/createbarcode/acceptOffer ancak ilgili env flag + bu alan + request
   // explicitConfirm uclusu saglaninca calisir (aksi halde 409).
+  // Plus Command / createRecipient guard'i (paketleme öncesi varış şube tespiti).
+  allowRecipientCreate Boolean              @default(false)
   allowOrderCreate   Boolean                @default(false)
   allowBarcodeCreate Boolean                @default(false)
   allowLabelPurchase Boolean                @default(false)

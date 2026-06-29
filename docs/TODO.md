@@ -352,11 +352,29 @@
   HTTP_DISABLED/SKIPPED) + `lastProviderHttpStatus/TestType/TestAt/ErrorCode` eklendi (migration
   20260629120000); UI "Kimlik bilgileri kayıtlı; gerçek API çağrısı yapılmadı." gösterir; sipariş paneli
   HTTP kapalı uyarısı; sepetteki ₺49,90'ın provider quote DEĞİL sabit mağaza kuralı olduğu netleştirildi.
-  (2) GERÇEK external verification (AÇIK/BLOCKED): repo-dışı credential dosyası
-  (.secrets/commerce-os-shipping.local.env) bu makinede yok → DHL Identity token / CBS getcities-getdistricts /
-  Standard Query calculate ve Geliver createTest GERÇEK çağrıları henüz doğrulanMADI. Credential geldiğinde
-  api-gateway runtime'da SHIPPING_SANDBOX_HTTP_ENABLED=true (destructive guard'lar KAPALI) ile safe doğrulama
-  yapılacak; createOrder/createbarcode/acceptOffer ÇALIŞTIRILMAYACAK.
+  (2) GERÇEK external verification (DONE — 2026-06-29): credential dosyası
+  (.secrets/commerce-os-shipping.local.env, değerler yazdırılmadan process env olarak) ile güvenli read-only
+  doğrulama yapıldı (testapi.mngkargo.com.tr + x-api-version). Sonuç: DHL Identity token POST /mngapi/api/token
+  → HTTP 200 (JWT alındı) ✓; CBS getcities/getdistricts → HTTP 401 (IBM gateway product auth: CBS_INFO ürünü
+  bu X-IBM anahtarı için sandbox'ta abone değil); Standard Query /calculate → HTTP 401 (Bearer ile bile;
+  STANDARD_QUERY ürünü abone değil). Geliver Bearer auth GEÇERLİ (GET /api/v1/providers, /shipments,
+  /transactions → 200); adapter'daki /geo/cities yolu 404'tü → testConnection /providers'a düzeltildi.
+  createOrder/createbarcode/createRecipient/acceptOffer ÇALIŞTIRILMADI.
+- TODO-094C: F3C.1 DHL TEST/LIVE base URL + x-api-version + Plus Command (DONE — 2026-06-29). DHL adapter artık
+  mode'a göre host çözer: TEST → DHL_ECOMMERCE_TEST_BASE_URL (yoksa TEST_BASE_URL_MISSING, CANLI host'a fallback
+  YOK), LIVE → DHL_ECOMMERCE_LIVE_BASE_URL; tüm DHL isteklerine zorunlu x-api-version (DHL_ECOMMERCE_API_VERSION)
+  header'ı eklendi. ShippingCredentialType enum'a PLUS_COMMAND, ShippingProviderConfig'e allowRecipientCreate
+  (migration 20260629130000); createRecipient adapter skeleton + RECIPIENT_CREATE_DISABLED guard (env flag +
+  config.allowRecipientCreate + explicitConfirm üçlüsü; default KAPALI — bu turda canlı/sandbox createRecipient
+  YOK). Cart provider quote contract'ı (cartShippingQuoteResponseSchema: provider/source/status/amountMinor/
+  currency/errorCode/message/calculatedAt) eklendi. Store-admin'e allowRecipientCreate toggle.
+- TODO-094D: Cart/checkout provider shipping quote uygulaması — GERİ ÇEKİLDİ / F3C.2'ye TAŞINDI (2026-06-29).
+  KARAR: DHL eCommerce bir OPERASYON sağlayıcısıdır (Identity, CBS, createRecipient, createOrder, createbarcode,
+  tracking); DHL `calculate` cart/checkout kargo fiyatı için KULLANILMAYACAK. Bu nedenle sepet/checkout kargo
+  bedeli provider'dan CANLI çekilmeyecek; ayrı bir faz olan F3C.2 Shipping Price Engine ile çözülecek (bkz.
+  TODO-108). cartShippingQuoteResponseSchema yalnızca contract seviyesinde bırakıldı (storefront/backend
+  uygulaması YOK). Mevcut sabit kargo kuralı provider quote DEĞİLDİR; güncel kargo fiyat listeleri mağaza/admin
+  tarafından F3C.2'de girilecek.
 - TODO-095: DHL eCommerce canli createOrder controlled rollout. Env+config+explicitConfirm guard'i ile gercek
   Standard Command /createOrder; idempotent referenceId, hata sinifları, sipariş→Shipment yasam dongusu.
 - TODO-096: DHL eCommerce canli createbarcode controlled rollout. Barcode Command /createbarcode (faturalastirma
@@ -371,3 +389,15 @@
 - TODO-102: DHL CBS sehir/ilce/mahalle kod cache/sync production hardening (su an read-only preview).
 - TODO-103: DHL Identity token refresh akisi (OpenAPI /refresh belirsiz) + kalici/dagitik token cache.
 - TODO-104: Shipping webhook production verification (DHL/Geliver event imza dogrulama + ShipmentEvent yazimi).
+- TODO-105: Marketplace alanları — Trendyol (TRND) + N11 entegrasyon desteği (ürün/sipariş/stok senkron alanları,
+  provider abstraction'a marketplace tipi). Henüz tasarım aşamasında.
+- TODO-106: ZPL render/print desteği — Barcode Command /createbarcode çıktısındaki ZPL'i önizleme/yazdırma
+  (label PDF/PNG render + yazıcı akışı). TODO-096 ile bağlantılı.
+- TODO-107: DHL production static IP authorization checklist — canlı (api.mngkargo.com.tr) erişim için sabit IP
+  beyanı/whitelist süreci, API Zone abonelik onayı (CBS_INFO/STANDARD_QUERY/STANDARD_COMMAND/BARCODE_COMMAND/
+  PLUS_COMMAND ürünleri), callback URL kaydı doğrulaması.
+- TODO-108: F3C.2 Shipping Price Engine (AYRI FAZ). Sepet/checkout kargo bedeli provider'dan CANLI çekilmez;
+  mağaza/admin tarafından girilen kargo tarife/rate-plan modeli ile hesaplanır. Kapsam: shipping tariff/rate plan
+  veri modeli (ağırlık/desi/bölge/ücretsiz-kargo eşiği), admin tarife yönetimi UI, storefront cart/checkout kargo
+  satırı (source=STORE_RATE_PLAN), mevcut sabit kuralın tarife motoruna taşınması. NOT: DHL eCommerce operasyon
+  sağlayıcısı olarak kalır (F3C.1); fiyat motoru ondan bağımsızdır.

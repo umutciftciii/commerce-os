@@ -41,11 +41,14 @@ describe("DHL identity token request builder", () => {
       customerPassword: "ABCD1234",
       identityType: 1,
     };
-    const request = buildIdentityTokenRequest(identity);
+    const request = buildIdentityTokenRequest(identity, "https://testapi.mngkargo.com.tr", "v-test");
     expect(request.method).toBe("POST");
-    expect(request.url).toBe("https://api.mngkargo.com.tr/mngapi/api/token");
+    // TEST host'a OpenAPI path eklenir; canli host'a fallback yok.
+    expect(request.url).toBe("https://testapi.mngkargo.com.tr/mngapi/api/token");
     expect(request.headers["X-IBM-Client-Id"]).toBe("client-id-123");
     expect(request.headers["X-IBM-Client-Secret"]).toBe("client-secret-456");
+    // x-api-version DHL test/live isteklerinde zorunludur.
+    expect(request.headers["x-api-version"]).toBe("v-test");
     const body = JSON.parse(request.body ?? "{}");
     expect(body).toEqual({ customerNumber: "312947702", password: "ABCD1234", identityType: 1 });
   });

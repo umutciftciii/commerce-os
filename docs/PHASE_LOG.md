@@ -1711,3 +1711,38 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   canCalculateRate=false, canCreateTestShipment=true); Geliver rate → 409 OPERATION_NOT_SUPPORTED {operation:RATE,
   provider:GELIVER}; destructive guard kodları korundu (ORDER_CREATE_DISABLED/BARCODE_CREATE_DISABLED/
   LABEL_PURCHASE_DISABLED); settings page 200 / panel 307 (auth guard).
+
+## Faz 3C.1 DHL TEST/LIVE base URL + x-api-version + Plus Command + cart quote contract (TODO-094B/C/D)
+
+- Tarih: 2026-06-29
+- Durum: READY_FOR_REVIEW (commit atılmadı; branch claude/f3c1-shipping-provider-foundation, HEAD b2dc446 üzerine
+  uncommitted)
+- Güvenli external doğrulama (değerler yazdırılmadan, .secrets/commerce-os-shipping.local.env process env):
+  - DHL Identity POST /mngapi/api/token (+x-api-version) → HTTP 200, JWT alındı.
+  - DHL CBS getcities/getdistricts/34 → HTTP 401 (IBM gateway httpCode/httpMessage; CBS_INFO ürünü bu X-IBM
+    anahtarı için sandbox'ta abone değil).
+  - DHL Standard Query /calculate (Bearer ile) → HTTP 401 (STANDARD_QUERY ürünü abone değil).
+  - Geliver: Bearer auth GEÇERLİ — GET /api/v1/providers, /shipments, /transactions → 200; eski /geo/cities → 404.
+- Base URL düzeltmesi: DHL adapter mode→host çözer (TEST→DHL_ECOMMERCE_TEST_BASE_URL, yoksa TEST_BASE_URL_MISSING
+  ve CANLI host'a fallback YOK; LIVE→DHL_ECOMMERCE_LIVE_BASE_URL). client builder'lar host parametrik; OpenAPI
+  path'leri host'a eklenir.
+- x-api-version: tüm DHL test/live isteklerine DHL_ECOMMERCE_API_VERSION header eklendi (önceden hiç yoktu).
+- Plus Command: ShippingCredentialType.PLUS_COMMAND + ShippingProviderConfig.allowRecipientCreate
+  (migration 20260629130000); createRecipient adapter skeleton (DHL) + RECIPIENT_CREATE_DISABLED guard (default
+  KAPALI); MOCK deterministik createRecipient; Geliver OPERATION_NOT_SUPPORTED. Store-admin'e allowRecipientCreate
+  toggle + TR/EN label.
+- Geliver testConnection: doğrulanmamış /geo/cities (404) yerine doğrulanmış /providers (200) kullanır; testType
+  GEO_CITIES → PROVIDERS.
+- Cart quote contract: cartShippingQuoteResponseSchema (provider/source/status/amountMinor/currency/errorCode/
+  message/calculatedAt) YALNIZ contract seviyesinde bırakıldı. KARAR (2026-06-29): DHL calculate cart/checkout
+  fiyatı için KULLANILMAYACAK; DHL eCommerce bir OPERASYON sağlayıcısıdır. Sepet/checkout kargo bedeli ayrı faz
+  F3C.2 Shipping Price Engine (TODO-108, mağaza/admin tarife/rate-plan modeli) ile çözülecek. TODO-094D geri
+  çekildi → F3C.2'ye taşındı. Mevcut sabit kargo kuralı provider quote DEĞİLDİR.
+- Testler (+5 adapter): TEST_BASE_URL_MISSING (canlı fallback yok), TEST host + x-api-version taşınması,
+  RECIPIENT_CREATE_DISABLED default, Geliver /providers testConnection, x-api-version identity request.
+- Gate yeşil: db:generate ✓; build (config/contracts/api-client/api-gateway) ✓; typecheck (api-gateway build +
+  store-admin tsc --noEmit) 0 hata; lint temiz; testler api-gateway 184 / store-admin 107 / contracts 21;
+  git diff --check temiz. Sızıntı taraması: değişen dosyalarda gerçek secret/JWT/API key YOK (yalnız header ADI
+  ve testteki sahte negatif-assertion JWT'si).
+- Docker smoke: bu turda ÇALIŞTIRILMADI (kapsam: backend foundation + contract + güvenli dış doğrulama; cart UI
+  ucu açık). DHL canlı destructive operasyon (createRecipient/createOrder/createbarcode/cancel) ÇALIŞTIRILMADI.

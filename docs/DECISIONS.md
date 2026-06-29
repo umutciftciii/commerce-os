@@ -817,3 +817,30 @@
   ALLOWLIST'tir (configured + maskedKey son-4 + *Set boolean); ciphertext/secret/JWT/customerPassword ASLA
   response/log/docs/test snapshot/client bundle'a cikmaz.
 - Sonuc: Kargo gizli anahtar yonetimi odemeden bagimsiz; "anahtar yoksa fallback degil net hata" ilkesi.
+
+## ADR-043 DHL TEST/LIVE base URL ayrimi + x-api-version + Plus Command preflight + cart quote vs sabit kural
+
+- Durum: ACCEPTED
+- Baglam: DHL eCommerce (MNG / IBM API Connect) istekleri test ve canli icin AYRI host kullanir ve zorunlu
+  x-api-version header bekler. Onceki adapter host'u hardcode api.mngkargo.com.tr (LIVE) idi ve x-api-version
+  YOKTU. DHL operasyon akisi paketleme oncesi Plus Command / createRecipient (varis sube tespiti) adimi icerir.
+  Sepet/checkout kargo bedeli gercek provider quote ile magaza sabit kural ayrimini gerektirir.
+- Karar:
+  1. TEST/LIVE host env ile ayrilir: TEST mode DHL_ECOMMERCE_TEST_BASE_URL kullanir; YOKSA TEST_BASE_URL_MISSING
+     doner ve CANLI host'a FALLBACK YAPMAZ. LIVE mode DHL_ECOMMERCE_LIVE_BASE_URL kullanir. OpenAPI path'leri
+     (/mngapi/api/...) base URL'ye EKLENIR; base URL'ye path eklenmez.
+  2. Tum DHL test/live isteklerine x-api-version (DHL_ECOMMERCE_API_VERSION) header eklenir.
+  3. Plus Command / createRecipient skeleton eklendi; default destructive guard altinda: env
+     DHL_ECOMMERCE_ALLOW_RECIPIENT_CREATE + providerConfig.allowRecipientCreate + request explicitConfirm
+     uclusu olmadan RECIPIENT_CREATE_DISABLED (409). Bu turda canli/sandbox createRecipient YOK.
+  4. KARGO FIYATI AYRIMI (revize 2026-06-29): DHL eCommerce bir OPERASYON saglayicisidir — Identity, CBS,
+     createRecipient, createOrder, createbarcode, tracking. DHL `calculate` cart/checkout kargo fiyati icin
+     KULLANILMAYACAK. Bu nedenle sepet/checkout kargo bedeli provider'dan CANLI CEKILMEZ. Kargo bedeli AYRI bir
+     faz (F3C.2 Shipping Price Engine, TODO-108) ile cozulur: magaza/admin tarafindan girilen kargo tarife/
+     rate-plan modeli. Mevcut sabit kargo kurali provider quote DEGILDIR. `cartShippingQuoteResponseSchema`
+     yalniz contract seviyesinde birakildi (storefront/backend uygulamasi YOK; ileride F3C.2 sekillendirecek).
+- Sonuc: Test/canli host karismasi ve sessiz yanlis-host fallback'i onlenir; x-api-version eksikligi giderilir;
+  createRecipient guvenli skeleton. F3C.1 = shipping provider OPERASYON altyapisi; kargo FIYAT motoru F3C.2'de.
+  Safe dogrulama (2026-06-29, testapi.mngkargo.com.tr + x-api-version): Identity HTTP 200 (JWT), CBS/calculate
+  HTTP 401 (IBM gateway urun aboneligi: CBS_INFO + STANDARD_QUERY abone degil), Geliver auth gecerli (/providers
+  200; eski /geo/cities 404 → testConnection /providers'a tasindi).

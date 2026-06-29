@@ -20,6 +20,7 @@ function ctx(
     mode: "TEST",
     credentials: { byType: options.credentials ?? {} },
     guards: {
+      allowRecipientCreate: false,
       allowOrderCreate: false,
       allowBarcodeCreate: false,
       allowLabelPurchase: false,
@@ -27,6 +28,13 @@ function ctx(
     },
   };
 }
+
+/** DHL adapter testleri icin gecerli TEST host + x-api-version (canli host'a fallback yok). */
+const TEST_ENDPOINTS = {
+  testBaseUrl: "https://testapi.mngkargo.com.tr",
+  liveBaseUrl: "https://api.mngkargo.com.tr",
+  apiVersion: "v-test",
+};
 
 function dhlIdentity(): ResolvedShippingCredential {
   return {
@@ -89,7 +97,8 @@ describe("MOCK shipping adapter (fully functional, no credentials)", () => {
 });
 
 describe("DHL eCommerce adapter — destructive guards default to 409", () => {
-  const adapter = getShippingAdapter("DHL_ECOMMERCE"); // transport disabled by default
+  // transport disabled by default; gecerli TEST host verilir (read-only metotlar host cozer).
+  const adapter = getShippingAdapter("DHL_ECOMMERCE", undefined, TEST_ENDPOINTS);
 
   it("blocks createOrder with ORDER_CREATE_DISABLED unless guard + explicitConfirm", async () => {
     await expectShippingError(
@@ -147,6 +156,7 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
       sequencedTransport([
         { status: 200, body: JSON.stringify({ jwt: "jwt.value.x", jwtExpireDate: "10.03.2030 16:05:00" }) },
       ]),
+      TEST_ENDPOINTS,
     );
     const result = await enabled.testConnection({
       context: ctx("DHL_ECOMMERCE", {
@@ -170,6 +180,7 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
     const enabled = getShippingAdapter(
       "DHL_ECOMMERCE",
       sequencedTransport([{ status: 401, body: JSON.stringify({ message: "unauthorized" }) }]),
+      TEST_ENDPOINTS,
     );
     const result = await enabled.testConnection({
       context: ctx("DHL_ECOMMERCE", {
@@ -203,6 +214,7 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
         { status: 200, body: JSON.stringify({ jwt: "jwt.value.x", jwtExpireDate: "10.03.2030 16:05:00" }) },
         { status: 200, body: JSON.stringify({ finalTotal: 16, kdv: 2 }) },
       ]),
+      TEST_ENDPOINTS,
     );
     const rate = await enabled.calculateRate({
       context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity(), STANDARD_QUERY: product("STANDARD_QUERY") } }),
@@ -211,6 +223,67 @@ describe("DHL eCommerce adapter — destructive guards default to 409", () => {
     });
     expect(rate.amountMinor).toBe(1600);
     expect(rate.currency).toBe("TRY");
+  });
+
+  it("TEST mode + missing test base URL → TEST_BASE_URL_MISSING (no live fallback)", async () => {
+    // enabled transport ama TEST host yok: gercek cagri denenince TEST_BASE_URL_MISSING.
+    const enabled = getShippingAdapter(
+      "DHL_ECOMMERCE",
+      sequencedTransport([{ status: 200, body: "{}" }]),
+      { testBaseUrl: null, liveBaseUrl: "https://api.mngkargo.com.tr", apiVersion: "v1" },
+    );
+    await expectShippingError(
+      enabled.calculateRate({
+        context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity(), STANDARD_QUERY: product("STANDARD_QUERY") } }),
+        recipient: { cityCode: 34, districtCode: 56 },
+        pieces: [{ desi: 1, kg: 1 }],
+      }),
+      "TEST_BASE_URL_MISSING",
+    );
+  });
+
+  it("TEST mode uses the test base URL + sends x-api-version (no live host)", async () => {
+    const requests: Array<{ url: string; headers: Record<string, string> }> = [];
+    const recordingTransport: ShippingHttpTransport = {
+      enabled: true,
+      async send(req) {
+        requests.push({ url: req.url, headers: req.headers });
+        // ilk cagri token, ikinci calculate
+        return requests.length === 1
+          ? { status: 200, body: JSON.stringify({ jwt: "jwt.value.x", jwtExpireDate: "10.03.2030 16:05:00" }) }
+          : { status: 200, body: JSON.stringify({ finalTotal: 16 }) };
+      },
+    };
+    const enabled = getShippingAdapter("DHL_ECOMMERCE", recordingTransport, {
+      testBaseUrl: "https://testapi.mngkargo.com.tr",
+      liveBaseUrl: "https://api.mngkargo.com.tr",
+      apiVersion: "v-test",
+    });
+    await enabled.calculateRate({
+      context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity(), STANDARD_QUERY: product("STANDARD_QUERY") } }),
+      recipient: { cityCode: 34, districtCode: 56 },
+      pieces: [{ desi: 1, kg: 1 }],
+    });
+    expect(requests.every((r) => r.url.startsWith("https://testapi.mngkargo.com.tr"))).toBe(true);
+    expect(requests.every((r) => r.url.includes("/mngapi/api"))).toBe(true);
+    expect(requests.every((r) => r.headers["x-api-version"] === "v-test")).toBe(true);
+  });
+
+  it("createRecipient blocked by default → RECIPIENT_CREATE_DISABLED", async () => {
+    const enabled = getShippingAdapter(
+      "DHL_ECOMMERCE",
+      sequencedTransport([{ status: 200, body: "{}" }]),
+      { testBaseUrl: "https://testapi.mngkargo.com.tr", liveBaseUrl: "https://api.mngkargo.com.tr", apiVersion: "v1" },
+    );
+    await expectShippingError(
+      enabled.createRecipient({
+        context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity(), PLUS_COMMAND: product("PLUS_COMMAND") } }),
+        referenceId: "REF1",
+        recipient: { cityCode: 34, districtCode: 1, address: "x" },
+        explicitConfirm: true, // env/config guard kapali oldugundan yine bloklanir
+      }),
+      "RECIPIENT_CREATE_DISABLED",
+    );
   });
 });
 
@@ -259,10 +332,10 @@ describe("Geliver adapter — test-only, label purchase guarded", () => {
     expect(result.message).toContain("gerçek API çağrısı yapılmadı");
   });
 
-  it("testConnection with enabled transport returns OK + HTTP status (real geo/cities call)", async () => {
+  it("testConnection with enabled transport returns OK + HTTP status (real /providers call)", async () => {
     const enabled = getShippingAdapter(
       "GELIVER",
-      sequencedTransport([{ status: 200, body: JSON.stringify([{ code: "34", name: "İstanbul" }]) }]),
+      sequencedTransport([{ status: 200, body: JSON.stringify({ result: true, data: [] }) }]),
     );
     const result = await enabled.testConnection({
       context: ctx("GELIVER", { credentials: { DEFAULT: product("DEFAULT") } }),
@@ -270,6 +343,7 @@ describe("Geliver adapter — test-only, label purchase guarded", () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe("OK");
     expect(result.providerHttpStatus).toBe(200);
-    expect(result.testType).toBe("GEO_CITIES");
+    // /geo/cities yolu 404 donuyordu; testConnection dogrulanmis /providers (200) kullanir.
+    expect(result.testType).toBe("PROVIDERS");
   });
 });

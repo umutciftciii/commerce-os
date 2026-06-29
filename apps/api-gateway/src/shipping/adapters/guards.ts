@@ -12,6 +12,18 @@ import type { ShippingActionContext } from "../types.js";
  * Aksi halde kontrollu 409 hatasi firlatilir (ic detay sizdirmadan).
  */
 
+export function assertRecipientCreateAllowed(
+  ctx: ShippingActionContext,
+  explicitConfirm: boolean | undefined,
+): void {
+  if (!(ctx.guards.allowRecipientCreate && explicitConfirm === true)) {
+    throw new ShippingConfigError(
+      "RECIPIENT_CREATE_DISABLED",
+      "Canli alici (Plus Command/createRecipient) olusturma kapalı. Etkinleştirmek için provider izni + ortam bayrağı + explicitConfirm gerekir.",
+    );
+  }
+}
+
 export function assertOrderCreateAllowed(
   ctx: ShippingActionContext,
   explicitConfirm: boolean | undefined,

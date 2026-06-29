@@ -96,6 +96,8 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       CONFIG_MISSING: 500,
       CONFIG_INVALID: 500,
       CONFIG_INCOMPLETE: 409,
+      TEST_BASE_URL_MISSING: 409,
+      RECIPIENT_CREATE_DISABLED: 409,
       ORDER_CREATE_DISABLED: 409,
       BARCODE_CREATE_DISABLED: 409,
       LABEL_PURCHASE_DISABLED: 409,
@@ -130,7 +132,13 @@ export function registerShippingAdminRoutes(
   const transport: ShippingHttpTransport = config.SHIPPING_SANDBOX_HTTP_ENABLED
     ? createFetchHttpTransport()
     : createDisabledHttpTransport();
-  const registry = createShippingAdapterRegistry(transport);
+  // DHL TEST/LIVE base URL + x-api-version env'den cozulur. TEST base URL yoksa
+  // adapter TEST modunda TEST_BASE_URL_MISSING doner (canli host'a fallback YOK).
+  const registry = createShippingAdapterRegistry(transport, {
+    testBaseUrl: config.DHL_ECOMMERCE_TEST_BASE_URL ?? null,
+    liveBaseUrl: config.DHL_ECOMMERCE_LIVE_BASE_URL,
+    apiVersion: config.DHL_ECOMMERCE_API_VERSION ?? null,
+  });
 
   /** Lazy cipher: yalnizca credential save/test/decrypt aninda kurulur. Key yoksa CONFIG_MISSING. */
   function cipher(): ShippingSecretCipher {
@@ -166,6 +174,7 @@ export function registerShippingAdminRoutes(
       mode: cfg.mode,
       credentials: decryptCredentials(cfg),
       guards: {
+        allowRecipientCreate: config.DHL_ECOMMERCE_ALLOW_RECIPIENT_CREATE && cfg.allowRecipientCreate,
         allowOrderCreate: config.DHL_ECOMMERCE_ALLOW_ORDER_CREATE && cfg.allowOrderCreate,
         allowBarcodeCreate: config.DHL_ECOMMERCE_ALLOW_BARCODE_CREATE && cfg.allowBarcodeCreate,
         allowLabelPurchase: config.GELIVER_ALLOW_LABEL_PURCHASE && cfg.allowLabelPurchase,
@@ -215,6 +224,7 @@ export function registerShippingAdminRoutes(
         displayName: input.displayName,
         mode: input.mode,
         status: input.status,
+        allowRecipientCreate: input.allowRecipientCreate,
         allowOrderCreate: input.allowOrderCreate,
         allowBarcodeCreate: input.allowBarcodeCreate,
         allowLabelPurchase: input.allowLabelPurchase,
@@ -254,6 +264,7 @@ export function registerShippingAdminRoutes(
         displayName: input.displayName,
         mode: input.mode,
         status: input.status,
+        allowRecipientCreate: input.allowRecipientCreate,
         allowOrderCreate: input.allowOrderCreate,
         allowBarcodeCreate: input.allowBarcodeCreate,
         allowLabelPurchase: input.allowLabelPurchase,
