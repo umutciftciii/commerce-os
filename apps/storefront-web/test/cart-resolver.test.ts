@@ -24,6 +24,13 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 
 vi.stubGlobal("fetch", fetchMock);
 
+// F3C.2 — Musteri oturum jetonu cozumu sahtelenir: varsayilan anonim (null) ki
+// mevcut public-write testleri token'siz yolu dogrulasin; tekil testte token verilir.
+const readCustomerTokenMock = vi.fn<() => Promise<string | null>>(async () => null);
+vi.mock("../lib/server/customer-cookie", () => ({
+  readCustomerToken: () => readCustomerTokenMock(),
+}));
+
 import { resolveCart, submitCheckout } from "../lib/server/cart";
 
 function publicCart(overrides: Record<string, unknown> = {}) {
@@ -83,6 +90,7 @@ function publicCart(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   calls.length = 0;
   nextResponses = [];
+  readCustomerTokenMock.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -112,6 +120,33 @@ describe("storefront-web · cart resolver", () => {
     expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain("authorization");
     expect(JSON.stringify(calls[0]?.init)).not.toMatch(/Bearer/i);
     expect(calls[0]?.url).toContain("/public/stores/demo-store/cart");
+  });
+
+  it("forwards the customer session so the gateway can resolve the default address (F3C.2)", async () => {
+    // Oturum acmis musteri: jeton x-customer-session ile gonderilmeli ki gateway
+    // VARSAYILAN teslimat adresini bulup kargo tarife quote'unu hesaplayabilsin.
+    // Token'siz cagride gateway ADDRESS_REQUIRED doner -> Kargo satiri bos kalir (bug).
+    readCustomerTokenMock.mockResolvedValue("cust-session-token");
+    nextResponses = [jsonResponse(publicCart())];
+
+    const result = await resolveCart([{ variantId: "v1", quantity: 2 }]);
+    expect(result.ok).toBe(true);
+
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    const lowered = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    expect(lowered["x-customer-session"]).toBe("cust-session-token");
+    // Yine de hicbir platform-admin/Bearer kimligi sizmamali.
+    expect(JSON.stringify(calls[0]?.init)).not.toMatch(/Bearer/i);
+    expect(calls[0]?.url).toContain("/public/stores/demo-store/cart");
+  });
+
+  it("falls back to an anonymous request when there is no customer session", async () => {
+    readCustomerTokenMock.mockResolvedValue(null);
+    nextResponses = [jsonResponse(publicCart())];
+
+    await resolveCart([{ variantId: "v1", quantity: 2 }]);
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain("x-customer-session");
   });
 
   it("maps a 404 to no-store and other failures to error", async () => {

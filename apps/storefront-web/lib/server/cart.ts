@@ -187,7 +187,20 @@ export async function resolveCart(
   couponCode?: string | null,
 ): Promise<CartResult<CartView>> {
   try {
-    const result = await postPublic<PublicCart>(cartPath(), { items, couponCode: couponCode ?? null });
+    // F3C.2 — Oturum acmis musteride sepet `x-customer-session` ile cozulur ki
+    // gateway VARSAYILAN teslimat adresini bulup KARGO TARIFE quote'unu hesaplayabilsin.
+    // Token yoksa (anonim) public POST'a duser → gateway ADDRESS_REQUIRED doner.
+    // Cookie okuma istek-disi baglamlarda (or. unit test) hata verirse anonim sayilir.
+    let customerToken: string | null = null;
+    try {
+      customerToken = await readCustomerToken();
+    } catch {
+      customerToken = null;
+    }
+    const body = { items, couponCode: couponCode ?? null };
+    const result = customerToken
+      ? await sendCustomer<PublicCart>("POST", cartPath(), customerToken, body)
+      : await postPublic<PublicCart>(cartPath(), body);
     if (!result.ok) {
       return { ok: false, reason: result.status === 404 ? "no-store" : "error" };
     }

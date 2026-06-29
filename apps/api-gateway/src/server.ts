@@ -660,8 +660,12 @@ export interface AppDataAccess {
    */
   resolveActiveShippingRatePlan(storeId: string): Promise<EngineRatePlan | null>;
   /**
-   * F3C.2 — Musterinin default teslimat adresinin sehir/ilce bilgisi (kargo quote
-   * icin). Yoksa null. Tarife kural eslesmesi bu kodlar uzerinden yapilir.
+   * F3C.2 — Sepet kargo quote PREVIEW'i icin teslimat adresinin sehir/ilce bilgisi.
+   * Once isDefaultShipping=true; YOKSA en eski (createdAt asc) kayitli adrese duser —
+   * checkout adres defterinin onsecimiyle (default ?? addresses[0]) AYNI sirada — ki
+   * default isaretlenmemis ama adresi olan musteride preview ADDRESS_REQUIRED'da
+   * takilmasin. Hicbir adres yoksa null. Nihai ucret checkout'ta SECILEN adresten
+   * yeniden hesaplanir; bu yalniz onizleme adresidir.
    */
   findDefaultShippingAddress(
     storeId: string,
@@ -2247,8 +2251,12 @@ function createPrismaDataAccess(): AppDataAccess {
       return plan ? toEnginePlan(plan) : null;
     },
     findDefaultShippingAddress: async (storeId, customerId) => {
+      // Default ?? en eski adres (checkout adres defteri onsecimiyle ayni sira):
+      // isDefaultShipping desc, sonra createdAt asc. Default isaretli adres yoksa
+      // ilk kayitli adrese duser ki preview quote hesaplanabilsin.
       const addr = await prisma.customerAddress.findFirst({
-        where: { storeId, customerId, isDefaultShipping: true, deletedAt: null },
+        where: { storeId, customerId, deletedAt: null },
+        orderBy: [{ isDefaultShipping: "desc" }, { createdAt: "asc" }],
         select: { city: true, district: true },
       });
       return addr ? { city: addr.city, district: addr.district } : null;

@@ -117,6 +117,31 @@ describe("F3C.2 price engine", () => {
     expect(out.appliedRuleId).toBe("r2");
   });
 
+  it("4b) DESI_TABLE: decimal desi 3.01 matches inclusive [3,5] bracket", () => {
+    // Smoke senaryosu: urun shippingDesi=3.01. TEK adette billable=3.01, alt sinir
+    // dahil (minDesi=3) eslesmeli; ondalik kayma RATE_NOT_FOUND'a yol acmamali.
+    const desiPlan = plan({
+      pricingMode: "DESI_TABLE",
+      fixedAmountMinor: null,
+      rules: [
+        rule({ id: "d0_3", minDesi: 0, maxDesi: 3, amountMinor: 2000 }),
+        rule({ id: "d3_5", minDesi: 3, maxDesi: 5, amountMinor: 3500 }),
+        rule({ id: "d5_10", minDesi: 5, maxDesi: 10, amountMinor: 5000 }),
+      ],
+    });
+    const single = calculateShippingQuote({ plan: desiPlan, cart: { ...baseCart, totalDesi: 3.01 }, address: null });
+    expect(single.status).toBe("OK");
+    expect(single.appliedRuleId).toBe("d3_5");
+    expect(single.amountMinor).toBe(3500);
+
+    // 2 adet -> sepet desisi 6.02 (billable max(kg,desi)); ust brackete (5-10) duser.
+    // Kurali ispatlar: ucret SEPET toplamindan hesaplanir, adet-basi degil.
+    const twoUnits = calculateShippingQuote({ plan: desiPlan, cart: { ...baseCart, totalDesi: 6.02 }, address: null });
+    expect(twoUnits.status).toBe("OK");
+    expect(twoUnits.appliedRuleId).toBe("d5_10");
+    expect(twoUnits.amountMinor).toBe(5000);
+  });
+
   it("5) WEIGHT_TABLE picks the correct bracket", () => {
     const out = calculateShippingQuote({
       plan: plan({

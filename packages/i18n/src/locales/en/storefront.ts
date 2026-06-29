@@ -282,6 +282,7 @@ export const enStorefront: StorefrontDictionary = {
     shippingPending: "Calculated once a delivery address is selected.",
     shippingNoRatePlan: "No active shipping rate found for this store.",
     shippingUnavailable: "Shipping fee could not be calculated.",
+    shippingBlockedNotice: "You can't continue to payment until the shipping fee is calculated.",
     grandTotal: "Grand total",
     // {rate} is replaced with the VAT rate.
     taxIncludedLabel: "VAT included ({rate}%)",

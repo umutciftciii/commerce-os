@@ -284,6 +284,7 @@ export const trStorefront = {
     shippingPending: "Teslimat adresi seçildikten sonra hesaplanır.",
     shippingNoRatePlan: "Bu mağaza için aktif kargo tarifesi bulunamadı.",
     shippingUnavailable: "Kargo ücreti hesaplanamadı.",
+    shippingBlockedNotice: "Kargo ücreti hesaplanana kadar ödeme adımına geçilemez.",
     grandTotal: "Genel toplam",
     // {rate} KDV oranıyla değiştirilir.
     taxIncludedLabel: "KDV dahil (%{rate})",
