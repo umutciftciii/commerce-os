@@ -40,6 +40,15 @@ services:
       DATABASE_URL: postgresql://commerce_os:commerce_os_password@postgres:5432/commerce_os?schema=public
       REDIS_URL: redis://redis:6379
       API_GATEWAY_PORT: 4000
+      # F3C.1 — Kargo credential sifreleme anahtari. YALNIZCA local docker dev/smoke
+      # icin sabit deger (gercek secret DEGIL). Fallback yoktur; bu anahtar olmadan
+      # kargo credential save/test/decrypt CONFIG_MISSING doner. Uretimde override edin.
+      SHIPPING_ENCRYPTION_KEY: c2hpcHBpbmctbG9jYWwtZGV2LWtleS0zMmJ5dGVzISE=
+      # Kargo sandbox/live HTTP + destructive guard'lari (varsayilan KAPALI).
+      SHIPPING_SANDBOX_HTTP_ENABLED: "false"
+      DHL_ECOMMERCE_ALLOW_ORDER_CREATE: "false"
+      DHL_ECOMMERCE_ALLOW_BARCODE_CREATE: "false"
+      GELIVER_ALLOW_LABEL_PURCHASE: "false"
     ports:
       - "4000:4000"
     depends_on:

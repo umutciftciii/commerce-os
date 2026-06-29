@@ -57,6 +57,17 @@ import type {
   CustomerIban,
   CustomerIbanInput,
   CustomerCommunicationPreference,
+  ShippingProviderConfigResponse,
+  ShippingProviderConfigListResponse,
+  ShippingProviderConfigCreateRequest,
+  ShippingProviderConfigUpdateRequest,
+  ShippingCredentialUpsertRequest,
+  ShippingProviderTestResponse,
+  ShippingRateRequest,
+  ShippingRateResponse,
+  ShippingCreateOrderRequest,
+  ShippingCreateBarcodeRequest,
+  OrderShippingResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -212,6 +223,26 @@ export type {
   CustomerOrderPaymentSummary,
   CustomerOrderDetail,
   CustomerOrderDetailResponse,
+} from "@commerce-os/contracts";
+
+/**
+ * F3C.1 — Shipping provider foundation kontrat tipleri (type-only re-export).
+ * RESPONSE tipleri ALLOWLIST'tir (secret/ciphertext/JWT/customerPassword içermez).
+ */
+export type {
+  ShippingProviderConfigResponse,
+  ShippingProviderConfigListResponse,
+  ShippingProviderConfigCreateRequest,
+  ShippingProviderConfigUpdateRequest,
+  ShippingProviderStatusUpdateRequest,
+  ShippingCredentialUpsertRequest,
+  ShippingProviderTestResponse,
+  ShippingRateRequest,
+  ShippingRateResponse,
+  ShippingCreateOrderRequest,
+  ShippingCreateBarcodeRequest,
+  OrderShippingResponse,
+  ShipmentResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -490,6 +521,55 @@ export interface ApiClient {
       ): Promise<PaymentProviderTestConnectionResponse>;
       events(storeId: string, configId: string, token?: string): Promise<PaymentProviderEventListResponse>;
       storeEvents(storeId: string, token?: string): Promise<PaymentProviderEventListResponse>;
+    };
+    shippingProviders: {
+      list(storeId: string, token?: string): Promise<ShippingProviderConfigListResponse>;
+      create(
+        storeId: string,
+        input: ShippingProviderConfigCreateRequest,
+        token?: string,
+      ): Promise<ShippingProviderConfigResponse>;
+      get(storeId: string, configId: string, token?: string): Promise<ShippingProviderConfigResponse>;
+      update(
+        storeId: string,
+        configId: string,
+        input: ShippingProviderConfigUpdateRequest,
+        token?: string,
+      ): Promise<ShippingProviderConfigResponse>;
+      upsertCredential(
+        storeId: string,
+        configId: string,
+        input: ShippingCredentialUpsertRequest,
+        token?: string,
+      ): Promise<ShippingProviderConfigResponse>;
+      deleteCredential(
+        storeId: string,
+        configId: string,
+        type: string,
+        token?: string,
+      ): Promise<ShippingProviderConfigResponse>;
+      test(storeId: string, configId: string, token?: string): Promise<ShippingProviderTestResponse>;
+    };
+    orderShipping: {
+      get(storeId: string, orderId: string, token?: string): Promise<OrderShippingResponse>;
+      rate(
+        storeId: string,
+        orderId: string,
+        input: ShippingRateRequest,
+        token?: string,
+      ): Promise<ShippingRateResponse>;
+      createOrder(
+        storeId: string,
+        orderId: string,
+        input: ShippingCreateOrderRequest,
+        token?: string,
+      ): Promise<{ referenceId: string; externalOrderId: string | null }>;
+      createBarcode(
+        storeId: string,
+        orderId: string,
+        input: ShippingCreateBarcodeRequest,
+        token?: string,
+      ): Promise<{ referenceId: string; externalShipmentId: string | null; barcodeCount: number }>;
     };
   };
 }
@@ -836,6 +916,67 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
         storeEvents: (storeId, token) =>
           getJson<PaymentProviderEventListResponse>(`/stores/${storeId}/payment-events`, token),
+      },
+      shippingProviders: {
+        list: (storeId, token) =>
+          getJson<ShippingProviderConfigListResponse>(`/stores/${storeId}/shipping/providers`, token),
+        create: (storeId, input, token) =>
+          sendJson<ShippingProviderConfigResponse>(`/stores/${storeId}/shipping/providers`, "POST", input, token),
+        get: (storeId, configId, token) =>
+          getJson<ShippingProviderConfigResponse>(`/stores/${storeId}/shipping/providers/${configId}`, token),
+        update: (storeId, configId, input, token) =>
+          sendJson<ShippingProviderConfigResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        upsertCredential: (storeId, configId, input, token) =>
+          sendJson<ShippingProviderConfigResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}/credentials`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteCredential: (storeId, configId, type, token) =>
+          sendJson<ShippingProviderConfigResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}/credentials/${type}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        test: (storeId, configId, token) =>
+          sendJson<ShippingProviderTestResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}/test`,
+            "POST",
+            undefined,
+            token,
+          ),
+      },
+      orderShipping: {
+        get: (storeId, orderId, token) =>
+          getJson<OrderShippingResponse>(`/stores/${storeId}/orders/${orderId}/shipping`, token),
+        rate: (storeId, orderId, input, token) =>
+          sendJson<ShippingRateResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/rate`,
+            "POST",
+            input,
+            token,
+          ),
+        createOrder: (storeId, orderId, input, token) =>
+          sendJson<{ referenceId: string; externalOrderId: string | null }>(
+            `/stores/${storeId}/orders/${orderId}/shipping/create-order`,
+            "POST",
+            input,
+            token,
+          ),
+        createBarcode: (storeId, orderId, input, token) =>
+          sendJson<{ referenceId: string; externalShipmentId: string | null; barcodeCount: number }>(
+            `/stores/${storeId}/orders/${orderId}/shipping/create-barcode`,
+            "POST",
+            input,
+            token,
+          ),
       },
     },
   };
