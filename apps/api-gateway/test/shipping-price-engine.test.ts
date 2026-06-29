@@ -5,9 +5,14 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateShippingQuote,
+  billableWeight,
+  selectTier,
   type EngineCart,
   type EngineRatePlan,
   type EngineRateRule,
+  type EngineRateTier,
+  type EngineRateZone,
+  type EngineSurcharge,
 } from "../src/shipping/price-engine.js";
 
 const baseCart: EngineCart = {
@@ -32,6 +37,9 @@ function plan(overrides: Partial<EngineRatePlan>): EngineRatePlan {
     validFrom: null,
     validTo: null,
     rules: [],
+    tiers: [],
+    zones: [],
+    surcharges: [],
     ...overrides,
   };
 }
@@ -39,6 +47,8 @@ function plan(overrides: Partial<EngineRatePlan>): EngineRatePlan {
 function rule(overrides: Partial<EngineRateRule>): EngineRateRule {
   return {
     id: "rule_1",
+    tierId: null,
+    zoneId: null,
     minDesi: null,
     maxDesi: null,
     minWeightKg: null,
@@ -46,7 +56,11 @@ function rule(overrides: Partial<EngineRateRule>): EngineRateRule {
     cityCode: null,
     districtCode: null,
     regionCode: null,
+    chargeType: "FLAT",
     amountMinor: 0,
+    unitAmountMinor: null,
+    baseAmountMinor: null,
+    baseThreshold: null,
     extraAmountMinor: null,
     sortOrder: 0,
     ...overrides,
@@ -209,5 +223,197 @@ describe("F3C.2 price engine", () => {
       now: new Date("2026-06-29T00:00:00.000Z"),
     });
     expect(out.status).toBe("NO_RATE_PLAN");
+  });
+});
+
+/* ─────────────────── F3C.2 revizyon — Generic Tariff Engine ─────────────────── */
+
+function tier(overrides: Partial<EngineRateTier>): EngineRateTier {
+  return { id: "tier", name: "Tarife", monthlyShipmentMin: null, monthlyShipmentMax: null, sortOrder: 0, ...overrides };
+}
+function zone(overrides: Partial<EngineRateZone>): EngineRateZone {
+  return { id: "zone", code: "CITY", name: "Şehir içi", minDistanceKm: null, maxDistanceKm: null, sortOrder: 0, ...overrides };
+}
+function surcharge(overrides: Partial<EngineSurcharge>): EngineSurcharge {
+  return {
+    id: "sur",
+    code: "SMS",
+    name: "SMS",
+    chargeType: "FLAT",
+    amountMinor: 0,
+    unitAmountMinor: null,
+    conditionJsonSafe: null,
+    isOptional: false,
+    sortOrder: 0,
+    ...overrides,
+  };
+}
+
+describe("F3C.2 revizyon — tier/zone/charge/surcharge", () => {
+  // DHL tarzi Tarife I/II/III: aylik gonderi adedine gore tier secimi.
+  const dhlTiers: EngineRateTier[] = [
+    tier({ id: "I", name: "Tarife I", monthlyShipmentMin: 0, monthlyShipmentMax: 199, sortOrder: 0 }),
+    tier({ id: "II", name: "Tarife II", monthlyShipmentMin: 200, monthlyShipmentMax: 499, sortOrder: 1 }),
+    tier({ id: "III", name: "Tarife III", monthlyShipmentMin: 500, monthlyShipmentMax: null, sortOrder: 2 }),
+  ];
+  const dhlPlan = plan({
+    pricingMode: "DESI_TABLE",
+    fixedAmountMinor: null,
+    tiers: dhlTiers,
+    rules: [
+      rule({ id: "rI", tierId: "I", minDesi: 0, maxDesi: 30, amountMinor: 5000 }),
+      rule({ id: "rII", tierId: "II", minDesi: 0, maxDesi: 30, amountMinor: 4000 }),
+      rule({ id: "rIII", tierId: "III", minDesi: 0, maxDesi: 30, amountMinor: 3000 }),
+    ],
+  });
+
+  it("selectTier maps monthly volume to the right tier (100->I, 250->II, 700->III)", () => {
+    expect(selectTier(dhlTiers, 100)?.id).toBe("I");
+    expect(selectTier(dhlTiers, 250)?.id).toBe("II");
+    expect(selectTier(dhlTiers, 700)?.id).toBe("III");
+  });
+
+  it("unknown monthly volume -> first sortOrder tier (default)", () => {
+    expect(selectTier(dhlTiers, null)?.id).toBe("I");
+  });
+
+  it("DHL: monthlyShipmentCount 250 picks Tarife II rule", () => {
+    const out = calculateShippingQuote({ plan: dhlPlan, cart: { ...baseCart, totalDesi: 10 }, address: null, monthlyShipmentCount: 250 });
+    expect(out.status).toBe("OK");
+    expect(out.appliedRuleId).toBe("rII");
+    expect(out.appliedTierId).toBe("II");
+    expect(out.amountMinor).toBe(4000);
+  });
+
+  it("DHL: 700 -> Tarife III; unknown volume -> Tarife I (default)", () => {
+    const t3 = calculateShippingQuote({ plan: dhlPlan, cart: { ...baseCart, totalDesi: 10 }, address: null, monthlyShipmentCount: 700 });
+    expect(t3.appliedRuleId).toBe("rIII");
+    const t1 = calculateShippingQuote({ plan: dhlPlan, cart: { ...baseCart, totalDesi: 10 }, address: null });
+    expect(t1.appliedRuleId).toBe("rI");
+  });
+
+  it("Aras-style zone selection by resolved zoneCode", () => {
+    const arasPlan = plan({
+      pricingMode: "DESI_AND_REGION_TABLE",
+      fixedAmountMinor: null,
+      zones: [zone({ id: "z_city", code: "CITY" }), zone({ id: "z_far", code: "FAR" })],
+      rules: [
+        rule({ id: "generic", minDesi: 0, maxDesi: 100, amountMinor: 9000, sortOrder: 0 }),
+        rule({ id: "city", zoneId: "z_city", minDesi: 0, maxDesi: 100, amountMinor: 4000, sortOrder: 1 }),
+        rule({ id: "far", zoneId: "z_far", minDesi: 0, maxDesi: 100, amountMinor: 7000, sortOrder: 2 }),
+      ],
+    });
+    const out = calculateShippingQuote({
+      plan: arasPlan,
+      cart: { ...baseCart, totalDesi: 5 },
+      address: { cityCode: "34", districtCode: null, regionCode: null, zoneCode: "FAR" },
+    });
+    expect(out.appliedRuleId).toBe("far");
+    expect(out.appliedZoneId).toBe("z_far");
+    expect(out.amountMinor).toBe(7000);
+  });
+
+  it("billableWeight = max(kg, desi)", () => {
+    expect(billableWeight({ ...baseCart, totalWeightKg: 2, totalDesi: 5 })).toBe(5);
+    expect(billableWeight({ ...baseCart, totalWeightKg: 8, totalDesi: 3 })).toBe(8);
+  });
+
+  it("bracket matches on billableWeight = max(kg, desi)", () => {
+    // kg=2, desi=6 -> billable=6 -> 5-10 bracket.
+    const out = calculateShippingQuote({
+      plan: plan({
+        pricingMode: "DESI_TABLE",
+        fixedAmountMinor: null,
+        rules: [
+          rule({ id: "a", minDesi: 0, maxDesi: 5, amountMinor: 1000 }),
+          rule({ id: "b", minDesi: 5, maxDesi: 10, amountMinor: 2000 }),
+        ],
+      }),
+      cart: { ...baseCart, totalWeightKg: 2, totalDesi: 6 },
+      address: null,
+    });
+    expect(out.appliedRuleId).toBe("b");
+  });
+
+  it("31+ PER_ADDITIONAL_KG_OR_DESI: base + (billable - threshold) * unit", () => {
+    // Aras 31+ kg: 30'a kadar base, ustu kg/desi basina ek birim. billable=33 -> 3 birim ek.
+    const out = calculateShippingQuote({
+      plan: plan({
+        pricingMode: "DESI_TABLE",
+        fixedAmountMinor: null,
+        rules: [
+          rule({ id: "upTo30", minDesi: 0, maxDesi: 30, amountMinor: 5000 }),
+          rule({
+            id: "over30",
+            chargeType: "PER_ADDITIONAL_KG_OR_DESI",
+            minDesi: 30,
+            maxDesi: null, // "ve uzeri"
+            baseAmountMinor: 5000,
+            baseThreshold: 30,
+            unitAmountMinor: 400,
+          }),
+        ],
+      }),
+      cart: { ...baseCart, totalDesi: 33 },
+      address: null,
+    });
+    expect(out.appliedRuleId).toBe("over30");
+    expect(out.amountMinor).toBe(5000 + 3 * 400); // 6200
+  });
+
+  it("surcharge: mandatory always added; optional only when selected; condition gates", () => {
+    const p = plan({
+      pricingMode: "DESI_TABLE",
+      fixedAmountMinor: null,
+      rules: [rule({ id: "r", minDesi: 0, maxDesi: 100, amountMinor: 3000 })],
+      surcharges: [
+        surcharge({ id: "ins", code: "INSURANCE", chargeType: "FLAT", amountMinor: 500, isOptional: false }),
+        surcharge({ id: "sms", code: "SMS", chargeType: "FLAT", amountMinor: 200, isOptional: true }),
+        surcharge({ id: "heavy", code: "HEAVY", chargeType: "FLAT", amountMinor: 1000, isOptional: false, conditionJsonSafe: { minBillable: 30 } }),
+      ],
+    });
+    // billable=10: INSURANCE(500) eklenir, SMS secilmedi, HEAVY kosulu saglanmaz.
+    const a = calculateShippingQuote({ plan: p, cart: { ...baseCart, totalDesi: 10 }, address: null });
+    expect(a.amountMinor).toBe(3000 + 500);
+    expect(a.surchargeCodes).toEqual(["INSURANCE"]);
+    // SMS secilir + billable=40 -> HEAVY kosulu saglanir.
+    const b = calculateShippingQuote({
+      plan: p,
+      cart: { ...baseCart, totalDesi: 40 },
+      address: null,
+      selectedSurchargeCodes: ["SMS"],
+    });
+    expect(b.amountMinor).toBe(3000 + 500 + 200 + 1000);
+    expect(b.surchargeCodes).toEqual(["INSURANCE", "SMS", "HEAVY"]);
+  });
+
+  it("zone + tier + desi rule eşleşmesi birlikte", () => {
+    const p = plan({
+      pricingMode: "DESI_AND_REGION_TABLE",
+      fixedAmountMinor: null,
+      tiers: [tier({ id: "II", monthlyShipmentMin: 200, monthlyShipmentMax: 499, sortOrder: 1 })],
+      zones: [zone({ id: "z_far", code: "FAR" })],
+      rules: [
+        rule({ id: "match", tierId: "II", zoneId: "z_far", minDesi: 0, maxDesi: 30, amountMinor: 8000 }),
+        rule({ id: "wrongTier", tierId: "OTHER", zoneId: "z_far", minDesi: 0, maxDesi: 30, amountMinor: 1 }),
+      ],
+    });
+    const out = calculateShippingQuote({
+      plan: p,
+      cart: { ...baseCart, totalDesi: 12 },
+      address: { cityCode: "01", districtCode: null, regionCode: null, zoneCode: "FAR" },
+      monthlyShipmentCount: 250,
+    });
+    expect(out.appliedRuleId).toBe("match");
+    expect(out.amountMinor).toBe(8000);
+  });
+
+  it("FLAT default preserves legacy amount + extra (backward compatible)", () => {
+    const out = calculateShippingQuote({
+      plan: plan({ pricingMode: "DESI_TABLE", fixedAmountMinor: null, rules: [rule({ minDesi: 0, maxDesi: 10, amountMinor: 3000, extraAmountMinor: 250 })] }),
+      cart: { ...baseCart, totalDesi: 4 },
+      address: null,
+    });
+    expect(out.amountMinor).toBe(3250);
   });
 });

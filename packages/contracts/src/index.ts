@@ -2347,8 +2347,9 @@ export const orderShippingResponseSchema = z.object({
 
 /* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
  * Kargo ucreti SAGLAYICI quote'u DEGILDIR; magaza/admin tarife planindan hesaplanir
- * (ADR-036). `provider` yalniz operasyon sağlayıcısıyla gevsek iliskilendirme icindir;
- * fiyat etkisi YOKTUR.
+ * (ADR-044). Generic Tariff Engine: provider'a ozel fiyat kodu yok; DHL (tier=aylik
+ * hacim) / Aras (zone=mesafe) / Yurtici fiyat listeleri ayni generic kurallara maplenir.
+ * `provider` yalniz operasyon sağlayıcısıyla gevsek iliskilendirme icindir; fiyat etkisi YOK.
  */
 export const shippingRatePlanStatusSchema = z.enum(["ACTIVE", "PASSIVE"]);
 export const shippingRatePricingModeSchema = z.enum([
@@ -2363,14 +2364,25 @@ export const shippingRateSourceSchema = z.enum([
   "STORE_SHIPPING_TARIFF",
   "MOCK",
 ]);
+export const shippingChargeTypeSchema = z.enum([
+  "FLAT",
+  "PER_KG",
+  "PER_DESI",
+  "PER_KG_OR_DESI",
+  "PER_ADDITIONAL_KG_OR_DESI",
+]);
 
 const decimalStringSchema = z
   .number()
   .nonnegative()
   .nullable();
 
+const codeSchema = z.string().min(1).max(40);
+
 export const shippingRateRuleSchema = z.object({
   id: z.string().min(1),
+  tierId: z.string().nullable(),
+  zoneId: z.string().nullable(),
   minDesi: decimalStringSchema,
   maxDesi: decimalStringSchema,
   minWeightKg: decimalStringSchema,
@@ -2378,14 +2390,24 @@ export const shippingRateRuleSchema = z.object({
   cityCode: z.string().max(40).nullable(),
   districtCode: z.string().max(40).nullable(),
   regionCode: z.string().max(40).nullable(),
-  amountMinor: z.number().int().nonnegative(),
+  chargeType: shippingChargeTypeSchema,
+  amountMinor: z.number().int().nonnegative().nullable(),
+  unitAmountMinor: z.number().int().nonnegative().nullable(),
+  baseAmountMinor: z.number().int().nonnegative().nullable(),
+  baseThreshold: decimalStringSchema,
   extraAmountMinor: z.number().int().nonnegative().nullable(),
   sortOrder: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
-export const shippingRateRuleInputSchema = z.object({
+/**
+ * chargeType zorunlu alan dogrulamasi (ADR-044): FLAT->amountMinor; PER_*->unitAmountMinor;
+ * PER_ADDITIONAL_KG_OR_DESI ayrica baseAmountMinor + baseThreshold ister.
+ */
+const shippingRateRuleInputBaseSchema = z.object({
+  tierId: z.string().nullable().optional(),
+  zoneId: z.string().nullable().optional(),
   minDesi: z.number().nonnegative().nullable().optional(),
   maxDesi: z.number().nonnegative().nullable().optional(),
   minWeightKg: z.number().nonnegative().nullable().optional(),
@@ -2393,10 +2415,134 @@ export const shippingRateRuleInputSchema = z.object({
   cityCode: z.string().max(40).nullable().optional(),
   districtCode: z.string().max(40).nullable().optional(),
   regionCode: z.string().max(40).nullable().optional(),
-  amountMinor: z.number().int().nonnegative(),
+  chargeType: shippingChargeTypeSchema.default("FLAT"),
+  amountMinor: z.number().int().nonnegative().nullable().optional(),
+  unitAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  baseAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  baseThreshold: z.number().nonnegative().nullable().optional(),
   extraAmountMinor: z.number().int().nonnegative().nullable().optional(),
   sortOrder: z.number().int().min(0).max(100000).default(0),
 });
+
+export const shippingRateRuleInputSchema = shippingRateRuleInputBaseSchema
+  .superRefine((val, ctx) => {
+    if (val.chargeType === "FLAT") {
+      if (val.amountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amountMinor"], message: "FLAT requires amountMinor" });
+      }
+    } else if (val.chargeType === "PER_ADDITIONAL_KG_OR_DESI") {
+      if (val.baseAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["baseAmountMinor"], message: "PER_ADDITIONAL requires baseAmountMinor" });
+      }
+      if (val.unitAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: "PER_ADDITIONAL requires unitAmountMinor" });
+      }
+      if (val.baseThreshold == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["baseThreshold"], message: "PER_ADDITIONAL requires baseThreshold" });
+      }
+    } else {
+      // PER_KG / PER_DESI / PER_KG_OR_DESI -> unitAmountMinor zorunlu.
+      if (val.unitAmountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: `${val.chargeType} requires unitAmountMinor` });
+      }
+    }
+  });
+
+/** Kismi guncelleme: zorunlu-alan refine'i uygulanmaz (mevcut degerlerle birlesir). */
+export const shippingRateRulePatchSchema = shippingRateRuleInputBaseSchema.partial();
+
+export const shippingRateTierSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  monthlyShipmentMin: z.number().int().nonnegative().nullable(),
+  monthlyShipmentMax: z.number().int().nonnegative().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRateTierInputSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    monthlyShipmentMin: z.number().int().nonnegative().nullable().optional(),
+    monthlyShipmentMax: z.number().int().nonnegative().nullable().optional(),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.monthlyShipmentMin != null && val.monthlyShipmentMax != null && val.monthlyShipmentMin > val.monthlyShipmentMax) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["monthlyShipmentMax"], message: "min must be <= max" });
+    }
+  });
+
+export const shippingRateZoneSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  minDistanceKm: decimalStringSchema,
+  maxDistanceKm: decimalStringSchema,
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRateZoneInputSchema = z
+  .object({
+    code: codeSchema,
+    name: z.string().min(1).max(120),
+    minDistanceKm: z.number().nonnegative().nullable().optional(),
+    maxDistanceKm: z.number().nonnegative().nullable().optional(),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.minDistanceKm != null && val.maxDistanceKm != null && val.minDistanceKm > val.maxDistanceKm) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["maxDistanceKm"], message: "min must be <= max" });
+    }
+  });
+
+const surchargeConditionSchema = z
+  .object({
+    minBillable: z.number().nonnegative().optional(),
+    maxBillable: z.number().nonnegative().optional(),
+    minSubtotalMinor: z.number().int().nonnegative().optional(),
+    maxSubtotalMinor: z.number().int().nonnegative().optional(),
+    zoneCode: z.string().max(40).optional(),
+  })
+  .nullable();
+
+export const shippingSurchargeSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  chargeType: shippingChargeTypeSchema,
+  amountMinor: z.number().int().nonnegative().nullable(),
+  unitAmountMinor: z.number().int().nonnegative().nullable(),
+  conditionJsonSafe: surchargeConditionSchema,
+  isOptional: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingSurchargeInputSchema = z
+  .object({
+    code: codeSchema,
+    name: z.string().min(1).max(120),
+    chargeType: shippingChargeTypeSchema.default("FLAT"),
+    amountMinor: z.number().int().nonnegative().nullable().optional(),
+    unitAmountMinor: z.number().int().nonnegative().nullable().optional(),
+    conditionJsonSafe: surchargeConditionSchema.optional(),
+    isOptional: z.boolean().default(false),
+    sortOrder: z.number().int().min(0).max(100000).default(0),
+  })
+  .superRefine((val, ctx) => {
+    if (val.chargeType === "FLAT") {
+      if (val.amountMinor == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amountMinor"], message: "FLAT surcharge requires amountMinor" });
+      }
+    } else if (val.unitAmountMinor == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitAmountMinor"], message: `${val.chargeType} surcharge requires unitAmountMinor` });
+    }
+  });
 
 export const shippingRatePlanSchema = z.object({
   id: z.string().min(1),
@@ -2412,6 +2558,9 @@ export const shippingRatePlanSchema = z.object({
   validTo: z.string().datetime().nullable(),
   ruleCount: z.number().int().nonnegative(),
   rules: z.array(shippingRateRuleSchema),
+  tiers: z.array(shippingRateTierSchema),
+  zones: z.array(shippingRateZoneSchema),
+  surcharges: z.array(shippingSurchargeSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -2458,8 +2607,16 @@ export type ShipmentResponse = z.infer<typeof shipmentSchema>;
 export type ShippingRatePlanStatus = z.infer<typeof shippingRatePlanStatusSchema>;
 export type ShippingRatePricingMode = z.infer<typeof shippingRatePricingModeSchema>;
 export type ShippingRateSource = z.infer<typeof shippingRateSourceSchema>;
+export type ShippingChargeType = z.infer<typeof shippingChargeTypeSchema>;
 export type ShippingRateRule = z.infer<typeof shippingRateRuleSchema>;
 export type ShippingRateRuleInput = z.infer<typeof shippingRateRuleInputSchema>;
+export type ShippingRateRulePatch = z.infer<typeof shippingRateRulePatchSchema>;
+export type ShippingRateTier = z.infer<typeof shippingRateTierSchema>;
+export type ShippingRateTierInput = z.infer<typeof shippingRateTierInputSchema>;
+export type ShippingRateZone = z.infer<typeof shippingRateZoneSchema>;
+export type ShippingRateZoneInput = z.infer<typeof shippingRateZoneInputSchema>;
+export type ShippingSurcharge = z.infer<typeof shippingSurchargeSchema>;
+export type ShippingSurchargeInput = z.infer<typeof shippingSurchargeInputSchema>;
 export type ShippingRatePlanResponse = z.infer<typeof shippingRatePlanSchema>;
 export type ShippingRatePlanListResponse = z.infer<typeof shippingRatePlanListResponseSchema>;
 export type ShippingRatePlanCreateRequest = z.infer<typeof shippingRatePlanCreateRequestSchema>;

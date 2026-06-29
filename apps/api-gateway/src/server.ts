@@ -3157,7 +3157,9 @@ export function createServer(
     if (cartCustomer) {
       const def = await dataAccess.findDefaultShippingAddress(store.id, cartCustomer.id);
       if (def) {
-        address = { cityCode: def.city, districtCode: def.district, regionCode: null };
+        // zoneCode: adresten zon cozumlemesi (city->zone) ileride wire edilecek (TODO);
+        // su an null -> zoneId'li kurallar eslesmez, city/district specificity calisir.
+        address = { cityCode: def.city, districtCode: def.district, regionCode: null, zoneCode: null };
         addressKnown = true;
       }
     }
@@ -3191,6 +3193,8 @@ export function createServer(
       cityCode: body.shippingAddress.city,
       districtCode: body.shippingAddress.district ?? null,
       regionCode: null,
+      // zoneCode: city->zone cozumlemesi ileride (TODO); su an null.
+      zoneCode: null,
     };
     const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
       plan: ratePlan,

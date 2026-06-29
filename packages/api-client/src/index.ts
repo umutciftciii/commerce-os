@@ -73,6 +73,10 @@ import type {
   ShippingRatePlanCreateRequest,
   ShippingRatePlanUpdateRequest,
   ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
 } from "@commerce-os/contracts";
 
 /**
@@ -253,6 +257,11 @@ export type {
   ShippingRatePlanCreateRequest,
   ShippingRatePlanUpdateRequest,
   ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
+  ShippingChargeType,
   ShippingRateRule,
   CartShippingQuoteResponse,
 } from "@commerce-os/contracts";
@@ -588,13 +597,49 @@ export interface ApiClient {
         storeId: string,
         planId: string,
         ruleId: string,
-        input: Partial<ShippingRateRuleInput>,
+        input: ShippingRateRulePatch,
         token?: string,
       ): Promise<ShippingRatePlanResponse>;
       deleteRule(
         storeId: string,
         planId: string,
         ruleId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addTier(
+        storeId: string,
+        planId: string,
+        input: ShippingRateTierInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteTier(
+        storeId: string,
+        planId: string,
+        tierId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addZone(
+        storeId: string,
+        planId: string,
+        input: ShippingRateZoneInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteZone(
+        storeId: string,
+        planId: string,
+        zoneId: string,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      addSurcharge(
+        storeId: string,
+        planId: string,
+        input: ShippingSurchargeInput,
+        token?: string,
+      ): Promise<ShippingRatePlanResponse>;
+      deleteSurcharge(
+        storeId: string,
+        planId: string,
+        surchargeId: string,
         token?: string,
       ): Promise<ShippingRatePlanResponse>;
     };
@@ -1041,6 +1086,48 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         deleteRule: (storeId, planId, ruleId, token) =>
           sendJson<ShippingRatePlanResponse>(
             `/stores/${storeId}/shipping/rate-plans/${planId}/rules/${ruleId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addTier: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/tiers`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteTier: (storeId, planId, tierId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/tiers/${tierId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addZone: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/zones`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteZone: (storeId, planId, zoneId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/zones/${zoneId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+        addSurcharge: (storeId, planId, input, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/surcharges`,
+            "POST",
+            input,
+            token,
+          ),
+        deleteSurcharge: (storeId, planId, surchargeId, token) =>
+          sendJson<ShippingRatePlanResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/surcharges/${surchargeId}`,
             "DELETE",
             undefined,
             token,

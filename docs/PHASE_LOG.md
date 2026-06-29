@@ -1787,3 +1787,35 @@ bağımsız ve sağlayıcıya istek atmaz.
 - Kapsam dışı (TODO): bölge yönetimi UI/regionCode türetme (TODO-109), ürün kargo ölçümü admin UI (TODO-110),
   CSV import/export (TODO-111), sipariş sonrası DHL operasyon otomasyonu (TODO-112). DHL canlı destructive
   operasyon ve canlı fiyat çekme ÇALIŞTIRILMADI (tasarım gereği yok).
+
+## F3C.2 REVİZYON — Generic Shipping Tariff Engine (ADR-044 revizyon)
+
+- Karar: her provider için ayrı fiyat motoru YAZILMADI. Tek generic tariff engine; provider fiyat listeleri
+  generic modele (tier/zone/rule/surcharge) maplenir. Provider'a özel işler ileride CSV/Excel import mapper
+  (TODO-111).
+- Model: yeni `ShippingRateTier` / `ShippingRateZone` / `ShippingSurcharge` + `ShippingChargeType` enum
+  (FLAT/PER_KG/PER_DESI/PER_KG_OR_DESI/PER_ADDITIONAL_KG_OR_DESI). `ShippingRateRule` + tierId/zoneId/chargeType/
+  unitAmountMinor/baseAmountMinor/baseThreshold; amountMinor nullable. Geriye uyumlu migration
+  (20260629150000_revise_shipping_tariff_engine): amountMinor NOT NULL kaldırıldı, chargeType DEFAULT 'FLAT'
+  backfill — mevcut sabit-ücret kuralları birebir korunur.
+- Engine: billableWeight = max(totalWeightKg, totalDesi); seçim sırası plan→tarih→free-threshold→tier→zone/geo→
+  bracket→chargeType→surcharge. 30+/31+ = PER_ADDITIONAL_KG_OR_DESI (base + (billable−threshold)×unit). Frontend
+  AUTHORITATIVE hesap yapmaz; backend yeniden hesaplar.
+- Gerçek fiyat listesi çıkarımı (model doğrulaması için):
+  - **DHL eCommerce**: aylık gönderi adedi SEGMENTİ (Tarife I/II/III sözleşme grubu) → `ShippingRateTier`
+    (monthlyShipmentMin/Max). Segment içinde DESİ ARALIKLARI (0–1, 1–2, ... 30+) → `ShippingRateRule`
+    (minDesi/maxDesi FLAT; 30+ → PER_ADDITIONAL_KG_OR_DESI).
+  - **Aras Kargo**: MESAFE ZONU (şehir içi/yakın/kısa/orta/uzak/KKTC/mobil alan) → `ShippingRateZone`
+    (code CITY/NEAR/SHORT/MEDIUM/FAR/KKTC/MOBILE). Zon × KG/DESİ ARALIĞI → `ShippingRateRule`; 31+ KG →
+    PER_ADDITIONAL_KG_OR_DESI. Ek hizmetler (SMS, taşıma güvencesi, mobil alan, hamaliye/ağır gönderi) →
+    `ShippingSurcharge`.
+  - **Yurtiçi Kargo**: en/boy/yükseklik/ağırlık → desi/ücrete-esas ağırlık (= billableWeight=max(kg,desi)) +
+    standart taşıma + ek hizmet + KDV + genel toplam ayrımı. Ek hizmet kalemleri `ShippingSurcharge`.
+  - Açık teyitler: 30+/31+ toplam mı ek-birim mi (TODO-113); adres→zon çözümleme (TODO-114); gerçek boyut alanları
+    + volumetrik divisor (TODO-110).
+- Admin UI: /shipping/rates modal yerine TAM GENİŞLİK panel; Basit (sabit/eşik/desi) ve Gelişmiş (tier/zone/rule/
+  chargeType/surcharge) görünüm. Backend + API + BFF tier/zone/surcharge CRUD hazır.
+- Testler: price-engine 25 (16 mevcut korundu + 9 yeni: DHL tier 100/250/700, Aras zone, 31+, billableWeight,
+  zone+tier+desi, surcharge). api-gateway 213, store-admin 114, contracts 21, api-client 13 — yeşil.
+- Gate: db:generate ✓; build (db/contracts/api-client/api-gateway/store-admin Next) ✓; typecheck (pnpm -r) ✓;
+  lint ✓; test ✓; git diff --check temiz.

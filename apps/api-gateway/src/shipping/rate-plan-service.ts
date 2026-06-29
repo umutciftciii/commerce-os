@@ -2,8 +2,8 @@
  * F3C.2 — Shipping rate plan servisi: prisma <-> price-engine eslemeleri, aktif
  * default plan cozumlemesi, sepet desi/kg toplami ve quote serializasyonu.
  *
- * Kargo ucreti SAGLAYICI quote'u DEGILDIR (ADR-036): bu servis yalniz store
- * tarife planlarini okur ve saf price-engine'i besler.
+ * Kargo ucreti SAGLAYICI quote'u DEGILDIR (ADR-044): bu servis yalniz store
+ * tarife planlarini (tier/zone/rule/surcharge) okur ve saf price-engine'i besler.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { CartShippingQuoteResponse, ShippingRatePlanResponse } from "@commerce-os/contracts";
@@ -26,6 +26,9 @@ function decToNumber(value: Decimalish): number | null {
 
 const ratePlanInclude = {
   rules: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }] },
+  tiers: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }] },
+  zones: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }] },
+  surcharges: { orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }] },
 } satisfies Prisma.ShippingRatePlanInclude;
 
 export type RatePlanWithRules = Prisma.ShippingRatePlanGetPayload<{ include: typeof ratePlanInclude }>;
@@ -47,6 +50,8 @@ export function toEnginePlan(plan: RatePlanWithRules): EngineRatePlan {
     rules: plan.rules.map(
       (rule): EngineRateRule => ({
         id: rule.id,
+        tierId: rule.tierId,
+        zoneId: rule.zoneId,
         minDesi: decToNumber(rule.minDesi),
         maxDesi: decToNumber(rule.maxDesi),
         minWeightKg: decToNumber(rule.minWeightKg),
@@ -54,11 +59,41 @@ export function toEnginePlan(plan: RatePlanWithRules): EngineRatePlan {
         cityCode: rule.cityCode,
         districtCode: rule.districtCode,
         regionCode: rule.regionCode,
+        chargeType: rule.chargeType,
         amountMinor: rule.amountMinor,
+        unitAmountMinor: rule.unitAmountMinor,
+        baseAmountMinor: rule.baseAmountMinor,
+        baseThreshold: decToNumber(rule.baseThreshold),
         extraAmountMinor: rule.extraAmountMinor,
         sortOrder: rule.sortOrder,
       }),
     ),
+    tiers: plan.tiers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      monthlyShipmentMin: t.monthlyShipmentMin,
+      monthlyShipmentMax: t.monthlyShipmentMax,
+      sortOrder: t.sortOrder,
+    })),
+    zones: plan.zones.map((z) => ({
+      id: z.id,
+      code: z.code,
+      name: z.name,
+      minDistanceKm: decToNumber(z.minDistanceKm),
+      maxDistanceKm: decToNumber(z.maxDistanceKm),
+      sortOrder: z.sortOrder,
+    })),
+    surcharges: plan.surcharges.map((s) => ({
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      chargeType: s.chargeType,
+      amountMinor: s.amountMinor,
+      unitAmountMinor: s.unitAmountMinor,
+      conditionJsonSafe: s.conditionJsonSafe,
+      isOptional: s.isOptional,
+      sortOrder: s.sortOrder,
+    })),
   };
 }
 
@@ -79,6 +114,8 @@ export function serializeRatePlan(plan: RatePlanWithRules): ShippingRatePlanResp
     ruleCount: plan.rules.length,
     rules: plan.rules.map((rule) => ({
       id: rule.id,
+      tierId: rule.tierId,
+      zoneId: rule.zoneId,
       minDesi: decToNumber(rule.minDesi),
       maxDesi: decToNumber(rule.maxDesi),
       minWeightKg: decToNumber(rule.minWeightKg),
@@ -86,11 +123,47 @@ export function serializeRatePlan(plan: RatePlanWithRules): ShippingRatePlanResp
       cityCode: rule.cityCode,
       districtCode: rule.districtCode,
       regionCode: rule.regionCode,
+      chargeType: rule.chargeType,
       amountMinor: rule.amountMinor,
+      unitAmountMinor: rule.unitAmountMinor,
+      baseAmountMinor: rule.baseAmountMinor,
+      baseThreshold: decToNumber(rule.baseThreshold),
       extraAmountMinor: rule.extraAmountMinor,
       sortOrder: rule.sortOrder,
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
+    })),
+    tiers: plan.tiers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      monthlyShipmentMin: t.monthlyShipmentMin,
+      monthlyShipmentMax: t.monthlyShipmentMax,
+      sortOrder: t.sortOrder,
+      createdAt: t.createdAt.toISOString(),
+      updatedAt: t.updatedAt.toISOString(),
+    })),
+    zones: plan.zones.map((z) => ({
+      id: z.id,
+      code: z.code,
+      name: z.name,
+      minDistanceKm: decToNumber(z.minDistanceKm),
+      maxDistanceKm: decToNumber(z.maxDistanceKm),
+      sortOrder: z.sortOrder,
+      createdAt: z.createdAt.toISOString(),
+      updatedAt: z.updatedAt.toISOString(),
+    })),
+    surcharges: plan.surcharges.map((s) => ({
+      id: s.id,
+      code: s.code,
+      name: s.name,
+      chargeType: s.chargeType,
+      amountMinor: s.amountMinor,
+      unitAmountMinor: s.unitAmountMinor,
+      conditionJsonSafe: (s.conditionJsonSafe ?? null) as Record<string, unknown> | null,
+      isOptional: s.isOptional,
+      sortOrder: s.sortOrder,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
     })),
     createdAt: plan.createdAt.toISOString(),
     updatedAt: plan.updatedAt.toISOString(),
@@ -169,6 +242,9 @@ export function computeStoreShippingQuote(
       ratePlanName: plan.name,
       freeShipping: false,
       appliedRuleId: null,
+      appliedTierId: null,
+      appliedZoneId: null,
+      surchargeCodes: [],
       reason: "ADDRESS_NOT_SELECTED",
     };
     return { outcome, plan, response: outcomeToQuoteResponse(outcome, plan, now) };

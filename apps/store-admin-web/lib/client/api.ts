@@ -57,6 +57,10 @@ import type {
   ShippingRatePlanCreateRequest,
   ShippingRatePlanUpdateRequest,
   ShippingRateRuleInput,
+  ShippingRateRulePatch,
+  ShippingRateTierInput,
+  ShippingRateZoneInput,
+  ShippingSurchargeInput,
 } from "@commerce-os/api-client";
 
 /**
@@ -441,13 +445,40 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  updateShippingRateRule: (planId: string, ruleId: string, input: Partial<ShippingRateRuleInput>) =>
+  updateShippingRateRule: (planId: string, ruleId: string, input: ShippingRateRulePatch) =>
     mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/rules/${ruleId}`, {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
   deleteShippingRateRule: (planId: string, ruleId: string) =>
     mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/rules/${ruleId}`, {
+      method: "DELETE",
+    }),
+  addShippingRateTier: (planId: string, input: ShippingRateTierInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/tiers`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRateTier: (planId: string, tierId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/tiers/${tierId}`, {
+      method: "DELETE",
+    }),
+  addShippingRateZone: (planId: string, input: ShippingRateZoneInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/zones`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingRateZone: (planId: string, zoneId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/zones/${zoneId}`, {
+      method: "DELETE",
+    }),
+  addShippingSurcharge: (planId: string, input: ShippingSurchargeInput) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/surcharges`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteShippingSurcharge: (planId: string, surchargeId: string) =>
+    mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/surcharges/${surchargeId}`, {
       method: "DELETE",
     }),
 };

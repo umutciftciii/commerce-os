@@ -404,10 +404,22 @@
 - TODO-109: Kargo bölge yönetimi UI + şehir/ilçe → bölge (regionCode) eşleme. DESI_AND_REGION_TABLE modeli
   destekler ama admin UI ilk sürümde minimal (şehir/ilçe kodu serbest metin); regionCode storefront adresinden
   henüz türetilmiyor (EngineAddress.regionCode = null). DHL CBS geo kod cache'iyle (TODO-102) entegre edilebilir.
-- TODO-110: Ürün/varyant kargo ölçümü (shippingWeightKg / shippingDesi) admin ürün UI alanları. Şema + cart
-  hesaplaması hazır; DESI_TABLE/WEIGHT_TABLE için ölçüm eksikse MISSING_SHIPPING_DIMENSIONS. Şu an alanlar yalnız
-  veri modelinde (admin form yok).
-- TODO-111: Kargo tarife CSV import/export (taşıyıcı fiyat tabloları toplu yükleme/indirme).
+- TODO-110: Ürün/varyant kargo ölçümü admin ürün UI alanları. AÇIK. Şema + cart hesaplaması hazır
+  (shippingWeightKg / shippingDesi); DESI_TABLE/WEIGHT_TABLE için ölçüm eksikse MISSING_SHIPPING_DIMENSIONS. Şu an
+  alanlar yalnız veri modelinde (admin form yok). REVİZYON NOTU: gerçek en/boy/yükseklik boyut alanları + volumetrik
+  desi (en×boy×yükseklik / divisor, default 3000) ileride eklenecek; engine şimdilik precomputed shippingDesi'yi
+  billableWeight=max(kg,desi) içinde kullanıyor.
+- TODO-111: Kargo tarife CSV/Excel import/export — GÜÇLENDİRİLDİ. Generic Tariff Engine (ADR-044 revizyon) ile
+  her provider'ın fiyat listesi (DHL Tarife I/II/III desi tablosu, Aras zone+kg/desi+31+, Yurtiçi desi/ücrete-esas
+  ağırlık) aynı generic modele (tier/zone/rule/surcharge) maplenir. Provider'a ÖZEL fiyat kodu YOK; bunun yerine
+  her provider için bir **CSV/Excel import mapper** (kolon eşleme şablonu) ileride eklenecek: yüklenen tablo →
+  ShippingRateTier/Zone/Rule/Surcharge kayıtları. Toplu export da bu kapsamda.
+- TODO-113: 30+/31+ satır semantiği provider teyidi. PER_ADDITIONAL_KG_OR_DESI şu an ek-birim varsayar
+  (base + (billable−threshold)×unit). DHL/Aras fiyat listesinde "30+/31+" satırının TOPLAM fiyat mı yoksa ek-birim
+  fiyat mı olduğu resmi tarifeden teyit edilmeli; gerekirse mapper'da işaretlenir.
+- TODO-114: Adres → zon (zoneCode) çözümleme. EngineAddress.zoneCode şu an null (server city→zone maplemiyor);
+  zoneId'li kurallar yalnız zoneCode upstream çözülünce eşleşir. Şehir/ilçe → zon eşleme tablosu (Aras bölge
+  tanımları / DHL CBS geo cache TODO-102) ile doldurulacak.
 - TODO-112: Sipariş sonrası DHL operasyon otomasyonu — checkout sonrası createRecipient/createOrder/createbarcode
   akışının (admin onaylı veya otomatik) tarife motoruyla ilişkilendirilmesi. Marketplace TRND/N11 kargo alanları
   (bkz. TODO-105) bu akışa bağlanır.
