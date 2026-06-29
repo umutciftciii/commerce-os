@@ -18,21 +18,31 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
 import { prisma } from "@commerce-os/db";
 import type {
+  Shipment,
+  ShipmentEvent,
+  ShipmentEventType,
+  ShipmentStatus,
   ShippingCredentialType,
   ShippingProviderConfig,
   ShippingProviderCredential,
 } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   orderShippingResponseSchema,
+  shippingBarcodeActionRequestSchema,
+  shippingCancelRequestSchema,
   shippingCreateBarcodeRequestSchema,
   shippingCreateOrderRequestSchema,
   shippingCredentialUpsertRequestSchema,
+  shippingPrepareRequestSchema,
   shippingProviderConfigCreateRequestSchema,
   shippingProviderConfigListResponseSchema,
   shippingProviderConfigUpdateRequestSchema,
   shippingProviderTestResponseSchema,
   shippingRateRequestSchema,
   shippingRateResponseSchema,
+  shippingShipmentMutationResponseSchema,
+  shippingSyncRequestSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
@@ -103,7 +113,10 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       LABEL_PURCHASE_DISABLED: 409,
       SHIPPING_HTTP_DISABLED: 409,
       NOT_IMPLEMENTED: 409,
+      ENDPOINT_UNRESOLVED: 409,
       OPERATION_NOT_SUPPORTED: 409,
+      DUPLICATE_SHIPMENT: 409,
+      PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
     };
     // NOT_IMPLEMENTED (adapter capability) UI'da net gosterilsin diye OPERATION_NOT_SUPPORTED'a eslenir.
@@ -575,23 +588,10 @@ export function registerShippingAdminRoutes(
     const shipments = await prisma.shipment.findMany({
       where: { storeId: params.storeId, orderId: order.id },
       orderBy: { createdAt: "desc" },
+      include: { events: { orderBy: { createdAt: "asc" } } },
     });
     return orderShippingResponseSchema.parse({
-      shipments: shipments.map((s) => ({
-        id: s.id,
-        orderId: s.orderId,
-        provider: s.provider,
-        referenceId: s.referenceId,
-        status: s.status,
-        externalOrderId: s.externalOrderId,
-        externalShipmentId: s.externalShipmentId,
-        externalInvoiceId: s.externalInvoiceId,
-        trackingNumber: s.trackingNumber,
-        trackingUrl: s.trackingUrl,
-        labelUrl: s.labelUrl,
-        createdAt: s.createdAt.toISOString(),
-        updatedAt: s.updatedAt.toISOString(),
-      })),
+      shipments: shipments.map(serializeShipment),
     });
   });
 
@@ -639,6 +639,391 @@ export function registerShippingAdminRoutes(
       },
     });
   }
+
+  /* ───────────── F3C.3 DHL post-order operasyon admin aksiyonlari ─────────────
+   * prepare = createRecipient + createOrder; barcode = createbarcode; sync =
+   * getshipmentstatus + trackshipment. Checkout DHL operasyon cagrisi YAPMAZ.
+   * referenceId order'dan turetilir (client'tan GELMEZ); cross-store {storeId} ile scoped.
+   * Provider raw response SANITIZE edilmeden DB'ye yazilmaz; ZPL/secret asla tutulmaz. */
+
+  // Aktif = iptal/basarisiz OLMAYAN en yeni shipment (duplicate createOrder guard'i icin).
+  const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+    "DRAFT",
+    "ORDER_CREATED",
+    "LABEL_CREATED",
+    "IN_TRANSIT",
+    "DELIVERED",
+    "RETURNED",
+  ];
+
+  async function findActiveShipment(storeId: string, orderId: string) {
+    return prisma.shipment.findFirst({
+      where: { storeId, orderId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+      orderBy: { createdAt: "desc" },
+      include: { events: { orderBy: { createdAt: "asc" } } },
+    });
+  }
+
+  async function reloadShipment(id: string) {
+    return prisma.shipment.findUniqueOrThrow({
+      where: { id },
+      include: { events: { orderBy: { createdAt: "asc" } } },
+    });
+  }
+
+  async function recordShipmentEvent(
+    storeId: string,
+    shipment: Shipment,
+    eventType: ShipmentEventType,
+    data: {
+      statusCode?: number | null;
+      statusText?: string | null;
+      location?: string | null;
+      occurredAt?: Date | null;
+      trackingUrl?: string | null;
+      rawSafeJson?: Prisma.InputJsonValue;
+    },
+  ) {
+    await prisma.shipmentEvent.create({
+      data: {
+        storeId,
+        shipmentId: shipment.id,
+        provider: shipment.provider,
+        eventType,
+        statusCode: data.statusCode ?? null,
+        statusText: data.statusText ?? null,
+        location: data.location ?? null,
+        occurredAt: data.occurredAt ?? null,
+        trackingUrl: data.trackingUrl ?? null,
+        rawSafeJson: data.rawSafeJson,
+      },
+    });
+  }
+
+  // DHL "30.06.2026 00:27:37" / ISO gibi tarihleri Date'e cevirir; cozulemezse null.
+  function parseProviderDate(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const iso = Date.parse(value);
+    if (!Number.isNaN(iso)) return new Date(iso);
+    const m = value.match(/^(\d{2})[./](\d{2})[./](\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (m) {
+      const [, dd, mm, yyyy, hh, mi, ss] = m;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), Number(ss ?? "0"));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  // Sipariş kargo adresinden + paket olcusunden parca listesi (createbarcode icin yeniden uretilebilir).
+  function rebuildPieces(shipment: Shipment) {
+    const count = Math.max(1, shipment.pieceCount);
+    return Array.from({ length: count }, (_, i) => ({
+      barcode: `${shipment.referenceId.toUpperCase()}_PARCA${i + 1}`,
+      desi: shipment.totalDesi / count || 0,
+      kg: shipment.totalKg / count || 0,
+    }));
+  }
+
+  app.post("/stores/:storeId/orders/:orderId/shipping/dhl/prepare", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingPrepareRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const cfg = await loadConfig(params.storeId, input.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+
+    // Duplicate guard: aktif gonderi varsa TEKRAR createOrder cagirma.
+    const existing = await findActiveShipment(params.storeId, order.id);
+    if (existing) {
+      return reply.code(409).send(
+        errorBody("DUPLICATE_SHIPMENT", "Bu sipariş için DHL gönderi kaydı zaten oluşturulmuş.", {
+          shipmentId: existing.id,
+          referenceId: existing.referenceId,
+        }),
+      );
+    }
+
+    const referenceId = order.orderNumber; // server-derived; client'tan gelen referenceId GUVENILMEZ
+    const ctx = buildContext(cfg);
+    try {
+      const adapter = registry.get(cfg.provider);
+      // 1) createRecipient — varis sube/hat kodu tespiti (guard altinda).
+      await adapter.createRecipient({
+        context: ctx,
+        referenceId,
+        recipient: input.recipient,
+        explicitConfirm: input.explicitConfirm,
+      });
+      // 2) createOrder — DHL gonderi kaydi (guard altinda). 2xx = "kargo talebi olusturuldu".
+      const orderResult = await adapter.createOrder({
+        context: ctx,
+        referenceId,
+        shipmentServiceType: input.shipmentServiceType,
+        packagingType: input.packagingType,
+        paymentType: input.paymentType,
+        deliveryType: input.deliveryType,
+        content: input.content,
+        recipient: input.recipient,
+        pieces: input.pieces,
+        explicitConfirm: input.explicitConfirm,
+      });
+
+      const totalKg = input.pieces.reduce((sum, p) => sum + (p.kg ?? 0), 0);
+      const totalDesi = input.pieces.reduce((sum, p) => sum + (p.desi ?? 0), 0);
+      const shipment = await prisma.shipment.create({
+        data: {
+          storeId: params.storeId,
+          orderId: order.id,
+          providerConfigId: cfg.id,
+          provider: cfg.provider,
+          referenceId,
+          status: "ORDER_CREATED",
+          externalOrderId: orderResult.externalOrderId,
+          externalInvoiceId: orderResult.externalInvoiceId ?? null,
+          pieceCount: input.pieces.length,
+          totalKg,
+          totalDesi,
+          packagingType: input.packagingType ?? null,
+          shipmentServiceType: input.shipmentServiceType ?? null,
+          paymentType: input.paymentType ?? null,
+          deliveryType: input.deliveryType ?? null,
+          recipientName: input.recipient.fullName ?? null,
+          recipientEmail: input.recipient.email ?? null,
+          recipientPhone: input.recipient.phone ?? null,
+          recipientCityCode: input.recipient.cityCode ?? null,
+          recipientDistrictCode: input.recipient.districtCode ?? null,
+          recipientCityName: input.recipient.cityName ?? null,
+          recipientDistrictName: input.recipient.districtName ?? null,
+          recipientAddress: input.recipient.address ?? null,
+        },
+      });
+      await recordShipmentEvent(params.storeId, shipment, "ORDER_CREATED", {
+        statusText: "Kargo talebi oluşturuldu (DHL gönderi kaydı)",
+        rawSafeJson: {
+          referenceId: orderResult.referenceId,
+          externalOrderId: orderResult.externalOrderId,
+          externalInvoiceId: orderResult.externalInvoiceId ?? null,
+          shipperBranchCode: orderResult.shipperBranchCode ?? null,
+        },
+      });
+      await deps.recordAudit({
+        action: "CREATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Shipment",
+        entityId: shipment.id,
+        metadata: { provider: cfg.provider, action: "dhl.prepare" },
+      });
+      return reply
+        .code(201)
+        .send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(shipment.id)), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/shipping/dhl/barcode", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingBarcodeActionRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const shipment = await findActiveShipment(params.storeId, order.id);
+    if (!shipment) {
+      return reply.code(409).send(errorBody("NO_ACTIVE_SHIPMENT", "Önce “Kargo Hazırlığı Başlat” ile DHL gönderi kaydı oluşturun."));
+    }
+    const cfg = await loadConfig(params.storeId, shipment.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    try {
+      const result = await registry.get(cfg.provider).createBarcodeOrLabel({
+        context: buildContext(cfg),
+        referenceId: shipment.referenceId,
+        packagingType: input.packagingType ?? shipment.packagingType ?? undefined,
+        pieces: rebuildPieces(shipment),
+        explicitConfirm: input.explicitConfirm,
+      });
+      // SANITIZE: raw ZPL/etiket icerigi DB'ye yazilmaz; yalniz ozet + zplPresent boolean.
+      const zplPresent = result.barcodes.some((b) => b.labelPresent);
+      const barcodeJsonSafe = {
+        referenceId: result.referenceId,
+        shipmentId: result.externalShipmentId,
+        invoiceId: result.externalInvoiceId,
+        barcodeCount: result.barcodes.length,
+        zplPresent,
+        pieces: result.barcodes.map((b) => ({ pieceNumber: b.pieceNumber, barcodePresent: Boolean(b.barcode) })),
+      } satisfies Prisma.InputJsonValue;
+      const updated = await prisma.shipment.update({
+        where: { id: shipment.id },
+        data: {
+          status: "LABEL_CREATED",
+          externalShipmentId: result.externalShipmentId,
+          externalInvoiceId: result.externalInvoiceId ?? shipment.externalInvoiceId,
+          trackingNumber: result.externalShipmentId ?? shipment.trackingNumber,
+          barcodeJsonSafe,
+        },
+      });
+      await recordShipmentEvent(params.storeId, updated, "BARCODE_CREATED", {
+        statusText: "Barkod oluşturuldu",
+        rawSafeJson: barcodeJsonSafe,
+      });
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Shipment",
+        entityId: updated.id,
+        metadata: { provider: cfg.provider, action: "dhl.barcode" },
+      });
+      return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(updated.id)), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/shipping/dhl/sync", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    shippingSyncRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const shipment = await findActiveShipment(params.storeId, order.id);
+    if (!shipment) {
+      return reply.code(409).send(errorBody("NO_ACTIVE_SHIPMENT", "Senkronlanacak aktif DHL gönderisi yok."));
+    }
+    const cfg = await loadConfig(params.storeId, shipment.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    const ctx = buildContext(cfg);
+    const lookup = { context: ctx, referenceId: shipment.referenceId, shipmentId: shipment.externalShipmentId ?? undefined };
+    try {
+      const adapter = registry.get(cfg.provider);
+      const status = await adapter.getShipmentStatus(lookup);
+      const track = await adapter.trackShipment(lookup).catch(() => []);
+
+      const nextStatus = mapProviderStatusToShipmentStatus(status, shipment.status);
+      const updated = await prisma.shipment.update({
+        where: { id: shipment.id },
+        data: {
+          status: nextStatus,
+          shipmentStatusCode: status.statusCode ?? shipment.shipmentStatusCode,
+          trackingUrl: status.trackingUrl ?? shipment.trackingUrl,
+          trackingNumber: status.externalShipmentId ?? shipment.trackingNumber,
+        },
+      });
+      await recordShipmentEvent(params.storeId, updated, "STATUS_CHANGED", {
+        statusCode: status.statusCode,
+        statusText: status.statusText,
+        trackingUrl: status.trackingUrl,
+        occurredAt: parseProviderDate(status.deliveryDateTime ?? null),
+        rawSafeJson: {
+          statusCode: status.statusCode,
+          statusText: status.statusText,
+          isDelivered: status.isDelivered,
+          deliveryTo: status.deliveryTo ?? null,
+        },
+      });
+      for (const ev of track) {
+        await recordShipmentEvent(params.storeId, updated, "TRACKING_UPDATED", {
+          statusCode: ev.statusCode ?? null,
+          statusText: ev.statusText,
+          location: ev.location,
+          occurredAt: parseProviderDate(ev.occurredAt),
+          trackingUrl: ev.trackingUrl ?? status.trackingUrl,
+          rawSafeJson: { sequence: ev.sequence, statusText: ev.statusText, location: ev.location, occurredAt: ev.occurredAt },
+        });
+      }
+      return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(updated.id)), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  app.post("/stores/:storeId/orders/:orderId/shipping/dhl/cancel", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingCancelRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const shipment = await findActiveShipment(params.storeId, order.id);
+    if (!shipment) {
+      return reply.code(409).send(errorBody("NO_ACTIVE_SHIPMENT", "İptal edilecek aktif DHL gönderisi yok."));
+    }
+    // Explicit confirm zorunlu; ardindan adapter ENDPOINT_UNRESOLVED (409) doner (endpoint teyit edilmedi).
+    if (input.explicitConfirm !== true) {
+      return reply.code(409).send(errorBody("CONFIRMATION_REQUIRED", "Kargo kaydını iptal için onay (explicitConfirm) gerekir."));
+    }
+    const cfg = await loadConfig(params.storeId, shipment.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    try {
+      await registry.get(cfg.provider).cancelShipment({
+        context: buildContext(cfg),
+        referenceId: shipment.referenceId,
+        shipmentId: shipment.externalShipmentId ?? undefined,
+        explicitConfirm: input.explicitConfirm,
+      });
+      // Ulasilirsa burada CANCELLED'a cekilirdi; su an adapter ENDPOINT_UNRESOLVED firlatir.
+      return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(shipment.id)), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+}
+
+// getshipmentstatus durum kodu → ic ShipmentStatus. Bilinmeyen kodda mevcut durum korunur.
+export function mapProviderStatusToShipmentStatus(
+  status: { statusCode: number | null; isDelivered: boolean },
+  current: ShipmentStatus,
+): ShipmentStatus {
+  if (status.isDelivered) return "DELIVERED";
+  // DHL operasyonel kodlari saglayicidan gelir; teslim disi durumda LABEL_CREATED→IN_TRANSIT
+  // gecisi yalniz takip basladiginda yapilir. Konservatif: mevcut ileri durumdan GERI gitme.
+  if (current === "ORDER_CREATED" || current === "LABEL_CREATED") {
+    return status.statusCode && status.statusCode > 0 ? "IN_TRANSIT" : current;
+  }
+  return current;
+}
+
+// Shipment (+events) → contract DTO. Secret/ZPL icermez; lastSynced/lastStatus event'ten turetilir.
+export function serializeShipment(s: Shipment & { events: ShipmentEvent[] }) {
+  const syncEvents = s.events.filter(
+    (e) => e.eventType === "STATUS_CHANGED" || e.eventType === "TRACKING_UPDATED",
+  );
+  const lastSync = syncEvents.length > 0 ? syncEvents[syncEvents.length - 1] : null;
+  const barcode = (s.barcodeJsonSafe ?? null) as { zplPresent?: boolean } | null;
+  return {
+    id: s.id,
+    orderId: s.orderId,
+    provider: s.provider,
+    referenceId: s.referenceId,
+    status: s.status,
+    externalOrderId: s.externalOrderId,
+    externalShipmentId: s.externalShipmentId,
+    externalInvoiceId: s.externalInvoiceId,
+    trackingNumber: s.trackingNumber,
+    trackingUrl: s.trackingUrl,
+    labelUrl: s.labelUrl,
+    shipmentStatusCode: s.shipmentStatusCode,
+    barcodeHasLabel: Boolean(barcode?.zplPresent),
+    recipientName: s.recipientName,
+    lastSyncedAt: lastSync ? lastSync.createdAt.toISOString() : null,
+    lastProviderStatus: lastSync?.statusText ?? null,
+    events: s.events.map((e) => ({
+      id: e.id,
+      eventType: e.eventType,
+      statusCode: e.statusCode,
+      statusText: e.statusText,
+      location: e.location,
+      occurredAt: e.occurredAt ? e.occurredAt.toISOString() : null,
+      trackingUrl: e.trackingUrl,
+      createdAt: e.createdAt.toISOString(),
+    })),
+    createdAt: s.createdAt.toISOString(),
+    updatedAt: s.updatedAt.toISOString(),
+  };
 }
 
 /** configured: DEFAULT/diger tipler key varligi; IDENTITY tum zorunlu alanlar. */

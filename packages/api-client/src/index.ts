@@ -67,6 +67,11 @@ import type {
   ShippingRateResponse,
   ShippingCreateOrderRequest,
   ShippingCreateBarcodeRequest,
+  ShippingPrepareRequest,
+  ShippingBarcodeActionRequest,
+  ShippingSyncRequest,
+  ShippingCancelRequest,
+  ShippingShipmentMutationResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -250,6 +255,12 @@ export type {
   ShippingRateResponse,
   ShippingCreateOrderRequest,
   ShippingCreateBarcodeRequest,
+  ShippingPrepareRequest,
+  ShippingBarcodeActionRequest,
+  ShippingSyncRequest,
+  ShippingCancelRequest,
+  ShippingShipmentMutationResponse,
+  ShipmentEventResponse,
   OrderShippingResponse,
   ShipmentResponse,
   ShippingRatePlanResponse,
@@ -663,6 +674,31 @@ export interface ApiClient {
         input: ShippingCreateBarcodeRequest,
         token?: string,
       ): Promise<{ referenceId: string; externalShipmentId: string | null; barcodeCount: number }>;
+      // F3C.3 — DHL post-order operasyon admin aksiyonlari.
+      dhlPrepare(
+        storeId: string,
+        orderId: string,
+        input: ShippingPrepareRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      dhlBarcode(
+        storeId: string,
+        orderId: string,
+        input: ShippingBarcodeActionRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      dhlSync(
+        storeId: string,
+        orderId: string,
+        input: ShippingSyncRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      dhlCancel(
+        storeId: string,
+        orderId: string,
+        input: ShippingCancelRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
     };
   };
 }
@@ -1153,6 +1189,34 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         createBarcode: (storeId, orderId, input, token) =>
           sendJson<{ referenceId: string; externalShipmentId: string | null; barcodeCount: number }>(
             `/stores/${storeId}/orders/${orderId}/shipping/create-barcode`,
+            "POST",
+            input,
+            token,
+          ),
+        dhlPrepare: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/dhl/prepare`,
+            "POST",
+            input,
+            token,
+          ),
+        dhlBarcode: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/dhl/barcode`,
+            "POST",
+            input,
+            token,
+          ),
+        dhlSync: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/dhl/sync`,
+            "POST",
+            input,
+            token,
+          ),
+        dhlCancel: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/dhl/cancel`,
             "POST",
             input,
             token,

@@ -84,8 +84,8 @@ describe("DHL response mappers normalize provider payloads", () => {
         invoiceId: "564645774",
         shipmentId: "4536457657",
         barcodes: [
-          { pieceNumber: 1, value: "Barcode1" },
-          { pieceNumber: 2, value: "Barcode2" },
+          { pieceNumber: 1, value: "^XA...ZPL...^XZ", barcode: "Barcode1" },
+          { pieceNumber: 2, value: "^XA...ZPL...^XZ", barcode: "Barcode2" },
         ],
       },
       "SIPARIS34567",
@@ -93,7 +93,8 @@ describe("DHL response mappers normalize provider payloads", () => {
     expect(result.externalShipmentId).toBe("4536457657");
     expect(result.externalInvoiceId).toBe("564645774");
     expect(result.barcodes).toHaveLength(2);
-    expect(result.barcodes[1]).toEqual({ pieceNumber: 2, value: "Barcode2" });
+    // F3C.3: raw ZPL `value` taşınmaz; kısa `barcode` + labelPresent korunur.
+    expect(result.barcodes[1]).toEqual({ pieceNumber: 2, barcode: "Barcode2", labelPresent: true });
   });
 
   it("maps CBS cities and districts", () => {
@@ -230,5 +231,103 @@ describe("shipping capability derivation", () => {
     );
     expect(live.canCreateOrder).toBe(true);
     expect(live.canCreateBarcode).toBe(true);
+  });
+});
+
+import { mapCreateOrderResponse } from "../src/shipping/adapters/dhl-ecommerce/mappers.js";
+import { mapProviderStatusToShipmentStatus, serializeShipment } from "../src/shipping/routes.js";
+
+describe("F3C.3 mapper fixes (sandbox smoke ile doğrulanmış)", () => {
+  it("mapCreateOrderResponse ARRAY yanıtını ilk elemandan çözer (asRecord(array) bug fix)", () => {
+    const result = mapCreateOrderResponse(
+      [{ orderInvoiceId: "1719897", orderInvoiceDetailId: "1720383", shipperBranchCode: "03401700", referenceId: "COS-X" }],
+      "COS-FALLBACK",
+    );
+    expect(result.referenceId).toBe("COS-X");
+    expect(result.externalOrderId).toBe("1719897");
+    expect(result.externalInvoiceId).toBe("1720383");
+    expect(result.shipperBranchCode).toBe("03401700");
+  });
+
+  it("mapShipmentStatusResponse isDelivered BOOLEAN değerini kabul eder", () => {
+    expect(mapShipmentStatusResponse({ shipmentStatus: "Teslim", isDelivered: true }).isDelivered).toBe(true);
+    expect(mapShipmentStatusResponse({ shipmentStatus: "Yolda", isDelivered: false }).isDelivered).toBe(false);
+    // Geriye dönük: number 1 de çalışır.
+    expect(mapShipmentStatusResponse({ isDelivered: 1 }).isDelivered).toBe(true);
+  });
+
+  it("mapCreateBarcodeResponse raw ZPL (`value`) taşımaz; labelPresent + kısa barcode", () => {
+    const result = mapCreateBarcodeResponse(
+      { referenceId: "COS-X", invoiceId: "FM1", shipmentId: "888", barcodes: [{ pieceNumber: 1, value: "^XA ZPL ^XZ", barcode: "BC1" }] },
+      "COS-X",
+    );
+    expect(result.externalShipmentId).toBe("888");
+    expect(result.barcodes[0]).toMatchObject({ pieceNumber: 1, barcode: "BC1", labelPresent: true });
+    expect(JSON.stringify(result)).not.toContain("^XA");
+  });
+
+  it("mapTrackResponse tek-obje yanıtı da listeye sarar", () => {
+    const single = mapTrackResponse({ eventSequence: "1", eventStatus: "Gönderi Hazırlandı", location: "İstanbul" });
+    expect(single).toHaveLength(1);
+    expect(single[0]?.statusText).toBe("Gönderi Hazırlandı");
+  });
+});
+
+describe("F3C.3 shipment serialization + status mapping", () => {
+  const baseShipment = {
+    id: "s1",
+    storeId: "store1",
+    orderId: "o1",
+    providerConfigId: "pc1",
+    provider: "DHL_ECOMMERCE" as const,
+    referenceId: "COS-1",
+    status: "LABEL_CREATED" as const,
+    externalOrderId: "1",
+    externalShipmentId: "888",
+    externalInvoiceId: "FM1",
+    shipmentStatusCode: null,
+    trackingNumber: "888",
+    trackingUrl: "https://track/888",
+    labelUrl: null,
+    barcodeJsonSafe: { zplPresent: true },
+    pieceCount: 1,
+    totalKg: 1,
+    totalDesi: 1,
+    packagingType: 3,
+    shipmentServiceType: 1,
+    paymentType: 1,
+    deliveryType: 1,
+    recipientName: "Smoke Tester",
+    recipientEmail: null,
+    recipientPhone: null,
+    recipientCityCode: 34,
+    recipientDistrictCode: 87,
+    recipientCityName: "İstanbul",
+    recipientDistrictName: "Üsküdar",
+    recipientAddress: "x",
+    createdAt: new Date("2026-06-30T00:00:00Z"),
+    updatedAt: new Date("2026-06-30T01:00:00Z"),
+  };
+
+  it("serializeShipment barcodeHasLabel + lastProviderStatus'ü event'ten türetir; ZPL içermez", () => {
+    const dto = serializeShipment({
+      ...baseShipment,
+      events: [
+        { id: "e1", storeId: "store1", shipmentId: "s1", provider: "DHL_ECOMMERCE", eventType: "ORDER_CREATED", statusCode: null, statusText: "Kargo talebi oluşturuldu", location: null, occurredAt: null, trackingUrl: null, rawSafeJson: null, createdAt: new Date("2026-06-30T00:00:00Z") },
+        { id: "e2", storeId: "store1", shipmentId: "s1", provider: "DHL_ECOMMERCE", eventType: "STATUS_CHANGED", statusCode: 3, statusText: "Yolda", location: "İstanbul", occurredAt: null, trackingUrl: null, rawSafeJson: null, createdAt: new Date("2026-06-30T02:00:00Z") },
+      ],
+    });
+    expect(dto.barcodeHasLabel).toBe(true);
+    expect(dto.lastProviderStatus).toBe("Yolda");
+    expect(dto.lastSyncedAt).toBe("2026-06-30T02:00:00.000Z");
+    expect(dto.events).toHaveLength(2);
+    expect(JSON.stringify(dto)).not.toContain("^XA");
+  });
+
+  it("mapProviderStatusToShipmentStatus isDelivered → DELIVERED; geri gitmez", () => {
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 9, isDelivered: true }, "LABEL_CREATED")).toBe("DELIVERED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 3, isDelivered: false }, "LABEL_CREATED")).toBe("IN_TRANSIT");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: null, isDelivered: false }, "ORDER_CREATED")).toBe("ORDER_CREATED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 1, isDelivered: false }, "DELIVERED")).toBe("DELIVERED");
   });
 });

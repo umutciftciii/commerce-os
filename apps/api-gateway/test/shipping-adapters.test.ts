@@ -347,3 +347,133 @@ describe("Geliver adapter — test-only, label purchase guarded", () => {
     expect(result.testType).toBe("PROVIDERS");
   });
 });
+
+/**
+ * F3C.3 — Sandbox smoke ile dogrulanan DHL request-shape sozlesmeleri.
+ * Capturing transport tum istekleri kaydeder; identity token ardindan operasyon istegi gelir.
+ */
+function capturingTransport(responses: Array<{ status: number; body: string }>): {
+  transport: ShippingHttpTransport;
+  requests: Array<{ url: string; method: string; body: unknown }>;
+} {
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  let i = 0;
+  return {
+    requests,
+    transport: {
+      enabled: true,
+      async send(req) {
+        requests.push({ url: req.url, method: req.method, body: req.body ? JSON.parse(req.body) : undefined });
+        const r = responses[Math.min(i, responses.length - 1)];
+        i += 1;
+        return r;
+      },
+    },
+  };
+}
+
+const TOKEN_RESPONSE = { status: 200, body: JSON.stringify({ jwt: "j.w.t", jwtExpireDate: "10.03.2030 16:05:00" }) };
+const dhlGuards = { allowRecipientCreate: true, allowOrderCreate: true, allowBarcodeCreate: true };
+
+describe("F3C.3 DHL operasyon request shape (sandbox smoke ile dogrulanmis)", () => {
+  it("createRecipient gövdeyi `recipient` WRAPPER altında gönderir (flat değil)", async () => {
+    const { transport, requests } = capturingTransport([TOKEN_RESPONSE, { status: 200, body: "" }]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    await adapter.createRecipient({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: dhlGuards,
+        credentials: { IDENTITY: dhlIdentity(), PLUS_COMMAND: product("PLUS_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      recipient: { fullName: "Smoke Tester", cityCode: 34, districtCode: 87, address: "x" },
+      explicitConfirm: true,
+    });
+    const recipientReq = requests.find((r) => r.url.includes("/createRecipient"));
+    const body = recipientReq?.body as { referenceId: string; recipient?: Record<string, unknown> };
+    expect(body.referenceId).toBe("COS-ORDER-1");
+    expect(body.recipient).toBeDefined();
+    expect(body.recipient).toMatchObject({ cityCode: 34, districtCode: 87, fullName: "Smoke Tester" });
+    // flat alanlar TOP-LEVEL'da OLMAMALI (500 Code 1001 nedeni).
+    expect((body as Record<string, unknown>).cityCode).toBeUndefined();
+  });
+
+  it("createOrder order objesine zorunlu marketPlaceShortCode='' ekler", async () => {
+    const { transport, requests } = capturingTransport([
+      TOKEN_RESPONSE,
+      { status: 200, body: JSON.stringify([{ orderInvoiceId: "1", orderInvoiceDetailId: "2", shipperBranchCode: "034", referenceId: "COS-ORDER-1" }]) },
+    ]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    const result = await adapter.createOrder({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: dhlGuards,
+        credentials: { IDENTITY: dhlIdentity(), STANDARD_COMMAND: product("STANDARD_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      recipient: { cityCode: 34, districtCode: 87 },
+      pieces: [{ desi: 1, kg: 1 }],
+      explicitConfirm: true,
+    });
+    const orderReq = requests.find((r) => r.url.includes("/createOrder"));
+    const order = (orderReq?.body as { order: Record<string, unknown> }).order;
+    expect(order.marketPlaceShortCode).toBe("");
+    // Array yanıt mapper'ı ilk elemandan id'leri çıkarır (asRecord(array) bug fix).
+    expect(result.externalOrderId).toBe("1");
+    expect(result.externalInvoiceId).toBe("2");
+  });
+
+  it("createBarcodeOrLabel sonucu ZPL/raw `value` TAŞIMAZ; yalnız kısa barcode + labelPresent", async () => {
+    const { transport } = capturingTransport([
+      TOKEN_RESPONSE,
+      {
+        status: 200,
+        body: JSON.stringify({
+          referenceId: "COS-ORDER-1",
+          invoiceId: "FM1",
+          shipmentId: "888",
+          barcodes: [{ pieceNumber: 1, value: "^XA....LONG ZPL....^XZ", barcode: "BC123" }],
+        }),
+      },
+    ]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    const result = await adapter.createBarcodeOrLabel({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: dhlGuards,
+        credentials: { IDENTITY: dhlIdentity(), BARCODE_COMMAND: product("BARCODE_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      pieces: [{ desi: 1, kg: 1 }],
+      explicitConfirm: true,
+    });
+    expect(result.externalShipmentId).toBe("888");
+    expect(result.barcodes[0]?.barcode).toBe("BC123");
+    expect(result.barcodes[0]?.labelPresent).toBe(true);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("^XA");
+    expect(serialized).not.toContain("ZPL");
+  });
+
+  it("createRecipient varsayılan guard'da RECIPIENT_CREATE_DISABLED döner", async () => {
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", undefined, TEST_ENDPOINTS);
+    await expectShippingError(
+      adapter.createRecipient({
+        context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity(), PLUS_COMMAND: product("PLUS_COMMAND") } }),
+        referenceId: "REF1",
+        recipient: {},
+        explicitConfirm: true,
+      }),
+      "RECIPIENT_CREATE_DISABLED",
+    );
+  });
+
+  it("cancelShipment endpoint teyit edilmediği için ENDPOINT_UNRESOLVED döner", async () => {
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", undefined, TEST_ENDPOINTS);
+    await expectShippingError(
+      adapter.cancelShipment({
+        context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity() } }),
+        referenceId: "REF1",
+        explicitConfirm: true,
+      }),
+      "ENDPOINT_UNRESOLVED",
+    );
+  });
+});

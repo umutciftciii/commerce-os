@@ -54,6 +54,25 @@ const L = {
     httpDisabledNote:
       "Test bağlantısı bu ortamda kapalı. Sandbox HTTP doğrulaması açılmadan gerçek sağlayıcıya istek atılmaz.",
     done: "Tamam",
+    // F3C.3 — DHL operasyon workflow
+    dhlWorkflowTitle: "DHL gönderi operasyonu",
+    dhlPrepare: "Kargo Hazırlığı Başlat",
+    dhlBarcode: "Barkod Oluştur",
+    dhlSync: "Durumu Güncelle",
+    dhlCancel: "Kargo Kaydını İptal Et",
+    dhlPrepareHint: "createRecipient + createOrder ile DHL gönderi kaydı oluşturur. Fiziksel teslim anlamına gelmez.",
+    dhlCancelDisabled: "İptal endpoint’i henüz teyit edilmedi; bu işlem şu an kapalı.",
+    shipmentIdLabel: "Gönderi no",
+    invoiceIdLabel: "Fatura no",
+    trackingNumberLabel: "Takip no",
+    trackingUrlLabel: "Takip linki",
+    lastSyncedLabel: "Son senkron",
+    providerStatusLabel: "Sağlayıcı durumu",
+    barcodeReady: "Barkod/etiket hazır",
+    timelineTitle: "Hareketler",
+    copy: "Kopyala",
+    copied: "Kopyalandı",
+    openLink: "Aç",
   },
   en: {
     title: "Shipping",
@@ -87,6 +106,24 @@ const L = {
     httpDisabledNote:
       "Test connection is disabled in this environment. No request is sent to the real provider until sandbox HTTP verification is enabled.",
     done: "Done",
+    dhlWorkflowTitle: "DHL shipment operation",
+    dhlPrepare: "Start shipping prep",
+    dhlBarcode: "Create barcode",
+    dhlSync: "Refresh status",
+    dhlCancel: "Cancel shipment record",
+    dhlPrepareHint: "Creates a DHL shipment record via createRecipient + createOrder. Not a physical handover.",
+    dhlCancelDisabled: "Cancel endpoint is not confirmed yet; this action is currently disabled.",
+    shipmentIdLabel: "Shipment ID",
+    invoiceIdLabel: "Invoice ID",
+    trackingNumberLabel: "Tracking no",
+    trackingUrlLabel: "Tracking link",
+    lastSyncedLabel: "Last synced",
+    providerStatusLabel: "Provider status",
+    barcodeReady: "Barcode/label ready",
+    timelineTitle: "Events",
+    copy: "Copy",
+    copied: "Copied",
+    openLink: "Open",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -123,6 +160,33 @@ function defaultForm(providerConfigId: string): PanelForm {
  * alıcı snapshot + ücret hesaplama. Canlı sipariş/barkod CTA'ları VARSAYILAN guard
  * altındadır (gateway 409 döndürür) ve UI'da açıkça "canlı işlem kapalı" gösterilir.
  */
+/** Tek satır etiketli alan; opsiyonel kopyala butonu (takip/gönderi no için). */
+function DhlField({
+  label,
+  value,
+  onCopy,
+  copyText,
+}: {
+  label: string;
+  value: string;
+  onCopy?: () => void;
+  copyText?: string;
+}) {
+  return (
+    <>
+      <span className="text-white/35">{label}</span>
+      <span className="flex items-center gap-2 font-mono text-white/70">
+        <span className="truncate">{value}</span>
+        {onCopy ? (
+          <button type="button" onClick={onCopy} className="shrink-0 text-[11px] text-emerald-300/70 hover:text-emerald-300">
+            {copyText}
+          </button>
+        ) : null}
+      </span>
+    </>
+  );
+}
+
 export function ShippingPanel({ order, locale }: { order: Order; locale: Locale }) {
   const t = L[locale] ?? L.tr;
 
@@ -133,6 +197,7 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const shippingAddress = useMemo(
     () => order.addresses.find((a) => a.type === "SHIPPING") ?? null,
@@ -246,6 +311,65 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
     }
   };
 
+  // F3C.3 — DHL post-order operasyon aksiyonlari.
+  const runDhlAction = async (fn: () => Promise<{ shipment: { referenceId: string } }>) => {
+    if (!form) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const result = await fn();
+      setNotice(`${t.refLabel}: ${result.shipment.referenceId}`);
+      await load();
+    } catch (error) {
+      setActionError(messageForError(error, locale));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDhlPrepare = () => {
+    if (!form) return;
+    const { pieces, recipient } = buildRecipientAndPieces(form);
+    void runDhlAction(() =>
+      storeApi.prepareDhlShipment(order.id, {
+        providerConfigId: form.providerConfigId,
+        shipmentServiceType: Number(form.shipmentServiceType) || undefined,
+        packagingType: Number(form.packagingType) || undefined,
+        paymentType: Number(form.paymentType) || undefined,
+        deliveryType: Number(form.deliveryType) || undefined,
+        recipient,
+        pieces,
+        explicitConfirm: true,
+      }),
+    );
+  };
+
+  const onDhlBarcode = () => {
+    if (!form) return;
+    void runDhlAction(() =>
+      storeApi.createDhlBarcode(order.id, {
+        providerConfigId: form.providerConfigId,
+        packagingType: Number(form.packagingType) || undefined,
+        explicitConfirm: true,
+      }),
+    );
+  };
+
+  const onDhlSync = () => {
+    if (!form) return;
+    void runDhlAction(() => storeApi.syncDhlShipment(order.id, { providerConfigId: form.providerConfigId }));
+  };
+
+  const copyText = async (value: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(field);
+      setTimeout(() => setCopied((c) => (c === field ? null : c)), 1500);
+    } catch {
+      /* clipboard yoksa sessiz */
+    }
+  };
+
   if (providers === null) {
     return (
       <SurfaceCard title={t.title}>
@@ -267,6 +391,12 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
   const isDhl = selected?.provider === "DHL_ECOMMERCE";
   const caps = selected?.capabilities;
   const enabled = selected?.status === "ENABLED";
+  // F3C.3 — bu sipariş için aktif (iptal/başarısız olmayan) DHL gönderisi.
+  const activeDhl =
+    shipments.find(
+      (s) => s.provider === "DHL_ECOMMERCE" && s.status !== "CANCELLED" && s.status !== "FAILED",
+    ) ?? null;
+  const canBarcode = activeDhl?.status === "ORDER_CREATED";
 
   return (
     <SurfaceCard title={t.title}>
@@ -355,6 +485,22 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
               <Button variant="ghost" onClick={onCreateOrder} disabled={busy || !caps?.canCreateTestShipment}>
                 {t.geliverTest}
               </Button>
+            ) : isDhl ? (
+              <>
+                <Button variant="ghost" onClick={onDhlPrepare} disabled={busy || !caps?.canCreateOrder || Boolean(activeDhl)}>
+                  {t.dhlPrepare}
+                </Button>
+                <Button variant="ghost" onClick={onDhlBarcode} disabled={busy || !canBarcode || !caps?.canCreateBarcode}>
+                  {t.dhlBarcode}
+                </Button>
+                <Button variant="ghost" onClick={onDhlSync} disabled={busy || !activeDhl}>
+                  {t.dhlSync}
+                </Button>
+                {/* Cancel: endpoint MNG tarafında teyit edilmedi → disabled. */}
+                <Button variant="ghost" disabled title={t.dhlCancelDisabled}>
+                  {t.dhlCancel}
+                </Button>
+              </>
             ) : (
               <>
                 <Button variant="ghost" onClick={onCreateOrder} disabled={busy || !caps?.canCreateOrder}>
@@ -366,8 +512,73 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
               </>
             )}
           </div>
+          {isDhl ? <p className="text-[11px] text-white/30">{t.dhlPrepareHint}</p> : null}
+          {isDhl && !activeDhl ? <p className="text-[11px] text-white/30">{t.dhlCancelDisabled}</p> : null}
           {enabled && !caps?.canCalculateRate ? (
             <p className="text-[11px] text-white/30">{t.rateNotSupported}</p>
+          ) : null}
+
+          {/* DHL aktif gönderi durum kartı + timeline */}
+          {isDhl && activeDhl ? (
+            <div className="space-y-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-white/35">{t.dhlWorkflowTitle}</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
+                <DhlField label={t.statusLabel} value={activeDhl.status} />
+                <DhlField label={t.refLabel} value={activeDhl.referenceId} />
+                {activeDhl.externalShipmentId ? (
+                  <DhlField
+                    label={t.shipmentIdLabel}
+                    value={activeDhl.externalShipmentId}
+                    onCopy={() => copyText(activeDhl.externalShipmentId!, "shipmentId")}
+                    copyText={copied === "shipmentId" ? t.copied : t.copy}
+                  />
+                ) : null}
+                {activeDhl.externalInvoiceId ? <DhlField label={t.invoiceIdLabel} value={activeDhl.externalInvoiceId} /> : null}
+                {activeDhl.trackingNumber ? (
+                  <DhlField
+                    label={t.trackingNumberLabel}
+                    value={activeDhl.trackingNumber}
+                    onCopy={() => copyText(activeDhl.trackingNumber!, "trackingNumber")}
+                    copyText={copied === "trackingNumber" ? t.copied : t.copy}
+                  />
+                ) : null}
+                {activeDhl.lastProviderStatus ? <DhlField label={t.providerStatusLabel} value={activeDhl.lastProviderStatus} /> : null}
+                {activeDhl.lastSyncedAt ? (
+                  <DhlField label={t.lastSyncedLabel} value={new Date(activeDhl.lastSyncedAt).toLocaleString(locale)} />
+                ) : null}
+              </div>
+              {activeDhl.trackingUrl ? (
+                <a
+                  href={activeDhl.trackingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block text-[12px] text-emerald-300/80 underline"
+                >
+                  {t.trackingUrlLabel} · {t.openLink}
+                </a>
+              ) : null}
+              {activeDhl.barcodeHasLabel ? <Badge tone="success">{t.barcodeReady}</Badge> : null}
+
+              {activeDhl.events.length > 0 ? (
+                <div className="border-t border-white/[0.06] pt-2">
+                  <p className="mb-1.5 text-[11px] uppercase tracking-wide text-white/30">{t.timelineTitle}</p>
+                  <ul className="space-y-1.5">
+                    {activeDhl.events.map((e) => (
+                      <li key={e.id} className="flex items-start gap-2 text-[12px] text-white/55">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-white/30" />
+                        <span>
+                          <span className="text-white/75">{e.statusText ?? e.eventType}</span>
+                          {e.location ? <span className="text-white/35"> · {e.location}</span> : null}
+                          <span className="block text-[11px] text-white/30">
+                            {new Date(e.occurredAt ?? e.createdAt).toLocaleString(locale)}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
