@@ -30,4 +30,11 @@ describe("loadConfig", () => {
   it("rejects short internal tokens", () => {
     expect(() => loadConfig({ ...validEnv, INTERNAL_API_TOKEN: "short" })).toThrow();
   });
+
+  it("defaults DHL provider HTTP timeout to 60000ms and honors override", () => {
+    // F3C.3 — MNG sandbox ~15s yanit verdiginden default 60s; env ile override edilebilir.
+    expect(loadConfig(validEnv).DHL_ECOMMERCE_HTTP_TIMEOUT_MS).toBe(60000);
+    expect(loadConfig({ ...validEnv, DHL_ECOMMERCE_HTTP_TIMEOUT_MS: "90000" }).DHL_ECOMMERCE_HTTP_TIMEOUT_MS).toBe(90000);
+    expect(() => loadConfig({ ...validEnv, DHL_ECOMMERCE_HTTP_TIMEOUT_MS: "-1" })).toThrow();
+  });
 });

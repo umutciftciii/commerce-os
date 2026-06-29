@@ -1852,3 +1852,10 @@ bağımsız ve sağlayıcıya istek atmaz.
   (ShipmentEvent timeline + duplicate createOrder guard + sanitize persist). BFF pass-through (CSRF +
   requireStoreContext). store-admin order detail paneli: prepare/barcode/sync aksiyonları + durum kartı
   (shipmentId/invoiceId/trackingNumber kopyala + trackingUrl link) + event timeline; cancel disabled.
+- Runtime smoke (worktree gateway :4010 + gerçek MNG sandbox): prepare→duplicate→barcode→sync
+  uçtan uca yeşil (Shipment ORDER_CREATED→LABEL_CREATED, 4 ShipmentEvent, gerçek tracking
+  "İSTANBUL (BAĞCILAR) Gönderi Hazırlandı"); cancel 409 ENDPOINT_UNRESOLVED. **Bulgu:** MNG
+  sandbox createRecipient/createOrder/createbarcode/getcities çağrıları runtime'da ~15s
+  sürebiliyor; eski sabit 15s transport timeout'u sınırda abort/500 üretiyordu. **Çözüm:**
+  sağlayıcı HTTP timeout'u env-configurable yapıldı (DHL_ECOMMERCE_HTTP_TIMEOUT_MS, default
+  60000); timeout aşımı ham AbortError yerine sanitize SHIPPING_HTTP_TIMEOUT (504) döner.

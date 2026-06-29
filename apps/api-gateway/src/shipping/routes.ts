@@ -112,6 +112,7 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       BARCODE_CREATE_DISABLED: 409,
       LABEL_PURCHASE_DISABLED: 409,
       SHIPPING_HTTP_DISABLED: 409,
+      SHIPPING_HTTP_TIMEOUT: 504,
       NOT_IMPLEMENTED: 409,
       ENDPOINT_UNRESOLVED: 409,
       OPERATION_NOT_SUPPORTED: 409,
@@ -143,7 +144,7 @@ export function registerShippingAdminRoutes(
     serializeShippingProviderConfig(cfg, envGuards);
 
   const transport: ShippingHttpTransport = config.SHIPPING_SANDBOX_HTTP_ENABLED
-    ? createFetchHttpTransport()
+    ? createFetchHttpTransport(config.DHL_ECOMMERCE_HTTP_TIMEOUT_MS)
     : createDisabledHttpTransport();
   // DHL TEST/LIVE base URL + x-api-version env'den cozulur. TEST base URL yoksa
   // adapter TEST modunda TEST_BASE_URL_MISSING doner (canli host'a fallback YOK).

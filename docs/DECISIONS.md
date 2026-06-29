@@ -925,3 +925,9 @@
   içerir → DB'ye/loglara yalnız sanitize özet (`barcodeJsonSafe`: pieceNumber/barcodeCount/zplPresent/
   shipmentId/invoiceId) yazılır, raw ZPL ASLA. Bazı ilçelerde (örn. Küçükçekmece) sandbox "varış şubesi hat
   kodu" yok → barcode 500; routable ilçe gerekir.
+
+## F3C.3 — Sağlayıcı HTTP timeout env-configurable (ek not)
+
+- Kargo sağlayıcı HTTP çağrı timeout'u `DHL_ECOMMERCE_HTTP_TIMEOUT_MS` (default 60000ms) ile
+  yapılandırılır; sabit 15s kaldırıldı (MNG sandbox ~15s latency'de sınırda abort üretiyordu).
+  Timeout aşımı SANITIZE `SHIPPING_HTTP_TIMEOUT` → HTTP 504; URL/secret/token sızdırmaz.

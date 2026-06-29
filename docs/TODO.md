@@ -437,3 +437,6 @@
 - TODO-118: DHL canlı (production) rollout checklist — statik IP / client onayı, LIVE base URL geçişi,
   guard flag'lerinin canlıda kontrollü açılması, gerçek müşteri adresi → MNG cityCode/districtCode çözümleme
   (CBS geo cache, TODO-102), barcode "varış şubesi hat kodu" başarısızlıklarında retry/uyarı.
+- TODO-119 (ÇÖZÜLDÜ): Sağlayıcı HTTP timeout env-configurable (DHL_ECOMMERCE_HTTP_TIMEOUT_MS,
+  default 60000; timeout→SHIPPING_HTTP_TIMEOUT 504). F3C.3 runtime smoke'ta MNG sandbox ~15s
+  latency'sinin sabit 15s timeout'u sınırda abort etmesi üzerine eklendi.
