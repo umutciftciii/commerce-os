@@ -844,3 +844,34 @@
   Safe dogrulama (2026-06-29, testapi.mngkargo.com.tr + x-api-version): Identity HTTP 200 (JWT), CBS/calculate
   HTTP 401 (IBM gateway urun aboneligi: CBS_INFO + STANDARD_QUERY abone degil), Geliver auth gecerli (/providers
   200; eski /geo/cities 404 → testConnection /providers'a tasindi).
+
+## ADR-044 Shipping Price Engine = mağaza TARİFE'si, provider quote DEĞİL (F3C.2 / TODO-108)
+
+- Durum: ACCEPTED
+- Bağlam: F3C.1 ile DHL/Geliver OPERASYON sağlayıcı altyapısı tamamlandı (ADR-039..043). DHL eCommerce
+  `calculate` canlı/anlık kargo fiyatı için KULLANILMAYACAK; DHL bir operasyon sağlayıcısıdır (Identity, CBS,
+  createRecipient, createOrder, createbarcode, tracking). Sepet/checkout kargo bedelinin nasıl belirleneceği
+  çözülmeliydi.
+- Karar:
+  1. Kargo ücreti SAĞLAYICI quote'u DEĞİLDİR. Mağaza/admin tarafından girilen kargo TARİFE planına
+     (ShippingRatePlan + ShippingRateRule) göre hesaplanır. Saf, deterministik price-engine (provider'a istek
+     atmaz). pricingMode: FIXED / FREE_THRESHOLD / DESI_TABLE / WEIGHT_TABLE / DESI_AND_REGION_TABLE.
+  2. `provider` alanı plan üzerinde yalnızca OPERASYON sağlayıcısıyla gevşek ilişkilendirme içindir; FİYAT etkisi
+     YOKTUR (provider=MOCK ise quote source MOCK; aksi halde STORE_SHIPPING_TARIFF). Eski hardcoded ₺49,90 / ₺750
+     ücretsiz eşiği artık "magic" değil; demo store default rate plan'a (FREE_THRESHOLD) taşındı (seed).
+  3. Tek default guard UYGULAMA katmanındadır (Prisma partial unique yok): set-default transaction'ında diğer
+     ACTIVE planların isDefault=false yapılır. Aktif/default plan çözümü: önce ACTIVE+isDefault, yoksa en eski
+     ACTIVE plan; hiçbiri yoksa NO_RATE_PLAN.
+  4. Adres davranışı: GUEST cart veya default adres yok → kargo hesaplanmaz, ADDRESS_REQUIRED ("Teslimat adresi
+     seçildikten sonra hesaplanır"). Login + default teslimat adresi → engine çalışır. Checkout teslimat adresini
+     her zaman taşır (addressKnown=true) ve quote OK değilse ödeme adımına GEÇİLMEZ (409
+     SHIPPING_QUOTE_UNAVAILABLE; NO_RATE_PLAN / RATE_NOT_FOUND / MISSING_DIMENSIONS net kod).
+  5. Kargo ücreti SNAPSHOT olarak siparişe yazılır: Order.shippingAmount (tutar) + shippingCurrency /
+     shippingSource / shippingRatePlanId / shippingRatePlanName. Ödeme tutarı kargo dahildir; sipariş
+     detayı/onay ekranı kargoyu ayrı satır gösterir.
+  6. DESI/WEIGHT tablosu: sepet toplam desi/kg = Σ(adet × variant.shippingDesi ?? product.shippingDesi). Ölçüm
+     eksikse MISSING_SHIPPING_DIMENSIONS. En spesifik kural seçilir: ilçe > şehir > bölge > generic; eşitlikte
+     sortOrder. Eşleşmeyen geo alanı kuralı eler.
+- Sonuç: DHL fiyatı MOCK/sabit kural gibi gösterilmez; kargo ücreti şeffaf biçimde mağaza tarifesinden gelir.
+  cartShippingQuoteResponseSchema F3C.1'de yalnız contract seviyesindeydi; F3C.2'de status/source/ratePlanId/
+  ratePlanName/freeShipping ile genişletilip backend+storefront'a bağlandı. TODO-108 DONE.

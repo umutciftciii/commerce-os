@@ -45,6 +45,19 @@ function publicCart(overrides: Record<string, unknown> = {}) {
       couponCode: null,
       couponStatus: "NONE",
     },
+    shipping: {
+      provider: null,
+      source: "STORE_SHIPPING_TARIFF",
+      status: "OK",
+      amountMinor: 0,
+      currency: "TRY",
+      ratePlanId: "rp1",
+      ratePlanName: "Standart Kargo",
+      freeShipping: true,
+      errorCode: null,
+      message: null,
+      calculatedAt: "2026-01-01T00:00:00.000Z",
+    },
     lines: [
       {
         variantId: "v1",

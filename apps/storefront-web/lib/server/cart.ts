@@ -50,6 +50,11 @@ export interface CartSummaryView {
   subtotalLabel: string;
   shippingLabel: string;
   shippingIsFree: boolean;
+  /**
+   * F3C.2 — Kargo TARİFE quote durumu. OK dışı durumda fiyat gösterilmez; UI
+   * duruma göre mesaj basar (ADDRESS_REQUIRED / NO_RATE_PLAN / RATE_NOT_FOUND ...).
+   */
+  shippingStatus: PublicCart["shipping"]["status"];
   /** Eshik (kargo bedava) etiketi — "X uzeri ucretsiz" copy'si icin. */
   freeShippingThresholdLabel: string;
   /** Pozitif indirim varsa bicimli tutar; yoksa null. */
@@ -116,11 +121,14 @@ function checkoutPath(): string {
   return `/public/stores/${encodeURIComponent(demoStoreSlug())}/checkout`;
 }
 
-function toSummaryView(summary: PublicCartSummary): CartSummaryView {
+function toSummaryView(summary: PublicCartSummary, shipping: PublicCart["shipping"]): CartSummaryView {
+  const shippingOk = shipping.status === "OK";
   return {
     subtotalLabel: formatMinor(summary.itemsSubtotalMinor, summary.currency),
-    shippingLabel: formatMinor(summary.shippingMinor, summary.currency),
-    shippingIsFree: summary.shippingMinor === 0,
+    // Quote OK değilse fiyat etiketi boş kalır; UI duruma göre mesaj basar.
+    shippingLabel: shippingOk ? formatMinor(summary.shippingMinor, summary.currency) : "",
+    shippingIsFree: shippingOk && shipping.freeShipping,
+    shippingStatus: shipping.status,
     freeShippingThresholdLabel: formatMinor(summary.freeShippingThresholdMinor, summary.currency),
     discountLabel: summary.discountMinor > 0 ? formatMinor(summary.discountMinor, summary.currency) : null,
     taxIncludedLabel: formatMinor(summary.taxIncludedMinor, summary.currency),
@@ -138,7 +146,7 @@ function toCartView(cart: PublicCart): CartView {
     checkoutReady: cart.checkoutReady,
     isEmpty: cart.lines.length === 0,
     subtotalLabel: formatMinor(cart.subtotalMinor, cart.currency),
-    summary: toSummaryView(cart.summary),
+    summary: toSummaryView(cart.summary, cart.shipping),
     lines: cart.lines.map((line) => ({
       variantId: line.variantId,
       productSlug: line.productSlug,

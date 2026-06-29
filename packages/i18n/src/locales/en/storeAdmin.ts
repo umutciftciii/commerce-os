@@ -104,6 +104,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     marketplace: "Marketplaces",
     paymentProviders: "Payment Providers",
     shippingProviders: "Shipping Providers",
+    shippingRates: "Shipping Rates",
     theme: "Theme",
     settings: "Settings",
   },

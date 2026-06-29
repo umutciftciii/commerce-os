@@ -104,6 +104,7 @@ export const trStoreAdmin = {
     marketplace: "Pazaryerleri",
     paymentProviders: "Ödeme Sağlayıcıları",
     shippingProviders: "Kargo Sağlayıcıları",
+    shippingRates: "Kargo Tarifeleri",
     theme: "Tema",
     settings: "Ayarlar",
   },

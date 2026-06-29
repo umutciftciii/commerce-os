@@ -205,6 +205,9 @@ export const enStorefront: StorefrontDictionary = {
     discount: "Discount",
     shipping: "Shipping",
     shippingFree: "Free",
+    shippingPending: "Calculated once a delivery address is selected.",
+    shippingNoRatePlan: "No active shipping rate found for this store.",
+    shippingUnavailable: "Shipping fee could not be calculated.",
     grandTotal: "Grand total",
     // {rate} is replaced with the VAT rate.
     taxIncludedLabel: "VAT included ({rate}%)",
@@ -276,6 +279,9 @@ export const enStorefront: StorefrontDictionary = {
     discount: "Discount",
     shipping: "Shipping",
     shippingFree: "Free",
+    shippingPending: "Calculated once a delivery address is selected.",
+    shippingNoRatePlan: "No active shipping rate found for this store.",
+    shippingUnavailable: "Shipping fee could not be calculated.",
     grandTotal: "Grand total",
     // {rate} is replaced with the VAT rate.
     taxIncludedLabel: "VAT included ({rate}%)",

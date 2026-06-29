@@ -583,6 +583,10 @@ export const publicCartSchema = z.object({
   checkoutReady: z.boolean(),
   /** Sunucu-otoriter siparis ozeti (kargo/KDV/indirim/genel toplam). */
   summary: publicCartSummarySchema,
+  // F3C.2 — Kargo TARIFE quote sonucu (status/source/amount/plan). Adres yoksa
+  // ADDRESS_REQUIRED; aktif tarife yoksa NO_RATE_PLAN. (Sema asagida tanimli —
+  // ileri referans icin z.lazy kullanilir.)
+  shipping: z.lazy(() => cartShippingQuoteResponseSchema),
 });
 
 export const publicCheckoutContactSchema = z.object({
@@ -2252,14 +2256,38 @@ export const shippingRateResponseSchema = z.object({
  * status=UNAVAILABLE ise amountMinor checkout total'a DAHIL EDILMEZ; UI "kargo
  * hesaplanamiyor" mesaji gosterir ve odeme adimina gecisi gerektiginde engeller.
  */
-export const shippingQuoteSourceSchema = z.enum(["DHL_ECOMMERCE", "MOCK", "STORE_FIXED_RULE"]);
-export const shippingQuoteStatusSchema = z.enum(["OK", "UNAVAILABLE", "ADDRESS_REQUIRED"]);
+// F3C.2 — Kargo ucreti store TARIFE'sinden hesaplanir (provider quote DEGIL).
+//  - STORE_SHIPPING_TARIFF: admin kargo tarife planindan hesaplanan ucret.
+//  - STORE_FIXED_RULE      : eski sabit magaza kurali (geriye donuk fallback).
+//  - MOCK                  : dev/test mock plani.
+//  - DHL_ECOMMERCE         : (bu fazda kullanILMAZ; sema geriye donuk korunur).
+export const shippingQuoteSourceSchema = z.enum([
+  "DHL_ECOMMERCE",
+  "MOCK",
+  "STORE_FIXED_RULE",
+  "STORE_SHIPPING_TARIFF",
+]);
+// status: OK=ucret hesaplandi; ADDRESS_REQUIRED=teslimat adresi gerekli;
+// NO_RATE_PLAN=aktif/default tarife yok; RATE_NOT_FOUND=uygun kural yok;
+// MISSING_DIMENSIONS=desi/kg olcumu eksik; UNAVAILABLE/ERROR=genel hata.
+export const shippingQuoteStatusSchema = z.enum([
+  "OK",
+  "ADDRESS_REQUIRED",
+  "NO_RATE_PLAN",
+  "RATE_NOT_FOUND",
+  "MISSING_DIMENSIONS",
+  "UNAVAILABLE",
+  "ERROR",
+]);
 export const cartShippingQuoteResponseSchema = z.object({
   provider: shippingProviderTypeSchema.nullable(),
   source: shippingQuoteSourceSchema.nullable(),
   status: shippingQuoteStatusSchema,
   amountMinor: z.number().int().nonnegative().nullable(),
   currency: currencySchema.nullable(),
+  ratePlanId: z.string().nullable(),
+  ratePlanName: z.string().nullable(),
+  freeShipping: z.boolean(),
   errorCode: z.string().nullable(),
   message: z.string().nullable(),
   calculatedAt: z.string().datetime().nullable(),
@@ -2317,6 +2345,101 @@ export const orderShippingResponseSchema = z.object({
   shipments: z.array(shipmentSchema),
 });
 
+/* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
+ * Kargo ucreti SAGLAYICI quote'u DEGILDIR; magaza/admin tarife planindan hesaplanir
+ * (ADR-036). `provider` yalniz operasyon sağlayıcısıyla gevsek iliskilendirme icindir;
+ * fiyat etkisi YOKTUR.
+ */
+export const shippingRatePlanStatusSchema = z.enum(["ACTIVE", "PASSIVE"]);
+export const shippingRatePricingModeSchema = z.enum([
+  "FIXED",
+  "FREE_THRESHOLD",
+  "DESI_TABLE",
+  "WEIGHT_TABLE",
+  "DESI_AND_REGION_TABLE",
+]);
+export const shippingRateSourceSchema = z.enum([
+  "STORE_FIXED_RULE",
+  "STORE_SHIPPING_TARIFF",
+  "MOCK",
+]);
+
+const decimalStringSchema = z
+  .number()
+  .nonnegative()
+  .nullable();
+
+export const shippingRateRuleSchema = z.object({
+  id: z.string().min(1),
+  minDesi: decimalStringSchema,
+  maxDesi: decimalStringSchema,
+  minWeightKg: decimalStringSchema,
+  maxWeightKg: decimalStringSchema,
+  cityCode: z.string().max(40).nullable(),
+  districtCode: z.string().max(40).nullable(),
+  regionCode: z.string().max(40).nullable(),
+  amountMinor: z.number().int().nonnegative(),
+  extraAmountMinor: z.number().int().nonnegative().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRateRuleInputSchema = z.object({
+  minDesi: z.number().nonnegative().nullable().optional(),
+  maxDesi: z.number().nonnegative().nullable().optional(),
+  minWeightKg: z.number().nonnegative().nullable().optional(),
+  maxWeightKg: z.number().nonnegative().nullable().optional(),
+  cityCode: z.string().max(40).nullable().optional(),
+  districtCode: z.string().max(40).nullable().optional(),
+  regionCode: z.string().max(40).nullable().optional(),
+  amountMinor: z.number().int().nonnegative(),
+  extraAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  sortOrder: z.number().int().min(0).max(100000).default(0),
+});
+
+export const shippingRatePlanSchema = z.object({
+  id: z.string().min(1),
+  provider: shippingProviderTypeSchema.nullable(),
+  name: z.string().min(1),
+  status: shippingRatePlanStatusSchema,
+  isDefault: z.boolean(),
+  pricingMode: shippingRatePricingModeSchema,
+  currency: currencySchema,
+  fixedAmountMinor: z.number().int().nonnegative().nullable(),
+  freeShippingThresholdMinor: z.number().int().nonnegative().nullable(),
+  validFrom: z.string().datetime().nullable(),
+  validTo: z.string().datetime().nullable(),
+  ruleCount: z.number().int().nonnegative(),
+  rules: z.array(shippingRateRuleSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const shippingRatePlanListResponseSchema = z.object({
+  data: z.array(shippingRatePlanSchema),
+});
+
+export const shippingRatePlanCreateRequestSchema = z.object({
+  provider: shippingProviderTypeSchema.nullable().optional(),
+  name: z.string().min(1).max(160),
+  status: shippingRatePlanStatusSchema.default("ACTIVE"),
+  isDefault: z.boolean().default(false),
+  pricingMode: shippingRatePricingModeSchema.default("FIXED"),
+  currency: currencySchema.default("TRY"),
+  fixedAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  freeShippingThresholdMinor: z.number().int().nonnegative().nullable().optional(),
+  validFrom: z.string().datetime().nullable().optional(),
+  validTo: z.string().datetime().nullable().optional(),
+});
+
+export const shippingRatePlanUpdateRequestSchema = shippingRatePlanCreateRequestSchema
+  .partial()
+  .extend({
+    // name kismi guncellemede de bos olamaz.
+    name: z.string().min(1).max(160).optional(),
+  });
+
 export type ShippingCredentialStatus = z.infer<typeof shippingCredentialStatusSchema>;
 export type ShippingConnectionStatus = z.infer<typeof shippingConnectionStatusSchema>;
 export type ShippingProviderConfigResponse = z.infer<typeof shippingProviderConfigSchema>;
@@ -2332,3 +2455,14 @@ export type ShippingCreateOrderRequest = z.infer<typeof shippingCreateOrderReque
 export type ShippingCreateBarcodeRequest = z.infer<typeof shippingCreateBarcodeRequestSchema>;
 export type OrderShippingResponse = z.infer<typeof orderShippingResponseSchema>;
 export type ShipmentResponse = z.infer<typeof shipmentSchema>;
+export type ShippingRatePlanStatus = z.infer<typeof shippingRatePlanStatusSchema>;
+export type ShippingRatePricingMode = z.infer<typeof shippingRatePricingModeSchema>;
+export type ShippingRateSource = z.infer<typeof shippingRateSourceSchema>;
+export type ShippingRateRule = z.infer<typeof shippingRateRuleSchema>;
+export type ShippingRateRuleInput = z.infer<typeof shippingRateRuleInputSchema>;
+export type ShippingRatePlanResponse = z.infer<typeof shippingRatePlanSchema>;
+export type ShippingRatePlanListResponse = z.infer<typeof shippingRatePlanListResponseSchema>;
+export type ShippingRatePlanCreateRequest = z.infer<typeof shippingRatePlanCreateRequestSchema>;
+export type ShippingRatePlanUpdateRequest = z.infer<typeof shippingRatePlanUpdateRequestSchema>;
+export type ShippingQuoteSource = z.infer<typeof shippingQuoteSourceSchema>;
+export type ShippingQuoteStatus = z.infer<typeof shippingQuoteStatusSchema>;

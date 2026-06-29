@@ -319,6 +319,33 @@ async function main() {
       }),
     ),
   );
+
+  // F3C.2 — Demo magaza icin VARSAYILAN kargo TARIFE plani. Eski hardcoded ₺49,90 /
+  // ₺750 ucretsiz kargo esigi artik "magic" degil; store tarifesi olarak tutulur
+  // (FREE_THRESHOLD: esik altinda 4990, esik ustunde 0). Provider canli quote DEGIL.
+  await prisma.shippingRatePlan.upsert({
+    where: { id: `${store.id}-default-shipping` },
+    update: {
+      name: "Standart Kargo",
+      status: "ACTIVE",
+      isDefault: true,
+      pricingMode: "FREE_THRESHOLD",
+      currency: "TRY",
+      fixedAmountMinor: 4990,
+      freeShippingThresholdMinor: 75000,
+    },
+    create: {
+      id: `${store.id}-default-shipping`,
+      storeId: store.id,
+      name: "Standart Kargo",
+      status: "ACTIVE",
+      isDefault: true,
+      pricingMode: "FREE_THRESHOLD",
+      currency: "TRY",
+      fixedAmountMinor: 4990,
+      freeShippingThresholdMinor: 75000,
+    },
+  });
 }
 
 main()

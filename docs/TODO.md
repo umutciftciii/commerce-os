@@ -396,8 +396,18 @@
 - TODO-107: DHL production static IP authorization checklist — canlı (api.mngkargo.com.tr) erişim için sabit IP
   beyanı/whitelist süreci, API Zone abonelik onayı (CBS_INFO/STANDARD_QUERY/STANDARD_COMMAND/BARCODE_COMMAND/
   PLUS_COMMAND ürünleri), callback URL kaydı doğrulaması.
-- TODO-108: F3C.2 Shipping Price Engine (AYRI FAZ). Sepet/checkout kargo bedeli provider'dan CANLI çekilmez;
-  mağaza/admin tarafından girilen kargo tarife/rate-plan modeli ile hesaplanır. Kapsam: shipping tariff/rate plan
-  veri modeli (ağırlık/desi/bölge/ücretsiz-kargo eşiği), admin tarife yönetimi UI, storefront cart/checkout kargo
-  satırı (source=STORE_RATE_PLAN), mevcut sabit kuralın tarife motoruna taşınması. NOT: DHL eCommerce operasyon
-  sağlayıcısı olarak kalır (F3C.1); fiyat motoru ondan bağımsızdır.
+- TODO-108: F3C.2 Shipping Price Engine — DONE (ADR-044). Kargo bedeli mağaza TARİFE planından hesaplanır
+  (ShippingRatePlan + ShippingRateRule; price-engine.ts saf fonksiyon). Admin tarife yönetimi UI
+  (/shipping/rates), storefront cart/checkout kargo satırı (ADDRESS_REQUIRED/NO_RATE_PLAN/free/amount), sipariş
+  kargo snapshot'ı, demo store default rate plan seed (eski ₺49,90/₺750 buraya taşındı). DHL eCommerce operasyon
+  sağlayıcısı olarak kalır; fiyat motoru ondan bağımsızdır.
+- TODO-109: Kargo bölge yönetimi UI + şehir/ilçe → bölge (regionCode) eşleme. DESI_AND_REGION_TABLE modeli
+  destekler ama admin UI ilk sürümde minimal (şehir/ilçe kodu serbest metin); regionCode storefront adresinden
+  henüz türetilmiyor (EngineAddress.regionCode = null). DHL CBS geo kod cache'iyle (TODO-102) entegre edilebilir.
+- TODO-110: Ürün/varyant kargo ölçümü (shippingWeightKg / shippingDesi) admin ürün UI alanları. Şema + cart
+  hesaplaması hazır; DESI_TABLE/WEIGHT_TABLE için ölçüm eksikse MISSING_SHIPPING_DIMENSIONS. Şu an alanlar yalnız
+  veri modelinde (admin form yok).
+- TODO-111: Kargo tarife CSV import/export (taşıyıcı fiyat tabloları toplu yükleme/indirme).
+- TODO-112: Sipariş sonrası DHL operasyon otomasyonu — checkout sonrası createRecipient/createOrder/createbarcode
+  akışının (admin onaylı veya otomatik) tarife motoruyla ilişkilendirilmesi. Marketplace TRND/N11 kargo alanları
+  (bkz. TODO-105) bu akışa bağlanır.

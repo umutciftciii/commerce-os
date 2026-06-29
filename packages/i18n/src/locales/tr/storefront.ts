@@ -207,6 +207,9 @@ export const trStorefront = {
     discount: "İndirim",
     shipping: "Kargo",
     shippingFree: "Ücretsiz",
+    shippingPending: "Teslimat adresi seçildikten sonra hesaplanır.",
+    shippingNoRatePlan: "Bu mağaza için aktif kargo tarifesi bulunamadı.",
+    shippingUnavailable: "Kargo ücreti hesaplanamadı.",
     grandTotal: "Genel toplam",
     // {rate} KDV oranıyla değiştirilir.
     taxIncludedLabel: "KDV dahil (%{rate})",
@@ -278,6 +281,9 @@ export const trStorefront = {
     discount: "İndirim",
     shipping: "Kargo",
     shippingFree: "Ücretsiz",
+    shippingPending: "Teslimat adresi seçildikten sonra hesaplanır.",
+    shippingNoRatePlan: "Bu mağaza için aktif kargo tarifesi bulunamadı.",
+    shippingUnavailable: "Kargo ücreti hesaplanamadı.",
     grandTotal: "Genel toplam",
     // {rate} KDV oranıyla değiştirilir.
     taxIncludedLabel: "KDV dahil (%{rate})",

@@ -1746,3 +1746,44 @@ Branch: `claude/f3b3-customer-account-auth-address-book` (worktree). Base: main 
   ve testteki sahte negatif-assertion JWT'si).
 - Docker smoke: bu turda ÇALIŞTIRILMADI (kapsam: backend foundation + contract + güvenli dış doğrulama; cart UI
   ucu açık). DHL canlı destructive operasyon (createRecipient/createOrder/createbarcode/cancel) ÇALIŞTIRILMADI.
+
+## Faz 3C.2 Shipping Price Engine — mağaza tarifesi (TODO-108, ADR-044)
+
+Branch: claude/f3c2-shipping-price-engine. Temel karar: kargo ücreti SAĞLAYICI quote'u DEĞİLDİR; mağaza/admin
+kargo TARİFE planından hesaplanır. DHL eCommerce operasyon sağlayıcısı olarak kalır (F3C.1); fiyat motoru ondan
+bağımsız ve sağlayıcıya istek atmaz.
+
+- Veri modeli (migration 20260629140000_add_shipping_price_engine):
+  - Enum: ShippingRatePlanStatus (ACTIVE/PASSIVE), ShippingRatePricingMode (FIXED/FREE_THRESHOLD/DESI_TABLE/
+    WEIGHT_TABLE/DESI_AND_REGION_TABLE), ShippingRateSource (STORE_FIXED_RULE/STORE_SHIPPING_TARIFF/MOCK).
+  - ShippingRatePlan (storeId, provider nullable, name, status, isDefault, pricingMode, currency, fixedAmountMinor,
+    freeShippingThresholdMinor, validFrom/To) + ShippingRateRule (min/max desi & kg, city/district/region kodu,
+    amountMinor, extraAmountMinor, sortOrder).
+  - Order kargo snapshot: shippingCurrency / shippingSource / shippingRatePlanId / shippingRatePlanName (tutar
+    zaten Order.shippingAmount'ta). Product/ProductVariant: shippingWeightKg / shippingDesi (nullable; varyant
+    ürünü override eder).
+- Hesaplama motoru: apps/api-gateway/src/shipping/price-engine.ts (saf, deterministik). FIXED/FREE_THRESHOLD adres
+  gerektirmez; DESI/WEIGHT tablo modları sepet desi/kg + min–max bracket; DESI_AND_REGION_TABLE adres ister.
+  Spesifiklik: ilçe>şehir>bölge>generic, eşitlikte sortOrder. Ölçüm eksik → MISSING_SHIPPING_DIMENSIONS; eşleşen
+  kural yok → RATE_NOT_FOUND; aktif/default plan yok → NO_RATE_PLAN. Free threshold tüm modlarda geçerli.
+- Gateway: store-admin rate-plan CRUD + rules + set-default uçları (rate-plan-routes.ts; tek default guard
+  transaction). Cart endpoint quote'u (guest/no-address → ADDRESS_REQUIRED) ve checkout quote'u (teslimat adresi
+  ile; OK değilse 409 SHIPPING_QUOTE_UNAVAILABLE) eklendi. Rate plan çözümü dataAccess üzerinden (in-memory test
+  + prisma ortak yol). Eski hardcoded ₺49,90 / ₺750 kaldırıldı → store tarifesinden gelir.
+- Contracts: shippingRatePlan/rule CRUD + list/detail şemaları; cartShippingQuoteResponseSchema genişletildi
+  (status: OK/ADDRESS_REQUIRED/NO_RATE_PLAN/RATE_NOT_FOUND/MISSING_DIMENSIONS/UNAVAILABLE/ERROR; source +
+  STORE_SHIPPING_TARIFF; ratePlanId/ratePlanName/freeShipping). publicCartSchema'ya `shipping` alanı.
+- Store-admin: /shipping/rates sayfası (liste + tarife formu + kural editörü + set-default/enable-disable/sil),
+  BFF route'ları, api-client.admin.shippingRatePlans.*, sidebar "Kargo Tarifeleri" + i18n TR/EN.
+- Storefront: cart-view kargo satırı duruma göre mesaj (ADDRESS_REQUIRED/NO_RATE_PLAN/UNAVAILABLE) veya fiyat/
+  ücretsiz; i18n shippingPending/shippingNoRatePlan/shippingUnavailable (TR/EN). Quote fail → checkout ödeme
+  adımı bloke.
+- Seed: demo store default rate plan "Standart Kargo" (FREE_THRESHOLD, 4990 / 75000) — eski sabit kural artık
+  store tarifesi.
+- Testler: price-engine birim (14), gateway cart/checkout shipping + snapshot (guest ADDRESS_REQUIRED, FIXED
+  tarife, free threshold, NO_RATE_PLAN bloke, snapshot yazımı), store-admin rate-plans BFF (7). Tüm workspace test
+  task'ları yeşil (api-gateway 202, store-admin 114, storefront, contracts, admin).
+- Gate: db:generate ✓; build (tüm workspace) ✓; typecheck ✓; lint ✓; test ✓; git diff --check temiz.
+- Kapsam dışı (TODO): bölge yönetimi UI/regionCode türetme (TODO-109), ürün kargo ölçümü admin UI (TODO-110),
+  CSV import/export (TODO-111), sipariş sonrası DHL operasyon otomasyonu (TODO-112). DHL canlı destructive
+  operasyon ve canlı fiyat çekme ÇALIŞTIRILMADI (tasarım gereği yok).
