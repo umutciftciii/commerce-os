@@ -3,6 +3,7 @@ import type { Shipment, ShippingProviderConfig } from "@prisma/client";
 import {
   buildShipmentProviderInfo,
   computeShipmentActionCapabilities,
+  manualTrackingNextStatus,
   serializeShippingProviderConfig,
   shipmentKpiBucket,
   type ShippingEnvGuards,
@@ -93,6 +94,32 @@ describe("computeShipmentActionCapabilities (generic projection)", () => {
     expect(caps.canCreateLabel).toBe(false);
     expect(caps.canSync).toBe(false);
     expect(caps.canManualTracking).toBe(true);
+  });
+});
+
+describe("manualTrackingNextStatus (F3C.5 manuel inceleme — explicit admin aksiyonu)", () => {
+  it("advances prep-stage shipments to IN_TRANSIT (operasyonel 'kargo süreci başladı')", () => {
+    expect(manualTrackingNextStatus("DRAFT")).toBe("IN_TRANSIT");
+    expect(manualTrackingNextStatus("ORDER_CREATED")).toBe("IN_TRANSIT");
+    expect(manualTrackingNextStatus("LABEL_PENDING")).toBe("IN_TRANSIT");
+    expect(manualTrackingNextStatus("LABEL_CREATED")).toBe("IN_TRANSIT");
+  });
+
+  it("does not regress already in-transit / further / terminal statuses", () => {
+    expect(manualTrackingNextStatus("IN_TRANSIT")).toBe("IN_TRANSIT");
+    expect(manualTrackingNextStatus("OUT_FOR_DELIVERY")).toBe("OUT_FOR_DELIVERY");
+    expect(manualTrackingNextStatus("DELIVERED")).toBe("DELIVERED");
+    expect(manualTrackingNextStatus("DELIVERY_FAILED")).toBe("DELIVERY_FAILED");
+    expect(manualTrackingNextStatus("RETURNED")).toBe("RETURNED");
+    // İptal/başarısız route'ta zaten 409 ile bloklanır; helper yine de regres etmez.
+    expect(manualTrackingNextStatus("CANCELLED")).toBe("CANCELLED");
+    expect(manualTrackingNextStatus("FAILED")).toBe("FAILED");
+  });
+
+  it("never produces an automatic DELIVERED ('kargoya verildi' otomatik değil)", () => {
+    // Manuel tracking yalnız IN_TRANSIT'e kadar ilerletir; teslim/handoff otomatik üretilmez.
+    const allPrep = ["DRAFT", "ORDER_CREATED", "LABEL_PENDING", "LABEL_CREATED"] as const;
+    for (const s of allPrep) expect(manualTrackingNextStatus(s)).not.toBe("DELIVERED");
   });
 });
 

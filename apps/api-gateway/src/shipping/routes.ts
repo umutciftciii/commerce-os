@@ -63,6 +63,7 @@ import {
   buildShipmentProviderInfo,
   computeShipmentActionCapabilities,
   computeShippingCapabilities,
+  manualTrackingNextStatus,
   serializeShippingProviderConfig,
   shipmentKpiBucket,
   type SerializedShippingProviderConfig,
@@ -915,24 +916,34 @@ export function registerShippingAdminRoutes(
     return reloadShipment(cancelled.id);
   }
 
-  // Manuel takip no — saglayiciya CAGRI YOK; admin elle girer. MANUAL_TRACKING event.
+  // Manuel takip no — saglayiciya CAGRI YOK; admin elle girer. Takip no operasyonel
+  // olarak "kargo sureci basladi" demektir: hazirlik asamasindaki gönderi IN_TRANSIT'e
+  // ilerler (regres yok; ileri/terminal durumlar korunur). MANUAL_TRACKING event yazilir.
+  // DHL createbarcode sonrasi OTOMATIK handoff'a DONUS YOK (ADR-046).
   async function applyManualTracking(
     storeId: string,
     shipment: Shipment,
     trackingNumber: string,
     trackingUrl: string | undefined,
   ) {
+    const nextStatus = manualTrackingNextStatus(shipment.status);
     const updated = await prisma.shipment.update({
       where: { id: shipment.id },
       data: {
         trackingNumber,
         trackingUrl: trackingUrl ?? shipment.trackingUrl,
+        status: nextStatus,
       },
     });
     await recordShipmentEvent(storeId, updated, "MANUAL_TRACKING", {
-      statusText: "Takip numarası elle girildi",
+      statusText: "Manuel takip numarası eklendi.",
       trackingUrl: trackingUrl ?? null,
-      rawSafeJson: { manual: true, trackingNumberPresent: true },
+      rawSafeJson: {
+        manual: true,
+        trackingNumberPresent: true,
+        statusFrom: shipment.status,
+        statusTo: nextStatus,
+      },
     });
     return reloadShipment(updated.id);
   }

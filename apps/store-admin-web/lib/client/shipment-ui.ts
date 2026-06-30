@@ -156,11 +156,13 @@ export const SHIPMENT_KPI_LABEL: Record<Locale, { prepared: string; awaitingLabe
  */
 export const SHIPMENT_ACTION_DISABLED_REASON: Record<Locale, Record<string, string>> = {
   tr: {
-    PROVIDER_ACTIONS_DISABLED: "Sağlayıcı aktif değil veya bu işlem desteklenmiyor.",
+    PROVIDER_ACTIONS_DISABLED:
+      "Sağlayıcı operasyonu güvenlik kilidiyle kapalı. Bu işlem için sandbox HTTP ve ilgili işlem izni açılmalı. Bu güvenlik kilidi canlı/test ayrımından bağımsızdır; dış sağlayıcıya istek atmayı engeller.",
     SHIPMENT_INACTIVE: "Gönderi iptal/başarısız durumda; işlem yapılamaz.",
   },
   en: {
-    PROVIDER_ACTIONS_DISABLED: "Provider is not active or this action is unsupported.",
+    PROVIDER_ACTIONS_DISABLED:
+      "Provider operation is closed by a security lock. Sandbox HTTP and the relevant operation permission must be enabled. This security lock is independent of the live/test distinction; it blocks outbound provider calls.",
     SHIPMENT_INACTIVE: "Shipment is cancelled/failed; no action possible.",
   },
 };

@@ -105,20 +105,35 @@ describe("order detail shipment summary card (F3C.5)", () => {
     expect(await screen.findByText(/yapılandırılmış kargo sağlayıcı yok/)).toBeTruthy();
   });
 
-  it("shows 'no shipment' + create CTA when there is no shipment; no full operation panel", async () => {
+  it("no shipment: safe summary only, NO destructive provider call, routes to Shipments screen", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
-    expect(await screen.findByText("Henüz kargo kaydı oluşturulmadı.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Gönderi Kaydı Oluştur" })).toBeTruthy();
-    // Operasyon paneli order detayında DEĞİL: timeline/sync/iptal aksiyonları görünmez.
+    expect(await screen.findByText("Bu sipariş için henüz kargo kaydı oluşturulmadı.")).toBeTruthy();
+    // Güvenli yönlendirme: "Kargo Gönderileri" linki; destructive create butonu YOK.
+    const link = screen.getByRole("link", { name: /Kargo Gönderileri/ }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/shipping/shipments");
+    expect(screen.queryByRole("button", { name: "Gönderi Kaydı Oluştur" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Oluştur" })).toBeNull();
+    // Order detay kartı dış sağlayıcıya İSTEK ATMAZ (createOrder/prepare çağrısı yok).
+    expect(storeApiMock.prepareDhlShipment).not.toHaveBeenCalled();
+    expect(storeApiMock.createOrderShipment).not.toHaveBeenCalled();
+    // Operasyon paneli order detayında DEĞİL.
     expect(screen.queryByText("Hareketler")).toBeNull();
     expect(screen.queryByRole("button", { name: "Durumu Güncelle" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Gönderi Kaydını İptal Et" })).toBeNull();
   });
 
-  it("shows summary + 'Kargo Detayına Git' link to /shipping/shipments/[id]; no auto 'Kargoya verildi'", async () => {
+  it("lock copy uses security-lock framing, no misleading 'Canlı X oluşturma' wording", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    const lock = await screen.findByText(/güvenlik kilidiyle kapalı/);
+    expect((lock.textContent ?? "").match(/Canlı (alıcı|gönderi|barkod)/)).toBeNull();
+  });
+
+  it("shows summary + 'Kargo Detayına Git' link; tracking fallback 'Henüz oluşmadı'; no auto 'Kargoya verildi'", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [shipment()] });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
@@ -128,5 +143,18 @@ describe("order detail shipment summary card (F3C.5)", () => {
     // ORDER_CREATED generic etiketi "Gönderi kaydı oluşturuldu"; "Kargoya verildi" OTOMATİK kullanılmaz.
     expect(screen.getByText("Gönderi kaydı oluşturuldu")).toBeTruthy();
     expect(screen.queryByText(/Kargoya verildi/)).toBeNull();
+    // Takip no yoksa açık fallback gösterilir (liste/detay/özet tutarlı).
+    expect(screen.getByText("Henüz oluşmadı")).toBeTruthy();
+  });
+
+  it("manual-tracked shipment surfaces IN_TRANSIT status + tracking number in the order summary", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({
+      shipments: [shipment({ status: "IN_TRANSIT", trackingNumber: "TRK-123456" })],
+    });
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    expect(await screen.findByText("Taşıma sürecinde")).toBeTruthy();
+    expect(screen.getByText("TRK-123456")).toBeTruthy();
   });
 });

@@ -125,6 +125,19 @@ describe("shipment list page (F3C.5)", () => {
     expect(screen.getByText("Transferde")).toBeTruthy();
     expect(screen.getByText("Barkod bekleyen")).toBeTruthy();
   });
+
+  it("shows explicit 'Henüz oluşmadı' tracking fallback when trackingNumber is null", async () => {
+    storeApiMock.listShipments.mockResolvedValue({
+      data: [{ ...listItem(), status: "LABEL_CREATED", trackingNumber: null }],
+      total: 1,
+      kpi: { prepared: 1, awaitingLabel: 0, inTransit: 0, delivered: 0, problem: 0 },
+    });
+    render(<ShipmentsPage />);
+
+    expect(await screen.findByText("Henüz oluşmadı")).toBeTruthy();
+    // Aynı normalized status helper: LABEL_CREATED → "Barkod/etiket hazır".
+    expect(screen.getAllByText("Barkod/etiket hazır").length).toBeGreaterThan(0);
+  });
 });
 
 describe("shipment detail page (F3C.5)", () => {
@@ -137,6 +150,9 @@ describe("shipment detail page (F3C.5)", () => {
     expect(screen.getByRole("button", { name: "Durumu Güncelle" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Gönderi Kaydını İptal Et" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Manuel Takip No Gir" })).toBeTruthy();
+
+    // Liste ile aynı normalized status helper: IN_TRANSIT → "Taşıma sürecinde".
+    expect(screen.getByText("Taşıma sürecinde")).toBeTruthy();
 
     // Timeline konumu "İşlem noktası" olarak gösterilir (kesin varış/teslimat şubesi DEĞİL).
     expect(screen.getByText(/İşlem noktası: İstanbul Aktarma/)).toBeTruthy();

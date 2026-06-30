@@ -55,15 +55,15 @@ const DHL_OPTIONAL: DhlCredType[] = ["PLUS_COMMAND", "CBS_INFO", "BULK_QUERY", "
 /**
  * F3C.1 (Faz B) — Kargo Sağlayıcıları yönetim sayfası. Secret alanlar gateway
  * tarafında maskeli döner; bu sayfa secret'ı asla düz görmez. "Boş bırakılırsa
- * korunur" semantiği: secret input'u boşsa istek gövdesine eklenmez. Canlı
- * gönderi/barkod/etiket oluşturma bu fazda kapalıdır (net uyarı gösterilir).
+ * korunur" semantiği: secret input'u boşsa istek gövdesine eklenmez. Sağlayıcı
+ * operasyonu (gönderi/barkod/etiket) güvenlik kilidiyle kapalıdır (net uyarı gösterilir).
  */
 const L = {
   tr: {
     eyebrow: "Satış",
     title: "Kargo Sağlayıcıları",
     description:
-      "Mağaza bazlı kargo sağlayıcı yapılandırmaları. Bu faz admin kontrollü operasyon altyapısıdır; checkout'ta otomatik kargo ve canlı gönderi/barkod oluşturma kapalıdır. MOCK sağlayıcı test akışını çalıştırır.",
+      "Mağaza bazlı kargo sağlayıcı yapılandırmaları. Bu faz admin kontrollü operasyon altyapısıdır; checkout'ta otomatik kargo ve sağlayıcı gönderi/barkod oluşturma güvenlik kilidiyle kapalıdır. MOCK sağlayıcı test akışını çalıştırır.",
     add: "Yeni sağlayıcı",
     empty: "Henüz kargo sağlayıcı yok",
     emptyDesc: "Test akışını denemek için bir MOCK (TEST) sağlayıcı ekleyin ya da Geliver / DHL eCommerce yapılandırın.",
@@ -71,7 +71,7 @@ const L = {
     colStatus: "Durum",
     colMode: "Mod",
     colCreds: "Kimlik bilgileri",
-    colGuards: "Canlı işlem",
+    colGuards: "İşlem izinleri",
     colTest: "Son test",
     colActions: "İşlemler",
     enabled: "Aktif",
@@ -108,14 +108,14 @@ const L = {
     fCustomerPassword: "DHL Müşteri Şifresi",
     fIdentityType: "identityType (varsayılan 1)",
     mockNote: "MOCK sağlayıcı kimlik bilgisi gerektirmez; test akışı için hazırdır.",
-    allowRecipientCreate: "Canlı alıcı (Plus Command) oluşturmaya izin ver",
-    allowOrderCreate: "Canlı sipariş oluşturmaya izin ver",
-    allowBarcodeCreate: "Canlı barkod oluşturmaya izin ver",
+    allowRecipientCreate: "Alıcı (Plus Command) oluşturmaya izin ver",
+    allowOrderCreate: "Gönderi kaydı oluşturmaya izin ver",
+    allowBarcodeCreate: "Barkod/etiket oluşturmaya izin ver",
     allowLabelPurchase: "Etiket satın almaya izin ver",
     guardWarn:
-      "Bu izinler açık olsa bile, canlı işlem yalnızca sunucu ortam bayrağı + istek onayı birlikte sağlanınca çalışır. Aksi halde 409 ile reddedilir.",
-    liveOffNote: "Canlı gönderi/barkod oluşturma kapalı.",
-    labelOffNote: "Canlı etiket satın alma kapalı.",
+      "Bu izinler açık olsa bile, sağlayıcı işlemi yalnızca sunucu güvenlik kilidi (sandbox HTTP) + istek onayı birlikte sağlanınca çalışır. Bu kilit canlı/test ayrımından bağımsızdır; aksi halde 409 ile reddedilir.",
+    liveOffNote: "Gönderi/barkod oluşturma izni kapalı.",
+    labelOffNote: "Etiket satın alma izni kapalı.",
     saved: "Kimlik bilgileri kaydedildi.",
     cleared: "Kimlik bilgisi temizlendi.",
     configSaved: "Kaydedildi.",
@@ -133,7 +133,7 @@ const L = {
       "Kayıtlı callback URL: https://api.cmddigital.com/integrations/mng/oauth/callback",
       "Plus Command / createRecipient: paketleme öncesi varış şube tespiti (önerilir).",
       "Standard Command / createOrder: sipariş aktarımı. Barcode Command / createbarcode: ZPL/takip/barkod.",
-      "Canlı createRecipient/createOrder/createbarcode/cancelshipment varsayılan KAPALIDIR.",
+      "createRecipient/createOrder/createbarcode/cancelshipment güvenlik kilidiyle varsayılan KAPALIDIR.",
       "Her mağaza kendi DHL kimlik bilgilerini girmelidir.",
     ].join("\n"),
     colConn: "Son gerçek API testi",
@@ -150,7 +150,7 @@ const L = {
     eyebrow: "Sales",
     title: "Shipping Providers",
     description:
-      "Store-scoped shipping provider configurations. This phase is an admin-controlled operations layer; automatic shipping at checkout and live order/label creation are disabled. The MOCK provider runs the test flow.",
+      "Store-scoped shipping provider configurations. This phase is an admin-controlled operations layer; automatic shipping at checkout and provider order/label creation are closed by a security lock. The MOCK provider runs the test flow.",
     add: "New provider",
     empty: "No shipping providers yet",
     emptyDesc: "Add a MOCK (TEST) provider to try the flow, or configure Geliver / DHL eCommerce.",
@@ -158,7 +158,7 @@ const L = {
     colStatus: "Status",
     colMode: "Mode",
     colCreds: "Credentials",
-    colGuards: "Live ops",
+    colGuards: "Ops permissions",
     colTest: "Last test",
     colActions: "Actions",
     enabled: "Enabled",
@@ -195,14 +195,14 @@ const L = {
     fCustomerPassword: "DHL Customer Password",
     fIdentityType: "identityType (default 1)",
     mockNote: "The MOCK provider requires no credentials; it is ready for the test flow.",
-    allowRecipientCreate: "Allow live recipient (Plus Command) creation",
-    allowOrderCreate: "Allow live order creation",
-    allowBarcodeCreate: "Allow live barcode creation",
+    allowRecipientCreate: "Allow recipient (Plus Command) creation",
+    allowOrderCreate: "Allow shipment record creation",
+    allowBarcodeCreate: "Allow label/barcode creation",
     allowLabelPurchase: "Allow label purchase",
     guardWarn:
-      "Even with these enabled, live operations run only when the server environment flag + request confirmation are both provided. Otherwise rejected with 409.",
-    liveOffNote: "Live order/barcode creation is disabled.",
-    labelOffNote: "Live label purchase is disabled.",
+      "Even with these enabled, a provider operation runs only when the server security lock (sandbox HTTP) + request confirmation are both provided. This lock is independent of the live/test distinction; otherwise rejected with 409.",
+    liveOffNote: "Shipment/barcode creation permission is disabled.",
+    labelOffNote: "Label purchase permission is disabled.",
     saved: "Credentials saved.",
     cleared: "Credential cleared.",
     configSaved: "Saved.",
@@ -220,7 +220,7 @@ const L = {
       "Registered callback URL: https://api.cmddigital.com/integrations/mng/oauth/callback",
       "Plus Command / createRecipient: destination-branch detection before packaging (recommended).",
       "Standard Command / createOrder: order transfer. Barcode Command / createbarcode: ZPL/tracking/barcode.",
-      "Live createRecipient/createOrder/createbarcode/cancelshipment are disabled by default.",
+      "createRecipient/createOrder/createbarcode/cancelshipment are disabled by default by a security lock.",
       "Each store must enter its own DHL credentials.",
     ].join("\n"),
     colConn: "Last real API test",

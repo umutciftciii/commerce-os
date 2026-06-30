@@ -253,6 +253,24 @@ function isActiveShipmentStatus(status: ShipmentStatus): boolean {
   return status !== "CANCELLED" && status !== "FAILED";
 }
 
+/** Hazirlik asamasi durumlari — manuel takip no girilince IN_TRANSIT'e ilerler. */
+const MANUAL_TRACKING_PREP_STATUSES: ShipmentStatus[] = [
+  "DRAFT",
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+];
+
+/**
+ * Manuel takip no = admin'in operasyonel "kargo sureci basladi" sinyali. Hazirlik
+ * asamasindaki gönderi IN_TRANSIT'e ilerler; daha ileri/terminal durumlar KORUNUR
+ * (regres yok). Bu ilerletme YALNIZ explicit manuel tracking aksiyonu icindir —
+ * DHL createbarcode sonrasi OTOMATIK "kargoya verildi" handoff DEGILDIR (ADR-046).
+ */
+export function manualTrackingNextStatus(current: ShipmentStatus): ShipmentStatus {
+  return MANUAL_TRACKING_PREP_STATUSES.includes(current) ? "IN_TRANSIT" : current;
+}
+
 /**
  * Provider capability + shipment durumu → generic (provider-agnostic) aksiyon yetkileri.
  * DHL mevcutta prepare/barcode/sync/cancel destekler; Geliver/MOCK desteklemedigi

@@ -118,12 +118,15 @@ describe("shipping providers page (F3C.1 Faz B)", () => {
     expect(clientSecret.type).toBe("password");
   });
 
-  it("shows the live-operations-disabled warning for a DHL provider's credentials", async () => {
+  it("shows the provider-operation-permission-disabled warning (security-lock framing, no 'Canlı')", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [DHL_CONFIG] });
     const user = userEvent.setup();
     render(<ShippingProvidersPage />);
     await user.click(await screen.findByRole("button", { name: "Kimlik bilgileri" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Canlı gönderi ve barkod oluşturma|Canlı gönderi\/barkod/)).toBeTruthy();
+    const note = within(dialog).getByText(/oluşturma izni kapalı/);
+    expect(note).toBeTruthy();
+    // Yanıltıcı "Canlı X oluşturma" çerçevesi kullanılmaz.
+    expect((note.textContent ?? "").match(/Canlı (gönderi|barkod|alıcı)/)).toBeNull();
   });
 });

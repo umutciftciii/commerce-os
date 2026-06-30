@@ -29,6 +29,7 @@ const L = {
     goOrder: "Siparişi Gör",
     provider: "Kargo Firması",
     tracking: "Takip No",
+    noTracking: "Henüz oluşmadı",
     reference: "Referans",
     shipmentId: "Gönderi No",
     invoiceId: "Fatura No",
@@ -68,6 +69,7 @@ const L = {
     goOrder: "View order",
     provider: "Carrier",
     tracking: "Tracking No",
+    noTracking: "Not created yet",
     reference: "Reference",
     shipmentId: "Shipment ID",
     invoiceId: "Invoice ID",
@@ -262,18 +264,22 @@ export default function ShipmentDetailPage() {
                 />
                 <span className="font-sans text-white/70">{shipment.providerInfo.displayName}</span>
               </Field>
-              {shipment.trackingNumber ? (
-                <Field label={t.tracking}>
-                  <span className="truncate">{shipment.trackingNumber}</span>
-                  <button
-                    type="button"
-                    onClick={() => copyText(shipment.trackingNumber!, "tracking")}
-                    className="shrink-0 text-[11px] text-emerald-300/70 hover:text-emerald-300"
-                  >
-                    {copied === "tracking" ? t.copied : t.copy}
-                  </button>
-                </Field>
-              ) : null}
+              <Field label={t.tracking}>
+                {shipment.trackingNumber ? (
+                  <>
+                    <span className="truncate">{shipment.trackingNumber}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyText(shipment.trackingNumber!, "tracking")}
+                      className="shrink-0 text-[11px] text-emerald-300/70 hover:text-emerald-300"
+                    >
+                      {copied === "tracking" ? t.copied : t.copy}
+                    </button>
+                  </>
+                ) : (
+                  <span className="font-sans text-white/30">{t.noTracking}</span>
+                )}
+              </Field>
               <Field label={t.reference}>
                 <span className="truncate">{shipment.referenceId}</span>
               </Field>

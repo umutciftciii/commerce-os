@@ -66,8 +66,9 @@ const L = {
     colAction: "Detay",
     detail: "Detay",
     empty: "Henüz kargo gönderisi yok.",
-    emptyHint: "Gönderiler sipariş detayından “Gönderi Kaydı Oluştur” ile başlatılır.",
+    emptyHint: "Gönderiler siparişten doğar ve burada listelenir; operasyon bu ekrandan yürütülür.",
     noPoint: "—",
+    noTracking: "Henüz oluşmadı",
   },
   en: {
     title: "Shipments",
@@ -92,8 +93,9 @@ const L = {
     colAction: "Detail",
     detail: "Detail",
     empty: "No shipments yet.",
-    emptyHint: "Shipments start from an order's “Create shipment record”.",
+    emptyHint: "Shipments are born from orders and listed here; operations run from this screen.",
     noPoint: "—",
+    noTracking: "Not created yet",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -166,7 +168,12 @@ export default function ShipmentsPage() {
       },
       {
         header: t.colTracking,
-        cell: (r) => <span className="font-mono text-[12px] text-white/55">{r.trackingNumber ?? "—"}</span>,
+        cell: (r) =>
+          r.trackingNumber ? (
+            <span className="font-mono text-[12px] text-white/55">{r.trackingNumber}</span>
+          ) : (
+            <span className="text-[12px] text-white/25">{t.noTracking}</span>
+          ),
       },
       {
         header: t.colStatus,

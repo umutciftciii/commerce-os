@@ -1023,7 +1023,8 @@ provider-spesifik (DHL) sözcükler içeriyordu.
   - `/shipping/shipments/[id]` — operasyon detayı: üst özet, provider-safe stepper, "İşlem noktası" timeline,
     capability-driven generic aksiyon paneli.
   - `/orders/[id]` — kargo ÖZET kartı: shipment varsa provider+logo/durum/takip/son işlem + "Kargo Detayına
-    Git"; yoksa "Gönderi Kaydı Oluştur" (born-from-order). Tam operasyon paneli KALDIRILDI.
+    Git"; yoksa güvenli özet (alıcı önizleme + güvenlik-kilidi notu). Tam operasyon paneli KALDIRILDI; kart
+    dış sağlayıcıya İSTEK ATMAZ (bkz. aşağıdaki F3C.5 manuel inceleme netleştirmesi).
 - **Provider-agnostic UI, DHL backend dispatch (hibrit).** UI'da provider yalnız `displayName` + logo olarak
   görünür; buton/copy generic'tir (Barkod/Etiket Oluştur, Durumu Güncelle, Gönderi Kaydını İptal Et, Manuel
   Takip No Gir). Gateway generic alias uçları (`create-label`/`sync`/`cancel`/`manual-tracking`) içeride
@@ -1048,3 +1049,16 @@ provider-spesifik (DHL) sözcükler içeriyordu.
 e-ticaret modülü olarak kaldı (TMS/WMS şişkinliği yok). Secret/ZPL hiçbir response/UI/bundle'a girmez
 (serialize allowlist; barkod yalnız boolean). KAPSAM DIŞI/sonraki: dedike `allowCancel` toggle, tam engine
 refactor, müşteri bildirimi, manuel shipment ana akışı, tarife detail-page refactor.
+
+**F3C.5 manuel inceleme netleştirmesi (5dc3cfb sonrası, revert YOK).**
+- **Manuel takip explicit admin aksiyonu olduğunda shipment status İLERLEYEBİLİR.** Admin manuel takip no girince
+  operasyonel olarak "kargo süreci başladı" demektir: hazırlık aşamasındaki gönderi (`DRAFT/ORDER_CREATED/
+  LABEL_PENDING/LABEL_CREATED`) `IN_TRANSIT`'e ilerler; ileri/terminal durumlar korunur (regres yok). Bu YALNIZ
+  explicit manuel tracking aksiyonuna özeldir — **provider barcode (createbarcode) sonrası OTOMATİK handoff
+  DEĞİLDİR.** "Kargoya verildi" hâlâ otomatik üretilmez. Order ana ticari `OrderStatus` enum'una dokunulmaz;
+  order özet kartı shipment status üzerinden güncel görünür.
+- **Order detay kartı dış sağlayıcıya istek atmaz.** Düşük regresyon için destructive inline create kaldırıldı;
+  asıl provider operasyonu shipment detayında açık guard/capability mesajıyla yürür. Non-destructive draft akışı
+  ayrı borç: TODO-126.
+- **Guard copy "canlı/test"ten bağımsızdır.** Sağlayıcı operasyonu güvenlik kilidi (sandbox HTTP + işlem izni)
+  ile kapalıdır; UI copy'lerinde yanıltıcı "Canlı" çerçevesi kullanılmaz.

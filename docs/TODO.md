@@ -467,7 +467,7 @@
   (canPrepare/canCreateLabel/canSync/canCancel/canManualTracking) + KPI kovaları + provider gorunum DTO; (d)
   store-admin **shipment list** `/shipping/shipments`, **shipment detail** `/shipping/shipments/[id]`
   (provider-safe stepper, "İşlem noktası" timeline, generic action paneli), **order özet kartı** (tam DHL
-  operasyon paneli KALDIRILDI → özet + "Kargo Detayına Git" CTA / born-from-order "Gönderi Kaydı Oluştur");
+  operasyon paneli KALDIRILDI → salt-okunur özet + "Kargo Detayına Git" CTA);
   (e) provider logo desteği (config UI create/edit + preview + initials fallback; liste/detay/özet/sağlayıcı
   ekranlarında gösterim); (f) nav linki + TR/EN i18n. KAPSAM DIŞI (sonraki tur): cancel için dedike
   `providerConfig.allowCancel` toggle (şu an `allowOrderCreate` + `DHL_ECOMMERCE_ALLOW_CANCEL` env kapısı),
@@ -475,6 +475,26 @@
   Bildirim Gönder" (UI'da pasif + not), manuel shipment ana akışı, **tarife detail-page refactor**
   (`/shipping/rates` matris/şablon gelişmiş akışı — F3C.4 üzerine, ayrı tur), storefront provider logo
   (checkout'ta provider SEÇİMİ yok → yalnız altyapı + TODO).
+  - **F3C.5 manuel inceleme fix (5dc3cfb üzerine):** (a) manuel takip no girişi artık hazırlık aşamasındaki
+    (DRAFT/ORDER_CREATED/LABEL_PENDING/LABEL_CREATED) gönderiyi `IN_TRANSIT`'e ilerletir (regres yok),
+    `MANUAL_TRACKING` event "Manuel takip numarası eklendi." — yalnız explicit manuel aksiyon, DHL createbarcode
+    otomatik handoff DEĞİL (ADR-046); (b) order özet kartı dış sağlayıcıya İSTEK ATMAZ → destructive inline
+    create form kaldırıldı, shipment yoksa güvenli özet + "Kargo Gönderileri" linki, varsa "Kargo Detayına Git";
+    (c) guard copy'lerinden yanıltıcı "Canlı" kelimesi kaldırıldı → "güvenlik kilidi" çerçevesi (TR/EN); (d)
+    list/detail/order summary tek status helper + takip no yoksa "Henüz oluşmadı" fallback.
+  - **Tarife UI borcu (F3C.4B — `/shipping/rates` detail-page refactor, AYRI TUR):** inline edit KALDIRILACAK;
+    `/shipping/rates/new` ve `/shipping/rates/[id]` sayfaları yapılacak; "DHL şablonu oluştur" ana buton OLMAYACAK
+    (bu turda copy "Şablon seç" yapıldı); ana aksiyon "Şablon seç" olacak; DHL yalnız preset olacak. (Bu tur sadece
+    copy düzeltildi; backend/matrix engine'e dokunulmadı.)
+- TODO-125 — Provider logo upload/storage. Durum: TODO. `ShippingProviderConfig.logoUrl` şu an manuel public URL
+  (geçici MVP, dış bağımlılık yaratır). İleride dosya upload / asset storage / media library ile yönetilmeli;
+  `logoAlt` korunur. Storefront'ta provider logo gösterimi, provider SEÇİMİ akışı geldiğinde değerlendirilecek.
+- TODO-126 — Non-destructive shipment draft flow. Durum: TODO. Gönderi siparişten doğar ama F3C.5'te order
+  özet kartından destructive create kaldırıldı (5dc3cfb manuel inceleme kararı, düşük regresyon). İleride:
+  provider'a İSTEK ATMADAN yerel DRAFT shipment oluşturan uç (`POST .../orders/:orderId/shipping/shipment-draft`)
+  + shipment detail sayfasında açık guard/capability mesajlı prepare aksiyonu (store-level prepare route). Böylece
+  asıl `createOrder/createbarcode` operasyonu order detayında değil shipment detayında, kullanıcıya 409 patlatmadan
+  yürür.
 - TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
   `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
   workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,

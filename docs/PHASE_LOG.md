@@ -1969,3 +1969,29 @@ sonraki tur).
   derledi; gateway health test (264, full app boot + route registration) geçti; canlı HTTP stack smoke
   (worktree docker gotcha) çalıştırılmadı. **Secret/ZPL:** yeni UI/BFF taramasında yalnız `ctx.token`
   (server-side BFF→gateway auth, standart) eşleşti; response/UI/bundle'a sızıntı yok. Commit/merge/push YOK.
+
+### F3C.5 manuel UI inceleme fix (5dc3cfb checkpoint sonrası, revert YOK → üzerine fix)
+
+Manuel UI incelemede çıkan bug/UX maddeleri düzeltildi (kararlar: order özet kartı dış sağlayıcıya istek atmaz —
+düşük regresyon; yeni DRAFT/prepare uçları bu turda yazılmadı, TODO-126).
+
+- **Manuel tracking → status ilerler (#2):** `applyManualTracking` artık `manualTrackingNextStatus(serialize.ts)`
+  ile hazırlık aşamasındaki gönderiyi (`DRAFT/ORDER_CREATED/LABEL_PENDING/LABEL_CREATED`) `IN_TRANSIT`'e ilerletir;
+  ileri/terminal durumlar korunur (regres yok). `MANUAL_TRACKING` event copy "Manuel takip numarası eklendi.".
+  Order ana ticari `OrderStatus` enum'una DOKUNULMADI; order özet kartı shipment status üzerinden güncel görünür.
+  DHL createbarcode sonrası otomatik "kargoya verildi" davranışına DÖNÜLMEDİ (yalnız explicit manuel aksiyon).
+- **Order detail CTA (#6, B kararı):** `OrderShipmentSummary` salt-okunur özet oldu — destructive inline create
+  form KALDIRILDI, doğrudan `prepareDhlShipment`/`createOrderShipment` çağrısı YOK. Shipment yoksa güvenli özet
+  (alıcı önizleme + güvenlik-kilidi notu + "Kargo Gönderileri" linki); varsa özet + "Kargo Detayına Git".
+- **Guard copy (#5):** Yanıltıcı "Canlı/Live" guard copy'leri kaldırıldı → "güvenlik kilidi" çerçevesi
+  (i18n error code'lar tr+en: RECIPIENT/ORDER/BARCODE_CREATE_DISABLED, CANCEL_DISABLED, SHIPPING_HTTP_DISABLED;
+  providers sayfası izin toggle/uyarı copy'leri; `shipment-ui.ts` PROVIDER_ACTIONS_DISABLED). "canlı" yalnız
+  "bu güvenlik kilidi canlı/test ayrımından bağımsızdır" cümlesinde kaldı (bilinçli).
+- **Status tutarlılığı (#4):** liste/detay/order özet tek `SHIPMENT_STATUS_LABEL/TONE` helper'ından beslenir;
+  takip no yoksa "Henüz oluşmadı" (liste + detay + order özet), varsa üçünde aynı no.
+- **Tarife UI (#1, copy-only):** "DHL şablonu oluştur" → "Şablon seç" (TR/EN); backend/matrix engine'e
+  dokunulmadı. Tam detail-page refactor borcu TODO-121 altında **bilinen UI borcu** olarak listelendi.
+- **Provider logo (#3):** kod değişikliği yok; TODO-125 (upload/storage) eklendi. logoUrl geçici MVP.
+- **Testler:** gateway `shipping-shipment-ops.test.ts`'e `manualTrackingNextStatus` (advance + no-regress)
+  testleri; store-admin tarafında order summary destructive-call-yok + guard copy "Canlı" geçmez + status
+  helper paritesi güncellendi. **Bilinen UI borcu:** TODO-121 tarife detail-page refactor, TODO-126 draft flow.
