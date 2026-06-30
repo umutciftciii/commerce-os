@@ -9,6 +9,7 @@ import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/serv
 import { canWriteReview, isReorderable, returnEligibility } from "../../../../lib/orders";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
+import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,10 @@ export default async function OrderDetailPage({
         </section>
 
         <OrderSummary o={o} order={order} />
+
+        {order.shipment ? (
+          <ShipmentTracking shipment={order.shipment} t={o.detail.tracking} />
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <ShippingBlock o={o} order={order} />

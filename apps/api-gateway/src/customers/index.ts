@@ -191,6 +191,30 @@ export interface CustomerOrderPaymentRecord {
   paidAt: Date | null;
 }
 
+/**
+ * TODO-117 — Müşteri-facing kargo takip kaydı. Yalnız müşteri-güvenli alanlar;
+ * secret/iç alan (barkod/ZPL, labelUrl, rawSafeJson, externalId, referenceId,
+ * alıcı PII) TAŞIMAZ. Konum = "işlem noktası" (kesin varış değil; ADR-045).
+ */
+export interface CustomerOrderShipmentEventRecord {
+  eventType: string;
+  statusText: string | null;
+  location: string | null;
+  occurredAt: Date | null;
+}
+
+export interface CustomerOrderShipmentRecord {
+  providerName: string;
+  logoUrl: string | null;
+  logoAlt: string | null;
+  status: string;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  lastLocation: string | null;
+  updatedAt: Date;
+  events: CustomerOrderShipmentEventRecord[];
+}
+
 export interface CustomerOrderDetailRecord {
   orderNumber: string;
   status: string;
@@ -214,6 +238,7 @@ export interface CustomerOrderDetailRecord {
   lines: CustomerOrderDetailLineRecord[];
   addresses: CustomerOrderAddressRecord[];
   payment: CustomerOrderPaymentRecord | null;
+  shipment: CustomerOrderShipmentRecord | null;
 }
 
 const customerAuthSelect = {
@@ -766,6 +791,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
       const order = await prisma.order.findFirst({
         where: { storeId, customerId, orderNumber },
         select: {
+          id: true,
           orderNumber: true,
           status: true,
           paymentStatus: true,
@@ -830,6 +856,55 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
       if (!order) return null;
       const paid = order.paymentAttempts.find((attempt) => attempt.paidAt !== null);
       const payment = paid ?? null;
+
+      // TODO-117 — Kargo takip özeti (en güncel shipment). Yalnız müşteri-güvenli
+      // alanlar SELECT edilir; barkod/ZPL/labelUrl/rawSafeJson/externalId/alıcı PII
+      // ÇEKİLMEZ. Operasyonel-iç event'ler (barkod/webhook) müşteri timeline'ından
+      // dışlanır; konum "işlem noktası" olarak gösterilir (ADR-045).
+      const shipmentRow = await prisma.shipment.findFirst({
+        where: { storeId, orderId: order.id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          status: true,
+          trackingNumber: true,
+          trackingUrl: true,
+          updatedAt: true,
+          providerConfig: { select: { displayName: true, logoUrl: true, logoAlt: true } },
+          events: {
+            orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
+            select: {
+              eventType: true,
+              statusText: true,
+              location: true,
+              occurredAt: true,
+            },
+          },
+        },
+      });
+      const shipment: CustomerOrderShipmentRecord | null = shipmentRow
+        ? {
+            providerName: shipmentRow.providerConfig.displayName,
+            logoUrl: shipmentRow.providerConfig.logoUrl,
+            logoAlt: shipmentRow.providerConfig.logoAlt,
+            status: shipmentRow.status,
+            trackingNumber: shipmentRow.trackingNumber,
+            trackingUrl: shipmentRow.trackingUrl,
+            lastLocation:
+              [...shipmentRow.events]
+                .reverse()
+                .find((event) => event.location !== null)?.location ?? null,
+            updatedAt: shipmentRow.updatedAt,
+            events: shipmentRow.events
+              .filter((event) => isCustomerVisibleShipmentEvent(event.eventType, event.location))
+              .map((event) => ({
+                eventType: event.eventType,
+                statusText: event.statusText,
+                location: event.location,
+                occurredAt: event.occurredAt,
+              })),
+          }
+        : null;
+
       return {
         orderNumber: order.orderNumber,
         status: order.status,
@@ -883,6 +958,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               paidAt: payment.paidAt,
             }
           : null,
+        shipment,
       };
     },
     async adminFindDetail(storeId, customerId) {
@@ -1198,7 +1274,42 @@ function serializeCustomerOrderDetail(order: CustomerOrderDetailRecord) {
           paidAt: order.payment.paidAt ? order.payment.paidAt.toISOString() : null,
         }
       : null,
+    shipment: order.shipment
+      ? {
+          providerName: order.shipment.providerName,
+          logoUrl: order.shipment.logoUrl,
+          logoAlt: order.shipment.logoAlt,
+          status: order.shipment.status,
+          trackingNumber: order.shipment.trackingNumber,
+          trackingUrl: order.shipment.trackingUrl,
+          lastLocation: order.shipment.lastLocation,
+          updatedAt: order.shipment.updatedAt.toISOString(),
+          events: order.shipment.events.map((event) => ({
+            eventType: event.eventType,
+            statusText: event.statusText,
+            location: event.location,
+            occurredAt: event.occurredAt ? event.occurredAt.toISOString() : null,
+          })),
+        }
+      : null,
   };
+}
+
+/**
+ * TODO-117 — Müşteri timeline'ında gösterilecek shipment event'leri. Operasyonel-iç
+ * adımlar (barkod üretimi/webhook/iç oluşturma) müşteriye gösterilmez; ancak bir
+ * konum (işlem noktası) taşıyan her event anlamlıdır ve dahil edilir. ADR-045.
+ */
+const CUSTOMER_VISIBLE_SHIPMENT_EVENTS = new Set([
+  "ORDER_CREATED",
+  "STATUS_CHANGED",
+  "TRACKING_UPDATED",
+  "MANUAL_TRACKING",
+  "CANCELLED",
+]);
+
+export function isCustomerVisibleShipmentEvent(eventType: string, location: string | null): boolean {
+  return CUSTOMER_VISIBLE_SHIPMENT_EVENTS.has(eventType) || location !== null;
 }
 
 /* ── Yardimcilar ──────────────────────────────────────────────────────────── */

@@ -248,6 +248,8 @@ export type {
   CustomerOrderAddressSummary,
   CustomerOrderBillingSummary,
   CustomerOrderPaymentSummary,
+  CustomerOrderShipmentEvent,
+  CustomerOrderShipment,
   CustomerOrderDetail,
   CustomerOrderDetailResponse,
 } from "@commerce-os/contracts";

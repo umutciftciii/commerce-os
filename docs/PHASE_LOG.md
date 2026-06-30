@@ -2017,3 +2017,36 @@ Yeni model: **online BİRİNCİL, manuel İKİNCİL fallback.**
   ile geçer. **Tracked compose/.env.example production-safe default (kapalı) korur**; gerçek değer/secret tracked
   dosyaya yazılmaz.
 - **createOrder ≠ createbarcode ≠ fiziksel teslim** ayrımı korunur (ADR-045); barkod shipment detayında ayrı aksiyon.
+
+## TODO-117 Müşteri-tarafı kargo takip UI (storefront sipariş detayı)
+
+F3C.5'in (provider-agnostic shipment domain + store-admin shipment ekranları) müşteri-facing tamamlayıcısı.
+Şimdiye kadar kargo takibi yalnız store-admin panelindeydi; müşteri kendi siparişinin gönderi durumunu
+göremiyordu. Bu iş, mevcut müşteri sipariş detayı route'una (`/account/orders/[orderNumber]`) **salt-okunur**
+bir kargo takip kartı ekler. **Yeni operasyon, provider çağrısı veya state machine YOK** — yalnız mevcut
+Shipment domaininin müşteri-güvenli bir projeksiyonu.
+
+- **Gateway (allowlist DTO).** `GET /public/stores/:storeSlug/customer/orders/:orderNumber` yanıtına additive
+  `shipment` bloğu eklendi (yoksa `null`). `getOrderDetail` siparişin EN GÜNCEL shipment'ını + event'lerini
+  çeker; yalnız müşteri-güvenli alanlar SELECT edilir: `providerConfig.displayName/logoUrl/logoAlt`, `status`,
+  `trackingNumber`, `trackingUrl`, `updatedAt`, event'ler (`eventType/statusText/location/occurredAt`). SECRET/iç
+  alan (barkod/ZPL `barcodeJsonSafe`, `labelUrl`, `externalOrderId/ShipmentId/InvoiceId`, `referenceId`,
+  `rawSafeJson`, alıcı telefon/adres) ÇEKİLMEZ. Sözleşme: `customerOrderShipment*` (contracts), allowlist `parse`.
+- **Müşteri-görünür event filtresi (ADR-045).** `isCustomerVisibleShipmentEvent` operasyonel-iç adımları
+  (`CREATED/BARCODE_CREATED/BARCODE_PENDING/BARCODE_FAILED/WEBHOOK_RECEIVED`) müşteriden gizler — ancak bir
+  konum (işlem noktası) taşıyan her event anlamlı sayılıp dahil edilir. `lastLocation` = son konumlu event.
+- **Storefront.** Saf helper `lib/shipment.ts` (durum→ton, 4 adımlı stepper index'i, problem/iptal kontrolü,
+  logo baş-harf fallback); server component `components/account/shipment-tracking.tsx` (sağlayıcı + logo,
+  durum rozeti, takip no + harici link `rel=noopener noreferrer nofollow`, stepper, "işlem noktası" timeline).
+  Detay sayfası shipment varsa kartı render eder. **Premium light-first dil + brand (#9743CD) aksanı** korunur.
+- **ADR-045 KORUNUR.** "Kargoya verildi" otomatik üretilmez: `ORDER_CREATED` stepper'da hazırlık adımıdır
+  (step 0), teslim yalnız `DELIVERED`'da tamamlanır (step 3); konum kesin varış değil → "işlem noktası".
+- **İzolasyon/güvenlik.** Own-only zaten `getOrderDetail` (store+customer+orderNumber) ile; başka müşteri/yok →
+  404 (değişmedi). Hiçbir ayrıcalıklı secret/admin token client'a girmez (provider logo PUBLIC URL).
+- **i18n.** TR/EN paritesi `account.orders.detail.tracking.*` (status/event etiketleri, stepper adımları, copy).
+- **Testler.** Gateway: shipment allowlist + secret-yok + event filtresi + status passthrough; shipment yoksa
+  `null`; own-only 404 korunur. Filtre unit: `isCustomerVisibleShipmentEvent`. Storefront saf helper:
+  step index (ORDER_CREATED < DELIVERED), tone, problem/cancel, initials. Gateway 269, storefront 86 test geçer.
+- **Doğrulama:** db:generate / build / typecheck / lint / test / git diff --check yeşil.
+- **KALAN:** Canlı provider tracking SYNC'i (TODO-100/104, webhook imza); checkout'ta provider seçimi + logo
+  (TODO-125). Bu iş yalnız mevcut shipment verisini müşteriye dürüstçe yansıtır.
