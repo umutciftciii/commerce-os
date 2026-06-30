@@ -13,6 +13,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "@commerce-os/db";
 import {
+  shippingImportRequestSchema,
+  shippingMatrixApplyRequestSchema,
   shippingRatePlanCreateRequestSchema,
   shippingRatePlanListResponseSchema,
   shippingRatePlanSchema,
@@ -22,10 +24,20 @@ import {
   shippingRateTierInputSchema,
   shippingRateZoneInputSchema,
   shippingSurchargeInputSchema,
+  type ShippingMatrixApplyRequest,
+  type ShippingMatrixMode,
 } from "@commerce-os/contracts";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { serializeRatePlan, type RatePlanWithRules } from "./rate-plan-service.js";
+import {
+  buildMatrixDiff,
+  normalizeKey,
+  parseCsvToMatrix,
+  type CsvColumn,
+  type MatrixExistingRule,
+  type MatrixPlannedOp,
+} from "./matrix-service.js";
 
 export interface ShippingRatePlanRoutesDeps {
   requireStoreAdmin: (
@@ -94,6 +106,108 @@ function validatePlanShape(input: {
     return "FREE_THRESHOLD_REQUIRED";
   }
   return null;
+}
+
+type Decimalish = { toNumber: () => number } | number | null;
+function decToNum(value: Decimalish): number | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "number" ? value : value.toNumber();
+}
+
+/** Plan kurallarini matris eslesmesi icin minimal sekle cevirir (Decimal -> number). */
+function toMatrixExistingRules(plan: RatePlanWithRules): MatrixExistingRule[] {
+  return plan.rules.map((r) => ({
+    id: r.id,
+    tierId: r.tierId,
+    zoneId: r.zoneId,
+    minDesi: decToNum(r.minDesi),
+    maxDesi: decToNum(r.maxDesi),
+    minWeightKg: decToNum(r.minWeightKg),
+    maxWeightKg: decToNum(r.maxWeightKg),
+    cityCode: r.cityCode,
+    districtCode: r.districtCode,
+    regionCode: r.regionCode,
+    chargeType: r.chargeType,
+    amountMinor: r.amountMinor,
+    unitAmountMinor: r.unitAmountMinor,
+    baseAmountMinor: r.baseAmountMinor,
+    baseThreshold: decToNum(r.baseThreshold),
+  }));
+}
+
+/** CSV basligini plan kolonlarina esler: SEGMENT -> tier adi; ZONE -> zone kodu + adi. */
+function buildCsvColumns(plan: RatePlanWithRules, mode: ShippingMatrixMode): CsvColumn[] {
+  if (mode === "SEGMENT") {
+    return plan.tiers.map((t) => ({ key: normalizeKey(t.name), columnId: t.id }));
+  }
+  const cols: CsvColumn[] = [];
+  for (const z of plan.zones) {
+    cols.push({ key: normalizeKey(z.code), columnId: z.id });
+    cols.push({ key: normalizeKey(z.name), columnId: z.id });
+  }
+  return cols;
+}
+
+/** Matris/CSV kolon kimliklerinin plan kapsaminda oldugunu dogrular (yoksa hata kodu). */
+function validateMatrixColumns(
+  plan: RatePlanWithRules,
+  mode: ShippingMatrixMode,
+  columnIds: string[],
+): string | null {
+  const valid = new Set(mode === "SEGMENT" ? plan.tiers.map((t) => t.id) : plan.zones.map((z) => z.id));
+  for (const id of columnIds) {
+    if (!valid.has(id)) return mode === "SEGMENT" ? "TIER_NOT_IN_PLAN" : "ZONE_NOT_IN_PLAN";
+  }
+  return null;
+}
+
+/** plannedOps'u tek transaction'da uygular (partial failure => rollback). */
+async function applyPlannedOps(
+  ops: MatrixPlannedOp[],
+  ratePlanId: string,
+  storeId: string,
+): Promise<void> {
+  if (ops.length === 0) return;
+  await prisma.$transaction(
+    ops.map((op) =>
+      op.action === "CREATE"
+        ? prisma.shippingRateRule.create({
+            data: {
+              ratePlanId,
+              storeId,
+              tierId: op.data.tierId,
+              zoneId: op.data.zoneId,
+              minDesi: op.data.minDesi,
+              maxDesi: op.data.maxDesi,
+              minWeightKg: op.data.minWeightKg,
+              maxWeightKg: op.data.maxWeightKg,
+              chargeType: op.data.chargeType,
+              amountMinor: op.data.amountMinor,
+              unitAmountMinor: op.data.unitAmountMinor,
+              baseAmountMinor: op.data.baseAmountMinor,
+              baseThreshold: op.data.baseThreshold,
+              sortOrder: op.data.sortOrder,
+            },
+          })
+        : prisma.shippingRateRule.update({
+            where: { id: op.ruleId },
+            data: {
+              tierId: op.data.tierId,
+              zoneId: op.data.zoneId,
+              minDesi: op.data.minDesi,
+              maxDesi: op.data.maxDesi,
+              minWeightKg: op.data.minWeightKg,
+              maxWeightKg: op.data.maxWeightKg,
+              chargeType: op.data.chargeType,
+              amountMinor: op.data.amountMinor,
+              unitAmountMinor: op.data.unitAmountMinor,
+              baseAmountMinor: op.data.baseAmountMinor,
+              baseThreshold: op.data.baseThreshold,
+              sortOrder: op.data.sortOrder,
+            },
+          }),
+    ),
+  );
 }
 
 export function registerShippingRatePlanRoutes(
@@ -565,4 +679,125 @@ export function registerShippingRatePlanRoutes(
     const reloaded = await loadPlan(params.storeId, params.id);
     return shippingRatePlanSchema.parse(serializeRatePlan(reloaded!));
   });
+
+  /* ───────────── F3C.4 Matris giris + CSV import (price engine) ─────────────
+   * Backend AUTHORITATIVE: grid/CSV gelir, backend upsert eder. Yalniz upsert —
+   * matris kapsami disindaki ozel kurallar korunur. preview DB'ye YAZMAZ; apply
+   * tek transaction'da yapilir (partial failure => rollback). store-scope zorunlu.
+   */
+
+  /** Matris onizleme: grid'i mevcut kurallarla diff'ler; DB'ye yazmaz. */
+  app.post("/stores/:storeId/shipping/rate-plans/:id/matrix/preview", async (request, reply) => {
+    const params = planParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input: ShippingMatrixApplyRequest = shippingMatrixApplyRequestSchema.parse(request.body);
+    const plan = await loadPlan(params.storeId, params.id);
+    if (!plan) return reply.code(404).send(errorBody("RATE_PLAN_NOT_FOUND", "Tarife bulunamadı."));
+    const colError = validateMatrixColumns(plan, input.mode, gatherMatrixColumnIds(input));
+    if (colError) return reply.code(400).send(errorBody(colError, "Kolon bu tarifeye ait değil."));
+    const diff = buildMatrixDiff({
+      mode: input.mode,
+      axis: input.axis,
+      rows: input.rows,
+      existingRules: toMatrixExistingRules(plan),
+    });
+    return reply.send({ valid: diff.valid, summary: diff.summary, cells: diff.cells, errors: diff.errors });
+  });
+
+  /** Matris uygula: diff sonrasi CREATE/UPDATE'leri transaction'da yazar. */
+  app.post("/stores/:storeId/shipping/rate-plans/:id/matrix/apply", async (request, reply) => {
+    const params = planParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input: ShippingMatrixApplyRequest = shippingMatrixApplyRequestSchema.parse(request.body);
+    const plan = await loadPlan(params.storeId, params.id);
+    if (!plan) return reply.code(404).send(errorBody("RATE_PLAN_NOT_FOUND", "Tarife bulunamadı."));
+    const colError = validateMatrixColumns(plan, input.mode, gatherMatrixColumnIds(input));
+    if (colError) return reply.code(400).send(errorBody(colError, "Kolon bu tarifeye ait değil."));
+    const diff = buildMatrixDiff({
+      mode: input.mode,
+      axis: input.axis,
+      rows: input.rows,
+      existingRules: toMatrixExistingRules(plan),
+    });
+    if (!diff.valid) {
+      return reply.code(400).send(errorBody("MATRIX_INVALID", "Matris hatalı; düzeltip tekrar deneyin.", { errors: diff.errors }));
+    }
+    await applyPlannedOps(diff.plannedOps, plan.id, params.storeId);
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ShippingRateRule",
+      entityId: plan.id,
+      metadata: { action: "matrixApply", ...diff.summary },
+    });
+    const reloaded = await loadPlan(params.storeId, params.id);
+    return reply.send({ summary: diff.summary, plan: serializeRatePlan(reloaded!) });
+  });
+
+  /** CSV onizleme: ham metni server-side parse + diff; DB'ye yazmaz. */
+  app.post("/stores/:storeId/shipping/rate-plans/:id/import/preview", async (request, reply) => {
+    const params = planParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingImportRequestSchema.parse(request.body);
+    const plan = await loadPlan(params.storeId, params.id);
+    if (!plan) return reply.code(404).send(errorBody("RATE_PLAN_NOT_FOUND", "Tarife bulunamadı."));
+    const parsed = parseCsvToMatrix(input.csv, buildCsvColumns(plan, input.mode));
+    const diff = buildMatrixDiff({
+      mode: input.mode,
+      axis: input.axis,
+      rows: parsed.rows,
+      existingRules: toMatrixExistingRules(plan),
+    });
+    const errors = [...parsed.errors, ...diff.errors];
+    return reply.send({
+      valid: errors.length === 0,
+      rowCount: parsed.rows.length,
+      summary: diff.summary,
+      cells: diff.cells,
+      errors,
+    });
+  });
+
+  /** CSV uygula: re-parse (authoritative) + transaction. Hata varsa yazmaz. */
+  app.post("/stores/:storeId/shipping/rate-plans/:id/import/apply", async (request, reply) => {
+    const params = planParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingImportRequestSchema.parse(request.body);
+    const plan = await loadPlan(params.storeId, params.id);
+    if (!plan) return reply.code(404).send(errorBody("RATE_PLAN_NOT_FOUND", "Tarife bulunamadı."));
+    const parsed = parseCsvToMatrix(input.csv, buildCsvColumns(plan, input.mode));
+    const diff = buildMatrixDiff({
+      mode: input.mode,
+      axis: input.axis,
+      rows: parsed.rows,
+      existingRules: toMatrixExistingRules(plan),
+    });
+    const errors = [...parsed.errors, ...diff.errors];
+    if (errors.length > 0) {
+      return reply.code(400).send(errorBody("IMPORT_INVALID", "CSV hatalı; düzeltip tekrar deneyin.", { errors }));
+    }
+    await applyPlannedOps(diff.plannedOps, plan.id, params.storeId);
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ShippingRateRule",
+      entityId: plan.id,
+      metadata: { action: "importApply", ...diff.summary },
+    });
+    const reloaded = await loadPlan(params.storeId, params.id);
+    return reply.send({ summary: diff.summary, plan: serializeRatePlan(reloaded!) });
+  });
+}
+
+/** Matris istegindeki tum kolon kimliklerini toplar (columns + hucre columnId'leri). */
+function gatherMatrixColumnIds(input: ShippingMatrixApplyRequest): string[] {
+  const ids = new Set<string>(input.columns);
+  for (const row of input.rows) for (const cell of row.cells) ids.add(cell.columnId);
+  return [...ids];
 }

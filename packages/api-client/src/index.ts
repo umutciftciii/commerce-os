@@ -82,6 +82,12 @@ import type {
   ShippingRateTierInput,
   ShippingRateZoneInput,
   ShippingSurchargeInput,
+  ShippingMatrixApplyRequest,
+  ShippingMatrixPreviewResponse,
+  ShippingMatrixApplyResponse,
+  ShippingImportRequest,
+  ShippingImportPreviewResponse,
+  ShippingImportApplyResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -274,6 +280,12 @@ export type {
   ShippingSurchargeInput,
   ShippingChargeType,
   ShippingRateRule,
+  ShippingMatrixApplyRequest,
+  ShippingMatrixPreviewResponse,
+  ShippingMatrixApplyResponse,
+  ShippingImportRequest,
+  ShippingImportPreviewResponse,
+  ShippingImportApplyResponse,
   CartShippingQuoteResponse,
 } from "@commerce-os/contracts";
 
@@ -653,6 +665,30 @@ export interface ApiClient {
         surchargeId: string,
         token?: string,
       ): Promise<ShippingRatePlanResponse>;
+      matrixPreview(
+        storeId: string,
+        planId: string,
+        input: ShippingMatrixApplyRequest,
+        token?: string,
+      ): Promise<ShippingMatrixPreviewResponse>;
+      matrixApply(
+        storeId: string,
+        planId: string,
+        input: ShippingMatrixApplyRequest,
+        token?: string,
+      ): Promise<ShippingMatrixApplyResponse>;
+      importPreview(
+        storeId: string,
+        planId: string,
+        input: ShippingImportRequest,
+        token?: string,
+      ): Promise<ShippingImportPreviewResponse>;
+      importApply(
+        storeId: string,
+        planId: string,
+        input: ShippingImportRequest,
+        token?: string,
+      ): Promise<ShippingImportApplyResponse>;
     };
     orderShipping: {
       get(storeId: string, orderId: string, token?: string): Promise<OrderShippingResponse>;
@@ -1166,6 +1202,34 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/shipping/rate-plans/${planId}/surcharges/${surchargeId}`,
             "DELETE",
             undefined,
+            token,
+          ),
+        matrixPreview: (storeId, planId, input, token) =>
+          sendJson<ShippingMatrixPreviewResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/matrix/preview`,
+            "POST",
+            input,
+            token,
+          ),
+        matrixApply: (storeId, planId, input, token) =>
+          sendJson<ShippingMatrixApplyResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/matrix/apply`,
+            "POST",
+            input,
+            token,
+          ),
+        importPreview: (storeId, planId, input, token) =>
+          sendJson<ShippingImportPreviewResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/import/preview`,
+            "POST",
+            input,
+            token,
+          ),
+        importApply: (storeId, planId, input, token) =>
+          sendJson<ShippingImportApplyResponse>(
+            `/stores/${storeId}/shipping/rate-plans/${planId}/import/apply`,
+            "POST",
+            input,
             token,
           ),
       },
