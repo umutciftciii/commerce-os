@@ -931,3 +931,24 @@
 - Kargo sağlayıcı HTTP çağrı timeout'u `DHL_ECOMMERCE_HTTP_TIMEOUT_MS` (default 60000ms) ile
   yapılandırılır; sabit 15s kaldırıldı (MNG sandbox ~15s latency'de sınırda abort üretiyordu).
   Timeout aşımı SANITIZE `SHIPPING_HTTP_TIMEOUT` → HTTP 504; URL/secret/token sızdırmaz.
+
+## F3C.3 — DHL provider clarification PENDING (operasyon finalizasyonu beklemede)
+
+**Durum (2026-06-30): BEKLEMEDE.** DHL/MNG'ye 4 kritik operasyonel davranış sorusu iletildi; yanıt
+gelmeden DHL operasyon finalizasyonu (retry/failed/pending tasarımı, tracking gösterimi, cancel)
+YAPILMAYACAK. Bekleyen sorular:
+1. createbarcode 200 dönüp `barcodes`/`shipmentId` BOŞ olduğunda koşul nedir? createOrder→createbarcode
+   arası minimum bekleme gerekir mi? (Aralıklı sparse yanıt gözlendi.)
+2. createRecipient 200 + boş body → varış şube/hat tespiti senkron mu, ayrı sorgu mu? Bazı ilçelerde
+   "VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI" sebebi.
+3. `shipmentStatusExplanation: "Sipariş Kargoya Verildi"` + `isDelivered: 0` → gönderi mi oluştu, fiziksel
+   teslim mi? Operasyonel statusCode listesi gerekli.
+4. trackshipment `location` çıkış/gönderici şubesi mi, varış/alıcı şubesi mi?
+
+**Bekleme süresince bağlayıcı yorumlar:**
+- createOrder fiziksel "kargoya verildi" olarak YORUMLANMAZ (yalnız gönderi kaydı/talep).
+- createbarcode BOŞ response başarı SAYILMAZ (retry/failed/pending DHL yanıtına göre tasarlanacak).
+- trackshipment `location` müşteriye KESİN varış konumu gibi gösterilmez.
+- cancel endpoint belirsizliği TODO olarak kalır (TODO-116).
+
+Kanıt/zincir: repo-dışı `dhl-sandbox-report.json` (sanitize req/resp), DHL'e iletildi.

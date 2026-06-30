@@ -440,3 +440,7 @@
 - TODO-119 (ÇÖZÜLDÜ): Sağlayıcı HTTP timeout env-configurable (DHL_ECOMMERCE_HTTP_TIMEOUT_MS,
   default 60000; timeout→SHIPPING_HTTP_TIMEOUT 504). F3C.3 runtime smoke'ta MNG sandbox ~15s
   latency'sinin sabit 15s timeout'u sınırda abort etmesi üzerine eklendi.
+- TODO-120 (BEKLEMEDE — DHL clarification pending): DHL operasyon finalizasyonu (retry/failed/pending
+  davranışı, createbarcode boş-yanıt yönetimi, tracking gösterimi, cancel) DHL'in 4 soruya yanıtı gelene
+  kadar donduruldu. createOrder ≠ fiziksel teslim; createbarcode boş ≠ başarı; location ≠ kesin varış.
+  main'e ek finalizasyon merge/push YOK (F3C.3 temel kod zaten 4cf8032'de merged).

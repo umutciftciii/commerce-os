@@ -1859,3 +1859,8 @@ bağımsız ve sağlayıcıya istek atmaz.
   sürebiliyor; eski sabit 15s transport timeout'u sınırda abort/500 üretiyordu. **Çözüm:**
   sağlayıcı HTTP timeout'u env-configurable yapıldı (DHL_ECOMMERCE_HTTP_TIMEOUT_MS, default
   60000); timeout aşımı ham AbortError yerine sanitize SHIPPING_HTTP_TIMEOUT (504) döner.
+- F3C.3 DHL operasyon finalizasyonu (2026-06-30) BEKLEMEYE alındı: DHL/MNG'ye 4 operasyonel soru iletildi
+  (createbarcode sparse koşulu, createRecipient boş body/hat kodu, "Sipariş Kargoya Verildi" vs isDelivered:0
+  anlamı, trackshipment location çıkış/varış). Yanıt gelene kadar retry/pending/cancel/tracking-gösterim
+  tasarımı donduruldu. Sanitize req/resp zinciri dhl-sandbox-report.json olarak DHL'e iletildi. Temel F3C.3
+  kodu zaten main'de (4cf8032); ileriye dönük ek merge/push yapılmayacak.
