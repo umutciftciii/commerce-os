@@ -2340,6 +2340,10 @@ export const shipmentEventTypeSchema = z.enum([
   "CREATED",
   "ORDER_CREATED",
   "BARCODE_CREATED",
+  // F3C.3 (ADR-045): createbarcode bos 200 → BARCODE_PENDING; varis sube/hat kodu
+  // routing hatasi → BARCODE_FAILED (retryable; createOrder TEKRAR cagrilmaz).
+  "BARCODE_PENDING",
+  "BARCODE_FAILED",
   "STATUS_CHANGED",
   "TRACKING_UPDATED",
   "CANCELLED",
@@ -2365,9 +2369,14 @@ export const shipmentSchema = z.object({
   status: z.enum([
     "DRAFT",
     "ORDER_CREATED",
+    // F3C.3 (ADR-045) DHL normalize ara durumlar: barkod bos 200 (LABEL_PENDING),
+    // dagitima cikti (OUT_FOR_DELIVERY), teslim edilemedi (DELIVERY_FAILED, FINAL DEGIL).
+    "LABEL_PENDING",
     "LABEL_CREATED",
     "IN_TRANSIT",
+    "OUT_FOR_DELIVERY",
     "DELIVERED",
+    "DELIVERY_FAILED",
     "RETURNED",
     "CANCELLED",
     "FAILED",

@@ -59,3 +59,20 @@ export function assertLabelPurchaseAllowed(
     );
   }
 }
+
+/**
+ * F3C.3 (ADR-045): canli DHL kargo iptali (cancelshipment) guard'i. Order-create ile ayni
+ * operasyonel guven seviyesi gerekir: env DHL_ECOMMERCE_ALLOW_CANCEL && providerConfig
+ * (allowOrderCreate kapisi route'ta ctx.guards.allowCancel'e birlesir) && explicitConfirm.
+ */
+export function assertCancelAllowed(
+  ctx: ShippingActionContext,
+  explicitConfirm: boolean | undefined,
+): void {
+  if (!(ctx.guards.allowCancel && explicitConfirm === true)) {
+    throw new ShippingConfigError(
+      "CANCEL_DISABLED",
+      "Canli kargo iptali kapalı. Etkinleştirmek için provider izni + ortam bayrağı + explicitConfirm gerekir.",
+    );
+  }
+}

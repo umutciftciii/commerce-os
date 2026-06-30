@@ -40,6 +40,11 @@ export interface ShippingGuardFlags {
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
   allowLabelPurchase: boolean;
+  /**
+   * F3C.3 (ADR-045): canli DHL cancelshipment izni. env DHL_ECOMMERCE_ALLOW_CANCEL &&
+   * providerConfig (allowOrderCreate kapisi) && request.explicitConfirm uclusu saglaninca calisir.
+   */
+  allowCancel: boolean;
 }
 
 export interface ShippingActionContext {
@@ -105,6 +110,18 @@ export interface ShippingBarcodeResult {
   externalShipmentId: string | null;
   externalInvoiceId: string | null;
   barcodes: ShippingBarcodeItem[];
+  /**
+   * F3C.3 (ADR-045): createbarcode HTTP 200 ama shipmentId/barcodes BOS → "tam basarili
+   * barkod" DEGIL. true ise route LABEL_PENDING'e ceker; trackingNumber/shipmentId set
+   * ETMEZ ve retry mumkun kalir.
+   */
+  providerReturnedEmptyPayload: boolean;
+  /**
+   * F3C.3 (ADR-045): saglayici domain hatasi (or. "VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI").
+   * Sanitize edilmis mesaj (secret/JWT/ZPL icermez). null ise hata yok. Dolu ise route
+   * BARCODE_FAILED event yazar ve retryable hata doner; createOrder TEKRAR cagrilmaz.
+   */
+  providerErrorMessage: string | null;
 }
 
 export interface ShippingShipmentStatusResult {

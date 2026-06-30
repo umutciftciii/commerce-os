@@ -432,22 +432,35 @@
 - TODO-112: Sipariş sonrası DHL operasyon otomasyonu — checkout sonrası createRecipient/createOrder/createbarcode
   akışının (admin onaylı veya otomatik) tarife motoruyla ilişkilendirilmesi. Marketplace TRND/N11 kargo alanları
   (bkz. TODO-105) bu akışa bağlanır.
-- TODO-116: DHL kargo İPTAL (cancel) endpoint'i — MNG dokümanından doğru path/ürün teyidi. Sandbox'ta
-  cancelOrder/cancelShipment/deleteOrder/cancelbarcode (POST+DELETE) hepsi 404. Teyit edilince
-  `DhlEcommerceAdapter.cancelShipment` + `/dhl/cancel` route + UI iptal aksiyonu etkinleştirilecek
-  (şu an ENDPOINT_UNRESOLVED / UI disabled).
+- TODO-116 (ÇÖZÜLDÜ — DHL yanıtı): DHL kargo İPTAL endpoint'i teyit edildi →
+  `PUT /mngapi/api/barcodecmdapi/cancelshipment`, gövde `{ referenceId, shipmentId }`.
+  `DhlEcommerceAdapter.cancelShipment` implement edildi (guard: env DHL_ECOMMERCE_ALLOW_CANCEL +
+  providerConfig + explicitConfirm; shipmentId yoksa CANCEL_REQUIRES_SHIPMENT_ID). `/dhl/cancel` route
+  status→CANCELLED + CANCELLED event yazar; UI iptal aksiyonu shipmentId varsa aktif (onay copy'li).
+  ENDPOINT_UNRESOLVED kaldırıldı. Kalan: canlı (production) iptal davranışı TODO-118 rollout ile.
 - TODO-117: Müşteri tarafı kargo takip UI'si — Shipment.trackingNumber/trackingUrl + ShipmentEvent timeline'ının
-  storefront sipariş detayında (müşteri hesabı) gösterimi. Şu an yalnız store-admin paneli.
+  storefront sipariş detayında (müşteri hesabı) gösterimi. Şu an yalnız store-admin paneli. Müşteriye dönük
+  status/copy ADR-045 normalize tablosunu kullanmalı: "Kargoya verildi" otomatik gösterilmez; location
+  "işlem noktası" olarak etiketlenir, kesin varış konumu denmez.
 - TODO-118: DHL canlı (production) rollout checklist — statik IP / client onayı, LIVE base URL geçişi,
-  guard flag'lerinin canlıda kontrollü açılması, gerçek müşteri adresi → MNG cityCode/districtCode çözümleme
-  (CBS geo cache, TODO-102), barcode "varış şubesi hat kodu" başarısızlıklarında retry/uyarı.
+  guard flag'lerinin (ALLOW_ORDER/BARCODE/RECIPIENT/CANCEL) canlıda kontrollü açılması, gerçek müşteri adresi →
+  MNG cityCode/districtCode çözümleme (CBS geo cache, TODO-102). NOT: barcode "hat kodu" hatası artık
+  BARCODE_RETRYABLE_ERROR + BARCODE_FAILED event ile retryable (ADR-045); rollout'ta retry/uyarı UX'i + boş
+  yanıt (LABEL_PENDING) için otomatik retry/backoff (bkz. TODO-123) doğrulanmalı.
 - TODO-119 (ÇÖZÜLDÜ): Sağlayıcı HTTP timeout env-configurable (DHL_ECOMMERCE_HTTP_TIMEOUT_MS,
   default 60000; timeout→SHIPPING_HTTP_TIMEOUT 504). F3C.3 runtime smoke'ta MNG sandbox ~15s
   latency'sinin sabit 15s timeout'u sınırda abort etmesi üzerine eklendi.
-- TODO-120 (BEKLEMEDE — DHL clarification pending): DHL operasyon finalizasyonu (retry/failed/pending
-  davranışı, createbarcode boş-yanıt yönetimi, tracking gösterimi, cancel) DHL'in 4 soruya yanıtı gelene
-  kadar donduruldu. createOrder ≠ fiziksel teslim; createbarcode boş ≠ başarı; location ≠ kesin varış.
-  main'e ek finalizasyon merge/push YOK (F3C.3 temel kod zaten 4cf8032'de merged).
+- TODO-120 (ÇÖZÜLDÜ — DHL yanıtı geldi, uygulandı): DHL operasyon finalizasyonu yapıldı.
+  Uygulanan aksiyonlar: (a) statusCode 0-7 normalize eşlemesi + regresyon koruması; (b) createbarcode boş
+  200 → LABEL_PENDING + BARCODE_PENDING event (tracking/ZPL set edilmez, retry mümkün); (c) hat kodu hatası →
+  BARCODE_FAILED event + BARCODE_RETRYABLE_ERROR (createOrder tekrar çağrılmaz); (d) cancel endpoint
+  (TODO-116); (e) location "işlem noktası" UI label; (f) "Kargoya verildi" otomatik kullanılmaz; (g) additive
+  enum migration. Provider-agnostic refactor HARİÇ (TODO-121). createRecipient boş 200 body başarı sayılır.
+- TODO-121 (AÇIK): Provider-agnostic operation contract + rate detail page UI. DHL'e özel operasyon
+  semantiği (statusCode eşlemesi, cancel gövdesi, barcode pending/failed) generic bir provider operation
+  arayüzüne taşınacak; cancel için dedike `providerConfig.allowCancel` toggle (şu an allowOrderCreate kapısı
+  yeniden kullanılıyor) eklenebilir. F3C.3 finalizasyon turunda KAPSAM DIŞI bırakıldı. Tarife UI refactor de
+  bu kapsamda (matris/şablon "Şablon seç" gelişmiş akışı dahil, F3C.4 üzerine).
 - TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
   `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
   workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,
@@ -457,3 +470,8 @@
   öncesi: Dockerfile'a build adımı eklenmeli VEYA workspace paketlerine `development` export koşulu (src'den
   çözme) stratejisi netleştirilmeli. Kapsam: Repo infra / Docker. Bloklayıcı: F3C.4 için HAYIR;
   deploy/CI hardening için EVET.
+- TODO-123 (AÇIK): Barcode boş-yanıt (LABEL_PENDING) için otomatik retry/backoff job. createOrder→createbarcode
+  arası MNG sandbox sparse yanıt verebildiğinden, LABEL_PENDING gönderiler için zamanlanmış yeniden deneme
+  (backoff + max attempts) ve admin'e bildirim. Şu an retry manuel (UI "Barkod Oluştur" tekrar).
+- TODO-124 (AÇIK): CBS adres normalizasyonu — gerçek müşteri adresi → MNG cityCode/districtCode otomatik
+  eşleme (CBS geo cache, TODO-102 ile). Şu an cityCode/districtCode admin tarafından elle girilebiliyor.

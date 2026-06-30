@@ -965,3 +965,46 @@ YAPILMAYACAK. Bekleyen sorular:
 - cancel endpoint belirsizliği TODO olarak kalır (TODO-116).
 
 Kanıt/zincir: repo-dışı `dhl-sandbox-report.json` (sanitize req/resp), DHL'e iletildi.
+
+## F3C.3 — DHL yanıtına göre operasyon finalizasyonu (ADR-045 revizyonu, RESOLVED)
+
+**Durum (2026-06-30): YANIT ALINDI → uygulandı.** DHL/MNG operasyonel sorulara yanıt verdi; aşağıdaki
+bağlayıcı kararlar kodlandı (provider-agnostic refactor hariç — o TODO-121'de). Bu tur DHL
+implementasyonunun finalizasyonudur; rate engine / matrix UI'a dokunulmadı.
+
+- **createOrder ≠ fiziksel kargoya verildi.** createOrder + createbarcode sonrası sistemde gönderi/paket
+  kaydı oluşur; fiziksel MNG/DHL operasyonuna teslim edilene kadar gerçek "kargoya verildi" sayılmaz.
+  UI/event copy: ORDER_CREATED = "DHL gönderi kaydı oluşturuldu", LABEL_CREATED = "Barkod oluşturuldu /
+  paket hazırlandı". "Kargoya verildi" OTOMATİK kullanılmaz; yalnız tracking statusCode fiziksel operasyonu
+  gösterirse veya admin manuel işaretlerse. `shipmentStatusExplanation` ham metni ("Sipariş Kargoya
+  Verildi") kesin durum gibi gösterilmez → normalize edilmiş status authoritative; ham metin "Sağlayıcı
+  durumu (ham)" etiketiyle ayrı gösterilir.
+- **statusCode 0-7 normalize eşlemesi netleşti** (`mapProviderStatusToShipmentStatus`):
+  0→ORDER_CREATED, 1→LABEL_CREATED, 2→IN_TRANSIT, 3→IN_TRANSIT (teslim birimine ulaştı; alt-durum),
+  4→OUT_FOR_DELIVERY, 5→DELIVERED, 6→DELIVERY_FAILED, 7→RETURNED. 5/7 FINAL; 6 FINAL DEĞİL (takip
+  gerektirir → ACTIVE). Regresyon koruması: eski/yanlış kod ileri durumu geri çekmez; terminalden dönülmez.
+  Ham kod `shipmentStatusCode`, ham metin event `statusText` saklanır.
+- **trackshipment `location` = işlem noktası, kesin varış/teslimat şubesi DEĞİL** (test ortamında
+  gönderici/çıkış şubesi olabilir). UI label "İşlem noktası"; "Varış şubesi" HARDCODE EDİLMEZ.
+- **createRecipient 200 + boş body normaldir** → başarı sayılır; response body zorunlu parse edilmez.
+  Hat/şube tespiti barcode aşamasında yapılır; bulunamazsa ayrı operasyonel hata.
+- **createbarcode 200 + boş `barcodes`/`shipmentId` ≠ tam başarı** → LABEL_PENDING (BARCODE_INCOMPLETE);
+  trackingNumber/shipmentId/ZPL SET EDİLMEZ; BARCODE_PENDING event; retry mümkün. `barcodeJsonSafe`:
+  zplPresent/barcodeCount/shipmentIdPresent/invoiceIdPresent/providerReturnedEmptyPayload. Dolu yanıt →
+  mevcut LABEL_CREATED davranışı.
+- **Routing/hat kodu hatası ("VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI") blocker DEĞİL** → kod hatası değil,
+  adres/şube/hat verisi. Status ilerletilmez; BARCODE_FAILED event (sanitize) + retryable
+  `BARCODE_RETRYABLE_ERROR` (409). Retry aynı shipment/referenceId üzerinden barcode'u tekrar dener;
+  createOrder TEKRAR ÇAĞRILMAZ (duplicate prepare guard korunur).
+- **cancel endpoint TEYİT EDİLDİ:** `PUT /mngapi/api/barcodecmdapi/cancelshipment`, gövde
+  `{ referenceId, shipmentId }`. adapter `cancelShipment` artık ENDPOINT_UNRESOLVED dönmez; guard üçlüsü:
+  env `DHL_ECOMMERCE_ALLOW_CANCEL` && providerConfig (allowOrderCreate kapısı) && explicitConfirm.
+  shipmentId yoksa `CANCEL_REQUIRES_SHIPMENT_ID` (409, sağlayıcıya gidilmez). Başarılı → status CANCELLED +
+  CANCELLED event. Sağlayıcı 4xx/5xx → `CANCEL_FAILED` (502, fiziksel teslim yapılmış olabilir). UI: cancel
+  aksiyonu artık shipmentId varsa aktif; explicit onay copy'si fiziksel teslim riskini belirtir.
+- **Test/smoke adresi:** DHL'in önerdiği routable Bağcılar adresi (Bağlar Mah. 1. Sok. No:1 Bağcılar/İstanbul)
+  veya daha önce routable Üsküdar kullanılır; Küçükçekmece smoke'ta KULLANILMAZ. Gerçek uygulamada CBS
+  city/district kodu eşlemesi ayrı TODO.
+- **Data model:** additive enum migration (`20260630120000_dhl_shipment_operation_statuses`):
+  ShipmentStatus += LABEL_PENDING/OUT_FOR_DELIVERY/DELIVERY_FAILED; ShipmentEventType +=
+  BARCODE_PENDING/BARCODE_FAILED. Mevcut veriyi bozmaz; değer silmez/yeniden adlandırmaz.

@@ -87,7 +87,17 @@ export const trStoreAdmin = {
     CONFIG_MISSING: "Kargo şifreleme anahtarı yapılandırılmamış.",
     ORDER_CREATE_DISABLED: "Canlı gönderi/barkod oluşturma bu ortamda kapalı.",
     BARCODE_CREATE_DISABLED: "Canlı gönderi/barkod oluşturma bu ortamda kapalı.",
+    RECIPIENT_CREATE_DISABLED: "Canlı alıcı oluşturma bu ortamda kapalı.",
     LABEL_PURCHASE_DISABLED: "Etiket satın alma bu ortamda kapalı.",
+    // F3C.3 (ADR-045) DHL operasyon hataları.
+    DUPLICATE_SHIPMENT: "Bu sipariş için DHL gönderi kaydı zaten oluşturulmuş.",
+    NO_ACTIVE_SHIPMENT: "Önce DHL gönderi kaydı oluşturun.",
+    CONFIRMATION_REQUIRED: "Bu işlem için onay gerekir.",
+    CANCEL_DISABLED: "Canlı kargo iptali bu ortamda kapalı.",
+    CANCEL_REQUIRES_SHIPMENT_ID: "İptal için önce barkod/gönderi oluşturulmalı (DHL gönderi no yok).",
+    CANCEL_FAILED: "DHL kargo iptali reddedildi; gönderi fiziksel olarak işleme alınmış olabilir.",
+    BARCODE_RETRYABLE_ERROR:
+      "DHL varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
     SHIPPING_HTTP_DISABLED: "Canlı/test bağlantısı bu ortamda kapalı.",
     AUTH_FAILED: "Kargo sağlayıcı kimlik doğrulaması başarısız.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",

@@ -1,6 +1,7 @@
 import type { ShippingHttpRequest } from "../http.js";
 import type {
   CalculateRateInput,
+  CancelShipmentInput,
   CreateBarcodeInput,
   CreateOrderInput,
   CreateRecipientInput,
@@ -232,6 +233,30 @@ export function buildCreateBarcodeRequest(
       packagingType: input.packagingType ?? 3,
       printReferenceBarcodeOnError: 0,
       orderPieceList: piecesToOrderList(input.pieces, referenceId),
+    }),
+  };
+}
+
+/**
+ * Barcode Command /cancelshipment request (DHL gonderi/barkod kaydini iptal dener).
+ * F3C.3 (ADR-045) netlestirmesi: dogru ucsuz PUT barcodecmdapi/cancelshipment; govde
+ * { referenceId, shipmentId }. shipmentId ZORUNLU (route'ta CANCEL_REQUIRES_SHIPMENT_ID
+ * ile onceden dogrulanir). Bearer JWT + X-IBM Barcode Command credential ile yetkilenir.
+ */
+export function buildCancelShipmentRequest(
+  input: CancelShipmentInput,
+  product: ResolvedShippingCredential,
+  token: string,
+  host: string,
+  apiVersion: string | null,
+): ShippingHttpRequest {
+  return {
+    method: "PUT",
+    url: `${host}${DHL_BASE_PATHS.barcodeCommand}/cancelshipment`,
+    headers: authedHeaders(product, token, apiVersion),
+    body: JSON.stringify({
+      referenceId: input.referenceId.toUpperCase(),
+      shipmentId: input.shipmentId ?? "",
     }),
   };
 }
