@@ -2677,6 +2677,97 @@ export const shippingRatePlanUpdateRequestSchema = shippingRatePlanCreateRequest
     name: z.string().min(1).max(160).optional(),
   });
 
+/* ─────────────────────── F3C.4 Tarife matrisi + CSV import ───────────────────────
+ * Gercek kargo fiyat listelerini (DHL desi x Tarife I/II/III, Aras desi/kg x zone)
+ * satir-satir kural eklemek yerine matris/grid mantigiyla girer. Backend AUTHORITATIVE:
+ * frontend yalniz grid gonderir, backend upsert eder. Yalniz UPSERT (ADR-044 F3C.4):
+ * eslesen kural update, yoksa create; bos hucre kural olusturmaz ve mevcudu silmez;
+ * matris kapsami disindaki ozel/gelismis kurallar (city/district/region veya tier+zone)
+ * KORUNUR. Provider'a ozel fiyat kodu yoktur; generic chargeType'a maplenir.
+ */
+export const shippingMatrixModeSchema = z.enum(["SEGMENT", "ZONE"]);
+export const shippingMatrixAxisSchema = z.enum(["DESI", "WEIGHT"]);
+/** 30+/"ve uzeri" satiri davranisi: sabit toplam ucret (FLAT) veya esik ustu birim. */
+export const shippingMatrixOverflowSchema = z.enum(["FIXED", "PER_ADDITIONAL"]);
+
+export const shippingMatrixCellInputSchema = z.object({
+  // tierId (SEGMENT) veya zoneId (ZONE). Plan kapsami route'ta dogrulanir.
+  columnId: z.string().min(1),
+  // FLAT tutar veya PER_ADDITIONAL birim ucret (minor/kurus). null = bos hucre.
+  amountMinor: z.number().int().nonnegative().nullable(),
+  // Yalniz "ve uzeri" + PER_ADDITIONAL satirinda anlamli: esik alti taban ucret.
+  baseAmountMinor: z.number().int().nonnegative().nullable().optional(),
+});
+
+export const shippingMatrixRowInputSchema = z.object({
+  // Eksen alt/ust siniri (DESI veya WEIGHT). max=null => "ve uzeri" (overflow satiri).
+  min: z.number().nonnegative().nullable(),
+  max: z.number().nonnegative().nullable(),
+  // Yalniz max=null satirinda: 30+ nasil islenir (varsayilan PER_ADDITIONAL).
+  overflowBehavior: shippingMatrixOverflowSchema.default("PER_ADDITIONAL"),
+  cells: z.array(shippingMatrixCellInputSchema),
+});
+
+export const shippingMatrixApplyRequestSchema = z.object({
+  mode: shippingMatrixModeSchema,
+  axis: shippingMatrixAxisSchema,
+  // Beklenen kolon kimlikleri (sira korunur; route plan kapsamiyla dogrular).
+  columns: z.array(z.string().min(1)).min(1),
+  rows: z.array(shippingMatrixRowInputSchema).min(1),
+});
+
+export const shippingMatrixErrorSchema = z.object({
+  rowIndex: z.number().int().nullable(),
+  columnId: z.string().nullable(),
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const shippingMatrixCellDiffSchema = z.object({
+  rowIndex: z.number().int(),
+  columnId: z.string().min(1),
+  action: z.enum(["CREATE", "UPDATE", "UNCHANGED", "EMPTY"]),
+  existingRuleId: z.string().nullable(),
+  chargeType: shippingChargeTypeSchema.nullable(),
+  amountMinor: z.number().int().nonnegative().nullable(),
+});
+
+export const shippingMatrixSummarySchema = z.object({
+  create: z.number().int().nonnegative(),
+  update: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  empty: z.number().int().nonnegative(),
+});
+
+export const shippingMatrixPreviewResponseSchema = z.object({
+  valid: z.boolean(),
+  summary: shippingMatrixSummarySchema,
+  cells: z.array(shippingMatrixCellDiffSchema),
+  errors: z.array(shippingMatrixErrorSchema),
+});
+
+export const shippingMatrixApplyResponseSchema = z.object({
+  summary: shippingMatrixSummarySchema,
+  plan: shippingRatePlanSchema,
+});
+
+/** CSV yapistir/import: ham metin server-side parse edilir (TR ondalik: 116,99 / ₺116,99). */
+export const shippingImportRequestSchema = z.object({
+  mode: shippingMatrixModeSchema,
+  axis: shippingMatrixAxisSchema,
+  csv: z.string().min(1).max(100_000),
+});
+
+export const shippingImportPreviewResponseSchema = z.object({
+  valid: z.boolean(),
+  rowCount: z.number().int().nonnegative(),
+  summary: shippingMatrixSummarySchema,
+  cells: z.array(shippingMatrixCellDiffSchema),
+  errors: z.array(shippingMatrixErrorSchema),
+});
+
+export const shippingImportApplyResponseSchema = shippingMatrixApplyResponseSchema;
+
 export type ShippingCredentialStatus = z.infer<typeof shippingCredentialStatusSchema>;
 export type ShippingConnectionStatus = z.infer<typeof shippingConnectionStatusSchema>;
 export type ShippingProviderConfigResponse = z.infer<typeof shippingProviderConfigSchema>;
@@ -2716,5 +2807,19 @@ export type ShippingRatePlanResponse = z.infer<typeof shippingRatePlanSchema>;
 export type ShippingRatePlanListResponse = z.infer<typeof shippingRatePlanListResponseSchema>;
 export type ShippingRatePlanCreateRequest = z.infer<typeof shippingRatePlanCreateRequestSchema>;
 export type ShippingRatePlanUpdateRequest = z.infer<typeof shippingRatePlanUpdateRequestSchema>;
+export type ShippingMatrixMode = z.infer<typeof shippingMatrixModeSchema>;
+export type ShippingMatrixAxis = z.infer<typeof shippingMatrixAxisSchema>;
+export type ShippingMatrixOverflow = z.infer<typeof shippingMatrixOverflowSchema>;
+export type ShippingMatrixCellInput = z.infer<typeof shippingMatrixCellInputSchema>;
+export type ShippingMatrixRowInput = z.infer<typeof shippingMatrixRowInputSchema>;
+export type ShippingMatrixApplyRequest = z.infer<typeof shippingMatrixApplyRequestSchema>;
+export type ShippingMatrixError = z.infer<typeof shippingMatrixErrorSchema>;
+export type ShippingMatrixCellDiff = z.infer<typeof shippingMatrixCellDiffSchema>;
+export type ShippingMatrixSummary = z.infer<typeof shippingMatrixSummarySchema>;
+export type ShippingMatrixPreviewResponse = z.infer<typeof shippingMatrixPreviewResponseSchema>;
+export type ShippingMatrixApplyResponse = z.infer<typeof shippingMatrixApplyResponseSchema>;
+export type ShippingImportRequest = z.infer<typeof shippingImportRequestSchema>;
+export type ShippingImportPreviewResponse = z.infer<typeof shippingImportPreviewResponseSchema>;
+export type ShippingImportApplyResponse = z.infer<typeof shippingImportApplyResponseSchema>;
 export type ShippingQuoteSource = z.infer<typeof shippingQuoteSourceSchema>;
 export type ShippingQuoteStatus = z.infer<typeof shippingQuoteStatusSchema>;
