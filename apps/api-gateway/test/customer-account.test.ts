@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
+import { isCustomerVisibleShipmentEvent } from "../src/customers/index.js";
 import type {
   CustomerAddressInputRecord,
   CustomerAddressRecord,
@@ -118,6 +119,23 @@ interface SeededOrder {
     providerReference: string | null;
     threeDsApplied: boolean;
     paidAt: Date | null;
+  } | null;
+  // TODO-117 — Kargo takip (opsiyonel). events ham verilir; fake, gerçek
+  // getOrderDetail gibi müşteri-görünür filtre + son işlem noktası türetir.
+  shipment?: {
+    providerName: string;
+    logoUrl: string | null;
+    logoAlt: string | null;
+    status: string;
+    trackingNumber: string | null;
+    trackingUrl: string | null;
+    updatedAt: Date;
+    events: {
+      eventType: string;
+      statusText: string | null;
+      location: string | null;
+      occurredAt: Date | null;
+    }[];
   } | null;
 }
 
@@ -459,6 +477,29 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       })),
       addresses: order.addresses ?? [],
       payment: order.payment ?? null,
+      shipment: order.shipment
+        ? {
+            providerName: order.shipment.providerName,
+            logoUrl: order.shipment.logoUrl,
+            logoAlt: order.shipment.logoAlt,
+            status: order.shipment.status,
+            trackingNumber: order.shipment.trackingNumber,
+            trackingUrl: order.shipment.trackingUrl,
+            lastLocation:
+              [...order.shipment.events]
+                .reverse()
+                .find((event) => event.location !== null)?.location ?? null,
+            updatedAt: order.shipment.updatedAt,
+            events: order.shipment.events
+              .filter((event) => isCustomerVisibleShipmentEvent(event.eventType, event.location))
+              .map((event) => ({
+                eventType: event.eventType,
+                statusText: event.statusText,
+                location: event.location,
+                occurredAt: event.occurredAt,
+              })),
+          }
+        : null,
     };
   }
 }
@@ -812,6 +853,80 @@ describe("api gateway · customer account (F3B.3)", () => {
     const raw = JSON.stringify(order);
     expect(raw).not.toContain("12345678901");
     expect(raw).not.toMatch(/cvc|accessToken|tokenHash|passwordHash/i);
+    // Shipment seed edilmedi → kargo takip bloğu null (additive, opsiyonel).
+    expect(order.shipment).toBeNull();
+  });
+
+  it("returns customer-safe shipment tracking (allowlist; no internal/secret fields)", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-20",
+      status: "FULFILLED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "FULFILLED",
+      currency: "TRY",
+      totalAmount: 8000,
+      createdAt: new Date(),
+      lines: [
+        { variantId: "var_1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1 },
+      ],
+      shipment: {
+        providerName: "DHL eCommerce",
+        logoUrl: "https://cdn.example.com/dhl.png",
+        logoAlt: "DHL",
+        status: "IN_TRANSIT",
+        trackingNumber: "TRK-12345",
+        trackingUrl: "https://track.example.com/TRK-12345",
+        updatedAt: new Date(),
+        events: [
+          { eventType: "ORDER_CREATED", statusText: "Gönderi kaydı oluşturuldu", location: null, occurredAt: new Date() },
+          // Operasyonel-iç event: konum yoksa müşteri timeline'ından DIŞLANIR.
+          { eventType: "BARCODE_PENDING", statusText: "SECRET_BARCODE_JWT", location: null, occurredAt: new Date() },
+          { eventType: "STATUS_CHANGED", statusText: "Taşıma sürecinde", location: "Ankara Aktarma Merkezi", occurredAt: new Date() },
+        ],
+      },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `${base}/orders/OS-20`,
+      headers: { "x-customer-session": token },
+    });
+    expect(res.statusCode).toBe(200);
+    const shipment = res.json().order.shipment;
+    expect(shipment).toMatchObject({
+      providerName: "DHL eCommerce",
+      status: "IN_TRANSIT",
+      trackingNumber: "TRK-12345",
+      trackingUrl: "https://track.example.com/TRK-12345",
+      lastLocation: "Ankara Aktarma Merkezi",
+    });
+    // Müşteri-görünür filtre: iç BARCODE_PENDING (konumsuz) dışlanır → 2 event.
+    expect(shipment.events).toHaveLength(2);
+    expect(shipment.events.map((e: { eventType: string }) => e.eventType)).toEqual([
+      "ORDER_CREATED",
+      "STATUS_CHANGED",
+    ]);
+    // İç/secret alanlar ASLA sızmaz (barkod/ZPL, labelUrl, externalId, referenceId, raw).
+    const raw = JSON.stringify(shipment);
+    expect(raw).not.toContain("SECRET_BARCODE_JWT");
+    expect(raw).not.toMatch(/barcode|labelUrl|externalOrderId|externalShipmentId|referenceId|rawSafeJson/i);
+  });
+
+  it("filters shipment events to customer-visible ones (ADR-045)", () => {
+    // Operasyonel-iç tipler (konumsuz) gizlenir.
+    expect(isCustomerVisibleShipmentEvent("BARCODE_CREATED", null)).toBe(false);
+    expect(isCustomerVisibleShipmentEvent("BARCODE_PENDING", null)).toBe(false);
+    expect(isCustomerVisibleShipmentEvent("WEBHOOK_RECEIVED", null)).toBe(false);
+    expect(isCustomerVisibleShipmentEvent("CREATED", null)).toBe(false);
+    // Anlamlı tipler gösterilir.
+    expect(isCustomerVisibleShipmentEvent("ORDER_CREATED", null)).toBe(true);
+    expect(isCustomerVisibleShipmentEvent("STATUS_CHANGED", null)).toBe(true);
+    expect(isCustomerVisibleShipmentEvent("MANUAL_TRACKING", null)).toBe(true);
+    // Konum taşıyan her event anlamlıdır (işlem noktası) → gösterilir.
+    expect(isCustomerVisibleShipmentEvent("WEBHOOK_RECEIVED", "İzmir")).toBe(true);
   });
 
   it("does not expose another customer's order detail (404)", async () => {

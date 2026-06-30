@@ -1854,6 +1854,62 @@ export const customerOrderPaymentSummarySchema = z.object({
   paidAt: z.string().datetime().nullable(),
 });
 
+/**
+ * TODO-117 — Müşteri-facing kargo takip özeti. F3C.5 shipment domaininden TÜRETİLİR
+ * ama ALLOWLIST'tir: yalnız müşteri-güvenli alanlar. SECRET/iç alan TAŞIMAZ
+ * (barkod/ZPL, labelUrl, rawSafeJson, externalOrderId/ShipmentId, referenceId,
+ * alıcı telefon/adres GÖSTERİLMEZ). ADR-045: "Kargoya verildi" otomatik üretilmez;
+ * event konumu KESİN varış/teslim şubesi değildir → storefront "işlem noktası"
+ * etiketi uygular. status/eventType değerleri shipmentStatusValueSchema /
+ * shipmentEventTypeSchema ile aynıdır (modül sıralaması/TDZ nedeniyle burada inline).
+ */
+export const customerOrderShipmentStatusSchema = z.enum([
+  "DRAFT",
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "DELIVERY_FAILED",
+  "RETURNED",
+  "CANCELLED",
+  "FAILED",
+]);
+
+export const customerOrderShipmentEventSchema = z.object({
+  eventType: z.enum([
+    "CREATED",
+    "ORDER_CREATED",
+    "BARCODE_CREATED",
+    "BARCODE_PENDING",
+    "BARCODE_FAILED",
+    "STATUS_CHANGED",
+    "TRACKING_UPDATED",
+    "MANUAL_TRACKING",
+    "CANCELLED",
+    "WEBHOOK_RECEIVED",
+  ]),
+  statusText: z.string().nullable(),
+  // ADR-045: kesin varış/teslim şubesi DEĞİL; UI "işlem noktası" etiketi uygular.
+  location: z.string().nullable(),
+  occurredAt: z.string().datetime().nullable(),
+});
+
+export const customerOrderShipmentSchema = z.object({
+  // Sağlayıcı yalnız görünen ad + (opsiyonel) logo olarak gösterilir; PUBLIC, secret değil.
+  providerName: z.string(),
+  logoUrl: z.string().nullable(),
+  logoAlt: z.string().nullable(),
+  status: customerOrderShipmentStatusSchema,
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  // En son işlem noktası (kesin varış konumu değil; ADR-045).
+  lastLocation: z.string().nullable(),
+  updatedAt: z.string().datetime(),
+  events: z.array(customerOrderShipmentEventSchema),
+});
+
 export const customerOrderDetailSchema = z.object({
   orderNumber: z.string(),
   status: customerOrderStatusSchema,
@@ -1873,6 +1929,8 @@ export const customerOrderDetailSchema = z.object({
   shippingAddress: customerOrderAddressSummarySchema.nullable(),
   billing: customerOrderBillingSummarySchema.nullable(),
   payment: customerOrderPaymentSummarySchema.nullable(),
+  // TODO-117 — Kargo takip özeti; shipment yoksa null.
+  shipment: customerOrderShipmentSchema.nullable(),
 });
 
 export const customerOrderDetailResponseSchema = z.object({
@@ -1883,6 +1941,8 @@ export type CustomerOrderDetailLine = z.infer<typeof customerOrderDetailLineSche
 export type CustomerOrderAddressSummary = z.infer<typeof customerOrderAddressSummarySchema>;
 export type CustomerOrderBillingSummary = z.infer<typeof customerOrderBillingSummarySchema>;
 export type CustomerOrderPaymentSummary = z.infer<typeof customerOrderPaymentSummarySchema>;
+export type CustomerOrderShipmentEvent = z.infer<typeof customerOrderShipmentEventSchema>;
+export type CustomerOrderShipment = z.infer<typeof customerOrderShipmentSchema>;
 export type CustomerOrderDetail = z.infer<typeof customerOrderDetailSchema>;
 export type CustomerOrderDetailResponse = z.infer<typeof customerOrderDetailResponseSchema>;
 

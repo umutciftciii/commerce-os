@@ -1073,3 +1073,25 @@ refactor, müşteri bildirimi, manuel shipment ana akışı, tarife detail-page 
   hatası değil; safe provider error olarak yakalanıp manuel fallback önerilir.)
 - **Guard copy "canlı/test"ten bağımsızdır.** Sağlayıcı operasyonu güvenlik kilidi (sandbox HTTP + işlem izni)
   ile kapalıdır; UI copy'lerinde yanıltıcı "Canlı" çerçevesi kullanılmaz.
+
+## ADR-046 ek — Müşteri-tarafı kargo takibi = Shipment domaininin ALLOWLIST projeksiyonu (TODO-117)
+
+**Bağlam.** ADR-046 shipment'ı bağımsız lojistik domain yaptı ve operasyonu store-admin ekranlarına taşıdı.
+Müşteri kendi siparişinin gönderi durumunu göremiyordu. Karar: müşteriye **yeni domain/endpoint açma**;
+mevcut müşteri sipariş detayı uçunu (`GET /public/.../customer/orders/:orderNumber`) **salt-okunur, additive**
+bir shipment ÖZETİYLE genişlet.
+
+**Karar.**
+- **Allowlist projeksiyon.** Müşteri yüzeyi shipment'ın yalnız güvenli alanlarını taşır (provider görünen ad +
+  logo, status, takip no/url, son işlem noktası, updatedAt, sadeleştirilmiş event'ler). Barkod/ZPL, labelUrl,
+  externalId'ler, referenceId, rawSafeJson, alıcı PII **çekilmez/serialize edilmez** (gateway SELECT + `parse`).
+- **Event hijyeni.** Operasyonel-iç event'ler (barkod/webhook/iç oluşturma) müşteri timeline'ından dışlanır;
+  yalnız anlamlı durum/konum event'leri gösterilir. Konum = "işlem noktası" (ADR-045; kesin varış değil).
+- **Dürüst durum.** "Kargoya verildi" otomatik üretilmez; `ORDER_CREATED` hazırlık adımıdır, teslim yalnız
+  `DELIVERED`. Order ana ticari `OrderStatus` enum'una dokunulmaz; shipment ayrı projeksiyon.
+- **İzolasyon.** Own-only zaten `getOrderDetail` (store+customer+orderNumber); shipment additive nullable.
+- **Provider seçimi YOK.** Checkout'ta provider seçimi olmadığından (ücret F3C.2 tarifesinden) bu yalnız
+  takip gösterimidir; canlı provider sync (TODO-100/104) ve checkout provider logo (TODO-125) ayrı kalır.
+
+**Sonuç.** Müşteri kendi gönderisini dürüst ve güvenli izler; kargo modülü yardımcı e-ticaret modülü olarak
+kalır (müşteriye operasyon/secret sızmaz). Mevcut sözleşme/akış bozulmaz (additive).
