@@ -1057,8 +1057,19 @@ refactor, müşteri bildirimi, manuel shipment ana akışı, tarife detail-page 
   explicit manuel tracking aksiyonuna özeldir — **provider barcode (createbarcode) sonrası OTOMATİK handoff
   DEĞİLDİR.** "Kargoya verildi" hâlâ otomatik üretilmez. Order ana ticari `OrderStatus` enum'una dokunulmaz;
   order özet kartı shipment status üzerinden güncel görünür.
-- **Order detay kartı dış sağlayıcıya istek atmaz.** Düşük regresyon için destructive inline create kaldırıldı;
-  asıl provider operasyonu shipment detayında açık guard/capability mesajıyla yürür. Non-destructive draft akışı
-  ayrı borç: TODO-126.
+- **Order detay CTA = online-first, güvenli fallback (REVİZE — bir önceki "istek atmaz" kararının yerine geçer).**
+  Kullanıcı kararı: entegrasyonu test etmeden çalışıp çalışmadığı bilinemez → online akış BİRİNCİL. "Gönderi
+  Oluştur" önce sağlayıcıyı dener (createRecipient + createOrder). Başarılı → shipment detayına yönlenir (barkod/
+  takip/sync orada; createbarcode AYRI adım). Sağlayıcı hatası (401/409/network) kullanıcıya HAM patlatılmaz →
+  "Geçici bir sağlayıcı hatası oluştu. Manuel gönderi ile devam edebilirsiniz." + İKİNCİL "Manuel Gönderi Hazırla".
+  Manuel fallback (TODO-126) provider'a İSTEK ATMAZ: yerel ORDER_CREATED shipment (`POST .../shipping/shipment-draft`)
+  → detay → "Manuel Takip No Gir" → IN_TRANSIT. `createOrder` = gönderi kaydıdır; `createbarcode` = barkod
+  hazırlığıdır; ikisi de fiziksel "kargoya verildi" DEĞİLDİR (ADR-045 korunur).
+- **Sandbox guard'ları local/test'te AÇIK.** `SHIPPING_SANDBOX_HTTP_ENABLED` + `DHL_ECOMMERCE_ALLOW_RECIPIENT/
+  ORDER/BARCODE_CREATE/CANCEL` local/test'te açılır ki dış sağlayıcı entegrasyonu gerçekten test edilebilsin.
+  Değerler repo-DIŞI `/.../.secrets/commerce-os-shipping.local.env`'de; tracked compose/.env.example **production-safe
+  default (kapalı)** korur. Guard açıkken kullanıcı güvenlik-kilidi mesajını normalde görmez; yalnız gerçekten
+  env/config kapalıysa görür. (DHL sandbox provisioning henüz tamsa 401 "no valid subscription" dönebilir → bu kod
+  hatası değil; safe provider error olarak yakalanıp manuel fallback önerilir.)
 - **Guard copy "canlı/test"ten bağımsızdır.** Sağlayıcı operasyonu güvenlik kilidi (sandbox HTTP + işlem izni)
   ile kapalıdır; UI copy'lerinde yanıltıcı "Canlı" çerçevesi kullanılmaz.

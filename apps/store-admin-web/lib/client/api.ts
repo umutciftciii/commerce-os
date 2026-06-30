@@ -464,6 +464,12 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // F3C.5 (TODO-126) — manuel gönderi hazırlama (online prepare fallback'i; provider'a İSTEK ATMAZ).
+  createShipmentDraft: (orderId: string, input: ShippingPrepareRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/shipment-draft`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   createDhlBarcode: (orderId: string, input: ShippingBarcodeActionRequest) =>
     mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/barcode`, {
       method: "POST",

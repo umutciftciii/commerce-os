@@ -1048,6 +1048,75 @@ export function registerShippingAdminRoutes(
     }
   });
 
+  /* F3C.5 (TODO-126) — MANUEL gönderi hazırlama (online prepare fallback'i). Sağlayıcıya
+   * İSTEK ATMAZ: yerel ORDER_CREATED shipment kaydı oluşturur (recipient/pieces siparişten).
+   * Online "Gönderi Oluştur" sağlayıcı hatası verdiğinde admin bu uçla manuel devam eder;
+   * ardından shipment detayında "Manuel Takip No Gir" ile takip no girip IN_TRANSIT'e ilerletir. */
+  app.post("/stores/:storeId/orders/:orderId/shipping/shipment-draft", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingPrepareRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const cfg = await loadConfig(params.storeId, input.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+
+    const existing = await findActiveShipment(params.storeId, order.id);
+    if (existing) {
+      return reply.code(409).send(
+        errorBody("DUPLICATE_SHIPMENT", "Bu sipariş için zaten aktif bir gönderi kaydı var.", {
+          shipmentId: existing.id,
+          referenceId: existing.referenceId,
+        }),
+      );
+    }
+
+    const referenceId = order.orderNumber; // server-derived; client referenceId GUVENILMEZ
+    const totalKg = input.pieces.reduce((sum, p) => sum + (p.kg ?? 0), 0);
+    const totalDesi = input.pieces.reduce((sum, p) => sum + (p.desi ?? 0), 0);
+    try {
+      const shipment = await prisma.shipment.create({
+        data: {
+          storeId: params.storeId,
+          orderId: order.id,
+          providerConfigId: cfg.id,
+          provider: cfg.provider,
+          referenceId,
+          status: "ORDER_CREATED",
+          pieceCount: input.pieces.length,
+          totalKg,
+          totalDesi,
+          packagingType: input.packagingType ?? null,
+          recipientName: input.recipient.fullName ?? null,
+          recipientEmail: input.recipient.email ?? null,
+          recipientPhone: input.recipient.phone ?? null,
+          recipientCityName: input.recipient.cityName ?? null,
+          recipientDistrictName: input.recipient.districtName ?? null,
+          recipientAddress: input.recipient.address ?? null,
+        },
+      });
+      // Provider'a CAGRI YOK; manuel kayit isaretli event.
+      await recordShipmentEvent(params.storeId, shipment, "ORDER_CREATED", {
+        statusText: "Gönderi kaydı manuel hazırlandı (sağlayıcıya istek atılmadı).",
+        rawSafeJson: { manual: true, providerCallSkipped: true, referenceId },
+      });
+      await deps.recordAudit({
+        action: "CREATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Shipment",
+        entityId: shipment.id,
+        metadata: { provider: cfg.provider, action: "shipment.manual-draft" },
+      });
+      return reply
+        .code(201)
+        .send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(shipment.id)), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
   app.post("/stores/:storeId/orders/:orderId/shipping/dhl/barcode", async (request, reply) => {
     const params = orderParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);

@@ -1995,3 +1995,25 @@ düşük regresyon; yeni DRAFT/prepare uçları bu turda yazılmadı, TODO-126).
 - **Testler:** gateway `shipping-shipment-ops.test.ts`'e `manualTrackingNextStatus` (advance + no-regress)
   testleri; store-admin tarafında order summary destructive-call-yok + guard copy "Canlı" geçmez + status
   helper paritesi güncellendi. **Bilinen UI borcu:** TODO-121 tarife detail-page refactor, TODO-126 draft flow.
+
+### F3C.5 online-first revizyon (kullanıcı kararı — "test etmeden entegrasyon bilinemez")
+
+Bir önceki manuel-inceleme "order detay istek atmaz" kararı REVİZE edildi (bkz. DECISIONS ADR-046 revizyonu).
+Yeni model: **online BİRİNCİL, manuel İKİNCİL fallback.**
+
+- **Order özet kartı (`OrderShipmentSummary`) yeniden yazıldı:** "Gönderi Oluştur" → provider select + parça/kg/desi
+  + alıcı önizleme → submit ONLINE dener (DHL `prepareDhlShipment` = createRecipient + createOrder; generic
+  `createOrderShipment`). Başarı → `/shipping/shipments/[id]`'e yönlenir (DHL prepare shipment.id döner; generic'te
+  refetch ile id bulunur). **Sağlayıcı hatası HAM patlamaz** → tone=warning "Geçici bir sağlayıcı hatası oluştu.
+  Manuel gönderi ile devam edebilirsiniz." + İKİNCİL "Manuel Gönderi Hazırla" CTA'sı görünür.
+- **Manuel fallback (TODO-126):** yeni `POST /stores/:storeId/orders/:orderId/shipping/shipment-draft` —
+  provider'a İSTEK ATMAZ, yerel `ORDER_CREATED` shipment (recipient/pieces siparişten) + manuel-işaretli
+  `ORDER_CREATED` event ("…sağlayıcıya istek atılmadı"). Zincir: gateway route + `shippingPrepareRequestSchema`
+  reuse + api-client `orderShipping.shipmentDraft` (tip+impl) + BFF `/api/orders/[id]/shipping/shipment-draft`
+  (CSRF+store ctx) + store-admin `createShipmentDraft`. Detayda "Manuel Takip No Gir" → IN_TRANSIT.
+- **Sandbox guard'ları (local/test) AÇIK:** `SHIPPING_SANDBOX_HTTP_ENABLED` + `DHL_ECOMMERCE_ALLOW_RECIPIENT/
+  ORDER/BARCODE_CREATE/CANCEL`. Değerler repo-DIŞI `.secrets/commerce-os-shipping.local.env`'de (flag=enabled);
+  docker'a repo-DIŞI override (`commerce-os-shipping.compose.override.yml`, `${VAR}` interpolation) + `--env-file`
+  ile geçer. **Tracked compose/.env.example production-safe default (kapalı) korur**; gerçek değer/secret tracked
+  dosyaya yazılmaz.
+- **createOrder ≠ createbarcode ≠ fiziksel teslim** ayrımı korunur (ADR-045); barkod shipment detayında ayrı aksiyon.

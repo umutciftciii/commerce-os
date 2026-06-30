@@ -738,6 +738,13 @@ export interface ApiClient {
         input: ShippingPrepareRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
+      // F3C.5 (TODO-126) — manuel gönderi hazırlama (provider'a İSTEK ATMAZ; online prepare fallback'i).
+      shipmentDraft(
+        storeId: string,
+        orderId: string,
+        input: ShippingPrepareRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
       dhlBarcode(
         storeId: string,
         orderId: string,
@@ -1326,6 +1333,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         dhlPrepare: (storeId, orderId, input, token) =>
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/orders/${orderId}/shipping/dhl/prepare`,
+            "POST",
+            input,
+            token,
+          ),
+        // F3C.5 (TODO-126) — manuel gönderi hazırlama (provider'a İSTEK ATMAZ; online prepare fallback'i).
+        shipmentDraft: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/shipment-draft`,
             "POST",
             input,
             token,

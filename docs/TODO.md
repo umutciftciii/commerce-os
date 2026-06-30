@@ -489,12 +489,13 @@
 - TODO-125 — Provider logo upload/storage. Durum: TODO. `ShippingProviderConfig.logoUrl` şu an manuel public URL
   (geçici MVP, dış bağımlılık yaratır). İleride dosya upload / asset storage / media library ile yönetilmeli;
   `logoAlt` korunur. Storefront'ta provider logo gösterimi, provider SEÇİMİ akışı geldiğinde değerlendirilecek.
-- TODO-126 — Non-destructive shipment draft flow. Durum: TODO. Gönderi siparişten doğar ama F3C.5'te order
-  özet kartından destructive create kaldırıldı (5dc3cfb manuel inceleme kararı, düşük regresyon). İleride:
-  provider'a İSTEK ATMADAN yerel DRAFT shipment oluşturan uç (`POST .../orders/:orderId/shipping/shipment-draft`)
-  + shipment detail sayfasında açık guard/capability mesajlı prepare aksiyonu (store-level prepare route). Böylece
-  asıl `createOrder/createbarcode` operasyonu order detayında değil shipment detayında, kullanıcıya 409 patlatmadan
-  yürür.
+- TODO-126 — Manuel gönderi (online-first fallback). Durum: **UYGULANDI** (online-first revizyonuyla). Karar
+  revize edildi: order CTA artık online-first (createRecipient + createOrder) + güvenli fallback. Uygulanan:
+  (a) `POST .../orders/:orderId/shipping/shipment-draft` — provider'a İSTEK ATMAZ, yerel ORDER_CREATED shipment
+  (recipient/pieces siparişten) + manuel işaretli event; (b) order özet kartı "Gönderi Oluştur" online dener,
+  sağlayıcı hatasında "Geçici sağlayıcı hatası… Manuel Gönderi Hazırla" CTA'sına düşer; (c) başarıda shipment
+  detayına yönlendirir. KALAN/opsiyonel: generic createOrder shipment id döndürmediğinden detaya yönlendirme
+  refetch ile yapılıyor (DHL prepare id döndürür); ileride generic createOrder da id döndürebilir.
 - TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
   `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
   workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,

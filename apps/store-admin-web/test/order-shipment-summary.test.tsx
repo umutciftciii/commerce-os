@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrderShipmentSummary } from "../app/(app)/orders/[id]/order-shipment-summary.js";
 
-const { storeApiMock } = vi.hoisted(() => ({
+const { storeApiMock, pushMock } = vi.hoisted(() => ({
   storeApiMock: {
     listShippingProviders: vi.fn(),
     getOrderShipping: vi.fn(),
     prepareDhlShipment: vi.fn(),
     createOrderShipment: vi.fn(),
+    createShipmentDraft: vi.fn(),
   },
+  pushMock: vi.fn(),
 }));
 
 vi.mock("../lib/client/api.js", () => ({ storeApi: storeApiMock }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
 const ORDER = {
   id: "o1",
@@ -44,9 +48,9 @@ function provider(overrides: Record<string, unknown> = {}) {
     displayName: "DHL eCommerce",
     logoUrl: null,
     logoAlt: null,
-    allowRecipientCreate: false,
-    allowOrderCreate: false,
-    allowBarcodeCreate: false,
+    allowRecipientCreate: true,
+    allowOrderCreate: true,
+    allowBarcodeCreate: true,
     allowLabelPurchase: false,
     lastTestedAt: null,
     lastTestStatus: null,
@@ -56,10 +60,10 @@ function provider(overrides: Record<string, unknown> = {}) {
     credentials: [],
     capabilities: {
       canTestConnection: true,
-      canCalculateRate: false,
+      canCalculateRate: true,
       canCreateTestShipment: false,
-      canCreateOrder: false,
-      canCreateBarcode: false,
+      canCreateOrder: true,
+      canCreateBarcode: true,
       canPurchaseLabel: false,
       destructiveActionsDisabledReason: null,
     },
@@ -97,7 +101,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("order detail shipment summary card (F3C.5)", () => {
+describe("order detail shipment summary card (F3C.5 online-first)", () => {
   it("renders empty state when no provider is configured", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
@@ -105,45 +109,68 @@ describe("order detail shipment summary card (F3C.5)", () => {
     expect(await screen.findByText(/yapılandırılmış kargo sağlayıcı yok/)).toBeTruthy();
   });
 
-  it("no shipment: safe summary only, NO destructive provider call, routes to Shipments screen", async () => {
+  it("online success: 'Gönderi Oluştur' tries provider then routes to shipment detail", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    storeApiMock.prepareDhlShipment.mockResolvedValue({ shipment: { id: "shp_new" } });
+    const user = userEvent.setup();
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
-    expect(await screen.findByText("Bu sipariş için henüz kargo kaydı oluşturulmadı.")).toBeTruthy();
-    // Güvenli yönlendirme: "Kargo Gönderileri" linki; destructive create butonu YOK.
-    const link = screen.getByRole("link", { name: /Kargo Gönderileri/ }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/shipping/shipments");
-    expect(screen.queryByRole("button", { name: "Gönderi Kaydı Oluştur" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Oluştur" })).toBeNull();
-    // Order detay kartı dış sağlayıcıya İSTEK ATMAZ (createOrder/prepare çağrısı yok).
-    expect(storeApiMock.prepareDhlShipment).not.toHaveBeenCalled();
-    expect(storeApiMock.createOrderShipment).not.toHaveBeenCalled();
-    // Operasyon paneli order detayında DEĞİL.
-    expect(screen.queryByText("Hareketler")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Durumu Güncelle" })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+    // Form açıldı → submit (online birincil akış).
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+
+    await waitFor(() => expect(storeApiMock.prepareDhlShipment).toHaveBeenCalledTimes(1));
+    expect(pushMock).toHaveBeenCalledWith("/shipping/shipments/shp_new");
+    // Online başarılıyken manuel fallback kullanılmaz.
+    expect(storeApiMock.createShipmentDraft).not.toHaveBeenCalled();
   });
 
-  it("lock copy uses security-lock framing, no misleading 'Canlı X oluşturma' wording", async () => {
+  it("provider error: user-friendly fallback message + 'Manuel Gönderi Hazırla' CTA (no raw error)", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    storeApiMock.prepareDhlShipment.mockRejectedValue(new Error("401 no valid subscription"));
+    const user = userEvent.setup();
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
-    const lock = await screen.findByText(/güvenlik kilidiyle kapalı/);
-    expect((lock.textContent ?? "").match(/Canlı (alıcı|gönderi|barkod)/)).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+
+    // Ham 401 patlamaz → net mesaj + ikincil CTA.
+    expect(await screen.findByText(/Geçici bir sağlayıcı hatası oluştu/)).toBeTruthy();
+    expect(screen.queryByText(/401|no valid subscription/)).toBeNull();
+    expect(await screen.findByRole("button", { name: "Manuel Gönderi Hazırla" })).toBeTruthy();
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("shows summary + 'Kargo Detayına Git' link; tracking fallback 'Henüz oluşmadı'; no auto 'Kargoya verildi'", async () => {
+  it("manual fallback creates a local draft (NO provider call) and routes to detail", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    storeApiMock.prepareDhlShipment.mockRejectedValue(new Error("provider down"));
+    storeApiMock.createShipmentDraft.mockResolvedValue({ shipment: { id: "shp_manual" } });
+    const user = userEvent.setup();
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+    await user.click(await screen.findByRole("button", { name: "Manuel Gönderi Hazırla" }));
+
+    await waitFor(() => expect(storeApiMock.createShipmentDraft).toHaveBeenCalledTimes(1));
+    // Manuel fallback provider'a İSTEK ATMAZ (yalnız draft ucu).
+    const draftArgs = storeApiMock.createShipmentDraft.mock.calls[0];
+    expect(draftArgs[0]).toBe("o1");
+    expect(pushMock).toHaveBeenCalledWith("/shipping/shipments/shp_manual");
+  });
+
+  it("active shipment: summary + 'Kargo Detayına Git'; tracking fallback 'Henüz oluşmadı'; no auto 'Kargoya verildi'", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [shipment()] });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
     const link = (await screen.findByRole("link", { name: /Kargo Detayına Git/ })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/shipping/shipments/shp_1");
-    // ORDER_CREATED generic etiketi "Gönderi kaydı oluşturuldu"; "Kargoya verildi" OTOMATİK kullanılmaz.
     expect(screen.getByText("Gönderi kaydı oluşturuldu")).toBeTruthy();
     expect(screen.queryByText(/Kargoya verildi/)).toBeNull();
-    // Takip no yoksa açık fallback gösterilir (liste/detay/özet tutarlı).
     expect(screen.getByText("Henüz oluşmadı")).toBeTruthy();
   });
 
