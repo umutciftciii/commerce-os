@@ -414,14 +414,18 @@
   girer (billableWeight = max(kg, desi) precomputed shippingDesi ile çalışır).
 - TODO-115: Gerçek ürün boyut alanları (en/boy/yükseklik) + otomatik volumetrik desi (divisor default 3000). Şu an
   admin yalnız hesaplanmış desi/ağırlık girer; ölçü alanlarından otomatik desi türetme ileride.
-- TODO-111: Kargo tarife CSV/Excel import/export — GÜÇLENDİRİLDİ. Generic Tariff Engine (ADR-044 revizyon) ile
-  her provider'ın fiyat listesi (DHL Tarife I/II/III desi tablosu, Aras zone+kg/desi+31+, Yurtiçi desi/ücrete-esas
-  ağırlık) aynı generic modele (tier/zone/rule/surcharge) maplenir. Provider'a ÖZEL fiyat kodu YOK; bunun yerine
-  her provider için bir **CSV/Excel import mapper** (kolon eşleme şablonu) ileride eklenecek: yüklenen tablo →
-  ShippingRateTier/Zone/Rule/Surcharge kayıtları. Toplu export da bu kapsamda.
-- TODO-113: 30+/31+ satır semantiği provider teyidi. PER_ADDITIONAL_KG_OR_DESI şu an ek-birim varsayar
-  (base + (billable−threshold)×unit). DHL/Aras fiyat listesinde "30+/31+" satırının TOPLAM fiyat mı yoksa ek-birim
-  fiyat mı olduğu resmi tarifeden teyit edilmeli; gerekirse mapper'da işaretlenir.
+- TODO-111: Kargo tarife matris girişi + CSV import — KISMEN DONE (F3C.4). Matris/grid girişi (DESİ × Tarife
+  I/II/III ve DESİ/KG × zone), DHL şablonu (tier yoksa Tarife I/II/III otomatik oluşturur), CSV **paste** import
+  (server-side parse, TR ondalık 116,99/₺116,99, ; ve TAB ayraç), değişiklik önizleme/özet (oluştur/güncelle/
+  değişmeyen/boş) ve apply DONE. Backend authoritative, store-scoped, transaction'lı; YALNIZ upsert (matris
+  kapsamı dışındaki özel/gelişmiş kurallar korunur). Uçlar: POST .../matrix/{preview,apply} ve .../import/
+  {preview,apply}. UI: store-admin /shipping/rates → "Matris" sekmesi (ana akış), Basit/Gelişmiş korunur.
+  KALAN (sonraki faz): (a) CSV/Excel **file upload** (şu an yalnız paste), (b) toplu **export**, (c) zone için
+  generic şablon butonu. Gelişmiş kural editörü hâlâ tekil/istisnai kurallar + surcharge için mevcut.
+- TODO-113: 30+/31+ satır semantiği provider teyidi. F3C.4'te matris UI'da 30+ satırı için **davranış seçimi**
+  eklendi: "Eşik üstü birim ücret" (PER_ADDITIONAL_KG_OR_DESI; varsayılan) veya "Sabit toplam ücret" (FLAT,
+  maxDesi/maxWeightKg=null = "ve üzeri"). Admin gerekirse satır bazında değiştirir. DHL/Aras resmi tarifesinden
+  "30+/31+" satırının TOPLAM mı yoksa ek-birim mi olduğu teyit edilince varsayılan/yorum netleştirilecek.
 - TODO-114: Adres → zon (zoneCode) çözümleme. EngineAddress.zoneCode şu an null (server city→zone maplemiyor);
   zoneId'li kurallar yalnız zoneCode upstream çözülünce eşleşir. Şehir/ilçe → zon eşleme tablosu (Aras bölge
   tanımları / DHL CBS geo cache TODO-102) ile doldurulacak.
@@ -455,8 +459,17 @@
 - TODO-121 (AÇIK): Provider-agnostic operation contract + rate detail page UI. DHL'e özel operasyon
   semantiği (statusCode eşlemesi, cancel gövdesi, barcode pending/failed) generic bir provider operation
   arayüzüne taşınacak; cancel için dedike `providerConfig.allowCancel` toggle (şu an allowOrderCreate kapısı
-  yeniden kullanılıyor) eklenebilir. F3C.3 finalizasyon turunda KAPSAM DIŞI bırakıldı.
-- TODO-122 (AÇIK): Docker clean-build gap (önceki not; F3C.4 turunda kaydedildi).
+  yeniden kullanılıyor) eklenebilir. F3C.3 finalizasyon turunda KAPSAM DIŞI bırakıldı. Tarife UI refactor de
+  bu kapsamda (matris/şablon "Şablon seç" gelişmiş akışı dahil, F3C.4 üzerine).
+- TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
+  `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
+  workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,
+  contracts/api-client) `dist/` üzerinden çözüyor. Temiz checkout / build context içinde `dist/` yoksa
+  image ayağa kalkmayabilir (api-gateway `ERR_MODULE_NOT_FOUND`). F3C.4 Docker/main-context smoke host'ta
+  derlenmiş `dist/` bulunduğu için geçti (önceki worktree-docker smoke'larıyla aynı pattern). CI/deploy
+  öncesi: Dockerfile'a build adımı eklenmeli VEYA workspace paketlerine `development` export koşulu (src'den
+  çözme) stratejisi netleştirilmeli. Kapsam: Repo infra / Docker. Bloklayıcı: F3C.4 için HAYIR;
+  deploy/CI hardening için EVET.
 - TODO-123 (AÇIK): Barcode boş-yanıt (LABEL_PENDING) için otomatik retry/backoff job. createOrder→createbarcode
   arası MNG sandbox sparse yanıt verebildiğinden, LABEL_PENDING gönderiler için zamanlanmış yeniden deneme
   (backoff + max attempts) ve admin'e bildirim. Şu an retry manuel (UI "Barkod Oluştur" tekrar).

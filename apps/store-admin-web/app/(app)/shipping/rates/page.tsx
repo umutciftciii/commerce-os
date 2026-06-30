@@ -25,6 +25,7 @@ import type {
   ShippingChargeType,
 } from "@commerce-os/api-client";
 import { ShippingIcon } from "../../../../components/icons";
+import { MatrixManager } from "./MatrixManager";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatMinor, minorToInput, inputToMinor } from "../../../../lib/client/format";
@@ -91,6 +92,7 @@ const L = {
     simpleVsAdvanced: "Görünüm",
     simple: "Basit",
     advanced: "Gelişmiş",
+    matrix: "Matris",
     tiers: "Segmentler (aylık gönderi hacmi · DHL Tarife I/II/III)",
     tiersHint: "Aylık gönderi adedine göre tarife seçilir. Min/Max boş = açık uç. Çakışan aralıklar reddedilir.",
     zones: "Bölgeler (mesafe zonu · Aras şehir-içi/yakın/kısa/orta/uzak/KKTC)",
@@ -179,6 +181,7 @@ const L = {
     simpleVsAdvanced: "View",
     simple: "Simple",
     advanced: "Advanced",
+    matrix: "Matrix",
     tiers: "Tiers (monthly volume · DHL Tarife I/II/III)",
     tiersHint: "Tier is picked by monthly shipment count. Empty min/max = open end. Overlaps rejected.",
     zones: "Zones (distance zone · Aras city/near/short/medium/far/KKTC)",
@@ -520,8 +523,14 @@ function PlanEditor({
   onChanged: () => Promise<void>;
 }) {
   const t = L[locale];
-  const [view, setView] = useState<"simple" | "advanced">("simple");
+  // Tablo modunda ana akış MATRİS (fiyat listesi yönetimi); Basit ve Gelişmiş korunur.
+  const [view, setView] = useState<"matrix" | "simple" | "advanced">("matrix");
   const isTableMode = TABLE_MODES.includes(plan.pricingMode as PricingMode);
+  const tabs: Array<["matrix" | "simple" | "advanced", string]> = [
+    ["matrix", t.matrix],
+    ["simple", t.simple],
+    ["advanced", t.advanced],
+  ];
 
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
@@ -530,18 +539,15 @@ function PlanEditor({
         <div className="flex items-center gap-2">
           {isTableMode ? (
             <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
-              <button
-                className={`rounded-md px-3 py-1 ${view === "simple" ? "bg-white/10 text-white" : "text-white/50"}`}
-                onClick={() => setView("simple")}
-              >
-                {t.simple}
-              </button>
-              <button
-                className={`rounded-md px-3 py-1 ${view === "advanced" ? "bg-white/10 text-white" : "text-white/50"}`}
-                onClick={() => setView("advanced")}
-              >
-                {t.advanced}
-              </button>
+              {tabs.map(([key, label]) => (
+                <button
+                  key={key}
+                  className={`rounded-md px-3 py-1 ${view === key ? "bg-white/10 text-white" : "text-white/50"}`}
+                  onClick={() => setView(key)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           ) : null}
           <Button size="sm" variant="ghost" onClick={onClose}>
@@ -551,6 +557,10 @@ function PlanEditor({
       </div>
 
       <PlanBasicsEditor locale={locale} plan={plan} onClose={onClose} onSaved={() => onChanged()} />
+
+      {isTableMode && view === "matrix" ? (
+        <MatrixManager locale={locale} plan={plan} onChanged={onChanged} />
+      ) : null}
 
       {isTableMode && view === "advanced" ? (
         <>

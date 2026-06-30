@@ -66,6 +66,12 @@ import type {
   ShippingRateTierInput,
   ShippingRateZoneInput,
   ShippingSurchargeInput,
+  ShippingMatrixApplyRequest,
+  ShippingMatrixPreviewResponse,
+  ShippingMatrixApplyResponse,
+  ShippingImportRequest,
+  ShippingImportPreviewResponse,
+  ShippingImportApplyResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -506,5 +512,25 @@ export const storeApi = {
   deleteShippingSurcharge: (planId: string, surchargeId: string) =>
     mutatingCall<ShippingRatePlanResponse>(`/api/shipping/rate-plans/${planId}/surcharges/${surchargeId}`, {
       method: "DELETE",
+    }),
+  previewShippingMatrix: (planId: string, input: ShippingMatrixApplyRequest) =>
+    mutatingCall<ShippingMatrixPreviewResponse>(`/api/shipping/rate-plans/${planId}/matrix/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyShippingMatrix: (planId: string, input: ShippingMatrixApplyRequest) =>
+    mutatingCall<ShippingMatrixApplyResponse>(`/api/shipping/rate-plans/${planId}/matrix/apply`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  previewShippingImport: (planId: string, input: ShippingImportRequest) =>
+    mutatingCall<ShippingImportPreviewResponse>(`/api/shipping/rate-plans/${planId}/import/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyShippingImport: (planId: string, input: ShippingImportRequest) =>
+    mutatingCall<ShippingImportApplyResponse>(`/api/shipping/rate-plans/${planId}/import/apply`, {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
 };

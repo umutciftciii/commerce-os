@@ -1894,3 +1894,36 @@ bağımsız ve sağlayıcıya istek atmaz.
   No:1 Bağcılar/İstanbul) veya routable Üsküdar kullanılır.
 - Secret/ZPL: raw ZPL/^XA/JWT/X-IBM secret log/DB/UI/bundle'a yazılmaz; yalnız zplPresent/barcodeCount gibi
   güvenli özet.
+
+### F3C.4 — Shipping Tariff Matrix Entry + CSV Import (TODO-111, ADR-044 devamı)
+- **Bağlam:** F3C.3 DHL operasyonu DHL yanıtını beklerken, provider operasyonuna dokunmadan kargo tarife GİRİŞ
+  UX'i iyileştirildi. F3C.2 modeli doğru ama veri girişi zahmetliydi (DHL = 9 desi × 3 tarife = 27 kuralı
+  tek-tek eklemek). Önce Claude Design tasarım/spec raporu + görsel mockup alındı (kullanıcı onayladı), sonra
+  implementation yapıldı. main = origin/main = 98c6415 üzerinden (32459d6'ya reset YOK; F3C.3 kodu korunuyor).
+- **Karar:** Tasarım otoritesi olarak spec Claude tarafından üretildi (ortamdaki DesignSync claude.ai/design
+  senkron aracıdır, tasarım üreticisi değil); DesignSync push yapılmadı (kullanıcı kararı).
+- **Backend (api-gateway):** Saf `matrix-service.ts` (`buildMatrixDiff` grid→CREATE/UPDATE/UNCHANGED/EMPTY +
+  plannedOps; `parseCsvToMatrix`; `parseTrDecimalToMinor` TR ondalık). 4 uç eklendi (rate-plan-routes):
+  `/matrix/{preview,apply}`, `/import/{preview,apply}` — store-scoped (cross-store 404), preview DB'ye yazmaz,
+  apply tek transaction (partial → rollback). YALNIZ upsert; matris kapsamı dışındaki kurallar korunur. 30+
+  satırı configurable (FLAT / PER_ADDITIONAL_KG_OR_DESI, varsayılan PER_ADDITIONAL).
+- **Contracts + api-client + store-admin client:** `ShippingMatrix*`/`ShippingImport*` şema ve tipleri; api-client
+  `matrixPreview/matrixApply/importPreview/importApply`; store-admin `previewShippingMatrix/applyShippingMatrix/
+  previewShippingImport/applyShippingImport`.
+- **BFF (store-admin-web):** 4 route (CSRF + requireStoreContext, server-side store/token; client storeId yok sayılır).
+- **UI:** `/shipping/rates` → `PlanEditor`'a üçüncü sekme **"Matris"** (tablo modlarında ANA AKIŞ; Basit/Gelişmiş
+  korundu). `MatrixManager.tsx`: Segment (desi×tarife) / Bölge (desi×zone) modu, eksen (desi/kg), DHL şablonu
+  (tier yoksa Tarife I/II/III otomatik oluşturur + DHL desi satırları), satır ekle/sil, hücre fiyat girişi, 30+
+  davranış seçimi + taban ücret, CSV paste paneli, değişiklik özeti (oluştur/güncelle/değişmeyen/boş) ve hata
+  listesi, diff renk kodu (yeşil=create, indigo=update). Mevcut matris kuralları ızgaraya geri türetilir
+  (fiyat listesi yönetimi hissi). TR/EN i18n parity.
+- **Testler:** `shipping-matrix.test.ts` (15, saf: DHL preview/create, idempotent update, boş hücre atlama, 30+
+  PER_ADDITIONAL/FIXED, TR ondalık, negatif red, aralık/overlap, kapsam-dışı kural korunur, CSV parse uçtan uca,
+  ZONE/WEIGHT). `shipping-matrix-bff.test.ts` (5: CSRF/session, server context, token sızdırmaz, i18n parity).
+  Gate: db:generate + build (24/24) + typecheck (0) + lint (0) + test (api-gateway 245, store-admin 119,
+  contracts 23) + git diff --check temiz.
+- **Not (TR locale "I" tuzağı):** `normalizeKey` `toLocaleLowerCase("tr-TR")` kullanır → "Tarife I" → "tarife ı"
+  (noktasız). CSV başlığı ile tier adı aynı normalize'dan geçtiği için tutarlı eşleşir; test kurgusunda da
+  `normalizeKey` kullanılmalı (elle "tarife i" yazılırsa eşleşmez).
+- **Kalan:** CSV/Excel file upload + toplu export + zone generic şablon (TODO-111 KALAN). Commit/merge/push YOK
+  (kullanıcı talebi: önce rapor).

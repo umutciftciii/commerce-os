@@ -907,6 +907,19 @@
      SERT engellenmez; sortOrder + specificity ile DETERMİNİSTİK çözülür** (Karar: brittle olmayan yaklaşım; engine
      en spesifik + en küçük sortOrder kuralı seçer).
 
+- **F3C.4 ek — Matris giriş + CSV import (ADR-044 devamı, TODO-111).** Admin gerçek fiyat listelerini (DHL desi ×
+  Tarife I/II/III; Aras/Yurtiçi desi/kg × zone) satır-satır kural eklemek yerine **matris/grid** ile girer; girdi
+  yine aynı generic `ShippingRateRule` modeline maplenir (yeni kolon/şema YOK). Backend AUTHORITATIVE: frontend
+  yalnız grid/CSV gönderir; sunucu diff + upsert yapar. **YALNIZ UPSERT:** matris kapsamı = (SEGMENT: yalnız
+  tierId dolu) / (ZONE: yalnız zoneId dolu) ve geo (city/district/region) BOŞ olan kurallar; eşleşme anahtarı
+  kolon (tierId|zoneId) + eksen bracket'i (minDesi/maxDesi veya minWeightKg/maxWeightKg). Eşleşen kural update,
+  yoksa create; **boş hücre** kural oluşturmaz ve mevcudu SİLMEZ; matris kapsamı DIŞINDAKİ özel/gelişmiş kurallar
+  (geo dolu veya tier+zone birlikte) KORUNUR (sil-ve-yeniden-yaz YOK). 30+ satırı (max=null = "ve üzeri") için
+  davranış admin seçimi: FLAT (sabit toplam) veya PER_ADDITIONAL_KG_OR_DESI (eşik üstü birim, varsayılan; bkz.
+  TODO-113). CSV ilk faz = **paste** (textarea), server-side parse, TR ondalık (116,99/₺116,99), ayraç ;/TAB/,;
+  file upload + export sonraki faz. Apply tek transaction (partial failure → rollback). Uçlar: POST
+  `/stores/:storeId/shipping/rate-plans/:id/{matrix,import}/{preview,apply}`; preview DB'ye YAZMAZ.
+
 ## F3C.3 — DHL operasyon aksiyonları sipariş SONRASI admindir (ADR-045)
 
 - **Karar:** DHL eCommerce (teknik: MNG Kargo) operasyon çağrıları (createRecipient/createOrder/
