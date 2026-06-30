@@ -1008,3 +1008,43 @@ implementasyonunun finalizasyonudur; rate engine / matrix UI'a dokunulmadı.
 - **Data model:** additive enum migration (`20260630120000_dhl_shipment_operation_statuses`):
   ShipmentStatus += LABEL_PENDING/OUT_FOR_DELIVERY/DELIVERY_FAILED; ShipmentEventType +=
   BARCODE_PENDING/BARCODE_FAILED. Mevcut veriyi bozmaz; değer silmez/yeniden adlandırmaz.
+
+## ADR-046 Shipment = ayrı lojistik domain; Order detay yalnız özet + CTA; provider-agnostic operasyon UI (F3C.5 / TODO-121)
+
+**Bağlam.** F3C.3'te kargo operasyonu (prepare/barcode/sync/cancel + timeline) sipariş detayındaki büyük
+DHL-merkezli panele sıkışmıştı. Order = ticari işlem; Shipment = lojistik işlem ayrımı bulanıktı ve UI
+provider-spesifik (DHL) sözcükler içeriyordu.
+
+**Karar.**
+- **Domain ayrımı.** Shipment bağımsız lojistik domain olarak ele alınır. Asıl takip/işlem/listeleme
+  store-level shipment ekranlarındadır; sipariş detayında YALNIZ özet kartı + CTA bulunur.
+  - `/shipping/shipments` — liste (sipariş no, müşteri, provider+logo, takip no, durum, son işlem noktası,
+    son güncelleme, oluşturma) + sade 5 KPI (hazırlanan/barkod bekleyen/transferde/teslim/sorunlu) + filtreler.
+  - `/shipping/shipments/[id]` — operasyon detayı: üst özet, provider-safe stepper, "İşlem noktası" timeline,
+    capability-driven generic aksiyon paneli.
+  - `/orders/[id]` — kargo ÖZET kartı: shipment varsa provider+logo/durum/takip/son işlem + "Kargo Detayına
+    Git"; yoksa "Gönderi Kaydı Oluştur" (born-from-order). Tam operasyon paneli KALDIRILDI.
+- **Provider-agnostic UI, DHL backend dispatch (hibrit).** UI'da provider yalnız `displayName` + logo olarak
+  görünür; buton/copy generic'tir (Barkod/Etiket Oluştur, Durumu Güncelle, Gönderi Kaydını İptal Et, Manuel
+  Takip No Gir). Gateway generic alias uçları (`create-label`/`sync`/`cancel`/`manual-tracking`) içeride
+  mevcut adapter mantığına dispatch eder (`applyCreateLabel/applySync/applyCancel/applyManualTracking`
+  helper'ları order-scoped DHL route'larıyla paylaşılır). Tam provider-agnostic engine/registry bu turda
+  yazılmadı (KASITLI: "UI/domain ayrımını doğru kur, engine'i sıfırdan yazma").
+- **Generic capability projeksiyonu.** `computeShipmentActionCapabilities` provider capability + shipment
+  durumunu minimum generic modele indirger: canPrepare/canCreateLabel/canSync/canCancel/canManualTracking +
+  `disabledReason` (i18n kodu). Yalnız DHL sync destekler; manuel takip sağlayıcıya çağrı yapmaz (aktif
+  shipment'te her zaman açık).
+- **ADR-045 kuralları KORUNUR.** "Kargoya verildi" otomatik durum üretilmez (ORDER_CREATED fiziksel teslim
+  değildir); timeline konumu KESİN varış/teslimat şubesi değil → "İşlem noktası". createbarcode boş 200 →
+  LABEL_PENDING; routing hatası → BARCODE_RETRYABLE_ERROR; cancel shipmentId + explicit onay ister.
+- **Provider logo.** `ShippingProviderConfig.logoUrl/logoAlt` additive (PUBLIC, secret DEĞİL; client
+  bundle'a güvenli gider). Bozuk/eksik URL'de sağlayıcı baş harfleri fallback. Storefront'ta checkout'ta
+  provider SEÇİMİ olmadığından (ücret F3C.2 tarifesinden, provider quote değil) storefront logo yalnız
+  altyapı + TODO.
+- **Data model.** Additive migration `20260630160000_add_shipment_provider_logo`:
+  `ShippingProviderConfig += logoUrl/logoAlt`, `ShipmentEventType += MANUAL_TRACKING`. Mevcut veriyi bozmaz.
+
+**Sonuç.** Sipariş detayı sadeleşti (operasyon shipment ekranlarına taşındı), kargo modülü güçlü ama yardımcı
+e-ticaret modülü olarak kaldı (TMS/WMS şişkinliği yok). Secret/ZPL hiçbir response/UI/bundle'a girmez
+(serialize allowlist; barkod yalnız boolean). KAPSAM DIŞI/sonraki: dedike `allowCancel` toggle, tam engine
+refactor, müşteri bildirimi, manuel shipment ana akışı, tarife detail-page refactor.

@@ -113,6 +113,7 @@ export const trStoreAdmin = {
     customers: "Müşteriler",
     marketplace: "Pazaryerleri",
     paymentProviders: "Ödeme Sağlayıcıları",
+    shipments: "Kargo Gönderileri",
     shippingProviders: "Kargo Sağlayıcıları",
     shippingRates: "Kargo Tarifeleri",
     theme: "Tema",

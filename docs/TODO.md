@@ -456,11 +456,25 @@
   BARCODE_FAILED event + BARCODE_RETRYABLE_ERROR (createOrder tekrar çağrılmaz); (d) cancel endpoint
   (TODO-116); (e) location "işlem noktası" UI label; (f) "Kargoya verildi" otomatik kullanılmaz; (g) additive
   enum migration. Provider-agnostic refactor HARİÇ (TODO-121). createRecipient boş 200 body başarı sayılır.
-- TODO-121 (AÇIK): Provider-agnostic operation contract + rate detail page UI. DHL'e özel operasyon
-  semantiği (statusCode eşlemesi, cancel gövdesi, barcode pending/failed) generic bir provider operation
-  arayüzüne taşınacak; cancel için dedike `providerConfig.allowCancel` toggle (şu an allowOrderCreate kapısı
-  yeniden kullanılıyor) eklenebilir. F3C.3 finalizasyon turunda KAPSAM DIŞI bırakıldı. Tarife UI refactor de
-  bu kapsamda (matris/şablon "Şablon seç" gelişmiş akışı dahil, F3C.4 üzerine).
+- TODO-121 (F3C.5 — UI/domain ayrımı UYGULANDI; tam engine refactor KISMİ): Provider-agnostic **Shipment
+  Operations UI + Shipment domain** ayrımı yapıldı (ADR-046). Uygulanan: (a) DB additive
+  `ShippingProviderConfig.logoUrl/logoAlt` + `ShipmentEventType.MANUAL_TRACKING` (migration
+  `20260630160000`); (b) gateway store-level uçlar `GET /shipping/shipments` (filtre + KPI), `GET
+  /shipping/shipments/:id` (order+müşteri+provider+generic capability), generic aksiyon alias'ları
+  `create-label`/`sync`/`cancel`/`manual-tracking` (mevcut DHL adapter/aksiyon mantığı `applyCreateLabel/
+  applySync/applyCancel/applyManualTracking` helper'larına çıkarıldı, order-scoped DHL route'ları da bunları
+  paylaşır); (c) generic capability projeksiyonu `computeShipmentActionCapabilities`
+  (canPrepare/canCreateLabel/canSync/canCancel/canManualTracking) + KPI kovaları + provider gorunum DTO; (d)
+  store-admin **shipment list** `/shipping/shipments`, **shipment detail** `/shipping/shipments/[id]`
+  (provider-safe stepper, "İşlem noktası" timeline, generic action paneli), **order özet kartı** (tam DHL
+  operasyon paneli KALDIRILDI → özet + "Kargo Detayına Git" CTA / born-from-order "Gönderi Kaydı Oluştur");
+  (e) provider logo desteği (config UI create/edit + preview + initials fallback; liste/detay/özet/sağlayıcı
+  ekranlarında gösterim); (f) nav linki + TR/EN i18n. KAPSAM DIŞI (sonraki tur): cancel için dedike
+  `providerConfig.allowCancel` toggle (şu an `allowOrderCreate` + `DHL_ECOMMERCE_ALLOW_CANCEL` env kapısı),
+  tam provider-agnostic engine/registry (UI generic ama backend dispatch hâlâ DHL adapter'a), "Müşteriye
+  Bildirim Gönder" (UI'da pasif + not), manuel shipment ana akışı, **tarife detail-page refactor**
+  (`/shipping/rates` matris/şablon gelişmiş akışı — F3C.4 üzerine, ayrı tur), storefront provider logo
+  (checkout'ta provider SEÇİMİ yok → yalnız altyapı + TODO).
 - TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
   `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
   workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,

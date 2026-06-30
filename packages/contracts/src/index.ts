@@ -2140,6 +2140,9 @@ export const shippingProviderConfigSchema = z.object({
   mode: shippingProviderModeSchema,
   status: shippingProviderStatusSchema,
   displayName: z.string().min(1),
+  // F3C.5 (TODO-121) — public provider logo (secret DEGIL; client bundle'a guvenli gider).
+  logoUrl: z.string().nullable().optional(),
+  logoAlt: z.string().nullable().optional(),
   allowRecipientCreate: z.boolean(),
   allowOrderCreate: z.boolean(),
   allowBarcodeCreate: z.boolean(),
@@ -2165,11 +2168,23 @@ export const shippingProviderConfigListResponseSchema = z.object({
   data: z.array(shippingProviderConfigSchema),
 });
 
+// F3C.5 — provider logo (public URL). Bos string ("") => TEMIZLE (null'a indir);
+// undefined => KORU. Yalniz http(s) kabul edilir (javascript:/data: reddedilir).
+const shippingLogoUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .url()
+  .refine((v) => /^https?:\/\//i.test(v), { message: "Logo URL http(s) olmalıdır." });
+const shippingLogoAltSchema = z.string().trim().max(160);
+
 export const shippingProviderConfigCreateRequestSchema = z.object({
   provider: shippingProviderTypeSchema,
   displayName: z.string().min(1).max(120),
   mode: shippingProviderModeSchema.default("TEST"),
   status: shippingProviderStatusSchema.default("DISABLED"),
+  logoUrl: shippingLogoUrlSchema.nullable().optional(),
+  logoAlt: shippingLogoAltSchema.nullable().optional(),
   allowRecipientCreate: z.boolean().default(false),
   allowOrderCreate: z.boolean().default(false),
   allowBarcodeCreate: z.boolean().default(false),
@@ -2181,6 +2196,9 @@ export const shippingProviderConfigUpdateRequestSchema = z
     displayName: z.string().min(1).max(120).optional(),
     mode: shippingProviderModeSchema.optional(),
     status: shippingProviderStatusSchema.optional(),
+    // "" => logo temizle; URL => degistir; undefined => koru (route uygular).
+    logoUrl: z.union([shippingLogoUrlSchema, z.literal("")]).nullable().optional(),
+    logoAlt: z.union([shippingLogoAltSchema, z.literal("")]).nullable().optional(),
     allowRecipientCreate: z.boolean().optional(),
     allowOrderCreate: z.boolean().optional(),
     allowBarcodeCreate: z.boolean().optional(),
@@ -2346,8 +2364,29 @@ export const shipmentEventTypeSchema = z.enum([
   "BARCODE_FAILED",
   "STATUS_CHANGED",
   "TRACKING_UPDATED",
+  // F3C.5 (TODO-121) — admin manuel takip no girisi (provider-agnostic aksiyon).
+  "MANUAL_TRACKING",
   "CANCELLED",
   "WEBHOOK_RECEIVED",
+]);
+
+/**
+ * F3C.3 (ADR-045) — normalize shipment durum degerleri. DRAFT…FAILED; "Kargoya
+ * verildi" OTOMATIK turetilmez (ORDER_CREATED fiziksel teslim DEGIL). Named enum:
+ * hem order-detay hem F3C.5 shipment list/detay DTO'larinda yeniden kullanilir.
+ */
+export const shipmentStatusValueSchema = z.enum([
+  "DRAFT",
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "DELIVERY_FAILED",
+  "RETURNED",
+  "CANCELLED",
+  "FAILED",
 ]);
 
 export const shipmentEventSchema = z.object({
@@ -2366,21 +2405,7 @@ export const shipmentSchema = z.object({
   orderId: z.string(),
   provider: shippingProviderTypeSchema,
   referenceId: z.string(),
-  status: z.enum([
-    "DRAFT",
-    "ORDER_CREATED",
-    // F3C.3 (ADR-045) DHL normalize ara durumlar: barkod bos 200 (LABEL_PENDING),
-    // dagitima cikti (OUT_FOR_DELIVERY), teslim edilemedi (DELIVERY_FAILED, FINAL DEGIL).
-    "LABEL_PENDING",
-    "LABEL_CREATED",
-    "IN_TRANSIT",
-    "OUT_FOR_DELIVERY",
-    "DELIVERED",
-    "DELIVERY_FAILED",
-    "RETURNED",
-    "CANCELLED",
-    "FAILED",
-  ]),
+  status: shipmentStatusValueSchema,
   externalOrderId: z.string().nullable(),
   externalShipmentId: z.string().nullable(),
   externalInvoiceId: z.string().nullable(),
@@ -2440,6 +2465,116 @@ export const shippingCancelRequestSchema = z.object({
 export const shippingShipmentMutationResponseSchema = z.object({
   shipment: shipmentSchema,
   alreadyExisted: z.boolean().default(false),
+});
+
+/* ─────────────────── F3C.5 (TODO-121) Provider-agnostic shipment operasyon UI ───────────────────
+ * Shipment = lojistik islem (Order'dan dogar). Bu DTO'lar store-level shipment LIST/DETAIL
+ * ekranlarini ve generic (provider-agnostic) aksiyon yetkilerini besler. UI'da DHL/provider
+ * adi yalniz displayName+logo olarak gorunur; buton/copy provider-spesifik DEGILDIR.
+ * Secret/ZPL/token ASLA donmez (serialize allowlist; raw barkod yalniz boolean).
+ */
+
+/** Generic provider gorunum DTO'su (liste/detay/ozet kartinda). logo PUBLIC, secret degil. */
+export const shipmentProviderInfoSchema = z.object({
+  configId: z.string().nullable(),
+  type: shippingProviderTypeSchema,
+  displayName: z.string(),
+  status: shippingProviderStatusSchema.nullable(),
+  logoUrl: z.string().nullable(),
+  logoAlt: z.string().nullable(),
+});
+
+/**
+ * Generic (provider-agnostic) aksiyon yetenekleri — UI CTA'lari bunlara gore acilir/kapanir.
+ * Provider capability (DHL/Geliver/MOCK) + shipment durumu birlikte projekte edilir.
+ * disabledReason bir i18n hata KODudur (UI lokalize eder) ya da null.
+ */
+export const shipmentActionCapabilitiesSchema = z.object({
+  canPrepare: z.boolean(),
+  canCreateLabel: z.boolean(),
+  canSync: z.boolean(),
+  canCancel: z.boolean(),
+  canManualTracking: z.boolean(),
+  disabledReason: z.string().nullable(),
+});
+
+/** Shipment list satiri (ozet). Sipariş no + müşteri + provider + son event noktasi. */
+export const shipmentListItemSchema = z.object({
+  id: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string().nullable(),
+  provider: shipmentProviderInfoSchema,
+  referenceId: z.string(),
+  status: shipmentStatusValueSchema,
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  barcodeHasLabel: z.boolean(),
+  // Son hareketin tipi + "işlem noktası" (KESIN varis/teslimat subesi DEGIL — ADR-045).
+  lastEventType: shipmentEventTypeSchema.nullable(),
+  lastEventLocation: z.string().nullable(),
+  lastProviderStatus: z.string().nullable(),
+  lastSyncedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+/** KPI kartlari (sade MVP): hazirlanan / barkod bekleyen / transferde / teslim / sorunlu. */
+export const shipmentListKpiSchema = z.object({
+  prepared: z.number().int(),
+  awaitingLabel: z.number().int(),
+  inTransit: z.number().int(),
+  delivered: z.number().int(),
+  problem: z.number().int(),
+});
+
+export const shipmentListResponseSchema = z.object({
+  data: z.array(shipmentListItemSchema),
+  total: z.number().int(),
+  kpi: shipmentListKpiSchema,
+});
+
+/** Liste filtre/sorgu parametreleri (gateway query string'inden coerce edilir). */
+export const shipmentListQuerySchema = z.object({
+  search: z.string().trim().max(200).optional(),
+  status: shipmentStatusValueSchema.optional(),
+  provider: shippingProviderTypeSchema.optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  // Hizli filtreler: sorunlu / barkod bekleyen / teslim edilemeyen.
+  flag: z.enum(["PROBLEM", "AWAITING_LABEL", "UNDELIVERABLE"]).optional(),
+  take: z.coerce.number().int().min(1).max(200).optional(),
+  skip: z.coerce.number().int().min(0).optional(),
+});
+
+/** Shipment detay = shipment + order/müşteri baglami + generic provider + aksiyon yetkileri. */
+export const shipmentDetailSchema = shipmentSchema.extend({
+  orderNumber: z.string(),
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  providerInfo: shipmentProviderInfoSchema,
+  actions: shipmentActionCapabilitiesSchema,
+});
+
+export const shipmentDetailResponseSchema = z.object({
+  shipment: shipmentDetailSchema,
+});
+
+/** Manuel takip no girisi (provider-agnostic; saglayiciya CAGRI YAPMAZ). */
+export const shipmentManualTrackingRequestSchema = z.object({
+  trackingNumber: z.string().trim().min(1).max(120),
+  trackingUrl: z.string().trim().url().max(2000).optional(),
+});
+
+/** create-label (barkod/etiket) generic aksiyon body'si. */
+export const shipmentCreateLabelRequestSchema = z.object({
+  packagingType: z.number().int().optional(),
+  explicitConfirm: z.boolean().default(false),
+});
+
+/** cancel (gönderi kaydi iptali) generic aksiyon body'si — explicit onay zorunlu. */
+export const shipmentCancelRequestSchema = z.object({
+  explicitConfirm: z.boolean().default(false),
 });
 
 /* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
@@ -2799,6 +2934,19 @@ export type ShippingBarcodeActionRequest = z.infer<typeof shippingBarcodeActionR
 export type ShippingSyncRequest = z.infer<typeof shippingSyncRequestSchema>;
 export type ShippingCancelRequest = z.infer<typeof shippingCancelRequestSchema>;
 export type ShippingShipmentMutationResponse = z.infer<typeof shippingShipmentMutationResponseSchema>;
+export type ShipmentStatusValue = z.infer<typeof shipmentStatusValueSchema>;
+// F3C.5 (TODO-121) — provider-agnostic shipment operasyon UI.
+export type ShipmentProviderInfo = z.infer<typeof shipmentProviderInfoSchema>;
+export type ShipmentActionCapabilities = z.infer<typeof shipmentActionCapabilitiesSchema>;
+export type ShipmentListItem = z.infer<typeof shipmentListItemSchema>;
+export type ShipmentListKpi = z.infer<typeof shipmentListKpiSchema>;
+export type ShipmentListResponse = z.infer<typeof shipmentListResponseSchema>;
+export type ShipmentListQuery = z.infer<typeof shipmentListQuerySchema>;
+export type ShipmentDetail = z.infer<typeof shipmentDetailSchema>;
+export type ShipmentDetailResponse = z.infer<typeof shipmentDetailResponseSchema>;
+export type ShipmentManualTrackingRequest = z.infer<typeof shipmentManualTrackingRequestSchema>;
+export type ShipmentCreateLabelRequest = z.infer<typeof shipmentCreateLabelRequestSchema>;
+export type ShipmentCancelRequest = z.infer<typeof shipmentCancelRequestSchema>;
 export type ShippingRatePlanStatus = z.infer<typeof shippingRatePlanStatusSchema>;
 export type ShippingRatePricingMode = z.infer<typeof shippingRatePricingModeSchema>;
 export type ShippingRateSource = z.infer<typeof shippingRateSourceSchema>;

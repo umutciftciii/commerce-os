@@ -308,6 +308,8 @@ enum ShipmentEventType {
   BARCODE_FAILED
   STATUS_CHANGED
   TRACKING_UPDATED
+  // F3C.5 (TODO-121) — admin manuel takip no girisi (provider-agnostic aksiyon).
+  MANUAL_TRACKING
   CANCELLED
   WEBHOOK_RECEIVED
 }
@@ -1156,6 +1158,11 @@ model ShippingProviderConfig {
   mode               ShippingProviderMode   @default(TEST)
   status             ShippingProviderStatus @default(DISABLED)
   displayName        String
+  // F3C.5 (TODO-121) — Provider logo (public, secret DEGIL). UI'da liste/detay/ozet
+  // kartinda gosterilir; bozuk/eksik URL'de provider initials fallback uygulanir.
+  // logoStorageKey ileride object-store entegrasyonu icin TODO (su an dis URL).
+  logoUrl            String?
+  logoAlt            String?
   // Destructive/costly operasyon guard'lari. Hepsi varsayilan KAPALI; canli
   // createOrder/createbarcode/acceptOffer ancak ilgili env flag + bu alan + request
   // explicitConfirm uclusu saglaninca calisir (aksi halde 409).

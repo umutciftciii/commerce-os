@@ -13,7 +13,7 @@ import {
  * HTTP transport kapaliyken test ASLA OK yazmaz (route HTTP_DISABLED yazar).
  */
 
-const ENV_OFF: ShippingEnvGuards = { orderCreate: false, barcodeCreate: false, labelPurchase: false };
+const ENV_OFF: ShippingEnvGuards = { orderCreate: false, barcodeCreate: false, labelPurchase: false, cancel: false };
 
 function cred(type: ShippingProviderCredential["type"], configured: boolean): ShippingProviderCredential {
   return {

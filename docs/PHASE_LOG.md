@@ -1927,3 +1927,45 @@ bağımsız ve sağlayıcıya istek atmaz.
   `normalizeKey` kullanılmalı (elle "tarife i" yazılırsa eşleşmez).
 - **Kalan:** CSV/Excel file upload + toplu export + zone generic şablon (TODO-111 KALAN). Commit/merge/push YOK
   (kullanıcı talebi: önce rapor).
+
+## F3C.5 — Provider-agnostic Shipment Operations UI + Shipment domain ayrımı (TODO-121 / ADR-046)
+
+Kargo operasyonu Order detayındaki DHL panelinden çıkarılıp bağımsız **Shipment** lojistik domain'ine taşındı.
+Order = ticari işlem (özet + CTA), Shipment = lojistik işlem (liste/detay/operasyon). Hibrit kapsam: UI tamamen
+provider-agnostic; backend generic alias'lar mevcut DHL adapter mantığına dispatch eder (tam engine refactor
+sonraki tur).
+
+- **Data model (additive):** migration `20260630160000_add_shipment_provider_logo` →
+  `ShippingProviderConfig.logoUrl/logoAlt` (public, secret değil) + `ShipmentEventType.MANUAL_TRACKING`.
+- **Gateway (`apps/api-gateway/src/shipping`):** serialize'a `buildShipmentProviderInfo` +
+  `computeShipmentActionCapabilities` (canPrepare/canCreateLabel/canSync/canCancel/canManualTracking +
+  disabledReason) + `shipmentKpiBucket` + logo. routes'a paylaşılan helper'lar (`applyCreateLabel/applySync/
+  applyCancel/applyManualTracking` — order-scoped DHL route'ları da bunları kullanır, regresyon yok) ve
+  store-level uçlar: `GET /shipping/shipments` (search/status/provider/dateRange/flag filtre + KPI groupBy +
+  order/customer/provider join), `GET /shipping/shipments/:id` (detay + generic capability), `POST
+  …/:id/create-label|sync|cancel|manual-tracking`. envGuards += `cancel`.
+- **Contracts + api-client:** `shipmentStatusValueSchema` (named, paylaşılan), `shipmentProviderInfoSchema`,
+  `shipmentActionCapabilitiesSchema`, `shipmentListItem/Kpi/ListResponse/ListQuery`, `shipmentDetail*`,
+  generic action request'leri + provider logo create/update alanları ("" => temizle semantiği). api-client
+  `admin.shipments.{list,get,createLabel,sync,cancel,manualTracking}` + tip re-export.
+- **BFF (store-admin-web):** `/api/shipping/shipments` (GET, filtre forward) + `/api/shipping/shipments/[id]`
+  (GET) + 4 aksiyon POST (CSRF + requireStoreContext, server-side store/token).
+- **UI:** `/shipping/shipments` (KPI StatCard'lar + filtreler + DataTable, satır → detay) + `/shipping/
+  shipments/[id]` (özet + provider-safe **stepper** [Gönderi Kaydı→Barkod→Taşıma→Teslimat→Tamamlandı] +
+  "İşlem noktası" timeline + capability-driven generic aksiyon paneli). Order detayında `ShippingPanel`
+  (661 satır DHL paneli) **kaldırıldı** → `OrderShipmentSummary` (özet + "Kargo Detayına Git" / born-from-order
+  "Gönderi Kaydı Oluştur"). Paylaşılan `ProviderLogo` (initials fallback) + `lib/client/shipment-ui.ts`
+  (generic status/event/KPI/step sözlüğü). Provider config UI'a logo URL + alt + preview; logo liste/detay/
+  özet/sağlayıcı ekranlarında. Nav "Kargo Gönderileri" linki + TR/EN i18n.
+- **Generic copy garantisi:** UI'da DHL/sağlayıcıya özel buton/copy YOK; provider yalnız displayName+logo.
+  "Kargoya verildi" otomatik durum üretilmez; timeline "İşlem noktası" (varış şubesi DEĞİL).
+- **Testler:** gateway `shipping-shipment-ops.test.ts` (10: capability matrisi, KPI kovaları, provider-info,
+  logo serialize). store-admin `order-shipment-summary.test.tsx` (3: empty/no-shipment+CTA/summary+detail
+  link, operasyon paneli order'da yok, "Kargoya verildi" yok) + `shipment-screens.test.tsx` (2: liste
+  kolonları+KPI, detay generic aksiyon copy + "İşlem noktası" + DHL-spesifik metin yok). Eski
+  `shipping-panel.test.tsx` kaldırıldı.
+- **Gate:** db:generate + build (24/24) + typecheck (0) + lint (0) + test (api-gateway 264, store-admin-web
+  121, toplam 34 task) + git diff --check temiz. **Runtime smoke:** Next build her iki route'u dynamic (ƒ)
+  derledi; gateway health test (264, full app boot + route registration) geçti; canlı HTTP stack smoke
+  (worktree docker gotcha) çalıştırılmadı. **Secret/ZPL:** yeni UI/BFF taramasında yalnız `ctx.token`
+  (server-side BFF→gateway auth, standart) eşleşti; response/UI/bundle'a sızıntı yok. Commit/merge/push YOK.

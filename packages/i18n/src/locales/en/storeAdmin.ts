@@ -113,6 +113,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     customers: "Customers",
     marketplace: "Marketplaces",
     paymentProviders: "Payment Providers",
+    shipments: "Shipments",
     shippingProviders: "Shipping Providers",
     shippingRates: "Shipping Rates",
     theme: "Theme",

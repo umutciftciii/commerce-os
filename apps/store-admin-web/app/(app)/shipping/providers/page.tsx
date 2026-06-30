@@ -21,6 +21,7 @@ import type {
   ShippingCredentialUpsertRequest,
 } from "@commerce-os/api-client";
 import { ShippingIcon } from "../../../../components/icons";
+import { ProviderLogo } from "../../../../components/provider-logo";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate } from "../../../../lib/client/format";
@@ -88,6 +89,9 @@ const L = {
     editTitle: "Sağlayıcıyı düzenle",
     credTitle: "Kimlik bilgileri",
     fDisplayName: "Görünen ad",
+    fLogoUrl: "Logo URL (opsiyonel, public)",
+    fLogoAlt: "Logo alt metni (opsiyonel)",
+    logoPreview: "Önizleme",
     fProvider: "Sağlayıcı",
     fMode: "Mod",
     fStatus: "Durum",
@@ -172,6 +176,9 @@ const L = {
     editTitle: "Edit provider",
     credTitle: "Credentials",
     fDisplayName: "Display name",
+    fLogoUrl: "Logo URL (optional, public)",
+    fLogoAlt: "Logo alt text (optional)",
+    logoPreview: "Preview",
     fProvider: "Provider",
     fMode: "Mode",
     fStatus: "Status",
@@ -237,6 +244,8 @@ interface CreateForm {
   provider: (typeof PROVIDERS)[number];
   displayName: string;
   mode: (typeof MODES)[number];
+  // F3C.5 (TODO-121) — public provider logo (secret değil).
+  logoUrl: string;
 }
 
 interface EditForm {
@@ -244,6 +253,8 @@ interface EditForm {
   displayName: string;
   mode: (typeof MODES)[number];
   status: "ENABLED" | "DISABLED";
+  logoUrl: string;
+  logoAlt: string;
   allowRecipientCreate: boolean;
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
@@ -273,7 +284,7 @@ export default function ShippingProvidersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateForm>({ provider: "MOCK", displayName: "", mode: "TEST" });
+  const [createForm, setCreateForm] = useState<CreateForm>({ provider: "MOCK", displayName: "", mode: "TEST", logoUrl: "" });
   const [saving, setSaving] = useState(false);
 
   const [editForm, setEditForm] = useState<EditForm | null>(null);
@@ -295,7 +306,7 @@ export default function ShippingProvidersPage() {
   }, [load]);
 
   const openCreate = () => {
-    setCreateForm({ provider: "MOCK", displayName: "", mode: "TEST" });
+    setCreateForm({ provider: "MOCK", displayName: "", mode: "TEST", logoUrl: "" });
     setActionError(null);
     setCreateOpen(true);
   };
@@ -314,6 +325,7 @@ export default function ShippingProvidersPage() {
         displayName: createForm.displayName.trim(),
         mode: createForm.mode,
         status: "DISABLED",
+        logoUrl: createForm.logoUrl.trim() || undefined,
         allowRecipientCreate: false,
         allowOrderCreate: false,
         allowBarcodeCreate: false,
@@ -336,6 +348,8 @@ export default function ShippingProvidersPage() {
       displayName: config.displayName,
       mode: config.mode,
       status: config.status,
+      logoUrl: config.logoUrl ?? "",
+      logoAlt: config.logoAlt ?? "",
       allowRecipientCreate: config.allowRecipientCreate,
       allowOrderCreate: config.allowOrderCreate,
       allowBarcodeCreate: config.allowBarcodeCreate,
@@ -354,6 +368,9 @@ export default function ShippingProvidersPage() {
         displayName: editForm.displayName.trim(),
         mode: editForm.mode,
         status: editForm.status,
+        // "" => logo temizle; URL => değiştir (gateway "" semantiğini uygular).
+        logoUrl: editForm.logoUrl.trim(),
+        logoAlt: editForm.logoAlt.trim(),
         allowRecipientCreate: editForm.allowRecipientCreate,
         allowOrderCreate: editForm.allowOrderCreate,
         allowBarcodeCreate: editForm.allowBarcodeCreate,
@@ -470,9 +487,12 @@ export default function ShippingProvidersPage() {
       {
         header: t.colName,
         cell: (row) => (
-          <div className="flex flex-col">
-            <span className="font-semibold text-white/85">{row.displayName}</span>
-            <span className="text-[11px] text-white/35">{PROVIDER_LABEL[row.provider]}</span>
+          <div className="flex items-center gap-2.5">
+            <ProviderLogo logoUrl={row.logoUrl} displayName={row.displayName} logoAlt={row.logoAlt} size={26} />
+            <div className="flex flex-col">
+              <span className="font-semibold text-white/85">{row.displayName}</span>
+              <span className="text-[11px] text-white/35">{PROVIDER_LABEL[row.provider]}</span>
+            </div>
           </div>
         ),
       },
@@ -628,6 +648,21 @@ export default function ShippingProvidersPage() {
             options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p] }))}
           />
           <Input label={t.fDisplayName} value={createForm.displayName} onChange={(e) => setCreateForm({ ...createForm, displayName: e.target.value })} required />
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <Input
+                label={t.fLogoUrl}
+                value={createForm.logoUrl}
+                onChange={(e) => setCreateForm({ ...createForm, logoUrl: e.target.value })}
+                placeholder="https://…"
+              />
+            </div>
+            <ProviderLogo
+              logoUrl={createForm.logoUrl.trim() || null}
+              displayName={createForm.displayName || PROVIDER_LABEL[createForm.provider]}
+              size={36}
+            />
+          </div>
           <Select
             label={t.fMode}
             value={createForm.mode}
@@ -656,6 +691,27 @@ export default function ShippingProvidersPage() {
           <form id="shipping-edit-form" onSubmit={submitEdit} className="space-y-4">
             {actionError ? <Alert tone="error">{actionError}</Alert> : null}
             <Input label={t.fDisplayName} value={editForm.displayName} onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })} required />
+            <div className="flex items-end gap-3">
+              <div className="flex-1 space-y-3">
+                <Input
+                  label={t.fLogoUrl}
+                  value={editForm.logoUrl}
+                  onChange={(e) => setEditForm({ ...editForm, logoUrl: e.target.value })}
+                  placeholder="https://…"
+                />
+                <Input
+                  label={t.fLogoAlt}
+                  value={editForm.logoAlt}
+                  onChange={(e) => setEditForm({ ...editForm, logoAlt: e.target.value })}
+                />
+              </div>
+              <ProviderLogo
+                logoUrl={editForm.logoUrl.trim() || null}
+                displayName={editForm.displayName}
+                logoAlt={editForm.logoAlt.trim() || null}
+                size={40}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Select label={t.fMode} value={editForm.mode} onChange={(e) => setEditForm({ ...editForm, mode: e.target.value as EditForm["mode"] })} options={MODES.map((m) => ({ value: m, label: m }))} />
               <Select label={t.fStatus} value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value as EditForm["status"] })} options={[{ value: "DISABLED", label: t.disabled }, { value: "ENABLED", label: t.enabled }]} />
