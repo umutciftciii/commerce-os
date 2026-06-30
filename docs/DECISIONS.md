@@ -1008,3 +1008,68 @@ implementasyonunun finalizasyonudur; rate engine / matrix UI'a dokunulmadı.
 - **Data model:** additive enum migration (`20260630120000_dhl_shipment_operation_statuses`):
   ShipmentStatus += LABEL_PENDING/OUT_FOR_DELIVERY/DELIVERY_FAILED; ShipmentEventType +=
   BARCODE_PENDING/BARCODE_FAILED. Mevcut veriyi bozmaz; değer silmez/yeniden adlandırmaz.
+
+## ADR-046 Shipment = ayrı lojistik domain; Order detay yalnız özet + CTA; provider-agnostic operasyon UI (F3C.5 / TODO-121)
+
+**Bağlam.** F3C.3'te kargo operasyonu (prepare/barcode/sync/cancel + timeline) sipariş detayındaki büyük
+DHL-merkezli panele sıkışmıştı. Order = ticari işlem; Shipment = lojistik işlem ayrımı bulanıktı ve UI
+provider-spesifik (DHL) sözcükler içeriyordu.
+
+**Karar.**
+- **Domain ayrımı.** Shipment bağımsız lojistik domain olarak ele alınır. Asıl takip/işlem/listeleme
+  store-level shipment ekranlarındadır; sipariş detayında YALNIZ özet kartı + CTA bulunur.
+  - `/shipping/shipments` — liste (sipariş no, müşteri, provider+logo, takip no, durum, son işlem noktası,
+    son güncelleme, oluşturma) + sade 5 KPI (hazırlanan/barkod bekleyen/transferde/teslim/sorunlu) + filtreler.
+  - `/shipping/shipments/[id]` — operasyon detayı: üst özet, provider-safe stepper, "İşlem noktası" timeline,
+    capability-driven generic aksiyon paneli.
+  - `/orders/[id]` — kargo ÖZET kartı: shipment varsa provider+logo/durum/takip/son işlem + "Kargo Detayına
+    Git"; yoksa güvenli özet (alıcı önizleme + güvenlik-kilidi notu). Tam operasyon paneli KALDIRILDI; kart
+    dış sağlayıcıya İSTEK ATMAZ (bkz. aşağıdaki F3C.5 manuel inceleme netleştirmesi).
+- **Provider-agnostic UI, DHL backend dispatch (hibrit).** UI'da provider yalnız `displayName` + logo olarak
+  görünür; buton/copy generic'tir (Barkod/Etiket Oluştur, Durumu Güncelle, Gönderi Kaydını İptal Et, Manuel
+  Takip No Gir). Gateway generic alias uçları (`create-label`/`sync`/`cancel`/`manual-tracking`) içeride
+  mevcut adapter mantığına dispatch eder (`applyCreateLabel/applySync/applyCancel/applyManualTracking`
+  helper'ları order-scoped DHL route'larıyla paylaşılır). Tam provider-agnostic engine/registry bu turda
+  yazılmadı (KASITLI: "UI/domain ayrımını doğru kur, engine'i sıfırdan yazma").
+- **Generic capability projeksiyonu.** `computeShipmentActionCapabilities` provider capability + shipment
+  durumunu minimum generic modele indirger: canPrepare/canCreateLabel/canSync/canCancel/canManualTracking +
+  `disabledReason` (i18n kodu). Yalnız DHL sync destekler; manuel takip sağlayıcıya çağrı yapmaz (aktif
+  shipment'te her zaman açık).
+- **ADR-045 kuralları KORUNUR.** "Kargoya verildi" otomatik durum üretilmez (ORDER_CREATED fiziksel teslim
+  değildir); timeline konumu KESİN varış/teslimat şubesi değil → "İşlem noktası". createbarcode boş 200 →
+  LABEL_PENDING; routing hatası → BARCODE_RETRYABLE_ERROR; cancel shipmentId + explicit onay ister.
+- **Provider logo.** `ShippingProviderConfig.logoUrl/logoAlt` additive (PUBLIC, secret DEĞİL; client
+  bundle'a güvenli gider). Bozuk/eksik URL'de sağlayıcı baş harfleri fallback. Storefront'ta checkout'ta
+  provider SEÇİMİ olmadığından (ücret F3C.2 tarifesinden, provider quote değil) storefront logo yalnız
+  altyapı + TODO.
+- **Data model.** Additive migration `20260630160000_add_shipment_provider_logo`:
+  `ShippingProviderConfig += logoUrl/logoAlt`, `ShipmentEventType += MANUAL_TRACKING`. Mevcut veriyi bozmaz.
+
+**Sonuç.** Sipariş detayı sadeleşti (operasyon shipment ekranlarına taşındı), kargo modülü güçlü ama yardımcı
+e-ticaret modülü olarak kaldı (TMS/WMS şişkinliği yok). Secret/ZPL hiçbir response/UI/bundle'a girmez
+(serialize allowlist; barkod yalnız boolean). KAPSAM DIŞI/sonraki: dedike `allowCancel` toggle, tam engine
+refactor, müşteri bildirimi, manuel shipment ana akışı, tarife detail-page refactor.
+
+**F3C.5 manuel inceleme netleştirmesi (5dc3cfb sonrası, revert YOK).**
+- **Manuel takip explicit admin aksiyonu olduğunda shipment status İLERLEYEBİLİR.** Admin manuel takip no girince
+  operasyonel olarak "kargo süreci başladı" demektir: hazırlık aşamasındaki gönderi (`DRAFT/ORDER_CREATED/
+  LABEL_PENDING/LABEL_CREATED`) `IN_TRANSIT`'e ilerler; ileri/terminal durumlar korunur (regres yok). Bu YALNIZ
+  explicit manuel tracking aksiyonuna özeldir — **provider barcode (createbarcode) sonrası OTOMATİK handoff
+  DEĞİLDİR.** "Kargoya verildi" hâlâ otomatik üretilmez. Order ana ticari `OrderStatus` enum'una dokunulmaz;
+  order özet kartı shipment status üzerinden güncel görünür.
+- **Order detay CTA = online-first, güvenli fallback (REVİZE — bir önceki "istek atmaz" kararının yerine geçer).**
+  Kullanıcı kararı: entegrasyonu test etmeden çalışıp çalışmadığı bilinemez → online akış BİRİNCİL. "Gönderi
+  Oluştur" önce sağlayıcıyı dener (createRecipient + createOrder). Başarılı → shipment detayına yönlenir (barkod/
+  takip/sync orada; createbarcode AYRI adım). Sağlayıcı hatası (401/409/network) kullanıcıya HAM patlatılmaz →
+  "Geçici bir sağlayıcı hatası oluştu. Manuel gönderi ile devam edebilirsiniz." + İKİNCİL "Manuel Gönderi Hazırla".
+  Manuel fallback (TODO-126) provider'a İSTEK ATMAZ: yerel ORDER_CREATED shipment (`POST .../shipping/shipment-draft`)
+  → detay → "Manuel Takip No Gir" → IN_TRANSIT. `createOrder` = gönderi kaydıdır; `createbarcode` = barkod
+  hazırlığıdır; ikisi de fiziksel "kargoya verildi" DEĞİLDİR (ADR-045 korunur).
+- **Sandbox guard'ları local/test'te AÇIK.** `SHIPPING_SANDBOX_HTTP_ENABLED` + `DHL_ECOMMERCE_ALLOW_RECIPIENT/
+  ORDER/BARCODE_CREATE/CANCEL` local/test'te açılır ki dış sağlayıcı entegrasyonu gerçekten test edilebilsin.
+  Değerler repo-DIŞI `/.../.secrets/commerce-os-shipping.local.env`'de; tracked compose/.env.example **production-safe
+  default (kapalı)** korur. Guard açıkken kullanıcı güvenlik-kilidi mesajını normalde görmez; yalnız gerçekten
+  env/config kapalıysa görür. (DHL sandbox provisioning henüz tamsa 401 "no valid subscription" dönebilir → bu kod
+  hatası değil; safe provider error olarak yakalanıp manuel fallback önerilir.)
+- **Guard copy "canlı/test"ten bağımsızdır.** Sağlayıcı operasyonu güvenlik kilidi (sandbox HTTP + işlem izni)
+  ile kapalıdır; UI copy'lerinde yanıltıcı "Canlı" çerçevesi kullanılmaz.

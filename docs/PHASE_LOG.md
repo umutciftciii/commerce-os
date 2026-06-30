@@ -1927,3 +1927,93 @@ bağımsız ve sağlayıcıya istek atmaz.
   `normalizeKey` kullanılmalı (elle "tarife i" yazılırsa eşleşmez).
 - **Kalan:** CSV/Excel file upload + toplu export + zone generic şablon (TODO-111 KALAN). Commit/merge/push YOK
   (kullanıcı talebi: önce rapor).
+
+## F3C.5 — Provider-agnostic Shipment Operations UI + Shipment domain ayrımı (TODO-121 / ADR-046)
+
+Kargo operasyonu Order detayındaki DHL panelinden çıkarılıp bağımsız **Shipment** lojistik domain'ine taşındı.
+Order = ticari işlem (özet + CTA), Shipment = lojistik işlem (liste/detay/operasyon). Hibrit kapsam: UI tamamen
+provider-agnostic; backend generic alias'lar mevcut DHL adapter mantığına dispatch eder (tam engine refactor
+sonraki tur).
+
+- **Data model (additive):** migration `20260630160000_add_shipment_provider_logo` →
+  `ShippingProviderConfig.logoUrl/logoAlt` (public, secret değil) + `ShipmentEventType.MANUAL_TRACKING`.
+- **Gateway (`apps/api-gateway/src/shipping`):** serialize'a `buildShipmentProviderInfo` +
+  `computeShipmentActionCapabilities` (canPrepare/canCreateLabel/canSync/canCancel/canManualTracking +
+  disabledReason) + `shipmentKpiBucket` + logo. routes'a paylaşılan helper'lar (`applyCreateLabel/applySync/
+  applyCancel/applyManualTracking` — order-scoped DHL route'ları da bunları kullanır, regresyon yok) ve
+  store-level uçlar: `GET /shipping/shipments` (search/status/provider/dateRange/flag filtre + KPI groupBy +
+  order/customer/provider join), `GET /shipping/shipments/:id` (detay + generic capability), `POST
+  …/:id/create-label|sync|cancel|manual-tracking`. envGuards += `cancel`.
+- **Contracts + api-client:** `shipmentStatusValueSchema` (named, paylaşılan), `shipmentProviderInfoSchema`,
+  `shipmentActionCapabilitiesSchema`, `shipmentListItem/Kpi/ListResponse/ListQuery`, `shipmentDetail*`,
+  generic action request'leri + provider logo create/update alanları ("" => temizle semantiği). api-client
+  `admin.shipments.{list,get,createLabel,sync,cancel,manualTracking}` + tip re-export.
+- **BFF (store-admin-web):** `/api/shipping/shipments` (GET, filtre forward) + `/api/shipping/shipments/[id]`
+  (GET) + 4 aksiyon POST (CSRF + requireStoreContext, server-side store/token).
+- **UI:** `/shipping/shipments` (KPI StatCard'lar + filtreler + DataTable, satır → detay) + `/shipping/
+  shipments/[id]` (özet + provider-safe **stepper** [Gönderi Kaydı→Barkod→Taşıma→Teslimat→Tamamlandı] +
+  "İşlem noktası" timeline + capability-driven generic aksiyon paneli). Order detayında `ShippingPanel`
+  (661 satır DHL paneli) **kaldırıldı** → `OrderShipmentSummary` (özet + "Kargo Detayına Git" / born-from-order
+  "Gönderi Kaydı Oluştur"). Paylaşılan `ProviderLogo` (initials fallback) + `lib/client/shipment-ui.ts`
+  (generic status/event/KPI/step sözlüğü). Provider config UI'a logo URL + alt + preview; logo liste/detay/
+  özet/sağlayıcı ekranlarında. Nav "Kargo Gönderileri" linki + TR/EN i18n.
+- **Generic copy garantisi:** UI'da DHL/sağlayıcıya özel buton/copy YOK; provider yalnız displayName+logo.
+  "Kargoya verildi" otomatik durum üretilmez; timeline "İşlem noktası" (varış şubesi DEĞİL).
+- **Testler:** gateway `shipping-shipment-ops.test.ts` (10: capability matrisi, KPI kovaları, provider-info,
+  logo serialize). store-admin `order-shipment-summary.test.tsx` (3: empty/no-shipment+CTA/summary+detail
+  link, operasyon paneli order'da yok, "Kargoya verildi" yok) + `shipment-screens.test.tsx` (2: liste
+  kolonları+KPI, detay generic aksiyon copy + "İşlem noktası" + DHL-spesifik metin yok). Eski
+  `shipping-panel.test.tsx` kaldırıldı.
+- **Gate:** db:generate + build (24/24) + typecheck (0) + lint (0) + test (api-gateway 264, store-admin-web
+  121, toplam 34 task) + git diff --check temiz. **Runtime smoke:** Next build her iki route'u dynamic (ƒ)
+  derledi; gateway health test (264, full app boot + route registration) geçti; canlı HTTP stack smoke
+  (worktree docker gotcha) çalıştırılmadı. **Secret/ZPL:** yeni UI/BFF taramasında yalnız `ctx.token`
+  (server-side BFF→gateway auth, standart) eşleşti; response/UI/bundle'a sızıntı yok. Commit/merge/push YOK.
+
+### F3C.5 manuel UI inceleme fix (5dc3cfb checkpoint sonrası, revert YOK → üzerine fix)
+
+Manuel UI incelemede çıkan bug/UX maddeleri düzeltildi (kararlar: order özet kartı dış sağlayıcıya istek atmaz —
+düşük regresyon; yeni DRAFT/prepare uçları bu turda yazılmadı, TODO-126).
+
+- **Manuel tracking → status ilerler (#2):** `applyManualTracking` artık `manualTrackingNextStatus(serialize.ts)`
+  ile hazırlık aşamasındaki gönderiyi (`DRAFT/ORDER_CREATED/LABEL_PENDING/LABEL_CREATED`) `IN_TRANSIT`'e ilerletir;
+  ileri/terminal durumlar korunur (regres yok). `MANUAL_TRACKING` event copy "Manuel takip numarası eklendi.".
+  Order ana ticari `OrderStatus` enum'una DOKUNULMADI; order özet kartı shipment status üzerinden güncel görünür.
+  DHL createbarcode sonrası otomatik "kargoya verildi" davranışına DÖNÜLMEDİ (yalnız explicit manuel aksiyon).
+- **Order detail CTA (#6, B kararı):** `OrderShipmentSummary` salt-okunur özet oldu — destructive inline create
+  form KALDIRILDI, doğrudan `prepareDhlShipment`/`createOrderShipment` çağrısı YOK. Shipment yoksa güvenli özet
+  (alıcı önizleme + güvenlik-kilidi notu + "Kargo Gönderileri" linki); varsa özet + "Kargo Detayına Git".
+- **Guard copy (#5):** Yanıltıcı "Canlı/Live" guard copy'leri kaldırıldı → "güvenlik kilidi" çerçevesi
+  (i18n error code'lar tr+en: RECIPIENT/ORDER/BARCODE_CREATE_DISABLED, CANCEL_DISABLED, SHIPPING_HTTP_DISABLED;
+  providers sayfası izin toggle/uyarı copy'leri; `shipment-ui.ts` PROVIDER_ACTIONS_DISABLED). "canlı" yalnız
+  "bu güvenlik kilidi canlı/test ayrımından bağımsızdır" cümlesinde kaldı (bilinçli).
+- **Status tutarlılığı (#4):** liste/detay/order özet tek `SHIPMENT_STATUS_LABEL/TONE` helper'ından beslenir;
+  takip no yoksa "Henüz oluşmadı" (liste + detay + order özet), varsa üçünde aynı no.
+- **Tarife UI (#1, copy-only):** "DHL şablonu oluştur" → "Şablon seç" (TR/EN); backend/matrix engine'e
+  dokunulmadı. Tam detail-page refactor borcu TODO-121 altında **bilinen UI borcu** olarak listelendi.
+- **Provider logo (#3):** kod değişikliği yok; TODO-125 (upload/storage) eklendi. logoUrl geçici MVP.
+- **Testler:** gateway `shipping-shipment-ops.test.ts`'e `manualTrackingNextStatus` (advance + no-regress)
+  testleri; store-admin tarafında order summary destructive-call-yok + guard copy "Canlı" geçmez + status
+  helper paritesi güncellendi. **Bilinen UI borcu:** TODO-121 tarife detail-page refactor, TODO-126 draft flow.
+
+### F3C.5 online-first revizyon (kullanıcı kararı — "test etmeden entegrasyon bilinemez")
+
+Bir önceki manuel-inceleme "order detay istek atmaz" kararı REVİZE edildi (bkz. DECISIONS ADR-046 revizyonu).
+Yeni model: **online BİRİNCİL, manuel İKİNCİL fallback.**
+
+- **Order özet kartı (`OrderShipmentSummary`) yeniden yazıldı:** "Gönderi Oluştur" → provider select + parça/kg/desi
+  + alıcı önizleme → submit ONLINE dener (DHL `prepareDhlShipment` = createRecipient + createOrder; generic
+  `createOrderShipment`). Başarı → `/shipping/shipments/[id]`'e yönlenir (DHL prepare shipment.id döner; generic'te
+  refetch ile id bulunur). **Sağlayıcı hatası HAM patlamaz** → tone=warning "Geçici bir sağlayıcı hatası oluştu.
+  Manuel gönderi ile devam edebilirsiniz." + İKİNCİL "Manuel Gönderi Hazırla" CTA'sı görünür.
+- **Manuel fallback (TODO-126):** yeni `POST /stores/:storeId/orders/:orderId/shipping/shipment-draft` —
+  provider'a İSTEK ATMAZ, yerel `ORDER_CREATED` shipment (recipient/pieces siparişten) + manuel-işaretli
+  `ORDER_CREATED` event ("…sağlayıcıya istek atılmadı"). Zincir: gateway route + `shippingPrepareRequestSchema`
+  reuse + api-client `orderShipping.shipmentDraft` (tip+impl) + BFF `/api/orders/[id]/shipping/shipment-draft`
+  (CSRF+store ctx) + store-admin `createShipmentDraft`. Detayda "Manuel Takip No Gir" → IN_TRANSIT.
+- **Sandbox guard'ları (local/test) AÇIK:** `SHIPPING_SANDBOX_HTTP_ENABLED` + `DHL_ECOMMERCE_ALLOW_RECIPIENT/
+  ORDER/BARCODE_CREATE/CANCEL`. Değerler repo-DIŞI `.secrets/commerce-os-shipping.local.env`'de (flag=enabled);
+  docker'a repo-DIŞI override (`commerce-os-shipping.compose.override.yml`, `${VAR}` interpolation) + `--env-file`
+  ile geçer. **Tracked compose/.env.example production-safe default (kapalı) korur**; gerçek değer/secret tracked
+  dosyaya yazılmaz.
+- **createOrder ≠ createbarcode ≠ fiziksel teslim** ayrımı korunur (ADR-045); barkod shipment detayında ayrı aksiyon.

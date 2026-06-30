@@ -72,6 +72,13 @@ import type {
   ShippingSyncRequest,
   ShippingCancelRequest,
   ShippingShipmentMutationResponse,
+  // F3C.5 (TODO-121) — provider-agnostic shipment list/detail + generic aksiyonlar.
+  ShipmentListQuery,
+  ShipmentListResponse,
+  ShipmentDetailResponse,
+  ShipmentCreateLabelRequest,
+  ShipmentCancelRequest,
+  ShipmentManualTrackingRequest,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -267,8 +274,22 @@ export type {
   ShippingCancelRequest,
   ShippingShipmentMutationResponse,
   ShipmentEventResponse,
+  ShipmentEventType,
+  ShipmentStatusValue,
   OrderShippingResponse,
   ShipmentResponse,
+  // F3C.5 (TODO-121) — provider-agnostic shipment list/detail + generic aksiyonlar.
+  ShipmentProviderInfo,
+  ShipmentActionCapabilities,
+  ShipmentListItem,
+  ShipmentListKpi,
+  ShipmentListResponse,
+  ShipmentListQuery,
+  ShipmentDetail,
+  ShipmentDetailResponse,
+  ShipmentManualTrackingRequest,
+  ShipmentCreateLabelRequest,
+  ShipmentCancelRequest,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
   ShippingRatePlanCreateRequest,
@@ -717,6 +738,13 @@ export interface ApiClient {
         input: ShippingPrepareRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
+      // F3C.5 (TODO-126) — manuel gönderi hazırlama (provider'a İSTEK ATMAZ; online prepare fallback'i).
+      shipmentDraft(
+        storeId: string,
+        orderId: string,
+        input: ShippingPrepareRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
       dhlBarcode(
         storeId: string,
         orderId: string,
@@ -733,6 +761,30 @@ export interface ApiClient {
         storeId: string,
         orderId: string,
         input: ShippingCancelRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+    };
+    // F3C.5 (TODO-121) — store-level shipment domain (provider-agnostic).
+    shipments: {
+      list(storeId: string, query?: ShipmentListQuery, token?: string): Promise<ShipmentListResponse>;
+      get(storeId: string, shipmentId: string, token?: string): Promise<ShipmentDetailResponse>;
+      createLabel(
+        storeId: string,
+        shipmentId: string,
+        input: ShipmentCreateLabelRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      sync(storeId: string, shipmentId: string, token?: string): Promise<ShippingShipmentMutationResponse>;
+      cancel(
+        storeId: string,
+        shipmentId: string,
+        input: ShipmentCancelRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      manualTracking(
+        storeId: string,
+        shipmentId: string,
+        input: ShipmentManualTrackingRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
     };
@@ -771,6 +823,27 @@ function orderListQueryString(query?: OrderListQuery): string {
   // limit/offset yalnız varsayılan dışıysa taşınır (pagination korunur).
   if (query.limit !== undefined) append("limit", query.limit);
   if (query.offset !== undefined && query.offset > 0) append("offset", query.offset);
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
+/** F3C.5 (TODO-121) — shipment liste filtre sorgu dizesi (boş/undefined atlanır). */
+function shipmentListQueryString(query?: ShipmentListQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  const append = (key: string, value: string | number | undefined): void => {
+    if (value === undefined) return;
+    const str = String(value).trim();
+    if (str.length > 0) params.set(key, str);
+  };
+  append("search", query.search);
+  append("status", query.status);
+  append("provider", query.provider);
+  append("dateFrom", query.dateFrom);
+  append("dateTo", query.dateTo);
+  append("flag", query.flag);
+  if (query.take !== undefined) append("take", query.take);
+  if (query.skip !== undefined && query.skip > 0) append("skip", query.skip);
   const qs = params.toString();
   return qs.length > 0 ? `?${qs}` : "";
 }
@@ -1264,6 +1337,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+        // F3C.5 (TODO-126) — manuel gönderi hazırlama (provider'a İSTEK ATMAZ; online prepare fallback'i).
+        shipmentDraft: (storeId, orderId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/shipment-draft`,
+            "POST",
+            input,
+            token,
+          ),
         dhlBarcode: (storeId, orderId, input, token) =>
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/orders/${orderId}/shipping/dhl/barcode`,
@@ -1281,6 +1362,43 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         dhlCancel: (storeId, orderId, input, token) =>
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/orders/${orderId}/shipping/dhl/cancel`,
+            "POST",
+            input,
+            token,
+          ),
+      },
+      shipments: {
+        list: (storeId, query, token) =>
+          getJson<ShipmentListResponse>(
+            `/stores/${storeId}/shipping/shipments${shipmentListQueryString(query)}`,
+            token,
+          ),
+        get: (storeId, shipmentId, token) =>
+          getJson<ShipmentDetailResponse>(`/stores/${storeId}/shipping/shipments/${shipmentId}`, token),
+        createLabel: (storeId, shipmentId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/create-label`,
+            "POST",
+            input,
+            token,
+          ),
+        sync: (storeId, shipmentId, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/sync`,
+            "POST",
+            {},
+            token,
+          ),
+        cancel: (storeId, shipmentId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/cancel`,
+            "POST",
+            input,
+            token,
+          ),
+        manualTracking: (storeId, shipmentId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/manual-tracking`,
             "POST",
             input,
             token,

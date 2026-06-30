@@ -56,6 +56,13 @@ import type {
   ShippingSyncRequest,
   ShippingCancelRequest,
   ShippingShipmentMutationResponse,
+  // F3C.5 (TODO-121) — provider-agnostic shipment list/detail + generic aksiyonlar.
+  ShipmentListQuery,
+  ShipmentListResponse,
+  ShipmentDetailResponse,
+  ShipmentCreateLabelRequest,
+  ShipmentCancelRequest,
+  ShipmentManualTrackingRequest,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -204,6 +211,27 @@ export function orderListQueryString(query?: OrderListQuery): string {
   append("search", query.search);
   append("dateFrom", query.dateFrom);
   append("dateTo", query.dateTo);
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
+/** F3C.5 (TODO-121) — shipment liste filtre sorgu dizesi (boş/undefined atlanır). */
+function shipmentListQuery(query?: ShipmentListQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  const append = (key: string, value: string | number | undefined): void => {
+    if (value === undefined) return;
+    const str = String(value).trim();
+    if (str.length > 0) params.set(key, str);
+  };
+  append("search", query.search);
+  append("status", query.status);
+  append("provider", query.provider);
+  append("dateFrom", query.dateFrom);
+  append("dateTo", query.dateTo);
+  append("flag", query.flag);
+  if (query.take !== undefined) append("take", query.take);
+  if (query.skip !== undefined && query.skip > 0) append("skip", query.skip);
   const qs = params.toString();
   return qs.length > 0 ? `?${qs}` : "";
 }
@@ -436,6 +464,12 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // F3C.5 (TODO-126) — manuel gönderi hazırlama (online prepare fallback'i; provider'a İSTEK ATMAZ).
+  createShipmentDraft: (orderId: string, input: ShippingPrepareRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/shipment-draft`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   createDhlBarcode: (orderId: string, input: ShippingBarcodeActionRequest) =>
     mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/barcode`, {
       method: "POST",
@@ -448,6 +482,33 @@ export const storeApi = {
     }),
   cancelDhlShipment: (orderId: string, input: ShippingCancelRequest) =>
     mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // F3C.5 (TODO-121) — store-level shipment domain (provider-agnostic). UI generic kalır;
+  // DHL yalnızca provider displayName/logo olarak görünür. Secret/ZPL içermez.
+  listShipments: (query?: ShipmentListQuery) =>
+    call<ShipmentListResponse>(`/api/shipping/shipments${shipmentListQuery(query)}`),
+  getShipment: (shipmentId: string) =>
+    call<ShipmentDetailResponse>(`/api/shipping/shipments/${shipmentId}`),
+  createShipmentLabel: (shipmentId: string, input: ShipmentCreateLabelRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/create-label`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  syncShipment: (shipmentId: string) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/sync`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  cancelShipment: (shipmentId: string, input: ShipmentCancelRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  setShipmentManualTracking: (shipmentId: string, input: ShipmentManualTrackingRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/manual-tracking`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

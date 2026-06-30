@@ -1,4 +1,6 @@
 import type {
+  Shipment,
+  ShipmentStatus,
   ShippingCredentialType,
   ShippingProviderConfig,
   ShippingProviderCredential,
@@ -51,6 +53,8 @@ export interface ShippingEnvGuards {
   orderCreate: boolean;
   barcodeCreate: boolean;
   labelPurchase: boolean;
+  // F3C.5 — generic cancel yeteneginin UI'da dogru disabled gosterilmesi icin.
+  cancel: boolean;
 }
 
 /** Credential "kayitli mi" durumu — GERCEK baglanti testinden BAGIMSIZDIR. */
@@ -64,6 +68,9 @@ export interface SerializedShippingProviderConfig {
   mode: ShippingProviderMode;
   status: ShippingProviderStatus;
   displayName: string;
+  // F3C.5 (TODO-121) — public provider logo (secret DEGIL).
+  logoUrl: string | null;
+  logoAlt: string | null;
   allowRecipientCreate: boolean;
   allowOrderCreate: boolean;
   allowBarcodeCreate: boolean;
@@ -196,6 +203,132 @@ export function serializeShippingCredential(
   };
 }
 
+/* ─────────────────── F3C.5 (TODO-121) Provider-agnostic shipment operasyonu ───────────────────
+ * Generic (provider-agnostic) aksiyon yetenekleri, KPI gruplari ve provider gorunum DTO'su.
+ * UI bu projeksiyonlara gore CTA acar/kapatir; provider-spesifik mantik backend'de kalir. */
+
+export interface GenericShipmentCapabilities {
+  canPrepare: boolean;
+  canCreateLabel: boolean;
+  canSync: boolean;
+  canCancel: boolean;
+  canManualTracking: boolean;
+  disabledReason: string | null;
+}
+
+export interface SerializedShipmentProviderInfo {
+  configId: string | null;
+  type: ShippingProviderType;
+  displayName: string;
+  status: ShippingProviderStatus | null;
+  logoUrl: string | null;
+  logoAlt: string | null;
+}
+
+/** Provider config silinmis/yok ise generic gorunum icin makul fallback ad. */
+const PROVIDER_FALLBACK_NAME: Record<ShippingProviderType, string> = {
+  MOCK: "MOCK",
+  GELIVER: "Geliver",
+  DHL_ECOMMERCE: "DHL eCommerce",
+};
+
+export function buildShipmentProviderInfo(
+  provider: ShippingProviderType,
+  config: (ShippingProviderConfig & { credentials?: ShippingProviderCredential[] }) | null,
+): SerializedShipmentProviderInfo {
+  return {
+    configId: config?.id ?? null,
+    type: provider,
+    displayName: config?.displayName ?? PROVIDER_FALLBACK_NAME[provider],
+    status: config?.status ?? null,
+    logoUrl: config?.logoUrl ?? null,
+    logoAlt: config?.logoAlt ?? null,
+  };
+}
+
+/** Yalniz DHL operasyonel status/track sync uygular; MOCK/GELIVER icin sync desteklenmez. */
+const SYNC_PROVIDERS: ShippingProviderType[] = ["DHL_ECOMMERCE"];
+/** Iptal/basarisiz OLMAYAN durumlar aktif sayilir (aksiyonlar bunlara bagli). */
+function isActiveShipmentStatus(status: ShipmentStatus): boolean {
+  return status !== "CANCELLED" && status !== "FAILED";
+}
+
+/** Hazirlik asamasi durumlari — manuel takip no girilince IN_TRANSIT'e ilerler. */
+const MANUAL_TRACKING_PREP_STATUSES: ShipmentStatus[] = [
+  "DRAFT",
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+];
+
+/**
+ * Manuel takip no = admin'in operasyonel "kargo sureci basladi" sinyali. Hazirlik
+ * asamasindaki gönderi IN_TRANSIT'e ilerler; daha ileri/terminal durumlar KORUNUR
+ * (regres yok). Bu ilerletme YALNIZ explicit manuel tracking aksiyonu icindir —
+ * DHL createbarcode sonrasi OTOMATIK "kargoya verildi" handoff DEGILDIR (ADR-046).
+ */
+export function manualTrackingNextStatus(current: ShipmentStatus): ShipmentStatus {
+  return MANUAL_TRACKING_PREP_STATUSES.includes(current) ? "IN_TRANSIT" : current;
+}
+
+/**
+ * Provider capability + shipment durumu → generic (provider-agnostic) aksiyon yetkileri.
+ * DHL mevcutta prepare/barcode/sync/cancel destekler; Geliver/MOCK desteklemedigi
+ * aksiyonda disabled doner. canManualTracking saglayiciya CAGRI YAPMAZ → aktif shipment'te
+ * her zaman acik. Backend gercek guard'lari ayrica uygular (capability yalniz UI ipucu).
+ */
+export function computeShipmentActionCapabilities(
+  config: (ShippingProviderConfig & { credentials?: ShippingProviderCredential[] }) | null,
+  shipment: Pick<Shipment, "status" | "externalShipmentId" | "provider">,
+  env: ShippingEnvGuards,
+): GenericShipmentCapabilities {
+  const active = isActiveShipmentStatus(shipment.status);
+  const enabled = config?.status === "ENABLED";
+  const base = config ? computeShippingCapabilities(config, env) : null;
+
+  const canPrepare = Boolean(enabled && base && shipment.status === "DRAFT" && base.canCreateOrder);
+  const canCreateLabel = Boolean(
+    enabled &&
+      base &&
+      active &&
+      (shipment.status === "ORDER_CREATED" || shipment.status === "LABEL_PENDING") &&
+      (base.canCreateBarcode || base.canPurchaseLabel || base.canCreateTestShipment),
+  );
+  const canSync = Boolean(enabled && active && SYNC_PROVIDERS.includes(shipment.provider));
+  const canCancel = Boolean(
+    enabled && active && shipment.externalShipmentId && base?.canCreateOrder && env.cancel,
+  );
+  // Manuel takip: provider'a cagri YOK; aktif gönderide her zaman mumkun.
+  const canManualTracking = active;
+
+  const none = !canPrepare && !canCreateLabel && !canSync && !canCancel && !canManualTracking;
+  const disabledReason = none ? (active ? "PROVIDER_ACTIONS_DISABLED" : "SHIPMENT_INACTIVE") : null;
+  return { canPrepare, canCreateLabel, canSync, canCancel, canManualTracking, disabledReason };
+}
+
+/** KPI kartlari icin shipment durum kovasi (null => sayilmaz: DRAFT/CANCELLED). */
+export type ShipmentKpiBucket = "prepared" | "awaitingLabel" | "inTransit" | "delivered" | "problem";
+export function shipmentKpiBucket(status: ShipmentStatus): ShipmentKpiBucket | null {
+  switch (status) {
+    case "ORDER_CREATED":
+    case "LABEL_CREATED":
+      return "prepared";
+    case "LABEL_PENDING":
+      return "awaitingLabel";
+    case "IN_TRANSIT":
+    case "OUT_FOR_DELIVERY":
+      return "inTransit";
+    case "DELIVERED":
+      return "delivered";
+    case "DELIVERY_FAILED":
+    case "RETURNED":
+    case "FAILED":
+      return "problem";
+    default:
+      return null;
+  }
+}
+
 export function serializeShippingProviderConfig(
   config: ShippingProviderConfig & { credentials?: ShippingProviderCredential[] },
   env: ShippingEnvGuards,
@@ -206,6 +339,8 @@ export function serializeShippingProviderConfig(
     mode: config.mode,
     status: config.status,
     displayName: config.displayName,
+    logoUrl: config.logoUrl ?? null,
+    logoAlt: config.logoAlt ?? null,
     allowRecipientCreate: config.allowRecipientCreate,
     allowOrderCreate: config.allowOrderCreate,
     allowBarcodeCreate: config.allowBarcodeCreate,
