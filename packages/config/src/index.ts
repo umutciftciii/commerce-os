@@ -98,6 +98,15 @@ export const envSchema = z.object({
     .optional()
     .default(false)
     .transform((value) => value === true || value === "true"),
+  // F3C.3 (ADR-045) — DHL kargo iptali (PUT barcodecmdapi/cancelshipment) destructive
+  // guard'i. Varsayilan KAPALI. Canli cancel yalniz bu flag true + providerConfig
+  // (allowOrderCreate kapisi) + request explicitConfirm true uclusu saglandiginda calisir;
+  // aksi halde CANCEL_DISABLED (409). Fiziksel teslim yapildiysa saglayici reddedebilir.
+  DHL_ECOMMERCE_ALLOW_CANCEL: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .optional()
+    .default(false)
+    .transform((value) => value === true || value === "true"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

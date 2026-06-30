@@ -330,4 +330,59 @@ describe("F3C.3 shipment serialization + status mapping", () => {
     expect(mapProviderStatusToShipmentStatus({ statusCode: null, isDelivered: false }, "ORDER_CREATED")).toBe("ORDER_CREATED");
     expect(mapProviderStatusToShipmentStatus({ statusCode: 1, isDelivered: false }, "DELIVERED")).toBe("DELIVERED");
   });
+
+  it("mapProviderStatusToShipmentStatus DHL statusCode 0-7 tablosunu normalize eder (ADR-045)", () => {
+    // DRAFT'tan başlayıp ileri giderken her kodun hedefi.
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 0, isDelivered: false }, "DRAFT")).toBe("ORDER_CREATED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 1, isDelivered: false }, "ORDER_CREATED")).toBe("LABEL_CREATED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 2, isDelivered: false }, "LABEL_CREATED")).toBe("IN_TRANSIT");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 3, isDelivered: false }, "LABEL_CREATED")).toBe("IN_TRANSIT");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 4, isDelivered: false }, "IN_TRANSIT")).toBe("OUT_FOR_DELIVERY");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 5, isDelivered: false }, "OUT_FOR_DELIVERY")).toBe("DELIVERED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 6, isDelivered: false }, "OUT_FOR_DELIVERY")).toBe("DELIVERY_FAILED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 7, isDelivered: false }, "IN_TRANSIT")).toBe("RETURNED");
+    // 6 (teslim edilemedi) FINAL DEĞİL: sonraki dağıtım denemesi (4) ileri gidebilir.
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 4, isDelivered: false }, "DELIVERY_FAILED")).toBe("OUT_FOR_DELIVERY");
+    // Regresyon koruması: eski/yanlış kod 0/1 ileri durumu geri çekmez.
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 0, isDelivered: false }, "LABEL_CREATED")).toBe("LABEL_CREATED");
+    expect(mapProviderStatusToShipmentStatus({ statusCode: 1, isDelivered: false }, "OUT_FOR_DELIVERY")).toBe("OUT_FOR_DELIVERY");
+  });
+
+  it("mapCreateBarcodeResponse boş 200 payload → providerReturnedEmptyPayload, tracking yok, ZPL yok", () => {
+    const empty = mapCreateBarcodeResponse({}, "COS-X", 200);
+    expect(empty.providerReturnedEmptyPayload).toBe(true);
+    expect(empty.providerErrorMessage).toBeNull();
+    expect(empty.externalShipmentId).toBeNull();
+    expect(empty.barcodes).toHaveLength(0);
+    expect(JSON.stringify(empty)).not.toContain("^XA");
+  });
+
+  it("mapCreateBarcodeResponse dolu payload → LABEL_CREATED girdisi: shipmentId set, empty değil", () => {
+    const filled = mapCreateBarcodeResponse(
+      { referenceId: "COS-X", invoiceId: "FM1", shipmentId: "888", barcodes: [{ pieceNumber: 1, value: "^XA ZPL ^XZ", barcode: "BC1" }] },
+      "COS-X",
+      200,
+    );
+    expect(filled.providerReturnedEmptyPayload).toBe(false);
+    expect(filled.providerErrorMessage).toBeNull();
+    expect(filled.externalShipmentId).toBe("888");
+  });
+
+  it("mapCreateBarcodeResponse hat kodu hatası → providerErrorMessage (retryable), empty değil", () => {
+    const err = mapCreateBarcodeResponse({ message: "VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI" }, "COS-X", 200);
+    expect(err.providerErrorMessage).toContain("HAT KODU");
+    expect(err.providerReturnedEmptyPayload).toBe(false);
+    expect(err.externalShipmentId).toBeNull();
+    // 4xx + hata mesajı da hata sayılır.
+    expect(mapCreateBarcodeResponse({ errors: [{ message: "Geçersiz adres" }] }, "COS-X", 400).providerErrorMessage).toBe("Geçersiz adres");
+  });
+
+  it("mapCreateBarcodeResponse HTTP>=400 tanınmayan gövdede generic hata verir (pending'e düşmez)", () => {
+    // IBM API Connect 401 zarfı: httpMessage/moreInformation çıkarılır.
+    expect(mapCreateBarcodeResponse({ httpCode: "401", httpMessage: "Unauthorized" }, "COS-X", 401).providerErrorMessage).toBe("Unauthorized");
+    // Hiç tanınan alan yoksa bile HTTP hatası generic mesaja düşer; pending DEĞİL.
+    const opaque = mapCreateBarcodeResponse({ foo: "bar" }, "COS-X", 503);
+    expect(opaque.providerErrorMessage).toContain("HTTP 503");
+    expect(opaque.providerReturnedEmptyPayload).toBe(false);
+  });
 });

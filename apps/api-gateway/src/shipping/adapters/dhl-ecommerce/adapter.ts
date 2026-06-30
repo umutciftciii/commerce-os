@@ -2,11 +2,13 @@ import { ShippingConfigError } from "../../errors.js";
 import type { ShippingHttpResponse, ShippingHttpTransport } from "../http.js";
 import {
   assertBarcodeCreateAllowed,
+  assertCancelAllowed,
   assertOrderCreateAllowed,
   assertRecipientCreateAllowed,
 } from "../guards.js";
 import type {
   CalculateRateInput,
+  CancelShipmentInput,
   CreateBarcodeInput,
   CreateOrderInput,
   CreateRecipientInput,
@@ -31,6 +33,7 @@ import type {
 } from "../../types.js";
 import {
   buildCalculateRequest,
+  buildCancelShipmentRequest,
   buildCbsGetRequest,
   buildCreateBarcodeRequest,
   buildCreateOrderRequest,
@@ -247,7 +250,9 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildCreateBarcodeRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapCreateBarcodeResponse(parseJson(response), input.referenceId);
+    // F3C.3 (ADR-045): HTTP status mapper'a gecer — 200+bos payload (pending) ile
+    // 4xx/domain hata (routing/hat kodu) ayrimi icin gereklidir.
+    return mapCreateBarcodeResponse(parseJson(response), input.referenceId, response.status);
   }
 
   async getOrder(input: ReferenceLookupInput): Promise<ShippingShipmentStatusResult> {
@@ -280,14 +285,30 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     return mapTrackResponse(parseJson(response));
   }
 
-  async cancelShipment(): Promise<{ cancelled: boolean }> {
-    // F3C.3: cancel endpoint'i HENUZ TEYIT EDILMEDI. Sandbox'ta standardcmd/barcodecmd
-    // altinda cancelOrder/cancelShipment/deleteOrder/cancelbarcode varyantlarinin TUMU
-    // 404 ("No resources match requested URI") dondu. Dogru path/urun MNG dokumanindan
-    // teyit edilene kadar guard altinda ENDPOINT_UNRESOLVED doner (bkz. docs/TODO.md).
+  async cancelShipment(input: CancelShipmentInput): Promise<{ cancelled: boolean }> {
+    // F3C.3 (ADR-045) netlestirmesi: cancel ucu TEYIT EDILDI →
+    // PUT /mngapi/api/barcodecmdapi/cancelshipment, govde { referenceId, shipmentId }.
+    // Guard: env DHL_ECOMMERCE_ALLOW_CANCEL && providerConfig && explicitConfirm.
+    assertCancelAllowed(input.context, input.explicitConfirm);
+    if (!input.shipmentId) {
+      // shipmentId YOKSA saglayiciya cagri YAPILMAZ (route da onceden dogrular).
+      throw new ShippingConfigError(
+        "CANCEL_REQUIRES_SHIPMENT_ID",
+        "DHL kargo iptali icin gönderi (shipmentId) gereklidir; önce barkod/gönderi oluşturulmalı.",
+      );
+    }
+    const product = this.requireCredential(input.context, "BARCODE_COMMAND");
+    const token = await this.getToken(input.context);
+    const response = await this.transport.send(
+      buildCancelShipmentRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
+    );
+    if (response.status >= 200 && response.status < 300) {
+      return { cancelled: true };
+    }
+    // 4xx/5xx → saglayici domain hatasi (or. fiziksel teslim yapildi). Raw body/secret sizdirma.
     throw new ShippingConfigError(
-      "ENDPOINT_UNRESOLVED",
-      "DHL kargo iptal (cancel) endpoint'i henüz teyit edilmedi; bu işlem şu an etkin değil.",
+      "CANCEL_FAILED",
+      "DHL kargo iptali sağlayıcı tarafından reddedildi (gönderi fiziksel olarak işleme alınmış olabilir).",
     );
   }
 

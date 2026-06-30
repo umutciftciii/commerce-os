@@ -117,6 +117,11 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       ENDPOINT_UNRESOLVED: 409,
       OPERATION_NOT_SUPPORTED: 409,
       DUPLICATE_SHIPMENT: 409,
+      // F3C.3 (ADR-045) cancel + barcode operasyon hatalari.
+      CANCEL_DISABLED: 409,
+      CANCEL_REQUIRES_SHIPMENT_ID: 409,
+      CANCEL_FAILED: 502,
+      BARCODE_RETRYABLE_ERROR: 409,
       PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
     };
@@ -192,6 +197,9 @@ export function registerShippingAdminRoutes(
         allowOrderCreate: config.DHL_ECOMMERCE_ALLOW_ORDER_CREATE && cfg.allowOrderCreate,
         allowBarcodeCreate: config.DHL_ECOMMERCE_ALLOW_BARCODE_CREATE && cfg.allowBarcodeCreate,
         allowLabelPurchase: config.GELIVER_ALLOW_LABEL_PURCHASE && cfg.allowLabelPurchase,
+        // F3C.3 (ADR-045): cancel, order-create ile ayni provider-config kapisini (allowOrderCreate)
+        // ve ayrica DHL_ECOMMERCE_ALLOW_CANCEL env'ini gerektirir. Dedike provider toggle TODO-121.
+        allowCancel: config.DHL_ECOMMERCE_ALLOW_CANCEL && cfg.allowOrderCreate,
       },
     };
   }
@@ -651,9 +659,15 @@ export function registerShippingAdminRoutes(
   const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
     "DRAFT",
     "ORDER_CREATED",
+    // F3C.3 (ADR-045): barkod bos 200 (LABEL_PENDING) retry edilebilir; dagitim ara
+    // durumlari ve teslim-edilemedi (DELIVERY_FAILED, FINAL DEGIL) hala AKTIF sayilir →
+    // duplicate prepare guard createOrder'i TEKRAR cagirmaz.
+    "LABEL_PENDING",
     "LABEL_CREATED",
     "IN_TRANSIT",
+    "OUT_FOR_DELIVERY",
     "DELIVERED",
+    "DELIVERY_FAILED",
     "RETURNED",
   ];
 
@@ -846,16 +860,68 @@ export function registerShippingAdminRoutes(
         pieces: rebuildPieces(shipment),
         explicitConfirm: input.explicitConfirm,
       });
-      // SANITIZE: raw ZPL/etiket icerigi DB'ye yazilmaz; yalniz ozet + zplPresent boolean.
+
+      // F3C.3 (ADR-045) — saglayici domain hatasi (or. "VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI").
+      // KOD hatasi degil; adres/sube/hat routing verisi. Status ilerletme; BARCODE_FAILED
+      // event (sanitize) yaz, retryable hata don. createOrder TEKRAR cagrilmaz (ayni shipment).
+      if (result.providerErrorMessage) {
+        await recordShipmentEvent(params.storeId, shipment, "BARCODE_FAILED", {
+          statusText: result.providerErrorMessage,
+          rawSafeJson: {
+            providerError: true,
+            message: result.providerErrorMessage,
+            shipmentIdPresent: Boolean(result.externalShipmentId),
+            barcodeCount: result.barcodes.length,
+          },
+        });
+        return reply.code(409).send(
+          errorBody(
+            "BARCODE_RETRYABLE_ERROR",
+            "DHL varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
+            { retryable: true },
+          ),
+        );
+      }
+
+      const shipmentIdPresent = Boolean(result.externalShipmentId);
+      const barcodeCount = result.barcodes.length;
       const zplPresent = result.barcodes.some((b) => b.labelPresent);
+      const incomplete = result.providerReturnedEmptyPayload || (!shipmentIdPresent && barcodeCount === 0);
+      // SANITIZE: raw ZPL/etiket icerigi DB'ye yazilmaz; yalniz ozet + present boolean'lari.
       const barcodeJsonSafe = {
         referenceId: result.referenceId,
         shipmentId: result.externalShipmentId,
         invoiceId: result.externalInvoiceId,
-        barcodeCount: result.barcodes.length,
+        barcodeCount,
         zplPresent,
+        shipmentIdPresent,
+        invoiceIdPresent: Boolean(result.externalInvoiceId),
+        providerReturnedEmptyPayload: incomplete,
         pieces: result.barcodes.map((b) => ({ pieceNumber: b.pieceNumber, barcodePresent: Boolean(b.barcode) })),
       } satisfies Prisma.InputJsonValue;
+
+      if (incomplete) {
+        // HTTP 200 ama shipmentId/barcodes yok → "tam basarili barkod" DEGIL. LABEL_PENDING'e
+        // cek; trackingNumber/shipmentId/ZPL SET ETME; BARCODE_PENDING event + retry mumkun.
+        const pendingUpdated = await prisma.shipment.update({
+          where: { id: shipment.id },
+          data: { status: "LABEL_PENDING", barcodeJsonSafe },
+        });
+        await recordShipmentEvent(params.storeId, pendingUpdated, "BARCODE_PENDING", {
+          statusText: "Barkod henüz üretilemedi (sağlayıcı boş yanıt)",
+          rawSafeJson: barcodeJsonSafe,
+        });
+        await deps.recordAudit({
+          action: "UPDATE",
+          platformUserId: access.actorUserId,
+          storeId: params.storeId,
+          entityType: "Shipment",
+          entityId: pendingUpdated.id,
+          metadata: { provider: cfg.provider, action: "dhl.barcode", result: "pending" },
+        });
+        return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(pendingUpdated.id)), alreadyExisted: false }));
+      }
+
       const updated = await prisma.shipment.update({
         where: { id: shipment.id },
         data: {
@@ -953,9 +1019,16 @@ export function registerShippingAdminRoutes(
     if (!shipment) {
       return reply.code(409).send(errorBody("NO_ACTIVE_SHIPMENT", "İptal edilecek aktif DHL gönderisi yok."));
     }
-    // Explicit confirm zorunlu; ardindan adapter ENDPOINT_UNRESOLVED (409) doner (endpoint teyit edilmedi).
+    // Explicit confirm zorunlu (fiziksel teslim yapilmissa iptal basarisiz olabilir).
     if (input.explicitConfirm !== true) {
       return reply.code(409).send(errorBody("CONFIRMATION_REQUIRED", "Kargo kaydını iptal için onay (explicitConfirm) gerekir."));
+    }
+    // F3C.3 (ADR-045): DHL cancelshipment govdesi shipmentId ZORUNLU. Yoksa saglayiciya
+    // cagri YAPMA (barkod/gönderi henuz olusmamis) → net 409.
+    if (!shipment.externalShipmentId) {
+      return reply
+        .code(409)
+        .send(errorBody("CANCEL_REQUIRES_SHIPMENT_ID", "İptal için önce barkod/gönderi oluşturulmalı (DHL gönderi no yok)."));
     }
     const cfg = await loadConfig(params.storeId, shipment.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
@@ -963,29 +1036,80 @@ export function registerShippingAdminRoutes(
       await registry.get(cfg.provider).cancelShipment({
         context: buildContext(cfg),
         referenceId: shipment.referenceId,
-        shipmentId: shipment.externalShipmentId ?? undefined,
+        shipmentId: shipment.externalShipmentId,
         explicitConfirm: input.explicitConfirm,
       });
-      // Ulasilirsa burada CANCELLED'a cekilirdi; su an adapter ENDPOINT_UNRESOLVED firlatir.
-      return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(shipment.id)), alreadyExisted: false }));
+      // Saglayici 2xx → gonderi/barkod kaydi iptal edildi.
+      const cancelled = await prisma.shipment.update({
+        where: { id: shipment.id },
+        data: { status: "CANCELLED" },
+      });
+      await recordShipmentEvent(params.storeId, cancelled, "CANCELLED", {
+        statusText: "Gönderi/barkod kaydı iptal edildi (DHL)",
+        rawSafeJson: { cancelled: true, shipmentIdPresent: true },
+      });
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Shipment",
+        entityId: cancelled.id,
+        metadata: { provider: cfg.provider, action: "dhl.cancel" },
+      });
+      return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(await reloadShipment(cancelled.id)), alreadyExisted: false }));
     } catch (error) {
       return sendShippingError(reply, error);
     }
   });
 }
 
-// getshipmentstatus durum kodu → ic ShipmentStatus. Bilinmeyen kodda mevcut durum korunur.
+// F3C.3 (ADR-045) — DHL statusCode (0-7) → ic ShipmentStatus eslemesi (DHL yanitiyla
+// netlestirildi). 3 ("teslim birimine ulasti") IN_TRANSIT alt-durumudur (ham kod
+// shipmentStatusCode'da, ham metin statusText'te saklanir). 5/7 FINAL; 6 (teslim
+// edilemedi) FINAL DEGIL → takip gerektirir.
+const DHL_STATUS_TO_SHIPMENT: Record<number, ShipmentStatus> = {
+  0: "ORDER_CREATED",
+  1: "LABEL_CREATED",
+  2: "IN_TRANSIT",
+  3: "IN_TRANSIT",
+  4: "OUT_FOR_DELIVERY",
+  5: "DELIVERED",
+  6: "DELIVERY_FAILED",
+  7: "RETURNED",
+};
+
+// Durum siralamasi (regresyon koruması). Eski/yanlis sync 0/1 kodu, lokal olarak
+// ilerlemis durumu (or. LABEL_CREATED) GERI cekmemeli. Final durumlar en yuksek rank.
+const SHIPMENT_STATUS_RANK: Record<ShipmentStatus, number> = {
+  DRAFT: 0,
+  ORDER_CREATED: 1,
+  LABEL_PENDING: 1,
+  LABEL_CREATED: 2,
+  IN_TRANSIT: 3,
+  OUT_FOR_DELIVERY: 4,
+  DELIVERY_FAILED: 4,
+  DELIVERED: 5,
+  RETURNED: 5,
+  CANCELLED: 5,
+  FAILED: 5,
+};
+
+const TERMINAL_SHIPMENT_STATUSES: ShipmentStatus[] = ["DELIVERED", "RETURNED", "CANCELLED", "FAILED"];
+
+// getshipmentstatus durum → ic ShipmentStatus. Bilinmeyen/null kodda mevcut durum korunur;
+// terminal durumdan geri donulmez; ileri olmayan koda regres edilmez.
 export function mapProviderStatusToShipmentStatus(
   status: { statusCode: number | null; isDelivered: boolean },
   current: ShipmentStatus,
 ): ShipmentStatus {
+  if (TERMINAL_SHIPMENT_STATUSES.includes(current)) return current;
   if (status.isDelivered) return "DELIVERED";
-  // DHL operasyonel kodlari saglayicidan gelir; teslim disi durumda LABEL_CREATED→IN_TRANSIT
-  // gecisi yalniz takip basladiginda yapilir. Konservatif: mevcut ileri durumdan GERI gitme.
-  if (current === "ORDER_CREATED" || current === "LABEL_CREATED") {
-    return status.statusCode && status.statusCode > 0 ? "IN_TRANSIT" : current;
-  }
-  return current;
+  if (status.statusCode == null) return current;
+  const mapped = DHL_STATUS_TO_SHIPMENT[status.statusCode];
+  if (!mapped) return current;
+  // Final hedefe (DELIVERED/RETURNED) her zaman gec; aksi halde geri gitme.
+  if (TERMINAL_SHIPMENT_STATUSES.includes(mapped)) return mapped;
+  return SHIPMENT_STATUS_RANK[mapped] >= SHIPMENT_STATUS_RANK[current] ? mapped : current;
 }
 
 // Shipment (+events) → contract DTO. Secret/ZPL icermez; lastSynced/lastStatus event'ten turetilir.

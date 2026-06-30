@@ -1864,3 +1864,33 @@ bağımsız ve sağlayıcıya istek atmaz.
   anlamı, trackshipment location çıkış/varış). Yanıt gelene kadar retry/pending/cancel/tracking-gösterim
   tasarımı donduruldu. Sanitize req/resp zinciri dhl-sandbox-report.json olarak DHL'e iletildi. Temel F3C.3
   kodu zaten main'de (4cf8032); ileriye dönük ek merge/push yapılmayacak.
+
+## F3C.3 — DHL yanıtına göre operasyon finalizasyonu (clarification fix)
+
+- Tarih: 2026-06-30
+- Durum: KOD HAZIR (commit/merge/push YOK — branch claude/f3c3-dhl-sandbox-operation-verification)
+- Tetik: DHL/MNG bekleyen 4 operasyonel soruya yanıt verdi. Bu tur DHL implementasyonunu yanıta göre
+  finalize eder (ADR-045 revizyonu). Rate engine / matrix UI / provider-agnostic refactor KAPSAM DIŞI
+  (sonuncusu TODO-121).
+- Uygulanan kararlar:
+  - **statusCode 0-7 normalize eşlemesi** (`mapProviderStatusToShipmentStatus`): 0→ORDER_CREATED,
+    1→LABEL_CREATED, 2/3→IN_TRANSIT, 4→OUT_FOR_DELIVERY, 5→DELIVERED, 6→DELIVERY_FAILED, 7→RETURNED.
+    5/7 final; 6 final değil (ACTIVE). Rank tabanlı regresyon koruması + terminal guard. Ham kod/metin
+    shipmentStatusCode + event statusText'te saklanır.
+  - **createbarcode boş 200** → LABEL_PENDING + BARCODE_PENDING event; trackingNumber/shipmentId/ZPL set
+    EDİLMEZ; retry mümkün. `barcodeJsonSafe` genişletildi (shipmentIdPresent/invoiceIdPresent/
+    providerReturnedEmptyPayload). Dolu yanıt → LABEL_CREATED (mevcut davranış).
+  - **hat kodu routing hatası** → BARCODE_FAILED event (sanitize) + BARCODE_RETRYABLE_ERROR (409);
+    status ilerletilmez; createOrder TEKRAR çağrılmaz (duplicate prepare guard korunur).
+  - **cancel endpoint** teyit edildi: `PUT barcodecmdapi/cancelshipment` body `{referenceId,shipmentId}`.
+    adapter + route + UI etkin; guard env DHL_ECOMMERCE_ALLOW_CANCEL + providerConfig + explicitConfirm;
+    shipmentId yoksa CANCEL_REQUIRES_SHIPMENT_ID; başarı → CANCELLED + event.
+  - **createRecipient boş 200 body** başarı sayılır (zorunlu parse yok).
+  - **UI copy:** "Kargoya verildi" otomatik yok; normalize status açıklamaları; timeline location
+    "İşlem noktası" (varış şubesi DEĞİL); ham sağlayıcı durumu ayrı "(ham)" etiketiyle. i18n TR/EN parity.
+  - **Data model:** additive migration `20260630120000_dhl_shipment_operation_statuses` (ShipmentStatus +=
+    LABEL_PENDING/OUT_FOR_DELIVERY/DELIVERY_FAILED; ShipmentEventType += BARCODE_PENDING/BARCODE_FAILED).
+- Test/smoke adresi notu: Küçükçekmece KULLANILMAZ; DHL'in önerdiği routable Bağcılar (Bağlar Mah. 1. Sok.
+  No:1 Bağcılar/İstanbul) veya routable Üsküdar kullanılır.
+- Secret/ZPL: raw ZPL/^XA/JWT/X-IBM secret log/DB/UI/bundle'a yazılmaz; yalnız zplPresent/barcodeCount gibi
+  güvenli özet.

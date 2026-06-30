@@ -282,12 +282,19 @@ enum ShippingCredentialType {
   FINANCE_QUERY
 }
 
+// F3C.3 — DHL yanit netlestirmesi (ADR-045): DHL statusCode 0-7 normalize durumlari.
+// createOrder = "DHL gonderi kaydi" (fiziksel teslim DEGIL). LABEL_PENDING = createbarcode
+// HTTP 200 ama bos payload (shipmentId/barcodes yok). OUT_FOR_DELIVERY/DELIVERY_FAILED
+// DHL kod 4/6. 6 (teslim edilemedi) FINAL DEGIL; takip gerektirir → ACTIVE sayilir.
 enum ShipmentStatus {
   DRAFT
   ORDER_CREATED
+  LABEL_PENDING
   LABEL_CREATED
   IN_TRANSIT
+  OUT_FOR_DELIVERY
   DELIVERED
+  DELIVERY_FAILED
   RETURNED
   CANCELLED
   FAILED
@@ -297,6 +304,8 @@ enum ShipmentEventType {
   CREATED
   ORDER_CREATED
   BARCODE_CREATED
+  BARCODE_PENDING
+  BARCODE_FAILED
   STATUS_CHANGED
   TRACKING_UPDATED
   CANCELLED

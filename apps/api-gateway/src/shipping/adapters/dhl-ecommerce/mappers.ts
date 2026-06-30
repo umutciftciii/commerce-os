@@ -73,27 +73,67 @@ export function mapCreateOrderResponse(json: unknown, referenceId: string): Ship
   };
 }
 
-export function mapCreateBarcodeResponse(json: unknown, referenceId: string): ShippingBarcodeResult {
-  // F3C.3 sandbox dogrulama: yanit { referenceId, invoiceId, shipmentId,
-  // barcodes:[{pieceNumber,value,barcode}], referenceBarcodeOnError }. `value` ZPL/etiket
-  // icerebilir (UZUN) → result'a tasinmaz; yalniz pieceNumber + kisa takip barkodu (`barcode`)
-  // ve raw uzunlugu (zplPresent tespiti icin) tasinir. Raw ZPL ASLA loglanmaz/DB'ye yazilmaz.
-  const rec = asRecord(json);
+/** Saglayici domain hata mesajini guvenli sekilde cikarir (secret icermez). DHL hatalari
+ * cogu zaman { message } / { errorMessage } / [{ message }] / { errors:[{message}] } seklinde
+ * doner. Bos string null'a duser. */
+function extractProviderErrorMessage(json: unknown): string | null {
+  const rec = asRecord(Array.isArray(json) ? json[0] : json);
+  // MNG domain (message/errorMessage/description) + IBM API Connect zarfı (httpMessage/
+  // moreInformation) + MNG responseMessage. Secret icermez.
+  const direct = toStringOrNull(
+    rec.message ?? rec.errorMessage ?? rec.error ?? rec.description ?? rec.responseMessage ?? rec.httpMessage ?? rec.moreInformation,
+  );
+  if (direct) return direct;
+  const errs = rec.errors;
+  if (Array.isArray(errs) && errs.length > 0) {
+    return toStringOrNull(asRecord(errs[0]).message ?? asRecord(errs[0]).description);
+  }
+  return null;
+}
+
+/**
+ * createbarcode yaniti normalize. F3C.3 (ADR-045) netlestirmesi:
+ *  - `value` ZPL/etiket icerebilir (UZUN) → result'a tasinmaz; yalniz pieceNumber + kisa
+ *    takip barkodu (`barcode`) ve labelPresent boolean tasinir. Raw ZPL ASLA log/DB'ye yazilmaz.
+ *  - HTTP 200 ama shipmentId YOK ve barcodes BOS → providerReturnedEmptyPayload=true
+ *    ("tam basarili barkod" degil; LABEL_PENDING + retry).
+ *  - Saglayici domain hatasi (or. hat kodu bulunamadi) → providerErrorMessage dolu
+ *    (BARCODE_FAILED + retryable). httpStatus>=400 da hata sayilir.
+ */
+export function mapCreateBarcodeResponse(
+  json: unknown,
+  referenceId: string,
+  httpStatus = 200,
+): ShippingBarcodeResult {
+  // Bazi DHL yanitlari array sarmalayabilir; obje icinde barcodes ararken ilk elemana bak.
+  const rec = asRecord(Array.isArray(json) ? json[0] : json);
   const rawBarcodes = Array.isArray(rec.barcodes) ? rec.barcodes : [];
+  const externalShipmentId = toStringOrNull(rec.shipmentId);
+  const barcodes = rawBarcodes.map((b, i) => {
+    const br = asRecord(b);
+    const value = typeof br.value === "string" ? br.value : "";
+    return {
+      pieceNumber: toNumber(br.pieceNumber) ?? i + 1,
+      barcode: toStringOrNull(br.barcode),
+      // labelPresent: `value` alani etiket/ZPL icerigi tasiyor mu.
+      labelPresent: value.length > 0,
+    };
+  });
+  const hasResult = Boolean(externalShipmentId) || barcodes.length > 0;
+  const httpError = httpStatus >= 400;
+  // HTTP hatasi VEYA sonuc yoksa hata mesaji cikar; HTTP hatasinda govde taninmazsa
+  // generic fallback (provisioning/401 gibi tanınmayan zarflar pending'e DUSMESIN).
+  const extracted = httpError || !hasResult ? extractProviderErrorMessage(json) : null;
+  const providerErrorMessage = extracted ?? (httpError ? `Sağlayıcı hatası (HTTP ${httpStatus})` : null);
+  // Hata YOK + sonuc YOK + HTTP basarili → bos payload (pending), hata degil.
+  const providerReturnedEmptyPayload = !hasResult && !providerErrorMessage && !httpError;
   return {
     referenceId: toStringOrNull(rec.referenceId) ?? referenceId,
-    externalShipmentId: toStringOrNull(rec.shipmentId),
+    externalShipmentId,
     externalInvoiceId: toStringOrNull(rec.invoiceId),
-    barcodes: rawBarcodes.map((b, i) => {
-      const br = asRecord(b);
-      const value = typeof br.value === "string" ? br.value : "";
-      return {
-        pieceNumber: toNumber(br.pieceNumber) ?? i + 1,
-        barcode: toStringOrNull(br.barcode),
-        // labelPresent: `value` alani etiket/ZPL icerigi tasiyor mu (uzunluk/marker).
-        labelPresent: value.length > 0,
-      };
-    }),
+    barcodes,
+    providerReturnedEmptyPayload,
+    providerErrorMessage,
   };
 }
 

@@ -61,15 +61,18 @@ const L = {
     dhlSync: "Durumu Güncelle",
     dhlCancel: "Kargo Kaydını İptal Et",
     dhlPrepareHint: "createRecipient + createOrder ile DHL gönderi kaydı oluşturur. Fiziksel teslim anlamına gelmez.",
-    dhlCancelDisabled: "İptal endpoint’i henüz teyit edilmedi; bu işlem şu an kapalı.",
+    dhlCancelConfirm:
+      "Bu işlem DHL tarafındaki gönderi/barkod kaydını iptal etmeyi dener. Fiziksel teslim yapılmışsa başarısız olabilir. Devam edilsin mi?",
+    dhlCancelHint: "Gönderi no oluştuysa kayıt iptali denenebilir; onay gerektirir.",
     shipmentIdLabel: "Gönderi no",
     invoiceIdLabel: "Fatura no",
     trackingNumberLabel: "Takip no",
     trackingUrlLabel: "Takip linki",
     lastSyncedLabel: "Son senkron",
-    providerStatusLabel: "Sağlayıcı durumu",
+    providerStatusLabel: "Sağlayıcı durumu (ham)",
     barcodeReady: "Barkod/etiket hazır",
     timelineTitle: "Hareketler",
+    operationPoint: "İşlem noktası",
     copy: "Kopyala",
     copied: "Kopyalandı",
     openLink: "Aç",
@@ -112,20 +115,56 @@ const L = {
     dhlSync: "Refresh status",
     dhlCancel: "Cancel shipment record",
     dhlPrepareHint: "Creates a DHL shipment record via createRecipient + createOrder. Not a physical handover.",
-    dhlCancelDisabled: "Cancel endpoint is not confirmed yet; this action is currently disabled.",
+    dhlCancelConfirm:
+      "This attempts to cancel the shipment/barcode record on DHL's side. It may fail if the parcel was already physically handed over. Continue?",
+    dhlCancelHint: "If a shipment ID exists, the record cancellation can be attempted; requires confirmation.",
     shipmentIdLabel: "Shipment ID",
     invoiceIdLabel: "Invoice ID",
     trackingNumberLabel: "Tracking no",
     trackingUrlLabel: "Tracking link",
     lastSyncedLabel: "Last synced",
-    providerStatusLabel: "Provider status",
+    providerStatusLabel: "Provider status (raw)",
     barcodeReady: "Barcode/label ready",
     timelineTitle: "Events",
+    operationPoint: "Operation point",
     copy: "Copy",
     copied: "Copied",
     openLink: "Open",
   },
 } satisfies Record<Locale, Record<string, string>>;
+
+/**
+ * F3C.3 (ADR-045) — DHL normalize durum açıklamaları. "Kargoya verildi" OTOMATİK kullanılmaz;
+ * ORDER_CREATED fiziksel teslim İFADE ETMEZ. L'den ayrı tutulur (nested map, string değil).
+ */
+const STATUS_DESC: Record<Locale, Record<string, string>> = {
+  tr: {
+    DRAFT: "Taslak.",
+    ORDER_CREATED: "DHL gönderi kaydı oluşturuldu. Fiziksel teslim bekleniyor olabilir.",
+    LABEL_PENDING: "Barkod henüz tam oluşmadı; tekrar deneyin.",
+    LABEL_CREATED: "Barkod oluşturuldu / paket hazırlandı.",
+    IN_TRANSIT: "Transfer aşamasında.",
+    OUT_FOR_DELIVERY: "Teslimat adresine yönlendirildi.",
+    DELIVERED: "Teslim edildi.",
+    DELIVERY_FAILED: "Teslim edilemedi.",
+    RETURNED: "Göndericiye/iade sürecine döndü.",
+    CANCELLED: "Gönderi kaydı iptal edildi.",
+    FAILED: "İşlem başarısız.",
+  },
+  en: {
+    DRAFT: "Draft.",
+    ORDER_CREATED: "DHL shipment record created. Physical handover may still be pending.",
+    LABEL_PENDING: "Barcode not fully created yet; please retry.",
+    LABEL_CREATED: "Barcode created / parcel prepared.",
+    IN_TRANSIT: "In transfer.",
+    OUT_FOR_DELIVERY: "Out for delivery.",
+    DELIVERED: "Delivered.",
+    DELIVERY_FAILED: "Delivery failed.",
+    RETURNED: "Returned to sender / return process.",
+    CANCELLED: "Shipment record cancelled.",
+    FAILED: "Operation failed.",
+  },
+};
 
 interface PanelForm {
   providerConfigId: string;
@@ -360,6 +399,16 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
     void runDhlAction(() => storeApi.syncDhlShipment(order.id, { providerConfigId: form.providerConfigId }));
   };
 
+  // F3C.3 (ADR-045) — gönderi/barkod kaydı iptali. Explicit onay zorunlu; shipmentId
+  // gateway'de aktif gönderiden türetilir (yoksa CANCEL_REQUIRES_SHIPMENT_ID döner).
+  const onDhlCancel = () => {
+    if (!form) return;
+    if (typeof window !== "undefined" && !window.confirm(t.dhlCancelConfirm)) return;
+    void runDhlAction(() =>
+      storeApi.cancelDhlShipment(order.id, { providerConfigId: form.providerConfigId, explicitConfirm: true }),
+    );
+  };
+
   const copyText = async (value: string, field: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -396,7 +445,13 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
     shipments.find(
       (s) => s.provider === "DHL_ECOMMERCE" && s.status !== "CANCELLED" && s.status !== "FAILED",
     ) ?? null;
-  const canBarcode = activeDhl?.status === "ORDER_CREATED";
+  // Barkod, sipariş kaydı oluştuktan VEYA barkod boş 200 (LABEL_PENDING) ile yarım kaldıktan
+  // sonra (tekrar) denenebilir.
+  const canBarcode = activeDhl?.status === "ORDER_CREATED" || activeDhl?.status === "LABEL_PENDING";
+  // İptal: DHL gönderi no (shipmentId) oluştuysa denenebilir.
+  const canCancel = Boolean(activeDhl?.externalShipmentId);
+  const statusDesc = STATUS_DESC[locale] ?? STATUS_DESC.tr;
+  const statusText = (status: string): string => statusDesc[status] ?? status;
 
   return (
     <SurfaceCard title={t.title}>
@@ -496,8 +551,9 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
                 <Button variant="ghost" onClick={onDhlSync} disabled={busy || !activeDhl}>
                   {t.dhlSync}
                 </Button>
-                {/* Cancel: endpoint MNG tarafında teyit edilmedi → disabled. */}
-                <Button variant="ghost" disabled title={t.dhlCancelDisabled}>
+                {/* F3C.3 (ADR-045): cancel endpoint teyit edildi (PUT barcodecmdapi/cancelshipment).
+                    shipmentId varsa aktif; explicit onay gerektirir (gateway guard'lı). */}
+                <Button variant="ghost" onClick={onDhlCancel} disabled={busy || !canCancel}>
                   {t.dhlCancel}
                 </Button>
               </>
@@ -513,7 +569,7 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
             )}
           </div>
           {isDhl ? <p className="text-[11px] text-white/30">{t.dhlPrepareHint}</p> : null}
-          {isDhl && !activeDhl ? <p className="text-[11px] text-white/30">{t.dhlCancelDisabled}</p> : null}
+          {isDhl && canCancel ? <p className="text-[11px] text-white/30">{t.dhlCancelHint}</p> : null}
           {enabled && !caps?.canCalculateRate ? (
             <p className="text-[11px] text-white/30">{t.rateNotSupported}</p>
           ) : null}
@@ -523,7 +579,7 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
             <div className="space-y-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-white/35">{t.dhlWorkflowTitle}</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
-                <DhlField label={t.statusLabel} value={activeDhl.status} />
+                <DhlField label={t.statusLabel} value={statusText(activeDhl.status)} />
                 <DhlField label={t.refLabel} value={activeDhl.referenceId} />
                 {activeDhl.externalShipmentId ? (
                   <DhlField
@@ -568,7 +624,8 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
                         <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-white/30" />
                         <span>
                           <span className="text-white/75">{e.statusText ?? e.eventType}</span>
-                          {e.location ? <span className="text-white/35"> · {e.location}</span> : null}
+                          {/* F3C.3 (ADR-045): location KESİN varış/teslimat şubesi DEĞİL → "işlem noktası". */}
+                          {e.location ? <span className="text-white/35"> · {t.operationPoint}: {e.location}</span> : null}
                           <span className="block text-[11px] text-white/30">
                             {new Date(e.occurredAt ?? e.createdAt).toLocaleString(locale)}
                           </span>
@@ -593,7 +650,7 @@ export function ShippingPanel({ order, locale }: { order: Order; locale: Locale 
             {shipments.map((s) => (
               <div key={s.id} className="flex items-center justify-between rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
                 <span className="font-mono text-[12px] text-white/60">{s.referenceId}</span>
-                <Badge tone="info">{s.status}</Badge>
+                <Badge tone="info">{statusText(s.status)}</Badge>
               </div>
             ))}
           </div>

@@ -24,6 +24,7 @@ function ctx(
       allowOrderCreate: false,
       allowBarcodeCreate: false,
       allowLabelPurchase: false,
+      allowCancel: false,
       ...options.guards,
     },
   };
@@ -465,15 +466,85 @@ describe("F3C.3 DHL operasyon request shape (sandbox smoke ile dogrulanmis)", ()
     );
   });
 
-  it("cancelShipment endpoint teyit edilmediği için ENDPOINT_UNRESOLVED döner", async () => {
+  it("createBarcodeOrLabel boş 200 payload'ı providerReturnedEmptyPayload=true ile işaretler; tracking yok", async () => {
+    const { transport } = capturingTransport([TOKEN_RESPONSE, { status: 200, body: JSON.stringify({}) }]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    const result = await adapter.createBarcodeOrLabel({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: dhlGuards,
+        credentials: { IDENTITY: dhlIdentity(), BARCODE_COMMAND: product("BARCODE_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      pieces: [{ desi: 1, kg: 1 }],
+      explicitConfirm: true,
+    });
+    expect(result.providerReturnedEmptyPayload).toBe(true);
+    expect(result.providerErrorMessage).toBeNull();
+    expect(result.externalShipmentId).toBeNull();
+    expect(result.barcodes).toHaveLength(0);
+  });
+
+  it("createBarcodeOrLabel hat kodu domain hatasını providerErrorMessage ile yüzeyler (retryable)", async () => {
+    const { transport } = capturingTransport([
+      TOKEN_RESPONSE,
+      { status: 200, body: JSON.stringify({ message: "VARIŞ ŞUBESİNİN HAT KODU BULUNAMADI" }) },
+    ]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    const result = await adapter.createBarcodeOrLabel({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: dhlGuards,
+        credentials: { IDENTITY: dhlIdentity(), BARCODE_COMMAND: product("BARCODE_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      pieces: [{ desi: 1, kg: 1 }],
+      explicitConfirm: true,
+    });
+    expect(result.providerErrorMessage).toContain("HAT KODU");
+    expect(result.providerReturnedEmptyPayload).toBe(false);
+    expect(result.externalShipmentId).toBeNull();
+  });
+
+  it("cancelShipment PUT barcodecmdapi/cancelshipment'a referenceId+shipmentId gövdesiyle gider", async () => {
+    const { transport, requests } = capturingTransport([TOKEN_RESPONSE, { status: 200, body: "" }]);
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", transport, TEST_ENDPOINTS);
+    const result = await adapter.cancelShipment({
+      context: ctx("DHL_ECOMMERCE", {
+        guards: { ...dhlGuards, allowCancel: true },
+        credentials: { IDENTITY: dhlIdentity(), BARCODE_COMMAND: product("BARCODE_COMMAND") },
+      }),
+      referenceId: "cos-order-1",
+      shipmentId: "888",
+      explicitConfirm: true,
+    });
+    expect(result.cancelled).toBe(true);
+    const cancelReq = requests.find((r) => r.url.includes("/cancelshipment"));
+    expect(cancelReq?.method).toBe("PUT");
+    expect(cancelReq?.url).toBe("https://testapi.mngkargo.com.tr/mngapi/api/barcodecmdapi/cancelshipment");
+    expect(cancelReq?.body).toEqual({ referenceId: "COS-ORDER-1", shipmentId: "888" });
+  });
+
+  it("cancelShipment guard kapalıyken CANCEL_DISABLED döner (sağlayıcıya gitmez)", async () => {
     const adapter = getShippingAdapter("DHL_ECOMMERCE", undefined, TEST_ENDPOINTS);
     await expectShippingError(
       adapter.cancelShipment({
         context: ctx("DHL_ECOMMERCE", { credentials: { IDENTITY: dhlIdentity() } }),
         referenceId: "REF1",
+        shipmentId: "888",
         explicitConfirm: true,
       }),
-      "ENDPOINT_UNRESOLVED",
+      "CANCEL_DISABLED",
+    );
+  });
+
+  it("cancelShipment shipmentId yoksa CANCEL_REQUIRES_SHIPMENT_ID döner (sağlayıcıya gitmez)", async () => {
+    const adapter = getShippingAdapter("DHL_ECOMMERCE", undefined, TEST_ENDPOINTS);
+    await expectShippingError(
+      adapter.cancelShipment({
+        context: ctx("DHL_ECOMMERCE", { guards: { allowCancel: true }, credentials: { IDENTITY: dhlIdentity() } }),
+        referenceId: "REF1",
+        explicitConfirm: true,
+      }),
+      "CANCEL_REQUIRES_SHIPMENT_ID",
     );
   });
 });

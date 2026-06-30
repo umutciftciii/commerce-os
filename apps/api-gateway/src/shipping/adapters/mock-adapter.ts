@@ -85,6 +85,8 @@ export class MockShippingAdapter implements ShippingProviderAdapter {
       externalShipmentId: `mock_ship_${input.referenceId}`,
       externalInvoiceId: `mock_inv_${input.referenceId}`,
       barcodes: input.pieces.map((_, i) => ({ pieceNumber: i + 1, barcode: `MOCKBARCODE${i + 1}`, labelPresent: true })),
+      providerReturnedEmptyPayload: false,
+      providerErrorMessage: null,
     };
   }
 
