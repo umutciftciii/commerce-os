@@ -448,3 +448,12 @@
   davranışı, createbarcode boş-yanıt yönetimi, tracking gösterimi, cancel) DHL'in 4 soruya yanıtı gelene
   kadar donduruldu. createOrder ≠ fiziksel teslim; createbarcode boş ≠ başarı; location ≠ kesin varış.
   main'e ek finalizasyon merge/push YOK (F3C.3 temel kod zaten 4cf8032'de merged).
+- TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
+  `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
+  workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,
+  contracts/api-client) `dist/` üzerinden çözüyor. Temiz checkout / build context içinde `dist/` yoksa
+  image ayağa kalkmayabilir (api-gateway `ERR_MODULE_NOT_FOUND`). F3C.4 Docker/main-context smoke host'ta
+  derlenmiş `dist/` bulunduğu için geçti (önceki worktree-docker smoke'larıyla aynı pattern). CI/deploy
+  öncesi: Dockerfile'a build adımı eklenmeli VEYA workspace paketlerine `development` export koşulu (src'den
+  çözme) stratejisi netleştirilmeli. Kapsam: Repo infra / Docker. Bloklayıcı: F3C.4 için HAYIR;
+  deploy/CI hardening için EVET.
