@@ -283,6 +283,16 @@ export const enStorefront: StorefrontDictionary = {
     shippingNoRatePlan: "No active shipping rate found for this store.",
     shippingUnavailable: "Shipping fee could not be calculated.",
     shippingBlockedNotice: "You can't continue to payment until the shipping fee is calculated.",
+    // TODO-125 — Shipping provider/option selection.
+    shippingOptions: {
+      title: "Shipping option",
+      hint: "Choose your carrier.",
+      free: "Free shipping",
+      noneTitle: "No shipping option available",
+      noneDescription:
+        "No shipping option was found for this delivery address. Please check your address.",
+      updating: "Updating…",
+    },
     grandTotal: "Grand total",
     // {rate} is replaced with the VAT rate.
     taxIncludedLabel: "VAT included ({rate}%)",
@@ -333,6 +343,9 @@ export const enStorefront: StorefrontDictionary = {
       transactionLabel: "Transaction ID",
       paidAtLabel: "Paid at",
       testModeNote: "This is a test payment; no real charge was made.",
+      // TODO-125 — Selected shipping provider/option summary.
+      shippingOptionTitle: "Shipping",
+      shippingFree: "Free",
       shippingTitle: "Shipping address",
       billingTitle: "Billing details",
       billingIndividual: "Individual",

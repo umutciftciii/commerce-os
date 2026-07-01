@@ -912,6 +912,15 @@ model Order {
   shippingSource       ShippingRateSource?
   shippingRatePlanId   String?
   shippingRatePlanName String?
+  // TODO-125 (ADR-047) — Checkout'ta SEÇİLEN kargo sağlayıcı/seçenek SNAPSHOT'i.
+  // Tarihsel sipariş, config sonradan değişse bile sabit kalsın diye sağlayıcı
+  // görünüm bilgisi de yazılır. shippingProvider = taşıyıcı kimliği (enum),
+  // shippingProviderName = görünen ad, shippingLogoUrl = public logo (secret DEĞİL),
+  // shippingEtaText = tahmini teslim metni. ratePlanName service/method adıdır.
+  shippingProvider     ShippingProviderType?
+  shippingProviderName String?
+  shippingLogoUrl      String?
+  shippingEtaText      String?
   taxAmount         Int               @default(0)
   totalAmount       Int               @default(0)
   placedAt          DateTime?
@@ -1326,6 +1335,9 @@ model ShippingRatePlan {
   currency                   String                  @default("TRY")
   fixedAmountMinor           Int?
   freeShippingThresholdMinor Int?
+  // TODO-125 (ADR-047) — Checkout kargo seçeneği kartında gösterilecek tahmini
+  // teslim metni (ör. "2-3 iş günü"). PUBLIC, opsiyonel; sipariş snapshot'ına yazılır.
+  deliveryEstimate           String?
   validFrom                  DateTime?
   validTo                    DateTime?
   createdAt                  DateTime                @default(now())

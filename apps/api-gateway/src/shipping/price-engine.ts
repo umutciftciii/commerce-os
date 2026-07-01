@@ -105,6 +105,8 @@ export interface EngineRatePlan {
   currency: string;
   fixedAmountMinor: number | null;
   freeShippingThresholdMinor: number | null;
+  /** TODO-125 — Tahmini teslim metni (checkout seçenek kartı için); yoksa null. */
+  deliveryEstimate: string | null;
   validFrom: Date | null;
   validTo: Date | null;
   rules: EngineRateRule[];

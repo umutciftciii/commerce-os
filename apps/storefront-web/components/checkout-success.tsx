@@ -59,6 +59,21 @@ export function CheckoutSuccess({
         </dl>
       </div>
 
+      {confirmation.shippingOption ? (
+        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
+          <p className="mb-1 font-semibold text-slate-700">{t.success.shippingOptionTitle}</p>
+          <p className="text-slate-700">
+            {confirmation.shippingOption.providerName ?? confirmation.shippingOption.serviceName}
+          </p>
+          <p className="text-slate-500">
+            {confirmation.shippingOption.serviceName ?? ""}
+            {confirmation.shippingOption.estimatedDelivery
+              ? ` · ${confirmation.shippingOption.estimatedDelivery}`
+              : ""}
+          </p>
+        </div>
+      ) : null}
+
       {confirmation.shippingAddress ? (
         <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
           <p className="mb-1 font-semibold text-slate-700">{t.success.shippingTitle}</p>

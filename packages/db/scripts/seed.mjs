@@ -327,6 +327,70 @@ async function main() {
       }),
     ),
   );
+
+  // TODO-125 — Checkout kargo SAĞLAYICI/SEÇENEK demo verisi. ENABLED provider
+  // config'leri (public logo + görünen ad) + iki AKTİF tarife planı (default hızlı +
+  // ekonomik free-threshold). Checkout'ta çoklu seçenek + sağlayıcı/logo gösterimi
+  // için yeterli. Secret/credential YOK — yalnız görünüm + tarife.
+  await Promise.all([
+    prisma.shippingProviderConfig.upsert({
+      where: { storeId_provider_mode: { storeId: store.id, provider: "DHL_ECOMMERCE", mode: "TEST" } },
+      update: { status: "ENABLED", displayName: "DHL Express", logoUrl: "https://logo.clearbit.com/dhl.com", logoAlt: "DHL" },
+      create: {
+        storeId: store.id,
+        provider: "DHL_ECOMMERCE",
+        mode: "TEST",
+        status: "ENABLED",
+        displayName: "DHL Express",
+        logoUrl: "https://logo.clearbit.com/dhl.com",
+        logoAlt: "DHL",
+      },
+    }),
+    prisma.shippingProviderConfig.upsert({
+      where: { storeId_provider_mode: { storeId: store.id, provider: "MOCK", mode: "TEST" } },
+      update: { status: "ENABLED", displayName: "Ekonomik Kargo", logoUrl: null, logoAlt: null },
+      create: {
+        storeId: store.id,
+        provider: "MOCK",
+        mode: "TEST",
+        status: "ENABLED",
+        displayName: "Ekonomik Kargo",
+        logoUrl: null,
+        logoAlt: null,
+      },
+    }),
+  ]);
+
+  const existingPlans = await prisma.shippingRatePlan.count({ where: { storeId: store.id } });
+  if (existingPlans === 0) {
+    await prisma.shippingRatePlan.create({
+      data: {
+        storeId: store.id,
+        provider: "DHL_ECOMMERCE",
+        name: "Hızlı Kargo",
+        status: "ACTIVE",
+        isDefault: true,
+        pricingMode: "FIXED",
+        currency: "TRY",
+        fixedAmountMinor: 4990,
+        deliveryEstimate: "1-2 iş günü",
+      },
+    });
+    await prisma.shippingRatePlan.create({
+      data: {
+        storeId: store.id,
+        provider: "MOCK",
+        name: "Ekonomik Kargo",
+        status: "ACTIVE",
+        isDefault: false,
+        pricingMode: "FREE_THRESHOLD",
+        currency: "TRY",
+        fixedAmountMinor: 2990,
+        freeShippingThresholdMinor: 150000,
+        deliveryEstimate: "3-5 iş günü",
+      },
+    });
+  }
 }
 
 main()

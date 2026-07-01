@@ -285,6 +285,16 @@ export const trStorefront = {
     shippingNoRatePlan: "Bu mağaza için aktif kargo tarifesi bulunamadı.",
     shippingUnavailable: "Kargo ücreti hesaplanamadı.",
     shippingBlockedNotice: "Kargo ücreti hesaplanana kadar ödeme adımına geçilemez.",
+    // TODO-125 — Kargo sağlayıcı/seçenek seçimi.
+    shippingOptions: {
+      title: "Kargo seçeneği",
+      hint: "Kargo firmanızı seçin.",
+      free: "Ücretsiz Kargo",
+      noneTitle: "Uygun kargo seçeneği yok",
+      noneDescription:
+        "Bu teslimat adresi için kargo seçeneği bulunamadı. Lütfen adresinizi kontrol edin.",
+      updating: "Güncelleniyor…",
+    },
     grandTotal: "Genel toplam",
     // {rate} KDV oranıyla değiştirilir.
     taxIncludedLabel: "KDV dahil (%{rate})",
@@ -335,6 +345,9 @@ export const trStorefront = {
       transactionLabel: "İşlem No",
       paidAtLabel: "Ödeme tarihi",
       testModeNote: "Bu bir test ödemesidir; gerçek tahsilat yapılmamıştır.",
+      // TODO-125 — Seçilen kargo sağlayıcı/seçenek özeti.
+      shippingOptionTitle: "Kargo",
+      shippingFree: "Ücretsiz",
       shippingTitle: "Teslimat adresi",
       billingTitle: "Fatura bilgisi",
       billingIndividual: "Bireysel",

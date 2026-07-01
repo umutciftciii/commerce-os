@@ -159,6 +159,8 @@ export type {
   PublicCheckoutRequest,
   PublicOrderConfirmationLine,
   PublicOrderConfirmation,
+  ShippingOption,
+  OrderShippingSelection,
   PublicCheckoutBilling,
   PublicBillingSummary,
   PublicAddressSummary,

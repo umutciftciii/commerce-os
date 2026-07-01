@@ -495,6 +495,8 @@ export const trStoreAdmin = {
       subtotal: "Ara toplam",
       discount: "İndirim",
       shipping: "Kargo",
+      // TODO-125 — Müşterinin checkout'ta seçtiği kargo sağlayıcı/hizmet.
+      shippingProvider: "Kargo sağlayıcı",
       tax: "KDV (dahil)",
       total: "Genel toplam",
       paidAmount: "Ödenen",

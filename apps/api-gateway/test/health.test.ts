@@ -27,6 +27,7 @@ import {
   createServer,
 } from "../src/server.js";
 import type { EngineRatePlan } from "../src/shipping/price-engine.js";
+import type { ProviderDisplayMap } from "../src/shipping/checkout-options.js";
 import type { CustomerDataAccess } from "../src/customers/index.js";
 import type { PaymentProviderStatus, PaymentProviderType } from "@prisma/client";
 
@@ -974,6 +975,7 @@ class MemoryDataAccess implements AppDataAccess {
     currency: "TRY",
     fixedAmountMinor: 4990,
     freeShippingThresholdMinor: 75000,
+    deliveryEstimate: null,
     validFrom: null,
     validTo: null,
     rules: [],
@@ -983,6 +985,22 @@ class MemoryDataAccess implements AppDataAccess {
 
   async resolveActiveShippingRatePlan(storeId: string): Promise<EngineRatePlan | null> {
     return storeId === "store_demo" ? this.shippingRatePlan : null;
+  }
+
+  // TODO-125 — Cogul kargo secenek testleri icin ayarlanabilir aktif plan listesi.
+  // null ise tek-plan davranisina (shippingRatePlan) duser (geriye donuk uyum).
+  shippingRatePlansList: EngineRatePlan[] | null = null;
+  // TODO-125 — ENABLED provider gorunum bilgisi (provider tipi -> ad/logo).
+  shippingProviderDisplays: ProviderDisplayMap = new Map();
+
+  async listActiveShippingRatePlans(storeId: string): Promise<EngineRatePlan[]> {
+    if (storeId !== "store_demo") return [];
+    if (this.shippingRatePlansList) return this.shippingRatePlansList;
+    return this.shippingRatePlan ? [this.shippingRatePlan] : [];
+  }
+
+  async listShippingProviderDisplays(storeId: string): Promise<ProviderDisplayMap> {
+    return storeId === "store_demo" ? this.shippingProviderDisplays : new Map();
   }
 
   async findDefaultShippingAddress(
@@ -1006,6 +1024,10 @@ class MemoryDataAccess implements AppDataAccess {
         source: "STORE_FIXED_RULE" | "STORE_SHIPPING_TARIFF" | "MOCK";
         ratePlanId: string | null;
         ratePlanName: string | null;
+        provider?: "MOCK" | "GELIVER" | "DHL_ECOMMERCE" | null;
+        providerName?: string | null;
+        logoUrl?: string | null;
+        etaText?: string | null;
       } | null;
       discountAmount?: number;
       addresses: Array<{
@@ -1077,6 +1099,10 @@ class MemoryDataAccess implements AppDataAccess {
       shippingSource: input.shippingSnapshot?.source ?? null,
       shippingRatePlanId: input.shippingSnapshot?.ratePlanId ?? null,
       shippingRatePlanName: input.shippingSnapshot?.ratePlanName ?? null,
+      shippingProvider: input.shippingSnapshot?.provider ?? null,
+      shippingProviderName: input.shippingSnapshot?.providerName ?? null,
+      shippingLogoUrl: input.shippingSnapshot?.logoUrl ?? null,
+      shippingEtaText: input.shippingSnapshot?.etaText ?? null,
       placedAt: null,
       cancelledAt: null,
       cancelReason: null,
@@ -3747,6 +3773,161 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       "nope",
     );
     expect(checkout.statusCode).toBe(404);
+    await app.close();
+  });
+
+  // TODO-125 — Checkout kargo sağlayıcı/seçenek seçimi.
+  function fixedPlan(over: Partial<EngineRatePlan> & Pick<EngineRatePlan, "id" | "name">): EngineRatePlan {
+    return {
+      provider: null,
+      status: "ACTIVE",
+      isDefault: false,
+      pricingMode: "FIXED",
+      currency: "TRY",
+      fixedAmountMinor: 4990,
+      freeShippingThresholdMinor: null,
+      deliveryEstimate: null,
+      validFrom: null,
+      validTo: null,
+      rules: [],
+      ...over,
+    };
+  }
+  function setupMultiPlan(dataAccess: MemoryDataAccess) {
+    dataAccess.variants[0]!.priceMinor = 5000; // esik yok; her secenek fiyatlanir
+    dataAccess.shippingRatePlansList = [
+      fixedPlan({ id: "rp_express", name: "Hızlı Kargo", provider: "DHL_ECOMMERCE", isDefault: true, fixedAmountMinor: 4990, deliveryEstimate: "1-2 iş günü" }),
+      fixedPlan({ id: "rp_eco", name: "Ekonomik Kargo", provider: "MOCK", fixedAmountMinor: 2500, deliveryEstimate: "3-5 iş günü" }),
+    ];
+    // Yalniz ENABLED provider config'ler gorunum saglar (DISABLED olanlar map'te yok).
+    dataAccess.shippingProviderDisplays = new Map([
+      ["DHL_ECOMMERCE", { displayName: "DHL Express", logoUrl: "https://cdn.example/dhl.png", logoAlt: "DHL" }],
+      ["MOCK", { displayName: "Demo Kargo", logoUrl: null, logoAlt: null }],
+    ]);
+  }
+
+  it("TODO-125: checkout lists multiple priced shipping options with provider name + logo", async () => {
+    const { app, dataAccess } = await createTestApp();
+    setupMultiPlan(dataAccess);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    // Birden cok secenek + secim yapilmadi → SHIPPING_OPTION_REQUIRED (secenekler donulur).
+    expect(res.statusCode).toBe(409);
+    const body = res.json();
+    expect(body.error.code).toBe("SHIPPING_OPTION_REQUIRED");
+    const options = body.error.details.shipping.options as Array<Record<string, unknown>>;
+    expect(options).toHaveLength(2);
+    const express = options.find((o) => o.optionId === "rp_express")!;
+    expect(express).toMatchObject({
+      providerType: "DHL_ECOMMERCE",
+      providerName: "DHL Express",
+      serviceName: "Hızlı Kargo",
+      priceMinor: 4990,
+      logoUrl: "https://cdn.example/dhl.png",
+      available: true,
+      estimatedDelivery: "1-2 iş günü",
+    });
+    const eco = options.find((o) => o.optionId === "rp_eco")!;
+    expect(eco).toMatchObject({ providerName: "Demo Kargo", priceMinor: 2500, logoUrl: null });
+    await app.close();
+  });
+
+  it("TODO-125: selected option recomputes price server-side and persists the provider snapshot", async () => {
+    const { app, dataAccess } = await createTestApp();
+    setupMultiPlan(dataAccess);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+      shippingOptionId: "rp_eco",
+    });
+    expect(res.statusCode).toBe(201);
+    const order = dataAccess.orders[0]!;
+    expect(order.shippingAmount).toBe(2500);
+    expect(order.shippingProvider).toBe("MOCK");
+    expect(order.shippingProviderName).toBe("Demo Kargo");
+    expect(order.shippingRatePlanId).toBe("rp_eco");
+    expect(order.shippingRatePlanName).toBe("Ekonomik Kargo");
+    const confirmation = res.json();
+    expect(confirmation.totalMinor).toBe(7500); // 5000 + 2500
+    expect(confirmation.shippingOption).toMatchObject({
+      providerName: "Demo Kargo",
+      serviceName: "Ekonomik Kargo",
+      amountMinor: 2500,
+      estimatedDelivery: "3-5 iş günü",
+    });
+    await app.close();
+  });
+
+  it("TODO-125: choosing a different option changes the order total", async () => {
+    const { app, dataAccess } = await createTestApp();
+    setupMultiPlan(dataAccess);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+      shippingOptionId: "rp_express",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(dataAccess.orders[0]!.shippingAmount).toBe(4990);
+    expect(res.json().totalMinor).toBe(9990); // 5000 + 4990
+    await app.close();
+  });
+
+  it("TODO-125: a tampered shipping price is impossible — server ignores it and uses the plan price", async () => {
+    const { app, dataAccess } = await createTestApp();
+    setupMultiPlan(dataAccess);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+      shippingOptionId: "rp_eco",
+      // Istemci uydurma alanlar gondermeyi denese de sema STRIP eder; ucret plandan gelir.
+      shippingAmount: 1,
+      shippingMinor: 1,
+      priceMinor: 1,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(dataAccess.orders[0]!.shippingAmount).toBe(2500); // 1 DEGIL
+    await app.close();
+  });
+
+  it("TODO-125: a cross-store / unknown shipping option id is rejected", async () => {
+    const { app, dataAccess } = await createTestApp();
+    setupMultiPlan(dataAccess);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+      shippingOptionId: "rp_from_other_store",
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("SHIPPING_OPTION_INVALID");
+    expect(dataAccess.orders).toHaveLength(0);
+    await app.close();
+  });
+
+  it("TODO-125: a single option is auto-selected when none is sent (with provider snapshot)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.variants[0]!.priceMinor = 5000;
+    dataAccess.shippingRatePlansList = [
+      fixedPlan({ id: "rp_only", name: "Standart Kargo", provider: "DHL_ECOMMERCE", isDefault: true, fixedAmountMinor: 3000 }),
+    ];
+    dataAccess.shippingProviderDisplays = new Map([
+      ["DHL_ECOMMERCE", { displayName: "DHL Express", logoUrl: null, logoAlt: null }],
+    ]);
+    const res = await checkoutReq(app, {
+      items: [{ variantId: VARIANT, quantity: 1 }],
+      contact: validContact,
+      shippingAddress: validAddress,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(dataAccess.orders[0]!.shippingAmount).toBe(3000);
+    expect(dataAccess.orders[0]!.shippingProviderName).toBe("DHL Express");
+    expect(res.json().shippingOption.providerName).toBe("DHL Express");
     await app.close();
   });
 });

@@ -80,11 +80,13 @@ import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
 import {
   computeStoreShippingQuote,
+  listActiveRatePlans,
   resolveActiveRatePlan,
   toEnginePlan,
 } from "./shipping/rate-plan-service.js";
 import { resolveShippingDims } from "./shipping/price-engine.js";
 import type { EngineAddress, EngineCart, EngineRatePlan } from "./shipping/price-engine.js";
+import { buildShippingOptions, type ProviderDisplayMap } from "./shipping/checkout-options.js";
 import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
@@ -304,6 +306,10 @@ type OrderRecord = Pick<
   | "shippingSource"
   | "shippingRatePlanId"
   | "shippingRatePlanName"
+  | "shippingProvider"
+  | "shippingProviderName"
+  | "shippingLogoUrl"
+  | "shippingEtaText"
   | "taxAmount"
   | "totalAmount"
   | "placedAt"
@@ -660,6 +666,17 @@ export interface AppDataAccess {
    */
   resolveActiveShippingRatePlan(storeId: string): Promise<EngineRatePlan | null>;
   /**
+   * TODO-125 — Magazanin TUM AKTIF kargo TARIFE planlari (checkout secenek listesi).
+   * Sira: default once, sonra createdAt artan. Her biri bir kargo SECENEGI'dir.
+   */
+  listActiveShippingRatePlans(storeId: string): Promise<EngineRatePlan[]>;
+  /**
+   * TODO-125 — Magazanin ENABLED kargo saglayici config'lerinin PUBLIC gorunum
+   * bilgisi (taşıyıcı adi + logo). provider tipine gore map'lenir; secret/credential
+   * DONMEZ. Checkout seceneklerine taşıyıcı adi/logo eklemek icin kullanilir.
+   */
+  listShippingProviderDisplays(storeId: string): Promise<ProviderDisplayMap>;
+  /**
    * F3C.2 — Sepet kargo quote PREVIEW'i icin teslimat adresinin sehir/ilce bilgisi.
    * Once isDefaultShipping=true; YOKSA en eski (createdAt asc) kayitli adrese duser —
    * checkout adres defterinin onsecimiyle (default ?? addresses[0]) AYNI sirada — ki
@@ -680,12 +697,19 @@ export interface AppDataAccess {
       lines: Array<{ variantId: string; quantity: number }>;
       /** Kargo ucreti (minor); store tarifesinden hesaplanir, verilmezse 0. */
       shippingAmount?: number;
-      /** F3C.2 — Kargo ucreti SNAPSHOT meta'si (kaynak + plan kimligi). */
+      /**
+       * F3C.2/TODO-125 — Kargo ucreti SNAPSHOT meta'si (kaynak + plan kimligi) +
+       * SECILEN saglayici/secenek gorunum bilgisi (taşıyıcı/hizmet/logo/ETA).
+       */
       shippingSnapshot?: {
         currency: string;
         source: "STORE_FIXED_RULE" | "STORE_SHIPPING_TARIFF" | "MOCK";
         ratePlanId: string | null;
         ratePlanName: string | null;
+        provider?: "MOCK" | "GELIVER" | "DHL_ECOMMERCE" | null;
+        providerName?: string | null;
+        logoUrl?: string | null;
+        etaText?: string | null;
       } | null;
       /** Opsiyonel demo indirim tutari (minor); verilmezse 0. */
       discountAmount?: number;
@@ -1004,6 +1028,30 @@ function serializeInventoryMovement(movement: InventoryMovementRecord) {
   };
 }
 
+/**
+ * TODO-125 — Siparise yazilmis SECILEN kargo saglayici/secenek SNAPSHOT'undan
+ * musteri/admin-guvenli ozet uretir. Kargo snapshot'i yoksa (eski siparis) null.
+ * provider secret/credential/iç alan TASIMAZ; yalniz gorunum bilgisi.
+ */
+function orderShippingSelectionOf(order: OrderRecord) {
+  const hasSelection =
+    order.shippingRatePlanId !== null ||
+    order.shippingProviderName !== null ||
+    order.shippingSource !== null;
+  if (!hasSelection) return null;
+  return {
+    providerType: order.shippingProvider ?? null,
+    providerName: order.shippingProviderName ?? order.shippingRatePlanName ?? null,
+    serviceName: order.shippingRatePlanName ?? null,
+    amountMinor: order.shippingAmount,
+    currency: order.shippingCurrency ?? order.currency,
+    freeShipping: order.shippingAmount === 0,
+    estimatedDelivery: order.shippingEtaText ?? null,
+    logoUrl: order.shippingLogoUrl ?? null,
+    logoAlt: null,
+  };
+}
+
 function serializeOrder(order: OrderRecord) {
   return orderSchema.parse({
     ...order,
@@ -1073,6 +1121,8 @@ function serializeOrder(order: OrderRecord) {
       createdAt: attempt.createdAt.toISOString(),
       updatedAt: attempt.updatedAt.toISOString(),
     })),
+    // TODO-125 — Secilen kargo saglayici/secenek ozeti (store-admin siparis detayi).
+    shippingSelection: orderShippingSelectionOf(order),
   });
 }
 
@@ -1348,9 +1398,14 @@ function computeCartDims(
 }
 
 interface CartShippingContext {
-  plan: EngineRatePlan | null;
+  /** TODO-125 — Magazanin TUM aktif tarife planlari (her biri bir kargo secenegi). */
+  plans: EngineRatePlan[];
+  /** ENABLED provider config gorunum bilgisi (taşıyıcı adi + logo). */
+  providerDisplays: ProviderDisplayMap;
   address: EngineAddress | null;
   addressKnown: boolean;
+  /** Musterinin sectigi secenek (= ratePlanId); gecersizse guvenli varsayilan. */
+  requestedOptionId?: string | null;
   now?: Date;
 }
 
@@ -1379,22 +1434,38 @@ function assemblePublicCart(
   );
   const checkoutReady = lines.length > 0 && lines.every((line) => line.status === "OK");
 
-  // F3C.2 — Kargo ucreti store tarife planindan hesaplanir (provider quote DEGIL).
+  // F3C.2/TODO-125 — Kargo ucreti store tarife planindan hesaplanir (provider quote
+  // DEGIL). Her aktif plan bir SECENEK'tir; musteri secimi (requestedOptionId)
+  // gecerliyse uygulanir, degilse guvenli varsayilan (default/en ucuz) secilir.
   const dims = computeCartDims(index, lines);
-  const quote = computeStoreShippingQuote(
-    shippingCtx.plan,
-    { subtotalMinor, ...dims },
-    shippingCtx.address,
-    { addressKnown: shippingCtx.addressKnown, now: shippingCtx.now },
-  );
+  const engineCart: EngineCart = { subtotalMinor, ...dims };
+  const now = shippingCtx.now ?? new Date();
+  const optionsResult = buildShippingOptions({
+    plans: shippingCtx.plans,
+    providerDisplays: shippingCtx.providerDisplays,
+    cart: engineCart,
+    address: shippingCtx.address,
+    addressKnown: shippingCtx.addressKnown,
+    requestedOptionId: shippingCtx.requestedOptionId ?? null,
+    now,
+  });
+
+  // Secili secenegin (yoksa temsili ilk plan / plan yoksa null) quote'u ozet/durum
+  // icin kullanilir. Secenekler + secili kimligi shipping yanitina eklenir.
+  const quoteForPlan = optionsResult.selected?.plan ?? shippingCtx.plans[0] ?? null;
+  const quote = computeStoreShippingQuote(quoteForPlan, engineCart, shippingCtx.address, {
+    addressKnown: shippingCtx.addressKnown,
+    now,
+  });
   const shippingOk = quote.outcome.status === "OK";
+  const selectedPlan = optionsResult.selected?.plan ?? null;
 
   // Kupon indirimi yalnizca checkout'a hazir (tum satirlar OK) sepete uygulanir;
   // aksi halde yanlis bir grand total gosterilmez.
   const summary = computeCartSummary(subtotalMinor, currency, checkoutReady ? couponCode : null, {
     shippingMinor: shippingOk ? quote.outcome.amountMinor ?? 0 : 0,
     includeInTotal: shippingOk,
-    freeThresholdMinor: shippingCtx.plan?.freeShippingThresholdMinor ?? null,
+    freeThresholdMinor: selectedPlan?.freeShippingThresholdMinor ?? null,
   });
   return publicCartSchema.parse({
     storeSlug,
@@ -1404,7 +1475,11 @@ function assemblePublicCart(
     itemCount,
     checkoutReady,
     summary,
-    shipping: quote.response,
+    shipping: {
+      ...quote.response,
+      options: optionsResult.options,
+      selectedOptionId: optionsResult.selectedOptionId,
+    },
   });
 }
 
@@ -1594,6 +1669,10 @@ function createPrismaDataAccess(): AppDataAccess {
     shippingSource: true,
     shippingRatePlanId: true,
     shippingRatePlanName: true,
+    shippingProvider: true,
+    shippingProviderName: true,
+    shippingLogoUrl: true,
+    shippingEtaText: true,
     taxAmount: true,
     totalAmount: true,
     placedAt: true,
@@ -2250,6 +2329,25 @@ function createPrismaDataAccess(): AppDataAccess {
       const plan = await resolveActiveRatePlan(prisma, storeId);
       return plan ? toEnginePlan(plan) : null;
     },
+    listActiveShippingRatePlans: async (storeId) => {
+      const plans = await listActiveRatePlans(prisma, storeId);
+      return plans.map(toEnginePlan);
+    },
+    listShippingProviderDisplays: async (storeId) => {
+      // Yalniz ENABLED config'ler; secret/credential DONMEZ — yalniz public gorunum.
+      const configs = await prisma.shippingProviderConfig.findMany({
+        where: { storeId, status: "ENABLED" },
+        select: { provider: true, displayName: true, logoUrl: true, logoAlt: true },
+      });
+      const map: ProviderDisplayMap = new Map();
+      for (const c of configs) {
+        // Ayni provider tipinde birden cok mode varsa ilk ENABLED gorunum yeterli.
+        if (!map.has(c.provider)) {
+          map.set(c.provider, { displayName: c.displayName, logoUrl: c.logoUrl, logoAlt: c.logoAlt });
+        }
+      }
+      return map;
+    },
     findDefaultShippingAddress: async (storeId, customerId) => {
       // Default ?? en eski adres (checkout adres defteri onsecimiyle ayni sira):
       // isDefaultShipping desc, sonra createdAt asc. Default isaretli adres yoksa
@@ -2345,6 +2443,11 @@ function createPrismaDataAccess(): AppDataAccess {
             shippingSource: input.shippingSnapshot?.source ?? null,
             shippingRatePlanId: input.shippingSnapshot?.ratePlanId ?? null,
             shippingRatePlanName: input.shippingSnapshot?.ratePlanName ?? null,
+            // TODO-125 — Secilen saglayici/secenek snapshot'i (tarihsel sabitlik).
+            shippingProvider: input.shippingSnapshot?.provider ?? null,
+            shippingProviderName: input.shippingSnapshot?.providerName ?? null,
+            shippingLogoUrl: input.shippingSnapshot?.logoUrl ?? null,
+            shippingEtaText: input.shippingSnapshot?.etaText ?? null,
             // F3B.2 — Fatura kimlik/vergi alanlari (adres OrderAddress BILLING'de).
             billingType: input.billing?.type ?? null,
             billingName: input.billing?.name ?? null,
@@ -3177,9 +3280,13 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
     const index = await buildPublicCartIndex(store.id);
-    // F3C.2 — Kargo quote'u store tarife planindan hesaplanir. Oturum acmis musteri
-    // + default teslimat adresi varsa ucret hesaplanir; aksi halde ADDRESS_REQUIRED.
-    const plan = await dataAccess.resolveActiveShippingRatePlan(store.id);
+    // F3C.2/TODO-125 — Kargo SECENEKLERI store tarife planlarindan uretilir. Oturum
+    // acmis musteri + default teslimat adresi varsa secenekler fiyatlanir; aksi halde
+    // ADDRESS_REQUIRED (taşıyıcılar yine listelenir, fiyatsiz).
+    const [plans, providerDisplays] = await Promise.all([
+      dataAccess.listActiveShippingRatePlans(store.id),
+      dataAccess.listShippingProviderDisplays(store.id),
+    ]);
     const cartCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
     let address: EngineAddress | null = null;
     let addressKnown = false;
@@ -3193,9 +3300,11 @@ export function createServer(
       }
     }
     return assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
-      plan,
+      plans,
+      providerDisplays,
       address,
       addressKnown,
+      requestedOptionId: body.shippingOptionId ?? null,
     });
   });
 
@@ -3217,7 +3326,10 @@ export function createServer(
     //    F3C.2 — Kargo quote'u checkout teslimat adresinden hesaplanir (adres her
     //    zaman mevcut → addressKnown=true). Quote OK degilse odeme adimina gecilmez.
     const index = await buildPublicCartIndex(store.id);
-    const ratePlan = await dataAccess.resolveActiveShippingRatePlan(store.id);
+    const [plans, providerDisplays] = await Promise.all([
+      dataAccess.listActiveShippingRatePlans(store.id),
+      dataAccess.listShippingProviderDisplays(store.id),
+    ]);
     const checkoutAddress: EngineAddress = {
       cityCode: body.shippingAddress.city,
       districtCode: body.shippingAddress.district ?? null,
@@ -3225,17 +3337,57 @@ export function createServer(
       // zoneCode: city->zone cozumlemesi ileride (TODO); su an null.
       zoneCode: null,
     };
+    // TODO-125 — Musterinin sectigi kargo secenegi. Ucret ISTEMCIDEN DEGIL, secilen
+    // plandan sunucuda yeniden hesaplanir (tamper-proof). Secenek bu mağazaya ait +
+    // AKTIF + bu sepet/adres icin uygun olmalidir (cross-store/inactive REDDEDILIR).
+    const requestedOptionId = body.shippingOptionId?.trim() || null;
     const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
-      plan: ratePlan,
+      plans,
+      providerDisplays,
       address: checkoutAddress,
       addressKnown: true,
+      requestedOptionId,
     });
     if (!cart.checkoutReady) {
       return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
     }
-    // Kargo ucreti hesaplanamadiysa (tarife yok / kural yok / olcum eksik) odeme
-    // adimina gecilmez; net kod + quote dondurulur.
-    if (cart.shipping.status !== "OK") {
+    const activeOptionIds = new Set(plans.map((p) => p.id));
+    const availableOptions = cart.shipping.options.filter((o) => o.available);
+    // Tampered/cross-store/inactive secenek kimligi → REDDET (guvenli varsayilana DUSME).
+    if (requestedOptionId) {
+      if (!activeOptionIds.has(requestedOptionId)) {
+        return reply
+          .code(409)
+          .send(errorBody("SHIPPING_OPTION_INVALID", "Selected shipping option is not valid."));
+      }
+      if (!availableOptions.some((o) => o.optionId === requestedOptionId)) {
+        return reply.code(409).send(
+          errorBody("SHIPPING_QUOTE_UNAVAILABLE", "Selected shipping option is unavailable.", {
+            shipping: cart.shipping,
+          }),
+        );
+      }
+    }
+    // Hic uygun secenek yok (tarife yok / kural yok / olcu eksik) → odeme adimi yok.
+    if (availableOptions.length === 0 || cart.shipping.status !== "OK") {
+      return reply.code(409).send(
+        errorBody("SHIPPING_QUOTE_UNAVAILABLE", "Shipping fee could not be calculated.", {
+          shipping: cart.shipping,
+        }),
+      );
+    }
+    // Birden cok secenek var ama musteri secim yapmadi → secim zorunlu.
+    if (!requestedOptionId && availableOptions.length > 1) {
+      return reply.code(409).send(
+        errorBody("SHIPPING_OPTION_REQUIRED", "Please choose a shipping option.", {
+          shipping: cart.shipping,
+        }),
+      );
+    }
+    // Secili secenek (assemblePublicCart yukaridaki kurallarla zaten sectiyse).
+    const selectedOption =
+      cart.shipping.options.find((o) => o.optionId === cart.shipping.selectedOptionId) ?? null;
+    if (!selectedOption) {
       return reply.code(409).send(
         errorBody("SHIPPING_QUOTE_UNAVAILABLE", "Shipping fee could not be calculated.", {
           shipping: cart.shipping,
@@ -3277,7 +3429,9 @@ export function createServer(
       currency: cart.currency,
       lines: cart.lines.map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity })),
       shippingAmount: summary.shippingMinor,
-      // F3C.2 — Kargo ucreti SNAPSHOT'i siparise yazilir (kaynak + plan kimligi).
+      // F3C.2/TODO-125 — Kargo SNAPSHOT'i siparise yazilir: ucret kaynagi + plan
+      // kimligi + SECILEN saglayici/secenek gorunum bilgisi (taşıyıcı/hizmet/logo/ETA).
+      // Tarihsel sabitlik: config sonradan degisse bile siparis sabit kalir.
       // Quote source DHL_ECOMMERCE bu fazda olusmaz; defansif olarak TARIFF'e duser.
       shippingSnapshot: {
         currency: cart.shipping.currency ?? cart.currency,
@@ -3285,8 +3439,12 @@ export function createServer(
           cart.shipping.source === "MOCK" || cart.shipping.source === "STORE_FIXED_RULE"
             ? cart.shipping.source
             : "STORE_SHIPPING_TARIFF",
-        ratePlanId: cart.shipping.ratePlanId,
-        ratePlanName: cart.shipping.ratePlanName,
+        ratePlanId: selectedOption.optionId,
+        ratePlanName: selectedOption.serviceName,
+        provider: selectedOption.providerType,
+        providerName: selectedOption.providerName,
+        logoUrl: selectedOption.logoUrl,
+        etaText: selectedOption.estimatedDelivery,
       },
       discountAmount: summary.discountMinor,
       billing: {
@@ -3383,6 +3541,18 @@ export function createServer(
         // F3B.2 — Success ekrani icin teslimat/fatura ozeti (provider-less akista).
         shippingAddress: safeAddressSummary(placed.addresses.find((a) => a.type === "SHIPPING") ?? null),
         billing: publicBillingSummaryOf(placed),
+        // TODO-125 — Secilen kargo saglayici/secenek ozeti (success ekraninda gosterim).
+        shippingOption: {
+          providerType: selectedOption.providerType,
+          providerName: selectedOption.providerName,
+          serviceName: selectedOption.serviceName,
+          amountMinor: placed.shippingAmount,
+          currency: placed.shippingCurrency ?? placed.currency,
+          freeShipping: placed.shippingAmount === 0,
+          estimatedDelivery: selectedOption.estimatedDelivery,
+          logoUrl: selectedOption.logoUrl,
+          logoAlt: selectedOption.logoAlt,
+        },
         ...(payment ? { payment } : {}),
       }),
     );

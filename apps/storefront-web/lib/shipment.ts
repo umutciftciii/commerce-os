@@ -78,3 +78,8 @@ export function providerInitials(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toLocaleUpperCase("tr");
   return (parts[0][0] + parts[1][0]).toLocaleUpperCase("tr");
 }
+
+/** TODO-125 — Logo URL dolu/geçerli mi (boş string/null değil) → logo göster, yoksa initials. */
+export function hasProviderLogo(logoUrl: string | null | undefined): boolean {
+  return typeof logoUrl === "string" && logoUrl.trim().length > 0;
+}

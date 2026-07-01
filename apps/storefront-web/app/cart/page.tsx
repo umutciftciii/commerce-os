@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
 import { getStorefrontDict } from "../../lib/i18n";
-import { readCartItems, readCoupon } from "../../lib/server/cart-cookie";
+import { readCartItems, readCoupon, readShippingOption } from "../../lib/server/cart-cookie";
 import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
 
@@ -21,7 +21,8 @@ export default async function CartPage() {
   }
 
   const coupon = await readCoupon();
-  const result = await resolveCartWithCanonicalItems(items, coupon);
+  const shippingOption = await readShippingOption();
+  const result = await resolveCartWithCanonicalItems(items, coupon, shippingOption);
   if (!result.ok) {
     return (
       <Container className="py-12">
