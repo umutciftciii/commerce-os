@@ -550,6 +550,11 @@ export const publicCartRequestSchema = z.object({
   items: z.array(publicCartItemInputSchema).max(100).default([]),
   /** Opsiyonel kupon kodu; sunucu dogrular (gecersizse INVALID doner). */
   couponCode: z.string().max(40).nullable().optional(),
+  /**
+   * TODO-125 — Müşterinin seçtiği kargo seçeneği (= ShippingRatePlan.id). Sunucu
+   * doğrular; geçersiz/uygunsuzsa güvenli varsayılana (default/en ucuz) düşer.
+   */
+  shippingOptionId: z.string().max(120).nullable().optional(),
 });
 
 /** Bir sepet satirinin cozumleme/uygunluk durumu. */
@@ -672,6 +677,12 @@ export const publicCheckoutRequestSchema = z
     billingAddress: publicCheckoutAddressSchema.nullable().optional(),
     /** Opsiyonel kupon kodu; sunucu dogrular ve indirimi siparise yansitir. */
     couponCode: z.string().max(40).nullable().optional(),
+    /**
+     * TODO-125 — Müşterinin seçtiği kargo seçeneği (= ShippingRatePlan.id). Sunucu
+     * seçeneğin bu mağazaya ait + AKTİF + bu sepet/adres için uygun olduğunu doğrular;
+     * ÜCRETİ İSTEMCİDEN DEĞİL seçilen plandan yeniden hesaplar (tamper-proof, ADR-047).
+     */
+    shippingOptionId: z.string().max(120).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.billing && value.billing.sameAsShipping === false && !value.billingAddress) {
@@ -783,6 +794,29 @@ export const publicPaymentRedirectSchema = z.object({
   scenarios: z.array(publicPaymentScenarioSchema),
 });
 
+// Kargo sağlayıcı tipi (taşıyıcı). Order/checkout şemalarından önce tanımlı olmalı
+// (TDZ); sağlayıcı config şemaları da bunu kullanır.
+export const shippingProviderTypeSchema = z.enum(["MOCK", "GELIVER", "DHL_ECOMMERCE"]);
+
+/**
+ * TODO-125 (ADR-047) — Siparişe yazılan SEÇİLEN kargo sağlayıcı/seçenek özeti
+ * (snapshot). PUBLIC/müşteri-güvenli ALLOWLIST: provider secret/credential/iç alan
+ * TAŞIMAZ; yalnız görünen ad + hizmet adı + ücret + (opsiyonel) public logo + ETA.
+ * Sipariş onayı, müşteri sipariş detayı ve store-admin sipariş detayında kullanılır.
+ */
+export const orderShippingSelectionSchema = z.object({
+  providerType: shippingProviderTypeSchema.nullable(),
+  providerName: z.string().nullable(),
+  serviceName: z.string().nullable(),
+  amountMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  freeShipping: z.boolean(),
+  estimatedDelivery: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  logoAlt: z.string().nullable(),
+});
+export type OrderShippingSelection = z.infer<typeof orderShippingSelectionSchema>;
+
 export const publicOrderConfirmationSchema = z.object({
   orderNumber: z.string().min(1),
   status: orderStatusSchema,
@@ -804,6 +838,8 @@ export const publicOrderConfirmationSchema = z.object({
   /** F3B.2 — Teslimat/fatura ozeti (success ekraninda gosterim). Opsiyonel (geri uyum). */
   shippingAddress: publicAddressSummarySchema.optional(),
   billing: publicBillingSummarySchema.nullable().optional(),
+  /** TODO-125 — Seçilen kargo sağlayıcı/seçenek özeti (varsa). Geri uyum için opsiyonel. */
+  shippingOption: orderShippingSelectionSchema.nullable().optional(),
   /**
    * Opsiyonel ödeme yönlendirme. Provider yoksa alan eklenmez (undefined) →
    * mevcut response birebir kalir. Uygun TEST/MOCK provider varsa doldurulur.
@@ -1184,6 +1220,9 @@ export const orderSchema = z.object({
   reservations: z.array(inventoryReservationSchema).default([]),
   events: z.array(orderEventSchema).default([]),
   paymentAttempts: z.array(orderPaymentAttemptSchema).default([]),
+  // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti (store-admin
+  // sipariş detayı görünümü). Eski siparişlerde null/yok olabilir (geri uyum).
+  shippingSelection: orderShippingSelectionSchema.nullable().default(null),
 });
 
 export const orderListResponseSchema = z.object({
@@ -1931,6 +1970,8 @@ export const customerOrderDetailSchema = z.object({
   payment: customerOrderPaymentSummarySchema.nullable(),
   // TODO-117 — Kargo takip özeti; shipment yoksa null.
   shipment: customerOrderShipmentSchema.nullable(),
+  // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti; yoksa null.
+  shippingSelection: orderShippingSelectionSchema.nullable(),
 });
 
 export const customerOrderDetailResponseSchema = z.object({
@@ -2139,7 +2180,6 @@ export type CustomerActivateResponse = z.infer<typeof customerActivateResponseSc
  * plain alinir; RESPONSE allowlist'tir — secret/ciphertext/JWT/customerPassword DONMEZ,
  * yalniz configured + maskedKey (son-4) + *Set boolean'lari doner.
  */
-export const shippingProviderTypeSchema = z.enum(["MOCK", "GELIVER", "DHL_ECOMMERCE"]);
 export const shippingProviderModeSchema = z.enum(["TEST", "LIVE"]);
 export const shippingProviderStatusSchema = z.enum(["ENABLED", "DISABLED"]);
 /**
@@ -2376,6 +2416,38 @@ export const shippingQuoteStatusSchema = z.enum([
   "UNAVAILABLE",
   "ERROR",
 ]);
+/**
+ * TODO-125 (ADR-047) — Checkout'ta SEÇİLEBİLİR tek kargo seçeneği. Bir seçenek =
+ * AKTİF bir ShippingRatePlan (fiyat store TARİFE'sinden hesaplanır, ADR-044) +
+ * (varsa) ENABLED ShippingProviderConfig'ten gelen taşıyıcı görünüm bilgisi.
+ * PUBLIC/müşteri-güvenli ALLOWLIST: provider secret/credential/account no TAŞIMAZ;
+ * yalnız görünen ad + (opsiyonel) public logo. priceMinor null => adres henüz
+ * seçilmediği için fiyatlanamadı (available=false). available=true yalnız
+ * fiyatlanabilir/uygun seçenekler içindir.
+ */
+export const shippingOptionSchema = z.object({
+  /** Seçenek kimliği = ShippingRatePlan.id (checkout'a geri gönderilir). */
+  optionId: z.string().min(1),
+  /** Taşıyıcı kimliği (enum) — gevşek ilişki; null olabilir. */
+  providerType: shippingProviderTypeSchema.nullable(),
+  /** Taşıyıcı/sağlayıcı görünen adı (config displayName ya da güvenli fallback). */
+  providerName: z.string().min(1),
+  /** Hizmet/yöntem adı (= rate plan adı). */
+  serviceName: z.string().min(1),
+  /** Hesaplanan kargo ücreti (minor). Adres yoksa null. */
+  priceMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema,
+  freeShipping: z.boolean(),
+  /** Tahmini teslim metni (ör. "2-3 iş günü"); yoksa null. */
+  estimatedDelivery: z.string().nullable(),
+  /** Public provider logo URL (secret DEĞİL); yoksa null → UI baş harf fallback. */
+  logoUrl: z.string().nullable(),
+  logoAlt: z.string().nullable(),
+  /** Bu seçenek bu sepet/adres için seçilebilir mi (fiyatlandı + uygun). */
+  available: z.boolean(),
+});
+export type ShippingOption = z.infer<typeof shippingOptionSchema>;
+
 export const cartShippingQuoteResponseSchema = z.object({
   provider: shippingProviderTypeSchema.nullable(),
   source: shippingQuoteSourceSchema.nullable(),
@@ -2388,6 +2460,11 @@ export const cartShippingQuoteResponseSchema = z.object({
   errorCode: z.string().nullable(),
   message: z.string().nullable(),
   calculatedAt: z.string().datetime().nullable(),
+  // TODO-125 — Seçilebilir kargo seçenekleri + seçili seçenek. Üstteki alanlar
+  // SEÇİLİ seçeneğin quote'unu yansıtır (geriye dönük uyumlu). options boşsa
+  // seçenek yok (tek-plan eski davranış: options tek eleman + selectedOptionId dolu).
+  options: z.array(shippingOptionSchema).default([]),
+  selectedOptionId: z.string().nullable().default(null),
 });
 export type CartShippingQuoteResponse = z.infer<typeof cartShippingQuoteResponseSchema>;
 
@@ -2846,6 +2923,8 @@ export const shippingRatePlanSchema = z.object({
   currency: currencySchema,
   fixedAmountMinor: z.number().int().nonnegative().nullable(),
   freeShippingThresholdMinor: z.number().int().nonnegative().nullable(),
+  // TODO-125 — Checkout seçenek kartında gösterilecek tahmini teslim metni (opsiyonel).
+  deliveryEstimate: z.string().nullable(),
   validFrom: z.string().datetime().nullable(),
   validTo: z.string().datetime().nullable(),
   ruleCount: z.number().int().nonnegative(),
@@ -2870,6 +2949,8 @@ export const shippingRatePlanCreateRequestSchema = z.object({
   currency: currencySchema.default("TRY"),
   fixedAmountMinor: z.number().int().nonnegative().nullable().optional(),
   freeShippingThresholdMinor: z.number().int().nonnegative().nullable().optional(),
+  // TODO-125 — Tahmini teslim metni (ör. "2-3 iş günü"); checkout kartında gösterilir.
+  deliveryEstimate: z.string().max(120).nullable().optional(),
   validFrom: z.string().datetime().nullable().optional(),
   validTo: z.string().datetime().nullable().optional(),
 });

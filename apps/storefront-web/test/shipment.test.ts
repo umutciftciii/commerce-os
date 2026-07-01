@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SHIPMENT_STATUS_TONE,
+  hasProviderLogo,
   isCancelledShipmentStatus,
   isProblemShipmentStatus,
   providerInitials,
@@ -53,5 +54,14 @@ describe("storefront · shipment tracking helpers", () => {
     expect(providerInitials("DHL eCommerce")).toBe("DE");
     expect(providerInitials("Geliver")).toBe("GE");
     expect(providerInitials("  ")).toBe("?");
+  });
+
+  // TODO-125 — Checkout/success kargo seçeneği kartı: logo varsa logo, yoksa initials.
+  it("decides between provider logo and initials fallback", () => {
+    expect(hasProviderLogo("https://cdn/dhl.png")).toBe(true);
+    expect(hasProviderLogo("")).toBe(false);
+    expect(hasProviderLogo("   ")).toBe(false);
+    expect(hasProviderLogo(null)).toBe(false);
+    expect(hasProviderLogo(undefined)).toBe(false);
   });
 });

@@ -45,6 +45,7 @@ export function toEnginePlan(plan: RatePlanWithRules): EngineRatePlan {
     currency: plan.currency,
     fixedAmountMinor: plan.fixedAmountMinor,
     freeShippingThresholdMinor: plan.freeShippingThresholdMinor,
+    deliveryEstimate: plan.deliveryEstimate,
     validFrom: plan.validFrom,
     validTo: plan.validTo,
     rules: plan.rules.map(
@@ -109,6 +110,7 @@ export function serializeRatePlan(plan: RatePlanWithRules): ShippingRatePlanResp
     currency: plan.currency,
     fixedAmountMinor: plan.fixedAmountMinor,
     freeShippingThresholdMinor: plan.freeShippingThresholdMinor,
+    deliveryEstimate: plan.deliveryEstimate,
     validFrom: plan.validFrom?.toISOString() ?? null,
     validTo: plan.validTo?.toISOString() ?? null,
     ruleCount: plan.rules.length,
@@ -191,6 +193,22 @@ export async function resolveActiveRatePlan(
   });
 }
 
+/**
+ * TODO-125 — Mağazanın TÜM AKTİF kargo tarife planlarını döner (checkout seçenek
+ * listesi). Sıra: default plan önce, sonra createdAt artan. Geçerlilik penceresi
+ * (validFrom/validTo) price-engine'de değerlendirilir; burada yalnız status=ACTIVE.
+ */
+export async function listActiveRatePlans(
+  prisma: PrismaClient,
+  storeId: string,
+): Promise<RatePlanWithRules[]> {
+  return prisma.shippingRatePlan.findMany({
+    where: { storeId, status: "ACTIVE" },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    include: ratePlanInclude,
+  });
+}
+
 /** Quote outcome'unu cart/checkout response contract'ina serialize eder. */
 export function outcomeToQuoteResponse(
   outcome: ShippingQuoteOutcome,
@@ -209,6 +227,9 @@ export function outcomeToQuoteResponse(
     errorCode: outcome.status === "OK" ? null : outcome.reason,
     message: null,
     calculatedAt: outcome.status === "OK" ? now.toISOString() : null,
+    // TODO-125 — Secenekler/secili kimligi cagiran katman (assemblePublicCart) doldurur.
+    options: [],
+    selectedOptionId: null,
   };
 }
 

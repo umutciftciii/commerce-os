@@ -57,6 +57,7 @@ const PLAN = {
   currency: "TRY",
   fixedAmountMinor: 4990,
   freeShippingThresholdMinor: 75000,
+  deliveryEstimate: null,
   validFrom: null,
   validTo: null,
   ruleCount: 0,

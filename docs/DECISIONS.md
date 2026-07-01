@@ -1095,3 +1095,40 @@ bir shipment ÖZETİYLE genişlet.
 
 **Sonuç.** Müşteri kendi gönderisini dürüst ve güvenli izler; kargo modülü yardımcı e-ticaret modülü olarak
 kalır (müşteriye operasyon/secret sızmaz). Mevcut sözleşme/akış bozulmaz (additive).
+
+## ADR-047 Checkout kargo SEÇENEĞİ = AKTİF tarife planı + sunucu-otoriter seçim; sipariş snapshot'ı (TODO-125)
+
+**Bağlam.** F3C.2 (ADR-044) kargo ÜCRETİNİ mağaza TARİFE'sinden hesaplıyordu ama checkout kargoyu yalnız bir
+sayı (fiyat) olarak gösteriyordu; müşteri hangi kargo firmasını/hizmetini seçtiğini görmüyordu. Gerçek bir
+e-ticaret vitrini için müşteri mevcut kargo seçeneklerini görüp birini seçebilmeli ve seçim siparişe
+sabitlenmeli. ADR-044 (kargo = store tarifesi, provider canlı quote DEĞİL) ve ADR-046 (Shipment = ayrı lojistik
+domain, canlı takip) KORUNUR — bu karar SADECE checkout SEÇİMİ ile ilgilidir, canlı tracking/webhook ile değil.
+
+**Karar.**
+- **"Kargo seçeneği" = AKTİF `ShippingRatePlan`.** Mağazanın birden çok aktif tarife planı olabilir; her biri bir
+  seçenektir. Ücret price-engine ile (store tarifesi) hesaplanır. Taşıyıcı görünüm bilgisi (ad + public logo)
+  plan.provider üzerinden ENABLED `ShippingProviderConfig`'ten gevşek ilişkiyle eklenir. **Paralel kargo modeli
+  oluşturulmaz**; mevcut F3C/F3C.5 domaini yeniden kullanılır. Saf üreteç: `shipping/checkout-options.ts`.
+- **Sunucu-otoriterlik / tamper-proof.** İstemci yalnız `shippingOptionId` (= ratePlanId) gönderir; FİYAT GÖNDERMEZ
+  (body'de fiyat alanı yoktur ve şema strip eder). Sunucu ücreti seçilen plandan YENİDEN hesaplar. Doğrulama:
+  cross-store/inactive/bilinmeyen id → `SHIPPING_OPTION_INVALID`; çoklu seçenek + seçimsiz → `SHIPPING_OPTION_REQUIRED`;
+  hiç uygun seçenek yok / quote OK değil → `SHIPPING_QUOTE_UNAVAILABLE` (NO_RATE_PLAN geriye dönük korunur); tek
+  uygun seçenek seçimsizse otomatik seçilir.
+- **Müşteri-güvenli ALLOWLIST.** `shipping.options[]` yalnız optionId/providerType/providerName/serviceName/
+  priceMinor/currency/freeShipping/estimatedDelivery/logoUrl/logoAlt/available taşır. Secret/credential/account no/
+  webhook secret/raw payload/label URL/barcode/ZPL ve admin-only alanlar ASLA storefront DTO'suna girmez.
+- **Sipariş SNAPSHOT'ı (tarihsel sabitlik).** Seçim siparişe yazılır: `Order.shippingProvider/shippingProviderName/
+  shippingLogoUrl/shippingEtaText` (+ mevcut `shippingRatePlanId/Name/Source/Currency` ve `shippingAmount`). Config
+  sonradan değişse/silinse bile sipariş özeti sabit kalır. `ShippingRatePlan.deliveryEstimate` (opsiyonel ETA metni)
+  eklendi; admin tarife formundan girilir.
+- **Yüzeyler.** Sipariş onayı `shippingOption`; müşteri sipariş detayı `shippingSelection` (shipment CANLI
+  takibinden AYRI — biri checkout seçimi, diğeri lojistik durum); store-admin sipariş detayı özet satırı +
+  `orderSchema.shippingSelection`. Storefront checkout'ta dropdown değil **seçilebilir provider kartları** (radio):
+  logo veya baş-harf fallback, fiyat/ETA, seçim cookie'ye yazılır ve sayfa revalidate ile toplamı günceller.
+- **Kapsam dışı (KORUNUR).** Canlı provider tracking SYNC'i + webhook imza doğrulaması (TODO-100/104); provider
+  logo dosya UPLOAD/asset storage (TODO-127, hâlâ manuel public URL). Dijital/hizmet ürün akışında kargo
+  zorlanmaz (checkout-ready sepet zaten yalnız ONLINE fiziksel satırlardan oluşur).
+
+**Sonuç.** Müşteri kargo firmasını/hizmetini fiyat + (varsa) tahmini teslim + logo ile görüp seçer; seçim toplamı
+değiştirir ve siparişe sabitlenir. Tüm fiyat/seçim doğrulaması backend'dedir (istemci fiyatına güvenilmez,
+cross-store/tamper reddedilir). ADR-044/045/046 bozulmaz; değişiklik additive ve geriye dönük uyumludur.

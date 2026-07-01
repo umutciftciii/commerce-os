@@ -495,6 +495,8 @@ export const enStoreAdmin: StoreAdminDictionary = {
       subtotal: "Subtotal",
       discount: "Discount",
       shipping: "Shipping",
+      // TODO-125 — Carrier/service the customer chose at checkout.
+      shippingProvider: "Shipping carrier",
       tax: "VAT (incl.)",
       total: "Total",
       paidAmount: "Paid",

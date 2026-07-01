@@ -18,9 +18,11 @@ import {
   clearCartCookie,
   readCartItems,
   readCoupon,
+  readShippingOption,
   writeCartItems,
   writeCheckoutConfirmationCookie,
   writeCoupon,
+  writeShippingOption,
 } from "./cart-cookie";
 import { isProvince, isValidProvinceDistrict } from "../tr-location-data";
 import { normalizeTrPhone } from "../phone";
@@ -48,6 +50,16 @@ export async function applyCouponAction(code: string): Promise<void> {
 /** Uygulanan kuponu kaldirir. */
 export async function removeCouponAction(): Promise<void> {
   await writeCoupon(null);
+  revalidateCart();
+}
+
+/**
+ * TODO-125 — Musterinin sectigi kargo secenegini (= ratePlanId) cookie'ye yazar.
+ * Gateway her istekte gecerlilik/ait-olma dogrulamasi yapar ve ucreti secilen
+ * plandan YENIDEN hesaplar; bu yalniz tercihin saklanmasidir.
+ */
+export async function selectShippingOptionAction(optionId: string | null): Promise<void> {
+  await writeShippingOption(optionId);
   revalidateCart();
 }
 
@@ -174,6 +186,10 @@ export async function submitCheckoutAction(
     return { status: "error", errorReason: "cart-not-ready" };
   }
   const coupon = await readCoupon();
+  // TODO-125 — Secilen kargo secenegi: formdan (client secimi) gelir; yoksa
+  // cookie'deki tercihe duser. Gateway gecerlilik/ucret dogrulamasini yapar.
+  const formShippingOption = field(formData, "shippingOptionId");
+  const shippingOptionId = formShippingOption || (await readShippingOption());
 
   // Fatura bilgisi YALNIZCA "farkli" isaretliyse gateway'e gonderilir; aksi halde
   // undefined birakilir ve gateway iletisim/teslimattan TURETIR (TCKN/VKN istemez).
@@ -215,6 +231,7 @@ export async function submitCheckoutAction(
     billing,
     billingAddress,
     coupon,
+    shippingOptionId || null,
   );
 
   if (!result.ok) {

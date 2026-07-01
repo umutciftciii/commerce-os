@@ -83,6 +83,8 @@ const L = {
     formCurrency: "Para birimi",
     formFixed: "Sabit ücret",
     formThreshold: "Ücretsiz kargo eşiği",
+    formDeliveryEstimate: "Tahmini teslim",
+    formDeliveryEstimatePlaceholder: "ör. 2-3 iş günü",
     formValidFrom: "Geçerlilik başlangıcı",
     formValidTo: "Geçerlilik bitişi",
     formDefault: "Varsayılan tarife yap",
@@ -172,6 +174,8 @@ const L = {
     formCurrency: "Currency",
     formFixed: "Fixed fee",
     formThreshold: "Free shipping threshold",
+    formDeliveryEstimate: "Delivery estimate",
+    formDeliveryEstimatePlaceholder: "e.g. 2-3 business days",
     formValidFrom: "Valid from",
     formValidTo: "Valid to",
     formDefault: "Make this the default rate",
@@ -242,6 +246,7 @@ interface PlanFormState {
   currency: string;
   fixedAmount: string;
   threshold: string;
+  deliveryEstimate: string;
   validFrom: string;
   validTo: string;
   isDefault: boolean;
@@ -254,6 +259,7 @@ const emptyForm: PlanFormState = {
   currency: "TRY",
   fixedAmount: "",
   threshold: "",
+  deliveryEstimate: "",
   validFrom: "",
   validTo: "",
   isDefault: false,
@@ -429,6 +435,7 @@ function PlanBasicsEditor({
           currency: plan.currency,
           fixedAmount: minorToInput(plan.fixedAmountMinor),
           threshold: minorToInput(plan.freeShippingThresholdMinor),
+          deliveryEstimate: plan.deliveryEstimate ?? "",
           validFrom: plan.validFrom ? plan.validFrom.slice(0, 10) : "",
           validTo: plan.validTo ? plan.validTo.slice(0, 10) : "",
           isDefault: plan.isDefault,
@@ -452,6 +459,7 @@ function PlanBasicsEditor({
         currency: form.currency.trim().toUpperCase(),
         fixedAmountMinor: inputToMinor(form.fixedAmount),
         freeShippingThresholdMinor: inputToMinor(form.threshold),
+        deliveryEstimate: form.deliveryEstimate.trim() || null,
         validFrom: form.validFrom ? new Date(`${form.validFrom}T00:00:00.000Z`).toISOString() : null,
         validTo: form.validTo ? new Date(`${form.validTo}T23:59:59.000Z`).toISOString() : null,
       };
@@ -490,6 +498,7 @@ function PlanBasicsEditor({
           <Input label={t.formCurrency} value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))} />
           <Input label={t.formFixed} inputMode="decimal" value={form.fixedAmount} onChange={(e) => setForm((f) => ({ ...f, fixedAmount: e.target.value }))} />
           <Input label={t.formThreshold} inputMode="decimal" value={form.threshold} onChange={(e) => setForm((f) => ({ ...f, threshold: e.target.value }))} />
+          <Input label={t.formDeliveryEstimate} value={form.deliveryEstimate} placeholder={t.formDeliveryEstimatePlaceholder} onChange={(e) => setForm((f) => ({ ...f, deliveryEstimate: e.target.value }))} />
           <Input label={t.formValidFrom} type="date" value={form.validFrom} onChange={(e) => setForm((f) => ({ ...f, validFrom: e.target.value }))} />
           <Input label={t.formValidTo} type="date" value={form.validTo} onChange={(e) => setForm((f) => ({ ...f, validTo: e.target.value }))} />
         </div>

@@ -456,3 +456,19 @@
   settlement is akislari + `/payments` operations ekrani (TODO-070).
 - Hedef faz: F3B.3+ (saglayici sozlesmesine bagli)
 - Bagli: ADR-033, TODO-066..071, Faz 3B.2 phase log.
+
+## TODO-127 — Provider logo dosya upload/asset storage (TODO-125'ten ayrıldı)
+- Sorun: `ShippingProviderConfig.logoUrl` manuel public URL (admin elle girer). Checkout/success/admin'de
+  logo gösterimi TODO-125 ile devrede ama logo KAYNAĞI dış bağımlılık (kırık URL riski, marka/CDN kontrolü yok).
+- Çözüm önerisi: dosya upload + asset storage / media library; `logoStorageKey` ile object-store entegrasyonu;
+  `logoAlt` korunur. Doğrulama (boyut/format) + güvenli serve.
+- Bağlı: ADR-047, TODO-125.
+
+## TODO-125 ek — Checkout kargo seçeneği: küçük borçlar
+- Misafir (oturumsuz) sepet sayfasında adres bilinmediği için seçenekler FİYATSIZ listelenir (taşıyıcı görünür,
+  `available=false`); kesin fiyat checkout adresinde hesaplanır. İleride sepet için hızlı il/ilçe seçimiyle
+  önizleme fiyatı verilebilir (zoneCode city→zone çözümlemesi TODO ile birlikte).
+- `ShippingRatePlan.deliveryEstimate` serbest-metin (i18n değil); çok-dilli ETA gerekirse yapılandırılmalı.
+- Seçim değişiminde toplam sunucu revalidate ile güncellenir (tam sayfa yeniden çözümleme); büyük sepetlerde
+  istemci-tarafı anlık toplam hesabı + arka planda doğrulama daha akıcı olabilir.
+- Bağlı: ADR-047, TODO-125.

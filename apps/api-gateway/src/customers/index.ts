@@ -26,6 +26,7 @@ import type {
   CustomerOtpChannel,
   CustomerOtpPurpose,
   CustomerStatus,
+  ShippingProviderType,
 } from "@prisma/client";
 import {
   classifyIdentifier,
@@ -229,6 +230,13 @@ export interface CustomerOrderDetailRecord {
   shippingAmount: number;
   taxAmount: number;
   totalAmount: number;
+  // TODO-125 — Secilen kargo saglayici/secenek snapshot'i (siparis anindan).
+  shippingCurrency: string | null;
+  shippingProvider: ShippingProviderType | null;
+  shippingProviderName: string | null;
+  shippingRatePlanName: string | null;
+  shippingLogoUrl: string | null;
+  shippingEtaText: string | null;
   billingType: BillingType | null;
   billingName: string | null;
   billingCompanyName: string | null;
@@ -805,6 +813,13 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           shippingAmount: true,
           taxAmount: true,
           totalAmount: true,
+          // TODO-125 — Secilen kargo saglayici/secenek snapshot'i.
+          shippingCurrency: true,
+          shippingProvider: true,
+          shippingProviderName: true,
+          shippingRatePlanName: true,
+          shippingLogoUrl: true,
+          shippingEtaText: true,
           billingType: true,
           billingName: true,
           billingCompanyName: true,
@@ -919,6 +934,12 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         shippingAmount: order.shippingAmount,
         taxAmount: order.taxAmount,
         totalAmount: order.totalAmount,
+        shippingCurrency: order.shippingCurrency,
+        shippingProvider: order.shippingProvider,
+        shippingProviderName: order.shippingProviderName,
+        shippingRatePlanName: order.shippingRatePlanName,
+        shippingLogoUrl: order.shippingLogoUrl,
+        shippingEtaText: order.shippingEtaText,
         billingType: order.billingType,
         billingName: order.billingName,
         billingCompanyName: order.billingCompanyName,
@@ -1292,6 +1313,24 @@ function serializeCustomerOrderDetail(order: CustomerOrderDetailRecord) {
           })),
         }
       : null,
+    // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti (snapshot).
+    // shipment (canlı takip) ile karışmaz: bu, müşterinin checkout'ta yaptığı seçim.
+    shippingSelection:
+      (order.shippingRatePlanName ?? null) !== null ||
+      (order.shippingProviderName ?? null) !== null ||
+      (order.shippingProvider ?? null) !== null
+        ? {
+            providerType: order.shippingProvider ?? null,
+            providerName: order.shippingProviderName ?? order.shippingRatePlanName ?? null,
+            serviceName: order.shippingRatePlanName ?? null,
+            amountMinor: order.shippingAmount,
+            currency: order.shippingCurrency ?? order.currency,
+            freeShipping: order.shippingAmount === 0,
+            estimatedDelivery: order.shippingEtaText ?? null,
+            logoUrl: order.shippingLogoUrl ?? null,
+            logoAlt: null,
+          }
+        : null,
   };
 }
 

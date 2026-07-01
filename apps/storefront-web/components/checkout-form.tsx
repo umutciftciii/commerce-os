@@ -1,14 +1,19 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useState, useTransition } from "react";
 import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerAddress } from "@commerce-os/api-client";
 import { isValidTckn } from "@commerce-os/api-client/validators";
-import type { CartView } from "../lib/server/cart";
-import { type CheckoutFormState, submitCheckoutAction } from "../lib/server/cart-actions";
+import type { CartView, ShippingOptionView } from "../lib/server/cart";
+import {
+  type CheckoutFormState,
+  selectShippingOptionAction,
+  submitCheckoutAction,
+} from "../lib/server/cart-actions";
 import { districtsOf, trProvinceNames } from "../lib/tr-location-data";
 import { formatTrPhone } from "../lib/phone";
+import { hasProviderLogo, providerInitials } from "../lib/shipment";
 
 type CheckoutDict = StorefrontDictionary["checkout"];
 
@@ -90,6 +95,11 @@ export function CheckoutForm({
             </Card>
           </>
         )}
+
+        <Card className="p-6">
+          <h2 className="text-base font-semibold text-slate-900">{t.shippingOptions.title}</h2>
+          <ShippingOptions t={t} options={view.shippingOptions} selectedId={view.selectedShippingOptionId} />
+        </Card>
 
         <Card className="p-6">
           <h2 className="mb-4 text-base font-semibold text-slate-900">{t.billing.title}</h2>
@@ -492,6 +502,124 @@ function CheckoutSummary({
         <p className="mt-3 text-xs leading-relaxed text-slate-400">{t.summaryNote}</p>
       </Card>
     </aside>
+  );
+}
+
+/**
+ * TODO-125 — Kargo sağlayıcı/seçenek seçimi. Seçenekler sunucu-otoriter fiyatlanmış
+ * gelir (istemci fiyatına güvenilmez). Seçim cookie'ye yazılır (Server Action) ve
+ * sayfa yeniden doğrulanır → özet/toplam sunucuda güncellenir. Logo varsa gösterilir,
+ * yoksa sağlayıcı baş harfleri fallback. Erişilebilir radio kartları (dropdown değil).
+ */
+function ShippingOptions({
+  t,
+  options,
+  selectedId,
+}: {
+  t: CheckoutDict;
+  options: ShippingOptionView[];
+  selectedId: string | null;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [selected, setSelected] = useState<string | null>(selectedId);
+  const selectable = options.filter((o) => o.available);
+
+  // Hiç uygun seçenek yoksa net Türkçe uyarı (ödeme zaten özet tarafında bloklanır).
+  if (selectable.length === 0) {
+    return (
+      <div className="mt-2">
+        <Alert tone="warning" title={t.shippingOptions.noneTitle}>
+          {t.shippingOptions.noneDescription}
+        </Alert>
+      </div>
+    );
+  }
+
+  const effectiveSelected = selected ?? selectedId ?? selectable[0]?.optionId ?? null;
+
+  function onSelect(optionId: string) {
+    setSelected(optionId);
+    startTransition(() => {
+      void selectShippingOptionAction(optionId);
+    });
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Submit için son seçim (cookie fallback yanında belt-and-suspenders). */}
+      <input type="hidden" name="shippingOptionId" value={effectiveSelected ?? ""} />
+      <p className="text-xs text-slate-400">{t.shippingOptions.hint}</p>
+      <div className="space-y-2" role="radiogroup" aria-label={t.shippingOptions.title}>
+        {selectable.map((option) => {
+          const active = option.optionId === effectiveSelected;
+          return (
+            <label
+              key={option.optionId}
+              className={[
+                "flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition",
+                active
+                  ? "border-brand-500 bg-brand-50 ring-1 ring-brand-200"
+                  : "border-slate-200 hover:border-slate-300",
+              ].join(" ")}
+            >
+              <input
+                type="radio"
+                name="shippingOptionChoice"
+                className="sr-only"
+                checked={active}
+                onChange={() => onSelect(option.optionId)}
+              />
+              <ProviderBadge name={option.providerName} logoUrl={option.logoUrl} logoAlt={option.logoAlt} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-slate-900">
+                  {option.providerName}
+                </span>
+                <span className="block truncate text-xs text-slate-500">
+                  {option.serviceName}
+                  {option.estimatedDelivery ? ` · ${option.estimatedDelivery}` : ""}
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                {option.freeShipping ? (
+                  <span className="text-sm font-semibold text-emerald-700">
+                    {t.shippingOptions.free}
+                  </span>
+                ) : (
+                  <span className="text-sm font-semibold text-slate-900">{option.priceLabel}</span>
+                )}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {isPending ? <p className="text-xs text-slate-400">{t.shippingOptions.updating}</p> : null}
+    </div>
+  );
+}
+
+/** Sağlayıcı logosu (varsa) veya baş-harf rozeti (fallback). */
+function ProviderBadge({
+  name,
+  logoUrl,
+  logoAlt,
+}: {
+  name: string;
+  logoUrl: string | null;
+  logoAlt: string | null;
+}) {
+  if (hasProviderLogo(logoUrl)) {
+    return (
+      <img
+        src={logoUrl!}
+        alt={logoAlt ?? name}
+        className="h-9 w-9 shrink-0 rounded-lg border border-slate-200 bg-white object-contain p-1"
+      />
+    );
+  }
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-xs font-semibold text-brand-700">
+      {providerInitials(name)}
+    </span>
   );
 }
 

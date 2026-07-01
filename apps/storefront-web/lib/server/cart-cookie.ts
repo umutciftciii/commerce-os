@@ -16,6 +16,10 @@ import type { OrderConfirmationView } from "./cart";
  */
 const CART_COOKIE = "commerce_os_cart";
 const COUPON_COOKIE = "commerce_os_coupon";
+// TODO-125: Musterinin sectigi kargo secenegi (= ShippingRatePlan.id). Hassas
+// degil; gateway her istekte gecerlilik/ait-olma dogrulamasi yapar ve ucreti
+// secilen plandan YENIDEN hesaplar (istemci fiyatina guvenilmez).
+const SHIPPING_OPTION_COOKIE = "commerce_os_shipping_option";
 // F3B.2: Order olusumu sonrasi /checkout/success'in sepetten BAGIMSIZ render
 // edebilmesi icin kisa omurlu, imzali onay cookie'si. Yalniz GORUNUM verisi tutar
 // (siparis no/tutar/satir basliklari); secret/credential ICERMEZ.
@@ -55,6 +59,32 @@ export async function clearCartCookie(): Promise<void> {
   const store = await cookies();
   store.delete(CART_COOKIE);
   store.delete(COUPON_COOKIE);
+  store.delete(SHIPPING_OPTION_COOKIE);
+}
+
+/** Secilen kargo secenegi (= ratePlanId). Gecersiz format -> null. */
+export async function readShippingOption(): Promise<string | null> {
+  const store = await cookies();
+  const raw = store.get(SHIPPING_OPTION_COOKIE)?.value;
+  if (!raw) return null;
+  return /^[A-Za-z0-9_-]{1,120}$/.test(raw) ? raw : null;
+}
+
+/** Secilen kargo secenegini yazar (bos/gecersiz -> siler). */
+export async function writeShippingOption(optionId: string | null): Promise<void> {
+  const store = await cookies();
+  const value = optionId?.trim() ?? "";
+  if (!value || !/^[A-Za-z0-9_-]{1,120}$/.test(value)) {
+    store.delete(SHIPPING_OPTION_COOKIE);
+    return;
+  }
+  store.set(SHIPPING_OPTION_COOKIE, value, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    secure: process.env.NODE_ENV === "production",
+  });
 }
 
 /**

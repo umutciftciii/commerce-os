@@ -2050,3 +2050,37 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
 - **Doğrulama:** db:generate / build / typecheck / lint / test / git diff --check yeşil.
 - **KALAN:** Canlı provider tracking SYNC'i (TODO-100/104, webhook imza); checkout'ta provider seçimi + logo
   (TODO-125). Bu iş yalnız mevcut shipment verisini müşteriye dürüstçe yansıtır.
+
+## TODO-125 — Checkout kargo sağlayıcı/seçenek seçimi + storefront provider/logo akışı (ADR-047)
+
+- **Karar.** Bir "kargo seçeneği" = AKTİF `ShippingRatePlan` + price-engine ücreti (store TARİFE'si, ADR-044;
+  provider canlı quote DEĞİL) + (varsa) ENABLED `ShippingProviderConfig` görünüm bilgisi (ad + public logo).
+  Paralel kargo modeli YOK; F3C/F3C.5 domaini yeniden kullanılır. ADR-046 canlı takipten AYRI (bu yalnız seçim).
+- **DB (additive).** `Order.shippingProvider/shippingProviderName/shippingLogoUrl/shippingEtaText` +
+  `ShippingRatePlan.deliveryEstimate`. Migration `20260701120000_add_checkout_shipping_selection` (ADDITIVE-only,
+  IF NOT EXISTS). Mevcut F3C.2 snapshot alanları (`shippingRatePlanId/Name/Source/Currency`) korunur.
+- **Contracts.** `shippingOptionSchema` (müşteri-güvenli ALLOWLIST) + `cartShippingQuoteResponse.options[]/
+  selectedOptionId`; `publicCart/CheckoutRequest.shippingOptionId`; `orderShippingSelectionSchema` →
+  sipariş onayı (`shippingOption`), müşteri sipariş detayı (`shippingSelection`), admin `orderSchema.
+  shippingSelection`; `shippingRatePlan*.deliveryEstimate`.
+- **Gateway.** Saf üreteç `shipping/checkout-options.ts` (`buildShippingOptions`); dataAccess
+  `listActiveShippingRatePlans` + `listShippingProviderDisplays` (yalnız ENABLED). `assemblePublicCart`
+  seçenek-tabanlı. Checkout SUNUCU-OTORİTER: ücreti seçilen plandan YENİDEN hesaplar (istemci fiyatı yok/strip),
+  `SHIPPING_OPTION_INVALID` (cross-store/inactive/bilinmeyen) / `SHIPPING_OPTION_REQUIRED` (çoklu+seçimsiz) /
+  `SHIPPING_QUOTE_UNAVAILABLE` (uygun yok; NO_RATE_PLAN geriye dönük). `createOrder` provider snapshot'ı yazar.
+- **Storefront.** Checkout'ta seçilebilir provider kartları (radio, dropdown DEĞİL): logo veya baş-harf fallback
+  (`lib/shipment.ts` `providerInitials/hasProviderLogo`), fiyat/ETA; seçim cookie'ye yazılır (Server Action) ve
+  sayfa revalidate ile toplamı günceller. Tek/çok/yok durumları + net TR mesaj. Success ekranında seçilen
+  sağlayıcı özeti. **Light-first premium + brand (#9743CD) aksanı.**
+- **Store-admin.** Sipariş detayı özetinde "Kargo sağlayıcı" satırı; tarife formunda `deliveryEstimate` alanı.
+- **Seed.** Demo store: 2 ENABLED provider config (DHL Express + Ekonomik Kargo) + 2 aktif tarife (default hızlı
+  FIXED + ekonomik FREE_THRESHOLD), ETA metinleriyle → checkout'ta çoklu seçenek demoable.
+- **Güvenlik.** Storefront/müşteri DTO'larına secret/credential/account no/webhook secret/raw payload/label/
+  barcode/ZPL/admin-only alan SIZMAZ. Tenant izolasyonu: seçenekler store-scoped; seçilen plan store + ACTIVE +
+  bu sepet/adres için uygun olmalı; cross-store/tamper reddedilir.
+- **Testler.** Gateway entegrasyon (çoklu seçenek + provider ad/logo, seçim→ücret/snapshot, toplam değişimi,
+  tamper-yok, cross-store red, tek-seçenek auto), saf builder (`shipping-checkout-options.test.ts`), storefront
+  helper (logo/initials). TODO-117 shipment takip testleri yeşil kalır. Gateway 282, storefront 87 test geçer.
+- **Doğrulama.** db:generate / build / typecheck / lint / test / git diff --check yeşil.
+- **KALAN.** Provider logo dosya UPLOAD/asset storage (TODO-127, manuel public URL devam); canlı tracking SYNC +
+  webhook imza (TODO-100/104) kapsam dışı.

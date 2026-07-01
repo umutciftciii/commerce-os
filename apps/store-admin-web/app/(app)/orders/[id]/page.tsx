@@ -413,6 +413,18 @@ export default function OrderDetailPage() {
                     label={d.shipping}
                     value={formatMinor(order.shippingAmount, order.currency)}
                   />
+                  {order.shippingSelection ? (
+                    <div className="flex items-center justify-between text-xs text-white/40">
+                      <span>{d.shippingProvider}</span>
+                      <span className="text-right text-white/60">
+                        {order.shippingSelection.providerName ?? order.shippingSelection.serviceName}
+                        {order.shippingSelection.serviceName &&
+                        order.shippingSelection.providerName !== order.shippingSelection.serviceName
+                          ? ` · ${order.shippingSelection.serviceName}`
+                          : ""}
+                      </span>
+                    </div>
+                  ) : null}
                   <MoneyRow label={d.tax} value={formatMinor(order.taxAmount, order.currency)} />
                   <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
                     <span className="font-semibold text-white/90">{d.total}</span>

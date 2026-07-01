@@ -35,6 +35,7 @@ function plan(overrides: Partial<EngineRatePlan>): EngineRatePlan {
     currency: "TRY",
     fixedAmountMinor: 4990,
     freeShippingThresholdMinor: null,
+    deliveryEstimate: null,
     validFrom: null,
     validTo: null,
     rules: [],

@@ -259,6 +259,7 @@ export function registerShippingRatePlanRoutes(
           currency: input.currency,
           fixedAmountMinor: input.fixedAmountMinor ?? null,
           freeShippingThresholdMinor: input.freeShippingThresholdMinor ?? null,
+          deliveryEstimate: input.deliveryEstimate ?? null,
           validFrom: input.validFrom ? new Date(input.validFrom) : null,
           validTo: input.validTo ? new Date(input.validTo) : null,
         },
@@ -324,6 +325,8 @@ export function registerShippingRatePlanRoutes(
           currency: input.currency,
           fixedAmountMinor: input.fixedAmountMinor,
           freeShippingThresholdMinor: input.freeShippingThresholdMinor,
+          deliveryEstimate:
+            input.deliveryEstimate !== undefined ? input.deliveryEstimate ?? null : undefined,
           validFrom:
             input.validFrom !== undefined ? (input.validFrom ? new Date(input.validFrom) : null) : undefined,
           validTo: input.validTo !== undefined ? (input.validTo ? new Date(input.validTo) : null) : undefined,

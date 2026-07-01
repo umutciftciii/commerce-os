@@ -1,4 +1,5 @@
 import type {
+  OrderShippingSelection,
   PublicAddressSummary,
   PublicBillingSummary,
   PublicCart,
@@ -14,6 +15,7 @@ import type {
   PublicPaymentScenario,
   PublicPaymentState,
   PublicPaymentThreeDsAction,
+  ShippingOption,
 } from "@commerce-os/api-client";
 import type { CartItem } from "../cart-token";
 import { formatMinor } from "../money";
@@ -66,6 +68,21 @@ export interface CartSummaryView {
   couponStatus: PublicCouponStatus;
 }
 
+/** TODO-125 — Checkout kargo secenegi (vitrin gorunum modeli; bicimli fiyat + ham). */
+export interface ShippingOptionView {
+  optionId: string;
+  providerName: string;
+  serviceName: string;
+  /** Bicimli fiyat etiketi (fiyatlanamazsa null). */
+  priceLabel: string | null;
+  priceMinor: number | null;
+  freeShipping: boolean;
+  estimatedDelivery: string | null;
+  logoUrl: string | null;
+  logoAlt: string | null;
+  available: boolean;
+}
+
 export interface CartView {
   lines: CartLineView[];
   subtotalLabel: string;
@@ -74,6 +91,9 @@ export interface CartView {
   isEmpty: boolean;
   currency: string;
   summary: CartSummaryView;
+  /** TODO-125 — Secilebilir kargo secenekleri + secili secenek. */
+  shippingOptions: ShippingOptionView[];
+  selectedShippingOptionId: string | null;
 }
 
 export interface OrderConfirmationView {
@@ -99,6 +119,8 @@ export interface OrderConfirmationView {
   /** F3B.2 — Success ekrani teslimat/fatura ozeti (varsa). */
   shippingAddress: PublicAddressSummary | null;
   billing: PublicBillingSummary | null;
+  /** TODO-125 — Secilen kargo saglayici/secenek ozeti (varsa). */
+  shippingOption: OrderShippingSelection | null;
   /**
    * F3B.2: Uygun TEST/MOCK provider varsa ödeme test sayfasinin yolu (token dahil).
    * Provider yoksa undefined → mevcut onay akisi birebir korunur.
@@ -139,6 +161,26 @@ function toSummaryView(summary: PublicCartSummary, shipping: PublicCart["shippin
   };
 }
 
+function toShippingOptionView(option: ShippingOption): ShippingOptionView {
+  return {
+    optionId: option.optionId,
+    providerName: option.providerName,
+    serviceName: option.serviceName,
+    priceLabel:
+      option.priceMinor === null
+        ? null
+        : option.freeShipping
+          ? null
+          : formatMinor(option.priceMinor, option.currency),
+    priceMinor: option.priceMinor,
+    freeShipping: option.freeShipping,
+    estimatedDelivery: option.estimatedDelivery,
+    logoUrl: option.logoUrl,
+    logoAlt: option.logoAlt,
+    available: option.available,
+  };
+}
+
 function toCartView(cart: PublicCart): CartView {
   return {
     currency: cart.currency,
@@ -147,6 +189,8 @@ function toCartView(cart: PublicCart): CartView {
     isEmpty: cart.lines.length === 0,
     subtotalLabel: formatMinor(cart.subtotalMinor, cart.currency),
     summary: toSummaryView(cart.summary, cart.shipping),
+    shippingOptions: cart.shipping.options.map(toShippingOptionView),
+    selectedShippingOptionId: cart.shipping.selectedOptionId,
     lines: cart.lines.map((line) => ({
       variantId: line.variantId,
       productSlug: line.productSlug,
@@ -185,6 +229,7 @@ export async function getPaymentAvailability(): Promise<boolean> {
 export async function resolveCart(
   items: CartItem[],
   couponCode?: string | null,
+  shippingOptionId?: string | null,
 ): Promise<CartResult<CartView>> {
   try {
     // F3C.2 — Oturum acmis musteride sepet `x-customer-session` ile cozulur ki
@@ -197,7 +242,7 @@ export async function resolveCart(
     } catch {
       customerToken = null;
     }
-    const body = { items, couponCode: couponCode ?? null };
+    const body = { items, couponCode: couponCode ?? null, shippingOptionId: shippingOptionId ?? null };
     const result = customerToken
       ? await sendCustomer<PublicCart>("POST", cartPath(), customerToken, body)
       : await postPublic<PublicCart>(cartPath(), body);
@@ -218,8 +263,9 @@ export async function resolveCart(
 export async function resolveCartWithCanonicalItems(
   items: CartItem[],
   couponCode?: string | null,
+  shippingOptionId?: string | null,
 ): Promise<CartResult<{ view: CartView; canonicalItems: CartItem[] }>> {
-  const result = await resolveCart(items, couponCode);
+  const result = await resolveCart(items, couponCode, shippingOptionId);
   if (!result.ok) return result;
   const canonicalItems = result.data.lines
     .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)
@@ -234,6 +280,7 @@ export async function submitCheckout(
   billing?: PublicCheckoutBilling,
   billingAddress?: PublicCheckoutRequest["shippingAddress"] | null,
   couponCode?: string | null,
+  shippingOptionId?: string | null,
 ): Promise<CheckoutResult> {
   try {
     // F3B.3: Oturum acmis musteride checkout, `x-customer-session` ile gonderilir;
@@ -252,6 +299,7 @@ export async function submitCheckout(
       ...(billing ? { billing } : {}),
       ...(billingAddress ? { billingAddress } : {}),
       couponCode: couponCode ?? null,
+      shippingOptionId: shippingOptionId ?? null,
     };
     const result = customerToken
       ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)
@@ -288,6 +336,7 @@ export async function submitCheckout(
         })),
         shippingAddress: confirmation.shippingAddress ?? null,
         billing: confirmation.billing ?? null,
+        shippingOption: confirmation.shippingOption ?? null,
         // Provider yoksa confirmation.payment undefined → alan eklenmez.
         paymentRedirectPath: confirmation.payment?.paymentPath,
       },
