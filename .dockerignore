@@ -1,0 +1,55 @@
+# .dockerignore — TODO-137
+# Docker build context = repo root (compose `context: ../..`). Everything here
+# is either reinstalled/regenerated INSIDE the image or irrelevant to build &
+# runtime. The point: no host-generated artifact (dist/.next/node_modules/
+# prisma client) may ever leak into the image, so builds are deterministic and
+# free of stale-export drift. Do NOT add source, package manifests, the
+# lockfile, the Prisma schema/migrations, or Next config here.
+
+# --- Dependencies (reinstalled from the committed lockfile in-image) --------
+node_modules
+**/node_modules
+
+# --- Build outputs (rebuilt in-image; must never come from the host) --------
+dist
+**/dist
+build
+**/build
+.next
+**/.next
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# --- Prisma generated client (regenerated via `pnpm db:generate` in-image) --
+packages/db/generated
+**/.prisma
+
+# --- Turbo / test / caches --------------------------------------------------
+.turbo
+**/.turbo
+coverage
+**/coverage
+
+# --- Env & secrets (compose injects env at runtime; keep the example only) --
+.env
+.env.*
+!.env.example
+
+# --- VCS & tooling ----------------------------------------------------------
+.git
+.gitignore
+.gitattributes
+.prettierrc
+.prettierignore
+
+# --- Claude Code local state (includes nested worktrees — huge, never needed)
+.claude
+
+# --- Docs / repo meta not used by build or runtime --------------------------
+docs
+README.md
+
+# --- OS / editor / logs -----------------------------------------------------
+.DS_Store
+**/.DS_Store
+*.log
