@@ -49,6 +49,10 @@ services:
       DHL_ECOMMERCE_ALLOW_ORDER_CREATE: "false"
       DHL_ECOMMERCE_ALLOW_BARCODE_CREATE: "false"
       GELIVER_ALLOW_LABEL_PURCHASE: "false"
+      # TODO-128 — Store-admin webhook panelinin tam webhook URL uretmesi icin public taban.
+      # Local docker dev degeri (host'a publish edilen api-gateway portu). Gercek saglayici
+      # erisimi/uretim override eder. Tanimsizsa panel URL uretmez, uyari gosterir.
+      PUBLIC_WEBHOOK_BASE_URL: http://localhost:4000
     ports:
       - "4000:4000"
     depends_on:
