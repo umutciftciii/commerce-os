@@ -47,6 +47,8 @@ import type {
   ShippingProviderConfigUpdateRequest,
   ShippingCredentialUpsertRequest,
   ShippingProviderTestResponse,
+  ShippingWebhookInfoResponse,
+  ShippingWebhookRotateResponse,
   ShippingRateRequest,
   ShippingRateResponse,
   ShippingCreateOrderRequest,
@@ -439,6 +441,16 @@ export const storeApi = {
     ),
   testShippingProvider: (configId: string) =>
     mutatingCall<ShippingProviderTestResponse>(`/api/shipping/providers/${configId}/test`, {
+      method: "POST",
+    }),
+  // TODO-128 — Webhook durumu/URL'si + son olaylar (güvenli DTO; secret/raw/imza dönmez).
+  getShippingWebhookInfo: (configId: string, limit?: number) =>
+    call<ShippingWebhookInfoResponse>(
+      `/api/shipping/providers/${configId}/webhook${typeof limit === "number" ? `?limit=${limit}` : ""}`,
+    ),
+  // TODO-128/104 — Secret/token yeniler; yeni secret yanıtta YALNIZ BİR KEZ döner.
+  rotateShippingWebhook: (configId: string) =>
+    mutatingCall<ShippingWebhookRotateResponse>(`/api/shipping/providers/${configId}/webhook/rotate`, {
       method: "POST",
     }),
   getOrderShipping: (orderId: string) =>

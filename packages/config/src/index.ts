@@ -74,6 +74,11 @@ export const envSchema = z.object({
   // createbarcode/getcities cagrilari runtime'da ~15s surebildigi icin default 60s; eski
   // sabit 15s sinirda abort/timeout uretiyordu. Test/dev'de override edilebilir.
   DHL_ECOMMERCE_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
+  // TODO-128 — Kargo saglayici webhook'larinin ULASILDIGI public taban URL. Store-admin
+  // panelde saglayiciya yapistirilacak tam webhook URL'si (/public/shipping/webhooks/:token)
+  // bu tabandan uretilir. Tanimsizsa panel URL uretmez ve uyari gosterir. Secret DEGILDIR;
+  // yalniz erisim adresidir (token yol parcasi ayrica gizli + HMAC her istekte zorunlu).
+  PUBLIC_WEBHOOK_BASE_URL: z.string().url().optional(),
   // F3C.1 — Plus Command / createRecipient destructive guard'i. Varsayilan KAPALI.
   // Canli createRecipient yalniz bu flag true + providerConfig.allowRecipientCreate true
   // + request explicitConfirm true uclusu saglandiginda calisir; aksi halde

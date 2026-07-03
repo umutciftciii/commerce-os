@@ -54,6 +54,7 @@ import {
   shipmentSyncAllRequestSchema,
   shipmentSyncAllResponseSchema,
   shippingWebhookRotateResponseSchema,
+  shippingWebhookInfoResponseSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
@@ -67,10 +68,12 @@ import {
 import { createShippingAdapterRegistry } from "./adapters/registry.js";
 import {
   buildShipmentProviderInfo,
+  buildShippingWebhookUrl,
   computeShipmentActionCapabilities,
   computeShippingCapabilities,
   manualTrackingNextStatus,
   serializeShippingProviderConfig,
+  serializeShippingWebhookEvent,
   shipmentKpiBucket,
   type SerializedShippingProviderConfig,
   type ShippingEnvGuards,
@@ -111,6 +114,10 @@ const credentialParam = z.object({
   type: z.string().min(1),
 });
 const orderParam = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) });
+// TODO-128 — webhook son olaylar limiti; varsayilan 20, ust sinir 50 (DoS/agirlik onlemi).
+const webhookEventsQuery = z.object({
+  limit: z.coerce.number().int().positive().max(50).default(20),
+});
 
 function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
   return { error: { code, message, ...(extra ?? {}) } };
@@ -1582,6 +1589,33 @@ export function registerShippingAdminRoutes(
     } catch (error) {
       return sendShippingError(reply, error);
     }
+  });
+
+  /* ───────────── TODO-128 webhook bilgi + son olaylar (store-admin gozlem) ─────────────
+   * Tekil, YETKILI uc. Tam webhook URL'si YALNIZ burada doner (bulk config DTO'sunda
+   * token asla yer almaz; rotate ile ayni admin-gorunur token deseni). Son olaylar
+   * ShipmentWebhookInbox'tan {storeId, providerConfigId} SCOPED cekilir → cross-store
+   * sizinti IMKANSIZ. DTO KESIN ALLOWLIST: payloadHash/raw/imza/secret/header DONMEZ. */
+  app.get("/stores/:storeId/shipping/providers/:id/webhook", async (request, reply) => {
+    const params = providerParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const query = webhookEventsQuery.parse(request.query);
+    const cfg = await loadConfig(params.storeId, params.id);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    const events = await prisma.shipmentWebhookInbox.findMany({
+      where: { storeId: params.storeId, providerConfigId: cfg.id },
+      orderBy: { createdAt: "desc" },
+      take: query.limit,
+    });
+    return reply.send(
+      shippingWebhookInfoResponseSchema.parse({
+        webhookConfigured: Boolean(cfg.webhookToken && cfg.webhookSecretCipher),
+        webhookUrl: buildShippingWebhookUrl(config.PUBLIC_WEBHOOK_BASE_URL, cfg.webhookToken),
+        webhookBaseUrlConfigured: Boolean(config.PUBLIC_WEBHOOK_BASE_URL),
+        events: events.map(serializeShippingWebhookEvent),
+      }),
+    );
   });
 
   /* ───────────── TODO-100 store-level toplu tracking sync ─────────────

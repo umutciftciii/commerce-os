@@ -1,6 +1,8 @@
 import type {
   Shipment,
   ShipmentStatus,
+  ShipmentWebhookInbox,
+  ShipmentWebhookOutcome,
   ShippingCredentialType,
   ShippingProviderConfig,
   ShippingProviderCredential,
@@ -329,6 +331,50 @@ export function shipmentKpiBucket(status: ShipmentStatus): ShipmentKpiBucket | n
     default:
       return null;
   }
+}
+
+/* ─────────────────── TODO-128 Webhook yonetim/gozlem admin projeksiyonu ───────────────────
+ * Tekil, yetkili webhook bilgi ucu icin URL uretimi + inbox event allowlist DTO'su.
+ * webhookToken bulk config serialize'inda ASLA yer ALMAZ (bkz. serializeShippingProviderConfig);
+ * yalniz burada tekil ucta tam URL uretilir (rotate ile ayni admin-gorunur token deseni). */
+
+export interface SerializedShippingWebhookEvent {
+  id: string;
+  provider: ShippingProviderType;
+  eventKey: string;
+  outcome: ShipmentWebhookOutcome;
+  shipmentId: string | null;
+  statusCode: number | null;
+  statusText: string | null;
+  receivedAt: string;
+}
+
+/**
+ * ShipmentWebhookInbox → store-admin GUVENLI DTO. KESIN ALLOWLIST: payloadHash / raw
+ * payload / imza / secret / tam header ASLA donmez. eventKey geri cevrilemez idempotency
+ * anahtaridir (PII/secret icermez); statusText sanitize durum ozetidir.
+ */
+export function serializeShippingWebhookEvent(inbox: ShipmentWebhookInbox): SerializedShippingWebhookEvent {
+  return {
+    id: inbox.id,
+    provider: inbox.provider,
+    eventKey: inbox.eventKey,
+    outcome: inbox.outcome,
+    shipmentId: inbox.shipmentId ?? null,
+    statusCode: inbox.statusCode ?? null,
+    statusText: inbox.statusText ?? null,
+    receivedAt: inbox.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Tam public webhook URL'sini uretir. baseUrl (PUBLIC_WEBHOOK_BASE_URL) VE token birlikte
+ * varsa doludur; biri eksikse null. Token bir URL yol parcasidir (secret DEGIL) ama yalniz
+ * yetkili tekil ucta doner. Sondaki `/` normalize edilir.
+ */
+export function buildShippingWebhookUrl(baseUrl: string | null | undefined, token: string | null): string | null {
+  if (!baseUrl || !token) return null;
+  return `${baseUrl.replace(/\/+$/, "")}/public/shipping/webhooks/${token}`;
 }
 
 export function serializeShippingProviderConfig(
