@@ -2375,3 +2375,29 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   `pnpm build` ARTIK GEREKMEZ. Tam paralel-stack runtime health (up + /health 200) çalışan stack'le port
   çakışması ve gereksiz volume yaratmamak için bilinçli koşulmadı; runtime komutları değişmediğinden davranış
   aynıdır ve imaj-içi import kanıtı kök nedeni doğrudan kapatır.
+
+## TODO-128 — Store-admin webhook yönetim/gözlem UI (safe API surfacing)
+
+- **Amaç.** TODO-104 ile hazır olan webhook backend'i (HMAC ingestion + inbox idempotency + rotate)
+  store-admin panelde görünür/yönetilebilir kılmak. Backend güvenlik modeli (imza doğrulama, timestamp
+  toleransı, idempotency, rotate semantiği, provider adapter'ları) DEĞİŞMEDİ — yalnız UI + güvenli okuma ucu.
+- **UI.** Kargo Sağlayıcıları sayfasına ([apps/store-admin-web/app/(app)/shipping/providers/page.tsx])
+  "Webhook" modalı: durum rozeti, tam webhook URL + "URL'yi Kopyala", "Secret'ı Yenile" (confirm →
+  rotate → yeni secret YALNIZ BİR KEZ gösterim + "yalnızca bir kez gösterilir" uyarısı + "Secret'ı Kopyala";
+  modal kapanınca secret bellekten düşürülür, persistlenmez, log/analytics/URL'ye girmez), sağlayıcı paneli
+  kurulum ipucu ve "Son Webhook Olayları" tablosu (TR/EN i18n).
+- **Yeni uç.** `GET /stores/:storeId/shipping/providers/:id/webhook` — YETKİLİ (requireStoreAdmin), mağaza+
+  providerConfigId SCOPED ShipmentWebhookInbox projeksiyonu (limit default 20/max 50). Yanıt: `webhookConfigured`,
+  `webhookUrl` (null = base URL yok ya da token yok), `webhookBaseUrlConfigured`, `events[]`. Event DTO KESIN
+  ALLOWLIST: `id/provider/eventKey/outcome/shipmentId/statusCode/statusText/receivedAt` — payloadHash / raw
+  payload / imza / secret / cipher / header ASLA dönmez.
+- **URL üretimi.** Yeni `PUBLIC_WEBHOOK_BASE_URL` (opsiyonel env) + `/public/shipping/webhooks/:token`. Tanımsızsa
+  panel "public base URL ayarlanmalı" uyarısı gösterir, URL üretmez. Token (URL yol parçası) bulk config DTO'suna
+  (`serializeShippingProviderConfig`) EKLENMEZ → TODO-104 DTO sızıntı testi yeşil kalır; tam URL yalnız bu tekil
+  yetkili uçta döner (rotate zaten aynı admin-görünür token'ı döndürdüğünden güvenlik duruşu değişmez).
+- **Katmanlar.** api-client `shippingProviders.webhookInfo` + rotate BFF (`webhook/rotate/route.ts`) + info BFF
+  (`webhook/route.ts`, CSRF gerektirmeyen GET) + storeApi `getShippingWebhookInfo`/`rotateShippingWebhook`.
+- **Testler.** api-gateway `shipping-webhook-admin.test.ts` (8): scoping, güvenli DTO, base URL null uyarısı,
+  limit clamp, cross-store 404, yetkisiz 403. store-admin `shipping-webhook-admin.test.tsx` (6): URL+kopyala,
+  base URL uyarısı, rotate öncesi secret YOK, rotate sonrası bir-kez secret+uyarı, güvenli event alanları.
+  Mevcut TODO-104/132/133/135/136 testleri yeşil (api-gateway 363, store-admin 148 pass).

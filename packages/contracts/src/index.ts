@@ -2790,6 +2790,43 @@ export const shippingWebhookRotateResponseSchema = z.object({
   rotatedAt: z.string().datetime(),
 });
 
+/**
+ * TODO-128 — Store-admin gorunur webhook teslimat sonucu (ShipmentWebhookInbox
+ * projeksiyonu). KESIN ALLOWLIST: raw payload / imza / secret / payloadHash / tam
+ * header ASLA yer almaz. Yalnizca gozlemlenebilirlik icin sanitize ozet alanlar.
+ */
+export const shippingWebhookOutcomeSchema = z.enum([
+  "ACCEPTED",
+  "IGNORED_UNKNOWN_SHIPMENT",
+  "IGNORED_UNSUPPORTED",
+]);
+
+export const shippingWebhookEventSchema = z.object({
+  id: z.string().min(1),
+  provider: shippingProviderTypeSchema,
+  // Saglayici event kimligi (evt:<id>) ya da payload sha256 ozeti (sha256:<hash>);
+  // idempotency anahtaridir, geri cevrilemez, PII/secret icermez.
+  eventKey: z.string().min(1),
+  outcome: shippingWebhookOutcomeSchema,
+  shipmentId: z.string().nullable(),
+  statusCode: z.number().int().nullable(),
+  // Sanitize durum ozeti (secret/imza/raw icermez).
+  statusText: z.string().nullable(),
+  receivedAt: z.string().datetime(),
+});
+
+/**
+ * TODO-128 — Tekil saglayici webhook bilgi/gozlem ucu. Tam webhook URL'si YALNIZ bu
+ * tekil, yetkili ucta doner (bulk config DTO'sunda token asla yer almaz). webhookUrl,
+ * PUBLIC_WEBHOOK_BASE_URL tanimli VE token uretilmis ise doludur; aksi halde null.
+ */
+export const shippingWebhookInfoResponseSchema = z.object({
+  webhookConfigured: z.boolean(),
+  webhookUrl: z.string().nullable(),
+  webhookBaseUrlConfigured: z.boolean(),
+  events: z.array(shippingWebhookEventSchema),
+});
+
 /** Store-level toplu tracking sync (TODO-100 provider-agnostic runtime yolu). */
 export const shipmentSyncAllRequestSchema = z.object({
   limit: z.number().int().min(1).max(50).default(20),
@@ -3286,6 +3323,10 @@ export type ShipmentStatusValue = z.infer<typeof shipmentStatusValueSchema>;
 export type ShippingWebhookEventRequest = z.infer<typeof shippingWebhookEventRequestSchema>;
 export type ShippingWebhookAckResponse = z.infer<typeof shippingWebhookAckResponseSchema>;
 export type ShippingWebhookRotateResponse = z.infer<typeof shippingWebhookRotateResponseSchema>;
+// TODO-128 — webhook yonetim/gozlem admin UI.
+export type ShippingWebhookOutcomeContract = z.infer<typeof shippingWebhookOutcomeSchema>;
+export type ShippingWebhookEvent = z.infer<typeof shippingWebhookEventSchema>;
+export type ShippingWebhookInfoResponse = z.infer<typeof shippingWebhookInfoResponseSchema>;
 export type ShipmentSyncAllRequest = z.infer<typeof shipmentSyncAllRequestSchema>;
 export type ShipmentSyncAllResponse = z.infer<typeof shipmentSyncAllResponseSchema>;
 // F3C.5 (TODO-121) — provider-agnostic shipment operasyon UI.

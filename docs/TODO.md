@@ -558,10 +558,17 @@
   öncesi: Dockerfile'a build adımı eklenmeli VEYA workspace paketlerine `development` export koşulu (src'den
   çözme) stratejisi netleştirilmeli. Kapsam: Repo infra / Docker. Bloklayıcı: F3C.4 için HAYIR;
   deploy/CI hardening için EVET.
-- TODO-128 (AÇIK): Store-admin webhook yönetim UI — sağlayıcı ayar sayfasına "Webhook" bölümü:
-  rotate CTA (secret TEK SEFERLIK gösterim, ADR-035 kopya deneyimi), webhookConfigured durumu,
-  webhook path kopyalama, inbox son teslimatlar listesi (outcome + tarih; payload GÖSTERİLMEZ).
-  Backend uçları TODO-104 ile hazır (rotate + inbox modeli); yalnız BFF + UI + i18n kaldı.
+- TODO-128 (DONE — 2026-07-04): Store-admin webhook yönetim/gözlem UI. Kargo Sağlayıcıları
+  sayfasına "Webhook" modalı eklendi: webhook durum rozeti, tam webhook URL (kopyala butonu),
+  secret rotate CTA (yeni secret YALNIZ BİR KEZ gösterim + uyarı + kopyala; ADR-035 deseni) ve
+  son webhook olayları tablosu (receivedAt/provider/eventKey/outcome/shipmentId; RAW payload/imza/
+  secret/payloadHash GÖSTERİLMEZ). Yeni yetkili tekil uç `GET /stores/:storeId/shipping/providers/
+  :id/webhook` (mağaza+provider SCOPED inbox projeksiyonu, limit default 20/max 50, güvenli DTO
+  allowlist'i). Webhook URL, yeni `PUBLIC_WEBHOOK_BASE_URL` env'inden üretilir; tanımsızsa panel
+  net uyarı gösterir (URL üretmez). Token bulk config DTO'suna EKLENMEZ (TODO-104 sızıntı testi
+  yeşil kalır); tam URL yalnız bu tekil uçta döner (rotate ile aynı admin-görünür token deseni).
+  HMAC/timestamp/idempotency/rotate semantiği DEĞİŞMEDİ. Rotate BFF + `webhookInfo` api-client
+  metodu + storeApi wrapper'ları eklendi. Testler: api-gateway 8 + store-admin 6.
 - TODO-129 (AÇIK): Zamanlanmış otomatik toplu tracking sync worker job'ı — `sync-all` ucundaki mantığın
   worker'da periyodik çalıştırılması (backoff, store başına limit, yalnız ENABLED provider); admin uç
   manuel tetik olarak kalır. TODO-123 (barcode retry) ile aynı worker altyapısını paylaşabilir.

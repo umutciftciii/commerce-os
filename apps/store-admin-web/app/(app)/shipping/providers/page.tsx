@@ -19,6 +19,8 @@ import type {
   ShippingProviderConfigResponse,
   ShippingProviderConfigCreateRequest,
   ShippingCredentialUpsertRequest,
+  ShippingWebhookInfoResponse,
+  ShippingWebhookEvent,
 } from "@commerce-os/api-client";
 import { ShippingIcon } from "../../../../components/icons";
 import { ProviderLogo } from "../../../../components/provider-logo";
@@ -145,6 +147,34 @@ const L = {
     credConfigured: "Tam",
     credIncomplete: "Eksik",
     credMissing: "Yok",
+    // TODO-128 — Webhook yönetim/gözlem.
+    webhook: "Webhook",
+    webhookTitle: "Webhook Yönetimi",
+    webhookUrl: "Webhook URL",
+    webhookCopyUrl: "URL'yi Kopyala",
+    webhookCopied: "Panoya kopyalandı.",
+    webhookConfigured: "Yapılandırılmış",
+    webhookNotConfigured: "Yapılandırılmamış",
+    webhookNoBaseUrl: "Public base URL ayarlanmadığı için webhook URL oluşturulamıyor.",
+    webhookNotRotatedYet: "Webhook secret'ı henüz oluşturulmadı. URL ve secret üretmek için “Secret'ı Yenile”yi kullanın.",
+    webhookRotate: "Secret'ı Yenile",
+    webhookRotateConfirm: "Mevcut webhook secret ve token anında geçersiz olacak; sağlayıcı panelindeki eski değerler çalışmayı durdurur. Devam edilsin mi?",
+    webhookNewSecret: "Yeni Secret",
+    webhookSecretOnce: "Bu secret yalnızca bir kez gösterilir. Kaydetmeden kapatırsanız tekrar görüntülenemez.",
+    webhookCopySecret: "Secret'ı Kopyala",
+    webhookSetupHint: "Bu URL ve secret'ı sağlayıcının webhook/callback ayarına girin. Sağlayıcı her isteği secret ile HMAC-SHA256 imzalar; imzasız/yanlış istekler reddedilir.",
+    webhookEvents: "Son Webhook Olayları",
+    webhookNoEvents: "Henüz webhook olayı yok.",
+    webhookColReceived: "Alındı",
+    webhookColProvider: "Sağlayıcı",
+    webhookColEvent: "Olay",
+    webhookColOutcome: "Sonuç",
+    webhookColShipment: "Gönderi",
+    webhookOutcomeAccepted: "Başarılı",
+    webhookOutcomeIgnoredUnknown: "Eşleşmeyen gönderi",
+    webhookOutcomeIgnoredUnsupported: "Desteklenmeyen",
+    succeeded: "Başarılı",
+    failed: "Başarısız",
   },
   en: {
     eyebrow: "Sales",
@@ -232,6 +262,34 @@ const L = {
     credConfigured: "Complete",
     credIncomplete: "Incomplete",
     credMissing: "Missing",
+    // TODO-128 — Webhook management/observability.
+    webhook: "Webhook",
+    webhookTitle: "Webhook Management",
+    webhookUrl: "Webhook URL",
+    webhookCopyUrl: "Copy URL",
+    webhookCopied: "Copied to clipboard.",
+    webhookConfigured: "Configured",
+    webhookNotConfigured: "Not configured",
+    webhookNoBaseUrl: "Webhook URL cannot be generated because public base URL is not configured.",
+    webhookNotRotatedYet: "No webhook secret yet. Use “Rotate Secret” to generate the URL and secret.",
+    webhookRotate: "Rotate Secret",
+    webhookRotateConfirm: "The current webhook secret and token will be invalidated immediately; old values in the provider panel will stop working. Continue?",
+    webhookNewSecret: "New Secret",
+    webhookSecretOnce: "This secret is shown only once. If you close without saving it, it cannot be viewed again.",
+    webhookCopySecret: "Copy Secret",
+    webhookSetupHint: "Enter this URL and secret into the provider's webhook/callback settings. The provider signs each request with the secret via HMAC-SHA256; unsigned/invalid requests are rejected.",
+    webhookEvents: "Recent Webhook Events",
+    webhookNoEvents: "No webhook events yet.",
+    webhookColReceived: "Received",
+    webhookColProvider: "Provider",
+    webhookColEvent: "Event",
+    webhookColOutcome: "Outcome",
+    webhookColShipment: "Shipment",
+    webhookOutcomeAccepted: "Succeeded",
+    webhookOutcomeIgnoredUnknown: "Unmatched shipment",
+    webhookOutcomeIgnoredUnsupported: "Unsupported",
+    succeeded: "Succeeded",
+    failed: "Failed",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -290,6 +348,15 @@ export default function ShippingProvidersPage() {
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [credConfig, setCredConfig] = useState<ShippingProviderConfigResponse | null>(null);
   const [credInputs, setCredInputs] = useState<Record<string, CredInput>>({});
+
+  // TODO-128 — Webhook modalı: seçili config + yüklenen bilgi + yalnız bir kez gösterilen secret.
+  const [webhookConfig, setWebhookConfig] = useState<ShippingProviderConfigResponse | null>(null);
+  const [webhookInfo, setWebhookInfo] = useState<ShippingWebhookInfoResponse | null>(null);
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  // Rotate sonrası dönen düz secret. Modal kapanınca/başka config açılınca DERHAL temizlenir;
+  // asla log/analytics/URL'ye girmez, sayfa yenilenince kaybolur (persistli değildir).
+  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -476,6 +543,56 @@ export default function ShippingProvidersPage() {
     }
   };
 
+  // TODO-128 — Webhook modalını açar ve bilgi/olayları yükler. Açılışta önceki secret temizlenir.
+  const openWebhook = async (config: ShippingProviderConfigResponse) => {
+    setWebhookConfig(config);
+    setWebhookInfo(null);
+    setRevealedSecret(null);
+    setActionError(null);
+    setWebhookLoading(true);
+    try {
+      setWebhookInfo(await storeApi.getShippingWebhookInfo(config.id));
+    } catch (error) {
+      setActionError(messageForError(error, locale));
+    } finally {
+      setWebhookLoading(false);
+    }
+  };
+
+  const closeWebhook = () => {
+    setWebhookConfig(null);
+    setWebhookInfo(null);
+    // Secret'ı bellekte gereğinden uzun tutma: modal kapanınca derhal düşür.
+    setRevealedSecret(null);
+  };
+
+  const rotateWebhook = async () => {
+    if (!webhookConfig) return;
+    if (typeof window !== "undefined" && !window.confirm(t.webhookRotateConfirm)) return;
+    setRotating(true);
+    setActionError(null);
+    try {
+      const result = await storeApi.rotateShippingWebhook(webhookConfig.id);
+      setRevealedSecret(result.webhookSecret);
+      // URL/durum tazelensin (yeni token → yeni URL); secret listede DÖNMEZ.
+      setWebhookInfo(await storeApi.getShippingWebhookInfo(webhookConfig.id));
+      await load();
+    } catch (error) {
+      setActionError(messageForError(error, locale));
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  const copyToClipboard = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice(t.webhookCopied);
+    } catch {
+      setActionError(messageForError(new Error("CLIPBOARD"), locale));
+    }
+  };
+
   const credentialSummary = (config: ShippingProviderConfigResponse): string => {
     if (config.provider === "MOCK") return t.none;
     const setCount = config.credentials.filter((c) => c.configured).length;
@@ -576,6 +693,9 @@ export default function ShippingProvidersPage() {
             ) : null}
             <Button size="sm" variant="ghost" onClick={() => openEdit(row)} disabled={busyId === row.id}>
               {t.edit}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void openWebhook(row)} disabled={busyId === row.id}>
+              {t.webhook}
             </Button>
             <Button size="sm" variant="secondary" onClick={() => testConnection(row)} disabled={busyId === row.id}>
               {t.test}
@@ -824,8 +944,134 @@ export default function ShippingProvidersPage() {
           </div>
         ) : null}
       </Modal>
+
+      {/* Webhook modal (TODO-128): URL + copy, rotate secret (once), recent events */}
+      <Modal
+        open={webhookConfig !== null}
+        onClose={closeWebhook}
+        title={`${t.webhookTitle} — ${webhookConfig ? webhookConfig.displayName : ""}`}
+        closeLabel={t.close}
+        className="max-w-2xl"
+        footer={<Button variant="secondary" onClick={closeWebhook}>{t.close}</Button>}
+      >
+        {webhookConfig ? (
+          <div className="space-y-4">
+            {actionError ? <Alert tone="error">{actionError}</Alert> : null}
+
+            {webhookLoading ? (
+              <SkeletonRows rows={2} />
+            ) : webhookInfo ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <Badge tone={webhookInfo.webhookConfigured ? "success" : "neutral"} dot>
+                    {webhookInfo.webhookConfigured ? t.webhookConfigured : t.webhookNotConfigured}
+                  </Badge>
+                </div>
+
+                {/* Webhook URL / uyarı */}
+                {webhookInfo.webhookUrl ? (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">{t.webhookUrl}</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 truncate rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-[11px] text-white/70">
+                        {webhookInfo.webhookUrl}
+                      </code>
+                      <Button size="sm" variant="secondary" onClick={() => void copyToClipboard(webhookInfo.webhookUrl as string)}>
+                        {t.webhookCopyUrl}
+                      </Button>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-white/45">{t.webhookSetupHint}</p>
+                  </div>
+                ) : !webhookInfo.webhookBaseUrlConfigured ? (
+                  <Alert tone="warning">{t.webhookNoBaseUrl}</Alert>
+                ) : (
+                  <Alert tone="info">{t.webhookNotRotatedYet}</Alert>
+                )}
+
+                {/* Rotate + yalnızca bir kez gösterilen yeni secret */}
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-semibold text-white/80">{t.webhookRotate}</span>
+                    <Button size="sm" variant="danger" onClick={() => void rotateWebhook()} disabled={rotating}>
+                      {t.webhookRotate}
+                    </Button>
+                  </div>
+                  {revealedSecret ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">{t.webhookNewSecret}</p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded-lg border border-white/10 bg-black/40 px-3 py-2 font-mono text-[11px] text-emerald-200/90">
+                          {revealedSecret}
+                        </code>
+                        <Button size="sm" variant="secondary" onClick={() => void copyToClipboard(revealedSecret)}>
+                          {t.webhookCopySecret}
+                        </Button>
+                      </div>
+                      <p className="text-[11px] font-semibold text-amber-200/80">{t.webhookSecretOnce}</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Son webhook olayları */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">{t.webhookEvents}</p>
+                  {webhookInfo.events.length === 0 ? (
+                    <p className="text-[12px] text-white/40">{t.webhookNoEvents}</p>
+                  ) : (
+                    <DataTable
+                      columns={webhookEventColumns(t)}
+                      rows={webhookInfo.events}
+                      rowKey={(row) => row.id}
+                    />
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
+}
+
+/** TODO-128 — inbox outcome → lokalize + tonlu badge etiketi (yalnız güvenli alanlar). */
+function webhookOutcomeBadge(outcome: ShippingWebhookEvent["outcome"], t: (typeof L)["tr"]) {
+  switch (outcome) {
+    case "ACCEPTED":
+      return { tone: "success" as const, label: t.webhookOutcomeAccepted };
+    case "IGNORED_UNKNOWN_SHIPMENT":
+      return { tone: "warning" as const, label: t.webhookOutcomeIgnoredUnknown };
+    case "IGNORED_UNSUPPORTED":
+      return { tone: "neutral" as const, label: t.webhookOutcomeIgnoredUnsupported };
+  }
+}
+
+/** Son webhook olayları tablosu kolonları — KESIN güvenli alan allowlist'i. */
+function webhookEventColumns(t: (typeof L)["tr"]): DataTableColumn<ShippingWebhookEvent>[] {
+  return [
+    { header: t.webhookColReceived, cell: (row) => <span className="text-[11px] text-white/60">{formatDate(row.receivedAt)}</span> },
+    { header: t.webhookColProvider, cell: (row) => <span className="text-[11px] text-white/60">{row.provider}</span> },
+    {
+      header: t.webhookColEvent,
+      cell: (row) => (
+        <span className="font-mono text-[10px] text-white/40" title={row.eventKey}>
+          {row.eventKey.length > 22 ? `${row.eventKey.slice(0, 22)}…` : row.eventKey}
+          {row.statusText ? <span className="ml-1 font-sans text-white/55">· {row.statusText}</span> : null}
+        </span>
+      ),
+    },
+    {
+      header: t.webhookColOutcome,
+      cell: (row) => {
+        const b = webhookOutcomeBadge(row.outcome, t);
+        return <Badge tone={b.tone}>{b.label}</Badge>;
+      },
+    },
+    {
+      header: t.webhookColShipment,
+      cell: (row) => <span className="text-[11px] text-white/45">{row.shipmentId ?? t.none}</span>,
+    },
+  ];
 }
 
 function dhlHeading(type: DhlCredType): string {

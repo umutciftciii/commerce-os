@@ -64,6 +64,7 @@ import type {
   ShippingCredentialUpsertRequest,
   ShippingProviderTestResponse,
   ShippingWebhookRotateResponse,
+  ShippingWebhookInfoResponse,
   ShipmentSyncAllRequest,
   ShipmentSyncAllResponse,
   ShippingRateRequest,
@@ -281,6 +282,8 @@ export type {
   ShippingCredentialUpsertRequest,
   ShippingProviderTestResponse,
   ShippingWebhookRotateResponse,
+  ShippingWebhookInfoResponse,
+  ShippingWebhookEvent,
   ShipmentSyncAllRequest,
   ShipmentSyncAllResponse,
   ShippingRateRequest,
@@ -639,6 +642,13 @@ export interface ApiClient {
         configId: string,
         token?: string,
       ): Promise<ShippingWebhookRotateResponse>;
+      /** TODO-128 — webhook URL/durum + son olaylar (GUVENLI DTO; secret/raw/imza donmez). */
+      webhookInfo(
+        storeId: string,
+        configId: string,
+        token?: string,
+        limit?: number,
+      ): Promise<ShippingWebhookInfoResponse>;
       /** TODO-100 — terminal olmayan gonderileri toplu tracking sync'ten gecirir. */
       syncAllShipments(
         storeId: string,
@@ -1226,6 +1236,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/shipping/providers/${configId}/webhook/rotate`,
             "POST",
             undefined,
+            token,
+          ),
+        webhookInfo: (storeId, configId, token, limit) =>
+          getJson<ShippingWebhookInfoResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}/webhook${
+              typeof limit === "number" ? `?limit=${encodeURIComponent(String(limit))}` : ""
+            }`,
             token,
           ),
         syncAllShipments: (storeId, input, token) =>

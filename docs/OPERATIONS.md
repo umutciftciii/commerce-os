@@ -82,3 +82,24 @@ docker image prune -f        # yalnızca dangling (tag'siz) image — -a DEĞİL
 > zorlar; `--volumes` Postgres verisini yok eder.
 
 Temizlik sonrası tekrar `docker system df` ile teyit edilir.
+
+## Kargo webhook kurulumu (TODO-128 / TODO-104)
+
+Kargo sağlayıcı webhook'ları `POST /public/shipping/webhooks/:token` ucuna gelir; her istek
+HMAC-SHA256 imza + timestamp ile doğrulanır (imzasız/yanlış istek reddedilir, DB'ye yazılmaz).
+
+Operatör (env):
+
+- `PUBLIC_WEBHOOK_BASE_URL` — sağlayıcıların bu uca **dışarıdan** ulaşabileceği public taban URL
+  (örn. `https://api.cmddigital.com`; yerel: `http://localhost:4000`). Store-admin panel tam webhook
+  URL'sini bu tabandan üretir. **Tanımsızsa** panel URL üretmez ve "public base URL ayarlanmalı"
+  uyarısı gösterir. Secret DEĞİLDİR; yalnız erişim adresidir.
+- `SHIPPING_ENCRYPTION_KEY` — webhook secret'ı DB'de AES-256-GCM ile şifreler (zaten kargo domaini için
+  zorunlu). Yoksa rotate/decrypt `CONFIG_MISSING` döner.
+
+Store-admin (UI: Kargo Sağlayıcıları → sağlayıcı satırı → **Webhook**):
+
+1. "Secret'ı Yenile" ile webhook secret+token üretilir. **Yeni secret yalnızca bir kez** gösterilir —
+   kaydetmeden kapatılırsa tekrar görüntülenemez (yeniden rotate gerekir). Eski token/secret anında geçersiz olur.
+2. Gösterilen **Webhook URL** ve **secret** sağlayıcının webhook/callback ayarına girilir.
+3. "Son Webhook Olayları" tablosu teslimatları gözlemlemek içindir (RAW payload/imza/secret gösterilmez).
