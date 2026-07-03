@@ -49,6 +49,9 @@ import {
   shippingRateResponseSchema,
   shippingShipmentMutationResponseSchema,
   shippingSyncRequestSchema,
+  shipmentSyncAllRequestSchema,
+  shipmentSyncAllResponseSchema,
+  shippingWebhookRotateResponseSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
@@ -74,6 +77,7 @@ import type {
   ResolvedShippingCredentials,
   ShippingActionContext,
 } from "./types.js";
+import { generateShippingWebhookSecret, generateShippingWebhookToken } from "./webhook.js";
 
 export interface ShippingAdminRoutesDeps {
   config: AppConfig;
@@ -1471,6 +1475,99 @@ export function registerShippingAdminRoutes(
       return sendShippingError(reply, error);
     }
   });
+
+  /* ───────────── TODO-104 webhook secret/token rotate ─────────────
+   * Secret yalniz BU yanit icinde BIR KEZ plain doner (ADR-035 deseni); DB'de
+   * AES-256-GCM ciphertext saklanir, config response'unda ASLA gorunmez.
+   * Rotate eski token+secret'i ANINDA gecersiz kilar. Audit yalniz alan ADI yazar. */
+  app.post("/stores/:storeId/shipping/providers/:id/webhook/rotate", async (request, reply) => {
+    const params = providerParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const cfg = await loadConfig(params.storeId, params.id);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    try {
+      const webhookSecret = generateShippingWebhookSecret();
+      const webhookToken = generateShippingWebhookToken();
+      await prisma.shippingProviderConfig.update({
+        where: { id: cfg.id },
+        data: { webhookToken, webhookSecretCipher: cipher().encrypt(webhookSecret) },
+      });
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "ShippingProviderConfig",
+        entityId: cfg.id,
+        metadata: { provider: cfg.provider, action: "webhook.rotate", fields: ["webhookToken", "webhookSecretCipher"] },
+      });
+      return reply.send(
+        shippingWebhookRotateResponseSchema.parse({
+          webhookPath: `/public/shipping/webhooks/${webhookToken}`,
+          webhookSecret,
+          rotatedAt: new Date().toISOString(),
+        }),
+      );
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  /* ───────────── TODO-100 store-level toplu tracking sync ─────────────
+   * Terminal olmayan gonderileri mevcut applySync (getShipmentStatus+trackShipment)
+   * ile senkronlar. Provider-agnostic: adapter registry dispatch eder; DHL Bulk
+   * Query gibi saglayici-ozel toplu uclar ILERIDE bu ucun arkasina takilir.
+   * Gonderi basina hata TUM isi durdurmaz; kod bazli ozet doner. */
+  app.post("/stores/:storeId/shipping/shipments/sync-all", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shipmentSyncAllRequestSchema.parse(request.body ?? {});
+    const shipments = await prisma.shipment.findMany({
+      where: { storeId: params.storeId, status: { in: SYNCABLE_SHIPMENT_STATUSES } },
+      orderBy: { updatedAt: "asc" },
+      take: input.limit,
+    });
+
+    const cfgCache = new Map<string, ConfigWithCredentials | null>();
+    const results: { shipmentId: string; ok: boolean; status: ShipmentStatus | null; errorCode: string | null }[] = [];
+    let synced = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const shipment of shipments) {
+      let cfg = cfgCache.get(shipment.providerConfigId);
+      if (cfg === undefined) {
+        cfg = await loadConfig(params.storeId, shipment.providerConfigId);
+        cfgCache.set(shipment.providerConfigId, cfg);
+      }
+      if (!cfg || cfg.status !== "ENABLED") {
+        skipped += 1;
+        results.push({ shipmentId: shipment.id, ok: false, status: shipment.status, errorCode: "PROVIDER_DISABLED" });
+        continue;
+      }
+      try {
+        const updated = await applySync(params.storeId, shipment, cfg);
+        synced += 1;
+        results.push({ shipmentId: shipment.id, ok: true, status: updated.status, errorCode: null });
+      } catch (error) {
+        failed += 1;
+        const code = error instanceof ShippingConfigError ? error.code : "SYNC_FAILED";
+        results.push({ shipmentId: shipment.id, ok: false, status: shipment.status, errorCode: code });
+      }
+    }
+
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "Shipment",
+      metadata: { action: "shipment.sync-all", scanned: shipments.length, synced, failed, skipped },
+    });
+    return reply.send(
+      shipmentSyncAllResponseSchema.parse({ scanned: shipments.length, synced, failed, skipped, results }),
+    );
+  });
 }
 
 // F3C.3 (ADR-045) — DHL statusCode (0-7) → ic ShipmentStatus eslemesi (DHL yanitiyla
@@ -1505,6 +1602,17 @@ const SHIPMENT_STATUS_RANK: Record<ShipmentStatus, number> = {
 };
 
 const TERMINAL_SHIPMENT_STATUSES: ShipmentStatus[] = ["DELIVERED", "RETURNED", "CANCELLED", "FAILED"];
+
+// TODO-100 — toplu sync'e giren durumlar: terminal olmayan + saglayicida karsiligi
+// olan gonderiler. DRAFT haric (henuz provider order'i yok → sync anlamsiz).
+export const SYNCABLE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERY_FAILED",
+];
 
 // getshipmentstatus durum → ic ShipmentStatus. Bilinmeyen/null kodda mevcut durum korunur;
 // terminal durumdan geri donulmez; ileri olmayan koda regres edilmez.

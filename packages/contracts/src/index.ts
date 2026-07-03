@@ -2253,6 +2253,8 @@ export const shippingProviderConfigSchema = z.object({
   // TODO-094B — credential "kayitli mi" vs gercek baglanti "test edildi mi" ayrimi.
   credentialStatus: shippingCredentialStatusSchema.optional(),
   connectionStatus: shippingConnectionStatusSchema.optional(),
+  // TODO-104 — webhook secret+token kayitli mi (yalniz boolean; secret/token DONMEZ).
+  webhookConfigured: z.boolean().optional(),
   // Son GERCEK provider HTTP testinin meta'si (transport kapaliyken null/HTTP_DISABLED).
   lastProviderHttpStatus: z.number().int().nullable().optional(),
   lastProviderTestType: z.string().nullable().optional(),
@@ -2602,6 +2604,66 @@ export const shippingCancelRequestSchema = z.object({
 export const shippingShipmentMutationResponseSchema = z.object({
   shipment: shipmentSchema,
   alreadyExisted: z.boolean().default(false),
+});
+
+/* ─────────────────── TODO-100/104 Shipping webhook + toplu tracking sync ───────────────────
+ * Webhook, PLATFORM-NORMALIZE sozlesme kabul eder (ADR-048): saglayici/entegrasyon
+ * katmani bu sekle donusturur. Uc, kullanici auth GEREKTIRMEZ ama her istekte
+ * HMAC-SHA256 imza + timestamp zorunludur; token yalniz config cozumleme kimligidir.
+ * Imza semasi: hex(HMAC_SHA256(secret, `${timestamp}.${rawBody}`)),
+ * header'lar: x-shipping-signature + x-shipping-timestamp (unix saniye).
+ */
+export const shippingWebhookEventRequestSchema = z.object({
+  /** Saglayici event kimligi — idempotency anahtari (yoksa payload hash kullanilir). */
+  eventId: z.string().min(1).max(200).optional(),
+  /** Gonderi eslestirme kimlikleri — en az biri gerekli (route uygular). */
+  referenceId: z.string().min(1).max(200).optional(),
+  trackingNumber: z.string().min(1).max(200).optional(),
+  externalShipmentId: z.string().min(1).max(200).optional(),
+  /** Saglayici durum kodu (0-7 normalize eslemesi; bilinmeyen kod durumu DEGISTIRMEZ). */
+  statusCode: z.number().int().nullable().optional(),
+  statusText: z.string().max(500).nullable().optional(),
+  isDelivered: z.boolean().optional(),
+  location: z.string().max(255).nullable().optional(),
+  occurredAt: z.string().max(64).nullable().optional(),
+  trackingUrl: z.string().max(2000).nullable().optional(),
+});
+
+/** Webhook ACK — ic detay/secret tasimayan minimal yanit. */
+export const shippingWebhookAckResponseSchema = z.object({
+  ok: z.boolean(),
+  duplicate: z.boolean(),
+  handled: z.boolean(),
+});
+
+/**
+ * Webhook secret/token rotate yaniti. Secret yalniz BURADA, BIR KEZ plain doner
+ * (ADR-035 deseni); config response'unda ASLA gorunmez. Kaybedilirse yeniden rotate.
+ */
+export const shippingWebhookRotateResponseSchema = z.object({
+  webhookPath: z.string().min(1),
+  webhookSecret: z.string().min(1),
+  rotatedAt: z.string().datetime(),
+});
+
+/** Store-level toplu tracking sync (TODO-100 provider-agnostic runtime yolu). */
+export const shipmentSyncAllRequestSchema = z.object({
+  limit: z.number().int().min(1).max(50).default(20),
+});
+
+export const shipmentSyncAllResultSchema = z.object({
+  shipmentId: z.string(),
+  ok: z.boolean(),
+  status: shipmentStatusValueSchema.nullable(),
+  errorCode: z.string().nullable(),
+});
+
+export const shipmentSyncAllResponseSchema = z.object({
+  scanned: z.number().int().nonnegative(),
+  synced: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  results: z.array(shipmentSyncAllResultSchema),
 });
 
 /* ─────────────────── F3C.5 (TODO-121) Provider-agnostic shipment operasyon UI ───────────────────
@@ -3076,6 +3138,12 @@ export type ShippingSyncRequest = z.infer<typeof shippingSyncRequestSchema>;
 export type ShippingCancelRequest = z.infer<typeof shippingCancelRequestSchema>;
 export type ShippingShipmentMutationResponse = z.infer<typeof shippingShipmentMutationResponseSchema>;
 export type ShipmentStatusValue = z.infer<typeof shipmentStatusValueSchema>;
+// TODO-100/104 — shipping webhook + toplu tracking sync.
+export type ShippingWebhookEventRequest = z.infer<typeof shippingWebhookEventRequestSchema>;
+export type ShippingWebhookAckResponse = z.infer<typeof shippingWebhookAckResponseSchema>;
+export type ShippingWebhookRotateResponse = z.infer<typeof shippingWebhookRotateResponseSchema>;
+export type ShipmentSyncAllRequest = z.infer<typeof shipmentSyncAllRequestSchema>;
+export type ShipmentSyncAllResponse = z.infer<typeof shipmentSyncAllResponseSchema>;
 // F3C.5 (TODO-121) — provider-agnostic shipment operasyon UI.
 export type ShipmentProviderInfo = z.infer<typeof shipmentProviderInfoSchema>;
 export type ShipmentActionCapabilities = z.infer<typeof shipmentActionCapabilitiesSchema>;

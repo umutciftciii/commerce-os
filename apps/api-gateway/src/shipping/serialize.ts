@@ -85,6 +85,8 @@ export interface SerializedShippingProviderConfig {
   lastProviderTestType: string | null;
   lastProviderTestAt: string | null;
   lastProviderErrorCode: string | null;
+  // TODO-104 — webhook secret+token kayitli mi (yalniz boolean; secret/token DONMEZ).
+  webhookConfigured: boolean;
   createdAt: string;
   updatedAt: string;
   credentials: SerializedShippingCredential[];
@@ -354,6 +356,7 @@ export function serializeShippingProviderConfig(
     lastProviderTestType: config.lastProviderTestType ?? null,
     lastProviderTestAt: config.lastTestedAt ? config.lastTestedAt.toISOString() : null,
     lastProviderErrorCode: config.lastErrorCode,
+    webhookConfigured: Boolean(config.webhookToken && config.webhookSecretCipher),
     createdAt: config.createdAt.toISOString(),
     updatedAt: config.updatedAt.toISOString(),
     credentials: (config.credentials ?? []).map(serializeShippingCredential),

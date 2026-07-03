@@ -1132,3 +1132,50 @@ domain, canlı takip) KORUNUR — bu karar SADECE checkout SEÇİMİ ile ilgilid
 **Sonuç.** Müşteri kargo firmasını/hizmetini fiyat + (varsa) tahmini teslim + logo ile görüp seçer; seçim toplamı
 değiştirir ve siparişe sabitlenir. Tüm fiyat/seçim doğrulaması backend'dedir (istemci fiyatına güvenilmez,
 cross-store/tamper reddedilir). ADR-044/045/046 bozulmaz; değişiklik additive ve geriye dönük uyumludur.
+
+## ADR-048 Shipping webhook = platform-normalize sözleşme + HMAC imza + inbox idempotency; sync provider-agnostic uçtan (TODO-100/104)
+
+**Bağlam.** TODO-117/125 sonrası müşteri kargo takibi ve checkout kargo seçimi çalışıyor ama shipment
+durumları yalnız admin'in manuel "Durumu Güncelle" (tek gönderi sync) aksiyonuyla ilerliyordu. Sağlayıcıdan
+GERÇEK durum akışı için iki yol gerekir: (a) push = webhook, (b) pull = toplu tracking sync. F3B.2 payment
+webhook shell'i imzayı placeholder kabul ediyordu (TODO-071 ayrı iş); shipping tarafında webhook ucu HİÇ
+yoktu. Kısıt: DHL sandbox'ta query/command ürünleri abone değil (F3C.3: 401) ve DHL/Geliver'in gerçek webhook
+ham formatı/imza şeması canlı doğrulanamıyor → geniş provider-spesifik entegrasyon bu turda YAPILMAZ.
+
+**Karar.**
+- **Platform-normalize webhook sözleşmesi.** `POST /public/shipping/webhooks/:webhookToken` tek uçtur ve
+  `shippingWebhookEventRequestSchema` (eventId + referenceId/trackingNumber/externalShipmentId + statusCode/
+  statusText/isDelivered/location/occurredAt/trackingUrl) kabul eder. Sağlayıcı-özel ham format adaptörleri
+  (DHL/Geliver push formatı + kendi imza şemaları) canlı abonelik/doğrulama mümkün olunca AYRI işte bu ucun
+  önüne eklenir (TODO-130).
+- **Kimlik ≠ yetki.** URL'deki `webhookToken` yalnız provider config ÇÖZÜMLEME kimliğidir (unique, rastgele);
+  tek başına yetki VERMEZ. Yetki = her istekte `x-shipping-signature` + `x-shipping-timestamp` header'ları ile
+  `hex(HMAC_SHA256(secret, "{timestamp}.{rawBody}"))`. İmza RAW BODY byte'ları üzerinden doğrulanır (route
+  raw-string parser kullanır; JSON re-serialize İMZALANMAZ). Karşılaştırma `timingSafeEqual` (constant-time).
+  Bilinmeyen/DISABLED/secret'siz token generic 404 alır (var/yok sızdırılmaz). Kullanıcı auth GEREKMEZ.
+- **Secret yaşam döngüsü (ADR-035/042 deseni).** Secret + token admin ucu `POST /stores/:storeId/shipping/
+  providers/:id/webhook/rotate` ile üretilir; secret DB'de AES-256-GCM (`SHIPPING_ENCRYPTION_KEY`, fallback yok)
+  saklanır ve YALNIZ rotate yanıtında BİR KEZ plain döner. Config DTO'suna yalnız `webhookConfigured` boolean'ı
+  girer; `webhookToken`/`webhookSecretCipher` response'a ASLA çıkmaz. Rotate eskisini anında geçersiz kılar.
+- **Replay/idempotency = iki katman.** (1) Timestamp toleransı (300 sn) dışındaki istekler REDDEDİLİR
+  (`TIMESTAMP_OUT_OF_RANGE`). (2) Pencere içi tekrarları `ShipmentWebhookInbox` keser: imzası GEÇERLİ her
+  teslimat `(providerConfigId, eventKey)` unique kaydıyla, shipment güncelleme + `WEBHOOK_RECEIVED` event ile
+  AYNI transaction'da yazılır; unique ihlali = duplicate → yeni event YAZILMAZ, ACK `duplicate:true` döner.
+  `eventKey` = sağlayıcı `eventId` (varsa) yoksa raw body sha256'sı. Geçersiz imzalı istekler inbox'a YAZILMAZ
+  (DB flood/DoS önlemi; yalnız log).
+- **Güvenli eşleme.** Durum eşleme mevcut `mapProviderStatusToShipmentStatus` ile yapılır: bilinmeyen statusCode
+  durumu DEĞİŞTİRMEZ, terminal durumdan geri dönülmez, regres edilmez (ADR-045 korunur). Eşleşen gönderi yoksa
+  audit'li `IGNORED_UNKNOWN_SHIPMENT`, sözleşme dışı/bozuk payload `IGNORED_UNSUPPORTED` kaydı + 200 ACK (crash
+  ve sonsuz sağlayıcı retry'ı yok). Shipment araması `{storeId, providerConfigId}` scoped → cross-store mutasyon
+  İMKANSIZ. Event `rawSafeJson`'ı yalnız sanitize özet taşır; imza/secret/raw gövde saklanmaz. `location` taşıyan
+  `WEBHOOK_RECEIVED` event'i müşteri timeline'ında "işlem noktası" olarak görünür (TODO-117 filtresi değişmedi).
+- **Sync = provider-agnostic uç.** `POST /stores/:storeId/shipping/shipments/sync-all` (admin, limit≤50) terminal
+  olmayan gönderileri (DRAFT hariç) mevcut `applySync` (getShipmentStatus+trackShipment, adapter registry
+  dispatch) ile senkronlar; gönderi başına hata işi durdurmaz, kod bazlı özet döner. DHL Bulk Query
+  (getShipmentByDate/getStatusChangedShipments) sağlayıcı-özel toplu ucu, sandbox aboneliği açılınca bu ucun
+  arkasına takılır (TODO-100 kalan kısmı). Zamanlanmış otomatik sync worker job'ı ayrı iş (TODO-129).
+
+**Sonuç.** Kargo durumu artık iki güvenli yoldan güncellenebilir: imza+timestamp+idempotency korumalı webhook
+ve admin toplu sync. Webhook secret'ları server-side şifreli yaşar, hiçbir public/müşteri DTO'suna secret/raw
+payload sızmaz, cross-store yazma tasarım gereği imkânsızdır. Payment webhook imza doğrulaması (TODO-071)
+bu karardan BAĞIMSIZ açık kalır.

@@ -2084,3 +2084,52 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
 - **Doğrulama.** db:generate / build / typecheck / lint / test / git diff --check yeşil.
 - **KALAN.** Provider logo dosya UPLOAD/asset storage (TODO-127, manuel public URL devam); canlı tracking SYNC +
   webhook imza (TODO-100/104) kapsam dışı.
+
+## TODO-100/104 — Shipping webhook güvenliği + provider-agnostic toplu tracking sync (ADR-048)
+
+- **Denetim/seçim.** TODO-127 (provider logo upload) kozmetik olduğundan ertelendi; shipment durumlarının
+  gerçek güncelleme yolu (webhook + sync) seçildi. DHL sandbox query/command aboneliği olmadığından (F3C.3)
+  provider-spesifik canlı entegrasyon YAPILMADI; platform-normalize sözleşme + adapter-sync yolu uygulandı.
+- **DB (additive).** `ShippingProviderConfig.webhookToken` (unique) + `webhookSecretCipher`; yeni
+  `ShipmentWebhookInbox` (storeId, providerConfigId, provider, eventKey, payloadHash, outcome, shipmentId,
+  statusCode/Text) + `ShipmentWebhookOutcome` enum'ı. Migration `20260703120000_add_shipping_webhook_security`
+  (ADDITIVE-only, IF NOT EXISTS).
+- **Webhook ucu.** `POST /public/shipping/webhooks/:webhookToken` (`shipping/webhook-routes.ts`): kullanıcı auth
+  YOK; her istekte HMAC-SHA256 (`x-shipping-signature` + `x-shipping-timestamp`, raw-body üzerinden,
+  `timingSafeEqual`) zorunlu. Eksik/geçersiz imza → 401 + DB'ye yazım YOK; timestamp toleransı 300 sn; pencere
+  içi duplicate/replay'i inbox unique `(providerConfigId, eventKey)` keser (shipment update + WEBHOOK_RECEIVED
+  event ile atomik transaction). Bilinmeyen statusCode durumu değiştirmez (ADR-045 regresyon koruması);
+  eşleşmeyen gönderi/bozuk payload audit'li IGNORED kaydı + 200 ACK. Shipment araması {storeId,
+  providerConfigId} scoped → cross-store mutasyon imkânsız. ACK minimal (ok/duplicate/handled).
+- **Rotate ucu.** `POST /stores/:storeId/shipping/providers/:id/webhook/rotate` (admin): secret+token üretir;
+  secret AES-256-GCM saklanır, yalnız bu yanıtta BİR KEZ döner (ADR-035 deseni); config DTO'sunda yalnız
+  `webhookConfigured` boolean. Audit yalnız alan adı yazar.
+- **Toplu sync ucu (TODO-100 runtime yolu).** `POST /stores/:storeId/shipping/shipments/sync-all` (admin,
+  limit≤50): terminal olmayan gönderiler (DRAFT hariç; `SYNCABLE_SHIPMENT_STATUSES`) mevcut `applySync` ile
+  senkronlanır; DISABLED provider skipped, gönderi başına hata kod bazlı raporlanır; audit özeti yazılır.
+- **Contracts/api-client.** `shippingWebhookEventRequestSchema` (normalize sözleşme), `shippingWebhookAckResponse`,
+  `shippingWebhookRotateResponse`, `shipmentSyncAll*`; config şemasına `webhookConfigured`. api-client
+  `shippingProviders.rotateWebhook` + `shippingProviders.syncAllShipments`.
+- **Güvenlik garantileri.** Webhook secret yalnız server-side (şifreli); token yetki vermez (imza şart);
+  constant-time karşılaştırma; timestamp + inbox çift replay koruması; müşteri/public DTO'larda secret/raw
+  payload/label/barkod/ZPL/hesap no YOK (test ile kanıtlı); TODO-117 müşteri timeline'ı ve TODO-125 checkout
+  seçimi davranışı DEĞİŞMEDİ (regresyon testleri yeşil).
+- **Testler.** Yeni `shipping-webhook.test.ts` (19): geçerli imza→event/durum güncelleme, geçersiz/eksik imza
+  401 + yazım yok, tamper red, timestamp replay red, duplicate→tek event, hash-key idempotency, statusCode 4/5
+  eşleme, bilinmeyen kod güvenli, cross-store IGNORED + mutasyon yok, bozuk JSON crash yok, ACK/config DTO
+  sızıntı yok, sync durum seçimi. Toplam: gateway 301, store-admin 125, admin-web 24, storefront yeşil.
+- **Doğrulama.** db:generate / build / typecheck / lint / pnpm -r test / git diff --check yeşil.
+- **KALAN.** Store-admin webhook yönetim UI (TODO-128), zamanlanmış otomatik sync worker job (TODO-129),
+  DHL/Geliver ham webhook format + provider imza şeması adaptörleri (TODO-130, canlı abonelik sonrası),
+  DHL Bulk Query sağlayıcı-özel toplu uç (TODO-100 kalanı), payment webhook imzası (TODO-071, bağımsız).
+- **Runtime smoke (2026-07-03, worktree gateway :4100 + paylaşılan dev DB/Redis).** Docker imajları main
+  context'inden build'li olduğundan (branch kodu imajda yok — bkz. TODO-122 pattern) documented compose smoke
+  yerine EŞDEĞER runtime smoke yapıldı: migration `prisma migrate deploy` ile dev DB'ye uygulandı (additive);
+  worktree gateway ayrı portta gerçek DB/Redis'e karşı başlatıldı. Kanıtlar: imzasız → 401 SIGNATURE_MISSING;
+  yanlış imza → 401 SIGNATURE_INVALID; eski timestamp → 401 TIMESTAMP_OUT_OF_RANGE; geçerli imza → 200
+  handled:true + shipment IN_TRANSIT→OUT_FOR_DELIVERY + WEBHOOK_RECEIVED event (konum "işlem noktası");
+  aynı eventId tekrar → duplicate:true + yeni event YOK; bilinmeyen statusCode 99 → event yazıldı, durum
+  KORUNDU; eşleşmeyen takip no → IGNORED_UNKNOWN_SHIPMENT inbox kaydı + mutasyon yok; bilinmeyen token → 404;
+  rotate → tek seferlik secret + `webhookConfigured:true`, config yanıtında token/cipher SIZINTISI YOK;
+  sync-all → scanned 6, gönderi başına TEST_BASE_URL_MISSING kod raporu (env'siz DHL TEST beklenen; iş
+  durmadı). Smoke gateway kapatıldı; smoke verisi dev DB'de (TD-018 deseni).
