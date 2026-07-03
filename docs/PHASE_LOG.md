@@ -2232,3 +2232,36 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
   storefront 87, admin 24, i18n 36, contracts 23, diğerleri yeşil); git diff --check ✓. Migration YOK.
 - **Kalan.** Kullanıcı stack'inde docker api-gateway REBUILD gerekli (fix'in UI'a yansıması için).
   TODO-124 (CBS otomatik kod eşleme) ve TODO-130 (provider webhook formatı) AÇIK.
+
+## TODO-133 — Prepare başarısını shipment/order durum özetine yansıt (state reflection fix)
+
+Brief bunu "TODO-127" olarak adlandırdı; repo TODO-127 = "Provider logo upload/storage" (AÇIK, farklı iş)
+olduğundan numara çakışması önlenip TODO-133 kaydedildi. Fable'ın shipping mimarisi (TODO-104 webhook,
+F3C.6 hardening, TODO-132 recipient e-posta) DEĞİŞTİRİLMEDİ; yalnız durum yansıtma/kopya düzeltildi.
+
+- **Kök neden.** DHL/MNG prepare (createRecipient + createOrder) başarısında backend zaten doğru
+  davranıyor: `Shipment.status=ORDER_CREATED` yazılır, `ORDER_CREATED` event kaydedilir, `Order.status`
+  DEĞİŞMEZ (shipped/in-transit/delivered yapılmaz). Sorun tamamen UI yansıtma/kopya katmanındaydı:
+  store-admin durum etiketi "Gönderi kaydı oluşturuldu" idi ve "kargonun alımı bekleniyor" ipucu yoktu;
+  müşteri timeline'ı admin operasyonel `statusText`'ini ("…(DHL gönderi kaydı)") gösteriyordu. ADR-045/049:
+  createOrder başarısı = kargo firmasında KAYIT açıldı; fiziksel teslim/yolda DEĞİL.
+- **Store-admin.** `shipment-ui`: ORDER_CREATED etiketi → "Gönderi oluşturuldu"/"Shipment created";
+  açıklaması → "Kargonun alımı bekleniyor. Kargo firmasında kayıt açıldı."/"Waiting for carrier pickup…";
+  yeni `isAwaitingPickupStatus` (ORDER_CREATED/LABEL_PENDING/LABEL_CREATED). Order kargo özet kartı bu
+  hazırlık durumlarında bekleme ipucunu badge altında gösterir; IN_TRANSIT/DELIVERED'de göstermez.
+- **Müşteri (storefront).** i18n TR/EN `statusValues`/`eventValues` ORDER_CREATED → "Gönderi oluşturuldu"/
+  "Shipment created" + yeni `preparedNote` "Kargonun alımı bekleniyor."/"Waiting for carrier pickup.".
+  `lib/shipment` `isAwaitingPickupShipmentStatus`; takip kartı hazırlık aşamasında (iptal/sorun değilse)
+  bu notu gösterir. Müşteri-güvenli: gateway customer DTO `customerSafeShipmentEventStatusText` ile
+  ORDER_CREATED event `statusText`'ini null'lar → admin metni sızmaz, i18n kullanılır. İç id/secret/ham
+  payload YOK (mevcut allowlist korunur); yanıltıcı shipped/delivered kopyası yok.
+- **Testler.** store-admin `shipment-ui.test` (etiket/helper/awaiting-pickup/step) + `order-shipment-summary`
+  (ORDER_CREATED "Gönderi oluşturuldu" + "Kargonun alımı bekleniyor.", IN_TRANSIT'te ipucu yok); storefront
+  `shipment.test` (awaiting-pickup helper + i18n kopya, yanıltıcı ifade yok); gateway `customer-account`
+  (`customerSafeShipmentEventStatusText` ORDER_CREATED null, gerçek takip metni korunur). "prepare ≠
+  shipped/in-transit/delivered" mevcut `shipmentKpiBucket`/`manualTrackingNextStatus`/`mapProviderStatus…`
+  guard'larıyla korunur; duplicate prepare 409 + event tekrarsızlığı bu turda DEĞİŞTİRİLMEDİ.
+- **Gate.** db:generate ✓; build ✓; typecheck ✓; lint ✓; pnpm test (turbo) ✓ (store-admin 132,
+  api-gateway 351, diğer paketler yeşil); git diff --check ✓. Migration/şema değişikliği YOK (yeni enum yok).
+- **Kalan.** Kullanıcı stack'inde docker api-gateway + web REBUILD gerekli (fix'in çalışan UI'a yansıması
+  için). Runtime doğrulama merge/rebuild sonrası yapılmalı (aşağıdaki runtime adımları).

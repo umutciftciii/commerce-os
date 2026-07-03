@@ -12,8 +12,10 @@ import { messageForError } from "../../../../lib/client/messages";
 import {
   PROVIDER_TYPE_LABEL,
   SHIPMENT_EVENT_LABEL,
+  SHIPMENT_STATUS_DESC,
   SHIPMENT_STATUS_LABEL,
   SHIPMENT_STATUS_TONE,
+  isAwaitingPickupStatus,
   type Locale,
 } from "../../../../lib/client/shipment-ui";
 
@@ -237,6 +239,7 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
   }
 
   const statusLabel = SHIPMENT_STATUS_LABEL[locale];
+  const statusDesc = SHIPMENT_STATUS_DESC[locale];
   const eventLabel = SHIPMENT_EVENT_LABEL[locale];
 
   // Aktif gönderi varsa: ÖZET + "Kargo Detayına Git" (operasyon detay sayfasında).
@@ -255,6 +258,11 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
           <span className="text-white/35">{t.status}</span>
           <span>
             <Badge tone={SHIPMENT_STATUS_TONE[activeShipment.status]}>{statusLabel[activeShipment.status]}</Badge>
+            {/* TODO-127 — createOrder başarısı = "Gönderi oluşturuldu"; fiziksel kargoya
+                verildi DEĞİL → hazırlık aşamasında "Kargonun alımı bekleniyor." ipucu. */}
+            {isAwaitingPickupStatus(activeShipment.status) ? (
+              <span className="mt-1 block text-[11px] text-white/40">{statusDesc[activeShipment.status]}</span>
+            ) : null}
           </span>
           <span className="text-white/35">{t.tracking}</span>
           {activeShipment.trackingNumber ? (

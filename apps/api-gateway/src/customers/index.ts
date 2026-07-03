@@ -915,7 +915,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               ),
             ).map((event) => ({
               eventType: event.eventType,
-              statusText: event.statusText,
+              statusText: customerSafeShipmentEventStatusText(event.eventType, event.statusText),
               location: event.location,
               occurredAt: event.occurredAt,
             })),
@@ -1351,6 +1351,20 @@ const CUSTOMER_VISIBLE_SHIPMENT_EVENTS = new Set([
 
 export function isCustomerVisibleShipmentEvent(eventType: string, location: string | null): boolean {
   return CUSTOMER_VISIBLE_SHIPMENT_EVENTS.has(eventType) || location !== null;
+}
+
+/**
+ * TODO-127 — Müşteri timeline'ında ORDER_CREATED ("Gönderi oluşturuldu") satırı, admin
+ * için yazılan operasyonel statusText'i (ör. "... (DHL gönderi kaydı)") SIZDIRMAMALI.
+ * Bu event için statusText null döndürülür → storefront i18n `eventValues.ORDER_CREATED`
+ * ("Gönderi oluşturuldu") kullanılır. Sağlayıcı durumu taşıyan STATUS_CHANGED/
+ * TRACKING_UPDATED gibi event'lerin statusText'i KORUNUR (gerçek takip bilgisi).
+ */
+export function customerSafeShipmentEventStatusText(
+  eventType: string,
+  statusText: string | null,
+): string | null {
+  return eventType === "ORDER_CREATED" ? null : statusText;
 }
 
 /**

@@ -626,10 +626,11 @@ export const trStorefront = {
           cancelledNote: "Bu gönderi kaydı iptal edildi.",
           problemNote:
             "Gönderide takip gerektiren bir durum var; gerekirse kargo firmasıyla iletişime geçebilirsiniz.",
+          preparedNote: "Kargonun alımı bekleniyor.",
           steps: ["Hazırlanıyor", "Yolda", "Dağıtımda", "Teslim edildi"],
           statusValues: {
             DRAFT: "Hazırlanıyor",
-            ORDER_CREATED: "Gönderi kaydı oluşturuldu",
+            ORDER_CREATED: "Gönderi oluşturuldu",
             LABEL_PENDING: "Kargo etiketi bekleniyor",
             LABEL_CREATED: "Kargoya hazırlanıyor",
             IN_TRANSIT: "Yolda",
@@ -642,7 +643,7 @@ export const trStorefront = {
           },
           eventValues: {
             CREATED: "Gönderi hazırlığı başladı",
-            ORDER_CREATED: "Gönderi kaydı oluşturuldu",
+            ORDER_CREATED: "Gönderi oluşturuldu",
             BARCODE_CREATED: "Kargo etiketi hazırlandı",
             BARCODE_PENDING: "Kargo etiketi bekleniyor",
             BARCODE_FAILED: "Kargo etiketinde sorun",

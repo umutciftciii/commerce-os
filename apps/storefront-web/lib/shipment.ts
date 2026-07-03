@@ -71,6 +71,15 @@ export function isCancelledShipmentStatus(status: ShipmentStatus): boolean {
   return status === "CANCELLED";
 }
 
+/**
+ * TODO-127 — Hazırlık aşaması: gönderi oluşturuldu, henüz kargo firmasınca alınmadı
+ * (ORDER_CREATED "kargoya verildi"/yolda DEĞİL, ADR-045). Bu aşamada müşteriye
+ * "Kargonun alımı bekleniyor." bilgisi gösterilir; yolda/teslim durumlarında gösterilmez.
+ */
+export function isAwaitingPickupShipmentStatus(status: ShipmentStatus): boolean {
+  return status === "ORDER_CREATED" || status === "LABEL_PENDING" || status === "LABEL_CREATED";
+}
+
 /** Sağlayıcı adı baş harf(ler)i — logo yok/bozuksa fallback rozet metni. */
 export function providerInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

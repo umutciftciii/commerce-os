@@ -4,6 +4,7 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import {
   SHIPMENT_STATUS_TONE,
   SHIPMENT_STEP_COUNT,
+  isAwaitingPickupShipmentStatus,
   isCancelledShipmentStatus,
   isProblemShipmentStatus,
   providerInitials,
@@ -31,6 +32,8 @@ export function ShipmentTracking({
   const stepIndex = shipmentStepIndex(shipment.status);
   const cancelled = isCancelledShipmentStatus(shipment.status);
   const problem = isProblemShipmentStatus(shipment.status);
+  // TODO-127 — gönderi oluşturuldu ama henüz kargo firmasınca alınmadı → bekleme bilgisi.
+  const awaitingPickup = isAwaitingPickupShipmentStatus(shipment.status);
 
   return (
     <section className="rounded-xl border border-slate-200 p-4">
@@ -112,6 +115,9 @@ export function ShipmentTracking({
 
       {cancelled ? <p className="mt-3 text-xs text-slate-500">{t.cancelledNote}</p> : null}
       {problem ? <p className="mt-3 text-xs text-amber-700">{t.problemNote}</p> : null}
+      {awaitingPickup && !cancelled && !problem ? (
+        <p className="mt-3 text-xs text-slate-500">{t.preparedNote}</p>
+      ) : null}
 
       {/* İşlem noktası timeline */}
       <div className="mt-4 border-t border-slate-100 pt-3">
