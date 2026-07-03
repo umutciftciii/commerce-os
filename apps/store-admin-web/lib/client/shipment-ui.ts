@@ -15,11 +15,11 @@ type StatusTone = "neutral" | "info" | "warning" | "success" | "danger" | "brand
 export const SHIPMENT_STATUS_LABEL: Record<Locale, Record<ShipmentStatusValue, string>> = {
   tr: {
     DRAFT: "Taslak",
-    ORDER_CREATED: "Gönderi oluşturuldu",
+    ORDER_CREATED: "Kargonun Alınması Bekleniyor",
     LABEL_PENDING: "Barkod bekleniyor",
-    LABEL_CREATED: "Barkod/etiket hazır",
-    IN_TRANSIT: "Taşıma sürecinde",
-    OUT_FOR_DELIVERY: "Teslimat aşamasında",
+    LABEL_CREATED: "Kargo İçin Paketlendi",
+    IN_TRANSIT: "Yolda",
+    OUT_FOR_DELIVERY: "Dağıtımda",
     DELIVERED: "Teslim edildi",
     DELIVERY_FAILED: "Teslim edilemedi",
     RETURNED: "İade sürecinde",
@@ -28,9 +28,9 @@ export const SHIPMENT_STATUS_LABEL: Record<Locale, Record<ShipmentStatusValue, s
   },
   en: {
     DRAFT: "Draft",
-    ORDER_CREATED: "Shipment created",
+    ORDER_CREATED: "Awaiting carrier pickup",
     LABEL_PENDING: "Awaiting label",
-    LABEL_CREATED: "Label ready",
+    LABEL_CREATED: "Packed for carrier",
     IN_TRANSIT: "In transit",
     OUT_FOR_DELIVERY: "Out for delivery",
     DELIVERED: "Delivered",

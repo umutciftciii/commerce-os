@@ -1213,3 +1213,40 @@ Ayrıca sandbox, dokümanla iki noktada çelişti (calculate kod alanları strin
 **Sonuç.** Sağlayıcı hataları artık kontrollü, redaksiyonlu ve makine-okunur kodlarla yüzeye çıkar (junk event /
 0 TL quote / null-id sahte başarı imkânsız); tekrarlı sync müşteri-görünür duplikasyon üretmez; tarih alanları
 dokümandaki tüm formatlarla doğru çözülür. ADR-044/045/048 korunur; değişiklikler additive'dir.
+
+## ADR-050 Gönderi oluşturma ödeme ön koşulu = PAID/AUTHORIZED; backend guard nihai otorite (TODO-136)
+
+**Bağlam.** Ödemesi alınmamış bir siparişe kargo gönderisi oluşturmak (createRecipient/createOrder veya manuel
+taslak) iş açısından yanlıştır: ödemesiz sipariş fiziksel olarak kargoya verilmemelidir. Ödeme modeli
+`paymentStatus ∈ {UNPAID, AUTHORIZED, PAID, REFUNDED}`; mock ödeme akışı PAID ve AUTHORIZED'ı "başarılı ödeme"
+sayar (`paidAt` işaretlenir, `succeeded = PAID||AUTHORIZED`, gelir olarak işlenir).
+
+**Karar.** "Gönderiye uygun ödeme" = mevcut domainin `succeeded` semantiği: **PAID veya AUTHORIZED uygun; UNPAID
+ve REFUNDED engelli.** Tek SAF otorite `isOrderPaidForShipment(paymentStatus)` (`@commerce-os/contracts`,
+api-client re-export) hem gateway guard'ı hem store-admin UI tarafından kullanılır (yeni bir ödeme lifecycle'ı
+EKLENMEZ; mevcut alan semantiği yansıtılır). Backend NİHAİ otoritedir: gönderi yaratan üç uç (`create-order`,
+`dhl/prepare`, `shipment-draft`) sağlayıcıya İSTEK ATILMADAN ve Shipment/ShipmentEvent kaydı OLUŞTURULMADAN, uygun
+değilse HTTP **409 `ORDER_PAYMENT_REQUIRED`** döner (DUPLICATE_SHIPMENT ile aynı "sipariş durumu çatışması"
+konvansiyonu). Store-admin kargo kartı ödemesiz siparişte "Gönderi Oluştur"u yalnızca UI'da pasifleştirir + net
+Türkçe yardımcı metin gösterir; UI pasifliği tek başına GÜVENİLMEZ.
+
+**Kapsam dışı.** Ödeme provider entegrasyonu, checkout fiyatlama, DHL/MNG istek şekli, webhook mimarisi
+değişmez; sipariş/ödeme durumu MUTATE EDİLMEZ. Kısmi ödeme için ayrı bir "tam ödendi" bayrağı yoktur → mevcut
+`paymentStatus` otoritedir. ADR-045/046/047 korunur.
+
+---
+
+## ADR-050 ek — Karşılama gösterim durumları hazırlık aşamasında ayrıştırıldı (TODO-136)
+
+**Bağlam.** TODO-135'in tek `SHIPMENT_CREATED` gösterim durumu (ORDER_CREATED + LABEL_* birlikte) operasyonel
+olarak yetersizdi ve kargo kaydı olmayan sipariş "Gönderilmedi"/"Henüz kargoya verilmedi" gibi yanıltıcı metin
+gösteriyordu.
+
+**Karar.** `OrderFulfillmentDisplay` genişletildi: ORDER_CREATED/LABEL_PENDING → `AWAITING_PICKUP` ("Kargonun
+Alınması Bekleniyor"), LABEL_CREATED → `PACKED` ("Kargo İçin Paketlendi"), OUT_FOR_DELIVERY → `OUT_FOR_DELIVERY`
+("Dağıtımda", artık IN_TRANSIT'e çökmez), kargo yok/DRAFT → `NOT_SHIPPED` ("Hazırlanıyor"). Bu yalnız GÖSTERİM
+eşlemesidir; `Order.fulfillmentStatus`/`Shipment.status` MUTATE EDİLMEZ ve ADR-045 korunur (ORDER_CREATED asla
+shipped/transit/delivered sayılmaz). Brief'in dördüncü etiketi "Henüz Teslim Alınmadı" bilinçli olarak OTOMATİK
+türetilmedi: mevcut sağlayıcı mimarisinde "paketlendi ama kurye almadı"yı ORDER_CREATED/LABEL_CREATED'ten ayıran
+ayrı bir provider event'i yoktur ve etiket müşteri teslim durumuyla karışabilir (brief'in kendi uyarısı).
+`AWAITING_PICKUP`/`PACKED` "henüz teslim alınmadı"yı zaten dürüstçe karşılar.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   customerOrderSummarySchema,
   getOrderFulfillmentDisplay,
+  isOrderPaidForShipment,
   orderSchema,
   pickOrderShipmentStatus,
 } from "../src/index";
@@ -13,12 +14,20 @@ import {
  * sayılmaz. Order.fulfillmentStatus MUTATE EDİLMEZ; bu yalnız gösterim eşlemesidir.
  */
 describe("getOrderFulfillmentDisplay", () => {
-  it("maps a prepared shipment (ORDER_CREATED) to SHIPMENT_CREATED, not NOT_SHIPPED", () => {
-    expect(getOrderFulfillmentDisplay("UNFULFILLED", "ORDER_CREATED")).toBe("SHIPMENT_CREATED");
-    // Hazırlık aşamasındaki diğer durumlar da "gönderi oluşturuldu" grubunda.
-    expect(getOrderFulfillmentDisplay("UNFULFILLED", "DRAFT")).toBe("SHIPMENT_CREATED");
-    expect(getOrderFulfillmentDisplay("UNFULFILLED", "LABEL_PENDING")).toBe("SHIPMENT_CREATED");
-    expect(getOrderFulfillmentDisplay("UNFULFILLED", "LABEL_CREATED")).toBe("SHIPMENT_CREATED");
+  // TODO-136 — Hazırlık aşaması iki gösterim durumuna ayrıldı: ORDER_CREATED/LABEL_PENDING
+  // → AWAITING_PICKUP ("Kargonun Alınması Bekleniyor"), LABEL_CREATED → PACKED ("Kargo İçin
+  // Paketlendi"). Kargo kaydı yoksa NOT_SHIPPED ("Hazırlanıyor").
+  it("maps ORDER_CREATED/LABEL_PENDING to AWAITING_PICKUP (not NOT_SHIPPED, not shipped)", () => {
+    expect(getOrderFulfillmentDisplay("UNFULFILLED", "ORDER_CREATED")).toBe("AWAITING_PICKUP");
+    expect(getOrderFulfillmentDisplay("UNFULFILLED", "LABEL_PENDING")).toBe("AWAITING_PICKUP");
+  });
+
+  it("maps a barcode/label-ready shipment (LABEL_CREATED) to PACKED", () => {
+    expect(getOrderFulfillmentDisplay("UNFULFILLED", "LABEL_CREATED")).toBe("PACKED");
+  });
+
+  it("treats a DRAFT shipment (no provider record yet) as NOT_SHIPPED / order-level", () => {
+    expect(getOrderFulfillmentDisplay("UNFULFILLED", "DRAFT")).toBe("NOT_SHIPPED");
   });
 
   it("falls back to NOT_SHIPPED when there is no shipment", () => {
@@ -26,15 +35,16 @@ describe("getOrderFulfillmentDisplay", () => {
     expect(getOrderFulfillmentDisplay("UNFULFILLED", undefined)).toBe("NOT_SHIPPED");
   });
 
-  it("keeps IN_TRANSIT/DELIVERED behavior derived from provider-proven states", () => {
+  it("keeps IN_TRANSIT/OUT_FOR_DELIVERY/DELIVERED derived from provider-proven states", () => {
     expect(getOrderFulfillmentDisplay("UNFULFILLED", "IN_TRANSIT")).toBe("IN_TRANSIT");
-    expect(getOrderFulfillmentDisplay("UNFULFILLED", "OUT_FOR_DELIVERY")).toBe("IN_TRANSIT");
+    expect(getOrderFulfillmentDisplay("UNFULFILLED", "OUT_FOR_DELIVERY")).toBe("OUT_FOR_DELIVERY");
     expect(getOrderFulfillmentDisplay("UNFULFILLED", "DELIVERED")).toBe("DELIVERED");
   });
 
   it("does NOT promote ORDER_CREATED to a shipped/transit/delivered state (ADR-045)", () => {
     const display = getOrderFulfillmentDisplay("UNFULFILLED", "ORDER_CREATED");
     expect(display).not.toBe("IN_TRANSIT");
+    expect(display).not.toBe("OUT_FOR_DELIVERY");
     expect(display).not.toBe("DELIVERED");
   });
 
@@ -49,6 +59,18 @@ describe("getOrderFulfillmentDisplay", () => {
     expect(getOrderFulfillmentDisplay("UNFULFILLED", "RETURNED")).toBe("NOT_SHIPPED");
     expect(getOrderFulfillmentDisplay("FULFILLED", "FAILED")).toBe("FULFILLED");
     expect(getOrderFulfillmentDisplay("PARTIAL", null)).toBe("PARTIAL");
+  });
+});
+
+describe("isOrderPaidForShipment (TODO-136)", () => {
+  it("treats PAID and AUTHORIZED as eligible (existing domain 'succeeded' semantics)", () => {
+    expect(isOrderPaidForShipment("PAID")).toBe(true);
+    expect(isOrderPaidForShipment("AUTHORIZED")).toBe(true);
+  });
+
+  it("blocks UNPAID and REFUNDED orders from shipment creation", () => {
+    expect(isOrderPaidForShipment("UNPAID")).toBe(false);
+    expect(isOrderPaidForShipment("REFUNDED")).toBe(false);
   });
 });
 

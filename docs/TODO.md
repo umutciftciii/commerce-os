@@ -643,3 +643,24 @@
   yok→"Gönderilmedi", IN_TRANSIT→"Yolda"), storefront `order-badges` (ORDER_CREATED, no-shipment, IN_TRANSIT/
   DELIVERED). KALAN: kullanıcı stack'inde docker api-gateway + store-admin-web + storefront-web REBUILD gerekir;
   runtime doğrulama (OS-000054/OS-000055) merge/rebuild sonrası.
+- TODO-136 — Karşılama durum kopyasını netleştir + ödemesiz siparişe gönderi guard'ı (DONE — 2026-07-03). İki
+  parça. (A) Kopya: TODO-135'in tek `SHIPMENT_CREATED` gösterim durumu operasyonel olarak yetersizdi; hazırlık
+  aşaması iki nete ayrıldı — ORDER_CREATED/LABEL_PENDING → `AWAITING_PICKUP` ("Kargonun Alınması Bekleniyor"),
+  LABEL_CREATED → `PACKED` ("Kargo İçin Paketlendi"); OUT_FOR_DELIVERY artık IN_TRANSIT'e çökmez (`OUT_FOR_DELIVERY`
+  → "Dağıtımda"); kargo kaydı yok → NOT_SHIPPED etiketi "Hazırlanıyor" oldu ("Gönderilmedi"/"Henüz kargoya
+  verilmedi" kaldırıldı). Aynı sözlük tüm yüzeylerde: store-admin liste "Karşılama Durumu", detay hero, kargo
+  özet kartı + shipment detay/liste rozeti (`SHIPMENT_STATUS_LABEL`), storefront hesap listesi + takip
+  `statusValues`, "Hazırlanıyor" sekmesi; i18n TR/EN. `getOrderFulfillmentDisplay` yeniden eşlendi (ADR-045
+  korunur: ORDER_CREATED asla shipped/transit/delivered). "Henüz Teslim Alınmadı" etiketi bilinçli olarak OTOMATİK
+  türetilmedi (mevcut mimaride ORDER_CREATED/LABEL_CREATED'ten ayıran ayrı provider sinyali yok; müşteri teslim
+  durumuyla karışma riski — brief uyarısı). (B) Guard: ödemesi alınmamış sipariş kargoya VERİLEMEZ. Yeni SAF
+  helper `isOrderPaidForShipment(paymentStatus)` (PAID/AUTHORIZED uygun; UNPAID/REFUNDED engelli — mevcut domain
+  `succeeded` semantiği, ADR-050). Backend NİHAİ otorite: `create-order` + `dhl/prepare` + `shipment-draft`
+  uçları sağlayıcı çağrısından/Shipment/ShipmentEvent yaratımından ÖNCE 409 `ORDER_PAYMENT_REQUIRED` döner.
+  Store-admin kargo kartı ödemesiz siparişte "Gönderi Oluştur"u pasifleştirir + "Ödeme alınmadan gönderi
+  oluşturulamaz." yardımcı metni. Ödeme provider/checkout/DHL/MNG/webhook mimarisi DEĞİŞMEZ. Testler: contracts
+  helper (`isOrderPaidForShipment` + gösterim eşlemesi), api-gateway `shipping-payment-guard` (unpaid create-order/
+  prepare/draft → 409, Shipment/ShipmentEvent YOK; paid guard'ı geçer), store-admin `order-shipment-summary`
+  (unpaid buton pasif + yardımcı metin; paid aktif) + liste/hero rozet, storefront `order-badges`/`shipment`
+  kopya. Tüm mevcut TODO-117/125/132/133/135 testleri yeşil. KALAN: kullanıcı stack'inde docker api-gateway +
+  store-admin-web + storefront-web REBUILD; runtime doğrulama merge/rebuild sonrası.

@@ -78,11 +78,15 @@ describe("storefront · shipment tracking helpers", () => {
     expect(isAwaitingPickupShipmentStatus("CANCELLED")).toBe(false);
   });
 
+  // TODO-136 — Müşteri-güvenli hazırlık kopyası: ORDER_CREATED → "Kargonun Alınması
+  // Bekleniyor", LABEL_CREATED → "Kargo İçin Paketlendi"; yanıltıcı teslim ifadesi yok.
   it("uses customer-safe prepared copy (no shipped/delivered wording) in both locales", () => {
     const tr = getDictionary("tr").storefront.account.orders.detail.tracking;
     const en = getDictionary("en").storefront.account.orders.detail.tracking;
-    expect(tr.statusValues.ORDER_CREATED).toBe("Gönderi oluşturuldu");
-    expect(en.statusValues.ORDER_CREATED).toBe("Shipment created");
+    expect(tr.statusValues.ORDER_CREATED).toBe("Kargonun Alınması Bekleniyor");
+    expect(en.statusValues.ORDER_CREATED).toBe("Awaiting carrier pickup");
+    expect(tr.statusValues.LABEL_CREATED).toBe("Kargo İçin Paketlendi");
+    expect(en.statusValues.LABEL_CREATED).toBe("Packed for carrier");
     expect(tr.preparedNote).toBe("Kargonun alımı bekleniyor.");
     expect(en.preparedNote).toBe("Waiting for carrier pickup.");
     // ORDER_CREATED müşteriye "kargoya verildi/teslim" gibi yanıltıcı ifade göstermez.

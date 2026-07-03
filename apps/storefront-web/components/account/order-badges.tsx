@@ -36,9 +36,11 @@ const PAYMENT_TONE: Record<CustomerOrderSummary["paymentStatus"], Tone> = {
 
 // TODO-135 — GÖSTERİM durumundan (kargo hazırlık dahil) rozet tonu.
 const FULFILLMENT_DISPLAY_TONE: Record<OrderFulfillmentDisplay, Tone> = {
-  NOT_SHIPPED: "warning",
-  SHIPMENT_CREATED: "info",
+  NOT_SHIPPED: "info",
+  AWAITING_PICKUP: "info",
+  PACKED: "info",
   IN_TRANSIT: "info",
+  OUT_FOR_DELIVERY: "info",
   DELIVERED: "success",
   FULFILLED: "success",
   PARTIAL: "info",

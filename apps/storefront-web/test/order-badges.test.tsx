@@ -5,9 +5,10 @@ import type { OrderSummaryShipmentStatus } from "@commerce-os/api-client";
 import { OrderStatusBadges } from "../components/account/order-badges";
 
 /**
- * TODO-135 — Hesabım > Siparişlerim listesi karşılama rozeti. Kargo kaydı VARSA
- * (ORDER_CREATED) rozet "Gönderi oluşturuldu" gösterir; "Henüz kargoya verilmedi"
- * GÖSTERMEZ. ADR-045: hazırlık aşaması fiziksel teslim/"kargoya verildi" değildir.
+ * TODO-135/TODO-136 — Hesabım > Siparişlerim listesi karşılama rozeti. Kargo kaydı VARSA
+ * (ORDER_CREATED) rozet "Kargonun Alınması Bekleniyor" gösterir; LABEL_CREATED → "Kargo İçin
+ * Paketlendi". Kargo kaydı yoksa "Hazırlanıyor". ADR-045: hazırlık aşaması fiziksel
+ * teslim/"kargoya verildi" değildir; eski yanıltıcı metinler gösterilmez.
  */
 const o = getDictionary("tr").storefront.account.orders;
 
@@ -23,17 +24,23 @@ function markup(shipmentStatus: OrderSummaryShipmentStatus | null) {
   );
 }
 
-describe("storefront · account orders — fulfillment badge (TODO-135)", () => {
-  it("renders a prepared shipment (ORDER_CREATED) as 'Gönderi oluşturuldu', not 'Henüz kargoya verilmedi'", () => {
+describe("storefront · account orders — fulfillment badge (TODO-136)", () => {
+  it("renders a prepared shipment (ORDER_CREATED) as 'Kargonun Alınması Bekleniyor', not old copy", () => {
     const html = markup("ORDER_CREATED");
-    expect(html).toContain("Gönderi oluşturuldu");
+    expect(html).toContain("Kargonun Alınması Bekleniyor");
     expect(html).not.toContain("Henüz kargoya verilmedi");
+    expect(html).not.toContain("Gönderi oluşturuldu");
   });
 
-  it("renders 'Henüz kargoya verilmedi' when there is no shipment", () => {
+  it("renders a label-ready shipment (LABEL_CREATED) as 'Kargo İçin Paketlendi'", () => {
+    const html = markup("LABEL_CREATED");
+    expect(html).toContain("Kargo İçin Paketlendi");
+  });
+
+  it("renders 'Hazırlanıyor' when there is no shipment", () => {
     const html = markup(null);
-    expect(html).toContain("Henüz kargoya verilmedi");
-    expect(html).not.toContain("Gönderi oluşturuldu");
+    expect(html).toContain("Hazırlanıyor");
+    expect(html).not.toContain("Kargonun Alınması Bekleniyor");
   });
 
   it("keeps IN_TRANSIT/DELIVERED provider-proven states unchanged", () => {

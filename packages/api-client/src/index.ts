@@ -229,6 +229,8 @@ export {
   // (saf) gösterim yardımcıları. store-admin + storefront AYNI otoriteyi kullanır.
   getOrderFulfillmentDisplay,
   pickOrderShipmentStatus,
+  // TODO-136 — Gönderi oluşturma ödeme ön koşulu (gateway guard + store-admin UI aynı otorite).
+  isOrderPaidForShipment,
 } from "@commerce-os/contracts";
 
 /**

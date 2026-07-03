@@ -28,6 +28,8 @@ import type {
 } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import {
+  isOrderPaidForShipment,
+  type PaymentStatus,
   orderShippingResponseSchema,
   shipmentCancelRequestSchema,
   shipmentCreateLabelRequestSchema,
@@ -506,6 +508,31 @@ export function registerShippingAdminRoutes(
   }
 
   /**
+   * TODO-136 — Gönderi oluşturma ödeme ön koşulu. Ödemesi ALINMAMIŞ sipariş kargoya
+   * VERİLEMEZ: sağlayıcıya İSTEK ATILMADAN, Shipment/ShipmentEvent kaydı OLUŞTURULMADAN
+   * 409 ORDER_PAYMENT_REQUIRED döner (DUPLICATE_SHIPMENT ile aynı "sipariş durumu çatışması"
+   * konvansiyonu). Uygunluk `isOrderPaidForShipment` (PAID/AUTHORIZED) ile belirlenir; UI
+   * "Gönderi Oluştur"u ayrıca gizler/pasifleştirir ama backend guard NİHAİ otoritedir.
+   * Döner: uygunsa `true`; değilse yanıtı gönderip `false`.
+   */
+  function ensureOrderPaidForShipment(
+    order: { paymentStatus: PaymentStatus },
+    reply: FastifyReply,
+  ): boolean {
+    if (isOrderPaidForShipment(order.paymentStatus)) return true;
+    reply
+      .code(409)
+      .send(
+        errorBody(
+          "ORDER_PAYMENT_REQUIRED",
+          "Ödeme alınmadan gönderi oluşturulamaz. Gönderi oluşturmak için siparişin ödemesi tamamlanmalıdır.",
+          { paymentStatus: order.paymentStatus },
+        ),
+      );
+    return false;
+  }
+
+  /**
    * TODO-132 — Sağlayıcıya giden alıcı e-postası SUNUCU-otoriterdir: sipariş
    * seviyesindeki e-posta (Order.customerEmail) → bağlı Customer.email fallback'i.
    * Geçerli e-posta yoksa sağlayıcı ÇAĞRILMADAN RECIPIENT_EMAIL_REQUIRED/INVALID
@@ -582,6 +609,8 @@ export function registerShippingAdminRoutes(
     const input = shippingCreateOrderRequestSchema.parse(request.body);
     const order = await requireOrder(params.storeId, params.orderId);
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz (sağlayıcı çağrısı/Shipment YOK).
+    if (!ensureOrderPaidForShipment(order, reply)) return;
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     try {
@@ -993,6 +1022,9 @@ export function registerShippingAdminRoutes(
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz: createRecipient/createOrder ÇAĞRILMAZ,
+    // Shipment/ShipmentEvent OLUŞTURULMAZ (backend NİHAİ otorite).
+    if (!ensureOrderPaidForShipment(order, reply)) return;
 
     // Duplicate guard: aktif gonderi varsa TEKRAR createOrder cagirma.
     const existing = await findActiveShipment(params.storeId, order.id);
@@ -1102,6 +1134,8 @@ export function registerShippingAdminRoutes(
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    // TODO-136 — Manuel taslak da olsa ödeme alınmadan gönderi kaydı OLUŞTURULMAZ.
+    if (!ensureOrderPaidForShipment(order, reply)) return;
 
     const existing = await findActiveShipment(params.storeId, order.id);
     if (existing) {

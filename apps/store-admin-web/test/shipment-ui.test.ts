@@ -13,9 +13,16 @@ import {
  * göstermemeli (ADR-045/049).
  */
 describe("store-admin · shipment status dictionary (TODO-127)", () => {
-  it("labels ORDER_CREATED as 'Gönderi oluşturuldu' / 'Shipment created'", () => {
-    expect(SHIPMENT_STATUS_LABEL.tr.ORDER_CREATED).toBe("Gönderi oluşturuldu");
-    expect(SHIPMENT_STATUS_LABEL.en.ORDER_CREATED).toBe("Shipment created");
+  // TODO-136 — ORDER_CREATED = kargo kaydı açıldı, kurye henüz almadı.
+  it("labels ORDER_CREATED as 'Kargonun Alınması Bekleniyor' / 'Awaiting carrier pickup'", () => {
+    expect(SHIPMENT_STATUS_LABEL.tr.ORDER_CREATED).toBe("Kargonun Alınması Bekleniyor");
+    expect(SHIPMENT_STATUS_LABEL.en.ORDER_CREATED).toBe("Awaiting carrier pickup");
+  });
+
+  // TODO-136 — LABEL_CREATED = barkod/etiket hazır, paket teslim için hazır.
+  it("labels LABEL_CREATED as 'Kargo İçin Paketlendi' / 'Packed for carrier'", () => {
+    expect(SHIPMENT_STATUS_LABEL.tr.LABEL_CREATED).toBe("Kargo İçin Paketlendi");
+    expect(SHIPMENT_STATUS_LABEL.en.LABEL_CREATED).toBe("Packed for carrier");
   });
 
   it("uses the awaiting-pickup helper copy for ORDER_CREATED", () => {

@@ -33,6 +33,8 @@ const ORDER = {
   id: "o1",
   orderNumber: "OS-000001",
   currency: "TRY",
+  // TODO-136 — Gönderi oluşturma ödenmiş sipariş gerektirir; varsayılan fixture PAID.
+  paymentStatus: "PAID",
   addresses: [
     {
       id: "a1",
@@ -197,12 +199,12 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
 
     const link = (await screen.findByRole("link", { name: /Kargo Detayına Git/ })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/shipping/shipments/shp_1");
-    // TODO-127 — createOrder başarısı: "Gönderi oluşturuldu" + "Kargonun alımı bekleniyor."
-    expect(screen.getByText("Gönderi oluşturuldu")).toBeTruthy();
+    // TODO-136 — createOrder başarısı: "Kargonun Alınması Bekleniyor" + yardımcı metin.
+    expect(screen.getByText("Kargonun Alınması Bekleniyor")).toBeTruthy();
     expect(screen.getByText(/Kargonun alımı bekleniyor\./)).toBeTruthy();
     // Yanıltıcı "kargoya verildi/yolda/teslim" gösterilmez (fiziksel teslim değil).
     expect(screen.queryByText(/Kargoya verildi/)).toBeNull();
-    expect(screen.queryByText("Taşıma sürecinde")).toBeNull();
+    expect(screen.queryByText("Yolda")).toBeNull();
     expect(screen.queryByText("Teslim edildi")).toBeNull();
     expect(screen.getByText("Henüz oluşmadı")).toBeTruthy();
   });
@@ -214,7 +216,7 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
-    expect(await screen.findByText("Taşıma sürecinde")).toBeTruthy();
+    expect(await screen.findByText("Yolda")).toBeTruthy();
     expect(screen.queryByText(/Kargonun alımı bekleniyor\./)).toBeNull();
   });
 
@@ -225,7 +227,36 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
-    expect(await screen.findByText("Taşıma sürecinde")).toBeTruthy();
+    expect(await screen.findByText("Yolda")).toBeTruthy();
     expect(screen.getByText("TRK-123456")).toBeTruthy();
+  });
+
+  // TODO-136 — Ödemesi alınmamış siparişte "Gönderi Oluştur" pasif + yardımcı metin görünür.
+  it("blocks 'Gönderi Oluştur' and shows a payment-required helper for an unpaid order", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    const unpaidOrder = { ...(ORDER as Record<string, unknown>), paymentStatus: "UNPAID" } as never;
+    render(<OrderShipmentSummary order={unpaidOrder} locale="tr" />);
+
+    // Yardımcı metin görünür; buton pasif.
+    expect(await screen.findByText("Ödeme alınmadan gönderi oluşturulamaz.")).toBeTruthy();
+    expect(
+      screen.getByText("Gönderi oluşturmak için siparişin ödemesi tamamlanmalıdır."),
+    ).toBeTruthy();
+    const createBtn = screen.getByRole("button", { name: "Gönderi Oluştur" }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(true);
+  });
+
+  // TODO-136 — Ödenmiş (PAID) siparişte "Gönderi Oluştur" aktif kalır.
+  it("keeps 'Gönderi Oluştur' enabled for a paid order", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    const createBtn = (await screen.findByRole("button", {
+      name: "Gönderi Oluştur",
+    })) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(false);
+    expect(screen.queryByText("Ödeme alınmadan gönderi oluşturulamaz.")).toBeNull();
   });
 });
