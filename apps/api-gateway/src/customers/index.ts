@@ -42,6 +42,7 @@ import {
   customerMeResponseSchema,
   customerOrderListResponseSchema,
   customerOrderDetailResponseSchema,
+  pickOrderShipmentStatus,
   customerOtpChallengeResponseSchema,
   customerOtpVerifyRequestSchema,
   customerPasswordChangeRequestSchema,
@@ -160,6 +161,8 @@ export interface CustomerOrderRecord {
   currency: string;
   totalAmount: number;
   createdAt: Date;
+  // TODO-135 — Temsili kargo durumu (rozet için); shipment yoksa null.
+  shipmentStatus: string | null;
   lines: CustomerOrderLineRecord[];
 }
 
@@ -773,6 +776,9 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               product: { select: { slug: true } },
             },
           },
+          // TODO-135 — Liste rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
+          // shipment durumu (yalnız DURUM; müşteri-güvenli, statusText/iç alan yok).
+          shipments: { select: { status: true } },
         },
       });
       return orders.map((order) => ({
@@ -783,6 +789,8 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         currency: order.currency,
         totalAmount: order.totalAmount,
         createdAt: order.createdAt,
+        // TODO-135 — Birden çok gönderi olabilir → en ileri temsili durum; yoksa null.
+        shipmentStatus: pickOrderShipmentStatus(order.shipments.map((s) => s.status)),
         lines: order.lines.map((line) => ({
           variantId: line.variantId,
           productSlug: line.product.slug,
@@ -1219,6 +1227,8 @@ function serializeCustomerOrderSummary(order: CustomerOrderRecord) {
       quantity: line.quantity,
     })),
     createdAt: order.createdAt.toISOString(),
+    // TODO-135 — Hazırlanan gönderiyi liste rozetinde yansıtmak için temsili durum.
+    shipmentStatus: order.shipmentStatus,
   };
 }
 

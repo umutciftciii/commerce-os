@@ -58,6 +58,7 @@ export default async function OrderDetailPage({
             status={order.status}
             paymentStatus={order.paymentStatus}
             fulfillmentStatus={order.fulfillmentStatus}
+            shipmentStatus={order.shipment?.status ?? null}
           />
         </header>
 

@@ -177,6 +177,41 @@ describe("store-admin orders — list states", () => {
     // En az bir "Fulfilled" rozeti (karşılama) görünür.
     expect(screen.getAllByText("Fulfilled", { selector: "span" }).length).toBeGreaterThan(0);
   });
+
+  // TODO-135 — Kargo kaydı (ORDER_CREATED) oluşturulmuş sipariş, karşılama rozetinde
+  // "Gönderilmedi" DEĞİL "Gönderi oluşturuldu" göstermeli.
+  it("renders prepared-shipment (ORDER_CREATED) fulfillment badge as 'Gönderi oluşturuldu'", async () => {
+    storeApiMock.listOrders.mockResolvedValue(
+      page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "ORDER_CREATED" })]),
+    );
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(screen.getByText("Gönderi oluşturuldu", { selector: "span" })).toBeTruthy();
+    // "Gönderilmedi" yalnız filtre <option>'da olabilir; rozet <span>'de OLMAMALI.
+    expect(screen.queryByText("Gönderilmedi", { selector: "span" })).toBeNull();
+  });
+
+  // TODO-135 — Kargo kaydı olmayan sipariş rozeti hâlâ "Gönderilmedi" göstermeli.
+  it("renders 'Gönderilmedi' when the order has no shipment", async () => {
+    storeApiMock.listOrders.mockResolvedValue(
+      page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: null })]),
+    );
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(screen.getByText("Gönderilmedi", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByText("Gönderi oluşturuldu", { selector: "span" })).toBeNull();
+  });
+
+  // TODO-135 — Yolda (IN_TRANSIT) durumu değişmeden yansımalı ("Yolda").
+  it("renders IN_TRANSIT shipment as 'Yolda'", async () => {
+    storeApiMock.listOrders.mockResolvedValue(
+      page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "IN_TRANSIT" })]),
+    );
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(screen.getByText("Yolda", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByText("Gönderilmedi", { selector: "span" })).toBeNull();
+  });
 });
 
 describe("store-admin orders — filters (TODO-073)", () => {

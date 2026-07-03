@@ -441,6 +441,18 @@ export const trStoreAdmin = {
       FULFILLED: "Gönderildi",
       CANCELLED: "İptal edildi",
     },
+    // TODO-135 — Liste/başlık karşılama rozetinin GÖSTERİM etiketleri. Kargo kaydı
+    // varsa rozet buradan çözülür (Gönderi oluşturuldu vb.); Order.fulfillmentStatus
+    // filtresi hâlâ fulfillmentLabels'ı kullanır.
+    fulfillmentDisplayLabels: {
+      NOT_SHIPPED: "Gönderilmedi",
+      SHIPMENT_CREATED: "Gönderi oluşturuldu",
+      IN_TRANSIT: "Yolda",
+      DELIVERED: "Teslim edildi",
+      FULFILLED: "Gönderildi",
+      PARTIAL: "Kısmi",
+      CANCELLED: "İptal edildi",
+    },
     filters: {
       title: "Filtreler",
       searchLabel: "Ara",

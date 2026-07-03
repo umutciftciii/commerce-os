@@ -566,6 +566,18 @@ export const trStorefront = {
         FULFILLED: "Teslim edildi",
         CANCELLED: "İptal edildi",
       },
+      // TODO-135 — Kargo kaydı VARSA liste rozeti hazırlık durumunu yansıtır (müşteri
+      // güvenli). ORDER_CREATED artık "Henüz kargoya verilmedi" GÖSTERMEZ (ADR-045:
+      // fiziksel "kargoya verildi" değil → "Gönderi oluşturuldu").
+      fulfillmentDisplay: {
+        NOT_SHIPPED: "Henüz kargoya verilmedi",
+        SHIPMENT_CREATED: "Gönderi oluşturuldu",
+        IN_TRANSIT: "Yolda",
+        DELIVERED: "Teslim edildi",
+        FULFILLED: "Teslim edildi",
+        PARTIAL: "Kısmi gönderim",
+        CANCELLED: "İptal edildi",
+      },
       buyAgain: {
         success: "{count} ürün sepete eklendi.",
         partial: "Bazı ürünler artık mevcut değil.",

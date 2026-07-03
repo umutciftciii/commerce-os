@@ -189,6 +189,119 @@ export const paymentStatusSchema = z.enum(["UNPAID", "AUTHORIZED", "PAID", "REFU
 export const fulfillmentStatusSchema = z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED", "CANCELLED"]);
 export const inventoryReservationStatusSchema = z.enum(["ACTIVE", "RELEASED", "CONSUMED"]);
 
+/**
+ * TODO-135 — Sipariş özet/liste DTO'larında kargo HAZIRLIK durumunu rozete
+ * yansıtmak için erken tanımlı (TDZ-safe) kargo durum enum'u. Değerler
+ * `shipmentStatusValueSchema` ile AYNIdır; modül sırası nedeniyle burada da
+ * tanımlanır (Fable'ın shipment şeması korunur — refactor edilmez). Yalnız DURUM
+ * enum'u taşınır; statusText/iç ID/ham payload TAŞINMAZ.
+ */
+export const orderSummaryShipmentStatusSchema = z.enum([
+  "DRAFT",
+  "ORDER_CREATED",
+  "LABEL_PENDING",
+  "LABEL_CREATED",
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "DELIVERY_FAILED",
+  "RETURNED",
+  "CANCELLED",
+  "FAILED",
+]);
+export type OrderSummaryShipmentStatus = z.infer<typeof orderSummaryShipmentStatusSchema>;
+
+/**
+ * TODO-135 — Sipariş listesi/başlık karşılama rozetinin GÖSTERİM durumu. Kargo
+ * (shipment) durumu VARSA rozet ondan türetilir; `Order.fulfillmentStatus` MUTATE
+ * EDİLMEZ (bu yalnız gösterim eşlemesidir). ADR-045: ORDER_CREATED fiziksel
+ * "kargoya verildi" DEĞİL → asla SHIPPED/IN_TRANSIT/DELIVERED sayılmaz.
+ */
+export type OrderFulfillmentDisplay =
+  | "NOT_SHIPPED"
+  | "SHIPMENT_CREATED"
+  | "IN_TRANSIT"
+  | "DELIVERED"
+  | "FULFILLED"
+  | "PARTIAL"
+  | "CANCELLED";
+
+/**
+ * Öncelik:
+ *   iptal sipariş → CANCELLED
+ *   shipment DELIVERED → DELIVERED
+ *   shipment IN_TRANSIT/OUT_FOR_DELIVERY → IN_TRANSIT
+ *   shipment DRAFT/ORDER_CREATED/LABEL_PENDING/LABEL_CREATED → SHIPMENT_CREATED
+ *   (shipment yok / iptal-iade-başarısız) → fulfillmentStatus'e düş
+ *     FULFILLED → FULFILLED, PARTIAL → PARTIAL, aksi → NOT_SHIPPED
+ */
+export function getOrderFulfillmentDisplay(
+  fulfillmentStatus: FulfillmentStatus,
+  shipmentStatus: OrderSummaryShipmentStatus | null | undefined,
+): OrderFulfillmentDisplay {
+  if (fulfillmentStatus === "CANCELLED") return "CANCELLED";
+  switch (shipmentStatus) {
+    case "DELIVERED":
+      return "DELIVERED";
+    case "IN_TRANSIT":
+    case "OUT_FOR_DELIVERY":
+      return "IN_TRANSIT";
+    case "DRAFT":
+    case "ORDER_CREATED":
+    case "LABEL_PENDING":
+    case "LABEL_CREATED":
+      return "SHIPMENT_CREATED";
+    // DELIVERY_FAILED / RETURNED / CANCELLED / FAILED / null → sipariş seviyesine düş.
+    default:
+      break;
+  }
+  switch (fulfillmentStatus) {
+    case "FULFILLED":
+      return "FULFILLED";
+    case "PARTIAL":
+      return "PARTIAL";
+    default:
+      return "NOT_SHIPPED";
+  }
+}
+
+/**
+ * TODO-135 — Bir siparişin BİRDEN ÇOK gönderisi olabilir; rozette gösterilecek
+ * TEMSİLİ kargo durumunu, "en ileri" pozitif ilerleme durumunu seçerek belirler.
+ * İptal/iade/başarısız (terminal-olumsuz) durumlar 0 sayılır ve — tek olan onlarsa —
+ * `null` döner (rozet sipariş seviyesine düşer). Saf/deterministik.
+ */
+const ORDER_SHIPMENT_STATUS_RANK: Record<OrderSummaryShipmentStatus, number> = {
+  DELIVERED: 7,
+  OUT_FOR_DELIVERY: 6,
+  IN_TRANSIT: 5,
+  LABEL_CREATED: 4,
+  LABEL_PENDING: 3,
+  ORDER_CREATED: 2,
+  DRAFT: 1,
+  DELIVERY_FAILED: 0,
+  RETURNED: 0,
+  CANCELLED: 0,
+  FAILED: 0,
+};
+
+export function pickOrderShipmentStatus(
+  statuses: ReadonlyArray<OrderSummaryShipmentStatus | string>,
+): OrderSummaryShipmentStatus | null {
+  let best: OrderSummaryShipmentStatus | null = null;
+  let bestRank = 0;
+  for (const raw of statuses) {
+    const status = raw as OrderSummaryShipmentStatus;
+    const rank = ORDER_SHIPMENT_STATUS_RANK[status];
+    if (rank === undefined || rank <= 0) continue;
+    if (rank > bestRank) {
+      best = status;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
 export const productCategorySchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -1223,6 +1336,10 @@ export const orderSchema = z.object({
   // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti (store-admin
   // sipariş detayı görünümü). Eski siparişlerde null/yok olabilir (geri uyum).
   shippingSelection: orderShippingSelectionSchema.nullable().default(null),
+  // TODO-135 — Sipariş listesi/başlık karşılama rozetinin kargo HAZIRLIK durumunu
+  // yansıtabilmesi için TEMSİLİ kargo durumu (allowlist: yalnız DURUM enum'u).
+  // Shipment yoksa null. statusText/iç ID/ham payload TAŞINMAZ.
+  shipmentStatus: orderSummaryShipmentStatusSchema.nullable().default(null),
 });
 
 export const orderListResponseSchema = z.object({
@@ -1838,6 +1955,10 @@ export const customerOrderSummarySchema = z.object({
   itemCount: z.number().int().nonnegative(),
   lines: z.array(customerOrderLineSummarySchema),
   createdAt: z.string().datetime(),
+  // TODO-135 — Hazırlanan gönderiyi ("Gönderi oluşturuldu") liste rozetinde
+  // yansıtmak için TEMSİLİ kargo durumu; shipment yoksa null. Müşteri-güvenli:
+  // yalnız DURUM enum'u taşınır (statusText/iç alan yok).
+  shipmentStatus: orderSummaryShipmentStatusSchema.nullable().default(null),
 });
 
 export const customerOrderListResponseSchema = z.object({

@@ -133,6 +133,7 @@ function OrderCard({ o, order }: { o: OrdersDict; order: CustomerOrderSummary })
           status={order.status}
           paymentStatus={order.paymentStatus}
           fulfillmentStatus={order.fulfillmentStatus}
+          shipmentStatus={order.shipmentStatus}
         />
       </div>
 

@@ -625,3 +625,21 @@
   i18n kullanılır); iç id/secret/ham payload YOK. Testler: store-admin `shipment-ui`/order özet, storefront
   `shipment` + i18n kopya, gateway `customerSafeShipmentEventStatusText`; duplicate prepare 409 +
   event/status tekrarsızlığı ve "prepare success ≠ shipped/in-transit/delivered" mevcut testlerle korunur.
+- TODO-135 — Sipariş listesi/başlık karşılama rozetlerini shipment hazırlık durumuna yansıt (DONE —
+  2026-07-03). Kök neden: TODO-133 shipment DETAY kartını düzeltti ama sipariş ÖZET/liste rozetleri hâlâ
+  `Order.fulfillmentStatus`'u DOĞRUDAN okuyordu (`Shipment.status`'tan türetilmiyordu) → prepare başarısına
+  (ORDER_CREATED) rağmen store-admin liste/başlık "Gönderilmedi", storefront hesabım listesi "Henüz kargoya
+  verilmedi" gösteriyordu. Backend prepare/mimari DEĞİŞMEZ; yalnız gösterim yansıtması. Uygulanan: (a) yeni
+  paylaşılan SAF helper `getOrderFulfillmentDisplay(fulfillmentStatus, shipmentStatus)` + `pickOrderShipmentStatus`
+  (`@commerce-os/contracts`, api-client'tan re-export) — öncelik: iptal>DELIVERED>IN_TRANSIT/OUT_FOR_DELIVERY>
+  ORDER_CREATED/DRAFT/LABEL_* → SHIPMENT_CREATED, aksi halde fulfillment; ORDER_CREATED asla shipped/transit/
+  delivered sayılmaz (ADR-045). (b) DTO allowlist: admin `orderSchema` + `customerOrderSummarySchema`'ya yalnız
+  temsili `shipmentStatus` DURUM enum'u eklendi (statusText/iç ID/ham payload YOK; gateway `orderSelect`/
+  `listOrders` `shipments.status` çeker, birden çok gönderide en ileri durum seçilir). (c) UI: store-admin
+  liste + detay hero rozeti ve storefront `OrderStatusBadges` display helper üzerinden çözülür; yeni i18n
+  `fulfillmentDisplayLabels` (store-admin TR/EN) + `fulfillmentDisplay` (storefront TR/EN) — "Gönderi
+  oluşturuldu"/"Shipment created". `Order.status`/`Order.fulfillmentStatus` MUTATE EDİLMEZ. Testler: contracts
+  helper/DTO allowlist (11), store-admin liste/detay rozet (ORDER_CREATED→"Gönderi oluşturuldu", shipment
+  yok→"Gönderilmedi", IN_TRANSIT→"Yolda"), storefront `order-badges` (ORDER_CREATED, no-shipment, IN_TRANSIT/
+  DELIVERED). KALAN: kullanıcı stack'inde docker api-gateway + store-admin-web + storefront-web REBUILD gerekir;
+  runtime doğrulama (OS-000054/OS-000055) merge/rebuild sonrası.

@@ -2265,3 +2265,41 @@ F3C.6 hardening, TODO-132 recipient e-posta) DEĞİŞTİRİLMEDİ; yalnız durum
   api-gateway 351, diğer paketler yeşil); git diff --check ✓. Migration/şema değişikliği YOK (yeni enum yok).
 - **Kalan.** Kullanıcı stack'inde docker api-gateway + web REBUILD gerekli (fix'in çalışan UI'a yansıması
   için). Runtime doğrulama merge/rebuild sonrası yapılmalı (aşağıdaki runtime adımları).
+
+## TODO-135 — Sipariş listesi/başlık karşılama rozetlerini shipment hazırlık durumuna yansıt
+
+TODO-133 shipment DETAY kartını düzeltmişti; ancak sipariş ÖZET/liste rozetleri hâlâ `Order.fulfillmentStatus`'u
+DOĞRUDAN okuyordu (`Shipment.status`'tan türetilmiyordu). Sonuç: prepare başarısına (ORDER_CREATED) rağmen
+store-admin liste "Karşılama Durumu" + detay hero "Gönderilmedi", storefront hesabım listesi "Henüz kargoya
+verilmedi" gösteriyordu. Bu tur YALNIZ gösterim yansıtması — backend prepare/createRecipient/createOrder/webhook/
+sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmentStatus` MUTATE EDİLMEZ.
+
+- **Paylaşılan helper (contracts).** Yeni saf `getOrderFulfillmentDisplay(fulfillmentStatus, shipmentStatus)` →
+  gösterim durumu (`NOT_SHIPPED`/`SHIPMENT_CREATED`/`IN_TRANSIT`/`DELIVERED`/`FULFILLED`/`PARTIAL`/`CANCELLED`).
+  Öncelik: iptal sipariş > DELIVERED > IN_TRANSIT/OUT_FOR_DELIVERY > DRAFT/ORDER_CREATED/LABEL_PENDING/
+  LABEL_CREATED (→ SHIPMENT_CREATED) > sipariş-seviyesi fulfillment. ADR-045: ORDER_CREATED asla shipped/transit/
+  delivered sayılmaz. Ayrıca `pickOrderShipmentStatus` (birden çok gönderide "en ileri" pozitif durum; terminal-
+  olumsuz iptal/iade/başarısız 0 → tek onlarsa null). Her ikisi de `@commerce-os/api-client` üzerinden re-export.
+- **DTO allowlist.** Admin `orderSchema` + storefront `customerOrderSummarySchema`'ya TEMSİLİ `shipmentStatus`
+  DURUM enum'u eklendi (`.nullable().default(null)`). Yalnız DURUM taşınır — statusText/iç ID/externalShipmentId/
+  referenceId/ham payload/secret YOK (customer-safe; zod allowlist bilinmeyen alanları düşürür). Gateway
+  `orderSelect` ve customer `listOrders` sorgusu `shipments.status` çeker; `pickOrderShipmentStatus` ile temsili
+  durum türetilir.
+- **UI.** Store-admin sipariş listesi + detay hero rozeti ve storefront `OrderStatusBadges`, display helper
+  üzerinden çözülür. Yeni i18n: store-admin TR/EN `orders.fulfillmentDisplayLabels` (SHIPMENT_CREATED → "Gönderi
+  oluşturuldu"/"Shipment created", IN_TRANSIT → "Yolda"/"In transit", DELIVERED → "Teslim edildi"/"Delivered");
+  storefront TR/EN `account.orders.fulfillmentDisplay` (müşteri-güvenli aynı kopya). fulfillmentStatus FİLTRE
+  dropdown'u hâlâ ham `fulfillmentLabels` kullanır (gerçek alan filtresi, dokunulmadı).
+- **Testler.** contracts `order-fulfillment-display` (helper öncelikleri + pickOrderShipmentStatus + DTO
+  allowlist statusText/referenceId/externalShipmentId sızmaz — 11 test); store-admin `orders-ui` (ORDER_CREATED
+  → "Gönderi oluşturuldu" değil "Gönderilmedi"; shipment yok → "Gönderilmedi"; IN_TRANSIT → "Yolda") +
+  `order-detail-page` (hero ORDER_CREATED/no-shipment); storefront `order-badges` (ORDER_CREATED, no-shipment,
+  IN_TRANSIT/DELIVERED). TODO-117/125/132/133 mevcut testleri yeşil kaldı; `orders-filter` mock'una
+  `shipmentStatus: null` eklendi.
+- **Gate.** db:generate ✓; build ✓; typecheck ✓; lint ✓; pnpm test (turbo) ✓ (contracts 34, store-admin 137,
+  storefront 92, api-gateway 351, diğer paketler yeşil); git diff --check ✓. Migration/şema değişikliği YOK
+  (yeni Prisma enum yok; mevcut ShipmentStatus değerleri kullanıldı).
+- **Kalan.** Kullanıcı stack'inde docker api-gateway (DTO değişti) + store-admin-web + storefront-web REBUILD
+  gerekir. Runtime doğrulama (OS-000054/OS-000055 gibi ORDER_CREATED shipment'i olan sipariş) merge/rebuild
+  sonrası: liste/başlık "Gönderi oluşturuldu" göstermeli, "Gönderilmedi"/"Henüz kargoya verilmedi" GÖSTERMEMELİ;
+  provider kanıtlamadıkça "Kargoya verildi/Yolda/Teslim edildi" GÖSTERMEMELİ.

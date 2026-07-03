@@ -563,6 +563,17 @@ export const enStorefront: StorefrontDictionary = {
         FULFILLED: "Delivered",
         CANCELLED: "Cancelled",
       },
+      // TODO-135 — When a shipment exists, the list badge reflects prepared state
+      // (customer-safe). ORDER_CREATED no longer shows "Not shipped yet".
+      fulfillmentDisplay: {
+        NOT_SHIPPED: "Not shipped yet",
+        SHIPMENT_CREATED: "Shipment created",
+        IN_TRANSIT: "In transit",
+        DELIVERED: "Delivered",
+        FULFILLED: "Delivered",
+        PARTIAL: "Partially shipped",
+        CANCELLED: "Cancelled",
+      },
       buyAgain: {
         success: "{count} items added to your cart.",
         partial: "Some items are no longer available.",
