@@ -197,9 +197,25 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
 
     const link = (await screen.findByRole("link", { name: /Kargo Detayına Git/ })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/shipping/shipments/shp_1");
-    expect(screen.getByText("Gönderi kaydı oluşturuldu")).toBeTruthy();
+    // TODO-127 — createOrder başarısı: "Gönderi oluşturuldu" + "Kargonun alımı bekleniyor."
+    expect(screen.getByText("Gönderi oluşturuldu")).toBeTruthy();
+    expect(screen.getByText(/Kargonun alımı bekleniyor\./)).toBeTruthy();
+    // Yanıltıcı "kargoya verildi/yolda/teslim" gösterilmez (fiziksel teslim değil).
     expect(screen.queryByText(/Kargoya verildi/)).toBeNull();
+    expect(screen.queryByText("Taşıma sürecinde")).toBeNull();
+    expect(screen.queryByText("Teslim edildi")).toBeNull();
     expect(screen.getByText("Henüz oluşmadı")).toBeTruthy();
+  });
+
+  it("TODO-127: IN_TRANSIT does NOT show the awaiting-pickup helper (prepare success ≠ shipped)", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({
+      shipments: [shipment({ status: "IN_TRANSIT", trackingNumber: "TRK-1" })],
+    });
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    expect(await screen.findByText("Taşıma sürecinde")).toBeTruthy();
+    expect(screen.queryByText(/Kargonun alımı bekleniyor\./)).toBeNull();
   });
 
   it("manual-tracked shipment surfaces IN_TRANSIT status + tracking number in the order summary", async () => {

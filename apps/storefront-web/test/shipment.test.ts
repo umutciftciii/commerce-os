@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { getDictionary } from "@commerce-os/i18n";
 import {
   SHIPMENT_STATUS_TONE,
   hasProviderLogo,
+  isAwaitingPickupShipmentStatus,
   isCancelledShipmentStatus,
   isProblemShipmentStatus,
   providerInitials,
@@ -63,5 +65,27 @@ describe("storefront · shipment tracking helpers", () => {
     expect(hasProviderLogo("   ")).toBe(false);
     expect(hasProviderLogo(null)).toBe(false);
     expect(hasProviderLogo(undefined)).toBe(false);
+  });
+
+  // TODO-127 — Prepare başarısı (ORDER_CREATED) = "Gönderi oluşturuldu", kargonun alımı
+  // bekleniyor; yolda/teslim DEĞİL. Bekleme bilgisi yalnız hazırlık aşamasında gösterilir.
+  it("flags prepare/pre-handover statuses as awaiting carrier pickup only", () => {
+    expect(isAwaitingPickupShipmentStatus("ORDER_CREATED")).toBe(true);
+    expect(isAwaitingPickupShipmentStatus("LABEL_PENDING")).toBe(true);
+    expect(isAwaitingPickupShipmentStatus("LABEL_CREATED")).toBe(true);
+    expect(isAwaitingPickupShipmentStatus("IN_TRANSIT")).toBe(false);
+    expect(isAwaitingPickupShipmentStatus("DELIVERED")).toBe(false);
+    expect(isAwaitingPickupShipmentStatus("CANCELLED")).toBe(false);
+  });
+
+  it("uses customer-safe prepared copy (no shipped/delivered wording) in both locales", () => {
+    const tr = getDictionary("tr").storefront.account.orders.detail.tracking;
+    const en = getDictionary("en").storefront.account.orders.detail.tracking;
+    expect(tr.statusValues.ORDER_CREATED).toBe("Gönderi oluşturuldu");
+    expect(en.statusValues.ORDER_CREATED).toBe("Shipment created");
+    expect(tr.preparedNote).toBe("Kargonun alımı bekleniyor.");
+    expect(en.preparedNote).toBe("Waiting for carrier pickup.");
+    // ORDER_CREATED müşteriye "kargoya verildi/teslim" gibi yanıltıcı ifade göstermez.
+    expect(tr.statusValues.ORDER_CREATED).not.toMatch(/kargoya verildi|teslim/i);
   });
 });

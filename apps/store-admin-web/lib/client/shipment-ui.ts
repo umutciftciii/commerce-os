@@ -15,7 +15,7 @@ type StatusTone = "neutral" | "info" | "warning" | "success" | "danger" | "brand
 export const SHIPMENT_STATUS_LABEL: Record<Locale, Record<ShipmentStatusValue, string>> = {
   tr: {
     DRAFT: "Taslak",
-    ORDER_CREATED: "Gönderi kaydı oluşturuldu",
+    ORDER_CREATED: "Gönderi oluşturuldu",
     LABEL_PENDING: "Barkod bekleniyor",
     LABEL_CREATED: "Barkod/etiket hazır",
     IN_TRANSIT: "Taşıma sürecinde",
@@ -28,7 +28,7 @@ export const SHIPMENT_STATUS_LABEL: Record<Locale, Record<ShipmentStatusValue, s
   },
   en: {
     DRAFT: "Draft",
-    ORDER_CREATED: "Shipment registered",
+    ORDER_CREATED: "Shipment created",
     LABEL_PENDING: "Awaiting label",
     LABEL_CREATED: "Label ready",
     IN_TRANSIT: "In transit",
@@ -45,7 +45,7 @@ export const SHIPMENT_STATUS_LABEL: Record<Locale, Record<ShipmentStatusValue, s
 export const SHIPMENT_STATUS_DESC: Record<Locale, Record<ShipmentStatusValue, string>> = {
   tr: {
     DRAFT: "Taslak gönderi.",
-    ORDER_CREATED: "Sağlayıcıda gönderi kaydı oluşturuldu. Fiziksel teslim henüz beklenebilir.",
+    ORDER_CREATED: "Kargonun alımı bekleniyor. Kargo firmasında kayıt açıldı.",
     LABEL_PENDING: "Barkod henüz tam üretilemedi; tekrar denenebilir.",
     LABEL_CREATED: "Barkod/etiket oluşturuldu, paket hazırlandı.",
     IN_TRANSIT: "Gönderi taşıma sürecinde.",
@@ -58,7 +58,7 @@ export const SHIPMENT_STATUS_DESC: Record<Locale, Record<ShipmentStatusValue, st
   },
   en: {
     DRAFT: "Draft shipment.",
-    ORDER_CREATED: "Shipment record created at the provider. Physical handover may still be pending.",
+    ORDER_CREATED: "Waiting for carrier pickup. The carrier shipment record was created.",
     LABEL_PENDING: "Label not fully created yet; can be retried.",
     LABEL_CREATED: "Label created, parcel prepared.",
     IN_TRANSIT: "Shipment is in transit.",
@@ -116,11 +116,20 @@ export function isProblemStatus(status: ShipmentStatusValue): boolean {
   return status === "DELIVERY_FAILED" || status === "RETURNED" || status === "FAILED";
 }
 
+/**
+ * TODO-127 — Hazırlık aşaması: gönderi kaydı açıldı ama henüz kargo firmasınca alınmadı
+ * (createOrder başarısı = "Gönderi oluşturuldu", fiziksel "kargoya verildi" DEĞİL).
+ * Bu aşamada özet kartı "Kargonun alımı bekleniyor." yardımcı metnini gösterir.
+ */
+export function isAwaitingPickupStatus(status: ShipmentStatusValue): boolean {
+  return status === "ORDER_CREATED" || status === "LABEL_PENDING" || status === "LABEL_CREATED";
+}
+
 /** Timeline event etiketleri (generic). */
 export const SHIPMENT_EVENT_LABEL: Record<Locale, Record<ShipmentEventType, string>> = {
   tr: {
     CREATED: "Oluşturuldu",
-    ORDER_CREATED: "Gönderi kaydı oluşturuldu",
+    ORDER_CREATED: "Gönderi oluşturuldu",
     BARCODE_CREATED: "Barkod oluşturuldu",
     BARCODE_PENDING: "Barkod bekleniyor",
     BARCODE_FAILED: "Barkod oluşturulamadı",
@@ -132,7 +141,7 @@ export const SHIPMENT_EVENT_LABEL: Record<Locale, Record<ShipmentEventType, stri
   },
   en: {
     CREATED: "Created",
-    ORDER_CREATED: "Shipment registered",
+    ORDER_CREATED: "Shipment created",
     BARCODE_CREATED: "Label created",
     BARCODE_PENDING: "Label pending",
     BARCODE_FAILED: "Label failed",

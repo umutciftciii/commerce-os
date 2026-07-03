@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
-import { isCustomerVisibleShipmentEvent } from "../src/customers/index.js";
+import {
+  customerSafeShipmentEventStatusText,
+  isCustomerVisibleShipmentEvent,
+} from "../src/customers/index.js";
 import type {
   CustomerAddressInputRecord,
   CustomerAddressRecord,
@@ -927,6 +930,19 @@ describe("api gateway · customer account (F3B.3)", () => {
     expect(isCustomerVisibleShipmentEvent("MANUAL_TRACKING", null)).toBe(true);
     // Konum taşıyan her event anlamlıdır (işlem noktası) → gösterilir.
     expect(isCustomerVisibleShipmentEvent("WEBHOOK_RECEIVED", "İzmir")).toBe(true);
+  });
+
+  it("TODO-127: strips admin ORDER_CREATED statusText for customers, keeps real tracking text", () => {
+    // ORDER_CREATED için admin operasyonel metni ("... (DHL gönderi kaydı)") müşteriye
+    // sızmaz → null döner → storefront i18n "Gönderi oluşturuldu" kullanır.
+    expect(
+      customerSafeShipmentEventStatusText("ORDER_CREATED", "Kargo talebi oluşturuldu (DHL gönderi kaydı)"),
+    ).toBeNull();
+    // Sağlayıcı durumu taşıyan event'lerin gerçek metni KORUNUR.
+    expect(customerSafeShipmentEventStatusText("STATUS_CHANGED", "Taşıma sürecinde")).toBe(
+      "Taşıma sürecinde",
+    );
+    expect(customerSafeShipmentEventStatusText("TRACKING_UPDATED", "Dağıtımda")).toBe("Dağıtımda");
   });
 
   it("does not expose another customer's order detail (404)", async () => {

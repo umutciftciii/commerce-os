@@ -608,3 +608,20 @@
   boşsa referenceId fallback gönderilir (sandbox 200). Sandbox doğrulama: OS-000054 prepare → HTTP 201,
   Shipment ORDER_CREATED (createRecipient 200 + createOrder 200); barkod/iptal ÇAĞIRILMADI. KALAN: TODO-124
   (CBS otomatik kod eşleme) açık; kullanıcı stack'inde docker api-gateway rebuild gerekir.
+- TODO-133 — Prepare başarısını shipment/order durum özetine yansıt (DONE — 2026-07-03). NOT: iş kalemi
+  brief'te "TODO-127" olarak adlandırıldı; ancak repo'daki TODO-127 = "Provider logo upload/storage" (AÇIK,
+  farklı iş) olduğundan numara çakışmasını önlemek için bu düzeltme TODO-133 olarak kaydedildi. Kök neden:
+  state reflection/copy hatası — backend prepare/createOrder başarısında zaten `Shipment.status=ORDER_CREATED`
+  yazıyor + `ORDER_CREATED` event kaydediyor ve `Order.status`'u DEĞİŞTİRMİYOR (doğru), ancak UI kopyası
+  yanıltıcıydı: durum etiketi "Gönderi kaydı oluşturuldu" idi ve "kargonun alımı bekleniyor" ipucu yoktu.
+  ADR-045/049 semantiği korunur (createOrder başarısı = kargo firmasında KAYIT açıldı; kargoya verildi/yolda/
+  teslim DEĞİL). Uygulanan (yalnız yansıtma/kopya, mimari değişmez): (a) store-admin `shipment-ui`
+  ORDER_CREATED etiketi → "Gönderi oluşturuldu"/"Shipment created", açıklaması → "Kargonun alımı bekleniyor.
+  Kargo firmasında kayıt açıldı."/"Waiting for carrier pickup…"; yeni `isAwaitingPickupStatus` yardımcısı;
+  order özet kartı hazırlık durumunda bekleme ipucunu gösterir; (b) müşteri storefront i18n TR/EN
+  `statusValues`/`eventValues` ORDER_CREATED → "Gönderi oluşturuldu" + yeni `preparedNote` "Kargonun alımı
+  bekleniyor."; takip kartı hazırlık aşamasında bu notu gösterir; (c) müşteri-güvenli: gateway customer DTO
+  ORDER_CREATED event `statusText`'ini null'lar (admin operasyonel metni "…(DHL gönderi kaydı)" sızmaz →
+  i18n kullanılır); iç id/secret/ham payload YOK. Testler: store-admin `shipment-ui`/order özet, storefront
+  `shipment` + i18n kopya, gateway `customerSafeShipmentEventStatusText`; duplicate prepare 409 +
+  event/status tekrarsızlığı ve "prepare success ≠ shipped/in-transit/delivered" mevcut testlerle korunur.

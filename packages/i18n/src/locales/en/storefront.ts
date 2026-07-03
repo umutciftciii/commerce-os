@@ -623,10 +623,11 @@ export const enStorefront: StorefrontDictionary = {
           cancelledNote: "This shipment record was cancelled.",
           problemNote:
             "The shipment needs follow-up; you may contact the carrier if needed.",
+          preparedNote: "Waiting for carrier pickup.",
           steps: ["Preparing", "In transit", "Out for delivery", "Delivered"],
           statusValues: {
             DRAFT: "Preparing",
-            ORDER_CREATED: "Shipment registered",
+            ORDER_CREATED: "Shipment created",
             LABEL_PENDING: "Awaiting carrier label",
             LABEL_CREATED: "Getting ready to ship",
             IN_TRANSIT: "In transit",
@@ -639,7 +640,7 @@ export const enStorefront: StorefrontDictionary = {
           },
           eventValues: {
             CREATED: "Shipment preparation started",
-            ORDER_CREATED: "Shipment registered",
+            ORDER_CREATED: "Shipment created",
             BARCODE_CREATED: "Carrier label created",
             BARCODE_PENDING: "Awaiting carrier label",
             BARCODE_FAILED: "Label issue",
