@@ -387,10 +387,29 @@
   detayında shipment takip kartı + "işlem noktası" timeline; allowlist DTO, secret yok). Canlı provider
   trackShipment/status SYNC'i ayrı kalır (TODO-100/104).
 - TODO-100: DHL Bulk Query toplu gonderi sync (getShipmentByDate/getStatusChangedShipments) runtime entegrasyonu.
+  (KISMEN DONE — 2026-07-03, ADR-048: provider-agnostic toplu sync RUNTIME YOLU eklendi:
+  `POST /stores/:storeId/shipping/shipments/sync-all` terminal olmayan gonderileri mevcut applySync
+  (getShipmentStatus+trackShipment, adapter dispatch) ile senkronlar; limit≤50, DISABLED provider skipped,
+  gonderi basina hata kod bazli rapor. KALAN: DHL Bulk Query saglayici-ozel toplu ucun bu ucun arkasina
+  takilmasi — sandbox'ta STANDARD_QUERY/BULK_QUERY urunleri abone olmadigi icin canli dogrulanamiyor
+  (bkz. TODO-107); zamanlanmis otomatik sync worker job'i TODO-129.)
 - TODO-101: DHL Finance Query fatura/komisyon mutabakat entegrasyonu.
 - TODO-102: DHL CBS sehir/ilce/mahalle kod cache/sync production hardening (su an read-only preview).
 - TODO-103: DHL Identity token refresh akisi (OpenAPI /refresh belirsiz) + kalici/dagitik token cache.
-- TODO-104: Shipping webhook production verification (DHL/Geliver event imza dogrulama + ShipmentEvent yazimi).
+- TODO-104: Shipping webhook production verification — DONE (2026-07-03, ADR-048). Public uc
+  `POST /public/shipping/webhooks/:webhookToken` platform-normalize sozlesme
+  (shippingWebhookEventRequestSchema) kabul eder; kullanici auth YOK ama her istekte HMAC-SHA256 imza
+  (`x-shipping-signature` + `x-shipping-timestamp`, RAW BODY uzerinden, timingSafeEqual/constant-time)
+  ZORUNLU. Eksik/gecersiz imza → 401 + DB yazimi yok; timestamp toleransi 300 sn (replay penceresi);
+  pencere ici duplicate/replay'i `ShipmentWebhookInbox` unique (providerConfigId, eventKey) keser —
+  shipment guncelleme + WEBHOOK_RECEIVED event ATOMIK transaction, duplicate yeni event uretmez.
+  Secret/token admin `POST .../providers/:id/webhook/rotate` ile uretilir (AES-256-GCM saklanir, yalniz
+  rotate yanitinda BIR KEZ plain; config DTO'sunda yalniz `webhookConfigured` boolean). Bilinmeyen
+  statusCode durumu DEGISTIRMEZ (ADR-045 regres korumasi); eslesmeyen gonderi/bozuk payload audit'li
+  IGNORED inbox kaydi + 200 ACK; shipment aramasi {storeId, providerConfigId} scoped → cross-store
+  mutasyon imkansiz. KALAN: DHL/Geliver HAM webhook format + provider imza semasi adaptorleri TODO-130
+  (canli abonelik/dogrulama sonrasi); store-admin webhook yonetim UI TODO-128. Payment webhook imzasi
+  (TODO-071) bagimsiz ACIK.
 - TODO-105: Marketplace alanları — Trendyol (TRND) + N11 entegrasyon desteği (ürün/sipariş/stok senkron alanları,
   provider abstraction'a marketplace tipi). Henüz tasarım aşamasında.
 - TODO-106: ZPL render/print desteği — Barcode Command /createbarcode çıktısındaki ZPL'i önizleme/yazdırma
@@ -539,6 +558,17 @@
   öncesi: Dockerfile'a build adımı eklenmeli VEYA workspace paketlerine `development` export koşulu (src'den
   çözme) stratejisi netleştirilmeli. Kapsam: Repo infra / Docker. Bloklayıcı: F3C.4 için HAYIR;
   deploy/CI hardening için EVET.
+- TODO-128 (AÇIK): Store-admin webhook yönetim UI — sağlayıcı ayar sayfasına "Webhook" bölümü:
+  rotate CTA (secret TEK SEFERLIK gösterim, ADR-035 kopya deneyimi), webhookConfigured durumu,
+  webhook path kopyalama, inbox son teslimatlar listesi (outcome + tarih; payload GÖSTERİLMEZ).
+  Backend uçları TODO-104 ile hazır (rotate + inbox modeli); yalnız BFF + UI + i18n kaldı.
+- TODO-129 (AÇIK): Zamanlanmış otomatik toplu tracking sync worker job'ı — `sync-all` ucundaki mantığın
+  worker'da periyodik çalıştırılması (backoff, store başına limit, yalnız ENABLED provider); admin uç
+  manuel tetik olarak kalır. TODO-123 (barcode retry) ile aynı worker altyapısını paylaşabilir.
+- TODO-130 (AÇIK): DHL/Geliver HAM webhook format + provider-özel imza şeması adaptörleri — sağlayıcının
+  gerçek push formatını platform-normalize sözleşmeye çeviren adapter katmanı + sağlayıcının kendi imza
+  doğrulaması (DHL callback kaydı TODO-107 canlı süreciyle birlikte). Şu an uç platform-normalize
+  sözleşme + platform HMAC şeması ile çalışır (ADR-048).
 - TODO-123 (AÇIK): Barcode boş-yanıt (LABEL_PENDING) için otomatik retry/backoff job. createOrder→createbarcode
   arası MNG sandbox sparse yanıt verebildiğinden, LABEL_PENDING gönderiler için zamanlanmış yeniden deneme
   (backoff + max attempts) ve admin'e bildirim. Şu an retry manuel (UI "Barkod Oluştur" tekrar).

@@ -77,6 +77,10 @@ import {
   type CustomerDataAccess,
 } from "./customers/index.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
+import {
+  createPrismaShippingWebhookPersistence,
+  registerShippingWebhookRoutes,
+} from "./shipping/webhook-routes.js";
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
 import {
   computeStoreShippingQuote,
@@ -3596,6 +3600,13 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-104 (ADR-048) — Public shipping webhook: kullanici auth YOK; per-config
+  // HMAC imza + timestamp zorunlu, idempotency inbox'i ile duplicate/replay korumali.
+  registerShippingWebhookRoutes(app, {
+    config,
+    persistence: createPrismaShippingWebhookPersistence(),
   });
 
   // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar

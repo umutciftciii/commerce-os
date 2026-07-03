@@ -63,6 +63,9 @@ import type {
   ShippingProviderConfigUpdateRequest,
   ShippingCredentialUpsertRequest,
   ShippingProviderTestResponse,
+  ShippingWebhookRotateResponse,
+  ShipmentSyncAllRequest,
+  ShipmentSyncAllResponse,
   ShippingRateRequest,
   ShippingRateResponse,
   ShippingCreateOrderRequest,
@@ -268,6 +271,9 @@ export type {
   ShippingProviderStatusUpdateRequest,
   ShippingCredentialUpsertRequest,
   ShippingProviderTestResponse,
+  ShippingWebhookRotateResponse,
+  ShipmentSyncAllRequest,
+  ShipmentSyncAllResponse,
   ShippingRateRequest,
   ShippingRateResponse,
   ShippingCreateOrderRequest,
@@ -618,6 +624,18 @@ export interface ApiClient {
         token?: string,
       ): Promise<ShippingProviderConfigResponse>;
       test(storeId: string, configId: string, token?: string): Promise<ShippingProviderTestResponse>;
+      /** TODO-104 — webhook secret/token uretir/dondurur; secret yalniz bu yanitta BIR KEZ. */
+      rotateWebhook(
+        storeId: string,
+        configId: string,
+        token?: string,
+      ): Promise<ShippingWebhookRotateResponse>;
+      /** TODO-100 — terminal olmayan gonderileri toplu tracking sync'ten gecirir. */
+      syncAllShipments(
+        storeId: string,
+        input: ShipmentSyncAllRequest,
+        token?: string,
+      ): Promise<ShipmentSyncAllResponse>;
     };
     shippingRatePlans: {
       list(storeId: string, token?: string): Promise<ShippingRatePlanListResponse>;
@@ -1192,6 +1210,20 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/shipping/providers/${configId}/test`,
             "POST",
             undefined,
+            token,
+          ),
+        rotateWebhook: (storeId, configId, token) =>
+          sendJson<ShippingWebhookRotateResponse>(
+            `/stores/${storeId}/shipping/providers/${configId}/webhook/rotate`,
+            "POST",
+            undefined,
+            token,
+          ),
+        syncAllShipments: (storeId, input, token) =>
+          sendJson<ShipmentSyncAllResponse>(
+            `/stores/${storeId}/shipping/shipments/sync-all`,
+            "POST",
+            input,
             token,
           ),
       },

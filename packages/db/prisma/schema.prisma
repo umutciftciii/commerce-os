@@ -300,6 +300,16 @@ enum ShipmentStatus {
   FAILED
 }
 
+// TODO-104 — imzasi gecerli webhook teslimatinin isleme sonucu.
+// ACCEPTED = shipment bulundu, durum/event islendi.
+// IGNORED_UNKNOWN_SHIPMENT = imza gecerli ama eslesen gonderi yok (audit kaydi kalir).
+// IGNORED_UNSUPPORTED = imza gecerli ama payload normalize sozlesmeye uymuyor.
+enum ShipmentWebhookOutcome {
+  ACCEPTED
+  IGNORED_UNKNOWN_SHIPMENT
+  IGNORED_UNSUPPORTED
+}
+
 enum ShipmentEventType {
   CREATED
   ORDER_CREATED
@@ -422,6 +432,7 @@ model Store {
   shipments               Shipment[]
   shipmentEvents          ShipmentEvent[]
   shipmentQuotes          ShipmentQuote[]
+  shipmentWebhookInbox    ShipmentWebhookInbox[]
   shippingRatePlans       ShippingRatePlan[]
   shippingRateRules       ShippingRateRule[]
 }
@@ -1188,6 +1199,12 @@ model ShippingProviderConfig {
   // Son GERCEK provider HTTP testinin meta'si. Transport kapaliyken httpStatus null kalir.
   lastProviderHttpStatus Int?
   lastProviderTestType   String?
+  // TODO-104 — provider webhook guvenligi. webhookToken URL yol parcasidir (config
+  // cozumleme kimligi; TEK BASINA YETKI VERMEZ — HMAC imza her istekte zorunlu).
+  // Secret AES-256-GCM ciphertext olarak saklanir (SHIPPING_ENCRYPTION_KEY);
+  // response'a ASLA donmez, yalniz rotate aninda BIR KEZ plain doner (ADR-035 deseni).
+  webhookToken        String?               @unique
+  webhookSecretCipher String?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
@@ -1195,6 +1212,7 @@ model ShippingProviderConfig {
   credentials ShippingProviderCredential[]
   shipments   Shipment[]
   quotes      ShipmentQuote[]
+  webhookInbox ShipmentWebhookInbox[]
 
   @@unique([storeId, provider, mode])
   @@index([storeId])
@@ -1295,6 +1313,32 @@ model ShipmentEvent {
   @@index([storeId])
   @@index([shipmentId])
   @@index([eventType])
+}
+
+// TODO-104 — Webhook idempotency/replay inbox'i. Imzasi GECERLI her teslimat
+// (providerConfigId, eventKey) ile BIR KEZ kaydedilir; unique ihlali = duplicate →
+// yeni ShipmentEvent YAZILMAZ (idempotent). Gecersiz imzali istekler buraya
+// YAZILMAZ (DB flood/DoS onlemi; yalniz log). statusText sanitize ozet tasir;
+// secret/imza/raw payload ASLA saklanmaz (payloadHash sha256 ozetidir).
+model ShipmentWebhookInbox {
+  id               String                 @id @default(cuid())
+  storeId          String
+  providerConfigId String
+  provider         ShippingProviderType
+  eventKey         String
+  payloadHash      String
+  outcome          ShipmentWebhookOutcome @default(ACCEPTED)
+  shipmentId       String?
+  statusCode       Int?
+  statusText       String?
+  createdAt        DateTime               @default(now())
+
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([providerConfigId, eventKey])
+  @@index([storeId])
+  @@index([shipmentId])
 }
 
 model ShipmentQuote {
