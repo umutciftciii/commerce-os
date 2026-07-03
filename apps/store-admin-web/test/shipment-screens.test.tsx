@@ -118,8 +118,8 @@ describe("shipment list page (F3C.5)", () => {
     expect(screen.getByText("Umut ÇİFTCİ")).toBeTruthy();
     expect(screen.getByText("DHL eCommerce")).toBeTruthy();
     expect(screen.getByText("TRK-123")).toBeTruthy();
-    // "Taşıma sürecinde" hem durum rozetinde hem durum filtresinde geçer → en az bir eşleşme.
-    expect(screen.getAllByText("Taşıma sürecinde").length).toBeGreaterThan(0);
+    // TODO-136 — IN_TRANSIT etiketi "Yolda"; hem durum rozetinde hem filtresinde geçer.
+    expect(screen.getAllByText("Yolda").length).toBeGreaterThan(0);
     expect(screen.getByText("İstanbul Aktarma")).toBeTruthy();
     // KPI etiketleri (sade MVP).
     expect(screen.getByText("Transferde")).toBeTruthy();
@@ -135,8 +135,8 @@ describe("shipment list page (F3C.5)", () => {
     render(<ShipmentsPage />);
 
     expect(await screen.findByText("Henüz oluşmadı")).toBeTruthy();
-    // Aynı normalized status helper: LABEL_CREATED → "Barkod/etiket hazır".
-    expect(screen.getAllByText("Barkod/etiket hazır").length).toBeGreaterThan(0);
+    // TODO-136 — LABEL_CREATED → "Kargo İçin Paketlendi".
+    expect(screen.getAllByText("Kargo İçin Paketlendi").length).toBeGreaterThan(0);
   });
 });
 
@@ -151,8 +151,8 @@ describe("shipment detail page (F3C.5)", () => {
     expect(screen.getByRole("button", { name: "Gönderi Kaydını İptal Et" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Manuel Takip No Gir" })).toBeTruthy();
 
-    // Liste ile aynı normalized status helper: IN_TRANSIT → "Taşıma sürecinde".
-    expect(screen.getByText("Taşıma sürecinde")).toBeTruthy();
+    // TODO-136 — Liste ile aynı normalized status helper: IN_TRANSIT → "Yolda".
+    expect(screen.getAllByText("Yolda").length).toBeGreaterThan(0);
 
     // Timeline konumu "İşlem noktası" olarak gösterilir (kesin varış/teslimat şubesi DEĞİL).
     expect(screen.getByText(/İşlem noktası: İstanbul Aktarma/)).toBeTruthy();

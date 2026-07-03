@@ -178,31 +178,42 @@ describe("store-admin orders — list states", () => {
     expect(screen.getAllByText("Fulfilled", { selector: "span" }).length).toBeGreaterThan(0);
   });
 
-  // TODO-135 — Kargo kaydı (ORDER_CREATED) oluşturulmuş sipariş, karşılama rozetinde
-  // "Gönderilmedi" DEĞİL "Gönderi oluşturuldu" göstermeli.
-  it("renders prepared-shipment (ORDER_CREATED) fulfillment badge as 'Gönderi oluşturuldu'", async () => {
+  // TODO-136 — Kargo kaydı (ORDER_CREATED) oluşturulmuş sipariş, karşılama rozetinde
+  // "Hazırlanıyor"/eski metin DEĞİL "Kargonun Alınması Bekleniyor" göstermeli.
+  it("renders prepared-shipment (ORDER_CREATED) fulfillment badge as 'Kargonun Alınması Bekleniyor'", async () => {
     storeApiMock.listOrders.mockResolvedValue(
       page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "ORDER_CREATED" })]),
     );
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
-    expect(screen.getByText("Gönderi oluşturuldu", { selector: "span" })).toBeTruthy();
-    // "Gönderilmedi" yalnız filtre <option>'da olabilir; rozet <span>'de OLMAMALI.
-    expect(screen.queryByText("Gönderilmedi", { selector: "span" })).toBeNull();
+    expect(screen.getByText("Kargonun Alınması Bekleniyor", { selector: "span" })).toBeTruthy();
+    // Eski yanıltıcı rozet metni ORDER_CREATED için gösterilmemeli.
+    expect(screen.queryByText("Gönderi oluşturuldu", { selector: "span" })).toBeNull();
+    expect(screen.queryByText("Hazırlanıyor", { selector: "span" })).toBeNull();
   });
 
-  // TODO-135 — Kargo kaydı olmayan sipariş rozeti hâlâ "Gönderilmedi" göstermeli.
-  it("renders 'Gönderilmedi' when the order has no shipment", async () => {
+  // TODO-136 — Barkod/etiket hazır (LABEL_CREATED) sipariş "Kargo İçin Paketlendi".
+  it("renders label-ready (LABEL_CREATED) fulfillment badge as 'Kargo İçin Paketlendi'", async () => {
+    storeApiMock.listOrders.mockResolvedValue(
+      page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "LABEL_CREATED" })]),
+    );
+    render(<OrdersPage />);
+    await screen.findByText("ORD-1001");
+    expect(screen.getByText("Kargo İçin Paketlendi", { selector: "span" })).toBeTruthy();
+  });
+
+  // TODO-136 — Kargo kaydı olmayan sipariş rozeti "Hazırlanıyor" göstermeli.
+  it("renders 'Hazırlanıyor' when the order has no shipment", async () => {
     storeApiMock.listOrders.mockResolvedValue(
       page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: null })]),
     );
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
-    expect(screen.getByText("Gönderilmedi", { selector: "span" })).toBeTruthy();
-    expect(screen.queryByText("Gönderi oluşturuldu", { selector: "span" })).toBeNull();
+    expect(screen.getByText("Hazırlanıyor", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByText("Kargonun Alınması Bekleniyor", { selector: "span" })).toBeNull();
   });
 
-  // TODO-135 — Yolda (IN_TRANSIT) durumu değişmeden yansımalı ("Yolda").
+  // TODO-135/136 — Yolda (IN_TRANSIT) durumu değişmeden yansımalı ("Yolda").
   it("renders IN_TRANSIT shipment as 'Yolda'", async () => {
     storeApiMock.listOrders.mockResolvedValue(
       page(1, [makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "IN_TRANSIT" })]),
@@ -210,7 +221,7 @@ describe("store-admin orders — list states", () => {
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
     expect(screen.getByText("Yolda", { selector: "span" })).toBeTruthy();
-    expect(screen.queryByText("Gönderilmedi", { selector: "span" })).toBeNull();
+    expect(screen.queryByText("Hazırlanıyor", { selector: "span" })).toBeNull();
   });
 });
 

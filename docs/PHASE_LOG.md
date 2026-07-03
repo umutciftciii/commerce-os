@@ -2303,3 +2303,38 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   gerekir. Runtime doğrulama (OS-000054/OS-000055 gibi ORDER_CREATED shipment'i olan sipariş) merge/rebuild
   sonrası: liste/başlık "Gönderi oluşturuldu" göstermeli, "Gönderilmedi"/"Henüz kargoya verilmedi" GÖSTERMEMELİ;
   provider kanıtlamadıkça "Kargoya verildi/Yolda/Teslim edildi" GÖSTERMEMELİ.
+
+## TODO-136 — Karşılama durum kopyası netleştirme + ödemesiz siparişe gönderi guard'ı (ADR-050)
+- **Kök neden.** (A) TODO-135'in tek `SHIPMENT_CREATED` gösterim durumu operasyonel netlik için yetersizdi
+  (ORDER_CREATED ile LABEL_CREATED aynı etikete çöküyor, OUT_FOR_DELIVERY IN_TRANSIT'e çöküyor, kargo kaydı yok →
+  "Gönderilmedi"/"Henüz kargoya verilmedi" yanıltıcıydı). (B) Ödemesi alınmamış sipariş için gönderi oluşturmayı
+  engelleyen iş kuralı YOKTU (kritik: ödemesiz sipariş kargoya verilmemeli).
+- **Kopya (A).** `OrderFulfillmentDisplay`'e `AWAITING_PICKUP` / `PACKED` / `OUT_FOR_DELIVERY` eklendi;
+  `getOrderFulfillmentDisplay` yeniden eşlendi — ORDER_CREATED/LABEL_PENDING → "Kargonun Alınması Bekleniyor",
+  LABEL_CREATED → "Kargo İçin Paketlendi", OUT_FOR_DELIVERY → "Dağıtımda", IN_TRANSIT → "Yolda", DELIVERED →
+  "Teslim edildi", (kargo yok/DRAFT) → "Hazırlanıyor". ADR-045 korunur (ORDER_CREATED asla shipped/transit/
+  delivered). Aynı sözlük tüm yüzeylerde uygulandı: store-admin liste/hero (`fulfillmentDisplayLabels`), kargo
+  kartı + shipment liste/detay (`SHIPMENT_STATUS_LABEL` ORDER_CREATED/LABEL_CREATED/IN_TRANSIT/OUT_FOR_DELIVERY),
+  storefront hesap listesi (`fulfillmentDisplay`) + takip `statusValues` + "Hazırlanıyor" sekmesi; i18n TR/EN.
+  "Henüz Teslim Alınmadı" bilinçli olarak OTOMATİK türetilmedi (ayrı provider sinyali yok; müşteri teslim
+  durumuyla karışma riski — brief uyarısı).
+- **Guard (B).** Yeni SAF helper `isOrderPaidForShipment(paymentStatus)` (contracts, api-client re-export):
+  PAID/AUTHORIZED uygun; UNPAID/REFUNDED engelli — mevcut mock ödeme akışının `succeeded` (PAID||AUTHORIZED,
+  paidAt işaretli) semantiğiyle birebir (ADR-050). Backend NİHAİ otorite: `create-order`, `dhl/prepare`,
+  `shipment-draft` uçları sağlayıcı çağrısından + Shipment/ShipmentEvent yaratımından ÖNCE 409
+  `ORDER_PAYMENT_REQUIRED`. Store-admin kargo kartı ödemesiz siparişte "Gönderi Oluştur"u pasifleştirir +
+  "Ödeme alınmadan gönderi oluşturulamaz." yardımcı metni gösterir. Ödeme provider/checkout fiyatlama/DHL/MNG
+  istek/webhook mimarisi DEĞİŞMEZ; sipariş/ödeme durumu MUTATE EDİLMEZ.
+- **Testler.** contracts `order-fulfillment-display` (gösterim eşlemesi güncellendi + `isOrderPaidForShipment`);
+  api-gateway yeni `shipping-payment-guard` (unpaid create-order/prepare/draft → 409 ORDER_PAYMENT_REQUIRED,
+  Shipment/ShipmentEvent OLUŞMAZ; paid guard'ı geçer); store-admin `order-shipment-summary` (unpaid buton pasif +
+  yardımcı metin, paid aktif), `orders-ui` + `order-detail-page` (yeni rozet etiketleri), `shipment-ui` +
+  `shipment-screens` (kargo kartı/detay etiketleri); storefront `order-badges` + `shipment` kopya. Mevcut
+  TODO-117/125/132/133/135 testleri yeşil.
+- **Gate.** db:generate ✓; build ✓ (her iki web app derlendi); typecheck ✓; lint ✓; pnpm test (turbo) ✓
+  (34/34 task, gateway 355, store-admin 142, storefront + contracts + i18n yeşil); git diff --check ✓.
+  Migration/şema değişikliği YOK.
+- **Kalan.** Kullanıcı stack'inde docker api-gateway (guard + DTO kopya) + store-admin-web + storefront-web
+  REBUILD gerekir. Runtime doğrulama merge/rebuild sonrası: prepared sipariş liste/hero "Kargonun Alınması
+  Bekleniyor", kargo yok → "Hazırlanıyor", label hazır → "Kargo İçin Paketlendi"; ödemesiz siparişte "Gönderi
+  Oluştur" pasif + backend doğrudan prepare isteğini 409 ile reddeder (provider'a istek gitmez).

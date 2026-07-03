@@ -33,8 +33,10 @@ export const FULFILLMENT_STATUS_TONES: Record<FulfillmentStatus, Tone> = {
 // üzerinden çözülür (Order.fulfillmentStatus MUTATE EDİLMEZ).
 export const FULFILLMENT_DISPLAY_TONES: Record<OrderFulfillmentDisplay, Tone> = {
   NOT_SHIPPED: "neutral",
-  SHIPMENT_CREATED: "info",
+  AWAITING_PICKUP: "info",
+  PACKED: "info",
   IN_TRANSIT: "info",
+  OUT_FOR_DELIVERY: "info",
   DELIVERED: "success",
   FULFILLED: "success",
   PARTIAL: "warning",

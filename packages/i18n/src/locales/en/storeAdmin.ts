@@ -89,6 +89,8 @@ export const enStoreAdmin: StoreAdminDictionary = {
     BARCODE_CREATE_DISABLED: "Label/barcode creation permission is disabled.",
     RECIPIENT_CREATE_DISABLED: "Recipient creation permission is disabled.",
     LABEL_PURCHASE_DISABLED: "Label purchase permission is disabled.",
+    // TODO-136 — Payment required before a shipment can be created (backend guard).
+    ORDER_PAYMENT_REQUIRED: "The order's payment must be completed before creating a shipment.",
     // F3C.3 (ADR-045) DHL operation errors.
     DUPLICATE_SHIPMENT: "A DHL shipment record already exists for this order.",
     NO_ACTIVE_SHIPMENT: "Create a DHL shipment record first.",
@@ -445,9 +447,11 @@ export const enStoreAdmin: StoreAdminDictionary = {
     // shipment state (Shipment created, etc.); the fulfillmentStatus filter keeps
     // using fulfillmentLabels.
     fulfillmentDisplayLabels: {
-      NOT_SHIPPED: "Not shipped",
-      SHIPMENT_CREATED: "Shipment created",
+      NOT_SHIPPED: "In preparation",
+      AWAITING_PICKUP: "Awaiting carrier pickup",
+      PACKED: "Packed for carrier",
       IN_TRANSIT: "In transit",
+      OUT_FOR_DELIVERY: "Out for delivery",
       DELIVERED: "Delivered",
       FULFILLED: "Fulfilled",
       PARTIAL: "Partial",

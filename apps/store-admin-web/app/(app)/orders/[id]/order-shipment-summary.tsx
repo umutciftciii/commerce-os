@@ -7,6 +7,7 @@ import { Alert, Badge, Button, Input, Select } from "../../../../components/ui";
 import { SurfaceCard } from "../../../components/premium";
 import { ProviderLogo } from "../../../../components/provider-logo";
 import type { Order, ShipmentResponse, ShippingProviderConfigResponse } from "@commerce-os/api-client";
+import { isOrderPaidForShipment } from "@commerce-os/api-client";
 import { storeApi, UiError } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import {
@@ -54,6 +55,9 @@ const L = {
     providerError: "Geçici bir sağlayıcı hatası oluştu. Manuel gönderi ile devam edebilirsiniz.",
     manualPrepare: "Manuel Gönderi Hazırla",
     onlineHint: "Önce sağlayıcı üzerinden gönderi kaydı denenecek. Hata olursa manuel devam edebilirsiniz.",
+    // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz (backend guard'ı da vardır).
+    paymentRequiredTitle: "Ödeme alınmadan gönderi oluşturulamaz.",
+    paymentRequiredHint: "Gönderi oluşturmak için siparişin ödemesi tamamlanmalıdır.",
   },
   en: {
     title: "Shipping",
@@ -80,6 +84,9 @@ const L = {
     providerError: "A temporary provider error occurred. You can continue with a manual shipment.",
     manualPrepare: "Prepare manual shipment",
     onlineHint: "We first try a shipment record via the provider. If it fails, you can continue manually.",
+    // TODO-136 — A shipment cannot be created until the order is paid (also enforced server-side).
+    paymentRequiredTitle: "A shipment cannot be created until payment is received.",
+    paymentRequiredHint: "The order's payment must be completed before creating a shipment.",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -129,6 +136,10 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
   );
 
   const selected = providers?.find((p) => p.id === providerConfigId) ?? null;
+
+  // TODO-136 — Ödemesi alınmamış sipariş kargoya VERİLEMEZ. UI "Gönderi Oluştur"u
+  // pasifleştirir + yardımcı metin gösterir; backend guard ayrıca NİHAİ otoritedir.
+  const paidForShipment = isOrderPaidForShipment(order.paymentStatus);
 
   const providerInfoFor = (s: ShipmentResponse) => {
     const cfg = providers?.find((p) => p.provider === s.provider) ?? null;
@@ -296,7 +307,13 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
       {!createOpen ? (
         <>
           <p className="text-sm text-white/40">{t.noShipment}</p>
-          <Button className="mt-3" onClick={() => setCreateOpen(true)}>
+          {/* TODO-136 — Ödeme alınmadan gönderi oluşturulamaz: buton pasif + açıklayıcı metin. */}
+          {!paidForShipment ? (
+            <Alert tone="warning" title={t.paymentRequiredTitle} className="mt-3">
+              {t.paymentRequiredHint}
+            </Alert>
+          ) : null}
+          <Button className="mt-3" onClick={() => setCreateOpen(true)} disabled={!paidForShipment}>
             {t.create}
           </Button>
         </>

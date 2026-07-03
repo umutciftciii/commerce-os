@@ -529,7 +529,7 @@ export const trStorefront = {
       tabs: {
         all: "Siparişler",
         buyAgain: "Tekrar Satın Al",
-        notShipped: "Henüz Kargoya Verilmedi",
+        notShipped: "Hazırlanıyor",
       },
       search: {
         label: "Tüm siparişlerde ara",
@@ -566,13 +566,16 @@ export const trStorefront = {
         FULFILLED: "Teslim edildi",
         CANCELLED: "İptal edildi",
       },
-      // TODO-135 — Kargo kaydı VARSA liste rozeti hazırlık durumunu yansıtır (müşteri
-      // güvenli). ORDER_CREATED artık "Henüz kargoya verilmedi" GÖSTERMEZ (ADR-045:
-      // fiziksel "kargoya verildi" değil → "Gönderi oluşturuldu").
+      // TODO-135/TODO-136 — Kargo kaydı VARSA liste rozeti hazırlık durumunu yansıtır
+      // (müşteri güvenli). ORDER_CREATED artık "kargoya verildi/yolda" GÖSTERMEZ (ADR-045:
+      // fiziksel "kargoya verildi" değil). Hazırlık aşaması: kayıt açıldı ("Kargonun
+      // Alınması Bekleniyor") ve paket hazır ("Kargo İçin Paketlendi").
       fulfillmentDisplay: {
-        NOT_SHIPPED: "Henüz kargoya verilmedi",
-        SHIPMENT_CREATED: "Gönderi oluşturuldu",
+        NOT_SHIPPED: "Hazırlanıyor",
+        AWAITING_PICKUP: "Kargonun Alınması Bekleniyor",
+        PACKED: "Kargo İçin Paketlendi",
         IN_TRANSIT: "Yolda",
+        OUT_FOR_DELIVERY: "Dağıtımda",
         DELIVERED: "Teslim edildi",
         FULFILLED: "Teslim edildi",
         PARTIAL: "Kısmi gönderim",
@@ -642,9 +645,9 @@ export const trStorefront = {
           steps: ["Hazırlanıyor", "Yolda", "Dağıtımda", "Teslim edildi"],
           statusValues: {
             DRAFT: "Hazırlanıyor",
-            ORDER_CREATED: "Gönderi oluşturuldu",
-            LABEL_PENDING: "Kargo etiketi bekleniyor",
-            LABEL_CREATED: "Kargoya hazırlanıyor",
+            ORDER_CREATED: "Kargonun Alınması Bekleniyor",
+            LABEL_PENDING: "Kargonun Alınması Bekleniyor",
+            LABEL_CREATED: "Kargo İçin Paketlendi",
             IN_TRANSIT: "Yolda",
             OUT_FOR_DELIVERY: "Dağıtımda",
             DELIVERED: "Teslim edildi",

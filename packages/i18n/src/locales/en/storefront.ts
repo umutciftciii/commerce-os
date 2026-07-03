@@ -526,7 +526,7 @@ export const enStorefront: StorefrontDictionary = {
       tabs: {
         all: "Orders",
         buyAgain: "Buy again",
-        notShipped: "Not shipped yet",
+        notShipped: "In preparation",
       },
       search: {
         label: "Search all orders",
@@ -563,12 +563,14 @@ export const enStorefront: StorefrontDictionary = {
         FULFILLED: "Delivered",
         CANCELLED: "Cancelled",
       },
-      // TODO-135 — When a shipment exists, the list badge reflects prepared state
-      // (customer-safe). ORDER_CREATED no longer shows "Not shipped yet".
+      // TODO-135/TODO-136 — When a shipment exists, the list badge reflects prepared
+      // state (customer-safe). ORDER_CREATED no longer shows "shipped/in transit".
       fulfillmentDisplay: {
-        NOT_SHIPPED: "Not shipped yet",
-        SHIPMENT_CREATED: "Shipment created",
+        NOT_SHIPPED: "In preparation",
+        AWAITING_PICKUP: "Awaiting carrier pickup",
+        PACKED: "Packed for carrier",
         IN_TRANSIT: "In transit",
+        OUT_FOR_DELIVERY: "Out for delivery",
         DELIVERED: "Delivered",
         FULFILLED: "Delivered",
         PARTIAL: "Partially shipped",
@@ -638,9 +640,9 @@ export const enStorefront: StorefrontDictionary = {
           steps: ["Preparing", "In transit", "Out for delivery", "Delivered"],
           statusValues: {
             DRAFT: "Preparing",
-            ORDER_CREATED: "Shipment created",
-            LABEL_PENDING: "Awaiting carrier label",
-            LABEL_CREATED: "Getting ready to ship",
+            ORDER_CREATED: "Awaiting carrier pickup",
+            LABEL_PENDING: "Awaiting carrier pickup",
+            LABEL_CREATED: "Packed for carrier",
             IN_TRANSIT: "In transit",
             OUT_FOR_DELIVERY: "Out for delivery",
             DELIVERED: "Delivered",

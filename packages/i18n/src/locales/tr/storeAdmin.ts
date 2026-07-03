@@ -89,6 +89,8 @@ export const trStoreAdmin = {
     BARCODE_CREATE_DISABLED: "Barkod/etiket oluşturma izni kapalı.",
     RECIPIENT_CREATE_DISABLED: "Alıcı oluşturma izni kapalı.",
     LABEL_PURCHASE_DISABLED: "Etiket satın alma izni kapalı.",
+    // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz (backend guard).
+    ORDER_PAYMENT_REQUIRED: "Gönderi oluşturmak için siparişin ödemesi tamamlanmalıdır.",
     // F3C.3 (ADR-045) DHL operasyon hataları.
     DUPLICATE_SHIPMENT: "Bu sipariş için DHL gönderi kaydı zaten oluşturulmuş.",
     NO_ACTIVE_SHIPMENT: "Önce DHL gönderi kaydı oluşturun.",
@@ -445,9 +447,11 @@ export const trStoreAdmin = {
     // varsa rozet buradan çözülür (Gönderi oluşturuldu vb.); Order.fulfillmentStatus
     // filtresi hâlâ fulfillmentLabels'ı kullanır.
     fulfillmentDisplayLabels: {
-      NOT_SHIPPED: "Gönderilmedi",
-      SHIPMENT_CREATED: "Gönderi oluşturuldu",
+      NOT_SHIPPED: "Hazırlanıyor",
+      AWAITING_PICKUP: "Kargonun Alınması Bekleniyor",
+      PACKED: "Kargo İçin Paketlendi",
       IN_TRANSIT: "Yolda",
+      OUT_FOR_DELIVERY: "Dağıtımda",
       DELIVERED: "Teslim edildi",
       FULFILLED: "Gönderildi",
       PARTIAL: "Kısmi",

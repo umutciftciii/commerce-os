@@ -212,15 +212,24 @@ export const orderSummaryShipmentStatusSchema = z.enum([
 export type OrderSummaryShipmentStatus = z.infer<typeof orderSummaryShipmentStatusSchema>;
 
 /**
- * TODO-135 — Sipariş listesi/başlık karşılama rozetinin GÖSTERİM durumu. Kargo
- * (shipment) durumu VARSA rozet ondan türetilir; `Order.fulfillmentStatus` MUTATE
- * EDİLMEZ (bu yalnız gösterim eşlemesidir). ADR-045: ORDER_CREATED fiziksel
+ * TODO-135/TODO-136 — Sipariş listesi/başlık karşılama rozetinin GÖSTERİM durumu.
+ * Kargo (shipment) durumu VARSA rozet ondan türetilir; `Order.fulfillmentStatus`
+ * MUTATE EDİLMEZ (bu yalnız gösterim eşlemesidir). ADR-045: ORDER_CREATED fiziksel
  * "kargoya verildi" DEĞİL → asla SHIPPED/IN_TRANSIT/DELIVERED sayılmaz.
+ *
+ * TODO-136 — Operasyonel netlik için hazırlık aşaması iki gösterim durumuna ayrıldı:
+ *   AWAITING_PICKUP ("Kargonun Alınması Bekleniyor") = ORDER_CREATED (kargo kaydı açıldı,
+ *     kurye henüz almadı) ve LABEL_PENDING.
+ *   PACKED ("Kargo İçin Paketlendi") = LABEL_CREATED (barkod/etiket hazır, paket teslim
+ *     için hazır) — kurye fiziksel teslim aldı ANLAMINA GELMEZ.
+ *   OUT_FOR_DELIVERY ("Dağıtımda") artık IN_TRANSIT'e çökmez, ayrı gösterilir.
  */
 export type OrderFulfillmentDisplay =
   | "NOT_SHIPPED"
-  | "SHIPMENT_CREATED"
+  | "AWAITING_PICKUP"
+  | "PACKED"
   | "IN_TRANSIT"
+  | "OUT_FOR_DELIVERY"
   | "DELIVERED"
   | "FULFILLED"
   | "PARTIAL"
@@ -230,10 +239,12 @@ export type OrderFulfillmentDisplay =
  * Öncelik:
  *   iptal sipariş → CANCELLED
  *   shipment DELIVERED → DELIVERED
- *   shipment IN_TRANSIT/OUT_FOR_DELIVERY → IN_TRANSIT
- *   shipment DRAFT/ORDER_CREATED/LABEL_PENDING/LABEL_CREATED → SHIPMENT_CREATED
- *   (shipment yok / iptal-iade-başarısız) → fulfillmentStatus'e düş
- *     FULFILLED → FULFILLED, PARTIAL → PARTIAL, aksi → NOT_SHIPPED
+ *   shipment OUT_FOR_DELIVERY → OUT_FOR_DELIVERY ("Dağıtımda")
+ *   shipment IN_TRANSIT → IN_TRANSIT ("Yolda")
+ *   shipment LABEL_CREATED → PACKED ("Kargo İçin Paketlendi")
+ *   shipment ORDER_CREATED/LABEL_PENDING → AWAITING_PICKUP ("Kargonun Alınması Bekleniyor")
+ *   (shipment yok / DRAFT / iptal-iade-başarısız) → fulfillmentStatus'e düş
+ *     FULFILLED → FULFILLED, PARTIAL → PARTIAL, aksi → NOT_SHIPPED ("Hazırlanıyor")
  */
 export function getOrderFulfillmentDisplay(
   fulfillmentStatus: FulfillmentStatus,
@@ -243,15 +254,16 @@ export function getOrderFulfillmentDisplay(
   switch (shipmentStatus) {
     case "DELIVERED":
       return "DELIVERED";
-    case "IN_TRANSIT":
     case "OUT_FOR_DELIVERY":
+      return "OUT_FOR_DELIVERY";
+    case "IN_TRANSIT":
       return "IN_TRANSIT";
-    case "DRAFT":
+    case "LABEL_CREATED":
+      return "PACKED";
     case "ORDER_CREATED":
     case "LABEL_PENDING":
-    case "LABEL_CREATED":
-      return "SHIPMENT_CREATED";
-    // DELIVERY_FAILED / RETURNED / CANCELLED / FAILED / null → sipariş seviyesine düş.
+      return "AWAITING_PICKUP";
+    // DRAFT / DELIVERY_FAILED / RETURNED / CANCELLED / FAILED / null → sipariş seviyesine düş.
     default:
       break;
   }
@@ -263,6 +275,17 @@ export function getOrderFulfillmentDisplay(
     default:
       return "NOT_SHIPPED";
   }
+}
+
+/**
+ * TODO-136 — Ödeme uygunluğu (gönderi oluşturma ön koşulu). Ödemesi ALINMAMIŞ sipariş
+ * kargoya VERİLEMEZ. Mevcut alan semantiği (server.ts): mock ödeme akışında PAID ve
+ * AUTHORIZED "başarılı ödeme"dir (paidAt işaretlenir, gelir sayılır → succeeded);
+ * UNPAID ve REFUNDED uygun DEĞİLdir. Saf/deterministik — hem gateway prepare guard'ı
+ * hem store-admin UI aynı otoriteyi kullanır (yeni lifecycle EKLEMEZ).
+ */
+export function isOrderPaidForShipment(paymentStatus: PaymentStatus): boolean {
+  return paymentStatus === "PAID" || paymentStatus === "AUTHORIZED";
 }
 
 /**
