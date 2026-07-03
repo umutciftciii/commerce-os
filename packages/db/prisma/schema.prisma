@@ -1277,6 +1277,16 @@ model Shipment {
   recipientCityName    String?
   recipientDistrictName String?
   recipientAddress     String?
+  // TODO-129 — zamanlanmis shipment sync worker metadata'si (provider-agnostic).
+  // lastSyncAt = son sync DENEMESI (basari/hata farketmez; stale-after secimi bunu esas alir).
+  // nextSyncAt = hata backoff'u (null => hemen secilebilir). syncAttempts = ARDISIK hata
+  // sayaci (basarida sifirlanir; MAX_ATTEMPTS ustunu worker SECMEZ, manuel sync calisir).
+  // lastSyncErrorCode = sanitize hata kodu (or. PROVIDER_QUERY_FAILED,
+  // PROVIDER_SYNC_UNSUPPORTED, PROVIDER_DISABLED); raw payload/secret ASLA yazilmaz.
+  lastSyncAt           DateTime?
+  nextSyncAt           DateTime?
+  syncAttempts         Int                  @default(0)
+  lastSyncErrorCode    String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
@@ -1290,6 +1300,9 @@ model Shipment {
   @@index([orderId])
   @@index([providerConfigId])
   @@index([status])
+  // TODO-129 — worker uygun gonderi secimi (status taramasi + backoff/stale siralamasi).
+  @@index([status, nextSyncAt])
+  @@index([status, lastSyncAt])
 }
 
 model ShipmentEvent {

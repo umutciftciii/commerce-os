@@ -252,6 +252,14 @@ export function buildShipmentProviderInfo(
 
 /** Yalniz DHL operasyonel status/track sync uygular; MOCK/GELIVER icin sync desteklenmez. */
 const SYNC_PROVIDERS: ShippingProviderType[] = ["DHL_ECOMMERCE"];
+
+/**
+ * TODO-129 — Zamanlanmis sync worker'i + UI capability AYNI kaynagi kullanir (drift olmaz).
+ * Yeni saglayici tracking sync kazandiginda tek yer: SYNC_PROVIDERS listesi.
+ */
+export function providerSupportsShipmentSync(provider: ShippingProviderType): boolean {
+  return SYNC_PROVIDERS.includes(provider);
+}
 /** Iptal/basarisiz OLMAYAN durumlar aktif sayilir (aksiyonlar bunlara bagli). */
 function isActiveShipmentStatus(status: ShipmentStatus): boolean {
   return status !== "CANCELLED" && status !== "FAILED";

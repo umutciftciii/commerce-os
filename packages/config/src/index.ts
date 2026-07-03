@@ -117,6 +117,41 @@ export const envSchema = z.object({
     .optional()
     .default(false)
     .transform((value) => value === true || value === "true"),
+  // TODO-129 — Zamanlanmis shipment sync worker'i (provider-agnostic). Varsayilan KAPALI;
+  // acilinca api-gateway sureci icinde guvenli araliklarla uygun gonderileri saglayiciyla
+  // senkronlar (bkz. apps/api-gateway/src/shipping/sync-worker.ts). Manuel sync-all ucu
+  // ayni cekirdegi kullanir ve worker kapaliyken de calisir. Tum degerler env_file'daki
+  // `KEY=` bos-string haline TOLERANSLIDIR (PR #15 / PUBLIC_WEBHOOK_BASE_URL deseni):
+  // bos deger undefined'a normalize edilir ve varsayilana duser; config yuklemesi COKMEZ.
+  SHIPMENT_SYNC_ENABLED: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .optional()
+      .default(false)
+      .transform((value) => value === true || value === "true"),
+  ),
+  // Tur araligi (saniye). Muhafazakar varsayilan 300s; alt sinir 30s (saglayiciyi bogmamak icin).
+  SHIPMENT_SYNC_INTERVAL_SECONDS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().min(30).default(300),
+  ),
+  // Tur basina en fazla kac gonderi senkronlanir.
+  SHIPMENT_SYNC_BATCH_SIZE: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().max(500).default(25),
+  ),
+  // Bir gonderi en erken bu sure sonra YENIDEN senkronlanir (lastSyncAt esasli).
+  SHIPMENT_SYNC_STALE_AFTER_MINUTES: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().default(15),
+  ),
+  // Ardisik hata esigi: syncAttempts bu degere ulasan gonderiyi WORKER secmez
+  // (manuel sync-all calismaya devam eder; basarili sync sayaci sifirlar).
+  SHIPMENT_SYNC_MAX_ATTEMPTS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().default(10),
+  ),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

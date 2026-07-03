@@ -53,6 +53,14 @@ services:
       # Local docker dev degeri (host'a publish edilen api-gateway portu). Gercek saglayici
       # erisimi/uretim override eder. Tanimsizsa panel URL uretmez, uyari gosterir.
       PUBLIC_WEBHOOK_BASE_URL: http://localhost:4000
+      # TODO-129 — Zamanlanmis shipment sync worker'i. Docker dev'de ACIK ama muhafazakar
+      # (300s aralik, 25 batch); saglayici HTTP'si yine SHIPPING_SANDBOX_HTTP_ENABLED
+      # kapisinin arkasindadir (kapaliyken sync SHIPPING_HTTP_DISABLED ile guvenle backoff'lar).
+      SHIPMENT_SYNC_ENABLED: "true"
+      SHIPMENT_SYNC_INTERVAL_SECONDS: "300"
+      SHIPMENT_SYNC_BATCH_SIZE: "25"
+      SHIPMENT_SYNC_STALE_AFTER_MINUTES: "15"
+      SHIPMENT_SYNC_MAX_ATTEMPTS: "10"
     ports:
       - "4000:4000"
     depends_on:

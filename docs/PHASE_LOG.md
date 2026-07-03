@@ -2401,3 +2401,33 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   limit clamp, cross-store 404, yetkisiz 403. store-admin `shipping-webhook-admin.test.tsx` (6): URL+kopyala,
   base URL uyarısı, rotate öncesi secret YOK, rotate sonrası bir-kez secret+uyarı, güvenli event alanları.
   Mevcut TODO-104/132/133/135/136 testleri yeşil (api-gateway 363, store-admin 148 pass).
+
+## TODO-129 — Zamanlanmış shipment sync worker'ı (provider-agnostic)
+
+- **Amaç.** Gönderi durumu manuel prepare/webhook/sync'e bağımlıydı; barkod hazır olduktan sonra
+  sistemin admin aksiyonu olmadan "Yolda / Dağıtımda / Teslim edildi"ye ilerlemesi.
+- **Mimari (ADR-051).** Çekirdek `apps/api-gateway/src/shipping/sync-service.ts`: uygun gönderi seçimi +
+  provider adapter dispatch + regresyon korumalı durum ilerletme + event idempotency; DI persistence
+  (webhook-routes test deseni). Zamanlayıcı `sync-worker.ts`: api-gateway süreci içinde setTimeout-zincirli
+  döngü (overlap korumalı, graceful stop; main.ts'te başlar). apps/worker'a taşınMADI çünkü shipping
+  domain'i (adapter/şifreleme/prisma bağlamı) gateway'de yaşar — taşıma provider abstraction redesign'ı
+  olurdu (non-goal). Manuel `sync-all` + tekil sync uçları AYNI çekirdeğe bağlandı (force=true: stale/
+  backoff/attempt filtrelerini atlar); saf durum eşleme yardımcıları `status-map.ts`'e çıkarıldı
+  (routes.ts re-export, davranış aynı), context kurulumu `context.ts`'e çıkarıldı.
+- **Şema.** `Shipment.lastSyncAt/nextSyncAt/syncAttempts/lastSyncErrorCode` + `(status,nextSyncAt)`,
+  `(status,lastSyncAt)` index'leri (additive migration `20260704120000_add_shipment_sync_metadata`).
+- **Kurallar.** Seçim: SYNCABLE durumlar (terminal asla) + ENABLED config + backoff/stale/attempt filtreleri.
+  Durum yalnız sağlayıcı kanıtıyla ilerler (mevcut `mapProviderStatusToShipmentStatus`); NOT_FOUND/4xx/5xx
+  İLERLETMEZ → sanitize `lastSyncErrorCode` + üstel backoff (staleAfter·2^n, 6 saat tavan); başarı sayaç
+  sıfırlar. STATUS_CHANGED yalnız gerçek değişimde (durum geçişi veya sağlayıcı kod/metin değişimi);
+  TRACKING_UPDATED kümülatif listeye karşı doğal anahtarla dedupe → tekrarlanan polling duplicate üretmez.
+  Sync desteklemeyen sağlayıcı (MOCK/GELIVER) `PROVIDER_SYNC_UNSUPPORTED` ile atlanır (attempt sayılmaz);
+  gönderi başına hata batch'i durdurmaz. Log yalnız id/store/provider/durum/hata kodu (secret/raw asla).
+- **Config.** `SHIPMENT_SYNC_ENABLED` (varsayılan false; docker dev compose'da true) +
+  `INTERVAL_SECONDS(300)/BATCH_SIZE(25)/STALE_AFTER_MINUTES(15)/MAX_ATTEMPTS(10)` — hepsi PR #15
+  boş-string normalizasyon deseniyle (`KEY=` çökertmez, varsayılana düşer).
+- **Testler.** `shipping-sync-service.test.ts` (25): seçim/terminal/stale/backoff/attempt filtreleri,
+  force modu, batch limiti, ilerletme+regresyon korumaları, event idempotency (tekrar polling), hata
+  izolasyonu, NOT_FOUND sahte-başarı yok, unsupported/disabled skip, provider-key dispatch, worker
+  enabled=false/çalışma/hata dayanıklılığı, env parsing (varsayılan + boş-string + sınırlar).
+  Mevcut kargo/webhook/guard test dosyaları değişmeden yeşil (api-gateway 388 pass).
