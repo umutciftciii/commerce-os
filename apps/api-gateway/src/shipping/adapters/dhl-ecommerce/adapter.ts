@@ -49,6 +49,7 @@ export const DEFAULT_DHL_ENDPOINTS: DhlEndpointConfig = {
   apiVersion: null,
 };
 import {
+  extractProviderErrorMessage,
   mapCalculateResponse,
   mapCitiesResponse,
   mapCreateBarcodeResponse,
@@ -198,7 +199,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildCalculateRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapCalculateResponse(parseJson(response));
+    return mapCalculateResponse(ensureProviderResponseOk(response, "QUERY"));
   }
 
   /**
@@ -213,7 +214,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildCreateRecipientRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    const rec = (parseJson(response) ?? {}) as Record<string, unknown>;
+    const rec = (ensureProviderResponseOk(response, "OPERATION") ?? {}) as Record<string, unknown>;
     return {
       referenceId: input.referenceId,
       externalRecipientId:
@@ -234,7 +235,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildCreateOrderRequest(input, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapCreateOrderResponse(parseJson(response), input.referenceId);
+    return mapCreateOrderResponse(ensureProviderResponseOk(response, "OPERATION"), input.referenceId);
   }
 
   async createReturnOrder(input: CreateReturnOrderInput): Promise<ShippingOrderCreateResult> {
@@ -282,7 +283,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildQueryGetRequest(suffix, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapTrackResponse(parseJson(response));
+    return mapTrackResponse(ensureProviderResponseOk(response, "SHIPMENT_QUERY"));
   }
 
   async cancelShipment(input: CancelShipmentInput): Promise<{ cancelled: boolean }> {
@@ -322,7 +323,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildCbsGetRequest("/getcities", product, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapCitiesResponse(parseJson(response));
+    return mapCitiesResponse(ensureProviderResponseOk(response, "QUERY"));
   }
 
   async listGeoDistricts(input: ListGeoDistrictsInput): Promise<ShippingGeoResult> {
@@ -335,7 +336,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
         this.apiVersion,
       ),
     );
-    return mapDistrictsResponse(parseJson(response));
+    return mapDistrictsResponse(ensureProviderResponseOk(response, "QUERY"));
   }
 
   private async queryStatus(
@@ -347,7 +348,7 @@ export class DhlEcommerceAdapter implements ShippingProviderAdapter {
     const response = await this.transport.send(
       buildQueryGetRequest(suffix, product, token, this.resolveHost(input.context), this.apiVersion),
     );
-    return mapShipmentStatusResponse(parseJson(response));
+    return mapShipmentStatusResponse(ensureProviderResponseOk(response, "SHIPMENT_QUERY"));
   }
 }
 
@@ -357,4 +358,34 @@ function parseJson(response: ShippingHttpResponse): unknown {
   } catch {
     return {};
   }
+}
+
+/**
+ * F3C.6 — HTTP hata yaniti (>=400) BASARI gibi parse edilmez. Onceden 404 ProblemDetails
+ * govdesi null-alanli "basarili" sonuca donusuyordu (junk STATUS_CHANGED event, 4xx'te
+ * 0 TL calculate, null-id createOrder). Artik sanitize ShippingConfigError firlatilir:
+ *  - SHIPMENT_QUERY + 404 → PROVIDER_SHIPMENT_NOT_FOUND (siparis henuz faturalasmamis
+ *    olabilir; OpenAPI: "If the order has been invoiced, this information can be obtained")
+ *  - diger sorgular → PROVIDER_QUERY_FAILED, operasyonlar → PROVIDER_OPERATION_FAILED.
+ * Mesaja yalniz extractProviderErrorMessage'in guvenli alanlari girer (secret/token/
+ * hesap numarasi girmez). Token akisi bu yoldan GECMEZ (mapTokenResponse → AUTH_FAILED).
+ */
+function ensureProviderResponseOk(
+  response: ShippingHttpResponse,
+  kind: "SHIPMENT_QUERY" | "QUERY" | "OPERATION",
+): unknown {
+  const json = parseJson(response);
+  if (response.status < 400) return json;
+  const providerMessage = extractProviderErrorMessage(json);
+  const detail = providerMessage ? `: ${providerMessage}` : "";
+  if (kind === "SHIPMENT_QUERY" && response.status === 404) {
+    throw new ShippingConfigError(
+      "PROVIDER_SHIPMENT_NOT_FOUND",
+      `Sağlayıcıda gönderi/sipariş bulunamadı (HTTP 404)${detail}`,
+    );
+  }
+  throw new ShippingConfigError(
+    kind === "OPERATION" ? "PROVIDER_OPERATION_FAILED" : "PROVIDER_QUERY_FAILED",
+    `Sağlayıcı ${kind === "OPERATION" ? "operasyonu" : "sorgusu"} başarısız (HTTP ${response.status})${detail}`,
+  );
 }

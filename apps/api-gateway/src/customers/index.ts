@@ -909,14 +909,16 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
                 .reverse()
                 .find((event) => event.location !== null)?.location ?? null,
             updatedAt: shipmentRow.updatedAt,
-            events: shipmentRow.events
-              .filter((event) => isCustomerVisibleShipmentEvent(event.eventType, event.location))
-              .map((event) => ({
-                eventType: event.eventType,
-                statusText: event.statusText,
-                location: event.location,
-                occurredAt: event.occurredAt,
-              })),
+            events: dedupeConsecutiveShipmentEvents(
+              shipmentRow.events.filter((event) =>
+                isCustomerVisibleShipmentEvent(event.eventType, event.location),
+              ),
+            ).map((event) => ({
+              eventType: event.eventType,
+              statusText: event.statusText,
+              location: event.location,
+              occurredAt: event.occurredAt,
+            })),
           }
         : null;
 
@@ -1349,6 +1351,31 @@ const CUSTOMER_VISIBLE_SHIPMENT_EVENTS = new Set([
 
 export function isCustomerVisibleShipmentEvent(eventType: string, location: string | null): boolean {
   return CUSTOMER_VISIBLE_SHIPMENT_EVENTS.has(eventType) || location !== null;
+}
+
+/**
+ * F3C.6 — Ardisik ayni-icerikli event'leri musteri timeline'inda TEKLESTIRIR. Her sync
+ * bir STATUS_CHANGED kaydi urettiginden (operasyonel senkron izi), saglayici durumu
+ * degismeden yapilan tekrarli sync'ler musteriye ayni satiri N kez gostermemeli.
+ * Yalnizca ARDISIK duplikasyon atilir: durumun A→B→A gecisi mesru bir zaman cizgisidir.
+ */
+export function dedupeConsecutiveShipmentEvents<
+  T extends { eventType: string; statusText: string | null; location: string | null },
+>(events: T[]): T[] {
+  const out: T[] = [];
+  for (const event of events) {
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.eventType === event.eventType &&
+      prev.statusText === event.statusText &&
+      prev.location === event.location
+    ) {
+      continue;
+    }
+    out.push(event);
+  }
+  return out;
 }
 
 /* ── Yardimcilar ──────────────────────────────────────────────────────────── */

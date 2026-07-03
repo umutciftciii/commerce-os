@@ -1179,3 +1179,37 @@ ham formatı/imza şeması canlı doğrulanamıyor → geniş provider-spesifik 
 ve admin toplu sync. Webhook secret'ları server-side şifreli yaşar, hiçbir public/müşteri DTO'suna secret/raw
 payload sızmaz, cross-store yazma tasarım gereği imkânsızdır. Payment webhook imza doğrulaması (TODO-071)
 bu karardan BAĞIMSIZ açık kalır.
+
+## ADR-049 DHL (MNG) sağlayıcı yanıtları status-aware normalize edilir; sandbox kanıtı doküman karşısında önceliklidir (F3C.6, TODO-131)
+
+**Bağlam.** F3C.6'da sağlanan 6 OpenAPI dokümanı (Identity/CBS/Plus/Standard Command/Standard Query/Barcode)
+mevcut DHL eCommerce (teknik: MNG) adapter'ıyla karşılaştırıldı ve güvenli read-only sandbox smoke yapıldı.
+Üç sistematik boşluk bulundu: (1) sorgu/operasyon yanıtlarında HTTP status kontrolü olmadığından 4xx/5xx
+gövdeleri "başarı" gibi parse ediliyordu; (2) kümülatif trackshipment listesi her sync'te yeniden event
+yazıyordu; (3) dokümandaki dd-MM-yyyy tarih formatı JS `Date.parse` öncelikli parser'da yanlış çözülüyordu.
+Ayrıca sandbox, dokümanla iki noktada çelişti (calculate kod alanları string ister; hata zarfı nested/PascalCase).
+
+**Karar.**
+- **HTTP >=400 asla başarı gibi parse edilmez.** DHL adapter'ının tüm sorgu/quote/geo/operasyon yolları
+  `ensureProviderResponseOk` üzerinden geçer: gönderi sorgusunda 404 → `PROVIDER_SHIPMENT_NOT_FOUND` (HTTP 404;
+  sipariş henüz faturalaşmamış olabilir), diğer sorgular → `PROVIDER_QUERY_FAILED` (502), operasyonlar →
+  `PROVIDER_OPERATION_FAILED` (502). Hata mesajına yalnız sağlayıcının güvenli alanları girer
+  (description/message/httpMessage...); secret/JWT/hesap numarası ASLA girmez. createbarcode/cancel'ın mevcut
+  status-aware yolları (ADR-045) değişmez. Token akışı `AUTH_FAILED` yolunda kalır.
+- **Sync idempotency insert seviyesinde.** `applySync` yeni TRACKING_UPDATED yazmadan önce mevcut event'lerle
+  (statusText|location|occurredAt-ms) doğal anahtar karşılaştırır; müşteri timeline'ı ek olarak ardışık aynı
+  event'leri tekler (A→B→A meşru geçişi korunur). STATUS_CHANGED sync-izi olarak event başına kalır (admin
+  "son senkron" semantiği), müşteri görünümünde teklenir.
+- **Sandbox kanıtı > doküman.** OpenAPI ile gerçek sandbox davranışı çeliştiğinde gözlemlenen davranış esas
+  alınır ve çelişki koda yorum + PHASE_LOG kaydı olarak işlenir: calculate `cityCode/districtCode` STRING
+  gönderilir (doküman integer der, integer 400 code 4002 üretir); `extractProviderErrorMessage` nested
+  `{error:{...}}` + PascalCase varyantlarını tanır.
+- **Doğrulanmayan şey iddia edilmez.** Dokümanların faturasız/güvenli olduğunu açıkça söylemediği
+  createOrder/createbarcode/cancel bu fazda sandbox'ta ÇAĞIRILMADI (F3C.3 kanıtı geçerli); webhook push formatı
+  dokümanlarda olmadığından provider-özel webhook adaptörü EKLENMEDİ (TODO-130 açık). calculate mutlu yolu
+  hesap/provizyon kısıtı (500 code 20001 "[] NOLU ŞUBENİN İLİ BULUNAMADI") nedeniyle doğrulanamadı; bu durum
+  başarı olarak raporlanmaz.
+
+**Sonuç.** Sağlayıcı hataları artık kontrollü, redaksiyonlu ve makine-okunur kodlarla yüzeye çıkar (junk event /
+0 TL quote / null-id sahte başarı imkânsız); tekrarlı sync müşteri-görünür duplikasyon üretmez; tarih alanları
+dokümandaki tüm formatlarla doğru çözülür. ADR-044/045/048 korunur; değişiklikler additive'dir.

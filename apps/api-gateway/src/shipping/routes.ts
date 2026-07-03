@@ -140,6 +140,9 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       BARCODE_RETRYABLE_ERROR: 409,
       PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
+      // F3C.6 — saglayici sorgu hatasi normalize (HTTP >=400 basari gibi parse edilmez).
+      PROVIDER_SHIPMENT_NOT_FOUND: 404,
+      PROVIDER_QUERY_FAILED: 502,
     };
     // NOT_IMPLEMENTED (adapter capability) UI'da net gosterilsin diye OPERATION_NOT_SUPPORTED'a eslenir.
     const code = error.code === "NOT_IMPLEMENTED" ? "OPERATION_NOT_SUPPORTED" : error.code;
@@ -737,20 +740,6 @@ export function registerShippingAdminRoutes(
     });
   }
 
-  // DHL "30.06.2026 00:27:37" / ISO gibi tarihleri Date'e cevirir; cozulemezse null.
-  function parseProviderDate(value: string | null | undefined): Date | null {
-    if (!value) return null;
-    const iso = Date.parse(value);
-    if (!Number.isNaN(iso)) return new Date(iso);
-    const m = value.match(/^(\d{2})[./](\d{2})[./](\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (m) {
-      const [, dd, mm, yyyy, hh, mi, ss] = m;
-      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), Number(ss ?? "0"));
-      return Number.isNaN(d.getTime()) ? null : d;
-    }
-    return null;
-  }
-
   // Sipariş kargo adresinden + paket olcusunden parca listesi (createbarcode icin yeniden uretilebilir).
   function rebuildPieces(shipment: Shipment) {
     const count = Math.max(1, shipment.pieceCount);
@@ -874,12 +863,23 @@ export function registerShippingAdminRoutes(
         deliveryTo: status.deliveryTo ?? null,
       },
     });
+    // F3C.6 — trackshipment kumulatif liste dondugu icin daha once yazilmis hareketler
+    // atlanir (idempotent sync; musteri timeline'inda duplikasyon olusmaz).
+    const existingTrackEvents = await prisma.shipmentEvent.findMany({
+      where: { shipmentId: updated.id, eventType: "TRACKING_UPDATED" },
+      select: { statusText: true, location: true, occurredAt: true },
+    });
+    const seenTrackKeys = new Set(existingTrackEvents.map(shipmentTrackingEventKey));
     for (const ev of track) {
+      const occurredAt = parseProviderDate(ev.occurredAt);
+      const key = shipmentTrackingEventKey({ statusText: ev.statusText, location: ev.location, occurredAt });
+      if (seenTrackKeys.has(key)) continue;
+      seenTrackKeys.add(key);
       await recordShipmentEvent(storeId, updated, "TRACKING_UPDATED", {
         statusCode: ev.statusCode ?? null,
         statusText: ev.statusText,
         location: ev.location,
-        occurredAt: parseProviderDate(ev.occurredAt),
+        occurredAt,
         trackingUrl: ev.trackingUrl ?? status.trackingUrl,
         rawSafeJson: { sequence: ev.sequence, statusText: ev.statusText, location: ev.location, occurredAt: ev.occurredAt },
       });
@@ -1570,10 +1570,47 @@ export function registerShippingAdminRoutes(
   });
 }
 
+// F3C.6 — Saglayici tarih parser'i. OpenAPI formatlarina gore (dd-MM-yyyy HH:mm:ss
+// eventDateTime/deliveryDateTime, dd.MM.yyyy jwtExpireDate, yyyy-MM-dd eventDateTime2,
+// dd-MM-yyyy salt-tarih estimatedDeliveryDate). gun-once (dd?MM?yyyy) kalibi Date.parse'tan
+// ONCE denenir: aksi halde JS "05-02-2019"u ABD MM-DD sayip YANLIS tarihe cevirir.
+// Saat kismi opsiyoneldir. Cozulemeyen deger null'a duser (event kaydi kaybolmaz).
+// F3C.6 — trackshipment KUMULATIF hareket listesi doner; ayni hareketin tekrar sync'te
+// yeniden TRACKING_UPDATED yazilmamasi icin dogal anahtar. occurredAt parse edilmis Date
+// uzerinden (ms) kurulur ki ham format farklari (dd-MM vs yyyy-MM-dd) ayni ani ayni saysın.
+export function shipmentTrackingEventKey(e: {
+  statusText: string | null;
+  location: string | null;
+  occurredAt: Date | null;
+}): string {
+  return `${e.statusText ?? ""}|${e.location ?? ""}|${e.occurredAt ? e.occurredAt.getTime() : ""}`;
+}
+
+export function parseProviderDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = value.match(/^(\d{2})[./-](\d{2})[./-](\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    const [, dd, mm, yyyy, hh, mi, ss] = m;
+    const d = new Date(
+      Number(yyyy),
+      Number(mm) - 1,
+      Number(dd),
+      Number(hh ?? "0"),
+      Number(mi ?? "0"),
+      Number(ss ?? "0"),
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const iso = Date.parse(value);
+  return Number.isNaN(iso) ? null : new Date(iso);
+}
+
 // F3C.3 (ADR-045) — DHL statusCode (0-7) → ic ShipmentStatus eslemesi (DHL yanitiyla
 // netlestirildi). 3 ("teslim birimine ulasti") IN_TRANSIT alt-durumudur (ham kod
 // shipmentStatusCode'da, ham metin statusText'te saklanir). 5/7 FINAL; 6 (teslim
 // edilemedi) FINAL DEGIL → takip gerektirir.
+// F3C.6: OpenAPI'deki 8 (Destek_Gerekiyor) BILEREK eslenmemistir — ic durumda karsiligi
+// yok; bilinmeyen kod gibi mevcut durum korunur (ilerletilmez), ham kod/metin event'te kalir.
 const DHL_STATUS_TO_SHIPMENT: Record<number, ShipmentStatus> = {
   0: "ORDER_CREATED",
   1: "LABEL_CREATED",

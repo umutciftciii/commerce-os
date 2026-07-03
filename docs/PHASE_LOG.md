@@ -2133,3 +2133,55 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
   rotate → tek seferlik secret + `webhookConfigured:true`, config yanıtında token/cipher SIZINTISI YOK;
   sync-all → scanned 6, gönderi başına TEST_BASE_URL_MISSING kod raporu (env'siz DHL TEST beklenen; iş
   durmadı). Smoke gateway kapatıldı; smoke verisi dev DB'de (TD-018 deseni).
+
+## F3C.6 — DHL Sandbox Verification & Hardening (TODO-131, ADR-049)
+
+- Tarih: 2026-07-03. Branch: claude/great-shannon-5558b3.
+- **Doküman denetimi.** Sağlanan 6 OpenAPI dosyası (Identity, CBS Info, Plus Command, Standard Command,
+  Standard Query, Barcode Command; host testapi.mngkargo.com.tr) mevcut `dhl-ecommerce` adapter'la
+  (client/adapter/mappers + routes status eşleme + webhook yolu) satır satır karşılaştırıldı. Auth akışı,
+  base path'ler, header'lar (X-IBM çifti + x-api-version + Bearer), tüm request gövdeleri ve F3C.3'te
+  sandbox'la netleşen incelikler (recipient wrapper, marketPlaceShortCode:"", uppercase referenceId,
+  createOrder array yanıtı, cancelshipment PUT gövdesi) doğru bulundu.
+- **Düzeltilen kusurlar (doküman/sandbox kanıtlı).**
+  1. `parseProviderDate`: dokümandaki dd-MM-yyyy (tire) formatı `Date.parse` önceliği yüzünden gün≤12'de
+     ABD MM-DD olarak YANLIŞ tarihe, gün>12'de null'a düşüyordu → dd?MM?yyyy regex'i ([./-], saat opsiyonel)
+     Date.parse'tan ÖNCE denenir; modül scope'a taşındı + test edildi.
+  2. Sync idempotency: `trackshipment` KÜMÜLATİF hareket listesi döndüğünden `applySync` her çağrıda tüm
+     hareketleri yeniden TRACKING_UPDATED yazıyordu → `shipmentTrackingEventKey`
+     (statusText|location|occurredAt-ms) ile insert-seviyesi dedupe; müşteri timeline'ına ayrıca
+     `dedupeConsecutiveShipmentEvents` (ardışık aynı event teklenir, A→B→A korunur).
+  3. HTTP hata normalizasyonu: sorgu/calculate/geo/createOrder/createRecipient yanıtlarında status kontrolü
+     yoktu — 404 ProblemDetails "başarı" gibi parse edilip junk STATUS_CHANGED event, calculate 4xx'te 0 TL
+     quote, createOrder 400'de null-id sahte başarı üretebiliyordu → `ensureProviderResponseOk`: gönderi
+     sorgusu 404 → PROVIDER_SHIPMENT_NOT_FOUND (HTTP 404), diğer sorgu → PROVIDER_QUERY_FAILED (502),
+     operasyon → PROVIDER_OPERATION_FAILED (502); mesaja yalnız güvenli sağlayıcı alanları girer
+     (secret/JWT/hesap no ASLA). createbarcode/cancel zaten status-aware idi (ADR-045), değişmedi.
+  4. `.env.example`: eksik DHL_ECOMMERCE_TEST_BASE_URL / API_VERSION / ALLOW_RECIPIENT_CREATE / ALLOW_CANCEL
+     örnekleri eklendi.
+  5. statusCode 8 (Destek_Gerekiyor, dokümanda tanımlı) BİLEREK eşlenmedi: bilinmeyen kod durumu İLERLETMEZ
+     (ham kod/metin event'te saklanır) — davranış testle sabitlendi.
+- **Sandbox smoke (2026-07-03, gerçek testapi.mngkargo.com.tr; secret'lar .secrets dosyasından process-only,
+  hiçbir secret/JWT loglanmadı; createOrder/createbarcode/cancel ÇAĞIRILMADI).**
+  - Identity POST /token → HTTP 200, jwt + refreshToken + jwtExpireDate (dd.MM.yyyy) ✓ dokümanla uyumlu.
+  - CBS getcities → 200 (82 şehir); getdistricts/34 → 200 (40 ilçe) ✓ dokümanla uyumlu.
+  - Bilinmeyen referans getshipmentstatus + trackshipment → 404 ProblemDetails ✓ dokümanla uyumlu;
+    yeni PROVIDER_SHIPMENT_NOT_FOUND normalizasyonunu doğrular.
+  - calculate → DOKÜMAN↔SANDBOX ÇELİŞKİSİ: OpenAPI cityCode/districtCode integer der; sandbox binder STRING
+    ister (integer → 400 code 4002 "The JSON value could not be converted to System.String"). KOD DEĞİŞTİ:
+    calculate isteğinde kodlar string gönderilir. String ile tekrar → HTTP 500 code 20001
+    "<WERR>[] NOLU ŞUBENİN İLİ BULUNAMADI" (test müşteri hesabında şube ataması yok — HESAP/PROVİZYON kısıtı,
+    kod değil; ADR-044 gereği calculate checkout fiyatında kullanılmadığından etki düşük). Ek bulgu: MNG hata
+    zarfı nested `{error:{code|Code,message|Message,description|Description}}` (camel/Pascal karışık) →
+    `extractProviderErrorMessage` genişletildi (KOD DEĞİŞTİ).
+- **Sandbox'ın doğrulayamadıkları.** createOrder/createbarcode/label/cancel (dokümanlar faturasız/güvenli
+  demiyor; F3C.3'te uçtan uca doğrulanmıştı, kod değişmedi); webhook push formatı (dokümanlarda YOK →
+  provider-özel webhook adaptörü EKLENMEDİ, TODO-130 açık); calculate mutlu yolu (hesap kısıtı, yukarıda).
+- **Testler.** Yeni `shipping-dhl-hardening.test.ts` (20): tarih formatları (MM-DD tuzağı dahil), statusCode
+  8/99 durum ilerletmez, tracking dedupe anahtarı + müşteri ardışık-duplikasyon filtresi, 404/500/401/400
+  normalize + redaksiyon (mesajda secret/jwt yok), calculate string kod gövdesi, nested hata zarfı çıkarımı,
+  doküman fixture'lı getshipmentstatus/trackshipment/getshipment eşlemeleri. Mevcut TODO-117/125/104 testleri
+  dahil tüm gate'ler yeşil (aşağıda).
+- **Doğrulama.** pnpm db:generate / build / typecheck / lint (+ --filter api-gateway lint) / pnpm -r test
+  (gateway 321, store-admin 125, storefront 87, admin-web 24, api-client 13, ui 14, queues 1) / git diff --check
+  yeşil. Değişen davranışlar geriye dönük uyumlu-additive; migration YOK.
