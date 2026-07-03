@@ -569,9 +569,19 @@
   yeşil kalır); tam URL yalnız bu tekil uçta döner (rotate ile aynı admin-görünür token deseni).
   HMAC/timestamp/idempotency/rotate semantiği DEĞİŞMEDİ. Rotate BFF + `webhookInfo` api-client
   metodu + storeApi wrapper'ları eklendi. Testler: api-gateway 8 + store-admin 6.
-- TODO-129 (AÇIK): Zamanlanmış otomatik toplu tracking sync worker job'ı — `sync-all` ucundaki mantığın
-  worker'da periyodik çalıştırılması (backoff, store başına limit, yalnız ENABLED provider); admin uç
-  manuel tetik olarak kalır. TODO-123 (barcode retry) ile aynı worker altyapısını paylaşabilir.
+- TODO-129: Zamanlanmış shipment sync worker'ı (DONE — 2026-07-04, ADR-051). Provider-agnostic çekirdek
+  `sync-service.ts` (uygun gönderi seçimi + adapter dispatch + regresyon korumalı durum ilerletme + event
+  idempotency) hem yeni zamanlanmış döngü (`sync-worker.ts`, api-gateway süreci içinde; gerekçe ADR-051)
+  hem manuel `sync-all`/tekil sync uçları tarafından kullanılır (drift yok). `Shipment`'a minimal sync
+  metadata'sı eklendi (`lastSyncAt/nextSyncAt/syncAttempts/lastSyncErrorCode` + 2 index; migration
+  `20260704120000_add_shipment_sync_metadata`). Env: `SHIPMENT_SYNC_ENABLED` (varsayılan false; docker dev
+  compose açık) + `SHIPMENT_SYNC_INTERVAL_SECONDS/BATCH_SIZE/STALE_AFTER_MINUTES/MAX_ATTEMPTS` — hepsi
+  PR #15 boş-string desenine toleranslı. STATUS_CHANGED artık yalnız gerçek değişimde yazılır (tekrarlanan
+  polling duplicate event üretmez; `lastSyncedAt` DTO'su `Shipment.lastSyncAt`'ten beslenir). Sync
+  desteklemeyen sağlayıcı (MOCK/GELIVER) `PROVIDER_SYNC_UNSUPPORTED` ile güvenle atlanır; gönderi başına
+  hata batch'i durdurmaz; DELIVERED/terminal asla regres etmez; NOT_FOUND/4xx/5xx durumu İLERLETMEZ
+  (backoff + sanitize hata kodu). Testler: `shipping-sync-service.test.ts` (25). Kalan: TODO-123 (barcode
+  retry) aynı çekirdek/worker desenini paylaşabilir; ham provider webhook adapter'ları TODO-130'da.
 - TODO-130 (AÇIK): DHL/Geliver HAM webhook format + provider-özel imza şeması adaptörleri — sağlayıcının
   gerçek push formatını platform-normalize sözleşmeye çeviren adapter katmanı + sağlayıcının kendi imza
   doğrulaması (DHL callback kaydı TODO-107 canlı süreciyle birlikte). Şu an uç platform-normalize

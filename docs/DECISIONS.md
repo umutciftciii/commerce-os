@@ -1250,3 +1250,36 @@ shipped/transit/delivered sayılmaz). Brief'in dördüncü etiketi "Henüz Tesli
 türetilmedi: mevcut sağlayıcı mimarisinde "paketlendi ama kurye almadı"yı ORDER_CREATED/LABEL_CREATED'ten ayıran
 ayrı bir provider event'i yoktur ve etiket müşteri teslim durumuyla karışabilir (brief'in kendi uyarısı).
 `AWAITING_PICKUP`/`PACKED` "henüz teslim alınmadı"yı zaten dürüstçe karşılar.
+
+---
+
+## ADR-051 — Zamanlanmış shipment sync: çekirdek servis + api-gateway içi döngü; sync desteği adapter listesinden (TODO-129)
+
+**Bağlam.** Gönderi durumu manuel prepare/webhook/manuel sync'e bağımlıydı. Periyodik senkron gerekiyordu;
+"worker" için doğal aday `apps/worker` (bullmq) gibi görünse de shipping domain'i (adapter registry,
+credential şifreleme AES-256-GCM, guard hesaplama, prisma modelleri) tamamen api-gateway içinde yaşar.
+Kodu pakete çıkarmak/worker'a taşımak provider abstraction redesign'ı olurdu (TODO-129 non-goal'ü).
+
+**Karar.**
+1. **Çekirdek/zamanlayıcı ayrımı.** Provider-agnostic çekirdek `sync-service.ts`'te (DI persistence ile
+   test edilebilir; webhook-routes deseni). Zamanlayıcı `sync-worker.ts` api-gateway SÜRECİ İÇİNDE
+   setTimeout-zincirli döngüdür (overlap korumalı, `SHIPMENT_SYNC_ENABLED=false` → no-op, graceful stop).
+   Manuel `sync-all` + tekil sync AYNI çekirdeği kullanır → davranış drift'i imkânsız. TODO-123 (barcode
+   retry) ile birlikte shipping çekirdeği pakete çıkarılırsa döngü dedike worker servisine taşınabilir;
+   çekirdek/zamanlayıcı ayrımı bu taşımayı ucuzlatır.
+2. **Sync desteği tek listeden.** Worker sağlayıcı HTTP detayını bilmez; `shipment.provider` → registry
+   dispatch. Hangi sağlayıcının tracking sync desteklediği UI capability ile AYNI kaynaktan gelir
+   (`SYNC_PROVIDERS`/`providerSupportsShipmentSync`, serialize.ts). Desteklemeyen sağlayıcı
+   `PROVIDER_SYNC_UNSUPPORTED` ile atlanır (attempt sayılmaz, batch sürer).
+3. **Minimal sync metadata'sı Shipment üzerinde.** `lastSyncAt/nextSyncAt/syncAttempts/lastSyncErrorCode`
+   (additive). Webhook inbox'ı zamanlanmış sync için KULLANILMAZ (o, imzalı teslimat idempotency'sidir);
+   ayrı job-log tablosu da açılmadı — log + bu dört alan yeterli gözlemlenebilirlik sağlar.
+4. **Event idempotency polling'e göre sıkılaştırıldı.** STATUS_CHANGED yalnız gerçek değişimde (durum
+   geçişi veya sağlayıcı kod/metin değişimi) yazılır; `lastSyncedAt` DTO alanı artık `Shipment.lastSyncAt`
+   öncelikli türetilir. Durum ilerletme kuralları DEĞİŞMEDİ (ADR-045/049 eşleme + regresyon koruması).
+
+**Sonuçlar.** Artı: sıfır yeni servis/altyapı, tek çekirdek, test edilebilirlik, güvenli varsayılanlar
+(kapalı; açıkken 300s/25 batch/15dk stale/10 attempt + üstel backoff 6 saat tavan). Eksi: döngü api-gateway
+süreciyle aynı kaynakları paylaşır (muhafazakâr limitler bunu sınırlar) ve çoklu gateway replikasında
+koordinasyonsuz çift tarama yapabilir (bugünkü tek-instance dev/smoke için kapsam dışı; replika senaryosu
+worker servisine taşıma tetikleyicisidir).

@@ -78,12 +78,14 @@ import {
   type SerializedShippingProviderConfig,
   type ShippingEnvGuards,
 } from "./serialize.js";
-import type {
-  ResolvedShippingCredential,
-  ResolvedShippingCredentials,
-  ShippingActionContext,
-} from "./types.js";
+import type { ShippingActionContext } from "./types.js";
+import { buildShippingActionContext } from "./context.js";
 import { generateShippingWebhookSecret, generateShippingWebhookToken } from "./webhook.js";
+import {
+  createPrismaShipmentSyncPersistence,
+  createShipmentSyncService,
+  type ShipmentSyncService,
+} from "./sync-service.js";
 
 export interface ShippingAdminRoutesDeps {
   config: AppConfig;
@@ -204,38 +206,18 @@ export function registerShippingAdminRoutes(
     });
   }
 
-  function decryptCredentials(cfg: ConfigWithCredentials): ResolvedShippingCredentials {
-    const secret = cipher();
-    const byType: Partial<Record<ShippingCredentialType, ResolvedShippingCredential>> = {};
-    for (const cred of cfg.credentials) {
-      byType[cred.type] = {
-        type: cred.type,
-        key: cred.encryptedKey ? secret.decrypt(cred.encryptedKey) : null,
-        secret: cred.encryptedSecret ? secret.decrypt(cred.encryptedSecret) : null,
-        customerNumber: cred.encryptedCustomerNumber ? secret.decrypt(cred.encryptedCustomerNumber) : null,
-        customerPassword: cred.encryptedCustomerPassword ? secret.decrypt(cred.encryptedCustomerPassword) : null,
-        identityType: cred.identityType,
-      };
-    }
-    return { byType };
+  // TODO-129 — credential cozme + guard hesaplamasi context.ts'e TASINDI (davranis ayni);
+  // zamanlanmis sync worker'i ile paylasilir. Bu wrapper mevcut cagri noktalarini korur.
+  function buildContext(cfg: ConfigWithCredentials): ShippingActionContext {
+    return buildShippingActionContext(config, cfg);
   }
 
-  function buildContext(cfg: ConfigWithCredentials): ShippingActionContext {
-    return {
-      provider: cfg.provider,
-      mode: cfg.mode,
-      credentials: decryptCredentials(cfg),
-      guards: {
-        allowRecipientCreate: config.DHL_ECOMMERCE_ALLOW_RECIPIENT_CREATE && cfg.allowRecipientCreate,
-        allowOrderCreate: config.DHL_ECOMMERCE_ALLOW_ORDER_CREATE && cfg.allowOrderCreate,
-        allowBarcodeCreate: config.DHL_ECOMMERCE_ALLOW_BARCODE_CREATE && cfg.allowBarcodeCreate,
-        allowLabelPurchase: config.GELIVER_ALLOW_LABEL_PURCHASE && cfg.allowLabelPurchase,
-        // F3C.3 (ADR-045): cancel, order-create ile ayni provider-config kapisini (allowOrderCreate)
-        // ve ayrica DHL_ECOMMERCE_ALLOW_CANCEL env'ini gerektirir. Dedike provider toggle TODO-121.
-        allowCancel: config.DHL_ECOMMERCE_ALLOW_CANCEL && cfg.allowOrderCreate,
-      },
-    };
-  }
+  // TODO-129 — manuel tekil sync + sync-all + zamanlanmis worker AYNI cekirdegi kullanir.
+  const syncService: ShipmentSyncService = createShipmentSyncService({
+    config,
+    registry,
+    persistence: createPrismaShipmentSyncPersistence(),
+  });
 
   /* ───────────── Provider config CRUD ───────────── */
 
@@ -902,57 +884,14 @@ export function registerShippingAdminRoutes(
   }
 
   // getshipmentstatus + trackshipment → durum/hareket senkronu (terminal/regresyon korumali).
-  async function applySync(storeId: string, shipment: Shipment, cfg: ConfigWithCredentials) {
-    const ctx = buildContext(cfg);
-    const lookup = { context: ctx, referenceId: shipment.referenceId, shipmentId: shipment.externalShipmentId ?? undefined };
-    const adapter = registry.get(cfg.provider);
-    const status = await adapter.getShipmentStatus(lookup);
-    const track = await adapter.trackShipment(lookup).catch(() => []);
-
-    const nextStatus = mapProviderStatusToShipmentStatus(status, shipment.status);
-    const updated = await prisma.shipment.update({
-      where: { id: shipment.id },
-      data: {
-        status: nextStatus,
-        shipmentStatusCode: status.statusCode ?? shipment.shipmentStatusCode,
-        trackingUrl: status.trackingUrl ?? shipment.trackingUrl,
-        trackingNumber: status.externalShipmentId ?? shipment.trackingNumber,
-      },
-    });
-    await recordShipmentEvent(storeId, updated, "STATUS_CHANGED", {
-      statusCode: status.statusCode,
-      statusText: status.statusText,
-      trackingUrl: status.trackingUrl,
-      occurredAt: parseProviderDate(status.deliveryDateTime ?? null),
-      rawSafeJson: {
-        statusCode: status.statusCode,
-        statusText: status.statusText,
-        isDelivered: status.isDelivered,
-        deliveryTo: status.deliveryTo ?? null,
-      },
-    });
-    // F3C.6 — trackshipment kumulatif liste dondugu icin daha once yazilmis hareketler
-    // atlanir (idempotent sync; musteri timeline'inda duplikasyon olusmaz).
-    const existingTrackEvents = await prisma.shipmentEvent.findMany({
-      where: { shipmentId: updated.id, eventType: "TRACKING_UPDATED" },
-      select: { statusText: true, location: true, occurredAt: true },
-    });
-    const seenTrackKeys = new Set(existingTrackEvents.map(shipmentTrackingEventKey));
-    for (const ev of track) {
-      const occurredAt = parseProviderDate(ev.occurredAt);
-      const key = shipmentTrackingEventKey({ statusText: ev.statusText, location: ev.location, occurredAt });
-      if (seenTrackKeys.has(key)) continue;
-      seenTrackKeys.add(key);
-      await recordShipmentEvent(storeId, updated, "TRACKING_UPDATED", {
-        statusCode: ev.statusCode ?? null,
-        statusText: ev.statusText,
-        location: ev.location,
-        occurredAt,
-        trackingUrl: ev.trackingUrl ?? status.trackingUrl,
-        rawSafeJson: { sequence: ev.sequence, statusText: ev.statusText, location: ev.location, occurredAt: ev.occurredAt },
-      });
-    }
-    return reloadShipment(updated.id);
+  // TODO-129 — cekirdek sync-service.ts'e TASINDI; manuel uc + zamanlanmis worker ayni
+  // mantigi kullanir (drift yok). Ek olarak STATUS_CHANGED artik yalniz gercek degisimde
+  // yazilir (tekrarlanan sync duplicate event uretmez). Saglayici hatasi FIRLATILIR
+  // (mevcut sendShippingError davranisi korunur); firlatmadan once sanitize hata kodu
+  // + backoff metadata'si Shipment'a yazilir.
+  async function applySync(_storeId: string, shipment: Shipment, cfg: ConfigWithCredentials) {
+    await syncService.syncShipmentWithProvider(shipment, cfg);
+    return reloadShipment(shipment.id);
   }
 
   // cancelshipment — explicit onay + shipmentId ZORUNLU (ADR-045). Guard'lar burada thrown.
@@ -1346,7 +1285,8 @@ export function registerShippingAdminRoutes(
       lastEventType: ev.lastEventType,
       lastEventLocation: ev.lastEventLocation,
       lastProviderStatus: ev.lastProviderStatus,
-      lastSyncedAt: ev.lastSyncedAt,
+      // TODO-129 — degisiklik yoksa sync event yazilmaz; son sync ani Shipment.lastSyncAt'ten.
+      lastSyncedAt: s.lastSyncAt ? s.lastSyncAt.toISOString() : ev.lastSyncedAt,
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
     };
@@ -1619,158 +1559,61 @@ export function registerShippingAdminRoutes(
   });
 
   /* ───────────── TODO-100 store-level toplu tracking sync ─────────────
-   * Terminal olmayan gonderileri mevcut applySync (getShipmentStatus+trackShipment)
-   * ile senkronlar. Provider-agnostic: adapter registry dispatch eder; DHL Bulk
-   * Query gibi saglayici-ozel toplu uclar ILERIDE bu ucun arkasina takilir.
-   * Gonderi basina hata TUM isi durdurmaz; kod bazli ozet doner. */
+   * Terminal olmayan gonderileri cekirdek sync servisi (sync-service.ts) ile senkronlar.
+   * Provider-agnostic: adapter registry dispatch eder; DHL Bulk Query gibi saglayici-ozel
+   * toplu uclar ILERIDE bu ucun arkasina takilir. Gonderi basina hata TUM isi durdurmaz;
+   * kod bazli ozet doner.
+   * TODO-129 — zamanlanmis worker AYNI cekirdegi kullanir; manuel uc force=true ile
+   * stale-after/backoff/attempt filtrelerini ATLAR (admin "simdi tazele" niyeti). */
   app.post("/stores/:storeId/shipping/shipments/sync-all", async (request, reply) => {
     const params = storeParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);
     if (!access) return;
     const input = shipmentSyncAllRequestSchema.parse(request.body ?? {});
-    const shipments = await prisma.shipment.findMany({
-      where: { storeId: params.storeId, status: { in: SYNCABLE_SHIPMENT_STATUSES } },
-      orderBy: { updatedAt: "asc" },
-      take: input.limit,
+    const summary = await syncService.syncEligibleShipments({
+      storeId: params.storeId,
+      force: true,
+      batchSize: input.limit,
     });
-
-    const cfgCache = new Map<string, ConfigWithCredentials | null>();
-    const results: { shipmentId: string; ok: boolean; status: ShipmentStatus | null; errorCode: string | null }[] = [];
-    let synced = 0;
-    let failed = 0;
-    let skipped = 0;
-
-    for (const shipment of shipments) {
-      let cfg = cfgCache.get(shipment.providerConfigId);
-      if (cfg === undefined) {
-        cfg = await loadConfig(params.storeId, shipment.providerConfigId);
-        cfgCache.set(shipment.providerConfigId, cfg);
-      }
-      if (!cfg || cfg.status !== "ENABLED") {
-        skipped += 1;
-        results.push({ shipmentId: shipment.id, ok: false, status: shipment.status, errorCode: "PROVIDER_DISABLED" });
-        continue;
-      }
-      try {
-        const updated = await applySync(params.storeId, shipment, cfg);
-        synced += 1;
-        results.push({ shipmentId: shipment.id, ok: true, status: updated.status, errorCode: null });
-      } catch (error) {
-        failed += 1;
-        const code = error instanceof ShippingConfigError ? error.code : "SYNC_FAILED";
-        results.push({ shipmentId: shipment.id, ok: false, status: shipment.status, errorCode: code });
-      }
-    }
 
     await deps.recordAudit({
       action: "UPDATE",
       platformUserId: access.actorUserId,
       storeId: params.storeId,
       entityType: "Shipment",
-      metadata: { action: "shipment.sync-all", scanned: shipments.length, synced, failed, skipped },
+      metadata: {
+        action: "shipment.sync-all",
+        scanned: summary.scanned,
+        synced: summary.synced,
+        failed: summary.failed,
+        skipped: summary.skipped,
+      },
     });
     return reply.send(
-      shipmentSyncAllResponseSchema.parse({ scanned: shipments.length, synced, failed, skipped, results }),
+      shipmentSyncAllResponseSchema.parse({
+        scanned: summary.scanned,
+        synced: summary.synced,
+        failed: summary.failed,
+        skipped: summary.skipped,
+        results: summary.results.map((r) => ({
+          shipmentId: r.shipmentId,
+          ok: r.ok,
+          status: r.status,
+          errorCode: r.errorCode,
+        })),
+      }),
     );
   });
 }
 
-// F3C.6 — Saglayici tarih parser'i. OpenAPI formatlarina gore (dd-MM-yyyy HH:mm:ss
-// eventDateTime/deliveryDateTime, dd.MM.yyyy jwtExpireDate, yyyy-MM-dd eventDateTime2,
-// dd-MM-yyyy salt-tarih estimatedDeliveryDate). gun-once (dd?MM?yyyy) kalibi Date.parse'tan
-// ONCE denenir: aksi halde JS "05-02-2019"u ABD MM-DD sayip YANLIS tarihe cevirir.
-// Saat kismi opsiyoneldir. Cozulemeyen deger null'a duser (event kaydi kaybolmaz).
-// F3C.6 — trackshipment KUMULATIF hareket listesi doner; ayni hareketin tekrar sync'te
-// yeniden TRACKING_UPDATED yazilmamasi icin dogal anahtar. occurredAt parse edilmis Date
-// uzerinden (ms) kurulur ki ham format farklari (dd-MM vs yyyy-MM-dd) ayni ani ayni saysın.
-export function shipmentTrackingEventKey(e: {
-  statusText: string | null;
-  location: string | null;
-  occurredAt: Date | null;
-}): string {
-  return `${e.statusText ?? ""}|${e.location ?? ""}|${e.occurredAt ? e.occurredAt.getTime() : ""}`;
-}
-
-export function parseProviderDate(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  const m = value.match(/^(\d{2})[./-](\d{2})[./-](\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (m) {
-    const [, dd, mm, yyyy, hh, mi, ss] = m;
-    const d = new Date(
-      Number(yyyy),
-      Number(mm) - 1,
-      Number(dd),
-      Number(hh ?? "0"),
-      Number(mi ?? "0"),
-      Number(ss ?? "0"),
-    );
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  const iso = Date.parse(value);
-  return Number.isNaN(iso) ? null : new Date(iso);
-}
-
-// F3C.3 (ADR-045) — DHL statusCode (0-7) → ic ShipmentStatus eslemesi (DHL yanitiyla
-// netlestirildi). 3 ("teslim birimine ulasti") IN_TRANSIT alt-durumudur (ham kod
-// shipmentStatusCode'da, ham metin statusText'te saklanir). 5/7 FINAL; 6 (teslim
-// edilemedi) FINAL DEGIL → takip gerektirir.
-// F3C.6: OpenAPI'deki 8 (Destek_Gerekiyor) BILEREK eslenmemistir — ic durumda karsiligi
-// yok; bilinmeyen kod gibi mevcut durum korunur (ilerletilmez), ham kod/metin event'te kalir.
-const DHL_STATUS_TO_SHIPMENT: Record<number, ShipmentStatus> = {
-  0: "ORDER_CREATED",
-  1: "LABEL_CREATED",
-  2: "IN_TRANSIT",
-  3: "IN_TRANSIT",
-  4: "OUT_FOR_DELIVERY",
-  5: "DELIVERED",
-  6: "DELIVERY_FAILED",
-  7: "RETURNED",
-};
-
-// Durum siralamasi (regresyon koruması). Eski/yanlis sync 0/1 kodu, lokal olarak
-// ilerlemis durumu (or. LABEL_CREATED) GERI cekmemeli. Final durumlar en yuksek rank.
-const SHIPMENT_STATUS_RANK: Record<ShipmentStatus, number> = {
-  DRAFT: 0,
-  ORDER_CREATED: 1,
-  LABEL_PENDING: 1,
-  LABEL_CREATED: 2,
-  IN_TRANSIT: 3,
-  OUT_FOR_DELIVERY: 4,
-  DELIVERY_FAILED: 4,
-  DELIVERED: 5,
-  RETURNED: 5,
-  CANCELLED: 5,
-  FAILED: 5,
-};
-
-const TERMINAL_SHIPMENT_STATUSES: ShipmentStatus[] = ["DELIVERED", "RETURNED", "CANCELLED", "FAILED"];
-
-// TODO-100 — toplu sync'e giren durumlar: terminal olmayan + saglayicida karsiligi
-// olan gonderiler. DRAFT haric (henuz provider order'i yok → sync anlamsiz).
-export const SYNCABLE_SHIPMENT_STATUSES: ShipmentStatus[] = [
-  "ORDER_CREATED",
-  "LABEL_PENDING",
-  "LABEL_CREATED",
-  "IN_TRANSIT",
-  "OUT_FOR_DELIVERY",
-  "DELIVERY_FAILED",
-];
-
-// getshipmentstatus durum → ic ShipmentStatus. Bilinmeyen/null kodda mevcut durum korunur;
-// terminal durumdan geri donulmez; ileri olmayan koda regres edilmez.
-export function mapProviderStatusToShipmentStatus(
-  status: { statusCode: number | null; isDelivered: boolean },
-  current: ShipmentStatus,
-): ShipmentStatus {
-  if (TERMINAL_SHIPMENT_STATUSES.includes(current)) return current;
-  if (status.isDelivered) return "DELIVERED";
-  if (status.statusCode == null) return current;
-  const mapped = DHL_STATUS_TO_SHIPMENT[status.statusCode];
-  if (!mapped) return current;
-  // Final hedefe (DELIVERED/RETURNED) her zaman gec; aksi halde geri gitme.
-  if (TERMINAL_SHIPMENT_STATUSES.includes(mapped)) return mapped;
-  return SHIPMENT_STATUS_RANK[mapped] >= SHIPMENT_STATUS_RANK[current] ? mapped : current;
-}
+// TODO-129 — Durum esleme/sync saf yardimcilari status-map.ts'e TASINDI (davranis ayni);
+// buradan re-export geriye donuk uyumluluk icindir (webhook-routes + mevcut testler).
+export {
+  mapProviderStatusToShipmentStatus,
+  parseProviderDate,
+  shipmentTrackingEventKey,
+  SYNCABLE_SHIPMENT_STATUSES,
+} from "./status-map.js";
 
 // Shipment (+events) → contract DTO. Secret/ZPL icermez; lastSynced/lastStatus event'ten turetilir.
 export function serializeShipment(s: Shipment & { events: ShipmentEvent[] }) {
@@ -1794,7 +1637,13 @@ export function serializeShipment(s: Shipment & { events: ShipmentEvent[] }) {
     shipmentStatusCode: s.shipmentStatusCode,
     barcodeHasLabel: Boolean(barcode?.zplPresent),
     recipientName: s.recipientName,
-    lastSyncedAt: lastSync ? lastSync.createdAt.toISOString() : null,
+    // TODO-129 — degisiklik yoksa sync event yazilmaz; son sync ani Shipment.lastSyncAt'ten
+    // (yoksa eski davranis: son sync event'inin ani).
+    lastSyncedAt: s.lastSyncAt
+      ? s.lastSyncAt.toISOString()
+      : lastSync
+        ? lastSync.createdAt.toISOString()
+        : null,
     lastProviderStatus: lastSync?.statusText ?? null,
     events: s.events.map((e) => ({
       id: e.id,
