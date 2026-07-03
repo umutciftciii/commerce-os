@@ -78,7 +78,12 @@ export const envSchema = z.object({
   // panelde saglayiciya yapistirilacak tam webhook URL'si (/public/shipping/webhooks/:token)
   // bu tabandan uretilir. Tanimsizsa panel URL uretmez ve uyari gosterir. Secret DEGILDIR;
   // yalniz erisim adresidir (token yol parcasi ayrica gizli + HMAC her istekte zorunlu).
-  PUBLIC_WEBHOOK_BASE_URL: z.string().url().optional(),
+  // BOS string (env_file'da `KEY=`) undefined'a normalize edilir; aksi halde url()
+  // validasyonu bos degeri reddedip config yuklemesini cokertirdi (DHL_TEST_BASE_URL sinifi).
+  PUBLIC_WEBHOOK_BASE_URL: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().url().optional(),
+  ),
   // F3C.1 — Plus Command / createRecipient destructive guard'i. Varsayilan KAPALI.
   // Canli createRecipient yalniz bu flag true + providerConfig.allowRecipientCreate true
   // + request explicitConfirm true uclusu saglandiginda calisir; aksi halde
