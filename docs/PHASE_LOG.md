@@ -2122,3 +2122,14 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
 - **KALAN.** Store-admin webhook yönetim UI (TODO-128), zamanlanmış otomatik sync worker job (TODO-129),
   DHL/Geliver ham webhook format + provider imza şeması adaptörleri (TODO-130, canlı abonelik sonrası),
   DHL Bulk Query sağlayıcı-özel toplu uç (TODO-100 kalanı), payment webhook imzası (TODO-071, bağımsız).
+- **Runtime smoke (2026-07-03, worktree gateway :4100 + paylaşılan dev DB/Redis).** Docker imajları main
+  context'inden build'li olduğundan (branch kodu imajda yok — bkz. TODO-122 pattern) documented compose smoke
+  yerine EŞDEĞER runtime smoke yapıldı: migration `prisma migrate deploy` ile dev DB'ye uygulandı (additive);
+  worktree gateway ayrı portta gerçek DB/Redis'e karşı başlatıldı. Kanıtlar: imzasız → 401 SIGNATURE_MISSING;
+  yanlış imza → 401 SIGNATURE_INVALID; eski timestamp → 401 TIMESTAMP_OUT_OF_RANGE; geçerli imza → 200
+  handled:true + shipment IN_TRANSIT→OUT_FOR_DELIVERY + WEBHOOK_RECEIVED event (konum "işlem noktası");
+  aynı eventId tekrar → duplicate:true + yeni event YOK; bilinmeyen statusCode 99 → event yazıldı, durum
+  KORUNDU; eşleşmeyen takip no → IGNORED_UNKNOWN_SHIPMENT inbox kaydı + mutasyon yok; bilinmeyen token → 404;
+  rotate → tek seferlik secret + `webhookConfigured:true`, config yanıtında token/cipher SIZINTISI YOK;
+  sync-all → scanned 6, gönderi başına TEST_BASE_URL_MISSING kod raporu (env'siz DHL TEST beklenen; iş
+  durmadı). Smoke gateway kapatıldı; smoke verisi dev DB'de (TD-018 deseni).
