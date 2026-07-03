@@ -549,7 +549,7 @@
   sağlayıcı hatasında "Geçici sağlayıcı hatası… Manuel Gönderi Hazırla" CTA'sına düşer; (c) başarıda shipment
   detayına yönlendirir. KALAN/opsiyonel: generic createOrder shipment id döndürmediğinden detaya yönlendirme
   refetch ile yapılıyor (DHL prepare id döndürür); ileride generic createOrder da id döndürebilir.
-- TODO-122 — Docker dev image clean-build gap. Durum: TODO. Tracked `infra/docker/node.Dockerfile`
+- TODO-122 — Docker dev image clean-build gap. Durum: ÇÖZÜLDÜ (TODO-137, 2026-07-03). Tracked `infra/docker/node.Dockerfile`
   `pnpm build` ÇALIŞTIRMIYOR (yalnız `pnpm install` + `pnpm db:generate`); api-gateway dev runtime bazı
   workspace paketlerini (`@commerce-os/config` `dist/index.js`, `@commerce-os/db` `dist/src/index.js`,
   contracts/api-client) `dist/` üzerinden çözüyor. Temiz checkout / build context içinde `dist/` yoksa
@@ -664,3 +664,27 @@
   (unpaid buton pasif + yardımcı metin; paid aktif) + liste/hero rozet, storefront `order-badges`/`shipment`
   kopya. Tüm mevcut TODO-117/125/132/133/135 testleri yeşil. KALAN: kullanıcı stack'inde docker api-gateway +
   store-admin-web + storefront-web REBUILD; runtime doğrulama merge/rebuild sonrası.
+- TODO-137 — Docker deterministik clean-build + cache hijyeni (DONE — 2026-07-03). TODO-122'nin çözümü;
+  TODO-135/136 runtime rebuild'lerinde ortaya çıkan gerçek altyapı boşluğu. Kök neden: `infra/docker/
+  node.Dockerfile` yalnız `pnpm install` + `pnpm db:generate` yapıyor, `pnpm build` YOK; ayrıca `.dockerignore`
+  yoktu → `COPY apps/packages/services` host'tan üretilmiş artifact'leri (bayat `packages/*/dist`, host
+  `node_modules` [darwin/arm64], `apps/*/.next`, `.turbo`) imaja sızdırıyordu. Dev container'ları paketleri
+  derlenmiş `dist/`'ten import ettiği için bayat host `dist` → `does not provide an export named
+  'pickOrderShipmentStatus'` çökmesi (TODO-135 rebuild). Workaround: host'ta önce `pnpm db:generate && pnpm build`
+  — kırılgan. Çözüm: (A) `.dockerignore` eklendi — `node_modules`/`**/node_modules`, `dist`/`**/dist`, `.next`/
+  `**/.next`, `build`, `*.tsbuildinfo`, `packages/db/generated`, `**/.prisma`, `.turbo`, `coverage`, `.env*`
+  (`!.env.example`), `.git`, `.claude` (iç içe worktree'ler — dev), `docs`, `*.log`, `.DS_Store` dışlandı;
+  kaynak/manifest/lockfile/Prisma şema+migration/Next config KORUNDU. (B) Dockerfile artifact'leri İMAJ İÇİNDE
+  üretir: `pnpm install --frozen-lockfile` (lockfile'dan deterministik, pnpm store cache mount) → `pnpm
+  db:generate` → `pnpm exec turbo run build --filter="./packages/*"` (paylaşılan paket `dist`'leri; backend app
+  `tsx watch` kaynaktan, web app `next dev` — app bundle gerekmez ama ikisi de paketleri `dist`'ten import eder).
+  Runtime komutları (`pnpm --filter <ws> dev`) DEĞİŞMEDİ — yalnız build katmanı. Doğrulama: host gate'leri yeşil
+  (typecheck 0, lint 34/34, test 355 passed, `git diff --check` temiz); Docker clean-build — api-gateway +
+  store-admin-web + storefront-web imajları paylaşılan Dockerfile'dan build oldu (12 paket İMAJ İÇİNDE taze
+  derlendi, 0 cached), build context host artifact sızıntısı OLMADAN 2.98MB'a düştü; imaj-içi kanıt: api-gateway
+  bağlamında `import('@commerce-os/contracts').pickOrderShipmentStatus === 'function'` (bayat-export senaryosu
+  çözüldü), `@commerce-os/db` import OK (Prisma client pnpm sanal store'da), web-app bağlamında
+  `@commerce-os/api-client` import OK; container platformu linux/arm64 (host darwin sızıntısı yok). App/domain
+  mantığı DEĞİŞMEDİ — yalnız Docker/build hijyeni. Cache hijyeni: bkz. docs/OPERATIONS.md (clean build + `docker
+  builder/image/container prune`; volume'lara DOKUNULMAZ). KALAN: main'e merge sonrası kullanıcı ana `docker`
+  stack'ini `--no-cache` gerekmeden rebuild edebilir; host'ta önce `pnpm build` ARTIK GEREKMEZ.
