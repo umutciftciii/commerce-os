@@ -18,7 +18,14 @@ import {
   type DataTableColumn,
 } from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { InventoryItem, Order, OrderCreateRequest, OrderListQuery } from "@commerce-os/api-client";
+import type {
+  InventoryItem,
+  Order,
+  OrderCreateRequest,
+  OrderFulfillmentDisplay,
+  OrderListQuery,
+} from "@commerce-os/api-client";
+import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
 import { OrderIcon } from "../../../components/icons";
 import { orderListQueryString, storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
@@ -27,6 +34,7 @@ import { MetricGrid, MetricTile, SurfaceCard } from "../../components/premium";
 import {
   canCancel,
   canPlace,
+  FULFILLMENT_DISPLAY_TONES,
   FULFILLMENT_STATUS_TONES,
   ORDER_STATUS_TONES,
   PAYMENT_STATUS_TONES,
@@ -114,6 +122,11 @@ function OrdersView() {
   const statusLabels = t.statusLabels as Record<OrderStatus, string>;
   const paymentLabels = t.paymentLabels as Record<PaymentStatus, string>;
   const fulfillmentLabels = t.fulfillmentLabels as Record<FulfillmentStatus, string>;
+  // TODO-135 — Kargo hazırlık durumunu yansıtan GÖSTERİM etiketleri (rozet metni).
+  const fulfillmentDisplayLabels = t.fulfillmentDisplayLabels as Record<
+    OrderFulfillmentDisplay,
+    string
+  >;
 
   // URL = filtrelerin tek doğruluk kaynağı; sayfa yenilense de korunur.
   const appliedFilters = useMemo(() => readFilters(searchParams), [searchParams]);
@@ -266,11 +279,19 @@ function OrdersView() {
     {
       header: t.table.fulfillment,
       className: "whitespace-nowrap",
-      cell: (order) => (
-        <Badge tone={FULFILLMENT_STATUS_TONES[order.fulfillmentStatus]}>
-          {fulfillmentLabels[order.fulfillmentStatus]}
-        </Badge>
-      ),
+      cell: (order) => {
+        // TODO-135 — Kargo kaydı varsa rozet hazırlık durumunu yansıtır (ör.
+        // ORDER_CREATED → "Gönderi oluşturuldu"); yoksa "Gönderilmedi".
+        const display = getOrderFulfillmentDisplay(
+          order.fulfillmentStatus,
+          order.shipmentStatus ?? null,
+        );
+        return (
+          <Badge tone={FULFILLMENT_DISPLAY_TONES[display]}>
+            {fulfillmentDisplayLabels[display]}
+          </Badge>
+        );
+      },
     },
     {
       header: t.table.lines,

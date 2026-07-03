@@ -1,4 +1,4 @@
-import type { Order } from "@commerce-os/api-client";
+import type { Order, OrderFulfillmentDisplay } from "@commerce-os/api-client";
 
 export type Tone = "neutral" | "success" | "warning" | "info" | "danger";
 export type OrderStatus = Order["status"];
@@ -25,6 +25,19 @@ export const FULFILLMENT_STATUS_TONES: Record<FulfillmentStatus, Tone> = {
   UNFULFILLED: "neutral",
   PARTIAL: "warning",
   FULFILLED: "success",
+  CANCELLED: "danger",
+};
+
+// TODO-135 — Kargo hazırlık durumundan türetilen GÖSTERİM rozeti tonları. Rozet
+// metni `getOrderFulfillmentDisplay` sonucuna göre i18n `fulfillmentDisplayLabels`
+// üzerinden çözülür (Order.fulfillmentStatus MUTATE EDİLMEZ).
+export const FULFILLMENT_DISPLAY_TONES: Record<OrderFulfillmentDisplay, Tone> = {
+  NOT_SHIPPED: "neutral",
+  SHIPMENT_CREATED: "info",
+  IN_TRANSIT: "info",
+  DELIVERED: "success",
+  FULFILLED: "success",
+  PARTIAL: "warning",
   CANCELLED: "danger",
 };
 

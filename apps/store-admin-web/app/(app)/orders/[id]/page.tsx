@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { Order } from "@commerce-os/api-client";
+import type { Order, OrderFulfillmentDisplay } from "@commerce-os/api-client";
+import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../lib/client/format";
@@ -22,11 +23,10 @@ import {
 import {
   canCancel,
   canPlace,
-  FULFILLMENT_STATUS_TONES,
+  FULFILLMENT_DISPLAY_TONES,
   ORDER_STATUS_TONES,
   PAYMENT_STATUS_TONES,
   RESERVATION_STATUS_TONES,
-  type FulfillmentStatus,
   type OrderStatus,
   type PaymentStatus,
   type ReservationStatus,
@@ -211,7 +211,12 @@ export default function OrderDetailPage() {
   const d = t.detail;
   const statusLabels = t.statusLabels as Record<OrderStatus, string>;
   const paymentLabels = t.paymentLabels as Record<PaymentStatus, string>;
-  const fulfillmentLabels = t.fulfillmentLabels as Record<FulfillmentStatus, string>;
+  // TODO-135 — Başlık/hero karşılama rozeti GÖSTERİM etiketleri (kargo hazırlık
+  // durumunu yansıtır); Order.fulfillmentStatus MUTATE EDİLMEZ.
+  const fulfillmentDisplayLabels = t.fulfillmentDisplayLabels as Record<
+    OrderFulfillmentDisplay,
+    string
+  >;
   const reservationLabels = t.reservationStatusLabels as Record<ReservationStatus, string>;
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -290,9 +295,19 @@ export default function OrderDetailPage() {
               <Badge tone={PAYMENT_STATUS_TONES[order.paymentStatus]}>
                 {paymentLabels[order.paymentStatus]}
               </Badge>
-              <Badge tone={FULFILLMENT_STATUS_TONES[order.fulfillmentStatus]}>
-                {fulfillmentLabels[order.fulfillmentStatus]}
-              </Badge>
+              {(() => {
+                // TODO-135 — Kargo kaydı varsa hero rozeti hazırlık durumunu yansıtır
+                // (ORDER_CREATED → "Gönderi oluşturuldu"), aksi halde "Gönderilmedi".
+                const display = getOrderFulfillmentDisplay(
+                  order.fulfillmentStatus,
+                  order.shipmentStatus ?? null,
+                );
+                return (
+                  <Badge tone={FULFILLMENT_DISPLAY_TONES[display]}>
+                    {fulfillmentDisplayLabels[display]}
+                  </Badge>
+                );
+              })()}
             </>
           ) : null
         }

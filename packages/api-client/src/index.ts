@@ -225,6 +225,10 @@ export {
   isValidTrPhone,
   normalizeTrPhone,
   classifyIdentifier,
+  // TODO-135 — Sipariş rozetlerinin kargo hazırlık durumunu türetmesi için paylaşılan
+  // (saf) gösterim yardımcıları. store-admin + storefront AYNI otoriteyi kullanır.
+  getOrderFulfillmentDisplay,
+  pickOrderShipmentStatus,
 } from "@commerce-os/contracts";
 
 /**
@@ -257,6 +261,9 @@ export type {
   CustomerOrderShipment,
   CustomerOrderDetail,
   CustomerOrderDetailResponse,
+  // TODO-135 — Kargo hazırlık durumundan türetilen karşılama rozeti gösterim tipleri.
+  OrderFulfillmentDisplay,
+  OrderSummaryShipmentStatus,
 } from "@commerce-os/contracts";
 
 /**

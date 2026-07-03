@@ -20,6 +20,7 @@ import {
   orderListResponseSchema,
   orderSchema,
   orderUpdateRequestSchema,
+  pickOrderShipmentStatus,
   paymentProviderConfigCreateRequestSchema,
   paymentProviderConfigListResponseSchema,
   paymentProviderConfigSchema,
@@ -141,6 +142,7 @@ import type {
   ProductPrimaryAction,
   ProductSalesMode,
   ProductVariant,
+  ShipmentStatus,
   Store,
   StoreStatus,
   ThreeDsMode,
@@ -334,6 +336,8 @@ type OrderRecord = Pick<
   reservations: InventoryReservationRecord[];
   events: OrderEventRecord[];
   paymentAttempts: PaymentAttemptRecord[];
+  // TODO-135 — Karşılama rozeti için temsili kargo durumu türetilir (yalnız DURUM).
+  shipments: { status: ShipmentStatus }[];
 };
 
 // F3B.3 — Store-admin müşteri dizini kaydı. Aggregate alanlar data-access'te
@@ -1127,6 +1131,9 @@ function serializeOrder(order: OrderRecord) {
     })),
     // TODO-125 — Secilen kargo saglayici/secenek ozeti (store-admin siparis detayi).
     shippingSelection: orderShippingSelectionOf(order),
+    // TODO-135 — Temsili kargo durumu (Order.fulfillmentStatus MUTATE EDILMEZ; yalniz
+    // rozet gosterimi bunun uzerinden turetilir). Birden cok gonderi varsa en ileri.
+    shipmentStatus: pickOrderShipmentStatus((order.shipments ?? []).map((s) => s.status)),
   });
 }
 
@@ -1770,6 +1777,9 @@ function createPrismaDataAccess(): AppDataAccess {
       actorUserId: true,
       createdAt: true,
     } },
+    // TODO-135 — Karşılama rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
+    // shipment durumu (yalnız DURUM alanı; statusText/iç ID/ham payload çekilmez).
+    shipments: { select: { status: true } },
   } satisfies Prisma.OrderSelect;
 
   function withCategoryIds(product: Prisma.ProductGetPayload<{ select: typeof productSelect }>): ProductRecord {

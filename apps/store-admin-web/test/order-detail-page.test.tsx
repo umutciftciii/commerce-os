@@ -139,6 +139,29 @@ describe("store-admin order detail — dedicated route page", () => {
     consoleError.mockRestore();
   });
 
+  // TODO-135 — Kargo kaydı (ORDER_CREATED) oluşturulmuş siparişin hero/başlık
+  // karşılama rozeti "Gönderilmedi" DEĞİL "Gönderi oluşturuldu" göstermeli.
+  it("renders the hero fulfillment badge as 'Gönderi oluşturuldu' when a shipment is prepared", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: "ORDER_CREATED" }),
+    );
+    render(<OrderDetailPage />);
+    await screen.findByText("Sipariş ORD-1001");
+    expect(screen.getByText("Gönderi oluşturuldu", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByText("Gönderilmedi", { selector: "span" })).toBeNull();
+  });
+
+  // TODO-135 — Kargo kaydı olmayan siparişin hero rozeti hâlâ "Gönderilmedi".
+  it("renders the hero fulfillment badge as 'Gönderilmedi' when there is no shipment", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({ fulfillmentStatus: "UNFULFILLED", shipmentStatus: null }),
+    );
+    render(<OrderDetailPage />);
+    await screen.findByText("Sipariş ORD-1001");
+    expect(screen.getByText("Gönderilmedi", { selector: "span" })).toBeTruthy();
+    expect(screen.queryByText("Gönderi oluşturuldu", { selector: "span" })).toBeNull();
+  });
+
   it("shows the payment observability panel and localizes order-history events in Turkish", async () => {
     storeApiMock.getOrder.mockResolvedValue(
       makeOrder({

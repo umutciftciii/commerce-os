@@ -441,6 +441,18 @@ export const enStoreAdmin: StoreAdminDictionary = {
       FULFILLED: "Fulfilled",
       CANCELLED: "Cancelled",
     },
+    // TODO-135 — Display labels for the list/header fulfillment badge derived from
+    // shipment state (Shipment created, etc.); the fulfillmentStatus filter keeps
+    // using fulfillmentLabels.
+    fulfillmentDisplayLabels: {
+      NOT_SHIPPED: "Not shipped",
+      SHIPMENT_CREATED: "Shipment created",
+      IN_TRANSIT: "In transit",
+      DELIVERED: "Delivered",
+      FULFILLED: "Fulfilled",
+      PARTIAL: "Partial",
+      CANCELLED: "Cancelled",
+    },
     filters: {
       title: "Filters",
       searchLabel: "Search",
