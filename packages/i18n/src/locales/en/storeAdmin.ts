@@ -98,6 +98,11 @@ export const enStoreAdmin: StoreAdminDictionary = {
     CANCEL_FAILED: "DHL shipment cancellation was rejected; the parcel may already be in physical processing.",
     BARCODE_RETRYABLE_ERROR:
       "DHL could not determine the destination branch/route code. Check the address details or retry later.",
+    // TODO-132 — recipient email is mandatory for provider shipment creation (MNG rejects empty/invalid email).
+    RECIPIENT_EMAIL_REQUIRED:
+      "A recipient email address is required to create a shipment with the carrier. No email was found on the order or the customer record; add a valid email to the customer record and retry.",
+    RECIPIENT_EMAIL_INVALID:
+      "The recipient email address is not valid. Fix the email on the order/customer record and retry; the carrier does not accept shipment records with an invalid email.",
     SHIPPING_HTTP_DISABLED: "Sandbox HTTP verification is disabled.",
     AUTH_FAILED: "Shipping provider authentication failed.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
