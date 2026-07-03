@@ -1,4 +1,6 @@
 import type { ShippingHttpRequest } from "../http.js";
+import { ShippingConfigError } from "../../errors.js";
+import { isValidRecipientEmail } from "../../recipient.js";
 import type {
   CalculateRateInput,
   CancelShipmentInput,
@@ -6,6 +8,7 @@ import type {
   CreateOrderInput,
   CreateRecipientInput,
   ResolvedShippingCredential,
+  ShipmentRecipientInput,
 } from "../../types.js";
 
 /**
@@ -88,6 +91,59 @@ export function buildIdentityTokenRequest(
   };
 }
 
+/**
+ * TODO-132 — MNG cep telefonu normalizasyonu. OpenAPI örnekleri YEREL 10 haneli format
+ * kullanır ("5555555555"); F3C.3'ün başarılı sandbox zinciri de yerel formatla doğrulandı.
+ * +90/0090/90/0 önekleri sunucu tarafında soyulur; rakam dışı karakterler atılır.
+ * Normalize edilemeyen değerler (yabancı numara vb.) rakam haliyle geçirilir (doküman
+ * bir pattern DAYATMAZ; format kararını sağlayıcı verir).
+ */
+export function normalizeDhlMobilePhoneNumber(raw: string | undefined): string {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("90")) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  return digits;
+}
+
+/**
+ * TODO-132 — createRecipient/createOrder ortak recipient gövdesi.
+ *
+ * Sandbox kanıtı (400 kod 26039): MNG `email: ""` değerini geçersiz e-posta olarak
+ * REDDEDER. Bu builder geçerli e-posta olmadan istek ÜRETMEZ: boş/eksik →
+ * RECIPIENT_EMAIL_REQUIRED, biçimsiz → RECIPIENT_EMAIL_INVALID (sağlayıcıya çağrı
+ * yapılmadan). Hata mesajları e-posta DEĞERİNİ içermez (PII yok).
+ *
+ * cityCode/districtCode: OpenAPI'de opsiyonel int32 (CBS Info'dan alınabilir);
+ * bilinmiyorsa 0 GÖNDERİLMEZ, alan tamamen atlanır (cityName/districtName kalır).
+ */
+export function buildDhlRecipientBody(recipient: ShipmentRecipientInput): Record<string, unknown> {
+  const email = (recipient.email ?? "").trim();
+  if (email.length === 0) {
+    throw new ShippingConfigError(
+      "RECIPIENT_EMAIL_REQUIRED",
+      "DHL gönderi kaydı için alıcı e-posta adresi gerekli; sağlayıcıya istek gönderilmedi.",
+    );
+  }
+  if (!isValidRecipientEmail(email)) {
+    throw new ShippingConfigError(
+      "RECIPIENT_EMAIL_INVALID",
+      "Alıcı e-posta adresi geçerli değil; sağlayıcıya istek gönderilmedi.",
+    );
+  }
+  const cityCode = recipient.cityCode;
+  const districtCode = recipient.districtCode;
+  return {
+    ...(typeof cityCode === "number" && cityCode > 0 ? { cityCode } : {}),
+    ...(typeof districtCode === "number" && districtCode > 0 ? { districtCode } : {}),
+    cityName: recipient.cityName ?? "",
+    districtName: recipient.districtName ?? "",
+    address: recipient.address ?? "",
+    email,
+    fullName: recipient.fullName ?? "",
+    mobilePhoneNumber: normalizeDhlMobilePhoneNumber(recipient.phone),
+  };
+}
+
 function piecesToOrderList(pieces: CreateOrderInput["pieces"], referenceId: string) {
   return pieces.map((p, i) => ({
     barcode: p.barcode ?? `${referenceId}_PARCA${i + 1}`,
@@ -153,16 +209,7 @@ export function buildCreateRecipientRequest(
     headers: authedHeaders(product, token, apiVersion),
     body: JSON.stringify({
       referenceId,
-      recipient: {
-        cityCode: input.recipient.cityCode ?? 0,
-        districtCode: input.recipient.districtCode ?? 0,
-        cityName: input.recipient.cityName ?? "",
-        districtName: input.recipient.districtName ?? "",
-        address: input.recipient.address ?? "",
-        email: input.recipient.email ?? "",
-        fullName: input.recipient.fullName ?? "",
-        mobilePhoneNumber: input.recipient.phone ?? "",
-      },
+      recipient: buildDhlRecipientBody(input.recipient),
     }),
   };
 }
@@ -176,6 +223,10 @@ export function buildCreateOrderRequest(
   apiVersion: string | null,
 ): ShippingHttpRequest {
   const referenceId = input.referenceId.toUpperCase();
+  // TODO-132 sandbox dogrulama: OpenAPI Order.content + Order.description REQUIRED;
+  // MNG bos string'i 400 (aciklamasiz Bad Request) ile reddeder. Icerik verilmemisse
+  // PII icermeyen benzersiz fallback olarak referenceId gonderilir.
+  const content = (input.content ?? "").trim() || referenceId;
   return {
     method: "POST",
     url: `${host}${DHL_BASE_PATHS.standardCommand}/createOrder`,
@@ -188,29 +239,22 @@ export function buildCreateOrderRequest(
         codAmount: 0,
         shipmentServiceType: input.shipmentServiceType ?? 1,
         packagingType: input.packagingType ?? 3,
-        content: input.content ?? "",
+        content,
         smsPreference1: 0,
         smsPreference2: 0,
         smsPreference3: 0,
         paymentType: input.paymentType ?? 1,
         deliveryType: input.deliveryType ?? 1,
-        description: input.content ?? "",
+        description: content,
         // F3C.3 sandbox dogrulama: marketPlaceShortCode ZORUNLU (yoksa 400 code 26029).
         // Marketplace gonderisi degil → bos string (gecerli enum: TRND/GG/N11/"").
         marketPlaceShortCode: "",
         marketPlaceSaleCode: "",
       },
       orderPieceList: piecesToOrderList(input.pieces, referenceId),
-      recipient: {
-        cityCode: input.recipient.cityCode ?? 0,
-        districtCode: input.recipient.districtCode ?? 0,
-        cityName: input.recipient.cityName ?? "",
-        districtName: input.recipient.districtName ?? "",
-        address: input.recipient.address ?? "",
-        email: input.recipient.email ?? "",
-        fullName: input.recipient.fullName ?? "",
-        mobilePhoneNumber: input.recipient.phone ?? "",
-      },
+      // TODO-132: createOrder recipient'i da ayni guvenli govdeyi kullanir (email
+      // zorunlu/gecerli; 0 kod gonderilmez; telefon yerel formata normalize).
+      recipient: buildDhlRecipientBody(input.recipient),
     }),
   };
 }

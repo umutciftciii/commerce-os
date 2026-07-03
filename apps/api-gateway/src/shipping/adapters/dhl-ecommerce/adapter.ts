@@ -49,6 +49,7 @@ export const DEFAULT_DHL_ENDPOINTS: DhlEndpointConfig = {
   apiVersion: null,
 };
 import {
+  extractProviderErrorCode,
   extractProviderErrorMessage,
   mapCalculateResponse,
   mapCitiesResponse,
@@ -367,9 +368,14 @@ function parseJson(response: ShippingHttpResponse): unknown {
  *  - SHIPMENT_QUERY + 404 → PROVIDER_SHIPMENT_NOT_FOUND (siparis henuz faturalasmamis
  *    olabilir; OpenAPI: "If the order has been invoiced, this information can be obtained")
  *  - diger sorgular → PROVIDER_QUERY_FAILED, operasyonlar → PROVIDER_OPERATION_FAILED.
- * Mesaja yalniz extractProviderErrorMessage'in guvenli alanlari girer (secret/token/
- * hesap numarasi girmez). Token akisi bu yoldan GECMEZ (mapTokenResponse → AUTH_FAILED).
+ * Mesaja yalniz extractProviderErrorMessage/Code'un guvenli alanlari girer (secret/token/
+ * hesap numarasi/PII girmez). Token akisi bu yoldan GECMEZ (mapTokenResponse → AUTH_FAILED).
+ *
+ * TODO-132: MNG domain kodu 26039 ("Recipient.Email gecerli degil") aksiyon alinabilir
+ * RECIPIENT_EMAIL_INVALID koduna normalize edilir (UI i18n sozlugunde net TR mesaji var).
  */
+const MNG_ERROR_RECIPIENT_EMAIL_INVALID = "26039";
+
 function ensureProviderResponseOk(
   response: ShippingHttpResponse,
   kind: "SHIPMENT_QUERY" | "QUERY" | "OPERATION",
@@ -377,7 +383,14 @@ function ensureProviderResponseOk(
   const json = parseJson(response);
   if (response.status < 400) return json;
   const providerMessage = extractProviderErrorMessage(json);
-  const detail = providerMessage ? `: ${providerMessage}` : "";
+  const providerCode = extractProviderErrorCode(json);
+  const detail = `${providerCode ? ` [sağlayıcı kodu ${providerCode}]` : ""}${providerMessage ? `: ${providerMessage}` : ""}`;
+  if (providerCode === MNG_ERROR_RECIPIENT_EMAIL_INVALID) {
+    throw new ShippingConfigError(
+      "RECIPIENT_EMAIL_INVALID",
+      `Sağlayıcı alıcı e-posta adresini reddetti${detail}`,
+    );
+  }
   if (kind === "SHIPMENT_QUERY" && response.status === 404) {
     throw new ShippingConfigError(
       "PROVIDER_SHIPMENT_NOT_FOUND",

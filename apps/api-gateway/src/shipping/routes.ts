@@ -55,6 +55,7 @@ import {
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
+import { resolveRecipientEmail } from "./recipient.js";
 import { createShippingSecretCipher, type ShippingSecretCipher } from "./encryption.js";
 import {
   createDisabledHttpTransport,
@@ -138,6 +139,9 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       NO_ACTIVE_SHIPMENT: 409,
       CANCEL_FAILED: 502,
       BARCODE_RETRYABLE_ERROR: 409,
+      // TODO-132 — alici e-posta lokal dogrulamasi (saglayici cagrisindan ONCE).
+      RECIPIENT_EMAIL_REQUIRED: 422,
+      RECIPIENT_EMAIL_INVALID: 422,
       PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
       // F3C.6 — saglayici sorgu hatasi normalize (HTTP >=400 basari gibi parse edilmez).
@@ -501,6 +505,28 @@ export function registerShippingAdminRoutes(
     return prisma.order.findFirst({ where: { id: orderId, storeId } });
   }
 
+  /**
+   * TODO-132 — Sağlayıcıya giden alıcı e-postası SUNUCU-otoriterdir: sipariş
+   * seviyesindeki e-posta (Order.customerEmail) → bağlı Customer.email fallback'i.
+   * Geçerli e-posta yoksa sağlayıcı ÇAĞRILMADAN RECIPIENT_EMAIL_REQUIRED/INVALID
+   * fırlatılır (422). Client'tan gelen recipient.email GÜVENİLMEZ, üzerine yazılır.
+   */
+  async function resolveOrderRecipientEmail(order: { id: string; customerEmail: string; customerId: string | null }): Promise<string> {
+    const customer = order.customerId
+      ? await prisma.customer.findUnique({ where: { id: order.customerId }, select: { email: true } })
+      : null;
+    const resolution = resolveRecipientEmail([order.customerEmail, customer?.email]);
+    if (!resolution.ok) {
+      throw new ShippingConfigError(
+        resolution.code,
+        resolution.code === "RECIPIENT_EMAIL_REQUIRED"
+          ? "Kargo gönderisi için alıcı e-posta adresi gerekli; siparişte veya müşteri kaydında e-posta bulunamadı."
+          : "Siparişteki/müşteri kaydındaki alıcı e-posta adresi geçerli değil.",
+      );
+    }
+    return resolution.email;
+  }
+
   app.post("/stores/:storeId/orders/:orderId/shipping/rate", async (request, reply) => {
     const params = orderParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);
@@ -559,6 +585,12 @@ export function registerShippingAdminRoutes(
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     try {
+      // TODO-132 — DHL/MNG saglayicisina giden alici e-postasi sunucuda cozulur
+      // (Order.customerEmail → Customer.email); gecersizse saglayici CAGRILMADAN 422.
+      const recipient =
+        cfg.provider === "DHL_ECOMMERCE"
+          ? { ...input.recipient, email: await resolveOrderRecipientEmail(order) }
+          : input.recipient;
       const result = await registry.get(cfg.provider).createOrder({
         context: buildContext(cfg),
         referenceId: input.referenceId,
@@ -567,7 +599,7 @@ export function registerShippingAdminRoutes(
         paymentType: input.paymentType,
         deliveryType: input.deliveryType,
         content: input.content,
-        recipient: input.recipient,
+        recipient,
         pieces: input.pieces,
         explicitConfirm: input.explicitConfirm,
       });
@@ -976,12 +1008,16 @@ export function registerShippingAdminRoutes(
     const referenceId = order.orderNumber; // server-derived; client'tan gelen referenceId GUVENILMEZ
     const ctx = buildContext(cfg);
     try {
+      // TODO-132 — alici e-postasi sunucuda cozulur (Order.customerEmail → Customer.email);
+      // gecerli e-posta yoksa saglayici CAGRILMADAN 422 doner. MNG bos e-postayi 400 kod
+      // 26039 ile reddettiginden email: "" ASLA gonderilmez.
+      const recipient = { ...input.recipient, email: await resolveOrderRecipientEmail(order) };
       const adapter = registry.get(cfg.provider);
       // 1) createRecipient — varis sube/hat kodu tespiti (guard altinda).
       await adapter.createRecipient({
         context: ctx,
         referenceId,
-        recipient: input.recipient,
+        recipient,
         explicitConfirm: input.explicitConfirm,
       });
       // 2) createOrder — DHL gonderi kaydi (guard altinda). 2xx = "kargo talebi olusturuldu".
@@ -993,7 +1029,7 @@ export function registerShippingAdminRoutes(
         paymentType: input.paymentType,
         deliveryType: input.deliveryType,
         content: input.content,
-        recipient: input.recipient,
+        recipient,
         pieces: input.pieces,
         explicitConfirm: input.explicitConfirm,
       });
@@ -1017,14 +1053,15 @@ export function registerShippingAdminRoutes(
           shipmentServiceType: input.shipmentServiceType ?? null,
           paymentType: input.paymentType ?? null,
           deliveryType: input.deliveryType ?? null,
-          recipientName: input.recipient.fullName ?? null,
-          recipientEmail: input.recipient.email ?? null,
-          recipientPhone: input.recipient.phone ?? null,
-          recipientCityCode: input.recipient.cityCode ?? null,
-          recipientDistrictCode: input.recipient.districtCode ?? null,
-          recipientCityName: input.recipient.cityName ?? null,
-          recipientDistrictName: input.recipient.districtName ?? null,
-          recipientAddress: input.recipient.address ?? null,
+          recipientName: recipient.fullName ?? null,
+          // Cozulmus (sunucu-otoriter) e-posta persist edilir; client input DEGIL.
+          recipientEmail: recipient.email,
+          recipientPhone: recipient.phone ?? null,
+          recipientCityCode: recipient.cityCode ?? null,
+          recipientDistrictCode: recipient.districtCode ?? null,
+          recipientCityName: recipient.cityName ?? null,
+          recipientDistrictName: recipient.districtName ?? null,
+          recipientAddress: recipient.address ?? null,
         },
       });
       await recordShipmentEvent(params.storeId, shipment, "ORDER_CREATED", {

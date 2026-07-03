@@ -2185,3 +2185,50 @@ Shipment domaininin müşteri-güvenli bir projeksiyonu.
 - **Doğrulama.** pnpm db:generate / build / typecheck / lint (+ --filter api-gateway lint) / pnpm -r test
   (gateway 321, store-admin 125, storefront 87, admin-web 24, api-client 13, ui 14, queues 1) / git diff --check
   yeşil. Değişen davranışlar geriye dönük uyumlu-additive; migration YOK.
+
+## TODO-132 — MNG/DHL createRecipient e-posta çözümleme + payload doğrulama
+
+- Tarih: 2026-07-03. Branch: claude/friendly-hofstadter-0bdcc6.
+- **Runtime bulgu (kullanıcı + MNG API çağrı geçmişi + sanitize log).** Store-admin "Gönderi Oluştur" →
+  `POST /orders/:id/shipping/dhl/prepare` 502 `PROVIDER_OPERATION_FAILED`. Gerçek neden: MNG sandbox
+  `pluscmdapi/createRecipient` 400 kod **26039** "'Recipient. Email' geçerli bir e-posta adresi değil" —
+  adapter `email: ""` gönderiyordu. Token 200 (auth/abonelik sorunu DEĞİL). UI recipient'ı sipariş KARGO
+  adresinden kurar (adreste e-posta alanı yok); siparişte geçerli `Order.customerEmail` OLDUĞU halde akış
+  hiç kullanmıyordu.
+- **Fix (sunucu-otoriter e-posta çözümleme).** Yeni `shipping/recipient.ts`: `resolveRecipientEmail`
+  aday sırası Order.customerEmail → Customer.email (trim + format doğrulama; hata sonucuna aday DEĞERİ
+  taşınmaz). `dhl/prepare` + generic `create-order` (yalnız DHL) route'ları e-postayı çözer; geçerli yoksa
+  sağlayıcı ÇAĞRILMADAN 422 `RECIPIENT_EMAIL_REQUIRED` / `RECIPIENT_EMAIL_INVALID`. Persist edilen
+  `recipientEmail` = çözülmüş değer. Client'tan gelen `recipient.email` GÜVENİLMEZ (üzerine yazılır).
+- **DHL builder guard'ı.** `buildDhlRecipientBody` (createRecipient + createOrder ortak): geçerli e-posta
+  olmadan istek ÜRETMEZ (`email: ""`/null/geçersiz imkânsız; adapter testiyle sabit: hatada sağlayıcıya
+  istek gitmediği doğrulanır).
+- **cityCode/districtCode kararı.** OpenAPI (Plus/Standard Command `Customer`): kodlar OPSİYONEL int32
+  ("CBS Info API'den alınabilir"), required listesi YOK. Karar: bilinmiyorsa/≤0 ise alan ATLANIR (0
+  gönderilmez), cityName/districtName kalır. Sandbox: kodsuz + adlarla createRecipient/createOrder 200.
+  Gerçek kod (>0) verilirse aynen gönderilir. CBS otomatik eşleme TODO-124'te.
+- **Telefon kararı.** Doküman örneği YEREL 10 hane ("5555555555"); F3C.3'ün başarılı smoke'u da yerel.
+  `normalizeDhlMobilePhoneNumber`: rakam dışı ayıklanır, +90/90/0 öneki soyulur → 10 hane; normalize
+  edilemeyen rakam haliyle geçer (doküman pattern dayatmaz).
+- **İKİNCİ runtime bulgu — createOrder content.** Prepare artık createRecipient'ı geçince createOrder
+  `content:""` ile AÇIKLAMASIZ 400 verdi. OpenAPI: `Order.content` + `Order.description` REQUIRED.
+  Sanitize sandbox ayrıştırması: content dolu → 200, boş → 400 (kod/il fark etmez). Fix: content boşsa
+  PII içermeyen referenceId fallback'i gönderilir (UI content göndermiyor; F3C.3 smoke "TEST" ile geçmişti).
+- **Hata normalizasyonu.** `extractProviderErrorCode` (nested/Pascal/array zarf; yalnız kısa alfanumerik
+  kod) + `ensureProviderResponseOk` mesajına "[sağlayıcı kodu N]" işlenir; MNG 26039 →
+  `RECIPIENT_EMAIL_INVALID`'e normalize (UI'da aksiyon alınabilir). BFF yalnız `code` geçirir (mevcut
+  politika); i18n TR/EN `RECIPIENT_EMAIL_REQUIRED/INVALID` sözlük girdileri + order kargo kartında
+  spesifik mesaj (generic "geçici sağlayıcı hatası" yerine) + manuel gönderi CTA'sı korunur.
+- **Testler.** Yeni `shipping-recipient-email.test.ts` (25): e-posta öncelik/trim/lokal red, builder
+  guard'ları (boş/null/geçersiz e-posta imkânsız + sağlayıcıya istek gitmez), kod omit/geçirme, telefon
+  normalize, content fallback, 26039 normalize + redaksiyon (mesajda e-posta/secret/JWT yok),
+  `extractProviderErrorCode` zarf varyantları. store-admin: RECIPIENT_EMAIL_REQUIRED spesifik mesaj testi
+  (mock UiError). Mevcut DHL shape testlerine geçerli e-posta eklendi (redakte fixture).
+- **Sandbox doğrulama (testapi.mngkargo.com.tr, worktree gateway :4010, gerçek credential DB'den).**
+  Token 200. Sanitize probe: createRecipient kodsuz/0-kodlu/34-87 kodlu üç varyant da geçerli e-postayla
+  200. OS-000054 prepare uçtan uca **HTTP 201** → Shipment ORDER_CREATED + dış order/invoice id
+  (26039 YOK). createbarcode/cancel ÇAĞIRILMADI; secret/JWT/PII loglanmadı; probe script silindi.
+- **Gate.** db:generate ✓; build ✓; typecheck ✓; lint ✓; pnpm -r test ✓ (gateway 350, store-admin 126,
+  storefront 87, admin 24, i18n 36, contracts 23, diğerleri yeşil); git diff --check ✓. Migration YOK.
+- **Kalan.** Kullanıcı stack'inde docker api-gateway REBUILD gerekli (fix'in UI'a yansıması için).
+  TODO-124 (CBS otomatik kod eşleme) ve TODO-130 (provider webhook formatı) AÇIK.

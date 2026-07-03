@@ -7,7 +7,7 @@ import { Alert, Badge, Button, Input, Select } from "../../../../components/ui";
 import { SurfaceCard } from "../../../components/premium";
 import { ProviderLogo } from "../../../../components/provider-logo";
 import type { Order, ShipmentResponse, ShippingProviderConfigResponse } from "@commerce-os/api-client";
-import { storeApi } from "../../../../lib/client/api";
+import { storeApi, UiError } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import {
   PROVIDER_TYPE_LABEL,
@@ -182,7 +182,14 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
       const created = ship.shipments.find((s) => s.status !== "CANCELLED" && s.status !== "FAILED");
       if (created) router.push(`/shipping/shipments/${created.id}`);
       else await load();
-    } catch {
+    } catch (err) {
+      // TODO-132: alıcı e-posta eksik/geçersiz → aksiyon alınabilir SPESİFİK mesaj
+      // (sağlayıcıya istek atılmadı; müşteri kaydına e-posta eklenince online akış çalışır).
+      if (err instanceof UiError && (err.code === "RECIPIENT_EMAIL_REQUIRED" || err.code === "RECIPIENT_EMAIL_INVALID")) {
+        setProviderFailed(true); // manuel gönderi yine de mümkün
+        setError(messageForError(err, locale));
+        return;
+      }
       // Ham sağlayıcı hatası (401/409/network) UI'a patlamaz → manuel fallback öner.
       setProviderFailed(true);
       setError(t.providerError);

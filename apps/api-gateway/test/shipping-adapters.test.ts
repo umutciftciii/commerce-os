@@ -386,7 +386,7 @@ describe("F3C.3 DHL operasyon request shape (sandbox smoke ile dogrulanmis)", ()
         credentials: { IDENTITY: dhlIdentity(), PLUS_COMMAND: product("PLUS_COMMAND") },
       }),
       referenceId: "cos-order-1",
-      recipient: { fullName: "Smoke Tester", cityCode: 34, districtCode: 87, address: "x" },
+      recipient: { fullName: "Smoke Tester", cityCode: 34, districtCode: 87, address: "x", email: "smoke@example.com" },
       explicitConfirm: true,
     });
     const recipientReq = requests.find((r) => r.url.includes("/createRecipient"));
@@ -410,7 +410,7 @@ describe("F3C.3 DHL operasyon request shape (sandbox smoke ile dogrulanmis)", ()
         credentials: { IDENTITY: dhlIdentity(), STANDARD_COMMAND: product("STANDARD_COMMAND") },
       }),
       referenceId: "cos-order-1",
-      recipient: { cityCode: 34, districtCode: 87 },
+      recipient: { cityCode: 34, districtCode: 87, email: "smoke@example.com" },
       pieces: [{ desi: 1, kg: 1 }],
       explicitConfirm: true,
     });

@@ -73,6 +73,20 @@ export function mapCreateOrderResponse(json: unknown, referenceId: string): Ship
   };
 }
 
+/**
+ * TODO-132 — Saglayici domain HATA KODUNU guvenli sekilde cikarir (or. MNG 26039
+ * "Recipient.Email gecerli degil"). Yalniz kisa alfanumerik kod doner; raw payload/
+ * PII/secret TASINMAZ. Zarf: { error: { code|Code } } (camel/Pascal karisik) veya flat.
+ */
+export function extractProviderErrorCode(json: unknown): string | null {
+  const outer = asRecord(Array.isArray(json) ? json[0] : json);
+  const rec = outer.error && typeof outer.error === "object" ? asRecord(outer.error) : outer;
+  const raw = rec.code ?? rec.Code ?? rec.errorCode;
+  const code = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  // Kisa alfanumerik kod disindaki her sey (mesaj cumlesi vb.) kod SAYILMAZ.
+  return /^[A-Za-z0-9_-]{1,16}$/.test(code) ? code : null;
+}
+
 /** Saglayici domain hata mesajini guvenli sekilde cikarir (secret icermez). DHL hatalari
  * cogu zaman { message } / { errorMessage } / [{ message }] / { errors:[{message}] } seklinde
  * doner. Bos string null'a duser. */

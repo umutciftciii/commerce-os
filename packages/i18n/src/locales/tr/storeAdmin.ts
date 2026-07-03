@@ -98,6 +98,11 @@ export const trStoreAdmin = {
     CANCEL_FAILED: "DHL kargo iptali reddedildi; gönderi fiziksel olarak işleme alınmış olabilir.",
     BARCODE_RETRYABLE_ERROR:
       "DHL varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
+    // TODO-132 — sağlayıcı gönderi kaydı için alıcı e-postası zorunludur (MNG boş/geçersiz e-postayı reddeder).
+    RECIPIENT_EMAIL_REQUIRED:
+      "Kargo sağlayıcısına gönderi kaydı için alıcı e-posta adresi gerekli. Siparişte veya müşteri kaydında e-posta bulunamadı; müşteri kaydına geçerli bir e-posta ekleyip tekrar deneyin.",
+    RECIPIENT_EMAIL_INVALID:
+      "Alıcı e-posta adresi geçerli değil. Siparişteki/müşteri kaydındaki e-postayı düzeltip tekrar deneyin; kargo sağlayıcısı geçersiz e-posta ile gönderi kaydı kabul etmiyor.",
     SHIPPING_HTTP_DISABLED: "Sandbox HTTP doğrulaması kapalı.",
     AUTH_FAILED: "Kargo sağlayıcı kimlik doğrulaması başarısız.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",

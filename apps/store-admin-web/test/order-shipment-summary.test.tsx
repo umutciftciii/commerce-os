@@ -5,18 +5,28 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrderShipmentSummary } from "../app/(app)/orders/[id]/order-shipment-summary.js";
 
-const { storeApiMock, pushMock } = vi.hoisted(() => ({
-  storeApiMock: {
-    listShippingProviders: vi.fn(),
-    getOrderShipping: vi.fn(),
-    prepareDhlShipment: vi.fn(),
-    createOrderShipment: vi.fn(),
-    createShipmentDraft: vi.fn(),
-  },
-  pushMock: vi.fn(),
-}));
+const { storeApiMock, pushMock, UiErrorMock } = vi.hoisted(() => {
+  // Gerçek UiError ile aynı sözleşme (code alanı); component instanceof kontrolü yapar.
+  class UiErrorMock extends Error {
+    constructor(public code: string) {
+      super(code);
+      this.name = "UiError";
+    }
+  }
+  return {
+    storeApiMock: {
+      listShippingProviders: vi.fn(),
+      getOrderShipping: vi.fn(),
+      prepareDhlShipment: vi.fn(),
+      createOrderShipment: vi.fn(),
+      createShipmentDraft: vi.fn(),
+    },
+    pushMock: vi.fn(),
+    UiErrorMock,
+  };
+});
 
-vi.mock("../lib/client/api.js", () => ({ storeApi: storeApiMock }));
+vi.mock("../lib/client/api.js", () => ({ storeApi: storeApiMock, UiError: UiErrorMock }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
 const ORDER = {
@@ -139,6 +149,24 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     // Ham 401 patlamaz → net mesaj + ikincil CTA.
     expect(await screen.findByText(/Geçici bir sağlayıcı hatası oluştu/)).toBeTruthy();
     expect(screen.queryByText(/401|no valid subscription/)).toBeNull();
+    expect(await screen.findByRole("button", { name: "Manuel Gönderi Hazırla" })).toBeTruthy();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("TODO-132: RECIPIENT_EMAIL_REQUIRED → generic yerine SPESİFİK e-posta mesajı + manuel CTA", async () => {
+    storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
+    storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
+    storeApiMock.prepareDhlShipment.mockRejectedValue(new UiErrorMock("RECIPIENT_EMAIL_REQUIRED"));
+    const user = userEvent.setup();
+    render(<OrderShipmentSummary order={ORDER} locale="tr" />);
+
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+    await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
+
+    // Aksiyon alınabilir mesaj: alıcı e-postası gerekli (i18n sözlüğünden).
+    expect(await screen.findByText(/alıcı e-posta adresi gerekli/i)).toBeTruthy();
+    expect(screen.queryByText(/Geçici bir sağlayıcı hatası oluştu/)).toBeNull();
+    // Manuel gönderi yine de mümkün (provider'a istek atmaz).
     expect(await screen.findByRole("button", { name: "Manuel Gönderi Hazırla" })).toBeTruthy();
     expect(pushMock).not.toHaveBeenCalled();
   });

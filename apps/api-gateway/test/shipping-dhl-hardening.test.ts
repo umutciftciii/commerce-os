@@ -269,7 +269,7 @@ describe("DHL query/operasyon HTTP hata normalizasyonu (F3C.6)", () => {
           credentials: { IDENTITY: identity(), STANDARD_COMMAND: product("STANDARD_COMMAND") },
         }),
         referenceId: "REF1",
-        recipient: { cityCode: 34, districtCode: 56, address: "adres", fullName: "Ad Soyad", phone: "5555555555" },
+        recipient: { cityCode: 34, districtCode: 56, address: "adres", fullName: "Ad Soyad", phone: "5555555555", email: "smoke@example.com" },
         pieces: [{ desi: 1, kg: 1 }],
         explicitConfirm: true,
       }),
