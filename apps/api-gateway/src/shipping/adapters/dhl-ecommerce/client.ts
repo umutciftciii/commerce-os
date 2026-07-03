@@ -115,8 +115,10 @@ export function buildCalculateRequest(
       paymentType: input.paymentType ?? 1,
       pickUpType: input.pickUpType ?? 1,
       deliveryType: input.deliveryType ?? 1,
-      cityCode: input.recipient.cityCode,
-      districtCode: input.recipient.districtCode,
+      // F3C.6 sandbox dogrulama: OpenAPI integer dese de calculate binder'i STRING ister
+      // (integer gonderilirse 400 code 4002 "could not be converted to System.String").
+      cityCode: input.recipient.cityCode != null ? String(input.recipient.cityCode) : "",
+      districtCode: input.recipient.districtCode != null ? String(input.recipient.districtCode) : "",
       address: input.recipient.address ?? "",
       smsPreference1: 0,
       smsPreference2: 0,

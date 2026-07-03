@@ -76,12 +76,24 @@ export function mapCreateOrderResponse(json: unknown, referenceId: string): Ship
 /** Saglayici domain hata mesajini guvenli sekilde cikarir (secret icermez). DHL hatalari
  * cogu zaman { message } / { errorMessage } / [{ message }] / { errors:[{message}] } seklinde
  * doner. Bos string null'a duser. */
-function extractProviderErrorMessage(json: unknown): string | null {
-  const rec = asRecord(Array.isArray(json) ? json[0] : json);
-  // MNG domain (message/errorMessage/description) + IBM API Connect zarfı (httpMessage/
+export function extractProviderErrorMessage(json: unknown): string | null {
+  const outer = asRecord(Array.isArray(json) ? json[0] : json);
+  // F3C.6 sandbox dogrulama: MNG hata zarfi cogunlukla { error: { code|Code, message|Message,
+  // description|Description } } seklinde NESTED doner (400 code 4002 camelCase, 500 code 20001
+  // PascalCase gozlemlendi). description en spesifik alandir; once o denenir.
+  const rec = outer.error && typeof outer.error === "object" ? asRecord(outer.error) : outer;
+  // MNG domain (description/message/errorMessage) + IBM API Connect zarfı (httpMessage/
   // moreInformation) + MNG responseMessage. Secret icermez.
   const direct = toStringOrNull(
-    rec.message ?? rec.errorMessage ?? rec.error ?? rec.description ?? rec.responseMessage ?? rec.httpMessage ?? rec.moreInformation,
+    rec.description ??
+      rec.Description ??
+      rec.message ??
+      rec.Message ??
+      rec.errorMessage ??
+      (rec === outer ? rec.error : undefined) ??
+      rec.responseMessage ??
+      rec.httpMessage ??
+      rec.moreInformation,
   );
   if (direct) return direct;
   const errs = rec.errors;

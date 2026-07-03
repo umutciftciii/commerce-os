@@ -472,3 +472,15 @@
 - Seçim değişiminde toplam sunucu revalidate ile güncellenir (tam sayfa yeniden çözümleme); büyük sepetlerde
   istemci-tarafı anlık toplam hesabı + arka planda doğrulama daha akıcı olabilir.
 - Bağlı: ADR-047, TODO-125.
+
+## TD-035 DHL sandbox calculate hesap kısıtı + token expiry sabit cache
+- Tarih: 2026-07-03 (F3C.6, TODO-131)
+- Sorun 1: Sandbox test müşteri hesabında şube ataması olmadığından Standard Query `calculate` mutlu yolu
+  doğrulanamıyor (HTTP 500 code 20001 "<WERR>[] NOLU ŞUBENİN İLİ BULUNAMADI"; string kod düzeltmesi sonrası
+  binder geçiyor, domain katmanında takılıyor). ADR-044 gereği calculate checkout fiyatında kullanılmadığından
+  etki düşük; ancak canlı geçiş öncesi DHL/MNG'den hesap şube ataması istenip mutlu yol bir kez doğrulanmalı.
+- Sorun 2: Identity JWT cache'i sabit 5 dk; yanıttaki `jwtExpireDate` (dd.MM.yyyy HH:mm:ss — sandbox'ta ~saatler)
+  parse edilip kullanılmıyor → gereksiz token istekleri. Refresh-token akışı da tanımsız (TODO-103).
+- Çözüm: canlı rollout checklist'e (TODO-118) hesap doğrulaması ekle; token cache'i `jwtExpireDate` tabanlı yap
+  (parseProviderDate artık bu formatı çözüyor) + TODO-103 refresh akışı.
+- Kapsam: apps/api-gateway/src/shipping/adapters/dhl-ecommerce. Bloklayıcı: sandbox için HAYIR, canlı için kısmi.
