@@ -266,6 +266,13 @@ const SYNC_PROVIDERS: ShippingProviderType[] = ["DHL_ECOMMERCE"];
 export function providerSupportsShipmentSync(provider: ShippingProviderType): boolean {
   return SYNC_PROVIDERS.includes(provider);
 }
+
+/** TODO-123 — Otomatik barkod retry/backoff yalniz DHL/MNG icin anlamlidir (transient varis
+ * subesi/5xx davranisi bu saglayicida gozlemlenir). Yeni saglayici kazandiginda tek yer. */
+const BARCODE_RETRY_PROVIDERS: ShippingProviderType[] = ["DHL_ECOMMERCE"];
+export function providerSupportsBarcodeRetry(provider: ShippingProviderType): boolean {
+  return BARCODE_RETRY_PROVIDERS.includes(provider);
+}
 /** Iptal/basarisiz OLMAYAN durumlar aktif sayilir (aksiyonlar bunlara bagli). */
 function isActiveShipmentStatus(status: ShipmentStatus): boolean {
   return status !== "CANCELLED" && status !== "FAILED";

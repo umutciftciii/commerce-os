@@ -62,6 +62,16 @@ const L = {
     copy: "Kopyala",
     copied: "Kopyalandı",
     actionsDisabled: "Şu an kullanılabilir işlem yok.",
+    // TODO-123 — barkod retry/backoff durumu.
+    retryTitle: "Barkod Deneme Durumu",
+    retryTransient: "Barkod oluşturma geçici olarak başarısız oldu. Sistem tekrar deneyecek.",
+    retryDataFix: "Adres düzeltmesi gerekiyor. Teslimat adresini / il-ilçe eşlemesini düzeltin.",
+    retryTerminal: "Barkod oluşturma kalıcı olarak başarısız oldu. Manuel kontrol gerekiyor.",
+    retryExhausted: "Otomatik deneme limiti doldu. Manuel kontrol gerekiyor.",
+    retryNext: "Sonraki deneme",
+    retryCount: "Deneme sayısı",
+    retryLastAttempt: "Son deneme",
+    retryNow: "Şimdi Tekrar Dene",
   },
   en: {
     eyebrow: "Shipment",
@@ -102,6 +112,16 @@ const L = {
     copy: "Copy",
     copied: "Copied",
     actionsDisabled: "No actions available right now.",
+    // TODO-123 — barcode retry/backoff state.
+    retryTitle: "Label retry state",
+    retryTransient: "Label creation temporarily failed. The system will retry.",
+    retryDataFix: "Address correction required. Fix the delivery address / city-district mapping.",
+    retryTerminal: "Label creation failed permanently. Manual check required.",
+    retryExhausted: "Automatic retry limit reached. Manual check required.",
+    retryNext: "Next attempt",
+    retryCount: "Attempts",
+    retryLastAttempt: "Last attempt",
+    retryNow: "Retry now",
   },
 } satisfies Record<Locale, Record<string, string>>;
 
@@ -230,6 +250,17 @@ export default function ShipmentDetailPage() {
   const a = shipment.actions;
   const problem = isProblemStatus(shipment.status);
   const disabledReasonText = a.disabledReason ? SHIPMENT_ACTION_DISABLED_REASON[locale][a.disabledReason] : null;
+
+  // TODO-123 — barkod retry durumu: blok nedeni ("neden otomatik denenmiyor") lastBarcodeErrorCode
+  // ("ne oldu")'dan AYRIDIR. Blok yoksa ama hata varsa transient (sistem tekrar deneyecek).
+  const retry: { tone: "info" | "warning" | "error"; message: string; showNext: boolean } | null = (() => {
+    const blocked = shipment.barcodeRetryBlockedReason;
+    if (!shipment.lastBarcodeErrorCode && !blocked) return null;
+    if (blocked === "DATA_FIX") return { tone: "warning", message: t.retryDataFix, showNext: false };
+    if (blocked === "TERMINAL") return { tone: "error", message: t.retryTerminal, showNext: false };
+    if (blocked === "MAX_ATTEMPTS") return { tone: "error", message: t.retryExhausted, showNext: false };
+    return { tone: "info", message: t.retryTransient, showNext: true };
+  })();
 
   return (
     <div className="space-y-5">
@@ -404,6 +435,39 @@ export default function ShipmentDetailPage() {
               <p className="text-[11px] text-white/30">{t.notifySoon}</p>
             </div>
             {disabledReasonText ? <Alert tone="info" className="mt-3">{disabledReasonText}</Alert> : null}
+            {retry ? (
+              <div className="mt-3 space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+                <p className="text-[11px] uppercase tracking-wide text-white/30">{t.retryTitle}</p>
+                <Alert tone={retry.tone}>{retry.message}</Alert>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+                  {shipment.barcodeRetryCount > 0 ? (
+                    <>
+                      <span className="text-white/35">{t.retryCount}</span>
+                      <span className="text-white/70">{shipment.barcodeRetryCount}</span>
+                    </>
+                  ) : null}
+                  {retry.showNext && shipment.barcodeNextRetryAt ? (
+                    <>
+                      <span className="text-white/35">{t.retryNext}</span>
+                      <span className="text-white/70">{new Date(shipment.barcodeNextRetryAt).toLocaleString(locale)}</span>
+                    </>
+                  ) : null}
+                  {shipment.barcodeLastAttemptAt ? (
+                    <>
+                      <span className="text-white/35">{t.retryLastAttempt}</span>
+                      <span className="text-white/55">{new Date(shipment.barcodeLastAttemptAt).toLocaleString(locale)}</span>
+                    </>
+                  ) : null}
+                </div>
+                {/* Manuel "Şimdi Tekrar Dene": güvenli durumda backoff'u bypass eder (aynı
+                    create-label ucu). DATA_FIX blokunda düzeltme yapılmadıysa aynı hata döner. */}
+                {a.canCreateLabel ? (
+                  <Button size="sm" onClick={onCreateLabel} disabled={busy}>
+                    {t.retryNow}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </SurfaceCard>
         </div>
       </div>

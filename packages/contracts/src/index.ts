@@ -2712,6 +2712,13 @@ export const shipmentSchema = z.object({
   // TODO-124 — son barkod denemesinin SINIFLANDIRILMIS sanitize hata kodu (or.
   // DESTINATION_BRANCH_NOT_FOUND); basarili barkod/onarim sifirlar. TODO-123 girdisi.
   lastBarcodeErrorCode: z.string().nullable(),
+  // TODO-123 — barkod retry/backoff operasyon durumu (admin gorunumu; secret icermez).
+  // barcodeRetryBlockedReason: "DATA_FIX" (adres/varis eslemesi duzeltilmeli) | "TERMINAL"
+  // (kalici/desteklenmeyen) | "MAX_ATTEMPTS" (transient limit doldu). null => bloklu degil.
+  barcodeRetryCount: z.number().int(),
+  barcodeNextRetryAt: z.string().datetime().nullable(),
+  barcodeLastAttemptAt: z.string().datetime().nullable(),
+  barcodeRetryBlockedReason: z.string().nullable(),
   // Son provider senkronu (en yeni STATUS/TRACKING event'inden turetilir).
   lastSyncedAt: z.string().datetime().nullable(),
   lastProviderStatus: z.string().nullable(),

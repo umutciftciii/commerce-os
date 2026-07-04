@@ -152,6 +152,42 @@ export const envSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
     z.coerce.number().int().positive().default(10),
   ),
+  // TODO-123 — Barkod retry/backoff worker'i (provider-agnostic). Varsayilan KAPALI;
+  // acilinca api-gateway sureci icinde guvenli araliklarla, TRANSIENT (retryable) barkod
+  // hatasi olan gonderileri saglayiciyla YENIDEN barkod olusturmaya calisir (bkz.
+  // apps/api-gateway/src/shipping/barcode-retry-worker.ts). DATA_FIX (varis/adres eslemesi)
+  // ve TERMINAL hatalar OTOMATIK denenmez; admin duzeltmesi (TODO-124/139) bekler. Manuel
+  // "Barkod/Etiket Olustur" worker kapaliyken de calisir ve backoff'u bypass eder. Tum
+  // degerler env_file'daki `KEY=` bos-string haline TOLERANSLIDIR (PR #15 deseni).
+  BARCODE_RETRY_ENABLED: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .optional()
+      .default(false)
+      .transform((value) => value === true || value === "true"),
+  ),
+  // Tur araligi (saniye). Muhafazakar varsayilan 300s; alt sinir 30s (saglayiciyi bogmamak icin).
+  BARCODE_RETRY_INTERVAL_SECONDS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().min(30).default(300),
+  ),
+  // Tur basina en fazla kac gonderi denenir (kucuk tutuldu; retry pahali/gurultulu olmasin).
+  BARCODE_RETRY_BATCH_SIZE: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().max(500).default(10),
+  ),
+  // Ussel backoff tabani (dakika): stale * 2^(attempt-1), 6 saatle sinirli.
+  BARCODE_RETRY_STALE_AFTER_MINUTES: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().default(15),
+  ),
+  // Ardisik transient hata esigi: barcodeRetryCount bu degere ulasinca WORKER secmez
+  // (barcodeRetryBlockedReason=MAX_ATTEMPTS); manuel retry calismaya devam eder.
+  BARCODE_RETRY_MAX_ATTEMPTS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().positive().default(5),
+  ),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

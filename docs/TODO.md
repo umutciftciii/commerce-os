@@ -586,13 +586,20 @@
   gerçek push formatını platform-normalize sözleşmeye çeviren adapter katmanı + sağlayıcının kendi imza
   doğrulaması (DHL callback kaydı TODO-107 canlı süreciyle birlikte). Şu an uç platform-normalize
   sözleşme + platform HMAC şeması ile çalışır (ADR-048).
-- TODO-123 (AÇIK): Barcode boş-yanıt (LABEL_PENDING) için otomatik retry/backoff job. createOrder→createbarcode
-  arası MNG sandbox sparse yanıt verebildiğinden, LABEL_PENDING gönderiler için zamanlanmış yeniden deneme
-  (backoff + max attempts) ve admin'e bildirim. Şu an retry manuel (UI "Barkod Oluştur" tekrar).
-  NOT (TODO-124 sonrası): retry job TODO-124'ün sınıflandırmasını TÜKETMELİDİR — `Shipment.lastBarcodeErrorCode`
-  = `DESTINATION_BRANCH_NOT_FOUND` olan gönderiler admin il/ilçe düzeltmesi (repair-destination bunu sıfırlar)
-  yapılana kadar retry EDİLMEZ (mapping hatası backoff'la düzelmez); geçici hatalar
-  (`BARCODE_PROVIDER_ERROR`/pending) backoff'la denenebilir.
+- TODO-123 (DONE — 2026-07-04, ADR-054): Barkod retry/backoff (transient otomatik, veri-hatası admin
+  düzeltmesi bekler). Üç sınıf (`barcode-service.ts`): RETRYABLE (timeout/5xx/network) → üssel backoff
+  (`stale·2^(deneme-1)`, 6 saat cap, `BARCODE_RETRY_MAX_ATTEMPTS` sonra `MAX_ATTEMPTS` blok); DATA_FIX
+  (`DESTINATION_BRANCH_NOT_FOUND`, `ADDRESS_DISTRICT_CODE_REQUIRED`, `CBS_CODE_INVALID`, `RECIPIENT_EMAIL_*`)
+  → otomatik denenmez; TERMINAL (`AUTH_FAILED`/`*_DISABLED`) → otomatik denenmez. Ayrı additive Shipment
+  metadata (`barcodeRetryCount`/`barcodeNextRetryAt`/`barcodeLastAttemptAt`/`barcodeRetryBlockedReason`;
+  TODO-129 sync alanlarından bağımsız). Manuel "Barkod/Etiket Oluştur" + zamanlanmış
+  `barcode-retry-worker.ts` (TODO-129 deseni; `BARCODE_RETRY_ENABLED=false` varsayılan) AYNI `attemptBarcode`
+  çekirdeğini kullanır. **TODO-124/TODO-139 etkileşimi:** repair-destination + adres düzenleme
+  `lastBarcodeErrorCode` + retry blok/sayaç/backoff'u sıfırlar → DATA_FIX bloğu kalkar, deneme yeniden
+  anlamlı. Idempotent `BARCODE_FAILED` (ilk hata/kod değişimi/yeni blok). Sahte başarı yok; durum yalnız
+  barkod kanıtıyla ilerler; duplicate guard + CustomerAddress bozulmaz. UI: retry durumu (sonraki deneme/
+  sayaç/blok nedeni) + "Şimdi Tekrar Dene" + DATA_FIX CTA. Testler: `shipping-barcode-retry.test.ts` (28),
+  `shipping-barcode-route.test.ts` (2), `shipment-screens.test.tsx` retry UI (4).
 - TODO-124: CBS il/ilçe kod eşleme + admin varış onarımı (DONE — 2026-07-04, ADR-052). Kök neden (OS-000053):
   UI recipient'ı sipariş adresinden yalnız cityName/districtName ile kuruyordu, cityCode/districtCode hiç
   gönderilmiyordu; adres metni ilçe seçimiyle tutarsız olunca MNG createOrder'ı kabul edip createbarcode'da

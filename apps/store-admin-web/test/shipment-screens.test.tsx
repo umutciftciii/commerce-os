@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ShipmentsPage from "../app/(app)/shipping/shipments/page.js";
 import ShipmentDetailPage from "../app/(app)/shipping/shipments/[id]/page.js";
@@ -164,5 +164,72 @@ describe("shipment detail page (F3C.5)", () => {
     for (const name of ["Barkod/Etiket Oluştur", "Durumu Güncelle", "Gönderi Kaydını İptal Et", "Manuel Takip No Gir"]) {
       expect(name.includes("DHL")).toBe(false);
     }
+  });
+});
+
+/** TODO-123 — barkod retry/backoff durumu (barkod öncesi, güvenli durum). */
+function retryDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    ...detail(),
+    status: "ORDER_CREATED",
+    barcodeHasLabel: false,
+    trackingNumber: null,
+    barcodeRetryCount: 0,
+    barcodeNextRetryAt: null,
+    barcodeLastAttemptAt: "2026-07-04T12:00:00.000Z",
+    barcodeRetryBlockedReason: null,
+    lastBarcodeErrorCode: null,
+    actions: {
+      canPrepare: false,
+      canCreateLabel: true,
+      canSync: true,
+      canCancel: false,
+      canManualTracking: true,
+      canRepairDestination: false,
+      disabledReason: null,
+    },
+    ...overrides,
+  };
+}
+
+describe("shipment retry state (TODO-123)", () => {
+  it("transient hata: retry durumu + 'Şimdi Tekrar Dene' butonu render edilir ve çalışır", async () => {
+    storeApiMock.getShipment.mockResolvedValue({
+      shipment: retryDetail({ lastBarcodeErrorCode: "BARCODE_PROVIDER_ERROR", barcodeRetryCount: 2, barcodeNextRetryAt: "2026-07-04T12:15:00.000Z" }),
+    });
+    storeApiMock.createShipmentLabel.mockResolvedValue({ shipment: retryDetail() });
+    render(<ShipmentDetailPage />);
+
+    expect(await screen.findByText("Barkod Deneme Durumu")).toBeTruthy();
+    expect(screen.getByText(/Sistem tekrar deneyecek/)).toBeTruthy();
+    expect(screen.getByText("Deneme sayısı")).toBeTruthy();
+
+    const retryBtn = screen.getByRole("button", { name: "Şimdi Tekrar Dene" });
+    fireEvent.click(retryBtn);
+    expect(storeApiMock.createShipmentLabel).toHaveBeenCalledWith("shp_1", { explicitConfirm: true });
+  });
+
+  it("DATA_FIX blok: adres düzeltme mesajı render edilir", async () => {
+    storeApiMock.getShipment.mockResolvedValue({
+      shipment: retryDetail({ lastBarcodeErrorCode: "DESTINATION_BRANCH_NOT_FOUND", barcodeRetryBlockedReason: "DATA_FIX", canRepairDestination: true }),
+    });
+    render(<ShipmentDetailPage />);
+    expect(await screen.findByText(/Adres düzeltmesi gerekiyor/)).toBeTruthy();
+  });
+
+  it("MAX_ATTEMPTS blok: tükenmiş deneme mesajı render edilir", async () => {
+    storeApiMock.getShipment.mockResolvedValue({
+      shipment: retryDetail({ lastBarcodeErrorCode: "BARCODE_PROVIDER_ERROR", barcodeRetryBlockedReason: "MAX_ATTEMPTS", barcodeRetryCount: 5 }),
+    });
+    render(<ShipmentDetailPage />);
+    expect(await screen.findByText(/Otomatik deneme limiti doldu/)).toBeTruthy();
+  });
+
+  it("kilitli durumda (hata yok): retry bölümü render EDİLMEZ", async () => {
+    storeApiMock.getShipment.mockResolvedValue({ shipment: detail() }); // IN_TRANSIT, error yok
+    render(<ShipmentDetailPage />);
+    await screen.findByRole("button", { name: "Durumu Güncelle" });
+    expect(screen.queryByText("Barkod Deneme Durumu")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Şimdi Tekrar Dene" })).toBeNull();
   });
 });

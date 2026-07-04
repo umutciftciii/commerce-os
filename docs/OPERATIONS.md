@@ -142,6 +142,53 @@ içerir; secret/raw payload asla). Sağlayıcı HTTP'si `SHIPPING_SANDBOX_HTTP_E
 sync `SHIPPING_HTTP_DISABLED` koduyla güvenle backoff'lar; gerçek sorgu için bu bayrak +
 credential gerekir.
 
+## Barkod retry/backoff worker'ı (TODO-123)
+
+Barkod oluşturma **geçici** bir sağlayıcı hatasıyla (timeout, 5xx, network, tanınmayan) düştüğünde,
+sistem konservatif backoff ile otomatik yeniden dener. Hata **veri düzeltmesi gerektiriyorsa**
+(varış şubesi/adres eşlemesi geçersiz) otomatik denenmez; admin düzeltmesi (TODO-124/TODO-139)
+bekler. Çekirdek `apps/api-gateway/src/shipping/barcode-service.ts`'tedir ve **manuel "Barkod/Etiket
+Oluştur" ile aynıdır** (drift olmaz); döngü `barcode-retry-worker.ts` (TODO-129 sync worker deseni).
+
+**Sınıflandırma** (`lastBarcodeErrorCode` "ne oldu"; `barcodeRetryBlockedReason` "neden otomatik
+denenmiyor" — AYRIDIR):
+
+- **RETRYABLE** (transient): `SHIPPING_HTTP_TIMEOUT`, `BARCODE_PROVIDER_ERROR` (generic 5xx),
+  `PROVIDER_NETWORK_ERROR` → backoff ile denenir. Limit dolunca `barcodeRetryBlockedReason=MAX_ATTEMPTS`.
+- **DATA_FIX**: `DESTINATION_BRANCH_NOT_FOUND`, `ADDRESS_DISTRICT_CODE_REQUIRED`, `CBS_CODE_INVALID`,
+  `RECIPIENT_EMAIL_*` → **otomatik denenmez**; admin adres/il-ilçe düzeltmesi bloğu kaldırır.
+- **TERMINAL**: `AUTH_FAILED`, `SHIPPING_HTTP_DISABLED`, `BARCODE_CREATE_DISABLED` vb. → otomatik
+  denenmez; manuel kontrol.
+
+Env (hepsi boş bırakılabilir; boş değer varsayılana düşer, config yüklemesi çökmez):
+
+- `BARCODE_RETRY_ENABLED` — varsayılan **false** (docker dev compose'da **açılmaz**; MNG sandbox'a
+  düzenli otomatik çağrı üretmemek için). Kapalıyken api-gateway başlangıçta `barcode retry worker
+  disabled` loglar; döngü kurulmaz. **Manuel retry worker kapalıyken de çalışır.**
+- `BARCODE_RETRY_INTERVAL_SECONDS` — tur aralığı (varsayılan 300, min 30).
+- `BARCODE_RETRY_BATCH_SIZE` — tur başına en fazla gönderi (varsayılan 10).
+- `BARCODE_RETRY_STALE_AFTER_MINUTES` — üssel backoff tabanı: `stale·2^(deneme-1)`, 6 saatle sınırlı (varsayılan 15).
+- `BARCODE_RETRY_MAX_ATTEMPTS` — ardışık transient hata eşiği (varsayılan 5); eşiğe ulaşan gönderiyi
+  worker seçmez (`MAX_ATTEMPTS`), **manuel "Şimdi Tekrar Dene" çalışmaya devam eder**.
+
+**Seçim kuralları:** durum `ORDER_CREATED`/`LABEL_PENDING` (kilitli `LABEL_CREATED`/`IN_TRANSIT`+ asla),
+provider `DHL_ECOMMERCE` + ENABLED, `barcodeRetryBlockedReason` boş, `lastBarcodeErrorCode` dolu (transient),
+`barcodeRetryCount < max`, `barcodeNextRetryAt ≤ now`. Durum yalnız barkod kanıtıyla ilerler; sahte başarı
+yok; yeni gönderi açılmaz. `BARCODE_FAILED` event yalnız ilk hata / hata kodu değişimi / yeni blok nedeninde
+yazılır (spam yok).
+
+**Otomatik ne zaman:** yalnız transient hatada + backoff dolunca. **Admin düzeltmesi ne zaman:** DATA_FIX
+blokunda — UI "Adres düzeltmesi gerekiyor" + varış onarım/adres düzenleme CTA'sı (TODO-124/139) gösterir.
+Düzeltme `lastBarcodeErrorCode` + retry sayaç/backoff/blok alanlarını sıfırlar → deneme yeniden anlamlı.
+
+**Manuel retry:** shipment detay → "Şimdi Tekrar Dene" (aynı `create-label` ucu). Backoff'u **bypass eder**
+(admin açıkça tıkladı); ama DATA_FIX/TERMINAL blokunda veri düzeltilmediyse aynı hata döner.
+
+**Açma (dev/prod):** compose `api-gateway` env'ine `BARCODE_RETRY_ENABLED=true` ekle + restart. Güvenli
+runtime doğrulama: `docker compose logs api-gateway | grep "barcode retry"` (`worker started`/`cycle
+completed`; log yalnız id/store/provider/durum/hata kodu; secret/raw payload asla).
+**Kapatma:** `BARCODE_RETRY_ENABLED=false` (veya kaldır) + restart.
+
 ## CBS il/ilçe eşleme + "Varış şubesi bulunamadı" onarımı (TODO-124)
 
 **Nasıl çalışır:** DHL/MNG prepare (createRecipient+createOrder) ve generic create-order,
