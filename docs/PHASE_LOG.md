@@ -2656,3 +2656,41 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   494/494 regresyon dahil), git diff --check temiz.
 - **Kalan.** merge sonrası docker api-gateway rebuild + boş opsiyonel env'lerle boot doğrulama (aşağıdaki
   runtime doğrulama planı).
+
+## 2026-07-05 — TODO-142 + TD-038: Kargo sandbox smoke runbook + web request-time env normalizasyon
+- **Bağlam.** Kargo temeli (gönderi/DHL-MNG sandbox/CBS/adres/barkod/retry/sync/webhook/UI) büyük ölçüde
+  tamam; kampanya/kupon MVP'sine geçmeden önce (1) operatör için tekrarlanabilir smoke akışı ve (2) TD-036'nın
+  bilinçli kapsam dışı bıraktığı web app request-time env boşluğunun kapatılması gereken küçük bir kapanış turu.
+- **Part A — TODO-142 runbook.** Yeni `docs/runbooks/shipping-sandbox-smoke.md`: 11 bölümlük somut kontrol
+  listesi — ön koşullar (stack/gateway/panel health, sandbox env, guard'lar), ödeme uygunluğu (`409
+  ORDER_PAYMENT_REQUIRED`), CBS/varış onarımı (MNG **20001** "VARIŞ ŞUBESİ BULUNAMADI" = DATA_FIX; TD-035
+  provision boşluğu beklenen), prepare/duplicate güvenli yanıt, barkod 3 sınıf (RETRYABLE otomatik /
+  DATA_FIX admin onarımı bekler / TERMINAL) + manuel retry backoff bypass, sync worker + manuel `sync-all`
+  (drift yok) + terminal hariç + duplicate-event yok, webhook rotate/imzalı örnek/geçersiz-imza-reddi/
+  duplicate-idempotency/ham-payload-sızmaz (openssl HMAC örneği), müşteri UI (TR tarih `04.07.2026 18:00`,
+  IN_TRANSIT "Yolda", "Kargonuz taşıma sürecinde."), admin UI (detay/olaylar/webhook-modal/retry-panel/
+  onarım), güvenlik kuralları (DB reset/seed/prune/prod-credential/sahte-DELIVERED YOK), kopyala-yapıştır
+  final rapor şablonu. `docs/OPERATIONS.md`'ye kısa link/bölüm eklendi. Kod/domain DEĞİŞMEDİ.
+- **Part B — TD-038 env normalizasyon.** Duz-string helper `optionalEnvString` (`packages/utils`):
+  `undefined|null|""|whitespace` → undefined (config'in zod `optionalEnv`'inin web karşılığı; `loadConfig`/
+  zod **web bundle'a girmez**, yalnız `packages/utils` zero-dep). Gateway URL tek noktada: `resolveApiGatewayUrl`
+  (`packages/api-client`) boş/whitespace `API_GATEWAY_URL`'yi "yok" sayar → default; storefront
+  `gatewayBaseUrl()` buraya delege edildi (store-admin/admin zaten `createApiClient` üzerinden aynı noktayı
+  kullanıyor). Helper ile sarılan diğer okumalar: `SESSION_COOKIE_NAME`/`CSRF_COOKIE_NAME`/`CSRF_HEADER_NAME`
+  (store-admin+admin), demo mağaza slug'ları (storefront `env.ts`, store-admin `store-context.ts`),
+  `STOREFRONT_BASE_URL` (aktivasyon linki — whitespace artık `"   /auth/activate"` bozuk mutlak URL üretmez),
+  `STOREFRONT_CART_SECRET`.
+- **Bilinen bug düzeltmesi.** `API_GATEWAY_URL=""` artık default gateway URL'ini bypass ETMEZ; unset gibi
+  davranır (boş değerle bozuk göreli fetch'e düşmez).
+- **Değişmeyen.** Zorunlu `INTERNAL_API_TOKEN` doğrudan/strict okunur. Karşılaştırmalı okumalar
+  (`NODE_ENV === "production"`, `ADMIN_COOKIE_SECURE === "true"`, `ADMIN_COOKIE_SAME_SITE === "strict"`)
+  boş string'de zaten doğru else-dalına düştüğünden dokunulmadı. Helper değeri asla loglamaz (secret güvenliği).
+- **Dep politikası.** `@commerce-os/utils` (zero-dep, bundle-safe) → storefront-web/store-admin-web/admin-web
+  ve api-client'a workspace dep. Yeni ağır/zod bağımlılığı yok, client bundle riski yok → **ADR gerekmez**.
+- **Testler.** `packages/utils/test/env.test.ts` (+6), `packages/api-client/test/api-client.test.ts` (+6:
+  undefined/""/whitespace→default, valid, explicit öncelik, boş explicit→env), `apps/store-admin-web/test/
+  activation-link.test.ts` (+4: unset/""/whitespace→göreli, set→mutlak). Gate'ler yeşil: db:generate,
+  pnpm -r build, typecheck, lint, test (utils 6/6, api-client 19/19, store-admin 161/161, storefront 101/101,
+  admin 24/24, api-gateway 494/494 regresyon), git diff --check temiz.
+- **Kalan.** merge sonrası storefront/store-admin/admin-web rebuild + `API_GATEWAY_URL=` boş env ile boot/
+  login-redirect/guarded-page doğrulama (500 yok, secret loglanmaz); api-gateway sağlıklı tutulur.

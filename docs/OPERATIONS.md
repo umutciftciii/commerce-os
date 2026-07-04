@@ -107,6 +107,34 @@ Yardımcılar: `packages/config/src/env.ts` (`optionalEnv`, `optionalUrlEnv`, `o
 `optionalNumberEnv`). Yeni opsiyonel env eklerken bu helper'ları kullanın (inline `z.preprocess`
 tekrarlamayın).
 
+### Web app request-time env kuralı (TD-038)
+
+Web app'ler (storefront/store-admin/admin) merkezi `loadConfig`'i kullanmaz; opsiyonel env'leri
+Next.js server bağlamında **istek/boot zamanında** `process.env.X ?? default` ile okur. TD-036'nın
+boot-time normalizasyonu bu okumaları kapsamıyordu; `API_GATEWAY_URL=` gibi **boş string** bir env,
+`??` fallback'ini bypass edip boş/bozuk değere düşebiliyordu.
+
+- **Kural (config ile aynı).** Opsiyonel web env'lerinde `undefined | null | "" | yalnız-boşluk`
+  → **"yok"** kabul edilir ve `?? default`'a düşer. Duz-string helper: `optionalEnvString`
+  (`packages/utils`) — config'in zod-tabanlı `optionalEnv`'inin karşılığıdır ve web bundle'ına zod
+  taşımadan aynı toleransı sağlar (config'in `loadConfig`/zod şeması **client bundle'a girmez**).
+- **Uygulanış.** Gateway URL cozumu tek noktada: `resolveApiGatewayUrl` (`packages/api-client`) boş/
+  whitespace `API_GATEWAY_URL`'yi "yok" sayar; storefront `gatewayBaseUrl()` buraya delege eder,
+  store-admin/admin `createApiClient()` üzerinden aynı noktayı kullanır. Diğer okumalar helper ile
+  sarıldı: cookie/CSRF adları, demo mağaza slug'ları, `STOREFRONT_BASE_URL` (aktivasyon linki),
+  `STOREFRONT_CART_SECRET`.
+- **Değişmeyen.** Zorunlu değerler strict kalır (ör. `INTERNAL_API_TOKEN` doğrudan okunur, boş-string
+  toleransı almaz). Karşılaştırmalı okumalar (`NODE_ENV === "production"`, `ADMIN_COOKIE_SECURE ===
+  "true"`, `ADMIN_COOKIE_SAME_SITE === "strict"`) zaten boş string'de doğru else-dalına düştüğünden
+  dokunulmadı. Helper değeri **asla loglamaz** (secret güvenliği).
+
+## Kargo sandbox uçtan uca smoke (TODO-142)
+
+Gönderi → barkod → tracking sync → webhook → müşteri/admin UI akışının sandbox/local/staging'de güvenle
+doğrulanması için adım adım kontrol listesi ve final rapor şablonu: **[docs/runbooks/shipping-sandbox-smoke.md](runbooks/shipping-sandbox-smoke.md)**.
+Yıkıcı komut / gerçek credential / runtime mutasyon içermez; davranışı gözlemler. Aşağıdaki webhook/
+sync/barkod/CBS/adres bölümleri runbook'un referans dayanağıdır.
+
 ## Kargo webhook kurulumu (TODO-128 / TODO-104)
 
 Kargo sağlayıcı webhook'ları `POST /public/shipping/webhooks/:token` ucuna gelir; her istek

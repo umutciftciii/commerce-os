@@ -1,4 +1,5 @@
 import type { StoreAdminCredentialSetup } from "@commerce-os/api-client";
+import { optionalEnvString } from "@commerce-os/utils";
 
 /**
  * TODO-087 — Admin tetikli aktivasyon/parola-sifirlama kurulum jetonunu, müşteriye
@@ -13,7 +14,9 @@ export interface ActivationLink {
 }
 
 export function buildActivationLink(setup: StoreAdminCredentialSetup): ActivationLink {
-  const base = (process.env.STOREFRONT_BASE_URL ?? "").replace(/\/+$/, "");
+  // TD-038: bos/whitespace `STOREFRONT_BASE_URL` "yok" sayilir; boylece yalniz-bosluk
+  // bir deger `"   /auth/activate"` gibi bozuk bir mutlak URL uretmez, goreli yola duser.
+  const base = (optionalEnvString(process.env.STOREFRONT_BASE_URL) ?? "").replace(/\/+$/, "");
   const path = `/auth/activate?token=${encodeURIComponent(setup.token)}`;
   return { link: base ? `${base}${path}` : path, purpose: setup.purpose, expiresAt: setup.expiresAt };
 }

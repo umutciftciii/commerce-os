@@ -6,10 +6,15 @@
  * login ya da Bearer token KULLANILMAZ; bu modulun degerleri NEXT_PUBLIC_
  * degildir, dolayisiyla client bundle'a girmez.
  */
+import { resolveApiGatewayUrl } from "@commerce-os/api-client";
 
-/** Gateway taban URL'i (yalnizca sunucu env'i). */
+/**
+ * Gateway taban URL'i (yalnizca sunucu env'i). TD-038: cozumleme, tum web
+ * app'lerin paylastigi tek nokta olan `resolveApiGatewayUrl`'e delege edilir;
+ * boylece `API_GATEWAY_URL=` bos degeri varsayilani bypass etmez (bkz. api-client).
+ */
 export function gatewayBaseUrl(): string {
-  return (process.env.API_GATEWAY_URL ?? "http://localhost:4000").replace(/\/+$/, "");
+  return resolveApiGatewayUrl();
 }
 
 export type FetchOutcome<T> =

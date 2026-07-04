@@ -1,5 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { createApiClient, type AdminStore } from "@commerce-os/api-client";
+import { optionalEnvString } from "@commerce-os/utils";
 import { getSessionToken } from "./session";
 import { errorResponse, noStoreResponse, unauthorizedResponse } from "./respond";
 
@@ -17,8 +18,11 @@ export interface StoreContext {
   status: AdminStore["status"];
 }
 
-/** Demo/hedef mağaza secimi: once slug eslesmesi, yoksa listenin ilk mağazasi. */
-const DEMO_STORE_SLUG = process.env.STORE_ADMIN_DEMO_STORE_SLUG ?? "demo-store";
+/**
+ * Demo/hedef mağaza secimi: once slug eslesmesi, yoksa listenin ilk mağazasi.
+ * TD-038: bos/whitespace `STORE_ADMIN_DEMO_STORE_SLUG` "yok" sayilir ve varsayilana duser.
+ */
+const DEMO_STORE_SLUG = optionalEnvString(process.env.STORE_ADMIN_DEMO_STORE_SLUG) ?? "demo-store";
 
 function toContext(store: AdminStore): StoreContext {
   return { id: store.id, name: store.name, slug: store.slug, status: store.status };
