@@ -145,3 +145,24 @@ export function formatDateTime(
     hour12: false,
   }).format(date);
 }
+
+/**
+ * Locale-duyarli SALT tarih bicimi (saat yok). Turkce icin `04.07.2026`;
+ * Ingilizce icin `04/07/2026` — hicbir locale'de US MM/DD/YYYY DEGIL. Gecersiz
+ * veya bos deger guvenli sekilde "—" doner. `formatDateTime` ile ayni tek kaynak
+ * ve BCP-47 etiketlerini paylasir (sadece saat alanlari yok). Sipariste tarih-only
+ * gosterimler (siparis tarihi, odeme tarihi vb.) icin kullanilir.
+ */
+export function formatDate(
+  value: string | number | Date | null | undefined,
+  locale: Locale = defaultLocale,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(dateTimeLocaleTag[locale] ?? dateTimeLocaleTag[defaultLocale], {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}

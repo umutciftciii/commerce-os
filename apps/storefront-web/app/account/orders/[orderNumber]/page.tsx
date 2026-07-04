@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Container } from "@commerce-os/ui";
-import { format } from "@commerce-os/i18n";
+import { format, formatDate, type Locale } from "@commerce-os/i18n";
 import type { CustomerOrderDetail } from "@commerce-os/api-client";
 import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
@@ -51,7 +51,7 @@ export default async function OrderDetailPage({
             {o.orderNumber}: {order.orderNumber}
           </h1>
           <p className="text-sm text-slate-500">
-            {new Date(order.createdAt).toLocaleDateString()} ·{" "}
+            {formatDate(order.createdAt, locale)} ·{" "}
             {format(o.items, { count: order.itemCount })}
           </p>
           <OrderStatusBadges
@@ -101,7 +101,7 @@ export default async function OrderDetailPage({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <ShippingBlock o={o} order={order} />
-          <PaymentBlock o={o} order={order} />
+          <PaymentBlock o={o} order={order} locale={locale} />
         </div>
 
         <BillingBlock o={o} order={order} />
@@ -191,7 +191,15 @@ function ShippingBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail
   );
 }
 
-function PaymentBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
+function PaymentBlock({
+  o,
+  order,
+  locale,
+}: {
+  o: OrdersDict;
+  order: CustomerOrderDetail;
+  locale: Locale;
+}) {
   const p = order.payment;
   return (
     <section className="rounded-xl border border-slate-200 p-4">
@@ -215,7 +223,7 @@ function PaymentBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail 
           />
           {p.transactionId ? <Row label={o.detail.transaction} value={p.transactionId} /> : null}
           {p.paidAt ? (
-            <Row label={o.detail.paidAt} value={new Date(p.paidAt).toLocaleDateString()} />
+            <Row label={o.detail.paidAt} value={formatDate(p.paidAt, locale)} />
           ) : null}
           {p.threeDsApplied ? (
             <p className="text-xs text-slate-400">{o.detail.threeDs}</p>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { EmptyState } from "@commerce-os/ui";
-import { format } from "@commerce-os/i18n";
-import type { StorefrontDictionary } from "@commerce-os/i18n";
+import { format, formatDate } from "@commerce-os/i18n";
+import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerOrderSummary } from "@commerce-os/api-client";
 import { formatMinor } from "../../../lib/money";
 import {
@@ -38,11 +38,13 @@ function tabHref(tab: OrdersTab, query: string): string {
 export function OrdersSection({
   t,
   orders,
+  locale,
   tab,
   query,
 }: {
   t: StorefrontDictionary["account"];
   orders: CustomerOrderSummary[];
+  locale: Locale;
   tab: OrdersTab;
   query: string;
 }) {
@@ -101,7 +103,7 @@ export function OrdersSection({
       ) : (
         <ul className="space-y-3">
           {filtered.map((order) => (
-            <OrderCard key={order.orderNumber} o={o} order={order} />
+            <OrderCard key={order.orderNumber} o={o} order={order} locale={locale} />
           ))}
         </ul>
       )}
@@ -109,7 +111,15 @@ export function OrdersSection({
   );
 }
 
-function OrderCard({ o, order }: { o: OrdersDict; order: CustomerOrderSummary }) {
+function OrderCard({
+  o,
+  order,
+  locale,
+}: {
+  o: OrdersDict;
+  order: CustomerOrderSummary;
+  locale: Locale;
+}) {
   return (
     <li className="rounded-xl border border-slate-200 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -118,7 +128,7 @@ function OrderCard({ o, order }: { o: OrdersDict; order: CustomerOrderSummary })
             {o.orderNumber}: {order.orderNumber}
           </p>
           <p className="text-xs text-slate-500">
-            {new Date(order.createdAt).toLocaleDateString()} ·{" "}
+            {formatDate(order.createdAt, locale)} ·{" "}
             {format(o.items, { count: order.itemCount })}
           </p>
         </div>

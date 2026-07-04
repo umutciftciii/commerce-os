@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Container, EmptyState } from "@commerce-os/ui";
-import { getStorefrontDict } from "../../lib/i18n";
+import type { Locale } from "@commerce-os/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../lib/i18n";
 import { resolveOrdersTab } from "../../lib/orders";
 import {
   getCurrentCustomer,
@@ -57,6 +58,7 @@ export default async function AccountPage({
     redirect("/auth/login?next=/account");
   }
   const t = (await getStorefrontDict()).account;
+  const locale = await getRequestLocale();
   const params = await searchParams;
   const section = resolveSection(params.section);
 
@@ -67,7 +69,7 @@ export default async function AccountPage({
           <AccountSidebar t={t} section={section} />
         </aside>
         <section>
-          {await renderSection(section, t, {
+          {await renderSection(section, t, locale, {
             tab: params.tab,
             q: params.q,
           })}
@@ -80,6 +82,7 @@ export default async function AccountPage({
 async function renderSection(
   section: AccountSection,
   t: Awaited<ReturnType<typeof getStorefrontDict>>["account"],
+  locale: Locale,
   ordersParams: { tab?: string; q?: string },
 ) {
   switch (section) {
@@ -89,6 +92,7 @@ async function renderSection(
         <OrdersSection
           t={t}
           orders={orders}
+          locale={locale}
           tab={resolveOrdersTab(ordersParams.tab)}
           query={(ordersParams.q ?? "").trim()}
         />

@@ -3,6 +3,7 @@ import {
   allDictionaries,
   defaultLocale,
   format,
+  formatDate,
   formatDateTime,
   getDefaultDictionary,
   getDictionary,
@@ -151,5 +152,35 @@ describe("formatDateTime", () => {
     expect(formatDateTime(localDate.toISOString(), "tr")).toMatch(
       /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/,
     );
+  });
+});
+
+describe("formatDate (salt tarih)", () => {
+  const localDate = new Date(2026, 6, 4, 18, 0, 0); // 4 Temmuz 2026 (yerel)
+
+  it("Türkçe için dd.MM.yyyy (saatsiz) döner — US MM/DD/YYYY DEĞİL", () => {
+    expect(formatDate(localDate, "tr")).toBe("04.07.2026");
+  });
+
+  it("İngilizce için dd/MM/yyyy döner (US MM/DD/YYYY değil)", () => {
+    // en-GB: gün/ay/yıl — 4 Temmuz => 04/07/2026, asla 7/4/2026 değil.
+    expect(formatDate(localDate, "en")).toBe("04/07/2026");
+  });
+
+  it("saat/dakika/saniye içermez", () => {
+    const out = formatDate(localDate, "tr");
+    expect(out).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(out).not.toMatch(/AM|PM/);
+  });
+
+  it("varsayılan locale Türkçedir", () => {
+    expect(formatDate(localDate)).toBe("04.07.2026");
+  });
+
+  it("geçersiz/boş değerde em-dash döner", () => {
+    expect(formatDate(null)).toBe("—");
+    expect(formatDate(undefined)).toBe("—");
+    expect(formatDate("")).toBe("—");
+    expect(formatDate("not-a-date")).toBe("—");
   });
 });
