@@ -737,3 +737,34 @@
   mantığı DEĞİŞMEDİ — yalnız Docker/build hijyeni. Cache hijyeni: bkz. docs/OPERATIONS.md (clean build + `docker
   builder/image/container prune`; volume'lara DOKUNULMAZ). KALAN: main'e merge sonrası kullanıcı ana `docker`
   stack'ini `--no-cache` gerekmeden rebuild edebilir; host'ta önce `pnpm build` ARTIK GEREKMEZ.
+- TODO-139 — Sipariş teslimat adresi snapshot düzenleme (DONE — 2026-07-04). İş problemi: sipariş oluştuktan
+  sonra yanlış/tutarsız adres kalan siparişlerde admin'in teslimat adresini — gönderi henüz taşınmaya
+  başlamadan — güvenle düzeltebilmesi. Kök neden: TODO-124 repair YALNIZ `Shipment` il/ilçe KODLARINI düzeltir;
+  `OrderAddress(SHIPPING)` snapshot'ı ile ad/telefon/adres satırı/il-ilçe İSİMLERİ düzenlenemiyordu (Order
+  snapshot bayat kalıyordu). Snapshot kaynak-otoritesi: sipariş adresi = `OrderAddress(SHIPPING)` (kargo kodu
+  YOK); kargo kodları/operasyon = `Shipment.recipient*`. Uygulanan: yeni `PATCH /stores/:storeId/orders/
+  :orderId/shipping/address` (shipping/routes.ts) — ownership + store-admin auth; güvenli durum guard'ı
+  (`ADDRESS_EDITABLE_SHIPMENT_STATUSES = DRAFT|ORDER_CREATED|LABEL_PENDING`; aktif gönderi başka durumdaysa 409
+  `SHIPMENT_ADDRESS_LOCKED` — LABEL_CREATED/IN_TRANSIT/…/DELIVERED/RETURNED/CANCELLED KİLİTLİ; TODO-124 repair
+  guard'ıyla birebir tutarlı). İşlem: (1) `OrderAddress(SHIPPING)` transaction'da güncellenir/oluşturulur;
+  (2) `OrderEvent(type="SHIPPING_ADDRESS_UPDATED")` yazılır (String — migration YOK); (3) gönderi düzenlenebilirse
+  `Shipment` alıcı snapshot'ı da güncellenir; (4) DHL ise CBS il/ilçe çözümü/doğrulaması — client'tan gelen
+  cityCode/districtCode CBS'e karşı YENİDEN doğrulanır (`validateCodes`; körü körüne güvenilmez), kod
+  verilmezse yeni isimden EXACT-match (`resolveRecipientGeo`; fuzzy YOK), eşleşmezse bayat kod NULL'lanır
+  (0/negatif ASLA persist); (5) geçerli kod eşleşince `lastBarcodeErrorCode` temizlenir; (6) `ShipmentEvent`
+  DESTINATION_REPAIRED yeniden kullanılır (yeni enum YOK). Sağlayıcı onarımı: DHL + güvenli + geçerli kodlu ise
+  `createRecipient` yeniden iletilir (TODO-124 guard deseni); başarısız/desteklenmezse yerel snapshot KORUNUR,
+  `providerResent:false`/`providerRepairSupported:false` döner (sahte başarı YOK). Duplicate shipment guard'a
+  DOKUNULMAZ (yeni gönderi OLUŞTURULMAZ); MÜŞTERİ adres defteri (CustomerAddress) global mutasyona UĞRAMAZ —
+  yalnız BU sipariş. UI: order detay kargo kartına (`order-shipment-summary` → yeni `edit-shipping-address`)
+  "Teslimat Adresini Düzenle" + CBS il/ilçe dropdown'ları + kapsam uyarısı + kilit kopyası + `providerResent:false`
+  sınırlama kopyası; kayıt sonrası `router.refresh()` + kart yeniden yükleme. Migration: HAYIR. Testler:
+  api-gateway `shipping-address-update` (9: no-shipment→yalnız OrderAddress, ORDER_CREATED/LABEL_PENDING→her iki
+  snapshot + DESTINATION_REPAIRED event, IN_TRANSIT/DELIVERED/LABEL_CREATED→locked, ownership 404, non-admin 401,
+  duplicate guard/customer-address dokunulmaz), CBS kod doğrulama guarantee'leri `shipping-cbs-mapping` (validateCodes
+  CBS_CODE_INVALID + isValidGeoCode(0)=false) ile korunur; store-admin `edit-shipping-address` (5: güvenli/kilit
+  durum, CBS dropdown, kayıt→onSaved refresh, providerResent:false sınırlama kopyası). TODO-124/129/132/135/136
+  testleri yeşil; TODO-123 sınırı DEĞİŞMEZ. NOT (TODO-123): retry job adres snapshot onarımından SONRA çalışmalı
+  (düzeltilmiş kodlarla). KALAN: main'e merge sonrası docker api-gateway + store-admin-web REBUILD + runtime
+  doğrulama (yanlış adresli/taşınmamış sipariş → geçerli Kadıköy adresi → snapshot+CBS+barkod retry; kilitli
+  siparişte engel; müşteri adres defteri değişmez).

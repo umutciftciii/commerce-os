@@ -107,6 +107,9 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "Destination branch could not be resolved. Recipient city/district could not be matched by the carrier; fix the address city/district mapping and retry.",
     CBS_CODE_INVALID: "The selected carrier city/district code is invalid; pick a valid option from the CBS list.",
     REPAIR_NOT_APPLICABLE: "City/district mapping cannot be repaired for this shipment.",
+    // TODO-139 — delivery address snapshot edit lock.
+    SHIPMENT_ADDRESS_LOCKED: "Address cannot be changed after handoff to carrier.",
+    ORDER_ADDRESS_LOCKED: "Address cannot be changed after handoff to carrier.",
     // TODO-132 — recipient email is mandatory for provider shipment creation (MNG rejects empty/invalid email).
     RECIPIENT_EMAIL_REQUIRED:
       "A recipient email address is required to create a shipment with the carrier. No email was found on the order or the customer record; add a valid email to the customer record and retry.",

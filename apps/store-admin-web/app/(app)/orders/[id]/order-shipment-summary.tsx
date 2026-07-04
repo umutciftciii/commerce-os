@@ -10,6 +10,7 @@ import type { Order, ShipmentResponse, ShippingProviderConfigResponse } from "@c
 import { isOrderPaidForShipment } from "@commerce-os/api-client";
 import { storeApi, UiError } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
+import { EditShippingAddress } from "./edit-shipping-address";
 import {
   PROVIDER_TYPE_LABEL,
   SHIPMENT_EVENT_LABEL,
@@ -303,6 +304,18 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
         >
           {t.goDetail} →
         </Link>
+        {/* TODO-139 — Aktif gönderi güvenli durumdaysa teslimat adresi snapshot'ı düzenlenebilir;
+            kargoya verilmişse editor kilit uyarısını gösterir. */}
+        <EditShippingAddress
+          order={order}
+          activeShipment={activeShipment}
+          providers={providers}
+          locale={locale}
+          onSaved={async () => {
+            await load();
+            router.refresh();
+          }}
+        />
       </SurfaceCard>
     );
   }
@@ -377,6 +390,17 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
           </div>
         </div>
       )}
+      {/* TODO-139 — Gönderi henüz yokken de teslimat adresi snapshot'ı düzeltilebilir (yalnız OrderAddress). */}
+      <EditShippingAddress
+        order={order}
+        activeShipment={null}
+        providers={providers}
+        locale={locale}
+        onSaved={async () => {
+          await load();
+          router.refresh();
+        }}
+      />
     </SurfaceCard>
   );
 }

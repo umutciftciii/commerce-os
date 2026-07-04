@@ -70,6 +70,8 @@ import type {
   ShippingCbsDistrictsResponse,
   ShipmentRepairDestinationRequest,
   ShipmentRepairDestinationResponse,
+  ShippingAddressUpdateRequest,
+  ShippingAddressUpdateResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -500,6 +502,12 @@ export const storeApi = {
   cancelDhlShipment: (orderId: string, input: ShippingCancelRequest) =>
     mutatingCall<ShippingShipmentMutationResponse>(`/api/orders/${orderId}/shipping/dhl/cancel`, {
       method: "POST",
+      body: JSON.stringify(input),
+    }),
+  // TODO-139 — sipariş teslimat adresi snapshot düzenleme (müşteri adres defterini DEĞİL).
+  updateOrderShippingAddress: (orderId: string, input: ShippingAddressUpdateRequest) =>
+    mutatingCall<ShippingAddressUpdateResponse>(`/api/orders/${orderId}/shipping/address`, {
+      method: "PATCH",
       body: JSON.stringify(input),
     }),
 

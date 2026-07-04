@@ -89,6 +89,8 @@ import type {
   ShippingCbsDistrictsResponse,
   ShipmentRepairDestinationRequest,
   ShipmentRepairDestinationResponse,
+  ShippingAddressUpdateRequest,
+  ShippingAddressUpdateResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -326,6 +328,8 @@ export type {
   ShippingCbsDistrictsResponse,
   ShipmentRepairDestinationRequest,
   ShipmentRepairDestinationResponse,
+  ShippingAddressUpdateRequest,
+  ShippingAddressUpdateResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
   ShippingRatePlanCreateRequest,
@@ -818,6 +822,13 @@ export interface ApiClient {
         input: ShippingCancelRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
+      // TODO-139 — sipariş teslimat adresi snapshot düzenleme (müşteri adres defterini DEĞİL).
+      updateAddress(
+        storeId: string,
+        orderId: string,
+        input: ShippingAddressUpdateRequest,
+        token?: string,
+      ): Promise<ShippingAddressUpdateResponse>;
     };
     // F3C.5 (TODO-121) — store-level shipment domain (provider-agnostic).
     shipments: {
@@ -1455,6 +1466,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/orders/${orderId}/shipping/dhl/cancel`,
             "POST",
+            input,
+            token,
+          ),
+        updateAddress: (storeId, orderId, input, token) =>
+          sendJson<ShippingAddressUpdateResponse>(
+            `/stores/${storeId}/orders/${orderId}/shipping/address`,
+            "PATCH",
             input,
             token,
           ),

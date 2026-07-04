@@ -3019,6 +3019,44 @@ export const shipmentRepairDestinationResponseSchema = z.object({
   providerErrorCode: z.string().nullable(),
 });
 
+/* ─────────────────────── TODO-139 Sipariş teslimat adresi snapshot düzenleme ───────────────────────
+ * Admin, siparişin teslimat adresi SNAPSHOT'ını (OrderAddress SHIPPING) — ve gönderi hâlâ
+ * güvenli düzenlenebilir durumdaysa Shipment alıcı snapshot'ını — düzeltir. Bu MÜŞTERİ adres
+ * defterini DEĞİL, yalnız bu siparişi etkiler. cityCode/districtCode CBS dropdown'undan seçilir
+ * ve sunucuda CBS'e karşı YENİDEN doğrulanır (client değerine körü körüne güvenilmez); 0/negatif
+ * ASLA kaydedilmez. Email allowlist'te DEĞİLDİR (OrderAddress'te yok + kimlik alanı; TODO-132
+ * sunucu-otoriter e-posta çözümü korunur). */
+export const shippingAddressUpdateRequestSchema = z.object({
+  recipientName: z.string().min(1).max(220),
+  recipientPhone: z.string().max(80).nullable().optional(),
+  cityName: z.string().min(1).max(120),
+  districtName: z.string().max(120).nullable().optional(),
+  addressLine1: z.string().min(1).max(500),
+  addressLine2: z.string().max(500).nullable().optional(),
+  postalCode: z.string().max(40).nullable().optional(),
+  countryCode: z.string().length(2).regex(/^[A-Z]{2}$/).optional(),
+  // CBS dropdown'undan seçilen kargo il/ilçe kodu (opsiyonel). Sunucuda CBS ile doğrulanır.
+  cityCode: z.number().int().positive().optional(),
+  districtCode: z.number().int().positive().optional(),
+  // Gönderi varsa sağlayıcıya createRecipient yeniden iletimi için onay (guard'larla birlikte).
+  explicitConfirm: z.boolean().default(false),
+});
+
+/**
+ * Yanıt: güncellenen sipariş teslimat adresi + (varsa) gönderi snapshot'ı + CBS/sağlayıcı
+ * bayrakları. providerRepairSupported=false ⇒ sağlayıcı kayıt güncellemeyi desteklemiyor
+ * (non-DHL). providerResent=false ⇒ yerel snapshot kaydedildi ama sağlayıcıya iletilemedi
+ * (sahte başarı YOK; UI sınırlama kopyasını gösterir).
+ */
+export const shippingAddressUpdateResponseSchema = z.object({
+  shippingAddress: orderAddressSchema,
+  shipment: shipmentSchema.nullable(),
+  cbsMatched: z.boolean(),
+  providerRepairSupported: z.boolean(),
+  providerResent: z.boolean(),
+  providerErrorCode: z.string().nullable(),
+});
+
 /* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
  * Kargo ucreti SAGLAYICI quote'u DEGILDIR; magaza/admin tarife planindan hesaplanir
  * (ADR-044). Generic Tariff Engine: provider'a ozel fiyat kodu yok; DHL (tier=aylik
@@ -3389,6 +3427,9 @@ export type ShippingCbsDistrictsRequest = z.infer<typeof shippingCbsDistrictsReq
 export type ShippingCbsDistrictsResponse = z.infer<typeof shippingCbsDistrictsResponseSchema>;
 export type ShipmentRepairDestinationRequest = z.infer<typeof shipmentRepairDestinationRequestSchema>;
 export type ShipmentRepairDestinationResponse = z.infer<typeof shipmentRepairDestinationResponseSchema>;
+// TODO-139 — sipariş teslimat adresi snapshot düzenleme.
+export type ShippingAddressUpdateRequest = z.infer<typeof shippingAddressUpdateRequestSchema>;
+export type ShippingAddressUpdateResponse = z.infer<typeof shippingAddressUpdateResponseSchema>;
 // TODO-100/104 — shipping webhook + toplu tracking sync.
 export type ShippingWebhookEventRequest = z.infer<typeof shippingWebhookEventRequestSchema>;
 export type ShippingWebhookAckResponse = z.infer<typeof shippingWebhookAckResponseSchema>;
