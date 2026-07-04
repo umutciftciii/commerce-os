@@ -157,6 +157,15 @@ describe("shipment detail page (F3C.5)", () => {
     // Timeline konumu "İşlem noktası" olarak gösterilir (kesin varış/teslimat şubesi DEĞİL).
     expect(screen.getByText(/İşlem noktası: İstanbul Aktarma/)).toBeTruthy();
 
+    // UI cilası — timeline/son senkron tarihi 24 saat Türkçe-dostu dd.MM.yyyy HH:mm
+    // (saniyesiz, AM/PM yok). lastSync + event olmak üzere birden fazla tarih alanı vardır.
+    const dates = screen.getAllByText(/^30\.06\.2026 \d{2}:\d{2}$/);
+    expect(dates.length).toBeGreaterThan(0);
+    for (const el of dates) {
+      expect(el.textContent).not.toMatch(/\d{2}:\d{2}:\d{2}/);
+      expect(el.textContent).not.toMatch(/AM|PM/);
+    }
+
     // "Kargoya verildi" OTOMATİK durum olarak render edilmez.
     expect(screen.queryByText(/Kargoya verildi/)).toBeNull();
 

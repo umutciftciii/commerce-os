@@ -1,10 +1,9 @@
 import { Badge } from "@commerce-os/ui";
 import type { CustomerOrderShipment } from "@commerce-os/api-client";
-import type { StorefrontDictionary } from "@commerce-os/i18n";
+import { formatDateTime, type Locale, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
   SHIPMENT_STATUS_TONE,
   SHIPMENT_STEP_COUNT,
-  isAwaitingPickupShipmentStatus,
   isCancelledShipmentStatus,
   isProblemShipmentStatus,
   providerInitials,
@@ -24,16 +23,18 @@ type TrackingDict = StorefrontDictionary["account"]["orders"]["detail"]["trackin
 export function ShipmentTracking({
   shipment,
   t,
+  locale,
 }: {
   shipment: CustomerOrderShipment;
   t: TrackingDict;
+  locale: Locale;
 }) {
   const tone = SHIPMENT_STATUS_TONE[shipment.status];
   const stepIndex = shipmentStepIndex(shipment.status);
   const cancelled = isCancelledShipmentStatus(shipment.status);
   const problem = isProblemShipmentStatus(shipment.status);
-  // TODO-127 — gönderi oluşturuldu ama henüz kargo firmasınca alınmadı → bekleme bilgisi.
-  const awaitingPickup = isAwaitingPickupShipmentStatus(shipment.status);
+  // Duruma göre tek, tutarlı yardımcı satır (source-of-truth Shipment.status'tan türer).
+  const statusHelp = t.statusHelp[shipment.status];
 
   return (
     <section className="rounded-xl border border-slate-200 p-4">
@@ -113,10 +114,10 @@ export function ShipmentTracking({
         </ol>
       ) : null}
 
-      {cancelled ? <p className="mt-3 text-xs text-slate-500">{t.cancelledNote}</p> : null}
-      {problem ? <p className="mt-3 text-xs text-amber-700">{t.problemNote}</p> : null}
-      {awaitingPickup && !cancelled && !problem ? (
-        <p className="mt-3 text-xs text-slate-500">{t.preparedNote}</p>
+      {statusHelp ? (
+        <p className={`mt-3 text-xs ${problem ? "text-amber-700" : "text-slate-500"}`}>
+          {statusHelp}
+        </p>
       ) : null}
 
       {/* İşlem noktası timeline */}
@@ -143,7 +144,7 @@ export function ShipmentTracking({
                   ) : null}
                   {event.occurredAt ? (
                     <p className="text-xs text-slate-400">
-                      {new Date(event.occurredAt).toLocaleString()}
+                      {formatDateTime(event.occurredAt, locale)}
                     </p>
                   ) : null}
                 </div>

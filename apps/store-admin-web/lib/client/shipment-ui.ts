@@ -7,6 +7,12 @@
  */
 import type { ShipmentStatusValue, ShipmentEventType } from "@commerce-os/api-client";
 
+/**
+ * Ortak locale-duyarli tarih+saat bicimi (24 saat, saniyesiz; TR `04.07.2026 18:00`).
+ * Shipment ekranlari bu tek kaynagi paylasir; her bilesende Intl ayari kopyalanmaz.
+ */
+export { formatDateTime } from "@commerce-os/i18n";
+
 export type Locale = "tr" | "en";
 
 type StatusTone = "neutral" | "info" | "warning" | "success" | "danger" | "brand";

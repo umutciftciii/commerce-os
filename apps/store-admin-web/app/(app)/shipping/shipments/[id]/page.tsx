@@ -17,6 +17,7 @@ import {
   SHIPMENT_STATUS_LABEL,
   SHIPMENT_STATUS_TONE,
   SHIPMENT_STEPS,
+  formatDateTime,
   isProblemStatus,
   shipmentStepIndex,
   type Locale,
@@ -342,7 +343,7 @@ export default function ShipmentDetailPage() {
               ) : null}
               {shipment.lastSyncedAt ? (
                 <Field label={t.lastSync}>
-                  <span className="font-sans">{new Date(shipment.lastSyncedAt).toLocaleString(locale)}</span>
+                  <span className="font-sans">{formatDateTime(shipment.lastSyncedAt, locale)}</span>
                 </Field>
               ) : null}
             </div>
@@ -383,7 +384,7 @@ export default function ShipmentDetailPage() {
                         </span>
                       ) : null}
                       <span className="block text-[11px] text-white/30">
-                        {new Date(e.occurredAt ?? e.createdAt).toLocaleString(locale)}
+                        {formatDateTime(e.occurredAt ?? e.createdAt, locale)}
                       </span>
                     </span>
                   </li>
@@ -449,13 +450,13 @@ export default function ShipmentDetailPage() {
                   {retry.showNext && shipment.barcodeNextRetryAt ? (
                     <>
                       <span className="text-white/35">{t.retryNext}</span>
-                      <span className="text-white/70">{new Date(shipment.barcodeNextRetryAt).toLocaleString(locale)}</span>
+                      <span className="text-white/70">{formatDateTime(shipment.barcodeNextRetryAt, locale)}</span>
                     </>
                   ) : null}
                   {shipment.barcodeLastAttemptAt ? (
                     <>
                       <span className="text-white/35">{t.retryLastAttempt}</span>
-                      <span className="text-white/55">{new Date(shipment.barcodeLastAttemptAt).toLocaleString(locale)}</span>
+                      <span className="text-white/55">{formatDateTime(shipment.barcodeLastAttemptAt, locale)}</span>
                     </>
                   ) : null}
                 </div>

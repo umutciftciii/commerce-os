@@ -24,6 +24,7 @@ import {
   SHIPMENT_KPI_LABEL,
   SHIPMENT_STATUS_LABEL,
   SHIPMENT_STATUS_TONE,
+  formatDateTime,
   type Locale,
 } from "../../../../lib/client/shipment-ui";
 
@@ -187,7 +188,7 @@ export default function ShipmentsPage() {
         header: t.colUpdated,
         cell: (r) => (
           <span className="text-[12px] text-white/45">
-            {new Date(r.lastSyncedAt ?? r.updatedAt).toLocaleString(locale)}
+            {formatDateTime(r.lastSyncedAt ?? r.updatedAt, locale)}
           </span>
         ),
       },

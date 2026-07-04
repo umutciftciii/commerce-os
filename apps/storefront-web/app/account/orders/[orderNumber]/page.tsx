@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Container } from "@commerce-os/ui";
 import { format } from "@commerce-os/i18n";
 import type { CustomerOrderDetail } from "@commerce-os/api-client";
-import { getStorefrontDict } from "../../../../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
 import { canWriteReview, isReorderable, returnEligibility } from "../../../../lib/orders";
@@ -32,6 +32,7 @@ export default async function OrderDetailPage({
     redirect(`/auth/login?next=/account/orders/${encodeURIComponent(orderNumber)}`);
   }
   const t = (await getStorefrontDict()).account;
+  const locale = await getRequestLocale();
   const order = await getCustomerOrderDetail(orderNumber);
   if (!order) {
     notFound();
@@ -95,7 +96,7 @@ export default async function OrderDetailPage({
         <OrderSummary o={o} order={order} />
 
         {order.shipment ? (
-          <ShipmentTracking shipment={order.shipment} t={o.detail.tracking} />
+          <ShipmentTracking shipment={order.shipment} t={o.detail.tracking} locale={locale} />
         ) : null}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

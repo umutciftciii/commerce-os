@@ -112,3 +112,36 @@ export function format(template: string, values: Record<string, string | number>
     key in values ? String(values[key]) : match,
   );
 }
+
+/** Locale → Intl tarih/saat bicimlendirme icin BCP-47 etiketi. */
+const dateTimeLocaleTag: Record<Locale, string> = {
+  tr: "tr-TR",
+  en: "en-GB",
+};
+
+/**
+ * Locale-duyarli tarih+saat bicimi (24 saat, saniyesiz). Turkce icin
+ * `04.07.2026 18:00`; Ingilizce icin `04/07/2026, 18:00` (AM/PM YOK). Gecersiz
+ * veya bos deger guvenli sekilde "—" doner. Musteri vitrin ve yonetim arayuzu
+ * ORTAK kullanir; Intl ayarlari her bilesende kopyalanmaz (tek kaynak).
+ *
+ * Zaman dilimi bilincli olarak ayarlanmaz: mevcut davranis gibi calisma
+ * ortaminin yerel saat dilimi kullanilir (bu duzeltme yalniz BICIM sorununu
+ * cozer, gosterilen saati kaydirmaz).
+ */
+export function formatDateTime(
+  value: string | number | Date | null | undefined,
+  locale: Locale = defaultLocale,
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(dateTimeLocaleTag[locale] ?? dateTimeLocaleTag[defaultLocale], {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
