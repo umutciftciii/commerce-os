@@ -2017,6 +2017,7 @@ export function registerShippingAdminRoutes(
 // TODO-129 — Durum esleme/sync saf yardimcilari status-map.ts'e TASINDI (davranis ayni);
 // buradan re-export geriye donuk uyumluluk icindir (webhook-routes + mevcut testler).
 export {
+  inferShipmentStatusFromTrackingText,
   mapProviderStatusToShipmentStatus,
   parseProviderDate,
   shipmentTrackingEventKey,

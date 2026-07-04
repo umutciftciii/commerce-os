@@ -2561,3 +2561,29 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   eşleştirme önceliği, teslim kanıtı, terminal koruması, kümülatif dedupe, Geliver unsupported, güvenlik
   regresyonu). Tüm gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint, test (api-gateway 482).
 - **Kalan.** Geliver ham format örneği; sağlayıcının kendi imza şeması (TODO-107 canlı callback kaydı ile).
+
+## 2026-07-04 — TODO-140: Kargo HAREKET metniyle Shipment.status ilerletme
+
+- **Problem.** TODO-130'dan sonra gönderi timeline'ı "SMOKE AKTARMADA"/"SMOKE TRANSFER MERKEZİNDE"
+  hareketlerini gösterirken üst rozet PACKED ("Kargo İçin Paketlendi") + "Kargonun alımı bekleniyor."
+  ipucunda takılı kalıyordu. Tutarsız müşteri deneyimi.
+- **Kök neden.** `mapProviderStatusToShipmentStatus` yalnız `statusCode`+`isDelivered` inceliyordu.
+  MNG/DHL sandbox HAREKET push'ları kod TAŞIMADAN yalnız `eventStatus` METNİ gönderince kod null →
+  ilerleme yok. Müşteri/store-admin gösterimi zaten `Shipment.status`'tan doğru türetiyor (IN_TRANSIT →
+  "Yolda"); bayat kalan tek şey kaynak-otorite `Shipment.status`'tı. UI'da timeline metnine bakarak
+  ÇÖZÜLMEDİ — kaynak durum ilerletildi.
+- **Çözüm.** `status-map.ts` içine paylaşılan saf `inferShipmentStatusFromTrackingText(text)`: Türkçe
+  büyük/küçük + diakritik BAĞIMSIZ normalize (NFD + noktalı/noktasız i sabitleme + ASCII fold), güçlü
+  kanıt önceliğiyle DELIVERED > OUT_FOR_DELIVERY > IN_TRANSIT; zayıf/bilinmeyen metin → null.
+  `mapProviderStatusToShipmentStatus` artık kod + metin adaylarından EN İLERİ olanı (rank) seçer;
+  terminal/regresyon koruması AYNEN. **Kapsam:** metin çıkarımı YALNIZ HAREKET (trackshipment /
+  DHL_TRACKING) push'una — DURUM push'u (getshipmentstatus / DHL_STATUS) ve PLATFORM sözleşmesi
+  kod-güdümlü kalır (TODO-130'un "status-push metni tek başına kanıt değil" kuralı korunur).
+- **Nerede.** Webhook (`webhook-routes.ts`) ve zamanlanmış sync (`sync-service.ts`) AYNI yardımcıyı
+  kullanır; sync ayrıca `trackShipment` hareketlerini katarak ilerletir (önceden yalnız getShipmentStatus
+  snapshot'ı). Migration YOK, kontrat/DTO YOK — ham payload dışarı sızmaz.
+- **Testler.** `shipping-mappers.test.ts` (+6), `shipping-webhook.test.ts` (+4),
+  `shipping-sync-service.test.ts` (+2), `storefront-web/shipment.test.ts` (+1). Tüm gate'ler yeşil:
+  db:generate, pnpm -r build, typecheck, lint, test:unit (882/882), git diff --check temiz.
+  TODO-130/129/123/135/136 regresyon testleri yeşil.
+- **Kalan.** main'e merge sonrası docker api-gateway REBUILD + runtime doğrulama.

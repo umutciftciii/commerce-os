@@ -118,10 +118,23 @@ Store-admin (UI: Kargo Sağlayıcıları → sağlayıcı satırı → **Webhook
   ("Geliver ham formatı desteklenmiyor (örnek payload gerekli)"). Gerçek örnek payload alınınca adapter
   doldurulacak; o zamana kadar Geliver için PLATFORM formatı kullanılabilir.
 
+**Hareket metniyle durum ilerletme (TODO-140).** Sağlayıcı bir HAREKET (trackshipment / DHL_TRACKING)
+push'unda durum KODU taşımadan yalnız METİN gönderse bile (MNG/DHL sandbox: "SMOKE AKTARMADA",
+"SMOKE TRANSFER MERKEZİNDE"), gönderinin üst durumu artık **"Yolda" (IN_TRANSIT)** olarak ilerler —
+müşteri rozeti/progress "Yolda"ya geçer ve "Kargonun alımı bekleniyor." ipucu kalkar. Metin kanıtı
+Türkçe büyük/küçük + diakritikten bağımsız değerlendirilir: TRANSFER/AKTARMA/TAŞIMA/YOLDA/HUB/SORTING/
+DAĞITIM MERKEZ → IN_TRANSIT; DAĞITIMA ÇIKTI/DAĞITIMDA → OUT_FOR_DELIVERY; TESLİM EDİLDİ → DELIVERED.
+Zayıf metin (oluşturuldu/etiket/barkod/paketlendi/"teslim alındı"=kuryeye teslim) İLERLETMEZ. **Kapsam
+güvenliği:** metin çıkarımı yalnız HAREKET push'una uygulanır; getshipmentstatus DURUM push'u
+(DHL_STATUS) ve PLATFORM sözleşmesi hâlâ yalnız kod/isDelivered ile ilerler. Terminal (DELIVERED/
+RETURNED/CANCELLED) durum metinle GERİ ALINMAZ; ileri durum sonradan gelen zayıf/aktarma metniyle geri
+çekilmez. Webhook ve zamanlanmış sync AYNI çıkarımı kullanır (drift yok).
+
 **Sonuç (outcome) anlamları** ("Son Webhook Olayları" tablosunda görünür):
 
-- `ACCEPTED` — gönderi eşleşti; durum yalnız sağlayıcı KANITI varsa ilerledi (bilinmeyen kod ilerletmez,
-  DELIVERED/terminal geri alınmaz), event/hareketler dedupe edilerek yazıldı.
+- `ACCEPTED` — gönderi eşleşti; durum sağlayıcı KANITI (kod, isDelivered VEYA hareket metni; bkz.
+  TODO-140) varsa ilerledi (bilinmeyen/zayıf metin ilerletmez, DELIVERED/terminal geri alınmaz),
+  event/hareketler dedupe edilerek yazıldı.
 - `IGNORED_UNKNOWN_SHIPMENT` — imza geçerli ama kimlikler (externalShipmentId → trackingNumber →
   referenceId önceliğiyle, yalnız o mağaza+config kapsamında) hiçbir gönderiyle eşleşmedi. Gönderi
   YARATILMAZ; kayıt audit içindir.

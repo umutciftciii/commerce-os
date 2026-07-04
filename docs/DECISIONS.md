@@ -1437,3 +1437,37 @@ DHL_ECOMMERCE = api.mngkargo.com.tr (ADR-039/049).
 mutasyonsuz. (–) DHL ham şekilleri query-API yanıtlarından türetildi; canlı push formatı farklı çıkarsa
 adapter alanları genişletilecek (unsupported güvenli düşüş garantili); (–) Geliver adapter'ı örnek payload
 gelene kadar bilinçli boş.
+
+## ADR-056 — Kargo HAREKET metniyle durum ilerletme: kod-yoksa-metin, yalnız movement push'una scoped (TODO-140)
+
+**Bağlam.** TODO-130 (ADR-055) sonrası MNG/DHL sandbox HAREKET (trackshipment / DHL_TRACKING) push'ları
+durum KODU taşımadan yalnız `eventStatus` METNİ gönderebiliyor ("SMOKE AKTARMADA", "SMOKE TRANSFER
+MERKEZİNDE"). `mapProviderStatusToShipmentStatus` yalnız `statusCode`+`isDelivered` incelediğinden kod
+null → ilerleme yok; timeline hareket gösterse de üst durum PACKED/"Kargonun alımı bekleniyor."da takılı
+kalıyordu. Müşteri/store-admin gösterimi zaten `Shipment.status`'tan doğru türetiyordu (IN_TRANSIT →
+"Yolda"); sorun kaynak-otorite durumun bayat kalmasıydı (UI değil).
+
+**Karar.**
+- **Paylaşılan saf çıkarım.** `status-map.ts` içine `inferShipmentStatusFromTrackingText(text) →
+  ShipmentStatus | null`. Türkçe büyük/küçük + diakritik BAĞIMSIZ normalize (NFD + noktalı/noktasız i
+  sabitleme + combining-mark strip + ASCII fold). Güçlü kanıt önceliği: TESLİM EDİLDİ/DELIVERED →
+  DELIVERED; DAĞITIMA ÇIKTI/DAĞITIMDA/OUT FOR DELIVERY → OUT_FOR_DELIVERY; TRANSFER/AKTARMA/TAŞIMA/YOLDA/
+  HUB/SORTING/DAĞITIM MERKEZ/ARRIVED-DEPARTED FACILITY → IN_TRANSIT. Zayıf/bilinmeyen (oluşturuldu/etiket/
+  barkod/paketlendi/"teslim alındı"=kuryeye teslim) → null (sahte ilerleme yok).
+- **Tek fold, iki kaynak.** `mapProviderStatusToShipmentStatus` kod eşlemesi + metin çıkarımından EN İLERİ
+  adayı (rank) seçer; terminal hedef (DELIVERED/RETURNED) her zaman uygulanır, terminalden GERİ dönülmez,
+  ileri durum geri çekilmez. Webhook (`webhook-routes.ts`) ve zamanlanmış sync (`sync-service.ts`) AYNI
+  yardımcıyı kullanır (drift yok); sync ayrıca `trackShipment` hareketlerini katarak ilerletir.
+- **Kapsam güvenliği (kritik).** Metin çıkarımı YALNIZ HAREKET push'una (DHL_TRACKING + sync `track`
+  olayları) uygulanır. DURUM push'u (getshipmentstatus / DHL_STATUS) ve PLATFORM sözleşmesi kod/isDelivered
+  ile ilerler — status-push `statusText`'i TEK BAŞINA kanıt sayılmaz (TODO-130'un kararı korunur; ADR-045
+  "ORDER_CREATED fiziksel teslim değil" semantiği bozulmaz).
+- **Değişmeyenler.** Idempotency/dedupe (event fingerprint durum metnini zaten taşıyordu, türetilen durumu
+  değil), müşteri/admin DTO allowlist'i, ham payload sızmazlığı. Migration YOK, kontrat/DTO YOK.
+
+**Sonuçlar.** (+) Kod taşımayan gerçek carrier hareketleri artık üst durumu doğru yansıtıyor ("Yolda"),
+UI tutarsızlığı giderildi; (+) tek çıkarım kaynağı (webhook/sync drift'siz), regresyon/terminal koruması
+merkezi. (–) PLATFORM sözleşmesiyle gelen SALT-metin movement'ları (kod yok) ilerlemez — grounded sağlayıcı
+(MNG/DHL) DHL_TRACKING kullandığından pratik etki yok; gerekirse ileride PLATFORM movement'ı da kapsanabilir.
+(–) Metin sözlüğü kalıp-tabanlı; sağlayıcı beklenmedik ifade kullanırsa null'a düşer (güvenli — kod/isDelivered
+yolu hâlâ ilerletir).

@@ -32,6 +32,7 @@ import type { ShippingProviderConfig } from "@prisma/client";
 const TEST_KEY = "a".repeat(64);
 const WEBHOOK_SECRET = "test-webhook-secret-0123456789abcdef";
 const TOKEN = "whk_test_token_0123456789";
+const DHL_TOKEN = "whk_dhl_token_0123456789";
 const NOW = new Date("2026-07-03T12:00:00.000Z");
 
 interface FakeState {
@@ -57,6 +58,14 @@ function makeState(): FakeState {
         storeId: "store_1",
         provider: "MOCK",
         status: "DISABLED",
+        webhookSecretCipher: cipher.encrypt(WEBHOOK_SECRET),
+      },
+      // TODO-140 — Ham MNG/DHL hareket push'unu (kod tasimayan aktarma metni) test etmek icin.
+      {
+        id: "spc_dhl",
+        storeId: "store_1",
+        provider: "DHL_ECOMMERCE",
+        status: "ENABLED",
         webhookSecretCipher: cipher.encrypt(WEBHOOK_SECRET),
       },
     ],
@@ -86,6 +95,19 @@ function makeState(): FakeState {
         referenceId: "ref_other",
         externalShipmentId: null,
       },
+      // TODO-140 — Hazirlik asamasindaki (PACKED) DHL gonderisi; hareket metniyle ilerleyecek.
+      {
+        id: "shp_dhl",
+        storeId: "store_1",
+        providerConfigId: "spc_dhl",
+        provider: "DHL_ECOMMERCE",
+        status: "LABEL_CREATED",
+        shipmentStatusCode: 1,
+        trackingNumber: "DHL-BARCODE-1",
+        trackingUrl: null,
+        referenceId: "ref_dhl_1",
+        externalShipmentId: "dhl_ext_1",
+      },
     ],
     inbox: new Map(),
     appliedEvents: [],
@@ -95,9 +117,10 @@ function makeState(): FakeState {
 function makePersistence(state: FakeState): ShippingWebhookPersistence {
   return {
     async findConfigByWebhookToken(token) {
-      // Fake: TOKEN → spc_1, "disabled-token" → spc_disabled.
+      // Fake: TOKEN → spc_1, "disabled-token" → spc_disabled, DHL_TOKEN → spc_dhl.
       if (token === TOKEN) return state.configs[0]!;
       if (token === "disabled-token-0123456789") return state.configs[1]!;
+      if (token === DHL_TOKEN) return state.configs.find((c) => c.id === "spc_dhl")!;
       return null;
     },
     async findShipment(storeId, providerConfigId, ids) {
@@ -466,5 +489,78 @@ describe("TODO-100 — toplu sync durum secimi", () => {
     for (const status of ["ORDER_CREATED", "LABEL_PENDING", "LABEL_CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERY_FAILED"] as ShipmentStatus[]) {
       expect(SYNCABLE_SHIPMENT_STATUSES).toContain(status);
     }
+  });
+});
+
+describe("TODO-140 — ham hareket metni durum ilerletme (webhook)", () => {
+  // Kod tasimayan ham MNG/DHL hareket push'u. DIZI formu kullanilir: tek bir ust-duzey
+  // referenceId PLATFORM sozlesmesince yakalanip events'i yok sayardi → dizi + her harekete
+  // barkod kimligi (DHL-BARCODE-1) ile DHL_TRACKING adapter yolu zorlanir.
+  function dhlTrackingBody(movements: { eventStatus: string; location?: string; when?: string }[]) {
+    return JSON.stringify(
+      movements.map((m, i) => ({
+        eventSequence: String(i + 1),
+        eventStatus: m.eventStatus,
+        location: m.location ?? "İstanbul",
+        eventDateTime2: m.when ?? `2026-07-03 1${i}:30:00`,
+        barcode: "DHL-BARCODE-1",
+      })),
+    );
+  }
+
+  async function postDhl(state: FakeState, body: string) {
+    const app = await buildApp(state);
+    const res = await app.inject({
+      method: "POST",
+      url: `/public/shipping/webhooks/${DHL_TOKEN}`,
+      headers: signedHeaders(body),
+      payload: body,
+    });
+    await app.close();
+    return res;
+  }
+
+  function dhlShipment(state: FakeState) {
+    return state.shipments.find((s) => s.id === "shp_dhl")!;
+  }
+
+  it("transfer/aktarma hareketi PACKED gonderiyi IN_TRANSIT'e ilerletir (kod yok, metin var)", async () => {
+    const state = makeState();
+    const res = await postDhl(state, dhlTrackingBody([{ eventStatus: "SMOKE AKTARMADA" }]));
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, duplicate: false, handled: true });
+    expect(dhlShipment(state).status).toBe("IN_TRANSIT");
+  });
+
+  it("ayni hareket ikinci kez gelince duplicate; ikinci kez event/durum spam'i yok", async () => {
+    const state = makeState();
+    const body = dhlTrackingBody([{ eventStatus: "SMOKE TRANSFER MERKEZİNDE" }]);
+    const first = await postDhl(state, body);
+    expect(first.json()).toEqual({ ok: true, duplicate: false, handled: true });
+    expect(dhlShipment(state).status).toBe("IN_TRANSIT");
+    expect(state.appliedEvents).toHaveLength(1);
+
+    const second = await postDhl(state, body);
+    expect(second.json()).toEqual({ ok: true, duplicate: true, handled: false });
+    // Duplicate teslimat yeni apply URETMEZ (event/durum spam'i yok).
+    expect(state.appliedEvents).toHaveLength(1);
+    expect(dhlShipment(state).status).toBe("IN_TRANSIT");
+  });
+
+  it("zayif/bilinmeyen hareket metni tracking event yazar ama Shipment.status'u DEGISTIRMEZ", async () => {
+    const state = makeState();
+    const res = await postDhl(state, dhlTrackingBody([{ eventStatus: "Gönderi oluşturuldu" }]));
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, duplicate: false, handled: true });
+    // Event kaydedildi (apply var) ama durum LABEL_CREATED korundu.
+    expect(state.appliedEvents).toHaveLength(1);
+    expect(dhlShipment(state).status).toBe("LABEL_CREATED");
+  });
+
+  it("teslim hareketi yalniz KESIN kanitla DELIVERED'a ilerletir", async () => {
+    const state = makeState();
+    const res = await postDhl(state, dhlTrackingBody([{ eventStatus: "TESLİM EDİLDİ" }]));
+    expect(res.statusCode).toBe(200);
+    expect(dhlShipment(state).status).toBe("DELIVERED");
   });
 });

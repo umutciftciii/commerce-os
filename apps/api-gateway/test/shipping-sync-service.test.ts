@@ -336,6 +336,35 @@ describe("shipment sync — durum ilerletme kurallari", () => {
     const { state } = await runSingle("ORDER_CREATED", statusResult({ statusCode: 99, statusText: "??" }));
     expect(state.shipments[0]?.status).toBe("ORDER_CREATED");
   });
+
+  // TODO-140 — Hareket METNI de (kod tasimasa bile) durum ilerletir; webhook ile AYNI helper.
+  it("kod ilerletmese de hareket metni (SMOKE AKTARMADA) IN_TRANSIT'e cikarir", async () => {
+    const state = baseState([makeShipment({ status: "LABEL_CREATED" })]);
+    const track: ShippingTrackingEventResult[] = [
+      { sequence: 1, statusText: "SMOKE AKTARMADA", statusCode: null, location: "İstanbul", occurredAt: "03-07-2026 11:30:00" },
+    ];
+    const { service } = makeService({
+      state,
+      // getShipmentStatus hala kod 1 (Hazir) diyor → tek basina ilerletmezdi.
+      behaviors: { DHL_ECOMMERCE: { status: statusResult({ statusCode: 1, statusText: "Hazır" }), track } },
+    });
+    const summary = await service.syncEligibleShipments();
+    expect(state.shipments[0]?.status).toBe("IN_TRANSIT");
+    expect(summary.results[0]?.statusChanged).toBe(true);
+  });
+
+  it("hareket metni ileri durumu GERI cekmez (OUT_FOR_DELIVERY, sonraki aktarma metniyle)", async () => {
+    const state = baseState([makeShipment({ status: "OUT_FOR_DELIVERY" })]);
+    const track: ShippingTrackingEventResult[] = [
+      { sequence: 1, statusText: "AKTARMADA", statusCode: null, location: "Ankara", occurredAt: "03-07-2026 12:00:00" },
+    ];
+    const { service } = makeService({
+      state,
+      behaviors: { DHL_ECOMMERCE: { status: statusResult({ statusCode: 1, statusText: "Hazır" }), track } },
+    });
+    await service.syncEligibleShipments();
+    expect(state.shipments[0]?.status).toBe("OUT_FOR_DELIVERY");
+  });
 });
 
 describe("shipment sync — event idempotency", () => {
