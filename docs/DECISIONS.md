@@ -1319,3 +1319,42 @@ durum güvenliği korunur. (–) CBS listesi ile mağaza adres metni uyuşmayan 
 admin müdahalesi gerekir (bilinçli tercih: sessiz yanlış şube yerine açık düzeltme);
 (–) MNG'nin post-createOrder varış güncellemesi doğrulanmadıkça takılı kayıtlar yeni gönderi
 gerektirebilir (dokümante sınırlama).
+
+## ADR-053 — Sipariş teslimat adresi snapshot düzenleme: çift-snapshot yazımı + durum-kilidi (TODO-139)
+
+**Bağlam.** Sipariş oluştuktan sonra yanlış adres kalabiliyordu. TODO-124 repair (ADR-052)
+yalnız `Shipment` il/ilçe KODLARINI düzeltiyor; adres İSİMLERİ/ad/telefon/adres satırı ve
+`OrderAddress(SHIPPING)` snapshot'ı düzenlenemiyordu. Tarihsel sipariş bütünlüğü gereği adres
+snapshot'ıdır (müşteri profili/adres defteri değişince tarihsel siparişler değişmemeli), ama
+admin taşımadan önce bu snapshot'ı düzeltebilmeli.
+
+**Karar.**
+1. **Snapshot kaynak-otoritesi ikilidir ve ayrı kopyalardır.** Sipariş teslimat adresi =
+   `OrderAddress(SHIPPING)` (kargo kodu YOK); kargo kodları/operasyon = `Shipment.recipient*`
+   (gönderi sonrası provider işlemlerinin otoritesi). Düzenleme her ikisini de (gönderi
+   düzenlenebilirse) tek transaction'da günceller; **müşteri adres defteri (CustomerAddress)
+   global mutasyona uğramaz** — değişiklik yalnız bu siparişe özeldir.
+2. **Durum-kilidi TODO-124 repair guard'ıyla birebir aynıdır.** Düzenlenebilir = aktif gönderi
+   yok **veya** `DRAFT`/`ORDER_CREATED`/`LABEL_PENDING`. Aksi halde 409
+   `SHIPMENT_ADDRESS_LOCKED` (`LABEL_CREATED` dahil kilitli: etiket basılı = taşıyıcıya devir
+   varsayımı). Kilit backend'de nihai otoritedir; UI ayrıca gizler/uyarır.
+3. **CBS aynı ADR-052 kurallarını yeniden kullanır.** Client'tan gelen cityCode/districtCode
+   CBS'e karşı yeniden doğrulanır (`validateCodes`; körü körüne güvenilmez); kod verilmezse
+   yeni isimden yalnız exact-match (`resolveRecipientGeo`; fuzzy YOK); eşleşmezse bayat kod
+   NULL'lanır (0/negatif ASLA persist). Geçerli eşleşmede `lastBarcodeErrorCode` sıfırlanır.
+4. **Migration YOK — mevcut yapı yeniden kullanılır.** Gönderi olayı için yeni enum eklemek
+   yerine `ShipmentEvent.DESTINATION_REPAIRED` net `statusText` ile yeniden kullanılır; sipariş
+   olayı `OrderEvent.type` serbest String olduğundan `SHIPPING_ADDRESS_UPDATED` migrationsız
+   yazılır. (Şema yüzeyi genişletilmez; TODO-124/129 alanlarına dokunulmaz.)
+5. **Sağlayıcı onarımı en-iyi-çaba, dürüst raporlu.** DHL + güvenli + geçerli kodlu ise
+   `createRecipient` yeniden iletilir (ADR-052 guard deseni); başarısız/desteklenmezse yerel
+   snapshot KORUNUR, `providerResent:false`/`providerRepairSupported:false` döner (sahte başarı
+   yok). Duplicate guard'a dokunulmaz — otomatik ikinci aktif gönderi açılmaz.
+
+**Sonuçlar.** (+) Admin taşıma öncesi adresi güvenle düzeltir; barkod retry düzeltilmiş
+kodlarla çalışır; (+) tarihsel sipariş/müşteri adres bütünlüğü korunur; (+) ADR-045 durum
+güvenliği + duplicate guard bozulmaz; (+) migration/şema genişlemesi yok. (–) LABEL_CREATED
+sonrası düzeltme kapalı (bilinçli konservatif sınır — ayrı "taşıyıcıya devredildi" bayrağı
+yok); gerekirse yeni gönderi manuel açılır. (–) Sağlayıcı post-kayıt güncellemeyi kabul
+etmezse (providerResent:false) eski provider kaydı için yeni gönderi gerekebilir. TODO-123
+retry job'ı adres onarımından SONRA çalışmalıdır.

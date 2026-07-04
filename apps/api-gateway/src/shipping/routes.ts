@@ -57,6 +57,8 @@ import {
   shippingWebhookInfoResponseSchema,
   shipmentRepairDestinationRequestSchema,
   shipmentRepairDestinationResponseSchema,
+  shippingAddressUpdateRequestSchema,
+  shippingAddressUpdateResponseSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
@@ -165,6 +167,8 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       ADDRESS_DISTRICT_CODE_REQUIRED: 422,
       CBS_CODE_INVALID: 422,
       REPAIR_NOT_APPLICABLE: 409,
+      // TODO-139 — gönderi taşınırken/teslim edildikten sonra adres snapshot kilidi.
+      SHIPMENT_ADDRESS_LOCKED: 409,
       PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
       // F3C.6 — saglayici sorgu hatasi normalize (HTTP >=400 basari gibi parse edilmez).
@@ -833,6 +837,12 @@ export function registerShippingAdminRoutes(
       include: { events: { orderBy: { createdAt: "asc" } } },
     });
   }
+
+  // TODO-139 — Teslimat adresi snapshot'ı YALNIZ sağlayıcıya/taşımaya devredilmeden önce
+  // düzeltilebilir. TODO-124 repair guard'ıyla birebir tutarlı: barkod/etiket oluştuğunda
+  // (LABEL_CREATED) veya gönderi hareket ettiğinde (IN_TRANSIT+) KİLİTLİDİR. Aktif gönderi
+  // YOKSA (iptal/başarısız → duplicate guard aktif saymaz) yalnız OrderAddress güncellenir.
+  const ADDRESS_EDITABLE_SHIPMENT_STATUSES: ShipmentStatus[] = ["DRAFT", "ORDER_CREATED", "LABEL_PENDING"];
 
   async function reloadShipment(id: string) {
     return prisma.shipment.findUniqueOrThrow({
@@ -1706,6 +1716,226 @@ export function registerShippingAdminRoutes(
       return reply.send(
         shipmentRepairDestinationResponseSchema.parse({
           shipment: serializeShipment(await reloadShipment(repaired.id)),
+          providerResent,
+          providerErrorCode,
+        }),
+      );
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  /* ───────────── TODO-139 sipariş teslimat adresi snapshot düzenleme ─────────────
+   * Admin, siparişin teslimat adresini (OrderAddress SHIPPING) — ve gönderi hâlâ güvenli
+   * düzenlenebilir durumdaysa Shipment alıcı snapshot'ını — düzeltir. Bu MÜŞTERİ adres
+   * defterini/profilini DEĞİL, yalnız BU siparişi etkiler. Duplicate guard'a dokunulmaz;
+   * otomatik yeni gönderi OLUŞTURULMAZ. il/ilçe kodu client'tan gelse bile CBS'e karşı
+   * YENİDEN doğrulanır (0/negatif ASLA kaydedilmez; exact-match, fuzzy YOK). */
+  app.patch("/stores/:storeId/orders/:orderId/shipping/address", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shippingAddressUpdateRequestSchema.parse(request.body);
+    const order = await requireOrder(params.storeId, params.orderId);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+
+    // Aktif gönderi (iptal/başarısız hariç) varsa yalnız güvenli durumda düzenlenebilir.
+    const activeShipment = await findActiveShipment(params.storeId, order.id);
+    if (activeShipment && !ADDRESS_EDITABLE_SHIPMENT_STATUSES.includes(activeShipment.status)) {
+      return reply.code(409).send(
+        errorBody(
+          "SHIPMENT_ADDRESS_LOCKED",
+          "Kargoya verilmiş/teslim aşamasındaki siparişlerde teslimat adresi değiştirilemez.",
+          { shipmentId: activeShipment.id, status: activeShipment.status },
+        ),
+      );
+    }
+
+    // Gönderi düzenlenebilir & DHL ise CBS ile il/ilçe kodu çözümü/doğrulaması.
+    const cfg = activeShipment ? await loadConfig(params.storeId, activeShipment.providerConfigId) : null;
+    const isDhl = cfg?.provider === "DHL_ECOMMERCE";
+    const providerRepairSupported = isDhl;
+
+    let resolvedCityCode: number | null = null;
+    let resolvedDistrictCode: number | null = null;
+    let resolvedCityName: string | null = input.cityName;
+    let resolvedDistrictName: string | null = input.districtName ?? null;
+    let cbsMatched = false;
+
+    try {
+      if (isDhl && cfg) {
+        const ctx = buildContext(cfg);
+        const target = cbsTarget(cfg, ctx);
+        if (input.cityCode != null && input.districtCode != null) {
+          // Client CBS dropdown'undan kod seçti → CBS'e karşı YENİDEN doğrula (körü körüne güvenme).
+          const canonical = await cbsLookup.validateCodes(target, input.cityCode, input.districtCode);
+          resolvedCityCode = input.cityCode;
+          resolvedDistrictCode = input.districtCode;
+          resolvedCityName = canonical.cityName;
+          resolvedDistrictName = canonical.districtName;
+          cbsMatched = true;
+        } else {
+          // Kod verilmedi → yeni il/ilçe adından exact-match çöz (fuzzy YOK). Eşleşmezse kod
+          // null bırakılır (bayat kod persist EDİLMEZ; barkod adımında CBS tekrar denenir).
+          const resolution = await cbsLookup.resolveRecipientGeo(target, {
+            cityName: input.cityName,
+            districtName: input.districtName ?? undefined,
+          });
+          if (resolution.status === "MATCHED") {
+            resolvedCityCode = resolution.cityCode;
+            resolvedDistrictCode = resolution.districtCode;
+            resolvedCityName = resolution.cityName ?? input.cityName;
+            resolvedDistrictName = resolution.districtName ?? input.districtName ?? null;
+            cbsMatched = true;
+          }
+        }
+      }
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+
+    const existingShippingAddr = await prisma.orderAddress.findFirst({
+      where: { orderId: order.id, storeId: params.storeId, type: "SHIPPING" },
+    });
+    const countryCode = input.countryCode ?? existingShippingAddr?.countryCode ?? "TR";
+
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        // 1) Sipariş teslimat snapshot'ı (OrderAddress SHIPPING). Yoksa oluştur (yalnız bu sipariş).
+        const addrData = {
+          fullName: input.recipientName,
+          phone: input.recipientPhone ?? null,
+          countryCode,
+          city: input.cityName,
+          district: input.districtName ?? null,
+          addressLine1: input.addressLine1,
+          addressLine2: input.addressLine2 ?? null,
+          postalCode: input.postalCode ?? null,
+        };
+        const shippingAddress = existingShippingAddr
+          ? await tx.orderAddress.update({ where: { id: existingShippingAddr.id }, data: addrData })
+          : await tx.orderAddress.create({
+              data: { storeId: params.storeId, orderId: order.id, type: "SHIPPING", ...addrData },
+            });
+
+        // 2) Sipariş olayı (müşteri adres defteri DEĞİL; yalnız bu sipariş).
+        await tx.orderEvent.create({
+          data: {
+            storeId: params.storeId,
+            orderId: order.id,
+            type: "SHIPPING_ADDRESS_UPDATED",
+            message: "Teslimat adresi güncellendi (bu sipariş).",
+            actorUserId: access.actorUserId,
+            metadata: { cbsMatched, hasShipment: Boolean(activeShipment), shipmentId: activeShipment?.id ?? null },
+          },
+        });
+
+        // 3) Gönderi alıcı snapshot'ı (varsa & düzenlenebilir). Kod eşleşince lastBarcodeErrorCode temizlenir.
+        let updatedShipment: Shipment | null = null;
+        if (activeShipment) {
+          updatedShipment = await tx.shipment.update({
+            where: { id: activeShipment.id },
+            data: {
+              recipientName: input.recipientName,
+              recipientPhone: input.recipientPhone ?? null,
+              recipientCityName: resolvedCityName,
+              recipientDistrictName: resolvedDistrictName,
+              recipientAddress: input.addressLine1,
+              // Yeni eşleşen kod persist edilir; eşleşmeyen DHL adresinde bayat kod NULL'lanır
+              // (0/negatif ASLA). DHL olmayan sağlayıcıda kod alanı kullanılmaz → dokunma.
+              recipientCityCode: cbsMatched ? resolvedCityCode : isDhl ? null : activeShipment.recipientCityCode,
+              recipientDistrictCode: cbsMatched
+                ? resolvedDistrictCode
+                : isDhl
+                  ? null
+                  : activeShipment.recipientDistrictCode,
+              ...(cbsMatched ? { lastBarcodeErrorCode: null } : {}),
+            },
+          });
+        }
+        return { shippingAddress, updatedShipment };
+      });
+
+      // 4) Sağlayıcı kayıt onarımı (yalnız güvenli & desteklenen & geçerli kodlu). Yerel snapshot
+      // KORUNUR; başarısızlık sanitize kodla raporlanır (sahte başarı YOK, yeni gönderi YOK).
+      let providerResent = false;
+      let providerErrorCode: string | null = null;
+      if (result.updatedShipment && isDhl && cbsMatched && cfg) {
+        try {
+          await registry.get(cfg.provider).createRecipient({
+            context: buildContext(cfg),
+            referenceId: result.updatedShipment.referenceId,
+            recipient: {
+              fullName: input.recipientName,
+              email: result.updatedShipment.recipientEmail ?? undefined,
+              phone: input.recipientPhone ?? undefined,
+              cityCode: resolvedCityCode ?? undefined,
+              districtCode: resolvedDistrictCode ?? undefined,
+              cityName: resolvedCityName ?? undefined,
+              districtName: resolvedDistrictName ?? undefined,
+              address: input.addressLine1,
+            },
+            explicitConfirm: input.explicitConfirm,
+          });
+          providerResent = true;
+        } catch (error) {
+          if (!(error instanceof ShippingConfigError)) throw error;
+          providerErrorCode = error.code;
+        }
+      }
+
+      // 5) Gönderi olayı — DESTINATION_REPAIRED yeniden kullanılır (yeni enum/migration YOK).
+      if (result.updatedShipment) {
+        await recordShipmentEvent(params.storeId, result.updatedShipment, "DESTINATION_REPAIRED", {
+          statusText: providerResent
+            ? "Teslimat adresi güncellendi; alıcı kaydı sağlayıcıya yeniden iletildi."
+            : "Teslimat adresi güncellendi (sağlayıcı kaydı otomatik güncellenemeyebilir; gerekirse yeni gönderi).",
+          rawSafeJson: {
+            addressUpdated: true,
+            cbsMatched,
+            cityCode: resolvedCityCode,
+            districtCode: resolvedDistrictCode,
+            providerResent,
+            providerErrorCode,
+          },
+        });
+      }
+
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Order",
+        entityId: order.id,
+        metadata: {
+          action: "order.shipping-address.update",
+          cbsMatched,
+          shipmentId: result.updatedShipment?.id ?? null,
+          providerResent,
+        },
+      });
+
+      const finalShipment = result.updatedShipment ? await reloadShipment(result.updatedShipment.id) : null;
+      const a = result.shippingAddress;
+      return reply.send(
+        shippingAddressUpdateResponseSchema.parse({
+          shippingAddress: {
+            id: a.id,
+            storeId: a.storeId,
+            orderId: a.orderId,
+            type: a.type,
+            fullName: a.fullName,
+            phone: a.phone ?? null,
+            countryCode: a.countryCode,
+            city: a.city,
+            district: a.district ?? null,
+            addressLine1: a.addressLine1,
+            addressLine2: a.addressLine2 ?? null,
+            postalCode: a.postalCode ?? null,
+          },
+          shipment: finalShipment ? serializeShipment(finalShipment) : null,
+          cbsMatched,
+          providerRepairSupported,
           providerResent,
           providerErrorCode,
         }),

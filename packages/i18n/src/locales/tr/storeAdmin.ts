@@ -107,6 +107,9 @@ export const trStoreAdmin = {
       "Varış şubesi bulunamadı. Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi; adres il/ilçe eşlemesini düzeltip tekrar deneyin.",
     CBS_CODE_INVALID: "Seçilen kargo il/ilçe kodu geçersiz; CBS listesinden geçerli bir seçim yapın.",
     REPAIR_NOT_APPLICABLE: "Bu gönderi için il/ilçe eşleme düzeltmesi yapılamaz.",
+    // TODO-139 — teslimat adresi snapshot düzenleme kilidi.
+    SHIPMENT_ADDRESS_LOCKED: "Kargoya verilmiş siparişlerde adres değiştirilemez.",
+    ORDER_ADDRESS_LOCKED: "Kargoya verilmiş siparişlerde adres değiştirilemez.",
     // TODO-132 — sağlayıcı gönderi kaydı için alıcı e-postası zorunludur (MNG boş/geçersiz e-postayı reddeder).
     RECIPIENT_EMAIL_REQUIRED:
       "Kargo sağlayıcısına gönderi kaydı için alıcı e-posta adresi gerekli. Siparişte veya müşteri kaydında e-posta bulunamadı; müşteri kaydına geçerli bir e-posta ekleyip tekrar deneyin.",

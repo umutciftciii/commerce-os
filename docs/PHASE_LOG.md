@@ -2473,3 +2473,37 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   CBS_UNAVAILABLE bloklamaz, validateCodes, 20001 sınıflandırma + payload kod alanları,
   canRepairDestination projeksiyonu. Mevcut kargo/webhook/guard testleri değişmeden yeşil
   (api-gateway 416, store-admin 148 pass).
+
+## TODO-139 — Sipariş teslimat adresi snapshot düzenleme (admin, taşıma öncesi)
+
+- **Problem/kök neden.** Sipariş oluştuktan sonra yanlış/tutarsız adres kalabiliyordu; TODO-124
+  repair YALNIZ `Shipment` il/ilçe KODLARINI düzeltiyor, `OrderAddress(SHIPPING)` snapshot'ının
+  ad/telefon/adres satırı/il-ilçe İSİMLERİ düzenlenemiyordu (Order snapshot bayat kalıyordu).
+- **Snapshot kaynak-otoritesi.** Sipariş adresi = `OrderAddress(SHIPPING)` (kargo kodu YOK);
+  kargo kodları/operasyon = `Shipment.recipient*` (gönderi sonrası bu otorite). İkisi ayrı kopya.
+- **Uç.** `PATCH /stores/:storeId/orders/:orderId/shipping/address` (shipping/routes.ts) —
+  ownership + store-admin auth. Güvenli durum guard'ı: `ADDRESS_EDITABLE_SHIPMENT_STATUSES =
+  {DRAFT, ORDER_CREATED, LABEL_PENDING}`; aktif gönderi başka durumdaysa 409
+  `SHIPMENT_ADDRESS_LOCKED` (LABEL_CREATED/IN_TRANSIT/…/DELIVERED/RETURNED/CANCELLED KİLİTLİ —
+  TODO-124 repair guard'ıyla birebir tutarlı). Aktif gönderi YOKSA yalnız OrderAddress güncellenir.
+- **İşlem (transaction).** (1) `OrderAddress(SHIPPING)` upsert; (2) `OrderEvent(type=
+  "SHIPPING_ADDRESS_UPDATED")` (String — migration YOK); (3) gönderi düzenlenebilirse `Shipment`
+  alıcı snapshot'ı da güncellenir. DHL ise CBS il/ilçe çözümü: client cityCode/districtCode
+  CBS'e karşı YENİDEN doğrulanır (`validateCodes`), kod verilmezse yeni isimden EXACT-match
+  (`resolveRecipientGeo`; fuzzy YOK), eşleşmezse bayat kod NULL'lanır (0/negatif ASLA persist).
+  Geçerli kod eşleşince `lastBarcodeErrorCode` temizlenir. `ShipmentEvent` DESTINATION_REPAIRED
+  yeniden kullanılır (yeni enum YOK).
+- **Sağlayıcı onarımı.** DHL + güvenli + geçerli kodlu ise `createRecipient` yeniden iletilir
+  (TODO-124 guard deseni); başarısız/desteklenmezse yerel snapshot KORUNUR, `providerResent:false`/
+  `providerRepairSupported:false` döner (sahte başarı YOK). Duplicate guard'a DOKUNULMAZ (yeni
+  gönderi OLUŞTURULMAZ). MÜŞTERİ adres defteri (CustomerAddress) global mutasyona UĞRAMAZ.
+- **UI.** Order detay kargo kartı (`order-shipment-summary` → yeni `edit-shipping-address`):
+  "Teslimat Adresini Düzenle" + CBS il/ilçe dropdown'ları ("CBS eşleşmesi bulundu/bulunamadı" +
+  kargo kodları) + kapsam uyarısı ("yalnızca bu siparişin teslimat adresini günceller") + kilit
+  kopyası + `providerResent:false` sınırlama kopyası. Kayıt sonrası `router.refresh()` + kart
+  yeniden yükleme.
+- **Şema.** Migration YOK — mevcut alanlar/enum yeniden kullanıldı.
+- **Testler.** api-gateway `shipping-address-update.test.ts` (9); CBS kod doğrulama guarantee'leri
+  `shipping-cbs-mapping.test.ts` (validateCodes → CBS_CODE_INVALID, isValidGeoCode(0)=false) ile
+  korunur; store-admin `edit-shipping-address.test.tsx` (5). TODO-124/129/132/135/136 yeşil;
+  test:unit 808 pass. TODO-123 sınırı DEĞİŞMEZ (retry job adres onarımından SONRA çalışmalı).
