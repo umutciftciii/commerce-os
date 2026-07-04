@@ -2587,3 +2587,28 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   db:generate, pnpm -r build, typecheck, lint, test:unit (882/882), git diff --check temiz.
   TODO-130/129/123/135/136 regresyon testleri yeşil.
 - **Kalan.** main'e merge sonrası docker api-gateway REBUILD + runtime doğrulama.
+
+## 2026-07-05 — TODO-141: Kargo UI cilası (tarih biçimi + durum yardımcı kopyası)
+- **Sorun.** Müşteri vitrini kargo hareket tarihlerini locale'siz `toLocaleString()` ile US biçiminde
+  gösteriyordu (`7/4/2026, 6:00 PM` — AM/PM'li, Türk vitrinine yabancı). Store-admin timeline'ı
+  `toLocaleString(locale)` ile TR'de doğru gün/ay veriyordu ama gereksiz SANİYE taşıyordu
+  (`04.07.2026 18:00:00`). Biçim tek kaynaktan yönetilmiyordu; her bileşende ad-hoc idi.
+- **Çözüm.** Paylaşılan `formatDateTime(value, locale)` → `@commerce-os/i18n` (her iki app zaten bağımlı).
+  24 saat, saniyesiz; TR `04.07.2026 18:00`, EN `en-GB` biçimi (AM/PM YOK); geçersiz/boş → "—". Zaman
+  dilimi BİLİNÇLİ olarak ayarlanmadı — mevcut yerel-tz davranışı korunur (bu düzeltme yalnız BİÇİM sorununu
+  çözer, gösterilen saati kaydırmaz). `store-admin-web/lib/client/shipment-ui.ts` bunu re-export eder
+  (shipment ekranları tek kaynağı paylaşır).
+- **Kopya.** Müşteri kartındaki dağınık üç not (`preparedNote`/`problemNote`/`cancelledNote`) tek,
+  duruma-göre tutarlı `statusHelp` satırıyla birleşti (TR+EN, her Shipment.status için). Yardımcı metin
+  source-of-truth `Shipment.status`'tan türer (timeline metninden değil); IN_TRANSIT → "Kargonuz taşıma
+  sürecinde." gösterir ve "Kargonun alımı bekleniyor." göstermez (ADR-045). PACKED (LABEL_CREATED) vs
+  AWAITING_PICKUP (ORDER_CREATED/LABEL_PENDING) semantik ayrımı korundu.
+- **Nerede.** Müşteri: `shipment-tracking.tsx` (+ `locale` prop, sayfa `getRequestLocale`). Admin:
+  gönderi detay `[id]` (lastSync/event/retry×2), gönderi listesi (lastSync), order özet kartı (lastUpdate).
+  Backend/domain/status-map/webhook/sync/retry/CBS DEĞİŞMEDİ; DTO allowlist aynı, ham payload sızmaz.
+- **Testler.** `storefront-web/shipment-tracking.test.tsx` (+7 render: dd.MM.yyyy HH:mm, AM/PM yok,
+  IN_TRANSIT→"Yolda", bekleme ipucu yok, konum var/yok temiz, ham payload sızmaz), `shipment.test.ts`
+  (statusHelp'e taşındı), `i18n.test.ts` (+6 formatDateTime), `store-admin-web/shipment-screens.test.tsx`
+  (+1 admin tarih 24 saat/saniyesiz). Gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint,
+  test (34/34 task), git diff --check temiz. ADR YOK (mimari karar yok). TODO-140/130/123 regresyon yeşil.
+- **Kalan.** main'e merge sonrası storefront-web (+ değiştiyse store-admin-web) REBUILD + runtime doğrulama.

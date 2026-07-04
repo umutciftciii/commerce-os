@@ -3,6 +3,7 @@ import {
   allDictionaries,
   defaultLocale,
   format,
+  formatDateTime,
   getDefaultDictionary,
   getDictionary,
   isSupportedLocale,
@@ -110,5 +111,45 @@ describe("format", () => {
 
   it("leaves unknown placeholders intact", () => {
     expect(format("{a} / {b}", { a: "x" })).toBe("x / {b}");
+  });
+});
+
+describe("formatDateTime", () => {
+  // Yerel saatle kurulan Date, yerel saatle biçimlenir → TZ'den bağımsız deterministik.
+  const localDate = new Date(2026, 6, 4, 18, 0, 0); // 4 Temmuz 2026, 18:00 (yerel)
+  const localMorning = new Date(2026, 6, 5, 9, 5, 0); // 5 Temmuz 2026, 09:05
+
+  it("Türkçe için dd.MM.yyyy HH:mm (24 saat, saniyesiz) döner", () => {
+    expect(formatDateTime(localDate, "tr")).toBe("04.07.2026 18:00");
+    expect(formatDateTime(localMorning, "tr")).toBe("05.07.2026 09:05");
+  });
+
+  it("Türkçe çıktı AM/PM ve saniye içermez", () => {
+    const out = formatDateTime(localDate, "tr");
+    expect(out).not.toMatch(/AM|PM/);
+    expect(out).not.toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("İngilizce için 24 saat (AM/PM yok) makul bir biçim döner", () => {
+    const out = formatDateTime(localDate, "en");
+    expect(out).toContain("18:00");
+    expect(out).not.toMatch(/AM|PM/);
+  });
+
+  it("varsayılan locale Türkçedir", () => {
+    expect(formatDateTime(localDate)).toBe("04.07.2026 18:00");
+  });
+
+  it("geçersiz/boş değerde em-dash döner", () => {
+    expect(formatDateTime(null)).toBe("—");
+    expect(formatDateTime(undefined)).toBe("—");
+    expect(formatDateTime("")).toBe("—");
+    expect(formatDateTime("not-a-date")).toBe("—");
+  });
+
+  it("ISO string girdisini kabul eder", () => {
+    expect(formatDateTime(localDate.toISOString(), "tr")).toMatch(
+      /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/,
+    );
   });
 });

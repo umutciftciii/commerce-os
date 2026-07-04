@@ -87,10 +87,12 @@ describe("storefront · shipment tracking helpers", () => {
     expect(en.statusValues.ORDER_CREATED).toBe("Awaiting carrier pickup");
     expect(tr.statusValues.LABEL_CREATED).toBe("Kargo İçin Paketlendi");
     expect(en.statusValues.LABEL_CREATED).toBe("Packed for carrier");
-    expect(tr.preparedNote).toBe("Kargonun alımı bekleniyor.");
-    expect(en.preparedNote).toBe("Waiting for carrier pickup.");
+    // Hazırlık aşaması yardımcı metni: kargo firmasınca alım bekleniyor (teslim/yolda DEĞİL).
+    expect(tr.statusHelp.ORDER_CREATED).toBe("Kargo firmasının paketi teslim alması bekleniyor.");
+    expect(en.statusHelp.ORDER_CREATED).toBe("Waiting for the carrier to collect the parcel.");
     // ORDER_CREATED müşteriye "kargoya verildi/teslim" gibi yanıltıcı ifade göstermez.
     expect(tr.statusValues.ORDER_CREATED).not.toMatch(/kargoya verildi|teslim/i);
+    expect(tr.statusHelp.ORDER_CREATED).not.toMatch(/kargoya verildi/i);
   });
 
   // TODO-140 — Hareket kaniti (transfer/aktarma) ile Shipment.status IN_TRANSIT'e ilerleyince

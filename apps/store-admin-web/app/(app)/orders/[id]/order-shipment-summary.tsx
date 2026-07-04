@@ -17,6 +17,7 @@ import {
   SHIPMENT_STATUS_DESC,
   SHIPMENT_STATUS_LABEL,
   SHIPMENT_STATUS_TONE,
+  formatDateTime,
   isAwaitingPickupStatus,
   type Locale,
 } from "../../../../lib/client/shipment-ui";
@@ -296,7 +297,7 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
             </>
           ) : null}
           <span className="text-white/35">{t.lastUpdate}</span>
-          <span className="text-white/55">{new Date(activeShipment.updatedAt).toLocaleString(locale)}</span>
+          <span className="text-white/55">{formatDateTime(activeShipment.updatedAt, locale)}</span>
         </div>
         <Link
           href={`/shipping/shipments/${activeShipment.id}`}

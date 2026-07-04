@@ -633,10 +633,20 @@ export const enStorefront: StorefrontDictionary = {
           timelineTitle: "Activity",
           noEvents: "No shipment activity recorded yet.",
           locationLabel: "Processing point",
-          cancelledNote: "This shipment record was cancelled.",
-          problemNote:
-            "The shipment needs follow-up; you may contact the carrier if needed.",
-          preparedNote: "Waiting for carrier pickup.",
+          statusHelp: {
+            DRAFT: "Your order is being prepared.",
+            ORDER_CREATED: "Waiting for the carrier to collect the parcel.",
+            LABEL_PENDING: "Waiting for the carrier to collect the parcel.",
+            LABEL_CREATED: "Your order is ready for the carrier.",
+            IN_TRANSIT: "Your shipment is on its way.",
+            OUT_FOR_DELIVERY: "Your shipment is out for delivery.",
+            DELIVERED: "Your shipment has been delivered.",
+            DELIVERY_FAILED:
+              "There was a delivery issue; you may contact the carrier if needed.",
+            RETURNED: "Your shipment is being returned.",
+            CANCELLED: "This shipment record was cancelled.",
+            FAILED: "The shipment needs follow-up; you may contact the carrier if needed.",
+          },
           steps: ["Preparing", "In transit", "Out for delivery", "Delivered"],
           statusValues: {
             DRAFT: "Preparing",

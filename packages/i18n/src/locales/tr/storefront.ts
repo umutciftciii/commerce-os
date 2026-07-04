@@ -638,10 +638,24 @@ export const trStorefront = {
           timelineTitle: "Hareketler",
           noEvents: "Henüz kargo hareketi kaydedilmedi.",
           locationLabel: "İşlem noktası",
-          cancelledNote: "Bu gönderi kaydı iptal edildi.",
-          problemNote:
-            "Gönderide takip gerektiren bir durum var; gerekirse kargo firmasıyla iletişime geçebilirsiniz.",
-          preparedNote: "Kargonun alımı bekleniyor.",
+          // Duruma göre tek, tutarlı yardımcı satır (eski cancelled/problem/prepared
+          // notları bunun altında birleşti). ADR-045: hazırlık aşaması fiziksel
+          // "kargoya verildi" DEĞİL; source-of-truth durumdan türer.
+          statusHelp: {
+            DRAFT: "Siparişiniz hazırlanıyor.",
+            ORDER_CREATED: "Kargo firmasının paketi teslim alması bekleniyor.",
+            LABEL_PENDING: "Kargo firmasının paketi teslim alması bekleniyor.",
+            LABEL_CREATED: "Siparişiniz kargo için hazırlandı.",
+            IN_TRANSIT: "Kargonuz taşıma sürecinde.",
+            OUT_FOR_DELIVERY: "Kargonuz dağıtıma çıktı.",
+            DELIVERED: "Kargonuz teslim edildi.",
+            DELIVERY_FAILED:
+              "Teslimat sırasında bir sorun oluştu; gerekirse kargo firmasıyla iletişime geçebilirsiniz.",
+            RETURNED: "Kargonuz iade sürecinde.",
+            CANCELLED: "Bu gönderi kaydı iptal edildi.",
+            FAILED:
+              "Gönderide takip gerektiren bir durum var; gerekirse kargo firmasıyla iletişime geçebilirsiniz.",
+          },
           steps: ["Hazırlanıyor", "Yolda", "Dağıtımda", "Teslim edildi"],
           statusValues: {
             DRAFT: "Hazırlanıyor",

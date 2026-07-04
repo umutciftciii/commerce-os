@@ -812,3 +812,16 @@
   `storefront-web/shipment.test.ts` (+1: IN_TRANSIT→"Yolda" adımı + bekleme ipucu yok). TODO-130/129/123/135/136
   testleri yeşil (882/882). KALAN: main'e merge sonrası docker api-gateway REBUILD + runtime doğrulama (SMOKE
   AKTARMADA hareketli mevcut gönderi → DB Shipment.status=IN_TRANSIT + müşteri/order rozet "Yolda").
+- TODO-141 — Kargo UI cilası: tarih biçimi + durum yardımcı kopyası (DONE — 2026-07-05). Sorun: müşteri
+  vitrini kargo hareket tarihlerini locale'siz `toLocaleString()` ile US biçiminde gösteriyordu
+  (`7/4/2026, 6:00 PM`); store-admin ise `toLocaleString(locale)` ile saniye taşıyordu. Çözüm: yeni
+  paylaşılan `formatDateTime(value, locale)` (`@commerce-os/i18n`) — 24 saat, saniyesiz, geçersiz→"—";
+  TR `04.07.2026 18:00`, EN `en-GB` (AM/PM yok). Timezone'a DOKUNULMADI (yalnız biçim). Müşteri kartı:
+  timeline `formatDateTime`'a taşındı + `locale` prop; dağınık üç not (prepared/problem/cancelled) tek,
+  duruma-göre tutarlı `statusHelp` satırıyla birleşti (PACKED/AWAITING_PICKUP semantiği korundu, ADR-045).
+  Admin: `[id]` detay (lastSync/event/retry×2), gönderi listesi (lastSync), order özet kartı (lastUpdate)
+  → `formatDateTime`. Backend/domain/status-map/webhook/sync/retry DEĞİŞMEDİ; ham payload sızmaz. Testler:
+  `storefront-web/shipment-tracking.test.tsx` (+7 render), `shipment.test.ts` (statusHelp), `i18n.test.ts`
+  (+6 formatDateTime), `store-admin-web/shipment-screens.test.tsx` (+1 admin tarih). Gate'ler yeşil
+  (db:generate, pnpm -r build, typecheck, lint, test 34/34, git diff --check temiz). ADR YOK (mimari karar
+  yok). KALAN: merge sonrası storefront-web (+ değiştiyse store-admin-web) REBUILD + runtime doğrulama.
