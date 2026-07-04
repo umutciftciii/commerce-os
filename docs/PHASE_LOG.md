@@ -2629,3 +2629,30 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   TR, geçersiz→"—"). Gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint, test (34/34), git
   diff --check temiz. ADR YOK.
 - **Kalan.** merge sonrası storefront-web REBUILD + runtime doğrulama.
+
+## 2026-07-05 — TD-036: Config empty-string normalizasyon temizliği (ADR-057)
+- **Sorun.** `env_file`'da `KEY=` bırakılan ya da docker override'da boş string atanan OPSİYONEL
+  değerler, Zod şemasında `url()`/`regex()`/enum/`coerce.number()` doğrulamasına takılıp api-gateway
+  boot'unu çökertme sınıfıydı. Daha önce nokta-atışı düzeltildi (PR #10 `DHL_TEST_BASE_URL`, PR #15
+  `PUBLIC_WEBHOOK_BASE_URL` + sync worker) ama desen inline tekrar ediyordu ve birçok opsiyonel alan
+  (`DHL_ECOMMERCE_TEST_BASE_URL/LIVE_BASE_URL`, `CUSTOMER_OTP_DEV_CODE`, tüm provider guard boolean'ları,
+  varsayılanlı sayı/enum alanları) hâlâ boş-string'de çökme adayıydı.
+- **Çözüm.** Paylaşılan helper: `packages/config/src/env.ts` → `emptyToUndefined`, `optionalEnv`,
+  `optionalUrlEnv`, `optionalBooleanEnv`, `optionalNumberEnv`. `undefined | null | "" | yalniz-bosluk`
+  → "yok" (undefined); opsiyonel alan varsayılanına/undefined'a düşer. `packages/config/src/index.ts`
+  şeması bu helper'larla yeniden yazıldı; inline `z.preprocess(...)` tekrarları kaldırıldı. `loadConfig`
+  artık `safeParse` + `ConfigValidationError` (yalnız **anahtar + mesaj**; env DEĞERİ asla basılmaz →
+  secret sızmaz).
+- **Strict kalanlar.** `DATABASE_URL`, `REDIS_URL`, `INTERNAL_API_TOKEN`, `SESSION_SECRET` bilerek
+  toleranssız: eksik/geçersizse boot yüksek sesle hata verir. Secret'lar (`PAYMENT_ENCRYPTION_KEY`,
+  `SHIPPING_ENCRYPTION_KEY`) dokunulmadı (downstream `key.trim().length` ile boşu zaten "yok" sayıyor).
+  Opsiyonel bir alana boş OLMAYAN geçersiz değer verilirse yine yüksek sesle hata.
+- **Kapsam dışı.** İş mantığı, shipment/webhook/sync davranışı DEĞİŞMEDİ (yalnız config parsing güvenliği).
+  Web app'lerin request-time `?? default` okuyuşları (boot değil) bu turda değiştirilmedi.
+- **Nerede.** `packages/config/src/env.ts` (yeni), `packages/config/src/index.ts`, `.env.example`
+  (baştaki politika notu), `packages/config/test/config.test.ts` (+20 test: opsiyonel URL/bool/number/
+  regex, required-strict, secret sızmama, helper birim testleri).
+- **Testler.** Gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint, test (config 24/24; api-gateway
+  494/494 regresyon dahil), git diff --check temiz.
+- **Kalan.** merge sonrası docker api-gateway rebuild + boş opsiyonel env'lerle boot doğrulama (aşağıdaki
+  runtime doğrulama planı).

@@ -833,3 +833,14 @@
   (locale threading → OrdersSection), `orders-section.tsx` OrderCard (createdAt). `payment-tester.tsx` zaten
   tr-TR (dev aracı, kapsam dışı). Backend/DTO değişmedi. Testler: `i18n.test.ts` (+5 formatDate). Gate'ler
   yeşil (34/34). ADR YOK. KALAN: merge sonrası storefront-web REBUILD + runtime doğrulama.
+- TD-036 — Config empty-string normalizasyon temizliği (DONE — 2026-07-05, ADR-057). Sorun: `env_file`'da
+  `KEY=` bırakılan OPSİYONEL değerler Zod `url()`/`regex()`/enum/`coerce.number()` doğrulamasına takılıp
+  api-gateway boot'unu çökertme sınıfıydı (PR #10/#15 nokta-atışı düzeltmişti; desen inline tekrar ediyordu).
+  Çözüm: paylaşılan helper `packages/config/src/env.ts` (`emptyToUndefined`, `optionalEnv`, `optionalUrlEnv`,
+  `optionalBooleanEnv`, `optionalNumberEnv`) — opsiyonel boş/whitespace → varsayılan/undefined; şema
+  (`index.ts`) yeniden yazıldı, inline `z.preprocess` tekrarı kaldırıldı; `loadConfig` `safeParse` +
+  `ConfigValidationError` (yalnız anahtar+mesaj, env değeri basılmaz → secret sızmaz). Strict kalanlar:
+  `DATABASE_URL`/`REDIS_URL`/`INTERNAL_API_TOKEN`/`SESSION_SECRET`. Secret'lar dokunulmadı. İş mantığı/
+  shipment/webhook/sync davranışı DEĞİŞMEDİ. Testler: `config.test.ts` (24, +20). Gate'ler yeşil
+  (db:generate, build, typecheck, lint, config 24/24 + api-gateway 494/494, git diff --check). KALAN:
+  merge sonrası docker api-gateway rebuild + boş opsiyonel env'lerle boot doğrulama.
