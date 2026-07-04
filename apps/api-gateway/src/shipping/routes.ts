@@ -64,10 +64,7 @@ import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
 import { resolveRecipientEmail } from "./recipient.js";
 import { createCbsLookupService, type CbsLookupTarget } from "./cbs-resolver.js";
-import {
-  BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND,
-  classifyBarcodeProviderError,
-} from "./adapters/dhl-ecommerce/mappers.js";
+import { BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND } from "./adapters/dhl-ecommerce/mappers.js";
 import { createShippingSecretCipher, type ShippingSecretCipher } from "./encryption.js";
 import {
   createDisabledHttpTransport,
@@ -95,6 +92,13 @@ import {
   createShipmentSyncService,
   type ShipmentSyncService,
 } from "./sync-service.js";
+import {
+  BARCODE_RETRY_UNBLOCK,
+  createBarcodeRetryService,
+  createPrismaBarcodeRetryPersistence,
+  type BarcodeRetryService,
+  type BarcodeShipmentRecord,
+} from "./barcode-service.js";
 
 export interface ShippingAdminRoutesDeps {
   config: AppConfig;
@@ -233,6 +237,14 @@ export function registerShippingAdminRoutes(
     config,
     registry,
     persistence: createPrismaShipmentSyncPersistence(),
+  });
+
+  // TODO-123 — manuel "Barkod/Etiket Olustur" + zamanlanmis retry worker AYNI cekirdegi
+  // kullanir (drift yok). Manuel tetik backoff'u bypass eder (attemptBarcode dogrudan cagrilir).
+  const barcodeRetryService: BarcodeRetryService = createBarcodeRetryService({
+    config,
+    registry,
+    persistence: createPrismaBarcodeRetryPersistence(),
   });
 
   // TODO-124 — CBS il/ilce lookup'i (TTL cache'li; saglayici asiri CAGRILMAZ).
@@ -880,16 +892,6 @@ export function registerShippingAdminRoutes(
     });
   }
 
-  // Sipariş kargo adresinden + paket olcusunden parca listesi (createbarcode icin yeniden uretilebilir).
-  function rebuildPieces(shipment: Shipment) {
-    const count = Math.max(1, shipment.pieceCount);
-    return Array.from({ length: count }, (_, i) => ({
-      barcode: `${shipment.referenceId.toUpperCase()}_PARCA${i + 1}`,
-      desi: shipment.totalDesi / count || 0,
-      kg: shipment.totalKg / count || 0,
-    }));
-  }
-
   /* ───────────── F3C.5 (TODO-121) paylasilan aksiyon helper'lari ─────────────
    * Hem order-scoped DHL route'lari hem store-level generic shipment route'lari
    * AYNI mantigi kullanir (provider adapter dispatch + sanitize + event/audit).
@@ -925,97 +927,49 @@ export function registerShippingAdminRoutes(
     );
   }
 
-  // createbarcode/createLabel — ADR-045 normalize (bos 200 → LABEL_PENDING; varis/hat
-  // routing hatasi → retryable). Raw ZPL DB'ye YAZILMAZ; yalniz sanitize ozet + boolean.
+  /** Shipment (prisma) → barkod cekirdek projeksiyonu (manuel tetik). */
+  function toBarcodeRecord(shipment: Shipment): BarcodeShipmentRecord {
+    return {
+      id: shipment.id,
+      storeId: shipment.storeId,
+      providerConfigId: shipment.providerConfigId,
+      provider: shipment.provider,
+      referenceId: shipment.referenceId,
+      status: shipment.status,
+      packagingType: shipment.packagingType,
+      pieceCount: shipment.pieceCount,
+      totalKg: shipment.totalKg,
+      totalDesi: shipment.totalDesi,
+      externalShipmentId: shipment.externalShipmentId,
+      externalInvoiceId: shipment.externalInvoiceId,
+      trackingNumber: shipment.trackingNumber,
+      lastBarcodeErrorCode: shipment.lastBarcodeErrorCode,
+      barcodeRetryCount: shipment.barcodeRetryCount,
+      barcodeRetryBlockedReason: shipment.barcodeRetryBlockedReason,
+    };
+  }
+
+  // createbarcode/createLabel — TODO-123: manuel tetik paylasilan barcode-service cekirdegini
+  // kullanir (zamanlanmis retry worker ile AYNI mantik). Backoff BYPASS edilir (admin acikca
+  // tikladi); DATA_FIX/TERMINAL blogu yine saglayici yanitindan turer. ADR-045 normalize
+  // (bos 200 → LABEL_PENDING; varis/hat routing hatasi → retryable) cekirdekte yasar. Raw ZPL
+  // DB'ye YAZILMAZ. Firlatilan hata (timeout/auth) manuel tetikte YENIDEN firlatilir → route
+  // sendShippingError ile mevcut HTTP mapping'i korur.
   async function applyCreateLabel(
-    storeId: string,
+    _storeId: string,
     shipment: Shipment,
-    cfg: ConfigWithCredentials,
+    _cfg: ConfigWithCredentials,
     opts: { packagingType?: number; explicitConfirm: boolean },
   ): Promise<CreateLabelResult> {
-    const result = await registry.get(cfg.provider).createBarcodeOrLabel({
-      context: buildContext(cfg),
-      referenceId: shipment.referenceId,
-      packagingType: opts.packagingType ?? shipment.packagingType ?? undefined,
-      pieces: rebuildPieces(shipment),
+    const outcome = await barcodeRetryService.attemptBarcode(toBarcodeRecord(shipment), _cfg, {
+      packagingType: opts.packagingType,
       explicitConfirm: opts.explicitConfirm,
+      trigger: "manual",
     });
-
-    if (result.providerErrorMessage) {
-      // TODO-124 — MNG 20001 "VARIŞ ŞUBESİ BULUNAMADI" → DESTINATION_BRANCH_NOT_FOUND.
-      // Sinif­landirilan hatada admin-guvenli TR kopya yazilir (raw saglayici metni
-      // musteri DTO'suna zaten cikmiyor; admin'e de aksiyon alinabilir mesaj gider).
-      // Shipment.lastBarcodeErrorCode TODO-123 retry worker'inin "admin duzeltmesine
-      // kadar SKIP" sinyalidir; durum ILERLEMEZ, retry mumkun kalir (ADR-045).
-      const classified = classifyBarcodeProviderError(result.providerErrorCode, result.providerErrorMessage);
-      const statusText =
-        classified === BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND
-          ? "Varış şubesi bulunamadı. Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi."
-          : result.providerErrorMessage;
-      const failed = await prisma.shipment.update({
-        where: { id: shipment.id },
-        data: { lastBarcodeErrorCode: classified ?? "BARCODE_PROVIDER_ERROR" },
-      });
-      await recordShipmentEvent(storeId, failed, "BARCODE_FAILED", {
-        statusText,
-        rawSafeJson: {
-          providerError: true,
-          errorCode: classified,
-          providerErrorCode: result.providerErrorCode,
-          message: result.providerErrorMessage,
-          shipmentIdPresent: Boolean(result.externalShipmentId),
-          barcodeCount: result.barcodes.length,
-        },
-      });
-      return { kind: "retryable", errorCode: classified };
+    if (outcome.kind === "failed") {
+      return { kind: "retryable", errorCode: outcome.errorCode };
     }
-
-    const shipmentIdPresent = Boolean(result.externalShipmentId);
-    const barcodeCount = result.barcodes.length;
-    const zplPresent = result.barcodes.some((b) => b.labelPresent);
-    const incomplete = result.providerReturnedEmptyPayload || (!shipmentIdPresent && barcodeCount === 0);
-    const barcodeJsonSafe = {
-      referenceId: result.referenceId,
-      shipmentId: result.externalShipmentId,
-      invoiceId: result.externalInvoiceId,
-      barcodeCount,
-      zplPresent,
-      shipmentIdPresent,
-      invoiceIdPresent: Boolean(result.externalInvoiceId),
-      providerReturnedEmptyPayload: incomplete,
-      pieces: result.barcodes.map((b) => ({ pieceNumber: b.pieceNumber, barcodePresent: Boolean(b.barcode) })),
-    } satisfies Prisma.InputJsonValue;
-
-    if (incomplete) {
-      const pendingUpdated = await prisma.shipment.update({
-        where: { id: shipment.id },
-        // Bos-200 pending saglayici DOMAIN hatasi degildir → sinif­landirma sifirlanir.
-        data: { status: "LABEL_PENDING", barcodeJsonSafe, lastBarcodeErrorCode: null },
-      });
-      await recordShipmentEvent(storeId, pendingUpdated, "BARCODE_PENDING", {
-        statusText: "Barkod henüz üretilemedi (sağlayıcı boş yanıt)",
-        rawSafeJson: barcodeJsonSafe,
-      });
-      return { kind: "pending", shipment: await reloadShipment(pendingUpdated.id) };
-    }
-
-    const updated = await prisma.shipment.update({
-      where: { id: shipment.id },
-      data: {
-        status: "LABEL_CREATED",
-        externalShipmentId: result.externalShipmentId,
-        externalInvoiceId: result.externalInvoiceId ?? shipment.externalInvoiceId,
-        trackingNumber: result.externalShipmentId ?? shipment.trackingNumber,
-        barcodeJsonSafe,
-        // Basarili barkod → onceki sinif­landirilmis hata temizlenir.
-        lastBarcodeErrorCode: null,
-      },
-    });
-    await recordShipmentEvent(storeId, updated, "BARCODE_CREATED", {
-      statusText: "Barkod oluşturuldu",
-      rawSafeJson: barcodeJsonSafe,
-    });
-    return { kind: "label", shipment: await reloadShipment(updated.id) };
+    return { kind: outcome.kind, shipment: await reloadShipment(shipment.id) };
   }
 
   // getshipmentstatus + trackshipment → durum/hareket senkronu (terminal/regresyon korumali).
@@ -1665,7 +1619,9 @@ export function registerShippingAdminRoutes(
           recipientDistrictCode: input.districtCode,
           recipientCityName: canonical.cityName,
           recipientDistrictName: canonical.districtName,
-          lastBarcodeErrorCode: null,
+          // TODO-123 — varis eslemesi onarildi → barkod retry blogu (DATA_FIX) kalkar;
+          // lastBarcodeErrorCode + retry sayaci/backoff sifirlanir (deneme yeniden anlamli).
+          ...BARCODE_RETRY_UNBLOCK,
         },
       });
       // 3) Saglayiciya duzeltilmis alici kaydini yeniden ilet (ayni referenceId; guard'li).
@@ -1849,7 +1805,8 @@ export function registerShippingAdminRoutes(
                 : isDhl
                   ? null
                   : activeShipment.recipientDistrictCode,
-              ...(cbsMatched ? { lastBarcodeErrorCode: null } : {}),
+              // TODO-123 — kod eşleşince barkod retry blogu (DATA_FIX) + sayaç/backoff sıfırlanır.
+              ...(cbsMatched ? BARCODE_RETRY_UNBLOCK : {}),
             },
           });
         }
@@ -2097,6 +2054,12 @@ export function serializeShipment(s: Shipment & { events: ShipmentEvent[] }) {
     recipientAddress: s.recipientAddress,
     // TODO-124 — son barkod denemesinin sinif­landirilmis hata kodu (TODO-123 girdisi).
     lastBarcodeErrorCode: s.lastBarcodeErrorCode,
+    // TODO-123 — barkod retry/backoff operasyon durumu (admin gorunumu; secret icermez).
+    // barcodeRetryBlockedReason: DATA_FIX (adres/varis duzeltmesi) | TERMINAL | MAX_ATTEMPTS.
+    barcodeRetryCount: s.barcodeRetryCount,
+    barcodeNextRetryAt: s.barcodeNextRetryAt ? s.barcodeNextRetryAt.toISOString() : null,
+    barcodeLastAttemptAt: s.barcodeLastAttemptAt ? s.barcodeLastAttemptAt.toISOString() : null,
+    barcodeRetryBlockedReason: s.barcodeRetryBlockedReason,
     // TODO-129 — degisiklik yoksa sync event yazilmaz; son sync ani Shipment.lastSyncAt'ten
     // (yoksa eski davranis: son sync event'inin ani).
     lastSyncedAt: s.lastSyncAt

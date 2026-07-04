@@ -1295,6 +1295,19 @@ model Shipment {
   // worker'i DESTINATION_BRANCH_NOT_FOUND'u admin duzeltmesine kadar SKIP etmelidir.
   // Raw saglayici mesaji/secret ASLA yazilmaz; yalniz kisa sanitize kod.
   lastBarcodeErrorCode String?
+  // TODO-123 — barkod retry/backoff metadata'si (TODO-129 sync alanlarindan AYRIDIR;
+  // barkod olusturma ile durum senkronu farkli yasam donguleridir). barcodeRetryCount =
+  // ardisik TRANSIENT (retryable) hata sayaci; basarili barkod/pending SIFIRLAR.
+  // barcodeNextRetryAt = backoff (null => zamanlanmadi; worker SECMEZ). barcodeLastAttemptAt =
+  // son barkod DENEMESI ani. barcodeRetryBlockedReason = otomatik retry BLOK nedeni:
+  // "DATA_FIX" (adres/varis eslemesi duzeltilmeli — TODO-124/139), "TERMINAL" (kalici/
+  // desteklenmeyen), "MAX_ATTEMPTS" (transient limit doldu). null => bloklu degil.
+  // lastBarcodeErrorCode ("ne oldu") ile barcodeRetryBlockedReason ("neden otomatik
+  // denenmiyor") AYRIDIR. Adres/varis onarimi (TODO-124/139) bu alanlari sifirlar.
+  barcodeRetryCount        Int       @default(0)
+  barcodeNextRetryAt       DateTime?
+  barcodeLastAttemptAt     DateTime?
+  barcodeRetryBlockedReason String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
@@ -1311,6 +1324,9 @@ model Shipment {
   // TODO-129 — worker uygun gonderi secimi (status taramasi + backoff/stale siralamasi).
   @@index([status, nextSyncAt])
   @@index([status, lastSyncAt])
+  // TODO-123 — barkod retry worker'inin uygun gonderi secimi (status + backoff siralamasi).
+  @@index([status, barcodeNextRetryAt])
+  @@index([lastBarcodeErrorCode, barcodeNextRetryAt])
 }
 
 model ShipmentEvent {

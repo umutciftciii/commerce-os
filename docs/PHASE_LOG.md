@@ -2507,3 +2507,38 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   `shipping-cbs-mapping.test.ts` (validateCodes → CBS_CODE_INVALID, isValidGeoCode(0)=false) ile
   korunur; store-admin `edit-shipping-address.test.tsx` (5). TODO-124/129/132/135/136 yeşil;
   test:unit 808 pass. TODO-123 sınırı DEĞİŞMEZ (retry job adres onarımından SONRA çalışmalı).
+
+## TODO-123 — Barkod retry/backoff (transient otomatik, veri-hatası admin düzeltmesi bekler)
+
+- **Kök neden.** Barkod oluşturma sağlayıcı hatasıyla düştüğünde retry manueldi; sistem
+  **geçici** (timeout/5xx) ile **veri düzeltmesi gerektiren** (varış şubesi/adres eşlemesi geçersiz —
+  TODO-124) hatayı ayırıp zamanlanmış backoff uygulamıyordu.
+- **Sınıflandırma** (`barcode-service.ts`, ADR-054). `lastBarcodeErrorCode` ("ne oldu") ile
+  `barcodeRetryBlockedReason` ("neden otomatik denenmiyor") AYRIDIR:
+  - **RETRYABLE** (transient): `SHIPPING_HTTP_TIMEOUT`, `BARCODE_PROVIDER_ERROR` (generic 5xx),
+    `PROVIDER_NETWORK_ERROR` → üssel backoff `stale·2^(deneme-1)` (6 saat cap); `BARCODE_RETRY_MAX_ATTEMPTS`
+    sonra `MAX_ATTEMPTS` blok (worker seçmez, manuel çalışır).
+  - **DATA_FIX**: `DESTINATION_BRANCH_NOT_FOUND`, `ADDRESS_DISTRICT_CODE_REQUIRED`, `CBS_CODE_INVALID`,
+    `RECIPIENT_EMAIL_*` → otomatik denenmez; admin düzeltmesi (TODO-124/139) bloğu kaldırır.
+  - **TERMINAL**: `AUTH_FAILED`, `*_DISABLED` vb. → otomatik denenmez. Bilinmeyen kod uydurulmaz → RETRYABLE.
+- **Şema.** Additive migration `20260704140000_add_barcode_retry_metadata`: Shipment'a
+  `barcodeRetryCount`/`barcodeNextRetryAt`/`barcodeLastAttemptAt`/`barcodeRetryBlockedReason` +
+  `@@index([status, barcodeNextRetryAt])`, `@@index([lastBarcodeErrorCode, barcodeNextRetryAt])`.
+  TODO-129 sync alanlarından (syncAttempts/nextSyncAt) BAĞIMSIZ (farklı yaşam döngüleri).
+- **Tek çekirdek, iki tetik.** Manuel "Barkod/Etiket Oluştur" (route `applyCreateLabel`) + zamanlanmış
+  `barcode-retry-worker.ts` (TODO-129 sync worker deseni: api-gateway içi overlap-korumalı setTimeout
+  zinciri, `main.ts`) AYNI `attemptBarcode` çekirdeğini kullanır (drift yok). Manuel backoff'u bypass eder;
+  fırlatılan hata (timeout) manuelde yeniden fırlatılır → mevcut HTTP mapping (504/409) korunur. Başarı/
+  pending tüm retry metadata'sını sıfırlar; ADR-045 durum güvenliği + duplicate guard bozulmaz.
+- **TODO-124/139 etkileşimi.** repair-destination + adres düzenleme yolları artık `BARCODE_RETRY_UNBLOCK`
+  (lastBarcodeErrorCode + retry sayaç/backoff/blok = sıfır) yazar → DATA_FIX bloğu kalkar.
+- **Idempotent event.** `BARCODE_FAILED` yalnız ilk hata / kod değişimi / yeni blok nedeninde (spam yok).
+- **Config.** `BARCODE_RETRY_ENABLED` (varsayılan **false**, docker dev'de açılmaz — MNG sandbox'ı düzenli
+  çağırmamak için), `_INTERVAL_SECONDS` (300, min 30), `_BATCH_SIZE` (10), `_STALE_AFTER_MINUTES` (15),
+  `_MAX_ATTEMPTS` (5). Hepsi boş-string toleranslı (PR #15 deseni).
+- **UI.** Shipment detay sağ panel: retry durumu (transient/DATA_FIX/TERMINAL/MAX_ATTEMPTS mesajı +
+  sonraki deneme/sayaç/son deneme) + güvenli durumda "Şimdi Tekrar Dene"; DATA_FIX'te varış onarım/adres
+  düzenleme CTA (TODO-124/139). Müşteri DTO'su değişmedi (ham sağlayıcı hatası admin-only, allowlist korunur).
+- **Testler.** `shipping-barcode-retry.test.ts` (28: sınıflandırma/backoff/metadata/event/seçim/worker),
+  `shipping-barcode-route.test.ts` (2: manuel wiring + metadata), store-admin `shipment-screens.test.tsx`
+  retry UI (4). Regresyon: api-gateway 455, store-admin 153 pass; TODO-124/129/132/135/136/139 yeşil.
