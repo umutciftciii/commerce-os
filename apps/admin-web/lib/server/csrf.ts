@@ -1,8 +1,12 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextRequest, NextResponse } from "next/server";
+import { optionalEnvString } from "@commerce-os/utils";
 
-export const CSRF_COOKIE_NAME = process.env.ADMIN_CSRF_COOKIE_NAME ?? "commerce_os_admin_csrf";
-export const CSRF_HEADER_NAME = process.env.ADMIN_CSRF_HEADER_NAME ?? "x-commerce-os-csrf";
+// TD-038: bos/whitespace env "yok" sayilir; bos cookie/header adi uretmez.
+export const CSRF_COOKIE_NAME =
+  optionalEnvString(process.env.ADMIN_CSRF_COOKIE_NAME) ?? "commerce_os_admin_csrf";
+export const CSRF_HEADER_NAME =
+  optionalEnvString(process.env.ADMIN_CSRF_HEADER_NAME) ?? "x-commerce-os-csrf";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const COOKIE_SECURE =

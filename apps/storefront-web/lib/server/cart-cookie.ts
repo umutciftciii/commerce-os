@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { optionalEnvString } from "@commerce-os/utils";
 import {
   type CartItem,
   decodeCartToken,
@@ -27,9 +28,13 @@ const CONFIRMATION_COOKIE = "commerce_os_checkout_confirmation";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 gun
 const CONFIRMATION_MAX_AGE_SECONDS = 60 * 10; // 10 dk
 
-/** Sepet imza anahtari (yalnizca sunucu; NEXT_PUBLIC degil). */
+/**
+ * Sepet imza anahtari (yalnizca sunucu; NEXT_PUBLIC degil). TD-038: bos/whitespace
+ * `STOREFRONT_CART_SECRET` "yok" sayilir ve dev fallback'e duser; boylece `KEY=`
+ * bos degeri bos-string HMAC anahtari uretmez. Deger loglanmaz.
+ */
 function cartSecret(): string {
-  return process.env.STOREFRONT_CART_SECRET ?? "storefront-dev-cart-secret";
+  return optionalEnvString(process.env.STOREFRONT_CART_SECRET) ?? "storefront-dev-cart-secret";
 }
 
 /** Cookie'deki sepet kalemlerini cozer (gecersiz/kurcalanmis -> bos). */

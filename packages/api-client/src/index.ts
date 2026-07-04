@@ -349,6 +349,7 @@ export type {
   ShippingImportApplyResponse,
   CartShippingQuoteResponse,
 } from "@commerce-os/contracts";
+import { optionalEnvString } from "@commerce-os/utils";
 
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.
@@ -877,10 +878,17 @@ export interface ApiClient {
  * Resolve the gateway base URL from an explicit value, then the
  * API_GATEWAY_URL environment variable, then a localhost default.
  * Trailing slashes are trimmed for safe path concatenation.
+ *
+ * TD-038: `API_GATEWAY_URL` opsiyoneldir. Bos/whitespace deger (`API_GATEWAY_URL=`)
+ * "yok" kabul edilir ve varsayilana duser; boylece env_file'da bos birakilan bir
+ * anahtar, default gateway URL'ini ARTIK bypass etmez (aksi halde `""` ile fetch
+ * bozuk goreli URL'e giderdi). Tum web app'ler (storefront/store-admin/admin)
+ * gateway URL'ini bu tek noktadan cozer.
  */
 export function resolveApiGatewayUrl(explicit?: string): string {
-  const fromEnv = typeof process !== "undefined" ? process.env.API_GATEWAY_URL : undefined;
-  return (explicit ?? fromEnv ?? DEFAULT_API_GATEWAY_URL).replace(/\/+$/, "");
+  const fromEnv =
+    typeof process !== "undefined" ? optionalEnvString(process.env.API_GATEWAY_URL) : undefined;
+  return (optionalEnvString(explicit) ?? fromEnv ?? DEFAULT_API_GATEWAY_URL).replace(/\/+$/, "");
 }
 
 /**

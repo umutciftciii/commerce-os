@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ApiError, createApiClient, resolveApiGatewayUrl } from "../src/index.js";
 
 /** Tek cagriyi kaydeden, verilen yaniti donduren basit fetch sahtesi. */
@@ -22,6 +22,45 @@ describe("api client", () => {
 
   it("falls back to a localhost default", () => {
     expect(resolveApiGatewayUrl()).toContain("http");
+  });
+
+  describe("TD-038 — API_GATEWAY_URL empty-string normalization", () => {
+    const KEY = "API_GATEWAY_URL";
+    const original = process.env[KEY];
+    afterEach(() => {
+      if (original === undefined) delete process.env[KEY];
+      else process.env[KEY] = original;
+    });
+
+    it("uses the localhost default when API_GATEWAY_URL is undefined", () => {
+      delete process.env[KEY];
+      expect(resolveApiGatewayUrl()).toBe("http://localhost:4000");
+    });
+
+    it("treats an empty string like unset (falls back to default)", () => {
+      process.env[KEY] = "";
+      expect(resolveApiGatewayUrl()).toBe("http://localhost:4000");
+    });
+
+    it("treats a whitespace-only value like unset (falls back to default)", () => {
+      process.env[KEY] = "   ";
+      expect(resolveApiGatewayUrl()).toBe("http://localhost:4000");
+    });
+
+    it("uses a non-empty value from the environment", () => {
+      process.env[KEY] = "http://api-gateway:4000/";
+      expect(resolveApiGatewayUrl()).toBe("http://api-gateway:4000");
+    });
+
+    it("prefers an explicit non-empty value over the environment", () => {
+      process.env[KEY] = "http://api-gateway:4000";
+      expect(resolveApiGatewayUrl("http://explicit:5000")).toBe("http://explicit:5000");
+    });
+
+    it("ignores an empty explicit value and falls back to the environment", () => {
+      process.env[KEY] = "http://api-gateway:4000";
+      expect(resolveApiGatewayUrl("   ")).toBe("http://api-gateway:4000");
+    });
   });
 
   it("calls the health endpoint against the base url", async () => {

@@ -50,6 +50,9 @@ importers:
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@commerce-os/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       next:
         specifier: ^15.5.19
         version: 15.5.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -126,6 +129,9 @@ importers:
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@commerce-os/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       next:
         specifier: ^15.5.19
         version: 15.5.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -172,6 +178,9 @@ importers:
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@commerce-os/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       next:
         specifier: ^15.5.19
         version: 15.5.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -218,6 +227,9 @@ importers:
       '@commerce-os/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@commerce-os/utils':
+        specifier: workspace:*
+        version: link:../utils
 
   packages/auth: {}
 

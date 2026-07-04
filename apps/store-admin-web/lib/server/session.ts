@@ -1,4 +1,5 @@
 import type { NextRequest, NextResponse } from "next/server";
+import { optionalEnvString } from "@commerce-os/utils";
 
 /**
  * Server-side oturum cookie yardimcilari (BFF/proxy katmani).
@@ -12,8 +13,9 @@ import type { NextRequest, NextResponse } from "next/server";
  * Cookie adi admin-web'den ayridir; iki panel ayni host'ta farkli portlarda
  * calissa bile oturumlar karismaz.
  */
+// TD-038: bos/whitespace env "yok" sayilir; bos cookie adi uretmez.
 export const SESSION_COOKIE_NAME =
-  process.env.STORE_ADMIN_SESSION_COOKIE_NAME ?? "commerce_os_store_admin_session";
+  optionalEnvString(process.env.STORE_ADMIN_SESSION_COOKIE_NAME) ?? "commerce_os_store_admin_session";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const COOKIE_SECURE =

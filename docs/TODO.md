@@ -844,3 +844,32 @@
   shipment/webhook/sync davranışı DEĞİŞMEDİ. Testler: `config.test.ts` (24, +20). Gate'ler yeşil
   (db:generate, build, typecheck, lint, config 24/24 + api-gateway 494/494, git diff --check). KALAN:
   merge sonrası docker api-gateway rebuild + boş opsiyonel env'lerle boot doğrulama.
+- TODO-142 — Kargo sandbox uçtan uca smoke runbook + kontrol listesi (DONE — 2026-07-05). İş: kargo temeli
+  (gönderi/DHL-MNG sandbox/CBS/adres/barkod/retry/sync/webhook/UI) büyük ölçüde tamam; kampanya MVP'sinden
+  önce operatörün tekrarlanabilir bir smoke akışına ihtiyacı vardı. Çözüm: yeni `docs/runbooks/
+  shipping-sandbox-smoke.md` — 11 bölüm (ön koşullar, ödeme uygunluğu `ORDER_PAYMENT_REQUIRED`, CBS/varış
+  onarımı + 20001, prepare/duplicate, barkod 3 sınıf RETRYABLE/DATA_FIX/TERMINAL + manuel retry, sync
+  worker + manuel sync-all + terminal hariç, webhook rotate/imza/duplicate/ham-payload sızmaz, müşteri UI
+  TR-tarih/"Yolda"/"Kargonuz taşıma sürecinde.", admin UI, güvenlik kuralları, kopyala-yapıştır final rapor
+  şablonu). OPERATIONS.md'ye kısa link/bölüm + web request-time env kuralı eklendi. Kod/domain DEĞİŞMEDİ
+  (yalnız doküman). KALAN: yok (runbook operasyoneldir; ilk gerçek sandbox koşusunda TD-035 varış şubesi
+  boşluğu 20001 olarak beklenir).
+- TD-038 — Web app request-time env boş-string normalizasyonu (DONE — 2026-07-05). Sorun: TD-036 boot-time
+  config'i normalize etti ama web app'lerin Next.js server bağlamında `process.env.X ?? default` ile
+  okuduğu OPSİYONEL env'ler kapsam dışıydı; `API_GATEWAY_URL=` boş string `??` fallback'ini bypass edip
+  boş/bozuk gateway URL'e (bozuk göreli fetch) düşebiliyordu. Çözüm: duz-string helper `optionalEnvString`
+  (`packages/utils`) — `undefined|null|""|whitespace` → undefined (config'in zod `optionalEnv`'inin
+  karşılığı; web bundle'a zod/`loadConfig` taşımaz). Gateway URL tek noktada düzeltildi:
+  `resolveApiGatewayUrl` (`packages/api-client`) boş/whitespace `API_GATEWAY_URL`'yi "yok" sayar;
+  storefront `gatewayBaseUrl()` buraya delege edildi (store-admin/admin zaten `createApiClient` üzerinden
+  kullanıyor). Helper ile sarılanlar: cookie/CSRF adları (store-admin+admin session/csrf), demo mağaza
+  slug'ları (storefront `env.ts`, store-admin `store-context.ts`), `STOREFRONT_BASE_URL` (aktivasyon
+  linki — whitespace artık bozuk mutlak URL üretmez), `STOREFRONT_CART_SECRET`. Strict kalan:
+  `INTERNAL_API_TOKEN`. Karşılaştırmalı okumalar (`NODE_ENV`/`ADMIN_COOKIE_SECURE`/`ADMIN_COOKIE_SAME_SITE`)
+  zaten güvenli, dokunulmadı. `@commerce-os/utils` web app + api-client'a workspace dep olarak eklendi
+  (zero-dep, bundle-safe; yeni ağır/zod bağımlılığı yok → ADR gerekmez). Testler: `utils/env.test.ts` (+6),
+  `api-client` gateway URL (+6: undefined/""/whitespace/valid/explicit), `store-admin-web/activation-link.test.ts`
+  (+4). Gate'ler yeşil (db:generate, pnpm -r build, typecheck, lint, test — utils 6/6, api-client 19/19,
+  store-admin 161/161, storefront 101/101, admin 24/24, api-gateway 494/494; git diff --check temiz).
+  KALAN: merge sonrası storefront/store-admin/admin-web rebuild + `API_GATEWAY_URL=` boş env ile boot/login
+  redirect doğrulama.
