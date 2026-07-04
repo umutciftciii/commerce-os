@@ -2612,3 +2612,20 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   (+1 admin tarih 24 saat/saniyesiz). Gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint,
   test (34/34 task), git diff --check temiz. ADR YOK (mimari karar yok). TODO-140/130/123 regresyon yeşil.
 - **Kalan.** main'e merge sonrası storefront-web (+ değiştiyse store-admin-web) REBUILD + runtime doğrulama.
+
+## 2026-07-05 — TODO-141b: Müşteri sipariş SALT-TARİH alanları (US MM/DD/YYYY düzeltmesi)
+- **Sorun.** TODO-141 timeline datetime'ını düzeltti ama müşteri sipariş **başlığı** + liste + ödeme
+  tarihleri hâlâ locale'siz `toLocaleDateString()` kullanıyordu → tarayıcı/runtime locale'ine göre US
+  `7/4/2026` (MM/DD/YYYY) görünüyordu. Kullanıcı başlıkta bu tutarsızlığı fark etti.
+- **Çözüm.** `formatDateTime` ile aynı tek kaynağa SALT-tarih kardeşi eklendi: `formatDate(value, locale)`
+  → `@commerce-os/i18n`. TR `04.07.2026`, EN `04/07/2026` (hiçbir locale'de US MM/DD/YYYY DEĞİL);
+  geçersiz/boş → "—"; saat alanı yok. Aynı BCP-47 etiketlerini (`tr-TR`/`en-GB`) paylaşır. Timezone
+  davranışı değişmedi.
+- **Nerede.** Müşteri sipariş detayı `[orderNumber]/page.tsx` (başlık `createdAt` + `PaymentBlock` `paidAt`,
+  `locale` prop eklendi), `account/page.tsx` (`getRequestLocale` → `renderSection` → `OrdersSection` locale
+  threading), sipariş listesi `orders-section.tsx` `OrderCard` (`createdAt`). `payment-tester.tsx` zaten
+  `tr-TR` (dev aracı) → kapsam dışı. Backend/DTO DEĞİŞMEDİ.
+- **Testler.** `i18n.test.ts` (+5 formatDate: TR dd.MM.yyyy, EN dd/MM/yyyy US-değil, saatsiz, varsayılan
+  TR, geçersiz→"—"). Gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint, test (34/34), git
+  diff --check temiz. ADR YOK.
+- **Kalan.** merge sonrası storefront-web REBUILD + runtime doğrulama.

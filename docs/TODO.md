@@ -825,3 +825,11 @@
   (+6 formatDateTime), `store-admin-web/shipment-screens.test.tsx` (+1 admin tarih). Gate'ler yeşil
   (db:generate, pnpm -r build, typecheck, lint, test 34/34, git diff --check temiz). ADR YOK (mimari karar
   yok). KALAN: merge sonrası storefront-web (+ değiştiyse store-admin-web) REBUILD + runtime doğrulama.
+- TODO-141b — Müşteri sipariş SALT-tarih alanları US MM/DD/YYYY düzeltmesi (DONE — 2026-07-05). TODO-141
+  timeline'ı düzeltti ama sipariş başlığı/liste/ödeme tarihleri hâlâ locale'siz `toLocaleDateString()` ile
+  US `7/4/2026` gösteriyordu (kullanıcı başlıkta fark etti). Çözüm: `formatDateTime` ile aynı kaynağa salt-tarih
+  kardeşi `formatDate(value, locale)` (`@commerce-os/i18n`) — TR `04.07.2026`, EN `04/07/2026` (US değil),
+  geçersiz→"—". Nerede: `[orderNumber]/page.tsx` (başlık createdAt + PaymentBlock paidAt), `account/page.tsx`
+  (locale threading → OrdersSection), `orders-section.tsx` OrderCard (createdAt). `payment-tester.tsx` zaten
+  tr-TR (dev aracı, kapsam dışı). Backend/DTO değişmedi. Testler: `i18n.test.ts` (+5 formatDate). Gate'ler
+  yeşil (34/34). ADR YOK. KALAN: merge sonrası storefront-web REBUILD + runtime doğrulama.
