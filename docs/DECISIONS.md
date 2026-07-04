@@ -1392,3 +1392,48 @@ uygulamıyordu.
 ve otomatik yol tek çekirdekten (drift yok). (–) İki ayrı worker (sync + barcode retry) aynı süreçte
 döner (kabul: küçük, gürültüsüz, varsayılan kapalı); (–) DATA_FIX blokunda manuel tıklama düzeltme
 yapılmadıysa aynı hatayı üretir (bilinçli: sağlayıcı nihai otorite).
+
+## ADR-055 — Provider HAM webhook payload adapter'ı: grounded şekiller + normalize idempotency; imza modeli DEĞİŞMEDİ (TODO-130)
+
+**Bağlam.** ADR-048 webhook ucu platform-normalize sözleşme + platform HMAC ile çalışıyordu; sağlayıcının
+GERÇEK push formatları için adapter katmanı TODO-130'a bırakılmıştı. Kısıtlar aynı kaldı: repoda hiçbir
+sağlayıcının RESMÎ ham webhook örneği yok (DHL sandbox aboneliği/callback kaydı açık — TODO-107); repoda
+grounded olan tek şey MNG/DHL query API yanıt şekilleri (mappers.ts: getshipmentstatus/trackshipment).
+Geliver için hiçbir payload şekli grounded değil. Not: bu repoda "MNG" ayrı provider DEĞİLDİR;
+DHL_ECOMMERCE = api.mngkargo.com.tr (ADR-039/049).
+
+**Karar.**
+- **Adapter = imza SONRASI saf normalize katmanı** (`webhook-adapters.ts`):
+  `normalizeShippingWebhookPayload(provider, json) → { supported, format, events[] } | { supported:false,
+  reason }`. Güvenlik modeli (raw-body HMAC + timestamp + generic 404 + inbox idempotency + rotate)
+  AYNEN korunur; adapter throw ETMEZ, bilinmeyen şekil güvenli `IGNORED_UNSUPPORTED` olur (neden sanitize
+  `statusText`'te). Sağlayıcının KENDİ imza şeması bu turda EKLENMEZ (HMAC zayıflatılamaz); canlı
+  callback kaydıyla birlikte ayrı iş.
+- **Yalnız GROUNDED şekiller.** PLATFORM sözleşmesi (en az bir eşleştirme kimliği zorunlu) tüm
+  sağlayıcılarda öncelikli çalışır (geriye uyum). DHL_ECOMMERCE ek olarak: (a) getshipmentstatus-benzeri
+  durum push'u (`shipment{referenceId,shipmentId,barcode,shipmentStatusCode,shipmentStatus,isDelivered,
+  trackingUrl,deliveryDateTime}` — kimlik + durum sinyali zorunlu), (b) trackshipment-benzeri kümülatif
+  hareket push'u (dizi / tek hareket / `{referenceId,events[]}` sarmalı; `eventStatusCode/eventStatus/
+  eventDateTime2/eventDateTime/location`). Farklı gönderi kimlikleri tek teslimatta → AMBIGUOUS,
+  işlenmez (tahmin yok). Geliver ham formatı örnek payload gelene kadar `GELIVER_SAMPLE_REQUIRED` ile
+  güvenli unsupported; MOCK yalnız PLATFORM kabul eder (testler stabil).
+- **Eşleştirme önceliği + sınırı.** externalShipmentId → trackingNumber → referenceId; hepsi
+  `{storeId, providerConfigId}` scoped (cross-store imkânsız). PII/adres ile eşleşme YOK; webhook'tan
+  shipment YARATILMAZ; eşleşmeyen kimlik audit'li `IGNORED_UNKNOWN_SHIPMENT`.
+- **Idempotency.** PLATFORM yolu mevcut anahtarı korur (`evt:<id>` / `sha256:<rawBody>`); ham şekiller
+  volatil alan içermeyen normalize deterministik `nrm:<sha256(provider+event parmak izleri)>` kullanır
+  (aynı sağlayıcı eventi aynı anahtar; kümülatif liste büyüyünce yeni teslimat kabul edilir). Inbox
+  unique `(providerConfigId, eventKey)` dedupe KAPISI değişmedi.
+- **Durum/olay güvenliği.** Durum, sync ile AYNI `mapProviderStatusToShipmentStatus` üzerinden event
+  fold'u ile ilerler (drift yok; bilinmeyen kod İLERLETMEZ, terminal regres ETMEZ, teslim yalnız kanıtla).
+  Çoklu hareketli payload'ın ek hareketleri doğal anahtarla (`shipmentTrackingEventKey`,
+  TRACKING_UPDATED ∪ WEBHOOK_RECEIVED timeline'ına karşı) dedupe edilip ayrı WEBHOOK_RECEIVED yazılır;
+  persistence anahtar listesi sunmuyorsa ek hareket YAZILMAZ (güvenli taraf). Ham tarihler
+  `parseProviderDate` (dd-MM-yyyy tuzağı çözülü) ile parse edilir. Migration YOK; kontrat/DTO değişikliği
+  YOK (admin allowlist + müşteri projeksiyonu aynen).
+
+**Sonuçlar.** (+) MNG/DHL gerçek push'ları imza + idempotency + regresyon korumalarıyla işlenebilir;
+(+) tek durum eşleme kaynağı (sync/webhook drift'i yok); (+) bilinmeyen/deştelenmeyen her şey audit'li ve
+mutasyonsuz. (–) DHL ham şekilleri query-API yanıtlarından türetildi; canlı push formatı farklı çıkarsa
+adapter alanları genişletilecek (unsupported güvenli düşüş garantili); (–) Geliver adapter'ı örnek payload
+gelene kadar bilinçli boş.

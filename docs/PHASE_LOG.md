@@ -2542,3 +2542,22 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Testler.** `shipping-barcode-retry.test.ts` (28: sınıflandırma/backoff/metadata/event/seçim/worker),
   `shipping-barcode-route.test.ts` (2: manuel wiring + metadata), store-admin `shipment-screens.test.tsx`
   retry UI (4). Regresyon: api-gateway 455, store-admin 153 pass; TODO-124/129/132/135/136/139 yeşil.
+
+## 2026-07-04 — TODO-130: Provider HAM webhook payload adapter katmanı (ADR-055)
+
+- **Ne yapıldı.** `apps/api-gateway/src/shipping/webhook-adapters.ts` eklendi: imza doğrulama SONRASI
+  çalışan saf normalize katmanı. Webhook rotası (`webhook-routes.ts`) minimal değişti: generic tek-şema
+  parse yerine provider dispatch'li adapter; imza/timestamp/rotate/inbox idempotency AYNEN korundu.
+- **Kapsam.** PLATFORM sözleşmesi tüm sağlayıcılarda öncelikli (ADR-048 geriye uyum; kimlik zorunlu).
+  DHL_ECOMMERCE(=MNG): repoda grounded getshipmentstatus-benzeri durum push'u + trackshipment-benzeri
+  kümülatif hareket push'u (dizi/sarmal/tek hareket; farklı gönderi kimlikleri = ambiguous, işlenmez).
+  Geliver: örnek payload gelene kadar güvenli `IGNORED_UNSUPPORTED` ("örnek payload gerekli").
+  MOCK: yalnız PLATFORM (değişmedi).
+- **Eşleştirme/idempotency.** externalShipmentId → trackingNumber → referenceId önceliği (scoped);
+  ham şekiller için volatil alansız `nrm:` deterministik event key; PLATFORM anahtarı değişmedi.
+  Çoklu hareketler `shipmentTrackingEventKey` ile timeline'a karşı dedupe → ek WEBHOOK_RECEIVED.
+  Durum eşleme sync ile aynı `mapProviderStatusToShipmentStatus` fold'u. Migration YOK, kontrat YOK.
+- **Testler.** Yeni `shipping-webhook-adapters.test.ts` (18: normalize şekilleri, event key kararlılığı,
+  eşleştirme önceliği, teslim kanıtı, terminal koruması, kümülatif dedupe, Geliver unsupported, güvenlik
+  regresyonu). Tüm gate'ler yeşil: db:generate, pnpm -r build, typecheck, lint, test (api-gateway 482).
+- **Kalan.** Geliver ham format örneği; sağlayıcının kendi imza şeması (TODO-107 canlı callback kaydı ile).

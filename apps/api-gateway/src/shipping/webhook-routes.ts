@@ -16,6 +16,12 @@
  *  - Bilinmeyen saglayici durumu shipment durumunu DEGISTIRMEZ (mevcut normalize
  *    esleme + regresyon korumasi); eslesen gonderi yoksa audit'li IGNORED kaydi.
  *  - Yanit minimal ACK'tir; ic alan/secret/raw payload donmez.
+ *
+ * TODO-130 (ADR-055): imza dogrulama SONRASI payload, provider-ozel ham webhook
+ * adapter'i (webhook-adapters.ts) ile normalize edilir. PLATFORM sozlesmesi tum
+ * saglayicilar icin calismaya devam eder; DHL_ECOMMERCE(=MNG) grounded ham sekilleri
+ * cozulur, Geliver ornek payload gelene kadar guvenli IGNORED_UNSUPPORTED kalir.
+ * Eslestirme onceligi: externalShipmentId → trackingNumber → referenceId.
  */
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
@@ -27,11 +33,18 @@ import type {
   ShippingProviderStatus,
   ShippingProviderType,
 } from "@prisma/client";
-import { shippingWebhookAckResponseSchema, shippingWebhookEventRequestSchema } from "@commerce-os/contracts";
+import { shippingWebhookAckResponseSchema } from "@commerce-os/contracts";
 import { z } from "zod";
 import { createShippingSecretCipher } from "./encryption.js";
 import { ShippingConfigError } from "./errors.js";
 import { mapProviderStatusToShipmentStatus } from "./routes.js";
+import { parseProviderDate, shipmentTrackingEventKey } from "./status-map.js";
+import {
+  computeNormalizedWebhookEventKey,
+  normalizeShippingWebhookPayload,
+  type NormalizedShipmentWebhookEvent,
+  type WebhookUnsupportedReason,
+} from "./webhook-adapters.js";
 import {
   SHIPPING_WEBHOOK_SIGNATURE_HEADER,
   SHIPPING_WEBHOOK_TIMESTAMP_HEADER,
@@ -70,6 +83,20 @@ export interface WebhookDeliveryApplyInput {
   occurredAt: Date | null;
   trackingUrl: string | null;
   trackingNumber: string | null;
+  /**
+   * TODO-130 — Coklu hareketli ham payload'larin (trackshipment-benzeri) EK hareketleri.
+   * Route tarafinda dogal anahtarla (shipmentTrackingEventKey) dedupe EDILMIS gelir;
+   * her biri ayri WEBHOOK_RECEIVED event'i olarak yazilir. Tekil platform payload'inda bos.
+   */
+  additionalEvents?: WebhookAdditionalEventInput[];
+}
+
+export interface WebhookAdditionalEventInput {
+  statusCode: number | null;
+  statusText: string | null;
+  location: string | null;
+  occurredAt: Date | null;
+  trackingUrl: string | null;
 }
 
 export interface WebhookDeliveryInput {
@@ -95,6 +122,13 @@ export interface ShippingWebhookPersistence {
   ): Promise<WebhookShipmentRecord | null>;
   /** Inbox insert (+ apply) tek transaction; unique ihlali → "duplicate". */
   recordDelivery(input: WebhookDeliveryInput): Promise<"created" | "duplicate">;
+  /**
+   * TODO-130 — Gonderinin mevcut timeline dogal anahtarlari (TRACKING_UPDATED +
+   * WEBHOOK_RECEIVED; shipmentTrackingEventKey formati). Coklu hareketli ham payload
+   * dedupe'u icin OPSIYONEL: tanimsizsa ek hareket dedupe'u atlanmaz, ek hareket YAZILMAZ
+   * (guvenli taraf — duplicate event riski sifir).
+   */
+  listShipmentEventKeys?(shipmentId: string): Promise<string[]>;
 }
 
 export interface ShippingWebhookRoutesDeps {
@@ -105,6 +139,27 @@ export interface ShippingWebhookRoutesDeps {
 
 function errorBody(code: string, message: string) {
   return { error: { code, message } };
+}
+
+/** TODO-130 — Unsupported nedeninin admin-gorunur SANITIZE ozeti (raw payload tasimaz). */
+const UNSUPPORTED_REASON_TEXT: Record<WebhookUnsupportedReason, string> = {
+  INVALID_JSON: "Geçersiz JSON",
+  UNSUPPORTED_PAYLOAD: "Sözleşme dışı payload",
+  AMBIGUOUS_SHIPMENT_IDS: "Payload birden fazla gönderi kimliği taşıyor",
+  GELIVER_SAMPLE_REQUIRED: "Geliver ham formatı desteklenmiyor (örnek payload gerekli)",
+};
+
+/** Ayni-gonderi eventlerinin kimliklerini birlestirir (ilk non-null kazanir). */
+function collectWebhookIdentifiers(events: NormalizedShipmentWebhookEvent[]): {
+  referenceId: string | undefined;
+  trackingNumber: string | undefined;
+  externalShipmentId: string | undefined;
+} {
+  return {
+    referenceId: events.find((e) => e.referenceId)?.referenceId ?? undefined,
+    trackingNumber: events.find((e) => e.trackingNumber)?.trackingNumber ?? undefined,
+    externalShipmentId: events.find((e) => e.externalShipmentId)?.externalShipmentId ?? undefined,
+  };
 }
 
 export function registerShippingWebhookRoutes(
@@ -177,9 +232,12 @@ export function registerShippingWebhookRoutes(
       } catch {
         jsonValid = false;
       }
-      const parsed = jsonValid
-        ? shippingWebhookEventRequestSchema.safeParse(parsedJson)
-        : ({ success: false } as const);
+      // TODO-130 (ADR-055) — Provider-ozel ham payload adapter'i: PLATFORM sozlesmesi
+      // her saglayici icin oncelikli; DHL_ECOMMERCE(=MNG) icin grounded ham sekiller,
+      // Geliver icin ornek gelene kadar guvenli unsupported.
+      const normalized = jsonValid
+        ? normalizeShippingWebhookPayload(cfg.provider, parsedJson)
+        : ({ supported: false, reason: "INVALID_JSON" } as const);
 
       const baseDelivery = {
         storeId: cfg.storeId,
@@ -188,13 +246,13 @@ export function registerShippingWebhookRoutes(
         payloadHash,
       };
 
-      if (!parsed.success) {
+      if (!normalized.supported) {
         const outcome = await deps.persistence.recordDelivery({
           ...baseDelivery,
           eventKey: computeShippingWebhookEventKey(null, rawBody),
           outcome: "IGNORED_UNSUPPORTED",
           statusCode: null,
-          statusText: jsonValid ? "Sözleşme dışı payload" : "Geçersiz JSON",
+          statusText: UNSUPPORTED_REASON_TEXT[normalized.reason],
           apply: null,
         });
         return reply.send(
@@ -206,26 +264,46 @@ export function registerShippingWebhookRoutes(
         );
       }
 
-      const event = parsed.data;
-      const eventKey = computeShippingWebhookEventKey(event.eventId ?? null, rawBody);
-      const hasIdentifier = Boolean(
-        event.referenceId || event.trackingNumber || event.externalShipmentId,
-      );
-      const shipment = hasIdentifier
-        ? await deps.persistence.findShipment(cfg.storeId, cfg.id, {
-            referenceId: event.referenceId,
-            trackingNumber: event.trackingNumber,
-            externalShipmentId: event.externalShipmentId,
-          })
-        : null;
+      const events = normalized.events;
+      // Kronolojik son hareket ozet/primary event'tir (payload'lar eski→yeni gelir;
+      // durum ilerletme fold'u siradan BAGIMSIZDIR — rank regresyonu engeller).
+      const primary = events[events.length - 1]!;
+      // PLATFORM yolu mevcut idempotency anahtarini AYNEN korur (evt:<id> / sha256:<rawBody>);
+      // ham sekiller volatil alan icermeyen normalize deterministik anahtar kullanir.
+      const eventKey =
+        normalized.format === "PLATFORM"
+          ? computeShippingWebhookEventKey(primary.eventId, rawBody)
+          : computeNormalizedWebhookEventKey(cfg.provider, events);
+
+      // Guvenli eslestirme onceligi (TODO-130): externalShipmentId → trackingNumber →
+      // referenceId; hepsi {storeId, providerConfigId} scoped. PII/adres ile ESLENMEZ,
+      // webhook'tan shipment YARATILMAZ.
+      const ids = collectWebhookIdentifiers(events);
+      const hasIdentifier = Boolean(ids.referenceId || ids.trackingNumber || ids.externalShipmentId);
+      let shipment: WebhookShipmentRecord | null = null;
+      if (ids.externalShipmentId) {
+        shipment = await deps.persistence.findShipment(cfg.storeId, cfg.id, {
+          externalShipmentId: ids.externalShipmentId,
+        });
+      }
+      if (!shipment && ids.trackingNumber) {
+        shipment = await deps.persistence.findShipment(cfg.storeId, cfg.id, {
+          trackingNumber: ids.trackingNumber,
+        });
+      }
+      if (!shipment && ids.referenceId) {
+        shipment = await deps.persistence.findShipment(cfg.storeId, cfg.id, {
+          referenceId: ids.referenceId,
+        });
+      }
 
       if (!shipment) {
         const outcome = await deps.persistence.recordDelivery({
           ...baseDelivery,
           eventKey,
           outcome: hasIdentifier ? "IGNORED_UNKNOWN_SHIPMENT" : "IGNORED_UNSUPPORTED",
-          statusCode: event.statusCode ?? null,
-          statusText: event.statusText ?? null,
+          statusCode: primary.statusCode,
+          statusText: primary.statusText,
           apply: null,
         });
         return reply.send(
@@ -238,27 +316,61 @@ export function registerShippingWebhookRoutes(
       }
 
       // Bilinmeyen statusCode mevcut durumu KORUR; terminal durumdan geri donulmez,
-      // regres edilmez (mevcut normalize esleme yeniden kullanilir).
-      const nextStatus = mapProviderStatusToShipmentStatus(
-        { statusCode: event.statusCode ?? null, isDelivered: event.isDelivered === true },
-        shipment.status,
-      );
+      // regres edilmez (sync ile AYNI normalize esleme fold edilir — drift yok).
+      let nextStatus = shipment.status;
+      for (const ev of events) {
+        nextStatus = mapProviderStatusToShipmentStatus(
+          { statusCode: ev.statusCode, isDelivered: ev.isDelivered },
+          nextStatus,
+        );
+      }
+
+      // occurredAt: PLATFORM ISO bekler (mevcut parser); ham MNG/DHL tarihleri
+      // dd-MM-yyyy varyantlarini parseProviderDate ile guvenli cozer.
+      const parseOccurredAt =
+        normalized.format === "PLATFORM" ? parseWebhookOccurredAt : parseProviderDate;
+
+      // Coklu hareket: primary disindaki hareketler dogal anahtarla dedupe edilir
+      // (mevcut TRACKING_UPDATED/WEBHOOK_RECEIVED timeline'ina karsi — duplicate event yok).
+      // Persistence anahtar listesi sunmuyorsa ek hareket YAZILMAZ (guvenli taraf).
+      const additionalEvents: WebhookAdditionalEventInput[] = [];
+      if (events.length > 1 && deps.persistence.listShipmentEventKeys) {
+        const seen = new Set(await deps.persistence.listShipmentEventKeys(shipment.id));
+        for (const ev of events.slice(0, -1)) {
+          const occurredAt = parseOccurredAt(ev.occurredAtRaw);
+          const key = shipmentTrackingEventKey({
+            statusText: ev.statusText,
+            location: ev.location,
+            occurredAt,
+          });
+          if (seen.has(key)) continue;
+          seen.add(key);
+          additionalEvents.push({
+            statusCode: ev.statusCode,
+            statusText: ev.statusText,
+            location: ev.location,
+            occurredAt,
+            trackingUrl: ev.trackingUrl,
+          });
+        }
+      }
 
       const outcome = await deps.persistence.recordDelivery({
         ...baseDelivery,
         eventKey,
         outcome: "ACCEPTED",
-        statusCode: event.statusCode ?? null,
-        statusText: event.statusText ?? null,
+        statusCode: primary.statusCode,
+        statusText: primary.statusText,
         apply: {
           shipmentId: shipment.id,
           nextStatus,
-          statusCode: event.statusCode ?? null,
-          statusText: event.statusText ?? null,
-          location: event.location ?? null,
-          occurredAt: parseWebhookOccurredAt(event.occurredAt),
-          trackingUrl: event.trackingUrl ?? null,
-          trackingNumber: event.trackingNumber ?? null,
+          statusCode: primary.statusCode,
+          statusText: primary.statusText,
+          location: primary.location,
+          occurredAt: parseOccurredAt(primary.occurredAtRaw),
+          trackingUrl: primary.trackingUrl,
+          trackingNumber: primary.trackingNumber,
+          additionalEvents,
         },
       });
 
@@ -313,6 +425,15 @@ export function createPrismaShippingWebhookPersistence(): ShippingWebhookPersist
       });
     },
 
+    async listShipmentEventKeys(shipmentId) {
+      // TODO-130 — webhook + sync timeline'inin dogal anahtarlari (dedupe kapisi).
+      const rows = await prisma.shipmentEvent.findMany({
+        where: { shipmentId, eventType: { in: ["TRACKING_UPDATED", "WEBHOOK_RECEIVED"] } },
+        select: { statusText: true, location: true, occurredAt: true },
+      });
+      return rows.map(shipmentTrackingEventKey);
+    },
+
     async recordDelivery(input) {
       try {
         await prisma.$transaction(async (tx) => {
@@ -350,6 +471,31 @@ export function createPrismaShippingWebhookPersistence(): ShippingWebhookPersist
                 trackingNumber: current.trackingNumber ?? input.apply.trackingNumber,
               },
             });
+            // TODO-130 — coklu hareketli ham payload'in onceden dedupe edilmis EK
+            // hareketleri (kronolojik olarak primary'den once). Sanitize alanlar disinda
+            // hicbir sey tasinmaz.
+            for (const ev of input.apply.additionalEvents ?? []) {
+              await tx.shipmentEvent.create({
+                data: {
+                  storeId: input.storeId,
+                  shipmentId: input.apply.shipmentId,
+                  provider: current.provider,
+                  eventType: "WEBHOOK_RECEIVED",
+                  statusCode: ev.statusCode,
+                  statusText: ev.statusText,
+                  location: ev.location,
+                  occurredAt: ev.occurredAt,
+                  trackingUrl: ev.trackingUrl,
+                  rawSafeJson: {
+                    webhook: true,
+                    eventKeyPresent: true,
+                    statusCode: ev.statusCode,
+                    statusText: ev.statusText,
+                    location: ev.location,
+                  },
+                },
+              });
+            }
             // rawSafeJson yalniz sanitize ozet tasir; imza/secret/raw govde YAZILMAZ.
             await tx.shipmentEvent.create({
               data: {

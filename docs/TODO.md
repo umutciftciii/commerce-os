@@ -582,10 +582,22 @@
   hata batch'i durdurmaz; DELIVERED/terminal asla regres etmez; NOT_FOUND/4xx/5xx durumu İLERLETMEZ
   (backoff + sanitize hata kodu). Testler: `shipping-sync-service.test.ts` (25). Kalan: TODO-123 (barcode
   retry) aynı çekirdek/worker desenini paylaşabilir; ham provider webhook adapter'ları TODO-130'da.
-- TODO-130 (AÇIK): DHL/Geliver HAM webhook format + provider-özel imza şeması adaptörleri — sağlayıcının
-  gerçek push formatını platform-normalize sözleşmeye çeviren adapter katmanı + sağlayıcının kendi imza
-  doğrulaması (DHL callback kaydı TODO-107 canlı süreciyle birlikte). Şu an uç platform-normalize
-  sözleşme + platform HMAC şeması ile çalışır (ADR-048).
+- TODO-130 (DONE — 2026-07-04, ADR-055; Geliver ham format ÖRNEK BEKLİYOR): Provider HAM webhook payload
+  adapter katmanı (`webhook-adapters.ts`). İmza doğrulama SONRASI çalışan saf normalize fonksiyonu:
+  PLATFORM sözleşmesi (ADR-048) tüm sağlayıcılar için aynen çalışır (geriye uyum); DHL_ECOMMERCE(=MNG)
+  için yalnız repoda GROUNDED şekiller çözülür (getshipmentstatus-benzeri durum push'u + trackshipment-
+  benzeri kümülatif hareket push'u; alan adları mappers.ts OpenAPI eşlemeleriyle birebir — uydurma alan
+  yok). Eşleştirme önceliği externalShipmentId → trackingNumber → referenceId ({storeId, providerConfigId}
+  scoped; PII/adresle eşleşme ve webhook'tan shipment yaratma YOK). Idempotency: PLATFORM yolu mevcut
+  anahtarı korur (evt:/sha256:), ham şekiller volatil alansız normalize deterministik `nrm:` hash;
+  inbox unique (providerConfigId, eventKey) dedupe kapısı DEĞİŞMEDİ. Durum eşleme sync ile AYNI
+  `mapProviderStatusToShipmentStatus` fold'u (bilinmeyen kod ilerletmez, terminal regres etmez); çoklu
+  hareketler doğal anahtarla (shipmentTrackingEventKey, TRACKING_UPDATED∪WEBHOOK_RECEIVED) dedupe edilip
+  ek WEBHOOK_RECEIVED yazılır. Migration YOK, kontrat değişikliği YOK. KALAN: (1) Geliver ham formatı =
+  güvenli IGNORED_UNSUPPORTED ("örnek payload gerekli") — gerçek örnek gelince adapter doldurulacak;
+  (2) sağlayıcının KENDİ imza şeması (platform HMAC yerine) canlı callback kaydı/abonelik (TODO-107)
+  sonrası ayrı iş — güvenlik modeli zayıflatılmadan mevcut HMAC korunur. Testler:
+  `shipping-webhook-adapters.test.ts` (18), mevcut `shipping-webhook.test.ts` (17) yeşil.
 - TODO-123 (DONE — 2026-07-04, ADR-054): Barkod retry/backoff (transient otomatik, veri-hatası admin
   düzeltmesi bekler). Üç sınıf (`barcode-service.ts`): RETRYABLE (timeout/5xx/network) → üssel backoff
   (`stale·2^(deneme-1)`, 6 saat cap, `BARCODE_RETRY_MAX_ATTEMPTS` sonra `MAX_ATTEMPTS` blok); DATA_FIX

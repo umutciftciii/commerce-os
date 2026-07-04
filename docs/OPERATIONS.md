@@ -104,6 +104,38 @@ Store-admin (UI: Kargo Sağlayıcıları → sağlayıcı satırı → **Webhook
 2. Gösterilen **Webhook URL** ve **secret** sağlayıcının webhook/callback ayarına girilir.
 3. "Son Webhook Olayları" tablosu teslimatları gözlemlemek içindir (RAW payload/imza/secret gösterilmez).
 
+### Provider ham webhook adapter davranışı (TODO-130 / ADR-055)
+
+İmza doğrulama GEÇTİKTEN sonra payload, provider-özel adapter ile normalize edilir
+(`apps/api-gateway/src/shipping/webhook-adapters.ts`):
+
+- **PLATFORM sözleşmesi** (ADR-048: `eventId/referenceId/trackingNumber/externalShipmentId/statusCode/...`)
+  tüm sağlayıcılar için çalışmaya devam eder. Test/entegrasyon istekleri bu formatla atılabilir.
+- **DHL eCommerce (=MNG)**: getshipmentstatus-benzeri durum push'u
+  (`{"shipment":{"referenceId":...,"shipmentId":...,"shipmentStatusCode":4,...}}`) ve trackshipment-benzeri
+  kümülatif hareket push'u (dizi ya da `{"referenceId":...,"events":[...]}`) çözülür.
+- **Geliver**: ham format örneği repoda olmadığından güvenli `IGNORED_UNSUPPORTED` kaydedilir
+  ("Geliver ham formatı desteklenmiyor (örnek payload gerekli)"). Gerçek örnek payload alınınca adapter
+  doldurulacak; o zamana kadar Geliver için PLATFORM formatı kullanılabilir.
+
+**Sonuç (outcome) anlamları** ("Son Webhook Olayları" tablosunda görünür):
+
+- `ACCEPTED` — gönderi eşleşti; durum yalnız sağlayıcı KANITI varsa ilerledi (bilinmeyen kod ilerletmez,
+  DELIVERED/terminal geri alınmaz), event/hareketler dedupe edilerek yazıldı.
+- `IGNORED_UNKNOWN_SHIPMENT` — imza geçerli ama kimlikler (externalShipmentId → trackingNumber →
+  referenceId önceliğiyle, yalnız o mağaza+config kapsamında) hiçbir gönderiyle eşleşmedi. Gönderi
+  YARATILMAZ; kayıt audit içindir.
+- `IGNORED_UNSUPPORTED` — imza geçerli ama payload tanınmadı (bozuk JSON / sözleşme dışı / Geliver ham
+  format / tek teslimatta birden fazla gönderi kimliği). Hiçbir mutasyon yapılmaz; `statusText` sanitize
+  nedeni gösterir.
+
+**Test etme (imzalı istek örneği):** gövde `BODY`, unix saniye `TS` ve rotate'te alınan `SECRET` ile
+`SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $NF}')`;
+istek: `curl -X POST "$WEBHOOK_URL" -H "content-type: application/json" -H "x-shipping-timestamp: $TS"
+-H "x-shipping-signature: $SIG" -d "$BODY"`. Aynı gövdenin tekrarı `duplicate:true` döner (idempotent).
+Tabloda ve hiçbir DTO'da raw payload/imza/secret gösterilmez; müşteri kargo takibi yalnız mevcut
+allowlist projeksiyonunu görür.
+
 ## Zamanlanmış kargo sync worker'ı (TODO-129)
 
 Barkodu hazır gönderilerin durumu artık admin aksiyonu beklemeden ilerler: api-gateway süreci
