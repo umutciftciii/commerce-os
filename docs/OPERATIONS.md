@@ -83,6 +83,30 @@ docker image prune -f        # yalnızca dangling (tag'siz) image — -a DEĞİL
 
 Temizlik sonrası tekrar `docker system df` ile teyit edilir.
 
+## Ortam değişkeni (env) parsing kuralı (TD-036 / ADR-057)
+
+Tüm servisler config'i merkezi Zod şeması (`packages/config`) üzerinden yükler; `docker-compose.yml`
+bu şemaya `.env.example`'ı `env_file` olarak besler. Kural:
+
+- **Opsiyonel env'ler boş bırakılabilir.** `KEY=` (boş), yalnız-boşluk veya tanımsız değer **"yok"**
+  sayılır ve alanın **varsayılanına/undefined'ına** düşer; config yüklemesi (ve boot) **çökmez**.
+  Örn. `PUBLIC_WEBHOOK_BASE_URL=`, `DHL_ECOMMERCE_TEST_BASE_URL=`, `CUSTOMER_OTP_DEV_CODE=`, tüm
+  `SHIPMENT_SYNC_*` / `BARCODE_RETRY_*` / provider guard flag'leri.
+- **Zorunlu env'ler strict.** `DATABASE_URL`, `REDIS_URL`, `INTERNAL_API_TOKEN`, `SESSION_SECRET`
+  eksik/geçersizse boot **yüksek sesle hata** verir (`ConfigValidationError`). Bunlar bilerek
+  boş-string toleransı almaz.
+- **Opsiyonel ama boş OLMAYAN geçersiz değer → hata.** Örn. `PUBLIC_WEBHOOK_BASE_URL=not-a-url` ya da
+  `WORKER_CONCURRENCY=abc` sessizce yutulmaz; anahtar adıyla hata verilir.
+- **Secret güvenliği.** Hata mesajı yalnız env **anahtarını** ve doğrulama mesajını içerir; env
+  **değeri asla loglanmaz/basılmaz**. Şifreleme anahtarları (`PAYMENT_ENCRYPTION_KEY`,
+  `SHIPPING_ENCRYPTION_KEY`) config'te opsiyoneldir; boş değer downstream'de `key.trim().length` ile
+  "yok" sayılır (sırasıyla güvensiz dev fallback / `CONFIG_MISSING`).
+- `.env.example`'a **gerçek secret yazılmaz**; yalnız placeholder/dev değerleri.
+
+Yardımcılar: `packages/config/src/env.ts` (`optionalEnv`, `optionalUrlEnv`, `optionalBooleanEnv`,
+`optionalNumberEnv`). Yeni opsiyonel env eklerken bu helper'ları kullanın (inline `z.preprocess`
+tekrarlamayın).
+
 ## Kargo webhook kurulumu (TODO-128 / TODO-104)
 
 Kargo sağlayıcı webhook'ları `POST /public/shipping/webhooks/:token` ucuna gelir; her istek

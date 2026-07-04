@@ -1471,3 +1471,28 @@ merkezi. (–) PLATFORM sözleşmesiyle gelen SALT-metin movement'ları (kod yok
 (MNG/DHL) DHL_TRACKING kullandığından pratik etki yok; gerekirse ileride PLATFORM movement'ı da kapsanabilir.
 (–) Metin sözlüğü kalıp-tabanlı; sağlayıcı beklenmedik ifade kullanırsa null'a düşer (güvenli — kod/isDelivered
 yolu hâlâ ilerletir).
+
+## ADR-057 — Config env parsing politikası: opsiyonel boş-string normalizasyonu, zorunlular strict (TD-036)
+
+**Bağlam.** `infra/docker/docker-compose.yml` tüm servislere `.env.example`'ı `env_file` olarak besler;
+`KEY=` (boş) satırlar container'a boş string olarak geçer. Merkezi Zod şeması (`packages/config`) OPSİYONEL
+alanlarda bile `url()`/`regex()`/enum/`coerce.number()` doğrulaması boş string'i reddedip api-gateway
+boot'unu çökertme sınıfıydı (PR #10/#15 nokta-atışı düzeltmişti; desen inline tekrar ediyordu).
+
+**Karar.**
+- **Tek kural.** Opsiyonel env: `undefined | null | "" | yalniz-bosluk` → "yok" (undefined) → varsayılan/
+  undefined. Zorunlu env: strict; eksik/geçersiz → yüksek sesle hata. Opsiyonel alanda boş OLMAYAN geçersiz
+  değer → yine yüksek sesle hata.
+- **Paylaşılan helper.** `packages/config/src/env.ts`: `emptyToUndefined`, `optionalEnv`, `optionalUrlEnv`,
+  `optionalBooleanEnv`, `optionalNumberEnv`. Şema (`index.ts`) bunları kullanır; inline `z.preprocess`
+  tekrarı yok.
+- **Strict beyaz-değil-liste.** `DATABASE_URL`, `REDIS_URL`, `INTERNAL_API_TOKEN`, `SESSION_SECRET`
+  toleranssız kalır. Secret'lar (`PAYMENT_ENCRYPTION_KEY`, `SHIPPING_ENCRYPTION_KEY`) şemada `optional`
+  bırakıldı; downstream `key.trim().length` ile boşu "yok" sayar (config'te normalize edilmez).
+- **Hata mesajı.** `loadConfig` `safeParse` + `ConfigValidationError`: yalnız env ANAHTARI + Zod mesajı;
+  env DEĞERİ asla basılmaz (secret sızmaz).
+
+**Sonuçlar.** (+) Herhangi bir opsiyonel env'i boş bırakmak artık boot'u çökertmez; tek merkezi kural,
+inline tekrar yok; hata mesajları anahtar-adlı ve secret-güvenli. (–) Opsiyonel alanlara verilen boş
+OLMAYAN yazım hataları sessizce yutulmaz — bilinçli olarak yüksek sesle hata (doğru davranış). (–) Web
+app'lerin request-time `?? default` okuyuşları bu ADR kapsamı dışında (boot değil).
