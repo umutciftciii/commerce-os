@@ -198,7 +198,14 @@ export function OrderShipmentSummary({ order, locale }: { order: Order; locale: 
     } catch (err) {
       // TODO-132: alıcı e-posta eksik/geçersiz → aksiyon alınabilir SPESİFİK mesaj
       // (sağlayıcıya istek atılmadı; müşteri kaydına e-posta eklenince online akış çalışır).
-      if (err instanceof UiError && (err.code === "RECIPIENT_EMAIL_REQUIRED" || err.code === "RECIPIENT_EMAIL_INVALID")) {
+      // TODO-124: il/ilçe CBS'te eşleşmedi → sağlayıcı ÇAĞRILMADI; adres il/ilçe
+      // düzeltilmeden tekrar denemek anlamsız (bozuk MNG kaydı bu sayede oluşmaz).
+      if (
+        err instanceof UiError &&
+        (err.code === "RECIPIENT_EMAIL_REQUIRED" ||
+          err.code === "RECIPIENT_EMAIL_INVALID" ||
+          err.code === "ADDRESS_DISTRICT_CODE_REQUIRED")
+      ) {
         setProviderFailed(true); // manuel gönderi yine de mümkün
         setError(messageForError(err, locale));
         return;

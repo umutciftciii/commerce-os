@@ -65,6 +65,11 @@ import type {
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
   ShipmentManualTrackingRequest,
+  // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
+  ShippingCbsCitiesResponse,
+  ShippingCbsDistrictsResponse,
+  ShipmentRepairDestinationRequest,
+  ShipmentRepairDestinationResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -523,6 +528,22 @@ export const storeApi = {
     mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/manual-tracking`, {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  // TODO-124 — varış il/ilçe eşlemesi onarımı + CBS il/ilçe listeleri (dropdown).
+  repairShipmentDestination: (shipmentId: string, input: ShipmentRepairDestinationRequest) =>
+    mutatingCall<ShipmentRepairDestinationResponse>(
+      `/api/shipping/shipments/${shipmentId}/repair-destination`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  getCbsCities: (providerConfigId: string) =>
+    mutatingCall<ShippingCbsCitiesResponse>("/api/shipping/cbs/cities", {
+      method: "POST",
+      body: JSON.stringify({ providerConfigId }),
+    }),
+  getCbsDistricts: (providerConfigId: string, cityCode: number) =>
+    mutatingCall<ShippingCbsDistrictsResponse>("/api/shipping/cbs/districts", {
+      method: "POST",
+      body: JSON.stringify({ providerConfigId, cityCode }),
     }),
 
   // F3C.2 — Kargo TARİFE planları (price engine). Provider canlı quote DEĞİL;

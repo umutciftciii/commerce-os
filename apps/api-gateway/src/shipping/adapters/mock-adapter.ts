@@ -87,6 +87,7 @@ export class MockShippingAdapter implements ShippingProviderAdapter {
       barcodes: input.pieces.map((_, i) => ({ pieceNumber: i + 1, barcode: `MOCKBARCODE${i + 1}`, labelPresent: true })),
       providerReturnedEmptyPayload: false,
       providerErrorMessage: null,
+      providerErrorCode: null,
     };
   }
 

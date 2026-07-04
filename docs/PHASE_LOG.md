@@ -2431,3 +2431,45 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   izolasyonu, NOT_FOUND sahte-başarı yok, unsupported/disabled skip, provider-key dispatch, worker
   enabled=false/çalışma/hata dayanıklılığı, env parsing (varsayılan + boş-string + sınırlar).
   Mevcut kargo/webhook/guard test dosyaları değişmeden yeşil (api-gateway 388 pass).
+
+## TODO-124 — CBS il/ilçe kod eşleme + admin varış onarımı (DHL/MNG)
+
+- **Kök neden (OS-000053).** Barkod gövdesi çalışan siparişlerle aynıydı; sorun MNG sipariş
+  kaydının varış şubesini çözememesiydi. UI recipient'ı sipariş adresinden yalnız
+  cityName/districtName ile kuruyordu (cityCode/districtCode hiç set edilmiyordu); Üsküdar
+  seçili ama adres metni Küçükçekmece-benzeri olunca MNG createOrder'ı kabul edip
+  createbarcode'da 500 kod 20001 "VARIŞ ŞUBESİ BULUNAMADI" veriyordu. ADR-045 davranışı
+  doğruydu (BARCODE_FAILED event, durum ORDER_CREATED, retry mümkün, sahte başarı yok).
+- **Otomatik eşleme (ADR-052).** `cbs-resolver.ts`: TR-güvenli normalize (tr-TR lower +
+  diakritik katlama) ile CBS il/ilçe listesinden YALNIZ exact-match; muğlak (aynı ada farklı
+  kodlu) eşleşme reddedilir; fuzzy/adres-metni tahmini yok. providerConfig başına 6 saat TTL
+  in-memory cache. Prepare + generic create-order (DHL) sağlayıcı çağrısından önce çözer:
+  saklı geçerli kod korunur (OS-000050 yolu), 0 asla gönderilmez (TODO-132 korunur), CBS
+  verisi varken eşleşmezse sağlayıcı çağrılmadan 422 ADDRESS_DISTRICT_CODE_REQUIRED; CBS
+  erişilemezse/ilçe metni yoksa isim-bazlı eski davranış (OS-000041/43 regresyonu korunur).
+- **Sınıflandırma.** MNG 20001/"VARIŞ ŞUBESİ" → `DESTINATION_BRANCH_NOT_FOUND`
+  (`classifyBarcodeProviderError`); BARCODE_FAILED event rawSafeJson.errorCode + admin-güvenli
+  TR statusText; yeni `Shipment.lastBarcodeErrorCode` (başarı/pending/onarım sıfırlar); route
+  409 `PROVIDER_DESTINATION_BRANCH_UNRESOLVED` (retryable). Müşteri DTO'suna raw sağlayıcı
+  hatası çıkmaz (TODO-117 DTO'su yalnız durum/takip alanları taşır).
+- **Onarım akışı.** `POST /stores/:id/shipping/shipments/:sid/repair-destination`: kodlar
+  sunucuda CBS'e karşı doğrulanır (CBS_CODE_INVALID), Shipment recipient SNAPSHOT'ı
+  güncellenir (sipariş/müşteri adresi mutasyonsuz), aynı referenceId ile createRecipient
+  yeniden iletilir (guard'lı); reddedilirse yerel düzeltme korunur + providerResent=false
+  (UI sınırlamayı açıkça söyler). DESTINATION_REPAIRED event. Duplicate guard bozulmadı;
+  ikinci aktif gönderi açılmaz. Yeni CBS ilçe ucu + cities ucu cache'e bağlandı.
+- **UI.** Shipment detayında "Varış İl/İlçe Eşlemesi" kartı (il/ilçe, kargo kodları, eşleşme
+  rozeti, DESTINATION_BRANCH_NOT_FOUND uyarısı) + onarım paneli (CBS dropdown, "CBS'den
+  Eşleştir" otomatik ön-seçim, kaydet+yeniden ilet, retry rehberi). Capability
+  `canRepairDestination` (yalnız DHL + ORDER_CREATED/LABEL_PENDING). Order kargo kartı 422
+  ADDRESS_DISTRICT_CODE_REQUIRED'ı spesifik mesajla gösterir.
+- **Şema.** Additive migration `20260704130000_add_shipment_destination_repair`:
+  ShipmentEventType += DESTINATION_REPAIRED; Shipment.lastBarcodeErrorCode TEXT NULL.
+- **TODO-123 sınırı.** Retry/backoff burada uygulanmadı; job sınıflandırmayı tüketmeli:
+  DESTINATION_BRANCH_NOT_FOUND admin düzeltmesine kadar retry edilmez (repair kodu sıfırlar),
+  geçici hatalar backoff'la denenebilir.
+- **Testler.** `shipping-cbs-mapping.test.ts` (28): TR normalize varyantları, exact-match/
+  muğlaklık/fuzzy-yok, saklı kod koruma, 0-kod değişimi, cache (tek sağlayıcı çağrısı + TTL),
+  CBS_UNAVAILABLE bloklamaz, validateCodes, 20001 sınıflandırma + payload kod alanları,
+  canRepairDestination projeksiyonu. Mevcut kargo/webhook/guard testleri değişmeden yeşil
+  (api-gateway 416, store-admin 148 pass).
