@@ -320,6 +320,8 @@ enum ShipmentEventType {
   TRACKING_UPDATED
   // F3C.5 (TODO-121) — admin manuel takip no girisi (provider-agnostic aksiyon).
   MANUAL_TRACKING
+  // TODO-124 — admin varis il/ilce eslemesi duzeltmesi (CBS kodlari snapshot'a yazildi).
+  DESTINATION_REPAIRED
   CANCELLED
   WEBHOOK_RECEIVED
 }
@@ -1287,6 +1289,12 @@ model Shipment {
   nextSyncAt           DateTime?
   syncAttempts         Int                  @default(0)
   lastSyncErrorCode    String?
+  // TODO-124 — son barkod denemesinin SINIFLANDIRILMIS hata kodu (or.
+  // DESTINATION_BRANCH_NOT_FOUND, PROVIDER_ERROR). Basarili barkod/pending ve
+  // varis eslemesi onarimi (repair-destination) bunu SIFIRLAR. TODO-123 retry
+  // worker'i DESTINATION_BRANCH_NOT_FOUND'u admin duzeltmesine kadar SKIP etmelidir.
+  // Raw saglayici mesaji/secret ASLA yazilmaz; yalniz kisa sanitize kod.
+  lastBarcodeErrorCode String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 

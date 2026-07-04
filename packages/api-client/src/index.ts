@@ -83,6 +83,12 @@ import type {
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
   ShipmentManualTrackingRequest,
+  // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
+  ShippingCbsCitiesResponse,
+  ShippingCbsDistrictsRequest,
+  ShippingCbsDistrictsResponse,
+  ShipmentRepairDestinationRequest,
+  ShipmentRepairDestinationResponse,
   OrderShippingResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
@@ -312,6 +318,14 @@ export type {
   ShipmentManualTrackingRequest,
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
+  // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
+  ShippingCbsCity,
+  ShippingCbsDistrict,
+  ShippingCbsCitiesResponse,
+  ShippingCbsDistrictsRequest,
+  ShippingCbsDistrictsResponse,
+  ShipmentRepairDestinationRequest,
+  ShipmentRepairDestinationResponse,
   ShippingRatePlanResponse,
   ShippingRatePlanListResponse,
   ShippingRatePlanCreateRequest,
@@ -828,6 +842,22 @@ export interface ApiClient {
         input: ShipmentManualTrackingRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
+      // TODO-124 — varis il/ilce eslemesi onarimi (CBS-dogrulamali kod secimi).
+      repairDestination(
+        storeId: string,
+        shipmentId: string,
+        input: ShipmentRepairDestinationRequest,
+        token?: string,
+      ): Promise<ShipmentRepairDestinationResponse>;
+    };
+    // TODO-124 — CBS il/ilce listeleri (store-admin dropdown'lari; TTL cache'li uc).
+    cbs: {
+      cities(storeId: string, providerConfigId: string, token?: string): Promise<ShippingCbsCitiesResponse>;
+      districts(
+        storeId: string,
+        input: ShippingCbsDistrictsRequest,
+        token?: string,
+      ): Promise<ShippingCbsDistrictsResponse>;
     };
   };
 }
@@ -1461,6 +1491,30 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         manualTracking: (storeId, shipmentId, input, token) =>
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/shipping/shipments/${shipmentId}/manual-tracking`,
+            "POST",
+            input,
+            token,
+          ),
+        // TODO-124 — varis il/ilce eslemesi onarimi.
+        repairDestination: (storeId, shipmentId, input, token) =>
+          sendJson<ShipmentRepairDestinationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/repair-destination`,
+            "POST",
+            input,
+            token,
+          ),
+      },
+      cbs: {
+        cities: (storeId, providerConfigId, token) =>
+          sendJson<ShippingCbsCitiesResponse>(
+            `/stores/${storeId}/shipping/dhl/cbs/preview`,
+            "POST",
+            { providerConfigId },
+            token,
+          ),
+        districts: (storeId, input, token) =>
+          sendJson<ShippingCbsDistrictsResponse>(
+            `/stores/${storeId}/shipping/dhl/cbs/districts`,
             "POST",
             input,
             token,

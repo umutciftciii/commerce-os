@@ -55,10 +55,17 @@ import {
   shipmentSyncAllResponseSchema,
   shippingWebhookRotateResponseSchema,
   shippingWebhookInfoResponseSchema,
+  shipmentRepairDestinationRequestSchema,
+  shipmentRepairDestinationResponseSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
 import { ShippingConfigError } from "./errors.js";
 import { resolveRecipientEmail } from "./recipient.js";
+import { createCbsLookupService, type CbsLookupTarget } from "./cbs-resolver.js";
+import {
+  BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND,
+  classifyBarcodeProviderError,
+} from "./adapters/dhl-ecommerce/mappers.js";
 import { createShippingSecretCipher, type ShippingSecretCipher } from "./encryption.js";
 import {
   createDisabledHttpTransport,
@@ -153,6 +160,11 @@ function sendShippingError(reply: FastifyReply, error: unknown): never | Fastify
       // TODO-132 — alici e-posta lokal dogrulamasi (saglayici cagrisindan ONCE).
       RECIPIENT_EMAIL_REQUIRED: 422,
       RECIPIENT_EMAIL_INVALID: 422,
+      // TODO-124 — CBS il/ilce eslemesi: prepare oncesi cozumleme basarisiz (422,
+      // saglayici CAGRILMADI) + onarim kod dogrulamasi + repair uygunluk hatasi.
+      ADDRESS_DISTRICT_CODE_REQUIRED: 422,
+      CBS_CODE_INVALID: 422,
+      REPAIR_NOT_APPLICABLE: 409,
       PROVIDER_OPERATION_FAILED: 502,
       AUTH_FAILED: 502,
       // F3C.6 — saglayici sorgu hatasi normalize (HTTP >=400 basari gibi parse edilmez).
@@ -218,6 +230,50 @@ export function registerShippingAdminRoutes(
     registry,
     persistence: createPrismaShipmentSyncPersistence(),
   });
+
+  // TODO-124 — CBS il/ilce lookup'i (TTL cache'li; saglayici asiri CAGRILMAZ).
+  const cbsLookup = createCbsLookupService();
+
+  function cbsTarget(cfg: ConfigWithCredentials, ctx: ShippingActionContext): CbsLookupTarget {
+    return { cacheKey: cfg.id, adapter: registry.get(cfg.provider), context: ctx };
+  }
+
+  /**
+   * TODO-124 — DHL/MNG icin alici il/ilce kodlarini SAGLAYICI CAGRISINDAN ONCE cozer.
+   *  - Gecerli sakli kod cifti aynen korunur (OS-000050 yolu).
+   *  - CBS exact match → kodlar + KANONIK adlar payload'a girer.
+   *  - CBS verisi varken il/ilce ESLESMEZSE saglayici cagrilmadan 422
+   *    ADDRESS_DISTRICT_CODE_REQUIRED (bozuk saglayici kaydi/varis subesi hatasi
+   *    olusmadan admin'e aksiyon mesaji).
+   *  - CBS'e ulasilamiyorsa / il-ilce metni yoksa BLOKLAMAZ: mevcut isim-bazli
+   *    davranis surer (OS-000041/43 regresyonu). Serbest adres metninden ilce
+   *    TAHMIN EDILMEZ (fuzzy yok).
+   */
+  async function resolveDhlRecipientGeo<T extends { cityCode?: number; districtCode?: number; cityName?: string; districtName?: string }>(
+    cfg: ConfigWithCredentials,
+    ctx: ShippingActionContext,
+    recipient: T,
+  ): Promise<T> {
+    if (cfg.provider !== "DHL_ECOMMERCE") return recipient;
+    const resolution = await cbsLookup.resolveRecipientGeo(cbsTarget(cfg, ctx), recipient);
+    if (resolution.status === "MATCHED") {
+      return {
+        ...recipient,
+        cityCode: resolution.cityCode!,
+        districtCode: resolution.districtCode!,
+        cityName: resolution.cityName ?? recipient.cityName,
+        districtName: resolution.districtName ?? recipient.districtName,
+      };
+    }
+    if (resolution.status === "CITY_NOT_MATCHED" || resolution.status === "DISTRICT_NOT_MATCHED") {
+      throw new ShippingConfigError(
+        "ADDRESS_DISTRICT_CODE_REQUIRED",
+        "Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi. Lütfen adres il/ilçe bilgisini düzeltin.",
+      );
+    }
+    // ALREADY_CODED (kodlar recipient'ta zaten var) / INPUT_MISSING / CBS_UNAVAILABLE.
+    return recipient;
+  }
 
   /* ───────────── Provider config CRUD ───────────── */
 
@@ -603,14 +659,19 @@ export function registerShippingAdminRoutes(
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     try {
+      const ctx = buildContext(cfg);
       // TODO-132 — DHL/MNG saglayicisina giden alici e-postasi sunucuda cozulur
       // (Order.customerEmail → Customer.email); gecersizse saglayici CAGRILMADAN 422.
+      // TODO-124 — il/ilce kodlari da saglayici cagrisindan ONCE CBS'ten cozulur.
       const recipient =
         cfg.provider === "DHL_ECOMMERCE"
-          ? { ...input.recipient, email: await resolveOrderRecipientEmail(order) }
+          ? await resolveDhlRecipientGeo(cfg, ctx, {
+              ...input.recipient,
+              email: await resolveOrderRecipientEmail(order),
+            })
           : input.recipient;
       const result = await registry.get(cfg.provider).createOrder({
-        context: buildContext(cfg),
+        context: ctx,
         referenceId: input.referenceId,
         shipmentServiceType: input.shipmentServiceType,
         packagingType: input.packagingType,
@@ -689,8 +750,27 @@ export function registerShippingAdminRoutes(
     const cfg = await loadConfig(params.storeId, body.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     try {
-      const result = await registry.get(cfg.provider).listGeoCities({ context: buildContext(cfg) });
-      return { cities: result.cities ?? [] };
+      // TODO-124 — TTL cache uzerinden (repair dropdown'lari da bunu kullanir).
+      const cities = await cbsLookup.getCities(cbsTarget(cfg, buildContext(cfg)));
+      return { cities };
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  // TODO-124 — CBS ilce listesi (repair/eslestirme dropdown'i icin; TTL cache'li).
+  app.post("/stores/:storeId/shipping/dhl/cbs/districts", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const body = z
+      .object({ providerConfigId: z.string().min(1), cityCode: z.coerce.number().int().positive() })
+      .parse(request.body);
+    const cfg = await loadConfig(params.storeId, body.providerConfigId);
+    if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
+    try {
+      const districts = await cbsLookup.getDistricts(cbsTarget(cfg, buildContext(cfg)), String(body.cityCode));
+      return { districts };
     } catch (error) {
       return sendShippingError(reply, error);
     }
@@ -807,7 +887,33 @@ export function registerShippingAdminRoutes(
 
   type CreateLabelResult =
     | { kind: "label" | "pending"; shipment: Awaited<ReturnType<typeof reloadShipment>> }
-    | { kind: "retryable" };
+    // TODO-124 — errorCode: sinif­landirilmis barkod hatasi (or.
+    // DESTINATION_BRANCH_NOT_FOUND) ya da null (generic retryable).
+    | { kind: "retryable"; errorCode: string | null };
+
+  /**
+   * TODO-124 — barkod "retryable" 409 yaniti. Varis subesi sinif­landirmasi
+   * PROVIDER_DESTINATION_BRANCH_UNRESOLVED olarak ozellesir (UI onarim CTA'sini
+   * buna gore acar); diger domain hatalari mevcut BARCODE_RETRYABLE_ERROR kalir.
+   */
+  function sendBarcodeRetryableError(reply: FastifyReply, errorCode: string | null) {
+    if (errorCode === BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND) {
+      return reply.code(409).send(
+        errorBody(
+          "PROVIDER_DESTINATION_BRANCH_UNRESOLVED",
+          "Varış şubesi bulunamadı. Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi; adres il/ilçe eşlemesini düzeltip tekrar deneyin.",
+          { retryable: true },
+        ),
+      );
+    }
+    return reply.code(409).send(
+      errorBody(
+        "BARCODE_RETRYABLE_ERROR",
+        "Varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
+        { retryable: true },
+      ),
+    );
+  }
 
   // createbarcode/createLabel — ADR-045 normalize (bos 200 → LABEL_PENDING; varis/hat
   // routing hatasi → retryable). Raw ZPL DB'ye YAZILMAZ; yalniz sanitize ozet + boolean.
@@ -826,16 +932,32 @@ export function registerShippingAdminRoutes(
     });
 
     if (result.providerErrorMessage) {
-      await recordShipmentEvent(storeId, shipment, "BARCODE_FAILED", {
-        statusText: result.providerErrorMessage,
+      // TODO-124 — MNG 20001 "VARIŞ ŞUBESİ BULUNAMADI" → DESTINATION_BRANCH_NOT_FOUND.
+      // Sinif­landirilan hatada admin-guvenli TR kopya yazilir (raw saglayici metni
+      // musteri DTO'suna zaten cikmiyor; admin'e de aksiyon alinabilir mesaj gider).
+      // Shipment.lastBarcodeErrorCode TODO-123 retry worker'inin "admin duzeltmesine
+      // kadar SKIP" sinyalidir; durum ILERLEMEZ, retry mumkun kalir (ADR-045).
+      const classified = classifyBarcodeProviderError(result.providerErrorCode, result.providerErrorMessage);
+      const statusText =
+        classified === BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND
+          ? "Varış şubesi bulunamadı. Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi."
+          : result.providerErrorMessage;
+      const failed = await prisma.shipment.update({
+        where: { id: shipment.id },
+        data: { lastBarcodeErrorCode: classified ?? "BARCODE_PROVIDER_ERROR" },
+      });
+      await recordShipmentEvent(storeId, failed, "BARCODE_FAILED", {
+        statusText,
         rawSafeJson: {
           providerError: true,
+          errorCode: classified,
+          providerErrorCode: result.providerErrorCode,
           message: result.providerErrorMessage,
           shipmentIdPresent: Boolean(result.externalShipmentId),
           barcodeCount: result.barcodes.length,
         },
       });
-      return { kind: "retryable" };
+      return { kind: "retryable", errorCode: classified };
     }
 
     const shipmentIdPresent = Boolean(result.externalShipmentId);
@@ -857,7 +979,8 @@ export function registerShippingAdminRoutes(
     if (incomplete) {
       const pendingUpdated = await prisma.shipment.update({
         where: { id: shipment.id },
-        data: { status: "LABEL_PENDING", barcodeJsonSafe },
+        // Bos-200 pending saglayici DOMAIN hatasi degildir → sinif­landirma sifirlanir.
+        data: { status: "LABEL_PENDING", barcodeJsonSafe, lastBarcodeErrorCode: null },
       });
       await recordShipmentEvent(storeId, pendingUpdated, "BARCODE_PENDING", {
         statusText: "Barkod henüz üretilemedi (sağlayıcı boş yanıt)",
@@ -874,6 +997,8 @@ export function registerShippingAdminRoutes(
         externalInvoiceId: result.externalInvoiceId ?? shipment.externalInvoiceId,
         trackingNumber: result.externalShipmentId ?? shipment.trackingNumber,
         barcodeJsonSafe,
+        // Basarili barkod → onceki sinif­landirilmis hata temizlenir.
+        lastBarcodeErrorCode: null,
       },
     });
     await recordShipmentEvent(storeId, updated, "BARCODE_CREATED", {
@@ -989,7 +1114,13 @@ export function registerShippingAdminRoutes(
       // TODO-132 — alici e-postasi sunucuda cozulur (Order.customerEmail → Customer.email);
       // gecerli e-posta yoksa saglayici CAGRILMADAN 422 doner. MNG bos e-postayi 400 kod
       // 26039 ile reddettiginden email: "" ASLA gonderilmez.
-      const recipient = { ...input.recipient, email: await resolveOrderRecipientEmail(order) };
+      // TODO-124 — il/ilce kodlari CBS'ten cozulur; CBS verisi varken eslesme yoksa
+      // saglayici CAGRILMADAN 422 ADDRESS_DISTRICT_CODE_REQUIRED (bozuk MNG kaydi +
+      // barkodda 20001 "VARIŞ ŞUBESİ BULUNAMADI" bu adimda onlenir).
+      const recipient = await resolveDhlRecipientGeo(cfg, ctx, {
+        ...input.recipient,
+        email: await resolveOrderRecipientEmail(order),
+      });
       const adapter = registry.get(cfg.provider);
       // 1) createRecipient — varis sube/hat kodu tespiti (guard altinda).
       await adapter.createRecipient({
@@ -1158,13 +1289,7 @@ export function registerShippingAdminRoutes(
       });
       // F3C.3 (ADR-045) — saglayici domain hatasi (varis sube/hat kodu): retryable 409.
       if (r.kind === "retryable") {
-        return reply.code(409).send(
-          errorBody(
-            "BARCODE_RETRYABLE_ERROR",
-            "Varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
-            { retryable: true },
-          ),
-        );
+        return sendBarcodeRetryableError(reply, r.errorCode);
       }
       await deps.recordAudit({
         action: "UPDATE",
@@ -1406,13 +1531,7 @@ export function registerShippingAdminRoutes(
         explicitConfirm: input.explicitConfirm,
       });
       if (r.kind === "retryable") {
-        return reply.code(409).send(
-          errorBody(
-            "BARCODE_RETRYABLE_ERROR",
-            "Varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
-            { retryable: true },
-          ),
-        );
+        return sendBarcodeRetryableError(reply, r.errorCode);
       }
       await deps.recordAudit({
         action: "UPDATE",
@@ -1489,6 +1608,108 @@ export function registerShippingAdminRoutes(
         metadata: { provider: loaded.cfg.provider, action: "shipment.manual-tracking" },
       });
       return reply.send(shippingShipmentMutationResponseSchema.parse({ shipment: serializeShipment(updated), alreadyExisted: false }));
+    } catch (error) {
+      return sendShippingError(reply, error);
+    }
+  });
+
+  /* ───────────── TODO-124 varis il/ilce eslemesi onarimi ─────────────
+   * Kullanim: barkod MNG 20001 "VARIŞ ŞUBESİ BULUNAMADI" ile dustugunde (or.
+   * OS-000053) admin CBS-dogrulamali il/ilce kodu secer. Akis:
+   *  1) Kodlar CBS listesinden SUNUCUDA dogrulanir (CBS_CODE_INVALID yoksa kayit yok).
+   *  2) Shipment recipient SNAPSHOT'i guncellenir (tarihsel musteri adresi MUTASYONA
+   *     UGRAMAZ); lastBarcodeErrorCode sifirlanir (TODO-123 skip sinyali kalkar).
+   *  3) Ayni referenceId ile createRecipient saglayiciya YENIDEN iletilir (guard'li).
+   *     Saglayici reddederse yerel duzeltme KORUNUR, providerResent=false + sanitize
+   *     kod doner — sahte basari YOK. MNG'nin mevcut siparis kaydini guncelledigi
+   *     GARANTI DEGILDIR; UI bu sinirlamayi acikca soyler.
+   * Duplicate guard'a dokunulmaz: yeni Shipment ACILMAZ, yalniz mevcut kayit onarilir. */
+  app.post("/stores/:storeId/shipping/shipments/:shipmentId/repair-destination", async (request, reply) => {
+    const params = shipmentIdParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shipmentRepairDestinationRequestSchema.parse(request.body);
+    const loaded = await loadStoreShipmentWithCfg(params.storeId, params.shipmentId);
+    if (!loaded) return reply.code(404).send(errorBody("SHIPMENT_NOT_FOUND", "Gönderi bulunamadı."));
+    const { shipment, cfg } = loaded;
+    if (cfg.provider !== "DHL_ECOMMERCE") {
+      return reply
+        .code(409)
+        .send(errorBody("REPAIR_NOT_APPLICABLE", "İl/ilçe eşleme onarımı yalnız DHL/MNG gönderileri için geçerlidir."));
+    }
+    // Barkod OLUSMUS/tasima baslamis gonderide varis eslemesi degistirilemez.
+    if (shipment.status !== "ORDER_CREATED" && shipment.status !== "LABEL_PENDING") {
+      return reply
+        .code(409)
+        .send(errorBody("REPAIR_NOT_APPLICABLE", "Bu gönderi durumunda il/ilçe eşlemesi düzeltilemez."));
+    }
+    try {
+      const ctx = buildContext(cfg);
+      // 1) Kod dogrulama — CBS listesinde YOKSA kayit yapilmaz (CBS_CODE_INVALID 422).
+      const canonical = await cbsLookup.validateCodes(cbsTarget(cfg, ctx), input.cityCode, input.districtCode);
+      // 2) Yerel snapshot duzeltmesi (yalniz Shipment; siparis/musteri adresi degismez).
+      const repaired = await prisma.shipment.update({
+        where: { id: shipment.id },
+        data: {
+          recipientCityCode: input.cityCode,
+          recipientDistrictCode: input.districtCode,
+          recipientCityName: canonical.cityName,
+          recipientDistrictName: canonical.districtName,
+          lastBarcodeErrorCode: null,
+        },
+      });
+      // 3) Saglayiciya duzeltilmis alici kaydini yeniden ilet (ayni referenceId; guard'li).
+      let providerResent = false;
+      let providerErrorCode: string | null = null;
+      try {
+        await registry.get(cfg.provider).createRecipient({
+          context: ctx,
+          referenceId: shipment.referenceId,
+          recipient: {
+            fullName: shipment.recipientName ?? undefined,
+            email: shipment.recipientEmail ?? undefined,
+            phone: shipment.recipientPhone ?? undefined,
+            cityCode: input.cityCode,
+            districtCode: input.districtCode,
+            cityName: canonical.cityName,
+            districtName: canonical.districtName,
+            address: shipment.recipientAddress ?? undefined,
+          },
+          explicitConfirm: input.explicitConfirm,
+        });
+        providerResent = true;
+      } catch (error) {
+        // Yerel duzeltme KORUNUR; saglayici hatasi sanitize kodla rapor edilir.
+        if (!(error instanceof ShippingConfigError)) throw error;
+        providerErrorCode = error.code;
+      }
+      await recordShipmentEvent(params.storeId, repaired, "DESTINATION_REPAIRED", {
+        statusText: providerResent
+          ? "Varış il/ilçe eşlemesi düzeltildi; alıcı kaydı sağlayıcıya yeniden iletildi."
+          : "Varış il/ilçe eşlemesi düzeltildi (sağlayıcıya yeniden iletilemedi; barkod denemesi düzeltilmiş kodlarla yapılacak).",
+        rawSafeJson: {
+          repaired: true,
+          cityCode: input.cityCode,
+          districtCode: input.districtCode,
+          providerResent,
+          providerErrorCode,
+        },
+      });
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "Shipment",
+        entityId: repaired.id,
+        metadata: { provider: cfg.provider, action: "shipment.repair-destination", providerResent },
+      });
+      return reply.send(
+        shipmentRepairDestinationResponseSchema.parse({
+          shipment: serializeShipment(await reloadShipment(repaired.id)),
+          providerResent,
+          providerErrorCode,
+        }),
+      );
     } catch (error) {
       return sendShippingError(reply, error);
     }
@@ -1637,6 +1858,15 @@ export function serializeShipment(s: Shipment & { events: ShipmentEvent[] }) {
     shipmentStatusCode: s.shipmentStatusCode,
     barcodeHasLabel: Boolean(barcode?.zplPresent),
     recipientName: s.recipientName,
+    // TODO-124 — varis eslemesi goruntuleme/onarim icin recipient SNAPSHOT'i (admin API;
+    // musteri DTO'su DEGIL). Secret/raw saglayici verisi icermez.
+    recipientCityCode: s.recipientCityCode,
+    recipientDistrictCode: s.recipientDistrictCode,
+    recipientCityName: s.recipientCityName,
+    recipientDistrictName: s.recipientDistrictName,
+    recipientAddress: s.recipientAddress,
+    // TODO-124 — son barkod denemesinin sinif­landirilmis hata kodu (TODO-123 girdisi).
+    lastBarcodeErrorCode: s.lastBarcodeErrorCode,
     // TODO-129 — degisiklik yoksa sync event yazilmaz; son sync ani Shipment.lastSyncAt'ten
     // (yoksa eski davranis: son sync event'inin ani).
     lastSyncedAt: s.lastSyncAt

@@ -2649,6 +2649,8 @@ export const shipmentEventTypeSchema = z.enum([
   "TRACKING_UPDATED",
   // F3C.5 (TODO-121) — admin manuel takip no girisi (provider-agnostic aksiyon).
   "MANUAL_TRACKING",
+  // TODO-124 — admin varis il/ilce eslemesi duzeltmesi (CBS kodlari snapshot'a yazildi).
+  "DESTINATION_REPAIRED",
   "CANCELLED",
   "WEBHOOK_RECEIVED",
 ]);
@@ -2700,6 +2702,16 @@ export const shipmentSchema = z.object({
   // Barkod/ZPL etiketi olusturuldu mu (yalniz BOOLEAN; raw ZPL DB'ye yazilmaz/donmez).
   barcodeHasLabel: z.boolean(),
   recipientName: z.string().nullable(),
+  // TODO-124 — varis eslemesi goruntuleme/onarim icin recipient SNAPSHOT'i (yalniz
+  // store-admin API; musteri DTO'su degildir). Secret/raw saglayici verisi icermez.
+  recipientCityCode: z.number().int().nullable(),
+  recipientDistrictCode: z.number().int().nullable(),
+  recipientCityName: z.string().nullable(),
+  recipientDistrictName: z.string().nullable(),
+  recipientAddress: z.string().nullable(),
+  // TODO-124 — son barkod denemesinin SINIFLANDIRILMIS sanitize hata kodu (or.
+  // DESTINATION_BRANCH_NOT_FOUND); basarili barkod/onarim sifirlar. TODO-123 girdisi.
+  lastBarcodeErrorCode: z.string().nullable(),
   // Son provider senkronu (en yeni STATUS/TRACKING event'inden turetilir).
   lastSyncedAt: z.string().datetime().nullable(),
   lastProviderStatus: z.string().nullable(),
@@ -2875,6 +2887,8 @@ export const shipmentActionCapabilitiesSchema = z.object({
   canSync: z.boolean(),
   canCancel: z.boolean(),
   canManualTracking: z.boolean(),
+  // TODO-124 — varis il/ilce eslemesi onarimi (yalniz DHL/MNG, barkod oncesi durumlar).
+  canRepairDestination: z.boolean(),
   disabledReason: z.string().nullable(),
 });
 
@@ -2955,6 +2969,54 @@ export const shipmentCreateLabelRequestSchema = z.object({
 /** cancel (gönderi kaydi iptali) generic aksiyon body'si — explicit onay zorunlu. */
 export const shipmentCancelRequestSchema = z.object({
   explicitConfirm: z.boolean().default(false),
+});
+
+/* ─────────────────── TODO-124 CBS il/ilce eslemesi + varis onarimi ───────────────────
+ * CBS listeleri store-admin dropdown'lari icindir (public/musteri ucu DEGIL). Onarim,
+ * Shipment recipient SNAPSHOT'ini gunceller; siparis/musteri adresi MUTASYONA UGRAMAZ.
+ * Kodlar sunucuda CBS listesine karsi YENIDEN dogrulanir (CBS_CODE_INVALID). */
+
+export const shippingCbsCitySchema = z.object({
+  code: z.string(),
+  name: z.string(),
+});
+
+export const shippingCbsDistrictSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  cityCode: z.string(),
+});
+
+export const shippingCbsCitiesResponseSchema = z.object({
+  cities: z.array(shippingCbsCitySchema),
+});
+
+export const shippingCbsDistrictsRequestSchema = z.object({
+  providerConfigId: z.string().min(1),
+  cityCode: z.coerce.number().int().positive(),
+});
+
+export const shippingCbsDistrictsResponseSchema = z.object({
+  districts: z.array(shippingCbsDistrictSchema),
+});
+
+/** Varis il/ilce eslemesi onarimi. Kodlar CBS'ten secilir; 0/negatif KABUL EDILMEZ. */
+export const shipmentRepairDestinationRequestSchema = z.object({
+  cityCode: z.number().int().positive(),
+  districtCode: z.number().int().positive(),
+  // Saglayiciya createRecipient yeniden iletimi icin onay (guard'larla birlikte).
+  explicitConfirm: z.boolean().default(false),
+});
+
+/**
+ * Onarim yaniti. providerResent=false ⇒ yerel duzeltme kaydedildi ama saglayiciya
+ * yeniden iletim yapilamadi/reddedildi (providerErrorCode sanitize kod). Sahte basari
+ * YOK: UI "mevcut kargo kaydini otomatik guncellemeyebilir" sinirlamasini gosterir.
+ */
+export const shipmentRepairDestinationResponseSchema = z.object({
+  shipment: shipmentSchema,
+  providerResent: z.boolean(),
+  providerErrorCode: z.string().nullable(),
 });
 
 /* ─────────────────────── F3C.2 Shipping rate plans (store tarife) ───────────────────────
@@ -3319,6 +3381,14 @@ export type ShippingSyncRequest = z.infer<typeof shippingSyncRequestSchema>;
 export type ShippingCancelRequest = z.infer<typeof shippingCancelRequestSchema>;
 export type ShippingShipmentMutationResponse = z.infer<typeof shippingShipmentMutationResponseSchema>;
 export type ShipmentStatusValue = z.infer<typeof shipmentStatusValueSchema>;
+// TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
+export type ShippingCbsCity = z.infer<typeof shippingCbsCitySchema>;
+export type ShippingCbsDistrict = z.infer<typeof shippingCbsDistrictSchema>;
+export type ShippingCbsCitiesResponse = z.infer<typeof shippingCbsCitiesResponseSchema>;
+export type ShippingCbsDistrictsRequest = z.infer<typeof shippingCbsDistrictsRequestSchema>;
+export type ShippingCbsDistrictsResponse = z.infer<typeof shippingCbsDistrictsResponseSchema>;
+export type ShipmentRepairDestinationRequest = z.infer<typeof shipmentRepairDestinationRequestSchema>;
+export type ShipmentRepairDestinationResponse = z.infer<typeof shipmentRepairDestinationResponseSchema>;
 // TODO-100/104 — shipping webhook + toplu tracking sync.
 export type ShippingWebhookEventRequest = z.infer<typeof shippingWebhookEventRequestSchema>;
 export type ShippingWebhookAckResponse = z.infer<typeof shippingWebhookAckResponseSchema>;

@@ -9,6 +9,7 @@ import { ProviderLogo } from "../../../../../components/provider-logo";
 import type { ShipmentDetail } from "@commerce-os/api-client";
 import { storeApi } from "../../../../../lib/client/api";
 import { messageForError } from "../../../../../lib/client/messages";
+import { ShipmentDestinationCard } from "./repair-destination";
 import {
   SHIPMENT_ACTION_DISABLED_REASON,
   SHIPMENT_EVENT_LABEL,
@@ -325,6 +326,9 @@ export default function ShipmentDetailPage() {
               </a>
             ) : null}
           </SurfaceCard>
+
+          {/* TODO-124 — Varış il/ilçe eşlemesi + CBS onarım paneli (DHL/MNG, barkod öncesi). */}
+          <ShipmentDestinationCard shipment={shipment} locale={locale} onRepaired={load} />
 
           <SurfaceCard title={t.progress}>
             <Stepper steps={SHIPMENT_STEPS[locale]} current={shipmentStepIndex(shipment.status)} problem={problem} />

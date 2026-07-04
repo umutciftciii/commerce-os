@@ -589,8 +589,40 @@
 - TODO-123 (AÇIK): Barcode boş-yanıt (LABEL_PENDING) için otomatik retry/backoff job. createOrder→createbarcode
   arası MNG sandbox sparse yanıt verebildiğinden, LABEL_PENDING gönderiler için zamanlanmış yeniden deneme
   (backoff + max attempts) ve admin'e bildirim. Şu an retry manuel (UI "Barkod Oluştur" tekrar).
-- TODO-124 (AÇIK): CBS adres normalizasyonu — gerçek müşteri adresi → MNG cityCode/districtCode otomatik
-  eşleme (CBS geo cache, TODO-102 ile). Şu an cityCode/districtCode admin tarafından elle girilebiliyor.
+  NOT (TODO-124 sonrası): retry job TODO-124'ün sınıflandırmasını TÜKETMELİDİR — `Shipment.lastBarcodeErrorCode`
+  = `DESTINATION_BRANCH_NOT_FOUND` olan gönderiler admin il/ilçe düzeltmesi (repair-destination bunu sıfırlar)
+  yapılana kadar retry EDİLMEZ (mapping hatası backoff'la düzelmez); geçici hatalar
+  (`BARCODE_PROVIDER_ERROR`/pending) backoff'la denenebilir.
+- TODO-124: CBS il/ilçe kod eşleme + admin varış onarımı (DONE — 2026-07-04, ADR-052). Kök neden (OS-000053):
+  UI recipient'ı sipariş adresinden yalnız cityName/districtName ile kuruyordu, cityCode/districtCode hiç
+  gönderilmiyordu; adres metni ilçe seçimiyle tutarsız olunca MNG createOrder'ı kabul edip createbarcode'da
+  500 kod 20001 "VARIŞ ŞUBESİ BULUNAMADI" veriyordu. Uygulanan: (1) `cbs-resolver.ts` — TR-güvenli normalize
+  (tr-TR lower + diakritik katlama; İstanbul/ISTANBUL/uskudar/kucukcekmece) ile CBS il/ilçe listesinden YALNIZ
+  exact-match kod çözümü (fuzzy YOK; aynı ada farklı kodlu çift = muğlak = eşleşmedi), providerConfig-bazlı
+  6 saat TTL in-memory cache (CBS aşırı çağrılmaz); (2) prepare + generic create-order (DHL) sağlayıcı
+  çağrısından ÖNCE kodları çözer: geçerli saklı kod (>0) aynen korunur (OS-000050 yolu), 0/geçersiz kod asla
+  gönderilmez (TODO-132 korunur), CBS verisi varken il/ilçe eşleşmezse sağlayıcı ÇAĞRILMADAN 422
+  ADDRESS_DISTRICT_CODE_REQUIRED; CBS erişilemezse/ilçe metni yoksa eski isim-bazlı davranış sürer
+  (OS-000041/43 regresyonu korunur); serbest adres metninden ilçe TAHMİN EDİLMEZ; (3) barkod 20001/"VARIŞ
+  ŞUBESİ" → `DESTINATION_BRANCH_NOT_FOUND` sınıflandırması: BARCODE_FAILED event (rawSafeJson.errorCode +
+  admin-güvenli TR statusText), yeni `Shipment.lastBarcodeErrorCode` kolonu (başarı/pending/onarım sıfırlar),
+  route 409 PROVIDER_DESTINATION_BRANCH_UNRESOLVED (retryable; durum İLERLEMEZ, sahte başarı YOK — ADR-045
+  korunur); (4) admin onarım: `POST /stores/:id/shipping/shipments/:sid/repair-destination` — kod CBS'e karşı
+  SUNUCUDA yeniden doğrulanır (CBS_CODE_INVALID), Shipment recipient SNAPSHOT'ı güncellenir (sipariş/müşteri
+  adresi mutasyona uğramaz), aynı referenceId ile createRecipient sağlayıcıya yeniden iletilir; reddedilirse
+  yerel düzeltme korunur + providerResent=false döner (UI sınırlamayı açıkça söyler: mevcut kargo kaydı
+  otomatik güncellenmeyebilir); DESTINATION_REPAIRED event yazılır; (5) yeni CBS ilçe ucu
+  `POST .../shipping/dhl/cbs/districts` (+mevcut cities/preview ucu cache'e bağlandı); (6) store-admin
+  shipment detayında "Varış İl/İlçe Eşlemesi" kartı: il/ilçe + kargo il/ilçe kodları + eşleşme rozeti +
+  "Adres İl/İlçe Eşlemesini Düzelt" paneli (CBS dropdown, "CBS'den Eşleştir" otomatik ön seçim,
+  kaydet+yeniden ilet, retry rehberi); capability `canRepairDestination` (yalnız DHL + ORDER_CREATED/
+  LABEL_PENDING); order kartı 422'yi spesifik mesajla gösterir. Migration:
+  `20260704130000_add_shipment_destination_repair` (enum DESTINATION_REPAIRED + Shipment.lastBarcodeErrorCode;
+  additive-only). Duplicate guard / webhook HMAC / sync worker / ödeme guard'ına DOKUNULMADI. Testler:
+  `shipping-cbs-mapping.test.ts` (28). KALAN/SINIRLAMA: MNG'nin mevcut sipariş kaydında varış güncellemesini
+  kabul ettiği garanti değil; OS-000053/54/55 gibi takılı sandbox kayıtları onarım+retry ile düzelmezse yeni
+  sipariş/gönderi gerekebilir (barkod öncesi cancelshipment shipmentId olmadığından çağrılamaz). TODO-123
+  retry/backoff bu sınıflandırmayı tüketmelidir.
 - TODO-131: F3C.6 DHL sandbox verification & hardening (DONE — 2026-07-03, ADR-049). Sağlanan 6 OpenAPI dokümanı
   (Identity/CBS/Plus/Standard Command/Standard Query/Barcode) mevcut adapter'la satır satır karşılaştırıldı +
   güvenli read-only sandbox smoke yapıldı (Identity token 200, getcities 200/82 şehir, getdistricts/34 200/40 ilçe,

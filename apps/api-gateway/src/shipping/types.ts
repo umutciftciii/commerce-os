@@ -122,6 +122,11 @@ export interface ShippingBarcodeResult {
    * BARCODE_FAILED event yazar ve retryable hata doner; createOrder TEKRAR cagrilmaz.
    */
   providerErrorMessage: string | null;
+  /**
+   * TODO-124 — saglayici domain hata KODU (kisa alfanumerik, or. MNG "20001").
+   * Sinif­landirma (DESTINATION_BRANCH_NOT_FOUND vb.) icin kullanilir; raw payload tasimaz.
+   */
+  providerErrorCode: string | null;
 }
 
 export interface ShippingShipmentStatusResult {

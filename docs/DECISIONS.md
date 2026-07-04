@@ -1283,3 +1283,39 @@ Kodu pakete çıkarmak/worker'a taşımak provider abstraction redesign'ı olurd
 süreciyle aynı kaynakları paylaşır (muhafazakâr limitler bunu sınırlar) ve çoklu gateway replikasında
 koordinasyonsuz çift tarama yapabilir (bugünkü tek-instance dev/smoke için kapsam dışı; replika senaryosu
 worker servisine taşıma tetikleyicisidir).
+
+## ADR-052 — CBS il/ilçe kod çözümü: exact-match + prepare-öncesi blok; varış onarımı snapshot-bazlı (TODO-124)
+
+**Bağlam.** MNG, cityCode/districtCode gönderilmediğinde varış şubesini districtName + adres
+metninden tahmin eder; tutarsız/muğlak adreste createOrder kabul edilip createbarcode 500 kod
+20001 "VARIŞ ŞUBESİ BULUNAMADI" ile düşer (OS-000053). Retry/backoff (TODO-123) bu sınıfı
+çözemez: yanlış eşleme zamanla düzelmez.
+
+**Karar.**
+1. **Çözümleme sağlayıcı çağrısından ÖNCE ve yalnız exact-match.** TR-güvenli normalize
+   (tr-TR küçük harf + diakritik katlama) sonrası CBS listesinde birebir eşleşme aranır;
+   fuzzy/benzerlik ve serbest adres metninden ilçe çıkarımı YASAK (yanlış ilçeye sessiz
+   eşleme, hiç eşlememekten kötüdür). Aynı normalize ada farklı kodlu birden çok kayıt =
+   muğlak = eşleşmedi.
+2. **CBS verisi varken eşleşmeme = prepare bloklanır** (422 ADDRESS_DISTRICT_CODE_REQUIRED,
+   sağlayıcı çağrılmaz) — bozuk sağlayıcı kaydı hiç oluşmaz. **CBS erişilemezse bloklanmaz**:
+   isim-bazlı eski davranış sürer (çalışan Kadıköy-tipi siparişler CBS kesintisinde de
+   çalışmaya devam eder). Geçerli saklı kod (>0) CBS'e sorulmadan korunur; 0 asla gönderilmez.
+3. **CBS lookup'ı providerConfig başına TTL cache'lidir** (6 saat, in-memory). İl/ilçe listesi
+   nadir değişir; dropdown + çözümleme + onarım doğrulaması aynı cache'i paylaşır.
+4. **Onarım Shipment SNAPSHOT'ında yaşar.** Admin düzeltmesi Shipment recipient alanlarını
+   günceller; sipariş/müşteri adresi mutasyona uğramaz (tarihsel sipariş bütünlüğü). Kodlar
+   sunucuda CBS'e karşı yeniden doğrulanır. Sağlayıcıya aynı referenceId ile createRecipient
+   yeniden iletilir; kabul garantisi olmadığından sonuç `providerResent` olarak dürüstçe
+   raporlanır (sahte başarı yok) ve UI "mevcut kargo kaydını otomatik güncellemeyebilir"
+   sınırlamasını gösterir.
+5. **Sınıflandırma retry politikasının girdisidir.** 20001/"VARIŞ ŞUBESİ" →
+   `DESTINATION_BRANCH_NOT_FOUND` → `Shipment.lastBarcodeErrorCode`; TODO-123 job'ı bu koddaki
+   gönderileri admin düzeltmesine kadar retry etmemelidir (onarım kodu sıfırlar).
+
+**Sonuçlar.** (+) OS-000053 sınıfı hata prepare aşamasında engellenir; (+) çalışan yollar
+(OS-000041/43 isim-bazlı, OS-000050 explicit kod) regresyonsuz; (+) duplicate guard/ADR-045
+durum güvenliği korunur. (–) CBS listesi ile mağaza adres metni uyuşmayan meşru adreslerde
+admin müdahalesi gerekir (bilinçli tercih: sessiz yanlış şube yerine açık düzeltme);
+(–) MNG'nin post-createOrder varış güncellemesi doğrulanmadıkça takılı kayıtlar yeni gönderi
+gerektirebilir (dokümante sınırlama).

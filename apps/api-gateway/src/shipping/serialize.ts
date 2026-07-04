@@ -217,6 +217,12 @@ export interface GenericShipmentCapabilities {
   canSync: boolean;
   canCancel: boolean;
   canManualTracking: boolean;
+  /**
+   * TODO-124 — varis il/ilce eslemesi onarimi (repair-destination). Yalniz DHL/MNG +
+   * aktif + barkod ONCESI (ORDER_CREATED/LABEL_PENDING) gonderilerde acilir. Saglayiciya
+   * yeniden iletim guard'lari backend'de ayrica uygulanir (capability yalniz UI ipucu).
+   */
+  canRepairDestination: boolean;
   disabledReason: string | null;
 }
 
@@ -312,10 +318,17 @@ export function computeShipmentActionCapabilities(
   );
   // Manuel takip: provider'a cagri YOK; aktif gönderide her zaman mumkun.
   const canManualTracking = active;
+  // TODO-124 — varis eslemesi onarimi: yalniz DHL/MNG + barkod ONCESI durumlar.
+  const canRepairDestination = Boolean(
+    enabled &&
+      active &&
+      shipment.provider === "DHL_ECOMMERCE" &&
+      (shipment.status === "ORDER_CREATED" || shipment.status === "LABEL_PENDING"),
+  );
 
   const none = !canPrepare && !canCreateLabel && !canSync && !canCancel && !canManualTracking;
   const disabledReason = none ? (active ? "PROVIDER_ACTIONS_DISABLED" : "SHIPMENT_INACTIVE") : null;
-  return { canPrepare, canCreateLabel, canSync, canCancel, canManualTracking, disabledReason };
+  return { canPrepare, canCreateLabel, canSync, canCancel, canManualTracking, canRepairDestination, disabledReason };
 }
 
 /** KPI kartlari icin shipment durum kovasi (null => sayilmaz: DRAFT/CANCELLED). */

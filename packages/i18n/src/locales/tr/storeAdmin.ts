@@ -100,6 +100,13 @@ export const trStoreAdmin = {
     CANCEL_FAILED: "DHL kargo iptali reddedildi; gönderi fiziksel olarak işleme alınmış olabilir.",
     BARCODE_RETRYABLE_ERROR:
       "DHL varış şubesi/hat kodu belirlenemedi. Adres bilgisi kontrol edilmeli veya işlem daha sonra tekrar denenmeli.",
+    // TODO-124 — CBS il/ilçe eşlemesi + varış şubesi onarımı.
+    ADDRESS_DISTRICT_CODE_REQUIRED:
+      "Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi. Lütfen adres il/ilçe bilgisini düzeltin.",
+    PROVIDER_DESTINATION_BRANCH_UNRESOLVED:
+      "Varış şubesi bulunamadı. Alıcı il/ilçe bilgisi kargo firmasında eşleşmedi; adres il/ilçe eşlemesini düzeltip tekrar deneyin.",
+    CBS_CODE_INVALID: "Seçilen kargo il/ilçe kodu geçersiz; CBS listesinden geçerli bir seçim yapın.",
+    REPAIR_NOT_APPLICABLE: "Bu gönderi için il/ilçe eşleme düzeltmesi yapılamaz.",
     // TODO-132 — sağlayıcı gönderi kaydı için alıcı e-postası zorunludur (MNG boş/geçersiz e-postayı reddeder).
     RECIPIENT_EMAIL_REQUIRED:
       "Kargo sağlayıcısına gönderi kaydı için alıcı e-posta adresi gerekli. Siparişte veya müşteri kaydında e-posta bulunamadı; müşteri kaydına geçerli bir e-posta ekleyip tekrar deneyin.",

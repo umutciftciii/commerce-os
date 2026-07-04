@@ -160,7 +160,52 @@ export function mapCreateBarcodeResponse(
     barcodes,
     providerReturnedEmptyPayload,
     providerErrorMessage,
+    // TODO-124 — sinif­landirma icin kisa domain kodu (yalniz hata durumunda anlamli).
+    providerErrorCode: providerErrorMessage ? extractProviderErrorCode(json) : null,
   };
+}
+
+/* ─────────────────── TODO-124 barkod hata sinif­landirmasi ───────────────────
+ * MNG createbarcode 500 kod 20001 "VARIŞ ŞUBESİ BULUNAMADI / DAHA SONRA TEKRAR
+ * DENEYİN" = varis subesi cozulemedi (cogunlukla il/ilce kodu eksik/yanlis —
+ * OS-000053 vakasi). Guvenli sinif­landirma: once kisa domain kodu, yoksa
+ * normalize mesaj metni. Sinif­landirilamayan hatalar generic kalir (uydurma yok).
+ * TODO-123 retry worker'i bu kodu OKUMALI: DESTINATION_BRANCH_NOT_FOUND admin
+ * duzeltmesine kadar retry EDILMEMELIDIR (mapping hatasi backoff'la duzelmez). */
+
+export const BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND = "DESTINATION_BRANCH_NOT_FOUND";
+
+/** MNG domain kodu: varis subesi bulunamadi. */
+const MNG_ERROR_CODE_DESTINATION_BRANCH = "20001";
+
+/** TR-katlanmis mesaj imzalari (diakritik/case bagimsiz). */
+const DESTINATION_MESSAGE_SIGNATURES = ["varis subesi bulunamadi", "varis subesinin hat kodu"];
+
+function foldTrMessage(message: string): string {
+  return message
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[çğıöşü]/g, (ch) => ({ ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" })[ch] ?? ch);
+}
+
+/**
+ * Barkod saglayici hatasini sinif­landirir. Su an tek guvenli sinif:
+ * DESTINATION_BRANCH_NOT_FOUND (MNG 20001 / "VARIŞ ŞUBESİ ..."). Eslesmeyenler null
+ * doner (generic retryable davranis korunur).
+ */
+export function classifyBarcodeProviderError(
+  providerErrorCode: string | null,
+  providerErrorMessage: string | null,
+): string | null {
+  if (providerErrorCode === MNG_ERROR_CODE_DESTINATION_BRANCH) {
+    return BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND;
+  }
+  if (providerErrorMessage) {
+    const folded = foldTrMessage(providerErrorMessage);
+    if (DESTINATION_MESSAGE_SIGNATURES.some((sig) => folded.includes(sig))) {
+      return BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND;
+    }
+  }
+  return null;
 }
 
 /** getshipmentstatus → trackingUrl/isDelivered/statusCode normalize. */
