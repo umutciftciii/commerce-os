@@ -235,7 +235,82 @@ describe("shipping capability derivation", () => {
 });
 
 import { mapCreateOrderResponse } from "../src/shipping/adapters/dhl-ecommerce/mappers.js";
-import { mapProviderStatusToShipmentStatus, serializeShipment } from "../src/shipping/routes.js";
+import {
+  inferShipmentStatusFromTrackingText,
+  mapProviderStatusToShipmentStatus,
+  serializeShipment,
+} from "../src/shipping/routes.js";
+
+// TODO-140 — Hareket metni → durum ilerletme cikarimi (kod tasimayan MNG/DHL push'lari).
+describe("TODO-140 inferShipmentStatusFromTrackingText", () => {
+  it("SMOKE sandbox transfer/aktarma metinleri IN_TRANSIT kaniti sayilir", () => {
+    expect(inferShipmentStatusFromTrackingText("SMOKE TRANSFER MERKEZİNDE")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("SMOKE AKTARMADA")).toBe("IN_TRANSIT");
+  });
+
+  it("transfer/aktarma/taşıma varyantlari IN_TRANSIT'e cikarir", () => {
+    expect(inferShipmentStatusFromTrackingText("TRANSFER MERKEZİNDE")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("AKTARMADA")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("Taşıma sürecinde")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("Dağıtım merkezinde işlemde")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("Departed facility")).toBe("IN_TRANSIT");
+  });
+
+  it("dağıtıma çıkış → OUT_FOR_DELIVERY; teslim → DELIVERED", () => {
+    expect(inferShipmentStatusFromTrackingText("DAĞITIMA ÇIKTI")).toBe("OUT_FOR_DELIVERY");
+    expect(inferShipmentStatusFromTrackingText("Dağıtımda")).toBe("OUT_FOR_DELIVERY");
+    expect(inferShipmentStatusFromTrackingText("TESLİM EDİLDİ")).toBe("DELIVERED");
+    expect(inferShipmentStatusFromTrackingText("Delivered")).toBe("DELIVERED");
+  });
+
+  it("zayif/bilinmeyen metin ilerletmez (null)", () => {
+    expect(inferShipmentStatusFromTrackingText("Gönderi oluşturuldu")).toBeNull();
+    expect(inferShipmentStatusFromTrackingText("Etiket oluşturuldu")).toBeNull();
+    expect(inferShipmentStatusFromTrackingText("Barkod oluşturuldu")).toBeNull();
+    expect(inferShipmentStatusFromTrackingText("Kargo için paketlendi")).toBeNull();
+    // "Teslim ALINDI" = kuryeye teslim (dağıtım/teslimat DEĞİL) → ilerletmez.
+    expect(inferShipmentStatusFromTrackingText("Teslim alındı")).toBeNull();
+    expect(inferShipmentStatusFromTrackingText("Zzz bilinmeyen not")).toBeNull();
+    expect(inferShipmentStatusFromTrackingText(null)).toBeNull();
+    expect(inferShipmentStatusFromTrackingText("")).toBeNull();
+  });
+
+  it("Türkçe büyük/küçük harf ve diakritikten bağımsız katlanir", () => {
+    expect(inferShipmentStatusFromTrackingText("smoke aktarmada")).toBe("IN_TRANSIT");
+    expect(inferShipmentStatusFromTrackingText("TESLIM EDILDI")).toBe("DELIVERED");
+    expect(inferShipmentStatusFromTrackingText("teslım edıldı")).toBe("DELIVERED");
+  });
+
+  it("mapProviderStatusToShipmentStatus: kod yoksa metin IN_TRANSIT'e ilerletir; terminalden geri gitmez", () => {
+    // Kod null ama metin transfer → LABEL_CREATED'dan IN_TRANSIT'e ilerler (TODO-140 cekirdek fix).
+    expect(
+      mapProviderStatusToShipmentStatus(
+        { statusCode: null, isDelivered: false, statusText: "SMOKE AKTARMADA" },
+        "LABEL_CREATED",
+      ),
+    ).toBe("IN_TRANSIT");
+    // Zayif metin ilerletmez (PACKED korunur).
+    expect(
+      mapProviderStatusToShipmentStatus(
+        { statusCode: null, isDelivered: false, statusText: "Kargo için paketlendi" },
+        "LABEL_CREATED",
+      ),
+    ).toBe("LABEL_CREATED");
+    // Terminal/ileri durum metinle GERI cekilmez.
+    expect(
+      mapProviderStatusToShipmentStatus(
+        { statusCode: null, isDelivered: false, statusText: "AKTARMADA" },
+        "OUT_FOR_DELIVERY",
+      ),
+    ).toBe("OUT_FOR_DELIVERY");
+    expect(
+      mapProviderStatusToShipmentStatus(
+        { statusCode: null, isDelivered: false, statusText: "TRANSFER MERKEZİNDE" },
+        "DELIVERED",
+      ),
+    ).toBe("DELIVERED");
+  });
+});
 
 describe("F3C.3 mapper fixes (sandbox smoke ile doğrulanmış)", () => {
   it("mapCreateOrderResponse ARRAY yanıtını ilk elemandan çözer (asRecord(array) bug fix)", () => {

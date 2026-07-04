@@ -94,18 +94,91 @@ export const SYNCABLE_SHIPMENT_STATUSES: ShipmentStatus[] = [
   "DELIVERY_FAILED",
 ];
 
+// TODO-140 — Turkce buyuk/kucuk + diakritikten BAGIMSIZ normalize (aksansiz ASCII, buyuk
+// harf). "SMOKE AKTARMADA" ↔ "smoke aktarmada" ↔ "SMOKE AKTARMADA" ayni katlanir. Once
+// noktali/noktasiz i elle sabitlenir (NFD "İ"yi "I"ya cevirir; "ı" cozulmez), sonra kalan
+// birlesik aksan isaretleri (ş/ğ/ç/ü/ö) NFD ile soyulur.
+function foldTrackingText(text: string): string {
+  return text
+    .replace(/ı/g, "i")
+    .replace(/İ/g, "I")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// TODO-140 — Hareket metni → durum ilerletme kanit sozlukleri. Yalniz TASIMA/AKTARMA,
+// DAGITIMA CIKMA ve KESIN TESLIM kaniti ilerletir; zayif metin (olusturuldu/etiket/paketlendi/
+// "teslim alindi"=kuryeye teslim) null doner (sahte ilerleme yok). Substring eslesir:
+// "AKTARMADA" ⊃ "AKTARMA", "TRANSFER MERKEZINDE" ⊃ "TRANSFER".
+const DELIVERED_TEXT_KEYWORDS = ["TESLIM EDILDI", "DELIVERED"];
+const OUT_FOR_DELIVERY_TEXT_KEYWORDS = [
+  "DAGITIMDA",
+  "DAGITIMA CIKTI",
+  "DAGITIMA CIKAR", // "dagitima cikarildi"
+  "OUT FOR DELIVERY",
+  "OUT_FOR_DELIVERY",
+];
+const IN_TRANSIT_TEXT_KEYWORDS = [
+  "TRANSFER",
+  "AKTARMA",
+  "TASIMA",
+  "YOLDA",
+  "HUB",
+  "SORTING",
+  "IN TRANSIT",
+  "ARRIVED AT FACILITY",
+  "DEPARTED FACILITY",
+  "DAGITIM MERKEZ", // dagitim/aktarma merkezinde islem → transit (dagitima CIKMA degil)
+];
+
+/**
+ * TODO-140 — Saglayici HAREKET metninden ic ShipmentStatus cikarimi (kod tasimayan MNG/DHL
+ * push'lari icin). Guclu kanit onceligi: TESLIM > DAGITIMA CIKIS > TASIMA/AKTARMA. Bilinmeyen
+ * ya da zayif metin → null (ilerleme yok). Saf/deterministik; hem webhook hem sync ayni
+ * cikarimi kullanir (mapProviderStatusToShipmentStatus icinden). Regresyon KORUMASI cagiran
+ * fold'da yapilir — bu fonksiyon yalniz ADAY doner, mevcut durumu bilmez.
+ */
+export function inferShipmentStatusFromTrackingText(
+  text: string | null | undefined,
+): ShipmentStatus | null {
+  if (!text) return null;
+  const folded = foldTrackingText(text);
+  if (folded.length === 0) return null;
+  if (DELIVERED_TEXT_KEYWORDS.some((k) => folded.includes(k))) return "DELIVERED";
+  if (OUT_FOR_DELIVERY_TEXT_KEYWORDS.some((k) => folded.includes(k))) return "OUT_FOR_DELIVERY";
+  if (IN_TRANSIT_TEXT_KEYWORDS.some((k) => folded.includes(k))) return "IN_TRANSIT";
+  return null;
+}
+
 // getshipmentstatus durum → ic ShipmentStatus. Bilinmeyen/null kodda mevcut durum korunur;
 // terminal durumdan geri donulmez; ileri olmayan koda regres edilmez.
+// TODO-140 — Kod'a EK olarak saglayici HAREKET metni (statusText) de kanit sayilir: kod
+// tasimayan transfer/aktarma push'u IN_TRANSIT'e ilerletir. Kod ve metin adaylarindan en
+// ILERI olan (rank) secilir; ikisi de mevcut durumdan geride ise durum korunur.
 export function mapProviderStatusToShipmentStatus(
-  status: { statusCode: number | null; isDelivered: boolean },
+  status: { statusCode: number | null; isDelivered: boolean; statusText?: string | null },
   current: ShipmentStatus,
 ): ShipmentStatus {
   if (TERMINAL_SHIPMENT_STATUSES.includes(current)) return current;
   if (status.isDelivered) return "DELIVERED";
-  if (status.statusCode == null) return current;
-  const mapped = DHL_STATUS_TO_SHIPMENT[status.statusCode];
-  if (!mapped) return current;
-  // Final hedefe (DELIVERED/RETURNED) her zaman gec; aksi halde geri gitme.
-  if (TERMINAL_SHIPMENT_STATUSES.includes(mapped)) return mapped;
-  return SHIPMENT_STATUS_RANK[mapped] >= SHIPMENT_STATUS_RANK[current] ? mapped : current;
+
+  // Tum kanit kaynaklarindan aday durumlari topla (kod eslemesi + hareket metni cikarimi).
+  const candidates: ShipmentStatus[] = [];
+  if (status.statusCode != null) {
+    const mapped = DHL_STATUS_TO_SHIPMENT[status.statusCode];
+    if (mapped) candidates.push(mapped);
+  }
+  const textCandidate = inferShipmentStatusFromTrackingText(status.statusText ?? null);
+  if (textCandidate) candidates.push(textCandidate);
+
+  let next = current;
+  for (const candidate of candidates) {
+    // Final hedefe (DELIVERED/RETURNED) her zaman gec; aksi halde geri gitme.
+    if (TERMINAL_SHIPMENT_STATUSES.includes(candidate)) return candidate;
+    if (SHIPMENT_STATUS_RANK[candidate] >= SHIPMENT_STATUS_RANK[next]) next = candidate;
+  }
+  return next;
 }

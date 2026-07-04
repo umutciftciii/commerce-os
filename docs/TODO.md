@@ -787,3 +787,28 @@
   (düzeltilmiş kodlarla). KALAN: main'e merge sonrası docker api-gateway + store-admin-web REBUILD + runtime
   doğrulama (yanlış adresli/taşınmamış sipariş → geçerli Kadıköy adresi → snapshot+CBS+barkod retry; kilitli
   siparişte engel; müşteri adres defteri değişmez).
+- TODO-140 — Kargo HAREKET metniyle Shipment.status ilerletme (DONE — 2026-07-04). İş problemi: TODO-130 ham
+  webhook adapter'ından SONRA, gönderi timeline'ı "SMOKE AKTARMADA"/"SMOKE TRANSFER MERKEZİNDE" hareketleri
+  gösterirken üst rozet "Kargo İçin Paketlendi" (PACKED) ve "Kargonun alımı bekleniyor." ipucunda TAKILI
+  kalıyordu. Kök neden: `mapProviderStatusToShipmentStatus` YALNIZ `statusCode`+`isDelivered` bakıyordu;
+  MNG/DHL sandbox hareket push'ları kod TAŞIMADAN yalnız `eventStatus` METNİ gönderdiğinden kod null →
+  ilerleme yok. Müşteri/store-admin gösterimi zaten `Shipment.status`'tan doğru türetiyordu (IN_TRANSIT →
+  "Yolda"); sorun kaynak-otorite durumun bayat kalmasıydı. Çözüm: `status-map.ts` içine paylaşılan saf
+  `inferShipmentStatusFromTrackingText(text)` — Türkçe büyük/küçük + diakritik BAĞIMSIZ (NFD + noktalı/noktasız
+  i sabitleme + ASCII fold) normalize eder; güçlü kanıt önceliğiyle TESLİM EDİLDİ→DELIVERED, DAĞITIMA
+  ÇIKTI/DAĞITIMDA→OUT_FOR_DELIVERY, TRANSFER/AKTARMA/TAŞIMA/YOLDA/HUB/SORTING/DAĞITIM MERKEZ→IN_TRANSIT;
+  zayıf metin (oluşturuldu/etiket/barkod/paketlendi/"teslim ALINDI") → null. `mapProviderStatusToShipmentStatus`
+  artık kod + metin adaylarından EN İLERİ olanı (rank) seçer; terminal/regresyon koruması AYNEN korunur.
+  KAPSAM: metin çıkarımı YALNIZ HAREKET (trackshipment / DHL_TRACKING) push'una uygulanır — DURUM push'u
+  (getshipmentstatus / DHL_STATUS) ve PLATFORM sözleşmesi kod-güdümlü kalır (TODO-130'un "status-push metni
+  tek başına kanıt değil" kuralı korunur). Webhook (`webhook-routes.ts`) ve zamanlanmış sync (`sync-service.ts`)
+  AYNI yardımcıyı kullanır (drift yok); sync ayrıca `trackShipment` hareketlerini katarak ilerletir (önceden
+  yalnız getShipmentStatus snapshot'ı ilerletiyordu). Idempotency/dedupe DEĞİŞMEDİ (event fingerprint durum
+  metnini zaten taşıyordu; türetilen durum değil). Migration: HAYIR. Kontrat/DTO değişikliği: HAYIR (müşteri
+  DTO allowlist'i olduğu gibi — ham payload dışarı sızmaz, statusText timeline-güvenli alan). Testler:
+  `shipping-mappers.test.ts` (+6: metin→durum + kod-yok/terminal-koruma), `shipping-webhook.test.ts` (+4:
+  DHL_TRACKING transfer→IN_TRANSIT, duplicate spam yok, zayıf metin durumu değiştirmez, TESLİM→DELIVERED),
+  `shipping-sync-service.test.ts` (+2: hareket metniyle IN_TRANSIT, ileri durum geri çekilmez),
+  `storefront-web/shipment.test.ts` (+1: IN_TRANSIT→"Yolda" adımı + bekleme ipucu yok). TODO-130/129/123/135/136
+  testleri yeşil (882/882). KALAN: main'e merge sonrası docker api-gateway REBUILD + runtime doğrulama (SMOKE
+  AKTARMADA hareketli mevcut gönderi → DB Shipment.status=IN_TRANSIT + müşteri/order rozet "Yolda").

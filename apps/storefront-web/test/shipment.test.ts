@@ -92,4 +92,17 @@ describe("storefront · shipment tracking helpers", () => {
     // ORDER_CREATED müşteriye "kargoya verildi/teslim" gibi yanıltıcı ifade göstermez.
     expect(tr.statusValues.ORDER_CREATED).not.toMatch(/kargoya verildi|teslim/i);
   });
+
+  // TODO-140 — Hareket kaniti (transfer/aktarma) ile Shipment.status IN_TRANSIT'e ilerleyince
+  // müşteri gösterimi tutarli olmali: rozet "Yolda", progress adimi Yolda, "Kargonun alımı
+  // bekleniyor." ipucu GOSTERILMEZ (source-of-truth durumdan türer, timeline metninden değil).
+  it("IN_TRANSIT durum gösterimi 'Yolda' adımına oturur ve bekleme ipucu göstermez", () => {
+    const tr = getDictionary("tr").storefront.account.orders.detail.tracking;
+    expect(tr.statusValues.IN_TRANSIT).toBe("Yolda");
+    // Progress bar: Yolda = adim index 1 (hazırlıktan ileri).
+    expect(shipmentStepIndex("IN_TRANSIT")).toBe(1);
+    expect(shipmentStepIndex("IN_TRANSIT")).toBeGreaterThan(shipmentStepIndex("LABEL_CREATED"));
+    // "Kargonun alımı bekleniyor." yalniz hazırlık aşamasında; IN_TRANSIT'te değil.
+    expect(isAwaitingPickupShipmentStatus("IN_TRANSIT")).toBe(false);
+  });
 });

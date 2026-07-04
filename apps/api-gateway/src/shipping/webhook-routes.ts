@@ -317,10 +317,21 @@ export function registerShippingWebhookRoutes(
 
       // Bilinmeyen statusCode mevcut durumu KORUR; terminal durumdan geri donulmez,
       // regres edilmez (sync ile AYNI normalize esleme fold edilir — drift yok).
+      // TODO-140 — Kod'a EK olarak hareket METNI (statusText) de kanit sayilir: kod
+      // tasimayan "AKTARMADA"/"TRANSFER MERKEZINDE" hareketi IN_TRANSIT'e ilerletir. Regresyon
+      // korumasi + terminal koruma mapProviderStatusToShipmentStatus icinde (sync ile ayni yol).
+      // KAPSAM: yalniz HAREKET (trackshipment / DHL_TRACKING) push'u metinle ilerler; durum
+      // push'u (getshipmentstatus / DHL_STATUS) metni TEK BASINA kanit sayilmaz (ADR-055/TODO-130
+      // kurali korunur — kod/isDelivered gerekir). PLATFORM sozlesmesi kod-gudumlu kalir.
+      const movementTextPromotes = normalized.format === "DHL_TRACKING";
       let nextStatus = shipment.status;
       for (const ev of events) {
         nextStatus = mapProviderStatusToShipmentStatus(
-          { statusCode: ev.statusCode, isDelivered: ev.isDelivered },
+          {
+            statusCode: ev.statusCode,
+            isDelivered: ev.isDelivered,
+            statusText: movementTextPromotes ? ev.statusText : null,
+          },
           nextStatus,
         );
       }

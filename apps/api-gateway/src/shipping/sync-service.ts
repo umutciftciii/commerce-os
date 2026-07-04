@@ -203,7 +203,21 @@ export function createShipmentSyncService(deps: ShipmentSyncServiceDeps): Shipme
       const status = await adapter.getShipmentStatus(lookup);
       const track = await adapter.trackShipment(lookup).catch(() => []);
 
-      const nextStatus = mapProviderStatusToShipmentStatus(status, shipment.status);
+      // TODO-140 — Once getShipmentStatus kanitiyla (kod/isDelivered) ilerlet; durum push'u
+      // METNI TEK BASINA kanit sayilmaz (statusText: null — TODO-130 ile ayni kural). Sonra
+      // HAREKET (trackshipment) metinlerini ayni yardimciyi katlayarak uygula: kod tasimayan
+      // "AKTARMADA"/"TRANSFER MERKEZINDE" hareketi IN_TRANSIT'e cikarir. Regresyon/terminal
+      // korumasi helper icinde (webhook ile AYNI yol → drift yok).
+      let nextStatus = mapProviderStatusToShipmentStatus(
+        { statusCode: status.statusCode ?? null, isDelivered: status.isDelivered, statusText: null },
+        shipment.status,
+      );
+      for (const ev of track) {
+        nextStatus = mapProviderStatusToShipmentStatus(
+          { statusCode: ev.statusCode ?? null, isDelivered: false, statusText: ev.statusText },
+          nextStatus,
+        );
+      }
       const statusChanged = nextStatus !== shipment.status;
 
       // STATUS_CHANGED idempotency: durum gecisi YA DA saglayici kod/metin degisimi yoksa
