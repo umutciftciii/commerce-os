@@ -18,6 +18,7 @@
     "@commerce-os/db": "workspace:*",
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/queues": "workspace:*",
+    "@commerce-os/utils": "workspace:*",
     "@prisma/client": "^6.2.1",
     "fastify": "^5.2.1",
     "zod": "^3.24.1"

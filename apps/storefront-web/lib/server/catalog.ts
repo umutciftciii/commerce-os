@@ -21,7 +21,7 @@ import type {
   StorefrontVariantView,
 } from "../catalog-types";
 import { deriveProductCommerceView } from "../sales-model";
-import { formatLowest, formatMinor, formatPriceRange } from "../money";
+import { formatLowest, formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
 import { getPublic } from "./gateway";
 
@@ -52,8 +52,11 @@ function visiblePrices(variants: PublicProductVariant[]) {
 function buildPrice(priceMode: PriceDisplayMode, variants: PublicProductVariant[]): StorefrontPrice {
   const prices = visiblePrices(variants);
 
+  // F4C (ADR-063) — Kart fiyati = EN UCUZ gorunur varyant (brut). Aralik
+  // ("min – max") ARTIK gosterilmez; kampanya "Sepette" tahmini de gateway'de
+  // ayni en-ucuz taban uzerinden hesaplanir (kartla tutarli).
   let amountLabel: string | null = null;
-  if (priceMode === "amount") amountLabel = formatPriceRange(prices);
+  if (priceMode === "amount") amountLabel = formatLowest(prices);
   else if (priceMode === "startingFrom") amountLabel = formatLowest(prices);
 
   // Indirim: en dusuk fiyatli varyantta gecerli bir compareAt varsa goster.

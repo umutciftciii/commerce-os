@@ -15,22 +15,12 @@ export function formatMinor(minor: number, currency: string): string {
 }
 
 /**
- * Bir fiyat listesinden (varyant fiyatlari) tek tutar ya da aralik etiketi
- * uretir. Bos liste icin null doner (cagiran taraf "fiyat yok" durumunu
- * sozlukten yonetir).
+ * F4C (ADR-063) — Urun karti fiyat ARALIGI gostermez: cok varyantli urunde
+ * yalnizca EN UCUZ aktif varyantin (brut, KDV dahil) fiyati gosterilir; eski
+ * `formatPriceRange` ("min – max") bilincli KALDIRILDI (kampanya blogu ile
+ * cakisan kalabalik gorunum). Detay sayfasi varyant fiyatlarini ayri gosterir.
  */
-export function formatPriceRange(
-  prices: { priceMinor: number; currency: string }[],
-): string | null {
-  if (prices.length === 0) return null;
-  const currency = prices[0].currency;
-  const values = prices.map((p) => p.priceMinor);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  return min === max ? formatMinor(min, currency) : `${formatMinor(min, currency)} – ${formatMinor(max, currency)}`;
-}
-
-/** Aralikta en dusuk tutari bicimler ("STARTING_FROM" gosterimi icin). */
+/** Aralikta en dusuk tutari bicimler (kart fiyati + "STARTING_FROM" gosterimi). */
 export function formatLowest(prices: { priceMinor: number; currency: string }[]): string | null {
   if (prices.length === 0) return null;
   const currency = prices[0].currency;

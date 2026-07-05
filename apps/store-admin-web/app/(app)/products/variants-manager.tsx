@@ -15,6 +15,7 @@ import {
   type DataTableColumn,
 } from "../../../components/ui";
 import { format, formatDateTime, getDictionary } from "@commerce-os/i18n";
+import { DEFAULT_VAT_RATE_BPS, VAT_RATE_BPS_PRESETS, splitGrossByVat, vatFromNet } from "@commerce-os/utils";
 import type {
   Product,
   ProductPriceChange,
@@ -212,7 +213,20 @@ function VariantEditor({
 
   const [title, setTitle] = useState(variant?.title ?? "");
   const [sku, setSku] = useState(variant?.sku ?? "");
-  const [price, setPrice] = useState(variant ? minorToInput(variant.priceMinor) : "");
+  // F4C (ADR-063) — Fiyat alanı artık KDV HARİÇ net fiyattır; KDV dahil satış
+  // fiyatı (priceMinor) sunucuda hesaplanır. Eski kayıtta net snapshot yoksa
+  // (savunmacı) brütten aynı formülle ayrıştırılır (görünen brüt korunur).
+  const [price, setPrice] = useState(
+    variant
+      ? minorToInput(
+          variant.netPriceMinor ??
+            splitGrossByVat(variant.priceMinor, variant.vatRateBps ?? DEFAULT_VAT_RATE_BPS).netMinor,
+        )
+      : "",
+  );
+  const [vatRate, setVatRate] = useState<string>(
+    String(variant?.vatRateBps ?? DEFAULT_VAT_RATE_BPS),
+  );
   const [compareAt, setCompareAt] = useState(variant ? minorToInput(variant.compareAtMinor) : "");
   const [cost, setCost] = useState(variant ? minorToInput(variant.costMinor) : "");
   const [barcode, setBarcode] = useState(variant?.barcode ?? "");
@@ -233,21 +247,28 @@ function VariantEditor({
     label: statusLabels[value],
   }));
 
-  // F4B — Canlı marj/markup + liste uyarısı (yalnızca gösterim; submit ayrıca doğrular).
-  const priceLive = inputToMinor(price);
+  // F4C — Canlı KDV önizlemesi (yalnızca gösterim; kesin hesap SUNUCUDA aynı
+  // paylaşılan formülle yapılır — istemci değerine güvenilmez).
+  const netLive = inputToMinor(price);
+  const vatRateLive = Number.parseInt(vatRate, 10);
+  const vatPreview =
+    netLive !== null && Number.isFinite(vatRateLive) ? vatFromNet(netLive, vatRateLive) : null;
+  const grossLive = vatPreview?.grossMinor ?? null;
+  // F4B — Canlı marj/markup + liste uyarısı (KDV dahil brüt satış üzerinden;
+  // yalnızca gösterim; submit ayrıca doğrular).
   const costLive = cost.trim() === "" ? null : inputToMinor(cost);
   const compareAtLive = compareAt.trim() === "" ? null : inputToMinor(compareAt);
   const marginPct =
-    priceLive !== null && priceLive > 0 && costLive !== null
-      ? ((priceLive - costLive) / priceLive) * 100
+    grossLive !== null && grossLive > 0 && costLive !== null
+      ? ((grossLive - costLive) / grossLive) * 100
       : null;
   const markupPct =
-    priceLive !== null && costLive !== null && costLive > 0
-      ? ((priceLive - costLive) / costLive) * 100
+    grossLive !== null && costLive !== null && costLive > 0
+      ? ((grossLive - costLive) / costLive) * 100
       : null;
   const showCompareAtWarning =
-    priceLive !== null && compareAtLive !== null && compareAtLive < priceLive;
-  const listCeilingLive = compareAtLive ?? priceLive;
+    grossLive !== null && compareAtLive !== null && compareAtLive < grossLive;
+  const listCeilingLive = compareAtLive ?? grossLive;
   const costExceedsList =
     costLive !== null && listCeilingLive !== null && costLive > listCeilingLive;
 
@@ -264,11 +285,13 @@ function VariantEditor({
       return;
     }
 
-    const priceMinor = inputToMinor(price);
-    if (priceMinor === null) {
+    // F4C — Girilen tutar KDV HARİÇ net fiyattır; brüt/KDV sunucuda hesaplanır.
+    const netPriceMinor = inputToMinor(price);
+    if (netPriceMinor === null) {
       setError(f.requiredPrice);
       return;
     }
+    const vatRateBps = Number.parseInt(vatRate, 10);
 
     let compareAtMinor: number | null = null;
     if (compareAt.trim() !== "") {
@@ -291,7 +314,9 @@ function VariantEditor({
       }
       costMinor = parsed;
     }
-    const listCeiling = compareAtMinor ?? priceMinor;
+    // Liste tavanı önizlemesi: KDV dahil brüt (sunucu aynı kuralı kesinler).
+    const grossPreview = vatFromNet(netPriceMinor, vatRateBps).grossMinor;
+    const listCeiling = compareAtMinor ?? grossPreview;
     if (costMinor !== null && costMinor > listCeiling) {
       setError(f.costTooHigh);
       return;
@@ -316,9 +341,11 @@ function VariantEditor({
     setSaving(true);
     try {
       if (isEdit && variant) {
+        // F4C — Net + oran gönderilir; KDV tutarı/brüt SUNUCUDA hesaplanır.
         await storeApi.updateVariant(product.id, variant.id, {
           title: title.trim(),
-          priceMinor,
+          netPriceMinor,
+          vatRateBps,
           compareAtMinor,
           costMinor,
           barcode: barcode.trim() === "" ? null : barcode.trim(),
@@ -334,7 +361,8 @@ function VariantEditor({
         const payload: ProductVariantCreateRequest = {
           title: title.trim(),
           sku: sku.trim(),
-          priceMinor,
+          netPriceMinor,
+          vatRateBps,
           currency: "TRY",
           status,
         };
@@ -351,6 +379,8 @@ function VariantEditor({
       }
     } catch (caught) {
       setError(messageForError(caught, locale));
+    } finally {
+      // F4C bugfix — başarı/hata her iki yolda da loading kapanır (stuck CTA yok).
       setSaving(false);
     }
   }
@@ -410,18 +440,53 @@ function VariantEditor({
             />
             <p className="mt-1.5 text-xs text-white/30">{f.priceHint}</p>
           </div>
-          <div>
-            <Input
-              id="variant-compare"
-              inputMode="decimal"
-              label={f.compareAtLabel}
-              placeholder={f.compareAtPlaceholder}
-              value={compareAt}
-              onChange={(event) => setCompareAt(event.target.value)}
-              disabled={saving}
-            />
-            <p className="mt-1.5 text-xs text-white/30">{f.compareAtHint}</p>
+          <Select
+            id="variant-vat-rate"
+            label={f.vatRateLabel}
+            value={vatRate}
+            onChange={(event) => setVatRate(event.target.value)}
+            disabled={saving}
+            options={VAT_RATE_BPS_PRESETS.map((bps) => ({
+              value: String(bps),
+              label:
+                bps === 0
+                  ? f.vatRateOption0
+                  : bps === 100
+                    ? f.vatRateOption1
+                    : bps === 1000
+                      ? f.vatRateOption10
+                      : f.vatRateOption20,
+            }))}
+          />
+        </div>
+        {/* F4C — Salt-okunur KDV tutarı + KDV dahil fiyat önizlemesi. Kesin hesap
+            sunucudadır; bu blok yalnızca aynı formülle canlı önizlemedir. */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-white/40">{f.vatAmountLabel}</span>
+            <span className="text-sm font-medium text-white/80" data-testid="variant-vat-amount">
+              {vatPreview ? formatMinor(vatPreview.vatMinor, variant?.currency ?? "TRY") : "—"}
+            </span>
           </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-xs text-white/40">{f.vatGrossLabel}</span>
+            <span className="text-sm font-semibold text-white/90" data-testid="variant-vat-gross">
+              {vatPreview ? formatMinor(vatPreview.grossMinor, variant?.currency ?? "TRY") : "—"}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-white/30">{f.vatPreviewHint}</p>
+        </div>
+        <div>
+          <Input
+            id="variant-compare"
+            inputMode="decimal"
+            label={f.compareAtLabel}
+            placeholder={f.compareAtPlaceholder}
+            value={compareAt}
+            onChange={(event) => setCompareAt(event.target.value)}
+            disabled={saving}
+          />
+          <p className="mt-1.5 text-xs text-white/30">{f.compareAtHint}</p>
         </div>
         {showCompareAtWarning ? (
           <Alert tone="warning">{f.compareAtBelowWarning}</Alert>
@@ -457,7 +522,7 @@ function VariantEditor({
               <p className="mt-2 text-xs text-white/30">{f.marginNoCost}</p>
             ) : costExceedsList ? (
               <p className="mt-2 text-xs text-rose-300/80">{f.costTooHigh}</p>
-            ) : priceLive === null ? (
+            ) : grossLive === null ? (
               <p className="mt-2 text-xs text-white/30">{f.marginNoPrice}</p>
             ) : null}
           </div>

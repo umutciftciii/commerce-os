@@ -178,7 +178,9 @@ describe("store-admin product detail — dedicated route page", () => {
     const dialog = within(screen.getByRole("dialog"));
     await user.type(dialog.getByLabelText("Başlık"), "Siyah / M");
     await user.type(dialog.getByLabelText("SKU"), "SWT-SYH-M");
-    await user.type(dialog.getByLabelText("Fiyat (₺)"), "199,90");
+    // F4C — Fiyat alanı artık KDV HARİÇ nettir; net + oran gönderilir, KDV
+    // tutarı/brüt SUNUCUDA hesaplanır (payload'da priceMinor YOK).
+    await user.type(dialog.getByLabelText("KDV hariç fiyat (₺)"), "199,90");
     // F3C.2 — Varyant kargo desisi girilir; payload'a yansır (modal'a scope edilir,
     // çünkü ürün formunda da aynı etiket var).
     await user.type(dialog.getByLabelText("Kargo desisi"), "4");
@@ -187,8 +189,90 @@ describe("store-admin product detail — dedicated route page", () => {
     await waitFor(() => expect(storeApiMock.createVariant).toHaveBeenCalledTimes(1));
     expect(storeApiMock.createVariant).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ sku: "SWT-SYH-M", priceMinor: 19990, currency: "TRY", shippingDesi: 4 }),
+      expect.objectContaining({
+        sku: "SWT-SYH-M",
+        netPriceMinor: 19990,
+        vatRateBps: 2000,
+        currency: "TRY",
+        shippingDesi: 4,
+      }),
     );
+    expect(
+      (storeApiMock.createVariant.mock.calls[0][1] as Record<string, unknown>).priceMinor,
+    ).toBeUndefined();
+  });
+
+  // F4C — KDV önizleme UI: helper metni, oran seçimi, salt-okunur KDV tutarı ve
+  // KDV dahil fiyat önizlemesi (sunucu yine de yeniden hesaplar).
+  it("F4C: variant modal shows VAT-exclusive helper, rate select and live VAT/gross preview", async () => {
+    storeApiMock.getProduct.mockResolvedValue(makeProduct());
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.listVariants.mockResolvedValue(page(0, []));
+    const user = userEvent.setup();
+
+    render(<ProductDetailPage />);
+    await screen.findByText("Temel bilgiler");
+    await user.click(await screen.findByRole("button", { name: "İlk varyantı ekle" }));
+    const dialog = within(screen.getByRole("dialog"));
+
+    // Helper: KDV hariç tutar girilmesi istenir.
+    expect(dialog.getByText(/KDV hariç tutarı girin/)).toBeTruthy();
+    expect(dialog.getByLabelText("KDV oranı")).toBeTruthy();
+
+    // Net 100,00 + %20 → KDV 20,00 / brüt 120,00.
+    await user.type(dialog.getByLabelText("KDV hariç fiyat (₺)"), "100");
+    expect(dialog.getByTestId("variant-vat-amount").textContent).toContain("20,00");
+    expect(dialog.getByTestId("variant-vat-gross").textContent).toContain("120,00");
+
+    // Oran %10'a inince önizleme güncellenir.
+    await user.selectOptions(dialog.getByLabelText("KDV oranı"), "1000");
+    expect(dialog.getByTestId("variant-vat-amount").textContent).toContain("10,00");
+    expect(dialog.getByTestId("variant-vat-gross").textContent).toContain("110,00");
+  });
+
+  // F4C bugfix — Kaydet CTA takılması: başarıda ve hatada loading sıfırlanır,
+  // kaydetme sırasında double-submit engellenir.
+  it("F4C: save button returns from 'Kaydediliyor...' to normal on success (no stuck CTA)", async () => {
+    storeApiMock.getProduct.mockResolvedValue(makeProduct());
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.listVariants.mockResolvedValue(page(0, []));
+    let resolveUpdate: (value: unknown) => void = () => {};
+    storeApiMock.updateProduct.mockImplementation(
+      () => new Promise((resolve) => { resolveUpdate = resolve; }),
+    );
+    const user = userEvent.setup();
+
+    render(<ProductDetailPage />);
+    await screen.findByText("Temel bilgiler");
+
+    await user.click(screen.getByRole("button", { name: "Değişiklikleri kaydet" }));
+    // Beklemede: buton "Kaydediliyor…" ve disabled (double-submit koruması).
+    const savingButton = await screen.findByRole("button", { name: "Kaydediliyor…" });
+    expect((savingButton as HTMLButtonElement).disabled).toBe(true);
+    await user.click(savingButton);
+    expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1);
+
+    resolveUpdate(makeProduct({ title: "Sweatshirt" }));
+    // Başarı: bilgi görünür VE buton normal etikete döner, tekrar tıklanabilir.
+    expect(await screen.findByText("Ürün bilgileri kaydedildi.")).toBeTruthy();
+    const normalButton = await screen.findByRole("button", { name: "Değişiklikleri kaydet" });
+    expect((normalButton as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("F4C: save button resets after an error as well", async () => {
+    storeApiMock.getProduct.mockResolvedValue(makeProduct());
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.listVariants.mockResolvedValue(page(0, []));
+    storeApiMock.updateProduct.mockRejectedValue(new MockUiError("PRODUCT_NOT_PURCHASABLE"));
+    const user = userEvent.setup();
+
+    render(<ProductDetailPage />);
+    await screen.findByText("Temel bilgiler");
+
+    await user.click(screen.getByRole("button", { name: "Değişiklikleri kaydet" }));
+    expect(await screen.findByText("Bu ürün doğrudan satın alınamaz.")).toBeTruthy();
+    const normalButton = await screen.findByRole("button", { name: "Değişiklikleri kaydet" });
+    expect((normalButton as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("renders the product detail page in English under an en locale", async () => {

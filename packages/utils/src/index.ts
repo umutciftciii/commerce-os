@@ -7,6 +7,17 @@ export {
   type CampaignLabelLocale,
 } from "./campaign-label.js";
 
+export {
+  DEFAULT_VAT_RATE_BPS,
+  VAT_RATE_BPS_MAX,
+  VAT_RATE_BPS_MIN,
+  VAT_RATE_BPS_PRESETS,
+  isValidVatRateBps,
+  splitGrossByVat,
+  vatFromNet,
+  type VatBreakdownMinor,
+} from "./vat.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

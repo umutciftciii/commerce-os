@@ -183,6 +183,138 @@ function CampaignPanel({ order, d }: { order: Order; d: DetailDict }) {
 }
 
 /**
+ * F4C (ADR-064) — Bölüm A: Ödeme/tutar özeti. KAYNAK: sunucunun snapshot-türevi
+ * `order.salesSummary` projeksiyonu (ara toplam / indirim+etiket / kargo /
+ * ödenmesi gereken / net ödenen / kalan bakiye). Sunucu özet dönmezse (eski
+ * yanıt) çağıran taraf legacy tutar kartına düşer.
+ */
+function PaymentSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
+  const summary = order.salesSummary!;
+  const currency = summary.currency;
+  return (
+    <SurfaceCard title={d.paymentSummaryTitle}>
+      <MoneyRow label={d.paymentSubtotal} value={formatMinor(summary.subtotalGrossMinor, currency)} />
+      <div className="flex items-center justify-between py-1 text-sm">
+        <span className="text-white/45">
+          {d.paymentDiscount}
+          {summary.discountLabel ? (
+            <span className="ml-2 text-xs text-emerald-300/80">{summary.discountLabel}</span>
+          ) : null}
+        </span>
+        <span className="font-medium text-white/70">
+          {summary.discountGrossMinor > 0
+            ? `−${formatMinor(summary.discountGrossMinor, currency)}`
+            : formatMinor(0, currency)}
+        </span>
+      </div>
+      <MoneyRow label={d.paymentShipping} value={formatMinor(summary.shippingGrossMinor, currency)} />
+      {order.shippingSelection ? (
+        <div className="flex items-center justify-between text-xs text-white/40">
+          <span>{d.shippingProvider}</span>
+          <span className="text-right text-white/60">
+            {order.shippingSelection.providerName ?? order.shippingSelection.serviceName}
+          </span>
+        </div>
+      ) : null}
+      <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+        <span className="font-semibold text-white/90">{d.paymentPayable}</span>
+        <span className="font-semibold text-white/90">
+          {formatMinor(summary.payableGrossMinor, currency)}
+        </span>
+      </div>
+      <MoneyRow label={d.paymentPaid} value={formatMinor(summary.paidGrossMinor, currency)} />
+      <MoneyRow label={d.paymentRemaining} value={formatMinor(summary.remainingGrossMinor, currency)} />
+    </SurfaceCard>
+  );
+}
+
+/** KDV oran etiketi: 2000 bps → "20"; tam bölünemeyen oranlarda 1 ondalık. */
+function vatRateText(rateBps: number): string {
+  return rateBps % 100 === 0 ? String(rateBps / 100) : (rateBps / 100).toFixed(1);
+}
+
+/**
+ * F4C (ADR-064) — Bölüm B: Satış/vergi/kâr özeti. YALNIZ sipariş anındaki
+ * snapshot'lardan türetilen `salesSummary.sales` gösterilir; snapshot'sız
+ * (F4C öncesi) siparişte yanıltıcı sıfır yerine "eski format" bilgisi verilir.
+ * Maliyet snapshot'ı yoksa kâr satırları "—" kalır. "Net kâr" vurgulanır.
+ */
+function SalesSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
+  const summary = order.salesSummary;
+  if (!summary) return null;
+  const sales = summary.sales;
+  return (
+    <SurfaceCard title={d.salesSummaryTitle} description={d.salesSummarySubtitle}>
+      {sales === null ? (
+        <Alert tone="info">{d.salesLegacyNotice}</Alert>
+      ) : (
+        <>
+          <MoneyRow label={d.salesListPrice} value={formatMinor(sales.listGrossMinor, summary.currency)} />
+          <MoneyRow
+            label={
+              sales.vatBreakdown.length === 1
+                ? format(d.salesVat, { rate: vatRateText(sales.vatBreakdown[0].rateBps) })
+                : d.salesVatMixed
+            }
+            value={formatMinor(sales.totalVatMinor, summary.currency)}
+          />
+          {sales.vatBreakdown.length > 1
+            ? sales.vatBreakdown.map((vatLine) => (
+                <div
+                  key={vatLine.rateBps}
+                  className="flex items-center justify-between text-xs text-white/40"
+                >
+                  <span>{format(d.salesVatRateLine, { rate: vatRateText(vatLine.rateBps) })}</span>
+                  <span>{formatMinor(vatLine.amountMinor, summary.currency)}</span>
+                </div>
+              ))
+            : null}
+          <MoneyRow label={d.salesNetPrice} value={formatMinor(sales.subtotalNetMinor, summary.currency)} />
+          <MoneyRow
+            label={d.salesCost}
+            value={sales.totalCostMinor !== null ? formatMinor(sales.totalCostMinor, summary.currency) : "—"}
+          />
+          <MoneyRow
+            label={d.salesGrossProfit}
+            value={
+              sales.grossProfitMinor !== null ? formatMinor(sales.grossProfitMinor, summary.currency) : "—"
+            }
+          />
+          <MoneyRow
+            label={d.salesCampaignDiscount}
+            value={
+              sales.campaignDiscountMinor > 0
+                ? `−${formatMinor(sales.campaignDiscountMinor, summary.currency)}`
+                : formatMinor(0, summary.currency)
+            }
+          />
+          <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+            <span className="font-semibold text-white/90">{d.salesNetProfit}</span>
+            <span
+              className={[
+                "font-bold",
+                sales.netProfitMinor === null
+                  ? "text-white/40"
+                  : sales.netProfitMinor >= 0
+                    ? "text-emerald-300"
+                    : "text-rose-300",
+              ].join(" ")}
+            >
+              {sales.netProfitMinor !== null
+                ? formatMinor(sales.netProfitMinor, summary.currency)
+                : "—"}
+            </span>
+          </div>
+          {sales.totalCostMinor === null ? (
+            <p className="mt-2 text-xs text-white/30">{d.salesNoCost}</p>
+          ) : null}
+        </>
+      )}
+    </SurfaceCard>
+  );
+}
+
+/**
  * F3B.2 — Ödeme gözlemlenebilirlik paneli. Provider/mod/yöntem, maskeli kart,
  * taksit, işlem (transaction) No, deneme No/durumu, ödeme/başarısızlık tarihi ve
  * başarısızlık nedeni. Deneme yoksa empty state. Full PAN/CVC ASLA gosterilmez.
@@ -507,48 +639,57 @@ export default function OrderDetailPage() {
                   </div>
                 </SurfaceCard>
 
-                <SurfaceCard title={d.summaryTitle}>
-                  <MoneyRow
-                    label={d.subtotal}
-                    value={formatMinor(order.subtotalAmount, order.currency)}
-                  />
-                  <MoneyRow
-                    label={d.discount}
-                    value={formatMinor(order.discountAmount, order.currency)}
-                  />
-                  <MoneyRow
-                    label={d.shipping}
-                    value={formatMinor(order.shippingAmount, order.currency)}
-                  />
-                  {order.shippingSelection ? (
-                    <div className="flex items-center justify-between text-xs text-white/40">
-                      <span>{d.shippingProvider}</span>
-                      <span className="text-right text-white/60">
-                        {order.shippingSelection.providerName ?? order.shippingSelection.serviceName}
-                        {order.shippingSelection.serviceName &&
-                        order.shippingSelection.providerName !== order.shippingSelection.serviceName
-                          ? ` · ${order.shippingSelection.serviceName}`
-                          : ""}
+                {/* F4C (ADR-064) — Bölüm A (ödeme özeti) + Bölüm B (satış özeti).
+                    Sunucu salesSummary dönmezse legacy tutar kartına düşülür. */}
+                {order.salesSummary ? (
+                  <>
+                    <PaymentSummaryPanel order={order} d={d} />
+                    <SalesSummaryPanel order={order} d={d} />
+                  </>
+                ) : (
+                  <SurfaceCard title={d.summaryTitle}>
+                    <MoneyRow
+                      label={d.subtotal}
+                      value={formatMinor(order.subtotalAmount, order.currency)}
+                    />
+                    <MoneyRow
+                      label={d.discount}
+                      value={formatMinor(order.discountAmount, order.currency)}
+                    />
+                    <MoneyRow
+                      label={d.shipping}
+                      value={formatMinor(order.shippingAmount, order.currency)}
+                    />
+                    {order.shippingSelection ? (
+                      <div className="flex items-center justify-between text-xs text-white/40">
+                        <span>{d.shippingProvider}</span>
+                        <span className="text-right text-white/60">
+                          {order.shippingSelection.providerName ?? order.shippingSelection.serviceName}
+                          {order.shippingSelection.serviceName &&
+                          order.shippingSelection.providerName !== order.shippingSelection.serviceName
+                            ? ` · ${order.shippingSelection.serviceName}`
+                            : ""}
+                        </span>
+                      </div>
+                    ) : null}
+                    <MoneyRow label={d.tax} value={formatMinor(order.taxAmount, order.currency)} />
+                    <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+                      <span className="font-semibold text-white/90">{d.total}</span>
+                      <span className="font-semibold text-white/90">
+                        {formatMinor(order.totalAmount, order.currency)}
                       </span>
                     </div>
-                  ) : null}
-                  <MoneyRow label={d.tax} value={formatMinor(order.taxAmount, order.currency)} />
-                  <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
-                    <span className="font-semibold text-white/90">{d.total}</span>
-                    <span className="font-semibold text-white/90">
-                      {formatMinor(order.totalAmount, order.currency)}
-                    </span>
-                  </div>
-                  {order.paymentStatus !== "UNPAID" || paidAmount > 0 ? (
-                    <>
-                      <MoneyRow label={d.paidAmount} value={formatMinor(paidAmount, order.currency)} />
-                      <MoneyRow
-                        label={d.remainingAmount}
-                        value={formatMinor(Math.max(order.totalAmount - paidAmount, 0), order.currency)}
-                      />
-                    </>
-                  ) : null}
-                </SurfaceCard>
+                    {order.paymentStatus !== "UNPAID" || paidAmount > 0 ? (
+                      <>
+                        <MoneyRow label={d.paidAmount} value={formatMinor(paidAmount, order.currency)} />
+                        <MoneyRow
+                          label={d.remainingAmount}
+                          value={formatMinor(Math.max(order.totalAmount - paidAmount, 0), order.currency)}
+                        />
+                      </>
+                    ) : null}
+                  </SurfaceCard>
+                )}
 
                 <CampaignPanel order={order} d={d} />
 

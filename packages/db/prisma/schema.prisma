@@ -694,6 +694,15 @@ model ProductVariant {
   // costMinor yalnizca ic marj/kar hesabi icindir, ASLA public API'ye sizmaz.
   // Kural: costMinor <= (compareAtMinor ?? priceMinor) (liste/showroom tavani).
   costMinor      Int?
+  // F4C (ADR-063) — KDV alanlari. priceMinor KDV DAHIL brut satis fiyati olarak
+  // KALIR (vitrin/sepet/checkout sifir-regresyon); admin artik KDV HARIC net
+  // fiyati girer, sunucu vat = round(net*bps/10000), brut = net+vat hesaplar ve
+  // priceMinor'a yazar. Backfill: net = round(brut*10000/(10000+bps)) — mevcut
+  // brut GORUNEN fiyatlar birebir korunur. vatRateBps: 2000=%20, 1000=%10,
+  // 100=%1, 0=%0.
+  netPriceMinor  Int?
+  vatRateBps     Int                  @default(2000)
+  vatAmountMinor Int?
   currency       String
   status         ProductVariantStatus @default(ACTIVE)
   optionValues   Json?
@@ -1110,6 +1119,22 @@ model OrderLine {
   unitPriceAmount Int
   totalAmount     Int
   currency        String
+  // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'lari
+  // (fatura/yasal belge + kar analizi temeli). unitPriceAmount/totalAmount
+  // KDV DAHIL brut olarak KALIR (geri uyum); asagidaki alanlar additive'dir ve
+  // ESKI siparislerde NULL kalir (legacy — yeniden HESAPLANMAZ, yaniltici sifir
+  // gosterilmez). unitGross/lineGross bilincli acik yazilir (fatura semantigi).
+  // unitListPriceMinor = siparis anindaki liste fiyati (compareAt ?? brut satis).
+  unitNetPriceMinor  Int?
+  unitVatRateBps     Int?
+  unitVatAmountMinor Int?
+  unitGrossPriceMinor Int?
+  unitListPriceMinor Int?
+  unitCostMinor      Int?
+  lineNetAmountMinor Int?
+  lineVatAmountMinor Int?
+  lineGrossAmountMinor Int?
+  lineCostMinor      Int?
   createdAt       DateTime @default(now())
 
   store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)

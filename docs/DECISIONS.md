@@ -1687,3 +1687,53 @@ ARALIKLI ürünlerde tekil nihai fiyat gösterilmez (bilinçli; yanıltıcı tek
 tek-birim varsayar; müşteri sepetinde maxDiscount cap veya sepet-geneli min-order farklı çıkabilir — bu yüzden
 yalnız güvenli alt-küme gösterilir, checkout yine otoriterdir. Follow-up: ürün maliyet/marj + liste fiyatı
 ayrımı ve fiyat değişikliği audit'i (son 30 gün en düşük fiyat) F4B'ye bırakıldı.
+
+## ADR-063 — Varyant KDV alanları ve brüt görünen fiyat semantiği (F4C)
+
+**Bağlam.** Faturalama/yasal belgeler KDV'nin ayrı gösterimini gerektirecek; bugüne dek `priceMinor`
+KDV DAHİL brüt satış fiyatıydı ve sepet özeti KDV'yi sabit %20 varsayımıyla bilgi amaçlı ayrıştırıyordu
+(`CART_TAX_RATE_PERCENT`). Ürün/varyant bazında farklı KDV oranları desteklenmeli; ancak mevcut vitrin
+fiyatları ve checkout toplamları DEĞİŞMEMELİ.
+
+**Karar.** Option A (en az riskli additive yol): `priceMinor` KDV DAHİL brüt satış fiyatı olarak KALIR ve
+vitrin/sepet/checkout/sipariş tahsilatının tek kaynağı olmaya devam eder. Varyanta additive
+`netPriceMinor` (admin girişi, KDV hariç), `vatRateBps` (default 2000; 0..10000 doğrulanır) ve
+`vatAmountMinor` eklendi. Admin KDV HARİÇ net fiyat girer ("Fiyat alanına KDV hariç tutarı girin");
+sunucu tek otoritedir: `vat = round(net·bps/10000)`, `brüt = net + vat` (paylaşılan `@commerce-os/utils`
+vat modülü; UI aynı fonksiyonla yalnız ÖNİZLEME yapar, istemci KDV tutarı asla kabul edilmez). Legacy
+brüt girişte brüt korunarak `net = round(brüt·10000/(10000+bps))` ayrıştırılır; yalnız oran değişirse net
+ANKOR'dur. Backfill mevcut tüm varyantlarda brütü koruyarak net/KDV doldurur → GÖRÜNEN FİYAT DEĞİŞMEZ.
+Ürün kartı fiyat tabanı = en ucuz aktif görünür varyantın brüt fiyatı; kart fiyat aralığı göstermez ve
+kampanya "Sepette" tahmini aynı tabandan hesaplanır (ADR-062 "yalnız tek-fiyatlı ürün" güvenlik kuralı bu
+tabana bilinçli genişletildi — kart tek fiyat gösterdiğinden tekil tahmin artık yanıltıcı değil). Public
+DTO'ya net/KDV/maliyet alanları sızmaz; vitrin yalnız brüt gösterir.
+
+**Sonuçlar.** (+) Sıfır fiyat regresyonu; checkout/kampanya semantiği değişmedi. (+) Fatura için gerekli
+tüm KDV verisi sunucu-otoriter üretiliyor. (–) `netPriceMinor` brütten türetilen kayıtlarda "elle girilmiş
+gibi" görünür (yuvarlama tabanlı); admin ilk düzenlemede gerçek net'i girebilir. (–) Sepet "KDV (dahil)"
+bilgi satırı hâlâ %20 sabit çıkarım (toplamları etkilemez) — karma oranlı mağazalar için follow-up.
+
+## ADR-064 — Sipariş satış özeti değişmez snapshot'lardan türetilir (F4C)
+
+**Bağlam.** Admin sipariş detayında ödeme + satış/vergi/kâr özeti (liste/KDV/net/maliyet/brüt kâr/kampanya
+indirimi/net kâr) gerekiyor. Kâr/vergi tarihsel doğrulukla, sipariş ANINDAKİ değerlerle hesaplanmalı;
+güncel ürün fiyat/maliyetinden yeniden hesap YASAK.
+
+**Karar.** `OrderLine`'a additive birim+satır snapshot kolonları (unitNet/unitVatRateBps/unitVatAmount/
+unitGross/unitList/unitCost, lineNet/lineVat/lineGross/lineCost) eklendi; sipariş oluşturma/satır ekleme
+anında varyanttan yazılır, adet güncellemesi satır toplamlarını birim snapshot'tan türetir. Sipariş
+seviyesinde ek kolon AÇILMADI: `salesSummary`, gateway'deki saf `orders/sales-summary.ts` modülünde satır
+snapshot'ları + OrderDiscount + kargo snapshot + PaymentAttempt kayıtlarından DETERMİNİSTİK türetilir.
+Kurallar: Liste = Σ(unitList·adet); KDV = Σ(lineVat) + oran-bazlı dağılım (tek oran "KDV (%X)"); Vergisiz
+net = Σ(lineNet) (indirim ÖNCESİ); Maliyet = Σ(lineCost), TEK satır bile eksikse null (kısmi maliyetle
+yanıltıcı kâr üretilmez); Brüt kâr = net − maliyet; Kampanya indirimi = brüt Order.discountAmount; Net kâr
+= Brüt kâr − brüt kampanya indirimi (MVP; indirim KDV dağılımı satır-bazına İNDİRİLMEDİ — bilinçli, sahte
+hassasiyet yok); Net ödenen = ilk PAID/AUTHORIZED deneme ?? (paymentStatus PAID/AUTHORIZED → genel toplam)
+?? 0; Kalan = max(0, ödenmesi gereken − ödenen). Tüm satırlarda KDV snapshot'ı yoksa (F4C öncesi sipariş)
+Bölüm B null döner ve UI "Bu sipariş eski formatta oluşturuldu" gösterir; OrderLine backfill'i bilinçli
+YOKTUR (mevcut siparişler mutate edilmez).
+
+**Sonuçlar.** (+) Tarihsel doğruluk: ürün/kampanya sonradan değişse de özet sabit. (+) Sipariş-seviyesi
+kolon şişkinliği yok; türetim tek modülde test edilebilir. (–) Eski siparişlerde satış özeti yok (kabul
+edildi; yanıltıcı sıfırdan iyi). (–) Net kâr, brüt indirimi net kâr tabanından düşer (kullanıcı tablosuyla
+uyumlu MVP); indirimin net/KDV bileşenlerine dağıtımı fatura üretimi fazında ele alınacak.

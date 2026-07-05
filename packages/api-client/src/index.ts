@@ -137,6 +137,9 @@ export type {
   InventoryListResponse,
   Order,
   OrderDiscountLine,
+  // F4C (ADR-064) — Satis/kar ozeti tipleri (admin siparis detayi).
+  OrderSalesSummary,
+  OrderSalesSummaryVatLine,
   OrderCancelRequest,
   OrderCreateRequest,
   OrderLineInput,

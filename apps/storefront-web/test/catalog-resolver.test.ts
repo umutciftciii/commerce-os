@@ -114,6 +114,67 @@ describe("storefront resolver · public listing", () => {
     expect(JSON.stringify(headers).toLowerCase()).not.toContain("bearer");
   });
 
+  // F4C (ADR-063) — Cok varyantli urun kartinda yalniz EN UCUZ varyant fiyati.
+  it("F4C: a multi-variant product shows ONLY the cheapest variant price (no range)", async () => {
+    nextResponses = [
+      jsonResponse({
+        data: [
+          publicProduct({
+            variants: [
+              publicVariant({ id: "v1", priceMinor: 149900, compareAtMinor: null }),
+              publicVariant({
+                id: "v2",
+                sku: "DEMO-HOODIE-BLK-S",
+                priceMinor: 145000,
+                compareAtMinor: null,
+                lowestPriceMinor: null,
+              }),
+            ],
+          }),
+        ],
+        pagination: { limit: 50, offset: 0, total: 1 },
+      }),
+    ];
+    const result = await getStorefrontListing();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const [summary] = result.data;
+    // Yalniz en ucuz fiyat; aralik ("–") ve pahali varyant tutari YOK.
+    expect(summary.price.amountLabel).toContain("1.450");
+    expect(summary.price.amountLabel).not.toContain("1.499");
+    expect(summary.price.amountLabel).not.toContain("–");
+  });
+
+  it("F4C: compareAt/discount badge still derives from the cheapest variant", async () => {
+    nextResponses = [
+      jsonResponse({
+        data: [
+          publicProduct({
+            variants: [
+              publicVariant({ id: "v1", priceMinor: 149900, compareAtMinor: null, lowestPriceMinor: null }),
+              publicVariant({
+                id: "v2",
+                sku: "DEMO-HOODIE-BLK-S",
+                priceMinor: 129900,
+                compareAtMinor: 149900,
+                lowestPriceMinor: 129900,
+              }),
+            ],
+          }),
+        ],
+        pagination: { limit: 50, offset: 0, total: 1 },
+      }),
+    ];
+    const result = await getStorefrontListing();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [summary] = result.data;
+    expect(summary.price.amountLabel).toContain("1.299");
+    expect(summary.price.compareAtLabel).toContain("1.499");
+    expect(summary.badgeKind).toBe("discount");
+  });
+
   it("returns no-store on a 404 store response", async () => {
     nextResponses = [jsonResponse({ error: { code: "STORE_NOT_FOUND" } }, 404)];
     const result = await getStorefrontListing();
