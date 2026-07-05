@@ -107,10 +107,10 @@ describe("labels · localized CTA + price text", () => {
   });
 
   it("hides the numeric price for hidden/on-request modes", () => {
-    const hidden: StorefrontPrice = { mode: "hidden", amountLabel: null, compareAtLabel: null };
-    const onRequest: StorefrontPrice = { mode: "onRequest", amountLabel: null, compareAtLabel: null };
-    const amount: StorefrontPrice = { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null };
-    const from: StorefrontPrice = { mode: "startingFrom", amountLabel: "₺399,00", compareAtLabel: null };
+    const hidden: StorefrontPrice = { mode: "hidden", amountLabel: null, compareAtLabel: null, lowestRecentLabel: null };
+    const onRequest: StorefrontPrice = { mode: "onRequest", amountLabel: null, compareAtLabel: null, lowestRecentLabel: null };
+    const amount: StorefrontPrice = { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null, lowestRecentLabel: null };
+    const from: StorefrontPrice = { mode: "startingFrom", amountLabel: "₺399,00", compareAtLabel: null, lowestRecentLabel: null };
 
     expect(showsNumericPrice(hidden)).toBe(false);
     expect(showsNumericPrice(onRequest)).toBe(false);

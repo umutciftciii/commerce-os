@@ -122,6 +122,12 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
           <span className="text-lg font-semibold text-slate-900">{primaryPriceText(price, t)}</span>
         )}
       </div>
+      {/* F4B — EU Omnibus notu: indirim varken son 30 günün en düşük fiyatı. */}
+      {numeric && price.lowestRecentLabel ? (
+        <p className="mt-1 text-xs text-slate-400">
+          {format(t.badges.omnibusLowest, { amount: price.lowestRecentLabel })}
+        </p>
+      ) : null}
       {showUnitNote ? (
         <p className="mt-1 text-xs text-slate-500">
           {format(t.buyBox.unitEach, { price: formatMinor(unitMinor as number, currency) })}

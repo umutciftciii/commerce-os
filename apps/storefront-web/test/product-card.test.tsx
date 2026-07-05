@@ -35,9 +35,9 @@ const sales = {
   catalog: { salesMode: "CATALOG_ONLY", priceVisibility: "HIDDEN", primaryAction: "CONTACT_FORM", purchasable: false, whatsappEnabled: false, inquiryEnabled: false, appointmentRequired: false, minOrderQuantity: 1, maxOrderQuantity: null },
 } as const;
 
-const amount: StorefrontPrice = { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00" };
-const onRequest: StorefrontPrice = { mode: "onRequest", amountLabel: null, compareAtLabel: null };
-const hidden: StorefrontPrice = { mode: "hidden", amountLabel: null, compareAtLabel: null };
+const amount: StorefrontPrice = { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00", lowestRecentLabel: null };
+const onRequest: StorefrontPrice = { mode: "onRequest", amountLabel: null, compareAtLabel: null, lowestRecentLabel: null };
+const hidden: StorefrontPrice = { mode: "hidden", amountLabel: null, compareAtLabel: null, lowestRecentLabel: null };
 
 describe("ProductCard · sales-mode CTA", () => {
   it("ONLINE shows add-to-cart and the price with compare-at", () => {
@@ -141,7 +141,7 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
   it("automatic discount with a safe estimate renders the 'Sepette' final price", () => {
     const html = renderToStaticMarkup(
       <ProductCard
-        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null }, {
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null, lowestRecentLabel: null }, {
           campaign: { ...campaign, estimatedFinalLabel: "₺1.169,10" },
           badgeKind: null,
         })}
@@ -160,7 +160,7 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
   it("automatic discount without a safe estimate shows the min-order note, not a fake price", () => {
     const html = renderToStaticMarkup(
       <ProductCard
-        product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null }, {
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null, lowestRecentLabel: null }, {
           campaign: { ...campaign, estimatedFinalLabel: null, minOrderLabel: "₺1.000" },
           badgeKind: null,
         })}
@@ -178,7 +178,7 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
   it("shows a secondary coupon chip alongside the automatic 'Sepette' block when stackable", () => {
     const html = renderToStaticMarkup(
       <ProductCard
-        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null }, {
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null, lowestRecentLabel: null }, {
           campaign: { ...campaign, estimatedFinalLabel: "₺1.169,10" },
           secondaryCoupon: {
             ...campaign,
@@ -200,7 +200,7 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
   // Kampanya yoksa hiçbir kampanya/kupon promo metni render edilmez.
   it("renders no campaign promo when there is no active campaign", () => {
     const html = renderToStaticMarkup(
-      <ProductCard product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null })} t={tr} />,
+      <ProductCard product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null, lowestRecentLabel: null })} t={tr} />,
     );
     expect(html).not.toContain(tr.badges.inCart);
     expect(html).not.toContain("Kuponlu ürün");

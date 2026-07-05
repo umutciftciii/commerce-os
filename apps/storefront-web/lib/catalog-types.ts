@@ -48,6 +48,11 @@ export interface StorefrontPrice {
   amountLabel: string | null;
   /** Indirimde ustu cizili karsilastirma fiyati; yoksa null. */
   compareAtLabel: string | null;
+  /**
+   * F4B — EU Omnibus: yalnizca aktif bir indirim varken doldurulur. Son 30 gunun
+   * en dusuk SATIS fiyatinin bicimlenmis hali (or. "₺1.199,00"); yoksa null.
+   */
+  lowestRecentLabel: string | null;
 }
 
 /** Liste/karti besleyen ozet urun gorunumu. */

@@ -58,7 +58,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     title: "Demo Hoodie",
     brand: "Commerce OS",
     categoryLabel: "Apparel",
-    price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00" },
+    price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00", lowestRecentLabel: null },
     commerce: deriveProductCommerceView(onlineSales),
     badgeKind: "discount",
     campaign: null,
@@ -89,7 +89,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
         title: "Demo Tote Bag",
         brand: "Commerce OS",
         categoryLabel: "Accessories",
-        price: { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null },
+        price: { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null, lowestRecentLabel: null },
         commerce: deriveProductCommerceView(onlineSales),
         badgeKind: null,
         campaign: null,
@@ -142,7 +142,7 @@ describe("storefront · product detail (decision center)", () => {
       ok: true,
       data: detail({
         commerce: deriveProductCommerceView(catalogSales),
-        price: { mode: "hidden", amountLabel: null, compareAtLabel: null },
+        price: { mode: "hidden", amountLabel: null, compareAtLabel: null, lowestRecentLabel: null },
         badgeKind: null,
         campaign: null,
         variants: [

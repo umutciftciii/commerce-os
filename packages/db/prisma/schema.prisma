@@ -690,6 +690,10 @@ model ProductVariant {
   barcode        String?
   priceMinor     Int
   compareAtMinor Int?
+  // F4B — Maliyet (minor). Satis fiyati (priceMinor) DEGISMEZ; checkout bunu tahsil eder.
+  // costMinor yalnizca ic marj/kar hesabi icindir, ASLA public API'ye sizmaz.
+  // Kural: costMinor <= (compareAtMinor ?? priceMinor) (liste/showroom tavani).
+  costMinor      Int?
   currency       String
   status         ProductVariantStatus @default(ACTIVE)
   optionValues   Json?
@@ -710,6 +714,37 @@ model ProductVariant {
   @@index([productId])
   @@index([storeId])
   @@index([status])
+}
+
+// F4B — Kampanya-disi fiyat/liste/maliyet degisikligi audit'i (append-only).
+// EU Omnibus "son 30 gunun en dusuk fiyati" gosteriminin veri temeli.
+// changedByPlatformUserId FK degil, dogrudan scalar: kullanici silinse bile
+// tarihsel kayit korunur. storeId/variantId indexli sorgu icin tutulur.
+enum PriceChangeSource {
+  ADMIN_EDIT
+  IMPORT
+  API
+}
+
+model ProductPriceChange {
+  id                     String            @id @default(cuid())
+  storeId                String
+  productId              String
+  variantId              String
+  changedByPlatformUserId String?
+  currency               String
+  oldPriceMinor          Int?
+  newPriceMinor          Int?
+  oldCompareAtMinor      Int?
+  newCompareAtMinor      Int?
+  oldCostMinor           Int?
+  newCostMinor           Int?
+  source                 PriceChangeSource @default(ADMIN_EDIT)
+  reason                 String?
+  createdAt              DateTime          @default(now())
+
+  @@index([storeId, variantId, createdAt])
+  @@index([storeId, createdAt])
 }
 
 model ProductCategory {

@@ -58,6 +58,8 @@ function buildPrice(priceMode: PriceDisplayMode, variants: PublicProductVariant[
 
   // Indirim: en dusuk fiyatli varyantta gecerli bir compareAt varsa goster.
   let compareAtLabel: string | null = null;
+  // F4B — EU Omnibus: indirim varken son 30 gunun en dusuk satis fiyati.
+  let lowestRecentLabel: string | null = null;
   if (priceMode === "amount") {
     const priced = variants.filter((variant) => variant.priceMinor !== null);
     if (priced.length > 0) {
@@ -70,11 +72,16 @@ function buildPrice(priceMode: PriceDisplayMode, variants: PublicProductVariant[
         cheapest.compareAtMinor > (cheapest.priceMinor as number)
       ) {
         compareAtLabel = formatMinor(cheapest.compareAtMinor, cheapest.currency);
+        // Yalnizca indirim gosterilirken Omnibus notunu ekle (gateway zaten
+        // gecerli-indirim + fiyat-gorunur kosulunda lowestPriceMinor doldurur).
+        if (cheapest.lowestPriceMinor !== null) {
+          lowestRecentLabel = formatMinor(cheapest.lowestPriceMinor, cheapest.currency);
+        }
       }
     }
   }
 
-  return { mode: priceMode, amountLabel, compareAtLabel };
+  return { mode: priceMode, amountLabel, compareAtLabel, lowestRecentLabel };
 }
 
 /**

@@ -24,6 +24,7 @@ import type {
   ProductCategoryUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
+  ProductPriceChangeListResponse,
   ProductUpdateRequest,
   ProductVariant,
   ProductVariantCreateRequest,
@@ -311,6 +312,11 @@ export const storeApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  // F4B — Varyant fiyat/liste/maliyet degisikligi gecmisi.
+  listPriceChanges: (productId: string, variantId: string) =>
+    call<ProductPriceChangeListResponse>(
+      `/api/catalog/products/${productId}/variants/${variantId}/price-changes`,
+    ),
 
   // Inventory
   listInventory: () => call<InventoryListResponse>("/api/catalog/inventory"),

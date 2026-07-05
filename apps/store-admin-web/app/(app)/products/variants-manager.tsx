@@ -14,9 +14,10 @@ import {
   useLocale,
   type DataTableColumn,
 } from "../../../components/ui";
-import { format, getDictionary } from "@commerce-os/i18n";
+import { format, formatDateTime, getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
+  ProductPriceChange,
   ProductVariant,
   ProductVariantCreateRequest,
 } from "@commerce-os/api-client";
@@ -213,6 +214,7 @@ function VariantEditor({
   const [sku, setSku] = useState(variant?.sku ?? "");
   const [price, setPrice] = useState(variant ? minorToInput(variant.priceMinor) : "");
   const [compareAt, setCompareAt] = useState(variant ? minorToInput(variant.compareAtMinor) : "");
+  const [cost, setCost] = useState(variant ? minorToInput(variant.costMinor) : "");
   const [barcode, setBarcode] = useState(variant?.barcode ?? "");
   const [lowStock, setLowStock] = useState("");
   const [status, setStatus] = useState<VariantStatus>(variant?.status ?? "ACTIVE");
@@ -230,6 +232,24 @@ function VariantEditor({
     value,
     label: statusLabels[value],
   }));
+
+  // F4B — Canlı marj/markup + liste uyarısı (yalnızca gösterim; submit ayrıca doğrular).
+  const priceLive = inputToMinor(price);
+  const costLive = cost.trim() === "" ? null : inputToMinor(cost);
+  const compareAtLive = compareAt.trim() === "" ? null : inputToMinor(compareAt);
+  const marginPct =
+    priceLive !== null && priceLive > 0 && costLive !== null
+      ? ((priceLive - costLive) / priceLive) * 100
+      : null;
+  const markupPct =
+    priceLive !== null && costLive !== null && costLive > 0
+      ? ((priceLive - costLive) / costLive) * 100
+      : null;
+  const showCompareAtWarning =
+    priceLive !== null && compareAtLive !== null && compareAtLive < priceLive;
+  const listCeilingLive = compareAtLive ?? priceLive;
+  const costExceedsList =
+    costLive !== null && listCeilingLive !== null && costLive > listCeilingLive;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -259,8 +279,21 @@ function VariantEditor({
       }
       compareAtMinor = parsed;
     }
-    if (compareAtMinor !== null && compareAtMinor < priceMinor) {
-      setError(f.compareAtTooLow);
+    // F4B — Satış > liste ARTIK hata değil (yalnızca vitrinde rozet türemez); uyarı JSX'te.
+
+    // F4B — Maliyet: opsiyonel; girildiğinde liste tavanını (liste yoksa satış) geçemez.
+    let costMinor: number | null = null;
+    if (cost.trim() !== "") {
+      const parsed = inputToMinor(cost);
+      if (parsed === null) {
+        setError(f.requiredPrice);
+        return;
+      }
+      costMinor = parsed;
+    }
+    const listCeiling = compareAtMinor ?? priceMinor;
+    if (costMinor !== null && costMinor > listCeiling) {
+      setError(f.costTooHigh);
       return;
     }
 
@@ -287,6 +320,7 @@ function VariantEditor({
           title: title.trim(),
           priceMinor,
           compareAtMinor,
+          costMinor,
           barcode: barcode.trim() === "" ? null : barcode.trim(),
           status,
           shippingWeightKg: weightValue,
@@ -305,6 +339,7 @@ function VariantEditor({
           status,
         };
         if (compareAtMinor !== null) payload.compareAtMinor = compareAtMinor;
+        if (costMinor !== null) payload.costMinor = costMinor;
         if (barcode.trim() !== "") payload.barcode = barcode.trim();
         if (weightValue !== null) payload.shippingWeightKg = weightValue;
         if (desiValue !== null) payload.shippingDesi = desiValue;
@@ -388,6 +423,48 @@ function VariantEditor({
             <p className="mt-1.5 text-xs text-white/30">{f.compareAtHint}</p>
           </div>
         </div>
+        {showCompareAtWarning ? (
+          <Alert tone="warning">{f.compareAtBelowWarning}</Alert>
+        ) : null}
+        {/* F4B — Maliyet + hesaplı marj/markup göstergesi. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Input
+              id="variant-cost"
+              inputMode="decimal"
+              label={f.costLabel}
+              placeholder={f.costPlaceholder}
+              value={cost}
+              onChange={(event) => setCost(event.target.value)}
+              disabled={saving}
+            />
+            <p className="mt-1.5 text-xs text-white/30">{f.costHint}</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-white/40">{f.marginLabel}</span>
+              <span className="text-sm font-medium text-white/80">
+                {marginPct !== null ? `%${marginPct.toFixed(1)}` : "—"}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-xs text-white/40">{f.markupLabel}</span>
+              <span className="text-sm font-medium text-white/80">
+                {markupPct !== null ? `%${markupPct.toFixed(1)}` : "—"}
+              </span>
+            </div>
+            {costLive === null ? (
+              <p className="mt-2 text-xs text-white/30">{f.marginNoCost}</p>
+            ) : costExceedsList ? (
+              <p className="mt-2 text-xs text-rose-300/80">{f.costTooHigh}</p>
+            ) : priceLive === null ? (
+              <p className="mt-2 text-xs text-white/30">{f.marginNoPrice}</p>
+            ) : null}
+          </div>
+        </div>
+        {isEdit && variant ? (
+          <PriceHistory product={product} variant={variant} labels={f} locale={locale} />
+        ) : null}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input
             id="variant-barcode"
@@ -440,5 +517,103 @@ function VariantEditor({
         />
       </form>
     </Modal>
+  );
+}
+
+type VariantFormLabels = ReturnType<typeof getDictionary>["storeAdmin"]["variants"]["form"];
+type AdminLocale = ReturnType<typeof useLocale>;
+
+// F4B — Varyant fiyat/liste/maliyet değişikliği geçmişi (talep üzerine yüklenir).
+function PriceHistory({
+  product,
+  variant,
+  labels,
+  locale,
+}: {
+  product: Product;
+  variant: ProductVariant;
+  labels: VariantFormLabels;
+  locale: AdminLocale;
+}) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "error" }
+    | { status: "ready"; changes: ProductPriceChange[] }
+  >({ status: "idle" });
+
+  const sourceLabel = (source: ProductPriceChange["source"]) =>
+    source === "IMPORT"
+      ? labels.historySourceImport
+      : source === "API"
+        ? labels.historySourceApi
+        : labels.historySourceAdminEdit;
+
+  const money = (minor: number | null) => (minor === null ? "—" : formatMinor(minor, variant.currency));
+
+  async function toggle() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (state.status === "ready") return;
+    setState({ status: "loading" });
+    try {
+      const res = await storeApi.listPriceChanges(product.id, variant.id);
+      setState({ status: "ready", changes: res.data });
+    } catch {
+      setState({ status: "error" });
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.02]">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-white/60 transition hover:text-white/80"
+      >
+        <span>{labels.historyOpen}</span>
+        <span aria-hidden>{open ? "−" : "+"}</span>
+      </button>
+      {open ? (
+        <div className="border-t border-white/10 px-3 py-2">
+          {state.status === "loading" || state.status === "idle" ? (
+            <p className="text-xs text-white/30">…</p>
+          ) : state.status === "error" ? (
+            <Alert tone="error">{labels.historyLoadError}</Alert>
+          ) : state.changes.length > 0 ? (
+            <table className="w-full text-left text-xs">
+              <thead className="text-white/40">
+                <tr>
+                  <th className="py-1 pr-2 font-normal">{labels.historyColDate}</th>
+                  <th className="py-1 pr-2 font-normal">{labels.historyColPrice}</th>
+                  <th className="py-1 pr-2 font-normal">{labels.historyColCompareAt}</th>
+                  <th className="py-1 pr-2 font-normal">{labels.historyColCost}</th>
+                  <th className="py-1 font-normal">{labels.historyColSource}</th>
+                </tr>
+              </thead>
+              <tbody className="text-white/70">
+                {state.changes.map((change) => (
+                  <tr key={change.id} className="border-t border-white/5">
+                    <td className="whitespace-nowrap py-1 pr-2">
+                      {formatDateTime(change.createdAt, locale)}
+                    </td>
+                    <td className="whitespace-nowrap py-1 pr-2">{money(change.newPriceMinor)}</td>
+                    <td className="whitespace-nowrap py-1 pr-2">{money(change.newCompareAtMinor)}</td>
+                    <td className="whitespace-nowrap py-1 pr-2">{money(change.newCostMinor)}</td>
+                    <td className="whitespace-nowrap py-1">{sourceLabel(change.source)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-xs text-white/30">{labels.historyEmpty}</p>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }

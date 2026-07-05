@@ -547,6 +547,9 @@ export const productVariantSchema = z.object({
   barcode: z.string().nullable(),
   priceMinor: z.number().int().nonnegative(),
   compareAtMinor: z.number().int().nonnegative().nullable(),
+  // F4B — Maliyet (minor). Yalnizca yonetim tarafinda gorunur; public'e sizmaz.
+  // priceMinor (satis) ile karistirilmamali; marj/kar gostergesi bundan turer.
+  costMinor: z.number().int().nonnegative().nullable(),
   currency: currencySchema,
   status: productVariantStatusSchema,
   optionValues: jsonRecordSchema.nullable(),
@@ -559,6 +562,40 @@ export const productVariantSchema = z.object({
 
 export const productVariantListResponseSchema = z.object({
   data: z.array(productVariantSchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+/**
+ * F4B — Kampanya-disi fiyat/liste/maliyet degisikligi audit'i (append-only).
+ * Yonetim gorunumu; asla public degildir (maliyet iceriр). Storefront Omnibus
+ * gosterimi bu kayitlar uzerinden turer ("son N gunun en dusuk fiyati").
+ */
+export const priceChangeSourceSchema = z.enum(["ADMIN_EDIT", "IMPORT", "API"]);
+
+export const productPriceChangeSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  productId: z.string().min(1),
+  variantId: z.string().min(1),
+  changedByPlatformUserId: z.string().nullable(),
+  currency: currencySchema,
+  oldPriceMinor: z.number().int().nonnegative().nullable(),
+  newPriceMinor: z.number().int().nonnegative().nullable(),
+  oldCompareAtMinor: z.number().int().nonnegative().nullable(),
+  newCompareAtMinor: z.number().int().nonnegative().nullable(),
+  oldCostMinor: z.number().int().nonnegative().nullable(),
+  newCostMinor: z.number().int().nonnegative().nullable(),
+  source: priceChangeSourceSchema,
+  reason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const productPriceChangeListResponseSchema = z.object({
+  data: z.array(productPriceChangeSchema),
   pagination: z.object({
     limit: z.number().int().positive(),
     offset: z.number().int().nonnegative(),
@@ -588,6 +625,12 @@ export const publicProductVariantSchema = z.object({
   /** priceVisibility VISIBLE/STARTING_FROM degilse null (fiyat sizmaz). */
   priceMinor: z.number().int().nonnegative().nullable(),
   compareAtMinor: z.number().int().nonnegative().nullable(),
+  /**
+   * F4B — EU Omnibus: son N gunun (default 30) en dusuk SATIS fiyati (minor).
+   * Yalnizca gecerli bir compareAt indirimi varken ve fiyat gorunurken doldurulur;
+   * aksi halde null. Bu bir FIYAT'tir (maliyet DEGIL); public'e sizmesi guvenli.
+   */
+  lowestPriceMinor: z.number().int().nonnegative().nullable(),
   currency: currencySchema,
   /** Satilabilir stok adedi; bilinmiyorsa null. */
   available: z.number().int().nullable(),
@@ -1370,6 +1413,8 @@ export const productVariantCreateRequestSchema = z
     barcode: z.string().max(80).nullable().optional(),
     priceMinor: z.number().int().nonnegative(),
     compareAtMinor: z.number().int().nonnegative().nullable().optional(),
+    // F4B — Maliyet (minor). Kural: maliyet <= liste tavani (compareAtMinor ?? priceMinor).
+    costMinor: z.number().int().nonnegative().nullable().optional(),
     currency: currencySchema.default("TRY"),
     status: productVariantStatusSchema.default("ACTIVE"),
     optionValues: jsonRecordSchema.nullable().optional(),
@@ -1378,10 +1423,17 @@ export const productVariantCreateRequestSchema = z
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
   })
-  .refine((value) => value.compareAtMinor == null || value.compareAtMinor >= value.priceMinor, {
-    message: "compareAtMinor must be greater than or equal to priceMinor.",
-    path: ["compareAtMinor"],
-  });
+  // F4B — Satis (priceMinor) > liste (compareAtMinor) ARTIK hata degil: sadece
+  // storefront'ta indirim rozeti turemez. Onceki compareAt>=price hard refine
+  // bilincli kaldirildi (karar: yalnizca UI uyarisi).
+  .refine(
+    (value) =>
+      value.costMinor == null || value.costMinor <= (value.compareAtMinor ?? value.priceMinor),
+    {
+      message: "costMinor must be less than or equal to the list price (compareAtMinor ?? priceMinor).",
+      path: ["costMinor"],
+    },
+  );
 
 export const productVariantUpdateRequestSchema = z
   .object({
@@ -1390,6 +1442,9 @@ export const productVariantUpdateRequestSchema = z
     barcode: z.string().max(80).nullable().optional(),
     priceMinor: z.number().int().nonnegative().optional(),
     compareAtMinor: z.number().int().nonnegative().nullable().optional(),
+    // F4B — Maliyet (minor). null = temizle. Kesin liste-tavani dogrulamasi
+    // gateway'de (mevcut kayitla birlestirilmis durum uzerinden) yapilir.
+    costMinor: z.number().int().nonnegative().nullable().optional(),
     currency: currencySchema.optional(),
     status: productVariantStatusSchema.optional(),
     optionValues: jsonRecordSchema.nullable().optional(),
@@ -1401,14 +1456,16 @@ export const productVariantUpdateRequestSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   })
+  // F4B — compareAt>=price hard refine kaldirildi (satis>liste yalnizca UI uyarisi).
+  // Ayni patch'te hem maliyet hem tavan varsa erken kontrol; degilse gateway kesinler.
   .refine(
     (value) =>
-      value.compareAtMinor == null ||
-      value.priceMinor === undefined ||
-      value.compareAtMinor >= value.priceMinor,
+      value.costMinor == null ||
+      (value.compareAtMinor == null && value.priceMinor === undefined) ||
+      value.costMinor <= (value.compareAtMinor ?? value.priceMinor ?? Number.POSITIVE_INFINITY),
     {
-      message: "compareAtMinor must be greater than or equal to priceMinor.",
-      path: ["compareAtMinor"],
+      message: "costMinor must be less than or equal to the list price (compareAtMinor ?? priceMinor).",
+      path: ["costMinor"],
     },
   );
 
@@ -1910,6 +1967,9 @@ export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
 export type ProductUpdateRequest = z.infer<typeof productUpdateRequestSchema>;
 export type ProductVariant = z.infer<typeof productVariantSchema>;
 export type ProductVariantListResponse = z.infer<typeof productVariantListResponseSchema>;
+export type PriceChangeSource = z.infer<typeof priceChangeSourceSchema>;
+export type ProductPriceChange = z.infer<typeof productPriceChangeSchema>;
+export type ProductPriceChangeListResponse = z.infer<typeof productPriceChangeListResponseSchema>;
 export type PublicCampaignBadge = z.infer<typeof publicCampaignBadgeSchema>;
 export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;

@@ -148,11 +148,31 @@ type VariantRecord = {
   barcode: string | null;
   priceMinor: number;
   compareAtMinor: number | null;
+  costMinor: number | null;
   currency: string;
   status: ProductVariantStatus;
   optionValues: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+// F4B — Fiyat/liste/maliyet degisikligi audit kaydi (mock).
+type PriceChangeRecord = {
+  id: string;
+  storeId: string;
+  productId: string;
+  variantId: string;
+  changedByPlatformUserId: string | null;
+  currency: string;
+  oldPriceMinor: number | null;
+  newPriceMinor: number | null;
+  oldCompareAtMinor: number | null;
+  newCompareAtMinor: number | null;
+  oldCostMinor: number | null;
+  newCostMinor: number | null;
+  source: "ADMIN_EDIT" | "IMPORT" | "API";
+  reason: string | null;
+  createdAt: Date;
 };
 
 type InventoryRecord = {
@@ -348,6 +368,7 @@ class MemoryDataAccess implements AppDataAccess {
       barcode: null,
       priceMinor: 129900,
       compareAtMinor: 149900,
+      costMinor: null,
       currency: "TRY",
       status: "ACTIVE",
       optionValues: { color: "Black", size: "M" },
@@ -355,6 +376,8 @@ class MemoryDataAccess implements AppDataAccess {
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     },
   ];
+  // F4B — Fiyat degisikligi audit gecmisi (mock store).
+  readonly priceChanges: PriceChangeRecord[] = [];
   readonly inventory: InventoryRecord[] = [
     {
       id: "inventory_hoodie_m",
@@ -798,13 +821,16 @@ class MemoryDataAccess implements AppDataAccess {
       barcode?: string | null;
       priceMinor: number;
       compareAtMinor?: number | null;
+      costMinor?: number | null;
       currency: string;
       status: ProductVariantStatus;
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
+      changedByPlatformUserId?: string | null;
+      priceChangeSource?: "ADMIN_EDIT" | "IMPORT" | "API";
     },
   ) {
-    const variant = {
+    const variant: VariantRecord = {
       id: `variant_${this.variants.length + 1}`,
       productId,
       storeId,
@@ -813,6 +839,7 @@ class MemoryDataAccess implements AppDataAccess {
       barcode: input.barcode ?? null,
       priceMinor: input.priceMinor,
       compareAtMinor: input.compareAtMinor ?? null,
+      costMinor: input.costMinor ?? null,
       currency: input.currency,
       status: input.status,
       optionValues: input.optionValues ?? null,
@@ -832,6 +859,24 @@ class MemoryDataAccess implements AppDataAccess {
       lowStockThreshold: input.lowStockThreshold ?? null,
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
     });
+    // F4B — Baslangic fiyat audit'i.
+    this.priceChanges.push({
+      id: `price_change_${this.priceChanges.length + 1}`,
+      storeId,
+      productId,
+      variantId: variant.id,
+      changedByPlatformUserId: input.changedByPlatformUserId ?? null,
+      currency: variant.currency,
+      oldPriceMinor: null,
+      newPriceMinor: variant.priceMinor,
+      oldCompareAtMinor: null,
+      newCompareAtMinor: variant.compareAtMinor,
+      oldCostMinor: null,
+      newCostMinor: variant.costMinor,
+      source: input.priceChangeSource ?? "ADMIN_EDIT",
+      reason: null,
+      createdAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
     return variant;
   }
 
@@ -841,17 +886,65 @@ class MemoryDataAccess implements AppDataAccess {
     variantId: string,
     input: Partial<Omit<VariantRecord, "id" | "storeId" | "productId" | "createdAt" | "updatedAt">> & {
       lowStockThreshold?: number | null;
+      changedByPlatformUserId?: string | null;
+      priceChangeSource?: "ADMIN_EDIT" | "IMPORT" | "API";
+      priceChangeReason?: string | null;
     },
   ) {
     const variant = this.variants.find(
       (item) => item.storeId === storeId && item.productId === productId && item.id === variantId,
     );
     if (!variant) return null;
-    const { lowStockThreshold, ...variantInput } = input;
+    const { lowStockThreshold, changedByPlatformUserId, priceChangeSource, priceChangeReason, ...variantInput } = input;
+    const before = { priceMinor: variant.priceMinor, compareAtMinor: variant.compareAtMinor, costMinor: variant.costMinor };
     Object.assign(variant, variantInput, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
     const item = this.inventory.find((inventory) => inventory.storeId === storeId && inventory.variantId === variantId);
     if (item && lowStockThreshold !== undefined) item.lowStockThreshold = lowStockThreshold;
+    // F4B — Fiyat/liste/maliyetten biri degistiyse audit yaz.
+    const priceChanged =
+      before.priceMinor !== variant.priceMinor ||
+      (before.compareAtMinor ?? null) !== (variant.compareAtMinor ?? null) ||
+      (before.costMinor ?? null) !== (variant.costMinor ?? null);
+    if (priceChanged) {
+      this.priceChanges.push({
+        id: `price_change_${this.priceChanges.length + 1}`,
+        storeId,
+        productId,
+        variantId,
+        changedByPlatformUserId: changedByPlatformUserId ?? null,
+        currency: variant.currency,
+        oldPriceMinor: before.priceMinor,
+        newPriceMinor: variant.priceMinor,
+        oldCompareAtMinor: before.compareAtMinor,
+        newCompareAtMinor: variant.compareAtMinor,
+        oldCostMinor: before.costMinor,
+        newCostMinor: variant.costMinor,
+        source: priceChangeSource ?? "ADMIN_EDIT",
+        reason: priceChangeReason ?? null,
+        createdAt: new Date("2026-01-03T00:00:00.000Z"),
+      });
+    }
     return variant;
+  }
+
+  async listPriceChanges(storeId: string, variantId: string, { limit, offset }: { limit: number; offset: number }) {
+    const data = this.priceChanges
+      .filter((change) => change.storeId === storeId && change.variantId === variantId)
+      .slice()
+      .reverse();
+    return { data: data.slice(offset, offset + limit), total: data.length };
+  }
+
+  async lowestRecentPriceByStore(storeId: string, sinceDays: number) {
+    const since = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
+    const result = new Map<string, number>();
+    for (const change of this.priceChanges) {
+      if (change.storeId !== storeId || change.newPriceMinor == null) continue;
+      if (change.createdAt.getTime() < since) continue;
+      const current = result.get(change.variantId);
+      if (current === undefined || change.newPriceMinor < current) result.set(change.variantId, change.newPriceMinor);
+    }
+    return result;
   }
 
   async listInventory(storeId: string, { limit, offset }: { limit: number; offset: number }) {
@@ -2749,6 +2842,76 @@ describe("api gateway", () => {
     await app.close();
   });
 
+  // F4B — Maliyet/marj + fiyat degisikligi audit.
+  it("F4B — tracks cost, enforces cost<=list, and records a price-change audit trail", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Maliyet liste tavanini (compareAt) asamaz -> 400.
+    const badCost = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "Bad", sku: "F4B-BADCOST", priceMinor: 100000, compareAtMinor: 120000, costMinor: 130000, currency: "TRY" },
+    });
+    expect(badCost.statusCode).toBe(400);
+
+    // Gecerli maliyet ile olusturma + baslangic audit satiri.
+    const created = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "Cost", sku: "F4B-COST", priceMinor: 100000, compareAtMinor: 120000, costMinor: 60000, currency: "TRY" },
+    });
+    expect(created.statusCode).toBe(201);
+    const variantId = created.json().id as string;
+    expect(created.json()).toMatchObject({ costMinor: 60000, compareAtMinor: 120000 });
+
+    // Satis > liste ARTIK 400 DEGIL (yalnizca uyari): compareAt price'in altina cekilebilir.
+    const listBelow = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variantId}`,
+      headers: auth,
+      payload: { compareAtMinor: 90000 },
+    });
+    expect(listBelow.statusCode).toBe(200);
+
+    // Maliyeti liste tavaninin ustune cikarmaya calismak -> 400 COST_EXCEEDS_LIST.
+    const raiseCost = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variantId}`,
+      headers: auth,
+      payload: { costMinor: 95000 },
+    });
+    expect(raiseCost.statusCode).toBe(400);
+    expect(raiseCost.json()).toMatchObject({ error: { code: "COST_EXCEEDS_LIST" } });
+
+    // Satis fiyatini dusur -> yeni audit satiri.
+    const drop = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variantId}`,
+      headers: auth,
+      payload: { priceMinor: 80000 },
+    });
+    expect(drop.statusCode).toBe(200);
+
+    // Fiyat gecmisi: en yeni ustte; baslangic + degisiklikler.
+    const history = await app.inject({
+      method: "GET",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variantId}/price-changes`,
+      headers: auth,
+    });
+    expect(history.statusCode).toBe(200);
+    const changes = history.json().data as Array<{ newPriceMinor: number | null; source: string }>;
+    expect(changes.length).toBeGreaterThanOrEqual(2);
+    expect(changes[0]).toMatchObject({ newPriceMinor: 80000, source: "ADMIN_EDIT" });
+    // En eski kayit baslangic (create) olmali.
+    expect(changes[changes.length - 1]).toMatchObject({ oldPriceMinor: null, newPriceMinor: 100000 });
+
+    await app.close();
+  });
+
   it("lists inventory and records movements for non-negative adjustments", async () => {
     const { app, dataAccess, login } = await createTestApp();
     const token = await login();
@@ -3571,6 +3734,9 @@ describe("api gateway · public catalog (TD-032)", () => {
     expect(body.data).toHaveLength(1);
     expect(body.data[0]).toMatchObject({ slug: "demo-hoodie", title: "Demo Hoodie", categoryLabel: "Apparel" });
     expect(body.data[0].variants[0]).toMatchObject({ sku: "DEMO-HOODIE-BLK-M", priceMinor: 129900, inStock: true });
+    // F4B — Omnibus: indirim (compareAt 149900 > price 129900) varken lowestPriceMinor
+    // dolu gelir; 30 gunde kayit yoksa mevcut satis fiyatina fallback eder.
+    expect(body.data[0].variants[0].lowestPriceMinor).toBe(129900);
     await app.close();
   });
 
