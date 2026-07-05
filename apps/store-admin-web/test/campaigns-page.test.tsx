@@ -110,3 +110,115 @@ describe("store-admin · F4A campaigns page", () => {
     });
   });
 });
+
+// F4A.1 — Otomatik kupon kodu uretici: buton kodu doldurur, alan duzenlenebilir
+// kalir; benzersizlik dogrulamasi backend'de kalir (burada yalniz UI akisi).
+describe("store-admin · F4A.1 auto coupon code generator", () => {
+  it("fills the coupon input with a generated, editable code", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Yeni kampanya" }));
+    await user.type(screen.getByLabelText("Kampanya adı"), "Yaz Şöleni");
+    await user.type(screen.getByLabelText("İndirim yüzdesi (1-100)"), "10");
+    await user.click(screen.getByRole("button", { name: "Otomatik Oluştur" }));
+
+    const input = screen.getByLabelText("Kupon kodu") as HTMLInputElement;
+    expect(input.value.startsWith("YAZSOLENI10-")).toBe(true);
+    expect(input.value).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/);
+
+    // Uretim sonrasi kullanici kodu duzenleyebilir.
+    await user.clear(input);
+    await user.type(input, "ELLE-KOD1");
+    expect(input.value).toBe("ELLE-KOD1");
+  });
+
+  it("does not show the generate button while editing an existing campaign", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Düzenle" }));
+    expect(screen.queryByRole("button", { name: "Otomatik Oluştur" })).toBeNull();
+  });
+});
+
+// F4A.2 — Kampanya detay analitigi (ADR-059): snapshot-tabanli sayilar, tekil
+// musteri, ciro oncesi/sonrasi, ortalamalar ve siparis detayina baglanti.
+describe("store-admin · F4A.2 campaign analytics", () => {
+  const DETAIL_WITH_ANALYTICS = {
+    ...COUPON_CAMPAIGN,
+    recentRedemptions: [
+      {
+        id: "red_1",
+        orderId: "order_1",
+        orderNumber: "OS-000042",
+        couponCode: "TEST250",
+        maskedEmail: "bu***@e***.com",
+        discountAmountMinor: 25000,
+        orderTotalMinor: 130000,
+        createdAt: "2026-07-02T10:00:00.000Z",
+      },
+    ],
+    totalRedemptionCount: 3,
+    totalDiscountMinor: 75000,
+    analytics: {
+      redemptionCount: 3,
+      uniqueCustomerCount: 2,
+      totalDiscountMinor: 75000,
+      ordersSubtotalMinor: 450000,
+      ordersTotalMinor: 390000,
+      avgDiscountPerOrderMinor: 25000,
+      avgOrderTotalMinor: 130000,
+      lastRedemptionAt: "2026-07-02T10:00:00.000Z",
+    },
+  };
+
+  it("shows analytics and links recent redemptions to the order detail", async () => {
+    seedHappyPath();
+    storeApiMock.getCampaign.mockResolvedValue(DETAIL_WITH_ANALYTICS);
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Detay" }));
+    expect(await screen.findByText("Kullanım istatistikleri")).toBeTruthy();
+    expect(screen.getByText("Tekil müşteri:")).toBeTruthy();
+    expect(screen.getByText("₺750,00")).toBeTruthy(); // toplam indirim
+    expect(screen.getByText("₺4.500,00")).toBeTruthy(); // indirim oncesi ciro
+    expect(screen.getByText("₺3.900,00")).toBeTruthy(); // indirim sonrasi ciro
+
+    const orderLink = screen.getByRole("link", { name: "OS-000042" }) as HTMLAnchorElement;
+    expect(orderLink.getAttribute("href")).toBe("/orders/order_1");
+  });
+
+  it("renders zeros for a campaign without redemptions", async () => {
+    seedHappyPath();
+    storeApiMock.getCampaign.mockResolvedValue({
+      ...DETAIL_WITH_ANALYTICS,
+      recentRedemptions: [],
+      totalRedemptionCount: 0,
+      totalDiscountMinor: 0,
+      analytics: {
+        redemptionCount: 0,
+        uniqueCustomerCount: 0,
+        totalDiscountMinor: 0,
+        ordersSubtotalMinor: 0,
+        ordersTotalMinor: 0,
+        avgDiscountPerOrderMinor: 0,
+        avgOrderTotalMinor: 0,
+        lastRedemptionAt: null,
+      },
+    });
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Detay" }));
+    expect(await screen.findByText("Henüz kullanım yok.")).toBeTruthy();
+    expect(screen.getAllByText(/₺0,00/).length).toBeGreaterThanOrEqual(1);
+  });
+});

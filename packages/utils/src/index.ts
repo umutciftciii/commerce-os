@@ -1,3 +1,11 @@
+export {
+  formatCampaignAmount,
+  getCampaignBadgeText,
+  getCampaignPublicLabel,
+  type CampaignLabelInput,
+  type CampaignLabelLocale,
+} from "./campaign-label.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

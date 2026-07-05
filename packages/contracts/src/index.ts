@@ -594,6 +594,23 @@ export const publicProductVariantSchema = z.object({
   inStock: z.boolean(),
 });
 
+/**
+ * F4A.1 — Public urun kampanya rozeti (ALLOWLIST). Yalnizca vitrinde reklam
+ * edilmesi guvenli alanlar tasinir: kampanya IC kimligi, kullanim/limit
+ * istatistikleri, priority, stackable, kapsam id listeleri ve isPublic=false
+ * kampanyalar bu projeksiyona ASLA girmez. Etiket metni istemci tarafinda
+ * paylasilan helper'la (getCampaignPublicLabel/getCampaignBadgeText) uretilir.
+ */
+export const publicCampaignBadgeSchema = z.object({
+  /** COUPON = kupon kodu gerektirir; AUTOMATIC = sepette kendiliginden uygulanir. */
+  kind: z.enum(["AUTOMATIC", "COUPON"]),
+  discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
+  /** PERCENT: 1-100; FIXED_AMOUNT: minor unit tutar. */
+  discountValue: z.number().int().positive(),
+  /** Varsa "X uzeri gecerli" copy'si icin minimum sepet tutari. */
+  minOrderAmountMinor: z.number().int().positive().nullable(),
+});
+
 export const publicProductSchema = z.object({
   id: z.string().min(1),
   slug: slugSchema,
@@ -610,6 +627,8 @@ export const publicProductSchema = z.object({
   minOrderQuantity: z.number().int().positive(),
   maxOrderQuantity: z.number().int().positive().nullable(),
   variants: z.array(publicProductVariantSchema),
+  /** F4A.1 — Bu urun icin gecerli kampanya rozeti (yoksa null; additive alan). */
+  campaign: publicCampaignBadgeSchema.nullable().default(null),
 });
 
 export const publicProductListResponseSchema = z.object({
@@ -1355,6 +1374,25 @@ export const orderBillingSchema = z.object({
   email: z.string().nullable(),
 });
 
+/**
+ * F4A.2 — Siparis indirim SNAPSHOT satiri (store-admin siparis detayi).
+ * KAYNAK DOGRUSU OrderDiscount kaydidir: kampanya sonradan degisse/silinse
+ * bile siparis detayi tarihsel dogrulugunu korur (guncel kampanya kurallari
+ * YENIDEN HESAPLANMAZ). ALLOWLIST: ham scopeSummary/metadata JSON'u ve kupon
+ * ic kimligi tasinmaz; campaignId yalniz admin yuzeyinde kampanya detayina
+ * baglanti icindir (public yuzeylere TASINMAZ).
+ */
+export const orderDiscountLineSchema = z.object({
+  id: z.string().min(1),
+  campaignId: z.string().min(1).nullable(),
+  code: z.string().nullable(),
+  label: z.string().min(1),
+  discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
+  discountValue: z.number().int().positive(),
+  discountAmountMinor: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+
 export const orderSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -1388,6 +1426,8 @@ export const orderSchema = z.object({
   // yansıtabilmesi için TEMSİLİ kargo durumu (allowlist: yalnız DURUM enum'u).
   // Shipment yoksa null. statusText/iç ID/ham payload TAŞINMAZ.
   shipmentStatus: orderSummaryShipmentStatusSchema.nullable().default(null),
+  // F4A.2 — Kampanya/kupon indirim SNAPSHOT satırları (tarihsel kayıt; additive).
+  discounts: z.array(orderDiscountLineSchema).default([]),
 });
 
 export const orderListResponseSchema = z.object({
@@ -1652,6 +1692,7 @@ export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
 export type ProductUpdateRequest = z.infer<typeof productUpdateRequestSchema>;
 export type ProductVariant = z.infer<typeof productVariantSchema>;
 export type ProductVariantListResponse = z.infer<typeof productVariantListResponseSchema>;
+export type PublicCampaignBadge = z.infer<typeof publicCampaignBadgeSchema>;
 export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
@@ -1725,6 +1766,7 @@ export type OrderEvent = z.infer<typeof orderEventSchema>;
 export type OrderPaymentAttempt = z.infer<typeof orderPaymentAttemptSchema>;
 export type OrderBilling = z.infer<typeof orderBillingSchema>;
 export type Order = z.infer<typeof orderSchema>;
+export type OrderDiscountLine = z.infer<typeof orderDiscountLineSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
@@ -3598,6 +3640,23 @@ export const campaignListResponseSchema = z.object({
 });
 
 /** Son kullanim kayitlari (admin detay; e-posta MASKELI doner, PII sizdirmaz). */
+/**
+ * F4A.2 — Kampanya analitigi (ADR-059). Kaynak: immutable CampaignRedemption +
+ * siparis snapshot alanlari (subtotal/total). Guncel kampanya tanimindan
+ * YENIDEN HESAPLANMAZ; iptal/iade edilmis siparislerin kullanim kayitlari
+ * tarihsel olarak dahildir.
+ */
+export const campaignAnalyticsSchema = z.object({
+  redemptionCount: z.number().int().nonnegative(),
+  uniqueCustomerCount: z.number().int().nonnegative(),
+  totalDiscountMinor: z.number().int().nonnegative(),
+  ordersSubtotalMinor: z.number().int().nonnegative(),
+  ordersTotalMinor: z.number().int().nonnegative(),
+  avgDiscountPerOrderMinor: z.number().int().nonnegative(),
+  avgOrderTotalMinor: z.number().int().nonnegative(),
+  lastRedemptionAt: z.string().datetime().nullable(),
+});
+
 export const campaignRedemptionSummarySchema = z.object({
   id: z.string().min(1),
   orderId: z.string().min(1),
@@ -3605,6 +3664,8 @@ export const campaignRedemptionSummarySchema = z.object({
   couponCode: z.string().nullable(),
   maskedEmail: z.string().nullable(),
   discountAmountMinor: z.number().int().nonnegative(),
+  /** F4A.2 — Siparisin genel toplami (siparis detay linki yaninda gosterim). */
+  orderTotalMinor: z.number().int().nonnegative().nullable().default(null),
   createdAt: z.string().datetime(),
 });
 
@@ -3612,6 +3673,8 @@ export const campaignDetailResponseSchema = campaignSchema.extend({
   recentRedemptions: z.array(campaignRedemptionSummarySchema),
   totalRedemptionCount: z.number().int().nonnegative(),
   totalDiscountMinor: z.number().int().nonnegative(),
+  /** F4A.2 — Snapshot-tabanli kampanya analitigi (ADR-059). */
+  analytics: campaignAnalyticsSchema,
 });
 
 const campaignBaseInputSchema = z.object({
@@ -3696,6 +3759,7 @@ export type CampaignCoupon = z.infer<typeof campaignCouponSchema>;
 export type CampaignResponse = z.infer<typeof campaignSchema>;
 export type CampaignListResponse = z.infer<typeof campaignListResponseSchema>;
 export type CampaignRedemptionSummary = z.infer<typeof campaignRedemptionSummarySchema>;
+export type CampaignAnalytics = z.infer<typeof campaignAnalyticsSchema>;
 export type CampaignDetailResponse = z.infer<typeof campaignDetailResponseSchema>;
 export type CampaignCreateRequest = z.infer<typeof campaignCreateRequestSchema>;
 export type CampaignUpdateRequest = z.infer<typeof campaignUpdateRequestSchema>;

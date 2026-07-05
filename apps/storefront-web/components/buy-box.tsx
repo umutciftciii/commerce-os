@@ -128,6 +128,21 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       ) : null}
       {numeric ? <p className="mt-1 text-xs text-slate-400">{t.buyBox.priceNote}</p> : null}
 
+      {/* F4A.1 — Aktif kampanya bilgisi (fiyata yakin). Metinler sunucu-otoriter
+          public rozet projeksiyonundan turetilir; tutar hesabi yapilmaz. */}
+      {detail.campaign ? (
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+          <p className="text-sm font-semibold text-emerald-800">{detail.campaign.label}</p>
+          <p className="mt-0.5 text-xs text-emerald-700">
+            {t.detail.campaignAppliesAtCart}
+            {detail.campaign.requiresCoupon ? ` · ${t.detail.campaignRequiresCoupon}` : ""}
+            {detail.campaign.minOrderLabel
+              ? ` · ${format(t.detail.campaignMinOrder, { amount: detail.campaign.minOrderLabel })}`
+              : ""}
+          </p>
+        </div>
+      ) : null}
+
       {/* Stok durumu */}
       <div className="mt-3">
         <Badge tone={stock.tone} dot>

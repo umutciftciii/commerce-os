@@ -329,3 +329,121 @@ describe("store-admin order detail — dedicated route page", () => {
     expect(screen.getByRole("link", { name: /Back to orders/ })).toBeTruthy();
   });
 });
+
+// F4A.2 — Kampanya/Kupon paneli: OrderDiscount SNAPSHOT satirlarindan beslenir.
+// Indirimsiz siparis notr metin gosterir; kupon/otomatik satirlar kampanya adi,
+// tip, deger, uygulanan tutar ve oncesi/sonrasi toplamlarla listelenir.
+describe("store-admin order detail — campaign/coupon panel (F4A.2)", () => {
+  function renderPage() {
+    return render(
+      <LocaleProvider locale="tr">
+        <OrderDetailPage />
+      </LocaleProvider>,
+    );
+  }
+
+  it("shows the neutral message when the order has no discounts", async () => {
+    storeApiMock.getOrder.mockResolvedValue(makeOrder({ discounts: [] }));
+    renderPage();
+    expect(await screen.findByText("Kampanya / Kupon Bilgisi")).toBeTruthy();
+    expect(screen.getByText("Bu siparişte kampanya veya kupon kullanılmadı.")).toBeTruthy();
+  });
+
+  it("renders coupon discount snapshot with code, amounts and totals", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        subtotalAmount: 150000,
+        discountAmount: 25000,
+        shippingAmount: 5000,
+        totalAmount: 130000,
+        discounts: [
+          {
+            id: "d1",
+            campaignId: "camp_1",
+            code: "TEST250",
+            label: "TEST250 Kuponu",
+            discountType: "FIXED_AMOUNT",
+            discountValue: 25000,
+            discountAmountMinor: 25000,
+            createdAt: new Date("2026-07-01T09:00:00.000Z").toISOString(),
+          },
+        ],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText("TEST250 Kuponu")).toBeTruthy();
+    expect(screen.getByText("TEST250")).toBeTruthy();
+    // "Kupon kodu" hem tip rozetinde hem kod satiri etiketinde gorunebilir.
+    expect(screen.getAllByText("Kupon kodu").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("İndirim öncesi ara toplam")).toBeTruthy();
+    expect(screen.getByText("İndirim sonrası ara toplam")).toBeTruthy();
+    expect(screen.getByText("Bu bilgiler sipariş anındaki indirim kaydıdır.")).toBeTruthy();
+    // Snapshot degerleri: −₺250 indirim, ₺1.250 sonrasi.
+    expect(screen.getByText("−₺250,00")).toBeTruthy();
+    expect(screen.getByText("₺1.250,00")).toBeTruthy();
+  });
+
+  it("renders automatic campaign snapshot without a coupon code row", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        subtotalAmount: 100000,
+        discountAmount: 10000,
+        totalAmount: 90000,
+        discounts: [
+          {
+            id: "d2",
+            campaignId: "camp_2",
+            code: null,
+            label: "Sepette %10 İndirim",
+            discountType: "PERCENT",
+            discountValue: 10,
+            discountAmountMinor: 10000,
+            createdAt: new Date("2026-07-01T09:00:00.000Z").toISOString(),
+          },
+        ],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText("Sepette %10 İndirim")).toBeTruthy();
+    expect(screen.getByText("Otomatik kampanya")).toBeTruthy();
+    expect(screen.getByText("%10")).toBeTruthy();
+    expect(screen.queryByText("TEST250")).toBeNull();
+  });
+
+  it("renders multiple discount lines with the combined total", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        subtotalAmount: 200000,
+        discountAmount: 35000,
+        totalAmount: 165000,
+        discounts: [
+          {
+            id: "d1",
+            campaignId: "camp_1",
+            code: "TEST250",
+            label: "TEST250 Kuponu",
+            discountType: "FIXED_AMOUNT",
+            discountValue: 25000,
+            discountAmountMinor: 25000,
+            createdAt: new Date("2026-07-01T09:00:00.000Z").toISOString(),
+          },
+          {
+            id: "d2",
+            campaignId: "camp_2",
+            code: null,
+            label: "Sepette %5 İndirim",
+            discountType: "PERCENT",
+            discountValue: 5,
+            discountAmountMinor: 10000,
+            createdAt: new Date("2026-07-01T09:00:00.000Z").toISOString(),
+          },
+        ],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText("TEST250 Kuponu")).toBeTruthy();
+    expect(screen.getByText("Sepette %5 İndirim")).toBeTruthy();
+    // Toplam indirim iki satirin toplamidir (snapshot'tan; yeniden hesap yok).
+    expect(screen.getByText("−₺350,00")).toBeTruthy();
+  });
+});

@@ -1041,26 +1041,66 @@ class MemoryDataAccess implements AppDataAccess {
     return this.campaigns.filter((campaign) => campaign.storeId === storeId);
   }
 
+  // F4A.1 — Public rozet projeksiyonu icin ACTIVE + isPublic kampanyalar.
+  async listPublicActiveCampaigns(storeId: string) {
+    const supported = new Set(["COUPON_CODE", "AUTOMATIC_CART", "PRODUCT_DISCOUNT", "CATEGORY_DISCOUNT"]);
+    return this.campaigns.filter(
+      (campaign) =>
+        campaign.storeId === storeId &&
+        campaign.status === "ACTIVE" &&
+        campaign.isPublic &&
+        supported.has(campaign.type),
+    );
+  }
+
   async findCampaignById(storeId: string, campaignId: string) {
     const campaign = this.campaigns.find((item) => item.storeId === storeId && item.id === campaignId);
     if (!campaign) return null;
     const redemptions = this.campaignRedemptions.filter(
       (item) => item.storeId === storeId && item.campaignId === campaignId,
     );
+    const orderOf = (orderId: string) => this.orders.find((order) => order.id === orderId);
+    const totalDiscountMinor = redemptions.reduce((sum, item) => sum + item.discountAmountMinor, 0);
+    // F4A.2 (ADR-059) — Snapshot-tabanli analitik (in-memory karsilik).
+    const identities = new Set<string>();
+    let ordersSubtotalMinor = 0;
+    let ordersTotalMinor = 0;
+    let lastRedemptionAt: Date | null = null;
+    for (const item of redemptions) {
+      const identity = item.customerId ?? item.email;
+      if (identity) identities.add(identity);
+      const order = orderOf(item.orderId);
+      ordersSubtotalMinor += order?.subtotalAmount ?? 0;
+      ordersTotalMinor += order?.totalAmount ?? 0;
+      if (!lastRedemptionAt || item.createdAt > lastRedemptionAt) lastRedemptionAt = item.createdAt;
+    }
     return {
       ...campaign,
       recentRedemptions: redemptions.slice(-10).reverse().map((item) => ({
         id: item.id,
         orderId: item.orderId,
-        orderNumber: this.orders.find((order) => order.id === item.orderId)?.orderNumber ?? null,
+        orderNumber: orderOf(item.orderId)?.orderNumber ?? null,
         couponCode:
           campaign.coupons.find((coupon) => coupon.id === item.couponId)?.code ?? null,
         email: item.email,
         discountAmountMinor: item.discountAmountMinor,
+        orderTotalMinor: orderOf(item.orderId)?.totalAmount ?? null,
         createdAt: item.createdAt,
       })),
       totalRedemptionCount: redemptions.length,
-      totalDiscountMinor: redemptions.reduce((sum, item) => sum + item.discountAmountMinor, 0),
+      totalDiscountMinor,
+      analytics: {
+        redemptionCount: redemptions.length,
+        uniqueCustomerCount: identities.size,
+        totalDiscountMinor,
+        ordersSubtotalMinor,
+        ordersTotalMinor,
+        avgDiscountPerOrderMinor:
+          redemptions.length > 0 ? Math.round(totalDiscountMinor / redemptions.length) : 0,
+        avgOrderTotalMinor:
+          redemptions.length > 0 ? Math.round(ordersTotalMinor / redemptions.length) : 0,
+        lastRedemptionAt,
+      },
     };
   }
 
@@ -3765,6 +3805,45 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     });
     return campaign;
   }
+
+  // F4A.1 — Public urun listesi/detayi kampanya rozeti tasir (allowlist);
+  // isPublic=false kampanya public projeksiyona ASLA girmez.
+  it("F4A.1: public product list carries a campaign badge without leaking internals", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedCampaign(dataAccess, {
+      type: "AUTOMATIC_CART",
+      discountType: "PERCENT",
+      discountValue: 10,
+      minOrderAmountMinor: 100000,
+      priority: 5,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(response.statusCode).toBe(200);
+    const product = response.json().data[0];
+    expect(product.campaign).toEqual({
+      kind: "AUTOMATIC",
+      discountType: "PERCENT",
+      discountValue: 10,
+      minOrderAmountMinor: 100000,
+    });
+    // Ic alanlar (id/priority/usage/stackable) public govdeye sizmaz.
+    expect(JSON.stringify(product.campaign)).not.toContain("camp_seed");
+    expect(product.campaign.priority).toBeUndefined();
+    expect(product.campaign.usageCount).toBeUndefined();
+    await app.close();
+  });
+
+  it("F4A.1: non-public and paused campaigns never produce a public badge", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedCouponCampaign(dataAccess, { isPublic: false }, "GIZLI10");
+    seedCampaign(dataAccess, { type: "AUTOMATIC_CART", status: "PAUSED" });
+
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data[0].campaign).toBeNull();
+    await app.close();
+  });
 
   it("resolves an ONLINE variant into a purchasable cart line (subtotal computed server-side)", async () => {
     const { app } = await createTestApp();

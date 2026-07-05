@@ -461,7 +461,18 @@ function CheckoutSummary({
 
         <dl className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
           <Row label={t.subtotal} value={s.subtotalLabel} />
-          {s.discountLabel ? (
+          {/* F4A.1 — Indirim satirlari kampanya ADIYLA listelenir (kuponda kod
+              parantezde); satir bilgisi yoksa toplam indirim satirina dusulur. */}
+          {s.discountLines.length > 0 ? (
+            s.discountLines.map((line, index) => (
+              <Row
+                key={index}
+                label={`${line.label}${line.code ? ` (${line.code})` : ""}`}
+                value={`−${line.amountLabel}`}
+                tone="discount"
+              />
+            ))
+          ) : s.discountLabel ? (
             <Row
               label={`${t.discount}${s.couponCode ? ` (${s.couponCode})` : ""}`}
               value={`−${s.discountLabel}`}

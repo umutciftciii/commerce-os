@@ -899,3 +899,28 @@
   senaryosu); ürün kartı kampanya rozeti ("Sepette %20", "Kuponlu ürün") bilinçli follow-up (public listing
   sözleşmesine dokunulmadı); iptal/refund'ta redemption iadesi YOK (kompanzasyon deseni yokken tarihsel kalır
   — ADR-058'de dokümante).
+- F4A.1 + F4A.2 — Kampanya görünürlüğü, otomatik kupon kodu, sipariş kampanya paneli, kampanya analitiği
+  (DONE — 2026-07-05, ADR-059). F4A.1: public ürün liste/detay DTO'suna additive `campaign` rozet alanı
+  (`publicCampaignBadgeSchema` allowlist: kind/discountType/discountValue/minOrderAmountMinor; yalnız
+  ACTIVE + isPublic + pencere açık + limiti dolmamış kampanyalar; kapsam eşlemesi ürün/kategori; seçim
+  deterministik priority→id; iç metadata/kapsam listesi sızmaz — isPublic=false özel kupon public'te
+  GÖRÜNMEZ). Paylaşılan etiket helper'ları `@commerce-os/utils` `getCampaignPublicLabel`/
+  `getCampaignBadgeText` ("Sepette %10 indirim", "₺250 kupon", "Kuponlu ürün"). Vitrin: ürün kartı rozeti
+  (kampanya > compareAt önceliği), ürün detayda fiyat yanı kampanya kutusu ("Sepette uygulanır" /
+  "Kupon kodu gerektirir" / "₺X üzeri geçerli"), sepet+checkout indirim satırları kampanya ADIYLA
+  (geçersiz kuponda otomatik kampanya satırı görünür kalır). Store-admin kampanya formunda "Otomatik
+  Oluştur" kupon kodu üretici (TR→ASCII önek + indirim ipucu + 4'lü rastgele sonek; alan düzenlenebilir;
+  benzersizlik kaynağı backend DUPLICATE_COUPON_CODE). F4A.2: `orderSchema.discounts` additive
+  OrderDiscount SNAPSHOT satırları (id/campaignId/code/label/discountType/discountValue/
+  discountAmountMinor/createdAt; scopeSummary raw sızmaz) + store-admin sipariş detayında "Kampanya /
+  Kupon Bilgisi" kartı (tip rozeti kupon/otomatik, kod, indirim tip/değer, uygulanan tutar, öncesi/
+  sonrası ara toplam, kargo, genel toplam, kullanım tarihi, snapshot notu; indirimsizde nötr metin).
+  Kampanya detayına snapshot-tabanlı analitik (`campaignAnalyticsSchema`: kullanım, tekil müşteri,
+  toplam indirim, ciro öncesi/sonrası, ortalama indirim/sipariş, ortalama sipariş tutarı, son kullanım)
+  + son kullanımlar sipariş detayına LİNKLİ (orderTotal + maskeli e-posta ile). Kaynak doğrusu:
+  OrderDiscount + CampaignRedemption (ADR-059; iptal edilen siparişler tarihsel olarak dahil, UI notu
+  var). Migration YOK (tümü additive DTO/UI). Testler: utils etiket 10, gateway public-badge 15 +
+  entegrasyon 2, storefront kart/detay 6+3, store-admin üretici 11 + form UI 2 + sipariş paneli 4 +
+  analitik 2. KALAN: merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) +
+  runtime smoke; kampanya LİSTE kolonlarına toplam indirim/ciro (groupBy) ve tarih-aralıklı rapor sayfası
+  + CSV export follow-up; analitik bellekte toplanır — yüksek hacimde SQL aggregate follow-up.

@@ -21,6 +21,7 @@ function summary(
     price,
     commerce: deriveProductCommerceView(salesOverrides),
     badgeKind: price.compareAtLabel ? "discount" : null,
+    campaign: null,
     ...extra,
   };
 }
@@ -75,5 +76,44 @@ describe("ProductCard · sales-mode CTA", () => {
     const html = renderToStaticMarkup(<ProductCard product={summary(sales.online, amount)} t={en} />);
     expect(html).toContain("Add to cart");
     expect(html).not.toContain("Sepete ekle");
+  });
+});
+
+// F4A.1 — Kampanya rozeti: kampanya varsa oncelikli gosterilir; compareAt
+// indirim rozetinin yerini alir. Metin sunucu projeksiyonundan turetilmis
+// hazir badgeText'tir (istemci hesap yapmaz).
+describe("ProductCard · campaign badge (F4A.1)", () => {
+  const campaign = {
+    badgeText: "Sepette %10 indirim",
+    label: "Sepette %10 indirim",
+    requiresCoupon: false,
+    minOrderLabel: null,
+  };
+
+  it("shows the campaign badge text when a campaign applies", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard product={summary(sales.online, amount, { campaign, badgeKind: null })} t={tr} />,
+    );
+    expect(html).toContain("Sepette %10 indirim");
+  });
+
+  it("campaign badge takes precedence over the compare-at discount badge", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard product={summary(sales.online, amount, { campaign })} t={tr} />,
+    );
+    expect(html).toContain("Sepette %10 indirim");
+    expect(html).not.toContain(`>${tr.badges.discount}<`);
+  });
+
+  it("coupon campaign shows the coupon badge text", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, amount, {
+          campaign: { ...campaign, badgeText: "Kuponlu ürün", requiresCoupon: true },
+        })}
+        t={tr}
+      />,
+    );
+    expect(html).toContain("Kuponlu ürün");
   });
 });

@@ -61,6 +61,25 @@ export interface StorefrontProductSummary {
   commerce: ProductCommerceView;
   /** Indirim varsa rozet anahtari ("discount"); yoksa null. i18n'de cevrilir. */
   badgeKind: "discount" | "new" | null;
+  /** F4A.1 — Aktif public kampanya rozeti; yoksa null. */
+  campaign: StorefrontCampaignView | null;
+}
+
+/**
+ * F4A.1 — Vitrin kampanya gorunumu. Gateway'in public-safe rozet
+ * projeksiyonundan (kind/discountType/discountValue/minOrderAmountMinor)
+ * turetilmis HAZIR metinler tasir; kampanya ic verisi (id/limit/istatistik)
+ * burada YOKTUR.
+ */
+export interface StorefrontCampaignView {
+  /** Urun karti rozeti ("Sepette %10 indirim" / "Kuponlu ürün"). */
+  badgeText: string;
+  /** Detay etiketi ("Sepette %10 indirim" / "₺250 kupon"). */
+  label: string;
+  /** Kupon kodu gerektiren kampanya mi ("Kupon kodu gerektirir" satiri). */
+  requiresCoupon: boolean;
+  /** "X üzeri geçerli" esigi bicimli; yoksa null. */
+  minOrderLabel: string | null;
 }
 
 /**

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Button, Container, EmptyState } from "@commerce-os/ui";
 import { format } from "@commerce-os/i18n";
 import { ProductCard } from "../../components/product-card";
-import { getStorefrontDict } from "../../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../lib/i18n";
 import { getStorefrontListing } from "../../lib/server/catalog";
 
 // Canli katalog her istekte cozulur (sunucu-tarafi resolver + token).
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function ProductListingPage() {
   const dict = await getStorefrontDict();
   const t = dict.listing;
-  const result = await getStorefrontListing();
+  const result = await getStorefrontListing(await getRequestLocale());
 
   if (!result.ok && result.reason === "error") {
     return (

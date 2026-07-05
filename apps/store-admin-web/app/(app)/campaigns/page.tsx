@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import {
   Alert,
   Badge,
@@ -28,6 +29,7 @@ import { CampaignIcon } from "../../../components/icons";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatMinor, minorToInput, inputToMinor } from "../../../lib/client/format";
+import { generateCouponCode } from "../../../lib/client/coupon-code";
 
 type Locale = "tr" | "en";
 
@@ -96,6 +98,7 @@ const L = {
     formPriority: "Öncelik",
     formCouponCode: "Kupon kodu",
     formCouponCodeHint: "2-40 karakter; harf/rakam/tire/alt çizgi. Büyük harfe normalize edilir.",
+    generateCouponCode: "Otomatik Oluştur",
     formProducts: "Ürün kapsamı (opsiyonel)",
     formCategories: "Kategori kapsamı (opsiyonel)",
     scopeHint: "Kapsam boşsa kampanya tüm sepete uygulanır.",
@@ -108,6 +111,16 @@ const L = {
     detailRedemptions: "Son kullanımlar",
     statTotalRedemptions: "Toplam kullanım",
     statTotalDiscount: "Toplam indirim",
+    // F4A.2 — Snapshot-tabanli kampanya analitigi (ADR-059).
+    statUniqueCustomers: "Tekil müşteri",
+    statOrdersSubtotal: "İndirim öncesi ciro",
+    statOrdersTotal: "İndirim sonrası ciro (tahsil)",
+    statAvgDiscount: "Ortalama indirim / sipariş",
+    statAvgOrderTotal: "Ortalama sipariş tutarı",
+    statLastRedemption: "Son kullanım tarihi",
+    analyticsNote:
+      "Analitik, sipariş anındaki indirim kayıtlarından (snapshot) hesaplanır; iptal edilen siparişlerin kullanımları tarihsel olarak dahildir.",
+    redemptionOrderTotal: "sipariş",
     noRedemptions: "Henüz kullanım yok.",
     couponUsage: "kullanım",
     close: "Kapat",
@@ -172,6 +185,7 @@ const L = {
     formPriority: "Priority",
     formCouponCode: "Coupon code",
     formCouponCodeHint: "2-40 chars; letters/digits/dash/underscore. Normalized to uppercase.",
+    generateCouponCode: "Generate automatically",
     formProducts: "Product scope (optional)",
     formCategories: "Category scope (optional)",
     scopeHint: "If the scope is empty, the campaign applies to the whole cart.",
@@ -184,6 +198,16 @@ const L = {
     detailRedemptions: "Recent redemptions",
     statTotalRedemptions: "Total redemptions",
     statTotalDiscount: "Total discount",
+    // F4A.2 — Snapshot-based campaign analytics (ADR-059).
+    statUniqueCustomers: "Unique customers",
+    statOrdersSubtotal: "Revenue before discount",
+    statOrdersTotal: "Revenue after discount (charged)",
+    statAvgDiscount: "Avg discount / order",
+    statAvgOrderTotal: "Avg order total",
+    statLastRedemption: "Last redemption",
+    analyticsNote:
+      "Analytics are computed from order-time discount snapshots; redemptions of cancelled orders remain included historically.",
+    redemptionOrderTotal: "order",
     noRedemptions: "No redemptions yet.",
     couponUsage: "uses",
     close: "Close",
@@ -643,12 +667,40 @@ export default function CampaignsPage() {
               />
               {form.type === "COUPON_CODE" ? (
                 <div>
-                  <Input
-                    label={t.formCouponCode}
-                    value={form.couponCode}
-                    disabled={editing !== null}
-                    onChange={(event) => setForm((prev) => ({ ...prev, couponCode: event.target.value }))}
-                  />
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Input
+                        label={t.formCouponCode}
+                        value={form.couponCode}
+                        disabled={editing !== null}
+                        onChange={(event) => setForm((prev) => ({ ...prev, couponCode: event.target.value }))}
+                      />
+                    </div>
+                    {/* F4A.1 — Otomatik kod onerisi: ad + indirim ipucu + rastgele
+                        sonek. Uretim sonrasi alan DUZENLENEBILIR kalir; benzersizlik
+                        dogrulamasi backend'dedir (cakisirsa yeniden uretilir). */}
+                    {editing === null ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            couponCode: generateCouponCode({
+                              name: prev.name,
+                              discountType: prev.discountType,
+                              discountValue:
+                                prev.discountType === "PERCENT"
+                                  ? Number.parseInt(prev.discountValue, 10) || null
+                                  : inputToMinor(prev.discountValue),
+                            }),
+                          }))
+                        }
+                      >
+                        {t.generateCouponCode}
+                      </Button>
+                    ) : null}
+                  </div>
                   <p className="mt-1 text-xs text-white/40">{t.formCouponCodeHint}</p>
                 </div>
               ) : null}
@@ -704,13 +756,40 @@ export default function CampaignsPage() {
           }
         >
           <div className="grid gap-4 md:grid-cols-3">
+            {/* F4A.2 (ADR-059) — Snapshot-tabanlı analitik: kullanım, tekil müşteri,
+                toplam indirim, ciro öncesi/sonrası, ortalamalar, son kullanım. */}
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-white/40">{t.detailStats}</p>
               <p className="mt-1 text-sm text-white/80">
-                {t.statTotalRedemptions}: <span className="font-semibold">{detail.totalRedemptionCount}</span>
+                {t.statTotalRedemptions}: <span className="font-semibold">{detail.analytics.redemptionCount}</span>
               </p>
               <p className="text-sm text-white/80">
-                {t.statTotalDiscount}: <span className="font-semibold">{formatMinor(detail.totalDiscountMinor, "TRY")}</span>
+                {t.statUniqueCustomers}: <span className="font-semibold">{detail.analytics.uniqueCustomerCount}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statTotalDiscount}: <span className="font-semibold">{formatMinor(detail.analytics.totalDiscountMinor, "TRY")}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statOrdersSubtotal}: <span className="font-semibold">{formatMinor(detail.analytics.ordersSubtotalMinor, "TRY")}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statOrdersTotal}: <span className="font-semibold">{formatMinor(detail.analytics.ordersTotalMinor, "TRY")}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statAvgDiscount}: <span className="font-semibold">{formatMinor(detail.analytics.avgDiscountPerOrderMinor, "TRY")}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statAvgOrderTotal}: <span className="font-semibold">{formatMinor(detail.analytics.avgOrderTotalMinor, "TRY")}</span>
+              </p>
+              <p className="text-sm text-white/80">
+                {t.statLastRedemption}:{" "}
+                <span className="font-semibold">
+                  {detail.analytics.lastRedemptionAt
+                    ? new Date(detail.analytics.lastRedemptionAt).toLocaleDateString(
+                        locale === "tr" ? "tr-TR" : "en-GB",
+                      )
+                    : "—"}
+                </span>
               </p>
             </div>
             <div>
@@ -735,13 +814,25 @@ export default function CampaignsPage() {
               ) : (
                 detail.recentRedemptions.map((redemption) => (
                   <p key={redemption.id} className="mt-1 text-sm text-white/70">
-                    {redemption.orderNumber ?? redemption.orderId} · {formatMinor(redemption.discountAmountMinor, "TRY")}
+                    <Link
+                      href={`/orders/${redemption.orderId}`}
+                      className="font-medium text-white/85 underline-offset-2 hover:underline"
+                    >
+                      {redemption.orderNumber ?? redemption.orderId}
+                    </Link>{" "}
+                    · −{formatMinor(redemption.discountAmountMinor, "TRY")}
+                    {redemption.orderTotalMinor != null
+                      ? ` · ${formatMinor(redemption.orderTotalMinor, "TRY")} ${t.redemptionOrderTotal}`
+                      : ""}
                     {redemption.maskedEmail ? ` · ${redemption.maskedEmail}` : ""}
+                    {" · "}
+                    {new Date(redemption.createdAt).toLocaleDateString(locale === "tr" ? "tr-TR" : "en-GB")}
                   </p>
                 ))
               )}
             </div>
           </div>
+          <p className="mt-4 text-xs text-white/35">{t.analyticsNote}</p>
         </SectionCard>
       ) : null}
 

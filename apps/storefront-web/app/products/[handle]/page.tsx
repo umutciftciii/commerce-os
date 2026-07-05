@@ -4,7 +4,7 @@ import { Badge, Button, Container, EmptyState } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { ProductCard } from "../../../components/product-card";
 import { BuyBox } from "../../../components/buy-box";
-import { getStorefrontDict } from "../../../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
 import type { StorefrontProductDetail } from "../../../lib/catalog-types";
@@ -20,7 +20,7 @@ export default async function ProductDetailPage({
   const { handle } = await params;
   const dict = await getStorefrontDict();
   const t = dict.detail;
-  const result = await getStorefrontProductByHandle(handle);
+  const result = await getStorefrontProductByHandle(handle, await getRequestLocale());
 
   if (!result.ok) {
     const title = result.reason === "no-store" ? t.notFoundTitle : t.errorTitle;
