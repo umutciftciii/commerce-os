@@ -264,6 +264,8 @@ export const trStorefront = {
     couponClaimSubmit: "Ekle",
     couponClaimSuccess: "Kupon eklendi. Kullanmak için “Kullan”a dokunun.",
     couponClaimInvalid: "Geçerli bir kupon kodu değil.",
+    // F4A.5 — Kupon merkezine (Kuponlarım) giden bağlantı.
+    couponsAllLink: "Tüm Kuponlar",
   },
   checkout: {
     title: "Ödeme",
@@ -822,6 +824,52 @@ export const trStorefront = {
       favorites: "Beğendiğiniz ürünler burada görünecek.",
       lists: "Oluşturduğunuz listeler burada görünecek.",
       coupons: "Kuponlarınız burada görünecek.",
+    },
+    // F4A.5 — Kupon merkezi (Kuponlarım / Tüm Kuponlar).
+    coupons: {
+      title: "Kuponlarım",
+      subtitle: "Sana özel ve herkese açık kuponları keşfet, ekle ve kullan.",
+      tabs: {
+        all: "Tüm Kuponlar",
+        available: "Kullanılabilir",
+        forYou: "Sana Özel",
+        used: "Kullanıldı",
+        expired: "Süresi Doldu",
+      },
+      searchLabel: "Kuponlarda ara",
+      searchPlaceholder: "Kupon ara",
+      // Manuel kod ekleme.
+      addTitle: "Kupon Kodu Ekle",
+      addPlaceholder: "Kupon kodu",
+      addSubmit: "Ekle",
+      addSuccess: "Kupon eklendi. Kullanmak için seçin.",
+      addInvalid: "Kupon bulunamadı veya kullanılamıyor.",
+      // Kart alanları / durumlar.
+      minOrder: "Alt limit: {amount}",
+      noMinOrder: "Alt limit yok",
+      expiry: "Son kullanma: {date}",
+      usedAt: "Kullanıldı: {date}",
+      sourcePublic: "Herkese açık",
+      sourceAssigned: "Sana özel",
+      sourceClaimed: "Kod ile eklendi",
+      badgeCoupon: "Kupon",
+      badgeForYou: "Sana Özel",
+      stateAvailable: "Kullanılabilir",
+      stateApplied: "Uygulandı",
+      stateUsed: "Kullanıldı",
+      stateMinOrder: "Alt limit eksik",
+      stateExpired: "Süresi doldu",
+      // Aksiyonlar.
+      use: "Kullan",
+      goToCart: "Sepete Git",
+      copyCode: "Kodu kopyala",
+      copied: "Kopyalandı",
+      viewOrder: "Siparişi gör",
+      applyHint: "Kuponu kullanmak için sepetinize ürün ekleyin.",
+      // Boş durumlar.
+      empty: "Henüz kuponunuz yok.",
+      emptyFilter: "Bu filtrede kupon bulunamadı.",
+      emptyHint: "Kodunuz varsa “Kupon Kodu Ekle” ile tanımlayabilirsiniz.",
     },
   },
 };

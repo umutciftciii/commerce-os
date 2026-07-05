@@ -2839,3 +2839,44 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) + runtime smoke
   (otomatik "Sepette %10" kart/detay/sepet; TEST250 public kupon kartı/claim/Kullan; private yalnız kodla;
   BADCODE güvenli hata + otomatik satır korunur; admin atama iki yerden; public payload sızıntısızlığı).
+
+## 2026-07-05 — F4A.5: Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi (ADR-060 devamı)
+
+- **Amaç.** F4A.3 kalıcı cüzdanının eksik UX katmanı: müşteri kuponları tek bir merkezde keşfeder, görür,
+  ekler ve kullanır. Yeni ADR yok — ADR-060 güvenlik/allowlist sözleşmesini genişletir.
+- **Rota.** Mevcut hesap konvansiyonu izlendi: `/account?section=coupons` (sidebar + header dropdown +
+  placeholder zaten bağlıydı). Ayrı `/account/coupons` route açılmadı (hesap sayfası section-tabanlı tek
+  sayfa). Oturum zorunlu; misafir → mevcut `/auth/login?next=/account` redirect'i (yeni guest akışı yok).
+- **Yeni uç (müşteri-scoped + store-scoped).** `GET /public/stores/:slug/customer/coupons` (server.ts;
+  wallet + campaigns dataAccess'in bir arada olduğu yer). `x-customer-session` zorunlu (yoksa 401). Döner:
+  (1) kullanılabilir = PUBLIC (isPublic + ACTIVE kupon kampanyaları) + bu müşteri/email cüzdanı (ASSIGNED/
+  CLAIMED); (2) kullanıldı = kimliğin KENDİ USED geçmişi (usedAt + kendi sipariş no). Saf projeksiyon
+  `projectCouponCenter` (wallet.ts): SEPET-BAĞIMSIZ (subtotal=+∞ → alt limit "eksik" çıkmaz; kart AVAILABLE/
+  EXPIRED), kullanılmış kod "Kullanılabilir"den düşürülür. Küçük güvenli additive: `listUsedWalletEntries
+  ForIdentity` (yalnız okuma; **migration YOK**).
+- **Allowlist/güvenlik.** Çıkan kart yalnız `code/discountType/discountValue/minOrderAmountMinor/endsAt/
+  state/source/usedAt/orderNumber` taşır; kampanya/kupon iç kimliği, limit/istatistik, priority/stackable,
+  redemption iç verisi SIZMAZ. Private kupon yalnız atanmış/claim edilmişse görünür; cross-store yok; USED
+  yalnız kendi müşteri/email; `orderNumber` müşterinin kendi siparişi (zaten sipariş listesinde görünür).
+- **Sayfa (client).** Başlık "Kuponlarım"; sekmeler Tüm Kuponlar / Kullanılabilir / Sana Özel / Kullanıldı
+  (+ kupon varsa Süresi Doldu); arama "Kupon ara" (kod + indirim metni); "Kupon Kodu Ekle" (mevcut
+  `claimCouponAction` + `router.refresh()`; claim otomatik uygulamaz). Kart: indirim/alt limit/geçerlilik/
+  kod+kopyala/kaynak/durum rozeti; aksiyonlar Kullan (AVAILABLE) → mevcut `applyWalletCouponAction` +
+  refresh, Sepete Git (APPLIED), Siparişi gör (USED). İndirim tutarı İSTEMCİDE hesaplanmaz; uygulama durumu
+  sepet couponCode cookie'sinden işaretlenir (kaynak doğrusu).
+- **Sepet bağlantısı.** Sepet "Kuponlar" alanına "Tüm Kuponlar" → `/account?section=coupons` linki eklendi
+  (dead link giderildi). Oturum yoksa mevcut hesap redirect'i devreye girer.
+- **Testler.** gateway `projectCouponCenter` 6 (AVAILABLE allowlist + USED usedAt/order + sepet-bağımsız alt
+  limit + kullanılmış kod dışlama + alan sızıntısızlığı); storefront kupon merkezi UI 8 (başlık/sekmeler/
+  arama/kart/applied/used-no-Kullan/assigned rozet/empty) + cart "Tüm Kuponlar" link 1. Gate: db:generate +
+  `pnpm -r build` + typecheck + lint + turbo test (35 task; api-gateway 563, storefront 123) + `git diff
+  --check` yeşil.
+- **Kapsam dışı/bilinçli.** İndirim motoru + checkout toplamı + CustomerCoupon yaşam döngüsü + usage-limit
+  transaction'a DOKUNULMADI (yalnız additive USED okuma). F4A.4 admin kupon oluşturma alanları eklenmedi.
+  Kategori çip filtresi follow-up (kampanya categoryIds var ama kategori-ad çözümlemesi + kapsam eşleşmesi
+  ayrı iş — tabs/arama önce yapıldı). Çok-kullanımlı public kupon bir kez kullanıldığında "Kullanılabilir"den
+  düşer (MVP kabulü). Kargo/takip'e dokunulmadı; follow/takip et yok.
+- **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web) + runtime smoke: /account?section=
+  coupons yüklenir; TEST250 uygun yerde görünür; atanan kupon yalnız atanan müşteride; private kod-claim'den
+  önce görünmez; kod-claim kart ekler; Kullan uygular; sipariş sonrası USED "Kullanıldı"da; sepet "Tüm
+  Kuponlar" linki çalışır; iç alan sızıntısızlığı.

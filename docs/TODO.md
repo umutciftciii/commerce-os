@@ -943,3 +943,25 @@
   (api-gateway + storefront-web + store-admin-web) + runtime smoke; "Tüm Kuponlar" listeleme sayfası
   follow-up (dead link eklenmedi); misafire ATANAN kupon checkout email'ine kadar görünmez (kimlik boşluğu);
   store-admin atama UI'si için otomatik test follow-up (backend gateway testiyle kapsanıyor).
+
+- F4A.5 — Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi (DONE — 2026-07-05, ADR-060 devamı; yeni ADR
+  yok). F4A.3'ten sonra eksik olan UX katmanı: müşteri kuponları keşfeder, görür, ekler ve kullanır.
+  Rota: mevcut hesap konvansiyonu (`/account?section=coupons`) — sidebar/header menüsü + placeholder zaten
+  bağlıydı; ayrı bir route açılmadı. Oturum zorunlu (misafir → mevcut `/auth/login` redirect'i). Yeni uç
+  (müşteri-scoped + store-scoped): `GET /public/stores/:slug/customer/coupons` → allowlist'li kupon merkezi
+  kartları: kullanılabilir (PUBLIC isPublic+ACTIVE + bu müşteri/email cüzdanı ASSIGNED/CLAIMED) + kullanıldı
+  (kendi USED geçmişi; usedAt + kendi sipariş no). SEPET-BAĞIMSIZ: alt limit burada hesaplanmaz (kart
+  AVAILABLE/EXPIRED); uygulama durumu (APPLIED) sepet couponCode cookie'sinden işaretlenir. Kullanılmış kod
+  "Kullanılabilir"den düşürülür. Sayfa: başlık "Kuponlarım", sekmeler (Tüm Kuponlar / Kullanılabilir / Sana
+  Özel / Kullanıldı + kupon varsa Süresi Doldu), arama ("Kupon ara" — kod/indirim metni), "Kupon Kodu Ekle"
+  (mevcut claimCouponAction + router.refresh), kupon kartları (indirim/alt limit/geçerlilik/kaynak/durum/
+  Kullan-Sepete Git-Kodu kopyala-Siparişi gör). "Kullan" → mevcut applyWalletCouponAction (indirim istemcide
+  hesaplanmaz). Sepet "Kuponlar" alanına "Tüm Kuponlar" bağlantısı eklendi (dead link giderildi). Güvenlik:
+  iç id/limit/istatistik/priority/stackable/redemption sızmaz; private kupon yalnız atanmış/claim edilmişse
+  görünür; cross-store yok; USED yalnız kendi müşteri/email. Küçük güvenli additive: `listUsedWalletEntries
+  ForIdentity` (yalnız okuma; migration YOK). Testler: gateway `projectCouponCenter` 6 (allowlist + USED
+  dışlama + sepet-bağımsız alt limit), storefront kupon merkezi UI 8 + cart "Tüm Kuponlar" link 1. Gate:
+  db:generate + `pnpm -r build` + typecheck + lint + test (35 task) + `git diff --check` yeşil. KALAN: merge
+  sonrası docker rebuild (api-gateway + storefront-web) + runtime smoke; kategori çip filtresi bilinçli
+  follow-up (kampanya categoryIds var ama kategori-ad çözümlemesi + kod tarafında kapsam eşleşmesi ayrı iş);
+  çok-kullanımlı public kupon bir kez kullanıldığında "Kullanılabilir"den düşer (MVP kabulü).

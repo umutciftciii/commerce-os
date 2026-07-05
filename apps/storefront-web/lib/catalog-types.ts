@@ -110,6 +110,28 @@ export interface StorefrontWalletCouponView {
 }
 
 /**
+ * F4A.5 — Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi kart gorunumu.
+ * Gateway'in kupon merkezi projeksiyonundan (PublicCouponCenterCoupon) turetilmis
+ * HAZIR metinler tasir; kampanya ic verisi tasimaz. `state` USED'i de kapsar
+ * (kullanildi gecmisi). `usedAt`/`orderNumber` yalnizca USED kartta doludur.
+ */
+export interface StorefrontCouponCenterView {
+  code: string;
+  /** Indirim tutari metni ("%10" / "₺250"). */
+  discountText: string;
+  /** "Alt limit: ₺1.000" esigi; yoksa null. */
+  minOrderLabel: string | null;
+  /** Bitis tarihi (ISO); yoksa null. */
+  endsAt: string | null;
+  state: "AVAILABLE" | "APPLIED" | "MIN_ORDER_NOT_MET" | "EXPIRED" | "USED";
+  source: "PUBLIC" | "ASSIGNED" | "CLAIMED";
+  /** USED kart icin kullanim tarihi (ISO); digerlerinde null. */
+  usedAt: string | null;
+  /** USED kart icin musterinin kendi siparis numarasi; digerlerinde null. */
+  orderNumber: string | null;
+}
+
+/**
  * Satin alinabilir azami adet (saf turetme): magaza max siniri ile (biliniyorsa)
  * varyant stok limitinin kucugu, min adetin altina dusmez. Stok bilinmiyorsa
  * (available === null) yalniz magaza siniri gecerlidir. Server reconcile yine son

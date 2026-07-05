@@ -15,6 +15,8 @@ import {
   type AccountSection,
 } from "../../components/account/account-sidebar";
 import { OrdersSection } from "../../components/account/sections/orders-section";
+import { CouponsSection } from "../../components/account/sections/coupons-section";
+import { getCouponCenter } from "../../lib/server/coupons";
 import { ProfileForm } from "../../components/account/sections/profile-form";
 import { PasswordForm } from "../../components/account/sections/password-form";
 import { CommunicationForm } from "../../components/account/sections/communication-form";
@@ -124,8 +126,10 @@ async function renderSection(
       return <Placeholder title={t.menu.favorites} description={t.placeholders.favorites} />;
     case "lists":
       return <Placeholder title={t.menu.lists} description={t.placeholders.lists} />;
-    case "coupons":
-      return <Placeholder title={t.menu.coupons} description={t.placeholders.coupons} />;
+    case "coupons": {
+      const center = await getCouponCenter();
+      return <CouponsSection coupons={center.coupons} t={t.coupons} />;
+    }
     default:
       return null;
   }

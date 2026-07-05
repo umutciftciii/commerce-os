@@ -11,6 +11,7 @@
  * ic kimligini, limit/istatistigini, priority/stackable'i TASIMAZ.
  */
 import type {
+  PublicCouponCenterCoupon,
   PublicCouponReason,
   PublicWalletCoupon,
   PublicWalletCouponSource,
@@ -156,4 +157,78 @@ export function projectWalletCoupons(
   return [...byCode.values()].sort(
     (a, b) => stateRank[a.state] - stateRank[b.state] || a.code.localeCompare(b.code),
   );
+}
+
+/**
+ * F4A.5 — Kupon merkezi USED gecmis kaydi (kimligin KENDI kullanimi). Sepet
+ * baglamindan bagimsizdir; yalnizca kart projeksiyonu icin gerekli allowlist
+ * alanlarini tasir.
+ */
+export interface CouponCenterUsedEntry {
+  coupon: CampaignCouponRecord;
+  campaign: CampaignRecord;
+  source: PublicWalletCouponSource;
+  usedAt: Date | null;
+  orderNumber: string | null;
+}
+
+/**
+ * F4A.5 — Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi projeksiyonu (ADR-060
+ * devami). SEPET-BAGIMSIZ: alt limit (MIN_ORDER_NOT_MET) burada hesaplanmaz;
+ * kullanilabilir kartlar AVAILABLE ya da EXPIRED olur (uygulama durumu sepet
+ * cookie'sinden istemcide isaretlenir). USED kartlar gecmisten uretilir. Zaten
+ * kullanilmis bir kod "Kullanılabilir" listesinden DUSURULUR (yalniz Kullanıldı'da
+ * gorunur). Modul SAF'tir (I/O yok); `now` parametredir. Cikan kartlar allowlist:
+ * kampanya/kupon ic kimligi, limit/istatistik, priority/stackable TASINMAZ.
+ */
+export function projectCouponCenter(
+  available: WalletCandidate[],
+  used: CouponCenterUsedEntry[],
+  now: Date,
+): PublicCouponCenterCoupon[] {
+  // Kullanilmis kodlar: ayni kod hem gecmiste hem public havuzda olabilir; kod
+  // merkezinde "Kullanıldı" sekmesine ait sayilir, "Kullanılabilir"den dusurulur.
+  const usedByCode = new Map<string, CouponCenterUsedEntry>();
+  for (const entry of used) {
+    const key = entry.coupon.normalizedCode;
+    const existing = usedByCode.get(key);
+    // En son kullanim (usedAt) tutulur.
+    if (!existing || (entry.usedAt?.getTime() ?? 0) >= (existing.usedAt?.getTime() ?? 0)) {
+      usedByCode.set(key, entry);
+    }
+  }
+  const usedCodes = new Set(usedByCode.keys());
+
+  const availableCards = projectWalletCoupons(
+    available.filter((candidate) => !usedCodes.has(candidate.coupon.normalizedCode)),
+    // subtotal = +∞: alt limit hicbir zaman "eksik" cikmaz (sepet-bagimsiz merkez);
+    // applied kod istemcide (sepet cookie'si) isaretlenir, burada null.
+    { subtotalMinor: Number.MAX_SAFE_INTEGER, appliedNormalizedCode: null, now },
+  ).map<PublicCouponCenterCoupon>((card) => ({
+    code: card.code,
+    discountType: card.discountType,
+    discountValue: card.discountValue,
+    minOrderAmountMinor: card.minOrderAmountMinor,
+    endsAt: card.endsAt,
+    state: card.state,
+    source: card.source,
+    usedAt: null,
+    orderNumber: null,
+  }));
+
+  const usedCards = [...usedByCode.values()]
+    .sort((a, b) => (b.usedAt?.getTime() ?? 0) - (a.usedAt?.getTime() ?? 0))
+    .map<PublicCouponCenterCoupon>((entry) => ({
+      code: entry.coupon.code,
+      discountType: entry.campaign.discountType,
+      discountValue: entry.campaign.discountValue,
+      minOrderAmountMinor: entry.campaign.minOrderAmountMinor,
+      endsAt: effectiveEndsAt(entry.campaign, entry.coupon),
+      state: "USED",
+      source: entry.source,
+      usedAt: entry.usedAt ? entry.usedAt.toISOString() : null,
+      orderNumber: entry.orderNumber,
+    }));
+
+  return [...availableCards, ...usedCards];
 }
