@@ -390,6 +390,37 @@ enum CampaignDiscountType {
   FIXED_AMOUNT
 }
 
+// F4A.4 — Kupon karti SUNUM alanlari (ADR-061). Bu enumlar YALNIZCA gorunumdur;
+// indirim motorunu ETKILEMEZ. FOLLOW/store-follow/seller-follow gibi takip
+// tabanli hicbir deger BILINCLI olarak yoktur (bu urun marketplace degildir).
+enum CampaignBadgeVariant {
+  DEFAULT
+  SUPER
+  LIMITED_TIME
+  PERSONAL
+  WEEKEND
+  NEW_CUSTOMER
+}
+
+enum CampaignCardStyle {
+  STANDARD
+  FEATURED
+  PERSONAL
+}
+
+// F4A.4 — Erisim/edinme modeli (ADR-061). isPublic bu secimden TURETILIR ve
+// public projeksiyon icin AUTHORITATIVE gate olarak kalir:
+//   AUTO_VISIBLE / PUBLIC_CLAIMABLE => isPublic=true
+//   CODE_CLAIMED  / ADMIN_ASSIGNED  => isPublic=false
+// Reserved (FIRST_ORDER/RETURNING/EMAIL_LIST) motor tarafindan enforce
+// edilemedigi icin enum'a EKLENMEZ.
+enum CampaignAccessModel {
+  AUTO_VISIBLE
+  PUBLIC_CLAIMABLE
+  CODE_CLAIMED
+  ADMIN_ASSIGNED
+}
+
 enum CouponStatus {
   ACTIVE
   PAUSED
@@ -1624,6 +1655,18 @@ model Campaign {
   stackable              Boolean              @default(false)
   priority               Int                  @default(0)
   isPublic               Boolean              @default(true)
+  // F4A.4 — SUNUM alanlari (ADR-061). Yalnizca kupon kart/rozet gorunumu;
+  // indirim hesaplamasini ETKILEMEZ. Mevcut kampanyalar null ile calisir
+  // (UI fallback uretilmis etiketlere doner).
+  displayTitle           String?
+  shortDescription       String?
+  terms                  String?
+  badgeLabel             String?
+  badgeVariant           CampaignBadgeVariant?
+  cardStyle              CampaignCardStyle    @default(STANDARD)
+  accessModel            CampaignAccessModel  @default(AUTO_VISIBLE)
+  // Sunum siralamasi (calc `priority`den AYRI; motor bunu kullanmaz).
+  displayPriority        Int                  @default(0)
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 

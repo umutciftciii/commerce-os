@@ -39,6 +39,7 @@ import {
   type OrderDiscountInput,
 } from "../src/campaigns/data.js";
 import type { CampaignCreateRequest, CampaignUpdateRequest } from "@commerce-os/contracts";
+import { deriveIsPublicFromAccessModel } from "@commerce-os/contracts";
 
 const config = {
   APP_ENV: "test" as const,
@@ -1144,7 +1145,15 @@ class MemoryDataAccess implements AppDataAccess {
       usageCount: 0,
       stackable: input.stackable,
       priority: input.priority,
-      isPublic: input.isPublic,
+      isPublic: deriveIsPublicFromAccessModel(input.accessModel),
+      displayTitle: input.displayTitle ?? null,
+      shortDescription: input.shortDescription ?? null,
+      terms: input.terms ?? null,
+      badgeLabel: input.badgeLabel ?? null,
+      badgeVariant: input.badgeVariant ?? null,
+      cardStyle: input.cardStyle,
+      accessModel: input.accessModel,
+      displayPriority: input.displayPriority,
       productIds: [...input.productIds],
       categoryIds: [...input.categoryIds],
       coupons:
@@ -1198,7 +1207,18 @@ class MemoryDataAccess implements AppDataAccess {
     if (input.perCustomerUsageLimit !== undefined) campaign.perCustomerUsageLimit = input.perCustomerUsageLimit ?? null;
     if (input.stackable !== undefined) campaign.stackable = input.stackable;
     if (input.priority !== undefined) campaign.priority = input.priority;
-    if (input.isPublic !== undefined) campaign.isPublic = input.isPublic;
+    if (input.accessModel !== undefined) {
+      campaign.accessModel = input.accessModel;
+      campaign.isPublic = deriveIsPublicFromAccessModel(input.accessModel);
+    }
+    if (input.displayTitle !== undefined) campaign.displayTitle = input.displayTitle ?? null;
+    if (input.shortDescription !== undefined)
+      campaign.shortDescription = input.shortDescription ?? null;
+    if (input.terms !== undefined) campaign.terms = input.terms ?? null;
+    if (input.badgeLabel !== undefined) campaign.badgeLabel = input.badgeLabel ?? null;
+    if (input.badgeVariant !== undefined) campaign.badgeVariant = input.badgeVariant ?? null;
+    if (input.cardStyle !== undefined) campaign.cardStyle = input.cardStyle;
+    if (input.displayPriority !== undefined) campaign.displayPriority = input.displayPriority;
     if (input.productIds !== undefined) campaign.productIds = [...input.productIds];
     if (input.categoryIds !== undefined) campaign.categoryIds = [...input.categoryIds];
     campaign.updatedAt = new Date("2026-07-05T01:00:00.000Z");
@@ -3773,6 +3793,14 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       stackable: false,
       priority: 0,
       isPublic: true,
+      displayTitle: null,
+      shortDescription: null,
+      terms: null,
+      badgeLabel: null,
+      badgeVariant: null,
+      cardStyle: "STANDARD",
+      accessModel: "AUTO_VISIBLE",
+      displayPriority: 0,
       productIds: [],
       categoryIds: [],
       coupons: [],
@@ -3833,6 +3861,13 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       couponCode: null,
       couponAction: "MANUAL_ONLY",
       endsAt: null,
+      // F4A.4 — Sunum alanlari (ADR-061); seed varsayilanlariyla null/STANDARD.
+      displayTitle: null,
+      shortDescription: null,
+      badgeLabel: null,
+      badgeVariant: null,
+      cardStyle: "STANDARD",
+      terms: null,
     });
     // Ic alanlar (id/priority/usage/stackable) public govdeye sizmaz.
     expect(JSON.stringify(product.campaign)).not.toContain("camp_seed");

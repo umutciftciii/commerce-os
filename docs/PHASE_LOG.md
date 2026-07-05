@@ -2880,3 +2880,44 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   coupons yüklenir; TEST250 uygun yerde görünür; atanan kupon yalnız atanan müşteride; private kod-claim'den
   önce görünmez; kod-claim kart ekler; Kullan uygular; sipariş sonrası USED "Kullanıldı"da; sepet "Tüm
   Kuponlar" linki çalışır; iç alan sızıntısızlığı.
+
+## 2026-07-05 — F4A.4: Kampanya/kupon oluşturma seçenekleri + kriter genişletme (ADR-061)
+
+- **Amaç.** Store-admin'in production-grade kupon kartları/kampanyalar tanımlaması. TEMEL KURAL: sunum
+  alanları indirim hesabından AYRI — motor/checkout/cüzdan yaşam döngüsü/kargo DEĞİŞMEDİ (additive).
+- **Şema (additive migration `20260705140000_add_campaign_presentation_fields`).** `Campaign`'e nullable/
+  varsayılanlı SUNUM alanları: `displayTitle` (≤120), `shortDescription` (≤240), `terms` (≤2000),
+  `badgeLabel` (≤40), `badgeVariant`, `cardStyle` (STANDARD), `accessModel` (AUTO_VISIBLE), `displayPriority`
+  (0). Yeni enumlar: `CampaignBadgeVariant`, `CampaignCardStyle`, `CampaignAccessModel`. Backfill YOK;
+  mevcut kampanyalar null/varsayılanla çalışır.
+- **Erişim modeli → isPublic türetimi.** `deriveIsPublicFromAccessModel` (contracts tek kaynak):
+  AUTO_VISIBLE/PUBLIC_CLAIMABLE→true, CODE_CLAIMED/ADMIN_ASSIGNED→false. `isPublic` public projeksiyon için
+  AUTHORITATIVE gate; admin ayrı input görmez. data-layer create/update ve in-memory test data access
+  aynı türetimi uygular. Redundant audience/claimType eklenmedi.
+- **Public projeksiyon.** `couponDisplayFieldsSchema` (allowlist) badge + wallet + coupon-center
+  yanıtlarına eklendi; `toCouponDisplayFields` ortak helper (public-badge + wallet). Private güvenlik
+  korundu: yalnız isPublic=true kampanyada (rozet) / cüzdana girmiş kuponda (sepet/merkez) taşınır;
+  iç kimlik/limit/priority/stackable yine sızmaz.
+- **Store-admin formu.** 6 bölüm (Görünüm/Kupon Kartı · İndirim Kuralı · Geçerlilik · Erişim/Kitle ·
+  Kapsam · Önizleme) + kupon kartı önizlemesi (gerçek hesap YOK) + bitişten türetilmiş "Bugün bitiyor/
+  Son 3 Gün" etiketi. Erişim seçicisi kupon tipinde 3 claim modeli; otomatik tiplerde AUTO_VISIBLE.
+  Kampanya detayına sunum alanı özeti + erişim/public göstergesi eklendi.
+- **Vitrin tüketimi.** Ürün rozeti (`StorefrontCampaignView`) + kupon merkezi kartı
+  (`StorefrontCouponCenterView`) displayTitle/shortDescription/badgeLabel/terms taşır; kart displayTitle
+  varsa öne çıkarır, yoksa üretilmiş tutar etiketine düşer; badgeLabel yoksa kaynak rozeti; terms yoksa
+  "Detaylar" yok. i18n `details` anahtarı (tr/en).
+- **HARİÇ (bilinçli).** "Takip et kazan"/store-follow/seller-follow hiçbir enum/UI/doküman/testte YOK.
+  Reserved segmentler (ilk sipariş/geri dönen/e-posta) enforce edilemediği için enum/forma eklenmedi.
+  Marka/vendor scope yok (`Product.brand`/`vendor` serbest metin, first-class değil — follow-up).
+  Coupon-seviyesi sunum alanı yok (campaign-seviyesi yeterli). Sunum alanları OrderDiscount snapshot'ına
+  yazılmaz.
+- **Testler.** contracts doğrulama 10 (uzunluk/geçersiz enum/follow+reserved reddi/türetim/partial);
+  gateway rozet+merkez sunum taşıma + allowlist güncellemeleri; store-admin 5 (6 bölüm+preview / follow
+  yok / erişim seçenekleri / alan kaydı+türetim / null-alan edit); storefront kupon merkezi 3 (display
+  kullanımı / fallback / follow yok). Gate: db:generate + `pnpm -r build` + typecheck + lint + turbo test
+  (35 task) + `git diff --check` yeşil.
+- **Kalan.** Merge sonrası `prisma migrate deploy` (RESET YOK) + docker rebuild (api-gateway + store-admin-
+  web + storefront-web) + runtime smoke (OPERATIONS F4A.4): admin sunum alanlı kupon kaydeder + önizleme
+  gösterir; vitrin kartı güvenle gösterir; "Takip et kazan" hiçbir yerde yok; claim/kullan akışı çalışır;
+  checkout+OrderDiscount değişmez; private sunum alanı public'te sızmaz; TEST250 + otomatik kampanya eskisi
+  gibi. Follow-up: marka/vendor scope, reserved segment enforcement.

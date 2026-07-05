@@ -474,3 +474,66 @@ edilmiş + güvenli olduğunda gösterilir.
 çözümlemesi + kod tarafı kapsam eşleşmesi ayrı iş — sekme/arama önce yapıldı, kategori follow-up). Misafir
 kupon merkezi yok (oturum zorunlu). Çok-kullanımlı public kupon bir kez kullanıldığında "Kullanılabilir"den
 düşer (MVP kabulü).
+
+## Kampanya/kupon sunum alanları + erişim modeli (F4A.4 / ADR-061)
+
+**Merge sonrası dağıtım:** additive migration `20260705140000_add_campaign_presentation_fields`
+(`prisma migrate deploy` — mevcut veriye dokunmaz, RESET YOK; mevcut kampanyalar null/varsayılan
+değerlerle çalışır, backfill gerekmez). Rebuild: `api-gateway` + `store-admin-web` + `storefront-web`.
+7/7 container healthy doğrulanır.
+
+**Sunum ≠ hesaplama (temel kural).** Yeni alanlar YALNIZCA görünümdür ve indirim motorunu ETKİLEMEZ.
+İndirim motoru yalnız doğrulanmış kural alanlarını kullanır (type/discountType/discountValue/
+maxDiscount/minOrder/pencere/limitler/kapsam/isPublic/stackable/priority). Sunum alanları:
+`displayTitle`, `shortDescription`, `terms`, `badgeLabel`, `badgeVariant`, `cardStyle`, `displayPriority`.
+
+**Public/private gösterim alanları.** Sunum alanları DB'de/admin'de her kampanyada bulunabilir; ancak
+public projeksiyona YALNIZCA `isPublic=true` kampanyalar için (ürün rozeti) veya müşterinin cüzdanına
+girmiş (atanmış/claim edilmiş) kuponlar için (sepet/kupon merkezi) taşınır. Private (CODE_CLAIMED/
+ADMIN_ASSIGNED → `isPublic=false`) kuponların sunum alanları hiçbir public listede claim/atama olmadan
+GÖRÜNMEZ. Sunum alanları allowlist'in parçasıdır; iç kimlik/limit/priority/stackable yine sızmaz.
+
+**Erişim/edinme modelleri (`accessModel`).** Admin tek bir seçici ile belirler; `isPublic` bundan
+TÜRETİLİR (authoritative gate) ve admin'e ayrı input olarak gösterilmez:
+- **AUTO_VISIBLE** (otomatik sepette indirim) → `isPublic=true`. Kod/claim gerekmez; "Sepette …" olarak
+  otomatik uygulanır. Otomatik kampanya tiplerinde tek geçerli modeldir.
+- **PUBLIC_CLAIMABLE** (herkese açık kupon) → `isPublic=true`. Ürün/sepet/kupon merkezinde listelenir;
+  mevcut cüzdan akışıyla claim/kullan edilir.
+- **CODE_CLAIMED** (kod ile kazanılan özel kupon) → `isPublic=false`. Public listelenmez; müşteri kodu
+  "Kupon Kodu Ekle" ile doğrulatıp cüzdanına ekler.
+- **ADMIN_ASSIGNED** (müşteriye atanan kupon) → `isPublic=false`. Store-admin belirli müşteriye/e-postaya
+  atar; yalnız o müşterinin cüzdan/sepet/kupon merkezinde görünür.
+
+**Rozet etiketleri / kart görünümleri.** `badgeVariant` ∈ {DEFAULT, SUPER, LIMITED_TIME, PERSONAL,
+WEEKEND, NEW_CUSTOMER}; `cardStyle` ∈ {STANDARD, FEATURED, PERSONAL}. `badgeLabel` serbest metin kart
+etiketidir (örn. "Süper Kupon", "Sana Özel"). Vitrin, `badgeLabel` varsa onu; yoksa kaynak-temelli
+varsayılan rozeti gösterir. `displayTitle` yoksa üretilmiş etiket ("₺100 kupon" / "Sepette %10 indirim")
+kullanılır; `terms` yoksa "Detaylar" gösterilmez.
+
+**Reserved (henüz yok).** İlk sipariş / geri dönen müşteri / e-posta listesi gibi segment kriterleri motor
+tarafından ENFORCE EDİLEMEDİĞİ için ne enum'a ne forma eklenmiştir (aktif davranış üretmez). İleride
+enforcement eklenirse ayrı iş olarak değerlendirilecektir.
+
+**Takip tabanlı kupon YOKTUR.** "Takip et kazan" / store-follow / seller-follow / marketplace-follow
+mantığı bilinçli olarak hiçbir enum, UI kopyası, doküman maddesi veya testte yer almaz — bu ürün
+marketplace değildir.
+
+**Store-admin formu.** `/campaigns` formu 6 bölümdür: (1) Görünüm/Kupon Kartı, (2) İndirim Kuralı,
+(3) Geçerlilik (bitişten türetilmiş "Bugün bitiyor / Son 3 Gün" önizleme etiketi), (4) Erişim/Kitle
+(yalnız 4 desteklenen model; kupon tipinde 3 claim modeli), (5) Kapsam (tüm ürünler / seçili kategori /
+seçili ürün — marka/vendor scope YOK, first-class model olmadığı için follow-up), (6) Önizleme (kupon
+kartı görünüm önizlemesi; GERÇEK indirim hesabı YAPMAZ). Doğrulama: displayTitle ≤120, shortDescription
+≤240, badgeLabel ≤40, terms ≤2000.
+
+**Smoke (F4A.4):** (1) Kupon oluştur: başlık "Hafta sonu 500 TL'ye 100 TL kupon", etiket "Süper Kupon"
+(SUPER), min ₺500, indirim ₺100, geçerlilik aralığı, detay metni, erişim herkese açık → form kaydeder.
+(2) Store-admin önizleme kartı başlık/etiket/alt limit/geçerlilik gösterir. (3) Vitrin ürün/sepet/kupon
+merkezi kartı başlığı/rozeti/alt limiti/geçerliliği/"Detaylar"ı güvenle gösterir. (4) "Takip et kazan"
+hiçbir yerde yok. (5) Kupon yine cüzdan/sepet/kupon merkezi akışıyla claim/kullan edilir. (6) Checkout
+toplamı + OrderDiscount snapshot değişmez. (7) Private kuponun sunum alanları public'te sızmaz.
+(8) TEST250 ve otomatik sepet kampanyası eskisi gibi çalışır.
+
+**Sınırlamalar (F4A.4):** Marka/vendor kapsamı yok (`Product.brand`/`Product.vendor` serbest metin;
+first-class model değil — icat edilmedi, follow-up). Reserved segmentler pasif. Coupon-seviyesi sunum
+alanı eklenmedi (campaign-seviyesi yeterli). Sunum alanları OrderDiscount snapshot'ına yazılmaz
+(görünüm; sipariş etiketi mevcut label mantığından gelir).

@@ -616,6 +616,62 @@ export const publicCampaignDisplayKindSchema = z.enum([
 /** F4A.3 — Public kupon icin urun detay aksiyonu. */
 export const publicCouponActionSchema = z.enum(["CLAIM", "APPLY", "COPY", "MANUAL_ONLY"]);
 
+/* ─────────────────────── F4A.4 — Sunum alanlari (ADR-061) ───────────────────────
+ * Bu enum/alanlar YALNIZCA gorunumdur; indirim motorunu ETKILEMEZ. Public
+ * projeksiyonlara ALLOWLIST olarak eklenirler; ic kimlik/limit/istatistik/
+ * priority/stackable SIZMAZ. FOLLOW/store-follow/seller-follow gibi takip
+ * tabanli hicbir deger BILINCLI olarak yoktur (bu urun marketplace degildir).
+ */
+export const campaignBadgeVariantSchema = z.enum([
+  "DEFAULT",
+  "SUPER",
+  "LIMITED_TIME",
+  "PERSONAL",
+  "WEEKEND",
+  "NEW_CUSTOMER",
+]);
+export const campaignCardStyleSchema = z.enum(["STANDARD", "FEATURED", "PERSONAL"]);
+/**
+ * Erisim/edinme modeli. isPublic bu secimden TURETILIR (authoritative gate):
+ *   AUTO_VISIBLE / PUBLIC_CLAIMABLE => isPublic=true
+ *   CODE_CLAIMED  / ADMIN_ASSIGNED  => isPublic=false
+ * Reserved (FIRST_ORDER/RETURNING/EMAIL_LIST) enforce edilemedigi icin YOK.
+ */
+export const campaignAccessModelSchema = z.enum([
+  "AUTO_VISIBLE",
+  "PUBLIC_CLAIMABLE",
+  "CODE_CLAIMED",
+  "ADMIN_ASSIGNED",
+]);
+
+export type CampaignBadgeVariant = z.infer<typeof campaignBadgeVariantSchema>;
+export type CampaignCardStyle = z.infer<typeof campaignCardStyleSchema>;
+export type CampaignAccessModel = z.infer<typeof campaignAccessModelSchema>;
+
+/**
+ * accessModel -> isPublic tek-yonlu turetim. isPublic public projeksiyon icin
+ * AUTHORITATIVE gate olarak kalir; admin formu isPublic'i ayri input olarak
+ * GOSTERMEZ, bu fonksiyonla tutarli sekilde set eder.
+ */
+export function deriveIsPublicFromAccessModel(accessModel: CampaignAccessModel): boolean {
+  return accessModel === "AUTO_VISIBLE" || accessModel === "PUBLIC_CLAIMABLE";
+}
+
+/**
+ * F4A.4 — Public-safe kupon SUNUM alan paketi. Rozet/cuzdan/kupon-merkezi
+ * kartlarinda ORTAK kullanilir. Tumu nullable/defaultlu: eksikse UI uretilmis
+ * fallback'e doner. Ic kampanya alanlari (limit/priority/istatistik) GIRMEZ.
+ */
+export const couponDisplayFieldsSchema = z.object({
+  displayTitle: z.string().nullable().default(null),
+  shortDescription: z.string().nullable().default(null),
+  badgeLabel: z.string().nullable().default(null),
+  badgeVariant: campaignBadgeVariantSchema.nullable().default(null),
+  cardStyle: campaignCardStyleSchema.default("STANDARD"),
+  terms: z.string().nullable().default(null),
+});
+export type CouponDisplayFields = z.infer<typeof couponDisplayFieldsSchema>;
+
 export const publicCampaignBadgeSchema = z.object({
   /** COUPON = kupon kodu gerektirir; AUTOMATIC = sepette kendiliginden uygulanir. */
   kind: z.enum(["AUTOMATIC", "COUPON"]),
@@ -638,6 +694,8 @@ export const publicCampaignBadgeSchema = z.object({
   couponAction: publicCouponActionSchema.default("MANUAL_ONLY"),
   /** F4A.3 — Kampanya/kupon bitis tarihi (ISO); yoksa null. */
   endsAt: z.string().datetime().nullable().default(null),
+  /** F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa UI fallback uretir). */
+  ...couponDisplayFieldsSchema.shape,
 });
 
 export const publicProductSchema = z.object({
@@ -756,6 +814,8 @@ export const publicWalletCouponSchema = z.object({
   endsAt: z.string().datetime().nullable(),
   state: publicWalletCouponStateSchema,
   source: publicWalletCouponSourceSchema,
+  /** F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa UI fallback uretir). */
+  ...couponDisplayFieldsSchema.shape,
 });
 
 /**
@@ -864,6 +924,8 @@ export const publicCouponCenterCouponSchema = z.object({
   usedAt: z.string().datetime().nullable().default(null),
   /** USED kart icin musterinin KENDI siparis numarasi; digerlerinde null. */
   orderNumber: z.string().max(40).nullable().default(null),
+  /** F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa UI fallback uretir). */
+  ...couponDisplayFieldsSchema.shape,
 });
 
 /**
@@ -3766,6 +3828,15 @@ export const campaignSchema = z.object({
   stackable: z.boolean(),
   priority: z.number().int(),
   isPublic: z.boolean(),
+  // F4A.4 — Sunum alanlari (ADR-061); admin yuzeyi. isPublic accessModel'den turetilir.
+  displayTitle: z.string().nullable(),
+  shortDescription: z.string().nullable(),
+  terms: z.string().nullable(),
+  badgeLabel: z.string().nullable(),
+  badgeVariant: campaignBadgeVariantSchema.nullable(),
+  cardStyle: campaignCardStyleSchema,
+  accessModel: campaignAccessModelSchema,
+  displayPriority: z.number().int(),
   productIds: z.array(z.string().min(1)),
   categoryIds: z.array(z.string().min(1)),
   coupons: z.array(campaignCouponSchema),
@@ -3829,11 +3900,20 @@ const campaignBaseInputSchema = z.object({
   perCustomerUsageLimit: z.number().int().positive().nullable().optional(),
   stackable: z.boolean().default(false),
   priority: z.number().int().min(-1000).max(1000).default(0),
-  isPublic: z.boolean().default(true),
   productIds: z.array(z.string().min(1)).max(200).default([]),
   categoryIds: z.array(z.string().min(1)).max(200).default([]),
   /** Yalniz type=COUPON_CODE icin zorunlu; kampanyanin ilk kupon kodu. */
   couponCode: couponCodeSchema.nullable().optional(),
+  /* F4A.4 — Sunum alanlari (ADR-061). isPublic bunlardan (accessModel) TURETILIR;
+   * admin isPublic'i ayri input olarak GONDERMEZ. Bu alanlar motoru ETKILEMEZ. */
+  displayTitle: z.string().max(120).nullable().optional(),
+  shortDescription: z.string().max(240).nullable().optional(),
+  terms: z.string().max(2000).nullable().optional(),
+  badgeLabel: z.string().max(40).nullable().optional(),
+  badgeVariant: campaignBadgeVariantSchema.nullable().optional(),
+  cardStyle: campaignCardStyleSchema.default("STANDARD"),
+  accessModel: campaignAccessModelSchema.default("AUTO_VISIBLE"),
+  displayPriority: z.number().int().min(-1000).max(1000).default(0),
 });
 
 function refineCampaignInput(

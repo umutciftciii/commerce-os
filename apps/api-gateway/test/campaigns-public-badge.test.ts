@@ -45,6 +45,14 @@ function campaign(overrides: Partial<CampaignRecord> = {}): CampaignRecord {
     stackable: false,
     priority: 0,
     isPublic: true,
+    displayTitle: null,
+    shortDescription: null,
+    terms: null,
+    badgeLabel: null,
+    badgeVariant: null,
+    cardStyle: "STANDARD",
+    accessModel: "AUTO_VISIBLE",
+    displayPriority: 0,
     productIds: [],
     categoryIds: [],
     coupons: [],
@@ -156,12 +164,49 @@ describe("selectPublicCampaignBadge", () => {
       couponCode: null,
       couponAction: "MANUAL_ONLY",
       endsAt: null,
+      // F4A.4 — Sunum alanlari (ADR-061); fixture varsayilanlariyla null/STANDARD.
+      displayTitle: null,
+      shortDescription: null,
+      badgeLabel: null,
+      badgeVariant: null,
+      cardStyle: "STANDARD",
+      terms: null,
     });
     // Ic alanlar (id/priority/usage) projeksiyona sizmaz.
     expect(badge && "id" in badge).toBe(false);
     expect(badge && "priority" in badge).toBe(false);
     expect(badge && "usageCount" in badge).toBe(false);
     expect(badge && "stackable" in badge).toBe(false);
+  });
+
+  it("F4A.4: admin sunum alanlarini rozet projeksiyonuna tasir (allowlist)", () => {
+    const badge = selectPublicCampaignBadge(
+      [
+        campaign({
+          displayTitle: "Hafta sonu 500 TL’ye 100 TL kupon",
+          shortDescription: "Tüm indirimlere ek fırsat",
+          badgeLabel: "Süper Kupon",
+          badgeVariant: "SUPER",
+          cardStyle: "FEATURED",
+          terms: "Stoklarla sınırlıdır.",
+        }),
+      ],
+      PRODUCT,
+      NOW,
+    );
+    expect(badge?.displayTitle).toBe("Hafta sonu 500 TL’ye 100 TL kupon");
+    expect(badge?.shortDescription).toBe("Tüm indirimlere ek fırsat");
+    expect(badge?.badgeLabel).toBe("Süper Kupon");
+    expect(badge?.badgeVariant).toBe("SUPER");
+    expect(badge?.cardStyle).toBe("FEATURED");
+    expect(badge?.terms).toBe("Stoklarla sınırlıdır.");
+  });
+
+  it("F4A.4: sunum alanlari yoksa null doner (UI fallback uretir)", () => {
+    const badge = selectPublicCampaignBadge([campaign()], PRODUCT, NOW);
+    expect(badge?.displayTitle).toBeNull();
+    expect(badge?.badgeLabel).toBeNull();
+    expect(badge?.cardStyle).toBe("STANDARD");
   });
 
   it("otomatik kampanya displayKind=AUTOMATIC_CART_DISCOUNT ve couponCode sizmaz", () => {

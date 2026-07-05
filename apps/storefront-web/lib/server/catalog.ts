@@ -102,6 +102,11 @@ function toCampaignView(
     minOrderLabel:
       badge.minOrderAmountMinor !== null ? formatCampaignAmount(badge.minOrderAmountMinor) : null,
     endsAt: badge.endsAt,
+    // F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa null → fallback).
+    displayTitle: badge.displayTitle,
+    shortDescription: badge.shortDescription,
+    badgeLabel: badge.badgeLabel,
+    terms: badge.terms,
   };
 }
 

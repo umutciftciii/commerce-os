@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Alert,
@@ -22,6 +22,9 @@ import type {
   CampaignDetailResponse,
   CampaignCreateRequest,
   CampaignUpdateRequest,
+  CampaignAccessModel,
+  CampaignBadgeVariant,
+  CampaignCardStyle,
   CustomerCouponAssignment,
   Product,
   ProductCategory,
@@ -153,6 +156,65 @@ const L = {
     validationFixed: "İndirim tutarı pozitif olmalıdır.",
     validationCoupon: "Kupon kodu zorunludur (2-40 karakter, harf/rakam/-/_).",
     validationWindow: "Bitiş tarihi başlangıçtan sonra olmalıdır.",
+    validationDisplayTitle: "Kupon başlığı en fazla 120 karakter olabilir.",
+    validationShortDescription: "Kısa açıklama en fazla 240 karakter olabilir.",
+    validationBadgeLabel: "Kart etiketi en fazla 40 karakter olabilir.",
+    validationTerms: "Detaylar en fazla 2000 karakter olabilir.",
+    // F4A.4 — Sunum/kart alanları (ADR-061). Bu alanlar yalnızca görünümdür;
+    // indirim hesabını etkilemez. "Takip et kazan" gibi hiçbir seçenek yoktur.
+    sectionDisplay: "Görünüm / Kupon Kartı",
+    sectionDiscount: "İndirim Kuralı",
+    sectionValidity: "Geçerlilik",
+    sectionAccess: "Erişim / Kitle",
+    sectionScope: "Kapsam",
+    sectionPreview: "Önizleme",
+    formDisplayTitle: "Kupon başlığı (opsiyonel)",
+    formDisplayTitleHint:
+      "Müşteriye görünen başlık. Örn: “Hafta sonu 500 TL’ye 100 TL kupon”. Boşsa otomatik etiket üretilir.",
+    formShortDescription: "Kısa açıklama (opsiyonel)",
+    formTerms: "Detaylar / kullanım şartları (opsiyonel)",
+    formBadgeLabel: "Kart etiketi (opsiyonel)",
+    formBadgeVariant: "Etiket tipi",
+    formCardStyle: "Kart görünümü",
+    formAccessModel: "Erişim modeli",
+    formDisplayPriority: "Görünüm sırası",
+    formDisplayPriorityHint:
+      "Yalnızca kupon kartı sıralaması içindir; indirim önceliğini değiştirmez.",
+    badgeVariantLabels: {
+      DEFAULT: "Standart",
+      SUPER: "Süper Kupon",
+      LIMITED_TIME: "Sınırlı Süre",
+      PERSONAL: "Sana Özel",
+      WEEKEND: "Hafta Sonu",
+      NEW_CUSTOMER: "Yeni Müşteri",
+    } as Record<string, string>,
+    cardStyleLabels: {
+      STANDARD: "Standart",
+      FEATURED: "Öne çıkan",
+      PERSONAL: "Sana özel",
+    } as Record<string, string>,
+    accessModelLabels: {
+      AUTO_VISIBLE: "Otomatik sepette indirim",
+      PUBLIC_CLAIMABLE: "Herkese açık kupon",
+      CODE_CLAIMED: "Kod ile kazanılan özel kupon",
+      ADMIN_ASSIGNED: "Müşteriye atanan kupon",
+    } as Record<string, string>,
+    accessModelHint:
+      "Erişim modeli kuponun kimlere görüneceğini belirler. Kod/atama kuponları hiçbir public ekranda listelenmez.",
+    accessPublicNote: "Herkese açık: ürün/sepet/kupon merkezinde listelenir.",
+    accessPrivateNote: "Özel: yalnızca kodu bilen ya da atanan müşteri görür; public listelenmez.",
+    previewHint: "Bu yalnızca görünüm önizlemesidir; indirim hesabı yapılmaz.",
+    previewUse: "Kullan",
+    previewDetails: "Detaylar",
+    previewPublic: "Herkese açık",
+    previewPrivate: "Özel",
+    previewNoTitle: "(otomatik başlık)",
+    previewMinOrder: "Alt limit",
+    previewNoMinOrder: "Alt limit yok",
+    previewValidity: "Geçerlilik",
+    detailDisplay: "Kupon kartı görünümü",
+    detailAccess: "Erişim",
+    detailNoDisplay: "Görünüm alanı ayarlanmadı (otomatik etiket kullanılır).",
   },
   en: {
     eyebrow: "Sales",
@@ -262,8 +324,88 @@ const L = {
     validationFixed: "Discount amount must be positive.",
     validationCoupon: "Coupon code is required (2-40 chars, letters/digits/-/_).",
     validationWindow: "End date must be after the start date.",
+    validationDisplayTitle: "Coupon title can be at most 120 characters.",
+    validationShortDescription: "Short description can be at most 240 characters.",
+    validationBadgeLabel: "Card label can be at most 40 characters.",
+    validationTerms: "Details can be at most 2000 characters.",
+    // F4A.4 — Presentation / card fields (ADR-061). Display-only; do not affect
+    // discount calculation. No follow-to-earn option exists anywhere.
+    sectionDisplay: "Display / Coupon Card",
+    sectionDiscount: "Discount Rule",
+    sectionValidity: "Validity",
+    sectionAccess: "Access / Audience",
+    sectionScope: "Scope",
+    sectionPreview: "Preview",
+    formDisplayTitle: "Coupon title (optional)",
+    formDisplayTitleHint:
+      "Customer-facing title, e.g. “₺100 off over ₺500 this weekend”. Falls back to a generated label if empty.",
+    formShortDescription: "Short description (optional)",
+    formTerms: "Details / terms (optional)",
+    formBadgeLabel: "Card label (optional)",
+    formBadgeVariant: "Badge variant",
+    formCardStyle: "Card style",
+    formAccessModel: "Access model",
+    formDisplayPriority: "Display order",
+    formDisplayPriorityHint:
+      "Only orders coupon cards; does not change discount priority.",
+    badgeVariantLabels: {
+      DEFAULT: "Standard",
+      SUPER: "Super coupon",
+      LIMITED_TIME: "Limited time",
+      PERSONAL: "For you",
+      WEEKEND: "Weekend",
+      NEW_CUSTOMER: "New customer",
+    } as Record<string, string>,
+    cardStyleLabels: {
+      STANDARD: "Standard",
+      FEATURED: "Featured",
+      PERSONAL: "For you",
+    } as Record<string, string>,
+    accessModelLabels: {
+      AUTO_VISIBLE: "Automatic cart discount",
+      PUBLIC_CLAIMABLE: "Public claimable coupon",
+      CODE_CLAIMED: "Private code-claimed coupon",
+      ADMIN_ASSIGNED: "Admin-assigned coupon",
+    } as Record<string, string>,
+    accessModelHint:
+      "The access model controls who sees the coupon. Code/assigned coupons never appear on any public screen.",
+    accessPublicNote: "Public: listed on product/cart/coupon center.",
+    accessPrivateNote: "Private: only the customer who knows the code or is assigned sees it; not listed publicly.",
+    previewHint: "This is a display preview only; no discount is calculated.",
+    previewUse: "Use",
+    previewDetails: "Details",
+    previewPublic: "Public",
+    previewPrivate: "Private",
+    previewNoTitle: "(auto title)",
+    previewMinOrder: "Min order",
+    previewNoMinOrder: "No minimum",
+    previewValidity: "Validity",
+    detailDisplay: "Coupon card display",
+    detailAccess: "Access",
+    detailNoDisplay: "No display fields set (a generated label is used).",
   },
 } satisfies Record<Locale, unknown>;
+
+const BADGE_VARIANTS = [
+  "DEFAULT",
+  "SUPER",
+  "LIMITED_TIME",
+  "PERSONAL",
+  "WEEKEND",
+  "NEW_CUSTOMER",
+] as const satisfies readonly CampaignBadgeVariant[];
+const CARD_STYLES = ["STANDARD", "FEATURED", "PERSONAL"] as const satisfies readonly CampaignCardStyle[];
+const ACCESS_MODELS = [
+  "AUTO_VISIBLE",
+  "PUBLIC_CLAIMABLE",
+  "CODE_CLAIMED",
+  "ADMIN_ASSIGNED",
+] as const satisfies readonly CampaignAccessModel[];
+
+/** F4A.4 — accessModel'den isPublic türetimi (contracts ile aynı kural). */
+function isPublicAccess(accessModel: CampaignAccessModel): boolean {
+  return accessModel === "AUTO_VISIBLE" || accessModel === "PUBLIC_CLAIMABLE";
+}
 
 interface FormState {
   name: string;
@@ -282,6 +424,15 @@ interface FormState {
   couponCode: string;
   productIds: string[];
   categoryIds: string[];
+  // F4A.4 — Sunum alanları (ADR-061); yalnızca görünüm.
+  displayTitle: string;
+  shortDescription: string;
+  terms: string;
+  badgeLabel: string;
+  badgeVariant: CampaignBadgeVariant;
+  cardStyle: CampaignCardStyle;
+  accessModel: CampaignAccessModel;
+  displayPriority: string;
 }
 
 const emptyForm: FormState = {
@@ -301,6 +452,14 @@ const emptyForm: FormState = {
   couponCode: "",
   productIds: [],
   categoryIds: [],
+  displayTitle: "",
+  shortDescription: "",
+  terms: "",
+  badgeLabel: "",
+  badgeVariant: "DEFAULT",
+  cardStyle: "STANDARD",
+  accessModel: "PUBLIC_CLAIMABLE",
+  displayPriority: "0",
 };
 
 /** ISO tarihini datetime-local input değerine çevirir (yerel saat). */
@@ -323,6 +482,47 @@ function positiveIntOrNull(value: string): number | null {
   if (!trimmed) return null;
   const parsed = Number.parseInt(trimmed, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * F4A.4 — Bitiş tarihinden türetilmiş kısa geçerlilik etiketi (ADR-061). Yalnızca
+ * ÖNIZLEME içindir; motorla ilgisi yoktur. "Bugün bitiyor" / "Son 9 Saat" / "Son 3 Gün".
+ */
+function deriveExpiryLabel(endsIso: string | null, locale: Locale): string | null {
+  if (!endsIso) return null;
+  const end = new Date(endsIso);
+  if (Number.isNaN(end.getTime())) return null;
+  const now = new Date();
+  const ms = end.getTime() - now.getTime();
+  if (ms <= 0) return locale === "tr" ? "Süresi doldu" : "Expired";
+  const sameDay =
+    end.getFullYear() === now.getFullYear() &&
+    end.getMonth() === now.getMonth() &&
+    end.getDate() === now.getDate();
+  if (sameDay) return locale === "tr" ? "Bugün bitiyor" : "Ends today";
+  const hours = Math.ceil(ms / 3_600_000);
+  if (hours <= 48) return locale === "tr" ? `Son ${hours} Saat` : `${hours}h left`;
+  const days = Math.ceil(hours / 24);
+  return locale === "tr" ? `Son ${days} Gün` : `${days}d left`;
+}
+
+/** Önizleme için tam geçerlilik aralığı ("04.07.2026 00:00 - 05.07.2026 23:59"). */
+function formatValidityRange(startIso: string | null, endIso: string | null, locale: Locale): string | null {
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString(locale === "tr" ? "tr-TR" : "en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+  const start = startIso ? fmt(startIso) : null;
+  const end = endIso ? fmt(endIso) : null;
+  if (start && end) return `${start} - ${end}`;
+  return end ?? start ?? null;
 }
 
 export default function CampaignsPage() {
@@ -396,6 +596,14 @@ export default function CampaignsPage() {
       couponCode: campaign.coupons[0]?.code ?? "",
       productIds: campaign.productIds,
       categoryIds: campaign.categoryIds,
+      displayTitle: campaign.displayTitle ?? "",
+      shortDescription: campaign.shortDescription ?? "",
+      terms: campaign.terms ?? "",
+      badgeLabel: campaign.badgeLabel ?? "",
+      badgeVariant: campaign.badgeVariant ?? "DEFAULT",
+      cardStyle: campaign.cardStyle,
+      accessModel: campaign.accessModel,
+      displayPriority: String(campaign.displayPriority),
     });
     setFormError(null);
     setFormOpen(true);
@@ -431,6 +639,18 @@ export default function CampaignsPage() {
     if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) {
       return { message: t.validationWindow };
     }
+    // F4A.4 — Sunum alanı uzunluk doğrulaması (server ile aynı sınırlar).
+    const displayTitle = form.displayTitle.trim();
+    const shortDescription = form.shortDescription.trim();
+    const badgeLabel = form.badgeLabel.trim();
+    const terms = form.terms.trim();
+    if (displayTitle.length > 120) return { message: t.validationDisplayTitle };
+    if (shortDescription.length > 240) return { message: t.validationShortDescription };
+    if (badgeLabel.length > 40) return { message: t.validationBadgeLabel };
+    if (terms.length > 2000) return { message: t.validationTerms };
+    // Otomatik tipler yalnızca AUTO_VISIBLE olabilir; kupon tipi kod/atama modellerini destekler.
+    const accessModel: CampaignAccessModel =
+      form.type === "COUPON_CODE" ? form.accessModel : "AUTO_VISIBLE";
     return {
       payload: {
         name: form.name.trim(),
@@ -446,10 +666,18 @@ export default function CampaignsPage() {
         perCustomerUsageLimit: positiveIntOrNull(form.perCustomerLimit),
         stackable: form.stackable,
         priority: Number.parseInt(form.priority, 10) || 0,
-        isPublic: true,
         productIds: form.productIds,
         categoryIds: form.categoryIds,
         couponCode: form.type === "COUPON_CODE" ? couponCode : null,
+        // F4A.4 — Sunum alanları (ADR-061). isPublic sunucuda accessModel'den türetilir.
+        displayTitle: displayTitle || null,
+        shortDescription: shortDescription || null,
+        terms: terms || null,
+        badgeLabel: badgeLabel || null,
+        badgeVariant: form.badgeVariant,
+        cardStyle: form.cardStyle,
+        accessModel,
+        displayPriority: Number.parseInt(form.displayPriority, 10) || 0,
       },
     };
   };
@@ -631,86 +859,148 @@ export default function CampaignsPage() {
 
       {formOpen ? (
         <SectionCard title={editing ? t.formTitleEdit : t.formTitleNew}>
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className="space-y-5">
             {formError ? <Alert tone="error">{formError}</Alert> : null}
-            <div className="grid gap-3 md:grid-cols-2">
+
+            {/* Section 1 — Görünüm / Kupon Kartı (sunum; indirim hesabını etkilemez). */}
+            <FormSection title={t.sectionDisplay}>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  label={t.formName}
+                  value={form.name}
+                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                  required
+                />
+                <Input
+                  label={t.formDisplayTitle}
+                  value={form.displayTitle}
+                  maxLength={120}
+                  onChange={(event) => setForm((prev) => ({ ...prev, displayTitle: event.target.value }))}
+                />
+              </div>
+              <p className="text-xs text-white/40">{t.formDisplayTitleHint}</p>
               <Input
-                label={t.formName}
-                value={form.name}
-                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                required
+                label={t.formShortDescription}
+                value={form.shortDescription}
+                maxLength={240}
+                onChange={(event) => setForm((prev) => ({ ...prev, shortDescription: event.target.value }))}
               />
-              <Select
-                label={t.formType}
-                value={form.type}
-                disabled={editing !== null}
-                onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value as CreatableType }))}
-                options={CREATABLE_TYPES.map((type) => ({ value: type, label: t.typeLabels[type] ?? type }))}
+              <div className="grid gap-3 md:grid-cols-3">
+                <Input
+                  label={t.formBadgeLabel}
+                  value={form.badgeLabel}
+                  maxLength={40}
+                  onChange={(event) => setForm((prev) => ({ ...prev, badgeLabel: event.target.value }))}
+                />
+                <Select
+                  label={t.formBadgeVariant}
+                  value={form.badgeVariant}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, badgeVariant: event.target.value as CampaignBadgeVariant }))
+                  }
+                  options={BADGE_VARIANTS.map((v) => ({ value: v, label: t.badgeVariantLabels[v] ?? v }))}
+                />
+                <Select
+                  label={t.formCardStyle}
+                  value={form.cardStyle}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, cardStyle: event.target.value as CampaignCardStyle }))
+                  }
+                  options={CARD_STYLES.map((v) => ({ value: v, label: t.cardStyleLabels[v] ?? v }))}
+                />
+              </div>
+              <Textarea
+                label={t.formTerms}
+                value={form.terms}
+                rows={3}
+                maxLength={2000}
+                onChange={(event) => setForm((prev) => ({ ...prev, terms: event.target.value }))}
               />
-              <Select
-                label={t.formDiscountType}
-                value={form.discountType}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    discountType: event.target.value as FormState["discountType"],
-                    discountValue: "",
-                  }))
-                }
-                options={[
-                  { value: "PERCENT", label: t.percent },
-                  { value: "FIXED_AMOUNT", label: t.fixed },
-                ]}
-              />
-              <Input
-                label={form.discountType === "PERCENT" ? t.formDiscountValuePercent : t.formDiscountValueFixed}
-                value={form.discountValue}
-                onChange={(event) => setForm((prev) => ({ ...prev, discountValue: event.target.value }))}
-                inputMode="decimal"
-                required
-              />
-              <Input
-                label={t.formMaxDiscount}
-                value={form.maxDiscount}
-                onChange={(event) => setForm((prev) => ({ ...prev, maxDiscount: event.target.value }))}
-                inputMode="decimal"
-              />
-              <Input
-                label={t.formMinOrder}
-                value={form.minOrder}
-                onChange={(event) => setForm((prev) => ({ ...prev, minOrder: event.target.value }))}
-                inputMode="decimal"
-              />
-              <Input
-                label={t.formStartsAt}
-                type="datetime-local"
-                value={form.startsAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, startsAt: event.target.value }))}
-              />
-              <Input
-                label={t.formEndsAt}
-                type="datetime-local"
-                value={form.endsAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, endsAt: event.target.value }))}
-              />
-              <Input
-                label={t.formTotalLimit}
-                value={form.totalLimit}
-                onChange={(event) => setForm((prev) => ({ ...prev, totalLimit: event.target.value }))}
-                inputMode="numeric"
-              />
-              <Input
-                label={t.formPerCustomerLimit}
-                value={form.perCustomerLimit}
-                onChange={(event) => setForm((prev) => ({ ...prev, perCustomerLimit: event.target.value }))}
-                inputMode="numeric"
-              />
-              <Input
-                label={t.formPriority}
-                value={form.priority}
-                onChange={(event) => setForm((prev) => ({ ...prev, priority: event.target.value }))}
-                inputMode="numeric"
-              />
+            </FormSection>
+
+            {/* Section 2 — İndirim Kuralı (motorun kullandığı alanlar). */}
+            <FormSection title={t.sectionDiscount}>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Select
+                  label={t.formType}
+                  value={form.type}
+                  disabled={editing !== null}
+                  onChange={(event) =>
+                    setForm((prev) => {
+                      const type = event.target.value as CreatableType;
+                      // Otomatik tiplerde yalnızca AUTO_VISIBLE; kupon tipinde claim modelleri.
+                      const accessModel: CampaignAccessModel =
+                        type === "COUPON_CODE"
+                          ? prev.accessModel === "AUTO_VISIBLE"
+                            ? "PUBLIC_CLAIMABLE"
+                            : prev.accessModel
+                          : "AUTO_VISIBLE";
+                      return { ...prev, type, accessModel };
+                    })
+                  }
+                  options={CREATABLE_TYPES.map((type) => ({ value: type, label: t.typeLabels[type] ?? type }))}
+                />
+                <Select
+                  label={t.formDiscountType}
+                  value={form.discountType}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      discountType: event.target.value as FormState["discountType"],
+                      discountValue: "",
+                    }))
+                  }
+                  options={[
+                    { value: "PERCENT", label: t.percent },
+                    { value: "FIXED_AMOUNT", label: t.fixed },
+                  ]}
+                />
+                <Input
+                  label={form.discountType === "PERCENT" ? t.formDiscountValuePercent : t.formDiscountValueFixed}
+                  value={form.discountValue}
+                  onChange={(event) => setForm((prev) => ({ ...prev, discountValue: event.target.value }))}
+                  inputMode="decimal"
+                  required
+                />
+                <Input
+                  label={t.formMaxDiscount}
+                  value={form.maxDiscount}
+                  onChange={(event) => setForm((prev) => ({ ...prev, maxDiscount: event.target.value }))}
+                  inputMode="decimal"
+                />
+                <Input
+                  label={t.formMinOrder}
+                  value={form.minOrder}
+                  onChange={(event) => setForm((prev) => ({ ...prev, minOrder: event.target.value }))}
+                  inputMode="decimal"
+                />
+                <Input
+                  label={t.formTotalLimit}
+                  value={form.totalLimit}
+                  onChange={(event) => setForm((prev) => ({ ...prev, totalLimit: event.target.value }))}
+                  inputMode="numeric"
+                />
+                <Input
+                  label={t.formPerCustomerLimit}
+                  value={form.perCustomerLimit}
+                  onChange={(event) => setForm((prev) => ({ ...prev, perCustomerLimit: event.target.value }))}
+                  inputMode="numeric"
+                />
+                <Input
+                  label={t.formPriority}
+                  value={form.priority}
+                  onChange={(event) => setForm((prev) => ({ ...prev, priority: event.target.value }))}
+                  inputMode="numeric"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-white/75">
+                <input
+                  type="checkbox"
+                  checked={form.stackable}
+                  onChange={(event) => setForm((prev) => ({ ...prev, stackable: event.target.checked }))}
+                />
+                {t.formStackable}
+              </label>
               {form.type === "COUPON_CODE" ? (
                 <div>
                   <div className="flex items-end gap-2">
@@ -722,9 +1012,7 @@ export default function CampaignsPage() {
                         onChange={(event) => setForm((prev) => ({ ...prev, couponCode: event.target.value }))}
                       />
                     </div>
-                    {/* F4A.1 — Otomatik kod onerisi: ad + indirim ipucu + rastgele
-                        sonek. Uretim sonrasi alan DUZENLENEBILIR kalir; benzersizlik
-                        dogrulamasi backend'dedir (cakisirsa yeniden uretilir). */}
+                    {/* F4A.1 — Otomatik kod önerisi; üretim sonrası düzenlenebilir. */}
                     {editing === null ? (
                       <Button
                         type="button"
@@ -750,36 +1038,91 @@ export default function CampaignsPage() {
                   <p className="mt-1 text-xs text-white/40">{t.formCouponCodeHint}</p>
                 </div>
               ) : null}
-            </div>
-            <Textarea
-              label={t.formDescription}
-              value={form.description}
-              rows={2}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            />
-            <label className="flex items-center gap-2 text-sm text-white/75">
-              <input
-                type="checkbox"
-                checked={form.stackable}
-                onChange={(event) => setForm((prev) => ({ ...prev, stackable: event.target.checked }))}
+              <Textarea
+                label={t.formDescription}
+                value={form.description}
+                rows={2}
+                onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
               />
-              {t.formStackable}
-            </label>
-            <div className="grid gap-3 md:grid-cols-2">
-              {scopePicker(
-                t.formProducts,
-                products.map((product) => ({ id: product.id, label: product.title })),
-                form.productIds,
-                (ids) => setForm((prev) => ({ ...prev, productIds: ids })),
+            </FormSection>
+
+            {/* Section 3 — Geçerlilik. */}
+            <FormSection title={t.sectionValidity}>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  label={t.formStartsAt}
+                  type="datetime-local"
+                  value={form.startsAt}
+                  onChange={(event) => setForm((prev) => ({ ...prev, startsAt: event.target.value }))}
+                />
+                <Input
+                  label={t.formEndsAt}
+                  type="datetime-local"
+                  value={form.endsAt}
+                  onChange={(event) => setForm((prev) => ({ ...prev, endsAt: event.target.value }))}
+                />
+              </div>
+              {deriveExpiryLabel(localInputToIso(form.endsAt), locale) ? (
+                <p className="text-xs text-white/50">
+                  {t.previewValidity}: <span className="font-medium text-white/75">
+                    {deriveExpiryLabel(localInputToIso(form.endsAt), locale)}
+                  </span>
+                </p>
+              ) : null}
+            </FormSection>
+
+            {/* Section 4 — Erişim / Kitle. isPublic accessModel'den türetilir. */}
+            <FormSection title={t.sectionAccess}>
+              {form.type === "COUPON_CODE" ? (
+                <Select
+                  label={t.formAccessModel}
+                  value={form.accessModel}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, accessModel: event.target.value as CampaignAccessModel }))
+                  }
+                  options={ACCESS_MODELS.filter((m) => m !== "AUTO_VISIBLE").map((m) => ({
+                    value: m,
+                    label: t.accessModelLabels[m] ?? m,
+                  }))}
+                />
+              ) : (
+                <p className="text-sm text-white/70">
+                  {t.accessModelLabels.AUTO_VISIBLE}
+                </p>
               )}
-              {scopePicker(
-                t.formCategories,
-                categories.map((category) => ({ id: category.id, label: category.name })),
-                form.categoryIds,
-                (ids) => setForm((prev) => ({ ...prev, categoryIds: ids })),
-              )}
-            </div>
-            <p className="text-xs text-white/40">{t.scopeHint}</p>
+              <p className="text-xs text-white/40">{t.accessModelHint}</p>
+              <p className="text-xs text-white/50">
+                {isPublicAccess(form.type === "COUPON_CODE" ? form.accessModel : "AUTO_VISIBLE")
+                  ? t.accessPublicNote
+                  : t.accessPrivateNote}
+              </p>
+            </FormSection>
+
+            {/* Section 5 — Kapsam. */}
+            <FormSection title={t.sectionScope}>
+              <div className="grid gap-3 md:grid-cols-2">
+                {scopePicker(
+                  t.formProducts,
+                  products.map((product) => ({ id: product.id, label: product.title })),
+                  form.productIds,
+                  (ids) => setForm((prev) => ({ ...prev, productIds: ids })),
+                )}
+                {scopePicker(
+                  t.formCategories,
+                  categories.map((category) => ({ id: category.id, label: category.name })),
+                  form.categoryIds,
+                  (ids) => setForm((prev) => ({ ...prev, categoryIds: ids })),
+                )}
+              </div>
+              <p className="text-xs text-white/40">{t.scopeHint}</p>
+            </FormSection>
+
+            {/* Section 6 — Önizleme (yalnızca görünüm; indirim hesaplanmaz). */}
+            <FormSection title={t.sectionPreview}>
+              <CampaignCardPreview form={form} t={t} locale={locale} />
+              <p className="text-xs text-white/40">{t.previewHint}</p>
+            </FormSection>
+
             <div className="flex gap-2">
               <Button type="submit" disabled={saving}>
                 {editing ? t.save : t.create}
@@ -801,6 +1144,33 @@ export default function CampaignsPage() {
             </Button>
           }
         >
+          {/* F4A.4 — Kupon kartı görünüm alanları özeti (ADR-061). */}
+          <div className="mb-4 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+              {t.detailDisplay}
+            </p>
+            {detail.displayTitle || detail.shortDescription || detail.badgeLabel || detail.terms ? (
+              <div className="mt-1 space-y-0.5 text-sm text-white/80">
+                {detail.badgeLabel ? (
+                  <span className="mr-2 rounded-full bg-brand-500/20 px-2 py-0.5 text-[11px] font-semibold text-brand-200">
+                    {detail.badgeLabel}
+                  </span>
+                ) : null}
+                {detail.displayTitle ? <span className="font-semibold">{detail.displayTitle}</span> : null}
+                {detail.shortDescription ? (
+                  <p className="text-xs text-white/55">{detail.shortDescription}</p>
+                ) : null}
+                {detail.terms ? <p className="text-xs text-white/45">{detail.terms}</p> : null}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-white/50">{t.detailNoDisplay}</p>
+            )}
+            <p className="mt-2 text-xs text-white/50">
+              {t.detailAccess}: {t.accessModelLabels[detail.accessModel] ?? detail.accessModel} ·{" "}
+              {detail.isPublic ? t.previewPublic : t.previewPrivate}
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
             {/* F4A.2 (ADR-059) — Snapshot-tabanlı analitik: kullanım, tekil müşteri,
                 toplam indirim, ciro öncesi/sonrası, ortalamalar, son kullanım. */}
@@ -903,6 +1273,95 @@ export default function CampaignsPage() {
  * kupon dagitildi. Atama e-posta ile yapilir; ortak backend (assignCoupon).
  * Public/private ayrimi kampanya isPublic'e baglidir; atama kuponu public YAPMAZ.
  */
+/** F4A.4 — Form bölüm sarmalayıcısı (görsel gruplama). */
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <h3 className="text-sm font-semibold text-white/80">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * F4A.4 — Store-admin kupon kartı ÖNIZLEMESI (ADR-061). Yalnızca görünüm;
+ * gerçek indirim hesabı YAPMAZ. Alanlar boşsa üretilmiş fallback'e döner.
+ */
+function CampaignCardPreview({
+  form,
+  t,
+  locale,
+}: {
+  form: FormState;
+  t: (typeof L)[Locale];
+  locale: Locale;
+}) {
+  const accessModel: CampaignAccessModel =
+    form.type === "COUPON_CODE" ? form.accessModel : "AUTO_VISIBLE";
+  const isPublic = isPublicAccess(accessModel);
+
+  const discountText =
+    form.discountType === "PERCENT"
+      ? `%${form.discountValue || "—"}`
+      : form.discountValue
+        ? formatMinor(inputToMinor(form.discountValue) ?? 0, "TRY")
+        : "—";
+
+  const title = form.displayTitle.trim() || form.name.trim() || t.previewNoTitle;
+  const badge = form.badgeLabel.trim() || t.badgeVariantLabels[form.badgeVariant] || null;
+  const minOrderMinor = inputToMinor(form.minOrder);
+  const expiry = deriveExpiryLabel(localInputToIso(form.endsAt), locale);
+  const range = formatValidityRange(localInputToIso(form.startsAt), localInputToIso(form.endsAt), locale);
+
+  return (
+    <div className="max-w-sm rounded-xl border border-white/12 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-4 shadow-lg">
+      <div className="flex items-center justify-between gap-2">
+        {badge ? (
+          <span className="rounded-full bg-brand-500/20 px-2 py-0.5 text-[11px] font-semibold text-brand-200">
+            {badge}
+          </span>
+        ) : (
+          <span />
+        )}
+        <span
+          className={`text-[11px] font-medium ${isPublic ? "text-emerald-300/80" : "text-amber-300/80"}`}
+        >
+          {isPublic ? t.previewPublic : t.previewPrivate}
+        </span>
+      </div>
+
+      <p className="mt-2 text-sm font-semibold text-white/90">{title}</p>
+      {form.shortDescription.trim() ? (
+        <p className="mt-0.5 text-xs text-white/55">{form.shortDescription.trim()}</p>
+      ) : null}
+
+      <p className="mt-3 text-2xl font-bold text-white">{discountText}</p>
+
+      <p className="mt-1 text-xs text-white/60">
+        {minOrderMinor != null
+          ? `${t.previewMinOrder}: ${formatMinor(minOrderMinor, "TRY")}`
+          : t.previewNoMinOrder}
+      </p>
+
+      {range ? (
+        <p className="mt-1 text-[11px] text-white/45">
+          {t.previewValidity}: {range}
+          {expiry ? ` · ${expiry}` : ""}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex items-center gap-3">
+        <span className="rounded-md bg-white/15 px-3 py-1 text-xs font-semibold text-white/85">
+          {t.previewUse}
+        </span>
+        {form.terms.trim() ? (
+          <span className="text-xs text-brand-300 underline-offset-2">{t.previewDetails}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function CampaignAssignments({
   detail,
   t,
