@@ -101,6 +101,17 @@ export const enStorefront: StorefrontDictionary = {
     campaignRequiresCoupon: "Requires a coupon code",
     // {amount} is replaced with the minimum order threshold.
     campaignMinOrder: "Valid over {amount}",
+    // F4A.3 — Automatic cart discount + public coupon card.
+    campaignNoCode: "No code needed",
+    campaignNoMinOrder: "No minimum",
+    couponCardTitle: "Coupon",
+    couponCopy: "Copy code",
+    couponCopied: "Copied",
+    // {date} is replaced with the coupon expiry date.
+    couponExpiry: "Ends: {date}",
+    couponManualHint: "Use it in the cart via “Add coupon code”.",
+    couponAddToWallet: "Add coupon",
+    couponAddedToWallet: "Coupon added. Use it from “Coupons” in the cart.",
   },
   buyBox: {
     priceNote: "VAT included",
@@ -232,6 +243,23 @@ export const enStorefront: StorefrontDictionary = {
     couponReasonNotStarted: "This coupon is not active yet.",
     couponReasonUsageLimit: "This coupon has reached its usage limit.",
     couponCheckoutRejected: "The coupon could not be applied. Remove it and try again.",
+    // F4A.3 — Cart "Coupons" area (wallet).
+    couponsTitle: "Coupons",
+    couponsEmpty: "You have no available coupons right now.",
+    couponAdd: "Add coupon code",
+    couponUse: "Use",
+    couponStateApplied: "Applied",
+    couponStateMinOrder: "Minimum not met",
+    couponStateExpired: "Expired",
+    // {amount} is replaced with the coupon minimum order threshold.
+    couponMinOrder: "Minimum: {amount}",
+    couponNoMinOrder: "No minimum",
+    // {date} is replaced with the coupon expiry date.
+    couponExpiry: "Ends: {date}",
+    couponSourceAssigned: "For you",
+    couponClaimSubmit: "Add",
+    couponClaimSuccess: "Coupon added. Tap “Use” to apply it.",
+    couponClaimInvalid: "That is not a valid coupon code.",
   },
   checkout: {
     title: "Checkout",

@@ -82,19 +82,25 @@ describe("ProductCard · sales-mode CTA", () => {
 // F4A.1 — Kampanya rozeti: kampanya varsa oncelikli gosterilir; compareAt
 // indirim rozetinin yerini alir. Metin sunucu projeksiyonundan turetilmis
 // hazir badgeText'tir (istemci hesap yapmaz).
-describe("ProductCard · campaign badge (F4A.1)", () => {
+describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
   const campaign = {
+    displayKind: "AUTOMATIC_CART_DISCOUNT" as const,
     badgeText: "Sepette %10 indirim",
     label: "Sepette %10 indirim",
+    discountText: "%10",
     requiresCoupon: false,
+    couponCode: null,
+    couponAction: "MANUAL_ONLY" as const,
     minOrderLabel: null,
+    endsAt: null,
   };
 
-  it("shows the campaign badge text when a campaign applies", () => {
+  it("automatic discount shows 'Sepette' badge, not 'Kuponlu ürün'", () => {
     const html = renderToStaticMarkup(
       <ProductCard product={summary(sales.online, amount, { campaign, badgeKind: null })} t={tr} />,
     );
     expect(html).toContain("Sepette %10 indirim");
+    expect(html).not.toContain("Kuponlu ürün");
   });
 
   it("campaign badge takes precedence over the compare-at discount badge", () => {
@@ -105,11 +111,18 @@ describe("ProductCard · campaign badge (F4A.1)", () => {
     expect(html).not.toContain(`>${tr.badges.discount}<`);
   });
 
-  it("coupon campaign shows the coupon badge text", () => {
+  it("public coupon campaign shows the coupon badge text", () => {
     const html = renderToStaticMarkup(
       <ProductCard
         product={summary(sales.online, amount, {
-          campaign: { ...campaign, badgeText: "Kuponlu ürün", requiresCoupon: true },
+          campaign: {
+            ...campaign,
+            displayKind: "PUBLIC_COUPON" as const,
+            badgeText: "Kuponlu ürün",
+            requiresCoupon: true,
+            couponCode: "TEST250",
+            couponAction: "CLAIM" as const,
+          },
         })}
         t={tr}
       />,

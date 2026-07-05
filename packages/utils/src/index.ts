@@ -2,6 +2,7 @@ export {
   formatCampaignAmount,
   getCampaignBadgeText,
   getCampaignPublicLabel,
+  getCampaignDiscountText,
   type CampaignLabelInput,
   type CampaignLabelLocale,
 } from "./campaign-label.js";

@@ -957,6 +957,25 @@ export const trStoreAdmin = {
         save: "Tercihleri kaydet",
         saved: "İletişim tercihleri güncellendi.",
       },
+      // F4A.3 — Müşteri kupon cüzdanı (ADR-060).
+      coupons: {
+        title: "Müşteri Kuponları",
+        description:
+          "Bu müşteriye atanmış, kazanılmış veya kullanılmış kuponlar. Atanan kupon yalnız bu müşteride görünür.",
+        empty: "Bu müşteriye ait kupon yok.",
+        assignLabel: "Kupon ata",
+        assignSubmit: "Ata",
+        assignError: "Kupon atanamadı.",
+        assignSuccess: "Kupon atandı.",
+        loadError: "Kuponlar yüklenemedi.",
+        statusAVAILABLE: "Kullanılabilir",
+        statusAPPLIED: "Uygulandı",
+        statusUSED: "Kullanıldı",
+        statusREVOKED: "İptal",
+        sourceADMIN_ASSIGNED: "Atandı",
+        sourcePUBLIC_CLAIMED: "Public claim",
+        sourceCODE_CLAIMED: "Kod claim",
+      },
       ibans: {
         title: "IBAN Bilgileri",
         add: "IBAN ekle",

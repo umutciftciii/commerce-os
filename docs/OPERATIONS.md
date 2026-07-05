@@ -380,3 +380,51 @@ beklentisiyle karşılaştırırken bunu dikkate alın. Tekil müşteri, custome
 tekilleştirilir; misafir siparişlerinde e-posta değişirse aynı kişi birden fazla sayılabilir. Vitrin
 rozetleri yalnız ACTIVE + herkese açık (isPublic) + penceresi açık + limiti dolmamış kampanyaları
 gösterir; rozet görünmüyorsa önce bu dört koşulu kontrol edin.
+
+## Vitrin kampanya gösterimi + kupon cüzdanı (F4A.3 / ADR-060)
+
+**Merge sonrası dağıtım:** `api-gateway`, `storefront-web`, `store-admin-web` rebuild edilir; additive
+migration `20260705130000_add_customer_coupon_wallet` uygulanır (`prisma migrate deploy` — mevcut veriye
+dokunmaz, RESET YOK). 7/7 container healthy doğrulanır.
+
+**Otomatik kampanya vs kupon kampanyası (vitrin gösterimi):**
+- **Otomatik sepet indirimi** (AUTOMATIC_CART / PRODUCT_DISCOUNT / CATEGORY_DISCOUNT): ürün kartında
+  "Sepette %10", ürün detayında "Sepette %10 indirim" + **"Kod gerekmez"** + varsa "₺1.000 üzeri geçerli".
+  Sepet/checkout'ta otomatik indirim satırı olarak uygulanır. Kod ASLA gösterilmez.
+- **Public kupon** (COUPON_CODE + `isPublic=true`): ürün kartında "Kuponlu ürün"; ürün detayında KUPON
+  KARTI (indirim tutarı, alt limit, son kullanma, **kupon kodu**, "Kuponu ekle"/"Kodu kopyala"). Sepette
+  "Kuponlar" alanında kart olarak görünür (Kullan / Uygulandı / Alt limit eksik).
+
+**Public vs private kupon:**
+- **Public** (`isPublic=true`): ürün/sepet ekranlarında keşfedilir; kodu güvenle gösterilir (kupon ACTIVE
+  ve penceresi geçerliyse). Herkes claim edip kullanabilir.
+- **Private** (`isPublic=false`): hiçbir public yüzeyde GÖRÜNMEZ (kart/detay/sepet adayları). Yalnızca
+  kodu bilen müşteri "Kupon Kodu Ekle" ile tanımlayabilir ya da store-admin belirli bir müşteriye/e-postaya
+  atayabilir. İç kimlik/priority/stackable/usage/limit/redemption public gövdeye ASLA taşınmaz.
+
+**Birden çok rozet önceliği:** Ürün başına TEK rozet gösterilir. Seçim deterministiktir: önce `priority`
+DESC, sonra kampanya id ASC (indirim tutarı sepete bağlı olduğundan rozet seçiminde karşılaştırılmaz).
+Kampanya rozeti, `compareAt` (indirimli fiyat) rozetine göre önceliklidir.
+
+**İki adımlı kupon akışı (cüzdan):** "Kupon Kodu Ekle" kodu DOĞRULAR (ACTIVE + pencere + limit) ve
+uygunsa "Kuponlar" alanına EKLER (claim); uygun değilse güvenli negatif metin gösterir. Alt limit/kapsam
+claim'i reddetmez — kart "Alt limit eksik" durumuyla görünür. Uygulama AYRI adımdır: kart üzerindeki
+"Kullan" → APPLIED (sepette couponCode olarak uygulanır); "Kaldır" → AVAILABLE (kart cüzdanda kalır);
+başarılı sipariş → USED. İndirim tutarı yine sunucu motorundan gelir (ADR-058); istemci APPLIED durumuna
+GÜVENİLMEZ. MVP: sepet başına tek APPLIED kupon.
+
+**Store-admin kupon atama:** İki yerden yapılır, AYNI backend servisini kullanır:
+- Kampanya detayı → "Müşteriye kupon ata" (kupon seç + e-posta gir) + atama listesi (durum/kaynak/tarih).
+- Müşteri detayı → "Müşteri Kuponları" (kupon seç + ata) + cüzdan geçmişi.
+Cross-store atama reddedilir; e-posta listede MASKELİ gösterilir; private kuponu atama PUBLIC YAPMAZ.
+
+**Smoke (F4A.3):** (1) Otomatik "Sepette %10": kart "Sepette %10", detay "Kod gerekmez", sepet/checkout
+otomatik indirim satırı. (2) TEST250 public kupon: detayda kupon kartı+kod, sepette "Kuponlar" kartı,
+"Kupon Kodu Ekle" ile claim → "Kullan" uygular. (3) Private kupon: üründe/kartta/adaylarda görünmez,
+kod ile claim çalışır. (4) BADCODE: güvenli hata; otomatik kampanya indirim satırı korunur. (5) Public
+payload: iç id/priority/usage/stackable/limit/redemption YOK. (6) Admin: iki ekrandan atama; atanan kupon
+yalnız o müşteride görünür.
+
+**Sınırlamalar:** Misafir sepetinde kalıcı müşteri kimliği olmadığından misafire ATANAN kupon, checkout
+e-postası girilene kadar görünmez; misafir kod-claim'i sepet cookie'sinde (`claimedCodes`) yaşar. "Tüm
+Kuponlar" listeleme sayfası henüz yok (dead link eklenmedi — follow-up).

@@ -52,6 +52,10 @@ import {
   publicCartRequestSchema,
   publicCartSchema,
   publicCheckoutRequestSchema,
+  publicCouponClaimRequestSchema,
+  publicCouponClaimResponseSchema,
+  publicWalletCouponSchema,
+  type PublicCouponReason,
   publicOrderConfirmationSchema,
   publicPaymentAvailabilitySchema,
   publicPaymentResultSchema,
@@ -101,7 +105,19 @@ import {
   type RedemptionError,
 } from "./campaigns/data.js";
 import { registerCampaignAdminRoutes } from "./campaigns/routes.js";
+import { registerWalletAdminRoutes } from "./campaigns/wallet-routes.js";
+import {
+  createPrismaWalletDataAccess,
+  type CouponWithCampaign,
+  type WalletDataAccess,
+} from "./campaigns/wallet-data.js";
+import {
+  evaluateCouponClaim,
+  projectWalletCoupons,
+  type WalletCandidate,
+} from "./campaigns/wallet.js";
 import { selectPublicCampaignBadge } from "./campaigns/public-badge.js";
+import { campaignAppliesToProduct } from "./campaigns/public-badge.js";
 import {
   computeStoreShippingQuote,
   listActiveRatePlans,
@@ -1495,12 +1511,18 @@ interface CartDiscountContext {
   context: DiscountContext;
 }
 
+/** F4A.3 — Sepet cuzdan baglami: kart adaylari (public/atanmis/claim). */
+interface CartWalletContext {
+  candidates: WalletCandidate[];
+}
+
 function assemblePublicCart(
   storeSlug: string,
   index: Map<string, CartResolvableVariant>,
   items: Array<{ variantId: string; quantity: number }>,
   discountCtx: CartDiscountContext,
   shippingCtx: CartShippingContext,
+  walletCtx?: CartWalletContext,
 ) {
   const lines: PublicCartLineResult[] = [];
   for (const item of mergeCartItems(items)) {
@@ -1575,6 +1597,19 @@ function assemblePublicCart(
     includeInTotal: shippingOk,
     freeThresholdMinor: selectedPlan?.freeShippingThresholdMinor ?? null,
   });
+  // F4A.3 (ADR-060) — Sepet "Kuponlar" kartlari. Yalniz kapsami bu sepete uyan
+  // adaylar gosterilir (kapsamsiz = tum sepet). Durum (APPLIED/AVAILABLE/
+  // MIN_ORDER_NOT_MET) uygulanan koda ve alt limite gore hesaplanir.
+  const cartProducts = discountLines.map((line) => ({ id: line.productId, categoryIds: line.categoryIds }));
+  const applicableCandidates = (walletCtx?.candidates ?? []).filter((candidate) =>
+    cartProducts.some((product) => campaignAppliesToProduct(candidate.campaign, product)),
+  );
+  const availableCoupons = projectWalletCoupons(applicableCandidates, {
+    subtotalMinor,
+    appliedNormalizedCode:
+      discount.couponStatus === "APPLIED" ? normalizeCouponCode(discount.couponCode) : null,
+    now,
+  });
   const cart = publicCartSchema.parse({
     storeSlug,
     currency,
@@ -1582,7 +1617,7 @@ function assemblePublicCart(
     subtotalMinor,
     itemCount,
     checkoutReady,
-    summary,
+    summary: { ...summary, availableCoupons },
     shipping: {
       ...quote.response,
       options: optionsResult.options,
@@ -3127,6 +3162,8 @@ export function createServer(
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
   const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
   const customers = dependencies.customerDataAccess ?? createPrismaCustomerDataAccess();
+  // F4A.3 (ADR-060) — Musteri kupon cuzdani veri erisimi (atama/claim/apply state).
+  const wallet: WalletDataAccess = createPrismaWalletDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
   // F3B.2: Payment credential cipher (encryption-at-rest). Dev fallback uyarisi
   // yalnizca bir kez loglanir. Calisma ortami canli mi? (LIVE-MOCK guard icin).
@@ -3434,6 +3471,43 @@ export function createServer(
     return index;
   }
 
+  /**
+   * F4A.3 (ADR-060) — Sepet "Kuponlar" kartlari icin cuzdan adaylarini toplar:
+   *  (1) PUBLIC: isPublic + ACTIVE kupon kampanyalari (herkes claim edebilir),
+   *  (2) ASSIGNED/CLAIMED: oturum acmis musteri/email cuzdani (DB),
+   *  (3) CLAIMED: misafir cookie'sinden gelen normalize kod claim'leri.
+   * Uygunluk/durum projeksiyon (projectWalletCoupons) tarafinda hesaplanir.
+   */
+  async function loadCartWalletCandidates(
+    storeId: string,
+    input: { customerId: string | null; email: string | null; claimedCodes: string[] },
+  ): Promise<WalletCandidate[]> {
+    const [publicCampaigns, walletEntries, guestClaimed] = await Promise.all([
+      dataAccess.listPublicActiveCampaigns(storeId),
+      wallet.listWalletEntriesForIdentity(storeId, {
+        customerId: input.customerId,
+        email: input.email,
+      }),
+      input.claimedCodes.length > 0
+        ? wallet.resolveCouponsWithCampaignByCodes(storeId, input.claimedCodes)
+        : Promise.resolve([] as CouponWithCampaign[]),
+    ]);
+    const candidates: WalletCandidate[] = [];
+    for (const campaign of publicCampaigns) {
+      if (campaign.type !== "COUPON_CODE") continue;
+      for (const coupon of campaign.coupons) {
+        candidates.push({ coupon, campaign, source: "PUBLIC" });
+      }
+    }
+    for (const entry of walletEntries) {
+      candidates.push({ coupon: entry.coupon, campaign: entry.campaign, source: entry.source });
+    }
+    for (const item of guestClaimed) {
+      candidates.push({ coupon: item.coupon, campaign: item.campaign, source: "CLAIMED" });
+    }
+    return candidates;
+  }
+
   app.post("/public/stores/:storeSlug/cart", async (request, reply) => {
     const params = publicStoreParamSchema.parse(request.params);
     const body = publicCartRequestSchema.parse(request.body ?? {});
@@ -3468,6 +3542,12 @@ export function createServer(
       customerId: cartCustomer?.id ?? null,
       email: null,
     });
+    // F4A.3 — Cuzdan kartlari icin adaylar (public + oturum cuzdani + misafir claim).
+    const walletCandidates = await loadCartWalletCandidates(store.id, {
+      customerId: cartCustomer?.id ?? null,
+      email: cartCustomer?.email ?? null,
+      claimedCodes: (body.claimedCodes ?? []).map((code) => normalizeCouponCode(code) ?? "").filter(Boolean),
+    });
     const { cart } = assemblePublicCart(
       store.slug,
       index,
@@ -3480,9 +3560,92 @@ export function createServer(
         addressKnown,
         requestedOptionId: body.shippingOptionId ?? null,
       },
+      { candidates: walletCandidates },
     );
     return cart;
   });
+
+  /**
+   * F4A.3 (ADR-060) — Kupon "claim" (cuzdana ekle). Kod sunucuda dogrulanir
+   * (ACTIVE + pencere + limit); uygunsa cuzdana eklenir (oturum acmis musteride
+   * DB satiri, misafirde yanit + cookie'ye yazma cagiran tarafta). Alt limit/kapsam
+   * BURADA reddetmez — bunlar sepet-zamanli kart durumudur. Uygulama (apply) AYRIDIR.
+   * PRIVATE kupon kodu bilen musteri tarafindan claim edilebilir; public sizinti YOK.
+   */
+  app.post("/public/stores/:storeSlug/cart/coupons/claim", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const body = publicCouponClaimRequestSchema.parse(request.body ?? {});
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const normalizedCode = normalizeCouponCode(body.code);
+    const fail = (reason: PublicCouponReason) =>
+      publicCouponClaimResponseSchema.parse({ ok: false, coupon: null, reason, normalizedCode });
+    if (!normalizedCode) return fail("NOT_FOUND");
+
+    const found = await wallet.findCouponWithCampaignByCode(store.id, normalizedCode);
+    if (!found) return fail("NOT_FOUND");
+    const now = new Date();
+    const reason = evaluateCouponClaim(found.coupon, found.campaign, now);
+    if (reason) return fail(reason);
+
+    // Oturum acmis musteride DB cuzdanina yaz (idempotent); misafirde yanit yeter.
+    const cartCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
+    if (cartCustomer) {
+      await wallet.upsertClaim(store.id, {
+        couponId: found.coupon.id,
+        campaignId: found.campaign.id,
+        customerId: cartCustomer.id,
+        email: cartCustomer.email,
+        source: found.campaign.isPublic ? "PUBLIC_CLAIMED" : "CODE_CLAIMED",
+      });
+    }
+    const card = publicWalletCouponSchema.parse({
+      code: found.coupon.code,
+      discountType: found.campaign.discountType,
+      discountValue: found.campaign.discountValue,
+      minOrderAmountMinor: found.campaign.minOrderAmountMinor,
+      endsAt: (found.coupon.endsAt ?? found.campaign.endsAt)?.toISOString() ?? null,
+      state: "AVAILABLE",
+      source: found.campaign.isPublic ? "PUBLIC" : "CLAIMED",
+    });
+    return publicCouponClaimResponseSchema.parse({
+      ok: true,
+      coupon: card,
+      reason: null,
+      normalizedCode,
+    });
+  });
+
+  /**
+   * F4A.3 — Cuzdan kuponunu "Kullan"/"Kaldir". Oturum acmis musteride cuzdan
+   * satiri APPLIED/AVAILABLE yapilir (MVP: sepet basina tek APPLIED). Indirim
+   * KAYNAK DOGRUSU yine couponCode cookie'sidir; bu uc yalniz cuzdan durumu senkronu.
+   */
+  for (const [action, applied] of [
+    ["apply", true],
+    ["remove", false],
+  ] as const) {
+    app.post(`/public/stores/:storeSlug/cart/coupons/${action}`, async (request, reply) => {
+      const params = publicStoreParamSchema.parse(request.params);
+      const body = z.object({ code: z.string().max(40) }).parse(request.body ?? {});
+      const store = await resolvePublicStore(params.storeSlug);
+      if (!store) {
+        return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+      }
+      const normalizedCode = normalizeCouponCode(body.code);
+      const cartCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
+      if (cartCustomer && normalizedCode) {
+        await wallet.setAppliedForIdentity(
+          store.id,
+          { normalizedCode, customerId: cartCustomer.id, email: cartCustomer.email },
+          applied,
+        );
+      }
+      return { ok: true };
+    });
+  }
 
   app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
     const params = publicStoreParamSchema.parse(request.params);
@@ -3839,6 +4002,16 @@ export function createServer(
   // F4A — Kampanya/kupon yonetimi (ADR-058): store-admin CRUD + durum gecisleri.
   registerCampaignAdminRoutes(app, {
     dataAccess,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).
+  registerWalletAdminRoutes(app, {
+    wallet,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

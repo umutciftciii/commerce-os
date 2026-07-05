@@ -396,6 +396,20 @@ enum CouponStatus {
   ARCHIVED
 }
 
+// F4A.3 — Musteri kupon cuzdani (wallet) durum/kaynak (ADR-060).
+enum CustomerCouponStatus {
+  AVAILABLE
+  APPLIED
+  USED
+  REVOKED
+}
+
+enum CustomerCouponSource {
+  ADMIN_ASSIGNED
+  PUBLIC_CLAIMED
+  CODE_CLAIMED
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -475,6 +489,7 @@ model Store {
   coupons                 Coupon[]
   campaignRedemptions     CampaignRedemption[]
   orderDiscounts          OrderDiscount[]
+  customerCoupons         CustomerCoupon[]
 }
 
 model StoreUser {
@@ -769,6 +784,7 @@ model Customer {
   ibans                   CustomerIban[]
   communicationPreference CustomerCommunicationPreference?
   campaignRedemptions     CampaignRedemption[]
+  customerCoupons         CustomerCoupon[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -1007,6 +1023,7 @@ model Order {
   // F4A — Siparis indirim snapshot'lari + kampanya kullanim kayitlari.
   discounts       OrderDiscount[]
   redemptions     CampaignRedemption[]
+  customerCoupons CustomerCoupon[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -1611,11 +1628,12 @@ model Campaign {
   updatedAt              DateTime             @updatedAt
 
   store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  coupons        Coupon[]
-  products       CampaignProduct[]
-  categories     CampaignCategory[]
-  redemptions    CampaignRedemption[]
-  orderDiscounts OrderDiscount[]
+  coupons         Coupon[]
+  products        CampaignProduct[]
+  categories      CampaignCategory[]
+  redemptions     CampaignRedemption[]
+  orderDiscounts  OrderDiscount[]
+  customerCoupons CustomerCoupon[]
 
   @@index([storeId])
   @@index([storeId, status])
@@ -1641,10 +1659,11 @@ model Coupon {
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 
-  store       Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  campaign    Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  redemptions CampaignRedemption[]
-  orderDiscounts OrderDiscount[]
+  store           Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign        Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  redemptions     CampaignRedemption[]
+  orderDiscounts  OrderDiscount[]
+  customerCoupons CustomerCoupon[]
 
   @@unique([storeId, normalizedCode])
   @@index([storeId])
@@ -1736,4 +1755,44 @@ model OrderDiscount {
   @@index([storeId])
   @@index([orderId])
   @@index([campaignId])
+}
+
+// F4A.3 — Musteri kupon cuzdani (ADR-060). Bir kupon satiri BIR musteri
+// (customerId) VEYA bir email icin tutulur. status yasam dongusu:
+// AVAILABLE -> APPLIED (sepette "Kullan") -> USED (siparis basarili) / geri
+// AVAILABLE ("Kaldir"); REVOKED admin geri-alimidir. KAYNAK DOGRUSU indirim
+// tutari icin DEGILDIR — indirim yine couponCode + motordan gelir; bu tablo
+// yalnizca cuzdan/atama/claim state'idir. Store-scoped; cross-store gorunmez.
+model CustomerCoupon {
+  id         String               @id @default(cuid())
+  storeId    String
+  couponId   String
+  campaignId String
+  customerId String?
+  email      String?
+  status     CustomerCouponStatus @default(AVAILABLE)
+  source     CustomerCouponSource
+  claimedAt  DateTime             @default(now())
+  appliedAt  DateTime?
+  usedAt     DateTime?
+  orderId    String?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  coupon   Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  // Ayni kupon ayni musteri/email icin TEK satir (lifecycle in-place gunceller).
+  // Postgres NULL-distinct oldugundan customerId=null satirlar email kisitiyla,
+  // email=null satirlar customerId kisitiyla korunur; uygulama katmani da dedup yapar.
+  @@unique([storeId, couponId, customerId])
+  @@unique([storeId, couponId, email])
+  @@index([storeId])
+  @@index([couponId])
+  @@index([campaignId])
+  @@index([storeId, customerId, status])
+  @@index([storeId, email, status])
 }

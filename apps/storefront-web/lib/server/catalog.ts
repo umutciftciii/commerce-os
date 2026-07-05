@@ -8,6 +8,7 @@ import type {
 import {
   formatCampaignAmount,
   getCampaignBadgeText,
+  getCampaignDiscountText,
   getCampaignPublicLabel,
   type CampaignLabelLocale,
 } from "@commerce-os/utils";
@@ -91,11 +92,16 @@ function toCampaignView(
     discountValue: badge.discountValue,
   };
   return {
+    displayKind: badge.displayKind,
     badgeText: getCampaignBadgeText(input, locale),
     label: getCampaignPublicLabel(input, locale),
-    requiresCoupon: badge.kind === "COUPON",
+    discountText: getCampaignDiscountText(input),
+    requiresCoupon: badge.requiresCouponCode,
+    couponCode: badge.couponCode,
+    couponAction: badge.couponAction,
     minOrderLabel:
       badge.minOrderAmountMinor !== null ? formatCampaignAmount(badge.minOrderAmountMinor) : null,
+    endsAt: badge.endsAt,
   };
 }
 

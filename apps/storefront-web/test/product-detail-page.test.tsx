@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getDictionary } from "@commerce-os/i18n";
 import { deriveProductCommerceView } from "../lib/sales-model";
 import type { StorefrontProductDetail } from "../lib/catalog-types";
 
@@ -214,48 +215,62 @@ describe("storefront · product detail (decision center)", () => {
 // F4A.1 — Buy box kampanya bilgi kutusu: etiket + "Sepette uygulanır" +
 // kupon/min-sepet kosul satirlari sunucu projeksiyonundan gelen hazir
 // metinlerle gosterilir; kampanya yoksa kutu hic render edilmez.
-describe("storefront · product detail campaign info (F4A.1)", () => {
-  it("shows campaign label, applies-at-cart and min-order hints", async () => {
+describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
+  it("automatic discount shows 'Kod gerekmez' + min-order, not a coupon requirement", async () => {
     byHandle.mockResolvedValue({
       ok: true,
       data: detail({
         campaign: {
+          displayKind: "AUTOMATIC_CART_DISCOUNT",
           badgeText: "Sepette %10 indirim",
           label: "Sepette %10 indirim",
+          discountText: "%10",
           requiresCoupon: false,
+          couponCode: null,
+          couponAction: "MANUAL_ONLY",
           minOrderLabel: "₺1.000",
+          endsAt: null,
         },
         related: [],
       }),
     });
     const html = renderToStaticMarkup(await render());
     expect(html).toContain("Sepette %10 indirim");
-    expect(html).toContain("Sepette uygulanır");
+    expect(html).toContain("Kod gerekmez");
     expect(html).toContain("₺1.000 üzeri geçerli");
     expect(html).not.toContain("Kupon kodu gerektirir");
   });
 
-  it("coupon campaign shows the requires-coupon hint", async () => {
+  it("public coupon shows a coupon card with the code and add-to-wallet action", async () => {
     byHandle.mockResolvedValue({
       ok: true,
       data: detail({
         campaign: {
+          displayKind: "PUBLIC_COUPON",
           badgeText: "Kuponlu ürün",
           label: "₺250 kupon",
+          discountText: "₺250",
           requiresCoupon: true,
-          minOrderLabel: null,
+          couponCode: "TEST250",
+          couponAction: "CLAIM",
+          minOrderLabel: "₺1.000",
+          endsAt: null,
         },
         related: [],
       }),
     });
     const html = renderToStaticMarkup(await render());
-    expect(html).toContain("₺250 kupon");
-    expect(html).toContain("Kupon kodu gerektirir");
+    const tr = getDictionary("tr").storefront.detail;
+    expect(html).toContain("TEST250"); // visible coupon code
+    expect(html).toContain("₺250");
+    expect(html).toContain(tr.couponCardTitle); // "Kupon" card, not just text
+    expect(html).toContain(tr.couponAddToWallet); // action path exists
+    expect(html).toContain("₺1.000"); // alt limit
   });
 
   it("renders no campaign box when there is no campaign", async () => {
     byHandle.mockResolvedValue({ ok: true, data: detail({ related: [] }) });
     const html = renderToStaticMarkup(await render());
-    expect(html).not.toContain("Sepette uygulanır");
+    expect(html).not.toContain("Kod gerekmez");
   });
 });

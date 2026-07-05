@@ -72,14 +72,41 @@ export interface StorefrontProductSummary {
  * burada YOKTUR.
  */
 export interface StorefrontCampaignView {
+  /** F4A.3 — Gosterim taksonomisi: otomatik sepet indirimi mi public kupon mu. */
+  displayKind: "AUTOMATIC_CART_DISCOUNT" | "PUBLIC_COUPON";
   /** Urun karti rozeti ("Sepette %10 indirim" / "Kuponlu ürün"). */
   badgeText: string;
   /** Detay etiketi ("Sepette %10 indirim" / "₺250 kupon"). */
   label: string;
-  /** Kupon kodu gerektiren kampanya mi ("Kupon kodu gerektirir" satiri). */
+  /** Ham indirim tutari metni ("%10" / "₺250") — kupon karti icin. */
+  discountText: string;
+  /** Kupon kodu gerektiren kampanya mi. */
   requiresCoupon: boolean;
+  /** F4A.3 — Public kupon kodu (varsa); otomatik/gizli kuponda null. */
+  couponCode: string | null;
+  /** F4A.3 — Urun detay kupon aksiyonu. */
+  couponAction: "CLAIM" | "APPLY" | "COPY" | "MANUAL_ONLY";
   /** "X üzeri geçerli" esigi bicimli; yoksa null. */
   minOrderLabel: string | null;
+  /** F4A.3 — Bitis tarihi (ISO); yoksa null. */
+  endsAt: string | null;
+}
+
+/**
+ * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti gorunumu.
+ * Gateway'in cuzdan projeksiyonundan (PublicWalletCoupon) turetilmis HAZIR
+ * metinler tasir; kampanya ic verisi tasimaz.
+ */
+export interface StorefrontWalletCouponView {
+  code: string;
+  /** Indirim tutari metni ("%10" / "₺250"). */
+  discountText: string;
+  /** "Alt limit: ₺1.000" esigi; yoksa null. */
+  minOrderLabel: string | null;
+  /** Bitis tarihi (ISO); yoksa null. */
+  endsAt: string | null;
+  state: "AVAILABLE" | "APPLIED" | "MIN_ORDER_NOT_MET" | "EXPIRED";
+  source: "PUBLIC" | "ASSIGNED" | "CLAIMED";
 }
 
 /**

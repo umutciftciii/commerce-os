@@ -24,9 +24,16 @@ export function ProductCard({
     <Link href={`/products/${product.handle}`} className="group block">
       <Card className="flex h-full flex-col overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-card-hover">
         <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
-          {/* F4A.1 — Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti. */}
+          {/* F4A.1/F4A.3 — Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti.
+              Otomatik sepet indirimi (emerald "Sepette %10") ile public kupon
+              (amber "Kuponlu ürün") gorsel olarak AYRILIR. */}
           {product.campaign ? (
-            <span className="absolute left-3 top-3 inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow-card">
+            <span
+              className={[
+                "absolute left-3 top-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white shadow-card",
+                product.campaign.displayKind === "PUBLIC_COUPON" ? "bg-amber-500" : "bg-emerald-600",
+              ].join(" ")}
+            >
               {product.campaign.badgeText}
             </span>
           ) : product.badgeKind ? (

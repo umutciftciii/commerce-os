@@ -21,6 +21,7 @@ import type {
   CustomerAddress,
   CustomerAddressInput,
   CustomerCommunicationPreference,
+  CustomerCouponAssignment,
   CustomerIban,
   StoreAdminCustomerDetail,
   StoreAdminCustomerDetailResponse,
@@ -213,6 +214,11 @@ export default function CustomerDetailPage() {
             onError={fail}
           />
           <OrdersCard orders={orders} />
+          <CustomerCouponsCard
+            customerId={customerId}
+            onChanged={(message) => { flash(message); }}
+            onError={fail}
+          />
           <PreferencesCard
             customerId={customerId}
             pref={communicationPreference}
@@ -938,6 +944,144 @@ function OrdersCard({ orders }: { orders: StoreAdminCustomerDetailResponse["orde
       ) : (
         <DataTable columns={columns} rows={orders} rowKey={(order) => order.orderNumber} caption={d.orders.title} />
       )}
+    </SurfaceCard>
+  );
+}
+
+/* ── Müşteri kuponları (F4A.3, ADR-060) ───────────────────────────────────── */
+
+/**
+ * Müşteri-odaklı kupon cüzdanı: bu müşteriye atanmış/kazanılmış/kullanılmış
+ * kuponlar + "Kupon ata" (ortak backend). Atanan kupon yalnız bu müşteride görünür;
+ * public/private ayrımı kampanya isPublic'e bağlıdır (atama kuponu public yapmaz).
+ */
+function CustomerCouponsCard({
+  customerId,
+  onChanged,
+  onError,
+}: {
+  customerId: string;
+  onChanged: (message: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const dict = getDictionary(useLocale());
+  const locale = useLocale();
+  const t = dict.storeAdmin.customers.detail.coupons;
+  const [rows, setRows] = useState<CustomerCouponAssignment[] | null>(null);
+  const [coupons, setCoupons] = useState<Array<{ id: string; code: string; campaignName: string }>>([]);
+  const [couponId, setCouponId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [assignments, campaignList] = await Promise.all([
+        storeApi.listCustomerCoupons(customerId),
+        storeApi.listCampaigns(),
+      ]);
+      setRows(assignments.data);
+      const options = campaignList.data.flatMap((campaign) =>
+        campaign.coupons.map((coupon) => ({
+          id: coupon.id,
+          code: coupon.code,
+          campaignName: campaign.name,
+        })),
+      );
+      setCoupons(options);
+      setCouponId((current) => current || options[0]?.id || "");
+    } catch (error) {
+      setRows([]);
+      onError(error);
+    }
+  }, [customerId, onError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function assign(event: FormEvent) {
+    event.preventDefault();
+    if (!couponId) return;
+    setBusy(true);
+    try {
+      await storeApi.assignCustomerCoupon(customerId, couponId);
+      onChanged(t.assignSuccess);
+      await load();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const statusLabel = (status: CustomerCouponAssignment["status"]) =>
+    ({
+      AVAILABLE: t.statusAVAILABLE,
+      APPLIED: t.statusAPPLIED,
+      USED: t.statusUSED,
+      REVOKED: t.statusREVOKED,
+    })[status];
+  const sourceLabel = (source: CustomerCouponAssignment["source"]) =>
+    ({
+      ADMIN_ASSIGNED: t.sourceADMIN_ASSIGNED,
+      PUBLIC_CLAIMED: t.sourcePUBLIC_CLAIMED,
+      CODE_CLAIMED: t.sourceCODE_CLAIMED,
+    })[source];
+
+  return (
+    <SurfaceCard title={t.title} icon={<CustomerIcon />}>
+      <p className="text-xs text-white/40">{t.description}</p>
+      {coupons.length > 0 ? (
+        <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={assign}>
+          <label className="flex flex-col gap-1 text-xs text-white/60">
+            {t.assignLabel}
+            <Select
+              value={couponId}
+              onChange={(event) => setCouponId(event.target.value)}
+              options={coupons.map((coupon) => ({
+                value: coupon.id,
+                label: `${coupon.code} — ${coupon.campaignName}`,
+              }))}
+            />
+          </label>
+          <Button type="submit" size="sm" disabled={busy || !couponId}>
+            {t.assignSubmit}
+          </Button>
+        </form>
+      ) : null}
+      <div className="mt-3 space-y-1">
+        {rows === null ? (
+          <SkeletonRows rows={2} />
+        ) : rows.length === 0 ? (
+          <p className="py-4 text-center text-sm text-white/40">{t.empty}</p>
+        ) : (
+          rows.map((row) => (
+            <p key={row.id} className="text-sm text-white/75">
+              <span className="font-mono text-white/85">{row.couponCode}</span>
+              {" · "}
+              <Badge tone={row.status === "USED" ? "neutral" : "success"}>{statusLabel(row.status)}</Badge>
+              {" · "}
+              <span className="text-white/45">{sourceLabel(row.source)}</span>
+              {row.orderNumber ? (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/orders/${row.orderId}`}
+                    className="text-white/85 underline-offset-2 hover:underline"
+                  >
+                    {row.orderNumber}
+                  </Link>
+                </>
+              ) : null}
+              {" · "}
+              <span className="text-white/40">
+                {new Date(row.usedAt ?? row.claimedAt).toLocaleDateString(
+                  locale === "tr" ? "tr-TR" : "en-GB",
+                )}
+              </span>
+            </p>
+          ))
+        )}
+      </div>
     </SurfaceCard>
   );
 }

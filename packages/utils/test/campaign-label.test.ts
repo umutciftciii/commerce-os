@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCampaignAmount,
   getCampaignBadgeText,
+  getCampaignDiscountText,
   getCampaignPublicLabel,
 } from "../src/campaign-label.js";
 
@@ -21,6 +22,19 @@ describe("formatCampaignAmount", () => {
 
   it("binlik ayirici uygular", () => {
     expect(n(formatCampaignAmount(100000))).toBe("₺1.000");
+  });
+});
+
+describe("getCampaignDiscountText (F4A.3)", () => {
+  it("yuzde: %10", () => {
+    expect(getCampaignDiscountText({ type: "COUPON_CODE", discountType: "PERCENT", discountValue: 10 })).toBe(
+      "%10",
+    );
+  });
+  it("sabit tutar: ₺250", () => {
+    expect(
+      n(getCampaignDiscountText({ type: "COUPON_CODE", discountType: "FIXED_AMOUNT", discountValue: 25000 })),
+    ).toBe("₺250");
   });
 });
 

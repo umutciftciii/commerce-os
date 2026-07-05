@@ -22,6 +22,7 @@ import type {
   CampaignDetailResponse,
   CampaignCreateRequest,
   CampaignUpdateRequest,
+  CustomerCouponAssignment,
   Product,
   ProductCategory,
 } from "@commerce-os/api-client";
@@ -124,6 +125,29 @@ const L = {
     noRedemptions: "Henüz kullanım yok.",
     couponUsage: "kullanım",
     close: "Kapat",
+    // F4A.3 — Kupon atama (ADR-060). Public kuponlar ürün/sepet ekranlarında
+    // görünür; private kuponlar yalnızca kodu bilen veya atanan müşteri kullanır.
+    assignTitle: "Müşteriye kupon ata",
+    assignHint:
+      "Public kuponlar ürün/sepet ekranlarında gösterilir. Private kuponlar yalnızca kodu bilen ya da atanan müşteri tarafından kullanılabilir.",
+    assignCouponLabel: "Kupon",
+    assignEmailLabel: "Müşteri e-postası",
+    assignEmailPlaceholder: "musteri@ornek.com",
+    assignSubmit: "Ata",
+    assignEmpty: "Henüz atama yok.",
+    assignError: "Kupon atanamadı. Bilgileri kontrol edin.",
+    assignSuccess: "Kupon atandı.",
+    assignColCustomer: "Müşteri",
+    assignColStatus: "Durum",
+    assignColSource: "Kaynak",
+    assignColDate: "Tarih",
+    statusAVAILABLE: "Kullanılabilir",
+    statusAPPLIED: "Uygulandı",
+    statusUSED: "Kullanıldı",
+    statusREVOKED: "İptal",
+    sourceADMIN_ASSIGNED: "Atandı",
+    sourcePUBLIC_CLAIMED: "Public claim",
+    sourceCODE_CLAIMED: "Kod claim",
     validationName: "Kampanya adı zorunludur.",
     validationPercent: "Yüzde 1-100 arasında olmalıdır.",
     validationFixed: "İndirim tutarı pozitif olmalıdır.",
@@ -211,6 +235,28 @@ const L = {
     noRedemptions: "No redemptions yet.",
     couponUsage: "uses",
     close: "Close",
+    // F4A.3 — Coupon assignment (ADR-060).
+    assignTitle: "Assign coupon to customer",
+    assignHint:
+      "Public coupons appear on product/cart screens. Private coupons are usable only by the customer who knows the code or is assigned it.",
+    assignCouponLabel: "Coupon",
+    assignEmailLabel: "Customer email",
+    assignEmailPlaceholder: "customer@example.com",
+    assignSubmit: "Assign",
+    assignEmpty: "No assignments yet.",
+    assignError: "Could not assign the coupon. Check the details.",
+    assignSuccess: "Coupon assigned.",
+    assignColCustomer: "Customer",
+    assignColStatus: "Status",
+    assignColSource: "Source",
+    assignColDate: "Date",
+    statusAVAILABLE: "Available",
+    statusAPPLIED: "Applied",
+    statusUSED: "Used",
+    statusREVOKED: "Revoked",
+    sourceADMIN_ASSIGNED: "Assigned",
+    sourcePUBLIC_CLAIMED: "Public claim",
+    sourceCODE_CLAIMED: "Code claim",
     validationName: "Campaign name is required.",
     validationPercent: "Percent must be between 1 and 100.",
     validationFixed: "Discount amount must be positive.",
@@ -832,6 +878,9 @@ export default function CampaignsPage() {
               )}
             </div>
           </div>
+          {detail.type === "COUPON_CODE" && detail.coupons.length > 0 ? (
+            <CampaignAssignments detail={detail} t={t} locale={locale} />
+          ) : null}
           <p className="mt-4 text-xs text-white/35">{t.analyticsNote}</p>
         </SectionCard>
       ) : null}
@@ -845,6 +894,148 @@ export default function CampaignsPage() {
           <DataTable columns={columns} rows={campaigns} rowKey={(row) => row.id} />
         )}
       </SectionCard>
+    </div>
+  );
+}
+
+/**
+ * F4A.3 (ADR-060) — Kampanya detayindan kupon atama: hangi musteri/email'e hangi
+ * kupon dagitildi. Atama e-posta ile yapilir; ortak backend (assignCoupon).
+ * Public/private ayrimi kampanya isPublic'e baglidir; atama kuponu public YAPMAZ.
+ */
+function CampaignAssignments({
+  detail,
+  t,
+  locale,
+}: {
+  detail: CampaignDetailResponse;
+  t: (typeof L)[Locale];
+  locale: Locale;
+}) {
+  const [rows, setRows] = useState<CustomerCouponAssignment[] | null>(null);
+  const [couponId, setCouponId] = useState(detail.coupons[0]?.id ?? "");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await storeApi.listCampaignAssignments(detail.id);
+      setRows(res.data);
+    } catch {
+      setRows([]);
+    }
+  }, [detail.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function assign(event: FormEvent) {
+    event.preventDefault();
+    if (!couponId || !email.trim()) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await storeApi.assignCampaignCoupon(detail.id, { couponId, email: email.trim() });
+      setEmail("");
+      setNotice(t.assignSuccess);
+      await load();
+    } catch {
+      setError(t.assignError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const statusLabel = (status: CustomerCouponAssignment["status"]) =>
+    ({
+      AVAILABLE: t.statusAVAILABLE,
+      APPLIED: t.statusAPPLIED,
+      USED: t.statusUSED,
+      REVOKED: t.statusREVOKED,
+    })[status];
+  const sourceLabel = (source: CustomerCouponAssignment["source"]) =>
+    ({
+      ADMIN_ASSIGNED: t.sourceADMIN_ASSIGNED,
+      PUBLIC_CLAIMED: t.sourcePUBLIC_CLAIMED,
+      CODE_CLAIMED: t.sourceCODE_CLAIMED,
+    })[source];
+
+  return (
+    <div className="mt-6 border-t border-white/10 pt-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-white/40">{t.assignTitle}</p>
+      <p className="mt-1 text-xs text-white/40">{t.assignHint}</p>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={assign}>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          {t.assignCouponLabel}
+          <Select
+            value={couponId}
+            onChange={(event) => setCouponId(event.target.value)}
+            options={detail.coupons.map((coupon) => ({ value: coupon.id, label: coupon.code }))}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-white/60">
+          {t.assignEmailLabel}
+          <Input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder={t.assignEmailPlaceholder}
+          />
+        </label>
+        <Button type="submit" size="sm" disabled={busy || !couponId || !email.trim()}>
+          {t.assignSubmit}
+        </Button>
+      </form>
+      {error ? (
+        <Alert tone="error" className="mt-2">
+          {error}
+        </Alert>
+      ) : null}
+      {notice ? (
+        <Alert tone="success" className="mt-2">
+          {notice}
+        </Alert>
+      ) : null}
+      <div className="mt-3 space-y-1">
+        {rows === null ? (
+          <SkeletonRows rows={2} />
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-white/50">{t.assignEmpty}</p>
+        ) : (
+          rows.map((row) => (
+            <p key={row.id} className="text-sm text-white/75">
+              <span className="font-mono text-white/85">{row.couponCode}</span>
+              {" · "}
+              {row.customerName ?? row.maskedEmail ?? "—"}
+              {" · "}
+              <Badge tone={row.status === "USED" ? "neutral" : "success"}>{statusLabel(row.status)}</Badge>
+              {" · "}
+              <span className="text-white/45">{sourceLabel(row.source)}</span>
+              {row.orderNumber ? (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/orders/${row.orderId}`}
+                    className="text-white/85 underline-offset-2 hover:underline"
+                  >
+                    {row.orderNumber}
+                  </Link>
+                </>
+              ) : null}
+              {" · "}
+              <span className="text-white/40">
+                {new Date(row.usedAt ?? row.claimedAt).toLocaleDateString(
+                  locale === "tr" ? "tr-TR" : "en-GB",
+                )}
+              </span>
+            </p>
+          ))
+        )}
+      </div>
     </div>
   );
 }

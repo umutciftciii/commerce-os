@@ -3,15 +3,19 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Alert, Badge, Button, Card } from "@commerce-os/ui";
+import type { PublicCouponReason } from "@commerce-os/api-client";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CartView as CartViewModel, CartLineView } from "../lib/server/cart";
 import {
-  applyCouponAction,
+  applyWalletCouponAction,
+  claimCouponAction,
   reconcileCartAction,
   removeCartItemAction,
   removeCouponAction,
   updateCartItemAction,
+  type ClaimCouponResult,
 } from "../lib/server/cart-actions";
+import type { StorefrontWalletCouponView } from "../lib/catalog-types";
 
 type CartDict = StorefrontDictionary["cart"];
 
@@ -67,6 +71,10 @@ export function CartView({
             {t.reconciledNotice}
           </Alert>
         ) : null}
+
+        {/* F4A.3 — Sepet ust kupon alani: kullanilabilir kupon kartlari + manuel
+            "Kupon Kodu Ekle" (claim). Uygulama kart uzerinden "Kullan" ile yapilir. */}
+        <CouponsArea summary={view.summary} t={t} />
 
         <ul className="space-y-3" aria-busy={isPending}>
           {view.lines.map((line) => (
@@ -258,7 +266,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           </p>
         ) : null}
 
-        <CouponForm summary={s} t={t} disabled={pending} />
+        <AppliedCouponControl summary={s} t={t} disabled={pending} />
 
         {!view.checkoutReady ? (
           <Alert tone="warning" className="mt-4">
@@ -286,54 +294,139 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
   );
 }
 
-function CouponForm({
-  summary,
-  t,
-  disabled,
-}: {
-  summary: CartViewModel["summary"];
-  t: CartDict;
-  disabled: boolean;
-}) {
-  const [code, setCode] = useState("");
-  const [isPending, startTransition] = useTransition();
-  const applied = summary.couponStatus === "APPLIED";
-  const invalid = summary.couponStatus === "INVALID";
+/**
+ * F4A.3 — Sepet "Kuponlar" alani (ADR-060): kullanilabilir kupon kartlari +
+ * manuel "Kupon Kodu Ekle" (claim). Kart uzerinden "Kullan" ile sepete uygulanir.
+ */
+function CouponsArea({ summary, t }: { summary: CartViewModel["summary"]; t: CartDict }) {
+  const coupons = summary.availableCoupons;
+  const appliedCode = summary.couponStatus === "APPLIED" ? summary.couponCode : null;
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold text-slate-900">{t.couponsTitle}</h2>
+      {coupons.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {coupons.map((coupon) => (
+            <li key={coupon.code}>
+              <AvailableCouponCard coupon={coupon} appliedCode={appliedCode} t={t} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-xs text-slate-400">{t.couponsEmpty}</p>
+      )}
+      <ClaimCouponForm summary={summary} t={t} />
+    </Card>
+  );
+}
 
-  function apply() {
-    const value = code.trim();
-    if (!value) return;
+/** Tek kullanilabilir kupon karti; durumuna gore aksiyon/rozet gosterir. */
+function AvailableCouponCard({
+  coupon,
+  appliedCode,
+  t,
+}: {
+  coupon: StorefrontWalletCouponView;
+  appliedCode: string | null;
+  t: CartDict;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const isApplied = coupon.state === "APPLIED" || coupon.code === appliedCode;
+
+  function use() {
     startTransition(() => {
-      void applyCouponAction(value);
+      void applyWalletCouponAction(coupon.code);
     });
   }
-
   function remove() {
     startTransition(() => {
       void removeCouponAction();
     });
   }
 
-  if (applied) {
-    return (
-      <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
-        <span className="font-medium text-emerald-700">
-          {format(t.couponApplied, { code: summary.couponCode ?? "" })}
-        </span>
-        <button
-          type="button"
-          onClick={remove}
-          disabled={disabled || isPending}
-          className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
-        >
-          {t.couponRemove}
-        </button>
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+          <span>{coupon.discountText}</span>
+          <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-amber-800 ring-1 ring-amber-200">
+            {coupon.code}
+          </span>
+          {coupon.source === "ASSIGNED" ? (
+            <Badge tone="success">{t.couponSourceAssigned}</Badge>
+          ) : null}
+        </p>
+        <p className="mt-0.5 text-[11px] text-amber-700">
+          {coupon.minOrderLabel
+            ? format(t.couponMinOrder, { amount: coupon.minOrderLabel })
+            : t.couponNoMinOrder}
+          {coupon.endsAt ? ` · ${format(t.couponExpiry, { date: formatCouponDate(coupon.endsAt) })}` : ""}
+        </p>
       </div>
+      {isApplied ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge tone="success">{t.couponStateApplied}</Badge>
+          <button
+            type="button"
+            onClick={remove}
+            disabled={isPending}
+            className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
+          >
+            {t.couponRemove}
+          </button>
+        </div>
+      ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
+        <Badge tone="warning" className="shrink-0">
+          {t.couponStateMinOrder}
+        </Badge>
+      ) : coupon.state === "EXPIRED" ? (
+        <Badge tone="neutral" className="shrink-0">
+          {t.couponStateExpired}
+        </Badge>
+      ) : (
+        <Button variant="secondary" className="shrink-0" onClick={use} disabled={isPending}>
+          {t.couponUse}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * F4A.3 — Manuel "Kupon Kodu Ekle" (claim). Kod kriterleri saglaniyorsa cuzdana
+ * (Kuponlar) eklenir; degilse guvenli negatif metin gosterilir. Uygulama AYRIDIR.
+ */
+function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t: CartDict }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [result, setResult] = useState<ClaimCouponResult | null>(null);
+  const [isPending, startTransition] = useTransition();
+  void summary;
+
+  function submit() {
+    const value = code.trim();
+    if (!value) return;
+    startTransition(async () => {
+      const outcome = await claimCouponAction(value);
+      setResult(outcome);
+      if (outcome.status === "ok") setCode("");
+    });
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 text-sm font-medium text-brand-700 hover:text-brand-800"
+      >
+        + {t.couponAdd}
+      </button>
     );
   }
 
   return (
-    <div className="mt-4">
+    <div className="mt-3">
       <div className="flex gap-2">
         <input
           type="text"
@@ -343,20 +436,72 @@ function CouponForm({
           aria-label={t.couponLabel}
           className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm uppercase text-slate-900 placeholder:text-slate-400 placeholder:normal-case focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
         />
-        <Button variant="secondary" onClick={apply} disabled={disabled || isPending || !code.trim()}>
-          {t.couponApply}
+        <Button variant="secondary" onClick={submit} disabled={isPending || !code.trim()}>
+          {t.couponClaimSubmit}
         </Button>
       </div>
-      {invalid ? (
-        <p className="mt-1.5 text-xs text-red-600">{couponErrorMessage(summary, t)}</p>
+      {result?.status === "ok" ? (
+        <p className="mt-1.5 text-xs text-emerald-700">{t.couponClaimSuccess}</p>
+      ) : result?.status === "error" ? (
+        <p className="mt-1.5 text-xs text-red-600">{claimErrorMessage(result.reason, t)}</p>
       ) : null}
     </div>
   );
 }
 
 /**
- * F4A — INVALID kuponun nedenine gore kullanici kopyasi. NOT_FOUND ve INACTIVE
- * ayni genel kopyaya duser (kupon varligi/durum detayi sizdirilmaz).
+ * Uygulanan/gecersiz kuponu ozet altinda gosterir. APPLIED: "Kupon indirimi" +
+ * kaldir (kart yine Kuponlar'da kalir). INVALID: guvenli neden + kaldir (otomatik
+ * kampanya indirimi ozette AYRICA gorunmeye devam eder — celiski olusmaz).
+ */
+function AppliedCouponControl({
+  summary,
+  t,
+  disabled,
+}: {
+  summary: CartViewModel["summary"];
+  t: CartDict;
+  disabled: boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+  if (summary.couponStatus === "APPLIED") {
+    return (
+      <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+        <span className="font-medium text-emerald-700">
+          {format(t.couponApplied, { code: summary.couponCode ?? "" })}
+        </span>
+        <button
+          type="button"
+          onClick={() => startTransition(() => void removeCouponAction())}
+          disabled={disabled || isPending}
+          className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
+        >
+          {t.couponRemove}
+        </button>
+      </div>
+    );
+  }
+  if (summary.couponStatus === "INVALID") {
+    return (
+      <div className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm">
+        <span className="text-red-600">{couponErrorMessage(summary, t)}</span>
+        <button
+          type="button"
+          onClick={() => startTransition(() => void removeCouponAction())}
+          disabled={disabled || isPending}
+          className="shrink-0 text-xs font-medium text-red-600 underline hover:text-red-800 disabled:opacity-40"
+        >
+          {t.couponRemove}
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * F4A — INVALID kuponun nedenine gore kullanici kopyasi. NOT_FOUND/INACTIVE ayni
+ * genel kopyaya duser (kupon varligi/durum detayi sizdirilmaz).
  */
 function couponErrorMessage(summary: CartViewModel["summary"], t: CartDict): string {
   switch (summary.couponReason) {
@@ -372,6 +517,35 @@ function couponErrorMessage(summary: CartViewModel["summary"], t: CartDict): str
       return t.couponReasonNotApplicable;
     default:
       return format(t.couponInvalid, { code: summary.couponCode ?? "" });
+  }
+}
+
+/** F4A.3 — Claim negatif nedeni -> kullanici kopyasi (guvenli; detay sizdirmaz). */
+function claimErrorMessage(reason: PublicCouponReason | "error", t: CartDict): string {
+  switch (reason) {
+    case "EXPIRED":
+      return t.couponReasonExpired;
+    case "NOT_STARTED":
+      return t.couponReasonNotStarted;
+    case "USAGE_LIMIT_REACHED":
+      return t.couponReasonUsageLimit;
+    case "MIN_ORDER_NOT_MET":
+      return t.couponReasonMinOrder;
+    case "NOT_APPLICABLE":
+      return t.couponReasonNotApplicable;
+    default:
+      return t.couponClaimInvalid;
+  }
+}
+
+/** ISO tarihi kisa TR bicimine cevirir (kupon karti son kullanma). */
+function formatCouponDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(
+      new Date(iso),
+    );
+  } catch {
+    return iso;
   }
 }
 

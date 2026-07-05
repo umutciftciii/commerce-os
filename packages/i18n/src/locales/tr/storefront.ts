@@ -102,6 +102,17 @@ export const trStorefront = {
     campaignRequiresCoupon: "Kupon kodu gerektirir",
     // {amount} minimum sepet esigiyle degistirilir.
     campaignMinOrder: "{amount} üzeri geçerli",
+    // F4A.3 — Otomatik sepet indirimi + public kupon karti.
+    campaignNoCode: "Kod gerekmez",
+    campaignNoMinOrder: "Alt limit yok",
+    couponCardTitle: "Kupon",
+    couponCopy: "Kodu kopyala",
+    couponCopied: "Kopyalandı",
+    // {date} kuponun son kullanma tarihiyle degistirilir.
+    couponExpiry: "Son: {date}",
+    couponManualHint: "Sepette “Kupon Kodu Ekle” ile kullanabilirsiniz.",
+    couponAddToWallet: "Kuponu ekle",
+    couponAddedToWallet: "Kupon eklendi. Sepette “Kuponlar”dan kullanın.",
   },
   buyBox: {
     priceNote: "KDV dahildir",
@@ -236,6 +247,23 @@ export const trStorefront = {
     couponReasonUsageLimit: "Bu kuponun kullanım limiti doldu.",
     // Kupon kaynaklı checkout reddi (409 COUPON_INVALID).
     couponCheckoutRejected: "Kupon uygulanamadı. Kuponu kaldırıp tekrar deneyin.",
+    // F4A.3 — Sepet "Kuponlar" alani (cuzdan).
+    couponsTitle: "Kuponlar",
+    couponsEmpty: "Şu an kullanılabilir kuponunuz yok.",
+    couponAdd: "Kupon Kodu Ekle",
+    couponUse: "Kullan",
+    couponStateApplied: "Uygulandı",
+    couponStateMinOrder: "Alt limit eksik",
+    couponStateExpired: "Süresi doldu",
+    // {amount} kuponun minimum sepet esigiyle degistirilir.
+    couponMinOrder: "Alt limit: {amount}",
+    couponNoMinOrder: "Alt limit yok",
+    // {date} kuponun son kullanma tarihiyle degistirilir.
+    couponExpiry: "Son: {date}",
+    couponSourceAssigned: "Size özel",
+    couponClaimSubmit: "Ekle",
+    couponClaimSuccess: "Kupon eklendi. Kullanmak için “Kullan”a dokunun.",
+    couponClaimInvalid: "Geçerli bir kupon kodu değil.",
   },
   checkout: {
     title: "Ödeme",

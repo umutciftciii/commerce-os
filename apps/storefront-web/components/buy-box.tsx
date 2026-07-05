@@ -7,12 +7,13 @@ import { Badge, Button } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
   maxPurchasableQuantity,
+  type StorefrontCampaignView,
   type StorefrontProductDetail,
   type StorefrontVariantView,
 } from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor } from "../lib/money";
-import { addToCartAction } from "../lib/server/cart-actions";
+import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
 
 const LOW_STOCK = 5;
 
@@ -128,20 +129,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       ) : null}
       {numeric ? <p className="mt-1 text-xs text-slate-400">{t.buyBox.priceNote}</p> : null}
 
-      {/* F4A.1 — Aktif kampanya bilgisi (fiyata yakin). Metinler sunucu-otoriter
-          public rozet projeksiyonundan turetilir; tutar hesabi yapilmaz. */}
-      {detail.campaign ? (
-        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-          <p className="text-sm font-semibold text-emerald-800">{detail.campaign.label}</p>
-          <p className="mt-0.5 text-xs text-emerald-700">
-            {t.detail.campaignAppliesAtCart}
-            {detail.campaign.requiresCoupon ? ` · ${t.detail.campaignRequiresCoupon}` : ""}
-            {detail.campaign.minOrderLabel
-              ? ` · ${format(t.detail.campaignMinOrder, { amount: detail.campaign.minOrderLabel })}`
-              : ""}
-          </p>
-        </div>
-      ) : null}
+      {/* F4A.1/F4A.3 — Aktif kampanya bilgisi (fiyata yakin). Otomatik sepet
+          indirimi ile public kupon AYRI gosterilir; metinler sunucu-otoriter
+          public rozet projeksiyonundan turetilir, tutar hesabi yapilmaz. */}
+      {detail.campaign ? <DetailCampaign campaign={detail.campaign} t={t} /> : null}
 
       {/* Stok durumu */}
       <div className="mt-3">
@@ -297,6 +288,121 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       </div>
     </div>
   );
+}
+
+/**
+ * F4A.3 — Urun detay kampanya kutusu. AUTOMATIC_CART_DISCOUNT: emerald "Sepette
+ * %10 indirim" + "Kod gerekmez" + alt limit. PUBLIC_COUPON: amber kupon karti —
+ * indirim tutari, alt limit, son kullanma, kupon kodu ve aksiyon (sepete ekle /
+ * kopyala). Sadece "Kupon kodu gerektirir" ile birakmaz — kullaniciya yol verir.
+ */
+function DetailCampaign({
+  campaign,
+  t,
+}: {
+  campaign: StorefrontCampaignView;
+  t: StorefrontDictionary;
+}) {
+  if (campaign.displayKind === "AUTOMATIC_CART_DISCOUNT") {
+    return (
+      <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+        <p className="text-sm font-semibold text-emerald-800">{campaign.label}</p>
+        <p className="mt-0.5 text-xs text-emerald-700">
+          {t.detail.campaignNoCode}
+          {campaign.minOrderLabel
+            ? ` · ${format(t.detail.campaignMinOrder, { amount: campaign.minOrderLabel })}`
+            : ""}
+        </p>
+      </div>
+    );
+  }
+  return <DetailCouponCard campaign={campaign} t={t} />;
+}
+
+function DetailCouponCard({
+  campaign,
+  t,
+}: {
+  campaign: StorefrontCampaignView;
+  t: StorefrontDictionary;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [claimed, setClaimed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const detail = t.detail;
+
+  function addToWallet() {
+    if (!campaign.couponCode) return;
+    startTransition(async () => {
+      const result = await claimCouponAction(campaign.couponCode!);
+      if (result.status === "ok") setClaimed(true);
+    });
+  }
+
+  async function copyCode() {
+    if (!campaign.couponCode) return;
+    try {
+      await navigator.clipboard.writeText(campaign.couponCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* pano erisimi yoksa sessizce yut */
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-3 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
+          {detail.couponCardTitle}
+        </p>
+        <span className="text-sm font-bold text-amber-900">{campaign.discountText}</span>
+      </div>
+      {campaign.couponCode ? (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="rounded-md bg-white px-2 py-1 font-mono text-sm font-semibold tracking-wide text-amber-900 ring-1 ring-amber-300">
+            {campaign.couponCode}
+          </span>
+          <button
+            type="button"
+            onClick={copyCode}
+            className="text-xs font-medium text-amber-800 underline hover:text-amber-900"
+          >
+            {copied ? detail.couponCopied : detail.couponCopy}
+          </button>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-amber-700">{detail.couponManualHint}</p>
+      )}
+      <p className="mt-2 text-[11px] text-amber-700">
+        {campaign.minOrderLabel
+          ? format(detail.campaignMinOrder, { amount: campaign.minOrderLabel })
+          : detail.campaignNoMinOrder}
+        {campaign.endsAt ? ` · ${format(detail.couponExpiry, { date: formatDetailDate(campaign.endsAt) })}` : ""}
+      </p>
+      {campaign.couponCode ? (
+        <div className="mt-2">
+          {claimed ? (
+            <p className="text-xs font-medium text-emerald-700">✓ {detail.couponAddedToWallet}</p>
+          ) : (
+            <Button variant="secondary" onClick={addToWallet} disabled={isPending}>
+              {detail.couponAddToWallet}
+            </Button>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatDetailDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(
+      new Date(iso),
+    );
+  } catch {
+    return iso;
+  }
 }
 
 function TrustRow({ title, body }: { title: string; body: string }) {
