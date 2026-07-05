@@ -370,3 +370,13 @@ veriye dokunmaz, RESET YOK). 7/7 container healthy doğrulanır.
 ARCHIVED kampanya düzenlenemez (terminal). Sipariş iptal/refund edilse bile redemption kaydı TARİHSEL kalır
 (kompanzasyon yok — ADR-058); limiti dolmuş bir kampanyayı yeniden açmak için limiti artırın ya da yeni
 kampanya tanımlayın.
+
+**Kampanya analitiği nasıl okunur (F4A.2 / ADR-059):** Kampanya detayındaki sayılar sipariş anındaki
+immutable kayıtlardan (OrderDiscount + CampaignRedemption) hesaplanır; kampanya sonradan düzenlense/
+arşivlense bile geçmiş rakamlar DEĞİŞMEZ. "İndirim öncesi ciro" = kullanımlı siparişlerin ara toplam
+(subtotal) toplamı; "indirim sonrası ciro (tahsil)" = aynı siparişlerin genel toplamı (kargo dahil).
+İptal/iade edilen siparişlerin kullanımları tarihsel olarak DAHİLDİR (kompanzasyon yok); net-ciro
+beklentisiyle karşılaştırırken bunu dikkate alın. Tekil müşteri, customerId (yoksa e-posta) üzerinden
+tekilleştirilir; misafir siparişlerinde e-posta değişirse aynı kişi birden fazla sayılabilir. Vitrin
+rozetleri yalnız ACTIVE + herkese açık (isPublic) + penceresi açık + limiti dolmamış kampanyaları
+gösterir; rozet görünmüyorsa önce bu dört koşulu kontrol edin.

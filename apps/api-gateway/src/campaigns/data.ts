@@ -74,13 +74,37 @@ export interface CampaignRedemptionRecord {
   couponCode: string | null;
   email: string | null;
   discountAmountMinor: number;
+  /** F4A.2 — Siparisin genel toplami (siparis kaydindan; yoksa null). */
+  orderTotalMinor: number | null;
   createdAt: Date;
+}
+
+/**
+ * F4A.2 — Kampanya analitigi (ADR-059). KAYNAK DOGRUSU immutable
+ * CampaignRedemption + siparis snapshot alanlaridir; guncel kampanya
+ * kurallarindan YENIDEN HESAP YAPILMAZ. Iptal/iade edilen siparislerin
+ * kullanim kayitlari TARIHSEL olarak dahildir (kompanzasyon deseni yok;
+ * ADR-058'deki sinirlamayla tutarli, ADR-059'da dokumante).
+ */
+export interface CampaignAnalytics {
+  redemptionCount: number;
+  /** customerId ?? email uzerinden tekillestirilmis musteri sayisi. */
+  uniqueCustomerCount: number;
+  totalDiscountMinor: number;
+  /** Kullanimli siparislerin indirim ONCESI ara toplam (subtotal) toplami. */
+  ordersSubtotalMinor: number;
+  /** Kullanimli siparislerin tahsil edilen genel toplam (total) toplami. */
+  ordersTotalMinor: number;
+  avgDiscountPerOrderMinor: number;
+  avgOrderTotalMinor: number;
+  lastRedemptionAt: Date | null;
 }
 
 export interface CampaignDetailRecord extends CampaignRecord {
   recentRedemptions: CampaignRedemptionRecord[];
   totalRedemptionCount: number;
   totalDiscountMinor: number;
+  analytics: CampaignAnalytics;
 }
 
 /** Siparise yazilacak indirim SNAPSHOT satiri (motor ciktisindan turetilir). */
@@ -121,6 +145,12 @@ export class CampaignRedemptionRejection extends Error {
 
 export interface CampaignDataAccess {
   listCampaigns(storeId: string): Promise<CampaignRecord[]>;
+  /**
+   * F4A.1 — Public vitrin rozet projeksiyonu icin ACTIVE + isPublic kampanyalar
+   * (yalniz motorun destekledigi 4 tip). Store-scoped; baska magazanin
+   * kampanyasi DONMEZ. Uygunluk/kapsam filtresi cagiran tarafta (saf helper).
+   */
+  listPublicActiveCampaigns(storeId: string): Promise<CampaignRecord[]>;
   findCampaignById(storeId: string, campaignId: string): Promise<CampaignDetailRecord | null>;
   createCampaign(
     storeId: string,
@@ -329,13 +359,29 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
       });
       return rows.map(toCampaignRecord);
     },
+    listPublicActiveCampaigns: async (storeId) => {
+      const rows = await prisma.campaign.findMany({
+        where: {
+          storeId,
+          status: "ACTIVE",
+          isPublic: true,
+          type: { in: ["COUPON_CODE", "AUTOMATIC_CART", "PRODUCT_DISCOUNT", "CATEGORY_DISCOUNT"] },
+        },
+        include: campaignInclude,
+      });
+      return rows.map(toCampaignRecord);
+    },
     findCampaignById: async (storeId, campaignId) => {
       const row = await prisma.campaign.findFirst({
         where: { id: campaignId, storeId },
         include: campaignInclude,
       });
       if (!row) return null;
-      const [recent, aggregate] = await Promise.all([
+      // F4A.2 (ADR-059) — Analitik, kullanim (redemption) kayitlari + siparis
+      // snapshot alanlarindan hesaplanir. (campaignId, orderId) unique oldugundan
+      // her kayit ayri bir siparistir (cift sayim olmaz). MVP: kayitlar bellekte
+      // toplanir; cok yuksek hacimde SQL aggregate'e tasinmasi TODO'dur.
+      const [recent, aggregate, allRedemptions] = await Promise.all([
         prisma.campaignRedemption.findMany({
           where: { storeId, campaignId },
           orderBy: { createdAt: "desc" },
@@ -346,7 +392,7 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
             email: true,
             discountAmountMinor: true,
             createdAt: true,
-            order: { select: { orderNumber: true } },
+            order: { select: { orderNumber: true, totalAmount: true } },
             coupon: { select: { code: true } },
           },
         }),
@@ -355,7 +401,33 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
           _count: { _all: true },
           _sum: { discountAmountMinor: true },
         }),
+        prisma.campaignRedemption.findMany({
+          where: { storeId, campaignId },
+          select: {
+            customerId: true,
+            email: true,
+            createdAt: true,
+            order: { select: { subtotalAmount: true, totalAmount: true } },
+          },
+        }),
       ]);
+
+      const redemptionCount = aggregate._count._all;
+      const totalDiscountMinor = aggregate._sum.discountAmountMinor ?? 0;
+      const identities = new Set<string>();
+      let ordersSubtotalMinor = 0;
+      let ordersTotalMinor = 0;
+      let lastRedemptionAt: Date | null = null;
+      for (const redemption of allRedemptions) {
+        const identity = redemption.customerId ?? redemption.email;
+        if (identity) identities.add(identity);
+        ordersSubtotalMinor += redemption.order?.subtotalAmount ?? 0;
+        ordersTotalMinor += redemption.order?.totalAmount ?? 0;
+        if (!lastRedemptionAt || redemption.createdAt > lastRedemptionAt) {
+          lastRedemptionAt = redemption.createdAt;
+        }
+      }
+
       return {
         ...toCampaignRecord(row),
         recentRedemptions: recent.map((item) => ({
@@ -365,10 +437,23 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
           couponCode: item.coupon?.code ?? null,
           email: item.email,
           discountAmountMinor: item.discountAmountMinor,
+          orderTotalMinor: item.order?.totalAmount ?? null,
           createdAt: item.createdAt,
         })),
-        totalRedemptionCount: aggregate._count._all,
-        totalDiscountMinor: aggregate._sum.discountAmountMinor ?? 0,
+        totalRedemptionCount: redemptionCount,
+        totalDiscountMinor,
+        analytics: {
+          redemptionCount,
+          uniqueCustomerCount: identities.size,
+          totalDiscountMinor,
+          ordersSubtotalMinor,
+          ordersTotalMinor,
+          avgDiscountPerOrderMinor:
+            redemptionCount > 0 ? Math.round(totalDiscountMinor / redemptionCount) : 0,
+          avgOrderTotalMinor:
+            redemptionCount > 0 ? Math.round(ordersTotalMinor / redemptionCount) : 0,
+          lastRedemptionAt,
+        },
       };
     },
     createCampaign: (storeId, input) =>

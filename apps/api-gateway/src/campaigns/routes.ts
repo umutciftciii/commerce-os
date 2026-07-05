@@ -76,10 +76,25 @@ function serializeDetail(record: CampaignDetailRecord) {
       couponCode: item.couponCode,
       maskedEmail: maskEmail(item.email),
       discountAmountMinor: item.discountAmountMinor,
+      orderTotalMinor: item.orderTotalMinor,
       createdAt: item.createdAt.toISOString(),
     })),
     totalRedemptionCount: record.totalRedemptionCount,
     totalDiscountMinor: record.totalDiscountMinor,
+    // F4A.2 (ADR-059) — Snapshot-tabanli analitik; e-posta MASKELI bile tasinmaz
+    // (yalniz sayisal ozetler).
+    analytics: {
+      redemptionCount: record.analytics.redemptionCount,
+      uniqueCustomerCount: record.analytics.uniqueCustomerCount,
+      totalDiscountMinor: record.analytics.totalDiscountMinor,
+      ordersSubtotalMinor: record.analytics.ordersSubtotalMinor,
+      ordersTotalMinor: record.analytics.ordersTotalMinor,
+      avgDiscountPerOrderMinor: record.analytics.avgDiscountPerOrderMinor,
+      avgOrderTotalMinor: record.analytics.avgOrderTotalMinor,
+      lastRedemptionAt: record.analytics.lastRedemptionAt
+        ? record.analytics.lastRedemptionAt.toISOString()
+        : null,
+    },
   });
 }
 

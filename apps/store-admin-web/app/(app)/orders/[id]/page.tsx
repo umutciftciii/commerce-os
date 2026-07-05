@@ -91,6 +91,98 @@ function maskedCardLabel(brand: string | null, last4: string | null): string | n
 }
 
 /**
+ * F4A.2 — Kampanya/Kupon paneli. KAYNAK DOĞRUSU sipariş anındaki OrderDiscount
+ * SNAPSHOT satırlarıdır; kampanya sonradan düzenlense/arşivlense bile buradaki
+ * değerler tarihsel doğruluğunu korur (güncel kampanya kurallarından yeniden
+ * hesaplanmaz). İndirim yoksa nötr metin gösterilir. Ham scopeSummary/iç
+ * metadata bu yüzeye TAŞINMAZ.
+ */
+function CampaignPanel({ order, d }: { order: Order; d: DetailDict }) {
+  const discounts = order.discounts ?? [];
+  if (discounts.length === 0) {
+    return (
+      <SurfaceCard title={d.campaignTitle}>
+        <p className="text-sm text-white/30">{d.campaignNone}</p>
+      </SurfaceCard>
+    );
+  }
+  const totalDiscount = discounts.reduce((sum, line) => sum + line.discountAmountMinor, 0);
+  const subtotalAfter = Math.max(order.subtotalAmount - order.discountAmount, 0);
+  return (
+    <SurfaceCard title={d.campaignTitle}>
+      <div className="space-y-3">
+        {discounts.map((line) => (
+          <div key={line.id} className="rounded-xl border border-white/[0.09] bg-white/[0.04] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-semibold text-white/80">{line.label}</span>
+              <Badge tone={line.code ? "info" : "success"}>
+                {line.code ? d.campaignTypeCoupon : d.campaignTypeAutomatic}
+              </Badge>
+            </div>
+            <div className="divide-y divide-white/[0.06]">
+              {line.code ? (
+                <RailRow
+                  label={d.campaignCouponCodeLabel}
+                  value={<span className="font-mono text-xs">{line.code}</span>}
+                />
+              ) : null}
+              <RailRow
+                label={d.campaignDiscountTypeLabel}
+                value={
+                  line.discountType === "PERCENT"
+                    ? d.campaignDiscountTypePercent
+                    : d.campaignDiscountTypeFixed
+                }
+              />
+              <RailRow
+                label={d.campaignDiscountValueLabel}
+                value={
+                  line.discountType === "PERCENT"
+                    ? `%${line.discountValue}`
+                    : formatMinor(line.discountValue, order.currency)
+                }
+              />
+              <RailRow
+                label={d.campaignAppliedLabel}
+                value={formatMinor(line.discountAmountMinor, order.currency)}
+              />
+              <RailRow label={d.campaignRedeemedAtLabel} value={formatDate(line.createdAt)} />
+            </div>
+          </div>
+        ))}
+
+        <div className="rounded-xl border border-white/[0.09] bg-white/[0.04] p-3">
+          <MoneyRow
+            label={d.campaignSubtotalBeforeLabel}
+            value={formatMinor(order.subtotalAmount, order.currency)}
+          />
+          <MoneyRow
+            label={d.campaignTotalDiscountLabel}
+            value={`−${formatMinor(totalDiscount, order.currency)}`}
+          />
+          <MoneyRow
+            label={d.campaignSubtotalAfterLabel}
+            value={formatMinor(subtotalAfter, order.currency)}
+          />
+          <MoneyRow
+            label={d.campaignShippingLabel}
+            value={formatMinor(order.shippingAmount, order.currency)}
+          />
+          <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+            <span className="font-semibold text-white/90">{d.campaignGrandTotalLabel}</span>
+            <span className="font-semibold text-white/90">
+              {formatMinor(order.totalAmount, order.currency)}
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-white/30">{d.campaignSnapshotNote}</p>
+      </div>
+    </SurfaceCard>
+  );
+}
+
+/**
  * F3B.2 — Ödeme gözlemlenebilirlik paneli. Provider/mod/yöntem, maskeli kart,
  * taksit, işlem (transaction) No, deneme No/durumu, ödeme/başarısızlık tarihi ve
  * başarısızlık nedeni. Deneme yoksa empty state. Full PAN/CVC ASLA gosterilmez.
@@ -457,6 +549,8 @@ export default function OrderDetailPage() {
                     </>
                   ) : null}
                 </SurfaceCard>
+
+                <CampaignPanel order={order} d={d} />
 
                 <PaymentPanel order={order} d={d} />
 

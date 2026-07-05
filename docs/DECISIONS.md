@@ -1537,3 +1537,35 @@ etkilenmez; limitler yarış koşulunda aşılamaz; mağazalar arası kupon sız
 iptal/refund'ta redemption GERİ ALINMAZ (mevcut sipariş yaşam döngüsünde kompanzasyon deseni yok; kayıt
 tarihseldir — bilinçli sınırlama, gelecekte iade akışıyla ele alınabilir). (–) Ürün kartı kampanya rozeti
 MVP dışı bırakıldı (public listing sözleşmesi değişmedi; follow-up).
+
+## ADR-059 — Kampanya raporlaması immutable sipariş snapshot'ları + redemption kayıtlarından hesaplanır (F4A.2)
+
+**Bağlam.** F4A.1/F4A.2 takibi kampanya görünürlüğü (vitrin rozetleri) ve kampanya analitiği (kullanım,
+toplam indirim, ciro, ortalamalar, son kullanımlar) getiriyor. Kampanya tanımı yaşayan bir kayıttır
+(değer/pencere/kapsam sonradan değişebilir, kampanya arşivlenebilir); rapor geçmişe dönük doğru kalmalıdır.
+
+**Karar.**
+- **Kaynak doğrusu snapshot'lardır.** Sipariş detayı ve kampanya analitiği YALNIZ immutable
+  `OrderDiscount` satırları + `CampaignRedemption` kayıtları + siparişin kendi tutar alanlarından
+  (`subtotalAmount`/`discountAmount`/`totalAmount`) hesaplanır. Güncel kampanya tanımından geçmişe dönük
+  YENİDEN HESAP YAPILMAZ; kampanya sonradan düzenlense/arşivlense bile rapor değişmez (arşivli kampanyanın
+  analitiği görüntülenebilir kalır).
+- **Çift sayım imkânsız.** `CampaignRedemption` `@@unique([campaignId, orderId])` olduğundan kampanya
+  başına her sipariş bir kez sayılır; "ciro" metrikleri redemption'lı siparişlerin subtotal (indirim
+  öncesi) ve totalAmount (tahsil edilen) toplamıdır.
+- **İptal/iade dahildir (dokümante sınırlama).** ADR-058'deki kompanzasyonsuz modelle tutarlı olarak
+  iptal/refund edilmiş siparişlerin redemption'ları analitikte TARİHSEL olarak kalır; UI bu notu taşır.
+  İade akışı geldiğinde net-rapor ayrı bir karar olacaktır.
+- **Public rozet projeksiyonu allowlist'tir.** Vitrine ürün başına tek kampanya rozeti sunulur
+  (`publicCampaignBadgeSchema`: kind/discountType/discountValue/minOrderAmountMinor). Yalnız
+  ACTIVE + `isPublic=true` + penceresi açık + limiti dolmamış kampanyalar aday olur; kampanya iç kimliği,
+  kullanım/limit istatistiği, priority/stackable ve kapsam listeleri public gövdeye TAŞINMAZ
+  (`isPublic=false` özel kuponlar hiçbir public yüzeyde görünmez). Etiket metni paylaşılan helper'dan
+  (`getCampaignPublicLabel`/`getCampaignBadgeText`, `@commerce-os/utils`) üretilir — tek kopya kaynağı.
+- **Başarısız denemeler rapor dışıdır.** Analitik yalnız başarılı redemption'lara dayanır; geçersiz kupon
+  denemeleri için event tablosu YOKTUR ve MVP'de eklenmedi.
+
+**Sonuçlar.** (+) Rapor, tarihsel siparişlerle her zaman tutarlı; kampanya düzenlemeleri raporu bozamaz;
+mağazalar arası izolasyon mevcut store-scope guard'larıyla korunur. (–) Analitik MVP'de redemption
+kayıtlarını bellekte toplar (kampanya başına); çok yüksek hacimde SQL aggregate/materialized görünüme
+taşınması follow-up'tır. (–) İptal edilen siparişler ciroda kalır (nota bağlanmış bilinçli sınırlama).

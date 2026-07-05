@@ -96,6 +96,11 @@ export const enStorefront: StorefrontDictionary = {
     stockLow: "Only a few left",
     stockOut: "Out of stock",
     stockUnknown: "Stock is confirmed with the store",
+    // F4A.1 — Campaign info box next to price.
+    campaignAppliesAtCart: "Applied in cart",
+    campaignRequiresCoupon: "Requires a coupon code",
+    // {amount} is replaced with the minimum order threshold.
+    campaignMinOrder: "Valid over {amount}",
   },
   buyBox: {
     priceNote: "VAT included",

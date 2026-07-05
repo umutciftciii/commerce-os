@@ -63,6 +63,7 @@ import {
   storeAdminCustomerListResponseSchema,
   storeAdminCustomerSummarySchema,
   digitsOnly,
+  type PublicCampaignBadge,
   type PublicCheckoutBilling,
 } from "@commerce-os/contracts";
 import {
@@ -100,6 +101,7 @@ import {
   type RedemptionError,
 } from "./campaigns/data.js";
 import { registerCampaignAdminRoutes } from "./campaigns/routes.js";
+import { selectPublicCampaignBadge } from "./campaigns/public-badge.js";
 import {
   computeStoreShippingQuote,
   listActiveRatePlans,
@@ -355,6 +357,19 @@ type OrderRecord = Pick<
   paymentAttempts: PaymentAttemptRecord[];
   // TODO-135 — Karşılama rozeti için temsili kargo durumu türetilir (yalnız DURUM).
   shipments: { status: ShipmentStatus }[];
+  // F4A.2 — Kampanya/kupon indirim SNAPSHOT satırları (OrderDiscount; tarihsel).
+  discounts: OrderDiscountRecord[];
+};
+
+type OrderDiscountRecord = {
+  id: string;
+  campaignId: string | null;
+  code: string | null;
+  label: string;
+  discountType: "PERCENT" | "FIXED_AMOUNT";
+  discountValue: number;
+  discountAmountMinor: number;
+  createdAt: Date;
 };
 
 // F3B.3 — Store-admin müşteri dizini kaydı. Aggregate alanlar data-access'te
@@ -1164,6 +1179,19 @@ function serializeOrder(order: OrderRecord) {
     // TODO-135 — Temsili kargo durumu (Order.fulfillmentStatus MUTATE EDILMEZ; yalniz
     // rozet gosterimi bunun uzerinden turetilir). Birden cok gonderi varsa en ileri.
     shipmentStatus: pickOrderShipmentStatus((order.shipments ?? []).map((s) => s.status)),
+    // F4A.2 — Indirim SNAPSHOT satirlari (OrderDiscount). Tarihsel kayittir;
+    // guncel kampanya kurallarindan YENIDEN HESAPLANMAZ. scopeSummary/ic metadata
+    // sema disi kaldigi icin serialize edilmez.
+    discounts: (order.discounts ?? []).map((discount) => ({
+      id: discount.id,
+      campaignId: discount.campaignId,
+      code: discount.code,
+      label: discount.label,
+      discountType: discount.discountType,
+      discountValue: discount.discountValue,
+      discountAmountMinor: discount.discountAmountMinor,
+      createdAt: discount.createdAt.toISOString(),
+    })),
   });
 }
 
@@ -1236,8 +1264,11 @@ function buildPublicProduct(
   activeVariants: VariantRecord[],
   categoryNames: Map<string, string>,
   stockByVariantId: Map<string, number>,
+  // F4A.1 — Urun icin secilen public kampanya rozeti (allowlist projeksiyon).
+  campaignBadge: PublicCampaignBadge | null = null,
 ) {
   return publicProductSchema.parse({
+    campaign: campaignBadge,
     id: product.id,
     slug: product.slug,
     title: product.title,
@@ -1849,6 +1880,18 @@ function createPrismaDataAccess(): AppDataAccess {
     // TODO-135 — Karşılama rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
     // shipment durumu (yalnız DURUM alanı; statusText/iç ID/ham payload çekilmez).
     shipments: { select: { status: true } },
+    // F4A.2 — Kampanya/kupon indirim SNAPSHOT satırları (OrderDiscount). Yalnız
+    // güvenli alanlar; scopeSummary/couponId iç alanları çekilmez.
+    discounts: { orderBy: { createdAt: "asc" }, select: {
+      id: true,
+      campaignId: true,
+      code: true,
+      label: true,
+      discountType: true,
+      discountValue: true,
+      discountAmountMinor: true,
+      createdAt: true,
+    } },
   } satisfies Prisma.OrderSelect;
 
   function withCategoryIds(product: Prisma.ProductGetPayload<{ select: typeof productSelect }>): ProductRecord {
@@ -3268,11 +3311,14 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const [products, categoryNames, stockMap] = await Promise.all([
+    const [products, categoryNames, stockMap, publicCampaigns] = await Promise.all([
       loadActivePublicProducts(store.id),
       loadPublicCategoryNames(store.id),
       loadPublicStockMap(store.id),
+      // F4A.1 — Rozet projeksiyonu icin ACTIVE + isPublic kampanyalar (store-scoped).
+      dataAccess.listPublicActiveCampaigns(store.id),
     ]);
+    const badgeNow = new Date();
     const slice = products.slice(pagination.offset, pagination.offset + pagination.limit);
     const data = await Promise.all(
       slice.map(async (product) =>
@@ -3281,6 +3327,7 @@ export function createServer(
           await loadActivePublicVariants(store.id, product.id),
           categoryNames,
           stockMap,
+          selectPublicCampaignBadge(publicCampaigns, product, badgeNow),
         ),
       ),
     );
@@ -3301,12 +3348,21 @@ export function createServer(
     if (!product) {
       return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
     }
-    const [categoryNames, stockMap] = await Promise.all([
+    const [categoryNames, stockMap, publicCampaigns] = await Promise.all([
       loadPublicCategoryNames(store.id),
       loadPublicStockMap(store.id),
+      // F4A.1 — Rozet projeksiyonu icin ACTIVE + isPublic kampanyalar (store-scoped).
+      dataAccess.listPublicActiveCampaigns(store.id),
     ]);
+    const badgeNow = new Date();
     const variants = await loadActivePublicVariants(store.id, product.id);
-    const summary = buildPublicProduct(product, variants, categoryNames, stockMap);
+    const summary = buildPublicProduct(
+      product,
+      variants,
+      categoryNames,
+      stockMap,
+      selectPublicCampaignBadge(publicCampaigns, product, badgeNow),
+    );
     const related = await Promise.all(
       products
         .filter((item) => item.id !== product.id)
@@ -3317,6 +3373,7 @@ export function createServer(
             await loadActivePublicVariants(store.id, item.id),
             categoryNames,
             stockMap,
+            selectPublicCampaignBadge(publicCampaigns, item, badgeNow),
           ),
         ),
     );

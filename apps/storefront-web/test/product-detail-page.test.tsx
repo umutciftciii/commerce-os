@@ -60,6 +60,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00" },
     commerce: deriveProductCommerceView(onlineSales),
     badgeKind: "discount",
+    campaign: null,
     description: "Cozy hoodie for everyday wear",
     sku: "DEMO-HOODIE-BLK-M",
     variants: [
@@ -89,6 +90,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
         price: { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null },
         commerce: deriveProductCommerceView(onlineSales),
         badgeKind: null,
+        campaign: null,
       },
     ],
     ...overrides,
@@ -139,6 +141,7 @@ describe("storefront · product detail (decision center)", () => {
         commerce: deriveProductCommerceView(catalogSales),
         price: { mode: "hidden", amountLabel: null, compareAtLabel: null },
         badgeKind: null,
+        campaign: null,
         variants: [
           {
             id: "v1",
@@ -205,5 +208,54 @@ describe("storefront · product detail (decision center)", () => {
     const html = renderToStaticMarkup(await render());
     expect(html).toContain("Add to cart");
     expect(html).toContain("Related products");
+  });
+});
+
+// F4A.1 — Buy box kampanya bilgi kutusu: etiket + "Sepette uygulanır" +
+// kupon/min-sepet kosul satirlari sunucu projeksiyonundan gelen hazir
+// metinlerle gosterilir; kampanya yoksa kutu hic render edilmez.
+describe("storefront · product detail campaign info (F4A.1)", () => {
+  it("shows campaign label, applies-at-cart and min-order hints", async () => {
+    byHandle.mockResolvedValue({
+      ok: true,
+      data: detail({
+        campaign: {
+          badgeText: "Sepette %10 indirim",
+          label: "Sepette %10 indirim",
+          requiresCoupon: false,
+          minOrderLabel: "₺1.000",
+        },
+        related: [],
+      }),
+    });
+    const html = renderToStaticMarkup(await render());
+    expect(html).toContain("Sepette %10 indirim");
+    expect(html).toContain("Sepette uygulanır");
+    expect(html).toContain("₺1.000 üzeri geçerli");
+    expect(html).not.toContain("Kupon kodu gerektirir");
+  });
+
+  it("coupon campaign shows the requires-coupon hint", async () => {
+    byHandle.mockResolvedValue({
+      ok: true,
+      data: detail({
+        campaign: {
+          badgeText: "Kuponlu ürün",
+          label: "₺250 kupon",
+          requiresCoupon: true,
+          minOrderLabel: null,
+        },
+        related: [],
+      }),
+    });
+    const html = renderToStaticMarkup(await render());
+    expect(html).toContain("₺250 kupon");
+    expect(html).toContain("Kupon kodu gerektirir");
+  });
+
+  it("renders no campaign box when there is no campaign", async () => {
+    byHandle.mockResolvedValue({ ok: true, data: detail({ related: [] }) });
+    const html = renderToStaticMarkup(await render());
+    expect(html).not.toContain("Sepette uygulanır");
   });
 });

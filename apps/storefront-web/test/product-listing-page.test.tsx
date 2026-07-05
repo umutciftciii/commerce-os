@@ -40,6 +40,7 @@ function summary(handle: string, title: string): StorefrontProductSummary {
     price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null },
     commerce: deriveProductCommerceView(online),
     badgeKind: null,
+    campaign: null,
   };
 }
 

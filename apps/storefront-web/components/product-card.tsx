@@ -24,7 +24,12 @@ export function ProductCard({
     <Link href={`/products/${product.handle}`} className="group block">
       <Card className="flex h-full flex-col overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-card-hover">
         <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
-          {product.badgeKind ? (
+          {/* F4A.1 — Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti. */}
+          {product.campaign ? (
+            <span className="absolute left-3 top-3 inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow-card">
+              {product.campaign.badgeText}
+            </span>
+          ) : product.badgeKind ? (
             <span className="absolute left-3 top-3 inline-flex items-center rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow-card">
               {product.badgeKind === "discount" ? t.badges.discount : t.badges.new}
             </span>

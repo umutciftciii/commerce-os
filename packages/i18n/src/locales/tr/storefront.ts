@@ -97,6 +97,11 @@ export const trStorefront = {
     stockLow: "Son birkaç ürün",
     stockOut: "Tükendi",
     stockUnknown: "Stok durumu mağazadan teyit edilir",
+    // F4A.1 — Fiyat yaninda kampanya bilgi kutusu.
+    campaignAppliesAtCart: "Sepette uygulanır",
+    campaignRequiresCoupon: "Kupon kodu gerektirir",
+    // {amount} minimum sepet esigiyle degistirilir.
+    campaignMinOrder: "{amount} üzeri geçerli",
   },
   buyBox: {
     priceNote: "KDV dahildir",

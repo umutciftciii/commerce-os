@@ -1,11 +1,19 @@
 import type {
+  PublicCampaignBadge,
   PublicProduct,
   PublicProductDetail,
   PublicProductListResponse,
   PublicProductVariant,
 } from "@commerce-os/api-client";
+import {
+  formatCampaignAmount,
+  getCampaignBadgeText,
+  getCampaignPublicLabel,
+  type CampaignLabelLocale,
+} from "@commerce-os/utils";
 import type {
   PriceDisplayMode,
+  StorefrontCampaignView,
   StorefrontPrice,
   StorefrontProductDetail,
   StorefrontProductSummary,
@@ -68,10 +76,34 @@ function buildPrice(priceMode: PriceDisplayMode, variants: PublicProductVariant[
   return { mode: priceMode, amountLabel, compareAtLabel };
 }
 
+/**
+ * F4A.1 — Public kampanya rozetini hazir vitrin metinlerine cevirir. Etiketler
+ * paylasilan helper'dan (tek kaynak) gelir; kampanya ic verisi tasinmaz.
+ */
+function toCampaignView(
+  badge: PublicCampaignBadge | null | undefined,
+  locale: CampaignLabelLocale,
+): StorefrontCampaignView | null {
+  if (!badge) return null;
+  const input = {
+    type: badge.kind === "COUPON" ? "COUPON_CODE" : "AUTOMATIC_CART",
+    discountType: badge.discountType,
+    discountValue: badge.discountValue,
+  };
+  return {
+    badgeText: getCampaignBadgeText(input, locale),
+    label: getCampaignPublicLabel(input, locale),
+    requiresCoupon: badge.kind === "COUPON",
+    minOrderLabel:
+      badge.minOrderAmountMinor !== null ? formatCampaignAmount(badge.minOrderAmountMinor) : null,
+  };
+}
+
 /** Public urun DTO'sunu liste/kart ozet gorunumune cevirir. */
-function toSummary(product: PublicProduct): StorefrontProductSummary {
+function toSummary(product: PublicProduct, locale: CampaignLabelLocale): StorefrontProductSummary {
   const commerce = deriveProductCommerceView(product);
   const price = buildPrice(commerce.priceMode, product.variants);
+  const campaign = toCampaignView(product.campaign, locale);
   return {
     handle: product.slug,
     title: product.title,
@@ -79,7 +111,9 @@ function toSummary(product: PublicProduct): StorefrontProductSummary {
     categoryLabel: product.categoryLabel,
     price,
     commerce,
-    badgeKind: price.compareAtLabel ? "discount" : null,
+    // Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti korunur.
+    badgeKind: campaign ? null : price.compareAtLabel ? "discount" : null,
+    campaign,
   };
 }
 
@@ -112,8 +146,8 @@ function toVariantView(variant: PublicProductVariant): StorefrontVariantView {
 }
 
 /** Public detay DTO'sunu tam vitrin detay gorunumune cevirir. */
-function toDetail(detail: PublicProductDetail): StorefrontProductDetail {
-  const summary = toSummary(detail);
+function toDetail(detail: PublicProductDetail, locale: CampaignLabelLocale): StorefrontProductDetail {
+  const summary = toSummary(detail, locale);
   const variants = detail.variants.map(toVariantView);
   return {
     ...summary,
@@ -124,12 +158,14 @@ function toDetail(detail: PublicProductDetail): StorefrontProductDetail {
     whatsappMessageTemplate: detail.whatsappMessageTemplate,
     inquiryFormTitle: detail.inquiryFormTitle,
     appointmentNote: detail.appointmentNote,
-    related: detail.related.map(toSummary),
+    related: detail.related.map((item) => toSummary(item, locale)),
   };
 }
 
 /** Vitrin liste sayfasi: tum yayinlanabilir urunlerin ozet gorunumu. */
-export async function getStorefrontListing(): Promise<CatalogResult<StorefrontProductSummary[]>> {
+export async function getStorefrontListing(
+  locale: CampaignLabelLocale = "tr",
+): Promise<CatalogResult<StorefrontProductSummary[]>> {
   try {
     const result = await getPublic<PublicProductListResponse>(
       `/public/stores/${encodeURIComponent(demoStoreSlug())}/products`,
@@ -137,7 +173,7 @@ export async function getStorefrontListing(): Promise<CatalogResult<StorefrontPr
     if (!result.ok) {
       return { ok: false, reason: result.status === 404 ? "no-store" : "error" };
     }
-    return { ok: true, data: result.data.data.map(toSummary) };
+    return { ok: true, data: result.data.data.map((item) => toSummary(item, locale)) };
   } catch {
     return { ok: false, reason: "error" };
   }
@@ -146,8 +182,9 @@ export async function getStorefrontListing(): Promise<CatalogResult<StorefrontPr
 /** Ana sayfa one cikan urunler (ilk N urun). */
 export async function getFeaturedProducts(
   limit: number,
+  locale: CampaignLabelLocale = "tr",
 ): Promise<CatalogResult<StorefrontProductSummary[]>> {
-  const listing = await getStorefrontListing();
+  const listing = await getStorefrontListing(locale);
   if (!listing.ok) return listing;
   return { ok: true, data: listing.data.slice(0, limit) };
 }
@@ -155,6 +192,7 @@ export async function getFeaturedProducts(
 /** Urun detayi: slug ile public detay ucundan cozulur. */
 export async function getStorefrontProductByHandle(
   handle: string,
+  locale: CampaignLabelLocale = "tr",
 ): Promise<CatalogResult<StorefrontProductDetail | null>> {
   try {
     const result = await getPublic<PublicProductDetail>(
@@ -167,7 +205,7 @@ export async function getStorefrontProductByHandle(
       }
       return { ok: false, reason: "error" };
     }
-    return { ok: true, data: toDetail(result.data) };
+    return { ok: true, data: toDetail(result.data, locale) };
   } catch {
     return { ok: false, reason: "error" };
   }

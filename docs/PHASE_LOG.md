@@ -2750,3 +2750,53 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   deploy + runtime smoke (TEST250: ₺250 sabit, min ₺1.000, limit 10/müşteri-başı 1; BADCODE; min-altı;
   cross-store; kuponsuz regresyon). Ürün kartı kampanya rozeti bilinçli follow-up. İptal/refund'ta
   redemption iadesi yok (tarihsel kayıt; ADR-058'de sınırlama olarak dokümante).
+
+## 2026-07-05 — F4A.1 + F4A.2: Kampanya görünürlüğü, otomatik kupon kodu, sipariş kampanya paneli, analitik (ADR-059)
+
+- **Public rozet projeksiyonu (F4A.1).** `publicProductSchema`'ya additive `campaign` alanı
+  (`publicCampaignBadgeSchema` allowlist: kind AUTOMATIC/COUPON, discountType, discountValue,
+  minOrderAmountMinor). Gateway public ürün liste/detay uçları store-scoped ACTIVE + isPublic
+  kampanyaları yükler (`listPublicActiveCampaigns`) ve ürün başına rozeti SAF helper'la seçer
+  (`campaigns/public-badge.ts`: pencere/limit/ACTIVE kupon şartı, kapsam eşlemesi, priority→id
+  deterministik). Kampanya iç kimliği/istatistiği/kapsam listeleri public gövdeye taşınmaz;
+  isPublic=false kupon kampanyaları hiçbir public yüzeyde görünmez.
+- **Paylaşılan etiketler.** `@commerce-os/utils` → `getCampaignPublicLabel`/`getCampaignBadgeText`/
+  `formatCampaignAmount` (TR/EN; "Sepette %10 indirim", "₺250 kupon", "Kuponlu ürün"; para tr-TR,
+  tam lirada ondalıksız). Vitrin resolver'ı (catalog.ts) rozeti hazır metinlere çevirir (istemci hesap
+  yapmaz); sayfalar request locale'ini geçirir.
+- **Vitrin görünürlüğü.** Ürün kartı: kampanya rozeti (compareAt "İndirim" rozetinden öncelikli).
+  Ürün detay/buy box: fiyat altında kampanya kutusu — etiket + "Sepette uygulanır" +
+  "Kupon kodu gerektirir" (kuponlu) + "₺X üzeri geçerli" (minOrderAmountMinor varsa). Sepet + checkout
+  özeti: indirim satırları kampanya ADIYLA ("Sepette %10 İndirim"), kupon satırında kod parantezde;
+  geçersiz kupon hatası gösterilirken otomatik kampanya indirim satırı görünür kalır (çelişki yok).
+- **Otomatik kupon kodu (Part B).** Store-admin kampanya formunda "Otomatik Oluştur" / EN "Generate
+  automatically" (yalnız COUPON_CODE + yeni kayıt). Üretim: kampanya adından TR→ASCII önek (İ/ı→I, Ş→S…)
+  + indirim ipucu (%10→"10"; ₺250→"250") + 4'lü rastgele sonek (karışan karakterler alfabe dışı) →
+  `YAZ10-K7P3` biçimi; `/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/` doğrulamasına sığar; alan üretim sonrası
+  düzenlenebilir; benzersizlik kaynağı backend (409 DUPLICATE_COUPON_CODE → yeniden üret).
+- **Sipariş kampanya paneli (Part C).** `orderSchema.discounts` additive alan (OrderDiscount SNAPSHOT:
+  id/campaignId/code/label/discountType/discountValue/discountAmountMinor/createdAt; scopeSummary raw
+  ve couponId iç alanları SEÇİLMEZ). `orderSelect` + `serializeOrder` güncellendi. Store-admin sipariş
+  detayında "Kampanya / Kupon Bilgisi" kartı: satır başına tip rozeti (Kupon kodu / Otomatik kampanya),
+  kod, indirim tipi (Yüzde/Sabit tutar), değer (%10 / ₺250), uygulanan tutar, kullanım tarihi; altta
+  indirim öncesi ara toplam → toplam indirim → indirim sonrası ara toplam → kargo → genel toplam ve
+  "Bu bilgiler sipariş anındaki indirim kaydıdır." notu. İndirimsiz siparişte nötr "kampanya/kupon
+  kullanılmadı" metni. Çoklu indirim satırları ayrı ayrı + toplamla gösterilir.
+- **Kampanya analitiği (Part D, ADR-059).** `campaignDetailResponseSchema.analytics`
+  (redemptionCount, uniqueCustomerCount (customerId??email tekilleştirme), totalDiscountMinor,
+  ordersSubtotalMinor (indirim öncesi ciro), ordersTotalMinor (tahsil edilen), avgDiscountPerOrderMinor,
+  avgOrderTotalMinor, lastRedemptionAt) + son kullanımlarda `orderTotalMinor` ve sipariş detayına LİNK.
+  Kaynak: immutable CampaignRedemption + sipariş snapshot alanları; (campaignId, orderId) unique →
+  çift sayım yok; güncel kampanya tanımından yeniden hesap YOK; iptal edilen siparişlerin kullanımları
+  tarihsel olarak dahil (UI notu). Arşivli kampanyanın analitiği görüntülenebilir kalır. Maskeli e-posta
+  dışında müşteri verisi taşınmaz; analitik yalnız sayısal özetlerdir.
+- **Testler.** utils etiket 10; gateway public-badge birim 15 + public liste rozet entegrasyonu 2
+  (allowlist sızıntı + isPublic/PAUSED dışlama) + health regresyon 107/107; storefront kart rozeti 3 +
+  detay kampanya kutusu 3 + tam paket 111→121; store-admin üretici 11 + form UI 2 + sipariş paneli 4 +
+  analitik UI 2 (sıfır durumu + sipariş linki dahil).
+- **Kapsam dışı/bilinçli.** İndirim motoru, checkout toplam hesabı ve limit transaction mantığına
+  DOKUNULMADI; yeni kampanya tipi yok; migration yok. Kampanya listesi kolonlarına toplam indirim/ciro,
+  tarih-aralıklı rapor sayfası + CSV export ve yüksek hacim için SQL aggregate follow-up.
+- **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) + runtime
+  smoke ("Sepette %10 İndirim" rozet/detay/sepet görünürlüğü, Otomatik Oluştur, TEST250 sipariş paneli,
+  kampanya analitiği, cross-store izolasyon).

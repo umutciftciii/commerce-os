@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Button, Container, EmptyState } from "@commerce-os/ui";
 import { ProductCard } from "../components/product-card";
-import { getStorefrontDict } from "../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getFeaturedProducts } from "../lib/server/catalog";
 
 // One cikan urunler canli katalogtan gelir; her istekte cozulur.
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const dict = await getStorefrontDict();
   const t = dict.home;
-  const featuredResult = await getFeaturedProducts(4);
+  const featuredResult = await getFeaturedProducts(4, await getRequestLocale());
   const featured = featuredResult.ok ? featuredResult.data : [];
 
   return (

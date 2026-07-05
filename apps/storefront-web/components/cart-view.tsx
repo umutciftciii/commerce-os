@@ -197,15 +197,18 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           </div>
 
           {/* F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar).
-              Sunucu-otoriter: etiket/tutar motor sonucudur; istemci hesap yapmaz. */}
+              Sunucu-otoriter: etiket/tutar motor sonucudur; istemci hesap yapmaz.
+              F4A.1 — Kampanya ADI gosterilir ("Sepette %10 İndirim"); kupon
+              satirinda kod parantez icinde eklenir. Gecersiz kupon girilse bile
+              otomatik kampanya satirlari burada gorunmeye devam eder. */}
           {s.discountLines.length > 0 ? (
             s.discountLines.map((line, index) => (
               <div key={index} className="flex items-center justify-between text-emerald-700">
                 <dt>
-                  {t.discount}
-                  <span className="ml-1 text-xs font-medium">
-                    ({line.code ?? line.label})
-                  </span>
+                  {line.label}
+                  {line.code ? (
+                    <span className="ml-1 text-xs font-medium">({line.code})</span>
+                  ) : null}
                 </dt>
                 <dd className="font-medium">−{line.amountLabel}</dd>
               </div>
