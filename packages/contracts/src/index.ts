@@ -550,6 +550,13 @@ export const productVariantSchema = z.object({
   // F4B — Maliyet (minor). Yalnizca yonetim tarafinda gorunur; public'e sizmaz.
   // priceMinor (satis) ile karistirilmamali; marj/kar gostergesi bundan turer.
   costMinor: z.number().int().nonnegative().nullable(),
+  // F4C (ADR-063) — KDV alanlari. priceMinor KDV DAHIL brut satis fiyati olarak
+  // KALIR; netPriceMinor admin'in girdigi KDV HARIC fiyat, vatAmountMinor ve
+  // brut SUNUCUDA hesaplanir (istemci hesabina guvenilmez). vatRateBps:
+  // 2000=%20, 1000=%10, 100=%1, 0=%0.
+  netPriceMinor: z.number().int().nonnegative().nullable(),
+  vatRateBps: z.number().int().min(0).max(10000),
+  vatAmountMinor: z.number().int().nonnegative().nullable(),
   currency: currencySchema,
   status: productVariantStatusSchema,
   optionValues: jsonRecordSchema.nullable(),
@@ -1411,9 +1418,16 @@ export const productVariantCreateRequestSchema = z
     title: z.string().min(1).max(220),
     sku: skuSchema,
     barcode: z.string().max(80).nullable().optional(),
-    priceMinor: z.number().int().nonnegative(),
+    // F4C — priceMinor (KDV DAHIL brut) YA DA netPriceMinor (KDV HARIC) verilir;
+    // en az biri zorunlu (refine asagida). netPriceMinor verildiyse brut SUNUCUDA
+    // vatRateBps ile hesaplanir; yalniz priceMinor verildiyse (legacy istemci)
+    // net/KDV bruttan ayristirilir. Istemcinin gonderecegi vatAmountMinor KABUL
+    // EDILMEZ (semada yok — sunucu hesabi tek otorite).
+    priceMinor: z.number().int().nonnegative().optional(),
+    netPriceMinor: z.number().int().nonnegative().optional(),
+    vatRateBps: z.number().int().min(0).max(10000).optional(),
     compareAtMinor: z.number().int().nonnegative().nullable().optional(),
-    // F4B — Maliyet (minor). Kural: maliyet <= liste tavani (compareAtMinor ?? priceMinor).
+    // F4B — Maliyet (minor). Kural: maliyet <= liste tavani (compareAtMinor ?? brut).
     costMinor: z.number().int().nonnegative().nullable().optional(),
     currency: currencySchema.default("TRY"),
     status: productVariantStatusSchema.default("ACTIVE"),
@@ -1423,12 +1437,21 @@ export const productVariantCreateRequestSchema = z
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
   })
-  // F4B — Satis (priceMinor) > liste (compareAtMinor) ARTIK hata degil: sadece
+  // F4C — Fiyat girisi zorunlu: brut (legacy) veya net (yeni admin UI).
+  .refine((value) => value.priceMinor !== undefined || value.netPriceMinor !== undefined, {
+    message: "Either priceMinor or netPriceMinor is required.",
+    path: ["netPriceMinor"],
+  })
+  // F4B — Satis (brut) > liste (compareAtMinor) ARTIK hata degil: sadece
   // storefront'ta indirim rozeti turemez. Onceki compareAt>=price hard refine
   // bilincli kaldirildi (karar: yalnizca UI uyarisi).
+  // F4C NOT: kesin maliyet<=liste tavani dogrulamasi SUNUCUDA (hesaplanan brut
+  // uzerinden) yapilir; burada yalniz brut dogrudan verildiyse erken kontrol.
   .refine(
     (value) =>
-      value.costMinor == null || value.costMinor <= (value.compareAtMinor ?? value.priceMinor),
+      value.costMinor == null ||
+      (value.compareAtMinor == null && value.priceMinor === undefined) ||
+      value.costMinor <= (value.compareAtMinor ?? value.priceMinor ?? Number.POSITIVE_INFINITY),
     {
       message: "costMinor must be less than or equal to the list price (compareAtMinor ?? priceMinor).",
       path: ["costMinor"],
@@ -1441,6 +1464,11 @@ export const productVariantUpdateRequestSchema = z
     sku: skuSchema.optional(),
     barcode: z.string().max(80).nullable().optional(),
     priceMinor: z.number().int().nonnegative().optional(),
+    // F4C — Yeni admin UI KDV HARIC net fiyat + oran gonderir; brut/KDV tutari
+    // SUNUCUDA hesaplanir (istemcinin vatAmountMinor'i kabul edilmez). Yalniz
+    // vatRateBps degisirse net SABIT kalir, brut yeniden hesaplanir.
+    netPriceMinor: z.number().int().nonnegative().optional(),
+    vatRateBps: z.number().int().min(0).max(10000).optional(),
     compareAtMinor: z.number().int().nonnegative().nullable().optional(),
     // F4B — Maliyet (minor). null = temizle. Kesin liste-tavani dogrulamasi
     // gateway'de (mevcut kayitla birlestirilmis durum uzerinden) yapilir.
@@ -1573,6 +1601,19 @@ export const orderLineSchema = z.object({
   unitPriceAmount: z.number().int().nonnegative(),
   totalAmount: z.number().int().nonnegative(),
   currency: currencySchema,
+  // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'lari.
+  // ESKI siparislerde null (legacy; guncel urun verisinden YENIDEN HESAPLANMAZ).
+  // unitPriceAmount/totalAmount KDV DAHIL brut olarak kalir (geri uyum).
+  unitNetPriceMinor: z.number().int().nonnegative().nullable().default(null),
+  unitVatRateBps: z.number().int().min(0).max(10000).nullable().default(null),
+  unitVatAmountMinor: z.number().int().nonnegative().nullable().default(null),
+  unitGrossPriceMinor: z.number().int().nonnegative().nullable().default(null),
+  unitListPriceMinor: z.number().int().nonnegative().nullable().default(null),
+  unitCostMinor: z.number().int().nonnegative().nullable().default(null),
+  lineNetAmountMinor: z.number().int().nonnegative().nullable().default(null),
+  lineVatAmountMinor: z.number().int().nonnegative().nullable().default(null),
+  lineGrossAmountMinor: z.number().int().nonnegative().nullable().default(null),
+  lineCostMinor: z.number().int().nonnegative().nullable().default(null),
   createdAt: z.string().datetime(),
 });
 
@@ -1668,6 +1709,55 @@ export const orderDiscountLineSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+/**
+ * F4C (ADR-064) — Admin siparis "satis ozeti" projeksiyonu. KAYNAK DOGRUSU
+ * SNAPSHOT'lardir: satirlarin F4C KDV/maliyet snapshot alanlari + OrderDiscount
+ * + kargo snapshot + PaymentAttempt kayitlari. Guncel urun/kampanya verisinden
+ * ASLA yeniden hesaplanmaz; turetme deterministiktir (gateway'de tek yer).
+ *
+ * `sales` yalniz TUM satirlarda KDV snapshot'i varsa doludur; eski (F4C oncesi)
+ * siparislerde null'dur — UI "eski formatta olusturuldu" gosterir, yaniltici
+ * sifir GOSTERILMEZ. Kar alanlari maliyet snapshot'i eksikse null kalir.
+ */
+export const orderSalesSummaryVatLineSchema = z.object({
+  rateBps: z.number().int().min(0).max(10000),
+  amountMinor: z.number().int().nonnegative(),
+});
+
+export const orderSalesSummarySchema = z.object({
+  currency: currencySchema,
+  // Bolum A — Odeme/tutar ozeti (mevcut siparis alanlarindan; her sipariste dolu).
+  subtotalGrossMinor: z.number().int().nonnegative(),
+  discountGrossMinor: z.number().int().nonnegative(),
+  /** Indirim etiketi ("%10 Sepet İndirimi"); birden coksa " + " ile birlesir; yoksa null. */
+  discountLabel: z.string().nullable(),
+  shippingGrossMinor: z.number().int().nonnegative(),
+  payableGrossMinor: z.number().int().nonnegative(),
+  paidGrossMinor: z.number().int().nonnegative(),
+  remainingGrossMinor: z.number().int().nonnegative(),
+  // Bolum B — Satis/vergi/kar ozeti (yalniz F4C snapshot'li siparislerde).
+  sales: z
+    .object({
+      /** Liste fiyati toplami: sum(unitList*qty); indirim ONCESI brut taban. */
+      listGrossMinor: z.number().int().nonnegative(),
+      /** Indirim oncesi KDV haric net toplam: sum(lineNet). */
+      subtotalNetMinor: z.number().int().nonnegative(),
+      /** Indirim oncesi toplam KDV: sum(lineVat). */
+      totalVatMinor: z.number().int().nonnegative(),
+      /** Tek oran ise 1 satir ("KDV (%20)"); karma oranlarda oran-bazli dagilim. */
+      vatBreakdown: z.array(orderSalesSummaryVatLineSchema),
+      /** Maliyet snapshot toplami; HERHANGI bir satirda maliyet yoksa null. */
+      totalCostMinor: z.number().int().nonnegative().nullable(),
+      /** Brut kar = subtotalNet - totalCost; maliyet eksikse null. Negatif olabilir. */
+      grossProfitMinor: z.number().int().nullable(),
+      /** Kampanya/kupon indirimi (brut; OrderDiscount toplami = discountGross). */
+      campaignDiscountMinor: z.number().int().nonnegative(),
+      /** Net kar = brut kar - kampanya indirimi (MVP kurali; ADR-064). Negatif olabilir. */
+      netProfitMinor: z.number().int().nullable(),
+    })
+    .nullable(),
+});
+
 export const orderSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -1703,6 +1793,9 @@ export const orderSchema = z.object({
   shipmentStatus: orderSummaryShipmentStatusSchema.nullable().default(null),
   // F4A.2 — Kampanya/kupon indirim SNAPSHOT satırları (tarihsel kayıt; additive).
   discounts: z.array(orderDiscountLineSchema).default([]),
+  // F4C (ADR-064) — Satis/kar ozeti (snapshot-turevi; admin yuzeyi). Eski API
+  // yanitlarinda yok → null default (geri uyum).
+  salesSummary: orderSalesSummarySchema.nullable().default(null),
 });
 
 export const orderListResponseSchema = z.object({
@@ -2045,6 +2138,9 @@ export type OrderPaymentAttempt = z.infer<typeof orderPaymentAttemptSchema>;
 export type OrderBilling = z.infer<typeof orderBillingSchema>;
 export type Order = z.infer<typeof orderSchema>;
 export type OrderDiscountLine = z.infer<typeof orderDiscountLineSchema>;
+// F4C (ADR-064) — Satis/kar ozeti tipleri.
+export type OrderSalesSummary = z.infer<typeof orderSalesSummarySchema>;
+export type OrderSalesSummaryVatLine = z.infer<typeof orderSalesSummaryVatLineSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;

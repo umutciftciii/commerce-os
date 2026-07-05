@@ -286,6 +286,11 @@ export function ProductForm({
       }
     } catch (caught) {
       setError(messageForError(caught, locale));
+    } finally {
+      // F4C bugfix — BAŞARIDA da sıfırla: eskiden yalnız catch'te sıfırlanıyordu
+      // ve buton "Kaydediliyor..."da takılı kalıyordu. finally her iki yolda da
+      // (başarı/hata) loading'i kapatır; kaydetme sırasında double-submit yine
+      // `disabled={saving}` ile engellidir.
       setSaving(false);
     }
   }

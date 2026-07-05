@@ -149,6 +149,10 @@ type VariantRecord = {
   priceMinor: number;
   compareAtMinor: number | null;
   costMinor: number | null;
+  // F4C — KDV alanlari (route hesaplar; eski fixture'larda opsiyonel).
+  netPriceMinor?: number | null;
+  vatRateBps?: number;
+  vatAmountMinor?: number | null;
   currency: string;
   status: ProductVariantStatus;
   optionValues: Record<string, unknown> | null;
@@ -214,8 +218,32 @@ type OrderLineRecord = {
   unitPriceAmount: number;
   totalAmount: number;
   currency: string;
+  // F4C — Siparis ani KDV/maliyet/liste snapshot'lari (legacy fixture'da yok).
+  unitNetPriceMinor?: number | null;
+  unitVatRateBps?: number | null;
+  unitVatAmountMinor?: number | null;
+  unitGrossPriceMinor?: number | null;
+  unitListPriceMinor?: number | null;
+  unitCostMinor?: number | null;
+  lineNetAmountMinor?: number | null;
+  lineVatAmountMinor?: number | null;
+  lineGrossAmountMinor?: number | null;
+  lineCostMinor?: number | null;
   createdAt: Date;
 };
+
+// F4C — Sunucu (createOrder/addOrderLine) snapshot kuralinin aynasi: varyantta
+// net yoksa bruttan ayristir (net = round(brut*10000/(10000+bps))).
+function variantVatSnapshot(variant: VariantRecord) {
+  const unitVatRateBps = variant.vatRateBps ?? 2000;
+  const unitNetPriceMinor =
+    variant.netPriceMinor ?? Math.round((variant.priceMinor * 10000) / (10000 + unitVatRateBps));
+  return {
+    unitVatRateBps,
+    unitNetPriceMinor,
+    unitVatAmountMinor: variant.priceMinor - unitNetPriceMinor,
+  };
+}
 
 type ReservationRecord = {
   id: string;
@@ -369,6 +397,10 @@ class MemoryDataAccess implements AppDataAccess {
       priceMinor: 129900,
       compareAtMinor: 149900,
       costMinor: null,
+      // F4C — Backfill esdegeri: net = round(129900*10000/12000), vat = brut - net.
+      netPriceMinor: 108250,
+      vatRateBps: 2000,
+      vatAmountMinor: 21650,
       currency: "TRY",
       status: "ACTIVE",
       optionValues: { color: "Black", size: "M" },
@@ -822,6 +854,10 @@ class MemoryDataAccess implements AppDataAccess {
       priceMinor: number;
       compareAtMinor?: number | null;
       costMinor?: number | null;
+      // F4C — Route'ta hesaplanan KDV cozumu (memory Prisma impl'i aynalar).
+      netPriceMinor: number;
+      vatRateBps: number;
+      vatAmountMinor: number;
       currency: string;
       status: ProductVariantStatus;
       optionValues?: Record<string, unknown> | null;
@@ -840,6 +876,9 @@ class MemoryDataAccess implements AppDataAccess {
       priceMinor: input.priceMinor,
       compareAtMinor: input.compareAtMinor ?? null,
       costMinor: input.costMinor ?? null,
+      netPriceMinor: input.netPriceMinor,
+      vatRateBps: input.vatRateBps,
+      vatAmountMinor: input.vatAmountMinor,
       currency: input.currency,
       status: input.status,
       optionValues: input.optionValues ?? null,
@@ -1434,6 +1473,8 @@ class MemoryDataAccess implements AppDataAccess {
       }
       const salesError = this.productSalesError(product, inputLine.quantity);
       if (salesError) return salesError;
+      // F4C — Siparis ani KDV/maliyet/liste snapshot'i (Prisma impl aynasi).
+      const vat = variantVatSnapshot(variant);
       lines.push({
         id: `line_${lines.length + 1}`,
         storeId,
@@ -1447,6 +1488,16 @@ class MemoryDataAccess implements AppDataAccess {
         unitPriceAmount: variant.priceMinor,
         totalAmount: variant.priceMinor * inputLine.quantity,
         currency: input.currency,
+        unitNetPriceMinor: vat.unitNetPriceMinor,
+        unitVatRateBps: vat.unitVatRateBps,
+        unitVatAmountMinor: vat.unitVatAmountMinor,
+        unitGrossPriceMinor: variant.priceMinor,
+        unitListPriceMinor: variant.compareAtMinor ?? variant.priceMinor,
+        unitCostMinor: variant.costMinor ?? null,
+        lineNetAmountMinor: vat.unitNetPriceMinor * inputLine.quantity,
+        lineVatAmountMinor: vat.unitVatAmountMinor * inputLine.quantity,
+        lineGrossAmountMinor: variant.priceMinor * inputLine.quantity,
+        lineCostMinor: variant.costMinor != null ? variant.costMinor * inputLine.quantity : null,
         createdAt: new Date("2026-01-05T00:00:00.000Z"),
       });
     }
@@ -1606,6 +1657,8 @@ class MemoryDataAccess implements AppDataAccess {
     }
     const salesError = this.productSalesError(product, input.quantity);
     if (salesError) return salesError;
+    // F4C — createOrder ile ayni snapshot kurali.
+    const vat = variantVatSnapshot(variant);
     order.lines.push({
       id: `line_${order.lines.length + 1}`,
       storeId,
@@ -1619,6 +1672,16 @@ class MemoryDataAccess implements AppDataAccess {
       unitPriceAmount: variant.priceMinor,
       totalAmount: variant.priceMinor * input.quantity,
       currency: order.currency,
+      unitNetPriceMinor: vat.unitNetPriceMinor,
+      unitVatRateBps: vat.unitVatRateBps,
+      unitVatAmountMinor: vat.unitVatAmountMinor,
+      unitGrossPriceMinor: variant.priceMinor,
+      unitListPriceMinor: variant.compareAtMinor ?? variant.priceMinor,
+      unitCostMinor: variant.costMinor ?? null,
+      lineNetAmountMinor: vat.unitNetPriceMinor * input.quantity,
+      lineVatAmountMinor: vat.unitVatAmountMinor * input.quantity,
+      lineGrossAmountMinor: variant.priceMinor * input.quantity,
+      lineCostMinor: variant.costMinor != null ? variant.costMinor * input.quantity : null,
       createdAt: new Date("2026-01-06T00:00:00.000Z"),
     });
     Object.assign(order, this.orderTotals(order.lines));
@@ -1638,6 +1701,13 @@ class MemoryDataAccess implements AppDataAccess {
     }
     line.quantity = input.quantity;
     line.totalAmount = line.unitPriceAmount * input.quantity;
+    // F4C — Satir toplam snapshot'lari birim snapshot'tan turetilir (Prisma aynasi).
+    line.lineNetAmountMinor =
+      line.unitNetPriceMinor != null ? line.unitNetPriceMinor * input.quantity : null;
+    line.lineVatAmountMinor =
+      line.unitVatAmountMinor != null ? line.unitVatAmountMinor * input.quantity : null;
+    line.lineGrossAmountMinor = line.unitNetPriceMinor != null ? line.totalAmount : null;
+    line.lineCostMinor = line.unitCostMinor != null ? line.unitCostMinor * input.quantity : null;
     Object.assign(order, this.orderTotals(order.lines));
     return order;
   }
@@ -2912,6 +2982,225 @@ describe("api gateway", () => {
     await app.close();
   });
 
+  // F4C (ADR-063) — KDV: admin net girer; KDV tutari + brut SUNUCUDA hesaplanir.
+  it("F4C — variant VAT is server-calculated from net price and rate (client VAT never trusted)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Net 1.199,20 + %20 → KDV 239,84, brut (priceMinor) 1.439,04.
+    const created = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "VAT", sku: "F4C-VAT", netPriceMinor: 119920, vatRateBps: 2000, currency: "TRY" },
+    });
+    expect(created.statusCode).toBe(201);
+    const variant = created.json();
+    expect(variant).toMatchObject({
+      priceMinor: 143904,
+      netPriceMinor: 119920,
+      vatRateBps: 2000,
+      vatAmountMinor: 23984,
+    });
+
+    // Yalniz oran degisir → net ANKOR kalir, KDV + brut yeniden hesaplanir.
+    const rateOnly = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variant.id}`,
+      headers: auth,
+      payload: { vatRateBps: 1000 },
+    });
+    expect(rateOnly.statusCode).toBe(200);
+    expect(rateOnly.json()).toMatchObject({
+      priceMinor: 131912,
+      netPriceMinor: 119920,
+      vatRateBps: 1000,
+      vatAmountMinor: 11992,
+    });
+
+    // %0 oran: KDV 0, brut = net.
+    const zeroRate = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variant.id}`,
+      headers: auth,
+      payload: { netPriceMinor: 50000, vatRateBps: 0 },
+    });
+    expect(zeroRate.statusCode).toBe(200);
+    expect(zeroRate.json()).toMatchObject({ priceMinor: 50000, vatAmountMinor: 0 });
+
+    // Gecersiz oran reddedilir (kontrat 0..10000).
+    const badRate = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/product_hoodie/variants/${variant.id}`,
+      headers: auth,
+      payload: { vatRateBps: 20000 },
+    });
+    expect(badRate.statusCode).toBe(400);
+
+    // Fiyatsiz create reddedilir (brut YA DA net zorunlu).
+    const noPrice = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "NoPrice", sku: "F4C-NOPRICE", currency: "TRY" },
+    });
+    expect(noPrice.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it("F4C — legacy gross-only input preserves the displayed gross price (backfill semantics)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Eski istemci yalniz brut gonderir → brut AYNEN korunur, net/KDV ayristirilir.
+    const created = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "Legacy", sku: "F4C-LEGACY", priceMinor: 129900, currency: "TRY" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({
+      priceMinor: 129900, // gorunen brut degismedi
+      netPriceMinor: 108250, // round(129900*10000/12000)
+      vatRateBps: 2000,
+      vatAmountMinor: 21650,
+    });
+
+    // Net girisli maliyet tavani: maliyet hesaplanan BRUT tavanini asamaz.
+    const badCost = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products/product_hoodie/variants",
+      headers: auth,
+      payload: { title: "BadCost", sku: "F4C-BADCOST", netPriceMinor: 10000, vatRateBps: 2000, costMinor: 13000, currency: "TRY" },
+    });
+    expect(badCost.statusCode).toBe(400);
+    expect(badCost.json()).toMatchObject({ error: { code: "COST_EXCEEDS_LIST" } });
+
+    await app.close();
+  });
+
+  // F4C (ADR-064) — Siparis satiri KDV/maliyet/liste snapshot'i + satis ozeti.
+  it("F4C — order lines snapshot net/VAT/gross/cost and admin order carries a sales summary", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Maliyet ekle ki kar alanlari da snapshot'lansin.
+    const withCost = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_hoodie/variants/variant_hoodie_m",
+      headers: auth,
+      payload: { costMinor: 90000 },
+    });
+    expect(withCost.statusCode).toBe(200);
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/orders",
+      headers: auth,
+      payload: {
+        customerEmail: "vat-snapshot@example.com",
+        currency: "TRY",
+        lines: [{ variantId: "variant_hoodie_m", quantity: 2 }],
+        addresses: [{
+          type: "SHIPPING",
+          fullName: "Snapshot Buyer",
+          countryCode: "TR",
+          city: "Istanbul",
+          addressLine1: "Snapshot Street 1",
+        }],
+      },
+    });
+    expect(createResponse.statusCode).toBe(201);
+    const order = createResponse.json();
+
+    // Satir snapshot'i: net/oran/KDV/brut/liste/maliyet + satir toplamlari.
+    expect(order.lines[0]).toMatchObject({
+      unitPriceAmount: 129900,
+      unitNetPriceMinor: 108250,
+      unitVatRateBps: 2000,
+      unitVatAmountMinor: 21650,
+      unitGrossPriceMinor: 129900,
+      unitListPriceMinor: 149900, // compareAt snapshot'i
+      unitCostMinor: 90000,
+      lineNetAmountMinor: 216500,
+      lineVatAmountMinor: 43300,
+      lineGrossAmountMinor: 259800,
+      lineCostMinor: 180000,
+    });
+
+    // Satis ozeti: snapshot'tan deterministik (guncel urun verisi DEGIL).
+    expect(order.salesSummary).toMatchObject({
+      currency: "TRY",
+      subtotalGrossMinor: 259800,
+      discountGrossMinor: 0,
+      shippingGrossMinor: 0,
+      payableGrossMinor: 259800,
+      paidGrossMinor: 0,
+      remainingGrossMinor: 259800,
+      sales: {
+        listGrossMinor: 299800,
+        subtotalNetMinor: 216500,
+        totalVatMinor: 43300,
+        vatBreakdown: [{ rateBps: 2000, amountMinor: 43300 }],
+        totalCostMinor: 180000,
+        grossProfitMinor: 36500,
+        campaignDiscountMinor: 0,
+        netProfitMinor: 36500,
+      },
+    });
+
+    // Snapshot degismezligi: urun fiyati/maliyeti SONRADAN degisse bile ozet sabit.
+    await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_hoodie/variants/variant_hoodie_m",
+      headers: auth,
+      payload: { netPriceMinor: 200000, vatRateBps: 2000, costMinor: 10 },
+    });
+    const reread = await app.inject({
+      method: "GET",
+      url: `/stores/store_demo/orders/${order.id}`,
+      headers: auth,
+    });
+    expect(reread.statusCode).toBe(200);
+    expect(reread.json().salesSummary.sales).toMatchObject({
+      subtotalNetMinor: 216500,
+      totalCostMinor: 180000,
+    });
+
+    // Legacy (F4C oncesi) siparis: snapshot alanlari null → sales bolumu null,
+    // Bolum A yine dolu; yaniltici sifir kar GOSTERILMEZ.
+    const memoryOrder = dataAccess.orders.find((item: { id: string }) => item.id === order.id) as {
+      lines: Array<Record<string, unknown>>;
+    };
+    for (const memoryLine of memoryOrder.lines) {
+      memoryLine.unitNetPriceMinor = null;
+      memoryLine.unitVatRateBps = null;
+      memoryLine.unitVatAmountMinor = null;
+      memoryLine.unitGrossPriceMinor = null;
+      memoryLine.unitListPriceMinor = null;
+      memoryLine.unitCostMinor = null;
+      memoryLine.lineNetAmountMinor = null;
+      memoryLine.lineVatAmountMinor = null;
+      memoryLine.lineGrossAmountMinor = null;
+      memoryLine.lineCostMinor = null;
+    }
+    const legacyRead = await app.inject({
+      method: "GET",
+      url: `/stores/store_demo/orders/${order.id}`,
+      headers: auth,
+    });
+    expect(legacyRead.statusCode).toBe(200);
+    expect(legacyRead.json().salesSummary.sales).toBeNull();
+    expect(legacyRead.json().salesSummary.payableGrossMinor).toBe(259800);
+
+    await app.close();
+  });
+
   it("lists inventory and records movements for non-negative adjustments", async () => {
     const { app, dataAccess, login } = await createTestApp();
     const token = await login();
@@ -4044,6 +4333,56 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     expect(product.campaign.priority).toBeUndefined();
     expect(product.campaign.usageCount).toBeUndefined();
     expect(product.campaign.stackable).toBeUndefined();
+    await app.close();
+  });
+
+  // F4C (ADR-063) — Kart taban fiyati: COK varyantli urunde kampanya tahmini
+  // EN UCUZ gorunur varyant brut fiyati uzerinden hesaplanir (fiyat araligi
+  // tahmini engellemez); KDV/maliyet alanlari public govdeye SIZMAZ.
+  it("F4C: campaign estimate uses the cheapest variant gross price; no VAT/cost leak", async () => {
+    const { app, dataAccess } = await createTestApp();
+    // Ikinci, DAHA UCUZ varyant (brut 99.900 = net 83.250 + %20 KDV 16.650).
+    dataAccess.variants.push({
+      id: "variant_hoodie_s",
+      productId: "product_hoodie",
+      storeId: "store_demo",
+      title: "Black / S",
+      sku: "DEMO-HOODIE-BLK-S",
+      barcode: null,
+      priceMinor: 99900,
+      compareAtMinor: null,
+      costMinor: null,
+      netPriceMinor: 83250,
+      vatRateBps: 2000,
+      vatAmountMinor: 16650,
+      currency: "TRY",
+      status: "ACTIVE",
+      optionValues: { color: "Black", size: "S" },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    seedCampaign(dataAccess, {
+      type: "AUTOMATIC_CART",
+      discountType: "PERCENT",
+      discountValue: 10,
+      minOrderAmountMinor: 50000,
+      priority: 5,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(response.statusCode).toBe(200);
+    const product = response.json().data[0];
+    // Tahmin tabani = en ucuz varyant (99.900): %10 → 9.990 indirim, nihai 89.910.
+    expect(product.campaign).toMatchObject({
+      estimatedDiscountMinor: 9990,
+      estimatedFinalUnitPriceMinor: 89910,
+    });
+    // Public varyant govdesi KDV/maliyet ic alanlarini TASIMAZ (allowlist).
+    const body = JSON.stringify(response.json());
+    expect(body).not.toContain("netPriceMinor");
+    expect(body).not.toContain("vatAmountMinor");
+    expect(body).not.toContain("costMinor");
+    expect(body).not.toContain("vatRateBps");
     await app.close();
   });
 

@@ -447,3 +447,124 @@ describe("store-admin order detail — campaign/coupon panel (F4A.2)", () => {
     expect(screen.getByText("−₺350,00")).toBeTruthy();
   });
 });
+
+// F4C (ADR-064) — Snapshot tabanlı ödeme + satış/kâr özeti panelleri.
+describe("F4C order sales summary panels", () => {
+  function makeSalesSummary(overrides: Record<string, unknown> = {}) {
+    return {
+      currency: "TRY",
+      subtotalGrossMinor: 149900,
+      discountGrossMinor: 14990,
+      discountLabel: "%10 Sepet İndirimi",
+      shippingGrossMinor: 16999,
+      payableGrossMinor: 151909,
+      paidGrossMinor: 151909,
+      remainingGrossMinor: 0,
+      sales: {
+        listGrossMinor: 149900,
+        subtotalNetMinor: 124917,
+        totalVatMinor: 24983,
+        vatBreakdown: [{ rateBps: 2000, amountMinor: 24983 }],
+        totalCostMinor: 90000,
+        grossProfitMinor: 34917,
+        campaignDiscountMinor: 14990,
+        netProfitMinor: 19927,
+      },
+      ...overrides,
+    };
+  }
+
+  function renderPage() {
+    return render(
+      <LocaleProvider locale="tr">
+        <OrderDetailPage />
+      </LocaleProvider>,
+    );
+  }
+
+  it("renders the payment summary (Bölüm A) with discount label, payable, paid and remaining", async () => {
+    storeApiMock.getOrder.mockResolvedValue(makeOrder({ salesSummary: makeSalesSummary() }));
+    renderPage();
+
+    expect(await screen.findByText("Ödeme özeti")).toBeTruthy();
+    expect(screen.getByText("Ara toplam")).toBeTruthy();
+    expect(screen.getByText("%10 Sepet İndirimi")).toBeTruthy();
+    // Indirim tutari hem Bolum A (İndirim) hem Bolum B'de (Kampanya indirimi) gorunur.
+    expect(screen.getAllByText("−₺149,90").length).toBe(2);
+    expect(screen.getByText("₺169,99")).toBeTruthy(); // kargo
+    expect(screen.getByText("Ödenmesi gereken")).toBeTruthy();
+    expect(screen.getByText("Net ödenen")).toBeTruthy();
+    expect(screen.getByText("Kalan bakiye")).toBeTruthy();
+    // Ödenmesi gereken + net ödenen aynı tutar; kalan 0.
+    expect(screen.getAllByText("₺1.519,09").length).toBeGreaterThanOrEqual(2);
+    // Yeni panel varken legacy "Tutar özeti" kartı gösterilmez.
+    expect(screen.queryByText("Tutar özeti")).toBeNull();
+  });
+
+  it("renders the sales/profit summary (Bölüm B) with VAT rate, cost and highlighted net profit", async () => {
+    storeApiMock.getOrder.mockResolvedValue(makeOrder({ salesSummary: makeSalesSummary() }));
+    renderPage();
+
+    expect(await screen.findByText("Satış özeti")).toBeTruthy();
+    expect(screen.getByText("Liste fiyatı")).toBeTruthy();
+    expect(screen.getByText("KDV (%20)")).toBeTruthy();
+    expect(screen.getByText("₺249,83")).toBeTruthy();
+    expect(screen.getByText("Vergisiz net fiyat")).toBeTruthy();
+    expect(screen.getByText("₺1.249,17")).toBeTruthy();
+    expect(screen.getByText("Maliyet")).toBeTruthy();
+    expect(screen.getByText("₺900,00")).toBeTruthy();
+    expect(screen.getByText("Brüt kâr")).toBeTruthy();
+    expect(screen.getByText("₺349,17")).toBeTruthy();
+    expect(screen.getByText("Kampanya indirimi")).toBeTruthy();
+    expect(screen.getByText("Net kâr")).toBeTruthy();
+    expect(screen.getByText("₺199,27")).toBeTruthy();
+  });
+
+  it("shows a per-rate VAT breakdown for mixed-rate orders", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({
+        salesSummary: makeSalesSummary({
+          sales: {
+            listGrossMinor: 160900,
+            subtotalNetMinor: 134917,
+            totalVatMinor: 25983,
+            vatBreakdown: [
+              { rateBps: 1000, amountMinor: 1000 },
+              { rateBps: 2000, amountMinor: 24983 },
+            ],
+            totalCostMinor: null,
+            grossProfitMinor: null,
+            campaignDiscountMinor: 0,
+            netProfitMinor: null,
+          },
+        }),
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByText("KDV (karma oran)")).toBeTruthy();
+    expect(screen.getByText("KDV %10")).toBeTruthy();
+    expect(screen.getByText("KDV %20")).toBeTruthy();
+    // Maliyet snapshot'ı yok: kâr satırları "—" + bilgi notu (yanıltıcı sıfır YOK).
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Maliyet snapshot'ı yok; kâr hesaplanamıyor.")).toBeTruthy();
+  });
+
+  it("shows the legacy notice for old orders without a VAT/cost snapshot (sales null)", async () => {
+    storeApiMock.getOrder.mockResolvedValue(
+      makeOrder({ salesSummary: makeSalesSummary({ sales: null }) }),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        "Bu sipariş eski formatta oluşturuldu; KDV/maliyet snapshot'ı bulunmadığından satış özeti gösterilemiyor.",
+      ),
+    ).toBeTruthy();
+    // Yanıltıcı sıfır kar/KDV satırı YOK.
+    expect(screen.queryByText("Net kâr")).toBeNull();
+    expect(screen.queryByText("Liste fiyatı")).toBeNull();
+    // Bölüm A yine dolu.
+    expect(screen.getByText("Ödeme özeti")).toBeTruthy();
+  });
+});

@@ -123,6 +123,10 @@ import {
 } from "./campaigns/wallet.js";
 import { selectPublicCampaignDisplay } from "./campaigns/public-badge.js";
 import { campaignAppliesToProduct } from "./campaigns/public-badge.js";
+// F4C (ADR-063/ADR-064) — KDV para matematigi (sunucu otoritesi) + siparis
+// satis ozeti turetimi (snapshot-turevi; saf modul).
+import { DEFAULT_VAT_RATE_BPS, splitGrossByVat, vatFromNet } from "@commerce-os/utils";
+import { buildOrderSalesSummary } from "./orders/sales-summary.js";
 import {
   computeStoreShippingQuote,
   listActiveRatePlans,
@@ -262,6 +266,10 @@ type VariantRecord = Pick<
   | "priceMinor"
   | "compareAtMinor"
   | "costMinor"
+  // F4C — KDV alanlari (priceMinor KDV DAHIL brut olarak kalir).
+  | "netPriceMinor"
+  | "vatRateBps"
+  | "vatAmountMinor"
   | "currency"
   | "status"
   | "optionValues"
@@ -321,7 +329,21 @@ type OrderLineRecord = Pick<
   | "totalAmount"
   | "currency"
   | "createdAt"
->;
+> & {
+  // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'lari.
+  // Additive: eski kayitlarda (F4C oncesi siparisler / memory fixtures) null ya
+  // da undefined olabilir; serialize `?? null` ile normalize eder.
+  unitNetPriceMinor?: number | null;
+  unitVatRateBps?: number | null;
+  unitVatAmountMinor?: number | null;
+  unitGrossPriceMinor?: number | null;
+  unitListPriceMinor?: number | null;
+  unitCostMinor?: number | null;
+  lineNetAmountMinor?: number | null;
+  lineVatAmountMinor?: number | null;
+  lineGrossAmountMinor?: number | null;
+  lineCostMinor?: number | null;
+};
 type OrderAddressRecord = Pick<
   OrderAddress,
   | "id"
@@ -686,6 +708,10 @@ export interface AppDataAccess extends CampaignDataAccess {
       priceMinor: number;
       compareAtMinor?: number | null;
       costMinor?: number | null;
+      // F4C — Sunucuda (route) hesaplanmis KDV cozumu; istemci degeri DEGILDIR.
+      netPriceMinor: number;
+      vatRateBps: number;
+      vatAmountMinor: number;
       currency: string;
       status: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
@@ -708,6 +734,11 @@ export interface AppDataAccess extends CampaignDataAccess {
       priceMinor?: number;
       compareAtMinor?: number | null;
       costMinor?: number | null;
+      // F4C — Sunucuda (route) hesaplanmis KDV cozumu; fiyat/oran degisiyorsa
+      // UCU BIRDEN verilir (brut+net+KDV tutari tutarli yazilir).
+      netPriceMinor?: number;
+      vatRateBps?: number;
+      vatAmountMinor?: number;
       currency?: string;
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
@@ -1117,6 +1148,10 @@ function serializeVariant(variant: VariantRecord) {
     barcode: variant.barcode ?? null,
     compareAtMinor: variant.compareAtMinor ?? null,
     costMinor: variant.costMinor ?? null,
+    // F4C — KDV alanlari; eski kayitlarda (backfill oncesi/memory) guvenli default.
+    netPriceMinor: variant.netPriceMinor ?? null,
+    vatRateBps: variant.vatRateBps ?? DEFAULT_VAT_RATE_BPS,
+    vatAmountMinor: variant.vatAmountMinor ?? null,
     optionValues: variant.optionValues ?? null,
     // F3C.2 — Decimal -> number.
     shippingWeightKg: decimalToNumber(variant.shippingWeightKg),
@@ -1190,6 +1225,17 @@ function serializeOrder(order: OrderRecord) {
     updatedAt: order.updatedAt.toISOString(),
     lines: order.lines.map((line) => ({
       ...line,
+      // F4C — Snapshot alanlari; legacy satirlarda null (yeniden HESAPLANMAZ).
+      unitNetPriceMinor: line.unitNetPriceMinor ?? null,
+      unitVatRateBps: line.unitVatRateBps ?? null,
+      unitVatAmountMinor: line.unitVatAmountMinor ?? null,
+      unitGrossPriceMinor: line.unitGrossPriceMinor ?? null,
+      unitListPriceMinor: line.unitListPriceMinor ?? null,
+      unitCostMinor: line.unitCostMinor ?? null,
+      lineNetAmountMinor: line.lineNetAmountMinor ?? null,
+      lineVatAmountMinor: line.lineVatAmountMinor ?? null,
+      lineGrossAmountMinor: line.lineGrossAmountMinor ?? null,
+      lineCostMinor: line.lineCostMinor ?? null,
       createdAt: line.createdAt.toISOString(),
     })),
     addresses: order.addresses.map((address) => ({
@@ -1266,6 +1312,40 @@ function serializeOrder(order: OrderRecord) {
       discountAmountMinor: discount.discountAmountMinor,
       createdAt: discount.createdAt.toISOString(),
     })),
+    // F4C (ADR-064) — Satis/kar ozeti: YALNIZ snapshot'lardan deterministik
+    // turetilir (satir KDV/maliyet snapshot'i + OrderDiscount + PaymentAttempt).
+    // Legacy (F4C oncesi) siparislerde `sales` bolumu null doner.
+    salesSummary: buildOrderSalesSummary({
+      currency: order.currency,
+      subtotalAmount: order.subtotalAmount,
+      discountAmount: order.discountAmount,
+      shippingAmount: order.shippingAmount,
+      totalAmount: order.totalAmount,
+      paymentStatus: order.paymentStatus,
+      lines: order.lines.map((line) => ({
+        quantity: line.quantity,
+        totalAmount: line.totalAmount,
+        unitPriceAmount: line.unitPriceAmount,
+        unitNetPriceMinor: line.unitNetPriceMinor ?? null,
+        unitVatRateBps: line.unitVatRateBps ?? null,
+        unitVatAmountMinor: line.unitVatAmountMinor ?? null,
+        unitGrossPriceMinor: line.unitGrossPriceMinor ?? null,
+        unitListPriceMinor: line.unitListPriceMinor ?? null,
+        unitCostMinor: line.unitCostMinor ?? null,
+        lineNetAmountMinor: line.lineNetAmountMinor ?? null,
+        lineVatAmountMinor: line.lineVatAmountMinor ?? null,
+        lineGrossAmountMinor: line.lineGrossAmountMinor ?? null,
+        lineCostMinor: line.lineCostMinor ?? null,
+      })),
+      discounts: (order.discounts ?? []).map((discount) => ({
+        label: discount.label,
+        discountAmountMinor: discount.discountAmountMinor,
+      })),
+      paymentAttempts: (order.paymentAttempts ?? []).map((attempt) => ({
+        status: attempt.status,
+        amount: attempt.amount,
+      })),
+    }),
   });
 }
 
@@ -1356,15 +1436,15 @@ function buildPublicProduct(
   const variants = activeVariants.map((variant) =>
     buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId),
   );
-  // F4A.6 — Guvenli nihai fiyat tahmini yalnizca TEK-FIYATLI urunlerde uretilir:
-  // gorunur varyant fiyatlari esitse temsili birim fiyat, aksi halde null (fiyat
-  // araliginda sahte tekil nihai fiyat gosterilmez).
+  // F4C (ADR-063) — Kart taban fiyati = EN UCUZ gorunur (aktif) varyantin brut
+  // fiyati. Vitrin karti artik fiyat ARALIGI gostermez; kampanya "Sepette"
+  // tahmini de ayni taban uzerinden hesaplanir (kartla tutarli — F4A.6'daki
+  // "yalniz tek-fiyatli urunde tahmin" kurali bilincli olarak bu tabana
+  // genisletildi; kart tek fiyat gosterdigi icin tahmin artik yaniltici degil).
   const visiblePriceMinors = variants
     .map((variant) => variant.priceMinor)
     .filter((price): price is number => price !== null);
-  const minPrice = visiblePriceMinors.length > 0 ? Math.min(...visiblePriceMinors) : null;
-  const maxPrice = visiblePriceMinors.length > 0 ? Math.max(...visiblePriceMinors) : null;
-  const unitPriceMinor = minPrice !== null && minPrice === maxPrice ? minPrice : null;
+  const unitPriceMinor = visiblePriceMinors.length > 0 ? Math.min(...visiblePriceMinors) : null;
   const display = selectPublicCampaignDisplay(
     publicCampaigns,
     { id: product.id, categoryIds: product.categoryIds },
@@ -1858,6 +1938,10 @@ function createPrismaDataAccess(): AppDataAccess {
     priceMinor: true,
     compareAtMinor: true,
     costMinor: true,
+    // F4C — KDV alanlari (net/oran/tutar); priceMinor brut olarak kalir.
+    netPriceMinor: true,
+    vatRateBps: true,
+    vatAmountMinor: true,
     currency: true,
     status: true,
     optionValues: true,
@@ -1980,6 +2064,17 @@ function createPrismaDataAccess(): AppDataAccess {
       unitPriceAmount: true,
       totalAmount: true,
       currency: true,
+      // F4C — Siparis ani KDV/maliyet/liste SNAPSHOT'lari (admin ozet temeli).
+      unitNetPriceMinor: true,
+      unitVatRateBps: true,
+      unitVatAmountMinor: true,
+      unitGrossPriceMinor: true,
+      unitListPriceMinor: true,
+      unitCostMinor: true,
+      lineNetAmountMinor: true,
+      lineVatAmountMinor: true,
+      lineGrossAmountMinor: true,
+      lineCostMinor: true,
       createdAt: true,
     } },
     addresses: { orderBy: { type: "asc" }, select: {
@@ -2371,6 +2466,10 @@ function createPrismaDataAccess(): AppDataAccess {
             priceMinor: input.priceMinor,
             compareAtMinor: input.compareAtMinor ?? null,
             costMinor: input.costMinor ?? null,
+            // F4C — Route'ta hesaplanmis KDV cozumu (brut=net+KDV degismezi).
+            netPriceMinor: input.netPriceMinor,
+            vatRateBps: input.vatRateBps,
+            vatAmountMinor: input.vatAmountMinor,
             currency: input.currency,
             status: input.status,
             optionValues: input.optionValues as Prisma.InputJsonObject | undefined,
@@ -2738,6 +2837,12 @@ function createPrismaDataAccess(): AppDataAccess {
             title: true,
             sku: true,
             priceMinor: true,
+            // F4C — Siparis ani KDV/maliyet/liste SNAPSHOT'i icin kaynak alanlar.
+            compareAtMinor: true,
+            costMinor: true,
+            netPriceMinor: true,
+            vatRateBps: true,
+            vatAmountMinor: true,
             currency: true,
             status: true,
             product: {
@@ -2765,6 +2870,13 @@ function createPrismaDataAccess(): AppDataAccess {
           if (salesError) return salesError;
           const totalAmount = variant.priceMinor * line.quantity;
           if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
+          // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'i.
+          // Net/KDV varyanttan okunur; (savunmaci) eksikse bruttan ayristirilir.
+          // Degismez: unitNet + unitVat = brut; satir toplamlari birim x adet.
+          const unitVatRateBps = variant.vatRateBps ?? DEFAULT_VAT_RATE_BPS;
+          const unitNetPriceMinor =
+            variant.netPriceMinor ?? splitGrossByVat(variant.priceMinor, unitVatRateBps).netMinor;
+          const unitVatAmountMinor = variant.priceMinor - unitNetPriceMinor;
           orderLines.push({
             storeId,
             productId: variant.productId,
@@ -2776,6 +2888,17 @@ function createPrismaDataAccess(): AppDataAccess {
             unitPriceAmount: variant.priceMinor,
             totalAmount,
             currency: input.currency,
+            unitNetPriceMinor,
+            unitVatRateBps,
+            unitVatAmountMinor,
+            unitGrossPriceMinor: variant.priceMinor,
+            // Liste fiyati: admin'in girdigi showroom/liste (compareAt) ?? brut satis.
+            unitListPriceMinor: variant.compareAtMinor ?? variant.priceMinor,
+            unitCostMinor: variant.costMinor ?? null,
+            lineNetAmountMinor: unitNetPriceMinor * line.quantity,
+            lineVatAmountMinor: unitVatAmountMinor * line.quantity,
+            lineGrossAmountMinor: totalAmount,
+            lineCostMinor: variant.costMinor != null ? variant.costMinor * line.quantity : null,
           });
         }
 
@@ -2911,6 +3034,12 @@ function createPrismaDataAccess(): AppDataAccess {
             title: true,
             sku: true,
             priceMinor: true,
+            // F4C — Siparis ani KDV/maliyet/liste SNAPSHOT'i icin kaynak alanlar.
+            compareAtMinor: true,
+            costMinor: true,
+            netPriceMinor: true,
+            vatRateBps: true,
+            vatAmountMinor: true,
             currency: true,
             status: true,
             product: {
@@ -2934,6 +3063,11 @@ function createPrismaDataAccess(): AppDataAccess {
         if (salesError) return salesError;
         const totalAmount = variant.priceMinor * input.quantity;
         if (totalAmount > maxPostgresInt) return "INVALID_VARIANT";
+        // F4C — createOrder ile AYNI snapshot kurali (tek semantik).
+        const unitVatRateBps = variant.vatRateBps ?? DEFAULT_VAT_RATE_BPS;
+        const unitNetPriceMinor =
+          variant.netPriceMinor ?? splitGrossByVat(variant.priceMinor, unitVatRateBps).netMinor;
+        const unitVatAmountMinor = variant.priceMinor - unitNetPriceMinor;
         await transaction.orderLine.create({
           data: {
             storeId,
@@ -2947,6 +3081,16 @@ function createPrismaDataAccess(): AppDataAccess {
             unitPriceAmount: variant.priceMinor,
             totalAmount,
             currency: order.currency,
+            unitNetPriceMinor,
+            unitVatRateBps,
+            unitVatAmountMinor,
+            unitGrossPriceMinor: variant.priceMinor,
+            unitListPriceMinor: variant.compareAtMinor ?? variant.priceMinor,
+            unitCostMinor: variant.costMinor ?? null,
+            lineNetAmountMinor: unitNetPriceMinor * input.quantity,
+            lineVatAmountMinor: unitVatAmountMinor * input.quantity,
+            lineGrossAmountMinor: totalAmount,
+            lineCostMinor: variant.costMinor != null ? variant.costMinor * input.quantity : null,
           },
         });
         const lines = await transaction.orderLine.findMany({ where: { orderId }, select: { totalAmount: true } });
@@ -2980,6 +3124,11 @@ function createPrismaDataAccess(): AppDataAccess {
           select: {
             id: true,
             unitPriceAmount: true,
+            // F4C — Adet degisiminde satir toplam snapshot'lari birim snapshot'tan
+            // yeniden turetilir (birim degerler siparis ani degerleridir, DEGISMEZ).
+            unitNetPriceMinor: true,
+            unitVatAmountMinor: true,
+            unitCostMinor: true,
             product: { select: { minOrderQuantity: true, maxOrderQuantity: true } },
           },
         });
@@ -2992,7 +3141,17 @@ function createPrismaDataAccess(): AppDataAccess {
         if (totalAmount > maxPostgresInt) return "MUTATION_NOT_ALLOWED";
         await transaction.orderLine.update({
           where: { id: lineId },
-          data: { quantity: input.quantity, totalAmount },
+          data: {
+            quantity: input.quantity,
+            totalAmount,
+            // F4C — Yalniz F4C-snapshot'li satirlarda; legacy satirda null kalir.
+            lineNetAmountMinor:
+              line.unitNetPriceMinor != null ? line.unitNetPriceMinor * input.quantity : null,
+            lineVatAmountMinor:
+              line.unitVatAmountMinor != null ? line.unitVatAmountMinor * input.quantity : null,
+            lineGrossAmountMinor: line.unitNetPriceMinor != null ? totalAmount : null,
+            lineCostMinor: line.unitCostMinor != null ? line.unitCostMinor * input.quantity : null,
+          },
         });
         const lines = await transaction.orderLine.findMany({ where: { orderId }, select: { totalAmount: true } });
         await transaction.order.update({
@@ -4731,10 +4890,35 @@ export function createServer(
     if (await dataAccess.findVariantBySku(params.storeId, input.sku)) {
       return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
     }
+    // F4C (ADR-063) — KDV cozumu SUNUCUDA: yeni istemci KDV HARIC net gonderir
+    // (vat=round(net*bps/10000), brut=net+vat priceMinor'a yazilir); legacy
+    // istemci yalniz brut gonderirse net/KDV bruttan ayristirilir (brut korunur).
+    // Istemcinin hesapladigi KDV tutari hicbir kosulda kabul edilmez.
+    const createVatRateBps = input.vatRateBps ?? DEFAULT_VAT_RATE_BPS;
+    const createPricing =
+      input.netPriceMinor !== undefined
+        ? vatFromNet(input.netPriceMinor, createVatRateBps)
+        : splitGrossByVat(input.priceMinor!, createVatRateBps);
+    // F4B kurali hesaplanan brut ile kesinlestirilir: maliyet <= liste tavani.
+    const createListCeiling = input.compareAtMinor ?? createPricing.grossMinor;
+    if (input.costMinor != null && input.costMinor > createListCeiling) {
+      return reply
+        .code(400)
+        .send(
+          errorBody(
+            "COST_EXCEEDS_LIST",
+            "costMinor must be less than or equal to the list price (compareAtMinor ?? priceMinor).",
+          ),
+        );
+    }
     let variant: VariantRecord;
     try {
       variant = await dataAccess.createVariant(params.storeId, params.productId, {
         ...input,
+        priceMinor: createPricing.grossMinor,
+        netPriceMinor: createPricing.netMinor,
+        vatRateBps: createVatRateBps,
+        vatAmountMinor: createPricing.vatMinor,
         // F4B — Baslangic fiyat audit'i icin aktor.
         changedByPlatformUserId: access.session.platformUser.id,
         priceChangeSource: "ADMIN_EDIT",
@@ -4763,9 +4947,42 @@ export function createServer(
     const current = await dataAccess.findVariantById(params.storeId, params.productId, params.variantId);
     if (!current) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
     const rawInput = productVariantUpdateRequestSchema.parse(request.body);
+    // F4C (ADR-063) — KDV cozumu SUNUCUDA (patch + mevcut birlesik durum):
+    //  - net verildiyse: vat=round(net*bps/10000), brut=net+vat (net ANKOR'dur).
+    //  - yalniz brut verildiyse (legacy): net/KDV bruttan ayristirilir.
+    //  - yalniz oran degistiyse: net SABIT kalir, KDV+brut yeniden hesaplanir
+    //    (mevcut kayitta net yoksa onceki bruttan ayristirilarak turetilir).
+    const patchVatRateBps = rawInput.vatRateBps ?? current.vatRateBps ?? DEFAULT_VAT_RATE_BPS;
+    const hasPricingChange =
+      rawInput.netPriceMinor !== undefined ||
+      rawInput.priceMinor !== undefined ||
+      rawInput.vatRateBps !== undefined;
+    let pricingPatch: {
+      priceMinor?: number;
+      netPriceMinor?: number;
+      vatRateBps?: number;
+      vatAmountMinor?: number;
+    } = {};
+    if (hasPricingChange) {
+      const pricing =
+        rawInput.netPriceMinor !== undefined
+          ? vatFromNet(rawInput.netPriceMinor, patchVatRateBps)
+          : rawInput.priceMinor !== undefined
+            ? splitGrossByVat(rawInput.priceMinor, patchVatRateBps)
+            : vatFromNet(
+                current.netPriceMinor ?? splitGrossByVat(current.priceMinor, patchVatRateBps).netMinor,
+                patchVatRateBps,
+              );
+      pricingPatch = {
+        priceMinor: pricing.grossMinor,
+        netPriceMinor: pricing.netMinor,
+        vatRateBps: patchVatRateBps,
+        vatAmountMinor: pricing.vatMinor,
+      };
+    }
     // F4B — Birlestirilmis (patch + mevcut) durum uzerinden liste tavani hesabi.
     // NOT: satis > liste ARTIK 400 degil (karar: yalnizca storefront'ta rozet turemez).
-    const resultPrice = rawInput.priceMinor ?? current.priceMinor;
+    const resultPrice = pricingPatch.priceMinor ?? current.priceMinor;
     const resultCompareAt =
       rawInput.compareAtMinor !== undefined ? rawInput.compareAtMinor : current.compareAtMinor;
     const resultCost = rawInput.costMinor !== undefined ? rawInput.costMinor : current.costMinor;
@@ -4788,6 +5005,9 @@ export function createServer(
     }
     const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, {
       ...rawInput,
+      // F4C — Sunucuda cozulen tutarli KDV uclusu (brut=net+KDV) yazilir;
+      // istemcinin ham netPriceMinor/vatRateBps'i oldugu gibi GECMEZ.
+      ...pricingPatch,
       // F4B — Fiyat/liste/maliyet degisiklik audit'i icin aktor.
       changedByPlatformUserId: access.session.platformUser.id,
       priceChangeSource: "ADMIN_EDIT",

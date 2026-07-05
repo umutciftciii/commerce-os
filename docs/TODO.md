@@ -1008,3 +1008,31 @@
   store-admin 188) + `git diff --check` yeşil. KALAN: merge sonrası docker rebuild (api-gateway + storefront-web)
   + runtime doğrulama. Follow-up: F4B — ürün maliyet/marj + liste fiyatı + fiyat değişikliği audit (son 30 gün
   en düşük fiyat); demo-store kampanyalarını stackable yapıp Sepette bloğunu canlı sergileme (veri kararı).
+- F4B — Ürün maliyet/marj + liste fiyatı ayrımı + fiyat değişikliği audit'i (DONE — 2026-07-05, PR #32
+  ad273ee; migration 20260705150000; docs kaydı F4C sırasında geri dolduruldu). `ProductVariant.costMinor`
+  (satış priceMinor KALIR; cost yalnız iç marj/kâr için, public'e sızmaz; kural: cost ≤ compareAt ?? price) +
+  append-only `ProductPriceChange` audit'i + EU Omnibus "son 30 günün en düşük fiyatı" public
+  `lowestPriceMinor` + admin varyant formunda marj/markup göstergesi + fiyat geçmişi.
+- F4C — Varyant kart fiyatı + Kaydet CTA bugfix + KDV temeli + sipariş satış özeti (DONE — 2026-07-06,
+  ADR-063/ADR-064; migration 20260706120000_add_variant_vat_and_order_snapshots). (1) BUGFIX kart fiyatı:
+  vitrin kartı artık fiyat ARALIĞI ("min – max") göstermez; en ucuz aktif varyantın KDV dahil fiyatı tek
+  başına gösterilir; gateway kampanya "Sepette" tahmini de aynı en-ucuz tabandan hesaplanır (F4A.6'daki
+  "yalnız tek-fiyatlı ürün" kuralı bilinçli genişletildi — kart tek fiyat gösterdiği için tahmin artık
+  yanıltıcı değil). (2) BUGFIX Kaydet CTA: ürün/varyant formlarında setSaving(false) yalnız catch'teydi;
+  finally'e alındı — başarıda buton "Kaydediliyor…"da takılı kalmıyor, double-submit disabled korunuyor.
+  (3) KDV temeli (ADR-063): admin varyantta KDV HARİÇ net fiyat + oran (%0/%1/%10/%20; bps) girer; KDV
+  tutarı + KDV dahil brüt SUNUCUDA hesaplanır (vat=round(net·bps/10000)); `priceMinor` KDV DAHİL brüt satış
+  fiyatı olarak KALIR (vitrin/sepet/checkout sıfır regresyon). Backfill: net=round(brüt·10000/12000) — mevcut
+  görünen fiyatlar birebir korundu, sürpriz fiyat değişikliği YOK. (4) Sipariş snapshot + satış özeti
+  (ADR-064): OrderLine'a additive net/oran/KDV/brüt/liste/maliyet birim+satır snapshot kolonları; admin
+  sipariş detayında Bölüm A (Ara toplam/İndirim+etiket/Kargo/Ödenmesi gereken/Net ödenen/Kalan bakiye) +
+  Bölüm B (Liste fiyatı/KDV %X ve karma oran dağılımı/Vergisiz net/Maliyet/Brüt kâr/Kampanya indirimi/
+  vurgulu Net kâr) YALNIZ snapshot'lardan türetilir; eski siparişler "eski format" bilgisiyle güvenli kısmi
+  durumda, yanıltıcı sıfır yok; maliyet snapshot'sız satır varsa kâr "—". HARİÇ: sepet/checkout toplamları,
+  kampanya semantiği, kargo, `taxIncludedMinor` bilgi satırı (hâlâ %20 legacy çıkarım — follow-up)
+  DEĞİŞMEDİ; public DTO'ya net/KDV/maliyet SIZMAZ. Testler: utils vat 28, gateway health F4C 4 entegrasyon +
+  orders-sales-summary 13 birim + kart-en-ucuz/no-leak, storefront kart en-ucuz 2, store-admin CTA 2 +
+  KDV UI 1 + satış özeti 4. Gate: db:generate + pnpm -r build + typecheck + lint + test + git diff --check.
+  KALAN: merge sonrası migrate deploy + docker rebuild (api-gateway + storefront-web + store-admin-web) +
+  runtime doğrulama (OPERATIONS F4C). Follow-up: sepet/checkout "KDV (dahil)" bilgi satırını satır
+  oranlarından türetme; fatura üretimi (alanlar hazır).

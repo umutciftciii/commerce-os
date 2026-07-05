@@ -585,3 +585,33 @@ bilinçli aktif, KALIR) + `Sepette %10` (otomatik, 2 ürün kapsamı); ikisi de 
 kazanır (kural gereği doğru). Gördüğünüz demo-hoodie "indirimi" varyant compareAt (₺1.299/₺1.499) mock
 artığıdır → maliyet/marj + liste fiyatı + fiyat audit'i (son 30 gün en düşük fiyat) **F4B** olarak ayrıldı.
 `f4a-smoke-test-store` üstündeki artık smoke kampanyalar bırakıldı (demo storefront'u etkilemez).
+
+## Varyant KDV + ürün kartı fiyatı + sipariş satış özeti (F4C / ADR-063, ADR-064)
+
+- **Kart fiyat kuralı.** Vitrin ürün kartı fiyat ARALIĞI göstermez; en ucuz AKTİF görünür varyantın KDV
+  dahil fiyatı gösterilir. Otomatik kampanya "Sepette" tahmini de aynı en-ucuz tabandan hesaplanır. Ürün
+  detayı varyant fiyatlarını ayrı ayrı göstermeye devam eder.
+- **Kaydet CTA davranışı.** Ürün/varyant formlarında kaydetme durumu başarıda VE hatada sıfırlanır
+  (finally); kaydetme sırasında buton disabled (double-submit yok). "Kaydediliyor…"da takılı buton görürsen
+  F4C öncesi build çalışıyordur.
+- **KDV semantiği (ADR-063).** Admin varyantta KDV HARİÇ net fiyat + oran girer (bps: 2000=%20, 1000=%10,
+  100=%1, 0=%0). Sunucu hesaplar: `vat = round(net·bps/10000)`, `brüt = net + vat` → `priceMinor` KDV DAHİL
+  brüt satış fiyatıdır ve vitrin/sepet/checkout HEP brüt gösterir. Legacy istemci yalnız brüt gönderirse
+  `net = round(brüt·10000/(10000+bps))` ile ayrıştırılır (brüt korunur). Yalnız oran değişirse net sabit
+  kalır, brüt yeniden hesaplanır. İstemcinin KDV tutarı ASLA kabul edilmez. Maliyet tavanı brüt üzerinden:
+  cost ≤ (compareAt ?? brüt). Float para matematiği YASAK (tam sayı minor + tek Math.round).
+- **Migration/backfill.** `20260706120000_add_variant_vat_and_order_snapshots` additive'dir; varyant
+  backfill'i brütü KORUR (görünen fiyat değişmez). OrderLine backfill'i bilinçli YOKTUR — eski siparişler
+  legacy kalır. Uygulama: `pnpm db:migrate` (reset/seed YOK).
+- **Sipariş snapshot kuralı (ADR-064).** createOrder/addOrderLine sipariş ANINDA satır başına net/oran/KDV/
+  brüt/liste(compareAt ?? brüt)/maliyet snapshot'ı yazar; adet güncellemesi satır toplamlarını BİRİM
+  snapshot'tan türetir. Satış özeti (`Order.salesSummary`) her zaman snapshot'lardan türetilir; güncel ürün
+  fiyat/maliyeti siparişi ETKİLEMEZ.
+- **Satış özeti okuma.** Bölüm A her siparişte dolu (ara toplam/indirim+etiket/kargo/ödenmesi gereken/
+  net ödenen/kalan). Bölüm B yalnız F4C sonrası siparişlerde; eski siparişte "Bu sipariş eski formatta
+  oluşturuldu" bilgisi normaldir (bug değil). Maliyet snapshot'sız satır varsa Maliyet/Brüt kâr/Net kâr "—"
+  gösterilir. İndirim KDV dağılımı MVP: Bölüm B indirim ÖNCESİ net/KDV gösterir; Net kâr = Brüt kâr −
+  brüt kampanya indirimi (deterministik, ADR-064).
+- **Bilinen sınır.** Sepet/checkout'taki "KDV (dahil)" bilgi satırı hâlâ %20 sabit çıkarımdır (toplamları
+  etkilemez); karma oranlı mağazada satır oranlarından türetme follow-up'tır. Fatura ÜRETİMİ bu fazda yok;
+  alanlar hazırdır.

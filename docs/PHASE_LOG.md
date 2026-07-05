@@ -2958,3 +2958,50 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web) + runtime doğrulama (kart Sepette
   bloğu güvenli tahminde; kupon kartı ayrı; no-leak; checkout/cart toplamları aynı). Follow-up: F4B —
   ürün maliyet/marj + liste fiyatı + fiyat değişikliği audit (son 30 gün en düşük fiyat).
+
+## 2026-07-05 — F4B: Ürün maliyet/marj + liste fiyatı + fiyat audit (docs geri dolumu)
+
+- PR #32 (ad273ee) ile MERGE edildi; docs güncellemesi o PR'da atlanmıştı, bu kayıt F4C sırasında geri
+  dolduruldu. `ProductVariant.costMinor` (public'e sızmaz; kural cost ≤ compareAt ?? price), append-only
+  `ProductPriceChange` audit'i, EU Omnibus `lowestPriceMinor` (son 30 gün en düşük satış), admin marj/markup
+  göstergesi + fiyat geçmişi. Migration `20260705150000_add_product_cost_and_price_change_audit`.
+
+## 2026-07-06 — F4C: Varyant kart fiyatı + Kaydet CTA fix + KDV temeli + sipariş satış özeti (ADR-063/ADR-064)
+
+- **Amaç.** (1) Çok varyantlı ürün kartındaki fiyat aralığı kampanya bloğuyla çakışıyordu; (2) ürün
+  Kaydet butonu başarıda "Kaydediliyor…"da takılıyordu; (3) faturalama/yasal belge için varyant-seviyesi
+  KDV temeli; (4) admin sipariş detayına tablo benzeri ödeme + satış/vergi/kâr özeti.
+- **Kart fiyatı (BUGFIX).** `formatPriceRange` kaldırıldı; kart "amount" modunda EN UCUZ görünür varyantın
+  KDV dahil fiyatını tek başına gösterir. Gateway `buildPublicProduct.unitPriceMinor` = en ucuz görünür
+  varyant → otomatik kampanya "Sepette" tahmini kartla AYNI tabandan (F4A.6 "yalnız tek-fiyat" kuralı
+  bilinçli genişletildi; kart tek fiyat gösterdiği için tahmin artık yanıltıcı değil). compareAt/Omnibus
+  türetimi zaten en ucuz varyanttandı — değişmedi.
+- **Kaydet CTA (BUGFIX).** `product-form.tsx` ve `variants-manager.tsx` onSubmit'te `setSaving(false)`
+  yalnız catch'teydi → `finally`'ye taşındı. Başarı bildirimi aynen kalır; kaydetme sırasında
+  `disabled={saving}` double-submit'i engellemeye devam eder.
+- **KDV temeli (ADR-063).** Additive migration `20260706120000_add_variant_vat_and_order_snapshots`:
+  `ProductVariant.netPriceMinor/vatRateBps(default 2000)/vatAmountMinor`. `priceMinor` KDV DAHİL brüt satış
+  fiyatı olarak KALIR (Option A — vitrin/sepet/checkout sıfır regresyon). Admin "KDV hariç fiyat" + oran
+  girer ("Fiyat alanına KDV hariç tutarı girin" yardımı; %0/%1/%10/%20 seçimi; salt-okunur KDV tutarı +
+  KDV dahil önizleme). Sunucu tek otorite: `vatFromNet(net,bps)` → vat=round(net·bps/10000), brüt=net+vat;
+  legacy brüt girişte `splitGrossByVat` brütü KORUR. Yalnız oran değişirse net ANKOR kalır. Paylaşılan saf
+  modül `@commerce-os/utils/vat` (UI önizleme aynı formül; istemci değerine güvenilmez; kontrat 0..10000 bps).
+  Backfill: tüm varyantlarda net=round(brüt·10000/12000) → görünen brüt fiyatlar birebir korundu.
+- **Sipariş snapshot + satış özeti (ADR-064).** `OrderLine`'a additive 10 kolon (unitNet/unitVatRateBps/
+  unitVatAmount/unitGross/unitList/unitCost + lineNet/lineVat/lineGross/lineCost); createOrder/addOrderLine
+  yazar, updateOrderLine adet değişiminde satır toplamlarını birim snapshot'tan türetir. Sipariş-seviyesi
+  kolon EKLENMEDİ: `salesSummary` gateway'de saf modülden (`orders/sales-summary.ts`) deterministik türetilir
+  (satır snapshot'ları + OrderDiscount + kargo + PaymentAttempt). Bölüm A: ara toplam/indirim(+etiket)/kargo/
+  ödenmesi gereken/net ödenen(ilk PAID|AUTHORIZED deneme ?? paymentStatus PAID→toplam ?? 0)/kalan. Bölüm B
+  (yalnız TÜM satırlar KDV snapshot'lıysa): liste=Σ(unitList·adet), KDV=Σ(lineVat)+oran dağılımı, vergisiz
+  net=Σ(lineNet), maliyet=Σ(lineCost; biri yoksa null), brüt kâr=net−maliyet, kampanya indirimi=brüt
+  Order.discountAmount, net kâr=brüt kâr−indirim (MVP kuralı). Eski sipariş → "eski formatta oluşturuldu"
+  bilgisi; yanıltıcı sıfır YOK.
+- **Regresyon.** Checkout toplamları/kampanya motoru/kargo DEĞİŞMEDİ (`taxIncludedMinor` bilgi satırı hâlâ
+  %20 legacy çıkarım — bilinçli follow-up). Public DTO'ya net/KDV/maliyet sızmaz (health no-leak testi).
+  Mevcut siparişler mutate edilmedi; OrderLine backfill yok (legacy güvenli kısmi durum).
+- **Gate.** db:generate + pnpm -r build + typecheck + lint + test (utils 28, api-gateway 609+13, storefront
+  135, store-admin 195) + `git diff --check` yeşil.
+- **Kalan.** Merge sonrası migrate deploy (reset YOK) + docker rebuild (api-gateway + storefront-web +
+  store-admin-web) + runtime doğrulama (OPERATIONS F4C). Follow-up: sepet "KDV (dahil)" satırını satır
+  oranlarından türetme; fatura üretimi.
