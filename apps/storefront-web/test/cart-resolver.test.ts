@@ -51,6 +51,8 @@ function publicCart(overrides: Record<string, unknown> = {}) {
       taxRatePercent: 20,
       couponCode: null,
       couponStatus: "NONE",
+      couponReason: null,
+      discountLines: [],
     },
     shipping: {
       provider: null,

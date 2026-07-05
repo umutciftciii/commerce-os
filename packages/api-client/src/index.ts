@@ -107,6 +107,12 @@ import type {
   ShippingImportRequest,
   ShippingImportPreviewResponse,
   ShippingImportApplyResponse,
+  // F4A — Kampanya/kupon yonetimi (ADR-058).
+  CampaignResponse,
+  CampaignListResponse,
+  CampaignDetailResponse,
+  CampaignCreateRequest,
+  CampaignUpdateRequest,
 } from "@commerce-os/contracts";
 
 /**
@@ -164,6 +170,8 @@ export type {
   PublicCartLineStatus,
   PublicCartLine,
   PublicCouponStatus,
+  PublicCouponReason,
+  PublicCartDiscountLine,
   PublicCartSummary,
   PublicCart,
   PublicCheckoutContact,
@@ -348,6 +356,17 @@ export type {
   ShippingImportPreviewResponse,
   ShippingImportApplyResponse,
   CartShippingQuoteResponse,
+  // F4A — Kampanya/kupon yonetimi (ADR-058).
+  CampaignResponse,
+  CampaignListResponse,
+  CampaignDetailResponse,
+  CampaignCreateRequest,
+  CampaignUpdateRequest,
+  CampaignStatus,
+  CampaignType,
+  CampaignDiscountType,
+  CampaignCoupon,
+  CampaignRedemptionSummary,
 } from "@commerce-os/contracts";
 import { optionalEnvString } from "@commerce-os/utils";
 
@@ -870,6 +889,21 @@ export interface ApiClient {
         input: ShippingCbsDistrictsRequest,
         token?: string,
       ): Promise<ShippingCbsDistrictsResponse>;
+    };
+    // F4A — Kampanya/kupon yonetimi (ADR-058). Store-scoped; secret icermez.
+    campaigns: {
+      list(storeId: string, token?: string): Promise<CampaignListResponse>;
+      create(storeId: string, input: CampaignCreateRequest, token?: string): Promise<CampaignResponse>;
+      get(storeId: string, campaignId: string, token?: string): Promise<CampaignDetailResponse>;
+      update(
+        storeId: string,
+        campaignId: string,
+        input: CampaignUpdateRequest,
+        token?: string,
+      ): Promise<CampaignResponse>;
+      activate(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
+      pause(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
+      archive(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
     };
   };
 }
@@ -1545,6 +1579,22 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+      },
+      // F4A — Kampanya/kupon yonetimi (ADR-058).
+      campaigns: {
+        list: (storeId, token) => getJson<CampaignListResponse>(`/stores/${storeId}/campaigns`, token),
+        create: (storeId, input, token) =>
+          sendJson<CampaignResponse>(`/stores/${storeId}/campaigns`, "POST", input, token),
+        get: (storeId, campaignId, token) =>
+          getJson<CampaignDetailResponse>(`/stores/${storeId}/campaigns/${campaignId}`, token),
+        update: (storeId, campaignId, input, token) =>
+          sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}`, "PATCH", input, token),
+        activate: (storeId, campaignId, token) =>
+          sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}/activate`, "POST", undefined, token),
+        pause: (storeId, campaignId, token) =>
+          sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}/pause`, "POST", undefined, token),
+        archive: (storeId, campaignId, token) =>
+          sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}/archive`, "POST", undefined, token),
       },
     },
   };

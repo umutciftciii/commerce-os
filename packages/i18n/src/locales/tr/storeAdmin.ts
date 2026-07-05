@@ -133,6 +133,7 @@ export const trStoreAdmin = {
     shipments: "Kargo Gönderileri",
     shippingProviders: "Kargo Sağlayıcıları",
     shippingRates: "Kargo Tarifeleri",
+    campaigns: "Kampanyalar",
     theme: "Tema",
     settings: "Ayarlar",
   },

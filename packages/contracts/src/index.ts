@@ -656,13 +656,34 @@ export const publicCartItemInputSchema = z.object({
 export const publicCouponStatusSchema = z.enum(["NONE", "APPLIED", "INVALID"]);
 
 /**
- * Sunucu-otoriter sepet OZETI (F3B.1 UX). Tutarlar gateway'de DEMO kurallariyla
- * hesaplanir (gercek shipping/tax/coupon motoru YOK; bkz. ADR-031):
+ * F4A — INVALID kuponun makine-okunur nedeni (UI kopyasi istemci i18n'inde).
+ * NOT_FOUND ve INACTIVE istemcide AYNI genel kopyayla gosterilmelidir (kupon
+ * varligi/durumu detayini sizdirmamak icin).
+ */
+export const publicCouponReasonSchema = z.enum([
+  "NOT_FOUND",
+  "INACTIVE",
+  "NOT_STARTED",
+  "EXPIRED",
+  "MIN_ORDER_NOT_MET",
+  "USAGE_LIMIT_REACHED",
+  "NOT_APPLICABLE",
+]);
+
+/** F4A — Uygulanan indirim satiri (kampanya adi + varsa kupon kodu). ALLOWLIST:
+ * kampanya ic metadata'si (limit/istatistik) PUBLIC yanita TASINMAZ. */
+export const publicCartDiscountLineSchema = z.object({
+  label: z.string().min(1),
+  code: z.string().max(40).nullable(),
+  amountMinor: z.number().int().nonnegative(),
+});
+
+/**
+ * Sunucu-otoriter sepet OZETI. Tutarlar gateway'de hesaplanir:
  *   - KDV fiyatlara DAHILDIR; toplam uzerine EKLENMEZ. taxIncludedMinor yalnizca
  *     grandTotal icindeki KDV gostergesidir (taxRatePercent ile).
- *   - Kargo: itemsSubtotal >= freeShippingThresholdMinor ise 0, altinda sabit
- *     demo ucret.
- *   - Kupon: yalnizca DEMO kodu (or. DEMO10) indirim uygular; digerleri INVALID.
+ *   - Kargo: magaza tarife planindan (ADR-036/044).
+ *   - Indirim: F4A kampanya/kupon motoru (ADR-058); istemciden tutar alinmaz.
  * grandTotalMinor = itemsSubtotal - discount + shipping. Insan-okunur etiketler
  * istemci i18n'inden gelir; bu govde yalnizca makine-okunur deger/durum tasir.
  */
@@ -680,6 +701,10 @@ export const publicCartSummarySchema = z.object({
   /** Uygulanan/denenen kupon kodu (yoksa null). */
   couponCode: z.string().max(40).nullable(),
   couponStatus: publicCouponStatusSchema,
+  /** F4A — INVALID ise makine-okunur neden; degilse null. */
+  couponReason: publicCouponReasonSchema.nullable(),
+  /** F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar). */
+  discountLines: z.array(publicCartDiscountLineSchema),
 });
 
 export const publicCartRequestSchema = z.object({
@@ -3492,3 +3517,188 @@ export type ShippingImportPreviewResponse = z.infer<typeof shippingImportPreview
 export type ShippingImportApplyResponse = z.infer<typeof shippingImportApplyResponseSchema>;
 export type ShippingQuoteSource = z.infer<typeof shippingQuoteSourceSchema>;
 export type ShippingQuoteStatus = z.infer<typeof shippingQuoteStatusSchema>;
+
+/* ─────────────────────── F4A Campaigns & Coupons MVP (ADR-058) ───────────────────────
+ * Indirim KAYNAK DOGRUSU sunucu tarafi motorudur (apps/api-gateway/src/campaigns).
+ * Istemciden yalnizca kupon KODU alinir; indirim tutari/istatistigi istemciden
+ * ASLA kabul edilmez. Kampanya/kupon store-scoped'tur; admin uclari platform
+ * admin + store scope guard'iyla korunur. Public yanitlar ALLOWLIST'tir
+ * (usage/musteri verisi ve ic kampanya metadata'si disari sizmaz).
+ */
+export const campaignStatusSchema = z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]);
+/** BUY_X_GET_Y / FREE_SHIPPING / MEMBERSHIP_ONLY gelecek fazlar icin enum rezervi. */
+export const campaignTypeSchema = z.enum([
+  "COUPON_CODE",
+  "AUTOMATIC_CART",
+  "PRODUCT_DISCOUNT",
+  "CATEGORY_DISCOUNT",
+  "BUY_X_GET_Y",
+  "FREE_SHIPPING",
+  "MEMBERSHIP_ONLY",
+]);
+/** MVP'de olusturulabilir kampanya tipleri (rezerv tipler admin'den ACILAMAZ). */
+export const campaignCreatableTypeSchema = z.enum([
+  "COUPON_CODE",
+  "AUTOMATIC_CART",
+  "PRODUCT_DISCOUNT",
+  "CATEGORY_DISCOUNT",
+]);
+export const campaignDiscountTypeSchema = z.enum(["PERCENT", "FIXED_AMOUNT"]);
+export const couponStatusSchema = z.enum(["ACTIVE", "PAUSED", "ARCHIVED"]);
+
+/** Kupon kodu: 2-40 karakter, [A-Za-z0-9_-]; sunucu locale-BAGIMSIZ uppercase'e normalize eder. */
+export const couponCodeSchema = z
+  .string()
+  .min(2)
+  .max(40)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/, "Invalid coupon code format");
+
+export const campaignCouponSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  normalizedCode: z.string().min(1),
+  status: couponStatusSchema,
+  totalUsageLimit: z.number().int().positive().nullable(),
+  perCustomerUsageLimit: z.number().int().positive().nullable(),
+  usageCount: z.number().int().nonnegative(),
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+/** Admin liste/detay kampanya govdesi (store-admin; secret icermez). */
+export const campaignSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  status: campaignStatusSchema,
+  type: campaignTypeSchema,
+  discountType: campaignDiscountTypeSchema,
+  discountValue: z.number().int().positive(),
+  maxDiscountAmountMinor: z.number().int().positive().nullable(),
+  minOrderAmountMinor: z.number().int().nonnegative().nullable(),
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  totalUsageLimit: z.number().int().positive().nullable(),
+  perCustomerUsageLimit: z.number().int().positive().nullable(),
+  usageCount: z.number().int().nonnegative(),
+  stackable: z.boolean(),
+  priority: z.number().int(),
+  isPublic: z.boolean(),
+  productIds: z.array(z.string().min(1)),
+  categoryIds: z.array(z.string().min(1)),
+  coupons: z.array(campaignCouponSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const campaignListResponseSchema = z.object({
+  data: z.array(campaignSchema),
+});
+
+/** Son kullanim kayitlari (admin detay; e-posta MASKELI doner, PII sizdirmaz). */
+export const campaignRedemptionSummarySchema = z.object({
+  id: z.string().min(1),
+  orderId: z.string().min(1),
+  orderNumber: z.string().nullable(),
+  couponCode: z.string().nullable(),
+  maskedEmail: z.string().nullable(),
+  discountAmountMinor: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+
+export const campaignDetailResponseSchema = campaignSchema.extend({
+  recentRedemptions: z.array(campaignRedemptionSummarySchema),
+  totalRedemptionCount: z.number().int().nonnegative(),
+  totalDiscountMinor: z.number().int().nonnegative(),
+});
+
+const campaignBaseInputSchema = z.object({
+  name: z.string().min(1).max(160),
+  description: z.string().max(2000).nullable().optional(),
+  type: campaignCreatableTypeSchema,
+  discountType: campaignDiscountTypeSchema,
+  discountValue: z.number().int().positive(),
+  maxDiscountAmountMinor: z.number().int().positive().nullable().optional(),
+  minOrderAmountMinor: z.number().int().nonnegative().nullable().optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+  totalUsageLimit: z.number().int().positive().nullable().optional(),
+  perCustomerUsageLimit: z.number().int().positive().nullable().optional(),
+  stackable: z.boolean().default(false),
+  priority: z.number().int().min(-1000).max(1000).default(0),
+  isPublic: z.boolean().default(true),
+  productIds: z.array(z.string().min(1)).max(200).default([]),
+  categoryIds: z.array(z.string().min(1)).max(200).default([]),
+  /** Yalniz type=COUPON_CODE icin zorunlu; kampanyanin ilk kupon kodu. */
+  couponCode: couponCodeSchema.nullable().optional(),
+});
+
+function refineCampaignInput(
+  value: {
+    type?: string;
+    discountType?: string;
+    discountValue?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    couponCode?: string | null;
+  },
+  ctx: z.RefinementCtx,
+  options: { requireCouponCode: boolean },
+) {
+  if (value.discountType === "PERCENT" && value.discountValue !== undefined) {
+    if (value.discountValue < 1 || value.discountValue > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["discountValue"],
+        message: "Percent discount must be between 1 and 100.",
+      });
+    }
+  }
+  if (value.startsAt && value.endsAt && new Date(value.startsAt) >= new Date(value.endsAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endsAt"],
+      message: "endsAt must be after startsAt.",
+    });
+  }
+  if (options.requireCouponCode && value.type === "COUPON_CODE" && !value.couponCode) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["couponCode"],
+      message: "couponCode is required for COUPON_CODE campaigns.",
+    });
+  }
+}
+
+export const campaignCreateRequestSchema = campaignBaseInputSchema.superRefine((value, ctx) =>
+  refineCampaignInput(value, ctx, { requireCouponCode: true }),
+);
+
+/** Kismi guncelleme; type degistirilemez (kupon/kapsam tutarliligi icin). */
+export const campaignUpdateRequestSchema = campaignBaseInputSchema
+  .omit({ type: true, couponCode: true })
+  .partial()
+  .superRefine((value, ctx) => refineCampaignInput(value, ctx, { requireCouponCode: false }));
+
+export const campaignStatusActionResponseSchema = z.object({
+  id: z.string().min(1),
+  status: campaignStatusSchema,
+});
+
+export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
+export type CampaignType = z.infer<typeof campaignTypeSchema>;
+export type CampaignCreatableType = z.infer<typeof campaignCreatableTypeSchema>;
+export type CampaignDiscountType = z.infer<typeof campaignDiscountTypeSchema>;
+export type CouponStatus = z.infer<typeof couponStatusSchema>;
+export type CampaignCoupon = z.infer<typeof campaignCouponSchema>;
+export type CampaignResponse = z.infer<typeof campaignSchema>;
+export type CampaignListResponse = z.infer<typeof campaignListResponseSchema>;
+export type CampaignRedemptionSummary = z.infer<typeof campaignRedemptionSummarySchema>;
+export type CampaignDetailResponse = z.infer<typeof campaignDetailResponseSchema>;
+export type CampaignCreateRequest = z.infer<typeof campaignCreateRequestSchema>;
+export type CampaignUpdateRequest = z.infer<typeof campaignUpdateRequestSchema>;
+export type CampaignStatusActionResponse = z.infer<typeof campaignStatusActionResponseSchema>;
+export type PublicCouponReason = z.infer<typeof publicCouponReasonSchema>;
+export type PublicCartDiscountLine = z.infer<typeof publicCartDiscountLineSchema>;

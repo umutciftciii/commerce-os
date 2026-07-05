@@ -640,6 +640,9 @@ function bannerMessage(reason: string | undefined, t: CheckoutDict): string {
       return t.validationError;
     case "cart-not-ready":
       return t.errorCartNotReady;
+    // F4A — sunucu kupon yeniden dogrulamasi reddetti; kupon kaldirilarak duzeltilir.
+    case "coupon-invalid":
+      return t.errorCouponInvalid;
     case "rejected":
       return t.errorRejected;
     case "no-store":

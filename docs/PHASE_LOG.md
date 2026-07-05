@@ -2694,3 +2694,59 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   admin 24/24, api-gateway 494/494 regresyon), git diff --check temiz.
 - **Kalan.** merge sonrası storefront/store-admin/admin-web rebuild + `API_GATEWAY_URL=` boş env ile boot/
   login-redirect/guarded-page doğrulama (500 yok, secret loglanmaz); api-gateway sağlıklı tutulur.
+
+## 2026-07-05 — F4A: Kampanyalar & Kuponlar MVP (ADR-058)
+
+- **İş problemi.** Mağazaların Amazon/Hepsiburada tarzı kupon kodu ve otomatik sepet/ürün/kategori
+  kampanyaları tanımlayabilmesi; indirimin İSTEMCİYE GÜVENMEDEN, sunucu tarafında hesaplanıp siparişe
+  değişmez snapshot olarak yazılması. Önceki durum: gateway'de yalnız hardcoded `DEMO10` %10 demo kuponu
+  vardı (ADR-031 "demo calculation" notu; TODO-059 kapsamındaki gerçek coupon motoru).
+- **Veri modeli (additive migration `20260705120000_add_campaigns_coupons`).** `Campaign` (status
+  DRAFT/ACTIVE/PAUSED/ARCHIVED; type COUPON_CODE/AUTOMATIC_CART/PRODUCT_DISCOUNT/CATEGORY_DISCOUNT —
+  BUY_X_GET_Y/FREE_SHIPPING/MEMBERSHIP_ONLY gelecek fazlar için YALNIZ enum rezervi, motor uygulamaz;
+  discountType PERCENT/FIXED_AMOUNT; maxDiscountAmountMinor/minOrderAmountMinor; startsAt/endsAt;
+  totalUsageLimit/perCustomerUsageLimit + atomik `usageCount`; stackable/priority/isPublic), `Coupon`
+  (code + normalizedCode, `@@unique([storeId, normalizedCode])` — farklı mağazalar aynı kodu kullanabilir;
+  opsiyonel pencere/limit override), `CampaignProduct`/`CampaignCategory` (kapsam; boş = tüm sepet),
+  `CampaignRedemption` (`@@unique([campaignId, orderId])`; customerId/email kimliği; İPTAL/REFUND'ta
+  TARİHSEL kalır — kompanzasyon deseni yok, ADR-058), `OrderDiscount` (sipariş sonrası IMMUTABLE snapshot:
+  label/code/discountType/value/amount + scopeSummary).
+- **Motor.** `apps/api-gateway/src/campaigns/discount-engine.ts` — SAF (I/O yok, `now` parametre).
+  Kupon normalizasyonu: trim + locale-BAĞIMSIZ `toUpperCase` (TR-I tuzağı yok) + `[A-Z0-9_-]{2,40}` format.
+  Doğrulama sırası: varlık → durum → pencere (kampanya + kupon override) → limitler → min tutar → kapsam;
+  spesifik `couponReason` üretir (NOT_FOUND/INACTIVE/NOT_STARTED/EXPIRED/MIN_ORDER_NOT_MET/
+  USAGE_LIMIT_REACHED/NOT_APPLICABLE). Hesap: PERCENT Math.round; max-cap; eligible-subtotal cap; kalan
+  sepet cap (toplam indirim > subtotal imkânsız). Stacking (MVP): kupon HER ZAMAN önce; adaylar priority
+  DESC → tutar DESC → id ASC; stackable=false seçilince başka kampanya uygulanmaz (best-discount otomatik
+  seçimi); stackable=true'lar birlikte.
+- **Public entegrasyon.** `POST /public/stores/:slug/cart` + `/checkout` DEMO10 yerine motoru kullanır;
+  kampanya bağlamı `AppDataAccess.loadCampaignDiscountContext` (store-scoped kupon lookup — cross-store
+  kupon çözülmez) ile yüklenir. Sepet özetine `couponReason` + `discountLines` (yalnız label/code/amount —
+  kampanya iç metadata'sı/istatistiği PUBLIC yanıta sızmaz) eklendi. Checkout'ta geçersiz kupon 409
+  `COUPON_INVALID` döner (sessiz sıfır-indirim ile sipariş OLUŞMAZ). createOrder transaction'ı: koşullu
+  `updateMany` ile `usageCount < totalUsageLimit` ATOMIK artışı + per-customer redemption COUNT; ihlalde
+  `CampaignRedemptionRejection` throw → ROLLBACK (sipariş+sayaç kalıcı olmaz) → 409. OrderDiscount +
+  CampaignRedemption aynı transaction'da yazılır; `Order.discountAmount`/`totalAmount` mevcut
+  `orderTotals` yolunda (max(0, subtotal - discount + shipping)).
+- **Admin API + UI.** Gateway `registerCampaignAdminRoutes`: GET/POST `/stores/:storeId/campaigns`,
+  GET/PATCH `/:id`, POST `/:id/activate|pause|archive` (platform-admin + store scope guard; ARCHIVED
+  düzenlenemez ve terminaldir; geçişler DRAFT→ACTIVE, ACTIVE↔PAUSED, *→ARCHIVED; detay maskeli e-posta ile
+  son 10 kullanım + toplam istatistik; audit log'lu). Store-admin: `/campaigns` sayfası (liste: ad/tip/
+  indirim/pencere/kullanım/durum + aksiyonlar; form: tüm alanlar + ürün/kategori kapsam seçici + kupon kodu;
+  detay paneli: kuponlar/istatistik/son kullanımlar), BFF proxy `/api/campaigns/*` (CSRF + store context),
+  api-client `admin.campaigns.*`, nav "Kampanyalar" + `storeAdmin.nav.campaigns` TR/EN.
+- **Storefront.** Mevcut kupon input/apply/remove akışı korundu (cookie yalnız kod taşır; tutar daima
+  sunucudan). Neden-bazlı hata kopyaları (TR: "Bu kupon sepetiniz için geçerli değil." / min tutar / süre /
+  limit; NOT_FOUND ve INACTIVE aynı genel kopyaya düşer — kupon varlığı sızdırılmaz); çoklu indirim satırı
+  gösterimi (kupon + otomatik kampanya); checkout 409 kupon reddi için ayrı banner (`errorCouponInvalid`).
+- **Testler.** Motor 19 birim (`campaigns-engine.test.ts`: yüzde/sabit/cap/min/normalize/pencere/limit/
+  kapsam/stacking/öncelik/deterministik yuvarlama); gateway F4A 10 API testi (health.test.ts: admin create/
+  validation/duplicate-code/cross-store-izolasyon/auth, public reason'lar, checkout revalidation + snapshot
+  + redemption + limit + kuponsuz regresyon); storefront kupon UI 4 (`cart-coupon-ui.test.tsx`); store-admin
+  sayfa 3 (`campaigns-page.test.tsx`). Regresyon: api-gateway 523/523, storefront 105/105, store-admin
+  164/164, tüm workspace testleri yeşil.
+- **Gate'ler.** db:generate, pnpm -r build, typecheck, lint, test, git diff --check — hepsi yeşil.
+- **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) + migration
+  deploy + runtime smoke (TEST250: ₺250 sabit, min ₺1.000, limit 10/müşteri-başı 1; BADCODE; min-altı;
+  cross-store; kuponsuz regresyon). Ürün kartı kampanya rozeti bilinçli follow-up. İptal/refund'ta
+  redemption iadesi yok (tarihsel kayıt; ADR-058'de sınırlama olarak dokümante).

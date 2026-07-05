@@ -349,3 +349,24 @@ reddi). Yerel düzeltme **korunur**; UI "Kargo firması üzerindeki kayıt günc
 tekrar hata verirse yeni gönderi oluşturmak gerekebilir." uyarısını gösterir. Duplicate guard
 bozulmaz — otomatik ikinci aktif gönderi açılmaz; gerekirse yeni gönderi manuel oluşturulur.
 TODO-123 retry job'ı adres onarımından **sonra** (düzeltilmiş kodlarla) çalışmalıdır.
+
+## Kampanyalar & Kuponlar (F4A / ADR-058)
+
+**Merge sonrası dağıtım:** `api-gateway`, `storefront-web`, `store-admin-web` rebuild edilir; DB'ye
+additive migration `20260705120000_add_campaigns_coupons` uygulanır (`prisma migrate deploy` — mevcut
+veriye dokunmaz, RESET YOK). 7/7 container healthy doğrulanır.
+
+**Smoke (TEST250 senaryosu):**
+1. Store-admin `/campaigns` → yeni kampanya: tip "Kupon kodu", sabit ₺250, min sepet ₺1.000, toplam limit
+   10, müşteri başına 1, kod `TEST250` → Oluştur → **Etkinleştir** (kampanyalar DRAFT doğar).
+2. Storefront: ₺1.000 üzeri sepete `TEST250` uygula → indirim satırı + genel toplam düşer; kaldır → toplam
+   eski haline döner. `BADCODE` → "geçerli bir kod değil"; min altı sepette → min tutar mesajı.
+3. Checkout: kuponlu sipariş oluştur → sipariş toplamı sunucu hesabıyla eşleşir; DB'de `OrderDiscount`
+   snapshot + `CampaignRedemption` (sipariş başına 1) doğrulanır; aynı e-posta ikinci denemede 409.
+4. Kuponsuz checkout regresyonu birebir eski davranıştır (indirim satırı/redemption YAZILMAZ).
+
+**Kurallar:** İndirim tutarı istemciden ASLA alınmaz; limitler sipariş transaction'ında atomik doğrulanır
+(quote anındaki gösterim yalnız UX'tir). Kupon kodları mağaza-scoped'tur; başka mağazanın kuponu çözülmez.
+ARCHIVED kampanya düzenlenemez (terminal). Sipariş iptal/refund edilse bile redemption kaydı TARİHSEL kalır
+(kompanzasyon yok — ADR-058); limiti dolmuş bir kampanyayı yeniden açmak için limiti artırın ya da yeni
+kampanya tanımlayın.

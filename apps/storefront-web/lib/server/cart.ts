@@ -7,6 +7,7 @@ import type {
   PublicCartSummary,
   PublicCheckoutBilling,
   PublicCheckoutRequest,
+  PublicCouponReason,
   PublicCouponStatus,
   PublicOrderConfirmation,
   PublicPaymentAvailability,
@@ -66,6 +67,10 @@ export interface CartSummaryView {
   grandTotalLabel: string;
   couponCode: string | null;
   couponStatus: PublicCouponStatus;
+  /** F4A — INVALID kuponun makine-okunur nedeni (UI kopyasi i18n'den secilir). */
+  couponReason: PublicCouponReason | null;
+  /** F4A — Uygulanan indirim satirlari (kampanya adi + varsa kupon kodu). */
+  discountLines: Array<{ label: string; code: string | null; amountLabel: string }>;
 }
 
 /** TODO-125 — Checkout kargo secenegi (vitrin gorunum modeli; bicimli fiyat + ham). */
@@ -133,7 +138,7 @@ export type CartResult<T> = { ok: true; data: T } | { ok: false; reason: CartFai
 
 export type CheckoutResult =
   | { ok: true; confirmation: OrderConfirmationView }
-  | { ok: false; reason: "cart-not-ready" | "rejected" | "no-store" | "error" };
+  | { ok: false; reason: "cart-not-ready" | "coupon-invalid" | "rejected" | "no-store" | "error" };
 
 function cartPath(): string {
   return `/public/stores/${encodeURIComponent(demoStoreSlug())}/cart`;
@@ -158,6 +163,12 @@ function toSummaryView(summary: PublicCartSummary, shipping: PublicCart["shippin
     grandTotalLabel: formatMinor(summary.grandTotalMinor, summary.currency),
     couponCode: summary.couponCode,
     couponStatus: summary.couponStatus,
+    couponReason: summary.couponReason,
+    discountLines: summary.discountLines.map((line) => ({
+      label: line.label,
+      code: line.code,
+      amountLabel: formatMinor(line.amountMinor, summary.currency),
+    })),
   };
 }
 
@@ -306,6 +317,11 @@ export async function submitCheckout(
       : await postPublic<PublicOrderConfirmation>(checkoutPath(), body);
     if (!result.ok) {
       if (result.status === 404) return { ok: false, reason: "no-store" };
+      // F4A — Kupon reddi (gecersiz/limit dolu) sepete-donus degil; kupon
+      // kaldirilarak duzeltilebilir bir durumdur, ayri mesaj gosterilir.
+      if (result.status === 409 && result.code === "COUPON_INVALID") {
+        return { ok: false, reason: "coupon-invalid" };
+      }
       if (result.status === 409) return { ok: false, reason: "cart-not-ready" };
       if (result.status === 400) return { ok: false, reason: "rejected" };
       return { ok: false, reason: "error" };

@@ -222,6 +222,15 @@ export const trStorefront = {
     couponApplied: "{code} kodu uygulandı",
     couponRemove: "Kaldır",
     couponInvalid: "{code} geçerli bir kod değil.",
+    // F4A — makine-okunur kupon reddi nedenleri (sunucu motoru; ADR-058).
+    // NOT_FOUND ve INACTIVE ayni genel kopyaya duser (varlik detayi sizdirilmaz).
+    couponReasonNotApplicable: "Bu kupon sepetiniz için geçerli değil.",
+    couponReasonMinOrder: "Bu kupon için minimum sepet tutarına ulaşılmadı.",
+    couponReasonExpired: "Bu kuponun süresi doldu.",
+    couponReasonNotStarted: "Bu kupon henüz başlamadı.",
+    couponReasonUsageLimit: "Bu kuponun kullanım limiti doldu.",
+    // Kupon kaynaklı checkout reddi (409 COUPON_INVALID).
+    couponCheckoutRejected: "Kupon uygulanamadı. Kuponu kaldırıp tekrar deneyin.",
   },
   checkout: {
     title: "Ödeme",
@@ -303,6 +312,8 @@ export const trStorefront = {
     submitting: "Oluşturuluyor…",
     validationError: "Lütfen zorunlu alanları eksiksiz doldurun.",
     errorCartNotReady: "Sepetinizdeki bazı ürünler artık uygun değil. Lütfen sepeti güncelleyin.",
+    // F4A — sunucu kupon yeniden doğrulaması siparişi reddetti (409 COUPON_INVALID).
+    errorCouponInvalid: "Kupon uygulanamadı. Kuponu kaldırıp tekrar deneyin.",
     errorRejected: "Sipariş oluşturulamadı. Lütfen sepetinizi kontrol edin.",
     errorNoStore: "Mağazaya ulaşılamıyor. Lütfen birazdan tekrar deneyin.",
     errorGeneric: "Bir şeyler ters gitti. Lütfen birazdan tekrar deneyin.",
