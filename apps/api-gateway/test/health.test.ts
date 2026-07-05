@@ -3861,6 +3861,10 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       couponCode: null,
       couponAction: "MANUAL_ONLY",
       endsAt: null,
+      // F4A.6 — Tek-fiyatli urun (₺1.299) + min-order (₺1.000) karsilaniyor =>
+      // guvenli tahmin: %10 x 129900 = 12990 indirim, nihai 116910.
+      estimatedDiscountMinor: 12990,
+      estimatedFinalUnitPriceMinor: 116910,
       // F4A.4 — Sunum alanlari (ADR-061); seed varsayilanlariyla null/STANDARD.
       displayTitle: null,
       shortDescription: null,

@@ -68,7 +68,6 @@ import {
   storeAdminCustomerListResponseSchema,
   storeAdminCustomerSummarySchema,
   digitsOnly,
-  type PublicCampaignBadge,
   type PublicCheckoutBilling,
 } from "@commerce-os/contracts";
 import {
@@ -102,6 +101,7 @@ import {
   CampaignRedemptionRejection,
   createPrismaCampaignDataAccess,
   type CampaignDataAccess,
+  type CampaignRecord,
   type OrderDiscountInput,
   type RedemptionError,
 } from "./campaigns/data.js";
@@ -119,7 +119,7 @@ import {
   type CouponCenterUsedEntry,
   type WalletCandidate,
 } from "./campaigns/wallet.js";
-import { selectPublicCampaignBadge } from "./campaigns/public-badge.js";
+import { selectPublicCampaignDisplay } from "./campaigns/public-badge.js";
 import { campaignAppliesToProduct } from "./campaigns/public-badge.js";
 import {
   computeStoreShippingQuote,
@@ -1283,11 +1283,32 @@ function buildPublicProduct(
   activeVariants: VariantRecord[],
   categoryNames: Map<string, string>,
   stockByVariantId: Map<string, number>,
-  // F4A.1 — Urun icin secilen public kampanya rozeti (allowlist projeksiyon).
-  campaignBadge: PublicCampaignBadge | null = null,
+  // F4A.1/F4A.6 — Store-scoped ACTIVE+public kampanyalar; urun icin gosterim seti
+  // (birincil + stackable ikincil kupon) BURADA secilir (allowlist projeksiyon).
+  publicCampaigns: CampaignRecord[] = [],
+  badgeNow: Date = new Date(),
 ) {
+  const variants = activeVariants.map((variant) =>
+    buildPublicVariant(product, variant, stockByVariantId),
+  );
+  // F4A.6 — Guvenli nihai fiyat tahmini yalnizca TEK-FIYATLI urunlerde uretilir:
+  // gorunur varyant fiyatlari esitse temsili birim fiyat, aksi halde null (fiyat
+  // araliginda sahte tekil nihai fiyat gosterilmez).
+  const visiblePriceMinors = variants
+    .map((variant) => variant.priceMinor)
+    .filter((price): price is number => price !== null);
+  const minPrice = visiblePriceMinors.length > 0 ? Math.min(...visiblePriceMinors) : null;
+  const maxPrice = visiblePriceMinors.length > 0 ? Math.max(...visiblePriceMinors) : null;
+  const unitPriceMinor = minPrice !== null && minPrice === maxPrice ? minPrice : null;
+  const display = selectPublicCampaignDisplay(
+    publicCampaigns,
+    { id: product.id, categoryIds: product.categoryIds },
+    badgeNow,
+    unitPriceMinor,
+  );
   return publicProductSchema.parse({
-    campaign: campaignBadge,
+    campaign: display.primary,
+    secondaryCoupon: display.secondaryCoupon,
     id: product.id,
     slug: product.slug,
     title: product.title,
@@ -1302,7 +1323,7 @@ function buildPublicProduct(
     appointmentRequired: product.appointmentRequired,
     minOrderQuantity: product.minOrderQuantity,
     maxOrderQuantity: product.maxOrderQuantity ?? null,
-    variants: activeVariants.map((variant) => buildPublicVariant(product, variant, stockByVariantId)),
+    variants,
   });
 }
 
@@ -3367,7 +3388,8 @@ export function createServer(
           await loadActivePublicVariants(store.id, product.id),
           categoryNames,
           stockMap,
-          selectPublicCampaignBadge(publicCampaigns, product, badgeNow),
+          publicCampaigns,
+          badgeNow,
         ),
       ),
     );
@@ -3401,7 +3423,8 @@ export function createServer(
       variants,
       categoryNames,
       stockMap,
-      selectPublicCampaignBadge(publicCampaigns, product, badgeNow),
+      publicCampaigns,
+      badgeNow,
     );
     const related = await Promise.all(
       products
@@ -3413,7 +3436,8 @@ export function createServer(
             await loadActivePublicVariants(store.id, item.id),
             categoryNames,
             stockMap,
-            selectPublicCampaignBadge(publicCampaigns, item, badgeNow),
+            publicCampaigns,
+            badgeNow,
           ),
         ),
     );

@@ -4,6 +4,7 @@ import {
   campaignAppliesToProduct,
   isBadgeEligible,
   selectPublicCampaignBadge,
+  selectPublicCampaignDisplay,
 } from "../src/campaigns/public-badge.js";
 
 const NOW = new Date("2026-07-01T12:00:00Z");
@@ -164,6 +165,9 @@ describe("selectPublicCampaignBadge", () => {
       couponCode: null,
       couponAction: "MANUAL_ONLY",
       endsAt: null,
+      // F4A.6 — Birim fiyat verilmedi (default null) => guvenli tahmin uretilmez.
+      estimatedDiscountMinor: null,
+      estimatedFinalUnitPriceMinor: null,
       // F4A.4 — Sunum alanlari (ADR-061); fixture varsayilanlariyla null/STANDARD.
       displayTitle: null,
       shortDescription: null,
@@ -274,5 +278,135 @@ describe("selectPublicCampaignBadge", () => {
   it("kapsam disi kampanya secilmez", () => {
     const scoped = campaign({ id: "scoped", type: "PRODUCT_DISCOUNT", productIds: ["prod-9"] });
     expect(selectPublicCampaignBadge([scoped], PRODUCT, NOW)).toBeNull();
+  });
+});
+
+// F4A.6 (ADR-062) — Guvenli birim-basi nihai fiyat tahmini.
+describe("selectPublicCampaignBadge · guvenli tahmini nihai fiyat", () => {
+  it("otomatik PERCENT + birim fiyat + min-order yok => nihai fiyat hesaplanir", () => {
+    // %10 x 129900 => round(12990)=12990 indirim; nihai 116910.
+    const badge = selectPublicCampaignBadge([campaign({ discountValue: 10 })], PRODUCT, NOW, 129900);
+    expect(badge?.estimatedDiscountMinor).toBe(12990);
+    expect(badge?.estimatedFinalUnitPriceMinor).toBe(116910);
+  });
+
+  it("birim fiyat verilmezse (aralik/bilinmiyor) tahmin uretilmez", () => {
+    const badge = selectPublicCampaignBadge([campaign({ discountValue: 10 })], PRODUCT, NOW, null);
+    expect(badge?.estimatedDiscountMinor).toBeNull();
+    expect(badge?.estimatedFinalUnitPriceMinor).toBeNull();
+  });
+
+  it("min-order birim fiyattan buyukse tek urun karsilamaz => tahmin uretilmez", () => {
+    const badge = selectPublicCampaignBadge(
+      [campaign({ discountValue: 10, minOrderAmountMinor: 200000 })],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(badge?.estimatedFinalUnitPriceMinor).toBeNull();
+  });
+
+  it("min-order karsilaniyorsa tahmin uretilir", () => {
+    const badge = selectPublicCampaignBadge(
+      [campaign({ discountValue: 10, minOrderAmountMinor: 100000 })],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(badge?.estimatedFinalUnitPriceMinor).toBe(116910);
+  });
+
+  it("FIXED_AMOUNT sepet indirimi tek birime guvenli degildir => tahmin uretilmez", () => {
+    const badge = selectPublicCampaignBadge(
+      [campaign({ discountType: "FIXED_AMOUNT", discountValue: 25000 })],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(badge?.estimatedFinalUnitPriceMinor).toBeNull();
+  });
+
+  it("maxDiscount cap tahmine motorla ayni sekilde uygulanir", () => {
+    // %10 x 129900 = 12990 ama cap 5000 => indirim 5000; nihai 124900.
+    const badge = selectPublicCampaignBadge(
+      [campaign({ discountValue: 10, maxDiscountAmountMinor: 5000 })],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(badge?.estimatedDiscountMinor).toBe(5000);
+    expect(badge?.estimatedFinalUnitPriceMinor).toBe(124900);
+  });
+
+  it("kupon rozetinde tahmin daima null (birim fiyat verilse bile)", () => {
+    const badge = selectPublicCampaignBadge(
+      [campaign({ type: "COUPON_CODE", coupons: [coupon()] })],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(badge?.displayKind).toBe("PUBLIC_COUPON");
+    expect(badge?.estimatedFinalUnitPriceMinor).toBeNull();
+  });
+});
+
+// F4A.6 (ADR-062) — Stackable-duyarli gosterim seti (birincil + ikincil kupon).
+describe("selectPublicCampaignDisplay · stackable kurali", () => {
+  const automatic = campaign({ id: "auto-1", type: "AUTOMATIC_CART", priority: 0 });
+  const couponCamp = campaign({
+    id: "coup-1",
+    type: "COUPON_CODE",
+    discountType: "FIXED_AMOUNT",
+    discountValue: 25000,
+    priority: 1,
+    coupons: [coupon()],
+  });
+
+  it("hepsi stackable ise: otomatik birincil (Sepette) + kupon ikincil", () => {
+    const display = selectPublicCampaignDisplay(
+      [{ ...couponCamp, stackable: true }, { ...automatic, stackable: true }],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(display.primary?.displayKind).toBe("AUTOMATIC_CART_DISCOUNT");
+    expect(display.primary?.estimatedFinalUnitPriceMinor).toBe(116910);
+    expect(display.secondaryCoupon?.displayKind).toBe("PUBLIC_COUPON");
+    expect(display.secondaryCoupon?.couponCode).toBe("TEST250");
+  });
+
+  it("en az biri non-stackable ise: yalniz oncelik kazanani (ikincil null)", () => {
+    // couponCamp priority 1 > automatic 0; non-stackable => kupon birincil, ikincil yok.
+    const display = selectPublicCampaignDisplay(
+      [{ ...couponCamp, stackable: false }, { ...automatic, stackable: true }],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(display.primary?.displayKind).toBe("PUBLIC_COUPON");
+    expect(display.secondaryCoupon).toBeNull();
+  });
+
+  it("stackable ama yalniz otomatik varsa ikincil kupon yok", () => {
+    const display = selectPublicCampaignDisplay(
+      [{ ...automatic, stackable: true }],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(display.primary?.displayKind).toBe("AUTOMATIC_CART_DISCOUNT");
+    expect(display.secondaryCoupon).toBeNull();
+  });
+
+  it("accessModel=AUTO_VISIBLE olsa bile kupon kampanyasi PUBLIC_COUPON kalir (otomatik olmaz)", () => {
+    const display = selectPublicCampaignDisplay(
+      [{ ...couponCamp, stackable: false, accessModel: "AUTO_VISIBLE" }],
+      PRODUCT,
+      NOW,
+      129900,
+    );
+    expect(display.primary?.displayKind).toBe("PUBLIC_COUPON");
+    expect(display.primary?.requiresCouponCode).toBe(true);
+    expect(display.primary?.estimatedFinalUnitPriceMinor).toBeNull();
   });
 });

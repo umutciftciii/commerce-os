@@ -62,6 +62,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     commerce: deriveProductCommerceView(onlineSales),
     badgeKind: "discount",
     campaign: null,
+    secondaryCoupon: null,
     description: "Cozy hoodie for everyday wear",
     sku: "DEMO-HOODIE-BLK-M",
     variants: [
@@ -92,6 +93,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
         commerce: deriveProductCommerceView(onlineSales),
         badgeKind: null,
         campaign: null,
+        secondaryCoupon: null,
       },
     ],
     ...overrides,
@@ -230,6 +232,7 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
           couponAction: "MANUAL_ONLY",
           minOrderLabel: "₺1.000",
           endsAt: null,
+          estimatedFinalLabel: null,
           displayTitle: null,
           shortDescription: null,
           badgeLabel: null,
@@ -242,6 +245,36 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
     expect(html).toContain("Sepette %10 indirim");
     expect(html).toContain("Kod gerekmez");
     expect(html).toContain("₺1.000 üzeri geçerli");
+    expect(html).not.toContain("Kupon kodu gerektirir");
+  });
+
+  it("F4A.6: automatic discount with a safe estimate shows a prominent 'Sepette' price block", async () => {
+    byHandle.mockResolvedValue({
+      ok: true,
+      data: detail({
+        campaign: {
+          displayKind: "AUTOMATIC_CART_DISCOUNT",
+          badgeText: "Sepette %10 indirim",
+          label: "Sepette %10 indirim",
+          discountText: "%10",
+          requiresCoupon: false,
+          couponCode: null,
+          couponAction: "MANUAL_ONLY",
+          minOrderLabel: null,
+          endsAt: null,
+          estimatedFinalLabel: "₺1.169,10",
+          displayTitle: null,
+          shortDescription: null,
+          badgeLabel: null,
+          terms: null,
+        },
+        related: [],
+      }),
+    });
+    const html = renderToStaticMarkup(await render());
+    expect(html).toContain("Sepette");
+    expect(html).toContain("₺1.169,10"); // güvenli nihai fiyat
+    expect(html).toContain("Kod gerekmez");
     expect(html).not.toContain("Kupon kodu gerektirir");
   });
 
@@ -259,6 +292,7 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
           couponAction: "CLAIM",
           minOrderLabel: "₺1.000",
           endsAt: null,
+          estimatedFinalLabel: null,
           displayTitle: null,
           shortDescription: null,
           badgeLabel: null,

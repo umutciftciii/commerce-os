@@ -89,26 +89,55 @@ function effectiveEndsAt(campaign: CampaignRecord, coupon: CampaignCouponRecord 
 }
 
 /**
- * Urun icin gosterilecek rozeti secer (yoksa null). `campaigns` onceden
- * store-scoped yuklenmis olmalidir; burada store filtresi YAPILMAZ.
+ * F4A.6 (ADR-062) — Otomatik sepet indiriminin GUVENLI birim-basi tahmini.
+ * Yalniz PERCENT + tek-fiyatli urun (unitPriceMinor biliniyor) + (minOrder yok
+ * ya da tek urun esigi karsiliyor) durumunda hesaplanir; aksi halde null (sahte
+ * nihai fiyat URETILMEZ). Motorla AYNI formul kullanilir: round(unit*yuzde),
+ * maxDiscount cap ve birim fiyatla sinirlama. Sabit tutarli (FIXED_AMOUNT)
+ * sepet indirimi tek birime guvenli boluinemedigi icin tahmin uretilmez.
  */
-export function selectPublicCampaignBadge(
-  campaigns: CampaignRecord[],
-  product: { id: string; categoryIds: string[] },
+function computeAutomaticEstimate(
+  campaign: CampaignRecord,
+  unitPriceMinor: number | null,
+): { estimatedDiscountMinor: number | null; estimatedFinalUnitPriceMinor: number | null } {
+  const none = { estimatedDiscountMinor: null, estimatedFinalUnitPriceMinor: null };
+  if (unitPriceMinor === null || unitPriceMinor <= 0) return none;
+  if (campaign.discountType !== "PERCENT") return none;
+  if (campaign.minOrderAmountMinor !== null && unitPriceMinor < campaign.minOrderAmountMinor) {
+    return none;
+  }
+  let discount = Math.round((unitPriceMinor * campaign.discountValue) / 100);
+  if (campaign.maxDiscountAmountMinor !== null) {
+    discount = Math.min(discount, campaign.maxDiscountAmountMinor);
+  }
+  discount = Math.max(0, Math.min(discount, unitPriceMinor));
+  if (discount <= 0) return none;
+  return {
+    estimatedDiscountMinor: discount,
+    estimatedFinalUnitPriceMinor: unitPriceMinor - discount,
+  };
+}
+
+/**
+ * Tek kampanya kaydini public rozet projeksiyonuna cevirir. `unitPriceMinor`
+ * yalnizca OTOMATIK kampanyanin guvenli nihai fiyat tahmini icindir (kupon
+ * rozetinde daima null gecilir). isPublic/uygunluk cagiran tarafta dogrulanmis
+ * olmalidir; ic kimlik/limit/priority/stackable BURADA SIZMAZ.
+ */
+function buildBadge(
+  winner: CampaignRecord,
   now: Date,
-): PublicCampaignBadge | null {
-  const eligible = campaigns
-    .filter((campaign) => isBadgeEligible(campaign, now))
-    .filter((campaign) => campaignAppliesToProduct(campaign, product))
-    .sort(compareCampaigns);
-  const winner = eligible[0];
-  if (!winner) return null;
+  unitPriceMinor: number | null,
+): PublicCampaignBadge {
   const isCoupon = winner.type === "COUPON_CODE";
   // Public kupon kodu yalnizca guvenli oldugunda tasinir; otomatik kampanyada null.
   const couponCode = isCoupon ? selectPublicCouponCode(winner, now) : null;
   const activeCoupon = isCoupon
     ? (winner.coupons.find((c) => c.code === couponCode) ?? null)
     : null;
+  const estimate = isCoupon
+    ? { estimatedDiscountMinor: null, estimatedFinalUnitPriceMinor: null }
+    : computeAutomaticEstimate(winner, unitPriceMinor);
   return {
     kind: isCoupon ? "COUPON" : "AUTOMATIC",
     displayKind: isCoupon ? "PUBLIC_COUPON" : "AUTOMATIC_CART_DISCOUNT",
@@ -120,8 +149,77 @@ export function selectPublicCampaignBadge(
     // Kod varsa CLAIM (sepete kupon olarak ekle); yoksa MANUAL_ONLY.
     couponAction: isCoupon ? (couponCode ? "CLAIM" : "MANUAL_ONLY") : "MANUAL_ONLY",
     endsAt: effectiveEndsAt(winner, activeCoupon),
+    ...estimate,
     // F4A.4 — Admin-kontrollu sunum alanlari (allowlist). winner zaten isPublic
     // dogrulanmis kampanyadir; PRIVATE veri buraya ulasmaz.
     ...toCouponDisplayFields(winner),
   };
+}
+
+/**
+ * F4A.6 (ADR-062) — Urun karti/detayi icin gosterim seti.
+ *  - primary: birincil rozet (otomatik "Sepette" bloku ya da kupon karti).
+ *  - secondaryCoupon: birincil OTOMATIK iken, tum uygun kampanyalar stackable
+ *    ise EK gosterilecek public kupon; aksi halde null.
+ */
+export interface PublicCampaignDisplay {
+  primary: PublicCampaignBadge | null;
+  secondaryCoupon: PublicCampaignBadge | null;
+}
+
+/**
+ * Urun icin gosterim setini secer. `campaigns` onceden store-scoped yuklenmis
+ * olmalidir; burada store filtresi YAPILMAZ. `unitPriceMinor` yalnizca otomatik
+ * indirimin guvenli nihai fiyat tahmini icin verilir (tek-fiyatli urunlerde;
+ * fiyat araligi/bilinmiyorsa null gecilmelidir).
+ *
+ * Stackable kurali (checkout stacking semantigiyle tutarli): uygun kampanyalarin
+ * HEPSI stackable ise otomatik "Sepette" birincil + public kupon ikincil olarak
+ * BIRLIKTE gosterilir (checkout'ta da birlikte uygulanabilirler). En az biri
+ * non-stackable ise (checkout'ta digerlerini bloklar) yalnizca oncelik kazanani
+ * (priority DESC, id ASC) gosterilir.
+ */
+export function selectPublicCampaignDisplay(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+  unitPriceMinor: number | null = null,
+): PublicCampaignDisplay {
+  const eligible = campaigns
+    .filter((campaign) => isBadgeEligible(campaign, now))
+    .filter((campaign) => campaignAppliesToProduct(campaign, product))
+    .sort(compareCampaigns);
+  if (eligible.length === 0) return { primary: null, secondaryCoupon: null };
+
+  const allStackable = eligible.every((campaign) => campaign.stackable);
+  if (allStackable) {
+    const automatic = eligible.find((campaign) => campaign.type !== "COUPON_CODE") ?? null;
+    const coupon = eligible.find((campaign) => campaign.type === "COUPON_CODE") ?? null;
+    // Otomatik varsa "Sepette" fiyat blogu birincil (kod gerektirmeden uygulanir).
+    const primaryRec = automatic ?? coupon!;
+    const secondaryRec = automatic && coupon ? coupon : null;
+    return {
+      primary: buildBadge(primaryRec, now, primaryRec.type !== "COUPON_CODE" ? unitPriceMinor : null),
+      secondaryCoupon: secondaryRec ? buildBadge(secondaryRec, now, null) : null,
+    };
+  }
+
+  const primaryRec = eligible[0];
+  return {
+    primary: buildBadge(primaryRec, now, primaryRec.type !== "COUPON_CODE" ? unitPriceMinor : null),
+    secondaryCoupon: null,
+  };
+}
+
+/**
+ * Urun icin gosterilecek BIRINCIL rozeti secer (yoksa null). Geriye-uyumlu ince
+ * sarmalayici; ayrintili gosterim seti icin {@link selectPublicCampaignDisplay}.
+ */
+export function selectPublicCampaignBadge(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+  unitPriceMinor: number | null = null,
+): PublicCampaignBadge | null {
+  return selectPublicCampaignDisplay(campaigns, product, now, unitPriceMinor).primary;
 }

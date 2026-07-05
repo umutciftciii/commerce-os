@@ -465,6 +465,8 @@ export const enStorefront: StorefrontDictionary = {
   badges: {
     discount: "Sale",
     new: "New",
+    // F4A.6 — Automatic cart-discount price block label.
+    inCart: "In cart",
   },
   // F3B.3 — Customer authentication (register/login) copy.
   auth: {
