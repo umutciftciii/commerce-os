@@ -196,7 +196,21 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
             <dd className="font-medium text-slate-900">{s.subtotalLabel}</dd>
           </div>
 
-          {s.discountLabel ? (
+          {/* F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar).
+              Sunucu-otoriter: etiket/tutar motor sonucudur; istemci hesap yapmaz. */}
+          {s.discountLines.length > 0 ? (
+            s.discountLines.map((line, index) => (
+              <div key={index} className="flex items-center justify-between text-emerald-700">
+                <dt>
+                  {t.discount}
+                  <span className="ml-1 text-xs font-medium">
+                    ({line.code ?? line.label})
+                  </span>
+                </dt>
+                <dd className="font-medium">−{line.amountLabel}</dd>
+              </div>
+            ))
+          ) : s.discountLabel ? (
             <div className="flex items-center justify-between text-emerald-700">
               <dt>
                 {t.discount}
@@ -331,12 +345,31 @@ function CouponForm({
         </Button>
       </div>
       {invalid ? (
-        <p className="mt-1.5 text-xs text-red-600">
-          {format(t.couponInvalid, { code: summary.couponCode ?? "" })}
-        </p>
+        <p className="mt-1.5 text-xs text-red-600">{couponErrorMessage(summary, t)}</p>
       ) : null}
     </div>
   );
+}
+
+/**
+ * F4A — INVALID kuponun nedenine gore kullanici kopyasi. NOT_FOUND ve INACTIVE
+ * ayni genel kopyaya duser (kupon varligi/durum detayi sizdirilmaz).
+ */
+function couponErrorMessage(summary: CartViewModel["summary"], t: CartDict): string {
+  switch (summary.couponReason) {
+    case "MIN_ORDER_NOT_MET":
+      return t.couponReasonMinOrder;
+    case "EXPIRED":
+      return t.couponReasonExpired;
+    case "NOT_STARTED":
+      return t.couponReasonNotStarted;
+    case "USAGE_LIMIT_REACHED":
+      return t.couponReasonUsageLimit;
+    case "NOT_APPLICABLE":
+      return t.couponReasonNotApplicable;
+    default:
+      return format(t.couponInvalid, { code: summary.couponCode ?? "" });
+  }
 }
 
 function DismissButton({ onClick }: { onClick: () => void }) {

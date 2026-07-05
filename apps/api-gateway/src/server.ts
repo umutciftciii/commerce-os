@@ -83,6 +83,23 @@ import {
   registerShippingWebhookRoutes,
 } from "./shipping/webhook-routes.js";
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
+// F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
+import {
+  computeDiscounts,
+  normalizeCouponCode,
+  type DiscountCartLine,
+  type DiscountContext,
+  type DiscountEngineResult,
+} from "./campaigns/discount-engine.js";
+import {
+  applyOrderDiscountsInTransaction,
+  CampaignRedemptionRejection,
+  createPrismaCampaignDataAccess,
+  type CampaignDataAccess,
+  type OrderDiscountInput,
+  type RedemptionError,
+} from "./campaigns/data.js";
+import { registerCampaignAdminRoutes } from "./campaigns/routes.js";
 import {
   computeStoreShippingQuote,
   listActiveRatePlans,
@@ -459,7 +476,9 @@ export interface PaymentProviderEventCreateInput {
   metadata?: Record<string, unknown> | null;
 }
 
-export interface AppDataAccess {
+// F4A — Kampanya veri erisimi AppDataAccess'e dahildir; boylece test harness'i
+// (MemoryDataAccess) public sepet/checkout indirim akisini DB'siz dogrulayabilir.
+export interface AppDataAccess extends CampaignDataAccess {
   findPlatformUserByEmail(email: string): Promise<PlatformUserRecord | null>;
   createPlatformSession(input: {
     platformUserId: string;
@@ -719,8 +738,14 @@ export interface AppDataAccess {
         logoUrl?: string | null;
         etaText?: string | null;
       } | null;
-      /** Opsiyonel demo indirim tutari (minor); verilmezse 0. */
+      /** Toplam indirim (minor); F4A motor ciktisindan gelir, verilmezse 0. */
       discountAmount?: number;
+      /**
+       * F4A — Siparis indirim SNAPSHOT satirlari (ADR-058). Kampanyali satirlar
+       * icin usage limitleri TRANSACTION icinde atomik yeniden dogrulanir ve
+       * CampaignRedemption yazilir; limit asilirsa siparis OLUSMAZ.
+       */
+      discounts?: OrderDiscountInput[];
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
         fullName: string;
@@ -745,7 +770,12 @@ export interface AppDataAccess {
       actorUserId?: string;
     },
   ): Promise<
-    OrderRecord | "CUSTOMER_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INVALID_VARIANT" | ProductOrderValidationCode
+    | OrderRecord
+    | "CUSTOMER_NOT_FOUND"
+    | "VARIANT_NOT_FOUND"
+    | "INVALID_VARIANT"
+    | RedemptionError
+    | ProductOrderValidationCode
   >;
   updateOrder(
     storeId: string,
@@ -1235,6 +1265,9 @@ function buildPublicProduct(
  */
 interface CartResolvableVariant {
   variantId: string;
+  /** F4A — Kampanya urun/kategori kapsam eslesmesi icin (public yanita TASINMAZ). */
+  productId: string;
+  categoryIds: string[];
   productSlug: string;
   productTitle: string;
   variantTitle: string;
@@ -1327,7 +1360,10 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
 
 /**
  * Sepet ozeti hesabi. KDV (%20) fiyatlara DAHILDIR; toplam uzerine EKLENMEZ.
- * Kupon: yalnizca DEMO_COUPON_CODE (DEMO10) %10 indirim uygular.
+ *
+ * F4A — Kupon/kampanya indirimi DEMO kural DEGILDIR; kampanya motorundan
+ * (campaigns/discount-engine.ts, ADR-058) gelen sonuc kullanilir. Istemciden
+ * indirim tutari ASLA alinmaz.
  *
  * F3C.2 — Kargo artik HARDCODED degildir; magaza kargo TARIFE planindan
  * hesaplanir (bkz. ADR-036, price-engine.ts). shipping parametresi quote
@@ -1336,8 +1372,6 @@ function decimalToNumber(value: Prisma.Decimal | number | null | undefined): num
  * grandTotal = itemsSubtotal - discount + shipping.
  */
 const CART_TAX_RATE_PERCENT = 20; // KDV (fiyatlara dahil)
-const DEMO_COUPON_CODE = "DEMO10";
-const DEMO_COUPON_RATE_PERCENT = 10;
 
 interface CartSummaryShipping {
   shippingMinor: number;
@@ -1348,20 +1382,11 @@ interface CartSummaryShipping {
 function computeCartSummary(
   subtotalMinor: number,
   currency: string,
-  couponCode: string | null | undefined,
+  discount: DiscountEngineResult,
   shipping: CartSummaryShipping,
 ) {
-  const code = couponCode?.trim().toUpperCase() || null;
-  let discountMinor = 0;
-  let couponStatus: "NONE" | "APPLIED" | "INVALID" = "NONE";
-  if (code) {
-    if (code === DEMO_COUPON_CODE && subtotalMinor > 0) {
-      discountMinor = Math.round((subtotalMinor * DEMO_COUPON_RATE_PERCENT) / 100);
-      couponStatus = "APPLIED";
-    } else {
-      couponStatus = "INVALID";
-    }
-  }
+  // Motor indirimi zaten subtotal'i asamaz; defansif olarak yine sinirlanir.
+  const discountMinor = Math.max(0, Math.min(discount.discountMinor, subtotalMinor));
   const shippingMinor = shipping.includeInTotal ? Math.max(0, shipping.shippingMinor) : 0;
   const grandTotalMinor = Math.max(0, subtotalMinor - discountMinor + shippingMinor);
   // KDV dahil: grand total icindeki KDV payi = total * rate / (100 + rate).
@@ -1377,9 +1402,21 @@ function computeCartSummary(
     currency,
     freeShippingThresholdMinor: shipping.freeThresholdMinor ?? 0,
     taxRatePercent: CART_TAX_RATE_PERCENT,
-    couponCode: couponStatus === "NONE" ? null : code,
-    couponStatus,
+    couponCode: discount.couponStatus === "NONE" ? null : discount.couponCode,
+    couponStatus: discount.couponStatus,
+    couponReason: discount.couponStatus === "INVALID" ? discount.couponReason : null,
+    // PUBLIC allowlist: yalniz etiket + kod + tutar (kampanya ic metadata'si sizmaz).
+    discountLines: discount.discountLines.map((line) => ({
+      label: line.label,
+      code: line.code,
+      amountMinor: line.discountAmountMinor,
+    })),
   };
+}
+
+/** F4A — Bos/indirimsiz motor sonucu (kupon girilmedi). */
+function emptyDiscountResult(): DiscountEngineResult {
+  return { discountLines: [], discountMinor: 0, couponStatus: "NONE", couponReason: null, couponCode: null };
 }
 
 /**
@@ -1420,11 +1457,18 @@ interface CartShippingContext {
   now?: Date;
 }
 
+/** F4A — Sepetin indirim motoru girdisi + hesap sonucu (snapshot icin ic alanlar). */
+interface CartDiscountContext {
+  /** Kullanicinin girdigi ham kupon kodu (normalize motor icinde yapilir). */
+  couponCode: string | null;
+  context: DiscountContext;
+}
+
 function assemblePublicCart(
   storeSlug: string,
   index: Map<string, CartResolvableVariant>,
   items: Array<{ variantId: string; quantity: number }>,
-  couponCode: string | null | undefined,
+  discountCtx: CartDiscountContext,
   shippingCtx: CartShippingContext,
 ) {
   const lines: PublicCartLineResult[] = [];
@@ -1471,14 +1515,36 @@ function assemblePublicCart(
   const shippingOk = quote.outcome.status === "OK";
   const selectedPlan = optionsResult.selected?.plan ?? null;
 
-  // Kupon indirimi yalnizca checkout'a hazir (tum satirlar OK) sepete uygulanir;
-  // aksi halde yanlis bir grand total gosterilmez.
-  const summary = computeCartSummary(subtotalMinor, currency, checkoutReady ? couponCode : null, {
+  // F4A — Kampanya/kupon indirimi motoru. Indirim yalnizca checkout'a hazir
+  // (tum satirlar OK) sepete uygulanir; aksi halde yanlis grand total gosterilmez.
+  const discountLines: DiscountCartLine[] = lines
+    .filter((line) => line.status !== "UNAVAILABLE")
+    .map((line) => {
+      const entry = index.get(line.variantId)!;
+      return {
+        variantId: line.variantId,
+        productId: entry.productId,
+        categoryIds: entry.categoryIds,
+        quantity: line.availableQuantity,
+        lineTotalMinor: line.lineTotalMinor,
+      };
+    });
+  const discount = checkoutReady
+    ? computeDiscounts({
+        lines: discountLines,
+        subtotalMinor,
+        couponCode: discountCtx.couponCode,
+        context: discountCtx.context,
+        now,
+      })
+    : emptyDiscountResult();
+
+  const summary = computeCartSummary(subtotalMinor, currency, discount, {
     shippingMinor: shippingOk ? quote.outcome.amountMinor ?? 0 : 0,
     includeInTotal: shippingOk,
     freeThresholdMinor: selectedPlan?.freeShippingThresholdMinor ?? null,
   });
-  return publicCartSchema.parse({
+  const cart = publicCartSchema.parse({
     storeSlug,
     currency,
     lines,
@@ -1492,6 +1558,9 @@ function assemblePublicCart(
       selectedOptionId: optionsResult.selectedOptionId,
     },
   });
+  // Motor sonucu (campaignId/couponId ic alanlari) siparis snapshot'i icin
+  // AYRICA doner; public yanita yalniz allowlist'lenmis summary yazilmistir.
+  return { cart, discount };
 }
 
 function toPrismaJsonObject(value: Record<string, unknown> | undefined) {
@@ -1840,6 +1909,8 @@ function createPrismaDataAccess(): AppDataAccess {
   }
 
   return {
+    // F4A — Kampanya/kupon veri erisimi (admin CRUD + public indirim baglami).
+    ...createPrismaCampaignDataAccess(),
     findPlatformUserByEmail: (email) =>
       prisma.platformUser.findUnique({
         where: { email },
@@ -2373,8 +2444,9 @@ function createPrismaDataAccess(): AppDataAccess {
       });
       return addr ? { city: addr.city, district: addr.district } : null;
     },
-    createOrder: (storeId, input) =>
-      prisma.$transaction(async (transaction: TransactionClient) => {
+    createOrder: async (storeId, input) => {
+      try {
+        return await prisma.$transaction(async (transaction: TransactionClient) => {
         if (input.customerId) {
           const customer = await transaction.customer.findFirst({
             where: { id: input.customerId, storeId, status: "ACTIVE" },
@@ -2497,8 +2569,25 @@ function createPrismaDataAccess(): AppDataAccess {
           },
           select: { id: true },
         });
+        // F4A — Indirim SNAPSHOT (OrderDiscount) + kullanim kaydi (CampaignRedemption).
+        // Usage limitleri BURADA atomik yeniden dogrulanir; ihlal transaction'i
+        // GERI ALIR (throw) — siparis ve sayac artisi kalici olmaz.
+        if (input.discounts && input.discounts.length > 0) {
+          const redemptionError = await applyOrderDiscountsInTransaction(transaction, storeId, order.id, {
+            discounts: input.discounts,
+            customerId: input.customerId ?? null,
+            email: input.customerEmail ? input.customerEmail.trim().toLowerCase() : null,
+          });
+          if (redemptionError) throw new CampaignRedemptionRejection(redemptionError);
+        }
         return (await reloadOrder(transaction, storeId, order.id))!;
-      }),
+        });
+      } catch (error) {
+        // F4A — limit ihlali guvenli hata koduna cevrilir (rollback tamamlandi).
+        if (error instanceof CampaignRedemptionRejection) return error.code;
+        throw error;
+      }
+    },
     updateOrder: (storeId, orderId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
         const order = await transaction.order.findFirst({
@@ -3262,6 +3351,8 @@ export function createServer(
         for (const variant of variants) {
           index.set(variant.id, {
             variantId: variant.id,
+            productId: product.id,
+            categoryIds: product.categoryIds,
             productSlug: product.slug,
             productTitle: product.title,
             variantTitle: variant.title,
@@ -3313,13 +3404,27 @@ export function createServer(
         addressKnown = true;
       }
     }
-    return assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
-      plans,
-      providerDisplays,
-      address,
-      addressKnown,
-      requestedOptionId: body.shippingOptionId ?? null,
+    // F4A — Kampanya/kupon baglami DB'den yuklenir; oturum acik musteri varsa
+    // per-customer limitleri sepet aninda da degerlendirilir (misafirde checkout'ta).
+    const discountContext = await dataAccess.loadCampaignDiscountContext(store.id, {
+      normalizedCouponCode: normalizeCouponCode(body.couponCode ?? null),
+      customerId: cartCustomer?.id ?? null,
+      email: null,
     });
+    const { cart } = assemblePublicCart(
+      store.slug,
+      index,
+      body.items,
+      { couponCode: body.couponCode ?? null, context: discountContext },
+      {
+        plans,
+        providerDisplays,
+        address,
+        addressKnown,
+        requestedOptionId: body.shippingOptionId ?? null,
+      },
+    );
+    return cart;
   });
 
   app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
@@ -3355,15 +3460,39 @@ export function createServer(
     // plandan sunucuda yeniden hesaplanir (tamper-proof). Secenek bu mağazaya ait +
     // AKTIF + bu sepet/adres icin uygun olmalidir (cross-store/inactive REDDEDILIR).
     const requestedOptionId = body.shippingOptionId?.trim() || null;
-    const cart = assemblePublicCart(store.slug, index, body.items, body.couponCode ?? null, {
-      plans,
-      providerDisplays,
-      address: checkoutAddress,
-      addressKnown: true,
-      requestedOptionId,
+    // F4A — Checkout'ta kimlik (musteri + iletisim e-postasi) ile baglam yuklenir;
+    // per-customer limitler burada da degerlendirilir, siparis transaction'inda
+    // atomik olarak YENIDEN dogrulanir.
+    const checkoutEmail = body.contact.email.trim().toLowerCase();
+    const discountContext = await dataAccess.loadCampaignDiscountContext(store.id, {
+      normalizedCouponCode: normalizeCouponCode(body.couponCode ?? null),
+      customerId: checkoutCustomer?.id ?? null,
+      email: checkoutEmail,
     });
+    const { cart, discount } = assemblePublicCart(
+      store.slug,
+      index,
+      body.items,
+      { couponCode: body.couponCode ?? null, context: discountContext },
+      {
+        plans,
+        providerDisplays,
+        address: checkoutAddress,
+        addressKnown: true,
+        requestedOptionId,
+      },
+    );
     if (!cart.checkoutReady) {
       return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
+    }
+    // F4A — Gecersiz kuponla siparis OLUSTURULMAZ (sessiz sifir-indirim yok);
+    // istemci acik hata alir ve kuponu duzeltir/kaldirir.
+    if (normalizeCouponCode(body.couponCode ?? null) && discount.couponStatus !== "APPLIED") {
+      return reply.code(409).send(
+        errorBody("COUPON_INVALID", "Coupon cannot be applied.", {
+          couponReason: discount.couponReason,
+        }),
+      );
     }
     const activeOptionIds = new Set(plans.map((p) => p.id));
     const availableOptions = cart.shipping.options.filter((o) => o.available);
@@ -3461,6 +3590,18 @@ export function createServer(
         etaText: selectedOption.estimatedDelivery,
       },
       discountAmount: summary.discountMinor,
+      // F4A — Indirim SNAPSHOT satirlari (ADR-058). Usage limitleri createOrder
+      // transaction'inda atomik yeniden dogrulanir; redemption orada yazilir.
+      discounts: discount.discountLines.map((line) => ({
+        campaignId: line.campaignId,
+        couponId: line.couponId,
+        code: line.code,
+        label: line.label,
+        discountType: line.discountType,
+        discountValue: line.discountValue,
+        discountAmountMinor: line.discountAmountMinor,
+        scopeSummary: { eligibleSubtotalMinor: line.eligibleSubtotalMinor },
+      })),
       billing: {
         type: billingInfo.type,
         name: billingInfo.type === "INDIVIDUAL" ? (billingInfo.name ?? null) : null,
@@ -3504,6 +3645,15 @@ export function createServer(
     if (typeof order === "string") {
       if (order === "VARIANT_NOT_FOUND" || order === "INVALID_VARIANT") {
         return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items."));
+      }
+      // F4A — Quote ile siparis arasindaki yaris kosulu: limit/durum transaction'da
+      // yeniden dogrulanir; asilmissa siparis olusmaz ve istemci acik hata alir.
+      if (order === "CAMPAIGN_USAGE_LIMIT" || order === "COUPON_USAGE_LIMIT" || order === "CAMPAIGN_NOT_ACTIVE") {
+        return reply.code(409).send(
+          errorBody("COUPON_INVALID", "Coupon cannot be applied.", {
+            couponReason: "USAGE_LIMIT_REACHED",
+          }),
+        );
       }
       return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
     }
@@ -3622,6 +3772,16 @@ export function createServer(
   // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar
   // + set-default). Kargo ucreti bu planlardan hesaplanir; provider canli quote DEGIL.
   registerShippingRatePlanRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // F4A — Kampanya/kupon yonetimi (ADR-058): store-admin CRUD + durum gecisleri.
+  registerCampaignAdminRoutes(app, {
+    dataAccess,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -4241,6 +4401,11 @@ export function createServer(
     }
     if (isProductSalesOrderError(order)) {
       return reply.code(400).send(productSalesOrderErrorBody(order));
+    }
+    // F4A — Admin siparis olusturma kampanya indirimi TASIMAZ (discounts input'u
+    // yok); bu kodlar yalniz public checkout'ta olusabilir. Defansif jenerik yanit.
+    if (order === "CAMPAIGN_USAGE_LIMIT" || order === "COUPON_USAGE_LIMIT" || order === "CAMPAIGN_NOT_ACTIVE") {
+      return reply.code(409).send(errorBody("CAMPAIGN_REJECTED", "Campaign could not be applied."));
     }
     await dataAccess.createAuditLog({
       action: "CREATE",

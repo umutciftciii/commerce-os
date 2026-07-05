@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import {
+  CampaignIcon,
   CategoryIcon,
   CustomerIcon,
   DashboardIcon,
@@ -58,6 +59,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         { href: "/shipping/shipments", label: t.shipments, icon: <ShippingIcon /> },
         { href: "/shipping/providers", label: t.shippingProviders, icon: <ShippingIcon /> },
         { href: "/shipping/rates", label: t.shippingRates, icon: <ShippingIcon /> },
+        { href: "/campaigns", label: t.campaigns, icon: <CampaignIcon /> },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
       ],
     },

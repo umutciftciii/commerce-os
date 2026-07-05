@@ -133,6 +133,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     shipments: "Shipments",
     shippingProviders: "Shipping Providers",
     shippingRates: "Shipping Rates",
+    campaigns: "Campaigns",
     theme: "Theme",
     settings: "Settings",
   },

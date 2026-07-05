@@ -873,3 +873,29 @@
   store-admin 161/161, storefront 101/101, admin 24/24, api-gateway 494/494; git diff --check temiz).
   KALAN: merge sonrası storefront/store-admin/admin-web rebuild + `API_GATEWAY_URL=` boş env ile boot/login
   redirect doğrulama.
+- F4A — Kampanyalar & Kuponlar MVP (DONE — 2026-07-05, ADR-058). İş: Amazon/Hepsiburada kalıplarından
+  esinlenen, güvenli kapsamlı kampanya/kupon temeli. Veri modeli: `Campaign` (DRAFT/ACTIVE/PAUSED/ARCHIVED;
+  COUPON_CODE/AUTOMATIC_CART/PRODUCT_DISCOUNT/CATEGORY_DISCOUNT + BUY_X_GET_Y/FREE_SHIPPING/MEMBERSHIP_ONLY
+  yalnız enum rezervi; PERCENT/FIXED_AMOUNT, max/min tutar, pencere, toplam+müşteri-başı limit, stackable,
+  priority, usageCount) + `Coupon` (normalizedCode `@@unique([storeId, normalizedCode])` — mağazalar arası
+  aynı kod serbest) + `CampaignProduct`/`CampaignCategory` kapsamı + `CampaignRedemption`
+  (`@@unique([campaignId, orderId])`) + `OrderDiscount` (immutable sipariş indirim SNAPSHOT satırı).
+  Migration: `20260705120000_add_campaigns_coupons` (additive). Motor: `apps/api-gateway/src/campaigns/
+  discount-engine.ts` — SAF/deterministik (Math.round yüzde, eligible+kalan-subtotal cap, kupon önce,
+  stackable=false seçilince başka kampanya yok, stackable'lar birleşir); kupon normalizasyonu locale-BAĞIMSIZ
+  uppercase (TR-I tuzağı yok) + `[A-Z0-9_-]` format. DEMO10 hardcoded kuponu KALDIRILDI; public cart/checkout
+  gerçek motoru kullanır (`couponReason` + `discountLines` public özet alanları eklendi; kampanya iç
+  metadata'sı sızmaz). Checkout: geçersiz kupon 409 `COUPON_INVALID` (sessiz sıfır-indirim yok); createOrder
+  transaction'ında limitler ATOMIK yeniden doğrulanır (koşullu updateMany + redemption COUNT; ihlal → rollback,
+  sipariş oluşmaz), OrderDiscount + CampaignRedemption aynı transaction'da yazılır. Admin: `/stores/:storeId/
+  campaigns` CRUD + activate/pause/archive (platform-admin + store scope; ARCHIVED düzenlenemez/terminal;
+  detayda maskeli e-posta ile son kullanımlar + istatistik). Store-admin UI: `/campaigns` (liste/form/detay,
+  kapsam seçici, nav + TR/EN i18n). Storefront: mevcut kupon input/apply/remove korunmuş; neden-bazlı TR/EN
+  hata kopyaları (NOT_FOUND/INACTIVE aynı genel kopya — varlık sızdırmaz) + çoklu indirim satırı gösterimi;
+  checkout 409 kupon hatası ayrı banner. Testler: motor 19 birim + gateway F4A API 10 + storefront kupon UI 4
+  + store-admin sayfa 3; regresyon: api-gateway 523/523, storefront 105/105, store-admin 164/164. Gate'ler
+  yeşil (db:generate, pnpm -r build, typecheck, lint, test, git diff --check). KALAN: merge sonrası docker
+  rebuild (api-gateway + storefront-web + store-admin-web) + migration deploy + runtime smoke (TEST250
+  senaryosu); ürün kartı kampanya rozeti ("Sepette %20", "Kuponlu ürün") bilinçli follow-up (public listing
+  sözleşmesine dokunulmadı); iptal/refund'ta redemption iadesi YOK (kompanzasyon deseni yokken tarihsel kalır
+  — ADR-058'de dokümante).

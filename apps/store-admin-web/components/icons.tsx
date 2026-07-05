@@ -107,6 +107,16 @@ export function ShippingIcon() {
   );
 }
 
+/** F4A — Kampanyalar (etiket/kupon simgesi). */
+export function CampaignIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M3 12.5 11.5 4H20v8.5L11.5 21z" />
+      <circle cx="15.5" cy="8.5" r="1.4" />
+    </svg>
+  );
+}
+
 export function ThemeIcon() {
   return (
     <svg {...base} aria-hidden>

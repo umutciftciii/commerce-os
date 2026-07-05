@@ -1496,3 +1496,44 @@ boot'unu çökertme sınıfıydı (PR #10/#15 nokta-atışı düzeltmişti; dese
 inline tekrar yok; hata mesajları anahtar-adlı ve secret-güvenli. (–) Opsiyonel alanlara verilen boş
 OLMAYAN yazım hataları sessizce yutulmaz — bilinçli olarak yüksek sesle hata (doğru davranış). (–) Web
 app'lerin request-time `?? default` okuyuşları bu ADR kapsamı dışında (boot değil).
+
+## ADR-058 — Kampanya indirimi kaynak doğrusu: sunucu motoru + immutable sipariş snapshot'ı (F4A)
+
+**Bağlam.** F4A Kampanyalar & Kuponlar MVP'si kupon kodu + otomatik sepet/ürün/kategori kampanyaları
+getiriyor. Önceki durum tek hardcoded `DEMO10` demo kuponuydu (ADR-031 "demo calculation"). İndirim parası
+etkileyen bir alan olduğundan istemciye güvenilemez; kampanya tanımı sonradan değişse bile geçmiş sipariş
+tutarları sabit kalmalı; kullanım limitleri eşzamanlı checkout'larda aşılmamalıdır.
+
+**Karar.**
+- **Tek hesap noktası.** İndirim YALNIZ sunucu tarafındaki saf motorla hesaplanır
+  (`apps/api-gateway/src/campaigns/discount-engine.ts`). İstemciden yalnız kupon KODU alınır; tutar/oran/
+  toplam istemciden ASLA kabul edilmez. Public sepet ve checkout AYNI motoru kullanır (drift yok).
+- **Immutable sipariş snapshot'ı.** Sipariş oluşurken uygulanan her indirim `OrderDiscount` satırı olarak
+  (label/code/discountType/discountValue/discountAmountMinor/scopeSummary) kopyalanır ve sipariş sonrası
+  DEĞİŞTİRİLMEZ; kampanya/kupon silinse/değişse bile tarihsel sipariş sabittir (kargo snapshot deseniyle
+  — ADR-047 — tutarlı). `Order.discountAmount`/`totalAmount` mevcut finance yolunda kalır
+  (max(0, subtotal - discount + shipping)); negatif toplam imkânsız, indirim subtotal'i aşamaz.
+- **Transactional redemption.** Kullanım kaydı (`CampaignRedemption`, sipariş başına kampanya UNIQUE)
+  sipariş transaction'ının İÇİNDE yazılır; toplam limit koşullu `updateMany` (`usageCount < totalUsageLimit`)
+  ile ATOMIK artar, müşteri-başı limit aynı transaction'da redemption COUNT ile doğrulanır. İhlalde
+  transaction ROLLBACK edilir (sipariş + sayaç kalıcı olmaz) ve istemci 409 `COUPON_INVALID` alır. Quote
+  anındaki değerlendirme yalnız UX'tir; TEK geçerli kontrol sipariş transaction'ıdır.
+- **Kupon kimliği store-scoped.** `normalizedCode` (trim + locale-BAĞIMSIZ uppercase; TR-I tuzağına karşı
+  `[A-Z0-9_-]` kısıtı) mağaza kapsamında UNIQUE'tir; kupon lookup'ı storeId ile yapılır — bir mağazanın
+  kuponu başka mağazada ÇÖZÜLMEZ. Public hata nedenlerinde NOT_FOUND ve INACTIVE istemcide aynı genel
+  kopyaya düşer (kupon varlığı/durum detayı sızdırılmaz); kampanya iç metadata'sı/istatistiği public
+  yanıta taşınmaz (yalnız label/code/amount).
+- **Stacking varsayılanı: BİRLEŞMEZ.** Kupon her zaman önceliklidir; adaylar priority→tutar→id sırasıyla
+  deterministik değerlendirilir; `stackable=false` bir kampanya seçildiğinde başka kampanya uygulanmaz
+  (birden çok otomatik aday varsa en iyi indirim seçilir); yalnız `stackable=true` kampanyalar birleşir ve
+  toplam daima kalan sepet tutarıyla cap'lenir.
+- **Geçersiz kuponla sipariş OLUŞMAZ.** Checkout, `couponStatus !== APPLIED` iken 409 döner (sessiz
+  sıfır-indirimle müşteriyi tam fiyata düşürmek yok).
+- **Enum rezervi.** BUY_X_GET_Y/FREE_SHIPPING/MEMBERSHIP_ONLY tipleri şemada rezervedir; motor bilinmeyen/
+  rezerv tipi UYGULAMAZ (ileri fazlar migrationsız tip açabilir).
+
+**Sonuçlar.** (+) İndirim tamper-proof ve deterministik; geçmiş siparişler kampanya değişikliklerinden
+etkilenmez; limitler yarış koşulunda aşılamaz; mağazalar arası kupon sızıntısı yok. (–) Sipariş sonrası
+iptal/refund'ta redemption GERİ ALINMAZ (mevcut sipariş yaşam döngüsünde kompanzasyon deseni yok; kayıt
+tarihseldir — bilinçli sınırlama, gelecekte iade akışıyla ele alınabilir). (–) Ürün kartı kampanya rozeti
+MVP dışı bırakıldı (public listing sözleşmesi değişmedi; follow-up).

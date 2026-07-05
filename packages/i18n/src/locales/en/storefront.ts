@@ -220,6 +220,13 @@ export const enStorefront: StorefrontDictionary = {
     couponApplied: "Code {code} applied",
     couponRemove: "Remove",
     couponInvalid: "{code} is not a valid code.",
+    // F4A — machine-readable coupon rejection reasons (server engine; ADR-058).
+    couponReasonNotApplicable: "This coupon is not valid for your cart.",
+    couponReasonMinOrder: "Your cart does not meet this coupon's minimum amount.",
+    couponReasonExpired: "This coupon has expired.",
+    couponReasonNotStarted: "This coupon is not active yet.",
+    couponReasonUsageLimit: "This coupon has reached its usage limit.",
+    couponCheckoutRejected: "The coupon could not be applied. Remove it and try again.",
   },
   checkout: {
     title: "Checkout",
@@ -301,6 +308,8 @@ export const enStorefront: StorefrontDictionary = {
     submitting: "Placing order…",
     validationError: "Please complete all required fields.",
     errorCartNotReady: "Some items in your cart are no longer available. Please update your cart.",
+    // F4A — server-side coupon revalidation rejected the order (409 COUPON_INVALID).
+    errorCouponInvalid: "The coupon could not be applied. Remove it and try again.",
     errorRejected: "We couldn't place the order. Please review your cart.",
     errorNoStore: "The store is unreachable. Please try again shortly.",
     errorGeneric: "Something went wrong. Please try again shortly.",

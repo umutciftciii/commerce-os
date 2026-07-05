@@ -362,6 +362,40 @@ enum ShippingChargeType {
   PER_ADDITIONAL_KG_OR_DESI
 }
 
+// ─────────────────────── F4A Campaigns & Coupons MVP ───────────────────────
+// Indirim KAYNAK DOGRUSU sunucu tarafi motorudur (ADR-058); istemciden gelen
+// indirim tutari ASLA kabul edilmez. Kampanya/kupon store-scoped'tur.
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+// MVP: COUPON_CODE / AUTOMATIC_CART / PRODUCT_DISCOUNT / CATEGORY_DISCOUNT.
+// BUY_X_GET_Y / FREE_SHIPPING / MEMBERSHIP_ONLY gelecek fazlar icin yalnizca
+// enum rezervi; motor bu tipleri MVP'de UYGULAMAZ (bilinmeyen tip = atlanir).
+enum CampaignType {
+  COUPON_CODE
+  AUTOMATIC_CART
+  PRODUCT_DISCOUNT
+  CATEGORY_DISCOUNT
+  BUY_X_GET_Y
+  FREE_SHIPPING
+  MEMBERSHIP_ONLY
+}
+
+enum CampaignDiscountType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+enum CouponStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -437,6 +471,10 @@ model Store {
   shipmentWebhookInbox    ShipmentWebhookInbox[]
   shippingRatePlans       ShippingRatePlan[]
   shippingRateRules       ShippingRateRule[]
+  campaigns               Campaign[]
+  coupons                 Coupon[]
+  campaignRedemptions     CampaignRedemption[]
+  orderDiscounts          OrderDiscount[]
 }
 
 model StoreUser {
@@ -588,6 +626,7 @@ model Product {
   variants    ProductVariant[]
   assignments ProductCategoryAssignment[]
   orderLines  OrderLine[]
+  campaignProducts CampaignProduct[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -642,6 +681,7 @@ model ProductCategory {
   parent      ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children    ProductCategory[]           @relation("ProductCategoryTree")
   assignments ProductCategoryAssignment[]
+  campaignCategories CampaignCategory[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -728,6 +768,7 @@ model Customer {
   otpVerifications        CustomerOtpVerification[]
   ibans                   CustomerIban[]
   communicationPreference CustomerCommunicationPreference?
+  campaignRedemptions     CampaignRedemption[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -963,6 +1004,9 @@ model Order {
   paymentEvents   PaymentProviderEvent[]
   shipments       Shipment[]
   shipmentQuotes  ShipmentQuote[]
+  // F4A — Siparis indirim snapshot'lari + kampanya kullanim kayitlari.
+  discounts       OrderDiscount[]
+  redemptions     CampaignRedemption[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -1537,4 +1581,159 @@ model ShippingRateRule {
   @@index([storeId])
   @@index([tierId])
   @@index([zoneId])
+}
+
+// ─────────────────────── F4A Campaigns & Coupons MVP ───────────────────────
+// Kampanya: magaza-scoped indirim tanimi. discountValue PERCENT'te 1-100 tam
+// sayi yuzdedir; FIXED_AMOUNT'ta minor unit (kurus) tutardir. usageCount toplam
+// kullanim limiti icin ATOMIK sayactir (siparis transaction'inda kosullu
+// UPDATE ile artirilir; limit asilirsa siparis reddedilir — ADR-058).
+model Campaign {
+  id                     String               @id @default(cuid())
+  storeId                String
+  name                   String
+  description            String?
+  status                 CampaignStatus       @default(DRAFT)
+  type                   CampaignType
+  discountType           CampaignDiscountType
+  discountValue          Int
+  maxDiscountAmountMinor Int?
+  minOrderAmountMinor    Int?
+  startsAt               DateTime?
+  endsAt                 DateTime?
+  totalUsageLimit        Int?
+  perCustomerUsageLimit  Int?
+  usageCount             Int                  @default(0)
+  stackable              Boolean              @default(false)
+  priority               Int                  @default(0)
+  isPublic               Boolean              @default(true)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  coupons        Coupon[]
+  products       CampaignProduct[]
+  categories     CampaignCategory[]
+  redemptions    CampaignRedemption[]
+  orderDiscounts OrderDiscount[]
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, type])
+}
+
+// Kupon kodu: store scope'unda normalizedCode UNIQUE (farkli magazalar ayni
+// kodu kullanabilir). normalizedCode = trim + locale-BAGIMSIZ uppercase
+// (TR-I tuzagina karsi izinli karakterler [A-Z0-9_-]). startsAt/endsAt
+// kampanya penceresini DARALTAN opsiyonel override'dir.
+model Coupon {
+  id                    String       @id @default(cuid())
+  storeId               String
+  campaignId            String
+  code                  String
+  normalizedCode        String
+  status                CouponStatus @default(ACTIVE)
+  totalUsageLimit       Int?
+  perCustomerUsageLimit Int?
+  usageCount            Int          @default(0)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  store       Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign    Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  redemptions CampaignRedemption[]
+  orderDiscounts OrderDiscount[]
+
+  @@unique([storeId, normalizedCode])
+  @@index([storeId])
+  @@index([campaignId])
+}
+
+// Kampanya urun kapsami. Bos kapsam = tum sepet. Scope id'leri ayni store'a
+// ait olmalidir (uygulama katmaninda dogrulanir; storeId kolonu izolasyon
+// sorgulari icindir).
+model CampaignProduct {
+  campaignId String
+  productId  String
+  storeId    String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, productId])
+  @@index([storeId])
+  @@index([productId])
+}
+
+model CampaignCategory {
+  campaignId String
+  categoryId String
+  storeId    String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, categoryId])
+  @@index([storeId])
+  @@index([categoryId])
+}
+
+// Kullanim kaydi: siparis olusturma transaction'inda yazilir; siparis basina
+// kampanya BIR KEZ (unique). Siparis sonradan iptal/refund olsa da kayit
+// TARIHSEL kalir (kompanzasyon deseni yok — ADR-058'de dokumante sinirlama).
+// email: misafir checkout'ta per-customer limit dayanagi (customerId yoksa).
+model CampaignRedemption {
+  id                  String   @id @default(cuid())
+  storeId             String
+  campaignId          String
+  couponId            String?
+  orderId             String
+  customerId          String?
+  email               String?
+  discountAmountMinor Int
+  createdAt           DateTime @default(now())
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  coupon   Coupon?   @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, orderId])
+  @@index([storeId])
+  @@index([couponId])
+  @@index([campaignId, customerId])
+  @@index([campaignId, email])
+  @@index([orderId])
+}
+
+// Siparis indirim SNAPSHOT satiri (immutable; siparis olusturulduktan sonra
+// degistirilmez — ADR-058). Kampanya/kupon sonradan silinse/degisse bile
+// siparis gecmisi sabit kalir; bu yuzden label/code/discountType kopyalanir.
+model OrderDiscount {
+  id                  String               @id @default(cuid())
+  storeId             String
+  orderId             String
+  campaignId          String?
+  couponId            String?
+  code                String?
+  label               String
+  discountType        CampaignDiscountType
+  discountValue       Int
+  discountAmountMinor Int
+  scopeSummary        Json?
+  createdAt           DateTime             @default(now())
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  coupon   Coupon?   @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([orderId])
+  @@index([campaignId])
 }

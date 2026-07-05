@@ -30,6 +30,15 @@ import type { EngineRatePlan } from "../src/shipping/price-engine.js";
 import type { ProviderDisplayMap } from "../src/shipping/checkout-options.js";
 import type { CustomerDataAccess } from "../src/customers/index.js";
 import type { PaymentProviderStatus, PaymentProviderType } from "@prisma/client";
+// F4A — Kampanya/kupon bellek deposu icin kayit tipleri + motor donusumleri.
+import {
+  isAllowedStatusTransition,
+  toEngineCampaign,
+  toEngineCoupon,
+  type CampaignRecord,
+  type OrderDiscountInput,
+} from "../src/campaigns/data.js";
+import type { CampaignCreateRequest, CampaignUpdateRequest } from "@commerce-os/contracts";
 
 const config = {
   APP_ENV: "test" as const,
@@ -361,6 +370,22 @@ class MemoryDataAccess implements AppDataAccess {
   ];
   readonly movements: MovementRecord[] = [];
   readonly orders: OrderRecord[] = [];
+  // F4A — Kampanya/kupon bellek deposu + siparis indirim snapshot/redemption kayitlari.
+  readonly campaigns: CampaignRecord[] = [];
+  readonly orderDiscounts: Array<
+    OrderDiscountInput & { id: string; storeId: string; orderId: string }
+  > = [];
+  readonly campaignRedemptions: Array<{
+    id: string;
+    storeId: string;
+    campaignId: string;
+    couponId: string | null;
+    orderId: string;
+    customerId: string | null;
+    email: string | null;
+    discountAmountMinor: number;
+    createdAt: Date;
+  }> = [];
   // F3B.3 — store-admin müşteri dizini için bellek seed'i (güvenli alanlar).
   readonly customers: Array<{
     id: string;
@@ -1011,6 +1036,197 @@ class MemoryDataAccess implements AppDataAccess {
     return storeId && customerId ? this.defaultShippingAddress : null;
   }
 
+  // ───────── F4A — Kampanya/kupon veri erisimi (CampaignDataAccess) ─────────
+  async listCampaigns(storeId: string) {
+    return this.campaigns.filter((campaign) => campaign.storeId === storeId);
+  }
+
+  async findCampaignById(storeId: string, campaignId: string) {
+    const campaign = this.campaigns.find((item) => item.storeId === storeId && item.id === campaignId);
+    if (!campaign) return null;
+    const redemptions = this.campaignRedemptions.filter(
+      (item) => item.storeId === storeId && item.campaignId === campaignId,
+    );
+    return {
+      ...campaign,
+      recentRedemptions: redemptions.slice(-10).reverse().map((item) => ({
+        id: item.id,
+        orderId: item.orderId,
+        orderNumber: this.orders.find((order) => order.id === item.orderId)?.orderNumber ?? null,
+        couponCode:
+          campaign.coupons.find((coupon) => coupon.id === item.couponId)?.code ?? null,
+        email: item.email,
+        discountAmountMinor: item.discountAmountMinor,
+        createdAt: item.createdAt,
+      })),
+      totalRedemptionCount: redemptions.length,
+      totalDiscountMinor: redemptions.reduce((sum, item) => sum + item.discountAmountMinor, 0),
+    };
+  }
+
+  async createCampaign(storeId: string, input: CampaignCreateRequest) {
+    for (const productId of input.productIds) {
+      if (!this.products.some((item) => item.storeId === storeId && item.id === productId)) {
+        return "SCOPE_PRODUCT_NOT_FOUND" as const;
+      }
+    }
+    for (const categoryId of input.categoryIds) {
+      if (!this.categories.some((item) => item.storeId === storeId && item.id === categoryId)) {
+        return "SCOPE_CATEGORY_NOT_FOUND" as const;
+      }
+    }
+    const normalizedCode = input.couponCode ? input.couponCode.trim().toUpperCase() : null;
+    if (input.type === "COUPON_CODE" && normalizedCode) {
+      const duplicate = this.campaigns.some(
+        (campaign) =>
+          campaign.storeId === storeId &&
+          campaign.coupons.some((coupon) => coupon.normalizedCode === normalizedCode),
+      );
+      if (duplicate) return "DUPLICATE_COUPON_CODE" as const;
+    }
+    const now = new Date("2026-07-05T00:00:00.000Z");
+    const id = `camp_${this.campaigns.length + 1}`;
+    const campaign: CampaignRecord = {
+      id,
+      storeId,
+      name: input.name,
+      description: input.description ?? null,
+      status: "DRAFT",
+      type: input.type,
+      discountType: input.discountType,
+      discountValue: input.discountValue,
+      maxDiscountAmountMinor: input.maxDiscountAmountMinor ?? null,
+      minOrderAmountMinor: input.minOrderAmountMinor ?? null,
+      startsAt: input.startsAt ? new Date(input.startsAt) : null,
+      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      totalUsageLimit: input.totalUsageLimit ?? null,
+      perCustomerUsageLimit: input.perCustomerUsageLimit ?? null,
+      usageCount: 0,
+      stackable: input.stackable,
+      priority: input.priority,
+      isPublic: input.isPublic,
+      productIds: [...input.productIds],
+      categoryIds: [...input.categoryIds],
+      coupons:
+        input.type === "COUPON_CODE" && normalizedCode
+          ? [
+              {
+                id: `coup_${this.campaigns.length + 1}`,
+                code: input.couponCode!.trim(),
+                normalizedCode,
+                status: "ACTIVE",
+                totalUsageLimit: null,
+                perCustomerUsageLimit: null,
+                usageCount: 0,
+                startsAt: null,
+                endsAt: null,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ]
+          : [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.campaigns.push(campaign);
+    return campaign;
+  }
+
+  async updateCampaign(storeId: string, campaignId: string, input: CampaignUpdateRequest) {
+    const campaign = this.campaigns.find((item) => item.storeId === storeId && item.id === campaignId);
+    if (!campaign) return null;
+    if (campaign.status === "ARCHIVED") return "ARCHIVED_IMMUTABLE" as const;
+    for (const productId of input.productIds ?? []) {
+      if (!this.products.some((item) => item.storeId === storeId && item.id === productId)) {
+        return "SCOPE_PRODUCT_NOT_FOUND" as const;
+      }
+    }
+    for (const categoryId of input.categoryIds ?? []) {
+      if (!this.categories.some((item) => item.storeId === storeId && item.id === categoryId)) {
+        return "SCOPE_CATEGORY_NOT_FOUND" as const;
+      }
+    }
+    if (input.name !== undefined) campaign.name = input.name;
+    if (input.description !== undefined) campaign.description = input.description ?? null;
+    if (input.discountType !== undefined) campaign.discountType = input.discountType;
+    if (input.discountValue !== undefined) campaign.discountValue = input.discountValue;
+    if (input.maxDiscountAmountMinor !== undefined) campaign.maxDiscountAmountMinor = input.maxDiscountAmountMinor ?? null;
+    if (input.minOrderAmountMinor !== undefined) campaign.minOrderAmountMinor = input.minOrderAmountMinor ?? null;
+    if (input.startsAt !== undefined) campaign.startsAt = input.startsAt ? new Date(input.startsAt) : null;
+    if (input.endsAt !== undefined) campaign.endsAt = input.endsAt ? new Date(input.endsAt) : null;
+    if (input.totalUsageLimit !== undefined) campaign.totalUsageLimit = input.totalUsageLimit ?? null;
+    if (input.perCustomerUsageLimit !== undefined) campaign.perCustomerUsageLimit = input.perCustomerUsageLimit ?? null;
+    if (input.stackable !== undefined) campaign.stackable = input.stackable;
+    if (input.priority !== undefined) campaign.priority = input.priority;
+    if (input.isPublic !== undefined) campaign.isPublic = input.isPublic;
+    if (input.productIds !== undefined) campaign.productIds = [...input.productIds];
+    if (input.categoryIds !== undefined) campaign.categoryIds = [...input.categoryIds];
+    campaign.updatedAt = new Date("2026-07-05T01:00:00.000Z");
+    return campaign;
+  }
+
+  async setCampaignStatus(
+    storeId: string,
+    campaignId: string,
+    status: "ACTIVE" | "PAUSED" | "ARCHIVED",
+  ) {
+    const campaign = this.campaigns.find((item) => item.storeId === storeId && item.id === campaignId);
+    if (!campaign) return null;
+    if (!isAllowedStatusTransition(campaign.status, status)) return "INVALID_STATUS_TRANSITION" as const;
+    campaign.status = status;
+    campaign.updatedAt = new Date("2026-07-05T01:00:00.000Z");
+    return campaign;
+  }
+
+  async loadCampaignDiscountContext(
+    storeId: string,
+    input: { normalizedCouponCode: string | null; customerId: string | null; email: string | null },
+  ) {
+    const automaticCampaigns = this.campaigns
+      .filter(
+        (campaign) =>
+          campaign.storeId === storeId &&
+          campaign.status === "ACTIVE" &&
+          ["AUTOMATIC_CART", "PRODUCT_DISCOUNT", "CATEGORY_DISCOUNT"].includes(campaign.type),
+      )
+      .map(toEngineCampaign);
+    let coupon = null;
+    let couponCampaign = null;
+    if (input.normalizedCouponCode) {
+      for (const campaign of this.campaigns) {
+        if (campaign.storeId !== storeId) continue;
+        const match = campaign.coupons.find((item) => item.normalizedCode === input.normalizedCouponCode);
+        if (match) {
+          coupon = toEngineCoupon(match, campaign.id);
+          couponCampaign = toEngineCampaign(campaign);
+          break;
+        }
+      }
+    }
+    const customerUsageByCampaign = new Map<string, number>();
+    const customerUsageByCoupon = new Map<string, number>();
+    if (input.customerId || input.email) {
+      for (const redemption of this.campaignRedemptions) {
+        if (redemption.storeId !== storeId) continue;
+        const identityMatch =
+          (input.customerId && redemption.customerId === input.customerId) ||
+          (input.email && redemption.email === input.email);
+        if (!identityMatch) continue;
+        customerUsageByCampaign.set(
+          redemption.campaignId,
+          (customerUsageByCampaign.get(redemption.campaignId) ?? 0) + 1,
+        );
+        if (redemption.couponId) {
+          customerUsageByCoupon.set(
+            redemption.couponId,
+            (customerUsageByCoupon.get(redemption.couponId) ?? 0) + 1,
+          );
+        }
+      }
+    }
+    return { automaticCampaigns, coupon, couponCampaign, customerUsageByCampaign, customerUsageByCoupon };
+  }
+
   async createOrder(
     storeId: string,
     input: {
@@ -1030,6 +1246,7 @@ class MemoryDataAccess implements AppDataAccess {
         etaText?: string | null;
       } | null;
       discountAmount?: number;
+      discounts?: OrderDiscountInput[];
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
         fullName: string;
@@ -1079,6 +1296,47 @@ class MemoryDataAccess implements AppDataAccess {
         currency: input.currency,
         createdAt: new Date("2026-01-05T00:00:00.000Z"),
       });
+    }
+    // F4A — Kampanya kullanim limitleri siparis "transaction"inda yeniden dogrulanir
+    // (Prisma impl ile ayni sozlesme): once TUM dogrulama, sonra mutasyon (rollback esdegeri).
+    const email = input.customerEmail ? input.customerEmail.trim().toLowerCase() : null;
+    const discounts = input.discounts ?? [];
+    for (const discountLine of discounts) {
+      if (!discountLine.campaignId) continue;
+      const campaign = this.campaigns.find(
+        (item) => item.storeId === storeId && item.id === discountLine.campaignId,
+      );
+      if (!campaign || campaign.status !== "ACTIVE") return "CAMPAIGN_NOT_ACTIVE" as const;
+      if (campaign.totalUsageLimit !== null && campaign.usageCount >= campaign.totalUsageLimit) {
+        return "CAMPAIGN_USAGE_LIMIT" as const;
+      }
+      if (campaign.perCustomerUsageLimit !== null && (input.customerId || email)) {
+        const used = this.campaignRedemptions.filter(
+          (item) =>
+            item.storeId === storeId &&
+            item.campaignId === campaign.id &&
+            ((input.customerId && item.customerId === input.customerId) ||
+              (email && item.email === email)),
+        ).length;
+        if (used >= campaign.perCustomerUsageLimit) return "CAMPAIGN_USAGE_LIMIT" as const;
+      }
+      if (discountLine.couponId) {
+        const coupon = campaign.coupons.find((item) => item.id === discountLine.couponId);
+        if (!coupon || coupon.status !== "ACTIVE") return "CAMPAIGN_NOT_ACTIVE" as const;
+        if (coupon.totalUsageLimit !== null && coupon.usageCount >= coupon.totalUsageLimit) {
+          return "COUPON_USAGE_LIMIT" as const;
+        }
+        if (coupon.perCustomerUsageLimit !== null && (input.customerId || email)) {
+          const used = this.campaignRedemptions.filter(
+            (item) =>
+              item.storeId === storeId &&
+              item.couponId === coupon.id &&
+              ((input.customerId && item.customerId === input.customerId) ||
+                (email && item.email === email)),
+          ).length;
+          if (used >= coupon.perCustomerUsageLimit) return "COUPON_USAGE_LIMIT" as const;
+        }
+      }
     }
     const totals = this.orderTotals(lines, {
       discountAmount: input.discountAmount,
@@ -1145,6 +1403,31 @@ class MemoryDataAccess implements AppDataAccess {
     };
     this.orderSequence += 1;
     this.orders.push(order);
+    // F4A — Dogrulama gecti: sayaclar artirilir, snapshot + redemption yazilir.
+    for (const discountLine of discounts) {
+      if (discountLine.campaignId) {
+        const campaign = this.campaigns.find(
+          (item) => item.storeId === storeId && item.id === discountLine.campaignId,
+        )!;
+        campaign.usageCount += 1;
+        if (discountLine.couponId) {
+          const coupon = campaign.coupons.find((item) => item.id === discountLine.couponId)!;
+          coupon.usageCount += 1;
+        }
+        this.campaignRedemptions.push({
+          id: `red_${this.campaignRedemptions.length + 1}`,
+          storeId,
+          campaignId: discountLine.campaignId,
+          couponId: discountLine.couponId,
+          orderId,
+          customerId: input.customerId ?? null,
+          email,
+          discountAmountMinor: discountLine.discountAmountMinor,
+          createdAt: new Date("2026-07-05T02:00:00.000Z"),
+        });
+      }
+      this.orderDiscounts.push({ ...discountLine, id: `od_${this.orderDiscounts.length + 1}`, storeId, orderId });
+    }
     return order;
   }
 
@@ -3425,6 +3708,64 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     return app.inject({ method: "POST", url: `/public/stores/${slug}/checkout`, payload: withBilling });
   }
 
+  // F4A — Bellek deposuna dogrudan ACTIVE kampanya/kupon seed'i (public akis testleri).
+  function seedCampaign(
+    dataAccess: MemoryDataAccess,
+    overrides: Partial<CampaignRecord> = {},
+  ): CampaignRecord {
+    const now = new Date("2026-07-01T00:00:00.000Z");
+    const campaign: CampaignRecord = {
+      id: `camp_seed_${dataAccess.campaigns.length + 1}`,
+      storeId: "store_demo",
+      name: "Kupon Kampanyasi",
+      description: null,
+      status: "ACTIVE",
+      type: "COUPON_CODE",
+      discountType: "PERCENT",
+      discountValue: 10,
+      maxDiscountAmountMinor: null,
+      minOrderAmountMinor: null,
+      startsAt: null,
+      endsAt: null,
+      totalUsageLimit: null,
+      perCustomerUsageLimit: null,
+      usageCount: 0,
+      stackable: false,
+      priority: 0,
+      isPublic: true,
+      productIds: [],
+      categoryIds: [],
+      coupons: [],
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    };
+    dataAccess.campaigns.push(campaign);
+    return campaign;
+  }
+
+  function seedCouponCampaign(
+    dataAccess: MemoryDataAccess,
+    overrides: Partial<CampaignRecord> = {},
+    code = "KUPON10",
+  ): CampaignRecord {
+    const campaign = seedCampaign(dataAccess, overrides);
+    campaign.coupons.push({
+      id: `coup_seed_${campaign.id}`,
+      code,
+      normalizedCode: code.toUpperCase(),
+      status: "ACTIVE",
+      totalUsageLimit: null,
+      perCustomerUsageLimit: null,
+      usageCount: 0,
+      startsAt: null,
+      endsAt: null,
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    return campaign;
+  }
+
   it("resolves an ONLINE variant into a purchasable cart line (subtotal computed server-side)", async () => {
     const { app } = await createTestApp();
     const response = await cartReq(app, [{ variantId: VARIANT, quantity: 2 }]);
@@ -3649,37 +3990,47 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     await app.close();
   });
 
-  it("applies a valid DEMO10 coupon and rejects unknown codes", async () => {
-    const { app } = await createTestApp();
+  it("F4A: applies a valid campaign coupon and rejects unknown codes (no DEMO rules)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedCouponCampaign(dataAccess, { discountValue: 10 }, "KUPON10");
     const applied = (await app.inject({
       method: "POST",
       url: "/public/stores/demo-store/cart",
-      payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "demo10" },
+      payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "kupon10" },
     })).json();
     expect(applied.summary).toMatchObject({
       discountMinor: 12990, // %10 of 129900
-      couponCode: "DEMO10",
+      couponCode: "KUPON10",
       couponStatus: "APPLIED",
       grandTotalMinor: 116910,
     });
+    expect(applied.summary.discountLines).toEqual([
+      { label: "Kupon Kampanyasi", code: "KUPON10", amountMinor: 12990 },
+    ]);
 
     const invalid = (await app.inject({
       method: "POST",
       url: "/public/stores/demo-store/cart",
       payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "NOPE" },
     })).json();
-    expect(invalid.summary).toMatchObject({ discountMinor: 0, couponCode: "NOPE", couponStatus: "INVALID" });
+    expect(invalid.summary).toMatchObject({
+      discountMinor: 0,
+      couponCode: "NOPE",
+      couponStatus: "INVALID",
+      couponReason: "NOT_FOUND",
+    });
     await app.close();
   });
 
-  it("persists demo shipping/discount into the placed order and confirmation", async () => {
+  it("F4A: persists shipping + campaign discount into the placed order and confirmation", async () => {
     const { app, dataAccess } = await createTestApp();
     dataAccess.variants[0]!.priceMinor = 5000; // esik alti -> kargo ucreti
+    seedCouponCampaign(dataAccess, { discountValue: 10 }, "KUPON10");
     const response = await checkoutReq(app, {
       items: [{ variantId: VARIANT, quantity: 1 }],
       contact: validContact,
       shippingAddress: validAddress,
-      couponCode: "DEMO10",
+      couponCode: "KUPON10",
     });
     expect(response.statusCode).toBe(201);
     const body = response.json();
@@ -3689,7 +4040,7 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       discountMinor: 500,
       shippingMinor: 4990,
       totalMinor: 9490,
-      couponCode: "DEMO10",
+      couponCode: "KUPON10",
       couponStatus: "APPLIED",
     });
     // Siparise de yazildi.
@@ -3929,6 +4280,300 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     expect(dataAccess.orders[0]!.shippingProviderName).toBe("DHL Express");
     expect(res.json().shippingOption.providerName).toBe("DHL Express");
     await app.close();
+  });
+
+  // ───────────────────── F4A — Kampanyalar & Kuponlar (ADR-058) ─────────────────────
+  describe("F4A campaigns & coupons", () => {
+    it("store admin can create/activate a coupon campaign; invalid discount is rejected", async () => {
+      const { app, login } = await createTestApp();
+      const token = await login();
+      const created = await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/campaigns",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: "TEST250 Kuponu",
+          type: "COUPON_CODE",
+          discountType: "FIXED_AMOUNT",
+          discountValue: 25000,
+          minOrderAmountMinor: 100000,
+          totalUsageLimit: 10,
+          perCustomerUsageLimit: 1,
+          couponCode: "TEST250",
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      const body = created.json();
+      expect(body).toMatchObject({ status: "DRAFT", type: "COUPON_CODE", discountValue: 25000 });
+      expect(body.coupons[0]).toMatchObject({ code: "TEST250", normalizedCode: "TEST250" });
+
+      const activated = await app.inject({
+        method: "POST",
+        url: `/stores/store_demo/campaigns/${body.id}/activate`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(activated.statusCode).toBe(200);
+      expect(activated.json().status).toBe("ACTIVE");
+
+      // Gecersiz yuzde (>100) reddedilir.
+      const invalid = await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/campaigns",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: "Bozuk",
+          type: "AUTOMATIC_CART",
+          discountType: "PERCENT",
+          discountValue: 150,
+        },
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json().error.code).toBe("VALIDATION_ERROR");
+      await app.close();
+    });
+
+    it("duplicate coupon code in the same store is rejected; other store can reuse it", async () => {
+      const { app, dataAccess, login } = await createTestApp();
+      const token = await login();
+      seedCouponCampaign(dataAccess, {}, "TEKRAR10");
+      const duplicate = await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/campaigns",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: "Ayni Kod",
+          type: "COUPON_CODE",
+          discountType: "PERCENT",
+          discountValue: 5,
+          couponCode: "tekrar10",
+        },
+      });
+      expect(duplicate.statusCode).toBe(409);
+      expect(duplicate.json().error.code).toBe("DUPLICATE_COUPON_CODE");
+
+      // Farkli store ayni kodu kullanabilir (store-scoped uniqueness).
+      dataAccess.stores.push({ ...dataAccess.stores[0]!, id: "store_other", slug: "other-store", domain: null });
+      const other = await app.inject({
+        method: "POST",
+        url: "/stores/store_other/campaigns",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: "Diger Magaza",
+          type: "COUPON_CODE",
+          discountType: "PERCENT",
+          discountValue: 5,
+          couponCode: "TEKRAR10",
+        },
+      });
+      expect(other.statusCode).toBe(201);
+      await app.close();
+    });
+
+    it("campaign endpoints require store admin auth and campaigns stay store-scoped", async () => {
+      const { app, dataAccess, login } = await createTestApp();
+      const unauthorized = await app.inject({ method: "GET", url: "/stores/store_demo/campaigns" });
+      expect(unauthorized.statusCode).toBe(401);
+
+      const token = await login();
+      const campaign = seedCouponCampaign(dataAccess, {}, "GIZLI10");
+      dataAccess.stores.push({ ...dataAccess.stores[0]!, id: "store_other", slug: "other-store", domain: null });
+      const crossStore = await app.inject({
+        method: "GET",
+        url: `/stores/store_other/campaigns/${campaign.id}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(crossStore.statusCode).toBe(404);
+      await app.close();
+    });
+
+    it("archived campaigns cannot be edited; paused campaigns cannot be used", async () => {
+      const { app, dataAccess, login } = await createTestApp();
+      const token = await login();
+      const archived = seedCouponCampaign(dataAccess, { status: "ARCHIVED" }, "ESKI10");
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/stores/store_demo/campaigns/${archived.id}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: "Yeni Ad" },
+      });
+      expect(patch.statusCode).toBe(409);
+      expect(patch.json().error.code).toBe("ARCHIVED_IMMUTABLE");
+
+      seedCouponCampaign(dataAccess, { status: "PAUSED" }, "DURDU10");
+      const cart = (await app.inject({
+        method: "POST",
+        url: "/public/stores/demo-store/cart",
+        payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "DURDU10" },
+      })).json();
+      expect(cart.summary).toMatchObject({ couponStatus: "INVALID", couponReason: "INACTIVE", discountMinor: 0 });
+
+      const checkout = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+        couponCode: "DURDU10",
+      });
+      expect(checkout.statusCode).toBe(409);
+      expect(checkout.json().error.code).toBe("COUPON_INVALID");
+      expect(dataAccess.orders).toHaveLength(0);
+      await app.close();
+    });
+
+    it("min order amount and expiry produce specific safe reasons on the public quote", async () => {
+      const { app, dataAccess } = await createTestApp();
+      seedCouponCampaign(dataAccess, { minOrderAmountMinor: 500000 }, "MIN500");
+      seedCouponCampaign(dataAccess, { endsAt: new Date("2026-01-01T00:00:00.000Z") }, "BITTI10");
+
+      const min = (await app.inject({
+        method: "POST",
+        url: "/public/stores/demo-store/cart",
+        payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "MIN500" },
+      })).json();
+      expect(min.summary).toMatchObject({ couponStatus: "INVALID", couponReason: "MIN_ORDER_NOT_MET" });
+
+      const expired = (await app.inject({
+        method: "POST",
+        url: "/public/stores/demo-store/cart",
+        payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "BITTI10" },
+      })).json();
+      expect(expired.summary).toMatchObject({ couponStatus: "INVALID", couponReason: "EXPIRED" });
+      await app.close();
+    });
+
+    it("checkout revalidates the coupon server-side and writes snapshot + redemption once", async () => {
+      const { app, dataAccess } = await createTestApp();
+      const campaign = seedCouponCampaign(
+        dataAccess,
+        { discountType: "FIXED_AMOUNT", discountValue: 25000, totalUsageLimit: 10, perCustomerUsageLimit: 1 },
+        "TEST250",
+      );
+      const response = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+        couponCode: " test250 ", // normalize: trim + uppercase
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({ discountMinor: 25000, couponCode: "TEST250", couponStatus: "APPLIED" });
+
+      // OrderDiscount snapshot'i yazildi.
+      expect(dataAccess.orderDiscounts).toHaveLength(1);
+      expect(dataAccess.orderDiscounts[0]).toMatchObject({
+        campaignId: campaign.id,
+        code: "TEST250",
+        discountType: "FIXED_AMOUNT",
+        discountAmountMinor: 25000,
+      });
+      // Redemption BIR KEZ yazildi; sayac artti.
+      expect(dataAccess.campaignRedemptions).toHaveLength(1);
+      expect(dataAccess.campaignRedemptions[0]).toMatchObject({
+        campaignId: campaign.id,
+        email: "ada@example.com",
+      });
+      expect(campaign.usageCount).toBe(1);
+      expect(campaign.coupons[0]!.usageCount).toBe(1);
+      // Siparis toplami sunucu hesabiyla uyumlu.
+      expect(dataAccess.orders[0]!.discountAmount).toBe(25000);
+      expect(dataAccess.orders[0]!.totalAmount).toBe(dataAccess.orders[0]!.subtotalAmount - 25000 + dataAccess.orders[0]!.shippingAmount);
+      await app.close();
+    });
+
+    it("per-customer and total usage limits are enforced at checkout", async () => {
+      const { app, dataAccess } = await createTestApp();
+      seedCouponCampaign(dataAccess, { perCustomerUsageLimit: 1 }, "BIRKEZ10");
+      const first = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+        couponCode: "BIRKEZ10",
+      });
+      expect(first.statusCode).toBe(201);
+
+      // Ayni e-posta ikinci kez kullanamaz.
+      const second = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+        couponCode: "BIRKEZ10",
+      });
+      expect(second.statusCode).toBe(409);
+      expect(second.json().error.code).toBe("COUPON_INVALID");
+      expect(dataAccess.orders).toHaveLength(1);
+
+      // Toplam limit dolduysa farkli musteri de kullanamaz.
+      const limited = seedCouponCampaign(dataAccess, { totalUsageLimit: 1, usageCount: 1 }, "DOLU10");
+      expect(limited.usageCount).toBe(1);
+      const third = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 1 }],
+        contact: { ...validContact, email: "baska@example.com" },
+        shippingAddress: validAddress,
+        couponCode: "DOLU10",
+      });
+      expect(third.statusCode).toBe(409);
+      await app.close();
+    });
+
+    it("cross-store coupons cannot be used on another store", async () => {
+      const { app, dataAccess } = await createTestApp();
+      // Kupon store_other'a ait; demo-store sepetinde cozulmemeli.
+      seedCouponCampaign(dataAccess, { storeId: "store_other" }, "BASKA10");
+      const cart = (await app.inject({
+        method: "POST",
+        url: "/public/stores/demo-store/cart",
+        payload: { items: [{ variantId: VARIANT, quantity: 1 }], couponCode: "BASKA10" },
+      })).json();
+      expect(cart.summary).toMatchObject({ couponStatus: "INVALID", couponReason: "NOT_FOUND", discountMinor: 0 });
+      await app.close();
+    });
+
+    it("automatic cart campaign applies without a coupon; product scope is honored", async () => {
+      const { app, dataAccess } = await createTestApp();
+      seedCampaign(dataAccess, {
+        name: "Sepette %20",
+        type: "AUTOMATIC_CART",
+        discountValue: 20,
+      });
+      const cart = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
+      expect(cart.summary).toMatchObject({
+        discountMinor: 25980, // %20 of 129900
+        couponStatus: "NONE",
+      });
+      expect(cart.summary.discountLines).toEqual([
+        { label: "Sepette %20", code: null, amountMinor: 25980 },
+      ]);
+
+      // Kapsam disi urun kampanyasi uygulanmaz.
+      dataAccess.campaigns.length = 0;
+      seedCampaign(dataAccess, {
+        name: "Baska Urunde %50",
+        type: "PRODUCT_DISCOUNT",
+        discountValue: 50,
+        productIds: ["baska_urun"],
+      });
+      const scoped = (await cartReq(app, [{ variantId: VARIANT, quantity: 1 }])).json();
+      expect(scoped.summary.discountMinor).toBe(0);
+      await app.close();
+    });
+
+    it("regression: checkout without a coupon behaves exactly as before (no discount rows)", async () => {
+      const { app, dataAccess } = await createTestApp();
+      seedCouponCampaign(dataAccess, {}, "KULLANMA10");
+      const response = await checkoutReq(app, {
+        items: [{ variantId: VARIANT, quantity: 2 }],
+        contact: validContact,
+        shippingAddress: validAddress,
+      });
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        subtotalMinor: 259800,
+        discountMinor: 0,
+        totalMinor: 259800,
+        couponStatus: "NONE",
+      });
+      expect(dataAccess.orderDiscounts).toHaveLength(0);
+      expect(dataAccess.campaignRedemptions).toHaveLength(0);
+      await app.close();
+    });
   });
 });
 

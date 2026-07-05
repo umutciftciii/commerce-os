@@ -88,6 +88,12 @@ import type {
   ShippingImportRequest,
   ShippingImportPreviewResponse,
   ShippingImportApplyResponse,
+  // F4A — Kampanya/kupon yönetimi (ADR-058).
+  CampaignResponse,
+  CampaignListResponse,
+  CampaignDetailResponse,
+  CampaignCreateRequest,
+  CampaignUpdateRequest,
 } from "@commerce-os/api-client";
 
 /**
@@ -635,4 +641,22 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // F4A — Kampanya/kupon yönetimi (ADR-058). İndirim hesabı SUNUCUDADIR;
+  // bu ekran yalnız kampanya tanımını yönetir.
+  listCampaigns: () => call<CampaignListResponse>("/api/campaigns"),
+  createCampaign: (input: CampaignCreateRequest) =>
+    mutatingCall<CampaignResponse>("/api/campaigns", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getCampaign: (campaignId: string) =>
+    call<CampaignDetailResponse>(`/api/campaigns/${campaignId}`),
+  updateCampaign: (campaignId: string, input: CampaignUpdateRequest) =>
+    mutatingCall<CampaignResponse>(`/api/campaigns/${campaignId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  campaignStatusAction: (campaignId: string, action: "activate" | "pause" | "archive") =>
+    mutatingCall<CampaignResponse>(`/api/campaigns/${campaignId}/${action}`, { method: "POST" }),
 };
