@@ -45,6 +45,14 @@ function campaign(overrides: Partial<CampaignRecord> = {}): CampaignRecord {
     stackable: false,
     priority: 0,
     isPublic: true,
+    displayTitle: null,
+    shortDescription: null,
+    terms: null,
+    badgeLabel: null,
+    badgeVariant: null,
+    cardStyle: "STANDARD",
+    accessModel: "AUTO_VISIBLE",
+    displayPriority: 0,
     productIds: [],
     categoryIds: [],
     coupons: [coupon()],
@@ -95,7 +103,38 @@ describe("projectCouponCenter (F4A.5)", () => {
       source: "PUBLIC",
       usedAt: null,
       orderNumber: null,
+      // F4A.4 — Sunum alanlari (ADR-061); fixture varsayilanlariyla null/STANDARD.
+      displayTitle: null,
+      shortDescription: null,
+      badgeLabel: null,
+      badgeVariant: null,
+      cardStyle: "STANDARD",
+      terms: null,
     });
+  });
+
+  it("F4A.4: admin sunum alanlarini kupon merkezi kartina tasir (allowlist)", () => {
+    const [card] = projectCouponCenter(
+      [
+        candidate({
+          campaign: {
+            displayTitle: "Sana Özel Kupon",
+            shortDescription: "Sadece bugün",
+            badgeLabel: "Sana Özel",
+            badgeVariant: "PERSONAL",
+            cardStyle: "PERSONAL",
+            terms: "Tek kullanımlıktır.",
+          },
+        }),
+      ],
+      [],
+      NOW,
+    );
+    expect(card?.displayTitle).toBe("Sana Özel Kupon");
+    expect(card?.badgeLabel).toBe("Sana Özel");
+    expect(card?.badgeVariant).toBe("PERSONAL");
+    expect(card?.cardStyle).toBe("PERSONAL");
+    expect(card?.terms).toBe("Tek kullanımlıktır.");
   });
 
   it("alt limit merkez ucunda MIN_ORDER_NOT_MET uretmez (sepet-bagimsiz)", () => {
@@ -149,6 +188,13 @@ describe("projectCouponCenter (F4A.5)", () => {
         "source",
         "state",
         "usedAt",
+        // F4A.4 — Sunum alanlari da allowlist'in parcasidir (ADR-061).
+        "displayTitle",
+        "shortDescription",
+        "badgeLabel",
+        "badgeVariant",
+        "cardStyle",
+        "terms",
       ].sort(),
     );
   });

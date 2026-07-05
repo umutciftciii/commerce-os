@@ -965,3 +965,24 @@
   sonrası docker rebuild (api-gateway + storefront-web) + runtime smoke; kategori çip filtresi bilinçli
   follow-up (kampanya categoryIds var ama kategori-ad çözümlemesi + kod tarafında kapsam eşleşmesi ayrı iş);
   çok-kullanımlı public kupon bir kez kullanıldığında "Kullanılabilir"den düşer (MVP kabulü).
+- F4A.4 — Kampanya/kupon oluşturma seçenekleri + kriter genişletme (DONE — 2026-07-05, ADR-061). Amaç:
+  store-admin'in production-grade kupon kartları/kampanyalar tanımlayabilmesi. TEMEL KURAL: sunum alanları
+  indirim hesabından AYRI (motor DEĞİŞMEDİ). Additive migration `20260705140000_add_campaign_presentation_
+  fields` (nullable/varsayılan; backfill YOK; mevcut kampanyalar null ile çalışır). Yeni Campaign SUNUM
+  alanları: displayTitle/shortDescription/terms/badgeLabel/badgeVariant/cardStyle/displayPriority. Yeni
+  enumlar: CampaignBadgeVariant (DEFAULT/SUPER/LIMITED_TIME/PERSONAL/WEEKEND/NEW_CUSTOMER), CampaignCardStyle
+  (STANDARD/FEATURED/PERSONAL), CampaignAccessModel (AUTO_VISIBLE/PUBLIC_CLAIMABLE/CODE_CLAIMED/ADMIN_
+  ASSIGNED). `isPublic` accessModel'den TÜRETİLİR (authoritative gate; `deriveIsPublicFromAccessModel`);
+  admin isPublic'i ayrı input olarak görmez. Public projeksiyon allowlist'i genişletildi (badge + wallet +
+  coupon-center'a sunum alan paketi); private veri güvenliği korundu (yoksa UI fallback). Store-admin formu
+  6 bölüm (Görünüm/İndirim/Geçerlilik/Erişim/Kapsam/Önizleme) + kupon kartı önizlemesi (gerçek hesap YOK).
+  Vitrin: ürün rozeti + kupon merkezi kartı displayTitle/badgeLabel/terms tüketir (fallback'li). HARİÇ:
+  "Takip et kazan"/store-follow/seller-follow hiçbir yerde yok; reserved segmentler (ilk sipariş/geri dönen/
+  e-posta) enforce edilemediği için enum/forma eklenmedi; marka/vendor scope yok (Product.brand/vendor
+  serbest metin, first-class değil — follow-up); coupon-seviyesi sunum alanı yok. Testler: contracts
+  doğrulama 10 (uzunluk/enum/follow reddi/türetim/partial), gateway rozet+merkez sunum taşıma/allowlist,
+  store-admin 5 (6 bölüm+preview / follow yok / erişim seçenekleri / alan kaydı / null edit), storefront
+  kupon merkezi 3 (display kullanımı/fallback/follow yok). Gate: db:generate + `pnpm -r build` + typecheck +
+  lint + turbo test (35 task; api-gateway 575, storefront 129, store-admin 12) + `git diff --check` yeşil.
+  KALAN: merge sonrası migrate deploy + docker rebuild (api-gateway + store-admin-web + storefront-web) +
+  runtime smoke (OPERATIONS F4A.4). Follow-up: marka/vendor scope, reserved segment enforcement.

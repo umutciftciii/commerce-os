@@ -90,6 +90,11 @@ export interface StorefrontCampaignView {
   minOrderLabel: string | null;
   /** F4A.3 — Bitis tarihi (ISO); yoksa null. */
   endsAt: string | null;
+  /** F4A.4 — Admin-kontrollu sunum alanlari (ADR-061; yoksa null → fallback). */
+  displayTitle: string | null;
+  shortDescription: string | null;
+  badgeLabel: string | null;
+  terms: string | null;
 }
 
 /**
@@ -129,6 +134,11 @@ export interface StorefrontCouponCenterView {
   usedAt: string | null;
   /** USED kart icin musterinin kendi siparis numarasi; digerlerinde null. */
   orderNumber: string | null;
+  /** F4A.4 — Admin-kontrollu sunum alanlari (ADR-061; yoksa null → fallback). */
+  displayTitle: string | null;
+  shortDescription: string | null;
+  badgeLabel: string | null;
+  terms: string | null;
 }
 
 /**

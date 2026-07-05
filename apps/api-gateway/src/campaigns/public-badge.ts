@@ -14,6 +14,7 @@
  */
 import type { PublicCampaignBadge } from "@commerce-os/contracts";
 import type { CampaignCouponRecord, CampaignRecord } from "./data.js";
+import { toCouponDisplayFields } from "./data.js";
 
 /** Rozet uretebilen kampanya tipleri (motorla ayni MVP kumesi). */
 const BADGE_TYPES: ReadonlySet<CampaignRecord["type"]> = new Set([
@@ -119,5 +120,8 @@ export function selectPublicCampaignBadge(
     // Kod varsa CLAIM (sepete kupon olarak ekle); yoksa MANUAL_ONLY.
     couponAction: isCoupon ? (couponCode ? "CLAIM" : "MANUAL_ONLY") : "MANUAL_ONLY",
     endsAt: effectiveEndsAt(winner, activeCoupon),
+    // F4A.4 — Admin-kontrollu sunum alanlari (allowlist). winner zaten isPublic
+    // dogrulanmis kampanyadir; PRIVATE veri buraya ulasmaz.
+    ...toCouponDisplayFields(winner),
   };
 }

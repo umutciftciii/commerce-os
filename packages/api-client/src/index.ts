@@ -388,6 +388,10 @@ export type {
   CampaignDiscountType,
   CampaignCoupon,
   CampaignRedemptionSummary,
+  // F4A.4 — Kampanya sunum alanlari (ADR-061).
+  CampaignBadgeVariant,
+  CampaignCardStyle,
+  CampaignAccessModel,
 } from "@commerce-os/contracts";
 import { optionalEnvString } from "@commerce-os/utils";
 

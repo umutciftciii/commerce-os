@@ -46,6 +46,14 @@ function campaign(overrides: Partial<CampaignRecord> = {}): CampaignRecord {
     stackable: false,
     priority: 0,
     isPublic: true,
+    displayTitle: null,
+    shortDescription: null,
+    terms: null,
+    badgeLabel: null,
+    badgeVariant: null,
+    cardStyle: "STANDARD",
+    accessModel: "AUTO_VISIBLE",
+    displayPriority: 0,
     productIds: [],
     categoryIds: [],
     coupons: [coupon()],
@@ -83,6 +91,13 @@ describe("projectWalletCoupon", () => {
       endsAt: null,
       state: "AVAILABLE",
       source: "PUBLIC",
+      // F4A.4 — Sunum alanlari (ADR-061); fixture varsayilanlariyla null/STANDARD.
+      displayTitle: null,
+      shortDescription: null,
+      badgeLabel: null,
+      badgeVariant: null,
+      cardStyle: "STANDARD",
+      terms: null,
     });
   });
 

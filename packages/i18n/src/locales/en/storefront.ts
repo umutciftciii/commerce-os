@@ -851,6 +851,8 @@ export const enStorefront: StorefrontDictionary = {
       copyCode: "Copy code",
       copied: "Copied",
       viewOrder: "View order",
+      // F4A.4 — Admin coupon card details/terms label.
+      details: "Details",
       applyHint: "Add items to your cart to use this coupon.",
       empty: "You have no coupons yet.",
       emptyFilter: "No coupons match this filter.",

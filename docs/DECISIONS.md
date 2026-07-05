@@ -1613,3 +1613,41 @@ kimliği olmadığından: misafire ATANAN kupon checkout email'i girilene kadar 
 sepet cookie'sinde (`claimedCodes`) yaşar. (–) Cüzdan APPLIED durumu kalıcıdır ama indirimin kaynak
 doğrusu değildir (bilinçli; client tamper koruması). (–) Kampanya detayı atama listesi bellekte
 toplanır — çok yüksek hacimde SQL aggregate'e taşınması follow-up'tır.
+
+## ADR-061 — Kupon sunum alanları indirim hesabından ayrıdır; erişim modeli isPublic'i türetir (F4A.4)
+
+**Bağlam.** F4A kampanya/kupon oluşturma yüzeyi fazla temeldi (ad/tip/kod/indirim/limit/tarih/kapsam).
+Gerçek e-ticaret kupon yönetimi admin-kontrollü zengin SUNUM (müşteri-yüzü başlık, kısa açıklama,
+rozet/etiket, kart görünümü, detay/şartlar) ve net bir edinme/erişim modeli gerektiriyor. Ancak bu
+alanların indirim motorunu, checkout hesabını veya cüzdan yaşam döngüsünü ETKİLEMEMESİ şart. Ayrıca
+"takip et kazan" gibi marketplace-follow kalıpları bu ürünün kapsamı DIŞINDADIR.
+
+**Karar.**
+- **Sunum ≠ hesaplama (temel kural).** `Campaign`'e additive, nullable/varsayılanlı SUNUM alanları
+  eklendi: `displayTitle` (≤120), `shortDescription` (≤240), `terms` (≤2000), `badgeLabel` (≤40),
+  `badgeVariant` (enum), `cardStyle` (enum, STANDARD), `displayPriority` (int, 0). Bunlar YALNIZCA
+  görünümdür; `toEngineCampaign` bunları TAŞIMAZ, motor doğrulanmış kural alanlarını kullanmaya devam eder.
+- **Erişim modeli türetimi (`accessModel`).** Tek enum {AUTO_VISIBLE, PUBLIC_CLAIMABLE, CODE_CLAIMED,
+  ADMIN_ASSIGNED}. `isPublic` bundan TEK-YÖNLÜ TÜRETİLİR ve public projeksiyon için AUTHORITATIVE gate
+  olarak kalır: AUTO_VISIBLE/PUBLIC_CLAIMABLE→`true`, CODE_CLAIMED/ADMIN_ASSIGNED→`false`
+  (`deriveIsPublicFromAccessModel`, contracts'ta tek kaynak). Admin `isPublic`'i ayrı input olarak
+  görmez; form accessModel seçiminden set eder. Redundant `audience`/`claimType` çifti eklenmedi
+  (over-modeling'den kaçınıldı).
+- **Public projeksiyon allowlist'i genişletildi.** Sunum alan paketi (`couponDisplayFieldsSchema`)
+  `publicCampaignBadge` (ürün rozeti), `publicWalletCoupon` (sepet) ve `publicCouponCenterCoupon`
+  (kupon merkezi) yanıtlarına eklendi. Private veri güvenliği KORUNDU: alanlar yalnız `isPublic=true`
+  kampanyalarda (rozet) veya cüzdana girmiş (atanmış/claim) kuponlarda (sepet/merkez) taşınır; iç
+  kimlik/limit/priority/stackable yine sızmaz. Alan yoksa UI üretilmiş fallback'e döner.
+- **Reserved kriterler enum'a/forma eklenmez.** İlk sipariş/geri dönen müşteri/e-posta listesi motor
+  tarafından ENFORCE EDİLEMEDİĞİ için aktif seçenek olarak sunulmaz (enforcement yoksa davranış üretme).
+- **Takip tabanlı kupon YOKTUR.** FOLLOW_REQUIRED / store-follow / seller-follow / marketplace-follow
+  hiçbir enum, UI kopyası, doküman veya testte yer almaz; enum bu değerleri REDDEDER.
+- **Marka/vendor kapsamı eklenmez.** `Product.brand`/`Product.vendor` serbest metindir (first-class
+  model değil); scope tablosu icat edilmedi — follow-up olarak dokümante edildi.
+- **Coupon-seviyesi sunum alanı eklenmez.** Campaign-seviyesi yeterli; over-modeling'den kaçınıldı.
+
+**Sonuçlar.** (+) Admin production-grade kupon kartları (başlık/rozet/şartlar/erişim) tanımlar; vitrin
+bunları güvenle tüketir, eksikse fallback üretir. (+) `isPublic` tek türetim noktasıyla tutarlı;
+public/private güvenlik değişmez. (+) Motor/checkout/cüzdan/kargo'ya sıfır etki (additive). (–) Reserved
+segmentler ve marka/vendor scope sonraki fazlara bırakıldı. (–) Sunum alanları OrderDiscount snapshot'ına
+yazılmaz (bilinçli; sipariş etiketi mevcut label mantığından — görünüm ve immutable kayıt ayrı tutuldu).

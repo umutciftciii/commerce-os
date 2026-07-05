@@ -38,6 +38,14 @@ const COUPON_CAMPAIGN = {
   stackable: false,
   priority: 0,
   isPublic: true,
+  displayTitle: null,
+  shortDescription: null,
+  terms: null,
+  badgeLabel: null,
+  badgeVariant: null,
+  cardStyle: "STANDARD",
+  accessModel: "PUBLIC_CLAIMABLE",
+  displayPriority: 0,
   productIds: [],
   categoryIds: [],
   coupons: [
@@ -220,5 +228,96 @@ describe("store-admin · F4A.2 campaign analytics", () => {
     await user.click(screen.getByRole("button", { name: "Detay" }));
     expect(await screen.findByText("Henüz kullanım yok.")).toBeTruthy();
     expect(screen.getAllByText(/₺0,00/).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// F4A.4 — Kampanya/kupon sunum alanları + erişim modeli (ADR-061). Sunum alanları
+// yalnızca görünümdür; indirim hesabını etkilemez. "Takip et kazan" hiçbir yerde yok.
+describe("store-admin · F4A.4 campaign presentation & access model", () => {
+  it("renders the six form sections and the coupon card preview", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Yeni kampanya" }));
+    expect(screen.getByText("Görünüm / Kupon Kartı")).toBeTruthy();
+    expect(screen.getByText("İndirim Kuralı")).toBeTruthy();
+    expect(screen.getByText("Geçerlilik")).toBeTruthy();
+    expect(screen.getByText("Erişim / Kitle")).toBeTruthy();
+    expect(screen.getByText("Kapsam")).toBeTruthy();
+    expect(screen.getByText("Önizleme")).toBeTruthy();
+    // Preview kart aksiyonu placeholder'ı görünür.
+    expect(screen.getAllByText("Kullan").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("never renders any follow-to-earn / reserved audience option", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Yeni kampanya" }));
+    expect(screen.queryByText(/takip et/i)).toBeNull();
+    expect(screen.queryByText(/follow/i)).toBeNull();
+    expect(screen.queryByText(/mağaza.*takip/i)).toBeNull();
+    // Reserved segmentler (enforce edilemez) formda GÖRÜNMEZ.
+    expect(screen.queryByText(/ilk alışveriş/i)).toBeNull();
+    expect(screen.queryByText(/geri dönen/i)).toBeNull();
+    expect(screen.queryByText(/e-posta listesi/i)).toBeNull();
+  });
+
+  it("offers only the supported claim access models for a coupon campaign", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Yeni kampanya" }));
+    const accessSelect = screen.getByLabelText("Erişim modeli") as HTMLSelectElement;
+    const optionLabels = Array.from(accessSelect.options).map((o) => o.textContent);
+    expect(optionLabels).toContain("Herkese açık kupon");
+    expect(optionLabels).toContain("Kod ile kazanılan özel kupon");
+    expect(optionLabels).toContain("Müşteriye atanan kupon");
+    // Otomatik model kupon tipinde erişim seçeneği olarak listelenmez.
+    expect(optionLabels).not.toContain("Otomatik sepette indirim");
+  });
+
+  it("saves the display fields and derived access model on create", async () => {
+    seedHappyPath();
+    storeApiMock.createCampaign.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Yeni kampanya" }));
+    await user.type(screen.getByLabelText("Kampanya adı"), "Hafta Sonu");
+    await user.type(screen.getByLabelText("Kupon başlığı (opsiyonel)"), "Hafta sonu 500 TL’ye 100 TL kupon");
+    await user.type(screen.getByLabelText("Kart etiketi (opsiyonel)"), "Süper Kupon");
+    await user.type(screen.getByLabelText("İndirim yüzdesi (1-100)"), "10");
+    await user.type(screen.getByLabelText("Kupon kodu"), "HAFTASONU10");
+    await user.click(screen.getByRole("button", { name: "Oluştur" }));
+
+    await waitFor(() => {
+      expect(storeApiMock.createCampaign).toHaveBeenCalledTimes(1);
+    });
+    const payload = storeApiMock.createCampaign.mock.calls[0][0];
+    expect(payload.displayTitle).toBe("Hafta sonu 500 TL’ye 100 TL kupon");
+    expect(payload.badgeLabel).toBe("Süper Kupon");
+    expect(payload.accessModel).toBe("PUBLIC_CLAIMABLE");
+    // isPublic form tarafından gönderilmez; sunucuda accessModel'den türetilir.
+    expect(payload.isPublic).toBeUndefined();
+  });
+
+  it("edits an existing campaign with null display fields without crashing", async () => {
+    seedHappyPath();
+    const user = userEvent.setup();
+    render(<CampaignsPage />);
+    await screen.findByText("TEST250 Kuponu");
+
+    await user.click(screen.getByRole("button", { name: "Düzenle" }));
+    // Sunum bölümü ve boş başlık alanı sorunsuz açılır.
+    expect(screen.getByText("Görünüm / Kupon Kartı")).toBeTruthy();
+    expect((screen.getByLabelText("Kupon başlığı (opsiyonel)") as HTMLInputElement).value).toBe("");
   });
 });

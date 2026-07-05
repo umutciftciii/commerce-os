@@ -172,7 +172,10 @@ function CouponCard({
     <Card className="flex h-full flex-col justify-between gap-3 p-4">
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-2">
-          {coupon.source === "ASSIGNED" ? (
+          {/* F4A.4 — Admin etiketi varsa onu göster; yoksa kaynak-temelli fallback. */}
+          {coupon.badgeLabel ? (
+            <Badge tone={coupon.source === "ASSIGNED" ? "success" : "info"}>{coupon.badgeLabel}</Badge>
+          ) : coupon.source === "ASSIGNED" ? (
             <Badge tone="success">{t.badgeForYou}</Badge>
           ) : (
             <Badge tone="neutral">{t.badgeCoupon}</Badge>
@@ -180,9 +183,20 @@ function CouponCard({
           <span className="text-[11px] font-medium text-slate-400">{sourceLabel}</span>
         </div>
 
-        <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-slate-900">
-          {coupon.discountText}
-        </p>
+        {/* F4A.4 — Admin başlığı varsa öne çıkar; indirim tutarı ikincil satır olur. */}
+        {coupon.displayTitle ? (
+          <>
+            <p className="mt-2 text-base font-semibold text-slate-900">{coupon.displayTitle}</p>
+            <p className="text-sm font-medium text-brand-700">{coupon.discountText}</p>
+          </>
+        ) : (
+          <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-slate-900">
+            {coupon.discountText}
+          </p>
+        )}
+        {coupon.shortDescription ? (
+          <p className="mt-0.5 text-xs text-slate-500">{coupon.shortDescription}</p>
+        ) : null}
 
         <div className="mt-1 flex items-center gap-2">
           <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-slate-700">
@@ -210,6 +224,15 @@ function CouponCard({
           <p className="text-xs text-slate-400">
             {format(t.expiry, { date: formatCouponDate(coupon.endsAt) })}
           </p>
+        ) : null}
+        {/* F4A.4 — Admin "Detaylar / kullanım şartları" (varsa açılır). */}
+        {coupon.terms ? (
+          <details className="mt-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-brand-700 hover:text-brand-800">
+              {t.details}
+            </summary>
+            <p className="mt-1 whitespace-pre-line text-[11px] text-slate-500">{coupon.terms}</p>
+          </details>
         ) : null}
       </div>
 

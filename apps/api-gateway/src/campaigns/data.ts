@@ -14,14 +14,19 @@
 import { prisma } from "@commerce-os/db";
 import type { Prisma } from "@prisma/client";
 import type {
+  CampaignAccessModel,
+  CampaignBadgeVariant,
+  CampaignCardStyle,
   CampaignCreateRequest,
   CampaignDiscountType,
   CampaignResponse,
   CampaignStatus,
   CampaignType,
   CampaignUpdateRequest,
+  CouponDisplayFields,
   CouponStatus,
 } from "@commerce-os/contracts";
+import { deriveIsPublicFromAccessModel } from "@commerce-os/contracts";
 import type { DiscountContext, EngineCampaign, EngineCoupon } from "./discount-engine.js";
 import { normalizeCouponCode } from "./discount-engine.js";
 
@@ -60,6 +65,15 @@ export interface CampaignRecord {
   stackable: boolean;
   priority: number;
   isPublic: boolean;
+  /** F4A.4 — SUNUM alanlari (ADR-061); motor bunlari KULLANMAZ. */
+  displayTitle: string | null;
+  shortDescription: string | null;
+  terms: string | null;
+  badgeLabel: string | null;
+  badgeVariant: CampaignBadgeVariant | null;
+  cardStyle: CampaignCardStyle;
+  accessModel: CampaignAccessModel;
+  displayPriority: number;
   productIds: string[];
   categoryIds: string[];
   coupons: CampaignCouponRecord[];
@@ -218,6 +232,14 @@ export function toCampaignRecord(row: CampaignRow): CampaignRecord {
     stackable: row.stackable,
     priority: row.priority,
     isPublic: row.isPublic,
+    displayTitle: row.displayTitle,
+    shortDescription: row.shortDescription,
+    terms: row.terms,
+    badgeLabel: row.badgeLabel,
+    badgeVariant: row.badgeVariant,
+    cardStyle: row.cardStyle,
+    accessModel: row.accessModel,
+    displayPriority: row.displayPriority,
     productIds: row.products.map((item) => item.productId),
     categoryIds: row.categories.map((item) => item.categoryId),
     coupons: row.coupons.map((coupon) => ({
@@ -279,6 +301,22 @@ function isoOrNull(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
+/**
+ * F4A.4 — Kampanya kaydindan PUBLIC-SAFE sunum alan paketini cikarir (ADR-061).
+ * Rozet/cuzdan/kupon-merkezi projeksiyonlarinda ORTAK kullanilir. Yalnizca
+ * gorunum alanlari; ic kimlik/limit/priority/stackable BURAYA GIRMEZ.
+ */
+export function toCouponDisplayFields(campaign: CampaignRecord): CouponDisplayFields {
+  return {
+    displayTitle: campaign.displayTitle,
+    shortDescription: campaign.shortDescription,
+    badgeLabel: campaign.badgeLabel,
+    badgeVariant: campaign.badgeVariant,
+    cardStyle: campaign.cardStyle,
+    terms: campaign.terms,
+  };
+}
+
 /** Kampanya kaydini admin API sozlesme sekline cevirir (ISO string tarihler). */
 export function serializeCampaign(record: CampaignRecord): CampaignResponse {
   return {
@@ -299,6 +337,14 @@ export function serializeCampaign(record: CampaignRecord): CampaignResponse {
     stackable: record.stackable,
     priority: record.priority,
     isPublic: record.isPublic,
+    displayTitle: record.displayTitle,
+    shortDescription: record.shortDescription,
+    terms: record.terms,
+    badgeLabel: record.badgeLabel,
+    badgeVariant: record.badgeVariant,
+    cardStyle: record.cardStyle,
+    accessModel: record.accessModel,
+    displayPriority: record.displayPriority,
     productIds: record.productIds,
     categoryIds: record.categoryIds,
     coupons: record.coupons.map((coupon) => ({
@@ -491,7 +537,16 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
             perCustomerUsageLimit: input.perCustomerUsageLimit ?? null,
             stackable: input.stackable,
             priority: input.priority,
-            isPublic: input.isPublic,
+            // F4A.4 — isPublic accessModel'den TURETILIR (authoritative gate).
+            isPublic: deriveIsPublicFromAccessModel(input.accessModel),
+            displayTitle: input.displayTitle ?? null,
+            shortDescription: input.shortDescription ?? null,
+            terms: input.terms ?? null,
+            badgeLabel: input.badgeLabel ?? null,
+            badgeVariant: input.badgeVariant ?? null,
+            cardStyle: input.cardStyle,
+            accessModel: input.accessModel,
+            displayPriority: input.displayPriority,
             products: {
               create: [...new Set(input.productIds)].map((productId) => ({ productId, storeId })),
             },
@@ -545,7 +600,19 @@ export function createPrismaCampaignDataAccess(): CampaignDataAccess {
         if (input.perCustomerUsageLimit !== undefined) data.perCustomerUsageLimit = input.perCustomerUsageLimit ?? null;
         if (input.stackable !== undefined) data.stackable = input.stackable;
         if (input.priority !== undefined) data.priority = input.priority;
-        if (input.isPublic !== undefined) data.isPublic = input.isPublic;
+        // F4A.4 — accessModel degisirse isPublic tutarli sekilde TURETILIR.
+        if (input.accessModel !== undefined) {
+          data.accessModel = input.accessModel;
+          data.isPublic = deriveIsPublicFromAccessModel(input.accessModel);
+        }
+        if (input.displayTitle !== undefined) data.displayTitle = input.displayTitle ?? null;
+        if (input.shortDescription !== undefined)
+          data.shortDescription = input.shortDescription ?? null;
+        if (input.terms !== undefined) data.terms = input.terms ?? null;
+        if (input.badgeLabel !== undefined) data.badgeLabel = input.badgeLabel ?? null;
+        if (input.badgeVariant !== undefined) data.badgeVariant = input.badgeVariant ?? null;
+        if (input.cardStyle !== undefined) data.cardStyle = input.cardStyle;
+        if (input.displayPriority !== undefined) data.displayPriority = input.displayPriority;
 
         await transaction.campaign.update({ where: { id: campaignId }, data });
 

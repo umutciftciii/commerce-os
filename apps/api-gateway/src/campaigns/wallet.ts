@@ -18,6 +18,7 @@ import type {
   PublicWalletCouponState,
 } from "@commerce-os/contracts";
 import type { CampaignCouponRecord, CampaignRecord } from "./data.js";
+import { toCouponDisplayFields } from "./data.js";
 
 export interface WalletCandidate {
   coupon: CampaignCouponRecord;
@@ -116,6 +117,8 @@ export function projectWalletCoupon(
     endsAt,
     state,
     source,
+    // F4A.4 — Admin-kontrollu sunum alanlari (allowlist).
+    ...toCouponDisplayFields(campaign),
   };
 }
 
@@ -214,6 +217,13 @@ export function projectCouponCenter(
     source: card.source,
     usedAt: null,
     orderNumber: null,
+    // F4A.4 — Sunum alanlari projectWalletCoupons ciktisindan tasinir (allowlist).
+    displayTitle: card.displayTitle,
+    shortDescription: card.shortDescription,
+    badgeLabel: card.badgeLabel,
+    badgeVariant: card.badgeVariant,
+    cardStyle: card.cardStyle,
+    terms: card.terms,
   }));
 
   const usedCards = [...usedByCode.values()]
@@ -228,6 +238,8 @@ export function projectCouponCenter(
       source: entry.source,
       usedAt: entry.usedAt ? entry.usedAt.toISOString() : null,
       orderNumber: entry.orderNumber,
+      // F4A.4 — Sunum alanlari (allowlist); USED kartlarda da tutarli gorunum.
+      ...toCouponDisplayFields(entry.campaign),
     }));
 
   return [...availableCards, ...usedCards];

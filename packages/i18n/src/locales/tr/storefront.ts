@@ -865,6 +865,8 @@ export const trStorefront = {
       copyCode: "Kodu kopyala",
       copied: "Kopyalandı",
       viewOrder: "Siparişi gör",
+      // F4A.4 — Admin kupon kartı detay/şartlar başlığı.
+      details: "Detaylar",
       applyHint: "Kuponu kullanmak için sepetinize ürün ekleyin.",
       // Boş durumlar.
       empty: "Henüz kuponunuz yok.",

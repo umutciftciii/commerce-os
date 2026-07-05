@@ -93,6 +93,10 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
     couponAction: "MANUAL_ONLY" as const,
     minOrderLabel: null,
     endsAt: null,
+    displayTitle: null,
+    shortDescription: null,
+    badgeLabel: null,
+    terms: null,
   };
 
   it("automatic discount shows 'Sepette' badge, not 'Kuponlu ürün'", () => {

@@ -29,6 +29,11 @@ function toCenterView(coupon: PublicCouponCenterCoupon): StorefrontCouponCenterV
     source: coupon.source,
     usedAt: coupon.usedAt,
     orderNumber: coupon.orderNumber,
+    // F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa null → UI fallback).
+    displayTitle: coupon.displayTitle,
+    shortDescription: coupon.shortDescription,
+    badgeLabel: coupon.badgeLabel,
+    terms: coupon.terms,
   };
 }
 
