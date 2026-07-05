@@ -39,6 +39,7 @@ import type {
   ProductCategoryUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
+  ProductPriceChangeListResponse,
   ProductUpdateRequest,
   ProductVariant,
   ProductVariantCreateRequest,
@@ -160,6 +161,8 @@ export type {
   ProductListResponse,
   ProductPriceVisibility,
   ProductPrimaryAction,
+  ProductPriceChange,
+  ProductPriceChangeListResponse,
   ProductSalesMode,
   ProductUpdateRequest,
   ProductVariant,
@@ -528,6 +531,13 @@ export interface ApiClient {
           input: ProductVariantUpdateRequest,
           token?: string,
         ): Promise<ProductVariant>;
+        // F4B — Varyant fiyat/liste/maliyet degisikligi gecmisi (yonetim).
+        priceChanges(
+          storeId: string,
+          productId: string,
+          variantId: string,
+          token?: string,
+        ): Promise<ProductPriceChangeListResponse>;
       };
     };
     inventory: {
@@ -1144,6 +1154,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               `/stores/${storeId}/products/${productId}/variants/${variantId}`,
               "PATCH",
               input,
+              token,
+            ),
+          priceChanges: (storeId, productId, variantId, token) =>
+            getJson<ProductPriceChangeListResponse>(
+              `/stores/${storeId}/products/${productId}/variants/${variantId}/price-changes`,
               token,
             ),
         },

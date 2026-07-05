@@ -43,6 +43,8 @@ import {
   productCategoryUpdateRequestSchema,
   productCreateRequestSchema,
   productListResponseSchema,
+  productPriceChangeListResponseSchema,
+  productPriceChangeSchema,
   productSchema,
   productUpdateRequestSchema,
   productVariantCreateRequestSchema,
@@ -176,10 +178,12 @@ import type {
   PlatformUser,
   Product,
   ProductCategory,
+  ProductPriceChange,
   ProductPriceVisibility,
   ProductPrimaryAction,
   ProductSalesMode,
   ProductVariant,
+  PriceChangeSource,
   ShipmentStatus,
   Store,
   StoreStatus,
@@ -257,6 +261,7 @@ type VariantRecord = Pick<
   | "barcode"
   | "priceMinor"
   | "compareAtMinor"
+  | "costMinor"
   | "currency"
   | "status"
   | "optionValues"
@@ -264,6 +269,25 @@ type VariantRecord = Pick<
   | "shippingDesi"
   | "createdAt"
   | "updatedAt"
+>;
+// F4B — Fiyat/liste/maliyet degisikligi audit kaydi (append-only).
+type PriceChangeRecord = Pick<
+  ProductPriceChange,
+  | "id"
+  | "storeId"
+  | "productId"
+  | "variantId"
+  | "changedByPlatformUserId"
+  | "currency"
+  | "oldPriceMinor"
+  | "newPriceMinor"
+  | "oldCompareAtMinor"
+  | "newCompareAtMinor"
+  | "oldCostMinor"
+  | "newCostMinor"
+  | "source"
+  | "reason"
+  | "createdAt"
 >;
 type InventoryRecord = Pick<
   InventoryItem,
@@ -661,12 +685,16 @@ export interface AppDataAccess extends CampaignDataAccess {
       barcode?: string | null;
       priceMinor: number;
       compareAtMinor?: number | null;
+      costMinor?: number | null;
       currency: string;
       status: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
+      // F4B — Fiyat/liste/maliyet baslangic audit'i icin aktor + kaynak.
+      changedByPlatformUserId?: string | null;
+      priceChangeSource?: PriceChangeSource;
     },
   ): Promise<VariantRecord>;
   updateVariant(
@@ -679,14 +707,29 @@ export interface AppDataAccess extends CampaignDataAccess {
       barcode?: string | null;
       priceMinor?: number;
       compareAtMinor?: number | null;
+      costMinor?: number | null;
       currency?: string;
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
       lowStockThreshold?: number | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
+      // F4B — Fiyat/liste/maliyet degisikligi audit'i icin aktor + kaynak + sebep.
+      changedByPlatformUserId?: string | null;
+      priceChangeSource?: PriceChangeSource;
+      priceChangeReason?: string | null;
     },
   ): Promise<VariantRecord | null>;
+  // F4B — Varyant fiyat/liste/maliyet degisikligi gecmisi (yonetim; asla public).
+  listPriceChanges(
+    storeId: string,
+    variantId: string,
+    input: { limit: number; offset: number },
+  ): Promise<{ data: PriceChangeRecord[]; total: number }>;
+  // F4B — EU Omnibus: store'daki her variantId -> son N gunun en dusuk SATIS
+  // fiyati (minor). 30 gunde fiyat degisikligi olmayan varyant haritada YOKTUR
+  // (cagiran mevcut fiyata fallback eder).
+  lowestRecentPriceByStore(storeId: string, sinceDays: number): Promise<Map<string, number>>;
   listInventory(
     storeId: string,
     input: { limit: number; offset: number },
@@ -948,6 +991,8 @@ const publicProductParamSchema = z.object({
 // varyant/stok kaydini tek seferde toplamaya yeter (pagination query'si bunun
 // uzerinde uygulanir).
 const PUBLIC_CATALOG_MAX = 200;
+// F4B — EU Omnibus "son N gunun en dusuk fiyati" penceresi (gun).
+const OMNIBUS_WINDOW_DAYS = 30;
 
 function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
@@ -1071,12 +1116,22 @@ function serializeVariant(variant: VariantRecord) {
     ...variant,
     barcode: variant.barcode ?? null,
     compareAtMinor: variant.compareAtMinor ?? null,
+    costMinor: variant.costMinor ?? null,
     optionValues: variant.optionValues ?? null,
     // F3C.2 — Decimal -> number.
     shippingWeightKg: decimalToNumber(variant.shippingWeightKg),
     shippingDesi: decimalToNumber(variant.shippingDesi),
     createdAt: variant.createdAt.toISOString(),
     updatedAt: variant.updatedAt.toISOString(),
+  });
+}
+
+function serializePriceChange(change: PriceChangeRecord) {
+  return productPriceChangeSchema.parse({
+    ...change,
+    changedByPlatformUserId: change.changedByPlatformUserId ?? null,
+    reason: change.reason ?? null,
+    createdAt: change.createdAt.toISOString(),
   });
 }
 
@@ -1262,15 +1317,23 @@ function buildPublicVariant(
   product: Pick<ProductRecord, "priceVisibility">,
   variant: VariantRecord,
   stockByVariantId: Map<string, number>,
+  lowestByVariantId: Map<string, number> = new Map(),
 ) {
   const visible = isPublicPriceVisible(product.priceVisibility);
   const available = stockByVariantId.has(variant.id) ? stockByVariantId.get(variant.id)! : null;
+  // F4B — EU Omnibus: yalnizca gecerli bir indirim (compareAt > price) varken ve
+  // fiyat gorunurken son N gunun en dusuk SATIS fiyatini yansit; aksi halde null.
+  const lowestPriceMinor =
+    visible && variant.compareAtMinor != null && variant.compareAtMinor > variant.priceMinor
+      ? Math.min(variant.priceMinor, lowestByVariantId.get(variant.id) ?? variant.priceMinor)
+      : null;
   return {
     id: variant.id,
     title: variant.title,
     sku: variant.sku,
     priceMinor: visible ? variant.priceMinor : null,
     compareAtMinor: visible ? (variant.compareAtMinor ?? null) : null,
+    lowestPriceMinor,
     currency: variant.currency,
     available,
     // Stok bilinmiyorsa (null) urunu yanlislikla tukenmis gostermeyiz.
@@ -1287,9 +1350,11 @@ function buildPublicProduct(
   // (birincil + stackable ikincil kupon) BURADA secilir (allowlist projeksiyon).
   publicCampaigns: CampaignRecord[] = [],
   badgeNow: Date = new Date(),
+  // F4B — EU Omnibus: variantId -> son N gunun en dusuk SATIS fiyati.
+  lowestByVariantId: Map<string, number> = new Map(),
 ) {
   const variants = activeVariants.map((variant) =>
-    buildPublicVariant(product, variant, stockByVariantId),
+    buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId),
   );
   // F4A.6 — Guvenli nihai fiyat tahmini yalnizca TEK-FIYATLI urunlerde uretilir:
   // gorunur varyant fiyatlari esitse temsili birim fiyat, aksi halde null (fiyat
@@ -1792,6 +1857,7 @@ function createPrismaDataAccess(): AppDataAccess {
     barcode: true,
     priceMinor: true,
     compareAtMinor: true,
+    costMinor: true,
     currency: true,
     status: true,
     optionValues: true,
@@ -1800,6 +1866,24 @@ function createPrismaDataAccess(): AppDataAccess {
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.ProductVariantSelect;
+  // F4B — Fiyat degisikligi audit projeksiyonu.
+  const priceChangeSelect = {
+    id: true,
+    storeId: true,
+    productId: true,
+    variantId: true,
+    changedByPlatformUserId: true,
+    currency: true,
+    oldPriceMinor: true,
+    newPriceMinor: true,
+    oldCompareAtMinor: true,
+    newCompareAtMinor: true,
+    oldCostMinor: true,
+    newCostMinor: true,
+    source: true,
+    reason: true,
+    createdAt: true,
+  } satisfies Prisma.ProductPriceChangeSelect;
   const inventorySelect = {
     id: true,
     storeId: true,
@@ -2286,6 +2370,7 @@ function createPrismaDataAccess(): AppDataAccess {
             barcode: input.barcode ?? null,
             priceMinor: input.priceMinor,
             compareAtMinor: input.compareAtMinor ?? null,
+            costMinor: input.costMinor ?? null,
             currency: input.currency,
             status: input.status,
             optionValues: input.optionValues as Prisma.InputJsonObject | undefined,
@@ -2303,12 +2388,47 @@ function createPrismaDataAccess(): AppDataAccess {
             lowStockThreshold: input.lowStockThreshold ?? null,
           },
         });
+        // F4B — Baslangic fiyat/liste/maliyet audit'i (Omnibus min-fiyat temeli).
+        await transaction.productPriceChange.create({
+          data: {
+            storeId,
+            productId,
+            variantId: variant.id,
+            changedByPlatformUserId: input.changedByPlatformUserId ?? null,
+            currency: variant.currency,
+            oldPriceMinor: null,
+            newPriceMinor: variant.priceMinor,
+            oldCompareAtMinor: null,
+            newCompareAtMinor: variant.compareAtMinor,
+            oldCostMinor: null,
+            newCostMinor: variant.costMinor,
+            source: input.priceChangeSource ?? "ADMIN_EDIT",
+          },
+        });
         return variant;
       }),
     updateVariant: async (storeId, productId, variantId, input) => {
       try {
-        const { lowStockThreshold, ...variantInput } = input;
+        // F4B — Kolon-disi alanlari (aktor/kaynak/sebep) Prisma data'sindan ayikla.
+        const {
+          lowStockThreshold,
+          changedByPlatformUserId,
+          priceChangeSource,
+          priceChangeReason,
+          ...variantInput
+        } = input;
         return await prisma.$transaction(async (transaction: TransactionClient) => {
+          // F4B — Once mevcut degerleri oku (audit diff icin).
+          const before = await transaction.productVariant.findFirst({
+            where: { id: variantId, storeId, productId },
+            select: variantSelect,
+          });
+          if (!before) {
+            throw new Prisma.PrismaClientKnownRequestError("Variant not found.", {
+              code: "P2025",
+              clientVersion: Prisma.prismaVersion.client,
+            });
+          }
           const variant = await transaction.productVariant.update({
             where: { id: variantId, storeId, productId },
             data: {
@@ -2316,6 +2436,7 @@ function createPrismaDataAccess(): AppDataAccess {
               barcode: variantInput.barcode === undefined ? undefined : variantInput.barcode,
               compareAtMinor:
                 variantInput.compareAtMinor === undefined ? undefined : variantInput.compareAtMinor,
+              costMinor: variantInput.costMinor === undefined ? undefined : variantInput.costMinor,
               optionValues:
                 variantInput.optionValues === undefined
                   ? undefined
@@ -2330,6 +2451,30 @@ function createPrismaDataAccess(): AppDataAccess {
               create: { storeId, variantId, lowStockThreshold, quantityOnHand: 0, quantityReserved: 0 },
             });
           }
+          // F4B — Fiyat/liste/maliyetten en az biri degistiyse audit satiri yaz (ayni transaction).
+          const priceChanged =
+            before.priceMinor !== variant.priceMinor ||
+            (before.compareAtMinor ?? null) !== (variant.compareAtMinor ?? null) ||
+            (before.costMinor ?? null) !== (variant.costMinor ?? null);
+          if (priceChanged) {
+            await transaction.productPriceChange.create({
+              data: {
+                storeId,
+                productId,
+                variantId,
+                changedByPlatformUserId: changedByPlatformUserId ?? null,
+                currency: variant.currency,
+                oldPriceMinor: before.priceMinor,
+                newPriceMinor: variant.priceMinor,
+                oldCompareAtMinor: before.compareAtMinor,
+                newCompareAtMinor: variant.compareAtMinor,
+                oldCostMinor: before.costMinor,
+                newCostMinor: variant.costMinor,
+                source: priceChangeSource ?? "ADMIN_EDIT",
+                reason: priceChangeReason ?? null,
+              },
+            });
+          }
           return variant;
         });
       } catch (error) {
@@ -2338,6 +2483,33 @@ function createPrismaDataAccess(): AppDataAccess {
         }
         throw error;
       }
+    },
+    listPriceChanges: async (storeId, variantId, { limit, offset }) => {
+      const [data, total] = await Promise.all([
+        prisma.productPriceChange.findMany({
+          where: { storeId, variantId },
+          orderBy: { createdAt: "desc" },
+          skip: offset,
+          take: limit,
+          select: priceChangeSelect,
+        }),
+        prisma.productPriceChange.count({ where: { storeId, variantId } }),
+      ]);
+      return { data, total };
+    },
+    lowestRecentPriceByStore: async (storeId, sinceDays) => {
+      const result = new Map<string, number>();
+      const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+      // F4B — Son N gunde uygulanan tum yeni SATIS fiyatlarinin variant-bazli minimumu.
+      const rows = await prisma.productPriceChange.groupBy({
+        by: ["variantId"],
+        where: { storeId, createdAt: { gte: since }, newPriceMinor: { not: null } },
+        _min: { newPriceMinor: true },
+      });
+      for (const row of rows) {
+        if (row._min.newPriceMinor != null) result.set(row.variantId, row._min.newPriceMinor);
+      }
+      return result;
     },
     listInventory: async (storeId, { limit, offset }) => {
       const [data, total] = await Promise.all([
@@ -3357,6 +3529,11 @@ export function createServer(
     return new Map(page.data.map((item) => [item.variantId, item.quantityOnHand - item.quantityReserved]));
   }
 
+  // F4B — EU Omnibus: store'daki her varyant icin son 30 gunun en dusuk satis fiyati.
+  async function loadPublicLowestPriceMap(storeId: string) {
+    return dataAccess.lowestRecentPriceByStore(storeId, OMNIBUS_WINDOW_DAYS);
+  }
+
   async function loadActivePublicVariants(storeId: string, productId: string) {
     const page = await dataAccess.listVariants(storeId, productId, {
       limit: PUBLIC_CATALOG_MAX,
@@ -3372,12 +3549,14 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const [products, categoryNames, stockMap, publicCampaigns] = await Promise.all([
+    const [products, categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
       loadActivePublicProducts(store.id),
       loadPublicCategoryNames(store.id),
       loadPublicStockMap(store.id),
       // F4A.1 — Rozet projeksiyonu icin ACTIVE + isPublic kampanyalar (store-scoped).
       dataAccess.listPublicActiveCampaigns(store.id),
+      // F4B — Omnibus: son 30 gunun en dusuk satis fiyati (variant-bazli).
+      loadPublicLowestPriceMap(store.id),
     ]);
     const badgeNow = new Date();
     const slice = products.slice(pagination.offset, pagination.offset + pagination.limit);
@@ -3390,6 +3569,7 @@ export function createServer(
           stockMap,
           publicCampaigns,
           badgeNow,
+          lowestMap,
         ),
       ),
     );
@@ -3410,11 +3590,13 @@ export function createServer(
     if (!product) {
       return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
     }
-    const [categoryNames, stockMap, publicCampaigns] = await Promise.all([
+    const [categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
       loadPublicCategoryNames(store.id),
       loadPublicStockMap(store.id),
       // F4A.1 — Rozet projeksiyonu icin ACTIVE + isPublic kampanyalar (store-scoped).
       dataAccess.listPublicActiveCampaigns(store.id),
+      // F4B — Omnibus: son 30 gunun en dusuk satis fiyati (variant-bazli).
+      loadPublicLowestPriceMap(store.id),
     ]);
     const badgeNow = new Date();
     const variants = await loadActivePublicVariants(store.id, product.id);
@@ -3425,6 +3607,7 @@ export function createServer(
       stockMap,
       publicCampaigns,
       badgeNow,
+      lowestMap,
     );
     const related = await Promise.all(
       products
@@ -3438,6 +3621,7 @@ export function createServer(
             stockMap,
             publicCampaigns,
             badgeNow,
+            lowestMap,
           ),
         ),
     );
@@ -4549,7 +4733,12 @@ export function createServer(
     }
     let variant: VariantRecord;
     try {
-      variant = await dataAccess.createVariant(params.storeId, params.productId, input);
+      variant = await dataAccess.createVariant(params.storeId, params.productId, {
+        ...input,
+        // F4B — Baslangic fiyat audit'i icin aktor.
+        changedByPlatformUserId: access.session.platformUser.id,
+        priceChangeSource: "ADMIN_EDIT",
+      });
     } catch (error) {
       if (isPrismaUniqueConstraintError(error)) {
         return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
@@ -4574,9 +4763,22 @@ export function createServer(
     const current = await dataAccess.findVariantById(params.storeId, params.productId, params.variantId);
     if (!current) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
     const rawInput = productVariantUpdateRequestSchema.parse(request.body);
-    const candidatePrice = rawInput.priceMinor ?? current.priceMinor;
-    if (rawInput.compareAtMinor !== undefined && rawInput.compareAtMinor !== null && rawInput.compareAtMinor < candidatePrice) {
-      return reply.code(400).send(errorBody("VALIDATION_ERROR", "compareAtMinor must be greater than or equal to priceMinor."));
+    // F4B — Birlestirilmis (patch + mevcut) durum uzerinden liste tavani hesabi.
+    // NOT: satis > liste ARTIK 400 degil (karar: yalnizca storefront'ta rozet turemez).
+    const resultPrice = rawInput.priceMinor ?? current.priceMinor;
+    const resultCompareAt =
+      rawInput.compareAtMinor !== undefined ? rawInput.compareAtMinor : current.compareAtMinor;
+    const resultCost = rawInput.costMinor !== undefined ? rawInput.costMinor : current.costMinor;
+    const listCeiling = resultCompareAt ?? resultPrice;
+    if (resultCost != null && resultCost > listCeiling) {
+      return reply
+        .code(400)
+        .send(
+          errorBody(
+            "COST_EXCEEDS_LIST",
+            "costMinor must be less than or equal to the list price (compareAtMinor ?? priceMinor).",
+          ),
+        );
     }
     if (rawInput.sku) {
       const existing = await dataAccess.findVariantBySku(params.storeId, rawInput.sku);
@@ -4584,7 +4786,12 @@ export function createServer(
         return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
       }
     }
-    const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, rawInput);
+    const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, {
+      ...rawInput,
+      // F4B — Fiyat/liste/maliyet degisiklik audit'i icin aktor.
+      changedByPlatformUserId: access.session.platformUser.id,
+      priceChangeSource: "ADMIN_EDIT",
+    });
     if (!variant) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
     await dataAccess.createAuditLog({
       action: "UPDATE",
@@ -4596,6 +4803,25 @@ export function createServer(
     });
     return serializeVariant(variant);
   });
+
+  // F4B — Varyant fiyat/liste/maliyet degisikligi gecmisi (yonetim; maliyet iceriр).
+  app.get(
+    "/stores/:storeId/products/:productId/variants/:variantId/price-changes",
+    async (request, reply) => {
+      const params = variantParamSchema.parse(request.params);
+      const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+      if (!access) return;
+      if (!(await dataAccess.findVariantById(params.storeId, params.productId, params.variantId))) {
+        return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+      }
+      const pagination = paginationQuerySchema.parse(request.query);
+      const changes = await dataAccess.listPriceChanges(params.storeId, params.variantId, pagination);
+      return productPriceChangeListResponseSchema.parse({
+        data: changes.data.map(serializePriceChange),
+        pagination: { ...pagination, total: changes.total },
+      });
+    },
+  );
 
   app.get("/stores/:storeId/inventory", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);

@@ -77,6 +77,12 @@ export function ProductCard({
               ) : null}
             </div>
           )}
+          {/* F4B — EU Omnibus notu: indirim varken son 30 günün en düşük fiyatı. */}
+          {numeric && price.lowestRecentLabel ? (
+            <p className="mt-1 text-[11px] text-slate-400">
+              {format(t.badges.omnibusLowest, { amount: price.lowestRecentLabel })}
+            </p>
+          ) : null}
 
           <p className="mt-3 text-xs font-medium text-brand-600">{ctaLabel(commerce.primaryCta, t)}</p>
         </div>

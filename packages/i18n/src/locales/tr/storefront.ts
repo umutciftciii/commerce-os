@@ -472,6 +472,8 @@ export const trStorefront = {
     new: "Yeni",
     // F4A.6 — Otomatik sepet indirimi fiyat bloğu etiketi.
     inCart: "Sepette",
+    // F4B — EU Omnibus: indirim öncesi son 30 günün en düşük fiyatı.
+    omnibusLowest: "Son 30 günün en düşük fiyatı: {amount}",
   },
   // F3B.3 — Müşteri kimlik doğrulama (kayıt/giriş) görünür metinleri.
   auth: {

@@ -37,7 +37,7 @@ function summary(handle: string, title: string): StorefrontProductSummary {
     title,
     brand: "Marka",
     categoryLabel: "Giyim",
-    price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null },
+    price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null, lowestRecentLabel: null },
     commerce: deriveProductCommerceView(online),
     badgeKind: null,
     campaign: null,

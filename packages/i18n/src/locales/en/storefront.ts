@@ -467,6 +467,8 @@ export const enStorefront: StorefrontDictionary = {
     new: "New",
     // F4A.6 — Automatic cart-discount price block label.
     inCart: "In cart",
+    // F4B — EU Omnibus: lowest price in the 30 days before the discount.
+    omnibusLowest: "Lowest price in the last 30 days: {amount}",
   },
   // F3B.3 — Customer authentication (register/login) copy.
   auth: {

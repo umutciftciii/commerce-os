@@ -148,7 +148,7 @@ describe("catalog contracts", () => {
     ).toThrow();
   });
 
-  it("requires minor-unit integer prices and compare-at not below price", () => {
+  it("requires minor-unit integer prices", () => {
     expect(() =>
       productVariantCreateRequestSchema.parse({
         title: "Default",
@@ -156,12 +156,45 @@ describe("catalog contracts", () => {
         priceMinor: 1299.5,
       }),
     ).toThrow();
+  });
+
+  // F4B — Satis > liste ARTIK gecerli (karar: yalnizca storefront'ta rozet turemez).
+  it("allows list price (compareAtMinor) below sale price (only a warning in UI, not an error)", () => {
+    const parsed = productVariantCreateRequestSchema.parse({
+      title: "Default",
+      sku: "SKU-1",
+      priceMinor: 129900,
+      compareAtMinor: 99900,
+    });
+    expect(parsed.compareAtMinor).toBe(99900);
+  });
+
+  // F4B — Maliyet <= liste tavani (compareAtMinor ?? priceMinor) hard kurali.
+  it("rejects cost above the list ceiling and accepts cost at/below it", () => {
     expect(() =>
       productVariantCreateRequestSchema.parse({
-        title: "Default",
-        sku: "SKU-1",
-        priceMinor: 129900,
-        compareAtMinor: 99900,
+        title: "Cost",
+        sku: "SKU-COST",
+        priceMinor: 100000,
+        compareAtMinor: 120000,
+        costMinor: 130000,
+      }),
+    ).toThrow();
+    const parsed = productVariantCreateRequestSchema.parse({
+      title: "Cost",
+      sku: "SKU-COST",
+      priceMinor: 100000,
+      compareAtMinor: 120000,
+      costMinor: 80000,
+    });
+    expect(parsed.costMinor).toBe(80000);
+    // compareAt yoksa tavan = priceMinor.
+    expect(() =>
+      productVariantCreateRequestSchema.parse({
+        title: "Cost",
+        sku: "SKU-COST2",
+        priceMinor: 100000,
+        costMinor: 110000,
       }),
     ).toThrow();
   });
