@@ -2,9 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { getDictionary } from "@commerce-os/i18n";
 
-// F4A — Kupon UI'i Server Action'lara bagli; render testinde ag/cookie yok.
+// F4A/F4A.3 — Kupon UI'i Server Action'lara bagli; render testinde ag/cookie yok.
 vi.mock("../lib/server/cart-actions", () => ({
-  applyCouponAction: vi.fn(),
+  applyWalletCouponAction: vi.fn(),
+  claimCouponAction: vi.fn(),
   reconcileCartAction: vi.fn(),
   removeCartItemAction: vi.fn(),
   removeCouponAction: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock("../lib/server/cart-actions", () => ({
 
 import { CartView } from "../components/cart-view.js";
 import type { CartView as CartViewModel } from "../lib/server/cart.js";
+import type { StorefrontWalletCouponView } from "../lib/catalog-types.js";
 
 const t = getDictionary("tr").storefront.cart;
 
@@ -56,8 +58,21 @@ function view(summaryOverrides: Partial<CartViewModel["summary"]> = {}): CartVie
       couponStatus: "NONE",
       couponReason: null,
       discountLines: [],
+      availableCoupons: [],
       ...summaryOverrides,
     },
+  };
+}
+
+function walletCoupon(overrides: Partial<StorefrontWalletCouponView> = {}): StorefrontWalletCouponView {
+  return {
+    code: "TEST250",
+    discountText: "₺250",
+    minOrderLabel: "₺1.000",
+    endsAt: null,
+    state: "AVAILABLE",
+    source: "PUBLIC",
+    ...overrides,
   };
 }
 
@@ -67,55 +82,73 @@ function render(model: CartViewModel): string {
   );
 }
 
-describe("storefront-web · F4A coupon UI", () => {
-  it("renders the coupon input and apply button when no coupon is applied", () => {
+describe("storefront-web · F4A.3 cart Kuponlar area", () => {
+  it("renders the 'Kuponlar' area and the 'Kupon Kodu Ekle' action", () => {
     const html = render(view());
-    expect(html).toContain(t.couponPlaceholder);
-    expect(html).toContain(t.couponApply);
+    expect(html).toContain(t.couponsTitle); // "Kuponlar"
+    expect(html).toContain(t.couponAdd); // "Kupon Kodu Ekle"
   });
 
-  it("shows the applied coupon with a server-authoritative discount line and remove button", () => {
+  it("renders an eligible coupon card with amount, min order and 'Kullan' action", () => {
+    const html = render(view({ availableCoupons: [walletCoupon()] }));
+    expect(html).toContain("TEST250");
+    expect(html).toContain("₺250");
+    expect(html).toContain("₺1.000"); // alt limit
+    expect(html).toContain(t.couponUse); // "Kullan"
+  });
+
+  it("renders 'Alt limit eksik' state for a min-order-not-met coupon", () => {
+    const html = render(
+      view({ availableCoupons: [walletCoupon({ state: "MIN_ORDER_NOT_MET" })] }),
+    );
+    expect(html).toContain(t.couponStateMinOrder);
+    expect(html).not.toContain(`>${t.couponUse}<`);
+  });
+
+  it("marks an applied coupon card as 'Uygulandı'", () => {
     const html = render(
       view({
-        couponCode: "KUPON10",
+        couponCode: "TEST250",
         couponStatus: "APPLIED",
-        discountLabel: "₺129,90",
-        discountLines: [{ label: "Kupon Kampanyası", code: "KUPON10", amountLabel: "₺129,90" }],
+        availableCoupons: [walletCoupon({ state: "APPLIED" })],
       }),
     );
-    expect(html).toContain("KUPON10");
+    expect(html).toContain(t.couponStateApplied);
+  });
+
+  it("shows an assigned coupon badge", () => {
+    const html = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
+    expect(html).toContain(t.couponSourceAssigned);
+  });
+
+  it("applied coupon shows discount line + remove; server totals not recomputed", () => {
+    const html = render(
+      view({
+        couponCode: "TEST250",
+        couponStatus: "APPLIED",
+        discountLabel: "₺250,00",
+        discountLines: [{ label: "TEST250 Kupon", code: "TEST250", amountLabel: "₺250,00" }],
+        grandTotalLabel: "₺1.098,90",
+      }),
+    );
     expect(html).toContain(t.couponRemove);
-    expect(html).toContain("−₺129,90");
+    expect(html).toContain("−₺250,00");
+    expect(html).toContain("₺1.098,90");
   });
 
-  it("shows a clear, reason-specific error for an invalid coupon", () => {
-    const notApplicable = render(
-      view({ couponCode: "YOK10", couponStatus: "INVALID", couponReason: "NOT_APPLICABLE" }),
-    );
-    expect(notApplicable).toContain(t.couponReasonNotApplicable);
-
-    const minOrder = render(
-      view({ couponCode: "MIN500", couponStatus: "INVALID", couponReason: "MIN_ORDER_NOT_MET" }),
-    );
-    expect(minOrder).toContain(t.couponReasonMinOrder);
-
-    // NOT_FOUND genel kopyaya duser (kupon varligi detayi sizdirilmaz).
-    const notFound = render(
-      view({ couponCode: "BILINMEZ", couponStatus: "INVALID", couponReason: "NOT_FOUND" }),
-    );
-    expect(notFound).toContain("geçerli bir kod değil");
-  });
-
-  it("renders server totals (grand total) without any client-side recalculation", () => {
+  it("invalid coupon error coexists with an automatic campaign discount line", () => {
     const html = render(
       view({
-        couponCode: "KUPON10",
-        couponStatus: "APPLIED",
+        couponCode: "BADCODE",
+        couponStatus: "INVALID",
+        couponReason: "NOT_APPLICABLE",
         discountLabel: "₺129,90",
-        discountLines: [{ label: "Kupon Kampanyası", code: "KUPON10", amountLabel: "₺129,90" }],
-        grandTotalLabel: "₺1.219,00",
+        // Otomatik kampanya satiri (code yok) gecersiz kupona ragmen kalir.
+        discountLines: [{ label: "Sepette %10 İndirim", code: null, amountLabel: "₺129,90" }],
       }),
     );
-    expect(html).toContain("₺1.219,00");
+    expect(html).toContain(t.couponReasonNotApplicable);
+    expect(html).toContain("Sepette %10 İndirim");
+    expect(html).toContain("−₺129,90");
   });
 });

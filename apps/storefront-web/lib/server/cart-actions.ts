@@ -11,10 +11,12 @@ import type {
   PublicPaymentThreeDsAction,
 } from "@commerce-os/api-client";
 import { isValidTaxNumber, isValidTckn } from "@commerce-os/api-client";
+import type { PublicCouponReason } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
-import { submitCheckout, submitTestPayment } from "./cart";
+import { claimCouponRemote, submitCheckout, submitTestPayment, syncWalletApplied } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
 import {
+  addClaimedCoupon,
   clearCartCookie,
   readCartItems,
   readCoupon,
@@ -41,15 +43,47 @@ function revalidateCart(): void {
   revalidatePath("/checkout");
 }
 
-/** Kupon kodunu uygular (cookie'ye yazar; gateway gercek dogrulamayi yapar). */
-export async function applyCouponAction(code: string): Promise<void> {
+/** F4A.3 — "Kupon Kodu Ekle" (claim) sonucu (UI kopyasi istemci i18n'inde). */
+export type ClaimCouponResult =
+  | { status: "ok"; code: string }
+  | { status: "error"; reason: PublicCouponReason | "error" };
+
+/**
+ * F4A.3 (ADR-060) — Kupon kodunu "cuzdana ekle" (claim). Kriter saglaniyorsa
+ * "Kuponlar" alanina eklenir (uygulanmaz); degilse guvenli negatif neden doner.
+ * Uygulama AYRI adimdir (applyWalletCouponAction / "Kullan").
+ */
+export async function claimCouponAction(code: string): Promise<ClaimCouponResult> {
+  const value = code.trim();
+  if (!value) return { status: "error", reason: "NOT_FOUND" };
+  const result = await claimCouponRemote(value);
+  if (!result || !result.ok) {
+    return { status: "error", reason: result?.reason ?? "error" };
+  }
+  // Misafir cuzdani cookie'ye yazilir (oturum acmis musteride DB'ye zaten yazildi).
+  if (result.normalizedCode) {
+    await addClaimedCoupon(result.normalizedCode);
+  }
+  revalidateCart();
+  return { status: "ok", code: result.coupon?.code ?? value };
+}
+
+/**
+ * F4A.3 — Cuzdan kuponunu "Kullan": sepete uygular. Indirim KAYNAK DOGRUSU
+ * couponCode cookie'sidir (gateway her istekte yeniden dogrular); ek olarak
+ * oturum acmis musteride cuzdan APPLIED'a senkronlanir.
+ */
+export async function applyWalletCouponAction(code: string): Promise<void> {
   await writeCoupon(code);
+  await syncWalletApplied(code, true);
   revalidateCart();
 }
 
-/** Uygulanan kuponu kaldirir. */
+/** Uygulanan kuponu sepetten kaldirir (cuzdan kartinda kalir; AVAILABLE'a doner). */
 export async function removeCouponAction(): Promise<void> {
+  const current = await readCoupon();
   await writeCoupon(null);
+  if (current) await syncWalletApplied(current, false);
   revalidateCart();
 }
 

@@ -17,6 +17,11 @@ import type { OrderConfirmationView } from "./cart";
  */
 const CART_COOKIE = "commerce_os_cart";
 const COUPON_COOKIE = "commerce_os_coupon";
+// F4A.3 (ADR-060) — Misafir cuzdani: kod ile "claim" edilmis kupon kodlari.
+// Hassas degil; gateway her istekte yeniden dogrular ve kart durumunu hesaplar.
+// Oturum acmis musteride cuzdan DB'de tutulur; bu cookie yine de zararsizdir.
+const CLAIMED_COUPONS_COOKIE = "commerce_os_claimed_coupons";
+const MAX_CLAIMED_CODES = 20;
 // TODO-125: Musterinin sectigi kargo secenegi (= ShippingRatePlan.id). Hassas
 // degil; gateway her istekte gecerlilik/ait-olma dogrulamasi yapar ve ucreti
 // secilen plandan YENIDEN hesaplar (istemci fiyatina guvenilmez).
@@ -65,6 +70,51 @@ export async function clearCartCookie(): Promise<void> {
   store.delete(CART_COOKIE);
   store.delete(COUPON_COOKIE);
   store.delete(SHIPPING_OPTION_COOKIE);
+  store.delete(CLAIMED_COUPONS_COOKIE);
+}
+
+/** Normalize kupon kodu (gateway ile ayni kural: trim + upper + [A-Z0-9-] max 40). */
+function normalizeClaimedCode(raw: string): string | null {
+  const normalized = raw.trim().toUpperCase();
+  return /^[A-Z0-9-]{1,40}$/.test(normalized) ? normalized : null;
+}
+
+/**
+ * F4A.3 — Misafir cuzdanindaki claim edilmis kupon kodlari. Gecersiz format
+ * atilir; tekrarlar teklestirilir. Oturum acmis musteride cuzdan DB'dedir; bu
+ * cookie yine gateway'e gonderilir (birlestirilir) ve zararsizdir.
+ */
+export async function readClaimedCoupons(): Promise<string[]> {
+  const store = await cookies();
+  const raw = store.get(CLAIMED_COUPONS_COOKIE)?.value;
+  if (!raw) return [];
+  try {
+    const decoded = JSON.parse(raw);
+    if (!Array.isArray(decoded)) return [];
+    const codes = decoded
+      .map((entry) => (typeof entry === "string" ? normalizeClaimedCode(entry) : null))
+      .filter((code): code is string => code !== null);
+    return [...new Set(codes)].slice(0, MAX_CLAIMED_CODES);
+  } catch {
+    return [];
+  }
+}
+
+/** Bir kupon kodunu misafir cuzdanina ekler (dedup + sinir). */
+export async function addClaimedCoupon(code: string): Promise<void> {
+  const normalized = normalizeClaimedCode(code);
+  if (!normalized) return;
+  const current = await readClaimedCoupons();
+  if (current.includes(normalized)) return;
+  const next = [...current, normalized].slice(0, MAX_CLAIMED_CODES);
+  const store = await cookies();
+  store.set(CLAIMED_COUPONS_COOKIE, JSON.stringify(next), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    secure: process.env.NODE_ENV === "production",
+  });
 }
 
 /** Secilen kargo secenegi (= ratePlanId). Gecersiz format -> null. */

@@ -7,6 +7,7 @@ import type {
   PublicCartSummary,
   PublicCheckoutBilling,
   PublicCheckoutRequest,
+  PublicCouponClaimResponse,
   PublicCouponReason,
   PublicCouponStatus,
   PublicOrderConfirmation,
@@ -16,13 +17,17 @@ import type {
   PublicPaymentScenario,
   PublicPaymentState,
   PublicPaymentThreeDsAction,
+  PublicWalletCoupon,
   ShippingOption,
 } from "@commerce-os/api-client";
+import { formatCampaignAmount, getCampaignDiscountText } from "@commerce-os/utils";
 import type { CartItem } from "../cart-token";
+import type { StorefrontWalletCouponView } from "../catalog-types";
 import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
 import { getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
 import { readCustomerToken } from "./customer-cookie";
+import { readClaimedCoupons } from "./cart-cookie";
 
 /**
  * Vitrin sepet/checkout cozumleyici (F3B.1). Cookie'deki referans kalemlerini
@@ -71,6 +76,25 @@ export interface CartSummaryView {
   couponReason: PublicCouponReason | null;
   /** F4A — Uygulanan indirim satirlari (kampanya adi + varsa kupon kodu). */
   discountLines: Array<{ label: string; code: string | null; amountLabel: string }>;
+  /** F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon kartlari (cuzdan). */
+  availableCoupons: StorefrontWalletCouponView[];
+}
+
+/** F4A.3 — Public cuzdan kupon DTO'sunu vitrin gorunumune cevirir (hazir metinler). */
+function toWalletCouponView(coupon: PublicWalletCoupon): StorefrontWalletCouponView {
+  return {
+    code: coupon.code,
+    discountText: getCampaignDiscountText({
+      type: "COUPON_CODE",
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+    }),
+    minOrderLabel:
+      coupon.minOrderAmountMinor !== null ? formatCampaignAmount(coupon.minOrderAmountMinor) : null,
+    endsAt: coupon.endsAt,
+    state: coupon.state,
+    source: coupon.source,
+  };
 }
 
 /** TODO-125 — Checkout kargo secenegi (vitrin gorunum modeli; bicimli fiyat + ham). */
@@ -169,6 +193,7 @@ function toSummaryView(summary: PublicCartSummary, shipping: PublicCart["shippin
       code: line.code,
       amountLabel: formatMinor(line.amountMinor, summary.currency),
     })),
+    availableCoupons: (summary.availableCoupons ?? []).map(toWalletCouponView),
   };
 }
 
@@ -253,7 +278,20 @@ export async function resolveCart(
     } catch {
       customerToken = null;
     }
-    const body = { items, couponCode: couponCode ?? null, shippingOptionId: shippingOptionId ?? null };
+    // F4A.3 — Misafir cuzdanindaki claim'li kodlar da gateway'e gonderilir (kart
+    // adaylarina donusur); oturum acmis musteride cuzdan DB'den zaten gelir.
+    let claimedCodes: string[] = [];
+    try {
+      claimedCodes = await readClaimedCoupons();
+    } catch {
+      claimedCodes = [];
+    }
+    const body = {
+      items,
+      couponCode: couponCode ?? null,
+      claimedCodes,
+      shippingOptionId: shippingOptionId ?? null,
+    };
     const result = customerToken
       ? await sendCustomer<PublicCart>("POST", cartPath(), customerToken, body)
       : await postPublic<PublicCart>(cartPath(), body);
@@ -282,6 +320,55 @@ export async function resolveCartWithCanonicalItems(
     .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)
     .map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity }));
   return { ok: true, data: { view: result.data, canonicalItems } };
+}
+
+/** F4A.3 — Kupon/cuzdan uclari taban yolu. */
+function couponActionPath(action: "claim" | "apply" | "remove"): string {
+  return `/public/stores/${encodeURIComponent(demoStoreSlug())}/cart/coupons/${action}`;
+}
+
+/**
+ * F4A.3 (ADR-060) — Kupon "claim": kodu sunucuda dogrular, uygunsa cuzdana ekler.
+ * Oturum acmis musteride DB'ye, misafirde yanit + cookie (cagiran action) yazilir.
+ * Sunucu-otoriter; gecersizse ok=false + neden doner.
+ */
+export async function claimCouponRemote(code: string): Promise<PublicCouponClaimResponse | null> {
+  try {
+    let customerToken: string | null = null;
+    try {
+      customerToken = await readCustomerToken();
+    } catch {
+      customerToken = null;
+    }
+    const path = couponActionPath("claim");
+    const body = { code };
+    const result = customerToken
+      ? await sendCustomer<PublicCouponClaimResponse>("POST", path, customerToken, body)
+      : await postPublic<PublicCouponClaimResponse>(path, body);
+    return result.ok ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * F4A.3 — Cuzdan "Kullan"/"Kaldir" senkronu (oturum acmis musteride DB durumu).
+ * Best-effort: indirim KAYNAK DOGRUSU couponCode cookie'sidir; bu yalniz cuzdan
+ * durumunu senkronlar (misafirde no-op).
+ */
+export async function syncWalletApplied(code: string, applied: boolean): Promise<void> {
+  try {
+    const customerToken = await readCustomerToken();
+    if (!customerToken) return;
+    await sendCustomer<{ ok: boolean }>(
+      "POST",
+      couponActionPath(applied ? "apply" : "remove"),
+      customerToken,
+      { code },
+    );
+  } catch {
+    // sessizce yut: cuzdan durumu senkronu kritik degil.
+  }
 }
 
 export async function submitCheckout(

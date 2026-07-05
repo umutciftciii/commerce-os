@@ -956,6 +956,25 @@ export const enStoreAdmin: StoreAdminDictionary = {
         save: "Save preferences",
         saved: "Communication preferences updated.",
       },
+      // F4A.3 — Customer coupon wallet (ADR-060).
+      coupons: {
+        title: "Customer Coupons",
+        description:
+          "Coupons assigned to, claimed by, or used by this customer. Assigned coupons are visible only to this customer.",
+        empty: "This customer has no coupons.",
+        assignLabel: "Assign coupon",
+        assignSubmit: "Assign",
+        assignError: "Could not assign the coupon.",
+        assignSuccess: "Coupon assigned.",
+        loadError: "Could not load coupons.",
+        statusAVAILABLE: "Available",
+        statusAPPLIED: "Applied",
+        statusUSED: "Used",
+        statusREVOKED: "Revoked",
+        sourceADMIN_ASSIGNED: "Assigned",
+        sourcePUBLIC_CLAIMED: "Public claim",
+        sourceCODE_CLAIMED: "Code claim",
+      },
       ibans: {
         title: "IBAN Details",
         add: "Add IBAN",

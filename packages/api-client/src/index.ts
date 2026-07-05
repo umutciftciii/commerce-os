@@ -113,6 +113,10 @@ import type {
   CampaignDetailResponse,
   CampaignCreateRequest,
   CampaignUpdateRequest,
+  // F4A.3 — Kupon atama / musteri cuzdani (ADR-060).
+  CouponAssignmentRequest,
+  CustomerCouponAssignment,
+  CustomerCouponAssignmentListResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -163,6 +167,13 @@ export type {
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
   PublicCampaignBadge,
+  PublicCampaignDisplayKind,
+  PublicCouponAction,
+  PublicWalletCoupon,
+  PublicWalletCouponState,
+  PublicWalletCouponSource,
+  PublicCouponClaimRequest,
+  PublicCouponClaimResponse,
   PublicProduct,
   PublicProductVariant,
   PublicProductListResponse,
@@ -223,6 +234,11 @@ export type {
   StoreAdminRevokeSessionsResponse,
   CustomerActivateRequest,
   CustomerActivateResponse,
+  CustomerCouponStatus,
+  CustomerCouponSource,
+  CouponAssignmentRequest,
+  CustomerCouponAssignment,
+  CustomerCouponAssignmentListResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -906,6 +922,32 @@ export interface ApiClient {
       activate(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
       pause(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
       archive(storeId: string, campaignId: string, token?: string): Promise<CampaignResponse>;
+      // F4A.3 — Kupon atama / musteri cuzdani (ADR-060).
+      listAssignments(
+        storeId: string,
+        campaignId: string,
+        token?: string,
+      ): Promise<CustomerCouponAssignmentListResponse>;
+      assign(
+        storeId: string,
+        campaignId: string,
+        input: CouponAssignmentRequest,
+        token?: string,
+      ): Promise<CustomerCouponAssignment>;
+    };
+    // F4A.3 — Musteri kupon cuzdani (musteri detayindan) (ADR-060).
+    customerCoupons: {
+      list(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<CustomerCouponAssignmentListResponse>;
+      assign(
+        storeId: string,
+        customerId: string,
+        couponId: string,
+        token?: string,
+      ): Promise<CustomerCouponAssignment>;
     };
   };
 }
@@ -1597,6 +1639,32 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}/pause`, "POST", undefined, token),
         archive: (storeId, campaignId, token) =>
           sendJson<CampaignResponse>(`/stores/${storeId}/campaigns/${campaignId}/archive`, "POST", undefined, token),
+        listAssignments: (storeId, campaignId, token) =>
+          getJson<CustomerCouponAssignmentListResponse>(
+            `/stores/${storeId}/campaigns/${campaignId}/assignments`,
+            token,
+          ),
+        assign: (storeId, campaignId, input, token) =>
+          sendJson<CustomerCouponAssignment>(
+            `/stores/${storeId}/campaigns/${campaignId}/assignments`,
+            "POST",
+            input,
+            token,
+          ),
+      },
+      customerCoupons: {
+        list: (storeId, customerId, token) =>
+          getJson<CustomerCouponAssignmentListResponse>(
+            `/stores/${storeId}/customers/${customerId}/coupons`,
+            token,
+          ),
+        assign: (storeId, customerId, couponId, token) =>
+          sendJson<CustomerCouponAssignment>(
+            `/stores/${storeId}/customers/${customerId}/coupons`,
+            "POST",
+            { couponId },
+            token,
+          ),
       },
     },
   };

@@ -2800,3 +2800,42 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) + runtime
   smoke ("Sepette %10 İndirim" rozet/detay/sepet görünürlüğü, Otomatik Oluştur, TEST250 sipariş paneli,
   kampanya analitiği, cross-store izolasyon).
+
+## 2026-07-05 — F4A.3: Kupon vs sepet indirimi UX + kalıcı müşteri kupon cüzdanı (ADR-060)
+
+- **Sorun.** Vitrin otomatik sepet indirimlerini ("Sepette %X") ve kupon-kodu kampanyalarını görsel
+  olarak karıştırıyordu; kupon ürünlerinde müşteri kodu görmüyor, nasıl kullanacağını bilmiyordu
+  ("Kupon kodu gerektirir" çıkmaz sokak). Kuponların dağıtım yolları (public keşif / admin ataması /
+  kod ile tanımlama) için model yoktu.
+- **Gösterim taksonomisi (additive DTO).** `publicCampaignBadgeSchema` → `displayKind`
+  (AUTOMATIC_CART_DISCOUNT | PUBLIC_COUPON), `requiresCouponCode`, `couponCode` (nullable; yalnız
+  isPublic + ACTIVE kupon + pencere geçerli iken), `couponAction` (CLAIM/APPLY/COPY/MANUAL_ONLY),
+  `endsAt`. Otomatik: kart "Sepette %10", detay "Kod gerekmez" + alt limit. Public kupon: kart
+  "Kuponlu ürün", detay KUPON KARTI (kod + "Kuponu ekle"/"Kodu kopyala" + alt limit + son kullanma).
+  Private (isPublic=false) hiçbir public yüzeyde görünmez; iç kimlik/priority/usage/limit sızmaz.
+- **Kalıcı cüzdan (`CustomerCoupon`).** Additive migration (2 enum + tablo; DB reset yok). customerId
+  VEYA email anahtarlı; status AVAILABLE/APPLIED/USED/REVOKED; source ADMIN_ASSIGNED/PUBLIC_CLAIMED/
+  CODE_CLAIMED. "Kullan"→APPLIED, "Kaldır"→AVAILABLE, başarılı sipariş→USED (aynı transaction; başarısız
+  sipariş USED yapmaz).
+- **İki adımlı akış.** "Kupon Kodu Ekle" doğrular + uygunsa cüzdana ekler (claim); "Kullan" ayrı adım.
+  Alt limit/kapsam claim'i reddetmez — kart "Alt limit eksik" ile görünür. Gateway uçları
+  `POST .../cart/coupons/claim|apply|remove`; sepet quote'una `availableCoupons` (public + oturum cüzdanı
+  + misafir cookie `claimedCodes`).
+- **İndirim kaynak doğrusu değişmedi.** Kupon indirimi yine couponCode + motor (ADR-058); cüzdan APPLIED
+  yalnız durum aynası (client'a güvenilmez). Checkout semantiği ve limit transaction'ı korundu; sipariş
+  oluşturmada store-scope/pencere/limit yeniden doğrulanır.
+- **Store-admin atama.** Kampanya detayı (email ile) + müşteri detayı (kupon seçerek) — AYNI backend
+  servisi (`assignCoupon`); cross-store engeli; maskeli e-posta; private kuponu public yapmaz. Yardımcı
+  metin: "Public kuponlar ürün/sepet ekranlarında gösterilir; private kuponlar yalnızca kodu bilen/atanan
+  müşteri kullanır."
+- **Testler.** utils discountText 2; gateway public-badge taksonomi + private dışlama + yeni
+  `campaigns-wallet` suite (projeksiyon/dedup/claim eval) + health public coupon 1 (557/557 yeşil);
+  storefront kart/detay/sepet Kuponlar 7 (114/114 yeşil).
+- **Kapsam dışı/bilinçli.** İndirim motoru + checkout toplamı + usage-limit transaction mantığına
+  DOKUNULMADI (yalnız additive USED işaretleme); yeni kampanya tipi yok. Sınırlamalar: misafire ATANAN
+  kupon checkout email'ine kadar görünmez (kimlik boşluğu); misafir kod-claim'i sepet cookie'sinde
+  (`claimedCodes`); "Tüm Kuponlar" listeleme sayfası follow-up (dead link eklenmedi); store-admin atama
+  UI'si için otomatik test backend gateway testiyle kapsanıyor (UI testi follow-up).
+- **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) + runtime smoke
+  (otomatik "Sepette %10" kart/detay/sepet; TEST250 public kupon kartı/claim/Kullan; private yalnız kodla;
+  BADCODE güvenli hata + otomatik satır korunur; admin atama iki yerden; public payload sızıntısızlığı).

@@ -924,3 +924,22 @@
   analitik 2. KALAN: merge sonrası docker rebuild (api-gateway + storefront-web + store-admin-web) +
   runtime smoke; kampanya LİSTE kolonlarına toplam indirim/ciro (groupBy) ve tarih-aralıklı rapor sayfası
   + CSV export follow-up; analitik bellekte toplanır — yüksek hacimde SQL aggregate follow-up.
+- F4A.3 — Kupon vs sepet indirimi UX düzeltmesi + kalıcı müşteri kupon cüzdanı (DONE — 2026-07-05,
+  ADR-060). Gösterim taksonomisi: public rozet DTO'suna additive `displayKind`
+  (AUTOMATIC_CART_DISCOUNT | PUBLIC_COUPON), `requiresCouponCode`, `couponCode` (nullable, yalnız public+
+  ACTIVE+pencere geçerli iken), `couponAction` (CLAIM/APPLY/COPY/MANUAL_ONLY), `endsAt`. Otomatik: kart
+  "Sepette %10", detay "Kod gerekmez"; public kupon: kart "Kuponlu ürün", detay KUPON KARTI (kod + "Kuponu
+  ekle"/"Kodu kopyala" + alt limit + son kullanma). Private (isPublic=false) kupon hiçbir public yüzeyde
+  görünmez; iç metadata sızmaz. Kalıcı cüzdan: `CustomerCoupon` (additive migration; customerId/email,
+  status AVAILABLE/APPLIED/USED/REVOKED, source ADMIN_ASSIGNED/PUBLIC_CLAIMED/CODE_CLAIMED). Sepet
+  "Kuponlar" alanı: kullanılabilir kupon kartları (Kullan/Uygulandı/Alt limit eksik) + iki adımlı "Kupon
+  Kodu Ekle" (claim → sonra Kullan). Gateway uçları: `POST .../cart/coupons/claim|apply|remove`; sepet
+  quote'una `availableCoupons`; sipariş transaction'ında cüzdan USED işaretleme (rollback güvenli).
+  Store-admin: kampanya detayı (email ile) + müşteri detayı (kupon seçerek) kupon atama — ortak backend
+  (`assignCoupon`); cross-store engeli; maskeli e-posta. İndirim kaynak doğrusu değişmedi (couponCode +
+  motor; ADR-058); checkout semantiği/limit transaction korundu. Testler: utils discountText 2, gateway
+  public-badge taksonomi + private dışlama + wallet projeksiyon/claim eval (yeni campaigns-wallet suite) +
+  health public coupon 1, storefront kart/detay/sepet Kuponlar 7. KALAN: merge sonrası docker rebuild
+  (api-gateway + storefront-web + store-admin-web) + runtime smoke; "Tüm Kuponlar" listeleme sayfası
+  follow-up (dead link eklenmedi); misafire ATANAN kupon checkout email'ine kadar görünmez (kimlik boşluğu);
+  store-admin atama UI'si için otomatik test follow-up (backend gateway testiyle kapsanıyor).

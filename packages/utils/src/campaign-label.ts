@@ -44,6 +44,14 @@ function discountText(input: CampaignLabelInput): string {
     : formatCampaignAmount(input.discountValue, input.currency ?? "TRY");
 }
 
+/**
+ * F4A.3 — Ham indirim tutari metni ("%10" / "₺250"). Kupon kartlari ve otomatik
+ * kampanya detayinda "Sepette" ekiyle veya tek basina kullanilir.
+ */
+export function getCampaignDiscountText(input: CampaignLabelInput): string {
+  return discountText(input);
+}
+
 function isCouponCampaign(input: CampaignLabelInput): boolean {
   return input.type === "COUPON_CODE";
 }

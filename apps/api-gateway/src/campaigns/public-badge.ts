@@ -13,7 +13,7 @@
  * karsilastirilmaz).
  */
 import type { PublicCampaignBadge } from "@commerce-os/contracts";
-import type { CampaignRecord } from "./data.js";
+import type { CampaignCouponRecord, CampaignRecord } from "./data.js";
 
 /** Rozet uretebilen kampanya tipleri (motorla ayni MVP kumesi). */
 const BADGE_TYPES: ReadonlySet<CampaignRecord["type"]> = new Set([
@@ -63,6 +63,31 @@ function compareCampaigns(a: CampaignRecord, b: CampaignRecord): number {
 }
 
 /**
+ * F4A.3 — Public'e gosterilmesi GUVENLI kupon kodunu secer: ACTIVE + kendi
+ * penceresi gecerli + (varsa) limiti dolmamis ILK kupon. Yoksa null (kod
+ * gosterilmez; kart yine "CLAIM" aksiyonuyla manuel kalabilir). Kampanyanin
+ * isPublic olmasi cagiran tarafta (isBadgeEligible) zaten dogrulanmistir —
+ * PRIVATE kupon buraya asla ulasmaz.
+ */
+function selectPublicCouponCode(campaign: CampaignRecord, now: Date): string | null {
+  const coupon = campaign.coupons.find((item) => {
+    if (item.status !== "ACTIVE") return false;
+    if (item.startsAt && now.getTime() < item.startsAt.getTime()) return false;
+    if (item.endsAt && now.getTime() > item.endsAt.getTime()) return false;
+    if (item.totalUsageLimit !== null && item.usageCount >= item.totalUsageLimit) return false;
+    return true;
+  });
+  return coupon?.code ?? null;
+}
+
+/** Kampanya + (varsa) kupon penceresinin ERKEN biten bitis tarihi (ISO). */
+function effectiveEndsAt(campaign: CampaignRecord, coupon: CampaignCouponRecord | null): string | null {
+  const ends = [campaign.endsAt, coupon?.endsAt ?? null].filter((d): d is Date => d instanceof Date);
+  if (ends.length === 0) return null;
+  return ends.reduce((min, d) => (d.getTime() < min.getTime() ? d : min)).toISOString();
+}
+
+/**
  * Urun icin gosterilecek rozeti secer (yoksa null). `campaigns` onceden
  * store-scoped yuklenmis olmalidir; burada store filtresi YAPILMAZ.
  */
@@ -77,10 +102,22 @@ export function selectPublicCampaignBadge(
     .sort(compareCampaigns);
   const winner = eligible[0];
   if (!winner) return null;
+  const isCoupon = winner.type === "COUPON_CODE";
+  // Public kupon kodu yalnizca guvenli oldugunda tasinir; otomatik kampanyada null.
+  const couponCode = isCoupon ? selectPublicCouponCode(winner, now) : null;
+  const activeCoupon = isCoupon
+    ? (winner.coupons.find((c) => c.code === couponCode) ?? null)
+    : null;
   return {
-    kind: winner.type === "COUPON_CODE" ? "COUPON" : "AUTOMATIC",
+    kind: isCoupon ? "COUPON" : "AUTOMATIC",
+    displayKind: isCoupon ? "PUBLIC_COUPON" : "AUTOMATIC_CART_DISCOUNT",
+    requiresCouponCode: isCoupon,
     discountType: winner.discountType,
     discountValue: winner.discountValue,
     minOrderAmountMinor: winner.minOrderAmountMinor,
+    couponCode,
+    // Kod varsa CLAIM (sepete kupon olarak ekle); yoksa MANUAL_ONLY.
+    couponAction: isCoupon ? (couponCode ? "CLAIM" : "MANUAL_ONLY") : "MANUAL_ONLY",
+    endsAt: effectiveEndsAt(winner, activeCoupon),
   };
 }

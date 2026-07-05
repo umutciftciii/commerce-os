@@ -601,14 +601,43 @@ export const publicProductVariantSchema = z.object({
  * kampanyalar bu projeksiyona ASLA girmez. Etiket metni istemci tarafinda
  * paylasilan helper'la (getCampaignPublicLabel/getCampaignBadgeText) uretilir.
  */
+/**
+ * F4A.3 — Vitrin kampanya gosterim taksonomisi (ADR-060):
+ *  - AUTOMATIC_CART_DISCOUNT: kod gerektirmeden sepette otomatik uygulanir
+ *    ("Sepette %10").
+ *  - PUBLIC_COUPON: public kupon; urun detay/sepette kupon karti/aksiyonu ile
+ *    gosterilir. (Private kuponlar bu projeksiyona ASLA girmez.)
+ */
+export const publicCampaignDisplayKindSchema = z.enum([
+  "AUTOMATIC_CART_DISCOUNT",
+  "PUBLIC_COUPON",
+]);
+
+/** F4A.3 — Public kupon icin urun detay aksiyonu. */
+export const publicCouponActionSchema = z.enum(["CLAIM", "APPLY", "COPY", "MANUAL_ONLY"]);
+
 export const publicCampaignBadgeSchema = z.object({
   /** COUPON = kupon kodu gerektirir; AUTOMATIC = sepette kendiliginden uygulanir. */
   kind: z.enum(["AUTOMATIC", "COUPON"]),
+  /** F4A.3 — Ayrimli gosterim taksonomisi (kind ile tutarli; additive). */
+  displayKind: publicCampaignDisplayKindSchema,
+  /** F4A.3 — Kupon kodu gerektiren kampanya mi (PUBLIC_COUPON icin true). */
+  requiresCouponCode: z.boolean().default(false),
   discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
   /** PERCENT: 1-100; FIXED_AMOUNT: minor unit tutar. */
   discountValue: z.number().int().positive(),
   /** Varsa "X uzeri gecerli" copy'si icin minimum sepet tutari. */
   minOrderAmountMinor: z.number().int().positive().nullable(),
+  /**
+   * F4A.3 — Public kupon kodu; YALNIZCA guvenli oldugunda (isPublic + ACTIVE +
+   * pencere gecerli) doldurulur, aksi halde null. Otomatik kampanyada her zaman null.
+   * PRIVATE kupon kodu bu alanda ASLA sizmaz.
+   */
+  couponCode: z.string().max(40).nullable().default(null),
+  /** F4A.3 — Urun detay kupon aksiyonu; kod yoksa MANUAL_ONLY. */
+  couponAction: publicCouponActionSchema.default("MANUAL_ONLY"),
+  /** F4A.3 — Kampanya/kupon bitis tarihi (ISO); yoksa null. */
+  endsAt: z.string().datetime().nullable().default(null),
 });
 
 export const publicProductSchema = z.object({
@@ -698,6 +727,38 @@ export const publicCartDiscountLineSchema = z.object({
 });
 
 /**
+ * F4A.3 — Sepetteki kullanilabilir kupon karti (cuzdan) durumu (ADR-060).
+ *  - AVAILABLE: uygun, "Kullan" ile uygulanabilir.
+ *  - APPLIED: su an sepete uygulanmis.
+ *  - MIN_ORDER_NOT_MET: kart gorunur ama alt limit eksik ("Alt limit eksik").
+ *  - EXPIRED: suresi dolmus (turetilir; genelde gosterilmez).
+ */
+export const publicWalletCouponStateSchema = z.enum([
+  "AVAILABLE",
+  "APPLIED",
+  "MIN_ORDER_NOT_MET",
+  "EXPIRED",
+]);
+
+/** F4A.3 — Kupon kartinin nereden geldigi (public/atanmis/kod-claim). */
+export const publicWalletCouponSourceSchema = z.enum(["PUBLIC", "ASSIGNED", "CLAIMED"]);
+
+/**
+ * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti. ALLOWLIST:
+ * kampanya/kupon ic kimligi, limit/istatistik, priority/stackable TASINMAZ.
+ * Kod yalnizca public/claimed/assigned + guvenli oldugunda gosterilir.
+ */
+export const publicWalletCouponSchema = z.object({
+  code: z.string().min(1).max(40),
+  discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
+  discountValue: z.number().int().positive(),
+  minOrderAmountMinor: z.number().int().positive().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  state: publicWalletCouponStateSchema,
+  source: publicWalletCouponSourceSchema,
+});
+
+/**
  * Sunucu-otoriter sepet OZETI. Tutarlar gateway'de hesaplanir:
  *   - KDV fiyatlara DAHILDIR; toplam uzerine EKLENMEZ. taxIncludedMinor yalnizca
  *     grandTotal icindeki KDV gostergesidir (taxRatePercent ile).
@@ -724,6 +785,12 @@ export const publicCartSummarySchema = z.object({
   couponReason: publicCouponReasonSchema.nullable(),
   /** F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar). */
   discountLines: z.array(publicCartDiscountLineSchema),
+  /**
+   * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon kartlari (cuzdan):
+   * public adaylar + (oturum acmis/eslesen) atanmis + kod ile claim edilmis
+   * kuponlar. Sunucu-otoriter; bos dizi = gosterilecek kart yok.
+   */
+  availableCoupons: z.array(publicWalletCouponSchema).default([]),
 });
 
 export const publicCartRequestSchema = z.object({
@@ -731,10 +798,37 @@ export const publicCartRequestSchema = z.object({
   /** Opsiyonel kupon kodu; sunucu dogrular (gecersizse INVALID doner). */
   couponCode: z.string().max(40).nullable().optional(),
   /**
+   * F4A.3 — Misafir sepetinde kod ile "claim" edilmis kupon kodlari (cookie'den).
+   * Sunucu her istekte yeniden dogrular; gecerli olanlar availableCoupons
+   * kartlarina donusur. Oturum acmis musteride cuzdan DB'den gelir (bu alan
+   * yoksayilabilir/birlestirilir). Max 20 kod.
+   */
+  claimedCodes: z.array(z.string().max(40)).max(20).optional(),
+  /**
    * TODO-125 — Müşterinin seçtiği kargo seçeneği (= ShippingRatePlan.id). Sunucu
    * doğrular; geçersiz/uygunsuzsa güvenli varsayılana (default/en ucuz) düşer.
    */
   shippingOptionId: z.string().max(120).nullable().optional(),
+});
+
+/**
+ * F4A.3 — Kupon "claim" (cuzdana ekle) istegi (ADR-060). Kod sunucuda
+ * dogrulanir; kriter saglaniyorsa cuzdana/cookie'ye eklenir. Uygulama (APPLY)
+ * AYRI bir adimdir.
+ */
+export const publicCouponClaimRequestSchema = z.object({
+  code: z.string().min(1).max(40),
+});
+
+/** F4A.3 — Claim sonucu. ok=true ise kupon cuzdana eklendi (state ile). */
+export const publicCouponClaimResponseSchema = z.object({
+  ok: z.boolean(),
+  /** ok=true: eklenen kupon karti; ok=false: null. */
+  coupon: publicWalletCouponSchema.nullable(),
+  /** Basarisizsa makine-okunur neden (UI kopyasi istemci i18n'inde). */
+  reason: publicCouponReasonSchema.nullable(),
+  /** Normalize edilmis kod (misafir cookie'sine yazmak icin). */
+  normalizedCode: z.string().max(40).nullable(),
 });
 
 /** Bir sepet satirinin cozumleme/uygunluk durumu. */
@@ -3750,6 +3844,64 @@ export const campaignStatusActionResponseSchema = z.object({
   status: campaignStatusSchema,
 });
 
+/* -------------------------------------------------------------------------- */
+/* F4A.3 — Customer coupon wallet / assignment (admin) (ADR-060)              */
+/* -------------------------------------------------------------------------- */
+
+export const customerCouponStatusSchema = z.enum(["AVAILABLE", "APPLIED", "USED", "REVOKED"]);
+export const customerCouponSourceSchema = z.enum([
+  "ADMIN_ASSIGNED",
+  "PUBLIC_CLAIMED",
+  "CODE_CLAIMED",
+]);
+
+/**
+ * F4A.3 — Kupon atama istegi. Bir mevcut musteri (customerId) VEYA bir email
+ * hedeflenir; ikisi birden verilirse customerId oncelenir. Kupon bu store'a ait
+ * ve ATANABILIR (kod tabanli) olmalidir. Sunucu store-scope/cross-store dogrular.
+ */
+export const couponAssignmentRequestSchema = z
+  .object({
+    couponId: z.string().min(1),
+    customerId: z.string().min(1).nullable().optional(),
+    email: z.string().email().max(320).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.customerId && !value.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customerId"],
+        message: "Either customerId or email is required.",
+      });
+    }
+  });
+
+/**
+ * F4A.3 — Admin cuzdan/atama kaydi (ALLOWLIST). Musteri email'i MASKELI doner;
+ * kupon/kampanya ic sayaci/limiti TASINMAZ.
+ */
+export const customerCouponAssignmentSchema = z.object({
+  id: z.string().min(1),
+  couponId: z.string().min(1),
+  couponCode: z.string().min(1),
+  campaignId: z.string().min(1),
+  campaignName: z.string().min(1),
+  customerId: z.string().nullable(),
+  customerName: z.string().nullable(),
+  maskedEmail: z.string().nullable(),
+  status: customerCouponStatusSchema,
+  source: customerCouponSourceSchema,
+  claimedAt: z.string().datetime(),
+  appliedAt: z.string().datetime().nullable(),
+  usedAt: z.string().datetime().nullable(),
+  orderId: z.string().nullable(),
+  orderNumber: z.string().nullable(),
+});
+
+export const customerCouponAssignmentListResponseSchema = z.object({
+  data: z.array(customerCouponAssignmentSchema),
+});
+
 export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
 export type CampaignType = z.infer<typeof campaignTypeSchema>;
 export type CampaignCreatableType = z.infer<typeof campaignCreatableTypeSchema>;
@@ -3766,3 +3918,17 @@ export type CampaignUpdateRequest = z.infer<typeof campaignUpdateRequestSchema>;
 export type CampaignStatusActionResponse = z.infer<typeof campaignStatusActionResponseSchema>;
 export type PublicCouponReason = z.infer<typeof publicCouponReasonSchema>;
 export type PublicCartDiscountLine = z.infer<typeof publicCartDiscountLineSchema>;
+export type PublicCampaignDisplayKind = z.infer<typeof publicCampaignDisplayKindSchema>;
+export type PublicCouponAction = z.infer<typeof publicCouponActionSchema>;
+export type PublicWalletCoupon = z.infer<typeof publicWalletCouponSchema>;
+export type PublicWalletCouponState = z.infer<typeof publicWalletCouponStateSchema>;
+export type PublicWalletCouponSource = z.infer<typeof publicWalletCouponSourceSchema>;
+export type PublicCouponClaimRequest = z.infer<typeof publicCouponClaimRequestSchema>;
+export type PublicCouponClaimResponse = z.infer<typeof publicCouponClaimResponseSchema>;
+export type CustomerCouponStatus = z.infer<typeof customerCouponStatusSchema>;
+export type CustomerCouponSource = z.infer<typeof customerCouponSourceSchema>;
+export type CouponAssignmentRequest = z.infer<typeof couponAssignmentRequestSchema>;
+export type CustomerCouponAssignment = z.infer<typeof customerCouponAssignmentSchema>;
+export type CustomerCouponAssignmentListResponse = z.infer<
+  typeof customerCouponAssignmentListResponseSchema
+>;

@@ -139,25 +139,39 @@ describe("selectPublicCampaignBadge", () => {
     expect(selectPublicCampaignBadge([campaign({ status: "PAUSED" })], PRODUCT, NOW)).toBeNull();
   });
 
-  it("allowlist projeksiyon doner; ic alanlar tasinmaz", () => {
+  it("allowlist projeksiyon doner; ic alanlar tasinmaz (F4A.3 taksonomi)", () => {
     const badge = selectPublicCampaignBadge(
       [campaign({ minOrderAmountMinor: 100000 })],
       PRODUCT,
       NOW,
     );
+    // F4A.3 — Otomatik kampanya: AUTOMATIC_CART_DISCOUNT, kod gerekmez.
     expect(badge).toEqual({
       kind: "AUTOMATIC",
+      displayKind: "AUTOMATIC_CART_DISCOUNT",
+      requiresCouponCode: false,
       discountType: "PERCENT",
       discountValue: 10,
       minOrderAmountMinor: 100000,
+      couponCode: null,
+      couponAction: "MANUAL_ONLY",
+      endsAt: null,
     });
     // Ic alanlar (id/priority/usage) projeksiyona sizmaz.
     expect(badge && "id" in badge).toBe(false);
     expect(badge && "priority" in badge).toBe(false);
     expect(badge && "usageCount" in badge).toBe(false);
+    expect(badge && "stackable" in badge).toBe(false);
   });
 
-  it("kupon kampanyasi COUPON kind doner", () => {
+  it("otomatik kampanya displayKind=AUTOMATIC_CART_DISCOUNT ve couponCode sizmaz", () => {
+    const badge = selectPublicCampaignBadge([campaign()], PRODUCT, NOW);
+    expect(badge?.displayKind).toBe("AUTOMATIC_CART_DISCOUNT");
+    expect(badge?.requiresCouponCode).toBe(false);
+    expect(badge?.couponCode).toBeNull();
+  });
+
+  it("public kupon kampanyasi PUBLIC_COUPON + guvenli kod + CLAIM aksiyonu doner", () => {
     const badge = selectPublicCampaignBadge(
       [
         campaign({
@@ -165,6 +179,7 @@ describe("selectPublicCampaignBadge", () => {
           type: "COUPON_CODE",
           discountType: "FIXED_AMOUNT",
           discountValue: 25000,
+          endsAt: new Date("2026-08-01T00:00:00Z"),
           coupons: [coupon()],
         }),
       ],
@@ -172,7 +187,33 @@ describe("selectPublicCampaignBadge", () => {
       NOW,
     );
     expect(badge?.kind).toBe("COUPON");
+    expect(badge?.displayKind).toBe("PUBLIC_COUPON");
+    expect(badge?.requiresCouponCode).toBe(true);
     expect(badge?.discountValue).toBe(25000);
+    // Public + ACTIVE kupon + pencere gecerli => kod guvenle tasinir.
+    expect(badge?.couponCode).toBe("TEST250");
+    expect(badge?.couponAction).toBe("CLAIM");
+    expect(badge?.endsAt).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("ACTIVE kuponu olmayan kupon kampanyasi rozet uretmez (kod ifsa edilmez)", () => {
+    expect(
+      selectPublicCampaignBadge(
+        [campaign({ type: "COUPON_CODE", coupons: [coupon({ status: "PAUSED" })] })],
+        PRODUCT,
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("private (isPublic=false) kupon public projeksiyona ASLA girmez", () => {
+    expect(
+      selectPublicCampaignBadge(
+        [campaign({ type: "COUPON_CODE", isPublic: false, coupons: [coupon()] })],
+        PRODUCT,
+        NOW,
+      ),
+    ).toBeNull();
   });
 
   it("secim deterministik: once priority DESC, sonra id ASC", () => {

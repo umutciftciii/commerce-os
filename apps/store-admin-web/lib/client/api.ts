@@ -94,6 +94,9 @@ import type {
   CampaignDetailResponse,
   CampaignCreateRequest,
   CampaignUpdateRequest,
+  CouponAssignmentRequest,
+  CustomerCouponAssignment,
+  CustomerCouponAssignmentListResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -659,4 +662,20 @@ export const storeApi = {
     }),
   campaignStatusAction: (campaignId: string, action: "activate" | "pause" | "archive") =>
     mutatingCall<CampaignResponse>(`/api/campaigns/${campaignId}/${action}`, { method: "POST" }),
+
+  // F4A.3 — Kupon atama / musteri cuzdani (ADR-060). Ortak backend; iki UI.
+  listCampaignAssignments: (campaignId: string) =>
+    call<CustomerCouponAssignmentListResponse>(`/api/campaigns/${campaignId}/assignments`),
+  assignCampaignCoupon: (campaignId: string, input: CouponAssignmentRequest) =>
+    mutatingCall<CustomerCouponAssignment>(`/api/campaigns/${campaignId}/assignments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listCustomerCoupons: (customerId: string) =>
+    call<CustomerCouponAssignmentListResponse>(`/api/customers/${customerId}/coupons`),
+  assignCustomerCoupon: (customerId: string, couponId: string) =>
+    mutatingCall<CustomerCouponAssignment>(`/api/customers/${customerId}/coupons`, {
+      method: "POST",
+      body: JSON.stringify({ couponId }),
+    }),
 };

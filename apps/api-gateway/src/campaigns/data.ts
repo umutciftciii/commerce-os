@@ -190,7 +190,7 @@ export function isAllowedStatusTransition(from: CampaignStatus, to: CampaignStat
   return STATUS_TRANSITIONS[from].has(to);
 }
 
-const campaignInclude = {
+export const campaignInclude = {
   products: { select: { productId: true } },
   categories: { select: { categoryId: true } },
   coupons: { orderBy: { createdAt: "asc" as const } },
@@ -198,7 +198,7 @@ const campaignInclude = {
 
 type CampaignRow = Prisma.CampaignGetPayload<{ include: typeof campaignInclude }>;
 
-function toCampaignRecord(row: CampaignRow): CampaignRecord {
+export function toCampaignRecord(row: CampaignRow): CampaignRecord {
   return {
     id: row.id,
     storeId: row.storeId,
@@ -743,6 +743,46 @@ export async function applyOrderDiscountsInTransaction(
           discountAmountMinor: discount.discountAmountMinor,
         },
       });
+
+      // F4A.3 (ADR-060) — Kupon cuzdanini USED isaretle (AYNI transaction; siparis
+      // rollback olursa USED yazilmaz). Kimlige (customerId/email) ait mevcut satir
+      // guncellenir; yoksa (misafir cookie claim'i) tarihsel USED satiri yaratilir.
+      // Wallet YAZIMI indirim tutarini ETKILEMEZ — yalniz cuzdan durumudur.
+      if (discount.couponId && (input.customerId || input.email)) {
+        const identityFilters: Prisma.CustomerCouponWhereInput[] = [];
+        if (input.customerId) identityFilters.push({ customerId: input.customerId });
+        if (input.email) identityFilters.push({ email: input.email });
+        const marked = await transaction.customerCoupon.updateMany({
+          where: {
+            storeId,
+            couponId: discount.couponId,
+            status: { in: ["AVAILABLE", "APPLIED"] },
+            OR: identityFilters,
+          },
+          data: { status: "USED", usedAt: new Date(), orderId },
+        });
+        if (marked.count === 0) {
+          // Cuzdanda satir yok (misafir/kod-claim): tarihsel USED satiri (dedup upsert).
+          const key = input.customerId
+            ? { storeId_couponId_customerId: { storeId, couponId: discount.couponId, customerId: input.customerId } }
+            : { storeId_couponId_email: { storeId, couponId: discount.couponId, email: input.email! } };
+          await transaction.customerCoupon.upsert({
+            where: key,
+            create: {
+              storeId,
+              couponId: discount.couponId,
+              campaignId: campaign.id,
+              customerId: input.customerId,
+              email: input.email,
+              source: "CODE_CLAIMED",
+              status: "USED",
+              usedAt: new Date(),
+              orderId,
+            },
+            update: { status: "USED", usedAt: new Date(), orderId },
+          });
+        }
+      }
     }
 
     await transaction.orderDiscount.create({

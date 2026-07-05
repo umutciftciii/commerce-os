@@ -3821,14 +3821,41 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
     expect(response.statusCode).toBe(200);
     const product = response.json().data[0];
+    // F4A.3 — Taksonomi alanlari (displayKind/couponAction/endsAt) additive; otomatik
+    // kampanyada kod sizmaz (couponCode=null, MANUAL_ONLY).
     expect(product.campaign).toEqual({
       kind: "AUTOMATIC",
+      displayKind: "AUTOMATIC_CART_DISCOUNT",
+      requiresCouponCode: false,
       discountType: "PERCENT",
       discountValue: 10,
       minOrderAmountMinor: 100000,
+      couponCode: null,
+      couponAction: "MANUAL_ONLY",
+      endsAt: null,
     });
     // Ic alanlar (id/priority/usage/stackable) public govdeye sizmaz.
     expect(JSON.stringify(product.campaign)).not.toContain("camp_seed");
+    expect(product.campaign.priority).toBeUndefined();
+    expect(product.campaign.usageCount).toBeUndefined();
+    expect(product.campaign.stackable).toBeUndefined();
+    await app.close();
+  });
+
+  // F4A.3 — Public kupon kampanyasi: PUBLIC_COUPON + guvenli kod + CLAIM aksiyonu.
+  it("F4A.3: public coupon product exposes a safe coupon code and claim action", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedCouponCampaign(dataAccess, { discountType: "FIXED_AMOUNT", discountValue: 25000 }, "TEST250");
+
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    expect(response.statusCode).toBe(200);
+    const product = response.json().data[0];
+    expect(product.campaign.kind).toBe("COUPON");
+    expect(product.campaign.displayKind).toBe("PUBLIC_COUPON");
+    expect(product.campaign.requiresCouponCode).toBe(true);
+    expect(product.campaign.couponCode).toBe("TEST250");
+    expect(product.campaign.couponAction).toBe("CLAIM");
+    // Ic alanlar sizmaz.
     expect(product.campaign.priority).toBeUndefined();
     expect(product.campaign.usageCount).toBeUndefined();
     await app.close();
