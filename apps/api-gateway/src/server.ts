@@ -54,6 +54,7 @@ import {
   publicCheckoutRequestSchema,
   publicCouponClaimRequestSchema,
   publicCouponClaimResponseSchema,
+  publicCouponCenterResponseSchema,
   publicWalletCouponSchema,
   type PublicCouponReason,
   publicOrderConfirmationSchema,
@@ -113,7 +114,9 @@ import {
 } from "./campaigns/wallet-data.js";
 import {
   evaluateCouponClaim,
+  projectCouponCenter,
   projectWalletCoupons,
+  type CouponCenterUsedEntry,
   type WalletCandidate,
 } from "./campaigns/wallet.js";
 import { selectPublicCampaignBadge } from "./campaigns/public-badge.js";
@@ -3646,6 +3649,53 @@ export function createServer(
       return { ok: true };
     });
   }
+
+  /**
+   * F4A.5 (ADR-060 devami) — Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi.
+   * MUSTERI-SCOPED (x-customer-session zorunlu) + STORE-SCOPED. Doner:
+   *  - Kullanilabilir: PUBLIC (isPublic + ACTIVE kupon kampanyalari) + bu musteri/
+   *    email'e ait cuzdan (ASSIGNED/CLAIMED),
+   *  - Kullanildi: bu musteri/email'in KENDI USED gecmisi (siparis numarasi kendi).
+   * SEPET-BAGIMSIZ: alt limit burada hesaplanmaz (kart AVAILABLE/EXPIRED). Cikan
+   * kartlar allowlist'tir; ic kimlik/limit/istatistik/priority/stackable TASINMAZ.
+   * Private kupon YALNIZCA atanmis/claim edilmis oldugunda gorunur (public sizinti YOK).
+   */
+  app.get("/public/stores/:storeSlug/customer/coupons", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const customer = await resolveCustomerFromRequest(request, store.id, { customers, config });
+    if (!customer) {
+      return reply.code(401).send(errorBody("CUSTOMER_UNAUTHORIZED", "Oturum gerekli."));
+    }
+    const identity = { customerId: customer.id, email: customer.email };
+    const [publicCampaigns, walletEntries, usedEntries] = await Promise.all([
+      dataAccess.listPublicActiveCampaigns(store.id),
+      wallet.listWalletEntriesForIdentity(store.id, identity),
+      wallet.listUsedWalletEntriesForIdentity(store.id, identity),
+    ]);
+    const available: WalletCandidate[] = [];
+    for (const campaign of publicCampaigns) {
+      if (campaign.type !== "COUPON_CODE") continue;
+      for (const coupon of campaign.coupons) {
+        available.push({ coupon, campaign, source: "PUBLIC" });
+      }
+    }
+    for (const entry of walletEntries) {
+      available.push({ coupon: entry.coupon, campaign: entry.campaign, source: entry.source });
+    }
+    const used: CouponCenterUsedEntry[] = usedEntries.map((entry) => ({
+      coupon: entry.coupon,
+      campaign: entry.campaign,
+      source: entry.source,
+      usedAt: entry.usedAt,
+      orderNumber: entry.orderNumber,
+    }));
+    const coupons = projectCouponCenter(available, used, new Date());
+    return publicCouponCenterResponseSchema.parse({ coupons });
+  });
 
   app.post("/public/stores/:storeSlug/checkout", async (request, reply) => {
     const params = publicStoreParamSchema.parse(request.params);

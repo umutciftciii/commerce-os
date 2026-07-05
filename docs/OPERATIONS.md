@@ -426,5 +426,51 @@ payload: iç id/priority/usage/stackable/limit/redemption YOK. (6) Admin: iki ek
 yalnız o müşteride görünür.
 
 **Sınırlamalar:** Misafir sepetinde kalıcı müşteri kimliği olmadığından misafire ATANAN kupon, checkout
-e-postası girilene kadar görünmez; misafir kod-claim'i sepet cookie'sinde (`claimedCodes`) yaşar. "Tüm
-Kuponlar" listeleme sayfası henüz yok (dead link eklenmedi — follow-up).
+e-postası girilene kadar görünmez; misafir kod-claim'i sepet cookie'sinde (`claimedCodes`) yaşar.
+
+## Kupon merkezi — "Kuponlarım / Tüm Kuponlar" (F4A.5 / ADR-060 devamı)
+
+**Migration YOK.** F4A.5 yalnızca okuma uçu + UI ekler; şema değişmez. Merge sonrası rebuild edilecekler:
+`api-gateway` (yeni uç) + `storefront-web` (sayfa). `store-admin-web` etkilenmez.
+
+**Rota ve erişim.** Kupon merkezi mevcut hesap konvansiyonundadır: **`/account?section=coupons`** (sol
+menü ve header hesap dropdown'ından ulaşılır). **Oturum zorunludur**; misafir bu sayfaya girerse mevcut
+hesap davranışıyla `/auth/login?next=/account`'a yönlendirilir (F4A.5 ayrı bir misafir kupon merkezi
+AÇMAZ). Sepetteki "Kuponlar" alanına eklenen **"Tüm Kuponlar"** bağlantısı da bu sayfaya gider; müşteri
+oturum açmamışsa aynı login redirect'i devreye girer (dead link yok).
+
+**Uç.** `GET /public/stores/:slug/customer/coupons` — müşteri-scoped (`x-customer-session` zorunlu; yoksa
+401) + store-scoped. SEPET-BAĞIMSIZDIR (kupon merkezi listelemesi için sepet gerekmez).
+
+**Görünürlük — hangi kupon nerede çıkar:**
+- **Public** (COUPON_CODE + `isPublic=true`, ACTIVE, pencere geçerli, toplam limit dolmamış): "Kullanılabilir"
+  ve "Tüm Kuponlar"da görünür (kaynak "Herkese açık").
+- **Atanmış** (store-admin bu müşteriye/e-postaya atadı): "Sana Özel" + "Kullanılabilir"de; kullanılınca
+  "Kullanıldı"da (kaynak "Sana özel").
+- **Kod ile eklenmiş** (müşteri sepet veya bu sayfadaki "Kupon Kodu Ekle" ile claim etti): eklendikten
+  sonra listede görünür (kaynak "Kod ile eklendi").
+- **Private** (`isPublic=false`): public listede ASLA çıkmaz; yalnızca atanmış veya bu müşteri/e-posta
+  tarafından claim edilmiş/kullanılmışsa görünür.
+- **Kullanıldı**: yalnızca bu müşteri/e-postanın KENDİ kullandığı kuponlar; kullanım tarihi + kendi sipariş
+  numarası (sipariş detayına link) gösterilir. Başka müşterinin kullanımı SIZMAZ.
+
+**Sepet-bağımsızlık.** Merkez alt limit "eksik" (MIN_ORDER_NOT_MET) HESAPLAMAZ — kartlar Kullanılabilir ya
+da Süresi doldu olur; alt limit yalnız bilgi olarak yazılır. Uygulanan kupon ("Uygulandı") sepet
+`couponCode` cookie'sinden işaretlenir (kaynak doğrusu). "Kullan" mevcut sepet apply akışını çağırır;
+indirim tutarı İSTEMCİDE hesaplanmaz, checkout'ta motor yeniden doğrular. Bir kod bir kez kullanıldıysa
+"Kullanılabilir"den düşer, yalnız "Kullanıldı"da görünür.
+
+**Public payload güvenliği.** Yanıt allowlist'tir: iç kampanya/kupon id, priority, stackable, usageCount,
+limitler, redemption iç verisi ve başka müşterilerin atamaları SIZMAZ. Kod yalnız public/atanmış/claim
+edilmiş + güvenli olduğunda gösterilir.
+
+**Smoke (F4A.5):** (1) Oturum açmış müşteride `/account?section=coupons` yüklenir, başlık "Kuponlarım".
+(2) TEST250 public kupon "Kullanılabilir"de. (3) Belirli müşteriye atanan kupon yalnız o müşteride "Sana
+Özel"de. (4) Private kupon kod-claim'den önce görünmez; "Kupon Kodu Ekle" ile eklenince kart çıkar. (5)
+"Kullan" uygular → "Uygulandı" + "Sepete Git". (6) Kupon uygulanmış siparişten sonra kupon "Kullanıldı"da
+(tarih + sipariş linki). (7) Sepetteki "Tüm Kuponlar" linki sayfaya gider. (8) Yanıtta iç alan yok.
+
+**Sınırlamalar (F4A.5):** Kategori çip filtresi henüz yok (kampanya `categoryIds` mevcut ama kategori-ad
+çözümlemesi + kod tarafı kapsam eşleşmesi ayrı iş — sekme/arama önce yapıldı, kategori follow-up). Misafir
+kupon merkezi yok (oturum zorunlu). Çok-kullanımlı public kupon bir kez kullanıldığında "Kullanılabilir"den
+düşer (MVP kabulü).

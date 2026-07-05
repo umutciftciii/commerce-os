@@ -831,6 +831,50 @@ export const publicCouponClaimResponseSchema = z.object({
   normalizedCode: z.string().max(40).nullable(),
 });
 
+/**
+ * F4A.5 — Vitrin "Kuponlarım / Tüm Kuponlar" kupon merkezi kart durumu (ADR-060
+ * devami). Cuzdan kart durumlarina ek olarak USED (kullanildi gecmisi) tasir.
+ * Kupon merkezi SEPET-BAGIMSIZDIR; MIN_ORDER_NOT_MET yalnizca tip butunlugu icin
+ * tutulur, sunucu bu ucta uretmez (alt limit sepet-zamanli hesaplanir).
+ */
+export const publicCouponCenterStateSchema = z.enum([
+  "AVAILABLE",
+  "APPLIED",
+  "MIN_ORDER_NOT_MET",
+  "EXPIRED",
+  "USED",
+]);
+
+/**
+ * F4A.5 — Kupon merkezi tek kupon karti. ALLOWLIST (publicWalletCoupon ile ayni
+ * guvenlik sozlesmesi): kampanya/kupon ic kimligi, limit/istatistik, priority/
+ * stackable, redemption ic verisi TASINMAZ. Kod yalnizca public/atanmis/claim
+ * edilmis + guvenli oldugunda gonderilir. usedAt/orderNumber yalnizca bu musteri/
+ * email'in KENDI kullandigi kuponlar icin doldurulur (baska musteri sizmaz).
+ */
+export const publicCouponCenterCouponSchema = z.object({
+  code: z.string().min(1).max(40),
+  discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
+  discountValue: z.number().int().positive(),
+  minOrderAmountMinor: z.number().int().positive().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  state: publicCouponCenterStateSchema,
+  source: publicWalletCouponSourceSchema,
+  /** USED kart icin kullanim tarihi (ISO); digerlerinde null. */
+  usedAt: z.string().datetime().nullable().default(null),
+  /** USED kart icin musterinin KENDI siparis numarasi; digerlerinde null. */
+  orderNumber: z.string().max(40).nullable().default(null),
+});
+
+/**
+ * F4A.5 — Kupon merkezi yaniti (musteri-scoped, store-scoped). `coupons`:
+ * kullanilabilir (public + atanmis + claim) + kullanildi (gecmis) kartlari.
+ * Sunucu-otoriter; istemci indirim tutari hesaplamaz.
+ */
+export const publicCouponCenterResponseSchema = z.object({
+  coupons: z.array(publicCouponCenterCouponSchema),
+});
+
 /** Bir sepet satirinin cozumleme/uygunluk durumu. */
 export const publicCartLineStatusSchema = z.enum([
   "OK",
@@ -3925,6 +3969,9 @@ export type PublicWalletCouponState = z.infer<typeof publicWalletCouponStateSche
 export type PublicWalletCouponSource = z.infer<typeof publicWalletCouponSourceSchema>;
 export type PublicCouponClaimRequest = z.infer<typeof publicCouponClaimRequestSchema>;
 export type PublicCouponClaimResponse = z.infer<typeof publicCouponClaimResponseSchema>;
+export type PublicCouponCenterState = z.infer<typeof publicCouponCenterStateSchema>;
+export type PublicCouponCenterCoupon = z.infer<typeof publicCouponCenterCouponSchema>;
+export type PublicCouponCenterResponse = z.infer<typeof publicCouponCenterResponseSchema>;
 export type CustomerCouponStatus = z.infer<typeof customerCouponStatusSchema>;
 export type CustomerCouponSource = z.infer<typeof customerCouponSourceSchema>;
 export type CouponAssignmentRequest = z.infer<typeof couponAssignmentRequestSchema>;

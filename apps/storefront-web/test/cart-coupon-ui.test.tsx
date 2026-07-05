@@ -89,6 +89,12 @@ describe("storefront-web · F4A.3 cart Kuponlar area", () => {
     expect(html).toContain(t.couponAdd); // "Kupon Kodu Ekle"
   });
 
+  it("links 'Tüm Kuponlar' to the coupon centre (no dead link)", () => {
+    const html = render(view());
+    expect(html).toContain(t.couponsAllLink); // "Tüm Kuponlar"
+    expect(html).toContain('href="/account?section=coupons"');
+  });
+
   it("renders an eligible coupon card with amount, min order and 'Kullan' action", () => {
     const html = render(view({ availableCoupons: [walletCoupon()] }));
     expect(html).toContain("TEST250");

@@ -303,7 +303,15 @@ function CouponsArea({ summary, t }: { summary: CartViewModel["summary"]; t: Car
   const appliedCode = summary.couponStatus === "APPLIED" ? summary.couponCode : null;
   return (
     <Card className="p-4">
-      <h2 className="text-sm font-semibold text-slate-900">{t.couponsTitle}</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-900">{t.couponsTitle}</h2>
+        <Link
+          href="/account?section=coupons"
+          className="text-xs font-medium text-brand-700 hover:text-brand-800"
+        >
+          {t.couponsAllLink} →
+        </Link>
+      </div>
       {coupons.length > 0 ? (
         <ul className="mt-3 space-y-2">
           {coupons.map((coupon) => (

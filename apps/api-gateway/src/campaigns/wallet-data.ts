@@ -29,6 +29,16 @@ export interface WalletEntryCandidate extends CouponWithCampaign {
   source: PublicWalletCouponSource;
 }
 
+/**
+ * F4A.5 — Kupon merkezi "Kullanıldı" gecmisi icin USED cuzdan satiri. Yalnizca
+ * kimligin KENDI kullanimi; siparis numarasi bu musterinin siparisidir (sizinti YOK).
+ */
+export interface WalletUsedEntry extends CouponWithCampaign {
+  source: PublicWalletCouponSource;
+  usedAt: Date | null;
+  orderNumber: string | null;
+}
+
 /** Admin cuzdan/atama kaydi (serialize edilmemis; e-posta ham). */
 export interface WalletAssignmentRecord {
   id: string;
@@ -118,6 +128,11 @@ export interface WalletDataAccess {
     storeId: string,
     identity: { customerId: string | null; email: string | null },
   ): Promise<WalletEntryCandidate[]>;
+  /** F4A.5 — Kimlik icin USED cuzdan gecmisi (kupon merkezi "Kullanıldı"). */
+  listUsedWalletEntriesForIdentity(
+    storeId: string,
+    identity: { customerId: string | null; email: string | null },
+  ): Promise<WalletUsedEntry[]>;
   /** Kupon claim'i cuzdana ekler (oturum acmis musteri/email); idempotent upsert. */
   upsertClaim(
     storeId: string,
@@ -181,6 +196,26 @@ export function createPrismaWalletDataAccess(): WalletDataAccess {
           campaign: toCampaignRecord(row.campaign),
           status: row.status,
           source: sourceToPublic(row.source),
+        }));
+    },
+    listUsedWalletEntriesForIdentity: async (storeId, identity) => {
+      const filters: Prisma.CustomerCouponWhereInput[] = [];
+      if (identity.customerId) filters.push({ customerId: identity.customerId });
+      if (identity.email) filters.push({ email: identity.email });
+      if (filters.length === 0) return [];
+      const rows = await prisma.customerCoupon.findMany({
+        where: { storeId, status: "USED", OR: filters },
+        orderBy: { usedAt: "desc" },
+        include: walletInclude,
+      });
+      return rows
+        .filter((row) => row.campaign.storeId === storeId)
+        .map((row) => ({
+          coupon: couponRecord(row.coupon),
+          campaign: toCampaignRecord(row.campaign),
+          source: sourceToPublic(row.source),
+          usedAt: row.usedAt,
+          orderNumber: row.order?.orderNumber ?? null,
         }));
     },
     upsertClaim: async (storeId, input) => {
