@@ -41,6 +41,7 @@ function summary(handle: string, title: string): StorefrontProductSummary {
     commerce: deriveProductCommerceView(online),
     badgeKind: null,
     campaign: null,
+    secondaryCoupon: null,
   };
 }
 

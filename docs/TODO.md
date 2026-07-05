@@ -986,3 +986,25 @@
   lint + turbo test (35 task; api-gateway 575, storefront 129, store-admin 12) + `git diff --check` yeşil.
   KALAN: merge sonrası migrate deploy + docker rebuild (api-gateway + store-admin-web + storefront-web) +
   runtime smoke (OPERATIONS F4A.4). Follow-up: marka/vendor scope, reserved segment enforcement.
+- F4A.6 — Vitrin ürün kartı "Sepette" fiyat gösterimi + smoke/stale kampanya denetimi (DONE — 2026-07-05,
+  ADR-062; migration YOK). Amaç: otomatik sepet indirimi uygulanan ürün kartlarında referans e-ticaret gibi
+  "üstü çizili normal fiyat + Sepette + %badge + güvenli nihai fiyat" bloğu; kupon kampanyaları "Kuponlu ürün"
+  kartı olarak AYRI kalır (kod gerekir izlenimi verilmez). Public rozete additive `estimatedDiscountMinor` /
+  `estimatedFinalUnitPriceMinor` (yalnız otomatik + PERCENT + tek-fiyatlı ürün + min-order eşiği karşılanınca;
+  formül motorla aynı: round(unit*yüzde), maxDiscount cap). FIXED_AMOUNT/aralık/min-order belirsizinde SAHTE
+  fiyat YOK → yalnız "Sepette %X" + "₺X üzeri" notu. `publicProductSchema.secondaryCoupon` additive:
+  stackable-duyarlı gösterim — tüm uygun kampanyalar stackable ise otomatik birincil + kupon ikincil ÇİP
+  birlikte; biri non-stackable ise yalnız öncelik kazananı. `displayKind` yine type'tan türetilir (accessModel
+  AUTO_VISIBLE default'u kuponu otomatiğe ÇEVİRMEZ). RUNTIME DENETİM: demo-store'da aktif TEST250 (public kupon,
+  bilinçli) + Sepette %10 (otomatik, 2 ürün kapsamı) — ikisi de non-stackable, bu yüzden kartta TEST250 kazanır
+  (kural gereği doğru). "Eski smoke indirim" aslında demo-hoodie varyantındaki compareAt (₺1.299/₺1.499)
+  mock artığı; kampanya DEĞİL → maliyet/marj + liste fiyatı ayrımı + fiyat audit'i F4B'ye taşındı (checkout
+  semantiği korunsun diye). f4a-smoke-test-store'daki artık smoke kampanyalar KALDI (demo storefront'u
+  etkilemiyor). HARİÇ: motor/checkout/OrderDiscount/cüzdan/analitik/kargo değişmedi; DB reset/seed/silme yok.
+  Testler: gateway public-badge birim (tahmin safe/unsafe/FIXED/maxCap/kupon-null + stackable both/priority +
+  accessModel-default kupon=PUBLIC_COUPON), gateway health entegrasyon (kart tahmin + no-leak), storefront
+  product-card 5 (Sepette blok/final/min-order notu/ikincil çip/no-campaign) + detay 1 (belirgin Sepette blok).
+  Gate: db:generate + `pnpm -r build` + typecheck + lint + turbo test (api-gateway 587, storefront 131,
+  store-admin 188) + `git diff --check` yeşil. KALAN: merge sonrası docker rebuild (api-gateway + storefront-web)
+  + runtime doğrulama. Follow-up: F4B — ürün maliyet/marj + liste fiyatı + fiyat değişikliği audit (son 30 gün
+  en düşük fiyat); demo-store kampanyalarını stackable yapıp Sepette bloğunu canlı sergileme (veri kararı).

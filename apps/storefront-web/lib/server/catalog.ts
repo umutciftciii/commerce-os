@@ -102,6 +102,12 @@ function toCampaignView(
     minOrderLabel:
       badge.minOrderAmountMinor !== null ? formatCampaignAmount(badge.minOrderAmountMinor) : null,
     endsAt: badge.endsAt,
+    // F4A.6 — Sunucunun GUVENLI hesapladigi tahmini nihai birim fiyat; yoksa null
+    // (sahte nihai fiyat gosterilmez). Bicim tr-TR para (mağaza TRY).
+    estimatedFinalLabel:
+      badge.estimatedFinalUnitPriceMinor !== null
+        ? formatCampaignAmount(badge.estimatedFinalUnitPriceMinor)
+        : null,
     // F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa null → fallback).
     displayTitle: badge.displayTitle,
     shortDescription: badge.shortDescription,
@@ -115,6 +121,7 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
   const commerce = deriveProductCommerceView(product);
   const price = buildPrice(commerce.priceMode, product.variants);
   const campaign = toCampaignView(product.campaign, locale);
+  const secondaryCoupon = toCampaignView(product.secondaryCoupon, locale);
   return {
     handle: product.slug,
     title: product.title,
@@ -125,6 +132,7 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
     // Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti korunur.
     badgeKind: campaign ? null : price.compareAtLabel ? "discount" : null,
     campaign,
+    secondaryCoupon,
   };
 }
 

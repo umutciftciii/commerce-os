@@ -63,6 +63,11 @@ export interface StorefrontProductSummary {
   badgeKind: "discount" | "new" | null;
   /** F4A.1 — Aktif public kampanya rozeti; yoksa null. */
   campaign: StorefrontCampaignView | null;
+  /**
+   * F4A.6 — Birincil rozet OTOMATIK "Sepette" iken, tum uygun kampanyalar
+   * stackable oldugunda EK gosterilecek public kupon; aksi halde null.
+   */
+  secondaryCoupon: StorefrontCampaignView | null;
 }
 
 /**
@@ -90,6 +95,12 @@ export interface StorefrontCampaignView {
   minOrderLabel: string | null;
   /** F4A.3 — Bitis tarihi (ISO); yoksa null. */
   endsAt: string | null;
+  /**
+   * F4A.6 — Otomatik sepet indiriminin GUVENLI tahmini birim nihai fiyati
+   * (bicimli, or. "₺1.169,10"); yalnizca sunucu guvenli hesaplayabildiyse dolu,
+   * aksi halde null (o zaman yalniz "Sepette %X" + alt-limit notu gosterilir).
+   */
+  estimatedFinalLabel: string | null;
   /** F4A.4 — Admin-kontrollu sunum alanlari (ADR-061; yoksa null → fallback). */
   displayTitle: string | null;
   shortDescription: string | null;

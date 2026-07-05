@@ -470,6 +470,8 @@ export const trStorefront = {
   badges: {
     discount: "İndirim",
     new: "Yeni",
+    // F4A.6 — Otomatik sepet indirimi fiyat bloğu etiketi.
+    inCart: "Sepette",
   },
   // F3B.3 — Müşteri kimlik doğrulama (kayıt/giriş) görünür metinleri.
   auth: {

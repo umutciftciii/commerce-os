@@ -1651,3 +1651,39 @@ bunları güvenle tüketir, eksikse fallback üretir. (+) `isPublic` tek türeti
 public/private güvenlik değişmez. (+) Motor/checkout/cüzdan/kargo'ya sıfır etki (additive). (–) Reserved
 segmentler ve marka/vendor scope sonraki fazlara bırakıldı. (–) Sunum alanları OrderDiscount snapshot'ına
 yazılmaz (bilinçli; sipariş etiketi mevcut label mantığından — görünüm ve immutable kayıt ayrı tutuldu).
+
+## ADR-062 — Ürün kartı otomatik indirim "Sepette" fiyat gösterimi güvenlik kuralı (F4A.6)
+
+**Bağlam.** F4A.1 public rozet projeksiyonu ürün başına TEK rozet seçiyordu (priority DESC, id ASC).
+Demo mağazada global kapsamlı + yüksek öncelikli bir public kupon (TEST250), ürün kapsamlı otomatik
+"Sepette %10" kampanyasını her kartta gölgeliyor; ayrıca kart yalnız küçük bir pill rozeti gösteriyor,
+gerçek e-ticaret referanslarındaki "üstü çizili normal fiyat + Sepette + %badge + nihai fiyat" bloğu yok.
+Nihai fiyat tahmininin YANILTICI olmaması (sepet/alt-limit/kapsam belirsizliği) ve checkout motorunun tek
+kaynak-doğrusu kalması şart.
+
+**Karar.**
+- **Güvenli nihai fiyat yalnız güvenle hesaplanabildiğinde gösterilir.** Public rozete additive,
+  nullable `estimatedDiscountMinor` / `estimatedFinalUnitPriceMinor` alanları eklendi. YALNIZCA:
+  otomatik (AUTOMATIC_CART_DISCOUNT) + `PERCENT` + TEK-FIYATLI ürün (görünür varyant fiyatları eşit) +
+  (`minOrder` yok ya da birim fiyat eşiği karşılıyor) durumunda doldurulur. Formül checkout motoruyla
+  AYNIDIR: `round(unit*yüzde)`, `maxDiscount` cap, birim fiyatla sınırlama. Aksi halde `null` → kart
+  yalnız "Sepette %X" rozeti + (varsa) "₺X üzeri" alt-limit notu gösterir; **sahte nihai fiyat üretilmez**.
+- **Sabit tutarlı (FIXED_AMOUNT) sepet indiriminde tahmin üretilmez.** Sepet geneli sabit indirim tek
+  birime güvenle bölünemez; birim-bazı nihai fiyat yanıltıcı olur.
+- **Kupon kampanyaları kupon kartı olarak kalır; otomatik fiyat bloğu OLMAZ.** `displayKind` yine
+  `type === COUPON_CODE`'dan türetilir — `accessModel` default'u (AUTO_VISIBLE) bir kupon kampanyasını
+  otomatik "Sepette" indirimine ÇEVİRMEZ. Kupon rozetinde tahmin daima `null`.
+- **Stackable-duyarlı gösterim seti (checkout stacking semantiğiyle tutarlı).** Ürüne uygulanan tüm uygun
+  kampanyaların HEPSİ `stackable` ise otomatik "Sepette" birincil + public kupon ikincil çip BİRLİKTE
+  gösterilir (`publicProductSchema.secondaryCoupon`, additive). En az biri non-stackable ise (checkout'ta
+  diğerlerini bloklar) yalnızca öncelik kazananı (priority DESC, id ASC) gösterilir; ikincil `null`.
+- **Allowlist güvenliği korunur.** İç kimlik/limit/priority/stackable/usage public gövdeye SIZMAZ;
+  yalnız türetilmiş güvenli tahmin alanları taşınır.
+
+**Sonuçlar.** (+) Kartlar referans e-ticaret gibi net "Sepette" fiyatı gösterir; nihai fiyat yalnız
+güvenli olduğunda görünür. (+) Motor/checkout/OrderDiscount snapshot/cüzdan/analitik/kargo'ya SIFIR etki
+(additive, migration yok). (+) Tahmin motor formülüyle birebir; checkout ile tutarlı. (–) Fiyat
+ARALIKLI ürünlerde tekil nihai fiyat gösterilmez (bilinçli; yanıltıcı tekil fiyattan kaçınıldı). (–) Tahmin
+tek-birim varsayar; müşteri sepetinde maxDiscount cap veya sepet-geneli min-order farklı çıkabilir — bu yüzden
+yalnız güvenli alt-küme gösterilir, checkout yine otoriterdir. Follow-up: ürün maliyet/marj + liste fiyatı
+ayrımı ve fiyat değişikliği audit'i (son 30 gün en düşük fiyat) F4B'ye bırakıldı.

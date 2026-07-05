@@ -694,6 +694,16 @@ export const publicCampaignBadgeSchema = z.object({
   couponAction: publicCouponActionSchema.default("MANUAL_ONLY"),
   /** F4A.3 — Kampanya/kupon bitis tarihi (ISO); yoksa null. */
   endsAt: z.string().datetime().nullable().default(null),
+  /**
+   * F4A.6 (ADR-062) — Otomatik sepet indiriminin GUVENLI birim-basi tahmini.
+   * YALNIZCA otomatik (AUTOMATIC_CART_DISCOUNT) + PERCENT + tek-fiyatli urun +
+   * (minOrder yok ya da birim fiyat esigi karsiliyor) durumunda doldurulur;
+   * aksi halde null (sahte nihai fiyat URETILMEZ). Motorla ayni formul:
+   * round(unit*yuzde), maxDiscount cap. Kupon rozetinde HER ZAMAN null.
+   * KAYNAK DOGRUSU checkout motorudur; bu yalniz gorunum tahminidir.
+   */
+  estimatedDiscountMinor: z.number().int().nonnegative().nullable().default(null),
+  estimatedFinalUnitPriceMinor: z.number().int().nonnegative().nullable().default(null),
   /** F4A.4 — Admin-kontrollu sunum alanlari (allowlist; yoksa UI fallback uretir). */
   ...couponDisplayFieldsSchema.shape,
 });
@@ -716,6 +726,14 @@ export const publicProductSchema = z.object({
   variants: z.array(publicProductVariantSchema),
   /** F4A.1 — Bu urun icin gecerli kampanya rozeti (yoksa null; additive alan). */
   campaign: publicCampaignBadgeSchema.nullable().default(null),
+  /**
+   * F4A.6 (ADR-062) — Birincil rozet OTOMATIK sepet indirimi iken, ayni urune
+   * uygulanan ve tum uygun kampanyalarin stackable oldugu durumda EK olarak
+   * gosterilecek public kupon rozeti; aksi halde null. Tek bir non-stackable
+   * kampanya varsa (checkout'ta digerlerini blokladigi icin) yalniz birincil
+   * gosterilir ve bu alan null olur.
+   */
+  secondaryCoupon: publicCampaignBadgeSchema.nullable().default(null),
 });
 
 export const publicProductListResponseSchema = z.object({

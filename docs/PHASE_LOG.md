@@ -2921,3 +2921,40 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   gösterir; vitrin kartı güvenle gösterir; "Takip et kazan" hiçbir yerde yok; claim/kullan akışı çalışır;
   checkout+OrderDiscount değişmez; private sunum alanı public'te sızmaz; TEST250 + otomatik kampanya eskisi
   gibi. Follow-up: marka/vendor scope, reserved segment enforcement.
+
+## 2026-07-05 — F4A.6: Vitrin ürün kartı "Sepette" fiyat gösterimi + smoke/stale denetimi (ADR-062)
+
+- **Amaç.** Otomatik sepet indirimi uygulanan ürün kartları referans e-ticaret gibi görünmüyordu: yalnız
+  küçük pill rozet vardı, "üstü çizili normal fiyat + Sepette + %badge + nihai fiyat" bloğu yoktu; ayrıca
+  demo mağazada global+yüksek öncelikli TEST250 kuponu, ürün kapsamlı otomatik "Sepette %10"u her kartta
+  gölgeleyip "Kuponlu ürün" gösteriyordu.
+- **Ön denetim (kod yazmadan).** Runtime DB: demo-store'da ACTIVE `TEST250 Sabit İndirim` (COUPON_CODE,
+  priority 1, global kapsam, bilinçli public kupon) + `Sepette %10 İndirim` (AUTOMATIC_CART, priority 0,
+  2 ürün kapsamı); ikisi de `stackable=false`. Rozet seçimi priority DESC → TEST250 kazanıyor = "Kuponlu
+  ürün" (kural gereği doğru). "Eski smoke indirim" aslında `demo-hoodie` varyantındaki compareAt
+  (₺1.299 satış / ₺1.499 liste) mock artığı — kampanya DEĞİL. `accessModel` default'u (AUTO_VISIBLE) bir
+  bug değil: `displayKind` `type === COUPON_CODE`'dan türetiliyor. Seed kampanya YARATMIYOR (hepsi runtime).
+- **Güvenli nihai fiyat (ADR-062).** Public rozete additive `estimatedDiscountMinor` /
+  `estimatedFinalUnitPriceMinor`. YALNIZCA otomatik + `PERCENT` + tek-fiyatlı ürün (görünür varyant fiyatları
+  eşit) + (`minOrder` yok ya da birim fiyat eşiği karşılıyor) durumunda; formül motorla AYNI
+  (`round(unit*yüzde)`, `maxDiscount` cap, birim sınırı). `FIXED_AMOUNT`/aralık/min-order belirsizinde `null`
+  → kart yalnız "Sepette %X" + "₺X üzeri" notu (sahte fiyat yok). Tahmin gateway'de (buildPublicProduct)
+  hesaplanır; storefront yalnız biçimler.
+- **Stackable-duyarlı gösterim.** `publicProductSchema.secondaryCoupon` additive. Uygun kampanyaların HEPSİ
+  stackable ise otomatik "Sepette" birincil + public kupon ikincil çip birlikte; biri non-stackable ise
+  (checkout'ta bloklar) yalnız öncelik kazananı. `selectPublicCampaignBadge` → geriye-uyumlu ince sarmalayıcı
+  (`selectPublicCampaignDisplay(...).primary`).
+- **UI.** `product-card.tsx`: otomatik indirimde `CartPriceBlock` (üstü çizili normal fiyat + emerald "%X" +
+  "Sepette" + kalın nihai fiyat; güvenli değilse label + min-order notu) + otomatik birincil iken ikincil
+  kupon çipi. `buy-box.tsx` detay: güvenli tahminde belirgin "Sepette <nihai>" bloğu + "Kod gerekmez". i18n
+  `badges.inCart` (tr "Sepette" / en "In cart").
+- **Denetim sonucu / veri.** DB'ye DOKUNULMADI (bu commit'te): TEST250 demo-store'da geçerli kalır;
+  demo-hoodie compareAt ve stackable ayarları + maliyet/marj + fiyat audit'i F4B'ye taşındı (checkout
+  semantiği korunsun diye). f4a-smoke-test-store artık smoke kampanyaları kaldı (demo storefront'u etkilemez).
+- **Regresyon.** İndirim motoru/checkout/OrderDiscount snapshot/kupon cüzdanı/analitik/kargo DEĞİŞMEDİ;
+  additive alanlar, migration YOK.
+- **Gate.** db:generate + `pnpm -r build` + typecheck + lint + turbo test (api-gateway 587, storefront-web
+  131, store-admin 188; toplam yeşil) + `git diff --check` temiz.
+- **Kalan.** Merge sonrası docker rebuild (api-gateway + storefront-web) + runtime doğrulama (kart Sepette
+  bloğu güvenli tahminde; kupon kartı ayrı; no-leak; checkout/cart toplamları aynı). Follow-up: F4B —
+  ürün maliyet/marj + liste fiyatı + fiyat değişikliği audit (son 30 gün en düşük fiyat).

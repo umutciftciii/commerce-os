@@ -22,6 +22,7 @@ function summary(
     commerce: deriveProductCommerceView(salesOverrides),
     badgeKind: price.compareAtLabel ? "discount" : null,
     campaign: null,
+    secondaryCoupon: null,
     ...extra,
   };
 }
@@ -93,6 +94,7 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
     couponAction: "MANUAL_ONLY" as const,
     minOrderLabel: null,
     endsAt: null,
+    estimatedFinalLabel: null,
     displayTitle: null,
     shortDescription: null,
     badgeLabel: null,
@@ -132,5 +134,75 @@ describe("ProductCard · campaign badge (F4A.1/F4A.3)", () => {
       />,
     );
     expect(html).toContain("Kuponlu ürün");
+  });
+
+  // F4A.6 — Otomatik indirimde güvenli nihai fiyat varsa "Sepette" fiyat bloğu:
+  // üstü çizili normal fiyat + %badge + kalın nihai fiyat; "Kuponlu ürün" YOK.
+  it("automatic discount with a safe estimate renders the 'Sepette' final price", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null }, {
+          campaign: { ...campaign, estimatedFinalLabel: "₺1.169,10" },
+          badgeKind: null,
+        })}
+        t={tr}
+      />,
+    );
+    expect(html).toContain(tr.badges.inCart); // "Sepette"
+    expect(html).toContain("₺1.169,10"); // güvenli nihai fiyat
+    expect(html).toContain("₺1.299,00"); // üstü çizili normal fiyat
+    expect(html).toContain("line-through");
+    expect(html).not.toContain("Kuponlu ürün");
+  });
+
+  // Nihai fiyat güvenli değilse (alt-limit belirsiz): sahte fiyat YOK; yalnız
+  // "Sepette %X indirim" + "₺X üzeri" notu gösterilir.
+  it("automatic discount without a safe estimate shows the min-order note, not a fake price", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null }, {
+          campaign: { ...campaign, estimatedFinalLabel: null, minOrderLabel: "₺1.000" },
+          badgeKind: null,
+        })}
+        t={tr}
+      />,
+    );
+    expect(html).toContain("Sepette %10 indirim");
+    expect(html).toContain("₺1.000 üzeri geçerli");
+    // Güvenli fiyat bloğu (tek başına "Sepette" etiketi) render EDİLMEZ; sahte
+    // nihai fiyat yok. ("Sepette" yalnızca "Sepette %10 indirim" metninde geçer.)
+    expect(html).not.toContain(`>${tr.badges.inCart}<`);
+  });
+
+  // Otomatik birincil + stackable ikincil kupon: her iki sinyal de görünür.
+  it("shows a secondary coupon chip alongside the automatic 'Sepette' block when stackable", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: null }, {
+          campaign: { ...campaign, estimatedFinalLabel: "₺1.169,10" },
+          secondaryCoupon: {
+            ...campaign,
+            displayKind: "PUBLIC_COUPON" as const,
+            badgeText: "Kuponlu ürün",
+            requiresCoupon: true,
+            couponCode: "TEST250",
+            couponAction: "CLAIM" as const,
+          },
+          badgeKind: null,
+        })}
+        t={tr}
+      />,
+    );
+    expect(html).toContain(tr.badges.inCart);
+    expect(html).toContain("Kuponlu ürün");
+  });
+
+  // Kampanya yoksa hiçbir kampanya/kupon promo metni render edilmez.
+  it("renders no campaign promo when there is no active campaign", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard product={summary(sales.online, { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null })} t={tr} />,
+    );
+    expect(html).not.toContain(tr.badges.inCart);
+    expect(html).not.toContain("Kuponlu ürün");
   });
 });

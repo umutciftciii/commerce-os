@@ -306,7 +306,21 @@ function DetailCampaign({
   if (campaign.displayKind === "AUTOMATIC_CART_DISCOUNT") {
     return (
       <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-        <p className="text-sm font-semibold text-emerald-800">{campaign.label}</p>
+        {/* F4A.6 — Guvenli nihai fiyat varsa belirgin "Sepette" fiyat blogu;
+            yoksa yalniz "Sepette %X indirim" etiketi (sahte fiyat gosterilmez). */}
+        {campaign.estimatedFinalLabel ? (
+          <div className="flex items-baseline gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+              {t.badges.inCart}
+            </span>
+            <span className="text-lg font-bold text-emerald-800">{campaign.estimatedFinalLabel}</span>
+            <span className="inline-flex items-center rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700">
+              {campaign.discountText}
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm font-semibold text-emerald-800">{campaign.label}</p>
+        )}
         <p className="mt-0.5 text-xs text-emerald-700">
           {t.detail.campaignNoCode}
           {campaign.minOrderLabel
