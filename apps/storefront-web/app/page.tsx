@@ -1,6 +1,17 @@
 import Link from "next/link";
-import { Button, Container, EmptyState } from "@commerce-os/ui";
-import { ProductCard } from "../components/product-card";
+import {
+  ButtonLink,
+  Container,
+  Display,
+  Eyebrow,
+  Heading,
+  Lead,
+  Muted,
+  ProductMedia,
+  Section,
+  Text,
+} from "../components/ui";
+import { StorefrontProductCard } from "../components/site/product-card";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getFeaturedProducts } from "../lib/server/catalog";
 
@@ -10,77 +21,152 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const dict = await getStorefrontDict();
   const t = dict.home;
-  const featuredResult = await getFeaturedProducts(4, await getRequestLocale());
+  const featuredResult = await getFeaturedProducts(8, await getRequestLocale());
   const featured = featuredResult.ok ? featuredResult.data : [];
 
   return (
     <>
-      <section className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white">
-        <Container className="py-20 sm:py-24">
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700 shadow-card">
-            {t.badge}
-          </span>
-          <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tightish text-slate-900 sm:text-5xl">
-            {t.heroTitle}
-          </h1>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-500">{t.heroDescription}</p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/products">
-              <Button>{t.shopCta}</Button>
-            </Link>
-            <Link href="/cart">
-              <Button variant="secondary">{t.cartCta}</Button>
+      {/* 1 — Hero: büyük, tek net (accent) CTA, bol beyaz alan. */}
+      <Section as="div" spacing="lg" className="border-b border-line">
+        <Container className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+          <div className="max-w-xl">
+            <Eyebrow>{t.heroEyebrow}</Eyebrow>
+            <Display className="mt-5">{t.heroTitle}</Display>
+            <Lead className="mt-6">{t.heroDescription}</Lead>
+            <div className="mt-9 flex flex-wrap items-center gap-6">
+              {/* Sayfanın TEK birincil (accent) CTA'sı. */}
+              <ButtonLink href="/products" variant="cta" size="lg">
+                {t.heroCta}
+              </ButtonLink>
+              <Link
+                href="/cart"
+                className="text-xs font-medium uppercase tracking-wideish text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+              >
+                {t.cartCta}
+              </Link>
+            </div>
+          </div>
+          {/* MOCK: Hero görseli — gerçek medya altyapısı yok, bkz. todo.md (P0). */}
+          <HeroVisual label={dict.shell.brand} />
+        </Container>
+      </Section>
+
+      {/* 2 — Kategori vitrini (MOCK görseller, gerçek gibi isimler). */}
+      <Section className="border-b border-line">
+        <Container>
+          <div className="mb-10 flex items-end justify-between gap-4">
+            <div>
+              <Eyebrow>{t.categories.eyebrow}</Eyebrow>
+              <Heading className="mt-2">{t.categories.title}</Heading>
+            </div>
+            <Link
+              href="/products"
+              className="hidden shrink-0 text-xs font-medium uppercase tracking-wideish text-ink underline decoration-line underline-offset-4 hover:decoration-ink sm:inline"
+            >
+              {t.categories.viewAll}
             </Link>
           </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+            {t.categories.items.map((category) => (
+              // MOCK: Kategori kartı — kategori görseli/public ucu yok, bkz. todo.md.
+              <Link key={category.name} href="/products" className="group block">
+                <div className="relative aspect-[3/4] overflow-hidden border border-line bg-surface">
+                  <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.03]">
+                    <ProductMedia handle={`cat-${category.name}`} title={category.name} />
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-5">
+                    <p className="font-serif text-xl font-normal text-white">{category.name}</p>
+                    <p className="mt-0.5 text-xs text-white/75">{category.caption}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         </Container>
-      </section>
+      </Section>
 
-      <section className="border-b border-slate-200 bg-white">
-        <Container className="grid grid-cols-1 gap-px overflow-hidden sm:grid-cols-3">
-          {t.valueProps.map((prop) => (
-            <div key={prop.title} className="py-6 sm:px-6">
-              <p className="text-sm font-semibold text-slate-900">{prop.title}</p>
-              <p className="mt-1 text-sm text-slate-500">{prop.detail}</p>
-            </div>
-          ))}
-        </Container>
-      </section>
-
-      <section>
-        <Container className="py-14">
-          <div className="mb-6 flex items-end justify-between">
+      {/* 3 — Öne çıkan ürünler (GERÇEK katalog). */}
+      <Section className="border-b border-line">
+        <Container>
+          <div className="mb-10 flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">
-                {t.featuredEyebrow}
-              </p>
-              <h2 className="mt-1 text-lg font-semibold tracking-tightish text-slate-900">
-                {t.featuredTitle}
-              </h2>
+              <Eyebrow>{t.featuredEyebrow}</Eyebrow>
+              <Heading className="mt-2">{t.featuredTitle}</Heading>
             </div>
-            <Link href="/products" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+            <Link
+              href="/products"
+              className="hidden shrink-0 text-xs font-medium uppercase tracking-wideish text-ink underline decoration-line underline-offset-4 hover:decoration-ink sm:inline"
+            >
               {t.featuredViewAll}
             </Link>
           </div>
 
           {featured.length === 0 ? (
-            <EmptyState
-              title={t.emptyTitle}
-              description={t.emptyDescription}
-              action={
-                <Link href="/products">
-                  <Button variant="secondary">{t.shopCta}</Button>
-                </Link>
-              }
-            />
+            <div className="border border-line bg-surface px-6 py-16 text-center">
+              <Heading as="p">{t.emptyTitle}</Heading>
+              <Text className="mx-auto mt-2 max-w-md">{t.emptyDescription}</Text>
+              <ButtonLink href="/products" variant="secondary" className="mt-6">
+                {t.shopCta}
+              </ButtonLink>
+            </div>
           ) : (
-            <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-10 lg:grid-cols-4">
               {featured.map((product) => (
-                <ProductCard key={product.handle} product={product} t={dict} />
+                <StorefrontProductCard key={product.handle} product={product} t={dict} />
               ))}
             </div>
           )}
         </Container>
-      </section>
+      </Section>
+
+      {/* 4 — Değer önerisi bandı (sade tipografi, ikonsuz). */}
+      <Section spacing="sm" className="border-b border-line">
+        <Container className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+          {t.valueProps.map((prop, index) => (
+            <div key={prop.title} className="flex gap-4">
+              <span className="font-serif text-lg text-ink-subtle">0{index + 1}</span>
+              <div>
+                <p className="text-sm font-medium text-ink">{prop.title}</p>
+                <Muted className="mt-1">{prop.detail}</Muted>
+              </div>
+            </div>
+          ))}
+        </Container>
+      </Section>
+
+      {/* 5 — Editöryel / lifestyle blok. */}
+      <Section>
+        <Container className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+          {/* MOCK: Editöryel görsel — gerçek medya yok, bkz. todo.md (P0). */}
+          <div className="order-2 aspect-[4/3] overflow-hidden border border-line bg-surface lg:order-1">
+            <ProductMedia handle="editorial-story" title={t.editorial.title} />
+          </div>
+          <div className="order-1 max-w-md lg:order-2">
+            <Eyebrow>{t.editorial.eyebrow}</Eyebrow>
+            <Heading className="mt-3">{t.editorial.title}</Heading>
+            <Text className="mt-4">{t.editorial.body}</Text>
+            <ButtonLink href="/products" variant="secondary" className="mt-7">
+              {t.editorial.cta}
+            </ButtonLink>
+          </div>
+        </Container>
+      </Section>
     </>
+  );
+}
+
+/**
+ * MOCK: Hero görsel paneli — gerçek medya altyapısı yok (bkz. todo.md, P0).
+ * Deterministik yer tutucu: sıcak nötr zemin + ince serif kelime-işareti.
+ */
+function HeroVisual({ label }: { label: string }) {
+  return (
+    <div className="relative hidden aspect-[4/5] overflow-hidden border border-line bg-gradient-to-br from-[#efece6] to-[#ded8cc] lg:block">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="font-serif text-6xl font-normal tracking-tightish text-line-strong">
+          {label}
+        </span>
+      </div>
+    </div>
   );
 }
