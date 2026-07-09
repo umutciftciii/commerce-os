@@ -17,6 +17,20 @@ export const enStorefront: StorefrontDictionary = {
     announcement: "Free shipping on orders over ₺750 · Demo storefront",
     navProducts: "Products",
     navCart: "Cart",
+    // Campaign slider (top band) — real F4A data.
+    campaignRegion: "Campaigns",
+    campaignPrev: "Previous campaign",
+    campaignNext: "Next campaign",
+    campaignCouponPrefix: "Code",
+    // ADIM 1 — Premium header actions.
+    skipToContent: "Skip to content",
+    searchPlaceholder: "Search products",
+    searchSubmit: "Search",
+    // MOCK: Wishlist — no real data source, see todo.md.
+    wishlist: "Wishlist",
+    wishlistSoon: "Wishlist coming soon",
+    menuOpen: "Menu",
+    menuClose: "Close",
     footerTagline: "A sample storefront running on commerce-os.",
     footerShopHeading: "Shop",
     footerAllProducts: "All products",
@@ -29,6 +43,16 @@ export const enStorefront: StorefrontDictionary = {
     footerCompanyContact: "Contact",
     footerCopyright: "© 2026 Demo Store · All rights reserved.",
     footerPoweredBy: "Powered by commerce-os · storefront foundation",
+  },
+  // MOCK: Newsletter signup — no real data source, see todo.md.
+  newsletter: {
+    eyebrow: "Newsletter",
+    title: "Be the first to know about new arrivals and private offers.",
+    description: "A few times a month; edits, campaigns and new collections.",
+    placeholder: "Your email address",
+    submit: "Subscribe",
+    success: "Thank you! You're on the list.",
+    disclaimer: "Unsubscribe anytime. (Demo — no data is stored.)",
   },
   home: {
     badge: "Demo Store",
@@ -47,6 +71,36 @@ export const enStorefront: StorefrontDictionary = {
     featuredViewAll: "View all",
     emptyTitle: "Storefront is getting ready",
     emptyDescription: "The store catalogue isn't live yet. Products will appear here once added.",
+    // ADIM 2 — Premium Home redesign.
+    heroEyebrow: "2026 Collection",
+    heroCta: "Explore the collection",
+    // MOCK: Category showcase — no category image/public endpoint, see todo.md.
+    categories: {
+      eyebrow: "Categories",
+      title: "Explore the collection",
+      viewAll: "All categories",
+      items: [
+        { name: "Apparel", caption: "Everyday, durable pieces" },
+        { name: "Accessories", caption: "Finishing details" },
+        { name: "Living", caption: "Home and daily rituals" },
+      ],
+    },
+    // Editorial / lifestyle block.
+    editorial: {
+      eyebrow: "Story",
+      title: "Less, but better. Built to last.",
+      body: "Every piece is chosen for materials that age well and a timeless line. Not a season — permanence.",
+      cta: "Our story",
+    },
+    // Product card interactions. wishlist/quickView/rating are MOCK (see todo.md).
+    card: {
+      wishlistAdd: "Add to wishlist",
+      quickView: "Quick view",
+      close: "Close",
+      viewProduct: "View product",
+      ratingAria: "{rating} out of 5",
+      reviews: "{count} reviews",
+    },
   },
   listing: {
     eyebrow: "Collection",

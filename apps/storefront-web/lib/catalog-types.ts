@@ -114,6 +114,22 @@ export interface StorefrontCampaignView {
 }
 
 /**
+ * Vitrin ust band kampanya slider'i slide gorunumu (GERCEK F4A verisi).
+ * Gateway'in store-seviyesi public kampanya projeksiyonundan (publicCampaignBadge)
+ * turetilmis HAZIR metinler tasir; kampanya ic verisi (id/limit/priority) YOKTUR.
+ */
+export interface StorefrontCampaignSlide {
+  /** Stabil React key (kupon kodu ya da turetilmis etiket). */
+  key: string;
+  /** Ana band metni: admin displayTitle varsa o, yoksa turetilmis etiket. */
+  headline: string;
+  /** Ikincil kisa metin (shortDescription / alt-limit); yoksa null. */
+  detail: string | null;
+  /** Public kupon kodu (varsa); otomatik indirimde null. */
+  couponCode: string | null;
+}
+
+/**
  * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti gorunumu.
  * Gateway'in cuzdan projeksiyonundan (PublicWalletCoupon) turetilmis HAZIR
  * metinler tasir; kampanya ic verisi tasimaz.

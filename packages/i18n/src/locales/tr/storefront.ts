@@ -17,6 +17,20 @@ export const trStorefront = {
     announcement: "₺750 ve üzeri siparişlerde ücretsiz kargo · Demo vitrin",
     navProducts: "Ürünler",
     navCart: "Sepet",
+    // Kampanya slider'ı (üst band) — gerçek F4A verisi.
+    campaignRegion: "Kampanyalar",
+    campaignPrev: "Önceki kampanya",
+    campaignNext: "Sonraki kampanya",
+    campaignCouponPrefix: "Kod",
+    // ADIM 1 — Premium header aksiyonlari.
+    skipToContent: "İçeriğe geç",
+    searchPlaceholder: "Ürün ara",
+    searchSubmit: "Ara",
+    // MOCK: Favoriler/Wishlist — gerçek veri kaynağı yok, bkz. todo.md.
+    wishlist: "Favoriler",
+    wishlistSoon: "Favoriler yakında",
+    menuOpen: "Menü",
+    menuClose: "Kapat",
     footerTagline: "commerce-os üzerinde çalışan örnek bir vitrin.",
     footerShopHeading: "Alışveriş",
     footerAllProducts: "Tüm ürünler",
@@ -29,6 +43,16 @@ export const trStorefront = {
     footerCompanyContact: "İletişim",
     footerCopyright: "© 2026 Demo Mağaza · Tüm hakları saklıdır.",
     footerPoweredBy: "commerce-os altyapısıyla güçlendirilmiştir · vitrin altyapısı",
+  },
+  // MOCK: Newsletter (bülten) kaydı — gerçek veri kaynağı yok, bkz. todo.md.
+  newsletter: {
+    eyebrow: "Bülten",
+    title: "Yeni gelenler ve özel fırsatlardan ilk siz haberdar olun.",
+    description: "Ayda birkaç kez; seçkiler, kampanyalar ve yeni koleksiyonlar.",
+    placeholder: "E-posta adresiniz",
+    submit: "Abone ol",
+    success: "Teşekkürler! Bültenimize kaydınız alındı.",
+    disclaimer: "Dilediğiniz an abonelikten çıkabilirsiniz. (Demo — kayıt saklanmaz.)",
   },
   home: {
     badge: "Demo Mağaza",
@@ -47,6 +71,36 @@ export const trStorefront = {
     featuredViewAll: "Tümünü gör",
     emptyTitle: "Vitrin hazırlanıyor",
     emptyDescription: "Mağaza kataloğu henüz yayında değil. Ürünler eklendiğinde burada görünecek.",
+    // ADIM 2 — Premium Home yeniden tasarımı.
+    heroEyebrow: "2026 Koleksiyonu",
+    heroCta: "Koleksiyonu keşfet",
+    // MOCK: Kategori vitrini — kategori görseli/public ucu yok, bkz. todo.md.
+    categories: {
+      eyebrow: "Kategoriler",
+      title: "Koleksiyonu keşfet",
+      viewAll: "Tüm kategoriler",
+      items: [
+        { name: "Giyim", caption: "Günlük ve dayanıklı parçalar" },
+        { name: "Aksesuar", caption: "Tamamlayıcı detaylar" },
+        { name: "Yaşam", caption: "Ev ve günlük ritüeller" },
+      ],
+    },
+    // Editöryel / lifestyle blok.
+    editorial: {
+      eyebrow: "Hikâye",
+      title: "Az ama iyi. Uzun ömürlü tasarım.",
+      body: "Her parça, günlük kullanımda güzelleşen malzemeler ve zamansız bir çizgiyle seçiliyor. Sezon değil, kalıcılık.",
+      cta: "Hikâyemiz",
+    },
+    // Ürün kartı etkileşimleri. wishlist/quickView/rating MOCK'tur (bkz. todo.md).
+    card: {
+      wishlistAdd: "Favorilere ekle",
+      quickView: "Hızlı bakış",
+      close: "Kapat",
+      viewProduct: "Ürünü incele",
+      ratingAria: "5 üzerinden {rating}",
+      reviews: "{count} değerlendirme",
+    },
   },
   listing: {
     eyebrow: "Koleksiyon",

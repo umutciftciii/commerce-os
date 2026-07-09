@@ -66,6 +66,7 @@ import {
   publicPaymentSubmitRequestSchema,
   publicProductDetailSchema,
   publicProductListResponseSchema,
+  publicCampaignSlidesResponseSchema,
   publicProductSchema,
   storeAdminCustomerListResponseSchema,
   storeAdminCustomerSummarySchema,
@@ -123,6 +124,7 @@ import {
 } from "./campaigns/wallet.js";
 import { selectPublicCampaignDisplay } from "./campaigns/public-badge.js";
 import { campaignAppliesToProduct } from "./campaigns/public-badge.js";
+import { selectPublicCampaignSlides } from "./campaigns/public-badge.js";
 // F4C (ADR-063/ADR-064) — KDV para matematigi (sunucu otoritesi) + siparis
 // satis ozeti turetimi (snapshot-turevi; saf modul).
 import { DEFAULT_VAT_RATE_BPS, splitGrossByVat, vatFromNet } from "@commerce-os/utils";
@@ -3793,6 +3795,20 @@ export function createServer(
       appointmentNote: product.appointmentNote ?? null,
       related,
     });
+  });
+
+  // F4A / Storefront redesign — Vitrin ust band kampanya slider'i. Store
+  // seviyesindeki ACTIVE + isPublic kampanyalarin public-safe slide listesini
+  // doner (urun uclariyla AYNI projeksiyon; mock DEGIL, gercek F4A verisi).
+  app.get("/public/stores/:storeSlug/campaigns", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const publicCampaigns = await dataAccess.listPublicActiveCampaigns(store.id);
+    const slides = selectPublicCampaignSlides(publicCampaigns, new Date());
+    return publicCampaignSlidesResponseSchema.parse({ data: slides });
   });
 
   // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
