@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Link from "next/link";
-import { Container, LanguageSwitcher } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getCartCount } from "../lib/server/cart-cookie";
 import { getCurrentCustomer } from "../lib/server/customer";
-import { AccountMenu } from "../components/account/account-menu";
+import { SiteHeader } from "../components/site/site-header";
+import { SiteFooter } from "../components/site/site-footer";
+import { CampaignBar } from "../components/site/campaign-bar";
+import { getCampaignSlides } from "../lib/server/campaigns";
+import { fontVariables } from "../lib/fonts";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,14 +20,16 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Tema hazir genel vitrin cercevesi.
+ * Tema hazir genel vitrin cercevesi (ADIM 1 redesign).
  *
- * `data-theme` per-store temalama icin yer tutucu bir kancadir. Cok kiracili
- * mağaza cozumlemesi (ornegin demo.localhost / ozel domain / slug -> mağaza)
- * HENUZ uygulanmadi; bu uygulama su an tek bir demo mağaza render eder.
+ * `data-theme` per-store temalama icin yer tutucu kancadir; token'lar CSS custom
+ * property olarak bu attribute uzerinden override edilebilir (bkz. globals.css).
+ * Cok kiracili magaza cozumlemesi (domain/slug -> magaza + tema) FAZ 6 kapsaminda
+ * olup HENUZ uygulanmadi; bu uygulama su an tek bir demo magaza render eder.
  *
- * Aktif arayuz dili cookie'den cozulur (`getRequestLocale`); header'daki
- * LanguageSwitcher TR/EN gecisini saglar ve `data-theme`/shell yapisini bozmaz.
+ * Font degiskenleri (`--font-*-face`) `<html>` uzerine uygulanir; semantik
+ * `--font-sans/serif` globals.css'te bunlara baglanir. Aktif arayuz dili
+ * cookie'den cozulur; header'daki LanguageSwitcher TR/EN gecisini saglar.
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const locale = await getRequestLocale();
@@ -34,97 +38,41 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const s = t.shell;
   const cartCount = await getCartCount();
   const customer = await getCurrentCustomer();
+  // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
+  // duyuru metnine düşer (vitrin asla kırılmaz).
+  const campaignSlides = await getCampaignSlides(locale);
 
   return (
-    <html lang={locale} data-theme="default">
+    <html lang={locale} data-theme="default" className={fontVariables}>
       <body>
-        <div className="flex min-h-screen flex-col bg-white">
-          <div className="bg-slate-900 py-2 text-center text-xs font-medium text-slate-100">
-            {s.announcement}
-          </div>
-          <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
-            <Container className="flex h-16 items-center justify-between">
-              <Link href="/" className="text-lg font-semibold tracking-tightish text-slate-900">
-                {s.brand}
-              </Link>
-              <nav
-                className="flex items-center gap-7 text-sm font-medium text-slate-600"
-                aria-label="Birincil"
-              >
-                <Link href="/products" className="transition-colors hover:text-slate-900">
-                  {s.navProducts}
-                </Link>
-                <Link
-                  href="/cart"
-                  className="inline-flex items-center gap-1.5 transition-colors hover:text-slate-900"
-                >
-                  {s.navCart}
-                  <span
-                    className={[
-                      "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
-                      cartCount > 0 ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500",
-                    ].join(" ")}
-                  >
-                    {cartCount}
-                  </span>
-                </Link>
-                <AccountMenu customer={customer} t={t.account} />
-                <LanguageSwitcher value={locale} labels={dict.common.language} />
-              </nav>
-            </Container>
-          </header>
-
-          <main className="flex-1">{children}</main>
-
-          <footer className="mt-16 border-t border-slate-200 bg-slate-50">
-            <Container className="grid grid-cols-2 gap-8 py-12 sm:grid-cols-4">
-              <div className="col-span-2 sm:col-span-1">
-                <p className="text-sm font-semibold tracking-tightish text-slate-900">{s.brand}</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">{s.footerTagline}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  {s.footerShopHeading}
-                </p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-500">
-                  <li>
-                    <Link href="/products" className="hover:text-slate-900">
-                      {s.footerAllProducts}
-                    </Link>
-                  </li>
-                  <li>
-                    <Link href="/cart" className="hover:text-slate-900">
-                      {s.footerCart}
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  {s.footerHelpHeading}
-                </p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-500">
-                  <li>{s.footerHelpShipping}</li>
-                  <li>{s.footerHelpReturns}</li>
-                </ul>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  {s.footerCompanyHeading}
-                </p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-500">
-                  <li>{s.footerCompanyAbout}</li>
-                  <li>{s.footerCompanyContact}</li>
-                </ul>
-              </div>
-            </Container>
-            <div className="border-t border-slate-200">
-              <Container className="flex flex-col gap-1 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <span>{s.footerCopyright}</span>
-                <span>{s.footerPoweredBy}</span>
-              </Container>
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:text-surface"
+        >
+          {s.skipToContent}
+        </a>
+        <div className="flex min-h-screen flex-col">
+          {campaignSlides.length > 0 ? (
+            <CampaignBar slides={campaignSlides} t={s} />
+          ) : (
+            <div className="bg-ink py-2 text-center text-[11px] font-medium uppercase tracking-wideish text-surface">
+              {s.announcement}
             </div>
-          </footer>
+          )}
+
+          <SiteHeader
+            locale={locale}
+            t={t}
+            languageLabels={dict.common.language}
+            cartCount={cartCount}
+            customer={customer}
+          />
+
+          <main id="main" className="flex-1">
+            {children}
+          </main>
+
+          <SiteFooter t={t} />
         </div>
       </body>
     </html>

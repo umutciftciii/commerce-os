@@ -187,6 +187,7 @@ export type {
   PublicProductVariant,
   PublicProductListResponse,
   PublicProductDetail,
+  PublicCampaignSlidesResponse,
   PublicCartItemInput,
   PublicCartRequest,
   PublicCartLineStatus,

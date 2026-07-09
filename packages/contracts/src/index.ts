@@ -804,6 +804,18 @@ export const publicProductDetailSchema = publicProductSchema.extend({
   related: z.array(publicProductSchema),
 });
 
+/**
+ * F4A / Storefront redesign — Vitrin ust band kampanya slider'i icin STORE
+ * seviyesi public kampanya slide listesi. Her slide, urun rozetiyle AYNI
+ * public-safe projeksiyondur ({@link publicCampaignBadgeSchema}); kampanya IC
+ * kimligi/limit/priority/stackable SIZMAZ. Yalnizca ACTIVE + isPublic + pencere
+ * gecerli + (kupon icin) ACTIVE kuponu olan kampanyalar dahildir. Bu GERCEK F4A
+ * verisidir (mock degil); kaynak dogrusu yine sunucudur.
+ */
+export const publicCampaignSlidesResponseSchema = z.object({
+  data: z.array(publicCampaignBadgeSchema),
+});
+
 /* -------------------------------------------------------------------------- */
 /* Public storefront cart + checkout (F3B.1)                                  */
 /* -------------------------------------------------------------------------- */
@@ -2068,6 +2080,7 @@ export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
 export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;
+export type PublicCampaignSlidesResponse = z.infer<typeof publicCampaignSlidesResponseSchema>;
 export type PublicCartItemInput = z.infer<typeof publicCartItemInputSchema>;
 export type PublicCartRequest = z.infer<typeof publicCartRequestSchema>;
 export type PublicCartLineStatus = z.infer<typeof publicCartLineStatusSchema>;

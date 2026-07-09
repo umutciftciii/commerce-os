@@ -212,6 +212,24 @@ export function selectPublicCampaignDisplay(
 }
 
 /**
+ * STORE seviyesi public kampanya slide listesi (vitrin ust band slider'i icin).
+ * Urun kapsami UYGULANMAZ (magaza genelindeki tum uygun kampanyalar); her biri
+ * urun rozetiyle AYNI public-safe projeksiyona ({@link PublicCampaignBadge})
+ * cevrilir. `unitPriceMinor` yok (store seviyesinde tek birim fiyati anlamsiz),
+ * bu yuzden otomatik indirim tahmini uretilmez (null). Sira: priority DESC,
+ * id ASC (deterministik). PRIVATE/uygun olmayan kampanyalar dahil edilmez.
+ */
+export function selectPublicCampaignSlides(
+  campaigns: CampaignRecord[],
+  now: Date,
+): PublicCampaignBadge[] {
+  return campaigns
+    .filter((campaign) => isBadgeEligible(campaign, now))
+    .sort(compareCampaigns)
+    .map((campaign) => buildBadge(campaign, now, null));
+}
+
+/**
  * Urun icin gosterilecek BIRINCIL rozeti secer (yoksa null). Geriye-uyumlu ince
  * sarmalayici; ayrintili gosterim seti icin {@link selectPublicCampaignDisplay}.
  */
