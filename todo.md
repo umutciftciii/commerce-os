@@ -15,7 +15,7 @@
 > Prisma `Product`/`ProductVariant` modellerinde **hiçbir görsel/medya alanı yok**
 > ve public DTO'da da yok. Şu an `ProductCard` gri gradient placeholder gösteriyor.
 
-- **Nerede kullanılıyor:** Home > Hero paneli (`HeroVisual`), Kategori vitrin kartları, Editöryel blok ve Öne çıkan ürün kartları (`ProductMedia` yer tutucusu) — hepsi tek `productImageSrc(handle)` kancasından beslenir; ayrıca ileride PLP/PDP.
+- **Nerede kullanılıyor:** Home > Hero paneli (`HeroVisual`), Kategori vitrin kartları, Editöryel blok, Öne çıkan ürün kartları ve **PLP ürün kartı** (`components/ui/product-card.tsx`, Adım 3) — hepsi tek `productImageSrc(handle)` kancasından beslenir; ayrıca ileride PDP galeri. **Adım 3:** `ProductMedia` artık opsiyonel `imageUrl` prop'u kabul eder (yeni `ProductCard` de) → gerçek kapak URL'i gelince `src` çözülür, `<img className="object-cover">` render edilir; çağıran taraf DEĞİŞMEZ (drop-in).
 - **Neden gerekli:** Premium vitrin görsel-öncelikli bir deneyimdir; görsel olmadan tasarım hedefi (whitespace + büyük görsel) fiziksel olarak kurulamaz.
 - **Şu an nasıl mock'lanacak:** Statik/placeholder görsel katmanı (deterministik, ürün handle'ına göre stabil; `next/image` uyumlu). Gradient yerine tutarlı bir "görsel yok" kompozisyonu + hazır olduğunda gerçek URL'e geçecek tek nokta (ör. `productImage(handle)` helper).
 - **Gerçek entegrasyon için gereken:**
@@ -81,6 +81,21 @@
 - **Şu an nasıl mock'lanacak:** E-posta input + gönder butonu; submit client-side "teşekkürler" durumu, persist yok.
 - **Gerçek entegrasyon için gereken:** `NewsletterSubscription` modeli veya notification-service entegrasyonu; KVKK/onay akışı.
 - **Öncelik önerisi:** Düşük.
+
+## 🟠 [ALTYAPI] PLP filtreleme / sıralama / sayfalama — backend query ucu
+- **Nerede kullanılıyor:** Ürün listeleme sayfası araç çubuğu (`components/site/product-listing.tsx`) — kategori filtresi + sıralama; PLP sayfası (`app/products/page.tsx`) tüm ürünleri tek seferde çeker (`getStorefrontListing`).
+- **Neden gerekli:** Katalog büyüdükçe (yüzlerce ürün) client-side filtre/sıralama + tek istekte tüm liste ölçeklenmez; sunucu-tarafı filtre/sıralama/sayfalama gerekir.
+- **Şu an nasıl (mock DEĞİL, ama sınırlı):** Public `GET /public/stores/:slug/products` ucu **query parametresi desteklemiyor** (sort/filter/category/search/pagination YOK). Bu yüzden filtre/sıralama **eldeki gerçek veriyle istemcide** yapılır — sahte alan/uydurma sonuç yok:
+  - Kategori filtresi: ürünlerin gerçek `categoryLabel` değerlerinden türetilir.
+  - Fiyat sıralaması: gerçek `sortPriceMinor` (en ucuz görünür varyant, `catalog.ts`) ile; fiyatı gizli/talep olanlar sona düşer.
+  - İsim sıralaması: başlık `localeCompare("tr")`.
+- **Eksik (deferred):** **"Yeni gelenler" sıralaması** — özet DTO'da `createdAt/publishedAt` **tarih alanı yok**; dürüst uydurma yapılmadığından bu seçenek **eklenmedi**. Ayrıca sunucu-tarafı `sort`/`filter`/`search` + sayfalama (offset/limit zaten response'ta var ama UI'a bağlı değil).
+- **Gerçek entegrasyon için gereken:**
+  1. Public liste ucuna query desteği: `?sort=price_asc|price_desc|name|newest&category=<slug>&q=<search>&limit/offset`.
+  2. Özet DTO'ya sıralanabilir `createdAt`/`publishedAt` alanı (newest için).
+  3. Public `GET /public/stores/:slug/categories` (kategori kimliği + sayaç) — filtreyi handle bazlı yapmak için.
+  4. PLP'de sunucu-tarafı sayfalama / "daha fazla yükle".
+- **Öncelik önerisi:** **Orta-Yüksek** (küçük katalogda mevcut istemci yaklaşımı yeterli; ölçek büyüyünce zorunlu).
 
 ## [MOCK] Arama otomatik tamamlama
 - **Nerede kullanılıyor:** Header arama alanı (yeni).

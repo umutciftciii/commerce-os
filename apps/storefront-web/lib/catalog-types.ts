@@ -64,6 +64,12 @@ export interface StorefrontProductSummary {
   categoryLabel: string | null;
   price: StorefrontPrice;
   commerce: ProductCommerceView;
+  /**
+   * Adim 3 (PLP) — Istemci-tarafi fiyat siralamasi icin en ucuz gorunur varyantin
+   * ham minor tutari (kurus). Gizli/talep fiyatinda ya da fiyat gorunmezse null
+   * (siralamada sona duser). Yalnizca siralama anahtaridir; gosterimde kullanilmaz.
+   */
+  sortPriceMinor?: number | null;
   /** Indirim varsa rozet anahtari ("discount"); yoksa null. i18n'de cevrilir. */
   badgeKind: "discount" | "new" | null;
   /** F4A.1 — Aktif public kampanya rozeti; yoksa null. */

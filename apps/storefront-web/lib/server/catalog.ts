@@ -21,7 +21,7 @@ import type {
   StorefrontVariantView,
 } from "../catalog-types";
 import { deriveProductCommerceView } from "../sales-model";
-import { formatLowest, formatMinor } from "../money";
+import { formatLowest, formatMinor, lowestMinor } from "../money";
 import { demoStoreSlug } from "./env";
 import { getPublic } from "./gateway";
 
@@ -139,6 +139,9 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
     categoryLabel: product.categoryLabel,
     price,
     commerce,
+    // Adim 3 (PLP) — En ucuz gorunur varyantin ham minor tutari (istemci fiyat
+    // siralamasi icin); fiyat gizli/talep ise null.
+    sortPriceMinor: lowestMinor(visiblePrices(product.variants)),
     // Kampanya rozeti oncelikli; yoksa compareAt indirim rozeti korunur.
     badgeKind: campaign ? null : price.compareAtLabel ? "discount" : null,
     campaign,

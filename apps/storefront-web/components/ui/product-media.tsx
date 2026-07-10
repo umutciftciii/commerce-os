@@ -39,19 +39,28 @@ const PLACEHOLDER_TONES = [
 export function ProductMedia({
   handle,
   title,
+  imageUrl,
   className,
 }: {
   handle: string;
   title: string;
+  /**
+   * Adim 3 — Opsiyonel gercek gorsel URL'i (cagiran taraf verirse). Verilmezse
+   * merkezi kancaya (`productImageSrc`) duser; o da null oldugundan (bkz. todo.md
+   * P0) yer tutucu gosterilir. Gorsel altyapisi gelince cagiran taraf DEGISMEZ.
+   */
+  imageUrl?: string | null;
   className?: string;
 }) {
-  const src = productImageSrc(handle);
+  const src = imageUrl ?? productImageSrc(handle);
   const monogram = (title.trim()[0] ?? "·").toLocaleUpperCase("tr-TR");
   const tone = PLACEHOLDER_TONES[hashIndex(handle, PLACEHOLDER_TONES.length)];
 
-  // Gercek gorsel yolu (ileride):
-  // if (src) return <Image src={src} alt={title} fill sizes=... className="object-cover" />;
-  void src;
+  // Gercek gorsel yolu (drop-in): src cozulur cozulmez kapak gorseli gosterilir.
+  // Tek degisim noktasi burasidir; kart/cagiran taraf ayni kalir.
+  if (src) {
+    return <img src={src} alt={title} className={cn("h-full w-full object-cover", className)} />;
+  }
 
   return (
     <div
