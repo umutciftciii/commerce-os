@@ -1,0 +1,45 @@
+name: CI
+
+# Minimal gate: her PR ve main push'unda lint + test + build calistirir.
+# Proje kurali (test edilmeden merge yok) icin makine dogrulamasi saglar.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Ayni ref icin eski kosuyu iptal et (kaynak tasarrufu).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: lint · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # packageManager (pnpm@9.15.0) package.json'dan okunur.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Prisma Client tipleri build/test'ten once uretilmelidir.
+      - name: Prisma generate
+        run: pnpm db:generate
+
+      # turbo ^build sirasi: paketler once, sonra app'ler (next build dahil).
+      - name: Build
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
