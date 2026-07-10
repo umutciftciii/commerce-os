@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
+import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 import { readCartItems, readCoupon, readShippingOption } from "../../lib/server/cart-cookie";
 import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
@@ -11,6 +10,9 @@ export const dynamic = "force-dynamic";
  * Sepet sayfasi (F3B.1). Cookie'deki referans kalemler gateway'de sunucu-otoriter
  * cozulur; fiyat/stok/uygunluk gateway'den gelir. Cozulemeyen/kisilmis kalemler
  * varsa istemci tarafi reconcile tetiklenir (cookie kanonik hale getirilir).
+ *
+ * Kapsayici/bos/hata yuzeyleri vitrin DS'ine göçtü (yerel components/ui barrel,
+ * PLP/PDP dili): serif Heading, editoryel EmptyState, hairline hata kutusu.
  */
 export default async function CartPage() {
   const t = (await getStorefrontDict()).cart;
@@ -26,10 +28,13 @@ export default async function CartPage() {
   if (!result.ok) {
     return (
       <Container className="py-12">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-        <Alert tone="error" title={t.errorTitle}>
-          {t.errorDescription}
-        </Alert>
+        <Heading as="h1" className="mb-6">
+          {t.title}
+        </Heading>
+        <div className="border border-line bg-surface-muted px-4 py-4">
+          <p className="text-sm font-semibold text-red-600">{t.errorTitle}</p>
+          <p className="mt-1 text-sm text-ink-muted">{t.errorDescription}</p>
+        </div>
       </Container>
     );
   }
@@ -44,7 +49,9 @@ export default async function CartPage() {
 
   return (
     <Container className="py-12">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+      <Heading as="h1" className="mb-6">
+        {t.title}
+      </Heading>
       <CartView
         view={view}
         canonicalItems={canonicalItems}
@@ -58,14 +65,16 @@ export default async function CartPage() {
 function EmptyCart({ t }: { t: Awaited<ReturnType<typeof getStorefrontDict>>["cart"] }) {
   return (
     <Container className="py-12">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+      <Heading as="h1" className="mb-6">
+        {t.title}
+      </Heading>
       <EmptyState
         title={t.emptyTitle}
         description={t.emptyDescription}
         action={
-          <Link href="/products">
-            <Button>{t.emptyAction}</Button>
-          </Link>
+          <ButtonLink href="/products" variant="primary">
+            {t.emptyAction}
+          </ButtonLink>
         }
       />
     </Container>

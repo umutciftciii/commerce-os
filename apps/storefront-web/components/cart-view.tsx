@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Alert, Badge, Button, Card } from "@commerce-os/ui";
 import type { PublicCouponReason } from "@commerce-os/api-client";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CartView as CartViewModel, CartLineView } from "../lib/server/cart";
@@ -16,6 +15,7 @@ import {
   type ClaimCouponResult,
 } from "../lib/server/cart-actions";
 import type { StorefrontWalletCouponView } from "../lib/catalog-types";
+import { Badge, Button, ButtonLink, Input, Subheading } from "./ui";
 
 type CartDict = StorefrontDictionary["cart"];
 
@@ -24,6 +24,11 @@ type CartDict = StorefrontDictionary["cart"];
  * Action'lar uzerinden cookie'yi gunceller (fiyat/stok client'ta hesaplanmaz).
  * Stale sepet gateway tarafindan reconcile edilir; gerektiginde cookie kanonik
  * hale getirilir.
+ *
+ * Görsel katman vitrin DS'ine göçtü (yerel components/ui barrel + ink/surface/line/
+ * accent token'lari, PLP/PDP dili). Aksan (menekse) YALNIZCA tekil birincil CTA'da
+ * ("Ödemeye geç"); indirim/kupon yuzeyleri NOTR kalir. Ticaret mantigi (Server
+ * Action bagları, useTransition + disabled, kosullu render) DEGISMEDI.
  */
 export function CartView({
   view,
@@ -67,9 +72,13 @@ export function CartView({
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
       <div className="space-y-4">
         {showReconciled ? (
-          <Alert tone="info" action={<DismissButton onClick={() => setShowReconciled(false)} />}>
-            {t.reconciledNotice}
-          </Alert>
+          <div
+            role="status"
+            className="flex items-center justify-between gap-3 border border-line bg-surface-muted px-4 py-3 text-sm text-ink"
+          >
+            <span>{t.reconciledNotice}</span>
+            <DismissButton onClick={() => setShowReconciled(false)} />
+          </div>
         ) : null}
 
         {/* F4A.3 — Sepet ust kupon alani: kullanilabilir kupon kartlari + manuel
@@ -84,7 +93,10 @@ export function CartView({
           ))}
         </ul>
 
-        <Link href="/products" className="inline-block text-sm font-medium text-brand-700 hover:text-brand-800">
+        <Link
+          href="/products"
+          className="inline-block text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+        >
           ← {t.continueShopping}
         </Link>
       </div>
@@ -112,29 +124,29 @@ function CartLineRow({
   const atMax = line.maxQuantity !== null && line.quantity >= line.maxQuantity;
 
   return (
-    <Card className="p-4">
+    <div className="border border-line bg-surface p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <Link
             href={`/products/${line.productSlug}`}
-            className="text-sm font-semibold text-slate-900 hover:text-brand-700"
+            className="text-sm font-semibold text-ink transition-colors hover:text-ink-muted"
           >
             {line.title}
           </Link>
-          <p className="mt-0.5 text-xs text-slate-500">{line.variantTitle}</p>
-          <p className="mt-0.5 text-xs text-slate-400">{line.sku}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
+          <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
           {line.status === "UNAVAILABLE" ? (
-            <Badge tone="danger" className="mt-2">
+            <Badge tone="ink" className="mt-2">
               {t.statusUnavailable}
             </Badge>
           ) : null}
           {line.status === "OUT_OF_STOCK" ? (
-            <Badge tone="danger" className="mt-2">
+            <Badge tone="ink" className="mt-2">
               {t.statusOutOfStock}
             </Badge>
           ) : null}
           {line.status === "QUANTITY_ADJUSTED" ? (
-            <Badge tone="warning" className="mt-2">
+            <Badge tone="outline" className="mt-2">
               {t.statusQuantityAdjusted}
             </Badge>
           ) : null}
@@ -142,23 +154,23 @@ function CartLineRow({
 
         <div className="flex items-center gap-4">
           {!unavailable ? (
-            <div className="inline-flex items-center rounded-lg border border-slate-200">
+            <div className="inline-flex items-center border border-line">
               <button
                 type="button"
                 aria-label={t.decrease}
                 disabled={pending || atMin}
                 onClick={() => onSetQuantity(line, line.quantity - 1)}
-                className="h-9 w-9 text-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                className="h-9 w-9 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
               >
                 −
               </button>
-              <span className="w-9 text-center text-sm font-medium text-slate-900">{line.quantity}</span>
+              <span className="w-9 text-center text-sm font-medium text-ink">{line.quantity}</span>
               <button
                 type="button"
                 aria-label={t.increase}
                 disabled={pending || atMax}
                 onClick={() => onSetQuantity(line, line.quantity + 1)}
-                className="h-9 w-9 text-lg text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                className="h-9 w-9 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
               >
                 +
               </button>
@@ -168,8 +180,8 @@ function CartLineRow({
           <div className="text-right">
             {!unavailable ? (
               <>
-                <p className="text-sm font-semibold text-slate-900">{line.lineTotalLabel}</p>
-                <p className="text-xs text-slate-400">{line.unitPriceLabel}</p>
+                <p className="text-sm font-semibold text-ink">{line.lineTotalLabel}</p>
+                <p className="text-xs text-ink-subtle">{line.unitPriceLabel}</p>
               </>
             ) : null}
           </div>
@@ -178,13 +190,13 @@ function CartLineRow({
             type="button"
             disabled={pending}
             onClick={() => onRemove(line)}
-            className="text-xs font-medium text-slate-400 hover:text-red-600 disabled:opacity-40"
+            className="text-xs font-medium text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
           >
             {t.remove}
           </button>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -192,27 +204,30 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
   const s = view.summary;
   return (
     <aside className="lg:sticky lg:top-24 lg:self-start">
-      <Card className="p-5">
-        <h2 className="text-base font-semibold text-slate-900">{t.summaryTitle}</h2>
+      <div className="border border-line bg-surface p-5">
+        <Subheading as="h2" className="text-base">
+          {t.summaryTitle}
+        </Subheading>
 
         <dl className="mt-4 space-y-2.5 text-sm">
           <div className="flex items-center justify-between">
-            <dt className="text-slate-500">
+            <dt className="text-ink-muted">
               {t.subtotal}{" "}
-              <span className="text-xs text-slate-400">· {format(t.itemsLabel, { count: view.itemCount })}</span>
+              <span className="text-xs text-ink-subtle">· {format(t.itemsLabel, { count: view.itemCount })}</span>
             </dt>
-            <dd className="font-medium text-slate-900">{s.subtotalLabel}</dd>
+            <dd className="font-medium text-ink">{s.subtotalLabel}</dd>
           </div>
 
           {/* F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar).
               Sunucu-otoriter: etiket/tutar motor sonucudur; istemci hesap yapmaz.
               F4A.1 — Kampanya ADI gosterilir ("Sepette %10 İndirim"); kupon
               satirinda kod parantez icinde eklenir. Gecersiz kupon girilse bile
-              otomatik kampanya satirlari burada gorunmeye devam eder. */}
+              otomatik kampanya satirlari burada gorunmeye devam eder. DS: indirim
+              satiri NOTR (aksan yalniz CTA'da); "−" isareti + ink ile ayrisir. */}
           {s.discountLines.length > 0 ? (
             s.discountLines.map((line, index) => (
-              <div key={index} className="flex items-center justify-between text-emerald-700">
-                <dt>
+              <div key={index} className="flex items-center justify-between text-ink">
+                <dt className="text-ink-muted">
                   {line.label}
                   {line.code ? (
                     <span className="ml-1 text-xs font-medium">({line.code})</span>
@@ -222,8 +237,8 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
               </div>
             ))
           ) : s.discountLabel ? (
-            <div className="flex items-center justify-between text-emerald-700">
-              <dt>
+            <div className="flex items-center justify-between text-ink">
+              <dt className="text-ink-muted">
                 {t.discount}
                 {s.couponCode ? <span className="ml-1 text-xs font-medium">({s.couponCode})</span> : null}
               </dt>
@@ -232,10 +247,10 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           ) : null}
 
           <div className="flex items-center justify-between">
-            <dt className="text-slate-500">{t.shipping}</dt>
-            <dd className="font-medium text-slate-900">
+            <dt className="text-ink-muted">{t.shipping}</dt>
+            <dd className="font-medium text-ink">
               {s.shippingStatus !== "OK" ? (
-                <span className="text-right text-xs font-normal text-slate-500">
+                <span className="text-right text-xs font-normal text-ink-muted">
                   {s.shippingStatus === "ADDRESS_REQUIRED"
                     ? t.shippingPending
                     : s.shippingStatus === "NO_RATE_PLAN"
@@ -243,25 +258,25 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
                       : t.shippingUnavailable}
                 </span>
               ) : s.shippingIsFree ? (
-                <span className="text-emerald-700">{t.shippingFree}</span>
+                <span className="text-ink">{t.shippingFree}</span>
               ) : (
                 s.shippingLabel
               )}
             </dd>
           </div>
 
-          <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
-            <dt className="font-semibold text-slate-900">{t.grandTotal}</dt>
-            <dd className="text-base font-semibold text-slate-900">{s.grandTotalLabel}</dd>
+          <div className="flex items-center justify-between border-t border-line pt-2.5">
+            <dt className="font-semibold text-ink">{t.grandTotal}</dt>
+            <dd className="text-base font-semibold text-ink">{s.grandTotalLabel}</dd>
           </div>
-          <div className="flex items-center justify-between text-xs text-slate-400">
+          <div className="flex items-center justify-between text-xs text-ink-subtle">
             <dt>{format(t.taxIncludedLabel, { rate: s.taxRatePercent })}</dt>
             <dd>{s.taxIncludedLabel}</dd>
           </div>
         </dl>
 
         {s.shippingStatus === "OK" && !s.shippingIsFree ? (
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-ink-subtle">
             {format(t.freeShippingHint, { amount: s.freeShippingThresholdLabel })}
           </p>
         ) : null}
@@ -269,27 +284,28 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
         <AppliedCouponControl summary={s} t={t} disabled={pending} />
 
         {!view.checkoutReady ? (
-          <Alert tone="warning" className="mt-4">
+          <div className="mt-4 border border-line-strong bg-surface-muted px-4 py-3 text-sm text-ink">
             {t.blockedNotice}
-          </Alert>
+          </div>
         ) : null}
 
+        {/* Sepetin TEKIL birincil eylemi: "Ödemeye geç" aksan (variant="cta") tasir.
+            checkoutReady degilse ya da bir islem beklerken devre disi buton gosterilir
+            (mevcut disabled={pending} bagı korunur). */}
         <div className="mt-5">
-          {view.checkoutReady ? (
-            <Link href="/checkout" className="block">
-              <Button className="w-full" disabled={pending}>
-                {t.checkoutCta}
-              </Button>
-            </Link>
+          {view.checkoutReady && !pending ? (
+            <ButtonLink href="/checkout" variant="cta" className="w-full">
+              {t.checkoutCta}
+            </ButtonLink>
           ) : (
-            <Button className="w-full" disabled>
+            <Button variant="cta" className="w-full" disabled>
               {t.checkoutCta}
             </Button>
           )}
         </div>
 
-        <p className="mt-3 text-xs leading-relaxed text-slate-400">{t.summaryNote}</p>
-      </Card>
+        <p className="mt-3 text-xs leading-relaxed text-ink-subtle">{t.summaryNote}</p>
+      </div>
     </aside>
   );
 }
@@ -302,12 +318,12 @@ function CouponsArea({ summary, t }: { summary: CartViewModel["summary"]; t: Car
   const coupons = summary.availableCoupons;
   const appliedCode = summary.couponStatus === "APPLIED" ? summary.couponCode : null;
   return (
-    <Card className="p-4">
+    <div className="border border-line bg-surface p-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-900">{t.couponsTitle}</h2>
+        <Subheading as="h2">{t.couponsTitle}</Subheading>
         <Link
           href="/account?section=coupons"
-          className="text-xs font-medium text-brand-700 hover:text-brand-800"
+          className="text-xs font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
         >
           {t.couponsAllLink} →
         </Link>
@@ -321,10 +337,10 @@ function CouponsArea({ summary, t }: { summary: CartViewModel["summary"]; t: Car
           ))}
         </ul>
       ) : (
-        <p className="mt-2 text-xs text-slate-400">{t.couponsEmpty}</p>
+        <p className="mt-2 text-xs text-ink-subtle">{t.couponsEmpty}</p>
       )}
       <ClaimCouponForm summary={summary} t={t} />
-    </Card>
+    </div>
   );
 }
 
@@ -352,19 +368,21 @@ function AvailableCouponCard({
     });
   }
 
+  // DS: kupon karti NOTR yüzeydir (PDP DetailCouponCard dili) — dashed hairline
+  // cerceve + muted zemin; aksan tasimaz. Kod monospace, ring-line-strong.
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 border border-dashed border-line-strong bg-surface-muted px-3 py-2.5">
       <div className="min-w-0">
-        <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
           <span>{coupon.discountText}</span>
-          <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-amber-800 ring-1 ring-amber-200">
+          <span className="bg-surface px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-ink ring-1 ring-line-strong">
             {coupon.code}
           </span>
           {coupon.source === "ASSIGNED" ? (
-            <Badge tone="success">{t.couponSourceAssigned}</Badge>
+            <Badge tone="ink">{t.couponSourceAssigned}</Badge>
           ) : null}
         </p>
-        <p className="mt-0.5 text-[11px] text-amber-700">
+        <p className="mt-0.5 text-[11px] text-ink-subtle">
           {coupon.minOrderLabel
             ? format(t.couponMinOrder, { amount: coupon.minOrderLabel })
             : t.couponNoMinOrder}
@@ -373,26 +391,26 @@ function AvailableCouponCard({
       </div>
       {isApplied ? (
         <div className="flex shrink-0 items-center gap-2">
-          <Badge tone="success">{t.couponStateApplied}</Badge>
+          <Badge tone="outline">{t.couponStateApplied}</Badge>
           <button
             type="button"
             onClick={remove}
             disabled={isPending}
-            className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
+            className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
           >
             {t.couponRemove}
           </button>
         </div>
       ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
-        <Badge tone="warning" className="shrink-0">
+        <Badge tone="muted" className="shrink-0">
           {t.couponStateMinOrder}
         </Badge>
       ) : coupon.state === "EXPIRED" ? (
-        <Badge tone="neutral" className="shrink-0">
+        <Badge tone="muted" className="shrink-0">
           {t.couponStateExpired}
         </Badge>
       ) : (
-        <Button variant="secondary" className="shrink-0" onClick={use} disabled={isPending}>
+        <Button variant="secondary" size="sm" className="shrink-0" onClick={use} disabled={isPending}>
           {t.couponUse}
         </Button>
       )}
@@ -426,7 +444,7 @@ function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t:
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-3 text-sm font-medium text-brand-700 hover:text-brand-800"
+        className="mt-3 text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
       >
         + {t.couponAdd}
       </button>
@@ -436,20 +454,20 @@ function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t:
   return (
     <div className="mt-3">
       <div className="flex gap-2">
-        <input
+        <Input
           type="text"
           value={code}
           onChange={(event) => setCode(event.target.value)}
           placeholder={t.couponPlaceholder}
           aria-label={t.couponLabel}
-          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm uppercase text-slate-900 placeholder:text-slate-400 placeholder:normal-case focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          className="uppercase placeholder:normal-case"
         />
         <Button variant="secondary" onClick={submit} disabled={isPending || !code.trim()}>
           {t.couponClaimSubmit}
         </Button>
       </div>
       {result?.status === "ok" ? (
-        <p className="mt-1.5 text-xs text-emerald-700">{t.couponClaimSuccess}</p>
+        <p className="mt-1.5 text-xs text-ink">{t.couponClaimSuccess}</p>
       ) : result?.status === "error" ? (
         <p className="mt-1.5 text-xs text-red-600">{claimErrorMessage(result.reason, t)}</p>
       ) : null}
@@ -461,6 +479,9 @@ function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t:
  * Uygulanan/gecersiz kuponu ozet altinda gosterir. APPLIED: "Kupon indirimi" +
  * kaldir (kart yine Kuponlar'da kalir). INVALID: guvenli neden + kaldir (otomatik
  * kampanya indirimi ozette AYRICA gorunmeye devam eder — celiski olusmaz).
+ *
+ * DS: APPLIED notr yüzey (border-line/surface-muted). INVALID hata sinyalidir —
+ * yuzey notr kalir, metin `text-red-600` ile ayrisir (vitrin field.tsx hata dili).
  */
 function AppliedCouponControl({
   summary,
@@ -474,15 +495,15 @@ function AppliedCouponControl({
   const [isPending, startTransition] = useTransition();
   if (summary.couponStatus === "APPLIED") {
     return (
-      <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
-        <span className="font-medium text-emerald-700">
+      <div className="mt-4 flex items-center justify-between border border-line bg-surface-muted px-3 py-2 text-sm">
+        <span className="font-medium text-ink">
           {format(t.couponApplied, { code: summary.couponCode ?? "" })}
         </span>
         <button
           type="button"
           onClick={() => startTransition(() => void removeCouponAction())}
           disabled={disabled || isPending}
-          className="text-xs font-medium text-emerald-700 underline hover:text-emerald-900 disabled:opacity-40"
+          className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
         >
           {t.couponRemove}
         </button>
@@ -491,13 +512,13 @@ function AppliedCouponControl({
   }
   if (summary.couponStatus === "INVALID") {
     return (
-      <div className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm">
+      <div className="mt-4 flex items-center justify-between gap-2 border border-line bg-surface-muted px-3 py-2 text-sm">
         <span className="text-red-600">{couponErrorMessage(summary, t)}</span>
         <button
           type="button"
           onClick={() => startTransition(() => void removeCouponAction())}
           disabled={disabled || isPending}
-          className="shrink-0 text-xs font-medium text-red-600 underline hover:text-red-800 disabled:opacity-40"
+          className="shrink-0 text-xs font-medium text-red-600 underline underline-offset-4 transition-colors hover:text-red-800 disabled:opacity-40"
         >
           {t.couponRemove}
         </button>
