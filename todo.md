@@ -111,6 +111,19 @@
 - **Gerçek entegrasyon için gereken:** P0 görsel backend'i (`images[]` public DTO) — özellikle **ürün başına birden çok görsel**; sonra thumbnail şeridi + seçili görsel state'i eklenir.
 - **Öncelik önerisi:** P0 görsele bağlı (görsel altyapısı gelince).
 
+## [MOCK] Sepet satırı ürün görseli — DTO'da `imageUrl` yok
+- **Nerede kullanılıyor:** Sepet satırı (`components/cart-view.tsx` `CartLineRow`) ve checkout/ödeme sipariş özeti satırları.
+- **Neden gerekli:** Premium sepet, ürünü küçük bir kapak görseliyle (thumbnail) hatırlatır; PLP/PDP'deki `ProductMedia` dili sepette de beklenir.
+- **Şu an nasıl (mock DEĞİL, eksik):** Sepet satırı **metin-tabanlı** (başlık/varyant/SKU/adet/fiyat) — görsel YOK. `CartLineView` DTO'sunda (`lib/server/cart.ts`) ve public cart line şemasında (`publicCartLineSchema`) `imageUrl` **alanı yok**. Sahte thumbnail eklenmedi (P0 görsel önkoşuluna bağlı; yanıltıcı olurdu).
+- **Gerçek entegrasyon için gereken:** P0 görsel backend'i → public cart line DTO'suna `imageUrl` allowlist alanı + gateway projeksiyonu; sonra `CartLineRow`/checkout özetine `ProductMedia` (drop-in `imageUrl`) eklenir. Çağıran taraf mimarisi hazır (PLP/PDP ile aynı kanca).
+- **Öncelik önerisi:** P0 görsele bağlı.
+
+---
+
+## ✅ [YAPILDI] Cart/Checkout design system göçü — Adım 4 (kısmi)
+- **Tamamlanan:** `components/cart-view.tsx` + `app/cart/page.tsx` + yeni `app/cart/loading.tsx` vitrin DS'ine göçtü (yerel `components/ui` barrel + `ink/surface/line/accent` token'ları, serif başlık). Aksan (menekşe) yalnız tekil birincil CTA'da ("Ödemeye geç" = `variant="cta"`); indirim/kupon yüzeyleri NOTR (PDP `DetailCouponCard` dili). Kupon claim/apply akış mantığı, `useTransition` + `disabled` bağları DEĞİŞMEDİ. Güvenlik ağı: `test/checkout-form-render.test.tsx` + `test/payment-tester-render.test.tsx` (MOCK guard) eklendi.
+- **Bekleyen (ayrı checkpoint'ler):** `checkout-form.tsx`, `checkout-success.tsx`, `payment-tester.tsx` hâlâ `@commerce-os/ui` (paylaşılan) + eski `slate/brand/emerald` palette kullanıyor; DS göçü bekliyor. Checkout submit butonu hâlâ paylaşılan `Button` primary (`bg-brand-600`) — yerel `components/ui` `ButtonLink`/`Button` (accent) ile değiştirilecek. MOCK-first ödeme guard'ı (`payment-tester.tsx` provider≠MOCK) göç sırasında korunmalı (test bunu bekçiliyor).
+
 ## [MOCK] PDP ürün içeriği — türetilmiş/statik alanlar (spec · paket · kullanım · fayda)
 - **Nerede kullanılıyor:** PDP orta bölüm (`app/products/[handle]/page.tsx`): "Teknik özellikler", "Paket içeriği", "Kullanım ve bakım", "Öne çıkanlar".
 - **Neden gerekli:** Karar merkezinde ürüne özel açıklama/spesifikasyon dönüşümü ciddi etkiler.
