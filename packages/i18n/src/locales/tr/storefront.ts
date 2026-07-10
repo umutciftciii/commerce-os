@@ -107,10 +107,26 @@ export const trStorefront = {
     title: "Tüm ürünler",
     // {count} yer tutucusu urun sayisi ile degistirilir.
     description: "Mağaza kataloğundan {count} ürün.",
+    // Adım 3 (PLP) — Başlık altı editöryel açıklama (sayı taşımaz; sayı araç çubuğunda).
+    tagline: "Özenle seçilmiş, günlük yaşama uygun parçalardan oluşan güncel koleksiyon.",
     emptyTitle: "Mağazada henüz ürün yok",
     emptyDescription: "Katalog yayınlandığında ürünler burada listelenecek.",
     errorTitle: "Ürünler yüklenemedi",
     errorDescription: "Şu an kataloğa ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
+    // Adım 3 (PLP) — Araç çubuğu (istemci filtre/sıralama; eldeki gerçek veriyle).
+    // {count} filtrelenmiş ürün sayısıyla değiştirilir.
+    resultCount: "{count} ürün",
+    sortLabel: "Sırala",
+    sortFeatured: "Öne çıkanlar",
+    sortPriceAsc: "Fiyat: artan",
+    sortPriceDesc: "Fiyat: azalan",
+    sortNameAsc: "İsim: A–Z",
+    categoryLabel: "Kategori",
+    categoryAll: "Tüm kategoriler",
+    // Filtre sonucu boş durumu.
+    filterEmptyTitle: "Seçiminize uygun ürün bulunamadı",
+    filterEmptyDescription: "Filtreleri temizleyip tüm koleksiyona göz atabilirsiniz.",
+    filterClear: "Filtreleri temizle",
   },
   detail: {
     breadcrumbProducts: "Ürünler",

@@ -1,7 +1,5 @@
-import Link from "next/link";
-import { Button, Container, EmptyState } from "@commerce-os/ui";
-import { format } from "@commerce-os/i18n";
-import { ProductCard } from "../../components/product-card";
+import { ButtonLink, Container, EmptyState, Eyebrow, Heading, Lead } from "../../components/ui";
+import { ProductListingView } from "../../components/site/product-listing";
 import { getRequestLocale, getStorefrontDict } from "../../lib/i18n";
 import { getStorefrontListing } from "../../lib/server/catalog";
 
@@ -15,8 +13,9 @@ export default async function ProductListingPage() {
 
   if (!result.ok && result.reason === "error") {
     return (
-      <Container className="py-12">
-        <EmptyState title={t.errorTitle} description={t.errorDescription} />
+      <Container className="py-16 lg:py-20">
+        <ListingHeader t={t} />
+        <EmptyState className="mt-10" title={t.errorTitle} description={t.errorDescription} />
       </Container>
     );
   }
@@ -24,30 +23,37 @@ export default async function ProductListingPage() {
   const products = result.ok ? result.data : [];
 
   return (
-    <Container className="py-12">
-      <header className="mb-8 border-b border-slate-200 pb-6">
-        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">{t.eyebrow}</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-        <p className="mt-1.5 text-sm text-slate-500">{format(t.description, { count: products.length })}</p>
-      </header>
-
+    <Container className="py-16 lg:py-20">
+      <ListingHeader t={t} />
       {products.length === 0 ? (
         <EmptyState
+          className="mt-10"
           title={t.emptyTitle}
           description={t.emptyDescription}
           action={
-            <Link href="/">
-              <Button variant="secondary">{dict.shell.brand}</Button>
-            </Link>
+            <ButtonLink href="/" variant="secondary">
+              {dict.shell.brand}
+            </ButtonLink>
           }
         />
       ) : (
-        <div className="grid grid-cols-2 gap-5 sm:gap-6 lg:grid-cols-4">
-          {products.map((product) => (
-            <ProductCard key={product.handle} product={product} t={dict} />
-          ))}
+        <div className="mt-10 lg:mt-12">
+          <ProductListingView products={products} t={dict} />
         </div>
       )}
     </Container>
+  );
+}
+
+/** Editoryel liste basligi (eyebrow + serif baslik + kisa aciklama). */
+function ListingHeader({ t }: { t: Awaited<ReturnType<typeof getStorefrontDict>>["listing"] }) {
+  return (
+    <header className="max-w-2xl">
+      <Eyebrow>{t.eyebrow}</Eyebrow>
+      <Heading as="h1" className="mt-3">
+        {t.title}
+      </Heading>
+      <Lead className="mt-3">{t.tagline}</Lead>
+    </header>
   );
 }

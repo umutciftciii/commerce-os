@@ -20,10 +20,15 @@ export function formatMinor(minor: number, currency: string): string {
  * `formatPriceRange` ("min – max") bilincli KALDIRILDI (kampanya blogu ile
  * cakisan kalabalik gorunum). Detay sayfasi varyant fiyatlarini ayri gosterir.
  */
+/** Aralikta en dusuk minor tutari (kurus) doner; gorunur fiyat yoksa null. */
+export function lowestMinor(prices: { priceMinor: number; currency: string }[]): number | null {
+  if (prices.length === 0) return null;
+  return Math.min(...prices.map((p) => p.priceMinor));
+}
+
 /** Aralikta en dusuk tutari bicimler (kart fiyati + "STARTING_FROM" gosterimi). */
 export function formatLowest(prices: { priceMinor: number; currency: string }[]): string | null {
-  if (prices.length === 0) return null;
-  const currency = prices[0].currency;
-  const min = Math.min(...prices.map((p) => p.priceMinor));
-  return formatMinor(min, currency);
+  const min = lowestMinor(prices);
+  if (min === null) return null;
+  return formatMinor(min, prices[0].currency);
 }
