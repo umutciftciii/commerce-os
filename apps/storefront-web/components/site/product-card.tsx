@@ -5,7 +5,8 @@ import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
-import { Badge, ButtonLink, ProductMedia } from "../ui";
+import { mockRating } from "../../lib/mock-rating";
+import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
 
 /**
  * Premium vitrin ürün kartı (ADIM 2). Yeni tasarım dili: büyük görsel (şimdilik
@@ -226,25 +227,6 @@ function PriceBlock({
   );
 }
 
-function Stars({ rating, ariaLabel }: { rating: number; ariaLabel: string }) {
-  const full = Math.round(rating);
-  return (
-    <span className="inline-flex items-center gap-0.5" role="img" aria-label={ariaLabel}>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <svg key={i} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path
-            d="M6 1l1.5 3 3.3.3-2.5 2.2.8 3.2L6 8.2 2.9 9.9l.8-3.2L1.2 4.4l3.3-.3L6 1z"
-            fill={i < full ? "var(--ink)" : "none"}
-            stroke="var(--ink)"
-            strokeWidth="0.8"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ))}
-    </span>
-  );
-}
-
 function HeartIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -257,13 +239,4 @@ function HeartIcon({ filled }: { filled: boolean }) {
       />
     </svg>
   );
-}
-
-/** MOCK: handle → deterministik yer tutucu puan (4.0–5.0) + değerlendirme sayısı. */
-function mockRating(handle: string): { value: number; count: number } {
-  let h = 0;
-  for (let i = 0; i < handle.length; i += 1) h = (h * 31 + handle.charCodeAt(i)) >>> 0;
-  const value = 4 + ((h % 11) / 10); // 4.0 .. 5.0
-  const count = 12 + (h % 240); // 12 .. 251
-  return { value: Math.min(5, value), count };
 }
