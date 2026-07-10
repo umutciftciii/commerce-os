@@ -62,10 +62,10 @@
 - **Öncelik önerisi:** Orta.
 
 ## [MOCK] Ürün puanlama & yorumlar (rating & reviews)
-- **Nerede kullanılıyor:** Home > ürün kartı ve hızlı bakış modalında yıldız + değerlendirme sayısı (`components/site/product-card.tsx` `mockRating`/`Stars`).
+- **Nerede kullanılıyor:** Home ürün kartı + hızlı bakış modalı **ve PDP başlığı** (yıldız + değerlendirme sayısı). TEK KAYNAK: deterministik helper `lib/mock-rating.ts` (`mockRating`) + paylaşılan `components/ui/stars.tsx` (`Stars`); Home kartı (`components/site/product-card.tsx`) ve PDP (`app/products/[handle]/page.tsx`) aynısını kullanır.
 - **Neden gerekli:** Güven ve dönüşüm için premium vitrinlerde neredeyse zorunlu.
-- **Şu an nasıl mock'lanacak:** Statik yıldız + yorum sayısı; i18n'de zaten `ratingPlaceholder` var. Gerçekçi ama açıkça mock; yanıltıcı kesinlik iddiası yok.
-- **Gerçek entegrasyon için gereken:** `ProductReview` modeli (rating, body, customerId, status/moderation), yorum yaz/oku endpoint'leri, ürün başına ortalama agregasyonu.
+- **Şu an nasıl mock'landı:** Handle'dan deterministik yıldız (4.0–5.0) + yorum sayısı; SSR/CSR ve tüm yüzeyler (Home/PLP/PDP) tutarlı. Gerçekçi ama açıkça mock; yanıltıcı kesinlik iddiası yok. (Not: PDP eskiden statik `★★★★★` + `ratingPlaceholder` gösteriyordu — Home ile TUTARSIZDI; artık ortak helper'a alındı, iki yerde ayrışmıyor. `detail.ratingPlaceholder`/`reviewCountPlaceholder` i18n anahtarları artık PDP'de kullanılmıyor.)
+- **Gerçek entegrasyon için gereken:** `ProductReview` modeli (rating, body, customerId, status/moderation), yorum yaz/oku endpoint'leri, ürün başına ortalama agregasyonu. Gelince yalnızca çağıran taraf gerçek ortalamaya geçer.
 - **Öncelik önerisi:** Orta.
 
 ## [MOCK] Kategori vitrini (görsel kartlar)
@@ -103,6 +103,23 @@
 - **Şu an nasıl mock'lanacak:** Public arama ucu yok (search-service storefront'a bağlı değil). İstemci-tarafı, mevcut ürün listesi üzerinde basit filtre veya statik öneri; yanıltıcı "sonuç sayısı" iddiası yok.
 - **Gerçek entegrasyon için gereken:** Public arama/öneri ucu (search-service köprüsü).
 - **Öncelik önerisi:** Düşük.
+
+## [MOCK] PDP görsel galerisi — tekil görsel, thumbnail şeridi YOK
+- **Nerede kullanılıyor:** Ürün detay sayfası sol sütun (`app/products/[handle]/page.tsx` `Gallery`).
+- **Neden gerekli:** Premium PDP'de büyük kapak + thumbnail şeridi (çoklu açı/detay görseli) standarttır.
+- **Şu an nasıl mock'landı:** Tek büyük `ProductMedia` (4:5, `imageUrl`/`productImageSrc` drop-in kancalı; gerçek görsel gelince çağıran taraf DEĞİŞMEZ). Önceki 4 sahte gradient thumbnail **kaldırıldı** — çoklu görsel backend'i olmadan hepsi aynı placeholder olurdu (yanıltıcı + ekstra mock). Ekstra mock üretilmedi.
+- **Gerçek entegrasyon için gereken:** P0 görsel backend'i (`images[]` public DTO) — özellikle **ürün başına birden çok görsel**; sonra thumbnail şeridi + seçili görsel state'i eklenir.
+- **Öncelik önerisi:** P0 görsele bağlı (görsel altyapısı gelince).
+
+## [MOCK] PDP ürün içeriği — türetilmiş/statik alanlar (spec · paket · kullanım · fayda)
+- **Nerede kullanılıyor:** PDP orta bölüm (`app/products/[handle]/page.tsx`): "Teknik özellikler", "Paket içeriği", "Kullanım ve bakım", "Öne çıkanlar".
+- **Neden gerekli:** Karar merkezinde ürüne özel açıklama/spesifikasyon dönüşümü ciddi etkiler.
+- **Şu an nasıl (mock/türetilmiş):**
+  - **Teknik özellikler:** ürüne özel spec alanı YOK; tablo mevcut alanlardan (marka/kategori/SKU/varyant başlıkları/satış türü) **türetilir** — gerçek ama sınırlı, yapılandırılmış öznitelik değil.
+  - **Paket içeriği / Kullanım ve bakım:** ürüne özel değil; i18n'de **statik ortak metin** (`detail.packageBody`/`usageBody`) — tüm ürünlerde aynı.
+  - **Öne çıkanlar (benefits):** ürüne özel değil; statik i18n listesi (`detail.benefits`).
+- **Gerçek entegrasyon için gereken:** Ürün modeline yapılandırılmış öznitelik/spesifikasyon (key-value grup), zengin açıklama (paket/kullanım) alanları + store-admin ürün formu; public DTO'ya taşınması.
+- **Öncelik önerisi:** Orta.
 
 ## [MOCK] Sosyal kanıt ("bugün X kişi görüntüledi")
 - **Nerede kullanılıyor:** (Değerlendiriliyor) Öne çıkan ürün / PDP.

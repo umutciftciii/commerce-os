@@ -1,12 +1,24 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Badge, Button, Container, EmptyState } from "@commerce-os/ui";
-import type { StorefrontDictionary } from "@commerce-os/i18n";
-import { ProductCard } from "../../../components/product-card";
+import { format, type StorefrontDictionary } from "@commerce-os/i18n";
+import {
+  Badge,
+  ButtonLink,
+  Container,
+  EmptyState,
+  Eyebrow,
+  Heading,
+  Muted,
+  ProductMedia,
+  Stars,
+  Text,
+} from "../../../components/ui";
+import { ProductCard } from "../../../components/ui/product-card";
 import { BuyBox } from "../../../components/buy-box";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
+import { mockRating } from "../../../lib/mock-rating";
 import type { StorefrontProductDetail } from "../../../lib/catalog-types";
 
 // Detay canli veriden cozulur; slug -> urun eslesmesi her istekte yapilir.
@@ -45,54 +57,55 @@ export default async function ProductDetailPage({
   }
 
   const detail = result.data;
+  // MOCK: puan/değerlendirme — Home kartıyla AYNI deterministik helper (bkz. todo.md).
+  const rating = mockRating(detail.handle);
 
   return (
-    <Container className="py-10">
+    <Container className="py-12 lg:py-16">
       {/* Breadcrumb */}
-      <nav className="mb-6 text-sm text-slate-400" aria-label="Sayfa yolu">
-        <Link href="/products" className="hover:text-slate-600">
+      <nav className="mb-8 text-[11px] uppercase tracking-wideish text-ink-subtle" aria-label="Sayfa yolu">
+        <Link href="/products" className="transition-colors hover:text-ink">
           {t.breadcrumbProducts}
         </Link>
         {detail.categoryLabel ? (
           <>
-            <span className="px-2">/</span>
-            <span className="text-slate-500">{detail.categoryLabel}</span>
+            <span className="px-2 text-line-strong">/</span>
+            <span className="text-ink-muted">{detail.categoryLabel}</span>
           </>
         ) : null}
-        <span className="px-2">/</span>
-        <span className="text-slate-600">{detail.title}</span>
+        <span className="px-2 text-line-strong">/</span>
+        <span className="text-ink">{detail.title}</span>
       </nav>
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr]">
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
         {/* Sol: medya galerisi */}
-        <Gallery t={t} />
+        <Gallery detail={detail} />
 
         {/* Sag: baslik + buy box */}
         <div>
-          <div className="mb-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
+          <div className="mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge tone="muted">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
               {detail.brand ? (
-                <span className="text-xs font-medium text-slate-500">
+                <Eyebrow as="span">
                   {t.brandLabel}: {detail.brand}
-                </span>
+                </Eyebrow>
               ) : null}
             </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tightish text-slate-900 sm:text-3xl">
+            <Heading as="h1" className="mt-4 text-2xl sm:text-3xl">
               {detail.title}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-400">
-              <span aria-hidden className="text-amber-400">
-                ★★★★★
-              </span>
-              <span>{t.ratingPlaceholder}</span>
-              <span aria-hidden>·</span>
-              <span>{t.reviewCountPlaceholder}</span>
+            </Heading>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+              <Stars
+                rating={rating.value}
+                ariaLabel={format(dict.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
+              />
+              <span>{format(dict.home.card.reviews, { count: rating.count })}</span>
             </div>
             {detail.sku ? (
-              <p className="mt-1 text-xs text-slate-400">
-                {t.skuLabel}: <span className="font-medium text-slate-500">{detail.sku}</span>
-              </p>
+              <Muted className="mt-2">
+                {t.skuLabel}: <span className="font-medium text-ink-muted">{detail.sku}</span>
+              </Muted>
             ) : null}
           </div>
 
@@ -101,13 +114,13 @@ export default async function ProductDetailPage({
       </div>
 
       {/* Orta: fayda + aciklama + ozellikler */}
-      <div className="mt-14 grid grid-cols-1 gap-10 lg:grid-cols-3">
+      <div className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-3 lg:gap-14">
         <div className="lg:col-span-2">
           <Section title={t.benefitsTitle}>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {t.benefits.map((benefit) => (
-                <li key={benefit} className="flex gap-2 text-sm text-slate-600">
-                  <span aria-hidden className="mt-0.5 text-brand-500">
+                <li key={benefit} className="flex gap-2.5 text-sm text-ink-muted">
+                  <span aria-hidden className="mt-0.5 text-ink">
                     ✓
                   </span>
                   {benefit}
@@ -117,9 +130,7 @@ export default async function ProductDetailPage({
           </Section>
 
           <Section title={t.descriptionTitle}>
-            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-600">
-              {detail.description ?? t.descriptionFallback}
-            </p>
+            <Text className="whitespace-pre-line">{detail.description ?? t.descriptionFallback}</Text>
           </Section>
 
           <Section title={t.specsTitle}>
@@ -127,11 +138,11 @@ export default async function ProductDetailPage({
           </Section>
 
           <Section title={t.packageTitle}>
-            <p className="text-sm leading-relaxed text-slate-600">{t.packageBody}</p>
+            <Text>{t.packageBody}</Text>
           </Section>
 
           <Section title={t.usageTitle}>
-            <p className="text-sm leading-relaxed text-slate-600">{t.usageBody}</p>
+            <Text>{t.usageBody}</Text>
           </Section>
 
           {/* Yorumlar (yer tutucu) */}
@@ -145,9 +156,9 @@ export default async function ProductDetailPage({
               title={dict.questions.emptyTitle}
               description={dict.questions.emptyBody}
               action={
-                <Button variant="secondary" disabled>
+                <ButtonLink href="/products" variant="secondary">
                   {dict.questions.askCta}
-                </Button>
+                </ButtonLink>
               }
             />
           </Section>
@@ -168,11 +179,11 @@ export default async function ProductDetailPage({
 
       {/* Benzer urunler (canli) */}
       {detail.related.length > 0 ? (
-        <section className="mt-16">
-          <h2 className="mb-6 text-lg font-semibold tracking-tightish text-slate-900">
+        <section className="mt-20">
+          <Heading as="h2" className="mb-8 text-xl sm:text-2xl">
             {dict.related.title}
-          </h2>
-          <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+          </Heading>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-14">
             {detail.related.map((item) => (
               <ProductCard key={item.handle} product={item} t={dict} />
             ))}
@@ -185,36 +196,33 @@ export default async function ProductDetailPage({
 
 function backToProducts(t: StorefrontDictionary["detail"]) {
   return (
-    <Link href="/products">
-      <Button variant="secondary">{t.notFoundAction}</Button>
-    </Link>
+    <ButtonLink href="/products" variant="secondary">
+      {t.notFoundAction}
+    </ButtonLink>
   );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-slate-100 py-6 first:border-t-0 first:pt-0">
-      <h2 className="mb-3 text-base font-semibold tracking-tightish text-slate-900">{title}</h2>
+    <section className="border-t border-line py-8 first:border-t-0 first:pt-0">
+      <Heading as="h2" className="mb-4 text-lg sm:text-xl">
+        {title}
+      </Heading>
       {children}
     </section>
   );
 }
 
-function Gallery({ t }: { t: StorefrontDictionary["detail"] }) {
+/**
+ * Medya galerisi. Çağıran taraf değişmeden `ProductMedia`'ya bağlıdır: gerçek
+ * görsel gelince (`productImageSrc`/`imageUrl`) drop-in kapak gösterilir, yoksa
+ * deterministik yer tutucu. Çoklu görsel backend'i olmadığından THUMBNAIL ŞERİDİ
+ * YOK (ekstra mock üretmemek için — bkz. todo.md P0 görsel).
+ */
+function Gallery({ detail }: { detail: StorefrontProductDetail }) {
   return (
-    <div>
-      <div className="flex aspect-square items-center justify-center rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200">
-        <span className="text-sm text-slate-400">{t.galleryHint}</span>
-      </div>
-      <div className="mt-4 grid grid-cols-4 gap-3">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            aria-label={t.galleryThumbAlt}
-            className="aspect-square rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100"
-          />
-        ))}
-      </div>
+    <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
+      <ProductMedia handle={detail.handle} title={detail.title} />
     </div>
   );
 }
@@ -238,11 +246,11 @@ function Specs({
   rows.push({ label: t.specSalesMode, value: salesModeLabel(detail.commerce.salesMode, dict) });
 
   return (
-    <dl className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+    <dl className="divide-y divide-line border border-line">
       {rows.map((row) => (
         <div key={row.label} className="grid grid-cols-3 gap-4 px-4 py-3">
-          <dt className="text-sm text-slate-400">{row.label}</dt>
-          <dd className="col-span-2 text-sm text-slate-700">{row.value}</dd>
+          <dt className="text-sm text-ink-subtle">{row.label}</dt>
+          <dd className="col-span-2 text-sm text-ink">{row.value}</dd>
         </div>
       ))}
     </dl>
@@ -251,9 +259,9 @@ function Specs({
 
 function SidePlaceholder({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <p className="text-sm font-semibold text-slate-900">{title}</p>
-      <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{body}</p>
+    <div className="border border-line bg-surface p-5">
+      <p className="text-sm font-medium text-ink">{title}</p>
+      <p className="mt-2 text-xs leading-relaxed text-ink-subtle">{body}</p>
     </div>
   );
 }

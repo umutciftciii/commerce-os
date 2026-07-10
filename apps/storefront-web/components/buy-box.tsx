@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Badge, Button } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
   maxPurchasableQuantity,
@@ -14,14 +13,20 @@ import {
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
+import { Badge, Button, type BadgeTone } from "./ui";
 
 const LOW_STOCK = 5;
 
-function stockLabel(variant: StorefrontVariantView | undefined, t: StorefrontDictionary["detail"]) {
-  if (!variant || variant.available === null) return { text: t.stockUnknown, tone: "neutral" as const };
-  if (variant.available <= 0) return { text: t.stockOut, tone: "danger" as const };
-  if (variant.available <= LOW_STOCK) return { text: t.stockLow, tone: "warning" as const };
-  return { text: t.stockIn, tone: "success" as const };
+// NOTR tonlar (DS): rozet aksan taşımaz. Stok DURUMU metinle net; tükendi/az kalan
+// dolu "ink" ile dikkat çeker, stokta/bilinmeyen sessiz kalır.
+function stockLabel(
+  variant: StorefrontVariantView | undefined,
+  t: StorefrontDictionary["detail"],
+): { text: string; tone: BadgeTone } {
+  if (!variant || variant.available === null) return { text: t.stockUnknown, tone: "muted" };
+  if (variant.available <= 0) return { text: t.stockOut, tone: "ink" };
+  if (variant.available <= LOW_STOCK) return { text: t.stockLow, tone: "ink" };
+  return { text: t.stockIn, tone: "outline" };
 }
 
 /**
@@ -108,32 +113,32 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+    <div className="border border-line bg-surface p-6">
       {/* Fiyat (adet x birim fiyat) */}
       <div className="flex items-baseline gap-2">
         {numeric ? (
           <>
-            <span className="text-2xl font-semibold text-slate-900">{totalLabel}</span>
+            <span className="text-2xl font-semibold text-ink">{totalLabel}</span>
             {compareTotalLabel ? (
-              <span className="text-sm text-slate-400 line-through">{compareTotalLabel}</span>
+              <span className="text-sm text-ink-subtle line-through">{compareTotalLabel}</span>
             ) : null}
           </>
         ) : (
-          <span className="text-lg font-semibold text-slate-900">{primaryPriceText(price, t)}</span>
+          <span className="text-lg font-semibold text-ink">{primaryPriceText(price, t)}</span>
         )}
       </div>
       {/* F4B — EU Omnibus notu: indirim varken son 30 günün en düşük fiyatı. */}
       {numeric && price.lowestRecentLabel ? (
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-ink-subtle">
           {format(t.badges.omnibusLowest, { amount: price.lowestRecentLabel })}
         </p>
       ) : null}
       {showUnitNote ? (
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-ink-muted">
           {format(t.buyBox.unitEach, { price: formatMinor(unitMinor as number, currency) })}
         </p>
       ) : null}
-      {numeric ? <p className="mt-1 text-xs text-slate-400">{t.buyBox.priceNote}</p> : null}
+      {numeric ? <p className="mt-1 text-xs text-ink-subtle">{t.buyBox.priceNote}</p> : null}
 
       {/* F4A.1/F4A.3 — Aktif kampanya bilgisi (fiyata yakin). Otomatik sepet
           indirimi ile public kupon AYRI gosterilir; metinler sunucu-otoriter
@@ -141,16 +146,16 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       {detail.campaign ? <DetailCampaign campaign={detail.campaign} t={t} /> : null}
 
       {/* Stok durumu */}
-      <div className="mt-3">
-        <Badge tone={stock.tone} dot>
-          {stock.text}
-        </Badge>
+      <div className="mt-4">
+        <Badge tone={stock.tone}>{stock.text}</Badge>
       </div>
 
       {/* Varyant secimi */}
       {variants.length > 0 ? (
-        <div className="mt-5">
-          <p className="mb-2 text-sm font-medium text-slate-700">{t.detail.variantTitle}</p>
+        <div className="mt-6">
+          <p className="mb-2.5 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+            {t.detail.variantTitle}
+          </p>
           <div className="flex flex-wrap gap-2">
             {variants.map((variant) => {
               const active = variant.id === selected?.id;
@@ -164,10 +169,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                     setAdded(false);
                   }}
                   className={[
-                    "rounded-lg border px-3 py-2 text-sm transition-colors",
+                    "border px-4 py-2 text-sm transition-colors",
                     active
-                      ? "border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-200"
-                      : "border-slate-200 text-slate-600 hover:border-slate-300",
+                      ? "border-ink bg-ink text-surface"
+                      : "border-line text-ink-muted hover:border-ink hover:text-ink",
                   ].join(" ")}
                 >
                   {variant.title}
@@ -176,8 +181,8 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             })}
           </div>
           {selected ? (
-            <p className="mt-2 text-xs text-slate-400">
-              {t.detail.skuLabel}: <span className="font-medium text-slate-500">{selected.sku}</span>
+            <p className="mt-2.5 text-xs text-ink-subtle">
+              {t.detail.skuLabel}: <span className="font-medium text-ink-muted">{selected.sku}</span>
             </p>
           ) : null}
         </div>
@@ -185,9 +190,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
       {/* Adet (yalniz ONLINE satilabilir) — stok limitine duyarli */}
       {commerce.showQuantity ? (
-        <div className="mt-5">
-          <p className="mb-2 text-sm font-medium text-slate-700">{t.detail.quantityLabel}</p>
-          <div className="inline-flex items-center rounded-lg border border-slate-200">
+        <div className="mt-6">
+          <p className="mb-2.5 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+            {t.detail.quantityLabel}
+          </p>
+          <div className="inline-flex items-center border border-line">
             <button
               type="button"
               aria-label={t.buyBox.decrease}
@@ -196,11 +203,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                 setQuantity((q) => clamp(q - 1));
                 setAdded(false);
               }}
-              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+              className="h-10 w-10 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
             >
               −
             </button>
-            <span className="w-10 text-center text-sm font-medium text-slate-900">{quantity}</span>
+            <span className="w-10 text-center text-sm font-medium text-ink">{quantity}</span>
             <button
               type="button"
               aria-label={t.buyBox.increase}
@@ -209,14 +216,14 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                 setQuantity((q) => clamp(q + 1));
                 setAdded(false);
               }}
-              className="h-10 w-10 text-lg text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+              className="h-10 w-10 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
             >
               +
             </button>
           </div>
           {/* Stok sinir uyarisi: kullanici en fazla stok kadar secebilir. */}
           {atStockLimit ? (
-            <p role="status" className="mt-2 text-xs font-medium text-amber-600">
+            <p role="status" className="mt-2 text-xs font-medium text-ink-muted">
               {format(t.buyBox.maxQtyNote, { max: maxQty })}
             </p>
           ) : null}
@@ -225,7 +232,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
       {/* Stokta yok: adet/CTA devre disi + net mesaj */}
       {outOfStock ? (
-        <p role="status" className="mt-4 text-sm font-medium text-red-600">
+        <p role="status" className="mt-4 text-sm font-medium text-ink">
           {t.buyBox.outOfStock}
         </p>
       ) : null}
@@ -233,11 +240,17 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       {/* Satis-modeli aciklamasi (ONLINE disi) */}
       <SalesModeLead detail={detail} t={t} />
 
-      {/* CTA */}
-      <div className="mt-5 flex flex-col gap-2">
+      {/* CTA — sayfanin TEKIL birincil eylemi accent (variant="cta") tasir;
+          ikincil "Hemen al" notr secondary'dir. */}
+      <div className="mt-6 flex flex-col gap-2.5">
         {commerce.primaryCta === "ADD_TO_CART" ? (
           <>
-            <Button className="w-full" disabled={!canAddToCart || isPending} onClick={addToCart}>
+            <Button
+              variant="cta"
+              className="w-full"
+              disabled={!canAddToCart || isPending}
+              onClick={addToCart}
+            >
               {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
             </Button>
             {commerce.secondaryCta ? (
@@ -254,53 +267,54 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             {added ? (
               <div
                 role="status"
-                className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                className="mt-1 flex items-center justify-between gap-2 border border-line bg-surface-muted px-3 py-2.5 text-sm text-ink"
               >
                 <span className="font-medium">✓ {t.buyBox.addedToCart}</span>
-                <Link href="/cart" className="text-xs font-semibold underline hover:text-emerald-900">
+                <Link href="/cart" className="text-xs font-semibold underline underline-offset-4 hover:text-ink-muted">
                   {t.buyBox.goToCart}
                 </Link>
               </div>
             ) : null}
           </>
         ) : (
-          <Button className="w-full" disabled={commerce.primaryCtaDisabled}>
+          <Button variant="cta" className="w-full" disabled={commerce.primaryCtaDisabled}>
             {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
           </Button>
         )}
       </div>
 
       {/* Favori / paylas (yer tutucu) */}
-      <div className="mt-3 flex items-center justify-center gap-4 text-xs text-slate-400">
+      <div className="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wideish text-ink-subtle">
         <span>{t.buyBox.favorite}</span>
         <span aria-hidden>·</span>
         <span>{t.buyBox.share}</span>
       </div>
 
       {/* Guven kartlari */}
-      <dl className="mt-5 space-y-3 border-t border-slate-100 pt-4">
+      <dl className="mt-6 space-y-3 border-t border-line pt-5">
         <TrustRow title={t.buyBox.delivery.title} body={t.buyBox.delivery.body} />
         <TrustRow title={t.buyBox.returns.title} body={t.buyBox.returns.body} />
         <TrustRow title={t.buyBox.secure.title} body={t.buyBox.secure.body} />
       </dl>
 
       {/* Satici kartı */}
-      <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-900">{t.buyBox.seller.title}</p>
-          <Badge tone="success">{t.buyBox.seller.badge}</Badge>
+      <div className="mt-4 border border-line bg-surface-muted p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium text-ink">{t.buyBox.seller.title}</p>
+          <Badge tone="outline">{t.buyBox.seller.badge}</Badge>
         </div>
-        <p className="mt-1 text-xs text-slate-500">{t.buyBox.seller.body}</p>
+        <p className="mt-1.5 text-xs text-ink-muted">{t.buyBox.seller.body}</p>
       </div>
     </div>
   );
 }
 
 /**
- * F4A.3 — Urun detay kampanya kutusu. AUTOMATIC_CART_DISCOUNT: emerald "Sepette
- * %10 indirim" + "Kod gerekmez" + alt limit. PUBLIC_COUPON: amber kupon karti —
- * indirim tutari, alt limit, son kullanma, kupon kodu ve aksiyon (sepete ekle /
- * kopyala). Sadece "Kupon kodu gerektirir" ile birakmaz — kullaniciya yol verir.
+ * F4A.3 — Urun detay kampanya kutusu (notr DS yuzeyi; ton metinle ayrisir).
+ * AUTOMATIC_CART_DISCOUNT: "Sepette %10 indirim" + "Kod gerekmez" + alt limit.
+ * PUBLIC_COUPON: dashed kupon karti — indirim tutari, alt limit, son kullanma,
+ * kupon kodu ve aksiyon (sepete ekle / kopyala). Sadece "Kupon kodu gerektirir"
+ * ile birakmaz — kullaniciya yol verir.
  */
 function DetailCampaign({
   campaign,
@@ -311,23 +325,23 @@ function DetailCampaign({
 }) {
   if (campaign.displayKind === "AUTOMATIC_CART_DISCOUNT") {
     return (
-      <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+      <div className="mt-4 border border-line bg-surface-muted px-4 py-3">
         {/* F4A.6 — Guvenli nihai fiyat varsa belirgin "Sepette" fiyat blogu;
             yoksa yalniz "Sepette %X indirim" etiketi (sahte fiyat gosterilmez). */}
         {campaign.estimatedFinalLabel ? (
           <div className="flex items-baseline gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            <span className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
               {t.badges.inCart}
             </span>
-            <span className="text-lg font-bold text-emerald-800">{campaign.estimatedFinalLabel}</span>
-            <span className="inline-flex items-center rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700">
+            <span className="text-lg font-bold text-ink">{campaign.estimatedFinalLabel}</span>
+            <span className="inline-flex items-center bg-ink px-1.5 py-0.5 text-[11px] font-bold text-surface">
               {campaign.discountText}
             </span>
           </div>
         ) : (
-          <p className="text-sm font-semibold text-emerald-800">{campaign.label}</p>
+          <p className="text-sm font-semibold text-ink">{campaign.label}</p>
         )}
-        <p className="mt-0.5 text-xs text-emerald-700">
+        <p className="mt-1 text-xs text-ink-muted">
           {t.detail.campaignNoCode}
           {campaign.minOrderLabel
             ? ` · ${format(t.detail.campaignMinOrder, { amount: campaign.minOrderLabel })}`
@@ -371,41 +385,41 @@ function DetailCouponCard({
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-3 py-3">
+    <div className="mt-4 border border-dashed border-line-strong bg-surface-muted px-4 py-3.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
+        <p className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
           {detail.couponCardTitle}
         </p>
-        <span className="text-sm font-bold text-amber-900">{campaign.discountText}</span>
+        <span className="text-sm font-bold text-ink">{campaign.discountText}</span>
       </div>
       {campaign.couponCode ? (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="rounded-md bg-white px-2 py-1 font-mono text-sm font-semibold tracking-wide text-amber-900 ring-1 ring-amber-300">
+        <div className="mt-2.5 flex items-center gap-2">
+          <span className="bg-surface px-2 py-1 font-mono text-sm font-semibold tracking-wide text-ink ring-1 ring-line-strong">
             {campaign.couponCode}
           </span>
           <button
             type="button"
             onClick={copyCode}
-            className="text-xs font-medium text-amber-800 underline hover:text-amber-900"
+            className="text-xs font-medium text-ink underline underline-offset-4 hover:text-ink-muted"
           >
             {copied ? detail.couponCopied : detail.couponCopy}
           </button>
         </div>
       ) : (
-        <p className="mt-2 text-xs text-amber-700">{detail.couponManualHint}</p>
+        <p className="mt-2.5 text-xs text-ink-muted">{detail.couponManualHint}</p>
       )}
-      <p className="mt-2 text-[11px] text-amber-700">
+      <p className="mt-2.5 text-[11px] text-ink-subtle">
         {campaign.minOrderLabel
           ? format(detail.campaignMinOrder, { amount: campaign.minOrderLabel })
           : detail.campaignNoMinOrder}
         {campaign.endsAt ? ` · ${format(detail.couponExpiry, { date: formatDetailDate(campaign.endsAt) })}` : ""}
       </p>
       {campaign.couponCode ? (
-        <div className="mt-2">
+        <div className="mt-3">
           {claimed ? (
-            <p className="text-xs font-medium text-emerald-700">✓ {detail.couponAddedToWallet}</p>
+            <p className="text-xs font-medium text-ink">✓ {detail.couponAddedToWallet}</p>
           ) : (
-            <Button variant="secondary" onClick={addToWallet} disabled={isPending}>
+            <Button variant="secondary" size="sm" onClick={addToWallet} disabled={isPending}>
               {detail.couponAddToWallet}
             </Button>
           )}
@@ -428,8 +442,8 @@ function formatDetailDate(iso: string): string {
 function TrustRow({ title, body }: { title: string; body: string }) {
   return (
     <div className="flex flex-col">
-      <dt className="text-sm font-medium text-slate-900">{title}</dt>
-      <dd className="text-xs text-slate-500">{body}</dd>
+      <dt className="text-sm font-medium text-ink">{title}</dt>
+      <dd className="text-xs text-ink-muted">{body}</dd>
     </div>
   );
 }
@@ -451,24 +465,24 @@ function SalesModeLead({
   else lead = t.salesMode.catalogLead;
 
   return (
-    <div className="mt-5 rounded-xl border border-brand-100 bg-brand-50/60 p-3">
-      <p className="text-sm text-brand-800">{lead}</p>
+    <div className="mt-6 border border-line bg-surface-muted p-4">
+      <p className="text-sm text-ink">{lead}</p>
       {commerce.showInquiry ? (
-        <p className="mt-2 text-xs font-medium text-slate-600">
+        <p className="mt-2 text-xs font-medium text-ink-muted">
           {detail.inquiryFormTitle ?? t.salesMode.inquiryTitleFallback}
         </p>
       ) : null}
       {commerce.showAppointmentNote ? (
-        <p className="mt-2 text-xs text-slate-600">
+        <p className="mt-2 text-xs text-ink-muted">
           {detail.appointmentNote ?? t.salesMode.appointmentNoteFallback}
         </p>
       ) : null}
       {commerce.showWhatsappTemplate && detail.whatsappMessageTemplate ? (
-        <div className="mt-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
             {t.salesMode.whatsappTemplateTitle}
           </p>
-          <p className="mt-1 rounded-lg bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+          <p className="mt-1.5 bg-surface px-3 py-2 text-xs text-ink-muted ring-1 ring-inset ring-line">
             {detail.whatsappMessageTemplate}
           </p>
         </div>
