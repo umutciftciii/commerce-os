@@ -21,6 +21,7 @@
     "@commerce-os/utils": "workspace:*",
     "@prisma/client": "^6.2.1",
     "fastify": "^5.2.1",
+    "sharp": "^0.33.5",
     "zod": "^3.24.1"
   }
 }
