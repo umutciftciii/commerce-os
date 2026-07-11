@@ -4246,3 +4246,23 @@ export type CustomerCouponAssignment = z.infer<typeof customerCouponAssignmentSc
 export type CustomerCouponAssignmentListResponse = z.infer<
   typeof customerCouponAssignmentListResponseSchema
 >;
+
+// ADR-065 — Site-geneli gorsel yonetimi (Faz 1). Yuklenen gorselin public gorunumu.
+// GUVENLIK (allowlist): storageKey / checksum / createdBy gibi ic alanlar bu semaya
+// SIZMAZ; yalniz turetilmis `url` (resolveMediaUrl) ve gorunur meta tasinir.
+export const mediaAssetSchema = z.object({
+  id: z.string().min(1),
+  context: z.enum(["PRODUCT", "CATEGORY", "HERO", "BRANDING"]),
+  url: z.string(),
+  mimeType: z.string(),
+  byteSize: z.number().int().nonnegative(),
+  width: z.number().int().positive().nullable(),
+  height: z.number().int().positive().nullable(),
+  altText: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const mediaUploadResponseSchema = z.object({ data: mediaAssetSchema });
+
+export type MediaAssetResponse = z.infer<typeof mediaAssetSchema>;
+export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
