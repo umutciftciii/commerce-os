@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { Button, Container, EmptyState } from "@commerce-os/ui";
+import { ButtonLink, Container, EmptyState } from "../../../components/ui";
 import { getStorefrontDict } from "../../../lib/i18n";
 import { readCheckoutConfirmationCookie } from "../../../lib/server/cart-cookie";
 import { CheckoutSuccess } from "../../../components/checkout-success";
@@ -12,6 +11,12 @@ export const dynamic = "force-dynamic";
  * omurlu imzali cookie'den okunur; boylece sepet temizlenmis olsa bile siparis
  * ozeti gosterilir (empty-state'e dusmez). Dogrudan/cookie'siz erisimde notr
  * "yakin zamanda siparis yok" durumu gosterilir.
+ *
+ * Kapsayici/bos yuzeyler vitrin DS'ine göçtü (yerel components/ui barrel, cart
+ * sayfasiyla birebir dil): editoryel EmptyState + nötr `ButtonLink variant="primary"`.
+ * Accent (menekse) yalniz gerçek onay CTA'sinda (CheckoutSuccess "Alışverişe devam
+ * et"); bos-durum aksiyonu NOTR kalir. Cookie okuma/cart-bagimsiz render/routing
+ * DEGISMEDI — yalniz görsel katman.
  */
 export default async function CheckoutSuccessPage() {
   const t = (await getStorefrontDict()).checkout;
@@ -24,9 +29,9 @@ export default async function CheckoutSuccessPage() {
           title={t.success.noOrderTitle}
           description={t.success.noOrderDescription}
           action={
-            <Link href="/products">
-              <Button>{t.success.continueShopping}</Button>
-            </Link>
+            <ButtonLink href="/products" variant="primary">
+              {t.success.continueShopping}
+            </ButtonLink>
           }
         />
       </Container>

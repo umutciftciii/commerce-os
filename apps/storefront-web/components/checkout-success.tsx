@@ -1,7 +1,6 @@
-import Link from "next/link";
-import { Alert, Button, Card } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { OrderConfirmationView } from "../lib/server/cart";
+import { ButtonLink, Eyebrow, Heading, Text } from "./ui";
 
 type CheckoutDict = StorefrontDictionary["checkout"];
 
@@ -11,6 +10,13 @@ type CheckoutDict = StorefrontDictionary["checkout"];
  * BAGIMSIZ olarak (kisa omurlu imzali cookie'den) render eder. Provider yoksa
  * gosterilen UNPAID/onay ekranidir; uygun TEST/MOCK provider varsa kullanici
  * bunun yerine /checkout/payment adimina yonlendirilir.
+ *
+ * Görsel katman vitrin DS'ine göçtü (yerel components/ui barrel + ink/surface/line/
+ * accent token'lari, PLP/PDP/cart/checkout dili). "Başarı" rengi (emerald) NÖTR
+ * ink'e indirildi; onay sinyali dolu ink disk + ✓ ikonuyla ayrisir. Aksan (menekse)
+ * YALNIZCA tekil CTA'da ("Alışverişe devam et"). Cookie okuma/imza dogrulama,
+ * order-özeti verisinin cookie'den okunma mantigi ve redirect/routing DEGISMEDI —
+ * yalniz palet/tipografi.
  */
 export function CheckoutSuccess({
   confirmation,
@@ -20,52 +26,53 @@ export function CheckoutSuccess({
   t: CheckoutDict;
 }) {
   return (
-    <Card className="mx-auto max-w-xl p-8 text-center">
-      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200">
+    <div className="mx-auto max-w-xl border border-line bg-surface p-8 text-center">
+      <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-ink text-base text-surface">
         ✓
       </div>
-      <h2 className="text-xl font-semibold text-slate-900">{t.success.title}</h2>
-      <p className="mt-1 text-sm text-slate-500">{t.success.subtitle}</p>
+      <Heading as="h2" className="text-2xl sm:text-2xl">
+        {t.success.title}
+      </Heading>
+      <Text className="mt-2">{t.success.subtitle}</Text>
 
-      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
+      <div className="mt-6 border border-line bg-surface-muted p-4 text-left">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">{t.success.orderNumberLabel}</span>
-          <span className="font-semibold text-slate-900">{confirmation.orderNumber}</span>
+          <span className="text-ink-muted">{t.success.orderNumberLabel}</span>
+          <span className="font-semibold text-ink">{confirmation.orderNumber}</span>
         </div>
-        <ul className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-sm">
+        <ul className="mt-3 space-y-1.5 border-t border-line pt-3 text-sm">
           {confirmation.lines.map((line, index) => (
             <li key={`${line.title}-${index}`} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-slate-600">
+              <span className="min-w-0 truncate text-ink-muted">
                 {line.title} · {line.variantTitle} · {line.quantity}×
               </span>
-              <span className="shrink-0 font-medium text-slate-900">{line.lineTotalLabel}</span>
+              <span className="shrink-0 font-medium text-ink">{line.lineTotalLabel}</span>
             </li>
           ))}
         </ul>
-        <dl className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-sm">
+        <dl className="mt-3 space-y-1.5 border-t border-line pt-3 text-sm">
           <Row label={t.subtotal} value={confirmation.subtotalLabel} />
           {confirmation.discountLabel ? (
-            <Row label={t.discount} value={`−${confirmation.discountLabel}`} tone="discount" />
+            <Row label={t.discount} value={`−${confirmation.discountLabel}`} />
           ) : null}
           <Row
             label={t.shipping}
             value={confirmation.shippingIsFree ? t.shippingFree : confirmation.shippingLabel}
-            tone={confirmation.shippingIsFree ? "free" : undefined}
           />
-          <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-            <dt className="font-semibold text-slate-700">{t.grandTotal}</dt>
-            <dd className="text-base font-semibold text-slate-900">{confirmation.totalLabel}</dd>
+          <div className="flex items-center justify-between border-t border-line pt-2">
+            <dt className="font-semibold text-ink">{t.grandTotal}</dt>
+            <dd className="text-base font-semibold text-ink">{confirmation.totalLabel}</dd>
           </div>
         </dl>
       </div>
 
       {confirmation.shippingOption ? (
-        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
-          <p className="mb-1 font-semibold text-slate-700">{t.success.shippingOptionTitle}</p>
-          <p className="text-slate-700">
+        <div className="mt-4 border border-line p-4 text-left text-sm">
+          <Eyebrow className="mb-1.5">{t.success.shippingOptionTitle}</Eyebrow>
+          <p className="text-ink">
             {confirmation.shippingOption.providerName ?? confirmation.shippingOption.serviceName}
           </p>
-          <p className="text-slate-500">
+          <p className="text-ink-muted">
             {confirmation.shippingOption.serviceName ?? ""}
             {confirmation.shippingOption.estimatedDelivery
               ? ` · ${confirmation.shippingOption.estimatedDelivery}`
@@ -75,16 +82,16 @@ export function CheckoutSuccess({
       ) : null}
 
       {confirmation.shippingAddress ? (
-        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
-          <p className="mb-1 font-semibold text-slate-700">{t.success.shippingTitle}</p>
-          <p className="text-slate-700">{confirmation.shippingAddress.fullName}</p>
-          <p className="text-slate-500">
+        <div className="mt-4 border border-line p-4 text-left text-sm">
+          <Eyebrow className="mb-1.5">{t.success.shippingTitle}</Eyebrow>
+          <p className="text-ink">{confirmation.shippingAddress.fullName}</p>
+          <p className="text-ink-muted">
             {confirmation.shippingAddress.addressLine1}
             {confirmation.shippingAddress.addressLine2
               ? `, ${confirmation.shippingAddress.addressLine2}`
               : ""}
           </p>
-          <p className="text-slate-500">
+          <p className="text-ink-muted">
             {confirmation.shippingAddress.district ? `${confirmation.shippingAddress.district}, ` : ""}
             {confirmation.shippingAddress.city} {confirmation.shippingAddress.postalCode ?? ""}
           </p>
@@ -92,9 +99,9 @@ export function CheckoutSuccess({
       ) : null}
 
       {confirmation.billing ? (
-        <div className="mt-4 rounded-xl border border-slate-200 p-4 text-left text-sm">
-          <p className="mb-1 font-semibold text-slate-700">{t.success.billingTitle}</p>
-          <p className="text-slate-700">
+        <div className="mt-4 border border-line p-4 text-left text-sm">
+          <Eyebrow className="mb-1.5">{t.success.billingTitle}</Eyebrow>
+          <p className="text-ink">
             {confirmation.billing.type === "CORPORATE"
               ? t.success.billingCorporate
               : t.success.billingIndividual}
@@ -102,40 +109,41 @@ export function CheckoutSuccess({
           {confirmation.billing.type === "CORPORATE" ? (
             <>
               {confirmation.billing.companyName ? (
-                <p className="text-slate-500">{confirmation.billing.companyName}</p>
+                <p className="text-ink-muted">{confirmation.billing.companyName}</p>
               ) : null}
               {confirmation.billing.taxOffice || confirmation.billing.taxNumber ? (
-                <p className="text-slate-500">
+                <p className="text-ink-muted">
                   {confirmation.billing.taxOffice} {confirmation.billing.taxNumber}
                 </p>
               ) : null}
             </>
           ) : confirmation.billing.name ? (
-            <p className="text-slate-500">{confirmation.billing.name}</p>
+            <p className="text-ink-muted">{confirmation.billing.name}</p>
           ) : null}
         </div>
       ) : null}
 
       {confirmation.paymentPending ? (
-        <Alert tone="info" className="mt-4 text-left">
+        <div
+          role="status"
+          className="mt-4 border border-line bg-surface-muted px-4 py-3 text-left text-sm text-ink"
+        >
           {t.success.paymentPendingNote}
-        </Alert>
+        </div>
       ) : null}
 
-      <Link href="/products" className="mt-6 inline-block">
-        <Button variant="secondary">{t.success.continueShopping}</Button>
-      </Link>
-    </Card>
+      <ButtonLink href="/products" variant="cta" className="mt-6 w-full">
+        {t.success.continueShopping}
+      </ButtonLink>
+    </div>
   );
 }
 
-function Row({ label, value, tone }: { label: string; value: string; tone?: "discount" | "free" }) {
-  const valueClass =
-    tone === "discount" || tone === "free" ? "font-medium text-emerald-700" : "font-medium text-slate-900";
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className={valueClass}>{value}</dd>
+      <dt className="text-ink-muted">{label}</dt>
+      <dd className="font-medium text-ink">{value}</dd>
     </div>
   );
 }
