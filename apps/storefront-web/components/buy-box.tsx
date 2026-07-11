@@ -88,6 +88,21 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   // Adet > 1 iken birim fiyat ipucu ("Birim fiyat ₺1.299,00") gosterilir.
   const showUnitNote = numeric && unitMinor !== null && quantity > 1;
 
+  // OTOMATIK kampanya indirimi (AUTOMATIC_CART_DISCOUNT) VE sunucu guvenli bir
+  // nihai birim fiyat verebildiyse: fiyat blogunu "uzeri cizili liste fiyati →
+  // buyuk indirimli nihai fiyat → %rozet + Kod gerekmez" hiyerarsisiyle sunar
+  // (indirim varligi net iletilsin). Public kupon (PUBLIC_COUPON) ve guvenli
+  // tahmin YOKKEN (estimatedFinalLabel null) davranis DEGISMEZ — o durumlarda
+  // kupon karti / fallback kutu asagidaki DetailCampaign'da kalir. Burada hic
+  // hesap/turetme yapilmaz; estimatedFinalLabel/discountText aynen kullanilir.
+  const autoCampaign =
+    detail.campaign?.displayKind === "AUTOMATIC_CART_DISCOUNT" && detail.campaign.estimatedFinalLabel
+      ? detail.campaign
+      : null;
+  const showAutoPriceBlock = numeric && autoCampaign !== null;
+  // Kampanyanin indirdigi taban birim fiyat = uzeri cizili gosterilecek "liste" fiyati.
+  const unitListLabel = numeric && unitMinor !== null ? formatMinor(unitMinor, currency) : null;
+
   // ADD_TO_CART: secili varyanti cookie sepete ekler (Server Action) ve SAYFADA
   // KALIR — yonlendirme YOK; nav sayaci revalidate ile guncellenir, inline bir
   // "sepete eklendi" geri bildirimi gosterilir. BUY_NOW (Simdi Al): sepete ekleyip
@@ -114,26 +129,52 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
   return (
     <div className="border border-line bg-surface p-6">
-      {/* Fiyat (adet x birim fiyat) */}
-      <div className="flex items-baseline gap-2">
-        {numeric ? (
-          <>
-            <span className="text-2xl font-semibold text-ink">{totalLabel}</span>
-            {compareTotalLabel ? (
-              <span className="text-sm text-ink-subtle line-through">{compareTotalLabel}</span>
-            ) : null}
-          </>
-        ) : (
-          <span className="text-lg font-semibold text-ink">{primaryPriceText(price, t)}</span>
-        )}
-      </div>
-      {/* F4B — EU Omnibus notu: indirim varken son 30 günün en düşük fiyatı. */}
+      {/* Fiyat blogu. Otomatik kampanya + guvenli tahmin varsa: uzeri cizili
+          liste fiyati (kucuk, notr) → buyuk indirimli nihai fiyat → %rozet;
+          aksi halde standart tutar (adet x birim, varsa compareAt cizili). */}
+      {showAutoPriceBlock && autoCampaign ? (
+        <div>
+          {unitListLabel ? (
+            <span className="text-sm text-ink-subtle line-through">{unitListLabel}</span>
+          ) : null}
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
+              {t.badges.inCart}
+            </span>
+            <span className="text-2xl font-bold text-ink">{autoCampaign.estimatedFinalLabel}</span>
+            <span className="inline-flex items-center bg-ink px-1.5 py-0.5 text-[11px] font-bold text-surface">
+              {autoCampaign.discountText}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">
+            {t.detail.campaignNoCode}
+            {autoCampaign.minOrderLabel
+              ? ` · ${format(t.detail.campaignMinOrder, { amount: autoCampaign.minOrderLabel })}`
+              : ""}
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-baseline gap-2">
+          {numeric ? (
+            <>
+              <span className="text-2xl font-semibold text-ink">{totalLabel}</span>
+              {compareTotalLabel ? (
+                <span className="text-sm text-ink-subtle line-through">{compareTotalLabel}</span>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-lg font-semibold text-ink">{primaryPriceText(price, t)}</span>
+          )}
+        </div>
+      )}
+      {/* F4B — EU Omnibus notu: indirim varken son 30 günün en düşük fiyatı.
+          Yeni hiyerarside uzeri cizili liste fiyatinin altinda kucuk not kalir. */}
       {numeric && price.lowestRecentLabel ? (
         <p className="mt-1 text-xs text-ink-subtle">
           {format(t.badges.omnibusLowest, { amount: price.lowestRecentLabel })}
         </p>
       ) : null}
-      {showUnitNote ? (
+      {showUnitNote && !showAutoPriceBlock ? (
         <p className="mt-1 text-xs text-ink-muted">
           {format(t.buyBox.unitEach, { price: formatMinor(unitMinor as number, currency) })}
         </p>
@@ -141,9 +182,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       {numeric ? <p className="mt-1 text-xs text-ink-subtle">{t.buyBox.priceNote}</p> : null}
 
       {/* F4A.1/F4A.3 — Aktif kampanya bilgisi (fiyata yakin). Otomatik sepet
-          indirimi ile public kupon AYRI gosterilir; metinler sunucu-otoriter
-          public rozet projeksiyonundan turetilir, tutar hesabi yapilmaz. */}
-      {detail.campaign ? <DetailCampaign campaign={detail.campaign} t={t} /> : null}
+          indirimi GUVENLI tahminliyse yukaridaki fiyat blogunda (uzeri cizili
+          hiyerarsi) sunulur; burada YALNIZ public kupon karti ya da guvenli
+          tahmin YOKKEN otomatik fallback kutusu gosterilir. Metinler sunucu-
+          otoriter public rozet projeksiyonundan turetilir, tutar hesabi YOK. */}
+      {detail.campaign && !showAutoPriceBlock ? <DetailCampaign campaign={detail.campaign} t={t} /> : null}
 
       {/* Stok durumu */}
       <div className="mt-4">
