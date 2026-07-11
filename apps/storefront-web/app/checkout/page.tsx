@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Alert, Button, Container, EmptyState } from "@commerce-os/ui";
+import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 import { readCartItems, readCoupon, readShippingOption } from "../../lib/server/cart-cookie";
 import { getPaymentAvailability, resolveCart } from "../../lib/server/cart";
@@ -15,6 +15,10 @@ export const dynamic = "force-dynamic";
  * Oturum varsa sepet sunucu-otoriter cozulur; teslimat adresi adres defterinden
  * secilir (kayitli adres yoksa "adres ekle" yonlendirmesi). Order, gateway'de
  * `x-customer-session` ile customerId'ye baglanir.
+ *
+ * Kapsayici/bos/hata yuzeyleri vitrin DS'ine göçtü (yerel components/ui barrel,
+ * cart sayfasiyla ayni dil): serif Heading, editoryel EmptyState, hairline hata
+ * kutusu, ink alt-cizgi "geri" baglantisi.
  */
 export default async function CheckoutPage() {
   const t = (await getStorefrontDict()).checkout;
@@ -36,8 +40,12 @@ export default async function CheckoutPage() {
   if (!result.ok) {
     return (
       <Container className="py-12">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-        <Alert tone="error">{t.errorNoStore}</Alert>
+        <Heading as="h1" className="mb-6">
+          {t.title}
+        </Heading>
+        <div className="border border-line bg-surface-muted px-4 py-4">
+          <p className="text-sm text-red-600">{t.errorNoStore}</p>
+        </div>
       </Container>
     );
   }
@@ -52,18 +60,16 @@ export default async function CheckoutPage() {
     return (
       <Container className="py-12">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-          <Link href="/cart" className="text-sm font-medium text-brand-700 hover:text-brand-800">
-            ← {t.backToCart}
-          </Link>
+          <Heading as="h1">{t.title}</Heading>
+          <BackToCart label={t.backToCart} />
         </div>
         <EmptyState
           title={t.addressBook.noneTitle}
           description={t.addressBook.noneDescription}
           action={
-            <Link href="/account?section=addresses">
-              <Button>{t.addressBook.addCta}</Button>
-            </Link>
+            <ButtonLink href="/account?section=addresses" variant="primary">
+              {t.addressBook.addCta}
+            </ButtonLink>
           }
         />
       </Container>
@@ -75,10 +81,8 @@ export default async function CheckoutPage() {
   return (
     <Container className="py-12">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
-        <Link href="/cart" className="text-sm font-medium text-brand-700 hover:text-brand-800">
-          ← {t.backToCart}
-        </Link>
+        <Heading as="h1">{t.title}</Heading>
+        <BackToCart label={t.backToCart} />
       </div>
       <CheckoutForm
         view={result.data}
@@ -90,17 +94,31 @@ export default async function CheckoutPage() {
   );
 }
 
+/** Sepete dönüş bağlantısı — ink alt-çizgi (vitrin DS bağlantı dili). */
+function BackToCart({ label }: { label: string }) {
+  return (
+    <Link
+      href="/cart"
+      className="text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+    >
+      ← {label}
+    </Link>
+  );
+}
+
 function EmptyCheckout({ t }: { t: Awaited<ReturnType<typeof getStorefrontDict>>["checkout"] }) {
   return (
     <Container className="py-12">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tightish text-slate-900">{t.title}</h1>
+      <Heading as="h1" className="mb-6">
+        {t.title}
+      </Heading>
       <EmptyState
         title={t.emptyTitle}
         description={t.emptyDescription}
         action={
-          <Link href="/products">
-            <Button>{t.emptyAction}</Button>
-          </Link>
+          <ButtonLink href="/products" variant="primary">
+            {t.emptyAction}
+          </ButtonLink>
         }
       />
     </Container>
