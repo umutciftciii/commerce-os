@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Alert, Button, Card, Input, Select } from "@commerce-os/ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { format } from "@commerce-os/i18n";
 import type {
@@ -13,9 +12,28 @@ import type {
 } from "@commerce-os/api-client";
 import { luhnValid } from "@commerce-os/api-client/validators";
 import { submitTestPaymentAction } from "../lib/server/cart-actions";
+import {
+  Button,
+  ButtonLink,
+  Eyebrow,
+  Field as FieldShell,
+  Heading,
+  Input,
+  Select,
+  Subheading,
+  Text,
+} from "./ui";
 
 type PaymentDict = StorefrontDictionary["payment"];
 type CheckoutDict = StorefrontDictionary["checkout"];
+
+// Hata durumunda kontrol cercevesi. `cn` tailwind-merge DEGIL (saf joiner); bu yuzden
+// taban `border-line`/`focus:ring-ink` uzerine yazmak icin `!` important ile
+// deterministik kilinir (vitrin field.tsx hata dili: kirmizi ayrisir; checkout-form ile ayni).
+const inputError = "!border-red-500 focus:!border-red-500 focus:!ring-red-400";
+
+// DS bolum yuzeyi: duz hairline kart (rounded-none, golge yok) — PLP/PDP/cart/checkout dili.
+const cardSurface = "mx-auto max-w-xl border border-line bg-surface p-8";
 
 /** Public test kartlari (gizli DEGIL). "Kullan" ile form otomatik doldurulur. */
 const TEST_CARDS: Array<{ scenario: PublicPaymentScenario; number: string }> = [
@@ -33,7 +51,7 @@ function money(minor: number, currency: string): string {
 /**
  * Taksit basina tutar (gosterim). GERCEK FAIZ/ORAN MOTORU YOK — toplam degismez,
  * yalnizca esit bolunur (vade farksiz). Sade tam-bolme; son taksitte kurus farki
- * olabilecegi UI'da iddia edilmez.
+ * olabilecegi UI'da iddia edilmez. Bkz. todo.md (taksit gosterim mock notu).
  */
 function perInstallmentMinor(totalMinor: number, count: number): number {
   return Math.round(totalMinor / count);
@@ -59,6 +77,13 @@ type Phase =
  * numarasından türetilir. Gerçek tahsilat YOK. FULL PAN/CVC sunucuya gönderilir ama
  * DB'ye/loglara/response'a yazılmaz (yalnız marka + son 4 gözlemlenir). Gerçek
  * provider (IYZICO/STRIPE/PAYTR) seçiliyse submit kontrollü hata döner (fake yok).
+ *
+ * Görsel katman vitrin DS'ine göçtü (yerel components/ui barrel + ink/surface/line/
+ * accent token'lari, PLP/PDP/cart/checkout dili). "Başarı" (emerald) ve "3DS" (indigo)
+ * renkleri NÖTR ink'e indirildi; sinyaller dolu ink disk/rozet + ikon ile ayrışır.
+ * Aksan (menekşe) YALNIZCA tekil birincil CTA'da (her fazda tek: ödeme submit /
+ * 3DS onay / siparişlerim). MOCK-first guard (provider≠MOCK), gösterilen hata mesajı,
+ * POST /payment çağrısı, taksit hesabı ve redirect zinciri DEĞİŞMEDİ — yalniz palet/tipografi.
  */
 export function PaymentTester({
   state,
@@ -157,31 +182,43 @@ export function PaymentTester({
   // MOCK değilse kart formu/ödeme butonu GÖSTERİLMEZ (boşuna submit edilmesin);
   // bunun yerine net bir bilgilendirme + mağazaya dönüş gösterilir. Normalde
   // checkout MOCK'u önceliklendirdiğinden bu durum yalnızca MOCK hiç yokken oluşur.
+  // NOT (DS göçü): koşul (provider !== "MOCK") ve gösterilen mesaj DEĞİŞMEDİ; yalnız
+  // Alert → hairline nötr not kutusu (role="alert") olarak yeniden biçimlendirildi.
   if (state.provider !== "MOCK") {
     return (
-      <Card className="mx-auto max-w-xl p-8">
-        <h1 className="text-xl font-semibold text-slate-900">{t.title}</h1>
-        <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
+      <div className={cardSurface}>
+        <Heading as="h1" className="text-2xl sm:text-2xl">
+          {t.title}
+        </Heading>
+        <Text className="mt-2">{t.subtitle}</Text>
         <OrderSummaryBox state={state} t={t} c={c} />
-        <Alert tone="warning" className="mt-6">
+        <div
+          role="alert"
+          className="mt-6 border border-line-strong bg-surface-muted px-4 py-3 text-sm text-ink"
+        >
           <span className="font-semibold">{t.providerNotConfiguredTitle}.</span>{" "}
           {t.providerNotConfiguredDescription}
-        </Alert>
+        </div>
         <div className="mt-6 text-center">
-          <Link href="/products" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+          <Link
+            href="/products"
+            className="text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+          >
             {t.backToStore}
           </Link>
         </div>
-      </Card>
+      </div>
     );
   }
 
   const busy = phase.kind === "processing";
 
   return (
-    <Card className="mx-auto max-w-xl p-8">
-      <h1 className="text-xl font-semibold text-slate-900">{t.title}</h1>
-      <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
+    <div className={cardSurface}>
+      <Heading as="h1" className="text-2xl sm:text-2xl">
+        {t.title}
+      </Heading>
+      <Text className="mt-2">{t.subtitle}</Text>
 
       <OrderSummaryBox state={state} t={t} c={c} />
 
@@ -190,78 +227,95 @@ export function PaymentTester({
       ) : (
         <div className="mt-6">
           {phase.kind === "failed" ? (
-            <Alert tone="error" className="mb-4">
+            <div role="alert" className="mb-4 border border-line bg-surface-muted px-4 py-3 text-sm text-red-600">
               <span className="font-semibold">{phase.title}.</span> {phase.description}
-            </Alert>
+            </div>
           ) : null}
 
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">{t.cardSectionTitle}</h2>
+          <Subheading as="h2" className="mb-3">
+            {t.cardSectionTitle}
+          </Subheading>
           <div className="space-y-4">
-            <Input
-              label={t.cardHolderLabel}
-              placeholder={t.cardHolderPlaceholder}
-              value={holder}
-              onChange={(event) => setHolder(event.target.value)}
-              autoComplete="cc-name"
-            />
-            <div>
+            <FieldShell label={t.cardHolderLabel} htmlFor="payment-holder">
               <Input
-                label={t.cardNumberLabel}
+                id="payment-holder"
+                placeholder={t.cardHolderPlaceholder}
+                value={holder}
+                onChange={(event) => setHolder(event.target.value)}
+                autoComplete="cc-name"
+              />
+            </FieldShell>
+            <FieldShell
+              label={t.cardNumberLabel}
+              htmlFor="payment-number"
+              error={errors.number ? t.cardNumberInvalid : undefined}
+            >
+              <Input
+                id="payment-number"
                 placeholder={t.cardNumberPlaceholder}
                 value={number}
                 inputMode="numeric"
                 autoComplete="cc-number"
                 aria-invalid={errors.number ? true : undefined}
-                className={errors.number ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined}
+                className={errors.number ? inputError : undefined}
                 onChange={(event) => setNumber(formatCardNumber(event.target.value))}
               />
-              {errors.number ? <p className="mt-1 text-xs text-red-600">{t.cardNumberInvalid}</p> : null}
-            </div>
+            </FieldShell>
             <div className="grid grid-cols-3 gap-3">
-              <Input
-                label={`${t.expiryLabel} ${t.expMonthPlaceholder}`}
-                placeholder={t.expMonthPlaceholder}
-                value={expMonth}
-                inputMode="numeric"
-                autoComplete="cc-exp-month"
-                aria-invalid={errors.expiry ? true : undefined}
-                className={errors.expiry ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined}
-                onChange={(event) => setExpMonth(event.target.value.replace(/\D+/g, "").slice(0, 2))}
-              />
-              <Input
-                label={`${t.expiryLabel} ${t.expYearPlaceholder}`}
-                placeholder={t.expYearPlaceholder}
-                value={expYear}
-                inputMode="numeric"
-                autoComplete="cc-exp-year"
-                aria-invalid={errors.expiry ? true : undefined}
-                className={errors.expiry ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined}
-                onChange={(event) => setExpYear(event.target.value.replace(/\D+/g, "").slice(0, 4))}
-              />
-              <Input
-                label={t.cvcLabel}
-                placeholder={t.cvcPlaceholder}
-                value={cvc}
-                inputMode="numeric"
-                autoComplete="cc-csc"
-                aria-invalid={errors.cvc ? true : undefined}
-                className={errors.cvc ? "border-red-300 focus:border-red-400 focus:ring-red-100" : undefined}
-                onChange={(event) => setCvc(event.target.value.replace(/\D+/g, "").slice(0, 4))}
-              />
+              <FieldShell label={`${t.expiryLabel} ${t.expMonthPlaceholder}`} htmlFor="payment-exp-month">
+                <Input
+                  id="payment-exp-month"
+                  placeholder={t.expMonthPlaceholder}
+                  value={expMonth}
+                  inputMode="numeric"
+                  autoComplete="cc-exp-month"
+                  aria-invalid={errors.expiry ? true : undefined}
+                  className={errors.expiry ? inputError : undefined}
+                  onChange={(event) => setExpMonth(event.target.value.replace(/\D+/g, "").slice(0, 2))}
+                />
+              </FieldShell>
+              <FieldShell label={`${t.expiryLabel} ${t.expYearPlaceholder}`} htmlFor="payment-exp-year">
+                <Input
+                  id="payment-exp-year"
+                  placeholder={t.expYearPlaceholder}
+                  value={expYear}
+                  inputMode="numeric"
+                  autoComplete="cc-exp-year"
+                  aria-invalid={errors.expiry ? true : undefined}
+                  className={errors.expiry ? inputError : undefined}
+                  onChange={(event) => setExpYear(event.target.value.replace(/\D+/g, "").slice(0, 4))}
+                />
+              </FieldShell>
+              <FieldShell label={t.cvcLabel} htmlFor="payment-cvc">
+                <Input
+                  id="payment-cvc"
+                  placeholder={t.cvcPlaceholder}
+                  value={cvc}
+                  inputMode="numeric"
+                  autoComplete="cc-csc"
+                  aria-invalid={errors.cvc ? true : undefined}
+                  className={errors.cvc ? inputError : undefined}
+                  onChange={(event) => setCvc(event.target.value.replace(/\D+/g, "").slice(0, 4))}
+                />
+              </FieldShell>
             </div>
             {errors.cvc ? <p className="text-xs text-red-600">{t.cvcInvalid}</p> : null}
 
             {state.installmentEnabled && state.installmentOptions.length > 1 ? (
               <div className="space-y-3">
-                <Select
-                  label={t.installmentLabel}
-                  value={String(installment)}
-                  onChange={(event) => setInstallment(Number(event.target.value))}
-                  options={state.installmentOptions.map((count) => ({
-                    value: String(count),
-                    label: count === 1 ? t.singleShot : format(t.installmentValue, { count }),
-                  }))}
-                />
+                <FieldShell label={t.installmentLabel} htmlFor="payment-installment">
+                  <Select
+                    id="payment-installment"
+                    value={String(installment)}
+                    onChange={(event) => setInstallment(Number(event.target.value))}
+                  >
+                    {state.installmentOptions.map((count) => (
+                      <option key={count} value={String(count)}>
+                        {count === 1 ? t.singleShot : format(t.installmentValue, { count })}
+                      </option>
+                    ))}
+                  </Select>
+                </FieldShell>
                 {installment > 1 ? (
                   <InstallmentSummary
                     totalMinor={state.totalMinor}
@@ -274,15 +328,15 @@ export function PaymentTester({
             ) : null}
           </div>
 
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-700">{t.testCardsTitle}</p>
-            <p className="mt-0.5 text-xs text-slate-400">{t.testCardsHint}</p>
+          <div className="mt-5 border border-line bg-surface-muted p-4">
+            <p className="text-sm font-medium text-ink">{t.testCardsTitle}</p>
+            <p className="mt-0.5 text-xs text-ink-subtle">{t.testCardsHint}</p>
             <div className="mt-3 space-y-1.5">
               {TEST_CARDS.filter((card) => state.scenarios.includes(card.scenario)).map((card) => (
                 <div key={card.scenario} className="flex items-center justify-between gap-3 text-sm">
                   <span className="min-w-0">
-                    <span className="block truncate text-slate-700">{t.scenarios[card.scenario]}</span>
-                    <span className="block font-mono text-xs text-slate-400">
+                    <span className="block truncate text-ink">{t.scenarios[card.scenario]}</span>
+                    <span className="block font-mono text-xs text-ink-subtle">
                       {formatCardNumber(card.number)}
                     </span>
                   </span>
@@ -299,18 +353,22 @@ export function PaymentTester({
             </div>
           </div>
 
-          <Button className="mt-5 w-full" onClick={() => void pay()} disabled={busy}>
+          {/* Bu fazın TEKIL birincil eylemi: ödeme submit → aksan (variant="cta"). */}
+          <Button variant="cta" className="mt-5 w-full" onClick={() => void pay()} disabled={busy}>
             {busy ? t.processing : t.pay}
           </Button>
         </div>
       )}
 
       <div className="mt-6 text-center">
-        <Link href="/products" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+        <Link
+          href="/products"
+          className="text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
+        >
           {t.backToStore}
         </Link>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -324,28 +382,28 @@ function OrderSummaryBox({
   c: CheckoutDict;
 }) {
   return (
-    <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+    <div className="mt-5 border border-line bg-surface-muted p-4 text-sm">
       <div className="flex items-center justify-between">
-        <span className="text-slate-500">{t.orderLabel}</span>
-        <span className="font-semibold text-slate-900">{state.orderNumber}</span>
+        <span className="text-ink-muted">{t.orderLabel}</span>
+        <span className="font-semibold text-ink">{state.orderNumber}</span>
       </div>
       {state.lines.length > 0 ? (
-        <ul className="mt-2 space-y-1 border-t border-slate-200 pt-2">
+        <ul className="mt-2 space-y-1 border-t border-line pt-2">
           {state.lines.map((line, index) => (
             <li key={`${line.title}-${index}`} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-slate-600">
+              <span className="min-w-0 truncate text-ink-muted">
                 {line.title} · {line.variantTitle} · {line.quantity}×
               </span>
-              <span className="shrink-0 font-medium text-slate-900">
+              <span className="shrink-0 font-medium text-ink">
                 {money(line.lineTotalMinor, state.currency)}
               </span>
             </li>
           ))}
         </ul>
       ) : null}
-      <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
-        <span className="font-semibold text-slate-700">{c.grandTotal}</span>
-        <span className="font-semibold text-slate-900">{money(state.totalMinor, state.currency)}</span>
+      <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
+        <span className="font-semibold text-ink">{c.grandTotal}</span>
+        <span className="font-semibold text-ink">{money(state.totalMinor, state.currency)}</span>
       </div>
     </div>
   );
@@ -354,7 +412,8 @@ function OrderSummaryBox({
 /**
  * F3B.2 — Zengin başarılı ödeme ekranı: sipariş no, ödeme durumu, ürünler, ödeme
  * bilgisi (sağlayıcı/yöntem/maskeli kart/taksit/işlem no/tarih), teslimat ve fatura
- * özeti. Maskeli kart dışında kart verisi gösterilmez.
+ * özeti. Maskeli kart dışında kart verisi gösterilmez. "Başarı" rengi (emerald) NÖTR
+ * ink'e indirildi; onay sinyali dolu ink disk + ✓ ile ayrışır (checkout-success dili).
  */
 function PaymentSuccess({
   result,
@@ -377,40 +436,42 @@ function PaymentSuccess({
     : null;
 
   return (
-    <Card className="mx-auto max-w-xl p-8">
+    <div className={cardSurface}>
       <div className="text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-ink text-base text-surface">
           ✓
         </div>
-        <h1 className="text-xl font-semibold text-slate-900">{s.paidTitle}</h1>
-        <p className="mt-1 text-sm text-slate-500">{s.paidSubtitle}</p>
+        <Heading as="h1" className="text-2xl sm:text-2xl">
+          {s.paidTitle}
+        </Heading>
+        <Text className="mt-2">{s.paidSubtitle}</Text>
       </div>
 
       <div className="mt-6 space-y-4 text-sm">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="border border-line bg-surface-muted p-4">
           <Row label={s.orderNumberLabel} value={result.orderNumber} mono />
           <Row label={s.paymentStatusLabel} value={t.paidTitle} />
         </div>
 
-        <div className="rounded-xl border border-slate-200 p-4">
-          <p className="mb-2 font-semibold text-slate-700">{s.itemsTitle}</p>
+        <div className="border border-line p-4">
+          <Eyebrow className="mb-2">{s.itemsTitle}</Eyebrow>
           <ul className="space-y-1.5">
             {lines.map((line, index) => (
               <li key={`${line.title}-${index}`} className="flex items-start justify-between gap-3">
                 <span className="min-w-0">
-                  <span className="block truncate text-slate-700">{line.title}</span>
-                  <span className="block text-xs text-slate-400">
+                  <span className="block truncate text-ink">{line.title}</span>
+                  <span className="block text-xs text-ink-subtle">
                     {line.variantTitle} · {line.quantity}× · {money(line.unitPriceMinor, currency)}
                   </span>
                 </span>
-                <span className="shrink-0 font-medium text-slate-900">
+                <span className="shrink-0 font-medium text-ink">
                   {money(line.lineTotalMinor, currency)}
                 </span>
               </li>
             ))}
           </ul>
           {receipt ? (
-            <dl className="mt-3 space-y-1.5 border-t border-slate-200 pt-3">
+            <dl className="mt-3 space-y-1.5 border-t border-line pt-3">
               <Row label={c.subtotal} value={money(receipt.subtotalMinor, currency)} />
               {receipt.discountMinor > 0 ? (
                 <Row label={c.discount} value={`−${money(receipt.discountMinor, currency)}`} />
@@ -421,9 +482,9 @@ function PaymentSuccess({
                   receipt.shippingMinor === 0 ? c.shippingFree : money(receipt.shippingMinor, currency)
                 }
               />
-              <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                <dt className="font-semibold text-slate-700">{c.grandTotal}</dt>
-                <dd className="text-base font-semibold text-slate-900">
+              <div className="flex items-center justify-between border-t border-line pt-2">
+                <dt className="font-semibold text-ink">{c.grandTotal}</dt>
+                <dd className="text-base font-semibold text-ink">
                   {money(receipt.totalMinor, currency)}
                 </dd>
               </div>
@@ -432,8 +493,8 @@ function PaymentSuccess({
         </div>
 
         {payment ? (
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="mb-2 font-semibold text-slate-700">{s.paymentTitle}</p>
+          <div className="border border-line p-4">
+            <Eyebrow className="mb-2">{s.paymentTitle}</Eyebrow>
             <Row label={s.providerLabel} value={`${payment.provider} · ${payment.mode}`} />
             <Row label={s.methodLabel} value={payment.method} />
             {card ? <Row label={s.cardLabel} value={card} mono /> : null}
@@ -451,7 +512,7 @@ function PaymentSuccess({
                   })}
                 />
                 <Row label={s.total} value={money(receipt?.totalMinor ?? state.totalMinor, currency)} />
-                <p className="text-xs text-slate-400">{s.noInterestNote}</p>
+                <p className="text-xs text-ink-subtle">{s.noInterestNote}</p>
               </>
             ) : (
               <Row label={s.installmentLabel} value={s.singleShot} />
@@ -463,20 +524,20 @@ function PaymentSuccess({
               <Row label={s.paidAtLabel} value={new Date(payment.paidAt).toLocaleString("tr-TR")} />
             ) : null}
             {payment.mode === "TEST" ? (
-              <p className="mt-2 text-xs text-slate-400">{s.testModeNote}</p>
+              <p className="mt-2 text-xs text-ink-subtle">{s.testModeNote}</p>
             ) : null}
           </div>
         ) : null}
 
         {receipt?.shippingAddress ? (
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="mb-1 font-semibold text-slate-700">{s.shippingTitle}</p>
-            <p className="text-slate-700">{receipt.shippingAddress.fullName}</p>
-            <p className="text-slate-500">
+          <div className="border border-line p-4">
+            <Eyebrow className="mb-1.5">{s.shippingTitle}</Eyebrow>
+            <p className="text-ink">{receipt.shippingAddress.fullName}</p>
+            <p className="text-ink-muted">
               {receipt.shippingAddress.addressLine1}
               {receipt.shippingAddress.addressLine2 ? `, ${receipt.shippingAddress.addressLine2}` : ""}
             </p>
-            <p className="text-slate-500">
+            <p className="text-ink-muted">
               {receipt.shippingAddress.district ? `${receipt.shippingAddress.district}, ` : ""}
               {receipt.shippingAddress.city} {receipt.shippingAddress.postalCode ?? ""}
             </p>
@@ -484,46 +545,45 @@ function PaymentSuccess({
         ) : null}
 
         {receipt?.billing ? (
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="mb-1 font-semibold text-slate-700">{s.billingTitle}</p>
-            <p className="text-slate-700">
+          <div className="border border-line p-4">
+            <Eyebrow className="mb-1.5">{s.billingTitle}</Eyebrow>
+            <p className="text-ink">
               {receipt.billing.type === "CORPORATE" ? s.billingCorporate : s.billingIndividual}
             </p>
             {receipt.billing.type === "CORPORATE" ? (
               <>
                 {receipt.billing.companyName ? (
-                  <p className="text-slate-500">{receipt.billing.companyName}</p>
+                  <p className="text-ink-muted">{receipt.billing.companyName}</p>
                 ) : null}
                 {receipt.billing.taxOffice || receipt.billing.taxNumber ? (
-                  <p className="text-slate-500">
+                  <p className="text-ink-muted">
                     {receipt.billing.taxOffice} {receipt.billing.taxNumber}
                   </p>
                 ) : null}
               </>
             ) : receipt.billing.name ? (
-              <p className="text-slate-500">{receipt.billing.name}</p>
+              <p className="text-ink-muted">{receipt.billing.name}</p>
             ) : null}
           </div>
         ) : null}
       </div>
 
       <div className="mt-6 flex flex-col gap-2">
-        <Link href="/account?section=orders" className="block">
-          <Button className="w-full">{s.goToOrders}</Button>
-        </Link>
-        <Link href="/products" className="block">
-          <Button variant="secondary" className="w-full">
-            {s.continueShopping}
-          </Button>
-        </Link>
+        {/* Bu fazın TEKIL birincil eylemi: siparişlerim → aksan (variant="cta"). */}
+        <ButtonLink href="/account?section=orders" variant="cta" className="w-full">
+          {s.goToOrders}
+        </ButtonLink>
+        <ButtonLink href="/products" variant="secondary" className="w-full">
+          {s.continueShopping}
+        </ButtonLink>
       </div>
-    </Card>
+    </div>
   );
 }
 
 /**
  * Taksit ozeti (odeme adimi): "N taksit × ₺X" + toplam + vade farksiz notu.
- * SAHTE FAIZ/ORAN YOK — toplam degismez; taksit basina esit bolunur.
+ * SAHTE FAIZ/ORAN YOK — toplam degismez; taksit basina esit bolunur (bkz. todo.md).
  */
 function InstallmentSummary({
   totalMinor,
@@ -537,10 +597,10 @@ function InstallmentSummary({
   t: PaymentDict;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+    <div className="border border-line bg-surface-muted p-3 text-sm">
       <div className="flex items-center justify-between">
-        <span className="text-slate-500">{t.installmentLabel}</span>
-        <span className="font-semibold text-slate-900">
+        <span className="text-ink-muted">{t.installmentLabel}</span>
+        <span className="font-semibold text-ink">
           {format(t.installmentSummaryValue, {
             count,
             amount: money(perInstallmentMinor(totalMinor, count), currency),
@@ -548,10 +608,10 @@ function InstallmentSummary({
         </span>
       </div>
       <div className="mt-1 flex items-center justify-between">
-        <span className="text-slate-500">{t.installmentTotalLabel}</span>
-        <span className="font-medium text-slate-700">{money(totalMinor, currency)}</span>
+        <span className="text-ink-muted">{t.installmentTotalLabel}</span>
+        <span className="font-medium text-ink">{money(totalMinor, currency)}</span>
       </div>
-      <p className="mt-1 text-xs text-emerald-600">{t.noInterestNote}</p>
+      <p className="mt-1 text-xs text-ink-subtle">{t.noInterestNote}</p>
     </div>
   );
 }
@@ -560,7 +620,7 @@ function InstallmentSummary({
  * 3D Secure dogrulama simulasyonu (MOCK). Gercek banka redirect YOK; demo amacli
  * banka dogrulama ekranini taklit eder. Kullanici dogrulamayi basariyla tamamlar
  * (→ PAID) ya da basarisiz yapar (→ FAILED, tekrar deneme imkani). Bu adim olmadan
- * 3DS karti ANINDA PAID olmaz.
+ * 3DS karti ANINDA PAID olmaz. DS: indigo → NÖTR; "3D" sinyali dolu ink rozet ile ayrisir.
  */
 function ThreeDsChallenge({
   state,
@@ -575,30 +635,31 @@ function ThreeDsChallenge({
 }) {
   return (
     <div className="mt-6">
-      <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+      <div className="border border-line-strong bg-surface-muted p-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-xs font-bold text-white">
+          <span className="flex h-7 w-7 items-center justify-center rounded-none bg-ink text-xs font-bold text-surface">
             3D
           </span>
           <div>
-            <p className="text-sm font-semibold text-slate-900">{t.threeDsTitle}</p>
-            <p className="text-xs text-slate-500">{t.threeDsBankSim}</p>
+            <p className="text-sm font-semibold text-ink">{t.threeDsTitle}</p>
+            <p className="text-xs text-ink-muted">{t.threeDsBankSim}</p>
           </div>
         </div>
-        <dl className="mt-3 space-y-1 border-t border-indigo-200/70 pt-3 text-sm">
+        <dl className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
           <div className="flex items-center justify-between">
-            <dt className="text-slate-500">{t.orderLabel}</dt>
-            <dd className="font-medium text-slate-900">{state.orderNumber}</dd>
+            <dt className="text-ink-muted">{t.orderLabel}</dt>
+            <dd className="font-medium text-ink">{state.orderNumber}</dd>
           </div>
           <div className="flex items-center justify-between">
-            <dt className="text-slate-500">{t.totalLabel}</dt>
-            <dd className="font-semibold text-slate-900">{money(state.totalMinor, state.currency)}</dd>
+            <dt className="text-ink-muted">{t.totalLabel}</dt>
+            <dd className="font-semibold text-ink">{money(state.totalMinor, state.currency)}</dd>
           </div>
         </dl>
-        <p className="mt-3 text-xs text-slate-500">{t.threeDsDescription}</p>
+        <p className="mt-3 text-xs text-ink-muted">{t.threeDsDescription}</p>
       </div>
       <div className="mt-4 flex flex-col gap-2">
-        <Button className="w-full" onClick={() => onResolve("success")} disabled={busy}>
+        {/* Bu fazın TEKIL birincil eylemi: 3DS onay → aksan (variant="cta"). */}
+        <Button variant="cta" className="w-full" onClick={() => onResolve("success")} disabled={busy}>
           {busy ? t.processing : t.threeDsCompleteSuccess}
         </Button>
         <Button
@@ -617,8 +678,8 @@ function ThreeDsChallenge({
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3 py-0.5">
-      <span className="text-slate-500">{label}</span>
-      <span className={["font-medium text-slate-900", mono ? "font-mono text-xs" : ""].join(" ")}>
+      <span className="text-ink-muted">{label}</span>
+      <span className={["font-medium text-ink", mono ? "font-mono text-xs" : ""].join(" ")}>
         {value}
       </span>
     </div>
