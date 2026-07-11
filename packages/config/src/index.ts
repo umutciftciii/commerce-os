@@ -156,6 +156,20 @@ export const envSchema = z.object({
   // Ardisik transient hata esigi: barcodeRetryCount bu degere ulasinca WORKER secmez
   // (barcodeRetryBlockedReason=MAX_ATTEMPTS); manuel retry calismaya devam eder.
   BARCODE_RETRY_MAX_ATTEMPTS: optionalNumberEnv(z.coerce.number().int().positive().default(5)),
+  // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
+  // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
+  // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla
+  // sunulur (ayni origin, @fastify/static); ileride CDN kokune isaret eden bir taban
+  // verilince ayni storageKey CDN'den servis edilir — migration/veri degisikligi YOK.
+  // TD-036: opsiyonel URL; bos string → undefined (url() bos degeri reddetmez).
+  MEDIA_PUBLIC_BASE_URL: optionalUrlEnv(),
+  // Yuklenen gorsellerin diske yazildigi taban dizin (Docker'da media-data named
+  // volume'una mount edilir; @fastify/static de bu kokten servis eder). Varsayilan
+  // /app/uploads; bos-string TOLERANSLIDIR (TD-036 / optionalEnv → default'a duser).
+  MEDIA_STORAGE_DIR: optionalEnv(z.string().min(1).default("/app/uploads")),
+  // Tek gorsel icin izin verilen azami ham yukleme boyutu (byte). Varsayilan 5 MiB
+  // (5*1024*1024). @fastify/multipart limiti + route guard bunu esas alir; asimda 413.
+  MEDIA_MAX_UPLOAD_BYTES: optionalNumberEnv(z.coerce.number().int().positive().default(5_242_880)),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
