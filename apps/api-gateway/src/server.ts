@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import fastifyMultipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { verifyPassword } from "@commerce-os/auth";
 import type { AppConfig } from "@commerce-os/config";
@@ -91,6 +94,8 @@ import {
   registerShippingWebhookRoutes,
 } from "./shipping/webhook-routes.js";
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
+import { registerMediaAdminRoutes } from "./media/routes.js";
+import { LocalDiskDriver } from "./media/local-disk-driver.js";
 // F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
 import {
   computeDiscounts,
@@ -4425,6 +4430,47 @@ export function createServer(
   // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar
   // + set-default). Kargo ucreti bu planlardan hesaplanir; provider canli quote DEGIL.
   registerShippingRatePlanRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // ADR-065 (Faz 1/Adim 4) — Site-geneli gorsel yonetimi: multipart upload + statik
+  // servis. @fastify/multipart yukleme boyutunu MEDIA_MAX_UPLOAD_BYTES ile sinirlar
+  // (asimda route 413 doner). @fastify/static yuklenen gorselleri /media/* altinda
+  // sunar (MEDIA_PUBLIC_BASE_URL bos ise resolveMediaUrl bu goreli yolu uretir; CDN
+  // kokune isaret edilince ayni storageKey CDN'den servis edilir).
+  const mediaDir = config.MEDIA_STORAGE_DIR ?? "/app/uploads";
+  const mediaMaxBytes = config.MEDIA_MAX_UPLOAD_BYTES ?? 5_242_880;
+  app.register(fastifyMultipart, {
+    limits: { fileSize: mediaMaxBytes, files: 1 },
+  });
+  // Statik servis yalniz hazir bir dizin varsa acilir. Uygulama boot'unda dizini
+  // olusturmayi dene; basarisizsa (izin/edge/test ortami) upload yine calisir ama
+  // local static serve ATLANIR (CDN/base URL varsa zaten gerekmez — @fastify/static
+  // gecersiz root ile init'te cokerdi).
+  let mediaStaticEnabled = false;
+  try {
+    mkdirSync(mediaDir, { recursive: true });
+    mediaStaticEnabled = true;
+  } catch (err) {
+    logger.warn("media storage dizini hazirlanamadi; statik servis atlandi", {
+      dir: mediaDir,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  if (mediaStaticEnabled) {
+    app.register(fastifyStatic, {
+      root: mediaDir,
+      prefix: "/media/",
+      decorateReply: false,
+    });
+  }
+  registerMediaAdminRoutes(app, {
+    config,
+    storage: new LocalDiskDriver(mediaDir),
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
