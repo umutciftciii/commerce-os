@@ -1737,3 +1737,110 @@ YOKTUR (mevcut siparişler mutate edilmez).
 kolon şişkinliği yok; türetim tek modülde test edilebilir. (–) Eski siparişlerde satış özeti yok (kabul
 edildi; yanıltıcı sıfırdan iyi). (–) Net kâr, brüt indirimi net kâr tabanından düşer (kullanıcı tablosuyla
 uyumlu MVP); indirimin net/KDV bileşenlerine dağıtımı fatura üretimi fazında ele alınacak.
+
+## ADR-065 — Site-geneli görsel yönetim altyapısı: local storage + "storage key sakla, URL türet" + CDN-hazır soyutlama
+
+- Durum: ACCEPTED (Umut onayladı: storeId-bazlı path + Faz 1'de sunucu-taraflı sharp/webp normalize dahil)
+
+**Bağlam.** Platformda bugün HİÇBİR gerçek görsel altyapısı yok: `Product`, `ProductVariant`,
+`ProductCategory` ve `Store` modellerinde image/media/logo alanı bulunmuyor; hero/slider/banner ve
+mağaza ayarları (logo/favicon) için model yok; api-gateway (Fastify v5) ne statik dosya sunumu ne de
+multipart upload içeriyor (kargo CSV import'u bile dosya değil, JSON body'de string metin); docker-compose'da
+tek named volume `postgres-data`, api-gateway'in hiç mount'u yok. Buna karşılık storefront bu boşluğu
+BİLİNÇLİ olarak tek bir entegrasyon kancasına indirgemiş: `productImageSrc()` (storefront `product-media.tsx`)
+daima `null` döner ve handle'dan deterministik gradyan+monogram yer-tutucu üretir; PLP/PDP/Cart ve public
+DTO'lar (`publicProductSchema`) "drop-in hazır" (`imageUrl` opsiyonel prop olarak var ama hiç dolmuyor).
+Home hero hardcoded tek panel (`HeroVisual`), site logosu i18n sabit metni (`shell.brand` = "Demo Mağaza"),
+mağaza ayarları sayfası tamamen mock+disabled. Kargo sağlayıcı `ShippingProviderConfig.logoUrl` mevcut tek
+görsel deseni ve yorumunda "logoStorageKey ileride object-store için TODO" notuyla doğru yönü zaten işaret
+ediyor. Görseller local filesystem'de gerçek dosya olarak tutulmalı (dış URL değil), imaj rebuild'de
+SİLİNMEMELİ (Docker volume), ve ileride önüne CDN konabilmeli (öngörülebilir path + env-tabanlı prefix).
+Platform çok kiracılı olduğundan görsellerin store bazında izole olması gerekiyor.
+
+**Karar.**
+- **"Storage key sakla, URL türet" (temel kural).** Veritabanına ASLA tam URL yazılmaz; yalnız göreli
+  `storageKey` (path) saklanır. Public URL runtime'da tek noktadan üretilir:
+  `resolveMediaUrl(storageKey) = MEDIA_PUBLIC_BASE_URL + "/" + storageKey`. Böylece local'de
+  (`http://localhost:4000/media/...`) ve ileride CDN'de (`https://cdn.magaza.com/...`) AYNI key,
+  farklı prefix — geriye dönük veri migration'ı GEREKMEZ. `MEDIA_PUBLIC_BASE_URL`, `packages/config`
+  `envSchema` + `optionalUrlEnv()` deseniyle eklenir (`PUBLIC_WEBHOOK_BASE_URL` referans; TD-036/ADR-057).
+- **storeId-bazlı, öngörülebilir path şeması.** `stores/{storeId}/{context}/{uuid}.webp`;
+  context ∈ {products, categories, hero, branding}. `storeId` (cuid) STABİL olduğu için `storeSlug`
+  yerine tercih edildi (slug değişse dosya taşıma/yeniden yazma gerekmez). storageKey'i DAİMA sunucu
+  üretir (client'tan path kabul edilmez → path traversal ve cross-tenant sızıntı önlenir; `storeId`
+  auth guard'dan gelir).
+  **Güncelleme (Faz 1 uygulaması):** path'ten `{entityId}` segmenti ÇIKARILDI. Entity bağlama tamamen
+  DB ilişkisiyle yapılır (`ProductImage.mediaId`, `HeroSlide.mediaId`, `StoreSettings.logoMediaId`/
+  `faviconMediaId`, `ProductCategory.imageId`); böylece yeni-ürün akışında (ürün henüz id almadan görsel
+  yüklenebilir) dosya taşıma HİÇ gerekmez ve storageKey yaşam boyu değişmez.
+- **Storage sürücüsü soyutlaması.** `StorageDriver` arayüzü (`put(key,buffer,mime)` / `delete(key)`) +
+  Faz 1'de `LocalDiskDriver`. İleride `S3Driver` aynı arayüzle eklenir; çağıran kod değişmez.
+- **Prisma modelleri (additive, taslak).** Tümü mevcut multi-tenant desenini izler
+  (`storeId` FK + `onDelete: Cascade` + `@@index([storeId])`, tenant-patterns.ts ile tutarlı):
+  - `MediaAsset` — merkezi/polimorfik yükleme kaydı (storageKey `@unique`, mimeType, byteSize,
+    width/height, altText, checksum, createdBy). Tek yükleme kaynağı.
+  - `ProductImage` — join model (productId + mediaId), `position` ile sıralı galeri (0 = kapak),
+    `@@unique([productId, mediaId])`; `ProductCategoryAssignment` gibi `storeId` denormalize.
+  - `ProductCategory.imageId` — opsiyonel FK (tekil kategori görseli, `onDelete: SetNull`).
+  - `StoreSettings` — yeni model (storeId PK); `logoMediaId` / `faviconMediaId` (ileride tema/renk/SEO
+    default'ları da buraya). Mağaza logosu artık i18n sabiti değil bu modelden gelir (fallback: mevcut metin).
+  - `HeroSlide` — çoklu slide (mediaId, position, status DRAFT/PUBLISHED, headline/subtext/ctaLabel/
+    ctaHref, opsiyonel startsAt/endsAt). Model çoklu kurulur; UI tek slide ile başlar, CampaignBar'ın
+    mevcut çoklu-slide UX mantığı (auto-geçiş/ok/nokta/reduced-motion) referans alınır.
+- **Upload API (mevcut route deseni).** `registerMediaRoutes(app, deps)` modülü + `createServer`'da
+  wire; `@fastify/multipart` eklenir. `POST /stores/:storeId/media` — `requireStoreAdmin` guard, mime
+  whitelist (jpg/png/webp) + boyut limiti (max 5MB), **sharp ile webp'e normalize + max-boyut clamp**,
+  diske yaz, `MediaAsset` kaydı, `recordAudit`; döner `{ id, storageKey, url }`. `DELETE .../media/:id`
+  kaydı + fiziksel dosyayı temizler. Ürün/kategori/hero bağlama ayrışık kalır (endpoint `mediaId` alır).
+  Statik servis: `@fastify/static` ile `/media/*` → volume dizini (public, CDN-uyumlu); imzalı/özel URL
+  Faz 4'e bırakıldı. **Silme politikası (Faz 1):** `MediaAsset` başka bir kayıt tarafından kullanılıyorsa
+  (`ProductImage`/`HeroSlide`/`StoreSettings`/`ProductCategory` referansı) DELETE `409 MEDIA_IN_USE`
+  döner — sessiz `SetNull` YOK; kullanıcı önce ilişkiyi kaldırmalı (kaza sonucu görsel kaybını önler).
+  Şemadaki FK `onDelete` davranışları (ProductImage/HeroSlide → Cascade; kategori/logo/favicon → SetNull)
+  KORUNUR; 409 kontrolü DELETE endpoint'inin iş mantığında yapılır.
+- **Docker volume.** api-gateway'e yeni named volume `media-data:/app/uploads`, `postgres-data` deseniyle
+  birebir (dosya sonu `volumes:` bloğu + servise `volumes:` mount'u). `MEDIA_STORAGE_DIR=/app/uploads`.
+  Rebuild'de veri korunur (named volume imajdan bağımsız).
+- **Faz bölünmesi (özet).** Faz 0: bu ADR + path/limit kararlarının donması. Faz 1: backend (şema+migration,
+  StorageDriver/LocalDiskDriver, multipart+static, registerMediaRoutes, media-data volume, config env).
+  Faz 2: store-admin yükleme UI (yerel koyu glass kit'e yeni `MediaUpload`/`ImagePicker`; ürün çoklu-galeri,
+  kategori tekil, ayarlar logo/favicon, yeni Hero yönetim ekranı — paylaşılan `@commerce-os/ui`'ye
+  dokunulmaz). Faz 3: storefront wiring (public DTO'lara `images[]`/`imageUrl`, `productImageSrc()` gerçek
+  URL, PDP thumbnail şeridi, home hero HeroSlide'dan, header logo StoreSettings'ten). Faz 4 (sonra): banner
+  sistemi, CDN geçişi, responsive srcset/çoklu boyut, S3Driver, imzalı URL, yetim dosya taraması.
+  Sıra gerekçesi: admin storefront'tan ÖNCE gelir ki storefront gerçek görselle test edilebilsin; backend
+  ikisinin de önkoşulu, tek başına smoke edilebilir (curl upload → disk + DB + statik serve).
+
+**Sonuçlar.** (+) Görsel altyapısı tek merkezi `MediaAsset` üzerinden; ürün/kategori/hero/logo aynı yükleme
+kaynağını paylaşır. (+) storefront değişikliği MİNİMAL: `productImageSrc()` gerçek URL döndürünce
+PLP/PDP/Cart/home otomatik gerçek görsele geçer (kanca zaten hazır). (+) CDN-hazır: `MEDIA_PUBLIC_BASE_URL`
+env değişikliği yeterli, veri migration'ı yok. (+) Multi-tenant izolasyon mevcut desenle tutarlı;
+sunucu-üretimli storageKey path traversal/cross-tenant sızıntıyı önler. (+) Docker volume ile rebuild'de
+kalıcılık. (–) api-gateway'e ilk kez multipart + statik servis + sharp bağımlılığı girer (imaj boyutu/build
+karmaşıklığı artar). (–) Görsel işleme senkron yükleme yolunda (büyük dosyada gecikme; async pipeline Faz 4).
+(–) Banner ve responsive varyantlar Faz 4'e ertelendi.
+
+**Reddedilen alternatifler.**
+- **storeSlug-bazlı path.** URL'ler daha okunabilir/SEO-dostu olurdu; reddedildi çünkü slug değiştirilebilir
+  ve o an tüm dosyaların taşınması/yeniden yazılması + eski URL kırılması gerekir. `storeId` değişmez →
+  stabilite tercih edildi. (Okunabilir public URL istenirse ileride CDN katmanında slug→id yönlendirmesi
+  eklenebilir.)
+- **Faz 1'de görsel işleme olmadan (ham sakla) başlamak.** Daha hızlı MVP olurdu; reddedildi çünkü tutarsız
+  format/boyut (dev cihazından gelen 10MB+ HEIC/PNG) hem volume'u hem storefront performansını bozar ve
+  sonradan normalize etmek backfill gerektirir. webp normalize + clamp baştan zorunlu kılındı.
+- **Dış URL alanı (kargo logoUrl gibi) genişletmek.** Görev gereği gerçek dosya yükleme isteniyor; harici
+  URL saklama tenant izolasyonu/kalıcılık/CDN kontrolü sağlamaz. Reddedildi.
+- **Object storage (S3/MinIO) ile başlamak.** Faz 1 için operasyonel yük; local FS + `StorageDriver`
+  soyutlaması aynı arayüzle ileride S3'e geçişi zaten mümkün kılıyor. Ertelendi.
+
+**Açık riskler / sorular (Faz 1 planında netleşecek).**
+- Boyut limiti max 5MB/görsel (`@fastify/multipart` `limits` ile zorlanır) — hero için ayrı/daha yüksek
+  limit gerekebilir.
+- Format whitelist giriş jpg/png/webp; sunucuda webp'e normalize. HEIC/animasyonlu içerik kapsam dışı.
+- `media-data` volume postgres gibi YEDEKLENMELİ — OPERATIONS/runbook'a eklenecek.
+- Silme & yetim dosya: `MediaAsset` silinince disk dosyası temizlenir; referans sayımı + periyodik yetim
+  tarama (worker) ileride.
+- Path traversal / cross-tenant: storageKey daima sunucu üretir, `storeId` guard'dan gelir.
+- Statik `/media/*` public — draft/özel içerik için imzalı URL Faz 4.
+- Mevcut veri migration'ı YOK (hiçbir görsel verisi yok; tüm alanlar nullable/opsiyonel eklenir, geriye
+  dönük risk minimal).

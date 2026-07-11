@@ -109,6 +109,22 @@ enum ProductCategoryStatus {
   ARCHIVED
 }
 
+// ADR-065 — Site-geneli gorsel yonetimi. MediaAsset'in hangi baglamda uretildigini
+// tutar; storageKey path segmenti de bundan turer (products/categories/hero/branding).
+enum MediaContext {
+  PRODUCT
+  CATEGORY
+  HERO
+  BRANDING
+}
+
+// ADR-065 — Yayin durumu (hero slide gibi vitrin icerikleri icin). DRAFT admin'de
+// gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
 enum ProductVariantStatus {
   DRAFT
   ACTIVE
@@ -521,6 +537,9 @@ model Store {
   campaignRedemptions     CampaignRedemption[]
   orderDiscounts          OrderDiscount[]
   customerCoupons         CustomerCoupon[]
+  mediaAssets             MediaAsset[]
+  heroSlides              HeroSlide[]
+  settings                StoreSettings?
 }
 
 model StoreUser {
@@ -673,6 +692,7 @@ model Product {
   assignments ProductCategoryAssignment[]
   orderLines  OrderLine[]
   campaignProducts CampaignProduct[]
+  images      ProductImage[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -764,6 +784,7 @@ model ProductCategory {
   parentId  String?
   sortOrder Int                   @default(0)
   status    ProductCategoryStatus @default(ACTIVE)
+  imageId   String?               // ADR-065 — opsiyonel tekil kategori gorseli
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
 
@@ -772,6 +793,7 @@ model ProductCategory {
   children    ProductCategory[]           @relation("ProductCategoryTree")
   assignments ProductCategoryAssignment[]
   campaignCategories CampaignCategory[]
+  image       MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1898,4 +1920,101 @@ model CustomerCoupon {
   @@index([campaignId])
   @@index([storeId, customerId, status])
   @@index([storeId, email, status])
+}
+
+// ============================================================================
+// ADR-065 — Site-geneli gorsel yonetimi (Faz 1: sema + storage + upload API).
+// Ilke: "storage key sakla, URL turet" — DB'ye tam URL YAZILMAZ; yalniz goreli
+// storageKey saklanir, public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
+// ile uretilir (CDN-hazir, migration'siz gecis). Multi-tenant izolasyon mevcut
+// desenle: storeId FK + onDelete Cascade + @@index([storeId]).
+// ============================================================================
+
+// Merkezi/polimorfik yukleme kaydi. storageKey formati (entityId ICERMEZ; entity
+// baglama tamamen DB iliskisiyle yapilir, dosya tasima gerekmez):
+//   stores/{storeId}/{context}/{uuid}.webp
+// context = products | categories | hero | branding. Tum gorseller yuklemede
+// sunucuda webp'e normalize edilir (sharp), bu yuzden mimeType daima image/webp.
+model MediaAsset {
+  id         String       @id @default(cuid())
+  storeId    String
+  context    MediaContext
+  storageKey String       @unique
+  mimeType   String
+  byteSize   Int
+  width      Int?
+  height     Int?
+  altText    String?
+  checksum   String?      // sha256; dedup/butunluk (dedup mantigi Faz 4)
+  createdBy  String?      // yukleyen actorUserId (audit)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productImages   ProductImage[]
+  categoryLinks   ProductCategory[] @relation("CategoryImage")
+  heroSlides      HeroSlide[]
+  logoSettings    StoreSettings[]   @relation("StoreLogo")
+  faviconSettings StoreSettings[]   @relation("StoreFavicon")
+
+  @@index([storeId])
+  @@index([storeId, context])
+}
+
+// Urun galerisi (coklu, sirali). position=0 kapak. storeId denormalize tenant
+// sutunudur (FK degil) — ProductCategoryAssignment deseniyle tutarli.
+model ProductImage {
+  id        String   @id @default(cuid())
+  storeId   String
+  productId String
+  mediaId   String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  media   MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, mediaId])
+  @@index([storeId])
+  @@index([productId])
+}
+
+// Ana sayfa hero/slider (coklu slide). Model cokludur; UI tek slide ile baslar,
+// CampaignBar'in coklu-slide UX mantigi (auto-gecis/ok/nokta) referans alinir.
+model HeroSlide {
+  id        String        @id @default(cuid())
+  storeId   String
+  mediaId   String
+  position  Int           @default(0)
+  status    ContentStatus @default(DRAFT)
+  headline  String?
+  subtext   String?
+  ctaLabel  String?
+  ctaHref   String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  store Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  media MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+}
+
+// Magaza ayarlari (1-1; repoda ilk 1-1 iliski). Logo/favicon MediaAsset'e opsiyonel
+// FK. Ileride tema/renk/SEO default'lari da buraya eklenir. PK = FK (storeId).
+model StoreSettings {
+  storeId        String   @id
+  logoMediaId    String?
+  faviconMediaId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  store   Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  logo    MediaAsset? @relation("StoreLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
+  favicon MediaAsset? @relation("StoreFavicon", fields: [faviconMediaId], references: [id], onDelete: SetNull)
+
+  @@index([logoMediaId])
+  @@index([faviconMediaId])
 }
