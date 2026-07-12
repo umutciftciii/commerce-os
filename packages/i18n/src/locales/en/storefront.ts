@@ -135,7 +135,8 @@ export const enStorefront: StorefrontDictionary = {
     ratingPlaceholder: "No ratings yet",
     reviewCountPlaceholder: "Be the first to review",
     galleryAlt: "Product image",
-    galleryThumbAlt: "Product thumbnail",
+    // {title} is replaced with the product title, {n} with the 1-based image index.
+    galleryThumbAlt: "{title} thumbnail {n}",
     galleryHint: "Images coming together",
     benefitsTitle: "Highlights",
     benefits: [
