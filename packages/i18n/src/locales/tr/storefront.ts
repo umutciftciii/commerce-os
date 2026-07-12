@@ -140,7 +140,8 @@ export const trStorefront = {
     ratingPlaceholder: "Henüz değerlendirme yok",
     reviewCountPlaceholder: "İlk değerlendirmeyi sen yap",
     galleryAlt: "Ürün görseli",
-    galleryThumbAlt: "Ürün küçük görseli",
+    // {title} ürün başlığıyla, {n} 1'den başlayan görsel sırasıyla değiştirilir.
+    galleryThumbAlt: "{title} küçük görseli {n}",
     galleryHint: "Görseller hazırlanıyor",
     benefitsTitle: "Öne çıkanlar",
     benefits: [

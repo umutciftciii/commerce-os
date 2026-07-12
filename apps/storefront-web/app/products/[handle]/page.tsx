@@ -15,6 +15,8 @@ import {
 } from "../../../components/ui";
 import { ProductCard } from "../../../components/ui/product-card";
 import { BuyBox } from "../../../components/buy-box";
+import { ProductGallery } from "../../../components/product-gallery";
+import { shouldShowThumbnailStrip } from "../../../lib/gallery";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
@@ -79,7 +81,7 @@ export default async function ProductDetailPage({
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
         {/* Sol: medya galerisi */}
-        <Gallery detail={detail} />
+        <Gallery detail={detail} t={t} />
 
         {/* Sag: baslik + buy box */}
         <div>
@@ -214,12 +216,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * Medya galerisi. `ProductMedia` gerçek kapak URL'ini (`detail.coverUrl`) alır; yoksa
- * deterministik yer tutucuya düşer. ADR-065 (Faz 3/Dilim 1): çoklu görsel backend'i
- * ARTIK var (`detail.images` tam galeriyi taşır) ama Dilim 1 yalnızca kapağı render
- * eder; thumbnail şeridi + seçili-görsel state Dilim 2'de `detail.images`'i tüketecek.
+ * Medya galerisi. ADR-065 (Faz 3/Dilim 2): birden fazla görsel varsa
+ * (`detail.images`) tıklanabilir thumbnail şeridi taşıyan istemci adası
+ * `ProductGallery` render edilir. Tek/sıfır görselde eski yol korunur: `ProductMedia`
+ * gerçek kapak URL'ini (`detail.coverUrl`) alır, yoksa deterministik yer tutucuya
+ * düşer — böylece görselsiz üründe hidrasyon maliyeti de oluşmaz.
  */
-function Gallery({ detail }: { detail: StorefrontProductDetail }) {
+function Gallery({
+  detail,
+  t,
+}: {
+  detail: StorefrontProductDetail;
+  t: StorefrontDictionary["detail"];
+}) {
+  if (shouldShowThumbnailStrip(detail.images)) {
+    return <ProductGallery images={detail.images} title={detail.title} t={t} />;
+  }
+
   return (
     <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
       <ProductMedia handle={detail.handle} title={detail.title} imageUrl={detail.coverUrl} />
