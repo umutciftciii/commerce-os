@@ -214,15 +214,15 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * Medya galerisi. Çağıran taraf değişmeden `ProductMedia`'ya bağlıdır: gerçek
- * görsel gelince (`productImageSrc`/`imageUrl`) drop-in kapak gösterilir, yoksa
- * deterministik yer tutucu. Çoklu görsel backend'i olmadığından THUMBNAIL ŞERİDİ
- * YOK (ekstra mock üretmemek için — bkz. todo.md P0 görsel).
+ * Medya galerisi. `ProductMedia` gerçek kapak URL'ini (`detail.coverUrl`) alır; yoksa
+ * deterministik yer tutucuya düşer. ADR-065 (Faz 3/Dilim 1): çoklu görsel backend'i
+ * ARTIK var (`detail.images` tam galeriyi taşır) ama Dilim 1 yalnızca kapağı render
+ * eder; thumbnail şeridi + seçili-görsel state Dilim 2'de `detail.images`'i tüketecek.
  */
 function Gallery({ detail }: { detail: StorefrontProductDetail }) {
   return (
     <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
-      <ProductMedia handle={detail.handle} title={detail.title} />
+      <ProductMedia handle={detail.handle} title={detail.title} imageUrl={detail.coverUrl} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ function summary(
     title: "Test Ürün",
     brand: "Marka",
     categoryLabel: "Giyim",
+    coverUrl: null,
     price,
     commerce: deriveProductCommerceView(salesOverrides),
     badgeKind: price.compareAtLabel ? "discount" : null,

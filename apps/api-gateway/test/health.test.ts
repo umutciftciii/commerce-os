@@ -930,6 +930,19 @@ class MemoryDataAccess implements AppDataAccess {
     return product;
   }
 
+  // ADR-065 (Faz 3/Dilim 1) — public gorsel projeksiyonu icin batched cekim (bellek-ici).
+  // prisma karsiligiyla ayni: position ASC sirali; coverOnly=true → yalniz kapak ([ilk]).
+  async listProductImages(storeId: string, productIds: string[], coverOnly: boolean) {
+    const map = new Map<string, ProductRecord["images"]>();
+    for (const productId of productIds) {
+      const product = this.products.find((item) => item.storeId === storeId && item.id === productId);
+      if (!product || product.images.length === 0) continue;
+      const sorted = [...product.images].sort((a, b) => a.position - b.position);
+      map.set(productId, coverOnly ? [sorted[0]] : sorted);
+    }
+    return map;
+  }
+
   async updateProduct(
     storeId: string,
     productId: string,
@@ -4622,6 +4635,39 @@ describe("api gateway · public catalog (TD-032)", () => {
       expect(body).not.toHaveProperty(internalKey);
       expect(body.variants[0]).not.toHaveProperty(internalKey);
     }
+    await app.close();
+  });
+
+  // ADR-065 (Faz 3/Dilim 1) — Gateway-seviyesi görsel ALLOWLIST + url türetimi.
+  // Detay tam galeriyi (url/altText/position) döner; liste yalnız kapağı; her iki
+  // yolda da mediaId/storageKey public gövdeye SIZMAZ.
+  it("serializes product images as an allowlist (url/altText/position; no mediaId/storageKey)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.images = [
+      { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak" },
+      { mediaId: "media_alt", position: 1, storageKey: "stores/store_demo/products/alt.webp", altText: null },
+    ];
+
+    const detail = await app.inject({ method: "GET", url: "/public/stores/demo-store/products/demo-hoodie" });
+    const detailBody = detail.json();
+    // Detay = TAM galeri (position ASC); url MEDIA_PUBLIC_BASE_URL bos → /media/<key>.
+    expect(detailBody.images).toEqual([
+      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0 },
+      { url: "/media/stores/store_demo/products/alt.webp", altText: null, position: 1 },
+    ]);
+    // Allowlist: ham mediaId FK ve "storageKey" alan adı public gövdede HİÇ görünmez.
+    // (storageKey DEĞERİ türetilen url'in path'idir; asıl sızıntı riski ham FK + alan adıdır.)
+    expect(JSON.stringify(detailBody)).not.toContain("media_cover");
+    expect(JSON.stringify(detailBody)).not.toContain("storageKey");
+    expect(detailBody.images[0]).not.toHaveProperty("mediaId");
+    expect(detailBody.images[0]).not.toHaveProperty("storageKey");
+
+    // Liste = yalnız KAPAK (tek eleman, position 0).
+    const list = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
+    const listBody = list.json();
+    expect(listBody.data[0].images).toEqual([
+      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0 },
+    ]);
     await app.close();
   });
 

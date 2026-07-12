@@ -27,6 +27,7 @@ function summary(
     title: "Test Ürün",
     brand: "Marka",
     categoryLabel: "Giyim",
+    coverUrl: null,
     price,
     commerce: deriveProductCommerceView(salesOverrides),
     badgeKind: price.compareAtLabel ? "discount" : null,
@@ -102,5 +103,40 @@ describe("PLP ProductCard · commerce semantics", () => {
     const html = renderToStaticMarkup(<ProductCard product={summary(sales.online, amount)} t={en} />);
     expect(html).toContain("Add to cart");
     expect(html).not.toContain("Sepete ekle");
+  });
+
+  // ADR-065 (Faz 3/Dilim 1) — Kapak gorseli: coverUrl dolu → gercek <img> (object-cover);
+  // yoksa deterministik yer tutucu (monogram). productImageSrc fallback'i DEGISMEZ.
+  it("renders the real cover image when coverUrl is set", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, amount, { coverUrl: "/media/stores/s1/products/cover.webp" })}
+        t={tr}
+      />,
+    );
+    expect(html).toContain('src="/media/stores/s1/products/cover.webp"');
+    expect(html).toContain("object-cover");
+  });
+
+  it("falls back to the deterministic placeholder when coverUrl is null (regression gate)", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard product={summary(sales.online, amount, { coverUrl: null })} t={tr} />,
+    );
+    // Gercek <img src> YOK; yer tutucu role="img" + aria-label (urun basligi).
+    expect(html).not.toContain("<img");
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="Test Ürün"');
+  });
+
+  it("prefers the explicit imageUrl prop over product.coverUrl", () => {
+    const html = renderToStaticMarkup(
+      <ProductCard
+        product={summary(sales.online, amount, { coverUrl: "/media/from-cover.webp" })}
+        t={tr}
+        imageUrl="/media/from-prop.webp"
+      />,
+    );
+    expect(html).toContain('src="/media/from-prop.webp"');
+    expect(html).not.toContain("/media/from-cover.webp");
   });
 });

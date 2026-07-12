@@ -9,6 +9,9 @@ import {
   productCreateRequestSchema,
   productSchema,
   productUpdateRequestSchema,
+  publicProductImageSchema,
+  publicProductSchema,
+  publicProductDetailSchema,
   productVariantCreateRequestSchema,
   productVariantUpdateRequestSchema,
   storeSettingsSchema,
@@ -354,6 +357,84 @@ describe("catalog contracts", () => {
       { mediaId: "m1", url: "/media/stores/store_1/products/a.webp", altText: null, position: 0 },
       { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1 },
     ]);
+  });
+
+  // ADR-065 (Faz 3/Dilim 1) — Public görsel ALLOWLIST'i.
+  const basePublicProduct = {
+    id: "product_1",
+    slug: "demo-hoodie",
+    title: "Demo Hoodie",
+    brand: null,
+    categoryLabel: null,
+    salesMode: "ONLINE",
+    priceVisibility: "VISIBLE",
+    primaryAction: "ADD_TO_CART",
+    purchasable: true,
+    whatsappEnabled: false,
+    inquiryEnabled: false,
+    appointmentRequired: false,
+    minOrderQuantity: 1,
+    maxOrderQuantity: null,
+    variants: [],
+  };
+
+  it("ADR-065 Faz 3/Dilim 1: publicProductImageSchema is an allowlist (drops mediaId/storageKey)", () => {
+    // Ic/yonetim alanlari (mediaId ham FK, storageKey, checksum) parse'ta DUSTURULUR;
+    // yalniz url/altText/position kalir → public govdeye asla sizmaz.
+    const parsed = publicProductImageSchema.parse({
+      url: "/media/stores/store_1/products/a.webp",
+      altText: "Kapak",
+      position: 0,
+      mediaId: "media_1",
+      storageKey: "stores/store_1/products/a.webp",
+      checksum: "deadbeef",
+    } as Record<string, unknown>);
+    expect(parsed).toEqual({ url: "/media/stores/store_1/products/a.webp", altText: "Kapak", position: 0 });
+    expect(parsed).not.toHaveProperty("mediaId");
+    expect(parsed).not.toHaveProperty("storageKey");
+    expect(parsed).not.toHaveProperty("checksum");
+  });
+
+  it("ADR-065 Faz 3/Dilim 1: publicProduct images defaults to [] and strips leaked image fields", () => {
+    // images verilmezse [] (gorseli olmayan urun → vitrin yer tutucuya duser).
+    expect(publicProductSchema.parse(basePublicProduct).images).toEqual([]);
+    // images verilirse yalniz allowlist alanlari tasinir; mediaId/storageKey elenir.
+    const withImages = publicProductSchema.parse({
+      ...basePublicProduct,
+      images: [
+        {
+          url: "/media/stores/store_1/products/cover.webp",
+          altText: null,
+          position: 0,
+          mediaId: "media_1",
+          storageKey: "stores/store_1/products/cover.webp",
+        },
+      ],
+    } as Record<string, unknown>);
+    expect(withImages.images).toEqual([
+      { url: "/media/stores/store_1/products/cover.webp", altText: null, position: 0 },
+    ]);
+    expect(JSON.stringify(withImages)).not.toContain("mediaId");
+    expect(JSON.stringify(withImages)).not.toContain("storageKey");
+  });
+
+  it("ADR-065 Faz 3/Dilim 1: publicProductDetail inherits the images allowlist (full gallery)", () => {
+    const detail = publicProductDetailSchema.parse({
+      ...basePublicProduct,
+      description: null,
+      callToActionLabel: null,
+      whatsappMessageTemplate: null,
+      inquiryFormTitle: null,
+      appointmentNote: null,
+      related: [],
+      images: [
+        { url: "/media/stores/store_1/products/a.webp", altText: "A", position: 0, mediaId: "m1" },
+        { url: "/media/stores/store_1/products/b.webp", altText: null, position: 1, mediaId: "m2" },
+      ],
+    } as Record<string, unknown>);
+    expect(detail.images).toHaveLength(2);
+    expect(detail.images[0]).toEqual({ url: "/media/stores/store_1/products/a.webp", altText: "A", position: 0 });
+    expect(JSON.stringify(detail.images)).not.toContain("mediaId");
   });
 
   it("accepts positive and negative non-zero inventory adjustments", () => {
