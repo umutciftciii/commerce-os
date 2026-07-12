@@ -9,7 +9,12 @@
  *  - RESPONSE allowlist (mediaAssetSchema): storageKey/checksum/createdBy SIZMAZ;
  *    yalniz turetilmis `url` (resolveMediaUrl) ve gorunur meta doner.
  *
- * DELETE + 409 MEDIA_IN_USE ayri bir checkpoint'te (Adim 4b) eklenecek.
+ * DELETE /stores/:storeId/media/:mediaId (Adim 4b):
+ *  - Tenant izolasyonu: findFirst { id, storeId }; baska store'un id'si → 404 (sizinti yok).
+ *  - Referans butunlugu: MediaAsset hala ProductImage/HeroSlide/StoreSettings(logo|favicon)/
+ *    ProductCategory tarafindan kullaniliyorsa 409 MEDIA_IN_USE (sessiz SetNull YOK).
+ *    Kullanici once iliskiyi kaldirmali; hangi tablolarda kullanildigi `usedIn`'de doner.
+ *  - Referans yoksa: prisma.delete + storage.delete (kayit + dosya birlikte) → 204.
  */
 import { createHash, randomUUID } from "node:crypto";
 
@@ -44,6 +49,11 @@ export interface MediaAdminRoutesDeps {
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
+
+const mediaDeleteParam = z.object({
+  storeId: z.string().min(1),
+  mediaId: z.string().min(1),
+});
 
 const uploadFieldsSchema = z.object({
   context: z.enum(["PRODUCT", "CATEGORY", "HERO", "BRANDING"]),
@@ -182,5 +192,70 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
         },
       }),
     );
+  });
+
+  app.delete("/stores/:storeId/media/:mediaId", async (request, reply) => {
+    const params = mediaDeleteParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+
+    // 1) Tenant-izole lookup. Baska store'un mediaId'si de dahil, bulunamayan her sey
+    //    404 — "var ama senin degil" bilgisi sizdirilmaz.
+    const media = await prisma.mediaAsset.findFirst({
+      where: { id: params.mediaId, storeId: params.storeId },
+    });
+    if (!media) {
+      return reply.code(404).send(errorBody("NOT_FOUND", "Gorsel bulunamadi."));
+    }
+
+    // 2) Referans butunlugu. 4 referans tablosunu storeId ile sinirli sayariz;
+    //    herhangi birinde kullanim varsa silmeyi reddeder (sessiz SetNull YOK).
+    const [productImageCount, heroSlideCount, storeSettingsCount, categoryCount] =
+      await Promise.all([
+        prisma.productImage.count({
+          where: { mediaId: params.mediaId, storeId: params.storeId },
+        }),
+        prisma.heroSlide.count({
+          where: { mediaId: params.mediaId, storeId: params.storeId },
+        }),
+        prisma.storeSettings.count({
+          where: {
+            storeId: params.storeId,
+            OR: [{ logoMediaId: params.mediaId }, { faviconMediaId: params.mediaId }],
+          },
+        }),
+        prisma.productCategory.count({
+          where: { imageId: params.mediaId, storeId: params.storeId },
+        }),
+      ]);
+
+    const usedIn: string[] = [];
+    if (productImageCount > 0) usedIn.push("ProductImage");
+    if (heroSlideCount > 0) usedIn.push("HeroSlide");
+    if (storeSettingsCount > 0) usedIn.push("StoreSettings");
+    if (categoryCount > 0) usedIn.push("ProductCategory");
+
+    if (usedIn.length > 0) {
+      return reply.code(409).send(
+        errorBody("MEDIA_IN_USE", "Gorsel kullanimda; once iliskiyi kaldirin.", { usedIn }),
+      );
+    }
+
+    // 3) Kayit + dosya birlikte silinir. Once DB (referans-butunlugu otoritesi),
+    //    sonra dosya — dosya silme basarisiz olsa bile yetim dosya zararsizdir ve
+    //    temizlenebilir; ters sira ise dangling kayit birakirdi.
+    await prisma.mediaAsset.delete({ where: { id: media.id } });
+    await storage.delete(media.storageKey);
+
+    await deps.recordAudit({
+      action: "DELETE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "MediaAsset",
+      entityId: media.id,
+      metadata: { context: media.context, storageKey: media.storageKey },
+    });
+
+    return reply.code(204).send();
   });
 }
