@@ -61,8 +61,15 @@ services:
       SHIPMENT_SYNC_BATCH_SIZE: "25"
       SHIPMENT_SYNC_STALE_AFTER_MINUTES: "15"
       SHIPMENT_SYNC_MAX_ATTEMPTS: "10"
+      # ADR-065 Faz 1 / Adim 5a — Gorsel depolama. Yuklenen medya bu dizine yazilir
+      # ve /media/* altinda statik servis edilir; media-data named volume ile kalici.
+      # MEDIA_PUBLIC_BASE_URL bos → URL'ler goreli (/media/...) uretilir (local dev).
+      MEDIA_STORAGE_DIR: /app/uploads
+      MEDIA_PUBLIC_BASE_URL: ""
     ports:
       - "4000:4000"
+    volumes:
+      - media-data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,3 +203,6 @@ services:
 
 volumes:
   postgres-data:
+  # ADR-065 Faz 1 / Adim 5a — Yuklenen gorsellerin kalici deposu (api-gateway
+  # /app/uploads). postgres-data deseninin birebir kopyasi.
+  media-data:
