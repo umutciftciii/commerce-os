@@ -32,6 +32,12 @@ import type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  HeroSlide,
+  HeroSlideCreateRequest,
+  HeroSlideListResponse,
+  HeroSlideReorderRequest,
+  HeroSlideStatusActionResponse,
+  HeroSlideUpdateRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -162,6 +168,12 @@ export type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  HeroSlide,
+  HeroSlideCreateRequest,
+  HeroSlideListResponse,
+  HeroSlideReorderRequest,
+  HeroSlideStatusActionResponse,
+  HeroSlideUpdateRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -529,6 +541,27 @@ export interface ApiClient {
         input: StoreSettingsUpdateRequest,
         token?: string,
       ): Promise<StoreSettings>;
+    };
+    // ADR-065 Faz 2 (Dilim 5) — Ana sayfa hero slide (CRUD temeli). Siralama ve
+    // yayin gecisi ayri checkpoint. remove 204 (yalniz slide; media'ya dokunmaz).
+    heroSlides: {
+      list(storeId: string, token?: string): Promise<HeroSlideListResponse>;
+      create(storeId: string, input: HeroSlideCreateRequest, token?: string): Promise<HeroSlide>;
+      get(storeId: string, id: string, token?: string): Promise<HeroSlide>;
+      update(
+        storeId: string,
+        id: string,
+        input: HeroSlideUpdateRequest,
+        token?: string,
+      ): Promise<HeroSlide>;
+      remove(storeId: string, id: string, token?: string): Promise<void>;
+      reorder(
+        storeId: string,
+        input: HeroSlideReorderRequest,
+        token?: string,
+      ): Promise<HeroSlideListResponse>;
+      publish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
+      unpublish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -1181,6 +1214,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         get: (storeId, token) => getJson<StoreSettings>(`/stores/${storeId}/settings`, token),
         update: (storeId, input, token) =>
           sendJson<StoreSettings>(`/stores/${storeId}/settings`, "PATCH", input, token),
+      },
+      // ADR-065 Faz 2 (Dilim 5) — Ana sayfa hero slide (CRUD temeli). remove DELETE
+      // 204 (yalniz slide kaydi; media'ya dokunmaz).
+      heroSlides: {
+        list: (storeId, token) =>
+          getJson<HeroSlideListResponse>(`/stores/${storeId}/hero-slides`, token),
+        create: (storeId, input, token) =>
+          sendJson<HeroSlide>(`/stores/${storeId}/hero-slides`, "POST", input, token),
+        get: (storeId, id, token) =>
+          getJson<HeroSlide>(`/stores/${storeId}/hero-slides/${id}`, token),
+        update: (storeId, id, input, token) =>
+          sendJson<HeroSlide>(`/stores/${storeId}/hero-slides/${id}`, "PATCH", input, token),
+        remove: (storeId, id, token) =>
+          requestJson<void>(`/stores/${storeId}/hero-slides/${id}`, { method: "DELETE" }, token),
+        reorder: (storeId, input, token) =>
+          sendJson<HeroSlideListResponse>(`/stores/${storeId}/hero-slides/reorder`, "POST", input, token),
+        publish: (storeId, id, token) =>
+          sendJson<HeroSlideStatusActionResponse>(
+            `/stores/${storeId}/hero-slides/${id}/publish`,
+            "POST",
+            undefined,
+            token,
+          ),
+        unpublish: (storeId, id, token) =>
+          sendJson<HeroSlideStatusActionResponse>(
+            `/stores/${storeId}/hero-slides/${id}/unpublish`,
+            "POST",
+            undefined,
+            token,
+          ),
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).

@@ -120,6 +120,9 @@ import {
 } from "./campaigns/data.js";
 import { registerCampaignAdminRoutes } from "./campaigns/routes.js";
 import { registerWalletAdminRoutes } from "./campaigns/wallet-routes.js";
+// ADR-065 (Faz 2/Dilim 5) — Ana sayfa hero slide yonetimi (CRUD temeli).
+import { registerHeroAdminRoutes } from "./hero/routes.js";
+import { createPrismaHeroDataAccess } from "./hero/data.js";
 import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
@@ -4662,6 +4665,19 @@ export function createServer(
   // F4A — Kampanya/kupon yonetimi (ADR-058): store-admin CRUD + durum gecisleri.
   registerCampaignAdminRoutes(app, {
     dataAccess,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // ADR-065 (Faz 2/Dilim 5) — Ana sayfa hero slide yonetimi (CRUD temeli). Media
+  // guard hero modulunun kendi icindedir (HERO context); server closure'ina bagli
+  // degil. dataAccess ayri bir prisma-backed impl'dir (kampanya deseni).
+  registerHeroAdminRoutes(app, {
+    dataAccess: createPrismaHeroDataAccess(),
+    mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
