@@ -51,6 +51,8 @@ export interface CartLineView {
   maxQuantity: number | null;
   inStock: boolean;
   status: PublicCartLineStatus;
+  /** ADR-065 (Faz 3/Dilim 6a) — Kapak URL'i (gateway allowlist). Yoksa null → yer tutucu. */
+  imageUrl: string | null;
 }
 
 /** Sunucu-otoriter siparis ozeti (bicimli etiketler + makine-okunur durumlar). */
@@ -144,6 +146,8 @@ export interface OrderConfirmationView {
     quantity: number;
     unitPriceLabel: string;
     lineTotalLabel: string;
+    /** ADR-065 (Faz 3/Dilim 6a) — Kapak URL'i (gateway allowlist). Yoksa null → yer tutucu. */
+    imageUrl: string | null;
   }>;
   /** F3B.2 — Success ekrani teslimat/fatura ozeti (varsa). */
   shippingAddress: PublicAddressSummary | null;
@@ -241,6 +245,7 @@ function toCartView(cart: PublicCart): CartView {
       maxQuantity: line.maxOrderQuantity,
       inStock: line.inStock,
       status: line.status,
+      imageUrl: line.imageUrl,
     })),
   };
 }
@@ -436,6 +441,8 @@ export async function submitCheckout(
           quantity: line.quantity,
           unitPriceLabel: formatMinor(line.unitPriceMinor, line.currency),
           lineTotalLabel: formatMinor(line.lineTotalMinor, line.currency),
+          // Dilim 6a — Gateway confirmation kapak URL'i (optional; yoksa null → yer tutucu).
+          imageUrl: line.imageUrl ?? null,
         })),
         shippingAddress: confirmation.shippingAddress ?? null,
         billing: confirmation.billing ?? null,

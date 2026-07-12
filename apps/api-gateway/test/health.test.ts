@@ -13,7 +13,7 @@ import {
   type ProductVariantStatus,
   type StoreStatus,
 } from "@prisma/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type AppDataAccess,
   type PaymentAttemptCreateInput,
@@ -6177,6 +6177,114 @@ describe("api gateway · payment providers (F3B.2)", () => {
     });
     expect(submit.statusCode).toBe(200);
     expect(submit.json()).toMatchObject({ paymentStatus: "PAID", attempt: { status: "PAID" } });
+    await app.close();
+  });
+});
+
+// ADR-065 (Faz 3/Dilim 6a) — Sepet/onay satiri KAPAK thumbnail'i. Gorsel, Dilim 1
+// ile ayni batched desenden (listProductImages coverOnly + resolveMediaUrl) beslenir;
+// ALLOWLIST korunur (mediaId/storageKey sizmaz); N+1 yok (tek batched cagri).
+describe("api gateway · cart/checkout thumbnail (ADR-065 Faz 3/Dilim 6a)", () => {
+  const VARIANT = "variant_hoodie_m";
+  const COVER = { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak" };
+  const ALT = { mediaId: "media_alt", position: 1, storageKey: "stores/store_demo/products/alt.webp", altText: null };
+  const contact = { fullName: "Ada Lovelace", email: "ada@example.com", phone: "+905551112233" };
+  const address = { country: "TR", city: "Istanbul", district: "Kadikoy", addressLine1: "Bagdat Cad. 1", postalCode: "34000" };
+  const billing = { type: "INDIVIDUAL" as const, sameAsShipping: true, name: "Ada Lovelace", tckn: "10000000146" };
+
+  function postCart(app: Awaited<ReturnType<typeof createTestApp>>["app"], items: unknown) {
+    return app.inject({ method: "POST", url: "/public/stores/demo-store/cart", payload: { items } });
+  }
+
+  it("cart line carries the derived cover URL (imageUrl) when the product has images", async () => {
+    const { app, dataAccess } = await createTestApp();
+    // Kapak (position 0) + ikinci gorsel; cart yalniz KAPAGI (en dusuk position) tasir.
+    dataAccess.products[0]!.images = [ALT, COVER]; // sirasiz verildi → coverOnly position ASC secer
+    const res = await postCart(app, [{ variantId: VARIANT, quantity: 1 }]);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.lines[0].imageUrl).toBe("/media/stores/store_demo/products/cover.webp");
+    await app.close();
+  });
+
+  it("cart line imageUrl is null when the product has no images (placeholder fallback)", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.images = [];
+    const res = await postCart(app, [{ variantId: VARIANT, quantity: 1 }]);
+    const body = res.json();
+    expect(body.lines[0]).toHaveProperty("imageUrl");
+    expect(body.lines[0].imageUrl).toBeNull();
+    await app.close();
+  });
+
+  it("cart imageUrl is an allowlist: no mediaId/storageKey leaks into the response", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.images = [COVER, ALT];
+    const res = await postCart(app, [{ variantId: VARIANT, quantity: 1 }]);
+    const raw = JSON.stringify(res.json());
+    expect(raw).not.toContain("media_cover");
+    expect(raw).not.toContain("storageKey");
+    expect(res.json().lines[0]).not.toHaveProperty("mediaId");
+    expect(res.json().lines[0]).not.toHaveProperty("storageKey");
+    await app.close();
+  });
+
+  it("resolves covers with a SINGLE batched query (no N+1) across multiple cart lines", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.images = [COVER];
+    // Ikinci satilabilir urun+varyant ekle (ayni sepette iki farkli urun → N+1 riski).
+    dataAccess.products.push({
+      ...dataAccess.products[0]!,
+      id: "product_tee",
+      title: "Demo Tee",
+      slug: "demo-tee",
+      images: [{ mediaId: "media_tee", position: 0, storageKey: "stores/store_demo/products/tee.webp", altText: null }],
+    });
+    dataAccess.variants.push({
+      ...dataAccess.variants[0]!,
+      id: "variant_tee_m",
+      productId: "product_tee",
+      sku: "DEMO-TEE-M",
+    });
+    dataAccess.inventory.push({
+      id: "inventory_tee_m", storeId: "store_demo", variantId: "variant_tee_m", productId: "product_tee",
+      sku: "DEMO-TEE-M", title: "Black / M", quantityOnHand: 10, quantityReserved: 0, lowStockThreshold: null,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const spy = vi.spyOn(dataAccess, "listProductImages");
+    const res = await postCart(app, [
+      { variantId: VARIANT, quantity: 1 },
+      { variantId: "variant_tee_m", quantity: 2 },
+    ]);
+    expect(res.statusCode).toBe(200);
+    // Iki farkli urun; yine de TEK listProductImages cagrisi (batched, N+1 yok).
+    expect(spy).toHaveBeenCalledTimes(1);
+    const byVariant = new Map<string, string | null>(res.json().lines.map((l: { variantId: string; imageUrl: string | null }) => [l.variantId, l.imageUrl]));
+    expect(byVariant.get(VARIANT)).toBe("/media/stores/store_demo/products/cover.webp");
+    expect(byVariant.get("variant_tee_m")).toBe("/media/stores/store_demo/products/tee.webp");
+    spy.mockRestore();
+    await app.close();
+  });
+
+  it("checkout confirmation lines carry imageUrl; a single batched query resolves them", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.products[0]!.images = [COVER, ALT];
+    const spy = vi.spyOn(dataAccess, "listProductImages");
+    const res = await app.inject({
+      method: "POST",
+      url: "/public/stores/demo-store/checkout",
+      payload: { items: [{ variantId: VARIANT, quantity: 1 }], contact, shippingAddress: address, billing },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.lines[0].imageUrl).toBe("/media/stores/store_demo/products/cover.webp");
+    // Onay yolunda da tek batched cagri (order line productId'lerinden).
+    expect(spy).toHaveBeenCalledTimes(1);
+    // Allowlist korunur (onay yanitinda ham FK/anahtar yok).
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("media_cover");
+    expect(raw).not.toContain("storageKey");
+    spy.mockRestore();
     await app.close();
   });
 });

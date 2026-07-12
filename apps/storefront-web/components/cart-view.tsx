@@ -15,7 +15,8 @@ import {
   type ClaimCouponResult,
 } from "../lib/server/cart-actions";
 import type { StorefrontWalletCouponView } from "../lib/catalog-types";
-import { Badge, Button, ButtonLink, Input, Subheading } from "./ui";
+import { cn } from "@commerce-os/ui";
+import { Badge, Button, ButtonLink, Input, ProductMedia, Subheading } from "./ui";
 
 type CartDict = StorefrontDictionary["cart"];
 
@@ -85,7 +86,7 @@ export function CartView({
             "Kupon Kodu Ekle" (claim). Uygulama kart uzerinden "Kullan" ile yapilir. */}
         <CouponsArea summary={view.summary} t={t} />
 
-        <ul className="space-y-3" aria-busy={isPending}>
+        <ul className="space-y-4" aria-busy={isPending}>
           {view.lines.map((line) => (
             <li key={line.variantId}>
               <CartLineRow line={line} t={t} pending={isPending} onSetQuantity={setQuantity} onRemove={remove} />
@@ -124,76 +125,87 @@ function CartLineRow({
   const atMax = line.maxQuantity !== null && line.quantity >= line.maxQuantity;
 
   return (
-    <div className="border border-line bg-surface p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <Link
-            href={`/products/${line.productSlug}`}
-            className="text-sm font-semibold text-ink transition-colors hover:text-ink-muted"
-          >
-            {line.title}
-          </Link>
-          <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
-          <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
-          {line.status === "UNAVAILABLE" ? (
-            <Badge tone="ink" className="mt-2">
-              {t.statusUnavailable}
-            </Badge>
-          ) : null}
-          {line.status === "OUT_OF_STOCK" ? (
-            <Badge tone="ink" className="mt-2">
-              {t.statusOutOfStock}
-            </Badge>
-          ) : null}
-          {line.status === "QUANTITY_ADJUSTED" ? (
-            <Badge tone="outline" className="mt-2">
-              {t.statusQuantityAdjusted}
-            </Badge>
-          ) : null}
+    <div className="border border-line bg-surface p-5">
+      <div className="flex gap-4">
+        {/* Dilim 6a — Ürün kapak thumbnail'i (drop-in ProductMedia; imageUrl yoksa
+            deterministik yer tutucu). PLP/PDP kutu deseni: sabit boyutlu wrapper +
+            ince hairline cerceve, ProductMedia h-full w-full ile doldurur. */}
+        <div className="h-24 w-24 shrink-0 overflow-hidden border border-line bg-surface-muted">
+          <ProductMedia handle={line.productSlug} title={line.title} imageUrl={line.imageUrl} />
         </div>
 
-        <div className="flex items-center gap-4">
-          {!unavailable ? (
-            <div className="inline-flex items-center border border-line">
-              <button
-                type="button"
-                aria-label={t.decrease}
-                disabled={pending || atMin}
-                onClick={() => onSetQuantity(line, line.quantity - 1)}
-                className="h-9 w-9 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
-              >
-                −
-              </button>
-              <span className="w-9 text-center text-sm font-medium text-ink">{line.quantity}</span>
-              <button
-                type="button"
-                aria-label={t.increase}
-                disabled={pending || atMax}
-                onClick={() => onSetQuantity(line, line.quantity + 1)}
-                className="h-9 w-9 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
-              >
-                +
-              </button>
-            </div>
-          ) : null}
-
-          <div className="text-right">
-            {!unavailable ? (
-              <>
-                <p className="text-sm font-semibold text-ink">{line.lineTotalLabel}</p>
-                <p className="text-xs text-ink-subtle">{line.unitPriceLabel}</p>
-              </>
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Link
+              href={`/products/${line.productSlug}`}
+              className="text-sm font-semibold text-ink transition-colors hover:text-ink-muted"
+            >
+              {line.title}
+            </Link>
+            <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
+            <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
+            {line.status === "UNAVAILABLE" ? (
+              <Badge tone="ink" className="mt-2">
+                {t.statusUnavailable}
+              </Badge>
+            ) : null}
+            {line.status === "OUT_OF_STOCK" ? (
+              <Badge tone="ink" className="mt-2">
+                {t.statusOutOfStock}
+              </Badge>
+            ) : null}
+            {line.status === "QUANTITY_ADJUSTED" ? (
+              <Badge tone="outline" className="mt-2">
+                {t.statusQuantityAdjusted}
+              </Badge>
             ) : null}
           </div>
 
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => onRemove(line)}
-            className="text-xs font-medium text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
-          >
-            {t.remove}
-          </button>
+          <div className="flex items-center gap-4">
+            {!unavailable ? (
+              // Dilim 6a — Miktar seçici: tek hairline cerceve icinde −/+ ince dikey
+              // ayraclarla ayrilir (mockup anatomisi; renk mevcut border-line).
+              <div className="inline-flex items-center border border-line">
+                <button
+                  type="button"
+                  aria-label={t.decrease}
+                  disabled={pending || atMin}
+                  onClick={() => onSetQuantity(line, line.quantity - 1)}
+                  className="h-9 w-9 border-r border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
+                >
+                  −
+                </button>
+                <span className="w-9 text-center text-sm font-medium text-ink">{line.quantity}</span>
+                <button
+                  type="button"
+                  aria-label={t.increase}
+                  disabled={pending || atMax}
+                  onClick={() => onSetQuantity(line, line.quantity + 1)}
+                  className="h-9 w-9 border-l border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
+                >
+                  +
+                </button>
+              </div>
+            ) : null}
+
+            <div className="text-right">
+              {!unavailable ? (
+                <>
+                  <p className="text-sm font-semibold text-ink">{line.lineTotalLabel}</p>
+                  <p className="text-xs text-ink-subtle">{line.unitPriceLabel}</p>
+                </>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onRemove(line)}
+              className="text-xs font-medium text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
+            >
+              {t.remove}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -204,12 +216,14 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
   const s = view.summary;
   return (
     <aside className="lg:sticky lg:top-24 lg:self-start">
-      <div className="border border-line bg-surface p-5">
+      {/* Dilim 6a — Sipariş özeti paneli muted zemine alindi (mockup gri panel; mevcut
+          surface-muted tonu). Başlık ile satirlar ince ayracla ayrilir. */}
+      <div className="border border-line bg-surface-muted p-5">
         <Subheading as="h2" className="text-base">
           {t.summaryTitle}
         </Subheading>
 
-        <dl className="mt-4 space-y-2.5 text-sm">
+        <dl className="mt-4 space-y-2.5 border-t border-line pt-4 text-sm">
           <div className="flex items-center justify-between">
             <dt className="text-ink-muted">
               {t.subtotal}{" "}
@@ -267,7 +281,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
 
           <div className="flex items-center justify-between border-t border-line pt-2.5">
             <dt className="font-semibold text-ink">{t.grandTotal}</dt>
-            <dd className="text-base font-semibold text-ink">{s.grandTotalLabel}</dd>
+            <dd className="text-lg font-semibold text-ink">{s.grandTotalLabel}</dd>
           </div>
           <div className="flex items-center justify-between text-xs text-ink-subtle">
             <dt>{format(t.taxIncludedLabel, { rate: s.taxRatePercent })}</dt>
@@ -370,8 +384,16 @@ function AvailableCouponCard({
 
   // DS: kupon karti NOTR yüzeydir (PDP DetailCouponCard dili) — dashed hairline
   // cerceve + muted zemin; aksan tasimaz. Kod monospace, ring-line-strong.
+  // Dilim 6a — ASSIGNED (kazanilmis) kart dolu-ink sol seritle one cikar (accent DEGIL,
+  // tek-accent kurali korunur); EXPIRED (suresi dolmus) kart soluklastirilir (opacity).
   return (
-    <div className="flex items-center justify-between gap-3 border border-dashed border-line-strong bg-surface-muted px-3 py-2.5">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 border border-dashed border-line-strong bg-surface-muted px-3 py-2.5",
+        coupon.source === "ASSIGNED" && "border-l-2 border-l-ink",
+        coupon.state === "EXPIRED" && "opacity-60",
+      )}
+    >
       <div className="min-w-0">
         <p className="flex items-center gap-2 text-sm font-semibold text-ink">
           <span>{coupon.discountText}</span>
