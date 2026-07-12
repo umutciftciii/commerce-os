@@ -9,7 +9,12 @@ import { ApiError } from "@commerce-os/api-client";
  */
 export function errorResponse(error: unknown): NextResponse {
   if (error instanceof ApiError) {
-    return NextResponse.json({ error: { code: error.code } }, { status: error.status });
+    // `details` yalnizca gateway'in BILINCLI koydugu yapilandirilmis veridir (ham
+    // mesaj `message`'da kalir, o gizlenir). Structured details (or. MEDIA_IN_USE'un
+    // `usedIn` listesi, validation fieldErrors) UI'a guvenle tasinir.
+    const body: { code: string; details?: unknown } = { code: error.code };
+    if (error.details !== undefined) body.details = error.details;
+    return NextResponse.json({ error: body }, { status: error.status });
   }
   // Ag/altyapi hatasi: gateway'e ulasilamadi. Kod expose etmeden NETWORK doneriz.
   return NextResponse.json({ error: { code: "NETWORK" } }, { status: 502 });

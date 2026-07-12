@@ -20,7 +20,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { MultipartFile } from "@fastify/multipart";
 import type { AppConfig } from "@commerce-os/config";
-import { mediaUploadResponseSchema } from "@commerce-os/contracts";
+import { mediaContextSchema, mediaListResponseSchema, mediaUploadResponseSchema } from "@commerce-os/contracts";
 import { prisma } from "@commerce-os/db";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import sharp from "sharp";
@@ -49,6 +49,13 @@ export interface MediaAdminRoutesDeps {
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
+
+const mediaListQuerySchema = z.object({ context: mediaContextSchema.optional() });
+
+// Dilim 1: sabit ust sinir (en yeni N). Gercek sayfalama/arama Faz 4'e ertelendi;
+// kontrat (mediaListResponseSchema) simdiden {limit,offset,total} tasidigi icin o
+// gecis migration'siz olur.
+const MEDIA_LIST_LIMIT = 100;
 
 const mediaDeleteParam = z.object({
   storeId: z.string().min(1),
@@ -82,6 +89,53 @@ function fieldValue(file: MultipartFile, name: string): string | undefined {
 
 export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminRoutesDeps): void {
   const { config, storage } = deps;
+
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. store'un yuklenmis gorsellerini
+  // (opsiyonel context filtresiyle) dondurur; UI yeniden yukleme yerine var olan
+  // gorseli baska entity'ye baglar. RESPONSE allowlist upload ile aynidir
+  // (storageKey/checksum/createdBy SIZMAZ; yalniz turetilmis url + gorunur meta).
+  app.get("/stores/:storeId/media", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+
+    const query = mediaListQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply
+        .code(400)
+        .send(errorBody("VALIDATION_ERROR", "Gecersiz sorgu parametresi.", query.error.flatten()));
+    }
+
+    const where = {
+      storeId: params.storeId,
+      ...(query.data.context ? { context: query.data.context } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.mediaAsset.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: MEDIA_LIST_LIMIT,
+      }),
+      prisma.mediaAsset.count({ where }),
+    ]);
+
+    return reply.send(
+      mediaListResponseSchema.parse({
+        data: rows.map((media) => ({
+          id: media.id,
+          context: media.context,
+          url: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, media.storageKey),
+          mimeType: media.mimeType,
+          byteSize: media.byteSize,
+          width: media.width,
+          height: media.height,
+          altText: media.altText,
+          createdAt: media.createdAt.toISOString(),
+        })),
+        pagination: { limit: MEDIA_LIST_LIMIT, offset: 0, total },
+      }),
+    );
+  });
 
   app.post("/stores/:storeId/media", async (request, reply) => {
     const params = storeParam.parse(request.params);
@@ -236,8 +290,12 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     if (categoryCount > 0) usedIn.push("ProductCategory");
 
     if (usedIn.length > 0) {
+      // `usedIn` structured `details` altina konur: api-client hata zarfinda yalniz
+      // `error.details`'i tasir (ADR-065 Faz 2 — zincirin UI'a kadar akmasi icin).
       return reply.code(409).send(
-        errorBody("MEDIA_IN_USE", "Gorsel kullanimda; once iliskiyi kaldirin.", { usedIn }),
+        errorBody("MEDIA_IN_USE", "Gorsel kullanimda; once iliskiyi kaldirin.", {
+          details: { usedIn },
+        }),
       );
     }
 
