@@ -11,6 +11,8 @@ import {
   productUpdateRequestSchema,
   productVariantCreateRequestSchema,
   productVariantUpdateRequestSchema,
+  storeSettingsSchema,
+  storeSettingsUpdateRequestSchema,
 } from "../src/index.js";
 
 describe("catalog contracts", () => {
@@ -261,6 +263,43 @@ describe("catalog contracts", () => {
 
   it("ADR-065 Faz 2/Dilim 2: empty product update body is still rejected (NO_FIELDS)", () => {
     expect(() => productUpdateRequestSchema.parse({})).toThrow();
+  });
+
+  // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari contract kablolamasi.
+  it("ADR-065 Faz 2/Dilim 4: store settings response allows all-null media (nullable)", () => {
+    const allNull = storeSettingsSchema.parse({
+      storeId: "store_1",
+      storeName: "Demo Store",
+      logoMediaId: null,
+      logoUrl: null,
+      faviconMediaId: null,
+      faviconUrl: null,
+    });
+    expect(allNull).toMatchObject({ storeName: "Demo Store", logoMediaId: null, faviconUrl: null });
+    // Bagli logo + favicon ile de gecerli.
+    const bound = storeSettingsSchema.parse({
+      storeId: "store_1",
+      storeName: "Demo Store",
+      logoMediaId: "media_logo",
+      logoUrl: "/media/stores/store_1/branding/logo.webp",
+      faviconMediaId: "media_fav",
+      faviconUrl: "/media/stores/store_1/branding/fav.webp",
+    });
+    expect(bound).toMatchObject({ logoMediaId: "media_logo", faviconMediaId: "media_fav" });
+  });
+
+  it("ADR-065 Faz 2/Dilim 4: store settings update refine — empty rejected, single field ok, null clears", () => {
+    // Tamamen bos gövde reddedilir (refine "en az bir alan").
+    expect(() => storeSettingsUpdateRequestSchema.parse({})).toThrow();
+    // Yalniz logoMediaId → gecerli.
+    expect(storeSettingsUpdateRequestSchema.parse({ logoMediaId: "media_logo" })).toEqual({
+      logoMediaId: "media_logo",
+    });
+    // Yalniz faviconMediaId: null (kaldir) → gecerli; absent olan logo alani gövdeye SIZMAZ
+    // (absent-vs-null ayrimini upsert bu sayede korur).
+    expect(storeSettingsUpdateRequestSchema.parse({ faviconMediaId: null })).toEqual({ faviconMediaId: null });
+    // Bos string reddedilir (min(1)).
+    expect(() => storeSettingsUpdateRequestSchema.parse({ logoMediaId: "" })).toThrow();
   });
 
   it("ADR-065 Faz 2/Dilim 2: product response carries an images array (defaults to [])", () => {

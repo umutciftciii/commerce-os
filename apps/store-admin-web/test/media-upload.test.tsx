@@ -89,4 +89,30 @@ describe("MediaUpload (ADR-065 Faz 2 / Dilim 1)", () => {
     expect(onAttach).toHaveBeenCalledWith(IMG_B);
     expect(storeApiMock.uploadMedia).not.toHaveBeenCalled();
   });
+
+  // ADR-065 (Faz 2/Dilim 4) — libraryEnabled prop'u.
+  it("libraryEnabled={false} iken 'Kütüphaneden seç' butonu render EDİLMEZ; yükle kalır", () => {
+    render(
+      <MediaUpload
+        context="BRANDING"
+        mode="single"
+        libraryEnabled={false}
+        value={[]}
+        onAttach={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    // Yükleme yolu korunur.
+    expect(screen.getByText("Görsel yükle")).toBeTruthy();
+    // Kütüphane butonu yok → modal hiç açılamaz (context karışması önlenir).
+    expect(screen.queryByText("Kütüphaneden seç")).toBeNull();
+  });
+
+  it("REGRESYON: prop verilmeden (kategori/ürün deseni) 'Kütüphaneden seç' varsayılan olarak GÖRÜNÜR", () => {
+    // Mevcut çağrılar libraryEnabled geçmez → varsayılan true → buton görünür.
+    render(
+      <MediaUpload context="CATEGORY" mode="single" value={[]} onAttach={vi.fn()} onRemove={vi.fn()} />,
+    );
+    expect(screen.getByText("Kütüphaneden seç")).toBeTruthy();
+  });
 });
