@@ -13,6 +13,7 @@ import type {
 } from "@commerce-os/api-client";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
+import { MediaUpload, type MediaItem } from "../../../components/media-upload";
 
 type ProductStatus = Product["status"];
 
@@ -119,6 +120,16 @@ export function ProductForm({
   );
   const [shippingDesi, setShippingDesi] = useState<string>(
     initial?.shippingDesi != null ? String(initial.shippingDesi) : "",
+  );
+
+  // ADR-065 (Faz 2/Dilim 2) — ürün galerisi (yalnız edit; R5). KRİTİK invariant:
+  // MediaItem.id = ProductImage'in mediaId'si (ProductImage.id DEĞİL). "Zaten ekli"
+  // rozeti ve kütüphane seçimi listMedia'nın döndürdüğü asset.id'ye karşı çalışır;
+  // yanlış id kullanılırsa rozet ve reuse kırılır. images[0] = kapak (position 0).
+  const [images, setImages] = useState<MediaItem[]>(
+    isEdit && initial?.images
+      ? initial.images.map((image) => ({ id: image.mediaId, url: image.url, altText: image.altText }))
+      : [],
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -264,6 +275,9 @@ export function ProductForm({
           vendor: vendor.trim() === "" ? null : vendor.trim(),
           description: description.trim() === "" ? null : description.trim(),
           categoryIds,
+          // ADR-065 (Faz 2/Dilim 2) — sıralı galeri; sunucu diff'ler. id = mediaId
+          // (invariant). [] gönderilirse galeri temizlenir (R6, toplu kaydet).
+          imageMediaIds: images.map((item) => item.id),
           ...salesFields,
           ...shippingFields,
         });
@@ -574,6 +588,35 @@ export function ProductForm({
         </div>
         <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
       </div>
+
+      {/* ADR-065 (Faz 2/Dilim 2) — Görseller. Yalnız edit sayfasında (R5): create'te
+          ürün id'si henüz yoktur, ProductImage bağlanamaz. Sıralama/çıkarma/ekleme
+          local state'i günceller; kalıcılık toplu "Kaydet"te imageMediaIds ile (R6). */}
+      {isEdit ? (
+        <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
+          <div className="flex items-start gap-2.5">
+            <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
+            <div>
+              <h3 className="text-sm font-semibold text-white/90">{f.gallerySectionTitle}</h3>
+              <p className="mt-0.5 text-xs text-white/45">{f.gallerySectionSubtitle}</p>
+            </div>
+          </div>
+          <MediaUpload
+            context="PRODUCT"
+            mode="multiple"
+            value={images}
+            onAttach={(asset) =>
+              setImages((prev) => [...prev, { id: asset.id, url: asset.url, altText: asset.altText }])
+            }
+            onRemove={(id) => setImages((prev) => prev.filter((item) => item.id !== id))}
+            onReorder={(orderedIds) =>
+              setImages((prev) => orderedIds.map((id) => prev.find((item) => item.id === id)!))
+            }
+            disabled={saving}
+          />
+          <p className="text-xs text-white/30">{f.galleryHint}</p>
+        </div>
+      ) : null}
     </form>
   );
 }

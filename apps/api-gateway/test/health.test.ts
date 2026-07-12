@@ -361,7 +361,13 @@ class MemoryDataAccess implements AppDataAccess {
   ];
   // ADR-065 (Faz 2/Dilim 3) — kategori imageId tenant/context dogrulamasi + GET
   // imageUrl turetimi icin. storageKey Prisma relation'inin ("image") mock karsiligi.
-  readonly mediaAssets: { id: string; storeId: string; context: string; storageKey: string }[] = [];
+  readonly mediaAssets: {
+    id: string;
+    storeId: string;
+    context: string;
+    storageKey: string;
+    altText?: string | null;
+  }[] = [];
 
   // Prisma'nin "image" relation cozumunun mock karsiligi: imageId verilen store'a
   // ait bir asset'e denk geliyorsa { storageKey } dondurur, aksi halde null.
@@ -397,6 +403,7 @@ class MemoryDataAccess implements AppDataAccess {
       inquiryFormTitle: null,
       appointmentNote: null,
       categoryIds: ["cat_apparel"],
+      images: [],
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     },
@@ -848,10 +855,29 @@ class MemoryDataAccess implements AppDataAccess {
       inquiryFormTitle: input.inquiryFormTitle ?? null,
       appointmentNote: input.appointmentNote ?? null,
       categoryIds: input.categoryIds,
+      images: [] as ProductRecord["images"],
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
     };
     this.products.push(product);
+    return product;
+  }
+
+  // ADR-065 (Faz 2/Dilim 2) — galeri diff'inin bellek-ici karsiligi. Guard route'ta
+  // gecti; burada storageKey/altText'i mediaAssets'ten cozup position=index atar.
+  // Bos dizi = tam temizlik (product.images = []).
+  async updateProductImages(storeId: string, productId: string, orderedMediaIds: string[]) {
+    const product = this.products.find((item) => item.storeId === storeId && item.id === productId);
+    if (!product) return null;
+    product.images = orderedMediaIds.map((mediaId, index) => {
+      const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === mediaId);
+      return {
+        mediaId,
+        position: index,
+        storageKey: asset?.storageKey ?? `media/${mediaId}`,
+        altText: asset?.altText ?? null,
+      };
+    });
     return product;
   }
 
@@ -2916,6 +2942,126 @@ describe("api gateway", () => {
     });
     expect(noImage.statusCode).toBe(201);
     expect(noImage.json()).toMatchObject({ imageId: null, imageUrl: null });
+
+    await app.close();
+  });
+
+  it("binds, orders, reorders, removes and clears the product gallery with guards (ADR-065 Faz 2/Dilim 2)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+    const productUrl = "/stores/store_demo/products/product_hoodie";
+
+    // PRODUCT context asset'leri (store_demo) + yanlis-context (CATEGORY) +
+    // cross-tenant (store_other) seedle.
+    dataAccess.mediaAssets.push(
+      { id: "media_p1", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/p1.webp" },
+      { id: "media_p2", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/p2.webp" },
+      { id: "media_p3", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/p3.webp" },
+      { id: "media_cat_ctx", storeId: "store_demo", context: "CATEGORY", storageKey: "stores/store_demo/categories/x.webp" },
+      { id: "media_alien", storeId: "store_other", context: "PRODUCT", storageKey: "stores/store_other/products/z.webp" },
+    );
+
+    // 1) 3 gorsel bagla → 200; images position 0/1/2, url storageKey'den turetilir.
+    const bound = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_p1", "media_p2", "media_p3"] },
+    });
+    expect(bound.statusCode).toBe(200);
+    expect(bound.json<{ images: unknown[] }>().images).toEqual([
+      { mediaId: "media_p1", url: "/media/stores/store_demo/products/p1.webp", altText: null, position: 0 },
+      { mediaId: "media_p2", url: "/media/stores/store_demo/products/p2.webp", altText: null, position: 1 },
+      { mediaId: "media_p3", url: "/media/stores/store_demo/products/p3.webp", altText: null, position: 2 },
+    ]);
+
+    // GET tekil → ayni sira round-trip (kapak = images[0] = media_p1).
+    const got = await app.inject({ method: "GET", url: productUrl, headers: auth });
+    expect(got.json<{ images: { mediaId: string }[] }>().images.map((image) => image.mediaId)).toEqual([
+      "media_p1",
+      "media_p2",
+      "media_p3",
+    ]);
+
+    // 2) reorder: media_p3 basa (kapak degisir) → position yeniden atanir.
+    const reordered = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_p3", "media_p1", "media_p2"] },
+    });
+    expect(reordered.statusCode).toBe(200);
+    expect(
+      reordered.json<{ images: { mediaId: string; position: number }[] }>().images.map((i) => [i.mediaId, i.position]),
+    ).toEqual([
+      ["media_p3", 0],
+      ["media_p1", 1],
+      ["media_p2", 2],
+    ]);
+
+    // 3) birini cikar (media_p1 listeden dus) → 2 oge, position yeniden 0/1.
+    const removed = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_p3", "media_p2"] },
+    });
+    expect(
+      removed.json<{ images: { mediaId: string; position: number }[] }>().images.map((i) => [i.mediaId, i.position]),
+    ).toEqual([
+      ["media_p3", 0],
+      ["media_p2", 1],
+    ]);
+
+    // 4) tam temizlik: [] → galeri bosalir (diff-transaction bos-dizi edge'i).
+    const clearedGallery = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: [] },
+    });
+    expect(clearedGallery.statusCode).toBe(200);
+    expect(clearedGallery.json<{ images: unknown[] }>().images).toEqual([]);
+
+    // 5) cross-tenant reddi: once gecerli tek gorsel bagla, sonra [gecerli, yabanci]
+    //    dene → 400; galeri DEGISMEMELI (guard tum listeyi yazimdan once dogruladi).
+    await app.inject({ method: "PATCH", url: productUrl, headers: auth, payload: { imageMediaIds: ["media_p1"] } });
+    const crossTenant = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_p2", "media_alien"] },
+    });
+    expect(crossTenant.statusCode).toBe(400);
+    expect(crossTenant.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+    const afterCross = await app.inject({ method: "GET", url: productUrl, headers: auth });
+    expect(afterCross.json<{ images: { mediaId: string }[] }>().images.map((image) => image.mediaId)).toEqual([
+      "media_p1",
+    ]);
+
+    // 6) yanlis context reddi: CATEGORY gorseli urune baglanamaz → 400.
+    const wrongContext = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_cat_ctx"] },
+    });
+    expect(wrongContext.statusCode).toBe(400);
+    expect(wrongContext.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+
+    // 7) ayni mediaId iki kez → contract refine reddi (400, DUPLICATE_IMAGE alan hatasi).
+    const duplicate = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { imageMediaIds: ["media_p1", "media_p1"] },
+    });
+    expect(duplicate.statusCode).toBe(400);
+    expect(
+      duplicate.json<{ error: { details: { fieldErrors: { imageMediaIds?: string[] } } } }>().error.details.fieldErrors
+        .imageMediaIds,
+    ).toContain("DUPLICATE_IMAGE");
 
     await app.close();
   });

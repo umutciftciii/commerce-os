@@ -379,6 +379,18 @@ export const productCategoryUpdateRequestSchema = z
     message: "At least one field is required.",
   });
 
+// ADR-065 (Faz 2/Dilim 2) — urun galerisi ogesi. mediaId ham FK (edit modunda
+// MediaUpload value'sunun kimligi ve "zaten ekli" kontrolu icin), url ise
+// runtime'da storageKey'den turetilen public URL (render icin). position=0 kapak
+// (ayri coverImageUrl alani YOK; kapak images[0]'dan turetilir). Kategori tekil
+// imageId/imageUrl deseninin cogul karsiligidir.
+export const productImageSchema = z.object({
+  mediaId: z.string().min(1),
+  url: z.string(),
+  altText: z.string().nullable(),
+  position: z.number().int(),
+});
+
 export const productSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -405,6 +417,9 @@ export const productSchema = z.object({
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
   categoryIds: z.array(z.string().min(1)).default([]),
+  // ADR-065 (Faz 2/Dilim 2) — urun galerisi (coklu, sirali). position ASC dondurulur;
+  // images[0] kapaktir. Entity kendi GET'inden galerisini dondurur.
+  images: z.array(productImageSchema).default([]),
   // F3C.2 — Kargo olcumu (desi/kg). DESI_TABLE/WEIGHT_TABLE/PER_KG_OR_DESI tarifelerinde
   // kullanilir; varyant degeri urun-seviyesini override eder (bkz. productVariantSchema).
   shippingWeightKg: z.number().nullable(),
@@ -529,6 +544,12 @@ export const productUpdateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).optional(),
+    // ADR-065 (Faz 2/Dilim 2) — sirali galeri; position = dizideki index, kapak = index 0.
+    // Tam sirali liste (tekil swap yok): sunucu mevcut ile diff'ler. [] gonderilirse
+    // galeri tamamen temizlenir. Tenant/context dogrulamasi route katmaninda (her mediaId
+    // icin assertMediaAttachable "PRODUCT"). "En az bir alan" refine'i bunu da sayar
+    // (yalniz imageMediaIds ile "sadece galeriyi guncelle" istegi gecerlidir).
+    imageMediaIds: z.array(z.string().min(1)).optional(),
     // F3C.2 — Kargo olcumu. >0 olmali; null = temizle.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
@@ -536,6 +557,16 @@ export const productUpdateRequestSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   })
+  .refine(
+    (value) =>
+      value.imageMediaIds === undefined ||
+      new Set(value.imageMediaIds).size === value.imageMediaIds.length,
+    {
+      // @@unique([productId, mediaId]) ihlaline karsi ilk savunma katmani (UI Set'i ikinci).
+      message: "DUPLICATE_IMAGE",
+      path: ["imageMediaIds"],
+    },
+  )
   .refine(
     (value) =>
       value.minOrderQuantity === undefined ||
@@ -550,6 +581,9 @@ export const productUpdateRequestSchema = z
     message: "Product sales model fields are inconsistent.",
     path: ["salesMode"],
   });
+
+// ADR-065 (Faz 2/Dilim 2) — NOT: public/vitrin semalari (publicProductDetailSchema)
+// bu dilimde DEGISMEDI; storefront galeri render'i Faz 3'e aittir.
 
 export const productVariantSchema = z.object({
   id: z.string().min(1),

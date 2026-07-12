@@ -283,6 +283,11 @@ export const enStoreAdmin: StoreAdminDictionary = {
       shippingDesiHint:
         "Desi is usually width × length × height / 3000. For now, enter the already-computed desi value.",
       shippingPositiveError: "Shipping dimensions must be greater than 0 (may be left empty).",
+      // ADR-065 (Faz 2/Dilim 2) — product gallery section (edit page only).
+      gallerySectionTitle: "Images",
+      gallerySectionSubtitle:
+        "Product gallery. The first image is the cover; drag to reorder or add from the library.",
+      galleryHint: "The first image is used as the cover. Changes apply once you save.",
     },
     salesModel: {
       columnHeader: "Sales",

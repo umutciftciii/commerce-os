@@ -283,6 +283,11 @@ export const trStoreAdmin = {
       shippingDesiHint:
         "Desi genellikle en × boy × yükseklik / 3000 formülüyle hesaplanır. Şimdilik hesaplanmış desi değerini girin.",
       shippingPositiveError: "Kargo ölçüleri 0'dan büyük olmalı (boş bırakılabilir).",
+      // ADR-065 (Faz 2/Dilim 2) — ürün galerisi bölümü (yalnız edit sayfası).
+      gallerySectionTitle: "Görseller",
+      gallerySectionSubtitle:
+        "Ürün galerisi. İlk görsel kapaktır; sürükleyip sıralayabilir, kütüphaneden ekleyebilirsiniz.",
+      galleryHint: "İlk sıradaki görsel kapak olarak kullanılır. Değişiklikler kaydedince uygulanır.",
     },
     salesModel: {
       columnHeader: "Satış",

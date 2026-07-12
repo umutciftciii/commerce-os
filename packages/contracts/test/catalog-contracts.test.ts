@@ -244,6 +244,74 @@ describe("catalog contracts", () => {
     expect(noImage).toMatchObject({ imageId: null, imageUrl: null });
   });
 
+  it("ADR-065 Faz 2/Dilim 2: product update accepts an ordered imageMediaIds list (incl. empty = clear)", () => {
+    // Yalniz imageMediaIds ile "sadece galeriyi guncelle" — NO_FIELDS refine'ine TAKILMAZ.
+    expect(productUpdateRequestSchema.parse({ imageMediaIds: ["m1", "m2"] }).imageMediaIds).toEqual(["m1", "m2"]);
+    // Bos dizi = galeriyi tamamen temizle (gecerli, tek alan yeterli).
+    expect(productUpdateRequestSchema.parse({ imageMediaIds: [] }).imageMediaIds).toEqual([]);
+  });
+
+  it("ADR-065 Faz 2/Dilim 2: product update rejects duplicate mediaIds (DUPLICATE_IMAGE)", () => {
+    const result = productUpdateRequestSchema.safeParse({ imageMediaIds: ["m1", "m1"] });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message === "DUPLICATE_IMAGE")).toBe(true);
+    }
+  });
+
+  it("ADR-065 Faz 2/Dilim 2: empty product update body is still rejected (NO_FIELDS)", () => {
+    expect(() => productUpdateRequestSchema.parse({})).toThrow();
+  });
+
+  it("ADR-065 Faz 2/Dilim 2: product response carries an images array (defaults to [])", () => {
+    const now = new Date().toISOString();
+    const base = {
+      id: "product_1",
+      storeId: "store_1",
+      title: "Demo Hoodie",
+      slug: "demo-hoodie",
+      description: null,
+      status: "ACTIVE" as const,
+      type: "PHYSICAL" as const,
+      vendor: null,
+      brand: null,
+      seoTitle: null,
+      seoDescription: null,
+      salesMode: "ONLINE" as const,
+      priceVisibility: "VISIBLE" as const,
+      primaryAction: "ADD_TO_CART" as const,
+      inquiryEnabled: false,
+      appointmentRequired: false,
+      whatsappEnabled: false,
+      purchasable: true,
+      minOrderQuantity: 1,
+      maxOrderQuantity: null,
+      callToActionLabel: null,
+      whatsappMessageTemplate: null,
+      inquiryFormTitle: null,
+      appointmentNote: null,
+      categoryIds: [],
+      shippingWeightKg: null,
+      shippingDesi: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    // images verilmezse [] default'lanir (liste yolu hafif kalir).
+    expect(productSchema.parse(base).images).toEqual([]);
+    // images verilirse sirali/kapak (position) tasinir.
+    const withImages = productSchema.parse({
+      ...base,
+      images: [
+        { mediaId: "m1", url: "/media/stores/store_1/products/a.webp", altText: null, position: 0 },
+        { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1 },
+      ],
+    });
+    expect(withImages.images).toEqual([
+      { mediaId: "m1", url: "/media/stores/store_1/products/a.webp", altText: null, position: 0 },
+      { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1 },
+    ]);
+  });
+
   it("accepts positive and negative non-zero inventory adjustments", () => {
     expect(inventoryAdjustRequestSchema.parse({ quantityDelta: 5 }).quantityDelta).toBe(5);
     expect(inventoryAdjustRequestSchema.parse({ quantityDelta: -2 }).quantityDelta).toBe(-2);
