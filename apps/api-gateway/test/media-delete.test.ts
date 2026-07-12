@@ -125,7 +125,7 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe("MEDIA_IN_USE");
-    expect(res.json().error.usedIn).toEqual(["ProductImage"]);
+    expect(res.json().error.details.usedIn).toEqual(["ProductImage"]);
     expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
     expect(storage.delete).not.toHaveBeenCalled();
   });
@@ -137,7 +137,7 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
     const res = await app.inject({ method: "DELETE", url: "/stores/store_123/media/media_1" });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error.usedIn).toEqual(["HeroSlide"]);
+    expect(res.json().error.details.usedIn).toEqual(["HeroSlide"]);
     expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
     expect(storage.delete).not.toHaveBeenCalled();
   });
@@ -149,7 +149,7 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
     const res = await app.inject({ method: "DELETE", url: "/stores/store_123/media/media_1" });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error.usedIn).toEqual(["StoreSettings"]);
+    expect(res.json().error.details.usedIn).toEqual(["StoreSettings"]);
     expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
     expect(storage.delete).not.toHaveBeenCalled();
   });
@@ -161,7 +161,7 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
     const res = await app.inject({ method: "DELETE", url: "/stores/store_123/media/media_1" });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error.usedIn).toEqual(["ProductCategory"]);
+    expect(res.json().error.details.usedIn).toEqual(["ProductCategory"]);
     expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
     expect(storage.delete).not.toHaveBeenCalled();
   });
@@ -174,7 +174,7 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
     const res = await app.inject({ method: "DELETE", url: "/stores/store_123/media/media_1" });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error.usedIn).toEqual(["ProductImage", "HeroSlide"]);
+    expect(res.json().error.details.usedIn).toEqual(["ProductImage", "HeroSlide"]);
   });
 
   it("var olmayan mediaId → 404; referans kontrolu/silme calismadi", async () => {

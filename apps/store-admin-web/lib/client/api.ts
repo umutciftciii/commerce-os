@@ -98,6 +98,10 @@ import type {
   CouponAssignmentRequest,
   CustomerCouponAssignment,
   CustomerCouponAssignmentListResponse,
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi.
+  MediaContext,
+  MediaListResponse,
+  MediaUploadResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -106,12 +110,22 @@ import type {
  * gecer ve secili mağaza bağlami server-side cozulur. Hata durumunda makine-okunur
  * `code` tasiyan {@link UiError} firlatir.
  */
+/**
+ * Bir BFF hatasinin yapilandirilmis ek verisi (gateway `error.details`'ten tasinir).
+ * ADR-065: MEDIA_IN_USE 409'unda `usedIn` gorselin hangi tablolarda kullanildigini verir.
+ */
+export interface UiErrorDetails {
+  usedIn?: string[];
+}
+
 export class UiError extends Error {
   readonly code: string;
-  constructor(code: string) {
+  readonly details?: UiErrorDetails;
+  constructor(code: string, details?: UiErrorDetails) {
     super(code);
     this.name = "UiError";
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -175,9 +189,14 @@ async function csrfHeaders(): Promise<Record<string, string>> {
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
+    // FormData govdesinde content-type'i SET ETMEYIZ: tarayici multipart boundary'yi
+    // kendisi ekler (ADR-065 media upload). Diger govdeler icin JSON zorlanir.
+    const isForm = init?.body instanceof FormData;
     response = await fetch(path, {
       ...init,
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      headers: isForm
+        ? { ...(init?.headers ?? {}) }
+        : { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
     throw new UiError("NETWORK");
@@ -185,20 +204,25 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let code = "UNKNOWN";
+    let details: UiErrorDetails | undefined;
     try {
       const body: unknown = await response.json();
-      if (
-        typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof (body as { error?: { code?: unknown } }).error?.code === "string"
-      ) {
-        code = (body as { error: { code: string } }).error.code;
+      const errorObj =
+        typeof body === "object" && body !== null && "error" in body
+          ? (body as { error?: { code?: unknown; details?: { usedIn?: unknown } } }).error
+          : undefined;
+      if (typeof errorObj?.code === "string") {
+        code = errorObj.code;
+      }
+      // Structured details (ADR-065 MEDIA_IN_USE → usedIn: string[]).
+      const usedIn = errorObj?.details?.usedIn;
+      if (Array.isArray(usedIn) && usedIn.every((entry) => typeof entry === "string")) {
+        details = { usedIn: usedIn as string[] };
       }
     } catch {
       // Govde JSON degil — genel UNKNOWN kodu kullanilir.
     }
-    throw new UiError(code);
+    throw new UiError(code, details);
   }
 
   if (response.status === 204) {
@@ -684,4 +708,20 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify({ couponId }),
     }),
+
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
+  // (content-type call icinde otomatik atlanir); list opsiyonel context filtresiyle;
+  // delete 204 (kullanimdaysa 409 MEDIA_IN_USE → UiError.details.usedIn).
+  listMedia: (context?: MediaContext) =>
+    call<MediaListResponse>(`/api/media${context ? `?context=${context}` : ""}`),
+  uploadMedia: (input: { file: File; context: MediaContext; altText?: string }) => {
+    const form = new FormData();
+    form.append("context", input.context);
+    const altText = input.altText?.trim();
+    if (altText) form.append("altText", altText);
+    form.append("file", input.file, input.file.name);
+    return mutatingCall<MediaUploadResponse>("/api/media", { method: "POST", body: form });
+  },
+  deleteMedia: (mediaId: string) =>
+    mutatingCall<void>(`/api/media/${mediaId}`, { method: "DELETE" }),
 };

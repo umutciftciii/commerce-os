@@ -118,6 +118,10 @@ import type {
   CouponAssignmentRequest,
   CustomerCouponAssignment,
   CustomerCouponAssignmentListResponse,
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi.
+  MediaContext,
+  MediaListResponse,
+  MediaUploadResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -249,6 +253,10 @@ export type {
   CouponAssignmentRequest,
   CustomerCouponAssignment,
   CustomerCouponAssignmentListResponse,
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi.
+  MediaContext,
+  MediaListResponse,
+  MediaUploadResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -505,6 +513,13 @@ export interface ApiClient {
         input: ProductCategoryUpdateRequest,
         token?: string,
       ): Promise<ProductCategory>;
+    };
+    // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
+    // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
+    media: {
+      list(storeId: string, context?: MediaContext, token?: string): Promise<MediaListResponse>;
+      upload(storeId: string, form: FormData, token?: string): Promise<MediaUploadResponse>;
+      remove(storeId: string, mediaId: string, token?: string): Promise<void>;
     };
     products: {
       list(storeId: string, token?: string): Promise<ProductListResponse>;
@@ -1047,7 +1062,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     token = options.token,
   ): Promise<T> {
     const headers = new Headers(init.headers);
-    if (!headers.has("content-type") && init.body) {
+    // FormData govdesinde content-type'i EL ILE koymayiz: fetch (undici) multipart
+    // boundary'yi kendisi ekler. Aksi halde boundary'siz "multipart/form-data" ile
+    // sunucu govdeyi parse edemez. Yalniz JSON govdeler icin content-type basariz.
+    if (!headers.has("content-type") && init.body && !(init.body instanceof FormData)) {
       headers.set("content-type", "application/json");
     }
     if (token) {
@@ -1071,6 +1089,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       }
       throw new ApiError(response.status, code, message, details);
     }
+    // 204 No Content (or empty body): parse etmeye calisma; T=void kullananlar icin.
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return (await response.json()) as T;
   }
 
@@ -1084,6 +1106,12 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       { method, body: body === undefined ? undefined : JSON.stringify(body) },
       token,
     );
+  }
+
+  // Multipart (FormData) gonderimi: JSON.stringify YAPMAZ; content-type'i requestJson
+  // FormData branch'i sayesinde fetch/undici boundary ile kendisi koyar (ADR-065 media).
+  function sendForm<T>(path: string, form: FormData, token?: string): Promise<T> {
+    return requestJson<T>(path, { method: "POST", body: form }, token);
   }
 
   return {
@@ -1130,6 +1158,19 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+      },
+      // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
+      // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).
+      media: {
+        list: (storeId, context, token) =>
+          getJson<MediaListResponse>(
+            `/stores/${storeId}/media${context ? `?context=${context}` : ""}`,
+            token,
+          ),
+        upload: (storeId, form, token) =>
+          sendForm<MediaUploadResponse>(`/stores/${storeId}/media`, form, token),
+        remove: (storeId, mediaId, token) =>
+          requestJson<void>(`/stores/${storeId}/media/${mediaId}`, { method: "DELETE" }, token),
       },
       products: {
         list: (storeId, token) =>

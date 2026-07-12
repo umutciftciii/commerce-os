@@ -4264,5 +4264,22 @@ export const mediaAssetSchema = z.object({
 
 export const mediaUploadResponseSchema = z.object({ data: mediaAssetSchema });
 
+// ADR-065 Faz 2 (Dilim 1) — Media kutuphane listesi. Yeniden yukleme yerine
+// var olan gorseli baska entity'ye baglamak icin store'un gorsellerini dondurur.
+// Sayfalama kontrati simdiden {limit,offset,total} ile stabil kurulur; Dilim 1'de
+// backend sabit limit (son N) uygular, gercek sayfalama/arama Faz 4'e ertelenir.
+export const mediaContextSchema = z.enum(["PRODUCT", "CATEGORY", "HERO", "BRANDING"]);
+
+export const mediaListResponseSchema = z.object({
+  data: z.array(mediaAssetSchema),
+  pagination: z.object({
+    limit: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  }),
+});
+
+export type MediaContext = z.infer<typeof mediaContextSchema>;
 export type MediaAssetResponse = z.infer<typeof mediaAssetSchema>;
 export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
+export type MediaListResponse = z.infer<typeof mediaListResponseSchema>;
