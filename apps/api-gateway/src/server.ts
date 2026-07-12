@@ -273,7 +273,15 @@ type ProductRecord = Pick<
   | "shippingDesi"
   | "createdAt"
   | "updatedAt"
-> & { categoryIds: string[] };
+> & { categoryIds: string[]; images: ProductImageRecord[] };
+// ADR-065 (Faz 2/Dilim 2) — galeri ogesinin ham hali (storageKey tasinir, url
+// serializeProduct'ta baseUrl ile turetilir). Liste yolunda [] kalir (hafif select).
+type ProductImageRecord = {
+  mediaId: string;
+  position: number;
+  storageKey: string;
+  altText: string | null;
+};
 type VariantRecord = Pick<
   ProductVariant,
   | "id"
@@ -718,6 +726,14 @@ export interface AppDataAccess extends CampaignDataAccess {
       shippingDesi?: number | null;
     },
   ): Promise<ProductRecord | null>;
+  // ADR-065 (Faz 2/Dilim 2) — urun galerisini verilen sirali mediaId listesine
+  // gore diff'ler (ekle/cikar/reorder tek transaction). [] = tam temizlik.
+  // position = dizideki index (kapak = index 0). Product bulunamazsa null.
+  updateProductImages(
+    storeId: string,
+    productId: string,
+    orderedMediaIds: string[],
+  ): Promise<ProductRecord | null>;
   listVariants(
     storeId: string,
     productId: string,
@@ -1151,7 +1167,7 @@ function serializeCategory(category: CategoryRecord, baseUrl?: string) {
   });
 }
 
-function serializeProduct(product: ProductRecord) {
+function serializeProduct(product: ProductRecord, baseUrl?: string) {
   return productSchema.parse({
     ...product,
     description: product.description ?? null,
@@ -1165,6 +1181,14 @@ function serializeProduct(product: ProductRecord) {
     inquiryFormTitle: product.inquiryFormTitle ?? null,
     appointmentNote: product.appointmentNote ?? null,
     categoryIds: product.categoryIds,
+    // ADR-065 (Faz 2/Dilim 2) — position ASC sirali galeri; url storageKey'den
+    // runtime'da turetilir. Liste yolunda images bos gelir (hafif select).
+    images: product.images.map((image) => ({
+      mediaId: image.mediaId,
+      url: resolveMediaUrl(baseUrl, image.storageKey),
+      altText: image.altText,
+      position: image.position,
+    })),
     // F3C.2 — Decimal -> number (sema number bekler).
     shippingWeightKg: decimalToNumber(product.shippingWeightKg),
     shippingDesi: decimalToNumber(product.shippingDesi),
@@ -1962,6 +1986,16 @@ function createPrismaDataAccess(): AppDataAccess {
     updatedAt: true,
     assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
   } satisfies Prisma.ProductSelect;
+  // ADR-065 (Faz 2/Dilim 2) — tekil urun yollarinda (GET/create/update reload)
+  // galeriyi de ceker. Liste yolu HAFIF `productSelect`'te kalir (join yok,
+  // images bos doner; liste thumbnail'i ayri follow-up).
+  const productDetailSelect = {
+    ...productSelect,
+    images: {
+      select: { mediaId: true, position: true, media: { select: { storageKey: true, altText: true } } },
+      orderBy: { position: "asc" },
+    },
+  } satisfies Prisma.ProductSelect;
   const variantSelect = {
     id: true,
     productId: true,
@@ -2166,8 +2200,27 @@ function createPrismaDataAccess(): AppDataAccess {
     } },
   } satisfies Prisma.OrderSelect;
 
-  function withCategoryIds(product: Prisma.ProductGetPayload<{ select: typeof productSelect }>): ProductRecord {
-    return { ...product, categoryIds: product.assignments.map((assignment) => assignment.categoryId) };
+  function withCategoryIds(
+    product:
+      | Prisma.ProductGetPayload<{ select: typeof productSelect }>
+      | Prisma.ProductGetPayload<{ select: typeof productDetailSelect }>,
+  ): ProductRecord {
+    // ADR-065 (Faz 2/Dilim 2) — detay select'te `images` nested gelir; hafif liste
+    // select'te yoktur → [] (join maliyeti yok). storageKey ham tasinir.
+    const images: ProductImageRecord[] =
+      "images" in product
+        ? product.images.map((image) => ({
+            mediaId: image.mediaId,
+            position: image.position,
+            storageKey: image.media.storageKey,
+            altText: image.media.altText,
+          }))
+        : [];
+    return {
+      ...product,
+      categoryIds: product.assignments.map((assignment) => assignment.categoryId),
+      images,
+    };
   }
 
   function withInventoryVariant(
@@ -2394,11 +2447,11 @@ function createPrismaDataAccess(): AppDataAccess {
       return { data: data.map(withCategoryIds), total };
     },
     findProductById: async (storeId, productId) => {
-      const product = await prisma.product.findFirst({ where: { id: productId, storeId }, select: productSelect });
+      const product = await prisma.product.findFirst({ where: { id: productId, storeId }, select: productDetailSelect });
       return product ? withCategoryIds(product) : null;
     },
     findProductBySlug: async (storeId, slug) => {
-      const product = await prisma.product.findUnique({ where: { storeId_slug: { storeId, slug } }, select: productSelect });
+      const product = await prisma.product.findUnique({ where: { storeId_slug: { storeId, slug } }, select: productDetailSelect });
       return product ? withCategoryIds(product) : null;
     },
     createProduct: (storeId, input) =>
@@ -2439,7 +2492,7 @@ function createPrismaDataAccess(): AppDataAccess {
             skipDuplicates: true,
           });
         }
-        const reloaded = await transaction.product.findUniqueOrThrow({ where: { id: product.id }, select: productSelect });
+        const reloaded = await transaction.product.findUniqueOrThrow({ where: { id: product.id }, select: productDetailSelect });
         return withCategoryIds(reloaded);
       }),
     updateProduct: (storeId, productId, input) =>
@@ -2473,7 +2526,35 @@ function createPrismaDataAccess(): AppDataAccess {
             });
           }
         }
-        const product = await transaction.product.findUniqueOrThrow({ where: { id: productId }, select: productSelect });
+        const product = await transaction.product.findUniqueOrThrow({ where: { id: productId }, select: productDetailSelect });
+        return withCategoryIds(product);
+      }),
+    // ADR-065 (Faz 2/Dilim 2) — galeriyi sirali mediaId listesine gore diff'ler.
+    // Tenant/context guard route katmaninda (assertMediaAttachable) yapilir; burasi
+    // yalniz kalicilik. @@unique([productId, mediaId]) upsert where anahtaridir →
+    // ayni gorsel tekrar create edilmez (ikinci savunma katmani). orderedMediaIds
+    // bos ise tum galeri temizlenir (silinecek = mevcut hepsi, eklenecek yok).
+    updateProductImages: (storeId, productId, orderedMediaIds) =>
+      prisma.$transaction(async (transaction: TransactionClient) => {
+        const existing = await transaction.product.findFirst({ where: { id: productId, storeId }, select: { id: true } });
+        if (!existing) return null;
+        const current = await transaction.productImage.findMany({
+          where: { productId, storeId },
+          select: { mediaId: true },
+        });
+        const keep = new Set(orderedMediaIds);
+        const toDelete = current.map((image) => image.mediaId).filter((mediaId) => !keep.has(mediaId));
+        if (toDelete.length > 0) {
+          await transaction.productImage.deleteMany({ where: { productId, storeId, mediaId: { in: toDelete } } });
+        }
+        for (const [index, mediaId] of orderedMediaIds.entries()) {
+          await transaction.productImage.upsert({
+            where: { productId_mediaId: { productId, mediaId } },
+            create: { storeId, productId, mediaId, position: index },
+            update: { position: index },
+          });
+        }
+        const product = await transaction.product.findUniqueOrThrow({ where: { id: productId }, select: productDetailSelect });
         return withCategoryIds(product);
       }),
     listVariants: async (storeId, productId, { limit, offset }) => {
@@ -4799,11 +4880,8 @@ export function createServer(
     }
     // ADR-065 (Faz 2/Dilim 3) — imageId verilirse ayni store'a ait + CATEGORY
     // context olmali (cross-tenant/yanlis-context gorsel baglama reddi).
-    if (input.imageId != null) {
-      const asset = await dataAccess.findMediaAssetById(params.storeId, input.imageId);
-      if (!asset || asset.context !== "CATEGORY") {
-        return reply.code(400).send(errorBody("INVALID_IMAGE_REFERENCE", "Image not found for this store."));
-      }
+    if (input.imageId != null && !(await assertMediaAttachable(reply, params.storeId, input.imageId, "CATEGORY"))) {
+      return;
     }
     if (await dataAccess.findCategoryBySlug(params.storeId, input.slug)) {
       return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
@@ -4850,11 +4928,8 @@ export function createServer(
     }
     // ADR-065 (Faz 2/Dilim 3) — imageId verilirse tenant+context dogrula. null =
     // gorseli kaldir (dogrulama atlanir, FK NULL yapilir).
-    if (input.imageId != null) {
-      const asset = await dataAccess.findMediaAssetById(params.storeId, input.imageId);
-      if (!asset || asset.context !== "CATEGORY") {
-        return reply.code(400).send(errorBody("INVALID_IMAGE_REFERENCE", "Image not found for this store."));
-      }
+    if (input.imageId != null && !(await assertMediaAttachable(reply, params.storeId, input.imageId, "CATEGORY"))) {
+      return;
     }
     if (input.slug) {
       const existing = await dataAccess.findCategoryBySlug(params.storeId, input.slug);
@@ -4875,6 +4950,25 @@ export function createServer(
     return serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL);
   });
 
+  // ADR-065 — ortak gorsel baglanabilirlik guard'i (Faz 2/Dilim 3 kategori +
+  // Dilim 2 urun galerisi ortak kullanir). Verilen mediaId ayni store'a ait ve
+  // beklenen context'te mi? Degilse 400 INVALID_IMAGE_REFERENCE gonderip false
+  // doner; gecerliyse true. Yazimdan ONCE cagrilmali (cross-tenant/yanlis-context
+  // baglama reddi). validateCategoryIds ile ayni "reply gonder + bool don" deseni.
+  async function assertMediaAttachable(
+    reply: FastifyReply,
+    storeId: string,
+    mediaId: string,
+    expectedContext: string,
+  ): Promise<boolean> {
+    const asset = await dataAccess.findMediaAssetById(storeId, mediaId);
+    if (!asset || asset.context !== expectedContext) {
+      await reply.code(400).send(errorBody("INVALID_IMAGE_REFERENCE", "Image not found for this store."));
+      return false;
+    }
+    return true;
+  }
+
   async function validateCategoryIds(reply: FastifyReply, storeId: string, categoryIds: string[]) {
     const uniqueCategoryIds = [...new Set(categoryIds)];
     for (const categoryId of uniqueCategoryIds) {
@@ -4893,7 +4987,9 @@ export function createServer(
     const pagination = paginationQuerySchema.parse(request.query);
     const products = await dataAccess.listProducts(params.storeId, pagination);
     return productListResponseSchema.parse({
-      data: products.data.map(serializeProduct),
+      // ADR-065 (Faz 2/Dilim 2) — liste hafif select kullanir; images bos ([]) doner.
+      // baseUrl tutarlilik icin gecilir (liste thumbnail'i ayri follow-up).
+      data: products.data.map((product) => serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL)),
       pagination: { ...pagination, total: products.total },
     });
   });
@@ -4925,7 +5021,7 @@ export function createServer(
       entityId: product.id,
       metadata: { fields: Object.keys(input) },
     });
-    return reply.code(201).send(serializeProduct(product));
+    return reply.code(201).send(serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL));
   });
 
   app.get("/stores/:storeId/products/:productId", async (request, reply) => {
@@ -4934,7 +5030,7 @@ export function createServer(
     if (!access) return;
     const product = await dataAccess.findProductById(params.storeId, params.productId);
     if (!product) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
-    return serializeProduct(product);
+    return serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL);
   });
 
   app.patch("/stores/:storeId/products/:productId", async (request, reply) => {
@@ -4958,11 +5054,30 @@ export function createServer(
     if (!isConsistentProductSalesModel({ ...current, ...input })) {
       return reply.code(400).send(errorBody("VALIDATION_ERROR", "Product sales model fields are inconsistent."));
     }
-    const product = await dataAccess.updateProduct(params.storeId, params.productId, {
-      ...input,
-      ...(categoryIds === undefined ? {} : { categoryIds }),
-    });
-    if (!product) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+    // ADR-065 (Faz 2/Dilim 2) — galeri verildiyse her mediaId ayni store'a ait +
+    // PRODUCT context olmali. TUM liste yazimdan ONCE dogrulanir (biri gecersizse
+    // 400, hicbir yazim olmadan). imageMediaIds Product kolonu DEGIL → updateProduct'a
+    // gecmeden ayiklanir; kalicilik ayri updateProductImages diff'i ile yapilir.
+    const { imageMediaIds, ...productInput } = input;
+    if (imageMediaIds !== undefined) {
+      for (const mediaId of imageMediaIds) {
+        if (!(await assertMediaAttachable(reply, params.storeId, mediaId, "PRODUCT"))) return;
+      }
+    }
+    let product: ProductRecord = current;
+    if (Object.keys(productInput).length > 0) {
+      const updated = await dataAccess.updateProduct(params.storeId, params.productId, {
+        ...productInput,
+        ...(categoryIds === undefined ? {} : { categoryIds }),
+      });
+      if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+      product = updated;
+    }
+    if (imageMediaIds !== undefined) {
+      const updated = await dataAccess.updateProductImages(params.storeId, params.productId, imageMediaIds);
+      if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+      product = updated;
+    }
     await dataAccess.createAuditLog({
       action: "UPDATE",
       platformUserId: access.session.platformUser.id,
@@ -4971,7 +5086,7 @@ export function createServer(
       entityId: product.id,
       metadata: { fields: Object.keys(input) },
     });
-    return serializeProduct(product);
+    return serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL);
   });
 
   app.get("/stores/:storeId/products/:productId/variants", async (request, reply) => {
