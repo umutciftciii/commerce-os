@@ -96,6 +96,9 @@ import {
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
 import { registerMediaAdminRoutes } from "./media/routes.js";
 import { LocalDiskDriver } from "./media/local-disk-driver.js";
+// ADR-065 (Faz 2/Dilim 3) — kategori GET response'unda imageUrl'u storageKey'den
+// turetmek icin. server.ts'in resolveMediaUrl'u ilk tuketen yeri.
+import { resolveMediaUrl } from "./media/url.js";
 // F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
 import {
   computeDiscounts,
@@ -229,8 +232,17 @@ type PlanRecord = Pick<
 >;
 type CategoryRecord = Pick<
   ProductCategory,
-  "id" | "storeId" | "name" | "slug" | "parentId" | "sortOrder" | "status" | "createdAt" | "updatedAt"
->;
+  | "id"
+  | "storeId"
+  | "name"
+  | "slug"
+  | "parentId"
+  | "sortOrder"
+  | "status"
+  | "imageId"
+  | "createdAt"
+  | "updatedAt"
+> & { image: { storageKey: string } | null };
 type ProductRecord = Pick<
   Product,
   | "id"
@@ -610,6 +622,12 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: CategoryRecord[]; total: number }>;
   findCategoryById(storeId: string, categoryId: string): Promise<CategoryRecord | null>;
   findCategoryBySlug(storeId: string, slug: string): Promise<CategoryRecord | null>;
+  // ADR-065 (Faz 2/Dilim 3) — imageId'nin ayni store'a ait olup olmadigini ve
+  // context'ini dogrulamak icin (cross-tenant baglama reddi). Bulunamazsa null.
+  findMediaAssetById(
+    storeId: string,
+    mediaId: string,
+  ): Promise<{ id: string; context: string } | null>;
   createCategory(
     storeId: string,
     input: {
@@ -618,6 +636,7 @@ export interface AppDataAccess extends CampaignDataAccess {
       parentId?: string | null;
       sortOrder: number;
       status: "ACTIVE" | "ARCHIVED";
+      imageId?: string | null;
     },
   ): Promise<CategoryRecord>;
   updateCategory(
@@ -629,6 +648,7 @@ export interface AppDataAccess extends CampaignDataAccess {
       parentId?: string | null;
       sortOrder?: number;
       status?: "ACTIVE" | "ARCHIVED";
+      imageId?: string | null;
     },
   ): Promise<CategoryRecord | null>;
   listProducts(
@@ -1118,10 +1138,14 @@ function serializePlan(plan: PlanRecord) {
   });
 }
 
-function serializeCategory(category: CategoryRecord) {
+function serializeCategory(category: CategoryRecord, baseUrl?: string) {
   return productCategorySchema.parse({
     ...category,
     parentId: category.parentId ?? null,
+    // ADR-065 (Faz 2/Dilim 3) — imageId ham FK; imageUrl storageKey'den runtime'da
+    // turetilir (MEDIA_PUBLIC_BASE_URL bos ise /media/<key>, doluysa CDN koku).
+    imageId: category.imageId ?? null,
+    imageUrl: category.image ? resolveMediaUrl(baseUrl, category.image.storageKey) : null,
     createdAt: category.createdAt.toISOString(),
     updatedAt: category.updatedAt.toISOString(),
   });
@@ -1901,6 +1925,9 @@ function createPrismaDataAccess(): AppDataAccess {
     parentId: true,
     sortOrder: true,
     status: true,
+    imageId: true,
+    // ADR-065 (Faz 2/Dilim 3) — imageUrl'u storageKey'den turetmek icin relation.
+    image: { select: { storageKey: true } },
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.ProductCategorySelect;
@@ -2329,6 +2356,11 @@ function createPrismaDataAccess(): AppDataAccess {
       prisma.productCategory.findFirst({ where: { id: categoryId, storeId }, select: categorySelect }),
     findCategoryBySlug: (storeId, slug) =>
       prisma.productCategory.findUnique({ where: { storeId_slug: { storeId, slug } }, select: categorySelect }),
+    findMediaAssetById: (storeId, mediaId) =>
+      prisma.mediaAsset.findFirst({
+        where: { id: mediaId, storeId },
+        select: { id: true, context: true },
+      }),
     createCategory: (storeId, input) =>
       prisma.productCategory.create({
         data: { ...input, storeId, parentId: input.parentId ?? null },
@@ -4752,7 +4784,7 @@ export function createServer(
     const pagination = paginationQuerySchema.parse(request.query);
     const categories = await dataAccess.listCategories(params.storeId, pagination);
     return productCategoryListResponseSchema.parse({
-      data: categories.data.map(serializeCategory),
+      data: categories.data.map((category) => serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL)),
       pagination: { ...pagination, total: categories.total },
     });
   });
@@ -4764,6 +4796,14 @@ export function createServer(
     const input = productCategoryCreateRequestSchema.parse(request.body);
     if (input.parentId && !(await dataAccess.findCategoryById(params.storeId, input.parentId))) {
       return reply.code(400).send(errorBody("CATEGORY_NOT_FOUND", "Parent category not found."));
+    }
+    // ADR-065 (Faz 2/Dilim 3) — imageId verilirse ayni store'a ait + CATEGORY
+    // context olmali (cross-tenant/yanlis-context gorsel baglama reddi).
+    if (input.imageId != null) {
+      const asset = await dataAccess.findMediaAssetById(params.storeId, input.imageId);
+      if (!asset || asset.context !== "CATEGORY") {
+        return reply.code(400).send(errorBody("INVALID_IMAGE_REFERENCE", "Image not found for this store."));
+      }
     }
     if (await dataAccess.findCategoryBySlug(params.storeId, input.slug)) {
       return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
@@ -4785,7 +4825,7 @@ export function createServer(
       entityId: category.id,
       metadata: { fields: Object.keys(input) },
     });
-    return reply.code(201).send(serializeCategory(category));
+    return reply.code(201).send(serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL));
   });
 
   app.get("/stores/:storeId/categories/:categoryId", async (request, reply) => {
@@ -4794,7 +4834,7 @@ export function createServer(
     if (!access) return;
     const category = await dataAccess.findCategoryById(params.storeId, params.categoryId);
     if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
-    return serializeCategory(category);
+    return serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL);
   });
 
   app.patch("/stores/:storeId/categories/:categoryId", async (request, reply) => {
@@ -4807,6 +4847,14 @@ export function createServer(
     }
     if (input.parentId === params.categoryId) {
       return reply.code(400).send(errorBody("VALIDATION_ERROR", "Category cannot be its own parent."));
+    }
+    // ADR-065 (Faz 2/Dilim 3) — imageId verilirse tenant+context dogrula. null =
+    // gorseli kaldir (dogrulama atlanir, FK NULL yapilir).
+    if (input.imageId != null) {
+      const asset = await dataAccess.findMediaAssetById(params.storeId, input.imageId);
+      if (!asset || asset.context !== "CATEGORY") {
+        return reply.code(400).send(errorBody("INVALID_IMAGE_REFERENCE", "Image not found for this store."));
+      }
     }
     if (input.slug) {
       const existing = await dataAccess.findCategoryBySlug(params.storeId, input.slug);
@@ -4824,7 +4872,7 @@ export function createServer(
       entityId: category.id,
       metadata: { fields: Object.keys(input) },
     });
-    return serializeCategory(category);
+    return serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL);
   });
 
   async function validateCategoryIds(reply: FastifyReply, storeId: string, categoryIds: string[]) {

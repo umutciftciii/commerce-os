@@ -105,6 +105,8 @@ type CategoryRecord = {
   parentId: string | null;
   sortOrder: number;
   status: ProductCategoryStatus;
+  imageId: string | null;
+  image: { storageKey: string } | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -351,10 +353,23 @@ class MemoryDataAccess implements AppDataAccess {
       parentId: null,
       sortOrder: 10,
       status: "ACTIVE",
+      imageId: null,
+      image: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     },
   ];
+  // ADR-065 (Faz 2/Dilim 3) — kategori imageId tenant/context dogrulamasi + GET
+  // imageUrl turetimi icin. storageKey Prisma relation'inin ("image") mock karsiligi.
+  readonly mediaAssets: { id: string; storeId: string; context: string; storageKey: string }[] = [];
+
+  // Prisma'nin "image" relation cozumunun mock karsiligi: imageId verilen store'a
+  // ait bir asset'e denk geliyorsa { storageKey } dondurur, aksi halde null.
+  private resolveCategoryImage(storeId: string, imageId: string | null | undefined) {
+    if (!imageId) return null;
+    const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === imageId);
+    return asset ? { storageKey: asset.storageKey } : null;
+  }
   readonly products: ProductRecord[] = [
     {
       id: "product_hoodie",
@@ -712,9 +727,20 @@ class MemoryDataAccess implements AppDataAccess {
     return this.categories.find((category) => category.storeId === storeId && category.slug === slug) ?? null;
   }
 
+  async findMediaAssetById(storeId: string, mediaId: string) {
+    return this.mediaAssets.find((asset) => asset.storeId === storeId && asset.id === mediaId) ?? null;
+  }
+
   async createCategory(
     storeId: string,
-    input: { name: string; slug: string; parentId?: string | null; sortOrder: number; status: ProductCategoryStatus },
+    input: {
+      name: string;
+      slug: string;
+      parentId?: string | null;
+      sortOrder: number;
+      status: ProductCategoryStatus;
+      imageId?: string | null;
+    },
   ) {
     const category = {
       id: `cat_${this.categories.length + 1}`,
@@ -724,6 +750,8 @@ class MemoryDataAccess implements AppDataAccess {
       parentId: input.parentId ?? null,
       sortOrder: input.sortOrder,
       status: input.status,
+      imageId: input.imageId ?? null,
+      image: this.resolveCategoryImage(storeId, input.imageId),
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
     };
@@ -734,11 +762,22 @@ class MemoryDataAccess implements AppDataAccess {
   async updateCategory(
     storeId: string,
     categoryId: string,
-    input: { name?: string; slug?: string; parentId?: string | null; sortOrder?: number; status?: ProductCategoryStatus },
+    input: {
+      name?: string;
+      slug?: string;
+      parentId?: string | null;
+      sortOrder?: number;
+      status?: ProductCategoryStatus;
+      imageId?: string | null;
+    },
   ) {
     const category = this.categories.find((item) => item.storeId === storeId && item.id === categoryId);
     if (!category) return null;
     Object.assign(category, input, { updatedAt: new Date("2026-01-03T00:00:00.000Z") });
+    // imageId gonderildiyse (null dahil) "image" relation'ini yeniden coz.
+    if ("imageId" in input) {
+      category.image = this.resolveCategoryImage(storeId, input.imageId);
+    }
     return category;
   }
 
@@ -2770,6 +2809,114 @@ describe("api gateway", () => {
         expect.objectContaining({ action: "UPDATE", entityType: "ProductCategory", entityId: "cat_2" }),
       ]),
     );
+    await app.close();
+  });
+
+  it("binds, derives and clears the category image with tenant + context guards (ADR-065 Faz 2/Dilim 3)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Gecerli CATEGORY gorsel (store_demo), 2. gecerli, yanlis-context (PRODUCT),
+    // ve cross-tenant (store_other) asset'leri seedle.
+    dataAccess.mediaAssets.push(
+      { id: "media_cat", storeId: "store_demo", context: "CATEGORY", storageKey: "stores/store_demo/categories/aaa.webp" },
+      { id: "media_cat2", storeId: "store_demo", context: "CATEGORY", storageKey: "stores/store_demo/categories/bbb.webp" },
+      { id: "media_product", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/ccc.webp" },
+      { id: "media_foreign", storeId: "store_other", context: "CATEGORY", storageKey: "stores/store_other/categories/ddd.webp" },
+    );
+
+    // 1) create imageId ile → 201; imageId dogru, imageUrl storageKey'den turetilir.
+    const created = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: auth,
+      payload: { name: "Winter", slug: "winter", imageId: "media_cat" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({
+      imageId: "media_cat",
+      imageUrl: "/media/stores/store_demo/categories/aaa.webp",
+    });
+    const categoryId = created.json<{ id: string }>().id;
+
+    // GET tekil → ayni imageId + imageUrl round-trip.
+    const got = await app.inject({
+      method: "GET",
+      url: `/stores/store_demo/categories/${categoryId}`,
+      headers: auth,
+    });
+    expect(got.json()).toMatchObject({
+      imageId: "media_cat",
+      imageUrl: "/media/stores/store_demo/categories/aaa.webp",
+    });
+
+    // 2) update imageId: <yeni> → gorsel degisti, imageUrl yeni storageKey'den.
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/categories/${categoryId}`,
+      headers: auth,
+      payload: { imageId: "media_cat2" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      imageId: "media_cat2",
+      imageUrl: "/media/stores/store_demo/categories/bbb.webp",
+    });
+
+    // 2b) update imageId: null → gorsel kaldirildi (FK NULL, imageUrl null).
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/categories/${categoryId}`,
+      headers: auth,
+      payload: { imageId: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({ imageId: null, imageUrl: null });
+
+    // 3) cross-tenant reddi: store_other'in gorseli store_demo'ya baglanamaz.
+    const crossTenant = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: auth,
+      payload: { name: "Cross", slug: "cross", imageId: "media_foreign" },
+    });
+    expect(crossTenant.statusCode).toBe(400);
+    expect(crossTenant.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+    // Kayit OLUSMADI — guard yazimdan once calisti.
+    expect(dataAccess.categories.some((category) => category.slug === "cross")).toBe(false);
+
+    // 4) yanlis context reddi: PRODUCT gorseli kategoriye baglanamaz.
+    const wrongContext = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: auth,
+      payload: { name: "Ctx", slug: "ctx", imageId: "media_product" },
+    });
+    expect(wrongContext.statusCode).toBe(400);
+    expect(wrongContext.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+    expect(dataAccess.categories.some((category) => category.slug === "ctx")).toBe(false);
+
+    // 4b) PATCH ucunda da cross-tenant reddi (guard iki uctadir).
+    const patchCross = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/categories/${categoryId}`,
+      headers: auth,
+      payload: { imageId: "media_foreign" },
+    });
+    expect(patchCross.statusCode).toBe(400);
+    expect(patchCross.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+
+    // 5) imageId olmayan kategori → imageUrl null.
+    const noImage = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/categories",
+      headers: auth,
+      payload: { name: "Plain", slug: "plain" },
+    });
+    expect(noImage.statusCode).toBe(201);
+    expect(noImage.json()).toMatchObject({ imageId: null, imageUrl: null });
+
     await app.close();
   });
 

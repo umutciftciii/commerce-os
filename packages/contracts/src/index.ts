@@ -333,6 +333,12 @@ export const productCategorySchema = z.object({
   parentId: z.string().min(1).nullable(),
   sortOrder: z.number().int(),
   status: productCategoryStatusSchema,
+  // ADR-065 (Faz 2/Dilim 3) — opsiyonel tekil kategori gorseli. imageId ham FK
+  // (edit modunda MediaUpload value'sunun kimligi icin), imageUrl ise runtime'da
+  // storageKey'den turetilen public URL (render icin). Entity kendi GET'inden
+  // gorselini dondurur (ProductImage.url ile tutarli).
+  imageId: z.string().nullable(),
+  imageUrl: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -352,6 +358,9 @@ export const productCategoryCreateRequestSchema = z.object({
   parentId: z.string().min(1).nullable().optional(),
   sortOrder: z.number().int().default(0),
   status: productCategoryStatusSchema.default("ACTIVE"),
+  // ADR-065 (Faz 2/Dilim 3) — opsiyonel; null = gorsel yok. Tenant/context
+  // dogrulamasi route katmaninda yapilir (cross-tenant baglama reddi).
+  imageId: z.string().min(1).nullable().optional(),
 });
 
 export const productCategoryUpdateRequestSchema = z
@@ -361,6 +370,10 @@ export const productCategoryUpdateRequestSchema = z
     parentId: z.string().min(1).nullable().optional(),
     sortOrder: z.number().int().optional(),
     status: productCategoryStatusSchema.optional(),
+    // ADR-065 (Faz 2/Dilim 3) — null gonderilirse gorsel kaldirilir (FK NULL).
+    // refine "en az bir alan" kontrolu bu alani da sayar; yalniz imageId ile
+    // gelen "sadece gorseli degistir/kaldir" istegi gecerlidir.
+    imageId: z.string().min(1).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",

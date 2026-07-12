@@ -3,6 +3,9 @@ import {
   inventoryAdjustRequestSchema,
   orderCreateRequestSchema,
   orderSchema,
+  productCategoryCreateRequestSchema,
+  productCategorySchema,
+  productCategoryUpdateRequestSchema,
   productCreateRequestSchema,
   productSchema,
   productUpdateRequestSchema,
@@ -197,6 +200,48 @@ describe("catalog contracts", () => {
         costMinor: 110000,
       }),
     ).toThrow();
+  });
+
+  // ADR-065 (Faz 2/Dilim 3) — kategori gorseli contract kablolamasi.
+  it("ADR-065: category update accepts an imageId-only payload (not caught by the NO_FIELDS refine)", () => {
+    // Yalniz imageId ile "gorseli degistir" — refine "en az bir alan" kontrolune TAKILMAZ.
+    expect(productCategoryUpdateRequestSchema.parse({ imageId: "media_1" })).toEqual({ imageId: "media_1" });
+    // Yalniz imageId: null ile "gorseli kaldir" da gecerlidir.
+    expect(productCategoryUpdateRequestSchema.parse({ imageId: null })).toEqual({ imageId: null });
+    // Tamamen bos gövde HALA reddedilir (refine korunuyor).
+    expect(() => productCategoryUpdateRequestSchema.parse({})).toThrow();
+  });
+
+  it("ADR-065: category create accepts optional imageId (absent, null, or string)", () => {
+    expect(productCategoryCreateRequestSchema.parse({ name: "Cat", slug: "cat" }).imageId).toBeUndefined();
+    expect(productCategoryCreateRequestSchema.parse({ name: "Cat", slug: "cat", imageId: null }).imageId).toBeNull();
+    expect(productCategoryCreateRequestSchema.parse({ name: "Cat", slug: "cat", imageId: "media_1" }).imageId).toBe(
+      "media_1",
+    );
+  });
+
+  it("ADR-065: category response carries imageId and derived imageUrl (both nullable)", () => {
+    const now = new Date().toISOString();
+    const base = {
+      id: "cat_1",
+      storeId: "store_1",
+      name: "Winter",
+      slug: "winter",
+      parentId: null,
+      sortOrder: 0,
+      status: "ACTIVE" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const withImage = productCategorySchema.parse({
+      ...base,
+      imageId: "media_1",
+      imageUrl: "/media/stores/store_1/categories/aaa.webp",
+    });
+    expect(withImage).toMatchObject({ imageId: "media_1", imageUrl: "/media/stores/store_1/categories/aaa.webp" });
+    // Gorselsiz kategori: ikisi de null.
+    const noImage = productCategorySchema.parse({ ...base, imageId: null, imageUrl: null });
+    expect(noImage).toMatchObject({ imageId: null, imageUrl: null });
   });
 
   it("accepts positive and negative non-zero inventory adjustments", () => {
