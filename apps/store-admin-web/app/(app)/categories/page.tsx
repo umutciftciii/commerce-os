@@ -19,6 +19,7 @@ import {
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { ProductCategory, ProductCategoryCreateRequest } from "@commerce-os/api-client";
 import { CategoryIcon } from "../../../components/icons";
+import { MediaUpload, type MediaItem } from "../../../components/media-upload";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 
@@ -226,6 +227,13 @@ function CategoryEditor({
   const [parentId, setParentId] = useState(isEdit ? (editor.category.parentId ?? "") : "");
   const [sortOrder, setSortOrder] = useState(isEdit ? String(editor.category.sortOrder) : "0");
   const [status, setStatus] = useState<CategoryStatus>(isEdit ? editor.category.status : "ACTIVE");
+  // ADR-065 (Faz 2/Dilim 3) — MediaUpload single mode value[] biçimini bekler;
+  // edit'te mevcut görsel (imageId+imageUrl) ile başlatılır, create'te boş.
+  const [image, setImage] = useState<MediaItem[]>(
+    isEdit && editor.category.imageId && editor.category.imageUrl
+      ? [{ id: editor.category.imageId, url: editor.category.imageUrl, altText: null }]
+      : [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -267,6 +275,8 @@ function CategoryEditor({
           parentId: parentId === "" ? null : parentId,
           sortOrder: safeSort,
           status,
+          // null = görseli kaldır (FK NULL); id = bağla/değiştir.
+          imageId: image[0]?.id ?? null,
         });
         onSaved(t.updatedToast);
       } else {
@@ -275,6 +285,7 @@ function CategoryEditor({
           slug: slug.trim(),
           sortOrder: safeSort,
           status,
+          imageId: image[0]?.id ?? null,
         };
         if (parentId !== "") payload.parentId = parentId;
         await storeApi.createCategory(payload);
@@ -335,6 +346,18 @@ function CategoryEditor({
           onChange={(event) => setParentId(event.target.value)}
           disabled={saving}
         />
+        <div>
+          <span className="mb-1.5 block text-sm font-medium text-white/70">{f.imageLabel}</span>
+          <MediaUpload
+            context="CATEGORY"
+            mode="single"
+            value={image}
+            onAttach={(asset) => setImage([{ id: asset.id, url: asset.url, altText: asset.altText }])}
+            onRemove={() => setImage([])}
+            disabled={saving}
+          />
+          <p className="mt-1.5 text-xs text-white/30">{f.imageHint}</p>
+        </div>
         <div>
           <Input
             id="category-sort"

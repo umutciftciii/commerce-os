@@ -801,6 +801,8 @@ export const enStoreAdmin: StoreAdminDictionary = {
       slugLockedHint: "The slug cannot be changed once created.",
       parentLabel: "Parent category (optional)",
       parentNone: "No parent category",
+      imageLabel: "Category image",
+      imageHint: "Optional. Pick from the library or upload a new image.",
       sortOrderLabel: "Order",
       sortOrderHint: "Lower values appear first.",
       statusLabel: "Status",

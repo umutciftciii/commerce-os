@@ -801,6 +801,8 @@ export const trStoreAdmin = {
       slugLockedHint: "Kısa ad oluşturulduktan sonra değiştirilemez.",
       parentLabel: "Üst kategori (opsiyonel)",
       parentNone: "Üst kategori yok",
+      imageLabel: "Kategori görseli",
+      imageHint: "Opsiyonel. Kütüphaneden seçin veya yeni görsel yükleyin.",
       sortOrderLabel: "Sıra",
       sortOrderHint: "Küçük değer üstte gösterilir.",
       statusLabel: "Durum",
