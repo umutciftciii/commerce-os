@@ -45,6 +45,9 @@ import type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
+  StoreSettings,
+  StoreSettingsUpdateRequest,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -176,6 +179,9 @@ export type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
+  StoreSettings,
+  StoreSettingsUpdateRequest,
   PublicCampaignBadge,
   PublicCampaignDisplayKind,
   PublicCouponAction,
@@ -513,6 +519,16 @@ export interface ApiClient {
         input: ProductCategoryUpdateRequest,
         token?: string,
       ): Promise<ProductCategory>;
+    };
+    // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (1-1). GET satir yoksa tum-null
+    // doner (lazy); PATCH upsert (logo/favicon baglar veya null ile kaldirir).
+    settings: {
+      get(storeId: string, token?: string): Promise<StoreSettings>;
+      update(
+        storeId: string,
+        input: StoreSettingsUpdateRequest,
+        token?: string,
+      ): Promise<StoreSettings>;
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -1158,6 +1174,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+      },
+      // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari. get lazy (tum-null); update
+      // upsert (PATCH; null=kaldir).
+      settings: {
+        get: (storeId, token) => getJson<StoreSettings>(`/stores/${storeId}/settings`, token),
+        update: (storeId, input, token) =>
+          sendJson<StoreSettings>(`/stores/${storeId}/settings`, "PATCH", input, token),
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).

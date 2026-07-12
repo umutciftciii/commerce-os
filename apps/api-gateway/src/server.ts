@@ -44,6 +44,8 @@ import {
   productCategoryListResponseSchema,
   productCategorySchema,
   productCategoryUpdateRequestSchema,
+  storeSettingsSchema,
+  storeSettingsUpdateRequestSchema,
   productCreateRequestSchema,
   productListResponseSchema,
   productPriceChangeListResponseSchema,
@@ -243,6 +245,16 @@ type CategoryRecord = Pick<
   | "createdAt"
   | "updatedAt"
 > & { image: { storageKey: string } | null };
+// ADR-065 (Faz 2/Dilim 4) — StoreSettings 1-1 kaydi; logo/favicon relation'lari
+// yalniz storageKey tasir (URL runtime'da turetilir). storeName burada YOK; her
+// zaman requireStorePlatformAdmin'in dondurdugu access.store.name'den gelir.
+type StoreSettingsRecord = {
+  storeId: string;
+  logoMediaId: string | null;
+  faviconMediaId: string | null;
+  logo: { storageKey: string } | null;
+  favicon: { storageKey: string } | null;
+};
 type ProductRecord = Pick<
   Product,
   | "id"
@@ -659,6 +671,15 @@ export interface AppDataAccess extends CampaignDataAccess {
       imageId?: string | null;
     },
   ): Promise<CategoryRecord | null>;
+  // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari (1-1 singleton). getStoreSettings
+  // satir yoksa null doner (R2 lazy; GET tum-null gonderir, olusturma yapmaz).
+  // upsertStoreSettings PK=FK storeId uzerinde upsert; update dalinda yalniz verilen
+  // anahtarlar yazilir (absent=dokunma, null=temizle ayrimi cagiran tarafta korunur).
+  getStoreSettings(storeId: string): Promise<StoreSettingsRecord | null>;
+  upsertStoreSettings(
+    storeId: string,
+    input: { logoMediaId?: string | null; faviconMediaId?: string | null },
+  ): Promise<StoreSettingsRecord>;
   listProducts(
     storeId: string,
     input: { limit: number; offset: number },
@@ -1164,6 +1185,25 @@ function serializeCategory(category: CategoryRecord, baseUrl?: string) {
     imageUrl: category.image ? resolveMediaUrl(baseUrl, category.image.storageKey) : null,
     createdAt: category.createdAt.toISOString(),
     updatedAt: category.updatedAt.toISOString(),
+  });
+}
+
+// ADR-065 (Faz 2/Dilim 4) — marka ayarlari serialize. row null olabilir (R2 lazy:
+// henuz StoreSettings satiri yok) -> tum *MediaId/*Url null doner. storeName daima
+// disaridan (access.store.name) verilir; satirdan turemez.
+function serializeStoreSettings(
+  storeId: string,
+  storeName: string,
+  row: StoreSettingsRecord | null,
+  baseUrl?: string,
+) {
+  return storeSettingsSchema.parse({
+    storeId,
+    storeName,
+    logoMediaId: row?.logoMediaId ?? null,
+    logoUrl: row?.logo ? resolveMediaUrl(baseUrl, row.logo.storageKey) : null,
+    faviconMediaId: row?.faviconMediaId ?? null,
+    faviconUrl: row?.favicon ? resolveMediaUrl(baseUrl, row.favicon.storageKey) : null,
   });
 }
 
@@ -1955,6 +1995,15 @@ function createPrismaDataAccess(): AppDataAccess {
     createdAt: true,
     updatedAt: true,
   } satisfies Prisma.ProductCategorySelect;
+  // ADR-065 (Faz 2/Dilim 4) — marka ayarlari; logo/favicon URL'lerini storageKey'den
+  // turetmek icin relation'lar. storeName join'lenmez (access.store.name kullanilir).
+  const storeSettingsSelect = {
+    storeId: true,
+    logoMediaId: true,
+    faviconMediaId: true,
+    logo: { select: { storageKey: true } },
+    favicon: { select: { storageKey: true } },
+  } satisfies Prisma.StoreSettingsSelect;
   const productSelect = {
     id: true,
     storeId: true,
@@ -2433,6 +2482,25 @@ function createPrismaDataAccess(): AppDataAccess {
         throw error;
       }
     },
+    getStoreSettings: (storeId) =>
+      prisma.storeSettings.findUnique({ where: { storeId }, select: storeSettingsSelect }),
+    upsertStoreSettings: (storeId, input) =>
+      prisma.storeSettings.upsert({
+        where: { storeId },
+        // Ilk kayit (R2): absent alanlar null'a dusurulur.
+        create: {
+          storeId,
+          logoMediaId: input.logoMediaId ?? null,
+          faviconMediaId: input.faviconMediaId ?? null,
+        },
+        // Guncelleme: absent=dokunma, null=temizle. Yalniz gonderilen anahtarlari yaz
+        // (bir alani set ederken digerinin korunmasi bu spread'e bagli — KRITIK).
+        update: {
+          ...(input.logoMediaId !== undefined ? { logoMediaId: input.logoMediaId } : {}),
+          ...(input.faviconMediaId !== undefined ? { faviconMediaId: input.faviconMediaId } : {}),
+        },
+        select: storeSettingsSelect,
+      }),
     listProducts: async (storeId, { limit, offset }) => {
       const [data, total] = await Promise.all([
         prisma.product.findMany({
@@ -4948,6 +5016,49 @@ export function createServer(
       metadata: { fields: Object.keys(input) },
     });
     return serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL);
+  });
+
+  // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari (logo + favicon). StoreSettings
+  // 1-1 singleton (PK=FK storeId). R2: satir yoksa 404 DEGIL, tum-null + storeName ile
+  // 200 doner (lazy). Kayit yalniz ilk PATCH'te (upsert) acilir. storeName her durumda
+  // access.store.name'den gelir (StoreSettings satirindan bagimsiz).
+  app.get("/stores/:storeId/settings", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const row = await dataAccess.getStoreSettings(params.storeId);
+    return serializeStoreSettings(params.storeId, access.store.name, row, config.MEDIA_PUBLIC_BASE_URL);
+  });
+
+  app.patch("/stores/:storeId/settings", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = storeSettingsUpdateRequestSchema.parse(request.body);
+    // R3: her media alani icin AYRI BRANDING dogrulamasi (cross-tenant/yanlis-context
+    // baglama reddi). null = bagi kaldir -> dogrulama atlanir, FK NULL yapilir.
+    if (
+      input.logoMediaId != null &&
+      !(await assertMediaAttachable(reply, params.storeId, input.logoMediaId, "BRANDING"))
+    ) {
+      return;
+    }
+    if (
+      input.faviconMediaId != null &&
+      !(await assertMediaAttachable(reply, params.storeId, input.faviconMediaId, "BRANDING"))
+    ) {
+      return;
+    }
+    const row = await dataAccess.upsertStoreSettings(params.storeId, input);
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: access.session.platformUser.id,
+      storeId: params.storeId,
+      entityType: "StoreSettings",
+      entityId: params.storeId,
+      metadata: { fields: Object.keys(input) },
+    });
+    return serializeStoreSettings(params.storeId, access.store.name, row, config.MEDIA_PUBLIC_BASE_URL);
   });
 
   // ADR-065 — ortak gorsel baglanabilirlik guard'i (Faz 2/Dilim 3 kategori +

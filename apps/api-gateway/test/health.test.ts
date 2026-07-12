@@ -376,6 +376,20 @@ class MemoryDataAccess implements AppDataAccess {
     const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === imageId);
     return asset ? { storageKey: asset.storageKey } : null;
   }
+
+  // ADR-065 (Faz 2/Dilim 4) — StoreSettings 1-1 satirlari (baslangicta bos; R2 lazy).
+  readonly storeSettings: {
+    storeId: string;
+    logoMediaId: string | null;
+    faviconMediaId: string | null;
+  }[] = [];
+
+  // logo/favicon relation cozumu (resolveCategoryImage'in marka karsiligi).
+  private resolveBrandingMedia(storeId: string, mediaId: string | null | undefined) {
+    if (!mediaId) return null;
+    const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === mediaId);
+    return asset ? { storageKey: asset.storageKey } : null;
+  }
   readonly products: ProductRecord[] = [
     {
       id: "product_hoodie",
@@ -786,6 +800,41 @@ class MemoryDataAccess implements AppDataAccess {
       category.image = this.resolveCategoryImage(storeId, input.imageId);
     }
     return category;
+  }
+
+  async getStoreSettings(storeId: string) {
+    const row = this.storeSettings.find((item) => item.storeId === storeId);
+    if (!row) return null;
+    return {
+      storeId: row.storeId,
+      logoMediaId: row.logoMediaId,
+      faviconMediaId: row.faviconMediaId,
+      logo: this.resolveBrandingMedia(storeId, row.logoMediaId),
+      favicon: this.resolveBrandingMedia(storeId, row.faviconMediaId),
+    };
+  }
+
+  async upsertStoreSettings(
+    storeId: string,
+    input: { logoMediaId?: string | null; faviconMediaId?: string | null },
+  ) {
+    let row = this.storeSettings.find((item) => item.storeId === storeId);
+    if (!row) {
+      // create (R2): absent → null.
+      row = { storeId, logoMediaId: input.logoMediaId ?? null, faviconMediaId: input.faviconMediaId ?? null };
+      this.storeSettings.push(row);
+    } else {
+      // update: absent=dokunma, null=temizle (gercek upsert semantigini yansitir).
+      if (input.logoMediaId !== undefined) row.logoMediaId = input.logoMediaId;
+      if (input.faviconMediaId !== undefined) row.faviconMediaId = input.faviconMediaId;
+    }
+    return {
+      storeId: row.storeId,
+      logoMediaId: row.logoMediaId,
+      faviconMediaId: row.faviconMediaId,
+      logo: this.resolveBrandingMedia(storeId, row.logoMediaId),
+      favicon: this.resolveBrandingMedia(storeId, row.faviconMediaId),
+    };
   }
 
   async listProducts(storeId: string, { limit, offset }: { limit: number; offset: number }) {
@@ -2942,6 +2991,138 @@ describe("api gateway", () => {
     });
     expect(noImage.statusCode).toBe(201);
     expect(noImage.json()).toMatchObject({ imageId: null, imageUrl: null });
+
+    await app.close();
+  });
+
+  it("reads (lazy), upserts and guards store branding settings (ADR-065 Faz 2/Dilim 4)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    // Gecerli BRANDING logo/favicon (store_demo), yanlis-context (PRODUCT) ve
+    // cross-tenant (store_other) asset'leri seedle.
+    dataAccess.mediaAssets.push(
+      { id: "media_logo", storeId: "store_demo", context: "BRANDING", storageKey: "stores/store_demo/branding/logo.webp" },
+      { id: "media_fav", storeId: "store_demo", context: "BRANDING", storageKey: "stores/store_demo/branding/fav.webp" },
+      { id: "media_product", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/p.webp" },
+      { id: "media_foreign", storeId: "store_other", context: "BRANDING", storageKey: "stores/store_other/branding/x.webp" },
+    );
+
+    // 0) Auth reddi: token yok / gecersiz → 401.
+    const missingToken = await app.inject({ method: "GET", url: "/stores/store_demo/settings" });
+    expect(missingToken.statusCode).toBe(401);
+    const invalidToken = await app.inject({
+      method: "GET",
+      url: "/stores/store_demo/settings",
+      headers: { authorization: "Bearer invalid-token" },
+    });
+    expect(invalidToken.statusCode).toBe(401);
+
+    // 1) R2 lazy: StoreSettings satiri yok → 200, tum-null + storeName echo (404 DEGIL).
+    const initial = await app.inject({ method: "GET", url: "/stores/store_demo/settings", headers: auth });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toEqual({
+      storeId: "store_demo",
+      storeName: "Demo Store",
+      logoMediaId: null,
+      logoUrl: null,
+      faviconMediaId: null,
+      faviconUrl: null,
+    });
+    // GET olusturma YAPMAZ (satir hala yok).
+    expect(dataAccess.storeSettings).toHaveLength(0);
+
+    // 2) PATCH logo set → 200; logo baglandi, favicon hala null. Satir upsert ile olustu.
+    const logoSet = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: { logoMediaId: "media_logo" },
+    });
+    expect(logoSet.statusCode).toBe(200);
+    expect(logoSet.json()).toMatchObject({
+      logoMediaId: "media_logo",
+      logoUrl: "/media/stores/store_demo/branding/logo.webp",
+      faviconMediaId: null,
+      faviconUrl: null,
+    });
+    expect(dataAccess.storeSettings).toHaveLength(1);
+
+    // 3) ABSENT-vs-NULL KANITI: yalniz favicon set → logo KORUNUR (absent=dokunma).
+    const faviconSet = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: { faviconMediaId: "media_fav" },
+    });
+    expect(faviconSet.statusCode).toBe(200);
+    expect(faviconSet.json()).toMatchObject({
+      logoMediaId: "media_logo",
+      logoUrl: "/media/stores/store_demo/branding/logo.webp",
+      faviconMediaId: "media_fav",
+      faviconUrl: "/media/stores/store_demo/branding/fav.webp",
+    });
+
+    // 3b) GET round-trip → ikisi de kalici.
+    const roundTrip = await app.inject({ method: "GET", url: "/stores/store_demo/settings", headers: auth });
+    expect(roundTrip.json()).toMatchObject({ logoMediaId: "media_logo", faviconMediaId: "media_fav" });
+
+    // 4) PATCH { logoMediaId: null } → logo temizlenir, favicon ETKILENMEZ (null=temizle).
+    const logoCleared = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: { logoMediaId: null },
+    });
+    expect(logoCleared.statusCode).toBe(200);
+    expect(logoCleared.json()).toMatchObject({
+      logoMediaId: null,
+      logoUrl: null,
+      faviconMediaId: "media_fav",
+      faviconUrl: "/media/stores/store_demo/branding/fav.webp",
+    });
+
+    // 5) refine: bos PATCH → 400 VALIDATION_ERROR.
+    const emptyPatch = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: {},
+    });
+    expect(emptyPatch.statusCode).toBe(400);
+    expect(emptyPatch.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
+
+    // 6) cross-tenant reddi: store_other'in gorseli → 400, kayit degismedi.
+    const crossTenant = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: { logoMediaId: "media_foreign" },
+    });
+    expect(crossTenant.statusCode).toBe(400);
+    expect(crossTenant.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+
+    // 7) yanlis context reddi: PRODUCT gorseli logo/favicon olamaz → 400 (favicon ucu da).
+    const wrongContext = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/settings",
+      headers: auth,
+      payload: { faviconMediaId: "media_product" },
+    });
+    expect(wrongContext.statusCode).toBe(400);
+    expect(wrongContext.json()).toMatchObject({ error: { code: "INVALID_IMAGE_REFERENCE" } });
+
+    // Guard yazimdan ONCE calisti: logo hala temiz, favicon hala media_fav.
+    const afterRejects = await app.inject({ method: "GET", url: "/stores/store_demo/settings", headers: auth });
+    expect(afterRejects.json()).toMatchObject({ logoMediaId: null, faviconMediaId: "media_fav" });
+
+    // 8) Audit: her basarili PATCH bir UPDATE/StoreSettings kaydi birakir.
+    expect(dataAccess.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "UPDATE", entityType: "StoreSettings", entityId: "store_demo" }),
+      ]),
+    );
 
     await app.close();
   });

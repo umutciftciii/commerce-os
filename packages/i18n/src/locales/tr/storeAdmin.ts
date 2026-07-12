@@ -1096,12 +1096,16 @@ export const trStoreAdmin = {
   settings: {
     eyebrow: "Mağaza",
     title: "Ayarlar",
-    description: "Mağaza bilgileri, domain, vergi ve operasyon ayarları burada yönetilecek.",
-    cardTitle: "Genel",
-    cardDescription: "Mağaza kimliği (salt okunur yer tutucu)",
+    description: "Mağazanızın markasını ve görsellerini yönetin.",
+    brandCardTitle: "Marka",
+    brandCardDescription: "Logo ve favicon yükleyin.",
     storeName: "Mağaza adı",
-    contactEmail: "İletişim e-postası",
-    note: "Düzenlenebilir mağaza ayarları ve kalıcı kayıt sonraki bir fazda bağlanacak.",
+    logoLabel: "Logo",
+    logoHint: "PNG, JPG veya WebP yükleyin; sunucuda WebP'ye dönüştürülür.",
+    faviconLabel: "Favicon",
+    faviconHint: "Küçük kare bir görsel önerilir (tarayıcı sekmesi simgesi).",
+    savedToast: "Ayarlar kaydedildi.",
+    loadError: "Ayarlar yüklenemedi.",
   },
   // ADR-065 Faz 2 (Dilim 1) — Media yükleme/kütüphane bileşeni metinleri.
   media: {

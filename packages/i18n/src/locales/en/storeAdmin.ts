@@ -1095,12 +1095,16 @@ export const enStoreAdmin: StoreAdminDictionary = {
   settings: {
     eyebrow: "Store",
     title: "Settings",
-    description: "Store details, domain, tax and operations settings will be managed here.",
-    cardTitle: "General",
-    cardDescription: "Store identity (read-only placeholder)",
+    description: "Manage your store's brand and imagery.",
+    brandCardTitle: "Brand",
+    brandCardDescription: "Upload a logo and favicon.",
     storeName: "Store name",
-    contactEmail: "Contact email",
-    note: "Editable store settings and persistence will be wired in a later phase.",
+    logoLabel: "Logo",
+    logoHint: "Upload PNG, JPG or WebP; it is converted to WebP on the server.",
+    faviconLabel: "Favicon",
+    faviconHint: "A small square image is recommended (browser tab icon).",
+    savedToast: "Settings saved.",
+    loadError: "Failed to load settings.",
   },
   // ADR-065 Phase 2 (Slice 1) — Media upload/library component strings.
   media: {

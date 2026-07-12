@@ -44,6 +44,13 @@ export interface MediaUploadProps {
   /** Yalnız `multiple`: yeni sıralama (görsel id'leri, kapak ilk). */
   onReorder?: (orderedIds: string[]) => void;
   disabled?: boolean;
+  /**
+   * ADR-065 (Faz 2/Dilim 4) — "Kütüphaneden seç" akışını aç/kapat (varsayılan açık).
+   * `false` iken kütüphane butonu render EDİLMEZ ve modal hiç açılmaz; yalnız yükleme
+   * kalır. Marka (logo/favicon) gibi tek `BRANDING` context'i paylaşan iki slotta,
+   * bir slotun kütüphanesinde diğerinin görselinin görünmesini önlemek için kullanılır.
+   */
+  libraryEnabled?: boolean;
 }
 
 // Girdi whitelist'i backend ile aynı; çıktı sunucuda webp'e normalize edilir.
@@ -60,6 +67,7 @@ export function MediaUpload({
   onRemove,
   onReorder,
   disabled,
+  libraryEnabled = true,
 }: MediaUploadProps) {
   const locale = useLocale();
   const t = getDictionary(locale).storeAdmin.media;
@@ -189,17 +197,19 @@ export function MediaUpload({
           {uploading ? <Spinner size="sm" /> : null}
           {uploading ? t.uploading : t.uploadCta}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={busy || (isSingle && value.length > 0)}
-          onClick={() => {
-            setError(null);
-            setLibraryOpen(true);
-          }}
-        >
-          {t.libraryCta}
-        </Button>
+        {libraryEnabled ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy || (isSingle && value.length > 0)}
+            onClick={() => {
+              setError(null);
+              setLibraryOpen(true);
+            }}
+          >
+            {t.libraryCta}
+          </Button>
+        ) : null}
         <span className="text-[11px] text-white/25">{t.maxSizeHint}</span>
       </div>
 
@@ -212,7 +222,7 @@ export function MediaUpload({
         onChange={(event) => void onFilesChosen(event.target.files)}
       />
 
-      {libraryOpen ? (
+      {libraryEnabled && libraryOpen ? (
         <MediaLibraryModal
           context={context}
           attachedIds={new Set(value.map((item) => item.id))}

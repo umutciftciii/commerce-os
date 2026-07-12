@@ -22,6 +22,8 @@ import type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  StoreSettings,
+  StoreSettingsUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
   ProductPriceChangeListResponse,
@@ -724,4 +726,13 @@ export const storeApi = {
   },
   deleteMedia: (mediaId: string) =>
     mutatingCall<void>(`/api/media/${mediaId}`, { method: "DELETE" }),
+
+  // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon). get lazy (tum-null),
+  // update upsert (PATCH; logoMediaId/faviconMediaId null=kaldir).
+  getStoreSettings: () => call<StoreSettings>("/api/store/settings"),
+  updateStoreSettings: (input: StoreSettingsUpdateRequest) =>
+    mutatingCall<StoreSettings>("/api/store/settings", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 };

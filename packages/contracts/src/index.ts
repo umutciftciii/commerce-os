@@ -379,6 +379,32 @@ export const productCategoryUpdateRequestSchema = z
     message: "At least one field is required.",
   });
 
+// ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
+// PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
+// runtime'da storageKey'den turetilen public URL (render icin). storeName
+// salt-okunur echo'dur (Store.name) ve yalniz response'ta yer alir; hepsi nullable
+// olabilir (henuz logo/favicon baglanmamis magaza).
+export const storeSettingsSchema = z.object({
+  storeId: z.string().min(1),
+  storeName: z.string(),
+  logoMediaId: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  faviconMediaId: z.string().nullable(),
+  faviconUrl: z.string().nullable(),
+});
+
+// null = bagi kaldir (FK NULL); absent = dokunma; string = bagla/degistir. Tenant +
+// context (BRANDING) dogrulamasi route katmaninda yapilir. refine "en az bir alan"
+// kontrolu bos PATCH'i reddeder (kategori update deseniyle tutarli).
+export const storeSettingsUpdateRequestSchema = z
+  .object({
+    logoMediaId: z.string().min(1).nullable().optional(),
+    faviconMediaId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
 // ADR-065 (Faz 2/Dilim 2) — urun galerisi ogesi. mediaId ham FK (edit modunda
 // MediaUpload value'sunun kimligi ve "zaten ekli" kontrolu icin), url ise
 // runtime'da storageKey'den turetilen public URL (render icin). position=0 kapak
@@ -2113,6 +2139,8 @@ export type ProductCategory = z.infer<typeof productCategorySchema>;
 export type ProductCategoryListResponse = z.infer<typeof productCategoryListResponseSchema>;
 export type ProductCategoryCreateRequest = z.infer<typeof productCategoryCreateRequestSchema>;
 export type ProductCategoryUpdateRequest = z.infer<typeof productCategoryUpdateRequestSchema>;
+export type StoreSettings = z.infer<typeof storeSettingsSchema>;
+export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
 export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
