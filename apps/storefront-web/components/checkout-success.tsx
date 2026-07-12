@@ -1,6 +1,6 @@
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { OrderConfirmationView } from "../lib/server/cart";
-import { ButtonLink, Eyebrow, Heading, Text } from "./ui";
+import { ButtonLink, Eyebrow, Heading, ProductMedia, Text } from "./ui";
 
 type CheckoutDict = StorefrontDictionary["checkout"];
 
@@ -40,10 +40,16 @@ export function CheckoutSuccess({
           <span className="text-ink-muted">{t.success.orderNumberLabel}</span>
           <span className="font-semibold text-ink">{confirmation.orderNumber}</span>
         </div>
-        <ul className="mt-3 space-y-1.5 border-t border-line pt-3 text-sm">
+        <ul className="mt-3 space-y-2.5 border-t border-line pt-3 text-sm">
           {confirmation.lines.map((line, index) => (
-            <li key={`${line.title}-${index}`} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-ink-muted">
+            <li key={`${line.title}-${index}`} className="flex items-center gap-3">
+              {/* Dilim 6a — Onay satiri kapak thumbnail'i (drop-in ProductMedia).
+                  handle=title: confirmation satirinda productSlug YOK (bilincli
+                  pragmatik) — yer tutucu yine deterministik kalir. */}
+              <div className="h-12 w-12 shrink-0 overflow-hidden border border-line bg-surface">
+                <ProductMedia handle={line.title} title={line.title} imageUrl={line.imageUrl} />
+              </div>
+              <span className="min-w-0 flex-1 truncate text-ink-muted">
                 {line.title} · {line.variantTitle} · {line.quantity}×
               </span>
               <span className="shrink-0 font-medium text-ink">{line.lineTotalLabel}</span>

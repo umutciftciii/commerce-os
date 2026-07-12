@@ -18,7 +18,10 @@ import type { StorefrontWalletCouponView } from "../lib/catalog-types.js";
 
 const t = getDictionary("tr").storefront.cart;
 
-function view(summaryOverrides: Partial<CartViewModel["summary"]> = {}): CartViewModel {
+function view(
+  summaryOverrides: Partial<CartViewModel["summary"]> = {},
+  lineOverrides: Partial<CartViewModel["lines"][number]> = {},
+): CartViewModel {
   return {
     currency: "TRY",
     itemCount: 1,
@@ -42,6 +45,8 @@ function view(summaryOverrides: Partial<CartViewModel["summary"]> = {}): CartVie
         maxQuantity: null,
         inStock: true,
         status: "OK",
+        imageUrl: null,
+        ...lineOverrides,
       },
     ],
     summary: {
@@ -156,5 +161,43 @@ describe("storefront-web · F4A.3 cart Kuponlar area", () => {
     expect(html).toContain(t.couponReasonNotApplicable);
     expect(html).toContain("Sepette %10 İndirim");
     expect(html).toContain("−₺129,90");
+  });
+});
+
+// ADR-065 (Faz 3/Dilim 6a) — Sepet gorsel katmani (thumbnail + mockup detaylari).
+// Tumu mevcut DS token'lariyla (ink/surface/line); accent yalniz "Ödemeye geç"te.
+describe("storefront-web · Dilim 6a cart görsel katmanı", () => {
+  it("renders a real thumbnail <img> when the line has an imageUrl", () => {
+    const html = render(view({}, { imageUrl: "/media/stores/store_demo/products/cover.webp" }));
+    expect(html).toContain('src="/media/stores/store_demo/products/cover.webp"');
+    expect(html).toContain('alt="Demo Hoodie"');
+  });
+
+  it("falls back to the deterministic placeholder when imageUrl is null", () => {
+    const html = render(view({}, { imageUrl: null }));
+    // ProductMedia yer tutucu: <img> yok, role=img + monogram (title ilk harfi).
+    expect(html).not.toContain('src="/media');
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="Demo Hoodie"');
+  });
+
+  it("quantity selector is a single box with inner vertical dividers (border-r / border-l)", () => {
+    const html = render(view());
+    expect(html).toContain("border-r border-line"); // − butonu ayraci
+    expect(html).toContain("border-l border-line"); // + butonu ayraci
+  });
+
+  it("order summary panel uses the muted surface (mockup gri panel, mevcut token)", () => {
+    const html = render(view());
+    expect(html).toContain("bg-surface-muted");
+  });
+
+  it("expired coupon card is dimmed (opacity); assigned card gets an ink side rail — no accent", () => {
+    const expired = render(view({ availableCoupons: [walletCoupon({ state: "EXPIRED" })] }));
+    expect(expired).toContain("opacity-60");
+    const assigned = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
+    expect(assigned).toContain("border-l-ink");
+    // Tek-accent kurali: kupon kartlari accent (menekse CTA) yuzeyi TASIMAZ.
+    expect(assigned).not.toContain("border-l-accent");
   });
 });

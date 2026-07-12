@@ -1230,6 +1230,11 @@ export const publicCartLineSchema = z.object({
   maxOrderQuantity: z.number().int().positive().nullable(),
   inStock: z.boolean(),
   status: publicCartLineStatusSchema,
+  // ADR-065 (Faz 3/Dilim 6a) — ALLOWLIST: yalniz turetilmis kapak URL'i (storageKey'den
+  // gateway'de resolveMediaUrl ile). mediaId/storageKey ASLA sizmaz. Gorseli olmayan
+  // urun -> null (vitrin deterministik yer tutucuya duser). Zorunlu alan: cart yolu
+  // her satir icin URL ya da null uretir (publicProductImageSchema.url deseniyle simetri).
+  imageUrl: z.string().nullable(),
 });
 
 export const publicCartSchema = z.object({
@@ -1349,6 +1354,11 @@ export const publicOrderConfirmationLineSchema = z.object({
   unitPriceMinor: z.number().int().nonnegative(),
   lineTotalMinor: z.number().int().nonnegative(),
   currency: currencySchema,
+  // ADR-065 (Faz 3/Dilim 6a) — Kapak URL'i (ALLOWLIST; storageKey sizmaz). Bu line
+  // semasi PAYLASILIR: checkout confirmation DOLDURUR; receipt/payment-state (Dilim 6b
+  // kapsami) su an DOLDURMAZ. Bu nedenle `.optional()` — alan absent olabilir; boylece
+  // receipt/payment-state serialize noktalarina DOKUNMADAN geriye-uyumlu kalir.
+  imageUrl: z.string().nullable().optional(),
 });
 
 /**

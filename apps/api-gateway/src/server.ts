@@ -1625,7 +1625,14 @@ interface CartResolvableVariant {
 
 type PublicCartLineResult = ReturnType<typeof buildPublicCartLine>;
 
-function buildPublicCartLine(entry: CartResolvableVariant, requestedQuantity: number) {
+function buildPublicCartLine(
+  entry: CartResolvableVariant,
+  requestedQuantity: number,
+  // ADR-065 (Faz 3/Dilim 6a) — Turetilmis kapak URL'i (cagiran batched hazirlar; N+1
+  // yok). Gorsel yoksa null → vitrin deterministik yer tutucuya duser. UNAVAILABLE
+  // satir da kapak tasir (kullaniciya urunu hatirlatir).
+  imageUrl: string | null = null,
+) {
   const base = {
     variantId: entry.variantId,
     productSlug: entry.productSlug,
@@ -1636,6 +1643,7 @@ function buildPublicCartLine(entry: CartResolvableVariant, requestedQuantity: nu
     currency: entry.currency,
     minOrderQuantity: entry.minOrderQuantity,
     maxOrderQuantity: entry.maxOrderQuantity,
+    imageUrl,
   };
 
   // ONLINE disi / satilamaz / gizli fiyat -> siparise dusemez, fiyat tasimaz.
@@ -1812,6 +1820,10 @@ function assemblePublicCart(
   discountCtx: CartDiscountContext,
   shippingCtx: CartShippingContext,
   walletCtx?: CartWalletContext,
+  // ADR-065 (Faz 3/Dilim 6a) — productId -> turetilmis kapak URL'i. Cagiran (cart route)
+  // TEK batched listProductImages ile hazirlar (N+1 yok); verilmezse tum satirlar
+  // imageUrl:null (geriye-uyumlu — mevcut cagiranlar degismez).
+  coverUrlByProductId?: Map<string, string>,
 ) {
   const lines: PublicCartLineResult[] = [];
   for (const item of mergeCartItems(items)) {
@@ -1820,7 +1832,7 @@ function assemblePublicCart(
     // (stale-cart reconciliation): yanit otoriterdir, istemci cookie'sini buna
     // gore yeniden yazar.
     if (!entry) continue;
-    lines.push(buildPublicCartLine(entry, item.quantity));
+    lines.push(buildPublicCartLine(entry, item.quantity, coverUrlByProductId?.get(entry.productId) ?? null));
   }
   const orderableCurrency = lines.find((line) => line.status !== "UNAVAILABLE")?.currency;
   const currency = orderableCurrency ?? lines[0]?.currency ?? "TRY";
@@ -4114,6 +4126,31 @@ export function createServer(
   }
 
   /**
+   * ADR-065 (Faz 3/Dilim 6a) — Sepet/onay satirlari icin kapak URL'i haritasi.
+   * TEK batched listProductImages(coverOnly=true) cagrisiyla (N+1 YOK) her urunun
+   * en dusuk position kapagini alir; storageKey'i resolveMediaUrl ile public URL'e
+   * cevirir (MEDIA_PUBLIC_BASE_URL bos ise /media/<key> goreli, doluysa CDN koku).
+   * Kapaksiz urun haritada YER ALMAZ (cagiran ?? null ile yer tutucuya duser).
+   * mediaId/storageKey disari SIZMAZ — yalniz turetilmis URL doner (allowlist).
+   */
+  async function buildCartCoverUrlMap(
+    storeId: string,
+    productIds: string[],
+  ): Promise<Map<string, string>> {
+    const urlByProductId = new Map<string, string>();
+    const unique = [...new Set(productIds)];
+    if (unique.length === 0) return urlByProductId;
+    const coverMap = await dataAccess.listProductImages(storeId, unique, true);
+    for (const [productId, records] of coverMap) {
+      const cover = records[0];
+      if (cover) {
+        urlByProductId.set(productId, resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, cover.storageKey));
+      }
+    }
+    return urlByProductId;
+  }
+
+  /**
    * F4A.3 (ADR-060) — Sepet "Kuponlar" kartlari icin cuzdan adaylarini toplar:
    *  (1) PUBLIC: isPublic + ACTIVE kupon kampanyalari (herkes claim edebilir),
    *  (2) ASSIGNED/CLAIMED: oturum acmis musteri/email cuzdani (DB),
@@ -4190,6 +4227,12 @@ export function createServer(
       email: cartCustomer?.email ?? null,
       claimedCodes: (body.claimedCodes ?? []).map((code) => normalizeCouponCode(code) ?? "").filter(Boolean),
     });
+    // ADR-065 (Faz 3/Dilim 6a) — Sepet satiri kapaklari: variantId'ler index'ten
+    // productId'ye cozulur, TEK batched sorguyla kapak URL'leri hazirlanir (N+1 yok).
+    const coverUrlByProductId = await buildCartCoverUrlMap(
+      store.id,
+      body.items.map((item) => index.get(item.variantId)?.productId).filter((id): id is string => Boolean(id)),
+    );
     const { cart } = assemblePublicCart(
       store.slug,
       index,
@@ -4203,6 +4246,7 @@ export function createServer(
         requestedOptionId: body.shippingOptionId ?? null,
       },
       { candidates: walletCandidates },
+      coverUrlByProductId,
     );
     return cart;
   });
@@ -4588,6 +4632,14 @@ export function createServer(
       ? await paymentRedirectBuilderRef.current(store.id, placed)
       : null;
 
+    // ADR-065 (Faz 3/Dilim 6a) — Onay satiri kapaklari. Order line'da productId ZATEN
+    // var; TEK batched sorguyla kapak URL'leri hazirlanir (N+1 yok). Success ekrani
+    // bu URL'leri (cookie yoluyla) thumbnail olarak gosterir. Kapaksiz urun -> null.
+    const confirmationCoverUrlByProductId = await buildCartCoverUrlMap(
+      store.id,
+      placed.lines.map((line) => line.productId),
+    );
+
     return reply.code(201).send(
       publicOrderConfirmationSchema.parse({
         orderNumber: placed.orderNumber,
@@ -4609,6 +4661,7 @@ export function createServer(
           unitPriceMinor: line.unitPriceAmount,
           lineTotalMinor: line.totalAmount,
           currency: line.currency,
+          imageUrl: confirmationCoverUrlByProductId.get(line.productId) ?? null,
         })),
         createdAt: placed.createdAt.toISOString(),
         // F3B.2 — Success ekrani icin teslimat/fatura ozeti (provider-less akista).

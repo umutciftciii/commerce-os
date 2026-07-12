@@ -10,6 +10,8 @@ import {
   productSchema,
   productUpdateRequestSchema,
   publicProductImageSchema,
+  publicCartLineSchema,
+  publicOrderConfirmationLineSchema,
   publicProductSchema,
   publicProductDetailSchema,
   productVariantCreateRequestSchema,
@@ -525,6 +527,66 @@ describe("catalog contracts", () => {
     });
     expect(parsed.lines[0]?.sku).toBe("SKU-1");
     expect(parsed.reservations[0]?.status).toBe("ACTIVE");
+  });
+
+  // ADR-065 (Faz 3/Dilim 6a) — Sepet/onay satiri KAPAK thumbnail'i (imageUrl).
+  const baseCartLine = {
+    variantId: "variant_1",
+    productSlug: "demo-hoodie",
+    title: "Demo Hoodie",
+    variantTitle: "Black / M",
+    sku: "DEMO-HOODIE-BLK-M",
+    quantity: 1,
+    availableQuantity: 1,
+    unitPriceMinor: 129900,
+    lineTotalMinor: 129900,
+    currency: "TRY",
+    minOrderQuantity: 1,
+    maxOrderQuantity: null,
+    inStock: true,
+    status: "OK" as const,
+  };
+
+  it("Dilim 6a: publicCartLine imageUrl accepts a URL and null; drops leaked media fields", () => {
+    // Kapak URL'i (turetilmis) tasinir; null gecerli (gorselsiz urun → yer tutucu).
+    expect(publicCartLineSchema.parse({ ...baseCartLine, imageUrl: "/media/x.webp" }).imageUrl).toBe("/media/x.webp");
+    expect(publicCartLineSchema.parse({ ...baseCartLine, imageUrl: null }).imageUrl).toBeNull();
+    // ALLOWLIST: ham mediaId/storageKey parse'ta DUSTURULUR → yalniz turetilmis URL kalir.
+    const parsed = publicCartLineSchema.parse({
+      ...baseCartLine,
+      imageUrl: "/media/x.webp",
+      mediaId: "media_1",
+      storageKey: "stores/store_1/products/x.webp",
+    } as Record<string, unknown>);
+    expect(parsed).not.toHaveProperty("mediaId");
+    expect(parsed).not.toHaveProperty("storageKey");
+    expect(JSON.stringify(parsed)).not.toContain("storageKey");
+  });
+
+  it("Dilim 6a: publicOrderConfirmationLine imageUrl is optional (absent OK) + allowlist", () => {
+    const base = {
+      title: "Demo Hoodie",
+      variantTitle: "Black / M",
+      quantity: 1,
+      unitPriceMinor: 129900,
+      lineTotalMinor: 129900,
+      currency: "TRY",
+    };
+    // OPTIONAL: alan hic verilmese de parse gecer → receipt/payment-state (Dilim 6b
+    // kapsami) serialize noktalarina DOKUNMADAN geriye-uyumlu kalir.
+    expect(publicOrderConfirmationLineSchema.parse(base)).not.toHaveProperty("imageUrl");
+    // Confirmation yolunda doldurulur: URL ya da null.
+    expect(publicOrderConfirmationLineSchema.parse({ ...base, imageUrl: "/media/x.webp" }).imageUrl).toBe("/media/x.webp");
+    expect(publicOrderConfirmationLineSchema.parse({ ...base, imageUrl: null }).imageUrl).toBeNull();
+    // ALLOWLIST: ham anahtarlar dusturulur.
+    const parsed = publicOrderConfirmationLineSchema.parse({
+      ...base,
+      imageUrl: "/media/x.webp",
+      mediaId: "media_1",
+      storageKey: "stores/store_1/products/x.webp",
+    } as Record<string, unknown>);
+    expect(parsed).not.toHaveProperty("mediaId");
+    expect(parsed).not.toHaveProperty("storageKey");
   });
 });
 

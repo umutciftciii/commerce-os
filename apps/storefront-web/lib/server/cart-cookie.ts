@@ -190,6 +190,51 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * Dilim 6a — Onay cookie boyut tavani (imzali `payload.signature` degerinin byte
+ * boyu). Tarayici cookie tavani ~4KB'dir; ~3.8KB esigi guvenli pay birakir. Esik
+ * asilirsa (cok kalemli + uzun gorsel URL'li siparis) lines[].imageUrl null'a
+ * dusurulur → thumbnail yer tutucuya iner, onay verisi ve imza BUTUN kalir.
+ */
+const CONFIRMATION_MAX_VALUE_BYTES = 3800;
+
+/** Onay gorunumunu imzali cookie degerine (`payload.signature`) cevirir. */
+function encodeConfirmation(confirmation: OrderConfirmationView): string {
+  const payload = Buffer.from(JSON.stringify(confirmation)).toString("base64url");
+  return `${payload}.${confirmationSignature(payload)}`;
+}
+
+/**
+ * Dilim 6a — Onay cookie degerini boyut-bilincli uretir (SAF; test edilebilir).
+ * Once gorseller dahil kodlanir; deger tavani asarsa gorseller (imageUrl) dusurulup
+ * yeniden kodlanir. Onay verisinin kendisi (siparis no/tutar/satir) ASLA kirpilmaz.
+ */
+export function buildConfirmationCookieValue(confirmation: OrderConfirmationView): string {
+  const value = encodeConfirmation(confirmation);
+  if (Buffer.byteLength(value, "utf8") <= CONFIRMATION_MAX_VALUE_BYTES) return value;
+  return encodeConfirmation({
+    ...confirmation,
+    lines: confirmation.lines.map((line) => ({ ...line, imageUrl: null })),
+  });
+}
+
+/**
+ * Dilim 6a — Imzali cookie degerini dogrular ve cozer (SAF; cookies() gerektirmez —
+ * test edilebilir). Gecersiz/kurcalanmis/bicimsiz -> null.
+ */
+export function decodeConfirmationCookieValue(raw: string): OrderConfirmationView | null {
+  const dot = raw.indexOf(".");
+  if (dot <= 0) return null;
+  const payload = raw.slice(0, dot);
+  const signature = raw.slice(dot + 1);
+  if (!safeEqual(signature, confirmationSignature(payload))) return null;
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as OrderConfirmationView;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Order olusumu sonrasi onay gorunumunu kisa omurlu, imzali bir cookie'ye yazar.
  * Yalniz action/route handler baglaminda cagrilabilir. Sepet bos olsa bile
  * /checkout/success siparis ozetini bundan render eder (empty-state'e dusmez).
@@ -197,8 +242,7 @@ function safeEqual(a: string, b: string): boolean {
 export async function writeCheckoutConfirmationCookie(
   confirmation: OrderConfirmationView,
 ): Promise<void> {
-  const payload = Buffer.from(JSON.stringify(confirmation)).toString("base64url");
-  const value = `${payload}.${confirmationSignature(payload)}`;
+  const value = buildConfirmationCookieValue(confirmation);
   const store = await cookies();
   store.set(CONFIRMATION_COOKIE, value, {
     httpOnly: true,
@@ -214,16 +258,7 @@ export async function readCheckoutConfirmationCookie(): Promise<OrderConfirmatio
   const store = await cookies();
   const raw = store.get(CONFIRMATION_COOKIE)?.value;
   if (!raw) return null;
-  const dot = raw.indexOf(".");
-  if (dot <= 0) return null;
-  const payload = raw.slice(0, dot);
-  const signature = raw.slice(dot + 1);
-  if (!safeEqual(signature, confirmationSignature(payload))) return null;
-  try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as OrderConfirmationView;
-  } catch {
-    return null;
-  }
+  return decodeConfirmationCookieValue(raw);
 }
 
 /** Onay cookie'sini siler (yalniz action/route handler). */
