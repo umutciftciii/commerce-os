@@ -43,7 +43,7 @@ export function ProductCard({
         className="relative block aspect-[4/5] overflow-hidden border border-line bg-surface"
       >
         <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04]">
-          <ProductMedia handle={product.handle} title={product.title} imageUrl={imageUrl} />
+          <ProductMedia handle={product.handle} title={product.title} imageUrl={imageUrl ?? product.coverUrl} />
         </div>
 
         {/* GERCEK: kampanya/indirim rozeti (notr — aksan tasimaz). */}

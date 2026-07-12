@@ -63,6 +63,8 @@ function publicProduct(overrides: Record<string, unknown> = {}) {
     minOrderQuantity: 1,
     maxOrderQuantity: null,
     variants: [publicVariant()],
+    // ADR-065 (Faz 3/Dilim 1) — gateway her zaman images gonderir (schema default []).
+    images: [],
     ...overrides,
   };
 }
@@ -175,6 +177,28 @@ describe("storefront resolver · public listing", () => {
     expect(summary.badgeKind).toBe("discount");
   });
 
+  // ADR-065 (Faz 3/Dilim 1) — Kapak turetimi: images[0].url → coverUrl.
+  it("derives coverUrl from the first image; null when there are none", async () => {
+    nextResponses = [
+      jsonResponse({
+        data: [
+          publicProduct({
+            images: [
+              { url: "/media/stores/s1/products/cover.webp", altText: "Kapak", position: 0 },
+              { url: "/media/stores/s1/products/alt.webp", altText: null, position: 1 },
+            ],
+          }),
+          publicProduct({ slug: "no-image", images: [] }),
+        ],
+        pagination: { limit: 50, offset: 0, total: 2 },
+      }),
+    ];
+    const result = await getStorefrontListing();
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.data[0].coverUrl).toBe("/media/stores/s1/products/cover.webp");
+    expect(result.data[1].coverUrl).toBeNull();
+  });
+
   it("returns no-store on a 404 store response", async () => {
     nextResponses = [jsonResponse({ error: { code: "STORE_NOT_FOUND" } }, 404)];
     const result = await getStorefrontListing();
@@ -220,6 +244,26 @@ describe("storefront resolver · product detail", () => {
     expect(result.data.variants[0].available).toBe(15);
     expect(result.data.description).toBe("Cozy hoodie");
     expect(calls[0].url).toContain("/public/stores/demo-store/products/demo-hoodie");
+  });
+
+  // ADR-065 (Faz 3/Dilim 1) — Detay tam galeriyi (images[]) tasir; coverUrl=images[0].
+  it("resolves the full gallery on detail with coverUrl matching images[0]", async () => {
+    nextResponses = [
+      jsonResponse(
+        publicDetail({
+          images: [
+            { url: "/media/stores/s1/products/a.webp", altText: "A", position: 0 },
+            { url: "/media/stores/s1/products/b.webp", altText: null, position: 1 },
+            { url: "/media/stores/s1/products/c.webp", altText: null, position: 2 },
+          ],
+        }),
+      ),
+    ];
+    const result = await getStorefrontProductByHandle("demo-hoodie");
+    if (!result.ok || result.data === null) throw new Error("expected detail");
+    expect(result.data.images).toHaveLength(3);
+    expect(result.data.images[0]).toEqual({ url: "/media/stores/s1/products/a.webp", altText: "A" });
+    expect(result.data.coverUrl).toBe("/media/stores/s1/products/a.webp");
   });
 
   it("returns null data for an unknown handle (graceful 404 empty state)", async () => {

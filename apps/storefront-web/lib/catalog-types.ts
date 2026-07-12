@@ -62,6 +62,12 @@ export interface StorefrontProductSummary {
   title: string;
   brand: string | null;
   categoryLabel: string | null;
+  /**
+   * ADR-065 (Faz 3/Dilim 1) — Kapak gorseli public URL'i (liste ucundaki images[0]).
+   * Gorseli olmayan urunde null → kart `ProductMedia`'da deterministik yer tutucuya
+   * duser (productImageSrc fallback'i DEGISMEZ). Cogul galeri PDP'de (StorefrontProductDetail.images).
+   */
+  coverUrl: string | null;
   price: StorefrontPrice;
   commerce: ProductCommerceView;
   /**
@@ -227,6 +233,12 @@ export interface StorefrontProductDetail extends StorefrontProductSummary {
   whatsappMessageTemplate: string | null;
   inquiryFormTitle: string | null;
   appointmentNote: string | null;
+  /**
+   * ADR-065 (Faz 3/Dilim 1) — Tam urun galerisi (position ASC; images[0]=kapak).
+   * Dilim 1'de PDP yalniz kapagi (`coverUrl`) render eder; thumbnail seridi bu diziyi
+   * tuketecek (Dilim 2). Gorseli olmayan urunde bos dizi.
+   */
+  images: { url: string; altText: string | null }[];
   /** Benzer urunler (ayni katalogtan turetilir). */
   related: StorefrontProductSummary[];
 }

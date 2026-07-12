@@ -137,6 +137,9 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
     title: product.title,
     brand: product.brand,
     categoryLabel: product.categoryLabel,
+    // ADR-065 (Faz 3/Dilim 1) — Kapak = liste/ilgili ucundaki ilk gorsel; yoksa null
+    // (kart yer tutucuya duser). Detayda images[0] yine kapaktir (tutarli).
+    coverUrl: product.images[0]?.url ?? null,
     price,
     commerce,
     // Adim 3 (PLP) — En ucuz gorunur varyantin ham minor tutari (istemci fiyat
@@ -190,6 +193,9 @@ function toDetail(detail: PublicProductDetail, locale: CampaignLabelLocale): Sto
     whatsappMessageTemplate: detail.whatsappMessageTemplate,
     inquiryFormTitle: detail.inquiryFormTitle,
     appointmentNote: detail.appointmentNote,
+    // ADR-065 (Faz 3/Dilim 1) — Tam galeri (position ASC). coverUrl (summary'den) =
+    // images[0]. Dilim 1'de yalniz kapak render edilir; thumbnail seridi Dilim 2.
+    images: detail.images.map((image) => ({ url: image.url, altText: image.altText })),
     related: detail.related.map((item) => toSummary(item, locale)),
   };
 }

@@ -58,6 +58,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     title: "Demo Hoodie",
     brand: "Commerce OS",
     categoryLabel: "Apparel",
+    coverUrl: null,
     price: { mode: "amount", amountLabel: "₺1.299,00", compareAtLabel: "₺1.499,00", lowestRecentLabel: null },
     commerce: deriveProductCommerceView(onlineSales),
     badgeKind: "discount",
@@ -83,12 +84,14 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     whatsappMessageTemplate: null,
     inquiryFormTitle: null,
     appointmentNote: null,
+    images: [],
     related: [
       {
         handle: "demo-tote",
         title: "Demo Tote Bag",
         brand: "Commerce OS",
         categoryLabel: "Accessories",
+        coverUrl: null,
         price: { mode: "amount", amountLabel: "₺399,00", compareAtLabel: null, lowestRecentLabel: null },
         commerce: deriveProductCommerceView(onlineSales),
         badgeKind: null,

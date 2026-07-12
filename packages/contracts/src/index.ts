@@ -920,6 +920,20 @@ export const publicCampaignBadgeSchema = z.object({
   ...couponDisplayFieldsSchema.shape,
 });
 
+/**
+ * ADR-065 (Faz 3/Dilim 1) — Public urun gorseli (ALLOWLIST). Yalnizca vitrinde
+ * gosterilmesi guvenli alanlar tasinir: runtime'da storageKey'den turetilen public
+ * `url` + `altText` + `position`. Ic/yonetim alanlari (mediaId ham FK, storageKey,
+ * checksum, createdBy) bilincli olarak DISARIDA birakilir; admin `productImageSchema`
+ * `mediaId` tasir, bu public karsiligi TASIMAZ. `position` yalniz siralama indeksidir
+ * (0=kapak); dizi zaten position ASC dondurulur.
+ */
+export const publicProductImageSchema = z.object({
+  url: z.string(),
+  altText: z.string().nullable(),
+  position: z.number().int(),
+});
+
 export const publicProductSchema = z.object({
   id: z.string().min(1),
   slug: slugSchema,
@@ -936,6 +950,13 @@ export const publicProductSchema = z.object({
   minOrderQuantity: z.number().int().positive(),
   maxOrderQuantity: z.number().int().positive().nullable(),
   variants: z.array(publicProductVariantSchema),
+  /**
+   * ADR-065 (Faz 3/Dilim 1) — Urun gorselleri (ALLOWLIST). Liste/ilgili ucunda
+   * yalnizca kapak ([cover] ya da []); detay ucunda tam galeri (position ASC).
+   * Ayni alan, farkli doldurma (gateway record'a hangi gorselleri koyduguna bagli).
+   * Gorseli olmayan urunde [] → vitrin deterministik yer tutucu gosterir.
+   */
+  images: z.array(publicProductImageSchema).default([]),
   /** F4A.1 — Bu urun icin gecerli kampanya rozeti (yoksa null; additive alan). */
   campaign: publicCampaignBadgeSchema.nullable().default(null),
   /**
@@ -2248,6 +2269,7 @@ export type ProductPriceChange = z.infer<typeof productPriceChangeSchema>;
 export type ProductPriceChangeListResponse = z.infer<typeof productPriceChangeListResponseSchema>;
 export type PublicCampaignBadge = z.infer<typeof publicCampaignBadgeSchema>;
 export type PublicProductVariant = z.infer<typeof publicProductVariantSchema>;
+export type PublicProductImage = z.infer<typeof publicProductImageSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
 export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;

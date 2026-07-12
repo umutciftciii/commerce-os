@@ -689,6 +689,15 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: ProductRecord[]; total: number }>;
   findProductById(storeId: string, productId: string): Promise<ProductRecord | null>;
   findProductBySlug(storeId: string, slug: string): Promise<ProductRecord | null>;
+  // ADR-065 (Faz 3/Dilim 1) — public vitrin gorsel projeksiyonu icin batched gorsel
+  // cekimi (N+1'siz). coverOnly=true → her urunun yalniz kapagi (distinct); false →
+  // tam galeri (position ASC). Admin `listProducts`/`productSelect` DEGISMEZ (hafif
+  // kalir); bu ayri ve public-yol'a ozgu metod. productId -> gorsel dizisi map'i doner.
+  listProductImages(
+    storeId: string,
+    productIds: string[],
+    coverOnly: boolean,
+  ): Promise<Map<string, ProductImageRecord[]>>;
   createProduct(
     storeId: string,
     input: {
@@ -1530,6 +1539,11 @@ function buildPublicProduct(
   badgeNow: Date = new Date(),
   // F4B — EU Omnibus: variantId -> son N gunun en dusuk SATIS fiyati.
   lowestByVariantId: Map<string, number> = new Map(),
+  // ADR-065 (Faz 3/Dilim 1) — MEDIA_PUBLIC_BASE_URL; gorsel url'i storageKey'den
+  // turetmek icin (bos ise /media/<key> goreli, doluysa CDN koku). serializeProduct
+  // deseniyle simetri. product.images'in ne tasidigina CAGIRAN karar verir (liste=kapak,
+  // detay=tam galeri); bu fonksiyon yalniz serialize eder.
+  baseUrl?: string,
 ) {
   const variants = activeVariants.map((variant) =>
     buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId),
@@ -1567,6 +1581,14 @@ function buildPublicProduct(
     minOrderQuantity: product.minOrderQuantity,
     maxOrderQuantity: product.maxOrderQuantity ?? null,
     variants,
+    // ADR-065 (Faz 3/Dilim 1) — ALLOWLIST: yalniz turetilmis url + altText + position.
+    // mediaId/storageKey BILINCLI olarak KONULMAZ (public'e sizmaz; publicProductSchema
+    // zaten dusturur ama acikca elenir). Dizi position ASC gelir (record'un sirasi).
+    images: product.images.map((image) => ({
+      url: resolveMediaUrl(baseUrl, image.storageKey),
+      altText: image.altText,
+      position: image.position,
+    })),
   });
 }
 
@@ -2524,6 +2546,36 @@ function createPrismaDataAccess(): AppDataAccess {
     findProductBySlug: async (storeId, slug) => {
       const product = await prisma.product.findUnique({ where: { storeId_slug: { storeId, slug } }, select: productDetailSelect });
       return product ? withCategoryIds(product) : null;
+    },
+    // ADR-065 (Faz 3/Dilim 1) — TEK batched sorgu (N+1 yok). orderBy [productId, position ASC]
+    // → coverOnly'de distinct her urunun ilk (en dusuk position = kapak) satirini verir.
+    // storageKey ham tasinir; url handler'da resolveMediaUrl(baseUrl, ...) ile turetilir.
+    listProductImages: async (storeId, productIds, coverOnly) => {
+      const map = new Map<string, ProductImageRecord[]>();
+      if (productIds.length === 0) return map;
+      const rows = await prisma.productImage.findMany({
+        where: { storeId, productId: { in: productIds } },
+        orderBy: [{ productId: "asc" }, { position: "asc" }],
+        ...(coverOnly ? { distinct: ["productId"] } : {}),
+        select: {
+          productId: true,
+          mediaId: true,
+          position: true,
+          media: { select: { storageKey: true, altText: true } },
+        },
+      });
+      for (const row of rows) {
+        const record: ProductImageRecord = {
+          mediaId: row.mediaId,
+          position: row.position,
+          storageKey: row.media.storageKey,
+          altText: row.media.altText,
+        };
+        const existing = map.get(row.productId);
+        if (existing) existing.push(record);
+        else map.set(row.productId, [record]);
+      }
+      return map;
     },
     createProduct: (storeId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
@@ -3910,16 +3962,24 @@ export function createServer(
     ]);
     const badgeNow = new Date();
     const slice = products.slice(pagination.offset, pagination.offset + pagination.limit);
+    // ADR-065 (Faz 3/Dilim 1) — Sayfa slice'i icin TEK batched kapak sorgusu (N+1 yok;
+    // yalniz kapak). Record'a enjekte edilir → buildPublicProduct kapagi serialize eder.
+    const coverMap = await dataAccess.listProductImages(
+      store.id,
+      slice.map((product) => product.id),
+      true,
+    );
     const data = await Promise.all(
       slice.map(async (product) =>
         buildPublicProduct(
-          product,
+          { ...product, images: coverMap.get(product.id) ?? [] },
           await loadActivePublicVariants(store.id, product.id),
           categoryNames,
           stockMap,
           publicCampaigns,
           badgeNow,
           lowestMap,
+          config.MEDIA_PUBLIC_BASE_URL,
         ),
       ),
     );
@@ -3949,31 +4009,38 @@ export function createServer(
       loadPublicLowestPriceMap(store.id),
     ]);
     const badgeNow = new Date();
+    const relatedProducts = products.filter((item) => item.id !== product.id).slice(0, 4);
+    // ADR-065 (Faz 3/Dilim 1) — Birincil urun TAM galeri (coverOnly=false); ilgili urunler
+    // yalniz kapak. Iki batched sorgu (N+1 yok). buildPublicProduct record'un images'ini
+    // serialize eder → birincil = tam dizi, ilgili = [kapak].
+    const [galleryMap, relatedCoverMap] = await Promise.all([
+      dataAccess.listProductImages(store.id, [product.id], false),
+      dataAccess.listProductImages(store.id, relatedProducts.map((item) => item.id), true),
+    ]);
     const variants = await loadActivePublicVariants(store.id, product.id);
     const summary = buildPublicProduct(
-      product,
+      { ...product, images: galleryMap.get(product.id) ?? [] },
       variants,
       categoryNames,
       stockMap,
       publicCampaigns,
       badgeNow,
       lowestMap,
+      config.MEDIA_PUBLIC_BASE_URL,
     );
     const related = await Promise.all(
-      products
-        .filter((item) => item.id !== product.id)
-        .slice(0, 4)
-        .map(async (item) =>
-          buildPublicProduct(
-            item,
-            await loadActivePublicVariants(store.id, item.id),
-            categoryNames,
-            stockMap,
-            publicCampaigns,
-            badgeNow,
-            lowestMap,
-          ),
+      relatedProducts.map(async (item) =>
+        buildPublicProduct(
+          { ...item, images: relatedCoverMap.get(item.id) ?? [] },
+          await loadActivePublicVariants(store.id, item.id),
+          categoryNames,
+          stockMap,
+          publicCampaigns,
+          badgeNow,
+          lowestMap,
+          config.MEDIA_PUBLIC_BASE_URL,
         ),
+      ),
     );
     return publicProductDetailSchema.parse({
       ...summary,

@@ -40,7 +40,7 @@ export function StorefrontProductCard({
       <div className="relative aspect-[4/5] overflow-hidden border border-line bg-surface">
         <Link href={href} aria-label={product.title} className="block h-full w-full">
           <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.03]">
-            <ProductMedia handle={product.handle} title={product.title} />
+            <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
           </div>
         </Link>
 
