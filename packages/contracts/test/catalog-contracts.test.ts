@@ -13,6 +13,11 @@ import {
   productVariantUpdateRequestSchema,
   storeSettingsSchema,
   storeSettingsUpdateRequestSchema,
+  heroSlideCreateRequestSchema,
+  heroSlideReorderRequestSchema,
+  heroSlideSchema,
+  heroSlideStatusActionResponseSchema,
+  heroSlideUpdateRequestSchema,
 } from "../src/index.js";
 
 describe("catalog contracts", () => {
@@ -439,5 +444,73 @@ describe("catalog contracts", () => {
     });
     expect(parsed.lines[0]?.sku).toBe("SKU-1");
     expect(parsed.reservations[0]?.status).toBe("ACTIVE");
+  });
+});
+
+// ADR-065 (Faz 2/Dilim 5) — Hero slide kontratlari.
+describe("hero slide contracts", () => {
+  it("create: mediaId zorunlu; status semada opsiyonel (sunucu default DRAFT)", () => {
+    const parsed = heroSlideCreateRequestSchema.parse({ mediaId: "media_1" });
+    expect(parsed.mediaId).toBe("media_1");
+    expect(parsed.status).toBeUndefined();
+  });
+
+  it("create: mediaId eksikse reddedilir (R6 gorsel zorunlu)", () => {
+    expect(() => heroSlideCreateRequestSchema.parse({ headline: "x" })).toThrow();
+  });
+
+  it("create: bos mediaId reddedilir", () => {
+    expect(() => heroSlideCreateRequestSchema.parse({ mediaId: "" })).toThrow();
+  });
+
+  it("update: bos PATCH reddedilir (en az bir alan)", () => {
+    expect(() => heroSlideUpdateRequestSchema.parse({})).toThrow();
+  });
+
+  it("update: mediaId null'a cekilemez (gorselsiz kalamaz, R6)", () => {
+    expect(() => heroSlideUpdateRequestSchema.parse({ mediaId: null })).toThrow();
+  });
+
+  it("update: tekil alan gecerli; null ile alan temizlenebilir", () => {
+    expect(heroSlideUpdateRequestSchema.parse({ headline: null })).toEqual({ headline: null });
+    expect(heroSlideUpdateRequestSchema.parse({ ctaLabel: "Al" })).toEqual({ ctaLabel: "Al" });
+  });
+
+  it("response: nullable metin alanlari + mediaUrl parse edilir", () => {
+    const parsed = heroSlideSchema.parse({
+      id: "hero_1",
+      mediaId: "media_1",
+      mediaUrl: "/media/stores/s/hero/a.webp",
+      position: 0,
+      status: "DRAFT",
+      headline: null,
+      subtext: null,
+      ctaLabel: null,
+      ctaHref: null,
+      startsAt: null,
+      endsAt: null,
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z",
+    });
+    expect(parsed.status).toBe("DRAFT");
+    expect(parsed.mediaUrl).toBe("/media/stores/s/hero/a.webp");
+  });
+
+  it("reorder: sıralı id listesi parse; duplicate ve boş liste reddedilir", () => {
+    expect(heroSlideReorderRequestSchema.parse({ orderedIds: ["a", "b", "c"] }).orderedIds).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(() => heroSlideReorderRequestSchema.parse({ orderedIds: ["a", "a"] })).toThrow();
+    expect(() => heroSlideReorderRequestSchema.parse({ orderedIds: [] })).toThrow();
+  });
+
+  it("statusAction response: id + status enum; geçersiz status reddedilir", () => {
+    expect(heroSlideStatusActionResponseSchema.parse({ id: "hero_1", status: "PUBLISHED" })).toEqual({
+      id: "hero_1",
+      status: "PUBLISHED",
+    });
+    expect(() => heroSlideStatusActionResponseSchema.parse({ id: "hero_1", status: "X" })).toThrow();
   });
 });

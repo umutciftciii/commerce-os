@@ -405,6 +405,95 @@ export const storeSettingsUpdateRequestSchema = z
     message: "At least one field is required.",
   });
 
+// ADR-065 (Faz 2/Dilim 5) — Yayin durumu (hero slide gibi vitrin icerikleri).
+// DRAFT admin'de gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.
+// (schema.prisma ContentStatus enum'unun kontrat karsiligi.)
+export const contentStatusSchema = z.enum(["DRAFT", "PUBLISHED"]);
+
+// ADR-065 (Faz 2/Dilim 5) — Ana sayfa hero slide. Model COKLU kayit (tam CRUD);
+// her slide birincil entity, media yalnizca bir alani. mediaId ham FK (MediaUpload
+// value kimligi icin), mediaUrl runtime'da storageKey'den turetilir (render icin;
+// kategori imageUrl / urun galeri url deseniyle tutarli). startsAt/endsAt semada
+// vardir ancak Dilim 5 UI'i bunlari YONETMEZ (Faz 4 zamanlama; backend forward-compat).
+export const heroSlideSchema = z.object({
+  id: z.string().min(1),
+  mediaId: z.string().min(1),
+  mediaUrl: z.string(),
+  position: z.number().int(),
+  status: contentStatusSchema,
+  headline: z.string().nullable(),
+  subtext: z.string().nullable(),
+  ctaLabel: z.string().nullable(),
+  ctaHref: z.string().nullable(),
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+// Hero az sayida kayittir → pagination YOK (kategori/urun listelerinden farkli).
+export const heroSlideListResponseSchema = z.object({
+  data: z.array(heroSlideSchema),
+});
+
+// R6: mediaId ZORUNLU (hero gorselsiz var olamaz; DB'de mediaId NOT NULL). status
+// opsiyonel; sunucu default DRAFT ile create eder (Dilim 5'te istemci DRAFT disi
+// gondermez; yayin gecisi ayri checkpoint). position sunucu tarafinda atanir
+// (mevcut max+1) — istemci gondermez. Tenant/context (HERO) dogrulamasi route'ta.
+export const heroSlideCreateRequestSchema = z.object({
+  mediaId: z.string().min(1),
+  status: contentStatusSchema.optional(),
+  headline: z.string().max(200).nullable().optional(),
+  subtext: z.string().max(500).nullable().optional(),
+  ctaLabel: z.string().max(120).nullable().optional(),
+  ctaHref: z.string().max(2048).nullable().optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+});
+
+// mediaId opsiyonel ama null'a CEKILEMEZ (.nullable() YOK — hero gorselsiz kalamaz,
+// R6). Diger alanlar null = temizle. refine "en az bir alan" bos PATCH'i reddeder
+// (kategori/ayarlar update deseniyle tutarli).
+export const heroSlideUpdateRequestSchema = z
+  .object({
+    mediaId: z.string().min(1).optional(),
+    status: contentStatusSchema.optional(),
+    headline: z.string().max(200).nullable().optional(),
+    subtext: z.string().max(500).nullable().optional(),
+    ctaLabel: z.string().max(120).nullable().optional(),
+    ctaHref: z.string().max(2048).nullable().optional(),
+    startsAt: z.string().datetime().nullable().optional(),
+    endsAt: z.string().datetime().nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+// ADR-065 (Faz 2/Dilim 5, Checkpoint B) — Hero slide siralama. Sirali id listesi
+// gonderilir; sunucu position=index yazar. Duplicate reddi (urun galeri imageMediaIds
+// deseniyle tutarli). id-setinin mevcut slide setiyle BIREBIR eslesmesi route'ta
+// dogrulanir (eksik/fazla → 400 HERO_REORDER_MISMATCH; galeri diff'inin aksine silme YOK).
+export const heroSlideReorderRequestSchema = z
+  .object({
+    orderedIds: z.array(z.string().min(1)).min(1),
+  })
+  .superRefine((value, ctx) => {
+    if (new Set(value.orderedIds).size !== value.orderedIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "orderedIds must not contain duplicates.",
+        path: ["orderedIds"],
+      });
+    }
+  });
+
+// ADR-065 (Faz 2/Dilim 5, Checkpoint C) — publish/unpublish durum-gecisi hafif yaniti
+// (kampanya campaignStatusActionResponseSchema deseni).
+export const heroSlideStatusActionResponseSchema = z.object({
+  id: z.string().min(1),
+  status: contentStatusSchema,
+});
+
 // ADR-065 (Faz 2/Dilim 2) — urun galerisi ogesi. mediaId ham FK (edit modunda
 // MediaUpload value'sunun kimligi ve "zaten ekli" kontrolu icin), url ise
 // runtime'da storageKey'den turetilen public URL (render icin). position=0 kapak
@@ -2141,6 +2230,13 @@ export type ProductCategoryCreateRequest = z.infer<typeof productCategoryCreateR
 export type ProductCategoryUpdateRequest = z.infer<typeof productCategoryUpdateRequestSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
+export type ContentStatus = z.infer<typeof contentStatusSchema>;
+export type HeroSlide = z.infer<typeof heroSlideSchema>;
+export type HeroSlideListResponse = z.infer<typeof heroSlideListResponseSchema>;
+export type HeroSlideCreateRequest = z.infer<typeof heroSlideCreateRequestSchema>;
+export type HeroSlideUpdateRequest = z.infer<typeof heroSlideUpdateRequestSchema>;
+export type HeroSlideReorderRequest = z.infer<typeof heroSlideReorderRequestSchema>;
+export type HeroSlideStatusActionResponse = z.infer<typeof heroSlideStatusActionResponseSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
 export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;

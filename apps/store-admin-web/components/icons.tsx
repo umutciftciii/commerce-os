@@ -129,6 +129,17 @@ export function ThemeIcon() {
   );
 }
 
+// ADR-065 (Faz 2/Dilim 5) — Ana sayfa (hero) yönetimi nav ikonu: ev + hero bandı.
+export function HomeIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M4 10.5 12 4l8 6.5" />
+      <path d="M5.5 9.5V20h13V9.5" />
+      <rect x="9" y="13" width="6" height="4" rx="1" />
+    </svg>
+  );
+}
+
 export function SettingsIcon() {
   return (
     <svg {...base} aria-hidden>

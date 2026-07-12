@@ -22,6 +22,12 @@ import type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  HeroSlide,
+  HeroSlideCreateRequest,
+  HeroSlideListResponse,
+  HeroSlideReorderRequest,
+  HeroSlideStatusActionResponse,
+  HeroSlideUpdateRequest,
   StoreSettings,
   StoreSettingsUpdateRequest,
   ProductCreateRequest,
@@ -735,4 +741,31 @@ export const storeApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+
+  // ADR-065 Faz 2 (Dilim 5) — Ana sayfa hero slide (CRUD temeli). Sıralama ve yayın
+  // geçişi ayrı checkpoint. delete 204 (yalnız slide kaydı; media'ya dokunmaz).
+  listHeroSlides: () => call<HeroSlideListResponse>("/api/hero-slides"),
+  createHeroSlide: (input: HeroSlideCreateRequest) =>
+    mutatingCall<HeroSlide>("/api/hero-slides", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateHeroSlide: (id: string, input: HeroSlideUpdateRequest) =>
+    mutatingCall<HeroSlide>(`/api/hero-slides/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteHeroSlide: (id: string) =>
+    mutatingCall<void>(`/api/hero-slides/${id}`, { method: "DELETE" }),
+  // Checkpoint B — sıralama: sıralı id listesi (uyumsuz set → 400 HERO_REORDER_MISMATCH).
+  reorderHeroSlides: (input: HeroSlideReorderRequest) =>
+    mutatingCall<HeroSlideListResponse>("/api/hero-slides/reorder", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  // Checkpoint C — yayın durumu geçişi (publish → PUBLISHED, unpublish → DRAFT).
+  publishHeroSlide: (id: string) =>
+    mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/publish`, { method: "POST" }),
+  unpublishHeroSlide: (id: string) =>
+    mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/unpublish`, { method: "POST" }),
 };

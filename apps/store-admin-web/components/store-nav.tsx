@@ -9,6 +9,7 @@ import {
   CategoryIcon,
   CustomerIcon,
   DashboardIcon,
+  HomeIcon,
   InventoryIcon,
   MarketplaceIcon,
   OrderIcon,
@@ -66,6 +67,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
     {
       heading: g("appearance"),
       items: [
+        { href: "/hero", label: t.hero, icon: <HomeIcon /> },
         { href: "/theme", label: t.theme, icon: <ThemeIcon /> },
         { href: "/settings", label: t.settings, icon: <SettingsIcon /> },
       ],
