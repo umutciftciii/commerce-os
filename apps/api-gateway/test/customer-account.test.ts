@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
 import {
   customerSafeShipmentEventStatusText,
@@ -63,13 +63,39 @@ const demoStore = {
 
 // Customer route'lari yalnizca findStoreBySlug'a dokunur; kalan AppDataAccess
 // yuzeyini test icin cast ediyoruz (bu testte cagrilmaz).
+// Dilim 6b — Sipariş satırı thumbnail'i için kapak görseli çözümü.
+// productImagesByProductId: seed edilen "productId → storageKey" (kapak). Bu map'te
+// OLMAYAN ürün → görselsiz (imageUrl null). listProductImagesCalls: N+1 kanıtı için
+// gerçek çağrıları (argümanlarıyla) kaydeder. beforeEach ile sıfırlanır.
+const productImagesByProductId = new Map<string, string>();
+const listProductImagesCalls: Array<{
+  storeId: string;
+  productIds: string[];
+  coverOnly: boolean;
+}> = [];
+
 const dataAccess = {
   async findStoreBySlug(slug: string) {
     return slug === demoStore.slug ? demoStore : null;
   },
+  // Gerçek server.ts imzası: (storeId, productIds, coverOnly) → Map<productId, records[]>.
+  // Yalnız seed edilmiş kapağı olan ürünler için tek elemanlı dizi döner.
+  async listProductImages(storeId: string, productIds: string[], coverOnly: boolean) {
+    listProductImagesCalls.push({ storeId, productIds: [...productIds], coverOnly });
+    const map = new Map<string, Array<{ mediaId: string; position: number; storageKey: string; altText: string | null }>>();
+    for (const productId of productIds) {
+      const storageKey = productImagesByProductId.get(productId);
+      if (storageKey) {
+        map.set(productId, [{ mediaId: `media_${productId}`, position: 0, storageKey, altText: null }]);
+      }
+    }
+    return map;
+  },
 } as unknown as AppDataAccess;
 
 interface SeededOrderLine {
+  // Dilim 6b — kapak görseli çözümü için (verilmezse productSlug'a düşer).
+  productId?: string;
   variantId: string;
   productSlug: string;
   sku: string;
@@ -430,6 +456,7 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
         totalAmount: o.order.totalAmount,
         createdAt: o.order.createdAt,
         lines: o.order.lines.map((line) => ({
+          productId: line.productId ?? line.productSlug,
           variantId: line.variantId,
           productSlug: line.productSlug,
           sku: line.sku,
@@ -469,6 +496,7 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       billingTaxId: order.billingTaxId ?? null,
       billingTaxNumber: order.billingTaxNumber ?? null,
       lines: order.lines.map((line) => ({
+        productId: line.productId ?? line.productSlug,
         variantId: line.variantId,
         productSlug: line.productSlug,
         sku: line.sku,
@@ -538,6 +566,12 @@ async function registerCustomer(
 }
 
 describe("api gateway · customer account (F3B.3)", () => {
+  // Dilim 6b — her test başında kapak görseli seed'ini ve çağrı sayacını sıfırla.
+  beforeEach(() => {
+    productImagesByProductId.clear();
+    listProductImagesCalls.length = 0;
+  });
+
   it("register start returns an OTP challenge without leaking the code", async () => {
     const { app } = makeApp();
     const res = await app.inject({
@@ -858,6 +892,113 @@ describe("api gateway · customer account (F3B.3)", () => {
     expect(raw).not.toMatch(/cvc|accessToken|tokenHash|passwordHash/i);
     // Shipment seed edilmedi → kargo takip bloğu null (additive, opsiyonel).
     expect(order.shipment).toBeNull();
+  });
+
+  // ── Dilim 6b — Sipariş satırı thumbnail'i (güncel kapak; allowlist; N+1'siz) ──
+
+  it("attaches current cover imageUrl per line; product without cover → imageUrl null", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    // İki satır: hoodie'nin kapağı var, mug'ın YOK (görselsiz → null).
+    productImagesByProductId.set("prod_hoodie", "stores/s1/products/hoodie-cover.webp");
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-IMG",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 3000,
+      createdAt: new Date(),
+      lines: [
+        { productId: "prod_hoodie", variantId: "var_h", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1 },
+        { productId: "prod_mug", variantId: "var_m", productSlug: "mug", sku: "MG-1", title: "Mug", variantTitle: "Std", quantity: 1 },
+      ],
+    });
+    // Liste
+    const list = await app.inject({ method: "GET", url: `${base}/orders`, headers: { "x-customer-session": token } });
+    const listLines = list.json().data[0].lines;
+    expect(listLines[0]).toMatchObject({ productSlug: "hoodie", imageUrl: "/media/stores/s1/products/hoodie-cover.webp" });
+    expect(listLines[1]).toMatchObject({ productSlug: "mug", imageUrl: null });
+    // Detay — aynı türetme
+    const detail = await app.inject({ method: "GET", url: `${base}/orders/OS-IMG`, headers: { "x-customer-session": token } });
+    const detailLines = detail.json().order.lines;
+    expect(detailLines[0]).toMatchObject({ productSlug: "hoodie", imageUrl: "/media/stores/s1/products/hoodie-cover.webp" });
+    expect(detailLines[1]).toMatchObject({ productSlug: "mug", imageUrl: null });
+  });
+
+  it("never leaks productId/mediaId/storageKey to the order DTO (imageUrl allowlist)", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    productImagesByProductId.set("prod_secret", "stores/s1/products/secret-key.webp");
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-LEAK",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 1000,
+      createdAt: new Date(),
+      lines: [
+        { productId: "prod_secret", variantId: "var_s", productSlug: "secret", sku: "SC-1", title: "Secret", variantTitle: "One", quantity: 1 },
+      ],
+    });
+    const list = await app.inject({ method: "GET", url: `${base}/orders`, headers: { "x-customer-session": token } });
+    const detail = await app.inject({ method: "GET", url: `${base}/orders/OS-LEAK`, headers: { "x-customer-session": token } });
+    // imageUrl döner (türetilmiş), ama iç tanımlayıcılar HİÇBİR yerde geçmez.
+    const listLine = list.json().data[0].lines[0];
+    const detailLine = detail.json().order.lines[0];
+    expect(listLine.imageUrl).toBe("/media/stores/s1/products/secret-key.webp");
+    expect(listLine).not.toHaveProperty("productId");
+    expect(listLine).not.toHaveProperty("mediaId");
+    expect(listLine).not.toHaveProperty("storageKey");
+    expect(detailLine).not.toHaveProperty("productId");
+    expect(detailLine).not.toHaveProperty("mediaId");
+    expect(detailLine).not.toHaveProperty("storageKey");
+    const rawList = JSON.stringify(list.json());
+    const rawDetail = JSON.stringify(detail.json());
+    expect(rawList).not.toContain("prod_secret");
+    expect(rawList).not.toMatch(/mediaId|storageKey/);
+    expect(rawDetail).not.toContain("prod_secret");
+    expect(rawDetail).not.toMatch(/mediaId|storageKey/);
+  });
+
+  it("resolves covers with a SINGLE batched listProductImages call across many orders (no N+1)", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    productImagesByProductId.set("prod_a", "stores/s1/products/a.webp");
+    productImagesByProductId.set("prod_b", "stores/s1/products/b.webp");
+    // 3 sipariş × 2 satır = 6 satır, 4 farklı ürün — yine TEK sorgu beklenir.
+    for (let i = 0; i < 3; i += 1) {
+      customers.seedOrder({
+        customerId,
+        orderNumber: `OS-N${i}`,
+        status: "PLACED",
+        paymentStatus: "PAID",
+        fulfillmentStatus: "UNFULFILLED",
+        currency: "TRY",
+        totalAmount: 1000,
+        createdAt: new Date(2026, 0, i + 1),
+        lines: [
+          { productId: "prod_a", variantId: `va_${i}`, productSlug: "a", sku: "A-1", title: "A", variantTitle: "x", quantity: 1 },
+          { productId: `prod_uniq_${i}`, variantId: `vu_${i}`, productSlug: `u${i}`, sku: `U-${i}`, title: `U${i}`, variantTitle: "y", quantity: 1 },
+        ],
+      });
+    }
+    const list = await app.inject({ method: "GET", url: `${base}/orders`, headers: { "x-customer-session": token } });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data).toHaveLength(3);
+    // N+1 KANITI: 6 satır / 3 sipariş boyunca listProductImages tam 1 kez çağrılır.
+    expect(listProductImagesCalls).toHaveLength(1);
+    expect(listProductImagesCalls[0].coverOnly).toBe(true);
+    // Batched çağrı tüm ürünleri tek seferde içerir.
+    expect(listProductImagesCalls[0].productIds).toContain("prod_a");
+    expect(listProductImagesCalls[0].productIds).toContain("prod_uniq_0");
+    expect(listProductImagesCalls[0].productIds).toContain("prod_uniq_2");
   });
 
   it("returns customer-safe shipment tracking (allowlist; no internal/secret fields)", async () => {

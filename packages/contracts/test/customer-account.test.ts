@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyIdentifier,
   customerAddressInputSchema,
+  customerOrderDetailLineSchema,
+  customerOrderLineSummarySchema,
   customerPasswordSchema,
   customerRegisterCompleteRequestSchema,
   isValidIban,
@@ -108,5 +110,39 @@ describe("F3B.3 customer account helpers", () => {
     ).toBe(true);
     // Gecersiz telefon reddedilir.
     expect(customerAddressInputSchema.safeParse({ ...base, phone: "123" }).success).toBe(false);
+  });
+
+  // Dilim 6b — sipariş satırı thumbnail'i (imageUrl: nullable ama ZORUNLU alan).
+  it("requires imageUrl on customer order lines (nullable, not optional)", () => {
+    const line = {
+      variantId: "var_1",
+      productSlug: "hoodie",
+      sku: "HD-M",
+      title: "Hoodie",
+      variantTitle: "M",
+      quantity: 1,
+    };
+    // Dolu URL ve null ikisi de geçerli.
+    expect(customerOrderLineSummarySchema.safeParse({ ...line, imageUrl: "/media/x.webp" }).success).toBe(true);
+    expect(customerOrderLineSummarySchema.safeParse({ ...line, imageUrl: null }).success).toBe(true);
+    // Alan EKSİK → reddedilir (nullable ama zorunlu; .optional() regresyonunu yakalar).
+    expect(customerOrderLineSummarySchema.safeParse(line).success).toBe(false);
+  });
+
+  it("customerOrderDetailLineSchema inherits imageUrl from the summary line (extend)", () => {
+    const base = {
+      variantId: "var_1",
+      productSlug: "hoodie",
+      sku: "HD-M",
+      title: "Hoodie",
+      variantTitle: "M",
+      quantity: 2,
+      unitPriceMinor: 5000,
+      lineTotalMinor: 10000,
+    };
+    // imageUrl mirası: dolu/null geçerli, eksik reddedilir.
+    expect(customerOrderDetailLineSchema.safeParse({ ...base, imageUrl: "/media/x.webp" }).success).toBe(true);
+    expect(customerOrderDetailLineSchema.safeParse({ ...base, imageUrl: null }).success).toBe(true);
+    expect(customerOrderDetailLineSchema.safeParse(base).success).toBe(false);
   });
 });

@@ -2689,6 +2689,11 @@ export const customerOrderLineSummarySchema = z.object({
   title: z.string(),
   variantTitle: z.string(),
   quantity: z.number().int().positive(),
+  // Faz 3/Dilim 6b — Sipariş satırı thumbnail'i. ALLOWLIST: yalnız türetilmiş
+  // (güncel ProductImage[position=0]) URL; kapaksız/görselsiz ürün → null.
+  // Kozmetik (yasal snapshot DEĞİL) → güncel kapak gösterilir, snapshot YOK.
+  // productId/mediaId/storageKey ASLA taşınmaz (gateway iç record'unda kalır).
+  imageUrl: z.string().nullable(),
 });
 
 export const customerOrderSummarySchema = z.object({

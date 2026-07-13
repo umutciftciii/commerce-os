@@ -103,7 +103,7 @@ describe("order summary DTOs — shipmentStatus allowlist (customer-safe)", () =
       totalMinor: 1000,
       itemCount: 1,
       lines: [
-        { variantId: "v1", productSlug: "p", sku: "S", title: "T", variantTitle: "M", quantity: 1 },
+        { variantId: "v1", productSlug: "p", sku: "S", title: "T", variantTitle: "M", quantity: 1, imageUrl: null },
       ],
       createdAt: "2026-07-01T00:00:00.000Z",
       shipmentStatus: "ORDER_CREATED",

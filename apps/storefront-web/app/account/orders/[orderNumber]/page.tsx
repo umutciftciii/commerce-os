@@ -10,6 +10,7 @@ import { canWriteReview, isReorderable, returnEligibility } from "../../../../li
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
+import { ProductMedia } from "../../../../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -68,12 +69,15 @@ export default async function OrderDetailPage({
           <ul className="space-y-3">
             {order.lines.map((line) => (
               <li key={line.variantId} className="flex items-center gap-3">
-                <span
-                  aria-hidden
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-slate-100 text-sm font-semibold text-slate-400"
-                >
-                  {line.title.slice(0, 1).toUpperCase()}
-                </span>
+                {/* Dilim 6b — Ürün kapak thumbnail'i (Dilim 6a wrapper deseni:
+                    sabit boyut + overflow-hidden, ProductMedia h-full w-full doldurur). */}
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-line bg-surface-muted">
+                  <ProductMedia
+                    handle={line.productSlug}
+                    title={line.title}
+                    imageUrl={line.imageUrl}
+                  />
+                </div>
                 <span className="min-w-0 flex-1 text-sm text-slate-700">
                   <Link href={`/products/${line.productSlug}`} className="hover:underline">
                     {line.title}
