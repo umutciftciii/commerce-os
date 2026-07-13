@@ -1036,3 +1036,30 @@
   KALAN: merge sonrası migrate deploy + docker rebuild (api-gateway + storefront-web + store-admin-web) +
   runtime doğrulama (OPERATIONS F4C). Follow-up: sepet/checkout "KDV (dahil)" bilgi satırını satır
   oranlarından türetme; fatura üretimi (alanlar hazır).
+- TODO-143 — Faz 1A: Ürün ana kategorisi (`primaryCategoryId`) temeli (DONE — 2026-07-13, ADR-067). İş:
+  kategoriye-bağlı dinamik attribute altyapısının ilk adımı; M:N `ProductCategoryAssignment` belirsizliğini
+  gidermek için her ürüne tek ana kategori. Çözüm: (1) additive nullable `Product.primaryCategoryId` FK
+  `onDelete: Restrict` + `@@index([storeId, primaryCategoryId])` + tarihli migration
+  `20260713120000_add_product_primary_category` (deterministik backfill: en eski assignment `createdAt ASC`,
+  eşitlikte `categoryId ASC` — `ProductCategoryAssignment` surrogate id taşımadığı için `assignment.id ASC`
+  yerine categoryId, ürün içinde unique olduğundan deterministik; tek→o kategori; kategorisiz→null; NOT NULL
+  YOK). Migration history nedeniyle BİR KEZ uygulanır; backfill `WHERE ... IS NULL` ile RE-RUN güvenlidir. (2) contracts: `primaryCategoryId` (response nullable; create/update opsiyonel) + saf
+  `resolvePrimaryCategorySelection` kural fonksiyonu. (3) gateway service guard: `resolvePrimaryCategory`
+  route helper — assignment+primary tek `$transaction`; stabil kodlar `PRIMARY_CATEGORY_REQUIRED/NOT_ASSIGNED/
+  STORE_MISMATCH/ARCHIVED/ASSIGNMENT_CONFLICT`; ana kategori sessizce kaldırılamaz. (4) `publicCategoryLabel`
+  önce primary, yoksa "ilk assignment" fallback (storefront geriye uyumlu). (5) store-admin form: "Ana
+  kategori" işaretleyici (tek kategori otomatik ana; ana kaldırılınca yeni ana zorunlu; edit hydration;
+  server hata bağlama) + i18n TR/EN. (6) seed hoodie/tote primary; `db:audit-primary-category` review
+  script'i (dry-run default, `--apply` idempotent). Runtime kategori mirası UYGULANMADI (MVP; `overrideMode`
+  yok). Testler: contracts 73 (resolve* + şema), gateway health 132 (4 yeni), store-admin 232 (4 yeni ana
+  kategori component). Merge-öncesi DOĞRULAMA (2026-07-13): (a) izole PostgreSQL (ayrı container :5433, proje
+  volume'una dokunulmadan) — pre-Faz1A zinciri + fixture + `prisma migrate deploy` + backfill; senaryolar
+  A(tek→cat) B(çok/en-eski createdAt) C(eşit createdAt→categoryId ASC) D(kategorisiz→null) E(önceden-primary
+  ezilmez) F(cross-store yok) G(FK RESTRICT) HEPSİ doğru; backfill re-run=UPDATE 0; audit dry-run↔DB uyumu;
+  `--apply` migration ile birebir aynı; 2. `--apply`=applied 0. (b) runtime smoke (gerçek Fastify+Prisma+izole
+  PG): API create/update kuralları + regresyon 15/15; public label primary-önceliği/flip/no-leak 4/4. (c)
+  typecheck main(c2067b3) vs branch: her ikisinde AYNI tek hata (`checkout-form-render.test.tsx` CartLineView,
+  ÖNCEDEN mevcut) → branch 0 YENİ hata. Gate: db:generate + build + typecheck + lint + prisma validate +
+  `git diff --check` temiz. KALAN: merge sonrası HEDEF DB'de `prisma migrate deploy` + docker rebuild
+  (api-gateway + store-admin-web + storefront-web) + prod-benzeri runtime smoke; Faz 1B (attribute tabloları)
+  ayrı iş.

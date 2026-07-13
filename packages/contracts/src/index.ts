@@ -532,6 +532,10 @@ export const productSchema = z.object({
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
   categoryIds: z.array(z.string().min(1)).default([]),
+  // Faz 1A (ADR-067) — urunun TEK ana kategorisi (dinamik sema/breadcrumb kaynagi).
+  // categoryIds icindeki bir id olmalidir (route service guard); legacy/kategorisiz
+  // urunde null. Admin response'ta doner; public projeksiyonda YOK (label sunucuda turer).
+  primaryCategoryId: z.string().nullable(),
   // ADR-065 (Faz 2/Dilim 2) — urun galerisi (coklu, sirali). position ASC dondurulur;
   // images[0] kapaktir. Entity kendi GET'inden galerisini dondurur.
   images: z.array(productImageSchema).default([]),
@@ -621,6 +625,11 @@ export const productCreateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).default([]),
+    // Faz 1A (ADR-067) — opsiyonel ana kategori. Cross-field semantik (zorunlu/
+    // atanmis mi) route'ta `resolvePrimaryCategorySelection` ile STABIL kodlarla
+    // dogrulanir; burada yalniz tip. Tek kategoride backend normalize eder (null
+    // gecerli), coklu kategoride route REQUIRED dondurur.
+    primaryCategoryId: z.string().min(1).nullable().optional(),
     // F3C.2 — Kargo olcumu. 0/negatif anlamsiz: >0 olmali; bos birakilabilir (null).
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
@@ -659,6 +668,10 @@ export const productUpdateRequestSchema = z
     inquiryFormTitle: z.string().max(160).nullable().optional(),
     appointmentNote: z.string().max(500).nullable().optional(),
     categoryIds: z.array(z.string().min(1)).optional(),
+    // Faz 1A (ADR-067) — ana kategori. undefined = dokunma; null = temizle (yalniz
+    // kategori bosaltiliyorsa gecerli). Assignment kaldirma/degistirme + primary
+    // tutarliligi route'ta tek transaction icinde STABIL kodlarla dogrulanir.
+    primaryCategoryId: z.string().min(1).nullable().optional(),
     // ADR-065 (Faz 2/Dilim 2) — sirali galeri; position = dizideki index, kapak = index 0.
     // Tam sirali liste (tekil swap yok): sunucu mevcut ile diff'ler. [] gonderilirse
     // galeri tamamen temizlenir. Tenant/context dogrulamasi route katmaninda (her mediaId
@@ -696,6 +709,48 @@ export const productUpdateRequestSchema = z
     message: "Product sales model fields are inconsistent.",
     path: ["salesMode"],
   });
+
+// ─────────────────────── Faz 1A (ADR-067) — Ana kategori secim kurallari ───────────────────────
+// Ana kategori SEMANTIGININ tek KAYNAK DOGRUSU (saf, IO'suz). Route bunu cagirir ve
+// donen kodu HTTP hatasina cevirir; boylece stabil hata kodlari admin UI'da ilgili
+// kategori alanina baglanabilir (zod refine kullanmiyoruz cunku generic VALIDATION_ERROR
+// ozel kodlari yutardi). categoryIds'in store'da var oldugu + dedup route'ta (validateCategoryIds)
+// dogrulanir; bu fonksiyon yalniz kombinasyon kurallarini uygular. STORE_MISMATCH / ARCHIVED /
+// ASSIGNMENT_CONFLICT baglamsal kodlaridir ve route katmaninda uretilir.
+export type PrimaryCategorySelectionErrorCode =
+  | "PRIMARY_CATEGORY_REQUIRED"
+  | "PRIMARY_CATEGORY_NOT_ASSIGNED";
+
+export type PrimaryCategorySelectionResult =
+  | { ok: true; primaryCategoryId: string | null; categoryIds: string[] }
+  | { ok: false; code: PrimaryCategorySelectionErrorCode };
+
+/**
+ * Faz 1A (ADR-067) — Ana kategori secimini normalize eder / dogrular.
+ *  - categoryIds bos   => primary yalniz null olabilir (verilmisse NOT_ASSIGNED).
+ *  - categoryIds tek + primary yok => otomatik o kategori (sessizce normalize).
+ *  - categoryIds >1  + primary yok => REQUIRED (backend sessizce SECMEZ).
+ *  - primary verilmis ama categoryIds icinde degil => NOT_ASSIGNED.
+ *  - primary verilmis ve gecerli => oldugu gibi.
+ * categoryIds cikista dedup edilmis dondurulur.
+ */
+export function resolvePrimaryCategorySelection(input: {
+  categoryIds: string[];
+  primaryCategoryId?: string | null;
+}): PrimaryCategorySelectionResult {
+  const categoryIds = [...new Set(input.categoryIds)];
+  const primary = input.primaryCategoryId ?? null;
+  if (categoryIds.length === 0) {
+    if (primary !== null) return { ok: false, code: "PRIMARY_CATEGORY_NOT_ASSIGNED" };
+    return { ok: true, primaryCategoryId: null, categoryIds };
+  }
+  if (primary === null) {
+    if (categoryIds.length === 1) return { ok: true, primaryCategoryId: categoryIds[0]!, categoryIds };
+    return { ok: false, code: "PRIMARY_CATEGORY_REQUIRED" };
+  }
+  if (!categoryIds.includes(primary)) return { ok: false, code: "PRIMARY_CATEGORY_NOT_ASSIGNED" };
+  return { ok: true, primaryCategoryId: primary, categoryIds };
+}
 
 // ADR-065 (Faz 2/Dilim 2) — NOT: public/vitrin semalari (publicProductDetailSchema)
 // bu dilimde DEGISMEDI; storefront galeri render'i Faz 3'e aittir.

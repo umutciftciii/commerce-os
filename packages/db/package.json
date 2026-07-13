@@ -14,6 +14,7 @@
     "db:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "db:seed": "node scripts/seed.mjs",
     "db:verify-seed": "node scripts/verify-seed.mjs",
+    "db:audit-primary-category": "node scripts/audit-primary-category.mjs",
     "db:cleanup-smoke": "tsx scripts/cleanup-smoke.ts"
   },
   "dependencies": {

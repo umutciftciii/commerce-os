@@ -684,21 +684,31 @@ model Product {
   // hesaplama MISSING_SHIPPING_DIMENSIONS doner (admin UI TODO-110).
   shippingWeightKg        Decimal?               @db.Decimal(10, 3)
   shippingDesi            Decimal?               @db.Decimal(10, 2)
+  // Faz 1A (ADR-067) — Urunun TEK ana kategorisi. Ileriki dinamik attribute
+  // semasinin, breadcrumb'in ve kanonik kategori URL'inin KAYNAGIDIR. M:N
+  // `assignments` (ikincil siniflandirma/merchandising) KORUNUR; ana kategori
+  // mutlaka assignments'tan biri olmalidir (service transaction guard — DB tek
+  // basina garanti edemez). Nullable: legacy/kategorisiz urun null kalir; ilk
+  // migration'da NOT NULL YOK. onDelete: Restrict → ana kategori fiziksel silinemez.
+  primaryCategoryId       String?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
-  store       Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  variants    ProductVariant[]
-  assignments ProductCategoryAssignment[]
-  orderLines  OrderLine[]
+  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  primaryCategory ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  variants        ProductVariant[]
+  assignments     ProductCategoryAssignment[]
+  orderLines      OrderLine[]
   campaignProducts CampaignProduct[]
-  images      ProductImage[]
+  images          ProductImage[]
 
   @@unique([storeId, slug])
   @@index([storeId])
   @@index([status])
   @@index([salesMode])
   @@index([purchasable])
+  // Faz 1A (ADR-067) — store-scoped ana-kategori sorgulari + FK restrict tarama.
+  @@index([storeId, primaryCategoryId])
 }
 
 model ProductVariant {
@@ -792,6 +802,8 @@ model ProductCategory {
   parent      ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children    ProductCategory[]           @relation("ProductCategoryTree")
   assignments ProductCategoryAssignment[]
+  // Faz 1A (ADR-067) — bu kategoriyi ANA kategori olarak tutan urunler (Restrict).
+  primaryProducts Product[]               @relation("ProductPrimaryCategory")
   campaignCategories CampaignCategory[]
   image       MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
 

@@ -250,6 +250,23 @@
 - Cozum onerisi: Store-admin UI ve marketplace/import ihtiyaci netlestikce media, options ve import/
   export alanlarini ayri migration + contract + test fazlarinda eklemek.
 - Hedef faz: Faz 2B, Faz 6
+- Ilerleme (2026-07-13): Kategoriye-bagli dinamik attribute calismasi baslatildi. **Faz 1A (ADR-067,
+  TODO-143)** ana kategori temelini (`Product.primaryCategoryId`) kurdu — attribute tablolari HENUZ YOK
+  (Faz 1B+). Bu, "zengin option/metafield" boslugunun ilk adimidir; tam attribute modeli (AttributeDefinition/
+  CategoryAttribute/tiplenmis EAV degerleri) ayri fazlarda gelecek.
+
+## TD-039 Ana kategori (`primaryCategoryId`) ileride NOT NULL degerlendirmesi (Faz 1A follow-up)
+
+- Durum: OPEN
+- Oncelik: LOW
+- Etki: Faz 1A (ADR-067) `primaryCategoryId`'yi bilincli **nullable** ekledi; legacy/kategorisiz urunler ve
+  cok-kategorili backfill'in ticari dogrulanmamis satirlari null/deterministik kalir. Attribute zorunlulugu
+  ana kategoriye baglandiginda (Faz 2+), kategorili urunlerde ana kategorinin garanti edilmesi istenebilir.
+- Cozum onerisi: Veri temizligi (`db:audit-primary-category` review + cok-kategorili urunlerin manuel
+  onayi) sonrasi, "kategorisi olan urunde primary zorunlu" kurali icin AYRI migration + backfill tamamlama.
+  DB `NOT NULL` yerine once uygulama-katmani zorunlulugu (kategorili urunde) tercih edilebilir; tam DB
+  constraint en son adim.
+- Hedef faz: Faz 2+ (attribute zorunlulugu netlestikten sonra)
 
 ## TD-021 Order/reservation core henuz yok
 

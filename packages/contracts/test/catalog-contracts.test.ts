@@ -9,6 +9,7 @@ import {
   productCreateRequestSchema,
   productSchema,
   productUpdateRequestSchema,
+  resolvePrimaryCategorySelection,
   publicProductImageSchema,
   publicCartLineSchema,
   publicOrderConfirmationLineSchema,
@@ -121,6 +122,7 @@ describe("catalog contracts", () => {
       inquiryFormTitle: null,
       appointmentNote: null,
       categoryIds: [],
+      primaryCategoryId: null,
       shippingWeightKg: null,
       shippingDesi: null,
       createdAt: now,
@@ -340,6 +342,7 @@ describe("catalog contracts", () => {
       inquiryFormTitle: null,
       appointmentNote: null,
       categoryIds: [],
+      primaryCategoryId: null,
       shippingWeightKg: null,
       shippingDesi: null,
       createdAt: now,
@@ -679,5 +682,66 @@ describe("hero slide contracts", () => {
       status: "PUBLISHED",
     });
     expect(() => heroSlideStatusActionResponseSchema.parse({ id: "hero_1", status: "X" })).toThrow();
+  });
+
+  // Faz 1A (ADR-067) — ana kategori secim/normalizasyon kaynak dogrusu (saf).
+  describe("resolvePrimaryCategorySelection", () => {
+    it("kategorisiz: primary yok => null; primary verilmis => NOT_ASSIGNED", () => {
+      expect(resolvePrimaryCategorySelection({ categoryIds: [] })).toEqual({
+        ok: true,
+        primaryCategoryId: null,
+        categoryIds: [],
+      });
+      expect(resolvePrimaryCategorySelection({ categoryIds: [], primaryCategoryId: "c1" })).toEqual({
+        ok: false,
+        code: "PRIMARY_CATEGORY_NOT_ASSIGNED",
+      });
+    });
+
+    it("tek kategori + primary yok => otomatik o kategori", () => {
+      expect(resolvePrimaryCategorySelection({ categoryIds: ["c1"] })).toEqual({
+        ok: true,
+        primaryCategoryId: "c1",
+        categoryIds: ["c1"],
+      });
+    });
+
+    it("coklu kategori + primary yok => REQUIRED", () => {
+      expect(resolvePrimaryCategorySelection({ categoryIds: ["c1", "c2"] })).toEqual({
+        ok: false,
+        code: "PRIMARY_CATEGORY_REQUIRED",
+      });
+    });
+
+    it("primary listede degil => NOT_ASSIGNED; listede => gecerli", () => {
+      expect(resolvePrimaryCategorySelection({ categoryIds: ["c1", "c2"], primaryCategoryId: "c3" })).toEqual({
+        ok: false,
+        code: "PRIMARY_CATEGORY_NOT_ASSIGNED",
+      });
+      expect(resolvePrimaryCategorySelection({ categoryIds: ["c1", "c2"], primaryCategoryId: "c2" })).toEqual({
+        ok: true,
+        primaryCategoryId: "c2",
+        categoryIds: ["c1", "c2"],
+      });
+    });
+
+    it("categoryIds cikista dedup edilir", () => {
+      expect(resolvePrimaryCategorySelection({ categoryIds: ["c1", "c1"] })).toEqual({
+        ok: true,
+        primaryCategoryId: "c1",
+        categoryIds: ["c1"],
+      });
+    });
+  });
+
+  it("Faz 1A: productSchema primaryCategoryId (nullable) tasir; create/update opsiyonel kabul eder", () => {
+    // create: primaryCategoryId opsiyonel; verilmezse undefined.
+    expect(productCreateRequestSchema.parse({ title: "P", slug: "p" }).primaryCategoryId).toBeUndefined();
+    expect(
+      productCreateRequestSchema.parse({ title: "P", slug: "p", categoryIds: ["c1"], primaryCategoryId: "c1" })
+        .primaryCategoryId,
+    ).toBe("c1");
+    // update: null ile temizleme kabul edilir.
+    expect(productUpdateRequestSchema.parse({ primaryCategoryId: null }).primaryCategoryId).toBeNull();
   });
 });

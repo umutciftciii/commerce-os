@@ -163,6 +163,7 @@ async function main() {
       appointmentNote: null,
       shippingWeightKg: 0.6,
       shippingDesi: 5,
+      primaryCategoryId: apparelCategory.id,
     },
     create: {
       storeId: store.id,
@@ -182,6 +183,7 @@ async function main() {
       minOrderQuantity: 1,
       shippingWeightKg: 0.6,
       shippingDesi: 5,
+      primaryCategoryId: apparelCategory.id,
     },
   });
 
@@ -207,6 +209,7 @@ async function main() {
       appointmentNote: null,
       shippingWeightKg: 0.4,
       shippingDesi: 3,
+      primaryCategoryId: accessoriesCategory.id,
     },
     create: {
       storeId: store.id,
@@ -226,6 +229,7 @@ async function main() {
       minOrderQuantity: 1,
       shippingWeightKg: 0.4,
       shippingDesi: 3,
+      primaryCategoryId: accessoriesCategory.id,
     },
   });
 

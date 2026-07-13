@@ -137,6 +137,8 @@ type ProductRecord = {
   inquiryFormTitle: string | null;
   appointmentNote: string | null;
   categoryIds: string[];
+  // Faz 1A (ADR-067) — ana kategori (mock: varsayilan null; testler acikca set eder).
+  primaryCategoryId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -417,6 +419,10 @@ class MemoryDataAccess implements AppDataAccess {
       inquiryFormTitle: null,
       appointmentNote: null,
       categoryIds: ["cat_apparel"],
+      // Faz 1A (ADR-067) — seed BILINCLI legacy: primaryCategoryId null (fallback +
+      // "ilgisiz update primary'ye dokunmaz" testleri bunu kullanir). Spread edilen
+      // tum turev urunler (product_catalog/draft/other/tee) bunu miras alir.
+      primaryCategoryId: null,
       images: [],
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -876,6 +882,7 @@ class MemoryDataAccess implements AppDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds: string[];
+      primaryCategoryId?: string | null;
     },
   ) {
     const product = {
@@ -904,6 +911,8 @@ class MemoryDataAccess implements AppDataAccess {
       inquiryFormTitle: input.inquiryFormTitle ?? null,
       appointmentNote: input.appointmentNote ?? null,
       categoryIds: input.categoryIds,
+      // Faz 1A (ADR-067) — route normalize edilmis ana kategoriyi gecirir; mock onu yansitir.
+      primaryCategoryId: input.primaryCategoryId ?? null,
       images: [] as ProductRecord["images"],
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -3347,6 +3356,186 @@ describe("api gateway", () => {
         expect.objectContaining({ action: "UPDATE", entityType: "Product", entityId: "product_2" }),
       ]),
     );
+    await app.close();
+  });
+
+  // ─────────────── Faz 1A (ADR-067) — Ana kategori (primaryCategoryId) kurallari ───────────────
+  it("Faz 1A: create ana kategori kurallarini stabil kodlarla uygular", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    const catBId = (
+      await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/categories",
+        headers: auth,
+        payload: { name: "Accessories", slug: "accessories" },
+      })
+    ).json<{ id: string }>().id;
+
+    // Coklu kategori + ana kategori yok => REQUIRED (backend sessizce SECMEZ).
+    const missingPrimary = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "Multi A", slug: "multi-a", categoryIds: ["cat_apparel", catBId] },
+    });
+    expect(missingPrimary.statusCode).toBe(400);
+    expect(missingPrimary.json()).toMatchObject({ error: { code: "PRIMARY_CATEGORY_REQUIRED" } });
+
+    // Ana kategori atanmis listede degil => NOT_ASSIGNED.
+    const notAssigned = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "Multi B", slug: "multi-b", categoryIds: ["cat_apparel"], primaryCategoryId: catBId },
+    });
+    expect(notAssigned.statusCode).toBe(400);
+    expect(notAssigned.json()).toMatchObject({ error: { code: "PRIMARY_CATEGORY_NOT_ASSIGNED" } });
+
+    // Coklu + gecerli ana kategori => 201.
+    const ok = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "Multi OK", slug: "multi-ok", categoryIds: ["cat_apparel", catBId], primaryCategoryId: catBId },
+    });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json()).toMatchObject({ primaryCategoryId: catBId });
+
+    // Tek kategori + ana yok => otomatik o kategori.
+    const single = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "Single", slug: "single-a", categoryIds: ["cat_apparel"] },
+    });
+    expect(single.statusCode).toBe(201);
+    expect(single.json()).toMatchObject({ primaryCategoryId: "cat_apparel" });
+
+    // Kategorisiz => ana kategori null.
+    const none = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "None", slug: "none-a", categoryIds: [] },
+    });
+    expect(none.statusCode).toBe(201);
+    expect(none.json()).toMatchObject({ primaryCategoryId: null });
+
+    await app.close();
+  });
+
+  it("Faz 1A: update ana kategori / assignment kaldirma kurallarini uygular", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+
+    const catB = (
+      await app.inject({ method: "POST", url: "/stores/store_demo/categories", headers: auth, payload: { name: "Accessories", slug: "accessories" } })
+    ).json<{ id: string }>().id;
+    const catC = (
+      await app.inject({ method: "POST", url: "/stores/store_demo/categories", headers: auth, payload: { name: "Home", slug: "home" } })
+    ).json<{ id: string }>().id;
+
+    const id = (
+      await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/products",
+        headers: auth,
+        payload: { title: "P", slug: "p-upd", categoryIds: ["cat_apparel", catB], primaryCategoryId: "cat_apparel" },
+      })
+    ).json<{ id: string }>().id;
+
+    // categoryIds=[catB] (mevcut ana cikti, tek kaldi) => otomatik ana catB.
+    const single = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/${id}`,
+      headers: auth,
+      payload: { categoryIds: [catB] },
+    });
+    expect(single.statusCode).toBe(200);
+    expect(single.json()).toMatchObject({ primaryCategoryId: catB });
+
+    const id2 = (
+      await app.inject({
+        method: "POST",
+        url: "/stores/store_demo/products",
+        headers: auth,
+        payload: { title: "P2", slug: "p-upd2", categoryIds: ["cat_apparel", catB], primaryCategoryId: "cat_apparel" },
+      })
+    ).json<{ id: string }>().id;
+
+    // Mevcut ana kategori listeden cikariliyor, yeni ana verilmemis, coklu kaliyor => CONFLICT.
+    const conflict = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/${id2}`,
+      headers: auth,
+      payload: { categoryIds: [catB, catC] },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: { code: "PRIMARY_CATEGORY_ASSIGNMENT_CONFLICT" } });
+
+    // Ayni degisiklik + yeni ana kategori => atomik 200.
+    const resolved = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/${id2}`,
+      headers: auth,
+      payload: { categoryIds: [catB, catC], primaryCategoryId: catC },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json()).toMatchObject({ primaryCategoryId: catC });
+
+    // Tum kategoriler kaldirilinca ana kategori null.
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/stores/store_demo/products/${id2}`,
+      headers: auth,
+      payload: { categoryIds: [] },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({ primaryCategoryId: null });
+
+    await app.close();
+  });
+
+  it("Faz 1A: legacy null-primary urunun ilgisiz update'i ana kategoriye dokunmaz", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+    // Seed product_hoodie: categoryIds ["cat_apparel"], primaryCategoryId YOK (legacy null).
+    const before = await app.inject({ method: "GET", url: "/stores/store_demo/products/product_hoodie", headers: auth });
+    expect(before.json()).toMatchObject({ primaryCategoryId: null });
+    // Yalniz baslik degisir → primary'ye dokunmadan 200 (REQUIRED zorlanmaz).
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/stores/store_demo/products/product_hoodie",
+      headers: auth,
+      payload: { title: "Hoodie Renamed" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ title: "Hoodie Renamed", primaryCategoryId: null });
+    await app.close();
+  });
+
+  it("Faz 1A: arsivli kategori ana kategori olarak secilemez", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+    const catB = (
+      await app.inject({ method: "POST", url: "/stores/store_demo/categories", headers: auth, payload: { name: "Archived", slug: "arch" } })
+    ).json<{ id: string }>().id;
+    await app.inject({ method: "PATCH", url: `/stores/store_demo/categories/${catB}`, headers: auth, payload: { status: "ARCHIVED" } });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/store_demo/products",
+      headers: auth,
+      payload: { title: "Arch P", slug: "arch-p", categoryIds: [catB] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: { code: "PRIMARY_CATEGORY_ARCHIVED" } });
     await app.close();
   });
 
