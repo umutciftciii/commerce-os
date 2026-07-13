@@ -1,6 +1,11 @@
 import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui";
 import { getStorefrontDict } from "../../lib/i18n";
-import { readCartItems, readCoupon, readShippingOption } from "../../lib/server/cart-cookie";
+import {
+  readCartItems,
+  readCoupon,
+  readDeselectedItems,
+  readShippingOption,
+} from "../../lib/server/cart-cookie";
 import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
 
@@ -24,7 +29,8 @@ export default async function CartPage() {
 
   const coupon = await readCoupon();
   const shippingOption = await readShippingOption();
-  const result = await resolveCartWithCanonicalItems(items, coupon, shippingOption);
+  const deselected = await readDeselectedItems();
+  const result = await resolveCartWithCanonicalItems(items, coupon, shippingOption, deselected);
   if (!result.ok) {
     return (
       <Container className="py-12">
@@ -49,8 +55,9 @@ export default async function CartPage() {
 
   return (
     <Container className="py-12">
+      {/* Dilim 6a-refine — Baslikta sepetteki kalem sayisi (mockup: "Sepetim (N)"). */}
       <Heading as="h1" className="mb-6">
-        {t.title}
+        {t.title} ({view.lines.length})
       </Heading>
       <CartView
         view={view}

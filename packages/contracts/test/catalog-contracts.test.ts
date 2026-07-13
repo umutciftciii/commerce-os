@@ -545,7 +545,17 @@ describe("catalog contracts", () => {
     maxOrderQuantity: null,
     inStock: true,
     status: "OK" as const,
+    imageUrl: null,
+    selected: true,
+    compareAtMinor: null,
   };
+
+  it("Dilim 6a-refine: publicCartLine carries selected + compareAtMinor (nullable)", () => {
+    // selected zorunlu; compareAtMinor nullable (indirim yoksa null, varsa liste fiyati).
+    expect(publicCartLineSchema.parse({ ...baseCartLine, selected: false }).selected).toBe(false);
+    expect(publicCartLineSchema.parse({ ...baseCartLine, compareAtMinor: 174900 }).compareAtMinor).toBe(174900);
+    expect(publicCartLineSchema.parse({ ...baseCartLine, compareAtMinor: null }).compareAtMinor).toBeNull();
+  });
 
   it("Dilim 6a: publicCartLine imageUrl accepts a URL and null; drops leaked media fields", () => {
     // Kapak URL'i (turetilmis) tasinir; null gecerli (gorselsiz urun → yer tutucu).

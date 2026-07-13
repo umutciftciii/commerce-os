@@ -6288,3 +6288,96 @@ describe("api gateway · cart/checkout thumbnail (ADR-065 Faz 3/Dilim 6a)", () =
     await app.close();
   });
 });
+
+// Dilim 6a-refine — Satir SECIM (checkbox) + ustu-cizili LISTE (compareAt) fiyati.
+// Secim sunucu-otoriter: toplam/checkout yalnizca secili satirlardan; compareAt yalniz
+// gecerli indirim varken (compareAt > satis) doner.
+describe("api gateway · cart selection + compareAt (Dilim 6a-refine)", () => {
+  const VARIANT = "variant_hoodie_m";
+
+  function postCart(app: Awaited<ReturnType<typeof createTestApp>>["app"], body: unknown) {
+    return app.inject({ method: "POST", url: "/public/stores/demo-store/cart", payload: body });
+  }
+
+  function addSecondProduct(dataAccess: MemoryDataAccess) {
+    dataAccess.products.push({
+      ...dataAccess.products[0]!,
+      id: "product_tee",
+      title: "Demo Tee",
+      slug: "demo-tee",
+      images: [],
+    });
+    dataAccess.variants.push({
+      ...dataAccess.variants[0]!,
+      id: "variant_tee_m",
+      productId: "product_tee",
+      sku: "DEMO-TEE-M",
+      priceMinor: 50000,
+      compareAtMinor: null,
+    });
+    dataAccess.inventory.push({
+      id: "inventory_tee_m", storeId: "store_demo", variantId: "variant_tee_m", productId: "product_tee",
+      sku: "DEMO-TEE-M", title: "Black / M", quantityOnHand: 10, quantityReserved: 0, lowStockThreshold: null,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+  }
+
+  it("cart line carries compareAtMinor when compareAt > price (strikethrough); null otherwise", async () => {
+    const { app, dataAccess } = await createTestApp();
+    // Seed: hoodie priceMinor 129900, compareAtMinor 149900 → indirim var.
+    const withDiscount = await postCart(app, { items: [{ variantId: VARIANT, quantity: 1 }] });
+    expect(withDiscount.json().lines[0].compareAtMinor).toBe(149900);
+    // compareAt <= price → indirim yok → null.
+    dataAccess.variants[0]!.compareAtMinor = 100000; // < priceMinor 129900
+    const noDiscount = await postCart(app, { items: [{ variantId: VARIANT, quantity: 1 }] });
+    expect(noDiscount.json().lines[0].compareAtMinor).toBeNull();
+    await app.close();
+  });
+
+  it("every cart line carries selected=true by default", async () => {
+    const { app } = await createTestApp();
+    const res = await postCart(app, { items: [{ variantId: VARIANT, quantity: 1 }] });
+    expect(res.json().lines[0].selected).toBe(true);
+    await app.close();
+  });
+
+  it("deselected line stays in the cart (selected:false) but is excluded from totals/checkoutReady", async () => {
+    const { app, dataAccess } = await createTestApp();
+    addSecondProduct(dataAccess);
+    // Iki urun sepette; tee'nin secimi kaldirilir.
+    const res = await postCart(app, {
+      items: [
+        { variantId: VARIANT, quantity: 1 },
+        { variantId: "variant_tee_m", quantity: 1 },
+      ],
+      deselectedVariantIds: ["variant_tee_m"],
+    });
+    const body = res.json();
+    // Her iki satir da sepette GORUNUR.
+    expect(body.lines).toHaveLength(2);
+    const bySelected = new Map<string, boolean>(body.lines.map((l: { variantId: string; selected: boolean }) => [l.variantId, l.selected]));
+    expect(bySelected.get(VARIANT)).toBe(true);
+    expect(bySelected.get("variant_tee_m")).toBe(false);
+    // Toplam/itemCount YALNIZ secili (hoodie) satirdan; tee (50000) haric.
+    expect(body.subtotalMinor).toBe(129900);
+    expect(body.itemCount).toBe(1);
+    expect(body.checkoutReady).toBe(true);
+    await app.close();
+  });
+
+  it("deselecting a problematic (OUT_OF_STOCK) line unblocks checkout for the rest", async () => {
+    const { app, dataAccess } = await createTestApp();
+    addSecondProduct(dataAccess);
+    // Tee stoksuz → secili kalirsa checkoutReady=false; secimi kaldirilinca OK olur.
+    dataAccess.inventory.find((i) => i.variantId === "variant_tee_m")!.quantityOnHand = 0;
+    const items = [
+      { variantId: VARIANT, quantity: 1 },
+      { variantId: "variant_tee_m", quantity: 1 },
+    ];
+    const blocked = await postCart(app, { items });
+    expect(blocked.json().checkoutReady).toBe(false);
+    const unblocked = await postCart(app, { items, deselectedVariantIds: ["variant_tee_m"] });
+    expect(unblocked.json().checkoutReady).toBe(true);
+    await app.close();
+  });
+});

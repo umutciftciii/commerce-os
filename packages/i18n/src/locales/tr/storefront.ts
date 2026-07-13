@@ -337,6 +337,16 @@ export const trStorefront = {
     couponClaimInvalid: "Geçerli bir kupon kodu değil.",
     // F4A.5 — Kupon merkezine (Kuponlarım) giden bağlantı.
     couponsAllLink: "Tüm Kuponlar",
+    // Dilim 6a-refine — Satır seçimi (checkbox), üstü çizili fiyat, kargo tahmini,
+    // kupon "ticket" kartı.
+    selectItem: "Ürünü seçime dahil et",
+    deselectItem: "Ürünü seçimden çıkar",
+    originalPriceLabel: "Liste fiyatı",
+    shippingEstimate: "Tahmini 1-3 iş günü içinde kargoda",
+    couponEarned: "Kazandın",
+    couponDetails: "Detaylar",
+    // {date} kuponun son geçerlilik tarihiyle değiştirilir.
+    couponValidUntil: "Geçerlilik {date}",
   },
   checkout: {
     title: "Ödeme",

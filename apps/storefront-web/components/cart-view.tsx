@@ -11,6 +11,7 @@ import {
   reconcileCartAction,
   removeCartItemAction,
   removeCouponAction,
+  toggleCartItemSelectedAction,
   updateCartItemAction,
   type ClaimCouponResult,
 } from "../lib/server/cart-actions";
@@ -69,6 +70,14 @@ export function CartView({
     });
   }
 
+  // Dilim 6a-refine — Satir secimini (checkbox) tersine cevirir. Secimi kaldirilan
+  // satir sepette kalir; fiyat/adet DEGISMEZ, yalniz toplam/checkout'a girmez.
+  function toggleSelected(line: CartLineView) {
+    startTransition(() => {
+      void toggleCartItemSelectedAction(line.variantId);
+    });
+  }
+
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
       <div className="space-y-4">
@@ -89,7 +98,14 @@ export function CartView({
         <ul className="space-y-4" aria-busy={isPending}>
           {view.lines.map((line) => (
             <li key={line.variantId}>
-              <CartLineRow line={line} t={t} pending={isPending} onSetQuantity={setQuantity} onRemove={remove} />
+              <CartLineRow
+                line={line}
+                t={t}
+                pending={isPending}
+                onSetQuantity={setQuantity}
+                onRemove={remove}
+                onToggleSelected={toggleSelected}
+              />
             </li>
           ))}
         </ul>
@@ -113,20 +129,38 @@ function CartLineRow({
   pending,
   onSetQuantity,
   onRemove,
+  onToggleSelected,
 }: {
   line: CartLineView;
   t: CartDict;
   pending: boolean;
   onSetQuantity: (line: CartLineView, next: number) => void;
   onRemove: (line: CartLineView) => void;
+  onToggleSelected: (line: CartLineView) => void;
 }) {
   const unavailable = line.status === "UNAVAILABLE" || line.status === "OUT_OF_STOCK";
   const atMin = line.quantity <= line.minQuantity;
   const atMax = line.maxQuantity !== null && line.quantity >= line.maxQuantity;
 
   return (
-    <div className="border border-line bg-surface p-5">
+    // Dilim 6a-refine — Secimi kaldirilan satir SOLUK gosterilir (toplama/checkout'a
+    // girmez); sepette kalir. Kaldir/checkbox etkilesimi tam opak kalir.
+    <div className={cn("border border-line bg-surface p-5", !line.selected && "opacity-55")}>
       <div className="flex gap-4">
+        {/* Dilim 6a-refine — Satir SECIM checkbox'i (mockup). Isaretli satir toplama/
+            checkout'a dahildir; kaldirilan satir sepette kalir ama dahil edilmez.
+            Native checkbox; accent-ink (menekse DEGIL → tek-accent kurali korunur). */}
+        <div className="flex items-start pt-1">
+          <input
+            type="checkbox"
+            checked={line.selected}
+            disabled={pending}
+            onChange={() => onToggleSelected(line)}
+            aria-label={line.selected ? t.deselectItem : t.selectItem}
+            className="h-4 w-4 shrink-0 cursor-pointer accent-ink disabled:cursor-not-allowed"
+          />
+        </div>
+
         {/* Dilim 6a — Ürün kapak thumbnail'i (drop-in ProductMedia; imageUrl yoksa
             deterministik yer tutucu). PLP/PDP kutu deseni: sabit boyutlu wrapper +
             ince hairline cerceve, ProductMedia h-full w-full ile doldurur. */}
@@ -144,6 +178,14 @@ function CartLineRow({
             </Link>
             <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
             <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
+            {/* Dilim 6a-refine — Statik kargo tahmini (urun-bazli hazirlik suresi
+                backend'i yok; gercek veri gelince degistirilir). Yalniz satilabilir satirda. */}
+            {!unavailable ? (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-subtle">
+                <TruckIcon />
+                {t.shippingEstimate}
+              </p>
+            ) : null}
             {line.status === "UNAVAILABLE" ? (
               <Badge tone="ink" className="mt-2">
                 {t.statusUnavailable}
@@ -192,7 +234,14 @@ function CartLineRow({
               {!unavailable ? (
                 <>
                   <p className="text-sm font-semibold text-ink">{line.lineTotalLabel}</p>
-                  <p className="text-xs text-ink-subtle">{line.unitPriceLabel}</p>
+                  {/* Dilim 6a-refine — Ustu-cizili LISTE (compareAt) fiyati (indirim varsa)
+                      + birim fiyat. compareAt notr ink-subtle (accent yok). */}
+                  <p className="text-xs text-ink-subtle">
+                    {line.compareAtLabel ? (
+                      <span className="mr-1.5 text-line-strong line-through">{line.compareAtLabel}</span>
+                    ) : null}
+                    {line.unitPriceLabel}
+                  </p>
                 </>
               ) : null}
             </div>
@@ -209,6 +258,26 @@ function CartLineRow({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Dilim 6a-refine — Kucuk kargo/teslimat ikonu (statik tahmin satiri icin). */
+function TruckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden
+      className="h-3.5 w-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6.5h11v9H3zM14 9.5h4l3 3v3h-7z" />
+      <circle cx="7" cy="17.5" r="1.6" />
+      <circle cx="17.5" cy="17.5" r="1.6" />
+    </svg>
   );
 }
 
@@ -382,60 +451,87 @@ function AvailableCouponCard({
     });
   }
 
-  // DS: kupon karti NOTR yüzeydir (PDP DetailCouponCard dili) — dashed hairline
-  // cerceve + muted zemin; aksan tasimaz. Kod monospace, ring-line-strong.
-  // Dilim 6a — ASSIGNED (kazanilmis) kart dolu-ink sol seritle one cikar (accent DEGIL,
-  // tek-accent kurali korunur); EXPIRED (suresi dolmus) kart soluklastirilir (opacity).
+  // Dilim 6a-refine — "Ticket" kupon karti (mockup): iki bolme (tutar+kod | meta+aksiyon)
+  // dashed ayracla ayrilir + yanlarda kesik daireler. Kazanilmis (PUBLIC olmayan) kupon
+  // dolu-ink "Kazandın" rozeti + sol serit tasir. EXPIRED soluk. NOTR yuzey — aksan YOK
+  // (tek-accent kurali korunur; accent yalniz "Ödemeye geç"te).
+  const earned = coupon.source !== "PUBLIC";
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-3 border border-dashed border-line-strong bg-surface-muted px-3 py-2.5",
-        coupon.source === "ASSIGNED" && "border-l-2 border-l-ink",
+        "relative flex items-stretch overflow-visible border border-line-strong bg-surface-muted",
+        earned && "border-l-2 border-l-ink",
         coupon.state === "EXPIRED" && "opacity-60",
       )}
     >
-      <div className="min-w-0">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <span>{coupon.discountText}</span>
-          <span className="bg-surface px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-ink ring-1 ring-line-strong">
-            {coupon.code}
-          </span>
-          {coupon.source === "ASSIGNED" ? (
-            <Badge tone="ink">{t.couponSourceAssigned}</Badge>
-          ) : null}
-        </p>
-        <p className="mt-0.5 text-[11px] text-ink-subtle">
-          {coupon.minOrderLabel
-            ? format(t.couponMinOrder, { amount: coupon.minOrderLabel })
-            : t.couponNoMinOrder}
-          {coupon.endsAt ? ` · ${format(t.couponExpiry, { date: formatCouponDate(coupon.endsAt) })}` : ""}
-        </p>
+      {/* Ticket kesikleri: yan kenarlarda dis-zemin (bg-surface) rengiyle "isirik". */}
+      <span
+        aria-hidden
+        className="absolute top-1/2 -left-[7px] h-3 w-3 -translate-y-1/2 rounded-full border border-line-strong bg-surface"
+      />
+      <span
+        aria-hidden
+        className="absolute top-1/2 -right-[7px] h-3 w-3 -translate-y-1/2 rounded-full border border-line-strong bg-surface"
+      />
+
+      {/* Sol bolme: tutar (vurgu) + kod. */}
+      <div className="flex flex-col items-start justify-center gap-1.5 border-r border-dashed border-line-strong px-4 py-3">
+        <span className="text-base font-semibold text-ink">{coupon.discountText}</span>
+        <span className="bg-surface px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-ink ring-1 ring-line-strong">
+          {coupon.code}
+        </span>
       </div>
-      {isApplied ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge tone="outline">{t.couponStateApplied}</Badge>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={isPending}
-            className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
+
+      {/* Sag bolme: rozet + alt limit/gecerlilik + Detaylar + aksiyon. */}
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
+          {earned ? (
+            <span className="inline-flex items-center gap-1 bg-ink px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-surface">
+              {t.couponEarned}
+              <span aria-hidden>✓</span>
+            </span>
+          ) : null}
+          <p className={cn("text-[11px] text-ink-subtle", earned && "mt-1")}>
+            {coupon.minOrderLabel
+              ? format(t.couponMinOrder, { amount: coupon.minOrderLabel })
+              : t.couponNoMinOrder}
+          </p>
+          {coupon.endsAt ? (
+            <p className="mt-0.5 text-[11px] text-ink-subtle">
+              {format(t.couponValidUntil, { date: formatCouponDate(coupon.endsAt) })}
+            </p>
+          ) : null}
+          <Link
+            href="/account?section=coupons"
+            className="mt-1 inline-block text-[11px] font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
           >
-            {t.couponRemove}
-          </button>
+            {t.couponDetails}
+          </Link>
         </div>
-      ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
-        <Badge tone="muted" className="shrink-0">
-          {t.couponStateMinOrder}
-        </Badge>
-      ) : coupon.state === "EXPIRED" ? (
-        <Badge tone="muted" className="shrink-0">
-          {t.couponStateExpired}
-        </Badge>
-      ) : (
-        <Button variant="secondary" size="sm" className="shrink-0" onClick={use} disabled={isPending}>
-          {t.couponUse}
-        </Button>
-      )}
+        <div className="shrink-0">
+          {isApplied ? (
+            <div className="flex items-center gap-2">
+              <Badge tone="outline">{t.couponStateApplied}</Badge>
+              <button
+                type="button"
+                onClick={remove}
+                disabled={isPending}
+                className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
+              >
+                {t.couponRemove}
+              </button>
+            </div>
+          ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
+            <Badge tone="muted">{t.couponStateMinOrder}</Badge>
+          ) : coupon.state === "EXPIRED" ? (
+            <Badge tone="muted">{t.couponStateExpired}</Badge>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={use} disabled={isPending}>
+              {t.couponUse}
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

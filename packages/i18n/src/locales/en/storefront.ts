@@ -329,6 +329,16 @@ export const enStorefront: StorefrontDictionary = {
     couponClaimInvalid: "That is not a valid coupon code.",
     // F4A.5 — Link to the coupon centre (My coupons).
     couponsAllLink: "All coupons",
+    // Dilim 6a-refine — Line selection (checkbox), strikethrough price, shipping
+    // estimate, coupon "ticket" card.
+    selectItem: "Include item in order",
+    deselectItem: "Exclude item from order",
+    originalPriceLabel: "List price",
+    shippingEstimate: "Ships within 1-3 business days",
+    couponEarned: "Earned",
+    couponDetails: "Details",
+    // {date} is replaced with the coupon's expiry date.
+    couponValidUntil: "Valid until {date}",
   },
   checkout: {
     title: "Checkout",

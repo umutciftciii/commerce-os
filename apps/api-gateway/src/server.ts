@@ -1612,6 +1612,8 @@ interface CartResolvableVariant {
   purchasable: boolean;
   priceVisibility: ProductPriceVisibility;
   priceMinor: number;
+  /** Dilim 6a-refine — Liste (compareAt) fiyati; ustu-cizili gosterim icin (null=yok). */
+  compareAtMinor: number | null;
   currency: string;
   minOrderQuantity: number;
   maxOrderQuantity: number | null;
@@ -1632,6 +1634,9 @@ function buildPublicCartLine(
   // yok). Gorsel yoksa null → vitrin deterministik yer tutucuya duser. UNAVAILABLE
   // satir da kapak tasir (kullaniciya urunu hatirlatir).
   imageUrl: string | null = null,
+  // Dilim 6a-refine — Satir secim durumu (checkbox). false ise satir sepette gorunur
+  // ama toplam/checkout'a girmez (secim assemblePublicCart'ta uygulanir).
+  selected = true,
 ) {
   const base = {
     variantId: entry.variantId,
@@ -1644,6 +1649,7 @@ function buildPublicCartLine(
     minOrderQuantity: entry.minOrderQuantity,
     maxOrderQuantity: entry.maxOrderQuantity,
     imageUrl,
+    selected,
   };
 
   // ONLINE disi / satilamaz / gizli fiyat -> siparise dusemez, fiyat tasimaz.
@@ -1657,6 +1663,7 @@ function buildPublicCartLine(
       lineTotalMinor: 0,
       inStock: false,
       status: "UNAVAILABLE" as const,
+      compareAtMinor: null,
     };
   }
 
@@ -1677,6 +1684,10 @@ function buildPublicCartLine(
   }
 
   const unitPriceMinor = entry.priceMinor;
+  // Dilim 6a-refine — Ustu-cizili liste fiyati: yalnizca gecerli indirim varken
+  // (compareAt > satis). PDP buy-box compareAt kurali ile simetri.
+  const compareAtMinor =
+    entry.compareAtMinor != null && entry.compareAtMinor > unitPriceMinor ? entry.compareAtMinor : null;
   return {
     ...base,
     availableQuantity,
@@ -1684,6 +1695,7 @@ function buildPublicCartLine(
     lineTotalMinor: unitPriceMinor * availableQuantity,
     inStock,
     status,
+    compareAtMinor,
   };
 }
 
@@ -1824,7 +1836,11 @@ function assemblePublicCart(
   // TEK batched listProductImages ile hazirlar (N+1 yok); verilmezse tum satirlar
   // imageUrl:null (geriye-uyumlu — mevcut cagiranlar degismez).
   coverUrlByProductId?: Map<string, string>,
+  // Dilim 6a-refine — Secimi kaldirilan variantId'ler (checkbox). Bu satirlar yanitta
+  // gorunur (selected:false) ama subtotal/itemCount/checkoutReady/indirim/kargo'ya GIRMEZ.
+  deselectedVariantIds?: string[],
 ) {
+  const deselected = new Set(deselectedVariantIds ?? []);
   const lines: PublicCartLineResult[] = [];
   for (const item of mergeCartItems(items)) {
     const entry = index.get(item.variantId);
@@ -1832,21 +1848,33 @@ function assemblePublicCart(
     // (stale-cart reconciliation): yanit otoriterdir, istemci cookie'sini buna
     // gore yeniden yazar.
     if (!entry) continue;
-    lines.push(buildPublicCartLine(entry, item.quantity, coverUrlByProductId?.get(entry.productId) ?? null));
+    lines.push(
+      buildPublicCartLine(
+        entry,
+        item.quantity,
+        coverUrlByProductId?.get(entry.productId) ?? null,
+        !deselected.has(entry.variantId),
+      ),
+    );
   }
+  // Dilim 6a-refine — SUNUCU-OTORITER secim: toplam/checkout yalnizca SECILI satirlardan
+  // hesaplanir. Secilmeyen satir sepette kalir (response'ta yer alir) ama etkilemez.
+  const effectiveLines = lines.filter((line) => line.selected);
   const orderableCurrency = lines.find((line) => line.status !== "UNAVAILABLE")?.currency;
   const currency = orderableCurrency ?? lines[0]?.currency ?? "TRY";
-  const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
-  const itemCount = lines.reduce(
+  const subtotalMinor = effectiveLines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
+  const itemCount = effectiveLines.reduce(
     (sum, line) => sum + (line.status === "UNAVAILABLE" ? 0 : line.availableQuantity),
     0,
   );
-  const checkoutReady = lines.length > 0 && lines.every((line) => line.status === "OK");
+  // En az bir SECILI satir var VE tum SECILI satirlar OK. Secilmeyen sorunlu satir
+  // (OUT_OF_STOCK vb.) checkout'u engellemez — kullanici onu secimden cikarip devam eder.
+  const checkoutReady = effectiveLines.length > 0 && effectiveLines.every((line) => line.status === "OK");
 
   // F3C.2/TODO-125 — Kargo ucreti store tarife planindan hesaplanir (provider quote
   // DEGIL). Her aktif plan bir SECENEK'tir; musteri secimi (requestedOptionId)
   // gecerliyse uygulanir, degilse guvenli varsayilan (default/en ucuz) secilir.
-  const dims = computeCartDims(index, lines);
+  const dims = computeCartDims(index, effectiveLines);
   const engineCart: EngineCart = { subtotalMinor, ...dims };
   const now = shippingCtx.now ?? new Date();
   const optionsResult = buildShippingOptions({
@@ -1871,7 +1899,7 @@ function assemblePublicCart(
 
   // F4A — Kampanya/kupon indirimi motoru. Indirim yalnizca checkout'a hazir
   // (tum satirlar OK) sepete uygulanir; aksi halde yanlis grand total gosterilmez.
-  const discountLines: DiscountCartLine[] = lines
+  const discountLines: DiscountCartLine[] = effectiveLines
     .filter((line) => line.status !== "UNAVAILABLE")
     .map((line) => {
       const entry = index.get(line.variantId)!;
@@ -4109,6 +4137,7 @@ export function createServer(
             purchasable: product.purchasable,
             priceVisibility: product.priceVisibility,
             priceMinor: variant.priceMinor,
+            compareAtMinor: variant.compareAtMinor ?? null,
             currency: variant.currency,
             minOrderQuantity: product.minOrderQuantity,
             maxOrderQuantity: product.maxOrderQuantity ?? null,
@@ -4247,6 +4276,7 @@ export function createServer(
       },
       { candidates: walletCandidates },
       coverUrlByProductId,
+      body.deselectedVariantIds ?? [],
     );
     return cart;
   });

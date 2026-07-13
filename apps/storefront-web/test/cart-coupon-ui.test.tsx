@@ -46,6 +46,8 @@ function view(
         inStock: true,
         status: "OK",
         imageUrl: null,
+        selected: true,
+        compareAtLabel: null,
         ...lineOverrides,
       },
     ],
@@ -127,9 +129,11 @@ describe("storefront-web · F4A.3 cart Kuponlar area", () => {
     expect(html).toContain(t.couponStateApplied);
   });
 
-  it("shows an assigned coupon badge", () => {
+  it("shows an earned badge for an assigned coupon (ticket card)", () => {
+    // Dilim 6a-refine — Ticket kartinda kazanilmis (PUBLIC olmayan) kupon "Kazandın"
+    // rozeti tasir (eski "Size özel" yerine).
     const html = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
-    expect(html).toContain(t.couponSourceAssigned);
+    expect(html).toContain(t.couponEarned);
   });
 
   it("applied coupon shows discount line + remove; server totals not recomputed", () => {
@@ -199,5 +203,55 @@ describe("storefront-web · Dilim 6a cart görsel katmanı", () => {
     expect(assigned).toContain("border-l-ink");
     // Tek-accent kurali: kupon kartlari accent (menekse CTA) yuzeyi TASIMAZ.
     expect(assigned).not.toContain("border-l-accent");
+  });
+});
+
+// Dilim 6a-refine — mockup eksikleri: satir checkbox'i, ustu-cizili fiyat, kargo
+// tahmini, kupon "ticket" karti. Tumu mevcut DS token'lariyla (accent yalniz CTA'da).
+describe("storefront-web · Dilim 6a-refine cart mockup detayları", () => {
+  it("renders a selection checkbox per line; selected line is checked", () => {
+    const html = render(view());
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('accent-ink'); // menekse DEGIL → tek-accent korunur
+    expect(html).toContain("checked");
+  });
+
+  it("dims a deselected line (opacity) and leaves the checkbox unchecked", () => {
+    const html = render(view({}, { selected: false }));
+    expect(html).toContain("opacity-55");
+  });
+
+  it("shows the strikethrough compareAt (list) price when there is a discount", () => {
+    const html = render(view({}, { compareAtLabel: "₺1.749,00" }));
+    expect(html).toContain("line-through");
+    expect(html).toContain("₺1.749,00");
+  });
+
+  it("omits the strikethrough when there is no compareAt discount", () => {
+    const html = render(view({}, { compareAtLabel: null }));
+    expect(html).not.toContain("line-through");
+  });
+
+  it("renders the static shipping estimate on a sellable line", () => {
+    const html = render(view());
+    expect(html).toContain(t.shippingEstimate); // "Tahmini 1-3 iş günü içinde kargoda"
+  });
+
+  it("renders the coupon as a ticket: amount + code + Detaylar; earned coupon shows 'Kazandın' (no accent)", () => {
+    const html = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
+    expect(html).toContain("₺250"); // discountText (sol bolme tutari)
+    expect(html).toContain("TEST250"); // kod
+    expect(html).toContain(t.couponDetails); // "Detaylar"
+    expect(html).toContain(t.couponEarned); // "Kazandın" rozeti (kazanilmis)
+    expect(html).toContain("border-dashed"); // ticket iki-bolme ayraci
+    // Tek-accent: "Kazandın" rozeti dolu-ink (accent DEGIL); ticket serit/yuzey accent tasimaz.
+    // (bg-accent yalniz "Ödemeye geç" CTA'sinda — sayfa genelinde beklenir.)
+    expect(html).not.toContain("border-l-accent");
+    expect(html).not.toContain("bg-accent px-1.5"); // rozet accent olsaydi bu class olurdu
+  });
+
+  it("public (unearned) coupon shows no 'Kazandın' badge", () => {
+    const html = render(view({ availableCoupons: [walletCoupon({ source: "PUBLIC" })] }));
+    expect(html).not.toContain(t.couponEarned);
   });
 });

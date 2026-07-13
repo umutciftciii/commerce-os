@@ -2,7 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui";
 import { getStorefrontDict } from "../../lib/i18n";
-import { readCartItems, readCoupon, readShippingOption } from "../../lib/server/cart-cookie";
+import {
+  readCartItems,
+  readCoupon,
+  readDeselectedItems,
+  readShippingOption,
+} from "../../lib/server/cart-cookie";
 import { getPaymentAvailability, resolveCart } from "../../lib/server/cart";
 import { getCurrentCustomer, listCustomerAddresses } from "../../lib/server/customer";
 import { CheckoutForm } from "../../components/checkout-form";
@@ -29,7 +34,14 @@ export default async function CheckoutPage() {
     redirect("/auth/login?next=/checkout");
   }
 
-  const items = await readCartItems();
+  // Dilim 6a-refine — Checkout YALNIZCA secili satirlardan olusur (sepette secimi
+  // kaldirilan satirlar siparise/ozete girmez). Hic secili satir yoksa bos-checkout.
+  const allItems = await readCartItems();
+  if (allItems.length === 0) {
+    return <EmptyCheckout t={t} />;
+  }
+  const deselected = await readDeselectedItems();
+  const items = allItems.filter((item) => !deselected.includes(item.variantId));
   if (items.length === 0) {
     return <EmptyCheckout t={t} />;
   }
