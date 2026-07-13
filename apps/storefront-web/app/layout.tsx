@@ -8,14 +8,21 @@ import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
 import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
+import { getStoreInfo } from "../lib/server/site";
 import { fontVariables } from "../lib/fonts";
 import "./globals.css";
 
+// ADR-065 (Faz 3/Site Kabuğu) — Sekme basligi + favicon store marka bilgisinden
+// (admin StoreSettings). storeName varsa baslik onu kullanir; favicon URL'i varsa
+// <head>'e islenir. Marka bilgisi yoksa i18n meta fallback + override'siz favicon
+// (mevcut davranis). getStoreInfo React cache()'li → RootLayout ile tek fetch.
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getStorefrontDict();
+  const storeInfo = await getStoreInfo();
   return {
-    title: t.meta.title,
+    title: storeInfo?.storeName ?? t.meta.title,
     description: t.meta.description,
+    ...(storeInfo?.faviconUrl ? { icons: { icon: storeInfo.faviconUrl } } : {}),
   };
 }
 
@@ -41,6 +48,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
   // duyuru metnine düşer (vitrin asla kırılmaz).
   const campaignSlides = await getCampaignSlides(locale);
+  // ADR-065 (Faz 3/Site Kabuğu) — Header logo/kelime-işareti store marka
+  // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
+  const storeInfo = await getStoreInfo();
 
   return (
     <html lang={locale} data-theme="default" className={fontVariables}>
@@ -66,6 +76,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             languageLabels={dict.common.language}
             cartCount={cartCount}
             customer={customer}
+            storeName={storeInfo?.storeName ?? null}
+            logoUrl={storeInfo?.logoUrl ?? null}
           />
 
           <main id="main" className="flex-1">

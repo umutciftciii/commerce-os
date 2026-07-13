@@ -21,15 +21,23 @@ export function SiteHeader({
   languageLabels,
   cartCount,
   customer,
+  storeName = null,
+  logoUrl = null,
 }: {
   locale: Locale;
   t: StorefrontDictionary;
   languageLabels: LanguageSwitcherLabels;
   cartCount: number;
   customer: CustomerAccount | null;
+  // ADR-065 (Faz 3/Site Kabuğu) — store marka bilgisi (public store-info ucu).
+  // logoUrl doluysa logo <img>; yoksa serif kelime-isareti. storeName kelime-
+  // isareti metni + logo alt'i; null ise i18n `shell.brand` fallback'i.
+  storeName?: string | null;
+  logoUrl?: string | null;
 }) {
   const s = t.shell;
   const navLinks = [{ href: "/products", label: s.navProducts }];
+  const brandLabel = storeName ?? s.brand;
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface relative">
@@ -49,12 +57,22 @@ export function SiteHeader({
           </nav>
         </div>
 
-        {/* Orta: serif marka kelime-isareti */}
-        <Link
-          href="/"
-          className="font-serif text-xl font-normal tracking-tightish text-ink sm:text-2xl"
-        >
-          {s.brand}
+        {/* Orta: marka logosu (varsa) ya da serif kelime-isareti fallback */}
+        <Link href="/" aria-label={brandLabel} className="inline-flex items-center">
+          {logoUrl ? (
+            // storageKey'den turetilen goreli /media/* URL (Next rewrite ile
+            // gateway'e proxy'lenir); logo boyutu sabit degil, yukseklik-kisitli
+            // <img> + object-contain (next/image degil — art-directed marka gorseli).
+            <img
+              src={logoUrl}
+              alt={brandLabel}
+              className="h-8 w-auto object-contain sm:h-9"
+            />
+          ) : (
+            <span className="font-serif text-xl font-normal tracking-tightish text-ink sm:text-2xl">
+              {brandLabel}
+            </span>
+          )}
         </Link>
 
         {/* Sag: arama + hesap + favoriler + sepet + dil */}

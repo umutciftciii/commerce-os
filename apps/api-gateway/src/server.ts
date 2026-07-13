@@ -72,6 +72,9 @@ import {
   publicProductDetailSchema,
   publicProductListResponseSchema,
   publicCampaignSlidesResponseSchema,
+  // ADR-065 (Faz 3/Site Kabuğu) — public marka bilgisi + hero slide'lari.
+  publicStoreInfoSchema,
+  publicHeroSlidesResponseSchema,
   publicProductSchema,
   storeAdminCustomerListResponseSchema,
   storeAdminCustomerSummarySchema,
@@ -122,7 +125,11 @@ import { registerCampaignAdminRoutes } from "./campaigns/routes.js";
 import { registerWalletAdminRoutes } from "./campaigns/wallet-routes.js";
 // ADR-065 (Faz 2/Dilim 5) — Ana sayfa hero slide yonetimi (CRUD temeli).
 import { registerHeroAdminRoutes } from "./hero/routes.js";
-import { createPrismaHeroDataAccess } from "./hero/data.js";
+import {
+  createPrismaHeroDataAccess,
+  serializePublicHeroSlide,
+  type HeroDataAccess,
+} from "./hero/data.js";
 import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
@@ -1064,6 +1071,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // F3B.3: Storefront musteri hesabi domaini icin ayri port (ADR-032). Varsayilan
   // prisma-backed; testlerde in-memory fake enjekte edilebilir.
   customerDataAccess?: CustomerDataAccess;
+  // ADR-065 (Faz 3/Site Kabuğu): Hero slide veri erisimi (admin CRUD + public
+  // PUBLISHED listesi). Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
+  heroDataAccess?: HeroDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -3960,6 +3970,11 @@ export function createServer(
     },
   );
 
+  // ADR-065 (Faz 3/Site Kabuğu) — hero veri erisimi admin + public route'larca
+  // PAYLASILIR (tek instance). Admin listHeroSlides tum durumlari, public
+  // listPublishedHeroSlides yalniz PUBLISHED slide'lari okur. Testlerde enjekte edilebilir.
+  const heroDataAccess = dependencies.heroDataAccess ?? createPrismaHeroDataAccess();
+
   // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
   // TD-032 / TODO-061: Public vitrin bu uclari token'siz cagirir; platform-admin
   // resolver'a ihtiyac kalmaz. Yalnizca ACTIVE store + ACTIVE urun/varyant doner;
@@ -4122,6 +4137,46 @@ export function createServer(
     const publicCampaigns = await dataAccess.listPublicActiveCampaigns(store.id);
     const slides = selectPublicCampaignSlides(publicCampaigns, new Date());
     return publicCampaignSlidesResponseSchema.parse({ data: slides });
+  });
+
+  // ADR-065 (Faz 3/Site Kabuğu) — Public magaza marka bilgisi (header logo/kelime-
+  // isareti + <head> favicon/title). storeName daima resolvePublicStore→store.name;
+  // logo/favicon URL'leri StoreSettings satirindan turetilir (lazy: satir yoksa
+  // her ikisi de null). ALLOWLIST: logoMediaId/faviconMediaId ham FK'ler DISARIDA
+  // (yalniz *Url; buildPublicStoreInfo + publicStoreInfoSchema.parse iki katman).
+  app.get("/public/stores/:storeSlug/store-info", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const settings = await dataAccess.getStoreSettings(store.id);
+    return publicStoreInfoSchema.parse({
+      storeName: store.name,
+      logoUrl: settings?.logo
+        ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, settings.logo.storageKey)
+        : null,
+      faviconUrl: settings?.favicon
+        ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, settings.favicon.storageKey)
+        : null,
+    });
+  });
+
+  // ADR-065 (Faz 3/Site Kabuğu) — Public hero slide'lari (ana sayfa carousel).
+  // Yalniz PUBLISHED (listPublishedHeroSlides DB sorgusunda status filtreler;
+  // DRAFT hic yuklenmez), position ASC. ALLOWLIST: serializePublicHeroSlide
+  // mediaId/status/zamanlama TASIMAZ. Bos → { data: [] } (vitrin statik hero
+  // fallback'ine duser; band deseniyle tutarli).
+  app.get("/public/stores/:storeSlug/hero-slides", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const slides = await heroDataAccess.listPublishedHeroSlides(store.id);
+    return publicHeroSlidesResponseSchema.parse({
+      data: slides.map((slide) => serializePublicHeroSlide(slide, config.MEDIA_PUBLIC_BASE_URL)),
+    });
   });
 
   // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
@@ -4843,7 +4898,7 @@ export function createServer(
   // guard hero modulunun kendi icindedir (HERO context); server closure'ina bagli
   // degil. dataAccess ayri bir prisma-backed impl'dir (kampanya deseni).
   registerHeroAdminRoutes(app, {
-    dataAccess: createPrismaHeroDataAccess(),
+    dataAccess: heroDataAccess,
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);

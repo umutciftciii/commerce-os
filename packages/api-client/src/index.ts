@@ -210,6 +210,10 @@ export type {
   PublicProductListResponse,
   PublicProductDetail,
   PublicCampaignSlidesResponse,
+  // ADR-065 Faz 3 (Site Kabuğu) — public marka bilgisi + hero slide'lari.
+  PublicStoreInfo,
+  PublicHeroSlide,
+  PublicHeroSlidesResponse,
   PublicCartItemInput,
   PublicCartRequest,
   PublicCartLineStatus,

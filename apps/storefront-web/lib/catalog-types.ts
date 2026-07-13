@@ -190,6 +190,33 @@ export interface StorefrontCampaignSlide {
 }
 
 /**
+ * ADR-065 (Faz 3/Site Kabuğu) — Site-geneli marka bilgisi (header + <head>).
+ * Gateway'in public store-info ucundan (allowlist) gelir; ic/yonetim alani
+ * (logoMediaId/faviconMediaId) TASIMAZ. *Url null → header kelime-isareti /
+ * <head> favicon override'siz fallback.
+ */
+export interface StorefrontStoreInfo {
+  storeName: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
+}
+
+/**
+ * ADR-065 (Faz 3/Site Kabuğu) — Ana sayfa hero slide gorunumu. Gateway'in public
+ * hero-slides ucundan (yalniz PUBLISHED, position ASC) gelir; `mediaId`/`status`/
+ * zamanlama TASIMAZ. Dizi zaten sirali dondugu icin view model position tasimaz;
+ * `key` stabil React list anahtaridir (opaque slide id).
+ */
+export interface StorefrontHeroSlide {
+  key: string;
+  mediaUrl: string;
+  headline: string | null;
+  subtext: string | null;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+}
+
+/**
  * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti gorunumu.
  * Gateway'in cuzdan projeksiyonundan (PublicWalletCoupon) turetilmis HAZIR
  * metinler tasir; kampanya ic verisi tasimaz.
