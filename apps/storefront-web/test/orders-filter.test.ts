@@ -26,7 +26,7 @@ function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSumm
     createdAt: "2026-06-01T00:00:00.000Z",
     shipmentStatus: null,
     lines: [
-      { variantId: "v1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1 },
+      { variantId: "v1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1, imageUrl: null },
     ],
     ...overrides,
   };
@@ -69,7 +69,7 @@ describe("searchOrders", () => {
     order({
       orderNumber: "OS-200",
       lines: [
-        { variantId: "v2", productSlug: "mug", sku: "MUG-RED", title: "Kupa", variantTitle: "Kırmızı", quantity: 1 },
+        { variantId: "v2", productSlug: "mug", sku: "MUG-RED", title: "Kupa", variantTitle: "Kırmızı", quantity: 1, imageUrl: null },
       ],
     }),
   ];

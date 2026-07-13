@@ -19,6 +19,9 @@ import { hashPassword, verifyPassword } from "@commerce-os/auth";
 import type { AppConfig } from "@commerce-os/config";
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
+// Faz 3/Dilim 6b — siparis satiri thumbnail'i icin paylasilan kapak URL haritasi
+// (tek allowlist noktasi; N+1'siz). listProductImages DI ile deps'ten gelir.
+import { buildProductCoverUrlMap, type ListProductImagesFn } from "../media/cover.js";
 import type {
   BillingType,
   CustomerCredentialTokenPurpose,
@@ -145,6 +148,9 @@ export interface CustomerAddressInputRecord {
 /* ── Sipariş okuma kayıtları (TODO-079) ───────────────────────────────────── */
 
 export interface CustomerOrderLineRecord {
+  // Dilim 6b — güncel kapak görselini çözmek için iç alan; contract DTO'suna
+  // SIZMAZ (serialize'da imageUrl'e çevrilip atılır, kendisi allowlist'te yok).
+  productId: string;
   variantId: string;
   productSlug: string;
   sku: string;
@@ -768,6 +774,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           createdAt: true,
           lines: {
             select: {
+              productId: true, // Dilim 6b — güncel kapak görseli çözümü (iç; DTO'ya sızmaz)
               variantId: true,
               sku: true,
               title: true,
@@ -792,6 +799,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         // TODO-135 — Birden çok gönderi olabilir → en ileri temsili durum; yoksa null.
         shipmentStatus: pickOrderShipmentStatus(order.shipments.map((s) => s.status)),
         lines: order.lines.map((line) => ({
+          productId: line.productId,
           variantId: line.variantId,
           productSlug: line.product.slug,
           sku: line.sku,
@@ -836,6 +844,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           billingTaxNumber: true,
           lines: {
             select: {
+              productId: true, // Dilim 6b — güncel kapak görseli çözümü (iç; DTO'ya sızmaz)
               variantId: true,
               sku: true,
               title: true,
@@ -957,6 +966,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         billingTaxId: order.billingTaxId,
         billingTaxNumber: order.billingTaxNumber,
         lines: order.lines.map((line) => ({
+          productId: line.productId,
           variantId: line.variantId,
           productSlug: line.product.slug,
           sku: line.sku,
@@ -1209,7 +1219,12 @@ function toIban(rec: CustomerIbanRecord) {
  * Müşteri-facing allowlist. Sipariş kartı/arama satırı yalnız güncel `variantId`
  * (tekrar satın al) + ürün bağlantısı/SKU taşır; eski sipariş fiyatı sepete
  * eklenmez (güncel katalogdan doğrulanır). */
-function serializeCustomerOrderSummary(order: CustomerOrderRecord) {
+function serializeCustomerOrderSummary(
+  order: CustomerOrderRecord,
+  // Dilim 6b — productId → güncel kapak URL'i (batched, tek çağrı). Kapaksız/
+  // görselsiz ürün haritada yoktur → imageUrl null (ProductMedia placeholder).
+  coverUrlByProductId: Map<string, string>,
+) {
   return {
     orderNumber: order.orderNumber,
     status: order.status,
@@ -1225,6 +1240,9 @@ function serializeCustomerOrderSummary(order: CustomerOrderRecord) {
       title: line.title,
       variantTitle: line.variantTitle,
       quantity: line.quantity,
+      // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId iç record'da
+      // kalır, DTO'ya girmez. Kapaksız ürün → null.
+      imageUrl: coverUrlByProductId.get(line.productId) ?? null,
     })),
     createdAt: order.createdAt.toISOString(),
     // TODO-135 — Hazırlanan gönderiyi liste rozetinde yansıtmak için temsili durum.
@@ -1237,7 +1255,11 @@ function serializeCustomerOrderSummary(order: CustomerOrderRecord) {
  * özeti (taxId MASKELİ) + ödeme GÜVENLİ alanları. transactionId = sağlayıcı
  * işlem referansı (providerReference). PAN/CVC/token/hash ASLA dönmez.
  */
-function serializeCustomerOrderDetail(order: CustomerOrderDetailRecord) {
+function serializeCustomerOrderDetail(
+  order: CustomerOrderDetailRecord,
+  // Dilim 6b — productId → güncel kapak URL'i (bu siparişin satırları için batched).
+  coverUrlByProductId: Map<string, string>,
+) {
   const shipping = order.addresses.find((address) => address.type === "SHIPPING") ?? null;
   let billing: {
     type: BillingType;
@@ -1281,6 +1303,8 @@ function serializeCustomerOrderDetail(order: CustomerOrderDetailRecord) {
       quantity: line.quantity,
       unitPriceMinor: line.unitPriceAmount,
       lineTotalMinor: line.totalAmount,
+      // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId DTO'ya girmez.
+      imageUrl: coverUrlByProductId.get(line.productId) ?? null,
     })),
     shippingAddress: shipping
       ? {
@@ -1521,6 +1545,9 @@ export interface CustomerRoutesDeps {
   customers: CustomerDataAccess;
   logger: CustomerLogger;
   resolvePublicStore: (slug: string) => Promise<{ id: string; slug: string } | null>;
+  // Dilim 6b — sipariş satırı thumbnail'i için güncel kapak görseli çözümü (DI;
+  // server.ts dataAccess.listProductImages'i geçirir). N+1'siz batched çağrı.
+  listProductImages: ListProductImagesFn;
 }
 
 /**
@@ -1547,7 +1574,7 @@ export async function resolveCustomerFromRequest(
 }
 
 export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoutesDeps): void {
-  const { config, customers, logger, resolvePublicStore } = deps;
+  const { config, customers, logger, resolvePublicStore, listProductImages } = deps;
   const loginLimiter = createWindowRateLimiter(
     config.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
@@ -2051,8 +2078,16 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     const customer = await requireCustomer(request, reply, store.id);
     if (!customer) return;
     const orders = await customers.listOrders(store.id, customer.id);
+    // Dilim 6b — TÜM siparişlerin TÜM satırlarının productId'lerini topla → TEK
+    // batched listProductImages çağrısı (N+1 YOK; helper unique'ler + boşsa erken döner).
+    const coverUrlByProductId = await buildProductCoverUrlMap(
+      listProductImages,
+      config.MEDIA_PUBLIC_BASE_URL,
+      store.id,
+      orders.flatMap((order) => order.lines.map((line) => line.productId)),
+    );
     return customerOrderListResponseSchema.parse({
-      data: orders.map(serializeCustomerOrderSummary),
+      data: orders.map((order) => serializeCustomerOrderSummary(order, coverUrlByProductId)),
     });
   });
 
@@ -2067,8 +2102,15 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     if (!order) {
       return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     }
+    // Dilim 6b — tek siparişin satırları için TEK batched kapak çağrısı (N+1 YOK).
+    const coverUrlByProductId = await buildProductCoverUrlMap(
+      listProductImages,
+      config.MEDIA_PUBLIC_BASE_URL,
+      store.id,
+      order.lines.map((line) => line.productId),
+    );
     return customerOrderDetailResponseSchema.parse({
-      order: serializeCustomerOrderDetail(order),
+      order: serializeCustomerOrderDetail(order, coverUrlByProductId),
     });
   });
 }
@@ -2189,7 +2231,9 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
       addresses: addresses.map(toAddress),
       ibans: ibans.map(toIban),
       communicationPreference: commPref,
-      orders: orders.map(serializeCustomerOrderSummary),
+      // Store-admin müşteri detayı sipariş ÖZETİ thumbnail göstermez (vitrin
+      // Hesabım dilimi kapsamı dışı) → boş kapak haritası, imageUrl null olur.
+      orders: orders.map((order) => serializeCustomerOrderSummary(order, new Map())),
     });
   });
 

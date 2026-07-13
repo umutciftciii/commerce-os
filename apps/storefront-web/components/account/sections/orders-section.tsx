@@ -14,6 +14,7 @@ import {
 } from "../../../lib/orders";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
+import { ProductMedia } from "../../ui";
 
 type OrdersDict = StorefrontDictionary["account"]["orders"];
 
@@ -150,12 +151,12 @@ function OrderCard({
       <ul className="mt-3 space-y-2">
         {order.lines.map((line) => (
           <li key={line.variantId} className="flex items-center gap-3">
-            <span
-              aria-hidden
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-400"
-            >
-              {line.title.slice(0, 1).toUpperCase()}
-            </span>
+            {/* Dilim 6b — Ürün kapak thumbnail'i (drop-in ProductMedia; imageUrl
+                yoksa deterministik yer tutucu). Dilim 6a deseni: sabit boyutlu
+                wrapper + overflow-hidden, ProductMedia h-full w-full ile doldurur. */}
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-line bg-surface-muted">
+              <ProductMedia handle={line.productSlug} title={line.title} imageUrl={line.imageUrl} />
+            </div>
             <span className="min-w-0 text-sm text-slate-700">
               {line.title}
               {line.variantTitle ? (

@@ -104,6 +104,9 @@ import { LocalDiskDriver } from "./media/local-disk-driver.js";
 // ADR-065 (Faz 2/Dilim 3) — kategori GET response'unda imageUrl'u storageKey'den
 // turetmek icin. server.ts'in resolveMediaUrl'u ilk tuketen yeri.
 import { resolveMediaUrl } from "./media/url.js";
+// Faz 3/Dilim 6a+6b — sepet/onay + hesap-siparisleri kapak URL haritasi (paylasilan,
+// tek allowlist noktasi; N+1'siz). buildCartCoverUrlMap bunu delege eder.
+import { buildProductCoverUrlMap } from "./media/cover.js";
 // F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
 import {
   computeDiscounts,
@@ -4238,17 +4241,15 @@ export function createServer(
     storeId: string,
     productIds: string[],
   ): Promise<Map<string, string>> {
-    const urlByProductId = new Map<string, string>();
-    const unique = [...new Set(productIds)];
-    if (unique.length === 0) return urlByProductId;
-    const coverMap = await dataAccess.listProductImages(storeId, unique, true);
-    for (const [productId, records] of coverMap) {
-      const cover = records[0];
-      if (cover) {
-        urlByProductId.set(productId, resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, cover.storageKey));
-      }
-    }
-    return urlByProductId;
+    // Dilim 6b ile paylasilan helper'a delege (tek allowlist noktasi, N+1'siz).
+    // Arrow wrapper: method REFERANSI degil cagri — dataAccess `this` baglami korunur
+    // (bazi implementasyonlar this.* kullanir; detached referans this'i koparirdi).
+    return buildProductCoverUrlMap(
+      (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
+      config.MEDIA_PUBLIC_BASE_URL,
+      storeId,
+      productIds,
+    );
   }
 
   /**
@@ -4804,7 +4805,16 @@ export function createServer(
   // sifre, iletisim tercihi, adres defteri, IBAN, siparislerim). Auth YOK gerektiren
   // public prefix altinda; oturum `x-customer-session` header'i ile cozulur ve
   // store scope + ownership zorunludur. resolvePublicStore yukarida tanimlidir.
-  registerCustomerRoutes(app, { config, customers, logger, resolvePublicStore });
+  registerCustomerRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    // Dilim 6b — siparis satiri thumbnail'i icin kapak gorseli cozumu (DI; Prisma
+    // customers modulune sizmaz, ayni tek allowlist noktasi paylasilir). Arrow
+    // wrapper `this` baglamini korur (detached method referansi this'i koparirdi).
+    listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
+  });
   // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).
   registerCustomerAdminRoutes(app, {
     config,
