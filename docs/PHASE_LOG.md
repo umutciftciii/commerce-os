@@ -3005,3 +3005,43 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası migrate deploy (reset YOK) + docker rebuild (api-gateway + storefront-web +
   store-admin-web) + runtime doğrulama (OPERATIONS F4C). Follow-up: sepet "KDV (dahil)" satırını satır
   oranlarından türetme; fatura üretimi.
+
+## 2026-07-13 — Faz 1A: Ürün ana kategorisi (`primaryCategoryId`) temeli (ADR-067, TODO-143)
+
+- **Amaç.** Kategoriye-bağlı dinamik ürün özellikleri (attribute) çalışmasının 1A adımı: M:N ürün↔kategori
+  ilişkisindeki belirsizliği gidererek her ürüne, ileriki attribute şemasının/breadcrumb'ın/kanonik URL'in
+  kaynağı olacak **tek ana kategori** eklemek. Attribute tabloları bu faz kapsamı DIŞINDA (Faz 1B+).
+- **Veri modeli.** `Product.primaryCategoryId String?` (additive, nullable), FK → `ProductCategory`
+  `onDelete: Restrict`, `@@index([storeId, primaryCategoryId])`, back-relation `primaryProducts`. Migration
+  `20260713120000_add_product_primary_category`: additive DDL + deterministik backfill (aynı store, en eski
+  assignment `createdAt ASC` / eşitlikte `categoryId ASC`; tek→o kategori; kategorisiz→null). Tie-breaker
+  `categoryId ASC` çünkü `ProductCategoryAssignment` surrogate `id` taşımaz (composite PK) → `assignment.id ASC`
+  uygulanamaz + kapsam dışı; categoryId ürün içinde unique olduğundan tam deterministik. Idempotency: migration
+  history nedeniyle BİR KEZ uygulanır; backfill `WHERE primaryCategoryId IS NULL` ile RE-RUN güvenlidir (mevcut
+  değeri ezmez). NOT NULL YOK (ilk faz). `db push`/`reset` KULLANILMADI; deploy = `prisma migrate deploy`.
+  İzole PostgreSQL'de doğrulandı (tek/çok/eşit-createdAt/kategorisiz/önceden-primary/cross-store/FK-RESTRICT).
+- **Domain/contract.** Saf `resolvePrimaryCategorySelection` (contracts) + `resolvePrimaryCategory` route helper
+  (gateway) assignment+primary'yi tek `$transaction`'da doğrular/yazar. Stabil kodlar: `PRIMARY_CATEGORY_
+  REQUIRED/NOT_ASSIGNED/STORE_MISMATCH/ARCHIVED/ASSIGNMENT_CONFLICT` (zod refine yerine route — özel kod korunur).
+  Ana kategori sessizce kaldırılamaz; kategoriler boşalınca ana null; tek kategori otomatik normalize.
+- **Storefront.** `publicCategoryLabel` önce `primaryCategoryId`, yoksa "ilk assignment" fallback (legacy
+  ürünler aynı etiketi gösterir). Public allowlist DEĞİŞMEDİ (primary iç projeksiyon; label sunucuda türer).
+- **Admin UX.** Ürün formunda "Ana kategori" işaretleyici (tek kategori otomatik ana; ana kaldırılınca yeni
+  ana zorunlu; edit hydration; server hata→kategori alanı). RHF/Zod'a taşıma YOK (Faz 2). i18n TR kaynak + EN.
+- **Runtime kategori mirası UYGULANMADI (MVP).** Parent zinciri dolaşılmaz; `overrideMode`/`INHERIT`/`OVERRIDE`/
+  `DISABLE` alanları eklenmedi (YAGNI).
+- **Testler.** contracts 73 (`resolvePrimaryCategorySelection` 5 + şema 1), gateway health 132 (yeni 4),
+  store-admin 232 (yeni 4 ana kategori component: otomatik primary / 2. kategoride korunma+rozet / submit engeli /
+  hydration).
+- **Merge-öncesi doğrulama (2026-07-13).** (a) **İzole PostgreSQL** (ayrı container :5433, proje volume'una
+  dokunulmadan): pre-Faz1A zinciri + kontrollü fixture + `prisma migrate deploy` + backfill. Senaryolar A(tek→kategori)
+  B(çok/en-eski createdAt) C(eşit createdAt→categoryId ASC) D(kategorisiz→null) E(önceden-primary EZİLMEZ) F(cross-store
+  YOK) G(FK RESTRICT ihlali) HEPSİ doğru; backfill re-run = `UPDATE 0`; audit dry-run↔DB uyumu; `--apply` migration ile
+  BİREBİR aynı; 2. `--apply` = idempotent. (b) **Runtime smoke** (gerçek Fastify+Prisma+izole PG): API create/update
+  kuralları + varyant/inventory regresyonu 15/15; public categoryLabel primary-önceliği + primary-flip + no-leak 4/4.
+  (c) **Typecheck main↔branch:** her ikisinde AYNI tek hata (`checkout-form-render.test.tsx` CartLineView, önceden
+  mevcut) → branch **0 yeni** hata.
+- **Gate.** db:generate + build + typecheck (src + store-admin) + lint + prisma validate + `git diff --check` temiz.
+- **Kalan.** Merge sonrası HEDEF DB'de `prisma migrate deploy` (reset YOK) + docker rebuild (api-gateway + store-admin-web +
+  storefront-web) + prod-benzeri runtime smoke + çok-kategorili backfill review. Faz 1B (AttributeDefinition/CategoryAttribute/
+  değerler) ayrı iş.

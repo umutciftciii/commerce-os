@@ -84,6 +84,11 @@ export function ProductForm({
   const [vendor, setVendor] = useState(initial?.vendor ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [categoryIds, setCategoryIds] = useState<string[]>(initial?.categoryIds ?? []);
+  // Faz 1A (ADR-067) — Ana kategori. Backfill edilmis/mevcut deger hydrate edilir.
+  // Tek kategori seçilince otomatik ana olur; ana kaldırılırken yeni ana zorunludur.
+  const [primaryCategoryId, setPrimaryCategoryId] = useState<string | null>(
+    initial?.primaryCategoryId ?? null,
+  );
 
   // Satis davranisi (F2D/F2F alanlari).
   const [salesMode, setSalesMode] = useState<ProductSalesMode>(initial?.salesMode ?? "ONLINE");
@@ -183,10 +188,28 @@ export function ProductForm({
     label: statusLabels[value],
   }));
 
+  // Faz 1A (ADR-067) — Kategori seçimi ana kategori farkındalığıyla. Backend nihai
+  // otoritedir (resolvePrimaryCategorySelection); burada UX tutarlılığı sağlanır:
+  //  - tek kategori seçilince otomatik ana olur,
+  //  - ana kategori kaldırılırsa tek kategori kaldıysa o otomatik ana; yoksa null
+  //    (submit'te "ana kategori seçin" uyarısı çıkar).
   function toggleCategory(id: string) {
-    setCategoryIds((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
-    );
+    const isRemoving = categoryIds.includes(id);
+    const nextIds = isRemoving
+      ? categoryIds.filter((value) => value !== id)
+      : [...categoryIds, id];
+    setCategoryIds(nextIds);
+    if (isRemoving) {
+      if (primaryCategoryId === id) {
+        setPrimaryCategoryId(nextIds.length === 1 ? nextIds[0]! : null);
+      }
+    } else if (primaryCategoryId === null && nextIds.length === 1) {
+      setPrimaryCategoryId(id);
+    }
+  }
+
+  function selectPrimaryCategory(id: string) {
+    if (categoryIds.includes(id)) setPrimaryCategoryId(id);
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -199,6 +222,13 @@ export function ProductForm({
     }
     if (!isEdit && !SLUG_PATTERN.test(slug.trim())) {
       setError(f.requiredSlug);
+      return;
+    }
+
+    // Faz 1A (ADR-067) — birden çok kategori seçiliyken ana kategori zorunlu (backend
+    // de REQUIRED döner; bu erken/anlaşılır UX içindir).
+    if (categoryIds.length > 1 && !primaryCategoryId) {
+      setError(f.primaryCategoryRequired);
       return;
     }
 
@@ -275,6 +305,9 @@ export function ProductForm({
           vendor: vendor.trim() === "" ? null : vendor.trim(),
           description: description.trim() === "" ? null : description.trim(),
           categoryIds,
+          // Faz 1A (ADR-067) — ana kategori (categoryIds ile birlikte gönderilir;
+          // backend assignment+primary tutarlılığını tek transaction'da doğrular).
+          primaryCategoryId,
           // ADR-065 (Faz 2/Dilim 2) — sıralı galeri; sunucu diff'ler. id = mediaId
           // (invariant). [] gönderilirse galeri temizlenir (R6, toplu kaydet).
           imageMediaIds: images.map((item) => item.id),
@@ -295,6 +328,9 @@ export function ProductForm({
         if (brand.trim() !== "") payload.brand = brand.trim();
         if (vendor.trim() !== "") payload.vendor = vendor.trim();
         if (description.trim() !== "") payload.description = description.trim();
+        // Faz 1A (ADR-067) — ana kategori yalnız seçiliyse gönderilir (kategorisiz
+        // üründe null; backend tek kategoriyi normalize eder).
+        if (primaryCategoryId) payload.primaryCategoryId = primaryCategoryId;
         const created = await storeApi.createProduct(payload);
         onSaved(t.createdToast, created);
       }
@@ -375,30 +411,52 @@ export function ProductForm({
         ) : (
           <>
             <p className="mb-2 text-xs text-white/30">{f.categoriesHint}</p>
-            <div className="flex flex-wrap gap-2">
+            {/* Faz 1A (ADR-067) — seçili kategorilerden biri "Ana kategori" işaretlenir.
+                Tek kategori otomatik ana olur; ana kategori görsel olarak ayırt edilir. */}
+            <div className="flex flex-col gap-1.5">
               {categories.map((category) => {
                 const checked = categoryIds.includes(category.id);
+                const isPrimary = primaryCategoryId === category.id;
                 return (
-                  <label
+                  <div
                     key={category.id}
-                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
+                    className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-sm ${
                       checked
                         ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-200"
                         : "border-white/10 text-white/60"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 accent-indigo-500"
-                      checked={checked}
-                      onChange={() => toggleCategory(category.id)}
-                      disabled={saving}
-                    />
-                    {category.name}
-                  </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 accent-indigo-500"
+                        checked={checked}
+                        onChange={() => toggleCategory(category.id)}
+                        disabled={saving}
+                      />
+                      {category.name}
+                    </label>
+                    {checked ? (
+                      <button
+                        type="button"
+                        onClick={() => selectPrimaryCategory(category.id)}
+                        disabled={saving || isPrimary}
+                        aria-pressed={isPrimary}
+                        title={f.primaryCategoryHint}
+                        className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${
+                          isPrimary
+                            ? "bg-indigo-500/30 text-indigo-100"
+                            : "border border-white/15 text-white/50 hover:text-white/80"
+                        }`}
+                      >
+                        {isPrimary ? `★ ${f.primaryCategoryBadge}` : f.primaryCategorySet}
+                      </button>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
+            <p className="mt-2 text-xs text-white/30">{f.primaryCategoryHint}</p>
           </>
         )}
       </div>

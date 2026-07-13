@@ -1878,3 +1878,57 @@ değil liste fiyatıdır, istenen bu değildi.
   taşınırdı; daha basit ama kupon/sabit-tutar/çok-kampanya kapsanmaz ve özet ile satır çelişebilirdi.
   Reddedildi — gerçek (motor-tutarlı) satır indirimi tercih edildi.
 - **compareAt (liste) üstü çizili.** İstenen kampanyayı yansıtmaz; yalnız yedek olarak korundu.
+
+## ADR-067 — Ürün ana kategorisi (`primaryCategoryId`): dinamik katalog için tek şema kaynağı (Faz 1A)
+
+**Bağlam.** Kategoriye-bağlı dinamik ürün özellikleri (attribute) altyapısına geçişin ilk adımı. Ürün ↔ kategori
+ilişkisi bugün `ProductCategoryAssignment` üzerinden M:N'dir (`schema.prisma`); dinamik attribute şemasının hangi
+kategoriden çözüleceği belirsizdir. Ayrıca public kategori etiketi bugün "ilk assignment" (`assignments` orderBy
+`createdAt asc`) ile seçilir (`server.ts:publicCategoryLabel`) — kırılgan ve örtük bir kural.
+
+**Karar.** Her ürüne **tek bir ana kategori** (`Product.primaryCategoryId`) eklendi; ileriki attribute şemasının,
+breadcrumb'ın ve kanonik kategori URL'inin **tek kaynağıdır**.
+1. **Additive + nullable.** `primaryCategoryId String?`, FK `onDelete: Restrict` (ana kategori fiziksel silinemez),
+   `@@index([storeId, primaryCategoryId])`. İlk migration'da **NOT NULL YOK**; legacy/kategorisiz ürün null kalır.
+2. **İkincil kategoriler korunur.** M:N `assignments` sınıflandırma/koleksiyon/navigasyon/merchandising için aynen kalır.
+3. **Ana kategori assignments'tan biri olmalı** — DB tek başına M:N tutarlılığını garanti edemez; **service transaction
+   guard** ile sağlanır (`resolvePrimaryCategory` route helper + `resolvePrimaryCategorySelection` saf kural fonksiyonu,
+   `@commerce-os/contracts`).
+4. **Normalizasyon/kurallar (stabil hata kodları).** Tek kategori + ana yok → otomatik o kategori; çoklu kategori + ana
+   yok → `PRIMARY_CATEGORY_REQUIRED` (backend sessizce SEÇMEZ); ana listede değil → `PRIMARY_CATEGORY_NOT_ASSIGNED`;
+   arşivli kategori ana yapılamaz → `PRIMARY_CATEGORY_ARCHIVED`; update'te mevcut ana kaldırılıp yenisi verilmezse →
+   `PRIMARY_CATEGORY_ASSIGNMENT_CONFLICT`; kategoriler boşaltılınca ana → null. Kodlar zod refine yerine route/service'te
+   üretilir (generic `VALIDATION_ERROR` özel kodları yutmasın; admin UI ilgili alana bağlayabilsin).
+5. **Assignment + primary tek transaction.** `createProduct`/`updateProduct` yazımları aynı `$transaction` içinde;
+   yarı-uygulanmış ara durum yok.
+6. **Storefront geriye uyumlu.** `publicCategoryLabel` ÖNCE `primaryCategoryId`'yi kullanır; yoksa mevcut "ilk assignment"
+   davranışına fallback (legacy ürünler aynı etiketi gösterir).
+7. **Runtime kategori mirası UYGULANMAZ (MVP).** Attribute yalnız doğrudan ana kategoriden çözülür; parent zinciri
+   dolaşılmaz. `overrideMode`/`INHERIT`/`OVERRIDE`/`DISABLE` gibi alanlar bu fazda EKLENMEZ (YAGNI).
+
+**Backfill.** Migration içindeki backfill deterministiktir: her ürün için aynı store kapsamında en eski assignment
+(`createdAt ASC`, eşitlikte `categoryId ASC`) ana kategori olur; tek kategorili → o kategori; kategorisiz → null.
+
+- **Tie-breaker neden `categoryId ASC` (`assignment.id ASC` DEĞİL):** `ProductCategoryAssignment`'ın surrogate `id`
+  kolonu YOKTUR — composite PK `(productId, categoryId)` (bkz. `schema.prisma`, init migration `PRIMARY KEY ("productId","categoryId")`).
+  Bir ürünün iki assignment'ı asla aynı categoryId'yi paylaşamaz (composite PK unique), bu yüzden eşit `createdAt`'te
+  `categoryId ASC` TAM DETERMINISTIKTIR. Bir `id` eklemek composite PK'yi değiştirir → Faz 1A'nın "assignment modeline
+  dokunma / kapsam dışı refactor yok" kısıtlarına aykırıdır, bu yüzden `categoryId ASC` korunmuştur. "En düşük sortOrder"
+  seçeneği de uygulanamaz (`ProductCategoryAssignment` `sortOrder` taşımaz); `createdAt ASC` mevcut `publicCategoryLabel`
+  davranışıyla tutarlıdır.
+- **Idempotency (kesin ifade):** Migration, Prisma migration history nedeniyle hedef DB'ye YALNIZ BİR KEZ uygulanır
+  ("migration ikinci kez çalışır" ifadesi yanlıştır). İdempotent olan, backfill UPDATE'inin `WHERE primaryCategoryId IS NULL`
+  koşulu sayesinde RE-RUN güvenli olmasıdır: elle veya `db:audit-primary-category --apply` ile tekrar çağrılırsa mevcut
+  (non-null) değerleri EZMEZ, yalnız hâlâ NULL olanları doldurur → ikinci `--apply` sıfır değişiklik üretir. Çok kategorili
+  ürünler ticari doğrulama için `db:audit-primary-category` ile raporlanır (dry-run default DB'yi değiştirmez; `--apply`
+  migration ile AYNI algoritmayla güvenli doldurur). İzole PostgreSQL üzerinde doğrulanmıştır (tek/çok/eşit-createdAt/
+  kategorisiz/önceden-primary/cross-store/FK-RESTRICT + audit dry-run↔DB uyumu + iki kez `--apply` idempotent).
+
+**Sonuçlar.**
+- Deterministik kategori şeması; recursive query yok; kategori döngü riski attribute sistemine taşınmaz.
+- Attribute tabloları (`AttributeDefinition`/`CategoryAttribute`/değerler) ve varyant/sipariş-snapshot bu ADR kapsamı DIŞINDADIR
+  (Faz 1B+). Bu faz yalnız **ana kategori temelini** kurar.
+- İleride `NOT NULL`'a geçiş, veri temizliği sonrası **ayrı migration** olarak değerlendirilecektir.
+
+**Alternatifler (reddedilen).** M:N'den runtime türetme (belirsiz, kırılgan); runtime kategori mirası (recursive, döngü riski,
+MVP dışı); zod refine ile cross-field (özel kodları yutar, admin alan bağlama bozulur).

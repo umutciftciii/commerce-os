@@ -164,6 +164,8 @@ async function main() {
       // F3C.2 — Ürün-seviyesi kargo ölçüsü; varyantlar boş bırakıp buradan fallback alır.
       shippingWeightKg: 0.6,
       shippingDesi: 5,
+      // Faz 1A (ADR-067) — tek kategorili ürün: ana kategori = o kategori.
+      primaryCategoryId: apparelCategory.id,
     },
     create: {
       storeId: store.id,
@@ -183,6 +185,7 @@ async function main() {
       minOrderQuantity: 1,
       shippingWeightKg: 0.6,
       shippingDesi: 5,
+      primaryCategoryId: apparelCategory.id,
     },
   });
 
@@ -209,6 +212,8 @@ async function main() {
       // F3C.2 — Kargo ölçüleri (desi tarifesi runtime smoke için).
       shippingWeightKg: 0.4,
       shippingDesi: 3,
+      // Faz 1A (ADR-067) — tek kategorili ürün: ana kategori = o kategori.
+      primaryCategoryId: accessoriesCategory.id,
     },
     create: {
       storeId: store.id,
@@ -228,6 +233,7 @@ async function main() {
       minOrderQuantity: 1,
       shippingWeightKg: 0.4,
       shippingDesi: 3,
+      primaryCategoryId: accessoriesCategory.id,
     },
   });
 

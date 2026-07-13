@@ -47,6 +47,7 @@ import {
   storeSettingsSchema,
   storeSettingsUpdateRequestSchema,
   productCreateRequestSchema,
+  resolvePrimaryCategorySelection,
   productListResponseSchema,
   productPriceChangeListResponseSchema,
   productPriceChangeSchema,
@@ -296,6 +297,8 @@ type ProductRecord = Pick<
   | "appointmentNote"
   | "shippingWeightKg"
   | "shippingDesi"
+  // Faz 1A (ADR-067) — ana kategori (admin projeksiyonunda doner; public'te turer).
+  | "primaryCategoryId"
   | "createdAt"
   | "updatedAt"
 > & { categoryIds: string[]; images: ProductImageRecord[] };
@@ -734,6 +737,9 @@ export interface AppDataAccess extends CampaignDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds: string[];
+      // Faz 1A (ADR-067) — route'ta normalize edilmis ana kategori (assignments'tan biri
+      // veya null). Data-access dogrudan yazar; tutarlilik guard'i route katmanindadir.
+      primaryCategoryId?: string | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
     },
@@ -765,6 +771,9 @@ export interface AppDataAccess extends CampaignDataAccess {
       inquiryFormTitle?: string | null;
       appointmentNote?: string | null;
       categoryIds?: string[];
+      // Faz 1A (ADR-067) — undefined = dokunma; string/null = route'ta normalize edilmis
+      // ana kategori. Assignment + primary yazimi ayni transaction icinde yapilir.
+      primaryCategoryId?: string | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
     },
@@ -1116,6 +1125,25 @@ const OMNIBUS_WINDOW_DAYS = 30;
 
 function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
+}
+
+// Faz 1A (ADR-067) — Ana kategori hata kodu -> stabil (Ingilizce) mesaj. i18n
+// eslemesi store-admin `messageForError` tarafinda yapilir; kod stabildir.
+function primaryCategoryErrorMessage(code: string): string {
+  switch (code) {
+    case "PRIMARY_CATEGORY_REQUIRED":
+      return "A primary category is required when multiple categories are assigned.";
+    case "PRIMARY_CATEGORY_NOT_ASSIGNED":
+      return "The primary category must be one of the assigned categories.";
+    case "PRIMARY_CATEGORY_STORE_MISMATCH":
+      return "The primary category does not belong to this store.";
+    case "PRIMARY_CATEGORY_ARCHIVED":
+      return "An archived category cannot be set as the primary category.";
+    case "PRIMARY_CATEGORY_ASSIGNMENT_CONFLICT":
+      return "Cannot remove the primary category assignment without selecting a new primary category.";
+    default:
+      return "Primary category selection is invalid.";
+  }
 }
 
 function bearerToken(request: FastifyRequest): string | null {
@@ -1506,9 +1534,15 @@ function isPublicPriceVisible(visibility: ProductPriceVisibility): boolean {
 }
 
 function publicCategoryLabel(
-  product: Pick<ProductRecord, "categoryIds">,
+  product: Pick<ProductRecord, "categoryIds" | "primaryCategoryId">,
   categoryNames: Map<string, string>,
 ): string | null {
+  // Faz 1A (ADR-067) — kategori etiketi/breadcrumb kaynagi ONCE ana kategoridir;
+  // yoksa (legacy/null primary) mevcut "ilk assignment" davranisina fallback (geri
+  // uyum: eski urunler ayni etiketi gostermeye devam eder).
+  if (product.primaryCategoryId && categoryNames.has(product.primaryCategoryId)) {
+    return categoryNames.get(product.primaryCategoryId) ?? null;
+  }
   const first = product.categoryIds.find((id) => categoryNames.has(id));
   return first ? (categoryNames.get(first) ?? null) : null;
 }
@@ -2126,6 +2160,8 @@ function createPrismaDataAccess(): AppDataAccess {
     appointmentNote: true,
     shippingWeightKg: true,
     shippingDesi: true,
+    // Faz 1A (ADR-067) — ana kategori FK (admin serialize + public label kaynagi).
+    primaryCategoryId: true,
     createdAt: true,
     updatedAt: true,
     assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
@@ -2676,6 +2712,9 @@ function createPrismaDataAccess(): AppDataAccess {
             appointmentNote: input.appointmentNote ?? null,
             shippingWeightKg: input.shippingWeightKg ?? null,
             shippingDesi: input.shippingDesi ?? null,
+            // Faz 1A (ADR-067) — route'ta normalize edilmis ana kategori (assignments'tan
+            // biri veya null). Ayni transaction icinde assignment'larla birlikte yazilir.
+            primaryCategoryId: input.primaryCategoryId ?? null,
           },
           select: productSelect,
         });
@@ -5339,6 +5378,49 @@ export function createServer(
     return uniqueCategoryIds;
   }
 
+  // Faz 1A (ADR-067) — Ana kategori secimini normalize + dogrular; hata olursa reply
+  // gonderir ve null doner (validateCategoryIds deseni). categoryIds ONCEDEN
+  // validateCategoryIds'ten gecmis (store'da var + dedup) olmalidir. previousPrimaryId
+  // update'te mevcut ana kategoridir: yalniz YENI/DEGISEN ana kategori icin arsiv/store
+  // kontrolu yapilir (mevcut arsivli ana kategori ilgisiz update'lerde korunur). Basaride
+  // { primaryCategoryId } doner (deger de null olabilir → sarmalanmis).
+  async function resolvePrimaryCategory(
+    reply: FastifyReply,
+    storeId: string,
+    categoryIds: string[],
+    rawPrimaryCategoryId: string | null | undefined,
+    previousPrimaryId: string | null | undefined,
+  ): Promise<{ primaryCategoryId: string | null } | null> {
+    const resolution = resolvePrimaryCategorySelection({
+      categoryIds,
+      primaryCategoryId: rawPrimaryCategoryId ?? null,
+    });
+    if (!resolution.ok) {
+      await reply.code(400).send(errorBody(resolution.code, primaryCategoryErrorMessage(resolution.code)));
+      return null;
+    }
+    const resolved = resolution.primaryCategoryId;
+    // Yalniz yeni/degistirilen ana kategori icin store + arsiv guard'i (findCategoryById
+    // zaten store-scoped; categoryIds gecerli oldugu icin normalde bulunur → STORE_MISMATCH
+    // savunma amaclidir). ARCHIVED: arsivli bir kategori ANA kategori olarak SECILEMEZ.
+    if (resolved !== null && resolved !== (previousPrimaryId ?? null)) {
+      const category = await dataAccess.findCategoryById(storeId, resolved);
+      if (!category) {
+        await reply
+          .code(400)
+          .send(errorBody("PRIMARY_CATEGORY_STORE_MISMATCH", primaryCategoryErrorMessage("PRIMARY_CATEGORY_STORE_MISMATCH")));
+        return null;
+      }
+      if (category.status === "ARCHIVED") {
+        await reply
+          .code(400)
+          .send(errorBody("PRIMARY_CATEGORY_ARCHIVED", primaryCategoryErrorMessage("PRIMARY_CATEGORY_ARCHIVED")));
+        return null;
+      }
+    }
+    return { primaryCategoryId: resolved };
+  }
+
   app.get("/stores/:storeId/products", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
@@ -5360,12 +5442,20 @@ export function createServer(
     const input = productCreateRequestSchema.parse(request.body);
     const categoryIds = await validateCategoryIds(reply, params.storeId, input.categoryIds);
     if (!categoryIds) return;
+    // Faz 1A (ADR-067) — ana kategori normalize + dogrula (STABIL kodlar). Tek
+    // kategoride null → otomatik o kategori; coklu kategoride primary yoksa REQUIRED.
+    const primary = await resolvePrimaryCategory(reply, params.storeId, categoryIds, input.primaryCategoryId, undefined);
+    if (!primary) return;
     if (await dataAccess.findProductBySlug(params.storeId, input.slug)) {
       return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
     }
     let product: ProductRecord;
     try {
-      product = await dataAccess.createProduct(params.storeId, { ...input, categoryIds });
+      product = await dataAccess.createProduct(params.storeId, {
+        ...input,
+        categoryIds,
+        primaryCategoryId: primary.primaryCategoryId,
+      });
     } catch (error) {
       if (isPrismaUniqueConstraintError(error)) {
         return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
@@ -5417,17 +5507,64 @@ export function createServer(
     // PRODUCT context olmali. TUM liste yazimdan ONCE dogrulanir (biri gecersizse
     // 400, hicbir yazim olmadan). imageMediaIds Product kolonu DEGIL → updateProduct'a
     // gecmeden ayiklanir; kalicilik ayri updateProductImages diff'i ile yapilir.
-    const { imageMediaIds, ...productInput } = input;
+    const { imageMediaIds, primaryCategoryId: rawPrimaryCategoryId, ...productInput } = input;
     if (imageMediaIds !== undefined) {
       for (const mediaId of imageMediaIds) {
         if (!(await assertMediaAttachable(reply, params.storeId, mediaId, "PRODUCT"))) return;
       }
     }
+    // Faz 1A (ADR-067) — Ana kategori cozumlemesi YALNIZ categoryIds VEYA
+    // primaryCategoryId gonderildiginde calisir; boylece legacy (null-primary) urunun
+    // ilgisiz alan update'i ana kategoriye DOKUNMAZ (kaydedilebilirlik korunur).
+    // resolvedPrimary undefined = dokunma; string/null = ayni transaction'da yaz.
+    let resolvedPrimary: string | null | undefined = undefined;
+    const primaryProvided = rawPrimaryCategoryId !== undefined;
+    if (categoryIds !== undefined || primaryProvided) {
+      const effectiveCategoryIds = categoryIds ?? current.categoryIds;
+      // ASSIGNMENT_CONFLICT: mevcut ana kategori yeni listeden cikariliyor, yeni ana
+      // kategori verilmemis ve birden cok kategori kaliyor (tek kalirsa asagida
+      // otomatik normalize edilir → cakisma degil). Ana kategori sessizce kaldirilamaz.
+      if (
+        categoryIds !== undefined &&
+        current.primaryCategoryId &&
+        !effectiveCategoryIds.includes(current.primaryCategoryId) &&
+        !primaryProvided &&
+        effectiveCategoryIds.length > 1
+      ) {
+        return reply
+          .code(409)
+          .send(
+            errorBody(
+              "PRIMARY_CATEGORY_ASSIGNMENT_CONFLICT",
+              primaryCategoryErrorMessage("PRIMARY_CATEGORY_ASSIGNMENT_CONFLICT"),
+            ),
+          );
+      }
+      // primary gonderilmediyse: mevcut ana kategori YENI sette hala varsa korunur;
+      // aksi halde null → resolve normalize eder (bosalirsa null, tek kalirsa o kategori).
+      const effectivePrimaryRaw = primaryProvided
+        ? rawPrimaryCategoryId
+        : current.primaryCategoryId && effectiveCategoryIds.includes(current.primaryCategoryId)
+          ? current.primaryCategoryId
+          : null;
+      const primary = await resolvePrimaryCategory(
+        reply,
+        params.storeId,
+        effectiveCategoryIds,
+        effectivePrimaryRaw,
+        current.primaryCategoryId,
+      );
+      if (!primary) return;
+      resolvedPrimary = primary.primaryCategoryId;
+    }
     let product: ProductRecord = current;
-    if (Object.keys(productInput).length > 0) {
+    const hasProductFieldChange =
+      Object.keys(productInput).length > 0 || categoryIds !== undefined || resolvedPrimary !== undefined;
+    if (hasProductFieldChange) {
       const updated = await dataAccess.updateProduct(params.storeId, params.productId, {
         ...productInput,
         ...(categoryIds === undefined ? {} : { categoryIds }),
+        ...(resolvedPrimary === undefined ? {} : { primaryCategoryId: resolvedPrimary }),
       });
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
