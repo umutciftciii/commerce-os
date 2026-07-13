@@ -1118,6 +1118,12 @@ export const publicCartSummarySchema = z.object({
 
 export const publicCartRequestSchema = z.object({
   items: z.array(publicCartItemInputSchema).max(100).default([]),
+  /**
+   * Dilim 6a-refine — Kullanicinin SECIMINI KALDIRDIGI satirlarin variantId'leri
+   * (checkbox). Bu satirlar yanitta `selected:false` doner (sepette gorunur) ama
+   * toplam/checkout'a girmez. Hassas degil; gateway her istekte yeniden uygular.
+   */
+  deselectedVariantIds: z.array(z.string().max(120)).max(100).optional(),
   /** Opsiyonel kupon kodu; sunucu dogrular (gecersizse INVALID doner). */
   couponCode: z.string().max(40).nullable().optional(),
   /**
@@ -1235,6 +1241,14 @@ export const publicCartLineSchema = z.object({
   // urun -> null (vitrin deterministik yer tutucuya duser). Zorunlu alan: cart yolu
   // her satir icin URL ya da null uretir (publicProductImageSchema.url deseniyle simetri).
   imageUrl: z.string().nullable(),
+  // Dilim 6a-refine — Satir SECIM durumu (checkbox). Varsayilan true; kullanici
+  // secimi kaldirinca satir sepette KALIR ama toplam/checkout'a girmez (sunucu-otoriter:
+  // subtotal/itemCount/checkoutReady/indirim/kargo YALNIZ secili satirlardan hesaplanir).
+  selected: z.boolean(),
+  // Dilim 6a-refine — Satir birim LISTE (compareAt) fiyati; yalnizca gecerli bir indirim
+  // varken (compareAt > satis fiyati) ve fiyat gorunurken doldurulur → vitrin ustu-cizili
+  // gosterir. Indirim yoksa null. (PDP buy-box compareAt mantigi ile simetri.)
+  compareAtMinor: z.number().int().nonnegative().nullable(),
 });
 
 export const publicCartSchema = z.object({

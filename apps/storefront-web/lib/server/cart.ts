@@ -53,6 +53,10 @@ export interface CartLineView {
   status: PublicCartLineStatus;
   /** ADR-065 (Faz 3/Dilim 6a) — Kapak URL'i (gateway allowlist). Yoksa null → yer tutucu. */
   imageUrl: string | null;
+  /** Dilim 6a-refine — Satir secim durumu (checkbox). false → toplam/checkout'a girmez. */
+  selected: boolean;
+  /** Dilim 6a-refine — Ustu-cizili liste (compareAt) fiyat etiketi; indirim yoksa null. */
+  compareAtLabel: string | null;
 }
 
 /** Sunucu-otoriter siparis ozeti (bicimli etiketler + makine-okunur durumlar). */
@@ -246,6 +250,9 @@ function toCartView(cart: PublicCart): CartView {
       inStock: line.inStock,
       status: line.status,
       imageUrl: line.imageUrl,
+      selected: line.selected,
+      compareAtLabel:
+        line.compareAtMinor != null ? formatMinor(line.compareAtMinor, line.currency) : null,
     })),
   };
 }
@@ -271,6 +278,7 @@ export async function resolveCart(
   items: CartItem[],
   couponCode?: string | null,
   shippingOptionId?: string | null,
+  deselectedVariantIds?: string[],
 ): Promise<CartResult<CartView>> {
   try {
     // F3C.2 — Oturum acmis musteride sepet `x-customer-session` ile cozulur ki
@@ -296,6 +304,8 @@ export async function resolveCart(
       couponCode: couponCode ?? null,
       claimedCodes,
       shippingOptionId: shippingOptionId ?? null,
+      // Dilim 6a-refine — Secim-disi satirlar; gateway toplam/checkout'a katmaz.
+      deselectedVariantIds: deselectedVariantIds ?? [],
     };
     const result = customerToken
       ? await sendCustomer<PublicCart>("POST", cartPath(), customerToken, body)
@@ -318,8 +328,9 @@ export async function resolveCartWithCanonicalItems(
   items: CartItem[],
   couponCode?: string | null,
   shippingOptionId?: string | null,
+  deselectedVariantIds?: string[],
 ): Promise<CartResult<{ view: CartView; canonicalItems: CartItem[] }>> {
-  const result = await resolveCart(items, couponCode, shippingOptionId);
+  const result = await resolveCart(items, couponCode, shippingOptionId, deselectedVariantIds);
   if (!result.ok) return result;
   const canonicalItems = result.data.lines
     .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)

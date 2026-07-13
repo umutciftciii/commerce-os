@@ -22,6 +22,11 @@ const COUPON_COOKIE = "commerce_os_coupon";
 // Oturum acmis musteride cuzdan DB'de tutulur; bu cookie yine de zararsizdir.
 const CLAIMED_COUPONS_COOKIE = "commerce_os_claimed_coupons";
 const MAX_CLAIMED_CODES = 20;
+// Dilim 6a-refine — Kullanicinin SECIMINI KALDIRDIGI sepet satirlarinin variantId'leri
+// (checkbox). Hassas degil; gateway her istekte yeniden uygular (secili satirlardan
+// toplam/checkout hesaplar). Format-disi/tekrar temizlenir.
+const CART_DESELECTED_COOKIE = "commerce_os_cart_deselected";
+const MAX_DESELECTED_ITEMS = 100;
 // TODO-125: Musterinin sectigi kargo secenegi (= ShippingRatePlan.id). Hassas
 // degil; gateway her istekte gecerlilik/ait-olma dogrulamasi yapar ve ucreti
 // secilen plandan YENIDEN hesaplar (istemci fiyatina guvenilmez).
@@ -71,6 +76,62 @@ export async function clearCartCookie(): Promise<void> {
   store.delete(COUPON_COOKIE);
   store.delete(SHIPPING_OPTION_COOKIE);
   store.delete(CLAIMED_COUPONS_COOKIE);
+  store.delete(CART_DESELECTED_COOKIE);
+}
+
+/** Dilim 6a-refine — variantId format kontrolu (gateway ile ayni: [A-Za-z0-9_-] max120). */
+function normalizeVariantId(raw: string): string | null {
+  const value = raw.trim();
+  return /^[A-Za-z0-9_-]{1,120}$/.test(value) ? value : null;
+}
+
+/**
+ * Dilim 6a-refine — Secimi kaldirilan sepet satirlarinin variantId'leri. Gecersiz
+ * format atilir; tekrarlar teklestirilir. Gateway'e gonderilir; secili olmayan
+ * satirlar toplam/checkout'a girmez (sunucu-otoriter).
+ */
+export async function readDeselectedItems(): Promise<string[]> {
+  const store = await cookies();
+  const raw = store.get(CART_DESELECTED_COOKIE)?.value;
+  if (!raw) return [];
+  try {
+    const decoded = JSON.parse(raw);
+    if (!Array.isArray(decoded)) return [];
+    const ids = decoded
+      .map((entry) => (typeof entry === "string" ? normalizeVariantId(entry) : null))
+      .filter((id): id is string => id !== null);
+    return [...new Set(ids)].slice(0, MAX_DESELECTED_ITEMS);
+  } catch {
+    return [];
+  }
+}
+
+/** Secim-disi listeyi yazar (bos -> siler). */
+export async function writeDeselectedItems(ids: string[]): Promise<void> {
+  const store = await cookies();
+  const normalized = [
+    ...new Set(ids.map((id) => normalizeVariantId(id)).filter((id): id is string => id !== null)),
+  ].slice(0, MAX_DESELECTED_ITEMS);
+  if (normalized.length === 0) {
+    store.delete(CART_DESELECTED_COOKIE);
+    return;
+  }
+  store.set(CART_DESELECTED_COOKIE, JSON.stringify(normalized), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+/** Bir satirin secim durumunu tersine cevirir (checkbox toggle). */
+export async function toggleDeselectedItem(variantId: string): Promise<void> {
+  const current = await readDeselectedItems();
+  const next = current.includes(variantId)
+    ? current.filter((id) => id !== variantId)
+    : [...current, variantId];
+  await writeDeselectedItems(next);
 }
 
 /** Normalize kupon kodu (gateway ile ayni kural: trim + upper + [A-Z0-9-] max 40). */

@@ -20,7 +20,9 @@ import {
   clearCartCookie,
   readCartItems,
   readCoupon,
+  readDeselectedItems,
   readShippingOption,
+  toggleDeselectedItem,
   writeCartItems,
   writeCheckoutConfirmationCookie,
   writeCoupon,
@@ -115,6 +117,16 @@ export async function updateCartItemAction(variantId: string, quantity: number):
 export async function removeCartItemAction(variantId: string): Promise<void> {
   const items = await readCartItems();
   await writeCartItems(removeItem(items, variantId));
+  revalidateCart();
+}
+
+/**
+ * Dilim 6a-refine — Bir sepet satirinin secim durumunu tersine cevirir (checkbox).
+ * Secimi kaldirilan satir sepette KALIR ama gateway toplam/checkout'a katmaz
+ * (sunucu-otoriter). Fiyat/adet DEGISMEZ; yalnizca secim cookie'si guncellenir.
+ */
+export async function toggleCartItemSelectedAction(variantId: string): Promise<void> {
+  await toggleDeselectedItem(variantId);
   revalidateCart();
 }
 
@@ -215,7 +227,12 @@ export async function submitCheckoutAction(
     return { status: "error", errorReason: "validation", fieldErrors };
   }
 
-  const items = await readCartItems();
+  // Dilim 6a-refine — Checkout YALNIZCA secili satirlari siparise alir; secimi
+  // kaldirilan satirlar sepette kalir ama siparise girmez (gateway yine fiyat/stok
+  // otoriter dogrular). Hic secili satir yoksa checkout'a gecilmez.
+  const allItems = await readCartItems();
+  const deselected = await readDeselectedItems();
+  const items = allItems.filter((item) => !deselected.includes(item.variantId));
   if (items.length === 0) {
     return { status: "error", errorReason: "cart-not-ready" };
   }
