@@ -134,6 +134,12 @@ import {
   serializePublicHeroSlide,
   type HeroDataAccess,
 } from "./hero/data.js";
+// Faz 1B (ADR-067) — Attribute katalog cekirdegi (store + platform CRUD).
+import {
+  registerPlatformAttributeRoutes,
+  registerStoreAttributeRoutes,
+} from "./attributes/routes.js";
+import { createPrismaAttributeDataAccess, type AttributeDataAccess } from "./attributes/data.js";
 import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
@@ -1086,6 +1092,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // ADR-065 (Faz 3/Site Kabuğu): Hero slide veri erisimi (admin CRUD + public
   // PUBLISHED listesi). Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
   heroDataAccess?: HeroDataAccess;
+  // Faz 1B (ADR-067): Attribute katalog cekirdegi veri erisimi (store + platform
+  // CRUD). Varsayilan prisma-backed; testlerde in-memory fake enjekte edilebilir.
+  attributeDataAccess?: AttributeDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -3959,6 +3968,21 @@ export function createServer(
     return { session, store };
   }
 
+  // Faz 1B (ADR-067) — PLATFORM-scope kaynaklari (or. platform attribute'lari) yalniz
+  // SUPER_ADMIN yonetebilir. requirePlatformAdmin SUPPORT_ADMIN'e de izin verir; bu
+  // guard onu daraltir (mevcut yetkileri BOZMADAN yeni, daha kati bir kapi ekler).
+  async function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
+    const session = await authenticatePlatform(request, reply);
+    if (!session) {
+      return null;
+    }
+    if (session.platformUser.role !== "SUPER_ADMIN") {
+      await reply.code(403).send(errorBody("FORBIDDEN", "Forbidden."));
+      return null;
+    }
+    return session;
+  }
+
   app.setErrorHandler(async (error, _request, reply) => {
     if (error instanceof z.ZodError) {
       await reply.code(400).send(errorBody("VALIDATION_ERROR", "Validation failed.", error.flatten()));
@@ -4952,6 +4976,27 @@ export function createServer(
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // Faz 1B (ADR-067) — Attribute katalog cekirdegi. STORE uclari requireStorePlatformAdmin
+  // (kendi STORE tanimlari + PLATFORM okuma); PLATFORM uclari requireSuperAdmin (yalniz
+  // SUPER_ADMIN). Ayri prisma-backed data-access (hero/kampanya deseni); test DI ile.
+  const attributeDataAccess = dependencies.attributeDataAccess ?? createPrismaAttributeDataAccess();
+  registerStoreAttributeRoutes(app, {
+    dataAccess: attributeDataAccess,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+  registerPlatformAttributeRoutes(app, {
+    dataAccess: attributeDataAccess,
+    requireSuperAdmin: async (request, reply) => {
+      const session = await requireSuperAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });

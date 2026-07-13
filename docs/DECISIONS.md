@@ -1932,3 +1932,43 @@ breadcrumb'ın ve kanonik kategori URL'inin **tek kaynağıdır**.
 
 **Alternatifler (reddedilen).** M:N'den runtime türetme (belirsiz, kırılgan); runtime kategori mirası (recursive, döngü riski,
 MVP dışı); zod refine ile cross-field (özel kodları yutar, admin alan bağlama bozulur).
+
+### Faz 1B — Attribute katalog çekirdeği (TODO-144, 2026-07-14)
+
+**Bağlam.** Faz 1A ana kategori temelini kurdu; dinamik attribute şemasının kategoriden çözüleceği netleşti. Faz 1B
+**yalnız katalog TANIM katmanını** ekler: attribute tanımları, gruplar, seçenekler ve kategori-bazlı davranış. Ürün/varyant
+**DEĞER** tabloları (`ProductAttributeValue`/`VariantAttributeValue`), dinamik ürün formu, varyant kombinasyon motoru,
+order snapshot, PDP tablo, faceted search ve marketplace mapping **Faz 2+**'ye aittir (bu ADR kapsamı DIŞI).
+
+**Karar.**
+1. **Tek tablo + scope.** `AttributeDefinition.scope` = `PLATFORM` (tüm mağazalar, `storeId=null`, yalnız `SUPER_ADMIN`)
+   veya `STORE` (tek mağaza, `storeId` zorunlu, ilgili store admin). Bir mağazanın kullanabileceği tanımlar = kendi STORE
+   tanımları + tüm PLATFORM tanımları (kategoriye bağlamak için okunur; PLATFORM tanımları store'dan düzenlenemez).
+2. **Davranışın tek sahibi `CategoryAttribute`.** `required/filterable/searchable/comparable/variantDefining/
+   visibleOnProductPage/visibleOnListing` + `displayOrder` + `validationRules Json` YALNIZ burada. `AttributeDefinition`
+   davranış TAŞIMAZ (tanım global, davranış kategoriye özgü). `@@unique([categoryId, attributeDefinitionId])` — bir
+   attribute bir kategoriye en fazla bir kez. **Kategori mirası ve `overrideMode` UYGULANMAZ** (ADR-067 md.7 ile tutarlı; YAGNI).
+3. **Immutability (stabil kodlar, route katmanı).** `code` HER ZAMAN immutable (farklı değer → `ATTRIBUTE_CODE_IMMUTABLE`);
+   `dataType` yalnız **kullanım başlamışsa** immutable — CategoryAttribute bağlantısı VEYA seçenek varsa → `ATTRIBUTE_DATATYPE_IMMUTABLE`,
+   aksi halde değiştirilebilir. Aynı değeri echo eden istemci kırılmaz (no-op). Kodlar zod refine yerine route'ta üretilir
+   (generic `VALIDATION_ERROR` özel kodları yutmasın; Faz 1A deseni).
+4. **Duplicate.** `code`: `@@unique([storeId, code])` STORE çakışmasını DB'de yakalar; PLATFORM (null storeId; Postgres
+   NULL'ları distinct sayar) için route ön-kontrolü (`findAttributeDefinitionByCode`). `option value`:
+   `@@unique([attributeDefinitionId, value])` (DB) + route ön-kontrolü → 409.
+5. **Yetki.** PLATFORM uçları için YENİ `requireSuperAdmin` guard'ı (mevcut `requirePlatformAdmin` SUPPORT_ADMIN'e de izin
+   verir; bu onu daraltır — **mevcut yetkiler BOZULMADAN** yeni katı kapı). STORE uçları mevcut `requireStorePlatformAdmin`.
+6. **Migration additive.** `20260714120000_add_attribute_catalog` yalnız yeni enum + tablo ekler; mevcut şemaya DOKUNMAZ.
+   İzole shadow-DB üzerinde `prisma migrate diff (from-migrations → to-schema)` = "empty migration" → migration şemayla
+   birebir, **drift yok**. `db push`/`migrate reset` KULLANILMADI.
+7. **Modülerlik.** Gateway'de `src/attributes/` ayrı `AttributeDataAccess` + route modülü (customers/hero/kampanya deseni);
+   DI ile enjekte edilir → dev in-memory `AppDataAccess`'e (health.test) DOKUNULMADAN izole test edilir.
+
+**Sonuçlar.**
+- Temiz katalog çekirdeği; Faz 2 ürün attribute değer altyapısı için hazır (`CategoryAttribute` davranışı + `validationRules`
+  motoru orada tüketilecek).
+- `AttributeOption.storeId` PLATFORM seçeneğinde null, STORE seçeneğinde mağaza — tenant bütünlüğü FK ile korunur.
+- Storefront/checkout/order/inventory/search/marketplace ve ürün formu DEĞİŞMEDİ (yalnız katalog yönetimi eklendi).
+
+**Alternatifler (reddedilen).** Davranışı `AttributeDefinition`'a koymak (kategori-bazlı davranış imkânsızlaşır); scope
+başına ayrı tablo (sorgu/birleştirme karmaşası, YAGNI); kategori mirası/overrideMode (recursive, döngü riski, MVP dışı);
+`code`/`dataType`'ı update şemasından tümüyle çıkarmak (sessiz strip — açık hata kodu ve full-object echo kaybı).

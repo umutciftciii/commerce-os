@@ -3045,3 +3045,42 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası HEDEF DB'de `prisma migrate deploy` (reset YOK) + docker rebuild (api-gateway + store-admin-web +
   storefront-web) + prod-benzeri runtime smoke + çok-kategorili backfill review. Faz 1B (AttributeDefinition/CategoryAttribute/
   değerler) ayrı iş.
+
+## 2026-07-14 — Faz 1B: Attribute katalog çekirdeği (ADR-067 genişletildi, TODO-144)
+
+- Tarih: 2026-07-14
+- Durum: READY_FOR_REVIEW (commit atılmadı)
+- Kapsam: Kategoriye-bağlı dinamik ürün özelliklerinin **KATALOG TANIM** temeli. Yalnız tanım katmanı;
+  ürün/varyant DEĞER tabloları, dinamik form, RHF geçişi, varyant kombinasyon motoru, order snapshot, PDP tablo,
+  faceted search, marketplace mapping, kategori mirası, overrideMode, primaryCategoryId NOT NULL geçişi ve
+  storefront/checkout/order/inventory değişiklikleri KAPSAM DIŞI.
+- **Prisma.** 3 enum (`AttributeScope`, `AttributeDataType` 13 tip, `AttributeStatus`) + 4 model:
+  `AttributeDefinition` (tek tablo + scope; storeId nullable; code/dataType service-immutable; **davranış taşımaz**),
+  `AttributeGroup` (store-scoped sunum kabı), `AttributeOption` (SELECT/MULTI_SELECT/COLOR; `@@unique([attributeDefinitionId,value])`),
+  `CategoryAttribute` (davranışın **TEK SAHİBİ**; 7 bayrak + displayOrder + validationRules; `@@unique([categoryId,attributeDefinitionId])`).
+  Store/ProductCategory back-relation'ları eklendi. Kategori mirası/overrideMode YOK (YAGNI).
+- **Migration.** `20260714120000_add_attribute_catalog` **tamamen additive** (yeni enum + tablo; mevcut şemaya
+  dokunulmaz). İzole shadow-DB `prisma migrate diff (from-migrations → to-schema)` = **"empty migration"** → şemayla
+  birebir, drift yok. `db push`/`migrate reset` KULLANILMADI. `prisma format`/`validate`/`generate` temiz.
+- **Contracts.** definition/group/option/categoryAttribute + create/update/list şemaları + enum'lar + tipler.
+  scope + storeId GÖVDEDE YOK (route türer → spoof engellenir). code + dataType update'te kabul edilir ama route
+  immutability uygular (stabil kod). validationRules `jsonRecordSchema`.
+- **Gateway.** `src/attributes/` ayrı `AttributeDataAccess` + route modülü (hero/kampanya deseni; DI → dev
+  MemoryDataAccess'e dokunulmadan test). STORE uçları `requireStorePlatformAdmin` (kendi STORE + PLATFORM okuma);
+  PLATFORM uçları YENİ `requireSuperAdmin` (yalnız SUPER_ADMIN; **mevcut yetkiler bozulmadı**). Stabil kodlar:
+  `ATTRIBUTE_CODE_EXISTS/CODE_IMMUTABLE/DATATYPE_IMMUTABLE/OPTIONS_NOT_SUPPORTED/ARCHIVED`, `ATTRIBUTE_OPTION_VALUE_EXISTS`,
+  `CATEGORY_ARCHIVED`, `CATEGORY_ATTRIBUTE_EXISTS`, `*_NOT_FOUND`. dataType immutability = "kullanım başladı mı"
+  (link VEYA seçenek var mı).
+- **İstemci/BFF/UI.** api-client admin+platformAttributes metodları + tipler; 8 Next BFF proxy route; storeApi client.
+  store-admin **Katalog → Özellikler** ekranı (tanım + grup + seçenek CRUD; PLATFORM salt-okunur; scope/dataType
+  rozetleri) + kategori ekranından **CategoryAttribute bağlama modalı** (davranış bayrakları, grup, sıra). Ürün formu
+  DEĞİŞMEDİ. i18n TR kaynak + EN (locale-smoke yeşil).
+- **Testler.** gateway `attributes.test.ts` 21 (scope/immutable-code/immutable-dataType/duplicate-code/duplicate-option/
+  tenant-isolation/option-datatype-guard/group/categoryAttribute-archived-both/duplicate-link/delete/platform-403),
+  contracts `attribute-contracts.test.ts` 8, store-admin `attributes-page.test.tsx` 3 → **32 yeni**. Regresyon:
+  api-gateway 716/716, contracts 81/81, store-admin 235/235.
+- **Gate.** db:generate + prisma format/validate + contracts/api-client/i18n build + api-gateway build + store-admin
+  tsc `--noEmit` + eslint temiz; izole shadow-DB migration diff = empty.
+- **Kalan.** Merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri runtime smoke.
+  Faz 2 (ProductAttributeValue / VariantAttributeValue / dinamik form / varyant motoru / PDP tablo / faceted search /
+  marketplace mapping) ayrı iş.

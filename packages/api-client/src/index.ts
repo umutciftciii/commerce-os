@@ -43,6 +43,22 @@ import type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  AttributeDefinition,
+  AttributeDefinitionCreateRequest,
+  AttributeDefinitionListResponse,
+  AttributeDefinitionUpdateRequest,
+  AttributeGroup,
+  AttributeGroupCreateRequest,
+  AttributeGroupListResponse,
+  AttributeGroupUpdateRequest,
+  AttributeOption,
+  AttributeOptionCreateRequest,
+  AttributeOptionListResponse,
+  AttributeOptionUpdateRequest,
+  CategoryAttribute,
+  CategoryAttributeCreateRequest,
+  CategoryAttributeListResponse,
+  CategoryAttributeUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
   ProductPriceChangeListResponse,
@@ -179,6 +195,22 @@ export type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  AttributeDefinition,
+  AttributeDefinitionCreateRequest,
+  AttributeDefinitionListResponse,
+  AttributeDefinitionUpdateRequest,
+  AttributeGroup,
+  AttributeGroupCreateRequest,
+  AttributeGroupListResponse,
+  AttributeGroupUpdateRequest,
+  AttributeOption,
+  AttributeOptionCreateRequest,
+  AttributeOptionListResponse,
+  AttributeOptionUpdateRequest,
+  CategoryAttribute,
+  CategoryAttributeCreateRequest,
+  CategoryAttributeListResponse,
+  CategoryAttributeUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
   ProductPriceVisibility,
@@ -535,6 +567,108 @@ export interface ApiClient {
         input: ProductCategoryUpdateRequest,
         token?: string,
       ): Promise<ProductCategory>;
+    };
+    // Faz 1B (ADR-067) — Attribute katalog cekirdegi. STORE-scoped uclar (store'un
+    // kendi tanimlari + PLATFORM okuma). Platform tanim yonetimi ayri: platformAttributes.
+    attributes: {
+      list(storeId: string, token?: string): Promise<AttributeDefinitionListResponse>;
+      create(
+        storeId: string,
+        input: AttributeDefinitionCreateRequest,
+        token?: string,
+      ): Promise<AttributeDefinition>;
+      get(storeId: string, attributeId: string, token?: string): Promise<AttributeDefinition>;
+      update(
+        storeId: string,
+        attributeId: string,
+        input: AttributeDefinitionUpdateRequest,
+        token?: string,
+      ): Promise<AttributeDefinition>;
+      listOptions(
+        storeId: string,
+        attributeId: string,
+        token?: string,
+      ): Promise<AttributeOptionListResponse>;
+      createOption(
+        storeId: string,
+        attributeId: string,
+        input: AttributeOptionCreateRequest,
+        token?: string,
+      ): Promise<AttributeOption>;
+      updateOption(
+        storeId: string,
+        attributeId: string,
+        optionId: string,
+        input: AttributeOptionUpdateRequest,
+        token?: string,
+      ): Promise<AttributeOption>;
+    };
+    attributeGroups: {
+      list(storeId: string, token?: string): Promise<AttributeGroupListResponse>;
+      create(
+        storeId: string,
+        input: AttributeGroupCreateRequest,
+        token?: string,
+      ): Promise<AttributeGroup>;
+      get(storeId: string, groupId: string, token?: string): Promise<AttributeGroup>;
+      update(
+        storeId: string,
+        groupId: string,
+        input: AttributeGroupUpdateRequest,
+        token?: string,
+      ): Promise<AttributeGroup>;
+    };
+    categoryAttributes: {
+      list(
+        storeId: string,
+        categoryId: string,
+        token?: string,
+      ): Promise<CategoryAttributeListResponse>;
+      create(
+        storeId: string,
+        categoryId: string,
+        input: CategoryAttributeCreateRequest,
+        token?: string,
+      ): Promise<CategoryAttribute>;
+      update(
+        storeId: string,
+        categoryId: string,
+        categoryAttributeId: string,
+        input: CategoryAttributeUpdateRequest,
+        token?: string,
+      ): Promise<CategoryAttribute>;
+      remove(
+        storeId: string,
+        categoryId: string,
+        categoryAttributeId: string,
+        token?: string,
+      ): Promise<void>;
+    };
+    // PLATFORM tanim yonetimi (yalniz SUPER_ADMIN). storeId almaz.
+    platformAttributes: {
+      list(token?: string): Promise<AttributeDefinitionListResponse>;
+      create(
+        input: AttributeDefinitionCreateRequest,
+        token?: string,
+      ): Promise<AttributeDefinition>;
+      get(attributeId: string, token?: string): Promise<AttributeDefinition>;
+      update(
+        attributeId: string,
+        input: AttributeDefinitionUpdateRequest,
+        token?: string,
+      ): Promise<AttributeDefinition>;
+      listOptions(attributeId: string, token?: string): Promise<AttributeOptionListResponse>;
+      createOption(
+        attributeId: string,
+        input: AttributeOptionCreateRequest,
+        token?: string,
+      ): Promise<AttributeOption>;
+      updateOption(
+        attributeId: string,
+        optionId: string,
+        input: AttributeOptionUpdateRequest,
+        token?: string,
+      ): Promise<AttributeOption>;
     };
     // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (1-1). GET satir yoksa tum-null
     // doner (lazy); PATCH upsert (logo/favicon baglar veya null ile kaldirir).
@@ -1207,6 +1341,105 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         update: (storeId, categoryId, input, token) =>
           sendJson<ProductCategory>(
             `/stores/${storeId}/categories/${categoryId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+      },
+      // Faz 1B (ADR-067) — Attribute katalog cekirdegi (store-scoped).
+      attributes: {
+        list: (storeId, token) =>
+          getJson<AttributeDefinitionListResponse>(`/stores/${storeId}/attributes`, token),
+        create: (storeId, input, token) =>
+          sendJson<AttributeDefinition>(`/stores/${storeId}/attributes`, "POST", input, token),
+        get: (storeId, attributeId, token) =>
+          getJson<AttributeDefinition>(`/stores/${storeId}/attributes/${attributeId}`, token),
+        update: (storeId, attributeId, input, token) =>
+          sendJson<AttributeDefinition>(
+            `/stores/${storeId}/attributes/${attributeId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        listOptions: (storeId, attributeId, token) =>
+          getJson<AttributeOptionListResponse>(
+            `/stores/${storeId}/attributes/${attributeId}/options`,
+            token,
+          ),
+        createOption: (storeId, attributeId, input, token) =>
+          sendJson<AttributeOption>(
+            `/stores/${storeId}/attributes/${attributeId}/options`,
+            "POST",
+            input,
+            token,
+          ),
+        updateOption: (storeId, attributeId, optionId, input, token) =>
+          sendJson<AttributeOption>(
+            `/stores/${storeId}/attributes/${attributeId}/options/${optionId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+      },
+      attributeGroups: {
+        list: (storeId, token) =>
+          getJson<AttributeGroupListResponse>(`/stores/${storeId}/attribute-groups`, token),
+        create: (storeId, input, token) =>
+          sendJson<AttributeGroup>(`/stores/${storeId}/attribute-groups`, "POST", input, token),
+        get: (storeId, groupId, token) =>
+          getJson<AttributeGroup>(`/stores/${storeId}/attribute-groups/${groupId}`, token),
+        update: (storeId, groupId, input, token) =>
+          sendJson<AttributeGroup>(
+            `/stores/${storeId}/attribute-groups/${groupId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+      },
+      categoryAttributes: {
+        list: (storeId, categoryId, token) =>
+          getJson<CategoryAttributeListResponse>(
+            `/stores/${storeId}/categories/${categoryId}/attributes`,
+            token,
+          ),
+        create: (storeId, categoryId, input, token) =>
+          sendJson<CategoryAttribute>(
+            `/stores/${storeId}/categories/${categoryId}/attributes`,
+            "POST",
+            input,
+            token,
+          ),
+        update: (storeId, categoryId, categoryAttributeId, input, token) =>
+          sendJson<CategoryAttribute>(
+            `/stores/${storeId}/categories/${categoryId}/attributes/${categoryAttributeId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        remove: (storeId, categoryId, categoryAttributeId, token) =>
+          sendJson<void>(
+            `/stores/${storeId}/categories/${categoryId}/attributes/${categoryAttributeId}`,
+            "DELETE",
+            undefined,
+            token,
+          ),
+      },
+      // Faz 1B (ADR-067) — PLATFORM tanim yonetimi (yalniz SUPER_ADMIN).
+      platformAttributes: {
+        list: (token) => getJson<AttributeDefinitionListResponse>(`/admin/attributes`, token),
+        create: (input, token) =>
+          sendJson<AttributeDefinition>(`/admin/attributes`, "POST", input, token),
+        get: (attributeId, token) =>
+          getJson<AttributeDefinition>(`/admin/attributes/${attributeId}`, token),
+        update: (attributeId, input, token) =>
+          sendJson<AttributeDefinition>(`/admin/attributes/${attributeId}`, "PATCH", input, token),
+        listOptions: (attributeId, token) =>
+          getJson<AttributeOptionListResponse>(`/admin/attributes/${attributeId}/options`, token),
+        createOption: (attributeId, input, token) =>
+          sendJson<AttributeOption>(`/admin/attributes/${attributeId}/options`, "POST", input, token),
+        updateOption: (attributeId, optionId, input, token) =>
+          sendJson<AttributeOption>(
+            `/admin/attributes/${attributeId}/options/${optionId}`,
             "PATCH",
             input,
             token,

@@ -17,7 +17,14 @@ import {
   type DataTableColumn,
 } from "../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { ProductCategory, ProductCategoryCreateRequest } from "@commerce-os/api-client";
+import type {
+  AttributeDefinition,
+  AttributeGroup,
+  CategoryAttribute,
+  CategoryAttributeCreateRequest,
+  ProductCategory,
+  ProductCategoryCreateRequest,
+} from "@commerce-os/api-client";
 import { CategoryIcon } from "../../../components/icons";
 import { MediaUpload, type MediaItem } from "../../../components/media-upload";
 import { storeApi } from "../../../lib/client/api";
@@ -46,6 +53,8 @@ export default function CategoriesPage() {
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [editor, setEditor] = useState<Editor>(null);
+  // Faz 1B (ADR-067) — kategoriye attribute davranışı bağlama modalı.
+  const [attributesFor, setAttributesFor] = useState<ProductCategory | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -101,9 +110,14 @@ export default function CategoriesPage() {
       header: t.table.actions,
       align: "right",
       cell: (category) => (
-        <Button variant="secondary" size="sm" onClick={() => setEditor({ mode: "edit", category })}>
-          {t.editAction}
-        </Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setAttributesFor(category)}>
+            {t.attributesAction}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setEditor({ mode: "edit", category })}>
+            {t.editAction}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -196,6 +210,14 @@ export default function CategoriesPage() {
           statusLabels={statusLabels}
           onClose={() => setEditor(null)}
           onSaved={onSaved}
+        />
+      ) : null}
+
+      {attributesFor ? (
+        <CategoryAttributesModal
+          category={attributesFor}
+          onClose={() => setAttributesFor(null)}
+          onNotice={setNotice}
         />
       ) : null}
     </>
@@ -378,6 +400,268 @@ function CategoryEditor({
           disabled={saving}
         />
       </form>
+    </Modal>
+  );
+}
+
+// Faz 1B (ADR-067) — Bir kategoriye attribute davranışı bağlama modalı. Davranışın
+// tek sahibi CategoryAttribute'tur; bu modal link ekler/kaldırır (davranış bayraklarıyla).
+type BehaviorKey =
+  | "required"
+  | "filterable"
+  | "searchable"
+  | "comparable"
+  | "variantDefining"
+  | "visibleOnProductPage"
+  | "visibleOnListing";
+
+const BEHAVIOR_KEYS: BehaviorKey[] = [
+  "required",
+  "filterable",
+  "searchable",
+  "comparable",
+  "variantDefining",
+  "visibleOnProductPage",
+  "visibleOnListing",
+];
+
+function CategoryAttributesModal({
+  category,
+  onClose,
+  onNotice,
+}: {
+  category: ProductCategory;
+  onClose: () => void;
+  onNotice: (message: string) => void;
+}) {
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const t = dict.storeAdmin.categoryAttributes;
+  const at = dict.storeAdmin.attributes;
+  const c = dict.common;
+  const dataTypeLabels = at.dataTypeLabels as Record<AttributeDefinition["dataType"], string>;
+  const behaviorLabels = t.behaviors as Record<BehaviorKey, string>;
+
+  const [links, setLinks] = useState<CategoryAttribute[]>([]);
+  const [attributes, setAttributes] = useState<AttributeDefinition[]>([]);
+  const [groups, setGroups] = useState<AttributeGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Add formu durumu.
+  const [selectedAttr, setSelectedAttr] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [displayOrder, setDisplayOrder] = useState("0");
+  const [behaviors, setBehaviors] = useState<Record<BehaviorKey, boolean>>({
+    required: false,
+    filterable: false,
+    searchable: false,
+    comparable: false,
+    variantDefining: false,
+    visibleOnProductPage: true,
+    visibleOnListing: false,
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [linkRes, attrRes, groupRes] = await Promise.all([
+        storeApi.listCategoryAttributes(category.id),
+        storeApi.listAttributes(),
+        storeApi.listAttributeGroups(),
+      ]);
+      setLinks(linkRes.data);
+      setAttributes(attrRes.data);
+      setGroups(groupRes.data);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(messageForError(error, locale));
+    } finally {
+      setLoading(false);
+    }
+  }, [category.id, locale]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const attrById = useMemo(() => {
+    const map = new Map<string, AttributeDefinition>();
+    for (const a of attributes) map.set(a.id, a);
+    return map;
+  }, [attributes]);
+
+  // Zaten bağlı olmayan + arşivli olmayan attribute'lar bağlanabilir.
+  const available = useMemo(() => {
+    const linked = new Set(links.map((l) => l.attributeDefinitionId));
+    return attributes.filter((a) => !linked.has(a.id) && a.status === "ACTIVE");
+  }, [attributes, links]);
+
+  async function onAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError(null);
+    if (selectedAttr === "") return;
+    const parsed = Number.parseInt(displayOrder, 10);
+    setSaving(true);
+    try {
+      const payload: CategoryAttributeCreateRequest = {
+        attributeDefinitionId: selectedAttr,
+        groupId: groupId === "" ? null : groupId,
+        displayOrder: Number.isNaN(parsed) ? 0 : parsed,
+        // Faz 1B: kural motoru Faz 2 kapsamında; şimdilik boş obje (gateway default'u).
+        validationRules: {},
+        ...behaviors,
+      };
+      await storeApi.createCategoryAttribute(category.id, payload);
+      setSelectedAttr("");
+      setGroupId("");
+      setDisplayOrder("0");
+      onNotice(t.savedToast);
+      await load();
+    } catch (error) {
+      setFormError(messageForError(error, locale));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onRemove(link: CategoryAttribute) {
+    try {
+      await storeApi.removeCategoryAttribute(category.id, link.id);
+      onNotice(t.removedToast);
+      await load();
+    } catch (error) {
+      setLoadError(messageForError(error, locale));
+    }
+  }
+
+  const columns: DataTableColumn<CategoryAttribute>[] = [
+    {
+      header: t.table.attribute,
+      cell: (link) => {
+        const a = attrById.get(link.attributeDefinitionId);
+        return (
+          <span className="font-medium text-white/90">
+            {a ? a.name : link.attributeDefinitionId}
+            {a ? <span className="ml-2 text-xs text-white/35">{dataTypeLabels[a.dataType]}</span> : null}
+          </span>
+        );
+      },
+    },
+    {
+      header: t.table.behaviors,
+      cell: (link) => {
+        const active = BEHAVIOR_KEYS.filter((k) => link[k]);
+        return active.length === 0 ? (
+          <span className="text-white/30">—</span>
+        ) : (
+          <span className="flex flex-wrap gap-1">
+            {active.map((k) => (
+              <Badge key={k} tone="neutral">
+                {behaviorLabels[k]}
+              </Badge>
+            ))}
+          </span>
+        );
+      },
+    },
+    {
+      header: t.table.actions,
+      align: "right",
+      cell: (link) => (
+        <Button variant="secondary" size="sm" onClick={() => void onRemove(link)}>
+          {t.removeAction}
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.title}
+      description={format(t.subtitle, { name: category.name })}
+      closeLabel={c.actions.dismiss}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          {c.actions.dismiss}
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        {loadError ? <Alert tone="error">{loadError}</Alert> : null}
+        {loading ? (
+          <SkeletonRows rows={2} />
+        ) : links.length === 0 ? (
+          <p className="text-sm text-white/40">{t.empty}</p>
+        ) : (
+          <DataTable columns={columns} rows={links} rowKey={(l) => l.id} caption={t.linkedCard} />
+        )}
+
+        <form onSubmit={onAdd} className="space-y-3 border-t border-white/[0.06] pt-4" noValidate>
+          {formError ? <Alert tone="error">{formError}</Alert> : null}
+          {available.length === 0 && !loading ? (
+            <p className="text-sm text-white/40">{t.noAvailable}</p>
+          ) : (
+            <>
+              <Select
+                id="link-attribute"
+                label={t.addAttributeLabel}
+                options={[
+                  { value: "", label: t.addAttributePlaceholder },
+                  ...available.map((a) => ({ value: a.id, label: `${a.name} (${a.code})` })),
+                ]}
+                value={selectedAttr}
+                onChange={(e) => setSelectedAttr(e.target.value)}
+                disabled={saving}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  id="link-group"
+                  label={t.groupLabel}
+                  options={[
+                    { value: "", label: t.groupNone },
+                    ...groups.map((g) => ({ value: g.id, label: g.name })),
+                  ]}
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  disabled={saving}
+                />
+                <Input
+                  id="link-order"
+                  type="number"
+                  label={t.displayOrderLabel}
+                  value={displayOrder}
+                  onChange={(e) => setDisplayOrder(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {BEHAVIOR_KEYS.map((k) => (
+                  <label key={k} className="flex items-center gap-2 text-sm text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={behaviors[k]}
+                      onChange={(e) => setBehaviors((prev) => ({ ...prev, [k]: e.target.checked }))}
+                      disabled={saving}
+                      className="h-4 w-4 rounded border-white/20 bg-white/[0.06] accent-indigo-500"
+                    />
+                    {behaviorLabels[k]}
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" size="sm" disabled={saving || selectedAttr === ""}>
+                  {saving ? c.states.saving : t.addAction}
+                </Button>
+              </div>
+            </>
+          )}
+        </form>
+      </div>
     </Modal>
   );
 }

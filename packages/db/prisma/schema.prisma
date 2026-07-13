@@ -109,6 +109,40 @@ enum ProductCategoryStatus {
   ARCHIVED
 }
 
+// Faz 1B (ADR-067) — Attribute katalog cekirdegi. scope AttributeDefinition'in
+// PLATFORM (tum magazalar, storeId null) mi yoksa STORE (tek magaza, storeId zorunlu)
+// mu oldugunu belirler. Yetki: PLATFORM yalniz SUPER_ADMIN; STORE ilgili store admin.
+enum AttributeScope {
+  PLATFORM
+  STORE
+}
+
+// Faz 1B (ADR-067) — Desteklenen attribute veri tipleri. dataType kullanim
+// basladiktan sonra IMMUTABLE (service guard); value tablolari bu fazda YOK.
+enum AttributeDataType {
+  TEXT
+  TEXTAREA
+  RICH_TEXT
+  INTEGER
+  DECIMAL
+  BOOLEAN
+  DATE
+  URL
+  SELECT
+  MULTI_SELECT
+  COLOR
+  IMAGE
+  FILE
+}
+
+// Faz 1B (ADR-067) — AttributeDefinition + AttributeOption yasam durumu. ARCHIVED
+// tanim/secenek yeni CategoryAttribute baglamasinda REDDEDILIR (ProductCategoryStatus
+// deseniyle ayni). Silme YOK; arsivleme ile emekli edilir.
+enum AttributeStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 // ADR-065 — Site-geneli gorsel yonetimi. MediaAsset'in hangi baglamda uretildigini
 // tutar; storageKey path segmenti de bundan turer (products/categories/hero/branding).
 enum MediaContext {
@@ -497,60 +531,66 @@ model Store {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  users         StoreUser[]
-  domains       StoreDomain[]
-  subscriptions Subscription[]
-  products      Product[]
-  variants      ProductVariant[]
-  categories    ProductCategory[]
-  inventory     InventoryItem[]
-  movements     InventoryMovement[]
-  customers     Customer[]
-  customerAddresses CustomerAddress[]
-  customerCredentials CustomerCredential[]
-  customerCredentialTokens CustomerCredentialToken[]
-  customerSessions CustomerSession[]
-  customerOtpVerifications CustomerOtpVerification[]
-  customerIbans CustomerIban[]
+  users                            StoreUser[]
+  domains                          StoreDomain[]
+  subscriptions                    Subscription[]
+  products                         Product[]
+  variants                         ProductVariant[]
+  categories                       ProductCategory[]
+  inventory                        InventoryItem[]
+  movements                        InventoryMovement[]
+  customers                        Customer[]
+  customerAddresses                CustomerAddress[]
+  customerCredentials              CustomerCredential[]
+  customerCredentialTokens         CustomerCredentialToken[]
+  customerSessions                 CustomerSession[]
+  customerOtpVerifications         CustomerOtpVerification[]
+  customerIbans                    CustomerIban[]
   customerCommunicationPreferences CustomerCommunicationPreference[]
-  orders        Order[]
-  orderLines    OrderLine[]
-  orderAddresses OrderAddress[]
-  orderEvents   OrderEvent[]
-  orderCounters OrderNumberCounter[]
-  reservations  InventoryReservation[]
-  auditLogs     AuditLog[]
-  eventLogs     EventLog[]
-  queueJobLogs  QueueJobLog[]
-  paymentProviderConfigs PaymentProviderConfig[]
-  paymentAttempts        PaymentAttempt[]
-  paymentProviderEvents  PaymentProviderEvent[]
-  shippingProviderConfigs ShippingProviderConfig[]
-  shipments               Shipment[]
-  shipmentEvents          ShipmentEvent[]
-  shipmentQuotes          ShipmentQuote[]
-  shipmentWebhookInbox    ShipmentWebhookInbox[]
-  shippingRatePlans       ShippingRatePlan[]
-  shippingRateRules       ShippingRateRule[]
-  campaigns               Campaign[]
-  coupons                 Coupon[]
-  campaignRedemptions     CampaignRedemption[]
-  orderDiscounts          OrderDiscount[]
-  customerCoupons         CustomerCoupon[]
-  mediaAssets             MediaAsset[]
-  heroSlides              HeroSlide[]
-  settings                StoreSettings?
+  orders                           Order[]
+  orderLines                       OrderLine[]
+  orderAddresses                   OrderAddress[]
+  orderEvents                      OrderEvent[]
+  orderCounters                    OrderNumberCounter[]
+  reservations                     InventoryReservation[]
+  auditLogs                        AuditLog[]
+  eventLogs                        EventLog[]
+  queueJobLogs                     QueueJobLog[]
+  paymentProviderConfigs           PaymentProviderConfig[]
+  paymentAttempts                  PaymentAttempt[]
+  paymentProviderEvents            PaymentProviderEvent[]
+  shippingProviderConfigs          ShippingProviderConfig[]
+  shipments                        Shipment[]
+  shipmentEvents                   ShipmentEvent[]
+  shipmentQuotes                   ShipmentQuote[]
+  shipmentWebhookInbox             ShipmentWebhookInbox[]
+  shippingRatePlans                ShippingRatePlan[]
+  shippingRateRules                ShippingRateRule[]
+  campaigns                        Campaign[]
+  coupons                          Coupon[]
+  campaignRedemptions              CampaignRedemption[]
+  orderDiscounts                   OrderDiscount[]
+  customerCoupons                  CustomerCoupon[]
+  mediaAssets                      MediaAsset[]
+  heroSlides                       HeroSlide[]
+  settings                         StoreSettings?
+  // Faz 1B (ADR-067) — attribute katalog cekirdegi (STORE-scoped kayitlar). PLATFORM
+  // AttributeDefinition/AttributeOption storeId null tutar → bu iliskilere dahil DEGIL.
+  attributeDefinitions             AttributeDefinition[]
+  attributeGroups                  AttributeGroup[]
+  attributeOptions                 AttributeOption[]
+  categoryAttributes               CategoryAttribute[]
 }
 
 model StoreUser {
-  id             String        @id @default(cuid())
-  storeId        String
-  userId         String
-  role           StoreUserRole @default(VIEWER)
-  invitedAt      DateTime?
-  acceptedAt     DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id         String        @id @default(cuid())
+  storeId    String
+  userId     String
+  role       StoreUserRole @default(VIEWER)
+  invitedAt  DateTime?
+  acceptedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
   store Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   user  PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -694,13 +734,13 @@ model Product {
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
-  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  primaryCategory ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
-  variants        ProductVariant[]
-  assignments     ProductCategoryAssignment[]
-  orderLines      OrderLine[]
+  store            Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  primaryCategory  ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  variants         ProductVariant[]
+  assignments      ProductCategoryAssignment[]
+  orderLines       OrderLine[]
   campaignProducts CampaignProduct[]
-  images          ProductImage[]
+  images           ProductImage[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -712,41 +752,41 @@ model Product {
 }
 
 model ProductVariant {
-  id             String               @id @default(cuid())
-  productId      String
-  storeId        String
-  title          String
-  sku            String
-  barcode        String?
-  priceMinor     Int
-  compareAtMinor Int?
+  id               String               @id @default(cuid())
+  productId        String
+  storeId          String
+  title            String
+  sku              String
+  barcode          String?
+  priceMinor       Int
+  compareAtMinor   Int?
   // F4B — Maliyet (minor). Satis fiyati (priceMinor) DEGISMEZ; checkout bunu tahsil eder.
   // costMinor yalnizca ic marj/kar hesabi icindir, ASLA public API'ye sizmaz.
   // Kural: costMinor <= (compareAtMinor ?? priceMinor) (liste/showroom tavani).
-  costMinor      Int?
+  costMinor        Int?
   // F4C (ADR-063) — KDV alanlari. priceMinor KDV DAHIL brut satis fiyati olarak
   // KALIR (vitrin/sepet/checkout sifir-regresyon); admin artik KDV HARIC net
   // fiyati girer, sunucu vat = round(net*bps/10000), brut = net+vat hesaplar ve
   // priceMinor'a yazar. Backfill: net = round(brut*10000/(10000+bps)) — mevcut
   // brut GORUNEN fiyatlar birebir korunur. vatRateBps: 2000=%20, 1000=%10,
   // 100=%1, 0=%0.
-  netPriceMinor  Int?
-  vatRateBps     Int                  @default(2000)
-  vatAmountMinor Int?
-  currency       String
-  status         ProductVariantStatus @default(ACTIVE)
-  optionValues   Json?
+  netPriceMinor    Int?
+  vatRateBps       Int                  @default(2000)
+  vatAmountMinor   Int?
+  currency         String
+  status           ProductVariantStatus @default(ACTIVE)
+  optionValues     Json?
   // F3C.2 — Kargo olcumu (desi/agirlik); urun-seviyesi degerleri override eder.
-  shippingWeightKg Decimal?           @db.Decimal(10, 3)
-  shippingDesi     Decimal?           @db.Decimal(10, 2)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  shippingWeightKg Decimal?             @db.Decimal(10, 3)
+  shippingDesi     Decimal?             @db.Decimal(10, 2)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
-  product   Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
-  store     Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  inventory InventoryItem?
-  movements InventoryMovement[]
-  orderLines OrderLine[]
+  product      Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventory    InventoryItem?
+  movements    InventoryMovement[]
+  orderLines   OrderLine[]
   reservations InventoryReservation[]
 
   @@unique([storeId, sku])
@@ -766,21 +806,21 @@ enum PriceChangeSource {
 }
 
 model ProductPriceChange {
-  id                     String            @id @default(cuid())
-  storeId                String
-  productId              String
-  variantId              String
+  id                      String            @id @default(cuid())
+  storeId                 String
+  productId               String
+  variantId               String
   changedByPlatformUserId String?
-  currency               String
-  oldPriceMinor          Int?
-  newPriceMinor          Int?
-  oldCompareAtMinor      Int?
-  newCompareAtMinor      Int?
-  oldCostMinor           Int?
-  newCostMinor           Int?
-  source                 PriceChangeSource @default(ADMIN_EDIT)
-  reason                 String?
-  createdAt              DateTime          @default(now())
+  currency                String
+  oldPriceMinor           Int?
+  newPriceMinor           Int?
+  oldCompareAtMinor       Int?
+  newCompareAtMinor       Int?
+  oldCostMinor            Int?
+  newCostMinor            Int?
+  source                  PriceChangeSource @default(ADMIN_EDIT)
+  reason                  String?
+  createdAt               DateTime          @default(now())
 
   @@index([storeId, variantId, createdAt])
   @@index([storeId, createdAt])
@@ -794,18 +834,20 @@ model ProductCategory {
   parentId  String?
   sortOrder Int                   @default(0)
   status    ProductCategoryStatus @default(ACTIVE)
-  imageId   String?               // ADR-065 — opsiyonel tekil kategori gorseli
+  imageId   String? // ADR-065 — opsiyonel tekil kategori gorseli
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
 
-  store       Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  parent      ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children    ProductCategory[]           @relation("ProductCategoryTree")
-  assignments ProductCategoryAssignment[]
+  store              Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  parent             ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children           ProductCategory[]           @relation("ProductCategoryTree")
+  assignments        ProductCategoryAssignment[]
   // Faz 1A (ADR-067) — bu kategoriyi ANA kategori olarak tutan urunler (Restrict).
-  primaryProducts Product[]               @relation("ProductPrimaryCategory")
+  primaryProducts    Product[]                   @relation("ProductPrimaryCategory")
   campaignCategories CampaignCategory[]
-  image       MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
+  image              MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
+  // Faz 1B (ADR-067) — bu kategoriye bagli attribute davranislari (tek sahip).
+  attributeLinks     CategoryAttribute[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -883,7 +925,7 @@ model Customer {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  store                   Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store                   Store                            @relation(fields: [storeId], references: [id], onDelete: Cascade)
   addresses               CustomerAddress[]
   orders                  Order[]
   credential              CustomerCredential?
@@ -922,16 +964,16 @@ model CustomerCredential {
 // Raw token yalniz uretim response'unda tek seferlik doner. createdByUserId:
 // token'i ureten platform-admin. Tek seferlik: consumedAt ile tuketilir.
 model CustomerCredentialToken {
-  id            String                         @id @default(cuid())
-  storeId       String
-  customerId    String
-  purpose       CustomerCredentialTokenPurpose
-  tokenHash     String                         @unique
-  expiresAt     DateTime
-  consumedAt    DateTime?
+  id              String                         @id @default(cuid())
+  storeId         String
+  customerId      String
+  purpose         CustomerCredentialTokenPurpose
+  tokenHash       String                         @unique
+  expiresAt       DateTime
+  consumedAt      DateTime?
   createdByUserId String
-  createdAt     DateTime                       @default(now())
-  updatedAt     DateTime                       @updatedAt
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
 
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -1030,29 +1072,29 @@ model CustomerCommunicationPreference {
 // taxOffice + taxNumber (VKN 10 hane). TCKN/VKN response'ta maskeli; log'a yazilmaz.
 // Soft delete: deletedAt set edilir, satir korunur (gecmis siparis butunlugu).
 model CustomerAddress {
-  id           String       @id @default(cuid())
-  storeId      String
-  customerId   String
-  type         AddressType  @default(SHIPPING)
-  addressName  String       @default("")
-  fullName     String
-  phone        String?
-  countryCode  String       @default("TR")
-  city         String
-  district     String?
-  addressLine1 String
-  addressLine2 String?
-  postalCode   String?
-  isDefaultShipping Boolean  @default(false)
-  isDefaultBilling  Boolean  @default(false)
-  billingType  BillingType?
-  tckn         String?
-  companyName  String?
-  taxOffice    String?
-  taxNumber    String?
-  deletedAt    DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id                String       @id @default(cuid())
+  storeId           String
+  customerId        String
+  type              AddressType  @default(SHIPPING)
+  addressName       String       @default("")
+  fullName          String
+  phone             String?
+  countryCode       String       @default("TR")
+  city              String
+  district          String?
+  addressLine1      String
+  addressLine2      String?
+  postalCode        String?
+  isDefaultShipping Boolean      @default(false)
+  isDefaultBilling  Boolean      @default(false)
+  billingType       BillingType?
+  tckn              String?
+  companyName       String?
+  taxOffice         String?
+  taxNumber         String?
+  deletedAt         DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -1072,18 +1114,18 @@ model OrderNumberCounter {
 }
 
 model Order {
-  id                String            @id @default(cuid())
-  storeId           String
-  orderNumber       String
-  customerId        String?
-  customerEmail     String
-  currency          String
-  status            OrderStatus       @default(DRAFT)
-  paymentStatus     PaymentStatus     @default(UNPAID)
-  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED)
-  subtotalAmount    Int               @default(0)
-  discountAmount    Int               @default(0)
-  shippingAmount    Int               @default(0)
+  id                   String                @id @default(cuid())
+  storeId              String
+  orderNumber          String
+  customerId           String?
+  customerEmail        String
+  currency             String
+  status               OrderStatus           @default(DRAFT)
+  paymentStatus        PaymentStatus         @default(UNPAID)
+  fulfillmentStatus    FulfillmentStatus     @default(UNFULFILLED)
+  subtotalAmount       Int                   @default(0)
+  discountAmount       Int                   @default(0)
+  shippingAmount       Int                   @default(0)
   // F3C.2 — Kargo ucreti SNAPSHOT'i (siparis aninda magaza tarifesinden hesaplanan
   // tutarin kaynagi ve plan kimligi). Tutar shippingAmount'tadir; bu alanlar
   // izlenebilirlik icindir. Provider canli quote DEGILDIR (bkz. ADR-036).
@@ -1100,31 +1142,31 @@ model Order {
   shippingProviderName String?
   shippingLogoUrl      String?
   shippingEtaText      String?
-  taxAmount         Int               @default(0)
-  totalAmount       Int               @default(0)
-  placedAt          DateTime?
-  cancelledAt       DateTime?
-  cancelReason      String?
+  taxAmount            Int                   @default(0)
+  totalAmount          Int                   @default(0)
+  placedAt             DateTime?
+  cancelledAt          DateTime?
+  cancelReason         String?
   // Fatura kimlik bilgileri (F3B.2). Fatura ADRESI OrderAddress(type=BILLING)
   // kaydinda tutulur; burada yalnizca fatura tipi + vergi/kimlik kimlik alanlari
   // bulunur. Bireysel: billingTaxId = T.C. Kimlik No (11 hane). Kurumsal: firma
   // unvani + vergi dairesi + vergi no. PII gereksiz log/event metadata'ya yazilmaz.
-  billingType       BillingType?
-  billingName       String?
-  billingTaxId      String?
-  billingCompanyName String?
-  billingTaxOffice  String?
-  billingTaxNumber  String?
-  billingEmail      String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  billingType          BillingType?
+  billingName          String?
+  billingTaxId         String?
+  billingCompanyName   String?
+  billingTaxOffice     String?
+  billingTaxNumber     String?
+  billingEmail         String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
-  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer     Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  lines        OrderLine[]
-  addresses    OrderAddress[]
-  events       OrderEvent[]
-  reservations InventoryReservation[]
+  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer        Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines           OrderLine[]
+  addresses       OrderAddress[]
+  events          OrderEvent[]
+  reservations    InventoryReservation[]
   paymentAttempts PaymentAttempt[]
   paymentEvents   PaymentProviderEvent[]
   shipments       Shipment[]
@@ -1141,35 +1183,35 @@ model Order {
 }
 
 model OrderLine {
-  id              String   @id @default(cuid())
-  storeId         String
-  orderId         String
-  productId       String
-  variantId       String
-  sku             String
-  title           String
-  variantTitle    String
-  quantity        Int
-  unitPriceAmount Int
-  totalAmount     Int
-  currency        String
+  id                   String   @id @default(cuid())
+  storeId              String
+  orderId              String
+  productId            String
+  variantId            String
+  sku                  String
+  title                String
+  variantTitle         String
+  quantity             Int
+  unitPriceAmount      Int
+  totalAmount          Int
+  currency             String
   // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'lari
   // (fatura/yasal belge + kar analizi temeli). unitPriceAmount/totalAmount
   // KDV DAHIL brut olarak KALIR (geri uyum); asagidaki alanlar additive'dir ve
   // ESKI siparislerde NULL kalir (legacy — yeniden HESAPLANMAZ, yaniltici sifir
   // gosterilmez). unitGross/lineGross bilincli acik yazilir (fatura semantigi).
   // unitListPriceMinor = siparis anindaki liste fiyati (compareAt ?? brut satis).
-  unitNetPriceMinor  Int?
-  unitVatRateBps     Int?
-  unitVatAmountMinor Int?
-  unitGrossPriceMinor Int?
-  unitListPriceMinor Int?
-  unitCostMinor      Int?
-  lineNetAmountMinor Int?
-  lineVatAmountMinor Int?
+  unitNetPriceMinor    Int?
+  unitVatRateBps       Int?
+  unitVatAmountMinor   Int?
+  unitGrossPriceMinor  Int?
+  unitListPriceMinor   Int?
+  unitCostMinor        Int?
+  lineNetAmountMinor   Int?
+  lineVatAmountMinor   Int?
   lineGrossAmountMinor Int?
-  lineCostMinor      Int?
-  createdAt       DateTime @default(now())
+  lineCostMinor        Int?
+  createdAt            DateTime @default(now())
 
   store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1289,34 +1331,34 @@ model PaymentProviderConfig {
 }
 
 model PaymentAttempt {
-  id                  String               @id @default(cuid())
-  storeId             String
-  orderId             String
-  providerConfigId    String
-  provider            PaymentProviderType
-  mode                PaymentProviderMode
-  method              PaymentMethodType
-  amount              Int
-  currency            String
-  status              PaymentAttemptStatus @default(CREATED)
-  threeDsApplied      Boolean              @default(false)
-  scenario            String?
+  id                   String               @id @default(cuid())
+  storeId              String
+  orderId              String
+  providerConfigId     String
+  provider             PaymentProviderType
+  mode                 PaymentProviderMode
+  method               PaymentMethodType
+  amount               Int
+  currency             String
+  status               PaymentAttemptStatus @default(CREATED)
+  threeDsApplied       Boolean              @default(false)
+  scenario             String?
   // Odeme gozlemlenebilirligi (F3B.2). Full PAN/CVC ASLA saklanmaz; yalniz
   // turetilmis guvenli alanlar: kart markasi + son 4 hane + taksit sayisi.
-  installmentCount    Int                  @default(1)
-  cardBrand           String?
-  cardLast4           String?
+  installmentCount     Int                  @default(1)
+  cardBrand            String?
+  cardLast4            String?
   // providerReference = saglayici islem (transaction) referansi.
-  providerReference   String?
-  failureCode         String?
-  failureMessage      String?
-  paidAt              DateTime?
-  failedAt            DateTime?
+  providerReference    String?
+  failureCode          String?
+  failureMessage       String?
+  paidAt               DateTime?
+  failedAt             DateTime?
   // Kisa omurlu public odeme erisim token'inin hash'i; plain token DB'ye yazilmaz.
-  accessTokenHash     String?
+  accessTokenHash      String?
   accessTokenExpiresAt DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1360,30 +1402,30 @@ model PaymentProviderEvent {
 // ─────────────────────── F3C.1 Shipping provider foundation ───────────────────────
 
 model ShippingProviderConfig {
-  id                 String                 @id @default(cuid())
-  storeId            String
-  provider           ShippingProviderType
-  mode               ShippingProviderMode   @default(TEST)
-  status             ShippingProviderStatus @default(DISABLED)
-  displayName        String
+  id                     String                 @id @default(cuid())
+  storeId                String
+  provider               ShippingProviderType
+  mode                   ShippingProviderMode   @default(TEST)
+  status                 ShippingProviderStatus @default(DISABLED)
+  displayName            String
   // F3C.5 (TODO-121) — Provider logo (public, secret DEGIL). UI'da liste/detay/ozet
   // kartinda gosterilir; bozuk/eksik URL'de provider initials fallback uygulanir.
   // logoStorageKey ileride object-store entegrasyonu icin TODO (su an dis URL).
-  logoUrl            String?
-  logoAlt            String?
+  logoUrl                String?
+  logoAlt                String?
   // Destructive/costly operasyon guard'lari. Hepsi varsayilan KAPALI; canli
   // createOrder/createbarcode/acceptOffer ancak ilgili env flag + bu alan + request
   // explicitConfirm uclusu saglaninca calisir (aksi halde 409).
   // Plus Command / createRecipient guard'i (paketleme öncesi varış şube tespiti).
-  allowRecipientCreate Boolean              @default(false)
-  allowOrderCreate   Boolean                @default(false)
-  allowBarcodeCreate Boolean                @default(false)
-  allowLabelPurchase Boolean                @default(false)
+  allowRecipientCreate   Boolean                @default(false)
+  allowOrderCreate       Boolean                @default(false)
+  allowBarcodeCreate     Boolean                @default(false)
+  allowLabelPurchase     Boolean                @default(false)
   // TODO-094B — son test "durumu". connectionStatus degerleri: OK/FAILED/HTTP_DISABLED/
   // SKIPPED (null => UNTESTED). HTTP transport kapaliyken test ASLA OK yazmaz.
-  lastTestedAt       DateTime?
-  lastTestStatus     String?
-  lastErrorCode      String?
+  lastTestedAt           DateTime?
+  lastTestStatus         String?
+  lastErrorCode          String?
   // Son GERCEK provider HTTP testinin meta'si. Transport kapaliyken httpStatus null kalir.
   lastProviderHttpStatus Int?
   lastProviderTestType   String?
@@ -1391,15 +1433,15 @@ model ShippingProviderConfig {
   // cozumleme kimligi; TEK BASINA YETKI VERMEZ — HMAC imza her istekte zorunlu).
   // Secret AES-256-GCM ciphertext olarak saklanir (SHIPPING_ENCRYPTION_KEY);
   // response'a ASLA donmez, yalniz rotate aninda BIR KEZ plain doner (ADR-035 deseni).
-  webhookToken        String?               @unique
-  webhookSecretCipher String?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  webhookToken           String?                @unique
+  webhookSecretCipher    String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
-  store       Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  credentials ShippingProviderCredential[]
-  shipments   Shipment[]
-  quotes      ShipmentQuote[]
+  store        Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  credentials  ShippingProviderCredential[]
+  shipments    Shipment[]
+  quotes       ShipmentQuote[]
   webhookInbox ShipmentWebhookInbox[]
 
   @@unique([storeId, provider, mode])
@@ -1408,24 +1450,24 @@ model ShippingProviderConfig {
 }
 
 model ShippingProviderCredential {
-  id                       String                 @id @default(cuid())
-  providerConfigId         String
-  type                     ShippingCredentialType @default(DEFAULT)
+  id                        String                 @id @default(cuid())
+  providerConfigId          String
+  type                      ShippingCredentialType @default(DEFAULT)
   // Secret alanlar AES-256-GCM ciphertext olarak saklanir; duz metin ASLA yazilmaz.
   // DHL IDENTITY tipi ayrica customerNumber/customerPassword tutar.
-  encryptedKey             String?
-  encryptedSecret          String?
-  encryptedCustomerNumber  String?
+  encryptedKey              String?
+  encryptedSecret           String?
+  encryptedCustomerNumber   String?
   encryptedCustomerPassword String?
-  identityType             Int?
+  identityType              Int?
   // maskedKey yalnizca son-4 gosterimi icin; tam secret degildir.
-  maskedKey                String?
-  configured               Boolean                @default(false)
-  lastTestedAt             DateTime?
-  lastTestStatus           String?
-  lastErrorCode            String?
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  maskedKey                 String?
+  configured                Boolean                @default(false)
+  lastTestedAt              DateTime?
+  lastTestStatus            String?
+  lastErrorCode             String?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
 
   providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Cascade)
 
@@ -1434,53 +1476,53 @@ model ShippingProviderCredential {
 }
 
 model Shipment {
-  id                   String               @id @default(cuid())
-  storeId              String
-  orderId              String
-  providerConfigId     String
-  provider             ShippingProviderType
-  externalOrderId      String?
-  externalShipmentId   String?
-  externalInvoiceId    String?
-  referenceId          String
-  status               ShipmentStatus       @default(DRAFT)
-  shipmentStatusCode   Int?
-  trackingNumber       String?
-  trackingUrl          String?
-  labelUrl             String?
+  id                        String               @id @default(cuid())
+  storeId                   String
+  orderId                   String
+  providerConfigId          String
+  provider                  ShippingProviderType
+  externalOrderId           String?
+  externalShipmentId        String?
+  externalInvoiceId         String?
+  referenceId               String
+  status                    ShipmentStatus       @default(DRAFT)
+  shipmentStatusCode        Int?
+  trackingNumber            String?
+  trackingUrl               String?
+  labelUrl                  String?
   // Yalnizca sanitize edilmis barkod ozeti (pieceNumber + value); JWT/secret icermez.
-  barcodeJsonSafe      Json?
-  pieceCount           Int                  @default(1)
-  totalKg              Float                @default(0)
-  totalDesi            Float                @default(0)
-  packagingType        Int?
-  shipmentServiceType  Int?
-  paymentType          Int?
-  deliveryType         Int?
-  recipientName        String?
-  recipientEmail       String?
-  recipientPhone       String?
-  recipientCityCode    Int?
-  recipientDistrictCode Int?
-  recipientCityName    String?
-  recipientDistrictName String?
-  recipientAddress     String?
+  barcodeJsonSafe           Json?
+  pieceCount                Int                  @default(1)
+  totalKg                   Float                @default(0)
+  totalDesi                 Float                @default(0)
+  packagingType             Int?
+  shipmentServiceType       Int?
+  paymentType               Int?
+  deliveryType              Int?
+  recipientName             String?
+  recipientEmail            String?
+  recipientPhone            String?
+  recipientCityCode         Int?
+  recipientDistrictCode     Int?
+  recipientCityName         String?
+  recipientDistrictName     String?
+  recipientAddress          String?
   // TODO-129 — zamanlanmis shipment sync worker metadata'si (provider-agnostic).
   // lastSyncAt = son sync DENEMESI (basari/hata farketmez; stale-after secimi bunu esas alir).
   // nextSyncAt = hata backoff'u (null => hemen secilebilir). syncAttempts = ARDISIK hata
   // sayaci (basarida sifirlanir; MAX_ATTEMPTS ustunu worker SECMEZ, manuel sync calisir).
   // lastSyncErrorCode = sanitize hata kodu (or. PROVIDER_QUERY_FAILED,
   // PROVIDER_SYNC_UNSUPPORTED, PROVIDER_DISABLED); raw payload/secret ASLA yazilmaz.
-  lastSyncAt           DateTime?
-  nextSyncAt           DateTime?
-  syncAttempts         Int                  @default(0)
-  lastSyncErrorCode    String?
+  lastSyncAt                DateTime?
+  nextSyncAt                DateTime?
+  syncAttempts              Int                  @default(0)
+  lastSyncErrorCode         String?
   // TODO-124 — son barkod denemesinin SINIFLANDIRILMIS hata kodu (or.
   // DESTINATION_BRANCH_NOT_FOUND, PROVIDER_ERROR). Basarili barkod/pending ve
   // varis eslemesi onarimi (repair-destination) bunu SIFIRLAR. TODO-123 retry
   // worker'i DESTINATION_BRANCH_NOT_FOUND'u admin duzeltmesine kadar SKIP etmelidir.
   // Raw saglayici mesaji/secret ASLA yazilmaz; yalniz kisa sanitize kod.
-  lastBarcodeErrorCode String?
+  lastBarcodeErrorCode      String?
   // TODO-123 — barkod retry/backoff metadata'si (TODO-129 sync alanlarindan AYRIDIR;
   // barkod olusturma ile durum senkronu farkli yasam donguleridir). barcodeRetryCount =
   // ardisik TRANSIENT (retryable) hata sayaci; basarili barkod/pending SIFIRLAR.
@@ -1490,12 +1532,12 @@ model Shipment {
   // desteklenmeyen), "MAX_ATTEMPTS" (transient limit doldu). null => bloklu degil.
   // lastBarcodeErrorCode ("ne oldu") ile barcodeRetryBlockedReason ("neden otomatik
   // denenmiyor") AYRIDIR. Adres/varis onarimi (TODO-124/139) bu alanlari sifirlar.
-  barcodeRetryCount        Int       @default(0)
-  barcodeNextRetryAt       DateTime?
-  barcodeLastAttemptAt     DateTime?
+  barcodeRetryCount         Int                  @default(0)
+  barcodeNextRetryAt        DateTime?
+  barcodeLastAttemptAt      DateTime?
   barcodeRetryBlockedReason String?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
 
   store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1610,7 +1652,7 @@ model ShippingRatePlan {
   createdAt                  DateTime                @default(now())
   updatedAt                  DateTime                @updatedAt
 
-  store      Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
   rules      ShippingRateRule[]
   tiers      ShippingRateTier[]
   zones      ShippingRateZone[]
@@ -1731,11 +1773,11 @@ model ShippingRateRule {
 // kullanim limiti icin ATOMIK sayactir (siparis transaction'inda kosullu
 // UPDATE ile artirilir; limit asilirsa siparis reddedilir — ADR-058).
 model Campaign {
-  id                     String               @id @default(cuid())
+  id                     String                @id @default(cuid())
   storeId                String
   name                   String
   description            String?
-  status                 CampaignStatus       @default(DRAFT)
+  status                 CampaignStatus        @default(DRAFT)
   type                   CampaignType
   discountType           CampaignDiscountType
   discountValue          Int
@@ -1745,10 +1787,10 @@ model Campaign {
   endsAt                 DateTime?
   totalUsageLimit        Int?
   perCustomerUsageLimit  Int?
-  usageCount             Int                  @default(0)
-  stackable              Boolean              @default(false)
-  priority               Int                  @default(0)
-  isPublic               Boolean              @default(true)
+  usageCount             Int                   @default(0)
+  stackable              Boolean               @default(false)
+  priority               Int                   @default(0)
+  isPublic               Boolean               @default(true)
   // F4A.4 — SUNUM alanlari (ADR-061). Yalnizca kupon kart/rozet gorunumu;
   // indirim hesaplamasini ETKILEMEZ. Mevcut kampanyalar null ile calisir
   // (UI fallback uretilmis etiketlere doner).
@@ -1757,14 +1799,14 @@ model Campaign {
   terms                  String?
   badgeLabel             String?
   badgeVariant           CampaignBadgeVariant?
-  cardStyle              CampaignCardStyle    @default(STANDARD)
-  accessModel            CampaignAccessModel  @default(AUTO_VISIBLE)
+  cardStyle              CampaignCardStyle     @default(STANDARD)
+  accessModel            CampaignAccessModel   @default(AUTO_VISIBLE)
   // Sunum siralamasi (calc `priority`den AYRI; motor bunu kullanmaz).
-  displayPriority        Int                  @default(0)
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+  displayPriority        Int                   @default(0)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
-  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   coupons         Coupon[]
   products        CampaignProduct[]
   categories      CampaignCategory[]
@@ -1957,8 +1999,8 @@ model MediaAsset {
   width      Int?
   height     Int?
   altText    String?
-  checksum   String?      // sha256; dedup/butunluk (dedup mantigi Faz 4)
-  createdBy  String?      // yukleyen actorUserId (audit)
+  checksum   String? // sha256; dedup/butunluk (dedup mantigi Faz 4)
+  createdBy  String? // yukleyen actorUserId (audit)
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
@@ -2029,4 +2071,118 @@ model StoreSettings {
 
   @@index([logoMediaId])
   @@index([faviconMediaId])
+}
+
+// ─────────────────────── Faz 1B (ADR-067) — Attribute katalog cekirdegi ───────────────────────
+// Kategoriye-bagli dinamik urun ozelliklerinin KATALOG temeli. Bu faz yalniz TANIM
+// katmanidir: urun/varyant deger tablolari (ProductAttributeValue vb.) KAPSAM DISI.
+// Kategori mirasi ve overrideMode UYGULANMAZ (ADR-067 md.7, YAGNI).
+
+// Attribute TANIMI. scope=PLATFORM (tum magazalar, storeId null, yalniz SUPER_ADMIN)
+// veya scope=STORE (tek magaza, storeId zorunlu, ilgili store admin). `code` immutable
+// (service guard); `dataType` kullanim basladiktan sonra immutable (service guard).
+// Davranis TASIMAZ — davranis yalniz CategoryAttribute'ta tutulur (tek sahip).
+model AttributeDefinition {
+  id          String            @id @default(cuid())
+  scope       AttributeScope
+  // PLATFORM => null; STORE => zorunlu (route katmani doldurur). Composite unique
+  // ([storeId, code]) STORE cakismasini DB'de yakalar; PLATFORM (null storeId) icin
+  // Postgres NULL'lari distinct saydigindan duplicate-code route katmaninda kontrol
+  // edilir (kategori slug deseniyle ayni).
+  storeId     String?
+  code        String
+  name        String
+  description String?
+  dataType    AttributeDataType
+  unit        String?
+  status      AttributeStatus   @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  store         Store?              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  options       AttributeOption[]
+  categoryLinks CategoryAttribute[]
+
+  @@unique([storeId, code])
+  @@index([storeId])
+  @@index([scope])
+  @@index([status])
+}
+
+// Attribute GRUBU — store-scoped sunum/organizasyon kabi ( or. "Teknik ozellikler").
+// CategoryAttribute opsiyonel olarak bir gruba baglanir (groupId). Davranis tasimaz.
+model AttributeGroup {
+  id          String   @id @default(cuid())
+  storeId     String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store         Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryLinks CategoryAttribute[]
+
+  @@index([storeId])
+}
+
+// SELECT / MULTI_SELECT / COLOR tipli attribute'larin secenekleri. definition'a bagli
+// (silinirse Cascade). storeId: STORE attribute seceneginde ilgili magaza, PLATFORM
+// attribute seceneginde null. `value` bir tanim icinde benzersiz (duplicate option
+// value DB'de yakalanir). colorHex yalniz COLOR icin anlamli (opsiyonel).
+model AttributeOption {
+  id                    String          @id @default(cuid())
+  attributeDefinitionId String
+  storeId               String?
+  value                 String
+  label                 String
+  colorHex              String?
+  sortOrder             Int             @default(0)
+  status                AttributeStatus @default(ACTIVE)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  definition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  store      Store?              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([attributeDefinitionId, value])
+  @@index([attributeDefinitionId])
+  @@index([storeId])
+}
+
+// Bir attribute'un bir KATEGORI kapsamindaki davranisinin TEK SAHIBI. AttributeDefinition
+// (PLATFORM veya STORE) tek bir kategoriye en fazla bir kez baglanir. Tum davranis
+// bayraklari + validationRules burada; AttributeDefinition davranis tasimaz. Kategori
+// mirasi/overrideMode YOK (ADR-067 md.7).
+model CategoryAttribute {
+  id                    String  @id @default(cuid())
+  storeId               String
+  categoryId            String
+  attributeDefinitionId String
+  groupId               String?
+
+  required             Boolean @default(false)
+  filterable           Boolean @default(false)
+  searchable           Boolean @default(false)
+  comparable           Boolean @default(false)
+  variantDefining      Boolean @default(false)
+  visibleOnProductPage Boolean @default(true)
+  visibleOnListing     Boolean @default(false)
+
+  displayOrder    Int  @default(0)
+  validationRules Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category   ProductCategory     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  definition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  group      AttributeGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@unique([categoryId, attributeDefinitionId])
+  @@index([storeId])
+  @@index([categoryId])
+  @@index([attributeDefinitionId])
+  @@index([groupId])
 }
