@@ -144,6 +144,9 @@ function buildBadge(
     requiresCouponCode: isCoupon,
     discountType: winner.discountType,
     discountValue: winner.discountValue,
+    // F4A.6 — Per-varyant "Sepette" tahmininin cap'lemesi vitrinde de motorla
+    // ayni olsun diye tasinir (reklam edilen teklifin parcasi).
+    maxDiscountAmountMinor: winner.maxDiscountAmountMinor,
     minOrderAmountMinor: winner.minOrderAmountMinor,
     couponCode,
     // Kod varsa CLAIM (sepete kupon olarak ekle); yoksa MANUAL_ONLY.

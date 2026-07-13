@@ -894,6 +894,12 @@ export const publicCampaignBadgeSchema = z.object({
   discountType: z.enum(["PERCENT", "FIXED_AMOUNT"]),
   /** PERCENT: 1-100; FIXED_AMOUNT: minor unit tutar. */
   discountValue: z.number().int().positive(),
+  /**
+   * F4A.6 — Otomatik indirimin ust siniri (varsa). Vitrin per-varyant "Sepette"
+   * tahminini motorla AYNI capleme ile hesaplayabilsin diye tasinir; kampanyanin
+   * reklam edilen teklifinin parcasidir (ic limit/priority DEGIL). Yoksa null.
+   */
+  maxDiscountAmountMinor: z.number().int().positive().nullable().default(null),
   /** Varsa "X uzeri gecerli" copy'si icin minimum sepet tutari. */
   minOrderAmountMinor: z.number().int().positive().nullable(),
   /**
