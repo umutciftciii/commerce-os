@@ -22,6 +22,10 @@ export const trStorefront = {
     campaignPrev: "Önceki kampanya",
     campaignNext: "Sonraki kampanya",
     campaignCouponPrefix: "Kod",
+    // ADR-065 (Faz 3/Site Kabuğu) — ana sayfa hero carousel'i.
+    heroRegion: "Öne çıkanlar",
+    heroPrev: "Önceki görsel",
+    heroNext: "Sonraki görsel",
     // ADIM 1 — Premium header aksiyonlari.
     skipToContent: "İçeriğe geç",
     searchPlaceholder: "Ürün ara",

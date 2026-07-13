@@ -12,8 +12,10 @@ import {
   Text,
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
+import { HeroCarousel } from "../components/site/hero-carousel";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getFeaturedProducts } from "../lib/server/catalog";
+import { getHeroSlides, getStoreInfo } from "../lib/server/site";
 
 // One cikan urunler canli katalogtan gelir; her istekte cozulur.
 export const dynamic = "force-dynamic";
@@ -23,6 +25,11 @@ export default async function HomePage() {
   const t = dict.home;
   const featuredResult = await getFeaturedProducts(8, await getRequestLocale());
   const featured = featuredResult.ok ? featuredResult.data : [];
+  // ADR-065 (Faz 3/Site Kabuğu) — GERÇEK PUBLISHED hero slide'ları; boşsa statik
+  // HeroVisual fallback. Marka adı carousel görsel-alt / statik panel etiketi için.
+  const heroSlides = await getHeroSlides();
+  const storeInfo = await getStoreInfo();
+  const brandLabel = storeInfo?.storeName ?? dict.shell.brand;
 
   return (
     <>
@@ -46,8 +53,13 @@ export default async function HomePage() {
               </Link>
             </div>
           </div>
-          {/* MOCK: Hero görseli — gerçek medya altyapısı yok, bkz. todo.md (P0). */}
-          <HeroVisual label={dict.shell.brand} />
+          {/* Hero görsel paneli: PUBLISHED hero slide varsa GERÇEK carousel,
+              yoksa deterministik statik yer tutucu (vitrin asla boş görünmez). */}
+          {heroSlides.length > 0 ? (
+            <HeroCarousel slides={heroSlides} t={dict.shell} brandLabel={brandLabel} />
+          ) : (
+            <HeroVisual label={brandLabel} />
+          )}
         </Container>
       </Section>
 

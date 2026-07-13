@@ -16,7 +16,7 @@
  */
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
-import { heroSlideSchema, type ContentStatus } from "@commerce-os/contracts";
+import { heroSlideSchema, publicHeroSlideSchema, type ContentStatus } from "@commerce-os/contracts";
 // mediaUrl'u storageKey'den turetmek icin (kategori imageUrl / urun galeri url
 // deseniyle tutarli). "storageKey sakla, URL turet" ilkesi.
 import { resolveMediaUrl } from "../media/url.js";
@@ -80,6 +80,10 @@ export interface HeroSlideUpdateInput {
 
 export interface HeroDataAccess {
   listHeroSlides(storeId: string): Promise<HeroSlideRecord[]>;
+  // ADR-065 (Faz 3/Site Kabuğu) — Public vitrin: yalniz PUBLISHED slide'lar,
+  // position ASC. DRAFT DB SORGUSUNDA elenir (route'ta degil) → hic yuklenmez;
+  // @@index([storeId, status]) kullanilir. Admin listHeroSlides tum durumlari doner.
+  listPublishedHeroSlides(storeId: string): Promise<HeroSlideRecord[]>;
   findHeroSlideById(storeId: string, id: string): Promise<HeroSlideRecord | null>;
   // Media guard icin: mediaId ayni store'a ait mi + context'i ne? Bulunamazsa null.
   findMediaAssetById(
@@ -110,6 +114,14 @@ export function createPrismaHeroDataAccess(): HeroDataAccess {
     listHeroSlides: (storeId) =>
       prisma.heroSlide.findMany({
         where: { storeId },
+        orderBy: { position: "asc" },
+        select: heroSlideSelect,
+      }),
+    // ADR-065 (Faz 3/Site Kabuğu) — public carousel. status="PUBLISHED" WHERE
+    // filtresi DB seviyesindedir; DRAFT satirlar hic okunmaz (route filtresi degil).
+    listPublishedHeroSlides: (storeId) =>
+      prisma.heroSlide.findMany({
+        where: { storeId, status: "PUBLISHED" },
         orderBy: { position: "asc" },
         select: heroSlideSelect,
       }),
@@ -232,5 +244,25 @@ export function serializeHeroSlide(record: HeroSlideRecord, baseUrl?: string) {
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  });
+}
+
+/**
+ * ADR-065 (Faz 3/Site Kabuğu) — Public hero slide projeksiyonu (ALLOWLIST).
+ * mediaUrl storageKey'den turetilir; `key` opaque slide id (React list key).
+ * `mediaId`, `status`, zamanlama (startsAt/endsAt) ve createdAt/updatedAt BILINCLI
+ * olarak TASINMAZ — admin serializeHeroSlide bunlari tasir, public karsiligi
+ * tasimaz. publicHeroSlideSchema.parse cikti allowlist'ini ikinci kez garanti eder
+ * (urun galerisi buildPublicProduct deseniyle tutarli).
+ */
+export function serializePublicHeroSlide(record: HeroSlideRecord, baseUrl?: string) {
+  return publicHeroSlideSchema.parse({
+    key: record.id,
+    mediaUrl: resolveMediaUrl(baseUrl, record.media.storageKey),
+    headline: record.headline,
+    subtext: record.subtext,
+    ctaLabel: record.ctaLabel,
+    ctaHref: record.ctaHref,
+    position: record.position,
   });
 }

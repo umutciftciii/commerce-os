@@ -994,6 +994,43 @@ export const publicProductDetailSchema = publicProductSchema.extend({
 });
 
 /**
+ * ADR-065 (Faz 3/Site Kabuğu) — Public magaza marka bilgisi (ALLOWLIST). Site
+ * kabugu (header kelime-isareti/logo + <head> favicon/title) icin store-seviyesi
+ * salt-okunur uc. Yalnizca vitrinde gosterilmesi guvenli alanlar: storeName +
+ * runtime'da storageKey'den turetilen logoUrl/faviconUrl. Ic/yonetim alanlari
+ * (logoMediaId, faviconMediaId ham FK'ler) BILINCLI olarak DISARIDA — admin
+ * storeSettingsSchema bunlari tasir, bu public karsiligi TASIMAZ.
+ */
+export const publicStoreInfoSchema = z.object({
+  storeName: z.string(),
+  logoUrl: z.string().nullable(),
+  faviconUrl: z.string().nullable(),
+});
+
+/**
+ * ADR-065 (Faz 3/Site Kabuğu) — Public hero slide (ALLOWLIST). Yalnizca PUBLISHED
+ * slide'lar bu uctan doner (DRAFT gateway SORGUSUNDA elenir, route'ta degil).
+ * `key` opaque slide kimligidir (React list key; media/kaynak erisimi SAGLAMAZ).
+ * `mediaId` ham FK, `status` ve zamanlama (`startsAt`/`endsAt`) BILINCLI olarak
+ * DISARIDA — admin heroSlideSchema bunlari tasir, bu public karsiligi TASIMAZ.
+ * Dizi position ASC dondurulur.
+ */
+export const publicHeroSlideSchema = z.object({
+  key: z.string().min(1),
+  mediaUrl: z.string(),
+  headline: z.string().nullable(),
+  subtext: z.string().nullable(),
+  ctaLabel: z.string().nullable(),
+  ctaHref: z.string().nullable(),
+  position: z.number().int(),
+});
+
+// Hero az sayida kayittir → pagination YOK (public urun listesinden farkli).
+export const publicHeroSlidesResponseSchema = z.object({
+  data: z.array(publicHeroSlideSchema),
+});
+
+/**
  * F4A / Storefront redesign — Vitrin ust band kampanya slider'i icin STORE
  * seviyesi public kampanya slide listesi. Her slide, urun rozetiyle AYNI
  * public-safe projeksiyondur ({@link publicCampaignBadgeSchema}); kampanya IC
@@ -2310,6 +2347,9 @@ export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
 export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;
 export type PublicCampaignSlidesResponse = z.infer<typeof publicCampaignSlidesResponseSchema>;
+export type PublicStoreInfo = z.infer<typeof publicStoreInfoSchema>;
+export type PublicHeroSlide = z.infer<typeof publicHeroSlideSchema>;
+export type PublicHeroSlidesResponse = z.infer<typeof publicHeroSlidesResponseSchema>;
 export type PublicCartItemInput = z.infer<typeof publicCartItemInputSchema>;
 export type PublicCartRequest = z.infer<typeof publicCartRequestSchema>;
 export type PublicCartLineStatus = z.infer<typeof publicCartLineStatusSchema>;

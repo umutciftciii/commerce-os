@@ -22,6 +22,10 @@ export const enStorefront: StorefrontDictionary = {
     campaignPrev: "Previous campaign",
     campaignNext: "Next campaign",
     campaignCouponPrefix: "Code",
+    // ADR-065 (Faz 3/Site Kabuğu) — home hero carousel.
+    heroRegion: "Featured",
+    heroPrev: "Previous slide",
+    heroNext: "Next slide",
     // ADIM 1 — Premium header actions.
     skipToContent: "Skip to content",
     searchPlaceholder: "Search products",
