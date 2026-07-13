@@ -376,3 +376,73 @@ describe("eligibleSubtotalFor", () => {
     expect(eligibleSubtotalFor(campaign({ productIds: ["p1"], categoryIds: ["c1"] }), lines)).toBe(30_000);
   });
 });
+
+// Dilim 6a-refine — Sepet satirina KAMPANYA indirim dagitimi (pro-rata). sum(lineDiscounts)
+// = discountMinor (kurus kurusuna); kapsamli kampanya yalniz eslesen satirlara.
+describe("computeDiscounts — lineDiscounts (pro-rata dağıtım)", () => {
+  it("distributes an automatic cart % discount pro-rata across lines; sum equals discountMinor", () => {
+    const lines = [
+      line({ variantId: "a", lineTotalMinor: 100_000 }),
+      line({ variantId: "b", productId: "prod_2", lineTotalMinor: 50_000 }),
+    ];
+    const result = computeDiscounts(
+      input({
+        lines,
+        context: context({ automaticCampaigns: [campaign({ type: "AUTOMATIC_CART", discountValue: 10 })] }),
+      }),
+    );
+    // %10 sepet: toplam 15.000; a=10.000, b=5.000 (oranli).
+    expect(result.discountMinor).toBe(15_000);
+    const byVariant = new Map(result.lineDiscounts.map((d) => [d.variantId, d.discountMinor]));
+    expect(byVariant.get("a")).toBe(10_000);
+    expect(byVariant.get("b")).toBe(5_000);
+    expect(result.lineDiscounts.reduce((s, d) => s + d.discountMinor, 0)).toBe(result.discountMinor);
+  });
+
+  it("keeps sum exact with rounding residual (largest-remainder), no kuruş lost", () => {
+    // Tuhaf tutarlar → floor sonrasi artik kurus largest-remainder ile dagitilir.
+    const lines = [
+      line({ variantId: "a", lineTotalMinor: 33_333 }),
+      line({ variantId: "b", productId: "prod_2", lineTotalMinor: 33_333 }),
+      line({ variantId: "c", productId: "prod_3", lineTotalMinor: 33_334 }),
+    ];
+    const result = computeDiscounts(
+      input({
+        lines,
+        context: context({ automaticCampaigns: [campaign({ type: "AUTOMATIC_CART", discountValue: 10 })] }),
+      }),
+    );
+    // Satir indirimleri toplami = motor toplam indirimi (kurus kaybi/fazlasi yok).
+    expect(result.lineDiscounts.reduce((s, d) => s + d.discountMinor, 0)).toBe(result.discountMinor);
+    // Her satir indirimi satir tutarini asmaz.
+    for (const d of result.lineDiscounts) {
+      const l = lines.find((x) => x.variantId === d.variantId)!;
+      expect(d.discountMinor).toBeLessThanOrEqual(l.lineTotalMinor);
+    }
+  });
+
+  it("scoped campaign allocates only to matching lines", () => {
+    const lines = [
+      line({ variantId: "a", productId: "prod_1", lineTotalMinor: 100_000 }),
+      line({ variantId: "b", productId: "prod_2", lineTotalMinor: 100_000 }),
+    ];
+    const result = computeDiscounts(
+      input({
+        lines,
+        context: context({
+          automaticCampaigns: [
+            campaign({ type: "PRODUCT_DISCOUNT", discountValue: 20, productIds: ["prod_1"] }),
+          ],
+        }),
+      }),
+    );
+    const byVariant = new Map(result.lineDiscounts.map((d) => [d.variantId, d.discountMinor]));
+    expect(byVariant.get("a")).toBe(20_000); // yalniz kapsamdaki urun
+    expect(byVariant.has("b")).toBe(false); // kapsam disi satir indirim almaz
+  });
+
+  it("returns empty lineDiscounts when no campaign applies", () => {
+    const result = computeDiscounts(input());
+    expect(result.lineDiscounts).toEqual([]);
+  });
+});

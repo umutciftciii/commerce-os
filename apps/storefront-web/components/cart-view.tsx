@@ -142,6 +142,14 @@ function CartLineRow({
   const atMin = line.quantity <= line.minQuantity;
   const atMax = line.maxQuantity !== null && line.quantity >= line.maxQuantity;
 
+  // Dilim 6a-refine — Fiyat gosterimi: KAMPANYA indirimi ONCELIKLI (kampanya-sonrasi
+  // fiyat + ustu-cizili orijinal); kampanya yoksa compareAt (liste) YEDEK; o da yoksa
+  // sade fiyat. Buyuk (koyu) = efektif satir toplami; kucuk = ustu-cizili + guncel birim.
+  const hasCampaignPrice = line.discountedLineTotalLabel !== null;
+  const bigPriceLabel = line.discountedLineTotalLabel ?? line.lineTotalLabel;
+  const currentUnitLabel = line.discountedUnitPriceLabel ?? line.unitPriceLabel;
+  const strikeLabel = hasCampaignPrice ? line.unitPriceLabel : line.compareAtLabel;
+
   return (
     // Dilim 6a-refine — Secimi kaldirilan satir SOLUK gosterilir (toplama/checkout'a
     // girmez); sepette kalir. Kaldir/checkbox etkilesimi tam opak kalir.
@@ -233,14 +241,15 @@ function CartLineRow({
             <div className="text-right">
               {!unavailable ? (
                 <>
-                  <p className="text-sm font-semibold text-ink">{line.lineTotalLabel}</p>
-                  {/* Dilim 6a-refine — Ustu-cizili LISTE (compareAt) fiyati (indirim varsa)
-                      + birim fiyat. compareAt notr ink-subtle (accent yok). */}
+                  {/* Buyuk: kampanya varsa kampanya-sonrasi satir toplami, yoksa normal. */}
+                  <p className="text-sm font-semibold text-ink">{bigPriceLabel}</p>
+                  {/* Kucuk: ustu-cizili (kampanya→orijinal birim / yoksa compareAt liste) +
+                      guncel birim. Notr ink-subtle (accent yok). */}
                   <p className="text-xs text-ink-subtle">
-                    {line.compareAtLabel ? (
-                      <span className="mr-1.5 text-line-strong line-through">{line.compareAtLabel}</span>
+                    {strikeLabel ? (
+                      <span className="mr-1.5 text-line-strong line-through">{strikeLabel}</span>
                     ) : null}
-                    {line.unitPriceLabel}
+                    {currentUnitLabel}
                   </p>
                 </>
               ) : null}

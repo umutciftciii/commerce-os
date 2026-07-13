@@ -48,6 +48,8 @@ function view(
         imageUrl: null,
         selected: true,
         compareAtLabel: null,
+        discountedUnitPriceLabel: null,
+        discountedLineTotalLabel: null,
         ...lineOverrides,
       },
     ],
@@ -221,15 +223,36 @@ describe("storefront-web · Dilim 6a-refine cart mockup detayları", () => {
     expect(html).toContain("opacity-55");
   });
 
-  it("shows the strikethrough compareAt (list) price when there is a discount", () => {
+  it("shows the strikethrough compareAt (list) price as a fallback when no campaign", () => {
     const html = render(view({}, { compareAtLabel: "₺1.749,00" }));
     expect(html).toContain("line-through");
     expect(html).toContain("₺1.749,00");
   });
 
-  it("omits the strikethrough when there is no compareAt discount", () => {
+  it("omits the strikethrough when there is neither campaign nor compareAt", () => {
     const html = render(view({}, { compareAtLabel: null }));
     expect(html).not.toContain("line-through");
+  });
+
+  it("shows the CAMPAIGN discounted price (strikethrough original unit) — takes priority over compareAt", () => {
+    // Kampanya varsa: buyuk = kampanya-sonrasi satir toplami, ustu-cizili = orijinal birim.
+    const html = render(
+      view(
+        {},
+        {
+          unitPriceLabel: "₺1.499,00",
+          lineTotalLabel: "₺1.499,00",
+          compareAtLabel: "₺1.749,00", // compareAt olsa bile kampanya oncelikli
+          discountedUnitPriceLabel: "₺1.349,10",
+          discountedLineTotalLabel: "₺1.349,10",
+        },
+      ),
+    );
+    expect(html).toContain("₺1.349,10"); // kampanya-sonrasi (buyuk + guncel birim)
+    expect(html).toContain("line-through");
+    expect(html).toContain("₺1.499,00"); // ustu-cizili orijinal birim
+    // Kampanya oncelikli: compareAt (₺1.749) ustu-cizili GOSTERILMEZ.
+    expect(html).not.toContain("₺1.749,00");
   });
 
   it("renders the static shipping estimate on a sellable line", () => {

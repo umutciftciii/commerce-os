@@ -57,6 +57,10 @@ export interface CartLineView {
   selected: boolean;
   /** Dilim 6a-refine — Ustu-cizili liste (compareAt) fiyat etiketi; indirim yoksa null. */
   compareAtLabel: string | null;
+  /** Dilim 6a-refine — KAMPANYA sonrasi birim fiyat etiketi (kampanya varsa; ONCELIKLI). */
+  discountedUnitPriceLabel: string | null;
+  /** Dilim 6a-refine — KAMPANYA sonrasi satir toplami etiketi (kampanya varsa). */
+  discountedLineTotalLabel: string | null;
 }
 
 /** Sunucu-otoriter siparis ozeti (bicimli etiketler + makine-okunur durumlar). */
@@ -253,6 +257,10 @@ function toCartView(cart: PublicCart): CartView {
       selected: line.selected,
       compareAtLabel:
         line.compareAtMinor != null ? formatMinor(line.compareAtMinor, line.currency) : null,
+      discountedUnitPriceLabel:
+        line.discountedUnitPriceMinor != null ? formatMinor(line.discountedUnitPriceMinor, line.currency) : null,
+      discountedLineTotalLabel:
+        line.discountedLineTotalMinor != null ? formatMinor(line.discountedLineTotalMinor, line.currency) : null,
     })),
   };
 }
