@@ -45,6 +45,23 @@ export function CategoryIcon() {
   );
 }
 
+// Faz 1B (ADR-067) — Özellikler (attribute) menüsü: ayar kaydırıcıları (sliders/tune).
+export function AttributeIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M4 6h10" />
+      <path d="M18 6h2" />
+      <circle cx="16" cy="6" r="2" />
+      <path d="M4 12h2" />
+      <path d="M10 12h10" />
+      <circle cx="8" cy="12" r="2" />
+      <path d="M4 18h10" />
+      <path d="M18 18h2" />
+      <circle cx="16" cy="18" r="2" />
+    </svg>
+  );
+}
+
 export function OrderIcon() {
   return (
     <svg {...base} aria-hidden>

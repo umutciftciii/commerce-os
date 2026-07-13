@@ -215,6 +215,9 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
   icinde validate edilir.
 - `ProductCategoryAssignment`: urun-kategori baglantisi; storeId ile tenant sorgulari ve unique guard
   net tutulur.
+- `Product.primaryCategoryId` (Faz 1A, ADR-067): urunun TEK ana kategorisi; dinamik attribute semasinin,
+  breadcrumb'in ve kanonik kategori URL'inin kaynagi. Nullable + FK `onDelete: Restrict`; M:N `assignments`
+  korunur, ana kategori assignments'tan biri olmalidir (service transaction guard).
 - `InventoryItem`: varyant basina tek stok kaydi; `quantityAvailable` DB'de kolon degildir, response'ta
   `quantityOnHand - quantityReserved` olarak hesaplanir.
 - `InventoryMovement`: her manual adjustment icin ledger kaydi; `quantityDelta`, reason/reference ve
@@ -236,6 +239,37 @@ modelleri hala kapsam disidir.
 
 Platform session raw token saklamaz; secret ile hashlenmis `tokenHash`, `expiresAt`, opsiyonel
 revoke/user-agent/ip placeholder alanlari tutulur.
+
+### Attribute Catalog Foundation (Faz 1B, ADR-067)
+
+Kategoriye-bagli dinamik urun ozelliklerinin KATALOG TANIM temeli. Bu faz yalniz tanim katmanidir; urun/varyant
+DEGER tablolari (`ProductAttributeValue`/`VariantAttributeValue`), dinamik form, varyant kombinasyon motoru,
+PDP tablo ve faceted search Faz 2+'ye aittir.
+
+- `AttributeDefinition`: attribute TANIMI. `scope` = `PLATFORM` (tum magazalar, `storeId=null`, yalniz
+  `SUPER_ADMIN`) veya `STORE` (tek magaza, `storeId` zorunlu, ilgili store admin). `code` ve `dataType`
+  service-katmaninda immutable (`code` her zaman; `dataType` yalniz kullanim baslamissa — kategori baglantisi
+  VEYA secenek varsa). 13 `dataType` (`TEXT/TEXTAREA/RICH_TEXT/INTEGER/DECIMAL/BOOLEAN/DATE/URL/SELECT/
+  MULTI_SELECT/COLOR/IMAGE/FILE`). Davranis TASIMAZ. `@@unique([storeId, code])` (STORE cakismasi DB'de;
+  PLATFORM null-storeId icin route on-kontrolu).
+- `AttributeGroup`: store-scoped sunum/organizasyon kabi. `CategoryAttribute` opsiyonel olarak bir gruba baglanir.
+- `AttributeOption`: `SELECT`/`MULTI_SELECT`/`COLOR` secenekleri. `storeId` STORE seceneginde magaza, PLATFORM
+  seceneginde null. `value` bir tanim icinde benzersiz (`@@unique([attributeDefinitionId, value])`). `colorHex`
+  yalniz COLOR.
+- `CategoryAttribute`: bir attribute'un bir KATEGORI kapsamindaki davranisinin **TEK SAHIBI**. `required`,
+  `filterable`, `searchable`, `comparable`, `variantDefining`, `visibleOnProductPage`, `visibleOnListing` +
+  `displayOrder` + `validationRules` (Json). `@@unique([categoryId, attributeDefinitionId])` — bir attribute bir
+  kategoriye en fazla bir kez. **Kategori mirasi ve `overrideMode` UYGULANMAZ** (ADR-067 md.7, YAGNI).
+
+Gateway'de attribute uclari ayri bir modulde (`apps/api-gateway/src/attributes/`) yasar: `AttributeDataAccess`
+(prisma-backed, DI ile enjekte edilebilir — hero/kampanya deseni) + iki route grubu. STORE uclari
+(`/stores/:storeId/attributes`, `.../attribute-groups`, `.../categories/:categoryId/attributes`)
+`requireStorePlatformAdmin` ile korunur ve magaza kendi STORE tanimlarini yonetir + PLATFORM tanimlarini OKUR.
+PLATFORM uclari (`/admin/attributes`) yeni `requireSuperAdmin` guard'i ile yalniz `SUPER_ADMIN`'e aciktir
+(mevcut `requirePlatformAdmin` SUPPORT_ADMIN'e de izin verir; yeni guard onu daraltir, mevcut yetkiler bozulmaz).
+store-admin'de "Katalog → Ozellikler" ekrani tanim/grup/secenek CRUD'unu, kategori ekranindaki modal ise
+CategoryAttribute davranis baglamayi sunar. Migration additive (`20260714120000_add_attribute_catalog`); urun
+formu, storefront, checkout, order, inventory, search ve marketplace DEGISMEDI.
 
 ## Auth / Session
 

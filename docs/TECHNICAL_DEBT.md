@@ -501,3 +501,19 @@
 - Çözüm: canlı rollout checklist'e (TODO-118) hesap doğrulaması ekle; token cache'i `jwtExpireDate` tabanlı yap
   (parseProviderDate artık bu formatı çözüyor) + TODO-103 refresh akışı.
 - Kapsam: apps/api-gateway/src/shipping/adapters/dhl-ecommerce. Bloklayıcı: sandbox için HAYIR, canlı için kısmi.
+
+## TD-037 Faz 1B attribute katalog: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-14 (Faz 1B, TODO-144, ADR-067)
+- Sorun 1 (PLATFORM UI yok): Bu fazda PLATFORM attribute tanımları yalnız gateway (`/admin/attributes`,
+  `requireSuperAdmin`) + api-client (`admin.platformAttributes`) düzeyinde vardır; adanmış bir SUPER_ADMIN
+  yönetim ekranı (admin-web) EKLENMEDİ. Store admin ekranı PLATFORM tanımlarını salt-okunur gösterir ve
+  kategoriye bağlayabilir, ancak OLUŞTURAMAZ. Etki: düşük (backend + kabul kriterleri karşılanıyor); platform
+  attribute'ları geçici olarak API/seed ile üretilebilir. Faz 2'de admin-web ekranı planlanmalı.
+- Sorun 2 (validationRules tüketilmiyor): `CategoryAttribute.validationRules` (Json) SAKLANIR ama henüz hiçbir
+  yerde ZORLANMAZ — kural motoru + ürün attribute değer doğrulaması Faz 2 kapsamıdır. Şimdilik istemci `{}` gönderir.
+- Sorun 3 (pagination yok): Attribute/grup/seçenek listeleri mütevazı kardinalite varsayımıyla PAGINATION'SIZ
+  döner (hero deseni). Bir mağaza yüzlerce attribute tanımlarsa liste uçlarına sayfalama gerekebilir.
+- Sorun 4 (runtime smoke bekliyor): Faz 1A ile aynı desen — merge sonrası HEDEF DB `prisma migrate deploy`
+  (reset YOK) + docker rebuild (api-gateway + store-admin-web) + prod-benzeri canlı smoke henüz yapılmadı
+  (izole shadow-DB migration diff = empty ile şema/migration uyumu doğrulandı; gerçek stack smoke'u ayrı adım).
+- Kapsam: packages/db, packages/contracts, apps/api-gateway/src/attributes, apps/store-admin-web. Bloklayıcı: HAYIR.

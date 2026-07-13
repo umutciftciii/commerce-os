@@ -379,6 +379,212 @@ export const productCategoryUpdateRequestSchema = z
     message: "At least one field is required.",
   });
 
+// ─────────────────────── Faz 1B (ADR-067) — Attribute katalog cekirdegi ───────────────────────
+// Kategoriye-bagli dinamik urun ozelliklerinin KATALOG kontratlari. Yalniz TANIM
+// katmani: urun/varyant deger semalari KAPSAM DISI. scope + storeId istek govdesinde
+// YOKTUR — route katmani turer (STORE route → STORE+storeId; PLATFORM route → PLATFORM+null);
+// boylece istemci scope'u spoof edemez.
+export const attributeScopeSchema = z.enum(["PLATFORM", "STORE"]);
+export const attributeStatusSchema = z.enum(["ACTIVE", "ARCHIVED"]);
+export const attributeDataTypeSchema = z.enum([
+  "TEXT",
+  "TEXTAREA",
+  "RICH_TEXT",
+  "INTEGER",
+  "DECIMAL",
+  "BOOLEAN",
+  "DATE",
+  "URL",
+  "SELECT",
+  "MULTI_SELECT",
+  "COLOR",
+  "IMAGE",
+  "FILE",
+]);
+
+// Attribute kodu: kucuk harf/rakam, tek _ veya - ile ayrilmis. IMMUTABLE (create'te
+// set; update'te farkli deger gonderilirse route ATTRIBUTE_CODE_IMMUTABLE doner).
+const attributeCodeSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/);
+// COLOR secenegi icin 6 haneli hex (opsiyonel; # ile).
+const colorHexSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+export const attributeDefinitionSchema = z.object({
+  id: z.string().min(1),
+  scope: attributeScopeSchema,
+  // PLATFORM => null; STORE => store id. Public projeksiyon YOK (yonetim entity'si).
+  storeId: z.string().min(1).nullable(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  dataType: attributeDataTypeSchema,
+  unit: z.string().nullable(),
+  status: attributeStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+// Attribute listeleri mutevazi kardinalitededir (hero deseni) → pagination YOK.
+export const attributeDefinitionListResponseSchema = z.object({
+  data: z.array(attributeDefinitionSchema),
+});
+
+export const attributeDefinitionCreateRequestSchema = z.object({
+  code: attributeCodeSchema,
+  name: z.string().min(1).max(160),
+  description: z.string().max(1000).nullable().optional(),
+  dataType: attributeDataTypeSchema,
+  unit: z.string().max(32).nullable().optional(),
+  status: attributeStatusSchema.default("ACTIVE"),
+});
+
+// code + dataType update govdesinde KABUL EDILIR ancak mevcuttan FARKLIYSA route
+// stabil kodla reddeder (code her zaman immutable; dataType yalniz kullanim
+// baslamissa immutable). Ayni deger gonderilirse no-op — full-object echo eden
+// istemciler kirilmaz. En az bir alan zorunlu (bos PATCH reddi).
+export const attributeDefinitionUpdateRequestSchema = z
+  .object({
+    code: attributeCodeSchema.optional(),
+    name: z.string().min(1).max(160).optional(),
+    description: z.string().max(1000).nullable().optional(),
+    dataType: attributeDataTypeSchema.optional(),
+    unit: z.string().max(32).nullable().optional(),
+    status: attributeStatusSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const attributeGroupSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const attributeGroupListResponseSchema = z.object({
+  data: z.array(attributeGroupSchema),
+});
+
+export const attributeGroupCreateRequestSchema = z.object({
+  name: z.string().min(1).max(160),
+  description: z.string().max(1000).nullable().optional(),
+  sortOrder: z.number().int().default(0),
+});
+
+export const attributeGroupUpdateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(160).optional(),
+    description: z.string().max(1000).nullable().optional(),
+    sortOrder: z.number().int().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+// SELECT/MULTI_SELECT/COLOR secenekleri. `value` immutable (kimlik; update'te YOK);
+// duplicate value ayni tanim icinde DB unique ([attributeDefinitionId, value]) ile
+// yakalanir, route 409 doner. colorHex yalniz COLOR icin anlamli.
+export const attributeOptionSchema = z.object({
+  id: z.string().min(1),
+  attributeDefinitionId: z.string().min(1),
+  storeId: z.string().min(1).nullable(),
+  value: z.string().min(1),
+  label: z.string().min(1),
+  colorHex: z.string().nullable(),
+  sortOrder: z.number().int(),
+  status: attributeStatusSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const attributeOptionListResponseSchema = z.object({
+  data: z.array(attributeOptionSchema),
+});
+
+export const attributeOptionCreateRequestSchema = z.object({
+  value: z.string().min(1).max(120),
+  label: z.string().min(1).max(160),
+  colorHex: colorHexSchema.nullable().optional(),
+  sortOrder: z.number().int().default(0),
+  status: attributeStatusSchema.default("ACTIVE"),
+});
+
+export const attributeOptionUpdateRequestSchema = z
+  .object({
+    label: z.string().min(1).max(160).optional(),
+    colorHex: colorHexSchema.nullable().optional(),
+    sortOrder: z.number().int().optional(),
+    status: attributeStatusSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+// CategoryAttribute — bir attribute'un bir kategori kapsamindaki davranisinin TEK
+// SAHIBI. attributeDefinitionId + categoryId immutable (link kimligi); categoryId
+// route param'dan, attributeDefinitionId yalniz create'te. Kategori mirasi/overrideMode
+// YOK (ADR-067 md.7).
+export const categoryAttributeSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  categoryId: z.string().min(1),
+  attributeDefinitionId: z.string().min(1),
+  groupId: z.string().min(1).nullable(),
+  required: z.boolean(),
+  filterable: z.boolean(),
+  searchable: z.boolean(),
+  comparable: z.boolean(),
+  variantDefining: z.boolean(),
+  visibleOnProductPage: z.boolean(),
+  visibleOnListing: z.boolean(),
+  displayOrder: z.number().int(),
+  validationRules: jsonRecordSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const categoryAttributeListResponseSchema = z.object({
+  data: z.array(categoryAttributeSchema),
+});
+
+export const categoryAttributeCreateRequestSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  groupId: z.string().min(1).nullable().optional(),
+  required: z.boolean().default(false),
+  filterable: z.boolean().default(false),
+  searchable: z.boolean().default(false),
+  comparable: z.boolean().default(false),
+  variantDefining: z.boolean().default(false),
+  visibleOnProductPage: z.boolean().default(true),
+  visibleOnListing: z.boolean().default(false),
+  displayOrder: z.number().int().default(0),
+  validationRules: jsonRecordSchema.default({}),
+});
+
+export const categoryAttributeUpdateRequestSchema = z
+  .object({
+    groupId: z.string().min(1).nullable().optional(),
+    required: z.boolean().optional(),
+    filterable: z.boolean().optional(),
+    searchable: z.boolean().optional(),
+    comparable: z.boolean().optional(),
+    variantDefining: z.boolean().optional(),
+    visibleOnProductPage: z.boolean().optional(),
+    visibleOnListing: z.boolean().optional(),
+    displayOrder: z.number().int().optional(),
+    validationRules: jsonRecordSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2377,6 +2583,26 @@ export type ProductCategory = z.infer<typeof productCategorySchema>;
 export type ProductCategoryListResponse = z.infer<typeof productCategoryListResponseSchema>;
 export type ProductCategoryCreateRequest = z.infer<typeof productCategoryCreateRequestSchema>;
 export type ProductCategoryUpdateRequest = z.infer<typeof productCategoryUpdateRequestSchema>;
+// Faz 1B (ADR-067) — Attribute katalog cekirdegi tipleri.
+export type AttributeScope = z.infer<typeof attributeScopeSchema>;
+export type AttributeStatus = z.infer<typeof attributeStatusSchema>;
+export type AttributeDataType = z.infer<typeof attributeDataTypeSchema>;
+export type AttributeDefinition = z.infer<typeof attributeDefinitionSchema>;
+export type AttributeDefinitionListResponse = z.infer<typeof attributeDefinitionListResponseSchema>;
+export type AttributeDefinitionCreateRequest = z.infer<typeof attributeDefinitionCreateRequestSchema>;
+export type AttributeDefinitionUpdateRequest = z.infer<typeof attributeDefinitionUpdateRequestSchema>;
+export type AttributeGroup = z.infer<typeof attributeGroupSchema>;
+export type AttributeGroupListResponse = z.infer<typeof attributeGroupListResponseSchema>;
+export type AttributeGroupCreateRequest = z.infer<typeof attributeGroupCreateRequestSchema>;
+export type AttributeGroupUpdateRequest = z.infer<typeof attributeGroupUpdateRequestSchema>;
+export type AttributeOption = z.infer<typeof attributeOptionSchema>;
+export type AttributeOptionListResponse = z.infer<typeof attributeOptionListResponseSchema>;
+export type AttributeOptionCreateRequest = z.infer<typeof attributeOptionCreateRequestSchema>;
+export type AttributeOptionUpdateRequest = z.infer<typeof attributeOptionUpdateRequestSchema>;
+export type CategoryAttribute = z.infer<typeof categoryAttributeSchema>;
+export type CategoryAttributeListResponse = z.infer<typeof categoryAttributeListResponseSchema>;
+export type CategoryAttributeCreateRequest = z.infer<typeof categoryAttributeCreateRequestSchema>;
+export type CategoryAttributeUpdateRequest = z.infer<typeof categoryAttributeUpdateRequestSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

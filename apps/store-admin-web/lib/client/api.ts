@@ -22,6 +22,22 @@ import type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  AttributeDefinition,
+  AttributeDefinitionCreateRequest,
+  AttributeDefinitionListResponse,
+  AttributeDefinitionUpdateRequest,
+  AttributeGroup,
+  AttributeGroupCreateRequest,
+  AttributeGroupListResponse,
+  AttributeGroupUpdateRequest,
+  AttributeOption,
+  AttributeOptionCreateRequest,
+  AttributeOptionListResponse,
+  AttributeOptionUpdateRequest,
+  CategoryAttribute,
+  CategoryAttributeCreateRequest,
+  CategoryAttributeListResponse,
+  CategoryAttributeUpdateRequest,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -315,6 +331,69 @@ export const storeApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+
+  // Faz 1B (ADR-067) — Attribute katalog cekirdegi (tanim + grup + secenek).
+  listAttributes: () => call<AttributeDefinitionListResponse>("/api/catalog/attributes"),
+  createAttribute: (input: AttributeDefinitionCreateRequest) =>
+    mutatingCall<AttributeDefinition>("/api/catalog/attributes", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAttribute: (attributeId: string, input: AttributeDefinitionUpdateRequest) =>
+    mutatingCall<AttributeDefinition>(`/api/catalog/attributes/${attributeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  listAttributeOptions: (attributeId: string) =>
+    call<AttributeOptionListResponse>(`/api/catalog/attributes/${attributeId}/options`),
+  createAttributeOption: (attributeId: string, input: AttributeOptionCreateRequest) =>
+    mutatingCall<AttributeOption>(`/api/catalog/attributes/${attributeId}/options`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAttributeOption: (
+    attributeId: string,
+    optionId: string,
+    input: AttributeOptionUpdateRequest,
+  ) =>
+    mutatingCall<AttributeOption>(`/api/catalog/attributes/${attributeId}/options/${optionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  listAttributeGroups: () => call<AttributeGroupListResponse>("/api/catalog/attribute-groups"),
+  createAttributeGroup: (input: AttributeGroupCreateRequest) =>
+    mutatingCall<AttributeGroup>("/api/catalog/attribute-groups", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAttributeGroup: (groupId: string, input: AttributeGroupUpdateRequest) =>
+    mutatingCall<AttributeGroup>(`/api/catalog/attribute-groups/${groupId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
+  // Faz 1B (ADR-067) — Kategori-attribute davranis baglama (tek sahip).
+  listCategoryAttributes: (categoryId: string) =>
+    call<CategoryAttributeListResponse>(`/api/catalog/categories/${categoryId}/attributes`),
+  createCategoryAttribute: (categoryId: string, input: CategoryAttributeCreateRequest) =>
+    mutatingCall<CategoryAttribute>(`/api/catalog/categories/${categoryId}/attributes`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateCategoryAttribute: (
+    categoryId: string,
+    categoryAttributeId: string,
+    input: CategoryAttributeUpdateRequest,
+  ) =>
+    mutatingCall<CategoryAttribute>(
+      `/api/catalog/categories/${categoryId}/attributes/${categoryAttributeId}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+  removeCategoryAttribute: (categoryId: string, categoryAttributeId: string) =>
+    mutatingCall<void>(
+      `/api/catalog/categories/${categoryId}/attributes/${categoryAttributeId}`,
+      { method: "DELETE" },
+    ),
 
   // Products
   listProducts: () => call<ProductListResponse>("/api/catalog/products"),
