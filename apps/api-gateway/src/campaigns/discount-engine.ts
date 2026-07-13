@@ -134,14 +134,70 @@ export interface DiscountLine {
   eligibleSubtotalMinor: number;
 }
 
+/** Bir sepet satirina (variantId) DUSEN toplam kampanya indirimi (tum kampanyalar). */
+export interface DiscountLineAllocation {
+  variantId: string;
+  discountMinor: number;
+}
+
 export interface DiscountEngineResult {
   discountLines: DiscountLine[];
   discountMinor: number;
+  /**
+   * Sepet satiri (variantId) bazinda DAGITILMIS toplam indirim. Her kampanyanin
+   * indirimi, kapsamina giren satirlara lineTotalMinor oraninda (pro-rata, en-buyuk-
+   * kalan yuvarlamasiyla) dagitilir; coklu kampanya birikir. sum(lineDiscounts) =
+   * discountMinor (kurus kurusuna). Vitrin satirda kampanya-sonrasi fiyat gosterir.
+   */
+  lineDiscounts: DiscountLineAllocation[];
   /** Kupon girildiyse sonucu; girilmediyse NONE. */
   couponStatus: "NONE" | "APPLIED" | "INVALID";
   couponReason: CouponReason | null;
   /** Normalize edilmis kupon kodu (girildiyse). */
   couponCode: string | null;
+}
+
+/** Bir kampanyanin kapsamina giren satir mi? (eligibleSubtotalFor ile ayni kural.) */
+function campaignCoversLine(campaign: EngineCampaign, line: DiscountCartLine): boolean {
+  const hasScope = campaign.productIds.length > 0 || campaign.categoryIds.length > 0;
+  if (!hasScope) return true;
+  const productSet = new Set(campaign.productIds);
+  const categorySet = new Set(campaign.categoryIds);
+  return productSet.has(line.productId) || line.categoryIds.some((id) => categorySet.has(id));
+}
+
+/**
+ * Tek kampanyanin `amount` indirimini, kapsamina giren satirlara lineTotalMinor
+ * oraninda dagitir. En-buyuk-kalan (largest-remainder) yuvarlamasi: floor sonrasi
+ * artan kurus(lar) en buyuk kesirli paya sahip satirlara dagitilir → sum = amount
+ * (kurus kaybi/fazlasi yok). Sonuc perLine map'ine BIRIKTIRILIR.
+ */
+function allocateProRata(
+  campaign: EngineCampaign,
+  amount: number,
+  lines: DiscountCartLine[],
+  perLine: Map<string, number>,
+): void {
+  if (amount <= 0) return;
+  const eligible = lines.filter((line) => campaignCoversLine(campaign, line) && line.lineTotalMinor > 0);
+  const eligibleTotal = eligible.reduce((sum, line) => sum + line.lineTotalMinor, 0);
+  if (eligibleTotal <= 0) return;
+  const parts = eligible.map((line) => {
+    const exact = (amount * line.lineTotalMinor) / eligibleTotal;
+    const floor = Math.floor(exact);
+    return { variantId: line.variantId, floor, frac: exact - floor };
+  });
+  const allocated = parts.reduce((sum, p) => sum + p.floor, 0);
+  let residual = amount - allocated;
+  // Kalan kurusu en buyuk kesirli paya sahip satirlara sirayla ekle (deterministik).
+  parts.sort((a, b) => b.frac - a.frac || (a.variantId < b.variantId ? -1 : 1));
+  for (let i = 0; i < parts.length && residual > 0; i += 1) {
+    parts[i].floor += 1;
+    residual -= 1;
+  }
+  for (const part of parts) {
+    if (part.floor > 0) perLine.set(part.variantId, (perLine.get(part.variantId) ?? 0) + part.floor);
+  }
 }
 
 /** Kupon kodu izinli karakterleri (normalize SONRASI). */
@@ -291,6 +347,7 @@ export function computeDiscounts(input: DiscountEngineInput): DiscountEngineResu
   const empty: DiscountEngineResult = {
     discountLines: [],
     discountMinor: 0,
+    lineDiscounts: [],
     couponStatus: normalizedCode ? "INVALID" : "NONE",
     couponReason: normalizedCode ? "NOT_FOUND" : null,
     couponCode: normalizedCode,
@@ -325,6 +382,9 @@ export function computeDiscounts(input: DiscountEngineInput): DiscountEngineResu
   const ordered = couponCandidate ? [couponCandidate, ...automatic] : automatic;
 
   const discountLines: DiscountLine[] = [];
+  // Satir bazinda dagitilmis indirim (variantId -> toplam). Her kampanyanin uygulanan
+  // tutari kapsam satirlarina pro-rata dagitilir; coklu kampanya birikir.
+  const perLine = new Map<string, number>();
   let remainingMinor = input.subtotalMinor;
   let blockedByNonStackable = false;
   for (const candidate of ordered) {
@@ -346,11 +406,21 @@ export function computeDiscounts(input: DiscountEngineInput): DiscountEngineResu
       discountAmountMinor: amount,
       eligibleSubtotalMinor: candidate.eligibleMinor,
     });
+    // Uygulanan tutari (remaining-cap sonrasi) kapsam satirlarina dagit.
+    allocateProRata(candidate.campaign, amount, input.lines, perLine);
     remainingMinor -= amount;
     if (!candidate.campaign.stackable) blockedByNonStackable = true;
   }
 
   const discountMinor = discountLines.reduce((sum, line) => sum + line.discountAmountMinor, 0);
+  // Satir indirimini satir tutariyla sinirla (negatif fiyat olmaz; kenar durum: ayni
+  // satira coklu kampanya). Yalniz pozitif dagitilmis satirlar doner.
+  const lineTotalByVariant = new Map(input.lines.map((line) => [line.variantId, line.lineTotalMinor]));
+  const lineDiscounts: DiscountLineAllocation[] = [];
+  for (const [variantId, discount] of perLine) {
+    const capped = Math.min(discount, lineTotalByVariant.get(variantId) ?? discount);
+    if (capped > 0) lineDiscounts.push({ variantId, discountMinor: capped });
+  }
 
   // Kupon gecerliydi ama kalan-cap nedeniyle satiri dusmediyse (teorik sinir
   // durumu) yine NOT_APPLICABLE'a cevrilir; UI yaniltilmaz.
@@ -362,6 +432,7 @@ export function computeDiscounts(input: DiscountEngineInput): DiscountEngineResu
   return {
     discountLines,
     discountMinor,
+    lineDiscounts,
     couponStatus,
     couponReason,
     couponCode: normalizedCode,

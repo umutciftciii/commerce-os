@@ -6380,4 +6380,40 @@ describe("api gateway · cart selection + compareAt (Dilim 6a-refine)", () => {
     expect(unblocked.json().checkoutReady).toBe(true);
     await app.close();
   });
+
+  function seedAutomaticCampaign(dataAccess: MemoryDataAccess, discountValue: number) {
+    const now = new Date("2026-07-01T00:00:00.000Z");
+    dataAccess.campaigns.push({
+      id: "camp_auto", storeId: "store_demo", name: "Sepette %10 İndirim", description: null,
+      status: "ACTIVE", type: "AUTOMATIC_CART", discountType: "PERCENT", discountValue,
+      maxDiscountAmountMinor: null, minOrderAmountMinor: null, startsAt: null, endsAt: null,
+      totalUsageLimit: null, perCustomerUsageLimit: null, usageCount: 0, stackable: true, priority: 0,
+      isPublic: true, displayTitle: null, shortDescription: null, terms: null, badgeLabel: null,
+      badgeVariant: null, cardStyle: "STANDARD", accessModel: "AUTO_VISIBLE", displayPriority: 0,
+      productIds: [], categoryIds: [], coupons: [], createdAt: now, updatedAt: now,
+    });
+  }
+
+  it("cart line carries campaign discounted unit/line price when an automatic % campaign applies", async () => {
+    const { app, dataAccess } = await createTestApp();
+    seedAutomaticCampaign(dataAccess, 10);
+    // priceMinor 129900, %10 → 12990 indirim → indirimli 116910.
+    const res = await postCart(app, { items: [{ variantId: VARIANT, quantity: 1 }] });
+    const body = res.json();
+    expect(body.lines[0].discountedLineTotalMinor).toBe(116910);
+    expect(body.lines[0].discountedUnitPriceMinor).toBe(116910);
+    // Satir indirimi = 129900 - 116910 = 12990 (%10).
+    await app.close();
+  });
+
+  it("cart line discounted prices are null when no campaign applies (compareAt fallback still set)", async () => {
+    const { app } = await createTestApp();
+    const res = await postCart(app, { items: [{ variantId: VARIANT, quantity: 1 }] });
+    const body = res.json();
+    expect(body.lines[0].discountedUnitPriceMinor).toBeNull();
+    expect(body.lines[0].discountedLineTotalMinor).toBeNull();
+    // compareAt (149900 > 129900) yedek olarak yine dolu.
+    expect(body.lines[0].compareAtMinor).toBe(149900);
+    await app.close();
+  });
 });

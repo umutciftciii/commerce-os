@@ -1772,7 +1772,7 @@ function computeCartSummary(
 
 /** F4A — Bos/indirimsiz motor sonucu (kupon girilmedi). */
 function emptyDiscountResult(): DiscountEngineResult {
-  return { discountLines: [], discountMinor: 0, couponStatus: "NONE", couponReason: null, couponCode: null };
+  return { discountLines: [], discountMinor: 0, lineDiscounts: [], couponStatus: "NONE", couponReason: null, couponCode: null };
 }
 
 /**
@@ -1939,10 +1939,27 @@ function assemblePublicCart(
       discount.couponStatus === "APPLIED" ? normalizeCouponCode(discount.couponCode) : null,
     now,
   });
+  // Dilim 6a-refine — Satir bazinda KAMPANYA indirimini (motor pro-rata dagitimindan)
+  // her satira isle: kampanya-sonrasi birim/satir fiyati. Vitrin bunu ustu-cizili +
+  // indirimli olarak gosterir (compareAt liste fiyatina ONCELIKLI). Indirim yoksa null.
+  const lineDiscountByVariant = new Map(discount.lineDiscounts.map((d) => [d.variantId, d.discountMinor]));
+  const enrichedLines = lines.map((line) => {
+    const applied = lineDiscountByVariant.get(line.variantId) ?? 0;
+    if (applied <= 0 || line.status === "UNAVAILABLE") {
+      return { ...line, discountedUnitPriceMinor: null, discountedLineTotalMinor: null };
+    }
+    const discountedLineTotalMinor = line.lineTotalMinor - applied;
+    return {
+      ...line,
+      discountedLineTotalMinor,
+      discountedUnitPriceMinor:
+        line.availableQuantity > 0 ? Math.round(discountedLineTotalMinor / line.availableQuantity) : null,
+    };
+  });
   const cart = publicCartSchema.parse({
     storeSlug,
     currency,
-    lines,
+    lines: enrichedLines,
     subtotalMinor,
     itemCount,
     checkoutReady,

@@ -1844,3 +1844,37 @@ karmaşıklığı artar). (–) Görsel işleme senkron yükleme yolunda (büyü
 - Statik `/media/*` public — draft/özel içerik için imzalı URL Faz 4.
 - Mevcut veri migration'ı YOK (hiçbir görsel verisi yok; tüm alanlar nullable/opsiyonel eklenir, geriye
   dönük risk minimal).
+
+## ADR-066 — Sepet satırında kampanya indirimi: motor satır-bazlı pro-rata dağıtımı (kampanya öncelikli, compareAt yedek)
+
+**Bağlam.** Vitrin sepet satırında kampanya indiriminin gösterilmesi istendi (kampanya-öncesi birim fiyat
+üstü çizili + kampanya-sonrası fiyat) — tıpkı özet panelindeki "Sepette %10 İndirim" satırının satır
+kartına da yansıması gibi. İndirim motoru (`computeDiscounts`, ADR-058) o güne dek yalnız **kampanya-başı**
+toplam indirim + sepet-geneli toplam üretiyordu; **hangi satıra ne kadar indirim düştüğü** hesaplanmıyordu.
+İlk (hatalı) deneme satırda `compareAtMinor` (mağaza liste fiyatı) üstü çizili gösterdi — bu kampanya
+değil liste fiyatıdır, istenen bu değildi.
+
+**Karar.**
+1. **Motora satır-bazlı allocation eklendi.** `computeDiscounts` her uygulanan kampanya indirimini,
+   kapsamına giren satırlara `lineTotalMinor` oranında (pro-rata) dağıtır. Yuvarlama **en-büyük-kalan
+   (largest-remainder)** ile yapılır: floor sonrası artan kuruş(lar), en büyük kesirli paya sahip satırlara
+   deterministik sırayla eklenir → `sum(lineDiscounts) === discountMinor` (kuruş kaybı/fazlası YOK). Çoklu
+   kampanya (stacking) satır bazında birikir; satır indirimi satır tutarıyla sınırlanır (negatif fiyat olmaz).
+   Sonuç `DiscountEngineResult.lineDiscounts: {variantId, discountMinor}[]`.
+2. **Gateway** her cart line'a kampanya-sonrası `discountedUnitPriceMinor` + `discountedLineTotalMinor`
+   işler (`assemblePublicCart`, yalnız checkoutReady + seçili satırlar; ADR-047 sunucu-otoriter korunur).
+3. **Vitrin önceliği: kampanya > compareAt > sade.** Kampanya indirimi varsa satırda kampanya-sonrası fiyat
+   + üstü çizili orijinal; kampanya yoksa `compareAtMinor` (liste > satış) yedek üstü çizili; o da yoksa
+   sade fiyat.
+
+**Sonuçlar.**
+- Satır gösterimi ile özet indirimi tutarlı (kuruş kuruşuna); tek üründe satır indirimi = özet indirimi.
+- Motor girdisi (`DiscountCartLine`) zaten satır-farkındalıklıydı; yalnız çıktıya allocation eklendi —
+  mevcut toplam/kupon/stacking mantığı DEĞİŞMEDİ (yalnız additive `lineDiscounts`).
+- KDV/Omnibus/checkout snapshot yolları etkilenmez; `lineDiscounts` yalnız vitrin gösterimi için türetilir.
+
+**Alternatifler (reddedilen).**
+- **PDP-tahmini deseni (yalnız AUTOMATIC+PERCENT).** PDP buy-box'ın `estimatedFinalUnitPriceMinor`'ı cart'a
+  taşınırdı; daha basit ama kupon/sabit-tutar/çok-kampanya kapsanmaz ve özet ile satır çelişebilirdi.
+  Reddedildi — gerçek (motor-tutarlı) satır indirimi tercih edildi.
+- **compareAt (liste) üstü çizili.** İstenen kampanyayı yansıtmaz; yalnız yedek olarak korundu.

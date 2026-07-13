@@ -548,6 +548,8 @@ describe("catalog contracts", () => {
     imageUrl: null,
     selected: true,
     compareAtMinor: null,
+    discountedUnitPriceMinor: null,
+    discountedLineTotalMinor: null,
   };
 
   it("Dilim 6a-refine: publicCartLine carries selected + compareAtMinor (nullable)", () => {
@@ -555,6 +557,18 @@ describe("catalog contracts", () => {
     expect(publicCartLineSchema.parse({ ...baseCartLine, selected: false }).selected).toBe(false);
     expect(publicCartLineSchema.parse({ ...baseCartLine, compareAtMinor: 174900 }).compareAtMinor).toBe(174900);
     expect(publicCartLineSchema.parse({ ...baseCartLine, compareAtMinor: null }).compareAtMinor).toBeNull();
+  });
+
+  it("Dilim 6a-refine: publicCartLine carries campaign discounted unit/line price (nullable)", () => {
+    const parsed = publicCartLineSchema.parse({
+      ...baseCartLine,
+      discountedUnitPriceMinor: 134910,
+      discountedLineTotalMinor: 134910,
+    });
+    expect(parsed.discountedUnitPriceMinor).toBe(134910);
+    expect(parsed.discountedLineTotalMinor).toBe(134910);
+    // Kampanya yoksa null.
+    expect(publicCartLineSchema.parse(baseCartLine).discountedUnitPriceMinor).toBeNull();
   });
 
   it("Dilim 6a: publicCartLine imageUrl accepts a URL and null; drops leaked media fields", () => {

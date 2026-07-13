@@ -1248,7 +1248,13 @@ export const publicCartLineSchema = z.object({
   // Dilim 6a-refine — Satir birim LISTE (compareAt) fiyati; yalnizca gecerli bir indirim
   // varken (compareAt > satis fiyati) ve fiyat gorunurken doldurulur → vitrin ustu-cizili
   // gosterir. Indirim yoksa null. (PDP buy-box compareAt mantigi ile simetri.)
+  // YEDEK: kampanya indirimi yoksa gosterilir (kampanya ONCELIKLI).
   compareAtMinor: z.number().int().nonnegative().nullable(),
+  // Dilim 6a-refine — KAMPANYA indirimi satira dagitildiktan sonraki birim/satir fiyati
+  // (motor pro-rata). Aktif kampanya bu satiri kapsiyorsa doldurulur → vitrin ustu-cizili
+  // (unitPrice/lineTotal) + indirimli gosterir. Kampanya yoksa null (compareAt yedegine duser).
+  discountedUnitPriceMinor: z.number().int().nonnegative().nullable(),
+  discountedLineTotalMinor: z.number().int().nonnegative().nullable(),
 });
 
 export const publicCartSchema = z.object({
