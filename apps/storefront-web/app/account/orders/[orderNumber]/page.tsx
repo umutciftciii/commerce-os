@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Container } from "@commerce-os/ui";
 import { format, formatDate, type Locale } from "@commerce-os/i18n";
 import type { CustomerOrderDetail } from "@commerce-os/api-client";
 import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
@@ -10,7 +9,7 @@ import { canWriteReview, isReorderable, returnEligibility } from "../../../../li
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
-import { ProductMedia } from "../../../../components/ui";
+import { ButtonLink, Container, Heading, ProductMedia, Subheading } from "../../../../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -43,15 +42,15 @@ export default async function OrderDetailPage({
   return (
     <Container className="py-12">
       <div className="mx-auto max-w-3xl space-y-6">
-        <Link href="/account?section=orders" className="text-sm text-brand-700 hover:underline">
+        <ButtonLink href="/account?section=orders" variant="link" className="text-sm">
           ← {o.detail.backToList}
-        </Link>
+        </ButtonLink>
 
         <header className="space-y-2">
-          <h1 className="text-xl font-semibold text-slate-900">
+          <Heading as="h1">
             {o.orderNumber}: {order.orderNumber}
-          </h1>
-          <p className="text-sm text-slate-500">
+          </Heading>
+          <p className="text-sm text-ink-muted">
             {formatDate(order.createdAt, locale)} ·{" "}
             {format(o.items, { count: order.itemCount })}
           </p>
@@ -64,8 +63,8 @@ export default async function OrderDetailPage({
           />
         </header>
 
-        <section className="rounded-xl border border-slate-200 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">{o.detail.productsTitle}</h2>
+        <section className="border border-line p-4">
+          <Subheading as="h2" className="mb-3">{o.detail.productsTitle}</Subheading>
           <ul className="space-y-3">
             {order.lines.map((line) => (
               <li key={line.variantId} className="flex items-center gap-3">
@@ -78,18 +77,18 @@ export default async function OrderDetailPage({
                     imageUrl={line.imageUrl}
                   />
                 </div>
-                <span className="min-w-0 flex-1 text-sm text-slate-700">
+                <span className="min-w-0 flex-1 text-sm text-ink-muted">
                   <Link href={`/products/${line.productSlug}`} className="hover:underline">
                     {line.title}
                   </Link>
                   {line.variantTitle ? (
-                    <span className="text-slate-400"> · {line.variantTitle}</span>
+                    <span className="text-ink-subtle"> · {line.variantTitle}</span>
                   ) : null}
-                  <span className="block text-xs text-slate-400">
+                  <span className="block text-xs text-ink-subtle">
                     {line.sku} · ×{line.quantity}
                   </span>
                 </span>
-                <span className="shrink-0 text-sm font-medium text-slate-900">
+                <span className="shrink-0 text-sm font-medium text-ink">
                   {formatMinor(line.lineTotalMinor, order.currency)}
                 </span>
               </li>
@@ -110,7 +109,7 @@ export default async function OrderDetailPage({
 
         <BillingBlock o={o} order={order} />
 
-        <section className="rounded-xl border border-slate-200 p-4">
+        <section className="border border-line p-4">
           <OrderActions
             orderNumber={order.orderNumber}
             t={o}
@@ -128,16 +127,16 @@ export default async function OrderDetailPage({
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4 text-sm">
-      <span className="text-slate-500">{label}</span>
-      <span className={strong ? "font-semibold text-slate-900" : "text-slate-700"}>{value}</span>
+      <span className="text-ink-muted">{label}</span>
+      <span className={strong ? "font-semibold text-ink" : "text-ink-muted"}>{value}</span>
     </div>
   );
 }
 
 function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
   return (
-    <section className="rounded-xl border border-slate-200 p-4">
-      <h2 className="mb-3 text-sm font-semibold text-slate-900">{o.detail.summary}</h2>
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-3">{o.detail.summary}</Subheading>
       <div className="space-y-2">
         <Row label={o.detail.subtotal} value={formatMinor(order.subtotalMinor, order.currency)} />
         {order.discountMinor > 0 ? (
@@ -155,7 +154,7 @@ function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail 
           }
         />
         <Row label={o.detail.tax} value={formatMinor(order.taxMinor, order.currency)} />
-        <div className="border-t border-slate-100 pt-2">
+        <div className="border-t border-line pt-2">
           <Row label={o.detail.total} value={formatMinor(order.totalMinor, order.currency)} strong />
         </div>
       </div>
@@ -166,10 +165,10 @@ function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail 
 function ShippingBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
   const a = order.shippingAddress;
   return (
-    <section className="rounded-xl border border-slate-200 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-900">{o.detail.shippingAddress}</h2>
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-2">{o.detail.shippingAddress}</Subheading>
       {a ? (
-        <address className="text-sm not-italic leading-relaxed text-slate-600">
+        <address className="text-sm not-italic leading-relaxed text-ink-muted">
           {a.fullName}
           <br />
           {a.addressLine1}
@@ -189,7 +188,7 @@ function ShippingBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail
           ) : null}
         </address>
       ) : (
-        <p className="text-sm text-slate-400">—</p>
+        <p className="text-sm text-ink-subtle">—</p>
       )}
     </section>
   );
@@ -206,8 +205,8 @@ function PaymentBlock({
 }) {
   const p = order.payment;
   return (
-    <section className="rounded-xl border border-slate-200 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-900">{o.detail.paymentInfo}</h2>
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-2">{o.detail.paymentInfo}</Subheading>
       {p ? (
         <div className="space-y-1.5">
           <Row label={o.detail.provider} value={p.provider} />
@@ -230,11 +229,11 @@ function PaymentBlock({
             <Row label={o.detail.paidAt} value={formatDate(p.paidAt, locale)} />
           ) : null}
           {p.threeDsApplied ? (
-            <p className="text-xs text-slate-400">{o.detail.threeDs}</p>
+            <p className="text-xs text-ink-subtle">{o.detail.threeDs}</p>
           ) : null}
         </div>
       ) : (
-        <p className="text-sm text-slate-400">{o.detail.noPayment}</p>
+        <p className="text-sm text-ink-subtle">{o.detail.noPayment}</p>
       )}
     </section>
   );
@@ -244,14 +243,14 @@ function BillingBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail 
   const b = order.billing;
   if (!b) return null;
   return (
-    <section className="rounded-xl border border-slate-200 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-900">{o.detail.billing}</h2>
-      <div className="space-y-1.5 text-sm text-slate-600">
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-2">{o.detail.billing}</Subheading>
+      <div className="space-y-1.5 text-sm text-ink-muted">
         <p>{b.type === "CORPORATE" ? o.detail.corporate : o.detail.individual}</p>
         {b.companyName ? <p>{b.companyName}</p> : null}
         {b.name ? <p>{b.name}</p> : null}
         {b.taxOffice ? <p>{b.taxOffice}</p> : null}
-        {b.taxId ? <p className="text-slate-400">{b.taxId}</p> : null}
+        {b.taxId ? <p className="text-ink-subtle">{b.taxId}</p> : null}
       </div>
     </section>
   );

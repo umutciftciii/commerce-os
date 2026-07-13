@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { EmptyState } from "@commerce-os/ui";
 import { format, formatDate } from "@commerce-os/i18n";
 import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerOrderSummary } from "@commerce-os/api-client";
@@ -14,7 +13,7 @@ import {
 } from "../../../lib/orders";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
-import { ProductMedia } from "../../ui";
+import { Button, EmptyState, Field, Heading, Input, ProductMedia, Text } from "../../ui";
 
 type OrdersDict = StorefrontDictionary["account"]["orders"];
 
@@ -55,11 +54,11 @@ export function OrdersSection({
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-slate-900">{o.title}</h1>
-        <p className="text-sm text-slate-500">{o.subtitle}</p>
+        <Heading as="h1">{o.title}</Heading>
+        <Text>{o.subtitle}</Text>
       </header>
 
-      <nav className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+      <nav className="flex flex-wrap gap-2 border-b border-line pb-3">
         {ORDERS_TABS.map((value) => {
           const active = value === tab;
           return (
@@ -68,8 +67,8 @@ export function OrdersSection({
               href={tabHref(value, query)}
               className={
                 active
-                  ? "rounded-full bg-slate-900 px-3 py-1.5 text-sm font-medium text-white"
-                  : "rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                  ? "rounded-none bg-ink px-3 py-1.5 text-sm font-medium text-surface"
+                  : "rounded-none px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-surface-muted"
               }
             >
               {TAB_LABEL[value](o)}
@@ -81,22 +80,18 @@ export function OrdersSection({
       <form action="/account" method="get" className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="section" value="orders" />
         <input type="hidden" name="tab" value={tab} />
-        <label className="flex-1 min-w-[200px] text-sm">
-          <span className="mb-1 block font-medium text-slate-700">{o.search.label}</span>
-          <input
+        <Field label={o.search.label} htmlFor="orders-q" className="flex-1 min-w-[200px]">
+          <Input
+            id="orders-q"
             type="search"
             name="q"
             defaultValue={query}
             placeholder={o.search.placeholder}
-            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           />
-        </label>
-        <button
-          type="submit"
-          className="h-10 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white shadow-card ring-1 ring-inset ring-brand-700/30 hover:bg-brand-700"
-        >
+        </Field>
+        <Button type="submit" variant="primary">
           {o.search.submit}
-        </button>
+        </Button>
       </form>
 
       {filtered.length === 0 ? (
@@ -122,18 +117,18 @@ function OrderCard({
   locale: Locale;
 }) {
   return (
-    <li className="rounded-xl border border-slate-200 p-4">
+    <li className="border border-line p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-slate-900">
+          <p className="text-sm font-medium text-ink">
             {o.orderNumber}: {order.orderNumber}
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-muted">
             {formatDate(order.createdAt, locale)} ·{" "}
             {format(o.items, { count: order.itemCount })}
           </p>
         </div>
-        <p className="text-right text-sm font-semibold text-slate-900">
+        <p className="text-right text-sm font-semibold text-ink">
           {formatMinor(order.totalMinor, order.currency)}
         </p>
       </div>
@@ -157,12 +152,12 @@ function OrderCard({
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-line bg-surface-muted">
               <ProductMedia handle={line.productSlug} title={line.title} imageUrl={line.imageUrl} />
             </div>
-            <span className="min-w-0 text-sm text-slate-700">
+            <span className="min-w-0 text-sm text-ink-muted">
               {line.title}
               {line.variantTitle ? (
-                <span className="text-slate-400"> · {line.variantTitle}</span>
+                <span className="text-ink-subtle"> · {line.variantTitle}</span>
               ) : null}
-              <span className="text-slate-400"> ×{line.quantity}</span>
+              <span className="text-ink-subtle"> ×{line.quantity}</span>
             </span>
           </li>
         ))}
