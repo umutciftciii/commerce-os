@@ -106,6 +106,12 @@ function toCampaignView(
     badgeText: getCampaignBadgeText(input, locale),
     label: getCampaignPublicLabel(input, locale),
     discountText: getCampaignDiscountText(input),
+    // F4A.6 — Per-varyant "Sepette" tahmini icin ham teklif parametreleri (motorla
+    // ayni formul; bkz. estimateAutomaticUnitFinalMinor). Zaten reklam edilen teklif.
+    discountType: badge.discountType,
+    discountValue: badge.discountValue,
+    maxDiscountAmountMinor: badge.maxDiscountAmountMinor,
+    minOrderAmountMinor: badge.minOrderAmountMinor,
     requiresCoupon: badge.requiresCouponCode,
     couponCode: badge.couponCode,
     couponAction: badge.couponAction,

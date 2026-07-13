@@ -4832,6 +4832,7 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       requiresCouponCode: false,
       discountType: "PERCENT",
       discountValue: 10,
+      maxDiscountAmountMinor: null,
       minOrderAmountMinor: 100000,
       couponCode: null,
       couponAction: "MANUAL_ONLY",

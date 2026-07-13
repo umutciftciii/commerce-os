@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
+  cheapestVariantId,
+  estimateAutomaticUnitFinalMinor,
   maxPurchasableQuantity,
   type StorefrontCampaignView,
   type StorefrontProductDetail,
@@ -40,7 +42,9 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const { commerce, variants, price } = detail;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [selectedId, setSelectedId] = useState(variants[0]?.id ?? null);
+  // Varsayilan secim = EN UCUZ gorunur varyant (kart/PLP "en ucuzdan baslayan"
+  // fiyatiyla tutarli acilis; bkz. cheapestVariantId).
+  const [selectedId, setSelectedId] = useState(() => cheapestVariantId(variants));
   const [quantity, setQuantity] = useState(commerce.minQuantity);
   const [added, setAdded] = useState(false);
 
@@ -88,19 +92,21 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   // Adet > 1 iken birim fiyat ipucu ("Birim fiyat ₺1.299,00") gosterilir.
   const showUnitNote = numeric && unitMinor !== null && quantity > 1;
 
-  // OTOMATIK kampanya indirimi (AUTOMATIC_CART_DISCOUNT) VE sunucu guvenli bir
-  // nihai birim fiyat verebildiyse: fiyat blogunu "uzeri cizili liste fiyati →
-  // buyuk indirimli nihai fiyat → %rozet + Kod gerekmez" hiyerarsisiyle sunar
-  // (indirim varligi net iletilsin). Public kupon (PUBLIC_COUPON) ve guvenli
-  // tahmin YOKKEN (estimatedFinalLabel null) davranis DEGISMEZ — o durumlarda
-  // kupon karti / fallback kutu asagidaki DetailCampaign'da kalir. Burada hic
-  // hesap/turetme yapilmaz; estimatedFinalLabel/discountText aynen kullanilir.
-  const autoCampaign =
-    detail.campaign?.displayKind === "AUTOMATIC_CART_DISCOUNT" && detail.campaign.estimatedFinalLabel
-      ? detail.campaign
-      : null;
-  const showAutoPriceBlock = numeric && autoCampaign !== null;
-  // Kampanyanin indirdigi taban birim fiyat = uzeri cizili gosterilecek "liste" fiyati.
+  // OTOMATIK kampanya indirimi (AUTOMATIC_CART_DISCOUNT) VE SECILI varyant icin
+  // guvenli bir nihai birim fiyat hesaplanabildiyse: fiyat blogunu "uzeri cizili
+  // liste fiyati → buyuk indirimli nihai fiyat → %rozet + Kod gerekmez"
+  // hiyerarsisiyle sunar. Tahmin SECILI varyantin fiyatindan (motorla ayni
+  // formul) turetilir; boylece varyant degisince fiyat REAKTIF ve uzeri-cizili
+  // liste fiyatiyla TUTARLI olur (sunucunun urun-seviyesi/en-ucuz varyant
+  // `estimatedFinalLabel` degeri ust-varyantta yanlis/donuk kaliyordu). Public
+  // kupon (PUBLIC_COUPON) ve tahmin YOKKEN davranis DEGISMEZ — kupon karti /
+  // fallback kutu asagidaki DetailCampaign'da kalir.
+  const autoEstimate =
+    numeric && detail.campaign ? estimateAutomaticUnitFinalMinor(unitMinor, detail.campaign) : null;
+  const autoCampaign = autoEstimate ? detail.campaign : null;
+  const showAutoPriceBlock = autoCampaign !== null;
+  // Kampanyanin nihai birim fiyati (SECILI varyant) ve uzeri cizili "liste" fiyati.
+  const autoFinalLabel = autoEstimate ? formatMinor(autoEstimate.finalMinor, currency) : null;
   const unitListLabel = numeric && unitMinor !== null ? formatMinor(unitMinor, currency) : null;
 
   // ADD_TO_CART: secili varyanti cookie sepete ekler (Server Action) ve SAYFADA
@@ -141,7 +147,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             <span className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
               {t.badges.inCart}
             </span>
-            <span className="text-2xl font-bold text-ink">{autoCampaign.estimatedFinalLabel}</span>
+            <span className="text-2xl font-bold text-ink">{autoFinalLabel}</span>
             <span className="inline-flex items-center bg-ink px-1.5 py-0.5 text-[11px] font-bold text-surface">
               {autoCampaign.discountText}
             </span>

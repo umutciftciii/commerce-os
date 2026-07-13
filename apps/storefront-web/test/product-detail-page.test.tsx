@@ -230,10 +230,16 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
           badgeText: "Sepette %10 indirim",
           label: "Sepette %10 indirim",
           discountText: "%10",
+          discountType: "PERCENT",
+          discountValue: 10,
+          maxDiscountAmountMinor: null,
+          // Birim fiyat (₺1.299) alt-limitin (₺2.000) ALTINDA → tek birim guvenli
+          // tahmin uretmez (motorla ayni kural); fallback kutu (etiket + not) gosterilir.
+          minOrderAmountMinor: 200000,
           requiresCoupon: false,
           couponCode: null,
           couponAction: "MANUAL_ONLY",
-          minOrderLabel: "₺1.000",
+          minOrderLabel: "₺2.000",
           endsAt: null,
           estimatedFinalLabel: null,
           displayTitle: null,
@@ -247,7 +253,7 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
     const html = renderToStaticMarkup(await render());
     expect(html).toContain("Sepette %10 indirim");
     expect(html).toContain("Kod gerekmez");
-    expect(html).toContain("₺1.000 üzeri geçerli");
+    expect(html).toContain("₺2.000 üzeri geçerli");
     expect(html).not.toContain("Kupon kodu gerektirir");
   });
 
@@ -260,6 +266,10 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
           badgeText: "Sepette %10 indirim",
           label: "Sepette %10 indirim",
           discountText: "%10",
+          discountType: "PERCENT",
+          discountValue: 10,
+          maxDiscountAmountMinor: null,
+          minOrderAmountMinor: null,
           requiresCoupon: false,
           couponCode: null,
           couponAction: "MANUAL_ONLY",
@@ -276,6 +286,7 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
     });
     const html = renderToStaticMarkup(await render());
     expect(html).toContain("Sepette");
+    // Per-varyant tahmin: secili varyant fiyati 129900 × %10 → ₺1.169,10 (reaktif).
     expect(html).toContain("₺1.169,10"); // güvenli nihai fiyat
     expect(html).toContain("Kod gerekmez");
     expect(html).not.toContain("Kupon kodu gerektirir");
@@ -290,6 +301,10 @@ describe("storefront · product detail campaign info (F4A.1/F4A.3)", () => {
           badgeText: "Kuponlu ürün",
           label: "₺250 kupon",
           discountText: "₺250",
+          discountType: "FIXED_AMOUNT",
+          discountValue: 25000,
+          maxDiscountAmountMinor: null,
+          minOrderAmountMinor: 100000,
           requiresCoupon: true,
           couponCode: "TEST250",
           couponAction: "CLAIM",

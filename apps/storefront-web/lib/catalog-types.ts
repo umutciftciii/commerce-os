@@ -102,6 +102,17 @@ export interface StorefrontCampaignView {
   label: string;
   /** Ham indirim tutari metni ("%10" / "₺250") — kupon karti icin. */
   discountText: string;
+  /**
+   * F4A.6 — Otomatik "Sepette" tahminini SECILI/EN-UCUZ varyantin fiyatindan
+   * (motorla ayni formul) turetmek icin gereken ham teklif parametreleri. Bunlar
+   * zaten reklam edilen tekliftir (rozet "%10" gosterir); ic kampanya verisi
+   * (limit/priority/kimlik) DEGILDIR. FIXED_AMOUNT ya da gizli fiyatta tahmin
+   * uretilmez. bkz. {@link estimateAutomaticUnitFinalMinor}.
+   */
+  discountType: "PERCENT" | "FIXED_AMOUNT";
+  discountValue: number;
+  maxDiscountAmountMinor: number | null;
+  minOrderAmountMinor: number | null;
   /** Kupon kodu gerektiren kampanya mi. */
   requiresCoupon: boolean;
   /** F4A.3 — Public kupon kodu (varsa); otomatik/gizli kuponda null. */
@@ -123,6 +134,43 @@ export interface StorefrontCampaignView {
   shortDescription: string | null;
   badgeLabel: string | null;
   terms: string | null;
+}
+
+/**
+ * F4A.6 (ADR-062) — Otomatik sepet indiriminin GUVENLI birim-basi tahmini
+ * (vitrin gorunumu). Gateway'in `computeAutomaticEstimate` fonksiyonuyla AYNI
+ * formul: yalniz AUTOMATIC_CART_DISCOUNT + PERCENT + (minOrder yok ya da tek
+ * birim esigi karsiliyor) durumunda hesaplanir; round(unit*yuzde), maxDiscount
+ * cap ve birim fiyatla sinirlama. Aksi halde null (sahte nihai fiyat URETILMEZ).
+ *
+ * Bu SAF turetme, sunucunun urun-seviyesi (en-ucuz varyant) `estimatedFinalLabel`
+ * degeri yerine SECILI varyantin fiyatindan hesap yapmak icindir: boylece PDP'de
+ * varyant degisince "Sepette" fiyati REAKTIF ve uzeri-cizili liste fiyatiyla
+ * TUTARLI olur (cok-varyantli urunde ust-varyant artik yanlis/donuk gostermez).
+ * KAYNAK DOGRUSU yine checkout motorudur; bu yalniz gorunum tahminidir.
+ */
+export function estimateAutomaticUnitFinalMinor(
+  unitPriceMinor: number | null,
+  campaign: Pick<
+    StorefrontCampaignView,
+    "displayKind" | "discountType" | "discountValue" | "minOrderAmountMinor" | "maxDiscountAmountMinor"
+  >,
+): { discountMinor: number; finalMinor: number } | null {
+  if (campaign.displayKind !== "AUTOMATIC_CART_DISCOUNT") return null;
+  if (unitPriceMinor === null || unitPriceMinor <= 0) return null;
+  if (campaign.discountType !== "PERCENT") return null;
+  // `!= null` bilincli: alan gateway yanitinda henuz yoksa (undefined) null gibi
+  // ele alinir — yoksa `Math.min(discount, undefined)` NaN uretirdi.
+  if (campaign.minOrderAmountMinor != null && unitPriceMinor < campaign.minOrderAmountMinor) {
+    return null;
+  }
+  let discount = Math.round((unitPriceMinor * campaign.discountValue) / 100);
+  if (campaign.maxDiscountAmountMinor != null) {
+    discount = Math.min(discount, campaign.maxDiscountAmountMinor);
+  }
+  discount = Math.max(0, Math.min(discount, unitPriceMinor));
+  if (discount <= 0) return null;
+  return { discountMinor: discount, finalMinor: unitPriceMinor - discount };
 }
 
 /**
@@ -199,6 +247,22 @@ export function maxPurchasableQuantity(opts: {
   const storeMax = opts.storeMax ?? 99;
   if (opts.available === null) return storeMax;
   return Math.max(opts.minQuantity, Math.min(storeMax, opts.available));
+}
+
+/**
+ * PDP varsayilan varyant secimi = EN UCUZ gorunur (numerik fiyatli) varyant.
+ * Boylece PDP acilis fiyati, kart/PLP'nin gosterdigi "en ucuzdan baslayan"
+ * fiyatla (ve kampanya "Sepette" tahminiyle) BIREBIR tutarli olur. Numerik
+ * fiyatli varyant yoksa ilk varyanta (ya da null'a) duser. Esitlikte dizi
+ * sirasi korunur (deterministik).
+ */
+export function cheapestVariantId(variants: StorefrontVariantView[]): string | null {
+  const priced = variants.filter((variant) => variant.priceMinor !== null);
+  if (priced.length === 0) return variants[0]?.id ?? null;
+  return priced.reduce(
+    (min, variant) => ((variant.priceMinor as number) < (min.priceMinor as number) ? variant : min),
+    priced[0],
+  ).id;
 }
 
 /** Detaydaki tek varyant gorunumu. */

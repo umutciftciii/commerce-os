@@ -161,6 +161,7 @@ describe("selectPublicCampaignBadge", () => {
       requiresCouponCode: false,
       discountType: "PERCENT",
       discountValue: 10,
+      maxDiscountAmountMinor: null,
       minOrderAmountMinor: 100000,
       couponCode: null,
       couponAction: "MANUAL_ONLY",
