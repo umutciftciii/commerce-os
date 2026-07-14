@@ -580,6 +580,10 @@ model Store {
   attributeGroups                  AttributeGroup[]
   attributeOptions                 AttributeOption[]
   categoryAttributes               CategoryAttribute[]
+  // Faz 2A (ADR-068) — urun/varyant attribute DEGER tablolari (STORE-scoped, tenant sutunu).
+  productAttributeValues           ProductAttributeValue[]
+  variantAttributeValues           VariantAttributeValue[]
+  productAttributeValueOptions     ProductAttributeValueOption[]
 }
 
 model StoreUser {
@@ -741,6 +745,8 @@ model Product {
   orderLines       OrderLine[]
   campaignProducts CampaignProduct[]
   images           ProductImage[]
+  // Faz 2A (ADR-068) — urun-seviyesi (non-variantDefining) attribute degerleri.
+  attributeValues  ProductAttributeValue[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -782,12 +788,14 @@ model ProductVariant {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  product      Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
-  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  inventory    InventoryItem?
-  movements    InventoryMovement[]
-  orderLines   OrderLine[]
-  reservations InventoryReservation[]
+  product         Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventory       InventoryItem?
+  movements       InventoryMovement[]
+  orderLines      OrderLine[]
+  reservations    InventoryReservation[]
+  // Faz 2A (ADR-068) — variantDefining attribute degerleri (yalniz valueText/optionId).
+  attributeValues VariantAttributeValue[]
 
   @@unique([storeId, sku])
   @@index([productId])
@@ -2004,12 +2012,15 @@ model MediaAsset {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  store           Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  productImages   ProductImage[]
-  categoryLinks   ProductCategory[] @relation("CategoryImage")
-  heroSlides      HeroSlide[]
-  logoSettings    StoreSettings[]   @relation("StoreLogo")
-  faviconSettings StoreSettings[]   @relation("StoreFavicon")
+  store                  Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productImages          ProductImage[]
+  categoryLinks          ProductCategory[]       @relation("CategoryImage")
+  heroSlides             HeroSlide[]
+  logoSettings           StoreSettings[]         @relation("StoreLogo")
+  faviconSettings        StoreSettings[]         @relation("StoreFavicon")
+  // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri olarak kullanan urun satirlari
+  // (onDelete: Restrict; media silme ucu MEDIA_IN_USE guard'i ile korunur).
+  productAttributeValues ProductAttributeValue[]
 
   @@index([storeId])
   @@index([storeId, context])
@@ -2099,9 +2110,12 @@ model AttributeDefinition {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  store         Store?              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store         Store?                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   options       AttributeOption[]
   categoryLinks CategoryAttribute[]
+  // Faz 2A (ADR-068) — bu tanimi DEGER olarak kullanan urun/varyant satirlari (onDelete: Restrict).
+  productValues ProductAttributeValue[]
+  variantValues VariantAttributeValue[]
 
   @@unique([storeId, code])
   @@index([storeId])
@@ -2142,8 +2156,12 @@ model AttributeOption {
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
-  definition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
-  store      Store?              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  definition        AttributeDefinition           @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  store             Store?                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  // Faz 2A (ADR-068) — bu secenegi DEGER olarak kullanan satirlar (onDelete: Restrict).
+  productValues     ProductAttributeValue[]
+  variantValues     VariantAttributeValue[]
+  productValueLinks ProductAttributeValueOption[]
 
   @@unique([attributeDefinitionId, value])
   @@index([attributeDefinitionId])
@@ -2185,4 +2203,101 @@ model CategoryAttribute {
   @@index([categoryId])
   @@index([attributeDefinitionId])
   @@index([groupId])
+}
+
+// ─────────────────────── Faz 2A (ADR-068) — Urun/varyant attribute DEGER tablolari ───────────────────────
+// Faz 1B katalog TANIMINI (AttributeDefinition + CategoryAttribute davranisi) tuketip
+// urun ve varyantlarin gercek attribute DEGERLERINI saklar. TUM yazimlar tek nokta olan
+// `attributeValueService`'ten gecer (route dogrudan Prisma'ya yazmaz). Tip guvenli
+// saklama: her dataType icin AYRI kolon (JSON kullanilmaz); bir satirda EN FAZLA bir
+// deger kolonu dolu olabilir (DB CHECK + servis). MULTI_SELECT degeri junction tabloda
+// (deger kolonlari bos kalir). combinationKey / otomatik varyant / order snapshot Faz 2B+.
+
+// Bir urunun bir attribute icin DEGERI. dataType -> kolon eslemesi (servis otoritesi):
+//  TEXT/TEXTAREA/RICH_TEXT/URL -> valueText, INTEGER -> valueInteger, DECIMAL -> valueDecimal,
+//  BOOLEAN -> valueBoolean, DATE -> valueDate, SELECT/COLOR -> optionId, IMAGE/FILE -> mediaId,
+//  MULTI_SELECT -> ProductAttributeValueOption (junction; tum deger kolonlari bos).
+// storeId denormalize tenant sutunudur. definition/option/media onDelete: Restrict
+// (kullanimda olan tanim/secenek/gorsel silinemez — katalog usage-guard felsefesi).
+model ProductAttributeValue {
+  id                    String @id @default(cuid())
+  storeId               String
+  productId             String
+  attributeDefinitionId String
+
+  // Tip guvenli deger kolonlari — bir satirda EN FAZLA biri dolu (DB CHECK + servis).
+  valueText    String?
+  valueInteger Int?
+  valueDecimal Decimal?  @db.Decimal(20, 6)
+  valueBoolean Boolean?
+  valueDate    DateTime?
+  optionId     String? // SELECT / COLOR
+  mediaId      String? // IMAGE / FILE
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store       Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product     Product                       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  definition  AttributeDefinition           @relation(fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
+  option      AttributeOption?              @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  media       MediaAsset?                   @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  optionLinks ProductAttributeValueOption[]
+
+  // Bir urun + attribute en fazla bir kez (deger tekildir; MULTI_SELECT'te coklu secenek
+  // junction'da tutulur, parent yine tekildir).
+  @@unique([productId, attributeDefinitionId])
+  @@index([storeId])
+  @@index([productId])
+  @@index([attributeDefinitionId])
+  @@index([optionId])
+  @@index([mediaId])
+}
+
+// Bir varyantin bir attribute icin DEGERI. YALNIZ variantDefining attribute'lar burada
+// tutulur (servis guard). Deger yalnizca metin (valueText) veya secenek (optionId)
+// olabilir — MULTI_SELECT/IMAGE/FILE variant tablosuna yazilmaz. combinationKey UYGULANMAZ.
+model VariantAttributeValue {
+  id                    String @id @default(cuid())
+  storeId               String
+  variantId             String
+  attributeDefinitionId String
+
+  valueText String? // TEXT/TEXTAREA/RICH_TEXT/URL
+  optionId  String? // SELECT / COLOR
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant    ProductVariant      @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  definition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
+  option     AttributeOption?    @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([variantId, attributeDefinitionId])
+  @@index([storeId])
+  @@index([variantId])
+  @@index([attributeDefinitionId])
+  @@index([optionId])
+}
+
+// MULTI_SELECT icin junction: bir ProductAttributeValue (parent) <-> secilen AttributeOption'lar.
+// JSON KULLANILMAZ (iliskisel butunluk + gelecekte faceted-filtre icin sorgulanabilir).
+// parent silinince Cascade; secenek Restrict (kullanimdaki secenek silinemez).
+model ProductAttributeValueOption {
+  id                      String @id @default(cuid())
+  storeId                 String
+  productAttributeValueId String
+  optionId                String
+
+  createdAt DateTime @default(now())
+
+  store  Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  value  ProductAttributeValue @relation(fields: [productAttributeValueId], references: [id], onDelete: Cascade)
+  option AttributeOption       @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([productAttributeValueId, optionId])
+  @@index([storeId])
+  @@index([productAttributeValueId])
+  @@index([optionId])
 }

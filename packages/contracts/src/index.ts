@@ -585,6 +585,80 @@ export const categoryAttributeUpdateRequestSchema = z
     message: "At least one field is required.",
   });
 
+// ─────────────────────── Faz 2A (ADR-068) — Urun/varyant attribute DEGERLERI ───────────────────────
+// Faz 1B katalog TANIMINI tuketen DEGER katmani. Hangi deger alaninin dolacagi attribute'un
+// dataType'ina baglidir; tip<->alan eslemesi, "en fazla bir alan" ve required/tenant/option
+// kontrolleri attributeValueService'te STABIL kodlarla yapilir (zod refine DEGIL — generic
+// VALIDATION_ERROR ozel kodlari yutmasin; Faz 1A/1B deseni). Sema yalniz sekli dogrular.
+
+// Tek bir urun attribute deger GIRDISI (product create/update icindeki attributeValues[] ogesi
+// ve dedike replace ucunun eleman tipi). MULTI_SELECT icin optionIds[] kullanilir.
+export const productAttributeValueInputSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  valueText: z.string().optional(),
+  valueInteger: z.number().int().optional(),
+  valueDecimal: z.number().optional(),
+  valueBoolean: z.boolean().optional(),
+  // ISO-8601; servis DATE dataType'i icin valueDate kolonuna yazar.
+  valueDate: z.string().datetime().optional(),
+  optionId: z.string().min(1).optional(), // SELECT / COLOR
+  optionIds: z.array(z.string().min(1)).optional(), // MULTI_SELECT
+  mediaId: z.string().min(1).optional(), // IMAGE / FILE
+});
+
+// Varyant deger girdisi — yalniz metin veya secenek (variantDefining attribute'lar).
+export const variantAttributeValueInputSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  valueText: z.string().optional(),
+  optionId: z.string().min(1).optional(),
+});
+
+// Okuma projeksiyonu (dual-read hazirligi). dataType echo edilir; tuketici hangi deger
+// alanini okuyacagini bilir. MULTI_SELECT icin optionIds dolar (digerlerinde bos dizi).
+export const productAttributeValueSchema = z.object({
+  id: z.string().min(1),
+  attributeDefinitionId: z.string().min(1),
+  dataType: attributeDataTypeSchema,
+  valueText: z.string().nullable(),
+  valueInteger: z.number().int().nullable(),
+  valueDecimal: z.number().nullable(),
+  valueBoolean: z.boolean().nullable(),
+  valueDate: z.string().datetime().nullable(),
+  optionId: z.string().nullable(),
+  optionIds: z.array(z.string().min(1)),
+  mediaId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const productAttributeValueListResponseSchema = z.object({
+  data: z.array(productAttributeValueSchema),
+});
+
+export const variantAttributeValueSchema = z.object({
+  id: z.string().min(1),
+  attributeDefinitionId: z.string().min(1),
+  dataType: attributeDataTypeSchema,
+  valueText: z.string().nullable(),
+  optionId: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const variantAttributeValueListResponseSchema = z.object({
+  data: z.array(variantAttributeValueSchema),
+});
+
+// Dedike internal replace uclari icin govde. `values` TAM istenen kume (replace-set
+// semantigi); [] gonderilirse tum degerler temizlenir (categoryIds/imageMediaIds deseni).
+export const productAttributeValuesReplaceRequestSchema = z.object({
+  values: z.array(productAttributeValueInputSchema),
+});
+
+export const variantAttributeValuesReplaceRequestSchema = z.object({
+  values: z.array(variantAttributeValueInputSchema),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -839,6 +913,10 @@ export const productCreateRequestSchema = z
     // F3C.2 — Kargo olcumu. 0/negatif anlamsiz: >0 olmali; bos birakilabilir (null).
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
+    // Faz 2A (ADR-068) — OPSIYONEL urun attribute degerleri. undefined = eski davranis
+    // (attribute yazilmaz; geriye donuk uyumlu). Verildiginde attributeValueService TAM
+    // istenen kume olarak isler + tip/tenant/required/option/variantDefining dogrular.
+    attributeValues: z.array(productAttributeValueInputSchema).optional(),
   })
   .refine((value) => value.maxOrderQuantity == null || value.maxOrderQuantity >= value.minOrderQuantity, {
     message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
@@ -887,6 +965,9 @@ export const productUpdateRequestSchema = z
     // F3C.2 — Kargo olcumu. >0 olmali; null = temizle.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
+    // Faz 2A (ADR-068) — OPSIYONEL urun attribute degerleri (TAM istenen kume). undefined =
+    // dokunma (eski davranis korunur); [] = tumunu temizle. attributeValueService dogrular.
+    attributeValues: z.array(productAttributeValueInputSchema).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -1965,6 +2046,9 @@ export const productVariantCreateRequestSchema = z
     // F3C.2 — Kargo olcumu (varyant override). >0 olmali; bos = null.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
+    // Faz 2A (ADR-068) — OPSIYONEL variantDefining attribute degerleri (TAM istenen kume).
+    // undefined = eski davranis; attributeValueService yalniz variantDefining kabul eder.
+    attributeValues: z.array(variantAttributeValueInputSchema).optional(),
   })
   // F4C — Fiyat girisi zorunlu: brut (legacy) veya net (yeni admin UI).
   .refine((value) => value.priceMinor !== undefined || value.netPriceMinor !== undefined, {
@@ -2009,6 +2093,9 @@ export const productVariantUpdateRequestSchema = z
     // F3C.2 — Kargo olcumu (varyant override). >0 olmali; null = temizle.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
+    // Faz 2A (ADR-068) — OPSIYONEL variantDefining attribute degerleri (TAM istenen kume).
+    // undefined = dokunma; [] = temizle. attributeValueService dogrular.
+    attributeValues: z.array(variantAttributeValueInputSchema).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -2603,6 +2690,15 @@ export type CategoryAttribute = z.infer<typeof categoryAttributeSchema>;
 export type CategoryAttributeListResponse = z.infer<typeof categoryAttributeListResponseSchema>;
 export type CategoryAttributeCreateRequest = z.infer<typeof categoryAttributeCreateRequestSchema>;
 export type CategoryAttributeUpdateRequest = z.infer<typeof categoryAttributeUpdateRequestSchema>;
+// Faz 2A (ADR-068) — urun/varyant attribute deger tipleri.
+export type ProductAttributeValueInput = z.infer<typeof productAttributeValueInputSchema>;
+export type VariantAttributeValueInput = z.infer<typeof variantAttributeValueInputSchema>;
+export type ProductAttributeValueResponse = z.infer<typeof productAttributeValueSchema>;
+export type ProductAttributeValueListResponse = z.infer<typeof productAttributeValueListResponseSchema>;
+export type VariantAttributeValueResponse = z.infer<typeof variantAttributeValueSchema>;
+export type VariantAttributeValueListResponse = z.infer<typeof variantAttributeValueListResponseSchema>;
+export type ProductAttributeValuesReplaceRequest = z.infer<typeof productAttributeValuesReplaceRequestSchema>;
+export type VariantAttributeValuesReplaceRequest = z.infer<typeof variantAttributeValuesReplaceRequestSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

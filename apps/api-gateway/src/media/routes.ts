@@ -262,9 +262,11 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
       return reply.code(404).send(errorBody("NOT_FOUND", "Gorsel bulunamadi."));
     }
 
-    // 2) Referans butunlugu. 4 referans tablosunu storeId ile sinirli sayariz;
-    //    herhangi birinde kullanim varsa silmeyi reddeder (sessiz SetNull YOK).
-    const [productImageCount, heroSlideCount, storeSettingsCount, categoryCount] =
+    // 2) Referans butunlugu. Referans tablolarini storeId ile sinirli sayariz; herhangi
+    //    birinde kullanim varsa silmeyi reddeder (sessiz SetNull YOK). Faz 2A (ADR-068):
+    //    ProductAttributeValue.mediaId (IMAGE/FILE attribute degeri) FK onDelete: Restrict
+    //    oldugundan burada da sayilir — aksi halde silme P2003 ile 500 verirdi.
+    const [productImageCount, heroSlideCount, storeSettingsCount, categoryCount, attributeValueCount] =
       await Promise.all([
         prisma.productImage.count({
           where: { mediaId: params.mediaId, storeId: params.storeId },
@@ -281,6 +283,9 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
         prisma.productCategory.count({
           where: { imageId: params.mediaId, storeId: params.storeId },
         }),
+        prisma.productAttributeValue.count({
+          where: { mediaId: params.mediaId, storeId: params.storeId },
+        }),
       ]);
 
     const usedIn: string[] = [];
@@ -288,6 +293,7 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     if (heroSlideCount > 0) usedIn.push("HeroSlide");
     if (storeSettingsCount > 0) usedIn.push("StoreSettings");
     if (categoryCount > 0) usedIn.push("ProductCategory");
+    if (attributeValueCount > 0) usedIn.push("ProductAttributeValue");
 
     if (usedIn.length > 0) {
       // `usedIn` structured `details` altina konur: api-client hata zarfinda yalniz

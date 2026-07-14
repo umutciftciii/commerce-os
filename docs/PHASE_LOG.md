@@ -3084,3 +3084,49 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri runtime smoke.
   Faz 2 (ProductAttributeValue / VariantAttributeValue / dinamik form / varyant motoru / PDP tablo / faceted search /
   marketplace mapping) ayrı iş.
+
+## 2026-07-14 — Faz 2A: Ürün/varyant attribute DEĞER temeli + `attributeValueService` (ADR-068, TODO-145)
+
+- **Kapsam.** Faz 1B katalog TANIMINI tüketip ürün/varyantların gerçek attribute DEĞERLERİNİ saklayan çekirdek veri +
+  doğrulama katmanı. Dinamik ürün formu, varyant kombinasyon motoru/`combinationKey`, otomatik varyant, PDP attribute
+  tablosu, faceted search, marketplace mapping, order snapshot **KAPSAM DIŞI**. Storefront/checkout/order/inventory/
+  search/marketplace ve ürün formu DEĞİŞMEDİ.
+- **Prisma.** 3 model: `ProductAttributeValue` (tip başına ayrı kolon `valueText/valueInteger/valueDecimal(Decimal 20,6)/
+  valueBoolean/valueDate` + `optionId` FK + `mediaId` FK; `@@unique([productId, attributeDefinitionId])`),
+  `VariantAttributeValue` (yalnız `valueText`+`optionId`; variantDefining), `ProductAttributeValueOption` (MULTI_SELECT
+  junction — **JSON YOK**; `@@unique([productAttributeValueId, optionId])`). FK: definition/option/media `onDelete: Restrict`
+  (kullanımdaki tanım/seçenek/görsel silinemez), product/variant/store `Cascade`. Back-relation'lar Store/Product/
+  ProductVariant/AttributeDefinition/AttributeOption/MediaAsset'e eklendi.
+- **CHECK constraint.** İki adet: `ProductAttributeValue_single_value_check` (7 kolonun NOT NULL toplamı `<= 1`) ve
+  `VariantAttributeValue_single_value_check` (valueText XOR optionId). MULTI_SELECT satırı 0 kolon dolu → `<= 1` kapsar.
+  Cross-table datatype eşlemesi DB'ye TAŞINMADI (serviste). Migration `20260714130000_add_product_attribute_values`
+  TAMAMEN ADDITIVE.
+- **attributeValueService (tek yazma otoritesi).** ProductAttributeValue/VariantAttributeValue yazan hiçbir route
+  doğrudan Prisma'ya yazmaz. STABIL kodlarla doğrular (zod refine değil): tenant izolasyonu, attribute mevcut/archived,
+  primaryCategoryId + CategoryAttribute bağı, required (yalnız değer sağlanınca — undefined = eski davranış), dataType↔alan
+  eşlemesi + "en fazla bir alan", option attribute/tenant/archived, media tenant, **variantDefining tablo yönlendirme**
+  (product-level→variant tablosuna, variant→product tablosuna YAZILAMAZ). read-only `prepare*` (create'ten ÖNCE doğrula) +
+  `persist*` (sonra yaz); yazma **replace-set** (`[]` temizler, `undefined` dokunmaz). Kodlar: `ATTRIBUTE_NOT_FOUND/
+  ARCHIVED/TENANT_MISMATCH/NOT_IN_CATEGORY/DUPLICATE/VALUE_MISSING/MULTIPLE_VALUES/VALUE_TYPE_MISMATCH/OPTION_INVALID/
+  OPTION_ARCHIVED/OPTION_TENANT_MISMATCH/MEDIA_NOT_FOUND/REQUIRED_MISSING/IS_VARIANT_DEFINING/NOT_VARIANT_DEFINING`,
+  `PRODUCT_CATEGORY_REQUIRED`, `PRODUCT/VARIANT_NOT_FOUND`.
+- **Gateway.** `src/attribute-values/` ayrı data-access + service + route modülü (attributes/ deseni; DI). Product/Variant
+  create-update GÖMÜLÜ opsiyonel `attributeValues` (create'te ürün oluşmadan önce doğrulanır) + dedike internal replace
+  uçları (`GET/PUT .../products/:id/attribute-values` ve `.../variants/:id/attribute-values`; store admin). Media silme
+  in-use guard'ına `ProductAttributeValue.mediaId` eklendi.
+- **Contracts/İstemci.** `productAttributeValueInputSchema` (MULTI_SELECT için optionIds), `variantAttributeValueInputSchema`,
+  read + replace-request şemaları; product/variant create/update'e opsiyonel `attributeValues`. api-client
+  `admin.products.attributeValues.{get,replace}` + `admin.products.variants.attributeValues.{get,replace}`. Ürün formu
+  DEĞİŞMEDİ (API hazır; UI Faz 2B).
+- **Testler.** gateway `attribute-values.test.ts` 30 (typed value matrix / tenant / option / required / archived /
+  variantDefining tablo yönlendirme / MULTI_SELECT junction+dedup / replace-set + dedike route round-trip/403/404) +
+  media-delete 1 yeni; contracts `attribute-value-contracts.test.ts` 12 (şema + geriye uyum); db
+  `attribute-value-migration.test.ts` 8 (CHECK/junction/FK DDL). Regresyon: api-gateway **747/747**, contracts **93/93**,
+  api-client **23/23**, db **8/8**.
+- **Gate.** db:generate + build (contracts/db/api-client/api-gateway) + typecheck (değişen paketler temiz; storefront
+  `checkout-form-render` hatası ÖNCEDEN mevcut) + lint temiz + izole shadow-DB `migrate diff` = **"No difference"**
+  (drift yok). Canlı DB smoke (izole `smoke_2a`): `migrate deploy` OK; CHECK iki-değer REDDETTİ, sıfır-değer (MULTI_SELECT)
+  FK'ye düştü (CHECK geçti), variant CHECK ikili değeri reddetti.
+- **Kalan.** Merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri runtime smoke.
+  Faz 2B (dinamik ürün formu / attribute renderer / kategori-değişince-form / varyant kombinasyon motoru / `combinationKey`)
+  ayrı iş.

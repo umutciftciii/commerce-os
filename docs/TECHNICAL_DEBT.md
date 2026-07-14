@@ -517,3 +517,23 @@
   (reset YOK) + docker rebuild (api-gateway + store-admin-web) + prod-benzeri canlı smoke henüz yapılmadı
   (izole shadow-DB migration diff = empty ile şema/migration uyumu doğrulandı; gerçek stack smoke'u ayrı adım).
 - Kapsam: packages/db, packages/contracts, apps/api-gateway/src/attributes, apps/store-admin-web. Bloklayıcı: HAYIR.
+
+## TD-038 Faz 2A attribute değer katmanı: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-14 (Faz 2A, TODO-145, ADR-068)
+- Sorun 1 (ürün + attribute değer yazımı atomik DEĞİL): Product/Variant satırı bir `$transaction`'da, attribute
+  değerleri ise ayrı bir `attributeValueService.persist*` `$transaction`'ında yazılır (modüler prisma-per-module
+  deseni; server.ts `AppDataAccess` transaction'ına iplik geçirilmedi). Değerler create/update'ten ÖNCE
+  `prepare*` ile doğrulandığından persist adımı yalnız beklenmedik DB hatasında (nadir) başarısız olur; o durumda
+  ürün oluşur ama değerler yazılmaz. Etki: düşük (foundation, UI yok). Faz 2B'de gerekiyorsa ortak transaction'a taşınır.
+- Sorun 2 (validationRules hâlâ tüketilmiyor): `CategoryAttribute.validationRules` (Json; min/max/regex vb.) SAKLANIR
+  ama attributeValueService bu fazda ZORLAMAZ — yalnız tip/tenant/option/required/variantDefining doğrular. Kural motoru
+  (validationRules yorumlama) Faz 2B kapsamındadır. TD-037 Sorun 2'nin devamı.
+- Sorun 3 (dinamik ürün formu / okuma tüketimi yok): Değerler yalnız gömülü create-update + dedike internal uçlardan
+  yazılır/okunur; ürün formu, PDP tablosu, faceted search DEĞİŞMEDİ (dual-read hazırlığı yapıldı, tüketim Faz 2B).
+- Sorun 4 (valueDecimal JS number): `productAttributeValueInputSchema.valueDecimal` `z.number()`tır (JS double);
+  DB `Decimal(20,6)`. Aşırı hassas ondalıklar için ileride string girdi düşünülebilir; foundation'da number yeterli.
+- Sorun 5 (runtime smoke bekliyor): izole shadow-DB `migrate diff = "No difference"` + izole canlı DB CHECK/FK smoke
+  YAPILDI; ancak merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri stack smoke
+  ayrı adım (Faz 1A/1B deseni).
+- Kapsam: packages/db, packages/contracts, packages/api-client, apps/api-gateway/src/attribute-values,
+  apps/api-gateway/src/media. Bloklayıcı: HAYIR.
