@@ -1972,3 +1972,59 @@ order snapshot, PDP tablo, faceted search ve marketplace mapping **Faz 2+**'ye a
 **Alternatifler (reddedilen).** Davranışı `AttributeDefinition`'a koymak (kategori-bazlı davranış imkânsızlaşır); scope
 başına ayrı tablo (sorgu/birleştirme karmaşası, YAGNI); kategori mirası/overrideMode (recursive, döngü riski, MVP dışı);
 `code`/`dataType`'ı update şemasından tümüyle çıkarmak (sessiz strip — açık hata kodu ve full-object echo kaybı).
+
+## ADR-068 — Ürün/varyant attribute DEĞER katmanı + `attributeValueService` (Faz 2A)
+
+- **Durum:** Kabul edildi (2026-07-14). Faz 1B (ADR-067) katalog TANIMINI (`AttributeDefinition` + `CategoryAttribute`
+  davranışı) tüketen DEĞER katmanı. TODO-145.
+- **Bağlam.** Faz 1B attribute tanımlarını ve kategori-bazlı davranışı kurdu ama ürün/varyantların **değerleri** için
+  saklama yoktu. Bu faz yalnız **çekirdek veri + doğrulama** katmanını ekler. Dinamik ürün formu, varyant kombinasyon
+  motoru/`combinationKey`, otomatik varyant üretimi, PDP attribute tablosu, faceted search, marketplace mapping ve order
+  attribute snapshot **Faz 2B+**'ye aittir (bu ADR kapsamı DIŞI). Storefront/checkout/order/inventory/search/marketplace
+  ve ürün formu DEĞİŞMEZ.
+
+**Karar.**
+1. **Tip güvenli saklama (JSON YOK).** Her `AttributeDataType` için ayrı kolon: `TEXT/TEXTAREA/RICH_TEXT/URL → valueText`,
+   `INTEGER → valueInteger`, `DECIMAL → valueDecimal (Decimal(20,6))`, `BOOLEAN → valueBoolean`, `DATE → valueDate`,
+   `SELECT/COLOR → optionId (FK)`, `IMAGE/FILE → mediaId (FK)`, `MULTI_SELECT → ProductAttributeValueOption` junction.
+   `ProductAttributeValue` tüm kolonları taşır; `VariantAttributeValue` yalnız `valueText`+`optionId` (variantDefining
+   attribute'lar metin/seçenek olur). `@@unique([productId, attributeDefinitionId])` / `@@unique([variantId, attributeDefinitionId])`.
+2. **CHECK constraint — savunma katmanı.** Her DEĞER satırında **en fazla bir** değer kolonu dolu olabilir
+   (`(sum of NOT NULL) <= 1`). MULTI_SELECT satırında tüm değer kolonları boştur (seçenekler junction'da) → `<= 1` bunu
+   da kapsar. **Cross-table datatype eşlemesi** (ör. INTEGER attribute'una valueText yazma) DB'ye TAŞINMAZ — bu kontrol
+   servistedir (DB sade ve genel kalır; ADR-067'nin "kategori-bağlamlı kural serviste" felsefesiyle tutarlı).
+3. **`attributeValueService` — tek yazma otoritesi.** ProductAttributeValue/VariantAttributeValue yazan **hiçbir route
+   doğrudan Prisma'ya yazmaz**; her şey servisten geçer. Servis şunları STABIL kodlarla doğrular (zod refine DEĞİL —
+   generic `VALIDATION_ERROR` özel kodları yutmasın; Faz 1A/1B deseni): tenant izolasyonu (STORE tanımı/seçeneği/görseli
+   başka mağazadan olamaz; PLATFORM tanımı her mağazada geçerli), attribute mevcut/archived, `product.primaryCategoryId`
+   mevcut + attribute o kategoriye `CategoryAttribute` ile bağlı, **required** (yalnız değer sağlandığında — undefined =
+   eski davranış, kontrol atlanır), option doğru attribute'a/tenant'a ait + archived değil, media doğru tenant'ta,
+   dataType↔alan eşlemesi + "en fazla bir alan", ve **variantDefining tablo yönlendirme**: variantDefining=true attribute
+   yalnız `VariantAttributeValue`'a, variantDefining=false yalnız `ProductAttributeValue`'a yazılabilir (product-level
+   attribute variant tablosuna, variant attribute product tablosuna YAZILAMAZ).
+4. **prepare/persist ayrımı (write-time doğrulama).** `prepare*` read-only doğrular ve normalize edilmiş girdileri döner;
+   `persist*` ayrı adımda yazar. Böylece **gömülü create akışı ürünü OLUŞTURMADAN önce doğrular** (geçersizse hiçbir
+   yazım olmaz). Yazma **replace-set** semantiğidir (`categoryIds`/`imageMediaIds` deseni): sağlanan liste TAM istenen
+   kümedir, `[]` tümünü temizler, `undefined` dokunmaz.
+5. **Geriye dönük uyum.** Product/Variant create/update'e **opsiyonel `attributeValues`** eklenir. `undefined` = bugünkü
+   davranış birebir korunur (attribute yazılmaz, required kontrolü çalışmaz) → attribute göndermeyen eski istemciler
+   BOZULMAZ. Değer verildiğinde tam doğrulama + required kontrolü devreye girer. Ürün/varyant yanıt şeması (`productSchema`
+   vb.) DEĞİŞMEZ — değerler ayrı dedike uçlardan okunur (public/storefront sıfır-regresyon; dual-read hazırlığı).
+6. **Modülerlik + FK politikası.** Gateway `src/attribute-values/` ayrı data-access + service + route modülü (attributes/
+   deseni; DI ile dev `AppDataAccess`/`MemoryDataAccess`'e dokunulmadan izole test). definition/option/media FK
+   `onDelete: Restrict` (kullanımda olan tanım/seçenek/görsel silinemez — katalog usage-guard felsefesi); product/variant/
+   store `Cascade`. Media silme in-use guard'ına `ProductAttributeValue.mediaId` eklendi (Restrict FK aksi halde P2003→500 verirdi).
+7. **Dedike internal uçlar.** `GET/PUT /stores/:storeId/products/:productId/attribute-values` ve
+   `.../variants/:variantId/attribute-values` (store admin). Dinamik ürün formu YOK; bu API onu bekler (Faz 2B UI).
+
+**Sonuçlar.**
+- Ürün/varyant attribute değerleri tip güvenli, tenant-izole ve tek doğrulama noktasından saklanır; Faz 2B (dinamik form +
+  varyant motoru) bu servisi tüketmeye hazır.
+- Migration TAMAMEN ADDITIVE; izole shadow-DB `migrate diff` = "No difference" (drift yok). Canlı DB smoke: CHECK iki-değeri
+  reddetti, sıfır-değer (MULTI_SELECT) CHECK'ten geçip FK'ye düştü, variant CHECK ikili değeri reddetti.
+- Storefront/checkout/order/inventory/search/marketplace ve ürün formu DEĞİŞMEDİ.
+
+**Alternatifler (reddedilen).** Değerleri tek JSON kolonunda tutmak (tip güvenliği + ilişkisel bütünlük + gelecek faceted-filtre
+kaybı); değerleri var olan `ProductVariant.optionValues Json`'a genişletmek (yapısız; katalog davranışından kopuk); tüm datatype
+kuralını DB CHECK'e taşımak (kategori-bağlamlı + cross-tenant kontroller DB'de imkânsız/karmaşık); product+attribute değerlerini
+TEK transaction'da atomik yapmak (modüler prisma-per-module desenini kırar; foundation'da prepare-önce-doğrula yeterli — bkz. TD).

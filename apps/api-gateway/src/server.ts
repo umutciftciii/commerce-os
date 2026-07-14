@@ -141,6 +141,12 @@ import {
 } from "./attributes/routes.js";
 import { createPrismaAttributeDataAccess, type AttributeDataAccess } from "./attributes/data.js";
 import {
+  createPrismaAttributeValueDataAccess,
+  type AttributeValueDataAccess,
+} from "./attribute-values/data.js";
+import { createAttributeValueService, attributeValueErrorStatus } from "./attribute-values/service.js";
+import { registerAttributeValueRoutes } from "./attribute-values/routes.js";
+import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
   type WalletDataAccess,
@@ -1095,6 +1101,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // Faz 1B (ADR-067): Attribute katalog cekirdegi veri erisimi (store + platform
   // CRUD). Varsayilan prisma-backed; testlerde in-memory fake enjekte edilebilir.
   attributeDataAccess?: AttributeDataAccess;
+  // Faz 2A (ADR-068): Urun/varyant attribute DEGER veri erisimi. Varsayilan prisma-backed;
+  // testlerde in-memory fake enjekte edilebilir (attributeValueService bunun uzerine kurulur).
+  attributeValueDataAccess?: AttributeValueDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5001,6 +5010,21 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
+  // Faz 2A (ADR-068) — Urun/varyant attribute DEGER katmani. TUM deger yazimlarinin
+  // (gomulu product/variant create-update + dedike internal replace uclari) TEK otoritesi.
+  // Ayri prisma-backed data-access (attributes/ deseni); test DI ile enjekte edilir.
+  const attributeValueDataAccess =
+    dependencies.attributeValueDataAccess ?? createPrismaAttributeValueDataAccess();
+  const attributeValueService = createAttributeValueService(attributeValueDataAccess);
+  registerAttributeValueRoutes(app, {
+    service: attributeValueService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
   // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).
   registerWalletAdminRoutes(app, {
     wallet,
@@ -5485,19 +5509,37 @@ export function createServer(
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
     const input = productCreateRequestSchema.parse(request.body);
+    // Faz 2A (ADR-068) — attributeValues Product kolonu DEGIL: ayiklanir, createProduct'a
+    // gecmez; kaliciligi ayri attributeValueService adimidir.
+    const { attributeValues, ...productInput } = input;
     const categoryIds = await validateCategoryIds(reply, params.storeId, input.categoryIds);
     if (!categoryIds) return;
     // Faz 1A (ADR-067) — ana kategori normalize + dogrula (STABIL kodlar). Tek
     // kategoride null → otomatik o kategori; coklu kategoride primary yoksa REQUIRED.
     const primary = await resolvePrimaryCategory(reply, params.storeId, categoryIds, input.primaryCategoryId, undefined);
     if (!primary) return;
+    // Faz 2A — attribute degerleri URUN OLUSTURULMADAN ONCE dogrulanir (gecersizse hicbir
+    // yazim olmaz). undefined = eski davranis (attribute yazilmaz, geriye donuk uyumlu).
+    let attributeEntries: Awaited<ReturnType<typeof attributeValueService.prepareProductValues>> | null = null;
+    if (attributeValues !== undefined) {
+      attributeEntries = await attributeValueService.prepareProductValues({
+        storeId: params.storeId,
+        primaryCategoryId: primary.primaryCategoryId,
+        values: attributeValues,
+      });
+      if (!attributeEntries.ok) {
+        return reply
+          .code(attributeValueErrorStatus(attributeEntries.error.code))
+          .send(errorBody(attributeEntries.error.code, attributeEntries.error.message));
+      }
+    }
     if (await dataAccess.findProductBySlug(params.storeId, input.slug)) {
       return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
     }
     let product: ProductRecord;
     try {
       product = await dataAccess.createProduct(params.storeId, {
-        ...input,
+        ...productInput,
         categoryIds,
         primaryCategoryId: primary.primaryCategoryId,
       });
@@ -5506,6 +5548,10 @@ export function createServer(
         return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
       }
       throw error;
+    }
+    // Faz 2A — dogrulanmis degerler urun olustuktan sonra yazilir (tek yol: service).
+    if (attributeEntries?.ok) {
+      await attributeValueService.persistProductValues(params.storeId, product.id, attributeEntries.entries);
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
@@ -5552,7 +5598,12 @@ export function createServer(
     // PRODUCT context olmali. TUM liste yazimdan ONCE dogrulanir (biri gecersizse
     // 400, hicbir yazim olmadan). imageMediaIds Product kolonu DEGIL → updateProduct'a
     // gecmeden ayiklanir; kalicilik ayri updateProductImages diff'i ile yapilir.
-    const { imageMediaIds, primaryCategoryId: rawPrimaryCategoryId, ...productInput } = input;
+    const {
+      imageMediaIds,
+      primaryCategoryId: rawPrimaryCategoryId,
+      attributeValues,
+      ...productInput
+    } = input;
     if (imageMediaIds !== undefined) {
       for (const mediaId of imageMediaIds) {
         if (!(await assertMediaAttachable(reply, params.storeId, mediaId, "PRODUCT"))) return;
@@ -5602,6 +5653,24 @@ export function createServer(
       if (!primary) return;
       resolvedPrimary = primary.primaryCategoryId;
     }
+    // Faz 2A (ADR-068) — attribute degerleri, GUNCELLEME sonrasi ETKIN ana kategoriye gore
+    // dogrulanir (kategori/primary ayni patch'te degisebilir). undefined = dokunma (eski
+    // davranis). Gecersizse hicbir yazim yapilmadan don.
+    const effectivePrimaryCategoryId =
+      resolvedPrimary === undefined ? current.primaryCategoryId : resolvedPrimary;
+    let attributeEntries: Awaited<ReturnType<typeof attributeValueService.prepareProductValues>> | null = null;
+    if (attributeValues !== undefined) {
+      attributeEntries = await attributeValueService.prepareProductValues({
+        storeId: params.storeId,
+        primaryCategoryId: effectivePrimaryCategoryId,
+        values: attributeValues,
+      });
+      if (!attributeEntries.ok) {
+        return reply
+          .code(attributeValueErrorStatus(attributeEntries.error.code))
+          .send(errorBody(attributeEntries.error.code, attributeEntries.error.message));
+      }
+    }
     let product: ProductRecord = current;
     const hasProductFieldChange =
       Object.keys(productInput).length > 0 || categoryIds !== undefined || resolvedPrimary !== undefined;
@@ -5618,6 +5687,10 @@ export function createServer(
       const updated = await dataAccess.updateProductImages(params.storeId, params.productId, imageMediaIds);
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
+    }
+    // Faz 2A — dogrulanmis degerler yazilir (tek yol: service). Replace-set: [] tumunu temizler.
+    if (attributeEntries?.ok) {
+      await attributeValueService.persistProductValues(params.storeId, params.productId, attributeEntries.entries);
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
@@ -5649,12 +5722,32 @@ export function createServer(
     const params = productParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    if (!(await dataAccess.findProductById(params.storeId, params.productId))) {
+    const parentProduct = await dataAccess.findProductById(params.storeId, params.productId);
+    if (!parentProduct) {
       return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
     }
     const input = productVariantCreateRequestSchema.parse(request.body);
+    // Faz 2A (ADR-068) — attributeValues ProductVariant kolonu DEGIL: ayiklanir, createVariant'a
+    // gecmez; yalniz variantDefining attribute'lar kabul edilir (service guard).
+    const { attributeValues, ...variantInput } = input;
     if (await dataAccess.findVariantBySku(params.storeId, input.sku)) {
       return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+    }
+    // Faz 2A — degerler VARYANT OLUSTURULMADAN once dogrulanir (urunun ana kategorisine gore).
+    let variantAttributeEntries:
+      | Awaited<ReturnType<typeof attributeValueService.prepareVariantValues>>
+      | null = null;
+    if (attributeValues !== undefined) {
+      variantAttributeEntries = await attributeValueService.prepareVariantValues({
+        storeId: params.storeId,
+        primaryCategoryId: parentProduct.primaryCategoryId,
+        values: attributeValues,
+      });
+      if (!variantAttributeEntries.ok) {
+        return reply
+          .code(attributeValueErrorStatus(variantAttributeEntries.error.code))
+          .send(errorBody(variantAttributeEntries.error.code, variantAttributeEntries.error.message));
+      }
     }
     // F4C (ADR-063) — KDV cozumu SUNUCUDA: yeni istemci KDV HARIC net gonderir
     // (vat=round(net*bps/10000), brut=net+vat priceMinor'a yazilir); legacy
@@ -5680,7 +5773,7 @@ export function createServer(
     let variant: VariantRecord;
     try {
       variant = await dataAccess.createVariant(params.storeId, params.productId, {
-        ...input,
+        ...variantInput,
         priceMinor: createPricing.grossMinor,
         netPriceMinor: createPricing.netMinor,
         vatRateBps: createVatRateBps,
@@ -5694,6 +5787,10 @@ export function createServer(
         return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
       }
       throw error;
+    }
+    // Faz 2A — dogrulanmis variantDefining degerleri yazilir (tek yol: service).
+    if (variantAttributeEntries?.ok) {
+      await attributeValueService.persistVariantValues(params.storeId, variant.id, variantAttributeEntries.entries);
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
@@ -5712,7 +5809,9 @@ export function createServer(
     if (!access) return;
     const current = await dataAccess.findVariantById(params.storeId, params.productId, params.variantId);
     if (!current) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
-    const rawInput = productVariantUpdateRequestSchema.parse(request.body);
+    // Faz 2A (ADR-068) — attributeValues ProductVariant kolonu DEGIL: ayiklanir; kaliciligi
+    // ayri attributeValueService adimidir. Kalan alanlar mevcut fiyat/KDV akisina girer.
+    const { attributeValues, ...rawInput } = productVariantUpdateRequestSchema.parse(request.body);
     // F4C (ADR-063) — KDV cozumu SUNUCUDA (patch + mevcut birlesik durum):
     //  - net verildiyse: vat=round(net*bps/10000), brut=net+vat (net ANKOR'dur).
     //  - yalniz brut verildiyse (legacy): net/KDV bruttan ayristirilir.
@@ -5769,6 +5868,25 @@ export function createServer(
         return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
       }
     }
+    // Faz 2A (ADR-068) — variantDefining attribute degerleri, VARYANT GUNCELLENMEDEN once
+    // urunun ana kategorisine gore dogrulanir. undefined = dokunma (eski davranis).
+    let variantAttributeEntries:
+      | Awaited<ReturnType<typeof attributeValueService.prepareVariantValues>>
+      | null = null;
+    if (attributeValues !== undefined) {
+      const parentProduct = await dataAccess.findProductById(params.storeId, params.productId);
+      if (!parentProduct) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
+      variantAttributeEntries = await attributeValueService.prepareVariantValues({
+        storeId: params.storeId,
+        primaryCategoryId: parentProduct.primaryCategoryId,
+        values: attributeValues,
+      });
+      if (!variantAttributeEntries.ok) {
+        return reply
+          .code(attributeValueErrorStatus(variantAttributeEntries.error.code))
+          .send(errorBody(variantAttributeEntries.error.code, variantAttributeEntries.error.message));
+      }
+    }
     const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, {
       ...rawInput,
       // F4C — Sunucuda cozulen tutarli KDV uclusu (brut=net+KDV) yazilir;
@@ -5779,6 +5897,10 @@ export function createServer(
       priceChangeSource: "ADMIN_EDIT",
     });
     if (!variant) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
+    // Faz 2A — dogrulanmis variantDefining degerleri yazilir (tek yol: service).
+    if (variantAttributeEntries?.ok) {
+      await attributeValueService.persistVariantValues(params.storeId, params.variantId, variantAttributeEntries.entries);
+    }
     await dataAccess.createAuditLog({
       action: "UPDATE",
       platformUserId: access.session.platformUser.id,

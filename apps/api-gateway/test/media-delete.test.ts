@@ -9,6 +9,8 @@ const { prismaMock } = vi.hoisted(() => {
       heroSlide: { count: vi.fn() },
       storeSettings: { count: vi.fn() },
       productCategory: { count: vi.fn() },
+      // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri media in-use guard'ina eklendi.
+      productAttributeValue: { count: vi.fn() },
     },
   };
 });
@@ -63,6 +65,7 @@ function resetCountsToZero() {
   prismaMock.heroSlide.count.mockResolvedValue(0);
   prismaMock.storeSettings.count.mockResolvedValue(0);
   prismaMock.productCategory.count.mockResolvedValue(0);
+  prismaMock.productAttributeValue.count.mockResolvedValue(0);
 }
 
 beforeEach(() => {
@@ -162,6 +165,18 @@ describe("DELETE /stores/:storeId/media/:mediaId", () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error.details.usedIn).toEqual(["ProductCategory"]);
+    expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
+    expect(storage.delete).not.toHaveBeenCalled();
+  });
+
+  it("ProductAttributeValue'da (IMAGE/FILE attribute) kullaniliyor → 409; silme yok", async () => {
+    const { app, storage } = buildApp();
+    prismaMock.productAttributeValue.count.mockResolvedValue(1);
+
+    const res = await app.inject({ method: "DELETE", url: "/stores/store_123/media/media_1" });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.details.usedIn).toEqual(["ProductAttributeValue"]);
     expect(prismaMock.mediaAsset.delete).not.toHaveBeenCalled();
     expect(storage.delete).not.toHaveBeenCalled();
   });

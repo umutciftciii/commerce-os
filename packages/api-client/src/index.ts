@@ -67,6 +67,11 @@ import type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  // Faz 2A (ADR-068) — urun/varyant attribute deger tipleri.
+  ProductAttributeValueListResponse,
+  ProductAttributeValuesReplaceRequest,
+  VariantAttributeValueListResponse,
+  VariantAttributeValuesReplaceRequest,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -223,6 +228,11 @@ export type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  // Faz 2A (ADR-068) — urun/varyant attribute deger tipleri.
+  ProductAttributeValueListResponse,
+  ProductAttributeValuesReplaceRequest,
+  VariantAttributeValueListResponse,
+  VariantAttributeValuesReplaceRequest,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -744,6 +754,36 @@ export interface ApiClient {
           variantId: string,
           token?: string,
         ): Promise<ProductPriceChangeListResponse>;
+        // Faz 2A (ADR-068) — variantDefining attribute degerleri (internal; UI henuz yok).
+        attributeValues: {
+          get(
+            storeId: string,
+            productId: string,
+            variantId: string,
+            token?: string,
+          ): Promise<VariantAttributeValueListResponse>;
+          replace(
+            storeId: string,
+            productId: string,
+            variantId: string,
+            input: VariantAttributeValuesReplaceRequest,
+            token?: string,
+          ): Promise<VariantAttributeValueListResponse>;
+        };
+      };
+      // Faz 2A (ADR-068) — urun-seviyesi attribute degerleri (internal; UI henuz yok).
+      attributeValues: {
+        get(
+          storeId: string,
+          productId: string,
+          token?: string,
+        ): Promise<ProductAttributeValueListResponse>;
+        replace(
+          storeId: string,
+          productId: string,
+          input: ProductAttributeValuesReplaceRequest,
+          token?: string,
+        ): Promise<ProductAttributeValueListResponse>;
       };
     };
     inventory: {
@@ -1527,6 +1567,34 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           priceChanges: (storeId, productId, variantId, token) =>
             getJson<ProductPriceChangeListResponse>(
               `/stores/${storeId}/products/${productId}/variants/${variantId}/price-changes`,
+              token,
+            ),
+          attributeValues: {
+            get: (storeId, productId, variantId, token) =>
+              getJson<VariantAttributeValueListResponse>(
+                `/stores/${storeId}/products/${productId}/variants/${variantId}/attribute-values`,
+                token,
+              ),
+            replace: (storeId, productId, variantId, input, token) =>
+              sendJson<VariantAttributeValueListResponse>(
+                `/stores/${storeId}/products/${productId}/variants/${variantId}/attribute-values`,
+                "PUT",
+                input,
+                token,
+              ),
+          },
+        },
+        attributeValues: {
+          get: (storeId, productId, token) =>
+            getJson<ProductAttributeValueListResponse>(
+              `/stores/${storeId}/products/${productId}/attribute-values`,
+              token,
+            ),
+          replace: (storeId, productId, input, token) =>
+            sendJson<ProductAttributeValueListResponse>(
+              `/stores/${storeId}/products/${productId}/attribute-values`,
+              "PUT",
+              input,
               token,
             ),
         },

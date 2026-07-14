@@ -271,6 +271,30 @@ store-admin'de "Katalog → Ozellikler" ekrani tanim/grup/secenek CRUD'unu, kate
 CategoryAttribute davranis baglamayi sunar. Migration additive (`20260714120000_add_attribute_catalog`); urun
 formu, storefront, checkout, order, inventory, search ve marketplace DEGISMEDI.
 
+### Attribute Value Layer (Faz 2A, ADR-068)
+
+Faz 1B katalog TANIMINI tuketip urun/varyantlarin gercek attribute DEGERLERINI saklayan cekirdek veri +
+dogrulama katmani. Dinamik urun formu, varyant kombinasyon motoru (`combinationKey`), otomatik varyant, PDP
+attribute tablosu, faceted search ve marketplace mapping Faz 2B+'ye aittir.
+
+- `ProductAttributeValue`: bir urunun bir attribute icin DEGERI. **Tip guvenli saklama** (JSON yok): her `dataType`
+  ayri kolona yazilir — `TEXT/TEXTAREA/RICH_TEXT/URL → valueText`, `INTEGER → valueInteger`, `DECIMAL → valueDecimal`
+  (`Decimal(20,6)`), `BOOLEAN → valueBoolean`, `DATE → valueDate`, `SELECT/COLOR → optionId`, `IMAGE/FILE → mediaId`,
+  `MULTI_SELECT → ProductAttributeValueOption` junction. `@@unique([productId, attributeDefinitionId])`.
+- `VariantAttributeValue`: yalniz **variantDefining** attribute'lar; deger yalnizca `valueText` veya `optionId`.
+  `@@unique([variantId, attributeDefinitionId])`. `combinationKey` UYGULANMAZ (Faz 2B).
+- `ProductAttributeValueOption`: MULTI_SELECT junction (JSON yerine iliskisel; ileride faceted-filtre icin sorgulanabilir).
+- **CHECK constraint**: her deger satirinda en fazla bir deger kolonu dolu (`<= 1`; MULTI_SELECT satiri 0 dolu → kapsanir).
+  Cross-table datatype eslemesi DB'ye TASINMAZ (serviste). FK: definition/option/media `Restrict`, product/variant/store `Cascade`.
+
+**`attributeValueService`** (`apps/api-gateway/src/attribute-values/`) — ProductAttributeValue/VariantAttributeValue yazan
+**TEK otorite** (hicbir route dogrudan Prisma'ya deger yazmaz). STABIL kodlarla dogrular (tenant, mevcut/archived, kategori
+bagi, required, dataType↔alan, option/media tenant, variantDefining tablo yonlendirme); `prepare*` read-only doguru (create'ten
+once) + `persist*` replace-set yazim. Urun/varyant create-update GOMULU opsiyonel `attributeValues` alani (`undefined` = eski
+davranis, geriye donuk uyumlu) + dedike internal uclar (`GET/PUT .../products/:id/attribute-values`, `.../variants/:id/attribute-values`).
+Migration additive (`20260714130000_add_product_attribute_values`); urun formu, storefront, checkout, order, inventory, search
+ve marketplace DEGISMEDI.
+
 ## Auth / Session
 
 Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed
