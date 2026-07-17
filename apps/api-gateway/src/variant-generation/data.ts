@@ -114,7 +114,9 @@ function makeTxContext(tx: PrismaLike): GenerationTxContext {
   return {
     lockProduct: async (productId) => {
       // hashtext(text) → int4; pg_advisory_xact_lock(bigint) implicit cast. Lock tx sonunda otomatik bırakılır.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${productId}))`;
+      // `$executeRaw` kullanılır ($queryRaw DEĞİL): pg_advisory_xact_lock `void` döner ve Prisma $queryRaw
+      // void kolonu deserialize edemez → $executeRaw sonucu deserialize etmez (etkilenen satır sayısı döner).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${productId}))`;
     },
     listRecipe: readRecipe,
     findOptionMeta: (optionIds) =>
