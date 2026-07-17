@@ -147,6 +147,15 @@ import {
 import { createAttributeValueService, attributeValueErrorStatus } from "./attribute-values/service.js";
 import { registerAttributeValueRoutes } from "./attribute-values/routes.js";
 import {
+  createPrismaVariantSelectionDataAccess,
+  type VariantSelectionDataAccess,
+} from "./variant-selections/data.js";
+import {
+  createVariantSelectionService,
+  variantSelectionErrorStatus,
+} from "./variant-selections/service.js";
+import { registerVariantSelectionRoutes } from "./variant-selections/routes.js";
+import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
   type WalletDataAccess,
@@ -1104,6 +1113,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // Faz 2A (ADR-068): Urun/varyant attribute DEGER veri erisimi. Varsayilan prisma-backed;
   // testlerde in-memory fake enjekte edilebilir (attributeValueService bunun uzerine kurulur).
   attributeValueDataAccess?: AttributeValueDataAccess;
+  // Faz 2C-1 (ADR-070): Urun-seviyesi varyant EKSEN secimi veri erisimi. Varsayilan prisma-backed;
+  // testlerde in-memory fake enjekte edilebilir (variantSelectionService bunun uzerine kurulur).
+  variantSelectionDataAccess?: VariantSelectionDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5025,6 +5037,20 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
+  // Faz 2C-1 (ADR-070) — Urun-seviyesi varyant EKSEN secimi. TUM secim yazimlarinin (gomulu
+  // product create-update + dedike internal replace ucu) TEK otoritesi. KOMBINASYON URETMEZ.
+  const variantSelectionDataAccess =
+    dependencies.variantSelectionDataAccess ?? createPrismaVariantSelectionDataAccess();
+  const variantSelectionService = createVariantSelectionService(variantSelectionDataAccess);
+  registerVariantSelectionRoutes(app, {
+    service: variantSelectionService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
   // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).
   registerWalletAdminRoutes(app, {
     wallet,
@@ -5510,8 +5536,9 @@ export function createServer(
     if (!access) return;
     const input = productCreateRequestSchema.parse(request.body);
     // Faz 2A (ADR-068) — attributeValues Product kolonu DEGIL: ayiklanir, createProduct'a
-    // gecmez; kaliciligi ayri attributeValueService adimidir.
-    const { attributeValues, ...productInput } = input;
+    // gecmez; kaliciligi ayri attributeValueService adimidir. Faz 2C-1 (ADR-070) —
+    // variantSelections de Product kolonu DEGIL: ayiklanir, kaliciligi variantSelectionService'te.
+    const { attributeValues, variantSelections, ...productInput } = input;
     const categoryIds = await validateCategoryIds(reply, params.storeId, input.categoryIds);
     if (!categoryIds) return;
     // Faz 1A (ADR-067) — ana kategori normalize + dogrula (STABIL kodlar). Tek
@@ -5543,6 +5570,31 @@ export function createServer(
           );
       }
     }
+    // Faz 2C-1 (ADR-070) — varyant eksen secimi de URUN OLUSTURULMADAN ONCE dogrulanir
+    // (gecersizse hicbir yazim olmaz). undefined = eski davranis (secim yazilmaz). KOMBINASYON YOK.
+    let variantSelectionEntries:
+      | Awaited<ReturnType<typeof variantSelectionService.prepareSelections>>
+      | null = null;
+    if (variantSelections !== undefined) {
+      variantSelectionEntries = await variantSelectionService.prepareSelections({
+        storeId: params.storeId,
+        primaryCategoryId: primary.primaryCategoryId,
+        selections: variantSelections,
+      });
+      if (!variantSelectionEntries.ok) {
+        return reply
+          .code(variantSelectionErrorStatus(variantSelectionEntries.error.code))
+          .send(
+            errorBody(
+              variantSelectionEntries.error.code,
+              variantSelectionEntries.error.message,
+              variantSelectionEntries.error.attributeDefinitionId
+                ? { attributeDefinitionId: variantSelectionEntries.error.attributeDefinitionId }
+                : undefined,
+            ),
+          );
+      }
+    }
     if (await dataAccess.findProductBySlug(params.storeId, input.slug)) {
       return reply.code(409).send(errorBody("PRODUCT_SLUG_EXISTS", "Product slug already exists."));
     }
@@ -5562,6 +5614,14 @@ export function createServer(
     // Faz 2A — dogrulanmis degerler urun olustuktan sonra yazilir (tek yol: service).
     if (attributeEntries?.ok) {
       await attributeValueService.persistProductValues(params.storeId, product.id, attributeEntries.entries);
+    }
+    // Faz 2C-1 — dogrulanmis varyant eksen secimi urun olustuktan sonra yazilir (tek yol: service).
+    if (variantSelectionEntries?.ok) {
+      await variantSelectionService.persistSelections(
+        params.storeId,
+        product.id,
+        variantSelectionEntries.entries,
+      );
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
@@ -5612,6 +5672,7 @@ export function createServer(
       imageMediaIds,
       primaryCategoryId: rawPrimaryCategoryId,
       attributeValues,
+      variantSelections,
       ...productInput
     } = input;
     if (imageMediaIds !== undefined) {
@@ -5690,6 +5751,31 @@ export function createServer(
           );
       }
     }
+    // Faz 2C-1 (ADR-070) — varyant eksen secimi de ETKIN ana kategoriye gore dogrulanir.
+    // undefined = dokunma; [] = tumunu temizle. Gecersizse hicbir yazim yapilmadan don. KOMBINASYON YOK.
+    let variantSelectionEntries:
+      | Awaited<ReturnType<typeof variantSelectionService.prepareSelections>>
+      | null = null;
+    if (variantSelections !== undefined) {
+      variantSelectionEntries = await variantSelectionService.prepareSelections({
+        storeId: params.storeId,
+        primaryCategoryId: effectivePrimaryCategoryId,
+        selections: variantSelections,
+      });
+      if (!variantSelectionEntries.ok) {
+        return reply
+          .code(variantSelectionErrorStatus(variantSelectionEntries.error.code))
+          .send(
+            errorBody(
+              variantSelectionEntries.error.code,
+              variantSelectionEntries.error.message,
+              variantSelectionEntries.error.attributeDefinitionId
+                ? { attributeDefinitionId: variantSelectionEntries.error.attributeDefinitionId }
+                : undefined,
+            ),
+          );
+      }
+    }
     let product: ProductRecord = current;
     const hasProductFieldChange =
       Object.keys(productInput).length > 0 || categoryIds !== undefined || resolvedPrimary !== undefined;
@@ -5710,6 +5796,14 @@ export function createServer(
     // Faz 2A — dogrulanmis degerler yazilir (tek yol: service). Replace-set: [] tumunu temizler.
     if (attributeEntries?.ok) {
       await attributeValueService.persistProductValues(params.storeId, params.productId, attributeEntries.entries);
+    }
+    // Faz 2C-1 — dogrulanmis varyant eksen secimi yazilir (tek yol: service). Replace-set: [] temizler.
+    if (variantSelectionEntries?.ok) {
+      await variantSelectionService.persistSelections(
+        params.storeId,
+        params.productId,
+        variantSelectionEntries.entries,
+      );
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",

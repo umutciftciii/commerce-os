@@ -584,6 +584,9 @@ model Store {
   productAttributeValues           ProductAttributeValue[]
   variantAttributeValues           VariantAttributeValue[]
   productAttributeValueOptions     ProductAttributeValueOption[]
+  // Faz 2C-1 (ADR-070) — varyant motoru temeli: urun-seviyesi variant-defining eksen secimi.
+  productVariantAttributes         ProductVariantAttribute[]
+  productVariantOptionSelections   ProductVariantOptionSelection[]
 }
 
 model StoreUser {
@@ -747,6 +750,8 @@ model Product {
   images           ProductImage[]
   // Faz 2A (ADR-068) — urun-seviyesi (non-variantDefining) attribute degerleri.
   attributeValues  ProductAttributeValue[]
+  // Faz 2C-1 (ADR-070) — bu urun icin secilen variant-defining eksenler (henuz KOMBINASYON DEGIL).
+  variantAttributes ProductVariantAttribute[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -2116,6 +2121,8 @@ model AttributeDefinition {
   // Faz 2A (ADR-068) — bu tanimi DEGER olarak kullanan urun/varyant satirlari (onDelete: Restrict).
   productValues ProductAttributeValue[]
   variantValues VariantAttributeValue[]
+  // Faz 2C-1 (ADR-070) — bu tanimi variant-defining EKSEN olarak secen urun satirlari (onDelete: Restrict).
+  variantSelectionLinks ProductVariantAttribute[]
 
   @@unique([storeId, code])
   @@index([storeId])
@@ -2162,6 +2169,8 @@ model AttributeOption {
   productValues     ProductAttributeValue[]
   variantValues     VariantAttributeValue[]
   productValueLinks ProductAttributeValueOption[]
+  // Faz 2C-1 (ADR-070) — bu secenegi variant eksen option'i olarak secen satirlar (onDelete: Restrict).
+  variantOptionSelections ProductVariantOptionSelection[]
 
   @@unique([attributeDefinitionId, value])
   @@index([attributeDefinitionId])
@@ -2299,5 +2308,63 @@ model ProductAttributeValueOption {
   @@unique([productAttributeValueId, optionId])
   @@index([storeId])
   @@index([productAttributeValueId])
+  @@index([optionId])
+}
+
+// ─────────────────────── Faz 2C-1 (ADR-070) — Varyant motoru TEMELI (eksen secimi) ───────────────────────
+// Bir urunun hangi variant-defining attribute'lari EKSEN (axis) olarak kullanacagini ve her
+// eksen altinda hangi AttributeOption'lari kapsayacagini NORMALIZE saklar (JSON YOK). Bu faz
+// KOMBINASYON URETMEZ: ProductVariant / combinationKey / Cartesian / SKU matris OLUSTURULMAZ.
+// Gelecekteki Combination Engine bu iki tabloyu (eksenler × secilen option'lar) okuyup Cartesian
+// carpimini uretecek. Yazimlar TEK NOKTA olan `variantSelectionService`'ten gecer (route dogrudan
+// Prisma'ya yazmaz — Faz 2A attributeValueService deseni). Yalniz option-tabanli (SELECT/COLOR)
+// variantDefining=true CategoryAttribute eksen olabilir (VariantAttributeValue tek option tasir →
+// eksen tek-secimli olmali); dogrulama servistedir.
+
+// Bir urunde EKSEN olarak secilen variant-defining attribute. Bir urun + attribute en fazla bir kez.
+// definition onDelete: Restrict (eksen olarak kullanilan tanim silinemez — katalog usage-guard
+// felsefesi, Faz 2A ile tutarli); product/store Cascade. storeId denormalize tenant sutunu.
+model ProductVariantAttribute {
+  id                    String @id @default(cuid())
+  storeId               String
+  productId             String
+  attributeDefinitionId String
+  // Eksenlerin admin-tanimli sirasi (UI displayOrder; ileride kombinasyon ekseni sirasi).
+  position              Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store      Store                           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product    Product                         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  definition AttributeDefinition             @relation(fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
+  options    ProductVariantOptionSelection[]
+
+  @@unique([productId, attributeDefinitionId])
+  @@index([storeId])
+  @@index([productId])
+  @@index([attributeDefinitionId])
+}
+
+// Bir varyant ekseni (ProductVariantAttribute) altinda KAPSANAN AttributeOption. Bir eksen +
+// option en fazla bir kez. option onDelete: Restrict (kullanimdaki secenek silinemez); parent/store
+// Cascade. En az bir option zorunlulugu servistedir (DB CHECK ile ifade edilemez — cross-row).
+model ProductVariantOptionSelection {
+  id                        String @id @default(cuid())
+  storeId                   String
+  productVariantAttributeId String
+  optionId                  String
+  // Option'larin admin-tanimli sirasi (UI displayOrder).
+  position                  Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  store     Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  attribute ProductVariantAttribute @relation(fields: [productVariantAttributeId], references: [id], onDelete: Cascade)
+  option    AttributeOption         @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([productVariantAttributeId, optionId])
+  @@index([storeId])
+  @@index([productVariantAttributeId])
   @@index([optionId])
 }

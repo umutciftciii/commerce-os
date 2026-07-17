@@ -1154,3 +1154,30 @@
   benim işimle alakasız) + lint + `next build` store-admin (/products, /products/[id] derlendi). KALAN: docker rebuild +
   prod-benzeri auth'lu runtime smoke (canlı attribute'lu ürün oluştur/düzenle). Faz 2C (varyant kombinasyon motoru /
   combinationKey / SKU matris) ayrı iş.
+
+- TODO-147 — Faz 2C-1: Varyant motoru TEMELI + varyant attribute seçimi (DONE — 2026-07-17, ADR-070). İş: Variant Engine'in
+  YALNIZ veri modelini + admin seçim ekranını kurmak. **KESİNLİKLE varyant/kombinasyon üretilmez**: ProductVariant, Cartesian,
+  combinationKey, SKU matris, bulk edit, varyant görselleri, storefront/search/inventory/order snapshot KAPSAM DIŞI.
+  (1) **Veri modeli (JSON YOK, normalize).** İki additive tablo: `ProductVariantAttribute` (üründe EKSEN olarak seçilen
+  variantDefining attribute; `@@unique([productId, attributeDefinitionId])`, `position`, storeId denormalize; `attributeDefinitionId
+  → Restrict`, product/store → Cascade) + `ProductVariantOptionSelection` (eksen altında kapsanan AttributeOption; `@@unique(
+  [productVariantAttributeId, optionId])`, `position`, `optionId → Restrict`, parent/store → Cascade). `ProductVariant.optionValues
+  Json?` (legacy) DOKUNULMADI. Migration `20260717120000_add_product_variant_selection` TAMAMEN ADDITIVE. (2) **`variantSelectionService`
+  (tek yazma otoritesi).** Faz 2A `attributeValueService` deseni: prepare(read-only, create'ten önce) + persist(replace-set,
+  transactional); STABIL kodlarla doğrular (zod refine DEĞİL): tenant izolasyonu, attribute mevcut/archived, primaryCategory bağı,
+  **variantDefining=true**, **option-tabanlı (SELECT/COLOR)** — varyant ekseni tek-seçimli, MULTI_SELECT/metin eksen OLAMAZ,
+  duplicate, her eksende **≥1 option**, option attribute/tenant/archived. (3) **API.** Gömülü opsiyonel `variantSelections` (product
+  create/update; undefined=legacy korunur, []=temizle) + dedike `GET/PUT /stores/:id/products/:id/variant-selections`. contracts +
+  api-client (`admin.products.variantSelections.{get,replace}`) + tipler. Mevcut Product API/`optionValues` DEĞİŞMEDİ. (4) **UI.**
+  store-admin ürün formuna **"Variant Attributes"** bölümü; `useVariantAttributes` (variantDefining=true + option-tabanlı; mevcut
+  `useCategoryAttributes` bunları dışlar) + `VariantAttributeSection` (eksen checkbox → seçince option checkbox'ları: Siyah ✓ /
+  Beyaz ✓ / Mavi ☐). Form state `variantSelections: Record<defId, {enabled, optionIds}>`; enabled-eksende ≥1 option client
+  doğrulaması; server hata `error.details.attributeDefinitionId` ile eksene bağlanır (Faz 2B deseni). Dinamik form mimarisi bozulmadı.
+  i18n tr+en. (5) **Testler.** api-gateway `variant-selections.test.ts` 24 (seçim/deterministiklik/idempotency/1000-option stress + seçim/duplicate/archived/tenant/variantDefining/option-
+  tabanlı/kategori-bağı/≥1-option/replace-set + route GET/PUT/404/403), contracts `variant-selection-contracts.test.ts` 8, store-admin
+  `products-form-variant-attributes.test.tsx` 7 (render filtre/option seç/≥1-option blok/archived gizle/legacy/edit round-trip/server
+  hata) + `variant-selection-mapping.test.ts` 7, db `variant-selection-migration.test.ts` 8 (additive/Restrict/Cascade/JSON-yok).
+  Regresyon: store-admin 269/269, api-gateway 771/771, api-client 23/23, contracts 101/101, db 16/16. Gate: db:generate + build
+  (contracts/api-client) + typecheck (değişen paketler TEMİZ; storefront `checkout-form-render` ÖNCEDEN mevcut/TD-040) + lint +
+  `next build` store-admin OK. KALAN: docker rebuild + prod-benzeri auth'lu runtime smoke. Faz 2C-2 (Combination Engine: Cartesian →
+  combinationKey → ProductVariant + SKU matris) AYRI iş.

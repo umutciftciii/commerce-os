@@ -26,6 +26,7 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       createProduct: vi.fn(),
       updateProduct: vi.fn(),
       getProductAttributeValues: vi.fn().mockResolvedValue({ data: [] }),
+      getProductVariantSelections: vi.fn().mockResolvedValue({ data: [] }),
       listCategoryAttributes: vi.fn(),
       listAttributes: vi.fn(),
       listAttributeGroups: vi.fn(),
@@ -207,7 +208,9 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
     // Sıralama: General içinde Waterproof (order 0) Material'dan (order 1) önce.
     const generalText = document.body.textContent ?? "";
     expect(generalText.indexOf("Waterproof")).toBeLessThan(generalText.indexOf("Material"));
-    expect(storeApiMock.listCategoryAttributes).toHaveBeenCalledTimes(1);
+    // Faz 2C-1: useCategoryAttributes + useVariantAttributes iki ayrı tüketici → kategori
+    // başına 2 çağrı (her ikisi de bu uçtan okur; her biri kendi içinde memoize eder).
+    expect(storeApiMock.listCategoryAttributes).toHaveBeenCalledTimes(2);
   });
 
   it("blocks save when a required attribute is empty", async () => {
@@ -364,7 +367,8 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
     await user.click(screen.getByLabelText("Apparel"));
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
 
-    // Cache: listCategoryAttributes yalnız BİR kez çağrıldı.
-    expect(storeApiMock.listCategoryAttributes).toHaveBeenCalledTimes(1);
+    // Cache: her tüketici (product + variant hook) kategori başına yalnız BİR kez çağırdı →
+    // toplam 2; yeniden seçim yeniden fetch ETMEZ (aksi halde 4 olurdu). Memoization korunur.
+    expect(storeApiMock.listCategoryAttributes).toHaveBeenCalledTimes(2);
   });
 });

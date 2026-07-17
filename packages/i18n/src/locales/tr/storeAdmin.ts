@@ -331,6 +331,26 @@ export const trStoreAdmin = {
         default: "Bu özellik kaydedilemedi.",
       },
     },
+    // Faz 2C-1 (ADR-070) — Varyant EKSEN seçimi (henüz kombinasyon üretmez).
+    variantAttributes: {
+      sectionTitle: "Varyant özellikleri",
+      sectionSubtitle:
+        "Hangi özelliklerin varyant belirleyeceğini ve hangi seçeneklerin sunulacağını seçin. Henüz varyant üretilmez.",
+      loading: "Varyant özellikleri yükleniyor…",
+      loadError: "Bu kategorinin varyant özellikleri yüklenemedi.",
+      optionsLabel: "Seçenekler",
+      optionRequired: "Bu varyant özelliği için en az bir seçenek seçin.",
+      serverErrors: {
+        VARIANT_ATTRIBUTE_NOT_IN_CATEGORY: "Bu özellik seçilen kategoriye ait değil.",
+        VARIANT_ATTRIBUTE_NOT_VARIANT_DEFINING: "Bu özellik varyant belirleyici değil.",
+        VARIANT_ATTRIBUTE_NOT_OPTION_BASED: "Yalnızca seçenek tabanlı özellikler varyant belirleyebilir.",
+        VARIANT_ATTRIBUTE_DUPLICATE: "Bu özellik birden fazla kez seçildi.",
+        VARIANT_OPTION_REQUIRED: "Bu varyant özelliği için en az bir seçenek seçin.",
+        VARIANT_OPTION_INVALID: "Seçilen seçeneklerden biri geçersiz.",
+        VARIANT_OPTION_ARCHIVED: "Seçilen seçeneklerden biri artık kullanılamıyor.",
+        default: "Bu varyant özelliği kaydedilemedi.",
+      },
+    },
     salesModel: {
       columnHeader: "Satış",
       sectionTitle: "Satış davranışı",

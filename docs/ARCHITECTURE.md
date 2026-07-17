@@ -317,6 +317,28 @@ PDP tablosu, storefront ve faceted search KAPSAM DISI (Faz 2C+).
   tanimliysa — aksi halde `undefined` → legacy urunler bozulmaz. Backend attribute hatasi `error.details.attributeDefinitionId`
   ile ilgili alana baglanir. Migration YOK; yalniz UI + gomulu akisa additive hata-detayi.
 
+### Varyant Motoru TEMELI — eksen secimi (Faz 2C-1, ADR-070)
+
+Variant Engine'in yalniz VERI MODELI + admin secim ekrani. Bir urunun hangi attribute'lari EKSEN (axis) olarak
+kullanacagini ve her eksende hangi option'lari kapsayacagini NORMALIZE saklar. Bu katman **KOMBINASYON URETMEZ**:
+`ProductVariant`, Cartesian, `combinationKey`, SKU matris, storefront/search/inventory/order snapshot Faz 2C-2+'ye aittir.
+`ProductVariant.optionValues Json?` (legacy) DEGISMEDI.
+
+- **Modeller** (`packages/db/prisma/schema.prisma`): `ProductVariantAttribute` (urunde secilen variant-defining EKSEN;
+  `@@unique([productId, attributeDefinitionId])`, `position`; `attributeDefinitionId → Restrict`, product/store → Cascade) +
+  `ProductVariantOptionSelection` (eksen altinda kapsanan `AttributeOption`; `@@unique([productVariantAttributeId, optionId])`,
+  `position`; `optionId → Restrict`, parent/store → Cascade). JSON YOK — iliskisel butunluk + gelecekte Cartesian sorgusu icin.
+- **`variantSelectionService`** (`apps/api-gateway/src/variant-selections/`) — `ProductVariantAttribute`/`ProductVariantOptionSelection`
+  yazan TEK otorite (Faz 2A `attributeValueService` deseni: prepare read-only + persist replace-set transactional). STABIL kodlarla
+  dogrular: tenant izolasyonu, attribute mevcut/archived, primaryCategory bagi, **variantDefining=true**, **option-tabanli (SELECT/
+  COLOR)** — varyant ekseni tek-secimli olmali, duplicate, her eksende **≥1 option**, option attribute/tenant/archived. Gomulu
+  opsiyonel `variantSelections` (product create/update; `undefined`=legacy, `[]`=temizle) + dedike `GET/PUT .../products/:id/
+  variant-selections`. Mevcut Product API/`optionValues` DEGISMEDI.
+- **UI** (`.../products/variant-attributes/`): `useVariantAttributes` (variantDefining=true + option-tabanli; `useCategoryAttributes`
+  bunlari DISLAR), `variant-attribute-section.tsx` (eksen checkbox → option checkbox'lari; COLOR swatch; archived option gizli),
+  `variant-selection-mapping.ts` (form↔input donusumu + ≥1-option client dogrulama + server-hata→eksen). Kategori variant-defining
+  option-tabanli attribute tanimlamamissa bolum gizli + payload `undefined` (legacy korunur).
+
 ## Auth / Session
 
 Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed

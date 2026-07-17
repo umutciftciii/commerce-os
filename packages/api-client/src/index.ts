@@ -72,6 +72,9 @@ import type {
   ProductAttributeValuesReplaceRequest,
   VariantAttributeValueListResponse,
   VariantAttributeValuesReplaceRequest,
+  // Faz 2C-1 (ADR-070) — urun-seviyesi varyant eksen secimi tipleri.
+  ProductVariantSelectionListResponse,
+  ProductVariantSelectionsReplaceRequest,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -233,6 +236,11 @@ export type {
   ProductAttributeValuesReplaceRequest,
   VariantAttributeValueListResponse,
   VariantAttributeValuesReplaceRequest,
+  // Faz 2C-1 (ADR-070) — urun-seviyesi varyant eksen secimi tipleri.
+  ProductVariantSelectionListResponse,
+  ProductVariantSelectionsReplaceRequest,
+  ProductVariantSelectionInput,
+  ProductVariantSelectionResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -794,6 +802,20 @@ export interface ApiClient {
           input: ProductAttributeValuesReplaceRequest,
           token?: string,
         ): Promise<ProductAttributeValueListResponse>;
+      };
+      // Faz 2C-1 (ADR-070) — urun-seviyesi varyant EKSEN secimi (internal). KOMBINASYON URETMEZ.
+      variantSelections: {
+        get(
+          storeId: string,
+          productId: string,
+          token?: string,
+        ): Promise<ProductVariantSelectionListResponse>;
+        replace(
+          storeId: string,
+          productId: string,
+          input: ProductVariantSelectionsReplaceRequest,
+          token?: string,
+        ): Promise<ProductVariantSelectionListResponse>;
       };
     };
     inventory: {
@@ -1603,6 +1625,20 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           replace: (storeId, productId, input, token) =>
             sendJson<ProductAttributeValueListResponse>(
               `/stores/${storeId}/products/${productId}/attribute-values`,
+              "PUT",
+              input,
+              token,
+            ),
+        },
+        variantSelections: {
+          get: (storeId, productId, token) =>
+            getJson<ProductVariantSelectionListResponse>(
+              `/stores/${storeId}/products/${productId}/variant-selections`,
+              token,
+            ),
+          replace: (storeId, productId, input, token) =>
+            sendJson<ProductVariantSelectionListResponse>(
+              `/stores/${storeId}/products/${productId}/variant-selections`,
               "PUT",
               input,
               token,
