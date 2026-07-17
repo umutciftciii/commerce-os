@@ -340,6 +340,15 @@ export const enStoreAdmin: StoreAdminDictionary = {
       loadError: "Could not load variant attributes for this category.",
       optionsLabel: "Options",
       optionRequired: "Select at least one option for this variant attribute.",
+      previewTitle: "Combinations to be generated",
+      previewSubtitle:
+        "Variant combinations that will be generated from your chosen axes and options. The preview reflects the saved selection; no variants are created yet.",
+      previewLoading: "Calculating combinations…",
+      previewError: "Could not load the combination preview.",
+      previewLimit:
+        "The combination count exceeds the preview limit. Choose fewer axes or options.",
+      previewCount: "{value} combinations will be generated.",
+      previewEmpty: "No combinations yet.",
       serverErrors: {
         VARIANT_ATTRIBUTE_NOT_IN_CATEGORY: "This attribute is not part of the selected category.",
         VARIANT_ATTRIBUTE_NOT_VARIANT_DEFINING: "This attribute is not variant-defining.",

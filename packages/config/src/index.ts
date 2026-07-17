@@ -170,6 +170,13 @@ export const envSchema = z.object({
   // Tek gorsel icin izin verilen azami ham yukleme boyutu (byte). Varsayilan 5 MiB
   // (5*1024*1024). @fastify/multipart limiti + route guard bunu esas alir; asimda 413.
   MEDIA_MAX_UPLOAD_BYTES: optionalNumberEnv(z.coerce.number().int().positive().default(5_242_880)),
+  // ADR-071 (Faz 2C-2) — Combination Engine önizleme güvenlik limiti. Bir ürünün varyant EKSEN
+  // reçetesinden üretilecek Cartesian kombinasyon sayısı bu değeri aşarsa motor materialize ETMEDEN
+  // PREVIEW_LIMIT_EXCEEDED döndürür (bellek/CPU patlaması engellenir). Magic number DEĞİL: config'ten
+  // gelir. Muhafazakâr varsayılan 1000 (ör. 3 eksen × ~10 option tipik senaryoyu rahat kapsar; 5
+  // eksen × yüksek option pratik-dışı kombinasyonu erken reddeder). Alt sınır 1 (pozitif). TD-036 /
+  // optionalNumberEnv: env_file'da `KEY=` boş bırakılırsa varsayılana düşer, config yüklemesi çökmez.
+  MAX_PREVIEW_COMBINATIONS: optionalNumberEnv(z.coerce.number().int().positive().default(1000)),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

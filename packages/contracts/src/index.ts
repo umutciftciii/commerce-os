@@ -693,6 +693,38 @@ export const productVariantSelectionsReplaceRequestSchema = z.object({
   selections: z.array(productVariantSelectionInputSchema),
 });
 
+// ─────────────────── Faz 2C-2 (ADR-071) — Combination Engine ONIZLEME ───────────────────
+// Bir urunun kalici varyant EKSEN recetesinden (2C-1) SAF + deterministik Cartesian carpimiyla
+// "olusacak varyant kombinasyonlari" onizlemesi. Bu KOMBINASYON YAZMAZ: ProductVariant/SKU/price/
+// inventory OLUSTURULMAZ. combinationKey uretilir ama DB'ye yazilmaz (kaliciligi Faz 2C-3). Sunucu
+// otoritedir: canonical ordering + duplicate onleme + guard motordadir (engine.ts).
+
+// Tek bir kombinasyonun tek ekseni: hangi attribute (eksen) icin hangi option secildi.
+export const variantCombinationPreviewAttributeSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  position: z.number().int(),
+  optionId: z.string().min(1),
+  optionLabel: z.string().nullable(),
+});
+
+// Tek bir olusacak kombinasyon (henuz ProductVariant DEGIL). previewId deterministik (random DEGIL);
+// combinationKey kanonik makine kimligi (ID-tabanli). attributes/optionIds/optionLabels kanonik sirada paralel.
+export const variantCombinationPreviewSchema = z.object({
+  previewId: z.string().min(1),
+  combinationKey: z.string().min(1),
+  attributes: z.array(variantCombinationPreviewAttributeSchema),
+  optionIds: z.array(z.string().min(1)),
+  optionLabels: z.array(z.string().nullable()),
+});
+
+// Preview ucu yaniti. axisCount = kombinasyona katki veren (bos olmayan) eksen sayisi;
+// totalCombinations = uretilen kombinasyon sayisi (Cartesian buyuklugu).
+export const variantCombinationPreviewResponseSchema = z.object({
+  axisCount: z.number().int().nonnegative(),
+  totalCombinations: z.number().int().nonnegative(),
+  combinations: z.array(variantCombinationPreviewSchema),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2745,6 +2777,10 @@ export type ProductVariantSelectionInput = z.infer<typeof productVariantSelectio
 export type ProductVariantSelectionResponse = z.infer<typeof productVariantSelectionSchema>;
 export type ProductVariantSelectionListResponse = z.infer<typeof productVariantSelectionListResponseSchema>;
 export type ProductVariantSelectionsReplaceRequest = z.infer<typeof productVariantSelectionsReplaceRequestSchema>;
+// Faz 2C-2 (ADR-071) — Combination Engine onizleme tipleri.
+export type VariantCombinationPreviewAttribute = z.infer<typeof variantCombinationPreviewAttributeSchema>;
+export type VariantCombinationPreview = z.infer<typeof variantCombinationPreviewSchema>;
+export type VariantCombinationPreviewResponse = z.infer<typeof variantCombinationPreviewResponseSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

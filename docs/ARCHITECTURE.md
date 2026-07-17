@@ -339,6 +339,28 @@ kullanacagini ve her eksende hangi option'lari kapsayacagini NORMALIZE saklar. B
   `variant-selection-mapping.ts` (form↔input donusumu + ≥1-option client dogrulama + server-hata→eksen). Kategori variant-defining
   option-tabanli attribute tanimlamamissa bolum gizli + payload `undefined` (legacy korunur).
 
+### Deterministik Combination Engine — kombinasyon onizlemesi (Faz 2C-2, ADR-071)
+
+2C-1 eksen recetesinden (`ProductVariantAttribute` × `ProductVariantOptionSelection`) **olusacak varyant kombinasyonlarinin
+ONIZLEMESINI** ureten **tamamen SAF** motor + salt-okunur uc/ekran. Bu katman **KOMBINASYON YAZMAZ**: `ProductVariant`, SKU,
+price, inventory, order snapshot Faz 2C-3+'ye aittir. `combinationKey` uretilir ama **DB'ye yazilmaz**. Sema DEGISMEDI.
+
+- **Saf motor** (`apps/api-gateway/src/variant-combinations/engine.ts`): `generateVariantCombinations(axes, {maxCombinations})`
+  yalniz input → output; Prisma/DB/network/logger/`Date`/`Math.random` YOK; girdiyi mutasyona ugratmaz → **deterministik + idempotent**.
+  **Canonical ordering:** eksen `position ASC → attributeDefinitionId ASC`, option `position ASC → optionId ASC` (girdi sirasi sonucu
+  degistirmez). **Duplicate onleme:** duplicate option tekillestirilir, duplicate axis option-union'lanir; archived option elenir,
+  empty axis dusurulur, eksen yoksa 0 kombinasyon. **Cartesian:** iteratif odometer (`O(k)` bellek). `combinationKey` = `v1|attrId:optId
+  |...` (ID-tabanli, segmentler attrId'ye sirali — rename/position bagimsiz stabil kimlik). `previewId` = `pv_<cyrb53(key)>`
+  (deterministik, random DEGIL). Big-O: zaman `O(P·k)`, bellek `O(P·k)` cikti (P=Cartesian buyuklugu).
+- **Runtime guard:** `MAX_PREVIEW_COMBINATIONS` (packages/config, default 1000; magic number DEGIL). Cartesian buyuklugu materialize
+  edilmeden hesaplanir; asimda `PREVIEW_LIMIT_EXCEEDED` (route **422**).
+- **Servis/uc** (`apps/api-gateway/src/variant-combinations/`): `service.ts` kalici receteyi + guncel option metadata'sini (label/archived)
+  motora eslir; `data.ts` yalniz OKUMA IO; `routes.ts` salt-okunur `GET .../products/:id/variant-combinations/preview` (WRITE YOK).
+  Legacy variant-selections + `optionValues` DEGISMEDI.
+- **UI** (`.../products/variant-attributes/`): `useVariantCombinationPreview` + `combination-preview.tsx` — salt-okunur "Olusacak
+  Kombinasyonlar" paneli; yalniz duzenleme modu + kategori varyant-defining eksen tanimladiysa; kaydedilmis receteyi yansitir (her
+  kaydetmede yeniden ceker). DUZENLEME YOK.
+
 ## Auth / Session
 
 Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed

@@ -2130,3 +2130,61 @@ option kavramı yok); eksen + option'ları tek tabloda (self-join) tutmak (optio
 kombinasyonu/`combinationKey`'i şimdi üretmek (brief'in açık YASAK listesi — foundation yalnız seçim); eksene `MULTI_SELECT` izni
 (varyant ekseni tek-seçimli olmalı, `VariantAttributeValue` tek option taşır); seçimi ürün yerine varyant seviyesinde tutmak (henüz
 varyant YOK; seçim ürün-seviyesi bir "reçetedir").
+
+## ADR-071 — Deterministik Combination Engine: saf Cartesian önizleme motoru (kombinasyon YAZIMI ayrı faz) (Faz 2C-2)
+
+- **Durum:** Kabul edildi (2026-07-17). ADR-070 (Faz 2C-1) varyant EKSEN seçimi veri modelini + admin ekranını kurdu
+  (`ProductVariantAttribute` × `ProductVariantOptionSelection` reçetesi). Bu faz o reçeteyi tüketip **oluşacak varyant
+  kombinasyonlarının ÖNİZLEMESİNİ** üreten **tamamen SAF** bir motor + salt-okunur önizleme ucu/ekranı ekler. TODO-148.
+- **Bağlam.** Combination Engine'in çekirdeği (Cartesian çarpım + kanonik sıralama + `combinationKey`) doğruluğu
+  **deterministiklik** ve **idempotentlik** üzerine kuruludur; bu özellikler ancak yan-etkisiz saf bir fonksiyonda güvenle
+  test edilebilir. Bu PR **KESİNLİKLE** kombinasyon YAZMAZ: `ProductVariant`, SKU, barcode, price, inventory, bulk edit,
+  varyant görselleri, storefront/search/marketplace, order snapshot **KAPSAM DIŞI**. `combinationKey` üretilir ama **DB'ye
+  yazılmaz** (kalıcılığı Faz 2C-3).
+
+**Karar.**
+1. **Saf motor (`engine.ts`).** `generateVariantCombinations(axes, {maxCombinations})` yalnız input → output üretir; Prisma/DB/
+   transaction/network/logger/`process.env`/`Date`/`Math.random` **bilmez** ve girdiyi **mutasyona uğratmaz**. Bu, "aynı input →
+   aynı output" (deterministik) ve "iki kez çağır → birebir aynı" (idempotent) garantilerini test edilebilir kılar. IO (kalıcı
+   reçete + option metadata okuma) ayrı `data.ts`'te; eşleme + guard `service.ts`'te; HTTP `routes.ts`'te (Faz 2A/2C-1 modül deseni).
+2. **Canonical ordering (girdi sırası sonucu DEĞİŞTİRMEZ).** Eksenler `position ASC → attributeDefinitionId ASC`; eksen içi
+   option'lar `position ASC → optionId ASC`. Böylece karışık sıralı girdi ve farklı `position` değerleri aynı deterministik
+   çıktıyı verir. **Neden:** kombinasyon kimliği (`combinationKey`) ve önizleme satır sırası girdi sırasından bağımsız, tekrarlanabilir
+   olmalı — yoksa aynı ürün için farklı isteklerde farklı kimlik/sıra üretilir.
+3. **`combinationKey` — ID-tabanlı kanonik kimlik.** Format `v1|<attributeDefinitionId>:<optionId>|...`, segmentler
+   `attributeDefinitionId`'ye göre sıralı. **Neden ID (kod/değer DEĞİL):** `code`/`value`/`label` yeniden adlandırılabilir
+   (mutable) — ID-tabanlı anahtar rename VE `position` değişiminden **bağımsızdır** (stabil kimlik), gelecekte `ProductVariant`
+   üzerinde `@@unique([productId, combinationKey])` kısıtı için sağlam temeldir. cuid'ler `[a-z0-9]` olduğundan `:`/`|` ayraç
+   çakışması yoktur. Sürüm ön eki (`v1|`) format evrimine izin verir. **Bu fazda üretilir, DB'ye YAZILMAZ.**
+4. **`previewId` — deterministik hash (random DEĞİL).** `pv_<cyrb53(combinationKey)>` (14 haneli hex). **Neden random/UUID değil:**
+   önizleme kimliği tekrarlanabilir olmalı (React key stabilitesi + snapshot testleri + idempotency kanıtı). `previewId` geçici bir
+   UI kimliğidir; kalıcı benzersizlik `combinationKey`'dedir. `Math.random()`/`Date.now()` motor sözleşmesinde YASAK (saflık).
+5. **Cartesian üretim — iteratif odometer.** Recursive zorunlu değil; en okunabilir çözüm seçildi. `O(k)` çalışma-belleği index'i
+   (k=eksen sayısı) ile satırlar üretilir; son eksen en hızlı döner (deterministik satır sırası). Bellek: guard çıktıyı sınırladığı
+   için materialize edilmiş dizi yeterli — **streaming gerekmez** (çıktı kümesi zaten üst-sınırlı; sınırsız olsaydı streaming gerekirdi).
+6. **Duplicate önleme + kenar durumlar.** Duplicate option tekilleştirilir; duplicate axis (aynı attribute) option kümeleri
+   **birleştirilir (union)** — böylece girdi tekrarı çıktıyı değiştirmez ve sonuç girdi sırasından bağımsız kalır. Archived option'lar
+   çıkarılır; filtreleme sonrası boş kalan eksen (empty axis) **düşürülür**. Hiç eksen yoksa **0 kombinasyon** (matematiksel "boş çarpım
+   = 1" reddedildi — varyantı olmayan ürün için anlamsız).
+7. **Runtime guard — `MAX_PREVIEW_COMBINATIONS` (config; magic number DEĞİL).** Cartesian büyüklüğü **materialize edilmeden önce**
+   hesaplanır; limit aşılırsa stabil `PREVIEW_LIMIT_EXCEEDED` kodu + `{totalCombinations, limit}` döner (route 422). Varsayılan 1000
+   (`optionalNumberEnv`, TD-036 boş-string toleranslı). **Neden:** 5+ eksen × yüksek option pratik-dışı bir kombinasyon patlaması
+   üretebilir; guard bellek/CPU'yu korur ve sessiz kırpma yerine yüksek-sesli hata verir.
+8. **Preview-first + salt-okunur uç/ekran.** `GET /stores/:storeId/products/:productId/variant-combinations/preview` yalnız hesaplar
+   (WRITE YOK). Legacy `GET/PUT .../variant-selections` (2C-1) ve `ProductVariant`/`optionValues` semantiği **DEĞİŞMEZ**. store-admin
+   ürün formuna salt-okunur **"Oluşacak Kombinasyonlar"** paneli (yalnız düzenleme modunda + kategori varyant-defining eksen tanımladıysa;
+   kaydedilmiş reçeteyi yansıtır). **Düzenleme/oluşturma YOK** — yalnız oluşacak kombinasyonlar listelenir.
+
+**Sonuçlar.**
+- Combination Engine'in doğruluk çekirdeği (Cartesian + kanonik sıralama + `combinationKey`) saf, deterministik, idempotent ve
+  yoğun birim testleriyle (31 motor/servis/route + 7 UI testi) kanıtlanmış olarak hazır; Faz 2C-3 (kalıcı `ProductVariant` + SKU
+  matris) bu motoru olduğu gibi tüketebilir.
+- Migration YOK (şema değişmedi); `optionValues`/storefront/checkout/order/inventory DEĞİŞMEZ; eski istemciler için ek uç tamamen
+  additive.
+
+**Alternatifler (reddedilen).** `combinationKey`'i `code:value` (insan-okunur) ile üretmek (rename ile kimlik kayar — ID-tabanlı
+tercih edildi); `previewId` için random UUID (tekrarlanamaz → determinizm/idempotency kanıtı imkânsız — deterministik hash seçildi);
+motoru servise/Prisma'ya bağlamak (saflık + izole test kaybı — DI ile ayrıldı); guard'ı sabit magic number yapmak (config'ten gelir);
+recursive Cartesian (odometer daha okunur + `O(k)` bellek); bu fazda `ProductVariant`/`combinationKey` yazmak (brief'in açık YASAK
+listesi — preview-first, yazım Faz 2C-3); boş çarpımı 1 kombinasyon saymak (varyantsız ürün için anlamsız — 0 seçildi); streaming
+çıktı (guard zaten üst-sınırladığından gereksiz karmaşıklık).

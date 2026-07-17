@@ -594,3 +594,21 @@
   tarayıcı smoke (canlı variantDefining attribute + eksen/option seçimi round-trip) ayrı adım.
 - Kapsam: packages/db, packages/contracts, packages/api-client, apps/api-gateway/src/variant-selections,
   apps/store-admin-web (product form + variant-attributes/*), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-042 Faz 2C-2 Combination Engine: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-17 (Faz 2C-2, TODO-148, ADR-071)
+- Sorun 1 (KOMBINASYON YAZIMI YOK — preview-first): Bu faz yalnız oluşacak kombinasyonların ÖNİZLEMESİNİ hesaplar. `combinationKey`
+  üretilir ama **DB'ye yazılmaz**; `ProductVariant`, SKU, barcode, price, inventory, bulk edit, varyant görselleri, storefront/search/
+  marketplace, order snapshot Faz 2C-3+'ye aittir. Bilinçli kapsam kararı (ADR-071 md.1/md.8). Etki: yok (tasarım).
+- Sorun 2 (önizleme yalnız KALICI seçimi yansıtır): Önizleme sunucu-otoriter olduğundan store-admin paneli KAYDEDİLMİŞ eksen
+  reçetesini gösterir; kaydedilmemiş form değişiklikleri kaydetmeden görünmez (kaydetme sonrası `refreshToken` ile yeniden çekilir).
+  İstenirse ileride motorun bir client-port'u ile "canlı" önizleme eklenebilir (aynı saf algoritma). Etki: düşük (UX tercihi).
+- Sorun 3 (`previewId` cyrb53, kriptografik DEĞİL): `previewId` geçici bir UI kimliğidir (React key/snapshot). Çarpışma olasılığı
+  ~1000 kombinasyonda ihmal edilebilir; kalıcı benzersizlik `combinationKey`'dedir (ID-tabanlı, çakışmasız). Kalıcı kimlik gerekirse
+  Faz 2C-3 `combinationKey`'i DB unique kısıtıyla kullanır. Etki: yok.
+- Sorun 4 (guard global sabit, ürün-bazlı DEĞİL): `MAX_PREVIEW_COMBINATIONS` mağaza/ürün-bazlı değil global config'tir. Çok büyük
+  katalog ihtiyacında ürün/plan-bazlı limit ileride eklenebilir. Etki: düşük.
+- Sorun 5 (runtime smoke bekliyor): Tüm gate yeşil (api-gateway 802, store-admin 269, contracts 101, config 24, i18n 47 + tsc temiz);
+  ancak docker rebuild + prod-benzeri auth'lu tarayıcı smoke (canlı eksen reçeteli üründe preview + guard 422) ayrı adım.
+- Kapsam: packages/config, packages/contracts, packages/api-client, apps/api-gateway/src/variant-combinations,
+  apps/store-admin-web (product form + variant-attributes/*), packages/i18n. Bloklayıcı: HAYIR.

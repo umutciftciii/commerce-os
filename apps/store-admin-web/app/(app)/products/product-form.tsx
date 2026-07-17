@@ -43,6 +43,8 @@ import {
 import { emptyAttributeValue, type AttributeValueMap, type ResolvedAttribute } from "./attributes/types";
 import { useVariantAttributes } from "./variant-attributes/use-variant-attributes";
 import { VariantAttributeSection } from "./variant-attributes/variant-attribute-section";
+import { useVariantCombinationPreview } from "./variant-attributes/use-variant-combination-preview";
+import { CombinationPreview } from "./variant-attributes/combination-preview";
 import {
   buildVariantSelectionMap,
   emptyVariantSelectionMap,
@@ -113,6 +115,8 @@ export function ProductForm({
   const [rootError, setRootError] = useState<string | null>(null);
   // Faz 2C-1 — varyant eksen (attributeDefinitionId → mesaj) client/server hataları.
   const [variantErrors, setVariantErrors] = useState<Record<string, string>>({});
+  // Faz 2C-2 — Combination Engine önizlemesini yeniden çekmek için sinyal (her kaydetmede artar).
+  const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
 
   // Kategori-güdümlü attribute şeması, güncel çözümlenmiş liste resolver'a ref ile geçer.
   const attributesRef = useRef<ResolvedAttribute[]>([]);
@@ -200,6 +204,15 @@ export function ProductForm({
   // Faz 2C-1 — ana kategori VARYANT eksen şemasını sürer (variantDefining=true + option-tabanlı).
   const variantAttrState = useVariantAttributes(primaryCategoryId);
   variantAttributesRef.current = variantAttrState.attributes;
+
+  // Faz 2C-2 — ürünün KALICI eksen reçetesinden ÜRETİLECEK kombinasyonların önizlemesi (yalnız
+  // düzenleme modunda VE kategori varyant-defining eksen tanımladıysa; kaydedilmiş seçimi yansıtır).
+  // Eksen yoksa preview de yok (bölüm gizli) → mevcut/legacy akış birebir korunur. ProductVariant ÜRETMEZ.
+  const hasVariantAxes = variantAttrState.attributes.length > 0;
+  const combinationPreview = useVariantCombinationPreview(
+    isEdit && product && hasVariantAxes ? product.id : null,
+    previewRefreshToken,
+  );
 
   // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
   // yükleme (kategori = ürünün mevcut ana kategorisi) mevcut değerleri round-trip'ler.
@@ -448,6 +461,8 @@ export function ProductForm({
           product.id,
           buildUpdatePayload(values, attributeValues, variantSelectionsInput),
         );
+        // Kalıcı seçim değişmiş olabilir → önizlemeyi güncel reçeteden yeniden çek.
+        setPreviewRefreshToken((token) => token + 1);
         onSaved(t.detail.savedToast, updated);
       } else {
         const created = await storeApi.createProduct(
@@ -652,6 +667,21 @@ export function ProductForm({
           errorLabel: va.loadError,
           optionsLabel: va.optionsLabel,
           optionRequired: va.optionRequired,
+        }}
+      />
+
+      {/* Faz 2C-2 (ADR-071) — Oluşacak varyant kombinasyonlarının SALT-OKUNUR önizlemesi
+          (yalnız düzenleme; kaydedilmiş reçeteden). DÜZENLEME/YAZMA YOK; ProductVariant ÜRETMEZ. */}
+      <CombinationPreview
+        state={combinationPreview}
+        labels={{
+          sectionTitle: va.previewTitle,
+          sectionSubtitle: va.previewSubtitle,
+          loadingLabel: va.previewLoading,
+          errorLabel: va.previewError,
+          limitLabel: va.previewLimit,
+          countLabel: (count) => formatTemplate(va.previewCount, count),
+          emptyLabel: va.previewEmpty,
         }}
       />
 

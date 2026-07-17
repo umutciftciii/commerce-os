@@ -28,6 +28,10 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       updateProduct: vi.fn(),
       getProductAttributeValues: vi.fn().mockResolvedValue({ data: [] }),
       getProductVariantSelections: vi.fn().mockResolvedValue({ data: [] }),
+      // Faz 2C-2 — düzenleme modunda eksen varsa combination preview çekilir (yalnız okuma).
+      getVariantCombinationPreview: vi
+        .fn()
+        .mockResolvedValue({ axisCount: 0, totalCombinations: 0, combinations: [] }),
       listCategoryAttributes: vi.fn(),
       listAttributes: vi.fn(),
       listAttributeGroups: vi.fn().mockResolvedValue({ data: [] }),
