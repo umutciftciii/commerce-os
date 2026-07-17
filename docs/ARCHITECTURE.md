@@ -210,7 +210,9 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
   alanlari. Varsayilan `ONLINE/VISIBLE/ADD_TO_CART/purchasable=true` mevcut urun davranisini korur.
 - `ProductVariant`: store-scoped varyant; `sku` store bazinda unique, fiyatlar integer minor unit
   (`priceMinor`, `compareAtMinor`) ve `currency` ile saklanir. `storeId` tenant guard icin bilincli
-  denormalized tutulur.
+  denormalized tutulur. Faz 2C-3 (ADR-072): `generationSource` (MANUAL|ATTRIBUTE_COMBINATION),
+  kalici `combinationKey String?` (`@@unique([productId, combinationKey])`, NULL-distinct) ve soft-archive
+  `archivedAt DateTime?` eklendi; uretilmis varyantin normalize eksen→option secimi `ProductVariantOptionValue`'da.
 - `ProductCategory`: store-scoped kategori agaci; `slug` store bazinda unique, `parentId` ayni store
   icinde validate edilir.
 - `ProductCategoryAssignment`: urun-kategori baglantisi; storeId ile tenant sorgulari ve unique guard
@@ -360,6 +362,35 @@ price, inventory, order snapshot Faz 2C-3+'ye aittir. `combinationKey` uretilir 
 - **UI** (`.../products/variant-attributes/`): `useVariantCombinationPreview` + `combination-preview.tsx` — salt-okunur "Olusacak
   Kombinasyonlar" paneli; yalniz duzenleme modu + kategori varyant-defining eksen tanimladiysa; kaydedilmis receteyi yansitir (her
   kaydetmede yeniden ceker). DUZENLEME YOK.
+
+### ProductVariant persistence + incremental diff motoru (Faz 2C-3, ADR-072)
+
+2C-2 SAF motorundan **kalici `ProductVariant` uretimi**: kaydedilmis eksen recetesinden hedef kombinasyonlar uretilir ve mevcut
+varyantlarla **diff'lenir** → create/keep/restore/archive. Deterministik · idempotent · transaction-safe · concurrency-safe ·
+tenant-safe. Combination Engine (`engine.ts`) DEGISMEDI. **SKU Matrix DEGIL.**
+
+- **Veri modeli (additive):** `ProductVariant` + `generationSource` (enum `VariantGenerationSource` MANUAL|ATTRIBUTE_COMBINATION,
+  default MANUAL → legacy varyantlar MANUAL) + `combinationKey String?` + `archivedAt DateTime?`; `@@unique([productId, combinationKey])`
+  (Postgres NULL-distinct: manuel null'lar cakismaz, uretilmis non-null key tek). Yeni tablo **`ProductVariantOptionValue`** (variantId,
+  attributeDefinitionId, optionId; `@@unique([variantId, attributeDefinitionId])`) — uretilmis varyantin normalize eksen→option secimi
+  (2A `VariantAttributeValue`'dan AYRI: single-writer invariantı karismasin; `optionValues Json?` authoritative DEGIL).
+- **Saf diff motoru** (`apps/api-gateway/src/variant-generation/diff-engine.ts`): `diffVariantCombinations(existing, target)` —
+  Prisma/DB/`Date`/`Math.random` YOK, girdiyi mutasyona ugratmaz; **Map/Set tabanli ~O(P+E)** (P=hedef, E=mevcut generated; nested
+  O(P×E) YOK); `{toCreate, toKeep, toRestore, toArchive, manualVariants}`, `combinationKey` sirasinda deterministik. Manuel varyantlar
+  hicbir gruba karismaz.
+- **Persistence** (`variant-generation/data.ts` + `service.ts`): tum uretim tek `prisma.$transaction`; basinda **advisory xact lock**
+  (`pg_advisory_xact_lock(hashtext(productId))`) + DB unique `(productId, combinationKey)` → yarista duplicate P2002 → kontrollu
+  `VARIANT_GENERATION_CONFLICT`. **keep=write YOK** (idempotent; `updatedAt` sabit); **restore=ayni ID/SKU/price**, yalniz `status=DRAFT`+
+  `archivedAt=null`; **archive=soft** (`status=ARCHIVED`+`archivedAt`; hard-delete YASAK; storefront ARCHIVED'i zaten dislar);
+  **create=DRAFT** + deterministik SKU `V-<productId>-<hash(combinationKey)>` (random/timestamp YOK) + normalize selection. Yeni varyanta
+  InventoryItem/price-audit yazilmaz.
+- **API** (`variant-generation/routes.ts`): `POST /stores/:id/products/:id/variant-combinations/generate` (govdesiz; kaynak DB recetesi).
+  Yanit `{totalTarget, created, kept, restored, archived, manualVariantsUntouched, variants[]}`. Stabil hatalar PRODUCT_NOT_FOUND(404) /
+  VARIANT_SELECTION_EMPTY / INVALID_VARIANT_SELECTION / PREVIEW_LIMIT_EXCEEDED / ATTRIBUTE_OPTION_NOT_FOUND(422) /
+  VARIANT_GENERATION_CONFLICT(409). Bos recete → sessiz archive YOK. Preview ucu (GET) BOZULMAZ.
+- **UI** (`.../products/variant-attributes/`): `useVariantGeneration` + `generate-variants-action.tsx` — **"Varyantlari Olustur"** aksiyonu
+  + sonuc ozeti; yalniz duzenleme + eksen varsa gorunur; preview limiti/loading'de pasif; basarida onizleme yeniden cekilir. i18n tr+en.
+  **SKU Matrix / inline fiyat-stok duzenleme YOK.**
 
 ## Auth / Session
 

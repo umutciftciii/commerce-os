@@ -45,6 +45,8 @@ import { useVariantAttributes } from "./variant-attributes/use-variant-attribute
 import { VariantAttributeSection } from "./variant-attributes/variant-attribute-section";
 import { useVariantCombinationPreview } from "./variant-attributes/use-variant-combination-preview";
 import { CombinationPreview } from "./variant-attributes/combination-preview";
+import { useVariantGeneration } from "./variant-attributes/use-variant-generation";
+import { GenerateVariantsAction } from "./variant-attributes/generate-variants-action";
 import {
   buildVariantSelectionMap,
   emptyVariantSelectionMap,
@@ -212,6 +214,12 @@ export function ProductForm({
   const combinationPreview = useVariantCombinationPreview(
     isEdit && product && hasVariantAxes ? product.id : null,
     previewRefreshToken,
+  );
+
+  // Faz 2C-3 — kalıcı varyant ÜRETİMİ. Başarıda önizlemeyi güncel reçeteden yeniden çeker.
+  const variantGeneration = useVariantGeneration(
+    isEdit && product && hasVariantAxes ? product.id : null,
+    () => setPreviewRefreshToken((token) => token + 1),
   );
 
   // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
@@ -682,6 +690,32 @@ export function ProductForm({
           limitLabel: va.previewLimit,
           countLabel: (count) => formatTemplate(va.previewCount, count),
           emptyLabel: va.previewEmpty,
+        }}
+      />
+
+      {/* Faz 2C-3 (ADR-072) — "Varyantları Oluştur" aksiyonu + sonuç özeti. Yalnız düzenleme + eksen
+          varsa görünür; preview limiti aşıldıysa / yükleniyorsa pasif. SKU Matrix DEĞİL. */}
+      <GenerateVariantsAction
+        visible={Boolean(isEdit && product && hasVariantAxes)}
+        disabled={
+          combinationPreview.loading ||
+          combinationPreview.errorCode !== null ||
+          !combinationPreview.data ||
+          combinationPreview.data.totalCombinations === 0
+        }
+        controller={variantGeneration}
+        labels={{
+          sectionTitle: va.generateTitle,
+          sectionSubtitle: va.generateSubtitle,
+          button: va.generateButton,
+          generating: va.generating,
+          summaryTitle: va.generateSummaryTitle,
+          createdLabel: (count) => formatTemplate(va.generatedCreated, count),
+          keptLabel: (count) => formatTemplate(va.generatedKept, count),
+          restoredLabel: (count) => formatTemplate(va.generatedRestored, count),
+          archivedLabel: (count) => formatTemplate(va.generatedArchived, count),
+          manualLabel: (count) => formatTemplate(va.generatedManual, count),
+          serverErrors: va.generateServerErrors,
         }}
       />
 

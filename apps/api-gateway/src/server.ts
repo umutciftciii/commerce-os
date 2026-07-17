@@ -162,6 +162,12 @@ import {
 import { createVariantCombinationPreviewService } from "./variant-combinations/service.js";
 import { registerVariantCombinationRoutes } from "./variant-combinations/routes.js";
 import {
+  createPrismaVariantGenerationDataAccess,
+  type VariantGenerationDataAccess,
+} from "./variant-generation/data.js";
+import { createVariantGenerationService } from "./variant-generation/service.js";
+import { registerVariantGenerationRoutes } from "./variant-generation/routes.js";
+import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
   type WalletDataAccess,
@@ -1124,6 +1130,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   variantSelectionDataAccess?: VariantSelectionDataAccess;
   // Faz 2C-2 (ADR-071) — Combination Engine onizleme veri erisimi (testte in-memory enjekte edilebilir).
   variantCombinationDataAccess?: VariantCombinationDataAccess;
+  // Faz 2C-3 (ADR-072) — ProductVariant uretim (persistence) veri erisimi (testte in-memory enjekte edilebilir).
+  variantGenerationDataAccess?: VariantGenerationDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5068,6 +5076,21 @@ export function createServer(
   );
   registerVariantCombinationRoutes(app, {
     service: variantCombinationPreviewService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // Faz 2C-3 (ADR-072) — ProductVariant URETIM (persistence): receteden kombinasyon uretir ve
+  // mevcut varyantlarla diff'ler (create/keep/restore/archive). Preview (GET) BOZULMAZ; bu ayri write ucu.
+  const variantGenerationDataAccess =
+    dependencies.variantGenerationDataAccess ?? createPrismaVariantGenerationDataAccess();
+  const variantGenerationService = createVariantGenerationService(variantGenerationDataAccess, {
+    maxCombinations: config.MAX_PREVIEW_COMBINATIONS,
+  });
+  registerVariantGenerationRoutes(app, {
+    service: variantGenerationService,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

@@ -359,6 +359,30 @@ export const trStoreAdmin = {
         VARIANT_OPTION_ARCHIVED: "Seçilen seçeneklerden biri artık kullanılamıyor.",
         default: "Bu varyant özelliği kaydedilemedi.",
       },
+      // Faz 2C-3 (ADR-072) — kalıcı varyant üretimi aksiyonu + sonuç özeti.
+      generateTitle: "Varyantları oluştur",
+      generateSubtitle:
+        "Kaydedilmiş eksen reçetesinden ProductVariant kayıtlarını üretir. Mevcut varyantlar korunur; artık geçerli olmayanlar arşivlenir, geri gelen kombinasyonlar geri yüklenir.",
+      generateButton: "Varyantları oluştur",
+      generating: "Varyantlar oluşturuluyor…",
+      generateSummaryTitle: "Üretim özeti",
+      generatedCreated: "Oluşturulan: {value}",
+      generatedKept: "Korunan: {value}",
+      generatedRestored: "Geri yüklenen: {value}",
+      generatedArchived: "Arşivlenen: {value}",
+      generatedManual: "Manuel (dokunulmadı): {value}",
+      generateServerErrors: {
+        VARIANT_SELECTION_EMPTY: "Varyant seçimi boş. Önce en az bir eksen ve seçenek kaydedin.",
+        INVALID_VARIANT_SELECTION:
+          "Seçim hiç kombinasyon üretmiyor (tüm seçenekler arşivli/kaldırılmış).",
+        PREVIEW_LIMIT_EXCEEDED:
+          "Kombinasyon sayısı sınırı aşıyor. Daha az eksen veya seçenek seçin.",
+        VARIANT_GENERATION_CONFLICT:
+          "Aynı ürün için eşzamanlı bir üretim sürüyor. Lütfen tekrar deneyin.",
+        ATTRIBUTE_OPTION_NOT_FOUND: "Seçilen seçeneklerden biri çözümlenemedi.",
+        PRODUCT_NOT_FOUND: "Ürün bulunamadı.",
+        default: "Varyantlar oluşturulamadı.",
+      },
     },
     salesModel: {
       columnHeader: "Satış",

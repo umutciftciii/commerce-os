@@ -165,6 +165,15 @@ enum ProductVariantStatus {
   ARCHIVED
 }
 
+// Faz 2C-3 (ADR-072) — Bir ProductVariant'in KAYNAGI. MANUAL: kullanici/legacy elle olusturdu
+// (mevcut TUM varyantlar migration default'u ile MANUAL). ATTRIBUTE_COMBINATION: Combination Engine
+// recetesinden uretildi. Sistem YALNIZ ATTRIBUTE_COMBINATION varyantlari archive/restore eder;
+// MANUAL varyantlara DOKUNMAZ (izolasyon). String magic value DEGIL — guclu tip.
+enum VariantGenerationSource {
+  MANUAL
+  ATTRIBUTE_COMBINATION
+}
+
 enum InventoryMovementType {
   ADJUSTMENT
   SALE_RESERVATION
@@ -587,6 +596,8 @@ model Store {
   // Faz 2C-1 (ADR-070) — varyant motoru temeli: urun-seviyesi variant-defining eksen secimi.
   productVariantAttributes         ProductVariantAttribute[]
   productVariantOptionSelections   ProductVariantOptionSelection[]
+  // Faz 2C-3 (ADR-072) — uretilmis varyantin cozulmus eksen->option secimleri (tenant sutunu).
+  productVariantOptionValues       ProductVariantOptionValue[]
 }
 
 model StoreUser {
@@ -741,15 +752,15 @@ model Product {
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
-  store            Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  primaryCategory  ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
-  variants         ProductVariant[]
-  assignments      ProductCategoryAssignment[]
-  orderLines       OrderLine[]
-  campaignProducts CampaignProduct[]
-  images           ProductImage[]
+  store             Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  primaryCategory   ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  variants          ProductVariant[]
+  assignments       ProductCategoryAssignment[]
+  orderLines        OrderLine[]
+  campaignProducts  CampaignProduct[]
+  images            ProductImage[]
   // Faz 2A (ADR-068) — urun-seviyesi (non-variantDefining) attribute degerleri.
-  attributeValues  ProductAttributeValue[]
+  attributeValues   ProductAttributeValue[]
   // Faz 2C-1 (ADR-070) — bu urun icin secilen variant-defining eksenler (henuz KOMBINASYON DEGIL).
   variantAttributes ProductVariantAttribute[]
 
@@ -763,7 +774,7 @@ model Product {
 }
 
 model ProductVariant {
-  id               String               @id @default(cuid())
+  id               String                  @id @default(cuid())
   productId        String
   storeId          String
   title            String
@@ -782,27 +793,41 @@ model ProductVariant {
   // brut GORUNEN fiyatlar birebir korunur. vatRateBps: 2000=%20, 1000=%10,
   // 100=%1, 0=%0.
   netPriceMinor    Int?
-  vatRateBps       Int                  @default(2000)
+  vatRateBps       Int                     @default(2000)
   vatAmountMinor   Int?
   currency         String
-  status           ProductVariantStatus @default(ACTIVE)
+  status           ProductVariantStatus    @default(ACTIVE)
   optionValues     Json?
+  // Faz 2C-3 (ADR-072) — Varyant kaynagi + kalici kanonik kombinasyon kimligi + soft-archive damgasi.
+  // generationSource: MANUAL (default; mevcut/legacy varyantlar) veya ATTRIBUTE_COMBINATION (uretilmis).
+  // combinationKey: yalniz uretilmis varyantta dolu (v1|attrId:optId|...); manuel varyantta null.
+  //   @@unique([productId, combinationKey]) — Postgres NULL-distinct: coklu manuel null cakismaz,
+  //   uretilmis non-null key ayni urun altinda tektir (concurrency insert-conflict temeli).
+  // archivedAt: recetede olmayan uretilmis varyant arsivlendiginde (status=ARCHIVED) set edilir; audit.
+  generationSource VariantGenerationSource @default(MANUAL)
+  combinationKey   String?
+  archivedAt       DateTime?
   // F3C.2 — Kargo olcumu (desi/agirlik); urun-seviyesi degerleri override eder.
-  shippingWeightKg Decimal?             @db.Decimal(10, 3)
-  shippingDesi     Decimal?             @db.Decimal(10, 2)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  shippingWeightKg Decimal?                @db.Decimal(10, 3)
+  shippingDesi     Decimal?                @db.Decimal(10, 2)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
 
-  product         Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
-  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  inventory       InventoryItem?
-  movements       InventoryMovement[]
-  orderLines      OrderLine[]
-  reservations    InventoryReservation[]
+  product               Product                     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store                 Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inventory             InventoryItem?
+  movements             InventoryMovement[]
+  orderLines            OrderLine[]
+  reservations          InventoryReservation[]
   // Faz 2A (ADR-068) — variantDefining attribute degerleri (yalniz valueText/optionId).
-  attributeValues VariantAttributeValue[]
+  attributeValues       VariantAttributeValue[]
+  // Faz 2C-3 (ADR-072) — uretilmis varyantin cozulmus eksen->option secimi (normalize; combinationKey ile
+  // tutarli). Manuel varyantta bos kalir (attributeValues 2A ile karistirilmaz — ayri yazma otoritesi).
+  optionValueSelections ProductVariantOptionValue[]
 
   @@unique([storeId, sku])
+  // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
+  @@unique([productId, combinationKey])
   @@index([productId])
   @@index([storeId])
   @@index([status])
@@ -2115,14 +2140,16 @@ model AttributeDefinition {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  store         Store?                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  options       AttributeOption[]
-  categoryLinks CategoryAttribute[]
+  store                 Store?                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  options               AttributeOption[]
+  categoryLinks         CategoryAttribute[]
   // Faz 2A (ADR-068) — bu tanimi DEGER olarak kullanan urun/varyant satirlari (onDelete: Restrict).
-  productValues ProductAttributeValue[]
-  variantValues VariantAttributeValue[]
+  productValues         ProductAttributeValue[]
+  variantValues         VariantAttributeValue[]
   // Faz 2C-1 (ADR-070) — bu tanimi variant-defining EKSEN olarak secen urun satirlari (onDelete: Restrict).
   variantSelectionLinks ProductVariantAttribute[]
+  // Faz 2C-3 (ADR-072) — bu tanimi uretilmis varyant eksen degeri olarak kullanan satirlar (onDelete: Restrict).
+  variantOptionValues   ProductVariantOptionValue[]
 
   @@unique([storeId, code])
   @@index([storeId])
@@ -2163,14 +2190,16 @@ model AttributeOption {
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
-  definition        AttributeDefinition           @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
-  store             Store?                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  definition              AttributeDefinition             @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  store                   Store?                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   // Faz 2A (ADR-068) — bu secenegi DEGER olarak kullanan satirlar (onDelete: Restrict).
-  productValues     ProductAttributeValue[]
-  variantValues     VariantAttributeValue[]
-  productValueLinks ProductAttributeValueOption[]
+  productValues           ProductAttributeValue[]
+  variantValues           VariantAttributeValue[]
+  productValueLinks       ProductAttributeValueOption[]
   // Faz 2C-1 (ADR-070) — bu secenegi variant eksen option'i olarak secen satirlar (onDelete: Restrict).
   variantOptionSelections ProductVariantOptionSelection[]
+  // Faz 2C-3 (ADR-072) — bu secenegi uretilmis varyant eksen degeri olarak kullanan satirlar (onDelete: Restrict).
+  variantOptionValues     ProductVariantOptionValue[]
 
   @@unique([attributeDefinitionId, value])
   @@index([attributeDefinitionId])
@@ -2366,5 +2395,34 @@ model ProductVariantOptionSelection {
   @@unique([productVariantAttributeId, optionId])
   @@index([storeId])
   @@index([productVariantAttributeId])
+  @@index([optionId])
+}
+
+// ─────────────────────── Faz 2C-3 (ADR-072) — Uretilmis varyantin cozulmus eksen->option secimi ───────────────────────
+// Bir ATTRIBUTE_COMBINATION varyantinin hangi eksen (attributeDefinitionId) icin hangi AttributeOption'i
+// temsil ettigini NORMALIZE saklar (JSON YOK; optionValues authoritative DEGIL). combinationKey ile
+// tutarlidir (ayni pairlar). Bir varyant + attribute en fazla bir kez (@@unique) → cift deger onlenir.
+// YAZMA OTORITESI variant-generation persistence-service'tir (2A VariantAttributeValue'dan AYRIDIR —
+// oranin tek yazicisi attributeValueService; single-writer invariantlari karismasin diye ayri tablo).
+// definition/option onDelete: Restrict (kullanimdaki tanim/secenek silinemez — katalog usage-guard);
+// variant/store Cascade. archive/restore bu satirlara DOKUNMAZ (yalniz create yazar, cascade delete siler).
+model ProductVariantOptionValue {
+  id                    String @id @default(cuid())
+  storeId               String
+  variantId             String
+  attributeDefinitionId String
+  optionId              String
+
+  createdAt DateTime @default(now())
+
+  store      Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variant    ProductVariant      @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  definition AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
+  option     AttributeOption     @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([variantId, attributeDefinitionId])
+  @@index([storeId])
+  @@index([variantId])
+  @@index([attributeDefinitionId])
   @@index([optionId])
 }

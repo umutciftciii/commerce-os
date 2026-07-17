@@ -1206,3 +1206,29 @@
   build (contracts/config/i18n/api-client) + typecheck (api-gateway tsc + store-admin tsc TEMİZ) + tüm testler yeşil. Migration YOK
   (şema değişmedi). KALAN: docker rebuild + prod-benzeri auth'lu runtime smoke. Faz 2C-3 (kalıcı ProductVariant + SKU matris; combinationKey
   DB'ye yazımı) AYRI iş.
+- TODO-149 — Faz 2C-3: ProductVariant persistence + incremental diff motoru (DONE — 2026-07-18, ADR-072). İş: Faz 2C-2 SAF Combination
+  Engine'inden (`combinationKey` üretir, DB'ye YAZMAZ) **kalıcı `ProductVariant` üretimi** — kaydedilmiş eksen reçetesinden hedef
+  kombinasyonlar üretilir ve mevcut varyantlarla **diff'lenir** → create/keep/restore/archive. Deterministik · idempotent · transaction-
+  safe · concurrency-safe · tenant-safe · tekrar-çalıştırılabilir. **SKU Matrix DEĞİL** (fiyat/stok/barcode/inline düzenleme, variant image,
+  storefront selector, marketplace KAPSAM DIŞI). (1) **Veri modeli (additive).** `ProductVariant` + `generationSource`
+  (enum MANUAL|ATTRIBUTE_COMBINATION @default MANUAL) + `combinationKey String?` + `archivedAt DateTime?`;
+  `@@unique([productId, combinationKey])` (Postgres NULL-distinct). Yeni tablo `ProductVariantOptionValue` (variantId,
+  attributeDefinitionId, optionId; unique(variantId, attributeDefinitionId)) — normalize eksen→option seçimi (2A `VariantAttributeValue`'dan
+  AYRI; `optionValues` JSON authoritative DEĞİL). Migration additive (yeni enum + 3 kolon + tablo + 1 unique index; backfill YOK).
+  (2) **Saf diff motoru** (`variant-generation/diff-engine.ts`) Prisma/DB/Date/random BİLMEZ, girdiyi mutasyona uğratmaz; Map/Set ~O(P+E)
+  (nested O(P×E) YOK); `{toCreate, toKeep, toRestore, toArchive, manualVariants}` deterministik. (3) **Persistence** (`data.ts`+`service.ts`)
+  tek `prisma.$transaction`; başında **advisory xact lock** (`pg_advisory_xact_lock(hashtext(productId))`) + DB unique → yarışta P2002 →
+  `VARIANT_GENERATION_CONFLICT`. keep=write YOK (idempotent); restore=aynı ID/SKU/price, yalnız status flip; archive=soft (`status=ARCHIVED`+
+  `archivedAt`; hard-delete YASAK); create=DRAFT + deterministik SKU `V-<productId>-<hash(combinationKey)>` (random/timestamp YOK) +
+  normalize selection; InventoryItem/price-audit yazılmaz. (4) **API.** `POST /stores/:id/products/:id/variant-combinations/generate`
+  (gövdesiz; kaynak DB reçetesi). Yanıt `{totalTarget, created, kept, restored, archived, manualVariantsUntouched, variants[]}`. Stabil
+  hatalar PRODUCT_NOT_FOUND(404) / VARIANT_SELECTION_EMPTY / INVALID_VARIANT_SELECTION / PREVIEW_LIMIT_EXCEEDED / ATTRIBUTE_OPTION_NOT_FOUND(422)
+  / VARIANT_GENERATION_CONFLICT(409). contracts `variantGenerationResponseSchema` + api-client `...variantCombinations.generate`. Preview
+  ucu (GET) BOZULMAZ. (5) **UI.** Ürün formuna **"Varyantları Oluştur"** aksiyonu + sonuç özeti (`useVariantGeneration` +
+  `GenerateVariantsAction`; yalnız düzenleme + eksen varsa görünür; preview limiti/loading'de pasif); başarıda önizleme yeniden çekilir.
+  i18n tr+en. (6) **Boş reçete.** Eksen yoksa `VARIANT_SELECTION_EMPTY` (sessiz archive YOK); tüm option archived → `INVALID_VARIANT_SELECTION`.
+  (7) **Testler.** api-gateway `variant-generation.test.ts` 36 (saf diff + service tüm senaryolar + route), contracts 3, store-admin
+  `generate-variants-action.test.tsx` 9. Regresyon: api-gateway 838/838, contracts 104/104, store-admin 285/285, api-client 23/23,
+  db 16/16. Gate: prisma format/validate/generate + migration SQL review + typecheck + lint + build (api-gateway tsc + store-admin Next) +
+  `git diff --check` temiz. KALAN: docker rebuild + `migrate deploy` + prod-benzeri auth'lu runtime smoke; gerçek-PG concurrency
+  integration testi (TD-043). Faz 2C-4 (SKU Matrix) AYRI iş.
