@@ -56,6 +56,7 @@ import type {
   ProductVariantUpdateRequest,
   ProductAttributeValueListResponse,
   ProductVariantSelectionListResponse,
+  VariantCombinationPreviewResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -436,6 +437,12 @@ export const storeApi = {
   getProductVariantSelections: (productId: string) =>
     call<ProductVariantSelectionListResponse>(
       `/api/catalog/products/${productId}/variant-selections`,
+    ),
+  // Faz 2C-2 (ADR-071) — düzenleme ekranında ürünün kalıcı eksen reçetesinden ÜRETİLECEK
+  // varyant kombinasyonlarının ÖNİZLEMESİNİ okur (yalnız okuma; ProductVariant/SKU ÜRETMEZ).
+  getVariantCombinationPreview: (productId: string) =>
+    call<VariantCombinationPreviewResponse>(
+      `/api/catalog/products/${productId}/variant-combinations/preview`,
     ),
 
   // Variants

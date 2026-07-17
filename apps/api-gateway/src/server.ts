@@ -156,6 +156,12 @@ import {
 } from "./variant-selections/service.js";
 import { registerVariantSelectionRoutes } from "./variant-selections/routes.js";
 import {
+  createPrismaVariantCombinationDataAccess,
+  type VariantCombinationDataAccess,
+} from "./variant-combinations/data.js";
+import { createVariantCombinationPreviewService } from "./variant-combinations/service.js";
+import { registerVariantCombinationRoutes } from "./variant-combinations/routes.js";
+import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
   type WalletDataAccess,
@@ -1116,6 +1122,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   // Faz 2C-1 (ADR-070): Urun-seviyesi varyant EKSEN secimi veri erisimi. Varsayilan prisma-backed;
   // testlerde in-memory fake enjekte edilebilir (variantSelectionService bunun uzerine kurulur).
   variantSelectionDataAccess?: VariantSelectionDataAccess;
+  // Faz 2C-2 (ADR-071) — Combination Engine onizleme veri erisimi (testte in-memory enjekte edilebilir).
+  variantCombinationDataAccess?: VariantCombinationDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5049,6 +5057,21 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // Faz 2C-2 (ADR-071) — Combination Engine ONIZLEME (yalniz okuma; ProductVariant/SKU URETMEZ).
+  const variantCombinationDataAccess =
+    dependencies.variantCombinationDataAccess ?? createPrismaVariantCombinationDataAccess();
+  const variantCombinationPreviewService = createVariantCombinationPreviewService(
+    variantCombinationDataAccess,
+    { maxCombinations: config.MAX_PREVIEW_COMBINATIONS },
+  );
+  registerVariantCombinationRoutes(app, {
+    service: variantCombinationPreviewService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
   });
 
   // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).

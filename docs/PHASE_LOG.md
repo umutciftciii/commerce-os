@@ -3232,3 +3232,38 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   (/products, /products/[id] + yeni variant-selections BFF derlendi).
 - **Kalan.** Docker rebuild + prod-benzeri auth'lu runtime smoke (canlı variantDefining attribute'lu ürün + eksen/option seçimi
   round-trip). **Faz 2C-2 (Combination Engine: Cartesian → `combinationKey` → `ProductVariant` + SKU matris) AYRI iş.**
+
+## 2026-07-17 — Faz 2C-2: Deterministik Combination Engine + kombinasyon önizlemesi (ADR-071, TODO-148)
+
+- **Kapsam.** Faz 2C-1 eksen reçetesinden (`ProductVariantAttribute` × `ProductVariantOptionSelection`) **oluşacak varyant
+  kombinasyonlarının ÖNİZLEMESİNİ** üreten **tamamen SAF** motor + salt-okunur önizleme ucu/ekranı. **KESİNLİKLE kombinasyon
+  YAZILMAZ**: ProductVariant, SKU, barcode, price, inventory, bulk edit, varyant görselleri, storefront/search/marketplace,
+  order snapshot KAPSAM DIŞI. `combinationKey` üretilir ama **DB'ye YAZILMAZ** (kalıcılığı Faz 2C-3). Şema DEĞİŞMEDİ (migration YOK).
+- **Saf motor** (`apps/api-gateway/src/variant-combinations/engine.ts`). `generateVariantCombinations(axes, {maxCombinations})`
+  yalnız input → output; Prisma/DB/transaction/network/logger/`process.env`/`Date`/`Math.random` YOK; girdiyi mutasyona uğratmaz.
+  **Deterministik + idempotent.** **Canonical ordering:** eksen `position ASC → attributeDefinitionId ASC`, option `position ASC →
+  optionId ASC` — karışık girdi ve farklı position aynı çıktıyı verir. **Duplicate önleme:** duplicate option tekilleştirilir,
+  duplicate axis option-union'lanır. Archived option elenir, empty axis düşürülür, hiç eksen yoksa 0 kombinasyon (boş çarpım = 1
+  REDDEDİLDİ). **Cartesian:** iteratif odometer (`O(k)` çalışma-belleği; son eksen en hızlı döner).
+- **`combinationKey` + `previewId`.** Key `v1|<attrId>:<optId>|...` — ID-tabanlı (rename/position bağımsız stabil kimlik),
+  segmentler attrId'ye göre sıralı, cuid'ler ayraç çakışmaz, sürüm ön eki format evrimine izin verir; **DB'ye yazılmaz**. previewId
+  `pv_<cyrb53(key)>` deterministik (random DEĞİL — React key/snapshot/idempotency için). Big-O: zaman `O(P·k)` (P=Cartesian
+  büyüklüğü, k=eksen), bellek `O(P·k)` çıktı + `O(k)` çalışma. Guard P'yi sınırladığından streaming GEREKMEZ.
+- **Runtime guard.** `MAX_PREVIEW_COMBINATIONS` (packages/config `optionalNumberEnv` default **1000**; magic number DEĞİL,
+  TD-036 boş-string toleranslı). Cartesian büyüklüğü **materialize edilmeden önce** hesaplanır; aşımda stabil `PREVIEW_LIMIT_EXCEEDED`
+  + `{totalCombinations, limit}` (route **422**).
+- **API + UI.** Salt-okunur `GET /stores/:id/products/:id/variant-combinations/preview` (WRITE YOK; legacy variant-selections +
+  `ProductVariant`/`optionValues` DEĞİŞMEDİ). contracts `variantCombinationPreview*` + api-client `admin.products.variantCombinations.
+  preview` + store-admin Next BFF proxy. store-admin ürün formuna salt-okunur **"Oluşacak Kombinasyonlar"** paneli
+  (`useVariantCombinationPreview` + `CombinationPreview`); yalnız düzenleme modu + kategori varyant-defining eksen tanımladıysa;
+  kaydedilmiş reçeteyi yansıtır (her kaydetmede yeniden çeker). DÜZENLEME YOK. i18n tr+en.
+- **Testler.** api-gateway `variant-combinations.test.ts` **31** (saf motor: tek/çok eksen, 2×10=100, 3-eksen=100, 5-eksen=1024,
+  canonical ordering, determinizm/idempotency/input-order-bağımsızlık, duplicate option/axis, archived, empty axis, combinationKey
+  format/stabilite, previewId determinizm/benzersizlik, guard limit; service: tenant/boş/archived; route: 200/404/422/403), store-admin
+  `combination-preview.test.tsx` **7** (liste/sayı, null→optionId, guard uyarı, hata, spinner, 0→render-yok, veri-yok→render-yok).
+  Mevcut `products-form-variant-attributes.test.tsx` mock'una `getVariantCombinationPreview` eklendi. Regresyon: store-admin
+  **269/269**, api-gateway **802/802**, contracts **101/101**, config **24/24**, i18n **47/47**.
+- **Gate.** db:generate + build (contracts/config/i18n/api-client dist) + typecheck (api-gateway tsc + store-admin tsc TEMİZ) + tüm
+  testler yeşil. Migration YOK.
+- **Kalan.** Docker rebuild + prod-benzeri auth'lu runtime smoke (canlı eksen reçeteli üründe preview). **Faz 2C-3 (kalıcı
+  `ProductVariant` + SKU matris; `combinationKey` DB'ye yazımı) AYRI iş.**

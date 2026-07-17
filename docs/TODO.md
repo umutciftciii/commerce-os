@@ -1181,3 +1181,28 @@
   (contracts/api-client) + typecheck (değişen paketler TEMİZ; storefront `checkout-form-render` ÖNCEDEN mevcut/TD-040) + lint +
   `next build` store-admin OK. KALAN: docker rebuild + prod-benzeri auth'lu runtime smoke. Faz 2C-2 (Combination Engine: Cartesian →
   combinationKey → ProductVariant + SKU matris) AYRI iş.
+
+- TODO-148 — Faz 2C-2: Deterministik Combination Engine + kombinasyon önizlemesi (DONE — 2026-07-17, ADR-071). İş: 2C-1 eksen
+  reçetesinden (`ProductVariantAttribute` × `ProductVariantOptionSelection`) **oluşacak varyant kombinasyonlarının ÖNİZLEMESİNİ**
+  üreten **tamamen SAF** bir motor + salt-okunur önizleme ucu/ekranı. **KESİNLİKLE kombinasyon YAZILMAZ**: ProductVariant, SKU,
+  barcode, price, inventory, bulk edit, varyant görselleri, storefront/search/marketplace, order snapshot KAPSAM DIŞI;
+  `combinationKey` üretilir ama **DB'ye YAZILMAZ** (kalıcılığı Faz 2C-3). (1) **Saf motor** (`apps/api-gateway/src/variant-combinations/
+  engine.ts`) `generateVariantCombinations(axes, {maxCombinations})` — Prisma/DB/network/logger/`Date`/`Math.random` YOK, girdiyi
+  mutasyona uğratmaz; deterministik + idempotent. **Canonical ordering**: eksen `position ASC → attributeDefinitionId ASC`, option
+  `position ASC → optionId ASC`. **Duplicate önleme**: duplicate option tekilleştirilir, duplicate axis option-union'lanır. Archived
+  option elenir, empty axis düşürülür, eksen yoksa 0 kombinasyon. **Cartesian**: iteratif odometer (`O(k)` bellek). **`combinationKey`**:
+  `v1|attrId:optId|...` (ID-tabanlı, segmentler attrId'ye sıralı — rename/position bağımsız). **`previewId`**: `pv_<cyrb53(key)>`
+  (deterministik, random DEĞİL). (2) **Runtime guard** `MAX_PREVIEW_COMBINATIONS` (config `optionalNumberEnv` default 1000; magic
+  number DEĞİL); Cartesian materialize edilmeden hesaplanır, aşımda `PREVIEW_LIMIT_EXCEEDED` (route 422). (3) **API.** Salt-okunur
+  `GET /stores/:id/products/:id/variant-combinations/preview` (WRITE YOK; legacy variant-selections + `optionValues` DEĞİŞMEDİ).
+  contracts (`variantCombinationPreview*` şema/tip) + api-client (`admin.products.variantCombinations.preview`). (4) **UI.** store-admin
+  ürün formuna salt-okunur **"Oluşacak Kombinasyonlar"** paneli (`useVariantCombinationPreview` + `CombinationPreview`); yalnız
+  düzenleme modu + kategori varyant-defining eksen tanımladıysa; kaydedilmiş reçeteyi yansıtır (her kaydetmede yeniden çeker). DÜZENLEME
+  YOK. i18n tr+en. (5) **Testler.** api-gateway `variant-combinations.test.ts` 31 (saf motor: tek/çok eksen, 2×10=100, 3-eksen=100,
+  5-eksen=1024, canonical ordering, determinizm/idempotency/input-order-bağımsızlık, duplicate option/axis, archived, empty axis,
+  combinationKey format/stabilite, previewId determinizm/benzersizlik, guard limit + service tenant/boş/archived + route 200/404/422/403),
+  store-admin `combination-preview.test.tsx` 7 (liste/sayı, null→optionId, guard uyarı, hata, spinner, 0→render-yok, veri-yok→render-yok).
+  Regresyon: store-admin 269/269 (+7 yeni dosya), api-gateway 802/802, contracts 101/101, config 24/24, i18n 47/47. Gate: db:generate +
+  build (contracts/config/i18n/api-client) + typecheck (api-gateway tsc + store-admin tsc TEMİZ) + tüm testler yeşil. Migration YOK
+  (şema değişmedi). KALAN: docker rebuild + prod-benzeri auth'lu runtime smoke. Faz 2C-3 (kalıcı ProductVariant + SKU matris; combinationKey
+  DB'ye yazımı) AYRI iş.

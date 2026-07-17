@@ -340,6 +340,15 @@ export const trStoreAdmin = {
       loadError: "Bu kategorinin varyant özellikleri yüklenemedi.",
       optionsLabel: "Seçenekler",
       optionRequired: "Bu varyant özelliği için en az bir seçenek seçin.",
+      previewTitle: "Oluşacak kombinasyonlar",
+      previewSubtitle:
+        "Seçtiğiniz eksen ve seçeneklerden üretilecek varyant kombinasyonları. Önizleme kaydedilen seçimi gösterir; henüz varyant oluşturulmaz.",
+      previewLoading: "Kombinasyonlar hesaplanıyor…",
+      previewError: "Kombinasyon önizlemesi yüklenemedi.",
+      previewLimit:
+        "Kombinasyon sayısı önizleme sınırını aşıyor. Daha az eksen veya seçenek seçin.",
+      previewCount: "{value} kombinasyon oluşacak.",
+      previewEmpty: "Henüz kombinasyon yok.",
       serverErrors: {
         VARIANT_ATTRIBUTE_NOT_IN_CATEGORY: "Bu özellik seçilen kategoriye ait değil.",
         VARIANT_ATTRIBUTE_NOT_VARIANT_DEFINING: "Bu özellik varyant belirleyici değil.",

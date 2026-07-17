@@ -75,6 +75,8 @@ import type {
   // Faz 2C-1 (ADR-070) — urun-seviyesi varyant eksen secimi tipleri.
   ProductVariantSelectionListResponse,
   ProductVariantSelectionsReplaceRequest,
+  // Faz 2C-2 (ADR-071) — Combination Engine onizleme tipi.
+  VariantCombinationPreviewResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -241,6 +243,10 @@ export type {
   ProductVariantSelectionsReplaceRequest,
   ProductVariantSelectionInput,
   ProductVariantSelectionResponse,
+  // Faz 2C-2 (ADR-071) — Combination Engine onizleme tipleri.
+  VariantCombinationPreview,
+  VariantCombinationPreviewAttribute,
+  VariantCombinationPreviewResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -816,6 +822,14 @@ export interface ApiClient {
           input: ProductVariantSelectionsReplaceRequest,
           token?: string,
         ): Promise<ProductVariantSelectionListResponse>;
+      };
+      // Faz 2C-2 (ADR-071) — Combination Engine ONIZLEME (yalniz okuma). ProductVariant/SKU URETMEZ.
+      variantCombinations: {
+        preview(
+          storeId: string,
+          productId: string,
+          token?: string,
+        ): Promise<VariantCombinationPreviewResponse>;
       };
     };
     inventory: {
@@ -1641,6 +1655,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               `/stores/${storeId}/products/${productId}/variant-selections`,
               "PUT",
               input,
+              token,
+            ),
+        },
+        variantCombinations: {
+          preview: (storeId, productId, token) =>
+            getJson<VariantCombinationPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/variant-combinations/preview`,
               token,
             ),
         },
