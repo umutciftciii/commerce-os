@@ -725,6 +725,39 @@ export const variantCombinationPreviewResponseSchema = z.object({
   combinations: z.array(variantCombinationPreviewSchema),
 });
 
+// ─────────────────── Faz 2C-3 (ADR-072) — ProductVariant persistence + incremental generation ───────────────────
+// Kalici varyant URETIMI: 2C-1 receteden 2C-2 motoruyla hedef kombinasyonlar uretilir ve mevcut
+// ProductVariant kayitlariyla diff'lenir (create/keep/restore/archive). Deterministik + idempotent +
+// transaction-safe + concurrency-safe. Manuel varyantlar dokunulmaz. Combination Engine DEGISMEZ.
+
+// Uretilmis/korunmus/geri-yuklenmis bir varyantin ozet gorunumu (SKU Matrix DEGIL; salt ozet).
+export const variantGenerationVariantAttributeSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  optionId: z.string().min(1),
+  optionLabel: z.string().nullable(),
+});
+
+export const variantGenerationVariantSchema = z.object({
+  id: z.string().min(1),
+  combinationKey: z.string().min(1),
+  title: z.string(),
+  sku: z.string(),
+  status: productVariantStatusSchema,
+  attributes: z.array(variantGenerationVariantAttributeSchema),
+});
+
+// Generate ucu yaniti. Ozet sayaclar + hedef kumeyi temsil eden aktif varyantlar (created+kept+restored;
+// archived yalniz sayilir). Idempotent: ayni recete ikinci kez → created/restored/archived = 0.
+export const variantGenerationResponseSchema = z.object({
+  totalTarget: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative(),
+  kept: z.number().int().nonnegative(),
+  restored: z.number().int().nonnegative(),
+  archived: z.number().int().nonnegative(),
+  manualVariantsUntouched: z.number().int().nonnegative(),
+  variants: z.array(variantGenerationVariantSchema),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2781,6 +2814,10 @@ export type ProductVariantSelectionsReplaceRequest = z.infer<typeof productVaria
 export type VariantCombinationPreviewAttribute = z.infer<typeof variantCombinationPreviewAttributeSchema>;
 export type VariantCombinationPreview = z.infer<typeof variantCombinationPreviewSchema>;
 export type VariantCombinationPreviewResponse = z.infer<typeof variantCombinationPreviewResponseSchema>;
+
+export type VariantGenerationVariantAttribute = z.infer<typeof variantGenerationVariantAttributeSchema>;
+export type VariantGenerationVariant = z.infer<typeof variantGenerationVariantSchema>;
+export type VariantGenerationResponse = z.infer<typeof variantGenerationResponseSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

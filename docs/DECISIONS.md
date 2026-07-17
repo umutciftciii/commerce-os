@@ -2188,3 +2188,75 @@ motoru servise/Prisma'ya bağlamak (saflık + izole test kaybı — DI ile ayrı
 recursive Cartesian (odometer daha okunur + `O(k)` bellek); bu fazda `ProductVariant`/`combinationKey` yazmak (brief'in açık YASAK
 listesi — preview-first, yazım Faz 2C-3); boş çarpımı 1 kombinasyon saymak (varyantsız ürün için anlamsız — 0 seçildi); streaming
 çıktı (guard zaten üst-sınırladığından gereksiz karmaşıklık).
+
+## ADR-072 — ProductVariant persistence + incremental generation: saf diff motoru, soft-archive/restore, deterministik sistem SKU (Faz 2C-3)
+
+- **Durum:** Kabul edildi (2026-07-18). ADR-071 (Faz 2C-2) SAF Combination Engine'i (`combinationKey` üretir ama DB'ye YAZMAZ)
+  kurdu. Bu ADR o motoru olduğu gibi tüketip **kalıcı `ProductVariant` üretimini** ekler: reçeteden hedef kombinasyonlar üretilir ve
+  mevcut varyantlarla **diff'lenir** (create/keep/restore/archive). Combination Engine (`engine.ts`) DEĞİŞMEDİ.
+
+**Bağlam.** TODO-149. Faz 2C-2 önizleme-önce yaklaşımıyla kombinasyonları hesaplıyordu ama hiçbir şey yazmıyordu. Bu faz kalıcılığı
+ekler; deterministik · idempotent · transaction-safe · concurrency-safe · tenant-safe · tekrar-çalıştırılabilir olmalı. SKU Matrix
+DEĞİLDİR (fiyat/stok/barcode/inline düzenleme YOK).
+
+**Kararlar.**
+1. **Preview-first sonrası persistence + SAF diff motoru.** Önizleme (2C-2) kararlaştırıldıktan sonra kalıcılık ayrı fazda: kullanıcı
+   önce ne oluşacağını görür, sonra açık bir aksiyonla üretir. Üç saf katman ayrıldı: `engine.ts` (Cartesian — DOKUNULMADI) ·
+   `diff-engine.ts` (mevcut/hedef küme karşılaştırması — Prisma/DB/Date/random BİLMEZ, girdiyi mutasyona uğratmaz) ·
+   `service.ts`/`data.ts` (transaction + DB). Diff **Map/Set tabanlı ~O(P+E)** (P=hedef, E=mevcut generated); nested O(P×E) YASAK.
+   Çıktı `{toCreate, toKeep, toRestore, toArchive, manualVariants}`, `combinationKey` sırasında deterministik.
+2. **`combinationKey` kalıcı + `@@unique([productId, combinationKey])`.** Üretilmiş varyantta dolu, manuel varyantta `null`.
+   **PostgreSQL NULL-distinct** semantiği: çok sayıda manuel `null` çakışmaz; üretilmiş non-null key aynı ürün altında **tektir**;
+   farklı ürünlerde aynı key serbest. Partial index GEREKMEYDİ (standart composite unique yeterli). Bu unique aynı zamanda
+   concurrency insert-conflict (P2002) temeli.
+3. **`generationSource` enum (MANUAL | ATTRIBUTE_COMBINATION).** String magic value DEĞİL. Migration default'u `MANUAL` → mevcut/legacy
+   TÜM varyantlar MANUAL (tahminî `combinationKey` ATANMAZ; **backfill YOK**). Sistem YALNIZ `ATTRIBUTE_COMBINATION` varyantlarını
+   archive/restore eder; **manuel varyantlara DOKUNMAZ** (izolasyon).
+4. **Soft-archive/restore — hard-delete YASAK.** Reçeteden çıkan üretilmiş varyant `status=ARCHIVED` + `archivedAt=now` olur (storefront/
+   checkout zaten ARCHIVED'ı dışlar → **storefront kodu değişmez**). Aynı `combinationKey` reçeteye geri girerse **aynı kayıt** restore
+   edilir (`status=DRAFT`, `archivedAt=null`) — **yeni ProductVariant ID açılmaz**, SKU/barcode/price/cost/inventory KORUNUR.
+   **Neden restore aynı ID:** order line / inventory / fiyat geçmişi / audit / gelecekteki marketplace eşlemesi varyanta bağlı;
+   hard-delete bunları yetim bırakır/bozar.
+5. **Kullanıcı verisi koruma.** `toKeep` → **HİÇBİR write yok** (idempotentlik; `updatedAt` değişmez). `toRestore` → yalnız
+   `status`+`archivedAt` flip. Yalnız `toCreate` yeni varyanta güvenli başlangıç verir. Regeneration SKU/barcode/price/compareAt/cost/
+   inventory/images ÜZERİNE YAZMAZ.
+6. **Yeni varyant başlangıç değerleri + deterministik sistem SKU.** Yeni üretilen varyant `status=DRAFT` (vitrine sızmaz),
+   `priceMinor=0`, `netPriceMinor=0`, `vatRateBps=2000`, `currency=mevcut varyant currency veya "TRY"`, `optionValues` JSON'a **YAZILMAZ**.
+   SKU zorunlu + `@@unique([storeId, sku])` → **deterministik**: `sku = "V-<productId>-<hash(combinationKey)>"`. productId cuid
+   (mağaza-içi + global tekil) → ürünler arası çakışma yok; hash(combinationKey) ürün-içi kombinasyonları ayırır; yeniden üretimde
+   DEĞİŞMEZ; restore mevcut SKU'yu korur. **random/timestamp/`Math.random()` YASAK.** Kullanıcı SKU Matrix'te (2C-4) değiştirebilir.
+   **InventoryItem OLUŞTURULMAZ** (görev kuralı; ilişki nullable; adjust/SKU-Matrix upsert'i lazy oluşturur) ve ProductPriceChange
+   audit'i yazılmaz (price 0 placeholder).
+7. **Normalize selection storage — YENİ `ProductVariantOptionValue`.** Üretilmiş varyantın çözülmüş eksen→option çiftleri
+   (variantId, attributeDefinitionId, optionId; `@@unique([variantId, attributeDefinitionId])` → çift değer engellenir). **Neden yeni
+   tablo, 2A `VariantAttributeValue` DEĞİL:** `VariantAttributeValue`'nun tek yazma otoritesi 2A `attributeValueService`; persistence
+   oraya yazarsa single-writer invariantı kırılır ve kullanıcının girdiği variant attribute değerleri ezilebilir. `optionValues Json?`
+   bu fazda AUTHORITATIVE DEĞİL.
+8. **Transaction + concurrency.** Tüm üretim (lock → reçete oku → option meta → engine → mevcut oku → diff → create/restore/archive)
+   TEK `prisma.$transaction` içinde. Concurrency iki katmanlı: (a) transaction başında **PostgreSQL advisory xact lock**
+   (`pg_advisory_xact_lock(hashtext(productId))`) → aynı ürün için generation'lar serileşir; (b) DB unique `(productId, combinationKey)` →
+   yarış durumunda duplicate insert **P2002** ile reddedilir → kontrollü `VARIANT_GENERATION_CONFLICT` (409). Yalnız application-level
+   "önce kontrol et sonra ekle" YETERSİZ sayıldı.
+9. **Boş reçete + axis semantiği.** Reçetede eksen yoksa `VARIANT_SELECTION_EMPTY` — **sessiz archive YOK** (mevcut varyantlar
+   dokunulmaz). Eksen var ama tüm option'lar archived → 0 kombinasyon → `INVALID_VARIANT_SELECTION`. "Tüm generated'ı kaldır" ayrı/açık
+   bir aksiyon olmalı (bu fazda YOK). **Axis ekleme/kaldırma:** `combinationKey` eksen kümesini kodlar (`v1|attrId:optId|...`); eksen
+   sayısı değişince key değişir → eski kombinasyonlar hedefte YOK (archive), yenileri create. **Rename/position** identity'yi
+   DEĞİŞTİRMEZ (key ID-tabanlı; ProductVariant ID sabit).
+10. **API + UI.** `POST /stores/:storeId/products/:productId/variant-combinations/generate` (gövdesiz; authoritative kaynak DB reçetesi).
+    Yanıt: `{totalTarget, created, kept, restored, archived, manualVariantsUntouched, variants[]}`. Stabil hatalar: PRODUCT_NOT_FOUND(404),
+    VARIANT_SELECTION_EMPTY / INVALID_VARIANT_SELECTION / PREVIEW_LIMIT_EXCEEDED / ATTRIBUTE_OPTION_NOT_FOUND (422),
+    VARIANT_GENERATION_CONFLICT(409). Preview ucu (GET) BOZULMAZ. store-admin ürün formuna **"Varyantları Oluştur"** aksiyonu + sonuç
+    özeti (yalnız düzenleme + eksen varsa görünür; preview limiti aşıldıysa/yükleniyorsa pasif); başarıda önizleme yeniden çekilir.
+    i18n tr+en. **SKU Matrix / inline fiyat-stok düzenleme YOK.**
+
+**Sonuçlar.** Faz 2C-4 (SKU Matrix) kalıcı `ProductVariant` + `combinationKey` + normalize selection üzerine kurulabilir. Migration
+tamamen additive (yeni enum + 3 nullable/defaultli kolon + yeni tablo + 1 unique index); mevcut `ProductVariant`/`optionValues`/SKU/
+storefront/checkout/order/inventory DEĞİŞMEZ; legacy varyantlar `MANUAL` kalır.
+
+**Alternatifler (reddedilen).** Her generate'te tüm varyantları silip yeniden oluşturmak (ID/SKU/price/order-line kaybı → diff);
+title/label tabanlı identity (rename kimliği bozar → ID-tabanlı `combinationKey`); JSON `optionValues`'ı authoritative tutmak
+(sorgulanamaz + tutarsızlık → normalize tablo); hard-delete (order/inventory/audit yetim → soft-archive); random/timestamp SKU
+(tekrar-üretimde değişir + determinizm kaybı → deterministik hash); yalnız application-level duplicate check (yarış → DB unique +
+advisory lock); manuel ve generated'ı ayırmamak (kullanıcı verisi riski → `generationSource` enum); Combination Engine'e Prisma eklemek
+(saflık/izole test kaybı → ayrı persistence katmanı); 2A `VariantAttributeValue`'yu paylaşmak (single-writer invariantı kırılır → yeni
+`ProductVariantOptionValue`); yeni varyanta InventoryItem/price-audit yazmak (görev kuralı + DRAFT placeholder → lazy).

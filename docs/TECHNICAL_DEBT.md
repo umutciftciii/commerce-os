@@ -612,3 +612,28 @@
   ancak docker rebuild + prod-benzeri auth'lu tarayıcı smoke (canlı eksen reçeteli üründe preview + guard 422) ayrı adım.
 - Kapsam: packages/config, packages/contracts, packages/api-client, apps/api-gateway/src/variant-combinations,
   apps/store-admin-web (product form + variant-attributes/*), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-043 Faz 2C-3 ProductVariant persistence: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-18 (Faz 2C-3, TODO-149, ADR-072)
+- Sorun 1 (legacy `optionValues` backfill YOK): Mevcut manuel/legacy `ProductVariant.optionValues` JSON'undan `combinationKey` veya
+  normalize `ProductVariantOptionValue` **türetilmedi** (tahminî kimlik üretmek riskli — ADR-072 md.3). Legacy varyantlar `MANUAL`
+  kalır; yalnız yeni Combination Engine üretimleri authoritative normalize kayıt kullanır. İhtiyaç olursa ayrı, dikkatli bir migration/
+  audit işi gerekir. Etki: yok (bilinçli kapsam).
+- Sorun 2 (gerçek-PG concurrency integration testi YOK): Concurrency advisory lock + DB unique `(productId, combinationKey)` ile
+  tasarlandı ve in-memory fake + `VARIANT_GENERATION_CONFLICT` (P2002) testiyle kanıtlandı; ancak repo test altyapısında canlı
+  PostgreSQL'e karşı iki paralel generation isteği çalıştıran integration testi yok. Merge sonrası docker/PG ortamında elle veya
+  ileride bir integration harness ile doğrulanmalı. Etki: düşük (tasarım güvenli; kanıt in-memory).
+- Sorun 3 (generation limit global sabit): `MAX_PREVIEW_COMBINATIONS` preview ile paylaşılan global config; ürün/kategori/mağaza-bazlı
+  generation limiti yok (TD-042 Sorun 4 ile aynı). Etki: düşük.
+- Sorun 4 (generation audit history YOK): Kim ne zaman hangi varyantları üretti/arşivledi/geri yükledi kaydı tutulmuyor (create'te
+  ProductPriceChange audit'i de yazılmıyor — price 0 placeholder). Denetim gerekirse ayrı audit tablosu/log eklenebilir. Etki: düşük.
+- Sorun 5 (generated SKU değiştirme politikası + regenerate confirmation UX): Deterministik placeholder SKU'yu kullanıcı SKU Matrix'te
+  (2C-4) değiştirebilecek; değiştirilmiş SKU'nun yeniden üretim/restore davranışı (korunuyor) belgeli ama UI onay akışı (örn. "N varyant
+  arşivlenecek, onaylıyor musun?") 2C-4'e ait. Etki: düşük (UX).
+- Sorun 6 (yeni varyantta InventoryItem YOK): Üretilen DRAFT varyant için InventoryItem oluşturulmaz (görev kuralı; ilişki nullable).
+  Stok girişi SKU Matrix / inventory adjust upsert'i ile lazy oluşur. Etki: yok (DRAFT satılmaz).
+- Sorun 7 (runtime smoke bekliyor): Tüm gate yeşil (api-gateway 838, contracts 104, store-admin 285, api-client 23, db 16 + tsc/lint/
+  build temiz); docker rebuild + `migrate deploy` + prod-benzeri auth'lu smoke (2×2 üretim/tekrar/option ekle-kaldır/restore/korunum/
+  storefront-checkout-inventory regresyon) ayrı adım.
+- Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/variant-generation,
+  apps/store-admin-web (product form + variant-attributes/* + BFF), packages/i18n. Bloklayıcı: HAYIR.

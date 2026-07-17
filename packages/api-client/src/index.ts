@@ -77,6 +77,8 @@ import type {
   ProductVariantSelectionsReplaceRequest,
   // Faz 2C-2 (ADR-071) — Combination Engine onizleme tipi.
   VariantCombinationPreviewResponse,
+  // Faz 2C-3 (ADR-072) — ProductVariant uretim (persistence) yanit tipi.
+  VariantGenerationResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -247,6 +249,10 @@ export type {
   VariantCombinationPreview,
   VariantCombinationPreviewAttribute,
   VariantCombinationPreviewResponse,
+  // Faz 2C-3 (ADR-072) — ProductVariant uretim (persistence) tipleri.
+  VariantGenerationResponse,
+  VariantGenerationVariant,
+  VariantGenerationVariantAttribute,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -830,6 +836,12 @@ export interface ApiClient {
           productId: string,
           token?: string,
         ): Promise<VariantCombinationPreviewResponse>;
+        // Faz 2C-3 (ADR-072) — ProductVariant URETIM (persistence). Govdesiz; kaynak DB recetesidir.
+        generate(
+          storeId: string,
+          productId: string,
+          token?: string,
+        ): Promise<VariantGenerationResponse>;
       };
     };
     inventory: {
@@ -1662,6 +1674,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           preview: (storeId, productId, token) =>
             getJson<VariantCombinationPreviewResponse>(
               `/stores/${storeId}/products/${productId}/variant-combinations/preview`,
+              token,
+            ),
+          generate: (storeId, productId, token) =>
+            sendJson<VariantGenerationResponse>(
+              `/stores/${storeId}/products/${productId}/variant-combinations/generate`,
+              "POST",
+              {},
               token,
             ),
         },

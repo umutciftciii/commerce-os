@@ -359,6 +359,29 @@ export const enStoreAdmin: StoreAdminDictionary = {
         VARIANT_OPTION_ARCHIVED: "One of the selected options is no longer available.",
         default: "This variant attribute could not be saved.",
       },
+      // Faz 2C-3 (ADR-072) — persistent variant generation action + result summary.
+      generateTitle: "Generate variants",
+      generateSubtitle:
+        "Creates ProductVariant records from the saved axis recipe. Existing variants are preserved; combinations no longer in the recipe are archived, returning combinations are restored.",
+      generateButton: "Generate variants",
+      generating: "Generating variants…",
+      generateSummaryTitle: "Generation summary",
+      generatedCreated: "Created: {value}",
+      generatedKept: "Kept: {value}",
+      generatedRestored: "Restored: {value}",
+      generatedArchived: "Archived: {value}",
+      generatedManual: "Manual (untouched): {value}",
+      generateServerErrors: {
+        VARIANT_SELECTION_EMPTY: "Variant selection is empty. Save at least one axis and option first.",
+        INVALID_VARIANT_SELECTION:
+          "The selection produces no combinations (all options archived/removed).",
+        PREVIEW_LIMIT_EXCEEDED: "The combination count exceeds the limit. Choose fewer axes or options.",
+        VARIANT_GENERATION_CONFLICT:
+          "A concurrent generation is in progress for this product. Please retry.",
+        ATTRIBUTE_OPTION_NOT_FOUND: "One of the selected options could not be resolved.",
+        PRODUCT_NOT_FOUND: "Product not found.",
+        default: "Variants could not be generated.",
+      },
     },
     salesModel: {
       columnHeader: "Sales",

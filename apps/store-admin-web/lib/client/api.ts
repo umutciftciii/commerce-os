@@ -57,6 +57,7 @@ import type {
   ProductAttributeValueListResponse,
   ProductVariantSelectionListResponse,
   VariantCombinationPreviewResponse,
+  VariantGenerationResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -443,6 +444,13 @@ export const storeApi = {
   getVariantCombinationPreview: (productId: string) =>
     call<VariantCombinationPreviewResponse>(
       `/api/catalog/products/${productId}/variant-combinations/preview`,
+    ),
+  // Faz 2C-3 (ADR-072) — kalıcı varyant ÜRETİMİ (persistence). Gövdesiz POST; sunucu reçeteden
+  // hedef kombinasyonları üretip mevcut varyantlarla diff'ler (create/keep/restore/archive).
+  generateVariantCombinations: (productId: string) =>
+    call<VariantGenerationResponse>(
+      `/api/catalog/products/${productId}/variant-combinations/generate`,
+      { method: "POST" },
     ),
 
   // Variants
