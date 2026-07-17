@@ -54,6 +54,7 @@ import type {
   ProductVariantCreateRequest,
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
+  ProductAttributeValueListResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -140,6 +141,10 @@ import type {
  */
 export interface UiErrorDetails {
   usedIn?: string[];
+  // Faz 2B (TODO-146) — attribute değer hatalarını doğru form alanına bağlamak için
+  // backend `error.details.attributeDefinitionId` taşınır (gömülü product create/update
+  // akışı; dedike PUT üst-seviye taşır ama bu UI gömülü akışı kullanır).
+  attributeDefinitionId?: string;
 }
 
 export class UiError extends Error {
@@ -233,7 +238,12 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       const body: unknown = await response.json();
       const errorObj =
         typeof body === "object" && body !== null && "error" in body
-          ? (body as { error?: { code?: unknown; details?: { usedIn?: unknown } } }).error
+          ? (body as {
+              error?: {
+                code?: unknown;
+                details?: { usedIn?: unknown; attributeDefinitionId?: unknown };
+              };
+            }).error
           : undefined;
       if (typeof errorObj?.code === "string") {
         code = errorObj.code;
@@ -241,7 +251,12 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       // Structured details (ADR-065 MEDIA_IN_USE → usedIn: string[]).
       const usedIn = errorObj?.details?.usedIn;
       if (Array.isArray(usedIn) && usedIn.every((entry) => typeof entry === "string")) {
-        details = { usedIn: usedIn as string[] };
+        details = { ...details, usedIn: usedIn as string[] };
+      }
+      // Faz 2B (TODO-146) — attribute değer hatası hangi attribute'a ait (alan eşlemesi).
+      const attributeDefinitionId = errorObj?.details?.attributeDefinitionId;
+      if (typeof attributeDefinitionId === "string") {
+        details = { ...details, attributeDefinitionId };
       }
     } catch {
       // Govde JSON degil — genel UNKNOWN kodu kullanilir.
@@ -409,6 +424,12 @@ export const storeApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  // Faz 2B (TODO-146) — düzenleme ekranında mevcut attribute DEĞERLERİNİ okur
+  // (round-trip). Yazma gömülü product create/update `attributeValues` ile gider.
+  getProductAttributeValues: (productId: string) =>
+    call<ProductAttributeValueListResponse>(
+      `/api/catalog/products/${productId}/attribute-values`,
+    ),
 
   // Variants
   listVariants: (productId: string) =>

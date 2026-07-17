@@ -27,6 +27,12 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       listMedia: vi.fn(),
       uploadMedia: vi.fn(),
       deleteMedia: vi.fn(),
+      // Faz 2B — dinamik attribute form'u kategori seçilince bu uçları çağırır.
+      listCategoryAttributes: vi.fn().mockResolvedValue({ data: [] }),
+      listAttributes: vi.fn().mockResolvedValue({ data: [] }),
+      listAttributeGroups: vi.fn().mockResolvedValue({ data: [] }),
+      listAttributeOptions: vi.fn().mockResolvedValue({ data: [] }),
+      getProductAttributeValues: vi.fn().mockResolvedValue({ data: [] }),
     },
   };
 });

@@ -537,3 +537,39 @@
   ayrı adım (Faz 1A/1B deseni).
 - Kapsam: packages/db, packages/contracts, packages/api-client, apps/api-gateway/src/attribute-values,
   apps/api-gateway/src/media. Bloklayıcı: HAYIR.
+- **Güncelleme (Faz 2B, TODO-146):** Sorun 2 KISMEN çözüldü — `validationRules` (min/max/minLength/maxLength/pattern/
+  step/placeholder/helperText) artık dinamik ürün formunda CLIENT-SIDE zorlanır. Backend'te (attributeValueService)
+  hâlâ zorlanmaz (nihai otorite yalnız tip/tenant/option/required); server-side kural motoru açık kalır. Sorun 3
+  çözüldü (dinamik form + okuma tüketimi Faz 2B'de eklendi).
+
+## TD-039 Faz 2B dinamik ürün formu: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-17 (Faz 2B, TODO-146, ADR-069)
+- Sorun 1 (RICH_TEXT düz textarea): RICH_TEXT dataType zengin metin editörü yerine düz `<textarea>` ile render edilir.
+  Değer yine `valueText`'e yazılır; WYSIWYG/markdown editörü ileride. Etki: düşük.
+- Sorun 2 (FILE = görsel yükleyici): FILE dataType, IMAGE ile aynı `MediaUpload` (single) bileşenini yeniden kullanır;
+  MediaUpload görsel-odaklıdır (jpeg/png/webp allowlist + webp normalize). Gerçek dosya (PDF vb.) attribute'ları için
+  ayrı yükleyici gerekebilir. Etki: düşük (FILE attribute'ları nadir).
+- Sorun 3 (validationRules backend'te zorlanmıyor): Kurallar client-side uygulanır; kötü niyetli/doğrudan-API çağrısı
+  bunları atlayabilir. Server-side kural motoru TD-038 Sorun 2'nin kalanı olarak açık.
+- Sorun 4 (server hata → alan eşlemesi yalnız gömülü akış): `attributeDefinitionId` gömülü create/update hatasında
+  `details`'e konur; ancak client-side doğrulama çoğu vakayı submit öncesi yakaladığından bu yol nadiren tetiklenir.
+  Alan-seviyesi olmayan attribute hataları genel Alert'e düşer.
+- Sorun 5 (IMAGE/FILE düzenleme URL çözümü): Mevcut mediaId'nin önizleme URL'si `listMedia()` ile (modül cache'li)
+  çözülür; büyük medya kütüphanelerinde bir defalık ek fetch. Etki: düşük.
+- Sorun 6 (runtime smoke bekliyor): typecheck + lint + 255/255 test + `next build` YAPILDI; docker rebuild +
+  prod-benzeri auth'lu tarayıcı smoke (canlı attribute'lu ürün oluştur/düzenle round-trip) ayrı adım.
+- Kapsam: apps/store-admin-web (product form + attributes/*), apps/api-gateway/src/server.ts (hata detayı),
+  packages/api-client (type re-export), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-040 storefront `checkout-form-render` fixture bayat (ÖNCEDEN mevcut; Faz 2B'de yüzeye çıktı)
+- Tarih: 2026-07-17 (gözlem; Faz 2B, TODO-146)
+- Sorun: `apps/storefront-web/test/checkout-form-render.test.tsx`'teki sahte `CartLineView` nesnesi güncel tipin
+  `imageUrl / selected / compareAtLabel / discountedUnitPriceLabel / discountedLineTotalLabel` alanlarını sağlamıyor →
+  `tsc --noEmit` TS2739 verir. Bu alanlar önceki fazlarda (sepet kampanya indirimi + thumbnail) `CartLineView`'e
+  eklenmiş ama fixture güncellenmemiş. Faz 2A TODO entry'sinde de "ÖNCEDEN mevcut" olarak not edildi. Faz 2B'de
+  contracts/api-client dist rebuild'i yerelde bayat dist'i tazelediği için hata görünür oldu.
+- Neden düzeltilmedi: storefront/checkout TODO-146'nın "Kesinlikle Yapılmayacak" listesindeydi; ürün kodu değil test
+  fixture'ıdır ve CI'da tsc gate'i yoktur (`next build` test dosyalarını dışlar → build kırılmaz). Faz 2B işiyle
+  ilişkisiz.
+- Düzeltme (ileride): fixture'a eksik 5 gösterim alanını ekle (davranış-nötr). Kapsam: apps/storefront-web/test.
+  Bloklayıcı: HAYIR.

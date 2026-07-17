@@ -3130,3 +3130,59 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri runtime smoke.
   Faz 2B (dinamik ürün formu / attribute renderer / kategori-değişince-form / varyant kombinasyon motoru / `combinationKey`)
   ayrı iş.
+
+## 2026-07-17 — Faz 2B: Dinamik ürün formu temeli (RHF + Zod + attribute renderer) (ADR-069, TODO-146)
+
+- **Kapsam.** store-admin ürün oluştur/düzenle ekranını Faz 2A backend'iyle çalışır dinamik forma çevirmek. Varyant
+  kombinasyon motoru / `combinationKey` / otomatik varyant / SKU matris / PDP attribute tablosu / storefront / faceted
+  search / marketplace / order snapshot / checkout / inventory KAPSAM DIŞI (dokunulmadı). Migration YOK (yalnız UI +
+  ince BFF/gateway hata-detayı plumbing'i).
+- **RHF + Zod göçü.** `apps/store-admin-web/app/(app)/products/product-form.tsx` ~25 dağınık useState → tek
+  `useForm<ProductFormValues>`. Çekirdek doğrulama Zod `superRefine` (yeni `product-form-schema.ts`) ile mevcut elle
+  onSubmit ile **birebir**: title zorunlu, slug (yalnız create) regex, çok-kategoride primary zorunlu, min/max qty tam-
+  sayı + max≥min, CTA/WhatsApp/inquiry/appointment uzunluk sınırları, kargo ölçüsü >0. Dinamik attribute alanları
+  backend-şekilli kurallarla (`validateAttributeValue`) ayrı doğrulanır; ikisi `createProductFormResolver` (zodResolver
+  core + attribute döngüsü) ile birleştirilir → başarıda ham değerler döner (attributes/images strip edilmez). Çekirdek
+  alan davranışı KORUNDU. UI kit `Input/Select/Textarea` `forwardRef`'e çevrildi (RHF `register` ref bağlar; additive,
+  mevcut kullanımlar bozulmadı).
+- **Kategori-güdümlü attribute.** Ana kategori (primaryCategoryId) attribute ŞEMASINI sürer — backend değer doğrulaması
+  da primaryCategoryId + CategoryAttribute bağına göre yapıldığından UI aynı otoriteyi izler. `useCategoryAttributes`
+  hook'u self-describing-OLMAYAN CategoryAttribute + AttributeDefinition + AttributeOption + AttributeGroup uçlarını
+  çekip client-side join eder. Sıralama displayOrder ASC → name ASC; gruplar AttributeGroup.sortOrder (grupsuz "General
+  attributes" kovası önce). Yalnız ürün-seviyesi (variantDefining=false) + ACTIVE attribute'lar. **Memoization** (md.13):
+  kategori-bağımsız veriler (tanım/grup/seçenek) tek sefer, kategori-attribute join'i kategori başına cache → kategori
+  değişmezse yeniden istek YOK.
+- **Dinamik renderer.** `attributes/attribute-section.tsx` (grup kartları + RHF Controller) + `attribute-field.tsx`
+  dataType→"widget kind"→bileşen **registry** deseni (switch-case cehennemi YOK). 13 tip: TEXT/URL→input, TEXTAREA/
+  RICH_TEXT→textarea (zengin editör YOK, TD), INTEGER/DECIMAL→number, BOOLEAN→checkbox, DATE→date, SELECT→select,
+  COLOR→swatch chip'ler, MULTI_SELECT→checkbox listesi, IMAGE/FILE→MediaUpload single. Grup başlığı + zorunlu/opsiyonel
+  işareti + validationRules (min/max/minLength/maxLength/pattern/step/placeholder/helperText; desteklenmeyen kural
+  sessizce yok sayılır) + alan-seviyesi hata.
+- **Round-trip.** Düzenlemede yeni BFF GET `app/api/catalog/products/[productId]/attribute-values` +
+  `storeApi.getProductAttributeValues` mevcut ProductAttributeValue'ları form haritasına doldurur (`buildAttributeValueMap`);
+  kayıpsız (read→form→input). Kategori değişince taze boş şema (eski kategori değerleri sızmaz).
+- **Save.** Gömülü `attributeValues` (product create/update payload; attributeValueService'ten geçer — tek yazma
+  otoritesi) Faz 2A replace-set formatında (`attributeValuesToInputs`). YALNIZ kategori attribute tanımlıysa gönderilir;
+  aksi halde `undefined` → **legacy ürünler bozulmaz** (md.12). BOOLEAN her zaman gönderilir (false anlamlı); metin/
+  sayı/tarih/seçenek/medya boşsa atlanır; DATE yyyy-mm-dd→ISO; MULTI_SELECT dedupe.
+- **Sunucu hata → alan (md.11).** Gömülü create/update akışı artık `error.details.attributeDefinitionId` taşır
+  (`server.ts` iki nokta; dedike PUT ucuyla tutarlı bilgi). store-admin `UiError` + `call()` bunu okur; form catch'i
+  attribute kodunu (ATTRIBUTE_OPTION_INVALID / REQUIRED_MISSING / NOT_IN_CATEGORY / VALUE_TYPE_MISMATCH ...) ilgili
+  alana `setError` ile bağlar; aksi halde genel Alert (`messageForError`). Client-side doğrulama zaten çoğu vakayı
+  submit ÖNCESİ yakalar.
+- **api-client.** `AttributeDataType` / `ProductAttributeValueInput` / `ProductAttributeValueResponse` type re-export
+  (apps yalnız api-client kanalını kullanır). Runtime değişiklik yok.
+- **i18n.** `storeAdmin.products.attributes` (tr+en): grup/loading/error/required-optional + validation şablonları
+  ({value}) + serverErrors kod→mesaj.
+- **Testler.** store-admin `products-form-attributes.test.tsx` **8** (kategori-değişince fetch + gruplu/sıralı render /
+  required / validationRules minLength / save payload Faz 2A / edit round-trip / boş-legacy kategori attributeValues
+  göndermez / sunucu hata alan-eşleme / memoization tek-fetch) + `attribute-value-mapping.test.ts` **12** (tip matrisi /
+  round-trip / required+rules/URL / parseValidationRules / server-error tanıma). Mevcut `products-form-primary-category`
+  + `products-form-gallery` stub eklenerek aynen yeşil. Regresyon: store-admin **255/255**, api-gateway **747/747**,
+  api-client **23/23**, contracts **93/93**.
+- **Gate.** db:generate + build (contracts/utils/api-client) + typecheck (değişen paketler TEMİZ) + lint temiz +
+  `next build` store-admin OK (/products, /products/[id] derlendi). storefront `checkout-form-render.test.tsx` tsc
+  hatası ÖNCEDEN mevcut (Faz 2A entry'de not edildi; CartLineView alanları önceki fazlardan, fixture güncellenmemiş) —
+  benim değişikliğimle alakasız, "dokunma" listesindeki storefront/checkout alanı, DOKUNULMADI (TECH_DEBT'e taşındı).
+- **Kalan.** Docker rebuild + prod-benzeri auth'lu runtime smoke (canlı attribute'lu ürün oluştur/düzenle round-trip).
+  Faz 2C (varyant kombinasyon motoru / `combinationKey` / SKU matris) ayrı iş.
