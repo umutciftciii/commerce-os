@@ -20,6 +20,7 @@ import {
   validateAttributeValue,
   type AttributeValidationMessages,
 } from "./attributes/value-mapping";
+import type { VariantSelectionMap } from "./variant-attributes/types";
 
 type ProductStatus = Product["status"];
 
@@ -57,6 +58,8 @@ export interface ProductFormValues {
   shippingDesi: string;
   images: MediaItem[];
   attributes: AttributeValueMap;
+  // Faz 2C-1 (ADR-070) — varyant EKSEN seçimi (attributeDefinitionId → {enabled, optionIds}).
+  variantSelections: VariantSelectionMap;
 }
 
 /** Çekirdek doğrulama mesajları (i18n'den enjekte edilir). */
@@ -245,6 +248,7 @@ export function buildDefaultValues(mode: "create" | "edit", product?: Product): 
         ? initial.images.map((image) => ({ id: image.mediaId, url: image.url, altText: image.altText }))
         : [],
     attributes: {},
+    variantSelections: {},
   };
 }
 
@@ -288,6 +292,7 @@ function shippingFields(values: ProductFormValues) {
 export function buildUpdatePayload(
   values: ProductFormValues,
   attributeValues?: ProductUpdateRequest["attributeValues"],
+  variantSelections?: ProductUpdateRequest["variantSelections"],
 ): ProductUpdateRequest {
   const payload: ProductUpdateRequest = {
     title: values.title.trim(),
@@ -302,13 +307,17 @@ export function buildUpdatePayload(
     ...shippingFields(values),
   };
   if (attributeValues !== undefined) payload.attributeValues = attributeValues;
+  // Faz 2C-1 — YALNIZ kategori variantDefining attribute tanımladıysa gönderilir (undefined =
+  // legacy korunur). [] = tümünü temizle.
+  if (variantSelections !== undefined) payload.variantSelections = variantSelections;
   return payload;
 }
 
-/** Oluşturma payload'ı (mevcut onSubmit ile birebir; opsiyonel attributeValues). */
+/** Oluşturma payload'ı (mevcut onSubmit ile birebir; opsiyonel attributeValues + variantSelections). */
 export function buildCreatePayload(
   values: ProductFormValues,
   attributeValues?: ProductCreateRequest["attributeValues"],
+  variantSelections?: ProductCreateRequest["variantSelections"],
 ): ProductCreateRequest {
   const payload: ProductCreateRequest = {
     title: values.title.trim(),
@@ -324,5 +333,6 @@ export function buildCreatePayload(
   if (values.description.trim() !== "") payload.description = values.description.trim();
   if (values.primaryCategoryId) payload.primaryCategoryId = values.primaryCategoryId;
   if (attributeValues !== undefined) payload.attributeValues = attributeValues;
+  if (variantSelections !== undefined) payload.variantSelections = variantSelections;
   return payload;
 }

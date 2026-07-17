@@ -41,6 +41,16 @@ import {
   type AttributeValidationMessages,
 } from "./attributes/value-mapping";
 import { emptyAttributeValue, type AttributeValueMap, type ResolvedAttribute } from "./attributes/types";
+import { useVariantAttributes } from "./variant-attributes/use-variant-attributes";
+import { VariantAttributeSection } from "./variant-attributes/variant-attribute-section";
+import {
+  buildVariantSelectionMap,
+  emptyVariantSelectionMap,
+  isVariantSelectionServerError,
+  validateVariantSelections,
+  variantSelectionsToInputs,
+} from "./variant-attributes/variant-selection-mapping";
+import type { ResolvedVariantAttribute } from "./variant-attributes/types";
 
 type ProductStatus = Product["status"];
 
@@ -97,12 +107,17 @@ export function ProductForm({
   const f = t.form;
   const sm = t.salesModel;
   const a = t.attributes;
+  const va = t.variantAttributes;
   const isEdit = mode === "edit";
 
   const [rootError, setRootError] = useState<string | null>(null);
+  // Faz 2C-1 — varyant eksen (attributeDefinitionId → mesaj) client/server hataları.
+  const [variantErrors, setVariantErrors] = useState<Record<string, string>>({});
 
   // Kategori-güdümlü attribute şeması, güncel çözümlenmiş liste resolver'a ref ile geçer.
   const attributesRef = useRef<ResolvedAttribute[]>([]);
+  // Faz 2C-1 — güncel çözümlenmiş varyant eksenleri (submit'te payload derlemek için).
+  const variantAttributesRef = useRef<ResolvedVariantAttribute[]>([]);
 
   const coreMessages = useMemo<CoreValidationMessages>(
     () => ({
@@ -176,10 +191,15 @@ export function ProductForm({
   const categoryIds = watch("categoryIds");
   const primaryCategoryId = watch("primaryCategoryId");
   const images = watch("images");
+  const variantSelections = watch("variantSelections");
 
   // Ana kategori attribute şemasını sürer (memoized fetch/join; md.13).
   const attrState = useCategoryAttributes(primaryCategoryId, { groupLabel: a.generalGroup });
   attributesRef.current = attrState.attributes;
+
+  // Faz 2C-1 — ana kategori VARYANT eksen şemasını sürer (variantDefining=true + option-tabanlı).
+  const variantAttrState = useVariantAttributes(primaryCategoryId);
+  variantAttributesRef.current = variantAttrState.attributes;
 
   // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
   // yükleme (kategori = ürünün mevcut ana kategorisi) mevcut değerleri round-trip'ler.
@@ -224,6 +244,50 @@ export function ProductForm({
     setValue("attributes", base, { shouldValidate: false });
     return;
   }, [attrState.attributes, attrState.loading]);
+
+  // Faz 2C-1 — Varyant eksen şeması değişince form `variantSelections` alanını başlat.
+  // Düzenlemede İLK yükleme (kategori = ürünün mevcut ana kategorisi) mevcut seçimi round-trip'ler.
+  const variantHydratedCategoryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (variantAttrState.loading) return;
+    const resolved = variantAttrState.attributes;
+    setVariantErrors({});
+    if (resolved.length === 0) {
+      if (Object.keys(getValues("variantSelections")).length > 0) {
+        setValue("variantSelections", {}, { shouldValidate: false });
+      }
+      return;
+    }
+
+    const base = emptyVariantSelectionMap(resolved);
+
+    const isInitialEditCategory =
+      isEdit && product != null && primaryCategoryId === product.primaryCategoryId;
+
+    if (isInitialEditCategory && variantHydratedCategoryRef.current !== primaryCategoryId) {
+      variantHydratedCategoryRef.current = primaryCategoryId;
+      let cancelled = false;
+      void storeApi
+        .getProductVariantSelections(product.id)
+        .then((response) => {
+          if (cancelled) return;
+          setValue("variantSelections", buildVariantSelectionMap(resolved, response.data), {
+            shouldValidate: false,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setValue("variantSelections", base, { shouldValidate: false });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Kategori farklı bir değere değiştiyse taze (boş) şema.
+    setValue("variantSelections", base, { shouldValidate: false });
+    return;
+  }, [variantAttrState.attributes, variantAttrState.loading]);
 
   // ─── Cross-field handler'lar (mevcut davranış birebir) ───
   const changeSalesMode = useCallback(
@@ -290,6 +354,48 @@ export function ProductForm({
     [getValues, setValue],
   );
 
+  // Faz 2C-1 — Varyant eksen aç/kapat (attribute'u eksen olarak seç/kaldır). Option'lar korunur.
+  const clearVariantError = useCallback((defId: string) => {
+    setVariantErrors((prev) => {
+      if (!(defId in prev)) return prev;
+      const next = { ...prev };
+      delete next[defId];
+      return next;
+    });
+  }, []);
+
+  const toggleVariantAxis = useCallback(
+    (defId: string) => {
+      const current = getValues("variantSelections");
+      const entry = current[defId] ?? { enabled: false, optionIds: [] };
+      setValue(
+        "variantSelections",
+        { ...current, [defId]: { ...entry, enabled: !entry.enabled } },
+        { shouldDirty: true },
+      );
+      clearVariantError(defId);
+    },
+    [getValues, setValue, clearVariantError],
+  );
+
+  // Faz 2C-1 — Bir eksen altında option seç/kaldır.
+  const toggleVariantOption = useCallback(
+    (defId: string, optionId: string) => {
+      const current = getValues("variantSelections");
+      const entry = current[defId] ?? { enabled: true, optionIds: [] };
+      const optionIds = entry.optionIds.includes(optionId)
+        ? entry.optionIds.filter((id) => id !== optionId)
+        : [...entry.optionIds, optionId];
+      setValue(
+        "variantSelections",
+        { ...current, [defId]: { ...entry, optionIds } },
+        { shouldDirty: true },
+      );
+      clearVariantError(defId);
+    },
+    [getValues, setValue, clearVariantError],
+  );
+
   const showInquiryTitle = salesMode === "INQUIRY" || inquiryEnabled;
   const showAppointmentNote = salesMode === "APPOINTMENT" || appointmentRequired;
   const showWhatsappTemplate = salesMode === "WHATSAPP" || whatsappEnabled;
@@ -307,6 +413,14 @@ export function ProductForm({
     [a],
   );
 
+  const variantServerMessage = useCallback(
+    (code: string): string => {
+      const map = va.serverErrors as Record<string, string>;
+      return map[code] ?? map.default;
+    },
+    [va],
+  );
+
   const onValid = async (values: ProductFormValues) => {
     setRootError(null);
     const resolved = attributesRef.current;
@@ -314,12 +428,31 @@ export function ProductForm({
     // legacy davranış korunur (md.12). Aksi halde replace-set (dolu değerler).
     const attributeValues = resolved.length > 0 ? attributeValuesToInputs(resolved, values.attributes) : undefined;
 
+    // Faz 2C-1 — varyant eksen seçimi: kategori variantDefining attribute tanımlamamışsa
+    // GÖNDERİLMEZ (undefined → legacy korunur). Aksi halde yalnız enabled eksenler (replace-set).
+    const variantResolved = variantAttributesRef.current;
+    let variantSelectionsInput: ReturnType<typeof variantSelectionsToInputs> | undefined;
+    if (variantResolved.length > 0) {
+      // Client-side: her etkin eksende ≥1 option (backend VARIANT_OPTION_REQUIRED'ı erken yakala).
+      const clientErrors = validateVariantSelections(variantResolved, values.variantSelections, va.optionRequired);
+      if (Object.keys(clientErrors).length > 0) {
+        setVariantErrors(clientErrors);
+        return;
+      }
+      variantSelectionsInput = variantSelectionsToInputs(variantResolved, values.variantSelections);
+    }
+
     try {
       if (isEdit && product) {
-        const updated = await storeApi.updateProduct(product.id, buildUpdatePayload(values, attributeValues));
+        const updated = await storeApi.updateProduct(
+          product.id,
+          buildUpdatePayload(values, attributeValues, variantSelectionsInput),
+        );
         onSaved(t.detail.savedToast, updated);
       } else {
-        const created = await storeApi.createProduct(buildCreatePayload(values, attributeValues));
+        const created = await storeApi.createProduct(
+          buildCreatePayload(values, attributeValues, variantSelectionsInput),
+        );
         onSaved(t.createdToast, created);
       }
     } catch (caught) {
@@ -333,6 +466,16 @@ export function ProductForm({
           type: "server",
           message: attributeServerMessage(caught.code),
         });
+        return;
+      }
+      // Faz 2C-1 — Backend varyant seçim hatası → ilgili eksene bağla.
+      if (
+        caught instanceof UiError &&
+        isVariantSelectionServerError(caught.code) &&
+        caught.details?.attributeDefinitionId
+      ) {
+        const defId = caught.details.attributeDefinitionId;
+        setVariantErrors((prev) => ({ ...prev, [defId]: variantServerMessage(caught.code) }));
         return;
       }
       setRootError(messageForError(caught, locale));
@@ -490,6 +633,25 @@ export function ProductForm({
           errorLabel: a.loadError,
           requiredHint: a.requiredHint,
           optionalHint: a.optionalHint,
+        }}
+      />
+
+      {/* Faz 2C-1 (ADR-070) — Varyant EKSEN seçimi. Kategori variantDefining + option-tabanlı
+          attribute tanımlamamışsa hiçbir şey render edilmez. KOMBINASYON URETMEZ. */}
+      <VariantAttributeSection
+        state={variantAttrState}
+        value={variantSelections}
+        errors={variantErrors}
+        disabled={isSubmitting}
+        onToggleAxis={toggleVariantAxis}
+        onToggleOption={toggleVariantOption}
+        labels={{
+          sectionTitle: va.sectionTitle,
+          sectionSubtitle: va.sectionSubtitle,
+          loadingLabel: va.loading,
+          errorLabel: va.loadError,
+          optionsLabel: va.optionsLabel,
+          optionRequired: va.optionRequired,
         }}
       />
 

@@ -55,6 +55,7 @@ import type {
   ProductVariantListResponse,
   ProductVariantUpdateRequest,
   ProductAttributeValueListResponse,
+  ProductVariantSelectionListResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -429,6 +430,12 @@ export const storeApi = {
   getProductAttributeValues: (productId: string) =>
     call<ProductAttributeValueListResponse>(
       `/api/catalog/products/${productId}/attribute-values`,
+    ),
+  // Faz 2C-1 (ADR-070) — düzenleme ekranında mevcut varyant EKSEN seçimini okur
+  // (round-trip). Yazma gömülü product create/update `variantSelections` ile gider.
+  getProductVariantSelections: (productId: string) =>
+    call<ProductVariantSelectionListResponse>(
+      `/api/catalog/products/${productId}/variant-selections`,
     ),
 
   // Variants

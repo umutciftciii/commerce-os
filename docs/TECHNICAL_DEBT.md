@@ -573,3 +573,24 @@
   ilişkisiz.
 - Düzeltme (ileride): fixture'a eksik 5 gösterim alanını ekle (davranış-nötr). Kapsam: apps/storefront-web/test.
   Bloklayıcı: HAYIR.
+
+## TD-041 Faz 2C-1 varyant motoru temeli: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-17 (Faz 2C-1, TODO-147, ADR-070)
+- Sorun 1 (ürün + varyant seçim yazımı atomik DEĞİL): TD-038 Sorun 1 ile aynı desen — Product satırı bir `$transaction`'da,
+  varyant eksen seçimi ise ayrı `variantSelectionService.persistSelections` `$transaction`'ında yazılır. Create/update'ten
+  ÖNCE `prepareSelections` ile doğrulandığından persist yalnız beklenmedik DB hatasında (nadir) başarısız olur. Etki: düşük.
+- Sorun 2 (kategori-attribute uçları iki tüketici tarafından çift çekilir): `useCategoryAttributes` (ürün-seviyesi) +
+  `useVariantAttributes` (varyant) aynı `listCategoryAttributes` + `listAttributes` uçlarını kategori başına AYRI çeker
+  (her biri kendi içinde memoize eder → yeniden seçimde tekrar YOK, ama iki hook toplam 2 istek atar). Hafif admin-read
+  ikiye katlanması; ileride tek paylaşımlı fetch'e birleştirilebilir. Etki: düşük.
+- Sorun 3 (yalnız option-tabanlı eksen): Bu ekran yalnız SELECT/COLOR variantDefining attribute'ları eksen olarak kabul eder
+  (varyant ekseni tek-seçimli option olmalı — VariantAttributeValue tek option taşır). Serbest-metin varyant eksenleri (ör.
+  gravür) kapsam dışı; ihtiyaç olursa kombinasyon-girişi adımında ele alınır. Bilinçli kapsam kararı (ADR-070 md.2).
+- Sorun 4 (KOMBINASYON YOK — foundation): Bu faz yalnız "eksenler + option'lar" reçetesini saklar. `ProductVariant` üretimi,
+  Cartesian, `combinationKey`, SKU matris, bulk edit, varyant görselleri, storefront/search/inventory/order snapshot Faz 2C-2+
+  Combination Engine'e aittir. Seçim tabloları (ProductVariantAttribute/OptionSelection) o motorun GİRDİSİDİR.
+- Sorun 5 (runtime smoke bekliyor): `migrate diff --from-empty` ile index/FK adları doğrulandı + tüm gate yeşil (269/767/23/
+  101/16 test + `next build`); ancak merge sonrası HEDEF DB `prisma migrate deploy` + docker rebuild + prod-benzeri auth'lu
+  tarayıcı smoke (canlı variantDefining attribute + eksen/option seçimi round-trip) ayrı adım.
+- Kapsam: packages/db, packages/contracts, packages/api-client, apps/api-gateway/src/variant-selections,
+  apps/store-admin-web (product form + variant-attributes/*), packages/i18n. Bloklayıcı: HAYIR.

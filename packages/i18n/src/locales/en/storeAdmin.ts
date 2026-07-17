@@ -331,6 +331,26 @@ export const enStoreAdmin: StoreAdminDictionary = {
         default: "This attribute could not be saved.",
       },
     },
+    // Faz 2C-1 (ADR-070) — Varyant EKSEN seçimi (henüz kombinasyon üretmez).
+    variantAttributes: {
+      sectionTitle: "Variant attributes",
+      sectionSubtitle:
+        "Choose which attributes define variants and which options to offer. No variants are generated yet.",
+      loading: "Loading variant attributes…",
+      loadError: "Could not load variant attributes for this category.",
+      optionsLabel: "Options",
+      optionRequired: "Select at least one option for this variant attribute.",
+      serverErrors: {
+        VARIANT_ATTRIBUTE_NOT_IN_CATEGORY: "This attribute is not part of the selected category.",
+        VARIANT_ATTRIBUTE_NOT_VARIANT_DEFINING: "This attribute is not variant-defining.",
+        VARIANT_ATTRIBUTE_NOT_OPTION_BASED: "Only option-based attributes can define variants.",
+        VARIANT_ATTRIBUTE_DUPLICATE: "This attribute was selected more than once.",
+        VARIANT_OPTION_REQUIRED: "Select at least one option for this variant attribute.",
+        VARIANT_OPTION_INVALID: "One of the selected options is invalid.",
+        VARIANT_OPTION_ARCHIVED: "One of the selected options is no longer available.",
+        default: "This variant attribute could not be saved.",
+      },
+    },
     salesModel: {
       columnHeader: "Sales",
       sectionTitle: "Sales behavior",

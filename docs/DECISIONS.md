@@ -2069,3 +2069,64 @@ değil; gömülü akış prepare-önce-doğrula ile daha güvenli); attribute'la
 `useForm` resolver'ını her kategori değişiminde yeniden kurmak gerekir); tüm alanları Controller ile controlled yapmak (register +
 `forwardRef` daha yalın; yalnız side-effect'li alanlar watch/setValue); required'ı boş kümede de zorlamak (backend `values.length===0`
 kısa devre eder — UI aynı semantiği izler, boş kategori submit'i required tetiklemez).
+
+## ADR-070 — Varyant motoru TEMELI: ürün-seviyesi variant-defining eksen seçimi (normalize; kombinasyon YOK) (Faz 2C-1)
+
+- **Durum:** Kabul edildi (2026-07-17). Faz 2A/2B (ADR-068/069) attribute DEĞER katmanını + dinamik ürün formunu kurdu.
+  Bu faz Variant Engine'in **yalnız veri modelini + admin seçim ekranını** ekler. TODO-147.
+- **Bağlam.** Bir mağaza sahibinin çok-varyantlı ürün yönetebilmesi için önce **hangi attribute'ların varyantı
+  belirlediğini** (eksen/axis) ve her eksende **hangi option'ların kullanılacağını** tanımlaması gerekir. Bu PR
+  **KESİNLİKLE** kombinasyon üretmez: `ProductVariant`, Cartesian çarpım, `combinationKey`, SKU matris, bulk edit,
+  varyant görselleri, storefront/search/inventory/order snapshot **KAPSAM DIŞI**. Yalnız "eksen + kapsanan option'lar"
+  seçimi ürün seviyesinde saklanır; gelecekteki Combination Engine bunu tüketecek.
+
+**Karar.**
+1. **Normalize model (JSON YOK).** İki additive relational tablo:
+   - `ProductVariantAttribute` — bir üründe EKSEN olarak seçilen variant-defining attribute. `@@unique([productId,
+     attributeDefinitionId])` (aynı attribute iki kez seçilemez — DB + servis), `position` (eksen sırası), `storeId`
+     denormalize tenant sütunu. FK: `attributeDefinitionId → Restrict` (eksen olarak kullanılan tanım silinemez —
+     katalog usage-guard, Faz 2A ile tutarlı); `productId/storeId → Cascade`.
+   - `ProductVariantOptionSelection` — bir eksen altında kapsanan `AttributeOption`. `@@unique([productVariantAttributeId,
+     optionId])`, `position`, `optionId → Restrict`, parent/`storeId → Cascade`.
+   `ProductVariant.optionValues Json?` (legacy) **DOKUNULMAZ**; yeni akış onu kullanmaz — combination engine geldiğinde
+   yerini normalize `combinationKey` alacak.
+2. **Eksen yalnız option-tabanlı (SELECT/COLOR).** Bir varyant ekseni doğası gereği TEK-seçimli option'dur — `VariantAttributeValue`
+   (Faz 2A) tek `optionId` taşır. Dolayısıyla eksen olabilecek attribute `dataType ∈ {SELECT, COLOR}` olmalı. `MULTI_SELECT`
+   (çok-değerli, eksen değil) ve metin/sayı/tarih/medya tipleri eksen OLAMAZ (`VARIANT_ATTRIBUTE_NOT_OPTION_BASED`). Bu, gelecekteki
+   Cartesian'ı sağlam tutar (her eksen tek-seçimli). Serbest-metin varyant eksenleri (ör. gravür) bu ekranın kapsamı dışıdır.
+3. **`variantSelectionService` — tek yazma otoritesi.** `ProductVariantAttribute`/`ProductVariantOptionSelection` yazan hiçbir route
+   doğrudan Prisma'ya yazmaz (Faz 2A `attributeValueService` deseni). Servis STABIL kodlarla (zod refine DEĞİL) doğrular: tenant
+   izolasyonu (STORE tanımı/seçeneği başka mağazadan olamaz; PLATFORM her mağazada geçerli), attribute mevcut/archived, `product.
+   primaryCategoryId` mevcut + attribute o kategoriye `CategoryAttribute` ile bağlı, **`variantDefining=true`**
+   (`VARIANT_ATTRIBUTE_NOT_VARIANT_DEFINING`), dataType option-tabanlı, **aynı attribute tek** (`VARIANT_ATTRIBUTE_DUPLICATE`), her
+   eksende **en az bir option** (`VARIANT_OPTION_REQUIRED`), option doğru attribute'a + tenant'a ait + archived değil
+   (`VARIANT_OPTION_INVALID` / `_ARCHIVED` / `_TENANT_MISMATCH`), option'lar dedupe.
+4. **prepare/persist ayrımı + replace-set.** `prepareVariantSelections` read-only doğrular + normalize entries döner;
+   `persistVariantSelections` ayrı transaction'da replace-set yazar (mevcut eksenler silinir → yeniden yazılır; option'lar parent
+   Cascade ile temizlenir). Böylece **gömülü create akışı ürünü OLUŞTURMADAN önce doğrular** (geçersizse hiçbir yazım olmaz).
+   Sağlanan liste TAM istenen kümedir; `[]` tümünü temizler, `undefined` dokunmaz.
+5. **Geriye dönük uyum.** Product create/update'e **opsiyonel `variantSelections`** eklenir. `undefined` = bugünkü davranış birebir
+   (varyant seçimi yazılmaz) → eski istemciler BOZULMAZ. Ürün/varyant yanıt şeması (`productSchema` vb.) DEĞİŞMEZ; seçimler ayrı
+   dedike uçtan okunur (`GET/PUT .../variant-selections`). `ProductVariant` create/update ve `optionValues` semantiği DEĞİŞMEZ.
+6. **Modülerlik.** Gateway `src/variant-selections/` ayrı data-access + service + route modülü (attribute-values/ deseni; DI ile izole
+   test). Route yetkisi `requireStorePlatformAdmin` (fiyat/attribute düzenleyenle aynı yetki düzlemi).
+7. **UI (dinamik form uyumlu).** store-admin ürün formuna **"Variant Attributes"** bölümü. `variantDefining=true` + option-tabanlı
+   `CategoryAttribute`'lar (mevcut `useCategoryAttributes` bunları DIŞLIYOR → ayna hook `useVariantAttributes`) listelenir. Admin bir
+   eksen'i checkbox ile seçer; seçince altındaki option checkbox'ları görünür (Siyah ✓ / Beyaz ✓ / Mavi ☐). Form state
+   `variantSelections: Record<attributeDefinitionId, {enabled, optionIds[]}>`. Checkbox'lı eksende ≥1 option client-side zorunlu
+   (submit öncesi); server hatası `error.details.attributeDefinitionId` ile ilgili eksene bağlanır (Faz 2B deseni). Kategori
+   variant-defining attribute tanımlamamışsa bölüm gizlenir + payload `undefined` (legacy korunur).
+
+**Sonuçlar.**
+- Ürün, "hangi eksenler + hangi option'lar" bilgisini normalize + tenant-izole + tek doğrulama noktasından saklar; gelecekteki
+  Combination Engine (Cartesian → `combinationKey` → `ProductVariant`) bu iki tabloyu okuyup tüketmeye hazır — ama bu faz HİÇBİR
+  varyant/kombinasyon üretmez.
+- Migration TAMAMEN ADDITIVE (izole shadow-DB `migrate diff` = "No difference" hedefi); mevcut `ProductVariant`/`optionValues`/
+  storefront/checkout/order/inventory/search DEĞİŞMEZ; eski istemciler `variantSelections` göndermezse davranış birebir korunur.
+
+**Alternatifler (reddedilen).** Seçimi `Product.metadata`/yeni bir JSON kolonunda tutmak (tip güvenliği + ilişkisel bütünlük +
+gelecekte Cartesian sorgusu kaybı — ADR-068 ile tutarlı red); mevcut `ProductVariant.optionValues`'ı genişletmek (yapısız + eksen/
+option kavramı yok); eksen + option'ları tek tabloda (self-join) tutmak (option "en az bir" ve sıralama semantiği bulanıklaşır);
+kombinasyonu/`combinationKey`'i şimdi üretmek (brief'in açık YASAK listesi — foundation yalnız seçim); eksene `MULTI_SELECT` izni
+(varyant ekseni tek-seçimli olmalı, `VariantAttributeValue` tek option taşır); seçimi ürün yerine varyant seviyesinde tutmak (henüz
+varyant YOK; seçim ürün-seviyesi bir "reçetedir").

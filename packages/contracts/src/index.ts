@@ -659,6 +659,40 @@ export const variantAttributeValuesReplaceRequestSchema = z.object({
   values: z.array(variantAttributeValueInputSchema),
 });
 
+// ─────────────────── Faz 2C-1 (ADR-070) — Varyant motoru TEMELI (eksen secimi) ───────────────────
+// Bir urunun hangi variant-defining attribute'lari EKSEN olarak kullanacagini + her eksende hangi
+// option'lari kapsayacagini NORMALIZE tasir. Bu KOMBINASYON DEGILDIR: ProductVariant/combinationKey/
+// Cartesian URETILMEZ. "En az bir option", "eksen option-tabanli", "variantDefining", tenant ve
+// duplicate kontrolleri variantSelectionService'te STABIL kodlarla yapilir (zod refine DEGIL —
+// Faz 2A deseni). Sema yalniz sekli dogrular; optionIds'e min(1) KONMAZ (bos → servis VARIANT_OPTION_REQUIRED).
+
+// Tek bir varyant eksen GIRDISI (product create/update icindeki variantSelections[] ogesi + dedike
+// replace ucunun eleman tipi). optionIds bu eksende kapsanan AttributeOption id'leri (TAM istenen kume).
+export const productVariantSelectionInputSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  optionIds: z.array(z.string().min(1)),
+});
+
+// Okuma projeksiyonu (edit round-trip). dataType echo edilir (SELECT/COLOR); optionIds position
+// sirasinda doner. UI option metadata'sini (label/colorHex) kendi cektigi seceneklerle join eder.
+export const productVariantSelectionSchema = z.object({
+  attributeDefinitionId: z.string().min(1),
+  dataType: attributeDataTypeSchema,
+  position: z.number().int(),
+  optionIds: z.array(z.string().min(1)),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const productVariantSelectionListResponseSchema = z.object({
+  data: z.array(productVariantSelectionSchema),
+});
+
+// Dedike replace ucu govdesi. `selections` TAM istenen kume (replace-set); [] tumunu temizler.
+export const productVariantSelectionsReplaceRequestSchema = z.object({
+  selections: z.array(productVariantSelectionInputSchema),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -917,6 +951,10 @@ export const productCreateRequestSchema = z
     // (attribute yazilmaz; geriye donuk uyumlu). Verildiginde attributeValueService TAM
     // istenen kume olarak isler + tip/tenant/required/option/variantDefining dogrular.
     attributeValues: z.array(productAttributeValueInputSchema).optional(),
+    // Faz 2C-1 (ADR-070) — OPSIYONEL variant-defining eksen secimi. undefined = eski davranis
+    // (varyant secimi yazilmaz; geriye donuk uyumlu). KOMBINASYON URETMEZ. variantSelectionService
+    // TAM istenen kume olarak isler + variantDefining/option-tabanli/tenant/duplicate/≥1-option dogrular.
+    variantSelections: z.array(productVariantSelectionInputSchema).optional(),
   })
   .refine((value) => value.maxOrderQuantity == null || value.maxOrderQuantity >= value.minOrderQuantity, {
     message: "maxOrderQuantity must be greater than or equal to minOrderQuantity.",
@@ -968,6 +1006,9 @@ export const productUpdateRequestSchema = z
     // Faz 2A (ADR-068) — OPSIYONEL urun attribute degerleri (TAM istenen kume). undefined =
     // dokunma (eski davranis korunur); [] = tumunu temizle. attributeValueService dogrular.
     attributeValues: z.array(productAttributeValueInputSchema).optional(),
+    // Faz 2C-1 (ADR-070) — OPSIYONEL variant-defining eksen secimi (TAM istenen kume). undefined =
+    // dokunma (eski davranis); [] = tumunu temizle. KOMBINASYON URETMEZ. variantSelectionService dogrular.
+    variantSelections: z.array(productVariantSelectionInputSchema).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -2699,6 +2740,11 @@ export type VariantAttributeValueResponse = z.infer<typeof variantAttributeValue
 export type VariantAttributeValueListResponse = z.infer<typeof variantAttributeValueListResponseSchema>;
 export type ProductAttributeValuesReplaceRequest = z.infer<typeof productAttributeValuesReplaceRequestSchema>;
 export type VariantAttributeValuesReplaceRequest = z.infer<typeof variantAttributeValuesReplaceRequestSchema>;
+// Faz 2C-1 (ADR-070) — varyant eksen secimi tipleri.
+export type ProductVariantSelectionInput = z.infer<typeof productVariantSelectionInputSchema>;
+export type ProductVariantSelectionResponse = z.infer<typeof productVariantSelectionSchema>;
+export type ProductVariantSelectionListResponse = z.infer<typeof productVariantSelectionListResponseSchema>;
+export type ProductVariantSelectionsReplaceRequest = z.infer<typeof productVariantSelectionsReplaceRequestSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;
