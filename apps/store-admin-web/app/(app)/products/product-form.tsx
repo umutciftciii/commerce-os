@@ -1,19 +1,46 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+// Faz 2B (TODO-146) — Ürün oluşturma/düzenleme formu. React Hook Form + Zod'a
+// taşındı; dağınık useState kaldırıldı. Çekirdek alanlar (title/slug/marka/satış/
+// kargo/galeri) davranışını KORUR; kategoriye göre dinamik attribute alanları eklenir
+// (ana kategori attribute şemasını sürer). Modal (create) ve detay sayfası (edit)
+// tarafından paylaşılır; gönder butonu `form={formId}` ile dışarıdan bağlanır.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 import { Alert, Input, Select, Textarea, useLocale } from "../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
   ProductCategory,
-  ProductCreateRequest,
   ProductPriceVisibility,
   ProductPrimaryAction,
   ProductSalesMode,
 } from "@commerce-os/api-client";
-import { storeApi } from "../../../lib/client/api";
+import { storeApi, UiError } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
-import { MediaUpload, type MediaItem } from "../../../components/media-upload";
+import { MediaUpload } from "../../../components/media-upload";
+import {
+  buildCreatePayload,
+  buildDefaultValues,
+  buildUpdatePayload,
+  createProductFormResolver,
+  CTA_MAX,
+  INQUIRY_TITLE_MAX,
+  APPOINTMENT_NOTE_MAX,
+  WHATSAPP_MAX,
+  type CoreValidationMessages,
+  type ProductFormValues,
+} from "./product-form-schema";
+import { useCategoryAttributes } from "./attributes/use-category-attributes";
+import { AttributeSection } from "./attributes/attribute-section";
+import {
+  attributeValuesToInputs,
+  buildAttributeValueMap,
+  isAttributeServerError,
+  type AttributeValidationMessages,
+} from "./attributes/value-mapping";
+import { emptyAttributeValue, type AttributeValueMap, type ResolvedAttribute } from "./attributes/types";
 
 type ProductStatus = Product["status"];
 
@@ -39,18 +66,13 @@ const PRIMARY_ACTIONS: ProductPrimaryAction[] = [
   "NONE",
 ];
 
-// Sozlukten gelen string sabitleri (CTA/sablon uzunluk siniri kontrat ile ayni).
-const CTA_MAX = 120;
-const WHATSAPP_MAX = 500;
-const INQUIRY_TITLE_MAX = 160;
-const APPOINTMENT_NOTE_MAX = 500;
-
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function formatTemplate(template: string, value: number): string {
+  return template.replace("{value}", String(value));
+}
 
 /**
- * Ürün oluşturma/düzenleme formu. Modal (create) ve dedicated detail page (edit)
- * tarafından paylaşılır; gönder butonu `form={formId}` ile dışarıdan bağlanır.
- * Kaydetme durumu {@link onSavingChange} ile dışarı bildirilir.
+ * Ürün oluşturma/düzenleme formu (RHF). Public API (props) Faz 2A ile birebir korunur:
+ * mevcut sayfa/modal ve testler değişmeden çalışır.
  */
 export function ProductForm({
   mode,
@@ -74,110 +96,199 @@ export function ProductForm({
   const t = dict.storeAdmin.products;
   const f = t.form;
   const sm = t.salesModel;
+  const a = t.attributes;
   const isEdit = mode === "edit";
-  const initial = isEdit ? (product ?? null) : null;
 
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [slug, setSlug] = useState(initial?.slug ?? "");
-  const [status, setStatus] = useState<ProductStatus>(initial?.status ?? "DRAFT");
-  const [brand, setBrand] = useState(initial?.brand ?? "");
-  const [vendor, setVendor] = useState(initial?.vendor ?? "");
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [categoryIds, setCategoryIds] = useState<string[]>(initial?.categoryIds ?? []);
-  // Faz 1A (ADR-067) — Ana kategori. Backfill edilmis/mevcut deger hydrate edilir.
-  // Tek kategori seçilince otomatik ana olur; ana kaldırılırken yeni ana zorunludur.
-  const [primaryCategoryId, setPrimaryCategoryId] = useState<string | null>(
-    initial?.primaryCategoryId ?? null,
-  );
+  const [rootError, setRootError] = useState<string | null>(null);
 
-  // Satis davranisi (F2D/F2F alanlari).
-  const [salesMode, setSalesMode] = useState<ProductSalesMode>(initial?.salesMode ?? "ONLINE");
-  const [priceVisibility, setPriceVisibility] = useState<ProductPriceVisibility>(
-    initial?.priceVisibility ?? "VISIBLE",
-  );
-  const [primaryAction, setPrimaryAction] = useState<ProductPrimaryAction>(
-    initial?.primaryAction ?? "ADD_TO_CART",
-  );
-  const [purchasable, setPurchasable] = useState<boolean>(initial?.purchasable ?? true);
-  const [inquiryEnabled, setInquiryEnabled] = useState<boolean>(initial?.inquiryEnabled ?? false);
-  const [appointmentRequired, setAppointmentRequired] = useState<boolean>(
-    initial?.appointmentRequired ?? false,
-  );
-  const [whatsappEnabled, setWhatsappEnabled] = useState<boolean>(
-    initial?.whatsappEnabled ?? false,
-  );
-  const [minOrderQuantity, setMinOrderQuantity] = useState<string>(
-    String(initial?.minOrderQuantity ?? 1),
-  );
-  const [maxOrderQuantity, setMaxOrderQuantity] = useState<string>(
-    initial?.maxOrderQuantity != null ? String(initial.maxOrderQuantity) : "",
-  );
-  const [callToActionLabel, setCallToActionLabel] = useState(initial?.callToActionLabel ?? "");
-  const [whatsappMessageTemplate, setWhatsappMessageTemplate] = useState(
-    initial?.whatsappMessageTemplate ?? "",
-  );
-  const [inquiryFormTitle, setInquiryFormTitle] = useState(initial?.inquiryFormTitle ?? "");
-  const [appointmentNote, setAppointmentNote] = useState(initial?.appointmentNote ?? "");
+  // Kategori-güdümlü attribute şeması, güncel çözümlenmiş liste resolver'a ref ile geçer.
+  const attributesRef = useRef<ResolvedAttribute[]>([]);
 
-  // F3C.2 — Kargo ölçüleri (ürün-seviyesi; varyat fallback'i). String tutulur (boş = null).
-  const [shippingWeightKg, setShippingWeightKg] = useState<string>(
-    initial?.shippingWeightKg != null ? String(initial.shippingWeightKg) : "",
-  );
-  const [shippingDesi, setShippingDesi] = useState<string>(
-    initial?.shippingDesi != null ? String(initial.shippingDesi) : "",
+  const coreMessages = useMemo<CoreValidationMessages>(
+    () => ({
+      requiredTitle: f.requiredTitle,
+      requiredSlug: f.requiredSlug,
+      primaryCategoryRequired: f.primaryCategoryRequired,
+      minQtyError: sm.minQtyError,
+      maxQtyError: sm.maxQtyError,
+      ctaTooLong: sm.ctaTooLong,
+      whatsappTooLong: sm.whatsappTooLong,
+      inquiryTitleTooLong: sm.inquiryTitleTooLong,
+      appointmentNoteTooLong: sm.appointmentNoteTooLong,
+      shippingPositiveError: f.shippingPositiveError,
+    }),
+    [f, sm],
   );
 
-  // ADR-065 (Faz 2/Dilim 2) — ürün galerisi (yalnız edit; R5). KRİTİK invariant:
-  // MediaItem.id = ProductImage'in mediaId'si (ProductImage.id DEĞİL). "Zaten ekli"
-  // rozeti ve kütüphane seçimi listMedia'nın döndürdüğü asset.id'ye karşı çalışır;
-  // yanlış id kullanılırsa rozet ve reuse kırılır. images[0] = kapak (position 0).
-  const [images, setImages] = useState<MediaItem[]>(
-    isEdit && initial?.images
-      ? initial.images.map((image) => ({ id: image.mediaId, url: image.url, altText: image.altText }))
-      : [],
+  const attributeMessages = useMemo<AttributeValidationMessages>(
+    () => ({
+      required: a.validation.required,
+      invalidNumber: a.validation.invalidNumber,
+      invalidInteger: a.validation.invalidInteger,
+      invalidUrl: a.validation.invalidUrl,
+      min: (limit) => formatTemplate(a.validation.min, limit),
+      max: (limit) => formatTemplate(a.validation.max, limit),
+      minLength: (limit) => formatTemplate(a.validation.minLength, limit),
+      maxLength: (limit) => formatTemplate(a.validation.maxLength, limit),
+      pattern: a.validation.pattern,
+    }),
+    [a],
   );
 
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSavingState] = useState(false);
+  const resolver = useMemo(
+    () =>
+      createProductFormResolver(
+        mode,
+        coreMessages,
+        () => attributesRef.current,
+        attributeMessages,
+      ),
+    [mode, coreMessages, attributeMessages],
+  );
 
-  function setSaving(value: boolean) {
-    setSavingState(value);
-    onSavingChange?.(value);
-  }
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    setError,
+    control,
+    formState: { errors, isSubmitting },
+  } = useForm<ProductFormValues>({
+    defaultValues: buildDefaultValues(mode, product),
+    resolver,
+    mode: "onSubmit",
+  });
 
-  // Satis tipi degisince backend tutarlilik kurallarina uyumlu guvenli
-  // varsayilanlar uygulanir; kullanicinin yazdigi metin alanlari ezilmez.
-  function changeSalesMode(value: ProductSalesMode) {
-    setSalesMode(value);
-    if (value === "ONLINE") {
-      setPurchasable(true);
-      setPrimaryAction("ADD_TO_CART");
-      setPriceVisibility((current) =>
-        current === "VISIBLE" || current === "STARTING_FROM" ? current : "VISIBLE",
-      );
-    } else if (value === "INQUIRY") {
-      setPurchasable(false);
-      setPrimaryAction("REQUEST_PRICE");
-      setInquiryEnabled(true);
-    } else if (value === "APPOINTMENT") {
-      setPurchasable(false);
-      setPrimaryAction("BOOK_APPOINTMENT");
-      setAppointmentRequired(true);
-    } else if (value === "WHATSAPP") {
-      setPurchasable(false);
-      setPrimaryAction("WHATSAPP");
-      setWhatsappEnabled(true);
-    } else if (value === "CATALOG_ONLY") {
-      setPurchasable(false);
-      setPrimaryAction("NONE");
+  useEffect(() => {
+    onSavingChange?.(isSubmitting);
+  }, [isSubmitting, onSavingChange]);
+
+  const salesMode = watch("salesMode");
+  const priceVisibility = watch("priceVisibility");
+  const primaryAction = watch("primaryAction");
+  const purchasable = watch("purchasable");
+  const inquiryEnabled = watch("inquiryEnabled");
+  const appointmentRequired = watch("appointmentRequired");
+  const whatsappEnabled = watch("whatsappEnabled");
+  const status = watch("status");
+  const categoryIds = watch("categoryIds");
+  const primaryCategoryId = watch("primaryCategoryId");
+  const images = watch("images");
+
+  // Ana kategori attribute şemasını sürer (memoized fetch/join; md.13).
+  const attrState = useCategoryAttributes(primaryCategoryId, { groupLabel: a.generalGroup });
+  attributesRef.current = attrState.attributes;
+
+  // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
+  // yükleme (kategori = ürünün mevcut ana kategorisi) mevcut değerleri round-trip'ler.
+  const hydratedCategoryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (attrState.loading) return;
+    const resolved = attrState.attributes;
+    if (resolved.length === 0) {
+      if (Object.keys(getValues("attributes")).length > 0) {
+        setValue("attributes", {}, { shouldValidate: false });
+      }
+      return;
     }
-  }
 
-  // Gizli/talep-uzerine fiyat gorunurlugunde online satin alma kapatilir.
-  function changePriceVisibility(value: ProductPriceVisibility) {
-    setPriceVisibility(value);
-    if (value === "HIDDEN" || value === "ON_REQUEST") setPurchasable(false);
-  }
+    const base: AttributeValueMap = {};
+    for (const attr of resolved) base[attr.attributeDefinitionId] = emptyAttributeValue(attr.dataType);
+
+    const isInitialEditCategory =
+      isEdit && product != null && primaryCategoryId === product.primaryCategoryId;
+
+    if (isInitialEditCategory && hydratedCategoryRef.current !== primaryCategoryId) {
+      hydratedCategoryRef.current = primaryCategoryId;
+      let cancelled = false;
+      void storeApi
+        .getProductAttributeValues(product.id)
+        .then((response) => {
+          if (cancelled) return;
+          setValue("attributes", buildAttributeValueMap(resolved, response.data), {
+            shouldValidate: false,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setValue("attributes", base, { shouldValidate: false });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Kategori farklı bir değere değiştiyse taze (boş) şema.
+    setValue("attributes", base, { shouldValidate: false });
+    return;
+  }, [attrState.attributes, attrState.loading]);
+
+  // ─── Cross-field handler'lar (mevcut davranış birebir) ───
+  const changeSalesMode = useCallback(
+    (value: ProductSalesMode) => {
+      setValue("salesMode", value, { shouldDirty: true });
+      if (value === "ONLINE") {
+        setValue("purchasable", true);
+        setValue("primaryAction", "ADD_TO_CART");
+        const current = getValues("priceVisibility");
+        setValue(
+          "priceVisibility",
+          current === "VISIBLE" || current === "STARTING_FROM" ? current : "VISIBLE",
+        );
+      } else if (value === "INQUIRY") {
+        setValue("purchasable", false);
+        setValue("primaryAction", "REQUEST_PRICE");
+        setValue("inquiryEnabled", true);
+      } else if (value === "APPOINTMENT") {
+        setValue("purchasable", false);
+        setValue("primaryAction", "BOOK_APPOINTMENT");
+        setValue("appointmentRequired", true);
+      } else if (value === "WHATSAPP") {
+        setValue("purchasable", false);
+        setValue("primaryAction", "WHATSAPP");
+        setValue("whatsappEnabled", true);
+      } else if (value === "CATALOG_ONLY") {
+        setValue("purchasable", false);
+        setValue("primaryAction", "NONE");
+      }
+    },
+    [setValue, getValues],
+  );
+
+  const changePriceVisibility = useCallback(
+    (value: ProductPriceVisibility) => {
+      setValue("priceVisibility", value, { shouldDirty: true });
+      if (value === "HIDDEN" || value === "ON_REQUEST") setValue("purchasable", false);
+    },
+    [setValue],
+  );
+
+  const toggleCategory = useCallback(
+    (id: string) => {
+      const currentIds = getValues("categoryIds");
+      const currentPrimary = getValues("primaryCategoryId");
+      const isRemoving = currentIds.includes(id);
+      const nextIds = isRemoving ? currentIds.filter((value) => value !== id) : [...currentIds, id];
+      setValue("categoryIds", nextIds, { shouldDirty: true });
+      if (isRemoving) {
+        if (currentPrimary === id) {
+          setValue("primaryCategoryId", nextIds.length === 1 ? nextIds[0]! : null);
+        }
+      } else if (currentPrimary === null && nextIds.length === 1) {
+        setValue("primaryCategoryId", id);
+      }
+    },
+    [getValues, setValue],
+  );
+
+  const selectPrimaryCategory = useCallback(
+    (id: string) => {
+      if (getValues("categoryIds").includes(id)) setValue("primaryCategoryId", id, { shouldDirty: true });
+    },
+    [getValues, setValue],
+  );
 
   const showInquiryTitle = salesMode === "INQUIRY" || inquiryEnabled;
   const showAppointmentNote = salesMode === "APPOINTMENT" || appointmentRequired;
@@ -188,222 +299,125 @@ export function ProductForm({
     label: statusLabels[value],
   }));
 
-  // Faz 1A (ADR-067) — Kategori seçimi ana kategori farkındalığıyla. Backend nihai
-  // otoritedir (resolvePrimaryCategorySelection); burada UX tutarlılığı sağlanır:
-  //  - tek kategori seçilince otomatik ana olur,
-  //  - ana kategori kaldırılırsa tek kategori kaldıysa o otomatik ana; yoksa null
-  //    (submit'te "ana kategori seçin" uyarısı çıkar).
-  function toggleCategory(id: string) {
-    const isRemoving = categoryIds.includes(id);
-    const nextIds = isRemoving
-      ? categoryIds.filter((value) => value !== id)
-      : [...categoryIds, id];
-    setCategoryIds(nextIds);
-    if (isRemoving) {
-      if (primaryCategoryId === id) {
-        setPrimaryCategoryId(nextIds.length === 1 ? nextIds[0]! : null);
-      }
-    } else if (primaryCategoryId === null && nextIds.length === 1) {
-      setPrimaryCategoryId(id);
-    }
-  }
+  const attributeServerMessage = useCallback(
+    (code: string): string => {
+      const map = a.serverErrors as Record<string, string>;
+      return map[code] ?? map.default;
+    },
+    [a],
+  );
 
-  function selectPrimaryCategory(id: string) {
-    if (categoryIds.includes(id)) setPrimaryCategoryId(id);
-  }
+  const onValid = async (values: ProductFormValues) => {
+    setRootError(null);
+    const resolved = attributesRef.current;
+    // Kategori attribute tanımlamamışsa attributeValues GÖNDERİLMEZ (undefined) →
+    // legacy davranış korunur (md.12). Aksi halde replace-set (dolu değerler).
+    const attributeValues = resolved.length > 0 ? attributeValuesToInputs(resolved, values.attributes) : undefined;
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    if (title.trim().length === 0) {
-      setError(f.requiredTitle);
-      return;
-    }
-    if (!isEdit && !SLUG_PATTERN.test(slug.trim())) {
-      setError(f.requiredSlug);
-      return;
-    }
-
-    // Faz 1A (ADR-067) — birden çok kategori seçiliyken ana kategori zorunlu (backend
-    // de REQUIRED döner; bu erken/anlaşılır UX içindir).
-    if (categoryIds.length > 1 && !primaryCategoryId) {
-      setError(f.primaryCategoryRequired);
-      return;
-    }
-
-    // Satis davranisi client-side dogrulama (backend nihai otorite).
-    const min = Number(minOrderQuantity);
-    if (!Number.isInteger(min) || min < 1) {
-      setError(sm.minQtyError);
-      return;
-    }
-    let max: number | null = null;
-    if (maxOrderQuantity.trim() !== "") {
-      max = Number(maxOrderQuantity);
-      if (!Number.isInteger(max) || max < min) {
-        setError(sm.maxQtyError);
-        return;
-      }
-    }
-    if (callToActionLabel.trim().length > CTA_MAX) {
-      setError(sm.ctaTooLong);
-      return;
-    }
-    if (whatsappMessageTemplate.trim().length > WHATSAPP_MAX) {
-      setError(sm.whatsappTooLong);
-      return;
-    }
-    if (inquiryFormTitle.trim().length > INQUIRY_TITLE_MAX) {
-      setError(sm.inquiryTitleTooLong);
-      return;
-    }
-    if (appointmentNote.trim().length > APPOINTMENT_NOTE_MAX) {
-      setError(sm.appointmentNoteTooLong);
-      return;
-    }
-
-    // Kargo ölçüleri: boş = null; doluysa > 0 olmalı (backend nihai otorite).
-    const parseDim = (raw: string): number | null | "ERR" => {
-      const value = raw.trim();
-      if (value === "") return null;
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : "ERR";
-    };
-    const weightValue = parseDim(shippingWeightKg);
-    const desiValue = parseDim(shippingDesi);
-    if (weightValue === "ERR" || desiValue === "ERR") {
-      setError(f.shippingPositiveError);
-      return;
-    }
-    const shippingFields = { shippingWeightKg: weightValue, shippingDesi: desiValue };
-
-    const salesFields = {
-      salesMode,
-      priceVisibility,
-      primaryAction,
-      purchasable,
-      inquiryEnabled,
-      appointmentRequired,
-      whatsappEnabled,
-      minOrderQuantity: min,
-      maxOrderQuantity: max,
-      callToActionLabel: callToActionLabel.trim() === "" ? null : callToActionLabel.trim(),
-      whatsappMessageTemplate:
-        whatsappMessageTemplate.trim() === "" ? null : whatsappMessageTemplate.trim(),
-      inquiryFormTitle: inquiryFormTitle.trim() === "" ? null : inquiryFormTitle.trim(),
-      appointmentNote: appointmentNote.trim() === "" ? null : appointmentNote.trim(),
-    };
-
-    setSaving(true);
     try {
       if (isEdit && product) {
-        const updated = await storeApi.updateProduct(product.id, {
-          title: title.trim(),
-          status,
-          brand: brand.trim() === "" ? null : brand.trim(),
-          vendor: vendor.trim() === "" ? null : vendor.trim(),
-          description: description.trim() === "" ? null : description.trim(),
-          categoryIds,
-          // Faz 1A (ADR-067) — ana kategori (categoryIds ile birlikte gönderilir;
-          // backend assignment+primary tutarlılığını tek transaction'da doğrular).
-          primaryCategoryId,
-          // ADR-065 (Faz 2/Dilim 2) — sıralı galeri; sunucu diff'ler. id = mediaId
-          // (invariant). [] gönderilirse galeri temizlenir (R6, toplu kaydet).
-          imageMediaIds: images.map((item) => item.id),
-          ...salesFields,
-          ...shippingFields,
-        });
-        onSaved(dict.storeAdmin.products.detail.savedToast, updated);
+        const updated = await storeApi.updateProduct(product.id, buildUpdatePayload(values, attributeValues));
+        onSaved(t.detail.savedToast, updated);
       } else {
-        const payload: ProductCreateRequest = {
-          title: title.trim(),
-          slug: slug.trim(),
-          status,
-          type: "PHYSICAL",
-          categoryIds,
-          ...salesFields,
-          ...shippingFields,
-        };
-        if (brand.trim() !== "") payload.brand = brand.trim();
-        if (vendor.trim() !== "") payload.vendor = vendor.trim();
-        if (description.trim() !== "") payload.description = description.trim();
-        // Faz 1A (ADR-067) — ana kategori yalnız seçiliyse gönderilir (kategorisiz
-        // üründe null; backend tek kategoriyi normalize eder).
-        if (primaryCategoryId) payload.primaryCategoryId = primaryCategoryId;
-        const created = await storeApi.createProduct(payload);
+        const created = await storeApi.createProduct(buildCreatePayload(values, attributeValues));
         onSaved(t.createdToast, created);
       }
     } catch (caught) {
-      setError(messageForError(caught, locale));
-    } finally {
-      // F4C bugfix — BAŞARIDA da sıfırla: eskiden yalnız catch'te sıfırlanıyordu
-      // ve buton "Kaydediliyor..."da takılı kalıyordu. finally her iki yolda da
-      // (başarı/hata) loading'i kapatır; kaydetme sırasında double-submit yine
-      // `disabled={saving}` ile engellidir.
-      setSaving(false);
+      // Backend attribute hatası → mümkünse alan-seviyesine bağla (md.11).
+      if (
+        caught instanceof UiError &&
+        isAttributeServerError(caught.code) &&
+        caught.details?.attributeDefinitionId
+      ) {
+        setError(`attributes.${caught.details.attributeDefinitionId}` as never, {
+          type: "server",
+          message: attributeServerMessage(caught.code),
+        });
+        return;
+      }
+      setRootError(messageForError(caught, locale));
     }
-  }
+  };
+
+  const fieldError = (name: keyof ProductFormValues): string | undefined => {
+    const entry = errors[name] as { message?: string } | undefined;
+    return entry?.message;
+  };
 
   return (
-    <form id={formId} onSubmit={onSubmit} className="space-y-4" noValidate>
-      {error ? <Alert tone="error">{error}</Alert> : null}
-      <Input
-        id="product-title"
-        label={f.titleLabel}
-        placeholder={f.titlePlaceholder}
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        disabled={saving}
-        required
-      />
+    <form id={formId} onSubmit={handleSubmit(onValid)} className="space-y-4" noValidate>
+      {rootError ? <Alert tone="error">{rootError}</Alert> : null}
+
+      <div>
+        <Input
+          id="product-title"
+          label={f.titleLabel}
+          placeholder={f.titlePlaceholder}
+          disabled={isSubmitting}
+          required
+          aria-invalid={fieldError("title") ? true : undefined}
+          {...register("title")}
+        />
+        {fieldError("title") ? (
+          <p role="alert" className="mt-1 text-xs text-rose-300">
+            {fieldError("title")}
+          </p>
+        ) : null}
+      </div>
+
       <div>
         <Input
           id="product-slug"
           label={f.slugLabel}
           placeholder={f.slugPlaceholder}
-          value={slug}
-          onChange={(event) => setSlug(event.target.value)}
-          disabled={saving || isEdit}
+          disabled={isSubmitting || isEdit}
           required={!isEdit}
+          aria-invalid={fieldError("slug") ? true : undefined}
+          {...register("slug")}
         />
         <p className="mt-1.5 text-xs text-white/30">{isEdit ? f.slugLockedHint : f.slugHint}</p>
+        {fieldError("slug") ? (
+          <p role="alert" className="mt-1 text-xs text-rose-300">
+            {fieldError("slug")}
+          </p>
+        ) : null}
       </div>
+
       <Select
         id="product-status"
         label={f.statusLabel}
         options={statusOptions}
         value={status}
-        onChange={(event) => setStatus(event.target.value as ProductStatus)}
-        disabled={saving}
+        onChange={(event) => setValue("status", event.target.value as ProductStatus, { shouldDirty: true })}
+        disabled={isSubmitting}
       />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
           id="product-brand"
           label={f.brandLabel}
           placeholder={f.brandPlaceholder}
-          value={brand}
-          onChange={(event) => setBrand(event.target.value)}
-          disabled={saving}
+          disabled={isSubmitting}
+          {...register("brand")}
         />
         <Input
           id="product-vendor"
           label={f.vendorLabel}
           placeholder={f.vendorPlaceholder}
-          value={vendor}
-          onChange={(event) => setVendor(event.target.value)}
-          disabled={saving}
+          disabled={isSubmitting}
+          {...register("vendor")}
         />
       </div>
+
       <Textarea
         id="product-description"
         label={f.descriptionLabel}
         placeholder={f.descriptionPlaceholder}
-        value={description}
-        onChange={(event) => setDescription(event.target.value)}
-        disabled={saving}
+        disabled={isSubmitting}
         rows={3}
+        {...register("description")}
       />
+
       <div>
         <span className="mb-1.5 block text-sm font-medium text-white/70">{f.categoriesLabel}</span>
         {categories.length === 0 ? (
@@ -411,8 +425,6 @@ export function ProductForm({
         ) : (
           <>
             <p className="mb-2 text-xs text-white/30">{f.categoriesHint}</p>
-            {/* Faz 1A (ADR-067) — seçili kategorilerden biri "Ana kategori" işaretlenir.
-                Tek kategori otomatik ana olur; ana kategori görsel olarak ayırt edilir. */}
             <div className="flex flex-col gap-1.5">
               {categories.map((category) => {
                 const checked = categoryIds.includes(category.id);
@@ -432,7 +444,7 @@ export function ProductForm({
                         className="h-3.5 w-3.5 accent-indigo-500"
                         checked={checked}
                         onChange={() => toggleCategory(category.id)}
-                        disabled={saving}
+                        disabled={isSubmitting}
                       />
                       {category.name}
                     </label>
@@ -440,7 +452,7 @@ export function ProductForm({
                       <button
                         type="button"
                         onClick={() => selectPrimaryCategory(category.id)}
-                        disabled={saving || isPrimary}
+                        disabled={isSubmitting || isPrimary}
                         aria-pressed={isPrimary}
                         title={f.primaryCategoryHint}
                         className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${
@@ -457,9 +469,29 @@ export function ProductForm({
               })}
             </div>
             <p className="mt-2 text-xs text-white/30">{f.primaryCategoryHint}</p>
+            {fieldError("primaryCategoryId") ? (
+              <p role="alert" className="mt-1 text-xs text-rose-300">
+                {fieldError("primaryCategoryId")}
+              </p>
+            ) : null}
           </>
         )}
       </div>
+
+      {/* Faz 2B — Kategori-güdümlü dinamik attribute alanları. Legacy kategoride
+          (attribute tanımlı değil) hiçbir şey render edilmez. */}
+      <AttributeSection
+        control={control}
+        state={attrState}
+        disabled={isSubmitting}
+        labels={{
+          sectionTitle: a.generalGroup,
+          loadingLabel: a.loading,
+          errorLabel: a.loadError,
+          requiredHint: a.requiredHint,
+          optionalHint: a.optionalHint,
+        }}
+      />
 
       <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
         <div className="flex items-start gap-2.5">
@@ -476,7 +508,7 @@ export function ProductForm({
             label={sm.modeLabel}
             value={salesMode}
             onChange={(event) => changeSalesMode(event.target.value as ProductSalesMode)}
-            disabled={saving}
+            disabled={isSubmitting}
             options={SALES_MODES.map((value) => ({ value, label: sm.modeLabels[value] }))}
           />
           <Select
@@ -484,7 +516,7 @@ export function ProductForm({
             label={sm.priceVisibilityLabel}
             value={priceVisibility}
             onChange={(event) => changePriceVisibility(event.target.value as ProductPriceVisibility)}
-            disabled={saving}
+            disabled={isSubmitting}
             options={PRICE_VISIBILITIES.map((value) => ({
               value,
               label: sm.priceVisibilityLabels[value],
@@ -494,8 +526,10 @@ export function ProductForm({
             id="product-primary-action"
             label={sm.actionLabel}
             value={primaryAction}
-            onChange={(event) => setPrimaryAction(event.target.value as ProductPrimaryAction)}
-            disabled={saving}
+            onChange={(event) =>
+              setValue("primaryAction", event.target.value as ProductPrimaryAction, { shouldDirty: true })
+            }
+            disabled={isSubmitting}
             options={PRIMARY_ACTIONS.map((value) => ({
               value,
               label: sm.actionLabels[value],
@@ -517,73 +551,90 @@ export function ProductForm({
             id="product-purchasable"
             label={sm.purchasableToggle}
             checked={purchasable}
-            onChange={setPurchasable}
-            disabled={saving}
+            onChange={(value) => setValue("purchasable", value, { shouldDirty: true })}
+            disabled={isSubmitting}
           />
           <SalesToggle
             id="product-inquiry-enabled"
             label={sm.inquiryEnabledToggle}
             checked={inquiryEnabled}
-            onChange={setInquiryEnabled}
-            disabled={saving}
+            onChange={(value) => setValue("inquiryEnabled", value, { shouldDirty: true })}
+            disabled={isSubmitting}
           />
           <SalesToggle
             id="product-appointment-required"
             label={sm.appointmentRequiredToggle}
             checked={appointmentRequired}
-            onChange={setAppointmentRequired}
-            disabled={saving}
+            onChange={(value) => setValue("appointmentRequired", value, { shouldDirty: true })}
+            disabled={isSubmitting}
           />
           <SalesToggle
             id="product-whatsapp-enabled"
             label={sm.whatsappEnabledToggle}
             checked={whatsappEnabled}
-            onChange={setWhatsappEnabled}
-            disabled={saving}
+            onChange={(value) => setValue("whatsappEnabled", value, { shouldDirty: true })}
+            disabled={isSubmitting}
           />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            id="product-min-qty"
-            type="number"
-            min={1}
-            label={sm.minQtyLabel}
-            value={minOrderQuantity}
-            onChange={(event) => setMinOrderQuantity(event.target.value)}
-            disabled={saving}
-          />
-          <Input
-            id="product-max-qty"
-            type="number"
-            min={1}
-            label={sm.maxQtyLabel}
-            placeholder={sm.maxQtyPlaceholder}
-            value={maxOrderQuantity}
-            onChange={(event) => setMaxOrderQuantity(event.target.value)}
-            disabled={saving}
-          />
+          <div>
+            <Input
+              id="product-min-qty"
+              type="number"
+              min={1}
+              label={sm.minQtyLabel}
+              disabled={isSubmitting}
+              {...register("minOrderQuantity")}
+            />
+            {fieldError("minOrderQuantity") ? (
+              <p role="alert" className="mt-1 text-xs text-rose-300">
+                {fieldError("minOrderQuantity")}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Input
+              id="product-max-qty"
+              type="number"
+              min={1}
+              label={sm.maxQtyLabel}
+              placeholder={sm.maxQtyPlaceholder}
+              disabled={isSubmitting}
+              {...register("maxOrderQuantity")}
+            />
+            {fieldError("maxOrderQuantity") ? (
+              <p role="alert" className="mt-1 text-xs text-rose-300">
+                {fieldError("maxOrderQuantity")}
+              </p>
+            ) : null}
+          </div>
         </div>
 
-        <Input
-          id="product-cta-label"
-          label={sm.ctaLabelLabel}
-          placeholder={sm.ctaLabelPlaceholder}
-          value={callToActionLabel}
-          onChange={(event) => setCallToActionLabel(event.target.value)}
-          disabled={saving}
-          maxLength={CTA_MAX}
-        />
+        <div>
+          <Input
+            id="product-cta-label"
+            label={sm.ctaLabelLabel}
+            placeholder={sm.ctaLabelPlaceholder}
+            disabled={isSubmitting}
+            maxLength={CTA_MAX}
+            {...register("callToActionLabel")}
+          />
+          {fieldError("callToActionLabel") ? (
+            <p role="alert" className="mt-1 text-xs text-rose-300">
+              {fieldError("callToActionLabel")}
+            </p>
+          ) : null}
+        </div>
 
         {showInquiryTitle ? (
           <Input
             id="product-inquiry-title"
             label={sm.inquiryTitleLabel}
             placeholder={sm.inquiryTitlePlaceholder}
-            value={inquiryFormTitle}
-            onChange={(event) => setInquiryFormTitle(event.target.value)}
-            disabled={saving}
+            disabled={isSubmitting}
             maxLength={INQUIRY_TITLE_MAX}
+            {...register("inquiryFormTitle")}
           />
         ) : null}
 
@@ -592,11 +643,10 @@ export function ProductForm({
             id="product-appointment-note"
             label={sm.appointmentNoteLabel}
             placeholder={sm.appointmentNotePlaceholder}
-            value={appointmentNote}
-            onChange={(event) => setAppointmentNote(event.target.value)}
-            disabled={saving}
+            disabled={isSubmitting}
             rows={2}
             maxLength={APPOINTMENT_NOTE_MAX}
+            {...register("appointmentNote")}
           />
         ) : null}
 
@@ -605,11 +655,10 @@ export function ProductForm({
             id="product-whatsapp-template"
             label={sm.whatsappTemplateLabel}
             placeholder={sm.whatsappTemplatePlaceholder}
-            value={whatsappMessageTemplate}
-            onChange={(event) => setWhatsappMessageTemplate(event.target.value)}
-            disabled={saving}
+            disabled={isSubmitting}
             rows={2}
             maxLength={WHATSAPP_MAX}
+            {...register("whatsappMessageTemplate")}
           />
         ) : null}
       </div>
@@ -629,9 +678,9 @@ export function ProductForm({
             min={0}
             step="0.001"
             label={f.shippingWeightLabel}
-            value={shippingWeightKg}
-            onChange={(event) => setShippingWeightKg(event.target.value)}
-            disabled={saving}
+            disabled={isSubmitting}
+            aria-invalid={fieldError("shippingWeightKg") ? true : undefined}
+            {...register("shippingWeightKg")}
           />
           <Input
             id="product-shipping-desi"
@@ -639,17 +688,19 @@ export function ProductForm({
             min={0}
             step="0.01"
             label={f.shippingDesiLabel}
-            value={shippingDesi}
-            onChange={(event) => setShippingDesi(event.target.value)}
-            disabled={saving}
+            disabled={isSubmitting}
+            {...register("shippingDesi")}
           />
         </div>
-        <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
+        {fieldError("shippingWeightKg") ? (
+          <p role="alert" className="text-xs text-rose-300">
+            {fieldError("shippingWeightKg")}
+          </p>
+        ) : (
+          <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
+        )}
       </div>
 
-      {/* ADR-065 (Faz 2/Dilim 2) — Görseller. Yalnız edit sayfasında (R5): create'te
-          ürün id'si henüz yoktur, ProductImage bağlanamaz. Sıralama/çıkarma/ekleme
-          local state'i günceller; kalıcılık toplu "Kaydet"te imageMediaIds ile (R6). */}
       {isEdit ? (
         <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
           <div className="flex items-start gap-2.5">
@@ -664,13 +715,25 @@ export function ProductForm({
             mode="multiple"
             value={images}
             onAttach={(asset) =>
-              setImages((prev) => [...prev, { id: asset.id, url: asset.url, altText: asset.altText }])
+              setValue("images", [...getValues("images"), { id: asset.id, url: asset.url, altText: asset.altText }], {
+                shouldDirty: true,
+              })
             }
-            onRemove={(id) => setImages((prev) => prev.filter((item) => item.id !== id))}
+            onRemove={(id) =>
+              setValue(
+                "images",
+                getValues("images").filter((item) => item.id !== id),
+                { shouldDirty: true },
+              )
+            }
             onReorder={(orderedIds) =>
-              setImages((prev) => orderedIds.map((id) => prev.find((item) => item.id === id)!))
+              setValue(
+                "images",
+                orderedIds.map((id) => getValues("images").find((item) => item.id === id)!),
+                { shouldDirty: true },
+              )
             }
-            disabled={saving}
+            disabled={isSubmitting}
           />
           <p className="text-xs text-white/30">{f.galleryHint}</p>
         </div>

@@ -2028,3 +2028,44 @@ başına ayrı tablo (sorgu/birleştirme karmaşası, YAGNI); kategori mirası/o
 kaybı); değerleri var olan `ProductVariant.optionValues Json`'a genişletmek (yapısız; katalog davranışından kopuk); tüm datatype
 kuralını DB CHECK'e taşımak (kategori-bağlamlı + cross-tenant kontroller DB'de imkânsız/karmaşık); product+attribute değerlerini
 TEK transaction'da atomik yapmak (modüler prisma-per-module desenini kırar; foundation'da prepare-önce-doğrula yeterli — bkz. TD).
+
+## ADR-069 — Dinamik ürün formu: RHF + Zod + dataType-güdümlü renderer; ana kategori şema kaynağı; gömülü replace-set save (Faz 2B)
+
+**Bağlam.** Faz 2A backend'i (ADR-068) ürün/varyant attribute DEĞER katmanını + `attributeValueService`'i (tek yazma otoritesi)
+hazırladı ama store-admin ürün formu DEĞİŞMEDİ. Faz 2B yalnızca admin Create/Edit ekranını kategoriye göre çalışan dinamik forma
+çevirir. Varyant motoru / `combinationKey` / PDP / storefront / faceted search KAPSAM DIŞI.
+
+**Karar.**
+1. **RHF + Zod.** Form tamamen React Hook Form'a taşınır (dağınık useState kaldırılır). Çekirdek alanlar Zod `superRefine` ile
+   doğrulanır (mevcut elle onSubmit ile birebir; davranış korunur). Dinamik attribute alanları backend-şekilli kurallarla ayrı
+   doğrulanıp **birleşik resolver**'da (zodResolver-core + attribute döngüsü) birleştirilir — attribute doğrulaması dinamik
+   (yüklenen şemaya bağlı) olduğundan tek statik Zod şemasına gömülmez. Resolver başarıda ham form değerlerini döndürür (nested
+   `attributes`/`images` strip edilmez).
+2. **Ana kategori şema kaynağı.** Attribute şemasını `primaryCategoryId` sürer — backend değer doğrulaması da primaryCategoryId +
+   CategoryAttribute bağına göre yapıldığından UI aynı otoriteyi izler (ADR-067/068 ile tutarlı). Yalnız ürün-seviyesi
+   (`variantDefining=false`) + ACTIVE attribute'lar render edilir.
+3. **Client-side join + memoization.** CategoryAttribute serializer'ı self-describing DEĞİL; UI tanım + seçenek + grup uçlarını
+   ayrı çekip join eder. Sıralama displayOrder ASC → name ASC; gruplar AttributeGroup.sortOrder (grupsuz "General attributes"
+   önce). Kategori-bağımsız veriler tek sefer, kategori-attribute join'i kategori başına cache'lenir → kategori değişmezse
+   yeniden istek yok.
+4. **dataType-güdümlü renderer (registry).** `dataType → widget kind → bileşen` haritası (switch-case cehennemi yok). 13 tip
+   desteklenir; RICH_TEXT düz textarea, FILE görsel-yükleyiciyi yeniden kullanır (TD). `validationRules` (min/max/minLength/
+   maxLength/pattern/step/placeholder/helperText) client-side uygulanır; desteklenmeyen kural sessizce yok sayılır.
+5. **Save = gömülü replace-set.** Değerler product create/update payload'ının gömülü `attributeValues` alanıyla gönderilir
+   (attributeValueService'ten geçer — tek yazma otoritesi; ayrı PUT çağrısı yok → create'te atomik prepare-önce-doğrula korunur).
+   `attributeValues` YALNIZ kategori attribute tanımlıysa gönderilir; aksi halde `undefined` → boş kümenin required'ı tetiklemesi
+   ve legacy ürünlerin bozulması önlenir. BOOLEAN her zaman gönderilir (false anlamlı); diğer boş opsiyoneller atlanır.
+6. **Sunucu hata → alan.** Gömülü create/update akışı artık `error.details.attributeDefinitionId` taşır (dedike PUT ucuyla
+   tutarlı bilgi; `errorBody(code,message,details)` deseni — ADR-065 `usedIn` gibi). store-admin `UiError`/`call()` bunu okur;
+   form attribute hatasını ilgili alana bağlar. Client-side doğrulama çoğu vakayı submit öncesi yakalar.
+
+**Sonuçlar.**
+- Ürün formu artık kategoriye göre dinamik; core alan davranışı ve mevcut testler (235) korunur; 20 yeni test eklenir.
+- Backend, api-client hata-envelope'u ve migration DEĞİŞMEDİ (yalnız gömülü akışa additive `details.attributeDefinitionId`).
+- Legacy (attribute tanımsız) kategoriler eski ürün gibi davranır; hiç attribute render edilmez, `attributeValues` gönderilmez.
+
+**Alternatifler (reddedilen).** Save'i dedike PUT `.../attribute-values` ile yapmak (create'te ürün henüz yok → iki-adım, atomik
+değil; gömülü akış prepare-önce-doğrula ile daha güvenli); attribute'ları tek statik Zod şemasına gömmek (dinamik şema →
+`useForm` resolver'ını her kategori değişiminde yeniden kurmak gerekir); tüm alanları Controller ile controlled yapmak (register +
+`forwardRef` daha yalın; yalnız side-effect'li alanlar watch/setValue); required'ı boş kümede de zorlamak (backend `values.length===0`
+kısa devre eder — UI aynı semantiği izler, boş kategori submit'i required tetiklemez).

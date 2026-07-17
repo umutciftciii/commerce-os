@@ -1122,3 +1122,35 @@
   typecheck (değişen paketler temiz; storefront `checkout-form-render` hatası ÖNCEDEN mevcut) + lint + migrate diff drift-yok.
   KALAN: merge sonrası HEDEF DB `prisma migrate deploy` (reset YOK) + docker rebuild + prod-benzeri runtime smoke. Faz 2B
   (dinamik ürün formu / attribute renderer / kategori-değişince-form / varyant kombinasyon motoru) ayrı iş.
+- TODO-146 — Faz 2B: Dinamik ürün formu temeli (DONE — 2026-07-17, ADR-069). İş: store-admin ürün oluştur/düzenle
+  ekranını Faz 2A backend'iyle çalışır dinamik forma çevirmek. Varyant motoru/PDP/storefront/search KAPSAM DIŞI.
+  (1) **RHF + Zod göçü.** `product-form.tsx` ~25 dağınık useState → tek `useForm<ProductFormValues>`; çekirdek
+  doğrulama Zod `superRefine` ile (mevcut elle onSubmit ile BİREBİR: title/slug/min-max qty/CTA-şablon uzunlukları/
+  kargo>0/çok-kategoride-primary-zorunlu). Dinamik attribute alanları backend-şekilli kurallarla ayrı doğrulanıp
+  birleşik resolver'da (`createProductFormResolver`) birleştirilir. Çekirdek alan davranışı KORUNDU (mevcut 235 test
+  yeşil). UI kit `Input/Select/Textarea` `forwardRef`'e çevrildi (RHF `register` ref bağlar; additive). (2) **Kategori-
+  güdümlü attribute.** Ana kategori (primaryCategoryId) attribute ŞEMASINI sürer (backend değer doğrulaması da
+  primaryCategoryId+CategoryAttribute bağına göre). `useCategoryAttributes` hook'u CategoryAttribute (self-describing
+  DEĞİL) + tanım + seçenek + grup uçlarını çekip client-side join eder; sıralama displayOrder ASC → name ASC; gruplar
+  AttributeGroup.sortOrder (grupsuz "General attributes" önce). Memoization: kategori-bağımsız veriler tek sefer,
+  kategori-attribute join'i kategori başına cache (kategori değişmezse yeniden fetch YOK). (3) **Dinamik renderer.**
+  `AttributeSection`/`AttributeField` + dataType→widget registry (switch-case cehennemi YOK); 13 tip: TEXT/TEXTAREA/
+  RICH_TEXT(düz textarea, TD)/INTEGER/DECIMAL/BOOLEAN/DATE/URL/SELECT/MULTI_SELECT/COLOR(swatch)/IMAGE/FILE(MediaUpload
+  single). Grup başlıkları + required işareti + validationRules (min/max/minLength/maxLength/pattern/step/placeholder/
+  helperText; desteklenmeyen sessizce yok sayılır). (4) **Round-trip.** Düzenlemede yeni BFF GET `.../products/:id/
+  attribute-values` (+ `storeApi.getProductAttributeValues`) mevcut değerleri form haritasına doldurur (kayıpsız).
+  (5) **Save.** Gömülü `attributeValues` (product create/update; attributeValueService'ten geçer) Faz 2A replace-set
+  formatında; YALNIZ kategori attribute tanımlıysa gönderilir (aksi halde undefined → legacy ürünler bozulmaz). BOOLEAN
+  her zaman gönderilir (false anlamlı), diğerleri boşsa atlanır. (6) **Sunucu hata → alan.** Gömülü akış artık
+  `error.details.attributeDefinitionId` taşır (server.ts create+update; dedike PUT ile tutarlı bilgi); `UiError` +
+  `call()` bunu okur; form catch'i attribute kodunu (ATTRIBUTE_OPTION_INVALID/REQUIRED_MISSING/...) ilgili alana bağlar,
+  aksi halde genel Alert. (7) **api-client.** `AttributeDataType`/`ProductAttributeValueInput`/`ProductAttributeValueResponse`
+  type re-export (apps yalnız api-client kanalı). Testler: store-admin `products-form-attributes.test.tsx` 8 (kategori-
+  değişince fetch+gruplu/sıralı render / required / validationRules / save payload / edit round-trip / boş-legacy kategori /
+  sunucu hata eşleme / memoization) + `attribute-value-mapping.test.ts` 12 (tip matrisi / round-trip / required+rules /
+  parseValidationRules / server-error tanıma) + mevcut iki form testi (stub eklendi, davranış aynen yeşil). store-admin
+  255/255, api-gateway 747/747, api-client 23/23, contracts 93/93. Gate: db:generate + build (contracts/utils/api-client) +
+  typecheck (değişen paketler TEMİZ; storefront `checkout-form-render` hatası ÖNCEDEN mevcut — Faz 2A'da da not edildi,
+  benim işimle alakasız) + lint + `next build` store-admin (/products, /products/[id] derlendi). KALAN: docker rebuild +
+  prod-benzeri auth'lu runtime smoke (canlı attribute'lu ürün oluştur/düzenle). Faz 2C (varyant kombinasyon motoru /
+  combinationKey / SKU matris) ayrı iş.

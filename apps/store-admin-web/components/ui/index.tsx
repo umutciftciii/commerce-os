@@ -22,7 +22,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@commerce-os/ui";
 
@@ -383,8 +383,12 @@ function FieldLabel({ children }: { children: ReactNode }) {
   );
 }
 
-export function Input({ label, id, className, ...props }: InputProps) {
-  const control = <input id={id} className={cn("h-10 px-3", fieldBase, className)} {...props} />;
+// forwardRef: react-hook-form `register` uncontrolled input'a ref bağlar (Faz 2B).
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, id, className, ...props },
+  ref,
+) {
+  const control = <input ref={ref} id={id} className={cn("h-10 px-3", fieldBase, className)} {...props} />;
   if (!label) return control;
   return (
     <label htmlFor={id} className="block">
@@ -392,7 +396,7 @@ export function Input({ label, id, className, ...props }: InputProps) {
       {control}
     </label>
   );
-}
+});
 
 export interface SelectOption {
   value: string;
@@ -404,9 +408,17 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   options: SelectOption[];
 }
 
-export function Select({ label, id, className, options, ...props }: SelectProps) {
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { label, id, className, options, ...props },
+  ref,
+) {
   const control = (
-    <select id={id} className={cn("h-10 px-3 [&>option]:text-slate-900", fieldBase, className)} {...props}>
+    <select
+      ref={ref}
+      id={id}
+      className={cn("h-10 px-3 [&>option]:text-slate-900", fieldBase, className)}
+      {...props}
+    >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
@@ -421,14 +433,17 @@ export function Select({ label, id, className, options, ...props }: SelectProps)
       {control}
     </label>
   );
-}
+});
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
 }
 
-export function Textarea({ label, id, className, ...props }: TextareaProps) {
-  const control = <textarea id={id} className={cn("px-3 py-2", fieldBase, className)} {...props} />;
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { label, id, className, ...props },
+  ref,
+) {
+  const control = <textarea ref={ref} id={id} className={cn("px-3 py-2", fieldBase, className)} {...props} />;
   if (!label) return control;
   return (
     <label htmlFor={id} className="block">
@@ -436,7 +451,7 @@ export function Textarea({ label, id, className, ...props }: TextareaProps) {
       {control}
     </label>
   );
-}
+});
 
 /* ─────────────────────────── Spinner / Skeleton ─────────────────────── */
 

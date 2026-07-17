@@ -324,6 +324,16 @@ export type {
 } from "@commerce-os/contracts";
 
 /**
+ * Faz 2B (TODO-146) — Dinamik ürün formunun ihtiyaç duyduğu attribute DEĞER tipleri.
+ * dataType (renderer component seçimi), tek-değer girdi şekli ve okuma projeksiyonu.
+ */
+export type {
+  AttributeDataType,
+  ProductAttributeValueInput,
+  ProductAttributeValueResponse,
+} from "@commerce-os/contracts";
+
+/**
  * F3B.2 — Paylasilan dogrulama yardimcilari (DEGER re-export). Vitrin (client UX)
  * ve diger tuketiciler, gateway ile AYNI dogrulama otoritesini kullanir.
  */

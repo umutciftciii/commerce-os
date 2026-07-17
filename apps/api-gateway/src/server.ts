@@ -5528,9 +5528,19 @@ export function createServer(
         values: attributeValues,
       });
       if (!attributeEntries.ok) {
+        // Faz 2B (TODO-146) — attributeDefinitionId `details`'e konur ki store-admin
+        // dinamik formu hatayı doğru alana bağlayabilsin (dedike PUT ucuyla tutarlı bilgi).
         return reply
           .code(attributeValueErrorStatus(attributeEntries.error.code))
-          .send(errorBody(attributeEntries.error.code, attributeEntries.error.message));
+          .send(
+            errorBody(
+              attributeEntries.error.code,
+              attributeEntries.error.message,
+              attributeEntries.error.attributeDefinitionId
+                ? { attributeDefinitionId: attributeEntries.error.attributeDefinitionId }
+                : undefined,
+            ),
+          );
       }
     }
     if (await dataAccess.findProductBySlug(params.storeId, input.slug)) {
@@ -5666,9 +5676,18 @@ export function createServer(
         values: attributeValues,
       });
       if (!attributeEntries.ok) {
+        // Faz 2B (TODO-146) — attributeDefinitionId `details`'e (alan eşlemesi için).
         return reply
           .code(attributeValueErrorStatus(attributeEntries.error.code))
-          .send(errorBody(attributeEntries.error.code, attributeEntries.error.message));
+          .send(
+            errorBody(
+              attributeEntries.error.code,
+              attributeEntries.error.message,
+              attributeEntries.error.attributeDefinitionId
+                ? { attributeDefinitionId: attributeEntries.error.attributeDefinitionId }
+                : undefined,
+            ),
+          );
       }
     }
     let product: ProductRecord = current;

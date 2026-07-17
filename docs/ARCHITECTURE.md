@@ -295,6 +295,28 @@ davranis, geriye donuk uyumlu) + dedike internal uclar (`GET/PUT .../products/:i
 Migration additive (`20260714130000_add_product_attribute_values`); urun formu, storefront, checkout, order, inventory, search
 ve marketplace DEGISMEDI.
 
+### Dinamik Urun Formu (Faz 2B, ADR-069)
+
+store-admin urun Create/Edit ekrani React Hook Form + Zod'a tasindi ve kategoriye gore dinamik attribute alanlariyla
+calisir. Cekirdek alanlar (title/slug/marka/satis modeli/kargo/galeri) davranisini KORUR; varyant kombinasyon motoru,
+PDP tablosu, storefront ve faceted search KAPSAM DISI (Faz 2C+).
+
+- **Form katmani** (`apps/store-admin-web/app/(app)/products/`): `product-form.tsx` (tek `useForm`), `product-form-schema.ts`
+  (Zod core `superRefine` + `ProductFormValues` + varsayilan/mapper'lar + birlesik resolver). Cekirdek Zod ile, dinamik
+  attribute alanlari backend-sekilli kurallarla ayri dogrulanip `createProductFormResolver`'da birlesir. UI kit
+  `Input/Select/Textarea` RHF `register` icin `forwardRef`'e cevrildi (additive).
+- **Attribute alt-sistemi** (`.../products/attributes/`): `useCategoryAttributes` (ana kategori seciminde CategoryAttribute +
+  tanim + secenek + grup uclarini cekip client-side join; displayOrder→name sirasi; grup basliklari; **memoization** — kategori
+  degismezse yeniden fetch yok), `attribute-section.tsx` (grup kartlari + RHF Controller), `attribute-field.tsx` (dataType→widget
+  **registry**; 13 tip), `value-mapping.ts` (form↔Faz 2A input donusumu + required/validationRules dogrulama + server-hata→alan),
+  `types.ts` (ResolvedAttribute + validationRules ayikleme).
+- **Sema kaynagi**: `primaryCategoryId` — backend deger dogrulamasi da bu bag uzerinden yapildigindan UI ayni otoriteyi izler.
+  Yalniz urun-seviyesi (variantDefining=false) attribute'lar render edilir.
+- **Round-trip**: duzenlemede yeni BFF GET `.../products/:id/attribute-values` (+ `storeApi.getProductAttributeValues`) mevcut
+  degerleri doldurur. **Save**: gomulu `attributeValues` (product create/update) replace-set formatinda, yalniz kategori attribute
+  tanimliysa — aksi halde `undefined` → legacy urunler bozulmaz. Backend attribute hatasi `error.details.attributeDefinitionId`
+  ile ilgili alana baglanir. Migration YOK; yalniz UI + gomulu akisa additive hata-detayi.
+
 ## Auth / Session
 
 Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed
