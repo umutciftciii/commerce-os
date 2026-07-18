@@ -633,6 +633,10 @@ model Store {
   warehouses                       Warehouse[]
   inventoryBalances                InventoryBalance[]
   inventoryAdjustments             InventoryAdjustment[]
+  // Faz 2C-8A (ADR-079) — Search read-model (turetilmis; source-of-truth DEGIL). Cascade → magaza
+  // silinince arama dokumanlari/facet satirlari otomatik temizlenir.
+  searchDocuments                  ProductSearchDocument[]
+  searchFacetValues                ProductFacetValue[]
 }
 
 model StoreUser {
@@ -748,69 +752,73 @@ model QueueJobLog {
 }
 
 model Product {
-  id                      String                 @id @default(cuid())
-  storeId                 String
-  title                   String
-  slug                    String
-  description             String?
-  status                  ProductStatus          @default(DRAFT)
-  type                    ProductType            @default(PHYSICAL)
-  vendor                  String?
-  brand                   String?
-  seoTitle                String?
-  seoDescription          String?
-  salesMode               ProductSalesMode       @default(ONLINE)
-  priceVisibility         ProductPriceVisibility @default(VISIBLE)
-  primaryAction           ProductPrimaryAction   @default(ADD_TO_CART)
-  inquiryEnabled          Boolean                @default(false)
-  appointmentRequired     Boolean                @default(false)
-  whatsappEnabled         Boolean                @default(false)
-  purchasable             Boolean                @default(true)
-  minOrderQuantity        Int                    @default(1)
-  maxOrderQuantity        Int?
-  callToActionLabel       String?
-  whatsappMessageTemplate String?
-  inquiryFormTitle        String?
-  appointmentNote         String?
+  id                       String                 @id @default(cuid())
+  storeId                  String
+  title                    String
+  slug                     String
+  description              String?
+  status                   ProductStatus          @default(DRAFT)
+  type                     ProductType            @default(PHYSICAL)
+  vendor                   String?
+  brand                    String?
+  seoTitle                 String?
+  seoDescription           String?
+  salesMode                ProductSalesMode       @default(ONLINE)
+  priceVisibility          ProductPriceVisibility @default(VISIBLE)
+  primaryAction            ProductPrimaryAction   @default(ADD_TO_CART)
+  inquiryEnabled           Boolean                @default(false)
+  appointmentRequired      Boolean                @default(false)
+  whatsappEnabled          Boolean                @default(false)
+  purchasable              Boolean                @default(true)
+  minOrderQuantity         Int                    @default(1)
+  maxOrderQuantity         Int?
+  callToActionLabel        String?
+  whatsappMessageTemplate  String?
+  inquiryFormTitle         String?
+  appointmentNote          String?
   // F3C.2 — Kargo olcumu (desi/agirlik). Varyant uzerindeki ayni alanlar onceliklidir;
   // burasi urun-seviyesi fallback. DESI_TABLE/WEIGHT_TABLE tarifelerinde eksikse
   // hesaplama MISSING_SHIPPING_DIMENSIONS doner (admin UI TODO-110).
-  shippingWeightKg        Decimal?               @db.Decimal(10, 3)
-  shippingDesi            Decimal?               @db.Decimal(10, 2)
+  shippingWeightKg         Decimal?               @db.Decimal(10, 3)
+  shippingDesi             Decimal?               @db.Decimal(10, 2)
   // Faz 1A (ADR-067) — Urunun TEK ana kategorisi. Ileriki dinamik attribute
   // semasinin, breadcrumb'in ve kanonik kategori URL'inin KAYNAGIDIR. M:N
   // `assignments` (ikincil siniflandirma/merchandising) KORUNUR; ana kategori
   // mutlaka assignments'tan biri olmalidir (service transaction guard — DB tek
   // basina garanti edemez). Nullable: legacy/kategorisiz urun null kalir; ilk
   // migration'da NOT NULL YOK. onDelete: Restrict → ana kategori fiziksel silinemez.
-  primaryCategoryId       String?
+  primaryCategoryId        String?
   // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu urunun gorsellerini gruplayan TEK
   // media-tanimlayici eksen (genelde Renk). null = klasik urun galerisi (backward compat:
   // tum gorseller etiketsiz tek grup = bugunku davranis). Yalniz SELECT/COLOR variant-defining
   // eksen secilebilir (service guard). onDelete: SetNull → eksen tanimini silmek galeriyi
   // klasik moda dusurur (gorsel kaybi YOK; etiketler ProductImage'da Restrict ile korunur).
   mediaDefiningAttributeId String?
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
 
-  store                Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  primaryCategory      ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
-  mediaDefiningAttribute AttributeDefinition?      @relation("ProductMediaAxis", fields: [mediaDefiningAttributeId], references: [id], onDelete: SetNull)
-  variants             ProductVariant[]
-  assignments          ProductCategoryAssignment[]
-  orderLines           OrderLine[]
-  campaignProducts     CampaignProduct[]
-  images               ProductImage[]
+  store                  Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  primaryCategory        ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  mediaDefiningAttribute AttributeDefinition?        @relation("ProductMediaAxis", fields: [mediaDefiningAttributeId], references: [id], onDelete: SetNull)
+  variants               ProductVariant[]
+  assignments            ProductCategoryAssignment[]
+  orderLines             OrderLine[]
+  campaignProducts       CampaignProduct[]
+  images                 ProductImage[]
   // Faz 2A (ADR-068) — urun-seviyesi (non-variantDefining) attribute degerleri.
-  attributeValues      ProductAttributeValue[]
+  attributeValues        ProductAttributeValue[]
   // Faz 2C-1 (ADR-070) — bu urun icin secilen variant-defining eksenler (henuz KOMBINASYON DEGIL).
-  variantAttributes    ProductVariantAttribute[]
+  variantAttributes      ProductVariantAttribute[]
   // TODO-150 (ADR-073) — bu urunun varyantlarina uygulanan Identity Engine bulk-apply audit satirlari.
-  identityChanges      VariantIdentityChange[]
+  identityChanges        VariantIdentityChange[]
   // TODO-151 (ADR-074) — bu urunun varyantlarina uygulanan Commercial Engine bulk-apply audit satirlari.
-  commercialChanges    VariantCommercialChange[]
+  commercialChanges      VariantCommercialChange[]
   // TODO-152 (ADR-076) — bu urunun varyantlarina uygulanan Inventory Engine duzeltme defteri satirlari.
-  inventoryAdjustments InventoryAdjustment[]
+  inventoryAdjustments   InventoryAdjustment[]
+  // Faz 2C-8A (ADR-079) — Search read-model (turetilmis). Cascade → urun silinince dokuman + facet
+  // satirlari otomatik temizlenir (worker remove-job'a ek DB-seviyesi guvence; orphan olmaz).
+  searchDocument         ProductSearchDocument?
+  searchFacetValues      ProductFacetValue[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -2208,11 +2216,11 @@ model MediaAsset {
 // Urun galerisi (coklu, sirali). position=0 kapak. storeId denormalize tenant
 // sutunudur (FK degil) — ProductCategoryAssignment deseniyle tutarli.
 model ProductImage {
-  id        String   @id @default(cuid())
-  storeId   String
-  productId String
-  mediaId   String
-  position  Int      @default(0)
+  id                    String   @id @default(cuid())
+  storeId               String
+  productId             String
+  mediaId               String
+  position              Int      @default(0)
   // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu gorselin ait oldugu media-tanimlayici
   // eksen degeri (genelde Renk option'i). Ikisi de null = "Tum varyantlar" (paylasilan gorsel,
   // her varyant grubuyla birlikte gosterilir). attributeDefinitionId denormalize: optionId'nin
@@ -2222,10 +2230,10 @@ model ProductImage {
   // degismez). onDelete: Restrict → kullanimdaki option/eksen silinemez (MEDIA_IN_USE deseniyle tutarli).
   attributeDefinitionId String?
   optionId              String?
-  createdAt DateTime @default(now())
+  createdAt             DateTime @default(now())
 
-  product Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  media   MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  media               MediaAsset           @relation(fields: [mediaId], references: [id], onDelete: Cascade)
   attributeDefinition AttributeDefinition? @relation("ProductImageMediaAxis", fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
   option              AttributeOption?     @relation("ProductImageMediaOption", fields: [optionId], references: [id], onDelete: Restrict)
 
@@ -2677,4 +2685,92 @@ model VariantCommercialChange {
   @@index([variantId])
   @@index([batchId])
   @@index([storeId, variantId, createdAt])
+}
+
+// ─────────────────────── Faz 2C-8A (ADR-079) — Search Read-Model ───────────────────────
+// Turetilmis, DENORMALIZE arama okuma-modeli. SOURCE-OF-TRUTH DEGILDIR — otorite hala normal
+// Product/ProductVariant/EAV/Inventory tablolaridir; bu iki tablo yalniz SearchProvider (worker/
+// backfill) tarafindan turetilir ve yazilir. Hicbir public uc bu satirlari DOGRUDAN dondurmez
+// (public allowlist projeksiyonu bozulmaz). Bu fazda public search/facet UCU YOKTUR — yalniz temel.
+//
+// Store/Product onDelete: Cascade → magaza/urun silinince read-model otomatik temizlenir (worker
+// remove-job'a ek DB-seviyesi guvence; orphan kalmaz). costMinor/netPriceMinor/storageKey/mediaId
+// gibi ic alanlar bu tablolara BILINCLI olarak TASINMAZ.
+
+enum SearchAvailabilityState {
+  IN_STOCK
+  OUT_OF_STOCK
+  // PRE_ORDER / COMING_SOON: kaynak urun/varyant bayraklari henuz YOK (Faz sonrasi). Enum bilincli
+  // olarak ileriye acik birakildi — eklendiginde builder projeksiyonu genisler, migration gerekmez.
+}
+
+// Bir PUBLIC-GORUNUR (status=ACTIVE) urun basina BIR arama dokumani. Urun ACTIVE degilse dokuman
+// TUTULMAZ (indexProduct remove'a duser) → gelecekteki facet count'lari kirletmez. minPrice/maxPrice
+// yalniz gorunur-fiyatli ACTIVE varyantlar uzerinden; hasStock/availability Inventory Engine'den turer.
+model ProductSearchDocument {
+  id                String                   @id @default(cuid())
+  storeId           String
+  productId         String                   @unique
+  primaryCategoryId String?
+  title             String
+  slug              String
+  brand             String?
+  // Normalize edilmis aranabilir metin (title + brand + searchable attribute degerleri + aciklama).
+  // `searchVector` tsvector generated STORED kolon bundan turer (migration SQL); GIN indeks orada.
+  searchText        String
+  // Postgres FTS vektoru — GENERATED ALWAYS (migration). Prisma Client'ta okunmaz/yazilmaz (DB uretir).
+  searchVector      Unsupported("tsvector")?
+  status            ProductStatus
+  minPriceMinor     Int?
+  maxPriceMinor     Int?
+  currency          String?
+  hasStock          Boolean                  @default(false)
+  availability      SearchAvailabilityState  @default(OUT_OF_STOCK)
+  variantCount      Int                      @default(0)
+  // Kaynak zaman damgalari (siralama/tani) + indeksleme metaverisi (revision her reindex'te artar).
+  productCreatedAt  DateTime
+  productUpdatedAt  DateTime
+  indexedAt         DateTime                 @default(now())
+  revision          Int                      @default(0)
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+  @@index([storeId, primaryCategoryId])
+  @@index([storeId, minPriceMinor])
+  @@index([storeId, hasStock])
+  @@index([storeId, availability])
+  @@index([storeId, productCreatedAt])
+}
+
+// Flat facet IS ATI: bir (urun × filterable attribute × DEGER) satiri. YALNIZ CategoryAttribute.
+// filterable=true attribute'lardan uretilir (hardcode facet YOK). Bir satirda EN FAZLA bir typed
+// deger kolonu dolu (optionId | valueText | valueNumber | valueBoolean | valueDate) — builder
+// invariant'i + DB CHECK (migration). Ayni urunun ayni degeri (or. coklu varyantta ayni renk)
+// builder'da TEKILLESTIRILIR → duplicate satir yok. Urunun tam reindex'i delete-and-replace
+// (atomik, tek transaction) — kategori/attribute degisince eski satirlar KALMAZ. categoryId =
+// facet'in cikartildigi kaynak kategori (urunun primaryCategory'si).
+model ProductFacetValue {
+  id                    String    @id @default(cuid())
+  storeId               String
+  productId             String
+  categoryId            String
+  attributeDefinitionId String
+  optionId              String?
+  valueText             String?
+  valueNumber           Decimal?  @db.Decimal(20, 6)
+  valueBoolean          Boolean?
+  valueDate             DateTime?
+  // optionId/valueText degerinin normalize (lowercase/trim) hali — facet count grupla + arama zemini.
+  normalizedText        String?
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Facet count'un iş atı: kategori+attribute+option grupla-say (kendi-facet-haric kurali Faz B).
+  @@index([storeId, attributeDefinitionId, optionId])
+  @@index([storeId, attributeDefinitionId, valueNumber])
+  @@index([storeId, categoryId, attributeDefinitionId])
+  @@index([storeId, productId])
 }

@@ -8,6 +8,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "search:backfill": "tsx src/cli/backfill.ts"
+  },
+  "dependencies": {
+    "@commerce-os/config": "workspace:*",
+    "@commerce-os/db": "workspace:*",
+    "@commerce-os/logger": "workspace:*",
+    "@prisma/client": "^6.2.1"
   }
 }

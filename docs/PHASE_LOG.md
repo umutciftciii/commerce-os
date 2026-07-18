@@ -3509,3 +3509,25 @@ sunum katmanı + tek dormant alan geçişi). Detay analiz: `docs/analysis/TODO-1
   TEMİZ. NOT: `storefront-web/test/checkout-form-render.test.tsx` tsc hatası ÖNCEDEN VAR (CartLineView fixture'ı; bu görevle ilgisiz, checkout kapsam dışı).
 - **Kalan.** migrate deploy + docker rebuild + auth'lu görsel runtime smoke (admin renk etiketleme + PDP varyant→galeri geçişi). Auth'lu piksel-smoke bu ortamda
   yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).
+
+## Faz 2C-8A — Search Read-Model Foundation (TODO-154 / ADR-079) — 2026-07-19
+
+- **Karar.** ANALIZ-2C8.md'deki onaylı mimari → PostgreSQL-native denormalize arama okuma-modeli + `SearchProvider` portu; OpenSearch ertelenmiş upgrade-path.
+  Bu faz YALNIZ altyapı: public search/facet uçları + storefront filtre UI + URL sync Faz B+.
+- **DB (additive migration 20260719120000).** `ProductSearchDocument` (`searchVector` tsvector GENERATED ALWAYS STORED; min/max fiyat; hasStock/availability;
+  revision) + `ProductFacetValue` (single-value CHECK; typed EAV — JSON YOK) + enum `SearchAvailabilityState`. `pg_trgm` idempotent + GIN(searchVector) +
+  GIN trgm(title) + btree kompozit indeksler. Store/Product `onDelete: Cascade` (read-model orphan yok). Inline veri taşıma YOK — runtime backfill.
+- **search-service (rezervasyon dolduruldu).** `SearchProvider` portu (index/remove/rebuild/backfill/status; public search/facets Faz B genişleme noktası) +
+  `PostgresSearchProvider` + deterministik SAF `buildSearchDocument` (IO'suz; aynı girdi⇒aynı çıktı) + bounded-batch `data.ts` (chunk başına sabit sorgu, N+1 yok;
+  tek-ürün tek-transaction upsert + facet delete-and-replace) + backfill CLI (resumable/idempotent/non-truncating; per-ürün atomik → yarım-index yok, alias GEREKMEZ).
+  Facet YALNIZ `CategoryAttribute.filterable`; ARCHIVED definition/option hariç; çoklu-varyant aynı değer TEKİLLEŞİR; IMAGE/FILE hariç. Yalnız ACTIVE indekslenir
+  (DRAFT/ARCHIVED → remove). hasStock/availability Inventory Engine'den (`available=onHand−reserved`; null=stokta say).
+- **Event-driven sync (mevcut BullMQ/worker).** `search-index` kuyruğu + fire-and-forget emitter (Redis erişilemezse mutation ETKİLENMEZ) + worker dispatch.
+  10 mutation noktası reindex tetikler; kategori/attribute şema değişimi → `reindex-store` (provider chunk'lar). **OTOMATİK jobId**: deterministik jobId BullMQ
+  tamamlanmış-job dedup'u nedeniyle change-stream'i bozuyordu (smoke yakaladı) → idempotent işleme (upsert + delete-and-replace) tekrar güvenliğini sağlar.
+- **Testler.** search-service 35 (builder + provider + normalize) + queues 6 + api-gateway trigger 6; api-gateway TAM suite **1017/1017** (regresyon yok; public
+  allowlist testleri dahil). **Gerçek-PG smoke** (index/fiyat/stok/facet-replace/archive→removed/tsvector FTS/EXPLAIN **Index-Only-Scan**/cascade cleanup) +
+  **event-driven smoke** (enqueue→gerçek worker→read-model, ikinci-değişim dahil) + **backfill smoke** (DRAFT hariç + idempotent) → hepsi PASS.
+- **Gate.** prisma format/validate/generate + build (contracts/queues/search-service/worker/api-gateway) + lint + git diff --check TEMİZ. Migration dev-DB'ye deploy
+  edildi; çalışan main-stack additive migration'dan etkilenmedi (7/7 healthy, `/health` 200, public catalog 200).
+- **Kalan.** Docker container rebuild (worker + api-gateway imajları → 7/7) = deploy-checkpoint. **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).

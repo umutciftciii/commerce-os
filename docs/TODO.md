@@ -1362,3 +1362,20 @@
   → 1011/1011; storefront +variant-media.test.ts → 202/202; store-admin gallery→imageBindings → 313/313; contracts +3 → 107/107. i18n TR/EN parity. Gate:
   tsc/eslint/build/prisma-validate/git-diff TEMİZ (istisna: önceden var olan checkout-form-render.test.tsx tsc — kapsam dışı). KALAN: migrate deploy + docker
   rebuild + auth'lu görsel smoke (final rapor). KAPSAM DIŞI: per-SKU/hibrit override · ProductImageOption join tablo · video/360/3D/AR/mediaKind (TD-048).
+
+- TODO-154 — Faz 2C-8A: Search Read-Model Foundation (arama/filtreleme altyapısı — YALNIZ temel)
+  (DONE — 2026-07-19, ADR-079; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası). Public search/facet uçları, storefront filtre UI, URL senkronu,
+  autocomplete/synonym KAPSAM DIŞI (Faz B+). Mevcut public katalog uçları + allowlist + checkout/inventory/pricing DEĞİŞMEDİ (additive). (1) **DB (additive
+  migration 20260719120000).** `ProductSearchDocument` (ACTIVE ürün/1 satır; `searchVector tsvector` GENERATED STORED + min/max fiyat + hasStock/availability +
+  revision) + `ProductFacetValue` (flat `(ürün×filterable attr×değer)`; single-value CHECK) + enum `SearchAvailabilityState`; `pg_trgm` + GIN(searchVector) +
+  GIN trgm(title) + btree kompozit; Store/Product Cascade. Inline veri taşıma YOK (runtime backfill). (2) **search-service.** `SearchProvider` portu +
+  `PostgresSearchProvider` + deterministik SAF `buildSearchDocument` + bounded-batch `data.ts` (N+1 yok) + backfill CLI (`--store|--all|--dry-run`,
+  resumable/idempotent/non-truncating). Facet YALNIZ `CategoryAttribute.filterable`; ARCHIVED def/option hariç; dedupe; IMAGE/FILE hariç. (3) **queues/contracts.**
+  `search-index` kuyruğu + `enqueueSearchIndexJob` (OTOMATİK jobId — deterministik jobId change-stream'i bozuyordu) + `searchIndexJobSchema`. (4) **worker.**
+  `search-index` işleyici (provider dispatch; idempotent + retry/backoff; poison log). (5) **api-gateway.** fire-and-forget emitter (Redis down→mutation
+  etkilenmez) + 10 mutation noktasında reindex tetiği (product/variant/inventory/attribute-value/eksen/generation/identity/commercial + categoryAttribute/STORE
+  attribute+option şema → store-batch). (6) **Testler.** search-service 35 + queues 6 + api-gateway trigger 6; api-gateway tam suite 1017 (regresyon yok). Gerçek-PG
+  smoke (index/fiyat/stok/facet-replace/archive→removed/tsvector FTS/EXPLAIN Index-Only-Scan/cascade) + event-driven smoke (enqueue→worker→read-model) + backfill
+  smoke (DRAFT hariç + idempotent) hepsi PASS. Gate: prisma format/validate/generate + build + lint + git-diff TEMİZ. KALAN: docker container rebuild (worker+
+  api-gateway → 7/7) = deploy-checkpoint. KAPSAM DIŞI: public search/facet uç · storefront PLP/filtre · URL sync · autocomplete/synonym · OpenSearch · AI ranking ·
+  kampanya-etkin fiyat facet'i · PLATFORM attribute global fan-out (TD-049).
