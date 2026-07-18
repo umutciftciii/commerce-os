@@ -223,9 +223,10 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
   breadcrumb'in ve kanonik kategori URL'inin kaynagi. Nullable + FK `onDelete: Restrict`; M:N `assignments`
   korunur, ana kategori assignments'tan biri olmalidir (service transaction guard).
 - `InventoryItem`: varyant basina tek stok kaydi; `quantityAvailable` DB'de kolon degildir, response'ta
-  `quantityOnHand - quantityReserved` olarak hesaplanir.
+  `quantityOnHand - quantityReserved` olarak hesaplanir. **Faz 2C-6 (ADR-076):** `InventoryItem` DEFAULT depo icin onHand/reserved'in **canli
+  otoritesi** olmaya devam eder; warehouse-aware `InventoryBalance` bunu senkron aynalar + safety/incoming/reorder ekler (bkz. "Inventory Engine").
 - `InventoryMovement`: her manual adjustment icin ledger kaydi; `quantityDelta`, reason/reference ve
-  actor id metadata'si tutulur.
+  actor id metadata'si tutulur. Inventory Engine apply'i DEFAULT depo onHand degisiminde buraya da bir `ADJUSTMENT` yazar (compatibility sync).
 
 Order core Faz 2C'de gateway icindeki gecici commerce uygulamasina eklendi. Faz 2D'de order create,
 line add/update ve place akislari product sales modelini dogrular; `INQUIRY`, `APPOINTMENT`,
@@ -460,6 +461,48 @@ server-authoritative · fail-closed.**
   Kullaniciya "Ticari matris"/"Indirim" teknik dili gosterilmez ("Fiyatlandirma" / "Liste fiyatina gore indirim"); ham stable kod yalniz
   "Teknik detay". BFF proxy `.../commercial/{,preview,apply}` (apply CSRF'li) DEGISMEDI. i18n tr+en `products.pricing`.
   **Inventory/Variant Media/currency conversion/rule persistence/undo UI/scheduled pricing KAPSAM DISI.**
+
+### Inventory Engine — warehouse-aware stok (onHand/reserved/available/incoming/safety/reorder) preview-first (Faz 2C-6, ADR-076)
+
+Commercial Engine desenini `ProductVariant`'in **stok** boyutuna, **depo-farkindalikli** additive bir temelle tasiyan motor. Kavramlar ayristirilir:
+**On Hand (Elde) · Reserved (Rezerve, sistem-kontrollu) · Incoming (Gelen) · Safety Stock (Guvenlik) · Reorder Point (Yeniden siparis)**;
+turetilen: **Available = onHand − reserved − safetyStock** (incoming HARIC). `rawAvailable` (negatif olabilir) / `sellableAvailable = max(0, raw)`.
+Mevcut `InventoryItem`/`InventoryReservation`/`InventoryMovement`, checkout/siparis (`placeOrder`/`cancelOrder` + `FOR UPDATE`) ve storefront
+read-path **DEGISMEDI** (sifir regresyon). **Preview-first · server-authoritative · fail-closed.**
+
+- **Veri modeli (additive):** `Warehouse` (store-scoped; `@@unique([storeId,code])` + partial-unique `WHERE isDefault` → store basina TEK default),
+  `InventoryBalance` (variant × warehouse; `@@unique([warehouseId,variantId])`; onHand/reserved/incoming/safetyStock/reorderPoint — `available`
+  KOLON DEGIL, turetilir), `InventoryAdjustment` (append-only ledger; `field`[`enum InventoryAdjustmentField` — reserved YOK]/`oldValue`/`newValue`/
+  `delta`/`source`[`enum InventoryAdjustmentSource` — bu faz yalniz MANUAL_EDIT/BULK_OPERATION; ORDER_*/IMPORT/SYSTEM rezerve]/`batchId`).
+- **InventoryItem KOPRUSU (ADR-076 kritik karar).** `InventoryItem` DEFAULT depo icin `onHand`/`reserved`'in **canli otoritesi** kalir
+  (checkout/storefront/siparis akisi orayi okur/yazar). `InventoryBalance` default depoda onHand/reserved'i **senkron ayna** olarak tutar ve **yeni
+  alanlarin** otoritesidir. Matris okumasi default depoda onHand/reserved'i **canli InventoryItem'dan overlay** eder (legacy adjust ile yazilsa bile
+  stale okuma yok → self-healing); apply onHand degisince InventoryItem.quantityOnHand'e **ayni transaction'da senkron** eder (compatibility sync) +
+  `InventoryMovement(ADJUSTMENT)` yazar. `reserved` ASLA yazilmaz. Non-default depoda otorite tamamen `InventoryBalance` (reserved 0 — siparis
+  entegrasyonu bu fazda yok). Duplicate stok kaynagi YOK.
+- **SAF motor** (`apps/api-gateway/src/inventory-engine/`): `availability.ts` (tek resolver; girdi salt-okunur) · `calculator.ts` (stok durumu
+  [IN_STOCK/LOW_STOCK/OUT_OF_STOCK/INCOMING/NEGATIVE/NO_BALANCE] + reserved orani) · `validation.ts` (blocking: negatif alan/overflow; warning:
+  out-of-stock/negatif-available/reorder/safety/high-reserved/large-decrease/no-incoming/archived/draft/new-balance) · `fingerprint.ts` (FNV-1a;
+  warehouseId+variantId+tum alanlar+reserved → esamanli siparis stale uretir; girdi sirasindan bagimsiz) · `diff-engine.ts` (alan-bazli O(n·f);
+  reserved diff'e GIRMEZ) · `preview.ts` (rows+summary+fingerprint). Hepsi Prisma/HTTP/`Date`/`Math.random` BILMEZ. `reservation-service.ts` SAF
+  foundation (order flow'a bagli DEGIL — Alternatif A). Her hata **stable kod**.
+- **Servis** (`service.ts` + `data.ts`): preview yalniz-okuma + deterministik; apply **server-authoritative** + tek `prisma.$transaction` +
+  **advisory xact lock** (`$executeRaw pg_advisory_xact_lock(hashtext(store:product:warehouse))`) + **stale-preview fingerprint** + **yalniz-degisen**
+  upsert (+ default depo InventoryItem senkronu) + append-only audit. **Fail-closed:** blocking / stale / INACTIVE depo → hicbir yazim. Idempotent
+  (ikinci apply → updated=0). ARCHIVED kapsam disi (`status != ARCHIVED`); apply status DEGISTIRMEZ. **N+1 YOK** (varyant+balance+item batch).
+- **API** (`routes.ts`): `GET .../warehouses` (depo listesi) + `GET .../products/:productId/inventory[?warehouseId=]` (matris; default depo cozulur)
+  + `POST .../inventory/preview` + `POST .../inventory/apply`. Rule VEYA direct-edit + `selectedVariantIds` (tenant/scope guard). Stabil hatalar
+  PRODUCT_NOT_FOUND / WAREHOUSE_NOT_FOUND / INVENTORY_VARIANT_NOT_FOUND(404) / INVENTORY_PREVIEW_STALE / INVENTORY_CONFLICT /
+  INVENTORY_WAREHOUSE_INACTIVE(409) / INVENTORY_INVALID_RULE / INVENTORY_SELECTION_EMPTY / INVENTORY_APPLY_BLOCKED(422). contracts `inventory*Schema`
+  + api-client `admin.products.inventory.{get,preview,apply}` + `admin.inventory.warehouses`.
+- **UI:** urun duzenleme sayfasi ucuncu sekme **Stok** (Genel · Fiyatlandirma · **Stok**); tam genislik `products/inventory/inventory-workspace.tsx`
+  (depo secici+default rozet+INACTIVE uyari · 6 KPI · **Hizli duzenleme**[hucre input; reserved **salt-okunur**] vs **Toplu islem**[8 yonlendirmeli
+  senaryo + "Stogu sifirla" yuksek-etki uyari] modu · alan-bazli preview ozeti old→new · warning/blocking humanize · loading/empty/error).
+  Autosave YOK (Taslak→Onizle→Uygula). Guided senaryo→kontrat eslemesi `products/inventory/guided-operations.ts`; **Fiyatlandirma ile ayni** semantik
+  tema token'lari (`pricing-tokens.ts` / globals.css `.pricing-workspace`) yeniden kullanilir (yeni renk sistemi YOK). BFF proxy `.../inventory/
+  {,preview,apply}` (apply CSRF'li) + `.../warehouses`. i18n tr+en `products.inventory` + `detail.tabs.inventory`.
+  **Warehouse-aware reservation/checkout/allocation · checkout safety-stock uygulamasi · warehouse CRUD UI · fulfillment commit · transfer/PO/lot/
+  serial/bin/expiry KAPSAM DISI (TD-047).**
 
 ## Auth / Session
 

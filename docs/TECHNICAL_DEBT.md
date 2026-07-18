@@ -703,3 +703,28 @@ TODO-151A / ADR-075 yalnız Store Admin UX'i yeniden tasarladı; Commercial Engi
   bu ortamda credential/SESSION_SECRET forge engeli nedeniyle yapılamaz (F3 dersleriyle aynı).
 - Kapsam: apps/store-admin-web (products/[id] + products/pricing/* [yeni] + commercial/use-commercial-matrix.ts [hook] + product-form.tsx +
   globals.css + testler), packages/i18n (products.pricing + detail.tabs). Silinen: commercial/commercial-matrix.tsx. Bloklayıcı: HAYIR.
+
+## TD-047 Faz 2C-6 Inventory Engine: bilinen sınırlar ve ertelenen işler (kapsam gereği)
+
+TODO-152 / ADR-076 warehouse-aware stok TEMELİNİ kurdu (Warehouse + InventoryBalance + InventoryAdjustment + preview-first engine). Bilinçle
+ERTELENEN işler (yalnız gerçekten ertelenenler):
+- **Warehouse-aware reservation / checkout / allocation (Alternatif A gereği).** Sipariş yaşam döngüsü (`placeOrder`/`cancelOrder`) DEĞİŞMEDİ;
+  `reserved` sistem-kontrollü, `reservation-service.ts` yalnız SAF foundation (order flow'a bağlı değil). Overselling mevcut tek-depo `FOR UPDATE`
+  ile korunur; "çözüldü" iddia edilmez. Çoklu-depo rezervasyon/allocation ayrı iş.
+- **Checkout safety-stock uygulaması.** Bu faz checkout hâlâ `onHand − reserved` kullanır (safety admin-görünürlük; sıfır regresyon). Checkout'un
+  `sellableAvailable`'a (safety düşülmüş) geçmesi ayrı, davranış-değiştiren iş.
+- **Warehouse CRUD UI + çoklu depo operasyonu.** Bu faz store başına bir DEFAULT depo + read endpoint (`GET /stores/:storeId/warehouses`) sunar.
+  Depo create/update/set-default/deactivate UI ve non-default depoya sipariş entegrasyonu ertelendi.
+- **Fulfillment commit (onHand düşümü).** Sipariş şu an yalnız rezerve eder; fulfillment'ta `onHand` düşümü (commit) yok.
+- **Stock transfer, purchase order, supplier receiving, bin/shelf, lot/batch/serial, expiry, cycle count, reconciliation, ERP/marketplace sync,
+  low-stock notification, 1000+ satır virtualization.** Enum'da `ORDER_*`/`IMPORT`/`SYSTEM` kaynakları REZERVE (kullanıcı UI'ına sızmaz).
+- **Gerçek-PG concurrency integration testi.** Bu ortamda canlı Postgres yok; advisory-lock (`$executeRaw pg_advisory_xact_lock`) ve
+  stale-fingerprint korumaları birim testlerle + kod düzeyinde doğrulandı; iki-paralel-adjustment lost-update senaryosu runtime smoke checklist'e
+  (aşağıda) taşındı.
+- **Runtime görsel smoke bekliyor.** api-gateway (1008 test) + engine (64 test) + store-admin (312 test) + typecheck + lint yeşil; migration deploy
+  + docker rebuild + auth'lu görsel smoke (Stok tab, depo seçici, KPI, hızlı düzenleme, toplu işlem, preview, warning/blocking, apply→audit→
+  idempotent, stale, archived exclusion, Pricing/Identity/generation/storefront/checkout regresyonu, desktop/tablet/mobile) AYRI adım. Auth'lu
+  piksel-smoke bu ortamda credential/SESSION_SECRET forge engeli nedeniyle yapılamaz (F3/2C-5 dersleriyle aynı).
+- Kapsam: packages/db (schema + migration 20260718150000 + seed), packages/contracts, packages/api-client, apps/api-gateway (inventory-engine/* +
+  server.ts wiring), apps/store-admin-web (products/[id] + products/inventory/* [yeni] + api/catalog proxy'ler + lib/client/api.ts + testler),
+  packages/i18n (products.inventory + detail.tabs.inventory). Bloklayıcı: HAYIR.

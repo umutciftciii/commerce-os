@@ -88,6 +88,12 @@ import type {
   CommercialPreviewRequest,
   CommercialApplyRequest,
   CommercialApplyResponse,
+  // TODO-152 (ADR-076) — Inventory Engine tipleri.
+  InventoryWarehouseListResponse,
+  InventoryPreviewRequest,
+  InventoryPreviewResponse,
+  InventoryApplyRequest,
+  InventoryApplyResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -280,6 +286,19 @@ export type {
   CommercialOperation,
   CommercialRule,
   CommercialDirectEdit,
+  // TODO-152 (ADR-076) — Inventory Engine tipleri.
+  InventoryWarehouse,
+  InventoryWarehouseListResponse,
+  InventoryPreviewRequest,
+  InventoryPreviewResponse,
+  InventoryApplyRequest,
+  InventoryApplyResponse,
+  InventoryPreviewRow,
+  InventoryField,
+  InventoryOperation,
+  InventoryRule,
+  InventoryDirectEdit,
+  InventoryStockStatus,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -901,6 +920,27 @@ export interface ApiClient {
           token?: string,
         ): Promise<CommercialApplyResponse>;
       };
+      // TODO-152 (ADR-076) — Inventory Engine (warehouse-aware stok preview-first bulk).
+      inventory: {
+        get(
+          storeId: string,
+          productId: string,
+          warehouseId?: string,
+          token?: string,
+        ): Promise<InventoryPreviewResponse>;
+        preview(
+          storeId: string,
+          productId: string,
+          input: InventoryPreviewRequest,
+          token?: string,
+        ): Promise<InventoryPreviewResponse>;
+        apply(
+          storeId: string,
+          productId: string,
+          input: InventoryApplyRequest,
+          token?: string,
+        ): Promise<InventoryApplyResponse>;
+      };
     };
     inventory: {
       list(storeId: string, token?: string): Promise<InventoryListResponse>;
@@ -911,6 +951,8 @@ export interface ApiClient {
         input: InventoryAdjustRequest,
         token?: string,
       ): Promise<InventoryAdjustmentResponse>;
+      // TODO-152 (ADR-076) — store-scoped depo listesi (warehouse selector).
+      warehouses(storeId: string, token?: string): Promise<InventoryWarehouseListResponse>;
     };
     orders: {
       list(storeId: string, query?: OrderListQuery, token?: string): Promise<OrderListResponse>;
@@ -1793,6 +1835,30 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               token,
             ),
         },
+        // TODO-152 (ADR-076) — Inventory Engine (warehouse-aware stok preview-first bulk).
+        inventory: {
+          get: (storeId, productId, warehouseId, token) =>
+            getJson<InventoryPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/inventory${
+                warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ""
+              }`,
+              token,
+            ),
+          preview: (storeId, productId, input, token) =>
+            sendJson<InventoryPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/inventory/preview`,
+              "POST",
+              input,
+              token,
+            ),
+          apply: (storeId, productId, input, token) =>
+            sendJson<InventoryApplyResponse>(
+              `/stores/${storeId}/products/${productId}/inventory/apply`,
+              "POST",
+              input,
+              token,
+            ),
+        },
       },
       inventory: {
         list: (storeId, token) => getJson<InventoryListResponse>(`/stores/${storeId}/inventory`, token),
@@ -1805,6 +1871,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+        warehouses: (storeId, token) =>
+          getJson<InventoryWarehouseListResponse>(`/stores/${storeId}/warehouses`, token),
       },
       orders: {
         list: (storeId, query, token) =>

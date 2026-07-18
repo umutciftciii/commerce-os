@@ -255,6 +255,33 @@ enum InventoryReservationStatus {
   CONSUMED
 }
 
+// TODO-152 (ADR-076) — Inventory Engine · depo durumu. INACTIVE depo yeni stok işlemine kapalı.
+enum WarehouseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// TODO-152 (ADR-076) — Inventory Engine · kullanıcı-düzenlenebilir bakiye alanı (audit/rule hedefi).
+// `reserved` SİSTEM-kontrollüdür (kullanıcı düzenlemez) → bu enum'da bilinçli olarak YOKTUR.
+enum InventoryAdjustmentField {
+  ON_HAND
+  INCOMING
+  SAFETY_STOCK
+  REORDER_POINT
+}
+
+// TODO-152 (ADR-076) — Inventory apply kaynağı. Bu fazda yalnız MANUAL_EDIT/BULK_OPERATION UI'dan
+// üretilir; ORDER_* / IMPORT / SYSTEM ileride rezerve (enum'da tutulur, kullanıcı UI'ına sızmaz).
+enum InventoryAdjustmentSource {
+  MANUAL_EDIT
+  BULK_OPERATION
+  ORDER_RESERVATION
+  ORDER_RELEASE
+  ORDER_COMMIT
+  IMPORT
+  SYSTEM
+}
+
 enum PaymentProviderType {
   MOCK
   IYZICO
@@ -602,6 +629,10 @@ model Store {
   variantIdentityChanges           VariantIdentityChange[]
   // TODO-151 (ADR-074) — Commercial Engine bulk-apply audit'i (tenant sutunu).
   variantCommercialChanges         VariantCommercialChange[]
+  // TODO-152 (ADR-076) — Inventory Engine: depo + warehouse-aware bakiye + append-only düzeltme defteri.
+  warehouses                       Warehouse[]
+  inventoryBalances                InventoryBalance[]
+  inventoryAdjustments             InventoryAdjustment[]
 }
 
 model StoreUser {
@@ -756,21 +787,23 @@ model Product {
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
-  store             Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  primaryCategory   ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
-  variants          ProductVariant[]
-  assignments       ProductCategoryAssignment[]
-  orderLines        OrderLine[]
-  campaignProducts  CampaignProduct[]
-  images            ProductImage[]
+  store                Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  primaryCategory      ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  variants             ProductVariant[]
+  assignments          ProductCategoryAssignment[]
+  orderLines           OrderLine[]
+  campaignProducts     CampaignProduct[]
+  images               ProductImage[]
   // Faz 2A (ADR-068) — urun-seviyesi (non-variantDefining) attribute degerleri.
-  attributeValues   ProductAttributeValue[]
+  attributeValues      ProductAttributeValue[]
   // Faz 2C-1 (ADR-070) — bu urun icin secilen variant-defining eksenler (henuz KOMBINASYON DEGIL).
-  variantAttributes ProductVariantAttribute[]
+  variantAttributes    ProductVariantAttribute[]
   // TODO-150 (ADR-073) — bu urunun varyantlarina uygulanan Identity Engine bulk-apply audit satirlari.
-  identityChanges   VariantIdentityChange[]
+  identityChanges      VariantIdentityChange[]
   // TODO-151 (ADR-074) — bu urunun varyantlarina uygulanan Commercial Engine bulk-apply audit satirlari.
-  commercialChanges VariantCommercialChange[]
+  commercialChanges    VariantCommercialChange[]
+  // TODO-152 (ADR-076) — bu urunun varyantlarina uygulanan Inventory Engine duzeltme defteri satirlari.
+  inventoryAdjustments InventoryAdjustment[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -842,6 +875,9 @@ model ProductVariant {
   identityChanges       VariantIdentityChange[]
   // TODO-151 (ADR-074) — Commercial Engine bulk-apply audit'i (append-only; undo metadata).
   commercialChanges     VariantCommercialChange[]
+  // TODO-152 (ADR-076) — Inventory Engine: warehouse-aware bakiye + append-only duzeltme defteri.
+  inventoryBalances     InventoryBalance[]
+  inventoryAdjustments  InventoryAdjustment[]
 
   @@unique([storeId, sku])
   // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
@@ -960,6 +996,94 @@ model InventoryMovement {
   @@index([storeId])
   @@index([variantId])
   @@index([type])
+}
+
+// TODO-152 (ADR-076) — Inventory Engine · Store-scoped depo. Bu faz store başına bir DEFAULT depo
+// (migration backfill) kurar; ek depo CRUD UI TD-046. `isDefault` store başına TEK olmalıdır
+// (migration'da partial unique index). Silme yerine INACTIVE tercih edilir (yeni stok işlemine kapalı).
+model Warehouse {
+  id        String          @id @default(cuid())
+  storeId   String
+  code      String
+  name      String
+  status    WarehouseStatus @default(ACTIVE)
+  isDefault Boolean         @default(false)
+  priority  Int             @default(0)
+  // Opsiyonel adres (bilgi amaçlı; fulfillment/kargo yetkinliği bu fazda YOK).
+  city      String?
+  district  String?
+  line1     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  balances    InventoryBalance[]
+  adjustments InventoryAdjustment[]
+
+  @@unique([storeId, code])
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+// TODO-152 (ADR-076) — Variant × Warehouse stok özeti. onHand/reserved DEFAULT depo için
+// InventoryItem ile senkron tutulur (InventoryItem otorite; checkout/storefront sıfır regresyon);
+// safetyStock/incoming/reorderPoint bu tabloda otoriterdir. `available` TÜRETİLİR (kolon YOK):
+// available = onHand − reserved − safetyStock. Unique = varyant × depo tek bakiye.
+model InventoryBalance {
+  id           String   @id @default(cuid())
+  storeId      String
+  warehouseId  String
+  variantId    String
+  onHand       Int      @default(0)
+  reserved     Int      @default(0)
+  incoming     Int      @default(0)
+  safetyStock  Int      @default(0)
+  reorderPoint Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  store     Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, variantId])
+  @@index([storeId])
+  @@index([variantId])
+  @@index([storeId, warehouseId])
+}
+
+// TODO-152 (ADR-076) — Append-only stok düzeltme defteri (audit/ledger). Her DEĞİŞEN alan için bir
+// satır; tek apply = tek batchId (undo/tanı temeli). oldValue/newValue/delta üçü de tutulur (Set
+// Absolute + Adjust Delta ayrımı görünür). `reserved` kullanıcı-düzenlenmez → yalnız sistem
+// kaynakları (ORDER_*) reserved yazabilir; bu fazda üretilmez. changedByPlatformUserId FK DEĞİL,
+// scalar: kullanıcı silinse bile tarihsel kayıt korunur (ProductPriceChange deseni).
+model InventoryAdjustment {
+  id                      String                    @id @default(cuid())
+  storeId                 String
+  warehouseId             String
+  productId               String
+  variantId               String
+  field                   InventoryAdjustmentField
+  oldValue                Int
+  newValue                Int
+  delta                   Int
+  reason                  String?
+  source                  InventoryAdjustmentSource
+  batchId                 String
+  changedByPlatformUserId String?
+  createdAt               DateTime                  @default(now())
+
+  store     Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  product   Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([warehouseId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([batchId])
+  @@index([storeId, variantId, createdAt])
 }
 
 // Storefront musteri kimligi (F3B.3). Tek kavram: hem store-admin CRM kaydi hem

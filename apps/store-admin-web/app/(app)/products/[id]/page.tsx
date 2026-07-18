@@ -26,8 +26,9 @@ import { ProductIcon } from "../../../../components/icons";
 import { ProductForm } from "../product-form";
 import { VariantsSection } from "../variants-manager";
 import { PricingWorkspace } from "../pricing/pricing-workspace";
+import { InventoryWorkspace } from "../inventory/inventory-workspace";
 
-type ProductEditTab = "general" | "pricing";
+type ProductEditTab = "general" | "pricing" | "inventory";
 
 type ProductStatus = Product["status"];
 
@@ -179,7 +180,7 @@ export default function ProductDetailPage() {
           aria-label={t.eyebrow}
           className="mb-5 flex items-center gap-1 border-b border-white/[0.07]"
         >
-          {(["general", "pricing"] as ProductEditTab[]).map((key) => {
+          {(["general", "pricing", "inventory"] as ProductEditTab[]).map((key) => {
             const active = tab === key;
             return (
               <button
@@ -202,6 +203,8 @@ export default function ProductDetailPage() {
       ) : null}
 
       {product && tab === "pricing" ? <PricingWorkspace productId={product.id} /> : null}
+
+      {product && tab === "inventory" ? <InventoryWorkspace productId={product.id} /> : null}
 
       {product && tab === "general" ? (
         <DetailLayout

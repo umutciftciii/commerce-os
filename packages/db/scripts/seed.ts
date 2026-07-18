@@ -336,6 +336,48 @@ async function main() {
     ),
   );
 
+  // TODO-152 (ADR-076) — Inventory Engine: store icin VARSAYILAN depo (migration backfill ile
+  // ayni deterministik id/kod) + her varyant icin default-depo InventoryBalance. onHand/reserved
+  // InventoryItem ile birebir (InventoryItem otorite); safety/incoming/reorder demo degerleri.
+  const defaultWarehouse = await prisma.warehouse.upsert({
+    where: { id: `wh_default_${store.id}` },
+    update: { code: "DEFAULT", name: "Ana Depo", status: "ACTIVE", isDefault: true, priority: 0 },
+    create: {
+      id: `wh_default_${store.id}`,
+      storeId: store.id,
+      code: "DEFAULT",
+      name: "Ana Depo",
+      status: "ACTIVE",
+      isDefault: true,
+      priority: 0,
+    },
+  });
+
+  await Promise.all(
+    variants.map((variant, index) =>
+      prisma.inventoryBalance.upsert({
+        where: { warehouseId_variantId: { warehouseId: defaultWarehouse.id, variantId: variant.id } },
+        update: {
+          onHand: index === 2 ? 25 : 15,
+          reserved: 0,
+          safetyStock: index === 2 ? 2 : 3,
+          incoming: index === 0 ? 20 : 0,
+          reorderPoint: index === 2 ? 5 : 8,
+        },
+        create: {
+          storeId: store.id,
+          warehouseId: defaultWarehouse.id,
+          variantId: variant.id,
+          onHand: index === 2 ? 25 : 15,
+          reserved: 0,
+          safetyStock: index === 2 ? 2 : 3,
+          incoming: index === 0 ? 20 : 0,
+          reorderPoint: index === 2 ? 5 : 8,
+        },
+      }),
+    ),
+  );
+
   // F3C.2 — Demo magaza icin VARSAYILAN kargo TARIFE plani. Eski hardcoded ₺49,90 /
   // ₺750 ucretsiz kargo esigi artik "magic" degil; store tarifesi olarak tutulur
   // (FREE_THRESHOLD: esik altinda 4990, esik ustunde 0). Provider canli quote DEGIL.
