@@ -32,6 +32,8 @@ export interface IdentityRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<Actor | null>;
+  // TODO-154 (ADR-079) — SKU/title değişimi searchText projeksiyonunu etkiler → reindex.
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 const productParam = z.object({ storeId: z.string().min(1), productId: z.string().min(1) });
@@ -97,6 +99,8 @@ export function registerIdentityRoutes(app: FastifyInstance, deps: IdentityRoute
       regenerateCustomTitles: body.regenerateCustomTitles,
     });
     if (!result.ok) return sendServiceError(reply, result.error);
+    // TODO-154 (ADR-079) — SKU/title değişti → searchText yeniden türetilsin.
+    deps.onProductChanged?.(params.storeId, params.productId);
     return identityApplyResponseSchema.parse(serializeIdentityApply(result.result));
   });
 }

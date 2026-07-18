@@ -45,6 +45,8 @@ export interface AttributeValueRoutesDeps {
     entityId?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
+  // TODO-154 (ADR-079) — attribute değeri değişince search read-model'i tetikler (opsiyonel).
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 async function sendServiceError(reply: FastifyReply, error: AttributeValueError) {
@@ -100,6 +102,8 @@ export function registerAttributeValueRoutes(app: FastifyInstance, deps: Attribu
       entityId: params.productId,
       metadata: { count: result.values.length },
     });
+    // TODO-154 (ADR-079) — filterable/searchable değerler değişti → dokümanı yenile.
+    deps.onProductChanged?.(params.storeId, params.productId);
     return productAttributeValueListResponseSchema.parse({
       data: result.values.map(serializeProductAttributeValue),
     });
@@ -141,6 +145,8 @@ export function registerAttributeValueRoutes(app: FastifyInstance, deps: Attribu
         entityId: params.variantId,
         metadata: { count: result.values.length },
       });
+      // TODO-154 (ADR-079) — variant-defining değer değişti → ürün dokümanı/facet'lerini yenile.
+      deps.onProductChanged?.(params.storeId, params.productId);
       return variantAttributeValueListResponseSchema.parse({
         data: result.values.map(serializeVariantAttributeValue),
       });

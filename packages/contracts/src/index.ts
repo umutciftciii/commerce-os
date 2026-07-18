@@ -55,6 +55,33 @@ export const platformEventSchema = z.object({
   occurredAt: z.string().datetime(),
 });
 
+// TODO-154 (ADR-079) — Faz 2C-8A · Search index job kontratı. api-gateway mutation'ları bu job'ları
+// `search-index` kuyruğuna koyar; worker `search-service` provider'ıyla işler. İş idempotent + job'lar
+// deterministik jobId taşır (bekleyen duplicate'lar tekleşir). Şema değişimi (kategori/attribute) →
+// `reindex-store` (provider chunk'lar; kontrollü batch). Payload SECRET/PII taşımaz (yalnız id'ler).
+export const searchIndexJobSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("reindex-product"),
+    storeId: z.string().min(1),
+    productId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("remove-product"),
+    storeId: z.string().min(1),
+    productId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("reindex-products"),
+    storeId: z.string().min(1),
+    productIds: z.array(z.string().min(1)).min(1).max(1000),
+  }),
+  z.object({
+    kind: z.literal("reindex-store"),
+    storeId: z.string().min(1),
+  }),
+]);
+export type SearchIndexJob = z.infer<typeof searchIndexJobSchema>;
+
 export const platformUserSchema = z.object({
   id: z.string().min(1),
   email: z.string().email(),

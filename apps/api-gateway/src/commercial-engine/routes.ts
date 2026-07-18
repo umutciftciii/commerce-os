@@ -33,6 +33,8 @@ export interface CommercialRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<Actor | null>;
+  // TODO-154 (ADR-079) — fiyat/compareAt değişimi min/maxPrice projeksiyonunu etkiler → reindex.
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 const productParam = z.object({ storeId: z.string().min(1), productId: z.string().min(1) });
@@ -100,6 +102,8 @@ export function registerCommercialRoutes(app: FastifyInstance, deps: CommercialR
       selectedVariantIds: body.selectedVariantIds,
     });
     if (!result.ok) return sendServiceError(reply, result.error);
+    // TODO-154 (ADR-079) — fiyat değişti → min/maxPrice yeniden türetilsin.
+    deps.onProductChanged?.(params.storeId, params.productId);
     return commercialApplyResponseSchema.parse({
       batchId: result.result.batchId,
       updatedVariants: result.result.updatedVariants,

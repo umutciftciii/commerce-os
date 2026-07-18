@@ -763,3 +763,19 @@ TODO-153 / ADR-078 media-defining axis (Renk-öncelikli) ile varyant galerisini 
 - Kapsam: packages/db (schema + migration 20260718170000), packages/contracts, apps/api-gateway (server.ts projeksiyon/repo/route + test), apps/store-admin-web
   (product-form + media-upload + schema + test), apps/storefront-web (catalog-types + catalog + page + buy-box + pdp-selection[yeni] + variant-gallery[yeni] +
   test), packages/i18n (storeAdmin form + errors). Bloklayıcı: HAYIR.
+
+### TODO-154 / ADR-079 — Search Read-Model Foundation (Faz 2C-8A)
+- **TD-049 — PLATFORM attribute/option global fan-out YOK.** STORE attribute/option/categoryAttribute değişimi → ilgili mağazanın `reindex-store`'u tetiklenir.
+  PLATFORM (admin) AttributeDefinition/AttributeOption label/status değişimi BİRDEN ÇOK mağazayı etkiler; otomatik fan-out bilinçli EKLENMEDİ (sınırsız cross-store
+  fan-out riski). Geçici çözüm: admin-tetikli global rebuild (`search:backfill --all`) veya etkilenen mağazaların hedefli reindex'i. Bloklayıcı: HAYIR.
+- **Kampanya-etkin fiyat facet'i YOK.** `minPriceMinor`/`maxPriceMinor` taban (liste) fiyattır; kampanya/kupon indirimli efektif fiyat aralığı read-model'e
+  yansıtılmaz (zaman-bağlı + stackable → reproject maliyeti). Fiyat facet'i P1'de taban fiyat üzerinden; kampanya-etkin fiyat Faz B+ (kampanya değişince reindex).
+- **PRE_ORDER / COMING_SOON kaynak bayrağı YOK.** `SearchAvailabilityState` enum ileriye açık ama besleyecek ürün/varyant bayrakları yok → bu faz yalnız
+  IN_STOCK/OUT_OF_STOCK üretilir. Ön-sipariş/yakında modeli ayrı faz.
+- **Kategori-hedefli reindex yerine store-batch.** Şema değişiminde (categoryAttribute/attribute) yalnız etkilenen kategorinin ürünleri yerine TÜM mağaza yeniden
+  indekslenir (`reindex-store`; provider chunk'lar → bounded ama gereğinden fazla iş). Kategori-scoped tarama (scanProductIdsByCategory) Faz B optimizasyonu.
+- **Eventual consistency + enqueue kaybı.** Emitter fire-and-forget: Redis erişilemezse reindex job'u KAYBOLUR (doküman bir sonraki değişime/backfill'e kadar bayat).
+  Checkout/fiyat/stok canlı-otoriter olduğundan satış etkilenmez; keşif yüzeyi geçici bayat kalır. Periyodik `search:backfill` reconcile eder (zamanlanmış job Faz B/E).
+- **Docker container rebuild bekliyor.** Migration dev-DB'ye deploy edildi + gerçek-PG/event-driven/backfill smoke PASS; worker+api-gateway imaj rebuild (→ 7/7)
+  deploy-checkpoint. Kapsam: packages/db (schema + migration 20260719120000), packages/contracts, packages/queues, services/search-service (yeni), apps/worker,
+  apps/api-gateway (emitter + 8 route modülü + server wiring). Bloklayıcı: HAYIR.

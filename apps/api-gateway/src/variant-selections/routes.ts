@@ -40,6 +40,8 @@ export interface VariantSelectionRoutesDeps {
     entityId?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
+  // TODO-154 (ADR-079) — varyant eksen seçimi değişince search read-model'i tetikler (opsiyonel).
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 async function sendServiceError(reply: FastifyReply, error: VariantSelectionError) {
@@ -87,6 +89,8 @@ export function registerVariantSelectionRoutes(app: FastifyInstance, deps: Varia
       entityId: params.productId,
       metadata: { count: result.selections.length },
     });
+    // TODO-154 (ADR-079) — eksen seçimi değişti → ürün dokümanı/facet'lerini yenile.
+    deps.onProductChanged?.(params.storeId, params.productId);
     return productVariantSelectionListResponseSchema.parse({
       data: result.selections.map(serializeProductVariantSelection),
     });

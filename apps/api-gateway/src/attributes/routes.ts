@@ -61,6 +61,9 @@ export interface StoreAttributeRoutesDeps {
     entityId?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
+  // TODO-154 (ADR-079) — filterable/searchable bağlama VEYA attribute/option label/status değişimi
+  // mağazadaki birçok ürünün facet/searchText'ini etkiler → kontrollü store-batch reindex (provider chunk'lar).
+  onStoreSchemaChanged?: (storeId: string) => void;
 }
 
 export interface PlatformAttributeRoutesDeps {
@@ -257,6 +260,8 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       entityId: record.id,
       metadata: { fields: Object.keys(data) },
     });
+    // TODO-154 (ADR-079) — STORE attribute adı/status değişti (searchable label / ARCHIVED) → store-batch reindex.
+    deps.onStoreSchemaChanged?.(params.storeId);
     return serializeAttributeDefinition(record);
   });
 
@@ -334,6 +339,8 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       entityId: record.id,
       metadata: { fields: Object.keys(input) },
     });
+    // TODO-154 (ADR-079) — STORE option label/status değişti → facet normalizedText/searchText etkilenir → reindex.
+    deps.onStoreSchemaChanged?.(params.storeId);
     return serializeAttributeOption(record);
   });
 
@@ -454,6 +461,8 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
         entityId: record.id,
         metadata: { categoryId: params.categoryId, attributeDefinitionId: definition.id },
       });
+      // TODO-154 (ADR-079) — filterable/searchable bağlama eklendi → store-batch reindex.
+      deps.onStoreSchemaChanged?.(params.storeId);
       return reply.code(201).send(serializeCategoryAttribute(record));
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -489,6 +498,8 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
         entityId: record.id,
         metadata: { fields: Object.keys(input) },
       });
+      // TODO-154 (ADR-079) — filterable/searchable flag değişti → store-batch reindex.
+      deps.onStoreSchemaChanged?.(params.storeId);
       return serializeCategoryAttribute(record);
     },
   );
@@ -512,6 +523,8 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
         entityType: "CategoryAttribute",
         entityId: params.categoryAttributeId,
       });
+      // TODO-154 (ADR-079) — facet/searchable bağlama kaldırıldı → store-batch reindex (stale facet temizlenir).
+      deps.onStoreSchemaChanged?.(params.storeId);
       return reply.code(204).send();
     },
   );

@@ -36,6 +36,8 @@ export interface InventoryRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<Actor | null>;
+  // TODO-154 (ADR-079) — stok apply sonrası search read-model'i tetikler (opsiyonel; fire-and-forget).
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
@@ -137,6 +139,8 @@ export function registerInventoryRoutes(app: FastifyInstance, deps: InventoryRou
       selectedVariantIds: body.selectedVariantIds,
     });
     if (!result.ok) return sendServiceError(reply, result.error);
+    // TODO-154 (ADR-079) — stok değişti → hasStock/availability yeniden türetilsin.
+    deps.onProductChanged?.(params.storeId, params.productId);
     return inventoryApplyResponseSchema.parse({
       batchId: result.result.batchId,
       updatedVariants: result.result.updatedVariants,

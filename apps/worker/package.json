@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@commerce-os/config": "workspace:*",
+    "@commerce-os/db": "workspace:*",
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/queues": "workspace:*",
+    "@commerce-os/search-service": "workspace:*",
     "bullmq": "^5.34.2"
   }
 }

@@ -233,12 +233,18 @@ importers:
       '@commerce-os/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@commerce-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@commerce-os/logger':
         specifier: workspace:*
         version: link:../../packages/logger
       '@commerce-os/queues':
         specifier: workspace:*
         version: link:../../packages/queues
+      '@commerce-os/search-service':
+        specifier: workspace:*
+        version: link:../../services/search-service
       bullmq:
         specifier: ^5.34.2
         version: 5.79.1
@@ -341,7 +347,20 @@ importers:
 
   services/notification-service: {}
 
-  services/search-service: {}
+  services/search-service:
+    dependencies:
+      '@commerce-os/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@commerce-os/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@commerce-os/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
 
   services/storefront-service: {}
 

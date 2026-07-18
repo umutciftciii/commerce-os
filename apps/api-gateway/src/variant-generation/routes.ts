@@ -26,6 +26,8 @@ export interface VariantGenerationRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<Actor | null>;
+  // TODO-154 (ADR-079) — kombinasyon üretimi varyantları değiştirir → search read-model'i tetikler.
+  onProductChanged?: (storeId: string, productId: string) => void;
 }
 
 async function sendServiceError(reply: FastifyReply, error: VariantGenerationError) {
@@ -58,6 +60,8 @@ export function registerVariantGenerationRoutes(
         productId: params.productId,
       });
       if (!result.ok) return sendServiceError(reply, result.error);
+      // TODO-154 (ADR-079) — varyantlar üretildi/arşivlendi → ürün dokümanı/facet'lerini yenile.
+      deps.onProductChanged?.(params.storeId, params.productId);
       return variantGenerationResponseSchema.parse(serializeGenerationSummary(result.summary));
     },
   );

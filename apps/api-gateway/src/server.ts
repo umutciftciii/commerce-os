@@ -219,6 +219,10 @@ import { checkDatabaseHealth, prisma, type TransactionClient } from "@commerce-o
 import { createLogger } from "@commerce-os/logger";
 import { checkRedisHealth } from "@commerce-os/queues";
 import {
+  createSearchIndexEmitter,
+  type SearchIndexEmitter,
+} from "./search-index/emitter.js";
+import {
   PAYMENT_SCENARIOS,
   PaymentConfigError,
   createDisabledHttpTransport,
@@ -1199,6 +1203,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   commercialDataAccess?: CommercialDataAccess;
   // TODO-152 (ADR-076) — Inventory Engine veri erisimi (testte in-memory enjekte edilebilir).
   inventoryDataAccess?: InventoryDataAccess;
+  // TODO-154 (ADR-079) — Search read-model reindex emitter (fire-and-forget). Varsayilan Redis-backed;
+  // testlerde no-op/recording fake enjekte edilebilir (mutation'lar reindex tetikler ama testte kuyruk yok).
+  searchIndexEmitter?: SearchIndexEmitter;
 }
 
 const paginationQuerySchema = z.object({
@@ -4062,6 +4069,9 @@ export function createServer(
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
   const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
   const customers = dependencies.customerDataAccess ?? createPrismaCustomerDataAccess();
+  // TODO-154 (ADR-079) — Search read-model reindex emitter (fire-and-forget; Redis erisilemezse mutation
+  // etkilenmez). Mutation handler'lari basarili yazimdan sonra reindex tetikler; worker asenkron isler.
+  const searchIndex = dependencies.searchIndexEmitter ?? createSearchIndexEmitter(config.REDIS_URL, logger);
   // F4A.3 (ADR-060) — Musteri kupon cuzdani veri erisimi (atama/claim/apply state).
   const wallet: WalletDataAccess = createPrismaWalletDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
@@ -5182,6 +5192,7 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    onStoreSchemaChanged: (storeId) => searchIndex.reindexStore(storeId),
   });
   registerPlatformAttributeRoutes(app, {
     dataAccess: attributeDataAccess,
@@ -5205,6 +5216,7 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // Faz 2C-1 (ADR-070) — Urun-seviyesi varyant EKSEN secimi. TUM secim yazimlarinin (gomulu
@@ -5219,6 +5231,7 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // Faz 2C-2 (ADR-071) — Combination Engine ONIZLEME (yalniz okuma; ProductVariant/SKU URETMEZ).
@@ -5249,6 +5262,7 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // TODO-150 (ADR-073) — Identity Management Engine: SKU/Barcode/Title pattern motoru (preview + apply).
@@ -5262,6 +5276,7 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // TODO-151 (ADR-074) — Commercial Engine: varyant ticari alanlari (price/compare-at/cost/VAT)
@@ -5276,6 +5291,7 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // TODO-152 (ADR-076) — Inventory Engine: varyant stogu (onHand/incoming/safetyStock/reorderPoint)
@@ -5291,6 +5307,7 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).
@@ -5956,6 +5973,8 @@ export function createServer(
       entityId: product.id,
       metadata: { fields: Object.keys(input) },
     });
+    // TODO-154 (ADR-079) — yeni urun + attribute/varyant-eksen degerleri yazildi → arama dokumanini uret.
+    searchIndex.reindexProduct(params.storeId, product.id);
     return reply.code(201).send(serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL));
   });
 
@@ -6163,6 +6182,9 @@ export function createServer(
       entityId: product.id,
       metadata: { fields: Object.keys(input) },
     });
+    // TODO-154 (ADR-079) — urun/kategori/attribute/eksen/status degisti → arama dokumanini guncelle
+    // (status ACTIVE degilse builder dokumani read-model'den kaldirir).
+    searchIndex.reindexProduct(params.storeId, product.id);
     return serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL);
   });
 
@@ -6263,6 +6285,8 @@ export function createServer(
       entityId: variant.id,
       metadata: { fields: Object.keys(input) },
     });
+    // TODO-154 (ADR-079) — yeni varyant fiyat/stok/eksen degerini etkiler → urun dokumanini yenile.
+    searchIndex.reindexProduct(params.storeId, params.productId);
     return reply.code(201).send(serializeVariant(variant));
   });
 
@@ -6372,6 +6396,8 @@ export function createServer(
       entityId: variant.id,
       metadata: { fields: Object.keys(rawInput) },
     });
+    // TODO-154 (ADR-079) — varyant fiyat/status/eksen degeri degisti → urun dokumanini yenile.
+    searchIndex.reindexProduct(params.storeId, params.productId);
     return serializeVariant(variant);
   });
 
