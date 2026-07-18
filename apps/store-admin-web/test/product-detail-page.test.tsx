@@ -23,6 +23,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       listVariants: vi.fn(),
       createVariant: vi.fn(),
       updateVariant: vi.fn(),
+      // TODO-151 — Commercial Matrix düzenleme modunda mount'ta matrisi çeker (bu testlerde boş).
+      getCommercialMatrix: vi.fn().mockResolvedValue({ rows: [] }),
     },
   };
 });

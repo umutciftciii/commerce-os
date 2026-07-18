@@ -26,6 +26,7 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       createProduct: vi.fn(),
       updateProduct: vi.fn(),
       getProductAttributeValues: vi.fn().mockResolvedValue({ data: [] }),
+      getCommercialMatrix: vi.fn().mockResolvedValue({ rows: [] }),
       getProductVariantSelections: vi.fn().mockResolvedValue({ data: [] }),
       listCategoryAttributes: vi.fn(),
       listAttributes: vi.fn(),

@@ -3341,3 +3341,43 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
 - **Kalan.** Docker rebuild + `migrate deploy` + prod-benzeri auth'lu runtime smoke (pattern preview → collision → apply → audit →
   title koruma → idempotent). **Gerçek-PG concurrency integration** (TD-044). **commit/push/PR/merge/deploy bu görevde YAPILMADI**
   (görev kuralı; final rapor sonrası durur). GTIN/ERP/Marketplace/Price/Inventory Matrix/Variant Media AYRI iş.
+
+## 2026-07-18 — Faz 2C-5: Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk pricing) (ADR-074, TODO-151)
+
+- **Kapsam.** 2C-4 Identity Engine desenini (preview-first, saf-motor/IO-ayrımı, tek transaction + advisory lock, append-only audit)
+  `ProductVariant`'ın **ticari** alanlarına taşır. Aktif: **Price · Compare-at · Cost · VAT**; salt-okunur türetilen: **Gross Profit ·
+  Margin% · Markup% · Discount%**. İki mod: direct matrix edit (hücre; autosave YOK) + structured bulk rule. Identity/combination/generation
+  DEĞİŞMEDİ; ayrı ticari katman. **"Price" = KDV DAHİL brüt satış** (`priceMinor`; checkout/storefront/order-snapshot otoritatif değeri) →
+  matris varyant-liste "Price" kolonuyla tutarlı; net/KDV apply'da `splitGrossByVat` ile türetilir (F4C üçlüsü; VAT değişiminde brüt SABİT).
+- **SAF motor** (`apps/api-gateway/src/commercial-engine/`): `types.ts` (field/operation/rounding enum + state) · `money.ts` (integer minor:
+  yüzde-bps/sabit/markup/compareAt-türetme/rounding[NONE/NEAREST/UP/DOWN + step]/price-ending[.90/.99/9.90/99.90]/overflow; float YASAK,
+  tek deterministik round) · `calculator.ts` (margin/markup/discount, division-by-zero → null) · `fingerprint.ts` (FNV-1a stale-guard;
+  girdi sırasından bağımsız) · `rule.ts` (yapısal rule normalize+validate; operation↔field↔alan uyumu; eval YOK) · `evaluator.ts` (rule/
+  direct-edit → hedef state; markup için cost yoksa RULE_SOURCE_MISSING) · `validation.ts` (blocking/warning sınıflama) · `diff-engine.ts`
+  (alan-bazlı O(n·f) diff, Map/Set; nested yok) · `preview.ts` (rows+summary+fingerprint). Hepsi Prisma/HTTP/`Date`/`Math.random` BİLMEZ.
+- **Veri modeli (additive).** `enum CommercialField (PRICE|COMPARE_AT_PRICE|COST|VAT_RATE)` + `enum CommercialChangeSource (DIRECT_EDIT|
+  BULK_RULE)` + append-only `VariantCommercialChange` (batchId gruplu; oldValue/newValue [money=minor, VAT=bps] + currency + source +
+  ruleSnapshot Json + changedByPlatformUserId scalar). Migration `20260718140000_add_commercial_engine` (2 enum + tablo + 5 index + 3 FK;
+  mevcut `ProductVariant` fiyat kolonları DEĞİŞMEZ; `ProductPriceChange` (F4B) BOZULMAZ; backfill/down YOK).
+- **Servis.** Preview yalnız-okuma + deterministik; apply **server-authoritative** (preview'i YENİDEN hesaplar) + tek `prisma.$transaction`
+  + advisory xact lock (`pg_advisory_xact_lock(hashtext(productId))`, `$executeRaw`) + **stale-preview fingerprint kontrolü** + yalnız-değişen
+  yazım (PRICE/VAT değişince net/KDV türetilir, brüt sabit) + audit batch insert. Fail-closed: blocked (negatif/overflow/invalid-VAT/currency/
+  eksik-kaynak) veya stale → hiçbir yazım (422/409). Idempotent (ikinci apply → updated=0). ARCHIVED kapsam dışı; apply status DEĞİŞTİRMEZ.
+  Warning (negatif/sıfır/yüksek marj, cost>liste, compare-at<price, eksik cost/liste, ciddi fiyat değişimi, draft/archived) apply'ı ENGELLEMEZ.
+- **API.** `GET .../commercial` (matris) + `POST .../commercial/preview` + `POST .../commercial/apply`. Rule VEYA direct-edit + selectedVariantIds
+  (tenant/scope guard: kapsam-dışı ID → COMMERCIAL_VARIANT_NOT_FOUND). Stabil hatalar PRODUCT_NOT_FOUND / COMMERCIAL_VARIANT_NOT_FOUND(404) /
+  COMMERCIAL_PREVIEW_STALE / COMMERCIAL_CONFLICT(409) / COMMERCIAL_INVALID_RULE / COMMERCIAL_SELECTION_EMPTY / COMMERCIAL_APPLY_BLOCKED(422).
+  contracts `commercial*Schema` + api-client `...commercial.{get,preview,apply}` + BFF proxy (apply CSRF'li). Identity/combination/generation BOZULMAZ.
+- **UI.** Ürün formuna **Commercial Matrix** (`useCommercialMatrix` + `commercial-matrix.tsx`; kaydedilmiş her üründe görünür — eksen
+  gerektirmez, ticari alanlar tüm varyantlar içindir): mod anahtarı (toplu kural / hücre düzenle), rule paneli (targetField/operation/amount/
+  rounding/price-ending), seçim (tümü/temizle), preview tablosu (mevcut→hedef üstü-çizili + margin/markup/discount + değişim/warning/error
+  rozetleri), özet paneli (etkilenen/aralık/ortalama-değişim/negatif-marj), apply (blocked/değişiklik-yok iken pasif). i18n tr+en (`commercialMatrix`).
+- **Testler.** api-gateway `commercial-engine.test.ts` (66: money/calculator/rule/evaluator/fingerprint/diff/preview SAF + service in-memory
+  fake [matrix/preview/apply/idempotent/stale/blocked/tenant/empty-selection/invalid-rule/VAT-gross-sabit/P2002]). Regresyon: api-gateway
+  **944/944**, store-admin **285/285**, contracts 104, api-client 23, db 16.
+- **Gate.** Prisma format/validate/generate + migration SQL + api-gateway build + store-admin `tsc --noEmit` TEMİZ + eslint + tests yeşil +
+  `git diff --check` temiz.
+- **Kalan.** Docker rebuild + `migrate deploy` + prod-benzeri auth'lu runtime smoke (matris → direct-edit preview → +%10 → margin/markup →
+  warning → blocking → apply → audit → idempotent → stale → archived exclusion). **Gerçek-PG concurrency integration** (TD-045). **commit/push/
+  PR/merge/deploy bu görevde YAPILMADI** (görev kuralı; final rapor sonrası durur). Inventory/Variant Media/currency conversion/rule persistence/
+  undo UI/scheduled pricing/1000+ row virtualization AYRI iş (TD-045).

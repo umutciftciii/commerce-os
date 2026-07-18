@@ -61,6 +61,10 @@ import type {
   IdentityApplyRequest,
   IdentityApplyResponse,
   IdentityPreviewResponse,
+  CommercialPreviewResponse,
+  CommercialPreviewRequest,
+  CommercialApplyRequest,
+  CommercialApplyResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -477,6 +481,21 @@ export const storeApi = {
     ),
   applyIdentity: (productId: string, input: IdentityApplyRequest) =>
     mutatingCall<IdentityApplyResponse>(`/api/catalog/products/${productId}/identity/apply`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-151 (ADR-074) — Commercial Engine. Matris okuma + rule/direct-edit preview (yalnız-okuma) +
+  // server-authoritative apply (stale-guard + yalnız değişen alanları tek transaction'da yazar).
+  getCommercialMatrix: (productId: string) =>
+    call<CommercialPreviewResponse>(`/api/catalog/products/${productId}/commercial`),
+  previewCommercial: (productId: string, input: CommercialPreviewRequest) =>
+    call<CommercialPreviewResponse>(`/api/catalog/products/${productId}/commercial/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyCommercial: (productId: string, input: CommercialApplyRequest) =>
+    mutatingCall<CommercialApplyResponse>(`/api/catalog/products/${productId}/commercial/apply`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

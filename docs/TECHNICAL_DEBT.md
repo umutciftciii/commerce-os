@@ -660,3 +660,25 @@
   audit → title koruma → idempotent) ayrı adım (commit/merge/deploy bu görevde YAPILMADI).
 - Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/identity-engine + variant PATCH
   (titleIsCustom), apps/store-admin-web (product form + identity/* + BFF), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-045 Faz 2C-5 Commercial Engine: bilinen sınırlar (kapsam gereği)
+- **Bağlam.** TODO-151 / ADR-074 · Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk). Aşağıdakiler bilinçli ertelendi; hiçbiri
+  bloklayıcı değildir ve additive/motor-korunarak eklenebilir.
+- Sorun 1 (gerçek-PG concurrency integration testi YOK): Advisory xact lock + stale-preview fingerprint tasarımı iki paralel apply'ı
+  serileştirir ve lost-update'i engeller; testler in-memory fake + P2002 mapping ile doğrular ama iki gerçek eşzamanlı `prisma.$transaction`
+  testi repo altyapısında yok. Merge sonrası docker/PG ortamında elle veya bir harness ile doğrulanmalı. Etki: düşük (tasarım güvenli).
+- Sorun 2 (Commercial Rule DB'de kalıcı DEĞİL): Kurallar request-scoped'tur; kayıtlı/yeniden-kullanılabilir rule preset'leri (SavedCommercialRule
+  tablosu) bu faz kapsamı dışı. `VariantCommercialChange.ruleSnapshot` uygulanan kuralı iz olarak tutar ama canlı preset yönetimi yok. Etki: düşük (UX).
+- Sorun 3 (tam Undo UI YOK): `VariantCommercialChange` batchId gruplu undo METADATA (old/new + currency) kalıcıdır ama bir batch'i geri alan
+  reverse-apply UI'si bu faz kapsamı dışı. Metadata gelecekte undo'ya yeterli. Etki: düşük.
+- Sorun 4 (1000+ satır sanal tablo YOK): Commercial Matrix DOM tablosu; 1000 satır senaryosu pure preview hesabı <200ms olsa da render'da
+  virtualization gerekebilir (bkz. final rapor performans). Bu faz gerekmedi; ihtiyaç olursa react-window benzeri eklenir. Etki: düşük.
+- Sorun 5 (currency conversion + scheduled/channel pricing YOK): Batch tek currency (karışık → CURRENCY_MISMATCH blocking); çok-para dönüşümü,
+  zamanlanmış fiyat, kanal-bazlı fiyat, kategori/vendor/brand-scoped politika bilinçli kapsam dışı. Etki: yok (kapsam).
+- Sorun 6 (approval workflow YOK): Bulk fiyat apply doğrudan uygulanır; onay akışı (maker/checker) bu faz kapsamı dışı. Etki: düşük.
+- Sorun 7 (price history reporting YOK): `VariantCommercialChange` sorgulanabilir ama admin raporu/ekranı bu fazda yok (audit veri temeli hazır). Etki: düşük.
+- Sorun 8 (runtime smoke bekliyor): Tüm gate yeşil (api-gateway 944, store-admin 285 + typecheck TEMİZ + lint + prisma format/validate/generate
+  + migration SQL); docker rebuild + `migrate deploy` + prod-benzeri auth'lu smoke (matris → direct-edit preview → +%10 → margin/markup → warning →
+  blocking → apply → audit → idempotent → stale → archived exclusion) ayrı adım (commit/merge/deploy bu görevde YAPILMADI).
+- Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/commercial-engine, apps/store-admin-web
+  (product form + commercial/* + BFF), packages/i18n. Bloklayıcı: HAYIR.

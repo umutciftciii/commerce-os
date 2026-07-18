@@ -2310,3 +2310,61 @@ sunucu-otoriter ve tek transaction olmalı.
 (deterministik değil, preview==apply garantisi yok, ERP kırılgan) · manuel tek-tek edit (ölçeklenmez) · preview'siz doğrudan apply
 (collision sürprizi, geri-dönüşü zor) · Rule'u DB'de kalıcı tutmak (bu faz kapsam dışı; pattern request-scoped) · `titleIsCustom`
 olmadan title-apply (override koruması imkânsız) · marketplace SKU'yu kanonik `sku`'ya karıştırmak (unique invariantı + ERP eşlemesi bozulur).
+
+## ADR-074 — Commercial Engine: preview-first, server-authoritative, structured bulk pricing (Price/Compare-at/Cost/VAT) (Faz 2C-5 / TODO-151)
+
+- **Durum:** Kabul edildi (2026-07-18). ADR-073 (Faz 2C-4) Identity Engine deseni (preview-first, saf-motor/IO-ayrımı, tek transaction +
+  advisory lock, append-only audit) `ProductVariant`'ın **ticari** alanlarına (fiyat/liste/maliyet/KDV) toplu yönetim getirilerek genişletildi.
+- **Bağlam.** Ticari alanlar `ProductVariant`'ta ve minor-unit integer'dır: `priceMinor` (KDV DAHİL brüt satış — otoritatif),
+  `compareAtMinor` (liste), `costMinor` (maliyet; public'e sızmaz), `netPriceMinor`/`vatRateBps`/`vatAmountMinor` (F4C KDV üçlüsü). Ürün
+  seviyesinde fiyat kolonu YOK (fallback yok). Tekil düzenleme modalı zaten var (F4B/F4C, net-anchored). Ölçekli/kural-tabanlı ticari
+  yönetim eksikti.
+
+**Kararlar.**
+1. **Neden Commercial Engine.** Tekil modal 1–N varyantı elle değiştirir; onlarca varyanta "%10 zam", "maliyet+%25 markup", "fiyat sonu
+   99,90" gibi operasyonları güvenli/önizlemeli uygulamaz. Motor: input → **server-authoritative preview** → validation → margin/kar →
+   risk tespiti → bulk apply → audit pipeline'ı.
+2. **Neden "Price" = brüt `priceMinor`.** Commercial "Price" alanı **KDV DAHİL brüt satış fiyatı**dır (varyant LİSTE görünümündeki "Price"
+   kolonuyla tutarlı; checkout/storefront/order-snapshot'un okuduğu otoritatif değer). Apply'da brüt yazılır, `netPriceMinor` =
+   `splitGrossByVat(gross, bps).net`, `vatAmountMinor` = gross − net **yeniden türetilir** (F4C üçlüsü korunur). **VAT oranı değişiminde
+   brüt SABİT kalır**, net/KDV yeniden türetilir → müşteri fiyatı asla sessizce kaymaz (bulk VAT değişiminin en güvenli davranışı). Tekil
+   modal (net-anchored) DOKUNULMAZ; iki anchoring bilinçli yan yana (modal = deliberate tekil net giriş; matris = satış-fiyatı odaklı bulk).
+3. **Neden margin/markup brüt üzerinden.** Mevcut `variants-manager.tsx` marjı brüt vs cost üzerinden gösterir → motor aynısını yapar
+   (tek marj rakamı; kullanıcı iki farklı değer görmez). Margin=(price−cost)/price, Markup=(price−cost)/cost, Discount=(compareAt−price)/
+   compareAt; sıfıra bölme null döner (yanıltıcı % yok).
+4. **Neden minor-unit integer + eval YOK.** Tüm para integer minor; yüzde işlemleri bps ile (`base×(10000±bps)/10000`, tek round) →
+   `0.1+0.2` kayan-nokta tuzağı yok. Kurallar **yapısal contract** (enum operation/field + integer value/bps); JavaScript `eval`/dynamic
+   function/serbest formül DSL YASAK (injection + deterministik-olmama + audit-edilemezlik). Gelecekte DSL eklenebilir şekilde genişletilebilir.
+5. **Neden preview-first + server-authoritative recompute.** Kullanıcı DB'ye yazmadan tüm hedef fiyatları + riskleri görür. Apply,
+   istemcinin gönderdiği hesaplanmış değerlere GÜVENMEZ; kuralı/edit'i **sunucuda advisory-lock altında yeniden değerlendirir** (preview
+   == apply garantisi).
+6. **Neden stale-preview fingerprint.** Preview, hedef varyantların güncel ticari durumundan (id+price+compareAt+cost+vatBps, kanonik
+   sırada) deterministik FNV-1a hash üretir; apply bunu taşır. Sunucu güncel değerlerle fingerprint'i yeniden hesaplar; farklıysa →
+   `COMMERCIAL_PREVIEW_STALE`, hiçbir yazım. Row-version/updatedAt yerine fingerprint: additive (yeni kolon gerektirmez), batch-seviyesi,
+   girdi sırasından bağımsız.
+7. **Neden field-level diff + changed-only writes.** Saf diff (O(n·f), Map/Set; nested karşılaştırma yok) yalnız DEĞİŞEN alanı yazıma
+   sokar → idempotent apply (ikinci aynı apply updated=0, updatedAt kaymaz), gereksiz audit yok.
+8. **Neden append-only `VariantCommercialChange`.** Alan-bazlı, batchId-gruplu, undo-hazır iz. `oldValue/newValue` money alanlarında minor,
+   VAT'ta bps; `source` (DIRECT_EDIT|BULK_RULE) + `ruleSnapshot` (Json). `changedByPlatformUserId` FK değil scalar (kullanıcı silinse iz
+   kalır). Mevcut `ProductPriceChange` (F4B) BOZULMAZ (tekil PATCH akışı onu yazmaya devam eder; Commercial Engine kendi izini yazar).
+9. **Neden apply status DEĞİŞTİRMEZ.** Commercial apply varyantı ACTIVE yapmaz; activation ayrı lifecycle kararıdır. ARCHIVED varsayılan
+   kapsam dışı (bulk apply'a girmez); DRAFT+ACTIVE görünür/düzenlenebilir. `includeArchived` gelecekte additive.
+10. **Neden inventory/currency conversion YOK.** Bu faz yalnız ticari metadata yönetimidir. Stok/rezervasyon = Faz 2C-6. Currency
+    conversion yok; batch tek currency (karışık → `COMMERCIAL_CURRENCY_MISMATCH` blocking).
+
+**Transaction/concurrency.** Apply tek `prisma.$transaction`: product/store auth → advisory xact lock (`pg_advisory_xact_lock(hashtext
+(productId))`, void → `$executeRaw` ZORUNLU; 2C-3 dersi) → authoritative read → stale-preview kontrolü → server-side rule/edit eval →
+validation → diff → changed-only update (+ net/KDV türetme) → audit batch insert. Aynı ürün için apply'lar serileşir; ikinci apply stale
+kalırsa kontrollü 409; lost update yok; P2002 → `COMMERCIAL_CONFLICT`.
+
+**Rounding stratejisi.** Pure `money.ts`: NONE/NEAREST/UP/DOWN + step (1/10/100/1000 minor) + PRICE_ENDING (`.90/.99/9.90/99.90` = modulo/
+ending; en yakın bloğa çeker, negatif üretmez). Değer-üreten opsyonlara opsiyonel son-yuvarlama; yuvarlama sonrası validation tekrar çalışır.
+
+**Warning vs blocking.** Blocking (apply reddedilir): negatif price/compare-at/cost, invalid VAT, overflow (Int32-altı tavan
+`maxMoneyMinor`), currency mismatch, eksik kural kaynağı (markup için cost yok). Warning (apply'ı ENGELLEMEZ, UI'da görünür): negatif/sıfır/
+yüksek marj, cost>liste, compare-at<price, eksik cost/liste, ciddi fiyat artış/düşüş, archived/draft.
+
+**Reddedilen alternatifler.** Her hücre değişiminde autosave (yanlış bulk yazım riski, undo zor) · float para hesabı (kayan-nokta hatası) ·
+client-calculated değerlere güven (spoof/stale) · JavaScript eval / serbest formül çalıştırma (injection, deterministik değil) · preview'siz
+bulk apply · her apply'da tüm varyantları update (updatedAt gürültüsü, audit şişer) · audit tutmamak · price apply ile varyantı ACTIVE
+yapmak · compare-at/cost'u JSON'da tutmak (indeksleme/tip güvenliği kaybı) · VAT değişiminde brütü kaydırmak (müşteri fiyatı sessizce kayar).
