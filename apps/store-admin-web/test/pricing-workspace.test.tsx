@@ -99,6 +99,7 @@ describe("Pricing workspace — terminology & layout", () => {
     const { container } = renderWorkspace();
 
     expect(await screen.findByRole("heading", { name: "Fiyatlandırma" })).toBeTruthy();
+    await screen.findByRole("table");
     // Teknik "ticari matris" dili ana UI'da GÖRÜNMEZ.
     expect(screen.queryByText(/Ticari matris/i)).toBeNull();
     // Semantik token kapsamı kök sınıfı ile açılır (hardcoded dark-only yüzey yerine).
@@ -109,6 +110,7 @@ describe("Pricing workspace — terminology & layout", () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow()]));
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const discountHeaders = screen.getAllByText("Liste fiyatına göre indirim");
     expect(discountHeaders.length).toBeGreaterThan(0);
@@ -120,6 +122,7 @@ describe("Pricing workspace — terminology & layout", () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow()]));
     const { container } = renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const tips = Array.from(container.querySelectorAll('[role="tooltip"]')).map((n) => n.textContent ?? "");
     expect(tips.some((t) => t.includes("siparişte kullanılan satış fiyatıdır"))).toBe(true);
@@ -149,6 +152,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     // Satış fiyatı hücresi gerçek bir input olarak açık.
     const priceInput = screen.getByLabelText("Siyah / M — Satış fiyatı gir");
@@ -189,6 +193,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const priceInput = screen.getByLabelText("Siyah / M — Satış fiyatı gir");
     await user.clear(priceInput);
@@ -220,6 +225,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const listInput = screen.getByLabelText("Siyah / M — Liste fiyatı gir");
     await user.type(listInput, "180");
@@ -238,6 +244,7 @@ describe("Pricing workspace — bulk operation (guided)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     await user.click(screen.getByRole("button", { name: /Toplu işlem/ }));
     // Yönlendirmeli soru + senaryolar.
@@ -272,6 +279,7 @@ describe("Pricing workspace — bulk operation (guided)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     await user.click(screen.getByRole("button", { name: /Toplu işlem/ }));
     await user.click(screen.getByRole("button", { name: /Liste fiyatı oluştur/ }));
@@ -299,6 +307,7 @@ describe("Pricing workspace — bulk operation (guided)", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     await user.click(screen.getByRole("button", { name: /Toplu işlem/ }));
     await user.click(screen.getByRole("button", { name: /KDV oranını değiştir/ }));
@@ -332,6 +341,7 @@ describe("Pricing workspace — warning / blocking UX", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const priceInput = screen.getByLabelText("Siyah / M — Satış fiyatı gir");
     await user.clear(priceInput);
@@ -365,6 +375,7 @@ describe("Pricing workspace — warning / blocking UX", () => {
     const user = userEvent.setup();
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const wInput = screen.getByLabelText("Siyah / M — Satış fiyatı gir");
     await user.clear(wInput);
@@ -396,6 +407,7 @@ describe("Pricing workspace — states & theme", () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow()]));
     const { container } = renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
+    await screen.findByRole("table");
 
     const root = container.querySelector(".pricing-workspace") as HTMLElement;
     // Başlık semantik token sınıfı kullanır, hardcoded text-white/xx DEĞİL.
@@ -407,6 +419,7 @@ describe("Pricing workspace — states & theme", () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow()]));
     renderWorkspace("en");
     expect(await screen.findByRole("heading", { name: "Pricing" })).toBeTruthy();
+    await screen.findByRole("table");
     expect(screen.getAllByText("Discount vs. list price").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Preview changes" })).toBeTruthy();
   });
