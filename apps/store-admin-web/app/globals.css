@@ -48,3 +48,62 @@ body {
     opacity: 0.35;
   }
 }
+
+/*
+ * TODO-151A (ADR-075) — Fiyatlandırma çalışma alanı SEMANTIK TOKEN katmanı.
+ *
+ * Store-admin paneli bilinçli olarak koyu-tek-temadır (yukarıdaki `color-scheme: dark`).
+ * Fiyatlandırma sekmesi ise ekrana dağılmış `text-white/xx` / `bg-white/[0.0x]` sihirli
+ * değerler yerine SEMANTIK rollere (ink / surface / line / success / warning / danger …)
+ * bağlanır. Böylece renk anlamı token'dan gelir, kontrast merkezi tanımlanır ve gerekirse
+ * `data-theme="light"` ile açık tema tek noktadan türetilir (panel geri kalanına dokunmadan).
+ * Bileşen bu değişkenleri Tailwind arbitrary-value ile tüketir: text-[color:var(--pw-ink)].
+ */
+.pricing-workspace {
+  --pw-ink: rgba(255, 255, 255, 0.92);
+  --pw-ink-muted: rgba(255, 255, 255, 0.58);
+  --pw-ink-faint: rgba(255, 255, 255, 0.34);
+  --pw-surface: rgba(255, 255, 255, 0.03);
+  --pw-surface-raised: rgba(255, 255, 255, 0.06);
+  --pw-line: rgba(255, 255, 255, 0.1);
+  --pw-line-strong: rgba(255, 255, 255, 0.16);
+  --pw-input-bg: rgba(255, 255, 255, 0.05);
+  --pw-hover: rgba(255, 255, 255, 0.08);
+  --pw-selected: rgba(99, 102, 241, 0.16);
+  --pw-accent: rgb(129, 140, 248);
+  --pw-accent-soft: rgba(99, 102, 241, 0.15);
+  --pw-success: rgb(110, 231, 183);
+  --pw-success-bg: rgba(16, 185, 129, 0.14);
+  --pw-warning: rgb(252, 211, 77);
+  --pw-warning-bg: rgba(245, 158, 11, 0.14);
+  --pw-danger: rgb(252, 165, 165);
+  --pw-danger-bg: rgba(239, 68, 68, 0.14);
+}
+
+/*
+ * Açık tema türetmesi. Bugün panelde bir tema anahtarı yok; ancak token'lar tek noktadan
+ * çevrilebilir olduğundan, üst kapsayıcıda `data-theme="light"` bulunduğunda Fiyatlandırma
+ * çalışma alanı açık ve okunabilir (AA kontrast) bir palete geçer. Test + ileride panel
+ * açık teması için hazır. `prefers-color-scheme` bilinçli olarak dışarıda: panel koyu-öncelikli.
+ */
+:root[data-theme="light"] .pricing-workspace,
+.pricing-workspace[data-theme="light"] {
+  --pw-ink: rgb(15, 23, 42);
+  --pw-ink-muted: rgb(71, 85, 105);
+  --pw-ink-faint: rgb(100, 116, 139);
+  --pw-surface: rgb(255, 255, 255);
+  --pw-surface-raised: rgb(248, 250, 252);
+  --pw-line: rgb(226, 232, 240);
+  --pw-line-strong: rgb(203, 213, 225);
+  --pw-input-bg: rgb(255, 255, 255);
+  --pw-hover: rgb(241, 245, 249);
+  --pw-selected: rgba(99, 102, 241, 0.1);
+  --pw-accent: rgb(79, 70, 229);
+  --pw-accent-soft: rgba(99, 102, 241, 0.1);
+  --pw-success: rgb(4, 120, 87);
+  --pw-success-bg: rgba(16, 185, 129, 0.12);
+  --pw-warning: rgb(180, 83, 9);
+  --pw-warning-bg: rgba(245, 158, 11, 0.14);
+  --pw-danger: rgb(185, 28, 28);
+  --pw-danger-bg: rgba(239, 68, 68, 0.1);
+}

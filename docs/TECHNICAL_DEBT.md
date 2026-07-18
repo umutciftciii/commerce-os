@@ -682,3 +682,24 @@
   blocking → apply → audit → idempotent → stale → archived exclusion) ayrı adım (commit/merge/deploy bu görevde YAPILMADI).
 - Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/commercial-engine, apps/store-admin-web
   (product form + commercial/* + BFF), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-046 Faz 2C-5A Commercial UX Refinement: bilinen sınırlar (kapsam gereği)
+
+TODO-151A / ADR-075 yalnız Store Admin UX'i yeniden tasarladı; Commercial Engine ve API kontratı değişmedi. Bilinen sınırlar:
+- Sorun 1 (panelde light/dark toggle YOK; açık tema türetmesi "hazır" ama bağlı değil): Store-admin bilinçli koyu-tek-temadır (globals.css
+  `color-scheme: dark`; paylaşılan @commerce-os/ui light-first ve dokunulmaz). Pricing workspace semantik token'lara bağlandı ve
+  `[data-theme="light"]` override'ı tanımlı; ancak paneli açık temaya geçiren bir anahtar yok. Panel geneli light/dark AYRI iş. Etki: düşük.
+- Sorun 2 (1440px+ per-tab breakout YOK): Pricing tab sayfa içerik genişliğinin tamamını (shell `max-w-6xl`) kullanır; shell'in global kapağını
+  yalnız bu sekme için aşan bir breakout kırılganlık/tutarsızlık nedeniyle YAPILMADI. Çok geniş ekranlarda panelin tüm sayfalarıyla aynı mütevazı
+  gutter kalır. Çözüm: shell içerik sarmalayıcısına route-bazlı genişlik varyantı (ör. `data-wide`) eklemek. Etki: düşük (kozmetik).
+- Sorun 3 (eski `commercialMatrix` i18n bloğu korundu): `products.commercialMatrix` sözlüğü, statusLabels/vatOptions/rounding/priceEnding gibi
+  paylaşılan enum etiketlerini yeniden kullanmak için canlı tutuldu (Pricing bloğu bunlara referans verir). Tümüyle `pricing`'e taşımak ileride
+  temizlenebilir. Etki: yok (ölü metin değil, aktif referans).
+- Sorun 4 (sekme geçişinde Genel formun kaydedilmemiş değişiklikleri korunmaz): Aktif olmayan sekme unmount edilir (test netliği + basitlik);
+  autosave yasak olduğundan sekme değiştirince Genel formdaki kaydedilmemiş düzenlemeler kaybolur. Tab-değişiminde "kaydedilmemiş değişiklik"
+  uyarısı ileride eklenebilir. Etki: düşük.
+- Sorun 5 (runtime görsel smoke bekliyor): store-admin typecheck+lint+build+305 test yeşil; docker rebuild + auth'lu görsel smoke (Pricing tab
+  light/dark, Hızlı düzenleme, Toplu işlem, preview özeti, warning/blocking, apply success, 1440/tablet/mobile) ayrı adım. Auth'lu piksel-smoke
+  bu ortamda credential/SESSION_SECRET forge engeli nedeniyle yapılamaz (F3 dersleriyle aynı).
+- Kapsam: apps/store-admin-web (products/[id] + products/pricing/* [yeni] + commercial/use-commercial-matrix.ts [hook] + product-form.tsx +
+  globals.css + testler), packages/i18n (products.pricing + detail.tabs). Silinen: commercial/commercial-matrix.tsx. Bloklayıcı: HAYIR.

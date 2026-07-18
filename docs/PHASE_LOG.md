@@ -3381,3 +3381,35 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   warning → blocking → apply → audit → idempotent → stale → archived exclusion). **Gerçek-PG concurrency integration** (TD-045). **commit/push/
   PR/merge/deploy bu görevde YAPILMADI** (görev kuralı; final rapor sonrası durur). Inventory/Variant Media/currency conversion/rule persistence/
   undo UI/scheduled pricing/1000+ row virtualization AYRI iş (TD-045).
+
+## 2026-07-18 — Faz 2C-5A: Commercial UX Refinement — tam genişlik Fiyatlandırma sekmesi + yönlendirmeli ticari UX (ADR-075, TODO-151A)
+
+- **Kapsam.** YALNIZ Store Admin UX. Faz 2C-5 Commercial Engine (money/calculator/margin/markup/discount/fingerprint/stale-guard/diff/
+  transaction/advisory-lock/audit/tenant/net-KDV türetme/changed-only yazım) ve API kontratı (`commercial*Schema`, `.../commercial{,/preview,
+  /apply}`) **DEĞİŞMEDİ**. Amaç: ADR-074'te ürün formunun içinde küçük gömülü bir kart olan (yatay scroll üreten, sıkışık) Commercial Matrix'i
+  bağımsız, tam genişlik, anlaşılır bir çalışma alanına dönüştürmek.
+- **Bağımsız Pricing tab.** `products/[id]/page.tsx` iki sekmeye geçti (Genel · Fiyatlandırma). Ticari alan Genel formdan çıkarıldı; sekmeler
+  koşullu render (aktif olmayan unmount → içerik yalnız kendi sekmesinde DOM'da). Ürün-kaydet aksiyonu yalnız Genel sekmede. Eski
+  `products/commercial/commercial-matrix.tsx` SİLİNDİ.
+- **Yeni workspace** (`products/pricing/`): `pricing-workspace.tsx` (KPI kartları [varyant/min/maks/ort. fiyat/ort. marj/eksik maliyet] ·
+  **Hızlı düzenleme**[varsayılan, hücre-hücre input] vs **Toplu işlem**[yönlendirmeli] mod anahtarı · tam genişlik tablo · alan-bazlı preview
+  özeti [tek varyant → alan kırılımı; çoklu → toplu istatistik] · old→new gösterim [üstü çizili eski + ok + vurgulu yeni] · seçim araç çubuğu
+  [tümü/aktif/temizle/sayaç] · insan-dostu uyarı/engelleyici paneli [ikon+başlık+metin, ham kod yalnız "Teknik detay"] · loading/empty/
+  allArchived/noSelection/noChanges/loadError/stale/success state) · `guided-operations.ts` (8 senaryo → [targetField,operation] eşlemesi;
+  motor değişmeden) · `pricing-tokens.ts` (semantik token sınıfları).
+- **Hook** (`products/commercial/use-commercial-matrix.ts` KORUNDU): varsayılan mod `rule`→`direct` (Hızlı düzenleme varsayılan); `setSelection`
+  helper eklendi ("yalnız aktif varyantlar"). İkisi de motor/kontrat davranışını etkilemez.
+- **Dil.** "Ticari matris"/"İndirim" teknik/yanıltıcı ifadeler UI'dan kaldırıldı → "Fiyatlandırma" / "Liste fiyatına göre indirim" + kolon
+  tooltip'leri + insan-dostu hata mesajları (`issueMessages`). i18n tr+en `products.pricing` (~150 anahtar) + `products.detail.tabs`; EN yapısal
+  olarak TR ile eşleşir (i18n build yeşil).
+- **Tema.** globals.css `.pricing-workspace` semantik token katmanı (ink/surface/line/input/hover/selected/success/warning/danger/accent);
+  renk anlamı token'dan gelir, ikon+başlık+metin ile eşlenir; `[data-theme="light"]` açık tema türetmesi hazır. Panel geneli bilinçli koyu-tek-
+  tema kalır; paylaşılan @commerce-os/ui'ye dokunulmadı.
+- **Testler.** store-admin `pricing-workspace.test.tsx` (14: terminoloji/tooltip · quick edit default+preview+apply · alan-bazlı özet ·
+  guided bulk [selection required, create-list-price kontrat eşlemesi, VAT] · warning/blocking humanize · empty/loadError/tema/EN) +
+  `guided-operations.test.ts` (4) + `product-detail-page.test.tsx` +2 sekme testi. Regresyon: store-admin **305/305**, i18n 47.
+- **Gate.** store-admin `tsc --noEmit` TEMİZ + eslint TEMİZ + `next build` başarılı + `git diff --check` temiz. Prisma/backend değişmedi.
+- **Kalan.** Docker rebuild + auth'lu görsel runtime smoke (Pricing tab light/dark, Hızlı düzenleme untouched/changed, Toplu işlem operation
+  seçimi + liste fiyatı oluşturma, preview özeti, warning/blocking, apply success, 1440/tablet/mobile) — screenshot checklist final raporda.
+  **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı). TD-046 (light/dark toggle · 1440px+ breakout · eski commercialMatrix
+  bloğu · tab-değişimi unsaved uyarısı). Backend engine/DB/API/checkout/storefront/inventory KAPSAM DIŞI.

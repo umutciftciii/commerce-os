@@ -58,6 +58,8 @@ export interface CommercialMatrixController {
   toggleSelect: (variantId: string) => void;
   selectAll: () => void;
   clearSelection: () => void;
+  /** Seçimi verilen kümeye ayarlar (ör. "yalnız aktif varyantlar"). */
+  setSelection: (variantIds: string[]) => void;
 
   // Direct edit taslağı
   drafts: Map<string, DraftCells>;
@@ -117,7 +119,8 @@ export function useCommercialMatrix(productId: string | null): CommercialMatrixC
   const [matrixError, setMatrixError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
-  const [mode, setMode] = useState<PanelMode>("rule");
+  // TODO-151A — Varsayılan mod "Hızlı düzenleme" (direct); günlük kullanıcı için en kolay akış.
+  const [mode, setMode] = useState<PanelMode>("direct");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Map<string, DraftCells>>(new Map());
   const [ruleForm, setRuleFormState] = useState<RuleFormState>(DEFAULT_RULE);
@@ -174,6 +177,10 @@ export function useCommercialMatrix(productId: string | null): CommercialMatrixC
   }, [matrix]);
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
+    setPreview(null);
+  }, []);
+  const setSelection = useCallback((variantIds: string[]) => {
+    setSelectedIds(new Set(variantIds));
     setPreview(null);
   }, []);
 
@@ -346,6 +353,7 @@ export function useCommercialMatrix(productId: string | null): CommercialMatrixC
     toggleSelect,
     selectAll,
     clearSelection,
+    setSelection,
     drafts,
     setCell,
     hasDraft,
