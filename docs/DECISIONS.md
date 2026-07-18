@@ -2514,3 +2514,53 @@ fazda warehouse-aware yeniden yazmak (kapsam patlaması + overselling riski).
 global ekranı salt legacy liste bırakmak (iki UX sürer) · lowStockThreshold kolonunu drop etmek (destructive; additive felsefeye aykırı) · eşiği backfill
 etmeden kaldırmak (mevcut kritik-stok sinyali kaybı) · global matris için legacy `listInventory`'yi genişletmek (motor durum paritesi + depo boyutu yok) ·
 durum/satılabilir'i istemcide yeniden hesaplamak (SAF motor tek kaynak olmalı).
+
+## ADR-078 — Variant Media Engine: Media-Defining Axis (Renk-öncelikli) ile varyant galerisi türetme (Faz 2C-7 / TODO-153)
+
+- **Durum:** Kabul edildi (2026-07-18, mimari onay; kod YOK). Media altyapısı (ADR-065) ve normalize varyant eksen çözümü
+  (`ProductVariantOptionValue`, ADR-072) üzerine kurulur; **mevcut ürün galerisi davranışı DEĞİŞMEZ** (additive). Detaylı analiz:
+  `docs/analysis/TODO-153-variant-media-engine.md`.
+- **Bağlam.** Bugün media **ürün-scoped**'tur (`ProductImage(productId, mediaId, position)`); `ProductVariant`'ın hiçbir media ilişkisi
+  yoktur; PDP'de `BuyBox` (seçili varyant) ve `ProductGallery` (seçili görsel) **izole kardeş adalardır** (paylaşılan state yok → varyant
+  seçmek görseli değiştirmez); public varyant DTO'su **düz**tür (tek `title`, eksen ayrışması yok). Renk `AttributeOption.colorHex`'te yaşar,
+  görsel alanı yoktur. Amaç: mevcut mimariyi bozmadan varyant-farkındalıklı, geriye-uyumlu, additive, media-türünden bağımsız bir motor.
+- **Referans.** Amazon "variation theme" (görseller tek eksene = genelde Renk gruplanır; Size görseli değiştirmez) · Shopify (havuz + varyant→görsel
+  işaretçisi, geriye-uyumlu) · commercetools (per-variant `images[]`, en esnek ama Size×Color patlaması). Seçim: Amazon modeli — bu platformun
+  normalize eksen çözümüne birebir oturur, patlamayı önler, havuzu ve backward-compat'ı korur.
+
+**Kararlar.**
+1. **Media-defining axis (tek media-tanımlayıcı eksen, öncelikle Renk).** Ürün için görseli belirleyen **tek** eksen seçilir
+   (`Product.mediaDefiningAttributeId`, null = klasik ürün galerisi). Görseller bu eksenin bir option değerine (Renk) etiketlenir; **varyant galerisi
+   türetilir** = (varyantın o eksendeki `optionId`'sine etiketli görseller) + (etiketsiz paylaşılan görseller). Böylece "her varyantın kendi galerisi"
+   renkten türeyerek karşılanır; Size gibi diğer eksenler galeriyi değiştirmez (kombinatoryal patlama YOK; merchant kırmızıyı bir kez yükler).
+2. **Granülerlik = eksen-değeri; per-SKU/hibrit bu fazda UYGULANMAZ.** Bireysel-varyant (commercetools) reddedildi (SKU başına tekrar + admin yükü +
+   merchant zihin modeliyle uyumsuz). Mimari, ileride ihtiyaç doğarsa per-SKU override/hibrit'e **additive** genişletilebilir tutulur; ama bu fazda
+   fazladan karmaşıklık eklenmez.
+3. **Şema = `ProductImage` üzerinde nullable sütun; ilişki soyutlaması zorunlu.** `ProductImage.optionId` + `ProductImage.attributeDefinitionId`
+   (nullable) + `Product.mediaDefiningAttributeId` (nullable). 1 görsel → en fazla 1 option (%95 senaryo); **sıfır ekstra sorgu** (mevcut
+   `listProductImages` aynı satırı okur), tam additive, backfill yok. **Servis/repo katmanı ilişki soyutlamasıyla yazılır**: gelecekte çoklu-option
+   veya çoklu-eksen için `ProductImageOption` join tablosuna geçiş **yalnız persistence** katmanını değiştirsin; iş kuralları (gruplama, primary çözümü,
+   paylaşılan fallback) değişmesin. Bu fazda gereksiz esneklik (join tablo) eklenmez.
+4. **Media-agnostic motor; video/360/3D/AR bu faz KAPSAM DIŞI.** Assoc/gruplama katmanı `MediaAsset` türünden bağımsız kurulur (görsel varsayımı
+   iş kuralına gömülmez). `mediaKind` enum, video upload/encoding, streaming ve storefront `<video>`/3D oynatma **ertelenir** (ayrı Epic/Faz F5); ileride
+   additive eklenir.
+5. **Primary image = grup-içi `position=0`.** Mevcut `position` semantiği yeniden kullanılır (ek alan yok). Gruba göre en düşük position birincil görsel.
+6. **Backward compatibility birinci sınıf.** `mediaDefiningAttributeId=null` → tüm görseller etiketsiz → tek grup → **bugünkü ürün galerisi davranışının
+   birebir aynısı**. Mevcut `ProductImage` satırları dokunulmaz; migration yalnız `ADD COLUMN` (nullable) + index.
+7. **Public allowlist korunur.** `publicProductImageSchema += variantOptionId: string|null` ve `publicProductVariantSchema += mediaOptionId: string|null`
+   (yalnız option id'leri; `mediaId/storageKey/checksum` asla sızmaz). Varyant `mediaOptionId`'si `ProductVariantOptionValue`'dan türetilir. Client görselleri
+   `mediaOptionId`'ye göre gruplar.
+8. **PDP state lift + SSR default grup.** `BuyBox` ile `ProductGallery` küçük bir client wrapper altında **seçili-varyant state**'i paylaşır; varyant
+   değişince galeri anında filtrelenir. SSR ilk render varsayılan (en ucuz) varyantın renk grubuyla yapılır → layout shift yok, hydration öncesi doğru kapak.
+9. **onDelete: Restrict (option/definition).** MEDIA_IN_USE deseniyle tutarlı; kullanımdaki bir rengin silinmesi engellenir. MEDIA_IN_USE guard'ı
+   değişmez (media hâlâ `ProductImage` üzerinden sayılır).
+
+**Fazlar.** F0 analiz+ADR (kod yok) · F1 additive migration + server doğrulama · F2 API backend (admin projeksiyon + public DTO + `assertMediaAttachable`
+genişletme) · F3 admin UI (eksen wiring + renk etiketleme + gruplu galeri) · F4 storefront (state lift + reaktif galeri + SSR + docker rebuild/smoke) ·
+F5 (ertelenmiş) video/360/3D/AR. Her faz: rebuild + runtime smoke + backward-compat regresyon.
+
+**Reddedilen alternatifler.** Per-variant `images[]` / per-SKU media (commercetools; Size×Color tekrar + admin yükü) · bu fazda join tablo (`ProductImageOption`)
+kurmak (gereksiz esneklik; sütun %95 senaryoyu karşılar) · `mediaDefiningAttributeId` yerine görseli her varyanta tek tek bağlamak · `VariantAttributeValue`'ya
+IMAGE dataType eklemek (şema kasıtlı dışlıyor; galeri/sıralama/primary semantiği taşımaz) · public DTO'ya `mediaId/storageKey` eklemek (allowlist ihlali) ·
+storefront'ta görseli varyant değişince client-fetch ile getirmek (mevcut batched projeksiyon yeterli, ekstra RTT) · video/3D'yi bu faza sıkıştırmak (kapsam
+patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırlarını backfill/migrate etmek (destructive; additive felsefeye aykırı).

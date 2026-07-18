@@ -277,6 +277,49 @@ describe("catalog contracts", () => {
     expect(() => productUpdateRequestSchema.parse({})).toThrow();
   });
 
+  it("ADR-078 Faz 2C-7: product update accepts imageBindings + mediaDefiningAttributeId (tek alan yeterli)", () => {
+    const parsed = productUpdateRequestSchema.parse({
+      mediaDefiningAttributeId: "attr_color",
+      imageBindings: [
+        { mediaId: "m1", optionId: "opt_red" },
+        { mediaId: "m2", optionId: null },
+        { mediaId: "m3" },
+      ],
+    });
+    expect(parsed.mediaDefiningAttributeId).toBe("attr_color");
+    expect(parsed.imageBindings).toEqual([
+      { mediaId: "m1", optionId: "opt_red" },
+      { mediaId: "m2", optionId: null },
+      { mediaId: "m3" },
+    ]);
+    // null = klasik moda don (gecerli tek alan).
+    expect(productUpdateRequestSchema.parse({ mediaDefiningAttributeId: null }).mediaDefiningAttributeId).toBeNull();
+  });
+
+  it("ADR-078 Faz 2C-7: imageBindings duplicate mediaId reddedilir (DUPLICATE_IMAGE)", () => {
+    const result = productUpdateRequestSchema.safeParse({
+      imageBindings: [
+        { mediaId: "m1", optionId: "opt_red" },
+        { mediaId: "m1", optionId: null },
+      ],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message === "DUPLICATE_IMAGE")).toBe(true);
+    }
+  });
+
+  it("ADR-078 Faz 2C-7: public variant/image/product media alanlari default(null) (allowlist-guvenli)", () => {
+    // publicProductImageSchema.variantOptionId default null; verilirse tasinir.
+    expect(publicProductImageSchema.parse({ url: "/media/x.webp", altText: null, position: 0 }).variantOptionId).toBeNull();
+    expect(
+      publicProductImageSchema.parse({ url: "/media/x.webp", altText: null, position: 0, variantOptionId: "opt_red" })
+        .variantOptionId,
+    ).toBe("opt_red");
+    // publicProductSchema.mediaDefiningAttributeId default null.
+    expect(publicProductSchema.parse(basePublicProduct).mediaDefiningAttributeId).toBeNull();
+  });
+
   // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari contract kablolamasi.
   it("ADR-065 Faz 2/Dilim 4: store settings response allows all-null media (nullable)", () => {
     const allNull = storeSettingsSchema.parse({
@@ -358,9 +401,10 @@ describe("catalog contracts", () => {
         { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1 },
       ],
     });
+    // Faz 2C-7 (ADR-078) — optionId default(null) eklenir (etiketsiz = paylasilan).
     expect(withImages.images).toEqual([
-      { mediaId: "m1", url: "/media/stores/store_1/products/a.webp", altText: null, position: 0 },
-      { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1 },
+      { mediaId: "m1", url: "/media/stores/store_1/products/a.webp", altText: null, position: 0, optionId: null },
+      { mediaId: "m2", url: "/media/stores/store_1/products/b.webp", altText: "alt", position: 1, optionId: null },
     ]);
   });
 
@@ -394,7 +438,13 @@ describe("catalog contracts", () => {
       storageKey: "stores/store_1/products/a.webp",
       checksum: "deadbeef",
     } as Record<string, unknown>);
-    expect(parsed).toEqual({ url: "/media/stores/store_1/products/a.webp", altText: "Kapak", position: 0 });
+    // Faz 2C-7 (ADR-078) — variantOptionId (option id; media ic alani DEGIL) allowlist'te, default null.
+    expect(parsed).toEqual({
+      url: "/media/stores/store_1/products/a.webp",
+      altText: "Kapak",
+      position: 0,
+      variantOptionId: null,
+    });
     expect(parsed).not.toHaveProperty("mediaId");
     expect(parsed).not.toHaveProperty("storageKey");
     expect(parsed).not.toHaveProperty("checksum");
@@ -417,7 +467,7 @@ describe("catalog contracts", () => {
       ],
     } as Record<string, unknown>);
     expect(withImages.images).toEqual([
-      { url: "/media/stores/store_1/products/cover.webp", altText: null, position: 0 },
+      { url: "/media/stores/store_1/products/cover.webp", altText: null, position: 0, variantOptionId: null },
     ]);
     expect(JSON.stringify(withImages)).not.toContain("mediaId");
     expect(JSON.stringify(withImages)).not.toContain("storageKey");
@@ -438,7 +488,12 @@ describe("catalog contracts", () => {
       ],
     } as Record<string, unknown>);
     expect(detail.images).toHaveLength(2);
-    expect(detail.images[0]).toEqual({ url: "/media/stores/store_1/products/a.webp", altText: "A", position: 0 });
+    expect(detail.images[0]).toEqual({
+      url: "/media/stores/store_1/products/a.webp",
+      altText: "A",
+      position: 0,
+      variantOptionId: null,
+    });
     expect(JSON.stringify(detail.images)).not.toContain("mediaId");
   });
 

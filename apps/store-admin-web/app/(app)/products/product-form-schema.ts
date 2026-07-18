@@ -60,6 +60,9 @@ export interface ProductFormValues {
   attributes: AttributeValueMap;
   // Faz 2C-1 (ADR-070) — varyant EKSEN seçimi (attributeDefinitionId → {enabled, optionIds}).
   variantSelections: VariantSelectionMap;
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Görselleri gruplayan media-tanımlayıcı eksen
+  // (Renk); null = klasik galeri. Yalnız SELECT/COLOR variant ekseni seçilebilir.
+  mediaDefiningAttributeId: string | null;
 }
 
 /** Çekirdek doğrulama mesajları (i18n'den enjekte edilir). */
@@ -245,10 +248,18 @@ export function buildDefaultValues(mode: "create" | "edit", product?: Product): 
     shippingDesi: initial?.shippingDesi != null ? String(initial.shippingDesi) : "",
     images:
       mode === "edit" && initial?.images
-        ? initial.images.map((image) => ({ id: image.mediaId, url: image.url, altText: image.altText }))
+        ? initial.images.map((image) => ({
+            id: image.mediaId,
+            url: image.url,
+            altText: image.altText,
+            // Faz 2C-7 (ADR-078) — mevcut Renk etiketini round-trip'le (null = paylaşılan).
+            optionId: image.optionId ?? null,
+          }))
         : [],
     attributes: {},
     variantSelections: {},
+    // Faz 2C-7 (ADR-078) — mevcut media-tanımlayıcı ekseni round-trip'le (null = klasik).
+    mediaDefiningAttributeId: initial?.mediaDefiningAttributeId ?? null,
   };
 }
 
@@ -302,7 +313,11 @@ export function buildUpdatePayload(
     description: values.description.trim() === "" ? null : values.description.trim(),
     categoryIds: values.categoryIds,
     primaryCategoryId: values.primaryCategoryId,
-    imageMediaIds: values.images.map((item) => item.id),
+    // Faz 2C-7 (ADR-078) — imageMediaIds yerine etiketli imageBindings (sıralı, kapak=index 0).
+    // optionId null = "Tüm varyantlar". Klasik galeride (eksen yok) tümü null → eski davranış.
+    imageBindings: values.images.map((item) => ({ mediaId: item.id, optionId: item.optionId ?? null })),
+    // media-tanımlayıcı eksen (null = klasik moda dön). Round-trip'lendiği için her kayıtta güvenli.
+    mediaDefiningAttributeId: values.mediaDefiningAttributeId,
     ...salesFields(values),
     ...shippingFields(values),
   };

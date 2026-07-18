@@ -262,7 +262,12 @@ describe("storefront resolver · product detail", () => {
     const result = await getStorefrontProductByHandle("demo-hoodie");
     if (!result.ok || result.data === null) throw new Error("expected detail");
     expect(result.data.images).toHaveLength(3);
-    expect(result.data.images[0]).toEqual({ url: "/media/stores/s1/products/a.webp", altText: "A" });
+    // Faz 2C-7 (ADR-078) — image DTO'sunda variantOptionId (null = paylasilan) da tasinir.
+    expect(result.data.images[0]).toEqual({
+      url: "/media/stores/s1/products/a.webp",
+      altText: "A",
+      variantOptionId: null,
+    });
     expect(result.data.coverUrl).toBe("/media/stores/s1/products/a.webp");
   });
 

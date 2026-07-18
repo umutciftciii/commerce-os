@@ -352,16 +352,32 @@ type ProductRecord = Pick<
   | "shippingDesi"
   // Faz 1A (ADR-067) — ana kategori (admin projeksiyonunda doner; public'te turer).
   | "primaryCategoryId"
+  // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (Renk); null = klasik galeri.
+  | "mediaDefiningAttributeId"
   | "createdAt"
   | "updatedAt"
 > & { categoryIds: string[]; images: ProductImageRecord[] };
 // ADR-065 (Faz 2/Dilim 2) — galeri ogesinin ham hali (storageKey tasinir, url
 // serializeProduct'ta baseUrl ile turetilir). Liste yolunda [] kalir (hafif select).
+// Faz 2C-7 (ADR-078) — optionId: bu gorselin media-tanimlayici eksen (Renk) etiketi;
+// null = "Tum varyantlar" (paylasilan). Admin+public projeksiyonda tasinir.
 type ProductImageRecord = {
   mediaId: string;
   position: number;
   storageKey: string;
   altText: string | null;
+  optionId: string | null;
+};
+// Faz 2C-7 (ADR-078) — galeri YAZMA birimi (soyutlama). Servis/route bu "binding" ile
+// calisir: mediaId + media-tanimlayici eksen etiketi (optionId + o eksenin definition id'si;
+// ikisi de null = "Tum varyantlar"/paylasilan). Persistence bugun bu binding'i
+// ProductImage.optionId/attributeDefinitionId KOLONLARINA yazar; ileride ProductImageOption
+// join tablosuna gecerken YALNIZ updateProductImages persistence'i degisir — is kurallari
+// (siralama, etiket cozumu, dogrulama) route'ta ayni kalir.
+type ProductImageBinding = {
+  mediaId: string;
+  optionId: string | null;
+  attributeDefinitionId: string | null;
 };
 type VariantRecord = Pick<
   ProductVariant,
@@ -717,6 +733,26 @@ export interface AppDataAccess extends CampaignDataAccess {
     storeId: string,
     mediaId: string,
   ): Promise<{ id: string; context: string } | null>;
+  // Faz 2C-7 (ADR-078) — media-tanimlayici eksen aday dogrulamasi. Verilen attributeDefinitionId
+  // BU urunun variant-defining ekseni mi (ProductVariantAttribute) + tanim tenant-scoped mi?
+  // Uygunsa dataType doner (route SELECT/COLOR kontrol eder), degilse null. Cross-tenant/eksen-degil reddi.
+  findProductMediaAxisCandidate(
+    storeId: string,
+    productId: string,
+    attributeDefinitionId: string,
+  ): Promise<{ dataType: string } | null>;
+  // Faz 2C-7 (ADR-078) — verilen option id'lerin (tekil) hangi eksene ait oldugunu doner
+  // (optionId -> attributeDefinitionId), yalniz tenant-guvenli (PLATFORM veya bu store) satirlar.
+  // Route her gorsel etiketinin media-eksenine aitligini + gecerliligini bununla dogrular.
+  findAttributeOptionAxes(storeId: string, optionIds: string[]): Promise<Map<string, string>>;
+  // Faz 2C-7 (ADR-078) — TEK batched sorgu (N+1 yok): bu urunun varyantlarinin verilen
+  // media-tanimlayici eksendeki (Renk) cozulmus option degeri (variantId -> optionId).
+  // Yalniz public DETAY ucunda cagrilir; liste ucu cagirmaz (PLP sorgu sayisi degismez).
+  resolveVariantMediaOptions(
+    storeId: string,
+    productId: string,
+    attributeDefinitionId: string,
+  ): Promise<Map<string, string>>;
   createCategory(
     storeId: string,
     input: {
@@ -793,6 +829,8 @@ export interface AppDataAccess extends CampaignDataAccess {
       // Faz 1A (ADR-067) — route'ta normalize edilmis ana kategori (assignments'tan biri
       // veya null). Data-access dogrudan yazar; tutarlilik guard'i route katmanindadir.
       primaryCategoryId?: string | null;
+      // Faz 2C-7 (ADR-078) — route'ta dogrulanmis media-tanimlayici eksen (veya null).
+      mediaDefiningAttributeId?: string | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
     },
@@ -827,17 +865,22 @@ export interface AppDataAccess extends CampaignDataAccess {
       // Faz 1A (ADR-067) — undefined = dokunma; string/null = route'ta normalize edilmis
       // ana kategori. Assignment + primary yazimi ayni transaction icinde yapilir.
       primaryCategoryId?: string | null;
+      // Faz 2C-7 (ADR-078) — undefined = dokunma; null = klasik moda don; string = route'ta
+      // dogrulanmis media-tanimlayici eksen.
+      mediaDefiningAttributeId?: string | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
     },
   ): Promise<ProductRecord | null>;
-  // ADR-065 (Faz 2/Dilim 2) — urun galerisini verilen sirali mediaId listesine
-  // gore diff'ler (ekle/cikar/reorder tek transaction). [] = tam temizlik.
-  // position = dizideki index (kapak = index 0). Product bulunamazsa null.
+  // ADR-065 (Faz 2/Dilim 2) — urun galerisini verilen sirali binding listesine gore diff'ler
+  // (ekle/cikar/reorder/yeniden-etiketle tek transaction). [] = tam temizlik. position = dizideki
+  // index (kapak = index 0). Product bulunamazsa null. Faz 2C-7 (ADR-078): binding media-tanimlayici
+  // eksen etiketini (optionId + attributeDefinitionId) tasir; persistence kolonlara yazar. Tenant/
+  // eksen/option dogrulamasi route katmanindadir (bu fonksiyon yalniz kalicilik).
   updateProductImages(
     storeId: string,
     productId: string,
-    orderedMediaIds: string[],
+    orderedImages: ProductImageBinding[],
   ): Promise<ProductRecord | null>;
   listVariants(
     storeId: string,
@@ -1344,6 +1387,8 @@ function serializeProduct(product: ProductRecord, baseUrl?: string) {
     inquiryFormTitle: product.inquiryFormTitle ?? null,
     appointmentNote: product.appointmentNote ?? null,
     categoryIds: product.categoryIds,
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (Renk); null = klasik galeri.
+    mediaDefiningAttributeId: product.mediaDefiningAttributeId ?? null,
     // ADR-065 (Faz 2/Dilim 2) — position ASC sirali galeri; url storageKey'den
     // runtime'da turetilir. Liste yolunda images bos gelir (hafif select).
     images: product.images.map((image) => ({
@@ -1351,6 +1396,8 @@ function serializeProduct(product: ProductRecord, baseUrl?: string) {
       url: resolveMediaUrl(baseUrl, image.storageKey),
       altText: image.altText,
       position: image.position,
+      // Faz 2C-7 (ADR-078) — galeri ogesinin Renk etiketi (admin UI gruplama).
+      optionId: image.optionId ?? null,
     })),
     // F3C.2 — Decimal -> number (sema number bekler).
     shippingWeightKg: decimalToNumber(product.shippingWeightKg),
@@ -1622,6 +1669,9 @@ function buildPublicVariant(
   variant: VariantRecord,
   stockByVariantId: Map<string, number>,
   lowestByVariantId: Map<string, number> = new Map(),
+  // Faz 2C-7 (ADR-078) — variantId -> media-tanimlayici eksen (Renk) option id'si.
+  // Yalniz detay ucunda dolu; liste ucunda bos (PLP gorseli degistirmez, sorgu artmaz).
+  mediaOptionByVariantId: Map<string, string> = new Map(),
 ) {
   const visible = isPublicPriceVisible(product.priceVisibility);
   const available = stockByVariantId.has(variant.id) ? stockByVariantId.get(variant.id)! : null;
@@ -1642,6 +1692,9 @@ function buildPublicVariant(
     available,
     // Stok bilinmiyorsa (null) urunu yanlislikla tukenmis gostermeyiz.
     inStock: available === null ? true : available > 0,
+    // Faz 2C-7 (ADR-078) — varyantin media-tanimlayici eksendeki (Renk) option id'si;
+    // yoksa null. Vitrin galeriyi bununla filtreler. Yalnizca option id (media ic alani degil).
+    mediaOptionId: mediaOptionByVariantId.get(variant.id) ?? null,
   };
 }
 
@@ -1661,9 +1714,13 @@ function buildPublicProduct(
   // deseniyle simetri. product.images'in ne tasidigina CAGIRAN karar verir (liste=kapak,
   // detay=tam galeri); bu fonksiyon yalniz serialize eder.
   baseUrl?: string,
+  // Faz 2C-7 (ADR-078) — variantId -> media-tanimlayici eksen (Renk) option id'si.
+  // Yalniz detay ucunda TEK batched sorgudan dolu gecirilir; liste/ilgili urunlerde bos
+  // (default) → mediaOptionId null (PLP sorgu sayisi + kapak davranisi degismez).
+  mediaOptionByVariantId: Map<string, string> = new Map(),
 ) {
   const variants = activeVariants.map((variant) =>
-    buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId),
+    buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId, mediaOptionByVariantId),
   );
   // F4C (ADR-063) — Kart taban fiyati = EN UCUZ gorunur (aktif) varyantin brut
   // fiyati. Vitrin karti artik fiyat ARALIGI gostermez; kampanya "Sepette"
@@ -1698,13 +1755,19 @@ function buildPublicProduct(
     minOrderQuantity: product.minOrderQuantity,
     maxOrderQuantity: product.maxOrderQuantity ?? null,
     variants,
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (Renk) id'si; null = klasik galeri.
+    // Yalnizca attribute-definition id (media ic alani degil). Vitrin SSR/varsayilan grup karari.
+    mediaDefiningAttributeId: product.mediaDefiningAttributeId ?? null,
     // ADR-065 (Faz 3/Dilim 1) — ALLOWLIST: yalniz turetilmis url + altText + position.
     // mediaId/storageKey BILINCLI olarak KONULMAZ (public'e sizmaz; publicProductSchema
     // zaten dusturur ama acikca elenir). Dizi position ASC gelir (record'un sirasi).
+    // Faz 2C-7 (ADR-078) — variantOptionId: gorselin Renk etiketi (null = paylasilan);
+    // yalnizca option id, hicbir media ic alani tasinmaz.
     images: product.images.map((image) => ({
       url: resolveMediaUrl(baseUrl, image.storageKey),
       altText: image.altText,
       position: image.position,
+      variantOptionId: image.optionId ?? null,
     })),
   });
 }
@@ -2232,6 +2295,8 @@ function createPrismaDataAccess(): AppDataAccess {
     shippingDesi: true,
     // Faz 1A (ADR-067) — ana kategori FK (admin serialize + public label kaynagi).
     primaryCategoryId: true,
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen FK (admin serialize + public grup kaynagi).
+    mediaDefiningAttributeId: true,
     createdAt: true,
     updatedAt: true,
     assignments: { select: { categoryId: true }, orderBy: { createdAt: "asc" } },
@@ -2239,10 +2304,16 @@ function createPrismaDataAccess(): AppDataAccess {
   // ADR-065 (Faz 2/Dilim 2) — tekil urun yollarinda (GET/create/update reload)
   // galeriyi de ceker. Liste yolu HAFIF `productSelect`'te kalir (join yok,
   // images bos doner; liste thumbnail'i ayri follow-up).
+  // Faz 2C-7 (ADR-078) — optionId ayni satirdan gelir (ekstra sorgu YOK).
   const productDetailSelect = {
     ...productSelect,
     images: {
-      select: { mediaId: true, position: true, media: { select: { storageKey: true, altText: true } } },
+      select: {
+        mediaId: true,
+        position: true,
+        optionId: true,
+        media: { select: { storageKey: true, altText: true } },
+      },
       orderBy: { position: "asc" },
     },
   } satisfies Prisma.ProductSelect;
@@ -2464,6 +2535,8 @@ function createPrismaDataAccess(): AppDataAccess {
             position: image.position,
             storageKey: image.media.storageKey,
             altText: image.media.altText,
+            // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (Renk) etiketi; null = paylasilan.
+            optionId: image.optionId,
           }))
         : [];
     return {
@@ -2664,6 +2737,40 @@ function createPrismaDataAccess(): AppDataAccess {
         where: { id: mediaId, storeId },
         select: { id: true, context: true },
       }),
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen aday dogrulamasi. ProductVariantAttribute
+    // BU urun + BU eksen icin varsa → eksen bu urunun variant-defining eksenidir (tenant-scoped,
+    // cunku store-scoped tablo). Tanim dataType'i doner (route SELECT/COLOR kontrol eder).
+    findProductMediaAxisCandidate: async (storeId, productId, attributeDefinitionId) => {
+      const link = await prisma.productVariantAttribute.findFirst({
+        where: { storeId, productId, attributeDefinitionId },
+        select: { definition: { select: { dataType: true } } },
+      });
+      return link ? { dataType: link.definition.dataType } : null;
+    },
+    // Faz 2C-7 (ADR-078) — option id'lerin eksenini (tenant-guvenli) doner. Definition PLATFORM
+    // (storeId null) veya bu store olmali; cross-tenant option reddedilir (map'e girmez → route 400).
+    findAttributeOptionAxes: async (storeId, optionIds) => {
+      const map = new Map<string, string>();
+      if (optionIds.length === 0) return map;
+      const rows = await prisma.attributeOption.findMany({
+        where: {
+          id: { in: optionIds },
+          definition: { OR: [{ storeId }, { storeId: null }] },
+        },
+        select: { id: true, attributeDefinitionId: true },
+      });
+      for (const row of rows) map.set(row.id, row.attributeDefinitionId);
+      return map;
+    },
+    // Faz 2C-7 (ADR-078) — TEK batched sorgu: urun varyantlarinin media-ekseni cozulmus option'i.
+    // @@unique([variantId, attributeDefinitionId]) → varyant basina en fazla bir satir (N+1 yok).
+    resolveVariantMediaOptions: async (storeId, productId, attributeDefinitionId) => {
+      const rows = await prisma.productVariantOptionValue.findMany({
+        where: { storeId, attributeDefinitionId, variant: { productId } },
+        select: { variantId: true, optionId: true },
+      });
+      return new Map(rows.map((row) => [row.variantId, row.optionId]));
+    },
     createCategory: (storeId, input) =>
       prisma.productCategory.create({
         data: { ...input, storeId, parentId: input.parentId ?? null },
@@ -2737,6 +2844,8 @@ function createPrismaDataAccess(): AppDataAccess {
           productId: true,
           mediaId: true,
           position: true,
+          // Faz 2C-7 (ADR-078) — ayni satirdan gelir; galeri filtreleme icin (ekstra sorgu YOK).
+          optionId: true,
           media: { select: { storageKey: true, altText: true } },
         },
       });
@@ -2746,6 +2855,7 @@ function createPrismaDataAccess(): AppDataAccess {
           position: row.position,
           storageKey: row.media.storageKey,
           altText: row.media.altText,
+          optionId: row.optionId,
         };
         const existing = map.get(row.productId);
         if (existing) existing.push(record);
@@ -2785,6 +2895,8 @@ function createPrismaDataAccess(): AppDataAccess {
             // Faz 1A (ADR-067) — route'ta normalize edilmis ana kategori (assignments'tan
             // biri veya null). Ayni transaction icinde assignment'larla birlikte yazilir.
             primaryCategoryId: input.primaryCategoryId ?? null,
+            // Faz 2C-7 (ADR-078) — route'ta dogrulanmis media-tanimlayici eksen (veya null).
+            mediaDefiningAttributeId: input.mediaDefiningAttributeId ?? null,
           },
           select: productSelect,
         });
@@ -2836,7 +2948,7 @@ function createPrismaDataAccess(): AppDataAccess {
     // yalniz kalicilik. @@unique([productId, mediaId]) upsert where anahtaridir →
     // ayni gorsel tekrar create edilmez (ikinci savunma katmani). orderedMediaIds
     // bos ise tum galeri temizlenir (silinecek = mevcut hepsi, eklenecek yok).
-    updateProductImages: (storeId, productId, orderedMediaIds) =>
+    updateProductImages: (storeId, productId, orderedImages) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
         const existing = await transaction.product.findFirst({ where: { id: productId, storeId }, select: { id: true } });
         if (!existing) return null;
@@ -2844,16 +2956,30 @@ function createPrismaDataAccess(): AppDataAccess {
           where: { productId, storeId },
           select: { mediaId: true },
         });
-        const keep = new Set(orderedMediaIds);
+        const keep = new Set(orderedImages.map((image) => image.mediaId));
         const toDelete = current.map((image) => image.mediaId).filter((mediaId) => !keep.has(mediaId));
         if (toDelete.length > 0) {
           await transaction.productImage.deleteMany({ where: { productId, storeId, mediaId: { in: toDelete } } });
         }
-        for (const [index, mediaId] of orderedMediaIds.entries()) {
+        // Faz 2C-7 (ADR-078) — position = index (kapak=0); optionId/attributeDefinitionId binding'ten
+        // (yeniden-etiketleme dahil). Bu, "binding -> kolon" persistence eslemesidir; join tabloya
+        // gecerken yalniz burasi degisir. Etiket dogrulamasi route'ta yapildi (bu katman kalicilik).
+        for (const [index, binding] of orderedImages.entries()) {
           await transaction.productImage.upsert({
-            where: { productId_mediaId: { productId, mediaId } },
-            create: { storeId, productId, mediaId, position: index },
-            update: { position: index },
+            where: { productId_mediaId: { productId, mediaId: binding.mediaId } },
+            create: {
+              storeId,
+              productId,
+              mediaId: binding.mediaId,
+              position: index,
+              optionId: binding.optionId,
+              attributeDefinitionId: binding.attributeDefinitionId,
+            },
+            update: {
+              position: index,
+              optionId: binding.optionId,
+              attributeDefinitionId: binding.attributeDefinitionId,
+            },
           });
         }
         const product = await transaction.product.findUniqueOrThrow({ where: { id: productId }, select: productDetailSelect });
@@ -4214,6 +4340,12 @@ export function createServer(
       dataAccess.listProductImages(store.id, relatedProducts.map((item) => item.id), true),
     ]);
     const variants = await loadActivePublicVariants(store.id, product.id);
+    // Faz 2C-7 (ADR-078) — YALNIZ media-tanimlayici eksen tanimliysa varyant->Renk-option
+    // haritasini TEK batched sorguyla cek (N+1 yok); yoksa bos → mediaOptionId null (klasik).
+    // Bu ek sorgu SADECE detay ucundadir; liste/PLP sorgu sayisi degismez.
+    const mediaOptionByVariantId = product.mediaDefiningAttributeId
+      ? await dataAccess.resolveVariantMediaOptions(store.id, product.id, product.mediaDefiningAttributeId)
+      : new Map<string, string>();
     const summary = buildPublicProduct(
       { ...product, images: galleryMap.get(product.id) ?? [] },
       variants,
@@ -4223,6 +4355,7 @@ export function createServer(
       badgeNow,
       lowestMap,
       config.MEDIA_PUBLIC_BASE_URL,
+      mediaOptionByVariantId,
     );
     const related = await Promise.all(
       relatedProducts.map(async (item) =>
@@ -5571,6 +5704,89 @@ export function createServer(
     return true;
   }
 
+  // Faz 2C-7 (ADR-078) — media-tanimlayici eksen DEGERI dogrulamasi (string durumu). Eksen BU
+  // urunun variant-defining ekseni + dataType SELECT/COLOR olmali (yalniz option-tabanli eksenler
+  // gorseli gruplayabilir). Uygunsa true; degilse 400 INVALID_MEDIA_AXIS gonderip false. null
+  // (klasik moda don) durumu cagiran tarafta ele alinir (dogrulama gerektirmez).
+  async function assertMediaDefiningAxis(
+    reply: FastifyReply,
+    storeId: string,
+    productId: string,
+    attributeDefinitionId: string,
+  ): Promise<boolean> {
+    const candidate = await dataAccess.findProductMediaAxisCandidate(storeId, productId, attributeDefinitionId);
+    if (!candidate || (candidate.dataType !== "SELECT" && candidate.dataType !== "COLOR")) {
+      await reply
+        .code(400)
+        .send(
+          errorBody(
+            "INVALID_MEDIA_AXIS",
+            "Media-defining axis must be a SELECT/COLOR variant-defining axis of this product.",
+          ),
+        );
+      return false;
+    }
+    return true;
+  }
+
+  // Faz 2C-7 (ADR-078) — galeri YAZMA birimlerini (binding) hazirlar + dogrular. Oncelik: etiketli
+  // `imageBindings` > etiketsiz legacy `imageMediaIds`. Donus:
+  //   undefined → galeri degisikligi istenmedi (ikisi de undefined)
+  //   null      → dogrulama basarisiz (reply gonderildi)
+  //   Binding[] → yazilacak SIRALI binding listesi (persistence kolonlara/ileride join'e yazar)
+  // Dogrulama sirasi: (1) her media PRODUCT context + bu store; (2) etiketli option'lar tekil +
+  // tenant-guvenli + BU urunun media-eksenine ait; (3) eksen yoksa etiket reddedilir.
+  async function prepareProductImageBindings(
+    reply: FastifyReply,
+    storeId: string,
+    effectiveMediaAxisId: string | null,
+    imageBindings: { mediaId: string; optionId?: string | null }[] | undefined,
+    imageMediaIds: string[] | undefined,
+  ): Promise<ProductImageBinding[] | null | undefined> {
+    const source =
+      imageBindings !== undefined
+        ? imageBindings.map((binding) => ({ mediaId: binding.mediaId, optionId: binding.optionId ?? null }))
+        : imageMediaIds !== undefined
+          ? imageMediaIds.map((mediaId) => ({ mediaId, optionId: null as string | null }))
+          : undefined;
+    if (source === undefined) return undefined;
+    for (const item of source) {
+      if (!(await assertMediaAttachable(reply, storeId, item.mediaId, "PRODUCT"))) return null;
+    }
+    const taggedOptionIds = [
+      ...new Set(source.map((item) => item.optionId).filter((optionId): optionId is string => optionId !== null)),
+    ];
+    if (taggedOptionIds.length > 0) {
+      if (!effectiveMediaAxisId) {
+        await reply
+          .code(400)
+          .send(errorBody("MEDIA_AXIS_REQUIRED", "A media-defining axis is required before tagging images."));
+        return null;
+      }
+      const axisByOption = await dataAccess.findAttributeOptionAxes(storeId, taggedOptionIds);
+      for (const optionId of taggedOptionIds) {
+        if (axisByOption.get(optionId) !== effectiveMediaAxisId) {
+          await reply
+            .code(400)
+            .send(
+              errorBody(
+                "INVALID_MEDIA_OPTION",
+                "Image option does not belong to the media-defining axis.",
+                { optionId },
+              ),
+            );
+          return null;
+        }
+      }
+    }
+    return source.map((item) => ({
+      mediaId: item.mediaId,
+      optionId: item.optionId,
+      // optionId set ise eksen = urunun media-ekseni; etiketsizde her ikisi de null (paylasilan).
+      attributeDefinitionId: item.optionId ? effectiveMediaAxisId : null,
+    }));
+  }
+
   async function validateCategoryIds(reply: FastifyReply, storeId: string, categoryIds: string[]) {
     const uniqueCategoryIds = [...new Set(categoryIds)];
     for (const categoryId of uniqueCategoryIds) {
@@ -5779,16 +5995,34 @@ export function createServer(
     // gecmeden ayiklanir; kalicilik ayri updateProductImages diff'i ile yapilir.
     const {
       imageMediaIds,
+      imageBindings,
+      mediaDefiningAttributeId: rawMediaDefiningAttributeId,
       primaryCategoryId: rawPrimaryCategoryId,
       attributeValues,
       variantSelections,
       ...productInput
     } = input;
-    if (imageMediaIds !== undefined) {
-      for (const mediaId of imageMediaIds) {
-        if (!(await assertMediaAttachable(reply, params.storeId, mediaId, "PRODUCT"))) return;
-      }
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen: string ise dogrula (SELECT/COLOR + bu urunun
+    // ekseni); null = klasik moda don (gecerli); undefined = dokunma. Etkin eksen (input ?? mevcut)
+    // etiket dogrulamasinin referansidir. Yazimlardan ONCE (biri gecersizse hicbir yazim olmaz).
+    if (
+      rawMediaDefiningAttributeId != null &&
+      !(await assertMediaDefiningAxis(reply, params.storeId, params.productId, rawMediaDefiningAttributeId))
+    ) {
+      return;
     }
+    const effectiveMediaAxisId =
+      rawMediaDefiningAttributeId === undefined ? current.mediaDefiningAttributeId : rawMediaDefiningAttributeId;
+    // Galeri binding'leri (etiketli imageBindings > etiketsiz imageMediaIds). undefined=dokunma,
+    // null=dogrulama hatasi (reply gonderildi), Binding[]=yazilacak.
+    const imageBindingsResolved = await prepareProductImageBindings(
+      reply,
+      params.storeId,
+      effectiveMediaAxisId,
+      imageBindings,
+      imageMediaIds,
+    );
+    if (imageBindingsResolved === null) return;
     // Faz 1A (ADR-067) — Ana kategori cozumlemesi YALNIZ categoryIds VEYA
     // primaryCategoryId gonderildiginde calisir; boylece legacy (null-primary) urunun
     // ilgisiz alan update'i ana kategoriye DOKUNMAZ (kaydedilebilirlik korunur).
@@ -5887,18 +6121,25 @@ export function createServer(
     }
     let product: ProductRecord = current;
     const hasProductFieldChange =
-      Object.keys(productInput).length > 0 || categoryIds !== undefined || resolvedPrimary !== undefined;
+      Object.keys(productInput).length > 0 ||
+      categoryIds !== undefined ||
+      resolvedPrimary !== undefined ||
+      rawMediaDefiningAttributeId !== undefined;
     if (hasProductFieldChange) {
       const updated = await dataAccess.updateProduct(params.storeId, params.productId, {
         ...productInput,
         ...(categoryIds === undefined ? {} : { categoryIds }),
         ...(resolvedPrimary === undefined ? {} : { primaryCategoryId: resolvedPrimary }),
+        // Faz 2C-7 (ADR-078) — undefined=dokunma; string/null=dogrulanmis eksen / klasik moda don.
+        ...(rawMediaDefiningAttributeId === undefined
+          ? {}
+          : { mediaDefiningAttributeId: rawMediaDefiningAttributeId }),
       });
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
     }
-    if (imageMediaIds !== undefined) {
-      const updated = await dataAccess.updateProductImages(params.storeId, params.productId, imageMediaIds);
+    if (imageBindingsResolved !== undefined) {
+      const updated = await dataAccess.updateProductImages(params.storeId, params.productId, imageBindingsResolved);
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
     }

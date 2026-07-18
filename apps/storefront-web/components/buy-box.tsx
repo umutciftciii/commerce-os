@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
-  cheapestVariantId,
   estimateAutomaticUnitFinalMinor,
   maxPurchasableQuantity,
   type StorefrontCampaignView,
@@ -15,6 +14,7 @@ import {
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
+import { usePdpSelection } from "./pdp-selection";
 import { Badge, Button, type BadgeTone } from "./ui";
 
 const LOW_STOCK = 5;
@@ -42,9 +42,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const { commerce, variants, price } = detail;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  // Varsayilan secim = EN UCUZ gorunur varyant (kart/PLP "en ucuzdan baslayan"
-  // fiyatiyla tutarli acilis; bkz. cheapestVariantId).
-  const [selectedId, setSelectedId] = useState(() => cheapestVariantId(variants));
+  // Faz 2C-7 (ADR-078) — secili varyant PAYLASILAN state'ten gelir (VariantGallery ile ortak),
+  // boylece varyant secince galeri de reaktif degisir. Varsayilan (en ucuz varyant) provider'da
+  // set edilir (page.tsx cheapestVariantId). Adet/added yerel kalir.
+  const { selectedVariantId, setSelectedVariantId } = usePdpSelection();
+  const selectedId = selectedVariantId;
   const [quantity, setQuantity] = useState(commerce.minQuantity);
   const [added, setAdded] = useState(false);
 
@@ -214,7 +216,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                   type="button"
                   aria-pressed={active}
                   onClick={() => {
-                    setSelectedId(variant.id);
+                    setSelectedVariantId(variant.id);
                     setAdded(false);
                   }}
                   className={[

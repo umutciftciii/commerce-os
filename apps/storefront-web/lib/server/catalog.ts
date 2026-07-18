@@ -183,6 +183,8 @@ function toVariantView(variant: PublicProductVariant): StorefrontVariantView {
     currency: variant.currency,
     available: variant.available,
     inStock: variant.inStock,
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (Renk) option id'si (yoksa null).
+    mediaOptionId: variant.mediaOptionId ?? null,
   };
 }
 
@@ -200,8 +202,14 @@ function toDetail(detail: PublicProductDetail, locale: CampaignLabelLocale): Sto
     inquiryFormTitle: detail.inquiryFormTitle,
     appointmentNote: detail.appointmentNote,
     // ADR-065 (Faz 3/Dilim 1) — Tam galeri (position ASC). coverUrl (summary'den) =
-    // images[0]. Dilim 1'de yalniz kapak render edilir; thumbnail seridi Dilim 2.
-    images: detail.images.map((image) => ({ url: image.url, altText: image.altText })),
+    // images[0]. Faz 2C-7 (ADR-078): variantOptionId (Renk etiketi) tasinir (null = paylasilan).
+    images: detail.images.map((image) => ({
+      url: image.url,
+      altText: image.altText,
+      variantOptionId: image.variantOptionId ?? null,
+    })),
+    // Faz 2C-7 (ADR-078) — gorselleri gruplayan media-tanimlayici eksen (null = klasik galeri).
+    mediaDefiningAttributeId: detail.mediaDefiningAttributeId ?? null,
     related: detail.related.map((item) => toSummary(item, locale)),
   };
 }

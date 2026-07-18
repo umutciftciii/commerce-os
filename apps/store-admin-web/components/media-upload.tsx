@@ -31,6 +31,10 @@ export interface MediaItem {
   id: string;
   url: string;
   altText: string | null;
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu görselin media-tanımlayıcı eksen (Renk)
+  // etiketi; null/undefined = "Tüm varyantlar" (paylaşılan). MediaUpload bunu KULLANMAZ
+  // (yalnız taşır); etiketleme UI'ı ürün formundadır. Geriye uyumlu (opsiyonel).
+  optionId?: string | null;
 }
 
 export interface MediaUploadProps {

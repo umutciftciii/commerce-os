@@ -9,19 +9,18 @@ import {
   Eyebrow,
   Heading,
   Muted,
-  ProductMedia,
   Stars,
   Text,
 } from "../../../components/ui";
 import { ProductCard } from "../../../components/ui/product-card";
 import { BuyBox } from "../../../components/buy-box";
-import { ProductGallery } from "../../../components/product-gallery";
-import { shouldShowThumbnailStrip } from "../../../lib/gallery";
+import { PdpSelectionProvider } from "../../../components/pdp-selection";
+import { VariantGallery } from "../../../components/variant-gallery";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
 import { mockRating } from "../../../lib/mock-rating";
-import type { StorefrontProductDetail } from "../../../lib/catalog-types";
+import { cheapestVariantId, type StorefrontProductDetail } from "../../../lib/catalog-types";
 
 // Detay canli veriden cozulur; slug -> urun eslesmesi her istekte yapilir.
 export const dynamic = "force-dynamic";
@@ -79,41 +78,46 @@ export default async function ProductDetailPage({
         <span className="text-ink">{detail.title}</span>
       </nav>
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
-        {/* Sol: medya galerisi */}
-        <Gallery detail={detail} t={t} />
+      {/* Faz 2C-7 (ADR-078) — Variant Media Engine: secili varyant state'i BuyBox ile
+          VariantGallery arasinda PAYLASILIR (lift). Baslik blogu SUNUCU'da kalir (provider'in
+          children'i). Baslangic = varsayilan (en ucuz) varyant → SSR dogru grupla gelir. */}
+      <PdpSelectionProvider defaultVariantId={cheapestVariantId(detail.variants)}>
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
+          {/* Sol: medya galerisi (varyanta reaktif) */}
+          <VariantGallery detail={detail} t={t} />
 
-        {/* Sag: baslik + buy box */}
-        <div>
-          <div className="mb-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge tone="muted">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
-              {detail.brand ? (
-                <Eyebrow as="span">
-                  {t.brandLabel}: {detail.brand}
-                </Eyebrow>
+          {/* Sag: baslik + buy box */}
+          <div>
+            <div className="mb-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone="muted">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
+                {detail.brand ? (
+                  <Eyebrow as="span">
+                    {t.brandLabel}: {detail.brand}
+                  </Eyebrow>
+                ) : null}
+              </div>
+              <Heading as="h1" className="mt-4 text-2xl sm:text-3xl">
+                {detail.title}
+              </Heading>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
+                <Stars
+                  rating={rating.value}
+                  ariaLabel={format(dict.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
+                />
+                <span>{format(dict.home.card.reviews, { count: rating.count })}</span>
+              </div>
+              {detail.sku ? (
+                <Muted className="mt-2">
+                  {t.skuLabel}: <span className="font-medium text-ink-muted">{detail.sku}</span>
+                </Muted>
               ) : null}
             </div>
-            <Heading as="h1" className="mt-4 text-2xl sm:text-3xl">
-              {detail.title}
-            </Heading>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
-              <Stars
-                rating={rating.value}
-                ariaLabel={format(dict.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
-              />
-              <span>{format(dict.home.card.reviews, { count: rating.count })}</span>
-            </div>
-            {detail.sku ? (
-              <Muted className="mt-2">
-                {t.skuLabel}: <span className="font-medium text-ink-muted">{detail.sku}</span>
-              </Muted>
-            ) : null}
-          </div>
 
-          <BuyBox detail={detail} t={dict} />
+            <BuyBox detail={detail} t={dict} />
+          </div>
         </div>
-      </div>
+      </PdpSelectionProvider>
 
       {/* Orta: fayda + aciklama + ozellikler */}
       <div className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-3 lg:gap-14">
@@ -212,31 +216,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </Heading>
       {children}
     </section>
-  );
-}
-
-/**
- * Medya galerisi. ADR-065 (Faz 3/Dilim 2): birden fazla görsel varsa
- * (`detail.images`) tıklanabilir thumbnail şeridi taşıyan istemci adası
- * `ProductGallery` render edilir. Tek/sıfır görselde eski yol korunur: `ProductMedia`
- * gerçek kapak URL'ini (`detail.coverUrl`) alır, yoksa deterministik yer tutucuya
- * düşer — böylece görselsiz üründe hidrasyon maliyeti de oluşmaz.
- */
-function Gallery({
-  detail,
-  t,
-}: {
-  detail: StorefrontProductDetail;
-  t: StorefrontDictionary["detail"];
-}) {
-  if (shouldShowThumbnailStrip(detail.images)) {
-    return <ProductGallery images={detail.images} title={detail.title} t={t} />;
-  }
-
-  return (
-    <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
-      <ProductMedia handle={detail.handle} title={detail.title} imageUrl={detail.coverUrl} />
-    </div>
   );
 }
 

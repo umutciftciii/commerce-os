@@ -784,11 +784,18 @@ model Product {
   // basina garanti edemez). Nullable: legacy/kategorisiz urun null kalir; ilk
   // migration'da NOT NULL YOK. onDelete: Restrict → ana kategori fiziksel silinemez.
   primaryCategoryId       String?
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu urunun gorsellerini gruplayan TEK
+  // media-tanimlayici eksen (genelde Renk). null = klasik urun galerisi (backward compat:
+  // tum gorseller etiketsiz tek grup = bugunku davranis). Yalniz SELECT/COLOR variant-defining
+  // eksen secilebilir (service guard). onDelete: SetNull → eksen tanimini silmek galeriyi
+  // klasik moda dusurur (gorsel kaybi YOK; etiketler ProductImage'da Restrict ile korunur).
+  mediaDefiningAttributeId String?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
 
   store                Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   primaryCategory      ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  mediaDefiningAttribute AttributeDefinition?      @relation("ProductMediaAxis", fields: [mediaDefiningAttributeId], references: [id], onDelete: SetNull)
   variants             ProductVariant[]
   assignments          ProductCategoryAssignment[]
   orderLines           OrderLine[]
@@ -2206,14 +2213,27 @@ model ProductImage {
   productId String
   mediaId   String
   position  Int      @default(0)
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu gorselin ait oldugu media-tanimlayici
+  // eksen degeri (genelde Renk option'i). Ikisi de null = "Tum varyantlar" (paylasilan gorsel,
+  // her varyant grubuyla birlikte gosterilir). attributeDefinitionId denormalize: optionId'nin
+  // hangi eksende oldugunu tasir + Product.mediaDefiningAttributeId ile tutarlilik dogrulamasi
+  // (service). Bu faz tek-option (1 gorsel -> en fazla 1 renk); coklu-option/coklu-eksen gerekince
+  // ProductImageOption join tablosuna yukseltme yolu acik (yalniz persistence degisir, is kurallari
+  // degismez). onDelete: Restrict → kullanimdaki option/eksen silinemez (MEDIA_IN_USE deseniyle tutarli).
+  attributeDefinitionId String?
+  optionId              String?
   createdAt DateTime @default(now())
 
   product Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   media   MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  attributeDefinition AttributeDefinition? @relation("ProductImageMediaAxis", fields: [attributeDefinitionId], references: [id], onDelete: Restrict)
+  option              AttributeOption?     @relation("ProductImageMediaOption", fields: [optionId], references: [id], onDelete: Restrict)
 
   @@unique([productId, mediaId])
   @@index([storeId])
   @@index([productId])
+  // Faz 2C-7 (ADR-078) — varyant renk grubu filtreleme (galeri projeksiyonu, N+1-siz).
+  @@index([productId, optionId])
 }
 
 // Ana sayfa hero/slider (coklu slide). Model cokludur; UI tek slide ile baslar,
@@ -2292,6 +2312,10 @@ model AttributeDefinition {
   variantSelectionLinks ProductVariantAttribute[]
   // Faz 2C-3 (ADR-072) — bu tanimi uretilmis varyant eksen degeri olarak kullanan satirlar (onDelete: Restrict).
   variantOptionValues   ProductVariantOptionValue[]
+  // Faz 2C-7 (ADR-078) — bu tanimi media-tanimlayici EKSEN olarak secen urunler (onDelete: SetNull).
+  mediaAxisProducts     Product[]                   @relation("ProductMediaAxis")
+  // Faz 2C-7 (ADR-078) — bu eksene etiketli varyant-media gorselleri (onDelete: Restrict).
+  productImageLinks     ProductImage[]              @relation("ProductImageMediaAxis")
 
   @@unique([storeId, code])
   @@index([storeId])
@@ -2342,6 +2366,8 @@ model AttributeOption {
   variantOptionSelections ProductVariantOptionSelection[]
   // Faz 2C-3 (ADR-072) — bu secenegi uretilmis varyant eksen degeri olarak kullanan satirlar (onDelete: Restrict).
   variantOptionValues     ProductVariantOptionValue[]
+  // Faz 2C-7 (ADR-078) — bu option'a (renk) etiketli varyant-media gorselleri (onDelete: Restrict).
+  productImages           ProductImage[]                  @relation("ProductImageMediaOption")
 
   @@unique([attributeDefinitionId, value])
   @@index([attributeDefinitionId])
