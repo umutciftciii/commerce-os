@@ -70,6 +70,7 @@ import type {
   InventoryApplyRequest,
   InventoryApplyResponse,
   InventoryWarehouseListResponse,
+  InventoryStoreMatrixResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -535,6 +536,13 @@ export const storeApi = {
   // TODO-152 (ADR-076) — Inventory Engine. Depo listesi + matris okuma + rule/direct-edit preview
   // (yalnız-okuma) + server-authoritative apply (stale-guard + advisory-lock + append-only audit).
   listWarehouses: () => call<InventoryWarehouseListResponse>("/api/catalog/warehouses"),
+  // TODO-152A — Mağaza-geneli SALT-OKUMA matris (global izleme merkezi; tüm ürünler, seçili depo).
+  getStoreInventoryMatrix: (warehouseId?: string) =>
+    call<InventoryStoreMatrixResponse>(
+      `/api/catalog/inventory/matrix${
+        warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ""
+      }`,
+    ),
   getInventoryMatrix: (productId: string, warehouseId?: string) =>
     call<InventoryPreviewResponse>(
       `/api/catalog/products/${productId}/inventory${

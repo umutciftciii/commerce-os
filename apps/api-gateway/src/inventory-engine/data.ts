@@ -43,6 +43,13 @@ export interface InventoryVariantRow {
   balanceExists: boolean;
 }
 
+/** TODO-152A — Mağaza-geneli izleme satırı: varyant + ürün kimliği + seçili depo bakiyesi (SALT-OKUMA). */
+export interface InventoryStoreVariantRow extends InventoryVariantRow {
+  productId: string;
+  productTitle: string;
+  productSlug: string;
+}
+
 /** Tek varyanta yazılacak hedef bakiye (yalnız değişen satırlar). reserved YAZILMAZ (mirror = current). */
 export interface InventoryVariantWrite {
   variantId: string;
@@ -88,6 +95,11 @@ export interface InventoryDataAccess {
   findDefaultWarehouse(storeId: string): Promise<InventoryWarehouseRef | null>;
   read<T>(fn: (ctx: Pick<InventoryTxContext, "listVariants">) => Promise<T>): Promise<T>;
   transaction<T>(fn: (ctx: InventoryTxContext) => Promise<T>): Promise<T>;
+  /** TODO-152A — TÜM ürünlerin varyantlarını seçili depoda current bakiye ile okur (izleme merkezi). */
+  listStoreVariants(
+    storeId: string,
+    warehouse: InventoryWarehouseRef,
+  ): Promise<InventoryStoreVariantRow[]>;
 }
 
 // Kanonik sıra: combinationKey ASC (NULLS LAST → manuel sonda) → createdAt ASC → id ASC (commercial ile aynı).
@@ -119,6 +131,20 @@ function toWarehouseRef(w: {
     status: w.status,
     isDefault: w.isDefault,
     priority: w.priority,
+  };
+}
+
+// DEFAULT depo → onHand/reserved CANLI InventoryItem'dan overlay (tek otorite); yoksa balance; o da yoksa 0.
+function buildCurrentState(
+  balance: { onHand: number; reserved: number; incoming: number; safetyStock: number; reorderPoint: number } | undefined,
+  item: { quantityOnHand: number; quantityReserved: number } | undefined,
+): InventoryState {
+  return {
+    onHand: item ? item.quantityOnHand : (balance?.onHand ?? 0),
+    reserved: item ? item.quantityReserved : (balance?.reserved ?? 0),
+    incoming: balance?.incoming ?? 0,
+    safetyStock: balance?.safetyStock ?? 0,
+    reorderPoint: balance?.reorderPoint ?? 0,
   };
 }
 
@@ -178,14 +204,6 @@ async function readVariants(
   return variants.map((v) => {
     const balance = balanceByVariant.get(v.id);
     const item = itemByVariant.get(v.id);
-    const current: InventoryState = {
-      // DEFAULT depoda onHand/reserved InventoryItem otoritedir; yoksa balance; o da yoksa 0.
-      onHand: item ? item.quantityOnHand : (balance?.onHand ?? 0),
-      reserved: item ? item.quantityReserved : (balance?.reserved ?? 0),
-      incoming: balance?.incoming ?? 0,
-      safetyStock: balance?.safetyStock ?? 0,
-      reorderPoint: balance?.reorderPoint ?? 0,
-    };
     return {
       variantId: v.id,
       sku: v.sku,
@@ -195,8 +213,84 @@ async function readVariants(
         code: ov.definition.code,
         label: ov.option.label,
       })),
-      current,
+      current: buildCurrentState(balance, item),
       balanceExists: balance !== undefined,
+    };
+  });
+}
+
+// TODO-152A — Mağaza-geneli okuma (SALT-OKUMA; izleme merkezi). Motor product-scoped kalır; bu yalnız
+// TÜM non-archived varyantları (ürün kimliğiyle) seçili depoda current bakiye ile döndürür. Okuma
+// BATCH'lidir (N+1 YOK): tek variant sorgusu + tek balance sorgusu + (default depoda) tek item sorgusu.
+async function readStoreVariants(
+  storeId: string,
+  warehouse: InventoryWarehouseRef,
+): Promise<InventoryStoreVariantRow[]> {
+  const variants = await prisma.productVariant.findMany({
+    // Kanonik sıra ile aynı kapsam (non-archived); ürün-bazlı gruplama için önce productId.
+    where: { storeId, status: { not: "ARCHIVED" } },
+    orderBy: [{ productId: "asc" }, ...variantOrderBy],
+    select: {
+      id: true,
+      sku: true,
+      title: true,
+      status: true,
+      productId: true,
+      product: { select: { title: true, slug: true } },
+      optionValueSelections: {
+        select: {
+          definition: { select: { code: true } },
+          option: { select: { label: true } },
+        },
+      },
+    },
+  });
+  const variantIds = variants.map((v) => v.id);
+
+  const balances = await prisma.inventoryBalance.findMany({
+    where: { warehouseId: warehouse.id, variantId: { in: variantIds } },
+    select: {
+      variantId: true,
+      onHand: true,
+      reserved: true,
+      incoming: true,
+      safetyStock: true,
+      reorderPoint: true,
+    },
+  });
+  const balanceByVariant = new Map(balances.map((b) => [b.variantId, b]));
+
+  const itemByVariant = new Map<string, { quantityOnHand: number; quantityReserved: number }>();
+  if (warehouse.isDefault) {
+    const items = await prisma.inventoryItem.findMany({
+      where: { storeId, variantId: { in: variantIds } },
+      select: { variantId: true, quantityOnHand: true, quantityReserved: true },
+    });
+    for (const it of items) {
+      itemByVariant.set(it.variantId, {
+        quantityOnHand: it.quantityOnHand,
+        quantityReserved: it.quantityReserved,
+      });
+    }
+  }
+
+  return variants.map((v) => {
+    const balance = balanceByVariant.get(v.id);
+    const item = itemByVariant.get(v.id);
+    return {
+      variantId: v.id,
+      sku: v.sku,
+      title: v.title,
+      status: v.status as VariantStatus,
+      attributes: v.optionValueSelections.map((ov) => ({
+        code: ov.definition.code,
+        label: ov.option.label,
+      })),
+      current: buildCurrentState(balance, item),
+      balanceExists: balance !== undefined,
+      productId: v.productId,
+      productTitle: v.product.title,
+      productSlug: v.product.slug,
     };
   });
 }
@@ -321,5 +415,6 @@ export function createPrismaInventoryDataAccess(): InventoryDataAccess {
     },
     read: (fn) => prisma.$transaction((tx) => fn(makeTxContext(tx))),
     transaction: (fn) => prisma.$transaction((tx) => fn(makeTxContext(tx))),
+    listStoreVariants: (storeId, warehouse) => readStoreVariants(storeId, warehouse),
   };
 }

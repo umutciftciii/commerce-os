@@ -1327,3 +1327,21 @@
   KAPSAM DIŞI (TD-047): warehouse-aware reservation/checkout/allocation · checkout safety-stock uygulaması · warehouse CRUD UI · fulfillment commit
   · transfer/PO/lot/serial/bin/expiry/cycle-count/reconciliation/ERP/marketplace · low-stock notification · gerçek-PG concurrency integration · 1000+
   satır virtualization.
+
+- TODO-152A — Faz 2C-6 devamı: Inventory UX Birleştirme (global izleme merkezi + reorderPoint tek authority + sekme kontrastı)
+  (DONE — 2026-07-18, ADR-077; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası durum). Motor/şema/transaction mimarisi DEĞİŞMEDİ.
+  (1) **Global Stok = izleme & operasyon merkezi.** Legacy `InventoryItem` liste + "Stok düzelt" modalı KALDIRILDI; `app/(app)/inventory/page.tsx`
+  yeniden yazıldı: depo seçici + 6 KPI + arama + durum filtresi + tablo (Ürün/Varyant/SKU/Elde/Rezerve/Güvenlik/Satılabilir/Gelen/**Yeniden sipariş
+  noktası**/Durum) + satır→`/products/:id?tab=inventory` derin-link + güvenli tek-satır hızlı işlem (+10/−10/sıfırla, ürün-bazlı preview→apply; blocked→uyarı).
+  Quick Edit/Bulk/Preview/Apply YALNIZ Product Detail > Stok'ta (ADR-076 per-product transaction korunur; fan-out yazma REDDEDİLDİ). (2) **Yeni SALT-OKUMA
+  uç.** `GET …/inventory/matrix?warehouseId=` (data `listStoreVariants` batched N+1-siz · service `storeMatrix` SAF `computeCalc` durum paritesi · contracts
+  `inventoryStoreMatrix*` · api-client `admin.inventory.storeMatrix` · BFF `catalog/inventory/matrix` · `storeApi.getStoreInventoryMatrix`). (3) **reorderPoint
+  tek authority.** Varyant modalı "Kritik stok eşiği" + gateway create/update `lowStockThreshold` yazımı + contract create/update request alanları KALDIRILDI;
+  dashboard "kritik stok" KPI'ı motor LOW_STOCK'undan (=reorderPoint) türetilir. Kolon DROP EDİLMEDİ (dormant; additive). Idempotent backfill
+  `20260718160000_backfill_reorder_point` (default depo · reorderPoint=0 · eşik>0 → taşı; manuel değerleri ezmez). (4) **Paylaşılan atomlar** `products/
+  inventory/shared.tsx` (Kpi/WarehouseSelector/StatusBadge/fmt) → global + Product Detail AYNI componentler. (5) **Sekme kontrastı** underline→pill (indigo
+  dolgu + border + ikon + hover + mobil kaydırma; `?tab=` derin-link). i18n tr+en `storeAdmin.inventory` yeniden yazıldı, `variants.form.lowStock*` kaldırıldı.
+  (6) **Testler.** api-gateway `inventory-engine.test.ts` +2 (storeMatrix span/exclude-archived + WAREHOUSE_NOT_FOUND) → **1010/1010**; store-admin
+  inventory testleri yeni global sayfaya göre yeniden yazıldı (izleme + quick +10 preview→apply + blocked-guard) → **313/313**; contracts 104, api-client 23,
+  i18n 47. Gate: build (contracts/api-client/i18n/api-gateway tsc + store-admin/storefront/worker) + eslint TEMİZ. KALAN: backfill migration deploy + docker
+  rebuild + auth'lu runtime görsel smoke (final raporda). KAPSAM DIŞI: global fan-out yazma · lowStockThreshold kolon drop · warehouse CRUD UI (TD-047).

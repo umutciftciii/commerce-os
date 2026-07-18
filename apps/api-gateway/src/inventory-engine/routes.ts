@@ -17,6 +17,7 @@ import {
   inventoryApplyResponseSchema,
   inventoryPreviewRequestSchema,
   inventoryPreviewResponseSchema,
+  inventoryStoreMatrixResponseSchema,
   inventoryWarehouseListResponseSchema,
 } from "@commerce-os/contracts";
 import {
@@ -72,6 +73,20 @@ export function registerInventoryRoutes(app: FastifyInstance, deps: InventoryRou
     const result = await service.listWarehouses(params.storeId);
     if (!result.ok) return sendServiceError(reply, result.error);
     return inventoryWarehouseListResponseSchema.parse({ data: result.warehouses });
+  });
+
+  // TODO-152A — Mağaza-geneli SALT-OKUMA matris (izleme/operasyon merkezi). Yazma YOK.
+  app.get("/stores/:storeId/inventory/matrix", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const actor = await requireStoreAdmin(request, reply, params.storeId);
+    if (!actor) return;
+    const query = warehouseQuery.parse(request.query ?? {});
+    const result = await service.storeMatrix({ storeId: params.storeId, warehouseId: query.warehouseId });
+    if (!result.ok) return sendServiceError(reply, result.error);
+    return inventoryStoreMatrixResponseSchema.parse({
+      warehouse: result.result.warehouse,
+      rows: result.result.rows,
+    });
   });
 
   app.get("/stores/:storeId/products/:productId/inventory", async (request, reply) => {

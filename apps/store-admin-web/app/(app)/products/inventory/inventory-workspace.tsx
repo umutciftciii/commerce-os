@@ -15,7 +15,6 @@ import type {
   InventoryField,
   InventoryPreviewResponse,
   InventoryPreviewRow,
-  InventoryStockStatus,
   InventoryWarehouse,
 } from "@commerce-os/api-client";
 import { Alert, Badge, Button, Input, useLocale } from "../../../../components/ui";
@@ -23,6 +22,7 @@ import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { pw, PRICING_ROOT } from "../pricing/pricing-tokens";
 import { GUIDED_OPS, guidedOpMeta, guidedRuleShape, type GuidedOp } from "./guided-operations";
+import { fmt, fmtSigned, Kpi, StatusBadge, WarehouseSelector } from "./shared";
 
 type ProductsDict = ReturnType<typeof getDictionary>["storeAdmin"]["products"];
 type InventoryDict = ProductsDict["inventory"];
@@ -31,27 +31,7 @@ export interface InventoryWorkspaceProps {
   productId: string;
 }
 
-/* ───────────────────────────── formatlama ───────────────────────────── */
-
-function fmt(value: number, locale: Locale): string {
-  return value.toLocaleString(locale === "en" ? "en-US" : "tr-TR");
-}
-
-function fmtSigned(value: number, locale: Locale): string {
-  const s = fmt(Math.abs(value), locale);
-  if (value > 0) return `+${s}`;
-  if (value < 0) return `−${s}`;
-  return s;
-}
-
-const STATUS_TONE: Record<InventoryStockStatus, "success" | "warning" | "neutral" | "info"> = {
-  IN_STOCK: "success",
-  LOW_STOCK: "warning",
-  OUT_OF_STOCK: "warning",
-  INCOMING: "info",
-  NEGATIVE: "warning",
-  NO_BALANCE: "neutral",
-};
+/* ── formatlama + durum semantiği + Kpi + WarehouseSelector: ./shared (global ekranla ortak) ── */
 
 /* ───────────────────────────── editable draft ───────────────────────────── */
 
@@ -318,9 +298,14 @@ export function InventoryWorkspace({ productId }: InventoryWorkspaceProps) {
       ) : null}
       {error ? <Alert tone="error">{error}</Alert> : null}
 
-      {/* Depo seçici */}
+      {/* Depo seçici (global ekranla ortak component) */}
       <WarehouseSelector
-        t={t}
+        labels={{
+          label: t.warehouse.label,
+          defaultBadge: t.warehouse.defaultBadge,
+          inactiveBadge: t.warehouse.statusInactive,
+          none: t.warehouse.none,
+        }}
         warehouses={warehouses}
         active={activeWarehouse}
         onSelect={switchWarehouse}
@@ -439,56 +424,6 @@ export function InventoryWorkspace({ productId }: InventoryWorkspaceProps) {
 }
 
 /* ───────────────────────────── alt bileşenler ───────────────────────────── */
-
-function Kpi({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "success" | "warning" | "info" }) {
-  const toneClass =
-    tone === "success" ? pw.success : tone === "warning" ? pw.warning : tone === "info" ? pw.accent : pw.ink;
-  return (
-    <div className={`rounded-lg border ${pw.line} ${pw.surface} p-3`}>
-      <p className={`text-xs font-medium ${pw.faint}`}>{label}</p>
-      <p className={`mt-1 text-xl font-bold ${toneClass}`}>{value}</p>
-    </div>
-  );
-}
-
-function WarehouseSelector({
-  t,
-  warehouses,
-  active,
-  onSelect,
-}: {
-  t: InventoryDict;
-  warehouses: InventoryWarehouse[];
-  active: InventoryWarehouse | null;
-  onSelect: (id: string) => void;
-}) {
-  if (warehouses.length === 0 && !active) {
-    return <p className={`text-sm ${pw.muted}`}>{t.warehouse.none}</p>;
-  }
-  const list = warehouses.length > 0 ? warehouses : active ? [active] : [];
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className={`text-sm font-medium ${pw.muted}`}>{t.warehouse.label}:</span>
-      {list.map((w) => {
-        const isActive = active?.id === w.id;
-        return (
-          <button
-            key={w.id}
-            type="button"
-            onClick={() => onSelect(w.id)}
-            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-              isActive ? `${pw.lineStrong} ${pw.selected} ${pw.ink}` : `${pw.line} ${pw.muted} ${pw.hover}`
-            }`}
-          >
-            <span className="font-medium">{w.name}</span>
-            {w.isDefault ? <Badge tone="info">{t.warehouse.defaultBadge}</Badge> : null}
-            {w.status === "INACTIVE" ? <Badge tone="warning">{t.warehouse.statusInactive}</Badge> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function BulkPanel({
   t,
@@ -610,7 +545,7 @@ function Row({
       <EditCell editable={editable} value={cellValue("incoming")} onChange={(v) => onCell("incoming", v)} />
       <EditCell editable={editable} value={cellValue("reorderPoint")} onChange={(v) => onCell("reorderPoint", v)} />
       <td className="px-2 py-2">
-        <Badge tone={STATUS_TONE[row.currentCalc.status]}>{t.stockStatus[row.currentCalc.status]}</Badge>
+        <StatusBadge status={row.currentCalc.status} label={t.stockStatus[row.currentCalc.status]} />
       </td>
     </tr>
   );

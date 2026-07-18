@@ -728,3 +728,13 @@ ERTELENEN işler (yalnız gerçekten ertelenenler):
 - Kapsam: packages/db (schema + migration 20260718150000 + seed), packages/contracts, packages/api-client, apps/api-gateway (inventory-engine/* +
   server.ts wiring), apps/store-admin-web (products/[id] + products/inventory/* [yeni] + api/catalog proxy'ler + lib/client/api.ts + testler),
   packages/i18n (products.inventory + detail.tabs.inventory). Bloklayıcı: HAYIR.
+
+### TODO-152A — Inventory UX Birleştirme (ADR-077) kalan/dormant borç
+- **`InventoryItem.lowStockThreshold` DORMANT kolon.** Artık hiçbir yerde YAZILMAZ (variant modalı + gateway create/update + contract create/update
+  request kaldırıldı) ve hiçbir runtime kararı OKUMAZ (eşik authority'si tek başına `InventoryBalance.reorderPoint`). Kolon + `inventoryItemSchema`
+  yanıt alanı + legacy list serileştirmesi bilinçli KORUNDU (additive/non-destructive felsefe). İleride tam emeklilik: kolon drop migration + response
+  şemasından çıkarma (ayrı, dikkatli bir destructive iş — checkout/storefront stok haritası bağımsız olduğundan güvenli ama kapsam-dışı bırakıldı).
+- **Store-geneli matris paginate DEĞİL.** `GET …/inventory/matrix` tüm non-archived varyantları tek seferde döndürür (demo veri seti için yeterli;
+  dashboard summary'nin mevcut ilk-sayfa yaklaşımıyla aynı sınıf borç). Büyük katalog için pagination-aware/virtualized aggregation gerekir.
+- **Global tek-satır hızlı işlem = iki round-trip.** +N/−N/reset her tıklamada ürün-bazlı preview→apply yapar (stale-guard için fingerprint şart).
+  Doğru ve güvenli; ama toplu global operasyon için optimize değil — bilinçli (ADR-076 per-product transaction/lock korunur, fan-out reddedildi).

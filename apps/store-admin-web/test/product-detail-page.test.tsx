@@ -37,6 +37,8 @@ vi.mock("../lib/client/api.js", () => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "p1" }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  // TODO-152A — ürün detay sekmeleri ?tab= derin-link'i okur (global Stok'tan geçiş).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 function page(total: number, data: unknown[]) {

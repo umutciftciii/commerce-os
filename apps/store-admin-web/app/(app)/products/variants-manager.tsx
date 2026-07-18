@@ -230,7 +230,6 @@ function VariantEditor({
   const [compareAt, setCompareAt] = useState(variant ? minorToInput(variant.compareAtMinor) : "");
   const [cost, setCost] = useState(variant ? minorToInput(variant.costMinor) : "");
   const [barcode, setBarcode] = useState(variant?.barcode ?? "");
-  const [lowStock, setLowStock] = useState("");
   const [status, setStatus] = useState<VariantStatus>(variant?.status ?? "ACTIVE");
   // F3C.2 — Kargo ölçüleri (varyant override; boş ise ürün-seviyesi fallback).
   const [shippingWeightKg, setShippingWeightKg] = useState<string>(
@@ -322,8 +321,6 @@ function VariantEditor({
       return;
     }
 
-    const lowStockThreshold = lowStock.trim() === "" ? null : Number.parseInt(lowStock, 10);
-
     // Kargo ölçüleri: boş = null; doluysa > 0 olmalı.
     const parseDim = (raw: string): number | null | "ERR" => {
       const value = raw.trim();
@@ -352,9 +349,6 @@ function VariantEditor({
           status,
           shippingWeightKg: weightValue,
           shippingDesi: desiValue,
-          ...(lowStockThreshold !== null && !Number.isNaN(lowStockThreshold)
-            ? { lowStockThreshold }
-            : {}),
         });
         onSaved(t.updatedToast);
       } else {
@@ -371,9 +365,6 @@ function VariantEditor({
         if (barcode.trim() !== "") payload.barcode = barcode.trim();
         if (weightValue !== null) payload.shippingWeightKg = weightValue;
         if (desiValue !== null) payload.shippingDesi = desiValue;
-        if (lowStockThreshold !== null && !Number.isNaN(lowStockThreshold)) {
-          payload.lowStockThreshold = lowStockThreshold;
-        }
         await storeApi.createVariant(product.id, payload);
         onSaved(t.createdToast);
       }
@@ -530,25 +521,17 @@ function VariantEditor({
         {isEdit && variant ? (
           <PriceHistory product={product} variant={variant} labels={f} locale={locale} />
         ) : null}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            id="variant-barcode"
-            label={f.barcodeLabel}
-            placeholder={f.barcodePlaceholder}
-            value={barcode}
-            onChange={(event) => setBarcode(event.target.value)}
-            disabled={saving}
-          />
-          <Input
-            id="variant-lowstock"
-            type="number"
-            label={f.lowStockLabel}
-            placeholder={f.lowStockPlaceholder}
-            value={lowStock}
-            onChange={(event) => setLowStock(event.target.value)}
-            disabled={saving}
-          />
-        </div>
+        {/* TODO-152A — "Kritik stok eşiği" kaldırıldı: stok eşiği artık Inventory Engine'de tek
+            authority olan InventoryBalance.reorderPoint'tir (Product Detail > Stok sekmesi + global
+            izleme merkezi). Barkod tek başına kalır. */}
+        <Input
+          id="variant-barcode"
+          label={f.barcodeLabel}
+          placeholder={f.barcodePlaceholder}
+          value={barcode}
+          onChange={(event) => setBarcode(event.target.value)}
+          disabled={saving}
+        />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input
             id="variant-shipping-weight"

@@ -2478,3 +2478,39 @@ satılabilir saymak (overselling) · reserved'ı serbest kullanıcı input'u yap
 ile çelişir) · client-calculated available'a güvenmek (stale/oynanabilir) · float stok değerleri · audit tutmamak · destructive InventoryItem
 migration (veri kaybı) · tüm depoları tek tabloda zorla materialize etmek (default depo self-healing overlay yeterli) · reservation lifecycle'ı bu
 fazda warehouse-aware yeniden yazmak (kapsam patlaması + overselling riski).
+
+## ADR-077 — Inventory UX Birleştirme: Global İzleme Merkezi + reorderPoint Tek Authority (TODO-152A)
+
+- **Durum:** Kabul edildi (2026-07-18). ADR-076 Inventory Engine kullanıcıya sunulurken oluşan iki UX tutarsızlığını giderir; **motor/şema/transaction
+  mimarisi DEĞİŞMEZ** (yalnız bir SALT-OKUMA uç + sunum + tek dormant alan geçişi eklenir).
+- **Bağlam.** Faz 2C-6 sonrası: (1) sol menüdeki global "Stok" sayfası hâlâ legacy `InventoryItem` liste + "Stok düzelt" modalını kullanıyordu (yalnız
+  eldeki/rezerve/kullanılabilir/eşik) — Product Detail > Stok sekmesindeki depo-farkındalıklı Inventory Engine workspace'iyle iki ayrı deneyim; (2)
+  Varyant modalında legacy "Kritik stok eşiği" (`InventoryItem.lowStockThreshold`) alanı, eşik authority'si `InventoryBalance.reorderPoint`'e taşındığı
+  hâlde duruyordu (çift alan/kafa karışıklığı); (3) dark tema'da ürün detay sekmeleri düşük kontrastlıydı.
+
+**Kararlar.**
+1. **Global Stok = mağaza-geneli izleme & operasyon merkezi (düzenleme DEĞİL).** Motor ADR-076 gereği product-scoped'tur (matrix/preview/apply tümü
+   `productId` + product+warehouse advisory-lock). Global tam-düzenleme için gereken **ürünler-arası fan-out yazma REDDEDİLDİ** (ADR-076'nın per-product
+   atomik transaction/lock modelini bozar). Bunun yerine global ekran güçlü listelemedir: depo seçici, KPI, arama, durum filtresi, tüm motor kolonları
+   (elde/rezerve/güvenlik/satılabilir/gelen/**yeniden sipariş noktası**/durum) ve satır-başına o ürünün Stok sekmesine derin-link (`/products/:id?tab=inventory`).
+2. **Yeni SALT-OKUMA store-geneli matris ucu.** `GET /stores/:storeId/inventory/matrix?warehouseId=` TÜM non-archived varyantları (ürün kimliğiyle)
+   seçili depoda current bakiye + **SAF `computeCalc`** ile döndürür → durum/satılabilir Product Detail sekmesiyle **birebir paritede**. Yazma yok, lock yok,
+   fingerprint yok (okuma). Motor SAF fonksiyonları (availability/calculator) tek doğruluk kaynağı olarak yeniden kullanılır (kopya mantık yok).
+3. **Güvenli tek-satır hızlı işlem (istisna).** Global ekranda +N / −N / "sıfırla" (onHand) izinlidir; ama **mevcut ürün-bazlı preview→apply** uçlarını
+   kullanır (yeni motor yolu yok). Her işlem tek ürün transaction'ı + stale-guard fingerprint ile atomiktir; preview `blocked` ise uygulanmaz (uyarı).
+   Bulk/Quick-Edit/Preview/çok-alan Apply **yalnız Product Detail > Stok sekmesinde** kalır.
+4. **reorderPoint TEK authority; lowStockThreshold emekli.** Legacy `InventoryItem.lowStockThreshold` artık **yazılmaz** (variant modalı alanı + gateway
+   create/update yazımı + contract create/update request alanları kaldırıldı) ve **hiçbir runtime kararı okumaz** (dashboard "kritik stok" KPI'ı motorun
+   LOW_STOCK durumundan = reorderPoint'ten türetilir; legacy global sayfa kaldırıldı). LOW_STOCK kararı yalnız `reorderPoint`'tir (`sellable ≤ reorderPoint > 0`).
+5. **Non-destructive geçiş + idempotent backfill.** `lowStockThreshold` KOLONU DROP EDİLMEZ (additive felsefe; `inventoryItemSchema` yanıt modeli + legacy
+   list serileştirmesi dormant kalır). Tek seferlik güvenli backfill (`20260718160000_backfill_reorder_point`) yalnız DEFAULT depo bakiyesinde `reorderPoint=0`
+   iken ve anlamlı eşik (`lowStockThreshold IS NOT NULL AND > 0`) varken değeri taşır (manuel reorderPoint'leri EZMEZ; re-run güvenli).
+6. **Paylaşılan sunum atomları.** `fmt`/`fmtSigned`/`INVENTORY_STATUS_TONE`/`Kpi`/`WarehouseSelector`/`StatusBadge` `products/inventory/shared.tsx`'e
+   çıkarıldı; hem Product Detail sekmesi hem global ekran AYNI componentleri kullanır (dict'ten bağımsız, iki i18n namespace ile de çalışır).
+7. **Sekme kontrastı.** Ürün detay sekmeleri underline-only yerine belirgin pill'e geçti: aktif = indigo dolgu + border + ikon + yüksek kontrast; inaktif
+   = yumuşak border/hover; mobilde yatay kaydırma. `?tab=` derin-link ilk sekmeyi belirler (global ekrandan geçiş).
+
+**Reddedilen alternatifler.** Global fan-out yazma motoru (ADR-076 per-product transaction/lock'u bozar; cross-product fingerprint/atomiklik karmaşası) ·
+global ekranı salt legacy liste bırakmak (iki UX sürer) · lowStockThreshold kolonunu drop etmek (destructive; additive felsefeye aykırı) · eşiği backfill
+etmeden kaldırmak (mevcut kritik-stok sinyali kaybı) · global matris için legacy `listInventory`'yi genişletmek (motor durum paritesi + depo boyutu yok) ·
+durum/satılabilir'i istemcide yeniden hesaplamak (SAF motor tek kaynak olmalı).

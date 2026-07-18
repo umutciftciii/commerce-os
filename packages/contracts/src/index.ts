@@ -1094,6 +1094,29 @@ export const inventoryApplyResponseSchema = z.object({
   preview: inventoryPreviewResponseSchema,
 });
 
+// TODO-152A — Mağaza-geneli stok MATRİS okuması (SALT-OKUMA; izleme/operasyon merkezi).
+// Motor product-scoped kalır (ADR-076); bu uç yalnız TÜM ürünlerin varyantlarını seçili depoda
+// current bakiye + SAF hesaplanmış göstergelerle (sellable/status) döndürür. Düzenleme YOK (preview/
+// apply ürün-bazlı tabda). Satırlar ürün kimliği taşır (global tabloda "Ürün" kolonu için).
+export const inventoryStoreMatrixRowSchema = z.object({
+  productId: z.string().min(1),
+  productTitle: z.string(),
+  productSlug: z.string(),
+  variantId: z.string().min(1),
+  sku: z.string(),
+  title: z.string(),
+  status: productVariantStatusSchema,
+  attributes: z.array(z.object({ code: z.string(), label: z.string() })),
+  balanceExists: z.boolean(),
+  current: inventoryStateSchema,
+  currentCalc: inventoryCalcSchema,
+});
+
+export const inventoryStoreMatrixResponseSchema = z.object({
+  warehouse: inventoryWarehouseSchema,
+  rows: z.array(inventoryStoreMatrixRowSchema),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2484,7 +2507,8 @@ export const productVariantCreateRequestSchema = z
     currency: currencySchema.default("TRY"),
     status: productVariantStatusSchema.default("ACTIVE"),
     optionValues: jsonRecordSchema.nullable().optional(),
-    lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // TODO-152A — lowStockThreshold KALDIRILDI: stok eşiği artık tek authority olan
+    // InventoryBalance.reorderPoint'tir (Product Detail > Stok / global izleme merkezi).
     // F3C.2 — Kargo olcumu (varyant override). >0 olmali; bos = null.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
@@ -2531,7 +2555,7 @@ export const productVariantUpdateRequestSchema = z
     currency: currencySchema.optional(),
     status: productVariantStatusSchema.optional(),
     optionValues: jsonRecordSchema.nullable().optional(),
-    lowStockThreshold: z.number().int().nonnegative().nullable().optional(),
+    // TODO-152A — lowStockThreshold KALDIRILDI (bkz. create şeması notu); authority reorderPoint.
     // F3C.2 — Kargo olcumu (varyant override). >0 olmali; null = temizle.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
@@ -3194,6 +3218,8 @@ export type InventoryPreviewResponse = z.infer<typeof inventoryPreviewResponseSc
 export type InventoryPreviewRequest = z.infer<typeof inventoryPreviewRequestSchema>;
 export type InventoryApplyRequest = z.infer<typeof inventoryApplyRequestSchema>;
 export type InventoryApplyResponse = z.infer<typeof inventoryApplyResponseSchema>;
+export type InventoryStoreMatrixRow = z.infer<typeof inventoryStoreMatrixRowSchema>;
+export type InventoryStoreMatrixResponse = z.infer<typeof inventoryStoreMatrixResponseSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;
