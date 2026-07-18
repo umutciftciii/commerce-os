@@ -1232,3 +1232,31 @@
   db 16/16. Gate: prisma format/validate/generate + migration SQL review + typecheck + lint + build (api-gateway tsc + store-admin Next) +
   `git diff --check` temiz. KALAN: docker rebuild + `migrate deploy` + prod-benzeri auth'lu runtime smoke; gerçek-PG concurrency
   integration testi (TD-043). Faz 2C-4 (SKU Matrix) AYRI iş.
+
+- TODO-150 — Faz 2C-4: Identity Management Engine (SKU/Barcode/Variant Title pattern motoru) (DONE — 2026-07-18, ADR-073;
+  commit/merge/deploy YAPILMADI — final rapor sonrası durum). İş: 2C-3 persistence altyapısını (kalıcı `ProductVariant`,
+  `combinationKey`, `ProductVariantOptionValue`, deterministik placeholder SKU) tüketip **pattern tabanlı kimlik motoru** ekler.
+  Bu faz yalnız **SKU · Barcode · Variant Title** aktif (GTIN/EAN/UPC/ERP/marketplace altyapı olarak öngörülür, YAZILMAZ). SKU Matrix
+  ekranı DEĞİL; **Identity Matrix** (pattern editörü + preview tablosu + collision paneli + apply). (1) **SAF motor**
+  (`identity-engine/`): `tokenizer.ts` (lexer; kaçış `{{`/`}}` + charset + dengeli/iç-içe parantez) · `parser.ts` (token semantiği +
+  AST; PRODUCT/CATEGORY/ATTRIBUTE:code/COLOR/SIZE/SEQ aktif, ID/YEAR/MONTH rezerve → `IDENTITY_TOKEN_NOT_SUPPORTED`) · `evaluator.ts`
+  (identifier modu=value+UPPER / title modu=label; SEQ padding; eksik token=missing) · `collision.ts` (internal+external, O(n+m)) ·
+  `preview.ts` (değerlendirme+validation+collision orkestrası; blocking bayrağı). Hepsi Prisma/HTTP/Date/`Math.random` BİLMEZ.
+  (2) **Veri modeli (additive).** `ProductVariant.titleIsCustom Boolean @default(false)` (title override koruması; varyant PATCH
+  `title` verince true) + `enum VariantIdentityField (SKU|BARCODE|TITLE)` + append-only `VariantIdentityChange` (batchId gruplu undo
+  metadata; oldValue/newValue/field/pattern/changedByPlatformUserId scalar). Migration additive (1 kolon + enum + tablo + 4 index +
+  3 FK; backfill YOK). (3) **Servis** (`service.ts`+`data.ts`): preview yalnız-okuma + deterministik; apply **server-authoritative**
+  (preview'i yeniden hesaplar) + tek `prisma.$transaction` + **advisory xact lock** (`$executeRaw`) + yalnız-değişen yazım + audit.
+  Fail-closed: blocked (SKU collision / sert validation) → hiçbir yazım (422 `IDENTITY_APPLY_BLOCKED`). Idempotent (ikinci apply →
+  updated=0). Dış-SKU sahipleri tek `in` sorgusu (N+1 YOK). (4) **API.** `GET .../identity/preview` (query: sku/barcode/title/seqStart/
+  regenerateCustomTitles) + `POST .../identity/apply`. Yanıt `{rows[], collisions[], blocked, counts, patterns, variantCount}` /
+  apply `{batchId, updated, skipped, collisions, preview}`. Stabil hatalar PRODUCT_NOT_FOUND(404) / IDENTITY_NO_PATTERN /
+  IDENTITY_PATTERN_INVALID / IDENTITY_APPLY_BLOCKED(422) / IDENTITY_SKU_CONFLICT(409). contracts `identity*Schema` + api-client
+  `...identity.{preview,apply}`. Combination/generation uçları BOZULMAZ. (5) **UI.** Ürün formuna **Identity Matrix** bölümü
+  (`useIdentityMatrix` + `IdentityMatrix`; yalnız düzenleme + eksen varsa görünür): debounce'lu canlı preview, pattern editörü (SKU/
+  Barcode/Title + seqStart + regenerateCustomTitles), preview tablosu (mevcut→yeni + değişim/çakışma rozetleri), collision paneli,
+  apply (blocked/değişiklik yok iken pasif). BFF proxy `.../identity/{preview,apply}`. i18n tr+en (`identityMatrix`). (6) **Testler.**
+  api-gateway `identity-engine.test.ts` (~46: tokenizer/parser/evaluator/collision/preview saf + service in-memory fake + route).
+  Regresyon: api-gateway 878/878, store-admin 285/285; full `pnpm -r build` PASS (25/25 proje). Gate: prisma format/generate +
+  migration SQL + full build + typecheck + tests. KALAN: docker rebuild + `migrate deploy` + auth'lu runtime smoke; gerçek-PG
+  concurrency integration (TD-044). GTIN/ERP/Marketplace/Price Matrix/Inventory Matrix/Variant Media KAPSAM DIŞI.

@@ -637,3 +637,26 @@
   storefront-checkout-inventory regresyon) ayrı adım.
 - Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/variant-generation,
   apps/store-admin-web (product form + variant-attributes/* + BFF), packages/i18n. Bloklayıcı: HAYIR.
+
+## TD-044 Faz 2C-4 Identity Management Engine: bilinen sınırlar (kapsam gereği)
+- Tarih: 2026-07-18 (Faz 2C-4, TODO-150, ADR-073)
+- Sorun 1 (gerçek-PG concurrency integration testi YOK): Apply concurrency advisory lock + DB unique `(storeId, sku)` ile tasarlandı ve
+  in-memory fake + `IDENTITY_SKU_CONFLICT` (P2002) yoluyla kanıtlandı; canlı PostgreSQL'e karşı iki paralel apply çalıştıran integration
+  testi repo altyapısında yok. Merge sonrası docker/PG ortamında elle veya ileride bir harness ile doğrulanmalı. Etki: düşük (tasarım güvenli).
+- Sorun 2 (Identity Rule DB'de kalıcı DEĞİL): Pattern'lar request-scoped'tur; per-store/product varsayılan kural (IdentityRule tablosu)
+  bu faz kapsamı dışında bırakıldı. Kullanıcı her seferinde pattern yazar. İhtiyaç olursa alan-agnostik motor korunarak eklenebilir. Etki: düşük (UX).
+- Sorun 3 (tam Undo UI YOK): `VariantIdentityChange` batchId gruplu undo METADATA kalıcıdır ama bir batch'i geri alan reverse-apply
+  ucu/UI'si bu faz yazılmadı (görev: "tam undo UI gerekmiyor"). Etki: düşük.
+- Sorun 4 (rezerve token'lar aktif değil): ID/YEAR/MONTH token'ları gramerde tanınır ama bu faz `IDENTITY_TOKEN_NOT_SUPPORTED` döner
+  (YEAR/MONTH saat gerektirir → saf evaluator'a enjekte edilmeli; ID = variant id ileride). GTIN/EAN/UPC/ERP/Marketplace SKU hedef
+  alanları da öngörülür ama YAZILMAZ. Etki: yok (bilinçli kapsam; alan-agnostik motor genişlemeye hazır).
+- Sorun 5 (Identity global length limit sabit): SKU/barcode/title max uzunlukları `DEFAULT_IDENTITY_LIMITS` sabiti (64/64/200);
+  mağaza/kategori-bazlı override yok. Etki: düşük.
+- Sorun 6 (Identity Matrix yalnız eksen-var ürünlerde görünür): UI, `hasVariantAxes` olan düzenleme ekranında görünür; eksen tanımlamamış
+  ama manuel varyantlı ürünlerde bölüm gizli (ATTRIBUTE token'ları zaten çözülemezdi; {SEQ}/{PRODUCT} pattern'ları teorik olarak
+  çalışırdı). İhtiyaç olursa görünürlük koşulu gevşetilebilir. Etki: düşük (UX kapsamı).
+- Sorun 7 (runtime smoke bekliyor): Tüm gate yeşil (api-gateway 878, store-admin 285 + full `pnpm -r build` 25/25 PASS + prisma
+  format/generate + migration SQL); docker rebuild + `migrate deploy` + prod-benzeri auth'lu smoke (pattern preview → collision → apply →
+  audit → title koruma → idempotent) ayrı adım (commit/merge/deploy bu görevde YAPILMADI).
+- Kapsam: packages/db (schema + migration), packages/contracts, packages/api-client, apps/api-gateway/src/identity-engine + variant PATCH
+  (titleIsCustom), apps/store-admin-web (product form + identity/* + BFF), packages/i18n. Bloklayıcı: HAYIR.

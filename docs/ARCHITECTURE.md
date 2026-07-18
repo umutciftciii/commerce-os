@@ -213,6 +213,8 @@ audit log, event log, queue job log ve Faz 2A katalog/stok foundation varliklari
   denormalized tutulur. Faz 2C-3 (ADR-072): `generationSource` (MANUAL|ATTRIBUTE_COMBINATION),
   kalici `combinationKey String?` (`@@unique([productId, combinationKey])`, NULL-distinct) ve soft-archive
   `archivedAt DateTime?` eklendi; uretilmis varyantin normalize eksen→option secimi `ProductVariantOptionValue`'da.
+  Faz 2C-4 (ADR-073): `titleIsCustom Boolean @default(false)` (Identity Engine title override korumasi); kimlik bulk-apply audit'i
+  append-only `VariantIdentityChange` (batchId gruplu undo metadata).
 - `ProductCategory`: store-scoped kategori agaci; `slug` store bazinda unique, `parentId` ayni store
   icinde validate edilir.
 - `ProductCategoryAssignment`: urun-kategori baglantisi; storeId ile tenant sorgulari ve unique guard
@@ -391,6 +393,33 @@ tenant-safe. Combination Engine (`engine.ts`) DEGISMEDI. **SKU Matrix DEGIL.**
 - **UI** (`.../products/variant-attributes/`): `useVariantGeneration` + `generate-variants-action.tsx` — **"Varyantlari Olustur"** aksiyonu
   + sonuc ozeti; yalniz duzenleme + eksen varsa gorunur; preview limiti/loading'de pasif; basarida onizleme yeniden cekilir. i18n tr+en.
   **SKU Matrix / inline fiyat-stok duzenleme YOK.**
+
+### Identity Management Engine — SKU/Barcode/Title pattern motoru (Faz 2C-4, ADR-073)
+
+2C-3 placeholder SKU/title'larini **pattern (kural) tabanli** anlamli kimlige ceviren motor. Bu faz yalniz **SKU · Barcode ·
+Variant Title** aktif (GTIN/EAN/UPC/ERP/marketplace altyapi olarak ongorulur, YAZILMAZ). Combination Engine / generation DEGISMEDI;
+ayri kimlik katmani. **Preview-first · collision-first · fail-closed · server-authoritative.**
+
+- **SAF motor** (`apps/api-gateway/src/identity-engine/`): `tokenizer.ts` (lexer; kacis `{{`/`}}` + charset + dengeli/ic-ice parantez) →
+  `parser.ts` (token semantigi + AST; **aktif:** PRODUCT/CATEGORY/ATTRIBUTE:code/COLOR/SIZE/SEQ[:pad], **rezerve:** ID/YEAR/MONTH →
+  `IDENTITY_TOKEN_NOT_SUPPORTED`) → `evaluator.ts` (identifier modu=`value`+UPPER / title modu=`label`; SEQ padding; eksik token=missing).
+  `collision.ts` (internal+external, O(n+m)) + `preview.ts` (degerlendirme+validation+collision orkestrasi). Hepsi Prisma/HTTP/`Date`/
+  `Math.random` BILMEZ → izole test edilebilir. Her hata **stable kod** (`IDENTITY_UNKNOWN_TOKEN`, `IDENTITY_UNCLOSED_TOKEN`,
+  `IDENTITY_NESTED_TOKEN`, ...).
+- **Veri modeli (additive):** `ProductVariant.titleIsCustom Boolean @default(false)` (title override korumasi; varyant PATCH `title`
+  verince `true`) + `enum VariantIdentityField (SKU|BARCODE|TITLE)` + append-only **`VariantIdentityChange`** (batchId gruplu undo
+  metadata; `oldValue/newValue/field/pattern/changedByPlatformUserId` scalar — ProductPriceChange deseni). Backfill YOK.
+- **Servis** (`identity-engine/service.ts` + `data.ts`): preview yalniz-okuma + deterministik; apply **server-authoritative**
+  (preview'i YENIDEN hesaplar) + tek `prisma.$transaction` + **advisory xact lock** (`$executeRaw`) + **yalniz-degisen** yazim + audit.
+  **Fail-closed:** SKU collision / sert validation → hicbir yazim (422 `IDENTITY_APPLY_BLOCKED`). Idempotent (ikinci apply → updated=0).
+  Dis-SKU sahipleri tek `in` sorgusu (**N+1 YOK**). SKU collision **blocking**; barcode duplicate **uyari** (DB'de barcode unique YOK).
+- **API** (`identity-engine/routes.ts`): `GET .../identity/preview` (query pattern'lar) + `POST .../identity/apply`. Yanit
+  `{rows[], collisions[], blocked, counts, patterns, variantCount}` / apply `{batchId, updated, skipped, collisions, preview}`. contracts
+  `identity*Schema` + api-client `...identity.{preview,apply}`. Combination/generation uclari BOZULMAZ.
+- **UI** (`.../products/identity/`): `useIdentityMatrix` + `identity-matrix.tsx` — **Identity Matrix** bolumu (debounce'lu canli preview,
+  pattern editoru, preview tablosu [mevcut→yeni + degisim/cakisma rozetleri], collision paneli, apply [blocked/degisiklik-yok iken pasif]);
+  yalniz duzenleme + eksen varsa gorunur. BFF proxy `.../identity/{preview,apply}`. i18n tr+en. **GTIN/ERP/Marketplace/Price/Inventory
+  Matrix/Variant Media KAPSAM DISI.**
 
 ## Auth / Session
 

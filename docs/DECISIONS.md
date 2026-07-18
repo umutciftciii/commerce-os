@@ -2260,3 +2260,53 @@ title/label tabanlı identity (rename kimliği bozar → ID-tabanlı `combinatio
 advisory lock); manuel ve generated'ı ayırmamak (kullanıcı verisi riski → `generationSource` enum); Combination Engine'e Prisma eklemek
 (saflık/izole test kaybı → ayrı persistence katmanı); 2A `VariantAttributeValue`'yu paylaşmak (single-writer invariantı kırılır → yeni
 `ProductVariantOptionValue`); yeni varyanta InventoryItem/price-audit yazmak (görev kuralı + DRAFT placeholder → lazy).
+
+## ADR-073 — Identity Management Engine: pattern tabanlı SKU/Barcode/Title motoru (parser/evaluator ayrımı, preview-first, collision-first, bulk apply) (Faz 2C-4 / TODO-150)
+
+- **Durum:** Kabul edildi (2026-07-18). ADR-072 (Faz 2C-3) kalıcı `ProductVariant` üretimini + deterministik placeholder SKU
+  (`V-<productId>-<hash>`) ve `deriveTitle` ("Red / M") başlangıcını kurdu. Bu ADR o placeholder'ları **anlamlı kimliğe** çeviren
+  **pattern (kural) tabanlı Identity Management Engine**'i ekler. Combination Engine (`engine.ts`) ve generation (`variant-generation/*`)
+  DEĞİŞMEDİ; bu ayrı bir kimlik katmanıdır. Bu faz yalnız **SKU · Barcode · Variant Title** aktiftir (GTIN/EAN/UPC/ERP/marketplace
+  altyapı olarak öngörülür, YAZILMAZ).
+
+**Bağlam.** 1000 varyantın SKU/barkod/başlığını elle girmek ölçeklenmez, tutarsız ve tekrar edilemez. Enterprise seviyesinde bir
+kimlik motoru gerekir: pattern derleme → önizleme → çakışma tespiti → toplu uygulama. Motor SAF (izole test edilebilir), apply
+sunucu-otoriter ve tek transaction olmalı.
+
+**Kararlar.**
+1. **Pattern Engine (tokenizer → parser → evaluator), string-replace DEĞİL.** Naive `String.replace` argümanlı token (`{ATTRIBUTE:color}`),
+   SEQ padding, kaçış (`{{`/`}}`), dengesiz/iç-içe parantez ve bilinmeyen token **validation**'ını yapamaz — sessizce yanlış çıktı üretir.
+   Üç saf katman: `tokenizer.ts` (lexer; kaçış+charset+dengeli parantez) · `parser.ts` (token semantiği + AST; bilinen/rezerve token,
+   arg zorunluluğu, SEQ padding) · `evaluator.ts` (AST + `EvaluationContext` → string). Hepsi Prisma/HTTP/Date/`Math.random` BİLMEZ.
+   Her hata **stable kod** üretir (`IDENTITY_UNKNOWN_TOKEN`, `IDENTITY_UNCLOSED_TOKEN`, `IDENTITY_NESTED_TOKEN`,
+   `IDENTITY_TOKEN_ARG_REQUIRED`, `IDENTITY_SEQ_PADDING_INVALID`, `IDENTITY_TOKEN_NOT_SUPPORTED`, ...).
+2. **Preview-first + deterministik.** Toplu kimlik değişimi SKU tekilliğine ve downstream ERP/marketplace referanslarına karşı
+   geri-dönüşü zordur. `GET /identity/preview` (yalnız-okuma) her varyantın mevcut→yeni değerini, değişimi ve çakışmayı gösterir; hiçbir
+   şey yazılmaz. Deterministik olduğundan **preview == apply**; apply istemci preview'ine güvenmez, sunucuda **yeniden** hesaplar.
+3. **Collision-first + fail-closed.** İki tür SKU collision saf tespit edilir (`collision.ts`, O(n+m)): **internal** (aynı kümede iki
+   varyant aynı SKU) ve **external** (kümede olmayan mevcut bir varyantla çakışma — `@@unique([storeId, sku])` zaten reddederdi; dış
+   sahipler tek `in` sorgusuyla getirilir). SKU collision veya sert validation varsa apply **tamamen reddedilir** (422
+   `IDENTITY_APPLY_BLOCKED`; kısmi yazım YOK, atomik). Barcode duplicate **uyarıdır** (DB'de barcode unique YOK → non-blocking). Çözüm:
+   pattern'a `{SEQ}` eklemek (birincil collision-önleme aracı).
+4. **Bulk Apply — tek transaction + yalnız-değişen + advisory-lock.** `POST /identity/apply` ürün-bazlı `pg_advisory_xact_lock`
+   (`$executeRaw`; 2C-3 dersi) ile serileşir, yalnız `next != current` (ve title için korumalı-değil) varyantları yazar (idempotent:
+   ikinci apply → updated=0). Beklenmedik P2002 → 409 `IDENTITY_SKU_CONFLICT`.
+5. **Undo metadata — append-only `VariantIdentityChange` (batchId gruplu).** Her değişen alan için `oldValue→newValue` + `field` +
+   `pattern` + `changedByPlatformUserId` (FK DEĞİL, scalar — ProductPriceChange deseni) yazılır; hepsi tek `batchId` paylaşır (apply
+   başına bir cuid). Bir batch'i yükleyip `oldValue`'ları geri yazmak = gelecekteki reverse-apply. **Tam undo UI bu faz kapsamı dışıdır**
+   ama metadata kalıcıdır.
+6. **Variant Title Engine + override koruması.** Başlık **label modunda** (`{PRODUCT} - {COLOR}` → "Premium T-Shirt - Kırmızı")
+   değerlendirilir. `ProductVariant.titleIsCustom` (Boolean, additive, default false=motor-yönetimli) eklendi; varyant PATCH `title`
+   verince `true` işaretler. Title apply, `regenerateCustomTitles=false` (varsayılan) iken **korumalı başlıkları atlar**
+   (`skipped: protected`) → "Title override edilirse yeniden generate edilmemeli". Motor başlık yazınca `titleIsCustom=false` set eder.
+7. **Alan-agnostik motor (GTIN'e genişleme).** `VariantIdentityField` enum'u bugün `SKU|BARCODE|TITLE`; GTIN/EAN/UPC yeni hedef alan +
+   yeni token (`{GTIN}`) + saf `checkDigit()` adımıyla eklenir. Marketplace SKU **ayrı** tutulur (kanal-başına dış eşleme; mağaza SKU
+   uzayında tekil olamaz → gelecekteki `VariantExternalIdentity`). Rezerve token'lar (ID/YEAR/MONTH) grameri kirletmeden bekler.
+8. **Identifier vs title modu.** SKU/barcode identifier modu (`value` + UPPER normalize → `RED`, `S`); title label modu. Semantik
+   `EvaluationContext.preferLabel` ile enjekte edilir → evaluator saf kalır. SEQ değeri ve external owner haritaları da servisten enjekte
+   edilir (determinizm + izole test).
+
+**Reddedilen alternatifler.** String-replace / regex zinciri (validation yok, sessiz yanlış çıktı) · random SKU / timestamp SKU
+(deterministik değil, preview==apply garantisi yok, ERP kırılgan) · manuel tek-tek edit (ölçeklenmez) · preview'siz doğrudan apply
+(collision sürprizi, geri-dönüşü zor) · Rule'u DB'de kalıcı tutmak (bu faz kapsam dışı; pattern request-scoped) · `titleIsCustom`
+olmadan title-apply (override koruması imkânsız) · marketplace SKU'yu kanonik `sku`'ya karıştırmak (unique invariantı + ERP eşlemesi bozulur).

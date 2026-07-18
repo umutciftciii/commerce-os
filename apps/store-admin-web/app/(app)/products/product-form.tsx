@@ -47,6 +47,8 @@ import { useVariantCombinationPreview } from "./variant-attributes/use-variant-c
 import { CombinationPreview } from "./variant-attributes/combination-preview";
 import { useVariantGeneration } from "./variant-attributes/use-variant-generation";
 import { GenerateVariantsAction } from "./variant-attributes/generate-variants-action";
+import { useIdentityMatrix } from "./identity/use-identity-matrix";
+import { IdentityMatrix } from "./identity/identity-matrix";
 import {
   buildVariantSelectionMap,
   emptyVariantSelectionMap,
@@ -112,6 +114,7 @@ export function ProductForm({
   const sm = t.salesModel;
   const a = t.attributes;
   const va = t.variantAttributes;
+  const im = t.identityMatrix;
   const isEdit = mode === "edit";
 
   const [rootError, setRootError] = useState<string | null>(null);
@@ -220,6 +223,12 @@ export function ProductForm({
   const variantGeneration = useVariantGeneration(
     isEdit && product && hasVariantAxes ? product.id : null,
     () => setPreviewRefreshToken((token) => token + 1),
+  );
+
+  // TODO-150 — Identity Management Engine (SKU/Barcode/Title pattern motoru). Yalnız kaydedilmiş ürün +
+  // eksen varsa anlamlıdır (varyant araçlarının yanında). Apply server-authoritative; hiçbir yerel state ezmez.
+  const identityMatrix = useIdentityMatrix(
+    isEdit && product && hasVariantAxes ? product.id : null,
   );
 
   // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
@@ -716,6 +725,45 @@ export function ProductForm({
           archivedLabel: (count) => formatTemplate(va.generatedArchived, count),
           manualLabel: (count) => formatTemplate(va.generatedManual, count),
           serverErrors: va.generateServerErrors,
+        }}
+      />
+
+      {/* TODO-150 (ADR-073) — Identity Matrix (SKU/Barcode/Title pattern motoru). Yalnız düzenleme +
+          eksen varsa görünür. Preview deterministik; apply yalnız değişen varyantları yazar. */}
+      <IdentityMatrix
+        visible={Boolean(isEdit && product && hasVariantAxes)}
+        controller={identityMatrix}
+        labels={{
+          sectionTitle: im.sectionTitle,
+          sectionSubtitle: im.sectionSubtitle,
+          tokenHint: im.tokenHint,
+          skuLabel: im.skuLabel,
+          skuPlaceholder: im.skuPlaceholder,
+          barcodeLabel: im.barcodeLabel,
+          barcodePlaceholder: im.barcodePlaceholder,
+          titleLabel: im.titleLabel,
+          titlePlaceholder: im.titlePlaceholder,
+          seqStartLabel: im.seqStartLabel,
+          regenerateLabel: im.regenerateLabel,
+          previewLoading: im.previewLoading,
+          colVariant: im.colVariant,
+          colSku: im.colSku,
+          colBarcode: im.colBarcode,
+          colTitle: im.colTitle,
+          colStatus: im.colStatus,
+          emptyBarcode: im.emptyBarcode,
+          applyButton: im.applyButton,
+          applying: im.applying,
+          blockedNote: im.blockedNote,
+          noChangesNote: im.noChangesNote,
+          changedSummary: (changed, skipped) =>
+            im.changedSummary.replace("{value}", String(changed)).replace("{other}", String(skipped)),
+          appliedSummary: (updated, skipped) =>
+            im.appliedSummary.replace("{value}", String(updated)).replace("{other}", String(skipped)),
+          collisionsTitle: im.collisionsTitle,
+          collisionCount: (n) => formatTemplate(im.collisionCount, n),
+          statusLabels: im.statusLabels,
+          issueLabels: im.issueLabels,
         }}
       />
 

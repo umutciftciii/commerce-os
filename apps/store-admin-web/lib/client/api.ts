@@ -58,6 +58,9 @@ import type {
   ProductVariantSelectionListResponse,
   VariantCombinationPreviewResponse,
   VariantGenerationResponse,
+  IdentityApplyRequest,
+  IdentityApplyResponse,
+  IdentityPreviewResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -321,6 +324,20 @@ function shipmentListQuery(query?: ShipmentListQuery): string {
   return qs.length > 0 ? `?${qs}` : "";
 }
 
+// TODO-150 (ADR-073) — Identity preview query-string (pattern'lar + seqStart + regenerate).
+function identityQueryString(query: IdentityApplyRequest): string {
+  const params = new URLSearchParams();
+  if (query.sku !== undefined) params.set("sku", query.sku);
+  if (query.barcode !== undefined) params.set("barcode", query.barcode);
+  if (query.title !== undefined) params.set("title", query.title);
+  if (query.seqStart !== undefined) params.set("seqStart", String(query.seqStart));
+  if (query.regenerateCustomTitles !== undefined) {
+    params.set("regenerateCustomTitles", query.regenerateCustomTitles ? "true" : "false");
+  }
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
 export const storeApi = {
   // Auth / session
   login: (email: string, password: string) =>
@@ -452,6 +469,17 @@ export const storeApi = {
       `/api/catalog/products/${productId}/variant-combinations/generate`,
       { method: "POST" },
     ),
+  // TODO-150 (ADR-073) — Identity Management Engine. Preview yalnız-okuma + deterministik; apply
+  // server-authoritative (yalnız değişen varyantları tek transaction'da yazar). Pattern query'de taşınır.
+  getIdentityPreview: (productId: string, query: IdentityApplyRequest) =>
+    call<IdentityPreviewResponse>(
+      `/api/catalog/products/${productId}/identity/preview${identityQueryString(query)}`,
+    ),
+  applyIdentity: (productId: string, input: IdentityApplyRequest) =>
+    mutatingCall<IdentityApplyResponse>(`/api/catalog/products/${productId}/identity/apply`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   // Variants
   listVariants: (productId: string) =>
