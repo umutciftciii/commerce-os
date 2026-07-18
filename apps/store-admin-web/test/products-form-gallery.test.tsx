@@ -35,6 +35,7 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       listAttributeGroups: vi.fn().mockResolvedValue({ data: [] }),
       listAttributeOptions: vi.fn().mockResolvedValue({ data: [] }),
       getProductAttributeValues: vi.fn().mockResolvedValue({ data: [] }),
+      getCommercialMatrix: vi.fn().mockResolvedValue({ rows: [] }),
     },
   };
 });

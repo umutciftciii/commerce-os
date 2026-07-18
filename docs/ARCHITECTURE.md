@@ -421,6 +421,41 @@ ayri kimlik katmani. **Preview-first · collision-first · fail-closed · server
   yalniz duzenleme + eksen varsa gorunur. BFF proxy `.../identity/{preview,apply}`. i18n tr+en. **GTIN/ERP/Marketplace/Price/Inventory
   Matrix/Variant Media KAPSAM DISI.**
 
+### Commercial Engine — Price/Compare-at/Cost/VAT preview-first bulk pricing (Faz 2C-5, ADR-074)
+
+Identity Engine desenini `ProductVariant`'in **ticari** alanlarina tasiyan motor. Aktif: **Price · Compare-at · Cost · VAT**;
+salt-okunur turetilen: **Gross Profit · Margin% · Markup% · Discount%**. Iki mod: **direct matrix edit** (hucre; autosave YOK) +
+**structured bulk rule** (serbest metin/eval YOK). Identity/combination/generation DEGISMEDI; ayri ticari katman. **Preview-first ·
+server-authoritative · fail-closed.**
+
+- **"Price" = KDV DAHIL brut satis** (`priceMinor`; checkout/storefront/order-snapshot otoritatif degeri) → matris varyant-liste "Price"
+  kolonuyla tutarli. Apply'da brut yazilir, `netPriceMinor = splitGrossByVat(gross, bps).net` ve `vatAmountMinor = gross − net` **yeniden
+  turetilir** (F4C uclusu korunur). **VAT orani degisiminde brut SABIT kalir** → musteri fiyati asla sessizce kaymaz. Margin/markup/discount
+  **brut uzerinden** (mevcut variants-manager semantigi); sifira bolme null (yaniltici % yok).
+- **SAF motor** (`apps/api-gateway/src/commercial-engine/`): `money.ts` (integer minor aritmetigi: yuzde-bps `base×(10000±bps)/10000` tek
+  round / sabit / markup / compareAt-turetme / rounding[NONE/NEAREST/UP/DOWN + step 1/10/100/1000] / price-ending[.90/.99/9.90/99.90] /
+  overflow; **float YASAK**) · `calculator.ts` (margin/markup/discount, division-by-zero → null) · `fingerprint.ts` (FNV-1a stale-guard;
+  girdi sirasindan bagimsiz) · `rule.ts` (yapisal rule normalize+validate; operation↔field uyumu) · `evaluator.ts` (rule/direct-edit →
+  hedef state) · `validation.ts` (blocking/warning) · `diff-engine.ts` (alan-bazli O(n·f) diff, Map/Set; nested YOK) · `preview.ts`
+  (rows+summary+fingerprint). Hepsi Prisma/HTTP/`Date`/`Math.random` BILMEZ. Her hata **stable kod**.
+- **Veri modeli (additive):** `enum CommercialField (PRICE|COMPARE_AT_PRICE|COST|VAT_RATE)` + `enum CommercialChangeSource (DIRECT_EDIT|
+  BULK_RULE)` + append-only **`VariantCommercialChange`** (batchId gruplu; `oldValue/newValue` [money=minor, VAT=bps] + `currency` +
+  `source` + `ruleSnapshot` Json + `changedByPlatformUserId` scalar). Mevcut `ProductVariant` fiyat kolonlari + `ProductPriceChange` (F4B)
+  DEGISMEZ/BOZULMAZ. Backfill/down YOK.
+- **Servis** (`commercial-engine/service.ts` + `data.ts`): preview yalniz-okuma + deterministik; apply **server-authoritative** (preview'i
+  YENIDEN hesaplar) + tek `prisma.$transaction` + **advisory xact lock** (`$executeRaw`) + **stale-preview fingerprint kontrolu** +
+  **yalniz-degisen** yazim (PRICE/VAT degisince net/KDV turetilir) + audit. **Fail-closed:** blocking (negatif/overflow/invalid-VAT/currency/
+  eksik-kaynak) veya stale → hicbir yazim. Idempotent (ikinci apply → updated=0). ARCHIVED kapsam disi; apply status DEGISTIRMEZ. **N+1 YOK**
+  (varyantlar + option degerleri tek sorgu).
+- **API** (`commercial-engine/routes.ts`): `GET .../commercial` (matris) + `POST .../commercial/preview` + `POST .../commercial/apply`.
+  Rule VEYA direct-edit + `selectedVariantIds` (tenant/scope guard). Stabil hatalar PRODUCT_NOT_FOUND / COMMERCIAL_VARIANT_NOT_FOUND(404) /
+  COMMERCIAL_PREVIEW_STALE / COMMERCIAL_CONFLICT(409) / COMMERCIAL_INVALID_RULE / COMMERCIAL_SELECTION_EMPTY / COMMERCIAL_APPLY_BLOCKED(422).
+  contracts `commercial*Schema` + api-client `...commercial.{get,preview,apply}`. Identity/combination/generation uclari BOZULMAZ.
+- **UI** (`.../products/commercial/`): `useCommercialMatrix` + `commercial-matrix.tsx` — **Commercial Matrix** bolumu (mod anahtari, rule
+  paneli, secim, preview tablosu [mevcut→hedef ustu-cizili + margin/markup/discount + warning/error rozetleri], ozet paneli, apply
+  [blocked/degisiklik-yok iken pasif]); kaydedilmis her urunde gorunur (eksen gerektirmez). BFF proxy `.../commercial/{,preview,apply}`
+  (apply CSRF'li). i18n tr+en. **Inventory/Variant Media/currency conversion/rule persistence/undo UI/scheduled pricing KAPSAM DISI.**
+
 ## Auth / Session
 
 Faz 1A/1C'de platform admin auth bearer session token ile calisir. `/auth/platform/login` demo seed

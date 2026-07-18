@@ -173,6 +173,13 @@ import {
 } from "./identity-engine/data.js";
 import { createIdentityService } from "./identity-engine/service.js";
 import { registerIdentityRoutes } from "./identity-engine/routes.js";
+// TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk).
+import {
+  createPrismaCommercialDataAccess,
+  type CommercialDataAccess,
+} from "./commercial-engine/data.js";
+import { createCommercialService } from "./commercial-engine/service.js";
+import { registerCommercialRoutes } from "./commercial-engine/routes.js";
 import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
@@ -1140,6 +1147,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   variantGenerationDataAccess?: VariantGenerationDataAccess;
   // TODO-150 (ADR-073) — Identity Management Engine veri erisimi (testte in-memory enjekte edilebilir).
   identityDataAccess?: IdentityDataAccess;
+  // TODO-151 (ADR-074) — Commercial Engine veri erisimi (testte in-memory enjekte edilebilir).
+  commercialDataAccess?: CommercialDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5115,6 +5124,20 @@ export function createServer(
   const identityService = createIdentityService(identityDataAccess);
   registerIdentityRoutes(app, {
     service: identityService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // TODO-151 (ADR-074) — Commercial Engine: varyant ticari alanlari (price/compare-at/cost/VAT)
+  // preview-first + toplu yonetim. Motor SAF (money/calculator/rule/evaluator/validation/diff);
+  // apply server-authoritative + tek transaction + advisory-lock + stale-guard + append-only audit.
+  // "Price" = KDV DAHIL brut satis; net/KDV apply'da turetilir (checkout/storefront sifir-regresyon).
+  const commercialDataAccess = dependencies.commercialDataAccess ?? createPrismaCommercialDataAccess();
+  const commercialService = createCommercialService(commercialDataAccess);
+  registerCommercialRoutes(app, {
+    service: commercialService,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

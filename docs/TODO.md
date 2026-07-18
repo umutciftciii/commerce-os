@@ -1260,3 +1260,31 @@
   Regresyon: api-gateway 878/878, store-admin 285/285; full `pnpm -r build` PASS (25/25 proje). Gate: prisma format/generate +
   migration SQL + full build + typecheck + tests. KALAN: docker rebuild + `migrate deploy` + auth'lu runtime smoke; gerçek-PG
   concurrency integration (TD-044). GTIN/ERP/Marketplace/Price Matrix/Inventory Matrix/Variant Media KAPSAM DIŞI.
+- TODO-151 — Faz 2C-5: Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk pricing) (DONE — 2026-07-18, ADR-074;
+  commit/merge/deploy YAPILMADI — final rapor sonrası durum). İş: 2C-4 Identity Engine desenini `ProductVariant`'ın **ticari** alanlarına
+  taşır. Aktif alanlar: **Price · Compare-at · Cost · VAT**; hesaplanan/salt-okunur: **Gross Profit · Margin% · Markup% · Discount%**.
+  (1) **SAF motor** (`commercial-engine/`): `types.ts` (field/operation/rounding enum + state) · `money.ts` (integer minor aritmetiği:
+  yüzde/sabit/markup/compareAt-türetme/rounding/price-ending/overflow; float YASAK) · `calculator.ts` (margin/markup/discount, division-by-
+  zero güvenli) · `fingerprint.ts` (FNV-1a stale-guard) · `rule.ts` (yapısal rule normalize+validate; operation↔field uyumu) · `evaluator.ts`
+  (rule/direct-edit → hedef state) · `validation.ts` (blocking/warning sınıflama) · `diff-engine.ts` (alan-bazlı O(n·f) diff) · `preview.ts`
+  (rows+summary+fingerprint orkestrası). Hepsi Prisma/HTTP/Date/`Math.random` BİLMEZ. (2) **Veri modeli (additive).** `enum CommercialField
+  (PRICE|COMPARE_AT_PRICE|COST|VAT_RATE)` + `enum CommercialChangeSource (DIRECT_EDIT|BULK_RULE)` + append-only `VariantCommercialChange`
+  (batchId gruplu; oldValue/newValue [money=minor, VAT=bps] + currency + source + ruleSnapshot + changedByPlatformUserId scalar). Migration
+  `20260718140000_add_commercial_engine` (2 enum + tablo + 5 index + 3 FK; mevcut fiyat kolonları DEĞİŞMEZ; backfill/down YOK). `ProductPriceChange`
+  (F4B) BOZULMAZ. (3) **Servis** (`service.ts`+`data.ts`): preview yalnız-okuma + deterministik; apply **server-authoritative** (preview'i
+  yeniden hesaplar) + tek `prisma.$transaction` + **advisory xact lock** (`$executeRaw`) + **stale-preview fingerprint kontrolü** + yalnız-
+  değişen yazım (PRICE/VAT değişince net/KDV F4C üçlüsü `splitGrossByVat` ile türetilir; brüt SABİT) + audit. Fail-closed: blocked/stale →
+  hiçbir yazım. Idempotent (ikinci apply → updated=0). ARCHIVED kapsam dışı; apply status DEĞİŞTİRMEZ. (4) **API.** `GET .../commercial`
+  (matris) + `POST .../commercial/preview` + `POST .../commercial/apply`. Rule VEYA direct-edit + selectedVariantIds (tenant/scope guard).
+  Stabil hatalar PRODUCT_NOT_FOUND(404) / COMMERCIAL_VARIANT_NOT_FOUND(404) / COMMERCIAL_PREVIEW_STALE(409) / COMMERCIAL_CONFLICT(409) /
+  COMMERCIAL_INVALID_RULE / COMMERCIAL_SELECTION_EMPTY / COMMERCIAL_APPLY_BLOCKED(422). contracts `commercial*Schema` + api-client
+  `...commercial.{get,preview,apply}`. Identity/combination/generation uçları BOZULMAZ. (5) **UI.** Ürün formuna **Commercial Matrix**
+  (`useCommercialMatrix` + `CommercialMatrix`; kaydedilmiş her üründe görünür): mod anahtarı (toplu kural / hücre düzenle), rule paneli
+  (targetField/operation/amount/rounding/price-ending), seçim (tümü/temizle), preview tablosu (mevcut→hedef + margin/markup/discount +
+  değişim/warning/error rozetleri), özet paneli, apply (blocked/değişiklik-yok iken pasif; autosave YOK). BFF proxy `.../commercial/{,preview,apply}`
+  (apply CSRF'li). i18n tr+en (`commercialMatrix`). (6) **Testler.** api-gateway `commercial-engine.test.ts` (66: money/calculator/rule/
+  evaluator/fingerprint/diff/preview SAF + service in-memory fake [matrix/preview/apply/idempotent/stale/blocked/tenant/empty-selection/
+  invalid-rule/VAT-gross-sabit/P2002]). Regresyon: api-gateway **944/944**, store-admin **285/285**; contracts 104, api-client 23, db 16.
+  Gate: prisma format/validate/generate + migration SQL + api-gateway/store-admin typecheck TEMİZ + lint + tests yeşil + git diff --check.
+  KALAN: docker rebuild + `migrate deploy` + auth'lu runtime smoke; gerçek-PG concurrency integration (TD-045). Inventory/Variant Media/
+  currency conversion/rule persistence/undo UI/scheduled pricing/1000+ row virtualization KAPSAM DIŞI.

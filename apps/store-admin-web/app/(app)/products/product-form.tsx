@@ -49,6 +49,8 @@ import { useVariantGeneration } from "./variant-attributes/use-variant-generatio
 import { GenerateVariantsAction } from "./variant-attributes/generate-variants-action";
 import { useIdentityMatrix } from "./identity/use-identity-matrix";
 import { IdentityMatrix } from "./identity/identity-matrix";
+import { useCommercialMatrix } from "./commercial/use-commercial-matrix";
+import { CommercialMatrix } from "./commercial/commercial-matrix";
 import {
   buildVariantSelectionMap,
   emptyVariantSelectionMap,
@@ -230,6 +232,11 @@ export function ProductForm({
   const identityMatrix = useIdentityMatrix(
     isEdit && product && hasVariantAxes ? product.id : null,
   );
+
+  // TODO-151 — Commercial Engine (Price/Compare-at/Cost/VAT). Kimlik matrisinden farklı olarak eksen
+  // gerektirmez: ticari alanlar TÜM varyantlar (manuel + üretilmiş) içindir → kaydedilmiş her ürün için.
+  const commercialMatrix = useCommercialMatrix(isEdit && product ? product.id : null);
+  const cm = t.commercialMatrix;
 
   // Attribute şeması değişince form `attributes` alanını başlat. Düzenlemede İLK
   // yükleme (kategori = ürünün mevcut ana kategorisi) mevcut değerleri round-trip'ler.
@@ -764,6 +771,68 @@ export function ProductForm({
           collisionCount: (n) => formatTemplate(im.collisionCount, n),
           statusLabels: im.statusLabels,
           issueLabels: im.issueLabels,
+        }}
+      />
+
+      {/* TODO-151 (ADR-074) — Commercial Matrix (Price/Compare-at/Cost/VAT). Kaydedilmiş her ürün için
+          görünür. Preview deterministik; apply server-authoritative (stale-guard + yalnız değişen alan). */}
+      <CommercialMatrix
+        visible={Boolean(isEdit && product)}
+        controller={commercialMatrix}
+        labels={{
+          sectionTitle: cm.sectionTitle,
+          sectionSubtitle: cm.sectionSubtitle,
+          priceHint: cm.priceHint,
+          modeRule: cm.modeRule,
+          modeDirect: cm.modeDirect,
+          targetFieldLabel: cm.targetFieldLabel,
+          operationLabel: cm.operationLabel,
+          amountLabelPercent: cm.amountLabelPercent,
+          amountLabelMoney: cm.amountLabelMoney,
+          vatLabel: cm.vatLabel,
+          roundingLabel: cm.roundingLabel,
+          roundingStepLabel: cm.roundingStepLabel,
+          priceEndingLabel: cm.priceEndingLabel,
+          fieldLabels: cm.fieldLabels,
+          operationLabels: cm.operationLabels,
+          roundingModeLabels: cm.roundingModeLabels,
+          priceEndingLabels: cm.priceEndingLabels,
+          vatOptions: cm.vatOptions,
+          colSelect: cm.colSelect,
+          colVariant: cm.colVariant,
+          colStatus: cm.colStatus,
+          colPrice: cm.colPrice,
+          colCompareAt: cm.colCompareAt,
+          colCost: cm.colCost,
+          colVat: cm.colVat,
+          colMargin: cm.colMargin,
+          colMarkup: cm.colMarkup,
+          colDiscount: cm.colDiscount,
+          colChange: cm.colChange,
+          statusLabels: cm.statusLabels,
+          selectAll: cm.selectAll,
+          clearSelection: cm.clearSelection,
+          selectedCount: (n) => formatTemplate(cm.selectedCount, n),
+          changedBadge: cm.changedBadge,
+          unchangedBadge: cm.unchangedBadge,
+          previewButton: cm.previewButton,
+          previewing: cm.previewing,
+          applyButton: cm.applyButton,
+          applying: cm.applying,
+          emptyMatrix: cm.emptyMatrix,
+          loadError: cm.loadError,
+          summaryTitle: cm.summaryTitle,
+          summaryChanged: (changed, total) =>
+            cm.summaryChanged.replace("{value}", String(changed)).replace("{other}", String(total)),
+          summaryPriceRange: (min, max) =>
+            cm.summaryPriceRange.replace("{value}", min).replace("{other}", max),
+          summaryAvgChange: (p) => cm.summaryAvgChange.replace("{value}", p),
+          summaryNegativeMargin: (n) => formatTemplate(cm.summaryNegativeMargin, n),
+          blockedNote: cm.blockedNote,
+          warningsNote: (n) => formatTemplate(cm.warningsNote, n),
+          appliedSummary: (variants, fields) =>
+            cm.appliedSummary.replace("{value}", String(variants)).replace("{other}", String(fields)),
+          issueLabels: cm.issueLabels,
         }}
       />
 

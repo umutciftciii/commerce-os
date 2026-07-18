@@ -83,6 +83,11 @@ import type {
   IdentityPreviewResponse,
   IdentityApplyResponse,
   IdentityApplyRequest,
+  // TODO-151 (ADR-074) — Commercial Engine tipleri.
+  CommercialPreviewResponse,
+  CommercialPreviewRequest,
+  CommercialApplyRequest,
+  CommercialApplyResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -265,6 +270,16 @@ export type {
   IdentityPreviewField,
   IdentityCollision,
   IdentityField,
+  // TODO-151 (ADR-074) — Commercial Engine tipleri.
+  CommercialPreviewResponse,
+  CommercialPreviewRequest,
+  CommercialApplyRequest,
+  CommercialApplyResponse,
+  CommercialPreviewRow,
+  CommercialField,
+  CommercialOperation,
+  CommercialRule,
+  CommercialDirectEdit,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -869,6 +884,22 @@ export interface ApiClient {
           input: IdentityApplyRequest,
           token?: string,
         ): Promise<IdentityApplyResponse>;
+      };
+      // TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk).
+      commercial: {
+        get(storeId: string, productId: string, token?: string): Promise<CommercialPreviewResponse>;
+        preview(
+          storeId: string,
+          productId: string,
+          input: CommercialPreviewRequest,
+          token?: string,
+        ): Promise<CommercialPreviewResponse>;
+        apply(
+          storeId: string,
+          productId: string,
+          input: CommercialApplyRequest,
+          token?: string,
+        ): Promise<CommercialApplyResponse>;
       };
     };
     inventory: {
@@ -1735,6 +1766,28 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           apply: (storeId, productId, input, token) =>
             sendJson<IdentityApplyResponse>(
               `/stores/${storeId}/products/${productId}/identity/apply`,
+              "POST",
+              input,
+              token,
+            ),
+        },
+        // TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk).
+        commercial: {
+          get: (storeId, productId, token) =>
+            getJson<CommercialPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/commercial`,
+              token,
+            ),
+          preview: (storeId, productId, input, token) =>
+            sendJson<CommercialPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/commercial/preview`,
+              "POST",
+              input,
+              token,
+            ),
+          apply: (storeId, productId, input, token) =>
+            sendJson<CommercialApplyResponse>(
+              `/stores/${storeId}/products/${productId}/commercial/apply`,
               "POST",
               input,
               token,

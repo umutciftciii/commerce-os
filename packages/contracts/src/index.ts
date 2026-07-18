@@ -840,6 +840,135 @@ export const identityApplyRequestSchema = z.object({
   regenerateCustomTitles: z.boolean().optional(),
 });
 
+// ─────────────────── TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT) ───────────────────
+// Varyantlarin ticari alanlarini preview-first + toplu yoneten motor. "Price" = KDV DAHIL brut satis
+// fiyati (priceMinor); net/KDV apply'da bundan turetilir. Margin/markup brut uzerinden hesaplanir.
+// Structured bulk rule (serbest metin/eval YOK) + direct-edit. Server-authoritative + stale fingerprint.
+
+export const commercialFieldSchema = z.enum(["PRICE", "COMPARE_AT_PRICE", "COST", "VAT_RATE"]);
+
+export const commercialOperationSchema = z.enum([
+  "SET_FIXED",
+  "INCREASE_PERCENT",
+  "DECREASE_PERCENT",
+  "INCREASE_FIXED",
+  "DECREASE_FIXED",
+  "SET_FROM_COST_MARKUP",
+  "SET_COMPARE_AT_FROM_PRICE",
+  "ROUND",
+  "SET_PRICE_ENDING",
+]);
+
+export const commercialRoundingModeSchema = z.enum(["NONE", "NEAREST", "UP", "DOWN"]);
+export const commercialRoundingStepSchema = z.union([
+  z.literal(1),
+  z.literal(10),
+  z.literal(100),
+  z.literal(1000),
+]);
+export const commercialPriceEndingSchema = z.enum(["END_90", "END_99", "END_990", "END_9990"]);
+
+// Yapisal bulk rule. Deger alanlari integer minor/bps (float YOK). Operation<->field uyumu SUNUCUDA
+// (compileRule) STABIL kodla dogrulanir; burada yalniz sekil/aralik.
+export const commercialRuleSchema = z.object({
+  targetField: commercialFieldSchema,
+  operation: commercialOperationSchema,
+  valueMinor: z.number().int().nonnegative().optional(),
+  valueBps: z.number().int().min(0).max(10000).optional(),
+  percentBps: z.number().int().optional(),
+  rounding: z
+    .object({ mode: commercialRoundingModeSchema, step: commercialRoundingStepSchema.optional() })
+    .optional(),
+  priceEnding: commercialPriceEndingSchema.optional(),
+});
+
+// Direct-edit: bir varyanta hedef alan degerleri. Verilmeyen alan = dokunma; explicit null
+// (compareAt/cost) = temizle. priceMinor/vatRateBps null olamaz.
+export const commercialDirectEditSchema = z.object({
+  variantId: z.string().min(1),
+  priceMinor: z.number().int().nonnegative().optional(),
+  compareAtMinor: z.number().int().nonnegative().nullable().optional(),
+  costMinor: z.number().int().nonnegative().nullable().optional(),
+  vatRateBps: z.number().int().min(0).max(10000).optional(),
+});
+
+export const commercialStateSchema = z.object({
+  priceMinor: z.number().int(),
+  compareAtMinor: z.number().int().nullable(),
+  costMinor: z.number().int().nullable(),
+  vatRateBps: z.number().int(),
+});
+
+export const commercialCalcSchema = z.object({
+  grossProfitMinor: z.number().int().nullable(),
+  marginPct: z.number().nullable(),
+  markupPct: z.number().nullable(),
+  discountPct: z.number().nullable(),
+});
+
+export const commercialPreviewRowSchema = z.object({
+  variantId: z.string().min(1),
+  sku: z.string(),
+  title: z.string(),
+  status: productVariantStatusSchema,
+  currency: currencySchema,
+  attributes: z.array(z.object({ code: z.string(), label: z.string() })),
+  current: commercialStateSchema,
+  currentCalc: commercialCalcSchema,
+  target: commercialStateSchema,
+  targetCalc: commercialCalcSchema,
+  changedFields: z.array(commercialFieldSchema),
+  changed: z.boolean(),
+  // Stable tani kodlari (NEGATIVE_MARGIN, COMPARE_AT_BELOW_PRICE, ...). errors → apply reddedilir.
+  warnings: z.array(z.string()),
+  errors: z.array(z.string()),
+});
+
+export const commercialSummarySchema = z.object({
+  totalVariants: z.number().int().nonnegative(),
+  changedVariants: z.number().int().nonnegative(),
+  unchangedVariants: z.number().int().nonnegative(),
+  changedFieldCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+  minNewPriceMinor: z.number().int().nullable(),
+  maxNewPriceMinor: z.number().int().nullable(),
+  avgPriceChangePct: z.number().nullable(),
+  negativeMarginCount: z.number().int().nonnegative(),
+  compareAtBelowPriceCount: z.number().int().nonnegative(),
+});
+
+export const commercialPreviewResponseSchema = z.object({
+  // Stale-guard temeli: apply bu fingerprint'i geri gonderir; sunucu guncel degerle karsilastirir.
+  fingerprint: z.string().min(1),
+  source: z.enum(["DIRECT_EDIT", "BULK_RULE"]),
+  blocked: z.boolean(),
+  rows: z.array(commercialPreviewRowSchema),
+  summary: commercialSummarySchema,
+});
+
+// Preview/apply istegi: rule VEYA edits (ikisi de yoksa no-op = matris okuma). selectedVariantIds
+// verilmisse bos olamaz ve tumu kapsam-ici (non-archived, bu urun) olmali (SUNUCU dogrular).
+export const commercialPreviewRequestSchema = z.object({
+  rule: commercialRuleSchema.optional(),
+  edits: z.array(commercialDirectEditSchema).optional(),
+  selectedVariantIds: z.array(z.string().min(1)).optional(),
+});
+
+export const commercialApplyRequestSchema = commercialPreviewRequestSchema.extend({
+  baseFingerprint: z.string().min(1),
+});
+
+export const commercialApplyResponseSchema = z.object({
+  batchId: z.string().min(1),
+  updatedVariants: z.number().int().nonnegative(),
+  updatedFields: z.number().int().nonnegative(),
+  skippedVariants: z.number().int().nonnegative(),
+  auditCount: z.number().int().nonnegative(),
+  source: z.enum(["DIRECT_EDIT", "BULK_RULE"]),
+  preview: commercialPreviewResponseSchema,
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2908,6 +3037,21 @@ export type IdentityCollision = z.infer<typeof identityCollisionSchema>;
 export type IdentityPreviewResponse = z.infer<typeof identityPreviewResponseSchema>;
 export type IdentityApplyResponse = z.infer<typeof identityApplyResponseSchema>;
 export type IdentityApplyRequest = z.infer<typeof identityApplyRequestSchema>;
+// TODO-151 (ADR-074) — Commercial Engine tipleri.
+export type CommercialField = z.infer<typeof commercialFieldSchema>;
+export type CommercialOperation = z.infer<typeof commercialOperationSchema>;
+export type CommercialRoundingMode = z.infer<typeof commercialRoundingModeSchema>;
+export type CommercialPriceEnding = z.infer<typeof commercialPriceEndingSchema>;
+export type CommercialRule = z.infer<typeof commercialRuleSchema>;
+export type CommercialDirectEdit = z.infer<typeof commercialDirectEditSchema>;
+export type CommercialState = z.infer<typeof commercialStateSchema>;
+export type CommercialCalc = z.infer<typeof commercialCalcSchema>;
+export type CommercialPreviewRow = z.infer<typeof commercialPreviewRowSchema>;
+export type CommercialSummary = z.infer<typeof commercialSummarySchema>;
+export type CommercialPreviewResponse = z.infer<typeof commercialPreviewResponseSchema>;
+export type CommercialPreviewRequest = z.infer<typeof commercialPreviewRequestSchema>;
+export type CommercialApplyRequest = z.infer<typeof commercialApplyRequestSchema>;
+export type CommercialApplyResponse = z.infer<typeof commercialApplyResponseSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;
