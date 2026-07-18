@@ -969,6 +969,131 @@ export const commercialApplyResponseSchema = z.object({
   preview: commercialPreviewResponseSchema,
 });
 
+// ─────────────────── TODO-152 (ADR-076) — Inventory Engine (warehouse-aware stok) ───────────────────
+// Depo-bazlı varyant stoğu (onHand/reserved/incoming/safetyStock/reorderPoint) preview-first + toplu
+// yonetim. available TURETILIR (kolon yok): onHand − reserved − safetyStock. incoming DAHIL DEGIL.
+// reserved SISTEM-kontrollu (kullanici duzenlemez → rule/direct-edit alanlarinda YOK). Tum degerler
+// non-negative integer adet (float YOK). Commercial deseniyle simetrik (stale-fingerprint stringi).
+
+export const warehouseStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
+
+export const inventoryFieldSchema = z.enum(["ON_HAND", "INCOMING", "SAFETY_STOCK", "REORDER_POINT"]);
+
+export const inventoryOperationSchema = z.enum(["SET_ABSOLUTE", "INCREASE", "DECREASE"]);
+
+export const inventoryStockStatusSchema = z.enum([
+  "IN_STOCK",
+  "LOW_STOCK",
+  "OUT_OF_STOCK",
+  "INCOMING",
+  "NEGATIVE",
+  "NO_BALANCE",
+]);
+
+export const inventoryWarehouseSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  status: warehouseStatusSchema,
+  isDefault: z.boolean(),
+  priority: z.number().int(),
+});
+
+export const inventoryWarehouseListResponseSchema = z.object({
+  data: z.array(inventoryWarehouseSchema),
+});
+
+export const inventoryRuleSchema = z.object({
+  targetField: inventoryFieldSchema,
+  operation: inventoryOperationSchema,
+  amount: z.number().int().nonnegative(),
+});
+
+export const inventoryDirectEditSchema = z.object({
+  variantId: z.string().min(1),
+  onHand: z.number().int().nonnegative().optional(),
+  incoming: z.number().int().nonnegative().optional(),
+  safetyStock: z.number().int().nonnegative().optional(),
+  reorderPoint: z.number().int().nonnegative().optional(),
+});
+
+export const inventoryStateSchema = z.object({
+  onHand: z.number().int(),
+  reserved: z.number().int(),
+  incoming: z.number().int(),
+  safetyStock: z.number().int(),
+  reorderPoint: z.number().int(),
+});
+
+export const inventoryCalcSchema = z.object({
+  rawAvailable: z.number().int(),
+  sellableAvailable: z.number().int(),
+  reservedRatioPct: z.number().nullable(),
+  status: inventoryStockStatusSchema,
+});
+
+export const inventoryPreviewRowSchema = z.object({
+  variantId: z.string().min(1),
+  sku: z.string(),
+  title: z.string(),
+  status: productVariantStatusSchema,
+  attributes: z.array(z.object({ code: z.string(), label: z.string() })),
+  balanceExists: z.boolean(),
+  current: inventoryStateSchema,
+  currentCalc: inventoryCalcSchema,
+  target: inventoryStateSchema,
+  targetCalc: inventoryCalcSchema,
+  changedFields: z.array(inventoryFieldSchema),
+  changed: z.boolean(),
+  warnings: z.array(z.string()),
+  errors: z.array(z.string()),
+});
+
+export const inventorySummarySchema = z.object({
+  totalVariants: z.number().int().nonnegative(),
+  changedVariants: z.number().int().nonnegative(),
+  unchangedVariants: z.number().int().nonnegative(),
+  changedFieldCount: z.number().int().nonnegative(),
+  warningCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
+  totalOnHandDelta: z.number().int(),
+  totalSellableDelta: z.number().int(),
+  lowStockCount: z.number().int().nonnegative(),
+  outOfStockCount: z.number().int().nonnegative(),
+  newBalanceCount: z.number().int().nonnegative(),
+});
+
+export const inventoryPreviewResponseSchema = z.object({
+  fingerprint: z.string().min(1),
+  source: z.enum(["DIRECT_EDIT", "BULK_RULE"]),
+  warehouse: inventoryWarehouseSchema,
+  blocked: z.boolean(),
+  rows: z.array(inventoryPreviewRowSchema),
+  summary: inventorySummarySchema,
+});
+
+export const inventoryPreviewRequestSchema = z.object({
+  warehouseId: z.string().min(1).optional(),
+  rule: inventoryRuleSchema.optional(),
+  edits: z.array(inventoryDirectEditSchema).optional(),
+  selectedVariantIds: z.array(z.string().min(1)).optional(),
+});
+
+export const inventoryApplyRequestSchema = inventoryPreviewRequestSchema.extend({
+  baseFingerprint: z.string().min(1),
+  reason: z.string().max(500).optional(),
+});
+
+export const inventoryApplyResponseSchema = z.object({
+  batchId: z.string().min(1),
+  updatedVariants: z.number().int().nonnegative(),
+  updatedFields: z.number().int().nonnegative(),
+  skippedVariants: z.number().int().nonnegative(),
+  auditCount: z.number().int().nonnegative(),
+  source: z.enum(["DIRECT_EDIT", "BULK_RULE"]),
+  preview: inventoryPreviewResponseSchema,
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -3052,6 +3177,23 @@ export type CommercialPreviewResponse = z.infer<typeof commercialPreviewResponse
 export type CommercialPreviewRequest = z.infer<typeof commercialPreviewRequestSchema>;
 export type CommercialApplyRequest = z.infer<typeof commercialApplyRequestSchema>;
 export type CommercialApplyResponse = z.infer<typeof commercialApplyResponseSchema>;
+// TODO-152 (ADR-076) — Inventory Engine tipleri.
+export type WarehouseStatusValue = z.infer<typeof warehouseStatusSchema>;
+export type InventoryField = z.infer<typeof inventoryFieldSchema>;
+export type InventoryOperation = z.infer<typeof inventoryOperationSchema>;
+export type InventoryStockStatus = z.infer<typeof inventoryStockStatusSchema>;
+export type InventoryWarehouse = z.infer<typeof inventoryWarehouseSchema>;
+export type InventoryWarehouseListResponse = z.infer<typeof inventoryWarehouseListResponseSchema>;
+export type InventoryRule = z.infer<typeof inventoryRuleSchema>;
+export type InventoryDirectEdit = z.infer<typeof inventoryDirectEditSchema>;
+export type InventoryStateContract = z.infer<typeof inventoryStateSchema>;
+export type InventoryCalcContract = z.infer<typeof inventoryCalcSchema>;
+export type InventoryPreviewRow = z.infer<typeof inventoryPreviewRowSchema>;
+export type InventorySummary = z.infer<typeof inventorySummarySchema>;
+export type InventoryPreviewResponse = z.infer<typeof inventoryPreviewResponseSchema>;
+export type InventoryPreviewRequest = z.infer<typeof inventoryPreviewRequestSchema>;
+export type InventoryApplyRequest = z.infer<typeof inventoryApplyRequestSchema>;
+export type InventoryApplyResponse = z.infer<typeof inventoryApplyResponseSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

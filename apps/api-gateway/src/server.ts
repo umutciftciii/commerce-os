@@ -180,6 +180,13 @@ import {
 } from "./commercial-engine/data.js";
 import { createCommercialService } from "./commercial-engine/service.js";
 import { registerCommercialRoutes } from "./commercial-engine/routes.js";
+// TODO-152 (ADR-076) — Inventory Engine (warehouse-aware stok preview-first bulk).
+import {
+  createPrismaInventoryDataAccess,
+  type InventoryDataAccess,
+} from "./inventory-engine/data.js";
+import { createInventoryService } from "./inventory-engine/service.js";
+import { registerInventoryRoutes } from "./inventory-engine/routes.js";
 import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
@@ -1149,6 +1156,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   identityDataAccess?: IdentityDataAccess;
   // TODO-151 (ADR-074) — Commercial Engine veri erisimi (testte in-memory enjekte edilebilir).
   commercialDataAccess?: CommercialDataAccess;
+  // TODO-152 (ADR-076) — Inventory Engine veri erisimi (testte in-memory enjekte edilebilir).
+  inventoryDataAccess?: InventoryDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -5138,6 +5147,21 @@ export function createServer(
   const commercialService = createCommercialService(commercialDataAccess);
   registerCommercialRoutes(app, {
     service: commercialService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // TODO-152 (ADR-076) — Inventory Engine: varyant stogu (onHand/incoming/safetyStock/reorderPoint)
+  // depo-bazli preview-first + toplu yonetim. Motor SAF (availability/calculator/validation/diff/
+  // fingerprint); apply server-authoritative + tek transaction + advisory-lock + stale-guard +
+  // append-only audit. reserved SISTEM-kontrollu; DEFAULT depo onHand InventoryItem'a senkronlanir
+  // (checkout/storefront sifir-regresyon). Warehouse/order/checkout akislari BOZULMAZ.
+  const inventoryDataAccess = dependencies.inventoryDataAccess ?? createPrismaInventoryDataAccess();
+  const inventoryService = createInventoryService(inventoryDataAccess);
+  registerInventoryRoutes(app, {
+    service: inventoryService,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

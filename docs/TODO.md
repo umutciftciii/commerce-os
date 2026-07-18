@@ -1306,3 +1306,24 @@
   `product-detail-page.test.tsx` sekme testleri (2 yeni); toplam store-admin **305/305**, i18n 47. Gate: store-admin typecheck+lint+build TEMİZ,
   git diff --check temiz. KALAN: docker rebuild + auth'lu runtime görsel smoke (screenshot checklist final raporda). Backend engine/DB/API/checkout/
   storefront/inventory/scheduled-pricing/approval/autosave/1440px+ per-tab breakout KAPSAM DIŞI.
+
+- TODO-152 — Faz 2C-6: Warehouse-Aware Inventory Engine (depo/onHand/reserved/available/incoming/safety/reorder preview-first bulk)
+  (DONE — 2026-07-18, ADR-076; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası durum). Mevcut `InventoryItem`/reservation/movement,
+  checkout/sipariş (`placeOrder`/`cancelOrder` + `FOR UPDATE`) ve storefront **DEĞİŞMEDİ** (sıfır regresyon; additive). (1) **DB.** Yeni enum
+  `WarehouseStatus`/`InventoryAdjustmentField`(reserved YOK)/`InventoryAdjustmentSource`; model `Warehouse` (store-scoped, partial-unique default),
+  `InventoryBalance` (variant×warehouse, `@@unique([warehouseId,variantId])`), `InventoryAdjustment` (append-only ledger). Migration
+  `20260718150000` additive + deterministik/idempotent backfill (store başına default depo + InventoryItem→balance BİREBİR; `ON CONFLICT DO NOTHING`).
+  (2) **Engine** (`apps/api-gateway/src/inventory-engine/`): SAF `availability`(available=onHand−reserved−safetyStock; incoming HARİÇ)/`calculator`/
+  `validation`/`fingerprint`(reserved dahil)/`diff-engine`/`preview` + IO `data`(advisory-lock `$executeRaw` · InventoryItem köprüsü: default depoda
+  onHand/reserved canlı overlay + onHand→InventoryItem senkron · changed-only + audit)/`service`(stale-guard + INACTIVE fail-closed)/
+  `reservation-service`(SAF foundation, order flow'a bağlı DEĞİL — Alternatif A)/`routes`. (3) **API.** `GET …/warehouses` · `GET/POST …/products/
+  :productId/inventory{,/preview,/apply}`; stable error kodları (INVENTORY_PREVIEW_STALE/APPLY_BLOCKED/WAREHOUSE_INACTIVE/…). contracts+api-client.
+  (4) **Store Admin.** Bağımsız tam-genişlik **Stok** sekmesi (`products/inventory/*`; pricing token'ları yeniden kullanıldı): depo seçici+default
+  rozet+INACTIVE uyarı · 6 KPI · Hızlı düzenleme (reserved **salt-okunur**) vs Toplu işlem (8 yönlendirmeli senaryo + "Stoğu sıfırla" uyarı) ·
+  alan-bazlı preview özeti (old→new) · warning/blocking humanize. Autosave YOK. i18n tr+en `products.inventory` + `detail.tabs.inventory` (parity).
+  (5) **Testler.** api-gateway `inventory-engine.test.ts` (64) + store-admin `inventory-workspace.test.tsx` (6); regresyon api-gateway **1008/1008**,
+  store-admin **312/312**, contracts 104, api-client 23, i18n 47. Gate: prisma format/validate/generate + build + tsc + eslint + git diff --check
+  TEMİZ; prisma package.json/lockfile bump GERİ ALINDI. KALAN: migration deploy + docker rebuild + auth'lu runtime görsel smoke (final raporda).
+  KAPSAM DIŞI (TD-047): warehouse-aware reservation/checkout/allocation · checkout safety-stock uygulaması · warehouse CRUD UI · fulfillment commit
+  · transfer/PO/lot/serial/bin/expiry/cycle-count/reconciliation/ERP/marketplace · low-stock notification · gerçek-PG concurrency integration · 1000+
+  satır virtualization.

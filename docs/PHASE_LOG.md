@@ -3413,3 +3413,41 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   seçimi + liste fiyatı oluşturma, preview özeti, warning/blocking, apply success, 1440/tablet/mobile) — screenshot checklist final raporda.
   **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı). TD-046 (light/dark toggle · 1440px+ breakout · eski commercialMatrix
   bloğu · tab-değişimi unsaved uyarısı). Backend engine/DB/API/checkout/storefront/inventory KAPSAM DIŞI.
+
+## 2026-07-18 — Faz 2C-6: Warehouse-Aware Inventory Engine (depo/onHand/reserved/available/incoming/safety/reorder preview-first) (ADR-076, TODO-152)
+
+- **Kapsam.** Kurumsal, depo-farkındalıklı stok TEMELİ. Mevcut `InventoryItem`/`InventoryReservation`/`InventoryMovement`, checkout/sipariş
+  akışı (`placeOrder`/`cancelOrder` + `FOR UPDATE`) ve storefront read-path **DEĞİŞMEDİ** (sıfır regresyon). Additive.
+- **DB (packages/db).** Yeni enum `WarehouseStatus`/`InventoryAdjustmentField`(ON_HAND/INCOMING/SAFETY_STOCK/REORDER_POINT — reserved YOK)/
+  `InventoryAdjustmentSource`. Yeni model `Warehouse` (store-scoped; `@@unique([storeId,code])` + partial unique `WHERE isDefault`), `InventoryBalance`
+  (variant × warehouse; `@@unique([warehouseId,variantId])`; onHand/reserved/incoming/safetyStock/reorderPoint), `InventoryAdjustment` (append-only
+  ledger; field/oldValue/newValue/delta/source/batchId). Migration `20260718150000_add_inventory_engine`: additive CREATE TABLE + deterministik/
+  idempotent backfill (store başına `wh_default_${storeId}` + her InventoryItem → default-depo InventoryBalance onHand/reserved BİREBİR;
+  `ON CONFLICT DO NOTHING`). Seed: default depo + demo balance. Yıkıcı işlem YOK.
+- **Engine (apps/api-gateway/src/inventory-engine/).** SAF katmanlar (Prisma/HTTP/Date/random bilmez): `types` · `availability` (available =
+  onHand−reserved−safetyStock; incoming HARİÇ; rawAvailable/sellableAvailable) · `calculator` (stok durumu + reserved oranı) · `validation`
+  (blocking: negatif alan/overflow; warning: out-of-stock/negatif-available/reorder/safety/high-reserved/large-decrease/no-incoming/archived/draft/
+  new-balance) · `fingerprint` (FNV-1a; warehouseId+variantId+tüm alanlar+reserved) · `diff-engine` (alan-bazlı; reserved diff'e girmez) · `preview`
+  (deterministik; O(n·f)). IO: `data` (advisory-lock `$executeRaw pg_advisory_xact_lock(hashtext(store:product:warehouse))` · InventoryItem KÖPRÜSÜ:
+  default depoda onHand/reserved canlı InventoryItem'dan overlay + onHand değişince InventoryItem'a senkron [compatibility sync] · changed-only
+  upsert + append-only audit · batch okuma N+1-siz) · `service` (orkestrasyon + stale-guard + INACTIVE depo fail-closed) · `reservation-service`
+  (SAF foundation; order flow'a bağlı DEĞİL — Alternatif A) · `routes`. server.ts wiring (requireStorePlatformAdmin).
+- **API.** `GET /stores/:storeId/warehouses` · `GET /stores/:storeId/products/:productId/inventory[?warehouseId=]` · `POST …/inventory/preview`
+  · `POST …/inventory/apply`. Stable error kodları (INVENTORY_PREVIEW_STALE 409, INVENTORY_APPLY_BLOCKED 422, INVENTORY_WAREHOUSE_INACTIVE 409,
+  WAREHOUSE_NOT_FOUND 404, …). contracts + api-client (admin.products.inventory.{get,preview,apply} + admin.inventory.warehouses).
+- **Store Admin.** Ürün detayında bağımsız tam-genişlik **Stok** sekmesi (`products/inventory/inventory-workspace.tsx` + `guided-operations.ts`;
+  pricing semantik token'ları [pw/.pricing-workspace] yeniden kullanıldı — yeni renk sistemi YOK). Depo seçici + default rozet + INACTIVE uyarı ·
+  6 KPI · Hızlı düzenleme (onHand/incoming/safety/reorder input; **reserved salt-okunur**) vs Toplu işlem (8 yönlendirmeli senaryo, "Stoğu sıfırla"
+  yüksek-etki uyarı) · alan-bazlı preview özeti (old→new) · warning/blocking humanize · loading/empty/error. Autosave YOK (Taslak→Önizle→Uygula).
+  i18n tr+en `products.inventory` + `detail.tabs.inventory`; TR/EN yapısal eşleşir. Proxy route'lar (preview CSRF'siz, apply CSRF'li).
+- **Testler.** api-gateway `inventory-engine.test.ts` (64: availability/calculator/validation/fingerprint/diff/evaluator/preview/reservation +
+  service [matrix/preview/apply/idempotent/stale/blocked/scope/empty/product-not-found/warehouse-not-found/inactive/invalid-rule] + error-status).
+  store-admin `inventory-workspace.test.tsx` (6: depo seçici+default+KPI · quick-edit default+reserved read-only · empty · bulk guided · preview
+  old→new · blocked apply guard). Regresyon: api-gateway **1008/1008** (49 dosya; health 132 dahil), store-admin **312/312**, contracts 104,
+  api-client 23, i18n 47 (tr/en parity).
+- **Gate.** Prisma format+validate+generate TEMİZ · api-gateway/store-admin/contracts/api-client/i18n build+tsc --noEmit TEMİZ · tüm paketler
+  eslint TEMİZ · `git diff --check` temiz. Prisma generate'in `packages/db/package.json` + lockfile @prisma/client bump'ı GERİ ALINDI.
+- **Kalan.** Migration deploy + docker rebuild (api-gateway + store-admin) + auth'lu görsel runtime smoke (Stok tab, depo seçici, KPI, hızlı
+  düzenleme preview, bulk +10, safety/incoming değişimi, warning/blocking, apply→audit→idempotent, stale, archived exclusion, Pricing/Identity/
+  generation/storefront/checkout/order regresyonu, desktop/tablet/mobile screenshot) — TD-047 + final rapor. Auth'lu piksel-smoke bu ortamda
+  yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).

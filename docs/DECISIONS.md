@@ -2430,3 +2430,51 @@ sekme yerine accordion (tablo genişliği yine sıkışırdı) · shell `max-w-6
 negatif-margin full-bleed (kırılgan) · autosave (ADR-074 kararıyla çelişir, yasak) · panel geneline light/dark toggle eklemek (kapsam patlaması,
 diğer ekranlarla tutarsızlık) · ham stable kodları (NEGATIVE_MARGIN) ana metin olarak göstermek (kullanıcıya anlamsız) · guided senaryoları
 backend'e taşımak (gereksiz kontrat değişikliği).
+
+## ADR-076 — Warehouse-Aware Inventory Engine ve Preview-First Stok Operasyonları (Faz 2C-6 / TODO-152)
+
+- **Durum:** Kabul edildi (2026-07-18). ADR-074/075 (Commercial Engine) deseni (saf-motor/IO-ayrımı, preview-first, server-authoritative
+  apply, stale-fingerprint, changed-only write, append-only audit, advisory-lock) `ProductVariant`'ın **stok** boyutuna, **depo-farkındalıklı**
+  bir temelle genişletildi. Mevcut `InventoryItem`/`InventoryReservation`/`InventoryMovement`, checkout/sipariş akışı ve storefront DEĞİŞMEZ.
+- **Bağlam.** Bugün stok tek-depodur: `InventoryItem` (`variantId @unique`) `quantityOnHand`/`quantityReserved` tutar; `available` her yerde
+  `onHand − reserved` olarak hesaplanır. `placeOrder` `SELECT … FOR UPDATE` ile rezerve eder, `cancelOrder` serbest bırakır (overselling
+  korumalı). Safety stock, incoming, reorder point ve depo kavramı yoktu.
+
+**Kararlar.**
+1. **Neden warehouse-aware model.** Kurumsal stok "tek sayı" değildir. `Warehouse` + `InventoryBalance` (variant × warehouse) additive eklenir;
+   böylece ileride çoklu depo mümkün olur. Bu faz store başına **bir DEFAULT depo** kurar (kapsam kontrollü).
+2. **Neden default warehouse.** Mevcut tek-depo semantiğini korumanın en güvenli yolu: migration her store için deterministik bir default depo
+   (`wh_default_${storeId}`, `code=DEFAULT`) üretir ve mevcut `InventoryItem`'ları o depodaki `InventoryBalance`'a birebir taşır. Partial unique
+   index (`WHERE isDefault`) store başına tek default'u garanti eder.
+3. **Neden InventoryItem OTORİTE kalır (dönüştürülmez).** `InventoryItem`, DEFAULT depo için `onHand`/`reserved`'ın **canlı otoritesi** olmaya
+   devam eder — checkout/storefront/sipariş akışı sıfır regresyonla çalışır. `InventoryBalance` default depoda `onHand`/`reserved`'ı **senkron
+   ayna** olarak tutar (apply'da yazılır) ve **yeni alanların** (safety/incoming/reorder) otoritesidir; matris okuması default depoda
+   onHand/reserved'ı **canlı InventoryItem'dan** okur → legacy `adjust` ile yazılsa bile stale okuma imkânsız (self-healing). Non-default depoda
+   otorite tamamen `InventoryBalance`'tır. Duplicate stok kaynağı YOK: onHand mantıksal olarak tek değer, transaction'da atomik senkron.
+4. **Neden available HESAPLANIR (kolon yok).** `available = onHand − reserved − safetyStock` türetilir; materialize edilmez (reserved sipariş
+   akışıyla değişir → tutarsızlık riski). `rawAvailable` (negatif olabilir; gösterim) ve `sellableAvailable = max(0, raw)` ayrılır.
+5. **Neden incoming available'a DAHİL DEĞİL.** `incoming` beklenen, henüz ulaşmamış maldır; satılabilir sayılırsa overselling üretir. Yalnız
+   planlama/KPI göstergesi.
+6. **Neden safety stock available'dan DÜŞER.** Güvenlik stoğu satışa kapalı minimumdur → `sellableAvailable` bunu düşer. **Bu faz checkout hâlâ
+   `onHand − reserved` kullanır** (safety admin-görünürlük; sıfır regresyon). Safety varsayılan 0 → mevcut davranış birebir korunur. Checkout'un
+   safety'i uygulaması TD-048.
+7. **Neden reserved kullanıcı-düzenlenemez.** `reserved` sistem-kontrollüdür (sipariş rezerve/serbest). Direct-edit/bulk alan kümesinde
+   (`InventoryField`) bilinçle YOKTUR; UI'da salt-okunur. Yetkili düzeltme ilerideki iş (TD).
+8. **Neden preview-first + server-authoritative + stale-fingerprint + changed-only + append-only audit + advisory-lock.** ADR-074 gerekçeleriyle
+   birebir: istemci hesabına güvenilmez; apply advisory-lock (`pg_advisory_xact_lock(hashtext(store:product:warehouse))`, `$executeRaw` — 2C-3
+   dersi) altında değerleri yeniden okur, fingerprint'i (reserved DAHİL → eşzamanlı sipariş stale üretir) doğrular, yalnız değişen alanı yazar,
+   her değişen alan için bir `InventoryAdjustment` (batchId gruplu) üretir. İdempotent (ikinci apply → updated=0).
+9. **Neden archived varyant kapsam dışı.** Data katmanı `status != ARCHIVED` filtreler (commercial/identity deseni); archived stokları silinmez.
+10. **Neden stok apply status DEĞİŞTİRMEZ.** Stok mutasyonu varyant/ürün statüsüne dokunmaz (izolasyon).
+11. **Neden transfer/lot/serial/PO bu fazda YOK.** Kapsam kontrolü: bunlar bağımsız iş akışları (TD). Enum'da `ORDER_*`/`IMPORT`/`SYSTEM`
+    kaynakları REZERVE tutulur ama kullanıcı UI'ına sızmaz.
+12. **Legacy InventoryItem migration stratejisi.** Additive `CREATE TABLE` + deterministik/idempotent backfill (`INSERT … SELECT … ON CONFLICT
+    DO NOTHING`); mevcut satırlara dokunulmaz, `onHand`/`reserved` birebir kopyalanır. Yıkıcı rename/drop/reset YOK.
+13. **Checkout entegrasyon kapsam kararı (Alternatif A).** Sipariş yaşam döngüsü YENİDEN YAZILMAZ; mevcut `placeOrder`/`cancelOrder` + `FOR
+    UPDATE` korunur. `reservation-service.ts` yalnız SAF foundation sağlar (order flow'a bağlı DEĞİL). "Overselling çözüldü" İDDİA EDİLMEZ.
+
+**Reddedilen alternatifler.** Tek `quantity` alanı (kurumsal semantik kaybı) · `available`'ı manuel düzenlemek (türetilmiş değer) · incoming'i
+satılabilir saymak (overselling) · reserved'ı serbest kullanıcı input'u yapmak (sipariş akışıyla çelişir) · her hücre değişiminde autosave (ADR-074
+ile çelişir) · client-calculated available'a güvenmek (stale/oynanabilir) · float stok değerleri · audit tutmamak · destructive InventoryItem
+migration (veri kaybı) · tüm depoları tek tabloda zorla materialize etmek (default depo self-healing overlay yeterli) · reservation lifecycle'ı bu
+fazda warehouse-aware yeniden yazmak (kapsam patlaması + overselling riski).

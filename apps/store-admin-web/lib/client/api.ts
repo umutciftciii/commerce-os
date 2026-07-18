@@ -65,6 +65,11 @@ import type {
   CommercialPreviewRequest,
   CommercialApplyRequest,
   CommercialApplyResponse,
+  InventoryPreviewResponse,
+  InventoryPreviewRequest,
+  InventoryApplyRequest,
+  InventoryApplyResponse,
+  InventoryWarehouseListResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerUpdateRequest,
@@ -523,6 +528,26 @@ export const storeApi = {
   listInventory: () => call<InventoryListResponse>("/api/catalog/inventory"),
   adjustInventory: (variantId: string, input: InventoryAdjustRequest) =>
     mutatingCall<InventoryAdjustmentResponse>(`/api/catalog/inventory/${variantId}/adjust`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-152 (ADR-076) — Inventory Engine. Depo listesi + matris okuma + rule/direct-edit preview
+  // (yalnız-okuma) + server-authoritative apply (stale-guard + advisory-lock + append-only audit).
+  listWarehouses: () => call<InventoryWarehouseListResponse>("/api/catalog/warehouses"),
+  getInventoryMatrix: (productId: string, warehouseId?: string) =>
+    call<InventoryPreviewResponse>(
+      `/api/catalog/products/${productId}/inventory${
+        warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ""
+      }`,
+    ),
+  previewInventory: (productId: string, input: InventoryPreviewRequest) =>
+    call<InventoryPreviewResponse>(`/api/catalog/products/${productId}/inventory/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyInventory: (productId: string, input: InventoryApplyRequest) =>
+    mutatingCall<InventoryApplyResponse>(`/api/catalog/products/${productId}/inventory/apply`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
