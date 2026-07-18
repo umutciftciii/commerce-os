@@ -3451,3 +3451,32 @@ sync/checkout ve shipment mimarisi DEĞİŞMEZ; `Order.status`/`Order.fulfillmen
   düzenleme preview, bulk +10, safety/incoming değişimi, warning/blocking, apply→audit→idempotent, stale, archived exclusion, Pricing/Identity/
   generation/storefront/checkout/order regresyonu, desktop/tablet/mobile screenshot) — TD-047 + final rapor. Auth'lu piksel-smoke bu ortamda
   yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).
+
+## 2026-07-18 — Faz 2C-6 devamı: Inventory UX Birleştirme (global izleme merkezi + reorderPoint tek authority + sekme kontrastı) (ADR-077, TODO-152A)
+
+Faz 2C-6 (ADR-076) sonrası üç UX tutarsızlığı giderildi; **Inventory Engine motoru/şeması/transaction mimarisi DEĞİŞMEDİ** (yalnız bir SALT-OKUMA uç +
+sunum katmanı + tek dormant alan geçişi). Detay analiz: `docs/analysis/TODO-152A-inventory-ux-unification.md`.
+- **Problem 1 — İki stok ekranı → tek dil.** Sol menü `/inventory` legacy `InventoryItem` liste + "Stok düzelt" modalını kullanıyordu; Product Detail >
+  Stok sekmesindeki depo-farkındalıklı workspace'le çelişiyordu. Karar (kullanıcı): global ekran **izleme & operasyon merkezi** olur, düzenleme
+  (Quick Edit/Bulk/Preview/Apply) ADR-076 gereği **ürün-bazlı kalır** (global fan-out yazma REDDEDİLDİ — per-product transaction/advisory-lock bozulmaz).
+  `app/(app)/inventory/page.tsx` yeniden yazıldı: depo seçici + 6 KPI + arama + durum filtresi + tablo (Ürün/Varyant/SKU/Elde/Rezerve/Güvenlik/Satılabilir/
+  Gelen/**Yeniden sipariş noktası**/Durum) + satır→`/products/:id?tab=inventory` derin-link + güvenli tek-satır hızlı işlem (+10/−10/sıfırla; mevcut
+  ürün-bazlı preview→apply; blocked→uyarı). "Kullanılabilir"→"Satılabilir", "Eşik"→"Yeniden sipariş noktası".
+- **Yeni SALT-OKUMA uç.** `GET /stores/:storeId/inventory/matrix?warehouseId=` → tüm non-archived varyant (ürün kimliğiyle) + current bakiye + SAF
+  `computeCalc` (durum/satılabilir Product Detail'le birebir). data `listStoreVariants` (batched N+1-siz) · service `storeMatrix` · contracts
+  `inventoryStoreMatrixRow/Response` · api-client `admin.inventory.storeMatrix` · BFF `catalog/inventory/matrix` · `storeApi.getStoreInventoryMatrix`.
+- **Problem 2 — reorderPoint TEK authority.** Legacy `InventoryItem.lowStockThreshold` yazımı tamamen kaldırıldı (variant modalı "Kritik stok eşiği" alanı
+  + gateway create/update + contract create/update request alanları) ve tek runtime reader (dashboard "kritik stok" KPI'ı) motor LOW_STOCK durumundan
+  (=reorderPoint) türetilecek şekilde değiştirildi. Kolon DROP EDİLMEDİ (dormant `inventoryItemSchema` yanıt modeli; additive). Idempotent backfill
+  `20260718160000_backfill_reorder_point` (default depo · reorderPoint=0 · lowStockThreshold>0 → taşı; manuel reorderPoint'leri ezmez, re-run güvenli).
+- **Problem 3 — sekme kontrastı.** Ürün detay sekmeleri underline-only → belirgin pill (aktif indigo dolgu + border + ikon + yüksek kontrast; inaktif
+  yumuşak border/hover; mobil yatay kaydırma). `?tab=` derin-link ilk sekmeyi belirler.
+- **Paylaşılan atomlar.** `products/inventory/shared.tsx` (fmt/fmtSigned/INVENTORY_STATUS_TONE/Kpi/WarehouseSelector/StatusBadge) → Product Detail sekmesi +
+  global ekran AYNI componentler. i18n tr+en `storeAdmin.inventory` yeniden yazıldı; `variants.form.lowStock*` kaldırıldı (TR/EN parity korundu).
+- **Testler.** api-gateway `inventory-engine.test.ts` +2 (storeMatrix ürünler-arası + archived exclusion + WAREHOUSE_NOT_FOUND) → **1010/1010**;
+  store-admin inventory testleri yeni global sayfaya göre yeniden yazıldı (izleme render + quick +10 preview→apply + blocked-guard) → **313/313**;
+  dashboard KPI testi storeMatrix'e uyarlandı; i18n copy testi yeni dict'e uyarlandı (47/47); contracts 104, api-client 23.
+- **Gate.** contracts/api-client/i18n/api-gateway (tsc) + store-admin/storefront/worker (next/tsc build) TEMİZ · tüm değişen paketler eslint TEMİZ.
+- **Kalan.** Backfill migration deploy + docker rebuild + auth'lu görsel runtime smoke (global izleme sayfası: depo seçici/KPI/arama/filtre/quick +10/−10/
+  reset/blocked/deep-link · Product Detail sekme kontrastı + ?tab=inventory · variant modalında eşik alanı YOK · dashboard kritik-stok KPI). Auth'lu
+  piksel-smoke bu ortamda yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).

@@ -3553,13 +3553,13 @@ describe("api gateway", () => {
         priceMinor: 129900,
         compareAtMinor: 149900,
         currency: "TRY",
-        lowStockThreshold: 8,
       },
     });
     expect(createResponse.statusCode).toBe(201);
     expect(createResponse.json()).toMatchObject({ sku: "DEMO-HOODIE-BLK-L", priceMinor: 129900 });
+    // TODO-152A — variant create artık InventoryItem'a lowStockThreshold YAZMAZ (authority reorderPoint).
     expect(dataAccess.inventory).toContainEqual(
-      expect.objectContaining({ variantId: "variant_2", quantityOnHand: 0, lowStockThreshold: 8 }),
+      expect.objectContaining({ variantId: "variant_2", quantityOnHand: 0, lowStockThreshold: null }),
     );
 
     const duplicateResponse = await app.inject({

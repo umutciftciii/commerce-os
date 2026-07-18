@@ -16,7 +16,7 @@ const apiClient = {
       update: vi.fn(),
       variants: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
     },
-    inventory: { list: vi.fn(), adjust: vi.fn() },
+    inventory: { list: vi.fn(), adjust: vi.fn(), warehouses: vi.fn(), storeMatrix: vi.fn() },
     orders: {
       list: vi.fn(),
       create: vi.fn(),
@@ -495,12 +495,14 @@ describe("store-admin BFF — dashboard summary", () => {
       data: [{ id: "c1" }],
       pagination: { limit: 50, offset: 0, total: 1 },
     });
-    apiClient.admin.inventory.list.mockResolvedValue({
-      data: [
-        { quantityOnHand: 10, quantityAvailable: 2, lowStockThreshold: 5 },
-        { quantityOnHand: 4, quantityAvailable: 4, lowStockThreshold: null },
+    // TODO-152A — Dashboard KPI artık Inventory Engine mağaza-geneli matrisinden (LOW_STOCK durumu
+    // = tek authority reorderPoint) türetilir; legacy lowStockThreshold okuması kaldırıldı.
+    apiClient.admin.inventory.storeMatrix.mockResolvedValue({
+      warehouse: { id: "wh1", code: "DEFAULT", name: "Ana Depo", status: "ACTIVE", isDefault: true, priority: 0 },
+      rows: [
+        { current: { onHand: 10, reserved: 8, incoming: 0, safetyStock: 0, reorderPoint: 5 }, currentCalc: { rawAvailable: 2, sellableAvailable: 2, reservedRatioPct: 80, status: "LOW_STOCK" } },
+        { current: { onHand: 4, reserved: 0, incoming: 0, safetyStock: 0, reorderPoint: 0 }, currentCalc: { rawAvailable: 4, sellableAvailable: 4, reservedRatioPct: 0, status: "IN_STOCK" } },
       ],
-      pagination: { limit: 50, offset: 0, total: 2 },
     });
     const { GET } = await import("../app/api/dashboard/summary/route.js");
     const response = await GET(request("/api/dashboard/summary", { headers: { cookie: SESSION } }));

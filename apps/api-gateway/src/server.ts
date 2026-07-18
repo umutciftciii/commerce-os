@@ -863,7 +863,6 @@ export interface AppDataAccess extends CampaignDataAccess {
       currency: string;
       status: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
-      lowStockThreshold?: number | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
       // F4B — Fiyat/liste/maliyet baslangic audit'i icin aktor + kaynak.
@@ -890,7 +889,6 @@ export interface AppDataAccess extends CampaignDataAccess {
       currency?: string;
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       optionValues?: Record<string, unknown> | null;
-      lowStockThreshold?: number | null;
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
       // F4B — Fiyat/liste/maliyet degisikligi audit'i icin aktor + kaynak + sebep.
@@ -2902,13 +2900,14 @@ function createPrismaDataAccess(): AppDataAccess {
           },
           select: variantSelect,
         });
+        // TODO-152A — InventoryItem legacy köprüsü (default depo onHand/reserved otoritesi) kalır;
+        // lowStockThreshold ARTIK YAZILMAZ (eşik authority'si InventoryBalance.reorderPoint).
         await transaction.inventoryItem.create({
           data: {
             storeId,
             variantId: variant.id,
             quantityOnHand: 0,
             quantityReserved: 0,
-            lowStockThreshold: input.lowStockThreshold ?? null,
           },
         });
         // F4B — Baslangic fiyat/liste/maliyet audit'i (Omnibus min-fiyat temeli).
@@ -2933,8 +2932,8 @@ function createPrismaDataAccess(): AppDataAccess {
     updateVariant: async (storeId, productId, variantId, input) => {
       try {
         // F4B — Kolon-disi alanlari (aktor/kaynak/sebep) Prisma data'sindan ayikla.
+        // TODO-152A — lowStockThreshold artık input'ta yok (authority reorderPoint).
         const {
-          lowStockThreshold,
           changedByPlatformUserId,
           priceChangeSource,
           priceChangeReason,
@@ -2970,13 +2969,6 @@ function createPrismaDataAccess(): AppDataAccess {
             },
             select: variantSelect,
           });
-          if (lowStockThreshold !== undefined) {
-            await transaction.inventoryItem.upsert({
-              where: { variantId },
-              update: { lowStockThreshold },
-              create: { storeId, variantId, lowStockThreshold, quantityOnHand: 0, quantityReserved: 0 },
-            });
-          }
           // F4B — Fiyat/liste/maliyetten en az biri degistiyse audit satiri yaz (ayni transaction).
           const priceChanged =
             before.priceMinor !== variant.priceMinor ||

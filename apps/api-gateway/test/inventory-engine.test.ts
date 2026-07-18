@@ -346,6 +346,16 @@ function makeFake(initial: FakeVariant[], warehouses: InventoryWarehouseRef[] = 
     findDefaultWarehouse: async () => warehouses.find((w) => w.isDefault) ?? null,
     read: (fn) => fn(ctxImpl),
     transaction: (fn) => fn(ctxImpl),
+    // TODO-152A — mağaza-geneli okuma: tüm non-archived varyantlar + ürün kimliği.
+    listStoreVariants: async () =>
+      store.variants
+        .filter((v) => v.status !== "ARCHIVED")
+        .map((v) => ({
+          ...toRow(v),
+          productId: v.productId,
+          productTitle: `Product ${v.productId}`,
+          productSlug: v.productId,
+        })),
   };
   return { store, dataAccess };
 }
@@ -363,6 +373,35 @@ describe("TODO-152 · inventoryService", () => {
     const res = await svc.matrix({ storeId: "s1", productId: "p1" });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.result.rows.map((r) => r.variantId)).toEqual(["v1", "v2"]);
+  });
+
+  // TODO-152A — Mağaza-geneli izleme matris (SALT-OKUMA; ürünler-arası + SAF durum paritesi).
+  it("storeMatrix spans products, computes status, excludes archived", async () => {
+    const multi: FakeVariant[] = [
+      ...base,
+      { id: "v4", productId: "p2", storeId: "s1", status: "ACTIVE", current: state({ onHand: 3, reorderPoint: 5 }), balanceExists: true },
+    ];
+    const { dataAccess } = makeFake(multi);
+    const svc = createInventoryService(dataAccess);
+    const res = await svc.storeMatrix({ storeId: "s1" });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // v3 ARCHIVED hariç; v4 farklı üründen gelir (ürün kimliği taşınır).
+      expect(res.result.rows.map((r) => r.variantId)).toEqual(["v1", "v2", "v4"]);
+      const v4 = res.result.rows.find((r) => r.variantId === "v4")!;
+      expect(v4.productId).toBe("p2");
+      // sellable 3 <= reorderPoint 5 → LOW_STOCK (motor SAF hesabıyla birebir).
+      expect(v4.currentCalc.status).toBe("LOW_STOCK");
+      expect(v4.currentCalc.sellableAvailable).toBe(3);
+    }
+  });
+
+  it("storeMatrix → WAREHOUSE_NOT_FOUND when store has no default warehouse", async () => {
+    const { dataAccess } = makeFake(base, []);
+    const svc = createInventoryService(dataAccess);
+    const res = await svc.storeMatrix({ storeId: "s1" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("WAREHOUSE_NOT_FOUND");
   });
 
   it("preview bulk +10 onHand", async () => {

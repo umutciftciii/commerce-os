@@ -31,6 +31,11 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       updateVariant: vi.fn(),
       listInventory: vi.fn(),
       adjustInventory: vi.fn(),
+      // TODO-152A — global Stok izleme merkezi + tek-satır hızlı işlem.
+      listWarehouses: vi.fn(),
+      getStoreInventoryMatrix: vi.fn(),
+      previewInventory: vi.fn(),
+      applyInventory: vi.fn(),
     },
   };
 });
@@ -382,56 +387,111 @@ describe("store-admin product sales model", () => {
   });
 });
 
-describe("store-admin inventory", () => {
-  function inventoryRow() {
-    return page(1, [
-      {
-        id: "i1",
-        storeId: "s1",
-        variantId: "v1",
-        productId: "p1",
-        sku: "SWT-SYH-M",
-        title: "Siyah / M",
-        quantityOnHand: 2,
-        quantityReserved: 0,
-        quantityAvailable: 2,
-        lowStockThreshold: 5,
-        updatedAt: new Date().toISOString(),
-      },
-    ]);
-  }
+// TODO-152A — Global Stok = mağaza-geneli izleme merkezi (Inventory Engine matrisi, SALT-OKUMA) +
+// güvenli tek-satır hızlı işlem (ürün-bazlı preview→apply; ADR-076 korunur). Legacy "Stok düzelt"
+// modalı ve legacy listInventory/adjustInventory KALDIRILDI.
+const DEFAULT_WH = {
+  id: "wh1",
+  code: "DEFAULT",
+  name: "Ana Depo",
+  status: "ACTIVE" as const,
+  isDefault: true,
+  priority: 0,
+};
 
-  it("renders a low-stock badge and submits an adjustment", async () => {
-    storeApiMock.listInventory.mockResolvedValue(inventoryRow());
-    storeApiMock.adjustInventory.mockResolvedValue({ item: {}, movement: {} });
-    const user = userEvent.setup();
+function matrixRow(over: Record<string, unknown> = {}) {
+  return {
+    productId: "p1",
+    productTitle: "Kapüşonlu",
+    productSlug: "kapusonlu",
+    variantId: "v1",
+    sku: "SWT-SYH-M",
+    title: "Siyah / M",
+    status: "ACTIVE",
+    attributes: [
+      { code: "color", label: "Siyah" },
+      { code: "size", label: "M" },
+    ],
+    balanceExists: true,
+    current: { onHand: 2, reserved: 0, incoming: 0, safetyStock: 0, reorderPoint: 5 },
+    currentCalc: { rawAvailable: 2, sellableAvailable: 2, reservedRatioPct: 0, status: "LOW_STOCK" },
+    ...over,
+  };
+}
+
+describe("store-admin inventory (global monitoring center)", () => {
+  it("renders the store-wide engine matrix with product identity and low-stock status", async () => {
+    storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
 
     render(<InventoryPage />);
 
-    await screen.findByText("Siyah / M");
-    expect(screen.getByText("Kritik")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Stok düzelt" }));
-    await user.type(screen.getByLabelText("Değişim miktarı"), "10");
-    await user.click(screen.getByRole("button", { name: "Düzeltmeyi uygula" }));
-
-    await waitFor(() => expect(storeApiMock.adjustInventory).toHaveBeenCalledTimes(1));
-    expect(storeApiMock.adjustInventory).toHaveBeenCalledWith("v1", { quantityDelta: 10 });
+    // Ürün kimliği (yeni "Ürün" kolonu) + varyant etiketi (attribute'lar " · " ile).
+    await screen.findByText("Kapüşonlu");
+    expect(screen.getByText("Siyah · M")).toBeTruthy();
+    // LOW_STOCK durumu (tek authority reorderPoint) → "Kritik" rozet/etiket görünür.
+    expect(screen.getAllByText("Kritik").length).toBeGreaterThan(0);
+    // Eski legacy modal kaldırıldı.
+    expect(screen.queryByRole("button", { name: "Stok düzelt" })).toBeNull();
   });
 
-  it("shows a Turkish message when an adjustment would make stock negative", async () => {
-    storeApiMock.listInventory.mockResolvedValue(inventoryRow());
-    storeApiMock.adjustInventory.mockRejectedValue(new MockUiError("INVALID_INVENTORY_ADJUSTMENT"));
+  it("runs a safe single-row quick action (+10) via product-scoped preview→apply", async () => {
+    storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
+    storeApiMock.previewInventory.mockResolvedValue({
+      fingerprint: "fp1",
+      source: "DIRECT_EDIT",
+      warehouse: DEFAULT_WH,
+      blocked: false,
+      rows: [],
+      summary: {},
+    });
+    storeApiMock.applyInventory.mockResolvedValue({
+      batchId: "b1",
+      updatedVariants: 1,
+      updatedFields: 1,
+      skippedVariants: 0,
+      auditCount: 1,
+      source: "DIRECT_EDIT",
+      preview: {},
+    });
     const user = userEvent.setup();
 
     render(<InventoryPage />);
+    await screen.findByText("Kapüşonlu");
+    await user.click(screen.getByRole("button", { name: "+10" }));
 
-    await user.click(await screen.findByRole("button", { name: "Stok düzelt" }));
-    await user.type(screen.getByLabelText("Değişim miktarı"), "-999");
-    await user.click(screen.getByRole("button", { name: "Düzeltmeyi uygula" }));
+    await waitFor(() => expect(storeApiMock.applyInventory).toHaveBeenCalledTimes(1));
+    // onHand 2 → 12; ürün-bazlı uç + stale-guard fingerprint (motor mimarisi bozulmaz).
+    expect(storeApiMock.previewInventory).toHaveBeenCalledWith("p1", {
+      warehouseId: "wh1",
+      edits: [{ variantId: "v1", onHand: 12 }],
+    });
+    expect(storeApiMock.applyInventory).toHaveBeenCalledWith("p1", {
+      warehouseId: "wh1",
+      baseFingerprint: "fp1",
+      edits: [{ variantId: "v1", onHand: 12 }],
+    });
+  });
 
-    expect(
-      await screen.findByText("Bu düzeltme stoğu eksiye düşürür. Daha küçük bir değer girin."),
-    ).toBeTruthy();
+  it("blocks an unsafe quick action and surfaces a Turkish warning without applying", async () => {
+    storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
+    storeApiMock.previewInventory.mockResolvedValue({
+      fingerprint: "fp1",
+      source: "DIRECT_EDIT",
+      warehouse: DEFAULT_WH,
+      blocked: true,
+      rows: [],
+      summary: {},
+    });
+    const user = userEvent.setup();
+
+    render(<InventoryPage />);
+    await screen.findByText("Kapüşonlu");
+    await user.click(screen.getByRole("button", { name: "−10" }));
+
+    expect(await screen.findByText(/doğrulamayı geçemedi/)).toBeTruthy();
+    expect(storeApiMock.applyInventory).not.toHaveBeenCalled();
   });
 });

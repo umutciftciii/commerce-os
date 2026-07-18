@@ -19,15 +19,19 @@ import {
 import {
   DEFAULT_INVENTORY_LIMITS,
   INVENTORY_FIELDS,
+  type InventoryCalc,
   type InventoryField,
   type InventoryLimits,
   type InventoryRule,
   type InventoryState,
   type InventoryVariantInput,
+  type VariantStatus,
 } from "./types.js";
+import { computeCalc } from "./calculator.js";
 import type {
   InventoryAuditRow,
   InventoryDataAccess,
+  InventoryStoreVariantRow,
   InventoryTxContext,
   InventoryVariantRow,
   InventoryVariantWrite,
@@ -113,8 +117,31 @@ export interface InventoryApplyResult {
   preview: InventoryPreviewResult;
 }
 
+/** TODO-152A — Mağaza-geneli izleme satırı (SALT-OKUMA; ürün kimliği + SAF hesaplanmış göstergeler). */
+export interface InventoryStoreMatrixRowView {
+  productId: string;
+  productTitle: string;
+  productSlug: string;
+  variantId: string;
+  sku: string;
+  title: string;
+  status: VariantStatus;
+  attributes: { code: string; label: string }[];
+  balanceExists: boolean;
+  current: InventoryState;
+  currentCalc: InventoryCalc;
+}
+
+export interface InventoryStoreMatrixResult {
+  warehouse: InventoryWarehouseView;
+  rows: InventoryStoreMatrixRowView[];
+}
+
 export type PreviewResult =
   | { ok: true; result: InventoryPreviewResult }
+  | { ok: false; error: InventoryError };
+export type StoreMatrixResult =
+  | { ok: true; result: InventoryStoreMatrixResult }
   | { ok: false; error: InventoryError };
 export type ApplyResult =
   | { ok: true; result: InventoryApplyResult }
@@ -127,6 +154,8 @@ export interface InventoryService {
   listWarehouses(storeId: string): Promise<WarehouseListResult>;
   /** Matris okuma (kural/edit yok → current==target, changed=false). */
   matrix(input: InventoryMatrixInput): Promise<PreviewResult>;
+  /** TODO-152A — Mağaza-geneli SALT-OKUMA matris (izleme merkezi; tüm ürünler, seçili depo). */
+  storeMatrix(input: { storeId: string; warehouseId?: string }): Promise<StoreMatrixResult>;
   preview(input: InventoryPreviewInput): Promise<PreviewResult>;
   apply(input: InventoryApplyInput): Promise<ApplyResult>;
 }
@@ -287,6 +316,29 @@ export function createInventoryService(
       const wh = await resolveWarehouse(storeId, warehouseId);
       if (!wh.ok) return { ok: false, error: wh.error };
       return dataAccess.read((ctx) => computePreview(ctx, storeId, productId, wh.warehouse, { selectedVariantIds }));
+    },
+
+    // TODO-152A — Mağaza-geneli izleme okuması. Motor SAF hesaplarını (computeCalc) satır-bazlı uygular;
+    // düzenleme/preview/apply YOK (ADR-076 ürün-bazlı yazma korunur). Depo yoksa/verilen depo geçersizse
+    // stabil hata döner (product-scoped uçlarla aynı davranış).
+    storeMatrix: async ({ storeId, warehouseId }) => {
+      const wh = await resolveWarehouse(storeId, warehouseId);
+      if (!wh.ok) return { ok: false, error: wh.error };
+      const rows = await dataAccess.listStoreVariants(storeId, wh.warehouse);
+      const view: InventoryStoreMatrixRowView[] = rows.map((r: InventoryStoreVariantRow) => ({
+        productId: r.productId,
+        productTitle: r.productTitle,
+        productSlug: r.productSlug,
+        variantId: r.variantId,
+        sku: r.sku,
+        title: r.title,
+        status: r.status,
+        attributes: r.attributes,
+        balanceExists: r.balanceExists,
+        current: r.current,
+        currentCalc: computeCalc(r.current, r.balanceExists),
+      }));
+      return { ok: true, result: { warehouse: toWarehouseView(wh.warehouse), rows: view } };
     },
 
     preview: async ({ storeId, productId, warehouseId, ...rest }) => {

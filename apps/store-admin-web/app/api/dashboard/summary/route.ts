@@ -24,24 +24,24 @@ export async function GET(request: NextRequest) {
 
   const api = createApiClient();
   try {
-    const [products, categories, inventory] = await Promise.all([
+    // TODO-152A — Stok özeti artık Inventory Engine'in mağaza-geneli matrisinden türetilir.
+    // "Kritik stok" sayısı legacy lowStockThreshold yerine motorun LOW_STOCK durumundan (tek
+    // authority InventoryBalance.reorderPoint) gelir. Depo verilmez → gateway default depoyu çözer.
+    const [products, categories, matrix] = await Promise.all([
       api.admin.products.list(ctx.store.id, ctx.token),
       api.admin.categories.list(ctx.store.id, ctx.token),
-      api.admin.inventory.list(ctx.store.id, ctx.token),
+      api.admin.inventory.storeMatrix(ctx.store.id, undefined, ctx.token),
     ]);
 
     const activeProducts = products.data.filter((product) => product.status === "ACTIVE").length;
-    const lowStock = inventory.data.filter(
-      (item) =>
-        item.lowStockThreshold !== null && item.quantityAvailable <= item.lowStockThreshold,
-    ).length;
-    const totalOnHand = inventory.data.reduce((sum, item) => sum + item.quantityOnHand, 0);
+    const lowStock = matrix.rows.filter((row) => row.currentCalc.status === "LOW_STOCK").length;
+    const totalOnHand = matrix.rows.reduce((sum, row) => sum + row.current.onHand, 0);
 
     const summary: DashboardSummary = {
       store: ctx.store,
       products: { total: products.pagination.total, active: activeProducts },
       categories: { total: categories.pagination.total },
-      inventory: { records: inventory.pagination.total, lowStock, totalOnHand },
+      inventory: { records: matrix.rows.length, lowStock, totalOnHand },
     };
     return NextResponse.json(summary);
   } catch (error) {

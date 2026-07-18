@@ -1024,8 +1024,7 @@ export const trStoreAdmin = {
       marginNoPrice: "Marj için geçerli bir satış fiyatı girin.",
       barcodeLabel: "Barkod (opsiyonel)",
       barcodePlaceholder: "8690000000000",
-      lowStockLabel: "Kritik stok eşiği (opsiyonel)",
-      lowStockPlaceholder: "5",
+      // TODO-152A — "Kritik stok eşiği" kaldırıldı: authority InventoryBalance.reorderPoint (Stok sekmesi).
       shippingWeightLabel: "Kargo ağırlığı (kg)",
       shippingDesiLabel: "Kargo desisi",
       shippingDesiHint:
@@ -1341,42 +1340,77 @@ export const trStoreAdmin = {
       "İlk taslak siparişinizi oluşturun; sipariş, ödeme ve karşılama durumları burada listelenecek.",
     emptyAction: "İlk siparişi oluştur",
   },
+  // TODO-152A — Global Stok = mağaza-geneli izleme & operasyon merkezi (Inventory Engine matrisi).
+  // Eski legacy liste + "Stok düzelt" modalı sözlüğü kaldırıldı; düzenleme Product Detail > Stok'ta.
   inventory: {
     eyebrow: "Operasyon",
     title: "Stok",
-    description: "Varyant bazlı stok seviyeleri ve stok düzeltmeleri.",
-    adjustStock: "Stok düzelt",
-    cardTitle: "Varyant stokları",
-    cardDescription: "SKU bazlı miktarlar",
-    countLabel: "{count} kayıt",
-    loadError: "Stok bilgisi yüklenemedi.",
-    adjustToast: "Stok güncellendi.",
-    lowStockBadge: "Kritik",
-    table: {
-      product: "Ürün / Varyant",
-      sku: "SKU",
-      onHand: "Eldeki",
+    description:
+      "Tüm ürünlerin depo bazlı stok durumu — izleme ve hızlı operasyon merkezi. Detaylı düzenleme için ürünün Stok sekmesine geçin.",
+    warehouse: {
+      label: "Depo",
+      defaultBadge: "Varsayılan",
+      statusInactive: "Pasif",
+      inactiveNote: "Bu depo pasif; stok işlemleri kapalıdır.",
+      none: "Bu mağazada tanımlı depo yok.",
+    },
+    kpi: {
+      onHand: "Elde",
       reserved: "Rezerve",
-      available: "Kullanılabilir",
-      threshold: "Eşik",
-      actions: "İşlem",
+      sellable: "Satılabilir",
+      incoming: "Gelen",
+      lowStock: "Kritik",
+      outOfStock: "Tükendi",
     },
-    form: {
-      title: "Stok düzelt",
-      subtitle: "{title} ({sku}) için stok hareketi girin.",
-      currentLabel: "Mevcut kullanılabilir",
-      deltaLabel: "Değişim miktarı",
-      deltaHint: "Artırmak için pozitif, azaltmak için negatif değer girin (örn. -3).",
-      reasonLabel: "Açıklama (opsiyonel)",
-      reasonPlaceholder: "Örn. Sayım düzeltmesi",
-      submit: "Düzeltmeyi uygula",
-      submitting: "Uygulanıyor…",
-      requiredDelta: "Sıfırdan farklı bir miktar girin.",
+    search: {
+      placeholder: "Ürün, varyant veya SKU ara…",
     },
-    emptyTag: "Stok",
-    emptyTitle: "Henüz stok kaydı yok",
-    emptyDescription:
-      "Varyant oluşturduğunuzda stok kayıtları otomatik açılır ve burada listelenir.",
+    filter: {
+      all: "Tümü",
+    },
+    stockStatus: {
+      IN_STOCK: "Stokta",
+      LOW_STOCK: "Kritik",
+      OUT_OF_STOCK: "Tükendi",
+      INCOMING: "Yolda",
+      NEGATIVE: "Negatif",
+      NO_BALANCE: "Kayıt yok",
+    },
+    col: {
+      product: "Ürün",
+      variant: "Varyant",
+      sku: "SKU",
+      onHand: "Elde",
+      reserved: "Rezerve",
+      safetyStock: "Güvenlik stoğu",
+      sellable: "Satılabilir",
+      incoming: "Gelen stok",
+      reorderPoint: "Yeniden sipariş noktası",
+      status: "Durum",
+      actions: "İşlemler",
+    },
+    row: {
+      manage: "Yönet",
+      openStockTab: "Ürünün Stok sekmesini aç",
+    },
+    quick: {
+      increase: "Eldeki stoğu artır",
+      decrease: "Eldeki stoğu azalt",
+      reset: "Sıfırla",
+      resetConfirmTitle: "Eldeki stok sıfırlansın mı?",
+      resetConfirmBody:
+        "{product} · {variant} için eldeki stok 0'a ayarlanacak. İşlem stok hareketi olarak kaydedilir.",
+      appliedToast: "{title}: eldeki stok {old} → {new}",
+      blockedToast:
+        "Bu işlem doğrulamayı geçemedi (ör. stok negatife düşerdi). Ürünün Stok sekmesinden düzenleyin.",
+    },
+    count: "{count} varyant",
+    states: {
+      loading: "Stok yükleniyor…",
+      empty: "Henüz stok kaydı yok. Varyant oluşturduğunuzda burada listelenir.",
+      filterEmpty: "Arama veya filtreyle eşleşen kayıt yok.",
+      loadError: "Stok bilgisi yüklenemedi.",
+    },
   },
   categories: {
     eyebrow: "Katalog",

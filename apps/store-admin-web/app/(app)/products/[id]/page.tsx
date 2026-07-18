@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import type {
@@ -22,13 +22,19 @@ import {
   RailRow,
   SurfaceCard,
 } from "../../../components/premium";
-import { ProductIcon } from "../../../../components/icons";
+import { InventoryIcon, PaymentIcon, ProductIcon } from "../../../../components/icons";
 import { ProductForm } from "../product-form";
 import { VariantsSection } from "../variants-manager";
 import { PricingWorkspace } from "../pricing/pricing-workspace";
 import { InventoryWorkspace } from "../inventory/inventory-workspace";
 
 type ProductEditTab = "general" | "pricing" | "inventory";
+const PRODUCT_EDIT_TABS: ProductEditTab[] = ["general", "pricing", "inventory"];
+const TAB_ICONS: Record<ProductEditTab, ReactNode> = {
+  general: <ProductIcon />,
+  pricing: <PaymentIcon />,
+  inventory: <InventoryIcon />,
+};
 
 type ProductStatus = Product["status"];
 
@@ -62,6 +68,7 @@ const FORM_ID = "product-edit-form";
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
   const productId = params.id;
+  const searchParams = useSearchParams();
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.products;
@@ -74,8 +81,12 @@ export default function ProductDetailPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // TODO-151A — Ürün düzenleme sekmeleri. "Genel" mevcut form + varyantlar; "Fiyatlandırma"
-  // tam genişlik ticari çalışma alanı (eski gömülü kart yerine bağımsız sekme).
-  const [tab, setTab] = useState<ProductEditTab>("general");
+  // tam genişlik ticari çalışma alanı; "Stok" Inventory Engine sekmesi.
+  // TODO-152A — Global Stok izleme merkezinden gelen derin-link (?tab=inventory) ilk sekmeyi belirler.
+  const [tab, setTab] = useState<ProductEditTab>(() => {
+    const q = searchParams.get("tab");
+    return q === "pricing" || q === "inventory" ? q : "general";
+  });
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -178,9 +189,9 @@ export default function ProductDetailPage() {
         <nav
           role="tablist"
           aria-label={t.eyebrow}
-          className="mb-5 flex items-center gap-1 border-b border-white/[0.07]"
+          className="mb-5 -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1"
         >
-          {(["general", "pricing", "inventory"] as ProductEditTab[]).map((key) => {
+          {PRODUCT_EDIT_TABS.map((key) => {
             const active = tab === key;
             return (
               <button
@@ -189,12 +200,20 @@ export default function ProductDetailPage() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setTab(key)}
-                className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                className={[
+                  "inline-flex shrink-0 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
+                  "[&>span>svg]:h-4 [&>span>svg]:w-4",
                   active
-                    ? "border-indigo-400 text-white/90"
-                    : "border-transparent text-white/45 hover:text-white/70"
-                }`}
+                    ? "border-indigo-400/60 bg-indigo-500/[0.22] text-white shadow-[0_0_0_1px_rgba(129,140,248,0.20)]"
+                    : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/20 hover:bg-white/[0.06] hover:text-white/90",
+                ].join(" ")}
               >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center ${active ? "text-indigo-200" : ""}`}
+                  aria-hidden
+                >
+                  {TAB_ICONS[key]}
+                </span>
                 {d.tabs[key]}
               </button>
             );

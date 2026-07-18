@@ -94,6 +94,8 @@ import type {
   InventoryPreviewResponse,
   InventoryApplyRequest,
   InventoryApplyResponse,
+  // TODO-152A — mağaza-geneli izleme matris.
+  InventoryStoreMatrixResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -299,6 +301,9 @@ export type {
   InventoryRule,
   InventoryDirectEdit,
   InventoryStockStatus,
+  // TODO-152A — mağaza-geneli izleme matris tipleri.
+  InventoryStoreMatrixRow,
+  InventoryStoreMatrixResponse,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -953,6 +958,12 @@ export interface ApiClient {
       ): Promise<InventoryAdjustmentResponse>;
       // TODO-152 (ADR-076) — store-scoped depo listesi (warehouse selector).
       warehouses(storeId: string, token?: string): Promise<InventoryWarehouseListResponse>;
+      // TODO-152A — mağaza-geneli SALT-OKUMA stok matris (izleme merkezi; tüm ürünler, seçili depo).
+      storeMatrix(
+        storeId: string,
+        warehouseId?: string,
+        token?: string,
+      ): Promise<InventoryStoreMatrixResponse>;
     };
     orders: {
       list(storeId: string, query?: OrderListQuery, token?: string): Promise<OrderListResponse>;
@@ -1873,6 +1884,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
         warehouses: (storeId, token) =>
           getJson<InventoryWarehouseListResponse>(`/stores/${storeId}/warehouses`, token),
+        storeMatrix: (storeId, warehouseId, token) =>
+          getJson<InventoryStoreMatrixResponse>(
+            `/stores/${storeId}/inventory/matrix${
+              warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ""
+            }`,
+            token,
+          ),
       },
       orders: {
         list: (storeId, query, token) =>

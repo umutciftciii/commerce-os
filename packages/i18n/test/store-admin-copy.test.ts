@@ -32,7 +32,10 @@ describe("storeAdmin Faz 2B copy", () => {
     expect(tr.categories.form.createTitle).toBe("Yeni kategori oluştur");
     expect(tr.products.table.title).toBe("Ürün");
     expect(tr.variants.addVariant).toBe("Varyant ekle");
-    expect(tr.inventory.form.deltaLabel).toBe("Değişim miktarı");
+    // TODO-152A — Global Stok = izleme merkezi (Inventory Engine); legacy adjust-modal copy kaldırıldı.
+    expect(tr.inventory.col.reorderPoint).toBe("Yeniden sipariş noktası");
+    expect(tr.inventory.stockStatus.LOW_STOCK).toBe("Kritik");
+    expect(typeof en.inventory.col.sellable).toBe("string");
     expect(typeof en.categories.form.createTitle).toBe("string");
     expect(typeof en.variants.addVariant).toBe("string");
   });

@@ -1018,8 +1018,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
       marginNoPrice: "Enter a valid sale price to compute margin.",
       barcodeLabel: "Barcode (optional)",
       barcodePlaceholder: "8690000000000",
-      lowStockLabel: "Low stock threshold (optional)",
-      lowStockPlaceholder: "5",
+      // TODO-152A — "Low stock threshold" removed: authority is InventoryBalance.reorderPoint (Stock tab).
       shippingWeightLabel: "Shipping weight (kg)",
       shippingDesiLabel: "Shipping desi",
       shippingDesiHint:
@@ -1335,42 +1334,77 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "Create your first draft order; order, payment and fulfilment statuses will be listed here.",
     emptyAction: "Create the first order",
   },
+  // TODO-152A — Global Inventory = store-wide monitoring & operations centre (Inventory Engine matrix).
+  // Legacy flat list + "Adjust stock" modal dictionary removed; editing lives in Product Detail > Stock.
   inventory: {
     eyebrow: "Operations",
     title: "Inventory",
-    description: "Variant-level stock levels and stock adjustments.",
-    adjustStock: "Adjust stock",
-    cardTitle: "Variant stock",
-    cardDescription: "Quantities by SKU",
-    countLabel: "{count} records",
-    loadError: "Could not load inventory.",
-    adjustToast: "Stock updated.",
-    lowStockBadge: "Low",
-    table: {
-      product: "Product / Variant",
+    description:
+      "Warehouse-level stock across every product — a monitoring and quick-operations centre. Open a product's Stock tab for detailed editing.",
+    warehouse: {
+      label: "Warehouse",
+      defaultBadge: "Default",
+      statusInactive: "Inactive",
+      inactiveNote: "This warehouse is inactive; stock operations are closed.",
+      none: "No warehouse defined for this store.",
+    },
+    kpi: {
+      onHand: "On hand",
+      reserved: "Reserved",
+      sellable: "Sellable",
+      incoming: "Incoming",
+      lowStock: "Low",
+      outOfStock: "Out",
+    },
+    search: {
+      placeholder: "Search product, variant or SKU…",
+    },
+    filter: {
+      all: "All",
+    },
+    stockStatus: {
+      IN_STOCK: "In stock",
+      LOW_STOCK: "Low",
+      OUT_OF_STOCK: "Out of stock",
+      INCOMING: "Incoming",
+      NEGATIVE: "Negative",
+      NO_BALANCE: "No record",
+    },
+    col: {
+      product: "Product",
+      variant: "Variant",
       sku: "SKU",
       onHand: "On hand",
       reserved: "Reserved",
-      available: "Available",
-      threshold: "Threshold",
+      safetyStock: "Safety stock",
+      sellable: "Sellable",
+      incoming: "Incoming",
+      reorderPoint: "Reorder point",
+      status: "Status",
       actions: "Actions",
     },
-    form: {
-      title: "Adjust stock",
-      subtitle: "Enter a stock movement for {title} ({sku}).",
-      currentLabel: "Current available",
-      deltaLabel: "Change amount",
-      deltaHint: "Enter a positive value to increase or a negative one to decrease (e.g. -3).",
-      reasonLabel: "Reason (optional)",
-      reasonPlaceholder: "e.g. Stock count correction",
-      submit: "Apply adjustment",
-      submitting: "Applying…",
-      requiredDelta: "Enter a non-zero amount.",
+    row: {
+      manage: "Manage",
+      openStockTab: "Open the product's Stock tab",
     },
-    emptyTag: "Inventory",
-    emptyTitle: "No inventory records yet",
-    emptyDescription:
-      "Inventory records open automatically when you create variants and are listed here.",
+    quick: {
+      increase: "Increase on-hand stock",
+      decrease: "Decrease on-hand stock",
+      reset: "Reset",
+      resetConfirmTitle: "Reset on-hand stock?",
+      resetConfirmBody:
+        "On-hand stock for {product} · {variant} will be set to 0. This is recorded as a stock movement.",
+      appliedToast: "{title}: on-hand stock {old} → {new}",
+      blockedToast:
+        "This action did not pass validation (e.g. stock would go negative). Edit it from the product's Stock tab.",
+    },
+    count: "{count} variants",
+    states: {
+      loading: "Loading inventory…",
+      empty: "No inventory records yet. They are listed here once you create variants.",
+      filterEmpty: "No records match your search or filter.",
+      loadError: "Could not load inventory.",
+    },
   },
   categories: {
     eyebrow: "Catalogue",
