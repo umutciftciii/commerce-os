@@ -430,7 +430,9 @@ Kullanıcı onayıyla (2026-07-19) üç yön netleşti:
 
 ---
 
-## Faz A (2C-8A) — Uygulandı (worktree; commit/deploy YOK)
+## Faz A (2C-8A) — MERGED + DEPLOYED
+
+> PR #80 (feat `15f8425`, merge `0aaea08`) + docker build fix PR #81 (`279ab69`, merge `0b1a63c` = main). CI yeşil; migration deploy (up to date); 7/7 healthy; deployed runtime smoke (container worker) ALL PASS. **Deploy sırasında yakalanan bug:** `node.Dockerfile` yalnız `packages/*` build ediyordu → worker `services/search-service` dist'ini bulamayıp boot'ta çöktü → build filter'a `--filter="./services/*"` eklendi (PR #81).
 
 ADR-079 kararlarıyla Search Read-Model Foundation uygulandı. Özet:
 
@@ -443,4 +445,4 @@ ADR-079 kararlarıyla Search Read-Model Foundation uygulandı. Özet:
 - **Gerçek-PG smoke**: index/fiyat/stok/facet delete-and-replace/archive→removed/tsvector FTS/EXPLAIN (Index Only Scan)/cascade cleanup — hepsi PASS. Event-driven smoke: enqueue→worker→read-model PASS. Backfill CLI: DRAFT hariç + idempotent PASS.
 - **Yakalanan bug**: deterministik jobId (`:` yasak + BullMQ tamamlanmış-job dedup'u change-stream'i bozuyordu) → **otomatik jobId + idempotent işleme**ye çevrildi.
 
-> **Kod worktree'de bırakıldı; commit/push/PR/merge/deploy YAPILMADI.** Docker container rebuild (worker+api-gateway → 7/7) deploy-checkpoint adımıdır; migration dev-DB'ye deploy edildi ve çalışan main-stack (7/7 healthy, `/health` 200, public catalog 200) additive migration'dan etkilenmedi.
+> **MERGED + DEPLOYED.** api-gateway + worker imajları merged-main'den rebuild edildi (7/7 healthy, `/health` 200, public catalog 200, allowlist sızıntısı yok). Deployed event-driven smoke (enqueue → container worker → read-model): index/fiyat/stok/product+variant facet/iki-ardışık-değişim/stale-facet/OUT_OF_STOCK/reindex-store-idempotent/store-isolation/archive-cleanup/cascade/tsvector/EXPLAIN-index — hepsi PASS.
