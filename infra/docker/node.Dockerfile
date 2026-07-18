@@ -40,7 +40,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm-store \
 #    `tsx watch` and Next apps run `next dev`, so no prebuilt app bundle is
 #    needed — but both import the shared packages from their compiled `dist/`,
 #    which therefore MUST be built here (host dist is .dockerignore'd out).
+#    services/* dahildir: worker `@commerce-os/search-service` dist'ini import
+#    eder (TODO-154); yalnız packages/* build edilirse worker import'ta çöker.
 RUN pnpm db:generate
-RUN pnpm exec turbo run build --filter="./packages/*"
+RUN pnpm exec turbo run build --filter="./packages/*" --filter="./services/*"
 
 EXPOSE 3000
