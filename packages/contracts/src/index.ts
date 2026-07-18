@@ -758,6 +758,88 @@ export const variantGenerationResponseSchema = z.object({
   variants: z.array(variantGenerationVariantSchema),
 });
 
+// ─────────────────── TODO-150 (ADR-073) — Identity Management Engine (SKU/Barcode/Title) ───────────────────
+// Pattern tabanli kimlik motoru: bir urunun varyantlarina SKU/Barcode/Title patternlarini toplu uygular.
+// Preview-first + collision-first + fail-closed. Motor SAFtir (parser/evaluator/collision); sunucu
+// otoriter (apply preview'i yeniden hesaplar). combinationKey/2C-* DEGISMEZ.
+
+export const identityFieldSchema = z.enum(["SKU", "BARCODE", "TITLE"]);
+
+// Tek bir alanin (SKU/Barcode/Title) degerlendirilmis sonucu. `issues` stable tani kodlaridir
+// (SKU_COLLISION, TITLE_PROTECTED, ...). `applied` true → apply bu alani yazar.
+export const identityPreviewFieldSchema = z.object({
+  next: z.string(),
+  changed: z.boolean(),
+  applied: z.boolean(),
+  missing: z.array(z.string()),
+  issues: z.array(z.string()),
+});
+
+// Tek varyantin preview satiri. Pattern verilmeyen alan null. seq = bu satirin 1-tabanli SEQ degeri.
+export const identityPreviewRowSchema = z.object({
+  variantId: z.string().min(1),
+  status: productVariantStatusSchema,
+  seq: z.number().int().nonnegative(),
+  current: z.object({
+    sku: z.string(),
+    barcode: z.string().nullable(),
+    title: z.string(),
+  }),
+  sku: identityPreviewFieldSchema.nullable(),
+  barcode: identityPreviewFieldSchema.nullable(),
+  title: identityPreviewFieldSchema.nullable(),
+});
+
+export const identityCollisionSchema = z.object({
+  variantId: z.string().min(1),
+  field: identityFieldSchema,
+  value: z.string(),
+  code: z.string(),
+});
+
+// Uygulanan ham patternlarin echo'su (audit/UI). Verilmeyen alan null.
+export const identityPatternsEchoSchema = z.object({
+  sku: z.string().nullable(),
+  barcode: z.string().nullable(),
+  title: z.string().nullable(),
+});
+
+export const identityPreviewResponseSchema = z.object({
+  rows: z.array(identityPreviewRowSchema),
+  collisions: z.array(identityCollisionSchema),
+  // true → apply reddedilir (SKU collision / sert validation). UI Apply'i disable eder.
+  blocked: z.boolean(),
+  counts: z.object({
+    changed: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+    collisions: z.number().int().nonnegative(),
+  }),
+  patterns: identityPatternsEchoSchema,
+  // Bu urunun uygulanabilir (non-archived) varyant sayisi (bos-durum UI'si icin).
+  variantCount: z.number().int().nonnegative(),
+});
+
+// Apply yaniti: yazilan varyant/alan sayilari + degismeyen + collision + tam preview snapshot + batchId
+// (undo metadata grubu). updated = yazilan ALAN sayisi degil, yazilan VARYANT sayisi.
+export const identityApplyResponseSchema = z.object({
+  batchId: z.string().min(1),
+  updated: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  collisions: z.array(identityCollisionSchema),
+  preview: identityPreviewResponseSchema,
+});
+
+// Apply istegi: her pattern opsiyonel (en az biri zorunlu — servis STABIL kodla dogrular, refine DEGIL).
+// seqStart {SEQ}'in baslangic degeri (varsayilan 1). regenerateCustomTitles true → korumali (custom)
+// basliklar da yenilenir. Bos-string pattern = "alan yok" (trim'lenir; validator IDENTITY_PATTERN_EMPTY).
+export const identityApplyRequestSchema = z.object({
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
+  title: z.string().optional(),
+  seqStart: z.number().int().min(0).optional(),
+  regenerateCustomTitles: z.boolean().optional(),
+});
+
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
@@ -2818,6 +2900,14 @@ export type VariantCombinationPreviewResponse = z.infer<typeof variantCombinatio
 export type VariantGenerationVariantAttribute = z.infer<typeof variantGenerationVariantAttributeSchema>;
 export type VariantGenerationVariant = z.infer<typeof variantGenerationVariantSchema>;
 export type VariantGenerationResponse = z.infer<typeof variantGenerationResponseSchema>;
+// TODO-150 (ADR-073) — Identity Management Engine tipleri.
+export type IdentityField = z.infer<typeof identityFieldSchema>;
+export type IdentityPreviewField = z.infer<typeof identityPreviewFieldSchema>;
+export type IdentityPreviewRow = z.infer<typeof identityPreviewRowSchema>;
+export type IdentityCollision = z.infer<typeof identityCollisionSchema>;
+export type IdentityPreviewResponse = z.infer<typeof identityPreviewResponseSchema>;
+export type IdentityApplyResponse = z.infer<typeof identityApplyResponseSchema>;
+export type IdentityApplyRequest = z.infer<typeof identityApplyRequestSchema>;
 export type StoreSettings = z.infer<typeof storeSettingsSchema>;
 export type StoreSettingsUpdateRequest = z.infer<typeof storeSettingsUpdateRequestSchema>;
 export type ContentStatus = z.infer<typeof contentStatusSchema>;

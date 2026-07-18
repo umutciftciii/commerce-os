@@ -168,6 +168,12 @@ import {
 import { createVariantGenerationService } from "./variant-generation/service.js";
 import { registerVariantGenerationRoutes } from "./variant-generation/routes.js";
 import {
+  createPrismaIdentityDataAccess,
+  type IdentityDataAccess,
+} from "./identity-engine/data.js";
+import { createIdentityService } from "./identity-engine/service.js";
+import { registerIdentityRoutes } from "./identity-engine/routes.js";
+import {
   createPrismaWalletDataAccess,
   type CouponWithCampaign,
   type WalletDataAccess,
@@ -1132,6 +1138,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   variantCombinationDataAccess?: VariantCombinationDataAccess;
   // Faz 2C-3 (ADR-072) — ProductVariant uretim (persistence) veri erisimi (testte in-memory enjekte edilebilir).
   variantGenerationDataAccess?: VariantGenerationDataAccess;
+  // TODO-150 (ADR-073) — Identity Management Engine veri erisimi (testte in-memory enjekte edilebilir).
+  identityDataAccess?: IdentityDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -2930,6 +2938,9 @@ function createPrismaDataAccess(): AppDataAccess {
             where: { id: variantId, storeId, productId },
             data: {
               ...variantInput,
+              // TODO-150 (ADR-073) — kullanici basligi elle degistirdiginde title'i "custom/korumali"
+              // isaretle; boylece Identity Engine title-apply (regenerateCustomTitles olmadan) ATLAR.
+              titleIsCustom: variantInput.title === undefined ? undefined : true,
               barcode: variantInput.barcode === undefined ? undefined : variantInput.barcode,
               compareAtMinor:
                 variantInput.compareAtMinor === undefined ? undefined : variantInput.compareAtMinor,
@@ -5091,6 +5102,19 @@ export function createServer(
   });
   registerVariantGenerationRoutes(app, {
     service: variantGenerationService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // TODO-150 (ADR-073) — Identity Management Engine: SKU/Barcode/Title pattern motoru (preview + apply).
+  // Motor SAF (parser/evaluator/collision); apply server-authoritative + tek transaction + append-only
+  // audit. Combination/generation uclari BOZULMAZ; bu ayri kimlik katmanidir.
+  const identityDataAccess = dependencies.identityDataAccess ?? createPrismaIdentityDataAccess();
+  const identityService = createIdentityService(identityDataAccess);
+  registerIdentityRoutes(app, {
+    service: identityService,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

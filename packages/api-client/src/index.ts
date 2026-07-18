@@ -79,6 +79,10 @@ import type {
   VariantCombinationPreviewResponse,
   // Faz 2C-3 (ADR-072) — ProductVariant uretim (persistence) yanit tipi.
   VariantGenerationResponse,
+  // TODO-150 (ADR-073) — Identity Management Engine tipleri.
+  IdentityPreviewResponse,
+  IdentityApplyResponse,
+  IdentityApplyRequest,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -253,6 +257,14 @@ export type {
   VariantGenerationResponse,
   VariantGenerationVariant,
   VariantGenerationVariantAttribute,
+  // TODO-150 (ADR-073) — Identity Management Engine tipleri.
+  IdentityPreviewResponse,
+  IdentityApplyResponse,
+  IdentityApplyRequest,
+  IdentityPreviewRow,
+  IdentityPreviewField,
+  IdentityCollision,
+  IdentityField,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -843,6 +855,21 @@ export interface ApiClient {
           token?: string,
         ): Promise<VariantGenerationResponse>;
       };
+      // TODO-150 (ADR-073) — Identity Management Engine (SKU/Barcode/Title pattern motoru).
+      identity: {
+        preview(
+          storeId: string,
+          productId: string,
+          query: IdentityApplyRequest,
+          token?: string,
+        ): Promise<IdentityPreviewResponse>;
+        apply(
+          storeId: string,
+          productId: string,
+          input: IdentityApplyRequest,
+          token?: string,
+        ): Promise<IdentityApplyResponse>;
+      };
     };
     inventory: {
       list(storeId: string, token?: string): Promise<InventoryListResponse>;
@@ -1295,6 +1322,20 @@ export function resolveApiGatewayUrl(explicit?: string): string {
  * filtreler eklenir; `undefined` ve boş string atlanır. Deterministik sıra
  * (anahtar bazlı) testleri sade tutar. Çıktı baştaki `?` ile gelir veya boştur.
  */
+// TODO-150 (ADR-073) — Identity preview GET query-string'i (pattern'lar + seqStart + regenerate).
+function identityPreviewQuery(query: IdentityApplyRequest): string {
+  const params = new URLSearchParams();
+  if (query.sku !== undefined) params.set("sku", query.sku);
+  if (query.barcode !== undefined) params.set("barcode", query.barcode);
+  if (query.title !== undefined) params.set("title", query.title);
+  if (query.seqStart !== undefined) params.set("seqStart", String(query.seqStart));
+  if (query.regenerateCustomTitles !== undefined) {
+    params.set("regenerateCustomTitles", query.regenerateCustomTitles ? "true" : "false");
+  }
+  const qs = params.toString();
+  return qs.length > 0 ? `?${qs}` : "";
+}
+
 function orderListQueryString(query?: OrderListQuery): string {
   if (!query) return "";
   const params = new URLSearchParams();
@@ -1681,6 +1722,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               `/stores/${storeId}/products/${productId}/variant-combinations/generate`,
               "POST",
               {},
+              token,
+            ),
+        },
+        // TODO-150 (ADR-073) — Identity Management Engine (SKU/Barcode/Title pattern motoru).
+        identity: {
+          preview: (storeId, productId, query, token) =>
+            getJson<IdentityPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/identity/preview${identityPreviewQuery(query)}`,
+              token,
+            ),
+          apply: (storeId, productId, input, token) =>
+            sendJson<IdentityApplyResponse>(
+              `/stores/${storeId}/products/${productId}/identity/apply`,
+              "POST",
+              input,
               token,
             ),
         },
