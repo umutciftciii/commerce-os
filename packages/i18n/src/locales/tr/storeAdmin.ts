@@ -129,6 +129,11 @@ export const trStoreAdmin = {
     FILE_TOO_LARGE: "Dosya çok büyük. En fazla 5 MB yükleyebilirsiniz.",
     INVALID_IMAGE: "Görsel çözümlenemedi. Dosya bozuk veya desteklenmiyor olabilir.",
     MEDIA_IN_USE: "Bu görsel şu anda kullanımda olduğu için silinemedi. Önce ilgili yerlerden kaldırın.",
+    // Faz 2C-7 (ADR-078) — Variant Media Engine dogrulama hatalari.
+    INVALID_MEDIA_AXIS:
+      "Görselleri gruplayan eksen bu ürünün kayıtlı bir SELECT/COLOR varyant ekseni olmalı. Önce varyant eksenini seçip kaydedin.",
+    INVALID_MEDIA_OPTION: "Bir görsele atanan renk, seçili eksene ait değil. Görsel etiketlerini kontrol edin.",
+    MEDIA_AXIS_REQUIRED: "Görselleri renge etiketlemeden önce bir eksen seçmelisiniz.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
@@ -308,6 +313,19 @@ export const trStoreAdmin = {
       gallerySectionSubtitle:
         "Ürün galerisi. İlk görsel kapaktır; sürükleyip sıralayabilir, kütüphaneden ekleyebilirsiniz.",
       galleryHint: "İlk sıradaki görsel kapak olarak kullanılır. Değişiklikler kaydedince uygulanır.",
+      // Faz 2C-7 (ADR-078) — Variant Media Engine: görselleri Renk eksenine göre grupla.
+      mediaAxisSectionTitle: "Varyant görselleri",
+      mediaAxisSectionSubtitle:
+        "Görselleri bir varyant eksenine (genelde Renk) göre gruplayın; müşteri o rengi seçince ilgili görseller gösterilir. Etiketsiz görseller tüm varyantlarda görünür.",
+      mediaAxisLabel: "Görselleri gruplayan eksen",
+      mediaAxisNone: "Yok (klasik galeri)",
+      mediaAxisHint:
+        "Yalnız kaydedilmiş SELECT/COLOR varyant eksenleri seçilebilir. Ekseni değiştirmek görsel etiketlerini sıfırlar.",
+      mediaAxisEmpty:
+        "Görsel gruplaması için önce bir SELECT/COLOR varyant ekseni ekleyip kaydedin.",
+      imageOptionLabel: "Renk grubu",
+      imageOptionShared: "Tüm varyantlar",
+      mediaTaggingHint: "Her görseli bir renge etiketleyin; etiketsiz kalanlar paylaşılır.",
     },
     // Faz 2B (TODO-146) — dinamik, kategori-güdümlü attribute alanları.
     attributes: {

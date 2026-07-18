@@ -10,7 +10,11 @@ import {
 
 const t = getDictionary("tr").storefront.detail;
 
-const img = (url: string, altText: string | null = null): GalleryImage => ({ url, altText });
+const img = (url: string, altText: string | null = null): GalleryImage => ({
+  url,
+  altText,
+  variantOptionId: null,
+});
 
 describe("shouldShowThumbnailStrip", () => {
   it("gorselsiz urunde serit gosterilmez", () => {

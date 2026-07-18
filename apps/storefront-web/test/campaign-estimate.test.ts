@@ -85,6 +85,7 @@ describe("estimateAutomaticUnitFinalMinor (F4A.6 per-varyant)", () => {
       currency: "TRY",
       available: 5,
       inStock: true,
+      mediaOptionId: null,
     });
     // M ilk sirada (₺1.499) ama en ucuz L (₺1.450) secilmeli → kart 1305 ile hizali.
     expect(cheapestVariantId([v("m", 149900), v("l", 145000)])).toBe("l");

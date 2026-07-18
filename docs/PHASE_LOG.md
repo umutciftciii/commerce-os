@@ -3480,3 +3480,32 @@ sunum katmanı + tek dormant alan geçişi). Detay analiz: `docs/analysis/TODO-1
 - **Kalan.** Backfill migration deploy + docker rebuild + auth'lu görsel runtime smoke (global izleme sayfası: depo seçici/KPI/arama/filtre/quick +10/−10/
   reset/blocked/deep-link · Product Detail sekme kontrastı + ?tab=inventory · variant modalında eşik alanı YOK · dashboard kritik-stok KPI). Auth'lu
   piksel-smoke bu ortamda yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).
+
+## 2026-07-18 — Faz 2C-7: Variant Media Engine — Media-Defining Axis ile Renk-bazlı varyant galerisi (ADR-078, TODO-153)
+- **Amaç.** Mevcut mimariyi bozmadan varyant-farkındalıklı medya: görseller TEK media-tanımlayıcı eksene (öncelikle Renk) etiketlenir; PDP'de varyant
+  seçilince galeri o rengin görsellerine (+ paylaşılan/etiketsiz görseller) anında geçer. Amazon "variation theme" modeli; commercetools per-SKU patlaması
+  REDDEDİLDİ. Tamamen **additive + backward compatible**: `mediaDefiningAttributeId=null` → klasik galeri (bugünkü davranış birebir).
+- **Şema (F1, additive migration `20260718170000_add_variant_media_engine`).** `Product.mediaDefiningAttributeId` (nullable, FK→AttributeDefinition, SetNull),
+  `ProductImage.attributeDefinitionId` + `ProductImage.optionId` (nullable, FK Restrict) + index `[productId, optionId]`. Yalnız `ADD COLUMN`/index/FK; backfill
+  YOK; mevcut satırlar değişmez. AttributeDefinition/AttributeOption back-relation'lar eklendi.
+- **API (F2).** Contracts: `productImageSchema.optionId` + `productSchema.mediaDefiningAttributeId` (default null); update input `imageBindings:[{mediaId,optionId?}]`
+  (imageMediaIds'in etiketli üst-kümesi) + `mediaDefiningAttributeId` + DUPLICATE_IMAGE refine; public `publicProductImageSchema.variantOptionId` +
+  `publicProductVariantSchema.mediaOptionId` + `publicProductSchema.mediaDefiningAttributeId` (yalnız option/attr id'leri — mediaId/storageKey/checksum SIZMAZ).
+  Gateway: `ProductImageBinding` soyutlaması (servis "binding" ile çalışır → gelecekte `ProductImageOption` join tablosuna geçiş yalnız persistence'ı değiştirir);
+  `updateProductImages` optionId/attributeDefinitionId yazar; `listProductImages` select'e optionId (EKSTRA SORGU YOK); detay ucu `resolveVariantMediaOptions`
+  (TEK batched sorgu, yalnız eksen tanımlıysa; PLP/liste sorgu sayısı DEĞİŞMEZ). Route guard'ları: `assertMediaDefiningAxis` (eksen bu ürünün SELECT/COLOR
+  variant ekseni mi → 400 INVALID_MEDIA_AXIS) + `prepareProductImageBindings` (media context/tenant + option eksene ait mi → 400 INVALID_MEDIA_OPTION /
+  MEDIA_AXIS_REQUIRED). MEDIA_IN_USE guard DEĞİŞMEDİ (media hâlâ productImage'dan sayılır).
+- **Admin UI (F3).** Ürün galerisi bölümünde media-tanımlayıcı eksen seçici (yalnız ETKİN SELECT/COLOR varyant eksenleri) + görsel-başına renk etiketleme
+  (gruplu görünüm; "Tüm varyantlar" = paylaşılan). Eksen değişince görsel etiketleri sıfırlanır (stale option engeli). `imageBindings` + `mediaDefiningAttributeId`
+  payload'a eklendi (MediaUpload primitive'ine DOKUNULMADI — geriye uyumlu opsiyonel `optionId`). i18n TR/EN parity (form + errors).
+- **Storefront (F4).** Seçili varyant state'i `PdpSelectionProvider` (context) ile BuyBox ↔ yeni `VariantGallery` arasında PAYLAŞILDI (önceden izole adalar).
+  `galleryImagesForVariant` saf helper (eksen yok→tüm görseller=klasik; eksen var→eşleşen renk + paylaşılan; hiç eşleşme yoksa güvenli fallback=tüm dizi).
+  SSR ilk render = varsayılan (en ucuz) varyantın grubu → hidrasyon sıçraması YOK; grup değişince ProductGallery `key` ile ic indeks reset. PLP kapak DEĞİŞMEDİ.
+- **Testler.** api-gateway +1 entegrasyon (INVALID_MEDIA_AXIS/OPTION + etiketli binding + public projeksiyon + klasik moda dönüş) → **1011/1011**; storefront
+  +1 dosya `variant-media.test.ts` (galleryImagesForVariant 4 senaryo) + fixture güncellemeleri → **202/202**; store-admin gallery testleri imageBindings'e
+  uyarlandı → **313/313**; contracts +3 (imageBindings/mediaDefiningAttributeId/public default'lar) → **107/107**.
+- **Gate.** contracts/api-gateway/i18n (tsc) + storefront/store-admin (next build) TEMİZ · değişen paketler eslint TEMİZ · git diff --check TEMİZ · prisma validate
+  TEMİZ. NOT: `storefront-web/test/checkout-form-render.test.tsx` tsc hatası ÖNCEDEN VAR (CartLineView fixture'ı; bu görevle ilgisiz, checkout kapsam dışı).
+- **Kalan.** migrate deploy + docker rebuild + auth'lu görsel runtime smoke (admin renk etiketleme + PDP varyant→galeri geçişi). Auth'lu piksel-smoke bu ortamda
+  yapılamaz (SESSION_SECRET forge engeli). **commit/push/PR/merge/deploy bu görevde YAPILMADI** (görev kuralı).

@@ -370,6 +370,17 @@ class MemoryDataAccess implements AppDataAccess {
     storageKey: string;
     altText?: string | null;
   }[] = [];
+  // Faz 2C-7 (ADR-078) — Variant Media Engine dogrulama/projeksiyon mock kaynaklari.
+  // Testler bunlari doldurur; bos oldugunda yeni metodlar null/bos doner (mevcut testler etkilenmez).
+  readonly attributeDefinitions: { id: string; storeId: string | null; dataType: string }[] = [];
+  readonly attributeOptions: { id: string; storeId: string | null; attributeDefinitionId: string }[] = [];
+  readonly productVariantAxes: { storeId: string; productId: string; attributeDefinitionId: string }[] = [];
+  readonly variantOptionValues: {
+    storeId: string;
+    variantId: string;
+    attributeDefinitionId: string;
+    optionId: string;
+  }[] = [];
 
   // Prisma'nin "image" relation cozumunun mock karsiligi: imageId verilen store'a
   // ait bir asset'e denk geliyorsa { storageKey } dondurur, aksi halde null.
@@ -758,6 +769,50 @@ class MemoryDataAccess implements AppDataAccess {
     return this.mediaAssets.find((asset) => asset.storeId === storeId && asset.id === mediaId) ?? null;
   }
 
+  // Faz 2C-7 (ADR-078) — media-tanimlayici eksen aday dogrulamasi (bellek-ici): eksen bu urunun
+  // variant-defining ekseni + tanim tenant-scoped ise dataType doner, degilse null.
+  async findProductMediaAxisCandidate(storeId: string, productId: string, attributeDefinitionId: string) {
+    const isAxis = this.productVariantAxes.some(
+      (axis) =>
+        axis.storeId === storeId && axis.productId === productId && axis.attributeDefinitionId === attributeDefinitionId,
+    );
+    if (!isAxis) return null;
+    const definition = this.attributeDefinitions.find(
+      (def) => def.id === attributeDefinitionId && (def.storeId === storeId || def.storeId === null),
+    );
+    return definition ? { dataType: definition.dataType } : null;
+  }
+
+  // Faz 2C-7 (ADR-078) — option id'lerin eksenini doner (tenant-guvenli): optionId -> attributeDefinitionId.
+  async findAttributeOptionAxes(storeId: string, optionIds: string[]) {
+    const map = new Map<string, string>();
+    for (const optionId of optionIds) {
+      const option = this.attributeOptions.find(
+        (opt) => opt.id === optionId && (opt.storeId === storeId || opt.storeId === null),
+      );
+      if (option) map.set(optionId, option.attributeDefinitionId);
+    }
+    return map;
+  }
+
+  // Faz 2C-7 (ADR-078) — urun varyantlarinin media-eksenindeki cozulmus option'i (variantId -> optionId).
+  async resolveVariantMediaOptions(storeId: string, productId: string, attributeDefinitionId: string) {
+    const variantIds = new Set(
+      this.variants.filter((v) => v.storeId === storeId && v.productId === productId).map((v) => v.id),
+    );
+    const map = new Map<string, string>();
+    for (const row of this.variantOptionValues) {
+      if (
+        row.storeId === storeId &&
+        row.attributeDefinitionId === attributeDefinitionId &&
+        variantIds.has(row.variantId)
+      ) {
+        map.set(row.variantId, row.optionId);
+      }
+    }
+    return map;
+  }
+
   async createCategory(
     storeId: string,
     input: {
@@ -883,6 +938,8 @@ class MemoryDataAccess implements AppDataAccess {
       appointmentNote?: string | null;
       categoryIds: string[];
       primaryCategoryId?: string | null;
+      // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (opsiyonel; default null).
+      mediaDefiningAttributeId?: string | null;
     },
   ) {
     const product = {
@@ -913,6 +970,8 @@ class MemoryDataAccess implements AppDataAccess {
       categoryIds: input.categoryIds,
       // Faz 1A (ADR-067) — route normalize edilmis ana kategoriyi gecirir; mock onu yansitir.
       primaryCategoryId: input.primaryCategoryId ?? null,
+      // Faz 2C-7 (ADR-078) — media-tanimlayici eksen (default null = klasik galeri).
+      mediaDefiningAttributeId: input.mediaDefiningAttributeId ?? null,
       images: [] as ProductRecord["images"],
       createdAt: new Date("2026-01-02T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -924,16 +983,22 @@ class MemoryDataAccess implements AppDataAccess {
   // ADR-065 (Faz 2/Dilim 2) — galeri diff'inin bellek-ici karsiligi. Guard route'ta
   // gecti; burada storageKey/altText'i mediaAssets'ten cozup position=index atar.
   // Bos dizi = tam temizlik (product.images = []).
-  async updateProductImages(storeId: string, productId: string, orderedMediaIds: string[]) {
+  async updateProductImages(
+    storeId: string,
+    productId: string,
+    orderedImages: { mediaId: string; optionId: string | null; attributeDefinitionId: string | null }[],
+  ) {
     const product = this.products.find((item) => item.storeId === storeId && item.id === productId);
     if (!product) return null;
-    product.images = orderedMediaIds.map((mediaId, index) => {
-      const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === mediaId);
+    // Faz 2C-7 (ADR-078) — binding'ten optionId de yansitilir (prisma karsiligiyla ayni).
+    product.images = orderedImages.map((binding, index) => {
+      const asset = this.mediaAssets.find((item) => item.storeId === storeId && item.id === binding.mediaId);
       return {
-        mediaId,
+        mediaId: binding.mediaId,
         position: index,
-        storageKey: asset?.storageKey ?? `media/${mediaId}`,
+        storageKey: asset?.storageKey ?? `media/${binding.mediaId}`,
         altText: asset?.altText ?? null,
+        optionId: binding.optionId,
       };
     });
     return product;
@@ -3174,9 +3239,9 @@ describe("api gateway", () => {
     });
     expect(bound.statusCode).toBe(200);
     expect(bound.json<{ images: unknown[] }>().images).toEqual([
-      { mediaId: "media_p1", url: "/media/stores/store_demo/products/p1.webp", altText: null, position: 0 },
-      { mediaId: "media_p2", url: "/media/stores/store_demo/products/p2.webp", altText: null, position: 1 },
-      { mediaId: "media_p3", url: "/media/stores/store_demo/products/p3.webp", altText: null, position: 2 },
+      { mediaId: "media_p1", url: "/media/stores/store_demo/products/p1.webp", altText: null, position: 0, optionId: null },
+      { mediaId: "media_p2", url: "/media/stores/store_demo/products/p2.webp", altText: null, position: 1, optionId: null },
+      { mediaId: "media_p3", url: "/media/stores/store_demo/products/p3.webp", altText: null, position: 2, optionId: null },
     ]);
 
     // GET tekil → ayni sira round-trip (kapak = images[0] = media_p1).
@@ -3265,6 +3330,115 @@ describe("api gateway", () => {
       duplicate.json<{ error: { details: { fieldErrors: { imageMediaIds?: string[] } } } }>().error.details.fieldErrors
         .imageMediaIds,
     ).toContain("DUPLICATE_IMAGE");
+
+    await app.close();
+  });
+
+  it("Variant Media Engine: media-defining axis + Renk-etiketli galeri + public projeksiyon (ADR-078)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const auth = { authorization: `Bearer ${token}` };
+    const productUrl = "/stores/store_demo/products/product_hoodie";
+
+    // Seed: 2 PRODUCT gorsel + COLOR eksen (bu urunun variant ekseni) + Red option +
+    // YABANCI eksen/option (bu urunun ekseni DEGIL) + varyantin Red degeri.
+    dataAccess.mediaAssets.push(
+      { id: "media_a", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/a.webp" },
+      { id: "media_b", storeId: "store_demo", context: "PRODUCT", storageKey: "stores/store_demo/products/b.webp" },
+    );
+    dataAccess.attributeDefinitions.push(
+      { id: "attr_color", storeId: "store_demo", dataType: "COLOR" },
+      { id: "attr_foreign", storeId: "store_demo", dataType: "SELECT" },
+    );
+    dataAccess.attributeOptions.push(
+      { id: "opt_red", storeId: "store_demo", attributeDefinitionId: "attr_color" },
+      { id: "opt_foreign", storeId: "store_demo", attributeDefinitionId: "attr_foreign" },
+    );
+    // attr_color BU urunun variant ekseni; attr_foreign DEGIL.
+    dataAccess.productVariantAxes.push({
+      storeId: "store_demo",
+      productId: "product_hoodie",
+      attributeDefinitionId: "attr_color",
+    });
+    dataAccess.variantOptionValues.push({
+      storeId: "store_demo",
+      variantId: "variant_hoodie_m",
+      attributeDefinitionId: "attr_color",
+      optionId: "opt_red",
+    });
+
+    // 1) INVALID_MEDIA_AXIS: eksen bu urunun variant ekseni degil → 400 (hicbir yazim yok).
+    const badAxis = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { mediaDefiningAttributeId: "attr_foreign" },
+    });
+    expect(badAxis.statusCode).toBe(400);
+    expect(badAxis.json()).toMatchObject({ error: { code: "INVALID_MEDIA_AXIS" } });
+
+    // 2) INVALID_MEDIA_OPTION: eksen dogru (attr_color) ama gorsel yabanci option'a etiketli → 400.
+    const badOption = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: {
+        mediaDefiningAttributeId: "attr_color",
+        imageBindings: [{ mediaId: "media_a", optionId: "opt_foreign" }],
+      },
+    });
+    expect(badOption.statusCode).toBe(400);
+    expect(badOption.json()).toMatchObject({ error: { code: "INVALID_MEDIA_OPTION" } });
+
+    // 3) Gecerli: eksen=attr_color, media_a→Red etiketli, media_b→paylasilan (null) → 200.
+    const ok = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: {
+        mediaDefiningAttributeId: "attr_color",
+        imageBindings: [
+          { mediaId: "media_a", optionId: "opt_red" },
+          { mediaId: "media_b", optionId: null },
+        ],
+      },
+    });
+    expect(ok.statusCode).toBe(200);
+    const okBody = ok.json<{ mediaDefiningAttributeId: string | null; images: { mediaId: string; optionId: string | null }[] }>();
+    expect(okBody.mediaDefiningAttributeId).toBe("attr_color");
+    expect(okBody.images.map((image) => [image.mediaId, image.optionId])).toEqual([
+      ["media_a", "opt_red"],
+      ["media_b", null],
+    ]);
+
+    // 4) Public detay projeksiyonu: image.variantOptionId (allowlist) + variant.mediaOptionId.
+    const publicDetail = await app.inject({
+      method: "GET",
+      url: "/public/stores/demo-store/products/demo-hoodie",
+    });
+    expect(publicDetail.statusCode).toBe(200);
+    const detailBody = publicDetail.json<{
+      mediaDefiningAttributeId: string | null;
+      images: { url: string; variantOptionId: string | null }[];
+      variants: { id: string; mediaOptionId: string | null }[];
+    }>();
+    expect(detailBody.mediaDefiningAttributeId).toBe("attr_color");
+    expect(detailBody.images.map((image) => image.variantOptionId)).toEqual(["opt_red", null]);
+    expect(detailBody.variants.find((v) => v.id === "variant_hoodie_m")?.mediaOptionId).toBe("opt_red");
+    // Allowlist korunur: option id disinda ic media alani sizmaz.
+    expect(JSON.stringify(detailBody)).not.toContain("storageKey");
+    expect(detailBody.images[0]).not.toHaveProperty("mediaId");
+
+    // 5) Klasik moda don (null) → mevcut galeri korunur (gorsel kaybi yok), etiketler dormant.
+    const toClassic = await app.inject({
+      method: "PATCH",
+      url: productUrl,
+      headers: auth,
+      payload: { mediaDefiningAttributeId: null },
+    });
+    expect(toClassic.statusCode).toBe(200);
+    expect(toClassic.json<{ mediaDefiningAttributeId: string | null; images: unknown[] }>().mediaDefiningAttributeId).toBeNull();
+    expect(toClassic.json<{ images: unknown[] }>().images).toHaveLength(2);
 
     await app.close();
   });
@@ -4833,16 +5007,17 @@ describe("api gateway · public catalog (TD-032)", () => {
   it("serializes product images as an allowlist (url/altText/position; no mediaId/storageKey)", async () => {
     const { app, dataAccess } = await createTestApp();
     dataAccess.products[0]!.images = [
-      { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak" },
-      { mediaId: "media_alt", position: 1, storageKey: "stores/store_demo/products/alt.webp", altText: null },
+      { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak", optionId: null },
+      { mediaId: "media_alt", position: 1, storageKey: "stores/store_demo/products/alt.webp", altText: null, optionId: null },
     ];
 
     const detail = await app.inject({ method: "GET", url: "/public/stores/demo-store/products/demo-hoodie" });
     const detailBody = detail.json();
     // Detay = TAM galeri (position ASC); url MEDIA_PUBLIC_BASE_URL bos → /media/<key>.
+    // Faz 2C-7 (ADR-078) — variantOptionId allowlist'te (null = paylasilan); mediaId/storageKey YOK.
     expect(detailBody.images).toEqual([
-      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0 },
-      { url: "/media/stores/store_demo/products/alt.webp", altText: null, position: 1 },
+      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0, variantOptionId: null },
+      { url: "/media/stores/store_demo/products/alt.webp", altText: null, position: 1, variantOptionId: null },
     ]);
     // Allowlist: ham mediaId FK ve "storageKey" alan adı public gövdede HİÇ görünmez.
     // (storageKey DEĞERİ türetilen url'in path'idir; asıl sızıntı riski ham FK + alan adıdır.)
@@ -4855,7 +5030,7 @@ describe("api gateway · public catalog (TD-032)", () => {
     const list = await app.inject({ method: "GET", url: "/public/stores/demo-store/products" });
     const listBody = list.json();
     expect(listBody.data[0].images).toEqual([
-      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0 },
+      { url: "/media/stores/store_demo/products/cover.webp", altText: "Kapak", position: 0, variantOptionId: null },
     ]);
     await app.close();
   });
@@ -6376,7 +6551,7 @@ describe("api gateway · payment providers (F3B.2)", () => {
 // ALLOWLIST korunur (mediaId/storageKey sizmaz); N+1 yok (tek batched cagri).
 describe("api gateway · cart/checkout thumbnail (ADR-065 Faz 3/Dilim 6a)", () => {
   const VARIANT = "variant_hoodie_m";
-  const COVER = { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak" };
+  const COVER = { mediaId: "media_cover", position: 0, storageKey: "stores/store_demo/products/cover.webp", altText: "Kapak", optionId: null };
   const ALT = { mediaId: "media_alt", position: 1, storageKey: "stores/store_demo/products/alt.webp", altText: null };
   const contact = { fullName: "Ada Lovelace", email: "ada@example.com", phone: "+905551112233" };
   const address = { country: "TR", city: "Istanbul", district: "Kadikoy", addressLine1: "Bagdat Cad. 1", postalCode: "34000" };
@@ -6428,7 +6603,7 @@ describe("api gateway · cart/checkout thumbnail (ADR-065 Faz 3/Dilim 6a)", () =
       id: "product_tee",
       title: "Demo Tee",
       slug: "demo-tee",
-      images: [{ mediaId: "media_tee", position: 0, storageKey: "stores/store_demo/products/tee.webp", altText: null }],
+      images: [{ mediaId: "media_tee", position: 0, storageKey: "stores/store_demo/products/tee.webp", altText: null, optionId: null }],
     });
     dataAccess.variants.push({
       ...dataAccess.variants[0]!,

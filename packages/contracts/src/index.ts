@@ -1242,6 +1242,11 @@ export const productImageSchema = z.object({
   url: z.string(),
   altText: z.string().nullable(),
   position: z.number().int(),
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu gorselin baglandigi media-tanimlayici
+  // eksen degeri (genelde Renk option id'si). null = "Tum varyantlar" (paylasilan gorsel).
+  // Yalniz Product.mediaDefiningAttributeId set iken anlamlidir. default(null): eski
+  // fixture/consumer'lar bu alani vermeden parse edebilir (geriye uyumlu).
+  optionId: z.string().nullable().default(null),
 });
 
 export const productSchema = z.object({
@@ -1274,6 +1279,10 @@ export const productSchema = z.object({
   // categoryIds icindeki bir id olmalidir (route service guard); legacy/kategorisiz
   // urunde null. Admin response'ta doner; public projeksiyonda YOK (label sunucuda turer).
   primaryCategoryId: z.string().nullable(),
+  // Faz 2C-7 (ADR-078) — Variant Media Engine. Bu urunun gorsellerini gruplayan TEK
+  // media-tanimlayici eksen (genelde Renk); null = klasik urun galerisi (backward compat).
+  // default(null): eski fixture/consumer'lar bu alani vermeden parse edebilir.
+  mediaDefiningAttributeId: z.string().nullable().default(null),
   // ADR-065 (Faz 2/Dilim 2) — urun galerisi (coklu, sirali). position ASC dondurulur;
   // images[0] kapaktir. Entity kendi GET'inden galerisini dondurur.
   images: z.array(productImageSchema).default([]),
@@ -1389,6 +1398,16 @@ export const productCreateRequestSchema = z
     path: ["salesMode"],
   });
 
+// Faz 2C-7 (ADR-078) — Variant Media Engine. Sirali galeri ogesi + media-tanimlayici
+// eksen etiketi. `imageMediaIds`'in (etiketsiz) uzeri-kumesi: verildiginde SIRALI TAM
+// galeri olarak islenir ve her ogeye optionId (Renk) etiketi tasir. optionId null/yok =
+// "Tum varyantlar" (paylasilan). Model tek-option (ProductImage.optionId); coklu-option
+// gerekince join tablosuna gecis yalniz persistence'i degistirir.
+export const productImageBindingInputSchema = z.object({
+  mediaId: z.string().min(1),
+  optionId: z.string().min(1).nullable().optional(),
+});
+
 export const productUpdateRequestSchema = z
   .object({
     title: z.string().min(1).max(220).optional(),
@@ -1424,6 +1443,15 @@ export const productUpdateRequestSchema = z
     // icin assertMediaAttachable "PRODUCT"). "En az bir alan" refine'i bunu da sayar
     // (yalniz imageMediaIds ile "sadece galeriyi guncelle" istegi gecerlidir).
     imageMediaIds: z.array(z.string().min(1)).optional(),
+    // Faz 2C-7 (ADR-078) — Variant Media Engine. imageMediaIds'in etiketli uzeri-kumesi:
+    // SIRALI TAM galeri + her ogede optionId (Renk) etiketi. undefined = dokunma; [] = galeriyi
+    // temizle. imageBindings verilirse imageMediaIds YOK SAYILIR (oncelik). Tenant/context/eksen/
+    // option dogrulamasi route'ta (assertMediaAttachable + assertMediaOptionBinding).
+    imageBindings: z.array(productImageBindingInputSchema).optional(),
+    // Faz 2C-7 (ADR-078) — media-tanimlayici eksen. undefined = dokunma; null = klasik moda don
+    // (etiketler ProductImage'da Restrict ile korunur, gorsel kaybi yok); string = ekseni ayarla
+    // (yalniz SELECT/COLOR + bu urunun variant-defining ekseni olmali — route service guard).
+    mediaDefiningAttributeId: z.string().min(1).nullable().optional(),
     // F3C.2 — Kargo olcumu. >0 olmali; null = temizle.
     shippingWeightKg: z.number().positive().nullable().optional(),
     shippingDesi: z.number().positive().nullable().optional(),
@@ -1445,6 +1473,16 @@ export const productUpdateRequestSchema = z
       // @@unique([productId, mediaId]) ihlaline karsi ilk savunma katmani (UI Set'i ikinci).
       message: "DUPLICATE_IMAGE",
       path: ["imageMediaIds"],
+    },
+  )
+  .refine(
+    (value) =>
+      value.imageBindings === undefined ||
+      new Set(value.imageBindings.map((b) => b.mediaId)).size === value.imageBindings.length,
+    {
+      // Faz 2C-7 (ADR-078) — @@unique([productId, mediaId]) ihlaline karsi ilk savunma (imageBindings).
+      message: "DUPLICATE_IMAGE",
+      path: ["imageBindings"],
     },
   )
   .refine(
@@ -1611,6 +1649,14 @@ export const publicProductVariantSchema = z.object({
   /** Satilabilir stok adedi; bilinmiyorsa null. */
   available: z.number().int().nullable(),
   inStock: z.boolean(),
+  /**
+   * Faz 2C-7 (ADR-078) — Variant Media Engine. Bu varyantin media-tanimlayici eksendeki
+   * (Renk) OPTION id'si; `ProductVariantOptionValue`'dan turetilir. Urunun
+   * mediaDefiningAttributeId'si yoksa ya da varyantin o eksende degeri yoksa null.
+   * Vitrin, secili varyanta gore galeriyi image.variantOptionId ile eslesenlere filtreler.
+   * Yalnizca option id'dir; hicbir media ic alani tasimaz.
+   */
+  mediaOptionId: z.string().nullable().default(null),
 });
 
 /**
@@ -1745,6 +1791,11 @@ export const publicProductImageSchema = z.object({
   url: z.string(),
   altText: z.string().nullable(),
   position: z.number().int(),
+  // Faz 2C-7 (ADR-078) — Variant Media Engine (ALLOWLIST-guvenli). Bu gorselin ait oldugu
+  // media-tanimlayici eksen degeri (Renk OPTION id'si) ya da null = "Tum varyantlar"
+  // (paylasilan). Yalnizca option id'dir — mediaId/storageKey/checksum ASLA tasinmaz.
+  // Vitrin, varyant secilince galeriyi bu id'ye gore gruplar/filtreler.
+  variantOptionId: z.string().nullable().default(null),
 });
 
 export const publicProductSchema = z.object({
@@ -1770,6 +1821,13 @@ export const publicProductSchema = z.object({
    * Gorseli olmayan urunde [] → vitrin deterministik yer tutucu gosterir.
    */
   images: z.array(publicProductImageSchema).default([]),
+  /**
+   * Faz 2C-7 (ADR-078) — Variant Media Engine. Urunun gorsellerini gruplayan media-tanimlayici
+   * eksen (Renk) id'si; null = klasik urun galerisi (varyant secimi galeriyi degistirmez).
+   * Yalnizca attribute-definition id'dir (media ic alani degil). Vitrin SSR/varsayilan grup
+   * ve fallback kararini bununla verir.
+   */
+  mediaDefiningAttributeId: z.string().nullable().default(null),
   /** F4A.1 — Bu urun icin gecerli kampanya rozeti (yoksa null; additive alan). */
   campaign: publicCampaignBadgeSchema.nullable().default(null),
   /**

@@ -311,6 +311,12 @@ export interface StorefrontVariantView {
   /** Stok adedi (bilinmiyorsa null). */
   available: number | null;
   inStock: boolean;
+  /**
+   * Faz 2C-7 (ADR-078) — Variant Media Engine. Bu varyantin media-tanimlayici eksendeki
+   * (Renk) OPTION id'si; urunun media-ekseni yoksa ya da varyantin o eksende degeri yoksa null.
+   * Galeri, secili varyanta gore bununla filtrelenir. Yalnizca option id (media ic alani degil).
+   */
+  mediaOptionId: string | null;
 }
 
 /** Urun detay sayfasini (satin alma karar merkezi) besleyen tam gorunum. */
@@ -329,7 +335,34 @@ export interface StorefrontProductDetail extends StorefrontProductSummary {
    * Dilim 1'de PDP yalniz kapagi (`coverUrl`) render eder; thumbnail seridi bu diziyi
    * tuketecek (Dilim 2). Gorseli olmayan urunde bos dizi.
    */
-  images: { url: string; altText: string | null }[];
+  // Faz 2C-7 (ADR-078) — variantOptionId: gorselin media-tanimlayici eksen (Renk) etiketi;
+  // null = "Tum varyantlar" (paylasilan). Vitrin, secili varyanta gore bununla filtreler.
+  images: { url: string; altText: string | null; variantOptionId: string | null }[];
+  /**
+   * Faz 2C-7 (ADR-078) — Urunun gorsellerini gruplayan media-tanimlayici eksen (Renk) id'si;
+   * null = klasik galeri (varyant secimi galeriyi degistirmez). Vitrin varsayilan grup / fallback
+   * karari icin kullanir. Yalnizca attribute-definition id (media ic alani degil).
+   */
+  mediaDefiningAttributeId: string | null;
   /** Benzer urunler (ayni katalogtan turetilir). */
   related: StorefrontProductSummary[];
+}
+
+/**
+ * Faz 2C-7 (ADR-078) — Secili varyanta gore gosterilecek galeri gorsellerini secer.
+ * Klasik galeride (media ekseni yok) TUM gorseller donmus (mevcut davranis birebir).
+ * Eksen varsa: varyantin renk etiketine eslesenler + etiketsiz (paylasilan) gorseller.
+ * Guvenli fallback: hic eslesme yoksa (or. tum gorseller baska renklerde) tum diziyi dondur
+ * (gorselsiz PDP'yi onle).
+ */
+export function galleryImagesForVariant(
+  images: StorefrontProductDetail["images"],
+  mediaDefiningAttributeId: string | null,
+  selectedMediaOptionId: string | null,
+): StorefrontProductDetail["images"] {
+  if (!mediaDefiningAttributeId) return images;
+  const matched = images.filter(
+    (image) => image.variantOptionId === null || image.variantOptionId === selectedMediaOptionId,
+  );
+  return matched.length > 0 ? matched : images;
 }

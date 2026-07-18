@@ -78,6 +78,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
         currency: "TRY",
         available: 15,
         inStock: true,
+        mediaOptionId: null,
       },
     ],
     callToActionLabel: null,
@@ -85,6 +86,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     inquiryFormTitle: null,
     appointmentNote: null,
     images: [],
+    mediaDefiningAttributeId: null,
     related: [
       {
         handle: "demo-tote",
@@ -160,6 +162,7 @@ describe("storefront · product detail (decision center)", () => {
             currency: "TRY",
             available: null,
             inStock: true,
+            mediaOptionId: null,
           },
         ],
         // Benzer urunler bos: sayfa-duzeyi "Sepete ekle"/"₺" kontrolu yalniz bu
@@ -190,6 +193,7 @@ describe("storefront · product detail (decision center)", () => {
             currency: "TRY",
             available: 0,
             inStock: false,
+            mediaOptionId: null,
           },
         ],
         related: [],

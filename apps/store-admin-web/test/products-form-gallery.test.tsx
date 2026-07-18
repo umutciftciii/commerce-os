@@ -134,9 +134,15 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
 
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
     // INVARIANT KANITI: payload id'leri = mediaId'ler (ProductImage.id değil), sırayla.
+    // Faz 2C-7 (ADR-078): payload artık etiketli imageBindings taşır (eksen yoksa optionId null).
     expect(storeApiMock.updateProduct).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ imageMediaIds: ["media_aaa", "media_bbb"] }),
+      expect.objectContaining({
+        imageBindings: [
+          { mediaId: "media_aaa", optionId: null },
+          { mediaId: "media_bbb", optionId: null },
+        ],
+      }),
     );
   });
 
@@ -155,7 +161,12 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
     expect(storeApiMock.updateProduct).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ imageMediaIds: ["media_bbb", "media_aaa"] }),
+      expect.objectContaining({
+        imageBindings: [
+          { mediaId: "media_bbb", optionId: null },
+          { mediaId: "media_aaa", optionId: null },
+        ],
+      }),
     );
   });
 
@@ -174,7 +185,7 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
     expect(storeApiMock.updateProduct).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ imageMediaIds: ["media_bbb"] }),
+      expect.objectContaining({ imageBindings: [{ mediaId: "media_bbb", optionId: null }] }),
     );
   });
 

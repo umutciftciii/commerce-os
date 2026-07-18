@@ -1345,3 +1345,20 @@
   inventory testleri yeni global sayfaya göre yeniden yazıldı (izleme + quick +10 preview→apply + blocked-guard) → **313/313**; contracts 104, api-client 23,
   i18n 47. Gate: build (contracts/api-client/i18n/api-gateway tsc + store-admin/storefront/worker) + eslint TEMİZ. KALAN: backfill migration deploy + docker
   rebuild + auth'lu runtime görsel smoke (final raporda). KAPSAM DIŞI: global fan-out yazma · lowStockThreshold kolon drop · warehouse CRUD UI (TD-047).
+
+- TODO-153 — Faz 2C-7: Variant Media Engine — Media-Defining Axis ile Renk-bazlı varyant galerisi
+  (DONE — 2026-07-18, ADR-078; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası). Mevcut Product/Variant/Media mimarisi + ADR-065 galeri +
+  checkout/inventory/pricing/variant-generation/storefront-availability **DEĞİŞMEDİ** (additive + backward compatible; `mediaDefiningAttributeId=null` →
+  klasik galeri birebir). (1) **DB (additive migration 20260718170000).** `Product.mediaDefiningAttributeId` (nullable FK→AttributeDefinition, SetNull);
+  `ProductImage.attributeDefinitionId`+`optionId` (nullable FK Restrict) + index `[productId,optionId]`. Backfill YOK. (2) **API.** contracts:
+  `productImageSchema.optionId`/`productSchema.mediaDefiningAttributeId` (default null); update `imageBindings:[{mediaId,optionId?}]`+`mediaDefiningAttributeId`;
+  public `publicProductImageSchema.variantOptionId`+`publicProductVariantSchema.mediaOptionId`+`publicProductSchema.mediaDefiningAttributeId` (yalnız id'ler;
+  mediaId/storageKey SIZMAZ). gateway `ProductImageBinding` soyutlaması (persistence-only join-tablo geçişi); `listProductImages` optionId (EKSTRA SORGU YOK);
+  detay `resolveVariantMediaOptions` (TEK batched, yalnız eksen varsa; PLP sorgu sayısı değişmez); guard `assertMediaDefiningAxis`(INVALID_MEDIA_AXIS)+
+  `prepareProductImageBindings`(INVALID_MEDIA_OPTION/MEDIA_AXIS_REQUIRED); MEDIA_IN_USE DEĞİŞMEDİ. (3) **Admin UI.** galeri bölümünde media-eksen seçici (yalnız
+  etkin SELECT/COLOR varyant eksenleri) + görsel-başı renk etiketleme (gruplu; "Tüm varyantlar"=paylaşılan); eksen değişince etiket sıfırlama; MediaUpload
+  primitive'i korundu. (4) **Storefront.** `PdpSelectionProvider` (context) ile BuyBox↔`VariantGallery` state lift; `galleryImagesForVariant` saf helper (eşleşen
+  renk+paylaşılan; fallback tüm-dizi); SSR default=en ucuz varyant grubu (hidrasyon sıçraması yok); PLP kapak değişmedi. (5) **Testler.** api-gateway +1 entegrasyon
+  → 1011/1011; storefront +variant-media.test.ts → 202/202; store-admin gallery→imageBindings → 313/313; contracts +3 → 107/107. i18n TR/EN parity. Gate:
+  tsc/eslint/build/prisma-validate/git-diff TEMİZ (istisna: önceden var olan checkout-form-render.test.tsx tsc — kapsam dışı). KALAN: migrate deploy + docker
+  rebuild + auth'lu görsel smoke (final rapor). KAPSAM DIŞI: per-SKU/hibrit override · ProductImageOption join tablo · video/360/3D/AR/mediaKind (TD-048).

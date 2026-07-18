@@ -738,3 +738,28 @@ ERTELENEN işler (yalnız gerçekten ertelenenler):
   dashboard summary'nin mevcut ilk-sayfa yaklaşımıyla aynı sınıf borç). Büyük katalog için pagination-aware/virtualized aggregation gerekir.
 - **Global tek-satır hızlı işlem = iki round-trip.** +N/−N/reset her tıklamada ürün-bazlı preview→apply yapar (stale-guard için fingerprint şart).
   Doğru ve güvenli; ama toplu global operasyon için optimize değil — bilinçli (ADR-076 per-product transaction/lock korunur, fan-out reddedildi).
+
+## TD-048 Faz 2C-7 Variant Media Engine: bilinen sınırlar ve ertelenen işler (kapsam gereği)
+
+TODO-153 / ADR-078 media-defining axis (Renk-öncelikli) ile varyant galerisini kurdu. Bilinçle ERTELENEN / sınırlı işler:
+- **Tek media-defining axis (per-SKU override / hibrit YOK).** Görseller tek eksene (genelde Renk) etiketlenir; Beden gibi diğer eksenler galeriyi
+  değiştirmez. Belirli bir SKU'ya (Kırmızı/M) özel görsel override'ı bu fazda uygulanmadı (kullanıcı onayı). Mimari additive genişlemeye açık.
+- **Tek-option/tek-eksen persistence (`ProductImage.optionId`).** Bir görsel en fazla bir renge etiketlenir. Bir görselin birden çok option'a
+  (Kırmızı+Bordo) veya birden çok eksene eşlenmesi gerekirse `ProductImageOption` join tablosuna geçiş gerekir — servis/route "binding" (`ProductImageBinding`)
+  soyutlamasıyla yazıldığı için **yalnız persistence katmanı değişir**, iş kuralları (gruplama/primary/fallback/doğrulama) aynı kalır.
+- **Yalnız image; video/360°/3D/AR YOK.** Motor MediaAsset-türünden bağımsız kuruldu ama bu faz image-only. `mediaKind` enum + video upload/encoding/
+  streaming + storefront `<video>`/3D oynatma ayrı Epic (F5). MediaContext PRODUCT değişmedi.
+- **Media-ekseni değiştirme + yeniden-etiketlememe köşe durumu.** Bir ürünün media-ekseni A→B değiştirilir ve AYNI istekte yeni `imageBindings`
+  gönderilmezse, eski eksene (A) etiketli ProductImage satırları DB'de kalır; storefront bunları B ekseninin varyantlarıyla eşleyemez → o görseller
+  (paylaşılan değilse) ilgili varyant grubunda görünmez (DB bütün, görsel kaybı yok; storefront güvenli fallback tüm-dizi devreye girer hiç eşleşme yoksa).
+  Admin UI ekseni değiştirince görsel etiketlerini sıfırladığı ve eksen+bindings birlikte kaydedildiği için pratikte oluşmaz. Ekseni null'a çekmek
+  (klasik mod) tamamen güvenlidir (tüm görseller gösterilir). Otomatik stale-tag temizliği bilinçli eklenmedi (destructive olurdu).
+- **Media-ekseni yalnız KAYITLI variant ekseni olabilir.** `assertMediaDefiningAxis` mevcut (pre-save) `ProductVariantAttribute`'a bakar; aynı kayıtta
+  yeni bir eksen enable edilip media-ekseni yapılırsa 400 INVALID_MEDIA_AXIS döner (önce varyant eksenini kaydet). Admin çok-adımlı akışına uygun; friendly
+  hata mesajı verilir.
+- **Runtime görsel smoke bekliyor.** contracts (107) + api-gateway (1011) + storefront (202) + store-admin (313) + typecheck + lint + build yeşil; migrate
+  deploy + docker rebuild + auth'lu görsel smoke (admin renk etiketleme + gruplu galeri + PDP varyant→galeri anında geçiş + SSR default grup + klasik ürün
+  regresyonu) AYRI adım. Auth'lu piksel-smoke bu ortamda credential/SESSION_SECRET forge engeli nedeniyle yapılamaz.
+- Kapsam: packages/db (schema + migration 20260718170000), packages/contracts, apps/api-gateway (server.ts projeksiyon/repo/route + test), apps/store-admin-web
+  (product-form + media-upload + schema + test), apps/storefront-web (catalog-types + catalog + page + buy-box + pdp-selection[yeni] + variant-gallery[yeni] +
+  test), packages/i18n (storeAdmin form + errors). Bloklayıcı: HAYIR.

@@ -129,6 +129,11 @@ export const enStoreAdmin: StoreAdminDictionary = {
     FILE_TOO_LARGE: "File is too large. You can upload at most 5 MB.",
     INVALID_IMAGE: "The image could not be processed. It may be corrupt or unsupported.",
     MEDIA_IN_USE: "This image is currently in use and cannot be deleted. Remove it from where it is used first.",
+    // Faz 2C-7 (ADR-078) — Variant Media Engine validation errors.
+    INVALID_MEDIA_AXIS:
+      "The image-grouping axis must be a saved SELECT/COLOR variant axis of this product. Select and save the variant axis first.",
+    INVALID_MEDIA_OPTION: "A color assigned to an image does not belong to the selected axis. Check the image tags.",
+    MEDIA_AXIS_REQUIRED: "You must select an axis before tagging images by color.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",
@@ -308,6 +313,19 @@ export const enStoreAdmin: StoreAdminDictionary = {
       gallerySectionSubtitle:
         "Product gallery. The first image is the cover; drag to reorder or add from the library.",
       galleryHint: "The first image is used as the cover. Changes apply once you save.",
+      // Faz 2C-7 (ADR-078) — Variant Media Engine: group images by a color axis.
+      mediaAxisSectionTitle: "Variant images",
+      mediaAxisSectionSubtitle:
+        "Group images by a variant axis (usually Color); when a customer selects that color, the matching images are shown. Untagged images appear for all variants.",
+      mediaAxisLabel: "Axis that groups images",
+      mediaAxisNone: "None (classic gallery)",
+      mediaAxisHint:
+        "Only saved SELECT/COLOR variant axes can be selected. Changing the axis resets image tags.",
+      mediaAxisEmpty:
+        "To group images, first add and save a SELECT/COLOR variant axis.",
+      imageOptionLabel: "Color group",
+      imageOptionShared: "All variants",
+      mediaTaggingHint: "Tag each image to a color; untagged images are shared.",
     },
     // Faz 2B (TODO-146) — dinamik, kategori-güdümlü attribute alanları.
     attributes: {

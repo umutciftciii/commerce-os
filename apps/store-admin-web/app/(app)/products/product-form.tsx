@@ -203,6 +203,8 @@ export function ProductForm({
   const primaryCategoryId = watch("primaryCategoryId");
   const images = watch("images");
   const variantSelections = watch("variantSelections");
+  // Faz 2C-7 (ADR-078) — Variant Media Engine: görselleri gruplayan media-tanımlayıcı eksen.
+  const mediaDefiningAttributeId = watch("mediaDefiningAttributeId");
 
   // Ana kategori attribute şemasını sürer (memoized fetch/join; md.13).
   const attrState = useCategoryAttributes(primaryCategoryId, { groupLabel: a.generalGroup });
@@ -426,6 +428,52 @@ export function ProductForm({
       clearVariantError(defId);
     },
     [getValues, setValue, clearVariantError],
+  );
+
+  // Faz 2C-7 (ADR-078) — Media-tanımlayıcı eksen adayları: bu üründe ETKİN (veya hâlihazırda
+  // media-ekseni seçilmiş) SELECT/COLOR varyant eksenleri. variantAttrState zaten yalnız
+  // SELECT/COLOR variantDefining eksenleri getirir; burada ürünün kullandıklarına daraltılır.
+  const mediaAxisCandidates = useMemo(
+    () =>
+      variantAttrState.attributes.filter(
+        (attr) =>
+          variantSelections[attr.attributeDefinitionId]?.enabled ||
+          attr.attributeDefinitionId === mediaDefiningAttributeId,
+      ),
+    [variantAttrState.attributes, variantSelections, mediaDefiningAttributeId],
+  );
+  const selectedMediaAxis = useMemo(
+    () => mediaAxisCandidates.find((attr) => attr.attributeDefinitionId === mediaDefiningAttributeId) ?? null,
+    [mediaAxisCandidates, mediaDefiningAttributeId],
+  );
+
+  // Eksen değişince/kalkınca görsel etiketlerini sıfırla (eski eksenin option'ları stale/geçersiz olur).
+  const changeMediaAxis = useCallback(
+    (defId: string) => {
+      const next = defId === "" ? null : defId;
+      setValue("mediaDefiningAttributeId", next, { shouldDirty: true });
+      const imgs = getValues("images");
+      if (imgs.some((item) => item.optionId != null)) {
+        setValue(
+          "images",
+          imgs.map((item) => ({ ...item, optionId: null })),
+          { shouldDirty: true },
+        );
+      }
+    },
+    [setValue, getValues],
+  );
+
+  // Bir görseli media-ekseni option'ına (Renk) etiketle; null = "Tüm varyantlar" (paylaşılan).
+  const changeImageOption = useCallback(
+    (mediaId: string, optionId: string | null) => {
+      setValue(
+        "images",
+        getValues("images").map((item) => (item.id === mediaId ? { ...item, optionId } : item)),
+        { shouldDirty: true },
+      );
+    },
+    [setValue, getValues],
   );
 
   const showInquiryTitle = salesMode === "INQUIRY" || inquiryEnabled;
@@ -1013,6 +1061,99 @@ export function ProductForm({
             disabled={isSubmitting}
           />
           <p className="text-xs text-white/30">{f.galleryHint}</p>
+
+          {/* Faz 2C-7 (ADR-078) — Variant Media Engine: media-tanımlayıcı eksen + renk etiketleme.
+              Yalnız düzenleme + (aday eksen VEYA seçili eksen) varsa görünür. Eksen yoksa klasik galeri. */}
+          {mediaAxisCandidates.length > 0 || hasVariantAxes ? (
+            <div className="space-y-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+              <div>
+                <h4 className="text-xs font-semibold text-white/80">{f.mediaAxisSectionTitle}</h4>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-white/40">{f.mediaAxisSectionSubtitle}</p>
+              </div>
+              {mediaAxisCandidates.length > 0 ? (
+                <>
+                  <Select
+                    id="product-media-axis"
+                    label={f.mediaAxisLabel}
+                    value={mediaDefiningAttributeId ?? ""}
+                    onChange={(event) => changeMediaAxis(event.target.value)}
+                    disabled={isSubmitting}
+                    options={[
+                      { value: "", label: f.mediaAxisNone },
+                      ...mediaAxisCandidates.map((attr) => ({
+                        value: attr.attributeDefinitionId,
+                        label: attr.name,
+                      })),
+                    ]}
+                  />
+                  <p className="text-[11px] text-white/30">{f.mediaAxisHint}</p>
+                  {selectedMediaAxis && images.length > 0 ? (
+                    <div className="space-y-3">
+                      <p className="text-[11px] text-white/40">{f.mediaTaggingHint}</p>
+                      {[
+                        { id: null as string | null, label: f.imageOptionShared, colorHex: null as string | null },
+                        ...selectedMediaAxis.options.map((option) => ({
+                          id: option.id,
+                          label: option.label,
+                          colorHex: option.colorHex,
+                        })),
+                      ].map((group) => {
+                        const groupImages = images.filter((item) => (item.optionId ?? null) === group.id);
+                        if (groupImages.length === 0) return null;
+                        return (
+                          <div key={group.id ?? "__shared__"} className="space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-[11px] font-medium text-white/55">
+                              {group.colorHex ? (
+                                <span
+                                  aria-hidden
+                                  className="h-2.5 w-2.5 rounded-full border border-white/20"
+                                  style={{ backgroundColor: group.colorHex }}
+                                />
+                              ) : null}
+                              <span>{group.label}</span>
+                              <span className="text-white/25">({groupImages.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {groupImages.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex w-28 flex-col gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] p-1.5"
+                                >
+                                  <img
+                                    src={item.url}
+                                    alt={item.altText ?? ""}
+                                    className="h-16 w-full rounded-md object-cover"
+                                  />
+                                  <select
+                                    aria-label={f.imageOptionLabel}
+                                    className="w-full rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[11px] text-white/80"
+                                    value={item.optionId ?? ""}
+                                    onChange={(event) =>
+                                      changeImageOption(item.id, event.target.value === "" ? null : event.target.value)
+                                    }
+                                    disabled={isSubmitting}
+                                  >
+                                    <option value="">{f.imageOptionShared}</option>
+                                    {selectedMediaAxis.options.map((option) => (
+                                      <option key={option.id} value={option.id}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-[11px] text-white/35">{f.mediaAxisEmpty}</p>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </form>
