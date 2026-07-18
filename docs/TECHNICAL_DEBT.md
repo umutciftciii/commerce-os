@@ -776,6 +776,9 @@ TODO-153 / ADR-078 media-defining axis (Renk-öncelikli) ile varyant galerisini 
   indekslenir (`reindex-store`; provider chunk'lar → bounded ama gereğinden fazla iş). Kategori-scoped tarama (scanProductIdsByCategory) Faz B optimizasyonu.
 - **Eventual consistency + enqueue kaybı.** Emitter fire-and-forget: Redis erişilemezse reindex job'u KAYBOLUR (doküman bir sonraki değişime/backfill'e kadar bayat).
   Checkout/fiyat/stok canlı-otoriter olduğundan satış etkilenmez; keşif yüzeyi geçici bayat kalır. Periyodik `search:backfill` reconcile eder (zamanlanmış job Faz B/E).
-- **Docker container rebuild bekliyor.** Migration dev-DB'ye deploy edildi + gerçek-PG/event-driven/backfill smoke PASS; worker+api-gateway imaj rebuild (→ 7/7)
-  deploy-checkpoint. Kapsam: packages/db (schema + migration 20260719120000), packages/contracts, packages/queues, services/search-service (yeni), apps/worker,
-  apps/api-gateway (emitter + 8 route modülü + server wiring). Bloklayıcı: HAYIR.
+- **Docker build filter — services/* eklendi (PR #81).** `node.Dockerfile` yalnız `--filter="./packages/*"` build ediyordu → worker `@commerce-os/search-service`
+  (services/) dist'ini bulamayıp boot'ta çöktü (deploy sırasında yakalandı). `--filter="./services/*"` eklendi. İLERİYE DERS: yeni bir `services/*` paketi bir
+  app tarafından import edilecekse Dockerfile build filter'ının onu kapsadığından emin ol. Bloklayıcı: HAYIR (çözüldü).
+- **DEPLOYED + doğrulandı.** MERGED (PR #80 `0aaea08` + PR #81 `0b1a63c`=main); migrate deploy (up to date), 7/7 healthy, deployed event-driven smoke ALL PASS.
+  Kapsam: packages/db (schema + migration 20260719120000), packages/contracts, packages/queues, services/search-service (yeni), apps/worker, apps/api-gateway
+  (emitter + 8 route modülü + server wiring), infra/docker/node.Dockerfile. Bloklayıcı: HAYIR.

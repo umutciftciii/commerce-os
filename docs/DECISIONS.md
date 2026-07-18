@@ -2568,7 +2568,7 @@ patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırla
 
 ## ADR-079 — Search & Filtering Engine: PostgreSQL-native denormalize arama okuma-modeli + `SearchProvider` portu; dinamik facet `CategoryAttribute` üzerinden; OpenSearch ertelenmiş upgrade-path (Faz 2C-8 / TODO-154)
 
-**Durum.** Kabul edildi ve **Faz A (2C-8A · Search Read-Model Foundation)** uygulandı (worktree; commit/deploy yapılmadı). Public search/facet uçları, storefront filtre UI, URL senkronu ve autocomplete/synonym Faz B+'ye aittir.
+**Durum.** Kabul edildi; **Faz A (2C-8A · Search Read-Model Foundation)** uygulandı, **MERGED + DEPLOYED**. PR #80 (feat `15f8425`, merge `0aaea08`) + docker build fix PR #81 (`279ab69`, merge `0b1a63c` = main). Migration deploy edildi (up to date), 7/7 container healthy, deployed runtime smoke (container worker) ALL PASS. Public search/facet uçları, storefront filtre UI, URL senkronu ve autocomplete/synonym Faz B+'ye aittir.
 
 **Bağlam.** Public katalog tümüyle bellek-içi tarama + JS slice + varyant N+1 ile çalışıyordu (`/public/stores/:slug/products`, `PUBLIC_CATALOG_MAX=200`); metin araması, kategori-filtresi, facet, gerçek pagination YOK. `CategoryAttribute` üzerindeki `filterable/searchable/comparable/visibleOnListing` bayrakları tanımlı ama tüketilmiyordu. Enterprise referanslar (Amazon/Shopify/commercetools/Adobe/BigCommerce/Trendyol/Hepsiburada) transaksiyonel DB'den AYRIK bir arama okuma-modeli besleyip facet'i onun üzerinde üretir. Detaylı analiz: `ANALIZ-2C8.md`.
 

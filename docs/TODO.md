@@ -1364,7 +1364,8 @@
   rebuild + auth'lu görsel smoke (final rapor). KAPSAM DIŞI: per-SKU/hibrit override · ProductImageOption join tablo · video/360/3D/AR/mediaKind (TD-048).
 
 - TODO-154 — Faz 2C-8A: Search Read-Model Foundation (arama/filtreleme altyapısı — YALNIZ temel)
-  (DONE — 2026-07-19, ADR-079; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası). Public search/facet uçları, storefront filtre UI, URL senkronu,
+  (DONE + MERGED + DEPLOYED — 2026-07-19, ADR-079; PR #80 feat `15f8425` merge `0aaea08` + docker build fix
+  PR #81 `279ab69` merge `0b1a63c`=main; CI yeşil, 7/7 healthy, deployed smoke ALL PASS). Public search/facet uçları, storefront filtre UI, URL senkronu,
   autocomplete/synonym KAPSAM DIŞI (Faz B+). Mevcut public katalog uçları + allowlist + checkout/inventory/pricing DEĞİŞMEDİ (additive). (1) **DB (additive
   migration 20260719120000).** `ProductSearchDocument` (ACTIVE ürün/1 satır; `searchVector tsvector` GENERATED STORED + min/max fiyat + hasStock/availability +
   revision) + `ProductFacetValue` (flat `(ürün×filterable attr×değer)`; single-value CHECK) + enum `SearchAvailabilityState`; `pg_trgm` + GIN(searchVector) +
@@ -1376,6 +1377,10 @@
   etkilenmez) + 10 mutation noktasında reindex tetiği (product/variant/inventory/attribute-value/eksen/generation/identity/commercial + categoryAttribute/STORE
   attribute+option şema → store-batch). (6) **Testler.** search-service 35 + queues 6 + api-gateway trigger 6; api-gateway tam suite 1017 (regresyon yok). Gerçek-PG
   smoke (index/fiyat/stok/facet-replace/archive→removed/tsvector FTS/EXPLAIN Index-Only-Scan/cascade) + event-driven smoke (enqueue→worker→read-model) + backfill
-  smoke (DRAFT hariç + idempotent) hepsi PASS. Gate: prisma format/validate/generate + build + lint + git-diff TEMİZ. KALAN: docker container rebuild (worker+
-  api-gateway → 7/7) = deploy-checkpoint. KAPSAM DIŞI: public search/facet uç · storefront PLP/filtre · URL sync · autocomplete/synonym · OpenSearch · AI ranking ·
-  kampanya-etkin fiyat facet'i · PLATFORM attribute global fan-out (TD-049).
+  smoke (DRAFT hariç + idempotent) hepsi PASS. Gate: prisma format/validate/generate + turbo build 24/24 + lint 36/36 + test 36/36 + git-diff TEMİZ; CI yeşil. DEPLOY:
+  api-gateway+worker merged-main'den rebuild, migrate deploy (up to date), 7/7 healthy, deployed event-driven smoke (container worker) ALL PASS. KAPSAM DIŞI: public
+  search/facet uç · storefront PLP/filtre · URL sync · autocomplete/synonym · OpenSearch · AI ranking · kampanya-etkin fiyat facet'i · PLATFORM attribute global fan-out (TD-049).
+
+- TODO-155 — Faz 2C-8B: Public Search & Facet API (PLANLANDI — henüz başlanmadı). ADR-079 Faz B: `GET /public/stores/:slug/catalog/search`
+  (items + dinamik facet + count + pagination + sort) + `catalog/suggest` iskeleti; SearchProvider portuna `search`/`facets` metotları; public projeksiyon
+  allowlist korunur. Read-model (Faz A) hazır. Storefront PLP/filtre UI (Faz C), autocomplete/synonym (Faz E), OpenSearch (Faz F) AYRI. Bu faza BAŞLANMADI.
