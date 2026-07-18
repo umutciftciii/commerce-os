@@ -1288,3 +1288,21 @@
   Gate: prisma format/validate/generate + migration SQL + api-gateway/store-admin typecheck TEMİZ + lint + tests yeşil + git diff --check.
   KALAN: docker rebuild + `migrate deploy` + auth'lu runtime smoke; gerçek-PG concurrency integration (TD-045). Inventory/Variant Media/
   currency conversion/rule persistence/undo UI/scheduled pricing/1000+ row virtualization KAPSAM DIŞI.
+- TODO-151A — Faz 2C-5A: Commercial UX Refinement — tam genişlik "Fiyatlandırma" sekmesi + anlaşılır fiyat dili + yönlendirmeli toplu işlem
+  (DONE — 2026-07-18, ADR-075; commit/push/PR/merge/deploy YAPILMADI — final rapor sonrası durum). **Yalnız Store Admin UX**; Commercial Engine
+  (money/calculator/margin/markup/discount/fingerprint/stale-guard/diff/transaction/advisory-lock/audit/tenant/net-KDV türetme/changed-only) ve
+  API kontratı **DEĞİŞMEDİ**. (1) **Bağımsız Pricing tab.** `products/[id]/page.tsx` artık iki sekme (Genel · Fiyatlandırma); ticari alan Genel
+  formun içindeki küçük gömülü karttan (`CommercialMatrix`) çıkarıldı → tam genişlik çalışma alanı. Eski `commercial/commercial-matrix.tsx`
+  SİLİNDİ; `use-commercial-matrix.ts` KORUNDU (varsayılan mod artık `direct`=Hızlı düzenleme; `setSelection` helper eklendi — motor/kontrat
+  etkisi yok). (2) **Yeni workspace** (`products/pricing/`): `pricing-workspace.tsx` (KPI kartları · Hızlı düzenleme[varsayılan] vs Toplu işlem
+  modu · tam genişlik tablo · alan-bazlı önizleme özeti · old→new gösterim · seçim UX · uyarı/engelleyici ayrımı · loading/empty/error/allArchived/
+  noSelection/noChanges/stale/success state) · `guided-operations.ts` (senaryo → [targetField,operation] eşlemesi; motor değişmeden) ·
+  `pricing-tokens.ts` (semantik token sınıfları). (3) **Dil.** "Ticari matris"/"İndirim" gibi teknik/yanıltıcı ifadeler UI'dan kaldırıldı;
+  "Liste fiyatına göre indirim" + kolon tooltip'leri (satış/liste/maliyet/KDV/marj/markup) + insan-dostu hata mesajları (`issueMessages`; ham
+  stable kod yalnız "Teknik detay"). i18n tr+en `products.pricing` + `products.detail.tabs` (EN yapısal olarak TR ile eşleşir — i18n build yeşil).
+  (4) **Tema.** `globals.css` `.pricing-workspace` semantik token katmanı (ink/surface/line/success/warning/danger…); renk anlamı token'dan gelir,
+  ikon+başlık+metin ile eşlenir (yalnız-renk değil); `[data-theme="light"]` açık tema türetmesi hazır (panel geri kalanı bilinçli koyu-tek-tema
+  kalır — @commerce-os/ui'ye dokunulmadı). (5) **Testler.** store-admin `pricing-workspace.test.tsx` (14) + `guided-operations.test.ts` (4) +
+  `product-detail-page.test.tsx` sekme testleri (2 yeni); toplam store-admin **305/305**, i18n 47. Gate: store-admin typecheck+lint+build TEMİZ,
+  git diff --check temiz. KALAN: docker rebuild + auth'lu runtime görsel smoke (screenshot checklist final raporda). Backend engine/DB/API/checkout/
+  storefront/inventory/scheduled-pricing/approval/autosave/1440px+ per-tab breakout KAPSAM DIŞI.

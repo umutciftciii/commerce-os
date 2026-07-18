@@ -277,6 +277,61 @@ describe("store-admin product detail — dedicated route page", () => {
     expect((normalButton as HTMLButtonElement).disabled).toBe(false);
   });
 
+  // TODO-151A — Ürün düzenleme sekmeleri: bağımsız "Fiyatlandırma" tabı; ticari alan
+  // artık Genel form içinde gömülü küçük kart DEĞİL.
+  it("renders General/Pricing tabs and keeps pricing content out of the General tab", async () => {
+    storeApiMock.getProduct.mockResolvedValue(makeProduct());
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.listVariants.mockResolvedValue(page(0, []));
+
+    render(<ProductDetailPage />);
+    await screen.findByText("Temel bilgiler");
+
+    // İki sekme var; Genel aktif.
+    expect(screen.getByRole("tab", { name: "Genel" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Fiyatlandırma" })).toBeTruthy();
+    // Genel sekmesindeyken Fiyatlandırma çalışma alanı DOM'da değil (eski gömülü kart kaldırıldı).
+    expect(screen.queryByRole("heading", { name: "Fiyatlandırma" })).toBeNull();
+    expect(screen.queryByText(/Ticari matris/i)).toBeNull();
+  });
+
+  it("switches to the Pricing tab and renders the full-width pricing workspace", async () => {
+    storeApiMock.getProduct.mockResolvedValue(makeProduct());
+    storeApiMock.listCategories.mockResolvedValue(page(0, []));
+    storeApiMock.listVariants.mockResolvedValue(page(0, []));
+    storeApiMock.getCommercialMatrix.mockResolvedValue({
+      fingerprint: "fp",
+      source: "DIRECT_EDIT",
+      blocked: false,
+      rows: [],
+      summary: {
+        totalVariants: 0,
+        changedVariants: 0,
+        unchangedVariants: 0,
+        changedFieldCount: 0,
+        warningCount: 0,
+        errorCount: 0,
+        minNewPriceMinor: null,
+        maxNewPriceMinor: null,
+        avgPriceChangePct: null,
+        negativeMarginCount: 0,
+        compareAtBelowPriceCount: 0,
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<ProductDetailPage />);
+    await screen.findByText("Temel bilgiler");
+
+    await user.click(screen.getByRole("tab", { name: "Fiyatlandırma" }));
+
+    // Fiyatlandırma başlığı görünür; Genel form (Temel bilgiler) artık render edilmez.
+    expect(await screen.findByRole("heading", { name: "Fiyatlandırma" })).toBeTruthy();
+    expect(screen.queryByText("Temel bilgiler")).toBeNull();
+    // Ürün-kaydet aksiyonu yalnız Genel sekmede görünür.
+    expect(screen.queryByRole("button", { name: "Değişiklikleri kaydet" })).toBeNull();
+  });
+
   it("renders the product detail page in English under an en locale", async () => {
     storeApiMock.getProduct.mockResolvedValue(makeProduct());
     storeApiMock.listCategories.mockResolvedValue(page(0, []));

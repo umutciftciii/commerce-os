@@ -25,6 +25,9 @@ import {
 import { ProductIcon } from "../../../../components/icons";
 import { ProductForm } from "../product-form";
 import { VariantsSection } from "../variants-manager";
+import { PricingWorkspace } from "../pricing/pricing-workspace";
+
+type ProductEditTab = "general" | "pricing";
 
 type ProductStatus = Product["status"];
 
@@ -69,6 +72,9 @@ export default function ProductDetailPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // TODO-151A — Ürün düzenleme sekmeleri. "Genel" mevcut form + varyantlar; "Fiyatlandırma"
+  // tam genişlik ticari çalışma alanı (eski gömülü kart yerine bağımsız sekme).
+  const [tab, setTab] = useState<ProductEditTab>("general");
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -124,7 +130,7 @@ export default function ProductDetailPage() {
           ) : null
         }
         actions={
-          product ? (
+          product && tab === "general" ? (
             <Button type="submit" form={FORM_ID} disabled={saving}>
               {saving ? c.states.saving : d.saveAction}
             </Button>
@@ -168,6 +174,36 @@ export default function ProductDetailPage() {
       ) : null}
 
       {product ? (
+        <nav
+          role="tablist"
+          aria-label={t.eyebrow}
+          className="mb-5 flex items-center gap-1 border-b border-white/[0.07]"
+        >
+          {(["general", "pricing"] as ProductEditTab[]).map((key) => {
+            const active = tab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(key)}
+                className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                  active
+                    ? "border-indigo-400 text-white/90"
+                    : "border-transparent text-white/45 hover:text-white/70"
+                }`}
+              >
+                {d.tabs[key]}
+              </button>
+            );
+          })}
+        </nav>
+      ) : null}
+
+      {product && tab === "pricing" ? <PricingWorkspace productId={product.id} /> : null}
+
+      {product && tab === "general" ? (
         <DetailLayout
           main={
             <>

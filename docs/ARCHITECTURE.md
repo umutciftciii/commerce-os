@@ -451,10 +451,15 @@ server-authoritative · fail-closed.**
   Rule VEYA direct-edit + `selectedVariantIds` (tenant/scope guard). Stabil hatalar PRODUCT_NOT_FOUND / COMMERCIAL_VARIANT_NOT_FOUND(404) /
   COMMERCIAL_PREVIEW_STALE / COMMERCIAL_CONFLICT(409) / COMMERCIAL_INVALID_RULE / COMMERCIAL_SELECTION_EMPTY / COMMERCIAL_APPLY_BLOCKED(422).
   contracts `commercial*Schema` + api-client `...commercial.{get,preview,apply}`. Identity/combination/generation uclari BOZULMAZ.
-- **UI** (`.../products/commercial/`): `useCommercialMatrix` + `commercial-matrix.tsx` — **Commercial Matrix** bolumu (mod anahtari, rule
-  paneli, secim, preview tablosu [mevcut→hedef ustu-cizili + margin/markup/discount + warning/error rozetleri], ozet paneli, apply
-  [blocked/degisiklik-yok iken pasif]); kaydedilmis her urunde gorunur (eksen gerektirmez). BFF proxy `.../commercial/{,preview,apply}`
-  (apply CSRF'li). i18n tr+en. **Inventory/Variant Media/currency conversion/rule persistence/undo UI/scheduled pricing KAPSAM DISI.**
+- **UI** (TODO-151A / ADR-075 sonrasi): ticari alan artik urun formunun icinde gomulu DEGIL. Urun duzenleme sayfasi (`products/[id]/page.tsx`)
+  iki sekmelidir (Genel · **Fiyatlandirma**); Fiyatlandirma sekmesi tam genislik `products/pricing/pricing-workspace.tsx`'i render eder
+  (KPI kartlari · **Hizli duzenleme**[varsayilan, hucre-hucre] vs **Toplu islem**[yonlendirmeli senaryo] modu · tam genislik tablo · alan-bazli
+  onizleme ozeti · old→new gosterim · secim UX · uyari/engelleyici ayrimi · state'ler). Guided senaryo→kontrat eslemesi `guided-operations.ts`,
+  semantik tema token'lari `pricing-tokens.ts` + globals.css `.pricing-workspace`. Motoru/kontrati tuketen hook `products/commercial/
+  use-commercial-matrix.ts` KORUNDU (varsayilan mod `direct`; `setSelection` helper). Eski `commercial-matrix.tsx` bolum bileseni SILINDI.
+  Kullaniciya "Ticari matris"/"Indirim" teknik dili gosterilmez ("Fiyatlandirma" / "Liste fiyatina gore indirim"); ham stable kod yalniz
+  "Teknik detay". BFF proxy `.../commercial/{,preview,apply}` (apply CSRF'li) DEGISMEDI. i18n tr+en `products.pricing`.
+  **Inventory/Variant Media/currency conversion/rule persistence/undo UI/scheduled pricing KAPSAM DISI.**
 
 ## Auth / Session
 
