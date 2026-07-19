@@ -449,9 +449,9 @@ ADR-079 kararlarıyla Search Read-Model Foundation uygulandı. Özet:
 
 ---
 
-## Faz B (2C-8B) — Public Search & Facet API (TODO-155) — UYGULANDI (worktree; commit/PR YOK)
+## Faz B (2C-8B) — Public Search & Facet API (TODO-155) — MERGED + DEPLOYED
 
-> ADR-079 Faz B kararlarıyla public arama/facet ucu uygulandı. Gate yeşil; Docker gerçek-PG smoke 31/31 PASS + HTTP uçtan uca + EXPLAIN + allowlist temiz. Faz A read-model'i üzerine YALNIZ okuma katmanı (yeni migration YOK).
+> ADR-079 Faz B kararlarıyla public arama/facet ucu uygulandı. **feat `5a5e597`, PR #83, merge `04264ae`=main; CI yeşil.** Gate yeşil; Docker gerçek-PG smoke 31/31 PASS + HTTP uçtan uca (20/20) + EXPLAIN + allowlist temiz; merged-main deploy 4/4 healthy + post-merge runtime smoke ALL PASS. Faz A read-model'i üzerine YALNIZ okuma katmanı (yeni migration YOK). Sıradaki: TODO-156 (Faz 2C-8C) storefront PLP/filter UI.
 
 ### Değişen bileşenler
 

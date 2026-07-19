@@ -2593,7 +2593,7 @@ patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırla
 
 ### ADR-079 · Faz B (2C-8B) eklentisi — Public Search & Facet API (TODO-155)
 
-**Durum.** Faz B uygulandı (worktree'de; commit/PR YOK — brief gereği). Gate yeşil (search-service 49 + api-gateway 1047 + contracts 107 + queues 8; tüm build/lint temiz). Docker gerçek-PG üretim-kod-yolu smoke **31/31 PASS** + HTTP endpoint uçtan uca + EXPLAIN index doğrulaması + allowlist sıfır sızıntı; 4/4 servis healthy. Storefront PLP UI, filter sidebar, URL senkronu, autocomplete/synonym/OpenSearch/AI ranking Faz C+'ye aittir.
+**Durum.** Faz B **MERGED + DEPLOYED** (2026-07-19). feat `5a5e597`, PR #83, merge `04264ae`=main; CI lint·test·build yeşil (3m37s). Gate yeşil (search-service 49 + api-gateway 1047 + contracts 107 + queues 8; tüm build/lint temiz). Docker gerçek-PG üretim-kod-yolu smoke **31/31 PASS** + HTTP endpoint uçtan uca (20/20) + EXPLAIN index doğrulaması + allowlist sıfır sızıntı. DEPLOY: merged-main'den api-gateway+worker rebuild, migrate deploy up-to-date (**yeni migration YOK**), 4/4 healthy, post-merge runtime smoke ALL PASS + mevcut catalog/PDP regresyon 200. Storefront PLP UI, filter sidebar, URL senkronu, autocomplete/synonym/OpenSearch/AI ranking Faz C+ (TODO-156).
 
 **Faz B kararları (Faz A kararlarına ektir; onları değiştirmez).**
 
