@@ -1458,8 +1458,17 @@
   (soft redirect YOK). Path tek kaynak `@commerce-os/utils` productUrlPath/categoryUrlPath. **Sınır (TD-064):** kategori runtime redirect query-param olduğu için hariç (`/categories/[slug]`
   bekliyor); ürün tam çalışır. Gate: **unit 2097/2097** · storefront tsc TAM temiz (TD-056 + latent fixture'lar düzeltildi) · `next build` + `ƒ Middleware` kayıtlı · MIGRATION YOK.
   Docker smoke (gerçek DB PATCH→satır + middleware 301) = deploy adımı (TD-063). Sıradaki: ayrı shipping promptu.
-- TODO-156E — Faz 2C-8F: Enterprise Search Autocomplete & Discovery (PLANLANDI — kapsamlı). Provider-bağımsız suggest API (ürün/kategori/marka önerileri + popüler/trending +
-  recent) + typo tolerance + synonym + highlighted match fragments + 250-300ms debounce + request cancellation/stale-response koruması + klavye navigasyonu
-  (ArrowUp/Down/Enter/Escape) + erişilebilir combobox/listbox + desktop popover + mobil tam-ekran arama + ürün görsel/başlık/fiyat önerileri + "tüm sonuçları gör" +
-  empty/loading/error + recent-search gizlilik/limit + search-impression/click analytics + tenant isolation + public allowlist + cache/rate-limit + OpenSearch-uyumlu
-  provider kontratı. **AI semantik ranking ayrı onaya kadar YOK.** Backend suggest ucu henüz yok → önce backend. BAŞLANMADI.
+- TODO-156E — Faz 2C-8E: Enterprise Search Autocomplete & Discovery (**DONE · worktree · gate + `next build` + Docker/tarayıcı smoke doğrulandı; commit/PR/merge/deploy YAPILMADI — brief kuralı**).
+  ADR-084. **AYRI hafif suggest yolu** (`SearchProvider.suggest`; tam search motorunu çağırmaz — facet/pagination YOK; provider-bağımsız → OpenSearch AYNI imza) · `suggest-query.ts` bounded
+  motor (products relevance-sıralı + brands DISTINCT/COUNT + categories breadcrumb'lı recursive-CTE + SAF query-suggestions) · gateway `GET /public/stores/:slug/autocomplete` +
+  hafif process-yerel TTL cache (Redis YOK; `x-autocomplete-cache` hit/miss) · `publicAutocompleteResponseSchema` ALLOWLIST (storageKey/internal SIZMAZ) · storefront `/api/autocomplete`
+  proxy (gateway URL sunucu-yalnız) · **combobox** (ARIA listbox: aria-expanded/controls/activedescendant, ↑↓/Enter/ESC/Home/End/Tab, hover↔aktif, aria-live) · **debounce 180ms +
+  AbortController + RACE guard + client cache** · XSS-güvenli highlight (Türkçe fold) · empty (recent localStorage + popüler placeholder) / results (4 grup + "tüm sonuçlar") / zero-result
+  kurtarma · **mobil tam-ekran drawer** (autofocus/scroll-lock/ESC/safe-area) · no-JS native GET fallback korundu. **KAPSAM DIŞI (Çalışma Sınırı):** AI/semantik arama · typo tolerance ·
+  synonym · click/impression analytics · ranking motoru · personalization · recent-search sunucu persistence · popüler-arama analytics. Migration YOK; eski search/SSR/SEO DEĞİŞMEDİ.
+  Gate: **search-service 87/87 · api-gateway 1081/1081 · storefront 386/386** (yeni: +9 suggest, +14 gateway ac, +23 storefront ac) · tsc temiz · `next build` 18 route (`/api/autocomplete`
+  kayıtlı). **Docker smoke (gerçek PG + tarayıcı):** autocomplete/desktop/mobil/klavye(aria-activedescendant + Enter→PDP)/cache(miss→hit)/kategori(breadcrumb)/marka/ürün/allowlist(0
+  storageKey sızıntısı)/hata(400/404) HEPSİ PASS. Bkz. PHASE_LOG Faz 2C-8E + TD-066…071.
+  **UX Rafinasyonu (2. geçiş):** fiyat KALDIRILDI (keşif ekranı) · ürün kartı ad→marka→kategori + Yeni/Kampanya nötr rozet (categoryLabel route-resolved; Çok Satan=TD-072) · grup sırası
+  Öneriler→Kategoriler→Markalar→Ürünler (boş grup gizli) · "tüm sonuçları görüntüle (N)" (SuggestResult.total) · empty "tüm ürünlere göz at" (popüler kategoriler=TD-073) · aktif satır
+  belirginleşti (sol ink çubuğu, tek-accent korundu). Gate: 87+1081+392 test · +6 panel testi · tsc temiz · `next build` 18 route · Docker+tarayıcı smoke (fiyat-yok/rozet/grup-sırası/total) PASS.

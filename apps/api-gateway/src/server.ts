@@ -234,6 +234,7 @@ import {
   type SearchProvider,
 } from "@commerce-os/search-service";
 import { registerPublicSearchRoutes } from "./search/routes.js";
+import { registerPublicAutocompleteRoutes } from "./search/autocomplete-routes.js";
 import {
   PAYMENT_SCENARIOS,
   PaymentConfigError,
@@ -5179,6 +5180,17 @@ export function createServer(
     // TODO-155.1 — Kart görselleri read-model listing snapshot'ından; url runtime'da storageKey'den türetilir
     // (ProductImage sorgusu YOK). storageKey/mediaId DTO'ya sızmaz (tek çıkış: resolveMediaUrl).
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+  });
+
+  // TODO-156E (ADR-084) — Public autocomplete/discovery ucu. AYRI HAFİF yol (searchProvider.suggest);
+  // tam search motorunu çağırmaz (facet/pagination YOK). Process-yerel TTL cache; storageKey → public url
+  // yalnız resolveMediaUrl ile (DTO'ya sızmaz). Yanıt publicAutocompleteResponseSchema allowlist'inden geçer.
+  registerPublicAutocompleteRoutes(app, {
+    resolvePublicStore,
+    suggest: (storeId, query) => searchProvider.suggest(storeId, query),
+    toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+    // TODO-156E UX — ürün kartı kategori etiketi (bounded display-only; search ucuyla aynı resolver).
+    resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
   });
 
   // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).
