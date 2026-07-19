@@ -799,6 +799,7 @@ TODO-153 / ADR-078 media-defining axis (Renk-öncelikli) ile varyant galerisini 
 - **Kapak/kategori hidrasyonu display-only bounded join.** Arama sonucu ürün listing DTO'su read-model'den; kategori ADI + kapak GÖRSELİ yalnız dönen SAYFA için
   bounded (≤pageSize) `listProductImages`/`listCategories` ile hidre edilir (mevcut PLP deseni). Bu, arama/facet MANTIĞININ read-model-only kilidini bozmaz
   (eşleşme/sayım/pagination read-model'de); yalnız display zenginleştirmesidir. İleride read-model'e `coverStorageKey`/`categoryName` denormalize edilebilir.
-- **Durum.** DONE (worktree; commit/PR/deploy YOK — brief gereği). Gate yeşil + Docker gerçek-PG smoke 31/31 + HTTP uçtan uca + EXPLAIN + allowlist temiz.
-  Kapsam: services/search-service (types + search-query + provider.search), packages/contracts (publicSearchResponseSchema), apps/api-gateway (search/query-parser +
-  search/routes + server wiring + package.json). YENİ MIGRATION YOK. Bloklayıcı: HAYIR.
+- **Durum.** DONE + MERGED + DEPLOYED (feat `5a5e597`, PR #83, merge `04264ae`=main; CI yeşil; merged-main deploy 4/4 healthy + post-merge runtime smoke ALL PASS).
+  Gate yeşil + Docker gerçek-PG smoke 31/31 + HTTP uçtan uca (20/20) + EXPLAIN + allowlist temiz. Kapsam: services/search-service (types + search-query +
+  provider.search), packages/contracts (publicSearchResponseSchema), apps/api-gateway (search/query-parser + search/routes + server wiring + package.json).
+  YENİ MIGRATION YOK. Bloklayıcı: HAYIR.

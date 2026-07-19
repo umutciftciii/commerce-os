@@ -1381,8 +1381,10 @@
   api-gateway+worker merged-main'den rebuild, migrate deploy (up to date), 7/7 healthy, deployed event-driven smoke (container worker) ALL PASS. KAPSAM DIŞI: public
   search/facet uç · storefront PLP/filtre · URL sync · autocomplete/synonym · OpenSearch · AI ranking · kampanya-etkin fiyat facet'i · PLATFORM attribute global fan-out (TD-049).
 
-- TODO-155 — Faz 2C-8B: Public Search & Facet API (DONE — worktree'de; commit/PR YOK, brief gereği; 2026-07-19, ADR-079 Faz B).
-  YALNIZ read-model'den okur (Product/EAV re-join YOK); Faz A read-model'i üstüne okuma katmanı, YENİ MIGRATION YOK. (1) **search-service.**
+- TODO-155 — Faz 2C-8B: Public Search & Facet API (DONE + MERGED + DEPLOYED — 2026-07-19, ADR-079 Faz B;
+  feat `5a5e597`, PR #83, merge `04264ae`=main; CI lint·test·build yeşil (3m37s); deploy: merged-main'den api-gateway+worker rebuild,
+  migrate deploy up-to-date (YENİ MIGRATION YOK), 4/4 healthy, post-merge runtime smoke ALL PASS).
+  YALNIZ read-model'den okur (Product/EAV re-join YOK); Faz A read-model'i üstüne okuma katmanı. (1) **search-service.**
   `SearchProvider.search` + provider-bağımsız port tipleri (`SearchQuery`/`SearchFilter`/`SearchResult`/`SearchFacet`/`SearchError`); `search-query.ts` =
   read-model üzerinde bounded/parametreli/tenant-scoped raw SQL (result + disjunctive facet count/range + pagination + facet meta) + SAF yardımcılar
   (`assembleFacets`/`computePagination`/`deriveSelectionMode`/`escapeLike`). (2) **contracts.** `publicSearchResponseSchema` (ALLOWLIST). (3) **api-gateway.**
@@ -1394,4 +1396,9 @@
   api-gateway 1047 (+30) + contracts 107 + queues 8; tüm build/lint temiz. Docker gerçek-PG üretim-kod smoke 31/31 PASS + HTTP endpoint uçtan uca + EXPLAIN
   index doğrulaması + allowlist sıfır sızıntı; 4/4 healthy; smoke verisi temizlendi (cascade → read-model 0/0). KAPSAM DIŞI: storefront PLP/filter sidebar/
   mobile/URL sync UI · "daha fazla yükle" · autocomplete/suggest/synonym · search analytics · OpenSearch · AI ranking · best_selling/most_viewed sort ·
-  promotion-aware price · Redis facet cache (Faz C+/E/F). Commit/push/PR/merge/deploy YAPILMADI (kod+migration worktree'de).
+  promotion-aware price · Redis facet cache (Faz C+/E/F).
+
+- TODO-156 — Faz 2C-8C: Storefront Search & Filter UI (PLANLANDI — henüz başlanmadı). Faz B public arama/facet ucunu (`GET /public/stores/:slug/search`)
+  tüketen storefront PLP: kategori rotaları + URL-driven filtre (query-param), filter sidebar (dinamik facet render + count), mobile drawer, aktif-filtre çipleri,
+  breadcrumb, result count, numaralı pagination (+opsiyonel "daha fazla yükle" progressive enhancement), SSR/ISR + cache tag. Autocomplete/synonym (Faz E),
+  OpenSearch (Faz F) AYRI. Bu faza BAŞLANMADI.
