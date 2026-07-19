@@ -13,6 +13,8 @@ import { SearchTransitionProvider } from "../../components/search/search-transit
 import { ProductGrid } from "../../components/search/product-grid";
 import { SearchPagination } from "../../components/search/search-pagination";
 import { SearchEmpty } from "../../components/search/search-empty";
+import { FilterRail } from "../../components/search/filter-rail";
+import { ActiveFilterChips } from "../../components/search/active-filter-chips";
 
 /**
  * TODO-156B (ANALIZ-156A §3/§7) — PLP artık public search ucundan (SSR) beslenir.
@@ -91,29 +93,41 @@ export default async function ProductsPage({
   const data = result.data;
   const cards = toListingCards(data.products);
   const currency = data.products[0]?.currency ?? "TRY";
+  const facets = data.facets;
 
   return (
     <Container className="py-16 lg:py-20">
       <SearchHeading state={state} t={t} />
       <SearchTransitionProvider>
-        <div className="mt-10 lg:mt-12">
-          <SearchToolbar state={state} totalItems={data.pagination.totalItems} t={t} />
-          <SearchResultsRegion label={s.resultsRegion}>
-            {cards.length === 0 ? (
-              <SearchEmpty state={state} currency={currency} t={t} />
-            ) : (
-              <div className="mt-8 lg:mt-10">
-                <ProductGrid cards={cards} t={t} />
-              </div>
-            )}
-          </SearchResultsRegion>
-          <SearchPagination
-            state={state}
-            totalPages={data.pagination.totalPages}
-            hasPreviousPage={data.pagination.hasPreviousPage}
-            hasNextPage={data.pagination.hasNextPage}
-            t={t}
-          />
+        {/* İki sütun: sol kalıcı filtre rayı (≥ lg) + sağ araç çubuğu/çip/grid. Mobilde tek sütun (drawer). */}
+        <div className="mt-10 lg:mt-12 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[17rem_minmax(0,1fr)] xl:gap-12">
+          <FilterRail facets={facets} state={state} currency={currency} t={t} />
+          <div className="min-w-0">
+            <SearchToolbar
+              state={state}
+              totalItems={data.pagination.totalItems}
+              facets={facets}
+              currency={currency}
+              t={t}
+            />
+            <ActiveFilterChips facets={facets} state={state} currency={currency} t={t} />
+            <SearchResultsRegion label={s.resultsRegion}>
+              {cards.length === 0 ? (
+                <SearchEmpty state={state} currency={currency} t={t} />
+              ) : (
+                <div className="mt-8 lg:mt-10">
+                  <ProductGrid cards={cards} t={t} />
+                </div>
+              )}
+            </SearchResultsRegion>
+            <SearchPagination
+              state={state}
+              totalPages={data.pagination.totalPages}
+              hasPreviousPage={data.pagination.hasPreviousPage}
+              hasNextPage={data.pagination.hasNextPage}
+              t={t}
+            />
+          </div>
         </div>
       </SearchTransitionProvider>
     </Container>

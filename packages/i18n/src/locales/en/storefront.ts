@@ -180,6 +180,40 @@ export const enStorefront: StorefrontDictionary = {
     breadcrumbHome: "Home",
     breadcrumbProducts: "Products",
     loadingLabel: "Loading products",
+    // TODO-156C — Dynamic facet experience (filter rail/drawer/chips/renderer)
+    filterPanelTitle: "Filters",
+    filterButton: "Filter",
+    filterClose: "Close filters",
+    filterClear: "Clear",
+    // {count} replaced with the live result count (mobile drawer apply button).
+    filterShowResults: "Show {count} products",
+    activeFiltersRegion: "Applied filters",
+    clearAll: "Clear all",
+    // Price facet (top-level)
+    priceFacetLabel: "Price",
+    priceMin: "Min",
+    priceMax: "Max",
+    // Stock facet (top-level)
+    stockFacetLabel: "Availability",
+    stockInStockOnly: "In stock only",
+    // Dynamic facet shared
+    facetNoValues: "No options",
+    // {count} hidden option count.
+    facetShowMore: "Show +{count} more",
+    facetShowLess: "Show less",
+    // Range (INTEGER/DECIMAL/DATE) facet
+    rangeMin: "Min",
+    rangeMax: "Max",
+    rangeApply: "Apply",
+    rangeSeparator: "–",
+    rangeOpen: "…",
+    dateFrom: "From",
+    dateTo: "To",
+    // Active filter chip
+    chipSearchLabel: "Search",
+    chipCategoryLabel: "Category",
+    // {group} facet name, {value} value to remove.
+    chipRemoveLabel: "Remove {group}: {value} filter",
   },
   detail: {
     breadcrumbProducts: "Products",

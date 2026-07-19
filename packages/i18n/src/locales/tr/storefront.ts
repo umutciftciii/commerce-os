@@ -198,6 +198,40 @@ export const trStorefront = {
     breadcrumbProducts: "Ürünler",
     // Yükleniyor
     loadingLabel: "Ürünler yükleniyor",
+    // TODO-156C — Dinamik facet deneyimi (filtre rayı/drawer/çip/renderer)
+    filterPanelTitle: "Filtreler",
+    filterButton: "Filtrele",
+    filterClose: "Filtreleri kapat",
+    filterClear: "Temizle",
+    // {count} güncel sonuç sayısıyla değiştirilir (mobil drawer altındaki uygula butonu).
+    filterShowResults: "{count} ürünü göster",
+    activeFiltersRegion: "Uygulanan filtreler",
+    clearAll: "Tümünü temizle",
+    // Fiyat facet'i (top-level)
+    priceFacetLabel: "Fiyat",
+    priceMin: "En az",
+    priceMax: "En çok",
+    // Stok facet'i (top-level)
+    stockFacetLabel: "Stok durumu",
+    stockInStockOnly: "Yalnızca stoktakiler",
+    // Dinamik facet ortak
+    facetNoValues: "Seçenek yok",
+    // {count} gizli seçenek sayısı.
+    facetShowMore: "+{count} daha göster",
+    facetShowLess: "Daha az göster",
+    // Aralık (INTEGER/DECIMAL/DATE) facet
+    rangeMin: "En az",
+    rangeMax: "En çok",
+    rangeApply: "Uygula",
+    rangeSeparator: "–",
+    rangeOpen: "…",
+    dateFrom: "Başlangıç",
+    dateTo: "Bitiş",
+    // Aktif filtre çipi
+    chipSearchLabel: "Arama",
+    chipCategoryLabel: "Kategori",
+    // {group} facet adı, {value} kaldırılacak değer.
+    chipRemoveLabel: "{group}: {value} filtresini kaldır",
   },
   detail: {
     breadcrumbProducts: "Ürünler",
