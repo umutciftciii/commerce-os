@@ -28,6 +28,8 @@ export const enStorefront: StorefrontDictionary = {
     heroNext: "Next slide",
     // ADIM 1 — Premium header actions.
     skipToContent: "Skip to content",
+    // TODO-156D — Shared breadcrumb navigation label (screen reader).
+    breadcrumb: "Breadcrumb",
     searchPlaceholder: "Search products",
     searchSubmit: "Search",
     // MOCK: Wishlist — no real data source, see todo.md.

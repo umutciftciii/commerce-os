@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type {
   PublicCampaignBadge,
   PublicProduct,
@@ -210,6 +211,9 @@ function toDetail(detail: PublicProductDetail, locale: CampaignLabelLocale): Sto
     })),
     // Faz 2C-7 (ADR-078) — gorselleri gruplayan media-tanimlayici eksen (null = klasik galeri).
     mediaDefiningAttributeId: detail.mediaDefiningAttributeId ?? null,
+    // TODO-156D (ADR-080) — Admin SEO override'lari (public-safe meta metni; yoksa null).
+    seoTitle: detail.seoTitle ?? null,
+    seoDescription: detail.seoDescription ?? null,
     related: detail.related.map((item) => toSummary(item, locale)),
   };
 }
@@ -241,8 +245,12 @@ export async function getFeaturedProducts(
   return { ok: true, data: listing.data.slice(0, limit) };
 }
 
-/** Urun detayi: slug ile public detay ucundan cozulur. */
-export async function getStorefrontProductByHandle(
+/**
+ * Urun detayi: slug ile public detay ucundan cozulur. TODO-156D — React `cache()` ile sarili: PDP'de
+ * hem `generateMetadata` hem sayfa gövdesi ayni (handle, locale) ile cagirir; getPublic no-store oldugundan
+ * fetch dedup edilmez → cache tek render-pass'te TEK gateway cagrisi garantiler (N+1/cift-fetch yok, brief §18).
+ */
+export const getStorefrontProductByHandle = cache(async function getStorefrontProductByHandle(
   handle: string,
   locale: CampaignLabelLocale = "tr",
 ): Promise<CatalogResult<StorefrontProductDetail | null>> {
@@ -261,4 +269,4 @@ export async function getStorefrontProductByHandle(
   } catch {
     return { ok: false, reason: "error" };
   }
-}
+});

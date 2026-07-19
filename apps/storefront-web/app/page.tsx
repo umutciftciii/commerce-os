@@ -13,12 +13,30 @@ import {
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HeroCarousel } from "../components/site/hero-carousel";
+import type { Metadata } from "next";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getFeaturedProducts } from "../lib/server/catalog";
 import { getHeroSlides, getStoreInfo } from "../lib/server/site";
+import { buildMetadata } from "../lib/seo/metadata";
+import { homePath } from "../lib/seo/routes";
 
 // One cikan urunler canli katalogtan gelir; her istekte cozulur.
 export const dynamic = "force-dynamic";
+
+/**
+ * TODO-156D — Ana sayfa metadata (merkezî builder). Canonical "/" (kök otoritesi); index,follow.
+ * Başlık layout default'una düşer (mağaza adı) — home için ekstra segment eklenmez.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const [dict, locale] = await Promise.all([getStorefrontDict(), getRequestLocale()]);
+  return buildMetadata({
+    description: dict.meta.description,
+    canonicalPath: homePath(),
+    robots: { index: true, follow: true },
+    siteName: dict.meta.title,
+    locale,
+  });
+}
 
 export default async function HomePage() {
   const dict = await getStorefrontDict();

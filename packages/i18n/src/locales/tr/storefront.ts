@@ -28,6 +28,8 @@ export const trStorefront = {
     heroNext: "Sonraki görsel",
     // ADIM 1 — Premium header aksiyonlari.
     skipToContent: "İçeriğe geç",
+    // TODO-156D — Ortak breadcrumb (sayfa yolu) navigasyon etiketi (ekran okuyucu).
+    breadcrumb: "Sayfa yolu",
     searchPlaceholder: "Ürün ara",
     searchSubmit: "Ara",
     // MOCK: Favoriler/Wishlist — gerçek veri kaynağı yok, bkz. todo.md.

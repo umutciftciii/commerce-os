@@ -1882,7 +1882,28 @@ export const publicProductDetailSchema = publicProductSchema.extend({
   whatsappMessageTemplate: z.string().nullable(),
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
+  /**
+   * TODO-156D (ADR-080) — Admin-kontrollü SEO override'ları (public-safe meta metni; zaten yayına yönelik).
+   * Vitrin `generateMetadata` bunları title/description için KULLANIR, yoksa title/description'a düşer.
+   * Additive + nullable; iç alan değil (Product.seoTitle/seoDescription doğrudan meta amaçlıdır).
+   */
+  seoTitle: z.string().nullable().default(null),
+  seoDescription: z.string().nullable().default(null),
   related: z.array(publicProductSchema),
+});
+
+// ── TODO-156D tamamlama (ADR-082) — Public redirect listesi (ALLOWLIST; runtime çözümleme) ──
+//
+// Storefront istek-zamanı redirect çözümleyicisi (middleware) bu ucu okur. YALNIZ enabled kurallar;
+// `status` DB enum'undan sayısal HTTP koduna çevrilmiş (301/302/307/308). İç alan (id/storeId/notes/
+// timestamps) SIZMAZ — redirect davranışı zaten public (HTTP), ancak yalnız source/target/status yeter.
+export const publicRedirectSchema = z.object({
+  source: z.string().min(1),
+  target: z.string().min(1),
+  status: z.union([z.literal(301), z.literal(302), z.literal(307), z.literal(308)]),
+});
+export const publicRedirectListResponseSchema = z.object({
+  data: z.array(publicRedirectSchema),
 });
 
 // ── TODO-155 (ADR-079) — Faz 2C-8B · Public Search & Facet API (ALLOWLIST) ──
@@ -3456,6 +3477,9 @@ export type PublicProductImage = z.infer<typeof publicProductImageSchema>;
 export type PublicProduct = z.infer<typeof publicProductSchema>;
 export type PublicProductListResponse = z.infer<typeof publicProductListResponseSchema>;
 export type PublicProductDetail = z.infer<typeof publicProductDetailSchema>;
+// TODO-156D tamamlama (ADR-082) — public redirect DTO'ları (runtime çözümleme).
+export type PublicRedirect = z.infer<typeof publicRedirectSchema>;
+export type PublicRedirectListResponse = z.infer<typeof publicRedirectListResponseSchema>;
 export type PublicCampaignSlidesResponse = z.infer<typeof publicCampaignSlidesResponseSchema>;
 export type PublicStoreInfo = z.infer<typeof publicStoreInfoSchema>;
 export type PublicHeroSlide = z.infer<typeof publicHeroSlideSchema>;

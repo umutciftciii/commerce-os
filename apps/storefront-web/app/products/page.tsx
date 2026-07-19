@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { format } from "@commerce-os/i18n";
 import { ButtonLink, Container, EmptyState } from "../../components/ui";
-import { getStorefrontDict } from "../../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../lib/i18n";
 import { getStorefrontSearch } from "../../lib/server/search";
 import { parseServerSearchParams } from "../../lib/search/url-state";
 import { toListingCards } from "../../lib/search/listing-adapter";
-import { canonicalPath, robotsFor } from "../../lib/search/seo";
+import { canonicalPath, robotsFor, isIndexable } from "../../lib/search/seo";
+import { buildMetadata } from "../../lib/seo/metadata";
+import { productPath } from "../../lib/seo/routes";
+import { absoluteUrl } from "../../lib/seo/site-url";
+import { buildItemListJsonLd } from "../../lib/seo/json-ld";
+import { JsonLd } from "../../components/seo/json-ld";
 import { SearchHeading } from "../../components/search/search-heading";
 import { SearchToolbar } from "../../components/search/search-toolbar";
 import { SearchResultsRegion } from "../../components/search/results-region";
@@ -32,20 +37,23 @@ export async function generateMetadata({
 }: {
   searchParams: Promise<SearchParamsInput>;
 }): Promise<Metadata> {
-  const [sp, dict] = await Promise.all([searchParams, getStorefrontDict()]);
+  const [sp, dict, locale] = await Promise.all([searchParams, getStorefrontDict(), getRequestLocale()]);
   const state = parseServerSearchParams(sp);
   const s = dict.search;
   const robots = robotsFor(state);
   const base = state.q ? format(s.searchTitle, { query: state.q }) : s.allTitle;
   const title = state.page > 1 ? `${base} · ${format(s.pageGoto, { page: state.page })}` : base;
-  return {
+  // TODO-156D — Merkezî metadata builder (OG/Twitter dahil). Robots + canonical otoritesi lib/search/seo.ts:
+  // arama/filtre kombinasyonları noindex,follow; düz PLP + kategori-yalnız index,follow. Canonical: indexable →
+  // kategori+page normalize; noindex → self (ana kategoriye ezme YOK).
+  return buildMetadata({
     title,
     description: dict.meta.description,
-    // Arama/filtre kombinasyonları noindex,follow; düz PLP + kategori-yalnız index,follow (§16).
+    canonicalPath: canonicalPath(state),
     robots: { index: robots.index, follow: robots.follow },
-    // Kanonik: indexable → kategori+page normalize; noindex → self (ana kategoriye ezme YOK).
-    alternates: { canonical: canonicalPath(state) },
-  };
+    siteName: dict.meta.title,
+    locale,
+  });
 }
 
 export default async function ProductsPage({
@@ -95,9 +103,26 @@ export default async function ProductsPage({
   const currency = data.products[0]?.currency ?? "TRY";
   const facets = data.facets;
 
+  // TODO-156D (brief §14) — ItemList JSON-LD YALNIZ indexlenebilir sayfalarda (düz PLP + kategori-yalnız).
+  // noindex arama/filtre sayfalarında yapısal veri üretilmez (Google'a çelişik sinyal verilmez).
+  const itemListLd =
+    isIndexable(state) && data.products.length > 0
+      ? buildItemListJsonLd({
+          items: data.products.map((product) => ({
+            url: absoluteUrl(productPath(product.slug)),
+            name: product.title,
+          })),
+        })
+      : null;
+
+  // Kategori görünen adı: kategori filtresi tüm ürünleri o kategoriye kısıtlar → ilk ürünün etiketi güvenli
+  // görünen ad. Yoksa slug gösterilir (uydurma yok). H1 + breadcrumb + BreadcrumbList aynı kaynağı kullanır.
+  const categoryLabel = state.category ? data.products[0]?.categoryLabel ?? state.category : null;
+
   return (
     <Container className="py-16 lg:py-20">
-      <SearchHeading state={state} t={t} />
+      {itemListLd ? <JsonLd data={itemListLd} /> : null}
+      <SearchHeading state={state} categoryLabel={categoryLabel} t={t} />
       <SearchTransitionProvider>
         {/* İki sütun: sol kalıcı filtre rayı (≥ lg) + sağ araç çubuğu/çip/grid. Mobilde tek sütun (drawer). */}
         <div className="mt-10 lg:mt-12 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[17rem_minmax(0,1fr)] xl:gap-12">

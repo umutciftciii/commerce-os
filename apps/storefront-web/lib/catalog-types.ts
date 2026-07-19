@@ -344,6 +344,12 @@ export interface StorefrontProductDetail extends StorefrontProductSummary {
    * karari icin kullanir. Yalnizca attribute-definition id (media ic alani degil).
    */
   mediaDefiningAttributeId: string | null;
+  /**
+   * TODO-156D (ADR-080) — Admin-kontrollü SEO override'ları. Vitrin `generateMetadata` title/description
+   * için önce bunları kullanır, yoksa title/description'a düşer. Public-safe meta metni (iç alan değil).
+   */
+  seoTitle: string | null;
+  seoDescription: string | null;
   /** Benzer urunler (ayni katalogtan turetilir). */
   related: StorefrontProductSummary[];
 }
