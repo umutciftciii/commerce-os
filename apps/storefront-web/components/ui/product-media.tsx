@@ -41,6 +41,8 @@ export function ProductMedia({
   title,
   imageUrl,
   className,
+  priority = false,
+  alt,
 }: {
   handle: string;
   title: string;
@@ -51,15 +53,34 @@ export function ProductMedia({
    */
   imageUrl?: string | null;
   className?: string;
+  /**
+   * TODO-156B (ANALIZ §10/18) — Ilk gorunur satir (LCP) icin eager + yuksek oncelik;
+   * aksi lazy. next/image yerine goreli /media/* rewrite ile native <img> kullanilir
+   * (tum vitrin tutarli; remotePatterns config gerektirmez — bkz. ANALIZ TD next/image).
+   */
+  priority?: boolean;
+  /** Ozel alt metni (yoksa title). */
+  alt?: string;
 }) {
   const src = imageUrl ?? productImageSrc(handle);
+  const label = alt ?? title;
   const monogram = (title.trim()[0] ?? "·").toLocaleUpperCase("tr-TR");
   const tone = PLACEHOLDER_TONES[hashIndex(handle, PLACEHOLDER_TONES.length)];
 
   // Gercek gorsel yolu (drop-in): src cozulur cozulmez kapak gorseli gosterilir.
   // Tek degisim noktasi burasidir; kart/cagiran taraf ayni kalir.
   if (src) {
-    return <img src={src} alt={title} className={cn("h-full w-full object-cover", className)} />;
+    return (
+      <img
+        src={src}
+        alt={label}
+        loading={priority ? "eager" : "lazy"}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fetchPriority React 19'da desteklenir; tip henuz dar.
+        {...({ fetchPriority: priority ? "high" : "auto" } as any)}
+        decoding="async"
+        className={cn("h-full w-full object-cover", className)}
+      />
+    );
   }
 
   return (
@@ -70,7 +91,7 @@ export function ProductMedia({
         className,
       )}
       role="img"
-      aria-label={title}
+      aria-label={label}
     >
       <span
         aria-hidden

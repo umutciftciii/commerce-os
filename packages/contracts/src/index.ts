@@ -2000,6 +2000,13 @@ export const publicSearchResponseSchema = z.object({
   products: z.array(publicSearchProductSchema),
 });
 export type PublicSearchResponse = z.infer<typeof publicSearchResponseSchema>;
+export type PublicSearchSort = z.infer<typeof publicSearchSortSchema>;
+export type PublicSearchProduct = z.infer<typeof publicSearchProductSchema>;
+export type PublicSearchSwatch = z.infer<typeof publicSearchSwatchSchema>;
+export type PublicSearchFacet = z.infer<typeof publicSearchFacetSchema>;
+export type PublicSearchFacetValue = z.infer<typeof publicSearchFacetValueSchema>;
+/** TODO-155 sort enum değerleri (storefront sort toolbar allowlist'i; backend'le birebir). */
+export const PUBLIC_SEARCH_SORTS = publicSearchSortSchema.options;
 
 /**
  * ADR-065 (Faz 3/Site Kabuğu) — Public magaza marka bilgisi (ALLOWLIST). Site

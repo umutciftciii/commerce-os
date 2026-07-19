@@ -322,6 +322,13 @@ export type {
   PublicProductVariant,
   PublicProductListResponse,
   PublicProductDetail,
+  // TODO-155/156 (ADR-079) — Public Search & Facet API kontrat tipleri (storefront tuketicisi).
+  PublicSearchResponse,
+  PublicSearchSort,
+  PublicSearchProduct,
+  PublicSearchSwatch,
+  PublicSearchFacet,
+  PublicSearchFacetValue,
   PublicCampaignSlidesResponse,
   // ADR-065 Faz 3 (Site Kabuğu) — public marka bilgisi + hero slide'lari.
   PublicStoreInfo,
@@ -554,6 +561,14 @@ export type {
   CampaignAccessModel,
 } from "@commerce-os/contracts";
 import { optionalEnvString } from "@commerce-os/utils";
+
+/**
+ * TODO-155/156 (ADR-079) — Public Search runtime allowlist şeması + sort listesi (DEĞER re-export).
+ * YALNIZCA sunucu-tarafı BFF (storefront `lib/server/search.ts`) yanıtı doğrulamak için kullanır;
+ * client component'leri arama tiplerini `type`-only import eder (bu değer bundle'a sızmaz). Tek kanal
+ * disiplini: storefront `@commerce-os/contracts`'a doğrudan bağlanmaz.
+ */
+export { publicSearchResponseSchema, PUBLIC_SEARCH_SORTS } from "@commerce-os/contracts";
 
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.
