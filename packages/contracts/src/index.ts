@@ -1885,6 +1885,97 @@ export const publicProductDetailSchema = publicProductSchema.extend({
   related: z.array(publicProductSchema),
 });
 
+// ── TODO-155 (ADR-079) — Faz 2C-8B · Public Search & Facet API (ALLOWLIST) ──
+//
+// Arama sonucu ürünü, search read-model doküman projeksiyonundan türetilen HAFİF listing DTO'sudur
+// (buildPublicProduct'ın tam varyant/kampanya gövdesi DEĞİL). Sızmaması gerekenler (costMinor/
+// netPriceMinor/storageKey/mediaId/searchText/searchVector/revision/internal facet row/tenant id)
+// şemada YOKTUR → serialize edilse bile allowlist keser. `image` sayfa-yalnız bounded kapak hidrasyonu.
+
+export const publicSearchSortSchema = z.enum([
+  "relevance",
+  "newest",
+  "price_asc",
+  "price_desc",
+  "title_asc",
+  "title_desc",
+]);
+
+export const publicSearchProductSchema = z.object({
+  id: z.string().min(1),
+  slug: slugSchema,
+  title: z.string().min(1),
+  brand: z.string().nullable(),
+  categoryLabel: z.string().nullable(),
+  minPriceMinor: z.number().int().nullable(),
+  maxPriceMinor: z.number().int().nullable(),
+  currency: z.string().nullable(),
+  availability: z.enum(["IN_STOCK", "OUT_OF_STOCK"]),
+  inStock: z.boolean(),
+  /** Sayfa-yalnız bounded kapak görseli (ALLOWLIST: url/altText/position); yoksa null. */
+  image: publicProductImageSchema.nullable().default(null),
+});
+
+export const publicSearchFacetValueSchema = z.object({
+  optionId: z.string().nullable(),
+  value: z.string(),
+  label: z.string(),
+  colorHex: z.string().nullable(),
+  count: z.number().int().nonnegative(),
+  selected: z.boolean(),
+});
+
+export const publicSearchFacetRangeSchema = z.object({
+  availableMin: z.number().nullable(),
+  availableMax: z.number().nullable(),
+  selectedMin: z.number().nullable(),
+  selectedMax: z.number().nullable(),
+});
+
+export const publicSearchFacetSchema = z.object({
+  attributeDefinitionId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  dataType: attributeDataTypeSchema,
+  unit: z.string().nullable(),
+  displayOrder: z.number().int(),
+  selectionMode: z.enum(["MULTI", "RANGE", "BOOLEAN"]),
+  values: z.array(publicSearchFacetValueSchema),
+  range: publicSearchFacetRangeSchema.nullable(),
+});
+
+/** İsteğe uygulanan dinamik attribute filtresi özeti (yansıma/aktif-filtre çipi kaynağı). */
+export const publicSearchAppliedAttributeFilterSchema = z.object({
+  code: z.string(),
+  values: z.array(z.string()).default([]),
+  min: z.number().nullable().default(null),
+  max: z.number().nullable().default(null),
+  bool: z.boolean().nullable().default(null),
+});
+
+export const publicSearchResponseSchema = z.object({
+  query: z.string().nullable(),
+  category: z.string().nullable(),
+  sort: publicSearchSortSchema,
+  appliedFilters: z.object({
+    minPrice: z.number().int().nullable(),
+    maxPrice: z.number().int().nullable(),
+    inStock: z.boolean(),
+    attributes: z.array(publicSearchAppliedAttributeFilterSchema),
+  }),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+    hasNextPage: z.boolean(),
+    hasPreviousPage: z.boolean(),
+  }),
+  facets: z.array(publicSearchFacetSchema),
+  products: z.array(publicSearchProductSchema),
+});
+export type PublicSearchResponse = z.infer<typeof publicSearchResponseSchema>;
+
 /**
  * ADR-065 (Faz 3/Site Kabuğu) — Public magaza marka bilgisi (ALLOWLIST). Site
  * kabugu (header kelime-isareti/logo + <head> favicon/title) icin store-seviyesi

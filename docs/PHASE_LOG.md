@@ -3531,3 +3531,31 @@ sunum katmanı + tek dormant alan geçişi). Detay analiz: `docs/analysis/TODO-1
 - **Gate.** prisma format/validate/generate + build (contracts/queues/search-service/worker/api-gateway) + lint + git diff --check TEMİZ. Migration dev-DB'ye deploy
   edildi; çalışan main-stack additive migration'dan etkilenmedi (7/7 healthy, `/health` 200, public catalog 200).
 - **Ship + Deploy.** PR #80 (feat `15f8425`, merge `0aaea08`) CI yeşil → merge. **Deploy sırasında bug yakalandı:** `node.Dockerfile` yalnız `--filter="./packages/*"` build ediyordu; worker `@commerce-os/search-service` (services/) dist'ini bulamayıp boot'ta çöktü → build filter'a `--filter="./services/*"` eklendi (PR #81, `279ab69`, merge `0b1a63c`=main; api-gateway etkilenmez). Merged-main'den api-gateway+worker rebuild + migrate deploy (up to date) + **7/7 healthy**. **Deployed event-driven runtime smoke** (host enqueue → CONTAINER worker → read-model): tek index · price/inventory/product+variant facet projeksiyonu · **iki ardışık değişim ikisi de işlendi** (jobId regresyonu deployed'da doğrulandı) · stale facet cleanup · OUT_OF_STOCK · reindex-store idempotent · store isolation · archive cleanup · cascade cleanup · generated tsvector FTS · EXPLAIN **Index Only Scan** — **ALL PASS**. Public catalog 200 + PDP 200 + allowlist sızıntısı YOK. Smoke verisi temizlendi.
+
+## Faz 2C-8B — Public Search & Facet API (TODO-155 / ADR-079 Faz B) — 2026-07-19
+
+- **Kapsam.** Faz A read-model'i üstüne public arama/facet OKUMA katmanı. YENİ MIGRATION YOK. Arama/facet/pagination YALNIZ `ProductSearchDocument` +
+  `ProductFacetValue`'dan; `Product`/EAV/`ProductVariant` source-of-truth gibi yeniden JOIN EDİLMEZ (ADR-079 kilidi). Storefront PLP UI + filter sidebar +
+  URL sync + autocomplete/synonym + OpenSearch + AI ranking Faz C+.
+- **search-service.** `SearchProvider.search(storeId, query)` + provider-bağımsız port tipleri (`SearchQuery`/`SearchFilter`/`SearchSortKey`/`SearchResult`/
+  `SearchResultItem`/`SearchFacet`/`SearchFacetValue`/`SearchFacetRange`/`SearchError`). Yeni `search-query.ts` = read-model üzerinde bounded, `Prisma.sql`-parametreli,
+  tenant-scoped raw SQL (result docs + disjunctive facet count/range + pagination total + facet meta) + SAF yardımcılar (`assembleFacets`/`computePagination`/
+  `deriveSelectionMode`/`escapeLike`). `PostgresSearchProvider.search` bağlar.
+- **contracts.** `publicSearchResponseSchema` + alt şemalar (ALLOWLIST; internal alan yok).
+- **api-gateway.** `GET /public/stores/:storeSlug/search`; `search/query-parser.ts` (SAF; `filter[code]`+`[min]`/`[max]` bracket'ı Fastify default parser düz-anahtarından
+  regex ile çözer — açık/kararlı kontrat) + `search/routes.ts` (SearchError→HTTP eşleme: CATEGORY_NOT_FOUND 404, aksi 400; kategori adı + kapak görseli SADECE dönen
+  sayfa için bounded hidrasyon; publicSearchResponseSchema.parse). `ServerDependencies.searchProvider` DI seam + `@commerce-os/search-service` bağımlılığı.
+- **Kararlar (ADR-079 Faz B).** Kategori subtree DAHİL (recursive CTE); disjunctive faceting (facet-içi OR / facet-arası AND / kendi-facet-hariç count; `COUNT(DISTINCT
+  productId)` → duplicate şişmez); relevance = exact→prefix→FTS rank→trigram→productId (Türkçe morfoloji + edit-distance fuzzy Faz E); taban fiyat range overlap
+  (kampanyalı fiyat kapsam dışı; gap edge-case superset = güvenli yön); numaralı pagination (PUBLIC_CATALOG_MAX kullanılmaz, max pageSize 100, page ≤ 100000);
+  hata kodları (INVALID_SEARCH_QUERY/SORT/PAGINATION/FILTER/FILTER_VALUE + CATEGORY_NOT_FOUND + ATTRIBUTE_NOT_FILTERABLE; SQL mesajı sızmaz); typed facet
+  (SELECT/MULTI/COLOR/TEXT/INTEGER/DECIMAL/BOOLEAN/DATE; IMAGE/FILE hariç; sıra displayOrder→sortOrder); cache bilinçle ERTELENDİ.
+- **Testler + gate.** search-service 49 (+14 facet/pagination/selectionMode) + api-gateway 1047 (+30 parser/endpoint) + contracts 107 + queues 8; db:generate → tüm build
+  (worker/storefront/store-admin dahil) → lint → test TEMİZ.
+- **Docker gerçek-PG smoke.** İzole iki store + Elektronik→(Laptoplar,Telefonlar) ağacı + 6 typed attribute + varyant/stok/EAV seed → `rebuildStore` backfill →
+  **üretim kod yolu `provider.search` 31/31 PASS**: store-wide, kategori exact + subtree, exact/prefix/brand/searchable-attr/substring keyword, no-result,
+  tenant isolation, COLOR/numeric/boolean/variantDefining/multi-select facet, OR-within, AND-across, disjunctive count, price overlap, price_asc, stock exclude,
+  pagination determinism, duplicate-facet-no-inflation. **HTTP endpoint** (container api-gateway, 4/4 healthy): bracket filter, disjunctive facet, sort,
+  kategori/kapak hidrasyonu, 400 INVALID_SORT / 404 CATEGORY_NOT_FOUND, **allowlist sıfır sızıntı**. **EXPLAIN**: title trgm GIN (ILIKE), category btree, facet
+  storeId+productId btree, newest btree index-usable; facet = tek GroupAggregate (ürün-başına sorgu yok); yeni index GEREKMEDİ. Smoke verisi temizlendi (cascade → read-model 0/0).
+- **Ship.** Commit/push/PR/merge/deploy YAPILMADI — kod + (migration yok) worktree'de bırakıldı (brief gereği).
