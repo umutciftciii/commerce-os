@@ -132,6 +132,73 @@ export const trStorefront = {
     filterEmptyDescription: "Filtreleri temizleyip tüm koleksiyona göz atabilirsiniz.",
     filterClear: "Filtreleri temizle",
   },
+  // TODO-156B (ANALIZ-156A) — Sunucu-tarafı arama/PLP deneyimi. Facet UI 156C'de; burada
+  // arama başlığı, araç çubuğu, sıralama, sayfalama, boş/hata durumları + kart metinleri.
+  search: {
+    // Başlık / özet
+    allTitle: "Tüm ürünler",
+    allTagline: "Özenle seçilmiş, günlük yaşama uygun parçalardan oluşan güncel koleksiyon.",
+    searchTitle: "“{query}” için sonuçlar",
+    searchTagline: "Aramanızla eşleşen ürünler.",
+    categoryTagline: "Bu koleksiyondaki ürünler.",
+    // {count} ürün sayısıyla değiştirilir (aria-live ile duyurulur).
+    resultCount: "{count} ürün",
+    resultCountBusy: "Ürünler güncelleniyor…",
+    // Araç çubuğu
+    toolbarRegion: "Arama araçları",
+    resultsRegion: "Ürünler",
+    // Sıralama (yalnız backend'in desteklediği 6 anahtar)
+    sortLabel: "Sırala",
+    sortRelevance: "En uygun",
+    sortNewest: "Yeni gelenler",
+    sortPriceAsc: "Fiyat: artan",
+    sortPriceDesc: "Fiyat: azalan",
+    sortTitleAsc: "İsim: A–Z",
+    sortTitleDesc: "İsim: Z–A",
+    // Sayfalama
+    paginationLabel: "Sayfalama",
+    pagePrevious: "Önceki",
+    pageNext: "Sonraki",
+    pageFirst: "İlk sayfa",
+    pageLast: "Son sayfa",
+    // {page} / {total} ile değiştirilir.
+    pageStatus: "Sayfa {page} / {total}",
+    pageGoto: "Sayfa {page}",
+    pageCurrent: "Sayfa {page} (geçerli)",
+    // Boş durumlar (ayrıştırılmış)
+    emptyCatalogTitle: "Mağazada henüz ürün yok",
+    emptyCatalogDescription: "Katalog yayınlandığında ürünler burada listelenecek.",
+    noResultsTitle: "“{query}” için sonuç bulunamadı",
+    noResultsDescription: "Yazımı kontrol edip tekrar deneyebilir ya da tüm koleksiyona göz atabilirsiniz.",
+    noResultsGenericTitle: "Sonuç bulunamadı",
+    filteredEmptyTitle: "Seçiminize uygun ürün bulunamadı",
+    filteredEmptyDescription: "Aşağıdaki filtreleri kaldırarak tüm koleksiyona dönebilirsiniz.",
+    categoryEmptyTitle: "Bu kategoride ürün yok",
+    categoryEmptyDescription: "Bu kategori şu an boş. Tüm koleksiyona göz atabilirsiniz.",
+    activeFiltersSummary: "Uygulanan filtreler",
+    clearSearch: "Aramayı temizle",
+    clearFilters: "Filtreleri temizle",
+    viewAll: "Tüm ürünler",
+    // Hata
+    errorTitle: "Ürünler yüklenemedi",
+    errorDescription: "Şu an kataloğa ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
+    errorRetry: "Tekrar dene",
+    categoryNotFoundTitle: "Kategori bulunamadı",
+    categoryNotFoundDescription: "Bu kategori kaldırılmış olabilir. Tüm ürünlere göz atın.",
+    // Kart
+    discountBadge: "%{percent}",
+    outOfStock: "Tükendi",
+    // {count} ek renk sayısı.
+    swatchMore: "+{count}",
+    // {label} renk adı.
+    swatchLabel: "Renk: {label}",
+    swatchGroupLabel: "Renk seçenekleri",
+    // Breadcrumb
+    breadcrumbHome: "Ana sayfa",
+    breadcrumbProducts: "Ürünler",
+    // Yükleniyor
+    loadingLabel: "Ürünler yükleniyor",
+  },
   detail: {
     breadcrumbProducts: "Ürünler",
     notFoundTitle: "Ürün bulunamadı",

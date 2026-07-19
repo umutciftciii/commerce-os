@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import type { LanguageSwitcherLabels } from "@commerce-os/ui";
 import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
@@ -5,6 +6,7 @@ import type { CustomerAccount } from "@commerce-os/api-client";
 import { Container } from "../ui";
 import { AccountMenu } from "../account/account-menu";
 import { MobileMenu } from "./mobile-menu";
+import { HeaderSearch, HeaderSearchFallback } from "./header-search";
 import { LangToggle } from "./lang-toggle";
 
 /**
@@ -77,22 +79,14 @@ export function SiteHeader({
 
         {/* Sag: arama + hesap + favoriler + sepet + dil */}
         <div className="flex flex-1 items-center justify-end gap-4 sm:gap-5">
-          {/* MOCK: Arama otomatik tamamlama yok — form yalnizca ürün listesine yönlendirir, bkz. todo.md. */}
-          <form action="/products" className="hidden items-center md:flex" role="search">
-            <label htmlFor="site-search" className="sr-only">
-              {s.searchSubmit}
-            </label>
-            <input
-              id="site-search"
-              name="q"
-              type="search"
+          {/* TODO-156B — Gerçek header arama: submit → SSR PLP (/products?q=). Suspense: useSearchParams. */}
+          <Suspense fallback={<HeaderSearchFallback placeholder={s.searchPlaceholder} submitLabel={s.searchSubmit} />}>
+            <HeaderSearch
               placeholder={s.searchPlaceholder}
-              className="h-9 w-40 rounded-none border-b border-line bg-transparent px-1 text-sm text-ink placeholder:text-ink-subtle focus:border-ink focus:outline-none lg:w-52"
+              submitLabel={s.searchSubmit}
+              className="hidden items-center md:flex"
             />
-            <button type="submit" aria-label={s.searchSubmit} className="ml-1 text-ink-muted hover:text-ink">
-              <SearchIcon />
-            </button>
-          </form>
+          </Suspense>
 
           <div className="hidden text-xs font-medium uppercase tracking-wideish text-ink-muted sm:block">
             <AccountMenu customer={customer} t={t.account} />
@@ -127,15 +121,6 @@ export function SiteHeader({
         </div>
       </Container>
     </header>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12.5 12.5L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }
 

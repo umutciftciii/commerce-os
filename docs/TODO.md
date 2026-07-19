@@ -1419,3 +1419,12 @@
 - TODO-155.2 — Faz 2C-9B: Campaign Badge Snapshot + Reconciliation (PLANLANDI). 155.1 listing projection'ına kampanya rozeti snapshot'ı: pure `selectPublicCampaignDisplay`
   + record tipleri paylaşılan pakete taşınır (F4A "tek formül"); read-time pencere bastırma (badge validity window) + kampanya lifecycle event reindex + Omnibus/kampanya
   günlük reconciliation sweep worker. Bu faza BAŞLANMADI.
+
+- TODO-156B — Faz 2C-8C: Storefront Search Experience Foundation (DONE · worktree; commit/PR/deploy YOK — brief gereği). PLP (`/products`) URL-state + RSC + public
+  search endpoint temeline geçti: tek-otorite URL codec (`lib/search/url-state.ts`, gateway parser'ıyla birebir + kanonik serialize), sunucu-yalnız BFF (allowlist parse),
+  biçimleme-yalnız listing adapter, search-özel ProductCard (swatch preview + secondary hover; varyant seçimi yok), numaralı SSR pagination (Load More ertelendi), gerçek
+  header arama (mock kaldırıldı), loading/empty(4 durum)/error(route boundary) UX, SEO temeli (noindex arama+filtre / canonical). Eski `ProductListingView` (istemci
+  filtre/slice) silindi; catalog/PDP/eski `.../products` ucu KORUNDU. Gate: storefront 273/273 (+75 test) · i18n 47 (TR/EN parity) · contracts 110 · next build yeşil ·
+  lint temiz · **Docker runtime smoke ALL PASS** (PLP SSR · header arama · sort · pagination · geri/ileri · swatch · mobil 2-kolon · PDP/katalog regresyon). YENİ MIGRATION
+  YOK. **KAPSAM DIŞI:** facet UI (→156C) · Load More (→156C/D) · kampanya rozeti (→155.2) · kategori SEO landing + JSON-LD (→156D) · autocomplete/suggest/recent (backend yok).
+  Bkz. PHASE_LOG Faz 2C-8C + TD-051.

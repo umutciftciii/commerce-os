@@ -1,14 +1,19 @@
 import { Container, Skeleton } from "@commerce-os/ui";
 import { ProductCardSkeleton } from "../../components/ui";
+import { getStorefrontDict } from "../../lib/i18n";
 
 /**
- * Liste sayfasi yuklenirken gosterilen premium iskelet (Adim 3). Canli katalog
- * sunucu tarafinda cozulurken bos beyaz ekran yerine editoryel yapinin (baslik +
- * arac cubugu + 4:5 kart grid) onizlemesi gosterilir.
+ * PLP/arama yüklenirken gösterilen premium iskelet (TODO-156B). SSR fetch çözülürken boş beyaz ekran yerine
+ * editoryel yapının (başlık + araç çubuğu + 4:5 kart grid) önizlemesi. `aria-busy` + sr-only status ile ekran
+ * okuyucuya bildirilir; iskelet kart ölçüsü gerçek kartla aynı (layout shift minimum). Tam ekran spinner YOK.
  */
-export default function ProductListingLoading() {
+export default async function ProductListingLoading() {
+  const s = (await getStorefrontDict()).search;
   return (
-    <Container className="py-16 lg:py-20">
+    <Container className="py-16 lg:py-20" aria-busy="true">
+      <span role="status" className="sr-only">
+        {s.loadingLabel}
+      </span>
       <div className="max-w-2xl">
         <Skeleton className="h-2.5 w-24 rounded-none" />
         <Skeleton className="mt-3 h-8 w-56 rounded-none" />
