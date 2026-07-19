@@ -12,7 +12,7 @@
  * `searchVector` DB-generated (tsvector) → create/update input'una GİRMEZ (Prisma Unsupported; DB üretir).
  */
 
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { TransactionClient } from "@commerce-os/db";
 import type {
   IndexAction,
@@ -20,11 +20,16 @@ import type {
   SearchBuildResult,
   SearchOptionRef,
   SearchSourceCategoryAttribute,
+  SearchSourceImage,
+  SearchSourceMediaOption,
   SearchSourceProduct,
   SearchSourceProductAttributeValue,
   SearchSourceVariant,
   SearchSourceVariantAttributeValue,
 } from "./types.js";
+
+/** TODO-155.1 — EU Omnibus penceresi (gün). Son 30 günün en düşük satış fiyatı (public DTO ile aynı). */
+const OMNIBUS_WINDOW_DAYS = 30;
 
 /** api-gateway/worker/backfill tarafından tüketilen IO portu (fake ile birim-test edilebilir). */
 export interface SearchDataAccess {
@@ -69,6 +74,8 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           status: true,
           priceVisibility: true,
           primaryCategoryId: true,
+          // TODO-155.1 — media-tanımlayıcı eksen (Renk) → swatch projection kaynağı.
+          mediaDefiningAttributeId: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -77,10 +84,17 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
 
       const foundIds = products.map((p) => p.id);
 
-      // (2) ACTIVE varyantlar.
+      // (2) ACTIVE varyantlar. TODO-155.1: compareAtMinor da yüklenir (kart üstü-çizili + indirim%).
       const variants = await client.productVariant.findMany({
         where: { storeId, productId: { in: foundIds }, status: "ACTIVE" },
-        select: { id: true, productId: true, status: true, priceMinor: true, currency: true },
+        select: {
+          id: true,
+          productId: true,
+          status: true,
+          priceMinor: true,
+          compareAtMinor: true,
+          currency: true,
+        },
       });
       const variantIds = variants.map((v) => v.id);
       const variantToProduct = new Map(variants.map((v) => [v.id, v.productId]));
@@ -173,16 +187,107 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
         vavByProduct.set(productId, arr);
       }
 
+      // ── TODO-155.1 — Listing projection kaynakları (bounded batch; chunk başına SABİT sorgu, N+1 YOK) ──
+
+      // (7) EU Omnibus: son 30 günün en düşük SATIŞ fiyatı (variant başına). Public DTO ile aynı groupBy,
+      // ama variantId'ye scope'lu (tüm store değil). `since` clock IO katmanında çözülür → builder SAF kalır.
+      const since = new Date(Date.now() - OMNIBUS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      const priceChanges =
+        variantIds.length > 0
+          ? await client.productPriceChange.groupBy({
+              by: ["variantId"],
+              where: { storeId, variantId: { in: variantIds }, createdAt: { gte: since }, newPriceMinor: { not: null } },
+              _min: { newPriceMinor: true },
+            })
+          : [];
+      const lowestByVariant = new Map<string, number>();
+      for (const pc of priceChanges) {
+        if (pc._min.newPriceMinor !== null) lowestByVariant.set(pc.variantId, pc._min.newPriceMinor);
+      }
+
+      // (8) Ürün görselleri (ProductImage + MediaAsset). Kart primary/secondary + swatch kapak; storageKey IÇ.
+      const productImages = await client.productImage.findMany({
+        where: { storeId, productId: { in: foundIds } },
+        select: {
+          productId: true,
+          mediaId: true,
+          position: true,
+          optionId: true,
+          attributeDefinitionId: true,
+          media: { select: { storageKey: true, altText: true, width: true, height: true } },
+        },
+      });
+      const imagesByProduct = groupBy(productImages, (img) => img.productId);
+
+      // (9) Media-tanımlayıcı eksen option meta'sı (swatch label/colorHex/sortOrder/status). Tenant: bu store
+      // + PLATFORM (storeId null) option'ları. ARCHIVED dahil yüklenir (builder ACTIVE filtreler).
+      const mediaAxisIds = [
+        ...new Set(products.map((p) => p.mediaDefiningAttributeId).filter((v): v is string => v !== null)),
+      ];
+      const mediaAxisOptions =
+        mediaAxisIds.length > 0
+          ? await client.attributeOption.findMany({
+              where: {
+                attributeDefinitionId: { in: mediaAxisIds },
+                OR: [{ storeId }, { storeId: null }],
+              },
+              select: {
+                attributeDefinitionId: true,
+                id: true,
+                value: true,
+                label: true,
+                colorHex: true,
+                sortOrder: true,
+                status: true,
+              },
+            })
+          : [];
+      const optionsByAxis = groupBy(mediaAxisOptions, (o) => o.attributeDefinitionId);
+
+      // (10) Varyant → media-eksen option değeri (ProductVariantOptionValue; ADR-072). Swatch "aktif varyant"
+      // filtresi + default swatch. Yalnız media ekseni tanımlarına scope'lu.
+      const variantMediaOptions =
+        mediaAxisIds.length > 0 && variantIds.length > 0
+          ? await client.productVariantOptionValue.findMany({
+              where: { storeId, attributeDefinitionId: { in: mediaAxisIds }, variantId: { in: variantIds } },
+              select: { variantId: true, optionId: true },
+            })
+          : [];
+      const mediaOptionByVariant = new Map(variantMediaOptions.map((r) => [r.variantId, r.optionId]));
+
       // Assemble per product.
       for (const p of products) {
         const productVariants: SearchSourceVariant[] = (variantsByProduct.get(p.id) ?? []).map((v) => ({
           id: v.id,
           status: v.status,
           priceMinor: v.priceMinor,
+          compareAtMinor: v.compareAtMinor,
           currency: v.currency,
           available: availableByVariant.has(v.id) ? (availableByVariant.get(v.id) as number) : null,
+          lowestRecentPriceMinor: lowestByVariant.has(v.id) ? (lowestByVariant.get(v.id) as number) : null,
+          mediaOptionId: mediaOptionByVariant.get(v.id) ?? null,
         }));
         const cats = p.primaryCategoryId ? caByCategory.get(p.primaryCategoryId) ?? [] : [];
+        const images: SearchSourceImage[] = (imagesByProduct.get(p.id) ?? []).map((img) => ({
+          mediaId: img.mediaId,
+          storageKey: img.media.storageKey,
+          altText: img.media.altText,
+          width: img.media.width,
+          height: img.media.height,
+          position: img.position,
+          optionId: img.optionId,
+          attributeDefinitionId: img.attributeDefinitionId,
+        }));
+        const axisOptions: SearchSourceMediaOption[] = p.mediaDefiningAttributeId
+          ? (optionsByAxis.get(p.mediaDefiningAttributeId) ?? []).map((o) => ({
+              id: o.id,
+              value: o.value,
+              label: o.label,
+              colorHex: o.colorHex,
+              sortOrder: o.sortOrder,
+              status: o.status,
+            }))
+          : [];
         result.set(p.id, {
           id: p.id,
           storeId: p.storeId,
@@ -199,6 +304,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           categoryAttributes: cats.map(toCategoryAttribute),
           productAttributeValues: (pavByProduct.get(p.id) ?? []).map(toProductAttributeValue),
           variantAttributeValues: vavByProduct.get(p.id) ?? [],
+          mediaDefiningAttributeId: p.mediaDefiningAttributeId,
+          images,
+          mediaAxisOptions: axisOptions,
         });
       }
       return result;
@@ -210,6 +318,11 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
         return { action: "removed", facetCount: 0 };
       }
       const { document, facets } = result;
+      // TODO-155.1 — nullable Json kolon: null → SQL NULL (Prisma.DbNull); obje → InputJsonValue.
+      const listingInput =
+        document.listing === null
+          ? Prisma.DbNull
+          : (document.listing as unknown as Prisma.InputJsonValue);
       await client.$transaction(async (tx) => {
         // Facet delete-and-replace (eski satırlar kalmaz).
         await tx.productFacetValue.deleteMany({ where: { storeId, productId } });
@@ -231,6 +344,10 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             hasStock: document.hasStock,
             availability: document.availability,
             variantCount: document.variantCount,
+            compareAtMinor: document.compareAtMinor,
+            discountPercent: document.discountPercent,
+            omnibusPreviousPriceMinor: document.omnibusPreviousPriceMinor,
+            listing: listingInput,
             productCreatedAt: document.productCreatedAt,
             productUpdatedAt: document.productUpdatedAt,
             revision: 0,
@@ -248,6 +365,10 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             hasStock: document.hasStock,
             availability: document.availability,
             variantCount: document.variantCount,
+            compareAtMinor: document.compareAtMinor,
+            discountPercent: document.discountPercent,
+            omnibusPreviousPriceMinor: document.omnibusPreviousPriceMinor,
+            listing: listingInput,
             productCreatedAt: document.productCreatedAt,
             productUpdatedAt: document.productUpdatedAt,
             revision: { increment: 1 },

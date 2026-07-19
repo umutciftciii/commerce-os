@@ -33,12 +33,26 @@ function source(overrides: Partial<SearchSourceProduct> = {}): SearchSourceProdu
     categoryAttributes: [],
     productAttributeValues: [],
     variantAttributeValues: [],
+    // TODO-155.1 — listing projection kaynakları (varsayılan: yok → swatch/görsel üretilmez).
+    mediaDefiningAttributeId: null,
+    images: [],
+    mediaAxisOptions: [],
     ...overrides,
   };
 }
 
 function variant(o: Partial<SearchSourceVariant> = {}): SearchSourceVariant {
-  return { id: "v1", status: "ACTIVE", priceMinor: 1000, currency: "TRY", available: 5, ...o };
+  return {
+    id: "v1",
+    status: "ACTIVE",
+    priceMinor: 1000,
+    compareAtMinor: null,
+    currency: "TRY",
+    available: 5,
+    lowestRecentPriceMinor: null,
+    mediaOptionId: null,
+    ...o,
+  };
 }
 
 function categoryAttr(o: Partial<SearchSourceCategoryAttribute>): SearchSourceCategoryAttribute {

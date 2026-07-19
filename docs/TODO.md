@@ -1402,3 +1402,20 @@
   tüketen storefront PLP: kategori rotaları + URL-driven filtre (query-param), filter sidebar (dinamik facet render + count), mobile drawer, aktif-filtre çipleri,
   breadcrumb, result count, numaralı pagination (+opsiyonel "daha fazla yükle" progressive enhancement), SSR/ISR + cache tag. Autocomplete/synonym (Faz E),
   OpenSearch (Faz F) AYRI. Bu faza BAŞLANMADI.
+
+- TODO-156A — Storefront Search Experience Mimarisi (ANALİZ, kod yok). Mevcut storefront + tamamlanmış search backend analizi → enterprise PLP/filter/URL-state/SEO/
+  a11y/component mimarisi + fazlara bölünmüş plan (156B/156C/156D). Çıktı: `ANALIZ-156A.md`. **R1 riski** (arama kartının ticari/görsel zenginlik kaybı) → TODO-155.1.
+
+- TODO-155.1 — Faz 2C-9: Search Listing Projection Enrichment (ADR-079 Ek). **DONE (worktree; commit/PR/deploy YOK — brief gereği).** TODO-156A R1'i çözer:
+  arama kartı için bounded/tenant-safe/public-safe listing projection'ı **index anında** snapshot'lanarak read-model'de tutulur (ikinci hydration turu YOK; read-model-only
+  korunur). `ProductSearchDocument` additive: `compareAtMinor`/`discountPercent`/`omnibusPreviousPriceMinor` (typed) + `listing` jsonb (primary/secondary görsel +
+  swatches[] + swatchTotalCount). Migration `20260719130000` **additive**. Ticari snapshot (tek indirim formülü; Omnibus yalnız indirim aktifken, sahte yok) + swatch
+  (media-tanımlayıcı eksen; ACTIVE option ∩ ACTIVE varyant; dedupe/sortOrder/archived-inactive hariç/görsel fallback/deterministik default/bounded 8+total) + görsel
+  (storageKey IÇ; url route'ta türetilir; eski resolveCovers sorgusu kaldırıldı). DTO additive + allowlist (storageKey/mediaId sızmaz). **Gate:** search-service 70
+  (+21) · contracts 110 (+3) · api-gateway 1047 · full build 24/24 · typecheck · lint TEMİZ. **Docker gerçek-PG smoke ALL PASS** (backfill 3 indexed · 3-swatch gerçek
+  veri · compareAt→discount%20 yansıma · idempotency revision 0→1 · allowlist sıfır sızıntı; smoke verisi geri alındı). **KAPSAM DIŞI (→155.2):** kampanya/indirim rozeti
+  snapshot'ı (F4A motoru paylaşımı) · zamanlanmış reconciliation sweep kodu (strateji dokümante) · promotion-aware filter/sort · Redis cache. Bkz. TD-050.
+
+- TODO-155.2 — Faz 2C-9B: Campaign Badge Snapshot + Reconciliation (PLANLANDI). 155.1 listing projection'ına kampanya rozeti snapshot'ı: pure `selectPublicCampaignDisplay`
+  + record tipleri paylaşılan pakete taşınır (F4A "tek formül"); read-time pencere bastırma (badge validity window) + kampanya lifecycle event reindex + Omnibus/kampanya
+  günlük reconciliation sweep worker. Bu faza BAŞLANMADI.

@@ -61,6 +61,24 @@ const sampleResult: SearchResult = {
       availability: "IN_STOCK",
       inStock: true,
       variantCount: 3,
+      // TODO-155.1 — Listing projection snapshot (route storageKey → public url türetir; storageKey sızmaz).
+      compareAtMinor: 200000,
+      discountPercent: 25,
+      omnibusPreviousPriceMinor: 140000,
+      listing: {
+        primaryImage: { storageKey: "stores/store_demo/products/a.webp", altText: "Kapak", width: 800, height: 1000 },
+        secondaryImage: { storageKey: "stores/store_demo/products/b.webp", altText: null, width: 800, height: 1000 },
+        swatches: [
+          {
+            optionId: "opt_black",
+            label: "Siyah",
+            colorHex: "#000000",
+            isDefault: true,
+            image: { storageKey: "stores/store_demo/products/black.webp", altText: null, width: null, height: null },
+          },
+        ],
+        swatchTotalCount: 1,
+      },
     },
   ],
   facets: [
@@ -204,6 +222,21 @@ describe("GET /public/stores/:slug/search — başarı + ALLOWLIST", () => {
       inStock: true,
     });
     expect(p.image).toMatchObject({ url: "/media/stores/store_demo/products/a.webp", altText: "Kapak", position: 0 });
+
+    // TODO-155.1 — Listing projection: ticari alanlar + swatch + secondary görsel (read-model snapshot'ından).
+    expect(p.compareAtMinor).toBe(200000);
+    expect(p.discountPercent).toBe(25);
+    expect(p.omnibusPreviousPriceMinor).toBe(140000);
+    expect(p.secondaryImage).toMatchObject({ url: "/media/stores/store_demo/products/b.webp", position: 1 });
+    expect(p.swatchTotalCount).toBe(1);
+    expect(p.swatches).toHaveLength(1);
+    expect(p.swatches[0]).toMatchObject({
+      optionId: "opt_black",
+      label: "Siyah",
+      colorHex: "#000000",
+      imageUrl: "/media/stores/store_demo/products/black.webp",
+      isDefault: true,
+    });
   });
 
   it("ALLOWLIST: internal alanlar (costMinor/storageKey/searchText/revision/primaryCategoryId) sızmaz", async () => {
@@ -229,5 +262,11 @@ describe("GET /public/stores/:slug/search — başarı + ALLOWLIST", () => {
     // image içinde de ham medya alanı yok.
     expect(p.image).not.toHaveProperty("mediaId");
     expect(p.image).not.toHaveProperty("storageKey");
+    // TODO-155.1 — Listing projection ALLOWLIST: swatch/secondary görsel storageKey/mediaId taşımaz; IÇ
+    // `listing` snapshot adı DTO'ya çıkmaz (yalnız düz alanlar + swatches).
+    expect(p).not.toHaveProperty("listing");
+    expect(p.secondaryImage).not.toHaveProperty("storageKey");
+    expect(p.swatches[0]).not.toHaveProperty("storageKey");
+    expect(p.swatches[0]).not.toHaveProperty("image");
   });
 });

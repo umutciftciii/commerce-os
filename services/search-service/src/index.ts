@@ -17,7 +17,7 @@ export const searchServiceBoundary = {
 
 export * from "./types.js";
 export { normalizeText, buildSearchText } from "./normalize.js";
-export { buildSearchDocument } from "./document-builder.js";
+export { buildSearchDocument, MAX_LISTING_SWATCHES } from "./document-builder.js";
 export {
   searchReadModel,
   assembleFacets,

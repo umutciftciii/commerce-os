@@ -226,7 +226,7 @@ import {
   createDefaultSearchProvider,
   type SearchProvider,
 } from "@commerce-os/search-service";
-import { registerPublicSearchRoutes, type SearchCoverImage } from "./search/routes.js";
+import { registerPublicSearchRoutes } from "./search/routes.js";
 import {
   PAYMENT_SCENARIOS,
   PaymentConfigError,
@@ -5097,21 +5097,9 @@ export function createServer(
     resolvePublicStore,
     search: (storeId, query) => searchProvider.search(storeId, query),
     resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
-    resolveCovers: async (storeId, productIds) => {
-      const map = new Map<string, SearchCoverImage>();
-      if (productIds.length === 0) return map;
-      const coverMap = await dataAccess.listProductImages(storeId, productIds, true);
-      for (const [productId, images] of coverMap) {
-        const cover = images[0];
-        if (!cover) continue;
-        map.set(productId, {
-          url: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, cover.storageKey),
-          altText: cover.altText,
-          position: cover.position,
-        });
-      }
-      return map;
-    },
+    // TODO-155.1 — Kart görselleri read-model listing snapshot'ından; url runtime'da storageKey'den türetilir
+    // (ProductImage sorgusu YOK). storageKey/mediaId DTO'ya sızmaz (tek çıkış: resolveMediaUrl).
+    toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
   });
 
   // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).

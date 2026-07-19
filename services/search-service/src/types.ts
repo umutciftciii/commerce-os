@@ -43,8 +43,21 @@ export interface SearchSourceVariant {
   id: string;
   status: SearchVariantStatus;
   priceMinor: number;
+  /** TODO-155.1 — compareAt (liste/showroom fiyati); yoksa/≤fiyat null. Kart ustu-cizili + indirim% icin. */
+  compareAtMinor: number | null;
   currency: string;
   available: number | null;
+  /**
+   * TODO-155.1 — EU Omnibus: bu varyantin son 30 gundeki en dusuk SATIS fiyati (data katmani
+   * `ProductPriceChange` groupBy'dan doldurur; `now`-pencere data katmaninda cozulur → builder SAF kalir).
+   * Yoksa null. Yalniz indirim aktifken karta yansir.
+   */
+  lowestRecentPriceMinor: number | null;
+  /**
+   * TODO-155.1 — Bu varyantin media-tanimlayici eksendeki (Renk) option id'si; urunun media-ekseni yoksa
+   * ya da varyantin o eksende degeri yoksa null. Swatch "aktif varyanti olan renk" filtresi + default swatch icin.
+   */
+  mediaOptionId: string | null;
 }
 
 /**
@@ -85,6 +98,32 @@ export interface SearchSourceVariantAttributeValue {
   option: SearchOptionRef | null;
 }
 
+/**
+ * TODO-155.1 — Bir ürün görseli (ProductImage + MediaAsset join). `storageKey` IÇ alandir (public url
+ * runtime'da resolveMediaUrl ile turetilir; DTO'ya SIZMAZ). `optionId` = media-tanimlayici eksen (Renk)
+ * option'i; null = paylasilan (tum varyant gruplarinda). `position` ASC = kapak sirasi.
+ */
+export interface SearchSourceImage {
+  mediaId: string;
+  storageKey: string;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+  position: number;
+  optionId: string | null;
+  attributeDefinitionId: string | null;
+}
+
+/** TODO-155.1 — Media-tanimlayici eksen (Renk) option'i (swatch meta). ARCHIVED option swatch'a GIRMEZ. */
+export interface SearchSourceMediaOption {
+  id: string;
+  value: string;
+  label: string;
+  colorHex: string | null;
+  sortOrder: number;
+  status: SearchAttributeStatus;
+}
+
 /** Bir ürünün arama dokümanını üretmek için gereken TÜM kaynak (data katmanı doldurur). */
 export interface SearchSourceProduct {
   id: string;
@@ -102,11 +141,49 @@ export interface SearchSourceProduct {
   categoryAttributes: SearchSourceCategoryAttribute[];
   productAttributeValues: SearchSourceProductAttributeValue[];
   variantAttributeValues: SearchSourceVariantAttributeValue[];
+  /** TODO-155.1 — Media-tanimlayici eksen (Renk) definition id'si; null = klasik galeri (swatch yok). */
+  mediaDefiningAttributeId: string | null;
+  /** TODO-155.1 — Urun galerisi (ProductImage + MediaAsset); position ASC. Kart primary/secondary + swatch kapak. */
+  images: SearchSourceImage[];
+  /** TODO-155.1 — Media ekseni option meta'si (swatch label/colorHex/sortOrder/status). */
+  mediaAxisOptions: SearchSourceMediaOption[];
 }
 
 // ── Builder çıktısı — data katmanının DB'ye yazdığı denormalize satırlar ──
 
 export type SearchAvailability = "IN_STOCK" | "OUT_OF_STOCK";
+
+/**
+ * TODO-155.1 — Kart görseli (IÇ storageKey + boyut). Public url route'ta resolveMediaUrl ile turetilir;
+ * `storageKey` DTO'ya SIZMAZ. width/height varsa layout/placeholder (CLS) icin tasinir.
+ */
+export interface SearchListingImage {
+  storageKey: string;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+/** TODO-155.1 — Tek swatch (media-tanimlayici eksen değeri). `image` yoksa route primaryImage'e fallback eder. */
+export interface SearchListingSwatch {
+  optionId: string;
+  label: string;
+  colorHex: string | null;
+  isDefault: boolean;
+  image: SearchListingImage | null;
+}
+
+/**
+ * TODO-155.1 — BOUNDED kart medya/swatch projection'i (ProductSearchDocument.listing jsonb). Yalniz kart
+ * gorunumu; tam galeri/variant payload DEGIL. swatches bounded (MAX_LISTING_SWATCHES); `swatchTotalCount`
+ * tam sayidir (>swatches.length ise vitrin "+N" gosterir).
+ */
+export interface SearchListingProjection {
+  primaryImage: SearchListingImage | null;
+  secondaryImage: SearchListingImage | null;
+  swatches: SearchListingSwatch[];
+  swatchTotalCount: number;
+}
 
 export interface SearchDocumentData {
   storeId: string;
@@ -123,6 +200,11 @@ export interface SearchDocumentData {
   hasStock: boolean;
   availability: SearchAvailability;
   variantCount: number;
+  // TODO-155.1 — Listing projection (kart ticari + medya snapshot'i; hepsi türetilmiş, source-of-truth değil).
+  compareAtMinor: number | null;
+  discountPercent: number | null;
+  omnibusPreviousPriceMinor: number | null;
+  listing: SearchListingProjection | null;
   productCreatedAt: Date;
   productUpdatedAt: Date;
 }
@@ -302,6 +384,12 @@ export interface SearchResultItem {
   availability: SearchAvailability;
   inStock: boolean;
   variantCount: number;
+  // TODO-155.1 — Listing projection (read-model snapshot; kart bunu ikinci hydration turu OLMADAN render eder).
+  // `listing.*.storageKey` IÇ alandir; api-gateway route public url'e cevirir (DTO'ya storageKey sizmaz).
+  compareAtMinor: number | null;
+  discountPercent: number | null;
+  omnibusPreviousPriceMinor: number | null;
+  listing: SearchListingProjection | null;
 }
 
 /** Numaralı pagination özeti (§10). */

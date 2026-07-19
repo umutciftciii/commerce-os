@@ -17,13 +17,6 @@ import { publicSearchResponseSchema } from "@commerce-os/contracts";
 import { SearchError, type SearchQuery, type SearchResult } from "@commerce-os/search-service";
 import { parseSearchQuery } from "./query-parser.js";
 
-/** Dönen sayfa için kapak görseli (ALLOWLIST: yalnız türetilmiş url + altText + position). */
-export interface SearchCoverImage {
-  url: string;
-  altText: string | null;
-  position: number;
-}
-
 export interface PublicSearchRoutesDeps {
   /** Store slug → aktif store (yoksa null → 404). */
   resolvePublicStore: (slug: string) => Promise<{ id: string } | null>;
@@ -31,8 +24,12 @@ export interface PublicSearchRoutesDeps {
   search: (storeId: string, query: SearchQuery) => Promise<SearchResult>;
   /** Sayfadaki kategori id'leri → görünen ad (bounded; display-only). */
   resolveCategoryNames: (storeId: string, categoryIds: string[]) => Promise<Map<string, string>>;
-  /** Sayfadaki ürün id'leri → kapak görseli (bounded batched; N+1 yok, display-only). */
-  resolveCovers: (storeId: string, productIds: string[]) => Promise<Map<string, SearchCoverImage>>;
+  /**
+   * TODO-155.1 — IÇ storageKey → public medya URL'i (resolveMediaUrl + MEDIA_PUBLIC_BASE_URL). Kart görselleri
+   * artık read-model listing snapshot'ından gelir (ProductImage sorgusu YOK); yalnız url runtime'da türetilir.
+   * storageKey DTO'ya ASLA yazılmaz — bu fonksiyon tek çıkış noktasıdır.
+   */
+  toPublicMediaUrl: (storageKey: string) => string;
 }
 
 const searchParam = z.object({ storeSlug: z.string().min(1).max(120) });
@@ -70,8 +67,8 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
       throw error; // beklenmeyen → global handler (500).
     }
 
-    // 4) Sayfa hidrasyonu (bounded; display-only): kategori adları + kapak görselleri.
-    const productIds = result.items.map((item) => item.productId);
+    // 4) Sayfa hidrasyonu (bounded; display-only): YALNIZ kategori adları. Kart görselleri/ticari alanlar
+    // read-model listing snapshot'ından gelir (ProductImage/Variant/Promotion join'i YOK — ADR-079 kilidi).
     const categoryIds = [
       ...new Set(
         result.items
@@ -79,13 +76,19 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
           .filter((id): id is string => id !== null),
       ),
     ];
-    const [categoryNames, covers] = await Promise.all([
-      categoryIds.length > 0 ? deps.resolveCategoryNames(store.id, categoryIds) : new Map<string, string>(),
-      productIds.length > 0 ? deps.resolveCovers(store.id, productIds) : new Map<string, SearchCoverImage>(),
-    ]);
+    const categoryNames =
+      categoryIds.length > 0
+        ? await deps.resolveCategoryNames(store.id, categoryIds)
+        : new Map<string, string>();
+
+    // IÇ listing görselini → public ALLOWLIST görseli (url türetilir; storageKey/mediaId SIZMAZ).
+    const toPublicImage = (
+      img: { storageKey: string; altText: string | null } | null,
+      position: number,
+    ) => (img ? { url: deps.toPublicMediaUrl(img.storageKey), altText: img.altText, position, variantOptionId: null } : null);
 
     const products = result.items.map((item) => {
-      const cover = covers.get(item.productId);
+      const listing = item.listing;
       return {
         id: item.productId,
         slug: item.slug,
@@ -99,9 +102,20 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
         currency: item.currency,
         availability: item.availability,
         inStock: item.inStock,
-        image: cover
-          ? { url: cover.url, altText: cover.altText, position: cover.position, variantOptionId: null }
-          : null,
+        image: toPublicImage(listing?.primaryImage ?? null, 0),
+        // TODO-155.1 — Listing projection (read-model snapshot; ikinci hydration turu YOK).
+        compareAtMinor: item.compareAtMinor,
+        discountPercent: item.discountPercent,
+        omnibusPreviousPriceMinor: item.omnibusPreviousPriceMinor,
+        secondaryImage: toPublicImage(listing?.secondaryImage ?? null, 1),
+        swatches: (listing?.swatches ?? []).map((swatch) => ({
+          optionId: swatch.optionId,
+          label: swatch.label,
+          colorHex: swatch.colorHex,
+          imageUrl: swatch.image ? deps.toPublicMediaUrl(swatch.image.storageKey) : null,
+          isDefault: swatch.isDefault,
+        })),
+        swatchTotalCount: listing?.swatchTotalCount ?? 0,
       };
     });
 
