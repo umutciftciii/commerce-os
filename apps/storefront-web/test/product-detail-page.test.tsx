@@ -34,7 +34,7 @@ vi.mock("../lib/server/catalog", () => ({
   getStorefrontProductByHandle: (handle: string) => byHandle(handle),
 }));
 
-import ProductDetailPage from "../app/products/[handle]/page.js";
+import ProductDetailPage, { generateMetadata } from "../app/products/[handle]/page.js";
 
 const onlineSales = {
   salesMode: "ONLINE",
@@ -220,6 +220,30 @@ describe("storefront · product detail (decision center)", () => {
     byHandle.mockResolvedValue({ ok: true, data: null });
     // notFound() fırlatır → Next 404 sınırı (app/not-found.tsx). Soft-200 boş durum RENDER EDİLMEZ.
     await expect(render("nope")).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
+  });
+
+  // TODO-156D HOTFIX (soft-404) — generateMetadata metadata fazında notFound() fırlatır → gerçek HTTP 404
+  // (HTML shell flush ÖNCESİ). Gateway 5xx/hata 404'e ÇEVRİLMEZ; geçerli üründe metadata bozulmaz.
+  it("generateMetadata: olmayan üründe notFound() fırlatır (metadata fazı → gerçek 404)", async () => {
+    byHandle.mockResolvedValue({ ok: true, data: null });
+    await expect(
+      generateMetadata({ params: Promise.resolve({ handle: "nope" }) }),
+    ).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
+  });
+
+  it("generateMetadata: gateway hatası (!ok) 404 DEĞİL → noindex meta döner (5xx 404'e çevrilmez)", async () => {
+    byHandle.mockResolvedValue({ ok: false, reason: "error" });
+    const meta = await generateMetadata({ params: Promise.resolve({ handle: "x" }) });
+    // notFound() FIRLAMADI; noindex minimal meta.
+    expect(meta.robots).toMatchObject({ index: false, follow: false });
+  });
+
+  it("generateMetadata: geçerli üründe canonical + title korunur (regresyon yok)", async () => {
+    byHandle.mockResolvedValue({ ok: true, data: detail() });
+    const meta = await generateMetadata({ params: Promise.resolve({ handle: "demo-hoodie" }) });
+    expect(meta.alternates?.canonical).toBe("/products/demo-hoodie");
+    expect(meta.robots).toMatchObject({ index: true, follow: true });
+    expect(meta.title).toBeTruthy();
   });
 
   it("renders English copy with a locale=en cookie", async () => {
