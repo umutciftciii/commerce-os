@@ -14,8 +14,16 @@ vi.mock("next/headers", () => ({
 
 // BuyBox (client) artik useRouter + add-to-cart Server Action kullanir; statik
 // markup smoke'unda router/aksiyon davranisi calistirilmaz, yalniz mount edilir.
+// TODO-156D — notFound() app-router sınırını tetikler; testte tanınabilir bir hata fırlatan mock (gerçek
+// Next davranışını taklit: notFound çağrısı render'ı keser → 404 sınırı devreye girer).
+class NotFoundError extends Error {
+  digest = "NEXT_NOT_FOUND";
+}
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  notFound: () => {
+    throw new NotFoundError("NEXT_NOT_FOUND");
+  },
 }));
 vi.mock("../lib/server/cart-actions", () => ({
   addToCartAction: vi.fn(),
@@ -87,6 +95,8 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     appointmentNote: null,
     images: [],
     mediaDefiningAttributeId: null,
+    seoTitle: null,
+    seoDescription: null,
     related: [
       {
         handle: "demo-tote",
@@ -206,10 +216,10 @@ describe("storefront · product detail (decision center)", () => {
     expect(html).toContain("disabled");
   });
 
-  it("renders a friendly not-found state for an unknown handle", async () => {
+  it("bilinmeyen handle için gerçek 404'e gider (soft-404 üretmez, brief §7)", async () => {
     byHandle.mockResolvedValue({ ok: true, data: null });
-    const html = renderToStaticMarkup(await render("nope"));
-    expect(html).toContain("Ürün bulunamadı");
+    // notFound() fırlatır → Next 404 sınırı (app/not-found.tsx). Soft-200 boş durum RENDER EDİLMEZ.
+    await expect(render("nope")).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
   });
 
   it("renders English copy with a locale=en cookie", async () => {
@@ -218,6 +228,46 @@ describe("storefront · product detail (decision center)", () => {
     const html = renderToStaticMarkup(await render());
     expect(html).toContain("Add to cart");
     expect(html).toContain("Related products");
+  });
+
+  it("TODO-156D — Product + BreadcrumbList JSON-LD + breadcrumb'ı gömer (offer fiyat + brand)", async () => {
+    byHandle.mockResolvedValue({ ok: true, data: detail() });
+    const html = renderToStaticMarkup(await render());
+    // İki JSON-LD script (Product + BreadcrumbList).
+    expect(html).toContain('type="application/ld+json"');
+    expect(html).toContain('"@type":"Product"');
+    expect(html).toContain('"@type":"BreadcrumbList"');
+    // Offer: görünür fiyat (1299,00 → decimal string) + marka + InStock.
+    expect(html).toContain('"price":"1299.00"');
+    expect(html).toContain('"@type":"Brand"');
+    expect(html).toContain("schema.org/InStock");
+    // Breadcrumb görünür trail (Ürünler + başlık) paylaşılan bileşenden.
+    expect(html).toContain("Ürünler");
+    expect(html).toContain("aria-current=\"page\"");
+  });
+
+  it("TODO-156D — gizli fiyatta (ON_REQUEST) Product JSON-LD offers üretmez (sahte fiyat yok)", async () => {
+    const hidden = detail({
+      variants: [
+        {
+          id: "v1",
+          title: "Tek",
+          sku: "HID-1",
+          priceLabel: null,
+          compareAtLabel: null,
+          priceMinor: null,
+          compareAtMinor: null,
+          currency: "TRY",
+          available: 0,
+          inStock: false,
+          mediaOptionId: null,
+        },
+      ],
+    });
+    byHandle.mockResolvedValue({ ok: true, data: hidden });
+    const html = renderToStaticMarkup(await render());
+    expect(html).toContain('"@type":"Product"');
+    expect(html).not.toContain('"offers"');
   });
 });
 

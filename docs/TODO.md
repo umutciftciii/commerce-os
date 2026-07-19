@@ -1444,9 +1444,20 @@
   state YOK** (her etkileşim → URL replace → RSC SSR refetch). +39 test (312/312) · i18n +25 anahtar (parity 47) · `next build` yeşil · lint temiz · **YENİ MIGRATION YOK**.
   Docker smoke: desktop tık→disjunctive→çip, mobil drawer+ESC+focus dönüş, deep-link/refresh/share 3 kombine filtre, geri; seed verisi geri alındı. Bilinçli kapsam dışı:
   slider (TD-053.2) · Load More (156C/D) · DATE canlı (TD-053.4) · kampanya rozeti (155.2). Bkz. PHASE_LOG Faz 2C-8D + TD-051.1 (RESOLVED) + TD-053. Sıradaki: TODO-156D.
-- TODO-156D — Faz 2C-8E: Category SEO, Accessibility & Search Hardening (PLANLANDI). Kategori landing route'ları (`/categories/[slug]`) + canonical/metadata + pagination
-  SEO (`rel prev/next`, page canonical/noindex matrisi) + Breadcrumb JSON-LD + ItemList JSON-LD + tam noindex matrisi + WCAG 2.1 AA denetimi + klavye/focus denetimi +
-  analytics kanca noktaları + performans/Lighthouse denetimi. 156B'de temel kuruldu (noindex/canonical + breadcrumb iskeleti). BAŞLANMADI.
+- TODO-156D — SEO URL Governance, Category SEO, JSON-LD & Accessibility Hardening (**DONE · worktree · gate + `next build` doğrulandı; commit/PR/deploy YAPILMADI — brief kuralı**).
+  ADR-080/081/082/083. Pure domain motorları (`@commerce-os/utils`: slug + redirect, çerçeve-bağımsız, +50 test) · storefront SEO katmanı (`lib/seo/`: site-url/routes/breadcrumb/
+  metadata/json-ld/product-seo, TEK otorite) · JSON-LD (Organization/WebSite+SearchAction/BreadcrumbList/ItemList/Product+Offer) · **PDP generateMetadata YOK'tan VAR** (canonical/OG/
+  robots + Product/BreadcrumbList JSON-LD + `notFound()` 404 + React cache) · robots.ts/sitemap.ts/not-found.tsx · kategori-farkında H1+breadcrumb · public `seoTitle/seoDescription`
+  (additive) · SlugHistory+Redirect tablo temeli (migration `20260719150000`, gateway/UI'ya bağlı DEĞİL) · a11y breadcrumb semantik düzeltmesi. **KARAR SAPMASI (belgeli, ADR-080):**
+  kategori surface = PLP `/products?category=slug` (ayrı `/categories/[slug]` REDDEDİLDİ → soft-404+duplicate önlenir). **KAPSAM DIŞI (brief):** autocomplete/analytics/AI search/
+  merchandising/Admin UI · rel prev/next (canonical page-self yeterli). Gate: unit 2070/2070 · `next build` 17 route temiz. Bkz. PHASE_LOG TODO-156D + TD-055…063.
+- TODO-156D tamamlama — SlugHistory Write Path & Runtime Redirect Resolution (**DONE · worktree · gate + `next build` doğrulandı; commit/PR/deploy YAPILMADI**). TD-058 + TD-059
+  KAPANDI. (1) Write path: ürün/kategori PATCH transaction'ında slug gerçekten değişince `recordSlugChange` (gateway `src/seo/slug-governance.ts`) → SlugHistory (immutable/idempotent)
+  + otomatik **301** redirect + **chain collapse** (A→B,B→C ⇒ A→C; back-rename/loop tohumu temizliği) atomik. (2) Runtime: storefront `middleware.ts` 404'ten ÖNCE public
+  `GET /public/stores/:slug/redirects` (enabled-only + enum→sayısal allowlist, TTL-cache'li) → SAF `resolveRedirect` (chain/loop guard) → doğru 301/302/307/308; broken/loop/missing → geçiş
+  (soft redirect YOK). Path tek kaynak `@commerce-os/utils` productUrlPath/categoryUrlPath. **Sınır (TD-064):** kategori runtime redirect query-param olduğu için hariç (`/categories/[slug]`
+  bekliyor); ürün tam çalışır. Gate: **unit 2097/2097** · storefront tsc TAM temiz (TD-056 + latent fixture'lar düzeltildi) · `next build` + `ƒ Middleware` kayıtlı · MIGRATION YOK.
+  Docker smoke (gerçek DB PATCH→satır + middleware 301) = deploy adımı (TD-063). Sıradaki: ayrı shipping promptu.
 - TODO-156E — Faz 2C-8F: Enterprise Search Autocomplete & Discovery (PLANLANDI — kapsamlı). Provider-bağımsız suggest API (ürün/kategori/marka önerileri + popüler/trending +
   recent) + typo tolerance + synonym + highlighted match fragments + 250-300ms debounce + request cancellation/stale-response koruması + klavye navigasyonu
   (ArrowUp/Down/Enter/Escape) + erişilebilir combobox/listbox + desktop popover + mobil tam-ekran arama + ürün görsel/başlık/fiyat önerileri + "tüm sonuçları gör" +

@@ -10,6 +10,10 @@ import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
 import { getStoreInfo } from "../lib/server/site";
 import { fontVariables } from "../lib/fonts";
+import { metadataBase, siteOrigin, absoluteUrl } from "../lib/seo/site-url";
+import { searchActionTemplate } from "../lib/seo/routes";
+import { buildOrganizationJsonLd, buildWebSiteJsonLd } from "../lib/seo/json-ld";
+import { JsonLd } from "../components/seo/json-ld";
 import "./globals.css";
 
 // ADR-065 (Faz 3/Site Kabuğu) — Sekme basligi + favicon store marka bilgisinden
@@ -19,8 +23,12 @@ import "./globals.css";
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getStorefrontDict();
   const storeInfo = await getStoreInfo();
+  const siteName = storeInfo?.storeName ?? t.meta.title;
   return {
-    title: storeInfo?.storeName ?? t.meta.title,
+    // TODO-156D (ADR-080) — Mutlak URL otoritesi. Canonical/OG göreli path'leri buradan mutlaklanır.
+    metadataBase: metadataBase(),
+    // Başlık şablonu: alt sayfalar `title` verince "{title} · {mağaza}"; vermezse default.
+    title: { default: siteName, template: `%s · ${siteName}` },
     description: t.meta.description,
     ...(storeInfo?.faviconUrl ? { icons: { icon: storeInfo.faviconUrl } } : {}),
   };
@@ -52,9 +60,25 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
   const storeInfo = await getStoreInfo();
 
+  // TODO-156D (ADR-083) — Site-geneli JSON-LD: Organization (marka) + WebSite (SearchAction).
+  // Her sayfada bir kez head/body'ye gömülür; marka adı store bilgisinden, yoksa i18n fallback.
+  const siteName = storeInfo?.storeName ?? t.meta.title;
+  const organizationLd = buildOrganizationJsonLd({
+    name: siteName,
+    url: siteOrigin(),
+    logoUrl: storeInfo?.logoUrl ? absoluteUrl(storeInfo.logoUrl) : null,
+  });
+  const webSiteLd = buildWebSiteJsonLd({
+    name: siteName,
+    url: siteOrigin(),
+    searchUrlTemplate: absoluteUrl(searchActionTemplate()),
+  });
+
   return (
     <html lang={locale} data-theme="default" className={fontVariables}>
       <body>
+        <JsonLd data={organizationLd} />
+        <JsonLd data={webSiteLd} />
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:text-surface"

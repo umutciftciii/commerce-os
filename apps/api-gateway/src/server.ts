@@ -76,6 +76,7 @@ import {
   // ADR-065 (Faz 3/Site Kabuğu) — public marka bilgisi + hero slide'lari.
   publicStoreInfoSchema,
   publicHeroSlidesResponseSchema,
+  publicRedirectListResponseSchema,
   publicProductSchema,
   storeAdminCustomerListResponseSchema,
   storeAdminCustomerSummarySchema,
@@ -204,7 +205,13 @@ import { campaignAppliesToProduct } from "./campaigns/public-badge.js";
 import { selectPublicCampaignSlides } from "./campaigns/public-badge.js";
 // F4C (ADR-063/ADR-064) — KDV para matematigi (sunucu otoritesi) + siparis
 // satis ozeti turetimi (snapshot-turevi; saf modul).
-import { DEFAULT_VAT_RATE_BPS, splitGrossByVat, vatFromNet } from "@commerce-os/utils";
+import {
+  DEFAULT_VAT_RATE_BPS,
+  splitGrossByVat,
+  vatFromNet,
+  redirectEnumToStatus,
+} from "@commerce-os/utils";
+import { recordSlugChange } from "./seo/slug-governance.js";
 import { buildOrderSalesSummary } from "./orders/sales-summary.js";
 import {
   computeStoreShippingQuote,
@@ -736,6 +743,11 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: CategoryRecord[]; total: number }>;
   findCategoryById(storeId: string, categoryId: string): Promise<CategoryRecord | null>;
   findCategoryBySlug(storeId: string, slug: string): Promise<CategoryRecord | null>;
+  // TODO-156D tamamlama (ADR-082) — Storefront runtime redirect çözümleyicisi için etkin (enabled) redirect
+  // kuralları (store-scoped). type DB enum string'i; route redirectEnumToStatus ile sayısala çevirir.
+  listEnabledRedirects(
+    storeId: string,
+  ): Promise<{ sourcePath: string; targetPath: string; type: string }[]>;
   // ADR-065 (Faz 2/Dilim 3) — imageId'nin ayni store'a ait olup olmadigini ve
   // context'ini dogrulamak icin (cross-tenant baglama reddi). Bulunamazsa null.
   findMediaAssetById(
@@ -784,6 +796,8 @@ export interface AppDataAccess extends CampaignDataAccess {
       status?: "ACTIVE" | "ARCHIVED";
       imageId?: string | null;
     },
+    // TODO-156D — slug değişiminde SlugHistory.createdBy aktörü (platform user id); ops.
+    actorId?: string | null,
   ): Promise<CategoryRecord | null>;
   // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari (1-1 singleton). getStoreSettings
   // satir yoksa null doner (R2 lazy; GET tum-null gonderir, olusturma yapmaz).
@@ -880,6 +894,8 @@ export interface AppDataAccess extends CampaignDataAccess {
       shippingWeightKg?: number | null;
       shippingDesi?: number | null;
     },
+    // TODO-156D — slug değişiminde SlugHistory.createdBy'a yazılacak aktör (platform user id); ops.
+    actorId?: string | null,
   ): Promise<ProductRecord | null>;
   // ADR-065 (Faz 2/Dilim 2) — urun galerisini verilen sirali binding listesine gore diff'ler
   // (ekle/cikar/reorder/yeniden-etiketle tek transaction). [] = tam temizlik. position = dizideki
@@ -2743,6 +2759,13 @@ function createPrismaDataAccess(): AppDataAccess {
       ]);
       return { data, total };
     },
+    // TODO-156D tamamlama (ADR-082) — etkin redirect kuralları (source unique; deterministik sıra).
+    listEnabledRedirects: (storeId) =>
+      prisma.redirect.findMany({
+        where: { storeId, enabled: true },
+        orderBy: { sourcePath: "asc" },
+        select: { sourcePath: true, targetPath: true, type: true },
+      }),
     findCategoryById: (storeId, categoryId) =>
       prisma.productCategory.findFirst({ where: { id: categoryId, storeId }, select: categorySelect }),
     findCategoryBySlug: (storeId, slug) =>
@@ -2791,12 +2814,31 @@ function createPrismaDataAccess(): AppDataAccess {
         data: { ...input, storeId, parentId: input.parentId ?? null },
         select: categorySelect,
       }),
-    updateCategory: async (storeId, categoryId, input) => {
+    updateCategory: async (storeId, categoryId, input, actorId) => {
       try {
-        return await prisma.productCategory.update({
-          where: { id: categoryId, storeId },
-          data: input,
-          select: categorySelect,
+        // TODO-156D — Slug governance ürünle simetrik: güncelleme transaction'a alınır; slug gerçekten
+        // değişince (yeni slug + eski ≠ yeni) AYNI transaction'da SlugHistory + otomatik 301 redirect yazılır.
+        return await prisma.$transaction(async (transaction: TransactionClient) => {
+          const existing = await transaction.productCategory.findFirst({
+            where: { id: categoryId, storeId },
+            select: { id: true, slug: true },
+          });
+          if (!existing) return null;
+          if (input.slug !== undefined && input.slug !== existing.slug) {
+            await recordSlugChange(transaction, {
+              storeId,
+              entityType: "CATEGORY",
+              entityId: categoryId,
+              oldSlug: existing.slug,
+              newSlug: input.slug,
+              createdBy: actorId ?? null,
+            });
+          }
+          return await transaction.productCategory.update({
+            where: { id: categoryId },
+            data: input,
+            select: categorySelect,
+          });
         });
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -2924,11 +2966,26 @@ function createPrismaDataAccess(): AppDataAccess {
         const reloaded = await transaction.product.findUniqueOrThrow({ where: { id: product.id }, select: productDetailSelect });
         return withCategoryIds(reloaded);
       }),
-    updateProduct: (storeId, productId, input) =>
+    updateProduct: (storeId, productId, input, actorId) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
-        const existing = await transaction.product.findFirst({ where: { id: productId, storeId }, select: { id: true } });
+        const existing = await transaction.product.findFirst({
+          where: { id: productId, storeId },
+          select: { id: true, slug: true },
+        });
         if (!existing) return null;
         const { categoryIds, ...data } = input;
+        // TODO-156D — Slug gerçekten değişiyorsa (yeni slug gönderildi + eski ≠ yeni) AYNI transaction'da
+        // SlugHistory + otomatik 301 redirect yaz (atomik; ürün slug'ı ile birlikte commit).
+        if (data.slug !== undefined && data.slug !== existing.slug) {
+          await recordSlugChange(transaction, {
+            storeId,
+            entityType: "PRODUCT",
+            entityId: productId,
+            oldSlug: existing.slug,
+            newSlug: data.slug,
+            createdBy: actorId ?? null,
+          });
+        }
         await transaction.product.update({
           where: { id: productId },
           data: {
@@ -4398,6 +4455,9 @@ export function createServer(
       whatsappMessageTemplate: product.whatsappMessageTemplate ?? null,
       inquiryFormTitle: product.inquiryFormTitle ?? null,
       appointmentNote: product.appointmentNote ?? null,
+      // TODO-156D (ADR-080) — Admin-kontrollü SEO override'ları (public-safe meta metni).
+      seoTitle: product.seoTitle ?? null,
+      seoDescription: product.seoDescription ?? null,
       related,
     });
   });
@@ -4453,6 +4513,25 @@ export function createServer(
     const slides = await heroDataAccess.listPublishedHeroSlides(store.id);
     return publicHeroSlidesResponseSchema.parse({
       data: slides.map((slide) => serializePublicHeroSlide(slide, config.MEDIA_PUBLIC_BASE_URL)),
+    });
+  });
+
+  // TODO-156D tamamlama (ADR-082) — Storefront runtime redirect çözümleyicisi (middleware) bu ucu okur.
+  // YALNIZ enabled kurallar; type DB enum'undan sayısal HTTP koduna çevrilir (allowlist projeksiyon,
+  // iç alan sızmaz). Zincir/loop guard storefront'taki SAF resolver'da (resolveRedirect). Cache storefront'ta.
+  app.get("/public/stores/:storeSlug/redirects", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const redirects = await dataAccess.listEnabledRedirects(store.id);
+    return publicRedirectListResponseSchema.parse({
+      data: redirects.map((rule) => ({
+        source: rule.sourcePath,
+        target: rule.targetPath,
+        status: redirectEnumToStatus(rule.type),
+      })),
     });
   });
 
@@ -5671,7 +5750,12 @@ export function createServer(
         return reply.code(409).send(errorBody("CATEGORY_SLUG_EXISTS", "Category slug already exists."));
       }
     }
-    const category = await dataAccess.updateCategory(params.storeId, params.categoryId, input);
+    const category = await dataAccess.updateCategory(
+      params.storeId,
+      params.categoryId,
+      input,
+      access.session.platformUser.id,
+    );
     if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
     await dataAccess.createAuditLog({
       action: "UPDATE",
@@ -6178,7 +6262,7 @@ export function createServer(
         ...(rawMediaDefiningAttributeId === undefined
           ? {}
           : { mediaDefiningAttributeId: rawMediaDefiningAttributeId }),
-      });
+      }, access.session.platformUser.id);
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
     }

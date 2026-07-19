@@ -42,6 +42,8 @@ function productFixture(overrides: Partial<PublicSearchProduct> = {}): PublicSea
     secondaryImage: null,
     swatches: [],
     swatchTotalCount: 0,
+    // TODO-156D (TD-056 kapatma) — kampanya rozeti alanı zorunlu (nullable); fixture'a eklendi.
+    campaign: null,
     ...overrides,
   };
 }

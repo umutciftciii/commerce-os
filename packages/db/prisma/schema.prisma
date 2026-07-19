@@ -637,6 +637,10 @@ model Store {
   // silinince arama dokumanlari/facet satirlari otomatik temizlenir.
   searchDocuments                  ProductSearchDocument[]
   searchFacetValues                ProductFacetValue[]
+  // TODO-156D (ADR-081/082) — SEO URL yonetimi TEMELI (additive; henuz gateway/UI'ya BAGLI DEGIL).
+  // Slug degisim gecmisi (eski URL'ler kaybolmasin) + yonlendirme kurallari (301/302/307/308).
+  slugHistory                      SlugHistory[]
+  redirects                        Redirect[]
 }
 
 model StoreUser {
@@ -2797,4 +2801,66 @@ model ProductFacetValue {
   @@index([storeId, attributeDefinitionId, valueNumber])
   @@index([storeId, categoryId, attributeDefinitionId])
   @@index([storeId, productId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TODO-156D (ADR-081/082) — SEO URL YONETIMI TEMELI (additive; henuz gateway/UI'ya
+// BAGLI DEGIL — brief §19 "Admin Foundation: servisleri hazirla, UI yapma"). Slug
+// uretim/normalizasyon + redirect cozumleme MANTIGI cerceve-bagimsiz @commerce-os/utils'
+// tedir (slug.ts / redirect.ts); bu tablolar o mantigin KALICILIK zeminidir. Tenant-aware
+// (storeId). Silinen entity davranisi: history satiri KALIR (eski URL redirect'i icin);
+// redirect kurallari elle/otomatik yonetilir (bkz. TECHNICAL_DEBT — canli wiring bir sonraki faz).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Slug gecmisi/redirect'in ait oldugu entity turu (product/kategori/gelecek CMS sayfasi).
+enum SlugEntityType {
+  PRODUCT
+  CATEGORY
+  CMS_PAGE
+}
+
+/// HTTP redirect statusu. Otomatik slug degisimi DAIMA PERMANENT_301 (uygulama karari).
+enum RedirectType {
+  PERMANENT_301
+  FOUND_302
+  TEMPORARY_307
+  PERMANENT_308
+}
+
+/// Bir entity'nin ESKI slug'i (slug degisince yazilir). Amac: eski URL'ler bozulmasin →
+/// buradan bir Redirect turetilebilir. Ayni (store, tur, oldSlug) tekildir (deterministik lookup).
+model SlugHistory {
+  id         String         @id @default(cuid())
+  storeId    String
+  entityType SlugEntityType
+  entityId   String
+  oldSlug    String
+  createdAt  DateTime       @default(now())
+  createdBy  String?
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, entityType, oldSlug])
+  @@index([storeId])
+  @@index([storeId, entityType, entityId])
+}
+
+/// Yonlendirme kurali (kaynak path → hedef path). Cozumleme (chain/loop guard) SAF motorda
+/// (@commerce-os/utils redirect.ts). (store, sourcePath) tekil → tek kaynak-tek kural (precedence net).
+model Redirect {
+  id         String       @id @default(cuid())
+  storeId    String
+  sourcePath String
+  targetPath String
+  type       RedirectType @default(PERMANENT_301)
+  enabled    Boolean      @default(true)
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, sourcePath])
+  @@index([storeId])
+  @@index([storeId, enabled])
 }

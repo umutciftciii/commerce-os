@@ -765,6 +765,14 @@ class MemoryDataAccess implements AppDataAccess {
     return this.categories.find((category) => category.storeId === storeId && category.slug === slug) ?? null;
   }
 
+  // TODO-156D — runtime redirect çözümleyicisi için etkin kurallar (test'te seedRedirects ile doldurulur).
+  redirects: { storeId: string; sourcePath: string; targetPath: string; type: string; enabled: boolean }[] = [];
+  async listEnabledRedirects(storeId: string) {
+    return this.redirects
+      .filter((rule) => rule.storeId === storeId && rule.enabled)
+      .map(({ sourcePath, targetPath, type }) => ({ sourcePath, targetPath, type }));
+  }
+
   async findMediaAssetById(storeId: string, mediaId: string) {
     return this.mediaAssets.find((asset) => asset.storeId === storeId && asset.id === mediaId) ?? null;
   }
@@ -4984,19 +4992,52 @@ describe("api gateway · public catalog (TD-032)", () => {
       url: "/public/stores/demo-store/products/demo-hoodie",
     });
     const body = response.json();
+    // TODO-156D (ADR-080) — seoTitle/seoDescription ARTIK internal DEĞİL: public SEO meta metni (admin-kontrollü,
+    // zaten yayına yönelik). Bu yüzden bu liste dışına çıkarıldı; aşağıda public alan olarak DOĞRULANIR.
     for (const internalKey of [
       "storeId",
       "status",
       "type",
       "vendor",
-      "seoTitle",
-      "seoDescription",
       "categoryIds",
       "createdAt",
       "updatedAt",
     ]) {
       expect(body).not.toHaveProperty(internalKey);
       expect(body.variants[0]).not.toHaveProperty(internalKey);
+    }
+    // Detay ucu public SEO override'larini TASIR (null olabilir; ama alan mevcut → vitrin generateMetadata besler).
+    expect(body).toHaveProperty("seoTitle");
+    expect(body).toHaveProperty("seoDescription");
+    // Varyant DTO'suna SEO alani SIZMAZ (yalniz urun-seviyesi).
+    expect(body.variants[0]).not.toHaveProperty("seoTitle");
+    expect(body.variants[0]).not.toHaveProperty("seoDescription");
+    await app.close();
+  });
+
+  // TODO-156D tamamlama (ADR-082) — Public redirect ucu: yalnız enabled kurallar, enum→sayısal status,
+  // allowlist (source/target/status; iç alan yok). Storefront runtime çözümleyicisi bunu okur.
+  it("public /redirects: yalnız enabled kuralları enum→status allowlist ile döner", async () => {
+    const { app, dataAccess } = await createTestApp();
+    dataAccess.redirects.push(
+      { storeId: "store_demo", sourcePath: "/products/eski", targetPath: "/products/yeni", type: "PERMANENT_301", enabled: true },
+      { storeId: "store_demo", sourcePath: "/products/gecici", targetPath: "/products/hedef", type: "FOUND_302", enabled: true },
+      { storeId: "store_demo", sourcePath: "/products/kapali", targetPath: "/products/x", type: "PERMANENT_301", enabled: false },
+      { storeId: "store_other", sourcePath: "/products/baska-tenant", targetPath: "/products/y", type: "PERMANENT_301", enabled: true },
+    );
+    const response = await app.inject({ method: "GET", url: "/public/stores/demo-store/redirects" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Yalnız bu store'un ENABLED kuralları (kapalı + diğer tenant hariç).
+    expect(body.data).toEqual([
+      { source: "/products/eski", target: "/products/yeni", status: 301 },
+      { source: "/products/gecici", target: "/products/hedef", status: 302 },
+    ]);
+    // Allowlist: iç alanlar sızmaz.
+    for (const rule of body.data) {
+      expect(rule).not.toHaveProperty("storeId");
+      expect(rule).not.toHaveProperty("enabled");
+      expect(rule).not.toHaveProperty("type");
     }
     await app.close();
   });

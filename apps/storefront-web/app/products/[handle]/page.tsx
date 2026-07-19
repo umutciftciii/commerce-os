@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
   Badge,
@@ -16,14 +17,60 @@ import { ProductCard } from "../../../components/ui/product-card";
 import { BuyBox } from "../../../components/buy-box";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
 import { VariantGallery } from "../../../components/variant-gallery";
+import { Breadcrumb } from "../../../components/seo/breadcrumb";
+import { JsonLd } from "../../../components/seo/json-ld";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
 import { mockRating } from "../../../lib/mock-rating";
 import { cheapestVariantId, type StorefrontProductDetail } from "../../../lib/catalog-types";
+import { productPath } from "../../../lib/seo/routes";
+import { absoluteUrl } from "../../../lib/seo/site-url";
+import { buildMetadata } from "../../../lib/seo/metadata";
+import { buildProductBreadcrumb } from "../../../lib/seo/breadcrumb";
+import { buildBreadcrumbJsonLd, buildProductJsonLd } from "../../../lib/seo/json-ld";
+import {
+  deriveProductOffer,
+  productMetaDescription,
+  productMetaTitle,
+} from "../../../lib/seo/product-seo";
 
 // Detay canli veriden cozulur; slug -> urun eslesmesi her istekte yapilir.
 export const dynamic = "force-dynamic";
+
+/**
+ * TODO-156D (brief §11/§13) — Ürün SEO metadata (merkezî builder). title/description admin seoTitle/
+ * seoDescription > ürün alanları; canonical = ürün kanonik path'i (tek otorite, routes.ts). Ürün bulunamazsa
+ * (silinmiş/geçersiz) index'lenmeyi engelleyen minimal meta döner (sayfa da notFound() ile 404'e gider).
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ handle: string }>;
+}): Promise<Metadata> {
+  const { handle } = await params;
+  const dict = await getStorefrontDict();
+  const result = await getStorefrontProductByHandle(handle, await getRequestLocale());
+
+  if (!result.ok || result.data === null) {
+    // Silinen/geçersiz ürün: noindex (soft-404 üretme; sayfa 404 döner).
+    return { title: dict.detail.notFoundTitle, robots: { index: false, follow: false } };
+  }
+
+  const detail = result.data;
+  const canonicalPath = productPath(detail.handle);
+  const images = detail.images.map((img) => absoluteUrl(img.url));
+
+  return buildMetadata({
+    title: productMetaTitle(detail),
+    description: productMetaDescription(detail, dict.meta.description),
+    canonicalPath,
+    robots: { index: true, follow: true },
+    siteName: dict.meta.title,
+    locale: await getRequestLocale(),
+    openGraph: { type: "website", images },
+  });
+}
 
 export default async function ProductDetailPage({
   params,
@@ -46,37 +93,44 @@ export default async function ProductDetailPage({
   }
 
   if (result.data === null) {
-    return (
-      <Container className="py-16">
-        <EmptyState
-          title={t.notFoundTitle}
-          description={t.notFoundDescription}
-          action={backToProducts(t)}
-        />
-      </Container>
-    );
+    // TODO-156D (brief §7) — Silinen/mevcut olmayan ürün: soft-200 boş durum YERİNE gerçek 404
+    // (notFound → app/not-found sınırı, status 404). Soft-404 SEO'da zararlıdır; ana sayfaya redirect YOK.
+    notFound();
   }
 
   const detail = result.data;
   // MOCK: puan/değerlendirme — Home kartıyla AYNI deterministik helper (bkz. todo.md).
   const rating = mockRating(detail.handle);
 
+  // TODO-156D — Breadcrumb TEK KAYNAK (görünür UI + JSON-LD). Kategori slug'ı public detay DTO'sunda
+  // yok → kategori etiketi link'siz (uydurma URL üretilmez). Ürün kanonik URL'i mutlaklanır (JSON-LD).
+  const breadcrumbTrail = buildProductBreadcrumb({
+    labels: { home: dict.search.breadcrumbHome, products: t.breadcrumbProducts },
+    title: detail.title,
+    categoryLabel: detail.categoryLabel,
+    categorySlug: null,
+  });
+  const canonicalUrl = absoluteUrl(productPath(detail.handle));
+  const offer = deriveProductOffer(detail);
+  const productLd = buildProductJsonLd({
+    name: detail.title,
+    description: detail.description,
+    url: canonicalUrl,
+    images: detail.images.map((img) => absoluteUrl(img.url)),
+    brand: detail.brand,
+    sku: detail.sku,
+    offer: offer ? { ...offer, url: canonicalUrl } : null,
+  });
+  const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbTrail, absoluteUrl, canonicalUrl);
+
   return (
     <Container className="py-12 lg:py-16">
-      {/* Breadcrumb */}
-      <nav className="mb-8 text-[11px] uppercase tracking-wideish text-ink-subtle" aria-label="Sayfa yolu">
-        <Link href="/products" className="transition-colors hover:text-ink">
-          {t.breadcrumbProducts}
-        </Link>
-        {detail.categoryLabel ? (
-          <>
-            <span className="px-2 text-line-strong">/</span>
-            <span className="text-ink-muted">{detail.categoryLabel}</span>
-          </>
-        ) : null}
-        <span className="px-2 text-line-strong">/</span>
-        <span className="text-ink">{detail.title}</span>
-      </nav>
+      {/* TODO-156D — Product + BreadcrumbList JSON-LD (Google Rich Results). */}
+      <JsonLd data={productLd} />
+      <JsonLd data={breadcrumbLd} />
+
+      {/* Breadcrumb — paylaşılan bileşen (JSON-LD ile tek kaynak). */}
+      <Breadcrumb items={breadcrumbTrail} label={dict.shell.breadcrumb} className="mb-8 text-[11px] uppercase tracking-wideish text-ink-subtle" />
 
       {/* Faz 2C-7 (ADR-078) — Variant Media Engine: secili varyant state'i BuyBox ile
           VariantGallery arasinda PAYLASILIR (lift). Baslik blogu SUNUCU'da kalir (provider'in

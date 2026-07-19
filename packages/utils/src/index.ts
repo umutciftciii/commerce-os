@@ -18,6 +18,38 @@ export {
   type VatBreakdownMinor,
 } from "./vat.js";
 
+// TODO-156D (ADR-081) — Slug üretim/normalizasyon motoru (SAF, çerçeve-bağımsız).
+export {
+  SLUG_MAX_LENGTH,
+  SLUG_MIN_LENGTH,
+  SLUG_FALLBACK,
+  DEFAULT_RESERVED_SLUGS,
+  slugify,
+  isCanonicalSlug,
+  validateSlug,
+  resolveUniqueSlug,
+  generateSlug,
+  type SlugValidationError,
+  type SlugValidationResult,
+} from "./slug.js";
+
+// TODO-156D (ADR-082) — Redirect çözümleme motoru (SAF, chain/loop korumalı).
+export {
+  REDIRECT_TYPES,
+  REDIRECT_ENUM_TO_STATUS,
+  redirectEnumToStatus,
+  normalizeRedirectPath,
+  buildRedirectIndex,
+  resolveRedirect,
+  resolveRedirectFromRules,
+  type RedirectType,
+  type RedirectRule,
+  type RedirectResolution,
+} from "./redirect.js";
+
+// TODO-156D tamamlama (ADR-081/082) — Entity → kanonik URL path (gateway yazar + storefront çözer, tek kaynak).
+export { productUrlPath, categoryUrlPath } from "./seo-paths.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }
