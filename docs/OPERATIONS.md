@@ -239,6 +239,28 @@ içerir; secret/raw payload asla). Sağlayıcı HTTP'si `SHIPPING_SANDBOX_HTTP_E
 sync `SHIPPING_HTTP_DISABLED` koduyla güvenle backoff'lar; gerçek sorgu için bu bayrak +
 credential gerekir.
 
+## Search kampanya snapshot + reconciliation (TODO-155.2)
+
+Search read-model (`ProductSearchDocument`) F4A **kampanya rozeti** snapshot'ı taşır (`campaign` jsonb +
+`campaignStartsAt/EndsAt`) — PDP ile AYNI "tek formül" (ADR-062). Deploy sonrası (additive migration
+`20260719140000_add_search_campaign_snapshot`) mevcut dokümanlar snapshot'sızdır; **backfill/reindex ile
+dolar**: `pnpm --filter @commerce-os/search-service search:backfill --store <id>` (veya `--all`).
+
+**Lifecycle:** kampanya create/update/activate/pause/archive → otomatik `reindexStore` (search-index kuyruğu;
+fire-and-forget). Mutasyonsuz zaman-sınırı geçişleri (gelecek-başlangıçlı kampanya aktifleşmesi / süre dolması)
+için **reconciliation sweep** — varsayılan **KAPALI**:
+- `CAMPAIGN_RECONCILE_ENABLED` (false; açılınca api-gateway süreci içinde düşük frekansla çalışır),
+  `CAMPAIGN_RECONCILE_INTERVAL_SECONDS` (3600), `CAMPAIGN_RECONCILE_BATCH_SIZE` (200).
+- Sweep enqueue-only + idempotent: (a) süresi geçmiş snapshot'lı ürünleri (b) yeni açılan kampanya
+  mağazalarını reindex kuyruğuna alır. In-process/tek-instance (çoklu replica'da çift-tarama zararsız).
+- **Read-time bastırma** zaten stale badge'i gizler (`campaignStartsAt/EndsAt` penceresi `now`'a göre geçersizse
+  rozet dönmez) → sweep gecikse bile kullanıcı yanlış görmez.
+
+**Doğrulama:** `docker compose logs api-gateway | grep "campaign reconcile"` (`worker disabled` / `worker started`
+/ `cycle completed`). Snapshot kontrolü: `GET /public/stores/:slug/search` yanıtında `products[].campaign`
+(süresi geçmişse null); iç campaign id/limit/priority/stackable **sızmaz** (allowlist). **checkout nihai fiyat
+otoritesidir; PLP kampanya fiyatı bilgilendirici tahmindir.**
+
 ## Barkod retry/backoff worker'ı (TODO-123)
 
 Barkod oluşturma **geçici** bir sağlayıcı hatasıyla (timeout, 5xx, network, tanınmayan) düştüğünde,

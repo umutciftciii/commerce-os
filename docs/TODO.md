@@ -1416,9 +1416,16 @@
   veri · compareAt→discount%20 yansıma · idempotency revision 0→1 · allowlist sıfır sızıntı; smoke verisi geri alındı). **KAPSAM DIŞI (→155.2):** kampanya/indirim rozeti
   snapshot'ı (F4A motoru paylaşımı) · zamanlanmış reconciliation sweep kodu (strateji dokümante) · promotion-aware filter/sort · Redis cache. Bkz. TD-050.
 
-- TODO-155.2 — Faz 2C-9B: Campaign Badge Snapshot + Reconciliation (PLANLANDI). 155.1 listing projection'ına kampanya rozeti snapshot'ı: pure `selectPublicCampaignDisplay`
-  + record tipleri paylaşılan pakete taşınır (F4A "tek formül"); read-time pencere bastırma (badge validity window) + kampanya lifecycle event reindex + Omnibus/kampanya
-  günlük reconciliation sweep worker. Bu faza BAŞLANMADI.
+- TODO-155.2 — Faz 2C-9B: Search Listing Semantic Completion (**DONE · worktree · gate + docker smoke ALL PASS; commit/PR YAPILMADI — TODO-156C ile birleşik ship bekliyor**).
+  İKİ gerçek tutarsızlık kapatıldı: (A) **PDP↔PLP kampanya**: pure `selectPublicCampaignDisplay` + `CampaignRecord`/`CampaignCouponRecord` + `toCouponDisplayFields` **paylaşılan pakete
+  taşındı** (`@commerce-os/contracts`; PDP + indexer AYNI "tek formül"). `selectIndexableCampaignSnapshot` index-anı birincil rozet + kazanan pencere → `ProductSearchDocument.campaign`
+  (jsonb) + `campaignStartsAt/EndsAt` (additive migration `20260719140000`); read-time `isCampaignSnapshotDisplayable` bastırma + lifecycle reindex (`onCampaignChanged→reindexStore`)
+  + reconciliation sweep (`CAMPAIGN_RECONCILE_ENABLED`, in-process setTimeout, default off). (B) **Swatch↔Facet**: variantDefining+filterable eksen seçimleri (`ProductVariantOptionValue`)
+  artık `ProductFacetValue`'ya index'lenir (`buildFacets` VAV **+** variant eksen option birleşik dedupe) → Demo Hoodie Renk facet'i ELLE SEED OLMADAN üretilir. checkout otoriter KALIR
+  (PLP fiyatı bilgilendirici tahmin; ADR-062). **Gate:** full build 25/25 · search-service 78 · api-gateway 1057 · storefront 317 · i18n 47 · lint · next build · diff-check TEMİZ.
+  **Docker smoke ALL PASS** (gerçek Demo Hoodie: PLP kartı ₺1.349,10 %10 "Sepette" = PDP ile birebir · Renk facet auto Siyah/Kırmızı/Mavi · disjunctive filtre · canlı read-time
+  suppression · allowlist sıfır sızıntı · regresyon home/cart/pdp 200; geçici endsAt mutasyonu backfill ile geri alındı). Bkz. ADR-079 Ek + PHASE_LOG Faz 2C-9B + TD-050.1/051.3 (RESOLVED)
+  + TD-053.5 (kısmen) + TD-054. **Sıradaki: TODO-155.2 + TODO-156C birleşik final review + ship.**
 
 - TODO-156B — Faz 2C-8C: Storefront Search Experience Foundation (DONE · **MERGED + DEPLOYED**; feat `415a0cd`, PR #87, merge `77042e4`=main; 5/5 healthy + post-merge runtime smoke ALL PASS). PLP (`/products`) URL-state + RSC + public
   search endpoint temeline geçti: tek-otorite URL codec (`lib/search/url-state.ts`, gateway parser'ıyla birebir + kanonik serialize), sunucu-yalnız BFF (allowlist parse),
@@ -1429,11 +1436,14 @@
   YOK. **KAPSAM DIŞI:** facet UI (→156C) · Load More (→156C/D) · kampanya rozeti (→155.2) · kategori SEO landing + JSON-LD (→156D) · autocomplete/suggest/recent (backend yok).
   Bkz. PHASE_LOG Faz 2C-8C + TD-051.
 
-- TODO-156C — Faz 2C-8D: Dynamic Facet Experience (SIRADAKİ AKTİF FAZ). Backend disjunctive facet zaten döner; storefront'ta facet UI: desktop kalıcı filter rail +
-  mobil tam-yükseklik filter drawer (focus-trap/ESC/scroll-lock) + aktif filtre çipleri (tekil kaldır + tümünü temizle) + veri-güdümlü `FacetRenderer` registry
-  (selectionMode birincil / dataType sunum: option/color/text/boolean/range/date UI; bilinmeyen tip → checkbox fallback) + disjunctive count yansıması + collapse/"daha
-  fazla göster". URL-state codec `filter[...]` zaten passthrough eder (156B); 156C yalnız render + çip + drawer ekler. Opsiyonel: history-güvenli Load More değerlendirmesi
-  (route-handler/server-action ile). Bkz. ANALIZ-156A §5-§6 + TD-051.1/.2. BAŞLANMADI.
+- TODO-156C — Faz 2C-8D: Dynamic Facet Experience (**DONE · gate + worktree docker smoke ALL PASS; commit/PR bekliyor**). Storefront facet UI eklendi: veri-güdümlü
+  `FacetRenderer` registry (`resolveFacetKind`: selectionMode birincil / dataType sunum → checkbox/color/boolean/range/date; bilinmeyen → checkbox fallback; switch-case YOK)
+  + desktop kalıcı `FilterRail` (sticky) + mobil tam-yükseklik `FilterDrawer` (role=dialog/aria-modal/ESC/scroll-lock/focus-trap; **rail ile AYNI `FacetList` renderer**) +
+  `ActiveFilterChips` (YALNIZ URL-türevli; tekil kaldır kanonik removeHref + tümünü temizle) + Fiyat/Stok top-level facet + collapse/"daha fazla göster" + disjunctive count/
+  selected yansıması. URL mutasyonları SAF tek yazma noktası (`url-state.ts`: toggle/removeValue/removeFilter/setRange/withPrice/withInStock/clearedFiltersOnly); **yerel filtre
+  state YOK** (her etkileşim → URL replace → RSC SSR refetch). +39 test (312/312) · i18n +25 anahtar (parity 47) · `next build` yeşil · lint temiz · **YENİ MIGRATION YOK**.
+  Docker smoke: desktop tık→disjunctive→çip, mobil drawer+ESC+focus dönüş, deep-link/refresh/share 3 kombine filtre, geri; seed verisi geri alındı. Bilinçli kapsam dışı:
+  slider (TD-053.2) · Load More (156C/D) · DATE canlı (TD-053.4) · kampanya rozeti (155.2). Bkz. PHASE_LOG Faz 2C-8D + TD-051.1 (RESOLVED) + TD-053. Sıradaki: TODO-156D.
 - TODO-156D — Faz 2C-8E: Category SEO, Accessibility & Search Hardening (PLANLANDI). Kategori landing route'ları (`/categories/[slug]`) + canonical/metadata + pagination
   SEO (`rel prev/next`, page canonical/noindex matrisi) + Breadcrumb JSON-LD + ItemList JSON-LD + tam noindex matrisi + WCAG 2.1 AA denetimi + klavye/focus denetimi +
   analytics kanca noktaları + performans/Lighthouse denetimi. 156B'de temel kuruldu (noindex/canonical + breadcrumb iskeleti). BAŞLANMADI.

@@ -15,6 +15,7 @@
  *  - IMAGE/FILE dataType facet'lenmez; MULTI_SELECT junction seçenekleri ayrı satır olur.
  */
 
+import { selectIndexableCampaignSnapshot } from "@commerce-os/contracts";
 import { buildSearchText, normalizeText } from "./normalize.js";
 import type {
   SearchBuildResult,
@@ -68,6 +69,16 @@ export function buildSearchDocument(source: SearchSourceProduct): SearchBuildRes
   // 2c) TODO-155.1 — Kart medya/swatch projection'ı (bounded; media-tanımlayıcı eksen).
   const listing = buildListingProjection(source, cheapest);
 
+  // 2d) TODO-155.2 — Kampanya rozeti snapshot'ı. PDP ile AYNI paylaşılan değerlendirici (ADR-062 "tek formül").
+  // unitPriceMinor = en ucuz görünür varyant (minPriceMinor); fiyat gizliyse null → yalnız yüzde/etiket, sahte
+  // nihai fiyat yok. `evaluationNow` data katmanından gelir (builder SAF: deterministik). Uygun kampanya yoksa null.
+  const campaignSnapshot = selectIndexableCampaignSnapshot(
+    source.campaigns,
+    { id: source.id, categoryIds: source.categoryIds },
+    source.evaluationNow,
+    minPriceMinor,
+  );
+
   // 3) Stok projeksiyonu (Inventory Engine: available = onHand − reserved; null = bilinmiyor = stokta say).
   const hasStock = activeVariants.some((v) => v.available === null || v.available > 0);
   const availability = hasStock ? "IN_STOCK" : "OUT_OF_STOCK";
@@ -99,6 +110,9 @@ export function buildSearchDocument(source: SearchSourceProduct): SearchBuildRes
     discountPercent: commercial.discountPercent,
     omnibusPreviousPriceMinor: commercial.omnibusPreviousPriceMinor,
     listing,
+    campaign: campaignSnapshot?.badge ?? null,
+    campaignStartsAt: campaignSnapshot?.startsAt ?? null,
+    campaignEndsAt: campaignSnapshot?.endsAt ?? null,
     productCreatedAt: source.createdAt,
     productUpdatedAt: source.updatedAt,
   };
@@ -305,7 +319,7 @@ function buildFacets(source: SearchSourceProduct): SearchFacetData[] {
   for (const ca of filterable) {
     const defId = ca.attributeDefinitionId;
     if (ca.variantDefining) {
-      // Varyant-seviyesi değerler (VariantAttributeValue: yalnız option veya valueText).
+      // (a) Varyant-seviyesi typed değerler (VariantAttributeValue: yalnız option veya valueText — Faz 2A).
       for (const vav of source.variantAttributeValues) {
         if (vav.attributeDefinitionId !== defId) continue;
         if (vav.option) {
@@ -318,6 +332,17 @@ function buildFacets(source: SearchSourceProduct): SearchFacetData[] {
           const nt = normalizeText(vav.valueText);
           push({ ...base(defId), valueText: vav.valueText, normalizedText: nt }, `${defId}|txt:${nt}`);
         }
+      }
+      // (b) TODO-155.2 — Varyant EKSEN option seçimleri (ProductVariantOptionValue; ADR-072). Kök boşluk
+      // düzeltmesi: swatch'ı besleyen aynı eksen seçimleri artık facet'e de yansır. `seen` ile (a) ile
+      // BİRLEŞİK dedupe (aynı defId+optionId iki kaynaktan gelirse tek satır). ARCHIVED option hariç.
+      for (const vov of source.variantOptionValues) {
+        if (vov.attributeDefinitionId !== defId) continue;
+        if (vov.option.status !== "ACTIVE") continue;
+        push(
+          { ...base(defId), optionId: vov.option.id, normalizedText: normalizeText(vov.option.value) },
+          `${defId}|opt:${vov.option.id}`,
+        );
       }
     } else {
       // Ürün-seviyesi değerler (ProductAttributeValue: dataType → typed kolon).

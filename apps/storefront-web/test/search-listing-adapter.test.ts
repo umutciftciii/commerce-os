@@ -21,6 +21,32 @@ function product(overrides: Partial<PublicSearchProduct> = {}): PublicSearchProd
     secondaryImage: null,
     swatches: [],
     swatchTotalCount: 0,
+    campaign: null,
+    ...overrides,
+  };
+}
+
+/** TODO-155.2 — Otomatik %10 kampanya rozeti fixture'ı (PublicCampaignBadge allowlist). */
+function autoBadge(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "AUTOMATIC" as const,
+    displayKind: "AUTOMATIC_CART_DISCOUNT" as const,
+    requiresCouponCode: false,
+    discountType: "PERCENT" as const,
+    discountValue: 10,
+    maxDiscountAmountMinor: null,
+    minOrderAmountMinor: null,
+    couponCode: null,
+    couponAction: "MANUAL_ONLY" as const,
+    endsAt: null,
+    estimatedDiscountMinor: 14990,
+    estimatedFinalUnitPriceMinor: 134910,
+    displayTitle: null,
+    shortDescription: null,
+    badgeLabel: null,
+    badgeVariant: null,
+    cardStyle: "STANDARD" as const,
+    terms: null,
     ...overrides,
   };
 }
@@ -105,5 +131,30 @@ describe("listing adapter", () => {
 
   it("toListingCards toplu dönüştürür", () => {
     expect(toListingCards([product(), product({ id: "p2", slug: "s2" })])).toHaveLength(2);
+  });
+
+  // TODO-155.2 — Kampanya "Sepette" kart görünümü (PDP ile aynı; istemci hesap yapmaz)
+  it("kampanya yok → card.campaign null", () => {
+    expect(toListingCard(product()).campaign).toBeNull();
+  });
+
+  it("otomatik %10 kampanya → Sepette görünümü (final etiket + % + discountText)", () => {
+    const card = toListingCard(product({ campaign: autoBadge() }));
+    expect(card.campaign).not.toBeNull();
+    expect(card.campaign?.isAutomatic).toBe(true);
+    expect(card.campaign?.percent).toBe(10);
+    expect(card.campaign?.discountText).toBe("%10");
+    // 134910 minor → tr-TR "1.349,10".
+    expect(card.campaign?.estimatedFinalLabel).toContain("1.349,10");
+  });
+
+  it("güvenli tahmin yoksa (FIXED_AMOUNT/estimate null) final etiket null; sahte fiyat yok", () => {
+    const card = toListingCard(
+      product({
+        campaign: autoBadge({ discountType: "FIXED_AMOUNT", discountValue: 5000, estimatedFinalUnitPriceMinor: null, estimatedDiscountMinor: null, percent: undefined }),
+      }),
+    );
+    expect(card.campaign?.estimatedFinalLabel).toBeNull();
+    expect(card.campaign?.percent).toBeNull();
   });
 });

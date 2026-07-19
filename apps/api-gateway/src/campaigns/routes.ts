@@ -40,6 +40,13 @@ export interface CampaignAdminRoutesDeps {
     entityId?: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
+  /**
+   * TODO-155.2 — Kampanya lifecycle değişince (create/update/activate/pause/archive) search read-model'i
+   * tazele. Kampanya kapsamı hangi ürünlerin rozet gösterdiğini belirler → attribute ŞEMA değişimi gibi
+   * STORE reindex tetiklenir (her zaman doğru + bounded; scoped-kampanya granüler reindex ileri optimizasyon).
+   * Fire-and-forget (opsiyonel; testte no-op). Enqueue hatası mutasyonu ETKİLEMEZ.
+   */
+  onCampaignChanged?: (storeId: string) => void;
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
@@ -100,6 +107,7 @@ function serializeDetail(record: CampaignDetailRecord) {
 
 export function registerCampaignAdminRoutes(app: FastifyInstance, deps: CampaignAdminRoutesDeps) {
   const { dataAccess, requireStoreAdmin, recordAudit } = deps;
+  const notifyCampaignChanged = (storeId: string) => deps.onCampaignChanged?.(storeId);
 
   app.get("/stores/:storeId/campaigns", async (request, reply) => {
     const params = storeParam.parse(request.params);
@@ -124,6 +132,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
       entityId: result.id,
       metadata: { type: result.type, discountType: result.discountType },
     });
+    notifyCampaignChanged(params.storeId);
     return reply.code(201).send(campaignSchema.parse(serializeCampaign(result)));
   });
 
@@ -151,6 +160,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
       entityType: "Campaign",
       entityId: result.id,
     });
+    notifyCampaignChanged(params.storeId);
     return campaignSchema.parse(serializeCampaign(result));
   });
 
@@ -175,6 +185,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
         entityId: result.id,
         metadata: { statusAction: action },
       });
+      notifyCampaignChanged(params.storeId);
       return campaignSchema.parse(serializeCampaign(result));
     });
   }

@@ -14,6 +14,7 @@
 
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { TransactionClient } from "@commerce-os/db";
+import type { CampaignRecord } from "@commerce-os/contracts";
 import type {
   IndexAction,
   IndexStatus,
@@ -26,7 +27,71 @@ import type {
   SearchSourceProductAttributeValue,
   SearchSourceVariant,
   SearchSourceVariantAttributeValue,
+  SearchSourceVariantOptionValue,
 } from "./types.js";
+
+/**
+ * TODO-155.2 — Rozet üretebilen kampanya tipleri (paylaşılan değerlendirici BADGE_TYPES ile birebir). Loader
+ * yalnız bu tip + ACTIVE + isPublic kampanyaları çeker (bounded); geçerlilik penceresi/limit değerlendiricide.
+ */
+const CAMPAIGN_BADGE_TYPES = ["COUPON_CODE", "AUTOMATIC_CART", "PRODUCT_DISCOUNT", "CATEGORY_DISCOUNT"] as const;
+
+/** Store'un rozet-uygun aktif public kampanyalarını `CampaignRecord` olarak yükler (bir kez/batch; N+1 yok). */
+async function loadStoreCampaigns(client: PrismaLike, storeId: string): Promise<CampaignRecord[]> {
+  const rows = await (client as PrismaClient).campaign.findMany({
+    where: { storeId, status: "ACTIVE", isPublic: true, type: { in: [...CAMPAIGN_BADGE_TYPES] } },
+    include: {
+      products: { select: { productId: true } },
+      categories: { select: { categoryId: true } },
+      coupons: { orderBy: { createdAt: "asc" } },
+    },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    storeId: row.storeId,
+    name: row.name,
+    description: row.description,
+    status: row.status,
+    type: row.type,
+    discountType: row.discountType,
+    discountValue: row.discountValue,
+    maxDiscountAmountMinor: row.maxDiscountAmountMinor,
+    minOrderAmountMinor: row.minOrderAmountMinor,
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    totalUsageLimit: row.totalUsageLimit,
+    perCustomerUsageLimit: row.perCustomerUsageLimit,
+    usageCount: row.usageCount,
+    stackable: row.stackable,
+    priority: row.priority,
+    isPublic: row.isPublic,
+    displayTitle: row.displayTitle,
+    shortDescription: row.shortDescription,
+    terms: row.terms,
+    badgeLabel: row.badgeLabel,
+    badgeVariant: row.badgeVariant,
+    cardStyle: row.cardStyle,
+    accessModel: row.accessModel,
+    displayPriority: row.displayPriority,
+    productIds: row.products.map((p) => p.productId),
+    categoryIds: row.categories.map((c) => c.categoryId),
+    coupons: row.coupons.map((coupon) => ({
+      id: coupon.id,
+      code: coupon.code,
+      normalizedCode: coupon.normalizedCode,
+      status: coupon.status,
+      totalUsageLimit: coupon.totalUsageLimit,
+      perCustomerUsageLimit: coupon.perCustomerUsageLimit,
+      usageCount: coupon.usageCount,
+      startsAt: coupon.startsAt,
+      endsAt: coupon.endsAt,
+      createdAt: coupon.createdAt,
+      updatedAt: coupon.updatedAt,
+    })),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }));
+}
 
 /** TODO-155.1 — EU Omnibus penceresi (gün). Son 30 günün en düşük satış fiyatı (public DTO ile aynı). */
 const OMNIBUS_WINDOW_DAYS = 30;
@@ -255,6 +320,53 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           : [];
       const mediaOptionByVariant = new Map(variantMediaOptions.map((r) => [r.variantId, r.optionId]));
 
+      // (11) TODO-155.2 — variantDefining+filterable eksen option seçimleri (ProductVariantOptionValue) → facet
+      // kaynağı. Media ekseni sorgusundan (10) AYRI: burada TÜM variantDefining filterable eksenler + option meta
+      // (value/label/status; ARCHIVED option builder'da elenir). Bounded: chunk başına tek sorgu (N+1 yok).
+      const variantDefiningFilterableDefIds = [
+        ...new Set(
+          categoryAttributes
+            .filter((ca) => ca.filterable && ca.variantDefining)
+            .map((ca) => ca.attributeDefinitionId),
+        ),
+      ];
+      const variantOptionRows =
+        variantDefiningFilterableDefIds.length > 0 && variantIds.length > 0
+          ? await client.productVariantOptionValue.findMany({
+              where: {
+                storeId,
+                attributeDefinitionId: { in: variantDefiningFilterableDefIds },
+                variantId: { in: variantIds },
+              },
+              select: {
+                variantId: true,
+                attributeDefinitionId: true,
+                option: { select: { id: true, value: true, label: true, status: true } },
+              },
+            })
+          : [];
+      const vovByProduct = new Map<string, SearchSourceVariantOptionValue[]>();
+      for (const row of variantOptionRows) {
+        const productId = variantToProduct.get(row.variantId);
+        if (!productId || !row.option) continue;
+        const arr = vovByProduct.get(productId) ?? [];
+        arr.push({ attributeDefinitionId: row.attributeDefinitionId, option: toOptionRef(row.option)! });
+        vovByProduct.set(productId, arr);
+      }
+
+      // (12) TODO-155.2 — Ürün kategori üyelikleri (ProductCategoryAssignment) → kampanya kapsamı eşleşmesi.
+      // primaryCategoryId ile birleştirilir (union; assignment eksikse bile primary dahil).
+      const categoryAssignments = await client.productCategoryAssignment.findMany({
+        where: { storeId, productId: { in: foundIds } },
+        select: { productId: true, categoryId: true },
+      });
+      const categoryIdsByProduct = groupBy(categoryAssignments, (a) => a.productId);
+
+      // (13) TODO-155.2 — Store'un rozet-uygun aktif public kampanyaları (bir kez; her ürün için AYNI referans).
+      const campaigns = await loadStoreCampaigns(client, storeId);
+      // Snapshot değerlendirme anı (Omnibus `since` gibi IO katmanında → builder SAF/deterministik kalır).
+      const evaluationNow = new Date();
+
       // Assemble per product.
       for (const p of products) {
         const productVariants: SearchSourceVariant[] = (variantsByProduct.get(p.id) ?? []).map((v) => ({
@@ -304,6 +416,16 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           categoryAttributes: cats.map(toCategoryAttribute),
           productAttributeValues: (pavByProduct.get(p.id) ?? []).map(toProductAttributeValue),
           variantAttributeValues: vavByProduct.get(p.id) ?? [],
+          variantOptionValues: vovByProduct.get(p.id) ?? [],
+          // TODO-155.2 — kampanya kapsamı: primaryCategory + tüm atanmış kategoriler (union, dedupe).
+          categoryIds: [
+            ...new Set([
+              ...(p.primaryCategoryId ? [p.primaryCategoryId] : []),
+              ...(categoryIdsByProduct.get(p.id) ?? []).map((a) => a.categoryId),
+            ]),
+          ],
+          campaigns,
+          evaluationNow,
           mediaDefiningAttributeId: p.mediaDefiningAttributeId,
           images,
           mediaAxisOptions: axisOptions,
@@ -323,6 +445,11 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
         document.listing === null
           ? Prisma.DbNull
           : (document.listing as unknown as Prisma.InputJsonValue);
+      // TODO-155.2 — kampanya rozeti snapshot'ı (nullable Json; null → SQL NULL).
+      const campaignInput =
+        document.campaign === null
+          ? Prisma.DbNull
+          : (document.campaign as unknown as Prisma.InputJsonValue);
       await client.$transaction(async (tx) => {
         // Facet delete-and-replace (eski satırlar kalmaz).
         await tx.productFacetValue.deleteMany({ where: { storeId, productId } });
@@ -348,6 +475,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             discountPercent: document.discountPercent,
             omnibusPreviousPriceMinor: document.omnibusPreviousPriceMinor,
             listing: listingInput,
+            campaign: campaignInput,
+            campaignStartsAt: document.campaignStartsAt,
+            campaignEndsAt: document.campaignEndsAt,
             productCreatedAt: document.productCreatedAt,
             productUpdatedAt: document.productUpdatedAt,
             revision: 0,
@@ -369,6 +499,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             discountPercent: document.discountPercent,
             omnibusPreviousPriceMinor: document.omnibusPreviousPriceMinor,
             listing: listingInput,
+            campaign: campaignInput,
+            campaignStartsAt: document.campaignStartsAt,
+            campaignEndsAt: document.campaignEndsAt,
             productCreatedAt: document.productCreatedAt,
             productUpdatedAt: document.productUpdatedAt,
             revision: { increment: 1 },

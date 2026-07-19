@@ -498,3 +498,16 @@ Faz B'nin bıraktığı "kart display zenginleştirmesi read-model'e denormalize
 ### Ek — Faz 2C-8C (TODO-156B) Storefront Search Experience Foundation
 
 Faz B/2C-9'un ürettiği public search + listing projection ilk kez **storefront tarafından tüketildi**. PLP (`/products`) eski "hepsini çek + istemcide filtrele" akışından **URL-state + RSC + public search endpoint** temeline geçti: tek-otorite URL codec (gateway parser'ıyla birebir, kanonik serialize), sunucu-yalnız BFF (allowlist parse), biçimleme-yalnız listing adapter (ticari hesap tekrarı yok), search-özel ProductCard (swatch preview + secondary hover; varyant seçimi yok), numaralı SSR pagination, gerçek header arama, loading/empty/error UX, SEO temeli (noindex arama/filtre + canonical; JSON-LD 156D). **Facet UI (156C)**, **Load More (156C/D)**, **kampanya rozeti (155.2)**, **kategori SEO landing (156D)** bilinçle ertelendi. Detay + sınırlar: **PHASE_LOG Faz 2C-8C** + **TD-051**. **DONE + MERGED + DEPLOYED** (feat `415a0cd`, PR #87, merge `77042e4`=main; CI pass; 5/5 healthy + post-merge smoke ALL PASS); gate 273/273 + next build + lint temiz. Sıradaki: TODO-156C dynamic facet UI.
+
+---
+
+## EK — TODO-155.2 Uygulama Sonucu (2026-07-19): Search Listing Semantic Completion
+
+Search read-model semantik olarak TAMAMLANDI (bkz. PHASE_LOG "Faz 2C-9B" + ADR-079 Ek 155.2). Kapatılan iki gerçek tutarsızlık:
+
+- **A. PDP↔PLP kampanya.** F4A "Sepette" rozeti artık search read-model'de (`ProductSearchDocument.campaign` snapshot). PDP + search indexer AYNI paylaşılan `selectPublicCampaignDisplay` (`@commerce-os/contracts`) → aynı "tek formül" (ADR-062). Read-time pencere bastırma + lifecycle reindex + reconciliation sweep. checkout otoriter kalır; PLP tahmin bilgilendiricidir.
+- **B. Swatch↔Facet.** variantDefining+filterable eksen (`ProductVariantOptionValue`) artık `ProductFacetValue`'ya index'lenir → Demo Hoodie "Renk" facet'i elle seed olmadan üretilir; TODO-156C facet framework'ü gerçek veriyle otomatik gösterir.
+
+Canlı doğrulama (docker, gerçek Demo Hoodie): PLP kartı ₺1.349,10 %10 "Sepette" = PDP birebir; Renk facet auto (Siyah/Kırmızı/Mavi); disjunctive filtre; read-time suppression; allowlist temiz; PDP/cart/home regresyon yok.
+
+> **Not.** Bu iş worktree'de commit EDİLMEDİ; TODO-156C ile birleşik final review + ship ayrı promptla yapılacak.

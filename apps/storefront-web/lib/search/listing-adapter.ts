@@ -10,7 +10,25 @@
  * (ANALIZ §18 R1). compareAt indirimi + Omnibus + discountPercent read-model'de MEVCUTTUR ve burada gosterilir.
  */
 import type { PublicSearchProduct } from "@commerce-os/api-client";
+import { formatCampaignAmount, getCampaignDiscountText } from "@commerce-os/utils";
 import { formatMinor } from "../money";
+
+/**
+ * TODO-155.2 — Kartın kampanya "Sepette" gösterim modeli (PublicCampaignBadge'den TÜRETİLİR; istemci HESAP
+ * YAPMAZ — nihai fiyat sunucunun güvenli tahminidir). PDP ile AYNI semantik. Kampanya yoksa null.
+ */
+export interface SearchCardCampaign {
+  /** AUTOMATIC_CART_DISCOUNT ("Sepette" bloğu) mı; değilse kupon/diğer → yalnız etiket. */
+  isAutomatic: boolean;
+  /** Sunucunun güvenli tahmini nihai birim fiyat etiketi (tr-TR); yoksa null (sahte fiyat yok). */
+  estimatedFinalLabel: string | null;
+  /** İndirim metni ("%10" / "₺X"); locale-bağımsız (paylaşılan helper). */
+  discountText: string;
+  /** "X üzeri" min sepet etiketi; yoksa null. */
+  minOrderLabel: string | null;
+  /** PERCENT kampanyasında yüzde değeri (kart rozeti); aksi null. */
+  percent: number | null;
+}
 
 /** Kart swatch gorunumu (yalniz gorsel onizleme; varyant secimi/fiyat degisimi YOK — ANALIZ §7). */
 export interface ListingSwatch {
@@ -53,6 +71,30 @@ export interface SearchListingCard {
   extraSwatchCount: number;
   /** Varsayilan swatch (isDefault; yoksa ilk); hicbiri yoksa null. */
   defaultSwatch: ListingSwatch | null;
+  /** TODO-155.2 — Kampanya "Sepette" gösterim modeli (PDP ile tutarlı); yoksa null. */
+  campaign: SearchCardCampaign | null;
+}
+
+/** Public kampanya rozeti (search read-model snapshot) → kart gösterim modeli (saf; istemci hesap yapmaz). */
+function toCardCampaign(product: PublicSearchProduct): SearchCardCampaign | null {
+  const badge = product.campaign;
+  if (!badge) return null;
+  const currency = product.currency ?? "TRY";
+  return {
+    isAutomatic: badge.displayKind === "AUTOMATIC_CART_DISCOUNT",
+    estimatedFinalLabel:
+      badge.estimatedFinalUnitPriceMinor !== null
+        ? formatCampaignAmount(badge.estimatedFinalUnitPriceMinor, currency)
+        : null,
+    discountText: getCampaignDiscountText({
+      type: badge.kind === "COUPON" ? "COUPON_CODE" : "AUTOMATIC_CART",
+      discountType: badge.discountType,
+      discountValue: badge.discountValue,
+    }),
+    minOrderLabel:
+      badge.minOrderAmountMinor !== null ? formatCampaignAmount(badge.minOrderAmountMinor, currency) : null,
+    percent: badge.discountType === "PERCENT" ? badge.discountValue : null,
+  };
 }
 
 function toImage(
@@ -101,6 +143,7 @@ export function toListingCard(product: PublicSearchProduct): SearchListingCard {
     swatchTotalCount: product.swatchTotalCount,
     extraSwatchCount,
     defaultSwatch,
+    campaign: toCardCampaign(product),
   };
 }
 

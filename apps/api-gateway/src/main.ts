@@ -5,6 +5,7 @@ import { closeQueueConnections } from "@commerce-os/queues";
 import { createServer } from "./server.js";
 import { startShipmentSyncWorker } from "./shipping/sync-worker.js";
 import { startBarcodeRetryWorker } from "./shipping/barcode-retry-worker.js";
+import { startCampaignReconcileWorker } from "./campaigns/reconcile-worker.js";
 
 const config = loadConfig();
 const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
@@ -14,11 +15,14 @@ const app = createServer(config);
 const shipmentSyncWorker = startShipmentSyncWorker({ config, logger });
 // TODO-123 — zamanlanmis barkod retry/backoff dongusu (BARCODE_RETRY_ENABLED=false ise no-op).
 const barcodeRetryWorker = startBarcodeRetryWorker({ config, logger });
+// TODO-155.2 — zamanlanmis kampanya rozeti reconciliation dongusu (CAMPAIGN_RECONCILE_ENABLED=false ise no-op).
+const campaignReconcileWorker = startCampaignReconcileWorker({ config, logger });
 
 const shutdown = async (signal: string) => {
   logger.info("api gateway shutting down", { signal });
   await shipmentSyncWorker.stop();
   await barcodeRetryWorker.stop();
+  await campaignReconcileWorker.stop();
   await app.close();
   await closeQueueConnections();
   await disconnectPrisma();

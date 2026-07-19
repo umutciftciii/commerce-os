@@ -3,6 +3,8 @@ import type { CampaignCouponRecord, CampaignRecord } from "../src/campaigns/data
 import {
   campaignAppliesToProduct,
   isBadgeEligible,
+  isCampaignSnapshotDisplayable,
+  selectIndexableCampaignSnapshot,
   selectPublicCampaignBadge,
   selectPublicCampaignDisplay,
 } from "../src/campaigns/public-badge.js";
@@ -409,5 +411,50 @@ describe("selectPublicCampaignDisplay · stackable kurali", () => {
     expect(display.primary?.displayKind).toBe("PUBLIC_COUPON");
     expect(display.primary?.requiresCouponCode).toBe(true);
     expect(display.primary?.estimatedFinalUnitPriceMinor).toBeNull();
+  });
+});
+
+// ── TODO-155.2 — Index-anı snapshot (search read-model) + read-time bastırma ──
+describe("selectIndexableCampaignSnapshot", () => {
+  it("otomatik %10 → badge + kazanan pencere (startsAt/endsAt)", () => {
+    const c = campaign({
+      startsAt: new Date("2026-07-01T00:00:00Z"),
+      endsAt: new Date("2026-07-31T00:00:00Z"),
+    });
+    const snap = selectIndexableCampaignSnapshot([c], PRODUCT, NOW, 149900);
+    expect(snap).not.toBeNull();
+    expect(snap?.badge.displayKind).toBe("AUTOMATIC_CART_DISCOUNT");
+    expect(snap?.badge.estimatedFinalUnitPriceMinor).toBe(134910);
+    expect(snap?.startsAt).toEqual(new Date("2026-07-01T00:00:00Z"));
+    expect(snap?.endsAt).toEqual(new Date("2026-07-31T00:00:00Z"));
+  });
+
+  it("uygun kampanya yoksa null", () => {
+    expect(selectIndexableCampaignSnapshot([], PRODUCT, NOW, 149900)).toBeNull();
+  });
+});
+
+describe("isCampaignSnapshotDisplayable (read-time bastırma)", () => {
+  const now = new Date("2026-07-15T12:00:00Z");
+  it("pencere içi → gösterilir", () => {
+    expect(
+      isCampaignSnapshotDisplayable(
+        { startsAt: new Date("2026-07-01T00:00:00Z"), endsAt: new Date("2026-07-31T00:00:00Z") },
+        now,
+      ),
+    ).toBe(true);
+  });
+  it("süresi geçmiş (now > endsAt) → gösterilmez", () => {
+    expect(
+      isCampaignSnapshotDisplayable({ startsAt: null, endsAt: new Date("2026-07-10T00:00:00Z") }, now),
+    ).toBe(false);
+  });
+  it("henüz başlamamış (now < startsAt) → gösterilmez", () => {
+    expect(
+      isCampaignSnapshotDisplayable({ startsAt: new Date("2026-08-01T00:00:00Z"), endsAt: null }, now),
+    ).toBe(false);
+  });
+  it("açık uçlu (start/end null) → gösterilir", () => {
+    expect(isCampaignSnapshotDisplayable({ startsAt: null, endsAt: null }, now)).toBe(true);
   });
 });

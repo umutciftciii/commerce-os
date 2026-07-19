@@ -20,6 +20,7 @@
  */
 
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { isCampaignSnapshotDisplayable, type PublicCampaignBadge } from "@commerce-os/contracts";
 import { normalizeText } from "./normalize.js";
 import {
   SearchError,
@@ -296,7 +297,8 @@ export async function searchReadModel(
   const itemRows = await client.$queryRaw<RawItemRow[]>(Prisma.sql`
     SELECT d."productId", d.slug, d.title, d.brand, d."primaryCategoryId",
            d."minPriceMinor", d."maxPriceMinor", d.currency, d.availability, d."hasStock", d."variantCount",
-           d."compareAtMinor", d."discountPercent", d."omnibusPreviousPriceMinor", d.listing
+           d."compareAtMinor", d."discountPercent", d."omnibusPreviousPriceMinor", d.listing,
+           d.campaign, d."campaignStartsAt", d."campaignEndsAt"
     FROM "ProductSearchDocument" d
     WHERE ${whereAll}
     ORDER BY ${orderBy}
@@ -327,10 +329,12 @@ export async function searchReadModel(
           categoryIds,
         );
 
+  // TODO-155.2 — read-time bastırma anı (tek `now`; deterministik map).
+  const now = new Date();
   return {
     sort: query.sort,
     pagination: computePagination(query.page, query.pageSize, totalItems),
-    items: itemRows.map(toResultItem),
+    items: itemRows.map((row) => toResultItem(row, now)),
     facets,
   };
 }
@@ -352,9 +356,19 @@ interface RawItemRow {
   discountPercent: number | null;
   omnibusPreviousPriceMinor: number | null;
   listing: SearchListingProjection | null;
+  // TODO-155.2 — kampanya rozeti snapshot'ı (jsonb → parsed obje) + geçerlilik penceresi (read-time bastırma).
+  campaign: PublicCampaignBadge | null;
+  campaignStartsAt: Date | null;
+  campaignEndsAt: Date | null;
 }
 
-function toResultItem(r: RawItemRow): SearchResultItem {
+function toResultItem(r: RawItemRow, now: Date): SearchResultItem {
+  // TODO-155.2 — READ-TIME geçerlilik bastırması: snapshot penceresi `now`'a göre geçersizse (başlamamış/bitmiş)
+  // kampanya GÖSTERİLMEZ (bayat badge sızmaz). Postgres + gelecekte OpenSearch AYNI semantik (server-side).
+  const campaign =
+    r.campaign !== null && isCampaignSnapshotDisplayable({ startsAt: r.campaignStartsAt, endsAt: r.campaignEndsAt }, now)
+      ? r.campaign
+      : null;
   return {
     productId: r.productId,
     slug: r.slug,
@@ -372,6 +386,7 @@ function toResultItem(r: RawItemRow): SearchResultItem {
     discountPercent: r.discountPercent,
     omnibusPreviousPriceMinor: r.omnibusPreviousPriceMinor,
     listing: r.listing ?? null,
+    campaign,
   };
 }
 

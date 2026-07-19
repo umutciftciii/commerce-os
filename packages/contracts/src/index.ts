@@ -1939,6 +1939,10 @@ export const publicSearchProductSchema = z.object({
   swatches: z.array(publicSearchSwatchSchema).default([]),
   /** Toplam swatch sayısı (> swatches.length ise vitrin "+N" gösterir). */
   swatchTotalCount: z.number().int().nonnegative().default(0),
+  // TODO-155.2 (ADR-079 Ek) — Kampanya rozeti snapshot'ı (BİRİNCİL; PublicCampaignBadge allowlist). Index-anı
+  // snapshot + read-time geçerlilik bastırması UYGULANMIŞ (süresi geçmişse null). PDP ile AYNI "tek formül"
+  // (ADR-062) → PDP↔PLP "Sepette" tutarlılığı. İç campaign id/limit/priority/stackable/usageCount SIZMAZ.
+  campaign: publicCampaignBadgeSchema.nullable().default(null),
 });
 
 export const publicSearchFacetValueSchema = z.object({
@@ -5663,3 +5667,300 @@ export type MediaContext = z.infer<typeof mediaContextSchema>;
 export type MediaAssetResponse = z.infer<typeof mediaAssetSchema>;
 export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
 export type MediaListResponse = z.infer<typeof mediaListResponseSchema>;
+
+// ─────────────────────── TODO-155.2 — PAYLAŞILAN Kampanya Rozet Değerlendiricisi (SAF) ───────────────────────
+//
+// F4A "tek formül" (ADR-062) ilkesinin PAYLAŞILAN çekirdeği. Daha önce api-gateway'e ait olan
+// `selectPublicCampaignDisplay` + `CampaignRecord` tipleri buraya TAŞINDI ki HEM api-gateway (PDP/PLP detay
+// yanıtı) HEM search-service (index-anı rozet snapshot'ı) AYNI saf değerlendiriciyi kullansın → PDP ↔ PLP
+// ticari sunum tutarlılığı (kaynak ayrımı korunur: checkout nihai fiyat otoritesidir, bu YALNIZ gösterim).
+//
+// SAF: I/O yok, Prisma yok, `now` PARAMETREdir → deterministik + birim-test edilebilir. Public allowlist:
+// yalnız PublicCampaignBadge alanları sızar (iç id/limit/priority/stackable/usageCount TAŞINMAZ).
+
+/** Değerlendiriciye giren kupon kaydı (store-scoped yüklenmiş; iç kimlik dahil — public'e SIZMAZ). */
+export interface CampaignCouponRecord {
+  id: string;
+  code: string;
+  normalizedCode: string;
+  status: CouponStatus;
+  totalUsageLimit: number | null;
+  perCustomerUsageLimit: number | null;
+  usageCount: number;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Değerlendiriciye giren kampanya kaydı (store-scoped yüklenmiş). Public projeksiyon buradan TÜRETİLİR. */
+export interface CampaignRecord {
+  id: string;
+  storeId: string;
+  name: string;
+  description: string | null;
+  status: CampaignStatus;
+  type: CampaignType;
+  discountType: CampaignDiscountType;
+  discountValue: number;
+  maxDiscountAmountMinor: number | null;
+  minOrderAmountMinor: number | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  totalUsageLimit: number | null;
+  perCustomerUsageLimit: number | null;
+  usageCount: number;
+  stackable: boolean;
+  priority: number;
+  isPublic: boolean;
+  /** F4A.4 — SUNUM alanları (ADR-061); motor bunları KULLANMAZ. */
+  displayTitle: string | null;
+  shortDescription: string | null;
+  terms: string | null;
+  badgeLabel: string | null;
+  badgeVariant: CampaignBadgeVariant | null;
+  cardStyle: CampaignCardStyle;
+  accessModel: CampaignAccessModel;
+  displayPriority: number;
+  productIds: string[];
+  categoryIds: string[];
+  coupons: CampaignCouponRecord[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Rozet üretebilen kampanya tipleri (checkout motoruyla AYNI MVP kümesi). */
+const CAMPAIGN_BADGE_TYPES: ReadonlySet<CampaignType> = new Set([
+  "COUPON_CODE",
+  "AUTOMATIC_CART",
+  "PRODUCT_DISCOUNT",
+  "CATEGORY_DISCOUNT",
+]);
+
+/** F4A.4 — Kampanya kaydından PUBLIC-SAFE sunum alan paketini çıkarır (ADR-061). İç alan GİRMEZ. */
+export function toCouponDisplayFields(campaign: CampaignRecord): CouponDisplayFields {
+  return {
+    displayTitle: campaign.displayTitle,
+    shortDescription: campaign.shortDescription,
+    badgeLabel: campaign.badgeLabel,
+    badgeVariant: campaign.badgeVariant,
+    cardStyle: campaign.cardStyle,
+    terms: campaign.terms,
+  };
+}
+
+function campaignWithinWindow(campaign: CampaignRecord, now: Date): boolean {
+  if (campaign.startsAt && now.getTime() < campaign.startsAt.getTime()) return false;
+  if (campaign.endsAt && now.getTime() > campaign.endsAt.getTime()) return false;
+  return true;
+}
+
+/** Rozet adayı mı? ACTIVE + public + tip destekli + pencere içinde + limiti dolmamış + (kupon ise ACTIVE kupon). */
+export function isBadgeEligible(campaign: CampaignRecord, now: Date): boolean {
+  if (campaign.status !== "ACTIVE") return false;
+  if (!campaign.isPublic) return false;
+  if (!CAMPAIGN_BADGE_TYPES.has(campaign.type)) return false;
+  if (!campaignWithinWindow(campaign, now)) return false;
+  if (campaign.totalUsageLimit !== null && campaign.usageCount >= campaign.totalUsageLimit) return false;
+  if (campaign.type === "COUPON_CODE") {
+    if (!campaign.coupons.some((coupon) => coupon.status === "ACTIVE")) return false;
+  }
+  return true;
+}
+
+/** Kampanya kapsamı bu ürünü içeriyor mu? Boş kapsam = tüm ürünler. */
+export function campaignAppliesToProduct(
+  campaign: CampaignRecord,
+  product: { id: string; categoryIds: string[] },
+): boolean {
+  const hasScope = campaign.productIds.length > 0 || campaign.categoryIds.length > 0;
+  if (!hasScope) return true;
+  if (campaign.productIds.includes(product.id)) return true;
+  return product.categoryIds.some((categoryId) => campaign.categoryIds.includes(categoryId));
+}
+
+function compareCampaigns(a: CampaignRecord, b: CampaignRecord): number {
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function selectPublicCouponCode(campaign: CampaignRecord, now: Date): string | null {
+  const coupon = campaign.coupons.find((item) => {
+    if (item.status !== "ACTIVE") return false;
+    if (item.startsAt && now.getTime() < item.startsAt.getTime()) return false;
+    if (item.endsAt && now.getTime() > item.endsAt.getTime()) return false;
+    if (item.totalUsageLimit !== null && item.usageCount >= item.totalUsageLimit) return false;
+    return true;
+  });
+  return coupon?.code ?? null;
+}
+
+function effectiveCampaignEndsAt(campaign: CampaignRecord, coupon: CampaignCouponRecord | null): Date | null {
+  const ends = [campaign.endsAt, coupon?.endsAt ?? null].filter((d): d is Date => d instanceof Date);
+  if (ends.length === 0) return null;
+  return ends.reduce((min, d) => (d.getTime() < min.getTime() ? d : min));
+}
+
+/**
+ * F4A.6 (ADR-062) — Otomatik sepet indiriminin GÜVENLİ birim-başı tahmini. Yalnız PERCENT + tek-fiyatlı ürün
+ * (unitPriceMinor bilinir) + (minOrder yok ya da tek birim eşiği karşılar). Aksi null (sahte fiyat ÜRETİLMEZ).
+ * Checkout motoruyla AYNI formül: round(unit*yüzde), maxDiscount cap, birim fiyatla sınırla. FIXED_AMOUNT → null.
+ */
+export function computeAutomaticEstimate(
+  campaign: CampaignRecord,
+  unitPriceMinor: number | null,
+): { estimatedDiscountMinor: number | null; estimatedFinalUnitPriceMinor: number | null } {
+  const none = { estimatedDiscountMinor: null, estimatedFinalUnitPriceMinor: null };
+  if (unitPriceMinor === null || unitPriceMinor <= 0) return none;
+  if (campaign.discountType !== "PERCENT") return none;
+  if (campaign.minOrderAmountMinor !== null && unitPriceMinor < campaign.minOrderAmountMinor) return none;
+  let discount = Math.round((unitPriceMinor * campaign.discountValue) / 100);
+  if (campaign.maxDiscountAmountMinor !== null) discount = Math.min(discount, campaign.maxDiscountAmountMinor);
+  discount = Math.max(0, Math.min(discount, unitPriceMinor));
+  if (discount <= 0) return none;
+  return { estimatedDiscountMinor: discount, estimatedFinalUnitPriceMinor: unitPriceMinor - discount };
+}
+
+function buildCampaignBadge(
+  winner: CampaignRecord,
+  now: Date,
+  unitPriceMinor: number | null,
+): PublicCampaignBadge {
+  const isCoupon = winner.type === "COUPON_CODE";
+  const couponCode = isCoupon ? selectPublicCouponCode(winner, now) : null;
+  const activeCoupon = isCoupon ? (winner.coupons.find((c) => c.code === couponCode) ?? null) : null;
+  const estimate = isCoupon
+    ? { estimatedDiscountMinor: null, estimatedFinalUnitPriceMinor: null }
+    : computeAutomaticEstimate(winner, unitPriceMinor);
+  const endsAt = effectiveCampaignEndsAt(winner, activeCoupon);
+  return {
+    kind: isCoupon ? "COUPON" : "AUTOMATIC",
+    displayKind: isCoupon ? "PUBLIC_COUPON" : "AUTOMATIC_CART_DISCOUNT",
+    requiresCouponCode: isCoupon,
+    discountType: winner.discountType,
+    discountValue: winner.discountValue,
+    maxDiscountAmountMinor: winner.maxDiscountAmountMinor,
+    minOrderAmountMinor: winner.minOrderAmountMinor,
+    couponCode,
+    couponAction: isCoupon ? (couponCode ? "CLAIM" : "MANUAL_ONLY") : "MANUAL_ONLY",
+    endsAt: endsAt ? endsAt.toISOString() : null,
+    ...estimate,
+    ...toCouponDisplayFields(winner),
+  };
+}
+
+/** Ürün için gösterim seti (birincil rozet + stackable ikincil kupon). */
+export interface PublicCampaignDisplay {
+  primary: PublicCampaignBadge | null;
+  secondaryCoupon: PublicCampaignBadge | null;
+}
+
+/** Ürün için uygun kampanyaları (rozet-uygun + kapsam) sıralı döndürür (priority DESC, id ASC). */
+function eligibleCampaignsFor(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+): CampaignRecord[] {
+  return campaigns
+    .filter((campaign) => isBadgeEligible(campaign, now))
+    .filter((campaign) => campaignAppliesToProduct(campaign, product))
+    .sort(compareCampaigns);
+}
+
+/** Uygun kampanyalardan birincil + (stackable ise) ikincil kupon kaydını seçer (badge üretmeden). */
+function selectPrimaryRecords(eligible: CampaignRecord[]): {
+  primary: CampaignRecord | null;
+  secondary: CampaignRecord | null;
+} {
+  if (eligible.length === 0) return { primary: null, secondary: null };
+  const allStackable = eligible.every((campaign) => campaign.stackable);
+  if (allStackable) {
+    const automatic = eligible.find((campaign) => campaign.type !== "COUPON_CODE") ?? null;
+    const coupon = eligible.find((campaign) => campaign.type === "COUPON_CODE") ?? null;
+    const primary = automatic ?? coupon;
+    const secondary = automatic && coupon ? coupon : null;
+    return { primary: primary ?? null, secondary };
+  }
+  return { primary: eligible[0], secondary: null };
+}
+
+/**
+ * F4A.6 (ADR-062) — Ürün kartı/detayı için gösterim setini seçer. `campaigns` önceden store-scoped yüklenmiş
+ * olmalıdır. `unitPriceMinor` yalnız otomatik indirimin güvenli nihai fiyat tahmini içindir (kupon → null).
+ */
+export function selectPublicCampaignDisplay(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+  unitPriceMinor: number | null = null,
+): PublicCampaignDisplay {
+  const eligible = eligibleCampaignsFor(campaigns, product, now);
+  const { primary, secondary } = selectPrimaryRecords(eligible);
+  if (!primary) return { primary: null, secondaryCoupon: null };
+  return {
+    primary: buildCampaignBadge(primary, now, primary.type !== "COUPON_CODE" ? unitPriceMinor : null),
+    secondaryCoupon: secondary ? buildCampaignBadge(secondary, now, null) : null,
+  };
+}
+
+/** Ürün için gösterilecek BİRİNCİL rozeti seçer (yoksa null). İnce sarmalayıcı (geriye-uyumlu). */
+export function selectPublicCampaignBadge(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+  unitPriceMinor: number | null = null,
+): PublicCampaignBadge | null {
+  return selectPublicCampaignDisplay(campaigns, product, now, unitPriceMinor).primary;
+}
+
+/** STORE seviyesi public kampanya slide listesi (vitrin üst band slider'ı). Ürün kapsamı UYGULANMAZ. */
+export function selectPublicCampaignSlides(campaigns: CampaignRecord[], now: Date): PublicCampaignBadge[] {
+  return campaigns
+    .filter((campaign) => isBadgeEligible(campaign, now))
+    .sort(compareCampaigns)
+    .map((campaign) => buildCampaignBadge(campaign, now, null));
+}
+
+/**
+ * TODO-155.2 — INDEX-ANI snapshot'ı: birincil rozet + kazanan kampanyanın GEÇERLİLİK penceresi (read-time
+ * bastırma için). `selectPublicCampaignDisplay` ile AYNI seçimi yapar ama kazananın startsAt/endsAt'ini de
+ * döndürür (badge startsAt taşımaz). Uygun kampanya yoksa null. `now` snapshot anıdır.
+ */
+export interface PublicCampaignSnapshot {
+  badge: PublicCampaignBadge;
+  /** Kazanan kampanyanın başlangıcı (read-time: now < startsAt → bastır). */
+  startsAt: Date | null;
+  /** Kazanan kampanya+kupon efektif bitişi (read-time: now > endsAt → bastır). */
+  endsAt: Date | null;
+}
+
+export function selectIndexableCampaignSnapshot(
+  campaigns: CampaignRecord[],
+  product: { id: string; categoryIds: string[] },
+  now: Date,
+  unitPriceMinor: number | null = null,
+): PublicCampaignSnapshot | null {
+  const eligible = eligibleCampaignsFor(campaigns, product, now);
+  const { primary } = selectPrimaryRecords(eligible);
+  if (!primary) return null;
+  const badge = buildCampaignBadge(primary, now, primary.type !== "COUPON_CODE" ? unitPriceMinor : null);
+  const activeCoupon =
+    primary.type === "COUPON_CODE"
+      ? (primary.coupons.find((c) => c.code === selectPublicCouponCode(primary, now)) ?? null)
+      : null;
+  return { badge, startsAt: primary.startsAt, endsAt: effectiveCampaignEndsAt(primary, activeCoupon) };
+}
+
+/**
+ * TODO-155.2 — READ-TIME geçerlilik bastırması (provider-bağımsız güvenlik ağı). Snapshot penceresi `now`'a
+ * göre geçersizse (başlamamış / bitmiş) rozet GÖSTERİLMEZ. Postgres bugün + gelecekte OpenSearch AYNI semantik.
+ * Asıl bayat-temizlik reconciliation ile yapılır; bu yalnız stale badge'in vitrine sızmasını önler.
+ */
+export function isCampaignSnapshotDisplayable(
+  window: { startsAt: Date | null; endsAt: Date | null },
+  now: Date,
+): boolean {
+  if (window.startsAt && now.getTime() < window.startsAt.getTime()) return false;
+  if (window.endsAt && now.getTime() > window.endsAt.getTime()) return false;
+  return true;
+}
