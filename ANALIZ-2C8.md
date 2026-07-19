@@ -446,3 +446,47 @@ ADR-079 kararlarıyla Search Read-Model Foundation uygulandı. Özet:
 - **Yakalanan bug**: deterministik jobId (`:` yasak + BullMQ tamamlanmış-job dedup'u change-stream'i bozuyordu) → **otomatik jobId + idempotent işleme**ye çevrildi.
 
 > **MERGED + DEPLOYED.** api-gateway + worker imajları merged-main'den rebuild edildi (7/7 healthy, `/health` 200, public catalog 200, allowlist sızıntısı yok). Deployed event-driven smoke (enqueue → container worker → read-model): index/fiyat/stok/product+variant facet/iki-ardışık-değişim/stale-facet/OUT_OF_STOCK/reindex-store-idempotent/store-isolation/archive-cleanup/cascade/tsvector/EXPLAIN-index — hepsi PASS.
+
+---
+
+## Faz B (2C-8B) — Public Search & Facet API (TODO-155) — UYGULANDI (worktree; commit/PR YOK)
+
+> ADR-079 Faz B kararlarıyla public arama/facet ucu uygulandı. Gate yeşil; Docker gerçek-PG smoke 31/31 PASS + HTTP uçtan uca + EXPLAIN + allowlist temiz. Faz A read-model'i üzerine YALNIZ okuma katmanı (yeni migration YOK).
+
+### Değişen bileşenler
+
+- **`services/search-service`**: `types.ts`'e public sorgu portu (`SearchQuery`/`SearchFilter`/`SearchResult`/`SearchFacet`/`SearchError` …) + `SearchProvider.search`. Yeni `search-query.ts` = read-model üzerinde bounded, parametreli, tenant-scoped raw SQL (result docs + disjunctive facet count/range + pagination + facet meta) + SAF yardımcılar (`assembleFacets`/`computePagination`/`deriveSelectionMode`/`escapeLike`). `postgres-provider.ts` `search`'ü bağlar.
+- **`packages/contracts`**: `publicSearchResponseSchema` + alt şemalar (ALLOWLIST).
+- **`apps/api-gateway`**: `search/query-parser.ts` (SAF; `filter[code]` bracket → düz-anahtar regex) + `search/routes.ts` (`GET /public/stores/:storeSlug/search`; SearchError→HTTP eşleme; kategori adı + kapak görseli bounded page-hidrasyonu; allowlist). `ServerDependencies.searchProvider` DI seam + `@commerce-os/search-service` bağımlılığı.
+
+### Public query kontratı (kesin)
+
+```
+GET /public/stores/:storeSlug/search
+  q=<metin>                         # FTS + brand + searchable-attr + substring
+  category=<slug>                   # subtree DAHİL (ACTIVE alt kategoriler)
+  page=<n≥1, vars 1>  pageSize=<1..100, vars 24>
+  sort=relevance|newest|price_asc|price_desc|title_asc|title_desc
+  minPrice=<minor>  maxPrice=<minor>   # taban fiyat range overlap
+  inStock=true
+  filter[<code>]=<v1,v2>            # option/text/boolean; facet İÇİ OR
+  filter[<code>][min]=<n>  filter[<code>][max]=<n>   # INTEGER/DECIMAL/DATE range
+```
+
+Yanıt: `{ query, category, sort, appliedFilters{minPrice,maxPrice,inStock,attributes[]}, pagination{page,pageSize,totalItems,totalPages,hasNextPage,hasPreviousPage}, facets[], products[] }`.
+
+### Facet count semantiği
+
+Disjunctive faceting: aynı facet OR, farklı facet AND, kendi-facet-hariç count. Bounded `1 + |seçili facet|` agregasyon; `COUNT(DISTINCT productId)`. Facet meta: `AttributeDefinition` (code/name/dataType/unit) + `CategoryAttribute.displayOrder` (facet sırası) + `AttributeOption.sortOrder` (değer sırası).
+
+### Postgres sorgu mimarisi
+
+Bounded sorgu (ürün sayısından bağımsız): kategori-subtree(≤1) + filtre-çözüm(≤2) + items(1) + count(1) + facet-universe(1) + facet-meta(1) + option-meta(1) + facet-count/numeric (1 + seçili). Ürün-başına sorgu YOK. Tüm SQL `Prisma.sql` ile parametreli + `storeId`-scoped. EXPLAIN (smoke): title trgm GIN (ILIKE), category btree, facet `storeId+productId` btree, newest btree — hepsi index-usable; küçük veri setinde planlayıcı doğru şekilde seq/btree+filter seçer; GIN'ler ölçek için mevcut. Yeni index GEREKMEDİ (mevcut Faz A indeksleri yeterli).
+
+### Gerçek-PG smoke (31/31 PASS) + HTTP
+
+İzole iki store + kategori ağacı + 6 typed attribute + varyant/stok/EAV seed → `rebuildStore` backfill → `provider.search` senaryoları: store-wide, kategori exact + subtree, exact/prefix/brand/searchable-attr/substring keyword, no-result, tenant isolation, COLOR/numeric/boolean/variantDefining/multi-select facet, OR-within, AND-across, disjunctive count, price overlap, price sort, stock exclude, pagination determinism, duplicate-facet-no-inflation. HTTP endpoint (container api-gateway): bracket filter, disjunctive facet, sort, kategori/kapak hidrasyonu, 400/404 hata kodları, allowlist sıfır sızıntı. Smoke verisi temizlendi (cascade → read-model 0/0).
+
+### Bilinçli kapsam dışı (Faz C+)
+
+storefront PLP UI · filter sidebar · mobile filters · URL sync UI · "daha fazla yükle" · autocomplete/suggest · synonym · search analytics · OpenSearch · AI ranking · best_selling/most_viewed sort · promotion-aware price · Redis facet cache (ölçek gelince).

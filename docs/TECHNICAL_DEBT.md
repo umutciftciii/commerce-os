@@ -782,3 +782,23 @@ TODO-153 / ADR-078 media-defining axis (Renk-öncelikli) ile varyant galerisini 
 - **DEPLOYED + doğrulandı.** MERGED (PR #80 `0aaea08` + PR #81 `0b1a63c`=main); migrate deploy (up to date), 7/7 healthy, deployed event-driven smoke ALL PASS.
   Kapsam: packages/db (schema + migration 20260719120000), packages/contracts, packages/queues, services/search-service (yeni), apps/worker, apps/api-gateway
   (emitter + 8 route modülü + server wiring), infra/docker/node.Dockerfile. Bloklayıcı: HAYIR.
+### TODO-155 / ADR-079 Faz B — Public Search & Facet API (Faz 2C-8B): bilinen sınırlar (kapsam gereği)
+- **TD-050 — Fiyat facet/filtre taban fiyat + min/max range overlap (gap edge-case).** Filtre `[minPrice,maxPrice]` ürünün `[minPriceMinor,maxPriceMinor]`
+  aralığıyla OVERLAP ile eşleşir. Read-model per-variant fiyat SATIRI tutmadığından, varyantlar 100 ve 500, filtre [200,300] gibi GAP durumunda ürün SUPERSET
+  olarak görünür (aralıkta gerçek varyant yok ama overlap true). Güvenli yön (eşleşen ürünü ASLA gizlemez; nadiren fazla gösterir). Kesin eşleşme = per-variant
+  fiyat facet satırı (additive read-model, Faz C+). Kampanya/kupon indirimli efektif fiyat KAPSAM DIŞI (taban=liste fiyatı; ADR-079 Faz B #8). Bloklayıcı: HAYIR.
+- **Relevance Türkçe morfoloji + fuzzy typo Faz E.** `sort=relevance` tier'ları raw title üzerinde `lower()`/`ILIKE`/`ts_rank`/`similarity` kullanır; Türkçe
+  İ/ı normalizasyonu exact/prefix tier'ında `lower()` ile sınırlıdır (searchText normalize edilmiştir ama ayrı normalize-title kolonu yok). Keyword MATCHING
+  `searchVector @@ plainto_tsquery` OR `title ILIKE %q%` (substring) — gerçek edit-distance fuzzy/typo tolerance ve synonym Faz E (`normalize.ts` stemming notuyla tutarlı).
+- **Facet displayOrder çoklu-kategori belirsizliği.** Bir attributeDefinition birden çok kategoride farklı `displayOrder` ile tanımlıysa, facet sırası deterministik
+  olarak MIN(displayOrder) (kategori verilmişse subtree kapsamında, yoksa store genelinde) ile çözülür. Kategori-özel tam sıralama Faz C UI kararı.
+- **DATE facet epoch-ms kontratı.** DATE attribute facet'i RANGE olarak `valueDate` → epoch millis ile üretilir/filtrelenir (`filter[code][min|max]`=epoch ms).
+  E-ticarette nadir; zengin tarih UI (takvim/relatif) Faz C.
+- **Cache YOK (bilinçle ertelendi).** Read-model materialized cache; smoke EXPLAIN bounded sorgu + index kullanımını gösterdi. Kısa-TTL Redis facet/response cache
+  (`search:{storeId}:{queryHash}` + version namespace + DB fallback) ölçek/latency gerektirdiğinde eklenir (ADR-079 Faz B #13). Bloklayıcı: HAYIR.
+- **Kapak/kategori hidrasyonu display-only bounded join.** Arama sonucu ürün listing DTO'su read-model'den; kategori ADI + kapak GÖRSELİ yalnız dönen SAYFA için
+  bounded (≤pageSize) `listProductImages`/`listCategories` ile hidre edilir (mevcut PLP deseni). Bu, arama/facet MANTIĞININ read-model-only kilidini bozmaz
+  (eşleşme/sayım/pagination read-model'de); yalnız display zenginleştirmesidir. İleride read-model'e `coverStorageKey`/`categoryName` denormalize edilebilir.
+- **Durum.** DONE (worktree; commit/PR/deploy YOK — brief gereği). Gate yeşil + Docker gerçek-PG smoke 31/31 + HTTP uçtan uca + EXPLAIN + allowlist temiz.
+  Kapsam: services/search-service (types + search-query + provider.search), packages/contracts (publicSearchResponseSchema), apps/api-gateway (search/query-parser +
+  search/routes + server wiring + package.json). YENİ MIGRATION YOK. Bloklayıcı: HAYIR.

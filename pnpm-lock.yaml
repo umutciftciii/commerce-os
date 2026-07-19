@@ -108,6 +108,9 @@ importers:
       '@commerce-os/queues':
         specifier: workspace:*
         version: link:../../packages/queues
+      '@commerce-os/search-service':
+        specifier: workspace:*
+        version: link:../../services/search-service
       '@commerce-os/utils':
         specifier: workspace:*
         version: link:../../packages/utils

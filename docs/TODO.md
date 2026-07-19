@@ -1381,6 +1381,17 @@
   api-gateway+worker merged-main'den rebuild, migrate deploy (up to date), 7/7 healthy, deployed event-driven smoke (container worker) ALL PASS. KAPSAM DIŞI: public
   search/facet uç · storefront PLP/filtre · URL sync · autocomplete/synonym · OpenSearch · AI ranking · kampanya-etkin fiyat facet'i · PLATFORM attribute global fan-out (TD-049).
 
-- TODO-155 — Faz 2C-8B: Public Search & Facet API (PLANLANDI — henüz başlanmadı). ADR-079 Faz B: `GET /public/stores/:slug/catalog/search`
-  (items + dinamik facet + count + pagination + sort) + `catalog/suggest` iskeleti; SearchProvider portuna `search`/`facets` metotları; public projeksiyon
-  allowlist korunur. Read-model (Faz A) hazır. Storefront PLP/filtre UI (Faz C), autocomplete/synonym (Faz E), OpenSearch (Faz F) AYRI. Bu faza BAŞLANMADI.
+- TODO-155 — Faz 2C-8B: Public Search & Facet API (DONE — worktree'de; commit/PR YOK, brief gereği; 2026-07-19, ADR-079 Faz B).
+  YALNIZ read-model'den okur (Product/EAV re-join YOK); Faz A read-model'i üstüne okuma katmanı, YENİ MIGRATION YOK. (1) **search-service.**
+  `SearchProvider.search` + provider-bağımsız port tipleri (`SearchQuery`/`SearchFilter`/`SearchResult`/`SearchFacet`/`SearchError`); `search-query.ts` =
+  read-model üzerinde bounded/parametreli/tenant-scoped raw SQL (result + disjunctive facet count/range + pagination + facet meta) + SAF yardımcılar
+  (`assembleFacets`/`computePagination`/`deriveSelectionMode`/`escapeLike`). (2) **contracts.** `publicSearchResponseSchema` (ALLOWLIST). (3) **api-gateway.**
+  `GET /public/stores/:storeSlug/search`; `search/query-parser.ts` (SAF; `filter[code]`+`[min]`/`[max]` bracket → düz-anahtar regex — Fastify default parser)
+  + `search/routes.ts` (SearchError→HTTP; kategori adı + kapak görseli bounded page-hidrasyonu; allowlist); `searchProvider` DI seam. **Kararlar:** subtree
+  DAHİL (recursive CTE); disjunctive facet (OR-içi/AND-arası/kendi-hariç, COUNT DISTINCT); relevance = exact→prefix→FTS rank→trigram→productId; taban fiyat
+  range overlap (kampanyalı fiyat kapsam dışı); numaralı pagination (PUBLIC_CATALOG_MAX kullanılmaz); hata kodları (INVALID_SEARCH_QUERY/SORT/PAGINATION/FILTER/
+  FILTER_VALUE, CATEGORY_NOT_FOUND, ATTRIBUTE_NOT_FILTERABLE); cache ERTELENDİ (read-model = materialized cache). (4) **Testler.** search-service 49 (+14) +
+  api-gateway 1047 (+30) + contracts 107 + queues 8; tüm build/lint temiz. Docker gerçek-PG üretim-kod smoke 31/31 PASS + HTTP endpoint uçtan uca + EXPLAIN
+  index doğrulaması + allowlist sıfır sızıntı; 4/4 healthy; smoke verisi temizlendi (cascade → read-model 0/0). KAPSAM DIŞI: storefront PLP/filter sidebar/
+  mobile/URL sync UI · "daha fazla yükle" · autocomplete/suggest/synonym · search analytics · OpenSearch · AI ranking · best_selling/most_viewed sort ·
+  promotion-aware price · Redis facet cache (Faz C+/E/F). Commit/push/PR/merge/deploy YAPILMADI (kod+migration worktree'de).

@@ -14,6 +14,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { buildSearchDocument } from "./document-builder.js";
 import { createPrismaSearchDataAccess, type SearchDataAccess } from "./data.js";
+import { searchReadModel } from "./search-query.js";
 import type {
   BatchIndexOutcome,
   IndexOutcome,
@@ -21,6 +22,8 @@ import type {
   RebuildOptions,
   RebuildReport,
   SearchProvider,
+  SearchQuery,
+  SearchResult,
 } from "./types.js";
 
 /** loadSources IN-listesi + apply döngüsü için chunk (bellek + query planı guard'ı). */
@@ -119,7 +122,20 @@ export function createPostgresSearchProvider(
     return data.getIndexStatus(storeId);
   }
 
-  return { indexProduct, indexProducts, removeProduct, rebuildStore, backfillStore, getIndexStatus };
+  async function search(storeId: string, query: SearchQuery): Promise<SearchResult> {
+    // Public sorgu YALNIZ read-model'den okur (search-query.ts); Product/EAV source-of-truth join'i YOK.
+    return searchReadModel(client, storeId, query);
+  }
+
+  return {
+    indexProduct,
+    indexProducts,
+    removeProduct,
+    rebuildStore,
+    backfillStore,
+    getIndexStatus,
+    search,
+  };
 }
 
 // ── yardımcılar ──

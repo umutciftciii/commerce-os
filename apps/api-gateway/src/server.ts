@@ -223,6 +223,11 @@ import {
   type SearchIndexEmitter,
 } from "./search-index/emitter.js";
 import {
+  createDefaultSearchProvider,
+  type SearchProvider,
+} from "@commerce-os/search-service";
+import { registerPublicSearchRoutes, type SearchCoverImage } from "./search/routes.js";
+import {
   PAYMENT_SCENARIOS,
   PaymentConfigError,
   createDisabledHttpTransport,
@@ -1206,6 +1211,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // TODO-154 (ADR-079) — Search read-model reindex emitter (fire-and-forget). Varsayilan Redis-backed;
   // testlerde no-op/recording fake enjekte edilebilir (mutation'lar reindex tetikler ama testte kuyruk yok).
   searchIndexEmitter?: SearchIndexEmitter;
+  // TODO-155 (ADR-079) — Public arama/facet sağlayıcısı (SearchProvider.search). Varsayılan prisma-backed
+  // PostgresSearchProvider; testlerde in-memory fake enjekte edilebilir (DB-siz endpoint testi).
+  searchProvider?: SearchProvider;
 }
 
 const paginationQuerySchema = z.object({
@@ -4072,6 +4080,8 @@ export function createServer(
   // TODO-154 (ADR-079) — Search read-model reindex emitter (fire-and-forget; Redis erisilemezse mutation
   // etkilenmez). Mutation handler'lari basarili yazimdan sonra reindex tetikler; worker asenkron isler.
   const searchIndex = dependencies.searchIndexEmitter ?? createSearchIndexEmitter(config.REDIS_URL, logger);
+  // TODO-155 (ADR-079) — Public arama/facet sağlayıcısı (read-model sorgu). Testlerde fake enjekte edilir.
+  const searchProvider = dependencies.searchProvider ?? createDefaultSearchProvider();
   // F4A.3 (ADR-060) — Musteri kupon cuzdani veri erisimi (atama/claim/apply state).
   const wallet: WalletDataAccess = createPrismaWalletDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
@@ -5079,6 +5089,31 @@ export function createServer(
     // wrapper `this` baglamini korur (detached method referansi this'i koparirdi).
     listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
   });
+
+  // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den
+  // (searchProvider.search); Product/EAV source-of-truth join'i YOK. Kategori adı + kapak görseli
+  // yalnız dönen SAYFA için bounded hidrasyon (display-only; mevcut PLP deseniyle simetrik).
+  registerPublicSearchRoutes(app, {
+    resolvePublicStore,
+    search: (storeId, query) => searchProvider.search(storeId, query),
+    resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
+    resolveCovers: async (storeId, productIds) => {
+      const map = new Map<string, SearchCoverImage>();
+      if (productIds.length === 0) return map;
+      const coverMap = await dataAccess.listProductImages(storeId, productIds, true);
+      for (const [productId, images] of coverMap) {
+        const cover = images[0];
+        if (!cover) continue;
+        map.set(productId, {
+          url: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, cover.storageKey),
+          altText: cover.altText,
+          position: cover.position,
+        });
+      }
+      return map;
+    },
+  });
+
   // F3B.3 — Store-admin müşteri yönetimi (platform-admin + store scope guard).
   registerCustomerAdminRoutes(app, {
     config,

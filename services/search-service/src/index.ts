@@ -18,6 +18,17 @@ export const searchServiceBoundary = {
 export * from "./types.js";
 export { normalizeText, buildSearchText } from "./normalize.js";
 export { buildSearchDocument } from "./document-builder.js";
+export {
+  searchReadModel,
+  assembleFacets,
+  computePagination,
+  deriveSelectionMode,
+  escapeLike,
+  type FacetMetaRow,
+  type FacetCountRow,
+  type FacetRangeRow,
+  type OptionMetaRow,
+} from "./search-query.js";
 export { createPrismaSearchDataAccess, type SearchDataAccess } from "./data.js";
 export {
   createPostgresSearchProvider,
