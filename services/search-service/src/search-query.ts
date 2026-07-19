@@ -28,6 +28,7 @@ import {
   type SearchFacetSelectionMode,
   type SearchFacetValue,
   type SearchFilter,
+  type SearchListingProjection,
   type SearchQuery,
   type SearchResult,
   type SearchResultItem,
@@ -294,7 +295,8 @@ export async function searchReadModel(
   const orderBy = buildOrderBy(query.sort, q);
   const itemRows = await client.$queryRaw<RawItemRow[]>(Prisma.sql`
     SELECT d."productId", d.slug, d.title, d.brand, d."primaryCategoryId",
-           d."minPriceMinor", d."maxPriceMinor", d.currency, d.availability, d."hasStock", d."variantCount"
+           d."minPriceMinor", d."maxPriceMinor", d.currency, d.availability, d."hasStock", d."variantCount",
+           d."compareAtMinor", d."discountPercent", d."omnibusPreviousPriceMinor", d.listing
     FROM "ProductSearchDocument" d
     WHERE ${whereAll}
     ORDER BY ${orderBy}
@@ -345,6 +347,11 @@ interface RawItemRow {
   availability: "IN_STOCK" | "OUT_OF_STOCK";
   hasStock: boolean;
   variantCount: number;
+  // TODO-155.1 — Listing projection (read-model snapshot; jsonb → parsed obje). storageKey IÇ (route türetir).
+  compareAtMinor: number | null;
+  discountPercent: number | null;
+  omnibusPreviousPriceMinor: number | null;
+  listing: SearchListingProjection | null;
 }
 
 function toResultItem(r: RawItemRow): SearchResultItem {
@@ -360,6 +367,11 @@ function toResultItem(r: RawItemRow): SearchResultItem {
     availability: r.availability,
     inStock: r.hasStock,
     variantCount: r.variantCount,
+    // jsonb `listing` Prisma raw'da parsed obje döner (null olabilir); snapshot kendi yazımımız → shape güvenli.
+    compareAtMinor: r.compareAtMinor,
+    discountPercent: r.discountPercent,
+    omnibusPreviousPriceMinor: r.omnibusPreviousPriceMinor,
+    listing: r.listing ?? null,
   };
 }
 

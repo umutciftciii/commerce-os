@@ -2727,6 +2727,19 @@ model ProductSearchDocument {
   hasStock          Boolean                  @default(false)
   availability      SearchAvailabilityState  @default(OUT_OF_STOCK)
   variantCount      Int                      @default(0)
+  // ── TODO-155.1 (ADR-079) — Faz 2C-9 · Listing Projection Enrichment (ADDITIVE) ──
+  // Kart gosterimi icin INDEX ANINDA deterministik snapshot'lanan TURETILMIS ticari alanlar.
+  // Source-of-truth DEGIL (checkout fiyat otoritesi canli tablolardir); yalniz kart gorunumu.
+  // compareAtMinor: en ucuz gorunur (numerik fiyatli) ACTIVE varyantin compareAt'i (yalniz > satis fiyati).
+  // discountPercent: tek server-side formul round((compareAt-price)/compareAt*100); indirim yoksa null.
+  // omnibusPreviousPriceMinor: EU Omnibus son 30 gun en dusuk SATIS fiyati (yalniz indirim aktifken); yoksa null.
+  compareAtMinor            Int?
+  discountPercent           Int?
+  omnibusPreviousPriceMinor Int?
+  // BOUNDED kart medya/swatch projection'i (SADECE kart; genel EAV/facet verisi DEGIL — o ProductFacetValue'da
+  // relational kalir). storageKey'ler IC alandir (public url runtime'da turetilir; DTO'ya SIZMAZ). OpenSearch'e
+  // gecis serialize'inda dogal nested doc olur. Bicim: { primaryImage, secondaryImage, swatches[], swatchTotalCount }.
+  listing                   Json?
   // Kaynak zaman damgalari (siralama/tani) + indeksleme metaverisi (revision her reindex'te artar).
   productCreatedAt  DateTime
   productUpdatedAt  DateTime

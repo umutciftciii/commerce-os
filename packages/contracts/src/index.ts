@@ -1901,6 +1901,17 @@ export const publicSearchSortSchema = z.enum([
   "title_desc",
 ]);
 
+// TODO-155.1 (ADR-079) — Faz 2C-9 · Listing projection swatch (ALLOWLIST). Media-tanımlayıcı eksen (Renk)
+// kart swatch'ı. `imageUrl` runtime'da storageKey'den türetilir (storageKey/mediaId SIZMAZ). Bounded liste.
+export const publicSearchSwatchSchema = z.object({
+  optionId: z.string(),
+  label: z.string(),
+  colorHex: z.string().nullable(),
+  /** Swatch kapak görseli public URL'i (option'a etiketli görsel; yoksa ürün ana görseline fallback). */
+  imageUrl: z.string().nullable(),
+  isDefault: z.boolean(),
+});
+
 export const publicSearchProductSchema = z.object({
   id: z.string().min(1),
   slug: slugSchema,
@@ -1914,6 +1925,20 @@ export const publicSearchProductSchema = z.object({
   inStock: z.boolean(),
   /** Sayfa-yalnız bounded kapak görseli (ALLOWLIST: url/altText/position); yoksa null. */
   image: publicProductImageSchema.nullable().default(null),
+  // ── TODO-155.1 — Listing projection zenginleştirmesi (ADDITIVE; eski istemciler kırılmaz) ──
+  // Kart ticari zenginliği + swatch, read-model snapshot'ından (ikinci hydration turu YOK).
+  /** En ucuz görünür varyantın compareAt'i (yalnız > satış fiyatı); üstü-çizili liste fiyatı. */
+  compareAtMinor: z.number().int().nullable().default(null),
+  /** İndirim yüzdesi (tek server-side formül; compareAt tabanı); indirim yoksa null. */
+  discountPercent: z.number().int().nullable().default(null),
+  /** EU Omnibus: son 30 günün en düşük satış fiyatı (yalnız indirim aktifken); yoksa null. */
+  omnibusPreviousPriceMinor: z.number().int().nullable().default(null),
+  /** İkincil/hover kart görseli (ALLOWLIST: url/altText/position); yoksa null. */
+  secondaryImage: publicProductImageSchema.nullable().default(null),
+  /** Media-tanımlayıcı eksen swatch'ları (bounded; ilk MAX_LISTING_SWATCHES). */
+  swatches: z.array(publicSearchSwatchSchema).default([]),
+  /** Toplam swatch sayısı (> swatches.length ise vitrin "+N" gösterir). */
+  swatchTotalCount: z.number().int().nonnegative().default(0),
 });
 
 export const publicSearchFacetValueSchema = z.object({

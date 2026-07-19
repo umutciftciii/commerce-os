@@ -490,3 +490,7 @@ Bounded sorgu (ürün sayısından bağımsız): kategori-subtree(≤1) + filtre
 ### Bilinçli kapsam dışı (Faz C+)
 
 storefront PLP UI · filter sidebar · mobile filters · URL sync UI · "daha fazla yükle" · autocomplete/suggest · synonym · search analytics · OpenSearch · AI ranking · best_selling/most_viewed sort · promotion-aware price · Redis facet cache (ölçek gelince).
+
+### Ek — Faz 2C-9 (TODO-155.1) Listing Projection Enrichment
+
+Faz B'nin bıraktığı "kart display zenginleştirmesi read-model'e denormalize edilebilir" notu (yukarıda) **TODO-155.1'de uygulandı**: `ProductSearchDocument`'a index-anında snapshot'lanan bounded listing projection eklendi — `compareAtMinor`/`discountPercent`/`omnibusPreviousPriceMinor` (typed) + `listing` jsonb (primary/secondary görsel storageKey + media-tanımlayıcı eksen swatch'ları). Kart artık arama yanıtından **ikinci hydration turu OLMADAN** render edilir; kapak için eski query-time `resolveCovers` (ProductImage sorgusu) **kaldırıldı** (kapak da read-model snapshot'ından). Karar + sınırlar: **ADR-079 Ek** (DECISIONS.md) + **TD-050** (TECHNICAL_DEBT.md). Kampanya rozeti snapshot'ı TODO-155.2'ye ertelendi.

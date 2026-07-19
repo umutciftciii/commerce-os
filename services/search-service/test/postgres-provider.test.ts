@@ -26,7 +26,18 @@ function activeSource(id: string, storeId: string): SearchSourceProduct {
     primaryCategoryId: "cat_1",
     createdAt: new Date("2026-01-01T00:00:00Z"),
     updatedAt: new Date("2026-01-01T00:00:00Z"),
-    variants: [{ id: `${id}_v`, status: "ACTIVE", priceMinor: 1000, currency: "TRY", available: 4 }],
+    variants: [
+      {
+        id: `${id}_v`,
+        status: "ACTIVE",
+        priceMinor: 1000,
+        compareAtMinor: null,
+        currency: "TRY",
+        available: 4,
+        lowestRecentPriceMinor: null,
+        mediaOptionId: null,
+      },
+    ],
     categoryAttributes: [
       {
         attributeDefinitionId: "def_1",
@@ -52,6 +63,9 @@ function activeSource(id: string, storeId: string): SearchSourceProduct {
       },
     ],
     variantAttributeValues: [],
+    mediaDefiningAttributeId: null,
+    images: [],
+    mediaAxisOptions: [],
   };
 }
 
