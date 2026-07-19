@@ -40,8 +40,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * TODO-156D (brief §11/§13) — Ürün SEO metadata (merkezî builder). title/description admin seoTitle/
- * seoDescription > ürün alanları; canonical = ürün kanonik path'i (tek otorite, routes.ts). Ürün bulunamazsa
- * (silinmiş/geçersiz) index'lenmeyi engelleyen minimal meta döner (sayfa da notFound() ile 404'e gider).
+ * seoDescription > ürün alanları; canonical = ürün kanonik path'i (tek otorite, routes.ts).
+ *
+ * TODO-156D HOTFIX (soft-404) — Silinmiş/geçersiz ürün için `notFound()` BURADA (metadata fazında)
+ * çağrılır. Sayfa gövdesindeki `notFound()`, `force-dynamic` + streaming'de HTML shell (200 header) flush
+ * edildikten SONRA fırladığından status 200 kalıyordu (soft-404). generateMetadata yanıt gövdesi
+ * başlamadan ÖNCE çalışır → burada fırlatınca Next gerçek HTTP 404 döner. DİKKAT: gateway 5xx/ağ hatası
+ * (`!result.ok`) 404'e ÇEVRİLMEZ — geçici hatadır; noindex minimal meta döner, sayfa error UI render eder.
  */
 export async function generateMetadata({
   params,
@@ -52,9 +57,13 @@ export async function generateMetadata({
   const dict = await getStorefrontDict();
   const result = await getStorefrontProductByHandle(handle, await getRequestLocale());
 
-  if (!result.ok || result.data === null) {
-    // Silinen/geçersiz ürün: noindex (soft-404 üretme; sayfa 404 döner).
-    return { title: dict.detail.notFoundTitle, robots: { index: false, follow: false } };
+  if (!result.ok) {
+    // Gateway 5xx / ağ hatası (silinmiş DEĞİL): 404 ÜRETME. noindex minimal meta; sayfa error EmptyState render eder.
+    return { title: dict.detail.errorTitle, robots: { index: false, follow: false } };
+  }
+  if (result.data === null) {
+    // Ürün gerçekten yok (gateway 404): HTML flush'tan ÖNCE gerçek 404 (soft-404 değil). app/not-found.tsx render olur.
+    notFound();
   }
 
   const detail = result.data;
