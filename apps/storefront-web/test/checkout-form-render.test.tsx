@@ -60,6 +60,11 @@ function view(overrides: Partial<CartView> = {}): CartView {
         maxQuantity: null,
         inStock: true,
         status: "OK",
+        imageUrl: null,
+        selected: true,
+        compareAtLabel: null,
+        discountedUnitPriceLabel: null,
+        discountedLineTotalLabel: null,
       },
     ],
     summary: {

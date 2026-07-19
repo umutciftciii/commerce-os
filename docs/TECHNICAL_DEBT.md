@@ -562,17 +562,21 @@
   packages/api-client (type re-export), packages/i18n. Bloklayıcı: HAYIR.
 
 ## TD-040 storefront `checkout-form-render` fixture bayat (ÖNCEDEN mevcut; Faz 2B'de yüzeye çıktı)
+- Durum: RESOLVED (2026-07-19, TD-052)
 - Tarih: 2026-07-17 (gözlem; Faz 2B, TODO-146)
 - Sorun: `apps/storefront-web/test/checkout-form-render.test.tsx`'teki sahte `CartLineView` nesnesi güncel tipin
   `imageUrl / selected / compareAtLabel / discountedUnitPriceLabel / discountedLineTotalLabel` alanlarını sağlamıyor →
   `tsc --noEmit` TS2739 verir. Bu alanlar önceki fazlarda (sepet kampanya indirimi + thumbnail) `CartLineView`'e
   eklenmiş ama fixture güncellenmemiş. Faz 2A TODO entry'sinde de "ÖNCEDEN mevcut" olarak not edildi. Faz 2B'de
   contracts/api-client dist rebuild'i yerelde bayat dist'i tazelediği için hata görünür oldu.
-- Neden düzeltilmedi: storefront/checkout TODO-146'nın "Kesinlikle Yapılmayacak" listesindeydi; ürün kodu değil test
-  fixture'ıdır ve CI'da tsc gate'i yoktur (`next build` test dosyalarını dışlar → build kırılmaz). Faz 2B işiyle
-  ilişkisiz.
-- Düzeltme (ileride): fixture'a eksik 5 gösterim alanını ekle (davranış-nötr). Kapsam: apps/storefront-web/test.
-  Bloklayıcı: HAYIR.
+- Neden (o zaman) düzeltilmedi: storefront/checkout TODO-146'nın "Kesinlikle Yapılmayacak" listesindeydi; ürün kodu
+  değil test fixture'ıdır ve CI'da tsc gate'i yoktur (`next build` test dosyalarını dışlar → build kırılmaz). Faz 2B
+  işiyle ilişkisiz.
+- Çözüm: TD-052 kapsamında fixture'a eksik 5 gösterim alanı eklendi (davranış-nötr: `imageUrl: null`, `selected: true`,
+  `compareAtLabel: null`, `discountedUnitPriceLabel: null`, `discountedLineTotalLabel: null` → indirim yok, render
+  çıktısı değişmedi). Ürün koduna, `CartLineView` tipine veya test assertion'larına dokunulmadı. Doğrulama: `tsc
+  --noEmit` TS2739 = 0 (storefront-web genelinde 0 hata), ilgili vitest 6/6 yeşil, `next build` yeşil. Kapsam:
+  apps/storefront-web/test/checkout-form-render.test.tsx. Bloklayıcı: HAYIR.
 
 ## TD-041 Faz 2C-1 varyant motoru temeli: bilinen sınırlar (kapsam gereği)
 - Tarih: 2026-07-17 (Faz 2C-1, TODO-147, ADR-070)
@@ -827,5 +831,5 @@ TODO-156B storefront search wiring'inin **bilinçli** kapsam-dışıları. Hiçb
 - **TD-051.5 — Mobil header arama girişi YOK.** Header arama mevcut tasarımda `md:` üstünde görünür (mobilde gizli — pre-existing davranış korundu). Mobil arama girişi (mobil menüye eklenebilir) ayrı UX işi; regresyon değil.
 - **TD-051.6 — next/image yerine native `<img>`.** Tüm vitrin `/media/*` Next rewrite + native `<img>` kullanır (tutarlılık; remotePatterns config gerektirmez). LCP için `ProductMedia` additive `priority` (eager+fetchpriority=high ilk satır; gerisi lazy) aldı. next/image'a topyekûn geçiş ayrı iş (site-geneli).
 - **TD-051.7 — Tam storefront dict client island'lara serialize edilir.** Kart/sort/pagination `t: StorefrontDictionary` alır (mevcut ProductCard deseniyle tutarlı) → RSC flight payload'una i18n sözlüğü girer. İş mantığı değil; mevcut konvansiyon. İleride dar prop yüzeyi (yalnız `t.search`) ile küçültülebilir.
-- **TD-051.8 — Pre-existing typecheck borcu (kapsam dışı).** `apps/storefront-web` typecheck gate'i yok; manuel `tsc` `test/checkout-form-render.test.tsx`'te stale CartLineView fixture'ı gösterir (imageUrl/selected/discounted* eksik). 156B öncesinden; `next build`'i kırmaz, vitest geçer. Background task ile flag'lendi.
+- **TD-051.8 — Pre-existing typecheck borcu (kapsam dışı).** `apps/storefront-web` typecheck gate'i yok; manuel `tsc` `test/checkout-form-render.test.tsx`'te stale CartLineView fixture'ı gösteriyordu (imageUrl/selected/discounted* eksik). 156B öncesinden; `next build`'i kırmaz, vitest geçer. **RESOLVED (2026-07-19, TD-052 → [[TD-040]]):** fixture'a eksik 5 gösterim alanı davranış-nötr eklendi; `tsc --noEmit` TS2739 = 0.
 - **Durum.** DONE + **MERGED + DEPLOYED** (feat `415a0cd`, PR **#87**, merge **`77042e4`**=main; CI pass 3m37s; merged-main deploy 5/5 healthy + post-merge runtime smoke ALL PASS). Gate: storefront 273/273 (+75) · i18n 47 (TR/EN parity) · contracts 110 · next build yeşil · lint temiz. YENİ MIGRATION YOK. Bloklayıcı: HAYIR.
