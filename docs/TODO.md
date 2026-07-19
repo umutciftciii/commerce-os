@@ -1406,7 +1406,7 @@
 - TODO-156A — Storefront Search Experience Mimarisi (ANALİZ, kod yok). Mevcut storefront + tamamlanmış search backend analizi → enterprise PLP/filter/URL-state/SEO/
   a11y/component mimarisi + fazlara bölünmüş plan (156B/156C/156D). Çıktı: `ANALIZ-156A.md`. **R1 riski** (arama kartının ticari/görsel zenginlik kaybı) → TODO-155.1.
 
-- TODO-155.1 — Faz 2C-9: Search Listing Projection Enrichment (ADR-079 Ek). **DONE (worktree; commit/PR/deploy YOK — brief gereği).** TODO-156A R1'i çözer:
+- TODO-155.1 — Faz 2C-9: Search Listing Projection Enrichment (ADR-079 Ek). **DONE + MERGED + DEPLOYED** (feat `dbeeac0`, PR #85, merge `42bc9c7`=main; CI pass 3m34s; merged-main deploy 4/4 healthy + post-merge smoke ALL PASS). TODO-156A R1'i çözer:
   arama kartı için bounded/tenant-safe/public-safe listing projection'ı **index anında** snapshot'lanarak read-model'de tutulur (ikinci hydration turu YOK; read-model-only
   korunur). `ProductSearchDocument` additive: `compareAtMinor`/`discountPercent`/`omnibusPreviousPriceMinor` (typed) + `listing` jsonb (primary/secondary görsel +
   swatches[] + swatchTotalCount). Migration `20260719130000` **additive**. Ticari snapshot (tek indirim formülü; Omnibus yalnız indirim aktifken, sahte yok) + swatch
