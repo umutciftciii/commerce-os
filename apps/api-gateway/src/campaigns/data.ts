@@ -14,72 +14,24 @@
 import { prisma } from "@commerce-os/db";
 import type { Prisma } from "@prisma/client";
 import type {
-  CampaignAccessModel,
-  CampaignBadgeVariant,
-  CampaignCardStyle,
   CampaignCreateRequest,
   CampaignDiscountType,
   CampaignResponse,
   CampaignStatus,
-  CampaignType,
   CampaignUpdateRequest,
-  CouponDisplayFields,
-  CouponStatus,
 } from "@commerce-os/contracts";
 import { deriveIsPublicFromAccessModel } from "@commerce-os/contracts";
+import type { CampaignCouponRecord, CampaignRecord } from "@commerce-os/contracts";
 import type { DiscountContext, EngineCampaign, EngineCoupon } from "./discount-engine.js";
 import { normalizeCouponCode } from "./discount-engine.js";
 
 type TransactionClient = Prisma.TransactionClient;
 
-export interface CampaignCouponRecord {
-  id: string;
-  code: string;
-  normalizedCode: string;
-  status: CouponStatus;
-  totalUsageLimit: number | null;
-  perCustomerUsageLimit: number | null;
-  usageCount: number;
-  startsAt: Date | null;
-  endsAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface CampaignRecord {
-  id: string;
-  storeId: string;
-  name: string;
-  description: string | null;
-  status: CampaignStatus;
-  type: CampaignType;
-  discountType: CampaignDiscountType;
-  discountValue: number;
-  maxDiscountAmountMinor: number | null;
-  minOrderAmountMinor: number | null;
-  startsAt: Date | null;
-  endsAt: Date | null;
-  totalUsageLimit: number | null;
-  perCustomerUsageLimit: number | null;
-  usageCount: number;
-  stackable: boolean;
-  priority: number;
-  isPublic: boolean;
-  /** F4A.4 — SUNUM alanlari (ADR-061); motor bunlari KULLANMAZ. */
-  displayTitle: string | null;
-  shortDescription: string | null;
-  terms: string | null;
-  badgeLabel: string | null;
-  badgeVariant: CampaignBadgeVariant | null;
-  cardStyle: CampaignCardStyle;
-  accessModel: CampaignAccessModel;
-  displayPriority: number;
-  productIds: string[];
-  categoryIds: string[];
-  coupons: CampaignCouponRecord[];
-  createdAt: Date;
-  updatedAt: Date;
-}
+// TODO-155.2 — CampaignRecord/CampaignCouponRecord + toCouponDisplayFields artık PAYLAŞILAN pakette
+// (@commerce-os/contracts) — search-service ile ortak. Geriye-uyum için buradan RE-EXPORT edilir
+// (mevcut `from "./data.js"` içe aktarımları kırılmaz).
+export type { CampaignCouponRecord, CampaignRecord } from "@commerce-os/contracts";
+export { toCouponDisplayFields } from "@commerce-os/contracts";
 
 export interface CampaignRedemptionRecord {
   id: string;
@@ -299,22 +251,6 @@ export function toEngineCoupon(record: CampaignCouponRecord, campaignId: string)
 
 function isoOrNull(value: Date | null): string | null {
   return value ? value.toISOString() : null;
-}
-
-/**
- * F4A.4 — Kampanya kaydindan PUBLIC-SAFE sunum alan paketini cikarir (ADR-061).
- * Rozet/cuzdan/kupon-merkezi projeksiyonlarinda ORTAK kullanilir. Yalnizca
- * gorunum alanlari; ic kimlik/limit/priority/stackable BURAYA GIRMEZ.
- */
-export function toCouponDisplayFields(campaign: CampaignRecord): CouponDisplayFields {
-  return {
-    displayTitle: campaign.displayTitle,
-    shortDescription: campaign.shortDescription,
-    badgeLabel: campaign.badgeLabel,
-    badgeVariant: campaign.badgeVariant,
-    cardStyle: campaign.cardStyle,
-    terms: campaign.terms,
-  };
 }
 
 /** Kampanya kaydini admin API sozlesme sekline cevirir (ISO string tarihler). */

@@ -355,6 +355,9 @@ importers:
       '@commerce-os/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@commerce-os/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@commerce-os/db':
         specifier: workspace:*
         version: link:../../packages/db

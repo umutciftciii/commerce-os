@@ -7,8 +7,10 @@
  * `PostgresSearchProvider`; gelecekte `OpenSearchProvider` AYNI portu uygular (ADR-079 §upgrade-path).
  *
  * Bu dosya İZOLE tiplerdir (Prisma tiplerine bağımlı değil) → document-builder SAF kalır, birim test
- * DB'siz çalışır.
+ * DB'siz çalışır. TODO-155.2: kampanya rozeti için PAYLAŞILAN saf tipler (@commerce-os/contracts;
+ * Prisma DEĞİL) içe aktarılır — PDP ile AYNI değerlendirici index-anında kullanılır.
  */
+import type { CampaignRecord, PublicCampaignBadge } from "@commerce-os/contracts";
 
 // ── Kaynak (source-of-truth) projeksiyonu — data katmanının builder'a verdiği bounded girdi ──
 
@@ -99,6 +101,17 @@ export interface SearchSourceVariantAttributeValue {
 }
 
 /**
+ * TODO-155.2 — Varyant EKSEN option değeri (ProductVariantOptionValue; ADR-072). variantDefining+filterable
+ * bir attribute'un facet kaynağı: swatch'ı besleyen aynı eksen seçimleri. VariantAttributeValue (Faz 2A)
+ * boş olsa da varyant eksen seçimi burada durur → facet bu kaynaktan da türetilir (kök boşluk düzeltmesi).
+ * Yalnız ACTIVE varyanta bağlı satırlar yüklenir (data katmanı); option ARCHIVED ise builder eler.
+ */
+export interface SearchSourceVariantOptionValue {
+  attributeDefinitionId: string;
+  option: SearchOptionRef;
+}
+
+/**
  * TODO-155.1 — Bir ürün görseli (ProductImage + MediaAsset join). `storageKey` IÇ alandir (public url
  * runtime'da resolveMediaUrl ile turetilir; DTO'ya SIZMAZ). `optionId` = media-tanimlayici eksen (Renk)
  * option'i; null = paylasilan (tum varyant gruplarinda). `position` ASC = kapak sirasi.
@@ -141,6 +154,21 @@ export interface SearchSourceProduct {
   categoryAttributes: SearchSourceCategoryAttribute[];
   productAttributeValues: SearchSourceProductAttributeValue[];
   variantAttributeValues: SearchSourceVariantAttributeValue[];
+  /** TODO-155.2 — variantDefining+filterable eksen option seçimleri (ProductVariantOptionValue). Facet kaynağı. */
+  variantOptionValues: SearchSourceVariantOptionValue[];
+  /**
+   * TODO-155.2 — Ürünün TÜM kategori üyelikleri (kampanya kapsamı eşleşmesi; scope = productIds VEYA
+   * categoryIds kesişimi). primaryCategoryId dahil; boş = kapsamsız kampanya yine uygulanır (tüm ürünler).
+   */
+  categoryIds: string[];
+  /**
+   * TODO-155.2 — Bu mağazanın rozet-üretebilir aktif public kampanyaları (store-seviyesi; her ürün için AYNI
+   * referans — data katmanı bir kez yükler). Builder `selectIndexableCampaignSnapshot` ile en ucuz varyant
+   * fiyatı üzerinden rozet snapshot'ı üretir (PDP ile aynı formül).
+   */
+  campaigns: CampaignRecord[];
+  /** TODO-155.2 — Snapshot değerlendirme anı (data katmanı `new Date()`; builder SAF kalır → deterministik). */
+  evaluationNow: Date;
   /** TODO-155.1 — Media-tanimlayici eksen (Renk) definition id'si; null = klasik galeri (swatch yok). */
   mediaDefiningAttributeId: string | null;
   /** TODO-155.1 — Urun galerisi (ProductImage + MediaAsset); position ASC. Kart primary/secondary + swatch kapak. */
@@ -205,6 +233,10 @@ export interface SearchDocumentData {
   discountPercent: number | null;
   omnibusPreviousPriceMinor: number | null;
   listing: SearchListingProjection | null;
+  // TODO-155.2 — Kampanya rozeti snapshot'ı (public-safe) + kazanan kampanya geçerlilik penceresi.
+  campaign: PublicCampaignBadge | null;
+  campaignStartsAt: Date | null;
+  campaignEndsAt: Date | null;
   productCreatedAt: Date;
   productUpdatedAt: Date;
 }
@@ -390,6 +422,8 @@ export interface SearchResultItem {
   discountPercent: number | null;
   omnibusPreviousPriceMinor: number | null;
   listing: SearchListingProjection | null;
+  // TODO-155.2 — Kampanya rozeti snapshot'ı (read-time bastırma UYGULANMIŞ; süresi geçmişse null döner).
+  campaign: PublicCampaignBadge | null;
 }
 
 /** Numaralı pagination özeti (§10). */

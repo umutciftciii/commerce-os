@@ -573,3 +573,23 @@ Mevcut yerel DS yeterli **değil**; aşağıdakiler **yeni** (hepsi `apps/storef
    156D (kategori + SEO/JSON-LD + a11y + analytics kancaları) — üçü yaklaşık eşit, her biri bağımsız deploy/smoke.
 
 > **Kural teyidi:** Bu doküman analiz + mimaridir. Kod, migration, component, endpoint, PR üretilmemiştir.
+
+---
+
+## EK — TODO-156C Uygulama Sonucu (2026-07-19)
+
+Bu analizin **§5-§7** planı **TODO-156C** olarak uygulandı (bkz. PHASE_LOG "Faz 2C-8D"). Özet:
+
+- **Registry (§6.2).** `lib/search/facets.ts::resolveFacetKind` iki katmanlı anahtarı (selectionMode birincil, dataType ikincil) `FacetKind` stringine indirger; `components/search/facets/registry.tsx` `Record<FacetKind, Component>` lookup. Switch-case dağınıklığı YOK; bilinmeyen tip → `checkbox` fallback. Yeni tip = resolver + registry tek satır.
+- **Tek renderer (§5.1/§5.2/§15).** `facets/facet-list.tsx` paylaşılan; `FilterRail` (desktop ≥lg) ve `FilterDrawer` (mobil <lg) sarar — kopya yok.
+- **URL tek otorite (§7).** Tüm mutasyonlar saf (`url-state.ts`); yerel filtre state yok; her etkileşim URL replace → RSC SSR refetch. Çipler yalnız URL-türevli.
+- **A11y (§13).** Drawer role=dialog/aria-modal/ESC/scroll-lock/focus-trap; facet section aria-expanded/controls; native input klavye/aria; canlı doğrulandı (docker smoke).
+- **Sapmalar.** (1) Mobil "gecikmeli uygula" (§5.3) YERİNE "anında uygula + canlı sayaç" seçildi — brief §10/§11 "yerel filtre kopyası yok" ilkesine sıkı uyum. (2) Range integer-only + fiyat ×100 sabiti + DATE "hazırlık" → TD-053.1/.3/.4.
+
+> **Kural teyidi (güncel):** Ana metin (§0-§18) analiz+mimaridir. Bu EK, 156C kod uygulamasının sonucunu özetler.
+
+---
+
+## EK-2 — TODO-155.2 (2026-07-19): R1 kampanya rozeti riski KAPANDI
+
+ANALIZ §18 R1 (arama kartının kampanya/ticari zenginlik kaybı) TODO-155.1 (compareAt/Omnibus) + **TODO-155.2 (F4A kampanya "Sepette" rozeti)** ile tam kapandı: search kartı artık PDP ile AYNI kampanya sunumunu read-model snapshot'ından gösterir (ikinci hydration turu YOK; PDP↔PLP tutarlı). Ayrıca variant-defining facet kaynağı `ProductVariantOptionValue`'ya genişletildi → 156C facet framework'ü gerçek Renk facet'ini elle seed olmadan gösterir. Bkz. ADR-079 Ek 155.2 + PHASE_LOG Faz 2C-9B. (155.2 worktree'de; 156C ile birleşik ship bekliyor.)

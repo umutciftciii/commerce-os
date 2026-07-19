@@ -294,6 +294,110 @@ export function clearedSearchState(state: SearchState): SearchState {
   };
 }
 
+/**
+ * Yalniz DINAMIK/fiyat/stok filtrelerini temizler; q ve category KORUNUR (arama/kategori baglaminda
+ * "filtreleri temizle" davranisi). sort/pageSize de korunur; page 1'e doner.
+ */
+export function clearedFiltersOnly(state: SearchState): SearchState {
+  return {
+    ...state,
+    page: DEFAULT_PAGE,
+    minPrice: null,
+    maxPrice: null,
+    inStock: false,
+    filters: {},
+  };
+}
+
+// ── TODO-156C (ANALIZ-156A §6-§7) — Dinamik facet URL mutasyonlari (SAF) ──────
+//
+// Her mutasyon page'i 1'e dondurur (filtre degisimi yeni sonuc uzayi). Islem SAF: kopya doner, girdiyi
+// mutate ETMEZ. Bos hale gelen filtre kodu haritadan SILINIR (kanonik serialize + cip turetimi temiz kalir).
+// Bu fonksiyonlar facet UI (checkbox/color/boolean/range) + cip kaldirma icin TEK yazma noktasidir.
+
+/** filters haritasindan bir kodu immutably siler. */
+function withoutFilterCode(filters: Record<string, SearchFilterState>, code: string): Record<string, SearchFilterState> {
+  if (!(code in filters)) return filters;
+  const next: Record<string, SearchFilterState> = {};
+  for (const [k, v] of Object.entries(filters)) {
+    if (k !== code) next[k] = v;
+  }
+  return next;
+}
+
+/**
+ * Bir values-tipli facet degerini ekler/kaldirir (MULTI/BOOLEAN/COLOR — facet ICI OR). Zaten seciliyse
+ * kaldirir; degilse ekler. Filtre bosalirsa kod silinir. Range-tipli mevcut filtre varsa values'a gecirilir.
+ */
+export function toggleFilterValue(state: SearchState, code: string, value: string): SearchState {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return state;
+  const existing = state.filters[code];
+  const current = existing && existing.kind === "values" ? existing.values : [];
+  const set = new Set(current);
+  if (set.has(trimmed)) set.delete(trimmed);
+  else set.add(trimmed);
+  const values = [...set];
+  const filters =
+    values.length === 0
+      ? withoutFilterCode(state.filters, code)
+      : { ...state.filters, [code]: { kind: "values" as const, values } };
+  return { ...state, filters, page: DEFAULT_PAGE };
+}
+
+/** Bir values-tipli facet degerini yalnizca KALDIRIR (cip "×"); yoksa degistirmez. */
+export function removeFilterValue(state: SearchState, code: string, value: string): SearchState {
+  const existing = state.filters[code];
+  if (!existing || existing.kind !== "values") return state;
+  if (!existing.values.includes(value)) return state;
+  const values = existing.values.filter((v) => v !== value);
+  const filters =
+    values.length === 0
+      ? withoutFilterCode(state.filters, code)
+      : { ...state.filters, [code]: { kind: "values" as const, values } };
+  return { ...state, filters, page: DEFAULT_PAGE };
+}
+
+/** Bir filtre kodunu tamamen kaldirir (facet-seviyesi temizleme / range cip). */
+export function removeFilter(state: SearchState, code: string): SearchState {
+  if (!(code in state.filters)) return state;
+  return { ...state, filters: withoutFilterCode(state.filters, code), page: DEFAULT_PAGE };
+}
+
+/**
+ * Bir range-tipli dinamik facet'in min/max'ini ayarlar (INTEGER/DECIMAL/DATE). Ikisi de null → filtre silinir.
+ * Negatif/gecersiz sayi null'a duser (codec zaten reddeder). min>max mantiksal kontrolu UI'da; codec ham tutar.
+ */
+export function setFilterRange(
+  state: SearchState,
+  code: string,
+  min: number | null,
+  max: number | null,
+): SearchState {
+  const safeMin = min !== null && Number.isSafeInteger(min) && min >= 0 ? min : null;
+  const safeMax = max !== null && Number.isSafeInteger(max) && max >= 0 ? max : null;
+  if (safeMin === null && safeMax === null) {
+    return removeFilter(state, code);
+  }
+  return {
+    ...state,
+    filters: { ...state.filters, [code]: { kind: "range", min: safeMin, max: safeMax } },
+    page: DEFAULT_PAGE,
+  };
+}
+
+/** Top-level fiyat aralığı (minPrice/maxPrice, minor birim). Ikisi de null → temizlenir. */
+export function withPrice(state: SearchState, min: number | null, max: number | null): SearchState {
+  const safeMin = min !== null && Number.isSafeInteger(min) && min >= 0 ? min : null;
+  const safeMax = max !== null && Number.isSafeInteger(max) && max >= 0 ? max : null;
+  return { ...state, minPrice: safeMin, maxPrice: safeMax, page: DEFAULT_PAGE };
+}
+
+/** Top-level stok filtresi (inStock). */
+export function withInStock(state: SearchState, on: boolean): SearchState {
+  return { ...state, inStock: on, page: DEFAULT_PAGE };
+}
+
 /** URL'de herhangi bir daraltma (q/category/fiyat/stok/dinamik filtre) var mi. */
 export function hasActiveNarrowing(state: SearchState): boolean {
   return (

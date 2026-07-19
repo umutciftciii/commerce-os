@@ -156,6 +156,17 @@ export const envSchema = z.object({
   // Ardisik transient hata esigi: barcodeRetryCount bu degere ulasinca WORKER secmez
   // (barcodeRetryBlockedReason=MAX_ATTEMPTS); manuel retry calismaya devam eder.
   BARCODE_RETRY_MAX_ATTEMPTS: optionalNumberEnv(z.coerce.number().int().positive().default(5)),
+  // TODO-155.2 — Kampanya rozeti reconciliation sweep worker'i. Varsayilan KAPALI; acilinca api-gateway
+  // sureci icinde dusuk frekansla (a) suresi gecmis kampanya snapshot'li urunleri (b) araligi yeni ACILAN
+  // kampanyalari tespit edip search read-model reindex job'u enqueue eder (event kacirsa bile kendini onarir).
+  // Read-time bastirma zaten stale badge'i GIZLER; bu sweep snapshot'i eninde sonunda TEMIZLER. Idempotent
+  // (reindex idempotent). Tum degerler `KEY=` bos-string haline TOLERANSLIDIR (TD-036 / optionalEnv).
+  CAMPAIGN_RECONCILE_ENABLED: optionalBooleanEnv(false),
+  // Tur araligi (saniye). Muhafazakar varsayilan 3600s (saatlik); alt sinir 60s. Kampanya penceresi
+  // gunler/saatler olcegindedir → sik tarama gereksiz.
+  CAMPAIGN_RECONCILE_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(60).default(3600)),
+  // Tur basina, store basina en fazla kac suresi-gecmis snapshot urunu requeue edilir (bounded).
+  CAMPAIGN_RECONCILE_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(1000).default(200)),
   // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
   // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
   // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla

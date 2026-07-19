@@ -2740,6 +2740,15 @@ model ProductSearchDocument {
   // relational kalir). storageKey'ler IC alandir (public url runtime'da turetilir; DTO'ya SIZMAZ). OpenSearch'e
   // gecis serialize'inda dogal nested doc olur. Bicim: { primaryImage, secondaryImage, swatches[], swatchTotalCount }.
   listing                   Json?
+  // ── TODO-155.2 (ADR-079 Ek) — Faz 2C-9B · Campaign Badge Snapshot (ADDITIVE) ──
+  // Index ANINDA paylasilan selectPublicCampaignDisplay ile snapshot'lanan PUBLIC-SAFE kampanya rozeti (BIRINCIL).
+  // PDP ile AYNI "tek formul" (ADR-062) → PDP↔PLP tutarliligi. Source-of-truth DEGIL (checkout otoriter);
+  // yalniz kart "Sepette" sunumu. campaign = PublicCampaignBadge JSON (allowlist; ic id/limit/priority SIZMAZ)
+  // ya da null. campaignStartsAt/EndsAt = kazanan kampanyanin GECERLILIK penceresi → read-time bastirma
+  // (now<start ya da now>end ise rozet gosterilmez; bayat snapshot vitrine sizmaz). Reconciliation temizler.
+  campaign          Json?
+  campaignStartsAt  DateTime?
+  campaignEndsAt    DateTime?
   // Kaynak zaman damgalari (siralama/tani) + indeksleme metaverisi (revision her reindex'te artar).
   productCreatedAt  DateTime
   productUpdatedAt  DateTime
@@ -2755,6 +2764,8 @@ model ProductSearchDocument {
   @@index([storeId, hasStock])
   @@index([storeId, availability])
   @@index([storeId, productCreatedAt])
+  // TODO-155.2 — Reconciliation sweep: suresi gecmis kampanya snapshot'larini bounded taramak icin.
+  @@index([storeId, campaignEndsAt])
 }
 
 // Flat facet IS ATI: bir (urun × filterable attribute × DEGER) satiri. YALNIZ CategoryAttribute.

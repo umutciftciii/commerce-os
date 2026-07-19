@@ -26,6 +26,32 @@ function product(overrides: Partial<PublicSearchProduct> = {}): PublicSearchProd
     secondaryImage: null,
     swatches: [],
     swatchTotalCount: 0,
+    campaign: null,
+    ...overrides,
+  };
+}
+
+/** TODO-155.2 — Otomatik %10 kampanya rozeti fixture'ı (search read-model snapshot). */
+function autoBadge(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "AUTOMATIC" as const,
+    displayKind: "AUTOMATIC_CART_DISCOUNT" as const,
+    requiresCouponCode: false,
+    discountType: "PERCENT" as const,
+    discountValue: 10,
+    maxDiscountAmountMinor: null,
+    minOrderAmountMinor: null,
+    couponCode: null,
+    couponAction: "MANUAL_ONLY" as const,
+    endsAt: null,
+    estimatedDiscountMinor: 14990,
+    estimatedFinalUnitPriceMinor: 134910,
+    displayTitle: null,
+    shortDescription: null,
+    badgeLabel: null,
+    badgeVariant: null,
+    cardStyle: "STANDARD" as const,
+    terms: null,
     ...overrides,
   };
 }
@@ -100,5 +126,33 @@ describe("SearchProductCard", () => {
 
   it("internal read-model alanı render edilmez", () => {
     expect(html()).not.toMatch(/storageKey|mediaId|searchVector|costMinor/);
+  });
+
+  // TODO-155.2 — Kampanya "Sepette" kart sunumu (PDP ile tutarlı)
+  it("otomatik kampanya → Sepette nihai fiyat + üstü çizili liste + %10 rozeti", () => {
+    const out = html({ minPriceMinor: 149900, maxPriceMinor: 149900, campaign: autoBadge() });
+    // Nihai (Sepette) fiyat.
+    expect(out).toContain("1.349,10");
+    // Liste fiyatı üstü çizili.
+    expect(out).toContain("line-through");
+    expect(out).toContain("1.499,00");
+    // "Sepette" etiketi (i18n badges.inCart) + indirim rozeti %10.
+    expect(out).toContain(t.badges.inCart);
+    expect(out).toContain("%10");
+  });
+
+  it("kampanya + compareAt birlikte → kampanya önceliği (Sepette gösterilir, Omnibus gizli)", () => {
+    const out = html({
+      minPriceMinor: 149900,
+      campaign: autoBadge(),
+      compareAtMinor: 199900,
+      discountPercent: 25,
+      omnibusPreviousPriceMinor: 189900,
+    });
+    // Kampanya bloğu gösterilir.
+    expect(out).toContain("1.349,10");
+    expect(out).toContain(t.badges.inCart);
+    // Omnibus (compareAt semantiği) bu dalda GİZLİ.
+    expect(out).not.toContain("1.899,00");
   });
 });

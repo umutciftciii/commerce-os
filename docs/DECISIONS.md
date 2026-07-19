@@ -2646,3 +2646,20 @@ patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırla
 **Reddedilen/ertelenen (155.1).** Kampanya/indirim rozeti snapshot'ı (→155.2; F4A motoru paylaşımı) · zamanlanmış reconciliation worker kodu (strateji dokümante; →155.2) · size/non-media swatch · per-SKU cover · tam galeri · promotion-aware filter/sort · Redis cache.
 
 **Durum (TODO-155.1).** DONE + MERGED + DEPLOYED — feat `dbeeac0`, PR #85, merge `42bc9c7`=main (CI pass 3m34s); migration additive `20260719130000`; merged-main deploy 4/4 healthy + post-merge runtime smoke ALL PASS (compareAt→discount %20 · 3-swatch per-option görsel · primary/secondary hover · allowlist sıfır sızıntı · idempotency · ProductCard tek-endpoint render). Kampanya rozeti snapshot'ı → TODO-155.2 (planlandı).
+
+### ADR-079 Ek — TODO-155.2 · Search Listing Semantic Completion (Faz 2C-9B)
+
+**Bağlam.** 155.1 listing projection'ı ticari snapshot (compareAt/discount%/Omnibus) taşır ama F4A **kampanya rozeti** taşımaz → PDP "Sepette %10 / ₺1.349,10" gösterirken PLP/search kartı yalnız liste fiyatını gösterir (gerçek PDP↔PLP tutarsızlığı). Ayrıca variantDefining eksen değerleri yalnız `VariantAttributeValue`'dan facet'lendiği için, eksen seçimi `ProductVariantOptionValue`'da duran ürünlerde (swatch var) facet üretilmez (swatch↔facet tutarsızlığı).
+
+**Karar.**
+1. **Paylaşılan kampanya değerlendiricisi.** `selectPublicCampaignDisplay` + record tipleri + `toCouponDisplayFields` api-gateway'den `@commerce-os/contracts`'a taşınır; PDP (api-gateway) ve search indexer (services/search-service) AYNI saf değerlendiriciyi kullanır → "tek formül" (ADR-062) tek kaynak. api-gateway modülleri geriye-uyum için re-export eder (PDP davranışı değişmez).
+2. **Index-anı kampanya snapshot'ı.** `selectIndexableCampaignSnapshot` en ucuz görünür varyant fiyatı üzerinden BİRİNCİL rozeti + kazanan kampanyanın geçerlilik penceresini üretir; `ProductSearchDocument.campaign` (jsonb; PublicCampaignBadge allowlist) + `campaignStartsAt`/`campaignEndsAt` (additive). Kampanya motoru search READ sırasında ÇALIŞMAZ (index anında snapshot; N+1 yok). checkout nihai fiyat otoritesidir; PLP snapshot bilgilendirici tahmindir (yalnız otomatik PERCENT + tek fiyat + minOrder → güvenli final; aksi yalnız etiket, sahte fiyat yok).
+3. **Read-time geçerlilik bastırması.** Snapshot penceresi `now`'a göre geçersizse (başlamamış/bitmiş) rozet okuma yolunda bastırılır (`isCampaignSnapshotDisplayable`) — join YOK, provider-bağımsız (Postgres + gelecekte OpenSearch aynı). Bayat badge vitrine sızmaz; asıl temizlik reconciliation ile.
+4. **Lifecycle reindex + reconciliation.** Kampanya lifecycle değişimi → `reindexStore` (store-geneli; her zaman doğru + bounded). Event'siz zaman-sınırı geçişleri için düşük-frekanslı reconciliation sweep (in-process, default KAPALI): süresi geçmiş snapshot'ları + yeni açılan kampanyaları reindex'ler. Enqueue-only + idempotent.
+5. **Variant-defining facet kaynağı genişletildi.** variantDefining+filterable eksenler için facet, `VariantAttributeValue` VE `ProductVariantOptionValue` birleşiminden (dedupe) üretilir. Manuel `ProductFacetValue` seed çözüm DEĞİLDİR; gerçek kaynak tablolardan otomatik index'lenir.
+
+**Sonuçlar (+).** PDP↔PLP ticari tutarlılık; swatch↔facet tutarlılık; provider-bağımsız kontrat korunur (OpenSearch upgrade-path bozulmaz); public allowlist + tenant isolation korunur; TODO-156C facet framework'ü DEĞİŞMEDEN gerçek veriyle çalışır.
+
+**Sonuçlar (−) / sınırlar.** Kampanya reindex granülaritesi store-geneli (TD-054.1); reconciliation yalnız kampanya penceresi (Omnibus penceresi TD-050.2/054.2 açık); reconciliation tek-instance (TD-054.3); ikincil kupon karta yansımaz (TD-054.5); kategori kapsamı doğrudan üyelik (TD-054.6). Hiçbiri bloklayıcı değil.
+
+**Reddedilen alternatifler.** (a) Kartta client-side kampanya hesabı → read-model-only ilkesini + N+1'i bozar (reddedildi; ADR-079 §18 R1). (b) Kampanyayı `ProductVariant.compareAtMinor`/Omnibus alanına yazmak → compareAt (liste markdown) ile kampanya (sepet indirimi) semantiklerini karıştırır (reddedildi; ayrı kolonlar). (c) Manuel facet seed → gerçek kaynaktan türetme yerine kırılgan (reddedildi).

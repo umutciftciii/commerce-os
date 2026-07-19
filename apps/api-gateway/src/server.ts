@@ -5189,6 +5189,8 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    // TODO-155.2 — Kampanya lifecycle degisince search read-model'i tazele (rozet snapshot yenilensin).
+    onCampaignChanged: (storeId) => searchIndex.reindexStore(storeId),
   });
 
   // ADR-065 (Faz 2/Dilim 5) — Ana sayfa hero slide yonetimi (CRUD temeli). Media

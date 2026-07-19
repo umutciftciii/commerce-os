@@ -33,6 +33,11 @@ function source(overrides: Partial<SearchSourceProduct> = {}): SearchSourceProdu
     categoryAttributes: [],
     productAttributeValues: [],
     variantAttributeValues: [],
+    // TODO-155.2 — variant eksen option seçimleri + kampanya kaynakları (varsayılan boş → snapshot null).
+    variantOptionValues: [],
+    categoryIds: [CATEGORY_ID],
+    campaigns: [],
+    evaluationNow: new Date("2026-07-15T12:00:00Z"),
     // TODO-155.1 — listing projection kaynakları (varsayılan: yok → swatch/görsel üretilmez).
     mediaDefiningAttributeId: null,
     images: [],
@@ -367,5 +372,149 @@ describe("buildSearchDocument · searchText", () => {
       ),
     );
     expect(r.document.searchText).not.toContain("gizlideğer");
+  });
+});
+
+// ── TODO-155.2 — Variant-defining facet projection (kök boşluk düzeltmesi) ──
+describe("buildSearchDocument · variantDefining facet (ProductVariantOptionValue)", () => {
+  it("VariantAttributeValue BOŞ olsa da variantOptionValues'tan COLOR facet üretir", () => {
+    // Demo Hoodie senaryosu: renk variantDefining+filterable; VAV yok, eksen seçimi PVOV'da.
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          categoryAttributes: [
+            categoryAttr({ attributeDefinitionId: "def_renk", dataType: "COLOR", variantDefining: true }),
+          ],
+          variantAttributeValues: [],
+          variantOptionValues: [
+            { attributeDefinitionId: "def_renk", option: { id: "opt_siyah", value: "siyah", label: "Siyah", status: "ACTIVE" } },
+            { attributeDefinitionId: "def_renk", option: { id: "opt_kirmizi", value: "kirmizi", label: "Kırmızı", status: "ACTIVE" } },
+          ],
+        }),
+      ),
+    );
+    expect(r.facets).toHaveLength(2);
+    expect(r.facets.map((f) => f.optionId).sort()).toEqual(["opt_kirmizi", "opt_siyah"]);
+    expect(r.facets.every((f) => f.attributeDefinitionId === "def_renk")).toBe(true);
+  });
+
+  it("ARCHIVED option variantOptionValues'tan facet'e GİRMEZ", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          categoryAttributes: [categoryAttr({ attributeDefinitionId: "def_renk", dataType: "COLOR", variantDefining: true })],
+          variantOptionValues: [
+            { attributeDefinitionId: "def_renk", option: { id: "opt_a", value: "a", label: "A", status: "ACTIVE" } },
+            { attributeDefinitionId: "def_renk", option: { id: "opt_arch", value: "arch", label: "Arch", status: "ARCHIVED" } },
+          ],
+        }),
+      ),
+    );
+    expect(r.facets).toHaveLength(1);
+    expect(r.facets[0].optionId).toBe("opt_a");
+  });
+
+  it("VAV + variantOptionValues AYNI option → tek satır (birleşik dedupe)", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          categoryAttributes: [categoryAttr({ attributeDefinitionId: "def_renk", dataType: "COLOR", variantDefining: true })],
+          variantAttributeValues: [
+            { variantId: "v1", attributeDefinitionId: "def_renk", valueText: null, option: { id: "opt_siyah", value: "siyah", label: "Siyah", status: "ACTIVE" } },
+          ],
+          variantOptionValues: [
+            { attributeDefinitionId: "def_renk", option: { id: "opt_siyah", value: "siyah", label: "Siyah", status: "ACTIVE" } },
+          ],
+        }),
+      ),
+    );
+    expect(r.facets).toHaveLength(1);
+    expect(r.facets[0].optionId).toBe("opt_siyah");
+  });
+
+  it("filterable=false variantDefining eksen → facet YOK", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          categoryAttributes: [categoryAttr({ attributeDefinitionId: "def_renk", dataType: "COLOR", variantDefining: true, filterable: false })],
+          variantOptionValues: [
+            { attributeDefinitionId: "def_renk", option: { id: "opt_a", value: "a", label: "A", status: "ACTIVE" } },
+          ],
+        }),
+      ),
+    );
+    expect(r.facets).toHaveLength(0);
+  });
+});
+
+// ── TODO-155.2 — Kampanya rozeti snapshot'ı (PDP ile aynı değerlendirici) ──
+function autoCampaign(overrides: Partial<import("@commerce-os/contracts").CampaignRecord> = {}): import("@commerce-os/contracts").CampaignRecord {
+  return {
+    id: "camp_1", storeId: "store_1", name: "Sepette %10", description: null,
+    status: "ACTIVE", type: "AUTOMATIC_CART", discountType: "PERCENT", discountValue: 10,
+    maxDiscountAmountMinor: null, minOrderAmountMinor: null,
+    startsAt: new Date("2026-07-01T00:00:00Z"), endsAt: new Date("2026-07-31T00:00:00Z"),
+    totalUsageLimit: null, perCustomerUsageLimit: null, usageCount: 0,
+    stackable: false, priority: 0, isPublic: true,
+    displayTitle: null, shortDescription: null, terms: null, badgeLabel: null,
+    badgeVariant: null, cardStyle: "STANDARD", accessModel: "AUTO_VISIBLE", displayPriority: 0,
+    productIds: [], categoryIds: [], coupons: [],
+    createdAt: new Date("2026-07-01T00:00:00Z"), updatedAt: new Date("2026-07-01T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+describe("buildSearchDocument · campaign snapshot", () => {
+  it("aktif otomatik %10 kampanya → Sepette badge + estimatedFinal + endsAt penceresi", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          variants: [variant({ priceMinor: 149900 })],
+          campaigns: [autoCampaign()],
+          evaluationNow: new Date("2026-07-15T12:00:00Z"),
+        }),
+      ),
+    );
+    expect(r.document.campaign).not.toBeNull();
+    expect(r.document.campaign?.displayKind).toBe("AUTOMATIC_CART_DISCOUNT");
+    expect(r.document.campaign?.discountValue).toBe(10);
+    // round(149900 * 10 / 100) = 14990 → final 134910.
+    expect(r.document.campaign?.estimatedFinalUnitPriceMinor).toBe(134910);
+    expect(r.document.campaignEndsAt).toEqual(new Date("2026-07-31T00:00:00Z"));
+  });
+
+  it("kampanya yok → campaign null + pencere null", () => {
+    const r = expectDoc(buildSearchDocument(source({ variants: [variant({ priceMinor: 100000 })], campaigns: [] })));
+    expect(r.document.campaign).toBeNull();
+    expect(r.document.campaignStartsAt).toBeNull();
+    expect(r.document.campaignEndsAt).toBeNull();
+  });
+
+  it("değerlendirme anı pencere DIŞINDA (henüz başlamamış) → snapshot null", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          variants: [variant({ priceMinor: 100000 })],
+          campaigns: [autoCampaign({ startsAt: new Date("2026-08-01T00:00:00Z") })],
+          evaluationNow: new Date("2026-07-15T12:00:00Z"),
+        }),
+      ),
+    );
+    expect(r.document.campaign).toBeNull();
+  });
+
+  it("fiyat gizli → estimatedFinal null (sahte fiyat yok) ama etiket kalır", () => {
+    const r = expectDoc(
+      buildSearchDocument(
+        source({
+          priceVisible: false,
+          variants: [variant({ priceMinor: 100000 })],
+          campaigns: [autoCampaign()],
+        }),
+      ),
+    );
+    // Fiyat gizli → minPriceMinor null → estimate null; ama kampanya rozeti (yüzde etiketi) yine snapshot'lanır.
+    expect(r.document.campaign?.estimatedFinalUnitPriceMinor).toBeNull();
+    expect(r.document.campaign?.discountValue).toBe(10);
   });
 });

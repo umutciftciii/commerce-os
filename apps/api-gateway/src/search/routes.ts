@@ -116,6 +116,9 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
           isDefault: swatch.isDefault,
         })),
         swatchTotalCount: listing?.swatchTotalCount ?? 0,
+        // TODO-155.2 — Kampanya rozeti snapshot'ı (public-safe; provider read-time bastırmasından geçmiş).
+        // PDP ile AYNI "tek formül" → PDP↔PLP ticari tutarlılık. İç id/limit/priority SIZMAZ (allowlist).
+        campaign: item.campaign,
       };
     });
 

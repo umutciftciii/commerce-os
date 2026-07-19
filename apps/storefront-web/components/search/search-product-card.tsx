@@ -15,8 +15,12 @@ import { ProductMedia } from "../ui/product-media";
  *
  * Görsel öncelik sırası (§8): 1) aktif swatch önizleme → 2) secondary hover (yalnız hover-capable cihaz) →
  * 3) primary. Swatch YALNIZ görsel önizlemedir (varyant seçimi/SKU/fiyat/sepet kararı YOK — §7). colorHex
- * yoksa erişilebilir label fallback; görsel yoksa primary/placeholder fallback. Kampanya rozeti bu fazda
- * search read-model'de yok (TODO-155.2) → kart kampanyasız da kırılmaz.
+ * yoksa erişilebilir label fallback; görsel yoksa primary/placeholder fallback.
+ *
+ * TODO-155.2 — Kampanya rozeti/"Sepette" fiyatı artık search read-model snapshot'ından gelir (PDP ile AYNI
+ * "tek formül"; istemci HESAP YAPMAZ). ÖNCELİK (belgeli): otomatik sepet kampanyası varsa "Sepette" bloğu
+ * gösterilir (compareAt üstü-çizili + Omnibus bu dalda GİZLENİR — kampanya güncel/gösterilen tekliftir);
+ * kampanya yoksa compareAt liste-markdown'ı + Omnibus gösterilir (F4C semantiği). Kampanyasız kart kırılmaz.
  */
 export function SearchProductCard({
   card,
@@ -37,6 +41,7 @@ export function SearchProductCard({
   const baseAlt = activeSwatch ? format(s.swatchLabel, { label: activeSwatch.label }) : card.primaryImage?.alt ?? card.title;
   // Secondary hover katmanı YALNIZCA swatch önizleme yokken ve secondary görsel varken.
   const showSecondary = !activeSwatch && card.secondaryImage !== null;
+  const discountBadgePercent = badgePercent(card);
 
   return (
     <div className="group relative flex flex-col">
@@ -68,10 +73,10 @@ export function SearchProductCard({
           />
         ) : null}
 
-        {/* İndirim rozeti (nötr — aksan taşımaz). Kampanya rozeti bu fazda yok (TODO-155.2). */}
-        {card.discountPercent !== null ? (
+        {/* İndirim rozeti (nötr — aksan taşımaz). compareAt markdown %'si öncelik; yoksa otomatik kampanya %'si. */}
+        {discountBadgePercent !== null ? (
           <Badge tone="ink" className="absolute left-3 top-3">
-            {format(s.discountBadge, { percent: card.discountPercent })}
+            {format(s.discountBadge, { percent: discountBadgePercent })}
           </Badge>
         ) : null}
 
@@ -106,9 +111,40 @@ export function SearchProductCard({
   );
 }
 
-/** Kart fiyat bloğu — sunucunun hazır etiketleri; istemci fiyat HESAPLAMAZ. Vurgu nötr `ink`. */
+/** Kart üst-sol indirim rozeti yüzdesi: compareAt markdown önceliği; yoksa otomatik kampanya %'si; yoksa null. */
+function badgePercent(card: SearchListingCard): number | null {
+  if (card.discountPercent !== null) return card.discountPercent;
+  if (card.campaign?.isAutomatic && card.campaign.percent !== null) return card.campaign.percent;
+  return null;
+}
+
+/**
+ * Kart fiyat bloğu — sunucunun hazır etiketleri; istemci fiyat HESAPLAMAZ. Vurgu nötr `ink`.
+ * ÖNCELİK: otomatik "Sepette" kampanyası (güvenli tahmin) → kampanya bloğu; aksi compareAt markdown + Omnibus.
+ */
 function PriceBlock({ card, t }: { card: SearchListingCard; t: StorefrontDictionary }) {
   if (card.priceLabel === null) return null;
+  const campaign = card.campaign;
+
+  // Sepet kampanyası (kod gerektirmeden sepette uygulanır) — PDP ile AYNI "Sepette" sunumu.
+  if (campaign && campaign.isAutomatic) {
+    return (
+      <div className="mt-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-sm font-semibold text-ink">{campaign.estimatedFinalLabel ?? card.priceLabel}</span>
+          {campaign.estimatedFinalLabel ? (
+            <span className="text-xs text-ink-subtle line-through">{card.priceLabel}</span>
+          ) : null}
+        </div>
+        <p className="mt-1 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+          {t.badges.inCart} · {campaign.discountText}
+          {campaign.minOrderLabel ? ` · ${format(t.detail.campaignMinOrder, { amount: campaign.minOrderLabel })}` : ""}
+        </p>
+      </div>
+    );
+  }
+
+  // compareAt liste markdown'ı ya da indirim yok (F4C semantiği + Omnibus).
   return (
     <div className="mt-2">
       <div className="flex items-baseline gap-2">
