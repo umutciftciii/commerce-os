@@ -1420,7 +1420,7 @@
   + record tipleri paylaşılan pakete taşınır (F4A "tek formül"); read-time pencere bastırma (badge validity window) + kampanya lifecycle event reindex + Omnibus/kampanya
   günlük reconciliation sweep worker. Bu faza BAŞLANMADI.
 
-- TODO-156B — Faz 2C-8C: Storefront Search Experience Foundation (DONE · worktree; commit/PR/deploy YOK — brief gereği). PLP (`/products`) URL-state + RSC + public
+- TODO-156B — Faz 2C-8C: Storefront Search Experience Foundation (DONE · **MERGED + DEPLOYED**; feat `415a0cd`, PR #87, merge `77042e4`=main; 5/5 healthy + post-merge runtime smoke ALL PASS). PLP (`/products`) URL-state + RSC + public
   search endpoint temeline geçti: tek-otorite URL codec (`lib/search/url-state.ts`, gateway parser'ıyla birebir + kanonik serialize), sunucu-yalnız BFF (allowlist parse),
   biçimleme-yalnız listing adapter, search-özel ProductCard (swatch preview + secondary hover; varyant seçimi yok), numaralı SSR pagination (Load More ertelendi), gerçek
   header arama (mock kaldırıldı), loading/empty(4 durum)/error(route boundary) UX, SEO temeli (noindex arama+filtre / canonical). Eski `ProductListingView` (istemci
@@ -1428,3 +1428,17 @@
   lint temiz · **Docker runtime smoke ALL PASS** (PLP SSR · header arama · sort · pagination · geri/ileri · swatch · mobil 2-kolon · PDP/katalog regresyon). YENİ MIGRATION
   YOK. **KAPSAM DIŞI:** facet UI (→156C) · Load More (→156C/D) · kampanya rozeti (→155.2) · kategori SEO landing + JSON-LD (→156D) · autocomplete/suggest/recent (backend yok).
   Bkz. PHASE_LOG Faz 2C-8C + TD-051.
+
+- TODO-156C — Faz 2C-8D: Dynamic Facet Experience (SIRADAKİ AKTİF FAZ). Backend disjunctive facet zaten döner; storefront'ta facet UI: desktop kalıcı filter rail +
+  mobil tam-yükseklik filter drawer (focus-trap/ESC/scroll-lock) + aktif filtre çipleri (tekil kaldır + tümünü temizle) + veri-güdümlü `FacetRenderer` registry
+  (selectionMode birincil / dataType sunum: option/color/text/boolean/range/date UI; bilinmeyen tip → checkbox fallback) + disjunctive count yansıması + collapse/"daha
+  fazla göster". URL-state codec `filter[...]` zaten passthrough eder (156B); 156C yalnız render + çip + drawer ekler. Opsiyonel: history-güvenli Load More değerlendirmesi
+  (route-handler/server-action ile). Bkz. ANALIZ-156A §5-§6 + TD-051.1/.2. BAŞLANMADI.
+- TODO-156D — Faz 2C-8E: Category SEO, Accessibility & Search Hardening (PLANLANDI). Kategori landing route'ları (`/categories/[slug]`) + canonical/metadata + pagination
+  SEO (`rel prev/next`, page canonical/noindex matrisi) + Breadcrumb JSON-LD + ItemList JSON-LD + tam noindex matrisi + WCAG 2.1 AA denetimi + klavye/focus denetimi +
+  analytics kanca noktaları + performans/Lighthouse denetimi. 156B'de temel kuruldu (noindex/canonical + breadcrumb iskeleti). BAŞLANMADI.
+- TODO-156E — Faz 2C-8F: Enterprise Search Autocomplete & Discovery (PLANLANDI — kapsamlı). Provider-bağımsız suggest API (ürün/kategori/marka önerileri + popüler/trending +
+  recent) + typo tolerance + synonym + highlighted match fragments + 250-300ms debounce + request cancellation/stale-response koruması + klavye navigasyonu
+  (ArrowUp/Down/Enter/Escape) + erişilebilir combobox/listbox + desktop popover + mobil tam-ekran arama + ürün görsel/başlık/fiyat önerileri + "tüm sonuçları gör" +
+  empty/loading/error + recent-search gizlilik/limit + search-impression/click analytics + tenant isolation + public allowlist + cache/rate-limit + OpenSearch-uyumlu
+  provider kontratı. **AI semantik ranking ayrı onaya kadar YOK.** Backend suggest ucu henüz yok → önce backend. BAŞLANMADI.
