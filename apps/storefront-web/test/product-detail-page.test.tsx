@@ -144,9 +144,11 @@ describe("storefront · product detail (decision center)", () => {
     // Guven / teslimat / satici yer tutuculari
     expect(html).toContain("Tahmini teslimat");
     expect(html).toContain("Satıcı");
-    // Yorumlar / soru-cevap yer tutuculari
-    expect(html).toContain("Değerlendirmeler");
-    expect(html).toContain("Henüz soru sorulmamış");
+    // Detay sekmeleri ("Storefront - PDP" tasarımı) + açıklama içeriği
+    expect(html).toContain("Ürün açıklaması");
+    expect(html).toContain("Teknik özellikler");
+    expect(html).toContain("Kargo &amp; İade"); // React `&` → `&amp;` (statik markup)
+    expect(html).toContain("Cozy hoodie for everyday wear");
     // Benzer urunler (canli)
     expect(html).toContain("Benzer ürünler");
     expect(html).toContain("Demo Tote Bag");

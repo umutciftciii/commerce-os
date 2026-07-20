@@ -8,6 +8,7 @@ import type {
 import { Container, Eyebrow, Heading, ProductMedia } from "../../ui";
 import { StorefrontProductCard } from "../product-card";
 import { HeroSlider } from "./hero-slider";
+import { ValueProps } from "./editorial";
 
 /**
  * TODO-158A (ADR-086) + TODO-158C (ADR-088) — Ana sayfa section renderer'ı (Server Component).
@@ -30,17 +31,22 @@ export function HomeSections({
       {sections.map((section) => {
         const visibility = visibilityClass(section.desktopVisible, section.mobileVisible);
         if (section.type === "HERO_SLIDER") {
+          // "Storefront - Home" tasarımı: hero'nun hemen altında güven şeridi (value props).
+          // Managed section tipi DEĞİL — sabit sunum bandı (ADR-086 polimorfik modeli etkilemez).
           return (
-            <div key={section.id} className={visibility}>
-              <HeroSlider
-                slides={section.slides}
-                autoplayMs={section.autoplayMs}
-                labels={{
-                  region: dict.shell.heroRegion,
-                  prev: dict.shell.heroPrev,
-                  next: dict.shell.heroNext,
-                }}
-              />
+            <div key={section.id}>
+              <div className={visibility}>
+                <HeroSlider
+                  slides={section.slides}
+                  autoplayMs={section.autoplayMs}
+                  labels={{
+                    region: dict.shell.heroRegion,
+                    prev: dict.shell.heroPrev,
+                    next: dict.shell.heroNext,
+                  }}
+                />
+              </div>
+              <ValueProps dict={dict} />
             </div>
           );
         }

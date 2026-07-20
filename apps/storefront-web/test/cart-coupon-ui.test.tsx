@@ -198,13 +198,13 @@ describe("storefront-web · Dilim 6a cart görsel katmanı", () => {
     expect(html).toContain("bg-surface-muted");
   });
 
-  it("expired coupon card is dimmed (opacity); assigned card gets an ink side rail — no accent", () => {
+  it("expired coupon row is dimmed (opacity); earned coupon shows an ink 'Kazandın' badge — no accent", () => {
     const expired = render(view({ availableCoupons: [walletCoupon({ state: "EXPIRED" })] }));
     expect(expired).toContain("opacity-60");
     const assigned = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
-    expect(assigned).toContain("border-l-ink");
-    // Tek-accent kurali: kupon kartlari accent (menekse CTA) yuzeyi TASIMAZ.
-    expect(assigned).not.toContain("border-l-accent");
+    expect(assigned).toContain(t.couponEarned); // "Kazandın" (kazanılmış)
+    // Tek-accent kurali: "Kazandın" rozeti dolu-ink (accent DEGIL).
+    expect(assigned).not.toContain("bg-accent px-1.5");
   });
 });
 
@@ -260,17 +260,15 @@ describe("storefront-web · Dilim 6a-refine cart mockup detayları", () => {
     expect(html).toContain(t.shippingEstimate); // "Tahmini 1-3 iş günü içinde kargoda"
   });
 
-  it("renders the coupon as a ticket: amount + code + Detaylar; earned coupon shows 'Kazandın' (no accent)", () => {
+  it("renders the coupon as a quiet row: amount + code + 'Kazandın' badge (no ticket, no accent)", () => {
     const html = render(view({ availableCoupons: [walletCoupon({ source: "ASSIGNED" })] }));
-    expect(html).toContain("₺250"); // discountText (sol bolme tutari)
-    expect(html).toContain("TEST250"); // kod
-    expect(html).toContain(t.couponDetails); // "Detaylar"
+    expect(html).toContain("₺250"); // discountText (başlık)
+    expect(html).toContain("TEST250"); // kod (mono)
     expect(html).toContain(t.couponEarned); // "Kazandın" rozeti (kazanilmis)
-    expect(html).toContain("border-dashed"); // ticket iki-bolme ayraci
-    // Tek-accent: "Kazandın" rozeti dolu-ink (accent DEGIL); ticket serit/yuzey accent tasimaz.
-    // (bg-accent yalniz "Ödemeye geç" CTA'sinda — sayfa genelinde beklenir.)
-    expect(html).not.toContain("border-l-accent");
-    expect(html).not.toContain("bg-accent px-1.5"); // rozet accent olsaydi bu class olurdu
+    // "Storefront - Cart": sakin satir → eski dashed "ticket" ayraci YOK.
+    expect(html).not.toContain("border-dashed");
+    // Tek-accent: rozet dolu-ink (accent DEGIL); accent yalniz "Ödemeye geç" CTA'sinda.
+    expect(html).not.toContain("bg-accent px-1.5");
   });
 
   it("public (unearned) coupon shows no 'Kazandın' badge", () => {

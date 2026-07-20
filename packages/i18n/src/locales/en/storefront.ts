@@ -109,10 +109,12 @@ export const enStorefront: StorefrontDictionary = {
       "A live demo storefront running on commerce-os. The products below come from the store's real catalogue.",
     shopCta: "Explore products",
     cartCta: "View cart",
+    // Trust strip (4 items; icon order matches component index: delivery/returns/payment/exchange).
     valueProps: [
       { title: "Fast delivery", detail: "1–3 business days across Türkiye" },
-      { title: "Secure payment", detail: "256-bit SSL-protected infrastructure" },
       { title: "Easy returns", detail: "No-questions returns within 14 days" },
+      { title: "Secure payment", detail: "256-bit SSL-protected infrastructure" },
+      { title: "Easy exchange", detail: "24/7 customer support" },
     ],
     featuredEyebrow: "Our picks",
     featuredTitle: "Featured products",
@@ -285,6 +287,9 @@ export const enStorefront: StorefrontDictionary = {
     descriptionTitle: "Product description",
     descriptionFallback: "A detailed description for this product will be added by the store soon.",
     specsTitle: "Specifications",
+    // PDP detail tabs ("Storefront - PDP" design).
+    shippingTabTitle: "Shipping & Returns",
+    detailTabsLabel: "Product details",
     specBrand: "Brand",
     specCategory: "Category",
     specSku: "Product code",
@@ -481,6 +486,11 @@ export const enStorefront: StorefrontDictionary = {
   checkout: {
     title: "Checkout",
     backToCart: "Back to cart",
+    // "Storefront - Checkout" design: progress steps.
+    stepsLabel: "Checkout steps",
+    stepCart: "Cart",
+    stepDelivery: "Delivery & Payment",
+    stepConfirm: "Confirm",
     emptyTitle: "Your cart is empty",
     emptyDescription: "Add items to your cart before checking out.",
     emptyAction: "Browse products",

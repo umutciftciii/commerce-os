@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { ListingSwatch, SearchListingCard } from "../../lib/search/listing-adapter";
+import { mockRating } from "../../lib/mock-rating";
 import { Badge } from "../ui/badge";
 import { ProductMedia } from "../ui/product-media";
+import { Stars } from "../ui/stars";
 
 /**
  * TODO-156B (ANALIZ-156A §5-§9) — Public search projeksiyonuyla beslenen PLP kartı.
@@ -35,6 +37,11 @@ export function SearchProductCard({
   const s = t.search;
   // Aktif swatch önizleme (hover/focus ile set; ayrılınca temizlenir). Yalnız görsel state.
   const [activeSwatch, setActiveSwatch] = useState<ListingSwatch | null>(null);
+  // MOCK etkileşimler — Home kartıyla AYNI desen (backend karşılığı yok; bkz. todo.md):
+  //  - Favori (wishlist): yalnız yerel geçici durum, persist YOK.
+  //  - Puan/değerlendirme: handle'dan deterministik yer tutucu (lib/mock-rating).
+  const [saved, setSaved] = useState(false);
+  const rating = mockRating(card.slug);
 
   // Görsel öncelik: aktif swatch görseli > (secondary hover CSS ile) > primary/placeholder.
   const baseImageUrl = activeSwatch?.imageUrl ?? card.primaryImage?.url ?? null;
@@ -45,23 +52,22 @@ export function SearchProductCard({
 
   return (
     <div className="group relative flex flex-col">
-      <Link
-        href={card.href}
-        aria-label={card.title}
-        className="relative block aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md"
-      >
-        {/* Temel görsel (swatch önizleme dahil) — layout-shift'siz drop-in. */}
-        <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100">
-          <ProductMedia
-            handle={card.slug}
-            title={card.title}
-            imageUrl={baseImageUrl}
-            alt={baseAlt}
-            priority={priority}
-          />
-        </div>
+      {/* Görsel çerçevesi: dış sarmalayıcı `div` (interaktif iç-içe geçmeyi önler — kalp butonu <a> içinde OLAMAZ). */}
+      <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
+        <Link href={card.href} aria-label={card.title} className="block h-full w-full">
+          {/* Temel görsel (swatch önizleme dahil) — layout-shift'siz drop-in. */}
+          <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100">
+            <ProductMedia
+              handle={card.slug}
+              title={card.title}
+              imageUrl={baseImageUrl}
+              alt={baseAlt}
+              priority={priority}
+            />
+          </div>
+        </Link>
 
-        {/* Secondary hover katmanı: yalnız hover-capable cihazda (touch'ta varsayım yok) fade-in. */}
+        {/* Secondary hover katmanı: yalnız hover-capable cihazda fade-in. pointer-events-none → altındaki Link tıklanır. */}
         {showSecondary ? (
           <img
             src={card.secondaryImage!.url}
@@ -73,20 +79,30 @@ export function SearchProductCard({
           />
         ) : null}
 
-        {/* İndirim rozeti (nötr — aksan taşımaz). compareAt markdown %'si öncelik; yoksa otomatik kampanya %'si. */}
-        {discountBadgePercent !== null ? (
-          <Badge tone="ink" className="absolute left-3 top-3">
-            {format(s.discountBadge, { percent: discountBadgePercent })}
-          </Badge>
-        ) : null}
+        {/* Rozet yığını (sol üst): indirim (nötr) + TÜKENDİ (outline). İçerik/mantık DEĞİŞMEDİ — yalnız
+            Home kartıyla aynı sol-üst konuma taşındı (sağ üst favori kalbine yer açmak için). */}
+        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
+          {discountBadgePercent !== null ? (
+            <Badge tone="ink">{format(s.discountBadge, { percent: discountBadgePercent })}</Badge>
+          ) : null}
+          {!card.inStock ? (
+            <Badge tone="outline" className="bg-surface">
+              {s.outOfStock}
+            </Badge>
+          ) : null}
+        </div>
 
-        {/* Stok dışı göstergesi (renk tek başına anlam taşımaz → metin). */}
-        {!card.inStock ? (
-          <Badge tone="outline" className="absolute right-3 top-3 bg-surface">
-            {s.outOfStock}
-          </Badge>
-        ) : null}
-      </Link>
+        {/* MOCK: Favori (wishlist) — Home kartıyla aynı tokenize cam kontrol; yalnız yerel durum, persist YOK. */}
+        <button
+          type="button"
+          onClick={() => setSaved((v) => !v)}
+          aria-label={t.home.card.wishlistAdd}
+          aria-pressed={saved}
+          className="control-surface absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors"
+        >
+          <HeartIcon filled={saved} />
+        </button>
+      </div>
 
       <div className="flex flex-1 flex-col pt-4">
         {card.categoryLabel ? (
@@ -96,10 +112,21 @@ export function SearchProductCard({
         ) : null}
 
         <Link href={card.href} className="mt-1 block">
-          <h3 className="line-clamp-2 text-sm font-normal leading-snug text-ink underline-offset-4 group-hover:underline">
+          <h3 className="line-clamp-2 text-sm font-medium leading-snug text-ink underline-offset-4 group-hover:underline">
             {card.title}
           </h3>
         </Link>
+
+        {/* MOCK: Puan + değerlendirme sayısı — Home kartı/PDP ile AYNI deterministik yer tutucu (lib/mock-rating). */}
+        <div className="mt-1 flex items-center gap-1.5">
+          <Stars
+            rating={rating.value}
+            ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
+          />
+          <span className="text-[11px] text-ink-subtle">
+            {format(t.home.card.reviews, { count: rating.count })}
+          </span>
+        </div>
 
         <PriceBlock card={card} t={t} />
 
@@ -108,6 +135,21 @@ export function SearchProductCard({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** MOCK favori kalbi — Home kartıyla aynı ikon (dolu/boş durumu `--ink` ile). */
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path
+        d="M10 16.5S3 12.5 3 7.75A3.25 3.25 0 0 1 10 5.6a3.25 3.25 0 0 1 7 2.15C17 12.5 10 16.5 10 16.5Z"
+        fill={filled ? "var(--ink)" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

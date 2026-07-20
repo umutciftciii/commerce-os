@@ -109,10 +109,12 @@ export const trStorefront = {
       "commerce-os üzerinde çalışan canlı bir demo vitrin. Aşağıdaki ürünler mağazanın gerçek kataloğundan gelir.",
     shopCta: "Ürünleri keşfet",
     cartCta: "Sepete göz at",
+    // Güven şeridi (4 öğe; ikon sırası bileşende index'e göre: teslimat/iade/ödeme/değişim).
     valueProps: [
       { title: "Hızlı teslimat", detail: "Türkiye geneli 1–3 iş günü" },
-      { title: "Güvenli ödeme", detail: "256-bit SSL korumalı altyapı" },
       { title: "Kolay iade", detail: "14 gün içinde koşulsuz iade" },
+      { title: "Güvenli ödeme", detail: "256-bit SSL korumalı altyapı" },
+      { title: "Kolay değişim", detail: "7/24 müşteri desteği" },
     ],
     featuredEyebrow: "Seçtiklerimiz",
     featuredTitle: "Öne çıkan ürünler",
@@ -303,6 +305,9 @@ export const trStorefront = {
     descriptionTitle: "Ürün açıklaması",
     descriptionFallback: "Bu ürün için ayrıntılı açıklama yakında mağaza tarafından eklenecek.",
     specsTitle: "Teknik özellikler",
+    // PDP detay sekmeleri ("Storefront - PDP" tasarımı).
+    shippingTabTitle: "Kargo & İade",
+    detailTabsLabel: "Ürün detayları",
     specBrand: "Marka",
     specCategory: "Kategori",
     specSku: "Ürün kodu",
@@ -502,6 +507,11 @@ export const trStorefront = {
   checkout: {
     title: "Ödeme",
     backToCart: "Sepete dön",
+    // "Storefront - Checkout" tasarımı: ilerleme adımları.
+    stepsLabel: "Ödeme adımları",
+    stepCart: "Sepet",
+    stepDelivery: "Teslimat & Ödeme",
+    stepConfirm: "Onay",
     emptyTitle: "Sepetiniz boş",
     emptyDescription: "Ödemeye geçmek için önce sepetinize ürün ekleyin.",
     emptyAction: "Ürünlere göz at",
