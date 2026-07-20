@@ -1472,3 +1472,11 @@
   **UX Rafinasyonu (2. geçiş):** fiyat KALDIRILDI (keşif ekranı) · ürün kartı ad→marka→kategori + Yeni/Kampanya nötr rozet (categoryLabel route-resolved; Çok Satan=TD-072) · grup sırası
   Öneriler→Kategoriler→Markalar→Ürünler (boş grup gizli) · "tüm sonuçları görüntüle (N)" (SuggestResult.total) · empty "tüm ürünlere göz at" (popüler kategoriler=TD-073) · aktif satır
   belirginleşti (sol ink çubuğu, tek-accent korundu). Gate: 87+1081+392 test · +6 panel testi · tsc temiz · `next build` 18 route · Docker+tarayıcı smoke (fiyat-yok/rozet/grup-sırası/total) PASS.
+- TODO-157 — Enterprise Demo Commerce Dataset (**DONE · worktree · seed+backfill+verify canlı doğrulandı; commit/PR/deploy YAPILMADI — brief kuralı**).
+  Deterministik demo veri seti (`enterprise-demo` store / `edm-store` scope; production `demo-store` izole). Ölçek: 37 kategori (29 yaprak) ·
+  66 marka · 471 ürün · 2.202 varyant · 25 attribute (111 option) · 14 kampanya · 2 depo. Tek sabit tohum → idempotent (2× seed birebir aynı;
+  duplicate yok). Search/facet/autocomplete/campaign-badge canlı doğrulandı (`/public/stores/enterprise-demo/search` + `search:backfill`).
+  Script'ler: `packages/db/scripts/enterprise/*` + `enterprise-seed.mjs` + `verify-enterprise-seed.mjs`; komutlar `db:seed-enterprise` / `:dry` /
+  `db:backfill-enterprise` / `db:verify-enterprise`. Runbook: `docs/runbooks/enterprise-demo-dataset.md`. Karar: ADR-085. Sınırlar: TD-066, TD-067.
+  Gate: SAF üretici vitest 43/43 · eslint clean · verify 21/21 · db test 59/59. **PR #94 sonrası:** autocomplete `suggest` ucuyla brand/category/product
+  öneri gruplarının final UX smoke'u (runbook §PR #94). PR #94'e bağımlı test EKLENMEDİ (main davranışıyla doğrulandı).

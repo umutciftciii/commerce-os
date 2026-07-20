@@ -2728,3 +2728,30 @@ patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırla
 **Sonuçlar.** Migration YOK (mevcut index'ler yeterli: title trgm GIN + storeId btree). Eski search read-model/API/SSR/SEO DEĞİŞMEDİ (geriye dönük uyumlu; header düz-form → combobox, native GET korunur). Kapsam DIŞI (Çalışma Sınırı): AI/semantik arama, typo tolerance, synonym, click/impression analytics, ranking motoru, personalization, recent-search sunucu persistence, popüler-arama analytics. Bkz. TD-066…070.
 
 **UX Rafinasyonu (2. geçiş — UX review sonrası; search/API/ranking/SEO'ya DOKUNULMADI).** (a) **Fiyat KALDIRILDI** — autocomplete satın-alma ekranı değil; `SuggestProduct`/DTO'dan `minPriceMinor/maxPriceMinor/currency` çıkarıldı, kampanya `PublicCampaignBadge` (indirim tutarı taşıyan) → yalnız `hasCampaign` + `campaignLabel` (rozet; tutar YOK). (b) **Ürün kartı zenginleştirme** — hiyerarşi ad→marka→kategori; `categoryLabel` route'ta `resolveCategoryNames` ile çözülür (search ucuyla aynı bounded desen; kategori id SIZMAZ); rozetler **Yeni** (`isNew`, `productCreatedAt` son 30 gün, deterministik `now`) + **Kampanya** (nötr pill; admin `campaignLabel` yoksa i18n jenerik). "Çok Satan" satış analitiği gerektirir → ERTELENDİ (TD-072). (c) **Grup sırası** Öneriler → Kategoriler → Markalar → Ürünler; boş grup başlığı render EDİLMEZ. (d) **"Tüm sonuçları görüntüle (N)"** — `SuggestResult.total` (eşleşen ürün COUNT'u) ile anlamlı copy + sayı. (e) **Empty state** "Tüm ürünlere göz at" aksiyonu (çıkmaz hissi önlenir); popüler kategoriler public categories ucu yok → ERTELENDİ (TD-073). (f) **Aktif satır** yüzey + sol ink çubuğu (hover/klavye/touch BİREBİR; tek-accent korunur). Bkz. TD-072/073.
+
+## ADR-085 — Enterprise Demo Commerce Dataset: deterministik, store-scope'lu, backfill-beslemeli (TODO-157)
+
+**Bağlam.** Search/autocomplete/facet/campaign/variant/inventory çalışmalarını gerçekçi ölçekte test
+etmek için üretim `demo-store` seed'inden (2 ürün) çok daha büyük ve dağılımı gerçekçi bir veri seti gerekli.
+Kırılganlık (kayan tarih, rastgele lorem, duplicate, üretim verisine sızma) kabul edilemez.
+
+**Karar.**
+1. **Ayrı demo scope.** Tüm veri yalnız `enterprise-demo` store'una (`storeId = edm-store`) yazılır.
+   `demo-store` (üretim seed'i) ve müşteri/üretim verisi ASLA etkilenmez. `PROTECTED_STORE_SLUGS` guard'ı
+   yanlış-scope yazımını reddeder. ID'ler deterministik önek şemasıyla (`edm-*`) üretilir.
+2. **Deterministik üretici.** Tek sabit tohum (`ROOT_SEED`) + mulberry32 PRNG. `Math.random`/`Date.now`/
+   kayan tarih YOK. SAF üretici (`catalog.mjs`) tam nesne grafiğini döndürür; IO/DB yoktur → DB'siz test edilebilir.
+   Kampanya "aktif/yaklaşan/sona ermiş" pencereleri **mutlak sabit tarih ankorlarıyla** (2020→2099) kurulur:
+   deterministik OLMASINA rağmen gerçek "şimdi" hangi güne düşerse düşsün doğru sınıflanır (kırılgan tarih yok).
+3. **Idempotency = kontrollü temizle + yeniden oluştur.** Persistans yalnız enterprise-demo scope'unu
+   FK-güvenli sırayla siler, ardından `createMany` (chunk'lı; satır-satır insert yok → 2.200+ varyant hızlı,
+   uzun tek-transaction yok). Tekrar seed birebir aynı duruma yakınsar; duplicate üretmez.
+4. **Search read-model backfill'den beslenir.** Seed yalnız kaynak katalog + kampanya yazar; arama dokümanı/
+   facet/kampanya rozeti mevcut `search:backfill` CLI (per-ürün atomik upsert) ile üretilir. Böylece worker/
+   queue bağımlılığı olmadan deterministik, mevcut "tek formül" projeksiyonuyla tam uyumlu sonuç alınır.
+
+**Sonuç.** 471 ürün / 2.202 varyant / 66 marka / 37 kategori; search+facet+autocomplete+campaign badge canlı
+doğrulandı; verify 21/21 geçer; iki kez seed idempotent. Sınırlar: per-renk swatch görseli + `VariantAttributeValue`
+searchText yolu ertelendi (**TD-066**); `.mjs` script'leri tsc kapsamı dışında, vitest+eslint ile korunur (**TD-067**).
+**PR #94 (autocomplete `suggest` ucu) merge olana kadar** yeni UX alanlarına bağımlı test EKLENMEDİ; API seviyesinde
+mevcut main `search` ucuyla doğrulandı (final UX smoke maddeleri runbook'ta).

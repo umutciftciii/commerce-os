@@ -154,6 +154,10 @@ services:
       SERVICE_NAME: store-admin-web
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
+      # TODO-157 — Store-admin aktif mağaza bağlamı Enterprise Demo dataset'ine (enterprise-demo /
+      # edm-store) sabitlenir. Tanımsızsa resolver `demo-store`'a düşer (store-context.ts). Üretim
+      # store-user auth gelince bu geçici BFF seçimi kalkacak.
+      STORE_ADMIN_DEMO_STORE_SLUG: enterprise-demo
     ports:
       - "3002:3002"
     healthcheck:
@@ -181,7 +185,9 @@ services:
       SERVICE_NAME: storefront-web
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
-      STOREFRONT_DEMO_STORE_SLUG: demo-store
+      # TODO-157 — Vitrin, Enterprise Demo dataset'ini (enterprise-demo / edm-store) public-read
+      # uçlarından okur. Öncesi `demo-store` idi; enterprise dataset'i sergilemek için değiştirildi.
+      STOREFRONT_DEMO_STORE_SLUG: enterprise-demo
       # Sepet cookie imza anahtari (server-only; httpOnly imza, client bundle'a
       # girmez). Demo degeri; uretimde gizli bir degerle override edilmeli.
       STOREFRONT_CART_SECRET: storefront-demo-cart-secret

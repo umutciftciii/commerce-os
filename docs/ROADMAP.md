@@ -152,3 +152,15 @@
 - Kapsam: Basit insight modeli, raporlama girdileri, aksiyon listeleri, admin yuzeyine hazir API.
 - Kabul kriterleri: Asistan onerileri kaynak veriye baglanir; kararlar trace edilebilir; MVP disi AI
   genisletmeleri teknik borc veya roadmap olarak ayrilir.
+
+## Test/Demo Altyapısı — Enterprise Demo Commerce Dataset (TODO-157)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı)
+- Amac: Search, autocomplete, dynamic facet, campaign projection, variant filtering ve inventory
+  state'lerini gerçekçi ölçekte (Türkiye e-ticaret dağılımı) test edecek deterministik demo veri seti.
+- Kapsam: `enterprise-demo` store scope'unda (production `demo-store` izole) deterministik üretici +
+  idempotent persistans + invariant doğrulama + runbook. 37 kategori · 66 marka · 471 ürün · 2.202 varyant ·
+  25 attribute · 14 kampanya · 2 depo. Search read-model `search:backfill` ile beslenir.
+- Kabul kriterleri: iki kez seed idempotent (birebir); duplicate SKU/slug yok; orphan yok; envanter/fiyat/
+  kampanya invariant'ları geçer; search/facet/autocomplete/campaign-badge canlı sorgularla doğrulanır;
+  demo-store dokunulmaz. Karar ADR-085; sınırlar TD-066/TD-067. Bkz. `docs/runbooks/enterprise-demo-dataset.md`.
