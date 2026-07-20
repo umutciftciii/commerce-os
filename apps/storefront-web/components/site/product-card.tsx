@@ -9,17 +9,16 @@ import { mockRating } from "../../lib/mock-rating";
 import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
 
 /**
- * Premium vitrin ürün kartı (ADIM 2). Yeni tasarım dili: büyük görsel (şimdilik
- * ProductMedia yer tutucu — P0, bkz. todo.md), sade tipografi, keskin köşe, hover'da
- * hafif ölçek. GERÇEK veri: başlık, fiyat, compareAt, kampanya rozeti.
+ * Premium vitrin ürün kartı (TODO-158C yeniden tasarım). Daha kompakt, daha premium:
+ * yumuşak köşeli görsel (rounded-md), hover'da hafif ölçek + kart yükselmesi, net rozet
+ * sistemi (kampanya / indirim / yeni / TÜKENDİ), belirgin fiyat, tokenize edilmiş
+ * medya-üzeri kontroller (`control-surface`, `overlay-scrim`) — ham black/white YOK.
  *
- * MOCK etkileşimler (backend karşılığı yok — bkz. todo.md, kodda işaretli):
- *  - Favori (wishlist) kalp düğmesi — yalnız yerel geçici durum, persist YOK.
- *  - Hızlı bakış (quick view) — mevcut özet veriyle küçük modal (ekstra istek yok).
- *  - Puanlama (rating) — deterministik yer tutucu yıldız + değerlendirme sayısı.
- *
- * Eski `components/product-card.tsx` PLP tarafından hâlâ kullanılır; bu kart
- * yalnız Home içindir (PLP göçü Adım 3).
+ * GERÇEK veri: başlık, marka/kategori, fiyat, compareAt, kampanya, stok durumu.
+ * MOCK etkileşimler (backend karşılığı yok — bkz. todo.md):
+ *  - Favori (wishlist) — yalnız yerel geçici durum, persist YOK.
+ *  - Hızlı bakış (quick view) — mevcut özet veriyle küçük modal.
+ *  - Puanlama — deterministik yer tutucu.
  */
 export function StorefrontProductCard({
   product,
@@ -32,53 +31,60 @@ export function StorefrontProductCard({
   const [quickOpen, setQuickOpen] = useState(false);
   const href = `/products/${product.handle}`;
   const { campaign } = product;
-  // MOCK: rating — gerçek değerlendirme verisi yok; handle'dan deterministik türetim.
   const rating = mockRating(product.handle);
+  // GERÇEK: yalnız ONLINE satış modunda satın alınamıyorsa "Tükendi" (diğer modlar sepet dışıdır).
+  const soldOut = product.commerce.salesMode === "ONLINE" && !product.commerce.purchasable;
+  const promoLabel = campaign
+    ? campaign.badgeText
+    : product.badgeKind === "discount"
+      ? t.badges.discount
+      : product.badgeKind === "new"
+        ? t.badges.new
+        : null;
 
   return (
     <div className="group relative flex flex-col">
-      <div className="relative aspect-[4/5] overflow-hidden border border-line bg-surface">
+      <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
         <Link href={href} aria-label={product.title} className="block h-full w-full">
-          <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.03]">
+          <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.04]">
             <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
           </div>
         </Link>
 
-        {/* GERÇEK: kampanya/indirim rozeti (nötr — aksan taşımaz). */}
-        {campaign ? (
-          <Badge tone="ink" className="absolute left-3 top-3">
-            {campaign.badgeText}
-          </Badge>
-        ) : product.badgeKind ? (
-          <Badge tone="ink" className="absolute left-3 top-3">
-            {product.badgeKind === "discount" ? t.badges.discount : t.badges.new}
-          </Badge>
-        ) : null}
+        {/* Rozetler (sol üst yığın): kampanya/indirim/yeni (nötr) + TÜKENDİ (outline). */}
+        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
+          {promoLabel ? <Badge tone="ink">{promoLabel}</Badge> : null}
+          {soldOut ? (
+            <Badge tone="outline" className="bg-surface">
+              {t.home.card.soldOut}
+            </Badge>
+          ) : null}
+        </div>
 
-        {/* MOCK: Favori — yerel geçici durum, bkz. todo.md. */}
+        {/* MOCK: Favori — tokenize cam kontrol. */}
         <button
           type="button"
           onClick={() => setSaved((v) => !v)}
           aria-label={t.home.card.wishlistAdd}
           aria-pressed={saved}
-          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center bg-white/80 text-ink backdrop-blur transition-colors hover:bg-white"
+          className="control-surface absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors"
         >
           <HeartIcon filled={saved} />
         </button>
 
-        {/* MOCK: Hızlı bakış — hover'da beliren düğme, bkz. todo.md. */}
+        {/* MOCK: Hızlı bakış — hover'da beliren düğme. */}
         <div className="absolute inset-x-0 bottom-0 translate-y-2 p-3 opacity-0 transition-all duration-300 ease-premium group-hover:translate-y-0 group-hover:opacity-100">
           <button
             type="button"
             onClick={() => setQuickOpen(true)}
-            className="w-full bg-ink py-2.5 text-[11px] font-medium uppercase tracking-wideish text-surface transition-opacity hover:opacity-90"
+            className="w-full rounded-sm bg-ink py-2.5 text-[11px] font-medium uppercase tracking-wideish text-surface transition-opacity hover:opacity-90"
           >
             {t.home.card.quickView}
           </button>
         </div>
       </div>
 
-      {/* Bilgi — TODO-158A: kart yüksekliği/boşluğu daha yoğun (polish; redesign değil). */}
+      {/* Bilgi — kompakt yoğunluk. */}
       <div className="flex flex-1 flex-col pt-3">
         {product.categoryLabel ? (
           <p className="text-[10px] font-medium uppercase tracking-wideish text-ink-subtle">
@@ -91,7 +97,6 @@ export function StorefrontProductCard({
           </h3>
         </Link>
 
-        {/* MOCK: rating — bkz. todo.md. */}
         <div className="mt-1 flex items-center gap-1.5">
           <Stars rating={rating.value} ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })} />
           <span className="text-[11px] text-ink-subtle">
@@ -124,28 +129,28 @@ function QuickView({
   const href = `/products/${product.handle}`;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="overlay-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={product.title}
       onClick={onClose}
     >
       <div
-        className="relative flex w-full max-w-3xl flex-col overflow-hidden bg-surface shadow-md sm:flex-row"
+        className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-md bg-surface shadow-lg sm:flex-row"
         onClick={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           onClick={onClose}
           aria-label={t.home.card.close}
-          className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center text-ink hover:opacity-60"
+          className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-ink transition-colors hover:bg-surface-muted"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
             <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
-        <div className="aspect-square w-full bg-surface sm:w-1/2">
-          <ProductMedia handle={product.handle} title={product.title} />
+        <div className="aspect-square w-full bg-surface-muted sm:w-1/2">
+          <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
         </div>
         <div className="flex w-full flex-col justify-center gap-3 p-6 sm:w-1/2 sm:p-8">
           {product.categoryLabel ? (
@@ -171,14 +176,10 @@ function QuickView({
 }
 
 /**
- * Ürün kartı/quick-view fiyat bloğu. İndirim göstergesini fiyat seviyesinde
- * yansıtır:
- *  - Sepet kampanyası (AUTOMATIC_CART_DISCOUNT): liste (normal) fiyat ÜZERİ ÇİZİLİ
- *    + "Sepette" indirimli nihai fiyat kalın (sunucunun güvenli tahmini varsa).
- *    Güvenli tahmin yoksa: liste fiyat + "Sepette · %X" notu (sahte fiyat yok).
- *  - compareAt liste markdown'ı: satış fiyatı kalın + liste fiyatı üzeri çizili.
+ * Ürün kartı/quick-view fiyat bloğu. İndirim göstergesini fiyat seviyesinde yansıtır:
+ *  - Sepet kampanyası (AUTOMATIC_CART_DISCOUNT): liste üzeri çizili + "Sepette" nihai (güvenli tahmin varsa).
+ *  - compareAt liste markdown'ı: satış kalın + liste üzeri çizili.
  *  - indirim yok: düz fiyat.
- * "Sepette" etiketi, indirimin sepette uygulandığını açıkça belirtir (yanıltmaz).
  */
 function PriceBlock({
   product,
@@ -194,7 +195,6 @@ function PriceBlock({
   const finalSize = size === "md" ? "text-lg" : "text-sm";
   const strikeSize = size === "md" ? "text-sm" : "text-xs";
 
-  // Sepet kampanyası (kod gerektirmeden sepette uygulanır).
   if (campaign && campaign.displayKind === "AUTOMATIC_CART_DISCOUNT" && numeric) {
     return (
       <div className="mt-2">
@@ -216,7 +216,6 @@ function PriceBlock({
     );
   }
 
-  // compareAt liste markdown'ı ya da indirim yok.
   return (
     <div className="mt-2 flex items-baseline gap-2">
       <p className={`${finalSize} font-semibold text-ink`}>{primaryPriceText(price, t)}</p>

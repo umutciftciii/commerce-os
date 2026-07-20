@@ -48,6 +48,32 @@
   /* Golge — neredeyse yok; derinlik kontrast + bosluk ile kurulur. */
   --shadow-sm: 0 1px 2px 0 rgb(23 20 15 / 0.05);
   --shadow-md: 0 20px 48px -28px rgb(23 20 15 / 0.28);
+  --shadow-lg: 0 32px 64px -32px rgb(23 20 15 / 0.35);
+
+  /* ───────────────────────────────────────────────────────────────────────
+   * TODO-158C (ADR-088) — MEDYA-ÜZERİ SEMANTIC KATMAN
+   *
+   * Hero/kategori kartı/ürün görseli gibi GÖRSEL ÜZERİNE binen metin/kontrol
+   * yüzeyleri artık ham `black/white` yerine bu token'ları tüketir. Böylece
+   * `[data-theme]` ile (ve ileride Theme Engine semantic katmanıyla) yeniden
+   * temalanabilir; koyu tema doğru çalışır. Bileşenler `.on-media`,
+   * `.scrim-media`, `.control-media`, `.control-surface` semantic sınıflarını
+   * kullanır (bkz. @layer components) — Tailwind yalnız layout için kalır.
+   * ─────────────────────────────────────────────────────────────────────── */
+  --scrim-strong: rgb(23 20 15 / 0.64); /* medya alt gradyanı — koyu uç */
+  --scrim-soft: rgb(23 20 15 / 0.16); /* medya orta gradyanı */
+  --on-media: #ffffff; /* medya üzeri metin/ikon */
+  --on-media-muted: rgb(255 255 255 / 0.82); /* ikincil medya-üzeri metin */
+  --control-media: rgb(23 20 15 / 0.34); /* medya üzeri koyu kontrol (hero oku) */
+  --control-media-strong: rgb(23 20 15 / 0.54); /* hover */
+  --control-surface: rgb(255 255 255 / 0.86); /* medya üzeri açık kontrol (cam) */
+  --control-surface-strong: #ffffff; /* hover */
+
+  /* Hero yükseklikleri — SABİT aralık (aspect-ratio değil; full-bleed'de aşırı
+     yükseklik bug'ı çözülür). Tema ile ayarlanabilir. */
+  --hero-h-mobile: 16rem; /* 256px — brief 220-300 */
+  --hero-h-tablet: 25.5rem; /* 408px — brief 380-440 */
+  --hero-h-desktop: 33rem; /* 528px — brief 480-560 */
 }
 
 @layer base {
@@ -66,5 +92,73 @@
   ::selection {
     background-color: var(--ink);
     color: var(--paper);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TODO-158C (ADR-088) — Medya-üzeri semantic yardımcı sınıflar
+ *
+ * Tasarım DEĞERLERİ CSS custom property'lerde (yukarı); bileşenler yalnız bu
+ * anlamsal sınıfları kullanır → hardcoded black/white YOK, tema-override edilebilir.
+ * ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Modal/dialog arka plan karartması (ürün quick-view vb.). */
+  .overlay-scrim {
+    background-color: var(--scrim-strong);
+  }
+  /* Görsel üzeri metin okunabilirliği için alttan yukarı koyu gradyan. */
+  .scrim-media {
+    background-image: linear-gradient(
+      to top,
+      var(--scrim-strong) 0%,
+      var(--scrim-soft) 44%,
+      transparent 78%
+    );
+  }
+  .on-media {
+    color: var(--on-media);
+  }
+  .on-media-muted {
+    color: var(--on-media-muted);
+  }
+  /* Medya üzeri koyu kontrol (hero/carousel okları). */
+  .control-media {
+    background-color: var(--control-media);
+    color: var(--on-media);
+  }
+  .control-media:hover {
+    background-color: var(--control-media-strong);
+  }
+  /* Medya üzeri açık cam kontrol (wishlist düğmesi vb.). */
+  .control-surface {
+    background-color: var(--control-surface);
+    color: var(--ink);
+  }
+  .control-surface:hover {
+    background-color: var(--control-surface-strong);
+  }
+  /* Koyu bant (announcement/campaign) üzeri açık zemin/çizgi — `--on-media`'yı izler. */
+  .bg-on-media {
+    background-color: var(--on-media);
+  }
+  .bg-on-media-soft {
+    background-color: color-mix(in srgb, var(--on-media) 45%, transparent);
+  }
+  .border-on-media {
+    border-color: color-mix(in srgb, var(--on-media) 30%, transparent);
+  }
+  /* Hero çerçeve yüksekliği — sabit, breakpoint bazlı, token-sürülü. */
+  .hero-frame {
+    height: var(--hero-h-mobile);
+  }
+  @media (min-width: 640px) {
+    .hero-frame {
+      height: var(--hero-h-tablet);
+    }
+  }
+  @media (min-width: 1024px) {
+    .hero-frame {
+      height: var(--hero-h-desktop);
+    }
   }
 }

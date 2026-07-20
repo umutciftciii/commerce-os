@@ -3,20 +3,26 @@ import Link from "next/link";
 import type { LanguageSwitcherLabels } from "@commerce-os/ui";
 import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerAccount } from "@commerce-os/api-client";
+import type { StorefrontHomeFeaturedCategory } from "../../lib/catalog-types";
 import { Container } from "../ui";
 import { AccountMenu } from "../account/account-menu";
 import { MobileMenu } from "./mobile-menu";
+import { CategoryMenu } from "./category-menu";
 import { HeaderSearch, HeaderSearchFallback } from "./header-search";
 import { MobileSearch } from "./mobile-search";
 import { LangToggle } from "./lang-toggle";
+import { StickyHeader } from "./sticky-header";
 
 /**
- * Ortak vitrin header'i (ADIM 1). Premium/minimal: ince hairline alt cizgi,
- * serif marka kelime-isareti, sade nav, aksansiz ikonlar.
+ * Ortak vitrin header'i (TODO-158C yeniden tasarım). Premium/minimal editoryel dil:
+ * ortalanmış serif kelime-işareti, hairline alt çizgi, ölçülü accent.
  *
- * Mevcut FONKSIYON korunur: sepet sayaci (`cartCount`), hesap menusu
- * (`AccountMenu`), dil degistirici (`LanguageSwitcher`). Yeni eklenenler MOCK'tur
- * (arama otomatik-tamamlama yok; favoriler mevcut hesap bolumune baglanir).
+ * TODO-158C eklenenleri:
+ *  - Sticky KONDENS: scroll'da yumuşak gölge (StickyHeader).
+ *  - Kategori MEGA MENÜ (desktop ≥ lg) + mobil kategori akordeonu (FEATURED_CATEGORIES).
+ *  - Aksiyon ikonları accent hover + daha net dokunma alanları; sepet rozeti accent.
+ * Mevcut FONKSIYON korunur: sepet sayacı, hesap menüsü, dil, autocomplete arama.
+ * Wishlist hâlâ MOCK (hesap bölümüne yönlendirir).
  */
 export function SiteHeader({
   locale,
@@ -26,34 +32,50 @@ export function SiteHeader({
   customer,
   storeName = null,
   logoUrl = null,
+  categories = [],
 }: {
   locale: Locale;
   t: StorefrontDictionary;
   languageLabels: LanguageSwitcherLabels;
   cartCount: number;
   customer: CustomerAccount | null;
-  // ADR-065 (Faz 3/Site Kabuğu) — store marka bilgisi (public store-info ucu).
-  // logoUrl doluysa logo <img>; yoksa serif kelime-isareti. storeName kelime-
-  // isareti metni + logo alt'i; null ise i18n `shell.brand` fallback'i.
   storeName?: string | null;
   logoUrl?: string | null;
+  // TODO-158C — Header kategori mega-menü kaynağı (admin FEATURED_CATEGORIES; public).
+  categories?: StorefrontHomeFeaturedCategory[];
 }) {
   const s = t.shell;
   const navLinks = [{ href: "/products", label: s.navProducts }];
   const brandLabel = storeName ?? s.brand;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-surface relative">
+    <StickyHeader>
       <Container className="flex h-16 items-center gap-4">
-        {/* Sol: mobil menu + desktop nav */}
+        {/* Sol: mobil menu + desktop nav (kategori mega menü + ürünler) */}
         <div className="flex flex-1 items-center gap-6">
-          <MobileMenu links={navLinks} openLabel={s.menuOpen} closeLabel={s.menuClose} />
+          <MobileMenu
+            links={navLinks}
+            categories={categories}
+            categoriesLabel={s.navCategories}
+            openLabel={s.menuOpen}
+            closeLabel={s.menuClose}
+          />
           <nav
-            className="hidden items-center gap-7 text-xs font-medium uppercase tracking-wideish text-ink-muted lg:flex"
+            className="hidden items-center gap-7 lg:flex"
             aria-label="Birincil"
           >
+            <CategoryMenu
+              categories={categories}
+              label={s.navCategories}
+              allLabel={s.navAllCategories}
+              allHref="/products"
+            />
             {navLinks.map((link) => (
-              <Link key={link.href} href={link.href} className="transition-colors hover:text-ink">
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-xs font-medium uppercase tracking-wideish text-ink-muted transition-colors hover:text-ink"
+              >
                 {link.label}
               </Link>
             ))}
@@ -63,14 +85,7 @@ export function SiteHeader({
         {/* Orta: marka logosu (varsa) ya da serif kelime-isareti fallback */}
         <Link href="/" aria-label={brandLabel} className="inline-flex items-center">
           {logoUrl ? (
-            // storageKey'den turetilen goreli /media/* URL (Next rewrite ile
-            // gateway'e proxy'lenir); logo boyutu sabit degil, yukseklik-kisitli
-            // <img> + object-contain (next/image degil — art-directed marka gorseli).
-            <img
-              src={logoUrl}
-              alt={brandLabel}
-              className="h-8 w-auto object-contain sm:h-9"
-            />
+            <img src={logoUrl} alt={brandLabel} className="h-8 w-auto object-contain sm:h-9" />
           ) : (
             <span className="font-serif text-xl font-normal tracking-tightish text-ink sm:text-2xl">
               {brandLabel}
@@ -79,7 +94,7 @@ export function SiteHeader({
         </Link>
 
         {/* Sag: arama + hesap + favoriler + sepet + dil */}
-        <div className="flex flex-1 items-center justify-end gap-4 sm:gap-5">
+        <div className="flex flex-1 items-center justify-end gap-3 sm:gap-4">
           {/* TODO-156E — Enterprise autocomplete combobox (desktop/tablet). Mobilde MobileSearch drawer'ı. */}
           <Suspense fallback={<HeaderSearchFallback placeholder={s.searchPlaceholder} submitLabel={s.searchSubmit} />}>
             <HeaderSearch t={t} className="hidden md:block" />
@@ -95,7 +110,7 @@ export function SiteHeader({
             href="/account?section=favorites"
             aria-label={s.wishlist}
             title={s.wishlistSoon}
-            className="hidden text-ink transition-opacity hover:opacity-60 sm:inline-flex"
+            className="hidden text-ink transition-colors hover:text-accent sm:inline-flex"
           >
             <HeartIcon />
           </Link>
@@ -103,11 +118,11 @@ export function SiteHeader({
           <Link
             href="/cart"
             aria-label={s.navCart}
-            className="relative inline-flex text-ink transition-opacity hover:opacity-60"
+            className="relative inline-flex text-ink transition-colors hover:text-accent"
           >
             <BagIcon />
             {cartCount > 0 ? (
-              <span className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-ink px-1 text-[10px] font-semibold text-surface">
+              <span className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-contrast">
                 {cartCount}
               </span>
             ) : null}
@@ -118,7 +133,7 @@ export function SiteHeader({
           </div>
         </div>
       </Container>
-    </header>
+    </StickyHeader>
   );
 }
 

@@ -48,7 +48,7 @@ export function SearchProductCard({
       <Link
         href={card.href}
         aria-label={card.title}
-        className="relative block aspect-[4/5] overflow-hidden border border-line bg-surface"
+        className="relative block aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md"
       >
         {/* Temel görsel (swatch önizleme dahil) — layout-shift'siz drop-in. */}
         <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100">

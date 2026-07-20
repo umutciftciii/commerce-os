@@ -2883,3 +2883,48 @@ gateway doğrular). api-client `admin.theme.*` + public `PublicTheme`. Gateway `
 Storefront `getStoreTheme()` + layout `<style>` enjeksiyonu (mevcut bileşenler otomatik yeniden temalanır;
 0 tip hatası). Store-admin Theme Studio modülü (liste+editör+canlı önizleme+publish+import/export). Enterprise
 seed 11 tema (1 published + 10 preset). Sınırlar TD-080…TD-086'da. Commit/PR/deploy YAPILMADI (brief kuralı).
+
+## ADR-088 — Enterprise Storefront Experience Redesign (Faz 1): sabit-yükseklik hero, medya-üzeri semantic token katmanı, kategori mega-menü (featured-beslemeli), premium footer (TODO-158C)
+
+### Bağlam
+
+Storefront görsel olarak temel düzeydeydi: hero aspect-ratio ile sürüldüğü için full-bleed genişlikte
+aşırı yükseliyordu (~840px), kategori navigasyonu yoktu (tek `/products` linki), medya-üzeri yüzeyler ham
+`black/white` kullanıyordu (tema-override edilemez), footer eksikti (social/payment/trust/legal yok). Theme
+Engine (ADR-087) mevcut ama bileşenler henüz onun sunduğu premium deneyimi kullanmıyordu.
+
+### Karar
+
+1. **Medya-üzeri SEMANTIC token katmanı (globals.css + @layer components).** Görsel üzerine binen metin/kontrol
+   yüzeyleri ham `black/white` yerine token'lardan beslenir: `--scrim-strong/-soft` (gradyan), `--on-media(-muted)`
+   (metin), `--control-media(-strong)` (koyu kontrol), `--control-surface(-strong)` (cam kontrol), ayrıca
+   `--hero-h-mobile/-tablet/-desktop` (sabit hero yükseklikleri). Bileşenler `.scrim-media` `.on-media`
+   `.control-media` `.control-surface` `.overlay-scrim` `.bg-on-media(-soft)` `.border-on-media` `.hero-frame`
+   anlamsal sınıflarını tüketir → `[data-theme]` ile override edilebilir, koyu tema doğru çalışır. Tailwind
+   yalnız LAYOUT için kalır; tasarım değerleri CSS değişkenlerinden gelir (token zinciri korunur).
+
+2. **Hero: SABİT yükseklik + container hizası.** `aspect-[16/7]` kaldırıldı; `.hero-frame` breakpoint bazlı
+   sabit yükseklik verir (mobil ~256 / tablet ~408 / masaüstü ~528px). Hero `Container` içinde `rounded-md`
+   contained banner'dır; ekranın büyük bölümünü kaplamaz, altındaki Featured/Showcase ilk bakışta hissedilir.
+   CTA belirginleştirildi, ok/pagination modernize + tokenize edildi, LCP için görsel eager/high-priority.
+
+3. **Kategori MEGA MENÜ — FEATURED_CATEGORIES beslemeli.** Public bir kategori-AĞACI ucu YOK (admin uçları auth
+   arkasında; search facet'leri yalnız dinamik attribute). Search/katalog iş mantığına DOKUNMADAN, mega menü
+   admin-yönetimli ve zaten public olan FEATURED_CATEGORIES home section'ından beslenir (`getNavCategories`,
+   `getHome` React `cache()`'i üzerinden — çift /home fetch yok). Yapılandırılmamış mağazada boş → header sade
+   nav'a düşer. PLP'de ayrıca `CategoryChips` (kategori navigasyon şeridi). Adanmış hafif kategori-nav ucu = TD-089.
+
+4. **Premium bileşen dili.** Sticky header (scroll'da gölge kondensi), tokenize announcement/campaign bar, kompakt
+   premium ürün kartı (kampanya/indirim/yeni/TÜKENDİ rozet sistemi, tokenize wishlist/quick-view/modal), section
+   ritmi/whitespace, editorial + value-props sunum blokları, premium footer (social[MOCK]/legal/ödeme-güven şeridi).
+   PDP benzer-ürünler kartı legacy slate `ui/ProductCard`'dan token'lı `StorefrontProductCard`'a taşındı.
+
+### Sonuç
+
+Yeni bileşenler: `sticky-header`, `category-menu`, `category-chips`, `home/editorial`; yeni helper
+`lib/server/navigation.ts`. globals.css medya-üzeri token katmanı + `shadow-lg`. Hero/header/campaign-bar/
+mobile-menu/home-sections/product-card/product-media/footer yeniden tasarlandı; hepsi 0 hardcoded design value
+(token zinciri). i18n `shell`/`home.card` anahtarları eklendi (tr+en parite). Gate: storefront `next build`
+PASS + tip geçerli, eslint temiz, 392 storefront + 47 i18n testi yeşil. Canlı doğrulama: gerçek demo-store
+fallback homepage + kart + value-props + editorial + footer headless render PASS (masaüstü/mobil). Sınırlar
+TD-087…TD-090. Commit/PR/deploy YAPILMADI (brief kuralı).

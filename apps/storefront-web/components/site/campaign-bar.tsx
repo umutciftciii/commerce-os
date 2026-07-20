@@ -60,7 +60,7 @@ export function CampaignBar({
             type="button"
             onClick={() => go(index - 1)}
             aria-label={t.campaignPrev}
-            className="absolute left-3 inline-flex h-6 w-6 items-center justify-center text-white/70 transition-colors hover:text-surface"
+            className="on-media absolute left-3 inline-flex h-6 w-6 items-center justify-center opacity-70 transition-opacity hover:opacity-100"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
               <path d="M7.5 2L3.5 6l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -76,10 +76,10 @@ export function CampaignBar({
         >
           <span>{active.headline}</span>
           {active.detail ? (
-            <span className="text-white/60 normal-case tracking-normal">· {active.detail}</span>
+            <span className="on-media-muted normal-case tracking-normal">· {active.detail}</span>
           ) : null}
           {active.couponCode ? (
-            <span className="inline-flex items-center gap-1 border border-white/30 px-1.5 py-0.5 text-[10px] tracking-wideish">
+            <span className="border-on-media inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] tracking-wideish">
               {t.campaignCouponPrefix}: {active.couponCode}
             </span>
           ) : null}
@@ -90,7 +90,7 @@ export function CampaignBar({
             type="button"
             onClick={() => go(index + 1)}
             aria-label={t.campaignNext}
-            className="absolute right-3 inline-flex h-6 w-6 items-center justify-center text-white/70 transition-colors hover:text-surface"
+            className="on-media absolute right-3 inline-flex h-6 w-6 items-center justify-center opacity-70 transition-opacity hover:opacity-100"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
               <path d="M4.5 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -109,8 +109,8 @@ export function CampaignBar({
               aria-label={`${i + 1} / ${count}`}
               aria-current={i === index}
               className={[
-                "h-1 rounded-none transition-all",
-                i === index ? "w-4 bg-surface" : "w-1.5 bg-white/40 hover:bg-white/70",
+                "h-1 rounded-full transition-all",
+                i === index ? "bg-on-media w-4" : "bg-on-media-soft w-1.5",
               ].join(" ")}
             />
           ))}

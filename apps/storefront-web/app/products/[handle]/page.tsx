@@ -13,7 +13,9 @@ import {
   Stars,
   Text,
 } from "../../../components/ui";
-import { ProductCard } from "../../../components/ui/product-card";
+// TODO-158C — Benzer ürünler kartı: legacy slate/brand `ui/ProductCard` yerine token'lı
+// premium `StorefrontProductCard` (aynı StorefrontProductSummary imzası; vitrin kart dili birleşir).
+import { StorefrontProductCard } from "../../../components/site/product-card";
 import { BuyBox } from "../../../components/buy-box";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
 import { VariantGallery } from "../../../components/variant-gallery";
@@ -254,7 +256,7 @@ export default async function ProductDetailPage({
           </Heading>
           <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-14">
             {detail.related.map((item) => (
-              <ProductCard key={item.handle} product={item} t={dict} />
+              <StorefrontProductCard key={item.handle} product={item} t={dict} />
             ))}
           </div>
         </section>

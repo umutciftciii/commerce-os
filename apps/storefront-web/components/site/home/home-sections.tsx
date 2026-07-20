@@ -10,9 +10,13 @@ import { StorefrontProductCard } from "../product-card";
 import { HeroSlider } from "./hero-slider";
 
 /**
- * TODO-158A (ADR-086) — Ana sayfa section renderer'ı (Server Component). Gateway'in public
- * composed `/home` ucundan gelen section'ları DB SIRASINDA render eder; hiçbir hardcoded home
- * verisi kalmaz. Görünürlük bayrakları (desktopVisible/mobileVisible) responsive CSS ile uygulanır.
+ * TODO-158A (ADR-086) + TODO-158C (ADR-088) — Ana sayfa section renderer'ı (Server Component).
+ * Gateway'in public composed `/home` ucundan gelen section'ları DB SIRASINDA render eder.
+ *
+ * TODO-158C yeniden tasarımı: tutarlı DİKEY RİTİM (generous whitespace, hairline yerine boşluk
+ * ağırlıklı ayrım), section başlıkları için eyebrow + serif başlık + opsiyonel "Tümünü gör",
+ * tokenize edilmiş medya-üzeri overlay'ler (`scrim-media`/`on-media`), daha premium kategori/kart
+ * yoğunluğu. Görünürlük bayrakları (desktopVisible/mobileVisible) responsive CSS ile uygulanır.
  */
 export function HomeSections({
   sections,
@@ -22,7 +26,7 @@ export function HomeSections({
   dict: StorefrontDictionary;
 }) {
   return (
-    <>
+    <div className="flex flex-col">
       {sections.map((section) => {
         const visibility = visibilityClass(section.desktopVisible, section.mobileVisible);
         if (section.type === "HERO_SLIDER") {
@@ -63,7 +67,7 @@ export function HomeSections({
           />
         );
       })}
-    </>
+    </div>
   );
 }
 
@@ -75,12 +79,38 @@ function visibilityClass(desktop: boolean, mobile: boolean): string {
   return "hidden";
 }
 
-function SectionHeading({ title, subtitle }: { title: string | null; subtitle: string | null }) {
+/** Tutarlı dikey ritim: her section aynı generous boşluk skalasını kullanır. */
+const SECTION_SPACING = "py-14 sm:py-20 lg:py-24";
+
+function SectionHeading({
+  title,
+  subtitle,
+  viewAllHref,
+  viewAllLabel,
+}: {
+  title: string | null;
+  subtitle: string | null;
+  viewAllHref?: string;
+  viewAllLabel?: string;
+}) {
   if (!title && !subtitle) return null;
   return (
-    <div className="mb-8">
-      {subtitle ? <Eyebrow>{subtitle}</Eyebrow> : null}
-      {title ? <Heading className="mt-2">{title}</Heading> : null}
+    <div className="mb-8 flex items-end justify-between gap-4 sm:mb-10">
+      <div>
+        {subtitle ? <Eyebrow>{subtitle}</Eyebrow> : null}
+        {title ? <Heading className="mt-2">{title}</Heading> : null}
+      </div>
+      {viewAllHref && viewAllLabel ? (
+        <Link
+          href={viewAllHref}
+          className="hidden shrink-0 items-center gap-1.5 pb-1 text-[11px] font-medium uppercase tracking-wideish text-accent transition-colors hover:text-accent-ink sm:inline-flex"
+        >
+          {viewAllLabel}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+            <path d="M4.5 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -98,22 +128,22 @@ function FeaturedCategoriesSection({
   className: string;
 }) {
   return (
-    <section className={`border-b border-line py-14 sm:py-16 ${className}`}>
+    <section className={`${SECTION_SPACING} ${className}`}>
       <Container>
         <SectionHeading title={title} subtitle={subtitle} />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 lg:grid-cols-6">
           {categories.map((category) => (
-            <Link key={category.key} href={category.href} className="group block">
-              <div className="relative aspect-[3/4] overflow-hidden border border-line bg-surface">
-                <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.04]">
+            <Link key={category.key} href={category.href} className="group/cat block">
+              <div className="relative aspect-[3/4] overflow-hidden rounded-md border border-line bg-surface-muted">
+                <div className="h-full w-full transition-transform duration-500 ease-premium group-hover/cat:scale-[1.05]">
                   <ProductMedia handle={`cat-${category.key}`} title={category.title} imageUrl={category.imageUrl} />
                 </div>
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-                  <p className="font-serif text-base font-normal leading-tight text-white">
+                <div className="scrim-media absolute inset-x-0 bottom-0 p-3">
+                  <p className="on-media font-serif text-base font-normal leading-tight">
                     {category.title}
                   </p>
                   {category.description ? (
-                    <p className="mt-0.5 line-clamp-1 text-[11px] text-white/75">{category.description}</p>
+                    <p className="on-media-muted mt-0.5 line-clamp-1 text-[11px]">{category.description}</p>
                   ) : null}
                 </div>
               </div>
@@ -127,7 +157,7 @@ function FeaturedCategoriesSection({
 
 /**
  * PRODUCT_SHOWCASE — CAROUSEL (yatay kaydırma, snap) veya GRID (yoğun responsive grid).
- * Kart polish (bu faz): daha yoğun grid (satır başına daha fazla ürün), daha az boşluk.
+ * TODO-158C: section başlığında "Tümünü gör" (/products); carousel kenarlarında snap + peek.
  */
 function ProductShowcaseSection({
   title,
@@ -146,9 +176,14 @@ function ProductShowcaseSection({
 }) {
   if (products.length === 0) return null;
   return (
-    <section className={`border-b border-line py-14 sm:py-16 ${className}`}>
+    <section className={`${SECTION_SPACING} ${className}`}>
       <Container>
-        <SectionHeading title={title} subtitle={subtitle} />
+        <SectionHeading
+          title={title}
+          subtitle={subtitle}
+          viewAllHref="/products"
+          viewAllLabel={dict.home.featuredViewAll}
+        />
         {layout === "CAROUSEL" ? (
           <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] sm:gap-5">
             {products.map((product) => (
@@ -161,7 +196,7 @@ function ProductShowcaseSection({
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-5 lg:grid-cols-4 xl:grid-cols-5">
             {products.map((product) => (
               <StorefrontProductCard key={product.handle} product={product} t={dict} />
             ))}

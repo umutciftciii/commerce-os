@@ -20,6 +20,8 @@ import { SearchPagination } from "../../components/search/search-pagination";
 import { SearchEmpty } from "../../components/search/search-empty";
 import { FilterRail } from "../../components/search/filter-rail";
 import { ActiveFilterChips } from "../../components/search/active-filter-chips";
+import { CategoryChips } from "../../components/site/category-chips";
+import { getNavCategories } from "../../lib/server/navigation";
 
 /**
  * TODO-156B (ANALIZ-156A §3/§7) — PLP artık public search ucundan (SSR) beslenir.
@@ -61,10 +63,14 @@ export default async function ProductsPage({
 }: {
   searchParams: Promise<SearchParamsInput>;
 }) {
-  const [sp, t] = await Promise.all([searchParams, getStorefrontDict()]);
+  const [sp, t, locale] = await Promise.all([searchParams, getStorefrontDict(), getRequestLocale()]);
   const state = parseServerSearchParams(sp);
   const s = t.search;
-  const result = await getStorefrontSearch(state);
+  // TODO-158C — Kategori navigasyon şeridi verisi (admin FEATURED_CATEGORIES; cache'li, layout ile paylaşılır).
+  const [result, navCategories] = await Promise.all([
+    getStorefrontSearch(state),
+    getNavCategories(locale),
+  ]);
 
   // Hata eşlemesi (§15): gerçek hata → route error boundary (retry); diğerleri kontrollü UI (sessiz kurtarma).
   if (!result.ok) {
@@ -123,6 +129,11 @@ export default async function ProductsPage({
     <Container className="py-16 lg:py-20">
       {itemListLd ? <JsonLd data={itemListLd} /> : null}
       <SearchHeading state={state} categoryLabel={categoryLabel} t={t} />
+      {!state.q ? (
+        <div className="mt-8">
+          <CategoryChips categories={navCategories} activeCategory={state.category} allLabel={s.viewAll} />
+        </div>
+      ) : null}
       <SearchTransitionProvider>
         {/* İki sütun: sol kalıcı filtre rayı (≥ lg) + sağ araç çubuğu/çip/grid. Mobilde tek sütun (drawer). */}
         <div className="mt-10 lg:mt-12 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[17rem_minmax(0,1fr)] xl:gap-12">

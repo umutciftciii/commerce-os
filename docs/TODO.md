@@ -1512,3 +1512,23 @@
 - Seed: enterprise-demo 1 published "Varsayılan" + 10 preset teması (Theme Studio ilk açılışta dolu).
 - Sınırlar: TD-080…TD-086 (çok-app tüketim, @font-face yükleme, editör kapsamı, variant render, iframe
   önizleme, CSS AST sandbox, otomatik tema provizyonu).
+
+## TODO-158C — Enterprise Storefront Experience Redesign Faz 1 (ADR-088)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
+- Theme Engine (ADR-087) üzerine storefront UX/UI/IA/responsive/a11y/perf yükseltmesi; 0 hardcoded design value.
+- **Token temeli:** globals.css medya-üzeri semantic katman (`--scrim-*`, `--on-media*`, `--control-*`,
+  `--hero-h-*`, `shadow-lg`) + `.scrim-media`/`.on-media`/`.control-*`/`.overlay-scrim`/`.hero-frame` yardımcı
+  sınıfları. Tailwind yalnız layout; tasarım değerleri CSS var'dan (tema-override edilebilir).
+- **Hero:** sabit yükseklik (`.hero-frame`), container-hizalı `rounded-md` contained banner, belirgin CTA,
+  tokenize ok/pagination (dokunmatikte görünür ok), LCP eager/high-priority görsel.
+- **Navigation:** `sticky-header` (scroll gölge kondensi), `category-menu` mega menü (FEATURED_CATEGORIES,
+  `getNavCategories`+`getHome` cache), mobil kategori akordeonu, tokenize campaign-bar, accent aksiyon/rozet.
+- **Homepage:** `home-sections` ritmi/whitespace + tokenize featured overlay + "Tümünü gör"; `home/editorial`
+  (`ValueProps`+`EditorialBanner`) fallback'te.
+- **Product Card:** kompakt/premium; kampanya/indirim/yeni/TÜKENDİ rozet; tokenize wishlist/quick-view/modal;
+  `product-media` placeholder token'landı (ham hex kaldırıldı). PDP benzer-ürünler → `StorefrontProductCard`.
+- **Category:** `category-chips` PLP navigasyonu; premium featured grid; mega menü.
+- **Footer:** premium IA — marka+social[MOCK] · Alışveriş/Yardım/Kurumsal/Yasal · güven+ödeme şeridi.
+- Gate: `next build` PASS + tip geçerli · eslint temiz · 392 storefront + 47 i18n testi yeşil · canlı headless
+  render (masaüstü/mobil) PASS. Analiz: `docs/analysis/TODO-158C-storefront-redesign.md`. Sınırlar TD-087…TD-090.

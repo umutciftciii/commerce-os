@@ -16,6 +16,8 @@ export const enStorefront: StorefrontDictionary = {
     brand: "Demo Store",
     announcement: "Free shipping on orders over ₺750 · Demo storefront",
     navProducts: "Products",
+    navCategories: "Categories",
+    navAllCategories: "See all products",
     navCart: "Cart",
     // Campaign slider (top band) — real F4A data.
     campaignRegion: "Campaigns",
@@ -49,6 +51,16 @@ export const enStorefront: StorefrontDictionary = {
     footerCompanyContact: "Contact",
     footerCopyright: "© 2026 Demo Store · All rights reserved.",
     footerPoweredBy: "Powered by commerce-os · storefront foundation",
+    // TODO-158C — Premium footer: follow/legal/payments (social links are MOCK — no real account).
+    footerFollowHeading: "Follow us",
+    footerLegalHeading: "Legal",
+    footerLegalPrivacy: "Privacy policy",
+    footerLegalTerms: "Terms of use",
+    footerLegalKvkk: "Data protection notice",
+    footerPaymentsLabel: "Secure payment",
+    footerSocialInstagram: "Instagram",
+    footerSocialX: "X",
+    footerSocialYoutube: "YouTube",
   },
   // TODO-156E (ADR-084) — Autocomplete / Discovery experience.
   autocomplete: {
@@ -132,8 +144,10 @@ export const enStorefront: StorefrontDictionary = {
     card: {
       wishlistAdd: "Add to wishlist",
       quickView: "Quick view",
+      quickAdd: "Add to cart",
       close: "Close",
       viewProduct: "View product",
+      soldOut: "Sold out",
       ratingAria: "{rating} out of 5",
       reviews: "{count} reviews",
     },

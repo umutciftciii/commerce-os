@@ -253,8 +253,14 @@ export async function getFeaturedProducts(
  * ucundan (yalnız enabled + yayın-penceresi geçerli section'lar, DB sırasında) beslenir.
  * Showcase ürünleri mevcut `toSummary` mapper'ıyla dönüştürülür (kart tutarlılığı = PLP).
  * Hata/boş → boş section listesi (ana sayfa asla kırılmaz; page.tsx statik fallback gösterir).
+ *
+ * TODO-158C — React `cache()` ile sarıldı: ana sayfa gövdesi VE header kategori mega-menüsü
+ * (bkz. lib/server/navigation.ts) aynı istekte `getHome(locale)` çağırır; cache tek render-pass'te
+ * TEK gateway çağrısı garantiler (çift /home fetch yok).
  */
-export async function getHome(locale: CampaignLabelLocale = "tr"): Promise<StorefrontHome> {
+export const getHome = cache(async function getHome(
+  locale: CampaignLabelLocale = "tr",
+): Promise<StorefrontHome> {
   try {
     const result = await getPublic<PublicHomeResponse>(
       `/public/stores/${encodeURIComponent(demoStoreSlug())}/home`,
@@ -308,7 +314,7 @@ export async function getHome(locale: CampaignLabelLocale = "tr"): Promise<Store
   } catch {
     return { sections: [] };
   }
-}
+});
 
 /**
  * Urun detayi: slug ile public detay ucundan cozulur. TODO-156D — React `cache()` ile sarili: PDP'de

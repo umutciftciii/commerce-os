@@ -8,6 +8,7 @@ import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
 import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
+import { getNavCategories } from "../lib/server/navigation";
 import { getStoreInfo, getStoreTheme } from "../lib/server/site";
 import { fontVariables } from "../lib/fonts";
 import { metadataBase, siteOrigin, absoluteUrl } from "../lib/seo/site-url";
@@ -59,6 +60,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // ADR-065 (Faz 3/Site Kabuğu) — Header logo/kelime-işareti store marka
   // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
   const storeInfo = await getStoreInfo();
+  // TODO-158C — Header kategori mega-menü verisi (admin FEATURED_CATEGORIES; getHome cache'li,
+  // ana sayfada gövdeyle paylaşılır). Yapılandırılmamışsa boş → sade nav.
+  const navCategories = await getNavCategories(locale);
   // TODO-158B (ADR-087) — Enterprise Theme Engine: yayınlanmış temanın çözülmüş
   // CSS'i (custom property override). null → globals.css varsayılanları geçerli.
   const theme = await getStoreTheme();
@@ -116,6 +120,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             customer={customer}
             storeName={storeInfo?.storeName ?? null}
             logoUrl={storeInfo?.logoUrl ?? null}
+            categories={navCategories}
           />
 
           <main id="main" className="flex-1">
