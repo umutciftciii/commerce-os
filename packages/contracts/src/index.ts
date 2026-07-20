@@ -1259,6 +1259,261 @@ export const heroSlideStatusActionResponseSchema = z.object({
   status: contentStatusSchema,
 });
 
+// ─────────────────── TODO-158A (ADR-086) — Home Experience Platform ───────────────────
+// Yönetilebilir ana sayfa "section" altyapısı. Mevcut hero (ADR-065) DOKUNULMAZ; bu katman
+// ADDITIVE. Genişleyebilirlik: section `type` bir DB enum DEĞİL; burada allowlist'lenir.
+// Yeni tip = bu enum'a değer + tip-özel config şeması eklemek (migration'sız).
+
+export const homeSectionTypeSchema = z.enum([
+  "HERO_SLIDER",
+  "FEATURED_CATEGORIES",
+  "PRODUCT_SHOWCASE",
+]);
+
+// Showcase düzeni. İleride EDITORIAL/MAGAZINE/MIXED eklenebilir (config alanı; migration'sız).
+export const homeShowcaseLayoutSchema = z.enum(["CAROUSEL", "GRID"]);
+
+// Dynamic showcase kural anahtarı. İlk versiyon 6 kural; kolay genişletilebilir.
+export const homeShowcaseRuleSchema = z.enum([
+  "NEW_PRODUCTS",
+  "CAMPAIGN",
+  "CATEGORY",
+  "BRAND",
+  "ATTRIBUTE",
+  "IN_STOCK",
+]);
+
+// Showcase kaynağı: MANUAL (admin ürün seçer, HomeShowcaseProduct tablosu) veya DYNAMIC
+// (kural + parametre; render-zamanı canlı katalogtan çözülür, tablo boş).
+export const homeShowcaseSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("MANUAL") }),
+  z.object({
+    kind: z.literal("DYNAMIC"),
+    rule: homeShowcaseRuleSchema,
+    params: z
+      .object({
+        categorySlug: z.string().min(1).max(160).optional(),
+        brand: z.string().min(1).max(160).optional(),
+        attributeCode: z.string().min(1).max(160).optional(),
+        attributeValue: z.string().min(1).max(240).optional(),
+      })
+      .strict()
+      .optional(),
+  }),
+]);
+
+// Tip-özel config şemaları. Route katmanı section.type'a göre uygun şemayı seçer ve config'i
+// doğrular (parseHomeSectionConfig helper). DB'de opaque JSON; okuma/yazımda burada validate edilir.
+export const homeHeroConfigSchema = z
+  .object({ autoplayMs: z.number().int().min(0).max(60000).optional() })
+  .strict();
+
+export const homeFeaturedCategoriesConfigSchema = z.object({}).strict();
+
+export const homeShowcaseConfigSchema = z
+  .object({
+    layout: homeShowcaseLayoutSchema.default("CAROUSEL"),
+    maxItems: z.number().int().min(1).max(48).default(12),
+    source: homeShowcaseSourceSchema,
+  })
+  .strict();
+
+// Admin section entity. config tip-özel (opaque record; admin UI type'a göre yorumlar).
+export const homeSectionSchema = z.object({
+  id: z.string().min(1),
+  type: homeSectionTypeSchema,
+  title: z.string().nullable(),
+  subtitle: z.string().nullable(),
+  enabled: z.boolean(),
+  sortOrder: z.number().int(),
+  desktopVisible: z.boolean(),
+  mobileVisible: z.boolean(),
+  publishStart: z.string().datetime().nullable(),
+  publishEnd: z.string().datetime().nullable(),
+  config: z.record(z.unknown()),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const homeSectionListResponseSchema = z.object({ data: z.array(homeSectionSchema) });
+
+// type create'te zorunlu ve sonrasında IMMUTABLE (route guard). sortOrder server-assigned (max+1).
+export const homeSectionCreateRequestSchema = z.object({
+  type: homeSectionTypeSchema,
+  title: z.string().max(200).nullable().optional(),
+  subtitle: z.string().max(400).nullable().optional(),
+  enabled: z.boolean().optional(),
+  desktopVisible: z.boolean().optional(),
+  mobileVisible: z.boolean().optional(),
+  publishStart: z.string().datetime().nullable().optional(),
+  publishEnd: z.string().datetime().nullable().optional(),
+  config: z.record(z.unknown()).optional(),
+});
+
+export const homeSectionUpdateRequestSchema = z
+  .object({
+    title: z.string().max(200).nullable().optional(),
+    subtitle: z.string().max(400).nullable().optional(),
+    enabled: z.boolean().optional(),
+    desktopVisible: z.boolean().optional(),
+    mobileVisible: z.boolean().optional(),
+    publishStart: z.string().datetime().nullable().optional(),
+    publishEnd: z.string().datetime().nullable().optional(),
+    config: z.record(z.unknown()).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+// Section sıralama (hero reorder deseni; birebir set eşleşmesi route'ta, HOME_SECTION_REORDER_MISMATCH).
+export const homeSectionReorderRequestSchema = z
+  .object({ orderedIds: z.array(z.string().min(1)).min(1) })
+  .superRefine((value, ctx) => {
+    if (new Set(value.orderedIds).size !== value.orderedIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "orderedIds must not contain duplicates.",
+        path: ["orderedIds"],
+      });
+    }
+  });
+
+// ── HERO_SLIDER alt varlığı (HomeHeroSlide). Mevcut HeroSlide'dan AYRI ve daha zengin. ──
+export const homeHeroSlideSchema = z.object({
+  id: z.string().min(1),
+  sectionId: z.string().min(1),
+  mediaId: z.string().min(1),
+  mediaUrl: z.string(),
+  mobileMediaId: z.string().nullable(),
+  mobileMediaUrl: z.string().nullable(),
+  videoUrl: z.string().nullable(),
+  headline: z.string().nullable(),
+  subtext: z.string().nullable(),
+  ctaLabel: z.string().nullable(),
+  ctaHref: z.string().nullable(),
+  targetProductId: z.string().nullable(),
+  targetCategoryId: z.string().nullable(),
+  targetCampaignId: z.string().nullable(),
+  enabled: z.boolean(),
+  sortOrder: z.number().int(),
+  publishStart: z.string().datetime().nullable(),
+  publishEnd: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const homeHeroSlideListResponseSchema = z.object({ data: z.array(homeHeroSlideSchema) });
+
+export const homeHeroSlideCreateRequestSchema = z.object({
+  mediaId: z.string().min(1),
+  mobileMediaId: z.string().min(1).nullable().optional(),
+  videoUrl: z.string().max(2048).nullable().optional(),
+  headline: z.string().max(200).nullable().optional(),
+  subtext: z.string().max(500).nullable().optional(),
+  ctaLabel: z.string().max(120).nullable().optional(),
+  ctaHref: z.string().max(2048).nullable().optional(),
+  targetProductId: z.string().min(1).nullable().optional(),
+  targetCategoryId: z.string().min(1).nullable().optional(),
+  targetCampaignId: z.string().min(1).nullable().optional(),
+  enabled: z.boolean().optional(),
+  publishStart: z.string().datetime().nullable().optional(),
+  publishEnd: z.string().datetime().nullable().optional(),
+});
+
+export const homeHeroSlideUpdateRequestSchema = z
+  .object({
+    mediaId: z.string().min(1).optional(),
+    mobileMediaId: z.string().min(1).nullable().optional(),
+    videoUrl: z.string().max(2048).nullable().optional(),
+    headline: z.string().max(200).nullable().optional(),
+    subtext: z.string().max(500).nullable().optional(),
+    ctaLabel: z.string().max(120).nullable().optional(),
+    ctaHref: z.string().max(2048).nullable().optional(),
+    targetProductId: z.string().min(1).nullable().optional(),
+    targetCategoryId: z.string().min(1).nullable().optional(),
+    targetCampaignId: z.string().min(1).nullable().optional(),
+    enabled: z.boolean().optional(),
+    publishStart: z.string().datetime().nullable().optional(),
+    publishEnd: z.string().datetime().nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const homeHeroSlideReorderRequestSchema = homeSectionReorderRequestSchema;
+
+// ── FEATURED_CATEGORIES alt varlığı (HomeFeaturedCategory). ──
+export const homeFeaturedCategorySchema = z.object({
+  id: z.string().min(1),
+  sectionId: z.string().min(1),
+  categoryId: z.string().min(1),
+  categorySlug: z.string(),
+  categoryName: z.string(),
+  imageMediaId: z.string().nullable(),
+  // Görüntü: override kapak varsa o, yoksa kategorinin kendi görseli (ikisi de yoksa null).
+  imageUrl: z.string().nullable(),
+  titleOverride: z.string().nullable(),
+  descriptionOverride: z.string().nullable(),
+  enabled: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const homeFeaturedCategoryListResponseSchema = z.object({
+  data: z.array(homeFeaturedCategorySchema),
+});
+
+export const homeFeaturedCategoryCreateRequestSchema = z.object({
+  categoryId: z.string().min(1),
+  imageMediaId: z.string().min(1).nullable().optional(),
+  titleOverride: z.string().max(200).nullable().optional(),
+  descriptionOverride: z.string().max(400).nullable().optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const homeFeaturedCategoryUpdateRequestSchema = z
+  .object({
+    imageMediaId: z.string().min(1).nullable().optional(),
+    titleOverride: z.string().max(200).nullable().optional(),
+    descriptionOverride: z.string().max(400).nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const homeFeaturedCategoryReorderRequestSchema = homeSectionReorderRequestSchema;
+
+// ── PRODUCT_SHOWCASE (MANUAL kaynak) alt varlığı (HomeShowcaseProduct). ──
+export const homeShowcaseProductSchema = z.object({
+  id: z.string().min(1),
+  sectionId: z.string().min(1),
+  productId: z.string().min(1),
+  productTitle: z.string(),
+  productSlug: z.string(),
+  coverUrl: z.string().nullable(),
+  sortOrder: z.number().int(),
+});
+
+export const homeShowcaseProductListResponseSchema = z.object({
+  data: z.array(homeShowcaseProductSchema),
+});
+
+// Manuel showcase ürünleri TEK atomik "set" ile yönetilir (sıralı liste = replace).
+// Boş dizi = tüm manuel seçimleri temizle. Duplicate reddi.
+export const homeShowcaseProductSetRequestSchema = z
+  .object({ productIds: z.array(z.string().min(1)).max(48) })
+  .superRefine((value, ctx) => {
+    if (new Set(value.productIds).size !== value.productIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "productIds must not contain duplicates.",
+        path: ["productIds"],
+      });
+    }
+  });
+
 // ADR-065 (Faz 2/Dilim 2) — urun galerisi ogesi. mediaId ham FK (edit modunda
 // MediaUpload value'sunun kimligi ve "zaten ekli" kontrolu icin), url ise
 // runtime'da storageKey'den turetilen public URL (render icin). position=0 kapak
@@ -2131,6 +2386,64 @@ export const publicHeroSlideSchema = z.object({
 // Hero az sayida kayittir → pagination YOK (public urun listesinden farkli).
 export const publicHeroSlidesResponseSchema = z.object({
   data: z.array(publicHeroSlideSchema),
+});
+
+// ───────────── TODO-158A (ADR-086) — Home Experience public composed projeksiyonu ─────────────
+// Vitrin ana sayfası TEK public uçtan (/public/stores/:slug/home) beslenir. Sunucu tüm çözümü
+// (dynamic showcase kuralları, kategori/ürün projeksiyonu, publish penceresi) yapar; storefront
+// yalnız render eder (Server Component uyumlu, no-store). ALLOWLIST: hiçbir ham FK/iç alan sızmaz.
+
+export const publicHomeHeroSlideSchema = z.object({
+  key: z.string().min(1),
+  mediaUrl: z.string(),
+  mobileMediaUrl: z.string().nullable(),
+  headline: z.string().nullable(),
+  subtext: z.string().nullable(),
+  ctaLabel: z.string().nullable(),
+  ctaHref: z.string().nullable(),
+});
+
+export const publicHomeFeaturedCategorySchema = z.object({
+  key: z.string().min(1),
+  title: z.string(),
+  description: z.string().nullable(),
+  href: z.string(),
+  imageUrl: z.string().nullable(),
+});
+
+// Section birleşimi (discriminated union). Showcase ürünleri mevcut publicProductSchema ile
+// AYNI projeksiyondur → storefront'un var olan toSummary mapper'ı değişmeden çalışır.
+// Ortak section alanları (her varyantta) — responsive gizleme için görünürlük bayrakları dahil.
+const publicHomeSectionBase = {
+  id: z.string().min(1),
+  title: z.string().nullable(),
+  subtitle: z.string().nullable(),
+  desktopVisible: z.boolean(),
+  mobileVisible: z.boolean(),
+};
+
+export const publicHomeSectionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("HERO_SLIDER"),
+    ...publicHomeSectionBase,
+    autoplayMs: z.number().int().nullable(),
+    slides: z.array(publicHomeHeroSlideSchema),
+  }),
+  z.object({
+    type: z.literal("FEATURED_CATEGORIES"),
+    ...publicHomeSectionBase,
+    categories: z.array(publicHomeFeaturedCategorySchema),
+  }),
+  z.object({
+    type: z.literal("PRODUCT_SHOWCASE"),
+    ...publicHomeSectionBase,
+    layout: homeShowcaseLayoutSchema,
+    products: z.array(publicProductSchema),
+  }),
+]);
+
+export const publicHomeResponseSchema = z.object({
+  sections: z.array(publicHomeSectionSchema),
 });
 
 /**
@@ -3525,6 +3838,41 @@ export type HeroSlideCreateRequest = z.infer<typeof heroSlideCreateRequestSchema
 export type HeroSlideUpdateRequest = z.infer<typeof heroSlideUpdateRequestSchema>;
 export type HeroSlideReorderRequest = z.infer<typeof heroSlideReorderRequestSchema>;
 export type HeroSlideStatusActionResponse = z.infer<typeof heroSlideStatusActionResponseSchema>;
+// TODO-158A (ADR-086) — Home Experience Platform (admin + config).
+export type HomeSectionType = z.infer<typeof homeSectionTypeSchema>;
+export type HomeShowcaseLayout = z.infer<typeof homeShowcaseLayoutSchema>;
+export type HomeShowcaseRule = z.infer<typeof homeShowcaseRuleSchema>;
+export type HomeShowcaseSource = z.infer<typeof homeShowcaseSourceSchema>;
+export type HomeShowcaseConfig = z.infer<typeof homeShowcaseConfigSchema>;
+export type HomeHeroConfig = z.infer<typeof homeHeroConfigSchema>;
+export type HomeSection = z.infer<typeof homeSectionSchema>;
+export type HomeSectionListResponse = z.infer<typeof homeSectionListResponseSchema>;
+export type HomeSectionCreateRequest = z.infer<typeof homeSectionCreateRequestSchema>;
+export type HomeSectionUpdateRequest = z.infer<typeof homeSectionUpdateRequestSchema>;
+export type HomeSectionReorderRequest = z.infer<typeof homeSectionReorderRequestSchema>;
+export type HomeHeroSlide = z.infer<typeof homeHeroSlideSchema>;
+export type HomeHeroSlideListResponse = z.infer<typeof homeHeroSlideListResponseSchema>;
+export type HomeHeroSlideCreateRequest = z.infer<typeof homeHeroSlideCreateRequestSchema>;
+export type HomeHeroSlideUpdateRequest = z.infer<typeof homeHeroSlideUpdateRequestSchema>;
+export type HomeHeroSlideReorderRequest = z.infer<typeof homeHeroSlideReorderRequestSchema>;
+export type HomeFeaturedCategory = z.infer<typeof homeFeaturedCategorySchema>;
+export type HomeFeaturedCategoryListResponse = z.infer<
+  typeof homeFeaturedCategoryListResponseSchema
+>;
+export type HomeFeaturedCategoryCreateRequest = z.infer<
+  typeof homeFeaturedCategoryCreateRequestSchema
+>;
+export type HomeFeaturedCategoryUpdateRequest = z.infer<
+  typeof homeFeaturedCategoryUpdateRequestSchema
+>;
+export type HomeFeaturedCategoryReorderRequest = z.infer<
+  typeof homeFeaturedCategoryReorderRequestSchema
+>;
+export type HomeShowcaseProduct = z.infer<typeof homeShowcaseProductSchema>;
+export type HomeShowcaseProductListResponse = z.infer<
+  typeof homeShowcaseProductListResponseSchema
+>;
+export type HomeShowcaseProductSetRequest = z.infer<typeof homeShowcaseProductSetRequestSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
 export type ProductCreateRequest = z.input<typeof productCreateRequestSchema>;
@@ -3547,6 +3895,11 @@ export type PublicCampaignSlidesResponse = z.infer<typeof publicCampaignSlidesRe
 export type PublicStoreInfo = z.infer<typeof publicStoreInfoSchema>;
 export type PublicHeroSlide = z.infer<typeof publicHeroSlideSchema>;
 export type PublicHeroSlidesResponse = z.infer<typeof publicHeroSlidesResponseSchema>;
+// TODO-158A (ADR-086) — Home Experience public composed projeksiyon tipleri.
+export type PublicHomeHeroSlide = z.infer<typeof publicHomeHeroSlideSchema>;
+export type PublicHomeFeaturedCategory = z.infer<typeof publicHomeFeaturedCategorySchema>;
+export type PublicHomeSection = z.infer<typeof publicHomeSectionSchema>;
+export type PublicHomeResponse = z.infer<typeof publicHomeResponseSchema>;
 export type PublicCartItemInput = z.infer<typeof publicCartItemInputSchema>;
 export type PublicCartRequest = z.infer<typeof publicCartRequestSchema>;
 export type PublicCartLineStatus = z.infer<typeof publicCartLineStatusSchema>;

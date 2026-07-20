@@ -1,6 +1,7 @@
 import { cache } from "react";
 import type {
   PublicCampaignBadge,
+  PublicHomeResponse,
   PublicProduct,
   PublicProductDetail,
   PublicProductListResponse,
@@ -16,6 +17,8 @@ import {
 import type {
   PriceDisplayMode,
   StorefrontCampaignView,
+  StorefrontHome,
+  StorefrontHomeSection,
   StorefrontPrice,
   StorefrontProductDetail,
   StorefrontProductSummary,
@@ -235,7 +238,7 @@ export async function getStorefrontListing(
   }
 }
 
-/** Ana sayfa one cikan urunler (ilk N urun). */
+/** Ana sayfa one cikan urunler (ilk N urun). Geriye-uyumluluk için korunur. */
 export async function getFeaturedProducts(
   limit: number,
   locale: CampaignLabelLocale = "tr",
@@ -243,6 +246,68 @@ export async function getFeaturedProducts(
   const listing = await getStorefrontListing(locale);
   if (!listing.ok) return listing;
   return { ok: true, data: listing.data.slice(0, limit) };
+}
+
+/**
+ * TODO-158A (ADR-086) — Yönetilebilir ana sayfa. Gateway'in public composed `/home`
+ * ucundan (yalnız enabled + yayın-penceresi geçerli section'lar, DB sırasında) beslenir.
+ * Showcase ürünleri mevcut `toSummary` mapper'ıyla dönüştürülür (kart tutarlılığı = PLP).
+ * Hata/boş → boş section listesi (ana sayfa asla kırılmaz; page.tsx statik fallback gösterir).
+ */
+export async function getHome(locale: CampaignLabelLocale = "tr"): Promise<StorefrontHome> {
+  try {
+    const result = await getPublic<PublicHomeResponse>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/home`,
+    );
+    if (!result.ok) return { sections: [] };
+    const sections: StorefrontHomeSection[] = result.data.sections.map((section) => {
+      const base = {
+        id: section.id,
+        title: section.title,
+        subtitle: section.subtitle,
+        desktopVisible: section.desktopVisible,
+        mobileVisible: section.mobileVisible,
+      };
+      if (section.type === "HERO_SLIDER") {
+        return {
+          ...base,
+          type: "HERO_SLIDER",
+          autoplayMs: section.autoplayMs,
+          slides: section.slides.map((slide) => ({
+            key: slide.key,
+            mediaUrl: slide.mediaUrl,
+            mobileMediaUrl: slide.mobileMediaUrl,
+            headline: slide.headline,
+            subtext: slide.subtext,
+            ctaLabel: slide.ctaLabel,
+            ctaHref: slide.ctaHref,
+          })),
+        };
+      }
+      if (section.type === "FEATURED_CATEGORIES") {
+        return {
+          ...base,
+          type: "FEATURED_CATEGORIES",
+          categories: section.categories.map((category) => ({
+            key: category.key,
+            title: category.title,
+            description: category.description,
+            href: category.href,
+            imageUrl: category.imageUrl,
+          })),
+        };
+      }
+      return {
+        ...base,
+        type: "PRODUCT_SHOWCASE",
+        layout: section.layout,
+        products: section.products.map((product) => toSummary(product, locale)),
+      };
+    });
+    return { sections };
+  } catch {
+    return { sections: [] };
+  }
 }
 
 /**

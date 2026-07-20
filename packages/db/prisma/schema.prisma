@@ -641,6 +641,8 @@ model Store {
   // Slug degisim gecmisi (eski URL'ler kaybolmasin) + yonlendirme kurallari (301/302/307/308).
   slugHistory                      SlugHistory[]
   redirects                        Redirect[]
+  // TODO-158A (ADR-086) — Home Experience Platform: yönetilebilir ana sayfa (1-1 aggregate root).
+  homePage                         HomePage?
 }
 
 model StoreUser {
@@ -823,6 +825,9 @@ model Product {
   // satirlari otomatik temizlenir (worker remove-job'a ek DB-seviyesi guvence; orphan olmaz).
   searchDocument         ProductSearchDocument?
   searchFacetValues      ProductFacetValue[]
+  // TODO-158A (ADR-086) — Home Experience: bu ürünü MANUEL showcase'te tutan girdiler
+  // (onDelete: Cascade → ürün silinince manuel seçim otomatik kalkar).
+  homeShowcaseIn         HomeShowcaseProduct[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -959,6 +964,9 @@ model ProductCategory {
   image              MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
   // Faz 1B (ADR-067) — bu kategoriye bagli attribute davranislari (tek sahip).
   attributeLinks     CategoryAttribute[]
+  // TODO-158A (ADR-086) — Home Experience: bu kategoriyi öne çıkaran section girdileri
+  // (onDelete: Cascade → kategori silinince featured girdisi otomatik kalkar; ağaç bozulmaz).
+  homeFeaturedIn     HomeFeaturedCategory[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -2209,6 +2217,11 @@ model MediaAsset {
   heroSlides             HeroSlide[]
   logoSettings           StoreSettings[]         @relation("StoreLogo")
   faviconSettings        StoreSettings[]         @relation("StoreFavicon")
+  // TODO-158A (ADR-086) — Home Experience: hero slide masaüstü/mobil görseli + featured
+  // kategori kapak override'ı. onDelete: Restrict/SetNull → kullanımdaki media MEDIA_IN_USE ile korunur.
+  homeHeroMedia          HomeHeroSlide[]         @relation("HomeHeroMedia")
+  homeHeroMobileMedia    HomeHeroSlide[]         @relation("HomeHeroMobileMedia")
+  homeFeaturedImages     HomeFeaturedCategory[]  @relation("HomeFeaturedCategoryImage")
   // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri olarak kullanan urun satirlari
   // (onDelete: Restrict; media silme ucu MEDIA_IN_USE guard'i ile korunur).
   productAttributeValues ProductAttributeValue[]
@@ -2286,6 +2299,137 @@ model StoreSettings {
 
   @@index([logoMediaId])
   @@index([faviconMediaId])
+}
+
+// ───────────────────── TODO-158A (ADR-086) — Home Experience Platform ─────────────────────
+// Yönetilebilir ana sayfa "section" altyapısı. Mevcut store-scoped HeroSlide/StoreSettings
+// (ADR-065) DOKUNULMAZ — bu katman tümüyle ADDITIVE ve geriye-uyumludur.
+//
+// Genişleyebilirlik ilkesi: `HomeSection.type` bir Prisma enum DEĞİL String'tir ve tip-özel
+// ayarlar `config` (Json) içinde tutulur. Böylece yeni section tipi (Banner, RichContent,
+// CampaignBlock, BrandShowcase, Video, Collection, HTML) eklemek MIGRATION GEREKTİRMEZ;
+// yalnızca contract-katmanı allowlist'i + storefront renderer'ı genişler. Üç somut tip
+// (HERO_SLIDER / FEATURED_CATEGORIES / PRODUCT_SHOWCASE) ilişkisel butunluk isteyen alt
+// varlıkları için çocuk tablolara sahiptir; diğerleri yalnız `config` ile yaşayabilir.
+
+// Ana sayfa aggregate kökü (1-1 mağaza; StoreSettings deseni: PK = FK). Section'lar buna
+// bağlıdır. İleride sayfa-seviyesi ayarlar (SEO/tema/yayın) buraya eklenebilir.
+model HomePage {
+  storeId   String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sections HomeSection[]
+}
+
+// Polimorfik ana sayfa bölümü. Ortak alanlar her section tipinde ortaktır; tip-özel veri
+// `config` (Json) + ilişkisel çocuk tablolardadır. storeId denormalize tenant sütunudur;
+// FK HomePage.storeId'ye bağlanır (Store -> HomePage -> HomeSection cascade zinciri).
+model HomeSection {
+  id             String    @id @default(cuid())
+  storeId        String
+  // "HERO_SLIDER" | "FEATURED_CATEGORIES" | "PRODUCT_SHOWCASE" | (ileride yeni tipler).
+  // String — enum DEĞİL: yeni tip = migration'sız. Geçerli set contract katmanında allowlist'lenir.
+  type           String
+  title          String?
+  subtitle       String?
+  enabled        Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  desktopVisible Boolean   @default(true)
+  mobileVisible  Boolean   @default(true)
+  publishStart   DateTime?
+  publishEnd     DateTime?
+  // Tip-özel ayarlar (showcase: {layout, maxItems, source:{kind, rule, params}}; hero: {autoplayMs}).
+  // Şema-katmanında serbest; contract katmanı tip-bazlı doğrular (discriminated union).
+  config         Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  homePage           HomePage               @relation(fields: [storeId], references: [storeId], onDelete: Cascade)
+  heroSlides         HomeHeroSlide[]
+  featuredCategories HomeFeaturedCategory[]
+  showcaseProducts   HomeShowcaseProduct[]
+
+  @@index([storeId])
+  @@index([storeId, enabled])
+  @@index([storeId, sortOrder])
+}
+
+// HERO_SLIDER section slide'ı. Mevcut HeroSlide'dan (ADR-065) AYRI ve daha zengindir:
+// mobil görsel, hedef ürün/kategori/kampanya ve video alanı (ayrılmış; bu faz implement
+// edilmez). Hedef id'leri düz String'tir (FK DEĞİL) — Product/Category/Campaign modellerine
+// dokunmamak için; var-olma doğrulaması servis katmanındadır (server-authoritative).
+model HomeHeroSlide {
+  id               String    @id @default(cuid())
+  storeId          String
+  sectionId        String
+  mediaId          String
+  mobileMediaId    String?
+  // Video desteği için ayrılmış alan; bu fazda storefront render ETMEZ (forward-compat).
+  videoUrl         String?
+  headline         String?
+  subtext          String?
+  ctaLabel         String?
+  ctaHref          String?
+  targetProductId  String?
+  targetCategoryId String?
+  targetCampaignId String?
+  enabled          Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  publishStart     DateTime?
+  publishEnd       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  section     HomeSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  media       MediaAsset  @relation("HomeHeroMedia", fields: [mediaId], references: [id], onDelete: Restrict)
+  mobileMedia MediaAsset? @relation("HomeHeroMobileMedia", fields: [mobileMediaId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([sectionId])
+}
+
+// FEATURED_CATEGORIES section girdisi. Admin seçili kategoriyi kapak/başlık/açıklama
+// override'ı ve sıra ile öne çıkarır. categoryId FK (Cascade): kategori silinince girdi kalkar.
+model HomeFeaturedCategory {
+  id                  String   @id @default(cuid())
+  storeId             String
+  sectionId           String
+  categoryId          String
+  imageMediaId        String?
+  titleOverride       String?
+  descriptionOverride String?
+  enabled             Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  section  HomeSection     @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  image    MediaAsset?     @relation("HomeFeaturedCategoryImage", fields: [imageMediaId], references: [id], onDelete: SetNull)
+
+  @@unique([sectionId, categoryId])
+  @@index([storeId])
+  @@index([sectionId])
+}
+
+// PRODUCT_SHOWCASE (MANUAL kaynak) girdisi. DYNAMIC kaynakta bu tablo boştur; kural
+// HomeSection.config.source içinde tutulur ve render-zamanı canlı katalogtan çözülür.
+model HomeShowcaseProduct {
+  id        String   @id @default(cuid())
+  storeId   String
+  sectionId String
+  productId String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  section HomeSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  product Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, productId])
+  @@index([storeId])
+  @@index([sectionId])
 }
 
 // ─────────────────────── Faz 1B (ADR-067) — Attribute katalog cekirdegi ───────────────────────
@@ -2712,25 +2856,25 @@ enum SearchAvailabilityState {
 // TUTULMAZ (indexProduct remove'a duser) → gelecekteki facet count'lari kirletmez. minPrice/maxPrice
 // yalniz gorunur-fiyatli ACTIVE varyantlar uzerinden; hasStock/availability Inventory Engine'den turer.
 model ProductSearchDocument {
-  id                String                   @id @default(cuid())
-  storeId           String
-  productId         String                   @unique
-  primaryCategoryId String?
-  title             String
-  slug              String
-  brand             String?
+  id                        String                   @id @default(cuid())
+  storeId                   String
+  productId                 String                   @unique
+  primaryCategoryId         String?
+  title                     String
+  slug                      String
+  brand                     String?
   // Normalize edilmis aranabilir metin (title + brand + searchable attribute degerleri + aciklama).
   // `searchVector` tsvector generated STORED kolon bundan turer (migration SQL); GIN indeks orada.
-  searchText        String
+  searchText                String
   // Postgres FTS vektoru — GENERATED ALWAYS (migration). Prisma Client'ta okunmaz/yazilmaz (DB uretir).
-  searchVector      Unsupported("tsvector")?
-  status            ProductStatus
-  minPriceMinor     Int?
-  maxPriceMinor     Int?
-  currency          String?
-  hasStock          Boolean                  @default(false)
-  availability      SearchAvailabilityState  @default(OUT_OF_STOCK)
-  variantCount      Int                      @default(0)
+  searchVector              Unsupported("tsvector")?
+  status                    ProductStatus
+  minPriceMinor             Int?
+  maxPriceMinor             Int?
+  currency                  String?
+  hasStock                  Boolean                  @default(false)
+  availability              SearchAvailabilityState  @default(OUT_OF_STOCK)
+  variantCount              Int                      @default(0)
   // ── TODO-155.1 (ADR-079) — Faz 2C-9 · Listing Projection Enrichment (ADDITIVE) ──
   // Kart gosterimi icin INDEX ANINDA deterministik snapshot'lanan TURETILMIS ticari alanlar.
   // Source-of-truth DEGIL (checkout fiyat otoritesi canli tablolardir); yalniz kart gorunumu.
@@ -2750,14 +2894,14 @@ model ProductSearchDocument {
   // yalniz kart "Sepette" sunumu. campaign = PublicCampaignBadge JSON (allowlist; ic id/limit/priority SIZMAZ)
   // ya da null. campaignStartsAt/EndsAt = kazanan kampanyanin GECERLILIK penceresi → read-time bastirma
   // (now<start ya da now>end ise rozet gosterilmez; bayat snapshot vitrine sizmaz). Reconciliation temizler.
-  campaign          Json?
-  campaignStartsAt  DateTime?
-  campaignEndsAt    DateTime?
+  campaign                  Json?
+  campaignStartsAt          DateTime?
+  campaignEndsAt            DateTime?
   // Kaynak zaman damgalari (siralama/tani) + indeksleme metaverisi (revision her reindex'te artar).
-  productCreatedAt  DateTime
-  productUpdatedAt  DateTime
-  indexedAt         DateTime                 @default(now())
-  revision          Int                      @default(0)
+  productCreatedAt          DateTime
+  productUpdatedAt          DateTime
+  indexedAt                 DateTime                 @default(now())
+  revision                  Int                      @default(0)
 
   store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)

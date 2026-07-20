@@ -2755,3 +2755,53 @@ doğrulandı; verify 21/21 geçer; iki kez seed idempotent. Sınırlar: per-renk
 searchText yolu ertelendi (**TD-066**); `.mjs` script'leri tsc kapsamı dışında, vitest+eslint ile korunur (**TD-067**).
 **PR #94 (autocomplete `suggest` ucu) merge olana kadar** yeni UX alanlarına bağımlı test EKLENMEDİ; API seviyesinde
 mevcut main `search` ucuyla doğrulandı (final UX smoke maddeleri runbook'ta).
+
+## ADR-086 — Home Experience Platform: polimorfik section altyapısı (String type + JSON config), sunucu-composed public `/home`, MANUAL/DYNAMIC showcase motoru (TODO-158A)
+
+- Durum: ACCEPTED
+- Bağlam: Storefront ana sayfası hardcoded bileşenler (mock kategori şeridi, editöryel blok, tekil "Featured Products")
+  taşıyordu. Yönetilebilir, ileride Banner/RichContent/Video/Collection/HTML gibi yeni bölüm tiplerini migration'sız
+  ekleyebilecek bir "Home Experience" temeli gerekiyordu. Mevcut store-scoped `HeroSlide`/`StoreSettings` (ADR-065)
+  DOKUNULMADAN, additive ve geriye-uyumlu ilerlenmelidir.
+
+### Karar
+
+1. **Polimorfik `HomeSection` kökü — `type` DB enum DEĞİL `String`, tip-özel veri `config` (JSONB).**
+   Yeni section tipi eklemek = contract-katmanı allowlist'ine bir değer + tip-özel `config` şeması (migration YOK).
+   Ortak alanlar her tipte ortaktır (id, type, title, subtitle, enabled, sortOrder, desktopVisible, mobileVisible,
+   publishStart, publishEnd, config). Aggregate kök `HomePage` (1-1 mağaza; StoreSettings deseni: PK=FK).
+
+2. **İlişkisel bütünlük isteyen üç somut tip için çocuk tablolar.** `HomeHeroSlide` (mevcut `HeroSlide`'dan AYRI ve
+   daha zengin: mobil görsel, hedef ürün/kategori/kampanya, ayrılmış `videoUrl`), `HomeFeaturedCategory`
+   (kategori FK + kapak/başlık/açıklama override), `HomeShowcaseProduct` (MANUAL seçim). Diğer tipler yalnız `config`
+   ile yaşayabilir. Hedef id'leri düz `String` (FK DEĞİL) — Product/Category/Campaign modellerine dokunmamak için;
+   var-olma doğrulaması servis katmanındadır (server-authoritative).
+
+3. **Showcase motoru: MANUAL veya DYNAMIC (kural + parametre).** İlk versiyon 6 kural: `NEW_PRODUCTS`, `CAMPAIGN`,
+   `CATEGORY`, `BRAND`, `ATTRIBUTE`, `IN_STOCK`. Kolay genişletilebilir (yeni kural = resolver'a bir dal + enum'a bir
+   değer). Dinamik çözüm yalnız ACTIVE ürünler üzerinde ORDERED product-id üretir; `buildPublicProduct` allowlist
+   otoritesiyle projekte edilir (fiyat/rozet/kapak tutarlılığı = `/products` ile aynı). Layout `CAROUSEL`/`GRID`
+   (ileride EDITORIAL/MAGAZINE/MIXED — `config`, migration'sız).
+
+4. **Tek sunucu-composed public uç: `GET /public/stores/:slug/home`.** Sunucu tüm çözümü yapar (yayın penceresi
+   elemesi, dinamik kurallar, kategori/ürün projeksiyonu); storefront yalnız render eder (Server Component uyumlu,
+   `no-store`). Product yapımı yalnız showcase'lerin BİRLEŞİK id kümesi için (N+1 sınırı: gösterilen ürün sayısı,
+   tüm katalog değil). Boş section (slide/kategori/ürün yoksa) yanıttan düşer. ALLOWLIST: hero/featured serializer'ları
+   ham FK/iç alan taşımaz; mevcut `/hero-slides` ucu geriye-uyumluluk için KORUNUR.
+
+5. **Media güvenliği MEDIA_IN_USE (409) guard'ına dahil.** `HomeHeroSlide.mediaId` (RESTRICT) + `mobileMediaId`/
+   `HomeFeaturedCategory.imageMediaId` (SetNull) media silme guard'ında sayılır — kullanımdaki görsel sessizce
+   koparılmaz, 409 ile reddedilir (mevcut hero/kategori deseni).
+
+6. **Migration TAMAMEN ADDITIVE.** Yalnız yeni tablolar + FK/index; mevcut tabloları DEĞİŞTİRMEZ. Yeni enum YOK
+   (type/layout/rule/source String). Prisma diff'in ürettiği ProductSearchDocument gin/trgm index drift satırları
+   migration'dan KASITLI çıkarıldı (Search read-model'e ait; bu değişikliğe ait değil).
+
+### Sonuç
+
+Yeni modeller: `HomePage`, `HomeSection`, `HomeHeroSlide`, `HomeFeaturedCategory`, `HomeShowcaseProduct`
+(migration `20260720120000_add_home_experience`). Yeni store-admin "Ana Sayfa Deneyimi" modülü (section CRUD +
+yukarı/aşağı sıralama + tip-özel çocuk yöneticileri). Storefront ana sayfası tümüyle `/home`'dan beslenir; hardcoded
+mock kategori/editöryel/hero KALDIRILDI (yapılandırılmamış mağazada generic hero + gerçek ürün fallback'i). Enterprise
+demo seed'i 8 section (3 hero + 6 featured + 6 showcase) ekler. Kart yoğunluğu iyileştirildi (satır başına daha fazla
+ürün, daha az boşluk). Sınırlar TD-074…TD-078'de. Runtime `/home` smoke PASS (8 section, tüm showcase'ler dolu).

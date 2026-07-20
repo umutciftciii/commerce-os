@@ -17,6 +17,7 @@ import { join } from "node:path";
 import {
   STORE_ID, STORE_SLUG, STORE_NAME, STORE_DOMAIN, PLAN_CODE, PROTECTED_STORE_SLUGS, ID,
 } from "./constants.mjs";
+import { buildHomeData } from "./home.mjs";
 
 const CHUNK = 1000;
 
@@ -77,6 +78,10 @@ async function upsertInfra(prisma) {
 /** Enterprise-demo katalog satırlarını FK-güvenli sırayla temizle (YALNIZ bu store). */
 async function wipeScope(prisma) {
   const where = { storeId: STORE_ID };
+  // TODO-158A (ADR-086) — Home Experience: section cascade çocukları (hero/featured/showcase)
+  // temizler; homePage ayrıca silinir. MediaAsset silmeden ÖNCE (hero mediaId onDelete: Restrict).
+  await prisma.homeSection.deleteMany({ where });
+  await prisma.homePage.deleteMany({ where });
   // Search read-model (backfill yeniden kuracak; yine de scope-temiz).
   await prisma.productFacetValue.deleteMany({ where });
   await prisma.productSearchDocument.deleteMany({ where });
@@ -136,6 +141,11 @@ export async function persistDataset(ds, { prisma: injected } = {}) {
   const t0 = Date.now();
   const counts = {};
   try {
+    // TODO-158A (ADR-086) — Home içeriğini türet; hero media'yı ds.media'ya ekle ki
+    // hem MediaAsset hem placeholder SVG'si tek yerden yazılsın (broken URL olmasın).
+    const home = buildHomeData(ds);
+    ds.media.push(...home.heroMedia);
+
     await upsertInfra(prisma);
     await wipeScope(prisma);
 
@@ -164,6 +174,14 @@ export async function persistDataset(ds, { prisma: injected } = {}) {
     counts.coupons = await createManyChunked(prisma.coupon, ds.coupons);
     counts.campaignProducts = await createManyChunked(prisma.campaignProduct, ds.campaignProducts);
     counts.campaignCategories = await createManyChunked(prisma.campaignCategory, ds.campaignCategories);
+
+    // TODO-158A (ADR-086) — Home Experience: page → sections → tip-özel çocuklar
+    // (kategori/ürün/kampanya/media zaten yazıldı → FK'ler güvenli).
+    await prisma.homePage.create({ data: home.homePage });
+    counts.homeSections = await createManyChunked(prisma.homeSection, home.sections);
+    counts.homeHeroSlides = await createManyChunked(prisma.homeHeroSlide, home.heroSlides);
+    counts.homeFeaturedCategories = await createManyChunked(prisma.homeFeaturedCategory, home.featuredCategories);
+    counts.homeShowcaseProducts = await createManyChunked(prisma.homeShowcaseProduct, home.showcaseProducts);
 
     const placeholders = await writePlaceholders(ds);
     return { counts, placeholders, durationMs: Date.now() - t0 };

@@ -38,6 +38,23 @@ import type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  HomeSection,
+  HomeSectionCreateRequest,
+  HomeSectionListResponse,
+  HomeSectionReorderRequest,
+  HomeSectionUpdateRequest,
+  HomeHeroSlide,
+  HomeHeroSlideCreateRequest,
+  HomeHeroSlideListResponse,
+  HomeHeroSlideReorderRequest,
+  HomeHeroSlideUpdateRequest,
+  HomeFeaturedCategory,
+  HomeFeaturedCategoryCreateRequest,
+  HomeFeaturedCategoryListResponse,
+  HomeFeaturedCategoryReorderRequest,
+  HomeFeaturedCategoryUpdateRequest,
+  HomeShowcaseProductListResponse,
+  HomeShowcaseProductSetRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -219,6 +236,25 @@ export type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  HomeSection,
+  HomeSectionType,
+  HomeSectionCreateRequest,
+  HomeSectionListResponse,
+  HomeSectionReorderRequest,
+  HomeSectionUpdateRequest,
+  HomeHeroSlide,
+  HomeHeroSlideCreateRequest,
+  HomeHeroSlideListResponse,
+  HomeHeroSlideReorderRequest,
+  HomeHeroSlideUpdateRequest,
+  HomeFeaturedCategory,
+  HomeFeaturedCategoryCreateRequest,
+  HomeFeaturedCategoryListResponse,
+  HomeFeaturedCategoryReorderRequest,
+  HomeFeaturedCategoryUpdateRequest,
+  HomeShowcaseProduct,
+  HomeShowcaseProductListResponse,
+  HomeShowcaseProductSetRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -322,6 +358,11 @@ export type {
   PublicProductVariant,
   PublicProductListResponse,
   PublicProductDetail,
+  // TODO-158A (ADR-086) — Home Experience public composed projeksiyon tipleri (storefront tüketicisi).
+  PublicHomeResponse,
+  PublicHomeSection,
+  PublicHomeHeroSlide,
+  PublicHomeFeaturedCategory,
   // TODO-155/156 (ADR-079) — Public Search & Facet API kontrat tipleri (storefront tuketicisi).
   PublicSearchResponse,
   PublicSearchSort,
@@ -817,6 +858,95 @@ export interface ApiClient {
       ): Promise<HeroSlideListResponse>;
       publish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
       unpublish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
+    };
+    // TODO-158A (ADR-086) — Home Experience Platform. Section CRUD + tip-özel alt varlıklar
+    // (hero slide, featured kategori, manuel showcase ürünleri). sortOrder server-assigned;
+    // reorder birebir-set eşleşmesi ister (hero deseni).
+    home: {
+      sections: {
+        list(storeId: string, token?: string): Promise<HomeSectionListResponse>;
+        create(
+          storeId: string,
+          input: HomeSectionCreateRequest,
+          token?: string,
+        ): Promise<HomeSection>;
+        get(storeId: string, sectionId: string, token?: string): Promise<HomeSection>;
+        update(
+          storeId: string,
+          sectionId: string,
+          input: HomeSectionUpdateRequest,
+          token?: string,
+        ): Promise<HomeSection>;
+        remove(storeId: string, sectionId: string, token?: string): Promise<void>;
+        reorder(
+          storeId: string,
+          input: HomeSectionReorderRequest,
+          token?: string,
+        ): Promise<HomeSectionListResponse>;
+      };
+      heroSlides: {
+        list(storeId: string, sectionId: string, token?: string): Promise<HomeHeroSlideListResponse>;
+        create(
+          storeId: string,
+          sectionId: string,
+          input: HomeHeroSlideCreateRequest,
+          token?: string,
+        ): Promise<HomeHeroSlide>;
+        update(
+          storeId: string,
+          sectionId: string,
+          id: string,
+          input: HomeHeroSlideUpdateRequest,
+          token?: string,
+        ): Promise<HomeHeroSlide>;
+        remove(storeId: string, sectionId: string, id: string, token?: string): Promise<void>;
+        reorder(
+          storeId: string,
+          sectionId: string,
+          input: HomeHeroSlideReorderRequest,
+          token?: string,
+        ): Promise<HomeHeroSlideListResponse>;
+      };
+      featuredCategories: {
+        list(
+          storeId: string,
+          sectionId: string,
+          token?: string,
+        ): Promise<HomeFeaturedCategoryListResponse>;
+        create(
+          storeId: string,
+          sectionId: string,
+          input: HomeFeaturedCategoryCreateRequest,
+          token?: string,
+        ): Promise<HomeFeaturedCategory>;
+        update(
+          storeId: string,
+          sectionId: string,
+          id: string,
+          input: HomeFeaturedCategoryUpdateRequest,
+          token?: string,
+        ): Promise<HomeFeaturedCategory>;
+        remove(storeId: string, sectionId: string, id: string, token?: string): Promise<void>;
+        reorder(
+          storeId: string,
+          sectionId: string,
+          input: HomeFeaturedCategoryReorderRequest,
+          token?: string,
+        ): Promise<HomeFeaturedCategoryListResponse>;
+      };
+      showcaseProducts: {
+        list(
+          storeId: string,
+          sectionId: string,
+          token?: string,
+        ): Promise<HomeShowcaseProductListResponse>;
+        set(
+          storeId: string,
+          sectionId: string,
+          input: HomeShowcaseProductSetRequest,
+          token?: string,
+        ): Promise<HomeShowcaseProductListResponse>;
+      };
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -1730,6 +1860,119 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             undefined,
             token,
           ),
+      },
+      // TODO-158A (ADR-086) — Home Experience Platform. Section CRUD + tip-özel alt varlıklar.
+      home: {
+        sections: {
+          list: (storeId, token) =>
+            getJson<HomeSectionListResponse>(`/stores/${storeId}/home/sections`, token),
+          create: (storeId, input, token) =>
+            sendJson<HomeSection>(`/stores/${storeId}/home/sections`, "POST", input, token),
+          get: (storeId, sectionId, token) =>
+            getJson<HomeSection>(`/stores/${storeId}/home/sections/${sectionId}`, token),
+          update: (storeId, sectionId, input, token) =>
+            sendJson<HomeSection>(
+              `/stores/${storeId}/home/sections/${sectionId}`,
+              "PATCH",
+              input,
+              token,
+            ),
+          remove: (storeId, sectionId, token) =>
+            requestJson<void>(
+              `/stores/${storeId}/home/sections/${sectionId}`,
+              { method: "DELETE" },
+              token,
+            ),
+          reorder: (storeId, input, token) =>
+            sendJson<HomeSectionListResponse>(
+              `/stores/${storeId}/home/sections/reorder`,
+              "POST",
+              input,
+              token,
+            ),
+        },
+        heroSlides: {
+          list: (storeId, sectionId, token) =>
+            getJson<HomeHeroSlideListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/hero-slides`,
+              token,
+            ),
+          create: (storeId, sectionId, input, token) =>
+            sendJson<HomeHeroSlide>(
+              `/stores/${storeId}/home/sections/${sectionId}/hero-slides`,
+              "POST",
+              input,
+              token,
+            ),
+          update: (storeId, sectionId, id, input, token) =>
+            sendJson<HomeHeroSlide>(
+              `/stores/${storeId}/home/sections/${sectionId}/hero-slides/${id}`,
+              "PATCH",
+              input,
+              token,
+            ),
+          remove: (storeId, sectionId, id, token) =>
+            requestJson<void>(
+              `/stores/${storeId}/home/sections/${sectionId}/hero-slides/${id}`,
+              { method: "DELETE" },
+              token,
+            ),
+          reorder: (storeId, sectionId, input, token) =>
+            sendJson<HomeHeroSlideListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/hero-slides/reorder`,
+              "POST",
+              input,
+              token,
+            ),
+        },
+        featuredCategories: {
+          list: (storeId, sectionId, token) =>
+            getJson<HomeFeaturedCategoryListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/featured-categories`,
+              token,
+            ),
+          create: (storeId, sectionId, input, token) =>
+            sendJson<HomeFeaturedCategory>(
+              `/stores/${storeId}/home/sections/${sectionId}/featured-categories`,
+              "POST",
+              input,
+              token,
+            ),
+          update: (storeId, sectionId, id, input, token) =>
+            sendJson<HomeFeaturedCategory>(
+              `/stores/${storeId}/home/sections/${sectionId}/featured-categories/${id}`,
+              "PATCH",
+              input,
+              token,
+            ),
+          remove: (storeId, sectionId, id, token) =>
+            requestJson<void>(
+              `/stores/${storeId}/home/sections/${sectionId}/featured-categories/${id}`,
+              { method: "DELETE" },
+              token,
+            ),
+          reorder: (storeId, sectionId, input, token) =>
+            sendJson<HomeFeaturedCategoryListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/featured-categories/reorder`,
+              "POST",
+              input,
+              token,
+            ),
+        },
+        showcaseProducts: {
+          list: (storeId, sectionId, token) =>
+            getJson<HomeShowcaseProductListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/showcase-products`,
+              token,
+            ),
+          set: (storeId, sectionId, input, token) =>
+            sendJson<HomeShowcaseProductListResponse>(
+              `/stores/${storeId}/home/sections/${sectionId}/showcase-products`,
+              "PUT",
+              input,
+              token,
+            ),
+        },
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).
