@@ -610,6 +610,8 @@ model Store {
   mediaAssets                      MediaAsset[]
   heroSlides                       HeroSlide[]
   settings                         StoreSettings?
+  // TODO-158B (ADR-087) — Enterprise Theme Engine (store-scoped design tokens).
+  themes                           Theme[]
   // Faz 1B (ADR-067) — attribute katalog cekirdegi (STORE-scoped kayitlar). PLATFORM
   // AttributeDefinition/AttributeOption storeId null tutar → bu iliskilere dahil DEGIL.
   attributeDefinitions             AttributeDefinition[]
@@ -2430,6 +2432,67 @@ model HomeShowcaseProduct {
   @@unique([sectionId, productId])
   @@index([storeId])
   @@index([sectionId])
+}
+
+// ───────────────────── TODO-158B (ADR-087) — Enterprise Theme Engine ─────────────────────
+// Store'un görsel kimliğini KODDAN ayıran tenant-bazlı Design Token altyapısı.
+// Tüm görsel değerler tek bir VERSİYONLU JSON belgesinde (ThemeDocument) yaşar:
+// design → semantic → component token katmanları + CSS Variable motoru
+// (bkz. packages/theme @commerce-os/theme). Migration ADDITIVE ve geriye-uyumlu:
+// temasız mağaza vitrini AYNEN çalışır (paketlenmiş varsayılan tema).
+//
+// Genişleyebilirlik ilkesi (ADR-086 deseninin devamı): token'lar ENUM/kolon
+// DEĞİL `document` (JSONB) içinde tutulur → yeni token grubu/anahtarı eklemek
+// MIGRATION GEREKTİRMEZ; yalnız @commerce-os/theme şeması büyür. `status`
+// alanları da enum değil String'tir.
+
+// Bir mağazanın birden çok teması olabilir; store seviyesinde YALNIZ biri
+// "PUBLISHED" olur (vitrin onu kullanır). Servis katmanı tekilliği uygular.
+model Theme {
+  id          String   @id @default(cuid())
+  storeId     String
+  name        String
+  description String?
+  // "DRAFT" | "PUBLISHED" | "ARCHIVED" (String — enum değil; migration'sız genişler)
+  status      String   @default("DRAFT")
+  // Türetildiği preset id'si ("modern" vb.) ya da "import" / "custom".
+  source      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  versions ThemeVersion[]
+
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+// Tema versiyonu (immutable snapshot). Her publish YENİ versiyon üretir; tema
+// içinde yalnız biri "DRAFT" (üzerinde çalışılan) ve yalnız biri "PUBLISHED"
+// (yayında) olur — rollback mevcut bir arşiv versiyonundan yeni draft/publish
+// üretir. `document` tam ThemeDocument'i (design+semantic+component+assets+
+// customCss) taşır; `schemaVersion` @commerce-os/theme belge sürümüdür.
+// storeId denormalize tenant sütunudur (hızlı izolasyon + savunma).
+model ThemeVersion {
+  id            String    @id @default(cuid())
+  themeId       String
+  storeId       String
+  version       Int
+  // "DRAFT" | "PUBLISHED" | "ARCHIVED"
+  status        String    @default("DRAFT")
+  schemaVersion Int       @default(1)
+  label         String?
+  notes         String?
+  document      Json
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+
+  theme Theme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@unique([themeId, version])
+  @@index([themeId])
+  @@index([themeId, status])
+  @@index([storeId])
 }
 
 // ─────────────────────── Faz 1B (ADR-067) — Attribute katalog cekirdegi ───────────────────────

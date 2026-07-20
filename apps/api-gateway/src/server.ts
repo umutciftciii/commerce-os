@@ -75,6 +75,7 @@ import {
   publicCampaignSlidesResponseSchema,
   // ADR-065 (Faz 3/Site Kabuğu) — public marka bilgisi + hero slide'lari.
   publicStoreInfoSchema,
+  publicThemeSchema,
   publicHeroSlidesResponseSchema,
   // TODO-158A (ADR-086) — Home Experience public composed projeksiyonu.
   publicHomeResponseSchema,
@@ -139,6 +140,14 @@ import {
 } from "./hero/data.js";
 // TODO-158A (ADR-086) — Home Experience Platform (section CRUD + public composed home).
 import { registerHomeAdminRoutes } from "./home/routes.js";
+// TODO-158B (ADR-087) — Enterprise Theme Engine (Design Token store editor + public theme).
+import { registerThemeAdminRoutes } from "./theme/routes.js";
+import { createPrismaThemeDataAccess, type ThemeDataAccess } from "./theme/data.js";
+import {
+  DEFAULT_THEME_DOCUMENT,
+  generateStorefrontThemeCss,
+  validateThemeDocument,
+} from "@commerce-os/theme";
 import {
   createPrismaHomeDataAccess,
   serializePublicHomeHeroSlide,
@@ -1221,6 +1230,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // TODO-158A (ADR-086): Home Experience veri erisimi (section CRUD + public composed).
   // Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
   homeDataAccess?: HomeDataAccess;
+  // TODO-158B (ADR-087): Enterprise Theme Engine veri erisimi (Design Token CRUD +
+  // versiyon + publish/rollback). Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
+  themeDataAccess?: ThemeDataAccess;
   // Faz 1B (ADR-067): Attribute katalog cekirdegi veri erisimi (store + platform
   // CRUD). Varsayilan prisma-backed; testlerde in-memory fake enjekte edilebilir.
   attributeDataAccess?: AttributeDataAccess;
@@ -4320,6 +4332,8 @@ export function createServer(
   // TODO-158A (ADR-086) — Home Experience veri erisimi admin + public /home route'larca
   // PAYLASILIR (tek instance). Testlerde enjekte edilebilir.
   const homeDataAccess = dependencies.homeDataAccess ?? createPrismaHomeDataAccess();
+  // TODO-158B (ADR-087) — Enterprise Theme Engine veri erisimi.
+  const themeDataAccess = dependencies.themeDataAccess ?? createPrismaThemeDataAccess();
 
   // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
   // TD-032 / TODO-061: Public vitrin bu uclari token'siz cagirir; platform-admin
@@ -4515,6 +4529,26 @@ export function createServer(
       faviconUrl: settings?.favicon
         ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, settings.favicon.storageKey)
         : null,
+    });
+  });
+
+  // TODO-158B (ADR-087) — Public tema: mağazanın PUBLISHED temasının SUNUCU-ÇÖZÜLMÜŞ
+  // CSS'i (vitrin head'e enjekte eder). PUBLISHED tema yoksa paketlenmiş varsayılan
+  // tema CSS'i döner → temasız mağaza globals.css ile AYNI görünür (geriye-uyumlu).
+  // ALLOWLIST: ham token belgesi/iç alanlar TAŞINMAZ; yalnız css + colorScheme.
+  app.get("/public/stores/:storeSlug/theme", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const published = await themeDataAccess.getPublishedDocument(store.id);
+    const resolved = published ? validateThemeDocument(published.document) : null;
+    const document = resolved && resolved.ok ? resolved.document : DEFAULT_THEME_DOCUMENT;
+    return publicThemeSchema.parse({
+      css: generateStorefrontThemeCss(document),
+      colorScheme: document.meta.colorScheme,
+      schemaVersion: document.schemaVersion,
     });
   });
 
@@ -5460,6 +5494,17 @@ export function createServer(
       }
       return covers;
     },
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-158B (ADR-087) — Enterprise Theme Engine store-admin uclari (Design Token
+  // CRUD + versiyon + publish/rollback + import/export + canli onizleme + preset).
+  registerThemeAdminRoutes(app, {
+    dataAccess: themeDataAccess,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
