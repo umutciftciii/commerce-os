@@ -107,7 +107,7 @@ function PageNumber({
 }) {
   const s = t.search;
   const base =
-    "inline-flex h-9 min-w-9 items-center justify-center border px-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1";
+    "inline-flex h-9 min-w-9 items-center justify-center rounded-md border px-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1";
   if (current) {
     return (
       <span
@@ -145,7 +145,7 @@ function PageLink({
   children: React.ReactNode;
 }) {
   const base =
-    "inline-flex h-9 items-center justify-center border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1";
+    "inline-flex h-9 items-center justify-center rounded-md border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1";
   if (disabled || !href) {
     return (
       <span aria-disabled className={`${base} cursor-not-allowed border-line text-ink-subtle opacity-50`}>
