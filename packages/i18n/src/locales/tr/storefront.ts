@@ -505,6 +505,11 @@ export const trStorefront = {
   checkout: {
     title: "Ödeme",
     backToCart: "Sepete dön",
+    // "Storefront - Checkout" tasarımı: ilerleme adımları.
+    stepsLabel: "Ödeme adımları",
+    stepCart: "Sepet",
+    stepDelivery: "Teslimat & Ödeme",
+    stepConfirm: "Onay",
     emptyTitle: "Sepetiniz boş",
     emptyDescription: "Ödemeye geçmek için önce sepetinize ürün ekleyin.",
     emptyAction: "Ürünlere göz at",

@@ -92,6 +92,7 @@ export default async function CheckoutPage() {
 
   return (
     <Container className="py-12">
+      <CheckoutSteps t={t} />
       <div className="mb-6 flex items-center justify-between">
         <Heading as="h1">{t.title}</Heading>
         <BackToCart label={t.backToCart} />
@@ -103,6 +104,47 @@ export default async function CheckoutPage() {
         addressBook={{ addresses, accountEmail: customer.email }}
       />
     </Container>
+  );
+}
+
+/**
+ * "Storefront - Checkout" tasarımı — ilerleme adımları (Sepet → Teslimat & Ödeme → Onay).
+ * Statik gösterge (mevcut tek-sayfa checkout akışını yansıtır): Sepet tamamlandı, Teslimat &
+ * Ödeme şu anki adım (aria-current), Onay sonraki. Token-tabanlı; aksan taşımaz.
+ */
+function CheckoutSteps({ t }: { t: Awaited<ReturnType<typeof getStorefrontDict>>["checkout"] }) {
+  const steps: { label: string; state: "done" | "current" | "upcoming" }[] = [
+    { label: t.stepCart, state: "done" },
+    { label: t.stepDelivery, state: "current" },
+    { label: t.stepConfirm, state: "upcoming" },
+  ];
+  return (
+    <nav
+      aria-label={t.stepsLabel}
+      className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-wideish"
+    >
+      {steps.map((step, index) => (
+        <span key={step.label} className="flex items-center gap-2">
+          <span
+            aria-current={step.state === "current" ? "step" : undefined}
+            className={
+              step.state === "upcoming"
+                ? "text-ink-subtle"
+                : step.state === "current"
+                  ? "font-semibold text-ink"
+                  : "text-ink-muted"
+            }
+          >
+            {step.label}
+          </span>
+          {index < steps.length - 1 ? (
+            <span aria-hidden className="text-line-strong">
+              →
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </nav>
   );
 }
 

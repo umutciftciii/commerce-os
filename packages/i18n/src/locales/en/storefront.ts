@@ -484,6 +484,11 @@ export const enStorefront: StorefrontDictionary = {
   checkout: {
     title: "Checkout",
     backToCart: "Back to cart",
+    // "Storefront - Checkout" design: progress steps.
+    stepsLabel: "Checkout steps",
+    stepCart: "Cart",
+    stepDelivery: "Delivery & Payment",
+    stepConfirm: "Confirm",
     emptyTitle: "Your cart is empty",
     emptyDescription: "Add items to your cart before checking out.",
     emptyAction: "Browse products",
