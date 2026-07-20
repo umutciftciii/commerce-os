@@ -4427,11 +4427,17 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const products = await loadActivePublicProducts(store.id);
-    const product = products.find((item) => item.slug === params.productSlug);
-    if (!product) {
+    // Birincil urunu DOGRUDAN slug ile coz (storeId_slug unique) — PUBLIC_CATALOG_MAX
+    // bounded taramasindan BAGIMSIZ. loadActivePublicProducts yalniz ilk PUBLIC_CATALOG_MAX
+    // urunu (createdAt ASC) bellege alip .find() yapardi; search read-model TUM urunleri
+    // indeksledigi icin limitten sonraki urunler PLP'de gorunur ama PDP'de 404 verirdi
+    // ( or. enterprise-demo 418 ACTIVE urun > 200 limit). Dogrudan lookup bu ayrismayi kapatir.
+    const product = await dataAccess.findProductBySlug(store.id, params.productSlug);
+    if (!product || product.status !== "ACTIVE") {
       return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
     }
+    // Ilgili urunler icin bounded aktif ornek yeterli (tam katalog gerekmez).
+    const relatedPool = await loadActivePublicProducts(store.id);
     const [categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
       loadPublicCategoryNames(store.id),
       loadPublicStockMap(store.id),
@@ -4441,7 +4447,7 @@ export function createServer(
       loadPublicLowestPriceMap(store.id),
     ]);
     const badgeNow = new Date();
-    const relatedProducts = products.filter((item) => item.id !== product.id).slice(0, 4);
+    const relatedProducts = relatedPool.filter((item) => item.id !== product.id).slice(0, 4);
     // ADR-065 (Faz 3/Dilim 1) — Birincil urun TAM galeri (coverOnly=false); ilgili urunler
     // yalniz kapak. Iki batched sorgu (N+1 yok). buildPublicProduct record'un images'ini
     // serialize eder → birincil = tam dizi, ilgili = [kapak].
