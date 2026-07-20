@@ -76,6 +76,8 @@ import {
   // ADR-065 (Faz 3/Site Kabuğu) — public marka bilgisi + hero slide'lari.
   publicStoreInfoSchema,
   publicHeroSlidesResponseSchema,
+  // TODO-158A (ADR-086) — Home Experience public composed projeksiyonu.
+  publicHomeResponseSchema,
   publicRedirectListResponseSchema,
   publicProductSchema,
   storeAdminCustomerListResponseSchema,
@@ -135,6 +137,16 @@ import {
   serializePublicHeroSlide,
   type HeroDataAccess,
 } from "./hero/data.js";
+// TODO-158A (ADR-086) — Home Experience Platform (section CRUD + public composed home).
+import { registerHomeAdminRoutes } from "./home/routes.js";
+import {
+  createPrismaHomeDataAccess,
+  serializePublicHomeHeroSlide,
+  serializePublicHomeFeaturedCategory,
+  parseHomeShowcaseConfig,
+  parseHomeHeroConfig,
+  type HomeDataAccess,
+} from "./home/data.js";
 // Faz 1B (ADR-067) — Attribute katalog cekirdegi (store + platform CRUD).
 import {
   registerPlatformAttributeRoutes,
@@ -1206,6 +1218,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // ADR-065 (Faz 3/Site Kabuğu): Hero slide veri erisimi (admin CRUD + public
   // PUBLISHED listesi). Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
   heroDataAccess?: HeroDataAccess;
+  // TODO-158A (ADR-086): Home Experience veri erisimi (section CRUD + public composed).
+  // Varsayilan prisma-backed; testlerde fake enjekte edilebilir.
+  homeDataAccess?: HomeDataAccess;
   // Faz 1B (ADR-067): Attribute katalog cekirdegi veri erisimi (store + platform
   // CRUD). Varsayilan prisma-backed; testlerde in-memory fake enjekte edilebilir.
   attributeDataAccess?: AttributeDataAccess;
@@ -4302,6 +4317,9 @@ export function createServer(
   // PAYLASILIR (tek instance). Admin listHeroSlides tum durumlari, public
   // listPublishedHeroSlides yalniz PUBLISHED slide'lari okur. Testlerde enjekte edilebilir.
   const heroDataAccess = dependencies.heroDataAccess ?? createPrismaHeroDataAccess();
+  // TODO-158A (ADR-086) — Home Experience veri erisimi admin + public /home route'larca
+  // PAYLASILIR (tek instance). Testlerde enjekte edilebilir.
+  const homeDataAccess = dependencies.homeDataAccess ?? createPrismaHomeDataAccess();
 
   // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
   // TD-032 / TODO-061: Public vitrin bu uclari token'siz cagirir; platform-admin
@@ -4515,6 +4533,135 @@ export function createServer(
     return publicHeroSlidesResponseSchema.parse({
       data: slides.map((slide) => serializePublicHeroSlide(slide, config.MEDIA_PUBLIC_BASE_URL)),
     });
+  });
+
+  // TODO-158A (ADR-086) — Public composed ana sayfa. Vitrin ana sayfası TEK bu uçtan beslenir
+  // (hero + featured kategoriler + showcase'ler; section sırası DB'den). Sunucu tüm çözümü yapar:
+  //  - Yalnız enabled + yayın-penceresi geçerli section/içerik döner (DB-seviyesi eleme).
+  //  - Showcase ürünleri MANUAL seçim VEYA DYNAMIC kuraldan çözülür; hepsi ORDERED product id'ye
+  //    indirgenir, sonra mevcut `buildPublicProduct` allowlist otoritesiyle projekte edilir
+  //    (fiyat/rozet/kapak tutarlılığı = /products ile aynı). maxItems truncation active-filter SONRASI.
+  //  - Product yapımı yalnız showcase'lerin BİRLEŞİK id kümesi için (N+1 sınırı: gösterilen ürün sayısı,
+  //    tüm katalog değil). ALLOWLIST: hero/featured serializerları hiçbir ham FK/iç alan taşımaz.
+  app.get("/public/stores/:storeSlug/home", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const now = new Date();
+    const sections = await homeDataAccess.listPublishedSections(store.id, now);
+
+    // 1. geçiş — her section'ın ham verisini çöz; showcase'ler için ürün id'lerini topla.
+    type HeroResolved = { kind: "HERO"; section: (typeof sections)[number]; slides: Awaited<ReturnType<typeof homeDataAccess.listPublishedHeroSlides>> };
+    type FeaturedResolved = { kind: "FEATURED"; section: (typeof sections)[number]; categories: Awaited<ReturnType<typeof homeDataAccess.listPublishedFeaturedCategories>> };
+    type ShowcaseResolved = { kind: "SHOWCASE"; section: (typeof sections)[number]; layout: "CAROUSEL" | "GRID"; maxItems: number; ids: string[] };
+    const resolved: Array<HeroResolved | FeaturedResolved | ShowcaseResolved> = [];
+    for (const section of sections) {
+      if (section.type === "HERO_SLIDER") {
+        const slides = await homeDataAccess.listPublishedHeroSlides(store.id, section.id, now);
+        resolved.push({ kind: "HERO", section, slides });
+      } else if (section.type === "FEATURED_CATEGORIES") {
+        const categories = await homeDataAccess.listPublishedFeaturedCategories(store.id, section.id);
+        resolved.push({ kind: "FEATURED", section, categories });
+      } else if (section.type === "PRODUCT_SHOWCASE") {
+        const showcaseConfig = parseHomeShowcaseConfig(section.config);
+        const ids =
+          showcaseConfig.source.kind === "MANUAL"
+            ? await homeDataAccess.listShowcaseProductIds(store.id, section.id)
+            : await homeDataAccess.resolveDynamicShowcaseProductIds(
+                store.id,
+                showcaseConfig.source.rule,
+                showcaseConfig.source.params ?? {},
+                now,
+              );
+        resolved.push({
+          kind: "SHOWCASE",
+          section,
+          layout: showcaseConfig.layout,
+          maxItems: showcaseConfig.maxItems,
+          ids,
+        });
+      }
+    }
+
+    // 2. Showcase ürünlerinin BİRLEŞİK kümesini ACTIVE katalog projeksiyonuyla kur.
+    const unionIds = new Set<string>();
+    for (const item of resolved) {
+      if (item.kind === "SHOWCASE") item.ids.forEach((id) => unionIds.add(id));
+    }
+    const builtById = new Map<string, Awaited<ReturnType<typeof buildPublicProduct>>>();
+    if (unionIds.size > 0) {
+      const activeProducts = await loadActivePublicProducts(store.id);
+      const activeById = new Map(activeProducts.map((p) => [p.id, p]));
+      const neededIds = [...unionIds].filter((id) => activeById.has(id));
+      if (neededIds.length > 0) {
+        const [categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
+          loadPublicCategoryNames(store.id),
+          loadPublicStockMap(store.id),
+          dataAccess.listPublicActiveCampaigns(store.id),
+          loadPublicLowestPriceMap(store.id),
+        ]);
+        const coverMap = await dataAccess.listProductImages(store.id, neededIds, true);
+        const badgeNow = new Date();
+        await Promise.all(
+          neededIds.map(async (id) => {
+            const product = activeById.get(id)!;
+            const built = await buildPublicProduct(
+              { ...product, images: coverMap.get(id) ?? [] },
+              await loadActivePublicVariants(store.id, id),
+              categoryNames,
+              stockMap,
+              publicCampaigns,
+              badgeNow,
+              lowestMap,
+              config.MEDIA_PUBLIC_BASE_URL,
+            );
+            builtById.set(id, built);
+          }),
+        );
+      }
+    }
+
+    // 3. Section'ları DB sırasında birleştir. Boş section'lar (slide/kategori/ürün yoksa) atlanır.
+    const outSections: unknown[] = [];
+    for (const item of resolved) {
+      const base = {
+        id: item.section.id,
+        title: item.section.title,
+        subtitle: item.section.subtitle,
+        desktopVisible: item.section.desktopVisible,
+        mobileVisible: item.section.mobileVisible,
+      };
+      if (item.kind === "HERO") {
+        if (item.slides.length === 0) continue;
+        const heroConfig = parseHomeHeroConfig(item.section.config);
+        outSections.push({
+          type: "HERO_SLIDER",
+          ...base,
+          autoplayMs: heroConfig.autoplayMs ?? null,
+          slides: item.slides.map((s) => serializePublicHomeHeroSlide(s, config.MEDIA_PUBLIC_BASE_URL)),
+        });
+      } else if (item.kind === "FEATURED") {
+        if (item.categories.length === 0) continue;
+        outSections.push({
+          type: "FEATURED_CATEGORIES",
+          ...base,
+          categories: item.categories.map((c) =>
+            serializePublicHomeFeaturedCategory(c, config.MEDIA_PUBLIC_BASE_URL),
+          ),
+        });
+      } else {
+        const products = item.ids
+          .map((id) => builtById.get(id))
+          .filter((p): p is NonNullable<typeof p> => Boolean(p))
+          .slice(0, item.maxItems);
+        if (products.length === 0) continue;
+        outSections.push({ type: "PRODUCT_SHOWCASE", ...base, layout: item.layout, products });
+      }
+    }
+
+    return publicHomeResponseSchema.parse({ sections: outSections });
   });
 
   // TODO-156D tamamlama (ADR-082) — Storefront runtime redirect çözümleyicisi (middleware) bu ucu okur.
@@ -5290,6 +5437,29 @@ export function createServer(
   registerHeroAdminRoutes(app, {
     dataAccess: heroDataAccess,
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-158A (ADR-086) — Home Experience Platform: section CRUD + tip-özel alt varlıklar.
+  // Media guard modül içinde (HERO/CATEGORY context). resolveProductCovers manuel showcase
+  // ürün kapaklarını TEK batched listProductImages(coverOnly) ile çözer (N+1 yok).
+  registerHomeAdminRoutes(app, {
+    dataAccess: homeDataAccess,
+    mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
+    resolveProductCovers: async (storeId, productIds) => {
+      const covers = new Map<string, string | null>();
+      if (productIds.length === 0) return covers;
+      const imageMap = await dataAccess.listProductImages(storeId, productIds, true);
+      for (const id of productIds) {
+        const cover = imageMap.get(id)?.[0];
+        covers.set(id, cover ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, cover.storageKey) : null);
+      }
+      return covers;
+    },
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

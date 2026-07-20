@@ -11,6 +11,9 @@ const { prismaMock } = vi.hoisted(() => {
       productCategory: { count: vi.fn() },
       // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri media in-use guard'ina eklendi.
       productAttributeValue: { count: vi.fn() },
+      // TODO-158A (ADR-086) — Home Experience: hero + featured kategori media in-use guard'ina eklendi.
+      homeHeroSlide: { count: vi.fn() },
+      homeFeaturedCategory: { count: vi.fn() },
     },
   };
 });
@@ -66,6 +69,8 @@ function resetCountsToZero() {
   prismaMock.storeSettings.count.mockResolvedValue(0);
   prismaMock.productCategory.count.mockResolvedValue(0);
   prismaMock.productAttributeValue.count.mockResolvedValue(0);
+  prismaMock.homeHeroSlide.count.mockResolvedValue(0);
+  prismaMock.homeFeaturedCategory.count.mockResolvedValue(0);
 }
 
 beforeEach(() => {

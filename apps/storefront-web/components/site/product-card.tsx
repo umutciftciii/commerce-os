@@ -78,21 +78,21 @@ export function StorefrontProductCard({
         </div>
       </div>
 
-      {/* Bilgi */}
-      <div className="flex flex-1 flex-col pt-4">
+      {/* Bilgi — TODO-158A: kart yüksekliği/boşluğu daha yoğun (polish; redesign değil). */}
+      <div className="flex flex-1 flex-col pt-3">
         {product.categoryLabel ? (
-          <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+          <p className="text-[10px] font-medium uppercase tracking-wideish text-ink-subtle">
             {product.categoryLabel}
           </p>
         ) : null}
-        <Link href={href} className="mt-1 block">
-          <h3 className="line-clamp-2 text-sm font-medium text-ink underline-offset-4 transition-all group-hover:underline">
+        <Link href={href} className="mt-0.5 block">
+          <h3 className="line-clamp-2 text-[13px] font-medium leading-snug text-ink underline-offset-4 transition-all group-hover:underline">
             {product.title}
           </h3>
         </Link>
 
         {/* MOCK: rating — bkz. todo.md. */}
-        <div className="mt-1.5 flex items-center gap-1.5">
+        <div className="mt-1 flex items-center gap-1.5">
           <Stars rating={rating.value} ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })} />
           <span className="text-[11px] text-ink-subtle">
             {format(t.home.card.reviews, { count: rating.count })}

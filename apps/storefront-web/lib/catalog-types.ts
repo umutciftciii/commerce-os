@@ -217,6 +217,57 @@ export interface StorefrontHeroSlide {
 }
 
 /**
+ * TODO-158A (ADR-086) — Home Experience Platform vitrin görünüm modelleri. Gateway'in
+ * public composed `/home` ucundan (yalnız enabled + yayın-penceresi geçerli section'lar,
+ * DB sırasında) gelir. Hiçbir ham FK/iç alan taşımaz. Section birleşimi discriminated union.
+ */
+export interface StorefrontHomeHeroSlide {
+  key: string;
+  mediaUrl: string;
+  mobileMediaUrl: string | null;
+  headline: string | null;
+  subtext: string | null;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+}
+
+export interface StorefrontHomeFeaturedCategory {
+  key: string;
+  title: string;
+  description: string | null;
+  href: string;
+  imageUrl: string | null;
+}
+
+interface StorefrontHomeSectionBase {
+  id: string;
+  title: string | null;
+  subtitle: string | null;
+  desktopVisible: boolean;
+  mobileVisible: boolean;
+}
+
+export type StorefrontHomeSection =
+  | (StorefrontHomeSectionBase & {
+      type: "HERO_SLIDER";
+      autoplayMs: number | null;
+      slides: StorefrontHomeHeroSlide[];
+    })
+  | (StorefrontHomeSectionBase & {
+      type: "FEATURED_CATEGORIES";
+      categories: StorefrontHomeFeaturedCategory[];
+    })
+  | (StorefrontHomeSectionBase & {
+      type: "PRODUCT_SHOWCASE";
+      layout: "CAROUSEL" | "GRID";
+      products: StorefrontProductSummary[];
+    });
+
+export interface StorefrontHome {
+  sections: StorefrontHomeSection[];
+}
+
+/**
  * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti gorunumu.
  * Gateway'in cuzdan projeksiyonundan (PublicWalletCoupon) turetilmis HAZIR
  * metinler tasir; kampanya ic verisi tasimaz.

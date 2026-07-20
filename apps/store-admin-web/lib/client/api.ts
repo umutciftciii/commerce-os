@@ -44,6 +44,23 @@ import type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  HomeSection,
+  HomeSectionCreateRequest,
+  HomeSectionListResponse,
+  HomeSectionReorderRequest,
+  HomeSectionUpdateRequest,
+  HomeHeroSlide,
+  HomeHeroSlideCreateRequest,
+  HomeHeroSlideListResponse,
+  HomeHeroSlideReorderRequest,
+  HomeHeroSlideUpdateRequest,
+  HomeFeaturedCategory,
+  HomeFeaturedCategoryCreateRequest,
+  HomeFeaturedCategoryListResponse,
+  HomeFeaturedCategoryReorderRequest,
+  HomeFeaturedCategoryUpdateRequest,
+  HomeShowcaseProductListResponse,
+  HomeShowcaseProductSetRequest,
   StoreSettings,
   StoreSettingsUpdateRequest,
   ProductCreateRequest,
@@ -970,4 +987,79 @@ export const storeApi = {
     mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/publish`, { method: "POST" }),
   unpublishHeroSlide: (id: string) =>
     mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/unpublish`, { method: "POST" }),
+
+  // TODO-158A (ADR-086) — Home Experience Platform: section CRUD + tip-özel alt varlıklar.
+  listHomeSections: () => call<HomeSectionListResponse>("/api/home/sections"),
+  createHomeSection: (input: HomeSectionCreateRequest) =>
+    mutatingCall<HomeSection>("/api/home/sections", { method: "POST", body: JSON.stringify(input) }),
+  getHomeSection: (sectionId: string) => call<HomeSection>(`/api/home/sections/${sectionId}`),
+  updateHomeSection: (sectionId: string, input: HomeSectionUpdateRequest) =>
+    mutatingCall<HomeSection>(`/api/home/sections/${sectionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteHomeSection: (sectionId: string) =>
+    mutatingCall<void>(`/api/home/sections/${sectionId}`, { method: "DELETE" }),
+  reorderHomeSections: (input: HomeSectionReorderRequest) =>
+    mutatingCall<HomeSectionListResponse>("/api/home/sections/reorder", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // HERO_SLIDER alt varlığı (section-scoped).
+  listHomeHeroSlides: (sectionId: string) =>
+    call<HomeHeroSlideListResponse>(`/api/home/sections/${sectionId}/hero-slides`),
+  createHomeHeroSlide: (sectionId: string, input: HomeHeroSlideCreateRequest) =>
+    mutatingCall<HomeHeroSlide>(`/api/home/sections/${sectionId}/hero-slides`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateHomeHeroSlide: (sectionId: string, id: string, input: HomeHeroSlideUpdateRequest) =>
+    mutatingCall<HomeHeroSlide>(`/api/home/sections/${sectionId}/hero-slides/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteHomeHeroSlide: (sectionId: string, id: string) =>
+    mutatingCall<void>(`/api/home/sections/${sectionId}/hero-slides/${id}`, { method: "DELETE" }),
+  reorderHomeHeroSlides: (sectionId: string, input: HomeHeroSlideReorderRequest) =>
+    mutatingCall<HomeHeroSlideListResponse>(`/api/home/sections/${sectionId}/hero-slides/reorder`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // FEATURED_CATEGORIES alt varlığı (section-scoped).
+  listHomeFeaturedCategories: (sectionId: string) =>
+    call<HomeFeaturedCategoryListResponse>(`/api/home/sections/${sectionId}/featured-categories`),
+  createHomeFeaturedCategory: (sectionId: string, input: HomeFeaturedCategoryCreateRequest) =>
+    mutatingCall<HomeFeaturedCategory>(`/api/home/sections/${sectionId}/featured-categories`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateHomeFeaturedCategory: (
+    sectionId: string,
+    id: string,
+    input: HomeFeaturedCategoryUpdateRequest,
+  ) =>
+    mutatingCall<HomeFeaturedCategory>(`/api/home/sections/${sectionId}/featured-categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteHomeFeaturedCategory: (sectionId: string, id: string) =>
+    mutatingCall<void>(`/api/home/sections/${sectionId}/featured-categories/${id}`, {
+      method: "DELETE",
+    }),
+  reorderHomeFeaturedCategories: (sectionId: string, input: HomeFeaturedCategoryReorderRequest) =>
+    mutatingCall<HomeFeaturedCategoryListResponse>(
+      `/api/home/sections/${sectionId}/featured-categories/reorder`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+
+  // PRODUCT_SHOWCASE (MANUAL) alt varlığı — replace-set.
+  listHomeShowcaseProducts: (sectionId: string) =>
+    call<HomeShowcaseProductListResponse>(`/api/home/sections/${sectionId}/showcase-products`),
+  setHomeShowcaseProducts: (sectionId: string, input: HomeShowcaseProductSetRequest) =>
+    mutatingCall<HomeShowcaseProductListResponse>(
+      `/api/home/sections/${sectionId}/showcase-products`,
+      { method: "PUT", body: JSON.stringify(input) },
+    ),
 };

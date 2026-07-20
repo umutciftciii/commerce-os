@@ -266,8 +266,18 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     //    birinde kullanim varsa silmeyi reddeder (sessiz SetNull YOK). Faz 2A (ADR-068):
     //    ProductAttributeValue.mediaId (IMAGE/FILE attribute degeri) FK onDelete: Restrict
     //    oldugundan burada da sayilir — aksi halde silme P2003 ile 500 verirdi.
-    const [productImageCount, heroSlideCount, storeSettingsCount, categoryCount, attributeValueCount] =
-      await Promise.all([
+    const [
+      productImageCount,
+      heroSlideCount,
+      storeSettingsCount,
+      categoryCount,
+      attributeValueCount,
+      // TODO-158A (ADR-086) — Home Experience: hero (desktop mediaId RESTRICT + mobil SetNull)
+      // ve featured kategori kapak override'ı (SetNull). SetNull olanlar da sayilir (StoreSettings
+      // logo/favicon deseni): sessiz koparma yerine 409 ile acik reddedilir.
+      homeHeroCount,
+      homeFeaturedCount,
+    ] = await Promise.all([
         prisma.productImage.count({
           where: { mediaId: params.mediaId, storeId: params.storeId },
         }),
@@ -286,6 +296,15 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
         prisma.productAttributeValue.count({
           where: { mediaId: params.mediaId, storeId: params.storeId },
         }),
+        prisma.homeHeroSlide.count({
+          where: {
+            storeId: params.storeId,
+            OR: [{ mediaId: params.mediaId }, { mobileMediaId: params.mediaId }],
+          },
+        }),
+        prisma.homeFeaturedCategory.count({
+          where: { imageMediaId: params.mediaId, storeId: params.storeId },
+        }),
       ]);
 
     const usedIn: string[] = [];
@@ -294,6 +313,8 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     if (storeSettingsCount > 0) usedIn.push("StoreSettings");
     if (categoryCount > 0) usedIn.push("ProductCategory");
     if (attributeValueCount > 0) usedIn.push("ProductAttributeValue");
+    if (homeHeroCount > 0) usedIn.push("HomeHeroSlide");
+    if (homeFeaturedCount > 0) usedIn.push("HomeFeaturedCategory");
 
     if (usedIn.length > 0) {
       // `usedIn` structured `details` altina konur: api-client hata zarfinda yalniz

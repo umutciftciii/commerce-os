@@ -1480,3 +1480,13 @@
   `db:backfill-enterprise` / `db:verify-enterprise`. Runbook: `docs/runbooks/enterprise-demo-dataset.md`. Karar: ADR-085. Sınırlar: TD-066, TD-067.
   Gate: SAF üretici vitest 43/43 · eslint clean · verify 21/21 · db test 59/59. **PR #94 sonrası:** autocomplete `suggest` ucuyla brand/category/product
   öneri gruplarının final UX smoke'u (runbook §PR #94). PR #94'e bağımlı test EKLENMEDİ (main davranışıyla doğrulandı).
+- TODO-158A: Storefront CMS Foundation — Home Experience Platform. (DONE — worktree'de; commit/PR YOK, brief kuralı)
+  Polimorfik `HomeSection` (String type + JSON config → yeni tip migration'sız) + 3 çocuk tablo; additive migration
+  `20260720120000_add_home_experience`. Gateway: section CRUD + hero/featured/showcase-manuel uçları + MANUAL/DYNAMIC
+  showcase motoru (6 kural) + tek public composed `GET /public/stores/:slug/home`. Store-admin "Ana Sayfa Deneyimi"
+  modülü (`/home` + `/home/[sectionId]`; section CRUD + yukarı/aşağı + tip-özel çocuk yöneticileri + MediaUpload).
+  Storefront ana sayfası tümüyle `/home`'dan beslenir; hardcoded mock KALDIRILDI (fallback: generic hero + gerçek ürün).
+  Full-width hero slider (mobil görsel + autoplay). Kart yoğunluğu iyileştirildi. Enterprise seed 8 section ekler.
+  Media MEDIA_IN_USE guard'ı hero/featured görsellerini kapsar. Karar ADR-086; sınırlar TD-074…TD-079.
+  Gate: gateway 1092 test · store-admin 313 · storefront 392 · contracts 110 · i18n 47 · api-client 23 · lint clean ·
+  storefront+store-admin next build PASS · runtime `/home` smoke PASS (8 section, tüm showcase dolu, campaign restore edildi).

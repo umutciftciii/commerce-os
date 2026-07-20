@@ -12,7 +12,9 @@ vi.mock("next/headers", () => ({
 }));
 
 // Ana sayfa canli katalogu cozer; smoke testte resolver sahtelenir (ag yok).
+// TODO-158A (ADR-086) — getHome bos section doner → sayfa fallback'e duser (generic hero + urunler).
 vi.mock("../lib/server/catalog", () => ({
+  getHome: async () => ({ sections: [] }),
   getFeaturedProducts: async () => ({ ok: true, data: [] }),
 }));
 

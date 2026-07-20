@@ -164,3 +164,18 @@
 - Kabul kriterleri: iki kez seed idempotent (birebir); duplicate SKU/slug yok; orphan yok; envanter/fiyat/
   kampanya invariant'ları geçer; search/facet/autocomplete/campaign-badge canlı sorgularla doğrulanır;
   demo-store dokunulmaz. Karar ADR-085; sınırlar TD-066/TD-067. Bkz. `docs/runbooks/enterprise-demo-dataset.md`.
+
+## Storefront CMS — Home Experience Platform (TODO-158A)
+
+- Amaç: Storefront ana sayfasındaki hardcoded içerikleri kaldırıp yönetilebilir, genişleyebilir bir "Home
+  Experience" temeli kurmak. Hero, Featured Categories ve Product Showcase bölümleri store-admin'den yönetilir;
+  section sırası DB'den gelir. Mimari ileride Banner/RichContent/CampaignBlock/BrandShowcase/Video/Collection/HTML
+  tiplerini MIGRATION'SIZ destekleyecek şekilde kurulur (polimorfik `HomeSection`: String type + JSON config).
+- Kapsam: Yeni modeller (`HomePage`/`HomeSection`/`HomeHeroSlide`/`HomeFeaturedCategory`/`HomeShowcaseProduct`;
+  additive migration). Gateway admin section CRUD + tip-özel çocuk uçları + MANUAL/DYNAMIC showcase motoru (6 kural:
+  NEW_PRODUCTS/CAMPAIGN/CATEGORY/BRAND/ATTRIBUTE/IN_STOCK). Tek sunucu-composed public uç `GET /public/stores/:slug/home`
+  (Server Component uyumlu, no-store). Store-admin "Ana Sayfa Deneyimi" modülü (CRUD + yukarı/aşağı sıralama).
+  Storefront ana sayfası tümüyle yeni API'dan beslenir (hardcoded mock KALDIRILDI). Kart yoğunluğu iyileştirmesi.
+- Kabul kriterleri: migration additive + geriye-uyumlu (mevcut hero/`/hero-slides` KORUNUR); public /home yalnız
+  enabled + yayın-penceresi geçerli içeriği döner (allowlist, iç alan sızmaz); showcase ürünleri `/products` ile aynı
+  projeksiyon; enterprise seed 3 hero + 6 featured + 6 showcase ekler. Karar ADR-086; sınırlar TD-074…TD-079.
