@@ -19,23 +19,6 @@ export function productImageSrc(handle: string): string | null {
   return null;
 }
 
-/** handle → stabil, kucuk indeks (deterministik yer tutucu tonu icin). */
-function hashIndex(handle: string, mod: number): number {
-  let h = 0;
-  for (let i = 0; i < handle.length; i += 1) {
-    h = (h * 31 + handle.charCodeAt(i)) >>> 0;
-  }
-  return h % mod;
-}
-
-// Sicak notr yer tutucu tonlari (paletle uyumlu; gurultusuz).
-const PLACEHOLDER_TONES = [
-  "from-[#efece6] to-[#e3ded4]",
-  "from-[#eceae6] to-[#dcd7cd]",
-  "from-[#f0ece4] to-[#e6ddd0]",
-  "from-[#eae7e2] to-[#d8d2c7]",
-] as const;
-
 export function ProductMedia({
   handle,
   title,
@@ -65,7 +48,6 @@ export function ProductMedia({
   const src = imageUrl ?? productImageSrc(handle);
   const label = alt ?? title;
   const monogram = (title.trim()[0] ?? "·").toLocaleUpperCase("tr-TR");
-  const tone = PLACEHOLDER_TONES[hashIndex(handle, PLACEHOLDER_TONES.length)];
 
   // Gercek gorsel yolu (drop-in): src cozulur cozulmez kapak gorseli gosterilir.
   // Tek degisim noktasi burasidir; kart/cagiran taraf ayni kalir.
@@ -85,11 +67,7 @@ export function ProductMedia({
 
   return (
     <div
-      className={cn(
-        "flex h-full w-full items-center justify-center bg-gradient-to-br",
-        tone,
-        className,
-      )}
+      className={cn("flex h-full w-full items-center justify-center bg-surface-muted", className)}
       role="img"
       aria-label={label}
     >

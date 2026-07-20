@@ -16,6 +16,8 @@ export const trStorefront = {
     brand: "Demo Mağaza",
     announcement: "₺750 ve üzeri siparişlerde ücretsiz kargo · Demo vitrin",
     navProducts: "Ürünler",
+    navCategories: "Kategoriler",
+    navAllCategories: "Tüm ürünleri gör",
     navCart: "Sepet",
     // Kampanya slider'ı (üst band) — gerçek F4A verisi.
     campaignRegion: "Kampanyalar",
@@ -49,6 +51,16 @@ export const trStorefront = {
     footerCompanyContact: "İletişim",
     footerCopyright: "© 2026 Demo Mağaza · Tüm hakları saklıdır.",
     footerPoweredBy: "commerce-os altyapısıyla güçlendirilmiştir · vitrin altyapısı",
+    // TODO-158C — Premium footer: takip/yasal/ödeme (social linkleri MOCK — gerçek hesap yok).
+    footerFollowHeading: "Bizi takip edin",
+    footerLegalHeading: "Yasal",
+    footerLegalPrivacy: "Gizlilik politikası",
+    footerLegalTerms: "Kullanım koşulları",
+    footerLegalKvkk: "KVKK aydınlatma metni",
+    footerPaymentsLabel: "Güvenli ödeme",
+    footerSocialInstagram: "Instagram",
+    footerSocialX: "X",
+    footerSocialYoutube: "YouTube",
   },
   // TODO-156E (ADR-084) — Autocomplete / Discovery deneyimi.
   autocomplete: {
@@ -132,8 +144,10 @@ export const trStorefront = {
     card: {
       wishlistAdd: "Favorilere ekle",
       quickView: "Hızlı bakış",
+      quickAdd: "Sepete ekle",
       close: "Kapat",
       viewProduct: "Ürünü incele",
+      soldOut: "Tükendi",
       ratingAria: "5 üzerinden {rating}",
       reviews: "{count} değerlendirme",
     },

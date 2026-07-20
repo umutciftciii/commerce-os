@@ -10,6 +10,7 @@ import {
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HomeSections } from "../components/site/home/home-sections";
+import { EditorialBanner, ValueProps } from "../components/site/home/editorial";
 import type { Metadata } from "next";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../lib/catalog-types";
@@ -83,7 +84,7 @@ function HomeFallback({
               </ButtonLink>
             </div>
           </div>
-          <div className="relative hidden aspect-[4/5] overflow-hidden border border-line bg-gradient-to-br from-[#efece6] to-[#ded8cc] lg:block">
+          <div className="relative hidden aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface-muted lg:block">
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="font-serif text-6xl font-normal tracking-tightish text-line-strong">
                 {brandLabel}
@@ -92,6 +93,8 @@ function HomeFallback({
           </div>
         </Container>
       </Section>
+
+      <ValueProps dict={dict} />
 
       {featured.length > 0 ? (
         <Section className="border-b border-line">
@@ -120,6 +123,8 @@ function HomeFallback({
           </Container>
         </Section>
       )}
+
+      <EditorialBanner dict={dict} />
     </>
   );
 }

@@ -199,3 +199,24 @@
   şeması JSONB'de (yeni token = migration'sız); tenant izolasyonu korunur; Search/SEO/CMS/Checkout/Dynamic
   Attributes/Campaign/Inventory/PDP davranışı DEĞİŞMEZ; typecheck/lint/test/build yeşil. Karar ADR-087;
   sınırlar TD-080…TD-086.
+
+## Storefront UX/UI — Enterprise Storefront Experience Redesign Faz 1 (TODO-158C)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
+- Amaç: Storefront'u yalnız görsel değil UX/UI/IA/responsive/a11y/performans açısından enterprise seviyeye
+  taşımak; Theme Engine (ADR-087) üzerine, 0 hardcoded design value ile (yalnız token zinciri).
+- Kapsam: (1) Medya-üzeri SEMANTIC token katmanı (scrim/on-media/control/overlay + sabit hero yükseklikleri).
+  (2) KRİTİK hero yeniden tasarım — aspect-ratio yerine sabit yükseklik (mobil ~256 / tablet ~408 / masaüstü
+  ~528px), container-hizalı contained banner, belirgin CTA, modern ok/pagination, LCP-öncelikli görsel.
+  (3) Faz 1 Navigation — sticky kondens header, kategori mega-menü (FEATURED_CATEGORIES beslemeli; iş mantığına
+  dokunmadan), tokenize announcement/campaign bar, mobil kategori akordeonu, accent aksiyon hover/rozet.
+  (4) Faz 2 Homepage — section ritmi/whitespace, tokenize featured overlay, "Tümünü gör" başlıklar, value-props +
+  editorial sunum blokları (fallback). (5) Faz 3 Product Card — kompakt/premium, kampanya/indirim/yeni/TÜKENDİ
+  rozet sistemi, tokenize wishlist/quick-view/modal, hover; PDP benzer-ürünler token'lı karta taşındı; PLP kartı
+  hizalandı. (6) Faz 4 Category — mega menü + PLP CategoryChips navigasyonu + premium featured grid. (7) Faz 5
+  Footer — social[MOCK]/legal/ödeme-güven şeridi; responsive/a11y/perf geçişleri.
+- Kabul kriterleri: 0 hardcoded design value (token zinciri), search/SEO/checkout/attribute/campaign/inventory/
+  order/payment iş mantığı DEĞİŞMEDİ; storefront `next build` PASS + tip geçerli; eslint temiz; 392 storefront +
+  47 i18n testi yeşil; canlı headless render (masaüstü/mobil) PASS. Karar ADR-088; sınırlar TD-087…TD-090.
+  Sonraki fazlar: adanmış public kategori-nav ucu (TD-088), managed home section tipleri (TD-089), overlay
+  token'larının Theme Engine semantic katmanına yayını + store-settings social/payments (TD-090).

@@ -68,12 +68,11 @@ describe("storefront-web · Dilim 6b orders-section thumbnail", () => {
         },
       ]),
     );
-    // Gerçek görsel yok → ProductMedia placeholder (role=img + aria-label + gradient).
+    // Gerçek görsel yok → ProductMedia placeholder (role=img + aria-label + monogram).
     expect(html).not.toContain("src=\"/media");
     expect(html).toContain('role="img"');
     expect(html).toContain('aria-label="Mug"');
-    // Yeni placeholder ProductMedia gradient'idir; thumbnail wrapper DS-nötr yüzey.
-    expect(html).toContain("bg-gradient-to-br");
+    // TODO-158C — Placeholder artık ham hex gradient DEĞİL, token'lı `bg-surface-muted` (tema-override edilebilir).
     expect(html).toContain("bg-surface-muted");
   });
 });
