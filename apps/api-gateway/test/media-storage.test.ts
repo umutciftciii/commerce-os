@@ -72,6 +72,16 @@ describe("LocalDiskDriver — path guvenligi (resolveSafe)", () => {
     });
   });
 
+  it("tireli store id (or. edm-store) KABUL edilir (regresyon: hyphen upload 500)", async () => {
+    // Seed/demo store id'leri hyphen tasir; buildStorageKey bunu aynen gomer.
+    // resolveSafe reddetmemeli → hero/urun/kategori upload'i calisir.
+    const key = buildStorageKey("edm-store", "HERO", "75c7f318-6d19-427b-8565-0177accfa0e1");
+    expect(key).toBe("stores/edm-store/hero/75c7f318-6d19-427b-8565-0177accfa0e1.webp");
+    await expect(driver.exists(key)).resolves.toBe(false);
+    await expect(driver.put(key, Buffer.from("x"), "image/webp")).resolves.toBeUndefined();
+    await expect(driver.exists(key)).resolves.toBe(true);
+  });
+
   it(".webp olmayan uzanti → INVALID_STORAGE_KEY", async () => {
     await expect(driver.exists("stores/s1/products/u.png")).rejects.toMatchObject({
       code: "INVALID_STORAGE_KEY",
