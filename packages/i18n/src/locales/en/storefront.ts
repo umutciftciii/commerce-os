@@ -50,6 +50,36 @@ export const enStorefront: StorefrontDictionary = {
     footerCopyright: "© 2026 Demo Store · All rights reserved.",
     footerPoweredBy: "Powered by commerce-os · storefront foundation",
   },
+  // TODO-156E (ADR-084) — Autocomplete / Discovery experience.
+  autocomplete: {
+    label: "Search products, categories or brands",
+    listboxLabel: "Search suggestions",
+    loading: "Searching…",
+    groupSuggestions: "Suggestions",
+    groupProducts: "Products",
+    groupCategories: "Categories",
+    groupBrands: "Brands",
+    groupRecent: "Recent searches",
+    groupPopular: "Popular searches",
+    // Popular searches are PLACEHOLDER (no analytics; see Working Boundary). Curate to the real catalog.
+    popularTerms: ["hoodie", "tote", "bag", "accessory"],
+    clearRecent: "Clear",
+    viewAllResults: 'View all results for "{q}"',
+    viewAllResultsCount: 'View {count} results for "{q}"',
+    resultsAnnounce: "{count} products found",
+    zeroTitle: "No results found",
+    zeroHint: "Try simplifying your search or one of these:",
+    browseAll: "Browse all products",
+    clearQuery: "Clear search",
+    outOfStock: "Out of stock",
+    newBadge: "New",
+    campaignGeneric: "Campaign",
+    brandCount: "{count} products",
+    // Mobile search drawer.
+    mobileOpen: "Search",
+    mobileClose: "Close search",
+    mobileTitle: "Search",
+  },
   // MOCK: Newsletter signup — no real data source, see todo.md.
   newsletter: {
     eyebrow: "Newsletter",

@@ -50,6 +50,36 @@ export const trStorefront = {
     footerCopyright: "© 2026 Demo Mağaza · Tüm hakları saklıdır.",
     footerPoweredBy: "commerce-os altyapısıyla güçlendirilmiştir · vitrin altyapısı",
   },
+  // TODO-156E (ADR-084) — Autocomplete / Discovery deneyimi.
+  autocomplete: {
+    label: "Ürün, kategori veya marka ara",
+    listboxLabel: "Arama önerileri",
+    loading: "Aranıyor…",
+    groupSuggestions: "Öneriler",
+    groupProducts: "Ürünler",
+    groupCategories: "Kategoriler",
+    groupBrands: "Markalar",
+    groupRecent: "Son aramalar",
+    groupPopular: "Popüler aramalar",
+    // Popüler aramalar PLACEHOLDER'dır (analytics yok; bkz. Çalışma Sınırı). Vitrinin gerçek kataloğuna göre seç.
+    popularTerms: ["hoodie", "tote", "çanta", "aksesuar"],
+    clearRecent: "Temizle",
+    viewAllResults: '"{q}" için tüm sonuçları görüntüle',
+    viewAllResultsCount: '"{q}" için {count} sonucu görüntüle',
+    resultsAnnounce: "{count} ürün bulundu",
+    zeroTitle: "Sonuç bulunamadı",
+    zeroHint: "Aramanızı sadeleştirin ya da şunları deneyin:",
+    browseAll: "Tüm ürünlere göz at",
+    clearQuery: "Aramayı temizle",
+    outOfStock: "Tükendi",
+    newBadge: "Yeni",
+    campaignGeneric: "Kampanya",
+    brandCount: "{count} ürün",
+    // Mobil arama drawer'ı.
+    mobileOpen: "Ara",
+    mobileClose: "Aramayı kapat",
+    mobileTitle: "Ara",
+  },
   // MOCK: Newsletter (bülten) kaydı — gerçek veri kaynağı yok, bkz. todo.md.
   newsletter: {
     eyebrow: "Bülten",

@@ -329,6 +329,11 @@ export type {
   PublicSearchSwatch,
   PublicSearchFacet,
   PublicSearchFacetValue,
+  // TODO-156E (ADR-084) — Public Autocomplete & Discovery API kontrat tipleri (storefront tuketicisi).
+  PublicAutocompleteResponse,
+  PublicAutocompleteProduct,
+  PublicAutocompleteCategory,
+  PublicAutocompleteBrand,
   PublicCampaignSlidesResponse,
   // ADR-065 Faz 3 (Site Kabuğu) — public marka bilgisi + hero slide'lari.
   PublicStoreInfo,
@@ -569,6 +574,12 @@ import { optionalEnvString } from "@commerce-os/utils";
  * disiplini: storefront `@commerce-os/contracts`'a doğrudan bağlanmaz.
  */
 export { publicSearchResponseSchema, PUBLIC_SEARCH_SORTS } from "@commerce-os/contracts";
+
+/**
+ * TODO-156E (ADR-084) — Public Autocomplete runtime allowlist şeması (DEĞER re-export). YALNIZCA sunucu-tarafı
+ * BFF (storefront `lib/server/autocomplete.ts` / `app/api/autocomplete`) yanıtı doğrulamak için kullanır.
+ */
+export { publicAutocompleteResponseSchema } from "@commerce-os/contracts";
 
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.

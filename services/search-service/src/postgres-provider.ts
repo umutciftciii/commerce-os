@@ -15,6 +15,7 @@ import type { PrismaClient } from "@prisma/client";
 import { buildSearchDocument } from "./document-builder.js";
 import { createPrismaSearchDataAccess, type SearchDataAccess } from "./data.js";
 import { searchReadModel } from "./search-query.js";
+import { suggestReadModel } from "./suggest-query.js";
 import type {
   BatchIndexOutcome,
   IndexOutcome,
@@ -24,6 +25,8 @@ import type {
   SearchProvider,
   SearchQuery,
   SearchResult,
+  SuggestQuery,
+  SuggestResult,
 } from "./types.js";
 
 /** loadSources IN-listesi + apply döngüsü için chunk (bellek + query planı guard'ı). */
@@ -127,6 +130,11 @@ export function createPostgresSearchProvider(
     return searchReadModel(client, storeId, query);
   }
 
+  async function suggest(storeId: string, query: SuggestQuery): Promise<SuggestResult> {
+    // Autocomplete AYRI hafif yol (suggest-query.ts); tam search motorunu çağırmaz. Yalnız read-model.
+    return suggestReadModel(client, storeId, query);
+  }
+
   return {
     indexProduct,
     indexProducts,
@@ -135,6 +143,7 @@ export function createPostgresSearchProvider(
     backfillStore,
     getIndexStatus,
     search,
+    suggest,
   };
 }
 

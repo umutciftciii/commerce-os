@@ -7,6 +7,7 @@ import { Container } from "../ui";
 import { AccountMenu } from "../account/account-menu";
 import { MobileMenu } from "./mobile-menu";
 import { HeaderSearch, HeaderSearchFallback } from "./header-search";
+import { MobileSearch } from "./mobile-search";
 import { LangToggle } from "./lang-toggle";
 
 /**
@@ -79,14 +80,11 @@ export function SiteHeader({
 
         {/* Sag: arama + hesap + favoriler + sepet + dil */}
         <div className="flex flex-1 items-center justify-end gap-4 sm:gap-5">
-          {/* TODO-156B — Gerçek header arama: submit → SSR PLP (/products?q=). Suspense: useSearchParams. */}
+          {/* TODO-156E — Enterprise autocomplete combobox (desktop/tablet). Mobilde MobileSearch drawer'ı. */}
           <Suspense fallback={<HeaderSearchFallback placeholder={s.searchPlaceholder} submitLabel={s.searchSubmit} />}>
-            <HeaderSearch
-              placeholder={s.searchPlaceholder}
-              submitLabel={s.searchSubmit}
-              className="hidden items-center md:flex"
-            />
+            <HeaderSearch t={t} className="hidden md:block" />
           </Suspense>
+          <MobileSearch t={t} />
 
           <div className="hidden text-xs font-medium uppercase tracking-wideish text-ink-muted sm:block">
             <AccountMenu customer={customer} t={t.account} />

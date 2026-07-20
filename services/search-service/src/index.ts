@@ -29,6 +29,11 @@ export {
   type FacetRangeRow,
   type OptionMetaRow,
 } from "./search-query.js";
+export {
+  suggestReadModel,
+  buildQuerySuggestions,
+  buildCategoryPaths,
+} from "./suggest-query.js";
 export { createPrismaSearchDataAccess, type SearchDataAccess } from "./data.js";
 export {
   createPostgresSearchProvider,
