@@ -9,22 +9,24 @@ import { ButtonLink, Container, Eyebrow, Heading, Text } from "../../ui";
  * managed CampaignBlock/Editorial section'ları için hazır sunum katmanı olarak kullanılır.
  */
 
-/** Güven şeridi: hızlı teslimat / güvenli ödeme / kolay iade (i18n valueProps). */
+/**
+ * Güven şeridi ("Storefront - Home" tasarımı): teslimat / iade / ödeme / değişim.
+ * 4 kolon (mobilde 2); her öğe kendi ikonuyla (i18n sırası index'e karşılık gelir —
+ * bkz. valueProps yorumu). İkon aksan (accent) tonunda; site trust-strip dili.
+ */
 export function ValueProps({ dict }: { dict: StorefrontDictionary }) {
   const items = dict.home.valueProps;
   if (!items || items.length === 0) return null;
   return (
     <section className="border-y border-line bg-surface-muted py-8">
       <Container>
-        <ul className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          {items.map((item) => (
-            <li key={item.title} className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:gap-3 sm:text-left">
-              <span aria-hidden className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-full border border-line-strong text-accent sm:mb-0">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+        <ul className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+          {items.map((item, index) => (
+            <li key={item.title} className="flex items-center gap-3">
+              <span aria-hidden className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-accent">
+                <ValuePropIcon index={index} />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-ink">{item.title}</p>
                 <p className="mt-0.5 text-xs text-ink-muted">{item.detail}</p>
               </div>
@@ -34,6 +36,54 @@ export function ValueProps({ dict }: { dict: StorefrontDictionary }) {
       </Container>
     </section>
   );
+}
+
+/**
+ * Güven şeridi ikonları — valueProps sırasına göre (0 teslimat · 1 iade · 2 ödeme · 3 değişim).
+ * Tanımlı index dışında nötr onay ikonuna düşer (i18n listesi genişlerse kırılmaz).
+ */
+function ValuePropIcon({ index }: { index: number }) {
+  const common = {
+    width: 20,
+    height: 20,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  switch (index) {
+    case 0: // Hızlı teslimat — kamyon
+      return (
+        <svg {...common}>
+          <path d="M3 6.5h11v9H3zM14 9.5h4l3 3v3h-7z" />
+          <circle cx="7" cy="17.5" r="1.6" />
+          <circle cx="17.5" cy="17.5" r="1.6" />
+        </svg>
+      );
+    case 2: // Güvenli ödeme — kart
+      return (
+        <svg {...common}>
+          <rect x="3" y="6" width="18" height="12" rx="2" />
+          <path d="M3 10h18" />
+        </svg>
+      );
+    case 3: // Kolay değişim — yenile
+      return (
+        <svg {...common}>
+          <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+          <path d="M20 4v5h-5" />
+        </svg>
+      );
+    default: // İade / diğer — onay
+      return (
+        <svg {...common}>
+          <path d="M4 12l5 5L20 6" />
+        </svg>
+      );
+  }
 }
 
 /** Editoryel promosyon bandı: eyebrow + serif başlık + gövde + CTA (i18n editorial). */
