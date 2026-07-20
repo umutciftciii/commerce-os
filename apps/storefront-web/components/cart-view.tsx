@@ -460,88 +460,96 @@ function AvailableCouponCard({
     });
   }
 
-  // Dilim 6a-refine — "Ticket" kupon karti (mockup): iki bolme (tutar+kod | meta+aksiyon)
-  // dashed ayracla ayrilir + yanlarda kesik daireler. Kazanilmis (PUBLIC olmayan) kupon
-  // dolu-ink "Kazandın" rozeti + sol serit tasir. EXPIRED soluk. NOTR yuzey — aksan YOK
-  // (tek-accent kurali korunur; accent yalniz "Ödemeye geç"te).
+  // "Storefront - Cart" tasarımı: dashed "ticket" kart YERINE sakin SATIR (ikon + başlık/
+  // meta + aksiyon). NÖTR yüzey — aksan YOK (tek-accent kuralı korunur: accent yalnız
+  // "Ödemeye geç"te). Kazanılmış (PUBLIC olmayan) kupon dolu-ink "Kazandın" rozeti taşır.
   const earned = coupon.source !== "PUBLIC";
   return (
     <div
       className={cn(
-        "relative flex items-stretch overflow-visible border border-line-strong bg-surface-muted",
-        earned && "border-l-2 border-l-ink",
+        "flex items-center gap-3 border border-line bg-surface-muted px-3.5 py-3",
         coupon.state === "EXPIRED" && "opacity-60",
       )}
     >
-      {/* Ticket kesikleri: yan kenarlarda dis-zemin (bg-surface) rengiyle "isirik". */}
+      {/* İkon kutusu (nötr). */}
       <span
         aria-hidden
-        className="absolute top-1/2 -left-[7px] h-3 w-3 -translate-y-1/2 rounded-full border border-line-strong bg-surface"
-      />
-      <span
-        aria-hidden
-        className="absolute top-1/2 -right-[7px] h-3 w-3 -translate-y-1/2 rounded-full border border-line-strong bg-surface"
-      />
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-surface text-ink-muted ring-1 ring-line"
+      >
+        <CouponIcon />
+      </span>
 
-      {/* Sol bolme: tutar (vurgu) + kod. */}
-      <div className="flex flex-col items-start justify-center gap-1.5 border-r border-dashed border-line-strong px-4 py-3">
-        <span className="text-base font-semibold text-ink">{coupon.discountText}</span>
-        <span className="bg-surface px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-ink ring-1 ring-line-strong">
-          {coupon.code}
-        </span>
-      </div>
-
-      {/* Sag bolme: rozet + alt limit/gecerlilik + Detaylar + aksiyon. */}
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
+      {/* Başlık (indirim + Kazandın) + meta (alt limit · kod · geçerlilik). */}
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-ink">
+          {coupon.discountText}
           {earned ? (
             <span className="inline-flex items-center gap-1 bg-ink px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-surface">
               {t.couponEarned}
               <span aria-hidden>✓</span>
             </span>
           ) : null}
-          <p className={cn("text-[11px] text-ink-subtle", earned && "mt-1")}>
+        </p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-subtle">
+          <span>
             {coupon.minOrderLabel
               ? format(t.couponMinOrder, { amount: coupon.minOrderLabel })
               : t.couponNoMinOrder}
-          </p>
+          </span>
+          <span aria-hidden>·</span>
+          <span className="font-mono text-ink-muted">{coupon.code}</span>
           {coupon.endsAt ? (
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              {format(t.couponValidUntil, { date: formatCouponDate(coupon.endsAt) })}
-            </p>
+            <>
+              <span aria-hidden>·</span>
+              <span>{format(t.couponValidUntil, { date: formatCouponDate(coupon.endsAt) })}</span>
+            </>
           ) : null}
-          <Link
-            href="/account?section=coupons"
-            className="mt-1 inline-block text-[11px] font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
-          >
-            {t.couponDetails}
-          </Link>
-        </div>
-        <div className="shrink-0">
-          {isApplied ? (
-            <div className="flex items-center gap-2">
-              <Badge tone="outline">{t.couponStateApplied}</Badge>
-              <button
-                type="button"
-                onClick={remove}
-                disabled={isPending}
-                className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
-              >
-                {t.couponRemove}
-              </button>
-            </div>
-          ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
-            <Badge tone="muted">{t.couponStateMinOrder}</Badge>
-          ) : coupon.state === "EXPIRED" ? (
-            <Badge tone="muted">{t.couponStateExpired}</Badge>
-          ) : (
-            <Button variant="secondary" size="sm" onClick={use} disabled={isPending}>
-              {t.couponUse}
-            </Button>
-          )}
-        </div>
+        </p>
+      </div>
+
+      {/* Aksiyon: uygulandı (rozet + kaldır) / alt-limit / süresi geçti / Kullan. */}
+      <div className="shrink-0">
+        {isApplied ? (
+          <div className="flex items-center gap-2">
+            <Badge tone="outline">{t.couponStateApplied}</Badge>
+            <button
+              type="button"
+              onClick={remove}
+              disabled={isPending}
+              className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"
+            >
+              {t.couponRemove}
+            </button>
+          </div>
+        ) : coupon.state === "MIN_ORDER_NOT_MET" ? (
+          <Badge tone="muted">{t.couponStateMinOrder}</Badge>
+        ) : coupon.state === "EXPIRED" ? (
+          <Badge tone="muted">{t.couponStateExpired}</Badge>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={use} disabled={isPending}>
+            {t.couponUse}
+          </Button>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Kupon/etiket ikonu (nötr; sepet kupon satırı). */
+function CouponIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6M2 7h20M12 3v4M8 3v4M16 3v4" />
+    </svg>
   );
 }
 
