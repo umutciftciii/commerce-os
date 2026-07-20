@@ -13,7 +13,11 @@ import type { StorageDriver } from "./storage.js";
  *   2) Format regex (entityId'siz tek-segment .webp) → INVALID_STORAGE_KEY
  *   3) Mutlak yol sinir kontrolu (path.resolve baseDir disina cikamaz) → PATH_TRAVERSAL_BLOCKED
  */
-const STORAGE_KEY_PATTERN = /^stores\/[a-z0-9]+\/(products|categories|hero|branding)\/[^/]+\.webp$/;
+// storeId segmenti tire (`-`) icerebilir: uretim cuid'leri [a-z0-9] olsa da
+// seed/demo store id'leri hyphen tasir (or. "edm-store"). Tire traversal riski
+// TASIMAZ (Katman 1 `..`/mutlak/NUL + Katman 3 baseDir sinir kontrolu ayridir);
+// bu yuzden hyphen'e izin verilir, aksi halde hyphenli store'a upload 500 verir.
+const STORAGE_KEY_PATTERN = /^stores\/[a-z0-9-]+\/(products|categories|hero|branding)\/[^/]+\.webp$/;
 
 export type StorageKeyErrorCode = "INVALID_STORAGE_KEY" | "PATH_TRAVERSAL_BLOCKED";
 
