@@ -2033,6 +2033,69 @@ export type PublicSearchFacetValue = z.infer<typeof publicSearchFacetValueSchema
 /** TODO-155 sort enum değerleri (storefront sort toolbar allowlist'i; backend'le birebir). */
 export const PUBLIC_SEARCH_SORTS = publicSearchSortSchema.options;
 
+// ── TODO-156E (ADR-084) — Faz 2C-8E · Public Autocomplete & Discovery API (ALLOWLIST) ──
+//
+// Autocomplete AYRI, HAFİF bir uçtur (tam search DEĞİL): facet/pagination/appliedFilters YOK. Dört grup:
+// query-suggestions (string), products (hafif kart), categories (breadcrumb'lı), brands (sayaçlı). Sızmaması
+// gerekenler (storageKey/mediaId/searchText/searchVector/revision/internal campaign id/tenant id) ŞEMADA
+// YOKTUR → serialize edilse bile allowlist keser. `image` runtime'da storageKey'den türetilir (url/altText).
+
+export const publicAutocompleteProductSchema = z.object({
+  id: z.string().min(1),
+  slug: slugSchema,
+  title: z.string().min(1),
+  brand: z.string().nullable(),
+  /** Ana kategori görünen etiketi (route-resolved; kategori id SIZMAZ). Kart hiyerarşisi ad→marka→kategori. */
+  categoryLabel: z.string().nullable().default(null),
+  availability: z.enum(["IN_STOCK", "OUT_OF_STOCK"]),
+  inStock: z.boolean(),
+  /** Bounded kapak görseli (ALLOWLIST: url/altText/position); yoksa null. */
+  image: publicProductImageSchema.nullable().default(null),
+  // TODO-156E UX: autocomplete SATIN ALMA ekranı DEĞİL → fiyat/indirim/kampanya-fiyatı TAŞINMAZ. Yalnız ROZET
+  // sinyalleri: kampanya varlığı + opsiyonel etiket (tutar YOK), "Yeni" (productCreatedAt türevi), stok.
+  /** Görüntülenebilir aktif kampanya var mı (rozet; indirim TUTARI değil). */
+  hasCampaign: z.boolean().default(false),
+  /** Kampanya rozet etiketi (admin-kontrollü; yoksa null → UI jenerik gösterir). */
+  campaignLabel: z.string().nullable().default(null),
+  /** Son 30 günde eklendi mi ("Yeni" rozeti). */
+  isNew: z.boolean().default(false),
+});
+
+export const publicAutocompleteBrandSchema = z.object({
+  brand: z.string().min(1),
+  productCount: z.number().int().nonnegative(),
+});
+
+/** Kategori breadcrumb düğümü (kök→yaprak). */
+export const publicAutocompleteCategoryPathNodeSchema = z.object({
+  slug: slugSchema,
+  name: z.string().min(1),
+});
+
+export const publicAutocompleteCategorySchema = z.object({
+  id: z.string().min(1),
+  slug: slugSchema,
+  name: z.string().min(1),
+  /** Kök→yaprak ata yolu (kategorinin kendisi son eleman). */
+  path: z.array(publicAutocompleteCategoryPathNodeSchema).default([]),
+});
+
+export const publicAutocompleteResponseSchema = z.object({
+  /** Normalize edilmiş sorgu yankısı (highlight kaynağı; ham q DEĞİL). */
+  query: z.string(),
+  /** Sorgu-tamamlama önerileri (deterministik, tekil, relevance sıralı). */
+  suggestions: z.array(z.string()).default([]),
+  products: z.array(publicAutocompleteProductSchema).default([]),
+  categories: z.array(publicAutocompleteCategorySchema).default([]),
+  brands: z.array(publicAutocompleteBrandSchema).default([]),
+  /** Eşleşen TOPLAM ürün sayısı ("tüm sonuçları görüntüle (N)"); gösterilen products bounded. */
+  total: z.number().int().nonnegative().default(0),
+});
+export type PublicAutocompleteResponse = z.infer<typeof publicAutocompleteResponseSchema>;
+export type PublicAutocompleteProduct = z.infer<typeof publicAutocompleteProductSchema>;
+export type PublicAutocompleteBrand = z.infer<typeof publicAutocompleteBrandSchema>;
+export type PublicAutocompleteCategory = z.infer<typeof publicAutocompleteCategorySchema>;
+
 /**
  * ADR-065 (Faz 3/Site Kabuğu) — Public magaza marka bilgisi (ALLOWLIST). Site
  * kabugu (header kelime-isareti/logo + <head> favicon/title) icin store-seviyesi

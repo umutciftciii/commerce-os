@@ -444,6 +444,86 @@ export interface SearchResult {
   facets: SearchFacet[];
 }
 
+// ── AUTOCOMPLETE / SUGGEST PORT (TODO-156E · Faz 2C-8E) — HAFİF discovery kontratı ──
+//
+// Autocomplete AYRI, hafif bir sorgu yoludur: tam `search` motorunu ÇAĞIRMAZ (facet/pagination/
+// disjunctive count YOK). YALNIZ read-model'den (ProductSearchDocument + ProductCategory taksonomi)
+// okur; bounded projection üretir. Provider-BAĞIMSIZDIR — PostgresSearchProvider ilk implementasyondur,
+// gelecekte OpenSearchProvider AYNI `suggest` imzasını uygular (ADR-079 §upgrade-path). Girdiler
+// URL-yüzeyli (ham q + bounded limitler); Postgres-özel değildir.
+
+/** Normalize edilmiş autocomplete isteği (gateway parser → provider). Tüm limitler bounded. */
+export interface SuggestQuery {
+  /** Serbest metin (ham; provider normalize eder). Çağıran min uzunluğu garanti eder (boş gelmez). */
+  q: string;
+  /** Ürün önerisi üst sınırı (bounded). */
+  limitProducts: number;
+  /** Kategori önerisi üst sınırı (bounded). */
+  limitCategories: number;
+  /** Marka önerisi üst sınırı (bounded). */
+  limitBrands: number;
+  /** Sorgu-tamamlama önerisi üst sınırı (bounded). */
+  limitSuggestions: number;
+}
+
+/**
+ * Tek autocomplete ürün önerisi — read-model doküman projeksiyonu (EAV/variant join YOK). TODO-156E UX:
+ * autocomplete SATIN ALMA ekranı DEĞİL → fiyat/indirim/kampanya-fiyatı TAŞINMAZ (yalnız keşif). Zenginleştirme:
+ * marka + kategori (route label'e çevirir) + kampanya ROZETİ (varlık + opsiyonel etiket; tutar YOK) + Yeni + stok.
+ */
+export interface SuggestProduct {
+  productId: string;
+  slug: string;
+  title: string;
+  brand: string | null;
+  /** İÇ ana kategori id'si; route `resolveCategoryNames` ile görünen etikete çevirir (id DTO'ya SIZMAZ). */
+  primaryCategoryId: string | null;
+  availability: SearchAvailability;
+  inStock: boolean;
+  /** Kart kapak görseli (İÇ storageKey; route resolveMediaUrl ile public url'e çevirir — storageKey SIZMAZ). */
+  image: SearchListingImage | null;
+  /** Görüntülenebilir aktif kampanya var mı (read-time bastırma UYGULANMIŞ). Rozet gösterimi için; TUTAR taşımaz. */
+  hasCampaign: boolean;
+  /** Kampanya rozet etiketi (admin-kontrollü; yoksa null → UI jenerik "Kampanya" gösterir). İndirim tutarı DEĞİL. */
+  campaignLabel: string | null;
+  /** Ürün son NEW_WINDOW_DAYS içinde oluşturulduysa "Yeni" rozeti (productCreatedAt; deterministik). */
+  isNew: boolean;
+}
+
+/** Tek marka önerisi + eşleşen ürün sayısı. */
+export interface SuggestBrand {
+  brand: string;
+  productCount: number;
+}
+
+/** Bir kategori ata yolu düğümü (breadcrumb; kök→yaprak). */
+export interface SuggestCategoryPathNode {
+  slug: string;
+  name: string;
+}
+
+/** Tek kategori önerisi + kök→yaprak breadcrumb (kendisi dahil). */
+export interface SuggestCategory {
+  id: string;
+  slug: string;
+  name: string;
+  /** Kök→yaprak ata yolu (kategorinin kendisi son eleman). Breadcrumb sunumu için. */
+  path: SuggestCategoryPathNode[];
+}
+
+/** Bir autocomplete isteğinin tam sonucu (4 grup). Tüm gruplar bounded + deterministik sıralı. */
+export interface SuggestResult {
+  /** Normalize edilmiş q yankısı (highlight/debug). */
+  query: string;
+  /** Sorgu-tamamlama önerileri (deterministik, tekilleştirilmiş, relevance sıralı). */
+  suggestions: string[];
+  products: SuggestProduct[];
+  categories: SuggestCategory[];
+  brands: SuggestBrand[];
+  /** Eşleşen TOPLAM ürün sayısı (gösterilen `products` bounded; "tüm sonuçları görüntüle (N)" için). */
+  total: number;
+}
+
 /** Provider'ın public sorgu sırasında fırlattığı KONTROLLÜ hata kodları (SQL/Prisma mesajı SIZMAZ). */
 export type SearchErrorCode =
   | "CATEGORY_NOT_FOUND"
@@ -484,4 +564,10 @@ export interface SearchProvider {
    * Kategori/attribute taksonomisi yalnız çözüm/meta için okunur. Kontrollü hatalar `SearchError` fırlatır.
    */
   search(storeId: string, query: SearchQuery): Promise<SearchResult>;
+  /**
+   * Public autocomplete / discovery önerileri (TODO-156E). AYRI HAFİF yol: tam `search` motorunu
+   * ÇAĞIRMAZ (facet/pagination/count YOK). YALNIZ read-model'den (ProductSearchDocument) + kategori
+   * taksonomisinden okur; bounded projection. Gelecekte OpenSearchProvider AYNI imzayı uygular.
+   */
+  suggest(storeId: string, query: SuggestQuery): Promise<SuggestResult>;
 }
