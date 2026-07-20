@@ -19,6 +19,7 @@
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/queues": "workspace:*",
     "@commerce-os/search-service": "workspace:*",
+    "@commerce-os/theme": "workspace:*",
     "@commerce-os/utils": "workspace:*",
     "@fastify/multipart": "^9.4.0",
     "@fastify/static": "^8.3.0",

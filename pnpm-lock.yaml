@@ -111,6 +111,9 @@ importers:
       '@commerce-os/search-service':
         specifier: workspace:*
         version: link:../../services/search-service
+      '@commerce-os/theme':
+        specifier: workspace:*
+        version: link:../../packages/theme
       '@commerce-os/utils':
         specifier: workspace:*
         version: link:../../packages/utils
@@ -141,6 +144,9 @@ importers:
       '@commerce-os/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@commerce-os/theme':
+        specifier: workspace:*
+        version: link:../../packages/theme
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -280,6 +286,9 @@ importers:
       '@commerce-os/auth':
         specifier: workspace:*
         version: link:../auth
+      '@commerce-os/theme':
+        specifier: workspace:*
+        version: link:../theme
       '@prisma/client':
         specifier: ^6.2.1
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -308,6 +317,12 @@ importers:
       ioredis:
         specifier: 5.10.1
         version: 5.10.1
+
+  packages/theme:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   packages/ui:
     dependencies:

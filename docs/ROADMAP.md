@@ -179,3 +179,23 @@
 - Kabul kriterleri: migration additive + geriye-uyumlu (mevcut hero/`/hero-slides` KORUNUR); public /home yalnız
   enabled + yayın-penceresi geçerli içeriği döner (allowlist, iç alan sızmaz); showcase ürünleri `/products` ile aynı
   projeksiyon; enterprise seed 3 hero + 6 featured + 6 showcase ekler. Karar ADR-086; sınırlar TD-074…TD-079.
+
+## Enterprise Theme Engine & Design Token Architecture (TODO-158B)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı)
+- Amaç: Storefront'un görsel kimliğini (renk/tipografi/köşe/gölge/motion/layout) koddan tamamen ayırıp
+  tenant-bazlı, versiyonlu, yönetilebilir bir Design System mimarisi kurmak (Shopify Theme Editor / Figma
+  Variables / Material Design 3 Tokens benzeri). Katmanlar: Design Token → Semantic Token → Component Token →
+  CSS Variable → Rendered UI. Component asla doğrudan HEX/Tailwind değeri bilmez.
+- Kapsam: Yeni `@commerce-os/theme` çekirdek paketi (versiyonlu Zod belge şeması + token resolver + CSS
+  Variable motoru + 10 preset + variant kataloğu + custom-CSS sanitize + import/export; 99 birim test). Yeni
+  `Theme`/`ThemeVersion` modelleri (additive migration; store başına tek PUBLISHED; publish yeni immutable
+  versiyon; rollback). Gateway theme servisi (CRUD+versiyon+publish/rollback+import/export+önizleme+preset) +
+  public `GET /public/stores/:slug/theme` (sunucu-çözülmüş CSS, allowlist). Storefront layout `<style>`
+  enjeksiyonu (mevcut token-tabanlı bileşenler otomatik yeniden temalanır; varsayılan tema = globals.css
+  paritesi → geriye-uyumlu). Store-admin Theme Studio (preset seç → düzenle → istemci-tarafı canlı önizleme →
+  yayınla; import/export; rollback). Enterprise seed 11 tema (1 published + 10 preset).
+- Kabul kriterleri: migration additive + geriye-uyumlu (temasız mağaza vitrini AYNEN çalışır); token belge
+  şeması JSONB'de (yeni token = migration'sız); tenant izolasyonu korunur; Search/SEO/CMS/Checkout/Dynamic
+  Attributes/Campaign/Inventory/PDP davranışı DEĞİŞMEZ; typecheck/lint/test/build yeşil. Karar ADR-087;
+  sınırlar TD-080…TD-086.

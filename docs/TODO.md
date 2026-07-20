@@ -1490,3 +1490,25 @@
   Media MEDIA_IN_USE guard'ı hero/featured görsellerini kapsar. Karar ADR-086; sınırlar TD-074…TD-079.
   Gate: gateway 1092 test · store-admin 313 · storefront 392 · contracts 110 · i18n 47 · api-client 23 · lint clean ·
   storefront+store-admin next build PASS · runtime `/home` smoke PASS (8 section, tüm showcase dolu, campaign restore edildi).
+
+## TODO-158B — Enterprise Theme Engine & Design Token Architecture (ADR-087)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
+- Yeni paket: `@commerce-os/theme` — versiyonlu `ThemeDocument` (design/semantic/component katmanları),
+  token resolver (döngü/derinlik korumalı), CSS Variable motoru (storefront uyum varları + `--ds-*` zengin
+  katman), 10 preset, `buildThemeDocument` (semantic/component otomatik türer), variant kataloğu, custom-CSS
+  sanitize, import/export (schemaVersion migrasyon kancası). 99 birim test.
+- DB: `Theme` + `ThemeVersion` (migration `20260720140000_add_theme_engine`, additive). Store başına tek
+  PUBLISHED; tema başına tek DRAFT + tek PUBLISHED; publish → yeni immutable versiyon + taze draft; rollback.
+- Contracts + api-client: theme admin DTO'ları (belge OPAK; gateway doğrular) + `admin.theme.*` + public
+  `PublicTheme`.
+- Gateway: `src/theme/{data,routes}.ts` (CRUD+versiyon+publish/rollback+import/export+canlı önizleme+preset) +
+  inline public `GET /public/stores/:slug/theme` (sunucu-çözülmüş CSS, allowlist). 13 route testi.
+- Storefront: `getStoreTheme()` + layout `<style>` `:root[data-theme]` enjeksiyonu → mevcut bileşenler
+  (header/footer/hero/button/badge/product-card/category-card/section-title) otomatik yeniden temalanır.
+  Varsayılan tema globals.css ile birebir (geriye-uyumlu).
+- Store-admin: Theme Studio modülü (`/theme` + `/api/theme/*` BFF, CSRF) — liste, preset'ten oluştur, token
+  editörü, istemci-tarafı canlı önizleme, taslak kaydet, yayınla, import/export, rollback.
+- Seed: enterprise-demo 1 published "Varsayılan" + 10 preset teması (Theme Studio ilk açılışta dolu).
+- Sınırlar: TD-080…TD-086 (çok-app tüketim, @font-face yükleme, editör kapsamı, variant render, iframe
+  önizleme, CSS AST sandbox, otomatik tema provizyonu).

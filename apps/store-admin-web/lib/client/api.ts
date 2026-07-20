@@ -1,4 +1,15 @@
 import type {
+  ThemeListResponse,
+  ThemeDetail,
+  ThemeCreateRequest,
+  ThemeUpdateRequest,
+  ThemeDraftUpdateRequest,
+  ThemePublishRequest,
+  ThemeRollbackRequest,
+  ThemeImportRequest,
+  ThemeExportResponse,
+  ThemePresetListResponse,
+  ThemePreviewResponse,
   InventoryAdjustRequest,
   InventoryAdjustmentResponse,
   InventoryListResponse,
@@ -1062,4 +1073,42 @@ export const storeApi = {
       `/api/home/sections/${sectionId}/showcase-products`,
       { method: "PUT", body: JSON.stringify(input) },
     ),
+
+  // TODO-158B (ADR-087) — Enterprise Theme Engine (Design Token editörü).
+  listThemes: () => call<ThemeListResponse>("/api/theme"),
+  themePresets: () => call<ThemePresetListResponse>("/api/theme/presets"),
+  getTheme: (themeId: string) => call<ThemeDetail>(`/api/theme/${themeId}`),
+  createTheme: (input: ThemeCreateRequest) =>
+    mutatingCall<ThemeDetail>("/api/theme", { method: "POST", body: JSON.stringify(input) }),
+  updateTheme: (themeId: string, input: ThemeUpdateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteTheme: (themeId: string) =>
+    mutatingCall<void>(`/api/theme/${themeId}`, { method: "DELETE" }),
+  saveThemeDraft: (themeId: string, input: ThemeDraftUpdateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}/draft`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  publishTheme: (themeId: string, input: ThemePublishRequest) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}/publish`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  rollbackTheme: (themeId: string, input: ThemeRollbackRequest) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}/rollback`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  previewTheme: (themeId: string) =>
+    call<ThemePreviewResponse>(`/api/theme/${themeId}/preview`),
+  exportTheme: (themeId: string) =>
+    call<ThemeExportResponse>(`/api/theme/${themeId}/export`),
+  importTheme: (input: ThemeImportRequest) =>
+    mutatingCall<ThemeDetail>("/api/theme/import", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 };

@@ -6404,3 +6404,148 @@ export function isCampaignSnapshotDisplayable(
   if (window.endsAt && now.getTime() > window.endsAt.getTime()) return false;
   return true;
 }
+
+// ═══════════════════ TODO-158B (ADR-087) — Enterprise Theme Engine ═══════════════════
+// Görsel kimlik store-scoped, VERSİYONLU JSON belgesidir (ThemeDocument — bkz.
+// @commerce-os/theme). Contracts belgeyi OPAK (record) taşır: asıl şema/token/
+// referans doğrulaması gateway'de @commerce-os/theme `validateThemeDocument` +
+// `importTheme` ile yapılır (TEK otorite; büyük token şeması burada tekrarlanmaz).
+// `status` alanları String'tir (enum değil — migration'sız genişler); contracts
+// düzeyinde kabul edilen değerler allowlist'lenir.
+
+export const themeStatusSchema = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+
+/** Tam ThemeDocument — opak; gateway @commerce-os/theme ile doğrular. */
+export const themeDocumentPayloadSchema = z.record(z.unknown());
+
+export const themeVersionSummarySchema = z.object({
+  id: z.string().min(1),
+  version: z.number().int().positive(),
+  status: themeStatusSchema,
+  schemaVersion: z.number().int().positive(),
+  label: z.string().nullable(),
+  notes: z.string().nullable(),
+  createdAt: z.string(),
+  publishedAt: z.string().nullable(),
+});
+
+export const themeSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  description: z.string().nullable(),
+  status: themeStatusSchema,
+  source: z.string().nullable(),
+  colorScheme: z.string(),
+  versionCount: z.number().int().nonnegative(),
+  publishedVersion: z.number().int().positive().nullable(),
+  draftVersion: z.number().int().positive().nullable(),
+  updatedAt: z.string(),
+});
+
+export const themeListResponseSchema = z.object({
+  themes: z.array(themeSummarySchema),
+});
+
+const themeVersionDocumentSchema = z.object({
+  version: z.number().int().positive(),
+  status: themeStatusSchema,
+  schemaVersion: z.number().int().positive(),
+  document: themeDocumentPayloadSchema,
+});
+
+export const themeDetailSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  description: z.string().nullable(),
+  status: themeStatusSchema,
+  source: z.string().nullable(),
+  colorScheme: z.string(),
+  draft: themeVersionDocumentSchema.nullable(),
+  published: themeVersionDocumentSchema.nullable(),
+  versions: z.array(themeVersionSummarySchema),
+});
+
+// null = alanı temizle; absent = dokunma. refine boş PATCH'i reddeder.
+export const themeCreateRequestSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional(),
+  // Preset id ("modern" vb.); yoksa paketlenmiş varsayılan tema kopyalanır.
+  presetId: z.string().max(60).optional(),
+});
+
+export const themeUpdateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    description: z.string().max(500).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+
+export const themeDraftUpdateRequestSchema = z.object({
+  document: themeDocumentPayloadSchema,
+  label: z.string().max(120).optional(),
+});
+
+export const themePublishRequestSchema = z.object({
+  notes: z.string().max(500).optional(),
+});
+
+export const themeRollbackRequestSchema = z.object({
+  version: z.number().int().positive(),
+});
+
+export const themeImportRequestSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  // Export zarfı ya da ham ThemeDocument; gateway importTheme ile doğrular.
+  data: z.unknown(),
+});
+
+export const themeExportResponseSchema = z.object({
+  json: z.string(),
+});
+
+export const themePresetSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+});
+
+export const themePresetListResponseSchema = z.object({
+  presets: z.array(themePresetSummarySchema),
+});
+
+// Admin canlı önizleme: draft/verilen versiyonun çözülmüş CSS'i.
+export const themePreviewResponseSchema = z.object({
+  css: z.string(),
+  colorScheme: z.string(),
+  schemaVersion: z.number().int().positive(),
+});
+
+/**
+ * PUBLIC (vitrin) — yayınlanmış temanın SUNUCU-ÇÖZÜLMÜŞ CSS'i (ALLOWLIST).
+ * Vitrin yalnız `css`'i head'e enjekte eder + `colorScheme` ipucunu uygular.
+ * Ham token belgesi / iç alanlar BİLİNÇLİ olarak DIŞARIDA (sunucu-otoriter).
+ */
+export const publicThemeSchema = z.object({
+  css: z.string(),
+  colorScheme: z.string(),
+  schemaVersion: z.number().int().positive(),
+});
+
+export type ThemeStatus = z.infer<typeof themeStatusSchema>;
+export type ThemeVersionSummary = z.infer<typeof themeVersionSummarySchema>;
+export type ThemeSummary = z.infer<typeof themeSummarySchema>;
+export type ThemeListResponse = z.infer<typeof themeListResponseSchema>;
+export type ThemeDetail = z.infer<typeof themeDetailSchema>;
+export type ThemeCreateRequest = z.infer<typeof themeCreateRequestSchema>;
+export type ThemeUpdateRequest = z.infer<typeof themeUpdateRequestSchema>;
+export type ThemeDraftUpdateRequest = z.infer<typeof themeDraftUpdateRequestSchema>;
+export type ThemePublishRequest = z.infer<typeof themePublishRequestSchema>;
+export type ThemeRollbackRequest = z.infer<typeof themeRollbackRequestSchema>;
+export type ThemeImportRequest = z.infer<typeof themeImportRequestSchema>;
+export type ThemeExportResponse = z.infer<typeof themeExportResponseSchema>;
+export type ThemePresetSummary = z.infer<typeof themePresetSummarySchema>;
+export type ThemePresetListResponse = z.infer<typeof themePresetListResponseSchema>;
+export type ThemePreviewResponse = z.infer<typeof themePreviewResponseSchema>;
+export type PublicTheme = z.infer<typeof publicThemeSchema>;

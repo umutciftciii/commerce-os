@@ -8,7 +8,7 @@ import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
 import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
-import { getStoreInfo } from "../lib/server/site";
+import { getStoreInfo, getStoreTheme } from "../lib/server/site";
 import { fontVariables } from "../lib/fonts";
 import { metadataBase, siteOrigin, absoluteUrl } from "../lib/seo/site-url";
 import { searchActionTemplate } from "../lib/seo/routes";
@@ -59,6 +59,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // ADR-065 (Faz 3/Site Kabuğu) — Header logo/kelime-işareti store marka
   // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
   const storeInfo = await getStoreInfo();
+  // TODO-158B (ADR-087) — Enterprise Theme Engine: yayınlanmış temanın çözülmüş
+  // CSS'i (custom property override). null → globals.css varsayılanları geçerli.
+  const theme = await getStoreTheme();
 
   // TODO-156D (ADR-083) — Site-geneli JSON-LD: Organization (marka) + WebSite (SearchAction).
   // Her sayfada bir kez head/body'ye gömülür; marka adı store bilgisinden, yoksa i18n fallback.
@@ -75,8 +78,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   });
 
   return (
-    <html lang={locale} data-theme="default" className={fontVariables}>
+    <html
+      lang={locale}
+      data-theme="default"
+      className={fontVariables}
+      style={theme?.colorScheme ? { colorScheme: theme.colorScheme } : undefined}
+    >
       <body>
+        {/* TODO-158B (ADR-087) — Yayınlanmış tema CSS'i: :root[data-theme] override
+            bloğu (globals.css'i özgüllükte geçer). Mevcut token-tabanlı bileşenler
+            otomatik yeniden temalanır. Tema yoksa hiçbir şey enjekte edilmez. */}
+        {theme?.css ? (
+          <style id="commerce-os-theme" dangerouslySetInnerHTML={{ __html: theme.css }} />
+        ) : null}
         <JsonLd data={organizationLd} />
         <JsonLd data={webSiteLd} />
         <a

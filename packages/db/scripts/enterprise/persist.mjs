@@ -18,6 +18,7 @@ import {
   STORE_ID, STORE_SLUG, STORE_NAME, STORE_DOMAIN, PLAN_CODE, PROTECTED_STORE_SLUGS, ID,
 } from "./constants.mjs";
 import { buildHomeData } from "./home.mjs";
+import { buildThemeData } from "./theme.mjs";
 
 const CHUNK = 1000;
 
@@ -82,6 +83,8 @@ async function wipeScope(prisma) {
   // temizler; homePage ayrıca silinir. MediaAsset silmeden ÖNCE (hero mediaId onDelete: Restrict).
   await prisma.homeSection.deleteMany({ where });
   await prisma.homePage.deleteMany({ where });
+  // TODO-158B (ADR-087) — Theme Engine: Theme cascade ile ThemeVersion'ları da temizler.
+  await prisma.theme.deleteMany({ where });
   // Search read-model (backfill yeniden kuracak; yine de scope-temiz).
   await prisma.productFacetValue.deleteMany({ where });
   await prisma.productSearchDocument.deleteMany({ where });
@@ -182,6 +185,11 @@ export async function persistDataset(ds, { prisma: injected } = {}) {
     counts.homeHeroSlides = await createManyChunked(prisma.homeHeroSlide, home.heroSlides);
     counts.homeFeaturedCategories = await createManyChunked(prisma.homeFeaturedCategory, home.featuredCategories);
     counts.homeShowcaseProducts = await createManyChunked(prisma.homeShowcaseProduct, home.showcaseProducts);
+
+    // TODO-158B (ADR-087) — Theme Engine: 1 yayınlanmış varsayılan + 10 preset teması.
+    const themeData = buildThemeData();
+    counts.themes = await createManyChunked(prisma.theme, themeData.themes);
+    counts.themeVersions = await createManyChunked(prisma.themeVersion, themeData.versions);
 
     const placeholders = await writePlaceholders(ds);
     return { counts, placeholders, durationMs: Date.now() - t0 };

@@ -2805,3 +2805,81 @@ yukarı/aşağı sıralama + tip-özel çocuk yöneticileri). Storefront ana say
 mock kategori/editöryel/hero KALDIRILDI (yapılandırılmamış mağazada generic hero + gerçek ürün fallback'i). Enterprise
 demo seed'i 8 section (3 hero + 6 featured + 6 showcase) ekler. Kart yoğunluğu iyileştirildi (satır başına daha fazla
 ürün, daha az boşluk). Sınırlar TD-074…TD-078'de. Runtime `/home` smoke PASS (8 section, tüm showcase'ler dolu).
+
+## ADR-087 — Enterprise Theme Engine & Design Token Architecture: katmanlı token belgesi (design→semantic→component→CSS var), versiyonlu tema + publish/rollback, sunucu-çözülmüş vitrin CSS'i (TODO-158B)
+
+- Durum: ACCEPTED
+- Bağlam: Storefront'un görsel kimliği (renk/tipografi/köşe/gölge) globals.css'te `[data-theme]` ile
+  override edilebilir CSS custom property'lere zaten dayanıyordu (ADR-063 site kabuğu), ama per-store
+  tema ÇÖZÜMLEME akışı yoktu (globals.css yorumu bunu "FAZ 6" olarak işaretliyordu). Amaç: görsel kimliği
+  KODDAN tamamen ayırıp tenant-bazlı, yönetilebilir, versiyonlu bir Design System mimarisi kurmak
+  (Shopify Theme Editor / Figma Variables / Material Design 3 Tokens benzeri). İleride yalnız storefront'u
+  değil store-admin / customer portal / landing builder / CMS bileşenlerini de besleyecek ORTAK temel.
+  Search / SEO / CMS / Checkout / Dynamic Attributes / Campaign / Inventory / PDP davranışları DEĞİŞMEZ;
+  migration ADDITIVE; tenant izolasyonu korunur.
+
+### Karar
+
+1. **Ayrı `@commerce-os/theme` paketi tüm sistemin çekirdeği (framework-agnostik, yalnız zod).**
+   İçerir: versiyonlu Zod `ThemeDocument` şeması, token resolver (döngü/derinlik korumalı), CSS Variable
+   motoru, preset tanımları, variant kataloğu, custom-CSS sanitizasyonu, import/export. Hem gateway
+   (doğrulama/çözüm), hem storefront (canlı önizleme değil ama tip), hem store-admin (canlı önizleme)
+   bu TEK otoriteyi tüketir → token şeması hiçbir yerde tekrarlanmaz.
+
+2. **Üç token katmanı + katman izolasyonu.** `tokens` (PRIMITIVE design token'ları: ham renk/ölçü),
+   `semantic` (anlam katmanı; primitive'e `{ref}` ile bağlı: page.background, action.primary…),
+   `components` (her bileşen kendi setini semantic'e `{ref}` ile bağlar: button.bg → {action.primary}).
+   Bir bileşen ASLA doğrudan HEX/Tailwind değeri bilmez: **Component Token → Semantic Token → Design
+   Token → CSS Variable → Rendered UI**. Semantic anahtarları primitive grup adlarıyla ÇAKIŞMAYACAK
+   biçimde adlandırılır (page.*, content.*, action.*, line.*, status.*) → katmanlar birbirinden bağımsız.
+
+3. **Belge tek VERSİYONLU JSONB; token şeması KOLONLARDA DEĞİL (ADR-086 deseninin devamı).** Token grupları
+   Zod'da `passthrough`, semantic/component `record` → yeni token grubu/anahtarı eklemek MIGRATION
+   GEREKTİRMEZ; yalnız belge büyür. `schemaVersion` ileride kırıcı dönüşümler için migrasyon kancası
+   (serialize.migrateThemeDocument). `status` alanları da String (enum değil).
+
+4. **CSS Variable motoru İKİ düzlem yayınlar.** (A) STOREFRONT UYUM VARLARI: vitrinin BUGÜN tükettiği
+   kanonik isimler (`--paper`, `--ink`, `--accent`, `--radius-md`, `--font-serif`… globals.css). Binding
+   katmanı semantic token'lara işaret eder → doğru katmanlama. **Varsayılan tema bu varları globals.css
+   ile BİREBİR üretir** → temasız/yapılandırılmamış mağaza görsel olarak DEĞİŞMEZ (geriye-uyumlu). Böylece
+   mevcut token-tabanlı bileşenler (header/footer/hero/button/badge/product-card/category-card/section-
+   title) TEK SATIR değişmeden yeniden temalanır. (B) `--ds-*` zengin katman: primitive+semantic+component
+   token'larının tamamı; gelecek CMS/Home Experience bileşenleri için. Çıktı deterministik (cache/diff dostu).
+
+5. **Veri modeli: `Theme` + `ThemeVersion` (additive migration `20260720140000_add_theme_engine`).**
+   Store başına çok tema, YALNIZ biri PUBLISHED (vitrin onu kullanır). Tema başına yalnız bir DRAFT
+   (üzerinde çalışılan) ve bir PUBLISHED versiyon. Her publish YENİ immutable versiyon üretir + düzenlemeye
+   devam için taze bir DRAFT snapshot. Rollback bir versiyonun belgesini yeni DRAFT olarak geri yükler
+   (yıkıcı değil; ayrı publish gerekir). Değişmezler servis katmanında (`$transaction`) uygulanır.
+
+6. **Sunucu-çözülmüş public tema: `GET /public/stores/:slug/theme` → { css, colorScheme, schemaVersion }.**
+   Sunucu PUBLISHED belgeyi CSS'e çözer; vitrin yalnız `<style>` olarak `:root[data-theme]` bloğunu head'e
+   enjekte eder (globals.css'i özgüllükte geçer). PUBLISHED tema yoksa paketlenmiş VARSAYILAN CSS döner →
+   asla kırılmaz. ALLOWLIST: ham token belgesi / iç alanlar TAŞINMAZ (sunucu-otoriter).
+
+7. **10 preset (Classic/Modern/Luxury/Fashion/Electronics/Minimal/Dark Luxury/Natural/Beauty/Sports).**
+   Her preset yalnız primitive paleti + birkaç ölçek override'ı verir; semantic+component katmanları
+   `buildThemeDocument` ile OTOMATİK türer ("preset seçilince tüm token'lar otomatik oluşur"). Enterprise
+   demo seed'i 1 yayınlanmış "Varsayılan" + 10 preset teması ekler (Theme Studio ilk açılışta dolu).
+
+8. **Component variant mimarisi + custom CSS sandbox temeli.** `COMPONENT_VARIANTS` kataloğu her bileşenin
+   varyantlarını tanımlar (Button: filled/outline/soft/ghost; Card: flat/elevated/glass/minimal…); UI ilk
+   fazda hepsini render etmek zorunda değil, MİMARİ destekler. Custom CSS `sanitizeCustomCss` ile temizlenir
+   (`</style>` kaçışı, `@import`, `javascript:`, `expression()`, `behavior`, `-moz-binding` kaldırılır) →
+   doğrudan unsafe injection YOK.
+
+9. **Theme Studio (store-admin).** Preset seç → düzenle (renk/köşe/tipografi token'ları) → İSTEMCİ-TARAFI
+   canlı önizleme (@commerce-os/theme ile anlık CSS) → taslak kaydet → yayınla. Import/Export (JSON zarf),
+   rollback (versiyon listesi), tek-published değişmezi. BFF proxy (`/api/theme/*`, CSRF korumalı) → gateway
+   `admin.theme.*`. Store-admin'in KENDİ görünümü değişmez; Theme Engine yalnız STOREFRONT'u besler (store-
+   admin'in aynı motoru ileride kullanabilmesi için soyutlama hazır).
+
+### Sonuç
+
+Yeni paket `@commerce-os/theme` (schema+resolve+css+build+presets+variants+custom-css+serialize; 99 birim
+test). Yeni modeller `Theme`/`ThemeVersion` (additive migration). Contracts theme DTO'ları (belge OPAK;
+gateway doğrular). api-client `admin.theme.*` + public `PublicTheme`. Gateway `src/theme/{data,routes}.ts`
+(CRUD+versiyon+publish/rollback+import/export+önizleme+preset) + inline public `/theme` ucu (13 route testi).
+Storefront `getStoreTheme()` + layout `<style>` enjeksiyonu (mevcut bileşenler otomatik yeniden temalanır;
+0 tip hatası). Store-admin Theme Studio modülü (liste+editör+canlı önizleme+publish+import/export). Enterprise
+seed 11 tema (1 published + 10 preset). Sınırlar TD-080…TD-086'da. Commit/PR/deploy YAPILMADI (brief kuralı).

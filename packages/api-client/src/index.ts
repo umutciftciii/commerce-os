@@ -255,6 +255,22 @@ export type {
   HomeShowcaseProduct,
   HomeShowcaseProductListResponse,
   HomeShowcaseProductSetRequest,
+  // TODO-158B (ADR-087) — Enterprise Theme Engine admin kontrat tipleri.
+  ThemeStatus,
+  ThemeSummary,
+  ThemeVersionSummary,
+  ThemeListResponse,
+  ThemeDetail,
+  ThemeCreateRequest,
+  ThemeUpdateRequest,
+  ThemeDraftUpdateRequest,
+  ThemePublishRequest,
+  ThemeRollbackRequest,
+  ThemeImportRequest,
+  ThemeExportResponse,
+  ThemePresetSummary,
+  ThemePresetListResponse,
+  ThemePreviewResponse,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -380,6 +396,8 @@ export type {
   PublicStoreInfo,
   PublicHeroSlide,
   PublicHeroSlidesResponse,
+  // TODO-158B (ADR-087) — Enterprise Theme Engine public tema (storefront tüketicisi).
+  PublicTheme,
   PublicCartItemInput,
   PublicCartRequest,
   PublicCartLineStatus,
@@ -605,6 +623,19 @@ export type {
   CampaignBadgeVariant,
   CampaignCardStyle,
   CampaignAccessModel,
+} from "@commerce-os/contracts";
+import type {
+  ThemeListResponse,
+  ThemeDetail,
+  ThemeCreateRequest,
+  ThemeUpdateRequest,
+  ThemeDraftUpdateRequest,
+  ThemePublishRequest,
+  ThemeRollbackRequest,
+  ThemeImportRequest,
+  ThemeExportResponse,
+  ThemePresetListResponse,
+  ThemePreviewResponse,
 } from "@commerce-os/contracts";
 import { optionalEnvString } from "@commerce-os/utils";
 
@@ -947,6 +978,41 @@ export interface ApiClient {
           token?: string,
         ): Promise<HomeShowcaseProductListResponse>;
       };
+    };
+    // TODO-158B (ADR-087) — Enterprise Theme Engine (store Design Token editörü).
+    theme: {
+      list(storeId: string, token?: string): Promise<ThemeListResponse>;
+      create(storeId: string, input: ThemeCreateRequest, token?: string): Promise<ThemeDetail>;
+      get(storeId: string, themeId: string, token?: string): Promise<ThemeDetail>;
+      update(
+        storeId: string,
+        themeId: string,
+        input: ThemeUpdateRequest,
+        token?: string,
+      ): Promise<ThemeDetail>;
+      remove(storeId: string, themeId: string, token?: string): Promise<void>;
+      saveDraft(
+        storeId: string,
+        themeId: string,
+        input: ThemeDraftUpdateRequest,
+        token?: string,
+      ): Promise<ThemeDetail>;
+      publish(
+        storeId: string,
+        themeId: string,
+        input: ThemePublishRequest,
+        token?: string,
+      ): Promise<ThemeDetail>;
+      rollback(
+        storeId: string,
+        themeId: string,
+        input: ThemeRollbackRequest,
+        token?: string,
+      ): Promise<ThemeDetail>;
+      preview(storeId: string, themeId: string, token?: string): Promise<ThemePreviewResponse>;
+      export(storeId: string, themeId: string, token?: string): Promise<ThemeExportResponse>;
+      import(storeId: string, input: ThemeImportRequest, token?: string): Promise<ThemeDetail>;
+      presets(storeId: string, token?: string): Promise<ThemePresetListResponse>;
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -1973,6 +2039,43 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               token,
             ),
         },
+      },
+      // TODO-158B (ADR-087) — Enterprise Theme Engine. Design Token CRUD + versiyon
+      // + publish/rollback + import/export + canlı önizleme + preset katalog.
+      theme: {
+        list: (storeId, token) => getJson<ThemeListResponse>(`/stores/${storeId}/themes`, token),
+        create: (storeId, input, token) =>
+          sendJson<ThemeDetail>(`/stores/${storeId}/themes`, "POST", input, token),
+        get: (storeId, themeId, token) =>
+          getJson<ThemeDetail>(`/stores/${storeId}/themes/${themeId}`, token),
+        update: (storeId, themeId, input, token) =>
+          sendJson<ThemeDetail>(`/stores/${storeId}/themes/${themeId}`, "PATCH", input, token),
+        remove: (storeId, themeId, token) =>
+          requestJson<void>(`/stores/${storeId}/themes/${themeId}`, { method: "DELETE" }, token),
+        saveDraft: (storeId, themeId, input, token) =>
+          sendJson<ThemeDetail>(`/stores/${storeId}/themes/${themeId}/draft`, "PUT", input, token),
+        publish: (storeId, themeId, input, token) =>
+          sendJson<ThemeDetail>(
+            `/stores/${storeId}/themes/${themeId}/publish`,
+            "POST",
+            input,
+            token,
+          ),
+        rollback: (storeId, themeId, input, token) =>
+          sendJson<ThemeDetail>(
+            `/stores/${storeId}/themes/${themeId}/rollback`,
+            "POST",
+            input,
+            token,
+          ),
+        preview: (storeId, themeId, token) =>
+          getJson<ThemePreviewResponse>(`/stores/${storeId}/themes/${themeId}/preview`, token),
+        export: (storeId, themeId, token) =>
+          getJson<ThemeExportResponse>(`/stores/${storeId}/themes/${themeId}/export`, token),
+        import: (storeId, input, token) =>
+          sendJson<ThemeDetail>(`/stores/${storeId}/themes/import`, "POST", input, token),
+        presets: (storeId, token) =>
+          getJson<ThemePresetListResponse>(`/stores/${storeId}/theme/presets`, token),
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).

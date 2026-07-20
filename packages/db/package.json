@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@commerce-os/auth": "workspace:*",
+    "@commerce-os/theme": "workspace:*",
     "@prisma/client": "^6.2.1"
   },
   "devDependencies": {

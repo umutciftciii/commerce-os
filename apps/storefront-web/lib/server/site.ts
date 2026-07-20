@@ -1,5 +1,9 @@
 import { cache } from "react";
-import type { PublicStoreInfo, PublicHeroSlidesResponse } from "@commerce-os/api-client";
+import type {
+  PublicStoreInfo,
+  PublicHeroSlidesResponse,
+  PublicTheme,
+} from "@commerce-os/api-client";
 import type { StorefrontStoreInfo, StorefrontHeroSlide } from "../catalog-types";
 import { demoStoreSlug } from "./env";
 import { getPublic } from "./gateway";
@@ -29,6 +33,27 @@ export const getStoreInfo = cache(async (): Promise<StorefrontStoreInfo | null> 
       logoUrl: result.data.logoUrl,
       faviconUrl: result.data.faviconUrl,
     };
+  } catch {
+    return null;
+  }
+});
+
+/**
+ * TODO-158B (ADR-087) — Enterprise Theme Engine: mağazanın PUBLISHED temasının
+ * SUNUCU-ÇÖZÜLMÜŞ CSS'i (custom property override bloğu). `layout.tsx` bunu
+ * `<style>` olarak head'e enjekte eder → mevcut token-tabanlı bileşenler (header/
+ * footer/hero/button/badge/product-card/category-card/section-title) TEK SATIR
+ * değişmeden yeniden temalanır. `getStoreInfo` ile aynı render-pass'te tek çağrı
+ * için `cache()` ile sarılır. Hata/tema-yok → null: vitrin globals.css varsayılan
+ * token'larıyla AYNI görünür (asla kırılmaz, geriye-uyumlu).
+ */
+export const getStoreTheme = cache(async (): Promise<PublicTheme | null> => {
+  try {
+    const result = await getPublic<PublicTheme>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/theme`,
+    );
+    if (!result.ok) return null;
+    return result.data;
   } catch {
     return null;
   }

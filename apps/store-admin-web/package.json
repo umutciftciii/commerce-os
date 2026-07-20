@@ -13,6 +13,7 @@
   "dependencies": {
     "@commerce-os/api-client": "workspace:*",
     "@commerce-os/i18n": "workspace:*",
+    "@commerce-os/theme": "workspace:*",
     "@commerce-os/ui": "workspace:*",
     "@commerce-os/utils": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
