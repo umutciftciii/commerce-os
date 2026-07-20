@@ -303,6 +303,9 @@ export const trStorefront = {
     descriptionTitle: "Ürün açıklaması",
     descriptionFallback: "Bu ürün için ayrıntılı açıklama yakında mağaza tarafından eklenecek.",
     specsTitle: "Teknik özellikler",
+    // PDP detay sekmeleri ("Storefront - PDP" tasarımı).
+    shippingTabTitle: "Kargo & İade",
+    detailTabsLabel: "Ürün detayları",
     specBrand: "Marka",
     specCategory: "Kategori",
     specSku: "Ürün kodu",

@@ -285,6 +285,9 @@ export const enStorefront: StorefrontDictionary = {
     descriptionTitle: "Product description",
     descriptionFallback: "A detailed description for this product will be added by the store soon.",
     specsTitle: "Specifications",
+    // PDP detail tabs ("Storefront - PDP" design).
+    shippingTabTitle: "Shipping & Returns",
+    detailTabsLabel: "Product details",
     specBrand: "Brand",
     specCategory: "Category",
     specSku: "Product code",
