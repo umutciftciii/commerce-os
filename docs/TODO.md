@@ -1463,3 +1463,11 @@
   (ArrowUp/Down/Enter/Escape) + erişilebilir combobox/listbox + desktop popover + mobil tam-ekran arama + ürün görsel/başlık/fiyat önerileri + "tüm sonuçları gör" +
   empty/loading/error + recent-search gizlilik/limit + search-impression/click analytics + tenant isolation + public allowlist + cache/rate-limit + OpenSearch-uyumlu
   provider kontratı. **AI semantik ranking ayrı onaya kadar YOK.** Backend suggest ucu henüz yok → önce backend. BAŞLANMADI.
+- TODO-157 — Enterprise Demo Commerce Dataset (**DONE · worktree · seed+backfill+verify canlı doğrulandı; commit/PR/deploy YAPILMADI — brief kuralı**).
+  Deterministik demo veri seti (`enterprise-demo` store / `edm-store` scope; production `demo-store` izole). Ölçek: 37 kategori (29 yaprak) ·
+  66 marka · 471 ürün · 2.202 varyant · 25 attribute (111 option) · 14 kampanya · 2 depo. Tek sabit tohum → idempotent (2× seed birebir aynı;
+  duplicate yok). Search/facet/autocomplete/campaign-badge canlı doğrulandı (`/public/stores/enterprise-demo/search` + `search:backfill`).
+  Script'ler: `packages/db/scripts/enterprise/*` + `enterprise-seed.mjs` + `verify-enterprise-seed.mjs`; komutlar `db:seed-enterprise` / `:dry` /
+  `db:backfill-enterprise` / `db:verify-enterprise`. Runbook: `docs/runbooks/enterprise-demo-dataset.md`. Karar: ADR-085. Sınırlar: TD-066, TD-067.
+  Gate: SAF üretici vitest 43/43 · eslint clean · verify 21/21 · db test 59/59. **PR #94 sonrası:** autocomplete `suggest` ucuyla brand/category/product
+  öneri gruplarının final UX smoke'u (runbook §PR #94). PR #94'e bağımlı test EKLENMEDİ (main davranışıyla doğrulandı).

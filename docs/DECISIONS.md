@@ -2708,3 +2708,30 @@ patlaması; encoding/streaming ayrı disiplin) · mevcut `ProductImage` satırla
 **Karar.** `lib/seo/json-ld.ts` (SAF builder'lar) + `components/seo/json-ld.tsx` (`<` kaçışlı script render). Tipler: **Organization** + **WebSite**(+SearchAction/Sitelinks Search Box) layout'ta site-geneli; **BreadcrumbList** PDP+kategori/PLP (görünür breadcrumb ile TEK KAYNAK — `lib/seo/breadcrumb.ts`); **ItemList** indexlenebilir PLP; **Product**(+Offer/AggregateOffer+Brand) PDP. Kurallar: tüm URL mutlak (`absoluteUrl`); boş/null alan yazılmaz (`compact`); iç id (productId/mediaId/storageKey/campaign id) SIZMAZ; fiyat görünmezse `offers` düşer (sahte fiyat yok); tek fiyat→Offer, çoklu→AggregateOffer; availability schema.org InStock/OutOfStock.
 
 **Public DTO değişikliği (additive).** `publicProductDetailSchema` + `seoTitle`/`seoDescription` (nullable, default null) — admin-kontrollü meta metni (zaten yayına yönelik; internal DEĞİL). PDP `generateMetadata` title/description için önce bunları kullanır, yoksa ürün alanlarına düşer. Gateway detay handler + storefront `toDetail` + `StorefrontProductDetail` tipine taşındı. Search read-model DEĞİŞMEDİ (yalnız ürün detay ucu).
+
+## ADR-085 — Enterprise Demo Commerce Dataset: deterministik, store-scope'lu, backfill-beslemeli (TODO-157)
+
+**Bağlam.** Search/autocomplete/facet/campaign/variant/inventory çalışmalarını gerçekçi ölçekte test
+etmek için üretim `demo-store` seed'inden (2 ürün) çok daha büyük ve dağılımı gerçekçi bir veri seti gerekli.
+Kırılganlık (kayan tarih, rastgele lorem, duplicate, üretim verisine sızma) kabul edilemez.
+
+**Karar.**
+1. **Ayrı demo scope.** Tüm veri yalnız `enterprise-demo` store'una (`storeId = edm-store`) yazılır.
+   `demo-store` (üretim seed'i) ve müşteri/üretim verisi ASLA etkilenmez. `PROTECTED_STORE_SLUGS` guard'ı
+   yanlış-scope yazımını reddeder. ID'ler deterministik önek şemasıyla (`edm-*`) üretilir.
+2. **Deterministik üretici.** Tek sabit tohum (`ROOT_SEED`) + mulberry32 PRNG. `Math.random`/`Date.now`/
+   kayan tarih YOK. SAF üretici (`catalog.mjs`) tam nesne grafiğini döndürür; IO/DB yoktur → DB'siz test edilebilir.
+   Kampanya "aktif/yaklaşan/sona ermiş" pencereleri **mutlak sabit tarih ankorlarıyla** (2020→2099) kurulur:
+   deterministik OLMASINA rağmen gerçek "şimdi" hangi güne düşerse düşsün doğru sınıflanır (kırılgan tarih yok).
+3. **Idempotency = kontrollü temizle + yeniden oluştur.** Persistans yalnız enterprise-demo scope'unu
+   FK-güvenli sırayla siler, ardından `createMany` (chunk'lı; satır-satır insert yok → 2.200+ varyant hızlı,
+   uzun tek-transaction yok). Tekrar seed birebir aynı duruma yakınsar; duplicate üretmez.
+4. **Search read-model backfill'den beslenir.** Seed yalnız kaynak katalog + kampanya yazar; arama dokümanı/
+   facet/kampanya rozeti mevcut `search:backfill` CLI (per-ürün atomik upsert) ile üretilir. Böylece worker/
+   queue bağımlılığı olmadan deterministik, mevcut "tek formül" projeksiyonuyla tam uyumlu sonuç alınır.
+
+**Sonuç.** 471 ürün / 2.202 varyant / 66 marka / 37 kategori; search+facet+autocomplete+campaign badge canlı
+doğrulandı; verify 21/21 geçer; iki kez seed idempotent. Sınırlar: per-renk swatch görseli + `VariantAttributeValue`
+searchText yolu ertelendi (**TD-066**); `.mjs` script'leri tsc kapsamı dışında, vitest+eslint ile korunur (**TD-067**).
+**PR #94 (autocomplete `suggest` ucu) merge olana kadar** yeni UX alanlarına bağımlı test EKLENMEDİ; API seviyesinde
+mevcut main `search` ucuyla doğrulandı (final UX smoke maddeleri runbook'ta).
