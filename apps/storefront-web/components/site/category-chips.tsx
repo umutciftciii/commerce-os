@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cn } from "@commerce-os/ui";
 import type { StorefrontHomeFeaturedCategory } from "../../lib/catalog-types";
+import { categorySlugFromHref } from "../../lib/seo/routes";
 
 /**
  * TODO-158C (ADR-088) — Kategori navigasyon şeridi (yatay, kaydırılabilir pill nav).
@@ -39,7 +40,7 @@ export function CategoryChips({
           </Link>
         </li>
         {categories.map((category) => {
-          const slug = categorySlug(category.href);
+          const slug = categorySlugFromHref(category.href);
           const active = slug !== null && slug === activeCategory;
           return (
             <li key={category.key}>
@@ -52,10 +53,4 @@ export function CategoryChips({
       </ul>
     </nav>
   );
-}
-
-/** `/products?category=slug` → slug (yoksa null). Aktif eşleşme için. */
-function categorySlug(href: string): string | null {
-  const match = href.match(/[?&]category=([^&]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
 }

@@ -7,7 +7,7 @@ import { parseServerSearchParams } from "../../lib/search/url-state";
 import { toListingCards } from "../../lib/search/listing-adapter";
 import { canonicalPath, robotsFor, isIndexable } from "../../lib/search/seo";
 import { buildMetadata } from "../../lib/seo/metadata";
-import { productPath } from "../../lib/seo/routes";
+import { categorySlugFromHref, productPath } from "../../lib/seo/routes";
 import { absoluteUrl } from "../../lib/seo/site-url";
 import { buildItemListJsonLd } from "../../lib/seo/json-ld";
 import { JsonLd } from "../../components/seo/json-ld";
@@ -121,9 +121,15 @@ export default async function ProductsPage({
         })
       : null;
 
-  // Kategori görünen adı: kategori filtresi tüm ürünleri o kategoriye kısıtlar → ilk ürünün etiketi güvenli
-  // görünen ad. Yoksa slug gösterilir (uydurma yok). H1 + breadcrumb + BreadcrumbList aynı kaynağı kullanır.
-  const categoryLabel = state.category ? data.products[0]?.categoryLabel ?? state.category : null;
+  // Kategori görünen adı: seçili slug'a karşılık gelen navigasyon kategorisinin (FEATURED_CATEGORIES) adı —
+  // mega-menü/chip ile AYNI kaynak. Bulunamazsa slug gösterilir (uydurma yok). H1 + breadcrumb +
+  // BreadcrumbList aynı kaynağı kullanır. ÖNCEDEN `data.products[0]?.categoryLabel` kullanılıyordu; bu
+  // ürünün YAPRAK (birincil) kategorisidir ("Ekran Kartı"/"Çanta"), seçili ÜST kategori değil — ürünler
+  // relevance sırasında geldiği için başlık rastgele bir alt kategori adı gösteriyordu (bug).
+  const categoryLabel = state.category
+    ? navCategories.find((category) => categorySlugFromHref(category.href) === state.category)?.title ??
+      state.category
+    : null;
 
   return (
     <Container className="py-16 lg:py-20">

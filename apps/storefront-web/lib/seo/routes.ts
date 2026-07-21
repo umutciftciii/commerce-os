@@ -46,6 +46,16 @@ export function searchPath(state: SearchState): string {
   return buildSearchHref(state);
 }
 
+/**
+ * Kategori landing href'inden (`/products?category=slug`) slug'ı çıkarır; yoksa null. `categoryPath`'in
+ * TERSİ. Navigasyon kategorisini (FEATURED_CATEGORIES) seçili `state.category` slug'ıyla eşleştirmek için
+ * TEK yer (chip aktif-vurgusu + PLP başlığı görünen adı aynı kaynağı kullanır).
+ */
+export function categorySlugFromHref(href: string): string | null {
+  const match = href.match(/[?&]category=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 /** WebSite JSON-LD SearchAction target şablonu (ham `{search_term_string}` yer tutucu). */
 export function searchActionTemplate(): string {
   return `${productsPath()}?q={search_term_string}`;

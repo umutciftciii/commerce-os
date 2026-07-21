@@ -21,6 +21,13 @@ vi.mock("../lib/server/search", () => ({
   getStorefrontSearch: (...args: unknown[]) => search(...args),
 }));
 
+// Kategori navigasyon şeridi kaynağı (FEATURED_CATEGORIES). PLP başlığı görünen adı buradan
+// çözülür; testte kontrollü bir liste veririz (varsayılan: boş → slug fallback).
+const navCategories = vi.fn<[], Promise<unknown[]>>(async () => []);
+vi.mock("../lib/server/navigation", () => ({
+  getNavCategories: () => navCategories(),
+}));
+
 import ProductsPage from "../app/products/page.js";
 
 function productFixture(overrides: Partial<PublicSearchProduct> = {}): PublicSearchProduct {
@@ -136,6 +143,34 @@ describe("storefront · products search page (SSR)", () => {
   it("API hata → error boundary'ye fırlatır", async () => {
     search.mockResolvedValue({ ok: false, reason: "error" });
     await expect(render({})).rejects.toThrow("STOREFRONT_SEARCH_FAILED");
+  });
+
+  it("kategori başlığı → seçili kategorinin adı (ilk ürünün yaprak etiketi DEĞİL)", async () => {
+    // Ürünün birincil/yaprak kategorisi "Ekran Kartı" olsa da başlık seçili üst kategori "Elektronik" olmalı.
+    navCategories.mockResolvedValueOnce([
+      { key: "c-elektronik", title: "Elektronik", description: null, href: "/products?category=elektronik", imageUrl: null },
+      { key: "c-moda", title: "Moda", description: null, href: "/products?category=moda", imageUrl: null },
+    ]);
+    search.mockResolvedValue({
+      ok: true,
+      data: response([productFixture({ categoryLabel: "Ekran Kartı" })]),
+    });
+    const html = await render({ category: "elektronik" });
+    // H1 seçili kategori adını gösterir (ürün kartı yaprak etiketi "Ekran Kartı" ayrı yerde kalabilir).
+    expect(html).toContain(">Elektronik</h1>");
+    // Regresyon guard: ilk ürünün yaprak kategorisi H1 BAŞLIK olarak KULLANILMAZ.
+    expect(html).not.toContain(">Ekran Kartı</h1>");
+  });
+
+  it("kategori başlığı → nav'da eşleşme yoksa slug'a düşer (uydurma yok)", async () => {
+    navCategories.mockResolvedValueOnce([]);
+    search.mockResolvedValue({
+      ok: true,
+      data: response([productFixture({ categoryLabel: "Ekran Kartı" })]),
+    });
+    const html = await render({ category: "elektronik" });
+    expect(html).toContain(">elektronik</h1>");
+    expect(html).not.toContain(">Ekran Kartı</h1>");
   });
 
   it("kategori bulunamadı → kontrollü uyarı (fırlatmaz)", async () => {
