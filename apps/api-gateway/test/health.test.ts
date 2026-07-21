@@ -919,6 +919,11 @@ class MemoryDataAccess implements AppDataAccess {
     return this.products.find((product) => product.storeId === storeId && product.slug === slug) ?? null;
   }
 
+  async findProductsByIds(storeId: string, ids: string[]) {
+    const wanted = new Set(ids);
+    return this.products.filter((product) => product.storeId === storeId && wanted.has(product.id));
+  }
+
   async createProduct(
     storeId: string,
     input: {
@@ -1051,6 +1056,11 @@ class MemoryDataAccess implements AppDataAccess {
 
   async findVariantBySku(storeId: string, sku: string) {
     return this.variants.find((variant) => variant.storeId === storeId && variant.sku === sku) ?? null;
+  }
+
+  async findVariantsByIds(storeId: string, ids: string[]) {
+    const wanted = new Set(ids);
+    return this.variants.filter((variant) => variant.storeId === storeId && wanted.has(variant.id));
   }
 
   async createVariant(
@@ -1202,6 +1212,11 @@ class MemoryDataAccess implements AppDataAccess {
 
   async findInventoryByVariantId(storeId: string, variantId: string) {
     return this.inventory.find((item) => item.storeId === storeId && item.variantId === variantId) ?? null;
+  }
+
+  async findInventoryByVariantIds(storeId: string, ids: string[]) {
+    const wanted = new Set(ids);
+    return this.inventory.filter((item) => item.storeId === storeId && wanted.has(item.variantId));
   }
 
   async adjustInventory(

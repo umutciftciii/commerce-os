@@ -836,6 +836,13 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: ProductRecord[]; total: number }>;
   findProductById(storeId: string, productId: string): Promise<ProductRecord | null>;
   findProductBySlug(storeId: string, slug: string): Promise<ProductRecord | null>;
+  /**
+   * Public vitrin: verilen id kumesindeki urunleri DOGRUDAN cek (store-scoped). Bounded
+   * `listProducts(PUBLIC_CATALOG_MAX)` taramasindan BAGIMSIZ — buyuk kataloglarda (>200 urun)
+   * limitten sonraki urunler icin gereklidir (home showcase + cart parent cozumu). Status
+   * suzgeci cagirana birakilir (loadActivePublicProducts ile ayni desen).
+   */
+  findProductsByIds(storeId: string, ids: string[]): Promise<ProductRecord[]>;
   // ADR-065 (Faz 3/Dilim 1) — public vitrin gorsel projeksiyonu icin batched gorsel
   // cekimi (N+1'siz). coverOnly=true → her urunun yalniz kapagi (distinct); false →
   // tam galeri (position ASC). Admin `listProducts`/`productSelect` DEGISMEZ (hafif
@@ -936,6 +943,12 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: VariantRecord[]; total: number }>;
   findVariantById(storeId: string, productId: string, variantId: string): Promise<VariantRecord | null>;
   findVariantBySku(storeId: string, sku: string): Promise<VariantRecord | null>;
+  /**
+   * Public vitrin: verilen id kumesindeki varyantlari DOGRUDAN cek (store-scoped, tum urunler
+   * arasi). Bounded katalog taramasindan BAGIMSIZ — sepet/checkout yalniz cookie'deki variantId'leri
+   * cozer (tum aktif katalogu materialize etmez). Status suzgeci cagirana birakilir.
+   */
+  findVariantsByIds(storeId: string, ids: string[]): Promise<VariantRecord[]>;
   createVariant(
     storeId: string,
     productId: string,
@@ -1002,6 +1015,12 @@ export interface AppDataAccess extends CampaignDataAccess {
     input: { limit: number; offset: number },
   ): Promise<{ data: InventoryRecord[]; total: number }>;
   findInventoryByVariantId(storeId: string, variantId: string): Promise<InventoryRecord | null>;
+  /**
+   * Public vitrin: verilen variantId kumesinin stok kayitlari (store-scoped). Bounded
+   * `listInventory(PUBLIC_CATALOG_MAX)` taramasindan BAGIMSIZ — sepet/checkout stok kapisi
+   * (oversatis onleme) icin GERCEK stok gerekir; eksik stok null'a (fail-open) dusmemelidir.
+   */
+  findInventoryByVariantIds(storeId: string, ids: string[]): Promise<InventoryRecord[]>;
   adjustInventory(
     storeId: string,
     variantId: string,
@@ -2915,6 +2934,14 @@ function createPrismaDataAccess(): AppDataAccess {
       const product = await prisma.product.findUnique({ where: { storeId_slug: { storeId, slug } }, select: productDetailSelect });
       return product ? withCategoryIds(product) : null;
     },
+    findProductsByIds: async (storeId, ids) => {
+      if (ids.length === 0) return [];
+      const products = await prisma.product.findMany({
+        where: { storeId, id: { in: ids } },
+        select: productDetailSelect,
+      });
+      return products.map(withCategoryIds);
+    },
     // ADR-065 (Faz 3/Dilim 1) — TEK batched sorgu (N+1 yok). orderBy [productId, position ASC]
     // → coverOnly'de distinct her urunun ilk (en dusuk position = kapak) satirini verir.
     // storageKey ham tasinir; url handler'da resolveMediaUrl(baseUrl, ...) ile turetilir.
@@ -3102,6 +3129,13 @@ function createPrismaDataAccess(): AppDataAccess {
       prisma.productVariant.findFirst({ where: { id: variantId, storeId, productId }, select: variantSelect }),
     findVariantBySku: (storeId, sku) =>
       prisma.productVariant.findUnique({ where: { storeId_sku: { storeId, sku } }, select: variantSelect }),
+    findVariantsByIds: async (storeId, ids) => {
+      if (ids.length === 0) return [];
+      return prisma.productVariant.findMany({
+        where: { storeId, id: { in: ids } },
+        select: variantSelect,
+      });
+    },
     createVariant: (storeId, productId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
         const variant = await transaction.productVariant.create({
@@ -3271,6 +3305,14 @@ function createPrismaDataAccess(): AppDataAccess {
     findInventoryByVariantId: async (storeId, variantId) => {
       const item = await prisma.inventoryItem.findFirst({ where: { storeId, variantId }, select: inventorySelect });
       return item ? withInventoryVariant(item) : null;
+    },
+    findInventoryByVariantIds: async (storeId, ids) => {
+      if (ids.length === 0) return [];
+      const items = await prisma.inventoryItem.findMany({
+        where: { storeId, variantId: { in: ids } },
+        select: inventorySelect,
+      });
+      return items.map(withInventoryVariant);
     },
     adjustInventory: (storeId, variantId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
@@ -4632,7 +4674,12 @@ export function createServer(
     }
     const builtById = new Map<string, Awaited<ReturnType<typeof buildPublicProduct>>>();
     if (unionIds.size > 0) {
-      const activeProducts = await loadActivePublicProducts(store.id);
+      // Curated showcase id'lerini DOGRUDAN coz (bounded PUBLIC_CATALOG_MAX taramasi DEGIL);
+      // aksi halde katalogda 200. sirasindan sonraki pinlenen urun sessizce dusup render olmazdi
+      // (enterprise-demo 418 ACTIVE urun). Yalniz ACTIVE olanlar gosterilir.
+      const activeProducts = (await dataAccess.findProductsByIds(store.id, [...unionIds])).filter(
+        (product) => product.status === "ACTIVE",
+      );
       const activeById = new Map(activeProducts.map((p) => [p.id, p]));
       const neededIds = [...unionIds].filter((id) => activeById.has(id));
       if (neededIds.length > 0) {
@@ -4730,43 +4777,62 @@ export function createServer(
   // KABUL EDILMEZ. Tenant izolasyonu iki katmanlidir: (1) index yalnizca bu
   // store'un ACTIVE varyantlarini icerir, (2) order create store-scoped'tur.
 
-  /** Bu store'un ACTIVE urun/varyantlarini variantId -> cozulebilir kayit map'i. */
-  async function buildPublicCartIndex(storeId: string) {
-    const [products, stockMap] = await Promise.all([
-      loadActivePublicProducts(storeId),
-      loadPublicStockMap(storeId),
-    ]);
+  /**
+   * Sepet/checkout cozumleyici: cookie'deki variantId kumesini DOGRUDAN cozer (bounded
+   * katalog materialize ETMEZ). Onceki hali tum ACTIVE katalogu PUBLIC_CATALOG_MAX limitiyle
+   * bellege alip index kuruyordu; 200'den sonraki urunlerin varyantlari index'e hic girmiyor,
+   * assemblePublicCart'ta satir sessizce dusuyor → sepete eklenemez/checkout'ta kaybolurdu
+   * (enterprise-demo 418 ACTIVE urun). Artik yalniz istenen varyantlar + ACTIVE parent urun +
+   * GERCEK stok cozulur (stok bounded map'ten degil dogrudan → oversatis kapisi dogru calisir).
+   */
+  async function buildPublicCartIndex(storeId: string, variantIds: string[]) {
     const index = new Map<string, CartResolvableVariant>();
-    await Promise.all(
-      products.map(async (product) => {
-        const variants = await loadActivePublicVariants(storeId, product.id);
-        for (const variant of variants) {
-          index.set(variant.id, {
-            variantId: variant.id,
-            productId: product.id,
-            categoryIds: product.categoryIds,
-            productSlug: product.slug,
-            productTitle: product.title,
-            variantTitle: variant.title,
-            sku: variant.sku,
-            salesMode: product.salesMode,
-            purchasable: product.purchasable,
-            priceVisibility: product.priceVisibility,
-            priceMinor: variant.priceMinor,
-            compareAtMinor: variant.compareAtMinor ?? null,
-            currency: variant.currency,
-            minOrderQuantity: product.minOrderQuantity,
-            maxOrderQuantity: product.maxOrderQuantity ?? null,
-            available: stockMap.has(variant.id) ? stockMap.get(variant.id)! : null,
-            // Kargo olcumu: varyant degeri urun-seviyesi fallback'i override eder.
-            ...resolveShippingDims(
-              { shippingDesi: decimalToNumber(variant.shippingDesi), shippingWeightKg: decimalToNumber(variant.shippingWeightKg) },
-              { shippingDesi: decimalToNumber(product.shippingDesi), shippingWeightKg: decimalToNumber(product.shippingWeightKg) },
-            ),
-          });
-        }
-      }),
+    const uniqueIds = [...new Set(variantIds)];
+    if (uniqueIds.length === 0) return index;
+    // Yalniz ACTIVE varyantlar (pasif/silinmis referans sessizce dusurulur).
+    const variants = (await dataAccess.findVariantsByIds(storeId, uniqueIds)).filter(
+      (variant) => variant.status === "ACTIVE",
     );
+    if (variants.length === 0) return index;
+    const productIds = [...new Set(variants.map((variant) => variant.productId))];
+    const [products, inventory] = await Promise.all([
+      dataAccess.findProductsByIds(storeId, productIds),
+      dataAccess.findInventoryByVariantIds(storeId, variants.map((variant) => variant.id)),
+    ]);
+    // Yalniz ACTIVE parent urunler cozulebilir (pasif urunun varyanti siparise dusemez).
+    const productById = new Map(
+      products.filter((product) => product.status === "ACTIVE").map((product) => [product.id, product]),
+    );
+    const stockMap = new Map(
+      inventory.map((item) => [item.variantId, item.quantityOnHand - item.quantityReserved]),
+    );
+    for (const variant of variants) {
+      const product = productById.get(variant.productId);
+      if (!product) continue;
+      index.set(variant.id, {
+        variantId: variant.id,
+        productId: product.id,
+        categoryIds: product.categoryIds,
+        productSlug: product.slug,
+        productTitle: product.title,
+        variantTitle: variant.title,
+        sku: variant.sku,
+        salesMode: product.salesMode,
+        purchasable: product.purchasable,
+        priceVisibility: product.priceVisibility,
+        priceMinor: variant.priceMinor,
+        compareAtMinor: variant.compareAtMinor ?? null,
+        currency: variant.currency,
+        minOrderQuantity: product.minOrderQuantity,
+        maxOrderQuantity: product.maxOrderQuantity ?? null,
+        available: stockMap.has(variant.id) ? stockMap.get(variant.id)! : null,
+        // Kargo olcumu: varyant degeri urun-seviyesi fallback'i override eder.
+        ...resolveShippingDims(
+          { shippingDesi: decimalToNumber(variant.shippingDesi), shippingWeightKg: decimalToNumber(variant.shippingWeightKg) },
+          { shippingDesi: decimalToNumber(product.shippingDesi), shippingWeightKg: decimalToNumber(product.shippingWeightKg) },
+        ),
+      });
+    }
     return index;
   }
 
@@ -4837,7 +4903,7 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const index = await buildPublicCartIndex(store.id);
+    const index = await buildPublicCartIndex(store.id, body.items.map((item) => item.variantId));
     // F3C.2/TODO-125 — Kargo SECENEKLERI store tarife planlarindan uretilir. Oturum
     // acmis musteri + default teslimat adresi varsa secenekler fiyatlanir; aksi halde
     // ADDRESS_REQUIRED (taşıyıcılar yine listelenir, fiyatsiz).
@@ -5041,7 +5107,7 @@ export function createServer(
     //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
     //    F3C.2 — Kargo quote'u checkout teslimat adresinden hesaplanir (adres her
     //    zaman mevcut → addressKnown=true). Quote OK degilse odeme adimina gecilmez.
-    const index = await buildPublicCartIndex(store.id);
+    const index = await buildPublicCartIndex(store.id, body.items.map((item) => item.variantId));
     const [plans, providerDisplays] = await Promise.all([
       dataAccess.listActiveShippingRatePlans(store.id),
       dataAccess.listShippingProviderDisplays(store.id),
