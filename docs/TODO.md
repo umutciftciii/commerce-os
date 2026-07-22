@@ -1631,3 +1631,93 @@
 - Sınırlar: TD-091 (envanter matrisi sınırsız) · TD-092 (sayfalamasız koleksiyon uçları) · TD-093 (ürün/
   kategori seçicileri hâlâ 100 ile sınırlı → arama tabanlı seçici gerek) · TD-094 (ILIKE araması için trigram
   indeksi) · TD-095 (medya kütüphanesi sabit 100 + yanıltıcı meta).
+
+## TODO-159C — Inventory Matrix Scalability (SIRADAKİ AKTİF FAZ)
+
+- Durum: **PLANLANDI — implementasyon YAPILMADI.** Bu kayıt yalnız kapsam tanımıdır; kod, schema,
+  migration ve test DEĞİŞTİRİLMEDİ.
+- Amaç: **TD-091'i kapatmak.** `GET /stores/:id/inventory/matrix` bugün mağazadaki tüm non-archived
+  varyantları bakiyeleriyle TEK yanıtta döner (enterprise-demo: 2.202 varyant) ve `/inventory` ekranı
+  arama/durum filtresini istemcide uygular. Ekran ADR-089 liste standardına (sunucu-otoriter sayfalama +
+  arama + filtre + sıralama + URL state) taşınacak.
+- Planlanan kapsam:
+  1. `inventory/matrix` ucuna sayfalama sözleşmesi (`page`/`pageSize` + ortak `adminListPaginationSchema`
+     meta'sı; legacy yanıt alanları geriye-uyumlu korunur).
+  2. SKU / barkod / ürün adı / varyant başlığı araması (sunucu-taraflı).
+  3. Depo (warehouse) filtresi.
+  4. Stok durumu filtresi (ör. stokta / tükendi / rezerve).
+  5. Düşük stok filtresi (`reorderPoint` otoritesi TODO-152A'da netleşti — yeni kavram üretilmeyecek).
+  6. `onHand` / `reserved` / `available` sıralaması (kapalı allowlist).
+  7. Tam URL state (ADR-089 `useDataGridQuery`).
+  8. 25/50/100 sayfa boyu; `pageSize` tavanı SUNUCUDA zorlanır.
+  9. Batched minimum projeksiyon — satır başına ek sorgu YOK.
+  10. Tenant izolasyonu (tüm sorgularda `storeId` zorunlu).
+  11. N+1 kontrolü (`EXPLAIN` ile doğrulama; gerekiyorsa additive index).
+  12. Toplu (bulk) envanter işlemlerinin sayfalamayla uyumluluğu — "görünen sayfa" ile "filtreye uyan tüm
+      kayıtlar" ayrımı açıkça tanımlanacak; sessiz kısmi uygulama OLMAYACAK.
+  13. TD-091 kapanışı.
+- Ön koşul notu (TD-091'den, aynen geçerli): bu yalnız bir UI değişikliği DEĞİLDİR —
+  `inventoryStoreMatrixResponseSchema` sayfalama meta'sı taşımıyor, `listStoreVariants` sayfalanabilir
+  değil ve TODO-152A'nın "stok izleme merkezi" semantiği tüm satırların aynı anda görünmesine dayanıyor.
+  Sözleşme değişikliği bu üçünü BİRLİKTE ele almalı.
+- Kapsam dışı: envanter iş mantığı (rezervasyon, hareket ledger'ı, safety/reorder hesapları), depo CRUD,
+  yeni stok kavramı, search read-model'e bağlanma (TD-094 ön koşulu).
+
+## TODO-160 — Influencer Tracking & Attribution (Growth & Monetization)
+
+- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159C'den SONRA.
+- Amaç: Influencer/iş ortağı kaynaklı trafiği ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir attribution
+  zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
+- Kapsam: Influencer CRUD · kampanya bazlı takip linkleri · güvenli kısa tracking token · click ve unique
+  visitor ölçümü · first-party attribution cookie · last-click MVP · cart ve checkout attribution · order
+  attribution snapshot · iptal/iade/refund sonrası net gelir düzeltmesi · attribution window · UTM ve kupon
+  ilişkilendirmesi · dashboard · click / conversion / order / gross-net revenue / AOV metrikleri · CSV
+  export · temel bot/fraud filtreleri · tenant isolation · KVKK/GDPR uyumlu veri saklama.
+- **MVP:** Influencer CRUD · Tracking Link CRUD · click tracking · attribution cookie · last-click order
+  attribution · temel dashboard · CSV export.
+- **Sonraki faz:** Kupon attribution · multi-touch attribution · komisyon ve ödeme · fraud detection ·
+  influencer portalı.
+- Planlama notları (karar ADR-091, uygulama fazında netleşecek):
+  - Attribution SUNUCU-otoriterdir ve sipariş anında SNAPSHOT'lanır; rapor sorgusu sonradan yeniden
+    hesaplama YAPMAZ (fiyat/kampanya snapshot deseninin aynısı — bkz. ADR-047/ADR-058).
+  - Tracking token tahmin edilemez olmalı; artan id / sayaç sızdırmamalı.
+  - Refund/iptal net geliri DÜZELTİR ama gross'u geriye dönük bozmaz — iki metrik ayrı taşınır.
+  - Attribution window ve cookie ömrü yapılandırılabilir; varsayılan dokümante edilir.
+  - Kişisel veri minimizasyonu (IP/UA saklama politikası + saklama süresi) tasarımın parçasıdır, sonradan
+    eklenen bir katman değil.
+- Kapsam dışı (MVP): komisyon hesabı/ödeme akışı, influencer self-service portalı, gelişmiş fraud skorlama,
+  multi-touch modelleri, dış reklam platformu entegrasyonu.
+
+## TODO-161 — Sponsored Product Management (Growth & Monetization)
+
+- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-160'tan SONRA (ortak event/attribution
+  altyapısından yararlanabilmesi için).
+- Amaç: Mağaza içi ürün öne çıkarmayı, organik arama kalitesini bozmadan, kullanıcıya açıkça etiketlenmiş
+  ve ölçülebilir bir yerleşim (placement) sistemine dönüştürmek.
+- Kapsam: Sponsored Campaign CRUD · sponsorlu ürün seçimi · başlangıç/bitiş tarihi · öncelik ve aktiflik ·
+  ana sayfa sponsorlu vitrin · Home Experience (ADR-086) entegrasyonu · search sonuçlarında kontrollü
+  sponsorlu slotlar · query ve kategori hedefleme · impression / click / cart / order / revenue ölçümü ·
+  kampanya dashboard'u · tenant isolation · stokta olmayan/pasif ürünlerin otomatik elenmesi.
+- **Zorunlu kurallar (pazarlıksız — kabul kriteri):**
+  1. Kullanıcıya açıkça `Sponsorlu` etiketi gösterilir.
+  2. Organik search sıralaması KALICI olarak bozulmaz; sponsorluk organik skoru değiştirmez.
+  3. Sponsorlu sonuçlar AYRI slotlarda enjekte edilir.
+  4. Aynı ürün sponsorlu ve organik olarak İKİ KEZ gösterilmez (dedupe garantili).
+  5. Sponsorlu yoğunluk sınırlıdır (sayfa/sonuç kümesi başına tavan, sunucuda zorlanır).
+  6. Arama sorgusuyla İLGİSİZ ürün gösterilmez — sponsorluk alaka eşiğini atlatamaz.
+  7. Kampanya bitince ürün organik davranışına döner; kalıcı iz bırakmaz.
+- **MVP:** Campaign CRUD · ürün seçimi · tarih/öncelik · homepage showcase · search sponsored slots ·
+  sponsorlu etiketi · impression/click/order attribution · temel raporlama.
+- **Sonraki faz:** CPC/CPM · bütçe · keyword bidding · placement yönetimi · vendor self-service ·
+  faturalandırma.
+- Planlama notları (karar ADR-091, uygulama fazında netleşecek):
+  - Enjeksiyon, organik sonuç kümesi ÜRETİLDİKTEN SONRA ayrı bir katmanda yapılır; `ProductSearchDocument`
+    read-model'inin sıralama skoruna dokunulmaz (ADR-079 read-model-only ilkesi korunur).
+  - Ürün seçimi ADR-090'ın ortak seçici sözleşmesini (`products/selector` + `ids` çözüm modu) kullanır —
+    yeni bir seçici deseni üretilmez.
+  - Ana sayfa vitrini ADR-086'nın polimorfik `HomeSection` altyapısına yeni bir tip olarak oturur
+    (migration'sız genişleme; bkz. TD-089).
+  - Uygunluk (stok/durum) filtresi RENDER anında uygulanır; süresi dolmuş veya elenmiş ürün için impression
+    kaydedilmez.
+- Kapsam dışı (MVP): teklif/açık artırma mekaniği, bütçe tüketimi ve faturalandırma, satıcı self-service
+  arayüzü, dış reklam ağı entegrasyonu.

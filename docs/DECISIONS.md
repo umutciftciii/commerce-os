@@ -3134,3 +3134,87 @@ Gate: tüm workspace build + typecheck + lint temiz; 1141 gateway (20 yeni) + 35
 (22 yeni) testi yeşil. Canlı doğrulama gerçek enterprise-demo verisiyle yapıldı (471 ürün /
 37 kategori / 139 medya kaydı); ayrıntı denetim belgesindedir. Kalan sınırlar TD-096…TD-098
 olarak kayıtlıdır. Commit/PR/deploy YAPILMADI (brief kuralı).
+
+## ADR-091 — Growth & Monetization: paylaşılan event/attribution KATMANI, ayrı domain modelleri; sponsorlu yerleşimin organik aramadan izolasyonu (TODO-160, TODO-161)
+
+**Tarih:** 2026-07-22 · **Durum:** ÖNERİLDİ (planlama kararı — implementasyon YOK)
+· **Öncül:** ADR-079 (search read-model), ADR-086 (Home Experience), ADR-090 (admin seçici),
+ADR-047/ADR-058 (sunucu-otoriter snapshot deseni) · **Kapsadığı işler:** TODO-160, TODO-161
+
+> Bu ADR bir kod kararı değil, bir SINIR kararıdır: iki büyüme modülünün nerede ortaklaşacağını
+> ve nerede kesinlikle ortaklaşmayacağını, implementasyon başlamadan ÖNCE sabitler. Uygulama
+> ayrıntıları (şema, uç, kuyruk) ilgili fazın kendi ADR'sinde kararlaştırılacaktır.
+
+### Bağlam
+
+Roadmap'e iki büyüme modülü giriyor: **TODO-160 Influencer Tracking & Attribution** ve
+**TODO-161 Sponsored Product Management**. İkisi de "bir kaynak gösterildi → kullanıcı etkileşti →
+sipariş oluştu → şu kadar gelir bu kaynağa yazıldı" sorusunu sorar. Aynı soruyu iki kez, iki farklı
+şekilde cevaplayan iki ayrı ölçüm hattı kurmak; tutarsız gelir raporları, iki ayrı refund düzeltme
+mantığı ve iki ayrı KVKK saklama politikası anlamına gelir.
+
+Ters yöndeki hata da en az onun kadar pahalıdır: iki modülü "kampanya" adı altında TEK bir ürün
+modeline sıkıştırmak. Influencer bir **dış kişi/anlaşma ilişkisidir** (kimlik, sözleşme, link,
+ileride komisyon ve ödeme); sponsored ürün bir **yerleşim/merchandising kararıdır** (slot, hedefleme,
+yoğunluk tavanı, alaka eşiği). Yaşam döngüleri, yetkilendirme sınırları ve raporlama soruları farklıdır.
+
+### Karar
+
+1. **Paylaşım event/attribution KATMANINDA olur, domain modelinde DEĞİL.** Ortak kavramlar tek yerde
+   tanımlanır ve iki modül de onları tüketir: `impression` · `click` · `session` · `cart` · `checkout` ·
+   `order` · `refund` · `attributed revenue` · `campaign source` · `placement`. Bu kavramların
+   üzerine kurulacak influencer ve sponsored domain modelleri AYRI kalır; ortak bir "Campaign" süper
+   tipi ZORLANMAZ.
+
+2. **TODO-161, TODO-160'tan SONRA gelir.** Ölçüm katmanını önce attribution zincirini uçtan uca kuran
+   modül tanımlar; sponsored yerleşim onu tüketir. Ters sıra, yerleşime özel bir ölçümün sonradan
+   genelleştirilmesi demektir.
+
+3. **Attribution SUNUCU-otoriterdir ve sipariş anında SNAPSHOT'lanır.** Rapor sorgusu geçmişi yeniden
+   hesaplamaz. Bu, fiyat (ADR-047) ve kampanya (ADR-058) snapshot deseninin aynısıdır: raporun dünkü
+   cevabı, bugünkü konfigürasyon değiştiğinde değişmez.
+
+4. **Gross ve net gelir AYRI taşınır.** İptal/iade/refund NET geliri düzeltir; gross'u geriye dönük
+   bozmaz. Tek bir "revenue" alanını mutasyona uğratmak, düzeltmenin ne zaman ve neden olduğunu
+   görünmez kılar.
+
+5. **Sponsorlu yerleşim organik sıralamadan İZOLEDİR.** Sponsorlu seçim, `ProductSearchDocument`
+   read-model'inin organik skorunu DEĞİŞTİRMEZ (ADR-079'un read-model-only ilkesi korunur); enjeksiyon,
+   organik sonuç kümesi üretildikten SONRA ayrı bir katmanda, ayrı slotlarda yapılır. Kampanya bitince
+   ürün organik davranışına kalıcı iz bırakmadan döner.
+
+6. **Sponsorluk kullanıcıdan gizlenemez ve alaka eşiğini atlatamaz.** `Sponsorlu` etiketi zorunludur;
+   yoğunluk tavanı ve alaka eşiği SUNUCUDA zorlanır; aynı ürün sponsorlu ve organik olarak iki kez
+   gösterilmez. Bunlar "sonraki fazda eklenecek cila" değil, MVP'nin kabul kriteridir.
+
+7. **Kişisel veri minimizasyonu tasarımın parçasıdır.** Tracking token tahmin edilemez olmalı ve
+   artan id/sayaç sızdırmamalı; IP/UA saklama politikası ve saklama süresi ilk fazda kararlaştırılır,
+   sonradan eklenen bir katman değildir. Tüm sorgular tenant-izoledir.
+
+8. **Mevcut ortak altyapı yeniden kullanılır, kopyalanmaz.** Ürün/kategori seçimi ADR-090'ın
+   `products/selector` + `ids` çözüm modunu; ana sayfa sponsorlu vitrini ADR-086'nın polimorfik
+   `HomeSection` tipini (migration'sız genişleme) kullanır. Yeni bir seçici ya da yeni bir home
+   kompozisyon yolu üretilmez.
+
+### Reddedilen alternatifler
+
+- **Tek "Campaign" modeli altında birleştirmek.** Ortak olan ölçüm, ticari nesne değil. Birleştirme,
+  influencer sözleşme alanlarını yerleşim kayıtlarına, slot/yoğunluk alanlarını da influencer
+  kayıtlarına nullable olarak taşırdı — her iki tarafta da anlamsız alanlar.
+- **İki modüle ayrı ölçüm hattı kurmak.** Aynı gelir sorusuna iki cevap; tutarsız raporlar, iki refund
+  düzeltmesi, iki saklama politikası.
+- **Sponsorluğu organik sıralama skoruna bir çarpan olarak eklemek.** Uygulaması en kolay, geri alması
+  en zor yol: kampanya bittiğinde sıralamanın gerçekten eski hâline döndüğü kanıtlanamaz ve arama
+  kalitesindeki bozulma ölçülemez hâle gelir.
+- **Sponsored'ı Influencer'dan önce yapmak.** Yerleşime özel bir ölçümü sonradan genel attribution'a
+  çevirmek, baştan genel kurmaktan pahalıdır.
+- **Etiketi/yoğunluk tavanını sonraki faza bırakmak.** Kullanıcıya sponsorlu içeriği etiketsiz
+  göstermek geri alınabilir bir teknik borç değil, güven kaybıdır.
+
+### Sonuç
+
+TODO-160 ve TODO-161 roadmap'e bu sınırlarla kaydedildi; sıralama TODO-159C → TODO-160 → TODO-161 →
+final enterprise UI/design polish fazı olarak sabitlendi. Bu ADR hiçbir kod, şema, migration veya test
+değişikliği içermez; yeni teknik borç kaydı da açılmamıştır (uygulanmamış işin borcu olmaz). İlgili
+fazlar başladığında kendi ADR'lerini (şema + uç + kuyruk kararları) yazacak ve bu ADR'yi öncül olarak
+gösterecektir.

@@ -264,3 +264,83 @@
   hardcoded renk YOK); mevcut testler bozulmaz. Karar ADR-089; sınırlar TD-091…TD-095.
 - Sonraki adımlar: Envanter matrisinin sayfalanabilir sözleşmeye taşınması (TD-091), sayfalamasız koleksiyon
   uçlarının ortak meta'ya geçirilmesi (TD-092), arama tabanlı ürün/kategori seçicisi (TD-093).
+
+## SIRADAKİ AKTİF FAZ — Store Admin: Inventory Matrix Scalability (TODO-159C)
+
+- Durum: PLANNED (yalnız roadmap kaydı; implementasyon/kod/schema/migration YAPILMADI).
+- Amaç: TD-091'i kapatmak. `GET /stores/:id/inventory/matrix` bugün mağazadaki tüm non-archived varyantları
+  bakiyeleriyle birlikte TEK yanıtta döner (enterprise-demo: 2.202 varyant) ve `/inventory` ekranı arama ile
+  durum filtresini istemci-tarafında uygular. Envanter ekranı, ADR-089'un liste standardına (sunucu-otoriter
+  sayfalama + arama + filtre + sıralama + URL state) taşınır.
+- Planlanan kapsam: (1) `inventory/matrix` ucuna sayfalama sözleşmesi. (2) SKU / barkod / ürün / varyant
+  araması. (3) Depo (warehouse) filtresi. (4) Stok durumu filtresi. (5) Düşük stok filtresi.
+  (6) `onHand` / `reserved` / `available` sıralaması. (7) URL state. (8) 25/50/100 sayfa boyu.
+  (9) Batched minimum projeksiyon. (10) Tenant izolasyonu. (11) N+1 kontrolü. (12) Toplu (bulk) envanter
+  işlemlerinin sayfalamayla uyumluluğu. (13) TD-091 kapanışı.
+- Ön koşul notu (TD-091'den): bu yalnız bir UI değişikliği DEĞİLDİR —
+  `inventoryStoreMatrixResponseSchema` sayfalama meta'sı taşımıyor, `listStoreVariants` sayfalanabilir değil
+  ve TODO-152A'nın "stok izleme merkezi" semantiği tüm satırların aynı anda görünmesine dayanıyor. Sözleşme
+  değişikliği bu üçünü birlikte ele almalı; toplu (bulk) işlemler "görünen sayfa" ile "filtreye uyan tüm
+  kayıtlar" ayrımını açıkça tanımlamalı (sessiz kısmi uygulama OLMAYACAK).
+
+## Growth & Monetization — Faz Sıralaması ve Ortak Ölçüm Altyapısı
+
+- Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise
+  UI/design polish fazından ÖNCE yer alır.
+- Sıra: **TODO-159C (aktif)** → **TODO-160 Influencer Tracking & Attribution** →
+  **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı (henüz
+  numaralandırılmadı)*.
+- TODO-161, TODO-160'ın kurduğu event/attribution temelinden yararlanabilmek için ondan SONRA konumlanır.
+- **Ortak ölçüm altyapısı notu:** Influencer Tracking & Attribution ile Sponsored Product Management AYNI
+  event ve conversion attribution altyapısını yeniden kullanmalıdır. Ortak olabilecek kavramlar:
+  `impression` · `click` · `session` · `cart` · `checkout` · `order` · `refund` · `attributed revenue` ·
+  `campaign source` · `placement`. **Ancak iki modül tek ürün modeli altında ZORLA BİRLEŞTİRİLMEZ:**
+  influencer bir dış kişi/anlaşma ilişkisidir (kimlik, link, ileride komisyon/ödeme); sponsored ürün bir
+  yerleşim/merchandising kararıdır (slot, hedefleme, yoğunluk sınırı). Yaşam döngüleri, yetkilendirme ve
+  raporlama soruları farklıdır. Paylaşım event/attribution KATMANINDA olur, domain modelinde değil.
+  Karar: ADR-091.
+
+## Growth & Monetization — Influencer Tracking & Attribution (TODO-160)
+
+- Durum: PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
+- Amaç: Mağazanın influencer/iş ortağı kaynaklı trafiğini ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir
+  attribution zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
+- Kapsam: Influencer CRUD · kampanya bazlı takip linkleri · güvenli kısa tracking token · click ve unique
+  visitor ölçümü · first-party attribution cookie · last-click MVP · cart ve checkout attribution · order
+  attribution snapshot · iptal/iade/refund sonrası net gelir düzeltmesi · attribution window · UTM ve kupon
+  ilişkilendirmesi · dashboard · click/conversion/order/gross-net revenue/AOV metrikleri · CSV export ·
+  temel bot/fraud filtreleri · tenant isolation · KVKK/GDPR uyumlu veri saklama (saklama süresi + IP/UA
+  minimizasyonu).
+- **MVP:** Influencer CRUD · Tracking Link CRUD · click tracking · attribution cookie · last-click order
+  attribution · temel dashboard · CSV export.
+- **Sonraki faz:** Kupon attribution · multi-touch attribution · komisyon ve ödeme · fraud detection ·
+  influencer portalı.
+- Kabul kriterleri (taslak): attribution kararı SUNUCU-otoriter ve sipariş anında SNAPSHOT'lanır (sonradan
+  yeniden hesaplanmaz); iptal/iade sonrası net gelir düzeltmesi gross'u geriye dönük bozmadan ayrı ölçülür;
+  tüm sorgular tenant-izole; tracking token tahmin edilemez ve sayaç/id sızdırmaz; kişisel veri saklama
+  süresi ve minimizasyon politikası dokümante edilir.
+
+## Growth & Monetization — Sponsored Product Management (TODO-161)
+
+- Durum: PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
+- Amaç: Mağaza içi ürün öne çıkarmayı (self-merchandising / ileride reklam) organik arama kalitesini
+  bozmadan, kullanıcıya açıkça etiketlenmiş ve ölçülebilir bir yerleşim sistemine dönüştürmek.
+- Kapsam: Sponsored Campaign CRUD · sponsorlu ürün seçimi · başlangıç/bitiş tarihi · öncelik ve aktiflik ·
+  ana sayfa sponsorlu vitrin · Home Experience (ADR-086) entegrasyonu · search sonuçlarında KONTROLLÜ
+  sponsorlu slotlar · query ve kategori hedefleme · impression/click/cart/order/revenue ölçümü · kampanya
+  dashboard'u · tenant isolation · stokta olmayan/pasif ürünlerin otomatik elenmesi.
+- **Zorunlu kurallar (pazarlıksız — MVP KABUL KRİTERİ, sonraki faza ertelenemez):** (1) Kullanıcıya
+  açıkça `Sponsorlu` etiketi gösterilir. (2) Organik
+  search sıralaması KALICI olarak bozulmaz — sponsorlu seçim organik skoru değiştirmez. (3) Sponsorlu
+  sonuçlar AYRI slotlarda enjekte edilir. (4) Aynı ürün sponsorlu ve organik olarak İKİ KEZ gösterilmez.
+  (5) Sponsorlu yoğunluk sınırlıdır (sayfa/sonuç başına tavan). (6) Arama sorgusuyla İLGİSİZ ürün
+  gösterilmez (sponsorluk alaka eşiğini atlatamaz). (7) Kampanya bitince ürün organik davranışına döner —
+  kalıcı iz bırakmaz.
+- **MVP:** Campaign CRUD · ürün seçimi · tarih/öncelik · homepage showcase · search sponsored slots ·
+  sponsorlu etiketi · impression/click/order attribution · temel raporlama.
+- **Sonraki faz:** CPC/CPM · bütçe · keyword bidding · placement yönetimi · vendor self-service ·
+  faturalandırma.
+- Kabul kriterleri (taslak): sponsorlu enjeksiyon read-model'in organik sıralamasını DEĞİŞTİRMEDEN,
+  sonuç kümesi üretildikten sonra ayrı bir katmanda yapılır; dedupe garanti edilir; yoğunluk tavanı ve
+  alaka eşiği sunucuda zorlanır; kampanya penceresi dışında hiçbir sponsorlu iz kalmaz; ölçüm TODO-160'ın
+  event/attribution altyapısını yeniden kullanır (ADR-091).
