@@ -48,10 +48,25 @@ vi.mock("../lib/client/api.js", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useParams: () => ({ id: "p1" }),
+  // TODO-159A (ADR-089) — liste ekranları URL state motorunu kullanır.
+  useSearchParams: () => new URLSearchParams(),
 }));
 
+/** TODO-159A — Ortak Data Grid pagination meta'sı (legacy üçlü + page/pageSize/…). */
 function page(total: number, data: unknown[]) {
-  return { data, pagination: { limit: 50, offset: 0, total } };
+  const pageSize = 50;
+  return {
+    data,
+    pagination: {
+      limit: pageSize,
+      offset: 0,
+      total,
+      page: 1,
+      pageSize,
+      totalItems: total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    },
+  };
 }
 
 function makeProduct(overrides: Record<string, unknown> = {}) {
@@ -209,7 +224,7 @@ describe("store-admin products & variants", () => {
     );
   });
 
-  it("renders the premium summary tiles computed from the live list", async () => {
+  it("renders the server-side total and visible range instead of page-derived tiles", async () => {
     storeApiMock.listProducts.mockResolvedValue(
       page(2, [
         makeProduct(),
@@ -228,11 +243,11 @@ describe("store-admin products & variants", () => {
     render(<ProductsPage />);
 
     await screen.findByText("Sweatshirt");
-    // Ozet tile etiketleri (canli listeden hesaplanir).
-    expect(screen.getByText("Toplam ürün")).toBeTruthy();
-    expect(screen.getByText("Aktif ürünler")).toBeTruthy();
-    expect(screen.getByText("Satın alınabilir ürünler")).toBeTruthy();
-    expect(screen.getByText("Katalog ürünleri")).toBeTruthy();
+    // TODO-159A (ADR-089) — Eski özet tile'ları YALNIZ yüklü sayfadan hesaplanıyordu;
+    // sunucu-taraflı sayfalamada yanıltıcı oldukları için kaldırıldı. Yerine sunucudan
+    // gelen toplam kayıt sayısı ve görünen aralık gösterilir.
+    expect(screen.getByText("2 ürün")).toBeTruthy();
+    expect(screen.getByText("1–2 / 2 kayıt")).toBeTruthy();
   });
 
   it("links each product row to its detail/edit route instead of opening a modal", async () => {

@@ -1532,3 +1532,43 @@
 - **Footer:** premium IA — marka+social[MOCK] · Alışveriş/Yardım/Kurumsal/Yasal · güven+ödeme şeridi.
 - Gate: `next build` PASS + tip geçerli · eslint temiz · 392 storefront + 47 i18n testi yeşil · canlı headless
   render (masaüstü/mobil) PASS. Analiz: `docs/analysis/TODO-158C-storefront-redesign.md`. Sınırlar TD-087…TD-090.
+
+## TODO-159A — Enterprise Admin Data Grid Foundation (ADR-089)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
+- Amaç: Store Admin liste ekranlarını tek tek yamamak yerine ORTAK, yeniden kullanılabilir bir veri
+  listeleme standardı kurmak; `/products`'ı bu standarda TAM taşımak.
+- **Denetim:** `docs/analysis/TODO-159A-admin-data-grid-audit.md` — 29 liste yüzeyi (tam sayfa + modal)
+  tek tek çıkarıldı (veri çekme, SS/CS, arama/filtre/sıralama/sayfalama/URL state/durumlar/toplu seçim/risk).
+  Ana bulgu: "sessiz ilk sayfa" defekti — `listProducts()/listCategories()/listCustomers()` argümansız
+  çağrılıyor, gateway varsayılanı `limit=50` sessizce uygulanıyordu; 471 ürünlük mağazada kataloğun %89'u
+  panelden ERİŞİLEMEZDİ ve kullanıcıya bunun bir sayfa olduğu hiçbir yerde söylenmiyordu.
+- **Query standardı (contracts):** `page`/`pageSize`/`search`/`sortBy`/`sortOrder` + modüle özel filtreler;
+  `sortBy` her modülde KENDİ allowlist enum'u. `pageSize` üst sınırı (100) SUNUCUDA zorlanır. Response
+  meta'sı `items`(data) + `page`/`pageSize`/`totalItems`/`totalPages`; legacy `limit`/`offset`/`total`
+  AYNEN korunur (geriye uyumlu). Tek türetme: `buildAdminListPagination` / `resolveAdminListPage`.
+- **Gateway:** `listProductsAdmin` (tek parametreli raw SQL → id + total, ardından mevcut `productSelect`
+  ile hidrasyon; `LEFT JOIN LATERAL` yalnız fiyat/stok gerektiğinde; LIKE metakarakter kaçırma; sıralama
+  kapalı allowlist'ten) + `listProductFilterOptions` (yeni `GET .../products/filter-options`).
+  Kategori/müşteri uçlarına arama+durum filtresi+sıralama; sipariş ucuna sıralama.
+- **Ortak UI:** `apps/store-admin-web/components/data-grid/` — `useDataGridQuery` (URL state motoru;
+  filtre/arama/sıralama/pageSize değişince page 1'e döner, varsayılanlar URL'e yazılmaz), `DataGridToolbar`
+  (görünür arama + filtre popover + kaldırılabilir aktif filtre çipleri + sıralama), `DataGrid` (yapışkan
+  başlık, `aria-sort` sıralanabilir kolonlar, loading/empty/filtreli-empty/error, opsiyonel satır seçimi),
+  `DataGridPagination` (aralık + toplam + önceki/sonraki + doğrudan sayfa + 25/50/100). Mevcut koyu cam kiti
+  SARMALANIR; tek yeni token `--dg-header-surface` (yapışkan başlık opaklığı) — bileşende sabit renk yok.
+- **Ürünler (tam uygulama):** arama (ad/slug/SKU/barkod/marka/tedarikçi) · filtreler (durum, satış tipi,
+  satın alınabilirlik, kategori, marka, tedarikçi, stok durumu, fiyat aralığı) · sıralama (en yeni/en eski,
+  ad A–Z/Z–A, fiyat artan/azalan, stok artan/azalan) · sayfalama 25/50/100 + toplam + aralık · tam URL state.
+  NOT: modelde ayrı "yayın durumu" kolonu YOK — `status` yayın otoritesidir (uydurma kavram eklenmedi).
+- **Ayrıca taşınanlar:** Kategoriler (arama/durum/sıralama/sayfalama) · Müşteriler (arama/durum/üyelik/
+  sıralama/sayfalama) · Siparişler (sayfalama + sıralama + ortak sayfalama çubuğu; mevcut zengin filtre
+  paneli KORUNDU). Sayfa-türevi özet metrikler kaldırıldı/işaretlendi (sunucu-taraflı sayfalamada yanıltıcı).
+- **Migration:** `20260722120000_add_admin_list_indexes` — TAMAMEN ADDITIVE, geri alınabilir:
+  `Product(storeId, createdAt)` + `Order(storeId, createdAt)`. `EXPLAIN` ile `Index Scan Backward` doğrulandı.
+- Gate: build + typecheck + lint temiz · 1121 gateway (15 yeni) + 329 store-admin (16 yeni) testi yeşil ·
+  `git diff --check` temiz. Canlı doğrulama gerçek enterprise-demo (471 ürün): toplam/sayfa/arama/filtre/
+  sıralama/allowlist-400/pageSize-tavanı/tenant izolasyonu PASS.
+- Sınırlar: TD-091 (envanter matrisi sınırsız) · TD-092 (sayfalamasız koleksiyon uçları) · TD-093 (ürün/
+  kategori seçicileri hâlâ 100 ile sınırlı → arama tabanlı seçici gerek) · TD-094 (ILIKE araması için trigram
+  indeksi) · TD-095 (medya kütüphanesi sabit 100 + yanıltıcı meta).

@@ -193,6 +193,42 @@ export const enStoreAdmin: StoreAdminDictionary = {
     emptyDescription:
       "As you add your first products and categories, sales, stock and catalogue summaries will appear here.",
   },
+  /**
+   * TODO-159A (ADR-089) — Shared Admin Data Grid copy. Every list screen speaks the
+   * same search/filter/sort/pagination vocabulary; only column headers and filter
+   * labels stay page specific.
+   */
+  dataGrid: {
+    searchPlaceholder: "Search…",
+    searchLabel: "Search",
+    searchSubmit: "Search",
+    filters: "Filters",
+    filtersApply: "Apply",
+    filtersClear: "Clear filters",
+    filtersClearAll: "Clear all",
+    filtersActive: "{count} active filters",
+    filterAll: "All",
+    removeFilter: "Remove {label} filter",
+    sortLabel: "Sort",
+    pageSizeLabel: "Per page",
+    rangeLabel: "{from}–{to} of {total}",
+    rangeEmpty: "0 records",
+    previousPage: "Previous",
+    nextPage: "Next",
+    pageLabel: "Page",
+    pageOf: "{page} / {totalPages}",
+    goToPage: "Go to page",
+    loading: "Loading records…",
+    errorTitle: "Records could not be loaded.",
+    retry: "Retry",
+    emptyTitle: "No records",
+    emptyDescription: "There are no records in this list yet.",
+    emptyFilteredTitle: "No matching records",
+    emptyFilteredDescription: "Adjust the search or filters and try again.",
+    selectedCount: "{count} selected",
+    selectRow: "Select row",
+    selectAll: "Select all rows on this page",
+  },
   products: {
     eyebrow: "Catalogue",
     title: "Products",
@@ -263,6 +299,40 @@ export const enStoreAdmin: StoreAdminDictionary = {
       purchasableHint: "Can be added to cart directly",
       catalog: "Catalogue products",
       catalogHint: "Visible in the catalogue only",
+    },
+    // TODO-159A (ADR-089) — Product Data Grid: filter labels + sort options.
+    grid: {
+      searchPlaceholder: "Title, slug, SKU, barcode, brand or vendor",
+      filters: {
+        status: "Status",
+        salesMode: "Sales mode",
+        purchasable: "Purchasability",
+        category: "Category",
+        brand: "Brand",
+        vendor: "Vendor",
+        stockStatus: "Stock",
+        price: "Price range (minor)",
+        priceMin: "Min",
+        priceMax: "Max",
+      },
+      purchasableLabels: {
+        true: "Purchasable",
+        false: "Not purchasable",
+      },
+      stockStatusLabels: {
+        IN_STOCK: "In stock",
+        OUT_OF_STOCK: "Out of stock",
+      },
+      sort: {
+        newest: "Newest",
+        oldest: "Oldest",
+        titleAsc: "Title A–Z",
+        titleDesc: "Title Z–A",
+        priceAsc: "Price ascending",
+        priceDesc: "Price descending",
+        stockAsc: "Stock ascending",
+        stockDesc: "Stock descending",
+      },
     },
     statusLabels: {
       DRAFT: "Draft",
@@ -1089,6 +1159,17 @@ export const enStoreAdmin: StoreAdminDictionary = {
     placing: "Placing…",
     cancelling: "Cancelling…",
     noCustomer: "—",
+    // TODO-159A (ADR-089) — Order Data Grid sort options.
+    grid: {
+      sort: {
+        newest: "Newest",
+        oldest: "Oldest",
+        placedNewest: "Placed (newest)",
+        placedOldest: "Placed (oldest)",
+        totalDesc: "Total descending",
+        totalAsc: "Total ascending",
+      },
+    },
     lineCountLabel: "{count} items",
     table: {
       number: "Order no.",
@@ -1446,6 +1527,18 @@ export const enStoreAdmin: StoreAdminDictionary = {
       status: "Status",
       actions: "Actions",
     },
+    // TODO-159A (ADR-089) — Category Data Grid (search + status + sort).
+    grid: {
+      searchPlaceholder: "Category name or slug",
+      filters: { status: "Status" },
+      sort: {
+        sortOrder: "Merchandising order",
+        nameAsc: "Name A–Z",
+        nameDesc: "Name Z–A",
+        newest: "Newest",
+        oldest: "Oldest",
+      },
+    },
     statusLabels: {
       ACTIVE: "Active",
       ARCHIVED: "Archived",
@@ -1708,6 +1801,20 @@ export const enStoreAdmin: StoreAdminDictionary = {
       address: "Default address",
       created: "Joined",
       action: "Action",
+    },
+    // TODO-159A (ADR-089) — Customer Data Grid (search + status/membership + sort).
+    grid: {
+      searchPlaceholder: "Email, first name, last name or phone",
+      filters: { status: "Status", membership: "Membership" },
+      membershipLabels: { true: "Member", false: "Guest" },
+      sort: {
+        newest: "Newest",
+        oldest: "Oldest",
+        nameAsc: "Name A–Z",
+        nameDesc: "Name Z–A",
+        emailAsc: "Email A–Z",
+        emailDesc: "Email Z–A",
+      },
     },
     manageAction: "Manage",
     statusLabels: {

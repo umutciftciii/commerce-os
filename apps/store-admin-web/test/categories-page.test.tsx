@@ -19,6 +19,12 @@ const { storeApiMock } = vi.hoisted(() => ({
   },
 }));
 
+// TODO-159A (ADR-089) — Kategoriler ekranı Data Grid URL state motorunu kullanır.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 vi.mock("../lib/client/api.js", () => ({
   storeApi: storeApiMock,
   // messageForError, UiError instanceof kontrolu yapar; happy-path'te tetiklenmez
@@ -66,7 +72,7 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
   it("edit modunda mevcut kategori görselini MediaUpload value'suna dolu getirir", async () => {
     storeApiMock.listCategories.mockResolvedValue({
       data: [category({ imageId: "media_cat", imageUrl: IMAGE_URL })],
-      pagination: { limit: 20, offset: 0, total: 1 },
+      pagination: { limit: 20, offset: 0, total: 1, page: 1, pageSize: 20, totalItems: 1, totalPages: 1 },
     });
     render(<CategoriesPage />);
 
@@ -84,11 +90,11 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
   it("kütüphaneden seçilen görsel create submit payload'ında imageId olarak gider", async () => {
     storeApiMock.listCategories.mockResolvedValue({
       data: [],
-      pagination: { limit: 20, offset: 0, total: 0 },
+      pagination: { limit: 20, offset: 0, total: 0, page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
     });
     storeApiMock.listMedia.mockResolvedValue({
       data: [CATEGORY_ASSET],
-      pagination: { limit: 100, offset: 0, total: 1 },
+      pagination: { limit: 100, offset: 0, total: 1, page: 1, pageSize: 100, totalItems: 1, totalPages: 1 },
     });
     storeApiMock.createCategory.mockResolvedValue(category({ id: "cat_new", imageId: "media_cat", imageUrl: IMAGE_URL }));
     render(<CategoriesPage />);
@@ -114,7 +120,7 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
   it("görseli kaldırıp kaydetince update payload'ında imageId: null gider", async () => {
     storeApiMock.listCategories.mockResolvedValue({
       data: [category({ imageId: "media_cat", imageUrl: IMAGE_URL })],
-      pagination: { limit: 20, offset: 0, total: 1 },
+      pagination: { limit: 20, offset: 0, total: 1, page: 1, pageSize: 20, totalItems: 1, totalPages: 1 },
     });
     storeApiMock.updateCategory.mockResolvedValue(category({ imageId: null, imageUrl: null }));
     render(<CategoriesPage />);
@@ -135,7 +141,7 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
   it("görsel eklenmeden create yapılınca payload imageId: null ile gider ve akış tamamlanır", async () => {
     storeApiMock.listCategories.mockResolvedValue({
       data: [],
-      pagination: { limit: 20, offset: 0, total: 0 },
+      pagination: { limit: 20, offset: 0, total: 0, page: 1, pageSize: 20, totalItems: 0, totalPages: 0 },
     });
     storeApiMock.createCategory.mockResolvedValue(category({ id: "cat_new" }));
     render(<CategoriesPage />);
@@ -154,6 +160,8 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
     );
     // Akış tamamlandı: başarı toast'u + liste yeniden yüklendi.
     expect(await screen.findByText("Kategori oluşturuldu.")).toBeTruthy();
-    expect(storeApiMock.listCategories).toHaveBeenCalledTimes(2);
+    // TODO-159A (ADR-089) — ekran iki kaynak yükler: sayfalanmış liste + ebeveyn
+    // seçicisinin sayfadan bağımsız kümesi. Create sonrası ikisi de tazelenir (2 → 4).
+    expect(storeApiMock.listCategories).toHaveBeenCalledTimes(4);
   });
 });

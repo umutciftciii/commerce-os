@@ -7,24 +7,28 @@ import {
   Alert,
   Badge,
   Button,
-  DataTable,
-  EmptyState,
   Input,
   Modal,
   PageHeader,
   Select,
   SkeletonRows,
   useLocale,
-  type DataTableColumn,
 } from "../../../components/ui";
+import {
+  DataGrid,
+  DataGridPagination,
+  type DataGridColumn,
+} from "../../../components/data-grid";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type {
+  AdminListPagination,
   InventoryItem,
   Order,
   OrderCreateRequest,
   OrderFulfillmentDisplay,
   OrderListQuery,
 } from "@commerce-os/api-client";
+import { ADMIN_LIST_PAGE_SIZE_OPTIONS } from "@commerce-os/api-client";
 import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
 import { OrderIcon } from "../../../components/icons";
 import { orderListQueryString, storeApi } from "../../../lib/client/api";
@@ -46,7 +50,7 @@ import {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; orders: Order[]; total: number };
+  | { status: "ready"; orders: Order[]; pagination: AdminListPagination };
 
 // Detay = `/orders/[id]` (modal degil). Liste yalniz hizli aksiyonlari barindirir.
 const DETAIL_LINK_CLASS =
@@ -67,6 +71,37 @@ type OrderFilters = {
   dateFrom: string;
   dateTo: string;
 };
+
+/**
+ * TODO-159A (ADR-089) — Sayfalama + sıralama URL durumu. Sipariş ekranının zengin
+ * filtre paneli (tarih aralığı + üç durum) KORUNUR; ortaklaştırılan kısım sunucu
+ * sözleşmesi, sayfalama çubuğu ve sıralama allowlist'idir.
+ */
+type OrderView = { page: number; pageSize: number; sortBy: string; sortOrder: "asc" | "desc" };
+
+const ORDER_SORT_VALUES = ["createdAt", "placedAt", "total"];
+const DEFAULT_ORDER_VIEW: OrderView = {
+  page: 1,
+  pageSize: 25,
+  sortBy: "createdAt",
+  sortOrder: "desc",
+};
+
+function readView(params: { get(name: string): string | null }): OrderView {
+  const rawPageSize = Number.parseInt(params.get("pageSize") ?? "", 10);
+  const pageSize = (ADMIN_LIST_PAGE_SIZE_OPTIONS as readonly number[]).includes(rawPageSize)
+    ? rawPageSize
+    : DEFAULT_ORDER_VIEW.pageSize;
+  const rawPage = Number.parseInt(params.get("page") ?? "", 10);
+  const sortBy = params.get("sortBy");
+  const sortOrder = params.get("sortOrder");
+  return {
+    page: Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1,
+    pageSize,
+    sortBy: sortBy && ORDER_SORT_VALUES.includes(sortBy) ? sortBy : DEFAULT_ORDER_VIEW.sortBy,
+    sortOrder: sortOrder === "asc" ? "asc" : "desc",
+  };
+}
 
 const EMPTY_FILTERS: OrderFilters = {
   search: "",
@@ -89,8 +124,15 @@ function readFilters(params: { get(name: string): string | null }): OrderFilters
 }
 
 // Ham formu yalnız geçerli değerleri taşıyan tipli query'ye çevirir (garbage atılır).
-function toQuery(f: OrderFilters): OrderListQuery {
+function toQuery(f: OrderFilters, view?: OrderView): OrderListQuery {
   const q: OrderListQuery = {};
+  if (view) {
+    // Varsayılanlar URL'e yazılmaz (temiz link) ama isteğe HER ZAMAN eklenir.
+    if (view.page > 1) q.page = view.page;
+    if (view.pageSize !== DEFAULT_ORDER_VIEW.pageSize) q.pageSize = view.pageSize;
+    if (view.sortBy !== DEFAULT_ORDER_VIEW.sortBy) q.sortBy = view.sortBy as OrderListQuery["sortBy"];
+    if (view.sortOrder !== DEFAULT_ORDER_VIEW.sortOrder) q.sortOrder = view.sortOrder;
+  }
   if (f.search) q.search = f.search;
   if ((ORDER_STATUS_VALUES as string[]).includes(f.status)) q.status = f.status as OrderStatus;
   if ((PAYMENT_STATUS_VALUES as string[]).includes(f.paymentStatus)) {
@@ -119,6 +161,7 @@ function OrdersView() {
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.orders;
   const c = dict.common;
+  const g = dict.storeAdmin.dataGrid;
   const statusLabels = t.statusLabels as Record<OrderStatus, string>;
   const paymentLabels = t.paymentLabels as Record<PaymentStatus, string>;
   const fulfillmentLabels = t.fulfillmentLabels as Record<FulfillmentStatus, string>;
@@ -128,10 +171,12 @@ function OrdersView() {
     string
   >;
 
-  // URL = filtrelerin tek doğruluk kaynağı; sayfa yenilense de korunur.
+  // URL = filtre + sayfa + sıralamanın tek doğruluk kaynağı; sayfa yenilense de korunur.
   const appliedFilters = useMemo(() => readFilters(searchParams), [searchParams]);
-  const query = useMemo(() => toQuery(appliedFilters), [appliedFilters]);
-  const activeCount = Object.keys(query).length;
+  const view = useMemo(() => readView(searchParams), [searchParams]);
+  const query = useMemo(() => toQuery(appliedFilters, view), [appliedFilters, view]);
+  // Etkin filtre sayısı YALNIZ daraltan alanları sayar (sayfa/sıralama hariç).
+  const activeCount = Object.keys(toQuery(appliedFilters)).length;
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [creating, setCreating] = useState(false);
@@ -150,7 +195,7 @@ function OrdersView() {
     setState({ status: "loading" });
     try {
       const orders = await storeApi.listOrders(query);
-      setState({ status: "ready", orders: orders.data, total: orders.pagination.total });
+      setState({ status: "ready", orders: orders.data, pagination: orders.pagination });
     } catch (error) {
       setState({ status: "error", message: messageForError(error, locale) });
     }
@@ -163,15 +208,31 @@ function OrdersView() {
   const applyFilters = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      router.replace(`/orders${orderListQueryString(toQuery(form))}`);
+      // Filtre değişimi sayfayı 1'e döndürür (page taşınmaz); sıralama/sayfa boyutu korunur.
+      router.replace(
+        `/orders${orderListQueryString(toQuery(form, { ...view, page: 1 }))}`,
+      );
     },
-    [form, router],
+    [form, router, view],
   );
 
   const clearFilters = useCallback(() => {
     setForm(EMPTY_FILTERS);
-    router.replace("/orders");
-  }, [router]);
+    router.replace(`/orders${orderListQueryString(toQuery(EMPTY_FILTERS, { ...view, page: 1 }))}`);
+  }, [router, view]);
+
+  /** Sayfa/sayfa-boyutu/sıralama değişimi: filtreler korunur. */
+  const updateView = useCallback(
+    (patch: Partial<OrderView>) => {
+      const next: OrderView = { ...view, ...patch };
+      // Sıralama veya sayfa boyutu değişince sayfa 1'e döner.
+      if (patch.sortBy !== undefined || patch.sortOrder !== undefined || patch.pageSize !== undefined) {
+        next.page = 1;
+      }
+      router.replace(`/orders${orderListQueryString(toQuery(appliedFilters, next))}`);
+    },
+    [appliedFilters, router, view],
+  );
 
   const orders = state.status === "ready" ? state.orders : [];
 
@@ -227,8 +288,12 @@ function OrdersView() {
     [load, locale, t.cancelledToast],
   );
 
-  const columns: DataTableColumn<Order>[] = [
+  const columns: DataGridColumn<Order>[] = [
     {
+      // Kolon kimliği = sunucu `sortBy` değeri. Sipariş no ALLOWLIST'te olmadığı için
+      // bu kolon kayıt tarihine göre sıralar (hücrede zaten tarih gösterilir).
+      key: "createdAt",
+      sortable: true,
       header: t.table.number,
       className: "whitespace-nowrap",
       cell: (order) => (
@@ -243,6 +308,7 @@ function OrdersView() {
       ),
     },
     {
+      key: "customer",
       header: t.table.customer,
       className: "max-w-[16rem]",
       cell: (order) => (
@@ -252,6 +318,8 @@ function OrdersView() {
       ),
     },
     {
+      key: "total",
+      sortable: true,
       header: t.table.total,
       className: "whitespace-nowrap",
       cell: (order) => (
@@ -261,6 +329,7 @@ function OrdersView() {
       ),
     },
     {
+      key: "status",
       header: t.table.status,
       className: "whitespace-nowrap",
       cell: (order) => (
@@ -268,6 +337,7 @@ function OrdersView() {
       ),
     },
     {
+      key: "payment",
       header: t.table.payment,
       className: "whitespace-nowrap",
       cell: (order) => (
@@ -277,6 +347,7 @@ function OrdersView() {
       ),
     },
     {
+      key: "fulfillment",
       header: t.table.fulfillment,
       className: "whitespace-nowrap",
       cell: (order) => {
@@ -294,6 +365,7 @@ function OrdersView() {
       },
     },
     {
+      key: "lines",
       header: t.table.lines,
       className: "whitespace-nowrap",
       cell: (order) => (
@@ -303,6 +375,7 @@ function OrdersView() {
       ),
     },
     {
+      key: "actions",
       header: t.table.actions,
       align: "right",
       className: "whitespace-nowrap",
@@ -388,12 +461,17 @@ function OrdersView() {
         </div>
       ) : null}
 
+      {/*
+        TODO-159A — "Toplam" sunucudan gelen filtrelenmiş kayıt sayısıdır; taslak /
+        işlemde / iptal / ciro sayıları GÖRÜNEN SAYFADAN hesaplanır (hızlı okuma).
+        Mağaza-geneli kesin toplam için sayfalama çubuğundaki kayıt sayısı esastır.
+      */}
       {state.status === "ready" && orders.length > 0 ? (
         <div className="mb-5">
           <MetricGrid columns={5}>
             <MetricTile
               label={t.summary.total}
-              value={state.total}
+              value={state.pagination.totalItems}
               hint={t.summary.totalHint}
               tone="brand"
             />
@@ -507,60 +585,61 @@ function OrdersView() {
       <SurfaceCard
         title={t.cardTitle}
         description={
-          state.status === "ready" ? format(t.countLabel, { count: state.total }) : t.cardDescription
+          state.status === "ready"
+            ? format(t.countLabel, { count: state.pagination.totalItems })
+            : t.cardDescription
         }
         icon={<OrderIcon />}
       >
-        {state.status === "loading" ? <SkeletonRows rows={4} /> : null}
+        <DataGrid
+          columns={columns}
+          rows={orders}
+          rowKey={(order) => order.id}
+          status={state.status}
+          errorMessage={state.status === "error" ? state.message : undefined}
+          onRetry={() => void load()}
+          filtered={activeCount > 0}
+          caption={t.cardTitle}
+          sortBy={view.sortBy}
+          sortOrder={view.sortOrder}
+          onSortChange={(sortBy, sortOrder) => updateView({ sortBy, sortOrder })}
+          emptyIcon={<OrderIcon />}
+          emptyAction={
+            <Button size="sm" onClick={() => setCreating(true)}>
+              {t.emptyAction}
+            </Button>
+          }
+          labels={{
+            loading: g.loading,
+            errorTitle: t.loadError,
+            retry: c.actions.retry,
+            emptyTitle: t.emptyTitle,
+            emptyDescription: t.emptyDescription,
+            // Filtreliyken sipariş ekranının kendi (daha bağlamlı) metni kullanılır.
+            emptyFilteredTitle: t.filters.emptyTitle,
+            emptyFilteredDescription: t.filters.emptyDescription,
+            selectRow: g.selectRow,
+            selectAll: g.selectAll,
+          }}
+        />
 
-        {state.status === "error" ? (
-          <Alert
-            tone="error"
-            title={t.loadError}
-            action={
-              <Button variant="secondary" size="sm" onClick={() => void load()}>
-                {c.actions.retry}
-              </Button>
-            }
-          >
-            {state.message}
-          </Alert>
-        ) : null}
-
-        {state.status === "ready" && orders.length === 0 && activeCount > 0 ? (
-          <EmptyState
-            tag={t.filters.title}
-            title={t.filters.emptyTitle}
-            description={t.filters.emptyDescription}
-            icon={<OrderIcon />}
-            action={
-              <Button size="sm" variant="secondary" onClick={clearFilters}>
-                {t.filters.clear}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {state.status === "ready" && orders.length === 0 && activeCount === 0 ? (
-          <EmptyState
-            tag={t.emptyTag}
-            title={t.emptyTitle}
-            description={t.emptyDescription}
-            icon={<OrderIcon />}
-            action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                {t.emptyAction}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {state.status === "ready" && orders.length > 0 ? (
-          <DataTable
-            columns={columns}
-            rows={orders}
-            rowKey={(order) => order.id}
-            caption={t.cardTitle}
+        {state.status === "ready" ? (
+          <DataGridPagination
+            labels={{
+              rangeLabel: g.rangeLabel,
+              rangeEmpty: g.rangeEmpty,
+              previousPage: g.previousPage,
+              nextPage: g.nextPage,
+              pageSizeLabel: g.pageSizeLabel,
+              goToPage: g.goToPage,
+              pageOf: g.pageOf,
+            }}
+            page={state.pagination.page}
+            pageSize={state.pagination.pageSize}
+            totalItems={state.pagination.totalItems}
+            totalPages={state.pagination.totalPages}
+            onPageChange={(page) => updateView({ page })}
+            onPageSizeChange={(pageSize) => updateView({ pageSize })}
           />
         ) : null}
       </SurfaceCard>

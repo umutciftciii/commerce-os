@@ -911,6 +911,75 @@ class MemoryDataAccess implements AppDataAccess {
     return { data: data.slice(offset, offset + limit), total: data.length };
   }
 
+  /**
+   * TODO-159A (ADR-089) — Admin Data Grid ürün listesi (in-memory karşılık).
+   * Gerçek mantığı taşır: store-scope + arama + filtreler + allowlist sıralama +
+   * sayfalama. Fiyat/stok türetmeleri bu harness'ta modellenmez (Prisma yolunda
+   * LATERAL aggregate ile hesaplanır); yalnız sıralama anahtarı kabul edilir.
+   */
+  async listProductsAdmin(
+    storeId: string,
+    criteria: {
+      limit: number;
+      offset: number;
+      search?: string;
+      sortBy: "createdAt" | "updatedAt" | "title" | "price" | "stock";
+      sortOrder: "asc" | "desc";
+      status?: ProductStatus;
+      salesMode?: ProductSalesMode;
+      purchasable?: boolean;
+      categoryId?: string;
+      brand?: string;
+      vendor?: string;
+    },
+  ) {
+    let data = this.products.filter((product) => product.storeId === storeId);
+    if (criteria.search) {
+      const term = criteria.search.toLowerCase();
+      data = data.filter(
+        (product) =>
+          product.title.toLowerCase().includes(term) ||
+          product.slug.toLowerCase().includes(term) ||
+          (product.brand ?? "").toLowerCase().includes(term) ||
+          (product.vendor ?? "").toLowerCase().includes(term),
+      );
+    }
+    if (criteria.status) data = data.filter((product) => product.status === criteria.status);
+    if (criteria.salesMode) data = data.filter((product) => product.salesMode === criteria.salesMode);
+    if (criteria.purchasable !== undefined) {
+      data = data.filter((product) => product.purchasable === criteria.purchasable);
+    }
+    if (criteria.categoryId) {
+      data = data.filter((product) => product.categoryIds.includes(criteria.categoryId!));
+    }
+    if (criteria.brand) data = data.filter((product) => product.brand === criteria.brand);
+    if (criteria.vendor) data = data.filter((product) => product.vendor === criteria.vendor);
+
+    const direction = criteria.sortOrder === "asc" ? 1 : -1;
+    const sorted = [...data].sort((a, b) => {
+      if (criteria.sortBy === "title") return a.title.localeCompare(b.title) * direction;
+      if (criteria.sortBy === "updatedAt") {
+        return (a.updatedAt.getTime() - b.updatedAt.getTime()) * direction;
+      }
+      return (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
+    });
+    return {
+      data: sorted.slice(criteria.offset, criteria.offset + criteria.limit),
+      total: data.length,
+    };
+  }
+
+  /** TODO-159A — Filtre açılırlarının DISTINCT marka/tedarikçi kaynağı. */
+  async listProductFilterOptions(storeId: string) {
+    const scoped = this.products.filter((product) => product.storeId === storeId);
+    const unique = (values: (string | null | undefined)[]) =>
+      [...new Set(values.filter((value): value is string => !!value))].sort();
+    return {
+      brands: unique(scoped.map((product) => product.brand)),
+      vendors: unique(scoped.map((product) => product.vendor)),
+    };
+  }
+
   async findProductById(storeId: string, productId: string) {
     return this.products.find((product) => product.storeId === storeId && product.id === productId) ?? null;
   }

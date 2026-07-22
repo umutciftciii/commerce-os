@@ -838,6 +838,10 @@ model Product {
   @@index([purchasable])
   // Faz 1A (ADR-067) — store-scoped ana-kategori sorgulari + FK restrict tarama.
   @@index([storeId, primaryCategoryId])
+  // TODO-159A (ADR-089) — Admin Data Grid varsayilan yolu: store-scoped + createdAt
+  // siralamasi + LIMIT/OFFSET. Bilesik index hem WHERE hem ORDER BY'i tek erisimle
+  // karsilar (aksi halde her sayfa icin ayri sort adimi gerekir).
+  @@index([storeId, createdAt])
 }
 
 model ProductVariant {
@@ -1389,6 +1393,8 @@ model Order {
   @@index([storeId])
   @@index([customerId])
   @@index([status])
+  // TODO-159A (ADR-089) — Siparis listesinin varsayilan yolu (store + createdAt DESC).
+  @@index([storeId, createdAt])
 }
 
 model OrderLine {

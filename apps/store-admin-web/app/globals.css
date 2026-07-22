@@ -38,6 +38,24 @@ body {
   border-radius: 99px;
 }
 
+/*
+ * TODO-159A (ADR-089) — Admin Data Grid token'ları.
+ *
+ * Yapışkan tablo başlığının kaydırılan satırların ÜSTÜNÜ örtebilmesi için OPAK
+ * bir yüzeye ihtiyacı var; panelin geri kalanındaki yarı saydam cam yüzeyler bunu
+ * karşılayamaz. Renk gövde gradyanının koyu ucuyla hizalıdır ve `data-theme="light"`
+ * ile tek noktadan çevrilir — bileşen tarafında sabit renk YAZILMAZ.
+ */
+:root {
+  --dg-header-surface: rgb(11, 13, 26);
+  --dg-header-border: rgba(255, 255, 255, 0.07);
+}
+
+:root[data-theme="light"] {
+  --dg-header-surface: rgb(248, 250, 252);
+  --dg-header-border: rgb(226, 232, 240);
+}
+
 /* Canlı durum noktası (SSL / aktif rozet) yanıp sönme animasyonu. */
 @keyframes pdot {
   0%,
