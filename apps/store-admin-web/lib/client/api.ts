@@ -76,6 +76,7 @@ import type {
   StoreSettingsUpdateRequest,
   ProductCreateRequest,
   ProductListResponse,
+  AdminProductFilterOptionsResponse,
   ProductPriceChangeListResponse,
   ProductUpdateRequest,
   ProductVariant,
@@ -231,6 +232,23 @@ export interface ActivationInfo {
 export interface CreateCustomerResult {
   customer: StoreAdminCustomerSummary;
   activation: ActivationInfo | null;
+}
+
+/**
+ * TODO-159A (ADR-089) — Admin Data Grid liste query'si. Anahtarlar BFF allowlist'i
+ * ile aynıdır; boş/undefined değerler URL'e yazılmaz.
+ */
+export type AdminListRequestQuery = Record<string, string | number | undefined>;
+
+function listQueryString(query?: AdminListRequestQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === "") continue;
+    params.set(key, String(value));
+  }
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
 }
 
 let csrfTokenCache: { token: string; headerName: string } | null = null;
@@ -393,7 +411,10 @@ export const storeApi = {
   dashboardSummary: () => call<DashboardSummary>("/api/dashboard/summary"),
 
   // Categories
-  listCategories: () => call<ProductCategoryListResponse>("/api/catalog/categories"),
+  // TODO-159A (ADR-089) — Data Grid query'si (page/pageSize/search/sortBy/sortOrder/status).
+  // Argümansız çağrı ESKİ davranıştır (gateway varsayılanları).
+  listCategories: (query?: AdminListRequestQuery) =>
+    call<ProductCategoryListResponse>(`/api/catalog/categories${listQueryString(query)}`),
   createCategory: (input: ProductCategoryCreateRequest) =>
     mutatingCall<ProductCategory>("/api/catalog/categories", {
       method: "POST",
@@ -469,7 +490,13 @@ export const storeApi = {
     ),
 
   // Products
-  listProducts: () => call<ProductListResponse>("/api/catalog/products"),
+  // TODO-159A (ADR-089) — server-side arama/filtre/sıralama/sayfalama.
+  listProducts: (query?: AdminListRequestQuery) =>
+    call<ProductListResponse>(`/api/catalog/products${listQueryString(query)}`),
+  // Filtre açılırlarının DISTINCT marka/tedarikçi kaynağı (liste sayfalandığı için
+  // istemcide türetilemez).
+  listProductFilterOptions: () =>
+    call<AdminProductFilterOptionsResponse>("/api/catalog/products/filter-options"),
   getProduct: (productId: string) =>
     call<Product>(`/api/catalog/products/${productId}`),
   createProduct: (input: ProductCreateRequest) =>
@@ -604,7 +631,8 @@ export const storeApi = {
     }),
 
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
-  listCustomers: () => call<StoreAdminCustomerListResponse>("/api/customers"),
+  listCustomers: (query?: AdminListRequestQuery) =>
+    call<StoreAdminCustomerListResponse>(`/api/customers${listQueryString(query)}`),
   getCustomer: (id: string) => call<StoreAdminCustomerDetailResponse>(`/api/customers/${id}`),
   // TODO-087 — müşteri oluşturma + admin tetikli credential/oturum yönetimi.
   createCustomer: (input: StoreAdminCustomerCreateRequest) =>

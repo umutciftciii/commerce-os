@@ -2928,3 +2928,91 @@ mobile-menu/home-sections/product-card/product-media/footer yeniden tasarlandı;
 PASS + tip geçerli, eslint temiz, 392 storefront + 47 i18n testi yeşil. Canlı doğrulama: gerçek demo-store
 fallback homepage + kart + value-props + editorial + footer headless render PASS (masaüstü/mobil). Sınırlar
 TD-087…TD-090. Commit/PR/deploy YAPILMADI (brief kuralı).
+
+## ADR-089 — Enterprise Admin Data Grid: tek liste sözleşmesi (page/pageSize/search/sortBy/sortOrder), sunucu-otoriter filtreleme ve URL-tabanlı liste durumu (TODO-159A)
+
+### Bağlam
+
+Store Admin'in liste ekranları ölçeklenebilir değildi. Kök sorun sayfalamanın "eksik"
+olması değil, **görünmez** olmasıydı: `listProducts()` / `listCategories()` /
+`listCustomers()` argümansız çağrılıyor, gateway varsayılanı `limit=50` sessizce
+devreye giriyordu. Kullanıcı ne toplam kayıt sayısını, ne kaçıncı sayfada olduğunu, ne
+de bir sonraki sayfaya geçme yolunu görüyordu — enterprise-demo mağazasında (471 ürün)
+kataloğun %89'u panelden erişilemez durumdaydı. Aynı defekt kampanya ve home showcase
+ürün seçicilerinde de vardı; orada sonuç daha ağır: eksik listeye bakan yönetici yanlış
+içerik yayımlayabilir.
+
+Bunun üstüne arama/filtre/sıralama hiçbir katalog ekranında yoktu; olan yerlerde
+(Envanter) tamamen istemcideydi ve tüm veri kümesini çeken sınırsız bir uca dayanıyordu.
+Tam denetim `docs/analysis/TODO-159A-admin-data-grid-audit.md` içindedir.
+
+Sayfa başına bağımsız pagination çözümleri yazmak bu sorunu çoğaltırdı: her ekran kendi
+query adlandırmasını, kendi sayfa-sıfırlama kuralını ve kendi boş-durum davranışını
+üretirdi.
+
+### Karar
+
+1. **Tek liste sözleşmesi (contracts).** Her admin liste ucu aynı query tabanını konuşur:
+   `page` / `pageSize` / `search` / `sortBy` / `sortOrder` + modüle özel filtreler.
+   `adminListQueryBaseSchema` bunu tanımlar; her modül `.extend({...})` ile KENDİ `sortBy`
+   **allowlist enum'unu** ve filtrelerini ekler. Serbest metin ASLA `orderBy`'a geçmez;
+   tanınmayan değer zod tarafından 400 ile reddedilir. `pageSize` üst sınırı
+   (`ADMIN_LIST_MAX_PAGE_SIZE = 100`) SUNUCUDA zorlanır.
+
+2. **Geriye uyumlu pagination meta'sı.** Yanıtlardaki `pagination` nesnesine
+   `page/pageSize/totalItems/totalPages` EKLENİR; mevcut `limit/offset/total` üçlüsü
+   AYNEN KORUNUR. Tek türetme noktası `buildAdminListPagination`, tek sayfa çözümü
+   `resolveAdminListPage`'tir (öncelik: page/pageSize > limit/offset > varsayılan). Bu
+   sayede eski istemciler ve gateway-içi çağrılar kırılmaz.
+
+3. **Filtreleme/sıralama/sayfalama SUNUCUDA.** Frontend tüm veri kümesini çekip
+   `slice`/`filter`/`sort` YAPMAZ. Ürün listesi için data-access'e `listProductsAdmin`
+   eklendi; mevcut `listProducts` (basit limit/offset) public yollar için KORUNDU.
+
+4. **Türetilmiş büyüklükler için tek SQL yolu.** `price` (aktif varyantların MIN fiyatı)
+   ve `stock` (available = onHand − reserved toplamı) Prisma `orderBy` ile ifade edilemez.
+   Bu yüzden ürün listesi filtre+sıralama+sayfalamayı TEK parametreli raw SQL ile id'lere
+   indirger, ardından mevcut `productSelect` ile hidre eder (2 + 1 sorgu, N+1 yok).
+   `LEFT JOIN LATERAL` aggregate'i YALNIZ fiyat/stok gerektiğinde kurulur. Sıralama
+   ifadesi kapalı bir allowlist'ten seçilir; `%`/`_`/`\` LIKE metakarakterleri kaçırılır;
+   `storeId` her koşulda WHERE'in ilk şartıdır. Stok otoritesi search read-model ile
+   AYNIdır (InventoryItem varsayılan depo).
+
+5. **URL = liste durumunun tek doğruluk kaynağı.** `useDataGridQuery` arama, filtreler,
+   sıralama, sayfa ve sayfa boyutunu query string'de tutar. İki kural motorun içindedir:
+   arama/filtre/sıralama/pageSize değişince `page` 1'e döner; varsayılan değerler URL'e
+   yazılmaz. "Filtreleri temizle" daraltmayı kaldırır ama sıralama/sayfa boyutunu korur.
+
+6. **Ortak sunum, mevcut tasarım dili.** `components/data-grid/` (tablo + araç çubuğu +
+   sayfalama) mevcut store-admin koyu cam kitini SARMALAR; yeni bir paralel design system
+   üretilmez. Yapışkan başlık için gereken TEK opak yüzey `--dg-header-surface` token'ı
+   olarak tanımlanır (bileşende sabit renk yok). Filtreler popover'da açılır, uygulanan
+   filtreler tek tek kaldırılabilir çipler olarak görünür, sıralanabilir başlıklar
+   `aria-sort` taşır.
+
+7. **Sayfa-türevi özet metrikler kaldırıldı.** Ürün/müşteri ekranlarındaki "aktif ürün",
+   "üye sayısı" gibi kartlar yalnız yüklü sayfadan hesaplanıyordu; sunucu-taraflı
+   sayfalamada bu yanıltıcıdır. Yerlerini sunucudan gelen toplam kayıt + görünen aralık
+   aldı. Sipariş ekranındaki sayfa-türevi sayaçlar (taslak/işlemde/ciro) "bu sayfa" olarak
+   açıkça işaretlenip korundu; "Toplam" sunucu meta'sından beslenir.
+
+8. **Toplu seçim yalnız gerçek aksiyon varsa.** `DataGrid` satır seçimini destekler ama
+   hiçbir ekranda iş mantığı olmayan sahte bir toplu aksiyon eklenmez.
+
+### Sonuç
+
+Contracts: `adminListQueryBaseSchema`, `adminListPaginationSchema`, `resolveAdminListPage`,
+`buildAdminListPagination`, `ADMIN_LIST_*` sabitleri + ürün/kategori/müşteri/sipariş query
+şemaları. Gateway: `listProductsAdmin` + `listProductFilterOptions` (yeni
+`/products/filter-options` ucu), kategori/müşteri uçlarına arama+filtre+sıralama, sipariş
+ucuna sıralama; hepsinde ortak pagination meta'sı. Store-admin: `components/data-grid/`
+ailesi + `lib/server/list-query.ts` (BFF allowlist aktarımı); Ürünler tam uygulama,
+Kategoriler ve Müşteriler taşındı, Siparişler sayfalama+sıralama kazandı (zengin filtre
+paneli korundu). Migration `20260722120000_add_admin_list_indexes` TAMAMEN ADDITIVE:
+`Product(storeId, createdAt)` + `Order(storeId, createdAt)` — `EXPLAIN` ile index
+kullanımı doğrulandı.
+
+Gate: tüm workspace build + typecheck + lint temiz; 1121 gateway (15 yeni) + 329
+store-admin (16 yeni) testi yeşil. Canlı doğrulama gerçek enterprise-demo verisiyle
+(471 ürün) yapıldı; ayrıntı denetim belgesindedir. Taşınmayan ekranlar TD-091…TD-095
+olarak kayıtlıdır. Commit/PR/deploy YAPILMADI (brief kuralı).

@@ -220,3 +220,25 @@
   47 i18n testi yeşil; canlı headless render (masaüstü/mobil) PASS. Karar ADR-088; sınırlar TD-087…TD-090.
   Sonraki fazlar: adanmış public kategori-nav ucu (TD-088), managed home section tipleri (TD-089), overlay
   token'larının Theme Engine semantic katmanına yayını + store-settings social/payments (TD-090).
+
+## Store Admin — Enterprise Admin Data Grid Foundation (TODO-159A)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
+- Amaç: Liste ekranlarına tek tek geçici pagination eklemek yerine, tüm Store Admin liste yüzeyleri için
+  ORTAK bir veri listeleme standardı kurmak (query sözleşmesi + sunucu-otoriter filtreleme + URL state +
+  paylaşılan sunum bileşenleri) ve `/products`'ı bu standarda tam taşımak.
+- Kapsam: (1) 29 liste yüzeyinin denetimi (`docs/analysis/TODO-159A-admin-data-grid-audit.md`) — "sessiz ilk
+  sayfa" defektinin tespiti. (2) Ortak query/pagination sözleşmesi (contracts): `page/pageSize/search/sortBy/
+  sortOrder` + modül-başına `sortBy` allowlist'i, sunucu-otoriter `pageSize` tavanı, geriye-uyumlu
+  `totalItems/totalPages` meta'sı. (3) Gateway: `listProductsAdmin` (türetilmiş fiyat/stok için tek
+  parametreli SQL yolu; N+1 yok) + `products/filter-options`; kategori/müşteri/sipariş uçlarının
+  ortaklaştırılması. (4) `components/data-grid/` ailesi — URL state motoru, arama + filtre popover + aktif
+  filtre çipleri, yapışkan başlık + `aria-sort` + loading/empty/error, sayfalama çubuğu (25/50/100).
+  (5) Ürünler tam uygulama; Kategoriler + Müşteriler taşındı; Siparişler sayfalama/sıralama kazandı.
+  (6) Additive index migration (`Product`/`Order` × `storeId,createdAt`).
+- Kabul kriterleri: frontend hiçbir ekranda tüm dataset'i çekip `slice/filter/sort` YAPMAZ; geçersiz
+  sort/filtre allowlist ile 400 döner; `pageSize` tavanı sunucuda zorlanır; tenant izolasyonu tüm
+  sorgularda korunur; mevcut tasarım dili ve Theme Engine yapısı korunur (paralel design system YOK,
+  hardcoded renk YOK); mevcut testler bozulmaz. Karar ADR-089; sınırlar TD-091…TD-095.
+- Sonraki adımlar: Envanter matrisinin sayfalanabilir sözleşmeye taşınması (TD-091), sayfalamasız koleksiyon
+  uçlarının ortak meta'ya geçirilmesi (TD-092), arama tabanlı ürün/kategori seçicisi (TD-093).

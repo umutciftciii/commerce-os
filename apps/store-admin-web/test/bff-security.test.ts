@@ -141,7 +141,9 @@ describe("store-admin BFF — categories proxy", () => {
     const response = await GET(request("/api/catalog/categories", { headers: { cookie: SESSION } }));
 
     expect(response.status).toBe(200);
-    expect(apiClient.admin.categories.list).toHaveBeenCalledWith("store-1", "platform-token");
+    // TODO-159A (ADR-089) — BFF artık liste query'sini (allowlist ile) taşır; query
+    // verilmeyen istekte boş nesne gider (gateway varsayılanları uygulanır).
+    expect(apiClient.admin.categories.list).toHaveBeenCalledWith("store-1", "platform-token", {});
   });
 
   it("rejects a forged mutating request via CSRF before any upstream store lookup", async () => {

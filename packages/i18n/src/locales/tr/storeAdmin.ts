@@ -193,6 +193,42 @@ export const trStoreAdmin = {
     emptyDescription:
       "İlk ürün ve kategorilerinizi ekledikçe satış, stok ve katalog özetleri burada görünecek.",
   },
+  /**
+   * TODO-159A (ADR-089) — Ortak Admin Data Grid metinleri. Liste ekranlarının
+   * TAMAMI aynı arama/filtre/sıralama/sayfalama sözlüğünü paylaşır; sayfaya özel
+   * metin yalnız kolon başlıkları ve filtre etiketleridir.
+   */
+  dataGrid: {
+    searchPlaceholder: "Ara…",
+    searchLabel: "Arama",
+    searchSubmit: "Ara",
+    filters: "Filtreler",
+    filtersApply: "Uygula",
+    filtersClear: "Filtreleri temizle",
+    filtersClearAll: "Tümünü temizle",
+    filtersActive: "{count} filtre etkin",
+    filterAll: "Tümü",
+    removeFilter: "{label} filtresini kaldır",
+    sortLabel: "Sırala",
+    pageSizeLabel: "Sayfa başına",
+    rangeLabel: "{from}–{to} / {total} kayıt",
+    rangeEmpty: "0 kayıt",
+    previousPage: "Önceki",
+    nextPage: "Sonraki",
+    pageLabel: "Sayfa",
+    pageOf: "{page} / {totalPages}",
+    goToPage: "Sayfaya git",
+    loading: "Kayıtlar yükleniyor…",
+    errorTitle: "Kayıtlar yüklenemedi.",
+    retry: "Tekrar dene",
+    emptyTitle: "Kayıt bulunamadı",
+    emptyDescription: "Bu listede hiç kayıt yok.",
+    emptyFilteredTitle: "Eşleşen kayıt yok",
+    emptyFilteredDescription: "Arama veya filtreleri değiştirip tekrar deneyin.",
+    selectedCount: "{count} kayıt seçildi",
+    selectRow: "Satırı seç",
+    selectAll: "Sayfadaki tüm satırları seç",
+  },
   products: {
     eyebrow: "Katalog",
     title: "Ürünler",
@@ -263,6 +299,41 @@ export const trStoreAdmin = {
       purchasableHint: "Doğrudan sepete eklenebilir",
       catalog: "Katalog ürünleri",
       catalogHint: "Yalnızca katalogda görünür",
+    },
+    // TODO-159A (ADR-089) — Ürün Data Grid'i: filtre etiketleri + sıralama seçenekleri.
+    // Sıralama değerleri `sortBy:sortOrder` bileşiğidir (URL ile birebir aynı).
+    grid: {
+      searchPlaceholder: "Ürün adı, kısa ad, SKU, barkod, marka veya tedarikçi",
+      filters: {
+        status: "Durum",
+        salesMode: "Satış tipi",
+        purchasable: "Satın alınabilirlik",
+        category: "Kategori",
+        brand: "Marka",
+        vendor: "Tedarikçi",
+        stockStatus: "Stok durumu",
+        price: "Fiyat aralığı (kuruş)",
+        priceMin: "En az",
+        priceMax: "En çok",
+      },
+      purchasableLabels: {
+        true: "Satın alınabilir",
+        false: "Satın alınamaz",
+      },
+      stockStatusLabels: {
+        IN_STOCK: "Stokta var",
+        OUT_OF_STOCK: "Stokta yok",
+      },
+      sort: {
+        newest: "En yeni",
+        oldest: "En eski",
+        titleAsc: "Ürün adı A–Z",
+        titleDesc: "Ürün adı Z–A",
+        priceAsc: "Fiyat artan",
+        priceDesc: "Fiyat azalan",
+        stockAsc: "Stok artan",
+        stockDesc: "Stok azalan",
+      },
     },
     statusLabels: {
       DRAFT: "Taslak",
@@ -1095,6 +1166,17 @@ export const trStoreAdmin = {
     placing: "Veriliyor…",
     cancelling: "İptal ediliyor…",
     noCustomer: "—",
+    // TODO-159A (ADR-089) — Sipariş Data Grid'i sıralama seçenekleri.
+    grid: {
+      sort: {
+        newest: "En yeni",
+        oldest: "En eski",
+        placedNewest: "Sipariş tarihi (yeni)",
+        placedOldest: "Sipariş tarihi (eski)",
+        totalDesc: "Tutar azalan",
+        totalAsc: "Tutar artan",
+      },
+    },
     lineCountLabel: "{count} kalem",
     table: {
       number: "Sipariş No",
@@ -1452,6 +1534,18 @@ export const trStoreAdmin = {
       status: "Durum",
       actions: "İşlem",
     },
+    // TODO-159A (ADR-089) — Kategori Data Grid'i (arama + durum + sıralama).
+    grid: {
+      searchPlaceholder: "Kategori adı veya kısa ad",
+      filters: { status: "Durum" },
+      sort: {
+        sortOrder: "Merchandising sırası",
+        nameAsc: "Ad A–Z",
+        nameDesc: "Ad Z–A",
+        newest: "En yeni",
+        oldest: "En eski",
+      },
+    },
     statusLabels: {
       ACTIVE: "Etkin",
       ARCHIVED: "Arşiv",
@@ -1716,6 +1810,20 @@ export const trStoreAdmin = {
       address: "Varsayılan adres",
       created: "Katılım",
       action: "İşlem",
+    },
+    // TODO-159A (ADR-089) — Müşteri Data Grid'i (arama + durum/üyelik + sıralama).
+    grid: {
+      searchPlaceholder: "E-posta, ad, soyad veya telefon",
+      filters: { status: "Durum", membership: "Üyelik" },
+      membershipLabels: { true: "Üye", false: "Misafir" },
+      sort: {
+        newest: "En yeni",
+        oldest: "En eski",
+        nameAsc: "Ad A–Z",
+        nameDesc: "Ad Z–A",
+        emailAsc: "E-posta A–Z",
+        emailDesc: "E-posta Z–A",
+      },
     },
     manageAction: "Yönet",
     statusLabels: {

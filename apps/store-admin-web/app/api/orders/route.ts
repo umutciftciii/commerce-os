@@ -32,6 +32,15 @@ function readOrderFilters(params: URLSearchParams): OrderListQuery {
   if (dateFrom) query.dateFrom = dateFrom;
   const dateTo = params.get("dateTo");
   if (dateTo) query.dateTo = dateTo;
+  // TODO-159A (ADR-089) — Data Grid sıralama + sayfa alanları (allowlist gateway'de).
+  const sortBy = params.get("sortBy");
+  if (sortBy) query.sortBy = sortBy as OrderListQuery["sortBy"];
+  const sortOrder = params.get("sortOrder");
+  if (sortOrder) query.sortOrder = sortOrder as OrderListQuery["sortOrder"];
+  const page = params.get("page");
+  if (page) query.page = Number(page);
+  const pageSize = params.get("pageSize");
+  if (pageSize) query.pageSize = Number(pageSize);
   const limit = params.get("limit");
   if (limit) query.limit = Number(limit);
   const offset = params.get("offset");

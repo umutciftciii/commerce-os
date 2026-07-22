@@ -80,6 +80,8 @@ import type {
   ProductListResponse,
   ProductPriceChangeListResponse,
   ProductUpdateRequest,
+  // TODO-159A (ADR-089) — Admin Data Grid liste sözleşmesi.
+  AdminProductFilterOptionsResponse,
   ProductVariant,
   ProductVariantCreateRequest,
   ProductVariantListResponse,
@@ -295,6 +297,18 @@ export type {
   ProductCreateRequest,
   ProductListResponse,
   ProductPriceVisibility,
+  // TODO-159A (ADR-089) — Admin Data Grid ortak liste sözleşmesi tipleri.
+  AdminListPagination,
+  AdminListSortOrder,
+  AdminProductListQuery,
+  AdminProductListSortBy,
+  AdminProductStockStatus,
+  AdminProductFilterOptionsResponse,
+  AdminCategoryListQuery,
+  AdminCategoryListSortBy,
+  AdminCustomerListQuery,
+  AdminCustomerListSortBy,
+  AdminOrderListSortBy,
   ProductPrimaryAction,
   ProductPriceChange,
   ProductPriceChangeListResponse,
@@ -500,6 +514,11 @@ export {
   pickOrderShipmentStatus,
   // TODO-136 — Gönderi oluşturma ödeme ön koşulu (gateway guard + store-admin UI aynı otorite).
   isOrderPaidForShipment,
+  // TODO-159A (ADR-089) — Admin Data Grid sayfa boyutu sabitleri (UI seçici + sunucu sınırı
+  // AYNI otoriteden okur; UI'da ayrı bir sabit listesi tutulmaz).
+  ADMIN_LIST_PAGE_SIZE_OPTIONS,
+  ADMIN_LIST_DEFAULT_PAGE_SIZE,
+  ADMIN_LIST_MAX_PAGE_SIZE,
 } from "@commerce-os/contracts";
 
 /**
@@ -743,7 +762,12 @@ export interface ApiClient {
       update(id: string, input: PlanUpdateRequest, token?: string): Promise<Plan>;
     };
     categories: {
-      list(storeId: string, token?: string): Promise<ProductCategoryListResponse>;
+      // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<ProductCategoryListResponse>;
       create(
         storeId: string,
         input: ProductCategoryCreateRequest,
@@ -1022,7 +1046,18 @@ export interface ApiClient {
       remove(storeId: string, mediaId: string, token?: string): Promise<void>;
     };
     products: {
-      list(storeId: string, token?: string): Promise<ProductListResponse>;
+      // TODO-159A (ADR-089) — Admin Data Grid: sayfalama/arama/filtre/sıralama query'si
+      // sunucuya TAŞINIR. `query` anahtar-değer haritasıdır; boş/undefined değerler atlanır.
+      // Doğrulama + allowlist gateway'dedir (istemci sözleşmesi ince kalır).
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<ProductListResponse>;
+      filterOptions(
+        storeId: string,
+        token?: string,
+      ): Promise<AdminProductFilterOptionsResponse>;
       create(storeId: string, input: ProductCreateRequest, token?: string): Promise<Product>;
       get(storeId: string, productId: string, token?: string): Promise<Product>;
       update(
@@ -1204,7 +1239,12 @@ export interface ApiClient {
       cancel(storeId: string, orderId: string, input?: OrderCancelRequest, token?: string): Promise<Order>;
     };
     customers: {
-      list(storeId: string, token?: string): Promise<StoreAdminCustomerListResponse>;
+      // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<StoreAdminCustomerListResponse>;
       create(
         storeId: string,
         input: StoreAdminCustomerCreateRequest,
@@ -1656,6 +1696,11 @@ function orderListQueryString(query?: OrderListQuery): string {
   append("search", query.search);
   append("dateFrom", query.dateFrom);
   append("dateTo", query.dateTo);
+  // TODO-159A (ADR-089) — Data Grid sayfalama + sıralama alanları.
+  append("sortBy", query.sortBy);
+  append("sortOrder", query.sortOrder);
+  if (query.page !== undefined && query.page > 1) append("page", query.page);
+  if (query.pageSize !== undefined) append("pageSize", query.pageSize);
   // limit/offset yalnız varsayılan dışıysa taşınır (pagination korunur).
   if (query.limit !== undefined) append("limit", query.limit);
   if (query.offset !== undefined && query.offset > 0) append("offset", query.offset);
@@ -1732,6 +1777,22 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     return requestJson<T>(path, {}, token);
   }
 
+  /**
+   * TODO-159A (ADR-089) — Admin liste query'sini deterministik bir query string'e
+   * çevirir. undefined/boş değerler ATLANIR (varsayılanı gereksiz yere URL'e
+   * yazmamak için); anahtar sırası verilen sıradır.
+   */
+  function buildQueryString(query?: Record<string, string | number | undefined>): string {
+    if (!query) return "";
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value === undefined || value === "") continue;
+      params.set(key, String(value));
+    }
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : "";
+  }
+
   function sendJson<T>(path: string, method: string, body?: unknown, token?: string): Promise<T> {
     return requestJson<T>(
       path,
@@ -1777,8 +1838,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<Plan>(`/admin/plans/${id}`, "PATCH", input, token),
       },
       categories: {
-        list: (storeId, token) =>
-          getJson<ProductCategoryListResponse>(`/stores/${storeId}/categories`, token),
+        list: (storeId, token, query) =>
+          getJson<ProductCategoryListResponse>(
+            `/stores/${storeId}/categories${buildQueryString(query)}`,
+            token,
+          ),
         create: (storeId, input, token) =>
           sendJson<ProductCategory>(`/stores/${storeId}/categories`, "POST", input, token),
         get: (storeId, categoryId, token) =>
@@ -2091,8 +2155,16 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           requestJson<void>(`/stores/${storeId}/media/${mediaId}`, { method: "DELETE" }, token),
       },
       products: {
-        list: (storeId, token) =>
-          getJson<ProductListResponse>(`/stores/${storeId}/products`, token),
+        list: (storeId, token, query) =>
+          getJson<ProductListResponse>(
+            `/stores/${storeId}/products${buildQueryString(query)}`,
+            token,
+          ),
+        filterOptions: (storeId, token) =>
+          getJson<AdminProductFilterOptionsResponse>(
+            `/stores/${storeId}/products/filter-options`,
+            token,
+          ),
         create: (storeId, input, token) =>
           sendJson<Product>(`/stores/${storeId}/products`, "POST", input, token),
         get: (storeId, productId, token) =>
@@ -2288,8 +2360,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/cancel`, "POST", input, token),
       },
       customers: {
-        list: (storeId, token) =>
-          getJson<StoreAdminCustomerListResponse>(`/stores/${storeId}/customers`, token),
+        list: (storeId, token, query) =>
+          getJson<StoreAdminCustomerListResponse>(
+            `/stores/${storeId}/customers${buildQueryString(query)}`,
+            token,
+          ),
         create: (storeId, input, token) =>
           sendJson<StoreAdminCustomerCreateResponse>(
             `/stores/${storeId}/customers`,

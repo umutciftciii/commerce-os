@@ -49,6 +49,13 @@ import {
   productCreateRequestSchema,
   resolvePrimaryCategorySelection,
   productListResponseSchema,
+  // TODO-159A (ADR-089) — Admin Data Grid ortak liste sözleşmesi.
+  adminProductListQuerySchema,
+  adminProductFilterOptionsResponseSchema,
+  adminCategoryListQuerySchema,
+  adminCustomerListQuerySchema,
+  buildAdminListPagination,
+  resolveAdminListPage,
   productPriceChangeListResponseSchema,
   productPriceChangeSchema,
   productSchema,
@@ -718,6 +725,28 @@ export interface PaymentProviderEventCreateInput {
   metadata?: Record<string, unknown> | null;
 }
 
+/**
+ * TODO-159A (ADR-089) — Admin ürün listesi veri-erişim kriteri. Route katmanı zod
+ * ile DOĞRULANMIŞ (allowlist'lenmiş) değerleri buraya taşır; data-access serbest
+ * metin sıralama/filtre ALMAZ.
+ */
+export interface AdminProductListCriteria {
+  limit: number;
+  offset: number;
+  search?: string;
+  sortBy: "createdAt" | "updatedAt" | "title" | "price" | "stock";
+  sortOrder: "asc" | "desc";
+  status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  salesMode?: ProductSalesMode;
+  purchasable?: boolean;
+  categoryId?: string;
+  brand?: string;
+  vendor?: string;
+  stockStatus?: "IN_STOCK" | "OUT_OF_STOCK";
+  priceMin?: number;
+  priceMax?: number;
+}
+
 // F4A — Kampanya veri erisimi AppDataAccess'e dahildir; boylece test harness'i
 // (MemoryDataAccess) public sepet/checkout indirim akisini DB'siz dogrulayabilir.
 export interface AppDataAccess extends CampaignDataAccess {
@@ -761,7 +790,17 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<PlanRecord | null>;
   listCategories(
     storeId: string,
-    input: { limit: number; offset: number },
+    // TODO-159A (ADR-089) — Admin Data Grid: arama/durum filtresi ve sıralama
+    // OPSİYONEL alanlardır; verilmeyince davranış eskisiyle birebir aynıdır
+    // (sortOrder ASC + sayfalama). Gateway-içi public çağrılar etkilenmez.
+    input: {
+      limit: number;
+      offset: number;
+      search?: string;
+      status?: "ACTIVE" | "ARCHIVED";
+      sortBy?: "sortOrder" | "name" | "createdAt";
+      sortOrder?: "asc" | "desc";
+    },
   ): Promise<{ data: CategoryRecord[]; total: number }>;
   findCategoryById(storeId: string, categoryId: string): Promise<CategoryRecord | null>;
   findCategoryBySlug(storeId: string, slug: string): Promise<CategoryRecord | null>;
@@ -834,6 +873,21 @@ export interface AppDataAccess extends CampaignDataAccess {
     storeId: string,
     input: { limit: number; offset: number },
   ): Promise<{ data: ProductRecord[]; total: number }>;
+  /**
+   * TODO-159A (ADR-089) — Admin Data Grid: server-side arama + filtre + sıralama +
+   * sayfalama. `listProducts` (basit limit/offset) KORUNUR; gateway-içi public
+   * yollar onu kullanmaya devam eder. Tenant izolasyonu `storeId` ile burada
+   * zorlanır; filtreler yalnız o mağaza içinde daraltır.
+   *
+   * `price`/`stock` sıralaması ve `stockStatus`/fiyat-aralığı filtresi varyanttan
+   * türetilir (MIN aktif varyant fiyatı; InventoryItem available = onHand−reserved).
+   */
+  listProductsAdmin(
+    storeId: string,
+    input: AdminProductListCriteria,
+  ): Promise<{ data: ProductRecord[]; total: number }>;
+  /** TODO-159A — Marka/tedarikçi filtre açılırları için DISTINCT değerler (tek groupBy). */
+  listProductFilterOptions(storeId: string): Promise<{ brands: string[]; vendors: string[] }>;
   findProductById(storeId: string, productId: string): Promise<ProductRecord | null>;
   findProductBySlug(storeId: string, slug: string): Promise<ProductRecord | null>;
   /**
@@ -1037,6 +1091,9 @@ export interface AppDataAccess extends CampaignDataAccess {
     input: {
       limit: number;
       offset: number;
+      // TODO-159A (ADR-089) — sıralama allowlist'i (verilmezse createdAt DESC).
+      sortBy?: "createdAt" | "placedAt" | "total";
+      sortOrder?: "asc" | "desc";
       status?: OrderStatus;
       paymentStatus?: PaymentStatus;
       fulfillmentStatus?: FulfillmentStatus;
@@ -1047,7 +1104,17 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: OrderRecord[]; total: number }>;
   listCustomers(
     storeId: string,
-    input: { limit: number; offset: number },
+    // TODO-159A (ADR-089) — arama (e-posta/ad/soyad/telefon) + durum filtresi +
+    // sıralama allowlist'i. Hepsi opsiyonel; verilmeyince eski davranış korunur.
+    input: {
+      limit: number;
+      offset: number;
+      search?: string;
+      status?: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+      hasCredential?: boolean;
+      sortBy?: "createdAt" | "firstName" | "email";
+      sortOrder?: "asc" | "desc";
+    },
   ): Promise<{ data: StoreAdminCustomerRecord[]; total: number }>;
   findOrderById(storeId: string, orderId: string): Promise<OrderRecord | null>;
   /**
@@ -2793,16 +2860,34 @@ function createPrismaDataAccess(): AppDataAccess {
         throw error;
       }
     },
-    listCategories: async (storeId, { limit, offset }) => {
+    listCategories: async (storeId, { limit, offset, search, status, sortBy, sortOrder }) => {
+      // TODO-159A (ADR-089) — store-scope her zaman ilk şart; filtreler yalnız o
+      // mağaza içinde daraltır. Arama ad + slug üzerinde (insensitive contains).
+      const where: Prisma.ProductCategoryWhereInput = { storeId };
+      if (status) where.status = status;
+      if (search) {
+        where.OR = [
+          { name: { contains: search, mode: "insensitive" } },
+          { slug: { contains: search, mode: "insensitive" } },
+        ];
+      }
+      // Varsayılan (sortBy verilmezse) ESKİ sıra: sortOrder ASC → createdAt ASC.
+      const direction = sortOrder ?? "asc";
+      const orderBy: Prisma.ProductCategoryOrderByWithRelationInput[] =
+        sortBy === "name"
+          ? [{ name: direction }, { id: "asc" }]
+          : sortBy === "createdAt"
+            ? [{ createdAt: direction }, { id: "asc" }]
+            : [{ sortOrder: direction }, { createdAt: "asc" }, { id: "asc" }];
       const [data, total] = await Promise.all([
         prisma.productCategory.findMany({
-          where: { storeId },
-          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          where,
+          orderBy,
           skip: offset,
           take: limit,
           select: categorySelect,
         }),
-        prisma.productCategory.count({ where: { storeId } }),
+        prisma.productCategory.count({ where }),
       ]);
       return { data, total };
     },
@@ -2925,6 +3010,157 @@ function createPrismaDataAccess(): AppDataAccess {
         prisma.product.count({ where: { storeId } }),
       ]);
       return { data: data.map(withCategoryIds), total };
+    },
+    // ─────────────────────────────────────────────────────────────────────────
+    // TODO-159A (ADR-089) — Admin Data Grid ürün listesi.
+    //
+    // Neden raw SQL: `price` (aktif varyantların MIN fiyatı) ve `stock` (available =
+    // onHand − reserved toplamı) TÜRETİLMİŞ büyüklüklerdir; Prisma orderBy ilişkisel
+    // aggregate'e göre sıralayamaz. Tek bir SQL yolu tutmak, "bazı sıralamalar
+    // sayfalanmış veriyi istemcide yeniden sıralar" tuzağını tamamen kapatır.
+    //
+    // Akış: (1) filtre+sıralama SQL'i YALNIZ id döndürür, (2) COUNT aynı WHERE ile
+    // toplamı verir, (3) sayfa id'leri mevcut `productSelect` ile hidre edilir —
+    // yani serialize yolu ve alan yüzeyi DEĞİŞMEZ. N+1 yok (2 + 1 sorgu).
+    //
+    // Güvenlik: her fragment parametrelidir (Prisma.sql); sıralama ifadesi kapalı
+    // bir allowlist'ten SEÇİLİR — istemci metni asla SQL'e girmez. `storeId` her
+    // koşulda WHERE'in ilk şartıdır (tenant izolasyonu).
+    // ─────────────────────────────────────────────────────────────────────────
+    listProductsAdmin: async (storeId, criteria) => {
+      // LIKE metakarakterleri (% _ \) kaçırılır: kullanıcı girdisi kontrolsüz
+      // wildcard'a dönüşemez (tam tablo taraması riski).
+      const likePattern = (raw: string) =>
+        `%${raw.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+
+      const conditions: Prisma.Sql[] = [Prisma.sql`p."storeId" = ${storeId}`];
+      if (criteria.search) {
+        const pattern = likePattern(criteria.search);
+        conditions.push(Prisma.sql`(
+          p."title" ILIKE ${pattern} ESCAPE '\\'
+          OR p."slug" ILIKE ${pattern} ESCAPE '\\'
+          OR p."brand" ILIKE ${pattern} ESCAPE '\\'
+          OR p."vendor" ILIKE ${pattern} ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1 FROM "ProductVariant" sv
+            WHERE sv."productId" = p."id"
+              AND (sv."sku" ILIKE ${pattern} ESCAPE '\\' OR sv."barcode" ILIKE ${pattern} ESCAPE '\\')
+          )
+        )`);
+      }
+      // Enum karşılaştırmaları ::text üzerinden yapılır (parametre tipi her sürücüde
+      // güvenle text'tir; enum cast'ine bağımlılık yok).
+      if (criteria.status) conditions.push(Prisma.sql`p."status"::text = ${criteria.status}`);
+      if (criteria.salesMode) conditions.push(Prisma.sql`p."salesMode"::text = ${criteria.salesMode}`);
+      if (criteria.purchasable !== undefined) {
+        conditions.push(Prisma.sql`p."purchasable" = ${criteria.purchasable}`);
+      }
+      if (criteria.categoryId) {
+        conditions.push(Prisma.sql`EXISTS (
+          SELECT 1 FROM "ProductCategoryAssignment" pca
+          WHERE pca."productId" = p."id"
+            AND pca."storeId" = ${storeId}
+            AND pca."categoryId" = ${criteria.categoryId}
+        )`);
+      }
+      if (criteria.brand) conditions.push(Prisma.sql`p."brand" = ${criteria.brand}`);
+      if (criteria.vendor) conditions.push(Prisma.sql`p."vendor" = ${criteria.vendor}`);
+      if (criteria.stockStatus === "IN_STOCK") {
+        conditions.push(Prisma.sql`COALESCE(agg."available", 0) > 0`);
+      }
+      if (criteria.stockStatus === "OUT_OF_STOCK") {
+        conditions.push(Prisma.sql`COALESCE(agg."available", 0) <= 0`);
+      }
+      if (criteria.priceMin !== undefined) {
+        conditions.push(Prisma.sql`agg."minPrice" >= ${criteria.priceMin}`);
+      }
+      if (criteria.priceMax !== undefined) {
+        conditions.push(Prisma.sql`agg."minPrice" <= ${criteria.priceMax}`);
+      }
+
+      // Türetilmiş toplamlar YALNIZ gerektiğinde hesaplanır (filtre veya sıralama
+      // onları kullanıyorsa); aksi halde LATERAL join hiç kurulmaz.
+      const needsAggregate =
+        criteria.sortBy === "price" ||
+        criteria.sortBy === "stock" ||
+        criteria.stockStatus !== undefined ||
+        criteria.priceMin !== undefined ||
+        criteria.priceMax !== undefined;
+
+      // available = onHand − reserved (search read-model ile AYNI otorite: InventoryItem
+      // varsayılan depo). Negatif bakiye 0'a kırpılır (rezervasyon aşımı stok üretmez).
+      const aggregateJoin = needsAggregate
+        ? Prisma.sql`LEFT JOIN LATERAL (
+            SELECT
+              MIN(v."priceMinor") AS "minPrice",
+              COALESCE(SUM(GREATEST(COALESCE(i."quantityOnHand", 0) - COALESCE(i."quantityReserved", 0), 0)), 0) AS "available"
+            FROM "ProductVariant" v
+            LEFT JOIN "InventoryItem" i ON i."variantId" = v."id"
+            WHERE v."productId" = p."id" AND v."status" = 'ACTIVE'
+          ) agg ON TRUE`
+        : Prisma.empty;
+
+      const where = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
+      const direction = criteria.sortOrder === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+      // ALLOWLIST → sabit SQL ifadesi. NULLS LAST: fiyatsız/stoksuz ürünler her iki
+      // yönde de sona düşer (liste başı hep anlamlı kayıtla açılır).
+      const sortExpression: Record<AdminProductListCriteria["sortBy"], Prisma.Sql> = {
+        createdAt: Prisma.sql`p."createdAt"`,
+        updatedAt: Prisma.sql`p."updatedAt"`,
+        title: Prisma.sql`LOWER(p."title")`,
+        price: Prisma.sql`agg."minPrice"`,
+        stock: Prisma.sql`agg."available"`,
+      };
+      // İkincil anahtar id: aynı değerli satırlarda sayfa sınırının deterministik
+      // olmasını sağlar (kayıt atlanması/tekrarı olmaz).
+      const orderBy = Prisma.sql`ORDER BY ${sortExpression[criteria.sortBy]} ${direction} NULLS LAST, p."id" ASC`;
+
+      const [rows, counted] = await Promise.all([
+        prisma.$queryRaw<{ id: string }[]>(
+          Prisma.sql`SELECT p."id" FROM "Product" p ${aggregateJoin} ${where} ${orderBy} LIMIT ${criteria.limit} OFFSET ${criteria.offset}`,
+        ),
+        prisma.$queryRaw<{ count: bigint }[]>(
+          Prisma.sql`SELECT COUNT(*) AS count FROM "Product" p ${aggregateJoin} ${where}`,
+        ),
+      ]);
+
+      const ids = rows.map((row) => row.id);
+      const total = Number(counted[0]?.count ?? 0);
+      if (ids.length === 0) return { data: [], total };
+
+      // Hidrasyon: mevcut hafif liste projeksiyonu (images join'i YOK). storeId
+      // burada da tekrar zorlanır (savunma katmanı).
+      const products = await prisma.product.findMany({
+        where: { storeId, id: { in: ids } },
+        select: productSelect,
+      });
+      const byId = new Map(products.map((product) => [product.id, product]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((product): product is NonNullable<typeof product> => product !== undefined);
+      return { data: ordered.map(withCategoryIds), total };
+    },
+    // TODO-159A — Filtre açılırlarının DISTINCT kaynağı. Liste sayfalandığı için bu
+    // değerler istemcide türetilemez; tek groupBy ile (ürün sayısından bağımsız) döner.
+    listProductFilterOptions: async (storeId) => {
+      const [brandRows, vendorRows] = await Promise.all([
+        prisma.product.groupBy({
+          by: ["brand"],
+          where: { storeId, brand: { not: null } },
+          orderBy: { brand: "asc" },
+          take: 200,
+        }),
+        prisma.product.groupBy({
+          by: ["vendor"],
+          where: { storeId, vendor: { not: null } },
+          orderBy: { vendor: "asc" },
+          take: 200,
+        }),
+      ]);
+      return {
+        brands: brandRows.map((row) => row.brand).filter((value): value is string => !!value),
+        vendors: vendorRows.map((row) => row.vendor).filter((value): value is string => !!value),
+      };
     },
     findProductById: async (storeId, productId) => {
       const product = await prisma.product.findFirst({ where: { id: productId, storeId }, select: productDetailSelect });
@@ -3381,10 +3617,19 @@ function createPrismaDataAccess(): AppDataAccess {
           { customer: { is: { lastName: { contains: term, mode: "insensitive" } } } },
         ];
       }
+      // TODO-159A (ADR-089) — sıralama allowlist'i (varsayılan createdAt DESC =
+      // eski davranış). `placedAt` NULL olabilir (DRAFT) → Prisma nulls: "last".
+      const direction = query.sortOrder ?? "desc";
+      const orderBy: Prisma.OrderOrderByWithRelationInput[] =
+        query.sortBy === "placedAt"
+          ? [{ placedAt: { sort: direction, nulls: "last" } }, { id: "asc" }]
+          : query.sortBy === "total"
+            ? [{ totalAmount: direction }, { id: "asc" }]
+            : [{ createdAt: query.sortBy === "createdAt" ? direction : "desc" }, { id: "asc" }];
       const [data, total] = await Promise.all([
         prisma.order.findMany({
           where,
-          orderBy: { createdAt: "desc" },
+          orderBy,
           skip: query.offset,
           take: query.limit,
           select: orderSelect,
@@ -3393,11 +3638,33 @@ function createPrismaDataAccess(): AppDataAccess {
       ]);
       return { data, total };
     },
-    listCustomers: async (storeId, { limit, offset }) => {
+    listCustomers: async (storeId, { limit, offset, search, status, hasCredential, sortBy, sortOrder }) => {
+      // TODO-159A (ADR-089) — store-scope her zaman ilk şart. Arama e-posta / ad /
+      // soyad / telefon kolonlarında (hepsi Customer satırında; PII türetimi YOK).
+      const where: Prisma.CustomerWhereInput = { storeId };
+      if (status) where.status = status;
+      if (hasCredential !== undefined) {
+        where.credential = hasCredential ? { isNot: null } : { is: null };
+      }
+      if (search) {
+        where.OR = [
+          { email: { contains: search, mode: "insensitive" } },
+          { phone: { contains: search, mode: "insensitive" } },
+          { firstName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+        ];
+      }
+      const direction = sortOrder ?? "desc";
+      const orderBy: Prisma.CustomerOrderByWithRelationInput[] =
+        sortBy === "firstName"
+          ? [{ firstName: { sort: direction, nulls: "last" } }, { id: "asc" }]
+          : sortBy === "email"
+            ? [{ email: { sort: direction, nulls: "last" } }, { id: "asc" }]
+            : [{ createdAt: direction }, { id: "asc" }];
       const [rows, total] = await Promise.all([
         prisma.customer.findMany({
-          where: { storeId },
-          orderBy: { createdAt: "desc" },
+          where,
+          orderBy,
           skip: offset,
           take: limit,
           select: {
@@ -3429,7 +3696,7 @@ function createPrismaDataAccess(): AppDataAccess {
             },
           },
         }),
-        prisma.customer.count({ where: { storeId } }),
+        prisma.customer.count({ where }),
       ]);
 
       const data: StoreAdminCustomerRecord[] = rows.map((row) => {
@@ -5970,15 +6237,25 @@ export function createServer(
     return serializePlan(plan);
   });
 
+  // TODO-159A (ADR-089) — Admin Data Grid kategori listesi (arama + durum + sıralama).
+  // Query allowlist zod'dadır; eski limit/offset istemcileri de kabul edilir.
   app.get("/stores/:storeId/categories", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    const pagination = paginationQuerySchema.parse(request.query);
-    const categories = await dataAccess.listCategories(params.storeId, pagination);
+    const query = adminCategoryListQuerySchema.parse(request.query);
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const categories = await dataAccess.listCategories(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      status: query.status,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
     return productCategoryListResponseSchema.parse({
       data: categories.data.map((category) => serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL)),
-      pagination: { ...pagination, total: categories.total },
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: categories.total }),
     });
   });
 
@@ -6266,18 +6543,51 @@ export function createServer(
     return { primaryCategoryId: resolved };
   }
 
+  /**
+   * TODO-159A (ADR-089) — Admin Data Grid ürün listesi.
+   *
+   * Query allowlist'i `adminProductListQuerySchema`'dır: tanınmayan sort/filtre
+   * değerleri zod tarafından 400 ile reddedilir (serbest metin sıralamaya geçmez).
+   * `pageSize` üst sınırı ADMIN_LIST_MAX_PAGE_SIZE'dır ve SUNUCUDA zorlanır.
+   * Eski `limit`/`offset` istemcileri de kabul edilir (resolveAdminListPage).
+   */
   app.get("/stores/:storeId/products", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    const pagination = paginationQuerySchema.parse(request.query);
-    const products = await dataAccess.listProducts(params.storeId, pagination);
+    const query = adminProductListQuerySchema.parse(request.query);
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const products = await dataAccess.listProductsAdmin(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      sortBy: query.sortBy ?? "createdAt",
+      sortOrder: query.sortOrder ?? "desc",
+      status: query.status,
+      salesMode: query.salesMode,
+      purchasable: query.purchasable === undefined ? undefined : query.purchasable === "true",
+      categoryId: query.categoryId,
+      brand: query.brand,
+      vendor: query.vendor,
+      stockStatus: query.stockStatus,
+      priceMin: query.priceMin,
+      priceMax: query.priceMax,
+    });
     return productListResponseSchema.parse({
       // ADR-065 (Faz 2/Dilim 2) — liste hafif select kullanir; images bos ([]) doner.
       // baseUrl tutarlilik icin gecilir (liste thumbnail'i ayri follow-up).
       data: products.data.map((product) => serializeProduct(product, config.MEDIA_PUBLIC_BASE_URL)),
-      pagination: { ...pagination, total: products.total },
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: products.total }),
     });
+  });
+
+  /** TODO-159A — Ürün filtre açılırlarının DISTINCT marka/tedarikçi kaynağı. */
+  app.get("/stores/:storeId/products/filter-options", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const options = await dataAccess.listProductFilterOptions(params.storeId);
+    return adminProductFilterOptionsResponseSchema.parse(options);
   });
 
   app.post("/stores/:storeId/products", async (request, reply) => {
@@ -6890,12 +7200,13 @@ export function createServer(
     // TODO-073 — Operasyonel filtreler. Store-scope yukarıda zorlanır; filtreler
     // yalnız o mağaza içinde daraltır, başka mağaza siparişine erişim açmaz.
     const query = orderListQuerySchema.parse(request.query);
-    const limit = query.limit ?? 50;
-    const offset = query.offset ?? 0;
+    // TODO-159A (ADR-089) — ortak sayfa çözümü: page/pageSize > limit/offset.
+    // Varsayılan sayfa boyutu 50 KORUNUR (mevcut istemci davranışı bozulmaz).
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query, 50);
     const orders = await dataAccess.listOrders(params.storeId, { ...query, limit, offset });
     return orderListResponseSchema.parse({
       data: orders.data.map(serializeOrder),
-      pagination: { limit, offset, total: orders.total },
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: orders.total }),
     });
   });
 
@@ -6905,11 +7216,22 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    const pagination = paginationQuerySchema.parse(request.query);
-    const customers = await dataAccess.listCustomers(params.storeId, pagination);
+    // TODO-159A (ADR-089) — Admin Data Grid müşteri dizini (arama + durum + sıralama).
+    const query = adminCustomerListQuerySchema.parse(request.query);
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const customers = await dataAccess.listCustomers(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      status: query.status,
+      hasCredential:
+        query.hasCredential === undefined ? undefined : query.hasCredential === "true",
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
     return storeAdminCustomerListResponseSchema.parse({
       data: customers.data.map(serializeStoreAdminCustomer),
-      pagination: { ...pagination, total: customers.total },
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: customers.total }),
     });
   });
 

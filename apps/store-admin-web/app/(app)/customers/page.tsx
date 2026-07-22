@@ -1,29 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+/**
+ * TODO-159A (ADR-089) — Müşteri dizini ortak Admin Data Grid'e taşındı.
+ * Arama (e-posta/ad/soyad/telefon), durum + üyelik filtresi, sıralama ve
+ * sayfalama SUNUCUDA uygulanır.
+ */
+
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Alert,
   Badge,
   Button,
-  DataTable,
-  EmptyState,
   Input,
   Modal,
   PageHeader,
   Select,
   SkeletonRows,
   useLocale,
-  type DataTableColumn,
 } from "../../../components/ui";
+import {
+  DataGrid,
+  DataGridPagination,
+  DataGridToolbar,
+  useDataGridQuery,
+  type DataGridColumn,
+} from "../../../components/data-grid";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { StoreAdminCustomerSummary, StoreAdminCustomerStatus } from "@commerce-os/api-client";
+import type {
+  AdminListPagination,
+  StoreAdminCustomerSummary,
+  StoreAdminCustomerStatus,
+} from "@commerce-os/api-client";
 import { CustomerIcon } from "../../../components/icons";
 import { storeApi, type ActivationInfo } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../lib/client/format";
-import { MetricGrid, MetricTile, SurfaceCard } from "../../components/premium";
+import { SurfaceCard } from "../../components/premium";
 import { ActivationLinkModal } from "./activation-link-modal";
 
 type Tone = "neutral" | "success" | "warning" | "info" | "danger";
@@ -38,47 +52,65 @@ const STATUS_TONES: Record<StoreAdminCustomerStatus, Tone> = {
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; customers: StoreAdminCustomerSummary[]; total: number };
+  | { status: "ready"; customers: StoreAdminCustomerSummary[]; pagination: AdminListPagination };
+
+type CustomerFilters = { status: string; hasCredential: string };
 
 export default function CustomersPage() {
+  // useSearchParams (Data Grid URL state) Suspense sınırı ister.
+  return (
+    <Suspense fallback={<SkeletonRows rows={5} />}>
+      <CustomersView />
+    </Suspense>
+  );
+}
+
+function CustomersView() {
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.customers;
   const c = dict.common;
+  const g = dict.storeAdmin.dataGrid;
   const statusLabels = t.statusLabels as Record<StoreAdminCustomerStatus, string>;
+
+  const grid = useDataGridQuery<CustomerFilters>({
+    basePath: "/customers",
+    sortOptions: ["createdAt", "firstName", "email"],
+    defaultSortBy: "createdAt",
+    defaultSortOrder: "desc",
+    filterKeys: ["status", "hasCredential"],
+  });
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [creating, setCreating] = useState(false);
 
+  const requestKey = JSON.stringify(grid.toRequestQuery());
+  const requestQuery = useMemo(
+    () => JSON.parse(requestKey) as Record<string, string | number>,
+    [requestKey],
+  );
+
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const result = await storeApi.listCustomers();
-      setState({ status: "ready", customers: result.data, total: result.pagination.total });
+      const result = await storeApi.listCustomers(requestQuery);
+      setState({ status: "ready", customers: result.data, pagination: result.pagination });
     } catch (error) {
       setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, [locale]);
+  }, [locale, requestQuery]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const customers = state.status === "ready" ? state.customers : [];
+  const pagination = state.status === "ready" ? state.pagination : null;
 
-  // Özet kartlar canlı listeden hesaplanır (ek API çağrısı yok).
-  const metrics = useMemo(() => {
-    let members = 0;
-    let verified = 0;
-    for (const customer of customers) {
-      if (customer.hasCredential) members += 1;
-      if (customer.emailVerified) verified += 1;
-    }
-    return { members, verified };
-  }, [customers]);
-
-  const columns: DataTableColumn<StoreAdminCustomerSummary>[] = [
+  const columns: DataGridColumn<StoreAdminCustomerSummary>[] = [
     {
+      key: "firstName",
+      sortable: true,
       header: t.table.customer,
       className: "max-w-[18rem]",
       cell: (customer) => (
@@ -93,6 +125,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "contact",
       header: t.table.contact,
       className: "whitespace-nowrap",
       cell: (customer) => (
@@ -114,6 +147,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "status",
       header: t.table.status,
       className: "whitespace-nowrap",
       cell: (customer) => (
@@ -121,6 +155,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "membership",
       header: t.table.membership,
       className: "whitespace-nowrap",
       cell: (customer) => (
@@ -130,6 +165,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "orders",
       header: t.table.orders,
       className: "whitespace-nowrap",
       cell: (customer) => (
@@ -139,6 +175,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "spend",
       header: t.table.spend,
       className: "whitespace-nowrap",
       cell: (customer) => (
@@ -148,6 +185,7 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "address",
       header: t.table.address,
       className: "max-w-[14rem]",
       cell: (customer) => (
@@ -160,11 +198,14 @@ export default function CustomersPage() {
       ),
     },
     {
+      key: "created",
+      sortable: true,
       header: t.table.created,
       className: "whitespace-nowrap",
       cell: (customer) => <span className="text-white/45">{formatDate(customer.createdAt)}</span>,
     },
     {
+      key: "action",
       header: t.table.action,
       align: "right",
       className: "whitespace-nowrap",
@@ -198,68 +239,114 @@ export default function CustomersPage() {
 
       {creating ? <CreateCustomerModal onClose={() => setCreating(false)} /> : null}
 
-      {state.status === "ready" && customers.length > 0 ? (
-        <div className="mb-5">
-          <MetricGrid columns={3}>
-            <MetricTile
-              label={t.summary.total}
-              value={state.total}
-              hint={t.summary.totalHint}
-              tone="brand"
-            />
-            <MetricTile
-              label={t.summary.members}
-              value={metrics.members}
-              hint={t.summary.membersHint}
-              tone="success"
-            />
-            <MetricTile
-              label={t.summary.verified}
-              value={metrics.verified}
-              hint={t.summary.verifiedHint}
-            />
-          </MetricGrid>
-        </div>
-      ) : null}
+      {/*
+        TODO-159A — Eski özet kartları (üye/doğrulanmış sayısı) YALNIZ o an yüklü
+        sayfadan hesaplanıyordu; sunucu-taraflı sayfalamada bu rakam yanıltıcı olur.
+        Mağaza-geneli doğru toplam artık sayfalama çubuğundaki "toplam kayıt"tır.
+      */}
 
       <SurfaceCard
         title={t.cardTitle}
         description={
-          state.status === "ready" ? format(t.countLabel, { count: state.total }) : t.cardDescription
+          pagination ? format(t.countLabel, { count: pagination.totalItems }) : t.cardDescription
         }
         icon={<CustomerIcon />}
       >
-        {state.status === "loading" ? <SkeletonRows rows={4} /> : null}
+        <DataGridToolbar
+          labels={{
+            searchPlaceholder: t.grid.searchPlaceholder,
+            searchLabel: g.searchLabel,
+            searchSubmit: g.searchSubmit,
+            filters: g.filters,
+            filtersApply: g.filtersApply,
+            filtersClear: g.filtersClear,
+            filterAll: g.filterAll,
+            removeFilter: g.removeFilter,
+            sortLabel: g.sortLabel,
+          }}
+          search={grid.search}
+          onSearchChange={grid.setSearch}
+          filters={[
+            {
+              kind: "select",
+              key: "status",
+              label: t.grid.filters.status,
+              options: (
+                ["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED"] as StoreAdminCustomerStatus[]
+              ).map((value) => ({ value, label: statusLabels[value] })),
+            },
+            {
+              kind: "select",
+              key: "hasCredential",
+              label: t.grid.filters.membership,
+              options: [
+                { value: "true", label: t.grid.membershipLabels.true },
+                { value: "false", label: t.grid.membershipLabels.false },
+              ],
+            },
+          ]}
+          values={grid.filters}
+          onFiltersChange={(next) => grid.setFilters(next as Partial<CustomerFilters>)}
+          onClearFilters={grid.clearFilters}
+          activeFilterCount={grid.activeFilterCount}
+          sortOptions={[
+            { value: "createdAt:desc", label: t.grid.sort.newest },
+            { value: "createdAt:asc", label: t.grid.sort.oldest },
+            { value: "firstName:asc", label: t.grid.sort.nameAsc },
+            { value: "firstName:desc", label: t.grid.sort.nameDesc },
+            { value: "email:asc", label: t.grid.sort.emailAsc },
+            { value: "email:desc", label: t.grid.sort.emailDesc },
+          ]}
+          sortValue={`${grid.sortBy}:${grid.sortOrder}`}
+          onSortChange={(value) => {
+            const [sortBy, sortOrder] = value.split(":");
+            grid.setSort(sortBy, sortOrder === "asc" ? "asc" : "desc");
+          }}
+        />
 
-        {state.status === "error" ? (
-          <Alert
-            tone="error"
-            title={t.loadError}
-            action={
-              <Button variant="secondary" size="sm" onClick={() => void load()}>
-                {c.actions.retry}
-              </Button>
-            }
-          >
-            {state.message}
-          </Alert>
-        ) : null}
+        <DataGrid
+          columns={columns}
+          rows={customers}
+          rowKey={(customer) => customer.id}
+          status={state.status}
+          errorMessage={state.status === "error" ? state.message : undefined}
+          onRetry={() => void load()}
+          filtered={grid.activeFilterCount > 0}
+          caption={t.cardTitle}
+          sortBy={grid.sortBy}
+          sortOrder={grid.sortOrder}
+          onSortChange={(sortBy, sortOrder) => grid.setSort(sortBy, sortOrder)}
+          emptyIcon={<CustomerIcon />}
+          labels={{
+            loading: g.loading,
+            errorTitle: t.loadError,
+            retry: c.actions.retry,
+            emptyTitle: t.emptyTitle,
+            emptyDescription: t.emptyDescription,
+            emptyFilteredTitle: g.emptyFilteredTitle,
+            emptyFilteredDescription: g.emptyFilteredDescription,
+            selectRow: g.selectRow,
+            selectAll: g.selectAll,
+          }}
+        />
 
-        {state.status === "ready" && customers.length === 0 ? (
-          <EmptyState
-            tag={t.emptyTag}
-            title={t.emptyTitle}
-            description={t.emptyDescription}
-            icon={<CustomerIcon />}
-          />
-        ) : null}
-
-        {state.status === "ready" && customers.length > 0 ? (
-          <DataTable
-            columns={columns}
-            rows={customers}
-            rowKey={(customer) => customer.id}
-            caption={t.cardTitle}
+        {pagination ? (
+          <DataGridPagination
+            labels={{
+              rangeLabel: g.rangeLabel,
+              rangeEmpty: g.rangeEmpty,
+              previousPage: g.previousPage,
+              nextPage: g.nextPage,
+              pageSizeLabel: g.pageSizeLabel,
+              goToPage: g.goToPage,
+              pageOf: g.pageOf,
+            }}
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            totalItems={pagination.totalItems}
+            totalPages={pagination.totalPages}
+            onPageChange={grid.setPage}
+            onPageSizeChange={grid.setPageSize}
           />
         ) : null}
       </SurfaceCard>

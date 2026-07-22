@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+/**
+ * TODO-159A (ADR-089) — Kategoriler ekranı ortak Admin Data Grid'e taşındı.
+ * Arama (ad/slug), durum filtresi, sıralama ve sayfalama SUNUCUDA uygulanır.
+ */
+
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Alert,
   Badge,
   Button,
   DataTable,
-  EmptyState,
   Input,
   Modal,
   PageHeader,
@@ -16,8 +20,16 @@ import {
   useLocale,
   type DataTableColumn,
 } from "../../../components/ui";
+import {
+  DataGrid,
+  DataGridPagination,
+  DataGridToolbar,
+  useDataGridQuery,
+  type DataGridColumn,
+} from "../../../components/data-grid";
 import { format, getDictionary } from "@commerce-os/i18n";
 import type {
+  AdminListPagination,
   AttributeDefinition,
   AttributeGroup,
   CategoryAttribute,
@@ -34,7 +46,7 @@ type CategoryStatus = ProductCategory["status"];
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; categories: ProductCategory[]; total: number };
+  | { status: "ready"; categories: ProductCategory[]; pagination: AdminListPagination };
 type Editor = { mode: "create" } | { mode: "edit"; category: ProductCategory } | null;
 
 const STATUS_TONES: Record<CategoryStatus, "success" | "neutral"> = {
@@ -45,49 +57,96 @@ const STATUS_TONES: Record<CategoryStatus, "success" | "neutral"> = {
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export default function CategoriesPage() {
+  // useSearchParams (Data Grid URL state) Suspense sınırı ister.
+  return (
+    <Suspense fallback={<SkeletonRows rows={5} />}>
+      <CategoriesView />
+    </Suspense>
+  );
+}
+
+type CategoryFilters = { status: string };
+
+function CategoriesView() {
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.categories;
   const c = dict.common;
+  const g = dict.storeAdmin.dataGrid;
   const statusLabels = t.statusLabels as Record<CategoryStatus, string>;
+
+  const grid = useDataGridQuery<CategoryFilters>({
+    basePath: "/categories",
+    sortOptions: ["sortOrder", "name", "createdAt"],
+    defaultSortBy: "sortOrder",
+    defaultSortOrder: "asc",
+    filterKeys: ["status"],
+  });
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [editor, setEditor] = useState<Editor>(null);
   // Faz 1B (ADR-067) — kategoriye attribute davranışı bağlama modalı.
   const [attributesFor, setAttributesFor] = useState<ProductCategory | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Üst-kategori adı çözümü ve editördeki ebeveyn seçici SAYFADAN BAĞIMSIZ olmalıdır:
+  // ebeveyn başka bir sayfada olabilir. Bu yüzden ayrı, filtresiz bir küme tutulur
+  // (üst sınır 100 — daha derin ağaçlar için arama tabanlı seçici gerekir, bkz. TD-093).
+  const [allCategories, setAllCategories] = useState<ProductCategory[]>([]);
+
+  const requestKey = JSON.stringify(grid.toRequestQuery());
+  const requestQuery = useMemo(
+    () => JSON.parse(requestKey) as Record<string, string | number>,
+    [requestKey],
+  );
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const result = await storeApi.listCategories();
-      setState({ status: "ready", categories: result.data, total: result.pagination.total });
+      const result = await storeApi.listCategories(requestQuery);
+      setState({ status: "ready", categories: result.data, pagination: result.pagination });
     } catch (error) {
       setState({ status: "error", message: messageForError(error, locale) });
     }
-  }, [locale]);
+  }, [locale, requestQuery]);
+
+  const loadAllCategories = useCallback(async () => {
+    try {
+      const result = await storeApi.listCategories({ pageSize: 100, sortBy: "name", sortOrder: "asc" });
+      setAllCategories(result.data);
+    } catch {
+      // Ebeveyn kaynağı yüklenemezse liste yine çalışır (ad yerine id gösterilir).
+    }
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    void loadAllCategories();
+  }, [loadAllCategories]);
+
   const categories = state.status === "ready" ? state.categories : [];
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const category of categories) map.set(category.id, category.name);
+    for (const category of allCategories) map.set(category.id, category.name);
     return map;
-  }, [categories]);
+  }, [allCategories]);
 
-  const columns: DataTableColumn<ProductCategory>[] = [
+  const columns: DataGridColumn<ProductCategory>[] = [
     {
+      key: "name",
       header: t.table.name,
+      sortable: true,
       cell: (category) => <span className="font-medium text-white/90">{category.name}</span>,
     },
     {
+      key: "slug",
       header: t.table.slug,
       cell: (category) => <span className="font-mono text-xs text-white/45">{category.slug}</span>,
     },
     {
+      key: "parent",
       header: t.table.parent,
       cell: (category) => (
         <span className="text-white/45">
@@ -96,17 +155,21 @@ export default function CategoriesPage() {
       ),
     },
     {
+      key: "sortOrder",
       header: t.table.sortOrder,
       align: "right",
+      sortable: true,
       cell: (category) => <span className="text-white/45">{category.sortOrder}</span>,
     },
     {
+      key: "status",
       header: t.table.status,
       cell: (category) => (
         <Badge tone={STATUS_TONES[category.status]}>{statusLabels[category.status]}</Badge>
       ),
     },
     {
+      key: "actions",
       header: t.table.actions,
       align: "right",
       cell: (category) => (
@@ -122,10 +185,22 @@ export default function CategoriesPage() {
     },
   ];
 
+  const sortOptions = [
+    { value: "sortOrder:asc", label: t.grid.sort.sortOrder },
+    { value: "name:asc", label: t.grid.sort.nameAsc },
+    { value: "name:desc", label: t.grid.sort.nameDesc },
+    { value: "createdAt:desc", label: t.grid.sort.newest },
+    { value: "createdAt:asc", label: t.grid.sort.oldest },
+  ];
+
+  const pagination = state.status === "ready" ? state.pagination : null;
+
   function onSaved(message: string) {
     setEditor(null);
     setNotice(message);
     void load();
+    // Ebeveyn seçici kaynağı da tazelenir (yeni kategori orada da görünsün).
+    void loadAllCategories();
   }
 
   return (
@@ -159,46 +234,95 @@ export default function CategoriesPage() {
       <SectionCard
         title={t.cardTitle}
         description={
-          state.status === "ready" ? format(t.countLabel, { count: state.total }) : t.cardDescription
+          pagination ? format(t.countLabel, { count: pagination.totalItems }) : t.cardDescription
         }
         icon={<CategoryIcon />}
       >
-        {state.status === "loading" ? <SkeletonRows rows={4} /> : null}
+        <DataGridToolbar
+          labels={{
+            searchPlaceholder: t.grid.searchPlaceholder,
+            searchLabel: g.searchLabel,
+            searchSubmit: g.searchSubmit,
+            filters: g.filters,
+            filtersApply: g.filtersApply,
+            filtersClear: g.filtersClear,
+            filterAll: g.filterAll,
+            removeFilter: g.removeFilter,
+            sortLabel: g.sortLabel,
+          }}
+          search={grid.search}
+          onSearchChange={grid.setSearch}
+          filters={[
+            {
+              kind: "select",
+              key: "status",
+              label: t.grid.filters.status,
+              options: (["ACTIVE", "ARCHIVED"] as CategoryStatus[]).map((value) => ({
+                value,
+                label: statusLabels[value],
+              })),
+            },
+          ]}
+          values={grid.filters}
+          onFiltersChange={(next) => grid.setFilters(next as Partial<CategoryFilters>)}
+          onClearFilters={grid.clearFilters}
+          activeFilterCount={grid.activeFilterCount}
+          sortOptions={sortOptions}
+          sortValue={`${grid.sortBy}:${grid.sortOrder}`}
+          onSortChange={(value) => {
+            const [sortBy, sortOrder] = value.split(":");
+            grid.setSort(sortBy, sortOrder === "asc" ? "asc" : "desc");
+          }}
+        />
 
-        {state.status === "error" ? (
-          <Alert
-            tone="error"
-            title={t.loadError}
-            action={
-              <Button variant="secondary" size="sm" onClick={() => void load()}>
-                {c.actions.retry}
-              </Button>
-            }
-          >
-            {state.message}
-          </Alert>
-        ) : null}
+        <DataGrid
+          columns={columns}
+          rows={categories}
+          rowKey={(category) => category.id}
+          status={state.status}
+          errorMessage={state.status === "error" ? state.message : undefined}
+          onRetry={() => void load()}
+          filtered={grid.activeFilterCount > 0}
+          caption={t.cardTitle}
+          sortBy={grid.sortBy}
+          sortOrder={grid.sortOrder}
+          onSortChange={(sortBy, sortOrder) => grid.setSort(sortBy, sortOrder)}
+          emptyIcon={<CategoryIcon />}
+          emptyAction={
+            <Button size="sm" onClick={() => setEditor({ mode: "create" })}>
+              {t.emptyAction}
+            </Button>
+          }
+          labels={{
+            loading: g.loading,
+            errorTitle: t.loadError,
+            retry: c.actions.retry,
+            emptyTitle: t.emptyTitle,
+            emptyDescription: t.emptyDescription,
+            emptyFilteredTitle: g.emptyFilteredTitle,
+            emptyFilteredDescription: g.emptyFilteredDescription,
+            selectRow: g.selectRow,
+            selectAll: g.selectAll,
+          }}
+        />
 
-        {state.status === "ready" && categories.length === 0 ? (
-          <EmptyState
-            tag={t.emptyTag}
-            title={t.emptyTitle}
-            description={t.emptyDescription}
-            icon={<CategoryIcon />}
-            action={
-              <Button size="sm" onClick={() => setEditor({ mode: "create" })}>
-                {t.emptyAction}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {state.status === "ready" && categories.length > 0 ? (
-          <DataTable
-            columns={columns}
-            rows={categories}
-            rowKey={(category) => category.id}
-            caption={t.cardTitle}
+        {pagination ? (
+          <DataGridPagination
+            labels={{
+              rangeLabel: g.rangeLabel,
+              rangeEmpty: g.rangeEmpty,
+              previousPage: g.previousPage,
+              nextPage: g.nextPage,
+              pageSizeLabel: g.pageSizeLabel,
+              goToPage: g.goToPage,
+              pageOf: g.pageOf,
+            }}
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            totalItems={pagination.totalItems}
+            totalPages={pagination.totalPages}
+            onPageChange={grid.setPage}
+            onPageSizeChange={grid.setPageSize}
           />
         ) : null}
       </SectionCard>
@@ -206,7 +330,7 @@ export default function CategoriesPage() {
       {editor ? (
         <CategoryEditor
           editor={editor}
-          categories={categories}
+          categories={allCategories}
           statusLabels={statusLabels}
           onClose={() => setEditor(null)}
           onSaved={onSaved}

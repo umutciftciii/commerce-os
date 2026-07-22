@@ -42,6 +42,99 @@ export const tenantContextSchema = z.object({
   role: z.enum(["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"]),
 });
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-159A (ADR-089) — Admin Data Grid ortak liste sözleşmesi.
+ *
+ * Store Admin'deki her sunucu-taraflı liste ekranı AYNI query ve AYNI pagination
+ * meta'sını konuşur: `page`/`pageSize`/`search`/`sortBy`/`sortOrder` + modüle özel
+ * filtreler. `sortBy` her modülde KENDİ allowlist enum'u ile daraltılır (serbest
+ * metin ASLA orderBy'a geçmez).
+ *
+ * Pagination meta'sı GERİYE UYUMLUDUR: eski `{limit,offset,total}` üçlüsü aynen
+ * KORUNUR (mevcut tüketiciler bozulmaz), üzerine `page/pageSize/totalItems/
+ * totalPages` EKLENİR. Tek doğruluk kaynağı `buildAdminListPagination` —
+ * limit=pageSize, offset=(page-1)*pageSize, totalItems=total türetilir.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** UI'da sunulan sayfa boyutu seçenekleri (varsayılan 25). */
+export const ADMIN_LIST_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+export const ADMIN_LIST_DEFAULT_PAGE_SIZE = 25;
+/** Sunucu tarafında ZORLANAN üst sınır — istemci ne gönderirse göndersin aşılamaz. */
+export const ADMIN_LIST_MAX_PAGE_SIZE = 100;
+/** Serbest metin arama üst sınırı (pahalı LIKE taramasını sınırlar). */
+export const ADMIN_LIST_MAX_SEARCH_LENGTH = 120;
+
+export const adminListSortOrderSchema = z.enum(["asc", "desc"]);
+
+/**
+ * Her admin liste ucunun ortak query tabanı. Modüller bunu `.extend({...})` ile
+ * kendi `sortBy` allowlist'i ve filtreleriyle genişletir.
+ *
+ * `limit`/`offset` GERİYE UYUMLULUK için kabul edilir: yalnız `page`/`pageSize`
+ * verilmediğinde devreye girer (bkz. `resolveAdminListPage`). Böylece eski
+ * istemciler (ve gateway-içi çağrılar) kırılmaz.
+ */
+export const adminListQueryBaseSchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
+  limit: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+  search: z.string().trim().min(1).max(ADMIN_LIST_MAX_SEARCH_LENGTH).optional(),
+  sortOrder: adminListSortOrderSchema.optional(),
+});
+
+/** Liste response'larının ortak pagination meta'sı (legacy üçlü + Data Grid alanları). */
+export const adminListPaginationSchema = z.object({
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalItems: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+/**
+ * `page`/`pageSize` ile `limit`/`offset`'i TEK bir sayfa tanımına indirger.
+ * Öncelik: page/pageSize > limit/offset > varsayılan. pageSize her hâlükârda
+ * `ADMIN_LIST_MAX_PAGE_SIZE` ile kırpılır (sunucu-otoriter üst sınır).
+ */
+export function resolveAdminListPage(
+  query: { page?: number; pageSize?: number; limit?: number; offset?: number },
+  defaultPageSize: number = ADMIN_LIST_DEFAULT_PAGE_SIZE,
+): { page: number; pageSize: number; limit: number; offset: number } {
+  const pageSize = Math.min(
+    ADMIN_LIST_MAX_PAGE_SIZE,
+    Math.max(1, query.pageSize ?? query.limit ?? defaultPageSize),
+  );
+  const page =
+    query.page ??
+    (query.offset !== undefined ? Math.floor(query.offset / pageSize) + 1 : 1);
+  const safePage = Math.max(1, page);
+  return { page: safePage, pageSize, limit: pageSize, offset: (safePage - 1) * pageSize };
+}
+
+/** Pagination meta'sını üretir (legacy alanlar dahil). `totalPages` boş sonuçta 0'dır. */
+export function buildAdminListPagination(input: {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+}): z.infer<typeof adminListPaginationSchema> {
+  const { page, pageSize, totalItems } = input;
+  return {
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    total: totalItems,
+    page,
+    pageSize,
+    totalItems,
+    totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize),
+  };
+}
+
+export type AdminListSortOrder = z.infer<typeof adminListSortOrderSchema>;
+export type AdminListPagination = z.infer<typeof adminListPaginationSchema>;
+
 export const platformEventSchema = z.object({
   type: z.enum([
     "STORE_CREATED",
@@ -372,12 +465,24 @@ export const productCategorySchema = z.object({
 
 export const productCategoryListResponseSchema = z.object({
   data: z.array(productCategorySchema),
-  pagination: z.object({
-    limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  // TODO-159A (ADR-089) — ortak Data Grid meta'sı (legacy limit/offset/total KORUNUR).
+  pagination: adminListPaginationSchema,
 });
+
+/**
+ * TODO-159A (ADR-089) — Kategori liste query sözleşmesi. Arama ad + slug üzerinde.
+ * Varsayılan sıra `sortOrder` (merchandising sırası) — kategori ağacının anlamlı
+ * varsayılanı budur; `name`/`createdAt` allowlist'te alternatiftir.
+ */
+export const adminCategoryListSortBySchema = z.enum(["sortOrder", "name", "createdAt"]);
+
+export const adminCategoryListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: adminCategoryListSortBySchema.optional(),
+  status: productCategoryStatusSchema.optional(),
+});
+
+export type AdminCategoryListSortBy = z.infer<typeof adminCategoryListSortBySchema>;
+export type AdminCategoryListQuery = z.infer<typeof adminCategoryListQuerySchema>;
 
 export const productCategoryCreateRequestSchema = z.object({
   name: z.string().min(1).max(160),
@@ -1578,12 +1683,64 @@ export const productSchema = z.object({
 
 export const productListResponseSchema = z.object({
   data: z.array(productSchema),
-  pagination: z.object({
-    limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  // TODO-159A (ADR-089) — ortak Data Grid meta'sı (legacy limit/offset/total KORUNUR).
+  pagination: adminListPaginationSchema,
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-159A (ADR-089) — Ürün liste query sözleşmesi (server-side Data Grid).
+ *
+ * `sortBy` ALLOWLIST'tir: serbest metin ASLA orderBy'a geçmez. `price`/`stock`
+ * ürünün varyantlarından TÜRETİLİR (price = aktif varyantların MIN priceMinor;
+ * stock = InventoryItem varsayılan-depo toplamı, available = onHand − reserved —
+ * search read-model ile AYNI otorite). `stockStatus` de aynı türetmeyi kullanır.
+ *
+ * Modelde ayrı bir "yayın durumu" kolonu YOKTUR: `status` (DRAFT/ACTIVE/ARCHIVED)
+ * yayın otoritesidir; ticari erişilebilirlik `salesMode` + `purchasable` ile
+ * ifade edilir. Uydurma kavram eklenmez.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const adminProductListSortBySchema = z.enum([
+  "createdAt",
+  "updatedAt",
+  "title",
+  "price",
+  "stock",
+]);
+
+/** Stok durumu ürün seviyesinde türetilir (herhangi bir aktif varyantta available > 0). */
+export const adminProductStockStatusSchema = z.enum(["IN_STOCK", "OUT_OF_STOCK"]);
+
+export const adminProductListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: adminProductListSortBySchema.optional(),
+  status: productStatusSchema.optional(),
+  salesMode: productSalesModeSchema.optional(),
+  purchasable: z.enum(["true", "false"]).optional(),
+  categoryId: z.string().min(1).max(64).optional(),
+  brand: z.string().trim().min(1).max(120).optional(),
+  vendor: z.string().trim().min(1).max(120).optional(),
+  stockStatus: adminProductStockStatusSchema.optional(),
+  // Fiyat aralığı MINOR birimde (kuruş) — varyant priceMinor ile aynı ölçek.
+  priceMin: z.coerce.number().int().nonnegative().optional(),
+  priceMax: z.coerce.number().int().nonnegative().optional(),
+});
+
+/**
+ * Filtre açılırlarını besleyen hafif uç: mağazadaki DISTINCT marka/tedarikçi
+ * değerleri. Ürün listesinden BAĞIMSIZ (liste sayfalandığı için istemci tarafında
+ * türetilemez); tek `groupBy` sorgusuyla döner.
+ */
+export const adminProductFilterOptionsResponseSchema = z.object({
+  brands: z.array(z.string()),
+  vendors: z.array(z.string()),
+});
+
+export type AdminProductListSortBy = z.infer<typeof adminProductListSortBySchema>;
+export type AdminProductStockStatus = z.infer<typeof adminProductStockStatusSchema>;
+export type AdminProductListQuery = z.infer<typeof adminProductListQuerySchema>;
+export type AdminProductFilterOptionsResponse = z.infer<
+  typeof adminProductFilterOptionsResponseSchema
+>;
 
 function isConsistentSalesModel(value: {
   salesMode?: z.infer<typeof productSalesModeSchema>;
@@ -3491,11 +3648,8 @@ export const orderSchema = z.object({
 
 export const orderListResponseSchema = z.object({
   data: z.array(orderSchema),
-  pagination: z.object({
-    limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  // TODO-159A (ADR-089) — ortak Data Grid meta'sı (legacy limit/offset/total KORUNUR).
+  pagination: adminListPaginationSchema,
 });
 
 // TODO-073 — Store-admin sipariş listesi operasyonel filtreleri. Tüm filtreler
@@ -3507,10 +3661,23 @@ const orderListDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format.");
 
+/**
+ * TODO-159A (ADR-089) — Sipariş listesi sıralama allowlist'i. `total` sipariş
+ * satırında MATERYAL bir kolondur (totalAmount), aggregate değil → güvenle
+ * sıralanabilir.
+ */
+export const adminOrderListSortBySchema = z.enum(["createdAt", "placedAt", "total"]);
+
 export const orderListQuerySchema = z.object({
   // Pagination opsiyonel; verilmezse gateway varsayılanı uygular (limit=50, offset=0).
-  limit: z.coerce.number().int().positive().max(100).optional(),
+  // TODO-159A — `page`/`pageSize` ortak Data Grid alanları da kabul edilir; ikisi
+  // birden gelirse page/pageSize kazanır (resolveAdminListPage).
+  limit: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
   offset: z.coerce.number().int().nonnegative().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
+  sortBy: adminOrderListSortBySchema.optional(),
+  sortOrder: adminListSortOrderSchema.optional(),
   status: orderStatusSchema.optional(),
   paymentStatus: paymentStatusSchema.optional(),
   fulfillmentStatus: fulfillmentStatusSchema.optional(),
@@ -3975,6 +4142,7 @@ export type OrderSalesSummary = z.infer<typeof orderSalesSummarySchema>;
 export type OrderSalesSummaryVatLine = z.infer<typeof orderSalesSummaryVatLineSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
+export type AdminOrderListSortBy = z.infer<typeof adminOrderListSortBySchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
 export type OrderUpdateRequest = z.infer<typeof orderUpdateRequestSchema>;
 export type OrderCancelRequest = z.infer<typeof orderCancelRequestSchema>;
@@ -4438,12 +4606,26 @@ export const storeAdminCustomerSummarySchema = z.object({
 
 export const storeAdminCustomerListResponseSchema = z.object({
   data: z.array(storeAdminCustomerSummarySchema),
-  pagination: z.object({
-    limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  // TODO-159A (ADR-089) — ortak Data Grid meta'sı.
+  pagination: adminListPaginationSchema,
 });
+
+/**
+ * TODO-159A (ADR-089) — Müşteri dizini query sözleşmesi. Arama e-posta / ad /
+ * soyad / telefon üzerinde çalışır (hepsi Customer kolonu; PII türetimi YOK).
+ * `sortBy` allowlist: kayıt tarihi / isim. Sipariş sayısı-cirosu TÜRETİLMİŞ
+ * alanlardır (aggregate) — sıralama allowlist'ine ALINMAZ (bkz. TD-092).
+ */
+export const adminCustomerListSortBySchema = z.enum(["createdAt", "firstName", "email"]);
+
+export const adminCustomerListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: adminCustomerListSortBySchema.optional(),
+  status: storeAdminCustomerStatusSchema.optional(),
+  hasCredential: z.enum(["true", "false"]).optional(),
+});
+
+export type AdminCustomerListSortBy = z.infer<typeof adminCustomerListSortBySchema>;
+export type AdminCustomerListQuery = z.infer<typeof adminCustomerListQuerySchema>;
 
 export type StoreAdminCustomerStatus = z.infer<typeof storeAdminCustomerStatusSchema>;
 export type StoreAdminCustomerSummary = z.infer<typeof storeAdminCustomerSummarySchema>;

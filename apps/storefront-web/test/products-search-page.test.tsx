@@ -23,7 +23,7 @@ vi.mock("../lib/server/search", () => ({
 
 // Kategori navigasyon şeridi kaynağı (FEATURED_CATEGORIES). PLP başlığı görünen adı buradan
 // çözülür; testte kontrollü bir liste veririz (varsayılan: boş → slug fallback).
-const navCategories = vi.fn<[], Promise<unknown[]>>(async () => []);
+const navCategories = vi.fn<() => Promise<unknown[]>>(async () => []);
 vi.mock("../lib/server/navigation", () => ({
   getNavCategories: () => navCategories(),
 }));
