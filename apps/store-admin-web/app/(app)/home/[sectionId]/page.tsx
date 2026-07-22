@@ -11,7 +11,6 @@ import {
   Modal,
   PageHeader,
   SectionCard,
-  Select,
   SkeletonRows,
   Textarea,
   useLocale,
@@ -21,10 +20,15 @@ import type {
   HomeFeaturedCategory,
   HomeHeroSlide,
   HomeSection,
-  ProductCategory,
-  Product,
 } from "@commerce-os/api-client";
 import { HomeIcon } from "../../../../components/icons";
+// TODO-159B (ADR-090) — Ürün/kategori seçimi ortak aranabilir seçiciye taşındı;
+// bu ekran artık kataloğu belleğe ÇEKMEZ (eski hâlde yalnız ilk 25 kayıt görünüyordu).
+import {
+  EntitySelectorField,
+  useCategorySelectorBinding,
+  useProductSelectorBinding,
+} from "../../../../components/selector";
 import { MediaUpload, type MediaItem } from "../../../../components/media-upload";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
@@ -338,18 +342,13 @@ function FeaturedCategoriesManager({
   const t = homeLabels(locale);
   const d = t.detail;
   const [entries, setEntries] = useState<HomeFeaturedCategory[] | null>(null);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [editor, setEditor] = useState<FeatEditor>(null);
   const [reordering, setReordering] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [list, cats] = await Promise.all([
-        storeApi.listHomeFeaturedCategories(sectionId),
-        storeApi.listCategories(),
-      ]);
+      const list = await storeApi.listHomeFeaturedCategories(sectionId);
       setEntries(list.data);
-      setCategories(cats.data);
     } catch (error) {
       onNotice(messageForError(error, locale));
     }
@@ -431,7 +430,6 @@ function FeaturedCategoriesManager({
         <FeaturedCategoryEditor
           sectionId={sectionId}
           editor={editor}
-          categories={categories}
           locale={locale}
           onClose={() => setEditor(null)}
           onSaved={(m) => {
@@ -448,14 +446,12 @@ function FeaturedCategoriesManager({
 function FeaturedCategoryEditor({
   sectionId,
   editor,
-  categories,
   locale,
   onClose,
   onSaved,
 }: {
   sectionId: string;
   editor: NonNullable<FeatEditor>;
-  categories: ProductCategory[];
   locale: HomeLocale;
   onClose: () => void;
   onSaved: (message: string) => void;
@@ -464,7 +460,11 @@ function FeaturedCategoryEditor({
   const d = t.detail;
   const isEdit = editor.mode === "edit";
   const entry = isEdit ? editor.entry : null;
-  const [categoryId, setCategoryId] = useState(entry?.categoryId ?? categories[0]?.id ?? "");
+  // TODO-159B (ADR-090) — Tekli seçici: değer dizi olarak tutulur (tek kod yolu).
+  const categorySelector = useCategorySelectorBinding(locale);
+  const toMessage = useCallback((error: unknown) => messageForError(error, locale), [locale]);
+  const [categoryIds, setCategoryIds] = useState<string[]>(entry ? [entry.categoryId] : []);
+  const categoryId = categoryIds[0] ?? "";
   const [image, setImage] = useState<MediaItem[]>(
     entry?.imageMediaId && entry.imageUrl ? [{ id: entry.imageMediaId, url: entry.imageUrl, altText: null }] : [],
   );
@@ -485,6 +485,11 @@ function FeaturedCategoryEditor({
           descriptionOverride: toNullable(descOverride),
         });
       } else {
+        if (!categoryId) {
+          setError(d.categoryRequired);
+          setSaving(false);
+          return;
+        }
         await storeApi.createHomeFeaturedCategory(sectionId, {
           categoryId,
           imageMediaId: image[0]?.id ?? null,
@@ -517,13 +522,18 @@ function FeaturedCategoryEditor({
         {isEdit ? (
           <p className="text-sm text-white/60">{d.categoryLabel}: <span className="font-medium text-white/90">{entry?.categoryName}</span></p>
         ) : (
-          <Select
-            id="featured-category"
+          <EntitySelectorField
             label={d.categoryLabel}
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
+            multiple={false}
+            value={categoryIds}
+            onChange={setCategoryIds}
+            source={categorySelector.source}
+            presenter={categorySelector.presenter}
+            labels={categorySelector.labels}
+            toMessage={toMessage}
+            modalTitle={categorySelector.title}
+            modalDescription={categorySelector.description}
             disabled={saving}
-            options={categories.map((c) => ({ value: c.id, label: c.name }))}
           />
         )}
         <Input id="featured-title" label={d.titleOverrideLabel} value={titleOverride} onChange={(e) => setTitleOverride(e.target.value)} disabled={saving} />
@@ -553,18 +563,18 @@ function ShowcaseManager({
   const source = ((section.config as Record<string, unknown>).source ?? {}) as Record<string, unknown>;
   const isManual = source.kind !== "DYNAMIC";
 
-  const [products, setProducts] = useState<Product[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  // TODO-159B (ADR-090) — Katalog artık belleğe alınmaz. Pinler `ids` çözüm
+  // moduyla ayrıca getirildiği için 25/100 sınırının ötesindeki ürün de görünür
+  // ve KALDIRILABİLİR (eskiden görünmüyor, dolayısıyla kaldırılamıyordu).
+  const productSelector = useProductSelectorBinding(locale);
+  const toMessage = useCallback((error: unknown) => messageForError(error, locale), [locale]);
 
   const load = useCallback(async () => {
     try {
-      const [prodList, current] = await Promise.all([
-        storeApi.listProducts(),
-        storeApi.listHomeShowcaseProducts(section.id),
-      ]);
-      setProducts(prodList.data);
+      const current = await storeApi.listHomeShowcaseProducts(section.id);
       setSelected(current.data.map((p) => p.productId));
       setReady(true);
     } catch (error) {
@@ -576,12 +586,6 @@ function ShowcaseManager({
     if (isManual) void load();
     else setReady(true);
   }, [isManual, load]);
-
-  function toggle(productId: string) {
-    setSelected((prev) =>
-      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId],
-    );
-  }
 
   async function save() {
     setSaving(true);
@@ -612,26 +616,20 @@ function ShowcaseManager({
     >
       {!ready ? <SkeletonRows rows={4} /> : null}
       {ready ? (
-        <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-white/10">
-          {products.map((product) => {
-            const order = selected.indexOf(product.id);
-            return (
-              <label
-                key={product.id}
-                className="flex items-center gap-3 border-b border-white/5 px-3 py-2 text-sm text-white/80 last:border-b-0 hover:bg-white/5"
-              >
-                <input
-                  type="checkbox"
-                  checked={order >= 0}
-                  onChange={() => toggle(product.id)}
-                  className="h-4 w-4 accent-emerald-400"
-                />
-                <span className="flex-1">{product.title}</span>
-                {order >= 0 ? <span className="text-xs text-emerald-300">#{order + 1}</span> : null}
-              </label>
-            );
-          })}
-        </div>
+        <EntitySelectorField
+          label={d.productPickerLabel}
+          hint={d.showcaseOrderHint}
+          multiple
+          value={selected}
+          onChange={setSelected}
+          source={productSelector.source}
+          presenter={productSelector.presenter}
+          labels={productSelector.labels}
+          toMessage={toMessage}
+          modalTitle={productSelector.title}
+          modalDescription={productSelector.description}
+          disabled={saving}
+        />
       ) : null}
     </SectionCard>
   );

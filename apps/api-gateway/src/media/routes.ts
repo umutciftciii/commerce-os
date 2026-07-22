@@ -20,8 +20,17 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { MultipartFile } from "@fastify/multipart";
 import type { AppConfig } from "@commerce-os/config";
-import { mediaContextSchema, mediaListResponseSchema, mediaUploadResponseSchema } from "@commerce-os/contracts";
+import {
+  adminMediaListQuerySchema,
+  buildAdminListPagination,
+  buildSelectorIdsPagination,
+  mediaListResponseSchema,
+  mediaUploadResponseSchema,
+  parseSelectorIds,
+  resolveAdminListPage,
+} from "@commerce-os/contracts";
 import { prisma } from "@commerce-os/db";
+import type { Prisma } from "@prisma/client";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import sharp from "sharp";
 import { z } from "zod";
@@ -50,12 +59,17 @@ export interface MediaAdminRoutesDeps {
 
 const storeParam = z.object({ storeId: z.string().min(1) });
 
-const mediaListQuerySchema = z.object({ context: mediaContextSchema.optional() });
-
-// Dilim 1: sabit ust sinir (en yeni N). Gercek sayfalama/arama Faz 4'e ertelendi;
-// kontrat (mediaListResponseSchema) simdiden {limit,offset,total} tasidigi icin o
-// gecis migration'siz olur.
-const MEDIA_LIST_LIMIT = 100;
+/**
+ * TODO-159B (ADR-090) — TD-095 kapanisi. Eski sabit `take: 100` KALDIRILDI;
+ * uc artik gercek server-side sayfalama + arama + siralama + `ids` cozum modu
+ * sunar. LIKE metakarakterleri Prisma `contains` ile parametre olarak tasinir
+ * (string interpolasyonu YOK) — kontrolsuz wildcard riski bulunmaz.
+ */
+const MEDIA_SORT_FIELDS = {
+  createdAt: "createdAt",
+  altText: "altText",
+  byteSize: "byteSize",
+} as const;
 
 const mediaDeleteParam = z.object({
   storeId: z.string().min(1),
@@ -94,45 +108,95 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
   // (opsiyonel context filtresiyle) dondurur; UI yeniden yukleme yerine var olan
   // gorseli baska entity'ye baglar. RESPONSE allowlist upload ile aynidir
   // (storageKey/checksum/createdBy SIZMAZ; yalniz turetilmis url + gorunur meta).
+  //
+  // TODO-159B (ADR-090) — gercek sayfalama + arama + siralama + `ids` cozum modu.
+  // `ids` verildiginde arama/filtre/siralama UYGULANMAZ: yalniz o id'ler (mağaza
+  // icinde) doner — duzenleme ekrani, secili gorsel ilk sayfada olmasa bile onu
+  // gosterebilsin diye. Baska magazanin id'si sessizce ELENIR (var/yok bilgisi
+  // sizmaz; DELETE'teki 404 deseniyle ayni ilke).
   app.get("/stores/:storeId/media", async (request, reply) => {
     const params = storeParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);
     if (!access) return;
 
-    const query = mediaListQuerySchema.safeParse(request.query);
-    if (!query.success) {
+    const parsed = adminMediaListQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
       return reply
         .code(400)
-        .send(errorBody("VALIDATION_ERROR", "Gecersiz sorgu parametresi.", query.error.flatten()));
+        .send(errorBody("VALIDATION_ERROR", "Gecersiz sorgu parametresi.", parsed.error.flatten()));
+    }
+    const query = parsed.data;
+
+    const serialize = (media: {
+      id: string;
+      context: string;
+      storageKey: string;
+      mimeType: string;
+      byteSize: number;
+      width: number | null;
+      height: number | null;
+      altText: string | null;
+      createdAt: Date;
+    }) => ({
+      id: media.id,
+      context: media.context,
+      url: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, media.storageKey),
+      mimeType: media.mimeType,
+      byteSize: media.byteSize,
+      width: media.width,
+      height: media.height,
+      altText: media.altText,
+      createdAt: media.createdAt.toISOString(),
+    });
+
+    // ── `ids` cozum modu ───────────────────────────────────────────────────
+    const selectedIds = parseSelectorIds(query.ids);
+    if (query.ids !== undefined) {
+      const rows =
+        selectedIds.length === 0
+          ? []
+          : await prisma.mediaAsset.findMany({
+              where: { storeId: params.storeId, id: { in: selectedIds } },
+            });
+      // Istemcinin verdigi SIRA korunur (secim sirasi anlamlidir).
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const ordered = selectedIds
+        .map((id) => byId.get(id))
+        .filter((row): row is NonNullable<typeof row> => row !== undefined);
+      return reply.send(
+        mediaListResponseSchema.parse({
+          data: ordered.map(serialize),
+          pagination: buildSelectorIdsPagination(ordered.length),
+        }),
+      );
     }
 
-    const where = {
-      storeId: params.storeId,
-      ...(query.data.context ? { context: query.data.context } : {}),
-    };
+    // ── Normal sayfalama modu ──────────────────────────────────────────────
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const where: Prisma.MediaAssetWhereInput = { storeId: params.storeId };
+    if (query.context) where.context = query.context;
+    // Arama YALNIZ altText uzerinde: modelde dosya adi kolonu yok, storageKey ise
+    // opak sunucu yolu (allowlist geregi disariya hic cikmaz).
+    if (query.search) where.altText = { contains: query.search, mode: "insensitive" };
+
+    const field = MEDIA_SORT_FIELDS[query.sortBy ?? "createdAt"];
+    const direction = query.sortOrder ?? (query.sortBy ? "asc" : "desc");
+    // Ikincil anahtar id: esit degerli satirlarda sayfa siniri deterministiktir
+    // (kayit atlanmasi/tekrari olmaz). altText nullable → NULLS LAST.
+    const orderBy: Prisma.MediaAssetOrderByWithRelationInput[] =
+      field === "altText"
+        ? [{ altText: { sort: direction, nulls: "last" } }, { id: "asc" }]
+        : [{ [field]: direction } as Prisma.MediaAssetOrderByWithRelationInput, { id: "asc" }];
+
     const [rows, total] = await Promise.all([
-      prisma.mediaAsset.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        take: MEDIA_LIST_LIMIT,
-      }),
+      prisma.mediaAsset.findMany({ where, orderBy, skip: offset, take: limit }),
       prisma.mediaAsset.count({ where }),
     ]);
 
     return reply.send(
       mediaListResponseSchema.parse({
-        data: rows.map((media) => ({
-          id: media.id,
-          context: media.context,
-          url: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, media.storageKey),
-          mimeType: media.mimeType,
-          byteSize: media.byteSize,
-          width: media.width,
-          height: media.height,
-          altText: media.altText,
-          createdAt: media.createdAt.toISOString(),
-        })),
-        pagination: { limit: MEDIA_LIST_LIMIT, offset: 0, total },
+        data: rows.map(serialize),
+        pagination: buildAdminListPagination({ page, pageSize, totalItems: total }),
       }),
     );
   });

@@ -26,6 +26,21 @@ export type DataGridFilterDef =
       options: DataGridFilterOption[];
     }
   | {
+      /**
+       * TODO-159B (ADR-090) — Aranabilir varlık filtresi (ürün/kategori gibi
+       * kümesi büyüyebilen alanlar). Popover içine devasa bir `<select>` basmak
+       * yerine ortak seçici modalını açar; modalı ÇAĞIRAN render eder (portal
+       * popover'ın içine hapsolmasın).
+       */
+      kind: "entity";
+      key: string;
+      label: string;
+      /** Seçili kaydın görünen adı; henüz çözülmediyse null (ham id gösterilir). */
+      displayLabel: string | null;
+      openLabel: string;
+      onOpen: () => void;
+    }
+  | {
       kind: "number-range";
       /** Alt/üst sınır için AYRI query anahtarları (örn. priceMin / priceMax). */
       minKey: string;
@@ -129,6 +144,17 @@ export function DataGridToolbar({
       }
       continue;
     }
+    if (def.kind === "entity") {
+      const value = values[def.key];
+      if (value) {
+        chips.push({
+          key: def.key,
+          label: `${def.label}: ${def.displayLabel ?? value}`,
+          onRemove: () => onFiltersChange({ [def.key]: "" }),
+        });
+      }
+      continue;
+    }
     const min = values[def.minKey];
     const max = values[def.maxKey];
     if (min || max) {
@@ -198,6 +224,32 @@ export function DataGridToolbar({
                       // Boş değer = "Tümü" (filtre uygulanmaz).
                       options={[{ value: "", label: labels.filterAll }, ...def.options]}
                     />
+                  ) : def.kind === "entity" ? (
+                    <div key={def.key}>
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-white/35">
+                        {def.label}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="secondary" size="sm" onClick={def.onOpen}>
+                          {def.openLabel}
+                        </Button>
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-white/70">
+                          {values[def.key]
+                            ? (def.displayLabel ?? values[def.key])
+                            : labels.filterAll}
+                        </span>
+                        {values[def.key] ? (
+                          <button
+                            type="button"
+                            onClick={() => onFiltersChange({ [def.key]: "" })}
+                            aria-label={format(labels.removeFilter, { label: def.label })}
+                            className="shrink-0 text-[11px] font-semibold text-indigo-300 underline underline-offset-2 hover:text-indigo-200"
+                          >
+                            {labels.filtersClear}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   ) : (
                     <fieldset key={`${def.minKey}-${def.maxKey}`}>
                       <legend className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-white/35">

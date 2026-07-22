@@ -37,11 +37,15 @@ import { format, getDictionary } from "@commerce-os/i18n";
 import type {
   AdminListPagination,
   Product,
-  ProductCategory,
   ProductPriceVisibility,
   ProductPrimaryAction,
   ProductSalesMode,
 } from "@commerce-os/api-client";
+import {
+  EntitySelectorModal,
+  useCategorySelectorBinding,
+  useSelectedItems,
+} from "../../../components/selector";
 import { ProductIcon } from "../../../components/icons";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
@@ -80,6 +84,9 @@ const SALES_MODES: ProductSalesMode[] = [
   "CATALOG_ONLY",
 ];
 const STATUSES: ProductStatus[] = ["DRAFT", "ACTIVE", "ARCHIVED"];
+// Sabit referans: yükleme/hata durumlarında her render'da yeni [] üretip
+// kategori çözümünü gereksizce tetiklemesin.
+const EMPTY_PRODUCTS: Product[] = [];
 
 /** URL'deki `sortBy`/`sortOrder` çiftinin araç çubuğundaki bileşik değeri. */
 const SORT_VALUES = [
@@ -135,9 +142,12 @@ function ProductsView() {
   });
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  // Kategori ve marka/tedarikçi seçenekleri filtre açılırlarını besler; listeden
-  // BAĞIMSIZ yüklenir (sayfalanmış veriden türetilemez).
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  // Marka/tedarikçi seçenekleri filtre açılırlarını besler; listeden BAĞIMSIZ
+  // yüklenir (sayfalanmış veriden türetilemez).
+  // TODO-159B (ADR-090) — Kategori filtresi artık 100'lük bir açılır değil,
+  // aranabilir seçicidir; kategori kataloğu belleğe ALINMAZ.
+  const categorySelector = useCategorySelectorBinding(locale);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [filterOptions, setFilterOptions] = useState<{ brands: string[]; vendors: string[] }>({
     brands: [],
     vendors: [],
@@ -168,28 +178,45 @@ function ProductsView() {
   }, [load]);
 
   useEffect(() => {
-    // Filtre kaynakları bir kez yüklenir; liste sorgusundan bağımsızdır.
-    // Kategori seçenekleri için üst sınır (100) bilinçlidir — daha derin kategori
-    // ağaçlarında arama tabanlı seçici gerekir (bkz. TD-093).
+    // Marka/tedarikçi DISTINCT değerleri bir kez yüklenir; liste sorgusundan
+    // bağımsızdır ve kayıt sayısından etkilenmez (tek groupBy).
     void (async () => {
       try {
-        const [cats, options] = await Promise.all([
-          storeApi.listCategories({ pageSize: 100, sortBy: "name", sortOrder: "asc" }),
-          storeApi.listProductFilterOptions(),
-        ]);
-        setCategories(cats.data);
-        setFilterOptions(options);
+        setFilterOptions(await storeApi.listProductFilterOptions());
       } catch {
         // Filtre kaynakları yüklenemezse liste yine çalışır (filtreler boş kalır).
       }
     })();
   }, []);
 
+  // TODO-159B — Tablodaki kategori adları, YALNIZ o sayfadaki ürünlerin kategori
+  // id'leri için `ids` çözüm moduyla batched getirilir (tüm ağaç yüklenmez, N+1 yok).
+  const pageProducts = state.status === "ready" ? state.products : EMPTY_PRODUCTS;
+  const pageCategoryIds = useMemo(
+    () => [...new Set(pageProducts.flatMap((product) => product.categoryIds))],
+    [pageProducts],
+  );
+  const pageCategories = useSelectedItems({
+    ids: pageCategoryIds,
+    source: categorySelector.source,
+  });
   const categoryNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const category of categories) map.set(category.id, category.name);
+    for (const [id, category] of pageCategories.byId) map.set(id, category.name);
     return map;
-  }, [categories]);
+  }, [pageCategories.byId]);
+
+  // Filtredeki seçili kategorinin adı da aynı çözüm modundan gelir (100 sınırının
+  // ötesindeki kategori seçilebilir ve çipi doğru adla görünür).
+  const filterCategoryId = grid.filters.categoryId ?? "";
+  const filterCategoryIds = useMemo(
+    () => (filterCategoryId ? [filterCategoryId] : []),
+    [filterCategoryId],
+  );
+  const filterCategory = useSelectedItems({
+    ids: filterCategoryIds,
+    source: categorySelector.source,
+  });
 
   const filters: DataGridFilterDef[] = useMemo(
     () => [
@@ -215,10 +242,12 @@ function ProductsView() {
         ],
       },
       {
-        kind: "select",
+        kind: "entity",
         key: "categoryId",
         label: t.grid.filters.category,
-        options: categories.map((category) => ({ value: category.id, label: category.name })),
+        displayLabel: filterCategory.items[0]?.path.join(" / ") ?? null,
+        openLabel: dict.storeAdmin.selector.openSelector,
+        onOpen: () => setCategoryPickerOpen(true),
       },
       {
         kind: "select",
@@ -250,7 +279,7 @@ function ProductsView() {
         maxPlaceholder: t.grid.filters.priceMax,
       },
     ],
-    [categories, filterOptions, sm.modeLabels, statusLabels, t.grid],
+    [filterCategory.items, filterOptions, sm.modeLabels, statusLabels, t.grid, dict.storeAdmin.selector.openSelector],
   );
 
   const sortOptions: DataGridSortOption[] = [
@@ -464,9 +493,25 @@ function ProductsView() {
         ) : null}
       </SurfaceCard>
 
+      {categoryPickerOpen ? (
+        <EntitySelectorModal
+          open
+          onClose={() => setCategoryPickerOpen(false)}
+          title={categorySelector.title}
+          description={categorySelector.description}
+          multiple={false}
+          selectedIds={filterCategoryIds}
+          onChange={(ids) => grid.setFilter("categoryId", ids[0] ?? "")}
+          source={categorySelector.source}
+          presenter={categorySelector.presenter}
+          labels={categorySelector.labels}
+          toMessage={(cause) => messageForError(cause, locale)}
+          onItemsLoaded={filterCategory.remember}
+        />
+      ) : null}
+
       {creating ? (
         <CreateProduct
-          categories={categories}
           statusLabels={statusLabels}
           onClose={() => setCreating(false)}
           onCreated={(product) => {
@@ -482,12 +527,10 @@ function ProductsView() {
 
 /** Kısa create modal'ı (kural: kısa create/edit modal kalabilir). */
 function CreateProduct({
-  categories,
   statusLabels,
   onClose,
   onCreated,
 }: {
-  categories: ProductCategory[];
   statusLabels: Record<ProductStatus, string>;
   onClose: () => void;
   onCreated: (product: Product) => void;
@@ -519,7 +562,6 @@ function CreateProduct({
     >
       <ProductForm
         mode="create"
-        categories={categories}
         statusLabels={statusLabels}
         formId="product-create-form"
         onSavingChange={setSaving}

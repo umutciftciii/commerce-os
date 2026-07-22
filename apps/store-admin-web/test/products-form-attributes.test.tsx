@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@commerce-os/ui";
 import { ProductForm } from "../app/(app)/products/product-form";
+import { makeCategorySelectorFake, pickInSelector } from "./selector-test-utils";
 
 const { storeApiMock, MockUiError } = vi.hoisted(() => {
   class MockUiError extends Error {
@@ -33,6 +34,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       listAttributeGroups: vi.fn(),
       listAttributeOptions: vi.fn(),
       listMedia: vi.fn().mockResolvedValue({ data: [] }),
+      // TODO-159B (ADR-090) — kategori ataması aranabilir seçiciden geçer.
+      listCategorySelector: vi.fn(),
       uploadMedia: vi.fn(),
       deleteMedia: vi.fn(),
     },
@@ -150,12 +153,12 @@ function cat(id: string, name: string) {
   };
 }
 
-function renderCreate(categories: unknown[] = [cat("c1", "Apparel")]) {
+function renderCreate(categories: { id: string; name: string }[] = [cat("c1", "Apparel")]) {
+  storeApiMock.listCategorySelector.mockImplementation(makeCategorySelectorFake(categories));
   return render(
     <LocaleProvider locale="en">
       <ProductForm
         mode="create"
-        categories={categories as never}
         statusLabels={STATUS_LABELS}
         formId="pf"
         onSaved={vi.fn()}
@@ -165,13 +168,13 @@ function renderCreate(categories: unknown[] = [cat("c1", "Apparel")]) {
   );
 }
 
-function renderEdit(product: unknown, categories: unknown[] = [cat("c1", "Apparel")]) {
+function renderEdit(product: unknown, categories: { id: string; name: string }[] = [cat("c1", "Apparel")]) {
+  storeApiMock.listCategorySelector.mockImplementation(makeCategorySelectorFake(categories));
   return render(
     <LocaleProvider locale="en">
       <ProductForm
         mode="edit"
         product={product as never}
-        categories={categories as never}
         statusLabels={STATUS_LABELS}
         formId="pf"
         onSaved={vi.fn()}
@@ -195,7 +198,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
     // Kategori seçilmeden attribute yok.
     expect(screen.queryByText("Material")).toBeNull();
 
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
 
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
     // Grup başlıkları: General + Specs.
@@ -221,7 +224,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
 
     await user.click(screen.getByRole("button", { name: "save" }));
@@ -237,7 +240,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
 
     await user.type(screen.getByLabelText(/Material/), "ab"); // < minLength 3
@@ -255,7 +258,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
 
     await user.type(screen.getByLabelText(/Material/), "Cotton");
@@ -322,7 +325,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(storeApiMock.listCategoryAttributes).toHaveBeenCalled());
 
     // Hiçbir attribute grubu render edilmedi.
@@ -344,7 +347,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
     await user.type(screen.getByLabelText(/Material/), "Cotton");
 
@@ -360,12 +363,12 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
     installSchema();
     renderCreate();
 
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
     // Kategoriyi kaldır (primary null → attribute yok), sonra tekrar ekle.
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.queryByText("Material")).toBeNull());
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Material")).toBeTruthy());
 
     // Cache: her tüketici (product + variant hook) kategori başına yalnız BİR kez çağırdı →

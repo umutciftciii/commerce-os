@@ -56,6 +56,14 @@ import {
   adminCustomerListQuerySchema,
   buildAdminListPagination,
   resolveAdminListPage,
+  // TODO-159B (ADR-090) — Admin Searchable Selector sözleşmesi.
+  ADMIN_SELECTOR_MAX_IDS,
+  adminProductSelectorQuerySchema,
+  adminProductSelectorResponseSchema,
+  adminCategorySelectorQuerySchema,
+  adminCategorySelectorResponseSchema,
+  buildSelectorIdsPagination,
+  parseSelectorIds,
   productPriceChangeListResponseSchema,
   productPriceChangeSchema,
   productSchema,
@@ -747,6 +755,44 @@ export interface AdminProductListCriteria {
   priceMax?: number;
 }
 
+/**
+ * TODO-159B (ADR-090) — Ürün SEÇİCİ veri-erişim kriteri.
+ *
+ * Liste kriterinin daraltılmış kardeşidir: seçicide yalnız arama + durum +
+ * kategori daraltması ve dört sıralama anlamlıdır. `ids` verildiğinde arama/
+ * filtre/sıralama YOK SAYILIR — çözüm modu (bkz. ADR-090).
+ */
+export interface AdminProductSelectorCriteria {
+  limit: number;
+  offset: number;
+  search?: string;
+  sortBy: "title" | "createdAt" | "updatedAt" | "price" | "stock";
+  sortOrder: "asc" | "desc";
+  status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  categoryId?: string;
+  /** Çözüm modu: verilirse YALNIZ bu id'ler (mağaza içinde) döner. */
+  ids?: string[];
+}
+
+/**
+ * TODO-159B (ADR-090) — Seçici satırı. Ürün detay payload'ı DEĞİLDİR: yalnız
+ * seçim kararı için gerekenler. `coverStorageKey` ham taşınır; public URL route
+ * katmanında `resolveMediaUrl` ile türetilir (storageKey response'a SIZMAZ).
+ */
+export interface ProductSelectorRecord {
+  id: string;
+  title: string;
+  slug: string;
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  /** YALNIZ tek aktif varyantlı üründe dolu (bkz. ADR-090). */
+  sku: string | null;
+  coverStorageKey: string | null;
+  priceMinor: number | null;
+  currency: string | null;
+  stockAvailable: number | null;
+  variantCount: number;
+}
+
 // F4A — Kampanya veri erisimi AppDataAccess'e dahildir; boylece test harness'i
 // (MemoryDataAccess) public sepet/checkout indirim akisini DB'siz dogrulayabilir.
 export interface AppDataAccess extends CampaignDataAccess {
@@ -803,6 +849,13 @@ export interface AppDataAccess extends CampaignDataAccess {
     },
   ): Promise<{ data: CategoryRecord[]; total: number }>;
   findCategoryById(storeId: string, categoryId: string): Promise<CategoryRecord | null>;
+  /**
+   * TODO-159B (ADR-090) — Batched kategori çözümü (store-scoped). İKİ yerde
+   * kullanılır: (1) seçicinin `ids` çözüm modu, (2) hiyerarşi yolunun SEVİYE
+   * SEVİYE çözülmesi. Her ikisi de N+1 üretmez; tüm kategori ağacı hiçbir
+   * istekte baştan yüklenmez. Başka mağazanın id'si sessizce elenir.
+   */
+  findCategoriesByIds(storeId: string, ids: string[]): Promise<CategoryRecord[]>;
   findCategoryBySlug(storeId: string, slug: string): Promise<CategoryRecord | null>;
   // TODO-156D tamamlama (ADR-082) — Storefront runtime redirect çözümleyicisi için etkin (enabled) redirect
   // kuralları (store-scoped). type DB enum string'i; route redirectEnumToStatus ile sayısala çevirir.
@@ -888,6 +941,15 @@ export interface AppDataAccess extends CampaignDataAccess {
   ): Promise<{ data: ProductRecord[]; total: number }>;
   /** TODO-159A — Marka/tedarikçi filtre açılırları için DISTINCT değerler (tek groupBy). */
   listProductFilterOptions(storeId: string): Promise<{ brands: string[]; vendors: string[] }>;
+  /**
+   * TODO-159B (ADR-090) — Ürün seçici projeksiyonu. `listProductsAdmin` ile AYNI
+   * filtre/sıralama SQL'ini paylaşır (tek doğruluk kaynağı) ama tam ürün kaydı
+   * yerine hafif seçici satırı döner.
+   */
+  listProductSelector(
+    storeId: string,
+    input: AdminProductSelectorCriteria,
+  ): Promise<{ data: ProductSelectorRecord[]; total: number }>;
   findProductById(storeId: string, productId: string): Promise<ProductRecord | null>;
   findProductBySlug(storeId: string, slug: string): Promise<ProductRecord | null>;
   /**
@@ -2364,6 +2426,135 @@ function requireInternalToken(config: AppConfig) {
   };
 }
 
+/**
+ * TODO-159A (ADR-089) / TODO-159B (ADR-090) — Admin ürün taramasının PAYLAŞILAN
+ * SQL kurucusu.
+ *
+ * Hem liste ekranı (`listProductsAdmin`) hem seçici (`listProductSelector`) AYNI
+ * WHERE + ORDER BY üretecini kullanır: "listede bulduğum ürünü seçicide
+ * bulamıyorum" sınıfı tutarsızlıklar böylece yapısal olarak imkânsızlaşır.
+ *
+ * Güvenlik: her fragment parametrelidir (Prisma.sql); sıralama ifadesi kapalı bir
+ * allowlist'ten SEÇİLİR — istemci metni asla SQL'e girmez. LIKE metakarakterleri
+ * kaçırılır (kontrolsüz wildcard → tam tablo taraması riski yok). `storeId` her
+ * koşulda WHERE'in ilk şartıdır (tenant izolasyonu).
+ */
+function buildAdminProductScanSql(
+  storeId: string,
+  criteria: {
+    search?: string;
+    sortBy: "createdAt" | "updatedAt" | "title" | "price" | "stock";
+    sortOrder: "asc" | "desc";
+    status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+    salesMode?: ProductSalesMode;
+    purchasable?: boolean;
+    categoryId?: string;
+    brand?: string;
+    vendor?: string;
+    stockStatus?: "IN_STOCK" | "OUT_OF_STOCK";
+    priceMin?: number;
+    priceMax?: number;
+    ids?: string[];
+  },
+): { where: Prisma.Sql; aggregateJoin: Prisma.Sql; orderBy: Prisma.Sql; needsAggregate: boolean } {
+  const likePattern = (raw: string) => `%${raw.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+
+  const conditions: Prisma.Sql[] = [Prisma.sql`p."storeId" = ${storeId}`];
+
+  // Çözüm modu: id kümesi verildiğinde arama/filtreler YOK SAYILIR (ADR-090).
+  // Boş küme hiçbir satır döndürmemeli — `IN ()` yazmak yerine FALSE koşulu.
+  if (criteria.ids !== undefined) {
+    conditions.push(
+      criteria.ids.length === 0
+        ? Prisma.sql`FALSE`
+        : Prisma.sql`p."id" IN (${Prisma.join(criteria.ids)})`,
+    );
+  } else {
+    if (criteria.search) {
+      const pattern = likePattern(criteria.search);
+      conditions.push(Prisma.sql`(
+        p."title" ILIKE ${pattern} ESCAPE '\\'
+        OR p."slug" ILIKE ${pattern} ESCAPE '\\'
+        OR p."brand" ILIKE ${pattern} ESCAPE '\\'
+        OR p."vendor" ILIKE ${pattern} ESCAPE '\\'
+        OR EXISTS (
+          SELECT 1 FROM "ProductVariant" sv
+          WHERE sv."productId" = p."id"
+            AND (sv."sku" ILIKE ${pattern} ESCAPE '\\' OR sv."barcode" ILIKE ${pattern} ESCAPE '\\')
+        )
+      )`);
+    }
+    // Enum karşılaştırmaları ::text üzerinden yapılır (parametre tipi her sürücüde
+    // güvenle text'tir; enum cast'ine bağımlılık yok).
+    if (criteria.status) conditions.push(Prisma.sql`p."status"::text = ${criteria.status}`);
+    if (criteria.salesMode) conditions.push(Prisma.sql`p."salesMode"::text = ${criteria.salesMode}`);
+    if (criteria.purchasable !== undefined) {
+      conditions.push(Prisma.sql`p."purchasable" = ${criteria.purchasable}`);
+    }
+    if (criteria.categoryId) {
+      conditions.push(Prisma.sql`EXISTS (
+        SELECT 1 FROM "ProductCategoryAssignment" pca
+        WHERE pca."productId" = p."id"
+          AND pca."storeId" = ${storeId}
+          AND pca."categoryId" = ${criteria.categoryId}
+      )`);
+    }
+    if (criteria.brand) conditions.push(Prisma.sql`p."brand" = ${criteria.brand}`);
+    if (criteria.vendor) conditions.push(Prisma.sql`p."vendor" = ${criteria.vendor}`);
+    if (criteria.stockStatus === "IN_STOCK") {
+      conditions.push(Prisma.sql`COALESCE(agg."available", 0) > 0`);
+    }
+    if (criteria.stockStatus === "OUT_OF_STOCK") {
+      conditions.push(Prisma.sql`COALESCE(agg."available", 0) <= 0`);
+    }
+    if (criteria.priceMin !== undefined) {
+      conditions.push(Prisma.sql`agg."minPrice" >= ${criteria.priceMin}`);
+    }
+    if (criteria.priceMax !== undefined) {
+      conditions.push(Prisma.sql`agg."minPrice" <= ${criteria.priceMax}`);
+    }
+  }
+
+  // Türetilmiş toplamlar YALNIZ gerektiğinde hesaplanır (filtre veya sıralama
+  // onları kullanıyorsa); aksi halde LATERAL join hiç kurulmaz.
+  const needsAggregate =
+    criteria.sortBy === "price" ||
+    criteria.sortBy === "stock" ||
+    criteria.stockStatus !== undefined ||
+    criteria.priceMin !== undefined ||
+    criteria.priceMax !== undefined;
+
+  // available = onHand − reserved (search read-model ile AYNI otorite: InventoryItem
+  // varsayılan depo). Negatif bakiye 0'a kırpılır (rezervasyon aşımı stok üretmez).
+  const aggregateJoin = needsAggregate
+    ? Prisma.sql`LEFT JOIN LATERAL (
+        SELECT
+          MIN(v."priceMinor") AS "minPrice",
+          COALESCE(SUM(GREATEST(COALESCE(i."quantityOnHand", 0) - COALESCE(i."quantityReserved", 0), 0)), 0) AS "available"
+        FROM "ProductVariant" v
+        LEFT JOIN "InventoryItem" i ON i."variantId" = v."id"
+        WHERE v."productId" = p."id" AND v."status" = 'ACTIVE'
+      ) agg ON TRUE`
+    : Prisma.empty;
+
+  const where = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
+  const direction = criteria.sortOrder === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+  // ALLOWLIST → sabit SQL ifadesi. NULLS LAST: fiyatsız/stoksuz ürünler her iki
+  // yönde de sona düşer (liste başı hep anlamlı kayıtla açılır).
+  const sortExpression: Record<AdminProductListCriteria["sortBy"], Prisma.Sql> = {
+    createdAt: Prisma.sql`p."createdAt"`,
+    updatedAt: Prisma.sql`p."updatedAt"`,
+    title: Prisma.sql`LOWER(p."title")`,
+    price: Prisma.sql`agg."minPrice"`,
+    stock: Prisma.sql`agg."available"`,
+  };
+  // İkincil anahtar id: aynı değerli satırlarda sayfa sınırının deterministik
+  // olmasını sağlar (kayıt atlanması/tekrarı olmaz).
+  const orderBy = Prisma.sql`ORDER BY ${sortExpression[criteria.sortBy]} ${direction} NULLS LAST, p."id" ASC`;
+
+  return { where, aggregateJoin, orderBy, needsAggregate };
+}
+
 function createPrismaDataAccess(): AppDataAccess {
   const storeSelect = {
     id: true,
@@ -2900,6 +3091,15 @@ function createPrismaDataAccess(): AppDataAccess {
       }),
     findCategoryById: (storeId, categoryId) =>
       prisma.productCategory.findFirst({ where: { id: categoryId, storeId }, select: categorySelect }),
+    // TODO-159B (ADR-090) — TEK batched sorgu. storeId WHERE'in şartıdır: başka
+    // mağazanın id'si sonuçta yer almaz (var/yok bilgisi de sızmaz).
+    findCategoriesByIds: async (storeId, ids) => {
+      if (ids.length === 0) return [];
+      return prisma.productCategory.findMany({
+        where: { storeId, id: { in: ids } },
+        select: categorySelect,
+      });
+    },
     findCategoryBySlug: (storeId, slug) =>
       prisma.productCategory.findUnique({ where: { storeId_slug: { storeId, slug } }, select: categorySelect }),
     findMediaAssetById: (storeId, mediaId) =>
@@ -3028,92 +3228,9 @@ function createPrismaDataAccess(): AppDataAccess {
     // koşulda WHERE'in ilk şartıdır (tenant izolasyonu).
     // ─────────────────────────────────────────────────────────────────────────
     listProductsAdmin: async (storeId, criteria) => {
-      // LIKE metakarakterleri (% _ \) kaçırılır: kullanıcı girdisi kontrolsüz
-      // wildcard'a dönüşemez (tam tablo taraması riski).
-      const likePattern = (raw: string) =>
-        `%${raw.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
-
-      const conditions: Prisma.Sql[] = [Prisma.sql`p."storeId" = ${storeId}`];
-      if (criteria.search) {
-        const pattern = likePattern(criteria.search);
-        conditions.push(Prisma.sql`(
-          p."title" ILIKE ${pattern} ESCAPE '\\'
-          OR p."slug" ILIKE ${pattern} ESCAPE '\\'
-          OR p."brand" ILIKE ${pattern} ESCAPE '\\'
-          OR p."vendor" ILIKE ${pattern} ESCAPE '\\'
-          OR EXISTS (
-            SELECT 1 FROM "ProductVariant" sv
-            WHERE sv."productId" = p."id"
-              AND (sv."sku" ILIKE ${pattern} ESCAPE '\\' OR sv."barcode" ILIKE ${pattern} ESCAPE '\\')
-          )
-        )`);
-      }
-      // Enum karşılaştırmaları ::text üzerinden yapılır (parametre tipi her sürücüde
-      // güvenle text'tir; enum cast'ine bağımlılık yok).
-      if (criteria.status) conditions.push(Prisma.sql`p."status"::text = ${criteria.status}`);
-      if (criteria.salesMode) conditions.push(Prisma.sql`p."salesMode"::text = ${criteria.salesMode}`);
-      if (criteria.purchasable !== undefined) {
-        conditions.push(Prisma.sql`p."purchasable" = ${criteria.purchasable}`);
-      }
-      if (criteria.categoryId) {
-        conditions.push(Prisma.sql`EXISTS (
-          SELECT 1 FROM "ProductCategoryAssignment" pca
-          WHERE pca."productId" = p."id"
-            AND pca."storeId" = ${storeId}
-            AND pca."categoryId" = ${criteria.categoryId}
-        )`);
-      }
-      if (criteria.brand) conditions.push(Prisma.sql`p."brand" = ${criteria.brand}`);
-      if (criteria.vendor) conditions.push(Prisma.sql`p."vendor" = ${criteria.vendor}`);
-      if (criteria.stockStatus === "IN_STOCK") {
-        conditions.push(Prisma.sql`COALESCE(agg."available", 0) > 0`);
-      }
-      if (criteria.stockStatus === "OUT_OF_STOCK") {
-        conditions.push(Prisma.sql`COALESCE(agg."available", 0) <= 0`);
-      }
-      if (criteria.priceMin !== undefined) {
-        conditions.push(Prisma.sql`agg."minPrice" >= ${criteria.priceMin}`);
-      }
-      if (criteria.priceMax !== undefined) {
-        conditions.push(Prisma.sql`agg."minPrice" <= ${criteria.priceMax}`);
-      }
-
-      // Türetilmiş toplamlar YALNIZ gerektiğinde hesaplanır (filtre veya sıralama
-      // onları kullanıyorsa); aksi halde LATERAL join hiç kurulmaz.
-      const needsAggregate =
-        criteria.sortBy === "price" ||
-        criteria.sortBy === "stock" ||
-        criteria.stockStatus !== undefined ||
-        criteria.priceMin !== undefined ||
-        criteria.priceMax !== undefined;
-
-      // available = onHand − reserved (search read-model ile AYNI otorite: InventoryItem
-      // varsayılan depo). Negatif bakiye 0'a kırpılır (rezervasyon aşımı stok üretmez).
-      const aggregateJoin = needsAggregate
-        ? Prisma.sql`LEFT JOIN LATERAL (
-            SELECT
-              MIN(v."priceMinor") AS "minPrice",
-              COALESCE(SUM(GREATEST(COALESCE(i."quantityOnHand", 0) - COALESCE(i."quantityReserved", 0), 0)), 0) AS "available"
-            FROM "ProductVariant" v
-            LEFT JOIN "InventoryItem" i ON i."variantId" = v."id"
-            WHERE v."productId" = p."id" AND v."status" = 'ACTIVE'
-          ) agg ON TRUE`
-        : Prisma.empty;
-
-      const where = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
-      const direction = criteria.sortOrder === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-      // ALLOWLIST → sabit SQL ifadesi. NULLS LAST: fiyatsız/stoksuz ürünler her iki
-      // yönde de sona düşer (liste başı hep anlamlı kayıtla açılır).
-      const sortExpression: Record<AdminProductListCriteria["sortBy"], Prisma.Sql> = {
-        createdAt: Prisma.sql`p."createdAt"`,
-        updatedAt: Prisma.sql`p."updatedAt"`,
-        title: Prisma.sql`LOWER(p."title")`,
-        price: Prisma.sql`agg."minPrice"`,
-        stock: Prisma.sql`agg."available"`,
-      };
-      // İkincil anahtar id: aynı değerli satırlarda sayfa sınırının deterministik
-      // olmasını sağlar (kayıt atlanması/tekrarı olmaz).
-      const orderBy = Prisma.sql`ORDER BY ${sortExpression[criteria.sortBy]} ${direction} NULLS LAST, p."id" ASC`;
+      // Filtre/sıralama SQL'i PAYLAŞILAN kurucudan gelir (bkz. buildAdminProductScanSql):
+      // liste ile seçici arasında tek doğruluk kaynağı.
+      const { where, aggregateJoin, orderBy } = buildAdminProductScanSql(storeId, criteria);
 
       const [rows, counted] = await Promise.all([
         prisma.$queryRaw<{ id: string }[]>(
@@ -3139,6 +3256,105 @@ function createPrismaDataAccess(): AppDataAccess {
         .map((id) => byId.get(id))
         .filter((product): product is NonNullable<typeof product> => product !== undefined);
       return { data: ordered.map(withCategoryIds), total };
+    },
+    // ─────────────────────────────────────────────────────────────────────────
+    // TODO-159B (ADR-090) — Ürün seçici projeksiyonu.
+    //
+    // Liste ile AYNI filtre/sıralama SQL'ini kullanır (buildAdminProductScanSql),
+    // ama tam ürün kaydını hidre ETMEZ: tek raw sorgu id + görünen alanlar +
+    // türetilmiş fiyat/stok/SKU'yu getirir, ikinci bounded sorgu kapak görselini
+    // batched çeker. Toplam 3 sorgu (sayfa + count + kapaklar); N+1 YOK.
+    //
+    // `sku` LATERAL ile TEK örnek varyanttan alınır (alfabetik ilk) — seçicide
+    // "hangi ürün bu?" sorusunu yanıtlamak için yeterlidir, varyant listesi
+    // taşınmaz.
+    // ─────────────────────────────────────────────────────────────────────────
+    listProductSelector: async (storeId, criteria) => {
+      // Filtre + sıralama liste ile AYNI kurucudan (tek doğruluk kaynağı).
+      const { where, orderBy } = buildAdminProductScanSql(storeId, criteria);
+      // Seçicide fiyat/stok HER SATIRDA gösterilir; bu yüzden toplamlar
+      // sıralamadan bağımsız olarak DAİMA hesaplanır (kurucunun koşullu
+      // join'i burada kullanılmaz, sabit join kurulur).
+      const aggregateJoin = Prisma.sql`LEFT JOIN LATERAL (
+        SELECT
+          MIN(v."priceMinor") AS "minPrice",
+          -- DISTINCT şart: InventoryItem LEFT JOIN'i çok depolu varyantta satırı
+          -- çoğaltır; COUNT(*) varyant sayısını şişirirdi.
+          COUNT(DISTINCT v."id")::int AS "variantCount",
+          COALESCE(SUM(GREATEST(COALESCE(i."quantityOnHand", 0) - COALESCE(i."quantityReserved", 0), 0)), 0) AS "available"
+        FROM "ProductVariant" v
+        LEFT JOIN "InventoryItem" i ON i."variantId" = v."id"
+        WHERE v."productId" = p."id" AND v."status" = 'ACTIVE'
+      ) agg ON TRUE`;
+      // En ucuz aktif varyant: fiyatın para birimi ve (tek varyantlı üründe)
+      // SKU buradan gelir. Çok varyantlı üründe SKU aşağıda null'lanır.
+      const cheapestJoin = Prisma.sql`LEFT JOIN LATERAL (
+        SELECT v."priceMinor", v."currency", v."sku"
+        FROM "ProductVariant" v
+        WHERE v."productId" = p."id" AND v."status" = 'ACTIVE'
+        ORDER BY v."priceMinor" ASC, v."id" ASC
+        LIMIT 1
+      ) pv ON TRUE`;
+
+      const [rows, counted] = await Promise.all([
+        prisma.$queryRaw<
+          {
+            id: string;
+            title: string;
+            slug: string;
+            status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+            sku: string | null;
+            currency: string | null;
+            minPrice: number | null;
+            available: bigint | number | null;
+            variantCount: number | null;
+          }[]
+        >(
+          Prisma.sql`SELECT p."id", p."title", p."slug", p."status"::text AS "status",
+              pv."sku" AS "sku", pv."currency" AS "currency", pv."priceMinor" AS "minPrice",
+              agg."available" AS "available", agg."variantCount" AS "variantCount"
+            FROM "Product" p ${aggregateJoin} ${cheapestJoin} ${where} ${orderBy}
+            LIMIT ${criteria.limit} OFFSET ${criteria.offset}`,
+        ),
+        prisma.$queryRaw<{ count: bigint }[]>(
+          Prisma.sql`SELECT COUNT(*) AS count FROM "Product" p ${aggregateJoin} ${where}`,
+        ),
+      ]);
+
+      const total = Number(counted[0]?.count ?? 0);
+      if (rows.length === 0) return { data: [], total };
+
+      // Kapak görselleri TEK batched sorgu (mevcut coverOnly deseni; N+1 yok).
+      const covers = await prisma.productImage.findMany({
+        where: { storeId, productId: { in: rows.map((row) => row.id) } },
+        orderBy: [{ productId: "asc" }, { position: "asc" }],
+        distinct: ["productId"],
+        select: { productId: true, media: { select: { storageKey: true } } },
+      });
+      const coverByProduct = new Map(
+        covers.map((cover) => [cover.productId, cover.media?.storageKey ?? null]),
+      );
+
+      return {
+        data: rows.map((row) => {
+          const variantCount = Number(row.variantCount ?? 0);
+          return {
+            id: row.id,
+            title: row.title,
+            slug: row.slug,
+            status: row.status,
+            // Çok varyantlı üründe TEK bir SKU göstermek yanıltıcı olur; orada
+            // satır `variantCount` ile konuşur (bkz. ADR-090).
+            sku: variantCount === 1 ? row.sku : null,
+            coverStorageKey: coverByProduct.get(row.id) ?? null,
+            priceMinor: row.minPrice === null ? null : Number(row.minPrice),
+            currency: row.currency,
+            stockAvailable: row.available === null ? null : Number(row.available),
+            variantCount,
+          };
+        }),
+        total,
+      };
     },
     // TODO-159A — Filtre açılırlarının DISTINCT kaynağı. Liste sayfalandığı için bu
     // değerler istemcide türetilemez; tek groupBy ile (ürün sayısından bağımsız) döner.
@@ -6259,6 +6475,115 @@ export function createServer(
     });
   });
 
+  /**
+   * TODO-159B (ADR-090) — Kategori hiyerarşi yolunun N+1'siz çözümü.
+   *
+   * Sayfadaki satırların ebeveynleri SEVİYE SEVİYE, her seviyede TEK batched
+   * sorguyla çözülür. Tüm kategori ağacı hiçbir istekte baştan yüklenmez; sorgu
+   * sayısı satır sayısına değil AĞAÇ DERİNLİĞİNE bağlıdır (pratikte 2–4).
+   *
+   * `MAX_DEPTH` hem makul bir üst sınır hem de döngü güvenliğidir: bozuk veri
+   * (a→b→a) sonsuz döngüye değil, kısa bir yola dönüşür.
+   */
+  const CATEGORY_PATH_MAX_DEPTH = 10;
+  async function resolveCategoryPaths(
+    storeId: string,
+    rows: readonly CategoryRecord[],
+  ): Promise<Map<string, string[]>> {
+    const nameById = new Map<string, string>();
+    const parentById = new Map<string, string | null>();
+    for (const row of rows) {
+      nameById.set(row.id, row.name);
+      parentById.set(row.id, row.parentId);
+    }
+
+    const missingParents = (source: readonly { parentId: string | null }[]) => [
+      ...new Set(
+        source
+          .map((row) => row.parentId)
+          .filter((id): id is string => id !== null && !nameById.has(id)),
+      ),
+    ];
+
+    let pending = missingParents(rows);
+    for (let depth = 0; pending.length > 0 && depth < CATEGORY_PATH_MAX_DEPTH; depth += 1) {
+      const parents = await dataAccess.findCategoriesByIds(storeId, pending);
+      for (const parent of parents) {
+        nameById.set(parent.id, parent.name);
+        parentById.set(parent.id, parent.parentId);
+      }
+      pending = missingParents(parents);
+    }
+
+    const paths = new Map<string, string[]>();
+    for (const row of rows) {
+      const chain = [row.name];
+      let cursor = row.parentId;
+      for (let hop = 0; cursor !== null && hop < CATEGORY_PATH_MAX_DEPTH; hop += 1) {
+        const name = nameById.get(cursor);
+        // Ebeveyn çözülemediyse (derinlik sınırı ya da başka mağazaya kaçmış FK)
+        // yolu KISALTIP devam ederiz: eksik ad yerine yanlış ad göstermeyiz.
+        if (name === undefined) break;
+        chain.unshift(name);
+        cursor = parentById.get(cursor) ?? null;
+      }
+      paths.set(row.id, chain);
+    }
+    return paths;
+  }
+
+  /**
+   * TODO-159B (ADR-090) — Kategori SEÇİCİ ucu. Ürün seçicisiyle AYNI sözleşme:
+   * arama + sayfalama + `ids` çözüm modu. Ek olarak her satır kökten kendisine
+   * `path` (ad zinciri) taşır; UI "Elektronik / Bilgisayar / Ekran Kartı" gösterir.
+   */
+  app.get("/stores/:storeId/categories/selector", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const query = adminCategorySelectorQuerySchema.parse(request.query);
+
+    const serialize = (row: CategoryRecord, paths: Map<string, string[]>) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      status: row.status,
+      parentId: row.parentId,
+      path: paths.get(row.id) ?? [row.name],
+    });
+
+    if (query.ids !== undefined) {
+      const ids = parseSelectorIds(query.ids);
+      const rows = await dataAccess.findCategoriesByIds(params.storeId, ids);
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((row): row is CategoryRecord => row !== undefined);
+      const paths = await resolveCategoryPaths(params.storeId, ordered);
+      return adminCategorySelectorResponseSchema.parse({
+        data: ordered.map((row) => serialize(row, paths)),
+        pagination: buildSelectorIdsPagination(ordered.length),
+      });
+    }
+
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const result = await dataAccess.listCategories(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      status: query.status,
+      // Seçicide alfabetik varsayılan: merchandising sırası (sortOrder) liste
+      // ekranının işidir, seçicide kullanıcı ada göre arar.
+      sortBy: query.sortBy ?? "name",
+      sortOrder: query.sortOrder ?? "asc",
+    });
+    const paths = await resolveCategoryPaths(params.storeId, result.data);
+    return adminCategorySelectorResponseSchema.parse({
+      data: result.data.map((row) => serialize(row, paths)),
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: result.total }),
+    });
+  });
+
   app.post("/stores/:storeId/categories", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
@@ -6588,6 +6913,78 @@ export function createServer(
     if (!access) return;
     const options = await dataAccess.listProductFilterOptions(params.storeId);
     return adminProductFilterOptionsResponseSchema.parse(options);
+  });
+
+  /**
+   * TODO-159B (ADR-090) — Ürün SEÇİCİ ucu.
+   *
+   * Liste ucundan iki farkı vardır: (1) hafif projeksiyon (ürün detay payload'ı
+   * taşınmaz), (2) `ids` çözüm modu — `?ids=a,b,c` verildiğinde arama/filtre
+   * UYGULANMAZ, yalnız o kayıtlar döner. Böylece düzenleme ekranı, seçili ürün
+   * kaçıncı sayfada olursa olsun onu gösterebilir.
+   *
+   * Yol `/products/selector` STATİK'tir; `/products/:productId` ile çakışmaz
+   * (Fastify radix ağacında statik segment parametreyi yener — `/filter-options`
+   * ile aynı desen).
+   */
+  app.get("/stores/:storeId/products/selector", async (request, reply) => {
+    const params = storeParamSchema.parse(request.params);
+    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const query = adminProductSelectorQuerySchema.parse(request.query);
+
+    const serialize = (row: ProductSelectorRecord) => ({
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      status: row.status,
+      sku: row.sku,
+      // storageKey ASLA response'a girmez; yalnız türetilmiş public URL.
+      imageUrl: row.coverStorageKey
+        ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, row.coverStorageKey)
+        : null,
+      priceMinor: row.priceMinor,
+      currency: row.currency,
+      stockAvailable: row.stockAvailable,
+      variantCount: row.variantCount,
+    });
+
+    if (query.ids !== undefined) {
+      const ids = parseSelectorIds(query.ids);
+      const resolved = await dataAccess.listProductSelector(params.storeId, {
+        limit: ADMIN_SELECTOR_MAX_IDS,
+        offset: 0,
+        sortBy: "title",
+        sortOrder: "asc",
+        ids,
+      });
+      // İstemcinin verdiği SIRA korunur (seçim sırası anlamlıdır).
+      const byId = new Map(resolved.data.map((row) => [row.id, row]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((row): row is ProductSelectorRecord => row !== undefined);
+      return adminProductSelectorResponseSchema.parse({
+        data: ordered.map(serialize),
+        pagination: buildSelectorIdsPagination(ordered.length),
+      });
+    }
+
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const result = await dataAccess.listProductSelector(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      // Seçicinin anlamlı varsayılanı alfabetiktir: kullanıcı aradığı ürünü
+      // "en yeni" sırasında değil, ada göre tarayarak bulur.
+      sortBy: query.sortBy ?? "title",
+      sortOrder: query.sortOrder ?? "asc",
+      status: query.status,
+      categoryId: query.categoryId,
+    });
+    return adminProductSelectorResponseSchema.parse({
+      data: result.data.map(serialize),
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: result.total }),
+    });
   });
 
   app.post("/stores/:storeId/products", async (request, reply) => {

@@ -81,13 +81,30 @@ describe("store-admin BFF — media (ADR-065 Faz 2 / Dilim 1)", () => {
   it("GET lists media for the resolved store with the context filter", async () => {
     apiClient.admin.media.list.mockResolvedValue({
       data: [ASSET],
-      pagination: { limit: 100, offset: 0, total: 1 },
+      pagination: { limit: 25, offset: 0, total: 1, page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
     });
     const { GET } = await import("../app/api/media/route.js");
-    const response = await GET(request("/api/media?context=PRODUCT", { headers: { cookie: SESSION } }));
+    const response = await GET(
+      request("/api/media?context=PRODUCT&page=2&pageSize=50&search=logo&sortBy=altText&sortOrder=asc", {
+        headers: { cookie: SESSION },
+      }),
+    );
 
     expect(response.status).toBe(200);
-    expect(apiClient.admin.media.list).toHaveBeenCalledWith("store-1", "PRODUCT", "platform-token");
+    // TODO-159B (ADR-090) — TD-095: sabit context argümanı yerine ortak liste
+    // query'si (allowlist) taşınır.
+    expect(apiClient.admin.media.list).toHaveBeenCalledWith(
+      "store-1",
+      {
+        context: "PRODUCT",
+        page: "2",
+        pageSize: "50",
+        search: "logo",
+        sortBy: "altText",
+        sortOrder: "asc",
+      },
+      "platform-token",
+    );
   });
 
   it("GET rejects an invalid context with 400 and never calls the gateway", async () => {

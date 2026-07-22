@@ -45,19 +45,36 @@ describe("api-client media transport (ADR-065 Faz 2 / Dilim 1)", () => {
     expect(calls[0].headers.get("content-type")).toBe("application/json");
   });
 
-  it("list forwards the optional context filter as a query param", async () => {
+  // TODO-159B (ADR-090) — TD-095: medya listesi ortak Data Grid query'sini konusur.
+  it("list forwards the shared list query (context/page/pageSize/search/sort/ids)", async () => {
     const { calls, fetchImpl } = recordingFetch({
       ok: true,
       status: 200,
-      body: { data: [], pagination: { limit: 100, offset: 0, total: 0 } },
+      body: {
+        data: [],
+        pagination: { limit: 25, offset: 0, total: 0, page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+      },
     });
     const client = createApiClient({ fetch: fetchImpl, baseUrl: "http://gw" });
 
-    await client.admin.media.list("store-1", "CATEGORY", "tok");
+    await client.admin.media.list("store-1", { context: "CATEGORY" }, "tok");
     expect(calls[0].url).toBe("http://gw/stores/store-1/media?context=CATEGORY");
 
     await client.admin.media.list("store-1", undefined, "tok");
     expect(calls[1].url).toBe("http://gw/stores/store-1/media");
+
+    await client.admin.media.list(
+      "store-1",
+      { context: "PRODUCT", page: 3, pageSize: 50, search: "logo", sortBy: "altText", sortOrder: "asc" },
+      "tok",
+    );
+    expect(calls[2].url).toBe(
+      "http://gw/stores/store-1/media?context=PRODUCT&page=3&pageSize=50&search=logo&sortBy=altText&sortOrder=asc",
+    );
+
+    // `ids` cozum modu: arama/sayfalama parametresi olmadan tasinabilir.
+    await client.admin.media.list("store-1", { ids: "m1,m2" }, "tok");
+    expect(calls[3].url).toBe("http://gw/stores/store-1/media?ids=m1%2Cm2");
   });
 
   it("remove tolerates a 204 No Content response (no json parse)", async () => {

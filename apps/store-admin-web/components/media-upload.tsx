@@ -8,18 +8,21 @@
  *
  * İki eylem sunar:
  *  - "Görsel yükle": native input[type=file] → storeApi.uploadMedia (multipart).
- *  - "Kütüphaneden seç": storeApi.listMedia(context) → var olan görseli TEKRAR
- *    yüklemeden bağlar (Zippo Siyah → Zippo Gümüş senaryosu).
+ *  - "Kütüphaneden seç": storeApi.listMedia({ context, ... }) → var olan görseli
+ *    TEKRAR yüklemeden bağlar (Zippo Siyah → Zippo Gümüş senaryosu). TODO-159B
+ *    (ADR-090) ile kütüphane gerçek sayfalama/arama/sıralama query'si konuşur.
  *
  * Kalıcılık bileşene ait DEĞİLDİR: yüklenen/seçilen görsel `onAttach` ile, kaldırma
  * `onRemove` ile, sıralama `onReorder` ile çağırana bildirilir. Böylece her ekran
  * kendi entity binding'ini (ProductImage/HeroSlide/StoreSettings/category) bağlar.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MediaContext, MediaListResponse } from "@commerce-os/api-client";
-import { getDictionary } from "@commerce-os/i18n";
-import { Alert, Badge, Button, EmptyState, Modal, Spinner, cn, useLocale } from "./ui";
+import { format, getDictionary } from "@commerce-os/i18n";
+import { Alert, Badge, Button, EmptyState, Modal, SkeletonRows, Spinner, cn, useLocale } from "./ui";
+import { DataGridPagination } from "./data-grid";
+import { useSelectorSearch } from "./selector";
 import { storeApi } from "../lib/client/api";
 import { messageForError } from "../lib/client/messages";
 
@@ -270,6 +273,22 @@ function IconButton({
   );
 }
 
+/**
+ * ADR-065 Faz 2 (Dilim 1) + TODO-159B (ADR-090) — Görsel kütüphanesi.
+ *
+ * TD-095 kapanışı: eski sürüm ucun sabit `take: 100` davranışına yaslanıyor ve
+ * "sayfalama var" izlenimi veren SAHTE bir meta gösteriyordu. Artık gerçek
+ * server-side sayfalama + arama + sıralama vardır ve sayfalama çubuğu ortak
+ * Data Grid bileşenidir (ADR-089) — iki ayrı "Sonraki" düğmesi yoktur.
+ *
+ * `context` BİLİNÇLİ olarak kilitlidir (filtre sunulmaz): kütüphane, çağıranın
+ * bağlamı için açılır. Kullanıcıya "kullanım alanı" seçtirmek, gateway'in
+ * cross-context bağlama guard'ının (assertMediaAttachable) reddedeceği seçimler
+ * üretirdi — sahte bir özgürlük olurdu.
+ *
+ * Projede AYRI bir "Media Library" ekranı yoktur; tam kütüphane budur. Bu yüzden
+ * picker ile kütüphane zaten AYNI backend sözleşmesini konuşur.
+ */
 function MediaLibraryModal({
   context,
   attachedIds,
@@ -285,25 +304,48 @@ function MediaLibraryModal({
   onClose: () => void;
   onSelect: (asset: MediaAsset) => void;
 }) {
-  const [state, setState] = useState<
-    | { status: "loading" }
-    | { status: "error"; message: string }
-    | { status: "ready"; items: MediaAsset[] }
-  >({ status: "loading" });
+  const grid = getDictionary(locale).storeAdmin.dataGrid;
+  const [sort, setSort] = useState("createdAt:desc");
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    setState({ status: "loading" });
-    try {
-      const result = await storeApi.listMedia(context);
-      setState({ status: "ready", items: result.data });
-    } catch (caught) {
-      setState({ status: "error", message: messageForError(caught, locale) });
-    }
-  }, [context, locale]);
+  const source = useMemo(
+    () => ({
+      keyOf: (item: MediaAsset) => item.id,
+      fetchPage: async ({ search, page, pageSize }: { search: string; page: number; pageSize: number }) => {
+        const [sortBy, sortOrder] = sort.split(":");
+        const result = await storeApi.listMedia({
+          context,
+          page,
+          pageSize,
+          sortBy,
+          sortOrder,
+          search: search || undefined,
+        });
+        return { data: result.data, pagination: result.pagination };
+      },
+      // Kütüphane modalında `ids` çözüm moduna gerek yoktur: seçili görseller
+      // zaten çağıranın `value`sunda URL'iyle birlikte durur.
+      resolveByIds: async () => [],
+    }),
+    [context, sort],
+  );
 
+  const state = useSelectorSearch<MediaAsset>({
+    source,
+    enabled: true,
+    // Sıralama değişimi kaynağın davranışını değiştirir → yeniden çekim tetiklenir.
+    sourceKey: sort,
+    toMessage: (error) => messageForError(error, locale),
+  });
+
+  // Modal paneli açılışta kendine odaklanır; arama kutusunun odağı bir makro-görev
+  // SONRA alınır (aksi halde panel odağı kutudan çalardı).
   useEffect(() => {
-    void load();
-  }, [load]);
+    const timer = window.setTimeout(() => searchRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const filtered = state.appliedSearch.trim().length > 0;
 
   return (
     <Modal
@@ -314,57 +356,114 @@ function MediaLibraryModal({
       closeLabel={labels.remove}
       className="max-w-2xl"
     >
-      {state.status === "loading" ? <Spinner label={labels.libraryLoading} /> : null}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-[12rem] flex-1">
+            <span className="sr-only">{labels.librarySearchLabel}</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={state.search}
+              onChange={(event) => state.setSearch(event.target.value)}
+              aria-label={labels.librarySearchLabel}
+              placeholder={labels.librarySearchPlaceholder}
+              className="h-9 w-full rounded-[10px] border border-white/[0.12] bg-white/[0.05] px-3 text-[13px] text-white/80 placeholder:text-white/30 focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/20"
+            />
+          </label>
+          <label className="min-w-[10rem]">
+            <span className="sr-only">{labels.librarySortLabel}</span>
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+              aria-label={labels.librarySortLabel}
+              className="h-9 w-full rounded-[10px] border border-white/[0.12] bg-white/[0.05] px-3 text-[13px] text-white/80 focus:border-indigo-400/60 focus:outline-none [&>option]:text-slate-900"
+            >
+              <option value="createdAt:desc">{labels.librarySortNewest}</option>
+              <option value="createdAt:asc">{labels.librarySortOldest}</option>
+              <option value="altText:asc">{labels.librarySortNameAsc}</option>
+              <option value="altText:desc">{labels.librarySortNameDesc}</option>
+            </select>
+          </label>
+        </div>
 
-      {state.status === "error" ? (
-        <Alert
-          tone="error"
-          action={
-            <Button variant="secondary" size="sm" onClick={() => void load()}>
-              {labels.retry}
-            </Button>
-          }
-        >
-          {state.message}
-        </Alert>
-      ) : null}
+        {state.status === "loading" ? (
+          <div role="status" aria-live="polite" aria-label={labels.libraryLoading}>
+            <SkeletonRows rows={3} />
+          </div>
+        ) : null}
 
-      {state.status === "ready" && state.items.length === 0 ? (
-        <EmptyState title={labels.libraryEmpty} />
-      ) : null}
+        {state.status === "error" ? (
+          <Alert
+            tone="error"
+            title={labels.libraryError}
+            action={
+              <Button variant="secondary" size="sm" onClick={state.retry}>
+                {labels.retry}
+              </Button>
+            }
+          >
+            {state.errorMessage}
+          </Alert>
+        ) : null}
 
-      {state.status === "ready" && state.items.length > 0 ? (
-        <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-          {state.items.map((item) => {
-            const added = attachedIds.has(item.id);
-            return (
-              <li
-                key={item.id}
-                className="relative overflow-hidden rounded-xl border border-white/[0.1] bg-white/[0.04]"
-              >
-                <img src={item.url} alt={item.altText ?? ""} className="aspect-square w-full object-cover" />
-                {added ? (
-                  <span className="absolute left-1.5 top-1.5">
-                    <Badge tone="neutral">{labels.alreadyAddedBadge}</Badge>
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={added}
-                  onClick={() => onSelect(item)}
-                  className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity hover:opacity-100 disabled:cursor-not-allowed"
+        {state.status === "ready" && state.items.length === 0 ? (
+          <EmptyState title={filtered ? labels.libraryFilteredEmpty : labels.libraryEmpty} />
+        ) : null}
+
+        {state.status === "ready" && state.items.length > 0 ? (
+          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+            {state.items.map((item) => {
+              const added = attachedIds.has(item.id);
+              return (
+                <li
+                  key={item.id}
+                  className="relative overflow-hidden rounded-xl border border-white/[0.1] bg-white/[0.04]"
                 >
-                  {!added ? (
-                    <span className="rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-semibold text-white">
-                      {labels.selectAction}
+                  <img src={item.url} alt={item.altText ?? ""} className="aspect-square w-full object-cover" />
+                  {added ? (
+                    <span className="absolute left-1.5 top-1.5">
+                      <Badge tone="neutral">{labels.alreadyAddedBadge}</Badge>
                     </span>
                   ) : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+                  <button
+                    type="button"
+                    disabled={added}
+                    onClick={() => onSelect(item)}
+                    aria-label={format(labels.librarySelectImage, { label: item.altText ?? item.id })}
+                    className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed"
+                  >
+                    {!added ? (
+                      <span className="rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-semibold text-white">
+                        {labels.selectAction}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {state.status !== "loading" ? (
+          <DataGridPagination
+            labels={{
+              rangeLabel: grid.rangeLabel,
+              rangeEmpty: grid.rangeEmpty,
+              previousPage: grid.previousPage,
+              nextPage: grid.nextPage,
+              pageSizeLabel: grid.pageSizeLabel,
+              goToPage: grid.goToPage,
+              pageOf: grid.pageOf,
+            }}
+            page={state.pagination.page}
+            pageSize={state.pagination.pageSize}
+            totalItems={state.pagination.totalItems}
+            totalPages={state.pagination.totalPages}
+            onPageChange={state.setPage}
+            onPageSizeChange={state.setPageSize}
+          />
+        ) : null}
+      </div>
     </Modal>
   );
 }

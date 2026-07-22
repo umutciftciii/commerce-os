@@ -221,6 +221,28 @@
   Sonraki fazlar: adanmış public kategori-nav ucu (TD-088), managed home section tipleri (TD-089), overlay
   token'larının Theme Engine semantic katmanına yayını + store-settings social/payments (TD-090).
 
+## Store Admin — Admin Searchable Selectors & Media Library Scalability (TODO-159B)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı). TD-093 + TD-095 KAPANDI.
+- Amaç: ADR-089'un liste standardını SEÇİM yüzeylerine genişletmek; büyük kataloglarda eksik sonuç gösteren
+  ürün/kategori seçicilerini ve sahte sayfalama meta'sı dönen medya kütüphanesini ölçeklenebilir hâle getirmek.
+- Kapsam: (1) 9 seçim yüzeyinin denetimi (`docs/analysis/TODO-159B-admin-selectors-media-audit.md`).
+  (2) Seçici query sözleşmesi (contracts): ADR-089 tabanı + `ids` ÇÖZÜM MODU — seçili kayıt arama/sayfa
+  dışında kalsa bile getirilir, "seçileni bulmak için tüm kataloğu çek" deseni ortadan kalkar.
+  (3) Gateway: `products/selector` + `categories/selector` (hafif projeksiyon, hiyerarşi `path`'i seviye-bazlı
+  batched çözüm), liste ile PAYLAŞILAN filtre/sıralama SQL'i. (4) Medya ucunun gerçek sayfalamaya geçişi.
+  (5) `components/selector/` ailesi (debounce/sayfa/durumlar + listbox klavye + Escape/odak) ve altı seçim
+  yüzeyinin taşınması. (6) Additive index migration (`MediaAsset(storeId, createdAt)`).
+- Kabul kriterleri: seçici hiçbir yerde tüm kataloğu istemciye almaz; seçili kayıt arama sonucunda görünmese
+  bile gösterilir ve kaldırılabilir; mevcut kayıtlar (kampanya kapsamı, showcase pinleri, öne çıkan
+  kategoriler, hero/medya seçimleri, ürün medyası) düzenleme ekranında eksiksiz görünür ve kaydet–yeniden aç
+  akışında korunur; `pageSize` tavanı ve sort allowlist'i sunucuda zorlanır; tenant izolasyonu korunur;
+  mevcut tasarım dili korunur (paralel design system YOK, hardcoded renk YOK); mevcut testler bozulmaz.
+  Karar ADR-090; sınırlar TD-096…TD-098.
+- Sonraki adımlar: Envanter matrisinin sayfalanabilir sözleşmeye taşınması (TD-091 — bu fazın kapsamı
+  dışındaydı), sayfalamasız koleksiyon uçlarının ortak meta'ya geçirilmesi (TD-092), admin aramasının
+  trigram/read-model'e bağlanması (TD-094 + TD-096 + TD-098 aynı ön koşulu paylaşır).
+
 ## Store Admin — Enterprise Admin Data Grid Foundation (TODO-159A)
 
 - Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).
