@@ -63,7 +63,16 @@ describe("GET /stores/:storeId/media (ADR-065 Faz 2 / Dilim 1)", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.data).toHaveLength(2);
-    expect(body.pagination).toEqual({ limit: 100, offset: 0, total: 2 });
+    // TODO-159B (ADR-090) — TD-095: ortak Data Grid meta'si (legacy ucler KORUNUR).
+    expect(body.pagination).toEqual({
+      limit: 25,
+      offset: 0,
+      total: 2,
+      page: 1,
+      pageSize: 25,
+      totalItems: 2,
+      totalPages: 1,
+    });
     // Allowlist: ic alanlar response'a sizmaz.
     expect(body.data[0]).not.toHaveProperty("storageKey");
     expect(body.data[0]).not.toHaveProperty("checksum");
@@ -72,8 +81,9 @@ describe("GET /stores/:storeId/media (ADR-065 Faz 2 / Dilim 1)", () => {
     // storeId ile sinirli, en yeni once.
     expect(prismaMock.mediaAsset.findMany).toHaveBeenCalledWith({
       where: { storeId: "store_123" },
-      orderBy: { createdAt: "desc" },
-      take: 100,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      skip: 0,
+      take: 25,
     });
   });
 
@@ -84,8 +94,9 @@ describe("GET /stores/:storeId/media (ADR-065 Faz 2 / Dilim 1)", () => {
     expect(res.statusCode).toBe(200);
     expect(prismaMock.mediaAsset.findMany).toHaveBeenCalledWith({
       where: { storeId: "store_123", context: "CATEGORY" },
-      orderBy: { createdAt: "desc" },
-      take: 100,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      skip: 0,
+      take: 25,
     });
   });
 

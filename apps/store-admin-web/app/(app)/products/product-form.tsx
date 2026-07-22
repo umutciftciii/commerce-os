@@ -12,7 +12,6 @@ import { Alert, Input, Select, Textarea, useLocale } from "../../../components/u
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
-  ProductCategory,
   ProductPriceVisibility,
   ProductPrimaryAction,
   ProductSalesMode,
@@ -20,6 +19,9 @@ import type {
 import { storeApi, UiError } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { MediaUpload } from "../../../components/media-upload";
+// TODO-159B (ADR-090) — Kategori ataması aranabilir seçiciye taşındı; form artık
+// kategori kataloğunu prop olarak ALMAZ.
+import { ProductCategoryField } from "./product-category-field";
 import {
   buildCreatePayload,
   buildDefaultValues,
@@ -95,7 +97,6 @@ function formatTemplate(template: string, value: number): string {
 export function ProductForm({
   mode,
   product,
-  categories,
   statusLabels,
   formId,
   onSaved,
@@ -103,7 +104,6 @@ export function ProductForm({
 }: {
   mode: "create" | "edit";
   product?: Product;
-  categories: ProductCategory[];
   statusLabels: Record<ProductStatus, string>;
   formId: string;
   onSaved: (message: string, product: Product) => void;
@@ -363,20 +363,18 @@ export function ProductForm({
     [setValue],
   );
 
-  const toggleCategory = useCallback(
-    (id: string) => {
-      const currentIds = getValues("categoryIds");
+  /**
+   * TODO-159B — Seçici TAM listeyi verir; ana kategori kuralları burada korunur:
+   * (1) ana kategori listeden çıkarsa düşer, (2) tek kategori kaldığında/eklendiğinde
+   * ana kategori otomatik o olur. Eski tek-tek toggle davranışıyla BİREBİR aynıdır.
+   */
+  const applyCategoryIds = useCallback(
+    (nextIds: string[]) => {
       const currentPrimary = getValues("primaryCategoryId");
-      const isRemoving = currentIds.includes(id);
-      const nextIds = isRemoving ? currentIds.filter((value) => value !== id) : [...currentIds, id];
       setValue("categoryIds", nextIds, { shouldDirty: true });
-      if (isRemoving) {
-        if (currentPrimary === id) {
-          setValue("primaryCategoryId", nextIds.length === 1 ? nextIds[0]! : null);
-        }
-      } else if (currentPrimary === null && nextIds.length === 1) {
-        setValue("primaryCategoryId", id);
-      }
+      let primary = currentPrimary !== null && nextIds.includes(currentPrimary) ? currentPrimary : null;
+      if (primary === null && nextIds.length === 1) primary = nextIds[0]!;
+      setValue("primaryCategoryId", primary);
     },
     [getValues, setValue],
   );
@@ -643,65 +641,18 @@ export function ProductForm({
         {...register("description")}
       />
 
-      <div>
-        <span className="mb-1.5 block text-sm font-medium text-white/70">{f.categoriesLabel}</span>
-        {categories.length === 0 ? (
-          <p className="text-sm text-white/30">{f.categoriesEmpty}</p>
-        ) : (
-          <>
-            <p className="mb-2 text-xs text-white/30">{f.categoriesHint}</p>
-            <div className="flex flex-col gap-1.5">
-              {categories.map((category) => {
-                const checked = categoryIds.includes(category.id);
-                const isPrimary = primaryCategoryId === category.id;
-                return (
-                  <div
-                    key={category.id}
-                    className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-sm ${
-                      checked
-                        ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-200"
-                        : "border-white/10 text-white/60"
-                    }`}
-                  >
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 accent-indigo-500"
-                        checked={checked}
-                        onChange={() => toggleCategory(category.id)}
-                        disabled={isSubmitting}
-                      />
-                      {category.name}
-                    </label>
-                    {checked ? (
-                      <button
-                        type="button"
-                        onClick={() => selectPrimaryCategory(category.id)}
-                        disabled={isSubmitting || isPrimary}
-                        aria-pressed={isPrimary}
-                        title={f.primaryCategoryHint}
-                        className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${
-                          isPrimary
-                            ? "bg-indigo-500/30 text-indigo-100"
-                            : "border border-white/15 text-white/50 hover:text-white/80"
-                        }`}
-                      >
-                        {isPrimary ? `★ ${f.primaryCategoryBadge}` : f.primaryCategorySet}
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-xs text-white/30">{f.primaryCategoryHint}</p>
-            {fieldError("primaryCategoryId") ? (
-              <p role="alert" className="mt-1 text-xs text-rose-300">
-                {fieldError("primaryCategoryId")}
-              </p>
-            ) : null}
-          </>
-        )}
-      </div>
+      <ProductCategoryField
+        locale={locale}
+        label={f.categoriesLabel}
+        hint={f.categoriesHint}
+        primaryHint={f.primaryCategoryHint}
+        value={categoryIds}
+        primaryId={primaryCategoryId}
+        onChange={applyCategoryIds}
+        onSelectPrimary={selectPrimaryCategory}
+        disabled={isSubmitting}
+        error={fieldError("primaryCategoryId")}
+      />
 
       {/* Faz 2B — Kategori-güdümlü dinamik attribute alanları. Legacy kategoride
           (attribute tanımlı değil) hiçbir şey render edilmez. */}

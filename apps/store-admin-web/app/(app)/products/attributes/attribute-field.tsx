@@ -294,25 +294,30 @@ function MultiSelectWidget({ attr, value, onChange, disabled }: WidgetProps) {
 }
 
 // IMAGE/FILE medya asset id'sini (mediaId) saklar. Düzenlemede yalnız mediaId gelir;
-// önizleme URL'si tek-sefer (modül cache'li) listMedia ile çözülür.
-let mediaListCache: Promise<Map<string, MediaItem>> | null = null;
+// önizleme URL'si buradan çözülür.
+//
+// TODO-159B (ADR-090) — Eski çözüm "kütüphanenin ilk 100 kaydını modül cache'ine
+// al, içinden ara" idi: 100'den eski bir görsel seçilmişse önizleme BOŞ kalıyordu
+// (değer korunuyor ama kullanıcı ne seçtiğini göremiyordu). Artık `ids` çözüm
+// modu kullanılır — kayıt kaçıncı sayfada olursa olsun çözülür. Süreç boyunca
+// çözülenler id bazında cache'lenir (aynı görsel için tek istek).
+const mediaCache = new Map<string, Promise<MediaItem | null>>();
 async function resolveMediaItem(mediaId: string): Promise<MediaItem | null> {
-  if (!mediaListCache) {
-    mediaListCache = storeApi
-      .listMedia()
-      .then(
-        (response) =>
-          new Map(
-            response.data.map((asset) => [
-              asset.id,
-              { id: asset.id, url: asset.url, altText: asset.altText },
-            ]),
-          ),
-      )
-      .catch(() => new Map<string, MediaItem>());
-  }
-  const map = await mediaListCache;
-  return map.get(mediaId) ?? null;
+  const cached = mediaCache.get(mediaId);
+  if (cached) return cached;
+  const pending = storeApi
+    .listMedia({ ids: mediaId })
+    .then((response) => {
+      const asset = response.data[0];
+      return asset ? { id: asset.id, url: asset.url, altText: asset.altText } : null;
+    })
+    .catch(() => {
+      // Ağ hatası kalıcı "yok" sayılmaz: sonraki denemede tekrar sorulabilsin.
+      mediaCache.delete(mediaId);
+      return null;
+    });
+  mediaCache.set(mediaId, pending);
+  return pending;
 }
 
 function MediaWidget({ value, onChange, disabled }: WidgetProps) {

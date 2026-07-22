@@ -3016,3 +3016,121 @@ Gate: tüm workspace build + typecheck + lint temiz; 1121 gateway (15 yeni) + 32
 store-admin (16 yeni) testi yeşil. Canlı doğrulama gerçek enterprise-demo verisiyle
 (471 ürün) yapıldı; ayrıntı denetim belgesindedir. Taşınmayan ekranlar TD-091…TD-095
 olarak kayıtlıdır. Commit/PR/deploy YAPILMADI (brief kuralı).
+
+---
+
+## ADR-090 — Admin Searchable Selector: `ids` çözüm modlu tek seçici sözleşmesi ve gerçek medya sayfalaması (TODO-159B)
+
+**Tarih:** 2026-07-22 · **Durum:** Kabul edildi · **Öncül:** ADR-089 (Admin Data Grid),
+ADR-065 (görsel yönetimi) · **Kapattığı borçlar:** TD-093, TD-095
+· **Denetim belgesi:** `docs/analysis/TODO-159B-admin-selectors-media-audit.md`
+
+### Bağlam
+
+ADR-089 liste EKRANLARINDAKİ "sessiz ilk sayfa" defektini kapattı, ancak aynı defekt
+SEÇİM yüzeylerinde sürüyordu: kampanya kapsamı, Home Showcase, öne çıkan kategoriler,
+ürün formu kategori ataması ve kategori ebeveyn seçici kataloğu argümansız `listProducts()`
+/ `listCategories()` ile çekiyor, yani mağazanın yalnız ilk 25 (kimi yerde 100) kaydını
+gösteriyordu. Medya kütüphanesi ise sabit `take: 100` ile çalışıyor ve `offset` hiç
+uygulanmadığı hâlde `{limit:100, offset:0, total}` döndürerek "sayfalama var" izlenimi
+veriyordu (sahte meta).
+
+Denetimin kritik bulgusu: seçili kayıtlar KAYBOLMUYOR (form state'i sunucudan gelen
+id dizisini taşıyor ve aynen geri gönderiyor), fakat GÖRÜNMÜYOR — dolayısıyla
+kaldırılamıyor ve sayaç ekranda görünenden fazlasını söylüyor.
+
+### Karar
+
+1. **Seçici, listenin daraltılmış kardeşidir — paralel bir sözleşme DEĞİL.** Seçici
+   uçları ADR-089'un `page`/`pageSize`/`search`/`sortBy`/`sortOrder` query'sini ve AYNI
+   pagination meta'sını (`adminListPaginationSchema`) konuşur. `adminSelectorQueryBaseSchema`
+   yalnız `adminListQueryBaseSchema`'yı `ids` ile genişletir.
+
+2. **`ids` ÇÖZÜM MODU sözleşmenin çekirdeğidir.** `?ids=a,b,c` verildiğinde uç arama ve
+   sayfalamayı YOK SAYAR; yalnız verilen id'leri (mağaza içinde, en çok
+   `ADMIN_SELECTOR_MAX_IDS`=100 adet, istemcinin verdiği sırada) döner. Bu, "seçili kaydı
+   göstermek için tüm kataloğu çek" desenini kökten ortadan kaldıran mekanizmadır: seçili
+   ürün 471'incisi olsa da çipi görünür ve kaldırılabilir. İstemci tarafında
+   `useSelectedItems` bu çözümü id-bazlı önbellekle ve 100'lük parçalarla yapar; listeden
+   seçilen kayıt zaten önbellekte olduğu için seçim ek ağ turu üretmez.
+
+3. **Seçici satırı ürün detay payload'ı taşımaz.** `adminProductSelectorOptionSchema`
+   yalnız `id/title/slug/status/sku/imageUrl/priceMinor/currency/stockAvailable/variantCount`
+   içerir; açıklama, SEO ve ticari model alanları YOKTUR. `sku` YALNIZ tek aktif varyantlı
+   üründe doludur — çok varyantlıda "bir SKU" göstermek yanıltıcı olurdu; orada
+   `variantCount` konuşur. `coverStorageKey` data-access'te kalır, response'a yalnız
+   türetilmiş `imageUrl` çıkar (ADR-065 allowlist'i korunur).
+
+4. **Kategori hiyerarşisi `path` ile taşınır, ağaç YÜKLENMEZ.** Her satır kökten kendisine
+   ad zincirini (`["Elektronik","Bilgisayar Bileşenleri","Ekran Kartı"]`) taşır; UI onu
+   "A / B / C" olarak gösterir. Zincir sunucuda SEVİYE SEVİYE, her seviyede TEK batched
+   `findCategoriesByIds` çağrısıyla kurulur: sorgu sayısı satır sayısına değil AĞAÇ
+   DERİNLİĞİNE bağlıdır (pratikte 2–4) ve `MAX_DEPTH=10` hem üst sınır hem döngü güvenliğidir.
+
+5. **Filtre ve sıralama SQL'i liste ile PAYLAŞILIR.** `buildAdminProductScanSql` hem
+   `listProductsAdmin` hem `listProductSelector` tarafından kullanılır; böylece "listede
+   bulduğum ürünü seçicide bulamıyorum" sınıfı tutarsızlıklar yapısal olarak imkânsızdır.
+
+6. **Medya ucu gerçek sayfalamaya geçti (TD-095).** Sabit `take: 100` kaldırıldı; uç
+   `page`/`pageSize`/`search`/`context`/`sortBy`/`sortOrder`/`ids` kabul ediyor ve ortak
+   meta'yı dönüyor (legacy `limit/offset/total` KORUNDU — geriye uyumlu). Sıralama
+   allowlist'i modelde GERÇEKTEN var olan alanlarla sınırlı: `createdAt`, `altText`,
+   `byteSize`. `mimeType` filtresi eklenmedi: yükleme yolu her görseli `image/webp`'e
+   normalize ettiği için tek değerli sahte bir daraltma olurdu.
+
+7. **Picker'da bağlam KİLİTLİDİR.** Kütüphane modalı çağıranın context'i için açılır ve
+   context filtresi SUNMAZ; aksi hâlde gateway'in `assertMediaAttachable` guard'ının
+   reddedeceği seçimler üretilirdi (bkz. TD-097). Projede ayrı bir "Medya Kütüphanesi"
+   ekranı yoktur — picker'ın kendisi kütüphanedir, dolayısıyla "ikisi aynı backend
+   sözleşmesini konuşmalı" şartı doğal olarak sağlanır.
+
+8. **Tek UI ailesi, yeni tasarım sistemi YOK.** `components/selector/` altında
+   `useSelectorSearch` (debounce + sayfa + yükleme/boş/filtreli-boş/hata+retry),
+   `useSelectedItems` (batched `ids` çözümü) ve `EntitySelectorField`/`EntitySelectorModal`
+   yaşar. Modal listbox desenini uygular (`role="listbox"`/`role="option"`/`aria-selected`,
+   `aria-activedescendant` ile klavye imleci, `aria-live` durum duyurusu); Escape ve odak
+   hapsi paylaşılan `Modal`'dan gelir, arama kutusunun odağı panel odağından SONRA alınır.
+   Sayfalama çubuğu ADR-089'un `DataGridPagination` bileşenidir. Görsel dil store-admin koyu
+   cam kitidir; yeni palet/token/hardcoded renk YOKTUR.
+
+9. **Ürün formunun kategori alanı ortak modalı kullanır ama kendi seçili listesini çizer.**
+   Sebebi domain'e özgü ek karardır: ★ ANA KATEGORİ (ADR-067) seçili satırların yanında
+   görünmek zorundadır. Arama/sayfalama/klavye yüzeyi yine ortak modaldır — ikinci bir
+   arama çözümü yazılmaz. Ana kategori kuralları (tek kategori kalınca otomatik ana olur;
+   ana kategori listeden çıkarsa düşer) BİREBİR korunmuştur.
+
+10. **Data Grid araç çubuğuna `kind: "entity"` filtresi eklendi.** Ürün listesinin kategori
+    filtresi artık 100'lük bir `<select>` değil, ortak seçiciyi açan bir kontroldür; çip,
+    "temizle" ve etkin-filtre sayacı semantiği değişmeden korunur. Modalı ÇAĞIRAN render
+    eder (portal popover'ın içine hapsolmasın).
+
+### Reddedilen alternatifler
+
+- **Seçicilere yalnız sayfalama eklemek.** 471 ürünlük bir listede aradığını 19 sayfa
+  gezerek bulmak kullanılabilir değildir; ayrıca seçili kaydın hangi sayfada olduğu
+  bilinmediği için "görünmeyen seçim" defekti kapanmazdı.
+- **`pageSize`'ı büyütmek (ör. 1000).** Sessiz kesmeyi ötelemek, kaldırmak değildir; ayrıca
+  yanıt boyutunu ve ilk boyama süresini doğrudan büyütür.
+- **Seçili kayıtları çözmek için kataloğu çekip istemcide filtrelemek.** Tam olarak
+  kaçınılan desen; `ids` modu bunun yerine geçer.
+- **Kategori yolunu istemcide kurmak (tüm ağacı indirerek).** Görev metninin açıkça
+  yasakladığı yol; seviye-bazlı batched çözüm hem daha ucuz hem tenant-güvenlidir.
+- **Medyaya `mimeType` filtresi ve "klasör" kavramı eklemek.** Model bunları taşımıyor;
+  eklenseydi sahte filtre olurdu (bkz. §6, TD-096/097).
+
+### Sonuç
+
+Contracts: `adminSelectorQueryBaseSchema`, `parseSelectorIds`, `buildSelectorIdsPagination`,
+`ADMIN_SELECTOR_MAX_IDS`, ürün/kategori seçici option+response şemaları,
+`adminMediaListQuerySchema` ve `mediaListResponseSchema.pagination` → ortak meta. Gateway:
+`GET /stores/:id/products/selector`, `GET /stores/:id/categories/selector`, medya ucunun
+yeniden yazımı, `buildAdminProductScanSql` (paylaşılan filtre/sıralama), `listProductSelector`
++ `findCategoriesByIds` data-access metodları. Store-admin: `components/selector/` ailesi,
+`ProductCategoryField`, iki yeni BFF proxy route'u, medya kütüphanesi modalının yeniden
+yazımı ve altı seçim yüzeyinin taşınması. Migration `20260722190000_add_media_pagination_index`
+TAMAMEN ADDITIVE (`MediaAsset(storeId, createdAt)`), `EXPLAIN` ile doğrulandı.
+
+Gate: tüm workspace build + typecheck + lint temiz; 1141 gateway (20 yeni) + 351 store-admin
+(22 yeni) testi yeşil. Canlı doğrulama gerçek enterprise-demo verisiyle yapıldı (471 ürün /
+37 kategori / 139 medya kaydı); ayrıntı denetim belgesindedir. Kalan sınırlar TD-096…TD-098
+olarak kayıtlıdır. Commit/PR/deploy YAPILMADI (brief kuralı).

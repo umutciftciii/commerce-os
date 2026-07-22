@@ -37,6 +37,11 @@ import type {
   ProductCategory,
   ProductCategoryCreateRequest,
 } from "@commerce-os/api-client";
+import {
+  EntitySelectorField,
+  useCategorySelectorBinding,
+  useSelectedItems,
+} from "../../../components/selector";
 import { CategoryIcon } from "../../../components/icons";
 import { MediaUpload, type MediaItem } from "../../../components/media-upload";
 import { storeApi } from "../../../lib/client/api";
@@ -47,6 +52,10 @@ type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; categories: ProductCategory[]; pagination: AdminListPagination };
+
+// Sabit referans: yükleme/hata durumlarında her render'da yeni [] üretip ebeveyn
+// çözümünü gereksizce tetiklemesin.
+const EMPTY_CATEGORIES: ProductCategory[] = [];
 type Editor = { mode: "create" } | { mode: "edit"; category: ProductCategory } | null;
 
 const STATUS_TONES: Record<CategoryStatus, "success" | "neutral"> = {
@@ -88,10 +97,11 @@ function CategoriesView() {
   // Faz 1B (ADR-067) — kategoriye attribute davranışı bağlama modalı.
   const [attributesFor, setAttributesFor] = useState<ProductCategory | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Üst-kategori adı çözümü ve editördeki ebeveyn seçici SAYFADAN BAĞIMSIZ olmalıdır:
-  // ebeveyn başka bir sayfada olabilir. Bu yüzden ayrı, filtresiz bir küme tutulur
-  // (üst sınır 100 — daha derin ağaçlar için arama tabanlı seçici gerekir, bkz. TD-093).
-  const [allCategories, setAllCategories] = useState<ProductCategory[]>([]);
+  // TODO-159B (ADR-090) — TD-093 kapanışı. Eski çözüm "filtresiz ilk 100 kategori"
+  // idi: 100'den derin ağaçta ebeveyn adı çözülemiyor, ebeveyn seçicide de
+  // görünmüyordu. Artık YALNIZ sayfadaki satırların ebeveyn id'leri `ids` çözüm
+  // moduyla batched getirilir; ebeveyn seçimi ise aranabilir seçicidir.
+  const categorySelector = useCategorySelectorBinding(locale);
 
   const requestKey = JSON.stringify(grid.toRequestQuery());
   const requestQuery = useMemo(
@@ -109,29 +119,27 @@ function CategoriesView() {
     }
   }, [locale, requestQuery]);
 
-  const loadAllCategories = useCallback(async () => {
-    try {
-      const result = await storeApi.listCategories({ pageSize: 100, sortBy: "name", sortOrder: "asc" });
-      setAllCategories(result.data);
-    } catch {
-      // Ebeveyn kaynağı yüklenemezse liste yine çalışır (ad yerine id gösterilir).
-    }
-  }, []);
-
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    void loadAllCategories();
-  }, [loadAllCategories]);
-
-  const categories = state.status === "ready" ? state.categories : [];
+  const categories = state.status === "ready" ? state.categories : EMPTY_CATEGORIES;
+  const parentIds = useMemo(
+    () => [
+      ...new Set(
+        categories
+          .map((category) => category.parentId)
+          .filter((id): id is string => id !== null),
+      ),
+    ],
+    [categories],
+  );
+  const parents = useSelectedItems({ ids: parentIds, source: categorySelector.source });
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const category of allCategories) map.set(category.id, category.name);
+    for (const [id, parent] of parents.byId) map.set(id, parent.name);
     return map;
-  }, [allCategories]);
+  }, [parents.byId]);
 
   const columns: DataGridColumn<ProductCategory>[] = [
     {
@@ -199,8 +207,6 @@ function CategoriesView() {
     setEditor(null);
     setNotice(message);
     void load();
-    // Ebeveyn seçici kaynağı da tazelenir (yeni kategori orada da görünsün).
-    void loadAllCategories();
   }
 
   return (
@@ -330,7 +336,6 @@ function CategoriesView() {
       {editor ? (
         <CategoryEditor
           editor={editor}
-          categories={allCategories}
           statusLabels={statusLabels}
           onClose={() => setEditor(null)}
           onSaved={onSaved}
@@ -350,13 +355,11 @@ function CategoriesView() {
 
 function CategoryEditor({
   editor,
-  categories,
   statusLabels,
   onClose,
   onSaved,
 }: {
   editor: NonNullable<Editor>;
-  categories: ProductCategory[];
   statusLabels: Record<CategoryStatus, string>;
   onClose: () => void;
   onSaved: (message: string) => void;
@@ -383,14 +386,25 @@ function CategoryEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const parentOptions = useMemo(() => {
-    const options = [{ value: "", label: f.parentNone }];
-    for (const category of categories) {
-      if (isEdit && category.id === editor.category.id) continue;
-      options.push({ value: category.id, label: category.name });
-    }
-    return options;
-  }, [categories, editor, f.parentNone, isEdit]);
+  // TODO-159B (ADR-090) — Ebeveyn seçici. Tekli seçim; değer dizi olarak tutulur
+  // (ortak seçicinin tek kod yolu). Kategorinin KENDİSİ listeden elenir: bir
+  // kategori kendi ebeveyni olamaz.
+  const categorySelector = useCategorySelectorBinding(locale);
+  const parentIds = useMemo(() => (parentId ? [parentId] : []), [parentId]);
+  const parentSelectorSource = useMemo(
+    () => ({
+      ...categorySelector.source,
+      fetchPage: async (params: Parameters<typeof categorySelector.source.fetchPage>[0]) => {
+        const result = await categorySelector.source.fetchPage(params);
+        if (!isEdit) return result;
+        return {
+          ...result,
+          data: result.data.filter((category) => category.id !== editor.category.id),
+        };
+      },
+    }),
+    [categorySelector.source, isEdit, editor],
+  );
 
   const statusOptions = (Object.keys(statusLabels) as CategoryStatus[]).map((value) => ({
     value,
@@ -484,12 +498,18 @@ function CategoryEditor({
           />
           <p className="mt-1.5 text-xs text-white/30">{isEdit ? f.slugLockedHint : f.slugHint}</p>
         </div>
-        <Select
-          id="category-parent"
+        <EntitySelectorField
           label={f.parentLabel}
-          options={parentOptions}
-          value={parentId}
-          onChange={(event) => setParentId(event.target.value)}
+          hint={f.parentNone}
+          multiple={false}
+          value={parentIds}
+          onChange={(ids) => setParentId(ids[0] ?? "")}
+          source={parentSelectorSource}
+          presenter={categorySelector.presenter}
+          labels={categorySelector.labels}
+          toMessage={(cause) => messageForError(cause, locale)}
+          modalTitle={categorySelector.title}
+          modalDescription={categorySelector.description}
           disabled={saving}
         />
         <div>

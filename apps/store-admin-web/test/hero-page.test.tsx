@@ -93,7 +93,7 @@ describe("HeroPage CRUD temeli (ADR-065 Faz 2 / Dilim 5)", () => {
     storeApiMock.listHeroSlides.mockResolvedValue({ data: [] });
     storeApiMock.listMedia.mockResolvedValue({
       data: [HERO_ASSET],
-      pagination: { limit: 100, offset: 0, total: 1 },
+      pagination: { limit: 25, offset: 0, total: 1, page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
     });
     storeApiMock.createHeroSlide.mockResolvedValue(slide({ id: "hero_new" }));
     render(<HeroPage />);
@@ -104,7 +104,7 @@ describe("HeroPage CRUD temeli (ADR-065 Faz 2 / Dilim 5)", () => {
 
     // Kütüphaneyi aç → listMedia(HERO) → "Seç".
     await userEvent.click(within(dialog).getByText("Kütüphaneden seç"));
-    await waitFor(() => expect(storeApiMock.listMedia).toHaveBeenCalledWith("HERO"));
+    await waitFor(() => expect(storeApiMock.listMedia).toHaveBeenCalledWith(expect.objectContaining({ context: "HERO" })));
     await userEvent.click(await screen.findByText("Seç"));
 
     await userEvent.click(within(dialog).getByText("Slide oluştur"));

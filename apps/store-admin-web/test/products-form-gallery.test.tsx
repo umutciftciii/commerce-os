@@ -97,7 +97,6 @@ function renderForm({ product }: { product: unknown }) {
       <ProductForm
         mode="edit"
         product={product as never}
-        categories={[]}
         statusLabels={STATUS_LABELS}
         formId="product-form"
         onSaved={vi.fn()}
@@ -194,8 +193,7 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
       <LocaleProvider locale="en">
         <ProductForm
           mode="create"
-          categories={[]}
-          statusLabels={STATUS_LABELS}
+            statusLabels={STATUS_LABELS}
           formId="product-create"
           onSaved={vi.fn()}
         />

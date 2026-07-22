@@ -26,10 +26,15 @@ import type {
   CampaignBadgeVariant,
   CampaignCardStyle,
   CustomerCouponAssignment,
-  Product,
-  ProductCategory,
 } from "@commerce-os/api-client";
 import { CampaignIcon } from "../../../components/icons";
+// TODO-159B (ADR-090) — Kapsam seçicileri ortak aranabilir seçiciye taşındı;
+// sayfa artık ürün/kategori kataloğunu belleğe ÇEKMEZ.
+import {
+  EntitySelectorField,
+  useCategorySelectorBinding,
+  useProductSelectorBinding,
+} from "../../../components/selector";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatMinor, minorToInput, inputToMinor } from "../../../lib/client/format";
@@ -530,8 +535,6 @@ export default function CampaignsPage() {
   const t = L[locale] ?? L.tr;
 
   const [campaigns, setCampaigns] = useState<CampaignResponse[] | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -544,16 +547,16 @@ export default function CampaignsPage() {
 
   const [detail, setDetail] = useState<CampaignDetailResponse | null>(null);
 
+  // TODO-159B (ADR-090) — Kapsam seçicileri. Katalog belleğe alınmaz; her arama
+  // sunucuya gider ve seçili kayıtlar `ids` çözüm moduyla ayrıca getirilir.
+  const productSelector = useProductSelectorBinding(locale);
+  const categorySelector = useCategorySelectorBinding(locale);
+  const toMessage = useCallback((error: unknown) => messageForError(error, locale), [locale]);
+
   const load = useCallback(async () => {
     try {
-      const [campaignList, productList, categoryList] = await Promise.all([
-        storeApi.listCampaigns(),
-        storeApi.listProducts(),
-        storeApi.listCategories(),
-      ]);
+      const campaignList = await storeApi.listCampaigns();
       setCampaigns(campaignList.data);
-      setProducts(productList.data);
-      setCategories(categoryList.data);
       setError(null);
     } catch (cause) {
       setError(messageForError(cause, locale));
@@ -806,39 +809,6 @@ export default function CampaignsPage() {
       },
     ],
     [t, busyId, campaigns],
-  );
-
-  const scopePicker = (
-    label: string,
-    items: Array<{ id: string; label: string }>,
-    selected: string[],
-    onChange: (ids: string[]) => void,
-  ) => (
-    <div>
-      <p className="mb-1 text-xs font-medium text-white/60">{label}</p>
-      <div className="max-h-40 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.03] p-2">
-        {items.length === 0 ? (
-          <p className="px-1 py-0.5 text-xs text-white/35">—</p>
-        ) : (
-          items.map((item) => (
-            <label key={item.id} className="flex items-center gap-2 rounded px-1 py-0.5 text-sm text-white/75 hover:bg-white/[0.04]">
-              <input
-                type="checkbox"
-                checked={selected.includes(item.id)}
-                onChange={(event) =>
-                  onChange(
-                    event.target.checked
-                      ? [...selected, item.id]
-                      : selected.filter((id) => id !== item.id),
-                  )
-                }
-              />
-              {item.label}
-            </label>
-          ))
-        )}
-      </div>
-    </div>
   );
 
   return (
@@ -1101,18 +1071,36 @@ export default function CampaignsPage() {
             {/* Section 5 — Kapsam. */}
             <FormSection title={t.sectionScope}>
               <div className="grid gap-3 md:grid-cols-2">
-                {scopePicker(
-                  t.formProducts,
-                  products.map((product) => ({ id: product.id, label: product.title })),
-                  form.productIds,
-                  (ids) => setForm((prev) => ({ ...prev, productIds: ids })),
-                )}
-                {scopePicker(
-                  t.formCategories,
-                  categories.map((category) => ({ id: category.id, label: category.name })),
-                  form.categoryIds,
-                  (ids) => setForm((prev) => ({ ...prev, categoryIds: ids })),
-                )}
+                {/* TODO-159B (ADR-090) — Sunucu-taraflı arama + sayfalama. Kayıtlı
+                    kapsam, ürün/kategori kaçıncı sayfada olursa olsun çip olarak
+                    görünür ve kaldırılabilir (eski işaretli-kutu listesinde ilk 25
+                    dışındaki seçim GÖRÜNMÜYORDU). */}
+                <EntitySelectorField
+                  label={t.formProducts}
+                  multiple
+                  value={form.productIds}
+                  onChange={(ids) => setForm((prev) => ({ ...prev, productIds: ids }))}
+                  source={productSelector.source}
+                  presenter={productSelector.presenter}
+                  labels={productSelector.labels}
+                  toMessage={toMessage}
+                  modalTitle={productSelector.title}
+                  modalDescription={productSelector.description}
+                  disabled={saving}
+                />
+                <EntitySelectorField
+                  label={t.formCategories}
+                  multiple
+                  value={form.categoryIds}
+                  onChange={(ids) => setForm((prev) => ({ ...prev, categoryIds: ids }))}
+                  source={categorySelector.source}
+                  presenter={categorySelector.presenter}
+                  labels={categorySelector.labels}
+                  toMessage={toMessage}
+                  modalTitle={categorySelector.title}
+                  modalDescription={categorySelector.description}
+                  disabled={saving}
+                />
               </div>
               <p className="text-xs text-white/40">{t.scopeHint}</p>
             </FormSection>

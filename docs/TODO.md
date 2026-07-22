@@ -1533,6 +1533,65 @@
 - Gate: `next build` PASS + tip geçerli · eslint temiz · 392 storefront + 47 i18n testi yeşil · canlı headless
   render (masaüstü/mobil) PASS. Analiz: `docs/analysis/TODO-158C-storefront-redesign.md`. Sınırlar TD-087…TD-090.
 
+## TODO-159B — Admin Searchable Selectors & Media Library Scalability (ADR-090)
+
+- Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı). **TD-093 ve TD-095 KAPANDI.**
+- Amaç: Store Admin'deki sabit limitli SEÇİM yüzeylerini (ürün/kategori/medya) ortak, sunucu-taraflı
+  aranabilir bir seçici standardına taşımak ve medya kütüphanesinin sahte sayfalamasını gerçek
+  sayfalamayla değiştirmek. (TD-091 envanter matrisi bu fazın kapsamı DIŞINDA — dokunulmadı.)
+- **Denetim:** `docs/analysis/TODO-159B-admin-selectors-media-audit.md` — 9 seçim yüzeyi tek tek çıkarıldı
+  (uç, limit, arama, sayfalama, seçili kaydın limit dışı davranışı, dataset istemciye alınıyor mu, tenant
+  izolasyonu, payload/N+1 riski). Ana bulgu: seçili kayıtlar KAYBOLMUYOR (form id dizisini aynen geri
+  gönderiyor) ama GÖRÜNMÜYOR — dolayısıyla kaldırılamıyor ve sayaç görünenden fazlasını söylüyor.
+  Tespit edilen sabitler: kampanya/home seçicileri 25 (argümansız çağrı), ürün filtresi + kategori ebeveyn
+  seçici 100, medya ucu sabit `take:100` (+ `offset` HİÇ uygulanmıyor), attribute IMAGE önizlemesi 100.
+- **Query standardı (contracts):** `adminSelectorQueryBaseSchema` = ADR-089 tabanı + `ids`.
+  `?ids=a,b,c` → ÇÖZÜM MODU: arama/sayfalama yok sayılır, yalnız o id'ler (mağaza içinde, en çok
+  `ADMIN_SELECTOR_MAX_IDS`=100, istemcinin verdiği sırada) döner. Response ADR-089 meta'sının aynısıdır.
+- **Yeni uçlar:** `GET /stores/:id/products/selector` (hafif projeksiyon: id/title/slug/status/sku/imageUrl/
+  priceMinor/currency/stockAvailable/variantCount — ürün detay payload'ı TAŞINMAZ; `sku` yalnız tek aktif
+  varyantlı üründe dolu) · `GET /stores/:id/categories/selector` (`path` = kökten kendine ad zinciri).
+- **Kategori yolu N+1'siz:** sayfadaki satırların ebeveynleri SEVİYE SEVİYE, her seviyede TEK batched
+  `findCategoriesByIds` ile çözülür (sorgu sayısı satır sayısına değil ağaç derinliğine bağlı; MAX_DEPTH=10
+  hem üst sınır hem döngü guard'ı). Tüm kategori ağacı hiçbir istekte yüklenmez.
+- **Paylaşılan SQL:** `buildAdminProductScanSql` — liste (`listProductsAdmin`) ve seçici
+  (`listProductSelector`) AYNI filtre/sıralama üretecini kullanır; "listede var, seçicide yok" yapısal
+  olarak imkânsız.
+- **Ortak UI:** `apps/store-admin-web/components/selector/` — `useSelectorSearch` (300 ms debounce, sayfa,
+  loading/empty/filtreli-empty/error+retry, `sourceKey` ile kaynak değişiminde yeniden çekim),
+  `useSelectedItems` (batched `ids` çözümü + id-bazlı önbellek; listeden seçim EK İSTEK üretmez),
+  `EntitySelectorField` (çipler + kaldır + tümünü kaldır + çözülemeyen id uyarısı),
+  `EntitySelectorModal` (listbox deseni: `role="listbox"/"option"`, `aria-selected`,
+  `aria-activedescendant`, ArrowUp/Down/Home/End/Enter, `aria-live` durum, Escape + odak yönetimi).
+  Sayfalama çubuğu ADR-089'un `DataGridPagination`'ı. Yeni palet/token/hardcoded renk YOK.
+- **Taşınan yüzeyler:** kampanya ürün + kategori kapsamı · Home Showcase ürünleri · Home öne çıkan
+  kategoriler · ürün formu kategori ataması (★ ana kategori kuralları BİREBİR korundu; `ProductCategoryField`)
+  · ürün listesi kategori filtresi (Data Grid araç çubuğuna `kind:"entity"` filtresi eklendi) · kategori
+  ebeveyn seçici + liste ebeveyn adı çözümü · attribute IMAGE/FILE önizlemesi (`ids` moduna geçti).
+  `ProductForm`'un `categories` prop'u KALDIRILDI (form artık kataloğu prop olarak almaz).
+- **Medya (TD-095):** sabit `take:100` kaldırıldı; `page/pageSize/search/context/sortBy/sortOrder/ids` +
+  ortak meta (legacy `limit/offset/total` KORUNDU). Sıralama allowlist'i modelde GERÇEKTEN olan alanlarla
+  sınırlı (`createdAt`/`altText`/`byteSize`); `mimeType` filtresi eklenMEDİ (her görsel webp'e normalize
+  edilir → sahte filtre olurdu). Picker'da context KİLİTLİ (cross-context bağlama guard'ı reddederdi).
+  `admin.media.list` imzası `(storeId, query, token)` oldu.
+- **Migration:** `20260722190000_add_media_pagination_index` — TAMAMEN ADDITIVE, geri alınabilir:
+  `MediaAsset(storeId, createdAt)`. `EXPLAIN` ölçümü (60k sentetik satır, `page=5&pageSize=25`):
+  indekssiz Parallel Seq Scan + top-N heapsort 7.524 ms / 1549 buffer → indeksli Index Scan Backward
+  0.065 ms / 11 buffer. `context` filtresi de AYNI indeksi kullanıyor → ayrı bileşik index eklenmedi.
+- Gate: build + typecheck + lint temiz · 1141 gateway (20 yeni) + 351 store-admin (22 yeni) testi yeşil ·
+  `git diff --check` temiz.
+- **Canlı doğrulama (enterprise-demo, gerçek Postgres):** 471 ürünün TAMAMI 5 sayfada erişilebilir
+  (benzersiz 471/471) · alfabetik son sıradaki ürün arandı, KLAVYE ile seçildi, kaydedildi ve yeniden
+  açıldığında korundu · mevcut kampanyanın 13 ürünlük kapsamı düzenleme ekranında eksiksiz göründü ve
+  değişiklik yapılmadan kaydedilip yeniden açıldığında aynen kaldı · kategori yolu
+  "Elektronik / Bilgisayar Bileşenleri / Ekran Kartı" olarak doğru üretildi · 139 medya kaydıyla
+  `page=1`/`page=2` kesişimi 0, birleşim tam; 100'ün ötesindeki görsel `ids` ile çözüldü · başka mağazanın
+  ürün/kategori/medya id'leri ÇÖZÜLMEDİ · `pageSize=500` ve `sortBy=hack` 400 döndü · `search=%` 0 kayıt
+  (kontrolsüz wildcard yok) · response'ta `storageKey`/`checksum`/`createdBy` sızıntısı YOK.
+- Sınırlar: TD-096 (medya araması yalnız `altText`; trigram yok) · TD-097 (picker'da context filtresi yok;
+  ayrı Medya Kütüphanesi ekranı yok) · TD-098 (seçici fiyat/stok özeti iki LATERAL join; read-model'e
+  bağlanabilir). TD-091'e DOKUNULMADI.
+
 ## TODO-159A — Enterprise Admin Data Grid Foundation (ADR-089)
 
 - Durum: DONE (worktree; commit/PR/deploy YAPILMADI — brief kuralı).

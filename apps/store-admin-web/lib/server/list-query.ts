@@ -30,6 +30,20 @@ export const CATEGORY_LIST_KEYS = [...COMMON_KEYS, "status"];
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
+ * TODO-159B (ADR-090) — Seçici uçlarının ortak anahtarları. `ids` CSV'dir ve
+ * verildiğinde uç "seçili kaydı çöz" moduna geçer (bkz. ADR-090); BFF yalnız
+ * taşır, anlamlandırma gateway'dedir.
+ */
+const SELECTOR_KEYS = [...COMMON_KEYS, "ids"];
+
+export const PRODUCT_SELECTOR_KEYS = [...SELECTOR_KEYS, "status", "categoryId"];
+
+export const CATEGORY_SELECTOR_KEYS = [...SELECTOR_KEYS, "status"];
+
+/** TODO-159B — Medya kütüphanesi (TD-095): gerçek sayfalama + arama + context. */
+export const MEDIA_LIST_KEYS = [...SELECTOR_KEYS, "context"];
+
+/**
  * Allowlist'teki anahtarları `Record<string,string>` olarak toplar. Boş değerler
  * atlanır (gateway varsayılanı devreye girsin).
  */

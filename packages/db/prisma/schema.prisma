@@ -2236,6 +2236,11 @@ model MediaAsset {
 
   @@index([storeId])
   @@index([storeId, context])
+  // TODO-159B (ADR-090) — Medya kutuphanesinin VARSAYILAN yolu "store-scoped +
+  // createdAt DESC + LIMIT/OFFSET"tir. Bilesik index hem WHERE hem ORDER BY'i
+  // tek erisimle karsilar; 60k satirlik olcumde plan Seq Scan + top-N sort'tan
+  // (7.5 ms / 1549 buffer) Index Scan Backward'a (0.07 ms / 11 buffer) dondu.
+  @@index([storeId, createdAt])
 }
 
 // Urun galerisi (coklu, sirali). position=0 kapak. storeId denormalize tenant

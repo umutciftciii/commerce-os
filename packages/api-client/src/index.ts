@@ -60,6 +60,9 @@ import type {
   ProductCategoryCreateRequest,
   ProductCategoryListResponse,
   ProductCategoryUpdateRequest,
+  // TODO-159B (ADR-090) — Admin Searchable Selector yanıt tipleri.
+  AdminProductSelectorResponse,
+  AdminCategorySelectorResponse,
   AttributeDefinition,
   AttributeDefinitionCreateRequest,
   AttributeDefinitionListResponse,
@@ -191,8 +194,9 @@ import type {
   CouponAssignmentRequest,
   CustomerCouponAssignment,
   CustomerCouponAssignmentListResponse,
-  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi.
-  MediaContext,
+  // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. TODO-159B (ADR-090): liste artık
+  // `context`i ortak query haritasında taşır; MediaContext tipi yalnız RE-EXPORT
+  // edilir (transport imzasında doğrudan kullanılmaz).
   MediaListResponse,
   MediaUploadResponse,
 } from "@commerce-os/contracts";
@@ -309,6 +313,18 @@ export type {
   AdminCustomerListQuery,
   AdminCustomerListSortBy,
   AdminOrderListSortBy,
+  // TODO-159B (ADR-090) — Admin Searchable Selector sözleşmesi tipleri.
+  AdminSelectorQueryBase,
+  AdminProductSelectorOption,
+  AdminProductSelectorQuery,
+  AdminProductSelectorResponse,
+  AdminProductSelectorSortBy,
+  AdminCategorySelectorOption,
+  AdminCategorySelectorQuery,
+  AdminCategorySelectorResponse,
+  AdminCategorySelectorSortBy,
+  AdminMediaListQuery,
+  AdminMediaListSortBy,
   ProductPrimaryAction,
   ProductPriceChange,
   ProductPriceChangeListResponse,
@@ -519,6 +535,10 @@ export {
   ADMIN_LIST_PAGE_SIZE_OPTIONS,
   ADMIN_LIST_DEFAULT_PAGE_SIZE,
   ADMIN_LIST_MAX_PAGE_SIZE,
+  // TODO-159B (ADR-090) — Seçici `ids` çözüm modunun üst sınırı; istemci seçili
+  // kayıtları bu boyutta parçalara bölerek çözer (tek istekte sınırsız IN(...) yok).
+  ADMIN_SELECTOR_MAX_IDS,
+  ADMIN_SELECTOR_DEFAULT_PAGE_SIZE,
 } from "@commerce-os/contracts";
 
 /**
@@ -768,6 +788,15 @@ export interface ApiClient {
         token?: string,
         query?: Record<string, string | number | undefined>,
       ): Promise<ProductCategoryListResponse>;
+      /**
+       * TODO-159B (ADR-090) — Kategori seçici ucu. `query.ids` verilirse ÇÖZÜM
+       * modudur (arama/sayfalama uygulanmaz; yalnız o kayıtlar döner).
+       */
+      selector(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminCategorySelectorResponse>;
       create(
         storeId: string,
         input: ProductCategoryCreateRequest,
@@ -1041,7 +1070,16 @@ export interface ApiClient {
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
     media: {
-      list(storeId: string, context?: MediaContext, token?: string): Promise<MediaListResponse>;
+      /**
+       * TODO-159B (ADR-090) — TD-095 kapanışı: medya listesi artık ortak Data Grid
+       * query'sini konuşur (`page`/`pageSize`/`search`/`context`/`sortBy`/`sortOrder`/
+       * `ids`). Eski `context` argümanı yerine query haritası geçilir.
+       */
+      list(
+        storeId: string,
+        query?: Record<string, string | number | undefined>,
+        token?: string,
+      ): Promise<MediaListResponse>;
       upload(storeId: string, form: FormData, token?: string): Promise<MediaUploadResponse>;
       remove(storeId: string, mediaId: string, token?: string): Promise<void>;
     };
@@ -1054,6 +1092,16 @@ export interface ApiClient {
         token?: string,
         query?: Record<string, string | number | undefined>,
       ): Promise<ProductListResponse>;
+      /**
+       * TODO-159B (ADR-090) — Ürün seçici ucu (hafif projeksiyon). `query.ids`
+       * verilirse ÇÖZÜM modudur: arama/sayfalama uygulanmaz, yalnız o kayıtlar
+       * döner — seçili ürün kaçıncı sayfada olursa olsun gösterilebilir.
+       */
+      selector(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminProductSelectorResponse>;
       filterOptions(
         storeId: string,
         token?: string,
@@ -1843,6 +1891,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/categories${buildQueryString(query)}`,
             token,
           ),
+        selector: (storeId, token, query) =>
+          getJson<AdminCategorySelectorResponse>(
+            `/stores/${storeId}/categories/selector${buildQueryString(query)}`,
+            token,
+          ),
         create: (storeId, input, token) =>
           sendJson<ProductCategory>(`/stores/${storeId}/categories`, "POST", input, token),
         get: (storeId, categoryId, token) =>
@@ -2144,11 +2197,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).
       media: {
-        list: (storeId, context, token) =>
-          getJson<MediaListResponse>(
-            `/stores/${storeId}/media${context ? `?context=${context}` : ""}`,
-            token,
-          ),
+        list: (storeId, query, token) =>
+          getJson<MediaListResponse>(`/stores/${storeId}/media${buildQueryString(query)}`, token),
         upload: (storeId, form, token) =>
           sendForm<MediaUploadResponse>(`/stores/${storeId}/media`, form, token),
         remove: (storeId, mediaId, token) =>
@@ -2158,6 +2208,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         list: (storeId, token, query) =>
           getJson<ProductListResponse>(
             `/stores/${storeId}/products${buildQueryString(query)}`,
+            token,
+          ),
+        selector: (storeId, token, query) =>
+          getJson<AdminProductSelectorResponse>(
+            `/stores/${storeId}/products/selector${buildQueryString(query)}`,
             token,
           ),
         filterOptions: (storeId, token) =>

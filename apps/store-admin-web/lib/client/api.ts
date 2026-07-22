@@ -172,6 +172,9 @@ import type {
   MediaContext,
   MediaListResponse,
   MediaUploadResponse,
+  // TODO-159B (ADR-090) — Admin Searchable Selector yanıt tipleri.
+  AdminProductSelectorResponse,
+  AdminCategorySelectorResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -415,6 +418,12 @@ export const storeApi = {
   // Argümansız çağrı ESKİ davranıştır (gateway varsayılanları).
   listCategories: (query?: AdminListRequestQuery) =>
     call<ProductCategoryListResponse>(`/api/catalog/categories${listQueryString(query)}`),
+  // TODO-159B (ADR-090) — Kategori seçici ucu. `ids` verilirse çözüm modudur
+  // (seçili kayıt arama/sayfa dışında kalsa bile döner).
+  listCategorySelector: (query?: AdminListRequestQuery) =>
+    call<AdminCategorySelectorResponse>(
+      `/api/catalog/categories/selector${listQueryString(query)}`,
+    ),
   createCategory: (input: ProductCategoryCreateRequest) =>
     mutatingCall<ProductCategory>("/api/catalog/categories", {
       method: "POST",
@@ -493,6 +502,9 @@ export const storeApi = {
   // TODO-159A (ADR-089) — server-side arama/filtre/sıralama/sayfalama.
   listProducts: (query?: AdminListRequestQuery) =>
     call<ProductListResponse>(`/api/catalog/products${listQueryString(query)}`),
+  // TODO-159B (ADR-090) — Ürün seçici ucu (hafif projeksiyon + `ids` çözüm modu).
+  listProductSelector: (query?: AdminListRequestQuery) =>
+    call<AdminProductSelectorResponse>(`/api/catalog/products/selector${listQueryString(query)}`),
   // Filtre açılırlarının DISTINCT marka/tedarikçi kaynağı (liste sayfalandığı için
   // istemcide türetilemez).
   listProductFilterOptions: () =>
@@ -978,8 +990,10 @@ export const storeApi = {
   // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
   // (content-type call icinde otomatik atlanir); list opsiyonel context filtresiyle;
   // delete 204 (kullanimdaysa 409 MEDIA_IN_USE → UiError.details.usedIn).
-  listMedia: (context?: MediaContext) =>
-    call<MediaListResponse>(`/api/media${context ? `?context=${context}` : ""}`),
+  // TODO-159B (ADR-090) — TD-095 kapanışı: gerçek sayfalama/arama/sıralama query'si.
+  // Eski `context` argümanı yerine ortak query haritası geçilir.
+  listMedia: (query?: AdminListRequestQuery) =>
+    call<MediaListResponse>(`/api/media${listQueryString(query)}`),
   uploadMedia: (input: { file: File; context: MediaContext; altText?: string }) => {
     const form = new FormData();
     form.append("context", input.context);

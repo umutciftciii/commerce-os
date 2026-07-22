@@ -93,6 +93,9 @@ const tr = {
       "Bu showcase DİNAMİK kaynaklıdır; ürünler kurala göre otomatik seçilir. Manuel ürün eklemek için bölüm ayarlarından kaynağı Manuel yapın.",
     showcaseSave: "Ürünleri kaydet",
     productPickerLabel: "Ürünler (seçili sırayla gösterilir)",
+    // TODO-159B (ADR-090) — Sıralama artık seçim sırasıdır; çipler o sırada durur.
+    showcaseOrderHint: "Ürünler seçtiğiniz sırayla vitrinde gösterilir.",
+    categoryRequired: "Lütfen bir kategori seçin.",
     selected: "seçili",
     imageLabel: "Görsel",
     mobileImageLabel: "Mobil görsel (opsiyonel)",
@@ -208,6 +211,8 @@ const en: typeof tr = {
       "This showcase is DYNAMIC; products are auto-selected by rule. To add manual products, switch the source to Manual in section settings.",
     showcaseSave: "Save products",
     productPickerLabel: "Products (shown in selected order)",
+    showcaseOrderHint: "Products appear on the storefront in the order you select them.",
+    categoryRequired: "Please select a category.",
     selected: "selected",
     imageLabel: "Image",
     mobileImageLabel: "Mobile image (optional)",

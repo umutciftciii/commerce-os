@@ -106,8 +106,10 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
 
     // Kütüphaneyi aç → listMedia(CATEGORY) → "Seç".
     await userEvent.click(within(dialog).getByText("Kütüphaneden seç"));
-    await waitFor(() => expect(storeApiMock.listMedia).toHaveBeenCalledWith("CATEGORY"));
-    await userEvent.click(await screen.findByText("Seç"));
+    await waitFor(() => expect(storeApiMock.listMedia).toHaveBeenCalledWith(expect.objectContaining({ context: "CATEGORY" })));
+    // TODO-159B (ADR-090) — kütüphane düğmesi artık erişilebilir ada sahip
+    // ("<ad> görselini seç"); ebeveyn seçicinin "Seç" düğmesiyle karışmaz.
+    await userEvent.click(await screen.findByRole("button", { name: "media_cat görselini seç" }));
 
     await userEvent.click(within(dialog).getByText("Kategori oluştur"));
 
@@ -160,8 +162,10 @@ describe("CategoriesPage görsel bağlama (ADR-065 Faz 2 / Dilim 3)", () => {
     );
     // Akış tamamlandı: başarı toast'u + liste yeniden yüklendi.
     expect(await screen.findByText("Kategori oluşturuldu.")).toBeTruthy();
-    // TODO-159A (ADR-089) — ekran iki kaynak yükler: sayfalanmış liste + ebeveyn
-    // seçicisinin sayfadan bağımsız kümesi. Create sonrası ikisi de tazelenir (2 → 4).
-    expect(storeApiMock.listCategories).toHaveBeenCalledTimes(4);
+    // TODO-159B (ADR-090) — ekran ARTIK tek kaynak yükler: sayfalanmış liste.
+    // Ebeveyn adları ve ebeveyn seçici, sayfadan bağımsız 100'lük bir ikinci
+    // `listCategories` çağrısı yerine `ids` çözüm modu / seçici ucu üzerinden
+    // gelir. Create sonrası yalnız liste tazelenir (1 → 2).
+    expect(storeApiMock.listCategories).toHaveBeenCalledTimes(2);
   });
 });

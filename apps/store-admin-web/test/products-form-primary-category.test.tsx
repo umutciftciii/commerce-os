@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@commerce-os/ui";
 import { ProductForm } from "../app/(app)/products/product-form";
+import { makeCategorySelectorFake, pickInSelector } from "./selector-test-utils";
 
 const { storeApiMock, MockUiError } = vi.hoisted(() => {
   class MockUiError extends Error {
@@ -25,6 +26,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       updateProduct: vi.fn(),
       createProduct: vi.fn(),
       listMedia: vi.fn(),
+      // TODO-159B (ADR-090) — kategori ataması aranabilir seçiciden geçer.
+      listCategorySelector: vi.fn(),
       uploadMedia: vi.fn(),
       deleteMedia: vi.fn(),
       // Faz 2B — dinamik attribute form'u kategori seçilince bu uçları çağırır.
@@ -64,13 +67,13 @@ function cat(id: string, name: string) {
   };
 }
 
-function renderForm(product: unknown, categories: unknown[]) {
+function renderForm(product: unknown, categories: { id: string; name: string }[]) {
+  storeApiMock.listCategorySelector.mockImplementation(makeCategorySelectorFake(categories));
   return render(
     <LocaleProvider locale="en">
       <ProductForm
         mode="edit"
         product={product as never}
-        categories={categories as never}
         statusLabels={STATUS_LABELS}
         formId="product-form"
         onSaved={vi.fn()}
@@ -88,7 +91,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     renderForm(makeProduct(), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
 
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await user.click(screen.getByRole("button", { name: "save" }));
 
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
@@ -103,12 +106,13 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     renderForm(makeProduct({ categoryIds: ["c1"], primaryCategoryId: "c1" }), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
 
-    // Hydration: c1 ana → "Primary category" rozeti tam 1 kez.
-    expect(screen.getAllByText(/Primary category/).length).toBe(1);
-    await user.click(screen.getByLabelText("Accessories"));
+    // Hydration: seçili kategori `ids` çözüm moduyla ASENKRON gelir; c1 ana →
+    // "Primary category" rozeti tam 1 kez.
+    await waitFor(() => expect(screen.getAllByText(/Primary category/).length).toBe(1));
+    await pickInSelector(user, /Accessories/);
     // Ana hâlâ c1 → rozet hâlâ 1 (c2 "Make primary" gösterir).
+    await waitFor(() => expect(screen.getByText("Make primary")).toBeTruthy());
     expect(screen.getAllByText(/Primary category/).length).toBe(1);
-    expect(screen.getByText("Make primary")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "save" }));
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
@@ -125,7 +129,8 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
       [cat("c1", "Apparel"), cat("c2", "Accessories"), cat("c3", "Home")],
     );
     // Ana kategori c1'i kaldır → [c2,c3] çoklu kalır, ana null olur.
-    await user.click(screen.getByLabelText("Apparel"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove Apparel" })).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Remove Apparel" }));
     await user.click(screen.getByRole("button", { name: "save" }));
 
     // Submit engellendi: hata gösterildi, updateProduct çağrılmadı.
@@ -135,10 +140,30 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     expect(storeApiMock.updateProduct).not.toHaveBeenCalled();
   });
 
-  it("edit'te backfill edilmiş ana kategori doğru hydrate edilir", () => {
+  it("edit'te backfill edilmiş ana kategori doğru hydrate edilir", async () => {
     renderForm(makeProduct({ categoryIds: ["c1", "c2"], primaryCategoryId: "c2" }), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
     // c2 ana → "Primary category" rozeti; c1 "Make primary".
-    expect(screen.getAllByText(/Primary category/).length).toBe(1);
+    await waitFor(() => expect(screen.getAllByText(/Primary category/).length).toBe(1));
     expect(screen.getByText("Make primary")).toBeTruthy();
+  });
+
+  it("seçili kategori arama sonucunda OLMASA BİLE görünür ve kaldırılabilir (TD-093)", async () => {
+    const user = userEvent.setup();
+    storeApiMock.updateProduct.mockResolvedValue(makeProduct());
+    // Katalogda 120 kategori var; seçili olan SON sıradaki (ilk sayfada DEĞİL).
+    const many = Array.from({ length: 120 }, (_, index) => cat(`c${index}`, `Cat ${index}`));
+    renderForm(makeProduct({ categoryIds: ["c119"], primaryCategoryId: "c119" }), many);
+
+    // `ids` çözüm modu sayesinde çip görünür — eski işaretli-kutu listesinde
+    // (ilk 25 kayıt) bu kategori hiç RENDER EDİLMİYORDU.
+    await waitFor(() => expect(screen.getByText("Cat 119")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Remove Cat 119" }));
+    await user.click(screen.getByRole("button", { name: "save" }));
+
+    await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
+    expect(storeApiMock.updateProduct).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ categoryIds: [], primaryCategoryId: null }),
+    );
   });
 });

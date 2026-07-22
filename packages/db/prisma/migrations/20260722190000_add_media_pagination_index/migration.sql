@@ -1,0 +1,25 @@
+-- TODO-159B (ADR-090) — Medya kütüphanesi sayfalama indeksi (TD-095 kapanışı).
+--
+-- TAMAMEN ADDITIVE ve GERİ ALINABİLİR: yalnız bir yeni index oluşturur; hiçbir
+-- kolon/tablo/kısıt değişmez, veri dönüştürülmez. Geri alma = DROP INDEX.
+--
+-- Neden: `GET /stores/:id/media` artık gerçek sayfalama yapıyor ve VARSAYILAN
+-- yolu "store-scoped + createdAt DESC + LIMIT/OFFSET"tir. Bugüne kadar uç sabit
+-- `take: 100` ile çalıştığı (offset hiç uygulanmadığı) için bu desen hiç
+-- ölçülmemişti. Mevcut MediaAsset("storeId") ve ("storeId","context")
+-- indeksleri WHERE'i karşılıyor ama sıralamayı KARŞILAMIYOR.
+--
+-- EXPLAIN ölçümü (yerel Postgres, 60.000 satırlık sentetik medya kümesi,
+-- `?page=5&pageSize=25` deseni):
+--   indekssiz : Parallel Seq Scan + top-N heapsort · 7.524 ms · 1549 buffer
+--   indeksli  : Index Scan Backward                · 0.065 ms ·   11 buffer
+-- `context` filtresi eklendiğinde de aynı index kullanılıyor (Incremental Sort
+-- + Index Scan Backward), yani ayrı bir (storeId, context, createdAt) indeksi
+-- GEREKMİYOR — bilinçli olarak eklenmedi.
+--
+-- Kapsam DIŞI (bilinçli): `altText` araması ILIKE '%term%' kullanır ve bu desen
+-- B-tree indeksinden yararlanamaz. Medya kümeleri ürün kataloğundan çok daha
+-- küçük olduğu için trigram indeksi bu fazda eklenmedi (bkz. TD-094'ün medya
+-- karşılığı — TECHNICAL_DEBT'te TD-096 olarak kayıt altına alındı).
+
+CREATE INDEX IF NOT EXISTS "MediaAsset_storeId_createdAt_idx" ON "MediaAsset"("storeId", "createdAt");

@@ -135,6 +135,79 @@ export function buildAdminListPagination(input: {
 export type AdminListSortOrder = z.infer<typeof adminListSortOrderSchema>;
 export type AdminListPagination = z.infer<typeof adminListPaginationSchema>;
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-159B (ADR-090) — Admin Searchable Selector ortak sözleşmesi.
+ *
+ * Seçici uçları Data Grid sözleşmesinin (ADR-089) TÜRETİLMİŞ bir dalıdır: aynı
+ * `page`/`pageSize`/`search`/`sortBy`/`sortOrder` + aynı pagination meta'sı. İki
+ * fark vardır:
+ *
+ *  1. PROJEKSİYON: seçici satırı entity'nin TAMAMINI değil, seçim için gereken
+ *     asgari alanları taşır (ürün detay payload'ı seçiciye girmez).
+ *  2. `ids` MODU: `ids` verildiğinde uç "seçili kaydı çöz" moduna geçer — arama
+ *     ve filtreler UYGULANMAZ, yalnız verilen id'ler (mağaza içinde) döner.
+ *     Böylece düzenleme ekranı, seçili kayıt arama sonucunun/sayfanın dışında
+ *     kalsa bile onu gösterebilir; "seçileni bulmak için tüm kataloğu çek"
+ *     ihtiyacı ORTADAN KALKAR.
+ *
+ * `ids` istemci tarafından CSV olarak taşınır (`?ids=a,b,c`). Üst sınır
+ * `ADMIN_SELECTOR_MAX_IDS`'tir: sınırsız IN(...) listesi kabul edilmez.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** Tek istekte çözülebilecek en fazla seçili kayıt (IN(...) üst sınırı). */
+export const ADMIN_SELECTOR_MAX_IDS = 100;
+
+/** Seçici modallarının varsayılan sayfa boyutu (liste ekranlarıyla aynı). */
+export const ADMIN_SELECTOR_DEFAULT_PAGE_SIZE = ADMIN_LIST_DEFAULT_PAGE_SIZE;
+
+/**
+ * `?ids=a,b,c` CSV'sini benzersiz id dizisine indirger. Boş parçalar atılır,
+ * sıra KORUNUR (istemci seçim sırasını göstermek isteyebilir) ve dizi
+ * `ADMIN_SELECTOR_MAX_IDS` ile kırpılır — sunucu-otoriter üst sınır.
+ */
+export function parseSelectorIds(raw: string | undefined | null): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const part of raw.split(",")) {
+    const id = part.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    if (ids.length >= ADMIN_SELECTOR_MAX_IDS) break;
+  }
+  return ids;
+}
+
+/**
+ * Her seçici ucunun ortak query tabanı. Modüller `.extend({...})` ile kendi
+ * `sortBy` allowlist'ini ve filtrelerini ekler.
+ *
+ * `ids` uzunluk sınırı: en fazla `ADMIN_SELECTOR_MAX_IDS` adet id + ayraç.
+ * Ham uzunluk sınırı ilk savunma katmanıdır (devasa query string reddi);
+ * gerçek kırpma `parseSelectorIds` içindedir.
+ */
+export const adminSelectorQueryBaseSchema = adminListQueryBaseSchema.extend({
+  ids: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ADMIN_SELECTOR_MAX_IDS * 64)
+    .optional(),
+});
+
+/**
+ * `ids` modunun pagination meta'sı. Çözüm modu SAYFALANMAZ (tek atışta en çok
+ * `ADMIN_SELECTOR_MAX_IDS` kayıt döner); meta yine de ortak şekli korur ki
+ * istemci tek bir okuma yolu kullansın. `totalPages` boş sonuçta 0'dır.
+ */
+export function buildSelectorIdsPagination(totalItems: number): AdminListPagination {
+  const pageSize = Math.max(1, Math.min(ADMIN_SELECTOR_MAX_IDS, totalItems));
+  return buildAdminListPagination({ page: 1, pageSize, totalItems });
+}
+
+export type AdminSelectorQueryBase = z.infer<typeof adminSelectorQueryBaseSchema>;
+
 export const platformEventSchema = z.object({
   type: z.enum([
     "STORE_CREATED",
@@ -483,6 +556,43 @@ export const adminCategoryListQuerySchema = adminListQueryBaseSchema.extend({
 
 export type AdminCategoryListSortBy = z.infer<typeof adminCategoryListSortBySchema>;
 export type AdminCategoryListQuery = z.infer<typeof adminCategoryListQuerySchema>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-159B (ADR-090) — Kategori SEÇİCİ sözleşmesi.
+ *
+ * `path` kategorinin kökten kendisine kadar olan AD zinciridir
+ * (`["Elektronik","Bilgisayar","Ekran Kartı"]`). UI bunu "Elektronik / Bilgisayar
+ * / Ekran Kartı" olarak gösterir; böylece aynı adı taşıyan iki kategori
+ * karıştırılmaz. Zincir sunucuda SEVİYE SEVİYE batched çözülür (satır başına
+ * sorgu YOK) ve tüm kategori ağacı hiçbir istekte baştan yüklenmez.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const adminCategorySelectorSortBySchema = z.enum(["name", "sortOrder", "createdAt"]);
+
+export const adminCategorySelectorQuerySchema = adminSelectorQueryBaseSchema.extend({
+  sortBy: adminCategorySelectorSortBySchema.optional(),
+  status: productCategoryStatusSchema.optional(),
+});
+
+export const adminCategorySelectorOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  slug: slugSchema,
+  status: productCategoryStatusSchema,
+  parentId: z.string().min(1).nullable(),
+  /** Kökten kendisine AD zinciri; son eleman kategorinin kendi adıdır (en az 1). */
+  path: z.array(z.string().min(1)).min(1),
+});
+
+export const adminCategorySelectorResponseSchema = z.object({
+  data: z.array(adminCategorySelectorOptionSchema),
+  pagination: adminListPaginationSchema,
+});
+
+export type AdminCategorySelectorSortBy = z.infer<typeof adminCategorySelectorSortBySchema>;
+export type AdminCategorySelectorQuery = z.infer<typeof adminCategorySelectorQuerySchema>;
+export type AdminCategorySelectorOption = z.infer<typeof adminCategorySelectorOptionSchema>;
+export type AdminCategorySelectorResponse = z.infer<typeof adminCategorySelectorResponseSchema>;
 
 export const productCategoryCreateRequestSchema = z.object({
   name: z.string().min(1).max(160),
@@ -1741,6 +1851,59 @@ export type AdminProductListQuery = z.infer<typeof adminProductListQuerySchema>;
 export type AdminProductFilterOptionsResponse = z.infer<
   typeof adminProductFilterOptionsResponseSchema
 >;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-159B (ADR-090) — Ürün SEÇİCİ sözleşmesi.
+ *
+ * Satır YALNIZ seçim kararı için gerekeni taşır: kapak görseli, ad, SKU, durum,
+ * fiyat ve stok özeti. Açıklama / SEO / ticari model alanları BURAYA GİRMEZ —
+ * seçici, ürün detay payload'ının taşıyıcısı değildir.
+ *
+ * `sku` YALNIZ tek aktif varyantlı üründe doludur — çok varyantlı üründe "bir
+ * SKU" göstermek yanıltıcı olurdu; orada `variantCount` konuşur. `priceMinor` +
+ * `currency` en ucuz aktif varyanttan, `stockAvailable` varsayılan depo
+ * `onHand − reserved` toplamından gelir — liste ekranıyla (ADR-089) ve search
+ * read-model ile AYNI otorite.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const adminProductSelectorSortBySchema = z.enum([
+  "title",
+  "createdAt",
+  "updatedAt",
+  "price",
+  "stock",
+]);
+
+export const adminProductSelectorQuerySchema = adminSelectorQueryBaseSchema.extend({
+  sortBy: adminProductSelectorSortBySchema.optional(),
+  status: productStatusSchema.optional(),
+  categoryId: z.string().min(1).max(64).optional(),
+});
+
+export const adminProductSelectorOptionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  slug: slugSchema,
+  status: productStatusSchema,
+  sku: z.string().nullable(),
+  /** Kapak görselinin türetilmiş public URL'i; storageKey ASLA taşınmaz. */
+  imageUrl: z.string().nullable(),
+  priceMinor: z.number().int().nonnegative().nullable(),
+  /** `priceMinor`'ın para birimi; fiyat yoksa null (uydurma varsayılan YOK). */
+  currency: z.string().min(3).max(3).nullable(),
+  stockAvailable: z.number().int().nullable(),
+  variantCount: z.number().int().nonnegative(),
+});
+
+export const adminProductSelectorResponseSchema = z.object({
+  data: z.array(adminProductSelectorOptionSchema),
+  pagination: adminListPaginationSchema,
+});
+
+export type AdminProductSelectorSortBy = z.infer<typeof adminProductSelectorSortBySchema>;
+export type AdminProductSelectorQuery = z.infer<typeof adminProductSelectorQuerySchema>;
+export type AdminProductSelectorOption = z.infer<typeof adminProductSelectorOptionSchema>;
+export type AdminProductSelectorResponse = z.infer<typeof adminProductSelectorResponseSchema>;
 
 function isConsistentSalesModel(value: {
   salesMode?: z.infer<typeof productSalesModeSchema>;
@@ -6272,23 +6435,43 @@ export const mediaUploadResponseSchema = z.object({ data: mediaAssetSchema });
 
 // ADR-065 Faz 2 (Dilim 1) — Media kutuphane listesi. Yeniden yukleme yerine
 // var olan gorseli baska entity'ye baglamak icin store'un gorsellerini dondurur.
-// Sayfalama kontrati simdiden {limit,offset,total} ile stabil kurulur; Dilim 1'de
-// backend sabit limit (son N) uygular, gercek sayfalama/arama Faz 4'e ertelenir.
+//
+// TODO-159B (ADR-090) — TD-095 KAPANDI: sabit `take: 100` kaldirildi. Uc artik
+// ortak Data Grid pagination meta'sini (ADR-089) dondurur; legacy {limit,offset,
+// total} ucluler KORUNUR, uzerine page/pageSize/totalItems/totalPages EKLENIR.
 export const mediaContextSchema = z.enum(["PRODUCT", "CATEGORY", "HERO", "BRANDING"]);
 
 export const mediaListResponseSchema = z.object({
   data: z.array(mediaAssetSchema),
-  pagination: z.object({
-    limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
-    total: z.number().int().nonnegative(),
-  }),
+  pagination: adminListPaginationSchema,
+});
+
+/**
+ * TODO-159B (ADR-090) — Medya kutuphanesi query sozlesmesi.
+ *
+ * Siralama allowlist'i MODELDE VAR OLAN alanlarla sinirlidir: `createdAt`
+ * (yukleme tarihi), `altText` (kullaniciya gorunen ad) ve `byteSize`. Dosya adi
+ * kolonu YOKTUR — `storageKey` sunucu uretimi opak bir yoldur ve response'a
+ * sizmaz (ADR-065 allowlist); bu yuzden "isim" araması/siralaması `altText`
+ * uzerindedir.
+ *
+ * `mimeType` filtresi BILINCLI olarak YOKTUR: yukleme yolu her gorseli sunucuda
+ * image/webp'e normalize eder, dolayisiyla tek degerli sahte bir daraltma olurdu.
+ * Gercek ayrim `context`tir (kullanim alani).
+ */
+export const adminMediaListSortBySchema = z.enum(["createdAt", "altText", "byteSize"]);
+
+export const adminMediaListQuerySchema = adminSelectorQueryBaseSchema.extend({
+  sortBy: adminMediaListSortBySchema.optional(),
+  context: mediaContextSchema.optional(),
 });
 
 export type MediaContext = z.infer<typeof mediaContextSchema>;
 export type MediaAssetResponse = z.infer<typeof mediaAssetSchema>;
 export type MediaUploadResponse = z.infer<typeof mediaUploadResponseSchema>;
 export type MediaListResponse = z.infer<typeof mediaListResponseSchema>;
+export type AdminMediaListSortBy = z.infer<typeof adminMediaListSortBySchema>;
+export type AdminMediaListQuery = z.infer<typeof adminMediaListQuerySchema>;
 
 // ─────────────────────── TODO-155.2 — PAYLAŞILAN Kampanya Rozet Değerlendiricisi (SAF) ───────────────────────
 //

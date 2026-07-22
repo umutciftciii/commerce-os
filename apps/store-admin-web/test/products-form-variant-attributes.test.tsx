@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@commerce-os/ui";
 import { ProductForm } from "../app/(app)/products/product-form";
+import { makeCategorySelectorFake, pickInSelector } from "./selector-test-utils";
 
 const { storeApiMock, MockUiError } = vi.hoisted(() => {
   class MockUiError extends Error {
@@ -38,6 +39,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       listAttributeGroups: vi.fn().mockResolvedValue({ data: [] }),
       listAttributeOptions: vi.fn(),
       listMedia: vi.fn().mockResolvedValue({ data: [] }),
+      // TODO-159B (ADR-090) — kategori ataması aranabilir seçiciden geçer.
+      listCategorySelector: vi.fn(),
       uploadMedia: vi.fn(),
       deleteMedia: vi.fn(),
     },
@@ -125,18 +128,20 @@ function cat(id: string, name: string) {
   };
 }
 
-function renderCreate(categories: unknown[] = [cat("c1", "Apparel")]) {
+function renderCreate(categories: { id: string; name: string }[] = [cat("c1", "Apparel")]) {
+  storeApiMock.listCategorySelector.mockImplementation(makeCategorySelectorFake(categories));
   return render(
     <LocaleProvider locale="en">
-      <ProductForm mode="create" categories={categories as never} statusLabels={STATUS_LABELS} formId="pf" onSaved={vi.fn()} />
+      <ProductForm mode="create" statusLabels={STATUS_LABELS} formId="pf" onSaved={vi.fn()} />
       <button form="pf" type="submit">save</button>
     </LocaleProvider>,
   );
 }
-function renderEdit(product: unknown, categories: unknown[] = [cat("c1", "Apparel")]) {
+function renderEdit(product: unknown, categories: { id: string; name: string }[] = [cat("c1", "Apparel")]) {
+  storeApiMock.listCategorySelector.mockImplementation(makeCategorySelectorFake(categories));
   return render(
     <LocaleProvider locale="en">
-      <ProductForm mode="edit" product={product as never} categories={categories as never} statusLabels={STATUS_LABELS} formId="pf" onSaved={vi.fn()} />
+      <ProductForm mode="edit" product={product as never} statusLabels={STATUS_LABELS} formId="pf" onSaved={vi.fn()} />
       <button form="pf" type="submit">save</button>
     </LocaleProvider>,
   );
@@ -154,7 +159,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
     renderCreate();
 
     expect(screen.queryByText("Colour")).toBeNull();
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
 
     await waitFor(() => expect(screen.getByText("Variant attributes")).toBeTruthy());
     // Varyant bölümüne özel sorgula (FabricLevel ürün-seviyesi bölümünde görünür — o bölüm ayrı).
@@ -172,7 +177,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
     const user = userEvent.setup();
     installSchema();
     renderCreate();
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     // Eksen kapalıyken option yok.
@@ -194,7 +199,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     await user.click(screen.getByLabelText("Colour"));
@@ -217,7 +222,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     await user.click(screen.getByLabelText("Colour")); // enable, seçme
@@ -238,7 +243,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(storeApiMock.listCategoryAttributes).toHaveBeenCalled());
 
     expect(screen.queryByText("Variant attributes")).toBeNull();
@@ -286,7 +291,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await user.click(screen.getByLabelText("Apparel"));
+    await pickInSelector(user, /Apparel/);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
     await user.click(screen.getByLabelText("Colour"));
     await user.click(await screen.findByRole("checkbox", { name: "Black" }));

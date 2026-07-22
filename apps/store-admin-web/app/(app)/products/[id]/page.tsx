@@ -7,7 +7,6 @@ import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../compo
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
-  ProductCategory,
   ProductPriceVisibility,
   ProductPrimaryAction,
   ProductSalesMode,
@@ -55,7 +54,7 @@ const SALES_MODE_TONES: Record<ProductSalesMode, "success" | "info" | "warning" 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; product: Product; categories: ProductCategory[] };
+  | { status: "ready"; product: Product };
 
 const FORM_ID = "product-edit-form";
 
@@ -91,11 +90,10 @@ export default function ProductDetailPage() {
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
-      const [product, cats] = await Promise.all([
-        storeApi.getProduct(productId),
-        storeApi.listCategories(),
-      ]);
-      setState({ status: "ready", product, categories: cats.data });
+      // TODO-159B (ADR-090) — Kategori kataloğu artık ÖNDEN çekilmez: form
+      // seçili kategorileri `ids` çözüm moduyla, aramayı da sunucudan alır.
+      const product = await storeApi.getProduct(productId);
+      setState({ status: "ready", product });
     } catch (error) {
       setState({ status: "error", message: messageForError(error, locale) });
     }
@@ -106,7 +104,6 @@ export default function ProductDetailPage() {
   }, [load]);
 
   const product = state.status === "ready" ? state.product : null;
-  const categories = state.status === "ready" ? state.categories : [];
 
   const mode = (product?.salesMode ?? "ONLINE") as ProductSalesMode;
   const visibility = (product?.priceVisibility ?? "VISIBLE") as ProductPriceVisibility;
@@ -237,12 +234,11 @@ export default function ProductDetailPage() {
                 <ProductForm
                   mode="edit"
                   product={product}
-                  categories={categories}
                   statusLabels={statusLabels}
                   formId={FORM_ID}
                   onSavingChange={setSaving}
                   onSaved={(message, updated) => {
-                    setState({ status: "ready", product: updated, categories });
+                    setState({ status: "ready", product: updated });
                     setNotice(message);
                   }}
                 />
