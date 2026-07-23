@@ -3543,3 +3543,29 @@ event'i internal (eventId null) yazılır (unique çakışması önlenir). Webho
 status` taşıyorsa attempt tenant + provider tutarlılığı doğrulanıp geçiş uygulanır.
 
 **Sonuç.** Sırasız/tekrarlı webhook siparişi bozmaz; PAID geri alınmaz.
+
+## ADR-101 — Manual Shipment Status & Fulfillment: operatör elle durum ilerletme (TODO-162)
+
+**Bağlam.** Entegre kargo süreci DIŞINDA yönetilen gönderilerde (manuel takip no ile ilerleyen,
+sağlayıcı sync/webhook'u tetiklenmeyen) gönderi asla `DELIVERED` olamıyordu: teslim durumu yalnız
+sağlayıcı kanıtından (DHL kod 5, "TESLIM EDILDI" metni) üretiliyordu. Ayrıca `order.fulfillmentStatus`
+kargo durumundan beslenmiyor (yalnız iptalde `CANCELLED`), dolayısıyla sipariş "teslim edildi/tamamlandı"
+olarak işaretlenemiyordu. Operasyonel gerçek: bir operatör siparişi uçtan uca manuel ilerletebilmeli.
+
+**Karar.** Operatörün gönderiyi elle ileri operasyonel durumlara taşıdığı bir aksiyon eklendi
+(`POST /stores/:storeId/shipping/shipments/:shipmentId/status`). Kurallar SAF `evaluateManualStatusChange`
+modülünde (status-map.ts):
+- İzinli hedefler: `IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, DELIVERY_FAILED, RETURNED`
+  (hazırlık durumları ve CANCELLED/FAILED ayrı aksiyonlarda; INVALID_TARGET).
+- MONOTONIC: hedef rank >= mevcut rank (geri gidiş YOK → STATUS_REGRESSION). Terminal gönderi
+  değiştirilemez (SHIPMENT_TERMINAL). Aynı durum NO_CHANGE.
+- **Her gönderide** operatör override (entegre veya manuel); sağlayıcıya ÇAĞRI YOK. Terminal hedef
+  sonrası sağlayıcı sync bunu EZMEZ (`mapProviderStatusToShipmentStatus` terminal-kilit) → çakışma yok.
+- `DELIVERED` işaretlenince **sipariş de tamamlanır**: `order.fulfillmentStatus=FULFILLED` +
+  `order.status=FULFILLED` (iptal edilmiş sipariş KORUNUR) + `OrderEvent(ORDER_FULFILLED)`.
+- Her değişiklik `ShipmentEvent(MANUAL_STATUS)` (yeni enum değeri) + `AuditLog` (kim/nereden/from→to).
+
+**Sonuç.** Entegre süreç dışı kargolar uçtan uca manuel yönetilebilir; teslim işaretleme siparişi
+tamamlar. İstemci ön-filtre yalnız ileri hedefleri gösterir; sunucu monotonic + terminal-kilit NİHAİ
+otoritedir. Migration `20260723180000_add_manual_shipment_status` (ADDITIVE — `ShipmentEventType`
++MANUAL_STATUS).

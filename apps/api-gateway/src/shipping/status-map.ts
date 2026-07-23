@@ -83,6 +83,58 @@ export const TERMINAL_SHIPMENT_STATUSES: ShipmentStatus[] = [
   "FAILED",
 ];
 
+// TODO-162 (ADR-101) — Entegre kargo süreci DIŞINDA yönetilen gönderiler için operatörün
+// elle taşıyabileceği ileri operasyonel durumlar. IN_TRANSIT zaten manuel-takip ile ayrıca
+// atanabilir; burada teslim akışı tamamlanır. DRAFT/ORDER_CREATED/LABEL_* geriye HEDEF olamaz
+// (hazırlık durumları saklama akışıyla yönetilir); CANCELLED/FAILED ayrı iptal aksiyonlarındadır.
+export const MANUAL_SHIPMENT_STATUS_TARGETS: ShipmentStatus[] = [
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "DELIVERY_FAILED",
+  "RETURNED",
+];
+
+export type ManualStatusRejection =
+  | "INVALID_TARGET"
+  | "SHIPMENT_TERMINAL"
+  | "STATUS_REGRESSION"
+  | "NO_CHANGE";
+
+/**
+ * TODO-162 (ADR-101) — Operatörün gönderiyi elle bir hedef duruma taşıyıp taşıyamayacağını
+ * belirleyen SAF kural (sağlayıcıya çağrı YOK). Kurallar:
+ *  - Hedef, izinli manuel hedeflerden biri olmalı (INVALID_TARGET).
+ *  - Mevcut durum terminal ise (DELIVERED/RETURNED/CANCELLED/FAILED) değiştirilemez (SHIPMENT_TERMINAL).
+ *  - MONOTONIC: hedef rank >= mevcut rank olmalı (geri gidiş YOK → STATUS_REGRESSION). Terminal
+ *    hedefler (DELIVERED/RETURNED) en yüksek rank olduğundan her ileri konumdan erişilebilir.
+ *  - Aynı duruma geçiş anlamsız (NO_CHANGE).
+ * Terminal hedef sonrası sağlayıcı sync bu durumu EZMEZ (mapProviderStatusToShipmentStatus terminal-kilit).
+ */
+export function evaluateManualStatusChange(
+  current: ShipmentStatus,
+  target: ShipmentStatus,
+): { ok: true } | { ok: false; reason: ManualStatusRejection } {
+  if (!MANUAL_SHIPMENT_STATUS_TARGETS.includes(target)) {
+    return { ok: false, reason: "INVALID_TARGET" };
+  }
+  if (current === target) {
+    return { ok: false, reason: "NO_CHANGE" };
+  }
+  if (TERMINAL_SHIPMENT_STATUSES.includes(current)) {
+    return { ok: false, reason: "SHIPMENT_TERMINAL" };
+  }
+  if (SHIPMENT_STATUS_RANK[target] < SHIPMENT_STATUS_RANK[current]) {
+    return { ok: false, reason: "STATUS_REGRESSION" };
+  }
+  return { ok: true };
+}
+
+/** Bir gönderi durumu operatör tarafından hâlâ elle ilerletilebilir mi? (terminal değilse). */
+export function canManuallyAdvance(current: ShipmentStatus): boolean {
+  return !TERMINAL_SHIPMENT_STATUSES.includes(current);
+}
+
 // TODO-100 — toplu sync'e giren durumlar: terminal olmayan + saglayicida karsiligi
 // olan gonderiler. DRAFT haric (henuz provider order'i yok → sync anlamsiz).
 export const SYNCABLE_SHIPMENT_STATUSES: ShipmentStatus[] = [

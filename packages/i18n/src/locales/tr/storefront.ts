@@ -1084,6 +1084,7 @@ export const trStorefront = {
             STATUS_CHANGED: "Durum güncellendi",
             TRACKING_UPDATED: "Takip bilgisi güncellendi",
             MANUAL_TRACKING: "Takip numarası eklendi",
+            MANUAL_STATUS: "Durum güncellendi",
             CANCELLED: "Gönderi iptal edildi",
             WEBHOOK_RECEIVED: "Kargo bildirimi alındı",
           },

@@ -302,6 +302,14 @@
 - Ertelenen sınırlar (borç): TD-110 (SMTP teslimatı — dispatcher no-op), TD-111 (gerçek provider canlı
   tahsilat + webhook HMAC), TD-112 (kısmi capture desteklenmiyor).
 
+## Operations — Manual Shipment Status & Fulfillment (TODO-162 · ADR-101) — TAMAMLANDI
+
+- Sorun: Entegre kargo süreci DIŞINDA yönetilen gönderiler `DELIVERED` olamıyor, sipariş "teslim
+  edildi" işaretlenemiyordu (fulfillmentStatus kargo durumundan beslenmiyordu).
+- Kapsam: Operatör manuel durum ilerletme (`shipments/:id/status`); saf monotonic + terminal-kilit;
+  DELIVERED → sipariş FULFILLED; ShipmentEvent MANUAL_STATUS + AuditLog. Migration 20260723180000.
+- Karar: ADR-101. Her gönderide operatör override; sağlayıcı sync terminal manuel durumu ezmez.
+
 ## Growth & Monetization — Faz Sıralaması ve Ortak Ölçüm Altyapısı
 
 - Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise

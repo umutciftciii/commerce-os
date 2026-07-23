@@ -172,6 +172,7 @@ import type {
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
   ShipmentManualTrackingRequest,
+  ShipmentStatusUpdateRequest,
   // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
   ShippingCbsCitiesResponse,
   ShippingCbsDistrictsRequest,
@@ -706,6 +707,7 @@ export type {
   ShipmentDetail,
   ShipmentDetailResponse,
   ShipmentManualTrackingRequest,
+  ShipmentStatusUpdateRequest,
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
   // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
@@ -1808,6 +1810,13 @@ export interface ApiClient {
         storeId: string,
         shipmentId: string,
         input: ShipmentManualTrackingRequest,
+        token?: string,
+      ): Promise<ShippingShipmentMutationResponse>;
+      // TODO-162 — operatör manuel durum ilerletme (entegre süreç dışı teslim akışı).
+      manualStatus(
+        storeId: string,
+        shipmentId: string,
+        input: ShipmentStatusUpdateRequest,
         token?: string,
       ): Promise<ShippingShipmentMutationResponse>;
       // TODO-124 — varis il/ilce eslemesi onarimi (CBS-dogrulamali kod secimi).
@@ -3065,6 +3074,14 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         manualTracking: (storeId, shipmentId, input, token) =>
           sendJson<ShippingShipmentMutationResponse>(
             `/stores/${storeId}/shipping/shipments/${shipmentId}/manual-tracking`,
+            "POST",
+            input,
+            token,
+          ),
+        // TODO-162 — operatör manuel durum ilerletme.
+        manualStatus: (storeId, shipmentId, input, token) =>
+          sendJson<ShippingShipmentMutationResponse>(
+            `/stores/${storeId}/shipping/shipments/${shipmentId}/status`,
             "POST",
             input,
             token,

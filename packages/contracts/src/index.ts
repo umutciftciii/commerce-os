@@ -4914,6 +4914,8 @@ export const customerOrderShipmentEventSchema = z.object({
     "STATUS_CHANGED",
     "TRACKING_UPDATED",
     "MANUAL_TRACKING",
+    // TODO-162 (ADR-101) — operatör manuel durum ilerletmesi.
+    "MANUAL_STATUS",
     "CANCELLED",
     "WEBHOOK_RECEIVED",
   ]),
@@ -5509,6 +5511,8 @@ export const shipmentEventTypeSchema = z.enum([
   "MANUAL_TRACKING",
   // TODO-124 — admin varis il/ilce eslemesi duzeltmesi (CBS kodlari snapshot'a yazildi).
   "DESTINATION_REPAIRED",
+  // TODO-162 (ADR-101) — operatör manuel durum ilerletmesi (entegre süreç dışı teslim akışı).
+  "MANUAL_STATUS",
   "CANCELLED",
   "WEBHOOK_RECEIVED",
 ]);
@@ -5824,6 +5828,24 @@ export const shipmentManualTrackingRequestSchema = z.object({
   trackingNumber: z.string().trim().min(1).max(120),
   trackingUrl: z.string().trim().url().max(2000).optional(),
 });
+
+// TODO-162 (ADR-101) — Operatörün elle taşıyabileceği kargo hedef durumları (entegre
+// süreç dışı teslim akışı). Sunucu ayrıca monotonic + terminal-kilit doğrular.
+export const manualShipmentStatusTargetSchema = z.enum([
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "DELIVERY_FAILED",
+  "RETURNED",
+]);
+export type ManualShipmentStatusTarget = z.infer<typeof manualShipmentStatusTargetSchema>;
+
+/** Manuel kargo durumu güncelleme body'si. Not opsiyonel (timeline'a yazılır). */
+export const shipmentStatusUpdateRequestSchema = z.object({
+  status: manualShipmentStatusTargetSchema,
+  note: z.string().trim().max(500).optional(),
+});
+export type ShipmentStatusUpdateRequest = z.infer<typeof shipmentStatusUpdateRequestSchema>;
 
 /** create-label (barkod/etiket) generic aksiyon body'si. */
 export const shipmentCreateLabelRequestSchema = z.object({

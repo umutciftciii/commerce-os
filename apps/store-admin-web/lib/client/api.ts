@@ -148,6 +148,7 @@ import type {
   ShipmentCreateLabelRequest,
   ShipmentCancelRequest,
   ShipmentManualTrackingRequest,
+  ShipmentStatusUpdateRequest,
   // TODO-124 — CBS il/ilce listeleri + varis eslemesi onarimi.
   ShippingCbsCitiesResponse,
   ShippingCbsDistrictsResponse,
@@ -897,6 +898,12 @@ export const storeApi = {
     }),
   setShipmentManualTracking: (shipmentId: string, input: ShipmentManualTrackingRequest) =>
     mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/manual-tracking`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  // TODO-162 — operatör manuel kargo durumu ilerletme (entegre süreç dışı teslim akışı).
+  setShipmentStatus: (shipmentId: string, input: ShipmentStatusUpdateRequest) =>
+    mutatingCall<ShippingShipmentMutationResponse>(`/api/shipping/shipments/${shipmentId}/status`, {
       method: "POST",
       body: JSON.stringify(input),
     }),
