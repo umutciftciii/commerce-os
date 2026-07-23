@@ -497,14 +497,26 @@ describe("store-admin BFF — dashboard summary", () => {
       data: [{ id: "c1" }],
       pagination: { limit: 50, offset: 0, total: 1 },
     });
-    // TODO-152A — Dashboard KPI artık Inventory Engine mağaza-geneli matrisinden (LOW_STOCK durumu
-    // = tek authority reorderPoint) türetilir; legacy lowStockThreshold okuması kaldırıldı.
+    // TODO-152A/159C — Dashboard KPI artık matrisin SAYFADAN BAĞIMSIZ `summary`'sinden türetilir
+    // (LOW_STOCK durumu = tek authority reorderPoint; legacy lowStockThreshold kaldırıldı). Satırlar
+    // (pageSize=1) değil summary okunur → toplamlar tüm mağazayı yansıtır (ilk sayfa değil).
     apiClient.admin.inventory.storeMatrix.mockResolvedValue({
       warehouse: { id: "wh1", code: "DEFAULT", name: "Ana Depo", status: "ACTIVE", isDefault: true, priority: 0 },
-      rows: [
-        { current: { onHand: 10, reserved: 8, incoming: 0, safetyStock: 0, reorderPoint: 5 }, currentCalc: { rawAvailable: 2, sellableAvailable: 2, reservedRatioPct: 80, status: "LOW_STOCK" } },
-        { current: { onHand: 4, reserved: 0, incoming: 0, safetyStock: 0, reorderPoint: 0 }, currentCalc: { rawAvailable: 4, sellableAvailable: 4, reservedRatioPct: 0, status: "IN_STOCK" } },
-      ],
+      rows: [],
+      pagination: { limit: 1, offset: 0, total: 2, page: 1, pageSize: 1, totalItems: 2, totalPages: 2 },
+      summary: {
+        totalVariants: 2,
+        totalOnHand: 14,
+        totalReserved: 8,
+        totalSellable: 6,
+        totalIncoming: 0,
+        inStock: 1,
+        lowStock: 1,
+        outOfStock: 0,
+        incoming: 0,
+        negative: 0,
+        noBalance: 0,
+      },
     });
     const { GET } = await import("../app/api/dashboard/summary/route.js");
     const response = await GET(request("/api/dashboard/summary", { headers: { cookie: SESSION } }));

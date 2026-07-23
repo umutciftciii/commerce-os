@@ -30,6 +30,20 @@ export const CATEGORY_LIST_KEYS = [...COMMON_KEYS, "status"];
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
+ * TODO-159C (ADR-092) — Envanter matrisi liste anahtarları. `warehouseId` matrisin
+ * BAKILAN deposunu seçer; `stockStatus`/`reserved`/`variantStatus`/`productStatus`
+ * sunucu-otoriter filtrelerdir. Doğrulama gateway contract şemasındadır.
+ */
+export const INVENTORY_MATRIX_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "warehouseId",
+  "stockStatus",
+  "reserved",
+  "variantStatus",
+  "productStatus",
+];
+
+/**
  * TODO-159B (ADR-090) — Seçici uçlarının ortak anahtarları. `ids` CSV'dir ve
  * verildiğinde uç "seçili kaydı çöz" moduna geçer (bkz. ADR-090); BFF yalnız
  * taşır, anlamlandırma gateway'dedir.

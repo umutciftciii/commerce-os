@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminInventoryMatrixListQuerySchema,
+  inventoryStoreMatrixResponseSchema,
+  inventoryStoreMatrixSummarySchema,
   inventoryAdjustRequestSchema,
   orderCreateRequestSchema,
   orderSchema,
@@ -798,5 +801,102 @@ describe("hero slide contracts", () => {
     ).toBe("c1");
     // update: null ile temizleme kabul edilir.
     expect(productUpdateRequestSchema.parse({ primaryCategoryId: null }).primaryCategoryId).toBeNull();
+  });
+});
+
+// TODO-159C (ADR-092) — Inventory Matrix server-side liste sözleşmesi.
+describe("inventory matrix list contract (TODO-159C)", () => {
+  it("coerces page/pageSize and enforces the server pageSize ceiling", () => {
+    const parsed = adminInventoryMatrixListQuerySchema.parse({ page: "2", pageSize: "50" });
+    expect(parsed.page).toBe(2);
+    expect(parsed.pageSize).toBe(50);
+    // pageSize tavanı (100) aşılamaz → parse hatası.
+    expect(() => adminInventoryMatrixListQuerySchema.parse({ pageSize: "250" })).toThrow();
+  });
+
+  it("restricts sortBy to the allowlist (free text rejected)", () => {
+    expect(adminInventoryMatrixListQuerySchema.parse({ sortBy: "available" }).sortBy).toBe("available");
+    expect(() =>
+      adminInventoryMatrixListQuerySchema.parse({ sortBy: "onHand); DROP TABLE" }),
+    ).toThrow();
+  });
+
+  it("accepts real filters and rejects invalid enum values", () => {
+    const parsed = adminInventoryMatrixListQuerySchema.parse({
+      warehouseId: "wh1",
+      stockStatus: "LOW_STOCK",
+      reserved: "yes",
+      variantStatus: "ACTIVE",
+      productStatus: "DRAFT",
+      search: "SKU-123",
+    });
+    expect(parsed).toMatchObject({
+      warehouseId: "wh1",
+      stockStatus: "LOW_STOCK",
+      reserved: "yes",
+      variantStatus: "ACTIVE",
+      productStatus: "DRAFT",
+      search: "SKU-123",
+    });
+    expect(() => adminInventoryMatrixListQuerySchema.parse({ stockStatus: "MADE_UP" })).toThrow();
+    expect(() => adminInventoryMatrixListQuerySchema.parse({ reserved: "maybe" })).toThrow();
+  });
+
+  it("response carries warehouse + rows + pagination meta + page-independent summary", () => {
+    const parsed = inventoryStoreMatrixResponseSchema.parse({
+      warehouse: { id: "wh1", code: "DEFAULT", name: "Ana Depo", status: "ACTIVE", isDefault: true, priority: 0 },
+      rows: [
+        {
+          productId: "p1",
+          productTitle: "Kapüşonlu",
+          productSlug: "kapusonlu",
+          variantId: "v1",
+          sku: "SWT-1",
+          barcode: null,
+          title: "Siyah / M",
+          status: "ACTIVE",
+          attributes: [{ code: "color", label: "Siyah" }],
+          balanceExists: true,
+          current: { onHand: 10, reserved: 2, incoming: 0, safetyStock: 1, reorderPoint: 5 },
+          currentCalc: { rawAvailable: 7, sellableAvailable: 7, reservedRatioPct: 20, status: "IN_STOCK" },
+          updatedAt: "2026-07-23T00:00:00.000Z",
+        },
+      ],
+      pagination: { limit: 25, offset: 0, total: 1, page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+      summary: {
+        totalVariants: 1,
+        totalOnHand: 10,
+        totalReserved: 2,
+        totalSellable: 7,
+        totalIncoming: 0,
+        inStock: 1,
+        lowStock: 0,
+        outOfStock: 0,
+        incoming: 0,
+        negative: 0,
+        noBalance: 0,
+      },
+    });
+    expect(parsed.pagination.totalItems).toBe(1);
+    expect(parsed.summary.totalVariants).toBe(1);
+    expect(parsed.rows[0].barcode).toBeNull();
+  });
+
+  it("summary counts + totals are integers", () => {
+    expect(() =>
+      inventoryStoreMatrixSummarySchema.parse({
+        totalVariants: 1.5,
+        totalOnHand: 0,
+        totalReserved: 0,
+        totalSellable: 0,
+        totalIncoming: 0,
+        inStock: 0,
+        lowStock: 0,
+        outOfStock: 0,
+        incoming: 0,
+        negative: 0,
+        noBalance: 0,
+      }),
+    ).toThrow();
   });
 });

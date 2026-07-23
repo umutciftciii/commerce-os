@@ -1521,6 +1521,39 @@ export const trStoreAdmin = {
       NEGATIVE: "Negatif",
       NO_BALANCE: "Kayıt yok",
     },
+    // TODO-159C (ADR-092) — sunucu-otoriter liste: arama/filtre/sıralama etiketleri.
+    statusLabels: {
+      DRAFT: "Taslak",
+      ACTIVE: "Aktif",
+      ARCHIVED: "Arşivlenmiş",
+    },
+    grid: {
+      searchPlaceholder: "Ürün, varyant, SKU veya barkod ara…",
+      filters: {
+        stockStatus: "Stok durumu",
+        reserved: "Rezerve",
+        variantStatus: "Varyant durumu",
+        productStatus: "Ürün durumu",
+      },
+      reservedLabels: {
+        yes: "Rezerve var",
+        no: "Rezerve yok",
+      },
+      sort: {
+        productAsc: "Ürün A–Z",
+        productDesc: "Ürün Z–A",
+        skuAsc: "SKU A–Z",
+        skuDesc: "SKU Z–A",
+        onHandDesc: "Elde (çok→az)",
+        onHandAsc: "Elde (az→çok)",
+        reservedDesc: "Rezerve (çok→az)",
+        reservedAsc: "Rezerve (az→çok)",
+        availableDesc: "Satılabilir (çok→az)",
+        availableAsc: "Satılabilir (az→çok)",
+        updatedNewest: "Güncelleme (yeni)",
+        updatedOldest: "Güncelleme (eski)",
+      },
+    },
     col: {
       product: "Ürün",
       variant: "Varyant",

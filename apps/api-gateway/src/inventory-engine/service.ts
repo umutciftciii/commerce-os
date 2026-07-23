@@ -31,6 +31,8 @@ import { computeCalc } from "./calculator.js";
 import type {
   InventoryAuditRow,
   InventoryDataAccess,
+  InventoryStoreMatrixCriteria,
+  InventoryStoreMatrixSummaryData,
   InventoryStoreVariantRow,
   InventoryTxContext,
   InventoryVariantRow,
@@ -124,17 +126,30 @@ export interface InventoryStoreMatrixRowView {
   productSlug: string;
   variantId: string;
   sku: string;
+  barcode: string | null;
   title: string;
   status: VariantStatus;
   attributes: { code: string; label: string }[];
   balanceExists: boolean;
   current: InventoryState;
   currentCalc: InventoryCalc;
+  updatedAt: string;
+}
+
+/** TODO-159C — Sunucu-otoriter matris girdi (kriter route'ta resolve edilir). */
+export interface InventoryStoreMatrixInput {
+  storeId: string;
+  warehouseId?: string;
+  criteria: InventoryStoreMatrixCriteria;
 }
 
 export interface InventoryStoreMatrixResult {
   warehouse: InventoryWarehouseView;
   rows: InventoryStoreMatrixRowView[];
+  /** Filtreli kümenin toplam satır sayısı (pagination.totalItems). */
+  total: number;
+  /** Sayfadan bağımsız özet (aktif filtreye uyan tüm küme). */
+  summary: InventoryStoreMatrixSummaryData;
 }
 
 export type PreviewResult =
@@ -154,8 +169,11 @@ export interface InventoryService {
   listWarehouses(storeId: string): Promise<WarehouseListResult>;
   /** Matris okuma (kural/edit yok → current==target, changed=false). */
   matrix(input: InventoryMatrixInput): Promise<PreviewResult>;
-  /** TODO-152A — Mağaza-geneli SALT-OKUMA matris (izleme merkezi; tüm ürünler, seçili depo). */
-  storeMatrix(input: { storeId: string; warehouseId?: string }): Promise<StoreMatrixResult>;
+  /**
+   * TODO-152A — Mağaza-geneli SALT-OKUMA matris (izleme merkezi; seçili depo).
+   * TODO-159C (ADR-092) — sunucu-otoriter: kritere göre filtreli/sıralı bir sayfa + toplam + özet.
+   */
+  storeMatrix(input: InventoryStoreMatrixInput): Promise<StoreMatrixResult>;
   preview(input: InventoryPreviewInput): Promise<PreviewResult>;
   apply(input: InventoryApplyInput): Promise<ApplyResult>;
 }
@@ -318,27 +336,39 @@ export function createInventoryService(
       return dataAccess.read((ctx) => computePreview(ctx, storeId, productId, wh.warehouse, { selectedVariantIds }));
     },
 
-    // TODO-152A — Mağaza-geneli izleme okuması. Motor SAF hesaplarını (computeCalc) satır-bazlı uygular;
-    // düzenleme/preview/apply YOK (ADR-076 ürün-bazlı yazma korunur). Depo yoksa/verilen depo geçersizse
-    // stabil hata döner (product-scoped uçlarla aynı davranış).
-    storeMatrix: async ({ storeId, warehouseId }) => {
+    // TODO-152A/159C — Mağaza-geneli izleme okuması (SUNUCU-OTORİTER). Filtre/sıralama/sayfalama
+    // veri erişiminde (raw SQL); motor burada satır-bazlı SAF göstergeleri (computeCalc) uygular —
+    // gösterilen currentCalc'ın TEK formül otoritesi budur (SQL türetmesi yalnız filtre/sıralama/
+    // özet içindir, parite testli). Düzenleme/preview/apply YOK (ADR-076 ürün-bazlı yazma korunur).
+    // Depo yoksa/verilen depo geçersizse stabil hata döner (product-scoped uçlarla aynı davranış).
+    storeMatrix: async ({ storeId, warehouseId, criteria }) => {
       const wh = await resolveWarehouse(storeId, warehouseId);
       if (!wh.ok) return { ok: false, error: wh.error };
-      const rows = await dataAccess.listStoreVariants(storeId, wh.warehouse);
-      const view: InventoryStoreMatrixRowView[] = rows.map((r: InventoryStoreVariantRow) => ({
+      const page = await dataAccess.listStoreVariants(storeId, wh.warehouse, criteria);
+      const view: InventoryStoreMatrixRowView[] = page.rows.map((r: InventoryStoreVariantRow) => ({
         productId: r.productId,
         productTitle: r.productTitle,
         productSlug: r.productSlug,
         variantId: r.variantId,
         sku: r.sku,
+        barcode: r.barcode,
         title: r.title,
         status: r.status,
         attributes: r.attributes,
         balanceExists: r.balanceExists,
         current: r.current,
         currentCalc: computeCalc(r.current, r.balanceExists),
+        updatedAt: r.updatedAt,
       }));
-      return { ok: true, result: { warehouse: toWarehouseView(wh.warehouse), rows: view } };
+      return {
+        ok: true,
+        result: {
+          warehouse: toWarehouseView(wh.warehouse),
+          rows: view,
+          total: page.total,
+          summary: page.summary,
+        },
+      };
     },
 
     preview: async ({ storeId, productId, warehouseId, ...rest }) => {

@@ -1513,6 +1513,39 @@ export const enStoreAdmin: StoreAdminDictionary = {
       NEGATIVE: "Negative",
       NO_BALANCE: "No record",
     },
+    // TODO-159C (ADR-092) — server-authoritative list: search/filter/sort labels.
+    statusLabels: {
+      DRAFT: "Draft",
+      ACTIVE: "Active",
+      ARCHIVED: "Archived",
+    },
+    grid: {
+      searchPlaceholder: "Search product, variant, SKU or barcode…",
+      filters: {
+        stockStatus: "Stock status",
+        reserved: "Reserved",
+        variantStatus: "Variant status",
+        productStatus: "Product status",
+      },
+      reservedLabels: {
+        yes: "Has reserved",
+        no: "No reserved",
+      },
+      sort: {
+        productAsc: "Product A–Z",
+        productDesc: "Product Z–A",
+        skuAsc: "SKU A–Z",
+        skuDesc: "SKU Z–A",
+        onHandDesc: "On hand (high→low)",
+        onHandAsc: "On hand (low→high)",
+        reservedDesc: "Reserved (high→low)",
+        reservedAsc: "Reserved (low→high)",
+        availableDesc: "Sellable (high→low)",
+        availableAsc: "Sellable (low→high)",
+        updatedNewest: "Updated (newest)",
+        updatedOldest: "Updated (oldest)",
+      },
+    },
     col: {
       product: "Product",
       variant: "Variant",

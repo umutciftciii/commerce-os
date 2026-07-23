@@ -1,147 +1,234 @@
 "use client";
 
 // TODO-152A — GLOBAL STOK: mağaza-geneli izleme & operasyon merkezi.
+// TODO-159C (ADR-092) — SUNUCU-OTORİTER liste. Eski davranış: tüm mağaza matrisi (enterprise-demo:
+// 2.202 varyant) TEK yanıtta gelir, arama/durum filtresi istemcide yapılır, KPI'lar tüm dataset'ten
+// hesaplanırdı. Yeni davranış: arama/filtre/sıralama/sayfalama SUNUCUDA (ADR-089 Data Grid); durumun
+// tamamı URL'de yaşar; KPI'lar sunucunun sayfadan BAĞIMSIZ `summary`'sinden gelir. İstemcide
+// slice/filter/sort YAPILMAZ.
 //
-// Eski legacy liste + "Stok düzelt" modalı KALDIRILDI. Bu ekran Inventory Engine'in mağaza-geneli
-// SALT-OKUMA matrisini (tüm ürünler × seçili depo) gösterir; durum/satılabilir SAF motordan gelir →
-// Product Detail > Stok sekmesiyle BİREBİR aynı semantik + aynı paylaşılan componentler (./products/
-// inventory/shared). Düzenleme (Quick Edit / Bulk / Preview / Apply) ADR-076 gereği ürün-bazlı kalır:
-// her satır o ürünün Stok sekmesine tek-tık geçer. Ek olarak güvenli tek-satır hızlı işlemler (+/−/
-// sıfırla) mevcut ürün-bazlı preview→apply uçlarını kullanır (yeni fan-out yazma motoru YOK).
+// Düzenleme (Quick Edit / Bulk / Preview / Apply) ADR-076 gereği ürün-bazlı kalır: her satır o ürünün
+// Stok sekmesine tek-tık geçer. Güvenli tek-satır hızlı işlemler (+/−/sıfırla) mevcut ürün-bazlı
+// preview→apply uçlarını kullanır (yeni fan-out yazma motoru YOK).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getDictionary } from "@commerce-os/i18n";
+import { format, getDictionary } from "@commerce-os/i18n";
 import type {
-  InventoryStockStatus,
   InventoryStoreMatrixRow,
+  InventoryStoreMatrixSummary,
   InventoryWarehouse,
+  AdminListPagination,
 } from "@commerce-os/api-client";
-import { Alert, Button, Input, PageHeader, useLocale } from "../../../components/ui";
+import { Alert, Button, PageHeader, SkeletonRows, useLocale } from "../../../components/ui";
+import {
+  DataGrid,
+  DataGridPagination,
+  DataGridToolbar,
+  useDataGridQuery,
+  type DataGridColumn,
+  type DataGridFilterDef,
+  type DataGridSortOption,
+} from "../../../components/data-grid";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { pw, PRICING_ROOT } from "../products/pricing/pricing-tokens";
-import {
-  fmt,
-  Kpi,
-  StatusBadge,
-  WarehouseSelector,
-} from "../products/inventory/shared";
+import { fmt, Kpi, StatusBadge, WarehouseSelector } from "../products/inventory/shared";
 
 /** Tek-satır hızlı işlem adımı (onHand +/−). Sıfırla = SET_ABSOLUTE 0. */
 const QUICK_STEP = 10;
 
-type StatusFilter = "ALL" | InventoryStockStatus;
-const FILTER_ORDER: StatusFilter[] = [
-  "ALL",
-  "IN_STOCK",
-  "LOW_STOCK",
-  "OUT_OF_STOCK",
-  "INCOMING",
-  "NEGATIVE",
-  "NO_BALANCE",
-];
+// URL'deki `sortBy`/`sortOrder` çiftinin araç çubuğundaki bileşik değeri (allowlist).
+const SORT_VALUES = [
+  "productTitle:asc",
+  "productTitle:desc",
+  "sku:asc",
+  "sku:desc",
+  "onHand:desc",
+  "onHand:asc",
+  "reserved:desc",
+  "reserved:asc",
+  "available:desc",
+  "available:asc",
+  "updatedAt:desc",
+  "updatedAt:asc",
+] as const;
+
+// warehouseId liste durumunun parçasıdır (URL'de yaşar, değişince page 1'e döner); WarehouseSelector
+// ile sunulur (araç çubuğu filtre çipi olarak DEĞİL). Diğerleri gerçek sunucu-taraflı filtrelerdir.
+const FILTER_KEYS = [
+  "warehouseId",
+  "stockStatus",
+  "reserved",
+  "variantStatus",
+  "productStatus",
+] as const;
+
+type InventoryFilters = Record<(typeof FILTER_KEYS)[number], string>;
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready" };
+  | {
+      status: "ready";
+      rows: InventoryStoreMatrixRow[];
+      warehouse: InventoryWarehouse;
+      pagination: AdminListPagination;
+      summary: InventoryStoreMatrixSummary;
+    };
 
 export default function InventoryPage() {
+  // useSearchParams (Data Grid URL state) Suspense sınırı ister.
+  return (
+    <Suspense fallback={<SkeletonRows rows={5} />}>
+      <InventoryView />
+    </Suspense>
+  );
+}
+
+function InventoryView() {
   const locale = useLocale();
   const dict = getDictionary(locale);
   const t = dict.storeAdmin.inventory;
   const c = dict.common;
+  const g = dict.storeAdmin.dataGrid;
+
+  const grid = useDataGridQuery<InventoryFilters>({
+    basePath: "/inventory",
+    sortOptions: ["productTitle", "sku", "onHand", "reserved", "available", "updatedAt"],
+    defaultSortBy: "productTitle",
+    defaultSortOrder: "asc",
+    filterKeys: FILTER_KEYS,
+  });
 
   const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([]);
-  const [warehouse, setWarehouse] = useState<InventoryWarehouse | null>(null);
-  const [rows, setRows] = useState<InventoryStoreMatrixRow[]>([]);
   const [state, setState] = useState<LoadState>({ status: "loading" });
-
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<StatusFilter>("ALL");
 
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actingVariantId, setActingVariantId] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<InventoryStoreMatrixRow | null>(null);
 
-  const load = useCallback(
-    async (targetWarehouseId?: string) => {
-      setState({ status: "loading" });
-      setError(null);
-      try {
-        const [whList, matrix] = await Promise.all([
-          warehouses.length === 0
-            ? storeApi.listWarehouses()
-            : Promise.resolve({ data: warehouses }),
-          storeApi.getStoreInventoryMatrix(targetWarehouseId),
-        ]);
-        if (whList.data.length > 0 && warehouses.length === 0) setWarehouses(whList.data);
-        setRows(matrix.rows);
-        setWarehouse(matrix.warehouse);
-        setState({ status: "ready" });
-      } catch (err) {
-        setState({ status: "error", message: messageForError(err, locale) });
-      }
-    },
-    [locale, warehouses],
+  // Aynı URL durumunda gereksiz istek tekrarını önlemek için serileştirilmiş anahtar.
+  const requestKey = JSON.stringify(grid.toRequestQuery());
+  const requestQuery = useMemo(
+    () => JSON.parse(requestKey) as Record<string, string | number>,
+    [requestKey],
   );
 
-  // İlk yükleme yalnız bir kez; depo değişimi ayrı switchWarehouse ile yönetilir. `load` bilinçli
-  // olarak bağımlılık dışı (warehouses referansı değiştikçe yeniden tetiklenmesin — ilk-yükleme tek sefer).
-  const loadRef = useRef(load);
-  loadRef.current = load;
+  const load = useCallback(async () => {
+    setState({ status: "loading" });
+    setError(null);
+    try {
+      const matrix = await storeApi.getStoreInventoryMatrix(requestQuery);
+      setState({
+        status: "ready",
+        rows: matrix.rows,
+        warehouse: matrix.warehouse,
+        pagination: matrix.pagination,
+        summary: matrix.summary,
+      });
+    } catch (err) {
+      setState({ status: "error", message: messageForError(err, locale) });
+    }
+  }, [locale, requestQuery]);
+
   useEffect(() => {
-    void loadRef.current();
+    void load();
+  }, [load]);
+
+  // Depo listesi bir kez yüklenir (selector kaynağı); liste sorgusundan bağımsız.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const whList = await storeApi.listWarehouses();
+        setWarehouses(whList.data);
+      } catch {
+        // Depo listesi yüklenemezse matris yine çalışır (aktif depo response'tan gelir).
+      }
+    })();
   }, []);
 
-  const switchWarehouse = (id: string) => {
-    if (id === warehouse?.id) return;
-    void load(id);
+  const warehouse = state.status === "ready" ? state.warehouse : null;
+  const warehouseInactive = warehouse?.status === "INACTIVE";
+  const summary = state.status === "ready" ? state.summary : null;
+  const pagination = state.status === "ready" ? state.pagination : null;
+
+  // Depo seçimi liste durumunun parçasıdır: varsayılan depo seçilince URL temiz kalsın diye "" yazılır
+  // (sunucu default'u çözer), aksi halde id. Değişim page'i 1'e döndürür (setFilter içinde).
+  const onSelectWarehouse = (id: string) => {
+    const picked = warehouses.find((w) => w.id === id);
+    grid.setFilter("warehouseId", picked?.isDefault ? "" : id);
   };
 
-  /* ── KPI (seçili depo genelinde) ── */
-  const kpi = useMemo(() => {
-    let onHand = 0;
-    let reserved = 0;
-    let sellable = 0;
-    let incoming = 0;
-    let low = 0;
-    let out = 0;
-    for (const r of rows) {
-      onHand += r.current.onHand;
-      reserved += r.current.reserved;
-      sellable += r.currentCalc.sellableAvailable;
-      incoming += r.current.incoming;
-      if (r.currentCalc.status === "LOW_STOCK") low++;
-      if (
-        r.currentCalc.status === "OUT_OF_STOCK" ||
-        r.currentCalc.status === "INCOMING" ||
-        r.currentCalc.status === "NEGATIVE"
-      ) {
-        out++;
-      }
-    }
-    return { onHand, reserved, sellable, incoming, low, out };
-  }, [rows]);
+  const filters: DataGridFilterDef[] = useMemo(
+    () => [
+      {
+        kind: "select",
+        key: "stockStatus",
+        label: t.grid.filters.stockStatus,
+        options: [
+          { value: "IN_STOCK", label: t.stockStatus.IN_STOCK },
+          { value: "LOW_STOCK", label: t.stockStatus.LOW_STOCK },
+          { value: "OUT_OF_STOCK", label: t.stockStatus.OUT_OF_STOCK },
+          { value: "INCOMING", label: t.stockStatus.INCOMING },
+          { value: "NEGATIVE", label: t.stockStatus.NEGATIVE },
+          { value: "NO_BALANCE", label: t.stockStatus.NO_BALANCE },
+        ],
+      },
+      {
+        kind: "select",
+        key: "reserved",
+        label: t.grid.filters.reserved,
+        options: [
+          { value: "yes", label: t.grid.reservedLabels.yes },
+          { value: "no", label: t.grid.reservedLabels.no },
+        ],
+      },
+      {
+        kind: "select",
+        key: "variantStatus",
+        label: t.grid.filters.variantStatus,
+        options: [
+          { value: "DRAFT", label: t.statusLabels.DRAFT },
+          { value: "ACTIVE", label: t.statusLabels.ACTIVE },
+        ],
+      },
+      {
+        kind: "select",
+        key: "productStatus",
+        label: t.grid.filters.productStatus,
+        options: [
+          { value: "DRAFT", label: t.statusLabels.DRAFT },
+          { value: "ACTIVE", label: t.statusLabels.ACTIVE },
+          { value: "ARCHIVED", label: t.statusLabels.ARCHIVED },
+        ],
+      },
+    ],
+    [t.grid, t.stockStatus, t.statusLabels],
+  );
 
-  /* ── arama + filtre (istemci tarafı) ── */
-  const visibleRows = useMemo(() => {
-    const q = search.trim().toLocaleLowerCase(locale === "en" ? "en-US" : "tr-TR");
-    return rows.filter((r) => {
-      if (filter !== "ALL" && r.currentCalc.status !== filter) return false;
-      if (q === "") return true;
-      const variantLabel =
-        r.attributes.length > 0 ? r.attributes.map((a) => a.label).join(" ") : r.title;
-      const haystack = `${r.productTitle} ${variantLabel} ${r.sku}`.toLocaleLowerCase(
-        locale === "en" ? "en-US" : "tr-TR",
-      );
-      return haystack.includes(q);
-    });
-  }, [rows, search, filter, locale]);
+  const sortOptions: DataGridSortOption[] = [
+    { value: "productTitle:asc", label: t.grid.sort.productAsc },
+    { value: "productTitle:desc", label: t.grid.sort.productDesc },
+    { value: "sku:asc", label: t.grid.sort.skuAsc },
+    { value: "sku:desc", label: t.grid.sort.skuDesc },
+    { value: "onHand:desc", label: t.grid.sort.onHandDesc },
+    { value: "onHand:asc", label: t.grid.sort.onHandAsc },
+    { value: "reserved:desc", label: t.grid.sort.reservedDesc },
+    { value: "reserved:asc", label: t.grid.sort.reservedAsc },
+    { value: "available:desc", label: t.grid.sort.availableDesc },
+    { value: "available:asc", label: t.grid.sort.availableAsc },
+    { value: "updatedAt:desc", label: t.grid.sort.updatedNewest },
+    { value: "updatedAt:asc", label: t.grid.sort.updatedOldest },
+  ];
 
-  const warehouseInactive = warehouse?.status === "INACTIVE";
+  const sortValue = `${grid.sortBy}:${grid.sortOrder}`;
+  const activeSortValue = (SORT_VALUES as readonly string[]).includes(sortValue)
+    ? sortValue
+    : "productTitle:asc";
+
+  const quickDisabled = warehouseInactive || actingVariantId !== null;
 
   /* ── güvenli tek-satır hızlı işlem: ürün-bazlı preview→apply (ADR-076 korunur) ── */
   const runQuickAdjust = useCallback(
@@ -171,7 +258,7 @@ export default function InventoryPage() {
             .replace("{old}", fmt(row.current.onHand, locale))
             .replace("{new}", fmt(nextOnHand, locale)),
         );
-        await load(warehouse.id);
+        await load();
       } catch (err) {
         setError(messageForError(err, locale));
       } finally {
@@ -181,14 +268,132 @@ export default function InventoryPage() {
     [warehouse, locale, t, load],
   );
 
-  const onReset = (row: InventoryStoreMatrixRow) => setResetTarget(row);
   const confirmReset = async () => {
     const row = resetTarget;
     setResetTarget(null);
     if (row) await runQuickAdjust(row, 0);
   };
 
-  /* ───────────────────────────── render ───────────────────────────── */
+  const columns: DataGridColumn<InventoryStoreMatrixRow>[] = [
+    {
+      key: "productTitle",
+      header: t.col.product,
+      sortable: true,
+      cell: (row) => (
+        <Link
+          href={`/products/${row.productId}?tab=inventory`}
+          className={`font-medium ${pw.ink} underline-offset-2 hover:underline`}
+          title={t.row.openStockTab}
+        >
+          {row.productTitle}
+        </Link>
+      ),
+    },
+    {
+      key: "variant",
+      header: t.col.variant,
+      cell: (row) => (
+        <span className={pw.muted}>
+          {row.attributes.length > 0 ? row.attributes.map((a) => a.label).join(" · ") : row.title}
+        </span>
+      ),
+    },
+    {
+      key: "sku",
+      header: t.col.sku,
+      sortable: true,
+      cell: (row) => <span className={`font-mono text-xs ${pw.faint}`}>{row.sku}</span>,
+    },
+    {
+      key: "onHand",
+      header: t.col.onHand,
+      sortable: true,
+      align: "right",
+      cell: (row) => <span className={pw.ink}>{fmt(row.current.onHand, locale)}</span>,
+    },
+    {
+      key: "reserved",
+      header: t.col.reserved,
+      sortable: true,
+      align: "right",
+      cell: (row) => <span className={pw.faint}>{fmt(row.current.reserved, locale)}</span>,
+    },
+    {
+      key: "safetyStock",
+      header: t.col.safetyStock,
+      align: "right",
+      cell: (row) => <span className={pw.ink}>{fmt(row.current.safetyStock, locale)}</span>,
+    },
+    {
+      key: "available",
+      header: t.col.sellable,
+      sortable: true,
+      align: "right",
+      cell: (row) => (
+        <span className={`font-medium ${pw.success}`}>
+          {fmt(row.currentCalc.sellableAvailable, locale)}
+        </span>
+      ),
+    },
+    {
+      key: "incoming",
+      header: t.col.incoming,
+      align: "right",
+      cell: (row) => <span className={pw.ink}>{fmt(row.current.incoming, locale)}</span>,
+    },
+    {
+      key: "reorderPoint",
+      header: t.col.reorderPoint,
+      align: "right",
+      cell: (row) => <span className={pw.ink}>{fmt(row.current.reorderPoint, locale)}</span>,
+    },
+    {
+      key: "status",
+      header: t.col.status,
+      cell: (row) => (
+        <StatusBadge status={row.currentCalc.status} label={t.stockStatus[row.currentCalc.status]} />
+      ),
+    },
+    {
+      key: "actions",
+      header: t.col.actions,
+      align: "right",
+      cell: (row) => {
+        const busy = actingVariantId === row.variantId;
+        const disabled = quickDisabled;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <QuickButton
+              label={`−${QUICK_STEP}`}
+              title={t.quick.decrease}
+              onClick={() => void runQuickAdjust(row, Math.max(0, row.current.onHand - QUICK_STEP))}
+              disabled={disabled || busy}
+            />
+            <QuickButton
+              label={`+${QUICK_STEP}`}
+              title={t.quick.increase}
+              onClick={() => void runQuickAdjust(row, row.current.onHand + QUICK_STEP)}
+              disabled={disabled || busy}
+            />
+            <QuickButton
+              label={t.quick.reset}
+              title={t.quick.reset}
+              onClick={() => setResetTarget(row)}
+              disabled={disabled || busy}
+              tone="danger"
+            />
+            <Link
+              href={`/products/${row.productId}?tab=inventory`}
+              className={`ml-1 rounded-md border ${pw.line} px-2 py-1 text-xs font-medium ${pw.accent} ${pw.hover} transition-colors`}
+              title={t.row.openStockTab}
+            >
+              {t.row.manage} <span aria-hidden>→</span>
+            </Link>
+          </div>
+        );
+      },
+    },
+  ];
 
   return (
     <div className={`${PRICING_ROOT} ${pw.ink}`}>
@@ -210,144 +415,129 @@ export default function InventoryPage() {
       ) : null}
       {error ? (
         <div className="mb-4">
-          <Alert tone="error" action={<button type="button" className={pw.accent} onClick={() => setError(null)}>{c.actions.dismiss}</button>}>
+          <Alert
+            tone="error"
+            action={
+              <button type="button" className={pw.accent} onClick={() => setError(null)}>
+                {c.actions.dismiss}
+              </button>
+            }
+          >
             {error}
           </Alert>
         </div>
       ) : null}
 
-      {state.status === "error" ? (
-        <Alert
-          tone="error"
-          title={t.states.loadError}
-          action={
-            <Button variant="secondary" size="sm" onClick={() => void load(warehouse?.id)}>
-              {c.actions.retry}
-            </Button>
-          }
-        >
-          {state.message}
-        </Alert>
-      ) : null}
+      <div className="space-y-5">
+        {/* Depo seçici (Product Detail > Stok ile ortak component) */}
+        <WarehouseSelector
+          labels={{
+            label: t.warehouse.label,
+            defaultBadge: t.warehouse.defaultBadge,
+            inactiveBadge: t.warehouse.statusInactive,
+            none: t.warehouse.none,
+          }}
+          warehouses={warehouses}
+          active={warehouse}
+          onSelect={onSelectWarehouse}
+        />
 
-      {state.status === "loading" ? (
-        <p className={`${pw.muted} py-10 text-center text-sm`}>{t.states.loading}</p>
-      ) : null}
+        {warehouseInactive ? <Alert tone="warning">{t.warehouse.inactiveNote}</Alert> : null}
 
-      {state.status === "ready" ? (
-        <div className="space-y-5">
-          {/* Depo seçici (Product Detail > Stok ile ortak component) */}
-          <WarehouseSelector
-            labels={{
-              label: t.warehouse.label,
-              defaultBadge: t.warehouse.defaultBadge,
-              inactiveBadge: t.warehouse.statusInactive,
-              none: t.warehouse.none,
-            }}
-            warehouses={warehouses}
-            active={warehouse}
-            onSelect={switchWarehouse}
+        {/* KPI kartları — sunucunun sayfadan BAĞIMSIZ summary'sinden (aktif filtreyle tutarlı) */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Kpi label={t.kpi.onHand} value={fmt(summary?.totalOnHand ?? 0, locale)} />
+          <Kpi label={t.kpi.reserved} value={fmt(summary?.totalReserved ?? 0, locale)} />
+          <Kpi label={t.kpi.sellable} value={fmt(summary?.totalSellable ?? 0, locale)} tone="success" />
+          <Kpi label={t.kpi.incoming} value={fmt(summary?.totalIncoming ?? 0, locale)} tone="info" />
+          <Kpi
+            label={t.kpi.lowStock}
+            value={fmt(summary?.lowStock ?? 0, locale)}
+            tone={(summary?.lowStock ?? 0) > 0 ? "warning" : "neutral"}
           />
-
-          {warehouseInactive ? <Alert tone="warning">{t.warehouse.inactiveNote}</Alert> : null}
-
-          {/* KPI kartları */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Kpi label={t.kpi.onHand} value={fmt(kpi.onHand, locale)} />
-            <Kpi label={t.kpi.reserved} value={fmt(kpi.reserved, locale)} />
-            <Kpi label={t.kpi.sellable} value={fmt(kpi.sellable, locale)} tone="success" />
-            <Kpi label={t.kpi.incoming} value={fmt(kpi.incoming, locale)} tone="info" />
-            <Kpi label={t.kpi.lowStock} value={fmt(kpi.low, locale)} tone={kpi.low > 0 ? "warning" : "neutral"} />
-            <Kpi label={t.kpi.outOfStock} value={fmt(kpi.out, locale)} tone={kpi.out > 0 ? "warning" : "neutral"} />
-          </div>
-
-          {/* Arama + durum filtresi */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px] flex-1">
-              <Input
-                id="inventory-search"
-                type="search"
-                placeholder={t.search.placeholder}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <div className={`flex flex-wrap gap-1 rounded-lg border ${pw.line} p-1`}>
-              {FILTER_ORDER.map((f) => {
-                const active = filter === f;
-                const label = f === "ALL" ? t.filter.all : t.stockStatus[f];
-                return (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFilter(f)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                      active ? `${pw.selected} ${pw.ink}` : `${pw.muted} ${pw.hover}`
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Tablo */}
-          {rows.length === 0 ? (
-            <p className={`${pw.muted} py-10 text-center text-sm`}>{t.states.empty}</p>
-          ) : (
-            <>
-              <p className={`text-xs ${pw.faint}`}>
-                {t.count.replace("{count}", String(visibleRows.length))}
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[1040px] border-collapse text-sm">
-                  <thead>
-                    <tr className={`border-b ${pw.lineStrong} text-left ${pw.faint}`}>
-                      <th className="px-2 py-2 font-medium">{t.col.product}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.variant}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.sku}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.onHand}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.reserved}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.safetyStock}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.sellable}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.incoming}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.reorderPoint}</th>
-                      <th className="px-2 py-2 font-medium">{t.col.status}</th>
-                      <th className="px-2 py-2 text-right font-medium">{t.col.actions}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className={`px-2 py-8 text-center ${pw.muted}`}>
-                          {t.states.filterEmpty}
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleRows.map((r) => (
-                        <GlobalRow
-                          key={r.variantId}
-                          row={r}
-                          locale={locale}
-                          labels={t}
-                          busy={actingVariantId === r.variantId}
-                          disabled={warehouseInactive || actingVariantId !== null}
-                          onIncrease={() => void runQuickAdjust(r, r.current.onHand + QUICK_STEP)}
-                          onDecrease={() =>
-                            void runQuickAdjust(r, Math.max(0, r.current.onHand - QUICK_STEP))
-                          }
-                          onReset={() => onReset(r)}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+          <Kpi
+            label={t.kpi.outOfStock}
+            value={fmt(summary?.outOfStock ?? 0, locale)}
+            tone={(summary?.outOfStock ?? 0) > 0 ? "warning" : "neutral"}
+          />
         </div>
-      ) : null}
+
+        {pagination ? (
+          <p className={`text-xs ${pw.faint}`}>{format(t.count, { count: pagination.totalItems })}</p>
+        ) : null}
+
+        <DataGridToolbar
+          labels={{
+            searchPlaceholder: t.grid.searchPlaceholder,
+            searchLabel: g.searchLabel,
+            searchSubmit: g.searchSubmit,
+            filters: g.filters,
+            filtersApply: g.filtersApply,
+            filtersClear: g.filtersClear,
+            filterAll: g.filterAll,
+            removeFilter: g.removeFilter,
+            sortLabel: g.sortLabel,
+          }}
+          search={grid.search}
+          onSearchChange={grid.setSearch}
+          filters={filters}
+          values={grid.filters}
+          onFiltersChange={(next) => grid.setFilters(next as Partial<InventoryFilters>)}
+          onClearFilters={grid.clearFilters}
+          activeFilterCount={grid.activeFilterCount}
+          sortOptions={sortOptions}
+          sortValue={activeSortValue}
+          onSortChange={(value) => {
+            const [sortBy, sortOrder] = value.split(":");
+            grid.setSort(sortBy, sortOrder === "asc" ? "asc" : "desc");
+          }}
+        />
+
+        <DataGrid
+          columns={columns}
+          rows={state.status === "ready" ? state.rows : []}
+          rowKey={(row) => row.variantId}
+          status={state.status}
+          errorMessage={state.status === "error" ? state.message : undefined}
+          onRetry={() => void load()}
+          filtered={grid.activeFilterCount > 0}
+          caption={t.title}
+          sortBy={grid.sortBy}
+          sortOrder={grid.sortOrder}
+          onSortChange={(sortBy, sortOrder) => grid.setSort(sortBy, sortOrder)}
+          labels={{
+            loading: g.loading,
+            errorTitle: t.states.loadError,
+            retry: c.actions.retry,
+            emptyTitle: t.states.empty,
+            emptyDescription: t.states.empty,
+            emptyFilteredTitle: g.emptyFilteredTitle,
+            emptyFilteredDescription: g.emptyFilteredDescription,
+            selectRow: g.selectRow,
+            selectAll: g.selectAll,
+          }}
+        />
+
+        {pagination ? (
+          <DataGridPagination
+            labels={{
+              rangeLabel: g.rangeLabel,
+              rangeEmpty: g.rangeEmpty,
+              previousPage: g.previousPage,
+              nextPage: g.nextPage,
+              pageSizeLabel: g.pageSizeLabel,
+              goToPage: g.goToPage,
+              pageOf: g.pageOf,
+            }}
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            totalItems={pagination.totalItems}
+            totalPages={pagination.totalPages}
+            onPageChange={grid.setPage}
+            onPageSizeChange={grid.setPageSize}
+          />
+        ) : null}
+      </div>
 
       {resetTarget ? (
         <ResetConfirm
@@ -362,73 +552,9 @@ export default function InventoryPage() {
   );
 }
 
-/* ───────────────────────────── satır ───────────────────────────── */
+/* ───────────────────────────── satır aksiyonları ───────────────────────────── */
 
 type InventoryDict = ReturnType<typeof getDictionary>["storeAdmin"]["inventory"];
-
-function GlobalRow({
-  row,
-  locale,
-  labels,
-  busy,
-  disabled,
-  onIncrease,
-  onDecrease,
-  onReset,
-}: {
-  row: InventoryStoreMatrixRow;
-  locale: ReturnType<typeof useLocale>;
-  labels: InventoryDict;
-  busy: boolean;
-  disabled: boolean;
-  onIncrease: () => void;
-  onDecrease: () => void;
-  onReset: () => void;
-}) {
-  const variantLabel =
-    row.attributes.length > 0 ? row.attributes.map((a) => a.label).join(" · ") : row.title;
-  const quickDisabled = disabled || busy;
-  return (
-    <tr className={`border-b ${pw.line}`}>
-      <td className="px-2 py-2">
-        <Link
-          href={`/products/${row.productId}?tab=inventory`}
-          className={`font-medium ${pw.ink} underline-offset-2 hover:underline`}
-          title={labels.row.openStockTab}
-        >
-          {row.productTitle}
-        </Link>
-      </td>
-      <td className={`px-2 py-2 ${pw.muted}`}>{variantLabel}</td>
-      <td className={`px-2 py-2 font-mono text-xs ${pw.faint}`}>{row.sku}</td>
-      <td className={`px-2 py-2 ${pw.ink}`}>{fmt(row.current.onHand, locale)}</td>
-      <td className={`px-2 py-2 ${pw.faint}`}>{fmt(row.current.reserved, locale)}</td>
-      <td className={`px-2 py-2 ${pw.ink}`}>{fmt(row.current.safetyStock, locale)}</td>
-      <td className={`px-2 py-2 font-medium ${pw.success}`}>
-        {fmt(row.currentCalc.sellableAvailable, locale)}
-      </td>
-      <td className={`px-2 py-2 ${pw.ink}`}>{fmt(row.current.incoming, locale)}</td>
-      <td className={`px-2 py-2 ${pw.ink}`}>{fmt(row.current.reorderPoint, locale)}</td>
-      <td className="px-2 py-2">
-        <StatusBadge status={row.currentCalc.status} label={labels.stockStatus[row.currentCalc.status]} />
-      </td>
-      <td className="px-2 py-2">
-        <div className="flex items-center justify-end gap-1">
-          <QuickButton label={`−${QUICK_STEP}`} title={labels.quick.decrease} onClick={onDecrease} disabled={quickDisabled} />
-          <QuickButton label={`+${QUICK_STEP}`} title={labels.quick.increase} onClick={onIncrease} disabled={quickDisabled} />
-          <QuickButton label={labels.quick.reset} title={labels.quick.reset} onClick={onReset} disabled={quickDisabled} tone="danger" />
-          <Link
-            href={`/products/${row.productId}?tab=inventory`}
-            className={`ml-1 rounded-md border ${pw.line} px-2 py-1 text-xs font-medium ${pw.accent} ${pw.hover} transition-colors`}
-            title={labels.row.openStockTab}
-          >
-            {labels.row.manage} <span aria-hidden>→</span>
-          </Link>
-        </div>
-      </td>
-    </tr>
-  );
-}
 
 function QuickButton({
   label,
@@ -480,7 +606,10 @@ function ResetConfirm({
         <p className={`mt-2 text-sm ${pw.muted}`}>
           {labels.quick.resetConfirmBody
             .replace("{product}", row.productTitle)
-            .replace("{variant}", row.attributes.length > 0 ? row.attributes.map((a) => a.label).join(" · ") : row.title)}
+            .replace(
+              "{variant}",
+              row.attributes.length > 0 ? row.attributes.map((a) => a.label).join(" · ") : row.title,
+            )}
         </p>
         <div className="mt-5 flex items-center justify-end gap-3">
           <Button variant="secondary" onClick={onCancel}>
