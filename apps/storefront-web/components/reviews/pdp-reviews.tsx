@@ -416,7 +416,7 @@ function WriteReviewPanel({
   return (
     <ReviewForm
       orderLineId={eligibility.orderLineId ?? ""}
-      t={t}
+      r={r}
       onCancel={() => setOpen(false)}
       onSuccess={() => {
         setSubmitted(true);
@@ -427,18 +427,21 @@ function WriteReviewPanel({
   );
 }
 
-function ReviewForm({
+/**
+ * Paylaşılan yorum formu (PDP + sipariş yüzeyi ortak). `orderLineId` sunucudan gelen
+ * uygun kalem kimliğidir; gönderim {@link createReviewAction} ile PENDING oluşturur.
+ */
+export function ReviewForm({
   orderLineId,
-  t,
+  r,
   onCancel,
   onSuccess,
 }: {
   orderLineId: string;
-  t: StorefrontDictionary;
+  r: StorefrontDictionary["reviews"];
   onCancel: () => void;
   onSuccess: () => void;
 }) {
-  const r = t.reviews;
   const f = r.form;
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);

@@ -978,8 +978,11 @@ export const enStorefront: StorefrontDictionary = {
       },
       review: {
         title: "Product review",
-        note: "Product reviews will be enabled soon.",
         locked: "You can write a review after delivery.",
+        notEligible: "You can't write a review for this order yet.",
+        chooseTitle: "Choose a product to review",
+        writeItem: "Review",
+        viewReview: "View your review",
       },
       detail: {
         backToList: "Back to my orders",

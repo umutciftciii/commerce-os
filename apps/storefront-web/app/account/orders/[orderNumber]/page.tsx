@@ -5,7 +5,9 @@ import type { CustomerOrderDetail } from "@commerce-os/api-client";
 import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
-import { canWriteReview, isReorderable, returnEligibility } from "../../../../lib/orders";
+import { getMyReviews } from "../../../../lib/server/reviews";
+import { isReorderable, returnEligibility } from "../../../../lib/orders";
+import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
@@ -31,13 +33,24 @@ export default async function OrderDetailPage({
   if (!customer) {
     redirect(`/auth/login?next=/account/orders/${encodeURIComponent(orderNumber)}`);
   }
-  const t = (await getStorefrontDict()).account;
+  const dict = await getStorefrontDict();
+  const t = dict.account;
   const locale = await getRequestLocale();
-  const order = await getCustomerOrderDetail(orderNumber);
+  // TODO-159E hotfix — Detay sayfasında da gerçek yorum aksiyonu için sunucu-otoriter
+  // uygunluk + mevcut yorumlar (yeni uç YOK; account/reviews ile aynı veri).
+  const [order, reviewData] = await Promise.all([
+    getCustomerOrderDetail(orderNumber),
+    getMyReviews(),
+  ]);
   if (!order) {
     notFound();
   }
   const o = t.orders;
+  const reviewState = resolveOrderReview(
+    order,
+    reviewData?.eligible ?? [],
+    reviewData?.reviews ?? [],
+  );
 
   return (
     <Container className="py-12">
@@ -115,7 +128,8 @@ export default async function OrderDetailPage({
             t={o}
             reorderable={isReorderable(order)}
             returnState={returnEligibility(order)}
-            canReview={canWriteReview(order)}
+            review={reviewState}
+            reviewsT={dict.reviews}
             layout="detail"
           />
         </section>
