@@ -123,6 +123,7 @@ import type {
   StoreSettingsUpdateRequest,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerListSummaryResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -578,6 +579,34 @@ export type {
   // TODO-135 — Kargo hazırlık durumundan türetilen karşılama rozeti gösterim tipleri.
   OrderFulfillmentDisplay,
   OrderSummaryShipmentStatus,
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist tipleri (type-only re-export).
+  CustomerListType,
+  CustomerListVisibility,
+  CustomerListItemAvailability,
+  CustomerListSummary,
+  CustomerListListResponse,
+  CustomerListItem,
+  CustomerListDetail,
+  CustomerListDetailResponse,
+  CustomerListMutationResponse,
+  CustomerListCreateRequest,
+  CustomerListRenameRequest,
+  CustomerListAddItemRequest,
+  CustomerListAddItemResponse,
+  CustomerListMoveItemRequest,
+  CustomerListCopyItemRequest,
+  CustomerListItemMutationResponse,
+  CustomerListBatchAddToCartRequest,
+  CustomerListCartCandidate,
+  CustomerListSkippedItem,
+  CustomerListBatchAddToCartResponse,
+  CustomerWishlistToggleRequest,
+  CustomerWishlistToggleResponse,
+  CustomerWishlistStatusRequest,
+  CustomerWishlistStatusResponse,
+  CustomerWishlistMergeRequest,
+  CustomerWishlistMergeResponse,
+  StoreAdminCustomerListSummaryResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -695,6 +724,22 @@ export { publicSearchResponseSchema, PUBLIC_SEARCH_SORTS } from "@commerce-os/co
  * BFF (storefront `lib/server/autocomplete.ts` / `app/api/autocomplete`) yanıtı doğrulamak için kullanır.
  */
 export { publicAutocompleteResponseSchema } from "@commerce-os/contracts";
+
+/**
+ * TODO-159D (ADR-093) — Customer Lists & Wishlist sunucu-otoriter SINIR sabitleri (DEĞER
+ * re-export). Storefront BFF (lib/server/wishlist*.ts, list-actions.ts) istekleri sunucuya
+ * göndermeden önce aynı üst sınırlarla kırpar; contracts'a doğrudan bağlanmaz.
+ */
+export {
+  CUSTOMER_LIST_NAME_MAX_LENGTH,
+  CUSTOMER_LIST_MAX_PER_CUSTOMER,
+  CUSTOMER_LIST_MAX_ITEMS,
+  CUSTOMER_LIST_ITEM_NOTE_MAX_LENGTH,
+  CUSTOMER_LIST_BATCH_ADD_MAX,
+  CUSTOMER_WISHLIST_STATUS_MAX_IDS,
+  CUSTOMER_WISHLIST_MERGE_MAX_ITEMS,
+  CUSTOMER_LIST_ITEM_QUANTITY_MAX,
+} from "@commerce-os/contracts";
 
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.
@@ -1306,6 +1351,12 @@ export interface ApiClient {
         token?: string,
       ): Promise<StoreAdminCustomerCreateResponse>;
       get(storeId: string, customerId: string, token?: string): Promise<StoreAdminCustomerDetailResponse>;
+      // TODO-159D (ADR-093) — Müşteri liste/wishlist salt-okunur özeti (gizlilik-güvenli).
+      getListSummary(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCustomerListSummaryResponse>;
       update(
         storeId: string,
         customerId: string,
@@ -2435,6 +2486,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         get: (storeId, customerId, token) =>
           getJson<StoreAdminCustomerDetailResponse>(
             `/stores/${storeId}/customers/${customerId}`,
+            token,
+          ),
+        getListSummary: (storeId, customerId, token) =>
+          getJson<StoreAdminCustomerListSummaryResponse>(
+            `/stores/${storeId}/customers/${customerId}/list-summary`,
             token,
           ),
         update: (storeId, customerId, input, token) =>

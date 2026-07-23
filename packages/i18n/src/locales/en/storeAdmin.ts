@@ -1965,6 +1965,15 @@ export const enStoreAdmin: StoreAdminDictionary = {
         defaultAddress: "Default address",
         noOrders: "No orders",
       },
+      lists: {
+        title: "Lists & favourites",
+        listCount: "List count",
+        wishlistItems: "Favourite products",
+        totalItems: "Total items",
+        lastAdded: "Last added",
+        none: "None",
+        loadError: "Couldn't load list summary.",
+      },
       profile: {
         title: "Profile & Contact",
         description: "Core identity and contact details.",

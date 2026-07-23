@@ -15,6 +15,7 @@ import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
 import { usePdpSelection } from "./pdp-selection";
+import { WishlistHeartButton } from "./wishlist/wishlist-heart-button";
 import { Badge, Button, type BadgeTone } from "./ui";
 
 const LOW_STOCK = 5;
@@ -334,9 +335,23 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         )}
       </div>
 
-      {/* Favori / paylas (yer tutucu) */}
+      {/* TODO-159D (ADR-093) — Gerçek favori (ürün-seviyesi; PLP ile tutarlı) + paylaş (yer tutucu) */}
       <div className="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wideish text-ink-subtle">
-        <span>{t.buyBox.favorite}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <WishlistHeartButton
+            productId={detail.id}
+            size={15}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-line text-ink transition-colors hover:border-ink disabled:opacity-60"
+            labels={{
+              add: t.home.card.wishlistAdd,
+              remove: t.home.card.wishlistRemove,
+              savedFeedback: t.home.card.wishlistSavedFeedback,
+              removedFeedback: t.home.card.wishlistRemovedFeedback,
+              error: t.home.card.wishlistError,
+            }}
+          />
+          {t.buyBox.favorite}
+        </span>
         <span aria-hidden>·</span>
         <span>{t.buyBox.share}</span>
       </div>

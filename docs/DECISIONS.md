@@ -3296,3 +3296,78 @@ Canlı doğrulama enterprise-demo (edm-store, 2.138 non-archived varyant) ile: s
 (= non-archived sayısı), durum sayıları toplamı = 2.138 (tam kapsama), `stockStatus=LOW_STOCK` filtre
 sayısı = summary.lowStock (187, parite), tenant sızıntısı 0, non-default depoda item overlay uygulanmadı.
 Gate'ler: build/typecheck/lint/test yeşil (yeni contract + servis + UI testleri dahil).
+
+## ADR-093 — Customer Lists & Wishlist: ortak `CustomerList` altyapısı (favori = varsayılan liste), sunucu-otoriter hidrasyon, misafir cookie + idempotent merge (TODO-159D)
+
+**Bağlam.** Storefront'ta favori (kalp) ikonları yalnız görseldi (MOCK: yerel `useState`, persist yok —
+`StorefrontProductCard`/`SearchProductCard`). Müşteri hesabında "Beğendiklerim" ve "Tüm Listelerim"
+bölümleri boş `Placeholder`'dı. Gerçek favori + alışveriş listeleri gerekiyordu; ancak bunları iki ayrı
+sistem olarak kurmak tekrar/uyumsuzluk üretirdi.
+
+**Karar.** Favori ve alışveriş listeleri AYRI iki sistem DEĞİL; ortak, tenant-safe bir `CustomerList`
+altyapısıdır. Wishlist = `type=WISHLIST` olan TEK varsayılan liste (`isDefault=true`).
+
+1. **Domain.** `CustomerList(id, storeId, customerId, name, type, visibility, isDefault, timestamps)` +
+   `CustomerListItem(id, storeId, listId, productId, variantId?, note?, quantity, sortOrder, addedAt)`.
+   Enum: `CustomerListType {WISHLIST, SHOPPING_LIST}`, `CustomerListVisibility {PRIVATE}` (MVP yalnız
+   PRIVATE; alan ileri faz paylaşımlı liste için hazır). Product/Variant modeline JSON wishlist alanı
+   EKLENMEZ (ayrı normalize tablo).
+
+2. **İnvariant'lar DB seviyesinde.** (a) Her (store, customer) için TAM bir default WISHLIST — kısmi
+   unique `UNIQUE(storeId, customerId) WHERE isDefault=true AND type='WISHLIST'`. (b) Aynı ürün/varyant
+   aynı listeye iki kez eklenemez — `@@unique([listId, productId, variantId])` (varyant-dolu) + kısmi
+   `UNIQUE(listId, productId) WHERE variantId IS NULL` (bütün-ürün; Postgres NULL-distinct boşluğunu
+   kapatır). Kısmi index'ler Prisma şema dilinde ifade edilemediğinden migration'da tanımlıdır (bilinçli,
+   belgeli). Servis katmanı ayrıca check-then-insert + P2002 yutma ile idempotent davranır (savunma).
+
+3. **Favori = ürün-seviyesi (variantId=NULL).** Product-card ve PDP kalbi her zaman BÜTÜN ürünü favoriler →
+   PLP↔PDP durum tutarlılığı garanti. Varyant-özel öğe yalnız alışveriş listelerinde olur (variantId dolu).
+
+4. **FK kararı.** `CustomerListItem.product/.variant` FK'leri `onDelete: Cascade` — ürün/varyant FİZİKSEL
+   silinince öğe(ler) güvenle kalkar (dangling yok). Soft-archive (status≠ACTIVE) satırı bıraktığından öğe
+   KORUNUR; liste detayı canlı hidrasyonla `UNAVAILABLE` gösterir.
+
+5. **Sunucu-otoriter hidrasyon.** Liste detayı öğeleri CANLI katalog/stok otoritesinden hidrate edilir
+   (enjekte edilen `findProductsByIds`/`findVariantsByIds`/`findInventoryByVariantIds`/`listProductImages`
+   + `listActiveVariantsByProductIds`; sabit sayıda batched sorgu, N+1 yok). Fiyat/stok SNAPSHOT'ına ASLA
+   güvenilmez (kupon/sipariş deseniyle simetrik). `available=onHand−reserved`, `inStock = available==null ?
+   true : >0` — cart otoritesiyle birebir. Uygunluk: `AVAILABLE`/`OUT_OF_STOCK`/`UNAVAILABLE`.
+
+6. **Sepet cookie-tabanlı → toplu sepete ekleme SUNUCU aday üretir, storefront yazar.** `/lists/:id/add-to-cart`
+   canlı otoriteyle `candidates` (eklenebilir variantId+qty) + `skipped` (sebep) döner; gerçek sepet yazımı
+   storefront cookie'sinde yapılır. Stokta olmayan/pasif ATLANIR + özet gösterilir (ADR-047 cart authority
+   korunur).
+
+7. **Misafir wishlist + idempotent merge.** Misafir favorisi imzalı httpOnly cookie'de (`commerce_os_wishlist`;
+   yalnız `{productId}`, PII/fiyat yok, maks. 100, bozuk id toleransı; STOREFRONT_CART_SECRET paylaşımlı).
+   Login'de `/wishlist/merge` guest öğelerini default wishlist'e idempotent ekler; HTTP tamamen başarısızsa
+   cookie KORUNUR (sessiz veri kaybı yok), başarılıysa cookie temizlenir. Kupon cüzdanı merge desenini aynalar
+   (sepeti DEĞİL — sepet sunucu-stateless'tır).
+
+8. **Batched wishlist status.** PLP/Home/PDP sunucu bileşenleri sayfadaki ürün id'leri için TEK batched çağrı
+   yapar (login → `/wishlist/status`; misafir → cookie) ve her karta `initialSaved` geçirir. Tüm katalog
+   istemciye çekilmez. İstemci favori durumu `WishlistProvider` (optimistic + rollback) ile yönetilir;
+   `WishlistHeartButton` `aria-pressed` + `aria-live` geri bildirim + çift-tık koruması sağlar.
+
+9. **Yetkilendirme.** Tüm uçlar `requireStore` + `requireCustomer` (`x-customer-session`). Müşteri yalnız
+   KENDİ listelerine erişir; bulunamayan → 404 (ID enumeration sızdırmaz). Store-admin müşteri kimliği taklit
+   ederek bu uçları kullanamaz. Store-admin YALNIZ ayrı `list-summary` ucundan (platform-admin guard) asgari
+   sayaç/tarih görür; öğe içeriği/davranış takibi gösterilmez (gizlilik).
+
+10. **Sunucu-otoriter sınırlar.** Liste adı 1–60; müşteri başına ≤50 liste; liste başına ≤200 öğe; batch
+    add-to-cart ≤100 id; wishlist status ≤200 id; merge ≤100. Aynı isimli özel liste (case-insensitive)
+    reddedilir (409, servis-zorlamalı; DB unique değil — default'un lokalize adı + i18n nedeniyle). Liste
+    detayı ADR-089 Data Grid sayfalaması (varsayılan 25; 25/50/100; totalItems/totalPages).
+
+**Sonuçlar.** Migration `20260723140000_add_customer_lists_wishlist` (additive; iki enum + iki tablo + FK +
+index + iki kısmi unique). Gateway modülü `customer-lists/{data,routes}.ts` (DI; Prisma yalnız CustomerList*
+CRUD için, hidrasyon enjekte helper'larla). Contracts yeni banner bölümü; api-client type + value re-export
+(storefront contracts'a doğrudan bağlanmaz). Storefront gerçek favori (3 kart yüzeyi + PDP), guest cookie +
+login merge, Account "Beğendiklerim"/"Tüm Listelerim" + `/account/lists/[listId]`. DB invariant'lar yerel
+PostgreSQL'de doğrulandı (ikinci default wishlist reddi, bütün-ürün dedup reddi, varyant-özel kabul, FK
+cascade). Testler: gateway route (14) + wishlist-token (6) + heart a11y (3).
+
+**Reddedilen alternatifler.** (a) Product/Variant'a JSON wishlist alanı — sorgulanamaz, tenant-güvensiz,
+dedup zor. (b) Wishlist'i varyant-seviyesi favori olarak modellemek — PLP↔PDP tutarsızlığı (kart ürün-seviyesi).
+(c) Sepet merge desenini kopyalamak — sepet cookie-only/stateless; wishlist DB-kalıcı, kupon cüzdanı deseni
+doğru analog. (d) Liste öğesini fiyat/stok snapshot'ıyla saklamak — bayat veri riski; canlı otorite kuralı.

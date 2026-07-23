@@ -143,6 +143,8 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
   const campaign = toCampaignView(product.campaign, locale);
   const secondaryCoupon = toCampaignView(product.secondaryCoupon, locale);
   return {
+    // TODO-159D (ADR-093) — Wishlist favori durumu için stabil ürün kimliği.
+    id: product.id,
     handle: product.slug,
     title: product.title,
     brand: product.brand,

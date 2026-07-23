@@ -1673,6 +1673,50 @@
 - Kapsam dışı: envanter iş mantığı (rezervasyon, hareket ledger'ı, safety/reorder hesapları), depo CRUD,
   yeni stok kavramı, search read-model'e bağlanma (TD-094 ön koşulu).
 
+## TODO-159D — Customer Lists & Wishlist (Customer Lifecycle · ADR-093)
+
+- Durum: **DONE — tüm katmanlar + gate + canlı doğrulama YEŞİL; commit'e hazır (commit/PR/deploy
+  YAPILMADI).** Sıra: TODO-159C'den SONRA, TODO-159E'den ÖNCE. Analiz:
+  `docs/analysis/TODO-159D-customer-lists-wishlist.md`. Ertelenen sınırlar: TD-101…TD-105.
+- Amaç: Favori (wishlist) + alışveriş listelerini ORTAK, tenant-safe `CustomerList` altyapısı üzerine
+  kurmak; storefront'ta gerçek (mock olmayan) favori davranışı + Customer Account liste yönetimi.
+- Domain: `CustomerList` (storeId, customerId, name, type, visibility, isDefault) + `CustomerListItem`
+  (storeId, listId, productId, variantId?, addedAt, note?, quantity?, sortOrder?). Enum `CustomerListType`
+  {WISHLIST, SHOPPING_LIST}, `CustomerListVisibility` {PRIVATE}.
+- Varsayılan wishlist kuralı: her müşteri+mağaza için TAM bir adet default WISHLIST; ilk erişimde
+  lazy-create; silinemez; yeniden adlandırılamaz. Aynı ürün/varyant aynı listeye iki kez eklenemez.
+- Guest wishlist: first-party signed cookie (yalnız productId/variantId; fiyat/PII yok; maks. kayıt sınırı;
+  bozuk/eski id toleransı). Login'de default wishlist'e idempotent merge + guest temizliği; kısmi hatada
+  sessiz veri kaybı YOK. Cart-cookie/claimed-coupons merge deseni referans alınır (körlemesine kopya YOK).
+- Favori davranışı: PLP · Home showcase · PDP · Quick View product-card yüzeyleri; gerçek backend durumu;
+  optimistic + rollback; idempotent; `aria-pressed` + SR metni; batched status resolver (tüm katalog
+  çekilmez, N+1 yok).
+- Alışveriş listeleri (Customer Account): liste CRUD + item ekle/kaldır/taşı/kopyala + tekli/toplu sepete
+  ekleme. Toplu sepete eklemede stokta olmayan/pasif ürün ATLANIR + sonuç özeti. Canlı ürün/variant/stok
+  otoritesi (snapshot'a güvenilmez). Ekranlar: `/account/lists`, `/account/lists/[listId]`, wishlist kısa
+  yolu. Liste detayı ADR-089 Data Grid pagination (varsayılan 25; 25/50/100; totalItems/totalPages).
+- API (customer-scoped, `requireStore`+`requireCustomer`): list/create/get/rename/delete list · add/remove/
+  move/copy item · batch-add-to-cart · wishlist status by ids · merge guest wishlist. Contracts paketinde
+  şema. Müşteri yalnız kendi listelerine erişir; ID enumeration sızdırmaz; write öncesi ownership doğrulanır;
+  batch üst sınırı sunucuda.
+- Store Admin: MVP'de tam düzenleme YOK; müşteri detayında salt-okunur özet (liste sayısı, wishlist öğe
+  sayısı, son eklenen tarih).
+- Kapsam dışı (MVP): paylaşımlı/public liste, fiyat-düşüş bildirimi, admin liste analitiği.
+
+## TODO-159E — Product Reviews & Ratings (Customer Lifecycle)
+
+- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159D'den SONRA, TODO-160'tan ÖNCE.
+- Amaç: Ürünlere yıldız puanı + metin yorum; doğrulanmış alışveriş temelli güven; PDP rating özeti + yorum
+  listesi; Store Admin moderasyonu.
+- Kapsam (taslak): yıldız + metin yorum · sipariş kalemi bazlı yorum uygunluğu · doğrulanmış alışveriş
+  rozeti · tekrar yorum koruması (ürün+müşteri tekil) · moderasyon durumları (PENDING/APPROVED/REJECTED) ·
+  Store Admin moderasyon ekranı · PDP rating summary (ortalama + yıldız dağılımı) + yorum listesi · "faydalı
+  buldum" · spam/rate-limit · iade/iptal sonrası doğrulama kuralı.
+- Sonraki faz: görsel/video yorumu · satıcı yanıtı.
+- Kabul kriterleri (taslak): yorum uygunluğu SUNUCU-otoriter (satın alma kanıtı doğrulanır); aynı müşteri
+  aynı ürüne tek yorum; onaylanmadan PDP'de görünmez; tüm sorgular tenant-izole.
+- **NOT:** TODO-159D görevinde yorum sistemi KODU yazılmaz; yalnız bu planlama kaydı.
+
 ## TODO-160 — Influencer Tracking & Attribution (Growth & Monetization)
 
 - Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159C'den SONRA.

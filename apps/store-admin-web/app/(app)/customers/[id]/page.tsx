@@ -25,6 +25,7 @@ import type {
   CustomerIban,
   StoreAdminCustomerDetail,
   StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerListSummaryResponse,
   StoreAdminCustomerSecurity,
 } from "@commerce-os/api-client";
 import { CustomerIcon } from "../../../../components/icons";
@@ -234,6 +235,7 @@ export default function CustomerDetailPage() {
         </div>
         <aside className="space-y-5">
           <ContextRail customer={customer} addresses={addresses} />
+          <CustomerListsSummaryCard customerId={customerId} onError={fail} />
         </aside>
       </div>
     </>
@@ -274,6 +276,75 @@ function ContextRail({
             <dd className="max-w-[60%] truncate text-right text-sm font-medium text-white/85" title={row.value}>
               {row.value}
             </dd>
+          </div>
+        ))}
+      </dl>
+    </SurfaceCard>
+  );
+}
+
+/* ── Listeler & Favoriler (salt-okunur özet) ──────────────────────────────────
+ * TODO-159D (ADR-093) — Yalnız asgari sayaç/tarih; öğe içeriği/davranış takibi
+ * GÖSTERİLMEZ (gizlilik). Kendi verisini ayrı uçtan çeker (SkeletonRows / hata dayanıklı). */
+
+function CustomerListsSummaryCard({
+  customerId,
+  onError,
+}: {
+  customerId: string;
+  onError: (error: unknown) => void;
+}) {
+  const dict = getDictionary(useLocale());
+  const t = dict.storeAdmin.customers.detail.lists;
+  const [summary, setSummary] = useState<
+    StoreAdminCustomerListSummaryResponse["data"] | null | "error"
+  >(null);
+
+  useEffect(() => {
+    let active = true;
+    storeApi
+      .getCustomerListSummary(customerId)
+      .then((response) => {
+        if (active) setSummary(response.data);
+      })
+      .catch((error) => {
+        if (active) setSummary("error");
+        onError(error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [customerId, onError]);
+
+  if (summary === null) {
+    return (
+      <SurfaceCard title={t.title} icon={<CustomerIcon />}>
+        <SkeletonRows rows={3} />
+      </SurfaceCard>
+    );
+  }
+  if (summary === "error") {
+    return (
+      <SurfaceCard title={t.title} icon={<CustomerIcon />}>
+        <p className="text-sm text-white/40">{t.loadError}</p>
+      </SurfaceCard>
+    );
+  }
+
+  const rows: { label: string; value: string }[] = [
+    { label: t.listCount, value: String(summary.listCount) },
+    { label: t.wishlistItems, value: String(summary.wishlistItemCount) },
+    { label: t.totalItems, value: String(summary.totalItemCount) },
+    { label: t.lastAdded, value: summary.lastAddedAt ? formatDate(summary.lastAddedAt) : t.none },
+  ];
+
+  return (
+    <SurfaceCard title={t.title} icon={<CustomerIcon />}>
+      <dl className="space-y-3">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-start justify-between gap-3">
+            <dt className="text-sm text-white/40">{row.label}</dt>
+            <dd className="text-right text-sm font-medium text-white/85">{row.value}</dd>
           </div>
         ))}
       </dl>

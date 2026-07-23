@@ -17,6 +17,8 @@ import { StorefrontProductCard } from "../../../components/site/product-card";
 import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
+import { WishlistProvider } from "../../../components/wishlist/wishlist-provider";
+import { getWishlistStatus } from "../../../lib/server/wishlist";
 import { VariantGallery } from "../../../components/variant-gallery";
 import { Breadcrumb } from "../../../components/seo/breadcrumb";
 import { JsonLd } from "../../../components/seo/json-ld";
@@ -133,7 +135,13 @@ export default async function ProductDetailPage({
   });
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbTrail, absoluteUrl, canonicalUrl);
 
+  // TODO-159D (ADR-093) — PDP + benzer ürünler için TEK batched favori-durum çözümü.
+  const savedProductIds = [
+    ...(await getWishlistStatus([detail.id, ...detail.related.map((item) => item.id)])),
+  ];
+
   return (
+    <WishlistProvider initialSavedIds={savedProductIds}>
     <Container className="py-12 lg:py-16">
       {/* TODO-156D — Product + BreadcrumbList JSON-LD (Google Rich Results). */}
       <JsonLd data={productLd} />
@@ -202,6 +210,7 @@ export default async function ProductDetailPage({
         </section>
       ) : null}
     </Container>
+    </WishlistProvider>
   );
 }
 

@@ -90,7 +90,7 @@ export async function getCustomer<T>(path: string, token: string | null): Promis
 }
 
 export async function sendCustomer<T>(
-  method: "POST" | "PUT" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   token: string | null,
   body?: unknown,

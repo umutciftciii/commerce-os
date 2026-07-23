@@ -10,6 +10,8 @@ import {
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HomeSections } from "../components/site/home/home-sections";
+import { WishlistProvider } from "../components/wishlist/wishlist-provider";
+import { getWishlistStatus } from "../lib/server/wishlist";
 import { EditorialBanner, ValueProps } from "../components/site/home/editorial";
 import type { Metadata } from "next";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
@@ -49,14 +51,28 @@ export default async function HomePage() {
   const home = await getHome(locale);
 
   if (home.sections.length > 0) {
-    return <HomeSections sections={home.sections} dict={dict} />;
+    // TODO-159D (ADR-093) — Tüm showcase ürünleri için TEK batched favori-durum çözümü.
+    const showcaseIds = home.sections.flatMap((section) =>
+      section.type === "PRODUCT_SHOWCASE" ? section.products.map((product) => product.id) : [],
+    );
+    const savedProductIds = [...(await getWishlistStatus(showcaseIds))];
+    return (
+      <WishlistProvider initialSavedIds={savedProductIds}>
+        <HomeSections sections={home.sections} dict={dict} />
+      </WishlistProvider>
+    );
   }
 
   // Fallback — section yapılandırılmamış: generic hero + gerçek katalog ürünleri.
   const [featuredResult, storeInfo] = await Promise.all([getFeaturedProducts(10, locale), getStoreInfo()]);
   const featured = featuredResult.ok ? featuredResult.data : [];
   const brandLabel = storeInfo?.storeName ?? dict.shell.brand;
-  return <HomeFallback dict={dict} featured={featured} brandLabel={brandLabel} />;
+  const savedProductIds = [...(await getWishlistStatus(featured.map((product) => product.id)))];
+  return (
+    <WishlistProvider initialSavedIds={savedProductIds}>
+      <HomeFallback dict={dict} featured={featured} brandLabel={brandLabel} />
+    </WishlistProvider>
+  );
 }
 
 /** Yapılandırılmamış mağaza fallback'i: sade karşılama bandı + gerçek öne çıkan ürünler. */

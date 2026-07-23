@@ -102,6 +102,7 @@ import type {
   InventoryStoreMatrixResponse,
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerListSummaryResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -643,6 +644,9 @@ export const storeApi = {
   listCustomers: (query?: AdminListRequestQuery) =>
     call<StoreAdminCustomerListResponse>(`/api/customers${listQueryString(query)}`),
   getCustomer: (id: string) => call<StoreAdminCustomerDetailResponse>(`/api/customers/${id}`),
+  // TODO-159D (ADR-093) — Müşteri liste/wishlist salt-okunur özeti (gizlilik-güvenli).
+  getCustomerListSummary: (id: string) =>
+    call<StoreAdminCustomerListSummaryResponse>(`/api/customers/${id}/list-summary`),
   // TODO-087 — müşteri oluşturma + admin tetikli credential/oturum yönetimi.
   createCustomer: (input: StoreAdminCustomerCreateRequest) =>
     mutatingCall<CreateCustomerResult>("/api/customers", {

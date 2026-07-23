@@ -1975,6 +1975,16 @@ export const trStoreAdmin = {
         defaultAddress: "Varsayılan adres",
         noOrders: "Sipariş yok",
       },
+      // TODO-159D (ADR-093) — Müşteri liste/favori salt-okunur özeti (gizlilik-güvenli).
+      lists: {
+        title: "Listeler ve Favoriler",
+        listCount: "Liste sayısı",
+        wishlistItems: "Favori ürün sayısı",
+        totalItems: "Toplam öğe",
+        lastAdded: "Son eklenen",
+        none: "Kayıt yok",
+        loadError: "Liste özeti yüklenemedi.",
+      },
       profile: {
         title: "Profil ve İletişim",
         description: "Müşterinin temel kimlik ve iletişim bilgileri.",

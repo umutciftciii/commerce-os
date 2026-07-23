@@ -7,6 +7,7 @@ import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
 import { mockRating } from "../../lib/mock-rating";
 import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
+import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 
 /**
  * Premium vitrin ürün kartı (TODO-158C yeniden tasarım). Daha kompakt, daha premium:
@@ -27,7 +28,6 @@ export function StorefrontProductCard({
   product: StorefrontProductSummary;
   t: StorefrontDictionary;
 }) {
-  const [saved, setSaved] = useState(false); // MOCK: wishlist — persist yok.
   const [quickOpen, setQuickOpen] = useState(false);
   const href = `/products/${product.handle}`;
   const { campaign } = product;
@@ -61,16 +61,17 @@ export function StorefrontProductCard({
           ) : null}
         </div>
 
-        {/* MOCK: Favori — tokenize cam kontrol. */}
-        <button
-          type="button"
-          onClick={() => setSaved((v) => !v)}
-          aria-label={t.home.card.wishlistAdd}
-          aria-pressed={saved}
-          className="control-surface absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors"
-        >
-          <HeartIcon filled={saved} />
-        </button>
+        {/* TODO-159D (ADR-093) — Gerçek favori toggle (backend durumu + optimistic). */}
+        <WishlistHeartButton
+          productId={product.id}
+          labels={{
+            add: t.home.card.wishlistAdd,
+            remove: t.home.card.wishlistRemove,
+            savedFeedback: t.home.card.wishlistSavedFeedback,
+            removedFeedback: t.home.card.wishlistRemovedFeedback,
+            error: t.home.card.wishlistError,
+          }}
+        />
 
         {/* MOCK: Hızlı bakış — hover'da beliren düğme. */}
         <div className="absolute inset-x-0 bottom-0 translate-y-2 p-3 opacity-0 transition-all duration-300 ease-premium group-hover:translate-y-0 group-hover:opacity-100">
@@ -223,19 +224,5 @@ function PriceBlock({
         <span className={`${strikeSize} text-ink-subtle line-through`}>{price.compareAtLabel}</span>
       ) : null}
     </div>
-  );
-}
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path
-        d="M10 16.5S3 12.5 3 7.75A3.25 3.25 0 0 1 10 5.6a3.25 3.25 0 0 1 7 2.15C17 12.5 10 16.5 10 16.5Z"
-        fill={filled ? "var(--ink)" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

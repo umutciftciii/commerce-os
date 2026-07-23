@@ -16,7 +16,10 @@ import {
 } from "../../components/account/account-sidebar";
 import { OrdersSection } from "../../components/account/sections/orders-section";
 import { CouponsSection } from "../../components/account/sections/coupons-section";
+import { FavoritesSection } from "../../components/account/sections/favorites-section";
+import { ListsSection } from "../../components/account/sections/lists-section";
 import { getCouponCenter } from "../../lib/server/coupons";
+import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
 import { ProfileForm } from "../../components/account/sections/profile-form";
 import { PasswordForm } from "../../components/account/sections/password-form";
 import { CommunicationForm } from "../../components/account/sections/communication-form";
@@ -122,10 +125,28 @@ async function renderSection(
       return <Placeholder title={t.menu.requests} description={t.placeholders.requests} />;
     case "reviews":
       return <Placeholder title={t.menu.reviews} description={t.placeholders.reviews} />;
-    case "favorites":
-      return <Placeholder title={t.menu.favorites} description={t.placeholders.favorites} />;
-    case "lists":
-      return <Placeholder title={t.menu.lists} description={t.placeholders.lists} />;
+    case "favorites": {
+      // TODO-159D (ADR-093) — Beğendiklerim = varsayılan wishlist (gateway lazy-create eder).
+      const lists = await getCustomerLists();
+      const defaultList = lists.find((list) => list.isDefault && list.type === "WISHLIST");
+      if (!defaultList) {
+        return <FavoritesSection defaultListId="" items={[]} otherLists={[]} t={t.wishlist} />;
+      }
+      const detail = await getCustomerListDetail(defaultList.id, { pageSize: 100 });
+      const otherLists = lists.filter((list) => list.id !== defaultList.id);
+      return (
+        <FavoritesSection
+          defaultListId={defaultList.id}
+          items={detail?.detail.items ?? []}
+          otherLists={otherLists}
+          t={t.wishlist}
+        />
+      );
+    }
+    case "lists": {
+      const lists = await getCustomerLists();
+      return <ListsSection lists={lists} t={t.wishlist} />;
+    }
     case "coupons": {
       const center = await getCouponCenter();
       return <CouponsSection coupons={center.coupons} t={t.coupons} />;
