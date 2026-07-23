@@ -18,8 +18,10 @@ import { OrdersSection } from "../../components/account/sections/orders-section"
 import { CouponsSection } from "../../components/account/sections/coupons-section";
 import { FavoritesSection } from "../../components/account/sections/favorites-section";
 import { ListsSection } from "../../components/account/sections/lists-section";
+import { ReviewsSection } from "../../components/account/sections/reviews-section";
 import { getCouponCenter } from "../../lib/server/coupons";
 import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
+import { getMyReviews } from "../../lib/server/reviews";
 import { ProfileForm } from "../../components/account/sections/profile-form";
 import { PasswordForm } from "../../components/account/sections/password-form";
 import { CommunicationForm } from "../../components/account/sections/communication-form";
@@ -123,8 +125,17 @@ async function renderSection(
     }
     case "requests":
       return <Placeholder title={t.menu.requests} description={t.placeholders.requests} />;
-    case "reviews":
-      return <Placeholder title={t.menu.reviews} description={t.placeholders.reviews} />;
+    case "reviews": {
+      const data = await getMyReviews();
+      return (
+        <ReviewsSection
+          t={t}
+          reviews={data?.reviews ?? []}
+          eligible={data?.eligible ?? []}
+          locale={locale}
+        />
+      );
+    }
     case "favorites": {
       // TODO-159D (ADR-093) — Beğendiklerim = varsayılan wishlist (gateway lazy-create eder).
       const lists = await getCustomerLists();

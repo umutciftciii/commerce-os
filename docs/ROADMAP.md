@@ -343,10 +343,22 @@
   sorgular tenant-izole; add/remove idempotent; batch üst sınırı sunucuda; canlı ürün/variant/stok
   otoritesi kullanılır (snapshot'a güvenilmez); guest merge kısmi hatada sessiz veri kaybı yaratmaz.
 
-## Customer Lifecycle — Product Reviews & Ratings (TODO-159E)
+## Customer Lifecycle — Product Reviews & Ratings (TODO-159E · ADR-094)
 
-- Durum: **PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).** Sıra: TODO-159D'den SONRA,
-  TODO-160'tan ÖNCE.
+- Durum: **DONE (tüm katmanlar + gate + testler YEŞİL; commit'e hazır — commit/PR/deploy YAPILMADI).**
+  Analiz: `docs/analysis/TODO-159E-product-reviews-ratings.md`. Karar: **ADR-094**.
+- Domain: `ProductReview` + `ProductReviewHelpful` + `ProductRatingAggregate` (projection) + enum
+  `ProductReviewStatus {PENDING, APPROVED, REJECTED, HIDDEN}`. Migration `20260723160000` (additive).
+- Uygunluk SUNUCU-otoriter (OrderLine↔Order↔Shipment: PAID + not-CANCELLED + DELIVERED/FULFILLED + ürün
+  başına tek yorum). Aggregate = projection otoritesi (tek yazma yolu `recomputeAggregate`; yalnız APPROVED;
+  tamsayı toplam → float drift yok). Public projeksiyon ALLOWLIST (PII/order/note sızmaz).
+- Moderasyon: Store Admin `/reviews` (ADR-089 Data Grid + Modal drawer approve/reject/hide + AuditLog).
+  Storefront PDP gerçek değerlendirme bölümü + Account "Değerlendirmelerim"; 3 kart yüzeyi gerçek batched
+  rating (mockRating KALDIRILDI). Helpful (idempotent, kendi-yorumu engeli, rate-limit).
+- Ertelenen sınırlar: TD-106 (iade sonrası manuel moderasyon), TD-107 (search read-model rating denormalize),
+  TD-108 (review approved/rejected bildirimi — notification-service stub).
+- Eski PLANNED kaydı (referans):
+- Sıra: TODO-159D'den SONRA, TODO-160'tan ÖNCE.
 - Amaç: Ürünlere yıldız puanı + metin yorumu; doğrulanmış alışveriş (verified purchase) temelli güven; PDP
   rating özeti + yorum listesi; Store Admin moderasyonu.
 - Kapsam (taslak): yıldız puanı + metin yorum · sipariş kalemi bazlı yorum uygunluğu (yalnız satın alınan

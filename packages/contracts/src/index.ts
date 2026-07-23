@@ -7212,3 +7212,267 @@ export type CustomerWishlistMergeItem = z.infer<typeof customerWishlistMergeItem
 export type CustomerWishlistMergeRequest = z.infer<typeof customerWishlistMergeRequestSchema>;
 export type CustomerWishlistMergeResponse = z.infer<typeof customerWishlistMergeResponseSchema>;
 export type StoreAdminCustomerListSummaryResponse = z.infer<typeof storeAdminCustomerListSummaryResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-159E (ADR-094) — Product Reviews & Ratings.
+ *
+ * Gerçek, tenant-safe, moderasyonlu ve DOĞRULANMIŞ ALIŞVERİŞ temelli yorum sistemi.
+ * Yorum ÜRÜN seviyesinde yayınlanır/toplanır; variantId yalnız BAĞLAM olarak saklanır.
+ * Uygunluk SUNUCU-otoriter (satın alma kanıtı gateway'de doğrulanır; UI `verifiedPurchase`
+ * değerine ASLA güvenilmez). Aggregate = ProductRatingAggregate projection (yalnız APPROVED;
+ * tamsayı toplamlar → float drift yok). Public projeksiyon ALLOWLIST: müşteri PII / orderId /
+ * orderLineId / moderationNote / iç durum SIZMAZ. Bkz. docs/analysis/TODO-159E-*.md.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const productReviewStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED", "HIDDEN"]);
+export const reviewPublicSortSchema = z.enum(["newest", "oldest", "highest", "lowest", "most_helpful"]);
+export const reviewModerationActionSchema = z.enum(["approve", "reject", "hide"]);
+/** PDP "yorum yaz" uygunluk sonucu (giriş yapılmış müşteri için). */
+export const reviewEligibilityReasonSchema = z.enum([
+  "ELIGIBLE",
+  "NO_ELIGIBLE_PURCHASE",
+  "ALREADY_REVIEWED",
+]);
+
+/** Sunucu-otoriter sınırlar (istemci ne gönderirse göndersin aşılamaz). */
+export const REVIEW_RATING_MIN = 1;
+export const REVIEW_RATING_MAX = 5;
+export const REVIEW_TITLE_MAX_LENGTH = 120;
+export const REVIEW_BODY_MIN_LENGTH = 1;
+export const REVIEW_BODY_MAX_LENGTH = 4000;
+export const REVIEW_MODERATION_NOTE_MAX_LENGTH = 500;
+/** Batched kart summary üst sınırı (PLP/Home/Search tek çağrı). */
+export const REVIEW_SUMMARY_MAX_IDS = 200;
+/** Public yorum listesi varsayılan sayfa boyutu (admin 25'ten küçük). */
+export const REVIEW_PUBLIC_DEFAULT_PAGE_SIZE = 10;
+
+/** Rating değeri: 1–5 arası integer (coerce → query/string güvenli). */
+export const reviewRatingSchema = z.coerce
+  .number()
+  .int()
+  .min(REVIEW_RATING_MIN)
+  .max(REVIEW_RATING_MAX);
+
+/** Yıldız dağılımı: her yıldız (1..5) için APPROVED yorum sayısı. */
+export const ratingDistributionSchema = z.object({
+  "1": z.number().int().nonnegative(),
+  "2": z.number().int().nonnegative(),
+  "3": z.number().int().nonnegative(),
+  "4": z.number().int().nonnegative(),
+  "5": z.number().int().nonnegative(),
+});
+
+/** Ürün rating özeti (aggregate projection'dan). averageRating 1 ondalık. */
+export const reviewSummarySchema = z.object({
+  productId: z.string(),
+  averageRating: z.number().nonnegative(),
+  reviewCount: z.number().int().nonnegative(),
+  ratingDistribution: ratingDistributionSchema,
+});
+
+export const reviewSummaryResponseSchema = z.object({ data: reviewSummarySchema });
+
+/** Batched summary (PLP/Home/Search kartları). Yalnız aggregate satırı olan ürünler döner. */
+export const reviewSummaryBatchRequestSchema = z.object({
+  productIds: z.array(z.string().min(1)).max(REVIEW_SUMMARY_MAX_IDS),
+});
+export const reviewSummaryBatchResponseSchema = z.object({
+  data: z.array(reviewSummarySchema),
+});
+
+/**
+ * Public yorum (ALLOWLIST — müşteri-güvenli alanlar). `authorName` maskeli gösterim adı
+ * (ör. "Ayşe K."). `viewerFoundHelpful` yalnız giriş yapmış müşteride true olabilir.
+ * customerId/email/orderId/orderLineId/moderationNote/status ASLA taşınmaz.
+ */
+export const publicReviewSchema = z.object({
+  id: z.string(),
+  rating: z.number().int(),
+  title: z.string().nullable(),
+  body: z.string(),
+  authorName: z.string(),
+  verifiedPurchase: z.boolean(),
+  helpfulCount: z.number().int().nonnegative(),
+  variantLabel: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
+  viewerFoundHelpful: z.boolean(),
+});
+
+/** Public yorum listesi query: sayfalama + rating filtresi + sıralama. */
+export const reviewPublicListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
+  limit: z.coerce.number().int().positive().max(ADMIN_LIST_MAX_PAGE_SIZE).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+  rating: reviewRatingSchema.optional(),
+  sort: reviewPublicSortSchema.optional(),
+});
+
+export const reviewPublicListResponseSchema = z.object({
+  data: z.array(publicReviewSchema),
+  summary: reviewSummarySchema,
+  pagination: adminListPaginationSchema,
+});
+
+/* ── Customer (x-customer-session) ─────────────────────────────────────────── */
+
+/** Kendi yorumum (tüm durumlar). moderationNote SIZMAZ; yalnız durum + editable. */
+export const customerReviewSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  productTitle: z.string(),
+  productSlug: z.string(),
+  productImageUrl: z.string().nullable(),
+  variantLabel: z.string().nullable(),
+  rating: z.number().int(),
+  title: z.string().nullable(),
+  body: z.string(),
+  status: productReviewStatusSchema,
+  verifiedPurchase: z.boolean(),
+  helpfulCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
+  /** true ise müşteri düzenleyebilir (PENDING/APPROVED/REJECTED; HIDDEN düzenlenemez). */
+  editable: z.boolean(),
+});
+
+/** Yoruma uygun sipariş kalemi (henüz yorumlanmamış, teslim edilmiş+ödenmiş). */
+export const reviewEligibleOrderLineSchema = z.object({
+  orderLineId: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  productId: z.string(),
+  productTitle: z.string(),
+  productSlug: z.string(),
+  productImageUrl: z.string().nullable(),
+  variantLabel: z.string().nullable(),
+  purchasedAt: z.string().datetime(),
+});
+
+export const customerReviewsResponseSchema = z.object({
+  data: z.object({
+    reviews: z.array(customerReviewSchema),
+    eligible: z.array(reviewEligibleOrderLineSchema),
+  }),
+});
+
+/** PDP "yorum yaz" gate'i (belirli ürün için). */
+export const reviewEligibilityResponseSchema = z.object({
+  data: z.object({
+    eligible: z.boolean(),
+    reason: reviewEligibilityReasonSchema,
+    orderLineId: z.string().nullable(),
+    existingReview: customerReviewSchema.nullable(),
+  }),
+});
+
+export const reviewCreateRequestSchema = z.object({
+  orderLineId: z.string().min(1),
+  rating: reviewRatingSchema,
+  title: z.string().trim().max(REVIEW_TITLE_MAX_LENGTH).nullish(),
+  body: z.string().trim().min(REVIEW_BODY_MIN_LENGTH).max(REVIEW_BODY_MAX_LENGTH),
+});
+
+export const reviewUpdateRequestSchema = z.object({
+  rating: reviewRatingSchema,
+  title: z.string().trim().max(REVIEW_TITLE_MAX_LENGTH).nullish(),
+  body: z.string().trim().min(REVIEW_BODY_MIN_LENGTH).max(REVIEW_BODY_MAX_LENGTH),
+});
+
+export const customerReviewMutationResponseSchema = z.object({ data: customerReviewSchema });
+
+/** Faydalı oyu toggle. `helpful` verilirse açık set (çift-tık güvenli), yoksa toggle. */
+export const reviewHelpfulRequestSchema = z.object({
+  helpful: z.boolean().optional(),
+});
+export const reviewHelpfulResponseSchema = z.object({
+  data: z.object({
+    reviewId: z.string(),
+    helpful: z.boolean(),
+    helpfulCount: z.number().int().nonnegative(),
+  }),
+});
+
+/* ── Store Admin (platform-admin bearer) ───────────────────────────────────── */
+
+/** Admin liste satırı. Müşteri adı moderasyon için görünür (public'te maskeli). */
+export const adminReviewSummarySchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  productTitle: z.string(),
+  variantLabel: z.string().nullable(),
+  customerName: z.string(),
+  rating: z.number().int(),
+  title: z.string().nullable(),
+  bodyPreview: z.string(),
+  status: productReviewStatusSchema,
+  verifiedPurchase: z.boolean(),
+  helpfulCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  publishedAt: z.string().datetime().nullable(),
+});
+
+/** Admin detay (moderasyon drawer). Tam gövde + not + sipariş/müşteri referansı. */
+export const adminReviewDetailSchema = adminReviewSummarySchema.extend({
+  body: z.string(),
+  moderationNote: z.string().nullable(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  customerId: z.string(),
+  customerEmail: z.string().nullable(),
+  updatedAt: z.string().datetime(),
+});
+
+export const adminReviewListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: z.enum(["createdAt", "rating", "status", "helpfulCount"]).optional(),
+  status: productReviewStatusSchema.optional(),
+  rating: reviewRatingSchema.optional(),
+  verifiedPurchase: z.enum(["true", "false"]).optional(),
+  productId: z.string().min(1).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+export const adminReviewListResponseSchema = z.object({
+  data: z.array(adminReviewSummarySchema),
+  pagination: adminListPaginationSchema,
+});
+
+export const adminReviewDetailResponseSchema = z.object({ data: adminReviewDetailSchema });
+
+export const reviewModerateRequestSchema = z.object({
+  action: reviewModerationActionSchema,
+  moderationNote: z.string().trim().max(REVIEW_MODERATION_NOTE_MAX_LENGTH).nullish(),
+});
+export const reviewModerateResponseSchema = z.object({ data: adminReviewDetailSchema });
+
+export type ProductReviewStatus = z.infer<typeof productReviewStatusSchema>;
+export type ReviewPublicSort = z.infer<typeof reviewPublicSortSchema>;
+export type ReviewModerationAction = z.infer<typeof reviewModerationActionSchema>;
+export type ReviewEligibilityReason = z.infer<typeof reviewEligibilityReasonSchema>;
+export type RatingDistribution = z.infer<typeof ratingDistributionSchema>;
+export type ReviewSummary = z.infer<typeof reviewSummarySchema>;
+export type ReviewSummaryResponse = z.infer<typeof reviewSummaryResponseSchema>;
+export type ReviewSummaryBatchRequest = z.infer<typeof reviewSummaryBatchRequestSchema>;
+export type ReviewSummaryBatchResponse = z.infer<typeof reviewSummaryBatchResponseSchema>;
+export type PublicReview = z.infer<typeof publicReviewSchema>;
+export type ReviewPublicListQuery = z.infer<typeof reviewPublicListQuerySchema>;
+export type ReviewPublicListResponse = z.infer<typeof reviewPublicListResponseSchema>;
+export type CustomerReview = z.infer<typeof customerReviewSchema>;
+export type ReviewEligibleOrderLine = z.infer<typeof reviewEligibleOrderLineSchema>;
+export type CustomerReviewsResponse = z.infer<typeof customerReviewsResponseSchema>;
+export type ReviewEligibilityResponse = z.infer<typeof reviewEligibilityResponseSchema>;
+export type ReviewCreateRequest = z.infer<typeof reviewCreateRequestSchema>;
+export type ReviewUpdateRequest = z.infer<typeof reviewUpdateRequestSchema>;
+export type CustomerReviewMutationResponse = z.infer<typeof customerReviewMutationResponseSchema>;
+export type ReviewHelpfulRequest = z.infer<typeof reviewHelpfulRequestSchema>;
+export type ReviewHelpfulResponse = z.infer<typeof reviewHelpfulResponseSchema>;
+export type AdminReviewSummary = z.infer<typeof adminReviewSummarySchema>;
+export type AdminReviewDetail = z.infer<typeof adminReviewDetailSchema>;
+export type AdminReviewListQuery = z.infer<typeof adminReviewListQuerySchema>;
+export type AdminReviewListResponse = z.infer<typeof adminReviewListResponseSchema>;
+export type AdminReviewDetailResponse = z.infer<typeof adminReviewDetailResponseSchema>;
+export type ReviewModerateRequest = z.infer<typeof reviewModerateRequestSchema>;
+export type ReviewModerateResponse = z.infer<typeof reviewModerateResponseSchema>;

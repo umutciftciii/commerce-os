@@ -5,9 +5,9 @@ import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
-import { mockRating } from "../../lib/mock-rating";
 import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
+import { useRating, type CardRating } from "../reviews/rating-provider";
 
 /**
  * Premium vitrin ürün kartı (TODO-158C yeniden tasarım). Daha kompakt, daha premium:
@@ -15,11 +15,10 @@ import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
  * sistemi (kampanya / indirim / yeni / TÜKENDİ), belirgin fiyat, tokenize edilmiş
  * medya-üzeri kontroller (`control-surface`, `overlay-scrim`) — ham black/white YOK.
  *
- * GERÇEK veri: başlık, marka/kategori, fiyat, compareAt, kampanya, stok durumu.
+ * GERÇEK veri: başlık, marka/kategori, fiyat, compareAt, kampanya, stok durumu, PUANLAMA
+ * (TODO-159E/ADR-094 — batched aggregate; yorumu yoksa yıldız satırı gizlenir).
  * MOCK etkileşimler (backend karşılığı yok — bkz. todo.md):
- *  - Favori (wishlist) — yalnız yerel geçici durum, persist YOK.
  *  - Hızlı bakış (quick view) — mevcut özet veriyle küçük modal.
- *  - Puanlama — deterministik yer tutucu.
  */
 export function StorefrontProductCard({
   product,
@@ -31,7 +30,7 @@ export function StorefrontProductCard({
   const [quickOpen, setQuickOpen] = useState(false);
   const href = `/products/${product.handle}`;
   const { campaign } = product;
-  const rating = mockRating(product.handle);
+  const rating = useRating(product.id);
   // GERÇEK: yalnız ONLINE satış modunda satın alınamıyorsa "Tükendi" (diğer modlar sepet dışıdır).
   const soldOut = product.commerce.salesMode === "ONLINE" && !product.commerce.purchasable;
   const promoLabel = campaign
@@ -98,12 +97,17 @@ export function StorefrontProductCard({
           </h3>
         </Link>
 
-        <div className="mt-1 flex items-center gap-1.5">
-          <Stars rating={rating.value} ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })} />
-          <span className="text-[11px] text-ink-subtle">
-            {format(t.home.card.reviews, { count: rating.count })}
-          </span>
-        </div>
+        {rating ? (
+          <div className="mt-1 flex items-center gap-1.5">
+            <Stars
+              rating={rating.average}
+              ariaLabel={format(t.home.card.ratingAria, { rating: rating.average.toFixed(1) })}
+            />
+            <span className="text-[11px] text-ink-subtle">
+              {format(t.home.card.reviews, { count: rating.count })}
+            </span>
+          </div>
+        ) : null}
 
         <PriceBlock product={product} t={t} size="sm" />
       </div>
@@ -115,7 +119,7 @@ export function StorefrontProductCard({
   );
 }
 
-/** MOCK: hızlı bakış modalı — mevcut özet veriyle (ekstra istek yok). */
+/** Hızlı bakış modalı — mevcut özet veriyle (ekstra istek yok); rating gerçek (yoksa gizli). */
 function QuickView({
   product,
   rating,
@@ -123,7 +127,7 @@ function QuickView({
   onClose,
 }: {
   product: StorefrontProductSummary;
-  rating: { value: number; count: number };
+  rating: CardRating | null;
   t: StorefrontDictionary;
   onClose: () => void;
 }) {
@@ -162,10 +166,12 @@ function QuickView({
           <h2 className="font-serif text-2xl font-normal tracking-tightish text-ink">
             {product.title}
           </h2>
-          <Stars
-            rating={rating.value}
-            ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
-          />
+          {rating ? (
+            <Stars
+              rating={rating.average}
+              ariaLabel={format(t.home.card.ratingAria, { rating: rating.average.toFixed(1) })}
+            />
+          ) : null}
           <PriceBlock product={product} t={t} size="md" />
           <ButtonLink href={href} variant="primary" className="mt-2 w-full">
             {t.home.card.viewProduct}

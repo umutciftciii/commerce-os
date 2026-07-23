@@ -11,7 +11,9 @@ import {
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HomeSections } from "../components/site/home/home-sections";
 import { WishlistProvider } from "../components/wishlist/wishlist-provider";
+import { RatingProvider } from "../components/reviews/rating-provider";
 import { getWishlistStatus } from "../lib/server/wishlist";
+import { getCardRatings } from "../lib/server/reviews";
 import { EditorialBanner, ValueProps } from "../components/site/home/editorial";
 import type { Metadata } from "next";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
@@ -55,10 +57,15 @@ export default async function HomePage() {
     const showcaseIds = home.sections.flatMap((section) =>
       section.type === "PRODUCT_SHOWCASE" ? section.products.map((product) => product.id) : [],
     );
-    const savedProductIds = [...(await getWishlistStatus(showcaseIds))];
+    const [savedProductIds, cardRatings] = await Promise.all([
+      getWishlistStatus(showcaseIds).then((set) => [...set]),
+      getCardRatings(showcaseIds),
+    ]);
     return (
       <WishlistProvider initialSavedIds={savedProductIds}>
-        <HomeSections sections={home.sections} dict={dict} />
+        <RatingProvider summaries={cardRatings}>
+          <HomeSections sections={home.sections} dict={dict} />
+        </RatingProvider>
       </WishlistProvider>
     );
   }
@@ -67,10 +74,16 @@ export default async function HomePage() {
   const [featuredResult, storeInfo] = await Promise.all([getFeaturedProducts(10, locale), getStoreInfo()]);
   const featured = featuredResult.ok ? featuredResult.data : [];
   const brandLabel = storeInfo?.storeName ?? dict.shell.brand;
-  const savedProductIds = [...(await getWishlistStatus(featured.map((product) => product.id)))];
+  const featuredIds = featured.map((product) => product.id);
+  const [savedProductIds, cardRatings] = await Promise.all([
+    getWishlistStatus(featuredIds).then((set) => [...set]),
+    getCardRatings(featuredIds),
+  ]);
   return (
     <WishlistProvider initialSavedIds={savedProductIds}>
-      <HomeFallback dict={dict} featured={featured} brandLabel={brandLabel} />
+      <RatingProvider summaries={cardRatings}>
+        <HomeFallback dict={dict} featured={featured} brandLabel={brandLabel} />
+      </RatingProvider>
     </WishlistProvider>
   );
 }

@@ -4,11 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { ListingSwatch, SearchListingCard } from "../../lib/search/listing-adapter";
-import { mockRating } from "../../lib/mock-rating";
 import { Badge } from "../ui/badge";
 import { ProductMedia } from "../ui/product-media";
 import { Stars } from "../ui/stars";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
+import { useRating } from "../reviews/rating-provider";
 
 /**
  * TODO-156B (ANALIZ-156A §5-§9) — Public search projeksiyonuyla beslenen PLP kartı.
@@ -38,9 +38,9 @@ export function SearchProductCard({
   const s = t.search;
   // Aktif swatch önizleme (hover/focus ile set; ayrılınca temizlenir). Yalnız görsel state.
   const [activeSwatch, setActiveSwatch] = useState<ListingSwatch | null>(null);
-  // Puan/değerlendirme: handle'dan deterministik yer tutucu (lib/mock-rating) — MOCK.
-  // Favori (wishlist) artık GERÇEK: WishlistHeartButton + backend durumu (TODO-159D).
-  const rating = mockRating(card.slug);
+  // Puan/değerlendirme GERÇEK (TODO-159E/ADR-094 — batched aggregate; yorumu yoksa gizli).
+  // Favori (wishlist) da GERÇEK: WishlistHeartButton + backend durumu (TODO-159D).
+  const rating = useRating(card.id);
 
   // Görsel öncelik: aktif swatch görseli > (secondary hover CSS ile) > primary/placeholder.
   const baseImageUrl = activeSwatch?.imageUrl ?? card.primaryImage?.url ?? null;
@@ -117,16 +117,18 @@ export function SearchProductCard({
           </h3>
         </Link>
 
-        {/* MOCK: Puan + değerlendirme sayısı — Home kartı/PDP ile AYNI deterministik yer tutucu (lib/mock-rating). */}
-        <div className="mt-1 flex items-center gap-1.5">
-          <Stars
-            rating={rating.value}
-            ariaLabel={format(t.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
-          />
-          <span className="text-[11px] text-ink-subtle">
-            {format(t.home.card.reviews, { count: rating.count })}
-          </span>
-        </div>
+        {/* GERÇEK puan + değerlendirme sayısı (batched aggregate). Yorumu yoksa satır gizlenir. */}
+        {rating ? (
+          <div className="mt-1 flex items-center gap-1.5">
+            <Stars
+              rating={rating.average}
+              ariaLabel={format(t.home.card.ratingAria, { rating: rating.average.toFixed(1) })}
+            />
+            <span className="text-[11px] text-ink-subtle">
+              {format(t.home.card.reviews, { count: rating.count })}
+            </span>
+          </div>
+        ) : null}
 
         <PriceBlock card={card} t={t} />
 

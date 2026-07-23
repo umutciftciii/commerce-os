@@ -255,6 +255,17 @@ enum InventoryReservationStatus {
   CONSUMED
 }
 
+// TODO-159E (ADR-094) — Ürün yorumu moderasyon durumu.
+// PENDING: yeni/onaylı-iken-düzenlenen (public'te görünmez, aggregate dışı).
+// APPROVED: yayında (public + aggregate). REJECTED: hiç yayınlanmadı.
+// HIDDEN: onaylıydı, admin gizledi (aggregate dışı). Yorum SİLİNMEZ, durum değişir.
+enum ProductReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+}
+
 // TODO-152 (ADR-076) — Inventory Engine · depo durumu. INACTIVE depo yeni stok işlemine kapalı.
 enum WarehouseStatus {
   ACTIVE
@@ -648,6 +659,10 @@ model Store {
   // TODO-159D (ADR-093) — Customer Lists & Wishlist: ortak liste altyapisi (store-scoped tenant sutunu).
   customerLists                    CustomerList[]
   customerListItems                CustomerListItem[]
+  // TODO-159E (ADR-094) — Product Reviews & Ratings (store-scoped tenant sutunu).
+  productReviews                   ProductReview[]
+  productReviewHelpfuls            ProductReviewHelpful[]
+  productRatingAggregates          ProductRatingAggregate[]
 }
 
 model StoreUser {
@@ -837,6 +852,9 @@ model Product {
   // onDelete: Cascade → ürün FİZİKSEL silinince öğe kalkar (soft-archive'de öğe KORUNUR,
   // liste detayı canlı hidrasyonla UNAVAILABLE gösterir). Bkz. ADR-093 §FK kararı.
   customerListItems      CustomerListItem[]
+  // TODO-159E (ADR-094) — Ürün yorumları + rating aggregate projection (1-1).
+  reviews                ProductReview[]
+  ratingAggregate        ProductRatingAggregate?
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -918,6 +936,8 @@ model ProductVariant {
   // TODO-159D (ADR-093) — Customer Lists & Wishlist: bu varyanti iceren varyant-ozel liste ogeleri.
   // onDelete: Cascade → varyant FIZIKSEL silinince oge kalkar (butun-urun ogesi variantId=NULL etkilenmez).
   customerListItems     CustomerListItem[]
+  // TODO-159E (ADR-094) — bu varyant BAGLAMINDA yazilmis yorumlar (SetNull → varyant silinince yorum yasar).
+  reviews               ProductReview[]
 
   @@unique([storeId, sku])
   // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
@@ -1164,6 +1184,9 @@ model Customer {
   customerCoupons         CustomerCoupon[]
   // TODO-159D (ADR-093) — Customer Lists & Wishlist (favori + alisveris listeleri).
   customerLists           CustomerList[]
+  // TODO-159E (ADR-094) — Product Reviews & Ratings (musterinin yorumlari + faydali oylari).
+  productReviews          ProductReview[]
+  productReviewHelpfuls   ProductReviewHelpful[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -1403,6 +1426,8 @@ model Order {
   discounts       OrderDiscount[]
   redemptions     CampaignRedemption[]
   customerCoupons CustomerCoupon[]
+  // TODO-159E (ADR-094) — bu siparisten dogan urun yorumlari (uygunluk provenance'i).
+  reviews         ProductReview[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -1448,6 +1473,8 @@ model OrderLine {
   product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
   variant      ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
   reservations InventoryReservation[]
+  // TODO-159E (ADR-094) — bir sipariş kalemi en fazla bir yoruma kaynak (orderLineId UNIQUE).
+  review       ProductReview?
 
   @@index([storeId])
   @@index([orderId])
@@ -2275,6 +2302,103 @@ model CustomerListItem {
   @@index([listId, addedAt])
   @@index([productId])
   @@index([variantId])
+}
+
+// ============================================================================
+// TODO-159E (ADR-094) — Product Reviews & Ratings.
+//
+// Gerçek, tenant-safe, moderasyonlu ve DOĞRULANMIŞ ALIŞVERİŞ temelli yorum sistemi.
+// Yorum ÜRÜN seviyesinde yayınlanır/toplanır; variantId yalnız bağlam olarak saklanır.
+// Uygunluk SUNUCU-otoriter (satın alma kanıtı gateway'de doğrulanır; UI'ya güvenilmez).
+// Product/Variant modeline JSON yorum alanı EKLENMEZ (ayrı normalize tablo).
+// ============================================================================
+
+model ProductReview {
+  id          String              @id @default(cuid())
+  storeId     String
+  productId   String
+  // Hangi varyant satın alındı (sipariş kaleminden türetilir) — yalnız BAĞLAM.
+  // Ürün-seviyesi yayın/aggregate; varyant silinince SetNull (yorum yaşamaya devam).
+  variantId   String?
+  customerId  String
+  // Uygunluk kanıtı + provenance (public projeksiyonda ASLA sızmaz).
+  orderId     String
+  orderLineId String
+  rating      Int
+  title       String?
+  body        String
+  status      ProductReviewStatus @default(PENDING)
+  // Uygunluk zaten teslim edilmiş + ödenmiş sipariş ister → oluşturulan her yorum
+  // doğrulanmış alışverişten doğar. İade/iptal sonrası KORUNUR (bkz. ADR-094 §1.6).
+  verifiedPurchase Boolean        @default(true)
+  // Denormalize sayaç (liste N+1'i önler; helpful add/remove ile aynı tx'te güncellenir).
+  helpfulCount   Int              @default(0)
+  moderationNote String?
+  publishedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  store     Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product   Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  customer  Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order     Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderLine OrderLine              @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  helpfulVotes ProductReviewHelpful[]
+
+  // Bir sipariş kalemi en fazla bir yoruma kaynak (§14). Bir müşteri bir ürüne en
+  // fazla bir yorum (roadmap kabul kriteri). İkisi de servis check-then-insert + P2002.
+  @@unique([orderLineId])
+  @@unique([storeId, productId, customerId])
+  // Admin Data Grid: store-scoped + durum + tarih sıralama (tek erişimde WHERE+ORDER BY).
+  @@index([storeId, status, createdAt])
+  // Public liste: ürün-scoped + APPROVED + tarih.
+  @@index([productId, status, createdAt])
+  // Aggregate yeniden hesap: store+ürün+durum groupBy.
+  @@index([storeId, productId, status])
+  // Account "Değerlendirmelerim".
+  @@index([customerId])
+}
+
+// Faydalı buldum oyu. Bir müşteri bir yoruma en fazla bir oy (unique). Guest YOK.
+// Kendi yorumuna oy servis katmanında engellenir. Toplam sayaç ProductReview.helpfulCount.
+model ProductReviewHelpful {
+  id         String   @id @default(cuid())
+  storeId    String
+  reviewId   String
+  customerId String
+  createdAt  DateTime @default(now())
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  review   ProductReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, customerId])
+  @@index([storeId])
+  @@index([customerId])
+}
+
+// Rating aggregate PROJECTION (ürün başına tek satır). TEK yazma yolu:
+// recomputeAggregate(tx, storeId, productId) — APPROVED yorumları sıfırdan sayar.
+// Yalnız APPROVED dâhil. Float drift'e karşı TAMSAYI toplamlar; ortalama okuma anında
+// türetilir (averageTimes100 = round(sumRating*100/reviewCount)). Bkz. ADR-094 §aggregate.
+model ProductRatingAggregate {
+  productId       String   @id
+  storeId         String
+  reviewCount     Int      @default(0)
+  sumRating       Int      @default(0)
+  count1          Int      @default(0)
+  count2          Int      @default(0)
+  count3          Int      @default(0)
+  count4          Int      @default(0)
+  count5          Int      @default(0)
+  averageTimes100 Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }
 
 // ============================================================================

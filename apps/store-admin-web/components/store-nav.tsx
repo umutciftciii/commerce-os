@@ -9,6 +9,7 @@ import {
   CampaignIcon,
   CategoryIcon,
   CustomerIcon,
+  ReviewIcon,
   DashboardIcon,
   HomeIcon,
   InventoryIcon,
@@ -58,6 +59,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       items: [
         { href: "/orders", label: t.orders, icon: <OrderIcon /> },
         { href: "/customers", label: t.customers, icon: <CustomerIcon /> },
+        { href: "/reviews", label: t.reviews, icon: <ReviewIcon /> },
         { href: "/payment-providers", label: t.paymentProviders, icon: <PaymentIcon /> },
         { href: "/shipping/shipments", label: t.shipments, icon: <ShippingIcon /> },
         { href: "/shipping/providers", label: t.shippingProviders, icon: <ShippingIcon /> },
