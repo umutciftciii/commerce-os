@@ -67,14 +67,17 @@ function hasVatSnapshot(line: SalesSummaryLineInput): boolean {
 
 export function buildOrderSalesSummary(order: SalesSummaryOrderInput): OrderSalesSummary {
   // Bölüm A — Ödeme/tutar özeti (mevcut alanlardan; snapshot gerektirmez).
-  const settled = order.paymentAttempts.find(
-    (attempt) => attempt.status === "PAID" || attempt.status === "AUTHORIZED",
-  );
-  const paidGrossMinor = settled
-    ? settled.amount
-    : order.paymentStatus === "PAID" || order.paymentStatus === "AUTHORIZED"
-      ? order.totalAmount
-      : 0;
+  // TODO-159F — Tahsil edilmiş (PAID/AUTHORIZED) TÜM denemeler toplanır (online + manuel).
+  // Deneme yoksa ve sipariş PAID/AUTHORIZED ise genel toplama düşülür (legacy siparişler).
+  const capturedAttemptsMinor = order.paymentAttempts
+    .filter((attempt) => attempt.status === "PAID" || attempt.status === "AUTHORIZED")
+    .reduce((sum, attempt) => sum + attempt.amount, 0);
+  const paidGrossMinor =
+    capturedAttemptsMinor > 0
+      ? Math.min(capturedAttemptsMinor, order.totalAmount)
+      : order.paymentStatus === "PAID" || order.paymentStatus === "AUTHORIZED"
+        ? order.totalAmount
+        : 0;
   const labels = order.discounts.map((discount) => discount.label).filter((label) => label.length > 0);
   const discountLabel = labels.length > 0 ? labels.join(" + ") : null;
 

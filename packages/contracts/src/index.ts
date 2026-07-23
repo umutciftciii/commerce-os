@@ -378,7 +378,18 @@ export const inventoryMovementTypeSchema = z.enum([
 export const customerStatusSchema = z.enum(["ACTIVE", "ARCHIVED"]);
 export const addressTypeSchema = z.enum(["SHIPPING", "BILLING"]);
 export const orderStatusSchema = z.enum(["DRAFT", "PLACED", "CONFIRMED", "CANCELLED", "FULFILLED"]);
-export const paymentStatusSchema = z.enum(["UNPAID", "AUTHORIZED", "PAID", "REFUNDED"]);
+// TODO-159F (ADR-095) — Genişletilmiş sipariş ödeme durum makinesi. Tek otorite
+// `apps/api-gateway/src/payments/payment-state.ts`. ADDITIVE: eski değerler korunur.
+export const paymentStatusSchema = z.enum([
+  "UNPAID",
+  "PAYMENT_PENDING",
+  "AUTHORIZED",
+  "PAID",
+  "PARTIALLY_REFUNDED",
+  "REFUNDED",
+  "PAYMENT_FAILED",
+  "CANCELLED",
+]);
 export const fulfillmentStatusSchema = z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED", "CANCELLED"]);
 export const inventoryReservationStatusSchema = z.enum(["ACTIVE", "RELEASED", "CONSUMED"]);
 
@@ -3721,10 +3732,19 @@ export const orderEventSchema = z.object({
  * Full PAN/CVC ASLA; yalniz turetilmis guvenli alanlar (marka/son4/taksit) +
  * saglayici islem referansi + durum + zaman damgalari. Enum'lar inline (sira bagimsiz).
  */
+// TODO-159F (ADR-098) — Manuel (offline) tahsilat yöntemi allowlist'i.
+export const paymentManualMethodSchema = z.enum(["BANK_TRANSFER", "CASH", "POS", "OTHER"]);
+export type PaymentManualMethod = z.infer<typeof paymentManualMethodSchema>;
+
+export const paymentAttemptTypeSchema = z.enum(["ONLINE", "MANUAL"]);
+export type PaymentAttemptType = z.infer<typeof paymentAttemptTypeSchema>;
+
 export const orderPaymentAttemptSchema = z.object({
   id: z.string().min(1),
-  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
-  mode: z.enum(["TEST", "LIVE"]),
+  // TODO-159F (ADR-098) — MANUAL attempt'te provider/mode yoktur → nullable.
+  type: paymentAttemptTypeSchema.default("ONLINE"),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
+  mode: z.enum(["TEST", "LIVE"]).nullable(),
   method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
   amount: z.number().int().nonnegative(),
   currency: currencySchema,
@@ -3748,6 +3768,13 @@ export const orderPaymentAttemptSchema = z.object({
   failureMessage: z.string().nullable(),
   paidAt: z.string().datetime().nullable(),
   failedAt: z.string().datetime().nullable(),
+  // TODO-159F — recovery alanları (ALLOWLIST: plain token/secret ASLA dönmez).
+  expiresAt: z.string().datetime().nullable().default(null),
+  hasActiveLink: z.boolean().default(false),
+  manualMethod: paymentManualMethodSchema.nullable().default(null),
+  manualReference: z.string().nullable().default(null),
+  manualNote: z.string().nullable().default(null),
+  collectedAt: z.string().datetime().nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -4101,6 +4128,152 @@ export const paymentProviderEventSchema = z.object({
 export const paymentProviderEventListResponseSchema = z.object({
   data: z.array(paymentProviderEventSchema),
 });
+
+/* ─────────────── TODO-159F — Order Payment Recovery & Collection ─────────────── */
+
+/**
+ * Admin ödeme denemesi görünümü (ALLOWLIST). orderPaymentAttemptSchema + paylaşılabilir
+ * ödeme bağlantısı. plain access token / secret / provider credential ASLA dönmez;
+ * `paymentLinkUrl` bilinçli olarak paylaşılan bearer linktir (yalnız aktif online link'te).
+ */
+export const paymentRecoveryAttemptSchema = orderPaymentAttemptSchema.extend({
+  // Mutlak müşteri ödeme adresi (STOREFRONT_PUBLIC_BASE_URL varsa), yoksa göreli /pay/:token.
+  paymentLinkUrl: z.string().nullable().default(null),
+  initiatedBy: z.string().nullable().default(null),
+});
+export type PaymentRecoveryAttempt = z.infer<typeof paymentRecoveryAttemptSchema>;
+
+/** Admin'in tahsilat için seçebileceği uygun sağlayıcı (secret DÖNMEZ). */
+export const paymentRecoveryProviderOptionSchema = z.object({
+  providerConfigId: z.string().min(1),
+  provider: paymentProviderTypeSchema,
+  displayName: z.string(),
+  mode: paymentProviderModeSchema,
+  supportedMethods: z.array(paymentMethodTypeSchema),
+  installmentEnabled: z.boolean(),
+});
+export type PaymentRecoveryProviderOption = z.infer<typeof paymentRecoveryProviderOptionSchema>;
+
+/**
+ * Sipariş ödeme durumu (admin). Kalan bakiye + uygun sağlayıcılar + aktif deneme +
+ * geçmiş. Tutar otoritesi order snapshot'ıdır (client ASLA amount/currency belirlemez).
+ */
+export const orderPaymentStateResponseSchema = z.object({
+  orderId: z.string().min(1),
+  orderNumber: z.string().min(1),
+  currency: currencySchema,
+  paymentStatus: paymentStatusSchema,
+  payableMinor: z.number().int().nonnegative(),
+  capturedMinor: z.number().int().nonnegative(),
+  remainingMinor: z.number().int().nonnegative(),
+  canStartCollection: z.boolean(),
+  // Store'da hiç ENABLED provider yoksa false → admin "sağlayıcı tanımlayın" mesajı gösterir.
+  providersConfigured: z.boolean(),
+  // TODO-159F (TD-110) — Gerçek e-posta teslimatı yapılandırılmış mı? false ise admin
+  // "Müşteriye Gönder" aksiyonunu AKTİF göstermez (sahte gönderim YOK); kopyala yeterli.
+  emailDeliveryConfigured: z.boolean().default(false),
+  availableProviders: z.array(paymentRecoveryProviderOptionSchema),
+  manualMethods: z.array(paymentManualMethodSchema),
+  activeAttempt: paymentRecoveryAttemptSchema.nullable(),
+  attempts: z.array(paymentRecoveryAttemptSchema),
+});
+export type OrderPaymentStateResponse = z.infer<typeof orderPaymentStateResponseSchema>;
+
+/** Ödeme bağlantısı oluştur/yenile. providerConfigId opsiyonel (yoksa sunucu seçer). */
+export const createPaymentLinkRequestSchema = z.object({
+  providerConfigId: z.string().min(1).optional(),
+});
+export type CreatePaymentLinkRequest = z.infer<typeof createPaymentLinkRequestSchema>;
+
+/** Ödeme bağlantısını e-posta ile gönder. email verilmezse siparişin iletişim e-postası. */
+export const sendPaymentLinkEmailRequestSchema = z.object({
+  email: z.string().email().max(320).optional(),
+});
+export type SendPaymentLinkEmailRequest = z.infer<typeof sendPaymentLinkEmailRequestSchema>;
+
+export const sendPaymentLinkEmailResponseSchema = z.object({
+  // Yalnız gerçek provider teslimat sonucu kabul edilirse true (SENT). FAILED → false.
+  sent: z.boolean(),
+  delivery: z.enum(["QUEUED", "SENDING", "SENT", "FAILED"]),
+  recipientEmail: z.string(),
+  attempt: paymentRecoveryAttemptSchema,
+});
+export type SendPaymentLinkEmailResponse = z.infer<typeof sendPaymentLinkEmailResponseSchema>;
+
+/**
+ * Manuel (offline) tahsilat kaydı. Sunucu-otoriter: amount kalan bakiyeyi AŞAMAZ,
+ * currency sipariş para birimiyle eşleşmeli. MVP: tam tahsilat (amount === kalan) → PAID;
+ * kısmi tahsilat REDDEDİLİR.
+ */
+export const recordManualPaymentRequestSchema = z.object({
+  method: paymentManualMethodSchema,
+  amountMinor: z.number().int().positive(),
+  currency: currencySchema,
+  reference: z.string().max(200).optional(),
+  note: z.string().max(1000).optional(),
+  collectedAt: z.string().datetime().optional(),
+});
+export type RecordManualPaymentRequest = z.infer<typeof recordManualPaymentRequestSchema>;
+
+/** Ödeme bağlantısı oluşturma/yenileme yanıtı. */
+export const paymentLinkResponseSchema = z.object({
+  attempt: paymentRecoveryAttemptSchema,
+  paymentLinkUrl: z.string(),
+  paymentPath: z.string(),
+  expiresAt: z.string().datetime(),
+});
+export type PaymentLinkResponse = z.infer<typeof paymentLinkResponseSchema>;
+
+/* ---- Public müşteri ödeme sayfası (/pay/:token) — opaque token ---- */
+
+/**
+ * Token çözümleme yanıtı (ALLOWLIST). Sipariş no + tutar + durum + ödeme seçenekleri.
+ * GÖSTERİLMEZ: admin/internal alanlar, maliyet/kâr, başka müşteri bilgisi, tam yönetim
+ * detayı, sipariş ID'si. paymentStatus dışarıya UNPAID/PAYMENT_PENDING/PAID/... döner.
+ */
+export const publicPayResolveResponseSchema = z.object({
+  orderNumber: z.string(),
+  storeName: z.string(),
+  currency: currencySchema,
+  amountMinor: z.number().int().nonnegative(),
+  paymentStatus: paymentStatusSchema,
+  provider: paymentProviderTypeSchema.nullable(),
+  mode: paymentProviderModeSchema.nullable(),
+  method: paymentMethodTypeSchema,
+  expiresAt: z.string().datetime().nullable(),
+  // Ödeme başlatılabilir mi? (UNPAID/PAYMENT_PENDING + token geçerli + süresi dolmamış).
+  payable: z.boolean(),
+  // Bu fazda yalnız MOCK sandbox tamamlanabilir; gerçek provider kontrollü hata döner.
+  sandbox: z.boolean(),
+  scenarios: z.array(publicPaymentScenarioSchema),
+});
+export type PublicPayResolveResponse = z.infer<typeof publicPayResolveResponseSchema>;
+
+export const publicPayStartRequestSchema = z.object({
+  card: publicPaymentCardSchema.optional(),
+  scenario: publicPaymentScenarioSchema.optional(),
+  threeDsAction: publicPaymentThreeDsActionSchema.optional(),
+});
+export type PublicPayStartRequest = z.infer<typeof publicPayStartRequestSchema>;
+
+export const publicPayResultResponseSchema = z.object({
+  orderNumber: z.string(),
+  paymentStatus: paymentStatusSchema,
+  status: z.enum([
+    "CREATED",
+    "PENDING",
+    "REQUIRES_ACTION",
+    "AUTHORIZED",
+    "PAID",
+    "FAILED",
+    "CANCELLED",
+    "REFUNDED",
+  ]),
+  requiresAction: z.boolean(),
+  failureCode: z.string().nullable(),
+  failureMessage: z.string().nullable(),
+});
+export type PublicPayResultResponse = z.infer<typeof publicPayResultResponseSchema>;
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type ErrorResponse = z.infer<typeof errorResponseSchema>;

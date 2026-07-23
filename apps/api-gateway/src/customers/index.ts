@@ -989,7 +989,8 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         })),
         payment: payment
           ? {
-              provider: payment.provider,
+              // TODO-159F — MANUAL (offline) tahsilatta provider yoktur; müşteri görünümünde "MANUAL".
+              provider: payment.provider ?? "MANUAL",
               method: payment.method,
               cardBrand: payment.cardBrand,
               cardLast4: payment.cardLast4,

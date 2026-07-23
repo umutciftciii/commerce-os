@@ -6400,7 +6400,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
       payload: { storeId: STORE, eventId: "evt_1" },
     });
     expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual({ received: true, duplicate: false });
+    // TODO-159F — webhook yanıtı `applied` (order transition uygulandı mı) alanını taşır.
+    expect(first.json()).toEqual({ received: true, duplicate: false, applied: false });
     const second = await app.inject({
       method: "POST",
       url: "/payments/webhooks/mock",
