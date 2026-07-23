@@ -1,16 +1,20 @@
 import Link from "next/link";
 import { format, formatDate } from "@commerce-os/i18n";
 import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
-import type { CustomerOrderSummary } from "@commerce-os/api-client";
+import type {
+  CustomerOrderSummary,
+  CustomerReview,
+  ReviewEligibleOrderLine,
+} from "@commerce-os/api-client";
 import { formatMinor } from "../../../lib/money";
 import {
   ORDERS_TABS,
   applyOrderFilters,
-  canWriteReview,
   isReorderable,
   returnEligibility,
   type OrdersTab,
 } from "../../../lib/orders";
+import { resolveOrderReview } from "../../../lib/orders-review";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
 import { Button, EmptyState, Field, Heading, Input, ProductMedia, Text } from "../../ui";
@@ -41,12 +45,19 @@ export function OrdersSection({
   locale,
   tab,
   query,
+  reviewsT,
+  eligible = [],
+  reviews = [],
 }: {
   t: StorefrontDictionary["account"];
   orders: CustomerOrderSummary[];
   locale: Locale;
   tab: OrdersTab;
   query: string;
+  reviewsT: StorefrontDictionary["reviews"];
+  // TODO-159E hotfix — Sunucu-otoriter yorum uygunluğu (eligible) + mevcut yorumlar.
+  eligible?: ReviewEligibleOrderLine[];
+  reviews?: CustomerReview[];
 }) {
   const o = t.orders;
   const filtered = applyOrderFilters(orders, { tab, query });
@@ -99,7 +110,15 @@ export function OrdersSection({
       ) : (
         <ul className="space-y-3">
           {filtered.map((order) => (
-            <OrderCard key={order.orderNumber} o={o} order={order} locale={locale} />
+            <OrderCard
+              key={order.orderNumber}
+              o={o}
+              order={order}
+              locale={locale}
+              reviewsT={reviewsT}
+              eligible={eligible}
+              reviews={reviews}
+            />
           ))}
         </ul>
       )}
@@ -111,10 +130,16 @@ function OrderCard({
   o,
   order,
   locale,
+  reviewsT,
+  eligible,
+  reviews,
 }: {
   o: OrdersDict;
   order: CustomerOrderSummary;
   locale: Locale;
+  reviewsT: StorefrontDictionary["reviews"];
+  eligible: ReviewEligibleOrderLine[];
+  reviews: CustomerReview[];
 }) {
   return (
     <li className="border border-line p-4">
@@ -168,7 +193,8 @@ function OrderCard({
         t={o}
         reorderable={isReorderable(order)}
         returnState={returnEligibility(order)}
-        canReview={canWriteReview(order)}
+        review={resolveOrderReview(order, eligible, reviews)}
+        reviewsT={reviewsT}
       />
     </li>
   );

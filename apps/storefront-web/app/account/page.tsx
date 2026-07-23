@@ -64,7 +64,8 @@ export default async function AccountPage({
   if (!customer) {
     redirect("/auth/login?next=/account");
   }
-  const t = (await getStorefrontDict()).account;
+  const dict = await getStorefrontDict();
+  const t = dict.account;
   const locale = await getRequestLocale();
   const params = await searchParams;
   const section = resolveSection(params.section);
@@ -76,7 +77,7 @@ export default async function AccountPage({
           <AccountSidebar t={t} section={section} />
         </aside>
         <section>
-          {await renderSection(section, t, locale, {
+          {await renderSection(section, dict, locale, {
             tab: params.tab,
             q: params.q,
           })}
@@ -88,13 +89,16 @@ export default async function AccountPage({
 
 async function renderSection(
   section: AccountSection,
-  t: Awaited<ReturnType<typeof getStorefrontDict>>["account"],
+  dict: Awaited<ReturnType<typeof getStorefrontDict>>,
   locale: Locale,
   ordersParams: { tab?: string; q?: string },
 ) {
+  const t = dict.account;
   switch (section) {
     case "orders": {
-      const orders = await listCustomerOrders();
+      // TODO-159E hotfix — Sipariş kartındaki "Ürün yorumu yaz" aksiyonu için sunucu-otoriter
+      // uygunluk (eligible) + mevcut yorumlar aynı sayfada çözülür (yeni uç YOK).
+      const [orders, reviewData] = await Promise.all([listCustomerOrders(), getMyReviews()]);
       return (
         <OrdersSection
           t={t}
@@ -102,6 +106,9 @@ async function renderSection(
           locale={locale}
           tab={resolveOrdersTab(ordersParams.tab)}
           query={(ordersParams.q ?? "").trim()}
+          reviewsT={dict.reviews}
+          eligible={reviewData?.eligible ?? []}
+          reviews={reviewData?.reviews ?? []}
         />
       );
     }

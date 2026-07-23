@@ -1,13 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { getDictionary } from "@commerce-os/i18n";
-import type { CustomerOrderSummary } from "@commerce-os/api-client";
+import type { CustomerOrderSummary, ReviewEligibleOrderLine } from "@commerce-os/api-client";
 
 import { OrdersSection } from "../components/account/sections/orders-section.js";
 
 // Faz 3/Dilim 6b — Hesabım > Siparişlerim liste satırı thumbnail'i (ProductMedia;
 // güncel kapak imageUrl'i gateway'den gelir, yoksa deterministik yer tutucu).
 const t = getDictionary("tr").storefront.account;
+const reviewsT = getDictionary("tr").storefront.reviews;
 
 function order(lines: CustomerOrderSummary["lines"]): CustomerOrderSummary {
   return {
@@ -26,7 +27,7 @@ function order(lines: CustomerOrderSummary["lines"]): CustomerOrderSummary {
 
 function render(model: CustomerOrderSummary): string {
   return renderToStaticMarkup(
-    <OrdersSection t={t} orders={[model]} locale="tr" tab="all" query="" />,
+    <OrdersSection t={t} orders={[model]} locale="tr" tab="all" query="" reviewsT={reviewsT} />,
   );
 }
 
@@ -74,5 +75,54 @@ describe("storefront-web · Dilim 6b orders-section thumbnail", () => {
     expect(html).toContain('aria-label="Mug"');
     // TODO-158C — Placeholder artık ham hex gradient DEĞİL, token'lı `bg-surface-muted` (tema-override edilebilir).
     expect(html).toContain("bg-surface-muted");
+  });
+});
+
+// TODO-159E hotfix — "Ürün yorumu yaz" aksiyonu placeholder değil, gerçek akıştır.
+describe("storefront-web · TODO-159E order review action", () => {
+  function delivered(eligible: ReviewEligibleOrderLine[]): string {
+    const model: CustomerOrderSummary = {
+      ...order([
+        { variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null },
+      ]),
+      status: "FULFILLED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "FULFILLED",
+    };
+    return renderToStaticMarkup(
+      <OrdersSection
+        t={t}
+        orders={[model]}
+        locale="tr"
+        tab="all"
+        query=""
+        reviewsT={reviewsT}
+        eligible={eligible}
+        reviews={[]}
+      />,
+    );
+  }
+
+  it("eski 'yakında aktif olacak' placeholder metni ARTIK render edilmez", () => {
+    const html = delivered([]);
+    expect(html).not.toContain("yakında aktif olacak");
+  });
+
+  it("yorumlanabilir kalem varsa gerçek 'Ürün yorumu yaz' butonu render edilir", () => {
+    const html = delivered([
+      {
+        orderLineId: "ol-1",
+        orderId: "ord-1",
+        orderNumber: "OS-1",
+        productId: "p-tablet",
+        productTitle: "Tablet",
+        productSlug: "tablet",
+        productImageUrl: null,
+        variantLabel: "Yeşil / 1 TB",
+        purchasedAt: "2026-07-01T10:00:00.000Z",
+      },
+    ]);
+    expect(html).toContain("Ürün yorumu yaz");
+    expect(html).not.toContain("yakında aktif olacak");
   });
 });

@@ -1005,8 +1005,12 @@ export const trStorefront = {
       },
       review: {
         title: "Ürün yorumu",
-        note: "Ürün yorumu özelliği yakında aktif olacak.",
+        // TODO-159E hotfix — Placeholder KALDIRILDI; buton artık gerçek review akışını açar.
         locked: "Teslimattan sonra yorum yazabilirsiniz.",
+        notEligible: "Bu sipariş için henüz yorum yazamazsınız.",
+        chooseTitle: "Yorumlanacak ürünü seçin",
+        writeItem: "Değerlendir",
+        viewReview: "Değerlendirmeni görüntüle",
       },
       detail: {
         backToList: "Siparişlerime dön",
