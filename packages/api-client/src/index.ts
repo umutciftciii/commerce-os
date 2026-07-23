@@ -24,6 +24,13 @@ import type {
   PaymentProviderReorderRequest,
   PaymentProviderStatusUpdateRequest,
   PaymentProviderTestConnectionResponse,
+  OrderPaymentStateResponse,
+  PaymentLinkResponse,
+  SendPaymentLinkEmailResponse,
+  PaymentRecoveryAttempt,
+  CreatePaymentLinkRequest,
+  SendPaymentLinkEmailRequest,
+  RecordManualPaymentRequest,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -479,6 +486,16 @@ export type {
   PaymentProviderTestConnectionResponse,
   PaymentProviderEvent,
   PaymentProviderEventListResponse,
+  OrderPaymentStateResponse,
+  PaymentLinkResponse,
+  SendPaymentLinkEmailResponse,
+  PaymentRecoveryAttempt,
+  CreatePaymentLinkRequest,
+  SendPaymentLinkEmailRequest,
+  RecordManualPaymentRequest,
+  PublicPayResolveResponse,
+  PublicPayResultResponse,
+  PublicPayStartRequest,
   StoreAdminCustomerStatus,
   StoreAdminCustomerSummary,
   StoreAdminCustomerListResponse,
@@ -1534,6 +1551,38 @@ export interface ApiClient {
       ): Promise<PaymentProviderTestConnectionResponse>;
       events(storeId: string, configId: string, token?: string): Promise<PaymentProviderEventListResponse>;
       storeEvents(storeId: string, token?: string): Promise<PaymentProviderEventListResponse>;
+    };
+    // TODO-159F — Order Payment Recovery & Collection (mevcut sipariş tahsilatı).
+    payments: {
+      getOrderPayment(
+        storeId: string,
+        orderId: string,
+        token?: string,
+      ): Promise<OrderPaymentStateResponse>;
+      createLink(
+        storeId: string,
+        orderId: string,
+        input: CreatePaymentLinkRequest,
+        token?: string,
+      ): Promise<PaymentLinkResponse>;
+      regenerateLink(
+        storeId: string,
+        orderId: string,
+        input: CreatePaymentLinkRequest,
+        token?: string,
+      ): Promise<PaymentLinkResponse>;
+      emailLink(
+        storeId: string,
+        orderId: string,
+        input: SendPaymentLinkEmailRequest,
+        token?: string,
+      ): Promise<SendPaymentLinkEmailResponse>;
+      recordManualPayment(
+        storeId: string,
+        orderId: string,
+        input: RecordManualPaymentRequest,
+        token?: string,
+      ): Promise<PaymentRecoveryAttempt>;
     };
     shippingProviders: {
       list(storeId: string, token?: string): Promise<ShippingProviderConfigListResponse>;
@@ -2711,6 +2760,38 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
         storeEvents: (storeId, token) =>
           getJson<PaymentProviderEventListResponse>(`/stores/${storeId}/payment-events`, token),
+      },
+      payments: {
+        getOrderPayment: (storeId, orderId, token) =>
+          getJson<OrderPaymentStateResponse>(`/stores/${storeId}/orders/${orderId}/payment`, token),
+        createLink: (storeId, orderId, input, token) =>
+          sendJson<PaymentLinkResponse>(
+            `/stores/${storeId}/orders/${orderId}/payment-link`,
+            "POST",
+            input,
+            token,
+          ),
+        regenerateLink: (storeId, orderId, input, token) =>
+          sendJson<PaymentLinkResponse>(
+            `/stores/${storeId}/orders/${orderId}/payment-link/regenerate`,
+            "POST",
+            input,
+            token,
+          ),
+        emailLink: (storeId, orderId, input, token) =>
+          sendJson<SendPaymentLinkEmailResponse>(
+            `/stores/${storeId}/orders/${orderId}/payment-link/email`,
+            "POST",
+            input,
+            token,
+          ),
+        recordManualPayment: (storeId, orderId, input, token) =>
+          sendJson<PaymentRecoveryAttempt>(
+            `/stores/${storeId}/orders/${orderId}/manual-payment`,
+            "POST",
+            input,
+            token,
+          ),
       },
       shippingProviders: {
         list: (storeId, token) =>

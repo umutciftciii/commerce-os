@@ -32,6 +32,7 @@ import {
   type ReservationStatus,
 } from "../order-shared";
 import { OrderShipmentSummary } from "./order-shipment-summary";
+import { OrderPaymentActions } from "./order-payment-actions";
 
 type LoadState =
   | { status: "loading" }
@@ -692,6 +693,14 @@ export default function OrderDetailPage() {
                 )}
 
                 <CampaignPanel order={order} d={d} />
+
+                {/* TODO-159F — Ödeme tahsilat aksiyonları (kalan bakiye + link + manuel). */}
+                <OrderPaymentActions
+                  orderId={order.id}
+                  d={d.recovery}
+                  locale={locale as "tr" | "en"}
+                  onChanged={load}
+                />
 
                 <PaymentPanel order={order} d={d} />
 

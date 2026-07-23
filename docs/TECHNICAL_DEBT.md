@@ -1000,3 +1000,30 @@ her biri uygulanmış bir tasarım sınırıdır.
   ADR-090 entity-selector wiring'i (SelectorPresenter + resolveByIds) gerektirir; tarih aralığı standart Data
   Grid toolbar'ında widget olmadığından (yalnız orders sayfasının bespoke paneli) ertelendi. Eklemek additive
   (UI-only; sunucu hazır). **Öncelik: DÜŞÜK.**
+
+## TODO-159F (ADR-095…100) — Order Payment Recovery & Collection sınırları (TD-110…TD-112)
+
+- **TD-110 — SMTP/gerçek e-posta teslimatı YOK; "Müşteriye Gönder" DEVRE DIŞI (sahte gönderim YOK).**
+  `services/notification-service` stub olduğundan gerçek mail altyapısı yoktur. Ship kararı (Seçenek B):
+  SAHTE başarı SUNULMAZ. `PaymentNotificationDispatcher.isConfigured=false` (varsayılan log dispatcher);
+  bu durumda (a) `POST .../payment-link/email` ucu **501 `PAYMENT_EMAIL_NOT_CONFIGURED`** döner (hiçbir
+  attempt/olay mutasyonu yapmaz), (b) Store Admin "Müşteriye Gönder" butonu **disabled** gösterilir +
+  açıklama: "E-posta teslimatı henüz yapılandırılmadı. Bağlantıyı kopyalayarak müşteriye iletebilirsiniz."
+  Gerçek teslimat için SMTP/provider entegrasyonlu bir dispatcher (`isConfigured=true`,
+  `sendPaymentLinkEmail`→SENT/FAILED) enjekte edilir; kontrat + `emailDeliveryConfigured` sinyali + UI
+  aksiyonu OTOMATİK devreye girer (kod hazır — Seçenek A yolu). Bağlantı oluşturma/kopyalama/yenileme +
+  manuel ödeme tam çalışır. **Öncelik: ORTA.**
+
+- **TD-111 — Gerçek provider (IYZICO/STRIPE/PAYTR/GENERIC_REDIRECT) canlı/sandbox tahsilatı YOK.**
+  Ödeme bağlantısı tüm uygun sağlayıcılar için üretilir, ancak müşteri ödeme sayfası (`/pay/:token`)
+  yalnız MOCK sağlayıcıda tamamlanır; gerçek sağlayıcı kontrollü hata döner (fake success YOK).
+  Webhook state uygulaması gövdedeki `attemptId + status` alanlarına dayanır ve gerçek HMAC imza
+  doğrulaması hâlâ placeholder'dır (shipping webhook deseni — `shipping/webhook.ts` — port edilmelidir).
+  Gerçek tahsilat için provider adapter'larının `createPayment`/`confirmPayment` HTTP transport'u +
+  webhook imza doğrulaması gerekir. **Öncelik: YÜKSEK (canlı tahsilat için ön koşul).**
+
+- **TD-112 — Kısmi tahsilat (partial capture) desteklenmiyor.** Manuel ödeme MVP'de yalnız tam
+  tahsilat (`amount === remaining`) kabul eder; kısmi tutar 422 `PAYMENT_PARTIAL_NOT_SUPPORTED` ile
+  reddedilir. `PARTIALLY_REFUNDED` enum değeri iade tarafı için rezervedir; kısmi capture/iade akışı
+  (birden çok kısmi tahsilat toplamı) uygulanmadı. Kalan bakiye altyapısı (captured toplamı) çoklu
+  tahsilata hazırdır; yalnız giriş kapısı tam-tutar zorunlu kılar. **Öncelik: DÜŞÜK.**

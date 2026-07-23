@@ -299,6 +299,10 @@ import {
   type ResolvedCredentials,
   type SecretCipher,
 } from "./payments/index.js";
+// TODO-159F (ADR-095..100) — Order Payment Recovery & Collection.
+import { registerPaymentRecoveryRoutes } from "./payments/recovery-routes.js";
+import { createLogPaymentNotificationDispatcher } from "./payments/notification.js";
+import { resolveOrderPaymentTransition } from "./payments/payment-state.js";
 import type {
   AuditAction,
   FulfillmentStatus,
@@ -2784,6 +2788,16 @@ function createPrismaDataAccess(): AppDataAccess {
       accessTokenExpiresAt: true,
       paidAt: true,
       failedAt: true,
+      // TODO-159F — recovery alanları (OrderRecord.paymentAttempts tam PaymentAttempt tipiyle uyumlu).
+      type: true,
+      idempotencyKey: true,
+      expiresAt: true,
+      initiatedBy: true,
+      paymentUrl: true,
+      manualMethod: true,
+      manualReference: true,
+      manualNote: true,
+      collectedAt: true,
       createdAt: true,
       updatedAt: true,
     } },
@@ -6013,6 +6027,19 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
+  // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection: store-admin
+  // tahsilat uçları (ödeme bağlantısı oluştur/yenile/e-postala, manuel ödeme,
+  // ödeme durumu) + opaque token'lı public müşteri ödeme sayfası (/pay/:token).
+  registerPaymentRecoveryRoutes(app, {
+    config,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    notifications: createLogPaymentNotificationDispatcher(logger),
+  });
+
   // TODO-104 (ADR-048) — Public shipping webhook: kullanici auth YOK; per-config
   // HMAC imza + timestamp zorunlu, idempotency inbox'i ile duplicate/replay korumali.
   registerShippingWebhookRoutes(app, {
@@ -7918,7 +7945,16 @@ export function createServer(
   const publicPaymentTokenQuerySchema = z.object({ token: z.string().min(1) });
   const paymentWebhookParamSchema = z.object({ provider: z.string().min(1) });
   const paymentWebhookBodySchema = z
-    .object({ storeId: z.string().min(1), eventId: z.string().min(1) })
+    .object({
+      storeId: z.string().min(1),
+      eventId: z.string().min(1),
+      // TODO-159F (ADR-100) — webhook nihai ödeme otoritesi. Sağlayıcı geri bildirimi
+      // bir attempt'e bağlıysa (attemptId + status) sipariş durumu MONOTONIC uygulanır.
+      attemptId: z.string().min(1).optional(),
+      status: z
+        .enum(["CREATED", "PENDING", "REQUIRES_ACTION", "AUTHORIZED", "PAID", "FAILED", "CANCELLED", "REFUNDED"])
+        .optional(),
+    })
     .passthrough();
 
   /** Secret cipher'lari decrypt eder; cozulemezse null (sizdirmaz). */
@@ -7960,8 +7996,10 @@ export function createServer(
     attempt: PaymentAttemptRecord,
   ): PaymentActionContext {
     return {
-      provider: attempt.provider,
-      mode: attempt.mode,
+      // TODO-159F — attempt.provider/mode MANUAL'de null olabilir; bu bağlam yalnız online
+      // attempt'ler için çağrılır, yine de config değerlerine güvenli düşülür.
+      provider: attempt.provider ?? config.provider,
+      mode: attempt.mode ?? config.mode,
       threeDsMode: config.threeDsMode,
       method: attempt.method,
       amount: attempt.amount,
@@ -8306,6 +8344,11 @@ export function createServer(
       await reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
       return null;
     }
+    if (!attempt.providerConfigId) {
+      // TODO-159F — MANUAL attempt'in provider config'i yoktur; bu public akış online içindir.
+      await reply.code(409).send(errorBody("PAYMENT_NOT_AVAILABLE", "Payment provider not available."));
+      return null;
+    }
     const providerConfig = await dataAccess.findPaymentProviderConfigById(store.id, attempt.providerConfigId);
     if (!providerConfig) {
       await reply.code(409).send(errorBody("PAYMENT_NOT_AVAILABLE", "Payment provider not available."));
@@ -8464,7 +8507,7 @@ export function createServer(
         providerConfigId: ctx.providerConfig.id,
         attemptId: ctx.attempt.id,
         orderId: ctx.order.id,
-        provider: ctx.attempt.provider,
+        provider: ctx.attempt.provider ?? ctx.providerConfig.provider,
         type: "PAYMENT_FAILED",
         message: "Live/sandbox charge not available in this phase; no fake success.",
       });
@@ -8633,10 +8676,57 @@ export function createServer(
       provider,
       type: "WEBHOOK_RECEIVED",
       eventId: body.eventId,
-      message: "Webhook received (shell; signature verification deferred).",
+      message: "Webhook received.",
       metadata: { signatureValid: result.signatureValid, handled: result.handled },
     });
-    return reply.code(200).send({ received: true, duplicate: false });
+
+    // TODO-159F (ADR-100) — Webhook nihai ödeme otoritesi. Attempt referansı + durum
+    // verilmişse sipariş ödeme durumu MONOTONIC uygulanır: PAID sonrası geç gelen
+    // FAILED/CANCELLED webhook GERİYE ÇEVİRMEZ (resolveOrderPaymentTransition null döner).
+    // Duplicate eventId zaten yukarıda no-op edildiği için ikinci kez uygulanmaz.
+    let applied = false;
+    if (body.attemptId && body.status) {
+      const attempt = await dataAccess.findPaymentAttemptById(store.id, body.attemptId);
+      // Tenant + provider tutarlılığı: attempt bu store'a ait ve aynı sağlayıcı olmalı.
+      if (attempt && attempt.provider === provider) {
+        const order = await dataAccess.findOrderById(store.id, attempt.orderId);
+        if (order) {
+          const next = resolveOrderPaymentTransition(order.paymentStatus, body.status);
+          const paid = body.status === "PAID" || body.status === "AUTHORIZED";
+          const failed = body.status === "FAILED" || body.status === "CANCELLED";
+          await dataAccess.recordPaymentAttemptOutcome(store.id, {
+            attemptId: attempt.id,
+            orderId: attempt.orderId,
+            attemptStatus: body.status,
+            threeDsApplied: attempt.threeDsApplied,
+            providerReference: attempt.providerReference ?? null,
+            failureCode: null,
+            failureMessage: null,
+            ...(paid ? { paidAt: new Date() } : {}),
+            ...(failed ? { failedAt: new Date() } : {}),
+            orderPaymentStatus: next ?? null,
+            clearAccessToken: paid || failed,
+            event: {
+              type:
+                body.status === "PAID" || body.status === "AUTHORIZED"
+                  ? "PAYMENT_CONFIRMED"
+                  : body.status === "CANCELLED"
+                    ? "PAYMENT_CANCELLED"
+                    : body.status === "FAILED"
+                      ? "PAYMENT_FAILED"
+                      : "STATUS_CHANGED",
+              provider,
+              // eventId WEBHOOK_RECEIVED kaydında kullanıldı; unique(storeId,provider,eventId)
+              // çakışmasını önlemek için outcome event'i internal (eventId null) yazılır.
+              message: `Webhook ${provider} → ${body.status}${next ? "" : " (no order transition)"}.`,
+              metadata: { webhookEventId: body.eventId, appliedOrderStatus: next ?? null },
+            },
+          });
+          applied = true;
+        }
+      }
+    }
+    return reply.code(200).send({ received: true, duplicate: false, applied });
   });
 
   return app;

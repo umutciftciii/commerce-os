@@ -110,6 +110,12 @@ export const envSchema = z.object({
   // TD-036: opsiyonel URL helper'i; bos string → undefined (aksi halde url() bos
   // degeri reddedip config yuklemesini cokertirdi — DHL_TEST_BASE_URL sinifi).
   PUBLIC_WEBHOOK_BASE_URL: optionalUrlEnv(),
+  // TODO-159F (ADR-099) — Müşteri ödeme sayfasının (/pay/:token) ULAŞILDIĞI public
+  // storefront taban URL'i. Admin "Ödeme Bağlantısı Oluştur" aksiyonunda kopyalanan/
+  // e-postalanan MUTLAK link bu tabandan üretilir. Tanımsızsa API göreli yol döner
+  // (/pay/:token) ve admin panelde tam adres için tabanı tanımlama uyarısı görünür.
+  // Secret DEĞİLDİR; token yol parçası opaque + hash'li saklanır. Boş string → undefined.
+  STOREFRONT_PUBLIC_BASE_URL: optionalUrlEnv(),
   // F3C.1 — Plus Command / createRecipient destructive guard'i. Varsayilan KAPALI.
   // Canli createRecipient yalniz bu flag true + providerConfig.allowRecipientCreate true
   // + request explicitConfirm true uclusu saglandiginda calisir; aksi halde

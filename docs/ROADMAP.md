@@ -285,14 +285,35 @@
 - Ertelenen sınırlar (yeni borç DEĞİL, uygulanmış tasarım sınırı): TD-099 (ürün-facet filtreleri:
   kategori/marka/tedarikçi), TD-100 (stok formülü SQL+JS iki dilde, parite testli).
 
+## Payment — Order Payment Recovery & Collection (TODO-159F · ADR-095…100) — TAMAMLANDI
+
+- Sorun: Sağlayıcı tanımlanmadan / checkout ödeme oturumu üretilemeden oluşmuş geçerli `UNPAID`
+  siparişler sonradan tahsil edilemiyordu; sipariş detayında yalnız "henüz ödeme denemesi yok"
+  mesajı vardı. Analiz: `docs/analysis/TODO-159F-order-payment-recovery.md`.
+- Kapsam: (1) Genişletilmiş `PaymentStatus` durum makinesi (tek otorite `payments/payment-state.ts`).
+  (2) Admin tahsilat aksiyonları: ödeme bağlantısı oluştur/yenile/kopyala/e-postala + manuel (offline)
+  ödeme kaydı. (3) Opaque token'lı müşteri ödeme sayfası `/pay/:token`. (4) Webhook nihai ödeme
+  otoritesi (monotonic geçiş + dedup). (5) Kalan bakiye sunucu-otoritesi (order snapshot).
+- Idempotency: sipariş başına tek aktif online link (deterministik `idempotencyKey` + DB unique).
+- Kararlar: ADR-095 (state machine), ADR-096 (snapshot tutar otoritesi), ADR-097 (aktif deneme
+  idempotency), ADR-098 (manuel vs online), ADR-099 (link token güvenliği), ADR-100 (webhook ordering).
+- Migration: `20260723170000_add_order_payment_recovery` (enum genişletme + PaymentAttempt alanları;
+  ADDITIVE, backfill yok).
+- Ertelenen sınırlar (borç): TD-110 (SMTP teslimatı — dispatcher no-op), TD-111 (gerçek provider canlı
+  tahsilat + webhook HMAC), TD-112 (kısmi capture desteklenmiyor).
+
 ## Growth & Monetization — Faz Sıralaması ve Ortak Ölçüm Altyapısı
 
 - Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise
   UI/design polish fazından ÖNCE yer alır.
-- Sıra: ~~TODO-159C~~ (DONE) → **TODO-159D Customer Lists & Wishlist (SIRADAKİ AKTİF)** →
-  **TODO-159E Product Reviews & Ratings** → **TODO-160 Influencer Tracking & Attribution** →
-  **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı (henüz
-  numaralandırılmadı)*.
+- Sıra: ~~TODO-159C~~ (DONE) → ~~TODO-159D Customer Lists & Wishlist~~ (DONE) →
+  ~~TODO-159E Product Reviews & Ratings~~ (DONE) → ~~TODO-159F Order Payment Recovery & Collection~~
+  (DONE — kritik ödeme açığı kapatıldı) → **TODO-160 Influencer Tracking & Attribution (SIRADAKİ
+  AKTİF)** → **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı
+  (henüz numaralandırılmadı)*.
+- **TODO-159F konumlandırma:** TODO-160'tan ÖNCE araya alındı çünkü sağlayıcı tanımlanmadan oluşmuş
+  geçerli `UNPAID` siparişler operasyonel olarak tahsil edilemiyordu (kritik ödeme açığı). Ödeme
+  recovery altyapısı (durum makinesi + link + manuel + webhook otoritesi) Growth fazlarından bağımsızdır.
 - **Konumlandırma gerekçesi:** TODO-159D ve TODO-159E, Growth & Monetization (attribution/sponsored)
   fazlarından ÖNCE gelir çünkü temel müşteri-alışveriş etkileşimlerini (favori/liste, yorum/puan)
   tamamlarlar; influencer ve sponsored ölçümü daha zengin bir müşteri etkileşim yüzeyi üzerine oturur.

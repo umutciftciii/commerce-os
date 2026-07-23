@@ -16,9 +16,14 @@ export const ORDER_STATUS_TONES: Record<OrderStatus, Tone> = {
 
 export const PAYMENT_STATUS_TONES: Record<PaymentStatus, Tone> = {
   UNPAID: "warning",
+  // TODO-159F — genişletilmiş ödeme durum makinesi.
+  PAYMENT_PENDING: "info",
   AUTHORIZED: "info",
   PAID: "success",
+  PARTIALLY_REFUNDED: "warning",
   REFUNDED: "neutral",
+  PAYMENT_FAILED: "danger",
+  CANCELLED: "danger",
 };
 
 export const FULFILLMENT_STATUS_TONES: Record<FulfillmentStatus, Tone> = {

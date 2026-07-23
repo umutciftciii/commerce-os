@@ -235,11 +235,25 @@ enum OrderStatus {
   FULFILLED
 }
 
+// TODO-159F (ADR-095) — Order Payment Recovery state machine. Genişletilmiş sipariş
+// ödeme durumu; tek otorite `payments/payment-state.ts` modülüdür.
+//   UNPAID            : ödeme bekliyor (yeni tahsilat başlatılabilir).
+//   PAYMENT_PENDING   : aktif online ödeme oturumu açık (link/session üretildi).
+//   AUTHORIZED        : yetkilendirildi (capture bekliyor); shipment için ödenmiş sayılır.
+//   PAID              : tam tahsil edildi (terminal; yeni tahsilat YOK).
+//   PARTIALLY_REFUNDED: kısmen iade (kalan tahsilat mantığı MVP'de yok; iade tarafı).
+//   REFUNDED          : tümü iade edildi (terminal; yeni tahsilat YOK).
+//   PAYMENT_FAILED    : son deneme başarısız (yeniden tahsilat başlatılabilir).
+//   CANCELLED         : ödeme iptal edildi (terminal; yeni tahsilat YOK).
 enum PaymentStatus {
   UNPAID
+  PAYMENT_PENDING
   AUTHORIZED
   PAID
+  PARTIALLY_REFUNDED
   REFUNDED
+  PAYMENT_FAILED
+  CANCELLED
 }
 
 enum FulfillmentStatus {
@@ -344,6 +358,29 @@ enum PaymentProviderEventType {
   WEBHOOK_RECEIVED
   CONNECTION_TEST
   STATUS_CHANGED
+  // TODO-159F (ADR-099) — admin ödeme bağlantısı üretti/yeniledi/e-postaladı (ONLINE, provider'lı).
+  // Manuel (offline) tahsilat provider'sızdır → provider event akışına YAZILMAZ; yalnız
+  // OrderEvent (timeline) + AuditLog'a gider (spec §3: "webhook gibi gösterilmemeli").
+  PAYMENT_LINK_CREATED
+  PAYMENT_LINK_REGENERATED
+  PAYMENT_LINK_EMAILED
+}
+
+// TODO-159F (ADR-098) — Ödeme denemesi kökeni. ONLINE = provider/link tabanlı
+// (webhook uygulanır). MANUAL = admin offline tahsilat kaydı (provider'sız,
+// webhook UYGULAMAZ; kim tarafından kaydedildiği `initiatedBy`'da tutulur).
+enum PaymentAttemptType {
+  ONLINE
+  MANUAL
+}
+
+// TODO-159F (ADR-098) — Manuel (offline) tahsilat yöntemi allowlist'i. Serbest
+// metin DEĞİL; yalnız bu değerler kabul edilir.
+enum PaymentManualMethod {
+  BANK_TRANSFER
+  CASH
+  POS
+  OTHER
 }
 
 // ─────────────────────── F3C.1 Shipping provider foundation ───────────────────────
@@ -1591,9 +1628,13 @@ model PaymentAttempt {
   id                   String               @id @default(cuid())
   storeId              String
   orderId              String
-  providerConfigId     String
-  provider             PaymentProviderType
-  mode                 PaymentProviderMode
+  // TODO-159F (ADR-098) — MANUAL tahsilatta provider yoktur → nullable. ONLINE
+  // attempt'lerde her zaman set edilir. Config silinmez; SetNull ile korunur.
+  providerConfigId     String?
+  // TODO-159F (ADR-098) — Deneme kökeni. Eski (F3B.2) online attempt'ler için ONLINE.
+  type                 PaymentAttemptType   @default(ONLINE)
+  provider             PaymentProviderType?
+  mode                 PaymentProviderMode?
   method               PaymentMethodType
   amount               Int
   currency             String
@@ -1614,14 +1655,30 @@ model PaymentAttempt {
   // Kisa omurlu public odeme erisim token'inin hash'i; plain token DB'ye yazilmaz.
   accessTokenHash      String?
   accessTokenExpiresAt DateTime?
+  // TODO-159F (ADR-097/099) — Idempotency + ödeme bağlantısı alanları.
+  //   idempotencyKey : aynı sipariş için çift oturum/istek koruması (store-scoped unique).
+  //   expiresAt      : ödeme bağlantısı/oturum geçerlilik penceresi (accessToken'dan ayrı semantik).
+  //   initiatedBy    : aksiyonu başlatan platformUserId (admin-initiated/MANUAL için).
+  idempotencyKey       String?
+  expiresAt            DateTime?
+  initiatedBy          String?
+  // Paylaşılabilir müşteri ödeme yolu (/pay/:token). Bearer link; secret DEĞİL ama
+  // AuditLog/event metadata'sına YAZILMAZ (spec §10). Yalnız aktif online link'te dışa verilir.
+  paymentUrl           String?
+  // TODO-159F (ADR-098) — MANUAL (offline) tahsilat alanları. ONLINE attempt'lerde null.
+  manualMethod         PaymentManualMethod?
+  manualReference      String?
+  manualNote           String?
+  collectedAt          DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
   store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  providerConfig PaymentProviderConfig  @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  providerConfig PaymentProviderConfig? @relation(fields: [providerConfigId], references: [id], onDelete: SetNull)
   events         PaymentProviderEvent[]
 
+  @@unique([storeId, idempotencyKey], map: "payment_attempt_store_idempotency_key")
   @@index([storeId])
   @@index([orderId])
   @@index([providerConfigId])

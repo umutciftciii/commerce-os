@@ -1703,6 +1703,28 @@
   sayısı, son eklenen tarih).
 - Kapsam dışı (MVP): paylaşımlı/public liste, fiyat-düşüş bildirimi, admin liste analitiği.
 
+## TODO-159F — Order Payment Recovery & Collection (Payment · ADR-095…100)
+
+- Durum: **DONE (tüm katmanlar + gate + testler YEŞİL; commit/PR/deploy YAPILMADI).** Sıra: TODO-159E'den
+  SONRA, TODO-160'tan ÖNCE (kritik ödeme açığı). Analiz: `docs/analysis/TODO-159F-order-payment-recovery.md`.
+  Ertelenen sınırlar: TD-110…TD-112.
+- Migration `20260723170000_add_order_payment_recovery` (ADDITIVE): `PaymentStatus` +PAYMENT_PENDING/
+  PARTIALLY_REFUNDED/PAYMENT_FAILED/CANCELLED; `PaymentAttemptType` + `PaymentManualMethod` enum;
+  `PaymentAttempt` genişletme (type, nullable provider/mode/providerConfigId→SetNull, idempotencyKey unique,
+  paymentUrl, expiresAt, initiatedBy, manual alanları). Backfill YOK.
+- Durum makinesi tek otorite `payments/payment-state.ts` (SAF): canStartCollection · isAttemptActive ·
+  resolveOrderPaymentTransition (monotonic; PAID sonrası geç FAILED webhook geriye çevirmez).
+- Admin: `GET .../orders/:id/payment` (kalan bakiye + uygun sağlayıcılar + aktif deneme + geçmiş) +
+  `payment-link` (oluştur) + `payment-link/regenerate` + `payment-link/email` + `manual-payment`. Store-admin
+  sipariş detayında `OrderPaymentActions` paneli (link oluştur/kopyala/yenile/gönder + manuel modal).
+- Public: opaque `GET/POST /public/pay/:token` (hash + TTL + tek-store; enumeration yok). Storefront
+  `/pay/[token]` sayfası (MOCK sandbox tamamlama). E-posta dispatcher no-op (TD-110).
+- Idempotency: sipariş başına tek aktif online link (`active-link:{orderId}` + DB unique; P2002→mevcut link).
+  Manuel/online yarışı ve çift tahsilat engellenir; overpayment/kısmi manuel reddedilir.
+- Shipment guard korunur (PAID/AUTHORIZED); ödeme sonrası yenilemede gönderi aksiyonu açılır.
+- Testler: gateway payment-state saf (17) + sales-summary regresyon + store-admin `OrderPaymentActions`
+  render (3) + webhook response shape güncellemesi. Tüm suite YEŞİL.
+
 ## TODO-159E — Product Reviews & Ratings (Customer Lifecycle · ADR-094)
 
 - Durum: **DONE (tüm katmanlar + gate + testler YEŞİL; commit/PR/deploy YAPILMADI).** Sıra: TODO-159D'den

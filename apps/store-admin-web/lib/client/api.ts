@@ -26,6 +26,13 @@ import type {
   PaymentProviderReorderRequest,
   PaymentProviderStatusUpdateRequest,
   PaymentProviderTestConnectionResponse,
+  OrderPaymentStateResponse,
+  PaymentLinkResponse,
+  SendPaymentLinkEmailRequest,
+  SendPaymentLinkEmailResponse,
+  PaymentRecoveryAttempt,
+  CreatePaymentLinkRequest,
+  RecordManualPaymentRequest,
   PlatformMeResponse,
   PlatformUserContract,
   Product,
@@ -640,6 +647,30 @@ export const storeApi = {
     mutatingCall<Order>(`/api/orders/${orderId}/place`, { method: "POST" }),
   cancelOrder: (orderId: string, input: OrderCancelRequest = {}) =>
     mutatingCall<Order>(`/api/orders/${orderId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-159F — Order Payment Recovery & Collection (mevcut sipariş tahsilatı).
+  getOrderPayment: (orderId: string) =>
+    call<OrderPaymentStateResponse>(`/api/orders/${orderId}/payment`),
+  createOrderPaymentLink: (orderId: string, input: CreatePaymentLinkRequest = {}) =>
+    mutatingCall<PaymentLinkResponse>(`/api/orders/${orderId}/payment-link`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  regenerateOrderPaymentLink: (orderId: string, input: CreatePaymentLinkRequest = {}) =>
+    mutatingCall<PaymentLinkResponse>(`/api/orders/${orderId}/payment-link/regenerate`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  emailOrderPaymentLink: (orderId: string, input: SendPaymentLinkEmailRequest = {}) =>
+    mutatingCall<SendPaymentLinkEmailResponse>(`/api/orders/${orderId}/payment-link/email`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  recordManualPayment: (orderId: string, input: RecordManualPaymentRequest) =>
+    mutatingCall<PaymentRecoveryAttempt>(`/api/orders/${orderId}/manual-payment`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

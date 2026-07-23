@@ -3454,3 +3454,92 @@ Storefront PDP gerçek değerlendirme bölümü (özet/dağılım/liste/filtre/s
 saklamak — drift riski (tamsayı toplam + türetme seçildi). (d) Rating'i UI'dan gelen `verifiedPurchase`'e
 güvenerek belirlemek — sahtecilik açığı (sunucu-otoriter join seçildi). (e) İade sonrası otomatik gizleme/
 rozet düşürme — arka plan job + aggregate churn (MVP'de manuel moderasyon; TD-106).
+
+## ADR-095 — Order Payment Recovery state machine: genişletilmiş `PaymentStatus` + tek otorite modül (TODO-159F)
+
+**Bağlam.** Sağlayıcı tanımlanmadan / checkout ödeme oturumu üretilemeden oluşmuş `UNPAID`
+siparişler tahsil edilemiyordu (bkz. `docs/analysis/TODO-159F-order-payment-recovery.md`). Ödeme
+durum makinesi dağınıktı ve yalnız `UNPAID/AUTHORIZED/PAID/REFUNDED` değerlerini tanıyordu.
+
+**Karar.** `PaymentStatus` ADDITIVE olarak genişletildi: `PAYMENT_PENDING`, `PARTIALLY_REFUNDED`,
+`PAYMENT_FAILED`, `CANCELLED`. Ödeme durumunun TEK OTORİTESİ saf, yan etkisiz
+`apps/api-gateway/src/payments/payment-state.ts` modülüdür: `canStartCollection` (terminal
+durumlar yeni tahsilata kapalı), `isAttemptActive` (aktif/expired deneme), `mapAttemptStatusToOrderStatus`,
+`resolveOrderPaymentTransition`. `PAID/AUTHORIZED/REFUNDED/PARTIALLY_REFUNDED/CANCELLED` terminaldir;
+`UNPAID/PAYMENT_PENDING/PAYMENT_FAILED` yeniden tahsilata uygundur. Shipment guard `PAID/AUTHORIZED`
+kuralı (ADR öncesi davranış) korunur.
+
+**Sonuç.** İstemci ödeme durumunu belirleyemez; tüm geçişler modülden türetilir. Enum genişlemesi
+read tarafında i18n `paymentLabels` + `PAYMENT_STATUS_TONES` dokunuşu gerektirdi (uygulandı).
+
+## ADR-096 — Sipariş tutarı otoritesi: order snapshot + türetilen kalan bakiye (TODO-159F)
+
+**Bağlam.** Tahsilat tutarı istemciden gelirse çift/eksik/aşırı tahsilat riski doğar.
+
+**Karar.** Tahsilat tutarı DAİMA `Order.totalAmount` snapshot'ıdır; güncel ürün/kampanya verisinden
+ASLA yeniden hesaplanmaz. Kalan bakiye sunucuda türetilir: `remaining = max(0, totalAmount −
+Σ captured)`, `captured = Σ(PAID/AUTHORIZED attempt.amount)` (online + manuel). İstemci payload'ındaki
+amount/currency reddedilir; manuel tahsilatta `currency` sipariş para birimiyle eşleşmezse 400.
+
+**Sonuç.** `orders/sales-summary.ts` paid/remaining türetimi captured toplamı olarak hizalandı.
+Aşırı tahsilat (`amount > remaining`) 422 ile reddedilir.
+
+## ADR-097 — Aktif deneme idempotency: deterministik `idempotencyKey` + DB unique (TODO-159F)
+
+**Bağlam.** Aynı sipariş için eşzamanlı iki "Ödeme Oluştur" isteği çift aktif oturum üretebilir.
+
+**Karar.** `PaymentAttempt`'e `idempotencyKey` + `@@unique([storeId, idempotencyKey])` eklendi. Aktif
+online link için deterministik anahtar `active-link:{orderId}` kullanılır → sipariş başına EN FAZLA
+bir aktif link. Eşzamanlı ikinci create P2002'ye takılır ve mevcut aktif link döndürülür (tek aktif
+attempt garantisi). Yenileme/manuel ödeme, eski aktif linkin anahtarını serbest bırakıp (status
+CANCELLED, geçmiş SİLİNMEZ) yeni deneme oluşturur. Süresi dolmuş/terminal deneme yeni oluşturmayı
+engellemez (Postgres NULL idempotencyKey'leri ayrı sayar).
+
+**Sonuç.** Çift oturum ve manuel/online yarışı DB düzeyinde engellenir; geçmiş korunur.
+
+## ADR-098 — Manuel vs online ödeme ayrımı: `PaymentAttemptType` + provider'sız MANUAL (TODO-159F)
+
+**Bağlam.** Offline tahsilatlar (havale/nakit/POS) modelde temsil edilmeliydi ama provider
+webhook'u gibi GÖSTERİLMEMELİ.
+
+**Karar.** `PaymentAttempt.type (ONLINE|MANUAL)` eklendi; MANUAL'de `providerConfigId/provider/mode`
+NULL'dur (bu yüzden nullable yapıldı, FK `Restrict`→`SetNull`). Manuel yöntem allowlist'i
+`PaymentManualMethod (BANK_TRANSFER|CASH|POS|OTHER)`; `manualReference/manualNote/collectedAt/
+initiatedBy` saklanır. Manuel ödeme YALNIZ `OrderEvent` (timeline) + `AuditLog`'a yazılır;
+`PaymentProviderEvent` (provider akışı) akışına YAZILMAZ. MVP: yalnız tam tahsilat (`amount ===
+remaining`) → PAID; kısmi manuel tahsilat açıkça reddedilir (422).
+
+**Sonuç.** Manuel tahsilat izlenebilir ve kim tarafından kaydedildiği bellidir; sağlayıcı olayı
+gibi görünmez.
+
+## ADR-099 — Ödeme bağlantısı token güvenliği: opaque `/pay/:token` (TODO-159F)
+
+**Bağlam.** Müşteriye paylaşılacak ödeme linki güvenli, sipariş ID'si taşımayan, süreli olmalı.
+
+**Karar.** Link `/pay/:token`; token opaque 256-bit rastgele, hash'i (`accessTokenHash`) + TTL
+(`accessTokenExpiresAt`) saklanır, sipariş ID'si TAŞIMAZ, tek-store'a bağlıdır (deneme üzerinden
+çözülür). Public çözümleme token'ı hash'leyip O(1) indexli arar + sabit-zaman doğrular; bilinmeyen/
+expired token generic hata (order enumeration YOK). Link paylaşılabilir bir bearer kimliğidir; admin
+kopyalama/e-posta için göreli `/pay/:token` `paymentUrl`'de saklanır ama AuditLog/event metadata'sına
+ve loglara ASLA yazılmaz. Mutlak URL `STOREFRONT_PUBLIC_BASE_URL` tabanından üretilir. E-posta teslimatı
+dispatcher soyutlamasıyla yapılır; gerçek mail altyapısı OLMADIĞINDAN (Seçenek B, TD-110) SAHTE gönderim
+SUNULMAZ: `isConfigured=false` iken e-posta ucu 501 döner ve admin "Müşteriye Gönder" butonu disabled +
+açıklama gösterir. Gerçek SMTP/provider dispatcher enjekte edilince (`isConfigured=true`) uç + UI otomatik
+devreye girer (`emailDeliveryConfigured` sinyali).
+
+**Sonuç.** Ödeme linki güvenli ve paylaşılabilir; secret/credential asla dışa çıkmaz; kullanıcıya
+gönderilmediği halde "gönderildi" izlenimi veren sessiz operasyon hatası ENGELLENDİ.
+
+## ADR-100 — Webhook ödeme ordering: monotonic order geçişi + atomik dedup (TODO-159F)
+
+**Bağlam.** Sağlayıcı webhook'ları sırasız/tekrarlı gelebilir; geç gelen FAILED webhook PAID siparişi
+bozmamalı.
+
+**Karar.** Webhook nihai ödeme otoritesidir. `resolveOrderPaymentTransition(current, attemptStatus)`
+MONOTONIC'tir: terminal-paid siparişte yalnız gerçek iade (REFUNDED) ileri geçiştir; geç gelen
+FAILED/PENDING/CANCELLED null döner (değişiklik yok). Duplicate dedup mevcut `@@unique([storeId,
+provider, eventId])` ön-kontrolü ile no-op edilir; WEBHOOK_RECEIVED kaydı eventId'yi taşır, outcome
+event'i internal (eventId null) yazılır (unique çakışması önlenir). Webhook gövdesi `attemptId +
+status` taşıyorsa attempt tenant + provider tutarlılığı doğrulanıp geçiş uygulanır.
+
+**Sonuç.** Sırasız/tekrarlı webhook siparişi bozmaz; PAID geri alınmaz.
