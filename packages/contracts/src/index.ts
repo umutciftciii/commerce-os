@@ -6976,3 +6976,239 @@ export type ThemePresetSummary = z.infer<typeof themePresetSummarySchema>;
 export type ThemePresetListResponse = z.infer<typeof themePresetListResponseSchema>;
 export type ThemePreviewResponse = z.infer<typeof themePreviewResponseSchema>;
 export type PublicTheme = z.infer<typeof publicThemeSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-159D (ADR-093) — Customer Lists & Wishlist (own account).
+ *
+ * Favori (wishlist) ve alışveriş listeleri AYRI iki sistem DEĞİL; ortak bir
+ * `CustomerList` altyapısıdır. Wishlist = type=WISHLIST olan TEK varsayılan liste.
+ *
+ * Tüm uçlar müşteri-scoped'tur (`requireStore` + `requireCustomer`); müşteri yalnız
+ * KENDİ listelerine erişir. Öğe hidrasyonu CANLI ürün/varyant/stok otoritesinden
+ * yapılır — fiyat/stok SNAPSHOT'ına ASLA güvenilmez (kupon/sipariş deseniyle simetrik).
+ * Fiyatlar minor + currency olarak taşınır; etiketleme istemcide (i18n gateway'e girmez).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const customerListTypeSchema = z.enum(["WISHLIST", "SHOPPING_LIST"]);
+export const customerListVisibilitySchema = z.enum(["PRIVATE"]);
+
+/** Sunucu-otoriter sınırlar (istemci ne gönderirse göndersin aşılamaz). */
+export const CUSTOMER_LIST_NAME_MAX_LENGTH = 60;
+export const CUSTOMER_LIST_MAX_PER_CUSTOMER = 50;
+export const CUSTOMER_LIST_MAX_ITEMS = 200;
+export const CUSTOMER_LIST_ITEM_NOTE_MAX_LENGTH = 280;
+export const CUSTOMER_LIST_BATCH_ADD_MAX = 100;
+export const CUSTOMER_WISHLIST_STATUS_MAX_IDS = 200;
+export const CUSTOMER_WISHLIST_MERGE_MAX_ITEMS = 100;
+export const CUSTOMER_LIST_ITEM_QUANTITY_MAX = 999;
+
+/**
+ * Hidrate liste öğesinin uygunluk durumu (canlı otoriteden türetilir):
+ *  - AVAILABLE:    satın alınabilir + stokta.
+ *  - OUT_OF_STOCK: aktif/satın alınabilir ama stok yok.
+ *  - UNAVAILABLE:  arşiv/pasif/satın alınamaz/fiyat gizli (ürün artık uygun değil).
+ */
+export const customerListItemAvailabilitySchema = z.enum([
+  "AVAILABLE",
+  "OUT_OF_STOCK",
+  "UNAVAILABLE",
+]);
+
+/** Liste özeti (listeler dizini). itemCount canlı öğe sayısıdır. */
+export const customerListSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: customerListTypeSchema,
+  visibility: customerListVisibilitySchema,
+  isDefault: z.boolean(),
+  itemCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const customerListListResponseSchema = z.object({
+  data: z.array(customerListSummarySchema),
+});
+
+/**
+ * Hidrate liste öğesi (liste detayı). ALLOWLIST: müşteri-güvenli alanlar. `productId`
+ * public ürün kimliğidir (publicProductSchema.id ile aynı; sızıntı değil). `variantId`
+ * yalnız varyant-özel öğede dolu (wishlist favorisi = bütün-ürün → null). `addableVariantId`
+ * "sepete ekle" için çözülen satın alınabilir varyanttır (yoksa null). mediaId/storageKey
+ * ASLA taşınmaz — yalnız türetilmiş `imageUrl`.
+ */
+export const customerListItemSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  variantId: z.string().nullable(),
+  productSlug: z.string(),
+  productTitle: z.string(),
+  variantTitle: z.string().nullable(),
+  sku: z.string().nullable(),
+  note: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  imageUrl: z.string().nullable(),
+  priceMinor: z.number().int().nonnegative().nullable(),
+  compareAtMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema.nullable(),
+  availability: customerListItemAvailabilitySchema,
+  inStock: z.boolean(),
+  addableVariantId: z.string().nullable(),
+  addedAt: z.string().datetime(),
+});
+
+export const customerListDetailSchema = customerListSummarySchema.extend({
+  items: z.array(customerListItemSchema),
+});
+
+/** Liste detayı — ADR-089 Data Grid sayfalaması (varsayılan 25; 25/50/100). */
+export const customerListDetailResponseSchema = z.object({
+  data: customerListDetailSchema,
+  pagination: adminListPaginationSchema,
+});
+
+export const customerListMutationResponseSchema = z.object({
+  data: customerListSummarySchema,
+});
+
+/* ── İstek şemaları ─────────────────────────────────────────────────────────── */
+
+export const customerListCreateRequestSchema = z.object({
+  name: z.string().trim().min(1).max(CUSTOMER_LIST_NAME_MAX_LENGTH),
+});
+export const customerListRenameRequestSchema = customerListCreateRequestSchema;
+
+export const customerListAddItemRequestSchema = z.object({
+  productId: z.string().min(1),
+  variantId: z.string().min(1).nullish(),
+  note: z.string().trim().max(CUSTOMER_LIST_ITEM_NOTE_MAX_LENGTH).nullish(),
+  quantity: z.coerce.number().int().positive().max(CUSTOMER_LIST_ITEM_QUANTITY_MAX).optional(),
+});
+
+/** İdempotent öğe ekleme sonucu: yeni mi eklendi yoksa zaten var mıydı. */
+export const customerListAddItemResponseSchema = z.object({
+  data: z.object({
+    itemId: z.string(),
+    alreadyExisted: z.boolean(),
+  }),
+});
+
+export const customerListMoveItemRequestSchema = z.object({
+  targetListId: z.string().min(1),
+});
+export const customerListCopyItemRequestSchema = customerListMoveItemRequestSchema;
+
+export const customerListItemMutationResponseSchema = z.object({
+  data: z.object({ ok: z.literal(true) }),
+});
+
+/**
+ * Toplu sepete ekleme. `itemIds` verilmezse listedeki TÜM öğeler değerlendirilir
+ * (sunucu yine `CUSTOMER_LIST_BATCH_ADD_MAX` ile sınırlar). Sepet cookie-tabanlı
+ * olduğundan uç, eklenebilir adayları (variantId + qty) + atlananları (sebep) DÖNER;
+ * gerçek sepet yazımı storefront cookie'sinde yapılır (canlı otorite gateway'de kalır).
+ */
+export const customerListBatchAddToCartRequestSchema = z.object({
+  itemIds: z.array(z.string().min(1)).max(CUSTOMER_LIST_BATCH_ADD_MAX).optional(),
+});
+
+export const customerListCartCandidateSchema = z.object({
+  itemId: z.string(),
+  productId: z.string(),
+  variantId: z.string(),
+  quantity: z.number().int().positive(),
+});
+
+export const customerListSkippedItemSchema = z.object({
+  itemId: z.string(),
+  productTitle: z.string(),
+  reason: customerListItemAvailabilitySchema,
+});
+
+export const customerListBatchAddToCartResponseSchema = z.object({
+  data: z.object({
+    candidates: z.array(customerListCartCandidateSchema),
+    skipped: z.array(customerListSkippedItemSchema),
+  }),
+});
+
+/* ── Wishlist (default liste kısa yolları) ─────────────────────────────────────
+ * Wishlist favorisi HER ZAMAN ürün-seviyesidir (variantId=NULL) → PLP/PDP durum
+ * tutarlılığı. Toggle/status productId ile anahtarlanır. */
+
+export const customerWishlistToggleRequestSchema = z.object({
+  productId: z.string().min(1),
+  // İstenen durum; verilirse idempotent (çift-tık güvenli), verilmezse ters çevirir.
+  saved: z.boolean().optional(),
+});
+
+export const customerWishlistToggleResponseSchema = z.object({
+  data: z.object({ productId: z.string(), saved: z.boolean() }),
+});
+
+/** Batched favori durumu: verilen productId'lerden favoride olanlar. N+1 önler. */
+export const customerWishlistStatusRequestSchema = z.object({
+  productIds: z.array(z.string().min(1)).max(CUSTOMER_WISHLIST_STATUS_MAX_IDS),
+});
+
+export const customerWishlistStatusResponseSchema = z.object({
+  data: z.object({ savedProductIds: z.array(z.string()) }),
+});
+
+export const customerWishlistMergeItemSchema = z.object({
+  productId: z.string().min(1),
+  variantId: z.string().min(1).nullish(),
+});
+
+/** Guest wishlist → default wishlist idempotent merge. Bozuk/eski id sunucuda elenir. */
+export const customerWishlistMergeRequestSchema = z.object({
+  items: z.array(customerWishlistMergeItemSchema).max(CUSTOMER_WISHLIST_MERGE_MAX_ITEMS),
+});
+
+export const customerWishlistMergeResponseSchema = z.object({
+  data: z.object({
+    merged: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+});
+
+/* ── Store Admin — müşteri liste özeti (salt-okunur, gizlilik-güvenli) ──────────
+ * Platform-admin müşteri detayında gösterilen ASGARİ özet: liste/öğe sayısı + son
+ * eklenen tarih. Öğe içeriği/davranış takibi GÖSTERİLMEZ. */
+export const storeAdminCustomerListSummaryResponseSchema = z.object({
+  data: z.object({
+    listCount: z.number().int().nonnegative(),
+    wishlistItemCount: z.number().int().nonnegative(),
+    totalItemCount: z.number().int().nonnegative(),
+    lastAddedAt: z.string().datetime().nullable(),
+  }),
+});
+
+export type CustomerListType = z.infer<typeof customerListTypeSchema>;
+export type CustomerListVisibility = z.infer<typeof customerListVisibilitySchema>;
+export type CustomerListItemAvailability = z.infer<typeof customerListItemAvailabilitySchema>;
+export type CustomerListSummary = z.infer<typeof customerListSummarySchema>;
+export type CustomerListListResponse = z.infer<typeof customerListListResponseSchema>;
+export type CustomerListItem = z.infer<typeof customerListItemSchema>;
+export type CustomerListDetail = z.infer<typeof customerListDetailSchema>;
+export type CustomerListDetailResponse = z.infer<typeof customerListDetailResponseSchema>;
+export type CustomerListMutationResponse = z.infer<typeof customerListMutationResponseSchema>;
+export type CustomerListCreateRequest = z.infer<typeof customerListCreateRequestSchema>;
+export type CustomerListRenameRequest = z.infer<typeof customerListRenameRequestSchema>;
+export type CustomerListAddItemRequest = z.infer<typeof customerListAddItemRequestSchema>;
+export type CustomerListAddItemResponse = z.infer<typeof customerListAddItemResponseSchema>;
+export type CustomerListMoveItemRequest = z.infer<typeof customerListMoveItemRequestSchema>;
+export type CustomerListCopyItemRequest = z.infer<typeof customerListCopyItemRequestSchema>;
+export type CustomerListItemMutationResponse = z.infer<typeof customerListItemMutationResponseSchema>;
+export type CustomerListBatchAddToCartRequest = z.infer<typeof customerListBatchAddToCartRequestSchema>;
+export type CustomerListCartCandidate = z.infer<typeof customerListCartCandidateSchema>;
+export type CustomerListSkippedItem = z.infer<typeof customerListSkippedItemSchema>;
+export type CustomerListBatchAddToCartResponse = z.infer<typeof customerListBatchAddToCartResponseSchema>;
+export type CustomerWishlistToggleRequest = z.infer<typeof customerWishlistToggleRequestSchema>;
+export type CustomerWishlistToggleResponse = z.infer<typeof customerWishlistToggleResponseSchema>;
+export type CustomerWishlistStatusRequest = z.infer<typeof customerWishlistStatusRequestSchema>;
+export type CustomerWishlistStatusResponse = z.infer<typeof customerWishlistStatusResponseSchema>;
+export type CustomerWishlistMergeItem = z.infer<typeof customerWishlistMergeItemSchema>;
+export type CustomerWishlistMergeRequest = z.infer<typeof customerWishlistMergeRequestSchema>;
+export type CustomerWishlistMergeResponse = z.infer<typeof customerWishlistMergeResponseSchema>;
+export type StoreAdminCustomerListSummaryResponse = z.infer<typeof storeAdminCustomerListSummaryResponseSchema>;

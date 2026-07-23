@@ -645,6 +645,9 @@ model Store {
   redirects                        Redirect[]
   // TODO-158A (ADR-086) — Home Experience Platform: yönetilebilir ana sayfa (1-1 aggregate root).
   homePage                         HomePage?
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist: ortak liste altyapisi (store-scoped tenant sutunu).
+  customerLists                    CustomerList[]
+  customerListItems                CustomerListItem[]
 }
 
 model StoreUser {
@@ -830,6 +833,10 @@ model Product {
   // TODO-158A (ADR-086) — Home Experience: bu ürünü MANUEL showcase'te tutan girdiler
   // (onDelete: Cascade → ürün silinince manuel seçim otomatik kalkar).
   homeShowcaseIn         HomeShowcaseProduct[]
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist: bu ürünü içeren liste öğeleri.
+  // onDelete: Cascade → ürün FİZİKSEL silinince öğe kalkar (soft-archive'de öğe KORUNUR,
+  // liste detayı canlı hidrasyonla UNAVAILABLE gösterir). Bkz. ADR-093 §FK kararı.
+  customerListItems      CustomerListItem[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -908,6 +915,9 @@ model ProductVariant {
   // TODO-152 (ADR-076) — Inventory Engine: warehouse-aware bakiye + append-only duzeltme defteri.
   inventoryBalances     InventoryBalance[]
   inventoryAdjustments  InventoryAdjustment[]
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist: bu varyanti iceren varyant-ozel liste ogeleri.
+  // onDelete: Cascade → varyant FIZIKSEL silinince oge kalkar (butun-urun ogesi variantId=NULL etkilenmez).
+  customerListItems     CustomerListItem[]
 
   @@unique([storeId, sku])
   // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
@@ -1152,6 +1162,8 @@ model Customer {
   communicationPreference CustomerCommunicationPreference?
   campaignRedemptions     CampaignRedemption[]
   customerCoupons         CustomerCoupon[]
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist (favori + alisveris listeleri).
+  customerLists           CustomerList[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -2192,6 +2204,77 @@ model CustomerCoupon {
   @@index([campaignId])
   @@index([storeId, customerId, status])
   @@index([storeId, email, status])
+}
+
+// ============================================================================
+// TODO-159D (ADR-093) — Customer Lists & Wishlist.
+// Favori (wishlist) ve alisveris listeleri AYRI iki sistem DEGIL; ortak bir
+// `CustomerList` altyapisidir. Wishlist = type=WISHLIST olan TEK varsayilan liste
+// (isDefault=true, lazy-create, silinemez/yeniden-adlandirilamaz). Alisveris
+// listeleri = type=SHOPPING_LIST olan kullanici-tanimli listeler.
+// Tenant izolasyonu mevcut desenle: storeId FK + Cascade + @@index([storeId]).
+// ============================================================================
+enum CustomerListType {
+  WISHLIST
+  SHOPPING_LIST
+}
+
+// MVP yalniz PRIVATE. Alan ileri faz (paylasimli/public liste) icin hazir tutulur.
+enum CustomerListVisibility {
+  PRIVATE
+}
+
+model CustomerList {
+  id         String                 @id @default(cuid())
+  storeId    String
+  customerId String
+  name       String
+  type       CustomerListType       @default(SHOPPING_LIST)
+  visibility CustomerListVisibility @default(PRIVATE)
+  isDefault  Boolean                @default(false)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  store    Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    CustomerListItem[]
+
+  @@index([storeId])
+  @@index([storeId, customerId])
+  // "Her (store, customer) icin TAM bir default WISHLIST" invariant'i migration'daki
+  // KISMI unique index ile zorlanir: UNIQUE(storeId, customerId)
+  //   WHERE isDefault = true AND type = 'WISHLIST'. (Prisma partial index'i sema
+  //   dilinde ifade edemez; migration.sql'de tanimli — bkz. ADR-093.)
+}
+
+model CustomerListItem {
+  id        String   @id @default(cuid())
+  storeId   String
+  listId    String
+  productId String
+  // NULL = butun-urun ogesi (wishlist favorisi her zaman urun-seviyesi → PLP/PDP
+  // durum tutarliligi). Dolu = varyant-ozel oge (alisveris listeleri).
+  variantId String?
+  note      String?
+  quantity  Int      @default(1)
+  sortOrder Int      @default(0)
+  addedAt   DateTime @default(now())
+
+  store   Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  list    CustomerList    @relation(fields: [listId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  // Ayni urun/varyant ayni listeye iki kez eklenemez. Bu 4'lu unique varyant-DOLU
+  // durumu Prisma-native kapatir; butun-urun (variantId=NULL) durumu Postgres
+  // NULL-distinct oldugundan migration'daki KISMI unique ile kapatilir:
+  //   UNIQUE(listId, productId) WHERE variantId IS NULL. Servis katmani ayrica
+  //   check-then-insert + P2002 yutma ile idempotent davranir (bkz. ADR-093).
+  @@unique([listId, productId, variantId])
+  @@index([storeId])
+  @@index([listId, addedAt])
+  @@index([productId])
+  @@index([variantId])
 }
 
 // ============================================================================

@@ -289,9 +289,13 @@
 
 - Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise
   UI/design polish fazından ÖNCE yer alır.
-- Sıra: ~~TODO-159C~~ (DONE) → **TODO-160 Influencer Tracking & Attribution (SIRADAKİ AKTİF)** →
+- Sıra: ~~TODO-159C~~ (DONE) → **TODO-159D Customer Lists & Wishlist (SIRADAKİ AKTİF)** →
+  **TODO-159E Product Reviews & Ratings** → **TODO-160 Influencer Tracking & Attribution** →
   **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı (henüz
   numaralandırılmadı)*.
+- **Konumlandırma gerekçesi:** TODO-159D ve TODO-159E, Growth & Monetization (attribution/sponsored)
+  fazlarından ÖNCE gelir çünkü temel müşteri-alışveriş etkileşimlerini (favori/liste, yorum/puan)
+  tamamlarlar; influencer ve sponsored ölçümü daha zengin bir müşteri etkileşim yüzeyi üzerine oturur.
 - TODO-161, TODO-160'ın kurduğu event/attribution temelinden yararlanabilmek için ondan SONRA konumlanır.
 - **Ortak ölçüm altyapısı notu:** Influencer Tracking & Attribution ile Sponsored Product Management AYNI
   event ve conversion attribution altyapısını yeniden kullanmalıdır. Ortak olabilecek kavramlar:
@@ -301,6 +305,58 @@
   yerleşim/merchandising kararıdır (slot, hedefleme, yoğunluk sınırı). Yaşam döngüleri, yetkilendirme ve
   raporlama soruları farklıdır. Paylaşım event/attribution KATMANINDA olur, domain modelinde değil.
   Karar: ADR-091.
+
+## Customer Lifecycle — Customer Lists & Wishlist (TODO-159D · ADR-093)
+
+- Durum: **DONE (tüm katmanlar + gate + canlı doğrulama YEŞİL; commit'e hazır — commit/PR/deploy
+  YAPILMADI).** Analiz: `docs/analysis/TODO-159D-customer-lists-wishlist.md`.
+- Gate: `pnpm build` (25/25) · `pnpm typecheck` · `pnpm lint` (38/38) · `pnpm test` (api-gateway 1156,
+  yeni customer-lists route 14 + wishlist-token 6 + heart a11y 3 dahil) · `git diff --check` temiz.
+- Migration `20260723140000` gerçek PostgreSQL 16'da uygulandı; kısmi unique invariant'lar (ikinci default
+  wishlist reddi, bütün-ürün dedup reddi), varyant-özel kabul ve FK cascade doğrulandı.
+- Canlı doğrulama (enterprise-demo seed, gerçek gateway + Prisma): lazy-create default wishlist, gerçek
+  ürünle toggle + batched status, CANLI hidrasyon (fiyat/stok/görsel; OUT_OF_STOCK gerçek envanterden),
+  toplu sepete ekleme aday+atlanan (UNAVAILABLE sebepli), 401/404/422 güvenlik guard'ları, guest merge
+  (merged/skipped, bozuk id eleme), DB invariant = tam 1 default wishlist.
+- Amaç: Favori (wishlist) ve alışveriş listelerini iki ayrı sistem olarak değil, ortak ve tenant-safe bir
+  `CustomerList` altyapısı üzerine kurmak. Storefront'ta gerçek (mock olmayan) favori davranışı + Customer
+  Account altında liste yönetimi.
+- Domain: `CustomerList` (id, storeId, customerId, name, type, visibility, isDefault) + `CustomerListItem`
+  (id, storeId, listId, productId, variantId?, addedAt, note?, quantity?, sortOrder?). Enum:
+  `CustomerListType` {WISHLIST, SHOPPING_LIST}, `CustomerListVisibility` {PRIVATE} (MVP yalnız PRIVATE).
+- Kurallar: her müşteri+mağaza için TAM bir adet varsayılan WISHLIST (silinemez); aynı ürün/varyant aynı
+  listeye iki kez eklenemez (composite unique); tenant izolasyonu unique + sorgu katmanında; ürün/varyant
+  silme davranışı FK ile açıkça belgelenir; Product/Variant modeline JSON wishlist alanı EKLENMEZ.
+- Favori davranışı: PLP · Home showcase · PDP · (varsa Quick View) product-card yüzeylerinde gerçek
+  backend durumu; optimistic UI + rollback; idempotent; `aria-pressed` + SR metni; batched wishlist status
+  resolver (N+1 yok). Guest wishlist: first-party cookie (yalnız productId/variantId, fiyat/PII yok, maks.
+  kayıt sınırı); login'de idempotent merge + guest temizliği.
+- Alışveriş listeleri: Customer Account'ta CRUD + item ekle/kaldır/taşı/kopyala + tekli/toplu sepete ekleme
+  (canlı stok/fiyat otoritesi, stokta olmayan atlanır + sonuç özeti). Ekranlar `/account/lists`,
+  `/account/lists/[listId]`, wishlist kısa yolu. Liste detayı ADR-089 Data Grid pagination'ı (25/50/100).
+- Store Admin: MVP'de tam düzenleme YOK; müşteri detayında salt-okunur özet (liste sayısı, wishlist öğe
+  sayısı, son eklenen tarih) değerlendirilir.
+- **MVP:** ortak liste altyapısı · gerçek favori · guest wishlist + merge · alışveriş listeleri CRUD ·
+  tekli/toplu sepete ekleme · batched status · Account UI.
+- **Sonraki faz:** paylaşımlı/public liste · liste bazlı fiyat-düşüş bildirimi · admin liste analitiği.
+- Kabul kriterleri (taslak): müşteri yalnız kendi listelerine erişir (ID enumeration sızdırmaz); tüm
+  sorgular tenant-izole; add/remove idempotent; batch üst sınırı sunucuda; canlı ürün/variant/stok
+  otoritesi kullanılır (snapshot'a güvenilmez); guest merge kısmi hatada sessiz veri kaybı yaratmaz.
+
+## Customer Lifecycle — Product Reviews & Ratings (TODO-159E)
+
+- Durum: **PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).** Sıra: TODO-159D'den SONRA,
+  TODO-160'tan ÖNCE.
+- Amaç: Ürünlere yıldız puanı + metin yorumu; doğrulanmış alışveriş (verified purchase) temelli güven; PDP
+  rating özeti + yorum listesi; Store Admin moderasyonu.
+- Kapsam (taslak): yıldız puanı + metin yorum · sipariş kalemi bazlı yorum uygunluğu (yalnız satın alınan
+  ürün) · doğrulanmış alışveriş rozeti · tekrar yorum koruması (ürün+müşteri tekil) · moderasyon durumları
+  (PENDING/APPROVED/REJECTED) · Store Admin moderasyon ekranı · PDP rating summary (ortalama + dağılım) +
+  yorum listesi · "faydalı buldum" oyu · spam/rate-limit · iade/iptal sonrası doğrulama kuralı.
+- **Sonraki faz:** görsel/video yorumu · satıcı yanıtı · yorum bazlı ürün skorlama.
+- Kabul kriterleri (taslak): yorum uygunluğu SUNUCU-otoriter (satın alma kanıtı gateway'de doğrulanır);
+  aynı müşteri aynı ürüne tek yorum; moderasyon onaylanmadan PDP'de görünmez; tüm sorgular tenant-izole.
+- **NOT:** TODO-159D görevinde yorum sistemi KODU yazılmaz; yalnız bu planlama kaydı eklenir.
 
 ## Growth & Monetization — Influencer Tracking & Attribution (TODO-160)
 

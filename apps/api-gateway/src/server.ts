@@ -113,6 +113,11 @@ import {
   resolveCustomerFromRequest,
   type CustomerDataAccess,
 } from "./customers/index.js";
+import { createCustomerListData } from "./customer-lists/data.js";
+import {
+  registerCustomerListAdminRoutes,
+  registerCustomerListRoutes,
+} from "./customer-lists/routes.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -5906,6 +5911,24 @@ export function createServer(
     listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
   });
 
+  // TODO-159D (ADR-093) — Customer Lists & Wishlist (own account). Katalog/stok
+  // hidrasyonu enjekte edilen dataAccess yardımcılarından (N+1'siz batched; Prisma
+  // customer-lists modülüne yalnız CustomerList/CustomerListItem CRUD için sızar).
+  const customerListData = createCustomerListData();
+  registerCustomerListRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    data: customerListData,
+    catalog: {
+      findProductsByIds: (sid, ids) => dataAccess.findProductsByIds(sid, ids),
+      findVariantsByIds: (sid, ids) => dataAccess.findVariantsByIds(sid, ids),
+      findInventoryByVariantIds: (sid, ids) => dataAccess.findInventoryByVariantIds(sid, ids),
+      listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
+    },
+  });
+
   // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den
   // (searchProvider.search); Product/EAV source-of-truth join'i YOK. Kategori adı + kapak görseli
   // yalnız dönen SAYFA için bounded hidrasyon (display-only; mevcut PLP deseniyle simetrik).
@@ -5934,6 +5957,15 @@ export function createServer(
     config,
     customers,
     logger,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // TODO-159D (ADR-093) — Store-admin müşteri liste ÖZETİ (salt-okunur; gizlilik-güvenli).
+  registerCustomerListAdminRoutes(app, {
+    data: customerListData,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;

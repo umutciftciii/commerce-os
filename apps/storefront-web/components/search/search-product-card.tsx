@@ -8,6 +8,7 @@ import { mockRating } from "../../lib/mock-rating";
 import { Badge } from "../ui/badge";
 import { ProductMedia } from "../ui/product-media";
 import { Stars } from "../ui/stars";
+import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 
 /**
  * TODO-156B (ANALIZ-156A §5-§9) — Public search projeksiyonuyla beslenen PLP kartı.
@@ -37,10 +38,8 @@ export function SearchProductCard({
   const s = t.search;
   // Aktif swatch önizleme (hover/focus ile set; ayrılınca temizlenir). Yalnız görsel state.
   const [activeSwatch, setActiveSwatch] = useState<ListingSwatch | null>(null);
-  // MOCK etkileşimler — Home kartıyla AYNI desen (backend karşılığı yok; bkz. todo.md):
-  //  - Favori (wishlist): yalnız yerel geçici durum, persist YOK.
-  //  - Puan/değerlendirme: handle'dan deterministik yer tutucu (lib/mock-rating).
-  const [saved, setSaved] = useState(false);
+  // Puan/değerlendirme: handle'dan deterministik yer tutucu (lib/mock-rating) — MOCK.
+  // Favori (wishlist) artık GERÇEK: WishlistHeartButton + backend durumu (TODO-159D).
   const rating = mockRating(card.slug);
 
   // Görsel öncelik: aktif swatch görseli > (secondary hover CSS ile) > primary/placeholder.
@@ -92,16 +91,17 @@ export function SearchProductCard({
           ) : null}
         </div>
 
-        {/* MOCK: Favori (wishlist) — Home kartıyla aynı tokenize cam kontrol; yalnız yerel durum, persist YOK. */}
-        <button
-          type="button"
-          onClick={() => setSaved((v) => !v)}
-          aria-label={t.home.card.wishlistAdd}
-          aria-pressed={saved}
-          className="control-surface absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors"
-        >
-          <HeartIcon filled={saved} />
-        </button>
+        {/* TODO-159D (ADR-093) — Gerçek favori toggle; kalp butonu <a> DIŞINDA (sarmalayıcı div içinde). */}
+        <WishlistHeartButton
+          productId={card.id}
+          labels={{
+            add: t.home.card.wishlistAdd,
+            remove: t.home.card.wishlistRemove,
+            savedFeedback: t.home.card.wishlistSavedFeedback,
+            removedFeedback: t.home.card.wishlistRemovedFeedback,
+            error: t.home.card.wishlistError,
+          }}
+        />
       </div>
 
       <div className="flex flex-1 flex-col pt-4">
@@ -135,21 +135,6 @@ export function SearchProductCard({
         ) : null}
       </div>
     </div>
-  );
-}
-
-/** MOCK favori kalbi — Home kartıyla aynı ikon (dolu/boş durumu `--ink` ile). */
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path
-        d="M10 16.5S3 12.5 3 7.75A3.25 3.25 0 0 1 10 5.6a3.25 3.25 0 0 1 7 2.15C17 12.5 10 16.5 10 16.5Z"
-        fill={filled ? "var(--ink)" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 

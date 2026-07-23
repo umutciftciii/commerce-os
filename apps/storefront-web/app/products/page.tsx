@@ -16,6 +16,8 @@ import { SearchToolbar } from "../../components/search/search-toolbar";
 import { SearchResultsRegion } from "../../components/search/results-region";
 import { SearchTransitionProvider } from "../../components/search/search-transition";
 import { ProductGrid } from "../../components/search/product-grid";
+import { WishlistProvider } from "../../components/wishlist/wishlist-provider";
+import { getWishlistStatus } from "../../lib/server/wishlist";
 import { SearchPagination } from "../../components/search/search-pagination";
 import { SearchEmpty } from "../../components/search/search-empty";
 import { FilterRail } from "../../components/search/filter-rail";
@@ -106,6 +108,8 @@ export default async function ProductsPage({
 
   const data = result.data;
   const cards = toListingCards(data.products);
+  // TODO-159D (ADR-093) — Sayfadaki ürünler için TEK batched favori-durum çözümü (N+1 yok).
+  const savedProductIds = [...(await getWishlistStatus(cards.map((card) => card.id)))];
   const currency = data.products[0]?.currency ?? "TRY";
   const facets = data.facets;
 
@@ -158,7 +162,9 @@ export default async function ProductsPage({
                 <SearchEmpty state={state} currency={currency} t={t} />
               ) : (
                 <div className="mt-8 lg:mt-10">
-                  <ProductGrid cards={cards} t={t} />
+                  <WishlistProvider initialSavedIds={savedProductIds}>
+                    <ProductGrid cards={cards} t={t} />
+                  </WishlistProvider>
                 </div>
               )}
             </SearchResultsRegion>

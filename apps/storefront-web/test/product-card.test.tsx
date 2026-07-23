@@ -14,6 +14,7 @@ function summary(
   extra: Partial<StorefrontProductSummary> = {},
 ): StorefrontProductSummary {
   return {
+    id: "p",
     handle: "p",
     title: "Test Ürün",
     brand: "Marka",

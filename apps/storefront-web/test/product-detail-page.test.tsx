@@ -62,6 +62,7 @@ const catalogSales = {
 
 function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontProductDetail {
   return {
+    id: "demo-hoodie",
     handle: "demo-hoodie",
     title: "Demo Hoodie",
     brand: "Commerce OS",
@@ -99,6 +100,7 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
     seoDescription: null,
     related: [
       {
+        id: "demo-tote",
         handle: "demo-tote",
         title: "Demo Tote Bag",
         brand: "Commerce OS",

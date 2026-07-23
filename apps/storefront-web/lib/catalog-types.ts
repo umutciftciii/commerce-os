@@ -57,6 +57,12 @@ export interface StorefrontPrice {
 
 /** Liste/karti besleyen ozet urun gorunumu. */
 export interface StorefrontProductSummary {
+  /**
+   * TODO-159D (ADR-093) — Public ürün kimliği (publicProductSchema.id). Wishlist
+   * favori durumu/toggle bu STABIL id ile anahtarlanır (slug değişebilir; SlugHistory).
+   * Kişisel veri değil; public projeksiyonda zaten mevcut.
+   */
+  id: string;
   /** URL handle = urun slug'i (cevrilmez, sabit kimlik). */
   handle: string;
   title: string;

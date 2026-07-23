@@ -932,3 +932,35 @@ sonuç üretmez; her biri uygulanmış bir tasarım sınırıdır.
 
 - **TD-099 — Envanter matrisinde ürün-facet filtreleri (kategori/marka/tedarikçi) YOK.** Matris varyant-stok merkezlidir; bu faz filtre olarak `warehouseId`/`stockStatus`/`reserved`/`variantStatus`/`productStatus` ekledi (hepsi tenant-safe, gerçek). Kategori/marka/tedarikçi eklenmedi çünkü bunlar ürün-seviyesi facet'lerdir (kategori için `ProductCategoryAssignment` EXISTS join'i, marka/tedarikçi için `Product` kolon eşitliği + DISTINCT açılır kaynağı gerekir — ürün listesindeki `listProductFilterOptions` ile aynı desen). Eklemek TAMAMEN ADDITIVE'tir: `Product p` zaten join'li olduğundan `buildStoreMatrixScan` base WHERE'ine birkaç koşul + contract/BFF allowlist/UI filtre tanımı yeter. Bugün stok filtreleri (durum/rezerve/depo) operasyonel ihtiyacı karşıladığı için ertelendi. **Öncelik: DÜŞÜK-ORTA** — çok markalı büyük katalogda "marka X'in stoğu" sorgusu istenince.
 - **TD-100 — Stok durumu/`available` türetmesi SQL'de VE JS'te iki kez ifade edilir (parite testle korunur, tek kaynaktan ÜRETİLMEZ).** Filtre (`stockStatus`/`reserved`) ve sıralama (`onHand`/`reserved`/`available`) sunucu-taraflı yapılabilmesi için `buildStoreMatrixScan` CTE'sinde `available = onHand−reserved−safetyStock`, `sellable = max(·,0)` ve durum CASE'i SAF `availability.ts`/`calculator.ts`'in birebir SQL transkripsiyonudur. Gösterilen satır `currentCalc` yine JS `computeCalc` ile hesaplanır (tek gösterim otoritesi); ancak formül İKİ dilde yaşar. Bugün risk düşüktür: contract testleri + calculator birim testleri tüm dalları kapsar ve canlı doğrulamada summary durum sayıları toplam varyantla tutarlı çıktı (parite). İdeal çözüm formülü tek bir yerde (örn. generated SQL fragment veya materialized computed column) tutmaktır; `available`'ın materialize edilmemesi ADR-076 kararıdır (türetilir). Divergence oluşursa filtre/sıralama gösterilen durumdan sapabilir — bu yüzden formül değişince İKİ yer birlikte güncellenmeli. **Öncelik: DÜŞÜK** (yapısal not; aktif risk değil).
+
+## TODO-159D (ADR-093) — Customer Lists & Wishlist sınırları (TD-101…TD-105)
+
+- **TD-101 — Kısmi unique index'ler Prisma şemasında YOK; yalnız migration SQL'inde.** İki invariant (tek
+  default WISHLIST + bütün-ürün öğe dedup) `WHERE`-koşullu kısmi unique index'lerle DB'de zorlanır ancak
+  Prisma şema dili kısmi index ifade edemez. Bu yüzden `prisma migrate dev` bunları "drift" olarak görebilir
+  (tıpkı TODO-152'deki partial-index tuzağı gibi). Proje elle-yazılan migration + `migrate deploy` (diff
+  YAPMAZ) kullandığından üretimde/CI'da sorun yok; sadece yerel `migrate dev` çalıştıran geliştirici drift
+  uyarısı görebilir. Çözüm: Prisma partial-index desteği gelince şemaya taşımak veya `migrate dev` yerine
+  hep hand-authored akış. **Öncelik: DÜŞÜK** (yapısal; işlevsel risk yok — invariant DB'de gerçek).
+- **TD-102 — Özel liste isim tekilliği yalnız SERVİS katmanında (DB unique DEĞİL).** Aynı müşterinin aynı
+  isimli (case-insensitive) ikinci özel listesi `findListByNameCI` kontrolüyle reddedilir (409); ancak eşzamanlı
+  iki istek teorik olarak yarışıp iki aynı-isimli liste yaratabilir. DB unique eklenmedi çünkü default wishlist'in
+  adı lokalize/sabit ve i18n'e tabidir (isim DB'de sabit "Favorilerim" tutulur, gösterimde çevrilir) — global
+  isim unique'i bunu ve gelecekteki lokalize adları kırardı. Pratikte çift-liste yarışı zararsızdır (kullanıcı
+  silebilir). **Öncelik: DÜŞÜK.**
+- **TD-103 — Liste öğesi uygunluk/stok türetmesi cart otoritesinin TAZE bir transkripsiyonu (TD-100 ile aynı
+  sınıf).** `customer-lists/routes.ts` `hydrateItems` `available=onHand−reserved`, `inStock`, `AVAILABLE/
+  OUT_OF_STOCK/UNAVAILABLE` mantığını `buildPublicCartLine`/`isPublicPriceVisible` ile BİREBİR eşleyecek şekilde
+  yeniden yazar (tek fonksiyondan türetmez). Bugün risk düşüktür: batch-add-to-cart + list-detail testleri üç
+  durumu da kapsar ve gerçek sepet yazımı yine cart resolve otoritesinden geçer (nihai stok kontrolü orada).
+  Divergence oluşursa liste-detay rozeti sepet davranışından sapabilir; formül değişince iki yer güncellenmeli.
+  İdeal: uygunluk hesabını paylaşılan SAF bir modüle çıkarmak. **Öncelik: DÜŞÜK.**
+- **TD-104 — Liste öğesi yeniden sıralama UI'ı YOK (`sortOrder` alanı hazır).** `CustomerListItem.sortOrder`
+  şemada mevcut ve liste sorgusu `sortOrder ASC, addedAt DESC` sıralar; ancak sürükle-bırak/manuel sıralama
+  arayüzü ve bunu yazan uç eklenmedi. Öğeler bugün eklenme sırasında görünür. Eklemek additive: bir
+  `reorder` ucu + UI. **Öncelik: DÜŞÜK.**
+- **TD-105 — Store Admin'de liste YÖNETİM ekranı YOK; yalnız salt-okunur özet.** MVP kararı: müşteri detayında
+  yalnız asgari sayaç/tarih (liste sayısı, wishlist öğe sayısı, son eklenen) gösterilir (gizlilik: öğe içeriği/
+  davranış takibi yok). Admin'in müşteri listelerini görüntüleme/düzenleme ekranı bilinçli olarak roadmap'e
+  bırakıldı (kapsam büyümesi). Veri modeli + `list-summary` ucu hazır olduğundan ileri faz yalnız UI ekler.
+  **Öncelik: DÜŞÜK** (ürün kararı; teknik borç değil, kapsam sınırı).

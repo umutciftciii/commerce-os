@@ -14,6 +14,7 @@ import type {
 import { postPublic, sendCustomer } from "./gateway";
 import { customerBasePath } from "./customer";
 import { clearCustomerToken, readCustomerToken, writeCustomerToken } from "./customer-cookie";
+import { mergeGuestWishlistAction } from "./wishlist-actions";
 
 export type AuthActionResult<T = undefined> =
   | (T extends undefined ? { ok: true } : { ok: true; data: T })
@@ -75,6 +76,8 @@ export async function registerCompleteAction(input: {
     return { ok: false, code: result.code ?? "REGISTER_FAILED" };
   }
   await writeCustomerToken(result.data.token);
+  // TODO-159D (ADR-093) — Misafir favorilerini yeni hesabın wishlist'ine idempotent merge et.
+  await mergeGuestWishlistAction();
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -94,6 +97,8 @@ export async function loginAction(
     return { ok: false, code: result.code ?? "INVALID_CREDENTIALS" };
   }
   await writeCustomerToken(result.data.token);
+  // TODO-159D (ADR-093) — Giriş sonrası misafir favorilerini müşterinin wishlist'ine merge et.
+  await mergeGuestWishlistAction();
   revalidatePath("/", "layout");
   return { ok: true };
 }
