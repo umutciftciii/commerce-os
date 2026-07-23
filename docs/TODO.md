@@ -1632,15 +1632,25 @@
   kategori seçicileri hâlâ 100 ile sınırlı → arama tabanlı seçici gerek) · TD-094 (ILIKE araması için trigram
   indeksi) · TD-095 (medya kütüphanesi sabit 100 + yanıltıcı meta).
 
-## TODO-159C — Inventory Matrix Scalability (SIRADAKİ AKTİF FAZ)
+## TODO-159C — Inventory Matrix Scalability (ADR-092) — TAMAMLANDI
 
-- Durum: **PLANLANDI — implementasyon YAPILMADI.** Bu kayıt yalnız kapsam tanımıdır; kod, schema,
-  migration ve test DEĞİŞTİRİLMEDİ.
-- Amaç: **TD-091'i kapatmak.** `GET /stores/:id/inventory/matrix` bugün mağazadaki tüm non-archived
-  varyantları bakiyeleriyle TEK yanıtta döner (enterprise-demo: 2.202 varyant) ve `/inventory` ekranı
-  arama/durum filtresini istemcide uygular. Ekran ADR-089 liste standardına (sunucu-otoriter sayfalama +
-  arama + filtre + sıralama + URL state) taşınacak.
-- Planlanan kapsam:
+- Durum: **DONE — commit'e hazır (PR/deploy YAPILMADI).** TD-091 KAPANDI. Analiz:
+  `docs/analysis/TODO-159C-inventory-matrix-scalability.md`; karar: ADR-092.
+- Uygulanan: `GET /stores/:id/inventory/matrix` sunucu-otoriter (ADR-089 Data Grid). Query
+  `page`/`pageSize`(≤100)/`search`/`sortBy`(allowlist)/`sortOrder` + `warehouseId`/`stockStatus`/`reserved`/
+  `variantStatus`/`productStatus`; response `warehouse` + sayfa `rows` + `pagination` + sayfadan bağımsız
+  `summary`. `listStoreVariants` → tek raw SQL CTE tarama (LIMIT/OFFSET + aggregate + attribute hidrasyonu;
+  3 sorgu, N+1 yok). Çift otorite (ADR-076) SQL'de korundu; satır `currentCalc` SAF `computeCalc` ile.
+  Ekran `useDataGridQuery` + Data Grid bileşenleri; KPI'lar server `summary`'den. Dashboard özeti de
+  `summary`'ye taşındı. Additive `ProductVariant(storeId,status)` indeksi (migration `20260723120000`).
+  Değişen dosyalar: contracts, api-client, inventory-engine (data/service/routes), BFF (list-query + matrix
+  route + dashboard summary), store-admin `/inventory` page + client, i18n (tr+en), Prisma schema+migration;
+  testler: contract + inventory-engine service + store-admin interactions + bff-security.
+- Canlı doğrulama (enterprise-demo edm-store, 2.138 varyant): sorgu 5.7 ms, payload 819 KB → 9.7 KB (~84×),
+  filtre↔summary paritesi (LOW_STOCK 187), tenant sızıntısı 0, non-default depoda item overlay yok.
+- Ertelenen sınırlar: **TD-099** (kategori/marka/tedarikçi facet filtreleri — additive), **TD-100** (stok
+  formülü SQL+JS iki dilde; parite testli). Gate'ler yeşil.
+- Orijinal planlanan kapsam (referans):
   1. `inventory/matrix` ucuna sayfalama sözleşmesi (`page`/`pageSize` + ortak `adminListPaginationSchema`
      meta'sı; legacy yanıt alanları geriye-uyumlu korunur).
   2. SKU / barkod / ürün adı / varyant başlığı araması (sunucu-taraflı).

@@ -915,6 +915,9 @@ model ProductVariant {
   @@index([productId])
   @@index([storeId])
   @@index([status])
+  // TODO-159C (ADR-092) — Inventory Matrix taramasinin birincil filtresi (storeId + status<>ARCHIVED).
+  // 50k+ varyantta taranan kumeyi daraltir; additive (mevcut sorgular etkilenmez).
+  @@index([storeId, status])
 }
 
 // F4B — Kampanya-disi fiyat/liste/maliyet degisikligi audit'i (append-only).

@@ -13,12 +13,15 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  adminInventoryMatrixListQuerySchema,
+  buildAdminListPagination,
   inventoryApplyRequestSchema,
   inventoryApplyResponseSchema,
   inventoryPreviewRequestSchema,
   inventoryPreviewResponseSchema,
   inventoryStoreMatrixResponseSchema,
   inventoryWarehouseListResponseSchema,
+  resolveAdminListPage,
 } from "@commerce-os/contracts";
 import {
   inventoryErrorStatus,
@@ -77,17 +80,38 @@ export function registerInventoryRoutes(app: FastifyInstance, deps: InventoryRou
     return inventoryWarehouseListResponseSchema.parse({ data: result.warehouses });
   });
 
-  // TODO-152A — Mağaza-geneli SALT-OKUMA matris (izleme/operasyon merkezi). Yazma YOK.
+  // TODO-152A/159C (ADR-092) — Mağaza-geneli SALT-OKUMA matris (izleme/operasyon merkezi). Yazma YOK.
+  // Sunucu-otoriter: page/pageSize/search/sortBy/sortOrder + warehouse/stockStatus/reserved/status
+  // filtreleri. Query allowlist'i `adminInventoryMatrixListQuerySchema`'dır (tanınmayan sort/filtre
+  // 400 verir; pageSize tavanı sunucuda zorlanır). Response ortak pagination meta'sı + sayfadan
+  // bağımsız özet taşır.
   app.get("/stores/:storeId/inventory/matrix", async (request, reply) => {
     const params = storeParam.parse(request.params);
     const actor = await requireStoreAdmin(request, reply, params.storeId);
     if (!actor) return;
-    const query = warehouseQuery.parse(request.query ?? {});
-    const result = await service.storeMatrix({ storeId: params.storeId, warehouseId: query.warehouseId });
+    const query = adminInventoryMatrixListQuerySchema.parse(request.query ?? {});
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const result = await service.storeMatrix({
+      storeId: params.storeId,
+      warehouseId: query.warehouseId,
+      criteria: {
+        search: query.search,
+        sortBy: query.sortBy ?? "productTitle",
+        sortOrder: query.sortOrder ?? "asc",
+        limit,
+        offset,
+        stockStatus: query.stockStatus,
+        reserved: query.reserved,
+        variantStatus: query.variantStatus,
+        productStatus: query.productStatus,
+      },
+    });
     if (!result.ok) return sendServiceError(reply, result.error);
     return inventoryStoreMatrixResponseSchema.parse({
       warehouse: result.result.warehouse,
       rows: result.result.rows,
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: result.result.total }),
+      summary: result.result.summary,
     });
   });
 

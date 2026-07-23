@@ -346,16 +346,38 @@ function makeFake(initial: FakeVariant[], warehouses: InventoryWarehouseRef[] = 
     findDefaultWarehouse: async () => warehouses.find((w) => w.isDefault) ?? null,
     read: (fn) => fn(ctxImpl),
     transaction: (fn) => fn(ctxImpl),
-    // TODO-152A — mağaza-geneli okuma: tüm non-archived varyantlar + ürün kimliği.
-    listStoreVariants: async () =>
-      store.variants
+    // TODO-152A/159C — mağaza-geneli SUNUCU-OTORİTER okuma: non-archived varyantlar + ürün kimliği,
+    // kriterle sayfalanır (fake: limit/offset uygulanır; filtre/sıralama gerçek SQL'de test edilir).
+    listStoreVariants: async (_s, _w, criteria) => {
+      const all = store.variants
         .filter((v) => v.status !== "ARCHIVED")
         .map((v) => ({
           ...toRow(v),
           productId: v.productId,
           productTitle: `Product ${v.productId}`,
           productSlug: v.productId,
-        })),
+          barcode: null,
+          updatedAt: "2026-07-23T00:00:00.000Z",
+        }));
+      const rows = all.slice(criteria.offset, criteria.offset + criteria.limit);
+      return {
+        rows,
+        total: all.length,
+        summary: {
+          totalVariants: all.length,
+          totalOnHand: all.reduce((s, r) => s + r.current.onHand, 0),
+          totalReserved: all.reduce((s, r) => s + r.current.reserved, 0),
+          totalSellable: 0,
+          totalIncoming: 0,
+          inStock: 0,
+          lowStock: 0,
+          outOfStock: 0,
+          incoming: 0,
+          negative: 0,
+          noBalance: 0,
+        },
+      };
+    },
   };
   return { store, dataAccess };
 }
@@ -375,6 +397,9 @@ describe("TODO-152 · inventoryService", () => {
     if (res.ok) expect(res.result.rows.map((r) => r.variantId)).toEqual(["v1", "v2"]);
   });
 
+  // TODO-159C — sunucu-otoriter matris varsayılan kriteri (sıralama/sayfalama).
+  const MATRIX_CRITERIA = { sortBy: "productTitle" as const, sortOrder: "asc" as const, limit: 25, offset: 0 };
+
   // TODO-152A — Mağaza-geneli izleme matris (SALT-OKUMA; ürünler-arası + SAF durum paritesi).
   it("storeMatrix spans products, computes status, excludes archived", async () => {
     const multi: FakeVariant[] = [
@@ -383,7 +408,7 @@ describe("TODO-152 · inventoryService", () => {
     ];
     const { dataAccess } = makeFake(multi);
     const svc = createInventoryService(dataAccess);
-    const res = await svc.storeMatrix({ storeId: "s1" });
+    const res = await svc.storeMatrix({ storeId: "s1", criteria: MATRIX_CRITERIA });
     expect(res.ok).toBe(true);
     if (res.ok) {
       // v3 ARCHIVED hariç; v4 farklı üründen gelir (ürün kimliği taşınır).
@@ -393,13 +418,37 @@ describe("TODO-152 · inventoryService", () => {
       // sellable 3 <= reorderPoint 5 → LOW_STOCK (motor SAF hesabıyla birebir).
       expect(v4.currentCalc.status).toBe("LOW_STOCK");
       expect(v4.currentCalc.sellableAvailable).toBe(3);
+      // TODO-159C — sayfalama meta'sı + sayfadan bağımsız özet servis sonucunda taşınır.
+      expect(res.result.total).toBe(3);
+      expect(res.result.summary.totalVariants).toBe(3);
+    }
+  });
+
+  // TODO-159C — limit/offset sunucu-otoriter olarak veri erişimine geçirilir (sayfa dilimi).
+  it("storeMatrix paginates via criteria limit/offset while total/summary span the full set", async () => {
+    const multi: FakeVariant[] = [
+      { id: "v1", productId: "p1", storeId: "s1", status: "ACTIVE", current: state({ onHand: 10 }), balanceExists: true },
+      { id: "v2", productId: "p1", storeId: "s1", status: "ACTIVE", current: state({ onHand: 20 }), balanceExists: true },
+      { id: "v4", productId: "p2", storeId: "s1", status: "ACTIVE", current: state({ onHand: 3 }), balanceExists: true },
+    ];
+    const { dataAccess } = makeFake(multi);
+    const svc = createInventoryService(dataAccess);
+    const res = await svc.storeMatrix({
+      storeId: "s1",
+      criteria: { ...MATRIX_CRITERIA, limit: 2, offset: 2 },
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // 3 varyant; offset 2 → son sayfada yalnız v4. total tüm kümeyi yansıtır.
+      expect(res.result.rows.map((r) => r.variantId)).toEqual(["v4"]);
+      expect(res.result.total).toBe(3);
     }
   });
 
   it("storeMatrix → WAREHOUSE_NOT_FOUND when store has no default warehouse", async () => {
     const { dataAccess } = makeFake(base, []);
     const svc = createInventoryService(dataAccess);
-    const res = await svc.storeMatrix({ storeId: "s1" });
+    const res = await svc.storeMatrix({ storeId: "s1", criteria: MATRIX_CRITERIA });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("WAREHOUSE_NOT_FOUND");
   });

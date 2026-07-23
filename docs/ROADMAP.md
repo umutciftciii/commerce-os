@@ -265,29 +265,31 @@
 - Sonraki adımlar: Envanter matrisinin sayfalanabilir sözleşmeye taşınması (TD-091), sayfalamasız koleksiyon
   uçlarının ortak meta'ya geçirilmesi (TD-092), arama tabanlı ürün/kategori seçicisi (TD-093).
 
-## SIRADAKİ AKTİF FAZ — Store Admin: Inventory Matrix Scalability (TODO-159C)
+## Store Admin — Inventory Matrix Scalability (TODO-159C · ADR-092) — TAMAMLANDI
 
-- Durum: PLANNED (yalnız roadmap kaydı; implementasyon/kod/schema/migration YAPILMADI).
-- Amaç: TD-091'i kapatmak. `GET /stores/:id/inventory/matrix` bugün mağazadaki tüm non-archived varyantları
-  bakiyeleriyle birlikte TEK yanıtta döner (enterprise-demo: 2.202 varyant) ve `/inventory` ekranı arama ile
-  durum filtresini istemci-tarafında uygular. Envanter ekranı, ADR-089'un liste standardına (sunucu-otoriter
-  sayfalama + arama + filtre + sıralama + URL state) taşınır.
-- Planlanan kapsam: (1) `inventory/matrix` ucuna sayfalama sözleşmesi. (2) SKU / barkod / ürün / varyant
-  araması. (3) Depo (warehouse) filtresi. (4) Stok durumu filtresi. (5) Düşük stok filtresi.
-  (6) `onHand` / `reserved` / `available` sıralaması. (7) URL state. (8) 25/50/100 sayfa boyu.
-  (9) Batched minimum projeksiyon. (10) Tenant izolasyonu. (11) N+1 kontrolü. (12) Toplu (bulk) envanter
-  işlemlerinin sayfalamayla uyumluluğu. (13) TD-091 kapanışı.
-- Ön koşul notu (TD-091'den): bu yalnız bir UI değişikliği DEĞİLDİR —
-  `inventoryStoreMatrixResponseSchema` sayfalama meta'sı taşımıyor, `listStoreVariants` sayfalanabilir değil
-  ve TODO-152A'nın "stok izleme merkezi" semantiği tüm satırların aynı anda görünmesine dayanıyor. Sözleşme
-  değişikliği bu üçünü birlikte ele almalı; toplu (bulk) işlemler "görünen sayfa" ile "filtreye uyan tüm
-  kayıtlar" ayrımını açıkça tanımlamalı (sessiz kısmi uygulama OLMAYACAK).
+- Durum: **DONE (commit'e hazır; PR/deploy YAPILMADI).** TD-091 KAPANDI. Analiz:
+  `docs/analysis/TODO-159C-inventory-matrix-scalability.md`.
+- Sonuç: `GET /stores/:id/inventory/matrix` sunucu-otoriter oldu (ADR-089 Data Grid standardı).
+  Query: `page`/`pageSize`(≤100)/`search`/`sortBy`(allowlist)/`sortOrder` + `warehouseId`/`stockStatus`/
+  `reserved`/`variantStatus`/`productStatus`. Response: `warehouse` + bir SAYFA `rows` + `pagination` meta'sı
+  + sayfadan BAĞIMSIZ `summary`. `listStoreVariants` sınırsız `findMany`'den tek raw SQL CTE taramasına
+  (LIMIT/OFFSET + aggregate özet + attribute hidrasyonu; sabit 3 sorgu, N+1 yok) taşındı. Çift otorite
+  (ADR-076: default depoda InventoryItem overlay) SQL'de korundu; satır `currentCalc` yine SAF `computeCalc`
+  ile (tek gösterim otoritesi). Ekran `useDataGridQuery` + `DataGridToolbar`/`DataGrid`/`DataGridPagination`;
+  KPI'lar server `summary`'sinden. Additive `ProductVariant(storeId, status)` indeksi (migration
+  `20260723120000`).
+- Canlı doğrulama (enterprise-demo, edm-store 2.138 varyant): sayfa taraması 5.7 ms, payload 819 KB → 9.7 KB
+  (~84×), filtre↔summary paritesi (LOW_STOCK 187), tenant sızıntısı 0. Bulk: gerçek fan-out yazma EKLENMEDİ
+  (ADR-076 korunur); Data Grid seçim altyapısı sonradan gerçek bulk için hazır, "görünen sayfa" vs "filtreye
+  uyan tüm kayıtlar" ayrımı ADR-092'de dokümante.
+- Ertelenen sınırlar (yeni borç DEĞİL, uygulanmış tasarım sınırı): TD-099 (ürün-facet filtreleri:
+  kategori/marka/tedarikçi), TD-100 (stok formülü SQL+JS iki dilde, parite testli).
 
 ## Growth & Monetization — Faz Sıralaması ve Ortak Ölçüm Altyapısı
 
 - Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise
   UI/design polish fazından ÖNCE yer alır.
-- Sıra: **TODO-159C (aktif)** → **TODO-160 Influencer Tracking & Attribution** →
+- Sıra: ~~TODO-159C~~ (DONE) → **TODO-160 Influencer Tracking & Attribution (SIRADAKİ AKTİF)** →
   **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı (henüz
   numaralandırılmadı)*.
 - TODO-161, TODO-160'ın kurduğu event/attribution temelinden yararlanabilmek için ondan SONRA konumlanır.

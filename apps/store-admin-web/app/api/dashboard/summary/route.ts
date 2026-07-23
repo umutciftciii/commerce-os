@@ -14,9 +14,12 @@ export interface DashboardSummary {
 
 /**
  * Canli katalog/stok ozetini server-side hesaplar. Toplamlar gateway
- * pagination'indan kesin alinir; aktif urun ve kritik stok sayilari ilk sayfa
- * (gateway varsayilan limit) uzerinden hesaplanir — demo veri seti icin yeterli,
- * pagination-aware aggregation tech debt olarak isaretlidir (docs/TECHNICAL_DEBT.md).
+ * pagination'indan kesin alinir.
+ *
+ * TODO-159C (ADR-092) — Stok toplamlari artik matrisin SAYFADAN BAGIMSIZ `summary`
+ * alanindan gelir (tum magaza, ilk sayfa DEGIL). Onceki "ilk sayfa uzerinden
+ * hesaplama" tech-debt'i bu ucta kapandi: pageSize=1 istenir (satirlara ihtiyac
+ * yok), summary yine tum eslesmelerin aggregate'idir.
  */
 export async function GET(request: NextRequest) {
   const ctx = await requireStoreContext(request);
@@ -24,24 +27,27 @@ export async function GET(request: NextRequest) {
 
   const api = createApiClient();
   try {
-    // TODO-152A — Stok özeti artık Inventory Engine'in mağaza-geneli matrisinden türetilir.
-    // "Kritik stok" sayısı legacy lowStockThreshold yerine motorun LOW_STOCK durumundan (tek
-    // authority InventoryBalance.reorderPoint) gelir. Depo verilmez → gateway default depoyu çözer.
+    // TODO-152A/159C — Stok özeti Inventory Engine'in mağaza-geneli matris `summary`'sinden türetilir.
+    // "Kritik stok" sayısı legacy lowStockThreshold yerine motorun LOW_STOCK durumundan (tek authority
+    // InventoryBalance.reorderPoint) gelir. Depo verilmez → gateway default depoyu çözer. pageSize=1:
+    // yalnız summary lazım, satır taşınmaz.
     const [products, categories, matrix] = await Promise.all([
       api.admin.products.list(ctx.store.id, ctx.token),
       api.admin.categories.list(ctx.store.id, ctx.token),
-      api.admin.inventory.storeMatrix(ctx.store.id, undefined, ctx.token),
+      api.admin.inventory.storeMatrix(ctx.store.id, ctx.token, { pageSize: 1 }),
     ]);
 
     const activeProducts = products.data.filter((product) => product.status === "ACTIVE").length;
-    const lowStock = matrix.rows.filter((row) => row.currentCalc.status === "LOW_STOCK").length;
-    const totalOnHand = matrix.rows.reduce((sum, row) => sum + row.current.onHand, 0);
 
     const summary: DashboardSummary = {
       store: ctx.store,
       products: { total: products.pagination.total, active: activeProducts },
       categories: { total: categories.pagination.total },
-      inventory: { records: matrix.rows.length, lowStock, totalOnHand },
+      inventory: {
+        records: matrix.summary.totalVariants,
+        lowStock: matrix.summary.lowStock,
+        totalOnHand: matrix.summary.totalOnHand,
+      },
     };
     return NextResponse.json(summary);
   } catch (error) {

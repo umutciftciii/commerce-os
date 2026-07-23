@@ -14,7 +14,12 @@
 
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
-import type { InventoryField, InventoryState, VariantStatus } from "./types.js";
+import type {
+  InventoryField,
+  InventoryState,
+  InventoryStockStatus,
+  VariantStatus,
+} from "./types.js";
 
 type PrismaLike = Prisma.TransactionClient;
 
@@ -48,6 +53,48 @@ export interface InventoryStoreVariantRow extends InventoryVariantRow {
   productId: string;
   productTitle: string;
   productSlug: string;
+  /** TODO-159C — arama görünürlüğü (barkodla ara) + sıralama. */
+  barcode: string | null;
+  updatedAt: string;
+}
+
+/**
+ * TODO-159C (ADR-092) — Mağaza-geneli matris SUNUCU-OTORİTER liste kriteri. `sortBy`
+ * ALLOWLIST'tir (serbest metin ASLA orderBy'a geçmez); filtreler tenant-safe (storeId
+ * her sorguda zorlanır) ve seçili depoda değerlendirilir.
+ */
+export interface InventoryStoreMatrixCriteria {
+  search?: string;
+  sortBy: "productTitle" | "sku" | "onHand" | "reserved" | "available" | "updatedAt";
+  sortOrder: "asc" | "desc";
+  limit: number;
+  offset: number;
+  stockStatus?: InventoryStockStatus;
+  reserved?: "yes" | "no";
+  variantStatus?: VariantStatus;
+  productStatus?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+}
+
+/** Sayfadan BAĞIMSIZ özet (aktif filtreye uyan TÜM küme; ayrı aggregate sorgu). */
+export interface InventoryStoreMatrixSummaryData {
+  totalVariants: number;
+  totalOnHand: number;
+  totalReserved: number;
+  totalSellable: number;
+  totalIncoming: number;
+  inStock: number;
+  lowStock: number;
+  outOfStock: number;
+  incoming: number;
+  negative: number;
+  noBalance: number;
+}
+
+/** Bir sayfa + toplam + özet (sunucu-otoriter). */
+export interface InventoryStoreMatrixPage {
+  rows: InventoryStoreVariantRow[];
+  total: number;
+  summary: InventoryStoreMatrixSummaryData;
 }
 
 /** Tek varyanta yazılacak hedef bakiye (yalnız değişen satırlar). reserved YAZILMAZ (mirror = current). */
@@ -95,11 +142,16 @@ export interface InventoryDataAccess {
   findDefaultWarehouse(storeId: string): Promise<InventoryWarehouseRef | null>;
   read<T>(fn: (ctx: Pick<InventoryTxContext, "listVariants">) => Promise<T>): Promise<T>;
   transaction<T>(fn: (ctx: InventoryTxContext) => Promise<T>): Promise<T>;
-  /** TODO-152A — TÜM ürünlerin varyantlarını seçili depoda current bakiye ile okur (izleme merkezi). */
+  /**
+   * TODO-152A — Ürünlerin varyantlarını seçili depoda current bakiye ile okur (izleme merkezi).
+   * TODO-159C (ADR-092) — SUNUCU-OTORİTER: kriterle filtreler/sıralar/sayfalar; bir sayfa + toplam
+   * + sayfadan bağımsız özet döner (tek raw SQL tarama + aggregate; N+1 yok).
+   */
   listStoreVariants(
     storeId: string,
     warehouse: InventoryWarehouseRef,
-  ): Promise<InventoryStoreVariantRow[]>;
+    criteria: InventoryStoreMatrixCriteria,
+  ): Promise<InventoryStoreMatrixPage>;
 }
 
 // Kanonik sıra: combinationKey ASC (NULLS LAST → manuel sonda) → createdAt ASC → id ASC (commercial ile aynı).
@@ -219,80 +271,258 @@ async function readVariants(
   });
 }
 
-// TODO-152A — Mağaza-geneli okuma (SALT-OKUMA; izleme merkezi). Motor product-scoped kalır; bu yalnız
-// TÜM non-archived varyantları (ürün kimliğiyle) seçili depoda current bakiye ile döndürür. Okuma
-// BATCH'lidir (N+1 YOK): tek variant sorgusu + tek balance sorgusu + (default depoda) tek item sorgusu.
+/** ILIKE '%…%' için wildcard kaçışı (\ % _). buildAdminProductScanSql ile AYNI otorite. */
+const likePattern = (raw: string) => `%${raw.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+
+/**
+ * TODO-159C (ADR-092) — Mağaza-geneli matris TARAMA SQL'i (tek doğruluk kaynağı; sayfa + özet
+ * bunu paylaşır). Çift otorite (ADR-076) SQL'de birebir korunur: DEFAULT depoda onHand/reserved
+ * CANLI InventoryItem'dan overlay edilir (yoksa balance; o da yoksa 0), non-default'ta yalnız
+ * balance. `stockStatus`/available türetmesi SAF calculator ile AYNI eşikleri kullanır (parite
+ * testli). Tenant guard: v."storeId" = storeId HER zaman (savunma katmanı — depo zaten resolve edilmiş).
+ *
+ * `base` CTE resolved skaler kolonları; `calc` CTE türetilmiş rawAvailable/sellable/stockStatus'ü
+ * üretir. `postWhere` (stockStatus/reserved) calc kolonlarına baktığı için calc'tan SONRA uygulanır.
+ */
+function buildStoreMatrixScan(
+  storeId: string,
+  warehouse: InventoryWarehouseRef,
+  criteria: InventoryStoreMatrixCriteria,
+): { cte: Prisma.Sql; postWhere: Prisma.Sql; orderBy: Prisma.Sql } {
+  // DEFAULT depoda InventoryItem overlay (item satırı varsa onun değeri; yoksa balance; o da yoksa 0).
+  const onHandExpr = warehouse.isDefault
+    ? Prisma.sql`COALESCE(ii."quantityOnHand", ib."onHand", 0)`
+    : Prisma.sql`COALESCE(ib."onHand", 0)`;
+  const reservedExpr = warehouse.isDefault
+    ? Prisma.sql`COALESCE(ii."quantityReserved", ib."reserved", 0)`
+    : Prisma.sql`COALESCE(ib."reserved", 0)`;
+  const itemJoin = warehouse.isDefault
+    ? Prisma.sql`LEFT JOIN "InventoryItem" ii ON ii."variantId" = v."id" AND ii."storeId" = ${storeId}`
+    : Prisma.empty;
+
+  // base WHERE: tenant + kapsam (non-archived) + opsiyonel arama/varyant-durumu/ürün-durumu.
+  const baseConditions: Prisma.Sql[] = [
+    Prisma.sql`v."storeId" = ${storeId}`,
+    Prisma.sql`v."status" <> 'ARCHIVED'`,
+  ];
+  if (criteria.search) {
+    const pattern = likePattern(criteria.search);
+    baseConditions.push(Prisma.sql`(
+      p."title" ILIKE ${pattern} ESCAPE '\\'
+      OR p."slug" ILIKE ${pattern} ESCAPE '\\'
+      OR v."title" ILIKE ${pattern} ESCAPE '\\'
+      OR v."sku" ILIKE ${pattern} ESCAPE '\\'
+      OR v."barcode" ILIKE ${pattern} ESCAPE '\\'
+    )`);
+  }
+  if (criteria.variantStatus) {
+    baseConditions.push(Prisma.sql`v."status"::text = ${criteria.variantStatus}`);
+  }
+  if (criteria.productStatus) {
+    baseConditions.push(Prisma.sql`p."status"::text = ${criteria.productStatus}`);
+  }
+  const baseWhere = Prisma.sql`WHERE ${Prisma.join(baseConditions, " AND ")}`;
+
+  const cte = Prisma.sql`WITH base AS (
+    SELECT
+      v."id" AS "variantId",
+      v."sku" AS "sku",
+      v."barcode" AS "barcode",
+      v."title" AS "title",
+      v."status"::text AS "variantStatus",
+      v."updatedAt" AS "updatedAt",
+      v."productId" AS "productId",
+      p."title" AS "productTitle",
+      p."slug" AS "productSlug",
+      (ib."variantId" IS NOT NULL) AS "balanceExists",
+      ${onHandExpr} AS "onHand",
+      ${reservedExpr} AS "reserved",
+      COALESCE(ib."incoming", 0) AS "incoming",
+      COALESCE(ib."safetyStock", 0) AS "safetyStock",
+      COALESCE(ib."reorderPoint", 0) AS "reorderPoint"
+    FROM "ProductVariant" v
+    JOIN "Product" p ON p."id" = v."productId"
+    LEFT JOIN "InventoryBalance" ib ON ib."variantId" = v."id" AND ib."warehouseId" = ${warehouse.id}
+    ${itemJoin}
+    ${baseWhere}
+  ), calc AS (
+    SELECT b.*,
+      (b."onHand" - b."reserved" - b."safetyStock") AS "rawAvailable",
+      GREATEST(b."onHand" - b."reserved" - b."safetyStock", 0) AS "sellable",
+      CASE
+        WHEN NOT b."balanceExists" THEN 'NO_BALANCE'
+        WHEN (b."onHand" - b."reserved" - b."safetyStock") < 0 THEN 'NEGATIVE'
+        WHEN GREATEST(b."onHand" - b."reserved" - b."safetyStock", 0) = 0 AND b."incoming" > 0 THEN 'INCOMING'
+        WHEN GREATEST(b."onHand" - b."reserved" - b."safetyStock", 0) = 0 THEN 'OUT_OF_STOCK'
+        WHEN b."reorderPoint" > 0 AND GREATEST(b."onHand" - b."reserved" - b."safetyStock", 0) <= b."reorderPoint" THEN 'LOW_STOCK'
+        ELSE 'IN_STOCK'
+      END AS "stockStatus"
+    FROM base b
+  )`;
+
+  // postWhere: türetilmiş kolonlara (stockStatus/reserved) bakan filtreler.
+  const postConditions: Prisma.Sql[] = [];
+  if (criteria.stockStatus) {
+    postConditions.push(Prisma.sql`"stockStatus" = ${criteria.stockStatus}`);
+  }
+  if (criteria.reserved === "yes") postConditions.push(Prisma.sql`"reserved" > 0`);
+  if (criteria.reserved === "no") postConditions.push(Prisma.sql`"reserved" = 0`);
+  const postWhere =
+    postConditions.length > 0
+      ? Prisma.sql`WHERE ${Prisma.join(postConditions, " AND ")}`
+      : Prisma.empty;
+
+  // ALLOWLIST → sabit SQL ifadesi. NULLS LAST + ikincil productId/variantId: aynı ürünün
+  // varyantları bitişik kalır ve sayfa sınırı deterministiktir (kayıt atlanmaz/tekrarlanmaz).
+  const direction = criteria.sortOrder === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+  const sortExpression: Record<InventoryStoreMatrixCriteria["sortBy"], Prisma.Sql> = {
+    productTitle: Prisma.sql`LOWER("productTitle")`,
+    sku: Prisma.sql`LOWER("sku")`,
+    onHand: Prisma.sql`"onHand"`,
+    reserved: Prisma.sql`"reserved"`,
+    available: Prisma.sql`"sellable"`,
+    updatedAt: Prisma.sql`"updatedAt"`,
+  };
+  const orderBy = Prisma.sql`ORDER BY ${sortExpression[criteria.sortBy]} ${direction} NULLS LAST, "productId" ASC, "variantId" ASC`;
+
+  return { cte, postWhere, orderBy };
+}
+
+interface StoreMatrixScanRow {
+  variantId: string;
+  sku: string;
+  barcode: string | null;
+  title: string;
+  variantStatus: string;
+  updatedAt: Date;
+  productId: string;
+  productTitle: string;
+  productSlug: string;
+  balanceExists: boolean;
+  onHand: number;
+  reserved: number;
+  incoming: number;
+  safetyStock: number;
+  reorderPoint: number;
+}
+
+interface StoreMatrixSummaryRow {
+  totalVariants: number;
+  totalOnHand: bigint | number | null;
+  totalReserved: bigint | number | null;
+  totalSellable: bigint | number | null;
+  totalIncoming: bigint | number | null;
+  inStock: number;
+  lowStock: number;
+  outOfStock: number;
+  incoming: number;
+  negative: number;
+  noBalance: number;
+}
+
+// TODO-152A/159C — Mağaza-geneli SUNUCU-OTORİTER okuma. Motor product-scoped kalır; bu uç seçili
+// depoda filtreli/sıralı BİR SAYFA + toplam + sayfadan bağımsız özeti döner. Sorgu sayısı sabit:
+// (1) sayfa taraması, (2) özet aggregate (count dahil), (3) sayfa id'leri için attribute hidrasyonu.
+// N+1 YOK; sınırsız tarama YOK (LIMIT/OFFSET). currentCalc SERVİSTE SAF computeCalc ile hesaplanır
+// (tek formül otoritesi); buradaki SQL türetmesi yalnız filtre/sıralama/özet içindir (parite testli).
 async function readStoreVariants(
   storeId: string,
   warehouse: InventoryWarehouseRef,
-): Promise<InventoryStoreVariantRow[]> {
-  const variants = await prisma.productVariant.findMany({
-    // Kanonik sıra ile aynı kapsam (non-archived); ürün-bazlı gruplama için önce productId.
-    where: { storeId, status: { not: "ARCHIVED" } },
-    orderBy: [{ productId: "asc" }, ...variantOrderBy],
-    select: {
-      id: true,
-      sku: true,
-      title: true,
-      status: true,
-      productId: true,
-      product: { select: { title: true, slug: true } },
-      optionValueSelections: {
-        select: {
-          definition: { select: { code: true } },
-          option: { select: { label: true } },
+  criteria: InventoryStoreMatrixCriteria,
+): Promise<InventoryStoreMatrixPage> {
+  const { cte, postWhere, orderBy } = buildStoreMatrixScan(storeId, warehouse, criteria);
+
+  const [pageRows, summaryRows] = await Promise.all([
+    prisma.$queryRaw<StoreMatrixScanRow[]>(Prisma.sql`
+      ${cte}
+      SELECT "variantId", "sku", "barcode", "title", "variantStatus", "updatedAt",
+             "productId", "productTitle", "productSlug", "balanceExists",
+             "onHand", "reserved", "incoming", "safetyStock", "reorderPoint"
+      FROM calc
+      ${postWhere}
+      ${orderBy}
+      LIMIT ${criteria.limit} OFFSET ${criteria.offset}
+    `),
+    prisma.$queryRaw<StoreMatrixSummaryRow[]>(Prisma.sql`
+      ${cte}
+      SELECT
+        COUNT(*)::int AS "totalVariants",
+        COALESCE(SUM("onHand"), 0)::bigint AS "totalOnHand",
+        COALESCE(SUM("reserved"), 0)::bigint AS "totalReserved",
+        COALESCE(SUM("sellable"), 0)::bigint AS "totalSellable",
+        COALESCE(SUM("incoming"), 0)::bigint AS "totalIncoming",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'IN_STOCK')::int AS "inStock",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'LOW_STOCK')::int AS "lowStock",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'OUT_OF_STOCK')::int AS "outOfStock",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'INCOMING')::int AS "incoming",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'NEGATIVE')::int AS "negative",
+        COUNT(*) FILTER (WHERE "stockStatus" = 'NO_BALANCE')::int AS "noBalance"
+      FROM calc
+      ${postWhere}
+    `),
+  ]);
+
+  // Attribute hidrasyonu: YALNIZ sayfadaki varyant id'leri için tek batched sorgu (N+1 yok).
+  const pageIds = pageRows.map((r) => r.variantId);
+  const attrByVariant = new Map<string, { code: string; label: string }[]>();
+  if (pageIds.length > 0) {
+    const withAttrs = await prisma.productVariant.findMany({
+      where: { id: { in: pageIds }, storeId },
+      select: {
+        id: true,
+        optionValueSelections: {
+          select: {
+            definition: { select: { code: true } },
+            option: { select: { label: true } },
+          },
         },
       },
-    },
-  });
-  const variantIds = variants.map((v) => v.id);
-
-  const balances = await prisma.inventoryBalance.findMany({
-    where: { warehouseId: warehouse.id, variantId: { in: variantIds } },
-    select: {
-      variantId: true,
-      onHand: true,
-      reserved: true,
-      incoming: true,
-      safetyStock: true,
-      reorderPoint: true,
-    },
-  });
-  const balanceByVariant = new Map(balances.map((b) => [b.variantId, b]));
-
-  const itemByVariant = new Map<string, { quantityOnHand: number; quantityReserved: number }>();
-  if (warehouse.isDefault) {
-    const items = await prisma.inventoryItem.findMany({
-      where: { storeId, variantId: { in: variantIds } },
-      select: { variantId: true, quantityOnHand: true, quantityReserved: true },
     });
-    for (const it of items) {
-      itemByVariant.set(it.variantId, {
-        quantityOnHand: it.quantityOnHand,
-        quantityReserved: it.quantityReserved,
-      });
+    for (const v of withAttrs) {
+      attrByVariant.set(
+        v.id,
+        v.optionValueSelections.map((ov) => ({ code: ov.definition.code, label: ov.option.label })),
+      );
     }
   }
 
-  return variants.map((v) => {
-    const balance = balanceByVariant.get(v.id);
-    const item = itemByVariant.get(v.id);
-    return {
-      variantId: v.id,
-      sku: v.sku,
-      title: v.title,
-      status: v.status as VariantStatus,
-      attributes: v.optionValueSelections.map((ov) => ({
-        code: ov.definition.code,
-        label: ov.option.label,
-      })),
-      current: buildCurrentState(balance, item),
-      balanceExists: balance !== undefined,
-      productId: v.productId,
-      productTitle: v.product.title,
-      productSlug: v.product.slug,
-    };
-  });
+  const rows: InventoryStoreVariantRow[] = pageRows.map((r) => ({
+    variantId: r.variantId,
+    sku: r.sku,
+    barcode: r.barcode,
+    title: r.title,
+    status: r.variantStatus as VariantStatus,
+    attributes: attrByVariant.get(r.variantId) ?? [],
+    current: {
+      onHand: r.onHand,
+      reserved: r.reserved,
+      incoming: r.incoming,
+      safetyStock: r.safetyStock,
+      reorderPoint: r.reorderPoint,
+    },
+    balanceExists: r.balanceExists,
+    productId: r.productId,
+    productTitle: r.productTitle,
+    productSlug: r.productSlug,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+
+  const s = summaryRows[0];
+  const summary: InventoryStoreMatrixSummaryData = {
+    totalVariants: s ? Number(s.totalVariants) : 0,
+    totalOnHand: s ? Number(s.totalOnHand ?? 0) : 0,
+    totalReserved: s ? Number(s.totalReserved ?? 0) : 0,
+    totalSellable: s ? Number(s.totalSellable ?? 0) : 0,
+    totalIncoming: s ? Number(s.totalIncoming ?? 0) : 0,
+    inStock: s ? Number(s.inStock) : 0,
+    lowStock: s ? Number(s.lowStock) : 0,
+    outOfStock: s ? Number(s.outOfStock) : 0,
+    incoming: s ? Number(s.incoming) : 0,
+    negative: s ? Number(s.negative) : 0,
+    noBalance: s ? Number(s.noBalance) : 0,
+  };
+
+  return { rows, total: summary.totalVariants, summary };
 }
 
 function makeTxContext(tx: PrismaLike): InventoryTxContext {
@@ -415,6 +645,7 @@ export function createPrismaInventoryDataAccess(): InventoryDataAccess {
     },
     read: (fn) => prisma.$transaction((tx) => fn(makeTxContext(tx))),
     transaction: (fn) => prisma.$transaction((tx) => fn(makeTxContext(tx))),
-    listStoreVariants: (storeId, warehouse) => readStoreVariants(storeId, warehouse),
+    listStoreVariants: (storeId, warehouse, criteria) =>
+      readStoreVariants(storeId, warehouse, criteria),
   };
 }

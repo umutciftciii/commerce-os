@@ -386,6 +386,10 @@ export type {
   // TODO-152A — mağaza-geneli izleme matris tipleri.
   InventoryStoreMatrixRow,
   InventoryStoreMatrixResponse,
+  // TODO-159C (ADR-092) — server-side matris liste query'si + sayfadan bağımsız özet.
+  AdminInventoryMatrixSortBy,
+  AdminInventoryMatrixListQuery,
+  InventoryStoreMatrixSummary,
   // ADR-065 Faz 2 (Dilim 4) — Magaza marka ayarlari (logo/favicon).
   StoreSettings,
   StoreSettingsUpdateRequest,
@@ -1263,11 +1267,14 @@ export interface ApiClient {
       ): Promise<InventoryAdjustmentResponse>;
       // TODO-152 (ADR-076) — store-scoped depo listesi (warehouse selector).
       warehouses(storeId: string, token?: string): Promise<InventoryWarehouseListResponse>;
-      // TODO-152A — mağaza-geneli SALT-OKUMA stok matris (izleme merkezi; tüm ürünler, seçili depo).
+      // TODO-152A — mağaza-geneli SALT-OKUMA stok matris (izleme merkezi; seçili depo).
+      // TODO-159C (ADR-092) — sunucu-otoriter sayfalama/arama/filtre/sıralama. `query`
+      // anahtar-değer haritasıdır (page/pageSize/search/sortBy/sortOrder/warehouseId/…);
+      // boş/undefined değerler atlanır. Doğrulama + allowlist gateway'dedir.
       storeMatrix(
         storeId: string,
-        warehouseId?: string,
         token?: string,
+        query?: Record<string, string | number | undefined>,
       ): Promise<InventoryStoreMatrixResponse>;
     };
     orders: {
@@ -2383,11 +2390,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
         warehouses: (storeId, token) =>
           getJson<InventoryWarehouseListResponse>(`/stores/${storeId}/warehouses`, token),
-        storeMatrix: (storeId, warehouseId, token) =>
+        storeMatrix: (storeId, token, query) =>
           getJson<InventoryStoreMatrixResponse>(
-            `/stores/${storeId}/inventory/matrix${
-              warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : ""
-            }`,
+            `/stores/${storeId}/inventory/matrix${buildQueryString(query)}`,
             token,
           ),
       },

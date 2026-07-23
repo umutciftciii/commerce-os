@@ -1337,27 +1337,89 @@ export const inventoryApplyResponseSchema = z.object({
 });
 
 // TODO-152A — Mağaza-geneli stok MATRİS okuması (SALT-OKUMA; izleme/operasyon merkezi).
-// Motor product-scoped kalır (ADR-076); bu uç yalnız TÜM ürünlerin varyantlarını seçili depoda
+// Motor product-scoped kalır (ADR-076); bu uç yalnız ürünlerin varyantlarını seçili depoda
 // current bakiye + SAF hesaplanmış göstergelerle (sellable/status) döndürür. Düzenleme YOK (preview/
 // apply ürün-bazlı tabda). Satırlar ürün kimliği taşır (global tabloda "Ürün" kolonu için).
+// TODO-159C (ADR-092) — `barcode`/`updatedAt` EKLENDİ (arama görünürlüğü + updatedAt sıralaması).
 export const inventoryStoreMatrixRowSchema = z.object({
   productId: z.string().min(1),
   productTitle: z.string(),
   productSlug: z.string(),
   variantId: z.string().min(1),
   sku: z.string(),
+  barcode: z.string().nullable(),
   title: z.string(),
   status: productVariantStatusSchema,
   attributes: z.array(z.object({ code: z.string(), label: z.string() })),
   balanceExists: z.boolean(),
   current: inventoryStateSchema,
   currentCalc: inventoryCalcSchema,
+  updatedAt: z.string(),
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-159C (ADR-092) — Inventory Matrix server-side liste sözleşmesi.
+ *
+ * ADR-089 Data Grid tabanının TÜRETİLMİŞ bir dalı: aynı `page`/`pageSize`/`search`/
+ * `sortBy`/`sortOrder` + aynı `adminListPaginationSchema` meta'sı. `sortBy` ALLOWLIST'tir
+ * (serbest metin ASLA orderBy'a geçmez). `warehouseId` matrisin BAKILAN deposunu seçer
+ * (filtre değil — tüm satırlar o depodan). `stockStatus` in/out/low/incoming/negative/
+ * no_balance'ı TEK kanonik filtrede kapsar; `reserved` rezerve>0 ayrımıdır.
+ *
+ * `summary` sayfadan BAĞIMSIZ: aktif filtrelere uyan TÜM kümenin aggregate'i (ayrı sorgu).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const adminInventoryMatrixSortBySchema = z.enum([
+  "productTitle",
+  "sku",
+  "onHand",
+  "reserved",
+  "available",
+  "updatedAt",
+]);
+
+/** Rezerve stok ayrımı: "yes" → reserved > 0, "no" → reserved = 0. */
+export const adminInventoryMatrixReservedSchema = z.enum(["yes", "no"]);
+
+export const adminInventoryMatrixListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: adminInventoryMatrixSortBySchema.optional(),
+  warehouseId: z.string().min(1).optional(),
+  stockStatus: inventoryStockStatusSchema.optional(),
+  reserved: adminInventoryMatrixReservedSchema.optional(),
+  variantStatus: productVariantStatusSchema.optional(),
+  productStatus: productStatusSchema.optional(),
+});
+
+/**
+ * Sayfadan BAĞIMSIZ özet: aktif filtreye uyan tüm varyant kümesinin aggregate'i.
+ * `totalVariants` pagination.totalItems ile birebir eşleşir. Durum sayıları SAF
+ * calculator ile aynı eşikleri kullanır (SQL türetmesi computeCalc ile parite testli).
+ */
+export const inventoryStoreMatrixSummarySchema = z.object({
+  totalVariants: z.number().int().nonnegative(),
+  totalOnHand: z.number().int(),
+  totalReserved: z.number().int(),
+  totalSellable: z.number().int(),
+  totalIncoming: z.number().int(),
+  inStock: z.number().int().nonnegative(),
+  lowStock: z.number().int().nonnegative(),
+  outOfStock: z.number().int().nonnegative(),
+  incoming: z.number().int().nonnegative(),
+  negative: z.number().int().nonnegative(),
+  noBalance: z.number().int().nonnegative(),
 });
 
 export const inventoryStoreMatrixResponseSchema = z.object({
   warehouse: inventoryWarehouseSchema,
   rows: z.array(inventoryStoreMatrixRowSchema),
+  // TODO-159C (ADR-092) — ortak Data Grid meta'sı + sayfadan bağımsız özet.
+  pagination: adminListPaginationSchema,
+  summary: inventoryStoreMatrixSummarySchema,
 });
+
+export type AdminInventoryMatrixSortBy = z.infer<typeof adminInventoryMatrixSortBySchema>;
+export type AdminInventoryMatrixListQuery = z.infer<typeof adminInventoryMatrixListQuerySchema>;
+export type InventoryStoreMatrixSummary = z.infer<typeof inventoryStoreMatrixSummarySchema>;
 
 // ADR-065 (Faz 2/Dilim 4) — Magaza marka ayarlari (StoreSettings 1-1 singleton;
 // PK=FK storeId). *MediaId ham FK (MediaUpload value kimligi icin), *Url ise

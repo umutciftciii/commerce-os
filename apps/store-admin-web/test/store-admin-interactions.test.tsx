@@ -421,6 +421,7 @@ function matrixRow(over: Record<string, unknown> = {}) {
     productSlug: "kapusonlu",
     variantId: "v1",
     sku: "SWT-SYH-M",
+    barcode: "869000000001",
     title: "Siyah / M",
     status: "ACTIVE",
     attributes: [
@@ -430,14 +431,47 @@ function matrixRow(over: Record<string, unknown> = {}) {
     balanceExists: true,
     current: { onHand: 2, reserved: 0, incoming: 0, safetyStock: 0, reorderPoint: 5 },
     currentCalc: { rawAvailable: 2, sellableAvailable: 2, reservedRatioPct: 0, status: "LOW_STOCK" },
+    updatedAt: new Date().toISOString(),
     ...over,
+  };
+}
+
+// TODO-159C (ADR-092) — sunucu-otoriter matris response: rows + pagination + sayfadan bağımsız summary.
+function matrixResponse(rows: ReturnType<typeof matrixRow>[], summaryOver: Record<string, number> = {}) {
+  const pageSize = 25;
+  return {
+    warehouse: DEFAULT_WH,
+    rows,
+    pagination: {
+      limit: pageSize,
+      offset: 0,
+      total: rows.length,
+      page: 1,
+      pageSize,
+      totalItems: rows.length,
+      totalPages: rows.length === 0 ? 0 : Math.ceil(rows.length / pageSize),
+    },
+    summary: {
+      totalVariants: rows.length,
+      totalOnHand: 2,
+      totalReserved: 0,
+      totalSellable: 2,
+      totalIncoming: 0,
+      inStock: 0,
+      lowStock: 1,
+      outOfStock: 0,
+      incoming: 0,
+      negative: 0,
+      noBalance: 0,
+      ...summaryOver,
+    },
   };
 }
 
 describe("store-admin inventory (global monitoring center)", () => {
   it("renders the store-wide engine matrix with product identity and low-stock status", async () => {
     storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
-    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue(matrixResponse([matrixRow()]));
 
     render(<InventoryPage />);
 
@@ -452,7 +486,7 @@ describe("store-admin inventory (global monitoring center)", () => {
 
   it("runs a safe single-row quick action (+10) via product-scoped preview→apply", async () => {
     storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
-    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue(matrixResponse([matrixRow()]));
     storeApiMock.previewInventory.mockResolvedValue({
       fingerprint: "fp1",
       source: "DIRECT_EDIT",
@@ -491,7 +525,7 @@ describe("store-admin inventory (global monitoring center)", () => {
 
   it("blocks an unsafe quick action and surfaces a Turkish warning without applying", async () => {
     storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
-    storeApiMock.getStoreInventoryMatrix.mockResolvedValue({ warehouse: DEFAULT_WH, rows: [matrixRow()] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue(matrixResponse([matrixRow()]));
     storeApiMock.previewInventory.mockResolvedValue({
       fingerprint: "fp1",
       source: "DIRECT_EDIT",
@@ -508,5 +542,29 @@ describe("store-admin inventory (global monitoring center)", () => {
 
     expect(await screen.findByText(/doğrulamayı geçemedi/)).toBeTruthy();
     expect(storeApiMock.applyInventory).not.toHaveBeenCalled();
+  });
+
+  // TODO-159C (ADR-092) — KPI'lar sayfadaki satırlardan DEĞİL, sunucunun sayfadan bağımsız
+  // summary'sinden gelir; liste sunucu-otoriter query ile çekilir (page/pageSize/sortBy/sortOrder).
+  it("computes KPI cards from the server summary and forwards the server-side list query", async () => {
+    storeApiMock.listWarehouses.mockResolvedValue({ data: [DEFAULT_WH] });
+    storeApiMock.getStoreInventoryMatrix.mockResolvedValue(
+      matrixResponse([matrixRow()], { totalOnHand: 999, lowStock: 7 }),
+    );
+
+    render(<InventoryPage />);
+    await screen.findByText("Kapüşonlu");
+
+    // "Elde" KPI'ı sayfadaki tek satırın onHand'i (2) değil, summary.totalOnHand (999) olmalı.
+    expect(screen.getByText("999")).toBeTruthy();
+    // Sunucu-otoriter query: varsayılan sayfa/boyut/sıralama gateway'e taşınır.
+    expect(storeApiMock.getStoreInventoryMatrix).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 1,
+        pageSize: 25,
+        sortBy: "productTitle",
+        sortOrder: "asc",
+      }),
+    );
   });
 });
