@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Alert, Badge, Button, Input, PageHeader, SkeletonRows, useLocale } from "../../../../../components/ui";
+import { Alert, Badge, Button, Input, PageHeader, Select, SkeletonRows, useLocale } from "../../../../../components/ui";
 import { SurfaceCard } from "../../../../components/premium";
 import { ProviderLogo } from "../../../../../components/provider-logo";
 import type { ShipmentDetail } from "@commerce-os/api-client";
@@ -51,6 +51,13 @@ const L = {
     aSync: "Durumu Güncelle",
     aCancel: "Gönderi Kaydını İptal Et",
     aManual: "Manuel Takip No Gir",
+    aStatus: "Kargo Durumunu İşaretle",
+    statusManualHint: "Entegre süreç dışı kargolarda durumu elle ilerletin (ör. Teslim Edildi).",
+    statusTargetLabel: "Yeni durum",
+    statusNoteLabel: "Not (opsiyonel)",
+    statusSave: "Uygula",
+    statusCancel: "Vazgeç",
+    statusUpdated: "Kargo durumu güncellendi.",
     aNotify: "Müşteriye Bildirim Gönder",
     notifySoon: "Bildirim gönderme yakında eklenecek.",
     manualPlaceholder: "Takip numarası",
@@ -101,6 +108,13 @@ const L = {
     aSync: "Refresh status",
     aCancel: "Cancel shipment record",
     aManual: "Enter tracking manually",
+    aStatus: "Mark shipment status",
+    statusManualHint: "Advance status manually for shipments managed outside the integrated carrier (e.g. Delivered).",
+    statusTargetLabel: "New status",
+    statusNoteLabel: "Note (optional)",
+    statusSave: "Apply",
+    statusCancel: "Cancel",
+    statusUpdated: "Shipment status updated.",
     aNotify: "Notify customer",
     notifySoon: "Customer notifications coming soon.",
     manualPlaceholder: "Tracking number",
@@ -177,6 +191,10 @@ export default function ShipmentDetailPage() {
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualValue, setManualValue] = useState("");
+  // TODO-162 — operatör manuel durum ilerletme.
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusTarget, setStatusTarget] = useState("");
+  const [statusNote, setStatusNote] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -222,6 +240,20 @@ export default function ShipmentDetailPage() {
       setManualValue("");
     });
   };
+  // TODO-162 — operatör manuel durum ilerletme (DELIVERED → sipariş de FULFILLED).
+  const onStatusSave = () => {
+    if (!statusTarget) return;
+    void run(async () => {
+      await storeApi.setShipmentStatus(shipmentId, {
+        status: statusTarget as "IN_TRANSIT" | "OUT_FOR_DELIVERY" | "DELIVERED" | "DELIVERY_FAILED" | "RETURNED",
+        ...(statusNote.trim() ? { note: statusNote.trim() } : {}),
+      });
+      setNotice(t.statusUpdated);
+      setStatusOpen(false);
+      setStatusTarget("");
+      setStatusNote("");
+    });
+  };
 
   const copyText = async (value: string, key: string) => {
     try {
@@ -249,6 +281,19 @@ export default function ShipmentDetailPage() {
   const statusDesc = SHIPMENT_STATUS_DESC[locale];
   const eventLabel = SHIPMENT_EVENT_LABEL[locale];
   const a = shipment.actions;
+  // TODO-162 — Operatör manuel durum hedefleri (istemci ön-filtresi; sunucu monotonic + terminal-kilit
+  // NİHAİ otorite). Terminal gönderide gizli; yalnız ileri (rank >= mevcut) hedefler gösterilir.
+  const MANUAL_STATUS_TARGETS = ["IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "DELIVERY_FAILED", "RETURNED"] as const;
+  const MANUAL_STATUS_RANK: Record<string, number> = {
+    DRAFT: 0, ORDER_CREATED: 1, LABEL_PENDING: 1, LABEL_CREATED: 2, IN_TRANSIT: 3,
+    OUT_FOR_DELIVERY: 4, DELIVERY_FAILED: 4, DELIVERED: 5, RETURNED: 5, CANCELLED: 5, FAILED: 5,
+  };
+  const isTerminalShipment = ["DELIVERED", "RETURNED", "CANCELLED", "FAILED"].includes(shipment.status);
+  const manualStatusOptions = isTerminalShipment
+    ? []
+    : MANUAL_STATUS_TARGETS.filter(
+        (s) => s !== shipment.status && MANUAL_STATUS_RANK[s] >= MANUAL_STATUS_RANK[shipment.status],
+      );
   const problem = isProblemStatus(shipment.status);
   const disabledReasonText = a.disabledReason ? SHIPMENT_ACTION_DISABLED_REASON[locale][a.disabledReason] : null;
 
@@ -426,6 +471,40 @@ export default function ShipmentDetailPage() {
                   </div>
                 </div>
               )}
+              {/* TODO-162 — Manuel durum ilerletme (entegre süreç dışı teslim akışı). */}
+              {manualStatusOptions.length > 0 ? (
+                !statusOpen ? (
+                  <Button className="w-full" variant="ghost" onClick={() => setStatusOpen(true)} disabled={busy}>
+                    {t.aStatus}
+                  </Button>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-2">
+                    <p className="text-[11px] text-white/40">{t.statusManualHint}</p>
+                    <Select
+                      label={t.statusTargetLabel}
+                      value={statusTarget}
+                      onChange={(e) => setStatusTarget(e.target.value)}
+                      options={[
+                        { value: "", label: "—" },
+                        ...manualStatusOptions.map((s) => ({ value: s, label: statusLabel[s] })),
+                      ]}
+                    />
+                    <Input
+                      label={t.statusNoteLabel}
+                      value={statusNote}
+                      onChange={(e) => setStatusNote(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={onStatusSave} disabled={busy || !statusTarget}>
+                        {t.statusSave}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setStatusOpen(false)} disabled={busy}>
+                        {t.statusCancel}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              ) : null}
               <Button className="w-full" variant="danger" onClick={onCancel} disabled={busy || !a.canCancel}>
                 {t.aCancel}
               </Button>

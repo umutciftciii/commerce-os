@@ -456,6 +456,8 @@ enum ShipmentEventType {
   MANUAL_TRACKING
   // TODO-124 — admin varis il/ilce eslemesi duzeltmesi (CBS kodlari snapshot'a yazildi).
   DESTINATION_REPAIRED
+  // TODO-162 (ADR-101) — operatörün elle durum ilerletmesi (entegre süreç dışı kargo teslim akışı).
+  MANUAL_STATUS
   CANCELLED
   WEBHOOK_RECEIVED
 }

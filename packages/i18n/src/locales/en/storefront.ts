@@ -1053,6 +1053,7 @@ export const enStorefront: StorefrontDictionary = {
             STATUS_CHANGED: "Status updated",
             TRACKING_UPDATED: "Tracking info updated",
             MANUAL_TRACKING: "Tracking number added",
+            MANUAL_STATUS: "Status updated",
             CANCELLED: "Shipment cancelled",
             WEBHOOK_RECEIVED: "Carrier notification received",
           },

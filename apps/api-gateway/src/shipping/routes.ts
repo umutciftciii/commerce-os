@@ -37,6 +37,7 @@ import {
   shipmentListQuerySchema,
   shipmentListResponseSchema,
   shipmentManualTrackingRequestSchema,
+  shipmentStatusUpdateRequestSchema,
   shippingBarcodeActionRequestSchema,
   shippingCancelRequestSchema,
   shippingCreateBarcodeRequestSchema,
@@ -66,6 +67,7 @@ import { resolveRecipientEmail } from "./recipient.js";
 import { createCbsLookupService, type CbsLookupTarget } from "./cbs-resolver.js";
 import { BARCODE_ERROR_DESTINATION_BRANCH_NOT_FOUND } from "./adapters/dhl-ecommerce/mappers.js";
 import { createShippingSecretCipher, type ShippingSecretCipher } from "./encryption.js";
+import { evaluateManualStatusChange } from "./status-map.js";
 import {
   createDisabledHttpTransport,
   createFetchHttpTransport,
@@ -1575,6 +1577,97 @@ export function registerShippingAdminRoutes(
     } catch (error) {
       return sendShippingError(reply, error);
     }
+  });
+
+  // TODO-162 (ADR-101) — Manuel kargo durumu ilerletme (entegre süreç DIŞI teslim akışı).
+  // Sağlayıcıya çağrı YOK; operatör elle taşır. Monotonic + terminal-kilit (saf kural
+  // evaluateManualStatusChange). DELIVERED → sipariş de FULFILLED (fulfillmentStatus + status;
+  // iptal edilmiş sipariş KORUNUR). Terminal durum sonrası sağlayıcı sync bunu EZMEZ.
+  app.post("/stores/:storeId/shipping/shipments/:shipmentId/status", async (request, reply) => {
+    const params = shipmentIdParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = shipmentStatusUpdateRequestSchema.parse(request.body);
+    const loaded = await loadStoreShipmentWithCfg(params.storeId, params.shipmentId);
+    if (!loaded) return reply.code(404).send(errorBody("SHIPMENT_NOT_FOUND", "Gönderi bulunamadı."));
+    const current = loaded.shipment.status;
+    const verdict = evaluateManualStatusChange(current, input.status);
+    if (!verdict.ok) {
+      const rejections: Record<typeof verdict.reason, { code: number; errCode: string; msg: string }> = {
+        SHIPMENT_TERMINAL: { code: 409, errCode: "SHIPMENT_TERMINAL", msg: "Gönderi terminal durumda; durumu değiştirilemez." },
+        STATUS_REGRESSION: { code: 409, errCode: "SHIPMENT_STATUS_REGRESSION", msg: "Kargo durumu geri alınamaz." },
+        NO_CHANGE: { code: 409, errCode: "SHIPMENT_STATUS_NO_CHANGE", msg: "Gönderi zaten bu durumda." },
+        INVALID_TARGET: { code: 400, errCode: "SHIPMENT_STATUS_INVALID_TARGET", msg: "Geçersiz hedef durum." },
+      };
+      const r = rejections[verdict.reason];
+      return reply.code(r.code).send(errorBody(r.errCode, r.msg));
+    }
+
+    const now = new Date();
+    const markOrderFulfilled = input.status === "DELIVERED";
+    const updated = await prisma.$transaction(async (tx) => {
+      const s = await tx.shipment.update({
+        where: { id: loaded.shipment.id },
+        data: { status: input.status },
+      });
+      await tx.shipmentEvent.create({
+        data: {
+          storeId: params.storeId,
+          shipmentId: s.id,
+          provider: s.provider,
+          eventType: "MANUAL_STATUS",
+          statusText: input.note ?? "Durum operatör tarafından güncellendi.",
+          occurredAt: now,
+          rawSafeJson: {
+            manual: true,
+            statusFrom: current,
+            statusTo: input.status,
+            notePresent: Boolean(input.note),
+          },
+        },
+      });
+      if (markOrderFulfilled) {
+        // Sipariş de tamamlanmış say (fulfillmentStatus + status). İptal edilmiş sipariş KORUNUR.
+        const order = await tx.order.findFirst({ where: { id: s.orderId, storeId: params.storeId } });
+        if (order && order.status !== "CANCELLED") {
+          await tx.order.update({
+            where: { id: order.id },
+            data: { fulfillmentStatus: "FULFILLED", status: "FULFILLED" },
+          });
+          await tx.orderEvent.create({
+            data: {
+              storeId: params.storeId,
+              orderId: order.id,
+              type: "ORDER_FULFILLED",
+              message: "Sipariş teslim edildi (manuel kargo durumu).",
+              actorUserId: access.actorUserId,
+              metadata: { shipmentId: s.id, via: "manual-shipment-status" },
+            },
+          });
+        }
+      }
+      return s;
+    });
+
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "Shipment",
+      entityId: updated.id,
+      metadata: {
+        provider: loaded.cfg.provider,
+        action: "shipment.manual-status",
+        statusFrom: current,
+        statusTo: input.status,
+      },
+    });
+    return reply.send(
+      shippingShipmentMutationResponseSchema.parse({
+        shipment: serializeShipment(await reloadShipment(updated.id)),
+        alreadyExisted: false,
+      }),
+    );
   });
 
   /* ───────────── TODO-124 varis il/ilce eslemesi onarimi ─────────────

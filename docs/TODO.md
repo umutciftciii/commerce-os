@@ -1703,6 +1703,20 @@
   sayısı, son eklenen tarih).
 - Kapsam dışı (MVP): paylaşımlı/public liste, fiyat-düşüş bildirimi, admin liste analitiği.
 
+## TODO-162 — Manual Shipment Status & Fulfillment (Operations · ADR-101)
+
+- Durum: **DONE (tüm katmanlar + gate + testler YEŞİL).** Operasyonel açık: entegre kargo süreci
+  DIŞINDA yönetilen gönderiler `DELIVERED` olamıyordu (yalnız sağlayıcı sync'ten geliyordu) ve
+  `order.fulfillmentStatus` kargo durumundan beslenmiyordu → sipariş "teslim edildi" işaretlenemiyordu.
+- Çözüm: Operatör manuel durum ilerletme aksiyonu (`POST .../shipping/shipments/:id/status`). Saf kural
+  `evaluateManualStatusChange` (monotonic + terminal-kilit + izinli hedef). Hedefler: IN_TRANSIT /
+  OUT_FOR_DELIVERY / DELIVERED / DELIVERY_FAILED / RETURNED. Sağlayıcıya ÇAĞRI YOK.
+- Karar (kullanıcı): DELIVERED → sipariş de FULFILLED (fulfillmentStatus + status; iptal korunur);
+  her gönderide operatör override (terminal-kilit sync çakışmasını önler).
+- Gönderi detay sayfasında "Kargo Durumunu İşaretle" (dropdown ileri hedefler + not); ShipmentEvent
+  MANUAL_STATUS + OrderEvent ORDER_FULFILLED + AuditLog. Migration 20260723180000 (additive).
+- Testler: `shipping-manual-status.test.ts` (8, saf transition).
+
 ## TODO-159F — Order Payment Recovery & Collection (Payment · ADR-095…100)
 
 - Durum: **DONE (tüm katmanlar + gate + testler YEŞİL; commit/PR/deploy YAPILMADI).** Sıra: TODO-159E'den
