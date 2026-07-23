@@ -30,6 +30,20 @@ export const CATEGORY_LIST_KEYS = [...COMMON_KEYS, "status"];
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
+ * TODO-159E (ADR-094) — Ürün yorumu moderasyon liste anahtarları. Tümü sunucu-otoriter
+ * filtrelerdir (durum/rating/verified/ürün/tarih); doğrulama gateway contract şemasındadır.
+ */
+export const REVIEW_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "status",
+  "rating",
+  "verifiedPurchase",
+  "productId",
+  "dateFrom",
+  "dateTo",
+];
+
+/**
  * TODO-159C (ADR-092) — Envanter matrisi liste anahtarları. `warehouseId` matrisin
  * BAKILAN deposunu seçer; `stockStatus`/`reserved`/`variantStatus`/`productStatus`
  * sunucu-otoriter filtrelerdir. Doğrulama gateway contract şemasındadır.

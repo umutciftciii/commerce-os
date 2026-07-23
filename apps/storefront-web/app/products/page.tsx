@@ -17,7 +17,9 @@ import { SearchResultsRegion } from "../../components/search/results-region";
 import { SearchTransitionProvider } from "../../components/search/search-transition";
 import { ProductGrid } from "../../components/search/product-grid";
 import { WishlistProvider } from "../../components/wishlist/wishlist-provider";
+import { RatingProvider } from "../../components/reviews/rating-provider";
 import { getWishlistStatus } from "../../lib/server/wishlist";
+import { getCardRatings } from "../../lib/server/reviews";
 import { SearchPagination } from "../../components/search/search-pagination";
 import { SearchEmpty } from "../../components/search/search-empty";
 import { FilterRail } from "../../components/search/filter-rail";
@@ -108,8 +110,12 @@ export default async function ProductsPage({
 
   const data = result.data;
   const cards = toListingCards(data.products);
-  // TODO-159D (ADR-093) — Sayfadaki ürünler için TEK batched favori-durum çözümü (N+1 yok).
-  const savedProductIds = [...(await getWishlistStatus(cards.map((card) => card.id)))];
+  // TODO-159D/159E — Sayfadaki ürünler için TEK batched favori-durum + rating özeti (N+1 yok).
+  const cardIds = cards.map((card) => card.id);
+  const [savedProductIds, cardRatings] = await Promise.all([
+    getWishlistStatus(cardIds).then((set) => [...set]),
+    getCardRatings(cardIds),
+  ]);
   const currency = data.products[0]?.currency ?? "TRY";
   const facets = data.facets;
 
@@ -163,7 +169,9 @@ export default async function ProductsPage({
               ) : (
                 <div className="mt-8 lg:mt-10">
                   <WishlistProvider initialSavedIds={savedProductIds}>
-                    <ProductGrid cards={cards} t={t} />
+                    <RatingProvider summaries={cardRatings}>
+                      <ProductGrid cards={cards} t={t} />
+                    </RatingProvider>
                   </WishlistProvider>
                 </div>
               )}

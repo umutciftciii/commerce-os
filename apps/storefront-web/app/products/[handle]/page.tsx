@@ -18,14 +18,21 @@ import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
 import { WishlistProvider } from "../../../components/wishlist/wishlist-provider";
+import { RatingProvider } from "../../../components/reviews/rating-provider";
+import { PdpReviews } from "../../../components/reviews/pdp-reviews";
 import { getWishlistStatus } from "../../../lib/server/wishlist";
+import {
+  getCardRatings,
+  getProductReviews,
+  getProductReviewSummary,
+  getReviewEligibility,
+} from "../../../lib/server/reviews";
 import { VariantGallery } from "../../../components/variant-gallery";
 import { Breadcrumb } from "../../../components/seo/breadcrumb";
 import { JsonLd } from "../../../components/seo/json-ld";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
-import { mockRating } from "../../../lib/mock-rating";
 import { cheapestVariantId } from "../../../lib/catalog-types";
 import { productPath } from "../../../lib/seo/routes";
 import { absoluteUrl } from "../../../lib/seo/site-url";
@@ -111,8 +118,13 @@ export default async function ProductDetailPage({
   }
 
   const detail = result.data;
-  // MOCK: puan/değerlendirme — Home kartıyla AYNI deterministik helper (bkz. todo.md).
-  const rating = mockRating(detail.handle);
+  const locale = await getRequestLocale();
+  // TODO-159E (ADR-094) — GERÇEK puan/değerlendirme: özet + ilk sayfa + uygunluk (mock KALDIRILDI).
+  const [reviewSummary, reviewsFirstPage, eligibility] = await Promise.all([
+    getProductReviewSummary(detail.id),
+    getProductReviews(detail.id, { sort: "newest" }),
+    getReviewEligibility(detail.id),
+  ]);
 
   // TODO-156D — Breadcrumb TEK KAYNAK (görünür UI + JSON-LD). Kategori slug'ı public detay DTO'sunda
   // yok → kategori etiketi link'siz (uydurma URL üretilmez). Ürün kanonik URL'i mutlaklanır (JSON-LD).
@@ -135,13 +147,16 @@ export default async function ProductDetailPage({
   });
   const breadcrumbLd = buildBreadcrumbJsonLd(breadcrumbTrail, absoluteUrl, canonicalUrl);
 
-  // TODO-159D (ADR-093) — PDP + benzer ürünler için TEK batched favori-durum çözümü.
-  const savedProductIds = [
-    ...(await getWishlistStatus([detail.id, ...detail.related.map((item) => item.id)])),
-  ];
+  // TODO-159D/159E — PDP + benzer ürünler için TEK batched favori-durum + rating özeti.
+  const relatedIds = detail.related.map((item) => item.id);
+  const [savedProductIds, relatedRatings] = await Promise.all([
+    getWishlistStatus([detail.id, ...relatedIds]).then((set) => [...set]),
+    getCardRatings(relatedIds),
+  ]);
 
   return (
     <WishlistProvider initialSavedIds={savedProductIds}>
+    <RatingProvider summaries={relatedRatings}>
     <Container className="py-12 lg:py-16">
       {/* TODO-156D — Product + BreadcrumbList JSON-LD (Google Rich Results). */}
       <JsonLd data={productLd} />
@@ -172,13 +187,24 @@ export default async function ProductDetailPage({
               <Heading as="h1" className="mt-4 text-2xl sm:text-3xl">
                 {detail.title}
               </Heading>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
-                <Stars
-                  rating={rating.value}
-                  ariaLabel={format(dict.home.card.ratingAria, { rating: rating.value.toFixed(1) })}
-                />
-                <span>{format(dict.home.card.reviews, { count: rating.count })}</span>
-              </div>
+              {reviewSummary.reviewCount > 0 ? (
+                <a
+                  href="#reviews"
+                  className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle hover:text-ink"
+                >
+                  <Stars
+                    rating={reviewSummary.averageRating}
+                    ariaLabel={format(dict.home.card.ratingAria, {
+                      rating: reviewSummary.averageRating.toFixed(1),
+                    })}
+                  />
+                  <span>{format(dict.reviews.reviewCount, { count: reviewSummary.reviewCount })}</span>
+                </a>
+              ) : (
+                <a href="#reviews" className="mt-3 block text-xs text-ink-subtle hover:text-ink">
+                  {dict.reviews.emptyTitle}
+                </a>
+              )}
               {detail.sku ? (
                 <Muted className="mt-2">
                   {t.skuLabel}: <span className="font-medium text-ink-muted">{detail.sku}</span>
@@ -196,6 +222,18 @@ export default async function ProductDetailPage({
           tasarımdaki derli toplu sekme yapısı. Gerçek içerik korunur (açıklama/özellik/kargo). */}
       <PdpDetailTabs detail={detail} t={dict} />
 
+      {/* TODO-159E (ADR-094) — Gerçek değerlendirme bölümü (özet + liste + yorum yaz + helpful). */}
+      {reviewsFirstPage ? (
+        <PdpReviews
+          productId={detail.id}
+          initial={reviewsFirstPage}
+          eligibility={eligibility}
+          loginHref={`/auth/login?next=${encodeURIComponent(productPath(detail.handle))}`}
+          t={dict}
+          locale={locale}
+        />
+      ) : null}
+
       {/* Benzer urunler (canli) */}
       {detail.related.length > 0 ? (
         <section className="mt-20">
@@ -210,6 +248,7 @@ export default async function ProductDetailPage({
         </section>
       ) : null}
     </Container>
+    </RatingProvider>
     </WishlistProvider>
   );
 }

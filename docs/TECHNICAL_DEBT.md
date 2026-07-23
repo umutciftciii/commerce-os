@@ -964,3 +964,39 @@ sonuç üretmez; her biri uygulanmış bir tasarım sınırıdır.
   davranış takibi yok). Admin'in müşteri listelerini görüntüleme/düzenleme ekranı bilinçli olarak roadmap'e
   bırakıldı (kapsam büyümesi). Veri modeli + `list-summary` ucu hazır olduğundan ileri faz yalnız UI ekler.
   **Öncelik: DÜŞÜK** (ürün kararı; teknik borç değil, kapsam sınırı).
+
+## TODO-159E (ADR-094) — Product Reviews & Ratings sınırları (TD-106…TD-108)
+
+Aşağıdakiler TODO-159E'de BİLİNÇLİ olarak ertelendi. Hiçbiri veri kaybı ya da yanlış sonuç üretmez;
+her biri uygulanmış bir tasarım sınırıdır.
+
+- **TD-106 — İade/iptal sonrası yorum/rozet otomatik davranışı YOK (manuel moderasyon).** Yorum
+  oluşturulduktan SONRA sipariş iade edilir/iptal edilirse yorum ve `verifiedPurchase` rozeti KORUNUR
+  (alışveriş yorum anında gerçekten gerçekleşmişti; geriye dönük "doğrulanmamış" yapılmaz). Yeni yorum
+  uygunluğu zaten `paymentStatus=PAID && status!=CANCELLED` istediğinden REFUNDED/CANCELLED sipariş yeni
+  yorum DOĞURMAZ. Kötüye kullanım moderasyonla (HIDDEN) ele alınır. Arka planda yorumları yeniden tarayıp
+  otomatik gizleyen/rozet düşüren bir job EKLENMEDİ (aggregate churn + karmaşıklık). Bugün risk yok
+  (uygunluk sunucu-otoriter; her yeni yorum gerçek satın almadan doğar). İleri faz: tam-iade politikasına
+  bağlı otomatik gizleme + net gelir tutarlılığı istenirse. **Öncelik: DÜŞÜK** (ürün kararı).
+
+- **TD-107 — Rating aggregate search read-model'e (`ProductSearchDocument`) denormalize EDİLMEDİ.** PLP/Home/
+  Search kartları rating'i AYRI batched uçtan (`/reviews/summary`) alır (wishlist-status deseni; sayfa başına
+  TEK çağrı, N+1 yok). Aggregate search dokümanına yazılmadığından **sort-by-rating** ve **rating-facet**
+  araması bu fazda YOK. Eklemek TAMAMEN ADDITIVE'tir (ADR-079 §Ek TODO-155.1/155.2 deseni: source→builder→
+  persist üçlüsüne `ratingAverage`/`ratingCount` alanı + moderasyon sonrası `reindexProduct` tetikleme).
+  Bugün ertelendi çünkü kart summary'si zaten batched çözülüyor ve aggregate eventual-consistency + reindek
+  karmaşıklığı MVP dışı. **Öncelik: DÜŞÜK-ORTA** — "en çok beğenilen" sıralaması/filtresi istenince.
+
+- **TD-108 — Review approved/rejected BİLDİRİMİ YOK (notification-service stub).** `services/notification-
+  service` 5 satırlık bir stub'tır (mailer/template/dispatch YOK); platform-events bus tanımlı ama hiçbir
+  yerde çağrılmıyor. Sıfırdan e-posta/push altyapısı (transport + template + event→dispatch) bu fazın
+  kapsamını aşar. Yorum durum değişimleri müşteriye **Account "Değerlendirmelerim"** ekranında gösterilir
+  (pull model). Push bildirim ayrı bir roadmap işidir (bildirim altyapısı kurulunca review onay/red event'i
+  eklenir). **Öncelik: DÜŞÜK** (kapsam sınırı; UX pull-model ile karşılanıyor).
+
+- **TD-109 — Admin moderasyon ekranında ürün + tarih UI filtresi YOK (sunucu-destekli).** Gateway admin liste
+  ucu `productId`/`dateFrom`/`dateTo` filtrelerini ZATEN destekler (contract + data katmanı); ancak ekran UI'ı
+  MVP'de yalnız status/rating/verifiedPurchase select filtrelerini + arama + sıralamayı sunar. Ürün filtresi
+  ADR-090 entity-selector wiring'i (SelectorPresenter + resolveByIds) gerektirir; tarih aralığı standart Data
+  Grid toolbar'ında widget olmadığından (yalnız orders sayfasının bespoke paneli) ertelendi. Eklemek additive
+  (UI-only; sunucu hazır). **Öncelik: DÜŞÜK.**

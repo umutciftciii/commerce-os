@@ -3371,3 +3371,86 @@ cascade). Testler: gateway route (14) + wishlist-token (6) + heart a11y (3).
 dedup zor. (b) Wishlist'i varyant-seviyesi favori olarak modellemek — PLP↔PDP tutarsızlığı (kart ürün-seviyesi).
 (c) Sepet merge desenini kopyalamak — sepet cookie-only/stateless; wishlist DB-kalıcı, kupon cüzdanı deseni
 doğru analog. (d) Liste öğesini fiyat/stok snapshot'ıyla saklamak — bayat veri riski; canlı otorite kuralı.
+
+## ADR-094 — Product Reviews & Ratings: sunucu-otoriter uygunluk, moderasyon durum makinesi, projection aggregate otoritesi (TODO-159E)
+
+**Bağlam.** Storefront'ta yıldız/puan yalnız görseldi (MOCK: `lib/mock-rating.ts` handle'dan deterministik
+türetim; PDP başlığı + Home/PLP/Search kartları). Prisma'da `ProductReview` modeli, public aggregate ucu,
+Store Admin moderasyonu YOKTU. Gerçek, tenant-safe, moderasyonlu ve **doğrulanmış alışveriş** temelli bir
+yorum/puanlama sistemi gerekiyordu. Analiz: `docs/analysis/TODO-159E-product-reviews-ratings.md`.
+
+**Karar.**
+
+1. **Domain (normalize; JSON gömme YOK).** `ProductReview(id, storeId, productId, variantId?, customerId,
+   orderId, orderLineId, rating, title?, body, status, verifiedPurchase, helpfulCount, moderationNote?,
+   publishedAt?, timestamps)` + `ProductReviewHelpful(id, storeId, reviewId, customerId, createdAt)` +
+   `ProductRatingAggregate(productId PK, storeId, reviewCount, sumRating, count1..count5, averageTimes100,
+   updatedAt)`. Enum `ProductReviewStatus {PENDING, APPROVED, REJECTED, HIDDEN}`. Migration
+   `20260723160000_add_product_reviews_ratings` (additive; bir enum + üç tablo + index/FK). Product/Variant
+   modeline JSON yorum alanı EKLENMEZ.
+
+2. **Yorum ÜRÜN seviyesinde yayınlanır/toplanır.** `variantId` yalnız BAĞLAM (sipariş kaleminden türetilir;
+   SetNull → varyant silinse de yorum yaşar). Tek PDP listesi + tek aggregate → PLP↔PDP tutarlılığı (favori
+   deseniyle simetrik, ADR-093).
+
+3. **Uygunluk (eligibility) SUNUCU-otoriter.** UI'dan gelen `verifiedPurchase` değerine ASLA güvenilmez.
+   Gateway `OrderLine ↔ Order ↔ Shipment` join'iyle doğrular: orderLine müşteriye + mağazaya ait ·
+   `order.status != CANCELLED` · `order.paymentStatus == PAID` · teslimat aşamasına ulaşmış (bir gönderi
+   `Shipment.status == DELIVERED` VEYA `order.fulfillmentStatus == FULFILLED`) · bu ürün için müşterinin
+   önceki yorumu yok. Oluşturulan her yorum bu nedenle `verifiedPurchase=true`.
+
+4. **Tekillik: iki DB unique.** `orderLineId` UNIQUE (bir sipariş kalemi en fazla bir yoruma kaynak) +
+   `(storeId, productId, customerId)` UNIQUE (bir müşteri bir ürüne en fazla bir yorum). Servis
+   check-then-insert + P2002 yut (idempotent/yarış-güvenli). Koşulsuz unique'ler → TODO-159D'deki kısmi-index
+   drift tuzağı burada YOK.
+
+5. **Moderasyon durum makinesi.** PENDING (yeni/onaylı-iken-düzenlenen) → APPROVED (public + aggregate;
+   `publishedAt` set) · REJECTED (hiç yayınlanmadı) · HIDDEN (onaylıydı, gizlendi). Yorum SİLİNMEZ, durum
+   değişir. Müşteri onaylı yorumunu düzenlerse SESSİZCE değişmez → tekrar PENDING. HIDDEN düzenlenemez. Admin
+   `approve/reject/hide` tek uçtan; `AuditLog` (action=UPDATE, entityType="ProductReview", platformUserId,
+   metadata) yazılır. Bu fazda BULK moderasyon YOK (sahte toplu işlem eklenmez).
+
+6. **Rating aggregate = PROJECTION otoritesi (canlı tarama YOK).** `ProductRatingAggregate` ürün başına tek
+   satır; TEK yazma yolu `recomputeAggregate(tx, storeId, productId)` — APPROVED yorumları `groupBy(rating)`
+   ile SIFIRDAN sayar (delta aritmetiği yok → daima tutarlı). APPROVED'a giriş/çıkış (approve/reject/hide,
+   approved→pending edit) aynı transaction'da yeniden hesap tetikler. Float drift'e karşı TAMSAYI toplamlar
+   (`sumRating`, `count1..5`, `averageTimes100 = round(sumRating*100/reviewCount)`); gösterim ortalaması
+   `displayAverage` (1 ondalık, TEK otorite — SAF, unit-test'li). reviewCount=0 → satır silinir.
+
+7. **Public projeksiyon ALLOWLIST.** Public uçlar (`/products/:id/reviews[/summary]`, batched
+   `/reviews/summary`) yalnız `{id, rating, title, body, authorName(maskeli "Ayşe K."), verifiedPurchase,
+   helpfulCount, createdAt, publishedAt, viewerFoundHelpful}` döner. `customerId`/email/`orderId`/
+   `orderLineId`/`moderationNote`/iç `status` SIZMAZ (response şema `.parse()` allowlist'i + sızıntı testi).
+
+8. **Batched kart summary (search read-model'e DOKUNULMAZ).** PLP/Home/Search kartları rating'i AYRI batched
+   uçtan (`POST /reviews/summary` → productIds) alır (wishlist-status deseni; sayfa başına TEK çağrı, N+1 yok).
+   Storefront `RatingProvider` context + `useRating`; yorumu olmayan ürün → yıldız satırı GİZLENİR (sahte puan
+   YOK). `ProductSearchDocument`'a rating denormalize edilmedi (sort-by-rating ileri faz — TD-107). `mockRating`
+   ve tüm çağrı yerleri KALDIRILDI.
+
+9. **Helpful.** Giriş yapmış müşteri APPROVED yoruma bir kez oy verir (`(reviewId, customerId)` unique;
+   idempotent toggle; denormalize `helpfulCount` sayaç aynı tx'te). Kendi yorumuna oy ENGELLİ (409);
+   cross-store ENGELLİ; public yalnız toplam sayacı taşır; rate-limit'li. Guest helpful bu fazda YOK.
+
+10. **Güvenlik/limitler.** Rating 1–5 integer; title ≤120; body 1–4000 (HTML kabul edilmez — `sanitizePlainText`
+    etiketleri kaldırır, "a < b" bozulmaz; React escaping ile XSS yok); moderationNote ≤500. Create/edit
+    (10/60s) + helpful (30/60s) in-process sliding-window rate limit (storeId:customerId). Tenant izolasyonu
+    her sorguda; ID enumeration → 404. Pagination server-side (public 10 / admin 25; maks 100).
+
+11. **İade/iptal davranışı (MVP).** Yorum oluşturulduktan sonra iade/iptal olursa yorum + `verifiedPurchase`
+    KORUNUR (alışveriş yorum anında gerçekti); yeni yorum uygunluk PAID+not-CANCELLED istediğinden ENGELLENİR;
+    kötüye kullanım moderasyonla (HIDDEN) çözülür. Arka planda yeniden-tarama job'ı YOK (TD-106).
+
+**Sonuçlar.** Contracts yeni banner bölümü (public/customer/admin şema + enum + pagination reuse); api-client
+type + value re-export + `admin.reviews.*`. Gateway `reviews/{data,routes}.ts` (public + customer +
+admin register; DI). Store Admin `/reviews` (ADR-089 Data Grid + Modal moderasyon drawer + AuditLog).
+Storefront PDP gerçek değerlendirme bölümü (özet/dağılım/liste/filtre/sort/helpful/yaz akışı), Account
+"Değerlendirmelerim", 3 kart yüzeyi gerçek batched rating. Testler: gateway route (20) + aggregate saf (6)
++ storefront rating-provider (4). Bildirim (review approved/rejected) bu fazda YOK — notification-service stub
+(TD-108).
+
+**Reddedilen alternatifler.** (a) Product/Variant'a JSON rating/review alanı — sorgulanamaz, tenant-güvensiz.
+(b) Her PDP isteğinde canlı review taraması (projection yok) — O(n) maliyet + N+1 kart. (c) Ortalamayı Float
+saklamak — drift riski (tamsayı toplam + türetme seçildi). (d) Rating'i UI'dan gelen `verifiedPurchase`'e
+güvenerek belirlemek — sahtecilik açığı (sunucu-otoriter join seçildi). (e) İade sonrası otomatik gizleme/
+rozet düşürme — arka plan job + aggregate churn (MVP'de manuel moderasyon; TD-106).

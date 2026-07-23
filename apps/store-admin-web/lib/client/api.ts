@@ -103,6 +103,10 @@ import type {
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerListSummaryResponse,
+  AdminReviewListResponse,
+  AdminReviewDetailResponse,
+  ReviewModerateRequest,
+  ReviewModerateResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -636,6 +640,16 @@ export const storeApi = {
     mutatingCall<Order>(`/api/orders/${orderId}/place`, { method: "POST" }),
   cancelOrder: (orderId: string, input: OrderCancelRequest = {}) =>
     mutatingCall<Order>(`/api/orders/${orderId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // Reviews (TODO-159E / ADR-094) — moderasyon dizini + detay + moderate. Mutasyon CSRF'li.
+  listReviews: (query?: AdminListRequestQuery) =>
+    call<AdminReviewListResponse>(`/api/reviews${listQueryString(query)}`),
+  getReview: (id: string) => call<AdminReviewDetailResponse>(`/api/reviews/${id}`),
+  moderateReview: (id: string, input: ReviewModerateRequest) =>
+    mutatingCall<ReviewModerateResponse>(`/api/reviews/${id}/moderate`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

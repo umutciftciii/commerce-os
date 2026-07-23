@@ -1703,9 +1703,20 @@
   sayısı, son eklenen tarih).
 - Kapsam dışı (MVP): paylaşımlı/public liste, fiyat-düşüş bildirimi, admin liste analitiği.
 
-## TODO-159E — Product Reviews & Ratings (Customer Lifecycle)
+## TODO-159E — Product Reviews & Ratings (Customer Lifecycle · ADR-094)
 
-- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159D'den SONRA, TODO-160'tan ÖNCE.
+- Durum: **DONE (tüm katmanlar + gate + testler YEŞİL; commit/PR/deploy YAPILMADI).** Sıra: TODO-159D'den
+  SONRA, TODO-160'tan ÖNCE. Analiz: `docs/analysis/TODO-159E-product-reviews-ratings.md`. Ertelenen
+  sınırlar: TD-106…TD-108.
+- Migration `20260723160000_add_product_reviews_ratings` (additive; `ProductReviewStatus` enum + `ProductReview`
+  + `ProductReviewHelpful` + `ProductRatingAggregate` + index/FK). Gerçek PostgreSQL'de uygulanıp doğrulandı.
+- Uygunluk sunucu-otoriter (OrderLine↔Order↔Shipment). Aggregate = projection (tek yazma yolu
+  `recomputeAggregate`; yalnız APPROVED; tamsayı toplam → float drift yok). Public projeksiyon ALLOWLIST.
+- Moderasyon durum makinesi (PENDING/APPROVED/REJECTED/HIDDEN) + Store Admin `/reviews` + AuditLog. Storefront
+  PDP değerlendirme bölümü + Account "Değerlendirmelerim" + 3 kart yüzeyi gerçek batched rating (mock KALDIRILDI).
+- Helpful (idempotent, kendi-yorumu engeli, rate-limit). Testler: gateway route (20) + aggregate saf (6) +
+  storefront rating-provider (4).
+- Eski PLANLANDI kaydı (referans):
 - Amaç: Ürünlere yıldız puanı + metin yorum; doğrulanmış alışveriş temelli güven; PDP rating özeti + yorum
   listesi; Store Admin moderasyonu.
 - Kapsam (taslak): yıldız + metin yorum · sipariş kalemi bazlı yorum uygunluğu · doğrulanmış alışveriş

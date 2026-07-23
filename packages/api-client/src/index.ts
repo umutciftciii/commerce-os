@@ -124,6 +124,10 @@ import type {
   StoreAdminCustomerListResponse,
   StoreAdminCustomerDetailResponse,
   StoreAdminCustomerListSummaryResponse,
+  AdminReviewListResponse,
+  AdminReviewDetailResponse,
+  ReviewModerateRequest,
+  ReviewModerateResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -610,6 +614,41 @@ export type {
 } from "@commerce-os/contracts";
 
 /**
+ * TODO-159E (ADR-094) — Product Reviews & Ratings kontrat tipleri (type-only re-export).
+ * Public tipler ALLOWLIST'tir (customerId/email/orderId/orderLineId/moderationNote taşımaz).
+ */
+export type {
+  ProductReviewStatus,
+  ReviewPublicSort,
+  ReviewModerationAction,
+  ReviewEligibilityReason,
+  RatingDistribution,
+  ReviewSummary,
+  ReviewSummaryResponse,
+  ReviewSummaryBatchRequest,
+  ReviewSummaryBatchResponse,
+  PublicReview,
+  ReviewPublicListQuery,
+  ReviewPublicListResponse,
+  CustomerReview,
+  ReviewEligibleOrderLine,
+  CustomerReviewsResponse,
+  ReviewEligibilityResponse,
+  ReviewCreateRequest,
+  ReviewUpdateRequest,
+  CustomerReviewMutationResponse,
+  ReviewHelpfulRequest,
+  ReviewHelpfulResponse,
+  AdminReviewSummary,
+  AdminReviewDetail,
+  AdminReviewListQuery,
+  AdminReviewListResponse,
+  AdminReviewDetailResponse,
+  ReviewModerateRequest,
+  ReviewModerateResponse,
+} from "@commerce-os/contracts";
+
+/**
  * F3C.1 — Shipping provider foundation kontrat tipleri (type-only re-export).
  * RESPONSE tipleri ALLOWLIST'tir (secret/ciphertext/JWT/customerPassword içermez).
  */
@@ -739,6 +778,22 @@ export {
   CUSTOMER_WISHLIST_STATUS_MAX_IDS,
   CUSTOMER_WISHLIST_MERGE_MAX_ITEMS,
   CUSTOMER_LIST_ITEM_QUANTITY_MAX,
+} from "@commerce-os/contracts";
+
+/**
+ * TODO-159E (ADR-094) — Product Reviews & Ratings sunucu-otoriter SINIR sabitleri +
+ * enum değerleri (DEĞER re-export). Storefront BFF (lib/server/reviews*.ts) ve store-admin
+ * BFF, istekleri sunucuya göndermeden aynı üst sınırlarla kırpar; contracts'a doğrudan bağlanmaz.
+ */
+export {
+  REVIEW_RATING_MIN,
+  REVIEW_RATING_MAX,
+  REVIEW_TITLE_MAX_LENGTH,
+  REVIEW_BODY_MIN_LENGTH,
+  REVIEW_BODY_MAX_LENGTH,
+  REVIEW_MODERATION_NOTE_MAX_LENGTH,
+  REVIEW_SUMMARY_MAX_IDS,
+  REVIEW_PUBLIC_DEFAULT_PAGE_SIZE,
 } from "@commerce-os/contracts";
 
 /**
@@ -1431,6 +1486,21 @@ export interface ApiClient {
           token?: string,
         ): Promise<{ updated: boolean }>;
       };
+    };
+    // TODO-159E (ADR-094) — Product Reviews moderasyonu (Admin Data Grid + detay + moderate).
+    reviews: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminReviewListResponse>;
+      get(storeId: string, reviewId: string, token?: string): Promise<AdminReviewDetailResponse>;
+      moderate(
+        storeId: string,
+        reviewId: string,
+        input: ReviewModerateRequest,
+        token?: string,
+      ): Promise<ReviewModerateResponse>;
     };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
@@ -2581,6 +2651,23 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               token,
             ),
         },
+      },
+      // TODO-159E (ADR-094) — Product Reviews moderasyonu.
+      reviews: {
+        list: (storeId, token, query) =>
+          getJson<AdminReviewListResponse>(
+            `/stores/${storeId}/reviews${buildQueryString(query)}`,
+            token,
+          ),
+        get: (storeId, reviewId, token) =>
+          getJson<AdminReviewDetailResponse>(`/stores/${storeId}/reviews/${reviewId}`, token),
+        moderate: (storeId, reviewId, input, token) =>
+          sendJson<ReviewModerateResponse>(
+            `/stores/${storeId}/reviews/${reviewId}/moderate`,
+            "POST",
+            input,
+            token,
+          ),
       },
       paymentProviders: {
         list: (storeId, token) =>

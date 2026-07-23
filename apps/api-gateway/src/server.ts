@@ -118,6 +118,12 @@ import {
   registerCustomerListAdminRoutes,
   registerCustomerListRoutes,
 } from "./customer-lists/routes.js";
+import { createReviewData } from "./reviews/data.js";
+import {
+  registerCustomerReviewRoutes,
+  registerPublicReviewRoutes,
+  registerReviewAdminRoutes,
+} from "./reviews/routes.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -5970,6 +5976,31 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+  });
+
+  // TODO-159E (ADR-094) — Product Reviews & Ratings.
+  // Public (summary/list/batched), Customer (eligibility/create/edit/helpful), Admin (moderate).
+  const reviewData = createReviewData();
+  const reviewRoutesDeps = {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    data: reviewData,
+    catalog: {
+      listProductImages: (sid: string, pids: string[], coverOnly: boolean) =>
+        dataAccess.listProductImages(sid, pids, coverOnly),
+    },
+  };
+  registerPublicReviewRoutes(app, reviewRoutesDeps);
+  registerCustomerReviewRoutes(app, reviewRoutesDeps);
+  registerReviewAdminRoutes(app, {
+    data: reviewData,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).

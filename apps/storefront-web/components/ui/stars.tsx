@@ -1,7 +1,7 @@
 /**
  * Yıldız göstergesi (DS). Nötr `--ink` ile çizilir (aksan taşımaz). Sunucu-güvenli
- * (hook yok). Home kartı, PLP quick-view ve PDP başlığı AYNI bileşeni paylaşır;
- * puan verisi MOCK'tur (bkz. `lib/mock-rating.ts` + todo.md).
+ * (hook yok). Home kartı, PLP quick-view, PDP başlığı ve değerlendirme listesi AYNI
+ * bileşeni paylaşır; puan verisi GERÇEK aggregate'ten gelir (TODO-159E/ADR-094).
  */
 export function Stars({ rating, ariaLabel }: { rating: number; ariaLabel: string }) {
   const full = Math.round(rating);
