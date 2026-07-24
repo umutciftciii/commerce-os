@@ -1766,12 +1766,14 @@
 
 ## TODO-160 — Influencer Tracking & Attribution (Growth & Monetization)
 
-- Durum: **UYGULANDI (2026-07-24).** Analiz: `docs/analysis/TODO-160-influencer-tracking-attribution.md`.
-  ADR-102…107 (+ADR-091 KABUL). Kapsam: Influencer/Campaign/TrackingLink CRUD · public `/t/:token`
-  (gateway-imzalı opak grant + güvenli redirect) · first-party attribution cookie (last-click) ·
-  order snapshot (sunucu-otoriter) · iade/iptal net-gelir (append-only defter, idempotent) · bot/
-  dedupe/rate-limit · dashboard + CSV export · store-admin ekranları · KVKK hash minimizasyonu.
-  Migration `20260724120000` (ADDITIVE). Ertelenen: TD-113/114/115. Commit/PR YOK (gate'ler koştu, dur).
+- Durum: **DONE / SHIPPED (2026-07-24) — PR #113 MERGED (47a330e).** Analiz:
+  `docs/analysis/TODO-160-influencer-tracking-attribution.md`. ADR-102…107 (+ADR-091 KABUL). Kapsam:
+  Influencer/Campaign/TrackingLink CRUD · public `/t/:token` (gateway-imzalı opak grant + güvenli
+  redirect) · first-party attribution cookie (last-click) · order snapshot (sunucu-otoriter) · iade/iptal
+  net-gelir (append-only defter, idempotent) · bot/dedupe/rate-limit · dashboard + CSV export ·
+  store-admin ekranları · KVKK hash minimizasyonu. **Tracking token HASH'li saklanır** (ADR-102
+  ship-öncesi revizyon; plain URL tek-seferlik + rotasyon). Migration `20260724120000` (ADDITIVE).
+  HTTP E2E (gerçek servisler) 33/33 PASS. Ertelenen: TD-113/114/115.
 - Durum (özgün): **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159C'den SONRA.
 - Amaç: Influencer/iş ortağı kaynaklı trafiği ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir attribution
   zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
@@ -1794,6 +1796,29 @@
     eklenen bir katman değil.
 - Kapsam dışı (MVP): komisyon hesabı/ödeme akışı, influencer self-service portalı, gelişmiş fraud skorlama,
   multi-touch modelleri, dış reklam platformu entegrasyonu.
+
+## TODO-160A — SKU Generation & Governance (Catalog Integrity)
+
+- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-160'tan SONRA, TODO-161'den ÖNCE (SIRADAKİ
+  AKTİF FAZ). Bu bir planlama kaydıdır; teknik borç DEĞİLDİR.
+- Amaç: SKU'yu varyant-seviyesi TEK OTORİTE yapmak; deterministik otomatik üretim + mağaza-içi benzersizlik
+  garantisi + çakışma yönetimi + governance (audit + güvenli backfill). SKU ↔ barcode ayrı kavramlar.
+- Kapsam: SKU varyant-seviyesi tek otorite · ürün/varyant oluştururken otomatik SKU · toplu varyant
+  generator entegrasyonu · mağaza içi unique garanti (DB seviyesi) · manuel override · format ve uzunluk
+  validation · Türkçe karakter transliteration + özel karakter normalizasyonu · ürün + variant option
+  kodlarından deterministic üretim · collision → kontrollü sequence/suffix · preview + regenerate · import
+  sırasında mevcut GEÇERLİ SKU'yu koruma · boş/tekrarlı/geçersiz mevcut SKU audit raporu · opsiyonel güvenli
+  backfill · SKU değişikliklerini AuditLog'a yazma · OrderLine snapshot'taki eski SKU'yu koruma · SKU ↔
+  barcode ayrımı · concurrency/idempotency · tenant isolation.
+- **Zorunlu kurallar (kabul kriteri):** (1) Deterministik üretim (aynı girdi → aynı SKU) + DB-seviyesi
+  store-unique. (2) Otomatik üretim mevcut GEÇERLİ SKU'ları EZMEZ (import/backfill koruma). (3) OrderLine
+  SKU snapshot'ı sonradan DEĞİŞMEZ. (4) SKU ↔ barcode ayrı; biri diğerini türetmez. (5) Tenant-izole +
+  AuditLog.
+- **MVP:** varyant-seviyesi tek otorite · deterministik otomatik SKU · store-unique · collision suffix ·
+  manuel override · preview/regenerate · format/transliteration validation · audit raporu.
+- **Sonraki faz:** güvenli otomatik backfill (büyük katalog) · gelişmiş SKU şablon dili · barcode
+  üretim/doğrulama (GTIN) entegrasyonu.
+- Planlama notu: Uygulama fazında ADR (SKU otorite + deterministik üretim + governance) yazılacaktır.
 
 ## TODO-161 — Sponsored Product Management (Growth & Monetization)
 
