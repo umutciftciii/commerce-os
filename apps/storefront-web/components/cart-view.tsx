@@ -705,9 +705,14 @@ function claimErrorMessage(reason: PublicCouponReason | "error", t: CartDict): s
 /** ISO tarihi kisa TR bicimine cevirir (kupon karti son kullanma). */
 function formatCouponDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(
-      new Date(iso),
-    );
+    return new Intl.DateTimeFormat("tr-TR", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      // Saat dilimi SABIT: sunucu (UTC) ile istemci (yerel) ayni takvim gununu
+      // uretsin; aksi halde gun sinirindaki tarihlerde hydration uyusmazligi olur.
+      timeZone: "Europe/Istanbul",
+    }).format(new Date(iso));
   } catch {
     return iso;
   }
