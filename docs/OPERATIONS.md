@@ -637,3 +637,43 @@ artığıdır → maliyet/marj + liste fiyatı + fiyat audit'i (son 30 gün en d
 - **Bilinen sınır.** Sepet/checkout'taki "KDV (dahil)" bilgi satırı hâlâ %20 sabit çıkarımdır (toplamları
   etkilemez); karma oranlı mağazada satır oranlarından türetme follow-up'tır. Fatura ÜRETİMİ bu fazda yok;
   alanlar hazırdır.
+
+## Demo veri güvenliği: backup, güvenli reset & recovery (TODO-159G / ADR-108)
+
+**Neden.** 2026-07-23'te elle `prisma db push` çalışan yerel DB'yi sıfırladı ve enterprise-demo
+kataloğu (471 ürün) silindi (TD-116). Aşağıdaki guard'lar + akış tekrarını engeller.
+
+### Kural (ÖNCE OKU)
+- `prisma db push`, `prisma migrate reset`, `docker volume rm` **YASAK** (migrasyon = `prisma migrate deploy`).
+- Enterprise seed'in yıkıcı `wipeScope`'u artık guard'lıdır (ADR-108): prod-benzeri `DATABASE_URL`,
+  yanlış store scope veya flag'siz toplu silme → **hard fail**.
+
+### Reset öncesi zorunlu yedek (backup guard)
+```bash
+pnpm db:backup                 # infra/backups/commerce_os-manual-<stamp>.sql.gz (gitignored)
+pnpm db:backup pre-reset       # etiketli
+```
+
+### Enterprise-demo kataloğunu güvenli geri yükle
+```bash
+# Tek komut: yedek al → seed → search backfill → invariant doğrula
+pnpm db:restore-enterprise
+
+# Dolu bir kataloğu bilinçli EZMEK gerekiyorsa (circuit breaker > 10 ürün):
+ALLOW_DESTRUCTIVE_DEMO_RESET=true pnpm db:seed-enterprise && pnpm db:backfill-enterprise
+```
+> `db:seed-enterprise` search projeksiyonunu SİLER ama yeniden yazMAZ — reset sonrası
+> `db:backfill-enterprise` ZORUNLU (aksi halde PLP/facet/autocomplete boş döner).
+
+### Guard davranışı (ADR-108 · `packages/db/scripts/enterprise/safety.mjs`)
+| Durum | Sonuç |
+|---|---|
+| İlk seed (0 ürün) | Sürtünmesiz çalışır |
+| Dolu katalog (>10 ürün), flag YOK | **DURUR** — `ALLOW_DESTRUCTIVE_DEMO_RESET=true` iste |
+| `DATABASE_URL` prod/staging/RDS/Neon… | **REDDEDİLİR** (flag'e rağmen) |
+| Host allowlist dışı (localhost bile tek başına yetmez) | **REDDEDİLİR** — `ALLOW_DEMO_SEED_ON_ANY_DB=true` ile bilinçli override |
+| Yanlış store scope (demo-store vb.) | **REDDEDİLİR** |
+| Order/Customer/Payment/Review/Wishlist | `wipeScope` ASLA dokunmaz (statik-invariant testli) |
+
+> Guard'lar api-gateway imajına baked kaynaktan koşar → `safety.mjs`/`persist.mjs` değişince
+> `docker compose -f infra/docker/docker-compose.yml build api-gateway` gerekir (TD-116-b).

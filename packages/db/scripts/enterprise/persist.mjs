@@ -19,6 +19,11 @@ import {
 } from "./constants.mjs";
 import { buildHomeData } from "./home.mjs";
 import { buildThemeData } from "./theme.mjs";
+import {
+  assertScopeSlug,
+  assertSafeDatabaseEnvironment,
+  assertDestructiveResetAllowed,
+} from "./safety.mjs";
 
 const CHUNK = 1000;
 
@@ -28,11 +33,9 @@ function chunk(arr, size = CHUNK) {
   return out;
 }
 
-/** Store-scope guard — yanlış/korumalı store'a yazımı reddet. */
+/** Store-scope guard — yanlış/korumalı store'a yazımı reddet (bkz. safety.mjs / ADR-108). */
 function assertScope() {
-  if (STORE_SLUG !== "enterprise-demo" || PROTECTED_STORE_SLUGS.has(STORE_SLUG)) {
-    throw new Error(`Guard: seed yalnız enterprise-demo scope'unda çalışır (slug=${STORE_SLUG}).`);
-  }
+  assertScopeSlug(STORE_SLUG, PROTECTED_STORE_SLUGS);
 }
 
 /** Enterprise-demo platform altyapısı (kullanıcı/plan/store/domain/üyelik/abonelik) upsert. */
@@ -79,6 +82,11 @@ async function upsertInfra(prisma) {
 /** Enterprise-demo katalog satırlarını FK-güvenli sırayla temizle (YALNIZ bu store). */
 async function wipeScope(prisma) {
   const where = { storeId: STORE_ID };
+  // ADR-108 — Row-count circuit breaker: dolu bir kataloğu ezmeden önce açık onay iste.
+  // İlk seed (0 ürün) veya küçük kalıntı serbest; eşik üstü yıkım ALLOW_DESTRUCTIVE_DEMO_RESET
+  // olmadan hard fail. Bu, 2026-07-23 db-push kazasının seed yoluyla tekrarını engeller.
+  const existingProductCount = await prisma.product.count({ where });
+  assertDestructiveResetAllowed({ existingProductCount });
   // TODO-158A (ADR-086) — Home Experience: section cascade çocukları (hero/featured/showcase)
   // temizler; homePage ayrıca silinir. MediaAsset silmeden ÖNCE (hero mediaId onDelete: Restrict).
   await prisma.homeSection.deleteMany({ where });
@@ -139,6 +147,9 @@ async function writePlaceholders(ds) {
  */
 export async function persistDataset(ds, { prisma: injected } = {}) {
   assertScope();
+  // ADR-108 — Environment guard: DATABASE_URL üretim/staging'e benziyorsa yıkıcı seed
+  // REDDEDİLİR (localhost tek başına güvenli sayılmaz). Bilinçli kaçış: ALLOW_DEMO_SEED_ON_ANY_DB.
+  assertSafeDatabaseEnvironment(process.env.DATABASE_URL);
   const prisma = injected ?? new PrismaClient();
   const owned = !injected;
   const t0 = Date.now();

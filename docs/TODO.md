@@ -2,6 +2,16 @@
 
 ## Yakin Isler
 
+- **TODO-159G: Demo Data Safety & Recovery (HOTFIX — ADR-108 / TD-116).** (DONE — recovery + önleme
+  tamamlandı; commit/PR/deploy YAPILMADI.) 2026-07-23 yıkıcı `prisma db push` enterprise-demo
+  kataloğunu (471 ürün/2202 varyant) sildi. **Recovery:** deterministik `db:seed-enterprise` +
+  `db:backfill-enterprise` → verify-enterprise 21/21, demo-store korundu, storefront smoke PASS.
+  **Önleme:** `packages/db/scripts/enterprise/safety.mjs` — environment guard (prod/staging/host
+  allowlist), store-scope guard, row-count circuit breaker (`ALLOW_DESTRUCTIVE_DEMO_RESET`), backup
+  guard (`pnpm db:backup` / `infra/scripts/db-backup.zsh`) + `pnpm db:restore-enterprise` zinciri.
+  20 birim + 3 statik-invariant test + 3 canlı guard testi (no-flag durur / flag geçer / prod-URL
+  reddedilir). Runbook: docs/OPERATIONS.md "Demo veri güvenliği". Not: yerel DB'de `_prisma_migrations`
+  yok (şema `db push` kurulmuş, TD-116-a); guard'lar imaj rebuild sonrası canlı (TD-116-b).
 - TODO-001: Faz 0 commit.
 - TODO-002: Faz 1 multi-tenant API plani.
 - TODO-003: Claude frontend/admin foundation promptu. (DONE — UI foundation eklendi)

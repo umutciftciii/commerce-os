@@ -1051,3 +1051,26 @@ her biri uygulanmış bir tasarım sınırıdır.
   komisyon hesabı/ödeme akışı, influencer self-service portalı, gelişmiş fraud scoring (mevcut: bot UA
   + rapid-repeat dedupe + rate-limit). Rate limiter in-memory'dir (tek-proses); çok-instance dağıtımda
   Redis tabanlı limiter gerekir. **Öncelik: DÜŞÜK.**
+
+## TODO-159G (ADR-108) — Demo Data Safety & Recovery (veri kaybı olayı)
+
+- **TD-116 — Enterprise-demo katalog veri kaybı olayı (2026-07-23) + kalan riskler.**
+  **Olay:** 2026-07-23 23:36 UTC'de çalışan yerel postgres'e elle yıkıcı `prisma db push`
+  (tüm tablolar + `_prisma_migrations` düştü) → 00:03'te yalnız temel `db:seed` koştu →
+  enterprise-demo (471 ürün/2202 varyant) + tüm Order/Customer verisi silindi. **Kök neden:**
+  politika `db push`'u yasaklasa da kod düzeyinde guard yoktu. **Recovery:** deterministik
+  `db:seed-enterprise` (ADR-085) + search backfill; katalog birebir geri geldi (verify 21/21,
+  demo-store korundu). **Önleme:** ADR-108 guard'ları (env/scope/circuit-breaker/backup) +
+  20 birim + 3 statik-invariant test + 3 canlı guard testi.
+  **Kalan borç:**
+  - **(a) DB `_prisma_migrations` YOK — şema `db push` ile kurulmuş.** Mevcut yerel DB migrasyon
+    geçmişi taşımıyor (introspeksiyonla doğrulandı). `prisma migrate deploy` bu DB'de baseline
+    ister; temiz yol = clean-build (volume yeniden) + `db:deploy` + `db:seed-enterprise`. **Öncelik: ORTA.**
+  - **(b) Guard'lar imaj yeniden kurulunca canlıya girer.** Seed api-gateway imajına baked
+    kaynaktan koşar; `safety.mjs` değişikliği `docker compose build api-gateway` sonrası etkindir
+    (bu görevde rebuild + canlı doğrulama YAPILDI). **Öncelik: DÜŞÜK (belgelendi).**
+  - **(c) Sipariş/müşteri/review/wishlist verisi geri getirilemedi (yedek yoktu).** Olay öncesi
+    yerel test verisiydi; kalıcı kayıp. Backup guard (`pnpm db:backup`) bundan sonrası için otomatik dump sağlar. **Öncelik: DÜŞÜK.**
+  - **(d) Backup guard seed içine gömülü DEĞİL.** `pnpm db:backup` operasyonel adım + `db:restore-enterprise`
+    zincirinin ilk halkası; seed'in kendisi rebuild-anında dump almaz (container'da pg_dump yürütmek kırılgan).
+    Circuit breaker zaten flag'siz yıkımı durdurduğundan yeterli. **Öncelik: DÜŞÜK.**
