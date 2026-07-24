@@ -154,6 +154,8 @@ export const enStoreAdmin: StoreAdminDictionary = {
     shippingProviders: "Shipping Providers",
     shippingRates: "Shipping Rates",
     campaigns: "Campaigns",
+    influencers: "Influencers",
+    influencerCampaigns: "Influencer Campaigns",
     hero: "Home",
     homeExperience: "Home Experience",
     theme: "Theme",

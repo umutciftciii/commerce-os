@@ -93,6 +93,16 @@ export function CustomerIcon() {
   );
 }
 
+export function InfluencerIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <circle cx="12" cy="7.5" r="3.5" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M18.5 3.5l.7 1.6 1.8.2-1.35 1.2.4 1.75-1.55-.9-1.55.9.4-1.75-1.35-1.2 1.8-.2z" />
+    </svg>
+  );
+}
+
 export function ReviewIcon() {
   return (
     <svg {...base} aria-hidden>

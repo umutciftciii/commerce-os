@@ -44,6 +44,34 @@ export const REVIEW_LIST_KEYS = [
 ];
 
 /**
+ * TODO-160 — Influencer izleme & atıf liste anahtarları. Tümü sunucu-otoriter
+ * filtrelerdir; doğrulama gateway contract şemasındadır.
+ */
+export const INFLUENCER_LIST_KEYS = [...COMMON_KEYS, "status"];
+
+export const INFLUENCER_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "influencerId"];
+
+export const TRACKING_LINK_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "status",
+  "influencerId",
+  "campaignId",
+  "targetType",
+];
+
+/**
+ * TODO-160 — Atıf analitiği query anahtarları (tarih aralığı + varlık kırılımı).
+ * Liste sayfalama anahtarları yoktur; tümü filtre.
+ */
+export const INFLUENCER_ANALYTICS_KEYS = [
+  "dateFrom",
+  "dateTo",
+  "influencerId",
+  "campaignId",
+  "trackingLinkId",
+];
+
+/**
  * TODO-159C (ADR-092) — Envanter matrisi liste anahtarları. `warehouseId` matrisin
  * BAKILAN deposunu seçer; `stockStatus`/`reserved`/`variantStatus`/`productStatus`
  * sunucu-otoriter filtrelerdir. Doğrulama gateway contract şemasındadır.

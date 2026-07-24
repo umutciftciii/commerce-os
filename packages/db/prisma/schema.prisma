@@ -571,6 +571,42 @@ enum CustomerCouponStatus {
   REVOKED
 }
 
+// ============================================================================
+// TODO-160 (ADR-102…107) — Influencer Tracking & Attribution enum'lari.
+// Influencer bir DIS kisi/anlasma iliskisidir (ADR-091); attribution SUNUCU-
+// otoriter + siparis aninda SNAPSHOT'lanir. Modeller Campaign'den AYRI (tek
+// super-tip zorlanmaz). Para her yerde tamsayi minor unit.
+// ============================================================================
+enum InfluencerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum InfluencerCampaignStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+// Takip linkinin gonderdigi hedef turu. Hedef SUNUCUDA guvenli iç yola cevrilir
+// (open-redirect yok — yalniz store-ici allowlist path). PATH = serbest ic yol.
+enum TrackingLinkTargetType {
+  HOME
+  PRODUCT
+  CATEGORY
+  PATH
+}
+
+enum TrackingLinkStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// MVP tek model: son gecerli tiklama kazanir. Multi-touch sonraki faz (ADR-091).
+enum AttributionModel {
+  LAST_CLICK
+}
+
 enum CustomerCouponSource {
   ADMIN_ASSIGNED
   PUBLIC_CLAIMED
@@ -702,6 +738,13 @@ model Store {
   productReviews                   ProductReview[]
   productReviewHelpfuls            ProductReviewHelpful[]
   productRatingAggregates          ProductRatingAggregate[]
+  // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (store-scoped tenant sutunu).
+  influencers                      Influencer[]
+  influencerCampaigns              InfluencerCampaign[]
+  influencerTrackingLinks          InfluencerTrackingLink[]
+  attributionClicks                AttributionClick[]
+  orderAttributions                OrderAttribution[]
+  orderAttributionRefunds          OrderAttributionRefund[]
 }
 
 model StoreUser {
@@ -894,6 +937,8 @@ model Product {
   // TODO-159E (ADR-094) — Ürün yorumları + rating aggregate projection (1-1).
   reviews                ProductReview[]
   ratingAggregate        ProductRatingAggregate?
+  // TODO-160 (ADR-102) — Ürün hedefli takip linkleri (ürün silinince SetNull).
+  trackingLinks          InfluencerTrackingLink[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1045,6 +1090,8 @@ model ProductCategory {
   // TODO-158A (ADR-086) — Home Experience: bu kategoriyi öne çıkaran section girdileri
   // (onDelete: Cascade → kategori silinince featured girdisi otomatik kalkar; ağaç bozulmaz).
   homeFeaturedIn     HomeFeaturedCategory[]
+  // TODO-160 (ADR-102) — Kategori hedefli takip linkleri (kategori silinince SetNull).
+  trackingLinks      InfluencerTrackingLink[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1467,6 +1514,8 @@ model Order {
   customerCoupons CustomerCoupon[]
   // TODO-159E (ADR-094) — bu siparisten dogan urun yorumlari (uygunluk provenance'i).
   reviews         ProductReview[]
+  // TODO-160 (ADR-103) — siparis attribution snapshot'i (varsa TEK; influencer kaynakli).
+  attribution     OrderAttribution?
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -3350,4 +3399,186 @@ model Redirect {
   @@unique([storeId, sourcePath])
   @@index([storeId])
   @@index([storeId, enabled])
+}
+
+// ============================================================================
+// TODO-160 (ADR-102…107) — Influencer Tracking & Attribution.
+//
+// Zincir: link → tiklama → oturum → sepet → checkout → siparis → net gelir.
+// Attribution SUNUCU-otoriter ve siparis aninda SNAPSHOT'lanir (ADR-103); rapor
+// gecmisi yeniden HESAPLAMAZ. Gross ve net gelir AYRI tasinir (ADR-104): iade
+// net'i duzeltir, gross'u geriye donuk BOZMAZ. Tenant izolasyonu: her tabloda
+// storeId + @@index([storeId]). Para tamsayi minor unit.
+// ============================================================================
+
+/// Influencer/is ortagi kimligi (dis kisi/anlasma iliskisi — ADR-091). code
+/// store scope'unda tekildir (link/rapor icin insan-okur kisa kimlik).
+model Influencer {
+  id        String           @id @default(cuid())
+  storeId   String
+  name      String
+  code      String
+  email     String?
+  status    InfluencerStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  store             Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaigns         InfluencerCampaign[]
+  orderAttributions OrderAttribution[]
+
+  @@unique([storeId, code])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+}
+
+/// Influencer kampanyasi: attributionWindowDays kampanya BAZLI attribution
+/// penceresini (gun) belirler. startsAt/endsAt opsiyonel aktiflik penceresi.
+model InfluencerCampaign {
+  id                    String                   @id @default(cuid())
+  storeId               String
+  influencerId          String
+  name                  String
+  status                InfluencerCampaignStatus @default(ACTIVE)
+  attributionWindowDays Int                      @default(30)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+
+  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  influencer        Influencer               @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  trackingLinks     InfluencerTrackingLink[]
+  clicks            AttributionClick[]
+  orderAttributions OrderAttribution[]
+
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, influencerId])
+  @@index([influencerId])
+}
+
+/// Takip linki. token OPAK + tahmin-edilemez (144-bit) + anlamli-id-TASIMAZ.
+/// PLAIN token DB'de SAKLANMAZ (ADR-102 revizyon): yalnizca HMAC-SHA256 lookup
+/// hash'i (`tokenHash`) tutulur → DB sizintisinda kullanilabilir URL geri elde
+/// edilemez. Plain URL yalnizca OLUSTURMA/YENIDEN-URETME aninda BIR KEZ doner;
+/// liste/detay token'i tekrar GOSTERMEZ. Yenileme (regenerate) eski token'i
+/// GECERSIZ kilar (rotasyon/iptal). Hedef SUNUCUDA guvenli iç yola cevrilir
+/// (open-redirect yok). utm* raporlama baglamidir.
+model InfluencerTrackingLink {
+  id          String                 @id @default(cuid())
+  storeId     String
+  campaignId  String
+  tokenHash   String
+  targetType  TrackingLinkTargetType @default(HOME)
+  targetPath  String                 @default("/")
+  productId   String?
+  categoryId  String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  status      TrackingLinkStatus     @default(ACTIVE)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  store             Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign          InfluencerCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product           Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category          ProductCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  clicks            AttributionClick[]
+  orderAttributions OrderAttribution[]
+
+  @@unique([storeId, tokenHash])
+  @@index([storeId])
+  @@index([storeId, campaignId])
+  @@index([campaignId])
+  @@index([productId])
+  @@index([categoryId])
+}
+
+/// Tiklama olayi. KVKK (ADR-106): ham IP/UA/referrer SAKLANMAZ — yalniz tuzlu
+/// HMAC hash + referrer HOST. visitorIdHash = HMAC(SESSION_SECRET, first-party
+/// visitor id). isBot bilinen bot UA'lar icin true (metrik paydalarindan DISLANIR).
+model AttributionClick {
+  id             String   @id @default(cuid())
+  storeId        String
+  campaignId     String
+  trackingLinkId String
+  visitorIdHash  String
+  sessionIdHash  String?
+  ipHash         String?
+  userAgentHash  String?
+  referrerHost   String?
+  landingPath    String
+  isBot          Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  store    Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign InfluencerCampaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  link     InfluencerTrackingLink @relation(fields: [trackingLinkId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, createdAt])
+  @@index([trackingLinkId, createdAt])
+  @@index([campaignId, createdAt])
+  // Rapid-repeat dedupe sorgusu (ADR-105): ayni ziyaretci+link kisa pencerede.
+  @@index([storeId, trackingLinkId, visitorIdHash, createdAt])
+}
+
+/// Siparis attribution SNAPSHOT'i (ADR-103, immutable kimlik alanlari). Siparis
+/// basina TEK (@@unique). Influencer/campaign sonradan degisse bile snapshot
+/// (Json) siparis anindaki degerleri korur. Gross booking = siparis PLACE aninda;
+/// net = gross - refunded (ADR-104). customerId TUTULMAZ (PII minimizasyonu).
+model OrderAttribution {
+  id                   String           @id @default(cuid())
+  storeId              String
+  orderId              String           @unique
+  influencerId         String
+  campaignId           String
+  trackingLinkId       String?
+  attributionModel     AttributionModel @default(LAST_CLICK)
+  attributedAt         DateTime         @default(now())
+  grossRevenueMinor    Int
+  refundedRevenueMinor Int              @default(0)
+  netRevenueMinor      Int
+  currency             String
+  snapshot             Json
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  store      Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order      Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  influencer Influencer               @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  campaign   InfluencerCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  link       InfluencerTrackingLink?  @relation(fields: [trackingLinkId], references: [id], onDelete: SetNull)
+  refunds    OrderAttributionRefund[]
+
+  // orderId zaten tekil (1-1) → ayrica @@unique([storeId, orderId]) gereksiz.
+  @@index([storeId])
+  @@index([storeId, campaignId, attributedAt])
+  @@index([storeId, influencerId, attributedAt])
+  @@index([campaignId])
+  @@index([influencerId])
+  @@index([trackingLinkId])
+}
+
+/// Append-only iade defteri (ADR-104). refundKey iade olayinin idempotency
+/// anahtaridir (cancel:<orderId> ya da provider eventId); ayni olay ikinci kez
+/// uygulanmaz (@@unique). netRevenue OrderAttribution'da toplamdan turetilir.
+model OrderAttributionRefund {
+  id                 String   @id @default(cuid())
+  storeId            String
+  orderAttributionId String
+  refundKey          String
+  amountMinor        Int
+  createdAt          DateTime @default(now())
+
+  store       Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  attribution OrderAttribution @relation(fields: [orderAttributionId], references: [id], onDelete: Cascade)
+
+  @@unique([orderAttributionId, refundKey])
+  @@index([storeId])
+  @@index([orderAttributionId])
 }

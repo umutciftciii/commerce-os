@@ -401,7 +401,12 @@
 
 ## Growth & Monetization — Influencer Tracking & Attribution (TODO-160)
 
-- Durum: PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
+- Durum: **IMPLEMENTED (2026-07-24).** MVP + fazladan (tenant-safe attribution zinciri, dashboard,
+  CSV export, bot/dedupe/rate-limit, KVKK minimizasyonu). ADR-102…107; ADR-091 KABUL EDİLDİ.
+  Migration `20260724120000_add_influencer_tracking_attribution` (ADDITIVE). Ertelenenler: TD-113
+  (retention worker), TD-114 (canlı kısmi iade), TD-115 (kupon-bağı/komisyon/portal/multi-touch).
+  Commit/PR AÇILMADI (görev kuralı — gate'ler çalıştırıldı, dur).
+- Durum (özgün plan): PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
 - Amaç: Mağazanın influencer/iş ortağı kaynaklı trafiğini ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir
   attribution zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
 - Kapsam: Influencer CRUD · kampanya bazlı takip linkleri · güvenli kısa tracking token · click ve unique
