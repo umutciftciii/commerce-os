@@ -1081,3 +1081,18 @@ her biri uygulanmış bir tasarım sınırıdır.
   - **(d) Backup guard seed içine gömülü DEĞİL.** `pnpm db:backup` operasyonel adım + `db:restore-enterprise`
     zincirinin ilk halkası; seed'in kendisi rebuild-anında dump almaz (container'da pg_dump yürütmek kırılgan).
     Circuit breaker zaten flag'siz yıkımı durdurduğundan yeterli. **Öncelik: DÜŞÜK.**
+
+## TODO-160A (ADR-109…113) — SKU Generation & Governance sınırları (TD-117…TD-118)
+
+- **TD-117 — Ürün/varyant import sistemi YOK (greenfield).** Repoda ürün/varyant CSV/bulk-import ucu
+  yoktur (yalnız shipping rate-plan CSV + influencer export). Bu fazda tam import sistemi KURULMADI;
+  bunun yerine saf generator (`@commerce-os/utils/sku`) + collision servisi **import-hazır** tasarlandı ve
+  import-side kurallar ADR-113'te sabitlendi: geçerli mevcut SKU korunur · boş SKU AUTO üretilir · duplicate
+  satır reddedilir/raporlanır · barcode SKU yerine kullanılmaz · üretilen SKU raporlanır. Import motoru
+  yazıldığında bu servisi yeniden kullanmalı (SKU üretimini/collision'ı yeniden yazmamalı). **Öncelik: ORTA.**
+- **TD-118 — Docker'da canlı API/UI smoke YAPILMADI.** Yeni sku-engine uçları ve store-admin Otomatik SKU
+  paneli, çalışan container eski `main` kodundan build edildiğinden (worktree branch'i container'da yok)
+  docker üzerinden uçtan uca smoke edilemedi. Doğrulama: 34+29+36 birim test, api-gateway 1290 test,
+  typecheck (api-gateway + store-admin) + audit/backfill CLI'nin gerçek PostgreSQL (enterprise-demo + izole
+  tmp store) üzerinde canlı doğrulaması ile yapıldı (backend/governance yolu kanıtlandı). Deploy sonrası
+  auth'lu UI + HTTP uç smoke'u önerilir (identity/commercial deseniyle simetrik). **Öncelik: DÜŞÜK.**

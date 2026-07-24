@@ -76,7 +76,19 @@ export function VariantsSection({ product }: { product: Product }) {
   const columns: DataTableColumn<ProductVariant>[] = [
     {
       header: t.table.sku,
-      cell: (variant) => <span className="font-mono text-xs text-white/60">{variant.sku}</span>,
+      // TODO-160A — SKU + kaynak rozeti (AUTO/MANUAL/IMPORTED). Barkoddan ayrı bir kavramdır.
+      cell: (variant) => (
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-white/60">{variant.sku || "—"}</span>
+          <Badge tone={variant.skuSource === "AUTO" ? "info" : "neutral"}>
+            {variant.skuSource === "AUTO"
+              ? "Otomatik"
+              : variant.skuSource === "IMPORTED"
+                ? "İçe aktarma"
+                : "Manuel"}
+          </Badge>
+        </div>
+      ),
     },
     {
       header: t.table.title,
@@ -279,7 +291,8 @@ function VariantEditor({
       setError(f.requiredTitle);
       return;
     }
-    if (!isEdit && !SKU_PATTERN.test(sku.trim())) {
+    // TODO-160A — SKU artık opsiyonel: boşsa otomatik üretilir. Yalnız girildiyse format doğrulanır.
+    if (!isEdit && sku.trim().length > 0 && !SKU_PATTERN.test(sku.trim())) {
       setError(f.requiredSku);
       return;
     }
@@ -354,12 +367,13 @@ function VariantEditor({
       } else {
         const payload: ProductVariantCreateRequest = {
           title: title.trim(),
-          sku: sku.trim(),
           netPriceMinor,
           vatRateBps,
           currency: "TRY",
           status,
         };
+        // TODO-160A — SKU boş bırakılırsa GÖNDERİLMEZ → sunucu deterministik AUTO üretir (skuSource=AUTO).
+        if (sku.trim() !== "") payload.sku = sku.trim();
         if (compareAtMinor !== null) payload.compareAtMinor = compareAtMinor;
         if (costMinor !== null) payload.costMinor = costMinor;
         if (barcode.trim() !== "") payload.barcode = barcode.trim();
@@ -409,13 +423,19 @@ function VariantEditor({
           <Input
             id="variant-sku"
             label={f.skuLabel}
-            placeholder={f.skuPlaceholder}
+            placeholder={isEdit ? f.skuPlaceholder : "Boş bırakılırsa otomatik üretilir"}
             value={sku}
             onChange={(event) => setSku(event.target.value)}
             disabled={saving || isEdit}
-            required={!isEdit}
           />
-          {isEdit ? <p className="mt-1.5 text-xs text-white/30">{f.skuLockedHint}</p> : null}
+          {isEdit ? (
+            <p className="mt-1.5 text-xs text-white/30">{f.skuLockedHint}</p>
+          ) : (
+            // TODO-160A — SKU boş bırakılırsa sunucu deterministik üretir ({ürün}-{seçenekler}); barkoddan ayrıdır.
+            <p className="mt-1.5 text-xs text-white/30">
+              Boş bırakılırsa deterministik SKU otomatik oluşturulur. Barkod ayrı bir alandır.
+            </p>
+          )}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>

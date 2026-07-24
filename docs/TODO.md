@@ -1809,8 +1809,14 @@
 
 ## TODO-160A — SKU Generation & Governance (Catalog Integrity)
 
-- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-160'tan SONRA, TODO-161'den ÖNCE (SIRADAKİ
-  AKTİF FAZ). Bu bir planlama kaydıdır; teknik borç DEĞİLDİR.
+- Durum: **DONE — KOD TAMAM (2026-07-24); commit/PR YAPILMADI (git kuralı).** ADR-109…113; analiz
+  `docs/analysis/TODO-160A-sku-generation-governance.md`; migration `20260724130000_add_sku_source`
+  (gerçek PG'ye uygulandı). SAF generator `@commerce-os/utils/sku` (34 test) · sku-engine
+  (`apps/api-gateway/src/sku-engine/*`, preview/regenerate/validate/audit, 29 test) · variant üretim
+  motoru okunabilir SKU + `skuSource=AUTO` · manuel create'te boş SKU AUTO üretim · audit/backfill CLI
+  (`packages/db/scripts/{audit,backfill}-sku.mjs`, enterprise-demo canlı doğrulandı) · store-admin Otomatik
+  SKU paneli + kaynak rozeti. Gate: build/typecheck/lint/test PASS. Ertelenen: TD-117 (import greenfield),
+  TD-118 (docker canlı smoke). Sıra: TODO-160'tan SONRA, TODO-161'den ÖNCE.
 - Amaç: SKU'yu varyant-seviyesi TEK OTORİTE yapmak; deterministik otomatik üretim + mağaza-içi benzersizlik
   garantisi + çakışma yönetimi + governance (audit + güvenli backfill). SKU ↔ barcode ayrı kavramlar.
 - Kapsam: SKU varyant-seviyesi tek otorite · ürün/varyant oluştururken otomatik SKU · toplu varyant

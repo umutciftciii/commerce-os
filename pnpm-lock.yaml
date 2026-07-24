@@ -289,6 +289,9 @@ importers:
       '@commerce-os/theme':
         specifier: workspace:*
         version: link:../theme
+      '@commerce-os/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@prisma/client':
         specifier: ^6.2.1
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)

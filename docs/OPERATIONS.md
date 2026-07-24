@@ -720,3 +720,38 @@ sayıları birebir korundu (verify-enterprise 21/21, storefront smoke PASS). TD-
 Yerel dev'de dahi enterprise-demo kataloğunu yeniden kurmak gerekiyorsa: `pnpm db:restore-enterprise`
 (backup→seed→backfill→verify) kullan; seed guard'ları (ADR-108) yıkıcı yolu zaten fail-safe kılar.
 Bu kural TD-116 (2026-07-23 veri kaybı) sonrası kalıcıdır.
+
+## SKU governance — audit & backfill (TODO-160A / ADR-109…113)
+
+SKU'lar varyant-seviyesi tek otoritedir, mağaza içinde benzersizdir (`@@unique([storeId, sku])`) ve
+deterministik üretilir. Aşağıdaki komutlar operasyonel governance içindir. **OrderLine snapshot'larına
+ASLA dokunmazlar.**
+
+**Audit (salt-okuma):** boş/duplicate/geçersiz/aşırı-uzun/opak/barcode-eşit SKU'ları raporlar + öneri
+üretir. Hiçbir yazma yapmaz.
+
+```bash
+# Docker (deploy sonrası; kod container'da olmalı):
+pnpm db:audit-sku -- --store=edm-store --json
+# Host (worktree/dev; DATABASE_URL host postgres'e):
+cd packages/db && DATABASE_URL=postgresql://commerce_os:commerce_os_password@127.0.0.1:5432/commerce_os \
+  node scripts/audit-sku.mjs --store=edm-store --json
+```
+
+**Backfill (VARSAYILAN DRY-RUN; yıkıcı değil):** yalnız BOŞ (veya `--include-opaque` ile opak `V-…`)
+SKU'ları deterministik doldurur; **geçerli SKU'lara dokunmaz**. Kurallar (ADR-113):
+
+- `--apply` için `--store=<id>` ZORUNLU.
+- Aday sayısı `--max-rows` (default 1000) aşarsa `--force` gerekir (circuit breaker).
+- Her yazma `skuSource=AUTO` + AuditLog (`SYSTEM`, field-level old/new). `--actor=<platformUserId>` gerçek
+  bir kullanıcı olmalı (aksi halde AuditLog FK ihlali; boş bırakılırsa `null`).
+- Gerçek yazma öncesi: `pnpm db:backup pre-sku-backfill`.
+
+```bash
+node scripts/backfill-sku.mjs --store=edm-store                    # dry-run (varsayılan)
+node scripts/backfill-sku.mjs --store=edm-store --include-opaque   # dry-run, opak dahil
+pnpm db:backup pre-sku-backfill
+node scripts/backfill-sku.mjs --store=edm-store --apply            # GERÇEK yazma (yalnız boş)
+```
+
+Doğrulama: apply sonrası tekrar `audit-sku` çalıştır → `flagged: 0` (hedeflenen sınıf için) beklenir.

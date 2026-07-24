@@ -436,9 +436,16 @@
   tüm sorgular tenant-izole; tracking token tahmin edilemez ve sayaç/id sızdırmaz; kişisel veri saklama
   süresi ve minimizasyon politikası dokümante edilir.
 
-## Catalog Integrity — SKU Generation & Governance (TODO-160A) — SIRADAKİ AKTİF FAZ
+## Catalog Integrity — SKU Generation & Governance (TODO-160A)
 
-- Durum: **PLANNED (yalnız roadmap/planlama kaydı; implementasyon YAPILMADI).** Sıra: TODO-160'tan SONRA,
+- Durum: **DONE / KOD TAMAM (2026-07-24) — commit/PR YAPILMADI (git kuralı gereği durduruldu).** MVP +
+  fazlası: SAF SKU generator (`@commerce-os/utils/sku`, 34 test), additive `SkuSource` migration
+  (`20260724130000_add_sku_source`, gerçek PG'ye uygulandı + doğrulandı), manuel create'te boş SKU AUTO
+  üretim, varyant üretim motorunda okunabilir SKU (`V-<id>-<hash>` KALDIRILDI) + `skuSource=AUTO`, sku-engine
+  (preview/regenerate/validate/audit; server-authoritative + advisory-lock + AuditLog; 29 test), salt-okuma
+  audit + dry-run-varsayılan backfill CLI (enterprise-demo canlı doğrulandı), store-admin Otomatik SKU paneli
+  + kaynak rozeti + opsiyonel SKU. ADR-109…113. Gate'ler: build/typecheck/lint/test PASS. Ertelenen:
+  TD-117 (ürün import sistemi greenfield), TD-118 (docker canlı API/UI smoke). Sıra: TODO-160'tan SONRA,
   TODO-161'den ÖNCE.
 - Amaç: SKU'yu **varyant seviyesinde tek otorite** yapmak; ürün/varyant oluştururken **deterministik
   otomatik SKU üretimi**, mağaza içinde **benzersizlik garantisi**, çakışma yönetimi ve governance

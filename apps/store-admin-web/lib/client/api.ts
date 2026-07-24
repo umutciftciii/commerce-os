@@ -97,6 +97,13 @@ import type {
   IdentityApplyRequest,
   IdentityApplyResponse,
   IdentityPreviewResponse,
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance tipleri.
+  SkuPreviewResponse,
+  SkuRegenerateRequest,
+  SkuRegenerateResponse,
+  SkuValidateRequest,
+  SkuValidateResponse,
+  SkuAuditResponse,
   CommercialPreviewResponse,
   CommercialPreviewRequest,
   CommercialApplyRequest,
@@ -585,6 +592,27 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance. Preview yalnız-okuma + deterministik; regenerate
+  // server-authoritative (yalnız değişen non-protected SKU'ları tek transaction'da yazar + AuditLog).
+  // validate manuel override doğrulaması (format + benzersizlik); audit salt-okuma governance raporu.
+  previewSku: (productId: string, input: SkuRegenerateRequest) =>
+    call<SkuPreviewResponse>(`/api/catalog/products/${productId}/sku/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  regenerateSku: (productId: string, input: SkuRegenerateRequest) =>
+    mutatingCall<SkuRegenerateResponse>(`/api/catalog/products/${productId}/sku/regenerate`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  validateSku: (input: SkuValidateRequest) =>
+    mutatingCall<SkuValidateResponse>(`/api/catalog/sku/validate`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getSkuAudit: (limit?: number) =>
+    call<SkuAuditResponse>(`/api/catalog/sku/audit${limit !== undefined ? `?limit=${limit}` : ""}`),
 
   // TODO-151 (ADR-074) — Commercial Engine. Matris okuma + rule/direct-edit preview (yalnız-okuma) +
   // server-authoritative apply (stale-guard + yalnız değişen alanları tek transaction'da yazar).

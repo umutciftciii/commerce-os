@@ -51,6 +51,8 @@ import { useVariantGeneration } from "./variant-attributes/use-variant-generatio
 import { GenerateVariantsAction } from "./variant-attributes/generate-variants-action";
 import { useIdentityMatrix } from "./identity/use-identity-matrix";
 import { IdentityMatrix } from "./identity/identity-matrix";
+// TODO-160A (ADR-109…113) — Otomatik SKU governance paneli (deterministik öneri + toplu regenerate).
+import { SkuAutoPanel } from "./sku/sku-auto-panel";
 // TODO-151A — Commercial Engine artık ürün formunun içinde gömülü DEĞİL; bağımsız
 // "Fiyatlandırma" sekmesinde (pricing/pricing-workspace) tam genişlik render edilir.
 import {
@@ -768,6 +770,12 @@ export function ProductForm({
         }}
       />
 
+      {/* TODO-160A (ADR-109…113) — Otomatik SKU governance: deterministik {ürün}-{seçenek} SKU önizleme
+          + toplu yeniden üretim (manuel SKU korunur; barkoddan ayrı). Yalnız düzenleme + eksen varsa. */}
+      <SkuAutoPanel
+        visible={Boolean(isEdit && product && hasVariantAxes)}
+        productId={product?.id ?? ""}
+      />
 
       <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
         <div className="flex items-start gap-2.5">
