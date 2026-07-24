@@ -3569,3 +3569,140 @@ modülünde (status-map.ts):
 tamamlar. İstemci ön-filtre yalnız ileri hedefleri gösterir; sunucu monotonic + terminal-kilit NİHAİ
 otoritedir. Migration `20260723180000_add_manual_shipment_status` (ADDITIVE — `ShipmentEventType`
 +MANUAL_STATUS).
+
+## ADR-091 — KABUL EDİLDİ (TODO-160 uygulaması ile)
+
+**Tarih:** 2026-07-24 · **Durum:** ÖNERİLDİ → **KABUL EDİLDİ**. TODO-160 (Influencer Tracking &
+Attribution) ADR-091'in sınır kararlarını hayata geçirdi: ortak event/attribution katmanı
+(`tracking-core.ts` SAF çekirdek + `OrderAttribution` snapshot deseni) kuruldu, influencer domain'i
+Campaign'den AYRI tutuldu (tek süper-tip zorlanmadı), attribution sunucu-otoriter + sipariş anında
+snapshot'landı, gross/net ayrı taşındı, tracking token opak/tahmin-edilemez yapıldı, KVKK
+minimizasyonu (IP/UA hash + referrer host) tasarımın parçası oldu. TODO-161 (Sponsored) bu çekirdeği
+tüketecek; kodu bu fazda YAZILMADI. Uygulama kararları: ADR-102…ADR-107.
+
+## ADR-102 — Influencer attribution: gateway-imzalı opak GRANT + last-click + first-party cookie (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-091, ADR-047/058 (snapshot),
+ADR-099 (opaque token)
+
+**Bağlam.** Public checkout ucu (`/public/stores/:slug/checkout`) AUTHSIZDIR. Gateway istemciden
+(veya storefront BFF'ten) gelen düz `influencerId`/`campaignId` alanlarına GÜVENEMEZ; aksi halde
+herkes forge edilmiş attribution POST edebilir. Ayrıca "order attribution için public write endpoint
+açma" kuralı vardır.
+
+**Karar.**
+- **Tracking token** opak, 144-bit rastgele, base64url, anlamlı-id-TAŞIMAZ (`generateTrackingToken`).
+  **PLAIN token DB'de SAKLANMAZ** (ship-öncesi güvenlik revizyonu): yalnız `HMAC-SHA256(SESSION_SECRET,
+  token)` lookup hash'i tutulur (`InfluencerTrackingLink.tokenHash`, `@@unique([storeId, tokenHash])`;
+  `hashTrackingToken`). Public route gelen plain token'ı aynı fonksiyonla hash'leyip `tokenHash`
+  üzerinden arar (pay/webhook token deseniyle tutarlı). **Plain URL yalnızca OLUŞTURMA ve YENİDEN-
+  ÜRETME (regenerate) yanıtında BİR KEZ döner** (`trackingLinkWithUrlSchema`); admin liste/detay
+  projeksiyonu token'ı/URL'yi TEKRAR GÖSTERMEZ. **Yenileme = rotasyon/iptal**: yeni token üretir,
+  eski token'ı GEÇERSİZ kılar (`POST .../:id/regenerate`) — dolayısıyla influencer biyografisindeki
+  eski link yalnızca bilinçli rotasyonla bozulur (kaza değil). Pasife alma (status INACTIVE) token'ı
+  değiştirmez (geri alınabilir).
+  - **Güvenlik gerekçesi (kararı gizlemiyoruz):** Token kamuya açık bir URL'de (influencer biyografisi)
+    dolaşır, dolayısıyla mutlak bir sır değildir; ancak plain saklamak bir DB sızıntısında TÜM canlı
+    tracking URL'lerini doğrudan kullanılabilir kılardı (atıf manipülasyonu / spam click üretimi için
+    geçerli hedefler). Hash saklama bu artığı ortadan kaldırır (defense-in-depth) ve pay/webhook token
+    konvansiyonuyla hizalanır. Bedeli: admin URL'yi her zaman yeniden GÖREMEZ — tek-seferlik gösterim +
+    rotasyon UX'i benimsenir. Enumeration'a dayanıklılık zaten 144-bit rastgelelikten gelir (saklama
+    biçiminden bağımsız). İleride gerekirse hash algoritması/secret rotasyonu, mevcut linkleri
+    regenerate ederek (tek-seferlik yeni URL) migrate edilebilir.
+- **Grant token'ını GATEWAY imzalar ve GATEWAY doğrular** (HMAC-SHA256, `SESSION_SECRET`;
+  `signAttributionGrant`/`verifyAttributionGrant`, `base64url(payload).base64url(hmac)`,
+  `timingSafeEqual`). Payload: `{v, storeId, influencerId, campaignId, trackingLinkId, clickId,
+  clickedAt, expiresAt}`. Storefront cookie (`commerce_os_attribution`, httpOnly+lax+prod-secure) yalnız
+  bu opak imzalı token'ın TAŞIYICISIDIR — imza secret'ı storefront'ta YOK. Kurcalama → imza bozulur →
+  checkout'ta reddedilir. `storeId` gömülü + checkout'ta eşitlik kontrolü → cross-store attribution
+  kullanılamaz.
+- **Model = LAST_CLICK.** Her geçerli click cookie grant'ini EZER (son tıklama kazanır). **Direct
+  ziyaret cookie'ye DOKUNMAZ** → mevcut attribution korunur. Pasif/pencere-dışı link → grant null →
+  cookie'ye dokunulmaz (redirect-only).
+- **Attribution penceresi kampanya bazlıdır** (`attributionWindowDays`, varsayılan 30, 1..365 clamp).
+  `expiresAt` click anındaki pencereden türetilir; checkout `now <= expiresAt` zorlar. Cookie ömrü üst
+  sınırdır (varsayılan 30 gün), nihai otorite pencere kontrolüdür.
+- **Public tracking route** (`POST /public/stores/:slug/track/:token`): token biçim + store + link/
+  campaign/influencer aktiflik + tarih penceresi kontrol → click kaydet → grant + GÜVENLİ hedef döner.
+  Open-redirect yok (`resolveSafeTargetPath`: yalnız tek-slash iç yol; `//`/şema/`..`/backslash →
+  fallback `/`). Click yazımı başarısız olsa bile redirect + grant DEVAM EDER. Token/secret loglanmaz.
+
+**Sonuç.** Attribution zinciri istemciye güvenmeden, tek imzalayan/doğrulayan (gateway) üzerinden
+tamper-proof kurulur; ayrı public write endpoint yoktur.
+
+## ADR-103 — Order attribution SNAPSHOT: sunucu-otoriter, sipariş anında, immutable (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-102, ADR-047/058
+
+**Bağlam.** Rapor sorgusu geçmişi yeniden hesaplamamalı; influencer/campaign sonradan değişse bile
+tarihsel attribution sabit kalmalı.
+
+**Karar.** `OrderAttribution` satırı sipariş PLACE başarısından SONRA yazılır (checkout handler'da,
+kendi insert'i; `@@unique(orderId)` → idempotent). Grant SUNUCU-otoriter doğrulanır
+(`resolveAttributionForCheckout`): imza + storeId + pencere + influencer/campaign ACTIVE + tenant
+tutarlılığı DB'den yeniden doğrulanır; geçersizse attribution YAZILMAZ ve checkout ETKİLENMEZ
+(best-effort; hata yutulur). `grossRevenueMinor` = siparişin PLACE anındaki `totalAmount`; kimlik
+alanları + link/utm/ürün bilgisi immutable `snapshot Json`'da saklanır (influencer/campaign sonradan
+değişse bile korunur). `customerId` TUTULMAZ (PII minimizasyonu). Draft'a bağlanmaz (yalnız placed
+sipariş).
+
+**Sonuç.** Attribution tarihsel gerçeği yansıtır; config değişimi geçmişi bozmaz; checkout akışı
+attribution hatasından etkilenmez.
+
+## ADR-104 — Refund/net gelir: append-only iade defteri, gross korunur, idempotent (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-100 (monotonic ödeme), ADR-091
+
+**Bağlam.** İptal/iade NET geliri düzeltmeli ama gross'u geriye dönük BOZMAMALI; aynı iade olayı
+ikinci kez uygulanmamalı.
+
+**Karar.** `OrderAttributionRefund` **append-only** defteri (`@@unique([orderAttributionId,
+refundKey])`). `netRevenueMinor = grossRevenueMinor - Σrefunds` (>=0; toplam iade gross'a clamp).
+İki tetikleyici: (1) sipariş iptali (`cancelOrder` route) → tam reversal `refundKey=cancel:<orderId>`,
+net 0; (2) payment webhook REFUNDED geçişi → `refundKey=refund:<eventId>`, tam iade net 0. Idempotency
+İKİ katmanlı: webhook eventId dedup + defter refundKey unique. Kısmi iade defter matematiğinde
+desteklenir (`reduceAttributionRevenue`) ama canlı KISMI iade provider yolu MVP'de yok (bkz. TD-113,
+TD-112 hizası). Gross geriye dönük DEĞİŞMEZ; snapshot silinmez; currency sabit.
+
+**Sonuç.** Net gelir düzeltmesi denetlenebilir + idempotent; gross tarihsel kalır.
+
+## ADR-105 — Click/unique/bot + metrik formülleri (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ
+
+**Karar.** Metrikler (`computeAttributionMetrics`): `totalClicks`=isBot=false click sayısı;
+`uniqueVisitors`=distinct `visitorIdHash` (isBot=false); `attributedOrders`=OrderAttribution sayısı;
+`conversionRate`=attributedOrders/uniqueVisitors (payda 0→0); `grossRevenue/refundedRevenue/netRevenue`
+= ilgili minor toplamlar; `AOV`=grossRevenue/attributedOrders (payda 0→0). **Bot** click'ler AUDIT için
+kaydedilir ama TÜM metrik paydalarından DIŞLANIR (`isBotUserAgent`: bilinen bot/preview UA + boş UA).
+**Unique visitor penceresi** = rapor aralığının kendisi (distinct hash). **Rapid-repeat dedupe**: aynı
+`(storeId, trackingLinkId, visitorIdHash)` için `CLICK_DEDUPE_WINDOW_SECONDS`=1800s içinde ikinci click
+YENİ SATIR AÇMAZ (cookie yine tazelenir) → totalClicks şişmez. İptal/refund sipariş `attributedOrders`'ta
+SAYILIR; net gelir refund'u yansıtır.
+
+**Sonuç.** Metrikler tekilleştirilmiş, bot-arınmış ve deterministik; formüller SAF + birim-testli.
+
+## ADR-106 — KVKK/GDPR: IP/UA minimizasyonu, hash, saklama (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ
+
+**Karar.** `AttributionClick` ham IP/UA/referrer SAKLAMAZ: yalnız tuzlu HMAC (`SESSION_SECRET`)
+`visitorIdHash`/`ipHash`/`userAgentHash` + referrer HOST (path/query atılır). `visitorId` first-party
+opak cookie (`commerce_os_vid`; PII değil, rastgele). PII click log'una/event metadata'ya yazılmaz.
+Retention: `INFLUENCER_CLICK_RETENTION_DAYS`=180 (varsayılan; ADR'de belge, otomatik purge worker'ı
+sonraki faz → TD-113). Anonimleştirme/silme stratejisi: OrderAttribution finansal snapshot'ı müşteri
+silmeden ETKİLENMEZ (customerId tutulmaz, snapshot PII taşımaz); click ham'ı retention sonunda
+budanabilir, finansal snapshot KORUNUR.
+
+**Sonuç.** Kişisel veri minimizasyonu tasarımın parçası; finansal bütünlük müşteri silmeyle bozulmaz.
+
+## ADR-107 — Shared event-layer sınırı (TODO-160 → TODO-161) (TODO-160)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-091
+
+**Karar.** Ortak kavramlar (impression/click/session/cart/checkout/order/refund/attributed
+revenue/placement/source) SAF `tracking-core.ts` + `OrderAttribution` deseninde yeniden kullanılabilir
+tutulur. TODO-161 (Sponsored Product Management) bu çekirdeği TÜKETECEK; influencer ve sponsored domain
+modelleri AYRI kalır (tek "Campaign" süper-tipi zorlanmaz). TODO-161 kodu bu görevde YAZILMADI.
+
+**Sonuç.** İki büyüme modülü ölçüm katmanını paylaşır, domain'de ayrışır (ADR-091 uygulaması).

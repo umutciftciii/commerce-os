@@ -1766,7 +1766,13 @@
 
 ## TODO-160 — Influencer Tracking & Attribution (Growth & Monetization)
 
-- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159C'den SONRA.
+- Durum: **UYGULANDI (2026-07-24).** Analiz: `docs/analysis/TODO-160-influencer-tracking-attribution.md`.
+  ADR-102…107 (+ADR-091 KABUL). Kapsam: Influencer/Campaign/TrackingLink CRUD · public `/t/:token`
+  (gateway-imzalı opak grant + güvenli redirect) · first-party attribution cookie (last-click) ·
+  order snapshot (sunucu-otoriter) · iade/iptal net-gelir (append-only defter, idempotent) · bot/
+  dedupe/rate-limit · dashboard + CSV export · store-admin ekranları · KVKK hash minimizasyonu.
+  Migration `20260724120000` (ADDITIVE). Ertelenen: TD-113/114/115. Commit/PR YOK (gate'ler koştu, dur).
+- Durum (özgün): **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-159C'den SONRA.
 - Amaç: Influencer/iş ortağı kaynaklı trafiği ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir attribution
   zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
 - Kapsam: Influencer CRUD · kampanya bazlı takip linkleri · güvenli kısa tracking token · click ve unique

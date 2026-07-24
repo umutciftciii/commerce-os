@@ -114,6 +114,21 @@ import type {
   AdminReviewDetailResponse,
   ReviewModerateRequest,
   ReviewModerateResponse,
+  // TODO-160 — Influencer izleme & atıf (backend/contracts hazır; BFF proxy).
+  InfluencerListResponse,
+  InfluencerDetailResponse,
+  InfluencerCreateRequest,
+  InfluencerUpdateRequest,
+  InfluencerCampaignListResponse,
+  InfluencerCampaignDetailResponse,
+  InfluencerCampaignCreateRequest,
+  InfluencerCampaignUpdateRequest,
+  TrackingLinkListResponse,
+  TrackingLinkDetailResponse,
+  TrackingLinkCreateResponse,
+  TrackingLinkCreateRequest,
+  TrackingLinkUpdateRequest,
+  InfluencerAnalyticsResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -685,6 +700,78 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // Influencers (TODO-160) — influencer/kampanya/izleme-linki yönetimi + atıf
+  // analitiği. Okumalar salt; mutasyonlar CSRF'li. Analitik CSV'si text/csv döner.
+  listInfluencers: (query?: AdminListRequestQuery) =>
+    call<InfluencerListResponse>(`/api/influencers${listQueryString(query)}`),
+  getInfluencer: (id: string) => call<InfluencerDetailResponse>(`/api/influencers/${id}`),
+  createInfluencer: (input: InfluencerCreateRequest) =>
+    mutatingCall<InfluencerDetailResponse>("/api/influencers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateInfluencer: (id: string, input: InfluencerUpdateRequest) =>
+    mutatingCall<InfluencerDetailResponse>(`/api/influencers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  listInfluencerCampaigns: (query?: AdminListRequestQuery) =>
+    call<InfluencerCampaignListResponse>(`/api/influencer-campaigns${listQueryString(query)}`),
+  getInfluencerCampaign: (id: string) =>
+    call<InfluencerCampaignDetailResponse>(`/api/influencer-campaigns/${id}`),
+  createInfluencerCampaign: (input: InfluencerCampaignCreateRequest) =>
+    mutatingCall<InfluencerCampaignDetailResponse>("/api/influencer-campaigns", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateInfluencerCampaign: (id: string, input: InfluencerCampaignUpdateRequest) =>
+    mutatingCall<InfluencerCampaignDetailResponse>(`/api/influencer-campaigns/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  listTrackingLinks: (query?: AdminListRequestQuery) =>
+    call<TrackingLinkListResponse>(`/api/influencer-tracking-links${listQueryString(query)}`),
+  getTrackingLink: (id: string) =>
+    call<TrackingLinkDetailResponse>(`/api/influencer-tracking-links/${id}`),
+  createTrackingLink: (input: TrackingLinkCreateRequest) =>
+    mutatingCall<TrackingLinkCreateResponse>("/api/influencer-tracking-links", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateTrackingLink: (id: string, input: TrackingLinkUpdateRequest) =>
+    mutatingCall<TrackingLinkDetailResponse>(`/api/influencer-tracking-links/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  // Yenileme (rotation): tek-seferlik yeni URL döner; eski token geçersizlenir.
+  regenerateTrackingLink: (id: string) =>
+    mutatingCall<TrackingLinkCreateResponse>(`/api/influencer-tracking-links/${id}/regenerate`, {
+      method: "POST",
+    }),
+  getInfluencerAnalytics: (query?: AdminListRequestQuery) =>
+    call<InfluencerAnalyticsResponse>(`/api/influencer-analytics${listQueryString(query)}`),
+  // CSV dışa aktarım: BFF text/csv döndürür; UI Blob indirir. call<> JSON bekler,
+  // bu yüzden fetch'i doğrudan kullanıp response.text() döneriz.
+  exportInfluencerAnalytics: async (query?: AdminListRequestQuery): Promise<string> => {
+    let response: Response;
+    try {
+      response = await fetch(`/api/influencer-analytics/export${listQueryString(query)}`);
+    } catch {
+      throw new UiError("NETWORK");
+    }
+    if (!response.ok) {
+      let code = "UNKNOWN";
+      try {
+        const body = (await response.json()) as { error?: { code?: unknown } };
+        if (typeof body.error?.code === "string") code = body.error.code;
+      } catch {
+        // Gövde JSON değil — genel UNKNOWN kodu kullanılır.
+      }
+      throw new UiError(code);
+    }
+    return response.text();
+  },
 
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
   listCustomers: (query?: AdminListRequestQuery) =>

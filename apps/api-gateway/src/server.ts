@@ -124,6 +124,11 @@ import {
   registerPublicReviewRoutes,
   registerReviewAdminRoutes,
 } from "./reviews/routes.js";
+// TODO-160 (ADR-102…107) — Influencer Tracking & Attribution.
+import { createInfluencerData, type InfluencerData } from "./influencers/data.js";
+import { registerInfluencerAdminRoutes, registerPublicTrackingRoutes } from "./influencers/routes.js";
+import { resolveAttributionForCheckout } from "./influencers/checkout-attribution.js";
+import { createSlidingWindowLimiter } from "./influencers/tracking-core.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -5278,6 +5283,10 @@ export function createServer(
     });
   });
 
+  // TODO-160 (ADR-102/103) — Influencer attribution veri erişimi. Checkout snapshot,
+  // iade/iptal net-gelir düzeltmesi ve admin/public route'lar aynı örneği paylaşır.
+  const influencerData: InfluencerData = createInfluencerData(prisma);
+
   // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
   // F3B.1: Vitrin cookie'si yalnizca {variantId, quantity} referansi tasir.
   // Sepet/checkout gateway tarafinda her istekte ACTIVE store + ACTIVE urun/
@@ -5843,6 +5852,31 @@ export function createServer(
       return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
     }
 
+    // TODO-160 (ADR-102/103) — Influencer attribution SNAPSHOT'i. Grant SUNUCU-otoriter
+    // doğrulanır (gateway-imzalı; istemci alanlarına güvenilmez), influencer/campaign
+    // aktifliği + pencere DB'den yeniden doğrulanır. Gross = siparişin PLACE anındaki
+    // toplamı. Idempotent (@@unique orderId). HATA checkout'u BOZMAZ (best-effort):
+    // attribution ölçümdür, ödeme/sipariş akışını etkilemez.
+    try {
+      const resolvedAttribution = await resolveAttributionForCheckout(
+        influencerData,
+        store.id,
+        body.attributionGrant ?? null,
+        config.SESSION_SECRET,
+        Date.now(),
+      );
+      if (resolvedAttribution) {
+        await influencerData.recordOrderAttribution(store.id, placed.id, {
+          ...resolvedAttribution,
+          grossRevenueMinor: placed.totalAmount,
+          currency: placed.currency,
+          attributedAt: placed.placedAt ?? placed.createdAt,
+        });
+      }
+    } catch {
+      logger.warn("order attribution snapshot failed", { storeId: store.id, orderId: placed.id });
+    }
+
     // F3B.2: Uygun TEST/MOCK provider config varsa odeme yonlendirme objesi
     // uretilir (PaymentAttempt + kisa omurlu access token). Provider yoksa
     // `payment` alani HIC eklenmez → mevcut checkout response shape'i birebir korunur.
@@ -6015,6 +6049,32 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution.
+  // Admin CRUD + dashboard/CSV + public tracking (`/public/stores/:slug/track/:token`).
+  // `influencerData` checkout attribution snapshot + iade/iptal net-gelir düzeltmesinde
+  // de kullanılır (aşağıdaki closure'lar request anında çalışır → kapsam güvenli).
+  registerInfluencerAdminRoutes(app, {
+    config,
+    data: influencerData,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    buildTrackingUrl: (token: string) => {
+      const base = config.STOREFRONT_PUBLIC_BASE_URL;
+      return base ? `${base.replace(/\/$/, "")}/t/${token}` : `/t/${token}`;
+    },
+  });
+  registerPublicTrackingRoutes(app, {
+    data: influencerData,
+    config,
+    resolvePublicStore,
+    logger,
+    // Public track abuse koruması: IP başına 60 istek / 60 sn (enumeration/DoS yavaşlatma).
+    rateLimiter: createSlidingWindowLimiter(60, 60_000),
   });
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
@@ -7928,6 +7988,14 @@ export function createServer(
       entityId: order.id,
       metadata: { status: order.status, reason: input.reason ?? null },
     });
+    // TODO-160 (ADR-104) — İptal = TAM iade: influencer net gelirini 0'a düşür.
+    // Append-only defter (refundKey=cancel:<orderId>) idempotent; gross geriye
+    // dönük BOZULMAZ. Attribution yoksa no-op. Hata sipariş iptalini BOZMAZ.
+    try {
+      await influencerData.applyRefund(params.storeId, order.id, `cancel:${order.id}`, order.totalAmount);
+    } catch {
+      logger.warn("attribution cancel reversal failed", { storeId: params.storeId, orderId: order.id });
+    }
     return serializeOrder(order);
   });
 
@@ -8723,6 +8791,17 @@ export function createServer(
             },
           });
           applied = true;
+          // TODO-160 (ADR-104) — İade webhook'u influencer NET gelirini düzeltir.
+          // REFUNDED = tam iade → net 0. Idempotency İKİ katmanlı: (1) webhook eventId
+          // dedup (yukarıda), (2) append-only defter refundKey=refund:<eventId>. Gross
+          // geriye dönük BOZULMAZ. Yalnız gerçek REFUNDED geçişinde (next) uygulanır.
+          if (next === "REFUNDED") {
+            try {
+              await influencerData.applyRefund(store.id, order.id, `refund:${body.eventId}`, order.totalAmount);
+            } catch {
+              logger.warn("attribution refund reversal failed", { storeId: store.id, orderId: order.id });
+            }
+          }
         }
       }
     }

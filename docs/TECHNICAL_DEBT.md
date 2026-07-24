@@ -1027,3 +1027,27 @@ her biri uygulanmış bir tasarım sınırıdır.
   reddedilir. `PARTIALLY_REFUNDED` enum değeri iade tarafı için rezervedir; kısmi capture/iade akışı
   (birden çok kısmi tahsilat toplamı) uygulanmadı. Kalan bakiye altyapısı (captured toplamı) çoklu
   tahsilata hazırdır; yalnız giriş kapısı tam-tutar zorunlu kılar. **Öncelik: DÜŞÜK.**
+
+## TODO-160 (ADR-102…107) — Influencer Tracking & Attribution sınırları (TD-113…TD-115)
+
+- **TD-113 — Click retention purge worker'ı YOK (KVKK saklama otomasyonu).** `AttributionClick` ham
+  hash'li verisi için saklama süresi kararı verildi (`INFLUENCER_CLICK_RETENTION_DAYS`=180, ADR-106)
+  ancak süresi geçen click'leri budayan zamanlanmış worker MVP'de UYGULANMADI. Finansal snapshot
+  (`OrderAttribution`) retention'dan ETKİLENMEZ (korunur); yalnız ham click satırları budanmalıdır.
+  Uygulama: provider-agnostic sync worker deseni (TODO-129/`sync-worker.ts`) port edilerek
+  `createdAt < now - retentionDays` click'leri batch DELETE eden bir job. **Öncelik: ORTA (KVKK).**
+
+- **TD-114 — Canlı KISMI iade → net gelir yolu YOK.** `applyRefund` + `OrderAttributionRefund` defteri
+  kısmi tutarları (append-only, idempotent) MATEMATİKSEL olarak destekler ve birim-testlidir; ancak
+  net-gelir düzeltmesini tetikleyen CANLI yollar yalnız TAM iade üretir: (a) sipariş iptali
+  (`cancel:<orderId>` = gross), (b) payment webhook `REFUNDED` (`refund:<eventId>` = gross). Webhook
+  status enum'unda `PARTIALLY_REFUNDED` + tutar taşımadığından (TD-112 hizası, ödeme blast-radius'undan
+  kaçınmak için genişletilmedi) canlı kısmi iade net'i düşüremez. Kısmi refund tutarı taşıyan bir
+  admin/webhook girişi eklenince `applyRefund(storeId, orderId, refundKey, amountMinor)` DEĞİŞMEDEN
+  çalışır. **Öncelik: DÜŞÜK.**
+
+- **TD-115 — Ertelenen influencer özellikleri (MVP kapsam dışı, ADR-091 "sonraki faz").** Kupon↔
+  influencer attribution bağı (şimdilik bağımsız ölçülür), multi-touch attribution (yalnız LAST_CLICK),
+  komisyon hesabı/ödeme akışı, influencer self-service portalı, gelişmiş fraud scoring (mevcut: bot UA
+  + rapid-repeat dedupe + rate-limit). Rate limiter in-memory'dir (tek-proses); çok-instance dağıtımda
+  Redis tabanlı limiter gerekir. **Öncelik: DÜŞÜK.**

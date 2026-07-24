@@ -23,5 +23,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
  * middleware bunlara vurmaz (performans + rewrite'larla çakışma yok).
  */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|media|api|robots.txt|sitemap.xml).*)"],
+  // TODO-160 — `t/` (influencer tracking route) da hariç: kendi route handler'ında
+  // click kaydı + cookie + güvenli redirect yapılır; SEO redirect resolver'a girmesin
+  // (gereksiz gateway çağrısı + tıklama gecikmesi).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|media|api|t/|robots.txt|sitemap.xml).*)"],
 };

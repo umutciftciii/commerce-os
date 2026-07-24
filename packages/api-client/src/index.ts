@@ -135,6 +135,21 @@ import type {
   AdminReviewDetailResponse,
   ReviewModerateRequest,
   ReviewModerateResponse,
+  // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution.
+  InfluencerListResponse,
+  InfluencerDetailResponse,
+  InfluencerCreateRequest,
+  InfluencerUpdateRequest,
+  InfluencerCampaignListResponse,
+  InfluencerCampaignDetailResponse,
+  InfluencerCampaignCreateRequest,
+  InfluencerCampaignUpdateRequest,
+  TrackingLinkListResponse,
+  TrackingLinkDetailResponse,
+  TrackingLinkCreateResponse,
+  TrackingLinkCreateRequest,
+  TrackingLinkUpdateRequest,
+  InfluencerAnalyticsResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -664,6 +679,39 @@ export type {
   AdminReviewDetailResponse,
   ReviewModerateRequest,
   ReviewModerateResponse,
+  // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (consumer tipleri).
+  InfluencerStatus,
+  InfluencerCampaignStatus,
+  TrackingLinkTargetType,
+  TrackingLinkStatus,
+  InfluencerSummary,
+  InfluencerDetail,
+  InfluencerListQuery,
+  InfluencerListResponse,
+  InfluencerDetailResponse,
+  InfluencerCreateRequest,
+  InfluencerUpdateRequest,
+  InfluencerCampaignSummary,
+  InfluencerCampaignListQuery,
+  InfluencerCampaignListResponse,
+  InfluencerCampaignDetailResponse,
+  InfluencerCampaignCreateRequest,
+  InfluencerCampaignUpdateRequest,
+  TrackingLinkSummary,
+  TrackingLinkListQuery,
+  TrackingLinkListResponse,
+  TrackingLinkDetailResponse,
+  TrackingLinkCreateResponse,
+  TrackingLinkCreateRequest,
+  TrackingLinkUpdateRequest,
+  InfluencerAnalyticsQuery,
+  InfluencerAnalyticsResponse,
+  AttributionKpiSummary,
+  AttributionDailyPoint,
+  AttributionInfluencerBreakdown,
+  AttributionCampaignBreakdown,
+  AttributionTopLink,
+  AttributionTopProduct,
 } from "@commerce-os/contracts";
 
 /**
@@ -1521,6 +1569,24 @@ export interface ApiClient {
         token?: string,
       ): Promise<ReviewModerateResponse>;
     };
+    // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (admin CRUD + dashboard + CSV).
+    influencers: {
+      list(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerListResponse>;
+      get(storeId: string, influencerId: string, token?: string): Promise<InfluencerDetailResponse>;
+      create(storeId: string, input: InfluencerCreateRequest, token?: string): Promise<InfluencerDetailResponse>;
+      update(storeId: string, influencerId: string, input: InfluencerUpdateRequest, token?: string): Promise<InfluencerDetailResponse>;
+      listCampaigns(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerCampaignListResponse>;
+      getCampaign(storeId: string, campaignId: string, token?: string): Promise<InfluencerCampaignDetailResponse>;
+      createCampaign(storeId: string, input: InfluencerCampaignCreateRequest, token?: string): Promise<InfluencerCampaignDetailResponse>;
+      updateCampaign(storeId: string, campaignId: string, input: InfluencerCampaignUpdateRequest, token?: string): Promise<InfluencerCampaignDetailResponse>;
+      listLinks(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<TrackingLinkListResponse>;
+      getLink(storeId: string, linkId: string, token?: string): Promise<TrackingLinkDetailResponse>;
+      createLink(storeId: string, input: TrackingLinkCreateRequest, token?: string): Promise<TrackingLinkCreateResponse>;
+      updateLink(storeId: string, linkId: string, input: TrackingLinkUpdateRequest, token?: string): Promise<TrackingLinkDetailResponse>;
+      regenerateLink(storeId: string, linkId: string, token?: string): Promise<TrackingLinkCreateResponse>;
+      analytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerAnalyticsResponse>;
+      exportAnalytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+    };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
       create(
@@ -2009,6 +2075,31 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
 
   function getJson<T>(path: string, token?: string): Promise<T> {
     return requestJson<T>(path, {}, token);
+  }
+
+  /**
+   * TODO-160 — CSV/ham metin yanıtı (JSON değil). Attribution export ucu text/csv
+   * döndürür; BFF bunu passthrough eder. Hata zarfı JSON ise ApiError'a çevrilir.
+   */
+  async function getText(path: string, token?: string): Promise<string> {
+    const headers = new Headers();
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    const response = await doFetch(`${baseUrl}${path}`, { headers });
+    if (!response.ok) {
+      let code = "UNKNOWN";
+      let message = `API gateway request failed: ${path} (${response.status})`;
+      try {
+        const body: unknown = await response.json();
+        if (isErrorEnvelope(body)) {
+          if (typeof body.error.code === "string") code = body.error.code;
+          if (typeof body.error.message === "string") message = body.error.message;
+        }
+      } catch {
+        /* metin/boş gövde: status tabanlı genel hata. */
+      }
+      throw new ApiError(response.status, code, message);
+    }
+    return response.text();
   }
 
   /**
@@ -2726,6 +2817,39 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             input,
             token,
           ),
+      },
+      // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution.
+      influencers: {
+        list: (storeId, token, query) =>
+          getJson<InfluencerListResponse>(`/stores/${storeId}/influencers${buildQueryString(query)}`, token),
+        get: (storeId, influencerId, token) =>
+          getJson<InfluencerDetailResponse>(`/stores/${storeId}/influencers/${influencerId}`, token),
+        create: (storeId, input, token) =>
+          sendJson<InfluencerDetailResponse>(`/stores/${storeId}/influencers`, "POST", input, token),
+        update: (storeId, influencerId, input, token) =>
+          sendJson<InfluencerDetailResponse>(`/stores/${storeId}/influencers/${influencerId}`, "PATCH", input, token),
+        listCampaigns: (storeId, token, query) =>
+          getJson<InfluencerCampaignListResponse>(`/stores/${storeId}/influencer-campaigns${buildQueryString(query)}`, token),
+        getCampaign: (storeId, campaignId, token) =>
+          getJson<InfluencerCampaignDetailResponse>(`/stores/${storeId}/influencer-campaigns/${campaignId}`, token),
+        createCampaign: (storeId, input, token) =>
+          sendJson<InfluencerCampaignDetailResponse>(`/stores/${storeId}/influencer-campaigns`, "POST", input, token),
+        updateCampaign: (storeId, campaignId, input, token) =>
+          sendJson<InfluencerCampaignDetailResponse>(`/stores/${storeId}/influencer-campaigns/${campaignId}`, "PATCH", input, token),
+        listLinks: (storeId, token, query) =>
+          getJson<TrackingLinkListResponse>(`/stores/${storeId}/influencer-tracking-links${buildQueryString(query)}`, token),
+        getLink: (storeId, linkId, token) =>
+          getJson<TrackingLinkDetailResponse>(`/stores/${storeId}/influencer-tracking-links/${linkId}`, token),
+        createLink: (storeId, input, token) =>
+          sendJson<TrackingLinkCreateResponse>(`/stores/${storeId}/influencer-tracking-links`, "POST", input, token),
+        updateLink: (storeId, linkId, input, token) =>
+          sendJson<TrackingLinkDetailResponse>(`/stores/${storeId}/influencer-tracking-links/${linkId}`, "PATCH", input, token),
+        regenerateLink: (storeId, linkId, token) =>
+          sendJson<TrackingLinkCreateResponse>(`/stores/${storeId}/influencer-tracking-links/${linkId}/regenerate`, "POST", undefined, token),
+        analytics: (storeId, token, query) =>
+          getJson<InfluencerAnalyticsResponse>(`/stores/${storeId}/influencer-analytics${buildQueryString(query)}`, token),
+        exportAnalytics: (storeId, token, query) =>
+          getText(`/stores/${storeId}/influencer-analytics/export${buildQueryString(query)}`, token),
       },
       paymentProviders: {
         list: (storeId, token) =>

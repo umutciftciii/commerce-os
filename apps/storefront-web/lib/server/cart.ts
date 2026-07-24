@@ -28,6 +28,7 @@ import { demoStoreSlug } from "./env";
 import { getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
 import { readCustomerToken } from "./customer-cookie";
 import { readClaimedCoupons } from "./cart-cookie";
+import { readAttributionGrant } from "./attribution-cookie";
 
 /**
  * Vitrin sepet/checkout cozumleyici (F3B.1). Cookie'deki referans kalemlerini
@@ -414,6 +415,15 @@ export async function submitCheckout(
     } catch {
       customerToken = null;
     }
+    // TODO-160 (ADR-102) — Influencer attribution GRANT'i first-party cookie'den
+    // SUNUCU-tarafında okunur ve checkout gövdesine eklenir. Gateway KENDİ imzasını
+    // doğrular; istemci düz influencer/campaign alanı GÖNDEREMEZ. Grant yoksa null.
+    let attributionGrant: string | null = null;
+    try {
+      attributionGrant = await readAttributionGrant();
+    } catch {
+      attributionGrant = null;
+    }
     const body = {
       items,
       contact,
@@ -422,6 +432,7 @@ export async function submitCheckout(
       ...(billingAddress ? { billingAddress } : {}),
       couponCode: couponCode ?? null,
       shippingOptionId: shippingOptionId ?? null,
+      ...(attributionGrant ? { attributionGrant } : {}),
     };
     const result = customerToken
       ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)
