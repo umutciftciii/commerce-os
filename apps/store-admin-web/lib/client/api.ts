@@ -142,6 +142,30 @@ import type {
   SponsoredCampaignCreateRequest,
   SponsoredCampaignUpdateRequest,
   SponsoredAnalyticsResponse,
+  // TODO-161A — Sponsorship Agreements, Billing & Settlement (BFF proxy).
+  SponsorAccountListResponse,
+  SponsorAccountDetailResponse,
+  SponsorAccountCreateRequest,
+  SponsorAccountUpdateRequest,
+  SponsorshipAgreementListResponse,
+  SponsorshipAgreementDetailResponse,
+  SponsorshipAgreementCreateRequest,
+  SponsorshipAgreementUpdateRequest,
+  SponsorshipAgreementCampaignLinkRequest,
+  SponsorshipSettlementListResponse,
+  SponsorshipSettlementDetailResponse,
+  SponsorshipSettlementPreviewRequest,
+  SponsorshipChargeListResponse,
+  SponsorshipChargeDetailResponse,
+  SponsorshipChargeCreateRequest,
+  SponsorshipChargeIssueRequest,
+  SponsorshipChargeCancelRequest,
+  SponsorshipPaymentListResponse,
+  SponsorshipPaymentDetailResponse,
+  SponsorshipPaymentCreateRequest,
+  SponsorshipPaymentReverseRequest,
+  SponsorshipCharge,
+  SponsorshipDashboardResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -843,6 +867,60 @@ export const storeApi = {
     }
     return response.text();
   },
+
+  // Sponsorship (TODO-161A) — sponsor cari + anlaşma + mutabakat + tahakkuk + tahsilat + dashboard.
+  listSponsors: (query?: AdminListRequestQuery) =>
+    call<SponsorAccountListResponse>(`/api/sponsors${listQueryString(query)}`),
+  getSponsor: (id: string) => call<SponsorAccountDetailResponse>(`/api/sponsors/${id}`),
+  createSponsor: (input: SponsorAccountCreateRequest) =>
+    mutatingCall<SponsorAccountDetailResponse>("/api/sponsors", { method: "POST", body: JSON.stringify(input) }),
+  updateSponsor: (id: string, input: SponsorAccountUpdateRequest) =>
+    mutatingCall<SponsorAccountDetailResponse>(`/api/sponsors/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+  listSponsorshipAgreements: (query?: AdminListRequestQuery) =>
+    call<SponsorshipAgreementListResponse>(`/api/sponsorship-agreements${listQueryString(query)}`),
+  getSponsorshipAgreement: (id: string) =>
+    call<SponsorshipAgreementDetailResponse>(`/api/sponsorship-agreements/${id}`),
+  createSponsorshipAgreement: (input: SponsorshipAgreementCreateRequest) =>
+    mutatingCall<SponsorshipAgreementDetailResponse>("/api/sponsorship-agreements", { method: "POST", body: JSON.stringify(input) }),
+  updateSponsorshipAgreement: (id: string, input: SponsorshipAgreementUpdateRequest) =>
+    mutatingCall<SponsorshipAgreementDetailResponse>(`/api/sponsorship-agreements/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  linkSponsorshipCampaign: (agreementId: string, input: SponsorshipAgreementCampaignLinkRequest) =>
+    mutatingCall<SponsorshipAgreementDetailResponse>(`/api/sponsorship-agreements/${agreementId}/campaigns`, { method: "POST", body: JSON.stringify(input) }),
+  unlinkSponsorshipCampaign: (agreementId: string, campaignId: string) =>
+    mutatingCall<SponsorshipAgreementDetailResponse>(`/api/sponsorship-agreements/${agreementId}/campaigns/${campaignId}`, { method: "DELETE" }),
+  previewSponsorshipSettlement: (agreementId: string, input: SponsorshipSettlementPreviewRequest) =>
+    mutatingCall<SponsorshipSettlementDetailResponse>(`/api/sponsorship-agreements/${agreementId}/settlements/preview`, { method: "POST", body: JSON.stringify(input) }),
+
+  listSponsorshipSettlements: (query?: AdminListRequestQuery) =>
+    call<SponsorshipSettlementListResponse>(`/api/sponsorship-settlements${listQueryString(query)}`),
+  getSponsorshipSettlement: (id: string) =>
+    call<SponsorshipSettlementDetailResponse>(`/api/sponsorship-settlements/${id}`),
+  finalizeSponsorshipSettlement: (id: string) =>
+    mutatingCall<SponsorshipSettlementDetailResponse>(`/api/sponsorship-settlements/${id}/finalize`, { method: "POST" }),
+  deleteSponsorshipSettlement: (id: string) =>
+    mutatingCall<void>(`/api/sponsorship-settlements/${id}`, { method: "DELETE" }),
+  createSponsorshipCharge: (settlementId: string, input: Omit<SponsorshipChargeCreateRequest, "settlementId">) =>
+    mutatingCall<SponsorshipChargeDetailResponse>(`/api/sponsorship-settlements/${settlementId}/charge`, { method: "POST", body: JSON.stringify(input) }),
+  createSponsorshipRefundAdjustment: (settlementId: string) =>
+    mutatingCall<{ data: SponsorshipCharge | null }>(`/api/sponsorship-settlements/${settlementId}/refund-adjustment`, { method: "POST" }),
+
+  listSponsorshipCharges: (query?: AdminListRequestQuery) =>
+    call<SponsorshipChargeListResponse>(`/api/sponsorship-charges${listQueryString(query)}`),
+  getSponsorshipCharge: (id: string) => call<SponsorshipChargeDetailResponse>(`/api/sponsorship-charges/${id}`),
+  issueSponsorshipCharge: (id: string, input: SponsorshipChargeIssueRequest = {}) =>
+    mutatingCall<SponsorshipChargeDetailResponse>(`/api/sponsorship-charges/${id}/issue`, { method: "POST", body: JSON.stringify(input) }),
+  cancelSponsorshipCharge: (id: string, input: SponsorshipChargeCancelRequest = {}) =>
+    mutatingCall<SponsorshipChargeDetailResponse>(`/api/sponsorship-charges/${id}/cancel`, { method: "POST", body: JSON.stringify(input) }),
+  recordSponsorshipPayment: (chargeId: string, input: SponsorshipPaymentCreateRequest) =>
+    mutatingCall<SponsorshipPaymentDetailResponse>(`/api/sponsorship-charges/${chargeId}/payments`, { method: "POST", body: JSON.stringify(input) }),
+
+  listSponsorshipPayments: (query?: AdminListRequestQuery) =>
+    call<SponsorshipPaymentListResponse>(`/api/sponsorship-payments${listQueryString(query)}`),
+  reverseSponsorshipPayment: (id: string, input: SponsorshipPaymentReverseRequest = {}) =>
+    mutatingCall<SponsorshipPaymentDetailResponse>(`/api/sponsorship-payments/${id}/reverse`, { method: "POST", body: JSON.stringify(input) }),
+  getSponsorshipDashboard: (query?: AdminListRequestQuery) =>
+    call<SponsorshipDashboardResponse>(`/api/sponsorship-dashboard${listQueryString(query)}`),
 
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
   listCustomers: (query?: AdminListRequestQuery) =>

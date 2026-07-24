@@ -163,6 +163,30 @@ import type {
   SponsoredCampaignCreateRequest,
   SponsoredCampaignUpdateRequest,
   SponsoredAnalyticsResponse,
+  // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement.
+  SponsorAccountListResponse,
+  SponsorAccountDetailResponse,
+  SponsorAccountCreateRequest,
+  SponsorAccountUpdateRequest,
+  SponsorshipAgreementListResponse,
+  SponsorshipAgreementDetailResponse,
+  SponsorshipAgreementCreateRequest,
+  SponsorshipAgreementUpdateRequest,
+  SponsorshipAgreementCampaignLinkRequest,
+  SponsorshipSettlementListResponse,
+  SponsorshipSettlementDetailResponse,
+  SponsorshipSettlementPreviewRequest,
+  SponsorshipCharge,
+  SponsorshipChargeListResponse,
+  SponsorshipChargeDetailResponse,
+  SponsorshipChargeCreateRequest,
+  SponsorshipChargeIssueRequest,
+  SponsorshipChargeCancelRequest,
+  SponsorshipPaymentListResponse,
+  SponsorshipPaymentDetailResponse,
+  SponsorshipPaymentCreateRequest,
+  SponsorshipPaymentReverseRequest,
+  SponsorshipDashboardResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -755,6 +779,55 @@ export type {
   SponsoredProductBreakdown,
   SponsoredPlacementBreakdown,
   SponsoredTopSearchTerm,
+  // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement (consumer tipleri).
+  SponsorAccountStatus,
+  SponsorshipAgreementStatus,
+  SponsorshipPricingModel,
+  SponsorshipSettlementPeriod,
+  SponsorshipSettlementStatus,
+  SponsorshipChargeType,
+  SponsorshipChargeStatus,
+  SponsorshipChargeDisplayStatus,
+  SponsorshipPaymentMethod,
+  SponsoredCommercialMode,
+  SponsorAccountSummary,
+  SponsorAccountDetail,
+  SponsorAccountCreateRequest,
+  SponsorAccountUpdateRequest,
+  SponsorAccountListQuery,
+  SponsorAccountListResponse,
+  SponsorAccountDetailResponse,
+  SponsorshipAgreementCampaignLink,
+  SponsorshipAgreementSummary,
+  SponsorshipAgreementDetail,
+  SponsorshipAgreementCreateRequest,
+  SponsorshipAgreementUpdateRequest,
+  SponsorshipAgreementCampaignLinkRequest,
+  SponsorshipAgreementListQuery,
+  SponsorshipAgreementListResponse,
+  SponsorshipAgreementDetailResponse,
+  SponsorshipSettlement,
+  SponsorshipSettlementPreviewRequest,
+  SponsorshipSettlementListQuery,
+  SponsorshipSettlementListResponse,
+  SponsorshipSettlementDetailResponse,
+  SponsorshipCharge,
+  SponsorshipChargeListQuery,
+  SponsorshipChargeListResponse,
+  SponsorshipChargeDetailResponse,
+  SponsorshipChargeCreateRequest,
+  SponsorshipChargeIssueRequest,
+  SponsorshipChargeCancelRequest,
+  SponsorshipPayment,
+  SponsorshipPaymentCreateRequest,
+  SponsorshipPaymentReverseRequest,
+  SponsorshipPaymentListQuery,
+  SponsorshipPaymentListResponse,
+  SponsorshipPaymentDetailResponse,
+  SponsorshipCurrencyKpi,
+  SponsorshipDashboardBreakdownRow,
+  SponsorshipDashboardQuery,
+  SponsorshipDashboardResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -1659,6 +1732,36 @@ export interface ApiClient {
       update(storeId: string, campaignId: string, input: SponsoredCampaignUpdateRequest, token?: string): Promise<SponsoredCampaignDetailResponse>;
       analytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsoredAnalyticsResponse>;
       exportAnalytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+    };
+    // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement (store-admin).
+    sponsorship: {
+      listSponsors(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorAccountListResponse>;
+      getSponsor(storeId: string, id: string, token?: string): Promise<SponsorAccountDetailResponse>;
+      createSponsor(storeId: string, input: SponsorAccountCreateRequest, token?: string): Promise<SponsorAccountDetailResponse>;
+      updateSponsor(storeId: string, id: string, input: SponsorAccountUpdateRequest, token?: string): Promise<SponsorAccountDetailResponse>;
+      listAgreements(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipAgreementListResponse>;
+      getAgreement(storeId: string, id: string, token?: string): Promise<SponsorshipAgreementDetailResponse>;
+      createAgreement(storeId: string, input: SponsorshipAgreementCreateRequest, token?: string): Promise<SponsorshipAgreementDetailResponse>;
+      updateAgreement(storeId: string, id: string, input: SponsorshipAgreementUpdateRequest, token?: string): Promise<SponsorshipAgreementDetailResponse>;
+      linkCampaign(storeId: string, agreementId: string, input: SponsorshipAgreementCampaignLinkRequest, token?: string): Promise<SponsorshipAgreementDetailResponse>;
+      unlinkCampaign(storeId: string, agreementId: string, campaignId: string, token?: string): Promise<SponsorshipAgreementDetailResponse>;
+      previewSettlement(storeId: string, agreementId: string, input: SponsorshipSettlementPreviewRequest, token?: string): Promise<SponsorshipSettlementDetailResponse>;
+      listSettlements(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipSettlementListResponse>;
+      getSettlement(storeId: string, id: string, token?: string): Promise<SponsorshipSettlementDetailResponse>;
+      finalizeSettlement(storeId: string, id: string, token?: string): Promise<SponsorshipSettlementDetailResponse>;
+      deleteSettlement(storeId: string, id: string, token?: string): Promise<void>;
+      createCharge(storeId: string, settlementId: string, input: Omit<SponsorshipChargeCreateRequest, "settlementId">, token?: string): Promise<SponsorshipChargeDetailResponse>;
+      createRefundAdjustment(storeId: string, settlementId: string, token?: string): Promise<{ data: SponsorshipCharge | null }>;
+      listCharges(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipChargeListResponse>;
+      getCharge(storeId: string, id: string, token?: string): Promise<SponsorshipChargeDetailResponse>;
+      issueCharge(storeId: string, id: string, input: SponsorshipChargeIssueRequest, token?: string): Promise<SponsorshipChargeDetailResponse>;
+      cancelCharge(storeId: string, id: string, input: SponsorshipChargeCancelRequest, token?: string): Promise<SponsorshipChargeDetailResponse>;
+      exportCharges(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      recordPayment(storeId: string, chargeId: string, input: SponsorshipPaymentCreateRequest, token?: string): Promise<SponsorshipPaymentDetailResponse>;
+      listPayments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipPaymentListResponse>;
+      reversePayment(storeId: string, id: string, input: SponsorshipPaymentReverseRequest, token?: string): Promise<SponsorshipPaymentDetailResponse>;
+      exportPayments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      dashboard(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipDashboardResponse>;
     };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
@@ -2962,6 +3065,55 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<SponsoredAnalyticsResponse>(`/stores/${storeId}/sponsored-analytics${buildQueryString(query)}`, token),
         exportAnalytics: (storeId, token, query) =>
           getText(`/stores/${storeId}/sponsored-analytics/export${buildQueryString(query)}`, token),
+      },
+      // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement.
+      sponsorship: {
+        listSponsors: (storeId, token, query) =>
+          getJson<SponsorAccountListResponse>(`/stores/${storeId}/sponsors${buildQueryString(query)}`, token),
+        getSponsor: (storeId, id, token) => getJson<SponsorAccountDetailResponse>(`/stores/${storeId}/sponsors/${id}`, token),
+        createSponsor: (storeId, input, token) => sendJson<SponsorAccountDetailResponse>(`/stores/${storeId}/sponsors`, "POST", input, token),
+        updateSponsor: (storeId, id, input, token) => sendJson<SponsorAccountDetailResponse>(`/stores/${storeId}/sponsors/${id}`, "PATCH", input, token),
+        listAgreements: (storeId, token, query) =>
+          getJson<SponsorshipAgreementListResponse>(`/stores/${storeId}/sponsorship-agreements${buildQueryString(query)}`, token),
+        getAgreement: (storeId, id, token) => getJson<SponsorshipAgreementDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${id}`, token),
+        createAgreement: (storeId, input, token) => sendJson<SponsorshipAgreementDetailResponse>(`/stores/${storeId}/sponsorship-agreements`, "POST", input, token),
+        updateAgreement: (storeId, id, input, token) => sendJson<SponsorshipAgreementDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${id}`, "PATCH", input, token),
+        linkCampaign: (storeId, agreementId, input, token) =>
+          sendJson<SponsorshipAgreementDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${agreementId}/campaigns`, "POST", input, token),
+        unlinkCampaign: (storeId, agreementId, campaignId, token) =>
+          sendJson<SponsorshipAgreementDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${agreementId}/campaigns/${campaignId}`, "DELETE", undefined, token),
+        previewSettlement: (storeId, agreementId, input, token) =>
+          sendJson<SponsorshipSettlementDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${agreementId}/settlements/preview`, "POST", input, token),
+        listSettlements: (storeId, token, query) =>
+          getJson<SponsorshipSettlementListResponse>(`/stores/${storeId}/sponsorship-settlements${buildQueryString(query)}`, token),
+        getSettlement: (storeId, id, token) => getJson<SponsorshipSettlementDetailResponse>(`/stores/${storeId}/sponsorship-settlements/${id}`, token),
+        finalizeSettlement: (storeId, id, token) =>
+          sendJson<SponsorshipSettlementDetailResponse>(`/stores/${storeId}/sponsorship-settlements/${id}/finalize`, "POST", undefined, token),
+        deleteSettlement: (storeId, id, token) =>
+          requestJson<void>(`/stores/${storeId}/sponsorship-settlements/${id}`, { method: "DELETE" }, token),
+        createCharge: (storeId, settlementId, input, token) =>
+          sendJson<SponsorshipChargeDetailResponse>(`/stores/${storeId}/sponsorship-settlements/${settlementId}/charge`, "POST", input, token),
+        createRefundAdjustment: (storeId, settlementId, token) =>
+          sendJson<{ data: SponsorshipCharge | null }>(`/stores/${storeId}/sponsorship-settlements/${settlementId}/refund-adjustment`, "POST", undefined, token),
+        listCharges: (storeId, token, query) =>
+          getJson<SponsorshipChargeListResponse>(`/stores/${storeId}/sponsorship-charges${buildQueryString(query)}`, token),
+        getCharge: (storeId, id, token) => getJson<SponsorshipChargeDetailResponse>(`/stores/${storeId}/sponsorship-charges/${id}`, token),
+        issueCharge: (storeId, id, input, token) =>
+          sendJson<SponsorshipChargeDetailResponse>(`/stores/${storeId}/sponsorship-charges/${id}/issue`, "POST", input, token),
+        cancelCharge: (storeId, id, input, token) =>
+          sendJson<SponsorshipChargeDetailResponse>(`/stores/${storeId}/sponsorship-charges/${id}/cancel`, "POST", input, token),
+        exportCharges: (storeId, token, query) =>
+          getText(`/stores/${storeId}/sponsorship-charges/export${buildQueryString(query)}`, token),
+        recordPayment: (storeId, chargeId, input, token) =>
+          sendJson<SponsorshipPaymentDetailResponse>(`/stores/${storeId}/sponsorship-charges/${chargeId}/payments`, "POST", input, token),
+        listPayments: (storeId, token, query) =>
+          getJson<SponsorshipPaymentListResponse>(`/stores/${storeId}/sponsorship-payments${buildQueryString(query)}`, token),
+        reversePayment: (storeId, id, input, token) =>
+          sendJson<SponsorshipPaymentDetailResponse>(`/stores/${storeId}/sponsorship-payments/${id}/reverse`, "POST", input, token),
+        exportPayments: (storeId, token, query) =>
+          getText(`/stores/${storeId}/sponsorship-payments/export${buildQueryString(query)}`, token),
+        dashboard: (storeId, token, query) =>
+          getJson<SponsorshipDashboardResponse>(`/stores/${storeId}/sponsorship-dashboard${buildQueryString(query)}`, token),
       },
       paymentProviders: {
         list: (storeId, token) =>

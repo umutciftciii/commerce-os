@@ -505,3 +505,29 @@
   sonuç kümesi üretildikten sonra ayrı bir katmanda yapılır; dedupe garanti edilir; yoğunluk tavanı ve
   alaka eşiği sunucuda zorlanır; kampanya penceresi dışında hiçbir sponsorlu iz kalmaz; ölçüm TODO-160'ın
   event/attribution altyapısını yeniden kullanır (ADR-091).
+
+## Growth & Monetization — Sponsorship Agreements, Billing & Settlement (TODO-161A)
+
+- Durum: **DONE / KOD TAMAM (2026-07-25) — commit/PR YAPILMADI (git kuralı §17).** TODO-161'in
+  sponsorlu gösterim + attribution altyapısını TÜKETİR (yeniden yazmaz); üzerine ticari/finansal
+  operasyon kurar. Analiz: `docs/analysis/TODO-161A-sponsorship-commercial-operations.md`. ADR-121…127.
+- Kapsam (tamamlandı): Sponsor cari (`SponsorAccount`) · anlaşma (`SponsorshipAgreement`, 6-durumlu
+  yaşam döngüsü + allowlist geçiş) · kampanya bağlama (pencere kapsama guard'ı) · 5 pricing model
+  (FIXED_FEE/CPM/CPC/CPA/REVENUE_SHARE, sunucu-otoriter SAF `billing-core.ts`) · dönemsel mutabakat
+  (`SponsorshipSettlement`, metrik snapshot + DRAFT/FINALIZED immutability + çift-tahakkuk DB-guard) ·
+  tahakkuk (`SponsorshipCharge`, iç ticari belge — resmî fatura DEĞİL) · append-only tahsilat
+  (`SponsorshipPayment`, türetilmiş bakiye + aşırı-tahsilat reddi + ters kayıt) · refund adjustment
+  (idempotent, negatif alacak) · para-birimi bazlı dashboard + CSV · unpaid campaign guard (iki
+  katmanlı, `commercialMode` + `allowUnpaidSponsoredCampaigns`) · 6 store-admin ekranı (Data Grid).
+- **Zorunlu kurallar (sağlandı):** (1) para tamsayı minor unit, oran basis point; (2) tahsilat tutarı
+  istemciden OTORİTE değil (bakiye sunucuda türetilir); (3) bot/duplicate event ücretlendirmeye
+  girmez; (4) currency karışmaz (para birimi bazında ayrı); (5) FINALIZED settlement immutable; (6)
+  charge idempotent (settlement 1-1 + idempotencyKey); (7) tenant izolasyonu (public uç YOK, vergi
+  no/iletişim public'e çıkmaz); (8) platform içi tahakkuk resmî fatura gibi ADLANDIRILMAZ.
+- Migration `20260725090000_add_sponsorship_billing_settlement` (ADDITIVE; gerçek PG'ye uygulandı,
+  tsvector sahte-diff temizlendi, search index'leri korundu, checksum senkronlandı). 2 additive kolon:
+  `SponsoredProductCampaign.commercialMode`, `StoreSettings.allowUnpaidSponsoredCampaigns`.
+- Gate'ler: build 25/25 · typecheck temiz · lint 38/38 · test 1394 gateway + 356 store-admin PASS ·
+  git diff --check temiz. Canlı enterprise-demo doğrulama: 17 adım / 31 assertion PASS (gerçek PG +
+  gerçek Prisma + gerçek `billing-core`; test verisi temizlendi, demo bütün). Ertelenen: TD-123…126.
+- Sıra: TODO-161'den SONRA; sıradaki aktif faz = **final enterprise UI/design polish**.

@@ -34,7 +34,16 @@ import {
 const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   catalog: { tr: "Katalog", en: "Catalogue" },
   sales: { tr: "Satış", en: "Sales" },
+  sponsorship: { tr: "Sponsorluk", en: "Sponsorship" },
   appearance: { tr: "Görünüm & Ayar", en: "Appearance & Settings" },
+};
+
+// TODO-161A — Sponsorluk ekranı etiketleri (paylaşılan i18n paketine dokunmadan; yerel).
+const SPONSORSHIP_LABELS: Record<string, { tr: string; en: string }> = {
+  sponsors: { tr: "Sponsorlar", en: "Sponsors" },
+  agreements: { tr: "Anlaşmalar", en: "Agreements" },
+  settlements: { tr: "Mutabakatlar", en: "Settlements" },
+  payments: { tr: "Tahsilat", en: "Billing" },
 };
 
 export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
@@ -43,6 +52,8 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
   const t = getDictionary(locale).storeAdmin.nav;
   const g = (key: keyof typeof GROUP_LABELS) =>
     locale === "tr" ? GROUP_LABELS[key].tr : GROUP_LABELS[key].en;
+  const s = (key: keyof typeof SPONSORSHIP_LABELS) =>
+    locale === "tr" ? SPONSORSHIP_LABELS[key].tr : SPONSORSHIP_LABELS[key].en;
 
   const groups = [
     {
@@ -74,6 +85,15 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         },
         { href: "/sponsored-products", label: t.sponsoredProducts, icon: <MarketplaceIcon /> },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
+      ],
+    },
+    {
+      heading: g("sponsorship"),
+      items: [
+        { href: "/sponsors", label: s("sponsors"), icon: <CustomerIcon /> },
+        { href: "/sponsorship-agreements", label: s("agreements"), icon: <CampaignIcon /> },
+        { href: "/sponsorship-settlements", label: s("settlements"), icon: <PaymentIcon /> },
+        { href: "/sponsorship-payments", label: s("payments"), icon: <PaymentIcon /> },
       ],
     },
     {

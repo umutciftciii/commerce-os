@@ -1876,3 +1876,22 @@
     kaydedilmez.
 - Kapsam dışı (MVP): teklif/açık artırma mekaniği, bütçe tüketimi ve faturalandırma, satıcı self-service
   arayüzü, dış reklam ağı entegrasyonu.
+
+## TODO-161A — Sponsorship Agreements, Billing & Settlement (Growth & Monetization)
+
+- Durum: **DONE / KOD TAMAM (2026-07-25) — commit/PR YAPILMADI (git kuralı §17).** Analiz:
+  `docs/analysis/TODO-161A-sponsorship-commercial-operations.md`. ADR-121…127. Migration
+  `20260725090000_add_sponsorship_billing_settlement` (gerçek PG'ye uygulandı; ADDITIVE; search
+  index'leri korundu). TODO-161 placement/attribution altyapısını TÜKETİR; gösterim motorunu yeniden
+  yazmaz.
+- Amaç: Sponsor firma anlaşmalarını, ücretlendirme modellerini, tahakkukları, tahsilatları ve kampanya
+  mutabakatını tenant-safe biçimde yönetmek.
+- Teslim: `SponsorAccount` + `SponsorshipAgreement` (+ Campaign bağı) + `SponsorshipSettlement` +
+  `SponsorshipCharge` + `SponsorshipPayment`. SAF çekirdek `sponsorship/billing-core.ts` (pricing +
+  tax + balance + overdue + budget + lifecycle + coverage + refund adjustment; 59 test) +
+  `delivery-guard.ts` (ticari teslim WHERE). `sponsorship/data.ts` (Prisma, tenant-izole) +
+  `sponsorship/routes.ts` (store-admin; public uç YOK; 13 HTTP test). Store-admin: `/sponsors`,
+  `/sponsors/[id]`, `/sponsorship-agreements`, `/sponsorship-agreements/[id]`,
+  `/sponsorship-settlements`, `/sponsorship-payments` (Data Grid + BFF proxy + CSV).
+- Gate'ler: build/typecheck/lint/test PASS. Canlı doğrulama: 17 adım / 31 assertion PASS. Ertelenen:
+  TD-123…126. Sıra: sıradaki = final enterprise UI/design polish.

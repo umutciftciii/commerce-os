@@ -132,6 +132,8 @@ import { createSlidingWindowLimiter } from "./influencers/tracking-core.js";
 // TODO-161 (ADR-114…120) — Sponsored Product Management.
 import { createSponsoredData, type SponsoredData } from "./sponsored/data.js";
 import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./sponsored/routes.js";
+import { createSponsorshipData, type SponsorshipData } from "./sponsorship/data.js";
+import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
 import { resolveSponsoredForCheckout } from "./sponsored/checkout-attribution.js";
 import {
   signSponsoredToken,
@@ -5371,6 +5373,7 @@ export function createServer(
   // TODO-161 (ADR-114…120) — Sponsored Product veri erişimi. Search/home aday çözümü,
   // public event, checkout attribution, iade düzeltmesi ve admin route'lar aynı örneği paylaşır.
   const sponsoredData: SponsoredData = createSponsoredData(prisma);
+  const sponsorshipData: SponsorshipData = createSponsorshipData(prisma);
 
   // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
   // F3B.1: Vitrin cookie'si yalnizca {variantId, quantity} referansi tasir.
@@ -6235,6 +6238,16 @@ export function createServer(
     logger,
     // Public event abuse koruması: IP başına 120 istek / 60 sn (impression/click yoğunluğu).
     rateLimiter: createSlidingWindowLimiter(120, 60_000),
+  });
+
+  // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement (store-admin; public YOK).
+  registerSponsorshipAdminRoutes(app, {
+    data: sponsorshipData,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).

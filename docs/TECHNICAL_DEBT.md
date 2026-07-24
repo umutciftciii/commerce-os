@@ -1139,3 +1139,35 @@ KORUNUR; yalnız funnel event ham'ı budanabilir.
 auth'lu store-admin UI akışı (kampanya oluştur → home/search'te doğrula → impression/click/order/refund)
 Docker canlı stack üzerinde uçtan uca smoke edilmedi (store-admin parola gerektirir). Deploy öncesi
 enterprise-demo üzerinde manuel doğrulama önerilir (bkz. analiz §14).
+
+## TD-123 — Sponsorship: Sponsor↔Influencer birleştirme (TODO-161A)
+
+**Durum:** Ertelendi (ileri faz). MVP'de `SponsorAccount` (reklamveren cari) ve `Influencer`
+(TODO-160 iş-ortağı) AYRI modellerdir ve aynı gerçek firmaya işaret edebilirler ama bağlanmazlar
+(ADR-091/121). Birleştirme (tek ticari kimlik + iki attribution akışı) ileri faza bırakıldı;
+gerektiğinde bir `party`/`organization` üst-tipi + rol tabloları eklenebilir.
+
+## TD-124 — Sponsorship: resmî e-Fatura + muhasebe + çoklu para birimi (TODO-161A)
+
+**Durum:** Ertelendi (ADR-126/127). MVP iç ticari belge (tahakkuk) + tahsilat takibi yapar; resmî
+e-Fatura/e-Arşiv üretmez, muhasebe fişi oluşturmaz. Ertelenen: Paraşüt/Logo/Mikro entegrasyonu ·
+e-Fatura/e-Arşiv · banka hareketi eşleştirme · otomatik mutabakat · gelir muhasebeleştirme (revenue
+recognition) · komisyon faturaları · **çoklu para birimi kur dönüşümü** (şu an REVENUE_SHARE anlaşma
+para birimi mağaza siparişleriyle aynı olmalı; farklı para birimleri tek toplamda birleşmez).
+
+## TD-125 — Sponsorship: otomatik dönemsel settlement zamanlayıcısı (TODO-161A)
+
+**Durum:** Ertelendi. Settlement dönemleri (WEEKLY/MONTHLY/CAMPAIGN_END) admin tarafından MANUEL
+başlatılır (preview → finalize → charge). Otomatik zamanlanmış üretim (BullMQ worker; TODO-129
+shipment-sync deseni) + bütçe circuit-breaker'ın periyodik değerlendirmesi sonraki faza bırakıldı.
+`budgetExhaustedAt` şu an yalnız settlement finalize anında damgalanır (cron gerekmez — bütçe zaten
+yalnız tahakkuk anında bilinebilir).
+
+## TD-126 — Sponsorship: canlı auth'lu store-admin UI/e2e smoke (TODO-161A)
+
+**Durum:** Ertelendi (TD-122 deseni). Gate'ler + gateway HTTP testleri (13) + SAF domain (59) +
+canlı DB akışı (17 adım / 31 assertion, gerçek PG + gerçek Prisma + gerçek `billing-core`) PASS.
+Ancak auth'lu store-admin UI akışı (sponsor oluştur → anlaşma → kampanya bağla → settlement →
+tahakkuk → tahsilat) Docker canlı stack üzerinde uçtan uca smoke edilmedi (store-admin parola
+gerektirir + docker build context worktree'yi kapsamaz). Deploy öncesi enterprise-demo üzerinde
+manuel doğrulama önerilir (bkz. analiz §13; canlı DB akışı zaten programatik olarak doğrulandı).
