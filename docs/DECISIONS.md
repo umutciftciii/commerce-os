@@ -3746,3 +3746,14 @@ verisi (yedek yok) geri getirilemez; yerel dev/test verisiydi.
 
 **Sonuç.** Yıkıcı demo reset artık fail-safe: yanlış DB, yanlış scope, flag'siz toplu silme ve
 prod-benzeri URL durumlarında hard fail eder; meşru ilk-restore sürtünmesizdir.
+
+### ADR-108 EK NOT — `_prisma_migrations` baseline (2026-07-24, TODO-159G Faz B)
+
+Hotfix (PR #115) merge+deploy edildikten sonra, `db push`-kurulu yerel DB'nin migration geçmişi
+**reset/push/drop OLMADAN** baseline edildi. Kanıt-tabanlı akış: tam backup + `pg_restore --list`
+doğrulaması → shadow DB'de migration replay + `migrate diff` = **"No difference detected"** (DB, 51
+migration'la birebir) → 51 migration `migrate resolve --applied` ile işaretlendi (DDL/veri değişmedi)
+→ `migrate status` = **"Database schema is up to date!"**. schema.prisma vs DB arasındaki tek fark
+(`ProductSearchDocument` tsvector GENERATED + GIN) ham-SQL migration artefaktıdır ve beklenendir.
+**Kalıcı kural:** `db push`/`migrate reset`/volume-drop her ortamda yasak; şema yalnız `migrate deploy`
+ile ilerler (bkz. docs/OPERATIONS.md). TD-116-a KAPANDI.
