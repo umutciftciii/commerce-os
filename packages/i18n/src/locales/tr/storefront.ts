@@ -241,6 +241,8 @@ export const trStorefront = {
     // Kart
     discountBadge: "%{percent}",
     outOfStock: "Tükendi",
+    // TODO-161 — Sponsorlu ürün etiketi (ZORUNLU açık işaret).
+    sponsoredLabel: "Sponsorlu",
     // {count} ek renk sayısı.
     swatchMore: "+{count}",
     // {label} renk adı.

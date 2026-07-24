@@ -157,6 +157,12 @@ import type {
   TrackingLinkCreateRequest,
   TrackingLinkUpdateRequest,
   InfluencerAnalyticsResponse,
+  // TODO-161 (ADR-114…120) — Sponsored Product Management.
+  SponsoredCampaignListResponse,
+  SponsoredCampaignDetailResponse,
+  SponsoredCampaignCreateRequest,
+  SponsoredCampaignUpdateRequest,
+  SponsoredAnalyticsResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -729,6 +735,26 @@ export type {
   AttributionCampaignBreakdown,
   AttributionTopLink,
   AttributionTopProduct,
+  // TODO-161 (ADR-114…120) — Sponsored Product Management (consumer tipleri).
+  SponsoredCampaignStatus,
+  SponsoredPlacementType,
+  SponsoredEventType,
+  SponsoredCampaignSummary,
+  SponsoredCampaignDetail,
+  SponsoredCampaignPlacementProduct,
+  SponsoredCampaignListQuery,
+  SponsoredCampaignListResponse,
+  SponsoredCampaignDetailResponse,
+  SponsoredCampaignCreateRequest,
+  SponsoredCampaignUpdateRequest,
+  SponsoredAnalyticsQuery,
+  SponsoredAnalyticsResponse,
+  SponsoredKpiSummary,
+  SponsoredDailyPoint,
+  SponsoredCampaignBreakdown,
+  SponsoredProductBreakdown,
+  SponsoredPlacementBreakdown,
+  SponsoredTopSearchTerm,
 } from "@commerce-os/contracts";
 
 /**
@@ -1623,6 +1649,15 @@ export interface ApiClient {
       updateLink(storeId: string, linkId: string, input: TrackingLinkUpdateRequest, token?: string): Promise<TrackingLinkDetailResponse>;
       regenerateLink(storeId: string, linkId: string, token?: string): Promise<TrackingLinkCreateResponse>;
       analytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerAnalyticsResponse>;
+      exportAnalytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+    };
+    // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
+    sponsoredProducts: {
+      list(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsoredCampaignListResponse>;
+      get(storeId: string, campaignId: string, token?: string): Promise<SponsoredCampaignDetailResponse>;
+      create(storeId: string, input: SponsoredCampaignCreateRequest, token?: string): Promise<SponsoredCampaignDetailResponse>;
+      update(storeId: string, campaignId: string, input: SponsoredCampaignUpdateRequest, token?: string): Promise<SponsoredCampaignDetailResponse>;
+      analytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsoredAnalyticsResponse>;
       exportAnalytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
     };
     paymentProviders: {
@@ -2912,6 +2947,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<InfluencerAnalyticsResponse>(`/stores/${storeId}/influencer-analytics${buildQueryString(query)}`, token),
         exportAnalytics: (storeId, token, query) =>
           getText(`/stores/${storeId}/influencer-analytics/export${buildQueryString(query)}`, token),
+      },
+      // TODO-161 (ADR-114…120) — Sponsored Product Management.
+      sponsoredProducts: {
+        list: (storeId, token, query) =>
+          getJson<SponsoredCampaignListResponse>(`/stores/${storeId}/sponsored-campaigns${buildQueryString(query)}`, token),
+        get: (storeId, campaignId, token) =>
+          getJson<SponsoredCampaignDetailResponse>(`/stores/${storeId}/sponsored-campaigns/${campaignId}`, token),
+        create: (storeId, input, token) =>
+          sendJson<SponsoredCampaignDetailResponse>(`/stores/${storeId}/sponsored-campaigns`, "POST", input, token),
+        update: (storeId, campaignId, input, token) =>
+          sendJson<SponsoredCampaignDetailResponse>(`/stores/${storeId}/sponsored-campaigns/${campaignId}`, "PATCH", input, token),
+        analytics: (storeId, token, query) =>
+          getJson<SponsoredAnalyticsResponse>(`/stores/${storeId}/sponsored-analytics${buildQueryString(query)}`, token),
+        exportAnalytics: (storeId, token, query) =>
+          getText(`/stores/${storeId}/sponsored-analytics/export${buildQueryString(query)}`, token),
       },
       paymentProviders: {
         list: (storeId, token) =>

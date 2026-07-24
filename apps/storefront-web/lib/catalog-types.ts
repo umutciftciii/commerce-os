@@ -91,6 +91,11 @@ export interface StorefrontProductSummary {
    * stackable oldugunda EK gosterilecek public kupon; aksi halde null.
    */
   secondaryCoupon: StorefrontCampaignView | null;
+  /**
+   * TODO-161 (ADR-114/118) — Sponsorlu ürünse opak GATEWAY-imzalı token (impression/click ölçümü +
+   * checkout attribution taşıyıcısı); organik üründe undefined/null. "Sponsorlu" etiketi bundan türetilir.
+   */
+  sponsoredToken?: string | null;
 }
 
 /**
@@ -265,6 +270,13 @@ export type StorefrontHomeSection =
     })
   | (StorefrontHomeSectionBase & {
       type: "PRODUCT_SHOWCASE";
+      layout: "CAROUSEL" | "GRID";
+      products: StorefrontProductSummary[];
+    })
+  // TODO-161 (ADR-114) — Sponsorlu vitrin. Ürünler PRODUCT_SHOWCASE ile aynı özet + opak sponsoredToken
+  // (impression/click ölçümü). Storefront "Sponsorlu" etiketi gösterir (ZORUNLU).
+  | (StorefrontHomeSectionBase & {
+      type: "SPONSORED_SHOWCASE";
       layout: "CAROUSEL" | "GRID";
       products: StorefrontProductSummary[];
     });

@@ -129,6 +129,17 @@ import { createInfluencerData, type InfluencerData } from "./influencers/data.js
 import { registerInfluencerAdminRoutes, registerPublicTrackingRoutes } from "./influencers/routes.js";
 import { resolveAttributionForCheckout } from "./influencers/checkout-attribution.js";
 import { createSlidingWindowLimiter } from "./influencers/tracking-core.js";
+// TODO-161 (ADR-114…120) — Sponsored Product Management.
+import { createSponsoredData, type SponsoredData } from "./sponsored/data.js";
+import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./sponsored/routes.js";
+import { resolveSponsoredForCheckout } from "./sponsored/checkout-attribution.js";
+import {
+  signSponsoredToken,
+  computeSponsoredExpiry,
+  SPONSORED_HOME_MAX_SLOTS,
+  DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS,
+  SPONSORED_TOKEN_VERSION,
+} from "./sponsored/sponsored-core.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -184,6 +195,7 @@ import {
   serializePublicHomeHeroSlide,
   serializePublicHomeFeaturedCategory,
   parseHomeShowcaseConfig,
+  parseHomeSponsoredShowcaseConfig,
   parseHomeHeroConfig,
   type HomeDataAccess,
 } from "./home/data.js";
@@ -5169,7 +5181,16 @@ export function createServer(
     type HeroResolved = { kind: "HERO"; section: (typeof sections)[number]; slides: Awaited<ReturnType<typeof homeDataAccess.listPublishedHeroSlides>> };
     type FeaturedResolved = { kind: "FEATURED"; section: (typeof sections)[number]; categories: Awaited<ReturnType<typeof homeDataAccess.listPublishedFeaturedCategories>> };
     type ShowcaseResolved = { kind: "SHOWCASE"; section: (typeof sections)[number]; layout: "CAROUSEL" | "GRID"; maxItems: number; ids: string[] };
-    const resolved: Array<HeroResolved | FeaturedResolved | ShowcaseResolved> = [];
+    // TODO-161 (ADR-114) — Sponsorlu vitrin: içerik aktif HOME_SHOWCASE kampanyalarından; her ürün
+    // için campaignId/placementId taşınır (token imzası output'ta). ids sırası = kampanya öncelik sırası.
+    type SponsoredResolved = {
+      kind: "SPONSORED";
+      section: (typeof sections)[number];
+      layout: "CAROUSEL" | "GRID";
+      maxItems: number;
+      candidates: Array<{ productId: string; campaignId: string; placementId: string }>;
+    };
+    const resolved: Array<HeroResolved | FeaturedResolved | ShowcaseResolved | SponsoredResolved> = [];
     for (const section of sections) {
       if (section.type === "HERO_SLIDER") {
         const slides = await homeDataAccess.listPublishedHeroSlides(store.id, section.id, now);
@@ -5177,6 +5198,18 @@ export function createServer(
       } else if (section.type === "FEATURED_CATEGORIES") {
         const categories = await homeDataAccess.listPublishedFeaturedCategories(store.id, section.id);
         resolved.push({ kind: "FEATURED", section, categories });
+      } else if (section.type === "SPONSORED_SHOWCASE") {
+        const sponsoredConfig = parseHomeSponsoredShowcaseConfig(section.config);
+        const maxItems = Math.min(sponsoredConfig.maxItems, SPONSORED_HOME_MAX_SLOTS);
+        // Best-effort: sponsorlu çözüm hatası ana sayfanın diğer bölümlerini BOZMAZ (section boş → gizli).
+        let candidates: Array<{ productId: string; campaignId: string; placementId: string }> = [];
+        try {
+          const resolvedCandidates = await sponsoredData.resolveHomeCandidates(store.id, { now, limit: maxItems });
+          candidates = resolvedCandidates.map((c) => ({ productId: c.item.productId, campaignId: c.campaignId, placementId: c.placementId }));
+        } catch {
+          candidates = [];
+        }
+        resolved.push({ kind: "SPONSORED", section, layout: sponsoredConfig.layout, maxItems, candidates });
       } else if (section.type === "PRODUCT_SHOWCASE") {
         const showcaseConfig = parseHomeShowcaseConfig(section.config);
         const ids =
@@ -5202,6 +5235,7 @@ export function createServer(
     const unionIds = new Set<string>();
     for (const item of resolved) {
       if (item.kind === "SHOWCASE") item.ids.forEach((id) => unionIds.add(id));
+      else if (item.kind === "SPONSORED") item.candidates.forEach((c) => unionIds.add(c.productId));
     }
     const builtById = new Map<string, Awaited<ReturnType<typeof buildPublicProduct>>>();
     if (unionIds.size > 0) {
@@ -5269,6 +5303,35 @@ export function createServer(
             serializePublicHomeFeaturedCategory(c, config.MEDIA_PUBLIC_BASE_URL),
           ),
         });
+      } else if (item.kind === "SPONSORED") {
+        // TODO-161 (ADR-114/118) — Sponsorlu vitrin. Kampanya aktif değilse / geçerli (ACTIVE + stok)
+        // ürün kalmazsa section RENDER EDİLMEZ (boş → gizli). Her ürün için GATEWAY-imzalı token
+        // (impression/click ölçümü). "Sponsorlu" etiketi storefront'ta ZORUNLU.
+        const nowMs = now.getTime();
+        const expiresAt = computeSponsoredExpiry(nowMs, DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS);
+        const products = item.candidates
+          .map((c) => {
+            const built = builtById.get(c.productId);
+            if (!built) return null;
+            const sponsoredToken = signSponsoredToken(
+              {
+                v: SPONSORED_TOKEN_VERSION,
+                storeId: store.id,
+                campaignId: c.campaignId,
+                placementId: c.placementId,
+                productId: c.productId,
+                placement: "HOME_SHOWCASE",
+                issuedAt: nowMs,
+                expiresAt,
+              },
+              config.SESSION_SECRET,
+            );
+            return { ...built, sponsoredToken };
+          })
+          .filter((p): p is NonNullable<typeof p> => Boolean(p))
+          .slice(0, item.maxItems);
+        if (products.length === 0) continue;
+        outSections.push({ type: "SPONSORED_SHOWCASE", ...base, layout: item.layout, products });
       } else {
         const products = item.ids
           .map((id) => builtById.get(id))
@@ -5304,6 +5367,10 @@ export function createServer(
   // TODO-160 (ADR-102/103) — Influencer attribution veri erişimi. Checkout snapshot,
   // iade/iptal net-gelir düzeltmesi ve admin/public route'lar aynı örneği paylaşır.
   const influencerData: InfluencerData = createInfluencerData(prisma);
+
+  // TODO-161 (ADR-114…120) — Sponsored Product veri erişimi. Search/home aday çözümü,
+  // public event, checkout attribution, iade düzeltmesi ve admin route'lar aynı örneği paylaşır.
+  const sponsoredData: SponsoredData = createSponsoredData(prisma);
 
   // --- Public storefront cart + checkout (auth YOK, store-scoped) -----------
   // F3B.1: Vitrin cookie'si yalnizca {variantId, quantity} referansi tasir.
@@ -5895,6 +5962,32 @@ export function createServer(
       logger.warn("order attribution snapshot failed", { storeId: store.id, orderId: placed.id });
     }
 
+    // TODO-161 (ADR-118/120) — Sponsorlu ürün attribution SNAPSHOT'i. Grant'ler SUNUCU-otoriter
+    // doğrulanır (gateway-imzalı; istemci campaign/product/revenue'ya güvenilmez); yalnız kampanya
+    // ACTIVE + pencere geçerli + ürün siparişte GERÇEKTEN varsa yazılır. Gelir sipariş SATIRINDAN
+    // türetilir. Influencer attribution'dan BAĞIMSIZ + birlikte var olabilir. HATA checkout'u BOZMAZ.
+    try {
+      const resolvedSponsored = await resolveSponsoredForCheckout(
+        sponsoredData,
+        store.id,
+        body.sponsoredGrants ?? null,
+        config.SESSION_SECRET,
+        Date.now(),
+      );
+      if (resolvedSponsored.length > 0) {
+        await sponsoredData.recordOrderSponsoredAttribution(
+          store.id,
+          placed.id,
+          resolvedSponsored,
+          placed.lines.map((l) => ({ productId: l.productId, quantity: l.quantity, lineTotalMinor: l.totalAmount })),
+          placed.currency,
+          placed.placedAt ?? placed.createdAt,
+        );
+      }
+    } catch {
+      logger.warn("sponsored attribution snapshot failed", { storeId: store.id, orderId: placed.id });
+    }
+
     // F3B.2: Uygun TEST/MOCK provider config varsa odeme yonlendirme objesi
     // uretilir (PaymentAttempt + kisa omurlu access token). Provider yoksa
     // `payment` alani HIC eklenmez → mevcut checkout response shape'i birebir korunur.
@@ -6011,6 +6104,35 @@ export function createServer(
     // TODO-155.1 — Kart görselleri read-model listing snapshot'ından; url runtime'da storageKey'den türetilir
     // (ProductImage sorgusu YOK). storageKey/mediaId DTO'ya sızmaz (tek çıkış: resolveMediaUrl).
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+    // TODO-161 (ADR-114/118) — Sponsorlu adayları çöz + her biri için GATEWAY-imzalı token üret
+    // (impression/click ölçümü + checkout attribution taşıyıcısı). Organik ranking'e DOKUNMAZ.
+    resolveSponsoredSearch: async ({ storeId, queryTokens, limit }) => {
+      const nowDate = new Date();
+      const nowMs = nowDate.getTime();
+      const expiresAt = computeSponsoredExpiry(nowMs, DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS);
+      const candidates = await sponsoredData.resolveSearchCandidates(storeId, {
+        queryTokens,
+        now: nowDate,
+        limit,
+        excludeProductIds: new Set(),
+      });
+      return candidates.map((c) => ({
+        item: c.item,
+        sponsoredToken: signSponsoredToken(
+          {
+            v: SPONSORED_TOKEN_VERSION,
+            storeId,
+            campaignId: c.campaignId,
+            placementId: c.placementId,
+            productId: c.item.productId,
+            placement: "SEARCH_RESULTS",
+            issuedAt: nowMs,
+            expiresAt,
+          },
+          config.SESSION_SECRET,
+        ),
+      }));
+    },
   });
 
   // TODO-156E (ADR-084) — Public autocomplete/discovery ucu. AYRI HAFİF yol (searchProvider.suggest);
@@ -6093,6 +6215,25 @@ export function createServer(
     logger,
     // Public track abuse koruması: IP başına 60 istek / 60 sn (enumeration/DoS yavaşlatma).
     rateLimiter: createSlidingWindowLimiter(60, 60_000),
+  });
+
+  // TODO-161 (ADR-114…120) — Sponsored Product Management admin + public event uçları.
+  registerSponsoredAdminRoutes(app, {
+    config,
+    data: sponsoredData,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+  registerSponsoredPublicRoutes(app, {
+    data: sponsoredData,
+    config,
+    resolvePublicStore,
+    logger,
+    // Public event abuse koruması: IP başına 120 istek / 60 sn (impression/click yoğunluğu).
+    rateLimiter: createSlidingWindowLimiter(120, 60_000),
   });
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
@@ -8067,6 +8208,13 @@ export function createServer(
     } catch {
       logger.warn("attribution cancel reversal failed", { storeId: params.storeId, orderId: order.id });
     }
+    // TODO-161 (ADR-118) — İptal = TAM iade: sponsorlu net geliri de 0'a düşür (ratio=1). Append-only
+    // defter (refundKey=cancel:<orderId>) idempotent; gross geriye dönük BOZULMAZ. Attribution yoksa no-op.
+    try {
+      await sponsoredData.applyRefund(params.storeId, order.id, `cancel:${order.id}`, 1);
+    } catch {
+      logger.warn("sponsored cancel reversal failed", { storeId: params.storeId, orderId: order.id });
+    }
     return serializeOrder(order);
   });
 
@@ -8871,6 +9019,13 @@ export function createServer(
               await influencerData.applyRefund(store.id, order.id, `refund:${body.eventId}`, order.totalAmount);
             } catch {
               logger.warn("attribution refund reversal failed", { storeId: store.id, orderId: order.id });
+            }
+            // TODO-161 (ADR-118) — REFUNDED = tam iade → sponsorlu net geliri de 0 (ratio=1). İki
+            // katmanlı idempotency (webhook eventId dedup + defter refundKey). Gross korunur.
+            try {
+              await sponsoredData.applyRefund(store.id, order.id, `refund:${body.eventId}`, 1);
+            } catch {
+              logger.warn("sponsored refund reversal failed", { storeId: store.id, orderId: order.id });
             }
           }
         }

@@ -73,6 +73,10 @@ export interface SearchListingCard {
   defaultSwatch: ListingSwatch | null;
   /** TODO-155.2 — Kampanya "Sepette" gösterim modeli (PDP ile tutarlı); yoksa null. */
   campaign: SearchCardCampaign | null;
+  /** TODO-161 — Sponsorlu ürün mü ("Sponsorlu" rozeti + ölçüm). */
+  sponsored: boolean;
+  /** TODO-161 — Sponsorlu ise opak GATEWAY-imzalı token (impression/click + attribution); yoksa null. */
+  sponsoredToken: string | null;
 }
 
 /** Public kampanya rozeti (search read-model snapshot) → kart gösterim modeli (saf; istemci hesap yapmaz). */
@@ -144,6 +148,8 @@ export function toListingCard(product: PublicSearchProduct): SearchListingCard {
     extraSwatchCount,
     defaultSwatch,
     campaign: toCardCampaign(product),
+    sponsored: product.sponsored,
+    sponsoredToken: product.sponsoredToken,
   };
 }
 

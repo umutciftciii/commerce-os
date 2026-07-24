@@ -1838,8 +1838,15 @@
 
 ## TODO-161 — Sponsored Product Management (Growth & Monetization)
 
-- Durum: **PLANLANDI — implementasyon YAPILMADI.** Sıra: TODO-160'tan SONRA (ortak event/attribution
-  altyapısından yararlanabilmesi için).
+- Durum: **DONE / KOD TAMAM (2026-07-24) — commit/PR YAPILMADI (git kuralı §18).** Analiz:
+  `docs/analysis/TODO-161-sponsored-product-management.md`. ADR-114…120. Migration
+  `20260724171728_add_sponsored_product_management` (gerçek PG'ye uygulandı + EXPLAIN doğrulandı). 7 zorunlu
+  kural sağlandı: (1) `Sponsorlu` rozeti storefront'ta ZORUNLU, (2) organik ranking DEĞİŞMEZ (enjeksiyon
+  organik-sonrası katman), (3) ayrı slotlar, (4) organik-tekrar dedupe, (5) sunucu-otoriter yoğunluk tavanı
+  (search cap=2/1.sayfa, home maxItems, campaign maxSlots), (6) relevancy eşiği (keyword+ürün-metni /
+  kategori), (7) kampanya bitince iz kalmaz. Ölçüm TODO-160 event/attribution katmanını yeniden kullanır;
+  Influencer domaini AYRI (ADR-120 coexistence). Gate'ler: build/typecheck/lint/test PASS (1321 gateway
+  test). Ertelenen: TD-119…122. Sıra: TODO-160A'dan SONRA; sıradaki = final enterprise UI/design polish.
 - Amaç: Mağaza içi ürün öne çıkarmayı, organik arama kalitesini bozmadan, kullanıcıya açıkça etiketlenmiş
   ve ölçülebilir bir yerleşim (placement) sistemine dönüştürmek.
 - Kapsam: Sponsored Campaign CRUD · sponsorlu ürün seçimi · başlangıç/bitiş tarihi · öncelik ve aktiflik ·

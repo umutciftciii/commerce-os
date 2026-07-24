@@ -22,6 +22,8 @@ function product(overrides: Partial<PublicSearchProduct> = {}): PublicSearchProd
     swatches: [],
     swatchTotalCount: 0,
     campaign: null,
+    sponsored: false,
+    sponsoredToken: null,
     ...overrides,
   };
 }

@@ -226,6 +226,7 @@ export const enStorefront: StorefrontDictionary = {
     categoryNotFoundDescription: "This category may have been removed. Browse all products.",
     discountBadge: "{percent}%",
     outOfStock: "Sold out",
+    sponsoredLabel: "Sponsored",
     swatchMore: "+{count}",
     swatchLabel: "Colour: {label}",
     swatchGroupLabel: "Colour options",

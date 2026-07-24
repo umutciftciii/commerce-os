@@ -27,6 +27,7 @@ import {
   homeHeroConfigSchema,
   homeFeaturedCategoriesConfigSchema,
   homeShowcaseConfigSchema,
+  homeSponsoredShowcaseConfigSchema,
   type HomeSectionType,
 } from "@commerce-os/contracts";
 import { z } from "zod";
@@ -85,6 +86,8 @@ function parseConfigForType(type: HomeSectionType, config: unknown): Record<stri
   try {
     if (type === "HERO_SLIDER") return homeHeroConfigSchema.parse(config ?? {});
     if (type === "FEATURED_CATEGORIES") return homeFeaturedCategoriesConfigSchema.parse(config ?? {});
+    // TODO-161 — SPONSORED_SHOWCASE: yalnız sunum (layout + maxItems); içerik kampanyalardan gelir.
+    if (type === "SPONSORED_SHOWCASE") return homeSponsoredShowcaseConfigSchema.parse(config ?? {});
     // PRODUCT_SHOWCASE: source zorunlu; verilmezse MANUAL default.
     return homeShowcaseConfigSchema.parse(config ?? { source: { kind: "MANUAL" } });
   } catch {

@@ -3823,3 +3823,95 @@ OrderLine snapshot'larını DEĞİŞTİRMEZ. Salt-okuma **audit** komutu boş/du
 barcode-eşit SKU'ları sınıflar + deterministik öneri üretir. Manuel create/regenerate SKU değişimleri de
 generic AuditLog'a (field-level metadata) yazılır. **Import** sistemi bu fazda YOK (greenfield); saf
 generator + collision servisi import-hazır tasarlandı (bkz. TECHNICAL_DEBT TD-117).
+
+## ADR-114 — Sponsored/organic izolasyonu + ayrı domain modeli (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-091 (büyüme sınırı), ADR-079
+(search read-model), ADR-086 (Home Experience) · **Kapsar:** TODO-161
+
+**Karar.** Sponsored Product Management AYRI domain modeli olarak kurulur (`SponsoredProductCampaign`,
+`SponsoredProductPlacement`, `SponsoredTargetKeyword`, `SponsoredProductEvent`,
+`OrderSponsoredAttribution` + `OrderSponsoredAttributionRefund`); Influencer domainiyle BİRLEŞMEZ
+(ADR-091 karar 1). Ölçüm/attribution KATMANI (grant sign/verify, KVKK-hash, bot/dedupe, net-gelir/refund
+defteri) TODO-160 `tracking-core`'undan yeniden kullanılır (kopyalanmaz). Sponsorlu enjeksiyon organik
+`SearchResult` ÜRETİLDİKTEN SONRA ayrı bir katmanda yapılır ([search/routes.ts]); organik `ORDER BY`/
+ranking (search-query.ts) HİÇ değişmez (ADR-079 read-model-only + ADR-091 karar 5). Home entegrasyonu
+mevcut polimorfik `HomeSection` tipini genişletir (`type="SPONSORED_SHOWCASE"`, migration YOK); yeni home
+engine üretilmez. Aday uygunluğu + relevancy + kart projeksiyonu `ProductSearchDocument` read-model'i
+üzerinden çözülür → pasif/arşivli/stok-dışı ürün otomatik elenir (ADR-116). Enjeksiyon best-effort:
+sponsorlu çözüm hatası organik aramayı/ana sayfayı BOZMAZ.
+
+## ADR-115 — Slot enjeksiyon politikası + pagination semantiği (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114
+
+**Karar.** Search: sponsorlu enjeksiyon YALNIZ 1. sayfada + YALNIZ keyword aramasında; sayfa başına sabit
+tavan `SPONSORED_SEARCH_MAX_SLOTS=2`; ilk sponsorlu slot `SPONSORED_SEARCH_LEAD_ORGANIC=1` organik
+kayıttan SONRA (sponsorlu üst sıraları kaplamaz). Kategori-only gezinme (keyword yok) sponsorlu
+tetiklemez (Category-PLP ileri faz). Home: `SPONSORED_SHOWCASE` section `config.maxItems` (tavan
+`SPONSORED_HOME_MAX_SLOTS=12`). Kampanya bazlı: `campaign.maxSlots` tek sonuç kümesinde azami ürün.
+**Pagination:** sponsorlu item'lar organik `pagination.totalItems`'a DAHİL DEĞİL — üst-katman overlay;
+organik pagination organik sonuç sayısı üzerinden kalır (istemci sonsuz-kaydırmada tutarlı). Slot
+enjeksiyonu SAF `injectSponsoredSlots` (deterministik, birim-testli).
+
+## ADR-116 — Relevancy eşiği + uygunluk (stok/pasif eleme) (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114, ADR-079
+
+**Karar.** Sponsor önceliği/ücreti İLGİSİZ ürünü gösteremez. Query hedeflemesinde aday: (1) kampanyanın
+normalize hedef anahtar kelimesi aranan token'la eşleşmeli VE (2) aday ürünün read-model `searchText`'i
+o token'ı içermeli. Kategori hedeflemesinde: aday ürünün `primaryCategoryId`'si kampanyanın
+`targetCategoryId` alt-ağacında (recursive CTE). Query yoksa yalnız kategori-hedefli kampanyalar geçer.
+Uygunluk: aday `ProductSearchDocument`'te `status=ACTIVE` VE `hasStock=true` olmayan ürün OTOMATİK elenir
+(read-model zaten yalnız ACTIVE indeksler; stok InventoryEngine türevidir). Kampanya bitince (pencere/
+status) hiçbir sponsorlu iz kalmaz — ürün organik davranışına döner (kalıcı alan yazılmaz). MVP'de
+bidding/ML ranking YOK. Relevancy SAF `matchesSponsoredRelevancy` (birim-testli).
+
+## ADR-117 — Dedupe (organik-tekrar + kampanyalar-arası) (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114
+
+**Karar.** Aynı ürün sponsorlu ve organik olarak İKİ KEZ gösterilmez: sponsorlu enjeksiyondan sonra aynı
+productId organik listede varsa organik kopya DÜŞÜRÜLÜR (sponsorlu sürüm `Sponsorlu` rozetiyle kalır).
+Bir ürün birden çok kampanyada sponsorluysa deterministik sıra (`priority DESC, createdAt ASC, id ASC`)
+sonrası ürün-başına EN YÜKSEK öncelikli kampanya kazanır (tek girdi; SAF `dedupeSponsoredByProduct`).
+
+## ADR-118 — Event/attribution (imzalı token + sunucu-otoriter order/refund) (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-102/103/104 (influencer attribution)
+
+**Karar.** Sunucu her sponsorlu ürünü çözerken opak GATEWAY-imzalı `sponsoredToken` üretir
+(`{v,storeId,campaignId,placementId,productId,placement,issuedAt,expiresAt}`, HMAC-SHA256, SESSION_SECRET).
+Impression/click/cart event'i public uçtan (`POST /public/stores/:slug/sponsored/events`) bu token'la
+gelir; gateway imzayı + storeId + pencereyi doğrular, gömülü kimlikleri kullanır — **istemci campaign/
+product/priority BELİRLEYEMEZ**. Impression yalnız gerçekten render edilen üründe (storefront
+IntersectionObserver). Bot UA → `isBot=true` (audit'e yazılır, metrik paydasından DIŞLANIR); repeat
+dedupe: aynı `(visitorIdHash, placementId, type)` 30 dk içinde yeni satır AÇMAZ. ORDER/REFUND event
+enum'una KONMAZ (funnel tablosu yalnız impression/click/cart): sipariş/iade SUNUCU-OTORİTER —
+`OrderSponsoredAttribution` yalnız gerçek checkout transaction'ının yan etkisidir, gelir sipariş
+SATIRINDAN türetilir (client revenue/orderId belirleyemez), grant checkout gövdesinde doğrulanır +
+ürünün siparişte GERÇEKTEN var olduğu kontrol edilir. Refund idempotent: append-only
+`OrderSponsoredAttributionRefund` (`@@unique([orderSponsoredAttributionId, refundKey])`); iptal → tam
+reversal (`cancel:<orderId>`), webhook REFUNDED → reversal (`refund:<eventId>`); net toplamdan türetilir,
+gross geriye dönük BOZULMAZ. Public event/track abuse: IP başına sliding-window rate-limit.
+
+## ADR-119 — Kampanya öncelik + timezone (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114, ADR-047 (snapshot)
+
+**Karar.** Çakışan kampanyalarda deterministik sıra: `priority DESC → createdAt ASC → id ASC →
+placementPriority DESC → position ASC` (stabil, eşitlik kırıcı). Aktiflik penceresi `startsAt/endsAt`
+UTC instant (`DateTime`) olarak saklanır; kontrol tamamen UTC `now` karşılaştırmasıdır (timezone-bağımsız,
+doğru). Store'da timezone kolonu YOK; kampanyada `timezone String @default("Europe/Istanbul")` yalnız
+admin GÖRÜNTÜ/DÜZENLEME bağlamıdır (yerel gün → UTC instant), aktiflik mantığını ETKİLEMEZ.
+
+## ADR-120 — Influencer + sponsored coexistence (TODO-161)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-102 (influencer), ADR-118
+
+**Karar.** İki attribution AYNI siparişte BİRLİKTE bulunabilir ve BİRBİRİNİ SİLMEZ. Influencer (TODO-160)
+TÜM siparişi tek influencer'a atfeder (`OrderAttribution`, sipariş başına 1). Sponsored (TODO-161)
+siparişin BELİRLİ ÜRÜN SATIRLARINI kampanyalara atfeder (`OrderSponsoredAttribution`, sipariş başına N —
+ürün başına 1). Ayrı tablolar, ayrı grant'ler (ayrı checkout gövde alanları: `attributionGrant` vs
+`sponsoredGrants[]`), ayrı iade defterleri. Bir sipariş hem "influencer X'ten geldi" hem "içindeki Y
+ürünü sponsorlu kampanya Z'den tıklandı" olabilir; çakışma yok, sessiz silme yok.

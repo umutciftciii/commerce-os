@@ -136,6 +136,12 @@ import type {
   TrackingLinkCreateRequest,
   TrackingLinkUpdateRequest,
   InfluencerAnalyticsResponse,
+  // TODO-161 — Sponsored Product Management (backend/contracts hazır; BFF proxy).
+  SponsoredCampaignListResponse,
+  SponsoredCampaignDetailResponse,
+  SponsoredCampaignCreateRequest,
+  SponsoredCampaignUpdateRequest,
+  SponsoredAnalyticsResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -785,6 +791,43 @@ export const storeApi = {
     let response: Response;
     try {
       response = await fetch(`/api/influencer-analytics/export${listQueryString(query)}`);
+    } catch {
+      throw new UiError("NETWORK");
+    }
+    if (!response.ok) {
+      let code = "UNKNOWN";
+      try {
+        const body = (await response.json()) as { error?: { code?: unknown } };
+        if (typeof body.error?.code === "string") code = body.error.code;
+      } catch {
+        // Gövde JSON değil — genel UNKNOWN kodu kullanılır.
+      }
+      throw new UiError(code);
+    }
+    return response.text();
+  },
+
+  // Sponsored Products (TODO-161) — sponsorlu kampanya CRUD + performans dashboard + CSV.
+  listSponsoredCampaigns: (query?: AdminListRequestQuery) =>
+    call<SponsoredCampaignListResponse>(`/api/sponsored-products${listQueryString(query)}`),
+  getSponsoredCampaign: (id: string) =>
+    call<SponsoredCampaignDetailResponse>(`/api/sponsored-products/${id}`),
+  createSponsoredCampaign: (input: SponsoredCampaignCreateRequest) =>
+    mutatingCall<SponsoredCampaignDetailResponse>("/api/sponsored-products", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateSponsoredCampaign: (id: string, input: SponsoredCampaignUpdateRequest) =>
+    mutatingCall<SponsoredCampaignDetailResponse>(`/api/sponsored-products/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  getSponsoredAnalytics: (query?: AdminListRequestQuery) =>
+    call<SponsoredAnalyticsResponse>(`/api/sponsored-analytics${listQueryString(query)}`),
+  exportSponsoredAnalytics: async (query?: AdminListRequestQuery): Promise<string> => {
+    let response: Response;
+    try {
+      response = await fetch(`/api/sponsored-analytics/export${listQueryString(query)}`);
     } catch {
       throw new UiError("NETWORK");
     }
