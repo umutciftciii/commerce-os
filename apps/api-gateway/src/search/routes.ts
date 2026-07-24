@@ -43,13 +43,16 @@ export interface PublicSearchRoutesDeps {
    */
   toPublicMediaUrl: (storageKey: string) => string;
   /**
-   * TODO-161 (ADR-114/115) — Sponsorlu aday çözümü (opsiyonel; yoksa saf organik). Organik sonuç
+   * TODO-161 (ADR-114/115/116) — Sponsorlu aday çözümü (opsiyonel; yoksa saf organik). Organik sonuç
    * ÜRETİLDİKTEN SONRA ayrı katmanda çağrılır; organik sıralamayı/ranking'i DEĞİŞTİRMEZ. Token GATEWAY
-   * imzalıdır (impression/click ölçümü). Yalnız 1. sayfa + keyword araması için çağrılır.
+   * imzalıdır (impression/click ölçümü). Yalnız 1. sayfada; keyword araması VEYA kategori gezinme
+   * (categorySlug) tetikler — keyword'de ürün-metni relevancy, kategori gezinmede kampanya hedef-kategori
+   * eşleşmesi (subtree) aranır (TD-120 kapanışı).
    */
   resolveSponsoredSearch?: (input: {
     storeId: string;
     queryTokens: string[];
+    categorySlug: string | null;
     limit: number;
   }) => Promise<SponsoredSearchResolved[]>;
 }
@@ -145,17 +148,19 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
 
     let products = result.items.map((item) => toPublicProduct(item, false, null));
 
-    // TODO-161 (ADR-114/115/117) — Sponsorlu slot enjeksiyonu. Organik sonuç YUKARIDA üretildi ve
-    // BOZULMADAN kaldı (ADR-091 karar 5). Yalnız 1. sayfa + keyword araması. Aynı ürün organik listede
-    // varsa organik kopya DÜŞÜRÜLÜR (sponsorlu sürüm rozetle kalır) → tek gösterim (ADR-117). Sponsorlu
-    // item'lar organik pagination.totalItems'a DAHİL DEĞİL (üst-katman overlay; ADR-115 belgelendi).
+    // TODO-161 (ADR-114/115/116/117) — Sponsorlu slot enjeksiyonu. Organik sonuç YUKARIDA üretildi ve
+    // BOZULMADAN kaldı (ADR-091 karar 5). Yalnız 1. sayfa; keyword araması VEYA kategori gezinme tetikler.
+    // Aynı ürün organik listede varsa organik kopya DÜŞÜRÜLÜR (sponsorlu sürüm rozetle kalır) → tek gösterim
+    // (ADR-117). Sponsorlu item'lar organik pagination.totalItems'a DAHİL DEĞİL (üst-katman overlay; ADR-115).
     if (deps.resolveSponsoredSearch && result.pagination.page === 1) {
       const queryTokens = tokenizeQuery(query.q ?? null);
-      if (queryTokens.length > 0) {
+      const categorySlug = query.categorySlug ?? null;
+      if (queryTokens.length > 0 || categorySlug) {
         try {
           const sponsored = await deps.resolveSponsoredSearch({
             storeId: store.id,
             queryTokens,
+            categorySlug,
             limit: SPONSORED_SEARCH_MAX_SLOTS,
           });
           if (sponsored.length > 0) {

@@ -101,6 +101,11 @@ export function SponsoredCampaignForm({
     [keywordsText],
   );
 
+  // placement create'te seçilir + sonrasında IMMUTABLE; edit'te mevcut kampanyanınki geçerlidir.
+  const effectivePlacement = editing ? editing.placement : placement;
+  // Hedefleme (keyword + kategori) YALNIZ SEARCH_RESULTS için anlamlı (ADR-116); HOME_SHOWCASE'te YOK SAYILIR.
+  const showTargeting = effectivePlacement === "SEARCH_RESULTS";
+
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!name.trim()) {
@@ -118,9 +123,10 @@ export function SponsoredCampaignForm({
         endsAt: toIsoOrNull(endsAt),
         priority: Number(priority) || 0,
         maxSlots: Number(maxSlots) || 1,
-        targetCategoryId: categoryIds[0] ?? null,
+        // HOME_SHOWCASE'te hedefleme gönderilmez (temiz veri; kafa karışıklığı yok).
+        targetCategoryId: showTargeting ? categoryIds[0] ?? null : null,
         productIds,
-        keywords: parsedKeywords,
+        keywords: showTargeting ? parsedKeywords : [],
       };
       if (editing) {
         const payload: SponsoredCampaignUpdateRequest = shared;
@@ -133,11 +139,14 @@ export function SponsoredCampaignForm({
       }
     } catch (cause) {
       setError(messageForError(cause, locale));
+    } finally {
+      // Başarı (edit) sonrası form açık kalır → buton "Kaydediliyor..."te TAKILMAMASI için busy sıfırlanır.
+      // Create'te onSaved navigasyonu unmount ettiğinden bu no-op (React 18 güvenli).
       setBusy(false);
     }
   };
 
-  const showKeywords = placement === "SEARCH_RESULTS";
+  const showKeywords = showTargeting;
 
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -199,20 +208,24 @@ export function SponsoredCampaignForm({
       />
       <p className="text-xs text-white/40">{labels.productsHint}</p>
 
-      <EntitySelectorField
-        label={labels.targetCategory}
-        multiple={false}
-        value={categoryIds}
-        onChange={setCategoryIds}
-        source={categorySelector.source}
-        presenter={categorySelector.presenter}
-        labels={categorySelector.labels}
-        toMessage={toMessage}
-        modalTitle={categorySelector.title}
-        modalDescription={categorySelector.description}
-        disabled={busy}
-      />
-      <p className="text-xs text-white/40">{labels.targetCategoryHint}</p>
+      {showTargeting ? (
+        <>
+          <EntitySelectorField
+            label={labels.targetCategory}
+            multiple={false}
+            value={categoryIds}
+            onChange={setCategoryIds}
+            source={categorySelector.source}
+            presenter={categorySelector.presenter}
+            labels={categorySelector.labels}
+            toMessage={toMessage}
+            modalTitle={categorySelector.title}
+            modalDescription={categorySelector.description}
+            disabled={busy}
+          />
+          <p className="text-xs text-white/40">{labels.targetCategoryHint}</p>
+        </>
+      ) : null}
 
       {showKeywords ? (
         <div>

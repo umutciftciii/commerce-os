@@ -98,38 +98,37 @@ export interface SponsoredRelevancyCampaign {
 }
 
 /**
- * Sponsorlu aday, arama sonucuna girmeye HAK KAZANIR mı? (ADR-116)
+ * Sponsorlu aday, KEYWORD aramasına girmeye HAK KAZANIR mı? (ADR-116)
  *
- * - Query varsa: kampanyanın hedef bir anahtar kelimesi aranan token'larla eşleşmeli VE aday
- *   ürünün metni o token'ı içermeli (yalnız sponsor önceliği ilgisiz ürünü SOKAMAZ).
- * - Query yoksa (kategori gezinme / boş arama): yalnız kategori-hedefli kampanyalar geçer ve
- *   aday ürün hedef kategori alt-ağacında olmalı.
- * - Query + kategori birlikte hedefliyse ikisinden BİRİ yeterli (OR), ama query eşleşmesi yine
- *   ürün-metni doğrulamasına tabidir.
+ * Bağlamlar AYRIDIR (yanlış-pozitif önleme; "ilgisiz keyword'de gösterme"):
+ * - KEYWORD araması: kampanyanın hedef bir anahtar kelimesi aranan token'larla eşleşmeli VE aday
+ *   ürünün metni o token'ı içermeli. Kategori hedefi keyword aramasında FALLBACK DEĞİLDİR (bir
+ *   telefon-kategori kampanyası "kılıf" aramasında yalnız kategoride olduğu için gösterilmez).
+ * - KATEGORİ gezinme (keyword yok): kampanya-seviyesi hedef-kategori eşleşmesi `loadActiveCandidates`
+ *   içinde ayrı ele alınır (bu fonksiyon çağrılmaz); yine de query boşsa yalnız kategori hedefi geçer.
  */
 export function matchesSponsoredRelevancy(
   queryTokens: readonly string[],
   doc: SponsoredRelevancyDoc,
   campaign: SponsoredRelevancyCampaign,
 ): boolean {
-  const docText = ` ${normalizeSearchText(doc.searchText)} `;
-  const categoryHit =
-    campaign.targetCategoryIds !== null &&
-    doc.primaryCategoryId !== null &&
-    campaign.targetCategoryIds.has(doc.primaryCategoryId);
-
   if (queryTokens.length === 0) {
-    // Query yok → yalnız kategori hedefi geçerli.
-    return categoryHit;
+    // Query yok → yalnız kategori hedefi geçerli (aday ürün hedef kategori alt-ağacında).
+    return (
+      campaign.targetCategoryIds !== null &&
+      doc.primaryCategoryId !== null &&
+      campaign.targetCategoryIds.has(doc.primaryCategoryId)
+    );
   }
 
-  // Query var → kampanya kelimesi VE ürün metni token'ı içermeli.
+  // Query var → YALNIZ kampanya kelimesi VE ürün metni token'ı eşleşmesi (kategori fallback YOK).
+  const docText = ` ${normalizeSearchText(doc.searchText)} `;
   const keywordSet = new Set(campaign.keywords.filter(Boolean));
   for (const token of queryTokens) {
     if (!keywordSet.has(token)) continue;
     if (docText.includes(` ${token} `)) return true;
   }
-  return categoryHit;
+  return false;
 }
 
 // ── Deterministik öncelik sırası (ADR-119) ──────────────────────────────────────

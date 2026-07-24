@@ -33,7 +33,7 @@ type LoadState =
   | { status: "ready"; sections: HomeSection[] };
 type Editor = { mode: "create" } | { mode: "edit"; section: HomeSection } | null;
 
-const SECTION_TYPES: HomeSectionType[] = ["HERO_SLIDER", "FEATURED_CATEGORIES", "PRODUCT_SHOWCASE"];
+const SECTION_TYPES: HomeSectionType[] = ["HERO_SLIDER", "FEATURED_CATEGORIES", "PRODUCT_SHOWCASE", "SPONSORED_SHOWCASE"];
 
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
@@ -325,6 +325,11 @@ function SectionEditor({
       return Number.isFinite(ms) && ms > 0 ? { autoplayMs: ms } : {};
     }
     if (type === "FEATURED_CATEGORIES") return {};
+    if (type === "SPONSORED_SHOWCASE") {
+      // İçerik AKTİF sponsorlu kampanyalardan (HOME_SHOWCASE) gelir; section yalnız sunum + slot tavanı.
+      const maxS = Number.parseInt(maxItems, 10);
+      return { layout, maxItems: Number.isFinite(maxS) ? Math.min(maxS, 12) : 8 };
+    }
     // PRODUCT_SHOWCASE
     const source =
       sourceKind === "MANUAL"
@@ -443,6 +448,31 @@ function SectionEditor({
             onChange={(event) => setAutoplayMs(event.target.value)}
             disabled={saving}
           />
+        ) : null}
+
+        {type === "SPONSORED_SHOWCASE" ? (
+          <>
+            <Alert tone="info">{f.sponsoredHint}</Alert>
+            <Select
+              id="home-layout-sp"
+              label={f.layoutLabel}
+              value={layout}
+              onChange={(e) => setLayout(e.target.value)}
+              disabled={saving}
+              options={[
+                { value: "GRID", label: f.layoutGrid },
+                { value: "CAROUSEL", label: f.layoutCarousel },
+              ]}
+            />
+            <Input
+              id="home-max-sp"
+              type="number"
+              label={f.maxItemsLabel}
+              value={maxItems}
+              onChange={(event) => setMaxItems(event.target.value)}
+              disabled={saving}
+            />
+          </>
         ) : null}
 
         {type === "PRODUCT_SHOWCASE" ? (

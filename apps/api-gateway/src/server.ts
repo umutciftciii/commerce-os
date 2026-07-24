@@ -6106,12 +6106,13 @@ export function createServer(
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
     // TODO-161 (ADR-114/118) — Sponsorlu adayları çöz + her biri için GATEWAY-imzalı token üret
     // (impression/click ölçümü + checkout attribution taşıyıcısı). Organik ranking'e DOKUNMAZ.
-    resolveSponsoredSearch: async ({ storeId, queryTokens, limit }) => {
+    resolveSponsoredSearch: async ({ storeId, queryTokens, categorySlug, limit }) => {
       const nowDate = new Date();
       const nowMs = nowDate.getTime();
       const expiresAt = computeSponsoredExpiry(nowMs, DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS);
       const candidates = await sponsoredData.resolveSearchCandidates(storeId, {
         queryTokens,
+        categorySlug,
         now: nowDate,
         limit,
         excludeProductIds: new Set(),
