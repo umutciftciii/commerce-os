@@ -17,6 +17,7 @@ const tr = {
     HERO_SLIDER: "Hero Slider",
     FEATURED_CATEGORIES: "Öne Çıkan Kategoriler",
     PRODUCT_SHOWCASE: "Ürün Showcase",
+    SPONSORED_SHOWCASE: "Sponsorlu Vitrin",
   } as Record<string, string>,
   table: { type: "Tip", title: "Başlık", visibility: "Görünürlük", status: "Durum", order: "Sıra", actions: "İşlemler" },
   enabled: "Aktif",
@@ -63,6 +64,8 @@ const tr = {
     layoutCarousel: "Carousel",
     layoutGrid: "Grid",
     maxItemsLabel: "Maksimum ürün",
+    sponsoredHint:
+      "İçerik AKTİF sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) otomatik gelir. Ürün seçimi burada YAPILMAZ — Sponsorlu Ürünler modülünden yönetilir. Aktif kampanya/ürün yoksa bu bölüm gizlenir.",
     sourceLabel: "Kaynak",
     sourceManual: "Manuel (ürün seç)",
     sourceDynamic: "Dinamik (kural)",
@@ -135,6 +138,7 @@ const en: typeof tr = {
     HERO_SLIDER: "Hero Slider",
     FEATURED_CATEGORIES: "Featured Categories",
     PRODUCT_SHOWCASE: "Product Showcase",
+    SPONSORED_SHOWCASE: "Sponsored Showcase",
   },
   table: { type: "Type", title: "Title", visibility: "Visibility", status: "Status", order: "Order", actions: "Actions" },
   enabled: "Enabled",
@@ -181,6 +185,8 @@ const en: typeof tr = {
     layoutCarousel: "Carousel",
     layoutGrid: "Grid",
     maxItemsLabel: "Max products",
+    sponsoredHint:
+      "Content comes automatically from ACTIVE sponsored campaigns (placement: Home showcase). Products are not selected here — manage them in the Sponsored Products module. If no active campaign/products, this section is hidden.",
     sourceLabel: "Source",
     sourceManual: "Manual (pick products)",
     sourceDynamic: "Dynamic (rule)",

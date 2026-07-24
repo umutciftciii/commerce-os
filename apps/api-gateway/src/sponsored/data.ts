@@ -142,7 +142,7 @@ export interface SponsoredData {
 
   resolveSearchCandidates(
     storeId: string,
-    input: { queryTokens: string[]; now: Date; limit: number; excludeProductIds: Set<string> },
+    input: { queryTokens: string[]; categorySlug: string | null; now: Date; limit: number; excludeProductIds: Set<string> },
   ): Promise<ResolvedSponsoredCandidate[]>;
   resolveHomeCandidates(
     storeId: string,
@@ -330,7 +330,14 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
     storeId: string,
     placement: SponsoredPlacementType,
     now: Date,
-    opts: { queryTokens: string[]; limit: number; excludeProductIds: Set<string>; requireRelevancy: boolean },
+    opts: {
+      queryTokens: string[];
+      limit: number;
+      excludeProductIds: Set<string>;
+      // "keyword": ürün-metni relevancy · "category": kampanya hedef-kategori subtree eşleşmesi · "home": eşik yok.
+      mode: "keyword" | "category" | "home";
+      browsedCategoryId: string | null;
+    },
   ): Promise<ResolvedSponsoredCandidate[]> {
     const campaigns = await db.sponsoredProductCampaign.findMany({
       where: { storeId, placement, ...activeWindowWhere(now) },
@@ -370,13 +377,20 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
     for (const c of campaigns) {
       const keywords = c.keywords.map((k) => k.keyword);
       const targetCategoryIds = c.targetCategoryId ? subtreeCache.get(c.targetCategoryId) ?? null : null;
+      // Kategori gezinme modu: kampanya YALNIZ hedef-kategorisi gezilen kategoriyi (subtree) kapsıyorsa
+      // uygundur (ADR-116). Aksi halde bu kampanya tümüyle atlanır (ilgisiz kategori gösterilmez).
+      if (opts.mode === "category") {
+        if (!opts.browsedCategoryId || !targetCategoryIds || !targetCategoryIds.has(opts.browsedCategoryId)) {
+          continue;
+        }
+      }
       let used = 0;
       for (const p of c.placements) {
         if (used >= c.maxSlots) break;
         if (opts.excludeProductIds.has(p.productId)) continue;
         const doc = docById.get(p.productId);
         if (!doc) continue; // pasif/stok-dışı → elendi
-        if (opts.requireRelevancy) {
+        if (opts.mode === "keyword") {
           const ok = matchesSponsoredRelevancy(opts.queryTokens, { searchText: doc.searchText, primaryCategoryId: doc.primaryCategoryId }, { keywords, targetCategoryIds });
           if (!ok) continue;
         }
@@ -588,12 +602,23 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
       });
     },
 
-    resolveSearchCandidates(storeId, input) {
+    async resolveSearchCandidates(storeId, input) {
+      // Keyword araması → ürün-metni relevancy; keyword yok + kategori gezinme → kampanya hedef-kategori
+      // subtree eşleşmesi (TD-120 kapanışı). İkisi de yoksa çağrılmaz (route gate'i).
+      let browsedCategoryId: string | null = null;
+      let mode: "keyword" | "category" = "keyword";
+      if (input.queryTokens.length === 0 && input.categorySlug) {
+        const cat = await db.productCategory.findFirst({ where: { storeId, slug: input.categorySlug }, select: { id: true } });
+        if (!cat) return []; // bilinmeyen kategori → sponsorlu yok
+        browsedCategoryId = cat.id;
+        mode = "category";
+      }
       return loadActiveCandidates(storeId, "SEARCH_RESULTS", input.now, {
         queryTokens: input.queryTokens,
         limit: input.limit,
         excludeProductIds: input.excludeProductIds,
-        requireRelevancy: true,
+        mode,
+        browsedCategoryId,
       });
     },
 
@@ -602,7 +627,8 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
         queryTokens: [],
         limit: input.limit,
         excludeProductIds: new Set(),
-        requireRelevancy: false,
+        mode: "home",
+        browsedCategoryId: null,
       });
     },
 

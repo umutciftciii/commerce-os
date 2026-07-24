@@ -1111,13 +1111,20 @@ Eklenince: kampanyada budget/pricing alanları, harcama sayacı + circuit breake
 (priority yerine bid), fatura entegrasyonu. `ROAS` alanı dashboard'da HAZIR (bütçe olmadığı için
 hesaplanmaz).
 
-## TD-120 — Sponsored: ek placement tipleri (Category-PLP / PDP / Cart / Checkout upsell) (TODO-161)
+## TD-120 — Sponsored: ek placement tipleri (PDP / Cart / Checkout upsell) (TODO-161)
 
-**Durum:** Ertelendi. MVP yalnız `HOME_SHOWCASE` + `SEARCH_RESULTS` (keyword). `SponsoredPlacementType`
-enum ileriye açık; yeni placement = servis dalı (migration YOK). Kategori-only gezinme (keyword'süz PLP)
-sponsorlu enjeksiyonu şu an TETİKLEMEZ (yalnız keyword araması) — Category-PLP injection ayrı bir
-placement + resolve dalı ister. PDP recommendation, Cart/Checkout upsell benzer şekilde ayrı yerleşim
-yüzeyleri + ölçüm dalları gerektirir.
+**Durum:** KISMEN KAPANDI (follow-up). **Category-PLP artık DESTEKLENİYOR:** kategori gezinme
+(`/products?category=…` → search endpoint, keyword'süz) `SEARCH_RESULTS` yerleşimli + hedef-kategorisi
+gezilen kategoriyi (subtree) kapsayan kampanyaları enjekte eder. Keyword bağlamı ile kategori bağlamı
+AYRIDIR (keyword aramasında kategori-fallback YOK → ilgisiz keyword'de gösterilmez). **Kalan (ertelendi):**
+PDP recommendation, Cart/Checkout upsell — ayrı yerleşim yüzeyleri + ölçüm dalları gerektirir.
+`SponsoredPlacementType` enum ileriye açık; yeni placement = servis dalı (migration YOK).
+
+**Follow-up düzeltmeleri (aynı fix seti):** (1) sponsorlu kampanya düzenleme formunda başarı sonrası
+"Kaydediliyor…" butonunun takılması giderildi (busy `finally`'de sıfırlanır). (2) Home Experience yönetim
+ekranına `SPONSORED_SHOWCASE` bölüm tipi eklendi — admin artık ana sayfaya sponsorlu vitrin bölümü
+ekleyebilir (önceden HOME_SHOWCASE kampanyası hiç render olmuyordu). (3) Hedefleme (keyword + kategori)
+alanları formda YALNIZ `SEARCH_RESULTS` yerleşiminde gösterilir (HOME_SHOWCASE'te gizli — kafa karışıklığı yok).
 
 ## TD-121 — Sponsored: fraud/bot skorlama + retention purge (TODO-161)
 

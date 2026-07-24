@@ -101,6 +101,13 @@ export default function HomeSectionDetailPage() {
       {section?.type === "PRODUCT_SHOWCASE" ? (
         <ShowcaseManager section={section} locale={locale} onNotice={setNotice} />
       ) : null}
+      {section?.type === "SPONSORED_SHOWCASE" ? (
+        <Alert tone="info">
+          {locale === "en"
+            ? "This is a sponsored showcase surface. Its products come from active sponsored campaigns (placement: Home showcase) — manage them in the Sponsored Products module. No products are curated here."
+            : "Bu bir sponsorlu vitrin yüzeyidir. Ürünleri aktif sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) gelir — Sponsorlu Ürünler modülünden yönetin. Burada ürün seçimi yapılmaz."}
+        </Alert>
+      ) : null}
     </>
   );
 }

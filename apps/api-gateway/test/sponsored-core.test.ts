@@ -70,6 +70,13 @@ describe("matchesSponsoredRelevancy (ADR-116)", () => {
     ).toBe(false);
   });
 
+  it("keyword aramasında kategori hedefi FALLBACK DEĞİL (ilgisiz keyword'de gösterme)", () => {
+    // Kampanya kategori hedefli ama keyword YOK; keyword araması → kategori fallback ile GÖSTERİLMEZ.
+    expect(
+      matchesSponsoredRelevancy(["kilif"], doc, { keywords: [], targetCategoryIds: new Set(["cat-shoes"]) }),
+    ).toBe(false);
+  });
+
   it("query yok → yalnız kategori hedefi geçerli", () => {
     expect(
       matchesSponsoredRelevancy([], doc, { keywords: [], targetCategoryIds: new Set(["cat-shoes"]) }),
