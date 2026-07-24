@@ -521,7 +521,10 @@ function PaymentSuccess({
               <Row label={s.transactionLabel} value={payment.providerReference} mono />
             ) : null}
             {payment.paidAt ? (
-              <Row label={s.paidAtLabel} value={new Date(payment.paidAt).toLocaleString("tr-TR")} />
+              <Row
+                label={s.paidAtLabel}
+                value={new Date(payment.paidAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}
+              />
             ) : null}
             {payment.mode === "TEST" ? (
               <p className="mt-2 text-xs text-ink-subtle">{s.testModeNote}</p>

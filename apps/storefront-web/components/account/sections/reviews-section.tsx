@@ -70,7 +70,11 @@ export function ReviewsSection({
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-900">{item.productTitle}</p>
                   <p className="text-xs text-slate-500">
-                    {format(r.purchasedAt, { date: new Date(item.purchasedAt).toLocaleDateString(locale) })}
+                    {format(r.purchasedAt, {
+                      date: new Date(item.purchasedAt).toLocaleDateString(locale, {
+                        timeZone: "Europe/Istanbul",
+                      }),
+                    })}
                   </p>
                 </div>
                 <Link
@@ -166,7 +170,7 @@ function MyReviewItem({
           <div className="mt-1 flex items-center gap-2">
             <Stars rating={review.rating} />
             <span className="text-xs text-slate-400">
-              {new Date(review.createdAt).toLocaleDateString(locale)}
+              {new Date(review.createdAt).toLocaleDateString(locale, { timeZone: "Europe/Istanbul" })}
             </span>
           </div>
         </div>

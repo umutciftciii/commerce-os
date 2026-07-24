@@ -288,7 +288,11 @@ function ReviewItem({
   const [count, setCount] = useState(review.helpfulCount);
   const [pending, setPending] = useState(false);
   const author = review.authorName.trim() || r.anonymous;
-  const dateText = new Date(review.publishedAt ?? review.createdAt).toLocaleDateString(locale);
+  // Saat dilimi SABIT: SSR (UTC) ile istemci (yerel) ayni takvim gununu uretsin;
+  // aksi halde gun sinirindaki tarihlerde hydration uyusmazligi olur.
+  const dateText = new Date(review.publishedAt ?? review.createdAt).toLocaleDateString(locale, {
+    timeZone: "Europe/Istanbul",
+  });
 
   const onHelpful = async () => {
     if (pending) return;
