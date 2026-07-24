@@ -3706,3 +3706,43 @@ tutulur. TODO-161 (Sponsored Product Management) bu çekirdeği TÜKETECEK; infl
 modelleri AYRI kalır (tek "Campaign" süper-tipi zorlanmaz). TODO-161 kodu bu görevde YAZILMADI.
 
 **Sonuç.** İki büyüme modülü ölçüm katmanını paylaşır, domain'de ayrışır (ADR-091 uygulaması).
+
+## ADR-108 — Yıkıcı demo seed güvenlik politikası & enterprise-demo recovery (TODO-159G)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-085 (enterprise dataset), TD-116 (olay)
+
+**Bağlam / olay.** 2026-07-23 23:36 UTC'de çalışan yerel postgres'e karşı elle bir
+`prisma db push` (yıkıcı; `_prisma_migrations` dahil TÜM tabloları düşürdü) çalıştırıldı;
+ardından 00:03'te yalnız TEMEL `db:seed` (upsert, demo-store + 2 ürün) koştu. Sonuç:
+enterprise-demo (`edm-store`) kataloğu (471 ürün / 2202 varyant) + tüm sipariş/müşteri
+verisi silindi. Proje politikası `db push`/`migrate reset`'i zaten YASAKLIYOR (migrasyon =
+`prisma migrate deploy`), ancak kod düzeyinde hiçbir guard bunu engellemiyordu.
+
+**Karar.** Enterprise seed'in kendi "temizle + yeniden oluştur" (`wipeScope`) yolu, aynı
+sınıf kazayı tetikleyemeyecek biçimde çok katmanlı guard'lara bağlanır
+(`packages/db/scripts/enterprise/safety.mjs`, SAF/birim-testli):
+
+1. **Environment guard** — `DATABASE_URL` üretim/staging işareti içeriyorsa (prod/staging
+   kelimeleri, yönetilen postgres host'ları: RDS/Neon/Supabase/CloudSQL…) VEYA host bilinen
+   dev/test allowlist'inde (`localhost`, `127.0.0.1`, `postgres`, `db`) değilse yıkıcı seed
+   REDDEDİLİR. **`localhost` tek başına güvenli sayılmaz.** Bilinçli kaçış: `ALLOW_DEMO_SEED_ON_ANY_DB=true`.
+2. **Store-scope guard** — seed yalnız açıkça `enterprise-demo` (`edm-store`) scope'unda çalışır;
+   `demo-store` ve tüm yazma dışı store'lar korunur. Her `deleteMany` `where storeId` ile sınırlıdır.
+3. **Row-count circuit breaker** — silinecek `Product` sayısı eşiği (10) aşarsa, açık
+   `ALLOW_DESTRUCTIVE_DEMO_RESET=true` olmadan işlem DURUR (veri kaybı önlenir). İlk seed
+   (0 ürün) ve küçük kalıntı sürtünmesizdir; dolu kataloğu ezmek bilinçli bir eylem olur.
+4. **Backup guard** — yıkıcı reset öncesi tam `pg_dump` alınır (`pnpm db:backup`,
+   `infra/scripts/db-backup.zsh`). `pnpm db:restore-enterprise` bunu zincirin ilk adımı yapar.
+
+**Sipariş/müşteri/ödeme dokunulmazlığı.** `wipeScope` yalnız KATALOG projeksiyonunu (product/
+variant/inventory/media/search/campaign/home/theme, hepsi store-scope'lu) siler; `Order`,
+`OrderLine`, `Customer`, `Payment*`, `ProductReview`, `CustomerList` ASLA silinmez. Bu invariant
+statik testle (persist.mjs kaynağı üzerinde) kilitlenir.
+
+**Recovery kararı.** enterprise-demo kataloğu ADR-085 gereği DETERMİNİSTİK + idempotent olduğundan
+kayıp katalog, backup/dump bulunmasa da `db:seed-enterprise` ile birebir yeniden üretilir (kaynak
+öncelik sırası: dump → volume snapshot → **deterministik seed** → …). Silinen sipariş/müşteri
+verisi (yedek yok) geri getirilemez; yerel dev/test verisiydi.
+
+**Sonuç.** Yıkıcı demo reset artık fail-safe: yanlış DB, yanlış scope, flag'siz toplu silme ve
+prod-benzeri URL durumlarında hard fail eder; meşru ilk-restore sürtünmesizdir.

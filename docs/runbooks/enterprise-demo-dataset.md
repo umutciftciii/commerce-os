@@ -34,14 +34,25 @@ Docker stack ayakta olmalı (`postgres` + `api-gateway`). Root script'leri docke
 pnpm db:seed-enterprise:dry
 
 # 2) Seed (enterprise-demo scope'u temizler + yeniden oluşturur)
-pnpm db:seed-enterprise
+#    ⚠️ Dolu bir kataloğu (>10 ürün) EZMEK circuit breaker ile korunur (ADR-108):
+pnpm db:seed-enterprise                                   # ilk seed / boş DB
+ALLOW_DESTRUCTIVE_DEMO_RESET=true pnpm db:seed-enterprise # dolu kataloğu bilinçli ez
 
 # 3) Search read-model'i doldur (facet + autocomplete + kampanya rozeti kaynağı)
 pnpm db:backfill-enterprise
 
 # 4) Invariant doğrulaması
 pnpm db:verify-enterprise
+
+# TEK KOMUT (önerilen): yedek → seed → backfill → verify (ADR-108)
+pnpm db:restore-enterprise
 ```
+
+> **Güvenlik (ADR-108 / TD-116).** Seed'in yıkıcı `wipeScope`'u artık guard'lıdır:
+> prod/staging-benzeri `DATABASE_URL` veya host allowlist dışı → **reddedilir** (`localhost` tek
+> başına yetmez; override `ALLOW_DEMO_SEED_ON_ANY_DB=true`); yanlış store scope → reddedilir;
+> flag'siz >10 ürün silme → durur. `wipeScope` yalnız KATALOG'u siler — Order/Customer/Payment/
+> Review/Wishlist ASLA. Reset öncesi: `pnpm db:backup`. Detay: docs/OPERATIONS.md.
 
 `api-gateway` imajı kaynağı build-time'da içine kopyalar (bind-mount yok); yeni script'lerle
 çalışmadan önce imaj yeniden build edilmeli **veya** geliştirme sırasında dosyalar

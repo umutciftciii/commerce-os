@@ -312,6 +312,12 @@
 
 ## Growth & Monetization — Faz Sıralaması ve Ortak Ölçüm Altyapısı
 
+> **🛑 HOTFIX ARASI — TODO-159G Demo Data Safety & Recovery (2026-07-24, ADR-108 / TD-116).**
+> 2026-07-23'te yerel enterprise-demo kataloğu elle yıkıcı `prisma db push` sonucu silindi. Growth
+> hattının aktif fazı (**TODO-160A**) bu olay süresince **BLOCKED** işaretlendi. Recovery TAMAMLANDI
+> (deterministik seed + search backfill, verify 21/21, demo-store korundu) ve seed güvenlik guard'ları
+> (env/scope/circuit-breaker/backup) eklendi → **TODO-160A artık UNBLOCKED**, devam edilebilir.
+
 - Konum: Bu iki faz, mevcut core commerce ve operasyon işleri TAMAMLANDIKTAN SONRA, final enterprise
   UI/design polish fazından ÖNCE yer alır.
 - Sıra: ~~TODO-159C~~ (DONE) → ~~TODO-159D Customer Lists & Wishlist~~ (DONE) →
