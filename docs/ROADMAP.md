@@ -316,9 +316,14 @@
   UI/design polish fazından ÖNCE yer alır.
 - Sıra: ~~TODO-159C~~ (DONE) → ~~TODO-159D Customer Lists & Wishlist~~ (DONE) →
   ~~TODO-159E Product Reviews & Ratings~~ (DONE) → ~~TODO-159F Order Payment Recovery & Collection~~
-  (DONE — kritik ödeme açığı kapatıldı) → **TODO-160 Influencer Tracking & Attribution (SIRADAKİ
-  AKTİF)** → **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı
+  (DONE — kritik ödeme açığı kapatıldı) → ~~TODO-160 Influencer Tracking & Attribution~~
+  (DONE — ADR-102…107; PR #113) → **TODO-160A SKU Generation & Governance (SIRADAKİ AKTİF FAZ)** →
+  **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı
   (henüz numaralandırılmadı)*.
+- **TODO-160A konumlandırma:** TODO-160 ile TODO-161 arasına alındı. Katalog kimlik hijyeni (SKU'nun
+  varyant-seviyesi tek otorite + deterministik üretim + çakışma yönetimi + governance) bir katalog-veri
+  kalitesi işidir; sponsored yerleşim (TODO-161) ürün kimliğinin sağlam olmasından yararlanır. TODO-160'ın
+  event/attribution altyapısıyla teknik bağı yoktur; sıralama önceliktir, bağımlılık değil.
 - **TODO-159F konumlandırma:** TODO-160'tan ÖNCE araya alındı çünkü sağlayıcı tanımlanmadan oluşmuş
   geçerli `UNPAID` siparişler operasyonel olarak tahsil edilemiyordu (kritik ödeme açığı). Ödeme
   recovery altyapısı (durum makinesi + link + manuel + webhook otoritesi) Growth fazlarından bağımsızdır.
@@ -401,11 +406,12 @@
 
 ## Growth & Monetization — Influencer Tracking & Attribution (TODO-160)
 
-- Durum: **IMPLEMENTED (2026-07-24).** MVP + fazladan (tenant-safe attribution zinciri, dashboard,
-  CSV export, bot/dedupe/rate-limit, KVKK minimizasyonu). ADR-102…107; ADR-091 KABUL EDİLDİ.
-  Migration `20260724120000_add_influencer_tracking_attribution` (ADDITIVE). Ertelenenler: TD-113
-  (retention worker), TD-114 (canlı kısmi iade), TD-115 (kupon-bağı/komisyon/portal/multi-touch).
-  Commit/PR AÇILMADI (görev kuralı — gate'ler çalıştırıldı, dur).
+- Durum: **DONE / SHIPPED (2026-07-24) — PR #113 MERGED (merge commit 47a330e).** MVP + fazladan
+  (tenant-safe attribution zinciri, dashboard, CSV export, bot/dedupe/rate-limit, KVKK minimizasyonu).
+  ADR-102…107; ADR-091 KABUL EDİLDİ. Migration `20260724120000_add_influencer_tracking_attribution`
+  (ADDITIVE). Tracking token HASH'li saklanır (ADR-102 ship-öncesi revizyon); plain URL tek-seferlik +
+  rotasyon. Ertelenenler: TD-113 (retention worker), TD-114 (canlı kısmi iade),
+  TD-115 (kupon-bağı/komisyon/portal/multi-touch). HTTP E2E (gerçek servisler) 33/33 PASS.
 - Durum (özgün plan): PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
 - Amaç: Mağazanın influencer/iş ortağı kaynaklı trafiğini ölçülebilir, tenant-izole ve KVKK/GDPR uyumlu bir
   attribution zinciriyle gelire bağlamak: link → tıklama → oturum → sepet → checkout → sipariş → net gelir.
@@ -423,6 +429,32 @@
   yeniden hesaplanmaz); iptal/iade sonrası net gelir düzeltmesi gross'u geriye dönük bozmadan ayrı ölçülür;
   tüm sorgular tenant-izole; tracking token tahmin edilemez ve sayaç/id sızdırmaz; kişisel veri saklama
   süresi ve minimizasyon politikası dokümante edilir.
+
+## Catalog Integrity — SKU Generation & Governance (TODO-160A) — SIRADAKİ AKTİF FAZ
+
+- Durum: **PLANNED (yalnız roadmap/planlama kaydı; implementasyon YAPILMADI).** Sıra: TODO-160'tan SONRA,
+  TODO-161'den ÖNCE.
+- Amaç: SKU'yu **varyant seviyesinde tek otorite** yapmak; ürün/varyant oluştururken **deterministik
+  otomatik SKU üretimi**, mağaza içinde **benzersizlik garantisi**, çakışma yönetimi ve governance
+  (audit + kontrollü backfill) sağlamak. SKU ile barcode kavramlarını **ayrı** tutmak.
+- Kapsam: SKU varyant-seviyesi tek otorite · yeni ürün/varyant oluştururken otomatik SKU · toplu varyant
+  generator entegrasyonu · mağaza içi unique garanti · manuel override · format ve uzunluk validation ·
+  Türkçe karakter transliteration + özel karakter normalizasyonu · ürün ve variant option kodlarından
+  deterministic üretim · collision durumunda kontrollü sequence/suffix · preview ve regenerate · import
+  sırasında mevcut geçerli SKU'yu koruma · boş/tekrarlı/geçersiz mevcut SKU **audit raporu** · opsiyonel
+  ve güvenli **backfill** · SKU değişikliklerini AuditLog'a yazma · order line snapshot'taki eski SKU'yu
+  koruma · SKU ↔ barcode ayrımı · concurrency/idempotency · tenant isolation.
+- **Zorunlu kurallar (kabul kriteri):** (1) SKU üretimi deterministiktir (aynı girdi → aynı SKU) ve
+  mağaza içinde uniqueness DB seviyesinde garanti edilir. (2) Otomatik üretim mevcut GEÇERLİ SKU'ları
+  EZMEZ (import/backfill koruma). (3) Sipariş anındaki SKU snapshot'ı (OrderLine) sonradan DEĞİŞMEZ. (4)
+  SKU ile barcode ayrı alanlar/kavramlardır; biri diğerini türetmez. (5) Tüm sorgular tenant-izole;
+  değişiklikler AuditLog'a yazılır.
+- **MVP:** varyant-seviyesi tek otorite + deterministik otomatik SKU + store-unique + collision suffix +
+  manuel override + preview/regenerate + format/transliteration validation + audit raporu.
+- **Sonraki faz:** güvenli otomatik backfill (büyük katalog) · gelişmiş SKU şablon dili · barcode üretim/
+  doğrulama (GTIN) entegrasyonu.
+- Planlama notu: Uygulama fazında ilgili ADR (SKU otorite + deterministik üretim + governance) yazılacaktır;
+  bu bir planlama kaydıdır, teknik borç DEĞİLDİR.
 
 ## Growth & Monetization — Sponsored Product Management (TODO-161)
 
