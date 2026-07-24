@@ -3845,10 +3845,12 @@ sponsorlu çözüm hatası organik aramayı/ana sayfayı BOZMAZ.
 
 **Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114
 
-**Karar.** Search: sponsorlu enjeksiyon YALNIZ 1. sayfada + YALNIZ keyword aramasında; sayfa başına sabit
-tavan `SPONSORED_SEARCH_MAX_SLOTS=2`; ilk sponsorlu slot `SPONSORED_SEARCH_LEAD_ORGANIC=1` organik
-kayıttan SONRA (sponsorlu üst sıraları kaplamaz). Kategori-only gezinme (keyword yok) sponsorlu
-tetiklemez (Category-PLP ileri faz). Home: `SPONSORED_SHOWCASE` section `config.maxItems` (tavan
+**Karar.** Search: sponsorlu enjeksiyon YALNIZ 1. sayfada; keyword araması VEYA kategori gezinme tetikler;
+sayfa başına sabit tavan `SPONSORED_SEARCH_MAX_SLOTS=2`. **Revizyon (follow-up):** self-merchandising'de
+mağaza sahibi sponsorlu ürünü EN ÜSTTE bekler → `SPONSORED_SEARCH_LEAD_ORGANIC=0` (ilk sıra; standart
+sponsorlu yerleşim). cap=2 üst sıraları sınırlar; organik sonuçlar hemen altında görünür. Kategori gezinme
+(keyword'süz) `SEARCH_RESULTS` + hedef-kategorisi ile ÇİFT-YÖNLÜ (ata↔alt) eşleşen kampanyaları enjekte
+eder (TD-120 Category-PLP kısmı). Home: `SPONSORED_SHOWCASE` section `config.maxItems` (tavan
 `SPONSORED_HOME_MAX_SLOTS=12`). Kampanya bazlı: `campaign.maxSlots` tek sonuç kümesinde azami ürün.
 **Pagination:** sponsorlu item'lar organik `pagination.totalItems`'a DAHİL DEĞİL — üst-katman overlay;
 organik pagination organik sonuç sayısı üzerinden kalır (istemci sonsuz-kaydırmada tutarlı). Slot
