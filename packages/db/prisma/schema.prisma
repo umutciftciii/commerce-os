@@ -645,6 +645,86 @@ enum SponsoredEventType {
   CART
 }
 
+// ─────────── TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement ───────────
+// Sponsorlu GOSTERIM motoru (TODO-161) DEGISMEZ; bu katman onun uzerine ticari/finansal
+// operasyonu kurar. Para her yerde tamsayi minor unit (`...Minor`); oranlar basis point
+// (`...Bp`, 10000 = %100) — float YOK.
+
+enum SponsorAccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Anlasma yasam dongusu (ADR-122). COMPLETED ve CANCELLED TERMINAL'dir. Gecisler SAF
+// `isAgreementTransitionAllowed` allowlist'iyle zorlanir.
+enum SponsorshipAgreementStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  COMPLETED
+  CANCELLED
+}
+
+// Ucretlendirme modeli (ADR-122). Formul otoritesi SUNUCUDA tek noktadadir
+// (`sponsorship/billing-core.ts`); istemci tutar BELIRLEYEMEZ.
+enum SponsorshipPricingModel {
+  FIXED_FEE
+  CPM
+  CPC
+  CPA
+  REVENUE_SHARE
+}
+
+// Mutabakat donemi tipi. Zamanlanmis otomatik uretim MVP DISI (TD) — donem admin tarafindan
+// baslatilir; tip yalnizca donem sinirlarinin NASIL secildigini belgeler.
+enum SponsorshipSettlementPeriod {
+  CAMPAIGN_END
+  WEEKLY
+  MONTHLY
+  MANUAL
+}
+
+// DRAFT yeniden hesaplanabilir; FINALIZED IMMUTABLE (ADR-123).
+enum SponsorshipSettlementStatus {
+  DRAFT
+  FINALIZED
+}
+
+// PERIOD = donemsel tahakkuk (settlement'tan turer). ADJUSTMENT = duzeltme (iade sonrasi
+// negatif tutarli alacak azaltici) — gecmis FINALIZED settlement'i DEGISTIRMEZ (ADR-123).
+enum SponsorshipChargeType {
+  PERIOD
+  ADJUSTMENT
+}
+
+// KALICI durumlar. `OVERDUE` BILINCLI OLARAK YOKTUR: vade asimi TURETILMIS bir gorunum
+// durumudur (`dueAt < now && remaining > 0`) — kalici olsaydi bir cron'a bagimli, guncellenmedigi
+// anda YANLIS olan bir alan olurdu (ADR-125). API/UI ayrica `displayStatus` doner.
+enum SponsorshipChargeStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum SponsorshipPaymentMethod {
+  BANK_TRANSFER
+  CARD_POS
+  CASH
+  ONLINE_PROVIDER
+  OTHER
+}
+
+// Sponsorlu kampanyanin TICARI kipi (ADR-124). INTERNAL_PROMOTION = magazanin kendi urununu one
+// cikarmasi (ticari kayit gerekmez, guard MUAF) — VARSAYILAN, boylece TODO-161'de olusmus tum
+// kampanyalar davranis DEGISTIRMEZ. SPONSORED = ucuncu taraf adina yayin (ticari kayit ZORUNLU).
+enum SponsoredCommercialMode {
+  INTERNAL_PROMOTION
+  SPONSORED
+}
+
 enum CustomerCouponSource {
   ADMIN_ASSIGNED
   PUBLIC_CLAIMED
@@ -790,6 +870,13 @@ model Store {
   sponsoredEvents                  SponsoredProductEvent[]
   orderSponsoredAttributions       OrderSponsoredAttribution[]
   orderSponsoredAttributionRefunds OrderSponsoredAttributionRefund[]
+  // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement (store-scoped tenant sutunu).
+  sponsorAccounts                  SponsorAccount[]
+  sponsorshipAgreements            SponsorshipAgreement[]
+  sponsorshipAgreementCampaigns    SponsorshipAgreementCampaign[]
+  sponsorshipSettlements           SponsorshipSettlement[]
+  sponsorshipCharges               SponsorshipCharge[]
+  sponsorshipPayments              SponsorshipPayment[]
 }
 
 model StoreUser {
@@ -2674,11 +2761,15 @@ model HeroSlide {
 // Magaza ayarlari (1-1; repoda ilk 1-1 iliski). Logo/favicon MediaAsset'e opsiyonel
 // FK. Ileride tema/renk/SEO default'lari da buraya eklenir. PK = FK (storeId).
 model StoreSettings {
-  storeId        String   @id
-  logoMediaId    String?
-  faviconMediaId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  storeId                       String   @id
+  logoMediaId                   String?
+  faviconMediaId                String?
+  // TODO-161A (ADR-124) — ADDITIVE. false (varsayilan): ticari olarak UYGUN olmayan `SPONSORED`
+  // kampanya ne yayina alinabilir ne de teslim edilir. true: teslim engellenmez, ekranlarda
+  // yalnizca gorunur risk gostergesi kalir.
+  allowUnpaidSponsoredCampaigns Boolean  @default(false)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
 
   store   Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   logo    MediaAsset? @relation("StoreLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
@@ -3663,15 +3754,21 @@ model SponsoredProductCampaign {
   maxSlots         Int                     @default(3)
   targetCategoryId String?
   timezone         String                  @default("Europe/Istanbul")
+  // TODO-161A (ADR-124) — ADDITIVE. Varsayilan INTERNAL_PROMOTION → mevcut satirlar guard'dan
+  // MUAF kalir (sifir regresyon). SPONSORED kampanya gecerli bir anlasmaya BAGLI olmadan
+  // (ve `StoreSettings.allowUnpaidSponsoredCampaigns=false` iken) TESLIM EDILMEZ.
+  commercialMode   SponsoredCommercialMode @default(INTERNAL_PROMOTION)
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
-  store          Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  targetCategory ProductCategory?            @relation(fields: [targetCategoryId], references: [id], onDelete: SetNull)
+  store          Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  targetCategory ProductCategory?               @relation(fields: [targetCategoryId], references: [id], onDelete: SetNull)
   placements     SponsoredProductPlacement[]
   keywords       SponsoredTargetKeyword[]
   events         SponsoredProductEvent[]
   attributions   OrderSponsoredAttribution[]
+  agreementLinks SponsorshipAgreementCampaign[]
+  charges        SponsorshipCharge[]
 
   @@index([storeId])
   @@index([storeId, status, placement])
@@ -3798,4 +3895,243 @@ model OrderSponsoredAttributionRefund {
   @@unique([orderSponsoredAttributionId, refundKey])
   @@index([storeId])
   @@index([orderSponsoredAttributionId])
+}
+
+// ═══════════ TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement ═══════════
+// Sponsor firma anlasmalari → donemsel mutabakat (settlement) → tahakkuk (charge) → tahsilat
+// (payment). Sponsorlu GOSTERIM motoru (TODO-161) YENIDEN YAZILMAZ; yalniz `commercialMode`
+// uzerinden ticari uygunluk kapisi eklenir (ADR-124). Migration ADDITIVE.
+//
+// Zincir: SponsorAccount → SponsorshipAgreement → (Campaign baglari) → SponsorshipSettlement
+//         (metrik SNAPSHOT) → SponsorshipCharge (tahakkuk) → SponsorshipPayment (tahsilat).
+//
+// Para tamsayi minor unit; oranlar basis point. Tenant izolasyonu: her tabloda storeId + index.
+// Defterler APPEND-ONLY: odeme iptali NEGATIF satirdir, silme/guncelleme YOKTUR.
+
+/// Sponsor (reklamveren) firma cari kimligi — ADR-121. `Customer` (son-tuketici) ve `Influencer`
+/// (TODO-160 is-ortagi) modelleriyle BIRLESMEZ: bunlar ticari/vergi/fatura alanlarini paylasmaz.
+/// Vergi no + iletisim + fatura adresi HICBIR public response'a CIKMAZ (public uc yoktur).
+model SponsorAccount {
+  id             String               @id @default(cuid())
+  storeId        String
+  companyName    String
+  contactName    String
+  email          String
+  phone          String?
+  taxOffice      String?
+  taxNumber      String?
+  billingAddress String?
+  status         SponsorAccountStatus @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  store      Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreements SponsorshipAgreement[]
+
+  // Magaza icinde firma basina TEK cari (mukerrer sponsor kaydi engellenir).
+  @@unique([storeId, companyName])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+}
+
+/// Sponsorluk anlasmasi — para birimi ve VERGI ORANININ TEK OTORITESIDIR (ADR-127). Charge ve
+/// Settlement bu degerleri OLUSTURMA aninda snapshot'lar → anlasma sonradan degisse gecmis belge
+/// KAYMAZ. `unitPriceMinor` CPM/CPC/CPA icin birim bedel; `revenueSharePercentBp` yalniz
+/// REVENUE_SHARE icin; `agreedAmountMinor` yalniz FIXED_FEE icin. `budgetExhaustedAt` settlement
+/// FINALIZE aninda damgalanir (butce yalniz tahakkuk aninda bilinebilir → cron GEREKMEZ).
+model SponsorshipAgreement {
+  id                    String                      @id @default(cuid())
+  storeId               String
+  sponsorAccountId      String
+  agreementNumber       String
+  title                 String
+  status                SponsorshipAgreementStatus  @default(DRAFT)
+  startsAt              DateTime
+  endsAt                DateTime
+  currency              String
+  pricingModel          SponsorshipPricingModel
+  settlementPeriod      SponsorshipSettlementPeriod @default(CAMPAIGN_END)
+  agreedAmountMinor     Int?
+  unitPriceMinor        Int?
+  revenueSharePercentBp Int?
+  budgetLimitMinor      Int?
+  paymentTermDays       Int                         @default(30)
+  taxRateBp             Int                         @default(2000)
+  signedAt              DateTime?
+  documentUrl           String?
+  notes                 String?
+  budgetExhaustedAt     DateTime?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  store          Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sponsorAccount SponsorAccount                 @relation(fields: [sponsorAccountId], references: [id], onDelete: Restrict)
+  campaignLinks  SponsorshipAgreementCampaign[]
+  settlements    SponsorshipSettlement[]
+  charges        SponsorshipCharge[]
+  payments       SponsorshipPayment[]
+
+  @@unique([storeId, agreementNumber])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, sponsorAccountId])
+  @@index([storeId, endsAt])
+  @@index([sponsorAccountId])
+}
+
+/// Anlasma ↔ sponsorlu kampanya bagi. `@@unique([campaignId])`: bir kampanya en fazla BIR
+/// anlasmaya baglidir — teslim guard'inin (ADR-124) deterministik olmasi icin zorunludur
+/// (iki anlasmadan hangisinin uygunlugu gecerli sorusu OLUSMAZ). Yeniden baglamak icin once
+/// mevcut bag COZULUR. `allocationAmountMinor` cok-kampanyali anlasmada bilgi amaclidir.
+model SponsorshipAgreementCampaign {
+  id                    String   @id @default(cuid())
+  storeId               String
+  agreementId           String
+  campaignId            String
+  allocationAmountMinor Int?
+  createdAt             DateTime @default(now())
+
+  store     Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement SponsorshipAgreement     @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  campaign  SponsoredProductCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId])
+  @@unique([agreementId, campaignId])
+  @@index([storeId])
+  @@index([agreementId])
+}
+
+/// Donemsel mutabakat + METRIK SNAPSHOT'i (ADR-123). `@@unique([agreementId, periodStart,
+/// periodEnd])` ayni donemin IKI KEZ tahakkuk ettirilmesini DB SEVIYESINDE imkansiz kilar.
+/// DRAFT yeniden hesaplanabilir ve silinebilir (donem serbest kalir); FINALIZED IMMUTABLE'dir
+/// ve donemi KALICI isgal eder. Sonradan gelen event/iade FINALIZED kaydi SESSIZCE DEGISTIRMEZ →
+/// duzeltme ayri bir ADJUSTMENT charge'idir. `snapshot` (Json) donem kapanisindaki ham metrik +
+/// fiyat parametrelerini tasir (gecmis rapor yeniden HESAPLANMAZ).
+model SponsorshipSettlement {
+  id                    String                      @id @default(cuid())
+  storeId               String
+  agreementId           String
+  periodKind            SponsorshipSettlementPeriod @default(MANUAL)
+  periodStart           DateTime
+  periodEnd             DateTime
+  impressions           Int                         @default(0)
+  billableImpressions   Int                         @default(0)
+  clicks                Int                         @default(0)
+  billableClicks        Int                         @default(0)
+  orders                Int                         @default(0)
+  grossRevenueMinor     Int                         @default(0)
+  refundedRevenueMinor  Int                         @default(0)
+  netRevenueMinor       Int                         @default(0)
+  calculatedChargeMinor Int                         @default(0)
+  currency              String
+  pricingModel          SponsorshipPricingModel
+  status                SponsorshipSettlementStatus @default(DRAFT)
+  snapshot              Json
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  finalizedAt           DateTime?
+
+  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement SponsorshipAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  charges   SponsorshipCharge[]
+
+  @@unique([agreementId, periodStart, periodEnd])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, agreementId])
+  @@index([agreementId, periodStart])
+}
+
+/// Tahakkuk (ic TICARI BELGE — resmi e-Fatura DEGILDIR, ADR-126). Matrah/vergi/toplam ve para
+/// birimi olusturma aninda SNAPSHOT'lanir. `settlementId` tekildir → bir settlement'tan en fazla
+/// BIR donemsel tahakkuk uretilir (idempotent). `idempotencyKey` ADJUSTMENT tekrarini engeller
+/// (`refund-adj:<settlementId>:<refundedTotal>`). ADJUSTMENT tutari NEGATIF olabilir (alacak
+/// azaltici). `OVERDUE` kalici DEGILDIR — `dueAt` + kalan bakiyeden TURETILIR (ADR-125).
+model SponsorshipCharge {
+  id               String                  @id @default(cuid())
+  storeId          String
+  agreementId      String
+  campaignId       String?
+  settlementId     String?
+  chargeNumber     String
+  chargeType       SponsorshipChargeType   @default(PERIOD)
+  pricingModel     SponsorshipPricingModel
+  periodStart      DateTime
+  periodEnd        DateTime
+  quantity         Int                     @default(0)
+  unitPriceMinor   Int                     @default(0)
+  subtotalMinor    Int
+  taxRateBp        Int
+  taxAmountMinor   Int
+  totalAmountMinor Int
+  currency         String
+  status           SponsorshipChargeStatus @default(DRAFT)
+  idempotencyKey   String?
+  notes            String?
+  generatedAt      DateTime                @default(now())
+  issuedAt         DateTime?
+  dueAt            DateTime
+  finalizedAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  store      Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement  SponsorshipAgreement      @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  campaign   SponsoredProductCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  settlement SponsorshipSettlement?    @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  payments   SponsorshipPayment[]
+
+  @@unique([storeId, chargeNumber])
+  @@unique([settlementId])
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, agreementId])
+  // Vade asimi (turetilmis OVERDUE) + alacak yaslandirma sorgusu.
+  @@index([storeId, status, dueAt])
+  @@index([agreementId])
+  @@index([campaignId])
+}
+
+/// APPEND-ONLY tahsilat defteri (ADR-125). Kalan bakiye SUNUCUDA turetilir
+/// (`total − Σ amountMinor`); istemci tutari OTORITE DEGILDIR. Asiri tahsilat REDDEDILIR.
+/// Odeme iptali/iadesi = `reversalOfPaymentId` isaretli YENI NEGATIF satir; orijinal kayit
+/// SILINMEZ/DEGISTIRILMEZ. Bir odeme en fazla BIR KEZ ters cevrilir (`@@unique`).
+/// `recordedByUserId` islemi yapan platform admin'idir (denetim izi; AuditLog'a da yazilir).
+model SponsorshipPayment {
+  id                  String                   @id @default(cuid())
+  storeId             String
+  agreementId         String
+  chargeId            String?
+  amountMinor         Int
+  currency            String
+  method              SponsorshipPaymentMethod @default(BANK_TRANSFER)
+  providerId          String?
+  providerReference   String?
+  manualReference     String?
+  paidAt              DateTime
+  recordedByUserId    String?
+  reversalOfPaymentId String?
+  reversalReason      String?
+  idempotencyKey      String?
+  notes               String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  store      Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement  SponsorshipAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  charge     SponsorshipCharge?   @relation(fields: [chargeId], references: [id], onDelete: SetNull)
+  reversalOf SponsorshipPayment?  @relation("SponsorshipPaymentReversal", fields: [reversalOfPaymentId], references: [id], onDelete: Restrict)
+  reversedBy SponsorshipPayment?  @relation("SponsorshipPaymentReversal")
+
+  @@unique([reversalOfPaymentId])
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@index([storeId, agreementId])
+  @@index([storeId, paidAt])
+  @@index([chargeId])
+  @@index([agreementId])
 }

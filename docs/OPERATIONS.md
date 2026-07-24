@@ -755,3 +755,21 @@ node scripts/backfill-sku.mjs --store=edm-store --apply            # GERÇEK yaz
 ```
 
 Doğrulama: apply sonrası tekrar `audit-sku` çalıştır → `flagged: 0` (hedeflenen sınıf için) beklenir.
+
+## Sponsorship billing migration (TODO-161A)
+
+- Migration `20260725090000_add_sponsorship_billing_settlement` **ADDITIVE**'dir: 5 yeni tablo
+  (`SponsorAccount`/`SponsorshipAgreement`/`SponsorshipAgreementCampaign`/`SponsorshipSettlement`/
+  `SponsorshipCharge`/`SponsorshipPayment`) + 9 enum + 2 additive kolon
+  (`SponsoredProductCampaign.commercialMode` default `INTERNAL_PROMOTION`,
+  `StoreSettings.allowUnpaidSponsoredCampaigns` default `false`). Var olan satırlar default'la dolar →
+  geriye dönük davranış DEĞİŞMEZ. Docker/production apply yolu `prisma migrate deploy`.
+- **tsvector sahte-diff tuzağı (tekrar):** `prisma migrate diff` üretirken `ProductSearchDocument`
+  için `DROP INDEX ..._searchVector_gin_idx` / `..._title_trgm_idx` / `ALTER COLUMN "searchVector"
+  DROP DEFAULT` ifadeleri SAHTE fark olarak çıkar (generated kolon + GIN/trigram Prisma şemasında
+  ifade edilemez). Bunlar migration SQL'inden BİLİNÇLİ ÇIKARILMIŞTIR — uygulansalardı arama
+  read-model index'leri düşerdi. Yeni sponsorship-benzeri migration üretirken aynı temizlik gerekir.
+- **Checksum drift:** Bir migration DOSYASI uygulandıktan SONRA düzenlenirse (ör. trailing newline)
+  `_prisma_migrations.checksum` (dosyanın sha256'sı) kayar ve `migrate dev` "modified after applied"
+  hatası verir (`migrate deploy` etkilenmez — yalnız isimle atlar). Çözüm: dosyayı uygulamadan önce
+  düzeltin; kaçırılırsa `UPDATE _prisma_migrations SET checksum='<yeni sha256>' WHERE migration_name=…`.

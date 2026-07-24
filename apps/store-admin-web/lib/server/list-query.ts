@@ -53,6 +53,31 @@ export const INFLUENCER_LIST_KEYS = [...COMMON_KEYS, "status"];
 export const SPONSORED_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "placement"];
 export const SPONSORED_ANALYTICS_KEYS = ["dateFrom", "dateTo", "campaignId", "placement", "productId"];
 
+// TODO-161A — Sponsorship Agreements, Billing & Settlement: liste + dashboard filtre anahtarları.
+export const SPONSOR_LIST_KEYS = [...COMMON_KEYS, "status"];
+export const SPONSORSHIP_AGREEMENT_LIST_KEYS = [...COMMON_KEYS, "status", "sponsorAccountId", "pricingModel"];
+export const SPONSORSHIP_SETTLEMENT_LIST_KEYS = [...COMMON_KEYS, "status", "agreementId"];
+export const SPONSORSHIP_CHARGE_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "status",
+  "agreementId",
+  "sponsorAccountId",
+  "chargeType",
+  "overdueOnly",
+  "dateFrom",
+  "dateTo",
+];
+export const SPONSORSHIP_PAYMENT_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "agreementId",
+  "sponsorAccountId",
+  "chargeId",
+  "method",
+  "dateFrom",
+  "dateTo",
+];
+export const SPONSORSHIP_DASHBOARD_KEYS = ["dateFrom", "dateTo", "sponsorAccountId", "agreementId"];
+
 export const INFLUENCER_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "influencerId"];
 
 export const TRACKING_LINK_LIST_KEYS = [

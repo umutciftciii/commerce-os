@@ -24,8 +24,16 @@ import {
   reduceAttributionRevenue,
   type SponsoredOrderable,
 } from "./sponsored-core.js";
+// TODO-161A (ADR-124) — Ticari teslim guard'ı (SPONSORED kampanya uygunluk kapısı).
+import { buildCommercialDeliveryWhere } from "../sponsorship/delivery-guard.js";
 
 type PrismaLike = typeof prisma;
+
+/** Store `SPONSORED` kampanya için ödemesiz teslime izin veriyor mu? (ADR-124) */
+async function storeAllowsUnpaidSponsored(db: PrismaLike, storeId: string): Promise<boolean> {
+  const s = await db.storeSettings.findUnique({ where: { storeId }, select: { allowUnpaidSponsoredCampaigns: true } });
+  return s?.allowUnpaidSponsoredCampaigns ?? false;
+}
 
 // ── Record tipleri ──────────────────────────────────────────────────────────
 export interface SponsoredCampaignRecord {
@@ -339,8 +347,17 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
       browsedCategoryId: string | null;
     },
   ): Promise<ResolvedSponsoredCandidate[]> {
+    // TODO-161A (ADR-124) — Ticari teslim guard'ı: `SPONSORED` kampanya geçerli anlaşma +
+    // borçsuz + bütçesi tükenmemiş değilse HİÇ aday olmaz (impression bile kaydedilmez).
+    // `INTERNAL_PROMOTION` muaf. Store setting `allowUnpaidSponsoredCampaigns=true` ise devre dışı.
+    const allowUnpaid = await storeAllowsUnpaidSponsored(db, storeId);
+    const commercialWhere = buildCommercialDeliveryWhere(now, allowUnpaid);
     const campaigns = await db.sponsoredProductCampaign.findMany({
-      where: { storeId, placement, ...activeWindowWhere(now) },
+      where: {
+        storeId,
+        placement,
+        AND: [activeWindowWhere(now), ...(commercialWhere ? [commercialWhere] : [])],
+      },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }, { id: "asc" }],
       include: {
         placements: { orderBy: [{ priority: "desc" }, { position: "asc" }, { createdAt: "asc" }] },

@@ -3917,3 +3917,104 @@ siparişin BELİRLİ ÜRÜN SATIRLARINI kampanyalara atfeder (`OrderSponsoredAtt
 ürün başına 1). Ayrı tablolar, ayrı grant'ler (ayrı checkout gövde alanları: `attributionGrant` vs
 `sponsoredGrants[]`), ayrı iade defterleri. Bir sipariş hem "influencer X'ten geldi" hem "içindeki Y
 ürünü sponsorlu kampanya Z'den tıklandı" olabilir; çakışma yok, sessiz silme yok.
+
+## ADR-121 — Sponsor ticari domain sınırı (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-091 (ayrı domain), ADR-102 (influencer)
+
+**Karar.** Reklamveren firma AYRI bir `SponsorAccount` modeliyle temsil edilir; mevcut `Customer`,
+`Influencer` veya `Product.vendor` (serbest metin etiket) ile BİRLEŞTİRİLMEZ. Gerekçe: reklamveren
+kimliği ticari bir varlıktır (vergi dairesi/no, fatura adresi, cari bakiye) ve son-tüketici yaşam
+döngüsüyle hiçbir alanı paylaşmaz — `Customer`'a bindirmek storefront auth yüzeyini ve KVKK sınırını
+kirletir, anlamı olmayan nullable kolon yığını üretirdi. `Influencer` (TODO-160) tracking-link/
+attribution'a bağlı bir iş-ortağı kimliğidir ve ADR-091 gereği sponsored domainiyle birleşmez.
+Vergi no / iletişim / fatura adresi HİÇBİR public response'a çıkmaz (public uç yoktur). Sponsor↔
+Influencer birleştirme ileri faza bırakıldı (TD-123).
+
+## ADR-122 — Pricing model otoritesi (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-121
+
+**Karar.** Beş ücretlendirme modeli desteklenir: `FIXED_FEE` · `CPM` · `CPC` · `CPA` ·
+`REVENUE_SHARE`. Tüm formüller SUNUCU-TARAFLI TEK OTORİTEDEDİR (`sponsorship/billing-core.ts`, SAF,
+yan etkisiz, birim-testli); istemci tutar BELİRLEYEMEZ. Formüller (minor unit): FIXED_FEE =
+`agreedAmountMinor` (metrikten bağımsız); CPM = `round(billableImpressions/1000 × unitPriceMinor)`;
+CPC = `billableClicks × unitPriceMinor`; CPA = `attributedOrders × unitPriceMinor`; REVENUE_SHARE =
+`round(netRevenueMinor × revenueSharePercentBp/10000)`. **Ücretlendirilebilir metrik bot ve
+tekilleştirilmemiş event'i DIŞLAR** (ADR-118 deseni): `isBot=false` + `(visitorIdHash, placementId)`
+bazında DISTINCT; `attributedOrders` TAM iade edilmiş siparişleri hariç tutar (`gross > refunded`) →
+CPA refund-sensitive olur. FIXED_FEE bedeli anlaşma anında, performans modelleri dönem kapanışında
+gerçekleşen metrikten türetilir; ikisi de aynı boru hattından geçer (Settlement → Charge → Payment).
+Yuvarlama tek noktada `Math.round`. REVENUE_SHARE'de negatif net gelir 0'a kırpılır (sponsora
+borçlanılmaz).
+
+## ADR-123 — Settlement snapshot/immutability + refund adjustment (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-122, ADR-047 (snapshot deseni)
+
+**Karar.** Mutabakat (`SponsorshipSettlement`) dönem tipleri: `CAMPAIGN_END` · `WEEKLY` · `MONTHLY`
+· `MANUAL`. `DRAFT` yeniden hesaplanabilir (preview); `FINALIZED` IMMUTABLE'dır (metrik alanları +
+`snapshot` Json bir daha yazılmaz). **Aynı dönem iki kez tahakkuk ettirilemez — DB seviyesinde:**
+`@@unique([agreementId, periodStart, periodEnd])`. Metrikler dönem kapanışında SNAPSHOT'lanır;
+sonradan gelen event/iade FINALIZED kaydı SESSİZCE DEĞİŞTİRMEZ. Düzeltme gerekiyorsa ayrı bir
+NEGATİF tutarlı `ADJUSTMENT` tahakkuku üretilir (alacak azaltıcı): finalized snapshot'ın billable
+metriği ile ŞİMDİKİ değer karşılaştırılır, fark 0'dan küçükse adjustment açılır. İDEMPOTENT:
+`@@unique([storeId, idempotencyKey])`, anahtar iade toplamı + billable order sayısını içerir → aynı
+iade seti ikinci adjustment üretmez. `FIXED_FEE`/`CPM`/`CPC` iadeden etkilenmez (adjustment 0).
+Pozitif fark (sonradan artan metrik) 0'a kırpılır — kapanmış dönem geriye dönük EK BORÇ yazmaz.
+
+## ADR-124 — Unpaid sponsored campaign publication policy (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114/116 (sponsorlu teslim)
+
+**Karar.** Kampanyaya additive `commercialMode` eklendi: `INTERNAL_PROMOTION` (VARSAYILAN — mağazanın
+kendi ürünü, ticari kayıt gerekmez, guard MUAF; mevcut tüm kampanyalar bu değeri alır → sıfır
+regresyon) ve `SPONSORED` (üçüncü taraf, ticari kayıt ZORUNLU). `StoreSettings.
+allowUnpaidSponsoredCampaigns` (`Boolean @default(false)`): `false` iken `SPONSORED` kampanya YALNIZ
+ticari olarak uygunsa teslim edilir. Uygunluk = geçerli anlaşma bağlı + `ACTIVE` + pencere `now`'u
+kapsıyor + vadesi geçmiş açık tahakkuk yok + bütçe tükenmemiş (SAF `resolveCommercialIneligibility`).
+**Guard İKİ katmanda zorlanır**: (1) admin yazma (`409 SPONSORSHIP_NOT_ELIGIBLE`), (2) TESLİM
+katmanı — aday sorgusuna WHERE koşulu olarak eklenir (`delivery-guard.ts`), uygun olmayan kampanya
+HİÇ aday olmaz → impression bile kaydedilmez. Yalnız admin-yazma yeterli değildir çünkü anlaşma
+yayından sonra sona erebilir/vade geçebilir. Bir kampanya en fazla BİR anlaşmaya bağlıdır
+(`@@unique([campaignId])`) → guard determinizmi. "Sessizce sponsorlu gösterim üretip ticari kaydı
+olmayan kampanya çalıştırma" kuralı bu iki katmanla sağlanır.
+
+## ADR-125 — Tahakkuk↔tahsilat ayrımı, türetilmiş bakiye ve OVERDUE (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **Öncül:** ADR-095 (payment-state deseni)
+
+**Karar.** `SponsorshipPayment` APPEND-ONLY'dir. **Kalan bakiye SUNUCUDA türetilir**
+(`total − Σ amountMinor`); istemci tutarı OTORİTE DEĞİLDİR. Aşırı tahsilat REDDEDİLİR (`400
+OVERPAYMENT`: `0 < amount ≤ remaining`). Ödeme iptali/iadesi = `reversalOfPaymentId` işaretli YENİ
+NEGATİF satır; orijinal SİLİNMEZ/DEĞİŞTİRİLMEZ. Bir ödeme en fazla BİR kez ters çevrilir
+(`@@unique([reversalOfPaymentId])`), ters tutar orijinalin tam tersidir. Tahakkuk durumu her ödeme
+sonrası bakiyeden TÜRETİLİR (`PAID`/`PARTIALLY_PAID`/`ISSUED`). **`OVERDUE` KALICI DEĞİL,
+TÜRETİLMİŞTİR**: `dueAt < now && remaining > 0 && status ∈ {ISSUED, PARTIALLY_PAID}`. Kalıcı olsaydı
+bir cron'a bağımlı, güncellenmediğinde yanlış olan bir alan üretirdi. Persist edilen `status`
+enum'u `{DRAFT, ISSUED, PARTIALLY_PAID, PAID, CANCELLED}`; API/UI ayrıca `displayStatus` döndürür ve
+`OVERDUE` yalnız orada görünür.
+
+## ADR-126 — Ticari belge sınırı: tahakkuk ≠ resmî fatura (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ
+
+**Karar.** MVP resmî e-Fatura/e-Arşiv ÜRETMEZ, muhasebe fişi OLUŞTURMAZ. Üretilen kayıt bir
+**tahakkuk** (`SponsorshipCharge`) — iç ticari belgedir: numara, düzenlenme tarihi, vade, matrah,
+vergi, toplam, tahsil edilen, kalan. UI'da bilinçli olarak `Tahakkuk`/`Tahakkuk No` kullanılır;
+`Fatura`/`Fatura No` KULLANILMAZ (kullanıcının platform içi kaydı resmî mali belge sanması
+engellenir; ekranlarda açık uyarı). İleri faz (TD-124): Paraşüt/Logo/Mikro entegrasyonu, e-Fatura/
+e-Arşiv, banka hareketi eşleştirme, otomatik mutabakat, gelir muhasebeleştirme, komisyon faturaları.
+
+## ADR-127 — Currency + vergi otoritesi ve snapshot davranışı (TODO-161A)
+
+**Tarih:** 2026-07-25 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-122
+
+**Karar.** `SponsorshipAgreement.currency` + `taxRateBp` para birimi ve vergi oranının TEK
+OTORİTESİDİR. Charge ve Settlement bu değerleri OLUŞTURMA anında snapshot'lar → anlaşma sonradan
+değişse geçmiş belge KAYMAZ. `taxAmountMinor = round(subtotalMinor × taxRateBp/10000)` (matrah
+üzerinden; KDV-dahil varsayımı YOK), `totalAmountMinor = subtotal + tax`. **Currency KARIŞMAZ**:
+ödeme para birimi tahakkukla eşleşmezse `400 CURRENCY_MISMATCH`; tahakkuk oluştuktan sonra anlaşma
+para birimi KİLİTLİDİR (`409 CURRENCY_LOCKED`). Dashboard toplamları PARA BİRİMİ BAZINDA AYRI döner;
+tek "toplam" altında BİRLEŞTİRİLMEZ. `REVENUE_SHARE` net geliri mağaza sipariş para birimindedir →
+anlaşma para birimi mağaza siparişleriyle aynı olmalıdır (kur dönüşümü kapsam DIŞI, TD-124).
