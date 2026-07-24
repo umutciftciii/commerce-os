@@ -305,6 +305,18 @@ export const getHome = cache(async function getHome(
           })),
         };
       }
+      if (section.type === "SPONSORED_SHOWCASE") {
+        // TODO-161 — Sponsorlu ürünler PRODUCT_SHOWCASE ile aynı özet + opak sponsoredToken.
+        return {
+          ...base,
+          type: "SPONSORED_SHOWCASE",
+          layout: section.layout,
+          products: section.products.map((product) => ({
+            ...toSummary(product, locale),
+            sponsoredToken: product.sponsoredToken,
+          })),
+        };
+      }
       return {
         ...base,
         type: "PRODUCT_SHOWCASE",

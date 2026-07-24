@@ -1101,3 +1101,34 @@ her biri uygulanmış bir tasarım sınırıdır.
   BFF route'ları guard'lı (401/403, 404/500 yok). **OrderLine snapshot regresyonu** — SKU değişince
   ProductVariant.sku değişti, OrderLine.sku snapshot korundu, inventory/FK bozulmadı. Tüm test verisi
   temizlendi; enterprise-demo bütün (471 ürün / 2202 varyant).
+
+## TD-119 — Sponsored: CPC/CPM bütçe + bidding + günlük harcama limiti + faturalandırma (TODO-161)
+
+**Durum:** Ertelendi (ileri faz; MVP kapsamı DIŞI — ADR-091). MVP sponsorluk bir **self-merchandising**
+yerleşim kararıdır; reklam açık artırması/bütçe/CPC/CPM/keyword bidding/günlük harcama limiti/vendor
+self-service/faturalandırma YOK. Model ileriye hazır (priority/maxSlots var), ama para akışı yoktur.
+Eklenince: kampanyada budget/pricing alanları, harcama sayacı + circuit breaker, açık-artırma sıralaması
+(priority yerine bid), fatura entegrasyonu. `ROAS` alanı dashboard'da HAZIR (bütçe olmadığı için
+hesaplanmaz).
+
+## TD-120 — Sponsored: ek placement tipleri (Category-PLP / PDP / Cart / Checkout upsell) (TODO-161)
+
+**Durum:** Ertelendi. MVP yalnız `HOME_SHOWCASE` + `SEARCH_RESULTS` (keyword). `SponsoredPlacementType`
+enum ileriye açık; yeni placement = servis dalı (migration YOK). Kategori-only gezinme (keyword'süz PLP)
+sponsorlu enjeksiyonu şu an TETİKLEMEZ (yalnız keyword araması) — Category-PLP injection ayrı bir
+placement + resolve dalı ister. PDP recommendation, Cart/Checkout upsell benzer şekilde ayrı yerleşim
+yüzeyleri + ölçüm dalları gerektirir.
+
+## TD-121 — Sponsored: fraud/bot skorlama + retention purge (TODO-161)
+
+**Durum:** Ertelendi. MVP: bot UA regex + repeat dedupe + rate-limit. Gelişmiş fraud scoring (davranışsal,
+IP reputation) ve `SponsoredProductEvent` ham verisi için otomatik retention purge (influencer
+`AttributionClick` deseniyle) sonraki faza bırakıldı. Finansal snapshot (`OrderSponsoredAttribution`)
+KORUNUR; yalnız funnel event ham'ı budanabilir.
+
+## TD-122 — Sponsored: canlı UI/e2e smoke (auth'lu store-admin) (TODO-161)
+
+**Durum:** Ertelendi. Gate'ler (build/typecheck/lint/test) + gateway entegrasyon testleri PASS; ancak
+auth'lu store-admin UI akışı (kampanya oluştur → home/search'te doğrula → impression/click/order/refund)
+Docker canlı stack üzerinde uçtan uca smoke edilmedi (store-admin parola gerektirir). Deploy öncesi
+enterprise-demo üzerinde manuel doğrulama önerilir (bkz. analiz §14).

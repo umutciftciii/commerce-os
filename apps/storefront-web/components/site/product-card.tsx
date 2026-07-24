@@ -8,6 +8,8 @@ import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
 import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating, type CardRating } from "../reviews/rating-provider";
+import { SponsoredBadge } from "../sponsored/sponsored-badge";
+import { trackSponsoredClick } from "../../lib/sponsored/track";
 
 /**
  * Premium vitrin ürün kartı (TODO-158C yeniden tasarım). Daha kompakt, daha premium:
@@ -44,7 +46,15 @@ export function StorefrontProductCard({
   return (
     <div className="group relative flex flex-col">
       <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
-        <Link href={href} aria-label={product.title} className="block h-full w-full">
+        <Link
+          href={href}
+          aria-label={product.title}
+          className="block h-full w-full"
+          onClick={() => {
+            // TODO-161 — Sponsorlu kart tıklaması: CLICK event + checkout attribution cookie'si.
+            if (product.sponsoredToken) trackSponsoredClick(product.sponsoredToken, "home");
+          }}
+        >
           <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.04]">
             <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
           </div>
@@ -52,6 +62,9 @@ export function StorefrontProductCard({
 
         {/* Rozetler (sol üst yığın): kampanya/indirim/yeni (nötr) + TÜKENDİ (outline). */}
         <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
+          {product.sponsoredToken ? (
+            <SponsoredBadge token={product.sponsoredToken} label={t.search.sponsoredLabel} source="home" />
+          ) : null}
           {promoLabel ? <Badge tone="ink">{promoLabel}</Badge> : null}
           {soldOut ? (
             <Badge tone="outline" className="bg-surface">

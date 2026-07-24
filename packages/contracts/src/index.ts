@@ -1560,6 +1560,9 @@ export const homeSectionTypeSchema = z.enum([
   "HERO_SLIDER",
   "FEATURED_CATEGORIES",
   "PRODUCT_SHOWCASE",
+  // TODO-161 (ADR-114) — Sponsorlu vitrin yüzeyi. İçerik AKTIF sponsorlu kampanyalardan (HOME_SHOWCASE)
+  // gelir; section yalnız yerleşim konumunu (sayfa sırası) belirler. Kampanya/ürün yoksa render EDİLMEZ.
+  "SPONSORED_SHOWCASE",
 ]);
 
 // Showcase düzeni. İleride EDITORIAL/MAGAZINE/MIXED eklenebilir (config alanı; migration'sız).
@@ -1607,6 +1610,15 @@ export const homeShowcaseConfigSchema = z
     layout: homeShowcaseLayoutSchema.default("CAROUSEL"),
     maxItems: z.number().int().min(1).max(48).default(12),
     source: homeShowcaseSourceSchema,
+  })
+  .strict();
+
+// TODO-161 (ADR-114/115) — Sponsorlu vitrin section config'i. İçerik kampanyalardan gelir (section'da
+// ürün seçimi YOK); yalnız sunum + slot tavanı. maxItems tavanı SPONSORED_HOME_MAX_SLOTS (12) ile hizalı.
+export const homeSponsoredShowcaseConfigSchema = z
+  .object({
+    layout: homeShowcaseLayoutSchema.default("GRID"),
+    maxItems: z.number().int().min(1).max(12).default(8),
   })
   .strict();
 
@@ -2704,6 +2716,11 @@ export const publicSearchProductSchema = z.object({
   // snapshot + read-time geçerlilik bastırması UYGULANMIŞ (süresi geçmişse null). PDP ile AYNI "tek formül"
   // (ADR-062) → PDP↔PLP "Sepette" tutarlılığı. İç campaign id/limit/priority/stackable/usageCount SIZMAZ.
   campaign: publicCampaignBadgeSchema.nullable().default(null),
+  // ── TODO-161 (ADR-114/118) — Sponsorlu yerleşim işaretleri (ADDITIVE; eski istemciler kırılmaz) ──
+  // sponsored=true ise kart "Sponsorlu" rozeti gösterir (ZORUNLU). sponsoredToken opak GATEWAY-imzalı
+  // (impression/click ölçümü + checkout attribution taşıyıcısı); organik üründe null. İç campaign/priority SIZMAZ.
+  sponsored: z.boolean().default(false),
+  sponsoredToken: z.string().nullable().default(null),
 });
 
 export const publicSearchFacetValueSchema = z.object({
@@ -2924,6 +2941,14 @@ export const publicHomeSectionSchema = z.discriminatedUnion("type", [
     ...publicHomeSectionBase,
     layout: homeShowcaseLayoutSchema,
     products: z.array(publicProductSchema),
+  }),
+  // TODO-161 (ADR-114) — Sponsorlu vitrin. Ürünler publicProductSchema + opak sponsoredToken (impression/
+  // click ölçümü). Storefront "Sponsorlu" rozeti gösterir (ZORUNLU). İç campaign/priority SIZMAZ.
+  z.object({
+    type: z.literal("SPONSORED_SHOWCASE"),
+    ...publicHomeSectionBase,
+    layout: homeShowcaseLayoutSchema,
+    products: z.array(publicProductSchema.extend({ sponsoredToken: z.string() })),
   }),
 ]);
 
@@ -3303,6 +3328,14 @@ export const publicCheckoutRequestSchema = z
      * Geçersiz/eksik → attribution yazılmaz (checkout etkilenmez).
      */
     attributionGrant: z.string().max(2048).nullable().optional(),
+    /**
+     * TODO-161 (ADR-118) — Sponsorlu ürün attribution GRANT'leri (opak, GATEWAY-imzalı; ürün
+     * başına bir token). Storefront first-party cookie'sinden aynen taşınır; gateway KENDİ
+     * imzasını doğrular. İçindeki campaign/product alanlarına DÜZ güvenilmez — yalnız imza +
+     * pencere + kampanya aktifliği geçerse VE ürün siparişte gerçekten varsa OrderSponsoredAttribution
+     * yazılır. Influencer attributionGrant'inden BAĞIMSIZ (ADR-120 coexistence). Geçersiz → atlanır.
+     */
+    sponsoredGrants: z.array(z.string().max(2048)).max(48).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.billing && value.billing.sameAsShipping === false && !value.billingAddress) {
@@ -8143,3 +8176,233 @@ export type AttributionCampaignBreakdown = z.infer<typeof attributionCampaignBre
 export type AttributionTopLink = z.infer<typeof attributionTopLinkSchema>;
 export type AttributionTopProduct = z.infer<typeof attributionTopProductSchema>;
 export type InfluencerAnalyticsResponse = z.infer<typeof influencerAnalyticsResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-161 (ADR-114…120) — Sponsored Product Management.
+ *
+ * Sponsorlu kampanya + placement + hedefleme CRUD (admin), public event (impression/
+ * click/cart) ve performans dashboard/CSV sözleşmeleri. Enum'lar Prisma ile birebir.
+ * Organik aramadan İZOLE (ADR-091 karar 5); ölçüm TODO-160 attribution KATMANINI
+ * yeniden kullanır. Para tamsayı minor unit. Order/refund SUNUCU-otoriter (ADR-118).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const sponsoredCampaignStatusSchema = z.enum(["ACTIVE", "PAUSED", "ARCHIVED"]);
+export const sponsoredPlacementTypeSchema = z.enum(["HOME_SHOWCASE", "SEARCH_RESULTS"]);
+export const sponsoredEventTypeSchema = z.enum(["IMPRESSION", "CLICK", "CART"]);
+
+export const SPONSORED_CAMPAIGN_NAME_MAX_LENGTH = 160;
+export const SPONSORED_MAX_PRODUCTS = 48;
+export const SPONSORED_MAX_KEYWORDS = 32;
+export const SPONSORED_KEYWORD_MAX_LENGTH = 80;
+export const SPONSORED_PRIORITY_MIN = 0;
+export const SPONSORED_PRIORITY_MAX = 1000;
+export const SPONSORED_MAX_SLOTS_MIN = 1;
+export const SPONSORED_MAX_SLOTS_MAX = 24;
+
+/** Hedef anahtar kelime: serbest metin (sunucu normalize eder); boş/uzun reddedilir. */
+export const sponsoredKeywordSchema = z.string().trim().min(1).max(SPONSORED_KEYWORD_MAX_LENGTH);
+
+/* ── Sponsorlu kampanya (admin CRUD) ────────────────────────────────────────── */
+
+export const sponsoredCampaignPlacementProductSchema = z.object({
+  productId: z.string(),
+  title: z.string(),
+  slug: z.string(),
+  position: z.number().int().nullable(),
+  priority: z.number().int(),
+  // Aday uygunlugu (read-model): ACTIVE + hasStock degilse sponsorlu gosterilmez (admin uyarisi).
+  eligible: z.boolean(),
+});
+
+export const sponsoredCampaignSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: sponsoredCampaignStatusSchema,
+  placement: sponsoredPlacementTypeSchema,
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  priority: z.number().int(),
+  maxSlots: z.number().int().positive(),
+  targetCategoryId: z.string().nullable(),
+  targetCategoryLabel: z.string().nullable(),
+  timezone: z.string(),
+  productCount: z.number().int().nonnegative(),
+  keywordCount: z.number().int().nonnegative(),
+  // Server-türetilmiş aktiflik (status ACTIVE + pencere geçerli) → liste rozeti.
+  isLive: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export const sponsoredCampaignDetailSchema = sponsoredCampaignSummarySchema.extend({
+  products: z.array(sponsoredCampaignPlacementProductSchema),
+  keywords: z.array(z.string()),
+});
+
+const sponsoredCampaignWritableFields = {
+  name: z.string().trim().min(1).max(SPONSORED_CAMPAIGN_NAME_MAX_LENGTH),
+  status: sponsoredCampaignStatusSchema.optional(),
+  startsAt: z.string().datetime().nullish(),
+  endsAt: z.string().datetime().nullish(),
+  priority: z.coerce.number().int().min(SPONSORED_PRIORITY_MIN).max(SPONSORED_PRIORITY_MAX).optional(),
+  maxSlots: z.coerce.number().int().min(SPONSORED_MAX_SLOTS_MIN).max(SPONSORED_MAX_SLOTS_MAX).optional(),
+  targetCategoryId: z.string().min(1).nullish(),
+  timezone: z.string().trim().min(1).max(64).optional(),
+  // Atomik replace-set: verilen ürün id listesi (sıralı → position). Verilmezse dokunulmaz (update).
+  productIds: z.array(z.string().min(1)).max(SPONSORED_MAX_PRODUCTS).optional(),
+  // SEARCH_RESULTS query allowlist (sunucu normalize + tekilleştirir). HOME_SHOWCASE'te YOK SAYILIR.
+  keywords: z.array(sponsoredKeywordSchema).max(SPONSORED_MAX_KEYWORDS).optional(),
+};
+
+function refineSponsoredDates(
+  value: { startsAt?: string | null; endsAt?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (value.startsAt && value.endsAt && new Date(value.endsAt) < new Date(value.startsAt)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endsAt"], message: "Bitiş başlangıçtan önce olamaz." });
+  }
+}
+
+export const sponsoredCampaignCreateRequestSchema = z
+  .object({
+    ...sponsoredCampaignWritableFields,
+    // placement create'te ZORUNLU + sonrasında IMMUTABLE (ölçüm/slot semantiği tipe bağlı).
+    placement: sponsoredPlacementTypeSchema,
+  })
+  .superRefine(refineSponsoredDates);
+
+export const sponsoredCampaignUpdateRequestSchema = z
+  .object({
+    ...sponsoredCampaignWritableFields,
+    name: sponsoredCampaignWritableFields.name.optional(),
+  })
+  .superRefine((value, ctx) => {
+    refineSponsoredDates(value, ctx);
+    if (Object.keys(value).length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one field is required." });
+    }
+  });
+
+export const sponsoredCampaignListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: z.enum(["createdAt", "name", "status", "priority"]).optional(),
+  status: sponsoredCampaignStatusSchema.optional(),
+  placement: sponsoredPlacementTypeSchema.optional(),
+});
+
+export const sponsoredCampaignListResponseSchema = z.object({
+  data: z.array(sponsoredCampaignSummarySchema),
+  pagination: adminListPaginationSchema,
+});
+export const sponsoredCampaignDetailResponseSchema = z.object({ data: sponsoredCampaignDetailSchema });
+
+/* ── Public event (impression/click/cart) ───────────────────────────────────── */
+
+// Opak GATEWAY-imzalı token (campaignId/placementId/productId içerir; istemci BELİRLEYEMEZ). source
+// serbest bağlam etiketi (örn. "search"/"home"); ölçüm ham verisidir, güvenlik kararı ETKİLEMEZ.
+export const sponsoredEventRequestSchema = z.object({
+  type: sponsoredEventTypeSchema,
+  token: z.string().min(1).max(2048),
+  source: z.string().trim().max(40).nullish(),
+});
+export const sponsoredEventResponseSchema = z.object({
+  data: z.object({ recorded: z.boolean() }),
+});
+
+/* ── Performans dashboard + CSV export ──────────────────────────────────────── */
+
+export const sponsoredAnalyticsQuerySchema = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  campaignId: z.string().min(1).optional(),
+  placement: sponsoredPlacementTypeSchema.optional(),
+  productId: z.string().min(1).optional(),
+});
+
+export const sponsoredKpiSummarySchema = z.object({
+  impressions: z.number().int().nonnegative(),
+  uniqueImpressions: z.number().int().nonnegative(),
+  clicks: z.number().int().nonnegative(),
+  clickThroughRate: z.number().nonnegative(),
+  carts: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative(),
+  conversionRate: z.number().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  refundedRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
+  currency: z.string(),
+});
+
+export const sponsoredDailyPointSchema = z.object({
+  date: z.string(), // YYYY-MM-DD
+  impressions: z.number().int().nonnegative(),
+  clicks: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
+});
+
+export const sponsoredCampaignBreakdownSchema = z.object({
+  campaignId: z.string(),
+  campaignName: z.string(),
+  placement: sponsoredPlacementTypeSchema,
+  impressions: z.number().int().nonnegative(),
+  clicks: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
+});
+
+export const sponsoredProductBreakdownSchema = z.object({
+  productId: z.string(),
+  productTitle: z.string(),
+  impressions: z.number().int().nonnegative(),
+  clicks: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+});
+
+export const sponsoredPlacementBreakdownSchema = z.object({
+  placement: sponsoredPlacementTypeSchema,
+  impressions: z.number().int().nonnegative(),
+  clicks: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+});
+
+export const sponsoredTopSearchTermSchema = z.object({
+  keyword: z.string(),
+  campaignCount: z.number().int().nonnegative(),
+});
+
+export const sponsoredAnalyticsResponseSchema = z.object({
+  data: z.object({
+    summary: sponsoredKpiSummarySchema,
+    daily: z.array(sponsoredDailyPointSchema),
+    campaigns: z.array(sponsoredCampaignBreakdownSchema),
+    products: z.array(sponsoredProductBreakdownSchema),
+    placements: z.array(sponsoredPlacementBreakdownSchema),
+    topSearchTerms: z.array(sponsoredTopSearchTermSchema),
+  }),
+});
+
+export type SponsoredCampaignStatus = z.infer<typeof sponsoredCampaignStatusSchema>;
+export type SponsoredPlacementType = z.infer<typeof sponsoredPlacementTypeSchema>;
+export type SponsoredEventType = z.infer<typeof sponsoredEventTypeSchema>;
+export type SponsoredCampaignPlacementProduct = z.infer<typeof sponsoredCampaignPlacementProductSchema>;
+export type SponsoredCampaignSummary = z.infer<typeof sponsoredCampaignSummarySchema>;
+export type SponsoredCampaignDetail = z.infer<typeof sponsoredCampaignDetailSchema>;
+export type SponsoredCampaignCreateRequest = z.infer<typeof sponsoredCampaignCreateRequestSchema>;
+export type SponsoredCampaignUpdateRequest = z.infer<typeof sponsoredCampaignUpdateRequestSchema>;
+export type SponsoredCampaignListQuery = z.infer<typeof sponsoredCampaignListQuerySchema>;
+export type SponsoredCampaignListResponse = z.infer<typeof sponsoredCampaignListResponseSchema>;
+export type SponsoredCampaignDetailResponse = z.infer<typeof sponsoredCampaignDetailResponseSchema>;
+export type SponsoredEventRequest = z.infer<typeof sponsoredEventRequestSchema>;
+export type SponsoredEventResponse = z.infer<typeof sponsoredEventResponseSchema>;
+export type SponsoredAnalyticsQuery = z.infer<typeof sponsoredAnalyticsQuerySchema>;
+export type SponsoredKpiSummary = z.infer<typeof sponsoredKpiSummarySchema>;
+export type SponsoredDailyPoint = z.infer<typeof sponsoredDailyPointSchema>;
+export type SponsoredCampaignBreakdown = z.infer<typeof sponsoredCampaignBreakdownSchema>;
+export type SponsoredProductBreakdown = z.infer<typeof sponsoredProductBreakdownSchema>;
+export type SponsoredPlacementBreakdown = z.infer<typeof sponsoredPlacementBreakdownSchema>;
+export type SponsoredTopSearchTerm = z.infer<typeof sponsoredTopSearchTermSchema>;
+export type SponsoredAnalyticsResponse = z.infer<typeof sponsoredAnalyticsResponseSchema>;

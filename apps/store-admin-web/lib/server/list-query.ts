@@ -49,6 +49,10 @@ export const REVIEW_LIST_KEYS = [
  */
 export const INFLUENCER_LIST_KEYS = [...COMMON_KEYS, "status"];
 
+// TODO-161 — Sponsored Product Management: liste + performans dashboard filtre anahtarları.
+export const SPONSORED_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "placement"];
+export const SPONSORED_ANALYTICS_KEYS = ["dateFrom", "dateTo", "campaignId", "placement", "productId"];
+
 export const INFLUENCER_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "influencerId"];
 
 export const TRACKING_LINK_LIST_KEYS = [

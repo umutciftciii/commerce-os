@@ -14,8 +14,20 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { publicSearchResponseSchema } from "@commerce-os/contracts";
-import { SearchError, type SearchQuery, type SearchResult } from "@commerce-os/search-service";
+import { SearchError, type SearchQuery, type SearchResult, type SearchResultItem } from "@commerce-os/search-service";
 import { parseSearchQuery } from "./query-parser.js";
+import {
+  injectSponsoredSlots,
+  tokenizeQuery,
+  SPONSORED_SEARCH_LEAD_ORGANIC,
+  SPONSORED_SEARCH_MAX_SLOTS,
+} from "../sponsored/sponsored-core.js";
+
+/** TODO-161 — çözülmüş sponsorlu arama adayı (item + imzalı opak token). */
+export interface SponsoredSearchResolved {
+  item: SearchResultItem;
+  sponsoredToken: string;
+}
 
 export interface PublicSearchRoutesDeps {
   /** Store slug → aktif store (yoksa null → 404). */
@@ -30,6 +42,16 @@ export interface PublicSearchRoutesDeps {
    * storageKey DTO'ya ASLA yazılmaz — bu fonksiyon tek çıkış noktasıdır.
    */
   toPublicMediaUrl: (storageKey: string) => string;
+  /**
+   * TODO-161 (ADR-114/115) — Sponsorlu aday çözümü (opsiyonel; yoksa saf organik). Organik sonuç
+   * ÜRETİLDİKTEN SONRA ayrı katmanda çağrılır; organik sıralamayı/ranking'i DEĞİŞTİRMEZ. Token GATEWAY
+   * imzalıdır (impression/click ölçümü). Yalnız 1. sayfa + keyword araması için çağrılır.
+   */
+  resolveSponsoredSearch?: (input: {
+    storeId: string;
+    queryTokens: string[];
+    limit: number;
+  }) => Promise<SponsoredSearchResolved[]>;
 }
 
 const searchParam = z.object({ storeSlug: z.string().min(1).max(120) });
@@ -87,23 +109,22 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
       position: number,
     ) => (img ? { url: deps.toPublicMediaUrl(img.storageKey), altText: img.altText, position, variantOptionId: null } : null);
 
-    const products = result.items.map((item) => {
+    // TODO-155.1/161 — Read-model item → public kart DTO'su (organik + sponsorlu ORTAK map). sponsored
+    // bayrağı + opak token yalnız sponsorlu adayda dolu; organikte false/null (ADDITIVE).
+    const toPublicProduct = (item: SearchResultItem, sponsored: boolean, sponsoredToken: string | null) => {
       const listing = item.listing;
       return {
         id: item.productId,
         slug: item.slug,
         title: item.title,
         brand: item.brand,
-        categoryLabel: item.primaryCategoryId
-          ? categoryNames.get(item.primaryCategoryId) ?? null
-          : null,
+        categoryLabel: item.primaryCategoryId ? categoryNames.get(item.primaryCategoryId) ?? null : null,
         minPriceMinor: item.minPriceMinor,
         maxPriceMinor: item.maxPriceMinor,
         currency: item.currency,
         availability: item.availability,
         inStock: item.inStock,
         image: toPublicImage(listing?.primaryImage ?? null, 0),
-        // TODO-155.1 — Listing projection (read-model snapshot; ikinci hydration turu YOK).
         compareAtMinor: item.compareAtMinor,
         discountPercent: item.discountPercent,
         omnibusPreviousPriceMinor: item.omnibusPreviousPriceMinor,
@@ -116,11 +137,41 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
           isDefault: swatch.isDefault,
         })),
         swatchTotalCount: listing?.swatchTotalCount ?? 0,
-        // TODO-155.2 — Kampanya rozeti snapshot'ı (public-safe; provider read-time bastırmasından geçmiş).
-        // PDP ile AYNI "tek formül" → PDP↔PLP ticari tutarlılık. İç id/limit/priority SIZMAZ (allowlist).
         campaign: item.campaign,
+        sponsored,
+        sponsoredToken,
       };
-    });
+    };
+
+    let products = result.items.map((item) => toPublicProduct(item, false, null));
+
+    // TODO-161 (ADR-114/115/117) — Sponsorlu slot enjeksiyonu. Organik sonuç YUKARIDA üretildi ve
+    // BOZULMADAN kaldı (ADR-091 karar 5). Yalnız 1. sayfa + keyword araması. Aynı ürün organik listede
+    // varsa organik kopya DÜŞÜRÜLÜR (sponsorlu sürüm rozetle kalır) → tek gösterim (ADR-117). Sponsorlu
+    // item'lar organik pagination.totalItems'a DAHİL DEĞİL (üst-katman overlay; ADR-115 belgelendi).
+    if (deps.resolveSponsoredSearch && result.pagination.page === 1) {
+      const queryTokens = tokenizeQuery(query.q ?? null);
+      if (queryTokens.length > 0) {
+        try {
+          const sponsored = await deps.resolveSponsoredSearch({
+            storeId: store.id,
+            queryTokens,
+            limit: SPONSORED_SEARCH_MAX_SLOTS,
+          });
+          if (sponsored.length > 0) {
+            const sponsoredIds = new Set(sponsored.map((s) => s.item.productId));
+            products = products.filter((p) => !sponsoredIds.has(p.id));
+            const sponsoredProducts = sponsored.map((s) => toPublicProduct(s.item, true, s.sponsoredToken));
+            products = injectSponsoredSlots(products, sponsoredProducts, {
+              leadOrganic: SPONSORED_SEARCH_LEAD_ORGANIC,
+              maxSlots: SPONSORED_SEARCH_MAX_SLOTS,
+            });
+          }
+        } catch {
+          // Sponsorlu enjeksiyon best-effort: hata organik sonucu BOZMAZ (ADR-114 izolasyon).
+        }
+      }
+    }
 
     // 5) ALLOWLIST projeksiyonu (internal alan sızmaz).
     return publicSearchResponseSchema.parse({

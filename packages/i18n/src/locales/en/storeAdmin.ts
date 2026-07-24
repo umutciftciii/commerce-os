@@ -156,6 +156,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     campaigns: "Campaigns",
     influencers: "Influencers",
     influencerCampaigns: "Influencer Campaigns",
+    sponsoredProducts: "Sponsored Products",
     hero: "Home",
     homeExperience: "Home Experience",
     theme: "Theme",

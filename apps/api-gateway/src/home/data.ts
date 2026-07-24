@@ -27,6 +27,7 @@ import {
   homeFeaturedCategorySchema,
   homeShowcaseProductSchema,
   homeShowcaseConfigSchema,
+  homeSponsoredShowcaseConfigSchema,
   homeHeroConfigSchema,
   publicHomeHeroSlideSchema,
   publicHomeFeaturedCategorySchema,
@@ -878,4 +879,10 @@ export function parseHomeShowcaseConfig(config: Prisma.JsonValue) {
 
 export function parseHomeHeroConfig(config: Prisma.JsonValue) {
   return homeHeroConfigSchema.parse(config ?? {});
+}
+
+// TODO-161 (ADR-114) — Sponsorlu vitrin config'i (layout + maxItems). İçerik section'da DEĞİL,
+// aktif sponsorlu kampanyalardan (HOME_SHOWCASE) gelir; burada yalnız sunum + slot tavanı.
+export function parseHomeSponsoredShowcaseConfig(config: Prisma.JsonValue) {
+  return homeSponsoredShowcaseConfigSchema.parse(config ?? {});
 }

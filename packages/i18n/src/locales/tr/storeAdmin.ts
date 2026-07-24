@@ -156,6 +156,7 @@ export const trStoreAdmin = {
     campaigns: "Kampanyalar",
     influencers: "Influencer'lar",
     influencerCampaigns: "Influencer Kampanyaları",
+    sponsoredProducts: "Sponsorlu Ürünler",
     hero: "Ana Sayfa",
     homeExperience: "Ana Sayfa Deneyimi",
     theme: "Tema",

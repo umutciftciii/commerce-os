@@ -72,6 +72,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           label: t.influencerCampaigns,
           icon: <CampaignIcon />,
         },
+        { href: "/sponsored-products", label: t.sponsoredProducts, icon: <MarketplaceIcon /> },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
       ],
     },

@@ -471,7 +471,19 @@
 
 ## Growth & Monetization — Sponsored Product Management (TODO-161)
 
-- Durum: PLANNED (yalnız roadmap kaydı; implementasyon YAPILMADI).
+- Durum: **DONE / KOD TAMAM (2026-07-24) — commit/PR YAPILMADI (git kuralı gereği durduruldu).** MVP +
+  fazlası: ayrı domain (SponsoredProductCampaign/Placement/TargetKeyword/Event + OrderSponsoredAttribution
+  (+Refund)), additive migration (`20260724171728_add_sponsored_product_management`, gerçek PG'ye uygulandı +
+  `EXPLAIN` ile doğrulandı; tsvector generated-kolon sahte-diff temizlendi). SAF çekirdek
+  `sponsored/sponsored-core.ts` (imzalı token, relevancy, slot injection, dedupe, öncelik, metrik; 23 test) +
+  `checkout-attribution.ts` (sunucu-otoriter; 8 test). Search enjeksiyonu (organik ranking'e DOKUNMAZ, 1.
+  sayfa/keyword, cap=2, lead=1, best-effort) + Home `SPONSORED_SHOWCASE` (polimorfik HomeSection, migration'sız).
+  Storefront "Sponsorlu" rozeti + IntersectionObserver impression + click + checkout `sponsoredGrants[]`
+  cookie. Store-admin `/sponsored-products` (list+dashboard+new+[id]) Data Grid + TODO-159B selector + CSV
+  export (tenant-safe, CSV-injection guard). ADR-114…120. Gate'ler: build 25/25 · typecheck temiz · lint 38/38
+  · test 1321 PASS · git diff --check temiz. Ertelenen: TD-119…122 (aşağı). Sıra: TODO-160A'dan SONRA;
+  sıradaki aktif faz = final enterprise UI/design polish.
+- (Planlama kaydı — orijinal kapsam) Durum: PLANNED.
 - Amaç: Mağaza içi ürün öne çıkarmayı (self-merchandising / ileride reklam) organik arama kalitesini
   bozmadan, kullanıcıya açıkça etiketlenmiş ve ölçülebilir bir yerleşim sistemine dönüştürmek.
 - Kapsam: Sponsored Campaign CRUD · sponsorlu ürün seçimi · başlangıç/bitiş tarihi · öncelik ve aktiflik ·

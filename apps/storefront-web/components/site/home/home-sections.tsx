@@ -61,6 +61,10 @@ export function HomeSections({
             />
           );
         }
+        // TODO-161 (ADR-114) — Sponsorlu vitrin: PRODUCT_SHOWCASE düzeniyle render edilir; ürün kartları
+        // sponsoredToken taşıdığından "Sponsorlu" rozetini + impression/click ölçümünü KENDİLERİ yapar.
+        // Section başlığı ayrıca sponsorlu olduğunu işaretler (sponsoredLabel).
+        const isSponsored = section.type === "SPONSORED_SHOWCASE";
         return (
           <ProductShowcaseSection
             key={section.id}
@@ -70,6 +74,7 @@ export function HomeSections({
             products={section.products}
             dict={dict}
             className={visibility}
+            sponsoredLabel={isSponsored ? dict.search.sponsoredLabel : null}
           />
         );
       })}
@@ -172,6 +177,7 @@ function ProductShowcaseSection({
   products,
   dict,
   className,
+  sponsoredLabel = null,
 }: {
   title: string | null;
   subtitle: string | null;
@@ -179,11 +185,18 @@ function ProductShowcaseSection({
   products: StorefrontProductSummary[];
   dict: StorefrontDictionary;
   className: string;
+  /** TODO-161 — dolu ise section sponsorlu vitrin ("Sponsorlu" işareti başlıkta gösterilir). */
+  sponsoredLabel?: string | null;
 }) {
   if (products.length === 0) return null;
   return (
     <section className={`${SECTION_SPACING} ${className}`}>
       <Container>
+        {sponsoredLabel ? (
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+            {sponsoredLabel}
+          </p>
+        ) : null}
         <SectionHeading
           title={title}
           subtitle={subtitle}

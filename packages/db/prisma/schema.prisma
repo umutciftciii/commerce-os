@@ -620,6 +620,31 @@ enum AttributionModel {
   LAST_CLICK
 }
 
+// ─────────────────── TODO-161 (ADR-114…120) — Sponsored Product Management ───────────────────
+// Store-ici urun one cikarma (self-merchandising). Organik aramadan IZOLE (ADR-091 karar 5);
+// olcum TODO-160 event/attribution KATMANINI yeniden kullanir (Influencer domaini ile BIRLESMEZ).
+
+enum SponsoredCampaignStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+// MVP yerlesim tipleri. Category-PLP / PDP / Cart / Checkout upsell = ileri faz (TD); enum
+// bilincli ileriye acik (yeni deger = servis dali, migration YOK).
+enum SponsoredPlacementType {
+  HOME_SHOWCASE
+  SEARCH_RESULTS
+}
+
+// Funnel event'leri. ORDER/REFUND bilincli olarak DISARIDA: siparis/iade gelir kaydi
+// SUNUCU-OTORITER (OrderSponsoredAttribution) — istemci order/revenue belirleyemez (ADR-118).
+enum SponsoredEventType {
+  IMPRESSION
+  CLICK
+  CART
+}
+
 enum CustomerCouponSource {
   ADMIN_ASSIGNED
   PUBLIC_CLAIMED
@@ -758,6 +783,13 @@ model Store {
   attributionClicks                AttributionClick[]
   orderAttributions                OrderAttribution[]
   orderAttributionRefunds          OrderAttributionRefund[]
+  // TODO-161 (ADR-114…120) — Sponsored Product Management (store-scoped tenant sutunu).
+  sponsoredCampaigns               SponsoredProductCampaign[]
+  sponsoredPlacements              SponsoredProductPlacement[]
+  sponsoredTargetKeywords          SponsoredTargetKeyword[]
+  sponsoredEvents                  SponsoredProductEvent[]
+  orderSponsoredAttributions       OrderSponsoredAttribution[]
+  orderSponsoredAttributionRefunds OrderSponsoredAttributionRefund[]
 }
 
 model StoreUser {
@@ -952,6 +984,8 @@ model Product {
   ratingAggregate        ProductRatingAggregate?
   // TODO-160 (ADR-102) — Ürün hedefli takip linkleri (ürün silinince SetNull).
   trackingLinks          InfluencerTrackingLink[]
+  // TODO-161 (ADR-114) — Sponsorlu yerleşim placement'ları + attribution (ürün silinince Cascade/SetNull).
+  sponsoredPlacements    SponsoredProductPlacement[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1109,6 +1143,8 @@ model ProductCategory {
   homeFeaturedIn     HomeFeaturedCategory[]
   // TODO-160 (ADR-102) — Kategori hedefli takip linkleri (kategori silinince SetNull).
   trackingLinks      InfluencerTrackingLink[]
+  // TODO-161 (ADR-114) — Sponsorlu kampanya kategori hedefleri (kategori silinince SetNull).
+  sponsoredCampaigns SponsoredProductCampaign[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1515,24 +1551,27 @@ model Order {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
-  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer        Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  lines           OrderLine[]
-  addresses       OrderAddress[]
-  events          OrderEvent[]
-  reservations    InventoryReservation[]
-  paymentAttempts PaymentAttempt[]
-  paymentEvents   PaymentProviderEvent[]
-  shipments       Shipment[]
-  shipmentQuotes  ShipmentQuote[]
+  store                 Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer              Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines                 OrderLine[]
+  addresses             OrderAddress[]
+  events                OrderEvent[]
+  reservations          InventoryReservation[]
+  paymentAttempts       PaymentAttempt[]
+  paymentEvents         PaymentProviderEvent[]
+  shipments             Shipment[]
+  shipmentQuotes        ShipmentQuote[]
   // F4A — Siparis indirim snapshot'lari + kampanya kullanim kayitlari.
-  discounts       OrderDiscount[]
-  redemptions     CampaignRedemption[]
-  customerCoupons CustomerCoupon[]
+  discounts             OrderDiscount[]
+  redemptions           CampaignRedemption[]
+  customerCoupons       CustomerCoupon[]
   // TODO-159E (ADR-094) — bu siparisten dogan urun yorumlari (uygunluk provenance'i).
-  reviews         ProductReview[]
+  reviews               ProductReview[]
   // TODO-160 (ADR-103) — siparis attribution snapshot'i (varsa TEK; influencer kaynakli).
-  attribution     OrderAttribution?
+  attribution           OrderAttribution?
+  // TODO-161 (ADR-118) — sponsorlu urun attribution'lari (siparis basina N; urun-satiri kaynakli).
+  // Influencer attribution'dan BAGIMSIZ + BIRLIKTE var olabilir (ADR-120 coexistence).
+  sponsoredAttributions OrderSponsoredAttribution[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -2390,13 +2429,13 @@ model CustomerList {
   store    Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
   items    CustomerListItem[]
-
-  @@index([storeId])
-  @@index([storeId, customerId])
   // "Her (store, customer) icin TAM bir default WISHLIST" invariant'i migration'daki
   // KISMI unique index ile zorlanir: UNIQUE(storeId, customerId)
   //   WHERE isDefault = true AND type = 'WISHLIST'. (Prisma partial index'i sema
   //   dilinde ifade edemez; migration.sql'de tanimli — bkz. ADR-093.)
+
+  @@index([storeId])
+  @@index([storeId, customerId])
 }
 
 model CustomerListItem {
@@ -2439,36 +2478,36 @@ model CustomerListItem {
 // ============================================================================
 
 model ProductReview {
-  id          String              @id @default(cuid())
-  storeId     String
-  productId   String
+  id               String              @id @default(cuid())
+  storeId          String
+  productId        String
   // Hangi varyant satın alındı (sipariş kaleminden türetilir) — yalnız BAĞLAM.
   // Ürün-seviyesi yayın/aggregate; varyant silinince SetNull (yorum yaşamaya devam).
-  variantId   String?
-  customerId  String
+  variantId        String?
+  customerId       String
   // Uygunluk kanıtı + provenance (public projeksiyonda ASLA sızmaz).
-  orderId     String
-  orderLineId String
-  rating      Int
-  title       String?
-  body        String
-  status      ProductReviewStatus @default(PENDING)
+  orderId          String
+  orderLineId      String
+  rating           Int
+  title            String?
+  body             String
+  status           ProductReviewStatus @default(PENDING)
   // Uygunluk zaten teslim edilmiş + ödenmiş sipariş ister → oluşturulan her yorum
   // doğrulanmış alışverişten doğar. İade/iptal sonrası KORUNUR (bkz. ADR-094 §1.6).
-  verifiedPurchase Boolean        @default(true)
+  verifiedPurchase Boolean             @default(true)
   // Denormalize sayaç (liste N+1'i önler; helpful add/remove ile aynı tx'te güncellenir).
-  helpfulCount   Int              @default(0)
-  moderationNote String?
-  publishedAt    DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  helpfulCount     Int                 @default(0)
+  moderationNote   String?
+  publishedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
-  store     Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product   Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant   ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  customer  Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  order     Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderLine OrderLine              @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product      Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant      ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  customer     Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderLine    OrderLine              @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
   helpfulVotes ProductReviewHelpful[]
 
   // Bir sipariş kalemi en fazla bir yoruma kaynak (§14). Bir müşteri bir ürüne en
@@ -3598,4 +3637,165 @@ model OrderAttributionRefund {
   @@unique([orderAttributionId, refundKey])
   @@index([storeId])
   @@index([orderAttributionId])
+}
+
+// ═══════════════════ TODO-161 (ADR-114…120) — Sponsored Product Management ═══════════════════
+// Store-ici urun one cikarma. Organik search read-model'inin (ADR-079) skorunu DEGISTIRMEZ;
+// sponsorlu enjeksiyon organik sonuc URETILDIKTEN SONRA ayri katmandadir (ADR-114/115). Aday
+// UYGUNLUGU (ACTIVE + hasStock) + relevancy ProductSearchDocument uzerinden dogrulanir → pasif/
+// stok-disi urun otomatik elenir (ADR-116). Olcum TODO-160 attribution KATMANINI yeniden
+// kullanir; Influencer domain modeliyle BIRLESMEZ (ADR-091). Migration ADDITIVE.
+
+/// Sponsorlu urun kampanyasi. placement = tek yerlesim tipi (HOME_SHOWCASE | SEARCH_RESULTS).
+/// startsAt/endsAt UTC instant (timezone alani yalniz admin GORUNTU/DUZENLEME baglamidir, aktiflik
+/// mantigini ETKILEMEZ — ADR-119). priority + createdAt deterministik cakisma sirasi. maxSlots =
+/// kampanyanin tek sonuc kumesinde alabilecegi azami urun. targetCategoryId opsiyonel kategori
+/// hedefleme (kategori silinince SetNull — kampanya kalir, hedef temizlenir).
+model SponsoredProductCampaign {
+  id               String                  @id @default(cuid())
+  storeId          String
+  name             String
+  status           SponsoredCampaignStatus @default(ACTIVE)
+  placement        SponsoredPlacementType
+  startsAt         DateTime?
+  endsAt           DateTime?
+  priority         Int                     @default(0)
+  maxSlots         Int                     @default(3)
+  targetCategoryId String?
+  timezone         String                  @default("Europe/Istanbul")
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  store          Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  targetCategory ProductCategory?            @relation(fields: [targetCategoryId], references: [id], onDelete: SetNull)
+  placements     SponsoredProductPlacement[]
+  keywords       SponsoredTargetKeyword[]
+  events         SponsoredProductEvent[]
+  attributions   OrderSponsoredAttribution[]
+
+  @@index([storeId])
+  @@index([storeId, status, placement])
+  // Aktif kampanya penceresi sorgusu (status + placement + tarih araligi).
+  @@index([storeId, placement, startsAt, endsAt])
+  @@index([storeId, createdAt])
+  @@index([targetCategoryId])
+}
+
+/// Kampanya↔urun junction. position opsiyonel istenen slot; priority urun-ici sira. Urun
+/// silinince Cascade (placement kalkar; attribution snapshot'i AYRI tabloda KORUNUR).
+model SponsoredProductPlacement {
+  id         String   @id @default(cuid())
+  storeId    String
+  campaignId String
+  productId  String
+  position   Int?
+  priority   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  store    Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign SponsoredProductCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, productId])
+  @@index([storeId])
+  @@index([storeId, productId])
+  @@index([campaignId])
+}
+
+/// SEARCH_RESULTS query allowlist. keyword NORMALIZE saklanir (locale-bagimsiz; arama query
+/// normalize'i ile ayni zemin) → indeksli join ile aday cozumu. Ilgisiz hedefleme relevancy
+/// kapisini (ADR-116) yine de gecmek zorundadir (yalniz allowlist yetmez).
+model SponsoredTargetKeyword {
+  id         String   @id @default(cuid())
+  storeId    String
+  campaignId String
+  keyword    String
+  createdAt  DateTime @default(now())
+
+  store    Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign SponsoredProductCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, keyword])
+  @@index([storeId, keyword])
+  @@index([campaignId])
+}
+
+/// Funnel event'i (IMPRESSION | CLICK | CART). KVKK (ADR-106 deseni): ham IP/UA SAKLANMAZ,
+/// yalniz tuzlu visitorIdHash. isBot bilinen bot UA'lar icin true (metrik paydalarindan DISLANIR).
+/// Dedupe: ayni (visitorIdHash, placementId, type) kisa pencerede yeni satir ACMAZ. campaignId/
+/// placementId/productId imzali token'dan gelir (istemci belirleyemez — ADR-118).
+model SponsoredProductEvent {
+  id            String                 @id @default(cuid())
+  storeId       String
+  campaignId    String
+  placementId   String?
+  productId     String
+  type          SponsoredEventType
+  placement     SponsoredPlacementType
+  source        String?
+  visitorIdHash String?
+  sessionIdHash String?
+  isBot         Boolean                @default(false)
+  createdAt     DateTime               @default(now())
+
+  store    Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  campaign SponsoredProductCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([storeId, createdAt])
+  @@index([campaignId, type, createdAt])
+  @@index([productId, type])
+  // Rapid-repeat + unique-impression dedupe sorgusu (ADR-118).
+  @@index([storeId, placementId, visitorIdHash, type, createdAt])
+}
+
+/// Sponsorlu siparis attribution SNAPSHOT'i (ADR-118, immutable). Siparis basina N (urun basina 1);
+/// @@unique([orderId, campaignId, productId]). Gelir = siparis SATIRI (istemci belirleyemez).
+/// Influencer attribution'dan BAGIMSIZ + BIRLIKTE var olabilir (ADR-120). net = gross - refunded.
+model OrderSponsoredAttribution {
+  id                   String   @id @default(cuid())
+  storeId              String
+  orderId              String
+  campaignId           String
+  placementId          String?
+  productId            String
+  attributedAt         DateTime @default(now())
+  quantity             Int
+  grossRevenueMinor    Int
+  refundedRevenueMinor Int      @default(0)
+  netRevenueMinor      Int
+  currency             String
+  snapshot             Json
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  store    Store                             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order    Order                             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  campaign SponsoredProductCampaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  refunds  OrderSponsoredAttributionRefund[]
+
+  @@unique([orderId, campaignId, productId])
+  @@index([storeId])
+  @@index([storeId, campaignId, attributedAt])
+  @@index([orderId])
+  @@index([productId])
+}
+
+/// Append-only sponsorlu iade defteri (ADR-118). refundKey idempotency anahtari (cancel:<orderId>
+/// ya da refund:<eventId>); ayni olay ikinci kez uygulanmaz (@@unique). netRevenue toplamdan turetilir.
+model OrderSponsoredAttributionRefund {
+  id                          String   @id @default(cuid())
+  storeId                     String
+  orderSponsoredAttributionId String
+  refundKey                   String
+  amountMinor                 Int
+  createdAt                   DateTime @default(now())
+
+  store       Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  attribution OrderSponsoredAttribution @relation(fields: [orderSponsoredAttributionId], references: [id], onDelete: Cascade)
+
+  @@unique([orderSponsoredAttributionId, refundKey])
+  @@index([storeId])
+  @@index([orderSponsoredAttributionId])
 }

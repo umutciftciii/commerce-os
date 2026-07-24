@@ -29,6 +29,7 @@ import { getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gatewa
 import { readCustomerToken } from "./customer-cookie";
 import { readClaimedCoupons } from "./cart-cookie";
 import { readAttributionGrant } from "./attribution-cookie";
+import { readSponsoredGrants } from "./sponsored-cookie";
 
 /**
  * Vitrin sepet/checkout cozumleyici (F3B.1). Cookie'deki referans kalemlerini
@@ -424,6 +425,15 @@ export async function submitCheckout(
     } catch {
       attributionGrant = null;
     }
+    // TODO-161 (ADR-118) — Sponsorlu ürün grant'leri (tıklanan sponsorlu ürünler) first-party
+    // cookie'den SUNUCU-tarafında okunur ve checkout gövdesine eklenir. Gateway KENDİ imzasını
+    // doğrular + ürünün siparişte gerçekten var olduğunu kontrol eder. Yoksa boş.
+    let sponsoredGrants: string[] = [];
+    try {
+      sponsoredGrants = await readSponsoredGrants();
+    } catch {
+      sponsoredGrants = [];
+    }
     const body = {
       items,
       contact,
@@ -433,6 +443,7 @@ export async function submitCheckout(
       couponCode: couponCode ?? null,
       shippingOptionId: shippingOptionId ?? null,
       ...(attributionGrant ? { attributionGrant } : {}),
+      ...(sponsoredGrants.length > 0 ? { sponsoredGrants } : {}),
     };
     const result = customerToken
       ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)

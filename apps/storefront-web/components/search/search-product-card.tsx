@@ -9,6 +9,8 @@ import { ProductMedia } from "../ui/product-media";
 import { Stars } from "../ui/stars";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating } from "../reviews/rating-provider";
+import { SponsoredBadge } from "../sponsored/sponsored-badge";
+import { trackSponsoredClick } from "../../lib/sponsored/track";
 
 /**
  * TODO-156B (ANALIZ-156A §5-§9) — Public search projeksiyonuyla beslenen PLP kartı.
@@ -53,7 +55,15 @@ export function SearchProductCard({
     <div className="group relative flex flex-col">
       {/* Görsel çerçevesi: dış sarmalayıcı `div` (interaktif iç-içe geçmeyi önler — kalp butonu <a> içinde OLAMAZ). */}
       <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
-        <Link href={card.href} aria-label={card.title} className="block h-full w-full">
+        <Link
+          href={card.href}
+          aria-label={card.title}
+          className="block h-full w-full"
+          onClick={() => {
+            // TODO-161 — Sponsorlu kart tıklaması: CLICK event + checkout attribution cookie'si.
+            if (card.sponsored && card.sponsoredToken) trackSponsoredClick(card.sponsoredToken, "search");
+          }}
+        >
           {/* Temel görsel (swatch önizleme dahil) — layout-shift'siz drop-in. */}
           <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100">
             <ProductMedia
@@ -81,6 +91,9 @@ export function SearchProductCard({
         {/* Rozet yığını (sol üst): indirim (nötr) + TÜKENDİ (outline). İçerik/mantık DEĞİŞMEDİ — yalnız
             Home kartıyla aynı sol-üst konuma taşındı (sağ üst favori kalbine yer açmak için). */}
         <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
+          {card.sponsored ? (
+            <SponsoredBadge token={card.sponsoredToken} label={s.sponsoredLabel} source="search" />
+          ) : null}
           {discountBadgePercent !== null ? (
             <Badge tone="ink">{format(s.discountBadge, { percent: discountBadgePercent })}</Badge>
           ) : null}
