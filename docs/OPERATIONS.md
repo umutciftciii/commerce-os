@@ -677,3 +677,46 @@ ALLOW_DESTRUCTIVE_DEMO_RESET=true pnpm db:seed-enterprise && pnpm db:backfill-en
 
 > Guard'lar api-gateway imajına baked kaynaktan koşar → `safety.mjs`/`persist.mjs` değişince
 > `docker compose -f infra/docker/docker-compose.yml build api-gateway` gerekir (TD-116-b).
+
+## `_prisma_migrations` baseline operasyonu (TODO-159G Faz B, 2026-07-24)
+
+Veri kaybı olayından (TD-116) sonra yerel DB `db push`-kurulu olduğundan `_prisma_migrations`
+taşımıyordu. Hotfix (PR #115) merge+deploy edildikten SONRA, **reset/push/drop KULLANILMADAN**
+migration geçmişi baseline edildi:
+
+```bash
+# 1) ZORUNLU: tam custom-format backup + doğrulama
+docker exec docker-postgres-1 pg_dump -U commerce_os -d commerce_os -Fc > pre-baseline.dump
+docker exec -i docker-postgres-1 pg_restore --list < pre-baseline.dump   # TOC != 0 doğrula
+
+# 2) DB'nin migration geçmişiyle birebir olduğunu KANITLA (shadow DB'de replay + diff)
+pnpm exec prisma migrate diff \
+  --from-migrations packages/db/prisma/migrations \
+  --to-url "$LIVE_DB_URL" --shadow-database-url "$SHADOW_DB_URL" --exit-code
+#   → "No difference detected" GÖRMEDEN devam etme.
+
+# 3) Her migration'ı applied işaretle (DDL/veri DEĞİŞMEZ; sadece _prisma_migrations'a kayıt)
+for d in $(ls packages/db/prisma/migrations | grep -E '^[0-9]' | sort); do
+  pnpm exec prisma migrate resolve --applied "$d" --schema packages/db/prisma/schema.prisma
+done
+
+# 4) Doğrula
+pnpm exec prisma migrate status   # hedef: "Database schema is up to date!"
+```
+
+**Sonuç (2026-07-24):** 51/51 applied, 0 rolled-back, `migrate status` = "up to date", veri
+sayıları birebir korundu (verify-enterprise 21/21, storefront smoke PASS). TD-116-a KAPANDI.
+
+> **schema.prisma vs DB "drift" NORMALDİR:** `migrate diff --from-database --to-schema-datamodel`,
+> `ProductSearchDocument.searchVector` (tsvector GENERATED + GIN index) farkını gösterir. Bu, ham-SQL
+> migration `20260719120000_add_search_read_model`'in eklediği ve Prisma datamodel'in ifade edemediği
+> bir artefakttır; her doğru migrate edilmiş DB'de (production dahil) vardır. Bozulma DEĞİLDİR.
+
+## KALICI OPERASYON KURALI — destructive DB komutları YASAK
+
+`prisma db push` (özellikle `--force-reset` / `--accept-data-loss`), `prisma migrate reset`,
+`docker volume rm <postgres>` ve elle `DROP DATABASE/SCHEMA/TABLE` **her ortamda YASAKTIR.**
+Şema değişikliği yalnız `prisma migrate dev` (üret) → `prisma migrate deploy` (uygula) ile yapılır.
+Yerel dev'de dahi enterprise-demo kataloğunu yeniden kurmak gerekiyorsa: `pnpm db:restore-enterprise`
+(backup→seed→backfill→verify) kullan; seed guard'ları (ADR-108) yıkıcı yolu zaten fail-safe kılar.
+Bu kural TD-116 (2026-07-23 veri kaybı) sonrası kalıcıdır.

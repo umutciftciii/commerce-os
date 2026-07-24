@@ -1063,9 +1063,16 @@ her biri uygulanmış bir tasarım sınırıdır.
   demo-store korundu). **Önleme:** ADR-108 guard'ları (env/scope/circuit-breaker/backup) +
   20 birim + 3 statik-invariant test + 3 canlı guard testi.
   **Kalan borç:**
-  - **(a) DB `_prisma_migrations` YOK — şema `db push` ile kurulmuş.** Mevcut yerel DB migrasyon
-    geçmişi taşımıyor (introspeksiyonla doğrulandı). `prisma migrate deploy` bu DB'de baseline
-    ister; temiz yol = clean-build (volume yeniden) + `db:deploy` + `db:seed-enterprise`. **Öncelik: ORTA.**
+  - **(a) DB `_prisma_migrations` YOK — şema `db push` ile kurulmuş. ✅ KAPANDI (2026-07-24).**
+    Yerel DB migrasyon geçmişi taşımıyordu. Baseline operasyonu (ADR-108, PR #115 merge+deploy SONRASI,
+    reset/push/drop KULLANILMADAN) uygulandı: (1) tam custom-format backup + `pg_restore --list` doğrulaması;
+    (2) `prisma migrate diff --from-migrations … --to-url <live> --shadow-database-url <shadow>` → **"No
+    difference detected"** (DB, 51 migration replay'iyle birebir; tek fark schema.prisma vs ham-SQL tsvector
+    gap'i, her migrate edilmiş DB'de mevcut ve beklenen); (3) 51 migration `prisma migrate resolve --applied`
+    ile sırayla applied işaretlendi (DDL/veri DEĞİŞMEDİ; yalnız `_prisma_migrations` tablosu eklendi).
+    Sonuç: `prisma migrate status` → **"Database schema is up to date!"**, 51/51 applied, 0 rolled-back,
+    veri sayıları birebir korundu (verify-enterprise 21/21, storefront smoke PASS). Artık `prisma migrate
+    deploy` yolu bu DB'de temiz çalışır; clean-build gerekmedi. **KAPANDI.**
   - **(b) Guard'lar imaj yeniden kurulunca canlıya girer.** Seed api-gateway imajına baked
     kaynaktan koşar; `safety.mjs` değişikliği `docker compose build api-gateway` sonrası etkindir
     (bu görevde rebuild + canlı doğrulama YAPILDI). **Öncelik: DÜŞÜK (belgelendi).**
