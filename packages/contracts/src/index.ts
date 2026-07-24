@@ -10,6 +10,10 @@ import {
 const jsonRecordSchema = z.record(z.unknown());
 const slugSchema = z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const skuSchema = z.string().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+// TODO-160A (ADR-110) — SKU governance kaynagi. AUTO=generator uretti, MANUAL=kullanici override etti,
+// IMPORTED=disaridan geldi. Barcode ile karistirilmaz (ayri kavram).
+export const skuSourceSchema = z.enum(["AUTO", "MANUAL", "IMPORTED"]);
+export type SkuSource = z.infer<typeof skuSourceSchema>;
 const currencySchema = z.string().length(3).regex(/^[A-Z]{3}$/);
 const optionalNullableStringSchema = z.string().max(500).nullable().optional();
 
@@ -2226,6 +2230,8 @@ export const productVariantSchema = z.object({
   storeId: z.string().min(1),
   title: z.string().min(1),
   sku: skuSchema,
+  // TODO-160A (ADR-110) — SKU kaynagi (governance). Additive; eski projeksiyonlarda MANUAL.
+  skuSource: skuSourceSchema,
   barcode: z.string().nullable(),
   priceMinor: z.number().int().nonnegative(),
   compareAtMinor: z.number().int().nonnegative().nullable(),
@@ -2256,6 +2262,92 @@ export const productVariantListResponseSchema = z.object({
     offset: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
   }),
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-160A (ADR-109…113) — SKU Generation & Governance contracts.
+ * Deterministik varyant-seviyesi SKU: preview (salt-okuma) + regenerate (server-authoritative)
+ * + validate (manuel override) + audit (salt-okuma). SKU issue/problem kodlari STABIL string'dir.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Bir varyant icin SKU onizleme/regenerate satiri (deterministik oneri + tani). */
+export const skuPreviewRowSchema = z.object({
+  variantId: z.string().min(1),
+  status: productVariantStatusSchema,
+  currentSku: z.string(),
+  skuSource: skuSourceSchema,
+  /** Cakisma cozulmus deterministik oneri. */
+  suggestedSku: z.string(),
+  /** Cakisma cozumu ONCESI deterministik temel. */
+  baseSku: z.string(),
+  /** suggested != current. */
+  changed: z.boolean(),
+  /** Temel cakisti, sonek uygulandi. */
+  collision: z.boolean(),
+  /** MANUAL/IMPORTED kaynak → auto regenerate ATLAR (force yoksa). */
+  protected: z.boolean(),
+  /** Mevcut SKU'nun tani kodlari (SKU_EMPTY, SKU_INVALID_CHARS, ...). */
+  issues: z.array(z.string()),
+});
+export const skuPreviewResponseSchema = z.object({
+  rows: z.array(skuPreviewRowSchema),
+  counts: z.object({
+    total: z.number().int().nonnegative(),
+    changed: z.number().int().nonnegative(),
+    collisions: z.number().int().nonnegative(),
+    protectedCount: z.number().int().nonnegative(),
+  }),
+});
+
+export const skuRegenerateRequestSchema = z.object({
+  /** Yalniz AUTO kaynakli SKU'lari yeniden uret (default true — manuel SKU sessizce degismez). */
+  onlyAutoSource: z.boolean().optional(),
+  /** true → MANUAL/IMPORTED dahil yeniden uret (acik override). */
+  force: z.boolean().optional(),
+  /** Alt kume (verilmezse urunun tum varyantlari). */
+  variantIds: z.array(z.string().min(1)).max(2000).optional(),
+});
+export const skuRegenerateResponseSchema = z.object({
+  batchId: z.string(),
+  updated: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  rows: z.array(skuPreviewRowSchema),
+});
+
+export const skuValidateRequestSchema = z.object({
+  sku: z.string(),
+  /** Guncelleme senaryosu — kendi variantId'siyle cakismayi yok say. */
+  variantId: z.string().min(1).optional(),
+});
+export const skuValidateResponseSchema = z.object({
+  ok: z.boolean(),
+  normalized: z.string(),
+  errors: z.array(z.string()),
+  /** Store icinde benzersiz mi (baska bir varyant almamis mi). */
+  available: z.boolean(),
+});
+
+/** Store-scoped SKU audit satiri (salt-okuma governance). */
+export const skuAuditRowSchema = z.object({
+  variantId: z.string().min(1),
+  productId: z.string().min(1),
+  currentSku: z.string(),
+  skuSource: skuSourceSchema,
+  status: productVariantStatusSchema,
+  /** Problem kodlari: EMPTY · DUPLICATE · INVALID_CHARS · TOO_LONG · BARCODE_EQUALS_SKU · OPAQUE. */
+  problems: z.array(z.string()),
+  /** Onerilen (deterministik) SKU — null ise oneri uretilemedi. */
+  suggestedSku: z.string().nullable(),
+});
+export const skuAuditResponseSchema = z.object({
+  storeId: z.string().min(1),
+  scanned: z.number().int().nonnegative(),
+  flagged: z.number().int().nonnegative(),
+  /** problem kodu → adet. */
+  summary: z.record(z.number().int().nonnegative()),
+  rows: z.array(skuAuditRowSchema),
+  /** Rapor limitle kesildi mi (flagged > rows.length). */
+  truncated: z.boolean(),
 });
 
 /**
@@ -3501,7 +3593,9 @@ export const publicPaymentAvailabilitySchema = z.object({
 export const productVariantCreateRequestSchema = z
   .object({
     title: z.string().min(1).max(220),
-    sku: skuSchema,
+    // TODO-160A (ADR-111) — SKU artik OPSIYONEL: bos/verilmemisse sunucu deterministik uretir
+    // (skuSource=AUTO). Verilirse manuel override (skuSource=MANUAL, server-side dogrulanir + dupe 409).
+    sku: skuSchema.optional(),
     barcode: z.string().max(80).nullable().optional(),
     // F4C — priceMinor (KDV DAHIL brut) YA DA netPriceMinor (KDV HARIC) verilir;
     // en az biri zorunlu (refine asagida). netPriceMinor verildiyse brut SUNUCUDA
@@ -4528,6 +4622,15 @@ export type PaymentProviderEventListResponse = z.infer<
 >;
 export type ProductVariantCreateRequest = z.infer<typeof productVariantCreateRequestSchema>;
 export type ProductVariantUpdateRequest = z.infer<typeof productVariantUpdateRequestSchema>;
+// TODO-160A (ADR-109…113) — SKU Generation & Governance tipleri.
+export type SkuPreviewRow = z.infer<typeof skuPreviewRowSchema>;
+export type SkuPreviewResponse = z.infer<typeof skuPreviewResponseSchema>;
+export type SkuRegenerateRequest = z.infer<typeof skuRegenerateRequestSchema>;
+export type SkuRegenerateResponse = z.infer<typeof skuRegenerateResponseSchema>;
+export type SkuValidateRequest = z.infer<typeof skuValidateRequestSchema>;
+export type SkuValidateResponse = z.infer<typeof skuValidateResponseSchema>;
+export type SkuAuditRow = z.infer<typeof skuAuditRowSchema>;
+export type SkuAuditResponse = z.infer<typeof skuAuditResponseSchema>;
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;
 export type InventoryListResponse = z.infer<typeof inventoryListResponseSchema>;
 export type InventoryAdjustRequest = z.infer<typeof inventoryAdjustRequestSchema>;

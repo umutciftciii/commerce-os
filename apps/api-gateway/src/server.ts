@@ -226,6 +226,10 @@ import {
 } from "./identity-engine/data.js";
 import { createIdentityService } from "./identity-engine/service.js";
 import { registerIdentityRoutes } from "./identity-engine/routes.js";
+// TODO-160A (ADR-109…113) — SKU Generation & Governance (deterministik SKU + collision + audit).
+import { createPrismaSkuDataAccess, type SkuDataAccess } from "./sku-engine/data.js";
+import { createSkuService } from "./sku-engine/service.js";
+import { registerSkuRoutes } from "./sku-engine/routes.js";
 // TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk).
 import {
   createPrismaCommercialDataAccess,
@@ -459,6 +463,8 @@ type VariantRecord = Pick<
   | "storeId"
   | "title"
   | "sku"
+  // TODO-160A (ADR-110) — SKU governance kaynagi.
+  | "skuSource"
   | "barcode"
   | "priceMinor"
   | "compareAtMinor"
@@ -1091,6 +1097,8 @@ export interface AppDataAccess extends CampaignDataAccess {
     input: {
       title: string;
       sku: string;
+      // TODO-160A (ADR-110) — SKU kaynagi. Route AUTO (bos SKU uretildi) veya MANUAL (istemci verdi) atar.
+      skuSource?: "AUTO" | "MANUAL" | "IMPORTED";
       barcode?: string | null;
       priceMinor: number;
       compareAtMinor?: number | null;
@@ -1116,6 +1124,8 @@ export interface AppDataAccess extends CampaignDataAccess {
     input: {
       title?: string;
       sku?: string;
+      // TODO-160A (ADR-110) — manuel SKU degistiginde route MANUAL atar (override koruma damgasi).
+      skuSource?: "AUTO" | "MANUAL" | "IMPORTED";
       barcode?: string | null;
       priceMinor?: number;
       compareAtMinor?: number | null;
@@ -1416,6 +1426,8 @@ export interface ServerDependencies extends ServerHealthChecks {
   variantGenerationDataAccess?: VariantGenerationDataAccess;
   // TODO-150 (ADR-073) — Identity Management Engine veri erisimi (testte in-memory enjekte edilebilir).
   identityDataAccess?: IdentityDataAccess;
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance veri erisimi (testte in-memory enjekte edilebilir).
+  skuDataAccess?: SkuDataAccess;
   // TODO-151 (ADR-074) — Commercial Engine veri erisimi (testte in-memory enjekte edilebilir).
   commercialDataAccess?: CommercialDataAccess;
   // TODO-152 (ADR-076) — Inventory Engine veri erisimi (testte in-memory enjekte edilebilir).
@@ -1637,6 +1649,8 @@ function serializeProduct(product: ProductRecord, baseUrl?: string) {
 function serializeVariant(variant: VariantRecord) {
   return productVariantSchema.parse({
     ...variant,
+    // TODO-160A (ADR-110) — SKU kaynagi; eski projeksiyonlarda guvenli default MANUAL.
+    skuSource: variant.skuSource ?? "MANUAL",
     barcode: variant.barcode ?? null,
     compareAtMinor: variant.compareAtMinor ?? null,
     costMinor: variant.costMinor ?? null,
@@ -2679,6 +2693,8 @@ function createPrismaDataAccess(): AppDataAccess {
     storeId: true,
     title: true,
     sku: true,
+    // TODO-160A (ADR-110) — SKU governance kaynagi (AUTO/MANUAL/IMPORTED).
+    skuSource: true,
     barcode: true,
     priceMinor: true,
     compareAtMinor: true,
@@ -3626,6 +3642,8 @@ function createPrismaDataAccess(): AppDataAccess {
             productId,
             title: input.title,
             sku: input.sku,
+            // TODO-160A (ADR-110) — SKU kaynagi (route hesaplar; default MANUAL).
+            skuSource: input.skuSource ?? "MANUAL",
             barcode: input.barcode ?? null,
             priceMinor: input.priceMinor,
             compareAtMinor: input.compareAtMinor ?? null,
@@ -6315,6 +6333,21 @@ export function createServer(
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance: deterministik varyant-seviyesi SKU
+  // (preview/regenerate/validate/audit). Uretim SAF (@commerce-os/utils); regenerate server-authoritative
+  // + tek transaction + advisory-lock + AuditLog. Manuel/imported SKU'lar korunur (onlyAutoSource/force).
+  // Manuel create'te SKU bossa da AUTO uretim icin ayni servis kullanilir (bkz. variants POST).
+  const skuDataAccess = dependencies.skuDataAccess ?? createPrismaSkuDataAccess();
+  const skuService = createSkuService(skuDataAccess);
+  registerSkuRoutes(app, {
+    service: skuService,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
+  });
+
   // TODO-151 (ADR-074) — Commercial Engine: varyant ticari alanlari (price/compare-at/cost/VAT)
   // preview-first + toplu yonetim. Motor SAF (money/calculator/rule/evaluator/validation/diff);
   // apply server-authoritative + tek transaction + advisory-lock + stale-guard + append-only audit.
@@ -7480,8 +7513,29 @@ export function createServer(
     // Faz 2A (ADR-068) — attributeValues ProductVariant kolonu DEGIL: ayiklanir, createVariant'a
     // gecmez; yalniz variantDefining attribute'lar kabul edilir (service guard).
     const { attributeValues, ...variantInput } = input;
-    if (await dataAccess.findVariantBySku(params.storeId, input.sku)) {
-      return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+    // TODO-160A (ADR-111) — SKU cozumu: istemci acikca verdiyse MANUAL (dupe on-kontrol + server dogrulama),
+    // BOS/verilmemisse deterministik AUTO uretim (option kodlari eksen sirasinda + store-wide collision).
+    // AUTO'da on-dupe kontrol gerekmez (generator collision cozer); DB unique + P2002 nihai guard.
+    const manualSku = input.sku && input.sku.trim().length > 0 ? input.sku.trim() : null;
+    let resolvedSku: string;
+    let resolvedSkuSource: "AUTO" | "MANUAL";
+    if (manualSku !== null) {
+      if (await dataAccess.findVariantBySku(params.storeId, manualSku)) {
+        return reply.code(409).send(errorBody("VARIANT_SKU_EXISTS", "Variant SKU already exists."));
+      }
+      resolvedSku = manualSku;
+      resolvedSkuSource = "MANUAL";
+    } else {
+      const optionIds = (attributeValues ?? [])
+        .map((a) => a.optionId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const generated = await skuService.generateForNewVariant({
+        storeId: params.storeId,
+        productId: params.productId,
+        optionIds,
+      });
+      resolvedSku = generated?.sku ?? params.productId;
+      resolvedSkuSource = "AUTO";
     }
     // Faz 2A — degerler VARYANT OLUSTURULMADAN once dogrulanir (urunun ana kategorisine gore).
     let variantAttributeEntries:
@@ -7524,6 +7578,9 @@ export function createServer(
     try {
       variant = await dataAccess.createVariant(params.storeId, params.productId, {
         ...variantInput,
+        // TODO-160A — cozulmus SKU + kaynak (AUTO uretildi / MANUAL verildi).
+        sku: resolvedSku,
+        skuSource: resolvedSkuSource,
         priceMinor: createPricing.grossMinor,
         netPriceMinor: createPricing.netMinor,
         vatRateBps: createVatRateBps,
@@ -7548,7 +7605,8 @@ export function createServer(
       storeId: params.storeId,
       entityType: "ProductVariant",
       entityId: variant.id,
-      metadata: { fields: Object.keys(input) },
+      // TODO-160A — SKU governance gozlemlenebilirligi (deger + kaynak).
+      metadata: { fields: Object.keys(input), sku: variant.sku, skuSource: resolvedSkuSource },
     });
     // TODO-154 (ADR-079) — yeni varyant fiyat/stok/eksen degerini etkiler → urun dokumanini yenile.
     searchIndex.reindexProduct(params.storeId, params.productId);
@@ -7639,8 +7697,12 @@ export function createServer(
           .send(errorBody(variantAttributeEntries.error.code, variantAttributeEntries.error.message));
       }
     }
+    // TODO-160A (ADR-110) — SKU elle degistiyse kaynagi MANUAL isaretle (override koruma damgasi;
+    // sonraki AUTO regenerate onu ATLAR). skuSource'u yalniz sku alani verildiginde yaz.
+    const skuChanged = rawInput.sku !== undefined && rawInput.sku !== current.sku;
     const variant = await dataAccess.updateVariant(params.storeId, params.productId, params.variantId, {
       ...rawInput,
+      skuSource: rawInput.sku !== undefined ? "MANUAL" : undefined,
       // F4C — Sunucuda cozulen tutarli KDV uclusu (brut=net+KDV) yazilir;
       // istemcinin ham netPriceMinor/vatRateBps'i oldugu gibi GECMEZ.
       ...pricingPatch,
@@ -7659,7 +7721,16 @@ export function createServer(
       storeId: params.storeId,
       entityType: "ProductVariant",
       entityId: variant.id,
-      metadata: { fields: Object.keys(rawInput) },
+      // TODO-160A — SKU degisimini field-level (eski/yeni + kaynak) audit'e yaz.
+      metadata: skuChanged
+        ? {
+            fields: Object.keys(rawInput),
+            field: "sku",
+            oldValue: current.sku,
+            newValue: variant.sku,
+            skuSource: "MANUAL",
+          }
+        : { fields: Object.keys(rawInput) },
     });
     // TODO-154 (ADR-079) — varyant fiyat/status/eksen degeri degisti → urun dokumanini yenile.
     searchIndex.reindexProduct(params.storeId, params.productId);

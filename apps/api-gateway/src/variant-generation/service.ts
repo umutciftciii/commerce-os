@@ -9,6 +9,7 @@
  * unique) · tenant-safe · tekrar çalıştırılabilir. Manuel varyantlar dokunulmaz. Kullanıcı verisi
  * (SKU/price/inventory) korunur: keep write yapmaz, restore yalnız status flip'ler.
  */
+import { SKU_MAX_LENGTH, buildBaseSku, resolveUniqueSku } from "@commerce-os/utils";
 import {
   generateVariantCombinations,
   type CombinationAxisInput,
@@ -72,24 +73,19 @@ export interface VariantGenerationServiceConfig {
 const DEFAULT_CURRENCY = "TRY";
 
 /**
- * Deterministik sistem SKU'su: `V-<productId>-<hash(combinationKey)>`.
- *  - productId cuid (mağaza içi + global tekil) → farklı ürünlerde çakışma yok.
- *  - hash(combinationKey) ürün içi kombinasyonları ayırır; aynı kombinasyon her zaman aynı SKU (stabil).
- *  - random/timestamp YOK. Kullanıcı SKU Matrix'te (2C-4) değiştirebilir; restore mevcut SKU'yu korur.
+ * TODO-160A (ADR-111) — Okunabilir deterministik AUTO SKU: `{PRODUCT_SLUG}-{OPTION_CODES…}`.
+ * Örnek: `TSHIRT-BLK-M`. Option kodları eksen sırasında (kombinasyon kanonik sırası) AttributeOption.value'dan
+ * gelir; product kodu ürün slug'ıdır (ASCII, deterministik). Collision (transliteration/ürün çakışması)
+ * çağıran tarafça enjekte edilen `taken` kümesiyle çözülür (zero-pad sonek). Random/timestamp YOK.
+ * Eski opak `V-<id>-<hash>` biçimi KALDIRILDI (governance: okunabilir + audit-dostu).
  */
-function deterministicSku(productId: string, combinationKey: string): string {
-  // cyrb53 türevi saf hash (engine ile aynı aile; sabit seed, random YOK).
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < combinationKey.length; i++) {
-    const ch = combinationKey.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
-  return `V-${productId}-${n.toString(36)}`;
+function readableSku(
+  productSlug: string,
+  optionCodes: string[],
+  isTaken: (candidate: string) => boolean,
+): string {
+  const base = buildBaseSku({ productCode: productSlug, optionCodes }).base;
+  return resolveUniqueSku(base, isTaken, { maxLength: SKU_MAX_LENGTH }).sku;
 }
 
 // Kombinasyonun kanonik option etiketlerinden başlangıç başlığı ("Red / M"). Label yoksa optionId.
@@ -207,6 +203,10 @@ export function createVariantGenerationService(
           const diffExisting = existing.map((v) => ({ ...v, archived: v.status === "ARCHIVED" }));
           const diff = diffVariantCombinations(diffExisting, target);
 
+          // TODO-160A — okunabilir AUTO SKU collision temeli: store-wide mevcut SKU'lar (mevcut varyantlar
+          // dahil; onlar KORUNUR, yalnız yeni üretilenler bu kümeye karşı çözülür + kümeye eklenir).
+          const takenSkus = new Set(await ctx.listStoreSkus(storeId));
+
           // (6) Yeni varyantlar için currency: mevcut bir varyanttan türet (yoksa mağaza varsayılanı).
           const currency = existing[0]?.currency ?? DEFAULT_CURRENCY;
           const targetByKey = new Map<string, CombinationPreview>(
@@ -217,10 +217,16 @@ export function createVariantGenerationService(
 
           // create — yalnız DAHA ÖNCE VAR OLMAYAN kombinasyonlar (idempotent). Güvenli başlangıç değerleri.
           for (const combination of diff.toCreate) {
+            // TODO-160A — okunabilir SKU: eksen sırasında option value'ları (yoksa label/optionId fallback).
+            const optionCodes = combination.attributes.map(
+              (a) => metaMap.get(a.optionId)?.value ?? a.optionLabel ?? a.optionId,
+            );
+            const sku = readableSku(product.slug, optionCodes, (c) => takenSkus.has(c));
+            takenSkus.add(sku);
             const input: NewGeneratedVariantInput = {
               combinationKey: combination.combinationKey,
               title: deriveTitle(combination),
-              sku: deterministicSku(productId, combination.combinationKey),
+              sku,
               currency,
               optionValues: combination.attributes.map((a) => ({
                 attributeDefinitionId: a.attributeDefinitionId,

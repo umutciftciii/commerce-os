@@ -203,7 +203,8 @@ class FakeStore {
     this.recipes.set(this.key(storeId, productId), recipe);
   }
   setOption(id: string, label: string, status: "ACTIVE" | "ARCHIVED" = "ACTIVE") {
-    this.optionMeta.set(id, { id, label, status });
+    // TODO-160A — value = SKU option kodu (test'te label ile ayni; deterministik).
+    this.optionMeta.set(id, { id, label, value: label, status });
   }
 }
 
@@ -213,6 +214,9 @@ function fakeDataAccess(store: FakeStore): VariantGenerationDataAccess {
     listRecipe: async (storeId, productId) => store.recipes.get(store.key(storeId, productId)) ?? [],
     findOptionMeta: async (optionIds) =>
       optionIds.map((id) => store.optionMeta.get(id)).filter((m): m is GenerationOptionMeta => !!m),
+    // TODO-160A — okunabilir AUTO SKU collision temeli (store-wide mevcut SKU'lar).
+    listStoreSkus: async (storeId) =>
+      store.variants.filter((v) => v.storeId === storeId).map((v) => v.sku),
     listExistingVariants: async (storeId, productId): Promise<GenerationExistingVariant[]> =>
       store.variants
         .filter((v) => v.storeId === storeId && v.productId === productId)
@@ -278,7 +282,7 @@ function fakeDataAccess(store: FakeStore): VariantGenerationDataAccess {
   return {
     findProductForStore: async (storeId, productId) => {
       const p = store.products.get(`${storeId}|${productId}`);
-      return p ? { id: p.id, primaryCategoryId: null } : null;
+      return p ? { id: p.id, primaryCategoryId: null, slug: p.id } : null;
     },
     transaction: (fn) => fn(ctx),
   };
@@ -551,12 +555,13 @@ describe("Faz 2C-3 — variantGenerationService (in-memory)", () => {
     expect(res.error.code).toBe("VARIANT_GENERATION_CONFLICT");
   });
 
-  it("deterministik SKU → ayni kombinasyon her uretimde ayni SKU (stabil)", async () => {
+  it("deterministik okunabilir SKU → {PRODUCT_SLUG}-{OPTION_CODES}; ayni kombinasyon → ayni SKU", async () => {
     const store = setupStore();
     store.setRecipe(STORE, PRODUCT, twoAxisRecipe(["red"], ["s"]));
     await run(store);
     const sku = store.variants[0]!.sku;
-    expect(sku).toMatch(/^V-prod_1-/);
+    // TODO-160A — okunabilir format: slug "prod_1" → "PROD-1", option value RED/S.
+    expect(sku).toBe("PROD-1-RED-S");
     // Sil + tekrar uret → ayni SKU (deterministik; random/timestamp YOK).
     store.variants = [];
     await run(store);

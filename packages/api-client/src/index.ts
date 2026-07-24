@@ -112,6 +112,13 @@ import type {
   IdentityPreviewResponse,
   IdentityApplyResponse,
   IdentityApplyRequest,
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance tipleri.
+  SkuPreviewResponse,
+  SkuRegenerateRequest,
+  SkuRegenerateResponse,
+  SkuValidateRequest,
+  SkuValidateResponse,
+  SkuAuditResponse,
   // TODO-151 (ADR-074) — Commercial Engine tipleri.
   CommercialPreviewResponse,
   CommercialPreviewRequest,
@@ -388,6 +395,16 @@ export type {
   IdentityPreviewField,
   IdentityCollision,
   IdentityField,
+  // TODO-160A (ADR-109…113) — SKU Generation & Governance tipleri.
+  SkuPreviewResponse,
+  SkuPreviewRow,
+  SkuRegenerateRequest,
+  SkuRegenerateResponse,
+  SkuValidateRequest,
+  SkuValidateResponse,
+  SkuAuditResponse,
+  SkuAuditRow,
+  SkuSource,
   // TODO-151 (ADR-074) — Commercial Engine tipleri.
   CommercialPreviewResponse,
   CommercialPreviewRequest,
@@ -1384,6 +1401,27 @@ export interface ApiClient {
           input: IdentityApplyRequest,
           token?: string,
         ): Promise<IdentityApplyResponse>;
+      };
+      // TODO-160A (ADR-109…113) — SKU Generation & Governance (deterministik SKU + collision + audit).
+      sku: {
+        preview(
+          storeId: string,
+          productId: string,
+          input: SkuRegenerateRequest,
+          token?: string,
+        ): Promise<SkuPreviewResponse>;
+        regenerate(
+          storeId: string,
+          productId: string,
+          input: SkuRegenerateRequest,
+          token?: string,
+        ): Promise<SkuRegenerateResponse>;
+        validate(
+          storeId: string,
+          input: SkuValidateRequest,
+          token?: string,
+        ): Promise<SkuValidateResponse>;
+        audit(storeId: string, limit: number | undefined, token?: string): Promise<SkuAuditResponse>;
       };
       // TODO-151 (ADR-074) — Commercial Engine (Price/Compare-at/Cost/VAT preview-first bulk).
       commercial: {
@@ -2597,6 +2635,30 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               `/stores/${storeId}/products/${productId}/identity/apply`,
               "POST",
               input,
+              token,
+            ),
+        },
+        // TODO-160A (ADR-109…113) — SKU Generation & Governance.
+        sku: {
+          preview: (storeId, productId, input, token) =>
+            sendJson<SkuPreviewResponse>(
+              `/stores/${storeId}/products/${productId}/sku/preview`,
+              "POST",
+              input,
+              token,
+            ),
+          regenerate: (storeId, productId, input, token) =>
+            sendJson<SkuRegenerateResponse>(
+              `/stores/${storeId}/products/${productId}/sku/regenerate`,
+              "POST",
+              input,
+              token,
+            ),
+          validate: (storeId, input, token) =>
+            sendJson<SkuValidateResponse>(`/stores/${storeId}/sku/validate`, "POST", input, token),
+          audit: (storeId, limit, token) =>
+            getJson<SkuAuditResponse>(
+              `/stores/${storeId}/sku/audit${limit !== undefined ? `?limit=${limit}` : ""}`,
               token,
             ),
         },

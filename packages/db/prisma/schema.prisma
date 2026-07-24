@@ -174,6 +174,19 @@ enum VariantGenerationSource {
   ATTRIBUTE_COMBINATION
 }
 
+// TODO-160A (ADR-110) — SKU'nun NASIL elde edildigi (governance kaynagi). generationSource'tan
+// (varyant SATIRININ nasil olustugu) AYRIDIR: bir ATTRIBUTE_COMBINATION varyantinin SKU'su AUTO
+// uretilmis olabilir; manuel bir varyantin SKU'su MANUAL girilmis olabilir. Default MANUAL: mevcut
+// satirlar icin EN GUVENLI (otomatik regenerate onlari EZMEZ — manuel korumasi devrede sayilir).
+//   AUTO     = deterministik generator uretti (regenerate serbest).
+//   MANUAL   = kullanici acikca girdi/override etti (regenerate SESSIZCE degistirmez; force ister).
+//   IMPORTED = disaridan (import) geldi; mevcut gecerli deger korunur.
+enum SkuSource {
+  AUTO
+  MANUAL
+  IMPORTED
+}
+
 enum InventoryMovementType {
   ADJUSTMENT
   SALE_RESERVATION
@@ -985,6 +998,10 @@ model ProductVariant {
   //   uretilmis non-null key ayni urun altinda tektir (concurrency insert-conflict temeli).
   // archivedAt: recetede olmayan uretilmis varyant arsivlendiginde (status=ARCHIVED) set edilir; audit.
   generationSource VariantGenerationSource @default(MANUAL)
+  // TODO-160A (ADR-110) — SKU governance kaynagi (AUTO/MANUAL/IMPORTED). Additive; default MANUAL
+  // (mevcut satirlar icin guvenli — otomatik regenerate onlari EZMEZ). sku ile @@unique([storeId, sku])
+  // DEGISMEDI; bu alan yalniz "kim yazdi" gozlemlenebilirligi + regenerate korumasi icindir.
+  skuSource        SkuSource               @default(MANUAL)
   combinationKey   String?
   archivedAt       DateTime?
   // TODO-150 (ADR-073) — Identity Management Engine. titleIsCustom: baslik motor-yonetimli mi (false;

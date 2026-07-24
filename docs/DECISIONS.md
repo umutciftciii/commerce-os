@@ -3757,3 +3757,69 @@ migration'la birebir) → 51 migration `migrate resolve --applied` ile işaretle
 (`ProductSearchDocument` tsvector GENERATED + GIN) ham-SQL migration artefaktıdır ve beklenendir.
 **Kalıcı kural:** `db push`/`migrate reset`/volume-drop her ortamda yasak; şema yalnız `migrate deploy`
 ile ilerler (bkz. docs/OPERATIONS.md). TD-116-a KAPANDI.
+
+## ADR-109 — SKU otoritesi: ProductVariant tek otorite + order snapshot immutability (TODO-160A)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-072/073, `OrderLine.sku`
+
+**Bağlam.** SKU üretimi, benzersizlik ve governance'ın bir tek otorite modeline bağlanması gerekir; aksi
+halde ürün-seviyesi ile varyant-seviyesi SKU çatışır, sipariş geçmişi kırılır.
+
+**Karar.** (1) SKU **yalnız `ProductVariant`** üzerinde yaşar; `Product`'a paralel SKU alanı **ASLA**
+eklenmez. Basit ürün bile tek varyant üzerinden SKU taşır. (2) SKU mağaza içinde benzersizdir —
+`@@unique([storeId, sku])` (mevcut; yeniden üretilmez). (3) `OrderLine.sku` sipariş anında
+`variant.sku`'dan kopyalanan **immutable snapshot**'tır; `ProductVariant.sku` sonradan değişse bile
+OrderLine.sku **değişmez** (FK değil, snapshot). SKU değişimi stok kayıtlarını koparmaz; search
+projection `reindexProduct` ile güncellenir.
+
+**Reddedilen.** Product.sku (çift otorite) · OrderLine'ı FK ile varyanta bağlayıp SKU türetmek (geçmiş
+bozulur) · global (store'suz) SKU unique (multi-tenant kırılır).
+
+## ADR-110 — SKU kaynağı: additive `SkuSource` (AUTO/MANUAL/IMPORTED) + SKU↔barcode ayrımı (TODO-160A)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ
+
+**Karar.** ProductVariant'a additive `skuSource SkuSource @default(MANUAL)` eklendi (migration
+`20260724130000_add_sku_source`). Default MANUAL mevcut satırlar için **en güvenli**: otomatik regenerate
+onları EZMEZ. AUTO = generator üretti (regenerate serbest); MANUAL = kullanıcı override etti (regenerate
+`force` ister); IMPORTED = dışarıdan geldi (korunur). `generationSource` (varyant SATIRININ nasıl
+oluştuğu) ile AYRIDIR. **SKU ile barcode ayrı kavramlardır**: barcode nullable, unique DEĞİL; biri
+diğerini türetmez.
+
+## ADR-111 — Deterministik okunabilir SKU formatı + SAF generator (TODO-160A)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-081 (slug motoru simetrisi)
+
+**Karar.** SKU formatı `{PREFIX?}-{PRODUCT_CODE}-{OPTION_CODES…}-{SEQ?}` (ör. `TSHIRT-BLK-M`,
+`MUG-CERAMIC-WHT-001`). Kanonik: yalnız `A-Z0-9-`, ASCII, Türkçe transliteration, büyük harf, ardışık/
+baş-son ayraç yok, max 64, boş sonuç üretilemez (fallback `SKU`). Üretim **SAF** `@commerce-os/utils`
+(`buildBaseSku`/`resolveUniqueSku`/`validateSku`/`generateSku`) modülündedir — Prisma/HTTP/Date/random
+BİLMEZ; collision predikatı (`isTaken`) dışarıdan enjekte edilir (slug motoruyla birebir simetrik).
+Varyant üretim motorundaki eski opak `V-<id>-<hash>` biçimi okunabilir SKU ile **DEĞİŞTİRİLDİ**.
+
+**Reddedilen.** Random/timestamp SKU (deterministik değil) · pattern zorunluluğu (identity engine zaten
+var; sıfır-config gerekliydi) · slug motorunu değiştirmek (SKU büyük-harf ayrı bağlam).
+
+## ADR-112 — Collision & concurrency politikası (TODO-160A)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-072 (advisory lock)
+
+**Karar.** Çakışma **servis katmanında** çözülür (saf generator DB bilmez): in-batch (`taken` kümesi) +
+store-wide mevcut SKU'lara karşı; çakışmada zero-pad sonek `-002`, `-003`… (retry üst sınırı
+`SKU_SUFFIX_MAX`=9999 → sonsuz döngü yok). DB `@@unique([storeId, sku])` **nihai guard**tır; yarışta
+P2002 kontrollü `SKU_CONFLICT` (409) döner — 500 sızmaz. Toplu regenerate ürün-bazlı
+`pg_advisory_xact_lock` altında tek transaction'da server-authoritative çalışır (preview'i yeniden
+hesaplar; istemciye güvenilmez). İstemci final SKU otoritesi değildir.
+
+## ADR-113 — Backfill güvenliği + audit governance (TODO-160A)
+
+**Tarih:** 2026-07-24 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-108 (yıkıcı seed guard)
+
+**Karar.** SKU backfill **yıkıcı değildir**: varsayılan **dry-run**; `--apply` için `--store=<id>`
+ZORUNLU; yalnız BOŞ (veya `--include-opaque` ile OPAK) SKU'lar hedeflenir — **geçerli SKU'lara ASLA
+dokunulmaz**; row-count circuit breaker (`--max-rows`, default 1000; aşımda `--force`); backup önerisi;
+işlem raporu; her yazma `skuSource=AUTO` + AuditLog (`SYSTEM`, field-level old/new). SKU değişimi
+OrderLine snapshot'larını DEĞİŞTİRMEZ. Salt-okuma **audit** komutu boş/duplicate/invalid/too-long/opak/
+barcode-eşit SKU'ları sınıflar + deterministik öneri üretir. Manuel create/regenerate SKU değişimleri de
+generic AuditLog'a (field-level metadata) yazılır. **Import** sistemi bu fazda YOK (greenfield); saf
+generator + collision servisi import-hazır tasarlandı (bkz. TECHNICAL_DEBT TD-117).

@@ -50,6 +50,30 @@ export {
 // TODO-156D tamamlama (ADR-081/082) — Entity → kanonik URL path (gateway yazar + storefront çözer, tek kaynak).
 export { productUrlPath, categoryUrlPath } from "./seo-paths.js";
 
+// TODO-160A (ADR-111) — SKU üretim/normalizasyon motoru (SAF, çerçeve-bağımsız, TEK OTORİTE).
+export {
+  SKU_MAX_LENGTH,
+  SKU_SEGMENT_MAX_LENGTH,
+  SKU_FALLBACK,
+  SKU_CHARSET,
+  SKU_SUFFIX_START,
+  SKU_SUFFIX_PADDING,
+  SKU_SUFFIX_MAX,
+  normalizeSkuSegment,
+  normalizeSku,
+  buildBaseSku,
+  validateSku,
+  resolveUniqueSku,
+  generateSku,
+  type BuildSkuInput,
+  type BuildSkuResult,
+  type SkuValidationError,
+  type SkuValidationResult,
+  type ResolveUniqueSkuResult,
+  type GenerateSkuParams,
+  type GenerateSkuResult,
+} from "./sku.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

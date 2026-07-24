@@ -21,6 +21,8 @@ const DEFAULT_VAT_RATE_BPS = 2000;
 export interface GenerationProductRef {
   id: string;
   primaryCategoryId: string | null;
+  // TODO-160A (ADR-111) — okunabilir SKU uretiminin PRODUCT_CODE kaynagi (slug; deterministik, ASCII).
+  slug: string;
 }
 
 /** Ürünün kalıcı eksen reçetesi (position ASC; her eksende optionIds position ASC). */
@@ -30,10 +32,12 @@ export interface GenerationRecipeAxis {
   optionIds: string[];
 }
 
-/** Seçili option'ın güncel metadata'sı (label + arşiv durumu). */
+/** Seçili option'ın güncel metadata'sı (label + makine değeri + arşiv durumu). */
 export interface GenerationOptionMeta {
   id: string;
   label: string;
+  // TODO-160A — okunabilir SKU option kodu kaynağı (AttributeOption.value; ör. "BLK", "M").
+  value: string;
   status: "ACTIVE" | "ARCHIVED";
 }
 
@@ -73,6 +77,8 @@ export interface GenerationTxContext {
   lockProduct(productId: string): Promise<void>;
   listRecipe(storeId: string, productId: string): Promise<GenerationRecipeAxis[]>;
   findOptionMeta(optionIds: string[]): Promise<GenerationOptionMeta[]>;
+  // TODO-160A — okunabilir AUTO SKU collision temeli (store-wide mevcut SKU'lar).
+  listStoreSkus(storeId: string): Promise<string[]>;
   listExistingVariants(storeId: string, productId: string): Promise<GenerationExistingVariant[]>;
   createVariant(
     storeId: string,
@@ -124,8 +130,13 @@ function makeTxContext(tx: PrismaLike): GenerationTxContext {
         ? Promise.resolve([])
         : tx.attributeOption.findMany({
             where: { id: { in: optionIds } },
-            select: { id: true, label: true, status: true },
+            select: { id: true, label: true, value: true, status: true },
           }),
+    // TODO-160A — okunabilir AUTO SKU collision temeli: store'daki TÜM varyant SKU'ları (tx içinde).
+    listStoreSkus: async (storeId) => {
+      const rows = await tx.productVariant.findMany({ where: { storeId }, select: { sku: true } });
+      return rows.map((r) => r.sku);
+    },
     listExistingVariants: (storeId, productId) =>
       tx.productVariant.findMany({
         where: { storeId, productId },
@@ -153,6 +164,8 @@ function makeTxContext(tx: PrismaLike): GenerationTxContext {
           currency: input.currency,
           status: "DRAFT",
           generationSource: "ATTRIBUTE_COMBINATION",
+          // TODO-160A (ADR-110) — uretilmis okunabilir SKU otomatik kaynaklidir (regenerate serbest).
+          skuSource: "AUTO",
           combinationKey: input.combinationKey,
           // optionValues JSON'a YAZILMAZ (normalize kayıt authoritative).
           optionValueSelections: {
@@ -186,7 +199,7 @@ export function createPrismaVariantGenerationDataAccess(): VariantGenerationData
     findProductForStore: (storeId, productId) =>
       prisma.product.findFirst({
         where: { id: productId, storeId },
-        select: { id: true, primaryCategoryId: true },
+        select: { id: true, primaryCategoryId: true, slug: true },
       }),
     transaction: (fn) => prisma.$transaction((tx) => fn(makeTxContext(tx))),
   };
