@@ -1090,9 +1090,14 @@ her biri uygulanmış bir tasarım sınırıdır.
   import-side kurallar ADR-113'te sabitlendi: geçerli mevcut SKU korunur · boş SKU AUTO üretilir · duplicate
   satır reddedilir/raporlanır · barcode SKU yerine kullanılmaz · üretilen SKU raporlanır. Import motoru
   yazıldığında bu servisi yeniden kullanmalı (SKU üretimini/collision'ı yeniden yazmamalı). **Öncelik: ORTA.**
-- **TD-118 — Docker'da canlı API/UI smoke YAPILMADI.** Yeni sku-engine uçları ve store-admin Otomatik SKU
-  paneli, çalışan container eski `main` kodundan build edildiğinden (worktree branch'i container'da yok)
-  docker üzerinden uçtan uca smoke edilemedi. Doğrulama: 34+29+36 birim test, api-gateway 1290 test,
-  typecheck (api-gateway + store-admin) + audit/backfill CLI'nin gerçek PostgreSQL (enterprise-demo + izole
-  tmp store) üzerinde canlı doğrulaması ile yapıldı (backend/governance yolu kanıtlandı). Deploy sonrası
-  auth'lu UI + HTTP uç smoke'u önerilir (identity/commercial deseniyle simetrik). **Öncelik: DÜŞÜK.**
+- **TD-118 — Docker'da canlı API/UI smoke → KAPANDI (2026-07-24, PR #119 sonrası).** api-gateway +
+  store-admin-web `main` (merge commit 4f75b6b) kodundan rebuild/recreate edildi; migration deploy
+  "no pending". Gerçek deploy edilen stack üzerinde doğrulandı: **API** — preview (Türkçe→ASCII,
+  collision `-002`), validate (geçerli/duplicate/invalid/too-long/cross-store), regenerate (AUTO yazılır,
+  MANUAL korunur, force ile ezilir, AuditLog field-level), audit (edm-store 2202 varyant, flagged=0,
+  125ms), backfill guardrail (dry-run default, `--apply` için `--store` zorunlu), **boş SKU ile create →
+  AUTO üretim** (`MAVI-CEKET`). **UI** — store-admin Otomatik SKU paneli render + Önizle/Yeniden Üret
+  uçtan uca (UI→BFF→gateway), Türkçe→ASCII öneri, MANUAL koruma/force, kaynak rozeti, buton enable/disable;
+  BFF route'ları guard'lı (401/403, 404/500 yok). **OrderLine snapshot regresyonu** — SKU değişince
+  ProductVariant.sku değişti, OrderLine.sku snapshot korundu, inventory/FK bozulmadı. Tüm test verisi
+  temizlendi; enterprise-demo bütün (471 ürün / 2202 varyant).
