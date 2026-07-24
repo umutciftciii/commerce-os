@@ -35,8 +35,12 @@ export {
 export const SPONSORED_TOKEN_VERSION = 1;
 /** Search: yalnız 1. sayfada, sayfa başına azami sponsorlu slot (ADR-115). */
 export const SPONSORED_SEARCH_MAX_SLOTS = 2;
-/** İlk sponsorlu slot bu kadar organik kayıttan SONRA gelir (sponsorlu üst sıraları kaplamaz). */
-export const SPONSORED_SEARCH_LEAD_ORGANIC = 1;
+/**
+ * İlk sponsorlu slot bu kadar organik kayıttan SONRA gelir. Self-merchandising'de mağaza sahibi
+ * sponsorlu ürünü EN ÜSTTE bekler (standart sponsorlu yerleşim) → 0 (ilk sıra). cap=2 üst sıraları
+ * sınırlar; organik sonuçlar hemen altında görünür (ADR-115 revizyonu).
+ */
+export const SPONSORED_SEARCH_LEAD_ORGANIC = 0;
 /** Home sponsorlu vitrin azami ürün (config.maxItems tavanı). */
 export const SPONSORED_HOME_MAX_SLOTS = 12;
 /** Tıklama → sipariş attribution penceresi (gün). */

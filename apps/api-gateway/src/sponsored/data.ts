@@ -366,6 +366,11 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
         subtreeCache.set(c.targetCategoryId, await resolveCategorySubtreeIds(db, storeId, c.targetCategoryId));
       }
     }
+    // Kategori gezinme modu: gezilen kategorinin alt-ağacı (ata↔alt ÇİFT-YÖNLÜ eşleşme için).
+    const browsedSubtree =
+      opts.mode === "category" && opts.browsedCategoryId
+        ? await resolveCategorySubtreeIds(db, storeId, opts.browsedCategoryId)
+        : null;
 
     // Kampanya sırasına göre aday üret; kampanya başına maxSlots tavanı.
     interface Flat extends SponsoredOrderable {
@@ -377,10 +382,18 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
     for (const c of campaigns) {
       const keywords = c.keywords.map((k) => k.keyword);
       const targetCategoryIds = c.targetCategoryId ? subtreeCache.get(c.targetCategoryId) ?? null : null;
-      // Kategori gezinme modu: kampanya YALNIZ hedef-kategorisi gezilen kategoriyi (subtree) kapsıyorsa
-      // uygundur (ADR-116). Aksi halde bu kampanya tümüyle atlanır (ilgisiz kategori gösterilmez).
+      // Kategori gezinme modu: kampanya hedef-kategorisi ile gezilen kategori AYNI ATA-ALT YOLUNDA ise
+      // uygundur (ADR-116, çift-yönlü): hedef gezileni kapsıyor (hedef=ata) VEYA gezilen hedefi kapsıyor
+      // (gezilen=ata). Böylece "Akıllı Saat"ı hedefleyen kampanya "Elektronik" sayfasında da görünür ve
+      // "Elektronik"i hedefleyen kampanya "Akıllı Saat" alt-sayfasında da görünür. İlgisiz kategori elenir.
       if (opts.mode === "category") {
-        if (!opts.browsedCategoryId || !targetCategoryIds || !targetCategoryIds.has(opts.browsedCategoryId)) {
+        const bid = opts.browsedCategoryId;
+        const tid = c.targetCategoryId;
+        const match =
+          Boolean(bid) &&
+          Boolean(tid) &&
+          ((targetCategoryIds?.has(bid!) ?? false) || (browsedSubtree?.has(tid!) ?? false));
+        if (!match) {
           continue;
         }
       }
