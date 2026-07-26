@@ -773,3 +773,30 @@ Doğrulama: apply sonrası tekrar `audit-sku` çalıştır → `flagged: 0` (hed
   `_prisma_migrations.checksum` (dosyanın sha256'sı) kayar ve `migrate dev` "modified after applied"
   hatası verir (`migrate deploy` etkilenmez — yalnız isimle atlar). Çözüm: dosyayı uygulamadan önce
   düzeltin; kaçırılırsa `UPDATE _prisma_migrations SET checksum='<yeni sha256>' WHERE migration_name=…`.
+
+## Birleşik sponsorluk: avans/mahsup + anlaşma-kapılı aktivasyon (TODO-161A.2 / ADR-128, ADR-129)
+
+Migration `20260726120000_add_sponsorship_advance_allocation` ADDITIVE: yeni tablo
+`SponsorshipAdvanceAllocation` (append-only avans mahsup defteri) + `SponsorshipAgreement`'a
+`approvedAt`/`approvedByUserId` nullable kolonları. Yeni ENUM/kolon-değişikliği YOK → sıfır regresyon.
+El ile yazıldı (tsvector sahte-diff'i bilinçli olarak dahil edilmedi — ADR-079 deseni).
+
+**Ticari kampanya operasyonu (75.000 TL FIXED_FEE örneği).**
+1. Sponsor firma oluştur (`/sponsors`).
+2. 75.000 TL FIXED_FEE anlaşma oluştur (`/sponsorship-agreements`) — `PENDING_APPROVAL` bırak.
+3. Sponsorlu kampanya oluştur → tip "Ticari sponsorluk", sponsor + anlaşma seç. ACTIVE denemesi
+   **reddedilir** (`AGREEMENT_NOT_ACTIVE` — "Kampanyayı aktifleştirmek için anlaşmayı onaylayın").
+4. Anlaşmayı `ACTIVE` yap (onay damgası düşer) → kampanyayı bağla → `ACTIVE` yap (başarılı).
+5. Anlaşma detayında **Tahakkuk oluştur** (FIXED_FEE, 75.000) → sponsor carisinde kalan alacak 75.000.
+6. **Avans ekle** (30.000) → **Avansı mahsup et** (avans + açık tahakkuk + 30.000 seç) → kalan alacak 45.000.
+7. Tahakkuğa 20.000 tahsilat → kalan 25.000; 25.000 tahsilat → tahakkuk `PAID`. Fazla tahsilat reddedilir
+   (`OVERPAYMENT`).
+8. Anlaşmayı `SUSPENDED` yap → kampanya public teslimden düşer (delivery guard). INTERNAL_PROMOTION
+   kampanyalar çalışmaya devam eder.
+
+**Eşzamanlılık.** Aynı anlaşmada tahsilat/mahsup `pg_advisory_xact_lock(hashtext('sponsorship-agreement:<id>'))`
+ile serileştirilir. İstemci iyimser kilit için gördüğü kalanı `expectedRemainingMinor` olarak gönderir;
+sunucudaki değişmişse `409 BALANCE_CHANGED` → istemci yeniler.
+
+**Defter bütünlüğü.** Tahsilat ve mahsup defterleri APPEND-ONLY: iptal = negatif satır (silme/güncelleme
+YOK). Geçmiş event/settlement/tahakkuk/ödeme kayıtları anlaşma suspend/cancel olsa da SİLİNMEZ.

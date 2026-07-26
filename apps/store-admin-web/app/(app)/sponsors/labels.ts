@@ -7,6 +7,7 @@
  */
 import type { Locale } from "@commerce-os/i18n";
 import type {
+  SponsoredCommercialMode,
   SponsorshipAgreementStatus,
   SponsorshipChargeDisplayStatus,
   SponsorshipPaymentMethod,
@@ -16,6 +17,12 @@ import type {
 } from "@commerce-os/api-client";
 
 export type { Locale };
+
+/** Kampanya ticari modu etiketleri (TODO-161A.2/ADR-128). */
+export const COMMERCIAL_MODE_LABELS: Record<SponsoredCommercialMode, string> = {
+  SPONSORED: "Ticari sponsorluk",
+  INTERNAL_PROMOTION: "İç promosyon",
+};
 
 export const AGREEMENT_STATUS_LABELS: Record<SponsorshipAgreementStatus, string> = {
   DRAFT: "Taslak",
@@ -98,6 +105,21 @@ export const SPONSORSHIP_ERROR_LABELS: Record<string, string> = {
   ALREADY_REVERSED: "Ödeme zaten ters çevrilmiş.",
   NOT_REVERSIBLE: "Ödeme ters çevrilemez.",
   INVALID_STATUS: "Tahakkuk bu işlem için uygun durumda değil.",
+  INVALID_AMOUNT: "Girilen tutar geçersiz.",
+  // TODO-161A.2 (ADR-128) — SPONSORED kampanya aktivasyon guard kodları.
+  AGREEMENT_REQUIRED: "Ticari sponsorlu kampanyayı aktifleştirmek için bir anlaşma bağlamalısınız.",
+  AGREEMENT_NOT_ACTIVE: "Kampanyayı aktifleştirmek için anlaşma önce onaylanıp aktifleştirilmeli.",
+  AGREEMENT_DATE_MISMATCH: "Anlaşma tarih penceresi kampanyanın tarihlerini kapsamalı.",
+  AGREEMENT_ALLOCATION_EXCEEDED: "Bu kampanyaya ayrılan tutar anlaşmanın kullanılabilir bütçesini aşıyor.",
+  AGREEMENT_OVERDUE: "Anlaşmada vadesi geçmiş tahakkuk var; önce tahsilat gerekli.",
+  // TODO-161A.2 (ADR-129) — avans/mahsup akışı kodları.
+  NOT_FIXED_FEE: "Doğrudan tahakkuk yalnız Sabit Bedel anlaşmalarda oluşturulabilir.",
+  NOT_AN_ADVANCE: "Seçilen kayıt bir avans değil.",
+  ADVANCE_NOT_FOUND: "Avans kaydı bulunamadı.",
+  ADVANCE_BALANCE_EXCEEDED: "Mahsup tutarı avansın kullanılabilir bakiyesini aşamaz.",
+  BALANCE_CHANGED: "Bu kayıt siz görüntülerken değişti. Sayfayı yenileyip tekrar deneyin.",
+  PAYMENT_NOT_FOUND: "Ödeme kaydı bulunamadı.",
+  CAMPAIGN_NOT_LINKED: "Kampanya bu anlaşmaya bağlı değil.",
 };
 
 export function sponsorshipError(code: string): string | null {

@@ -65,7 +65,7 @@ export interface SponsoredLabels {
 
 const TR: SponsoredLabels = {
   eyebrow: "Büyüme",
-  title: "Sponsorlu Ürünler",
+  title: "Sponsorlu Kampanyalar",
   description:
     "Sponsorlu kampanyalar oluşturun; ürünleri ana sayfa vitrininde ve arama sonuçlarında kontrollü slotlarda öne çıkarın. Sponsorlu ürünler açıkça etiketlenir; organik sıralama değişmez.",
   add: "Yeni kampanya",
@@ -133,12 +133,37 @@ const TR: SponsoredLabels = {
     saving: "Kaydediliyor…",
     cancel: "Vazgeç",
     nameRequired: "Kampanya adı gerekli.",
+    commercial: {
+      mode: "Kampanya tipi",
+      modeHint:
+        "Ticari sponsorluk üçüncü taraf adınadır ve geçerli bir anlaşma gerektirir. İç promosyon mağazanızın kendi ürünüdür; anlaşma gerekmez.",
+      sponsored: "Ticari sponsorluk",
+      internal: "İç promosyon",
+      sponsor: "Sponsor firma",
+      sponsorPlaceholder: "Sponsor seçin…",
+      agreement: "Anlaşma",
+      agreementPlaceholder: "Anlaşma seçin…",
+      agreementLoading: "Yükleniyor…",
+      noSponsors: "Aktif sponsor firma yok.",
+      noEligibleAgreements: "Bu sponsora ait uygun anlaşma yok.",
+      ineligibleSuffix: "şu an uygun değil",
+      allocation: "Kampanyaya ayrılan tutar (opsiyonel)",
+      allocationHint: "Boş bırakılırsa anlaşma bütçesi kampanyalar arasında paylaşılır.",
+      detailWindow: "Dönem",
+      detailPricing: "Model",
+      detailCurrency: "Para birimi",
+      detailAvailable: "Kullanılabilir tutar",
+      detailStatus: "Durum",
+      unlimited: "Sınırsız",
+      editNote:
+        "Anlaşma bağlama ve avans mahsubu ilgili anlaşma sayfasından yönetilir. Buradan yalnız kampanya tipi güncellenir.",
+    },
   },
 };
 
 const EN: SponsoredLabels = {
   eyebrow: "Growth",
-  title: "Sponsored Products",
+  title: "Sponsored Campaigns",
   description:
     "Create sponsored campaigns; promote products in the home showcase and in controlled search slots. Sponsored products are clearly labelled; organic ranking is unchanged.",
   add: "New campaign",
@@ -206,6 +231,31 @@ const EN: SponsoredLabels = {
     saving: "Saving…",
     cancel: "Cancel",
     nameRequired: "Campaign name is required.",
+    commercial: {
+      mode: "Campaign type",
+      modeHint:
+        "Commercial sponsorship is on behalf of a third party and requires a valid agreement. Internal promotion is your own product; no agreement needed.",
+      sponsored: "Commercial sponsorship",
+      internal: "Internal promotion",
+      sponsor: "Sponsor company",
+      sponsorPlaceholder: "Select sponsor…",
+      agreement: "Agreement",
+      agreementPlaceholder: "Select agreement…",
+      agreementLoading: "Loading…",
+      noSponsors: "No active sponsor companies.",
+      noEligibleAgreements: "No eligible agreements for this sponsor.",
+      ineligibleSuffix: "not currently eligible",
+      allocation: "Amount allocated to campaign (optional)",
+      allocationHint: "If left empty, the agreement budget is shared across campaigns.",
+      detailWindow: "Period",
+      detailPricing: "Model",
+      detailCurrency: "Currency",
+      detailAvailable: "Available amount",
+      detailStatus: "Status",
+      unlimited: "Unlimited",
+      editNote:
+        "Agreement linking and advance allocation are managed from the agreement page. Only the campaign type is updated here.",
+    },
   },
 };
 

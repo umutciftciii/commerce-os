@@ -8230,6 +8230,9 @@ export const sponsoredCampaignSummarySchema = z.object({
   keywordCount: z.number().int().nonnegative(),
   // Server-türetilmiş aktiflik (status ACTIVE + pencere geçerli) → liste rozeti.
   isLive: z.boolean(),
+  // Ticari mod (TODO-161A.2/ADR-128): INTERNAL_PROMOTION = mağazanın kendi ürünü (anlaşma gerekmez);
+  // SPONSORED = üçüncü taraf adına, geçerli anlaşma ZORUNLU.
+  commercialMode: z.enum(["INTERNAL_PROMOTION", "SPONSORED"]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -8252,6 +8255,8 @@ const sponsoredCampaignWritableFields = {
   productIds: z.array(z.string().min(1)).max(SPONSORED_MAX_PRODUCTS).optional(),
   // SEARCH_RESULTS query allowlist (sunucu normalize + tekilleştirir). HOME_SHOWCASE'te YOK SAYILIR.
   keywords: z.array(sponsoredKeywordSchema).max(SPONSORED_MAX_KEYWORDS).optional(),
+  // Ticari mod (TODO-161A.2). Verilmezse INTERNAL_PROMOTION varsayılır (sıfır regresyon).
+  commercialMode: z.enum(["INTERNAL_PROMOTION", "SPONSORED"]).optional(),
 };
 
 function refineSponsoredDates(
@@ -8268,6 +8273,10 @@ export const sponsoredCampaignCreateRequestSchema = z
     ...sponsoredCampaignWritableFields,
     // placement create'te ZORUNLU + sonrasında IMMUTABLE (ölçüm/slot semantiği tipe bağlı).
     placement: sponsoredPlacementTypeSchema,
+    // TODO-161A.2 — birleşik akış: SPONSORED kampanya oluşturulurken doğrudan bir anlaşmaya bağla.
+    // Verilirse sunucu link'i kurar (pencere kapsama + tekil-anlaşma guard'ları uygulanır).
+    agreementId: z.string().min(1).nullish(),
+    allocationAmountMinor: z.number().int().min(0).max(2_000_000_000).nullish(),
   })
   .superRefine(refineSponsoredDates);
 
@@ -8492,6 +8501,8 @@ export const sponsorAccountDetailSchema = sponsorAccountSummarySchema.extend({
       paidMinor: z.number().int(),
       outstandingMinor: z.number().int(),
       overdueMinor: z.number().int(),
+      // Kullanılmamış avans = tahakkuka mahsup edilmemiş nakit (ADR-129).
+      advanceBalanceMinor: z.number().int(),
     }),
   ),
 });
@@ -8571,6 +8582,9 @@ export const sponsorshipAgreementSummarySchema = z.object({
     .enum(["NO_AGREEMENT", "AGREEMENT_NOT_ACTIVE", "AGREEMENT_WINDOW", "BUDGET_EXHAUSTED", "OVERDUE_CHARGE"])
     .nullable(),
   signedAt: z.string().nullable(),
+  /** Onay damgası — anlaşma ilk kez ACTIVE'e geçtiğinde kim/ne zaman (ADR-128). */
+  approvedAt: z.string().nullable(),
+  approvedByUserId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -8821,6 +8835,133 @@ export const sponsorshipPaymentListResponseSchema = z.object({
 });
 export const sponsorshipPaymentDetailResponseSchema = z.object({ data: sponsorshipPaymentSchema });
 
+// ══════════ TODO-161A.2 (ADR-128/129) — Birleşik sponsorluk ticari akışı ══════════
+
+/** FIXED_FEE anlaşma için doğrudan (settlement'sız) tahakkuk isteği — ADR-128 §6. */
+export const sponsorshipFixedFeeChargeRequestSchema = z
+  .object({
+    /** Kampanyaya ayrılan tutar; verilmezse anlaşmanın `agreedAmountMinor`'ı kullanılır. */
+    amountMinor: z.number().int().positive().max(SPONSORSHIP_MONEY_MAX).nullable().optional(),
+    campaignId: z.string().min(1).nullable().optional(),
+    issue: z.boolean().optional(),
+    notes: z.string().trim().max(SPONSORSHIP_NOTES_MAX).nullable().optional(),
+  })
+  .strict();
+
+/** Avans (chargeId=null tahsilat) kaydı — anlaşmaya bağlı kullanılabilir nakit (ADR-129). */
+export const sponsorshipAdvanceCreateRequestSchema = z
+  .object({
+    amountMinor: z.number().int().positive().max(SPONSORSHIP_MONEY_MAX),
+    currency: sponsorshipCurrencySchema,
+    method: sponsorshipPaymentMethodSchema,
+    paidAt: z.string().datetime().optional(),
+    providerReference: z.string().trim().max(SPONSORSHIP_TEXT_MAX).nullable().optional(),
+    manualReference: z.string().trim().max(SPONSORSHIP_TEXT_MAX).nullable().optional(),
+    notes: z.string().trim().max(SPONSORSHIP_NOTES_MAX).nullable().optional(),
+    idempotencyKey: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+
+/** Avans mahsup isteği — kullanılabilir avanstan açık bir tahakkuğa (ADR-129). */
+export const sponsorshipAdvanceAllocationRequestSchema = z
+  .object({
+    advancePaymentId: z.string().min(1),
+    chargeId: z.string().min(1),
+    amountMinor: z.number().int().positive().max(SPONSORSHIP_MONEY_MAX),
+    /** İyimser kilit: istemcinin gördüğü kalan; sunucudakiyle uyuşmazsa `BALANCE_CHANGED`. */
+    expectedRemainingMinor: z.number().int().nonnegative().optional(),
+    idempotencyKey: z.string().trim().min(1).max(128).optional(),
+    notes: z.string().trim().max(SPONSORSHIP_NOTES_MAX).nullable().optional(),
+  })
+  .strict();
+
+/** Kullanılabilir avans (türetilmiş bakiye) satırı. */
+export const sponsorshipAdvanceSchema = z.object({
+  id: z.string(),
+  agreementId: z.string(),
+  agreementNumber: z.string(),
+  sponsorCompanyName: z.string(),
+  amountMinor: z.number().int(),
+  allocatedMinor: z.number().int(),
+  availableMinor: z.number().int(),
+  currency: z.string(),
+  method: sponsorshipPaymentMethodSchema,
+  paidAt: z.string(),
+  notes: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const sponsorshipAllocationSchema = z.object({
+  id: z.string(),
+  agreementId: z.string(),
+  advancePaymentId: z.string(),
+  chargeId: z.string(),
+  chargeNumber: z.string(),
+  amountMinor: z.number().int(),
+  currency: z.string(),
+  createdAt: z.string(),
+});
+
+export const sponsorshipAdvanceListResponseSchema = z.object({ data: z.array(sponsorshipAdvanceSchema) });
+export const sponsorshipAdvanceDetailResponseSchema = z.object({ data: sponsorshipPaymentSchema });
+export const sponsorshipAllocationDetailResponseSchema = z.object({ data: sponsorshipAllocationSchema });
+export const sponsorshipOpenChargeListResponseSchema = z.object({ data: z.array(sponsorshipChargeSchema) });
+
+/** Bir sponsora ait, kampanyaya bağlanabilir aday anlaşma (kampanya oluşturma akışı — ADR-128). */
+export const sponsorshipEligibleAgreementSchema = z.object({
+  id: z.string(),
+  agreementNumber: z.string(),
+  title: z.string(),
+  status: sponsorshipAgreementStatusSchema,
+  currency: z.string(),
+  pricingModel: sponsorshipPricingModelSchema,
+  startsAt: z.string(),
+  endsAt: z.string(),
+  agreedAmountMinor: z.number().int().nullable(),
+  budgetLimitMinor: z.number().int().nullable(),
+  allocatedToCampaignsMinor: z.number().int(),
+  availableAllocationMinor: z.number().int().nullable(),
+  outstandingMinor: z.number().int(),
+  commerciallyEligible: z.boolean(),
+  ineligibilityReason: z
+    .enum(["NO_AGREEMENT", "AGREEMENT_NOT_ACTIVE", "AGREEMENT_WINDOW", "BUDGET_EXHAUSTED", "OVERDUE_CHARGE"])
+    .nullable(),
+});
+export const sponsorshipEligibleAgreementListResponseSchema = z.object({ data: z.array(sponsorshipEligibleAgreementSchema) });
+
+/** Kampanya ticari özeti — sponsor/anlaşma/finans (kampanya liste/detay ekranı — ADR-128). */
+export const sponsorshipCampaignCommercialSummarySchema = z.object({
+  campaignId: z.string(),
+  campaignName: z.string(),
+  commercialMode: sponsoredCommercialModeSchema,
+  agreement: z
+    .object({
+      id: z.string(),
+      agreementNumber: z.string(),
+      title: z.string(),
+      status: sponsorshipAgreementStatusSchema,
+      sponsorAccountId: z.string(),
+      sponsorCompanyName: z.string(),
+      pricingModel: sponsorshipPricingModelSchema,
+      currency: z.string(),
+      startsAt: z.string(),
+      endsAt: z.string(),
+      agreedAmountMinor: z.number().int().nullable(),
+      allocationAmountMinor: z.number().int().nullable(),
+      commerciallyEligible: z.boolean(),
+      ineligibilityReason: z
+        .enum(["NO_AGREEMENT", "AGREEMENT_NOT_ACTIVE", "AGREEMENT_WINDOW", "BUDGET_EXHAUSTED", "OVERDUE_CHARGE"])
+        .nullable(),
+    })
+    .nullable(),
+  currency: z.string().nullable(),
+  chargedMinor: z.number().int(),
+  paidMinor: z.number().int(),
+  outstandingMinor: z.number().int(),
+  overdueMinor: z.number().int(),
+});
+export const sponsorshipCampaignCommercialSummaryResponseSchema = z.object({ data: sponsorshipCampaignCommercialSummarySchema });
+
 // ── Dashboard — para birimi bazında AYRI (ADR-127) ───────────────────────────
 export const sponsorshipCurrencyKpiSchema = z.object({
   currency: z.string(),
@@ -8913,6 +9054,19 @@ export type SponsorshipPaymentReverseRequest = z.infer<typeof sponsorshipPayment
 export type SponsorshipPaymentListQuery = z.infer<typeof sponsorshipPaymentListQuerySchema>;
 export type SponsorshipPaymentListResponse = z.infer<typeof sponsorshipPaymentListResponseSchema>;
 export type SponsorshipPaymentDetailResponse = z.infer<typeof sponsorshipPaymentDetailResponseSchema>;
+export type SponsorshipFixedFeeChargeRequest = z.infer<typeof sponsorshipFixedFeeChargeRequestSchema>;
+export type SponsorshipAdvanceCreateRequest = z.infer<typeof sponsorshipAdvanceCreateRequestSchema>;
+export type SponsorshipAdvanceAllocationRequest = z.infer<typeof sponsorshipAdvanceAllocationRequestSchema>;
+export type SponsorshipAdvance = z.infer<typeof sponsorshipAdvanceSchema>;
+export type SponsorshipAllocation = z.infer<typeof sponsorshipAllocationSchema>;
+export type SponsorshipAdvanceListResponse = z.infer<typeof sponsorshipAdvanceListResponseSchema>;
+export type SponsorshipAdvanceDetailResponse = z.infer<typeof sponsorshipAdvanceDetailResponseSchema>;
+export type SponsorshipAllocationDetailResponse = z.infer<typeof sponsorshipAllocationDetailResponseSchema>;
+export type SponsorshipOpenChargeListResponse = z.infer<typeof sponsorshipOpenChargeListResponseSchema>;
+export type SponsorshipEligibleAgreement = z.infer<typeof sponsorshipEligibleAgreementSchema>;
+export type SponsorshipEligibleAgreementListResponse = z.infer<typeof sponsorshipEligibleAgreementListResponseSchema>;
+export type SponsorshipCampaignCommercialSummary = z.infer<typeof sponsorshipCampaignCommercialSummarySchema>;
+export type SponsorshipCampaignCommercialSummaryResponse = z.infer<typeof sponsorshipCampaignCommercialSummaryResponseSchema>;
 export type SponsorshipCurrencyKpi = z.infer<typeof sponsorshipCurrencyKpiSchema>;
 export type SponsorshipDashboardBreakdownRow = z.infer<typeof sponsorshipDashboardBreakdownRowSchema>;
 export type SponsorshipDashboardQuery = z.infer<typeof sponsorshipDashboardQuerySchema>;

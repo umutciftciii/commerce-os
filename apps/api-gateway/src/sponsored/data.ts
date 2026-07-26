@@ -48,6 +48,8 @@ export interface SponsoredCampaignRecord {
   maxSlots: number;
   targetCategoryId: string | null;
   timezone: string;
+  // TODO-161A.2 (ADR-128) — ticari mod. INTERNAL_PROMOTION guard'dan muaf; SPONSORED anlaşma gerektirir.
+  commercialMode: "INTERNAL_PROMOTION" | "SPONSORED";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -107,6 +109,7 @@ export interface SponsoredCampaignWriteInput {
   timezone?: string;
   productIds?: string[];
   keywords?: string[]; // NORMALIZE edilmiş + tekilleştirilmiş (route hazırlar)
+  commercialMode?: "INTERNAL_PROMOTION" | "SPONSORED";
 }
 
 export interface SponsoredAnalyticsFilters {
@@ -517,6 +520,7 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
           targetCategoryId: r.targetCategoryId,
           targetCategoryLabel: r.targetCategory?.name ?? null,
           timezone: r.timezone,
+          commercialMode: r.commercialMode,
           productCount: r._count.placements,
           keywordCount: r._count.keywords,
           createdAt: r.createdAt,
@@ -567,6 +571,7 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
         targetCategoryId: r.targetCategoryId,
         targetCategoryLabel: r.targetCategory?.name ?? null,
         timezone: r.timezone,
+        commercialMode: r.commercialMode,
         productCount: r._count.placements,
         keywordCount: r._count.keywords,
         createdAt: r.createdAt,
@@ -600,6 +605,7 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
             maxSlots: input.maxSlots ?? 3,
             targetCategoryId: input.targetCategoryId ?? null,
             timezone: input.timezone ?? "Europe/Istanbul",
+            commercialMode: input.commercialMode ?? "INTERNAL_PROMOTION",
           },
         });
         await writePlacementsAndKeywords(tx, storeId, campaign.id, input.productIds, input.keywords);
@@ -625,6 +631,7 @@ export function createSponsoredData(db: PrismaLike = prisma): SponsoredData {
             ...(input.maxSlots !== undefined ? { maxSlots: input.maxSlots } : {}),
             ...(input.targetCategoryId !== undefined ? { targetCategoryId: input.targetCategoryId } : {}),
             ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+            ...(input.commercialMode !== undefined ? { commercialMode: input.commercialMode } : {}),
           },
         });
         await writePlacementsAndKeywords(tx, storeId, id, input.productIds, input.keywords);

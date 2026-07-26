@@ -23,11 +23,13 @@ import type {
 } from "@prisma/client";
 import {
   clampToBudget,
+  computeAdvanceAvailableMinor,
   computeChargeTotals,
   computeDueAt,
   computePricedAmountMinor,
   computeRefundAdjustmentMinor,
   computeRemainingMinor,
+  isAdvanceAllocationValid,
   isBudgetExceeded,
   isCampaignCoveredByAgreement,
   isChargeOverdue,
@@ -74,6 +76,8 @@ export interface SponsorCurrencyBalance {
   paidMinor: number;
   outstandingMinor: number;
   overdueMinor: number;
+  /** Kullanılmamış avans = tahakkuka mahsup EDİLMEMİŞ nakit (ADR-129). Alacaktan AYRI gösterilir. */
+  advanceBalanceMinor: number;
 }
 
 export interface SponsorAccountDetailRow extends SponsorAccountRow {
@@ -111,6 +115,8 @@ export interface AgreementRow {
   commerciallyEligible: boolean;
   ineligibilityReason: CommercialIneligibilityReason | null;
   signedAt: Date | null;
+  approvedAt: Date | null;
+  approvedByUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -224,6 +230,81 @@ export interface DashboardBreakdownRow {
   profitabilityMinor: number | null;
 }
 
+/** Kullanılabilir avans (chargeId=null tahsilat) + türetilmiş bakiye (ADR-129). */
+export interface AdvanceRow {
+  id: string;
+  agreementId: string;
+  agreementNumber: string;
+  sponsorCompanyName: string;
+  amountMinor: number;
+  allocatedMinor: number;
+  availableMinor: number;
+  currency: string;
+  method: SponsorshipPaymentMethod;
+  paidAt: Date;
+  notes: string | null;
+  createdAt: Date;
+}
+
+/** Avans mahsup defteri satırı (append-only). */
+export interface AllocationRow {
+  id: string;
+  agreementId: string;
+  advancePaymentId: string;
+  chargeId: string;
+  chargeNumber: string;
+  amountMinor: number;
+  currency: string;
+  createdAt: Date;
+}
+
+/** Bir sponsora ait, kampanyaya bağlanabilir/uygun anlaşma (kampanya oluşturma akışı için). */
+export interface EligibleAgreementRow {
+  id: string;
+  agreementNumber: string;
+  title: string;
+  status: SponsorshipAgreementStatus;
+  currency: string;
+  pricingModel: SponsorshipPricingModel;
+  startsAt: Date;
+  endsAt: Date;
+  agreedAmountMinor: number | null;
+  budgetLimitMinor: number | null;
+  allocatedToCampaignsMinor: number;
+  availableAllocationMinor: number | null;
+  outstandingMinor: number;
+  commerciallyEligible: boolean;
+  ineligibilityReason: CommercialIneligibilityReason | null;
+}
+
+/** Kampanya ticari özeti (kampanya liste/detay ekranı — ADR-128). */
+export interface CampaignCommercialSummary {
+  campaignId: string;
+  campaignName: string;
+  commercialMode: "INTERNAL_PROMOTION" | "SPONSORED";
+  agreement: {
+    id: string;
+    agreementNumber: string;
+    title: string;
+    status: SponsorshipAgreementStatus;
+    sponsorAccountId: string;
+    sponsorCompanyName: string;
+    pricingModel: SponsorshipPricingModel;
+    currency: string;
+    startsAt: Date;
+    endsAt: Date;
+    agreedAmountMinor: number | null;
+    allocationAmountMinor: number | null;
+    commerciallyEligible: boolean;
+    ineligibilityReason: CommercialIneligibilityReason | null;
+  } | null;
+  currency: string | null;
+  chargedMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+  overdueMinor: number;
+}
+
 export interface DashboardResult {
   activeSponsors: number;
   totalSponsors: number;
@@ -279,6 +360,23 @@ export type PaymentError =
   | "OVERPAYMENT"
   | "ALREADY_REVERSED"
   | "NOT_REVERSIBLE";
+// TODO-161A.2 (ADR-128/129) yazma hataları
+export type FixedFeeChargeError =
+  | "AGREEMENT_NOT_FOUND"
+  | "NOT_FIXED_FEE"
+  | "INVALID_AMOUNT"
+  | "CAMPAIGN_NOT_LINKED"
+  | "AGREEMENT_ALLOCATION_EXCEEDED";
+export type AdvanceError = "AGREEMENT_NOT_FOUND" | "CURRENCY_MISMATCH" | "INVALID_AMOUNT";
+export type AllocationError =
+  | "ADVANCE_NOT_FOUND"
+  | "CHARGE_NOT_FOUND"
+  | "NOT_AN_ADVANCE"
+  | "CURRENCY_MISMATCH"
+  | "CHARGE_NOT_COLLECTIBLE"
+  | "ADVANCE_BALANCE_EXCEEDED"
+  | "OVERPAYMENT"
+  | "BALANCE_CHANGED";
 
 // ── Yardımcılar ──────────────────────────────────────────────────────────────
 
@@ -336,6 +434,20 @@ function toPricingTerms(a: {
 }
 
 /**
+ * Bir tahakkuğun "ödenmiş" tutarı = doğrudan tahsilatlar + o tahakkuğa yapılmış avans mahsupları
+ * (ADR-129). İki defter de APPEND-ONLY olduğundan ters kayıtlar (negatif satırlar) toplamın
+ * içindedir → net tutar doğrudan toplanır.
+ */
+function chargePaidMinor(charge: {
+  payments: Array<{ amountMinor: number }>;
+  advanceAllocations?: Array<{ amountMinor: number }>;
+}): number {
+  const direct = charge.payments.reduce((sum, p) => sum + p.amountMinor, 0);
+  const allocated = (charge.advanceAllocations ?? []).reduce((sum, a) => sum + a.amountMinor, 0);
+  return direct + allocated;
+}
+
+/**
  * Bir anlaşmanın tahakkuk/tahsilat özetini hesaplar. Kalan bakiye ve vade aşımı SUNUCUDA
  * türetilir (ADR-125); istemci hiçbir toplamın otoritesi değildir.
  *
@@ -347,6 +459,9 @@ function summarizeCharges(
     totalAmountMinor: number;
     dueAt: Date;
     payments: Array<{ amountMinor: number }>;
+    // Avans mahsupları (ADR-129) — tahakkuğun "ödenmişine" doğrudan tahsilatla BİRLİKTE girer.
+    // Opsiyonel: içermeyen çağrılar (yalnız doğrudan tahsilat) için 0 kabul edilir.
+    advanceAllocations?: Array<{ amountMinor: number }>;
   }>,
   now: Date,
 ): { chargedMinor: number; paidMinor: number; outstandingMinor: number; overdueMinor: number; hasOverdue: boolean } {
@@ -357,7 +472,7 @@ function summarizeCharges(
   let hasOverdue = false;
   for (const charge of charges) {
     if (charge.status === "DRAFT" || charge.status === "CANCELLED") continue;
-    const paid = charge.payments.reduce((sum, p) => sum + p.amountMinor, 0);
+    const paid = chargePaidMinor(charge);
     const remaining = computeRemainingMinor(charge.totalAmountMinor, paid);
     chargedMinor += charge.totalAmountMinor;
     paidMinor += paid;
@@ -373,6 +488,15 @@ function summarizeCharges(
 /** Prisma `@@unique` ihlali mi? */
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/**
+ * Bir anlaşmanın tahsilat/mahsup işlemlerini SERİLEŞTİRİR (ADR-129 §eşzamanlılık). Aynı anlaşma
+ * üzerinde eşzamanlı ödeme + mahsup çift-harcamayı (aşırı tahsilat/aşırı mahsup) tetikleyebilir;
+ * transaction-scope advisory lock ile guard'lar tek tek uygulanır. Farklı anlaşmalar bloklanmaz.
+ */
+async function lockAgreement(tx: Tx, agreementId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sponsorship-agreement:${agreementId}`}))`;
 }
 
 // ── Data-access arayüzü (route'lar buna bağımlıdır) ──────────────────────────
@@ -414,13 +538,18 @@ export interface SponsorshipData {
   ): Promise<AgreementDetailRow | LinkCampaignError>;
   unlinkCampaign(storeId: string, agreementId: string, campaignId: string, now: Date): Promise<AgreementDetailRow | null>;
 
-  /** Kampanyanın ticari uygunluğu (admin yazma guard'ı — ADR-124). */
+  /** Kampanyanın ticari uygunluğu (admin yazma guard'ı — ADR-124/128). */
   resolveCampaignEligibility(
     storeId: string,
     campaignId: string,
     now: Date,
   ): Promise<{ exempt: boolean; reason: CommercialIneligibilityReason | null }>;
   isUnpaidCampaignAllowed(storeId: string): Promise<boolean>;
+
+  /** Bir sponsora ait, kampanyaya bağlanabilir anlaşmalar (kampanya oluşturma akışı — ADR-128). */
+  listEligibleAgreements(storeId: string, sponsorAccountId: string, now: Date): Promise<EligibleAgreementRow[]>;
+  /** Kampanya ticari özeti — sponsor/anlaşma/finans (kampanya liste/detay ekranı — ADR-128). */
+  getCampaignCommercialSummary(storeId: string, campaignId: string, now: Date): Promise<CampaignCommercialSummary | null>;
 
   // Mutabakat
   previewSettlement(
@@ -445,6 +574,15 @@ export interface SponsorshipData {
     input: { notes: string | null; issue: boolean },
     now: Date,
   ): Promise<ChargeRow | ChargeError>;
+  /** FIXED_FEE anlaşma için doğrudan (settlement'sız) tahakkuk — ADR-128 §6. */
+  createFixedFeeCharge(
+    storeId: string,
+    agreementId: string,
+    input: FixedFeeChargeInput,
+    now: Date,
+  ): Promise<ChargeRow | FixedFeeChargeError>;
+  /** Açık (ISSUED/PARTIALLY_PAID + kalanı olan) tahakkuklar — mahsup hedefi seçimi için. */
+  listOpenCharges(storeId: string, filters: { agreementId?: string }, now: Date): Promise<ChargeRow[]>;
   createRefundAdjustment(storeId: string, settlementId: string, now: Date): Promise<ChargeRow | null | ChargeError>;
   issueCharge(storeId: string, chargeId: string, issuedAt: Date, now: Date): Promise<ChargeRow | ChargeError>;
   cancelCharge(storeId: string, chargeId: string, reason: string | null, now: Date): Promise<ChargeRow | ChargeError>;
@@ -470,6 +608,14 @@ export interface SponsorshipData {
     filters: PaymentListFilters,
     page: SponsorshipListPage,
   ): Promise<{ items: PaymentRow[]; total: number }>;
+
+  // Avans + mahsup (ADR-129)
+  /** Avans (chargeId=null tahsilat) kaydeder → kullanılabilir avans bakiyesi oluşturur. */
+  createAdvance(storeId: string, agreementId: string, input: AdvanceWriteInput): Promise<PaymentRow | AdvanceError>;
+  /** Kullanılabilir avansı açık bir tahakkuğa AÇIK işlemle mahsup eder (append-only defter). */
+  allocateAdvance(storeId: string, input: AllocationWriteInput): Promise<AllocationRow | AllocationError>;
+  /** Kullanılabilir (kalan bakiyesi olan) avanslar. */
+  listAvailableAdvances(storeId: string, filters: { agreementId?: string; sponsorAccountId?: string }): Promise<AdvanceRow[]>;
 
   // Dashboard
   getDashboard(
@@ -510,6 +656,8 @@ export interface AgreementWriteInput {
   signedAt?: Date | null;
   documentUrl?: string | null;
   notes?: string | null;
+  /** Anlaşma ACTIVE'e geçirilirken onaylayan platform admin'i (denetim izi — ADR-128). */
+  approvedByUserId?: string | null;
 }
 
 export interface ChargeListFilters {
@@ -540,6 +688,37 @@ export interface PaymentWriteInput {
   manualReference?: string | null;
   notes?: string | null;
   idempotencyKey?: string;
+  recordedByUserId: string;
+}
+
+export interface FixedFeeChargeInput {
+  /** Kampanyaya ayrılan tutar; null/verilmezse anlaşmanın `agreedAmountMinor`'ı kullanılır. */
+  amountMinor?: number | null;
+  campaignId?: string | null;
+  issue: boolean;
+  notes?: string | null;
+}
+
+export interface AdvanceWriteInput {
+  amountMinor: number;
+  currency: string;
+  method: SponsorshipPaymentMethod;
+  paidAt: Date;
+  providerReference?: string | null;
+  manualReference?: string | null;
+  notes?: string | null;
+  idempotencyKey?: string;
+  recordedByUserId: string;
+}
+
+export interface AllocationWriteInput {
+  advancePaymentId: string;
+  chargeId: string;
+  amountMinor: number;
+  /** İyimser kilit: istemcinin gördüğü kalan bakiye; sunucudaki değişmişse `BALANCE_CHANGED`. */
+  expectedRemainingMinor?: number;
+  idempotencyKey?: string;
+  notes?: string | null;
   recordedByUserId: string;
 }
 
@@ -688,6 +867,8 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       taxRateBp: number;
       budgetExhaustedAt: Date | null;
       signedAt: Date | null;
+      approvedAt: Date | null;
+      approvedByUserId: string | null;
       createdAt: Date;
       updatedAt: Date;
       _count: { campaignLinks: number };
@@ -738,6 +919,8 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       commerciallyEligible: reason === null,
       ineligibilityReason: reason,
       signedAt: a.signedAt,
+      approvedAt: a.approvedAt,
+      approvedByUserId: a.approvedByUserId,
       createdAt: a.createdAt,
       updatedAt: a.updatedAt,
     };
@@ -746,7 +929,15 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
   const AGREEMENT_INCLUDE = {
     sponsorAccount: { select: { companyName: true } },
     _count: { select: { campaignLinks: true } },
-    charges: { select: { status: true, totalAmountMinor: true, dueAt: true, payments: { select: { amountMinor: true } } } },
+    charges: {
+      select: {
+        status: true,
+        totalAmountMinor: true,
+        dueAt: true,
+        payments: { select: { amountMinor: true } },
+        advanceAllocations: { select: { amountMinor: true } },
+      },
+    },
   } as const;
 
   function toChargeRow(
@@ -776,10 +967,11 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       dueAt: Date;
       createdAt: Date;
       payments: Array<{ amountMinor: number }>;
+      advanceAllocations?: Array<{ amountMinor: number }>;
     },
     now: Date,
   ): ChargeRow {
-    const paidMinor = c.payments.reduce((sum, p) => sum + p.amountMinor, 0);
+    const paidMinor = chargePaidMinor(c);
     const remainingMinor = computeRemainingMinor(c.totalAmountMinor, paidMinor);
     const overdue = isChargeOverdue(c.status, c.dueAt, remainingMinor, now);
     return {
@@ -820,6 +1012,7 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
     agreement: { select: { agreementNumber: true, sponsorAccountId: true, sponsorAccount: { select: { companyName: true } } } },
     campaign: { select: { name: true } },
     payments: { select: { amountMinor: true } },
+    advanceAllocations: { select: { amountMinor: true } },
   } as const;
 
   return {
@@ -884,8 +1077,17 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
               status: true,
               currency: true,
               charges: {
-                select: { status: true, totalAmountMinor: true, dueAt: true, payments: { select: { amountMinor: true } } },
+                select: {
+                  status: true,
+                  totalAmountMinor: true,
+                  dueAt: true,
+                  payments: { select: { amountMinor: true } },
+                  advanceAllocations: { select: { amountMinor: true } },
+                },
               },
+              // Kullanılmamış avans = anlaşmaya bağlı, tahakkuka mahsup EDİLMEMİŞ nakit.
+              payments: { where: { chargeId: null }, select: { amountMinor: true } },
+              advanceAllocations: { select: { amountMinor: true } },
             },
           },
         },
@@ -895,17 +1097,21 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       const byCurrency = new Map<string, SponsorCurrencyBalance>();
       for (const ag of r.agreements) {
         const s = summarizeCharges(ag.charges, now);
+        const advanceCash = ag.payments.reduce((sum, p) => sum + p.amountMinor, 0);
+        const allocated = ag.advanceAllocations.reduce((sum, a) => sum + a.amountMinor, 0);
         const cur = byCurrency.get(ag.currency) ?? {
           currency: ag.currency,
           chargedMinor: 0,
           paidMinor: 0,
           outstandingMinor: 0,
           overdueMinor: 0,
+          advanceBalanceMinor: 0,
         };
         cur.chargedMinor += s.chargedMinor;
         cur.paidMinor += s.paidMinor;
         cur.outstandingMinor += s.outstandingMinor;
         cur.overdueMinor += s.overdueMinor;
+        cur.advanceBalanceMinor += computeAdvanceAvailableMinor(advanceCash, allocated);
         byCurrency.set(ag.currency, cur);
       }
       return {
@@ -1145,12 +1351,17 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       });
       if (!validatePricingTerms(nextPricing).ok) return "INVALID_PRICING";
 
+      // Onay damgası: anlaşma İLK KEZ ACTIVE'e geçtiğinde kim/ne zaman kaydedilir (ADR-128).
+      // Durum tek otoritedir; bu yalnız denetim izidir. Yeniden ACTIVE olursa damga KORUNUR.
+      const stampsApproval = input.status === "ACTIVE" && existing.status !== "ACTIVE" && existing.approvedAt === null;
+
       try {
         const updated = await db.sponsorshipAgreement.update({
           where: { id },
           data: {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.status !== undefined ? { status: input.status } : {}),
+            ...(stampsApproval ? { approvedAt: now, approvedByUserId: input.approvedByUserId ?? null } : {}),
             ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
             ...(input.endsAt !== undefined ? { endsAt: input.endsAt } : {}),
             ...(input.currency !== undefined ? { currency: input.currency } : {}),
@@ -1242,6 +1453,110 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
     async isUnpaidCampaignAllowed(storeId) {
       const s = await db.storeSettings.findUnique({ where: { storeId }, select: { allowUnpaidSponsoredCampaigns: true } });
       return s?.allowUnpaidSponsoredCampaigns ?? false;
+    },
+
+    async listEligibleAgreements(storeId, sponsorAccountId, now) {
+      // Kampanyaya bağlanabilir aday anlaşmalar: terminal OLMAYAN (DRAFT/PENDING/ACTIVE/SUSPENDED).
+      // Sponsor firması pasifse hiçbiri uygun sayılmaz (ticari uygunluk yine de sunucuda kararlaşır).
+      const sponsor = await db.sponsorAccount.findFirst({ where: { storeId, id: sponsorAccountId }, select: { status: true } });
+      if (!sponsor) return [];
+      const rows = await db.sponsorshipAgreement.findMany({
+        where: { storeId, sponsorAccountId, status: { in: ["DRAFT", "PENDING_APPROVAL", "ACTIVE", "SUSPENDED"] } },
+        include: {
+          ...AGREEMENT_INCLUDE,
+          campaignLinks: { select: { allocationAmountMinor: true } },
+        },
+        orderBy: [{ status: "asc" }, { endsAt: "desc" }],
+      });
+      return rows.map((r) => {
+        const base = toAgreementRow(r, now);
+        const allocatedToCampaigns = r.campaignLinks.reduce((sum, l) => sum + (l.allocationAmountMinor ?? 0), 0);
+        // Kullanılabilir sözleşme tutarı: FIXED_FEE'de agreedAmount, aksi halde budgetLimit tavanı.
+        // Kümülatif tahakkuk matrahı düşülür. Limit yoksa null (sınırsız).
+        const cap = r.pricingModel === "FIXED_FEE" ? r.agreedAmountMinor : r.budgetLimitMinor;
+        const availableAllocationMinor = cap === null ? null : Math.max(0, cap - base.chargedMinor);
+        const eligible = sponsor.status === "ACTIVE" && base.commerciallyEligible;
+        return {
+          id: r.id,
+          agreementNumber: r.agreementNumber,
+          title: r.title,
+          status: r.status,
+          currency: r.currency,
+          pricingModel: r.pricingModel,
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+          agreedAmountMinor: r.agreedAmountMinor,
+          budgetLimitMinor: r.budgetLimitMinor,
+          allocatedToCampaignsMinor: allocatedToCampaigns,
+          availableAllocationMinor,
+          outstandingMinor: base.outstandingMinor,
+          commerciallyEligible: eligible,
+          ineligibilityReason: sponsor.status === "ACTIVE" ? base.ineligibilityReason : "AGREEMENT_NOT_ACTIVE",
+        };
+      });
+    },
+
+    async getCampaignCommercialSummary(storeId, campaignId, now) {
+      const campaign = await db.sponsoredProductCampaign.findFirst({
+        where: { storeId, id: campaignId },
+        select: {
+          id: true,
+          name: true,
+          commercialMode: true,
+          agreementLinks: {
+            take: 1,
+            select: {
+              allocationAmountMinor: true,
+              agreement: { include: AGREEMENT_INCLUDE },
+            },
+          },
+        },
+      });
+      if (!campaign) return null;
+      const link = campaign.agreementLinks[0] ?? null;
+      let agreement: CampaignCommercialSummary["agreement"] = null;
+      if (link) {
+        const row = toAgreementRow(link.agreement, now);
+        agreement = {
+          id: row.id,
+          agreementNumber: row.agreementNumber,
+          title: row.title,
+          status: row.status,
+          sponsorAccountId: row.sponsorAccountId,
+          sponsorCompanyName: row.sponsorCompanyName,
+          pricingModel: row.pricingModel,
+          currency: row.currency,
+          startsAt: row.startsAt,
+          endsAt: row.endsAt,
+          agreedAmountMinor: row.agreedAmountMinor,
+          allocationAmountMinor: link.allocationAmountMinor,
+          commerciallyEligible: row.commerciallyEligible,
+          ineligibilityReason: row.ineligibilityReason,
+        };
+      }
+      // Kampanyaya doğrudan atanmış tahakkuklar (charge.campaignId) + finans özeti.
+      const charges = await db.sponsorshipCharge.findMany({
+        where: { storeId, campaignId },
+        select: {
+          status: true,
+          totalAmountMinor: true,
+          dueAt: true,
+          payments: { select: { amountMinor: true } },
+          advanceAllocations: { select: { amountMinor: true } },
+        },
+      });
+      const summary = summarizeCharges(charges, now);
+      return {
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        commercialMode: campaign.commercialMode,
+        agreement,
+        currency: agreement?.currency ?? null,
+        chargedMinor: summary.chargedMinor,
+        paidMinor: summary.paidMinor,
+        outstandingMinor: summary.outstandingMinor,
+        overdueMinor: summary.overdueMinor,
+      };
     },
 
     // ── Mutabakat (settlement) ────────────────────────────────────────────────
@@ -1624,26 +1939,118 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       return r ? toChargeRow(r, now) : null;
     },
 
+    async createFixedFeeCharge(storeId, agreementId, input, now) {
+      const agreement = await db.sponsorshipAgreement.findFirst({ where: { storeId, id: agreementId } });
+      if (!agreement) return "AGREEMENT_NOT_FOUND";
+      // FIXED_FEE dışı modeller settlement'tan tahakkuk üretir (gerçekleşen metriğe dayanır — ADR-122).
+      if (agreement.pricingModel !== "FIXED_FEE") return "NOT_FIXED_FEE";
+      const subtotal = input.amountMinor ?? agreement.agreedAmountMinor ?? 0;
+      if (subtotal <= 0) return "INVALID_AMOUNT";
+
+      // Kampanya verilmişse bu anlaşmaya BAĞLI olmalı (çapraz-anlaşma tahakkuku engellenir).
+      const campaignId = input.campaignId ?? null;
+      if (campaignId) {
+        const link = await db.sponsorshipAgreementCampaign.findFirst({ where: { storeId, agreementId, campaignId }, select: { id: true } });
+        if (!link) return "CAMPAIGN_NOT_LINKED";
+      }
+
+      // Allocation/bütçe tavanı: kümülatif matrah + bu tahakkuk anlaşma tutarını/limitini aşmamalı.
+      const cap = agreement.budgetLimitMinor ?? agreement.agreedAmountMinor;
+      if (cap !== null) {
+        const agg = await db.sponsorshipCharge.aggregate({
+          where: { storeId, agreementId, status: { not: "CANCELLED" } },
+          _sum: { subtotalMinor: true },
+        });
+        if ((agg._sum.subtotalMinor ?? 0) + subtotal > cap) return "AGREEMENT_ALLOCATION_EXCEEDED";
+      }
+
+      const totals = computeChargeTotals(subtotal, agreement.taxRateBp);
+      const issuedAt = input.issue ? now : null;
+      const dueAt = computeDueAt(issuedAt ?? now, agreement.paymentTermDays);
+      const charge = await db.$transaction(async (tx) => {
+        const number = await nextDocumentNumber(tx, storeId, "charge", now.getUTCFullYear());
+        const created = await tx.sponsorshipCharge.create({
+          data: {
+            storeId,
+            agreementId,
+            campaignId,
+            settlementId: null,
+            chargeNumber: number,
+            chargeType: "PERIOD",
+            pricingModel: "FIXED_FEE",
+            periodStart: agreement.startsAt,
+            periodEnd: agreement.endsAt,
+            quantity: 1,
+            unitPriceMinor: subtotal,
+            subtotalMinor: totals.subtotalMinor,
+            taxRateBp: agreement.taxRateBp,
+            taxAmountMinor: totals.taxAmountMinor,
+            totalAmountMinor: totals.totalAmountMinor,
+            currency: agreement.currency,
+            status: input.issue ? "ISSUED" : "DRAFT",
+            notes: input.notes ?? null,
+            generatedAt: now,
+            issuedAt,
+            dueAt,
+          },
+          include: CHARGE_INCLUDE,
+        });
+        // Bütçe tükendi mi? (FIXED_FEE'de anlaşma tutarına ulaşınca teslim guard'ı devreye girer.)
+        if (agreement.budgetLimitMinor !== null) {
+          const agg = await tx.sponsorshipCharge.aggregate({
+            where: { storeId, agreementId, status: { not: "CANCELLED" } },
+            _sum: { subtotalMinor: true },
+          });
+          if (isBudgetExceeded(agreement.budgetLimitMinor, agg._sum.subtotalMinor ?? 0) && agreement.budgetExhaustedAt === null) {
+            await tx.sponsorshipAgreement.update({ where: { id: agreementId }, data: { budgetExhaustedAt: now } });
+          }
+        }
+        return created;
+      });
+      return toChargeRow(charge, now);
+    },
+
+    async listOpenCharges(storeId, filters, now) {
+      const rows = await db.sponsorshipCharge.findMany({
+        where: {
+          storeId,
+          ...(filters.agreementId ? { agreementId: filters.agreementId } : {}),
+          status: { in: ["ISSUED", "PARTIALLY_PAID"] },
+          totalAmountMinor: { gt: 0 },
+        },
+        include: CHARGE_INCLUDE,
+        orderBy: { dueAt: "asc" },
+      });
+      // Kalanı 0 olanları (avans/tahsilatla kapanmış ama status henüz güncellenmemiş uç durum) ele.
+      return rows.map((r) => toChargeRow(r, now)).filter((c) => c.remainingMinor > 0);
+    },
+
     // ── Tahsilat (payment) — append-only defter ───────────────────────────────
     async recordPayment(storeId, chargeId, input) {
-      const charge = await db.sponsorshipCharge.findFirst({
-        where: { storeId, id: chargeId },
-        include: { payments: { select: { amountMinor: true } }, agreement: { select: { id: true } } },
-      });
-      if (!charge) return "CHARGE_NOT_FOUND";
-      // DRAFT/CANCELLED tahakkuk tahsil edilemez.
-      if (charge.status === "DRAFT" || charge.status === "CANCELLED") return "CHARGE_NOT_COLLECTIBLE";
-      // Negatif toplamlı ADJUSTMENT tahsil edilmez (alacak azaltıcı — sponsordan tahsilat yapılmaz).
-      if (charge.totalAmountMinor <= 0) return "CHARGE_NOT_COLLECTIBLE";
-      if (!isSameCurrency(input.currency, charge.currency)) return "CURRENCY_MISMATCH";
-
-      const paid = charge.payments.reduce((s, p) => s + p.amountMinor, 0);
-      const remaining = computeRemainingMinor(charge.totalAmountMinor, paid);
-      // Aşırı tahsilat guard'ı — kalan bakiye SUNUCUDA türetilir (istemci otorite DEĞİL).
-      if (!isWithinRemaining(input.amountMinor, remaining)) return "OVERPAYMENT";
-
+      const preview = await db.sponsorshipCharge.findFirst({ where: { storeId, id: chargeId }, select: { agreementId: true } });
+      if (!preview) return "CHARGE_NOT_FOUND";
       try {
-        const payment = await db.$transaction(async (tx) => {
+        const result = await db.$transaction(async (tx) => {
+          // Anlaşma kilidi → eşzamanlı ödeme/mahsup serileştirilir (ADR-129).
+          await lockAgreement(tx, preview.agreementId);
+          const charge = await tx.sponsorshipCharge.findFirst({
+            where: { storeId, id: chargeId },
+            include: {
+              payments: { select: { amountMinor: true } },
+              advanceAllocations: { select: { amountMinor: true } },
+              agreement: { select: { id: true } },
+            },
+          });
+          if (!charge) return "CHARGE_NOT_FOUND" as const;
+          if (charge.status === "DRAFT" || charge.status === "CANCELLED") return "CHARGE_NOT_COLLECTIBLE" as const;
+          if (charge.totalAmountMinor <= 0) return "CHARGE_NOT_COLLECTIBLE" as const;
+          if (!isSameCurrency(input.currency, charge.currency)) return "CURRENCY_MISMATCH" as const;
+
+          // "Ödenmiş" = doğrudan tahsilat + avans mahsupları (ADR-129). Kilit ALTINDA yeniden okunur.
+          const paid = chargePaidMinor(charge);
+          const remaining = computeRemainingMinor(charge.totalAmountMinor, paid);
+          if (!isWithinRemaining(input.amountMinor, remaining)) return "OVERPAYMENT" as const;
+
           const created = await tx.sponsorshipPayment.create({
             data: {
               storeId,
@@ -1664,9 +2071,10 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
           if (nextStatus !== charge.status) {
             await tx.sponsorshipCharge.update({ where: { id: chargeId }, data: { status: nextStatus } });
           }
-          return created;
+          return { id: created.id };
         });
-        return (await this.listPayments(storeId, { chargeId }, { limit: 1, offset: 0, sortBy: "createdAt", sortOrder: "desc" })).items.find((p) => p.id === payment.id)!;
+        if (typeof result === "string") return result;
+        return (await this.listPayments(storeId, { chargeId }, { limit: 1, offset: 0, sortBy: "createdAt", sortOrder: "desc" })).items.find((p) => p.id === result.id)!;
       } catch (error) {
         if (isUniqueViolation(error)) return "OVERPAYMENT"; // idempotencyKey çakışması → yinelenen istek
         throw error;
@@ -1676,7 +2084,7 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
     async reversePayment(storeId, paymentId, reason, actorUserId, now) {
       const payment = await db.sponsorshipPayment.findFirst({
         where: { storeId, id: paymentId },
-        include: { charge: { select: { id: true, status: true, totalAmountMinor: true, payments: { select: { amountMinor: true } } } }, reversedBy: { select: { id: true } } },
+        include: { charge: { select: { id: true, status: true, totalAmountMinor: true, payments: { select: { amountMinor: true } }, advanceAllocations: { select: { amountMinor: true } } } }, reversedBy: { select: { id: true } } },
       });
       if (!payment) return "PAYMENT_NOT_FOUND";
       // Ters kaydın kendisi ters çevrilemez; pozitif ödeme olmalı.
@@ -1700,7 +2108,7 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
           },
         });
         if (payment.charge) {
-          const newPaid = payment.charge.payments.reduce((s, p) => s + p.amountMinor, 0) - payment.amountMinor;
+          const newPaid = chargePaidMinor(payment.charge) - payment.amountMinor;
           const nextStatus = resolveChargeStatus(payment.charge.status, payment.charge.totalAmountMinor, newPaid);
           if (nextStatus !== payment.charge.status) {
             await tx.sponsorshipCharge.update({ where: { id: payment.charge.id }, data: { status: nextStatus } });
@@ -1765,6 +2173,151 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
         })),
         total,
       };
+    },
+
+    // ── Avans + mahsup (ADR-129) ──────────────────────────────────────────────
+    async createAdvance(storeId, agreementId, input) {
+      const agreement = await db.sponsorshipAgreement.findFirst({ where: { storeId, id: agreementId }, select: { id: true, currency: true } });
+      if (!agreement) return "AGREEMENT_NOT_FOUND";
+      if (input.amountMinor <= 0) return "INVALID_AMOUNT";
+      if (!isSameCurrency(input.currency, agreement.currency)) return "CURRENCY_MISMATCH";
+      try {
+        const payment = await db.sponsorshipPayment.create({
+          data: {
+            storeId,
+            agreementId,
+            chargeId: null, // AVANS: henüz bir tahakkuka mahsup edilmemiş nakit.
+            amountMinor: input.amountMinor,
+            currency: agreement.currency,
+            method: input.method,
+            paidAt: input.paidAt,
+            providerReference: input.providerReference ?? null,
+            manualReference: input.manualReference ?? null,
+            notes: input.notes ?? null,
+            recordedByUserId: input.recordedByUserId,
+            idempotencyKey: input.idempotencyKey ?? null,
+          },
+        });
+        return (await this.listPayments(storeId, { agreementId }, { limit: 1, offset: 0, sortBy: "createdAt", sortOrder: "desc" })).items.find((p) => p.id === payment.id)!;
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          // İdempotent tekrar → mevcut avansı döndür.
+          const existing = await db.sponsorshipPayment.findFirst({ where: { storeId, agreementId, idempotencyKey: input.idempotencyKey } });
+          if (existing) {
+            return (await this.listPayments(storeId, { agreementId }, { limit: 50, offset: 0, sortBy: "createdAt", sortOrder: "desc" })).items.find((p) => p.id === existing.id)!;
+          }
+        }
+        throw error;
+      }
+    },
+
+    async allocateAdvance(storeId, input) {
+      // Ön-okuma: anlaşma kilidini almadan önce ilgili anlaşmayı sapta.
+      const advancePreview = await db.sponsorshipPayment.findFirst({ where: { storeId, id: input.advancePaymentId }, select: { agreementId: true } });
+      if (!advancePreview) return "ADVANCE_NOT_FOUND";
+      if (input.amountMinor <= 0) return "OVERPAYMENT";
+      try {
+        const result = await db.$transaction(async (tx) => {
+          await lockAgreement(tx, advancePreview.agreementId);
+          const advance = await tx.sponsorshipPayment.findFirst({
+            where: { storeId, id: input.advancePaymentId },
+            include: { advanceAllocations: { select: { amountMinor: true } } },
+          });
+          if (!advance) return "ADVANCE_NOT_FOUND" as const;
+          // Avans = chargeId null + pozitif + ters kayıt DEĞİL.
+          if (advance.chargeId !== null || advance.amountMinor <= 0 || advance.reversalOfPaymentId !== null) return "NOT_AN_ADVANCE" as const;
+
+          const charge = await tx.sponsorshipCharge.findFirst({
+            where: { storeId, id: input.chargeId },
+            include: { payments: { select: { amountMinor: true } }, advanceAllocations: { select: { amountMinor: true } } },
+          });
+          if (!charge) return "CHARGE_NOT_FOUND" as const;
+          if (charge.agreementId !== advance.agreementId) return "CHARGE_NOT_FOUND" as const; // çapraz-anlaşma mahsubu yok
+          if (charge.status === "DRAFT" || charge.status === "CANCELLED" || charge.totalAmountMinor <= 0) return "CHARGE_NOT_COLLECTIBLE" as const;
+          if (!isSameCurrency(advance.currency, charge.currency)) return "CURRENCY_MISMATCH" as const;
+
+          const allocatedFromAdvance = advance.advanceAllocations.reduce((s, a) => s + a.amountMinor, 0);
+          const available = computeAdvanceAvailableMinor(advance.amountMinor, allocatedFromAdvance);
+          const paid = chargePaidMinor(charge);
+          const remaining = computeRemainingMinor(charge.totalAmountMinor, paid);
+          // İyimser kilit: istemcinin gördüğü kalan sunucudakiyle uyuşmuyorsa reddet.
+          if (input.expectedRemainingMinor !== undefined && input.expectedRemainingMinor !== remaining) return "BALANCE_CHANGED" as const;
+          if (input.amountMinor > available) return "ADVANCE_BALANCE_EXCEEDED" as const;
+          if (input.amountMinor > remaining) return "OVERPAYMENT" as const;
+          if (!isAdvanceAllocationValid(input.amountMinor, available, remaining)) return "OVERPAYMENT" as const;
+
+          const created = await tx.sponsorshipAdvanceAllocation.create({
+            data: {
+              storeId,
+              agreementId: charge.agreementId,
+              advancePaymentId: advance.id,
+              chargeId: charge.id,
+              amountMinor: input.amountMinor,
+              currency: charge.currency,
+              recordedByUserId: input.recordedByUserId,
+              idempotencyKey: input.idempotencyKey ?? null,
+              notes: input.notes ?? null,
+            },
+          });
+          const nextStatus = resolveChargeStatus(charge.status, charge.totalAmountMinor, paid + input.amountMinor);
+          if (nextStatus !== charge.status) {
+            await tx.sponsorshipCharge.update({ where: { id: charge.id }, data: { status: nextStatus } });
+          }
+          return { id: created.id, chargeNumber: charge.chargeNumber, agreementId: charge.agreementId, advancePaymentId: advance.id, chargeId: charge.id, amountMinor: created.amountMinor, currency: created.currency, createdAt: created.createdAt };
+        });
+        if (typeof result === "string") return result;
+        return {
+          id: result.id,
+          agreementId: result.agreementId,
+          advancePaymentId: result.advancePaymentId,
+          chargeId: result.chargeId,
+          chargeNumber: result.chargeNumber,
+          amountMinor: result.amountMinor,
+          currency: result.currency,
+          createdAt: result.createdAt,
+        };
+      } catch (error) {
+        if (isUniqueViolation(error)) return "BALANCE_CHANGED"; // idempotencyKey çakışması → yinelenen istek
+        throw error;
+      }
+    },
+
+    async listAvailableAdvances(storeId, filters) {
+      const advances = await db.sponsorshipPayment.findMany({
+        where: {
+          storeId,
+          chargeId: null,
+          reversalOfPaymentId: null,
+          amountMinor: { gt: 0 },
+          ...(filters.agreementId ? { agreementId: filters.agreementId } : {}),
+          ...(filters.sponsorAccountId ? { agreement: { sponsorAccountId: filters.sponsorAccountId } } : {}),
+        },
+        include: {
+          agreement: { select: { agreementNumber: true, sponsorAccount: { select: { companyName: true } } } },
+          advanceAllocations: { select: { amountMinor: true } },
+        },
+        orderBy: { paidAt: "asc" },
+      });
+      return advances
+        .map((a) => {
+          const allocated = a.advanceAllocations.reduce((s, x) => s + x.amountMinor, 0);
+          const available = computeAdvanceAvailableMinor(a.amountMinor, allocated);
+          return {
+            id: a.id,
+            agreementId: a.agreementId,
+            agreementNumber: a.agreement.agreementNumber,
+            sponsorCompanyName: a.agreement.sponsorAccount.companyName,
+            amountMinor: a.amountMinor,
+            allocatedMinor: allocated,
+            availableMinor: available,
+            currency: a.currency,
+            method: a.method,
+            paidAt: a.paidAt,
+            notes: a.notes,
+            createdAt: a.createdAt,
+          };
+        })
+        .filter((a) => a.availableMinor > 0);
     },
 
     // ── Dashboard — para birimi bazında AYRI (ADR-127) ────────────────────────

@@ -187,6 +187,15 @@ import type {
   SponsorshipPaymentCreateRequest,
   SponsorshipPaymentReverseRequest,
   SponsorshipDashboardResponse,
+  SponsorshipEligibleAgreementListResponse,
+  SponsorshipCampaignCommercialSummaryResponse,
+  SponsorshipFixedFeeChargeRequest,
+  SponsorshipAdvanceCreateRequest,
+  SponsorshipAdvanceDetailResponse,
+  SponsorshipAdvanceListResponse,
+  SponsorshipOpenChargeListResponse,
+  SponsorshipAdvanceAllocationRequest,
+  SponsorshipAllocationDetailResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -828,6 +837,24 @@ export type {
   SponsorshipDashboardBreakdownRow,
   SponsorshipDashboardQuery,
   SponsorshipDashboardResponse,
+} from "@commerce-os/contracts";
+
+// TODO-161A.2 (ADR-128/129) — birleşik ticari akış kontrat tipleri (type-only re-export;
+// store-admin BFF + UI bunları api-client üzerinden import eder).
+export type {
+  SponsorshipEligibleAgreement,
+  SponsorshipEligibleAgreementListResponse,
+  SponsorshipCampaignCommercialSummary,
+  SponsorshipCampaignCommercialSummaryResponse,
+  SponsorshipAdvance,
+  SponsorshipAllocation,
+  SponsorshipFixedFeeChargeRequest,
+  SponsorshipAdvanceCreateRequest,
+  SponsorshipAdvanceAllocationRequest,
+  SponsorshipAdvanceListResponse,
+  SponsorshipAdvanceDetailResponse,
+  SponsorshipAllocationDetailResponse,
+  SponsorshipOpenChargeListResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -1762,6 +1789,14 @@ export interface ApiClient {
       reversePayment(storeId: string, id: string, input: SponsorshipPaymentReverseRequest, token?: string): Promise<SponsorshipPaymentDetailResponse>;
       exportPayments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
       dashboard(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipDashboardResponse>;
+      // TODO-161A.2 (ADR-128/129) — birleşik ticari akış.
+      listEligibleAgreements(storeId: string, sponsorId: string, token?: string): Promise<SponsorshipEligibleAgreementListResponse>;
+      campaignCommercialSummary(storeId: string, campaignId: string, token?: string): Promise<SponsorshipCampaignCommercialSummaryResponse>;
+      createFixedFeeCharge(storeId: string, agreementId: string, input: SponsorshipFixedFeeChargeRequest, token?: string): Promise<SponsorshipChargeDetailResponse>;
+      createAdvance(storeId: string, agreementId: string, input: SponsorshipAdvanceCreateRequest, token?: string): Promise<SponsorshipAdvanceDetailResponse>;
+      listAdvances(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipAdvanceListResponse>;
+      listOpenCharges(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipOpenChargeListResponse>;
+      allocateAdvance(storeId: string, input: SponsorshipAdvanceAllocationRequest, token?: string): Promise<SponsorshipAllocationDetailResponse>;
     };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
@@ -3114,6 +3149,21 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getText(`/stores/${storeId}/sponsorship-payments/export${buildQueryString(query)}`, token),
         dashboard: (storeId, token, query) =>
           getJson<SponsorshipDashboardResponse>(`/stores/${storeId}/sponsorship-dashboard${buildQueryString(query)}`, token),
+        // TODO-161A.2 (ADR-128/129) — birleşik ticari akış.
+        listEligibleAgreements: (storeId, sponsorId, token) =>
+          getJson<SponsorshipEligibleAgreementListResponse>(`/stores/${storeId}/sponsors/${sponsorId}/eligible-agreements`, token),
+        campaignCommercialSummary: (storeId, campaignId, token) =>
+          getJson<SponsorshipCampaignCommercialSummaryResponse>(`/stores/${storeId}/sponsored-campaigns/${campaignId}/commercial-summary`, token),
+        createFixedFeeCharge: (storeId, agreementId, input, token) =>
+          sendJson<SponsorshipChargeDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${agreementId}/fixed-fee-charge`, "POST", input, token),
+        createAdvance: (storeId, agreementId, input, token) =>
+          sendJson<SponsorshipAdvanceDetailResponse>(`/stores/${storeId}/sponsorship-agreements/${agreementId}/advances`, "POST", input, token),
+        listAdvances: (storeId, token, query) =>
+          getJson<SponsorshipAdvanceListResponse>(`/stores/${storeId}/sponsorship-advances${buildQueryString(query)}`, token),
+        listOpenCharges: (storeId, token, query) =>
+          getJson<SponsorshipOpenChargeListResponse>(`/stores/${storeId}/sponsorship-open-charges${buildQueryString(query)}`, token),
+        allocateAdvance: (storeId, input, token) =>
+          sendJson<SponsorshipAllocationDetailResponse>(`/stores/${storeId}/sponsorship-advance-allocations`, "POST", input, token),
       },
       paymentProviders: {
         list: (storeId, token) =>

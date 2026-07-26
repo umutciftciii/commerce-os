@@ -107,7 +107,7 @@ function PaymentsView() {
 
       <SurfaceCard
         title="Tahakkuklar"
-        description="Vadesi geçmiş (OVERDUE) türetilmiş bir görünüm durumudur"
+        description="Vade geçtiğinde tahakkuk otomatik olarak gecikmiş görünür"
         icon={<PaymentIcon />}
         actions={
           <div className="flex items-center gap-2">
@@ -167,7 +167,7 @@ function PaymentsView() {
 
       <SurfaceCard
         title="Tahsilat geçmişi"
-        description="Append-only defter · ters kayıt negatif satırdır"
+        description="Tahsilat geçmişi · iptaller negatif satır olarak eklenir, kayıt silinmez"
         actions={<Button variant="ghost" size="sm" onClick={() => downloadCsv("payments")}>CSV</Button>}
       >
         {payments.length === 0 ? (

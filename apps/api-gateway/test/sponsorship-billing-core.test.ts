@@ -10,12 +10,14 @@ import { describe, expect, it } from "vitest";
 import {
   BP_SCALE,
   clampToBudget,
+  computeAdvanceAvailableMinor,
   computeChargeTotals,
   computeDueAt,
   computePricedAmountMinor,
   computeRefundAdjustmentMinor,
   computeRemainingMinor,
   computeTaxAmountMinor,
+  isAdvanceAllocationValid,
   isAgreementCommerciallyEligible,
   isAgreementTerminal,
   isAgreementTransitionAllowed,
@@ -26,7 +28,9 @@ import {
   isRefundSensitive,
   isSameCurrency,
   isValidReversalAmount,
+  isWithinAdvanceBalance,
   isWithinRemaining,
+  mapIneligibilityToActivationError,
   resolveChargeDisplayStatus,
   resolveChargeStatus,
   resolveCommercialIneligibility,
@@ -481,5 +485,79 @@ describe("refund adjustment", () => {
         currentMetrics: metrics({ attributedOrders: 14 }),
       }),
     ).toBe(0);
+  });
+});
+
+// ───────────────────────────── Avans + mahsup defteri (ADR-129) ─────────────────────────────
+// TODO-161A.2 — birleşik ticari akışın avans/mahsup çekirdeği.
+
+describe("computeAdvanceAvailableMinor", () => {
+  it("kullanılabilir = avans − mahsup", () => {
+    expect(computeAdvanceAvailableMinor(30_000, 0)).toBe(30_000);
+    expect(computeAdvanceAvailableMinor(30_000, 10_000)).toBe(20_000);
+    expect(computeAdvanceAvailableMinor(30_000, 30_000)).toBe(0);
+  });
+
+  it("aşırı mahsupta NEGATİFE düşmez (0'a kırpılır)", () => {
+    // Ters kayıtların ardından teorik olarak mahsup > avans görünürse bile bakiye negatif olmaz.
+    expect(computeAdvanceAvailableMinor(30_000, 45_000)).toBe(0);
+  });
+});
+
+describe("isWithinAdvanceBalance", () => {
+  it("pozitif + kalan avansı aşmayan mahsup kabul edilir", () => {
+    expect(isWithinAdvanceBalance(10_000, 30_000)).toBe(true);
+    expect(isWithinAdvanceBalance(30_000, 30_000)).toBe(true);
+  });
+
+  it("bakiyeyi aşan mahsup reddedilir", () => {
+    expect(isWithinAdvanceBalance(30_001, 30_000)).toBe(false);
+  });
+
+  it("bakiye 0 iken hiçbir mahsup kabul edilmez", () => {
+    expect(isWithinAdvanceBalance(1, 0)).toBe(false);
+  });
+
+  it("sıfır/negatif tutar reddedilir", () => {
+    expect(isWithinAdvanceBalance(0, 30_000)).toBe(false);
+    expect(isWithinAdvanceBalance(-100, 30_000)).toBe(false);
+  });
+});
+
+describe("isAdvanceAllocationValid (çift-taraflı tavan)", () => {
+  it("hem avans bakiyesini hem tahakkuk kalanını aşmayan mahsup geçerlidir", () => {
+    expect(isAdvanceAllocationValid(20_000, 30_000, 45_000)).toBe(true);
+    // Sınırda: her iki tavana da tam eşit.
+    expect(isAdvanceAllocationValid(30_000, 30_000, 30_000)).toBe(true);
+  });
+
+  it("avans bakiyesini aşarsa reddedilir", () => {
+    expect(isAdvanceAllocationValid(40_000, 30_000, 75_000)).toBe(false);
+  });
+
+  it("tahakkuk kalanını aşarsa reddedilir", () => {
+    expect(isAdvanceAllocationValid(50_000, 60_000, 45_000)).toBe(false);
+  });
+
+  it("iki tavandan biri 0 ise reddedilir", () => {
+    expect(isAdvanceAllocationValid(10_000, 0, 45_000)).toBe(false);
+    expect(isAdvanceAllocationValid(10_000, 30_000, 0)).toBe(false);
+  });
+
+  it("sıfır/negatif tutar reddedilir", () => {
+    expect(isAdvanceAllocationValid(0, 30_000, 45_000)).toBe(false);
+    expect(isAdvanceAllocationValid(-1, 30_000, 45_000)).toBe(false);
+  });
+});
+
+// ───────────────────────────── Aktivasyon guard eşlemesi (ADR-128) ─────────────────────────────
+
+describe("mapIneligibilityToActivationError", () => {
+  it("her teslim uygunsuzluk gerekçesini yazma-tarafı aktivasyon hatasına çevirir", () => {
+    expect(mapIneligibilityToActivationError("NO_AGREEMENT")).toBe("AGREEMENT_REQUIRED");
+    expect(mapIneligibilityToActivationError("AGREEMENT_NOT_ACTIVE")).toBe("AGREEMENT_NOT_ACTIVE");
+    expect(mapIneligibilityToActivationError("AGREEMENT_WINDOW")).toBe("AGREEMENT_DATE_MISMATCH");
+    expect(mapIneligibilityToActivationError("BUDGET_EXHAUSTED")).toBe("AGREEMENT_ALLOCATION_EXCEEDED");
+    expect(mapIneligibilityToActivationError("OVERDUE_CHARGE")).toBe("AGREEMENT_OVERDUE");
   });
 });

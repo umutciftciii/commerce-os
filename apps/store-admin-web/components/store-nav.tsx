@@ -42,8 +42,9 @@ const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
 const SPONSORSHIP_LABELS: Record<string, { tr: string; en: string }> = {
   sponsors: { tr: "Sponsorlar", en: "Sponsors" },
   agreements: { tr: "Anlaşmalar", en: "Agreements" },
+  campaigns: { tr: "Sponsorlu Kampanyalar", en: "Sponsored Campaigns" },
   settlements: { tr: "Mutabakatlar", en: "Settlements" },
-  payments: { tr: "Tahsilat", en: "Billing" },
+  payments: { tr: "Tahakkuk & Tahsilat", en: "Billing & Collections" },
 };
 
 export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
@@ -83,7 +84,6 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           label: t.influencerCampaigns,
           icon: <CampaignIcon />,
         },
-        { href: "/sponsored-products", label: t.sponsoredProducts, icon: <MarketplaceIcon /> },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
       ],
     },
@@ -92,6 +92,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       items: [
         { href: "/sponsors", label: s("sponsors"), icon: <CustomerIcon /> },
         { href: "/sponsorship-agreements", label: s("agreements"), icon: <CampaignIcon /> },
+        { href: "/sponsored-products", label: s("campaigns"), icon: <MarketplaceIcon /> },
         { href: "/sponsorship-settlements", label: s("settlements"), icon: <PaymentIcon /> },
         { href: "/sponsorship-payments", label: s("payments"), icon: <PaymentIcon /> },
       ],

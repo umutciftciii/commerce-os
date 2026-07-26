@@ -350,6 +350,71 @@ export function isAgreementCommerciallyEligible(
   return resolveCommercialIneligibility(agreement, now) === null;
 }
 
+// ─────────────────── Kampanya aktivasyon guard'ı (ADR-128) ───────────────────
+
+/**
+ * Ticari kampanya AKTİVASYON hatası (admin yazma katmanı — ADR-128). Teslim uygunluğunun
+ * (`CommercialIneligibilityReason`) yazma-tarafı karşılığıdır. `INTERNAL_PROMOTION` kampanya bu
+ * kapıdan MUAFTIR (çağıran hiç sormaz). Kod → kullanıcı mesajı eşlemesi UI'dadır.
+ */
+export type CampaignActivationError =
+  | "AGREEMENT_REQUIRED"
+  | "AGREEMENT_NOT_ACTIVE"
+  | "AGREEMENT_DATE_MISMATCH"
+  | "AGREEMENT_ALLOCATION_EXCEEDED"
+  | "AGREEMENT_OVERDUE";
+
+/**
+ * Teslim uygunsuzluğu gerekçesini yazma-tarafı aktivasyon hatasına çevirir. `SPONSORED` bir
+ * kampanya ACTIVE yapılmadan ÖNCE çağrılır; uygun (reason=null) ise aktivasyona izin verilir.
+ */
+export function mapIneligibilityToActivationError(
+  reason: CommercialIneligibilityReason,
+): CampaignActivationError {
+  switch (reason) {
+    case "NO_AGREEMENT":
+      return "AGREEMENT_REQUIRED";
+    case "AGREEMENT_NOT_ACTIVE":
+      return "AGREEMENT_NOT_ACTIVE";
+    case "AGREEMENT_WINDOW":
+      return "AGREEMENT_DATE_MISMATCH";
+    case "BUDGET_EXHAUSTED":
+      return "AGREEMENT_ALLOCATION_EXCEEDED";
+    case "OVERDUE_CHARGE":
+      return "AGREEMENT_OVERDUE";
+    default:
+      return "AGREEMENT_REQUIRED";
+  }
+}
+
+// ─────────────────── Avans + mahsup defteri (ADR-129) ───────────────────
+
+/**
+ * Bir avansın (chargeId=null tahsilat) KULLANILABİLİR bakiyesi = avans tutarı − o avanstan
+ * yapılmış NET mahsup toplamı (ters kayıtlar negatif satır olarak toplamın içindedir). Negatife
+ * düşmez. Avans OTOMATİK dağıtılmaz — bu yalnız "ne kadarı hâlâ serbest" sorusudur (ADR-129).
+ */
+export function computeAdvanceAvailableMinor(advanceAmountMinor: number, allocatedMinor: number): number {
+  return Math.max(0, advanceAmountMinor - allocatedMinor);
+}
+
+/** Talep edilen mahsup avans bakiyesi içinde mi? (pozitif + kalan avansı aşmaz) */
+export function isWithinAdvanceBalance(requestedMinor: number, availableMinor: number): boolean {
+  return requestedMinor > 0 && requestedMinor <= availableMinor;
+}
+
+/**
+ * Avans mahsubu geçerli mi? Talep POZİTİF olmalı, hem avans bakiyesini hem hedef tahakkuğun
+ * KALANINI aşmamalıdır (çift-taraflı tavan). İkisinden biri 0 ise mahsup reddedilir.
+ */
+export function isAdvanceAllocationValid(
+  requestedMinor: number,
+  advanceAvailableMinor: number,
+  chargeRemainingMinor: number,
+): boolean {
+  return requestedMinor > 0 && requestedMinor <= advanceAvailableMinor && requestedMinor <= chargeRemainingMinor;
+}
+
 // ─────────────────── İade düzeltmesi (ADR-123) ───────────────────
 
 export interface RefundAdjustmentInput {

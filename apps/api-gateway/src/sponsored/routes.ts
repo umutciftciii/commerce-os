@@ -41,6 +41,42 @@ import {
   SPONSORED_EVENT_DEDUPE_WINDOW_SECONDS,
   type RateLimiter,
 } from "./sponsored-core.js";
+import { mapIneligibilityToActivationError, type CampaignActivationError } from "../sponsorship/billing-core.js";
+import type { CommercialIneligibilityReason } from "../sponsorship/billing-core.js";
+
+/**
+ * TODO-161A.2 (ADR-128) — Kampanya yazma tarafında ticari uygunluk kapısı için gereken sponsorship
+ * domain köprüsü. `sponsored/` modülü `sponsorship/` domain'ine yalnız bu dar arayüzle bağlanır
+ * (DI); tam SponsorshipData'ya bağımlı DEĞİLDİR.
+ */
+export interface SponsoredCommercialBridge {
+  resolveCampaignEligibility(
+    storeId: string,
+    campaignId: string,
+    now: Date,
+  ): Promise<{ exempt: boolean; reason: CommercialIneligibilityReason | null }>;
+  linkCampaign(
+    storeId: string,
+    agreementId: string,
+    campaignId: string,
+    allocationAmountMinor: number | null,
+  ): Promise<unknown | "AGREEMENT_NOT_FOUND" | "CAMPAIGN_NOT_FOUND" | "CAMPAIGN_ALREADY_LINKED" | "CAMPAIGN_WINDOW_NOT_COVERED">;
+}
+
+// Aktivasyon guard hata kodu → HTTP + kullanıcı mesajı (mesaj UI'da TR; API açık kod döner).
+const CAMPAIGN_ACTIVATION_STATUS: Record<CampaignActivationError, { code: number; message: string }> = {
+  AGREEMENT_REQUIRED: { code: 409, message: "Ticari kampanya için önce bir sponsor anlaşması seçin." },
+  AGREEMENT_NOT_ACTIVE: { code: 409, message: "Kampanyayı aktifleştirmek için anlaşmayı onaylayın." },
+  AGREEMENT_DATE_MISMATCH: { code: 409, message: "Kampanya tarihleri anlaşma dönemi dışında." },
+  AGREEMENT_ALLOCATION_EXCEEDED: { code: 409, message: "Kampanya için kullanılabilir sözleşme tutarı yetersiz." },
+  AGREEMENT_OVERDUE: { code: 409, message: "Anlaşmanın vadesi geçmiş açık tahakkuku var." },
+};
+const CAMPAIGN_LINK_STATUS: Record<string, { code: number; message: string }> = {
+  AGREEMENT_NOT_FOUND: { code: 404, message: "Anlaşma bulunamadı." },
+  CAMPAIGN_NOT_FOUND: { code: 404, message: "Kampanya bulunamadı." },
+  CAMPAIGN_ALREADY_LINKED: { code: 409, message: "Kampanya zaten bir anlaşmaya bağlı." },
+  CAMPAIGN_WINDOW_NOT_COVERED: { code: 400, message: "Anlaşma dönemi kampanya dönemini tam kapsamalı." },
+};
 
 type AuditFn = (input: {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
@@ -60,6 +96,8 @@ export interface SponsoredAdminRoutesDeps {
     storeId: string,
   ) => Promise<{ actorUserId: string } | null>;
   recordAudit: AuditFn;
+  /** TODO-161A.2 — ticari uygunluk kapısı + anlaşma bağlama köprüsü (ADR-128). */
+  commercial: SponsoredCommercialBridge;
 }
 
 export interface SponsoredPublicRoutesDeps {
@@ -103,6 +141,7 @@ function toCampaignSummary(r: WithMeta, now: Date): SponsoredCampaignSummary {
     productCount: r.productCount,
     keywordCount: r.keywordCount,
     isLive: computeIsLive(r, now),
+    commercialMode: r.commercialMode,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -154,7 +193,24 @@ function normalizeKeywords(raw: string[] | undefined): string[] | undefined {
 
 // ── Admin routes ────────────────────────────────────────────────────────────────
 export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: SponsoredAdminRoutesDeps): void {
-  const { data, requireStoreAdmin, recordAudit } = deps;
+  const { data, requireStoreAdmin, recordAudit, commercial } = deps;
+
+  /**
+   * Ticari kampanya AKTİVASYON kapısı (ADR-128 — admin yazma katmanı). SPONSORED bir kampanya
+   * ACTIVE yapılmadan ÖNCE çağrılır; uygun değilse HTTP + açık kod döner (null → uygun).
+   * INTERNAL_PROMOTION guard'dan MUAF (resolveCampaignEligibility exempt=true döner).
+   */
+  async function activationBlock(
+    storeId: string,
+    campaignId: string,
+    now: Date,
+  ): Promise<{ status: number; code: string; message: string } | null> {
+    const e = await commercial.resolveCampaignEligibility(storeId, campaignId, now);
+    if (e.exempt || e.reason === null) return null;
+    const code = mapIneligibilityToActivationError(e.reason);
+    const s = CAMPAIGN_ACTIVATION_STATUS[code];
+    return { status: s.code, code, message: s.message };
+  }
 
   app.get("/stores/:storeId/sponsored-campaigns", async (request, reply) => {
     const { storeId } = request.params as { storeId: string };
@@ -186,10 +242,18 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
     const parsed = sponsoredCampaignCreateRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send(errorBody("INVALID_BODY", "Invalid campaign."));
     const b = parsed.data;
+    const mode = b.commercialMode ?? "INTERNAL_PROMOTION";
+    const wantsActive = (b.status ?? "ACTIVE") === "ACTIVE";
+    // SPONSORED + aktif istek → anlaşma ZORUNLU (ADR-128). Anlaşma yoksa aktivasyon reddedilir.
+    if (mode === "SPONSORED" && wantsActive && !b.agreementId) {
+      return reply.code(409).send(errorBody("AGREEMENT_REQUIRED", "Ticari kampanya için önce bir sponsor anlaşması seçin."));
+    }
+    // SPONSORED kampanya ASLA doğrudan ACTIVE oluşturulmaz: önce bağla, sonra guard'lı aktive et.
+    const initialStatus = mode === "SPONSORED" && wantsActive ? "PAUSED" : (b.status ?? "ACTIVE");
     const created = await data.createCampaign(storeId, {
       name: b.name,
       placement: b.placement,
-      status: b.status,
+      status: initialStatus,
       startsAt: parseDate(b.startsAt) ?? null,
       endsAt: parseDate(b.endsAt) ?? null,
       priority: b.priority,
@@ -198,9 +262,27 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
       timezone: b.timezone,
       productIds: b.productIds,
       keywords: normalizeKeywords(b.keywords),
+      commercialMode: mode,
     });
     if (created === "INVALID_CATEGORY") return reply.code(400).send(errorBody("INVALID_CATEGORY", "Category not found for this store."));
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: created.id });
+
+    // Anlaşma bağlama (birleşik akış): verilirse kampanya oluşturulduktan hemen sonra bağla.
+    if (mode === "SPONSORED" && b.agreementId) {
+      const link = await commercial.linkCampaign(storeId, b.agreementId, created.id, b.allocationAmountMinor ?? null);
+      if (typeof link === "string") {
+        const e = CAMPAIGN_LINK_STATUS[link] ?? { code: 400, message: "Anlaşma bağlanamadı." };
+        return reply.code(e.code).send(errorBody(link, e.message));
+      }
+    }
+
+    // Guard'lı aktivasyon (yalnız SPONSORED + aktif istendiyse).
+    if (mode === "SPONSORED" && wantsActive) {
+      const block = await activationBlock(storeId, created.id, new Date());
+      if (block) return reply.code(block.status).send(errorBody(block.code, block.message));
+      await data.updateCampaign(storeId, created.id, { status: "ACTIVE" });
+    }
+
+    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: created.id, metadata: { commercialMode: mode, agreementId: b.agreementId ?? null } });
     const detail = await data.getCampaignDetail(storeId, created.id, new Date());
     return reply.code(201).send(sponsoredCampaignDetailResponseSchema.parse({ data: toCampaignDetail(detail!, new Date()) }));
   });
@@ -222,9 +304,17 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
     const parsed = sponsoredCampaignUpdateRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send(errorBody("INVALID_BODY", "Invalid campaign."));
     const b = parsed.data;
+    const existing = await data.getCampaign(storeId, id);
+    if (!existing) return reply.code(404).send(errorBody("NOT_FOUND", "Campaign not found."));
+    const nextMode = b.commercialMode ?? existing.commercialMode;
+    const nextStatus = b.status ?? existing.status;
+    // SPONSORED + ACTIVE sonucunda aktivasyon guard'ı uygulanır. commercialMode ÖNCE yazılır ki
+    // guard doğru modu görsün; status ACTIVE ise ancak guard geçerse uygulanır (ADR-128).
+    const guardActivation = nextMode === "SPONSORED" && nextStatus === "ACTIVE";
     const result = await data.updateCampaign(storeId, id, {
       ...(b.name !== undefined ? { name: b.name } : {}),
-      ...(b.status !== undefined ? { status: b.status } : {}),
+      // Aktivasyon guard'lanacaksa status'u ŞİMDİ yazma (guard geçerse ayrıca yazılır).
+      ...(b.status !== undefined && !guardActivation ? { status: b.status } : {}),
       ...(b.startsAt !== undefined ? { startsAt: parseDate(b.startsAt) ?? null } : {}),
       ...(b.endsAt !== undefined ? { endsAt: parseDate(b.endsAt) ?? null } : {}),
       ...(b.priority !== undefined ? { priority: b.priority } : {}),
@@ -233,11 +323,17 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
       ...(b.timezone !== undefined ? { timezone: b.timezone } : {}),
       ...(b.productIds !== undefined ? { productIds: b.productIds } : {}),
       ...(b.keywords !== undefined ? { keywords: normalizeKeywords(b.keywords) } : {}),
+      ...(b.commercialMode !== undefined ? { commercialMode: b.commercialMode } : {}),
     });
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Campaign not found."));
     if (result === "INVALID_CATEGORY") return reply.code(400).send(errorBody("INVALID_CATEGORY", "Category not found for this store."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: id });
     const now = new Date();
+    if (guardActivation) {
+      const block = await activationBlock(storeId, id, now);
+      if (block) return reply.code(block.status).send(errorBody(block.code, block.message));
+      await data.updateCampaign(storeId, id, { status: "ACTIVE" });
+    }
+    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: id });
     const detail = await data.getCampaignDetail(storeId, id, now);
     return reply.send(sponsoredCampaignDetailResponseSchema.parse({ data: toCampaignDetail(detail!, now) }));
   });
