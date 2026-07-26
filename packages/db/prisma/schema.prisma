@@ -877,6 +877,7 @@ model Store {
   sponsorshipSettlements           SponsorshipSettlement[]
   sponsorshipCharges               SponsorshipCharge[]
   sponsorshipPayments              SponsorshipPayment[]
+  sponsorshipAdvanceAllocations    SponsorshipAdvanceAllocation[]
 }
 
 model StoreUser {
@@ -3960,18 +3961,24 @@ model SponsorshipAgreement {
   paymentTermDays       Int                         @default(30)
   taxRateBp             Int                         @default(2000)
   signedAt              DateTime?
+  // TODO-161A.2 (ADR-128) — ADDITIVE onay metası. `approvedAt`/`approvedByUserId` anlaşma ACTIVE
+  // yapıldığında damgalanır ve ticari kampanya aktivasyon kapısının denetim izidir. Durum tek
+  // otorite olmaya devam eder (guard `status = ACTIVE` bakar); bu alanlar KİM/NE ZAMAN kaydıdır.
+  approvedAt            DateTime?
+  approvedByUserId      String?
   documentUrl           String?
   notes                 String?
   budgetExhaustedAt     DateTime?
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
 
-  store          Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  sponsorAccount SponsorAccount                 @relation(fields: [sponsorAccountId], references: [id], onDelete: Restrict)
-  campaignLinks  SponsorshipAgreementCampaign[]
-  settlements    SponsorshipSettlement[]
-  charges        SponsorshipCharge[]
-  payments       SponsorshipPayment[]
+  store               Store                           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sponsorAccount      SponsorAccount                  @relation(fields: [sponsorAccountId], references: [id], onDelete: Restrict)
+  campaignLinks       SponsorshipAgreementCampaign[]
+  settlements         SponsorshipSettlement[]
+  charges             SponsorshipCharge[]
+  payments            SponsorshipPayment[]
+  advanceAllocations  SponsorshipAdvanceAllocation[]
 
   @@unique([storeId, agreementNumber])
   @@index([storeId])
@@ -4078,11 +4085,12 @@ model SponsorshipCharge {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
-  store      Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  agreement  SponsorshipAgreement      @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  campaign   SponsoredProductCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  settlement SponsorshipSettlement?    @relation(fields: [settlementId], references: [id], onDelete: SetNull)
-  payments   SponsorshipPayment[]
+  store              Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement          SponsorshipAgreement           @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  campaign           SponsoredProductCampaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  settlement         SponsorshipSettlement?         @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  payments           SponsorshipPayment[]
+  advanceAllocations SponsorshipAdvanceAllocation[]
 
   @@unique([storeId, chargeNumber])
   @@unique([settlementId])
@@ -4121,11 +4129,12 @@ model SponsorshipPayment {
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
 
-  store      Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  agreement  SponsorshipAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  charge     SponsorshipCharge?   @relation(fields: [chargeId], references: [id], onDelete: SetNull)
-  reversalOf SponsorshipPayment?  @relation("SponsorshipPaymentReversal", fields: [reversalOfPaymentId], references: [id], onDelete: Restrict)
-  reversedBy SponsorshipPayment?  @relation("SponsorshipPaymentReversal")
+  store              Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement          SponsorshipAgreement           @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  charge             SponsorshipCharge?             @relation(fields: [chargeId], references: [id], onDelete: SetNull)
+  reversalOf         SponsorshipPayment?            @relation("SponsorshipPaymentReversal", fields: [reversalOfPaymentId], references: [id], onDelete: Restrict)
+  reversedBy         SponsorshipPayment?            @relation("SponsorshipPaymentReversal")
+  advanceAllocations SponsorshipAdvanceAllocation[] @relation("AdvanceSourcePayment")
 
   @@unique([reversalOfPaymentId])
   @@unique([storeId, idempotencyKey])
@@ -4134,4 +4143,46 @@ model SponsorshipPayment {
   @@index([storeId, paidAt])
   @@index([chargeId])
   @@index([agreementId])
+}
+
+/// TODO-161A.2 (ADR-129) — APPEND-ONLY avans mahsup defteri.
+///
+/// Avans, `chargeId = null` olan bir `SponsorshipPayment`'tir → anlaşmaya bağlı, henüz bir
+/// tahakkuka mahsup EDİLMEMİŞ nakittir ("kullanılabilir avans"). Avans OTOMATİK olarak
+/// tahakkuklara dağıtılmaz (ADR-129, §gizli-mahsup-yasağı); yalnız kullanıcının açık bir
+/// işlemiyle bu defterde bir satır olarak ilişkilendirilir.
+///
+/// Bir tahakkuğun "ödenmişi" = (o tahakkuğa doğrudan tahsilat toplamı) + (bu defterden o
+/// tahakkuğa yapılan net mahsup). Bir avansın "kalan bakiyesi" = avans tutarı − bu defterden
+/// o avanstan yapılan net mahsup. Ters kayıt = `reversalOfId` işaretli YENİ NEGATİF satır;
+/// orijinal SİLİNMEZ/DEĞİŞTİRİLMEZ (aynı defter ilkesi — ADR-125). Bir mahsup en fazla BİR KEZ
+/// ters çevrilir (`@@unique`). Aşırı mahsup (avans bakiyesi VEYA tahakkuk kalanı aşımı) REDDEDİLİR.
+model SponsorshipAdvanceAllocation {
+  id               String   @id @default(cuid())
+  storeId          String
+  agreementId      String
+  advancePaymentId String
+  chargeId         String
+  amountMinor      Int
+  currency         String
+  reversalOfId     String?
+  reversalReason   String?
+  recordedByUserId String?
+  idempotencyKey   String?
+  notes            String?
+  createdAt        DateTime @default(now())
+
+  store          Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  agreement      SponsorshipAgreement          @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  advancePayment SponsorshipPayment            @relation("AdvanceSourcePayment", fields: [advancePaymentId], references: [id], onDelete: Restrict)
+  charge         SponsorshipCharge             @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  reversalOf     SponsorshipAdvanceAllocation? @relation("AdvanceAllocationReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy     SponsorshipAdvanceAllocation? @relation("AdvanceAllocationReversal")
+
+  @@unique([reversalOfId])
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@index([storeId, agreementId])
+  @@index([advancePaymentId])
+  @@index([chargeId])
 }

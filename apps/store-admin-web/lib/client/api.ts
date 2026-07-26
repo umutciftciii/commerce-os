@@ -241,6 +241,42 @@ import type {
   AdminProductSelectorResponse,
   AdminCategorySelectorResponse,
 } from "@commerce-os/api-client";
+// TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
+// re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
+// bağlanmadan, api-client sınırını koruyarak). Sadece tip; runtime import yok.
+import type { createApiClient } from "@commerce-os/api-client";
+
+type SponsorshipAdminApi = ReturnType<typeof createApiClient>["admin"]["sponsorship"];
+
+/** Kampanyaya bağlanabilir aday anlaşma (create akışı). */
+export type SponsorshipEligibleAgreement = Awaited<
+  ReturnType<SponsorshipAdminApi["listEligibleAgreements"]>
+>["data"][number];
+/** Kampanya ticari özeti (sponsor/anlaşma/finans). */
+export type SponsorshipCampaignCommercialSummary = Awaited<
+  ReturnType<SponsorshipAdminApi["campaignCommercialSummary"]>
+>["data"];
+/** Kullanılabilir avans satırı (türetilmiş bakiye). */
+export type SponsorshipAdvance = Awaited<
+  ReturnType<SponsorshipAdminApi["listAdvances"]>
+>["data"][number];
+/** Açık (kalanı olan) tahakkuk — avans mahsubunun hedefi. */
+export type SponsorshipOpenCharge = Awaited<
+  ReturnType<SponsorshipAdminApi["listOpenCharges"]>
+>["data"][number];
+
+type SponsorshipFixedFeeChargeInput = Parameters<SponsorshipAdminApi["createFixedFeeCharge"]>[2];
+type SponsorshipAdvanceCreateInput = Parameters<SponsorshipAdminApi["createAdvance"]>[2];
+type SponsorshipAdvanceAllocationInput = Parameters<SponsorshipAdminApi["allocateAdvance"]>[1];
+type SponsorshipChargeDetailResult = Awaited<ReturnType<SponsorshipAdminApi["createFixedFeeCharge"]>>;
+type SponsorshipAdvanceDetailResult = Awaited<ReturnType<SponsorshipAdminApi["createAdvance"]>>;
+type SponsorshipAllocationDetailResult = Awaited<ReturnType<SponsorshipAdminApi["allocateAdvance"]>>;
+type SponsorshipEligibleAgreementListResult = Awaited<ReturnType<SponsorshipAdminApi["listEligibleAgreements"]>>;
+type SponsorshipCampaignCommercialSummaryResult = Awaited<
+  ReturnType<SponsorshipAdminApi["campaignCommercialSummary"]>
+>;
+type SponsorshipAdvanceListResult = Awaited<ReturnType<SponsorshipAdminApi["listAdvances"]>>;
+type SponsorshipOpenChargeListResult = Awaited<ReturnType<SponsorshipAdminApi["listOpenCharges"]>>;
 
 /**
  * Tarayici -> ayni-origin BFF (/api/*) istemcisi. Gateway'e dogrudan gitmez
@@ -921,6 +957,38 @@ export const storeApi = {
     mutatingCall<SponsorshipPaymentDetailResponse>(`/api/sponsorship-payments/${id}/reverse`, { method: "POST", body: JSON.stringify(input) }),
   getSponsorshipDashboard: (query?: AdminListRequestQuery) =>
     call<SponsorshipDashboardResponse>(`/api/sponsorship-dashboard${listQueryString(query)}`),
+
+  // Birleşik ticari akış (TODO-161A.2 / ADR-128/129) — sponsor→anlaşma→kampanya→tahakkuk→tahsilat.
+  // Bir sponsora ait kampanyaya bağlanabilir aday anlaşmalar (uygunluk sunucu-otoriter).
+  listEligibleAgreements: (sponsorId: string) =>
+    call<SponsorshipEligibleAgreementListResult>(`/api/sponsors/${sponsorId}/eligible-agreements`),
+  // Kampanya ticari özeti (sponsor/anlaşma/finans; INTERNAL_PROMOTION'da anlaşma null).
+  getCampaignCommercialSummary: (campaignId: string) =>
+    call<SponsorshipCampaignCommercialSummaryResult>(`/api/sponsored-products/${campaignId}/commercial-summary`),
+  // FIXED_FEE anlaşmada doğrudan tahakkuk (settlement'sız).
+  createFixedFeeSponsorshipCharge: (agreementId: string, input: SponsorshipFixedFeeChargeInput) =>
+    mutatingCall<SponsorshipChargeDetailResult>(`/api/sponsorship-agreements/${agreementId}/fixed-fee-charge`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  // Anlaşmaya bağlı avans (tahakkuka mahsup edilmemiş nakit) kaydı.
+  createSponsorshipAdvance: (agreementId: string, input: SponsorshipAdvanceCreateInput) =>
+    mutatingCall<SponsorshipAdvanceDetailResult>(`/api/sponsorship-agreements/${agreementId}/advances`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  // Kullanılabilir avanslar (türetilmiş bakiye).
+  listSponsorshipAdvances: (query?: AdminListRequestQuery) =>
+    call<SponsorshipAdvanceListResult>(`/api/sponsorship-advances${listQueryString(query)}`),
+  // Açık (kalanı olan) tahakkuklar — mahsup hedefi.
+  listSponsorshipOpenCharges: (query?: AdminListRequestQuery) =>
+    call<SponsorshipOpenChargeListResult>(`/api/sponsorship-open-charges${listQueryString(query)}`),
+  // Avansı açık bir tahakkuğa mahsup et (append-only; iyimser kilit expectedRemainingMinor).
+  allocateSponsorshipAdvance: (input: SponsorshipAdvanceAllocationInput) =>
+    mutatingCall<SponsorshipAllocationDetailResult>("/api/sponsorship-advance-allocations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
   listCustomers: (query?: AdminListRequestQuery) =>

@@ -531,3 +531,26 @@
   git diff --check temiz. Canlı enterprise-demo doğrulama: 17 adım / 31 assertion PASS (gerçek PG +
   gerçek Prisma + gerçek `billing-core`; test verisi temizlendi, demo bütün). Ertelenen: TD-123…126.
 - Sıra: TODO-161'den SONRA; sıradaki aktif faz = **final enterprise UI/design polish**.
+
+## Growth & Monetization — Unified Sponsorship Commercial Flow (TODO-161A.2, stabilization/hotfix)
+
+- Durum: **KOD TAMAM (2026-07-26) — commit/PR YAPILMADI (git kuralı §20).** TODO-161 + TODO-161A ürün
+  modelini tek tutarlı akışa dönüştüren stabilizasyon fazı. ADR-128/129. Migration ADDITIVE
+  (`20260726120000_add_sponsorship_advance_allocation`).
+- Kapsam: anlaşma-kapılı kampanya aktivasyonu (ADR-124 Katman 1 artık gerçek) · kampanya `commercialMode`
+  (Ticari sponsorluk / İç promosyon) form seçimi + doğrudan anlaşma bağlama · avans + append-only mahsup
+  defteri (`SponsorshipAdvanceAllocation`) · FIXED_FEE doğrudan tahakkuk · sponsor cari + kullanılmamış
+  avans · anlaşma finans merkezi · kampanya ticari özet kartı · menü/bilgi mimarisi (tek "Sponsorluk"
+  grubu; "Sponsorlu Kampanyalar") · eşzamanlılık (advisory-lock) + iyimser kilit (`BALANCE_CHANGED`).
+- Domain hata kodları: `AGREEMENT_REQUIRED`, `AGREEMENT_NOT_ACTIVE`, `AGREEMENT_DATE_MISMATCH`,
+  `AGREEMENT_ALLOCATION_EXCEEDED`, `CURRENCY_MISMATCH`, `OVERPAYMENT`, `ADVANCE_BALANCE_EXCEEDED`,
+  `BALANCE_CHANGED`.
+- Sıra: TODO-161A'dan SONRA. Canlı auth'lu tümleşik smoke (yerel dev + gerçek PG, 75.000 TL senaryosu 25/25)
+  DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**.
+
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B)
+
+- Durum: **PLANLANDI (henüz başlanmadı).** Bu numara (TODO-161B) bu iş için REZERVE edilmiştir; sponsorluk
+  stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
+- Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
+- Sıra: TODO-161A.2'den SONRA.

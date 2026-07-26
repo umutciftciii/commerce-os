@@ -1895,3 +1895,37 @@
   `/sponsorship-settlements`, `/sponsorship-payments` (Data Grid + BFF proxy + CSV).
 - Gate'ler: build/typecheck/lint/test PASS. Canlı doğrulama: 17 adım / 31 assertion PASS. Ertelenen:
   TD-123…126. Sıra: sıradaki = final enterprise UI/design polish.
+
+## TODO-161A.2 — Unified Sponsorship Commercial Flow / Birleşik Sponsorluk Ticari Akışı (Growth & Monetization — stabilization/hotfix)
+
+- Durum: **KOD TAMAM (2026-07-26) — commit/PR YAPILMADI (git kuralı §20).** TODO-161/TODO-161A ürün
+  modelini tek ve tutarlı sponsorluk akışına dönüştüren STABİLİZASYON/HOTFIX fazıdır (yeni bağımsız
+  feature DEĞİL). ADR-128/129. Migration `20260726120000_add_sponsorship_advance_allocation` (ADDITIVE).
+- Kök problem: sponsorlu gösterim (TODO-161) ile ticari/finans (TODO-161A) iki kopuk silo; anlaşma-kapılı
+  aktivasyon guard'ı (ADR-124 Katman 1) dokümanlı ama WIRE EDİLMEMİŞ; `commercialMode` kampanya formunda
+  seçilemiyor (hep INTERNAL_PROMOTION); avans/mahsup iş mantığı yok; menüde "Sponsorlu Ürünler" yanlış
+  grupta (Satış).
+- Teslim:
+  - Şema (ADDITIVE): `SponsorshipAdvanceAllocation` (append-only avans mahsup defteri) +
+    `SponsorshipAgreement.approvedAt/approvedByUserId` (onay metası).
+  - Domain (`billing-core.ts` SAF): `computeAdvanceAvailableMinor`, `isWithinAdvanceBalance`,
+    `isAdvanceAllocationValid`, `mapIneligibilityToActivationError`, `CampaignActivationError`.
+  - Domain (`sponsorship/data.ts`): `createFixedFeeCharge` (settlement'sız FIXED_FEE tahakkuk),
+    `createAdvance`, `allocateAdvance` (advisory-lock + iyimser kilit), `listAvailableAdvances`,
+    `listOpenCharges`, `listEligibleAgreements`, `getCampaignCommercialSummary`; alacak hesabına avans
+    mahsupları dahil; onay damgası `updateAgreement`'ta.
+  - Yazma guard (`sponsored/`): kampanya create/update'te `commercialMode` + opsiyonel `agreementId`
+    bağlama + `SPONSORED`+`ACTIVE` için aktivasyon guard'ı (409 domain kodları); server.ts DI köprüsü.
+  - Contracts + api-client + store-admin BFF + UI: menü yeniden gruplama (Sponsorlu Kampanyalar →
+    Sponsorluk grubu), kampanya formu tip/sponsor/anlaşma seçimi, kampanya detay ticari kart, anlaşma
+    detay avans/mahsup/FIXED_FEE aksiyonları, sponsor detay kullanılmamış avans.
+- **Zorunlu kurallar (sağlandı):** (1) sponsor yoksa anlaşma yok, anlaşma yoksa ticari kampanya
+  aktifleşmez; (2) INTERNAL_PROMOTION muaf; (3) kampanya tarihi anlaşma aralığında; (4) aynı kampanya
+  tek aktif anlaşmaya bağlı; (5) admin write guard = public delivery guard; (6) alacak = tahakkuk −
+  mahsup edilmiş tahsilat; (7) avans açık işlemle mahsup (sessiz dağıtım yok); (8) aşırı tahsilat/mahsup
+  + over-allocation reddi; (9) eşzamanlılık advisory-lock; (10) append-only defterler; (11) para birimi
+  bazında ayrı; (12) geçmiş event/settlement/tahakkuk/ödeme SİLİNMEZ.
+- Gate'ler: build/typecheck/lint/test/`git diff --check`. Canlı 75.000 TL senaryosu: §17 (deploy'lu
+  store-admin). Canlı auth'lu tümleşik akış (yerel dev api-gateway :4100 + store-admin :3102, gerçek migrate
+  edilmiş PG/enterprise-demo; kullanıcı girişi) 25/25 adım DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**. Smoke'ta
+  bulunan 3 UI metni düzeltildi (başlık "Sponsorlu Kampanyalar"; "Append-only"/"OVERDUE" jargonları Türkçeleştirildi).

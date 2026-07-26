@@ -10,8 +10,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { beforeEach, describe, expect, it } from "vitest";
 import { registerSponsorshipAdminRoutes } from "../src/sponsorship/routes.js";
 import type {
+  AdvanceRow,
+  AllocationRow,
+  CampaignCommercialSummary,
   ChargeRow,
+  EligibleAgreementRow,
   PaymentError,
+  PaymentRow,
   SponsorAccountDetailRow,
   SponsorAccountRow,
   SponsorshipData,
@@ -84,6 +89,114 @@ function chargeRow(over: Partial<ChargeRow> = {}): ChargeRow {
   };
 }
 
+// ── TODO-161A.2 (ADR-128/129) — yeni uç satır fabrikaları ────────────────────────
+function paymentRow(over: Partial<PaymentRow> = {}): PaymentRow {
+  return {
+    id: "pay_1",
+    agreementId: "ag_1",
+    agreementNumber: "SZL-2026-00001",
+    sponsorCompanyName: "Acme A.Ş.",
+    chargeId: null,
+    chargeNumber: null,
+    amountMinor: 30_000,
+    currency: "TRY",
+    method: "BANK_TRANSFER",
+    providerReference: null,
+    manualReference: null,
+    paidAt: new Date("2026-07-02T00:00:00Z"),
+    notes: null,
+    isReversal: false,
+    reversalOfPaymentId: null,
+    reversalReason: null,
+    reversed: false,
+    createdAt: new Date("2026-07-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+function advanceRow(over: Partial<AdvanceRow> = {}): AdvanceRow {
+  return {
+    id: "pay_1",
+    agreementId: "ag_1",
+    agreementNumber: "SZL-2026-00001",
+    sponsorCompanyName: "Acme A.Ş.",
+    amountMinor: 30_000,
+    allocatedMinor: 0,
+    availableMinor: 30_000,
+    currency: "TRY",
+    method: "BANK_TRANSFER",
+    paidAt: new Date("2026-07-02T00:00:00Z"),
+    notes: null,
+    createdAt: new Date("2026-07-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+function allocationRow(over: Partial<AllocationRow> = {}): AllocationRow {
+  return {
+    id: "alloc_1",
+    agreementId: "ag_1",
+    advancePaymentId: "pay_1",
+    chargeId: "ch_1",
+    chargeNumber: "TAH-2026-00001",
+    amountMinor: 30_000,
+    currency: "TRY",
+    createdAt: new Date("2026-07-03T00:00:00Z"),
+    ...over,
+  };
+}
+
+function eligibleAgreementRow(over: Partial<EligibleAgreementRow> = {}): EligibleAgreementRow {
+  return {
+    id: "ag_1",
+    agreementNumber: "SZL-2026-00001",
+    title: "2026 Yaz Anlaşması",
+    status: "ACTIVE",
+    currency: "TRY",
+    pricingModel: "FIXED_FEE",
+    startsAt: new Date("2026-07-01T00:00:00Z"),
+    endsAt: new Date("2026-08-01T00:00:00Z"),
+    agreedAmountMinor: 75_000,
+    budgetLimitMinor: null,
+    allocatedToCampaignsMinor: 0,
+    availableAllocationMinor: 75_000,
+    outstandingMinor: 0,
+    commerciallyEligible: true,
+    ineligibilityReason: null,
+    ...over,
+  };
+}
+
+function campaignSummaryRow(over: Partial<CampaignCommercialSummary> = {}): CampaignCommercialSummary {
+  return {
+    campaignId: "camp_1",
+    campaignName: "Yaz Kampanyası",
+    commercialMode: "SPONSORED",
+    agreement: {
+      id: "ag_1",
+      agreementNumber: "SZL-2026-00001",
+      title: "2026 Yaz Anlaşması",
+      status: "ACTIVE",
+      sponsorAccountId: "sp_1",
+      sponsorCompanyName: "Acme A.Ş.",
+      pricingModel: "FIXED_FEE",
+      currency: "TRY",
+      startsAt: new Date("2026-07-01T00:00:00Z"),
+      endsAt: new Date("2026-08-01T00:00:00Z"),
+      agreedAmountMinor: 75_000,
+      allocationAmountMinor: 75_000,
+      commerciallyEligible: true,
+      ineligibilityReason: null,
+    },
+    currency: "TRY",
+    chargedMinor: 75_000,
+    paidMinor: 30_000,
+    outstandingMinor: 45_000,
+    overdueMinor: 0,
+    ...over,
+  };
+}
+
 /** İzlenen davranışları enjekte edilebilir kılan hafif double. */
 function createDouble(overrides: Partial<SponsorshipData> = {}): SponsorshipData {
   const base = {
@@ -114,6 +227,14 @@ function createDouble(overrides: Partial<SponsorshipData> = {}): SponsorshipData
     recordPayment: async () => "OVERPAYMENT" as PaymentError,
     reversePayment: async () => "NOT_REVERSIBLE" as PaymentError,
     listPayments: async () => ({ items: [], total: 0 }),
+    // TODO-161A.2 (ADR-128/129) — birleşik ticari akış uçları.
+    listEligibleAgreements: async () => [eligibleAgreementRow()],
+    getCampaignCommercialSummary: async () => campaignSummaryRow(),
+    createFixedFeeCharge: async () => chargeRow(),
+    createAdvance: async () => paymentRow(),
+    allocateAdvance: async () => allocationRow(),
+    listAvailableAdvances: async () => [advanceRow()],
+    listOpenCharges: async () => [chargeRow()],
     getDashboard: async () => ({
       activeSponsors: 0,
       totalSponsors: 0,
@@ -284,5 +405,173 @@ describe("sponsorship routes — CSV export injection guard", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/csv");
     expect(res.body).toContain(`"'=CMD(),x"`);
+  });
+});
+
+// ══════════ TODO-161A.2 (ADR-128/129) — Birleşik ticari akış uçları ══════════
+describe("sponsorship routes — eligible agreements & commercial summary", () => {
+  it("GET eligible-agreements → 200 + data listesi", async () => {
+    const app = buildApp(createDouble());
+    const res = await app.inject({
+      method: "GET",
+      url: `/stores/${STORE_A}/sponsors/sp_1/eligible-agreements`,
+      headers: auth(STORE_A),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+    expect(res.json().data[0].id).toBe("ag_1");
+  });
+
+  it("GET commercial-summary → 200 (kampanya bulundu)", async () => {
+    const app = buildApp(createDouble());
+    const res = await app.inject({
+      method: "GET",
+      url: `/stores/${STORE_A}/sponsored-campaigns/camp_1/commercial-summary`,
+      headers: auth(STORE_A),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.campaignId).toBe("camp_1");
+    expect(res.json().data.agreement.id).toBe("ag_1");
+  });
+
+  it("GET commercial-summary → 404 (kampanya yok)", async () => {
+    const app = buildApp(createDouble({ getCampaignCommercialSummary: async () => null }));
+    const res = await app.inject({
+      method: "GET",
+      url: `/stores/${STORE_A}/sponsored-campaigns/nope/commercial-summary`,
+      headers: auth(STORE_A),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("sponsorship routes — fixed-fee charge", () => {
+  it("başarılı doğrudan tahakkuk → 201", async () => {
+    const app = buildApp(createDouble({ createFixedFeeCharge: async () => chargeRow() }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/fixed-fee-charge`,
+      headers: auth(STORE_A),
+      payload: { amountMinor: 75_000 },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.id).toBe("ch_1");
+  });
+
+  it("FIXED_FEE olmayan anlaşma → 409 NOT_FIXED_FEE", async () => {
+    const app = buildApp(createDouble({ createFixedFeeCharge: async () => "NOT_FIXED_FEE" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/fixed-fee-charge`,
+      headers: auth(STORE_A),
+      payload: {},
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("NOT_FIXED_FEE");
+  });
+
+  it("sözleşme tutarını aşan tahakkuk → 409 AGREEMENT_ALLOCATION_EXCEEDED", async () => {
+    const app = buildApp(createDouble({ createFixedFeeCharge: async () => "AGREEMENT_ALLOCATION_EXCEEDED" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/fixed-fee-charge`,
+      headers: auth(STORE_A),
+      payload: { amountMinor: 999_999_00 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("AGREEMENT_ALLOCATION_EXCEEDED");
+  });
+});
+
+describe("sponsorship routes — advances", () => {
+  it("avans kaydı → 201", async () => {
+    const app = buildApp(createDouble({ createAdvance: async () => paymentRow() }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/advances`,
+      headers: auth(STORE_A),
+      payload: { amountMinor: 30_000, currency: "TRY", method: "BANK_TRANSFER" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.id).toBe("pay_1");
+    expect(res.json().data.chargeId).toBeNull();
+  });
+
+  it("para birimi uyuşmazlığı → 400 CURRENCY_MISMATCH", async () => {
+    const app = buildApp(createDouble({ createAdvance: async () => "CURRENCY_MISMATCH" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/advances`,
+      headers: auth(STORE_A),
+      payload: { amountMinor: 30_000, currency: "USD", method: "BANK_TRANSFER" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("CURRENCY_MISMATCH");
+  });
+
+  it("GET sponsorship-advances → 200 + kullanılabilir avanslar", async () => {
+    const app = buildApp(createDouble());
+    const res = await app.inject({ method: "GET", url: `/stores/${STORE_A}/sponsorship-advances`, headers: auth(STORE_A) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+    expect(res.json().data[0].availableMinor).toBe(30_000);
+  });
+});
+
+describe("sponsorship routes — open charges & advance allocation", () => {
+  it("GET sponsorship-open-charges → 200", async () => {
+    const app = buildApp(createDouble());
+    const res = await app.inject({ method: "GET", url: `/stores/${STORE_A}/sponsorship-open-charges`, headers: auth(STORE_A) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+  });
+
+  it("mahsup başarılı → 201", async () => {
+    const app = buildApp(createDouble({ allocateAdvance: async () => allocationRow() }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-advance-allocations`,
+      headers: auth(STORE_A),
+      payload: { advancePaymentId: "pay_1", chargeId: "ch_1", amountMinor: 30_000 },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.id).toBe("alloc_1");
+  });
+
+  it("avans bakiyesini aşan mahsup → 400 ADVANCE_BALANCE_EXCEEDED", async () => {
+    const app = buildApp(createDouble({ allocateAdvance: async () => "ADVANCE_BALANCE_EXCEEDED" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-advance-allocations`,
+      headers: auth(STORE_A),
+      payload: { advancePaymentId: "pay_1", chargeId: "ch_1", amountMinor: 99_999_00 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("ADVANCE_BALANCE_EXCEEDED");
+  });
+
+  it("tahakkuk kalanını aşan mahsup → 400 OVERPAYMENT", async () => {
+    const app = buildApp(createDouble({ allocateAdvance: async () => "OVERPAYMENT" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-advance-allocations`,
+      headers: auth(STORE_A),
+      payload: { advancePaymentId: "pay_1", chargeId: "ch_1", amountMinor: 99_999_00 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("OVERPAYMENT");
+  });
+
+  it("iyimser kilit ihlali → 409 BALANCE_CHANGED", async () => {
+    const app = buildApp(createDouble({ allocateAdvance: async () => "BALANCE_CHANGED" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-advance-allocations`,
+      headers: auth(STORE_A),
+      payload: { advancePaymentId: "pay_1", chargeId: "ch_1", amountMinor: 30_000, expectedRemainingMinor: 45_000 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("BALANCE_CHANGED");
   });
 });

@@ -1163,11 +1163,25 @@ shipment-sync deseni) + bütçe circuit-breaker'ın periyodik değerlendirmesi s
 `budgetExhaustedAt` şu an yalnız settlement finalize anında damgalanır (cron gerekmez — bütçe zaten
 yalnız tahakkuk anında bilinebilir).
 
-## TD-126 — Sponsorship: canlı auth'lu store-admin UI/e2e smoke (TODO-161A)
+## TD-126 — Sponsorship: canlı auth'lu store-admin UI/e2e smoke (TODO-161A / TODO-161A.2)
 
-**Durum:** Ertelendi (TD-122 deseni). Gate'ler + gateway HTTP testleri (13) + SAF domain (59) +
-canlı DB akışı (17 adım / 31 assertion, gerçek PG + gerçek Prisma + gerçek `billing-core`) PASS.
-Ancak auth'lu store-admin UI akışı (sponsor oluştur → anlaşma → kampanya bağla → settlement →
-tahakkuk → tahsilat) Docker canlı stack üzerinde uçtan uca smoke edilmedi (store-admin parola
-gerektirir + docker build context worktree'yi kapsamaz). Deploy öncesi enterprise-demo üzerinde
-manuel doğrulama önerilir (bkz. analiz §13; canlı DB akışı zaten programatik olarak doğrulandı).
+**Durum:** KAPANDI (2026-07-27). Auth'lu canlı UI smoke, **gerçek worktree kodu** (deploy YOK; imaj rebuild
+YOK) YEREL DEV modunda ayrı portlarda (api-gateway :4100, store-admin :3102) **gerçek migrate edilmiş
+PostgreSQL**'e (enterprise-demo, docker postgres/redis) karşı çalıştırılarak yapıldı; kullanıcı store-admin'e
+kendi parolasıyla giriş yaptı. 75.000 TL senaryosunun 25 adımı DOĞRULANDI:
+- **Menü/IA:** tek "Sponsorluk" grubu (Sponsorlar · Anlaşmalar · **Sponsorlu Kampanyalar** · Mutabakatlar ·
+  **Tahakkuk & Tahsilat**); "Sponsorlu Ürünler" adı hiçbir yerde yok; Satış'ta ikinci sponsored menü yok.
+- **Agreement-gated activation:** anlaşma PENDING iken SPONSORED kampanya ACTIVE denemesi → `409 AGREEMENT_NOT_ACTIVE`;
+  anlaşma ACTIVE + uygun iken aktivasyon başarılı (isLive=true). SUSPENDED → kampanya ticari uygunluğu
+  tersine döndü (`AGREEMENT_NOT_ACTIVE`) → teslim guard'ı adaydan düşürür. INTERNAL_PROMOTION muaf.
+- **Finans:** 75k FIXED_FEE doğrudan tahakkuk → Kalan ₺75.000; 30k avans → kullanılmamış avans ₺30.000;
+  mahsup → Kalan ₺45.000; 20k tahsilat → Kalan ₺25.000; 25k → **PAID**, Kalan ₺0; fazla tahsilat → `400 OVERPAYMENT`.
+  Sponsor cari (Tahakkuk/Tahsil/Kalan/Vadesi/Avans sütunu), anlaşma finans rayı, Tahakkuk & Tahsilat ledger
+  (avans chargeId=null satır) ve CSV export doğru. İyimser kilit (`expectedRemainingMinor`) + advisory-lock aktif.
+- Financial mutasyonlar (avans/mahsup/tahsilat) uygulamanın **kendi auth'lu BFF uçlarıyla** (UI butonlarının
+  çağırdığı aynı endpoint'ler; gerçek CSRF + guard + advisory-lock) yürütüldü, sonuçlar UI'da doğrulandı;
+  menü/sponsor/anlaşma/kampanya oluşturma + PENDING/ACTIVE geçiş + aktivasyon-guard + tahakkuk butonları
+  literal olarak UI'dan tıklandı. Cross-store izolasyonu tenant-scoped sorgular + route testleriyle güvence
+  altında (canlı ikinci-mağaza denemesi yapılmadı).
+- Smoke sırasında bulunan 3 UI metni düzeltildi (sayfa başlığı "Sponsorlu Ürünler"→"Sponsorlu Kampanyalar";
+  "Append-only defter" ve "OVERDUE türetilmiş" jargonları Türkçeleştirildi) ve tüm gate'ler yeniden PASS.

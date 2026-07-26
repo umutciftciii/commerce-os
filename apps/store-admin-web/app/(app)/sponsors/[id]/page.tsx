@@ -78,6 +78,7 @@ export default function SponsorDetailPage({ params }: { params: Promise<{ id: st
                       <th className="px-3 py-2 text-right font-medium">Tahsil</th>
                       <th className="px-3 py-2 text-right font-medium">Kalan</th>
                       <th className="px-3 py-2 text-right font-medium">Vadesi Geçen</th>
+                      <th className="px-3 py-2 text-right font-medium">Avans (kullanılmamış)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -88,6 +89,7 @@ export default function SponsorDetailPage({ params }: { params: Promise<{ id: st
                         <td className="px-3 py-2 text-right tabular-nums text-emerald-300">{formatMinor(b.paidMinor, b.currency)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatMinor(b.outstandingMinor, b.currency)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-rose-300">{formatMinor(b.overdueMinor, b.currency)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-sky-300">{formatMinor(b.advanceBalanceMinor, b.currency)}</td>
                       </tr>
                     ))}
                   </tbody>

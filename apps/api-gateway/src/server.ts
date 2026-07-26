@@ -6230,6 +6230,12 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    // TODO-161A.2 (ADR-128) — ticari uygunluk kapısı + anlaşma bağlama köprüsü (sponsorship domain'i).
+    commercial: {
+      resolveCampaignEligibility: (storeId, campaignId, now) => sponsorshipData.resolveCampaignEligibility(storeId, campaignId, now),
+      linkCampaign: (storeId, agreementId, campaignId, allocationAmountMinor) =>
+        sponsorshipData.linkCampaign(storeId, agreementId, campaignId, allocationAmountMinor),
+    },
   });
   registerSponsoredPublicRoutes(app, {
     data: sponsoredData,

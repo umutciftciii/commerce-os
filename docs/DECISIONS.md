@@ -4018,3 +4018,64 @@ değişse geçmiş belge KAYMAZ. `taxAmountMinor = round(subtotalMinor × taxRat
 para birimi KİLİTLİDİR (`409 CURRENCY_LOCKED`). Dashboard toplamları PARA BİRİMİ BAZINDA AYRI döner;
 tek "toplam" altında BİRLEŞTİRİLMEZ. `REVENUE_SHARE` net geliri mağaza sipariş para birimindedir →
 anlaşma para birimi mağaza siparişleriyle aynı olmalıdır (kur dönüşümü kapsam DIŞI, TD-124).
+
+## ADR-128 — Sponsorluk aggregate hiyerarşisi + anlaşma-kapılı kampanya aktivasyonu + bilgi mimarisi (TODO-161A.2)
+
+**Tarih:** 2026-07-26 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-114…127 · **Öncül:** ADR-124
+
+**Karar.** TODO-161 (gösterim) ve TODO-161A (ticari/finans) tek bir **birleşik sponsorluk akışına**
+konsolide edilir. Otorite zinciri: `SponsorAccount → SponsorshipAgreement → SponsoredProductCampaign
+→ SponsorshipCharge → SponsorshipPayment → kalan alacak`. Ticari kampanyada sponsor firma ve anlaşma
+**tek ve açık otoritedir** (`SponsorshipAgreementCampaign`, `@@unique([campaignId])` → bir kampanya
+en fazla BİR aktif anlaşmaya bağlıdır).
+
+**Anlaşma-kapılı aktivasyon (Katman 1 — admin yazma).** ADR-124'te tasarlanan ama wire EDİLMEMİŞ
+yazma-tarafı guard artık gerçek: `SPONSORED` bir kampanya `ACTIVE` yapılmadan ÖNCE
+`resolveCampaignEligibility` çağrılır; uygun değilse HTTP 409 + açık domain kodu döner. Eşleme
+(`mapIneligibilityToActivationError`): `NO_AGREEMENT→AGREEMENT_REQUIRED`,
+`AGREEMENT_NOT_ACTIVE→AGREEMENT_NOT_ACTIVE`, `AGREEMENT_WINDOW→AGREEMENT_DATE_MISMATCH`,
+`BUDGET_EXHAUSTED→AGREEMENT_ALLOCATION_EXCEEDED`, `OVERDUE_CHARGE→AGREEMENT_OVERDUE`. `INTERNAL_PROMOTION`
+kampanya bu kapıdan MUAFTIR (sponsor/anlaşma gerekmez). Guard, admin yazma tarafı ile public teslim
+tarafında (`delivery-guard.ts` WHERE) AYNI ticari sonucu üretir (saf ikiz `resolveCommercialIneligibility`).
+SPONSORED kampanya asla doğrudan `ACTIVE` OLUŞTURULMAZ: önce anlaşmaya bağlanır, sonra guard'lı
+aktive edilir; `commercialMode` status'tan ÖNCE yazılır ki guard doğru modu görsün.
+
+**Onay metası (ADDITIVE).** `SponsorshipAgreement.approvedAt`/`approvedByUserId` anlaşma İLK KEZ
+`ACTIVE`'e geçtiğinde damgalanır (denetim izi). Durum tek otorite olmaya devam eder (guard
+`status = ACTIVE` bakar); bu alanlar KİM/NE ZAMAN kaydıdır, yeniden ACTIVE olsa KORUNUR.
+
+**Bilgi mimarisi.** Store-admin menüsü tek "Sponsorluk" grubunda toplanır: Sponsorlar · Anlaşmalar ·
+**Sponsorlu Kampanyalar** (eski "Sponsorlu Ürünler", "Satış" grubundan taşındı) · Mutabakatlar ·
+Tahakkuk & Tahsilat. "Satış" grubunda paralel sponsorlu menü BIRAKILMAZ; route (`/sponsored-products`)
+geriye uyumlu korunur (bookmark bozulmaz). Kampanya oluşturma akışı: tip seç (Ticari sponsorluk /
+İç promosyon) → Ticari ise sponsor zorunlu → sponsora ait uygun anlaşmalar listelenir → anlaşma
+seçilince dönem/model/para birimi/kullanılabilir tutar gösterilir. İstemci YALNIZ seçim yapar; nihai
+doğrulama SUNUCU-otoriter.
+
+## ADR-129 — Sponsor alacağı terminolojisi + avans mahsup defteri (TODO-161A.2)
+
+**Tarih:** 2026-07-26 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-125
+
+**Karar.** Sponsor firma platforma **borçludur**; platform açısından tutar **alacak**tır.
+`SponsorshipCharge` sponsora oluşturulan iç tahakkuk, `SponsorshipPayment` alınan tahsilattır.
+Temel formül: **`Kalan Alacak = Kesinleşmiş Tahakkuklar − Tahakkuka Mahsup Edilmiş Tahsilatlar`**.
+Anlaşma tutarı tek başına tahsil edilmiş SAYILMAZ. Ekranda ayrı gösterilir: anlaşma bedeli,
+kampanyaya ayrılan, tahakkuk eden, tahsil edilen, kullanılmamış avans, mahsup edilen avans, kalan
+alacak, vadesi geçen alacak. Farklı para birimleri BİRLEŞTİRİLMEZ (ADR-127).
+
+**Avans (`chargeId = null` tahsilat).** Tahakkuk oluşmadan alınan ödeme sponsor hesabına + anlaşmaya
+bağlıdır ve **kullanılabilir avans bakiyesi** oluşturur. Avans OTOMATİK/SESSİZ biçimde tahakkuklara
+DAĞITILMAZ; yalnız kullanıcının AÇIK bir işlemiyle mahsup edilir.
+
+**Append-only avans mahsup defteri** (`SponsorshipAdvanceAllocation`, yeni tablo — ADDITIVE migration
+`20260726120000_add_sponsorship_advance_allocation`). Kullanıcı kullanılabilir avansı + açık tahakkuğu
++ tutarı seçer → bir mahsup satırı üretilir. Bir tahakkuğun "ödenmişi" = doğrudan tahsilatlar +
+o tahakkuğa yapılan net mahsup. Bir avansın kalan bakiyesi = avans tutarı − o avanstan yapılan net
+mahsup. Ters kayıt = `reversalOfId` işaretli YENİ NEGATİF satır (orijinal silinmez/değişmez; ADR-125
+deseni). Guard'lar: aşırı mahsup avans bakiyesini VEYA tahakkuk kalanını aşamaz (`isAdvanceAllocationValid`
+çift-taraflı tavan); aşırı tahsilat/aşırı mahsup REDDEDİLİR (`OVERPAYMENT`/`ADVANCE_BALANCE_EXCEEDED`);
+eşzamanlı ödeme/mahsup transaction-scope advisory lock (`pg_advisory_xact_lock`) ile anlaşma bazında
+SERİLEŞTİRİLİR; iyimser kilit uyuşmazlığı `BALANCE_CHANGED`. `FIXED_FEE` için doğrudan (settlement'sız)
+tahakkuk uçları eklenir (`createFixedFeeCharge`); CPM/CPC/CPA/REVENUE_SHARE settlement'tan tahakkuk
+üretmeye devam eder (ADR-122 değişmez). Finansal geçmiş mutable JSON'da TUTULMAZ — ayrı append-only
+defter/tablolar.

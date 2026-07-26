@@ -78,6 +78,10 @@ export const SPONSORSHIP_PAYMENT_LIST_KEYS = [
 ];
 export const SPONSORSHIP_DASHBOARD_KEYS = ["dateFrom", "dateTo", "sponsorAccountId", "agreementId"];
 
+// TODO-161A.2 (ADR-128/129) — Birleşik ticari akış: avans + açık tahakkuk filtre anahtarları.
+export const SPONSORSHIP_ADVANCE_LIST_KEYS = ["agreementId", "sponsorAccountId"];
+export const SPONSORSHIP_OPEN_CHARGE_LIST_KEYS = ["agreementId"];
+
 export const INFLUENCER_CAMPAIGN_LIST_KEYS = [...COMMON_KEYS, "status", "influencerId"];
 
 export const TRACKING_LINK_LIST_KEYS = [

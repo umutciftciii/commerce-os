@@ -65,7 +65,7 @@ const tr = {
     layoutGrid: "Grid",
     maxItemsLabel: "Maksimum ürün",
     sponsoredHint:
-      "İçerik AKTİF sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) otomatik gelir. Ürün seçimi burada YAPILMAZ — Sponsorlu Ürünler modülünden yönetilir. Aktif kampanya/ürün yoksa bu bölüm gizlenir.",
+      "İçerik AKTİF sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) otomatik gelir. Ürün seçimi burada YAPILMAZ — Sponsorlu Kampanyalar modülünden yönetilir. Aktif kampanya/ürün yoksa bu bölüm gizlenir.",
     sourceLabel: "Kaynak",
     sourceManual: "Manuel (ürün seç)",
     sourceDynamic: "Dinamik (kural)",
