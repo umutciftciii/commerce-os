@@ -1898,9 +1898,11 @@
 
 ## TODO-161A.2 — Unified Sponsorship Commercial Flow / Birleşik Sponsorluk Ticari Akışı (Growth & Monetization — stabilization/hotfix)
 
-- Durum: **KOD TAMAM (2026-07-26) — commit/PR YAPILMADI (git kuralı §20).** TODO-161/TODO-161A ürün
-  modelini tek ve tutarlı sponsorluk akışına dönüştüren STABİLİZASYON/HOTFIX fazıdır (yeni bağımsız
-  feature DEĞİL). ADR-128/129. Migration `20260726120000_add_sponsorship_advance_allocation` (ADDITIVE).
+- Durum: **DONE (2026-07-27) — MERGED + DEPLOYED.** Commit `2be74d9`; PR `#124`; merge commit `947557d`;
+  deploy `api-gateway + store-admin-web` (main'den rebuild + recreate); auth'lu 75.000 TL smoke **25/25 PASS**;
+  **TD-126 CLOSED**. TODO-161/TODO-161A ürün modelini tek ve tutarlı sponsorluk akışına dönüştüren
+  STABİLİZASYON/HOTFIX fazıdır (yeni bağımsız feature DEĞİL). ADR-128/129. Migration
+  `20260726120000_add_sponsorship_advance_allocation` (ADDITIVE; uygulanmış dosya immutable — gerçek PG'de doğrulandı).
 - Kök problem: sponsorlu gösterim (TODO-161) ile ticari/finans (TODO-161A) iki kopuk silo; anlaşma-kapılı
   aktivasyon guard'ı (ADR-124 Katman 1) dokümanlı ama WIRE EDİLMEMİŞ; `commercialMode` kampanya formunda
   seçilemiyor (hep INTERNAL_PROMOTION); avans/mahsup iş mantığı yok; menüde "Sponsorlu Ürünler" yanlış
@@ -1929,3 +1931,28 @@
   store-admin). Canlı auth'lu tümleşik akış (yerel dev api-gateway :4100 + store-admin :3102, gerçek migrate
   edilmiş PG/enterprise-demo; kullanıcı girişi) 25/25 adım DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**. Smoke'ta
   bulunan 3 UI metni düzeltildi (başlık "Sponsorlu Kampanyalar"; "Append-only"/"OVERDUE" jargonları Türkçeleştirildi).
+
+## TODO-161A.1 — Commercial Automation & Data Retention (Growth & Monetization — stabilization) — SIRADAKİ AKTİF FAZ
+
+- Durum: **PLANLANDI.** TODO-161A.2 birleşik sponsorluk akışının sıradaki stabilizasyon fazı: ertelenen teknik
+  borçları (TD-125 / TD-121 / TD-113) operasyonel otomasyona ve veri saklama hijyenine bağlar. Yeni ticari yüzey
+  EKLEMEZ.
+- **TD-125 — Automatic Settlement Scheduling:**
+  - Haftalık / aylık / campaign-end dönemlerinde **DRAFT** settlement üretimi.
+  - **Otomatik finalize YOK** (tahakkuk yine admin onayıyla).
+  - Idempotency (aynı dönem iki kez üretilmez).
+  - Scheduler overlap kilidi (advisory-lock; overlapping tur yok).
+  - Timezone-aware dönem hesaplama.
+  - Retry + job audit.
+  - Hata alan bir anlaşma diğerlerini **BLOKLAMAZ** (izole hata).
+  - Desen: TODO-129 shipment-sync worker (provider-agnostic; api-gateway içi; default kapalı env bayrağı).
+- **TD-121 + TD-113 — Attribution Event Retention & Purge:**
+  - Sponsored (TODO-161) + influencer (TODO-160) **ham event** saklama politikası.
+  - Domain tabloları AYRI kalır; **ortak purge yardımcıları** kullanılabilir.
+  - Finansal attribution / order / refund / settlement **snapshot'ları SİLİNMEZ**.
+  - Varsayılan **dry-run** + explicit `--apply` bayrağı.
+  - Store scope + batch delete + circuit breaker + environment guard + operasyon raporu.
+  - Başlangıç retention: **180 gün**.
+- **Kapsam DIŞI:** e-Fatura, muhasebe entegrasyonu (TD-124), bidding, advertiser portal, sponsor-influencer ticari
+  birleşimi, yeni placement tipleri (TD-120).
+- Sıra: **TODO-161A.2'den SONRA (sıradaki aktif faz)**; TODO-161B'den (Recently Viewed & Product Recommendations) ÖNCE.

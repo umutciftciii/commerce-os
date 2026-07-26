@@ -1128,10 +1128,11 @@ alanları formda YALNIZ `SEARCH_RESULTS` yerleşiminde gösterilir (HOME_SHOWCAS
 
 ## TD-121 — Sponsored: fraud/bot skorlama + retention purge (TODO-161)
 
-**Durum:** Ertelendi. MVP: bot UA regex + repeat dedupe + rate-limit. Gelişmiş fraud scoring (davranışsal,
-IP reputation) ve `SponsoredProductEvent` ham verisi için otomatik retention purge (influencer
-`AttributionClick` deseniyle) sonraki faza bırakıldı. Finansal snapshot (`OrderSponsoredAttribution`)
-KORUNUR; yalnız funnel event ham'ı budanabilir.
+**Durum:** Ertelendi → **retention purge kısmı TODO-161A.1'e (Commercial Automation & Data Retention) alındı**
+(TD-113 influencer event retention ile ortak purge yardımcıları). MVP: bot UA regex + repeat dedupe +
+rate-limit. Gelişmiş fraud scoring (davranışsal, IP reputation) AYRI kalır (future). `SponsoredProductEvent`
+ham verisi için otomatik retention purge (influencer `AttributionClick` deseniyle; başlangıç 180 gün; dry-run
+default): TODO-161A.1. Finansal snapshot (`OrderSponsoredAttribution`) KORUNUR; yalnız funnel event ham'ı budanabilir.
 
 ## TD-122 — Sponsored: canlı UI/e2e smoke (auth'lu store-admin) (TODO-161)
 
@@ -1157,11 +1158,12 @@ para birimi mağaza siparişleriyle aynı olmalı; farklı para birimleri tek to
 
 ## TD-125 — Sponsorship: otomatik dönemsel settlement zamanlayıcısı (TODO-161A)
 
-**Durum:** Ertelendi. Settlement dönemleri (WEEKLY/MONTHLY/CAMPAIGN_END) admin tarafından MANUEL
-başlatılır (preview → finalize → charge). Otomatik zamanlanmış üretim (BullMQ worker; TODO-129
-shipment-sync deseni) + bütçe circuit-breaker'ın periyodik değerlendirmesi sonraki faza bırakıldı.
-`budgetExhaustedAt` şu an yalnız settlement finalize anında damgalanır (cron gerekmez — bütçe zaten
-yalnız tahakkuk anında bilinebilir).
+**Durum:** Ertelendi → **TODO-161A.1'e (Commercial Automation & Data Retention) alındı — sıradaki aktif faz.**
+Settlement dönemleri (WEEKLY/MONTHLY/CAMPAIGN_END) admin tarafından MANUEL başlatılır (preview → finalize →
+charge). TODO-161A.1 kapsamı: otomatik zamanlanmış **DRAFT** settlement üretimi (BullMQ/TODO-129 shipment-sync
+deseni; **otomatik finalize YOK**; idempotency; overlap kilidi; timezone-aware; retry; job audit; izole hata).
+`budgetExhaustedAt` şu an yalnız settlement finalize anında damgalanır (cron gerekmez — bütçe zaten yalnız
+tahakkuk anında bilinebilir).
 
 ## TD-126 — Sponsorship: canlı auth'lu store-admin UI/e2e smoke (TODO-161A / TODO-161A.2)
 

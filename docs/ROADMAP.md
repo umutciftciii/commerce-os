@@ -534,9 +534,10 @@
 
 ## Growth & Monetization — Unified Sponsorship Commercial Flow (TODO-161A.2, stabilization/hotfix)
 
-- Durum: **KOD TAMAM (2026-07-26) — commit/PR YAPILMADI (git kuralı §20).** TODO-161 + TODO-161A ürün
-  modelini tek tutarlı akışa dönüştüren stabilizasyon fazı. ADR-128/129. Migration ADDITIVE
-  (`20260726120000_add_sponsorship_advance_allocation`).
+- Durum: **DONE (2026-07-27) — MERGED + DEPLOYED.** Commit `2be74d9` · PR `#124` · merge commit `947557d` ·
+  deploy `api-gateway + store-admin-web` · auth'lu 75.000 TL smoke **25/25 PASS** · **TD-126 CLOSED**. TODO-161
+  + TODO-161A ürün modelini tek tutarlı akışa dönüştüren stabilizasyon fazı. ADR-128/129. Migration ADDITIVE
+  (`20260726120000_add_sponsorship_advance_allocation`; uygulanmış dosya immutable).
 - Kapsam: anlaşma-kapılı kampanya aktivasyonu (ADR-124 Katman 1 artık gerçek) · kampanya `commercialMode`
   (Ticari sponsorluk / İç promosyon) form seçimi + doğrudan anlaşma bağlama · avans + append-only mahsup
   defteri (`SponsorshipAdvanceAllocation`) · FIXED_FEE doğrudan tahakkuk · sponsor cari + kullanılmamış
@@ -548,9 +549,27 @@
 - Sıra: TODO-161A'dan SONRA. Canlı auth'lu tümleşik smoke (yerel dev + gerçek PG, 75.000 TL senaryosu 25/25)
   DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**.
 
+## Growth & Monetization — Commercial Automation & Data Retention (TODO-161A.1) — SIRADAKİ AKTİF FAZ
+
+- Durum: **PLANLANDI — sponsorluk birleşik akışının (TODO-161A.2) sıradaki stabilizasyon fazı.** Ertelenen
+  teknik borçları (TD-125, TD-121, TD-113) operasyonel otomasyona ve veri saklama hijyenine bağlar. Yeni ticari
+  yüzey EKLEMEZ; mevcut sponsorluk/attribution altyapısını otomatikleştirir + saklama politikası uygular.
+- **TD-125 — Otomatik mutabakat zamanlaması (Automatic Settlement Scheduling):** haftalık / aylık / campaign-end
+  dönemlerinde **DRAFT** settlement üretimi (otomatik finalize YOK — tahakkuk yine manuel onaylanır); idempotency;
+  scheduler overlap kilidi; timezone-aware dönem hesaplama; retry; job audit; **hata alan bir anlaşma diğerlerini
+  BLOKLAMAZ**. TODO-129 shipment-sync worker deseni.
+- **TD-121 + TD-113 — Attribution event saklama & purge (Retention & Purge):** sponsored (TODO-161) ve influencer
+  (TODO-160) **ham event** saklama; domain tabloları AYRI kalır ama **ortak purge yardımcıları** kullanılabilir;
+  finansal attribution / order / refund / settlement **snapshot'ları SİLİNMEZ**; varsayılan **dry-run** + explicit
+  `--apply`; store scope; batch delete; circuit breaker; environment guard; operasyon raporu; başlangıç retention
+  **180 gün**.
+- **Kapsam DIŞI (bu faza ALINMAZ):** e-Fatura, muhasebe entegrasyonu (TD-124), bidding, advertiser portal,
+  sponsor-influencer ticari birleşimi, yeni placement tipleri (TD-120).
+- Sıra: **TODO-161A.2'den SONRA — SIRADAKİ AKTİF FAZ**; TODO-161B'den ÖNCE.
+
 ## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B)
 
 - Durum: **PLANLANDI (henüz başlanmadı).** Bu numara (TODO-161B) bu iş için REZERVE edilmiştir; sponsorluk
   stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
 - Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
-- Sıra: TODO-161A.2'den SONRA.
+- Sıra: **TODO-161A.1'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
