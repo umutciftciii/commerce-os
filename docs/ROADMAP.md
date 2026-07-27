@@ -327,9 +327,9 @@
   ~~TODO-161 Sponsored Product Management~~ (DONE) → ~~TODO-161A Sponsorship Billing & Settlement~~ (DONE) →
   ~~TODO-161A.2 Unified Sponsorship Commercial Flow~~ (DONE — PR #124) →
   ~~TODO-161A.1 Commercial Automation & Data Retention~~ (DONE — PR #126) →
-  **BUG-PDP-001 PDP Quantity Unit Price Hotfix (SIRADAKİ AKTİF)** →
-  **TODO-161B Recently Viewed & Product Recommendations** → *final enterprise UI/design polish fazı
-  (henüz numaralandırılmadı)*.
+  ~~BUG-PDP-001 PDP Quantity Unit Price Hotfix~~ (DONE / KOD TAMAM) →
+  **TODO-161B Recently Viewed & Product Recommendations (SIRADAKİ AKTİF)** → *final enterprise UI/design
+  polish fazı (henüz numaralandırılmadı)*.
 - **TODO-160A konumlandırma:** TODO-160 ile TODO-161 arasına alındı. Katalog kimlik hijyeni (SKU'nun
   varyant-seviyesi tek otorite + deterministik üretim + çakışma yönetimi + governance) bir katalog-veri
   kalitesi işidir; sponsored yerleşim (TODO-161) ürün kimliğinin sağlam olmasından yararlanır. TODO-160'ın
@@ -584,25 +584,36 @@
 - Sıra: **TODO-161A.2'den SONRA — TAMAMLANDI**; sonraki hotfix = BUG-PDP-001; sonraki faz = TODO-161B.
 - Doğrulama borcu: TD-127 (auth'lu `/operations` UI click-through smoke) — final UI/design polish'ten önce kapatılır.
 
-## Bug — PDP Quantity Changes Displayed Unit Price (BUG-PDP-001) — SIRADAKİ AKTİF (HOTFIX)
+## Bug — PDP Quantity Changes Displayed Unit Price (BUG-PDP-001) — DONE / KOD TAMAM
 
-- Durum: **SIRADAKİ AKTİF FAZ (HOTFIX).** PDP'de adet değişimi gösterilen fiyatı çarpıyor (birim fiyat ×
-  quantity). PDP her zaman seçili varyantın **tek adet birim fiyatını** göstermelidir.
-- Sorun: Bazı ürünlerde (ör. Artesan Bel Çantası) adet 1→2 yapılınca fiyat ₺6.291,10 → ₺12.582,20'ye
-  çıkıyor; doğru davranan ürünlerde (ör. Xiaomi Edge 50) fiyat adetten bağımsız sabit. İki ürünün farklı
-  render yoluna girmesi kök neden analizinde kanıtlanacak.
-- Ürün kararı: Adet değişimi satış fiyatını, indirimli fiyatı, liste fiyatını, son 30 günün en düşük
-  fiyatını (Omnibus), kupon indirimi gösterimini veya birim fiyat metnini DEĞİŞTİRMEZ. `quantity × unitPrice`
-  yalnız cart line total / checkout summary / order total / payment amount hesaplarında uygulanır. PDP'de
-  ara toplam gösterilmez. Fiyat otoritesi tek: `selectedVariant.unitPrice` (sunucu-otoriter pricing
-  projeksiyonu). PDP price component quantity bağımlılığı taşımaz; quantity yalnız add-to-cart payload'ında.
-- Sunucu otoritesi (değişmez): cart/checkout/order/payment tutarları sunucuda çözülür; PDP display salt
-  sunum katmanıdır.
-- Sıra: **TODO-161A.2'den SONRA → BUG-PDP-001 (bu) → TODO-161B → final enterprise UI/design polish.**
+- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI (git kuralı §8).** PDP artık daima seçili
+  varyantın **tek adet birim fiyatını** gösterir; adet değişimi fiyat gösterimini etkilemez.
+- **Kök neden:** `apps/storefront-web/components/buy-box.tsx` standart (otomatik-kampanya olmayan) fiyat bloğu
+  `unitMinor * quantity` ve `compareMinor * quantity` ile gösterim yapıyordu (buy box'ta ara toplam). Otomatik
+  kampanya bloğu (`showAutoPriceBlock`) ise birim fiyatı çarpmıyordu → **render-yolu ayrımı**. AUTOMATIC_CART_
+  DISCOUNT+PERCENT kampanyalı ürünler (ör. Xiaomi Edge 50) otomatik bloğa girip doğru davranıyordu; PUBLIC_
+  COUPON'lu veya kampanyasız ürünler (ör. Artesan Bel Çantası) standart bloğa düşüp adetle çarpılıyordu.
+  Canlı veri kanıtı: Artesan `campaign.displayKind=PUBLIC_COUPON`, birim 629110 → adet 2'de eski kod 1.258.220
+  (₺12.582,20) üretiyordu (bug raporuyla birebir); Xiaomi `displayKind=AUTOMATIC_CART_DISCOUNT`.
+- **Fix:** Standart blok SAF `resolveUnitPriceLabels` yardımcısını (yeni; `apps/storefront-web/lib/money.ts`)
+  kullanır — fonksiyon quantity parametresi ALMAZ. `unitMinor * quantity` / `compareMinor * quantity` çarpanları
+  ve adete bağlı "Birim fiyat" notu KALDIRILDI. `quantity` yalnız add-to-cart payload'ında (`addToCartAction`)
+  kullanılır. Fiyat otoritesi: `selectedVariant.unitPrice`.
+- **Sunucu otoritesi (değişmedi):** sepet cookie'si yalnız `{variantId, quantity}` tutar; gateway kendi
+  fiyatını çözer (`server.ts:4106` `variant.priceMinor * line.quantity`). Cart/checkout/order/payment tutarları
+  sunucuda; PDP salt sunum.
+- **Test:** yeni `apps/storefront-web/test/buy-box-unit-price.test.ts` (7 test) invariant'ı kilitler; gate'ler
+  yeşil (build 25/25 · typecheck · lint 38/38 · test 1478 api-gateway + storefront · git diff --check temiz).
+- **Canlı smoke (enterprise-demo):** Artesan PDP adet 1→2→5 fiyat sabit ₺6.291,10 (Omnibus/üstü-çizili sabit);
+  sepet satır toplamı sunucuda ₺31.455,50 (=6.291,10×5). Xiaomi adet 1→2 sabit; varyant değişince birim fiyat
+  ₺56.896,50→₺68.705,20 (adet 2 sabit, 2× DEĞİL). İki-ürün sepeti: satır toplamları + Telefonlarda %10 +
+  genel toplam ₺155.124,86 + KDV tutarlı. Checkout sayfası auth gerektirir (parola girilemez → non-interactive);
+  grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Test verisi temizlendi; demo bütün (471 ürün).
+- Sıra: **BUG-PDP-001'den SONRA → TODO-161B → final enterprise UI/design polish.**
 
-## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B)
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — SIRADAKİ AKTİF FAZ
 
-- Durum: **PLANLANDI — BUG-PDP-001'den SONRAKİ FAZ.** Bu numara (TODO-161B) bu iş için REZERVE
+- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (BUG-PDP-001 tamamlandı).** Bu numara (TODO-161B) bu iş için REZERVE
   edilmiştir; sponsorluk stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
 - Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
 - Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).

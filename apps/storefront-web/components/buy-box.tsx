@@ -12,7 +12,7 @@ import {
   type StorefrontVariantView,
 } from "../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
-import { formatMinor } from "../lib/money";
+import { formatMinor, resolveUnitPriceLabels } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
 import { usePdpSelection } from "./pdp-selection";
 import { WishlistHeartButton } from "./wishlist/wishlist-heart-button";
@@ -77,23 +77,22 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
     setQuantity((q) => Math.min(Math.max(q, commerce.minQuantity), maxQty));
   }, [selectedId, maxQty, commerce.minQuantity]);
 
-  // Buy box'ta gosterilen tutar = secili varyant birim fiyati x adet. Ham minor
-  // tutarlar varsa istemcide bicimlenir; yoksa tekil etiketlere geri dusulur
-  // (gizli/talep modunda numeric zaten false). Sepet/odeme tutari gateway'de
-  // yeniden hesaplanir — bu yalniz gosterimdir.
+  // BUG-PDP-001 — Buy box'ta gosterilen tutar DAIMA secili varyantin TEK ADET
+  // birim fiyatidir; adet (quantity) fiyat GOSTERIMINI ETKILEMEZ. quantity yalniz
+  // add-to-cart payload'inda + sunucu-otoriter sepet/checkout/order/payment
+  // tutarlarinda uygulanir. Ham minor tutar varsa istemcide bicimlenir; yoksa
+  // sunucudan gelen tekil etikete geri dusulur (gizli/talep modunda numeric false).
   const currency = selected?.currency ?? "TRY";
   const unitMinor = selected?.priceMinor ?? null;
   const compareMinor = selected?.compareAtMinor ?? null;
-  const totalLabel =
-    numeric && unitMinor !== null
-      ? formatMinor(unitMinor * quantity, currency)
-      : (selected?.priceLabel ?? price.amountLabel);
-  const compareTotalLabel =
-    numeric && compareMinor !== null
-      ? formatMinor(compareMinor * quantity, currency)
-      : (selected?.compareAtLabel ?? price.compareAtLabel);
-  // Adet > 1 iken birim fiyat ipucu ("Birim fiyat ₺1.299,00") gosterilir.
-  const showUnitNote = numeric && unitMinor !== null && quantity > 1;
+  const { unitLabel: unitPriceLabel, compareLabel: compareUnitLabel } = resolveUnitPriceLabels({
+    numeric,
+    unitMinor,
+    compareMinor,
+    currency,
+    fallbackUnitLabel: selected?.priceLabel ?? price.amountLabel,
+    fallbackCompareLabel: selected?.compareAtLabel ?? price.compareAtLabel ?? null,
+  });
 
   // OTOMATIK kampanya indirimi (AUTOMATIC_CART_DISCOUNT) VE SECILI varyant icin
   // guvenli bir nihai birim fiyat hesaplanabildiyse: fiyat blogunu "uzeri cizili
@@ -166,9 +165,9 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         <div className="flex items-baseline gap-2">
           {numeric ? (
             <>
-              <span className="text-2xl font-semibold text-ink">{totalLabel}</span>
-              {compareTotalLabel ? (
-                <span className="text-sm text-ink-subtle line-through">{compareTotalLabel}</span>
+              <span className="text-2xl font-semibold text-ink">{unitPriceLabel}</span>
+              {compareUnitLabel ? (
+                <span className="text-sm text-ink-subtle line-through">{compareUnitLabel}</span>
               ) : null}
             </>
           ) : (
@@ -181,11 +180,6 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
       {numeric && price.lowestRecentLabel ? (
         <p className="mt-1 text-xs text-ink-subtle">
           {format(t.badges.omnibusLowest, { amount: price.lowestRecentLabel })}
-        </p>
-      ) : null}
-      {showUnitNote && !showAutoPriceBlock ? (
-        <p className="mt-1 text-xs text-ink-muted">
-          {format(t.buyBox.unitEach, { price: formatMinor(unitMinor as number, currency) })}
         </p>
       ) : null}
       {numeric ? <p className="mt-1 text-xs text-ink-subtle">{t.buyBox.priceNote}</p> : null}

@@ -1965,26 +1965,31 @@
 - Sıra: **TODO-161A.2'den SONRA — TAMAMLANDI**; sonraki hotfix = BUG-PDP-001; sonraki faz = TODO-161B
   (Recently Viewed & Product Recommendations).
 
-## BUG-PDP-001 — PDP Quantity Changes Displayed Unit Price (hotfix) — SIRADAKİ AKTİF
+## BUG-PDP-001 — PDP Quantity Changes Displayed Unit Price (hotfix) — DONE / KOD TAMAM
 
-- Durum: **SIRADAKİ AKTİF FAZ (HOTFIX).** PDP'de adet değişimi gösterilen fiyatı çarpıyor.
-- Beklenen: PDP her zaman seçili varyantın **tek adet birim fiyatını** gösterir. Adet değişimi
-  satış/indirimli/liste fiyatını, son 30 gün en düşük fiyatı (Omnibus), kupon indirimi gösterimini veya
-  birim fiyat metnini DEĞİŞTİRMEZ. `quantity × unitPrice` yalnız cart line total / checkout summary /
-  order total / payment amount hesaplarında uygulanır. PDP'de ara toplam gösterilmez.
-- Gözlem: Artesan Bel Çantası adet 1→2 → ₺6.291,10 → ₺12.582,20 (HATALI); Xiaomi Edge 50 adetten bağımsız
-  sabit (DOĞRU). İki ürünün farklı render yoluna girmesi kök neden analizinde kanıtlanacak.
-- Fix ilkesi: tek fiyat otoritesi `selectedVariant.unitPrice` (sunucu-otoriter pricing projeksiyonu); PDP
-  price component quantity bağımlılığı taşımaz; quantity yalnız add-to-cart payload'ında.
-- Sunucu otoritesi (değişmez): cart/checkout/order/payment tutarları sunucuda çözülür (istemci birim fiyat
-  gönderse bile). PDP display salt sunum katmanı.
-- Kabul: PDP fiyatı adet 1→2→5 sabit (normal/indirimli/kuponlu/Omnibus); varyant değişince birim fiyat
-  değişir; quantity değişince varyant değişmez; TR/EN + mobile/desktop. Cart/checkout: line total = birim
-  fiyat × adet, OrderLine quantity+unitPrice ve payment amount doğru; kupon/kampanya adet matematiği doğru.
-- Sıra: **TODO-161A.1'den SONRA → BUG-PDP-001 (bu) → TODO-161B → final enterprise UI/design polish.**
+- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI (git kuralı §8).** PDP artık daima seçili
+  varyantın tek adet birim fiyatını gösterir; adet değişimi fiyat gösterimini etkilemez.
+- **Kök neden:** `apps/storefront-web/components/buy-box.tsx` — standart (otomatik-kampanya olmayan) fiyat
+  bloğu `unitMinor * quantity` + `compareMinor * quantity` ile ARA TOPLAM gösteriyordu. Otomatik kampanya
+  bloğu (`showAutoPriceBlock`) birim fiyatı çarpmıyordu → render-yolu ayrımı.
+- **Artesan vs Xiaomi:** Artesan `campaign.displayKind=PUBLIC_COUPON` → otomatik blok DEVREDE DEĞİL → standart
+  blok → adetle çarpım (629110×2=1.258.220 = ₺12.582,20, bug raporuyla birebir). Xiaomi
+  `displayKind=AUTOMATIC_CART_DISCOUNT+PERCENT` → otomatik blok → birim fiyat çarpılmaz → zaten doğruydu.
+- **Fix:** SAF `resolveUnitPriceLabels` (`apps/storefront-web/lib/money.ts`; quantity parametresi ALMAZ);
+  standart blokta `*quantity` çarpanları + adete bağlı "Birim fiyat" notu KALDIRILDI. `quantity` yalnız
+  `addToCartAction` payload'ında. Fiyat otoritesi `selectedVariant.unitPrice`.
+- **Sunucu otoritesi (değişmedi):** sepet cookie'si yalnız `{variantId, quantity}`; gateway kendi fiyatını
+  çözer (`server.ts:4106`). Cart/checkout/order/payment sunucuda.
+- **Test/gate:** yeni `test/buy-box-unit-price.test.ts` (7 test); build 25/25 · typecheck · lint 38/38 ·
+  test 1478 api-gateway + storefront · `git diff --check` temiz.
+- **Canlı smoke (enterprise-demo):** Artesan adet 1→2→5 fiyat sabit ₺6.291,10; sepet satır toplamı sunucuda
+  ₺31.455,50 (=6.291,10×5). Xiaomi adet 1→2 sabit; varyant değişince birim fiyat ₺56.896,50→₺68.705,20 (adet
+  2 sabit, 2× değil). İki-ürün sepeti tutarlı (genel toplam ₺155.124,86). Checkout auth gerektirir (parola
+  girilemez → non-interactive); grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Demo bütün.
+- Sıra: **BUG-PDP-001 (bu) tamamlandı → TODO-161B → final enterprise UI/design polish.**
 
-## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization)
+## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization) — SIRADAKİ AKTİF
 
-- Durum: **PLANLANDI — BUG-PDP-001'den SONRAKİ FAZ.** Bu numara bu iş için REZERVE edilmiştir.
+- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (BUG-PDP-001 tamamlandı).** Bu numara bu iş için REZERVE edilmiştir.
 - Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
 - Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
