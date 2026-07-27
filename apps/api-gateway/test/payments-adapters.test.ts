@@ -113,19 +113,13 @@ describe("provider-ready adapters (iyzico/Stripe/PayTR) — HTTP gated off this 
     expect(result).toMatchObject({ status: "REQUIRES_ACTION", providerReference: "tok_abc", threeDsApplied: true });
   });
 
-  it("maps PayTR get-token (success) to REQUIRES_ACTION and webhook success to PAID", async () => {
+  it("maps PayTR get-token (success) to REQUIRES_ACTION", async () => {
+    // PB-1 — adapter.handleWebhook KALDIRILDI (bypass'lıydı). Doğrulanmış webhook artık
+    // payments/webhook-signature.ts + webhook-routes.ts (HMAC); testleri ayrı suite'te.
     const transport = stubTransport({ status: 200, body: JSON.stringify({ status: "success", token: "paytr_tok" }) });
     const adapter = getPaymentAdapter("PAYTR", transport);
     const created = await adapter.createPayment({ context: context({ provider: "PAYTR", credentials: paytrCreds }), orderId: "o", attemptId: "a" });
     expect(created.status).toBe("REQUIRES_ACTION");
-    const webhook = await adapter.handleWebhook({
-      provider: "PAYTR",
-      credentials: paytrCreds,
-      signature: null,
-      rawBody: "",
-      payload: { merchant_oid: "a", status: "success" },
-    });
-    expect(webhook).toMatchObject({ handled: true, eventId: "a" });
   });
 
   it("throws typed PaymentConfigError instances", async () => {

@@ -82,14 +82,6 @@ export interface GetPaymentStatusInput {
   currentStatus: PaymentAttemptStatus;
 }
 
-export interface HandleWebhookInput {
-  provider: PaymentProviderType;
-  credentials: ResolvedCredentials;
-  signature: string | null;
-  rawBody: string;
-  payload: unknown;
-}
-
 export interface TestConnectionInput {
   context: Pick<PaymentActionContext, "provider" | "mode" | "credentials">;
 }
@@ -107,13 +99,6 @@ export interface TestConnectionResult {
   message: string;
 }
 
-export interface WebhookResult {
-  handled: boolean;
-  /** Provider/webhook external event id (idempotency icin). Yoksa null. */
-  eventId?: string | null;
-  signatureValid: boolean;
-}
-
 /** Tum provider adapter'larinin uydugu sozlesme. */
 export interface PaymentProviderAdapter {
   readonly provider: PaymentProviderType;
@@ -122,7 +107,7 @@ export interface PaymentProviderAdapter {
   cancelPayment(input: CancelPaymentInput): Promise<PaymentResult>;
   refundPayment(input: RefundPaymentInput): Promise<PaymentResult>;
   getPaymentStatus(input: GetPaymentStatusInput): Promise<PaymentResult>;
-  handleWebhook(input: HandleWebhookInput): Promise<WebhookResult>;
+  // PB-1 — handleWebhook KALDIRILDI. Doğrulanmış webhook payments/webhook-routes.ts'de.
   testConnection(input: TestConnectionInput): Promise<TestConnectionResult>;
 }
 

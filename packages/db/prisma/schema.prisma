@@ -1819,6 +1819,9 @@ model PaymentProviderConfig {
   apiKeyCipher        String?
   secretKeyCipher     String?
   webhookSecretCipher String?
+  // PB-1 (ADR-156) — Public webhook kimlik parcasi (opak `whk_…`). URL'de config cozer;
+  // YETKI vermez (yetki = HMAC imza). Yalniz rotate ile uretilir; secret webhookSecretCipher'da.
+  webhookToken        String?               @unique
   lastTestStatus      String?
   lastTestMessage     String?
   lastTestAt          DateTime?
@@ -1895,6 +1898,9 @@ model PaymentAttempt {
   @@index([providerConfigId])
   @@index([status])
   @@index([accessTokenHash])
+  // PB-1 (ADR-158) — Webhook, attempt'i DOGRULANMIS provider reference'tan cozer (client
+  // body.storeId/attemptId DEGIL). Store-scoped providerReference aramasi icin additive index.
+  @@index([storeId, providerReference])
 }
 
 model PaymentProviderEvent {

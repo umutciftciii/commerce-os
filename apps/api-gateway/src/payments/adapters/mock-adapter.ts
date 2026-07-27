@@ -3,12 +3,10 @@ import type {
   ConfirmPaymentInput,
   CreatePaymentInput,
   GetPaymentStatusInput,
-  HandleWebhookInput,
   PaymentProviderAdapter,
   PaymentResult,
   RefundPaymentInput,
   TestConnectionResult,
-  WebhookResult,
 } from "../types.js";
 
 /**
@@ -102,14 +100,8 @@ export class MockPaymentAdapter implements PaymentProviderAdapter {
     return { status: input.currentStatus, providerReference: `mock_${input.attemptId}` };
   }
 
-  async handleWebhook(input: HandleWebhookInput): Promise<WebhookResult> {
-    const eventId =
-      input.payload && typeof input.payload === "object" && "eventId" in input.payload
-        ? String((input.payload as Record<string, unknown>).eventId)
-        : null;
-    // Mock webhook: imza dogrulamasi her zaman gecerli kabul edilir (test).
-    return { handled: true, eventId, signatureValid: true };
-  }
+  // PB-1 — handleWebhook KALDIRILDI ("signatureValid: true" bypass'ı içeriyordu). MOCK
+  // ödeme webhook'tan değil /public/pay/:token confirm yolundan tamamlanır.
 
   async testConnection(): Promise<TestConnectionResult> {
     return { ok: true, message: "Mock saglayici hazir (test modu, credential gerekmez)." };

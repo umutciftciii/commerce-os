@@ -717,3 +717,22 @@
   altyapısı, sponsored budget/placement/merge (TD-119/120/123), kısmi-iade (TD-114), store-user auth (TD-019).
 - Önerilen sıra: **Aşama A** (DR + tema XSS + bayat kayıt temizliği) → **Aşama B** (sağlayıcı + webhook imza +
   para-yolu smoke + rezervasyon expiry) → **Aşama C** (store-user auth + ölçek + future capability). Detay: analiz §9.
+
+## Security — PB-1 Payment Webhook Authenticity & Store Resolution — KOD TAMAM (commit YOK)
+
+- Durum: **KOD + MIGRATION + TEST + CANLI EXPLOIT REGRESYONU + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler
+  geçti. Commit/push/PR/merge/deploy YAPILMADI.** ADR-156/157/158. Analiz:
+  `docs/analysis/PB-1-payment-webhook-authenticity.md`.
+- **Kapatılan açık:** Eski `/payments/webhooks/:provider` client body'yi (storeId/attemptId/status) otorite kabul
+  ediyor + imzayı gate'lemiyordu → müşteri kendi siparişini bedavaya PAID yapabiliyordu. **KALDIRILDI.**
+- **Yeni doğrulanmış webhook** `POST /public/payments/webhooks/:webhookToken`: HMAC(`timestamp.rawBody`) imza +
+  300 sn replay penceresi; store URL token'ından; attempt/order DOĞRULANMIŞ provider reference'tan (client body
+  DEĞİL); amount/currency invariant; monotonik geçiş (payment-state reuse); `(storeId,provider,eventId)`
+  idempotency (tek-tx P2002). Fail-closed (secret yok → 404). Tüm `verifyWebhookSignature(){return true}` bypass'ları
+  + adapter webhook metodları silindi.
+- Migration `20260727170000_payment_webhook_authenticity` (additive: `PaymentProviderConfig.webhookToken` unique +
+  `PaymentAttempt(storeId, providerReference)` index; gerçek Postgres'te uygulandı + doğrulandı).
+- Testler: 30 yeni (13 imza birim + 17 route) + coupled test'ler güncellendi; api-gateway suite **1624 yeşil**;
+  build/lint temiz. **Canlı exploit regresyonu 14/14** (gerçek PostgreSQL, izole fixture, cleanup).
+- Kalan (EX-1 canlı sağlayıcıya bağlı): **TD-137** sağlayıcı-native imza · **TD-138** webhook provisioning UI.
+  Gerçek ödeme yalnız EX-1 + TD-137 sonrası etkinleştirilir.

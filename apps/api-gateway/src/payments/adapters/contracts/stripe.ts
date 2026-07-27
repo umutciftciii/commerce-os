@@ -126,25 +126,7 @@ export const stripeContract: ProviderContract = {
   },
 
   mapProviderStatus: mapStatus,
-
-  extractWebhookEventId(payload: unknown): string | null {
-    const data = asRecord(payload);
-    return typeof data.id === "string" ? data.id : null;
-  },
-
-  mapWebhookStatus(payload: unknown): PaymentAttemptStatus | null {
-    const data = asRecord(payload);
-    const type = typeof data.type === "string" ? data.type : "";
-    if (type === "payment_intent.succeeded") return "PAID";
-    if (type === "payment_intent.payment_failed") return "FAILED";
-    if (type === "payment_intent.canceled") return "CANCELLED";
-    if (type === "payment_intent.amount_capturable_updated") return "AUTHORIZED";
-    if (type.startsWith("payment_intent.")) return "PENDING";
-    return null;
-  },
-
-  verifyWebhookSignature(): boolean {
-    // Placeholder: gercek Stripe-Signature (HMAC) dogrulamasi TODO-071.
-    return true;
-  },
+  // PB-1 — Webhook doğrulama/parse contract'tan KALDIRILDI (bypass `return true` idi).
+  // Doğrulanmış webhook artık payments/webhook-signature.ts + webhook-routes.ts'de (HMAC).
+  // Sağlayıcı-native imza (Stripe-Signature) EX-1 canlı sözleşmesiyle eklenir → TD-137.
 };

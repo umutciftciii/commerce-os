@@ -3,7 +3,6 @@ import type { PaymentAttemptStatus } from "@prisma/client";
 import type { PaymentHttpRequest, PaymentHttpResponse } from "../http.js";
 import type { ResolvedCredentials, PaymentResult } from "../../types.js";
 import {
-  asRecord,
   base64,
   hmacSha256Hex,
   minorToDecimalString,
@@ -160,26 +159,7 @@ export const iyzicoContract: ProviderContract = {
   },
 
   mapProviderStatus: mapStatus,
-
-  extractWebhookEventId(payload: unknown): string | null {
-    const data = asRecord(payload);
-    // iyzico callback: token / paymentId / iyziEventId benzeri alanlar.
-    return (
-      (typeof data.token === "string" && data.token) ||
-      (typeof data.paymentId === "string" && data.paymentId) ||
-      (typeof data.eventId === "string" && data.eventId) ||
-      null
-    );
-  },
-
-  mapWebhookStatus(payload: unknown): PaymentAttemptStatus | null {
-    const data = asRecord(payload);
-    const raw = typeof data.status === "string" ? data.status : typeof data.paymentStatus === "string" ? data.paymentStatus : null;
-    return raw ? mapStatus(raw) : null;
-  },
-
-  verifyWebhookSignature(): boolean {
-    // Placeholder: gercek imza dogrulama (iyzico signature) TODO-071.
-    return true;
-  },
+  // PB-1 — Webhook doğrulama/parse contract'tan KALDIRILDI (bypass `return true` idi).
+  // Doğrulanmış webhook payments/webhook-signature.ts + webhook-routes.ts'de (HMAC). Native
+  // iyzico imzası EX-1 ile → TD-137.
 };

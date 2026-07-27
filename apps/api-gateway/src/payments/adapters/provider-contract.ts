@@ -6,7 +6,6 @@ import type {
   ConfirmPaymentInput,
   CreatePaymentInput,
   GetPaymentStatusInput,
-  HandleWebhookInput,
   PaymentResult,
   RefundPaymentInput,
   ResolvedCredentials,
@@ -36,12 +35,8 @@ export interface ProviderContract {
   parsePaymentResponse(response: PaymentHttpResponse): PaymentResult;
   /** Provider'a ozgu durum kodunu ortak PaymentAttemptStatus'a esler. */
   mapProviderStatus(raw: string): PaymentAttemptStatus;
-  /** Webhook payload'indan external event id cikarir (idempotency). */
-  extractWebhookEventId(payload: unknown): string | null;
-  /** Webhook payload'ini PaymentAttemptStatus'a esler (yoksa null). */
-  mapWebhookStatus(payload: unknown): PaymentAttemptStatus | null;
-  /** Webhook imza dogrulama. Bu fazda placeholder (gercek HMAC TODO-071). */
-  verifyWebhookSignature(input: HandleWebhookInput): boolean;
+  // PB-1 — Webhook doğrulama/parse contract'tan KALDIRILDI. Doğrulanmış webhook
+  // payments/webhook-signature.ts + webhook-routes.ts'de (HMAC + provider reference).
 }
 
 /* ───────────────────────── Ortak yardimcilar ───────────────────────── */

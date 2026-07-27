@@ -967,3 +967,38 @@ alanlarını KORUR. Ancak `billingTaxId` vb. yasal fatura alanlarının **kesin 
 anonimleştirme politikası uygulama kodunun tek başına verdiği hukuki bir karar DEĞİLDİR** — süre ve politika
 **mali müşavir/hukuk onayıyla** belirlenmelidir. Mevzuat doğrulaması olmadan **otomatik süre-sonu purge
 UYGULANMAZ**. Bu yüzden **TD-132 AÇIK kalır** (erasure anında bu alanlar bilinçli korunuyor).
+
+## Ödeme webhook otantikliği (PB-1 / ADR-156/157/158)
+
+**Güvenlik modeli.** Doğrulanmış ödeme webhook'u `POST /public/payments/webhooks/:webhookToken`. Kullanıcı auth
+YOK; **kimlik = URL token'ı**, **yetki = HMAC imza**. Eski client-otoriteli `/payments/webhooks/:provider` ucu
+(client `storeId/attemptId/status` ile siparişi PAID yapabiliyordu) **KALDIRILDI**.
+
+**İmza sözleşmesi (sağlayıcı tarafında üretilir).**
+- Header `x-payment-signature` = `hex(HMAC_SHA256(webhookSecret, "<timestamp>.<rawBody>"))`.
+- Header `x-payment-timestamp` = unix saniye; **±300 sn** tolerans dışı reddedilir (replay).
+- `rawBody` byte-aynen imzalanır (JSON re-serialize edilmez).
+- Gövde (imza sonrası parse): `{ eventId, providerReference, status, amountMinor, currency, occurredAt? }` (strict).
+  `status ∈ PENDING|REQUIRES_ACTION|AUTHORIZED|PAID|FAILED|CANCELLED|REFUNDED`.
+
+**Davranış.** Bilinmeyen token / DISABLED config / secret'siz config → **404** (fail-closed, tenant sızmaz).
+İmza yok/yanlış/eski-timestamp → **401** (DB'ye yazılmaz). Bilinmeyen `providerReference` → **200**
+`WEBHOOK_REFERENCE_NOT_FOUND` (order değişmez). `amountMinor`/`currency` attempt snapshot'ıyla uyuşmazsa → **200**
+`AMOUNT_MISMATCH`/`CURRENCY_MISMATCH` (order PAID OLMAZ, audit). Geçerli → monotonik geçiş + `(storeId,provider,
+eventId)` idempotency. `storeId`/`orderId`/`amount` payload'dan **otorite değildir** (store token'dan, attempt
+provider reference'tan).
+
+**Provisioning (bugün elle; UI = TD-138).** Config'e webhook token+secret ata:
+```bash
+# secret üret (bir kez plain göster, DB'de sifreli): generatePaymentWebhookSecret() / rotate ucu (TD-138) gelince otomatik
+# token üret: whk_<48 hex> (generatePaymentWebhookToken)
+# PaymentProviderConfig.webhookToken (unique) + webhookSecretCipher = secretCipher.encrypt(secret)
+```
+Webhook URL = `<PUBLIC_BASE>/public/payments/webhooks/<webhookToken>`.
+
+**Fail-closed / EX-1.** Bu faz PLATFORM HMAC şemasını kullanır; gerçek sağlayıcı (Stripe/iyzico/PayTR) **native
+imza** doğrulaması **TD-137** ile eklenir. Native imza + sağlayıcı sözleşmesi (**EX-1**) tamamlanmadan gerçek
+sağlayıcı webhook'u AÇILMAZ (secret'siz config → 404). MOCK ödeme webhook kullanmaz (`/public/pay/:token` confirm).
+
+**Migration.** `20260727170000_payment_webhook_authenticity` (additive: `PaymentProviderConfig.webhookToken` unique +
+`PaymentAttempt(storeId, providerReference)` index). `prisma migrate deploy` ile uygulanır.
