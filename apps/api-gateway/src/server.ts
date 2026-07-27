@@ -121,6 +121,8 @@ import {
 // TODO-161B (ADR-137…143) — Recently Viewed & Similar Products (public/customer uçları).
 import { createRecentlyViewedData } from "./recently-viewed/data.js";
 import { registerRecentlyViewedRoutes } from "./recently-viewed/routes.js";
+import { createRecommendationEventData } from "./recommendation-events/data.js";
+import { registerRecommendationEventRoutes } from "./recommendation-events/routes.js";
 import { createReviewData } from "./reviews/data.js";
 import {
   registerCustomerReviewRoutes,
@@ -204,6 +206,7 @@ import {
   serializePublicHomeFeaturedCategory,
   parseHomeShowcaseConfig,
   parseHomeSponsoredShowcaseConfig,
+  parseHomeRecentlyViewedConfig,
   parseHomeHeroConfig,
   type HomeDataAccess,
 } from "./home/data.js";
@@ -5198,7 +5201,17 @@ export function createServer(
       maxItems: number;
       candidates: Array<{ productId: string; campaignId: string; placementId: string }>;
     };
-    const resolved: Array<HeroResolved | FeaturedResolved | ShowcaseResolved | SponsoredResolved> = [];
+    // TD-129 — "Son İncelediklerin": ürün TAŞIMAZ (ziyaretçiye-özgü; storefront istemcisinde hidrasyon).
+    // Yalnız sunum config'i (TR/EN başlık + maxItems + düzen). Boş-atlama UYGULANMAZ (geçmiş kararı client'ta).
+    type RecentlyViewedResolved = {
+      kind: "RECENTLY_VIEWED";
+      section: (typeof sections)[number];
+      layout: "CAROUSEL" | "GRID";
+      maxItems: number;
+      titleTr: string | null;
+      titleEn: string | null;
+    };
+    const resolved: Array<HeroResolved | FeaturedResolved | ShowcaseResolved | SponsoredResolved | RecentlyViewedResolved> = [];
     for (const section of sections) {
       if (section.type === "HERO_SLIDER") {
         const slides = await homeDataAccess.listPublishedHeroSlides(store.id, section.id, now);
@@ -5235,6 +5248,17 @@ export function createServer(
           layout: showcaseConfig.layout,
           maxItems: showcaseConfig.maxItems,
           ids,
+        });
+      } else if (section.type === "RECENTLY_VIEWED") {
+        // TD-129 — yalnız sunum config'i; ürün yok (storefront istemcisi /recently-viewed'den çeker).
+        const rvConfig = parseHomeRecentlyViewedConfig(section.config);
+        resolved.push({
+          kind: "RECENTLY_VIEWED",
+          section,
+          layout: rvConfig.layout,
+          maxItems: rvConfig.maxItems,
+          titleTr: rvConfig.titleTr ?? null,
+          titleEn: rvConfig.titleEn ?? null,
         });
       }
     }
@@ -5340,6 +5364,18 @@ export function createServer(
           .slice(0, item.maxItems);
         if (products.length === 0) continue;
         outSections.push({ type: "SPONSORED_SHOWCASE", ...base, layout: item.layout, products });
+      } else if (item.kind === "RECENTLY_VIEWED") {
+        // TD-129 — Ürün YOK (viewer-özel; storefront istemcisi hidrasyon yapar) → boş-atlama UYGULANMAZ.
+        // Geçmiş yoksa storefront şeridi hiç render etmez (boş-durum yer tutmaz). /home locale-agnostic
+        // kalsın diye TR/EN başlık AYRI taşınır; locale storefront'ta seçilir.
+        outSections.push({
+          type: "RECENTLY_VIEWED",
+          ...base,
+          layout: item.layout,
+          maxItems: item.maxItems,
+          titleTr: item.titleTr,
+          titleEn: item.titleEn,
+        });
       } else {
         const products = item.ids
           .map((id) => builtById.get(id))
@@ -6115,6 +6151,21 @@ export function createServer(
     data: recentlyViewedData,
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
     resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
+  });
+
+  // TD-130 (ADR-145…148) — Recommendation Measurement. Public ingest ucu (impression/click/add-to-cart)
+  // + platform-admin store-scope özet ucu. AYRI davranış-event domaini: influencer/sponsored tablolarına
+  // YAZMAZ. Bot/prefetch elenir; source/placement/type allowlist; ürün/anchor store-sahipliği doğrulanır.
+  registerRecommendationEventRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    data: createRecommendationEventData(),
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
   });
 
   // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den

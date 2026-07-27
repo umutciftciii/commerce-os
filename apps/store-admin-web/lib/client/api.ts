@@ -170,6 +170,8 @@ import type {
   CommercialAutomationStatusResponse,
   SettlementSchedulerRunResponse,
   RetentionRunResponse,
+  // TD-130 — Recommendation Measurement görünürlük özeti.
+  RecommendationSummaryResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -1008,6 +1010,17 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // TD-130 — Recommendation Measurement görünürlük özeti (salt-okunur funnel; tarih/source/placement filtresi).
+  getRecommendationSummary: (query?: { from?: string; to?: string; source?: string; placement?: string }) => {
+    const search = new URLSearchParams();
+    if (query?.from) search.set("from", query.from);
+    if (query?.to) search.set("to", query.to);
+    if (query?.source) search.set("source", query.source);
+    if (query?.placement) search.set("placement", query.placement);
+    const qs = search.toString();
+    return call<RecommendationSummaryResponse>(`/api/recommendations/summary${qs ? `?${qs}` : ""}`);
+  },
 
   // Customers (F3B.3) — dizin + detay + yönetim. Mutasyonlar CSRF'li.
   listCustomers: (query?: AdminListRequestQuery) =>

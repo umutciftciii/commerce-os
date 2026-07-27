@@ -642,3 +642,24 @@
   `ProductSearchDocument(storeId, brand)` (migration `20260727140000`); ilgisiz ilk-N sonucu bozmaz + katalog-sonundaki
   ilgili aday bulunur (canlı 200-boundary smoke + EXPLAIN). TD-129/130 AÇIK.
 - Sıra: **TODO-161B'den SONRA → Final enterprise UI/design polish.**
+
+## Growth & Monetization — Recommendation Surface Governance & Measurement (TD-129 + TD-130) — KOD TAMAM (commit YOK)
+
+- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti. Commit/push/PR/merge/
+  deploy YAPILMADI (git kuralı).** ADR-144…148. TODO-161B'nin iki açık borcunu kapatır.
+- **TD-129 CLOSED (ADR-144)** — Home "Son İncelediklerin" artık yönetilebilir `HomeSection` tipi `RECENTLY_VIEWED`
+  (migration'sız; `type=String`). Admin göster/gizle + sıralama + TR/EN başlık + `maxItems`. ADR-141 gerilimi
+  çözüldü: section YALNIZ sunum config'i taşır → `/home` cacheable/viewer-agnostic kalır; veri storefront
+  istemcisinde `/recently-viewed`'den hidrasyon (TODO-161B altyapısı DEĞİŞMEDİ). Eski manuel iki sabit render
+  KALDIRILDI (duplicate yok); geçmiş yoksa şerit render olmaz.
+- **TD-130 CLOSED (ADR-145…148)** — Recommendation Measurement. AYRI davranış-event domaini: `RecommendationEvent`
+  (migration `20260727150000`; yalnız Store FK; productId plain; HMAC hash; bot/prefetch satır yazmaz) +
+  `apps/api-gateway/src/recommendation-events/`. Influencer/sponsored tablolarına YAZMAZ; `RETENTION_TABLE_SPECS`'e
+  DOKUNMAZ (ayrı worker/jobType `recommendation-event-retention`, 180 gün). source/placement/type ALLOWLIST +
+  sunucu-otoritesi. UI: `RecommendationCard` (viewport impression + click + attribution) Home/PDP/Cart/Account;
+  buy-box başarılı add-to-cart'ta attribution tüketir (sahte aksiyon yok). Dedupe: impression 30 dk · click 30 sn ·
+  add-to-cart dedupeKey. Store-admin görünürlük: `/home/insights` (funnel + source/placement kırılımı + filtreler).
+  Kapsam-dışı (bilinçli): order/revenue/multi-touch/ML.
+- Testler: gateway 1566 · storefront 439 · store-admin 356 — hepsi yeşil; tüm tsc temiz.
+- Sıra: **TD-129/130'dan SONRA → Final enterprise UI/design polish (SON faz; yeni ürün geliştirme kararına kadar
+  başlatılmaz).**

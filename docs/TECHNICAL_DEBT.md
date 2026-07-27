@@ -1220,12 +1220,21 @@ tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazınd
   taşır (tek round-trip; auth→gateway batched, guest→cookie kesişimi). Paralel wishlist state YOK; no-op kontrol YOK;
   sahte optimistic YOK. **Kalıntı (TD-128'e bağlı değil):** rating yıldızları öneri kartlarında hâlâ gizli (summaries
   taşınmıyor) — bloklamayan kozmetik; ileride `getRatingSummaries` batched ile eklenebilir.
-- **TD-129 — Home "Son İncelediklerin" admin-CMS yapılandırılabilir DEĞİL (ADR-141 bilinçli kararı).** Kişiselleştirme +
-  cacheable `/home` sözleşmesi gerekçesiyle `HomeSection` tipi yapılmadı; storefront'ta sabit client şerit. **Borç:**
-  admin şeridin yerini/başlığını/görünürlüğünü yönetemez. **Çözüm (sonraki):** viewer-kimlikli home varyantı veya
-  ayrı "kişiselleştirilmiş bloklar" CMS katmanı (real-time personalization ileri fazı ile birlikte).
-- **TD-130 — Recommendation ölçümü (impression/click/add-to-cart/conversion + source/placement) MVP'de wire EDİLMEDİ.**
-  Yüzeyler hazır (kart `sponsoredToken` yolu değişmedi; TODO-160 SAF event yardımcıları yeniden kullanılabilir) ama
-  öneri tıklama/gösterim event'i YAZILMIYOR. **Kısıt:** influencer/sponsored tablolarına YAZILMAMALI (ayrı domain).
-  **Çözüm (sonraki):** ayrı `RecommendationEvent` tablosu veya generic funnel-event deposu + retention allowlist'ine
-  AYRI spec (ADR-133 desenine uygun). "Birlikte Görüntülenenler/Alınanlar" ileri fazının ölçüm temeli budur.
+- **TD-129 — Home "Son İncelediklerin" admin-CMS yapılandırılabilir DEĞİL → ÇÖZÜLDÜ / CLOSED (2026-07-27; ADR-144).**
+  `RECENTLY_VIEWED` yeni bir `HomeSection` tipi yapıldı (migration'sız; `type=String`). Admin göster/gizle, diğer
+  section'lar arasında sıralama, TR/EN başlık ve `maxItems` yönetir. ADR-141 gerilimi çözüldü: section YALNIZ sunum
+  config'i taşır (`/home` cacheable/viewer-agnostic kalır); veri storefront istemcisinde `/recently-viewed` ucundan
+  hidrasyon (TODO-161B altyapısı değişmedi). Storefront'taki eski manuel iki sabit render KALDIRILDI (duplicate yok).
+- **TD-130 — Recommendation ölçümü (impression/click/add-to-cart + source/placement) → ÇÖZÜLDÜ / CLOSED (2026-07-27;
+  ADR-145…148).** AYRI davranış-event domaini: yeni `RecommendationEvent` tablosu (yalnız Store FK; productId plain;
+  KVKK HMAC; bot/prefetch satır yazmaz) + `apps/api-gateway/src/recommendation-events/` (public ingest ucu + admin
+  funnel özeti + 180-gün retention). Influencer/sponsored tablolarına YAZMAZ; `RETENTION_TABLE_SPECS` allowlist'ine
+  DOKUNMAZ (ayrı worker/jobType). source/placement/type ALLOWLIST + sunucu-otoritesi (store/kimlik/zaman/ürün-anchor
+  sahipliği). Impression viewport-only (IntersectionObserver %50), click gerçek kart tıklaması, add-to-cart yalnız
+  başarılı sepete-ekleme (son-öneri-tıklama attribution, sahte aksiyon yok). Dedupe: impression 30 dk, click 30 sn,
+  add-to-cart dedupeKey idempotency. Store-admin görünürlük: `/home/insights` (impression/click/CTR/add-to-cart +
+  source/placement kırılımı; tarih/source/placement filtresi). **Not:** order/revenue/multi-touch/ML bilinçli
+  kapsam-dışı; gerçek ihtiyaç oluşursa ayrı future faz. **KVKK:** platformda hard customer-deletion akışı YOK
+  (yalnız status soft-deactivation); `customerId` FK'siz → KVKK hash + retention + store-Cascade ile karşılanır.
+  İleri hard-deletion akışı için testli+hazır erasure primitifi `RecommendationEventData.deleteForCustomer(storeId,
+  customerId)` eklendi (henüz bağlı değil; aynı gereklilik FK'siz `SponsoredProductEvent`/`AttributionClick` için).

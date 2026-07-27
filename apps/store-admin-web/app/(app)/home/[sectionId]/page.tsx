@@ -108,6 +108,13 @@ export default function HomeSectionDetailPage() {
             : "Bu bir sponsorlu vitrin yüzeyidir. Ürünleri aktif sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) gelir — Sponsorlu Kampanyalar modülünden yönetin. Burada ürün seçimi yapılmaz."}
         </Alert>
       ) : null}
+      {section?.type === "RECENTLY_VIEWED" ? (
+        <Alert tone="info">
+          {locale === "en"
+            ? "This is a Recently Viewed rail. Its content is personalized per visitor from their own viewing history (loaded on the storefront) — there is nothing to curate here. Manage the title, order and visibility from section settings. Visitors with no history won't see this section."
+            : "Bu bir Son İncelediklerin şerididir. İçeriği her ziyaretçiye özeldir ve kendi görüntüleme geçmişinden (storefront tarafında) gelir — burada seçilecek bir şey yoktur. Başlığı, sırayı ve görünürlüğü bölüm ayarlarından yönetin. Geçmişi olmayan ziyaretçide bu bölüm görünmez."}
+        </Alert>
+      ) : null}
     </>
   );
 }

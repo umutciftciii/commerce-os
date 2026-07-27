@@ -73,6 +73,7 @@ export default async function CartPage() {
         t={dict}
         excludeSlugs={view.lines.map((line) => line.productSlug)}
         limit={12}
+        placement="CART"
       />
     </Container>
   );

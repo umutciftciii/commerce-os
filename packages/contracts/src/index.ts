@@ -1563,6 +1563,10 @@ export const homeSectionTypeSchema = z.enum([
   // TODO-161 (ADR-114) — Sponsorlu vitrin yüzeyi. İçerik AKTIF sponsorlu kampanyalardan (HOME_SHOWCASE)
   // gelir; section yalnız yerleşim konumunu (sayfa sırası) belirler. Kampanya/ürün yoksa render EDİLMEZ.
   "SPONSORED_SHOWCASE",
+  // TD-129 (ADR-144) — "Son İncelediklerin" yönetilebilir şerit. Section YALNIZ sunum yapılandırması
+  // taşır (başlık TR/EN + maxItems + düzen); ürünler ziyaretçiye-özgüdür → /home'da DEĞİL, storefront
+  // istemcisinde mevcut /recently-viewed ucundan hidrasyon. Böylece /home cacheable + viewer-agnostic kalır.
+  "RECENTLY_VIEWED",
 ]);
 
 // Showcase düzeni. İleride EDITORIAL/MAGAZINE/MIXED eklenebilir (config alanı; migration'sız).
@@ -1621,6 +1625,19 @@ export const homeSponsoredShowcaseConfigSchema = z
     maxItems: z.number().int().min(1).max(12).default(8),
   })
   .strict();
+
+// TD-129 (ADR-144) — "Son İncelediklerin" section config'i. Ürün seçimi YOK (içerik ziyaretçi geçmişinden,
+// storefront istemcisinde çözülür); yalnız sunum: TR/EN başlık (locale storefront'ta seçilir → /home
+// locale-agnostic/cacheable kalır), düzen ve maks. ürün sayısı. maxItems tavanı RECENTLY_VIEWED_MAX_LIMIT (50).
+export const homeRecentlyViewedConfigSchema = z
+  .object({
+    layout: homeShowcaseLayoutSchema.default("CAROUSEL"),
+    maxItems: z.number().int().min(1).max(50).default(12),
+    titleTr: z.string().max(200).nullable().optional(),
+    titleEn: z.string().max(200).nullable().optional(),
+  })
+  .strict();
+export type HomeRecentlyViewedConfig = z.infer<typeof homeRecentlyViewedConfigSchema>;
 
 // Admin section entity. config tip-özel (opaque record; admin UI type'a göre yorumlar).
 export const homeSectionSchema = z.object({
@@ -2829,6 +2846,64 @@ export const similarProductsResponseSchema = z.object({
 });
 export type SimilarProductsResponse = z.infer<typeof similarProductsResponseSchema>;
 
+// ───────────── TD-130 (ADR-145…148) — Recommendation Measurement (event domain) ─────────────
+// Öneri yüzeylerinin (Recently Viewed / Similar Products) impression/click/add-to-cart ölçümü.
+// AYRI davranış-event domaini: influencer/sponsored tablolarına YAZMAZ. source/placement/type ALLOWLIST'tir
+// (sunucu doğrular). storeId + kimlik + zaman SUNUCU otoritesidir (istemci belirleyemez). Bkz. ADR-146.
+export const recommendationEventSourceSchema = z.enum(["RECENTLY_VIEWED", "SIMILAR_PRODUCTS"]);
+export const recommendationEventPlacementSchema = z.enum(["HOME", "PDP", "CART", "ACCOUNT"]);
+export const recommendationEventTypeSchema = z.enum(["IMPRESSION", "CLICK", "ADD_TO_CART"]);
+export type RecommendationEventSource = z.infer<typeof recommendationEventSourceSchema>;
+export type RecommendationEventPlacement = z.infer<typeof recommendationEventPlacementSchema>;
+export type RecommendationEventType = z.infer<typeof recommendationEventTypeSchema>;
+export const RECOMMENDATION_EVENT_SOURCES = recommendationEventSourceSchema.options;
+export const RECOMMENDATION_EVENT_PLACEMENTS = recommendationEventPlacementSchema.options;
+export const RECOMMENDATION_EVENT_TYPES = recommendationEventTypeSchema.options;
+
+// Event kayıt isteği (public). productId/anchorProductId store-sahipliği gateway'de doğrulanır. dedupeKey
+// YALNIZ ADD_TO_CART idempotency'si için (istemci nonce'u; aynı dönüşüm iki kez sayılmaz). Payload bounded.
+export const recommendationEventRequestSchema = z.object({
+  type: recommendationEventTypeSchema,
+  source: recommendationEventSourceSchema,
+  placement: recommendationEventPlacementSchema,
+  productId: z.string().min(1).max(64),
+  anchorProductId: z.string().min(1).max(64).nullable().optional(),
+  dedupeKey: z.string().min(1).max(96).nullable().optional(),
+});
+export type RecommendationEventRequest = z.infer<typeof recommendationEventRequestSchema>;
+
+export const recommendationEventResponseSchema = z.object({
+  data: z.object({ recorded: z.boolean(), deduped: z.boolean() }),
+});
+export type RecommendationEventResponse = z.infer<typeof recommendationEventResponseSchema>;
+
+// ── Store-admin görünürlük özeti (platform-admin; store-scoped). Küçük funnel; büyük raporlama YOK. ──
+const recommendationSummaryBucketSchema = z.object({
+  key: z.string(),
+  impressions: z.number().int(),
+  clicks: z.number().int(),
+  addToCart: z.number().int(),
+  ctr: z.number(),
+});
+export const recommendationSummaryResponseSchema = z.object({
+  data: z.object({
+    range: z.object({ from: z.string().datetime(), to: z.string().datetime() }),
+    filters: z.object({
+      source: recommendationEventSourceSchema.nullable(),
+      placement: recommendationEventPlacementSchema.nullable(),
+    }),
+    totals: z.object({
+      impressions: z.number().int(),
+      clicks: z.number().int(),
+      addToCart: z.number().int(),
+      ctr: z.number(),
+    }),
+    bySource: z.array(recommendationSummaryBucketSchema),
+    byPlacement: z.array(recommendationSummaryBucketSchema),
+  }),
+});
+export type RecommendationSummaryResponse = z.infer<typeof recommendationSummaryResponseSchema>;
+
 export type PublicSearchSwatch = z.infer<typeof publicSearchSwatchSchema>;
 export type PublicSearchFacet = z.infer<typeof publicSearchFacetSchema>;
 export type PublicSearchFacetValue = z.infer<typeof publicSearchFacetValueSchema>;
@@ -2994,6 +3069,17 @@ export const publicHomeSectionSchema = z.discriminatedUnion("type", [
     ...publicHomeSectionBase,
     layout: homeShowcaseLayoutSchema,
     products: z.array(publicProductSchema.extend({ sponsoredToken: z.string() })),
+  }),
+  // TD-129 (ADR-144) — "Son İncelediklerin". ÜRÜN TAŞIMAZ (ziyaretçiye-özgü, storefront istemcisinde
+  // /recently-viewed ucundan hidrasyon). Yalnız sunum: TR/EN başlık (locale storefront'ta seçilir) +
+  // maxItems + düzen. Geçmiş yoksa storefront şeridi hiç render etmez (boş-durum yer tutmaz).
+  z.object({
+    type: z.literal("RECENTLY_VIEWED"),
+    ...publicHomeSectionBase,
+    layout: homeShowcaseLayoutSchema,
+    maxItems: z.number().int(),
+    titleTr: z.string().nullable(),
+    titleEn: z.string().nullable(),
   }),
 ]);
 

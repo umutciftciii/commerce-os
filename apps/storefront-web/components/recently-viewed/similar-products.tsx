@@ -12,8 +12,8 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { PublicSearchProduct } from "@commerce-os/api-client";
 import { Heading } from "../ui";
 import { ProductCardSkeleton } from "../ui/product-card-skeleton";
-import { SearchProductCard } from "../search/search-product-card";
 import { WishlistProvider } from "../wishlist/wishlist-provider";
+import { RecommendationCard } from "../recommendation/recommendation-card";
 import { toListingCards } from "../../lib/search/listing-adapter";
 import { fetchSimilarProducts } from "../../lib/recently-viewed/track";
 
@@ -66,7 +66,14 @@ export function SimilarProducts({
         <WishlistProvider initialSavedIds={savedIds}>
           <div className={GRID_CLASS}>
             {toListingCards(products).map((card, index) => (
-              <SearchProductCard key={card.id} card={card} t={t} priority={index < 4} />
+              // TD-130 — PDP "Benzer Ürünler": impression/click + hedef PDP add-to-cart attribution.
+              <RecommendationCard
+                key={card.id}
+                card={card}
+                t={t}
+                priority={index < 4}
+                context={{ source: "SIMILAR_PRODUCTS", placement: "PDP", anchorProductId: productId }}
+              />
             ))}
           </div>
         </WishlistProvider>

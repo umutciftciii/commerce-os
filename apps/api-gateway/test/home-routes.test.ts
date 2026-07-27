@@ -147,6 +147,35 @@ describe("home-experience admin routes", () => {
     expect(res.json().error.code).toBe("INVALID_SECTION_CONFIG");
   });
 
+  it("POST section RECENTLY_VIEWED → 201; TR/EN başlık + maxItems config normalize", async () => {
+    const { app, dataAccess } = buildApp({
+      dataAccess: { createSection: vi.fn().mockResolvedValue(sectionRecord({ type: "RECENTLY_VIEWED" })) },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/s1/home/sections",
+      payload: {
+        type: "RECENTLY_VIEWED",
+        config: { layout: "CAROUSEL", maxItems: 10, titleTr: "Son baktıkların", titleEn: "Recently viewed" },
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(dataAccess.createSection).toHaveBeenCalled();
+    const call = dataAccess.createSection.mock.calls[0][1];
+    expect(call.config).toMatchObject({ maxItems: 10, titleTr: "Son baktıkların", titleEn: "Recently viewed" });
+  });
+
+  it("POST section RECENTLY_VIEWED geçersiz config (maxItems > 50) → 400 INVALID_SECTION_CONFIG", async () => {
+    const { app } = buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/s1/home/sections",
+      payload: { type: "RECENTLY_VIEWED", config: { maxItems: 999 } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("INVALID_SECTION_CONFIG");
+  });
+
   it("POST reorder set uyumsuz → 400 HOME_SECTION_REORDER_MISMATCH", async () => {
     const { app } = buildApp({ dataAccess: { reorderSections: vi.fn().mockResolvedValue("MISMATCH") } });
     const res = await app.inject({

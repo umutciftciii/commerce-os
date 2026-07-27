@@ -28,6 +28,7 @@ import {
   homeShowcaseProductSchema,
   homeShowcaseConfigSchema,
   homeSponsoredShowcaseConfigSchema,
+  homeRecentlyViewedConfigSchema,
   homeHeroConfigSchema,
   publicHomeHeroSlideSchema,
   publicHomeFeaturedCategorySchema,
@@ -885,4 +886,10 @@ export function parseHomeHeroConfig(config: Prisma.JsonValue) {
 // aktif sponsorlu kampanyalardan (HOME_SHOWCASE) gelir; burada yalnız sunum + slot tavanı.
 export function parseHomeSponsoredShowcaseConfig(config: Prisma.JsonValue) {
   return homeSponsoredShowcaseConfigSchema.parse(config ?? {});
+}
+
+// TD-129 (ADR-144) — "Son İncelediklerin" section config'i (layout + maxItems + TR/EN başlık). Ürün
+// section'da DEĞİL; storefront istemcisi mevcut /recently-viewed ucundan çeker. Burada yalnız sunum.
+export function parseHomeRecentlyViewedConfig(config: Prisma.JsonValue) {
+  return homeRecentlyViewedConfigSchema.parse(config ?? {});
 }

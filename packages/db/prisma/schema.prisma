@@ -880,6 +880,8 @@ model Store {
   sponsorshipAdvanceAllocations    SponsorshipAdvanceAllocation[]
   // TODO-161B (ADR-137) — Recently Viewed & Product Recommendations (store-scoped tenant sutunu).
   recentlyViewedProducts           RecentlyViewedProduct[]
+  // TD-130 (ADR-145…148) — Recommendation Measurement event domaini (store-scoped tenant sutunu).
+  recommendationEvents             RecommendationEvent[]
 }
 
 model StoreUser {
@@ -4231,4 +4233,41 @@ model RecentlyViewedProduct {
   @@index([storeId, visitorHash, lastViewedAt])
   // Urun silme/cascade + urun-bazli temizlik.
   @@index([productId])
+}
+
+/// TD-130 (ADR-145…148) — Recommendation Measurement ham davranis-event'i (AYRI domain).
+/// Oneri yuzeylerinin (Recently Viewed / Similar Products) impression/click/add-to-cart olcumu.
+/// SponsoredProductEvent deseni: productId/anchorProductId PLAIN string (Product FK YOK → minimal coupling,
+/// event-store'da since-deleted urun referansi normaldir). Yalniz Store FK (Cascade). visitorHash/sessionHash
+/// KVKK-uyumlu HMAC (ham IP/UA saklanmaz); bot/prefetch event URETMEZ (satir hic yazilmaz → isBot kolonu YOK).
+/// customerId nullable plain (Customer FK yok — analytics; silinen musteri agregatlari korunur).
+/// 180-gun retention: TODO-161A.1 SAF altyapisi (advisory lock + QueueJobLog) reuse; influencer/sponsored
+/// RETENTION_TABLE_SPECS allowlist'ine DOKUNMAZ (ayri worker/jobType, ADR-148).
+model RecommendationEvent {
+  id              String   @id @default(cuid())
+  storeId         String
+  customerId      String?
+  visitorHash     String?
+  sessionHash     String?
+  productId       String
+  anchorProductId String?
+  source          String
+  placement       String
+  eventType       String
+  /// YALNIZ ADD_TO_CART idempotency'si icin istemci nonce'u; impression/click zaman-pencere dedupe kullanir.
+  dedupeKey       String?
+  createdAt       DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Store-scope + zaman (retention cutoff createdAt < cutoff; store listeleme).
+  @@index([storeId, createdAt])
+  // Admin funnel ozeti agregasyonu (eventType x source x placement, tarih araligi).
+  @@index([storeId, eventType, source, placement, createdAt])
+  // Urun-bazli kirilim + dedupe destegi.
+  @@index([storeId, productId, eventType, createdAt])
+  // Impression/click dedupe lookup: kimlik (visitorHash) + yuzey + urun + recency.
+  @@index([storeId, source, placement, productId, visitorHash, eventType, createdAt])
+  // ADD_TO_CART idempotency lookup.
+  @@index([storeId, dedupeKey])
 }

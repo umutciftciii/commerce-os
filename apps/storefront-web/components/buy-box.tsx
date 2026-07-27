@@ -14,6 +14,7 @@ import {
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor, resolveUnitPriceLabels } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
+import { consumeRecommendationAttribution, trackRecommendationEvent } from "../lib/recommendation/track";
 import { usePdpSelection } from "./pdp-selection";
 import { WishlistHeartButton } from "./wishlist/wishlist-heart-button";
 import { Badge, Button, type BadgeTone } from "./ui";
@@ -119,11 +120,22 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const canAddToCart =
     commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected && !outOfStock;
 
+  // TD-130 — Öneri kaynaklı add-to-cart ölçümü: BAŞARILI sepete-ekleme sonrası, kullanıcı bu PDP'ye bir
+  // öneri kartından geldiyse (son-öneri-tıklama attribution bağlamı tazeyse) ADD_TO_CART event'i yazılır.
+  // Bağlam TÜKETİLİR (tek sefer); dedupeKey = clickId → aynı dönüşüm iki kez sayılmaz. Bağlam yoksa NO-OP.
+  function trackRecommendedAddToCart() {
+    const attribution = consumeRecommendationAttribution(detail.id);
+    if (attribution) {
+      trackRecommendationEvent("ADD_TO_CART", attribution, detail.id, `atc:${attribution.clickId}`);
+    }
+  }
+
   function addToCart() {
     if (!selected) return;
     startTransition(async () => {
       await addToCartAction(selected.id, quantity);
       setAdded(true);
+      trackRecommendedAddToCart();
     });
   }
 
@@ -131,6 +143,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
     if (!selected) return;
     startTransition(async () => {
       await addToCartAction(selected.id, quantity);
+      trackRecommendedAddToCart();
       router.push("/checkout");
     });
   }

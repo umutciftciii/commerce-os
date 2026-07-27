@@ -11,8 +11,8 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { PublicSearchProduct } from "@commerce-os/api-client";
 import { Button, EmptyState } from "../../ui";
 import { ProductCardSkeleton } from "../../ui/product-card-skeleton";
-import { SearchProductCard } from "../../search/search-product-card";
 import { WishlistProvider } from "../../wishlist/wishlist-provider";
+import { RecommendationCard } from "../../recommendation/recommendation-card";
 import { toListingCards } from "../../../lib/search/listing-adapter";
 import { clearRecentlyViewed, fetchRecentlyViewed } from "../../../lib/recently-viewed/track";
 
@@ -84,7 +84,15 @@ export function ViewHistorySection({ t }: { t: StorefrontDictionary }) {
           <WishlistProvider initialSavedIds={savedIds}>
             <div className={GRID_CLASS}>
               {toListingCards(products).map((card, index) => (
-                <SearchProductCard key={card.id} card={card} t={t} priority={index < 4} />
+                // TD-130 — Hesabım Görüntüleme Geçmişi: impression + click (add-to-cart aksiyonu yok →
+                // sahte aksiyon EKLENMEZ; hedef PDP'de sepete eklenirse attribution yine de çalışır).
+                <RecommendationCard
+                  key={card.id}
+                  card={card}
+                  t={t}
+                  priority={index < 4}
+                  context={{ source: "RECENTLY_VIEWED", placement: "ACCOUNT" }}
+                />
               ))}
             </div>
           </WishlistProvider>

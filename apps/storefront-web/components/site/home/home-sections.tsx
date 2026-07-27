@@ -7,6 +7,7 @@ import type {
 } from "../../../lib/catalog-types";
 import { Container, Eyebrow, Heading, ProductMedia } from "../../ui";
 import { StorefrontProductCard } from "../product-card";
+import { RecentlyViewedRail } from "../../recently-viewed/recently-viewed-rail";
 import { HeroSlider } from "./hero-slider";
 import { ValueProps } from "./editorial";
 
@@ -59,6 +60,24 @@ export function HomeSections({
               categories={section.categories}
               className={visibility}
             />
+          );
+        }
+        if (section.type === "RECENTLY_VIEWED") {
+          // TD-129 — Yönetilebilir "Son İncelediklerin". İçerik ziyaretçi geçmişinden (client island
+          // /recently-viewed'den çeker); geçmiş YOKSA şerit hiç render edilmez (boş-durum yer tutmaz).
+          // Başlık admin TR/EN (getHome locale çözer); yoksa i18n varsayılanı. Ölçüm placement=HOME.
+          return (
+            <div key={section.id} className={visibility}>
+              <Container className="pb-16">
+                <RecentlyViewedRail
+                  t={dict}
+                  title={section.title ?? undefined}
+                  eyebrow={section.subtitle ?? undefined}
+                  limit={section.maxItems}
+                  placement="HOME"
+                />
+              </Container>
+            </div>
           );
         }
         // TODO-161 (ADR-114) — Sponsorlu vitrin: PRODUCT_SHOWCASE düzeniyle render edilir; ürün kartları

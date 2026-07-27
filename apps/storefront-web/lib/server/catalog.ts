@@ -317,6 +317,21 @@ export const getHome = cache(async function getHome(
           })),
         };
       }
+      if (section.type === "RECENTLY_VIEWED") {
+        // TD-129 — /home locale-agnostic/cacheable; TR/EN başlık BURADA locale'e göre çözülür (client
+        // island varsayılan i18n başlığına fallback eder). Ürün YOK (viewer-özel; client hidrasyon).
+        const resolvedTitle =
+          locale === "en"
+            ? section.titleEn ?? section.titleTr
+            : section.titleTr ?? section.titleEn;
+        return {
+          ...base,
+          title: resolvedTitle ?? base.title,
+          type: "RECENTLY_VIEWED",
+          layout: section.layout,
+          maxItems: section.maxItems,
+        };
+      }
       return {
         ...base,
         type: "PRODUCT_SHOWCASE",
