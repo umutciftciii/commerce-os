@@ -1990,10 +1990,10 @@
   girilemez → non-interactive); grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Demo bütün.
 - Sıra: **BUG-PDP-001 (bu) tamamlandı → TODO-161B → final enterprise UI/design polish.**
 
-## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization) — KOD TAMAM (commit YOK)
+## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization) — DONE / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM; tüm gate'ler geçti. Commit/push/PR/merge/deploy
-  YAPILMADI (talep gereği durdu).** Analiz: `docs/analysis/TODO-161B-recently-viewed-product-recommendations.md`.
+- Durum: **DONE / MERGED + DEPLOYED (PR #130, `a223beb`/`8e2e804`). Launch Audit 2026-07-27 ile doğrulandı —
+  bayat "commit YOK" kaydı düzeltildi.** Analiz: `docs/analysis/TODO-161B-recently-viewed-product-recommendations.md`.
   ADR-137…143.
 - İki AYRI capability: (1) Recently Viewed — sunucu-tarafı, KVKK-uyumlu görüntüleme geçmişi
   (`RecentlyViewedProduct`; dual-key customerId|visitorHash, kısmi unique + XOR CHECK; HAM IP/UA saklanmaz;
@@ -2020,9 +2020,11 @@
 - TD durumu: **TD-128 CLOSED**; TD-129 (Home şeridi CMS-yönetimli değil) + TD-130 (recommendation ölçümü) AÇIK.
 - Sıra: **TODO-161B (bu) → Final enterprise UI/design polish.**
 
-## TD-129 + TD-130 — Recommendation Surface Governance & Measurement (ADR-144…148) — KOD TAMAM (commit YOK)
+## TD-129 + TD-130 — Recommendation Surface Governance & Measurement (ADR-144…148) — DONE / MERGED + DEPLOYED
 
-TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Commit/push/PR/merge/deploy YAPILMADI** (git kuralı). Final enterprise UI/design polish HÂLÂ son faz.
+TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **DONE / MERGED + DEPLOYED (PR #131,
+`1ea9f19`/`c7817d0`). Launch Audit 2026-07-27 ile doğrulandı — bayat "commit YOK" kaydı düzeltildi.** Final
+enterprise UI/design polish HÂLÂ son faz.
 
 - **TD-129 CLOSED (ADR-144)** — Home "Son İncelediklerin" artık yönetilebilir bir `HomeSection` tipi: `RECENTLY_VIEWED`.
   `type=String` olduğu için **migration GEREKMEZ** (SPONSORED_SHOWCASE deseni). Config (JSONB): `{ layout, maxItems≤50,
@@ -2049,10 +2051,11 @@ TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Com
   gateway 1566 · storefront 439 · store-admin 356 — hepsi yeşil; tüm tsc temiz.
 - Sıra: **TD-129/130 (bu) → Final enterprise UI/design polish (SON faz).**
 
-## TD-131 — Customer Data Erasure Workflow (Compliance / KVKK-GDPR) — KOD TAMAM (commit YOK)
+## TD-131 — Customer Data Erasure Workflow (Compliance / KVKK-GDPR) — DONE / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + CANLI DOĞRULAMA + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti.
-  Commit/push/PR/merge/deploy YAPILMADI (git kuralı §8).** Analiz:
+- Durum: **DONE / MERGED + DEPLOYED (PR #132, `cd48c87`/`f184b89`; migration `20260727160000` main'de). Launch
+  Audit 2026-07-27 ile doğrulandı — bayat "commit YOK" kaydı düzeltildi.** Kalan: **TD-132** (yasal-kimlik
+  süre-sonu purge) yalnız EXTERNAL DECISION. Analiz:
   `docs/analysis/TD-131-customer-data-erasure-workflow.md`. ADR-149…155.
 - **İki ayrı aksiyon (karıştırılmaz):** DEACTIVATE (status→PASSIVE + oturum revoke; veri korunur, geri alınabilir)
   ve ERASE_PERSONAL_DATA (status→ERASED terminal; kişisel+davranışsal veri silinir/anonimleşir; finansal/yasal
@@ -2075,3 +2078,31 @@ TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Com
   PostgreSQL, enterprise-demo). gateway 1594 · store-admin 356 — yeşil; build/typecheck/lint temiz; `git diff --check` temiz.
 - Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
   UI click-through) → **✅ CLOSED (2026-07-27)** ayrı docs-only turda; bkz. `docs/TECHNICAL_DEBT.md` TD-127.
+
+## Launch Readiness — Production Gap Audit iş kalemleri (2026-07-27)
+
+Kaynak: `docs/analysis/launch-readiness-product-gap-audit.md`. Bu tur **yalnız analiz** (kod/migration/UI
+değişikliği yok). İş kalemleri öncelik sırasıyla:
+
+- **LR-PB-1 (PROD BLOCKER) — Ödeme webhook imza zorunluluğu.** `POST /payments/webhooks/:provider`
+  (`server.ts:9069-9147`) sipariş PAID geçişini `signatureValid`'e gate'lemiyor + store'u client `body.storeId`'den
+  çözüyor. Gerçek HMAC imza doğrulama + store'u doğrulanmış attempt'ten türet. Canlı ödeme sağlayıcısı (TD-034)
+  açılmadan ÖNCE. Bkz. TD-034, TODO-071.
+- **LR-PB-2 (PROD BLOCKER) — Felaket kurtarma.** Off-host zamanlanmış backup (rotasyon+şifreleme) +
+  dokümante & tatbik edilmiş `pg_restore` runbook'u. `db:restore-enterprise` restore DEĞİL (demo re-seed). Bkz. TD-135.
+- **LR-H-1 (HIGH) — Tema token XSS.** Token değerleri için CSS-value allowlist/escape + `.passthrough()`→`.strict()`;
+  merchant-facing tema editörü öncesi. Bkz. TD-134.
+- **LR-H-2 (HIGH) — Revenue-share currency guard.** Settlement toplamında aynı-currency guard (`400 CURRENCY_MISMATCH`)
+  + karışık-currency dönem tespiti. Bkz. TD-133.
+- **LR-H-3 (HIGH) — Rezervasyon expiry.** single-tx create+place + başarısız DRAFT auto-cancel + worker expiry job. Bkz. TD-136, TD-033.
+- **LR-H-4 (HIGH) — Para-yolu auth'lu smoke.** Deployed stack'te checkout→attempt→webhook→PAID→fulfillment +
+  Sponsored funnel (impression→click→order→refund); fixture-session tekniği. Bkz. TD-122.
+- **LR-MEDIUM:** dağıtık rate-limit (TD-015), dev seed APP_ENV guard, migrate-on-release gate, worker dağıtık kilit,
+  search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı, admin-web Settings inert sayfa.
+- **LR-FINAL-POLISH:** ERASED müşteri ACTIVE seçeneği (server 409-guard'lı), `JOB_ALREADY_RUNNING` i18n eşlemesi,
+  öneri kartı rating yıldızları, parola-değişimi diğer-session revoke, internal-token constant-time, shipping bildirim butonu.
+- **LR-EXTERNAL DECISION:** canlı ödeme sağlayıcısı (TD-034), yasal-saklama süre-sonu purge (**TD-132**), ürün import
+  launch-kapısı GTM segmenti (TD-117).
+- **Bayat kayıt temizliği (yapıldı):** TODO-161B / TD-129/130 / TD-131 "commit YOK" → MERGED olarak düzeltildi.
+  **TODO-159G:** recovery (`cb0fe74`) + seed-koruma (`f9834c9`) main'de → "commit/PR/deploy YAPILMADI" notu bayat;
+  kalan yalnız TD-116-b (guard'lar imaj-rebuild sonrası canlı).

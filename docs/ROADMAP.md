@@ -613,11 +613,11 @@
   grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Test verisi temizlendi; demo bütün (471 ürün).
 - Sıra: **BUG-PDP-001'den SONRA → TODO-161B → final enterprise UI/design polish.**
 
-## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — KOD TAMAM (commit YOK)
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — DONE / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti. Commit/push/PR/
-  merge/deploy YAPILMADI (git kuralı §16).** Analiz: `docs/analysis/TODO-161B-recently-viewed-product-
-  recommendations.md`. ADR-137…143.
+- Durum: **DONE / MERGED + DEPLOYED (PR #130, `a223beb`/`8e2e804`; migration `20260727130000`/`20260727140000`
+  main'de). Launch Audit 2026-07-27 ile doğrulandı — bayat "commit YOK" kaydı düzeltildi.** Analiz:
+  `docs/analysis/TODO-161B-recently-viewed-product-recommendations.md`. ADR-137…143.
 - İki AYRI capability, tek fazda: (1) **Recently Viewed** — `RecentlyViewedProduct` (dual-key
   customerId|visitorHash + kısmi unique index + XOR CHECK; HAM IP/UA saklanmaz; visitorHash =
   HMAC(SESSION_SECRET, first-party `commerce_os_vid`); bot/prefetch elenir; max 50/kimlik write-time; guest→
@@ -645,10 +645,11 @@
   ilgili aday bulunur (canlı 200-boundary smoke + EXPLAIN). TD-129/130 AÇIK.
 - Sıra: **TODO-161B'den SONRA → Final enterprise UI/design polish.**
 
-## Growth & Monetization — Recommendation Surface Governance & Measurement (TD-129 + TD-130) — KOD TAMAM (commit YOK)
+## Growth & Monetization — Recommendation Surface Governance & Measurement (TD-129 + TD-130) — DONE / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti. Commit/push/PR/merge/
-  deploy YAPILMADI (git kuralı).** ADR-144…148. TODO-161B'nin iki açık borcunu kapatır.
+- Durum: **DONE / MERGED + DEPLOYED (PR #131, `1ea9f19`/`c7817d0`; migration `20260727150000` main'de). Launch
+  Audit 2026-07-27 ile doğrulandı — bayat "commit YOK" kaydı düzeltildi.** ADR-144…148. TODO-161B'nin iki açık
+  borcunu kapatır.
 - **TD-129 CLOSED (ADR-144)** — Home "Son İncelediklerin" artık yönetilebilir `HomeSection` tipi `RECENTLY_VIEWED`
   (migration'sız; `type=String`). Admin göster/gizle + sıralama + TR/EN başlık + `maxItems`. ADR-141 gerilimi
   çözüldü: section YALNIZ sunum config'i taşır → `/home` cacheable/viewer-agnostic kalır; veri storefront
@@ -666,10 +667,11 @@
 - Sıra: **TD-129/130'dan SONRA → Final enterprise UI/design polish (SON faz; yeni ürün geliştirme kararına kadar
   başlatılmaz).**
 
-## Compliance — Customer Data Erasure Workflow (TD-131) — KOD TAMAM (commit YOK)
+## Compliance — Customer Data Erasure Workflow (TD-131) — DONE / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + CANLI DOĞRULAMA + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti.
-  Commit/push/PR/merge/deploy YAPILMADI (git kuralı).** ADR-149…155. KVKK md.7 / GDPR Art. 17 uyumu.
+- Durum: **DONE / MERGED + DEPLOYED (PR #132, `cd48c87`/`f184b89`; migration `20260727160000_customer_erasure`
+  main'de). Launch Audit 2026-07-27 ile doğrulandı — bayat "commit YOK" kaydı düzeltildi.** ADR-149…155.
+  KVKK md.7 / GDPR Art. 17 uyumu. Kalan: **TD-132** (yasal-kimlik süre-sonu purge) yalnız EXTERNAL DECISION.
 - **İki ayrı aksiyon (ADR-149):** `Hesabı Pasifleştir` (DEACTIVATE → PASSIVE + oturum revoke; veri korunur, geri
   alınabilir) ve `Kişisel Verileri Sil` (ERASE_PERSONAL_DATA → ERASED terminal; geri alınamaz). Migration
   `20260727160000_customer_erasure` (additive: `CustomerStatus.ERASED` + `erasedAt/erasedByUserId/eraseReason`).
@@ -688,3 +690,30 @@
 - Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
   UI click-through smoke) → **✅ CLOSED (2026-07-27)** ayrı docs-only turda.
 - Sıra: **TD-131 → TD-127 auth'lu smoke (✅ CLOSED) → Final enterprise UI/design polish (SON faz — SIRADAKİ).**
+
+## Launch Readiness — Production Gap Audit (2026-07-27)
+
+- Durum: **ANALİZ TAMAM.** Tam envanter: `docs/analysis/launch-readiness-product-gap-audit.md`. `main` HEAD
+  `03042f3` üzerinde 6 paralel salt-okunur kod keşfi + docs↔kod tutarlılık kontrolü. Kod/migration/UI değişikliği
+  YAPILMADI.
+- **Özet:** Çekirdek ticaret motoru (auth/session, sunucu-otoriter sepet/fiyat, tenant izolasyonu, oversell kilidi,
+  monotonik ödeme durum makinesi, migration disiplini, retention/audit) production-kalite. Launch'ı bloklayan iki
+  küme: **ödeme otantikliği** (webhook imza gate'lenmiyor) ve **felaket kurtarma** (test edilmiş restore yok).
+- **PROD BLOCKER:** (PB-1) Ödeme webhook'u imza doğrulamadan siparişi PAID yapıyor (`server.ts:9069-9147`) —
+  gerçek-ödeme kapısı. (PB-2) Test edilmiş DB restore yolu yok (`db:restore-enterprise` = demo re-seed). (PB-3)
+  Backup manuel/tek-host/zamanlanmamış/offsite-siz. → [[TD-034]], [[TD-135]].
+- **HIGH (launch öncesi):** (H-1) Tema token değerleri sanitize edilmeden `<style dangerouslySetInnerHTML>` →
+  stored-XSS/render-break ([[TD-134]]). (H-2) Sponsorship REVENUE_SHARE currency guard yok → toplam bozulması
+  ([[TD-133]]). (H-3) Rezervasyon expiry + orphan DRAFT temizliği yok → stok kilitlenmesi ([[TD-136]]). (H-4)
+  Ödeme/checkout/Sponsored funnel deploy + auth'lu smoke kanıtı yok (TD-122).
+- **MEDIUM:** dağıtık rate-limit (TD-015), dev seed env guard, migrate-on-release gate, worker dağıtık kilit,
+  search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı disabled buton, admin-web
+  Settings inert placeholder.
+- **EXTERNAL DECISION:** canlı ödeme sağlayıcısı (TD-034); yasal-saklama süre-sonu purge (**TD-132 yalnız buraya**);
+  ürün import launch-kapısı GTM segmenti (TD-117).
+- **FINAL POLISH:** ERASED müşteri ACTIVE seçeneği (server 409-guard'lı); `JOB_ALREADY_RUNNING` i18n eşlemesi;
+  öneri kartı rating yıldızları; parola-değişimi session revoke; internal-token constant-time; shipping bildirim butonu.
+- **FUTURE CAPABILITY:** ürün/varyant import (TD-117), warehouse-aware rezervasyon (TD-047), transactional mail
+  altyapısı, sponsored budget/placement/merge (TD-119/120/123), kısmi-iade (TD-114), store-user auth (TD-019).
+- Önerilen sıra: **Aşama A** (DR + tema XSS + bayat kayıt temizliği) → **Aşama B** (sağlayıcı + webhook imza +
+  para-yolu smoke + rezervasyon expiry) → **Aşama C** (store-user auth + ölçek + future capability). Detay: analiz §9.
