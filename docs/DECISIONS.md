@@ -4298,3 +4298,91 @@ BOUNDED aday kümesi için batch okunur (N+1 yok). Görünürlük+stok gate `Pro
 (`storeId,primaryCategoryId`/`storeId,hasStock`/`storeId,productCreatedAt`). 471 ürün ve 50k+ katalog varsayımında
 tüm katalog belleğe ALINMAZ. Recently-viewed kart hidrasyonu da aynı read-model gate'inden (deleted/passive/out-of-
 stock elenir). Kart snapshot'ı read-model worker'ıyla senkron (ürün değişince reindex → cache invalidation).
+
+## ADR-144 — "Son İncelediklerin" HomeSection governance (TD-129)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-086/141 · **Öncül:** TD-129 ·
+**Revizyon:** ADR-141 "HomeSection tipi YAPILMADI" kararını GÖVERSER (ürün gereği admin-yönetilebilirlik).
+
+**Karar.** Home "Son İncelediklerin" şeridi artık polimorfik `HomeSection` modelinin yeni bir tipidir:
+`RECENTLY_VIEWED`. `HomeSection.type` bir DB enum DEĞİL `String` olduğundan **migration GEREKMEZ** (contract
+allowlist + storefront renderer genişler; SPONSORED_SHOWCASE deseni). Admin şeridi gösterir/gizler, diğer
+section'lar arasında sıralar, TR/EN başlığı ve `maxItems`'ı yönetir. Config (JSONB): `{ layout, maxItems (≤50),
+titleTr?, titleEn? }`.
+
+**ADR-141 gerilimi nasıl çözüldü.** ADR-141 iki gerekçeyle tip yapmayı reddetmişti: (1) kişiselleştirme,
+(2) cacheable `/home` sözleşmesi viewer-kimliği taşımaz. Çözüm: section **YALNIZ sunum yapılandırması** taşır;
+ürünler `/home`'a GÖMÜLMEZ. `/home` cacheable/viewer-agnostic kalır (yalnız config + TR/EN başlık, locale bile
+storefront'ta seçilir). Gerçek veri, storefront istemcisinde mevcut `/recently-viewed` ucundan (customer/visitor
+kimliğiyle) hidrasyon edilir — TODO-161B altyapısı DEĞİŞMEZ. Public compose `RECENTLY_VIEWED` section'ı **boş-atlama
+UYGULAMADAN** emit eder (geçmiş kararı client'ta; geçmiş yoksa şerit hiç render edilmez, boş-durum yer tutmaz).
+Storefront'taki eski manuel/sabit iki `RecentlyViewedRail` render'ı (CMS + fallback dalları) KALDIRILDI → duplicate
+render yok; şerit yalnız `RECENTLY_VIEWED` section'ıyla yönetilir. Ayrı home engine/paralel CMS KURULMADI.
+
+## ADR-145 — Recommendation Measurement event domain izolasyonu (TD-130)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-102…107 (influencer) · ADR-114…120 (sponsored) ·
+**Öncül:** TD-130
+
+**Karar.** Öneri yüzeylerinin (Recently Viewed / Similar Products) davranış ölçümü **AYRI bir domain**dir:
+yeni `RecommendationEvent` tablosu + `apps/api-gateway/src/recommendation-events/` modülü. Influencer
+(`AttributionClick`) veya sponsored (`SponsoredProductEvent`) tablolarına ASLA yazmaz; onların attribution/billing
+zincirlerine bağlanmaz. Model `SponsoredProductEvent` deseni: `productId`/`anchorProductId` **plain String**
+(Product FK YOK → minimal coupling; event-store'da silinmiş ürün referansı normaldir), yalnız `Store` FK (Cascade,
+tenant sütunu). `customerId` nullable plain (analytics; silinen müşteri agregatları korunur). KVKK: `visitorHash`/
+`sessionHash` tuzlu HMAC (ham IP/UA SAKLANMAZ); bot/prefetch **event ÜRETMEZ** (satır hiç yazılmaz → `isBot`
+kolonu YOK). Bu faz kapsam-dışı: order/revenue/multi-touch attribution, ML ranking, dashboard optimizasyonu.
+
+## ADR-146 — Source/placement taksonomisi + sunucu-otoritesi (TD-130)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-145 · **Öncül:** TD-130
+
+**Karar.** İki taksonomi ALLOWLIST'tir (sunucu doğrular; istemci genişletemez):
+- **source:** `RECENTLY_VIEWED`, `SIMILAR_PRODUCTS`.
+- **placement:** `HOME`, `PDP`, `CART`, `ACCOUNT`.
+- **eventType:** `IMPRESSION`, `CLICK`, `ADD_TO_CART`.
+
+Allowlist dışı değer → event yazılmaz (safeParse başarısız). **Sunucu otoritesi:** storeId slug'dan sunucu-tarafı
+çözülür; kimlik (customer > visitor > session) sunucuda hash'lenir; `createdAt` SUNUCU zamanıdır (istemci timestamp
+otoritesi DEĞİL); ürün + anchor **store-sahipliği** doğrulanır (cross-store event reddi). Payload bounded (id ≤64,
+dedupeKey ≤96). Rate limit IP-hash kayan pencere. İstemci store/kimlik/gelir otoritesi DEĞİLDİR.
+
+## ADR-147 — Impression semantiği + dedupe politikası (TD-130)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-118 (sponsored impression) · **Öncül:** TD-130
+
+**Karar.** **Impression yalnız gerçekten viewport'a giren kartta** sayılır: storefront kartı `IntersectionObserver`
+(`threshold: 0.5`) ile viewport'a %50 girince BİR KEZ IMPRESSION atar (mount-beacon DEĞİL; SSR'da sayılmaz).
+**Click** yalnız gerçek ürün-bağlantısı (navigasyon) tıklamasında (swatch/wishlist tıklaması sayılmaz; `onClickCapture`
++ `closest("a")`). **Add-to-cart** yalnız BAŞARILI sepete-ekleme sonrası (buy-box `setAdded(true)` noktası);
+öneri kartında add-to-cart butonu YOKTUR → SAHTE aksiyon eklenmez; kullanıcı bir öneri kartından PDP'ye geldiyse,
+tıklama anında sessionStorage'a yazılan "son-öneri-tıklama" bağlamı, hedef PDP'de sepete-eklemede TÜKETİLİR ve
+ADD_TO_CART kaynağıyla atfedilir (tek-dokunuş; order/revenue attribution DEĞİL). Account yüzeyinde add-to-cart
+aksiyonu olmadığından sahte aksiyon EKLENMEZ.
+
+**Dedupe:** (1) IMPRESSION — kimlik+source+placement+ürün için **30 dk** penceresinde tekrar impression yeni satır
+AÇMAZ (client tek-mount guard + server pencere-sorgusu). (2) CLICK — daha KISA pencere (**30 sn**; çift-tıklama/re-fire
+guard). (3) ADD_TO_CART — pencere-bazlı DEĞİL, **idempotent `dedupeKey`** (istemci clickId nonce'u; aynı dönüşüm iki
+kez sayılmaz). Dedupe pencereleri sunucu config'idir.
+
+## ADR-148 — Recommendation event retention politikası (TD-130)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-136/139 · **Öncül:** TD-130
+
+**Karar.** `RecommendationEvent` ham davranış-event'i **180 gün** (min taban 30) sonra budanır. Korunacak finansal
+kayıt YOK (yalnız davranış event'i; yaprak tablo → orphan yok). Retention, TODO-161A.1 SAF altyapısını YENİDEN
+KULLANIR ama **AYRI domain** (recently-viewed retention precedent'i, ADR-139 gibi): pure `computeCutoff`/
+`isCircuitBreakerTripped`, dağıtık PostgreSQL advisory lock (`jobType=recommendation-event-retention`), `QueueJobLog`
+(queueName `recommendation-events`). Influencer/sponsored `RETENTION_TABLE_SPECS` allowlist'ine **DOKUNMAZ** (domain
+izolasyonu). dry-run VARSAYILAN, apply explicit (`dryRun:false`), store-scope zorunlu, cutoff SUNUCU config'i,
+bounded batch delete (take→deleteMany id-in), row-count circuit breaker, env gate
+(`RECOMMENDATION_EVENT_RETENTION_ENABLED=false` varsayılan → açıkça etkinleştirilmeden ASLA otomatik DELETE).
+
+**Customer deletion / erasure (KVKK).** Platformda şu an hard customer-deletion akışı YOKTUR (müşteri yalnız
+status ile soft-deactivate; `deletedAt` yok). `RecommendationEvent.customerId` bilinçli FK'siz plain String →
+DB Cascade kapsamaz. KVKK üç katmanla karşılanır: (1) ham PII saklamama (HMAC hash), (2) store-scope 180-gün
+retention, (3) store Cascade. İleride gerçek bir hard customer-deletion akışı eklenirse, recommendation domaini
+**testli+hazır** `RecommendationEventData.deleteForCustomer(storeId, customerId)` erasure primitifiyle temizlenmelidir
+(tenant-scoped `deleteMany({where:{storeId,customerId}})`; guest/diğer müşteri/diğer store'a dokunmaz; finansal
+Order/OrderLine snapshot'ları ayrı tablo, `Order.customerId` zaten SetNull). Aynı gereklilik FK'siz
+`SponsoredProductEvent`/`AttributionClick` için de geçerlidir (bunlar da yalnız zaman-bazlı retention'la budanır).

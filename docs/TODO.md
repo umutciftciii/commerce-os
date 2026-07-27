@@ -2017,3 +2017,32 @@
   storefront tsc temiz. Gate'ler: build/typecheck/lint/test/git-diff/migrate-status — hepsi yeşil.
 - TD durumu: **TD-128 CLOSED**; TD-129 (Home şeridi CMS-yönetimli değil) + TD-130 (recommendation ölçümü) AÇIK.
 - Sıra: **TODO-161B (bu) → Final enterprise UI/design polish.**
+
+## TD-129 + TD-130 — Recommendation Surface Governance & Measurement (ADR-144…148) — KOD TAMAM (commit YOK)
+
+TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Commit/push/PR/merge/deploy YAPILMADI** (git kuralı). Final enterprise UI/design polish HÂLÂ son faz.
+
+- **TD-129 CLOSED (ADR-144)** — Home "Son İncelediklerin" artık yönetilebilir bir `HomeSection` tipi: `RECENTLY_VIEWED`.
+  `type=String` olduğu için **migration GEREKMEZ** (SPONSORED_SHOWCASE deseni). Config (JSONB): `{ layout, maxItems≤50,
+  titleTr?, titleEn? }`. ADR-141 gerilimi: section YALNIZ sunum config'i taşır → `/home` cacheable/viewer-agnostic
+  kalır; veri storefront istemcisinde `/recently-viewed` ucundan hidrasyon (TODO-161B altyapısı değişmedi). Public
+  compose `RECENTLY_VIEWED`'i boş-atlama olmadan emit eder (geçmiş kararı client'ta; geçmiş yoksa şerit render olmaz).
+  Katmanlar: contracts (enum + config + public union) → gateway (home data/routes parseConfig + server.ts compose) →
+  store-admin (form + detail info + TR/EN başlık; base title/subtitle bu tipte gizli) → storefront (catalog-types +
+  getHome locale başlık çözümü + home-sections render). Eski manuel iki sabit `RecentlyViewedRail` (CMS + fallback)
+  KALDIRILDI (duplicate yok).
+- **TD-130 CLOSED (ADR-145…148)** — Recommendation Measurement. AYRI davranış-event domaini: `RecommendationEvent`
+  tablosu (migration `20260727150000`; yalnız Store FK; productId/anchorProductId plain; visitorHash/sessionHash HMAC;
+  bot/prefetch satır YAZMAZ; `dedupeKey` add-to-cart idempotency). Modül `apps/api-gateway/src/recommendation-events/`
+  (event-core SAF + data + routes + retention üçlüsü). Uçlar: `POST /public/stores/:slug/recommendation-events`
+  (impression/click/add-to-cart ingest) + `GET /stores/:storeId/recommendation-events/summary` (platform-admin funnel).
+  source (`RECENTLY_VIEWED`/`SIMILAR_PRODUCTS`) + placement (`HOME`/`PDP`/`CART`/`ACCOUNT`) + type ALLOWLIST;
+  sunucu-otoritesi (store slug'dan, kimlik hash, createdAt sunucu, ürün+anchor store-sahipliği, rate limit). UI wiring:
+  `RecommendationCard` wrapper (IntersectionObserver %50 → impression; onClickCapture → click + sessionStorage
+  attribution) Home/PDP/Cart/Account'ta; buy-box başarılı add-to-cart'ta son-öneri-tıklama attribution tüketir (sahte
+  aksiyon yok). Dedupe: impression 30 dk, click 30 sn, add-to-cart dedupeKey. Retention 180 gün (ayrı worker/jobType,
+  `RETENTION_TABLE_SPECS`'e dokunmaz; env gate default kapalı). Store-admin görünürlük: `/home/insights`.
+- Migration: `20260727150000_add_recommendation_events` (additive; gerçek Postgres'te uygulandı + doğrulandı).
+- Testler: yeni backend (event-core + retention + routes) + home RECENTLY_VIEWED + storefront attribution;
+  gateway 1566 · storefront 439 · store-admin 356 — hepsi yeşil; tüm tsc temiz.
+- Sıra: **TD-129/130 (bu) → Final enterprise UI/design polish (SON faz).**

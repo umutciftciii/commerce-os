@@ -11,6 +11,7 @@ const tr = {
   description:
     "Vitrin ana sayfasını yönet: hero slider, öne çıkan kategoriler ve ürün showcase'leri. Sıra vitrinde bu sırayla görünür.",
   newSection: "Yeni bölüm",
+  insightsLink: "Öneri Ölçümü",
   cardTitle: "Bölümler",
   countLabel: "{count} bölüm",
   types: {
@@ -18,6 +19,7 @@ const tr = {
     FEATURED_CATEGORIES: "Öne Çıkan Kategoriler",
     PRODUCT_SHOWCASE: "Ürün Showcase",
     SPONSORED_SHOWCASE: "Sponsorlu Vitrin",
+    RECENTLY_VIEWED: "Son İncelediklerin",
   } as Record<string, string>,
   table: { type: "Tip", title: "Başlık", visibility: "Görünürlük", status: "Durum", order: "Sıra", actions: "İşlemler" },
   enabled: "Aktif",
@@ -64,6 +66,10 @@ const tr = {
     layoutCarousel: "Carousel",
     layoutGrid: "Grid",
     maxItemsLabel: "Maksimum ürün",
+    titleTrLabel: "Başlık (TR)",
+    titleEnLabel: "Başlık (EN)",
+    recentlyViewedHint:
+      "İçerik her ziyaretçinin KENDİ görüntüleme geçmişinden otomatik gelir; burada ürün seçimi yapılmaz. Geçmişi olmayan ziyaretçide bu bölüm hiç gösterilmez. Başlığı boş bırakırsanız varsayılan çeviri kullanılır.",
     sponsoredHint:
       "İçerik AKTİF sponsorlu kampanyalardan (yerleşim: Ana sayfa vitrini) otomatik gelir. Ürün seçimi burada YAPILMAZ — Sponsorlu Kampanyalar modülünden yönetilir. Aktif kampanya/ürün yoksa bu bölüm gizlenir.",
     sourceLabel: "Kaynak",
@@ -132,6 +138,7 @@ const en: typeof tr = {
   description:
     "Manage the storefront home: hero slider, featured categories and product showcases. Order here is the render order on the storefront.",
   newSection: "New section",
+  insightsLink: "Recommendation Insights",
   cardTitle: "Sections",
   countLabel: "{count} sections",
   types: {
@@ -139,6 +146,7 @@ const en: typeof tr = {
     FEATURED_CATEGORIES: "Featured Categories",
     PRODUCT_SHOWCASE: "Product Showcase",
     SPONSORED_SHOWCASE: "Sponsored Showcase",
+    RECENTLY_VIEWED: "Recently Viewed",
   },
   table: { type: "Type", title: "Title", visibility: "Visibility", status: "Status", order: "Order", actions: "Actions" },
   enabled: "Enabled",
@@ -185,6 +193,10 @@ const en: typeof tr = {
     layoutCarousel: "Carousel",
     layoutGrid: "Grid",
     maxItemsLabel: "Max products",
+    titleTrLabel: "Title (TR)",
+    titleEnLabel: "Title (EN)",
+    recentlyViewedHint:
+      "Content comes automatically from each visitor's OWN viewing history; no products are selected here. Visitors with no history won't see this section at all. Leave the title empty to use the default translation.",
     sponsoredHint:
       "Content comes automatically from ACTIVE sponsored campaigns (placement: Home showcase). Products are not selected here — manage them in the Sponsored Products module. If no active campaign/products, this section is hidden.",
     sourceLabel: "Source",

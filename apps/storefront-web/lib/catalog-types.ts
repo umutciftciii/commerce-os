@@ -279,6 +279,13 @@ export type StorefrontHomeSection =
       type: "SPONSORED_SHOWCASE";
       layout: "CAROUSEL" | "GRID";
       products: StorefrontProductSummary[];
+    })
+  // TD-129 (ADR-144) — "Son İncelediklerin". ÜRÜN TAŞIMAZ (ziyaretçiye-özgü; client island /recently-viewed'den
+  // çeker). base.title locale'e göre çözülmüş TR/EN başlıktır (getHome'da); geçmiş yoksa şerit hiç render etmez.
+  | (StorefrontHomeSectionBase & {
+      type: "RECENTLY_VIEWED";
+      layout: "CAROUSEL" | "GRID";
+      maxItems: number;
     });
 
 export interface StorefrontHome {

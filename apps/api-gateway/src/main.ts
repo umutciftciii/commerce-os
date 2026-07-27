@@ -9,6 +9,7 @@ import { startCampaignReconcileWorker } from "./campaigns/reconcile-worker.js";
 import { startSettlementSchedulerWorker } from "./commercial-automation/settlement-scheduler-worker.js";
 import { startRetentionWorker } from "./commercial-automation/retention-worker.js";
 import { startRecentlyViewedRetentionWorker } from "./recently-viewed/retention-worker.js";
+import { startRecommendationEventRetentionWorker } from "./recommendation-events/retention-worker.js";
 import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 
 const config = loadConfig();
@@ -27,6 +28,8 @@ const settlementSchedulerWorker = startSettlementSchedulerWorker({ config, logge
 const retentionWorker = startRetentionWorker({ config, logger });
 // TODO-161B (ADR-139) — zamanlanmis Recently Viewed retention (RECENTLY_VIEWED_RETENTION_ENABLED=false ise no-op).
 const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger });
+// TD-130 (ADR-148) — zamanlanmis Recommendation event retention (RECOMMENDATION_EVENT_RETENTION_ENABLED=false ise no-op).
+const recommendationEventRetentionWorker = startRecommendationEventRetentionWorker({ config, logger });
 
 const shutdown = async (signal: string) => {
   logger.info("api gateway shutting down", { signal });
@@ -36,6 +39,7 @@ const shutdown = async (signal: string) => {
   await settlementSchedulerWorker.stop();
   await retentionWorker.stop();
   await recentlyViewedRetentionWorker.stop();
+  await recommendationEventRetentionWorker.stop();
   await disconnectDefaultAdvisoryLockManager();
   await app.close();
   await closeQueueConnections();

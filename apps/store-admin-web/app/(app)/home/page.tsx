@@ -33,7 +33,7 @@ type LoadState =
   | { status: "ready"; sections: HomeSection[] };
 type Editor = { mode: "create" } | { mode: "edit"; section: HomeSection } | null;
 
-const SECTION_TYPES: HomeSectionType[] = ["HERO_SLIDER", "FEATURED_CATEGORIES", "PRODUCT_SHOWCASE", "SPONSORED_SHOWCASE"];
+const SECTION_TYPES: HomeSectionType[] = ["HERO_SLIDER", "FEATURED_CATEGORIES", "PRODUCT_SHOWCASE", "SPONSORED_SHOWCASE", "RECENTLY_VIEWED"];
 
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
@@ -212,7 +212,14 @@ export default function HomeExperiencePage() {
         eyebrow={t.eyebrow}
         title={t.title}
         description={t.description}
-        actions={<Button onClick={() => setEditor({ mode: "create" })}>{t.newSection}</Button>}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => router.push("/home/insights")}>
+              {t.insightsLink}
+            </Button>
+            <Button onClick={() => setEditor({ mode: "create" })}>{t.newSection}</Button>
+          </div>
+        }
       />
 
       {notice ? (
@@ -310,6 +317,9 @@ function SectionEditor({
   const [autoplayMs, setAutoplayMs] = useState(cfg.autoplayMs != null ? String(cfg.autoplayMs) : "");
   const [layout, setLayout] = useState<string>((cfg.layout as string) ?? "CAROUSEL");
   const [maxItems, setMaxItems] = useState(cfg.maxItems != null ? String(cfg.maxItems) : "12");
+  // TD-129 — RECENTLY_VIEWED TR/EN başlık (config'te; /home locale-agnostic kalsın diye storefront'ta seçilir).
+  const [titleTr, setTitleTr] = useState((cfg.titleTr as string) ?? "");
+  const [titleEn, setTitleEn] = useState((cfg.titleEn as string) ?? "");
   const [sourceKind, setSourceKind] = useState<string>((cfgSource.kind as string) ?? "MANUAL");
   const [rule, setRule] = useState<string>((cfgSource.rule as string) ?? "NEW_PRODUCTS");
   const [categorySlug, setCategorySlug] = useState((cfgParams.categorySlug as string) ?? "");
@@ -329,6 +339,16 @@ function SectionEditor({
       // İçerik AKTİF sponsorlu kampanyalardan (HOME_SHOWCASE) gelir; section yalnız sunum + slot tavanı.
       const maxS = Number.parseInt(maxItems, 10);
       return { layout, maxItems: Number.isFinite(maxS) ? Math.min(maxS, 12) : 8 };
+    }
+    if (type === "RECENTLY_VIEWED") {
+      // TD-129 — İçerik ziyaretçi geçmişinden; section yalnız sunum (TR/EN başlık + maxItems + düzen).
+      const maxR = Number.parseInt(maxItems, 10);
+      return {
+        layout,
+        maxItems: Number.isFinite(maxR) ? Math.min(Math.max(maxR, 1), 50) : 12,
+        titleTr: titleTr.trim() || null,
+        titleEn: titleEn.trim() || null,
+      };
     }
     // PRODUCT_SHOWCASE
     const source =
@@ -418,20 +438,26 @@ function SectionEditor({
           />
         )}
 
-        <Input
-          id="home-title"
-          label={f.titleLabel}
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          disabled={saving}
-        />
-        <Input
-          id="home-subtitle"
-          label={f.subtitleLabel}
-          value={subtitle}
-          onChange={(event) => setSubtitle(event.target.value)}
-          disabled={saving}
-        />
+        {/* TD-129 — RECENTLY_VIEWED başlığı TR/EN ayrı yönetilir (aşağıdaki blokta); tek-dilli genel
+            başlık/alt başlık bu tipte gizlenir. */}
+        {type !== "RECENTLY_VIEWED" ? (
+          <>
+            <Input
+              id="home-title"
+              label={f.titleLabel}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              disabled={saving}
+            />
+            <Input
+              id="home-subtitle"
+              label={f.subtitleLabel}
+              value={subtitle}
+              onChange={(event) => setSubtitle(event.target.value)}
+              disabled={saving}
+            />
+          </>
+        ) : null}
 
         <div className="flex flex-wrap gap-4">
           <Checkbox label={f.enabledLabel} checked={enabled} onChange={setEnabled} disabled={saving} />
@@ -466,6 +492,45 @@ function SectionEditor({
             />
             <Input
               id="home-max-sp"
+              type="number"
+              label={f.maxItemsLabel}
+              value={maxItems}
+              onChange={(event) => setMaxItems(event.target.value)}
+              disabled={saving}
+            />
+          </>
+        ) : null}
+
+        {type === "RECENTLY_VIEWED" ? (
+          <>
+            <Alert tone="info">{f.recentlyViewedHint}</Alert>
+            <Input
+              id="home-rv-title-tr"
+              label={f.titleTrLabel}
+              value={titleTr}
+              onChange={(event) => setTitleTr(event.target.value)}
+              disabled={saving}
+            />
+            <Input
+              id="home-rv-title-en"
+              label={f.titleEnLabel}
+              value={titleEn}
+              onChange={(event) => setTitleEn(event.target.value)}
+              disabled={saving}
+            />
+            <Select
+              id="home-layout-rv"
+              label={f.layoutLabel}
+              value={layout}
+              onChange={(e) => setLayout(e.target.value)}
+              disabled={saving}
+              options={[
+                { value: "CAROUSEL", label: f.layoutCarousel },
+                { value: "GRID", label: f.layoutGrid },
+              ]}
+            />
+            <Input
+              id="home-max-rv"
               type="number"
               label={f.maxItemsLabel}
               value={maxItems}

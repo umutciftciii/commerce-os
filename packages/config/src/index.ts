@@ -220,6 +220,23 @@ export const envSchema = z.object({
   RECENTLY_VIEWED_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
   // Circuit breaker: tek turda bir store'dan silinebilecek maksimum aday satir. Asilirsa APPLY reddedilir.
   RECENTLY_VIEWED_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
+  // ── TD-130 (ADR-145…148) — Recommendation Measurement (event domain). ─────────────────────────
+  // Event kayit ucu rate limit (IP-hash kayan pencere): pencere basina azami istek. DoS/enumeration yavaslatma.
+  RECOMMENDATION_EVENT_RATE_LIMIT_MAX: optionalNumberEnv(z.coerce.number().int().positive().default(240)),
+  RECOMMENDATION_EVENT_RATE_LIMIT_WINDOW_SECONDS: optionalNumberEnv(z.coerce.number().int().positive().default(60)),
+  // Impression dedupe penceresi (saniye): ayni kimlik+urun+source+placement icin bu sure icinde tekrar
+  // impression YENI satir ACMAZ (ADR-147). Varsayilan 30 dk (1800s).
+  RECOMMENDATION_IMPRESSION_DEDUPE_SECONDS: optionalNumberEnv(z.coerce.number().int().min(0).default(1800)),
+  // Click dedupe penceresi (saniye): impression'dan KISA (cift-tiklama/re-fire guard). Varsayilan 30s.
+  RECOMMENDATION_CLICK_DEDUPE_SECONDS: optionalNumberEnv(z.coerce.number().int().min(0).default(30)),
+  // Zamanlanmis Recommendation event retention worker'i (AYRI domain; sponsored/influencer allowlist'ine
+  // dokunmaz). false (varsayilan) → env gate: acikca etkinlestirilmeden ASLA otomatik DELETE.
+  RECOMMENDATION_EVENT_RETENTION_ENABLED: optionalBooleanEnv(false),
+  RECOMMENDATION_EVENT_RETENTION_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  // Ham davranis-event saklama gunu (ADR-148 = 180). Alt sinir 30 (guvenlik tabani). createdAt < cutoff budanir.
+  RECOMMENDATION_EVENT_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
+  RECOMMENDATION_EVENT_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
+  RECOMMENDATION_EVENT_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
   // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
   // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
   // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla

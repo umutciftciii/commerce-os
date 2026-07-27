@@ -886,3 +886,40 @@ circuit breaker), `RECENTLY_VIEWED_MAX_PER_VISITOR` (50, write-time cap).
 **KVKK / silme.** `RecentlyViewedProduct` Customer/Store/Product'a `onDelete: Cascade` → müşteri/mağaza/ürün
 silinince otomatik temizlik; finansal OrderLine snapshot'ları ETKİLENMEZ. Kullanıcı geçmişini `DELETE` ucuyla
 kendisi temizleyebilir (Hesabım > Görüntüleme Geçmişi).
+
+### Zamanlanmış retention worker'ı (`recommendation-event-retention`) — TD-130 (ADR-148)
+`RecommendationEvent` ham davranış-event'ini **180-gün** cutoff'uyla (createdAt < cutoff) store-scope batch DELETE
+eder. Korunacak finansal kayıt YOK (yalnız davranış event'i). TODO-161A.1 SAF altyapısını reuse eder (advisory lock
++ `QueueJobLog`); domain AYRI (influencer/sponsored `RETENTION_TABLE_SPECS` allowlist'ine DOKUNMAZ).
+
+Env: `RECOMMENDATION_EVENT_RETENTION_ENABLED` (false — açılmadan otomatik silme YOK), `_INTERVAL_SECONDS` (86400,
+min 3600), `RECOMMENDATION_EVENT_RETENTION_DAYS` (180, min 30), `_BATCH_SIZE` (1000), `_MAX_DELETE_PER_RUN` (200000,
+circuit breaker). Event ucu ayrıca: `RECOMMENDATION_EVENT_RATE_LIMIT_MAX` (240) / `_WINDOW_SECONDS` (60),
+`RECOMMENDATION_IMPRESSION_DEDUPE_SECONDS` (1800), `RECOMMENDATION_CLICK_DEDUPE_SECONDS` (30).
+
+**Overlap & görünürlük.** Dağıtık PostgreSQL advisory lock (jobType `recommendation-event-retention`, granülerlik
+(jobType,storeId)); kilitlenen tur SKIPPED_LOCKED. Store başına TEK `QueueJobLog` satırı (queueName
+`recommendation-events`). Manuel tetik/status için ayrı store-admin ucu YOKTUR (worker + dry-run/apply servis
+seviyesinde); zamanlanmış tur env gate ile çalışır. Doğrulama:
+`docker compose logs api-gateway | grep -E "recommendation-event retention"`.
+
+**Dry-run doğrulaması (canlı).** Retention servisi DI-testable; production'da worker default KAPALI. Manuel dry-run
+için worker `runOnce(false)` (apply=false) çağrısı yalnız aday SAYAR (silme YOK) ve store başına `QueueJobLog`
+`payload.outcome=DRY_RUN` yazar. Apply (`runOnce(true)`) yalnız env gate açıkken veya bilinçli tetikte çalışır.
+
+**KVKK / veri minimizasyonu.** `RecommendationEvent` ham IP/UA SAKLAMAZ (yalnız tuzlu HMAC `visitorHash`/
+`sessionHash`); bot/prefetch event ÜRETMEZ. `onDelete: Cascade` yalnız Store'a bağlı (mağaza silinince temizlik).
+Store-admin görünürlük: `/home/insights` (impression/click/CTR/add-to-cart + source/placement kırılımı; salt-okunur
+funnel; büyük raporlama yok).
+
+**Customer deletion / erasure (KVKK).** Platformda şu an **hard customer-deletion akışı YOKTUR** — müşteri yalnız
+status ile soft-deactivate edilir (`CustomerStatus` ACTIVE/PASSIVE/BLOCKED/ARCHIVED; `deletedAt` yok, delete/anonymize
+servisi yok). `RecommendationEvent.customerId` bilinçli olarak **FK'siz plain String**tir (analytics; SponsoredProduct
+Event/AttributionClick deseni) → DB Cascade bu satırları KAPSAMAZ. Bu nedenle KVKK, üç katmanla karşılanır: (1) ham
+PII saklamama (hash), (2) store-scope 180-gün retention purge, (3) store silinince Cascade. **İleride gerçek bir hard
+customer-deletion / "verilerimi sil" akışı eklenirse**, o akış recommendation domainini `RecommendationEventData.
+deleteForCustomer(storeId, customerId)` erasure primitifiyle temizlemelidir (tenant-scoped `deleteMany({where:{storeId,
+customerId}})`; guest/diğer müşteri/diğer store event'lerine dokunmaz; finansal Order/OrderLine snapshot'ları ayrı
+tablodadır ve `Order.customerId` zaten `SetNull`'dur). Aynı gereklilik FK'siz `SponsoredProductEvent`/`AttributionClick`
+için de geçerlidir. `deleteForCustomer` bu faz kapsamında **testli+hazır**dır ama henüz bir akışa bağlı DEĞİLDİR
+(dead-hook değil; erasure sözleşmesinin garantisi). Kanıt: `apps/api-gateway/test/recommendation-events-data.test.ts`.

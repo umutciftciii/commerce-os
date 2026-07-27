@@ -201,6 +201,8 @@ import type {
   CommercialAutomationStatusResponse,
   SettlementSchedulerRunResponse,
   RetentionRunResponse,
+  // TD-130 — Recommendation Measurement görünürlük özeti.
+  RecommendationSummaryResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -870,6 +872,9 @@ export type {
   SettlementSchedulerRunResponse,
   RetentionRunResponse,
 } from "@commerce-os/contracts";
+
+// TD-130 — Recommendation Measurement görünürlük özeti kontrat tipi (type-only re-export).
+export type { RecommendationSummaryResponse } from "@commerce-os/contracts";
 
 /**
  * F3C.1 — Shipping provider foundation kontrat tipleri (type-only re-export).
@@ -1818,6 +1823,10 @@ export interface ApiClient {
       getStatus(storeId: string, token?: string): Promise<CommercialAutomationStatusResponse>;
       runSettlementScheduler(storeId: string, input: CommercialAutomationRunRequest, token?: string): Promise<SettlementSchedulerRunResponse>;
       runRetention(storeId: string, input: CommercialAutomationRunRequest, token?: string): Promise<RetentionRunResponse>;
+    };
+    // TD-130 — Recommendation Measurement görünürlük özeti (platform-admin, store-scope; salt-okunur funnel).
+    recommendations: {
+      summary(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<RecommendationSummaryResponse>;
     };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
@@ -3194,6 +3203,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<SettlementSchedulerRunResponse>(`/stores/${storeId}/commercial-automation/settlement-scheduler/run`, "POST", input, token),
         runRetention: (storeId, input, token) =>
           sendJson<RetentionRunResponse>(`/stores/${storeId}/commercial-automation/retention/run`, "POST", input, token),
+      },
+      // TD-130 — Recommendation Measurement görünürlük özeti.
+      recommendations: {
+        summary: (storeId, token, query) =>
+          getJson<RecommendationSummaryResponse>(`/stores/${storeId}/recommendation-events/summary${buildQueryString(query)}`, token),
       },
       paymentProviders: {
         list: (storeId, token) =>
