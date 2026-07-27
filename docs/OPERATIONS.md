@@ -800,3 +800,56 @@ sunucudaki değişmişse `409 BALANCE_CHANGED` → istemci yeniler.
 
 **Defter bütünlüğü.** Tahsilat ve mahsup defterleri APPEND-ONLY: iptal = negatif satır (silme/güncelleme
 YOK). Geçmiş event/settlement/tahakkuk/ödeme kayıtları anlaşma suspend/cancel olsa da SİLİNMEZ.
+
+## Commercial Automation & Retention — zamanlanmış job'lar + manuel operasyon (TODO-161A.1 / ADR-130…136)
+
+İki yeni **süreç-içi zamanlanmış worker** (api-gateway; ADR-051 shipment-sync deseni). Her ikisi de
+**default KAPALI** — env bayrağı açılmadan hiçbir otomatik iş yapmaz. Manuel tetik + görünürlük store-admin
+`/operations` sayfasından; uçlar tenant-izole (`/stores/:storeId/commercial-automation/...`, platform-admin).
+
+### 1) `sponsorship-settlement-scheduler` (TD-125)
+
+Kapanmış dönemler için OTOMATİK **DRAFT** settlement üretir (otomatik finalize YOK). Yalnız ACTIVE/COMPLETED +
+WEEKLY/MONTHLY/CAMPAIGN_END anlaşmalar. `previewSettlement` reuse → unique-dönem + FINALIZED-immutable →
+duplicate imkânsız, idempotent. Dönem sınırları store timezone'a göre (`StoreSettings.timezone`, fallback
+`COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE`).
+
+Env: `SETTLEMENT_SCHEDULER_ENABLED` (false), `SETTLEMENT_SCHEDULER_INTERVAL_SECONDS` (3600, min 60),
+`SETTLEMENT_SCHEDULER_BATCH_SIZE` (500).
+
+Manuel: `POST /stores/:storeId/commercial-automation/settlement-scheduler/run` body `{ dryRun?: boolean }`
+(varsayılan RUN; `dryRun:true` yalnız aday raporlar). Log doğrulama:
+`docker compose logs api-gateway | grep "settlement scheduler"`.
+
+### 2) `attribution-event-retention` (TD-121 + TD-113)
+
+Süresi geçmiş HAM funnel/click event'lerini store-scope batch DELETE eder: `SponsoredProductEvent`,
+`AttributionClick`. Finans snapshot/defter/settlement ASLA silinmez (ADR-134; yaprak tablo → orphan yok).
+
+Env: `ATTRIBUTION_RETENTION_ENABLED` (false — açılmadan otomatik silme YOK), `_INTERVAL_SECONDS` (86400, min 3600),
+`_BATCH_SIZE` (1000), `SPONSORED_EVENT_RETENTION_DAYS` (180, min 30), `INFLUENCER_CLICK_RETENTION_DAYS` (180, min 30),
+`ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN` (200000, circuit breaker).
+
+**Güvenlik (ADR-135):** dry-run VARSAYILAN; apply explicit (`dryRun:false` / worker `apply=true`); cutoff SUNUCU
+config otoritesi (istemci gönderemez); circuit breaker aşılırsa APPLY reddedilir (dry-run raporlar);
+zamanlanmış worker default KAPALI. Manuel:
+`POST /stores/:storeId/commercial-automation/retention/run` body `{ dryRun?: boolean }` — **APPLY yalnız
+`dryRun:false` ile** (store-admin UI'da danger onay modal'ı + kapsam gösterimi). Dry-run önce ZORUNLU alışkanlık.
+
+### Overlap & görünürlük (DAĞITIK kilit — ADR-136 revize)
+
+Overlap kilidinin otoritesi **PostgreSQL advisory lock**'tur (session-level `pg_try_advisory_lock`, anahtar
+`(jobType, storeId)`; ayrılmış `connection_limit=1` bağlantı → acquire/unlock aynı session; crash'te bağlantı
+kapanınca otomatik serbest → **stale lock yok**). Process-local in-memory guard yalnız ikincil hızlı-yoldur.
+Granülerlik (jobType, storeId): farklı store'lar paralel; aynı store'da settlement & retention paralel; manuel
+ile scheduled AYNI anahtar → biri dışlanır. Kilit alınamazsa **SKIPPED_LOCKED**; manuel uçta **409
+JOB_ALREADY_RUNNING** (500 sızmaz).
+
+**Çoklu-replica.** Her api-gateway replica'sı kendi timer'ını kurar; dağıtık kilit bunu güvenli kılar (yalnız
+biri kazanır → duplicate DRAFT/çift-silme YOK). TD-054.3 tek-instance sınırı bu iki job için ARTIK GEÇERSİZ
+(shipping worker'ları için açık kalır). Graceful shutdown timer'ı durdurur + ayrılmış lock bağlantısını kapatır.
+
+**Görünürlük.** Her tur store başına TEK `QueueJobLog` satırı (queueName `commercial-automation`) yazar; ince
+durum `payload.outcome`: STARTED→terminal (COMPLETED/PARTIAL_SUCCESS/FAILED/SKIPPED_LOCKED/DRY_RUN) +
+trigger/startedAt/completedAt/durationMs/cutoff/sayımlar. Store-admin `/operations` paneli son çalışmayı
+tenant-izole gösterir. Doğrulama: `docker compose logs api-gateway | grep -E "settlement scheduler|attribution retention"`.

@@ -1030,12 +1030,11 @@ her biri uygulanmış bir tasarım sınırıdır.
 
 ## TODO-160 (ADR-102…107) — Influencer Tracking & Attribution sınırları (TD-113…TD-115)
 
-- **TD-113 — Click retention purge worker'ı YOK (KVKK saklama otomasyonu).** `AttributionClick` ham
-  hash'li verisi için saklama süresi kararı verildi (`INFLUENCER_CLICK_RETENTION_DAYS`=180, ADR-106)
-  ancak süresi geçen click'leri budayan zamanlanmış worker MVP'de UYGULANMADI. Finansal snapshot
-  (`OrderAttribution`) retention'dan ETKİLENMEZ (korunur); yalnız ham click satırları budanmalıdır.
-  Uygulama: provider-agnostic sync worker deseni (TODO-129/`sync-worker.ts`) port edilerek
-  `createdAt < now - retentionDays` click'leri batch DELETE eden bir job. **Öncelik: ORTA (KVKK).**
+- **TD-113 — Click retention purge worker'ı YOK (KVKK saklama otomasyonu). — CLOSED (2026-07-27, TODO-161A.1).**
+  `AttributionClick` ham hash'li verisi için `attribution-event-retention` worker'ı + manuel dry-run/apply
+  uygulandı (`INFLUENCER_CLICK_RETENTION_DAYS`=180; ADR-133/135). Finansal snapshot (`OrderAttribution`) +
+  iade defteri KORUNUR (ADR-134); yalnız ham click satırları store-scope batch DELETE edilir. Sync-worker
+  deseni (ADR-051) + dry-run default + circuit breaker + env gate + QueueJobLog audit. Canlı doğrulama PASS.
 
 - **TD-114 — Canlı KISMI iade → net gelir yolu YOK.** `applyRefund` + `OrderAttributionRefund` defteri
   kısmi tutarları (append-only, idempotent) MATEMATİKSEL olarak destekler ve birim-testlidir; ancak
@@ -1128,11 +1127,13 @@ alanları formda YALNIZ `SEARCH_RESULTS` yerleşiminde gösterilir (HOME_SHOWCAS
 
 ## TD-121 — Sponsored: fraud/bot skorlama + retention purge (TODO-161)
 
-**Durum:** Ertelendi → **retention purge kısmı TODO-161A.1'e (Commercial Automation & Data Retention) alındı**
-(TD-113 influencer event retention ile ortak purge yardımcıları). MVP: bot UA regex + repeat dedupe +
-rate-limit. Gelişmiş fraud scoring (davranışsal, IP reputation) AYRI kalır (future). `SponsoredProductEvent`
-ham verisi için otomatik retention purge (influencer `AttributionClick` deseniyle; başlangıç 180 gün; dry-run
-default): TODO-161A.1. Finansal snapshot (`OrderSponsoredAttribution`) KORUNUR; yalnız funnel event ham'ı budanabilir.
+**Durum:** **retention purge kısmı CLOSED (2026-07-27, TODO-161A.1)** — `SponsoredProductEvent` ham verisi için
+`attribution-event-retention` worker'ı + manuel dry-run/apply uygulandı (başlangıç 180 gün,
+`SPONSORED_EVENT_RETENTION_DAYS`; dry-run default; ADR-133/135). Finansal snapshot (`OrderSponsoredAttribution`)
++ iade defteri KORUNUR (ADR-134); yalnız funnel event ham'ı store-scope batch DELETE edilir (TD-113 influencer
+click retention ile ORTAK SAF purge yardımcıları). **KALAN (AYRI, future):** gelişmiş fraud scoring (davranışsal,
+IP reputation) — MVP yalnız bot UA regex + repeat dedupe + rate-limit yapar; bu kısım açık kalır (yeni borç
+DEĞİL, orijinal kapsamın devamı).
 
 ## TD-122 — Sponsored: canlı UI/e2e smoke (auth'lu store-admin) (TODO-161)
 
@@ -1158,12 +1159,14 @@ para birimi mağaza siparişleriyle aynı olmalı; farklı para birimleri tek to
 
 ## TD-125 — Sponsorship: otomatik dönemsel settlement zamanlayıcısı (TODO-161A)
 
-**Durum:** Ertelendi → **TODO-161A.1'e (Commercial Automation & Data Retention) alındı — sıradaki aktif faz.**
-Settlement dönemleri (WEEKLY/MONTHLY/CAMPAIGN_END) admin tarafından MANUEL başlatılır (preview → finalize →
-charge). TODO-161A.1 kapsamı: otomatik zamanlanmış **DRAFT** settlement üretimi (BullMQ/TODO-129 shipment-sync
-deseni; **otomatik finalize YOK**; idempotency; overlap kilidi; timezone-aware; retry; job audit; izole hata).
-`budgetExhaustedAt` şu an yalnız settlement finalize anında damgalanır (cron gerekmez — bütçe zaten yalnız
-tahakkuk anında bilinebilir).
+**Durum:** **CLOSED (2026-07-27, TODO-161A.1).** `sponsorship-settlement-scheduler` worker'ı + manuel
+dry-run/run uygulandı (TODO-129 shipment-sync deseni; ADR-130/131/132/136). Otomatik zamanlanmış **DRAFT**
+settlement üretimi: yalnız ACTIVE/COMPLETED + WEEKLY/MONTHLY/CAMPAIGN_END (MANUAL hariç); **otomatik finalize
+YOK**; `previewSettlement` reuse (unique-dönem + FINALIZED-immutable) → duplicate imkânsız + idempotent;
+timezone-aware dönem (`StoreSettings.timezone`, ADR-132); in-process `withJobLock` overlap koruması;
+anlaşma-başına hata izolasyonu; `QueueJobLog` job-run audit. Canlı doğrulama (weekly/monthly/campaign-end +
+duplicate + finalized-immutable + error-isolation) PASS. `budgetExhaustedAt` yine yalnız tahakkuk anında
+damgalanır (cron gerekmez).
 
 ## TD-126 — Sponsorship: canlı auth'lu store-admin UI/e2e smoke (TODO-161A / TODO-161A.2)
 

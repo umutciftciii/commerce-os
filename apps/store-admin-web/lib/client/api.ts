@@ -166,6 +166,10 @@ import type {
   SponsorshipPaymentReverseRequest,
   SponsorshipCharge,
   SponsorshipDashboardResponse,
+  // TODO-161A.1 — Commercial automation (settlement scheduler + retention) operations.
+  CommercialAutomationStatusResponse,
+  SettlementSchedulerRunResponse,
+  RetentionRunResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
@@ -986,6 +990,21 @@ export const storeApi = {
   // Avansı açık bir tahakkuğa mahsup et (append-only; iyimser kilit expectedRemainingMinor).
   allocateSponsorshipAdvance: (input: SponsorshipAdvanceAllocationInput) =>
     mutatingCall<SponsorshipAllocationDetailResult>("/api/sponsorship-advance-allocations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-161A.1 — Ticari otomasyon operasyonları (settlement scheduler + attribution retention).
+  // Retention APPLY (dryRun:false) yıkıcıdır; UI onay diyaloğu arkasında çağrılır.
+  getCommercialAutomationStatus: () =>
+    call<CommercialAutomationStatusResponse>("/api/commercial-automation/status"),
+  runSettlementScheduler: (input: { dryRun?: boolean } = {}) =>
+    mutatingCall<SettlementSchedulerRunResponse>("/api/commercial-automation/settlement-scheduler/run", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  runRetention: (input: { dryRun?: boolean } = {}) =>
+    mutatingCall<RetentionRunResponse>("/api/commercial-automation/retention/run", {
       method: "POST",
       body: JSON.stringify(input),
     }),

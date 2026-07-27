@@ -173,6 +173,38 @@ export const envSchema = z.object({
   CAMPAIGN_RECONCILE_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(60).default(3600)),
   // Tur basina, store basina en fazla kac suresi-gecmis snapshot urunu requeue edilir (bounded).
   CAMPAIGN_RECONCILE_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(1000).default(200)),
+  // ── TODO-161A.1 (TD-125) — Otomatik settlement zamanlayici (sponsorship). ────────────────────
+  // Sponsorship anlasmalarinin (ACTIVE/COMPLETED, settlementPeriod WEEKLY/MONTHLY/CAMPAIGN_END)
+  // KAPANMIS donemleri icin OTOMATIK **DRAFT** settlement uretir. Otomatik finalize YOK. Fiyat
+  // matematigi previewSettlement (SAF billing-core) uzerinden — bolunmez. Idempotent (unique donem
+  // + mevcut settlement varsa atlanir). Overlap: reconcile-worker deseni (setTimeout zinciri +
+  // in-process running guard). Tum degerler `KEY=` bos-string toleransli (TD-036).
+  SETTLEMENT_SCHEDULER_ENABLED: optionalBooleanEnv(false),
+  // Tur araligi (saniye). Muhafazakar varsayilan 3600s (saatlik); alt sinir 60s. Kapanmis donem
+  // sinirlari gunler olcegindedir → sik tarama gereksiz ama saatlik yakalama gecikmeyi sinirlar.
+  SETTLEMENT_SCHEDULER_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(60).default(3600)),
+  // Tur basina en fazla kac anlasma islenir (bounded; anlasma-basina hata izolasyonu ile).
+  SETTLEMENT_SCHEDULER_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(2000).default(500)),
+  // Settlement donem sinirlari (weekly/monthly) icin store timezone COZULEMEZSE (StoreSettings satiri
+  // yok / bos) kullanilan varsayilan IANA timezone. Otorite once StoreSettings.timezone'dur.
+  COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE: optionalEnv(z.string().min(1).default("Europe/Istanbul")),
+  // ── TODO-161A.1 (TD-121 + TD-113) — Attribution ham event retention/purge. ───────────────────
+  // Suresi gecmis HAM funnel/click event'lerini (SponsoredProductEvent + AttributionClick) store
+  // scope'unda batch DELETE eder. Finans snapshot'lari (OrderAttribution/OrderSponsoredAttribution/
+  // iade defterleri/settlement/charge/payment) ASLA silinmez. Dry-run VARSAYILAN; apply explicit.
+  ATTRIBUTION_RETENTION_ENABLED: optionalBooleanEnv(false),
+  // Zamanlanmis retention turu araligi (saniye). Varsayilan gunluk (86400s); alt sinir saatlik (3600s).
+  ATTRIBUTION_RETENTION_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  // DELETE batch buyuklugu (tek statement bounded tutulur; take → deleteMany(id in) donguleri).
+  ATTRIBUTION_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
+  // Sponsored funnel event ham saklama gunu. ADR-133; varsayilan 180, alt sinir 30 (yanlislikla yakin
+  // veriyi budamayi engelleyen guvenlik tabani). Cutoff SUNUCU otoritesidir; istemci gonderemez.
+  SPONSORED_EVENT_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
+  // Influencer click ham saklama gunu (ADR-106 karari 180). Alt sinir 30. Cutoff sunucu otoritesi.
+  INFLUENCER_CLICK_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
+  // Circuit breaker: tek turda bir tablodan silinebilecek maksimum aday satir. Asilirsa APPLY reddedilir
+  // (dry-run her zaman raporlar) → kontrolsuz kutlesel silme onlenir. Varsayilan 200000.
+  ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
   // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
   // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
   // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla

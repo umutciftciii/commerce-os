@@ -9071,3 +9071,109 @@ export type SponsorshipCurrencyKpi = z.infer<typeof sponsorshipCurrencyKpiSchema
 export type SponsorshipDashboardBreakdownRow = z.infer<typeof sponsorshipDashboardBreakdownRowSchema>;
 export type SponsorshipDashboardQuery = z.infer<typeof sponsorshipDashboardQuerySchema>;
 export type SponsorshipDashboardResponse = z.infer<typeof sponsorshipDashboardResponseSchema>;
+
+// ───────────────────── TODO-161A.1 (ADR-130…136) — Commercial Automation & Retention ─────────────────────
+// Store-admin operasyon görünürlüğü + manuel tetik uçları. Public uç YOK; tümü platform/store admin.
+// dryRun bayrağı: settlement scheduler için "oluşturulacakları raporla, üretme"; retention için
+// "adayları say, silme". Sunucu otoritesi: storeId URL'den; retention cutoff/gün SERVER config'inden
+// (istemci gönderemez). allowlist job type route katmanında.
+
+export const commercialAutomationRunRequestSchema = z
+  .object({
+    // Varsayılan: settlement scheduler run için apply (dryRun=false); retention için route DRY-RUN'ı
+    // güvenli varsayılan yapar. İstemci açıkça true/false gönderebilir.
+    dryRun: z.boolean().optional(),
+  })
+  .strict();
+
+const commercialAutomationJobRunSchema = z.object({
+  status: z.string(),
+  attempts: z.number().int(),
+  at: z.string().nullable(),
+  report: z.unknown().nullable(),
+});
+
+export const commercialAutomationStatusResponseSchema = z.object({
+  data: z.object({
+    settlementScheduler: commercialAutomationJobRunSchema.nullable(),
+    attributionRetention: commercialAutomationJobRunSchema.nullable(),
+    retentionConfig: z.object({
+      sponsoredEventRetentionDays: z.number().int(),
+      influencerClickRetentionDays: z.number().int(),
+      maxDeletePerRun: z.number().int(),
+    }),
+  }),
+});
+
+const commercialAutomationOutcomeSchema = z.enum([
+  "STARTED",
+  "COMPLETED",
+  "PARTIAL_SUCCESS",
+  "FAILED",
+  "SKIPPED_LOCKED",
+  "DRY_RUN",
+]);
+
+const settlementSchedulerStoreReportSchema = z.object({
+  storeId: z.string(),
+  timeZone: z.string(),
+  mode: z.enum(["dry-run", "apply"]),
+  outcome: commercialAutomationOutcomeSchema,
+  scannedAgreements: z.number().int(),
+  createdDrafts: z.number().int(),
+  candidateDrafts: z.number().int(),
+  skipped: z.number().int(),
+  skippedByReason: z.record(z.number().int()),
+  erroredAgreements: z.number().int(),
+  errors: z.array(z.object({ agreementId: z.string(), code: z.string() })),
+  createdSettlementIds: z.array(z.string()),
+});
+
+export const settlementSchedulerRunResponseSchema = z.object({
+  data: z.object({
+    mode: z.enum(["dry-run", "apply"]),
+    stores: z.number().int(),
+    scannedAgreements: z.number().int(),
+    createdDrafts: z.number().int(),
+    candidateDrafts: z.number().int(),
+    erroredAgreements: z.number().int(),
+    skippedLocked: z.number().int(),
+    perStore: z.array(settlementSchedulerStoreReportSchema),
+  }),
+});
+
+const retentionTableResultSchema = z.object({
+  table: z.enum(["SponsoredProductEvent", "AttributionClick"]),
+  domain: z.enum(["sponsored", "influencer"]),
+  retentionDays: z.number().int(),
+  cutoff: z.string(),
+  candidates: z.number().int(),
+  deleted: z.number().int(),
+  circuitBreakerTripped: z.boolean(),
+});
+
+const retentionStoreReportSchema = z.object({
+  storeId: z.string(),
+  mode: z.enum(["dry-run", "apply"]),
+  outcome: commercialAutomationOutcomeSchema,
+  tables: z.array(retentionTableResultSchema),
+  totalCandidates: z.number().int(),
+  totalDeleted: z.number().int(),
+  anyCircuitBreakerTripped: z.boolean(),
+});
+
+export const retentionRunResponseSchema = z.object({
+  data: z.object({
+    mode: z.enum(["dry-run", "apply"]),
+    stores: z.number().int(),
+    totalCandidates: z.number().int(),
+    totalDeleted: z.number().int(),
+    skippedLocked: z.number().int(),
+    perStore: z.array(retentionStoreReportSchema),
+  }),
+});
+
+export type CommercialAutomationRunRequest = z.infer<typeof commercialAutomationRunRequestSchema>;
+export type CommercialAutomationStatusResponse = z.infer<typeof commercialAutomationStatusResponseSchema>;
+export type SettlementSchedulerRunResponse = z.infer<typeof settlementSchedulerRunResponseSchema>;
+export type RetentionRunResponse = z.infer<typeof retentionRunResponseSchema>;

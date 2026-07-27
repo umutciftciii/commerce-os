@@ -4079,3 +4079,108 @@ SERİLEŞTİRİLİR; iyimser kilit uyuşmazlığı `BALANCE_CHANGED`. `FIXED_FEE
 tahakkuk uçları eklenir (`createFixedFeeCharge`); CPM/CPC/CPA/REVENUE_SHARE settlement'tan tahakkuk
 üretmeye devam eder (ADR-122 değişmez). Finansal geçmiş mutable JSON'da TUTULMAZ — ayrı append-only
 defter/tablolar.
+
+## ADR-130 — Settlement scheduling policy: DRAFT-only, ACTIVE/COMPLETED, MANUAL hariç (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-122/123 · **Öncül:** TD-125
+
+**Karar.** Otomatik mutabakat zamanlayıcısı yalnız `SponsorshipAgreementStatus ∈ {ACTIVE, COMPLETED}`
+ve `SponsorshipSettlementPeriod ∈ {WEEKLY, MONTHLY, CAMPAIGN_END}` olan anlaşmaları işler. `MANUAL`
+schedule ve diğer statüler (DRAFT/PENDING_APPROVAL/SUSPENDED/CANCELLED) OTOMATİK üretimden hariçtir.
+Schedule tercihi için YENİ alan eklenmedi — mevcut `SponsorshipAgreement.settlementPeriod` (default
+`CAMPAIGN_END`) tek otoritedir. Uygunluk dışı anlaşmalar Prisma SORGU seviyesinde dışlanır (bounded,
+verimli); saf çekirdek (`settlement-schedule-core.ts`) ayrıca ikinci bir güvenlik ağı olarak statüyü
+doğrular.
+
+## ADR-131 — DRAFT-only automation: otomatik finalize YOK (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-123 · **Öncül:** TD-125
+
+**Karar.** Zamanlayıcı DAİMA yalnız **DRAFT** settlement üretir; finalize/charge ADIMLARI OTOMATİK
+YAPILMAZ (finansal taahhüt insan onayında kalır). Üretim, fiyat matematiğini bölmemek için mevcut
+`SponsorshipData.previewSettlement` (SAF `billing-core`) üzerinden yapılır; bu fonksiyon `@@unique
+([agreementId, periodStart, periodEnd])` + FINALIZED-immutable + DRAFT-upsert garantilerini zaten taşır.
+Zamanlayıcı ayrıca üretimden ÖNCE dönem için var olan settlement'ı kontrol eder: DRAFT varsa yeniden
+hesaplamaz, FINALIZED varsa dokunmaz → tam idempotency + duplicate imkânsızlığı. Manuel tetik ayrıca
+DRY-RUN destekler (oluşturulacakları raporlar, yazmaz).
+
+## ADR-132 — Timezone period authority: StoreSettings.timezone (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-119 · **Öncül:** TD-125
+
+**Karar.** Haftalık/aylık settlement dönem sınırları store timezone'a göre hesaplanır. Store-seviyesi
+timezone alanı yoktu → **ADDITIVE `StoreSettings.timezone String @default("Europe/Istanbul")**
+(migration `20260727120000`). Otorite sırası: `StoreSettings.timezone` → yoksa/boşsa
+`COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE` (config, default "Europe/Istanbul"). Repo'da tarih kütüphanesi
+yok → dönem matematiği `Intl.DateTimeFormat` ile SAF yazıldı (DST tek-adım offset düzeltmesiyle; TR
+2016'dan beri DST'siz). Weekly = en son KAPANMIŞ ISO haftası (Pzt 00:00 → Pzt 00:00); Monthly = önceki
+takvim ayı; açık dönem asla işlenmez. Campaign-end store instant'larını kullanır (tz gerekmez).
+
+## ADR-133 — Retention scope: yalnız HAM event; finansal kayıtlar korunur (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-104/106/118 · **Öncül:** TD-121, TD-113
+
+**Karar.** Retention/purge YALNIZ ham funnel/click event satırlarını budar: `SponsoredProductEvent`
+(sponsored) ve `AttributionClick` (influencer). Bu iki tablo açık bir ALLOWLIST'tedir (`RETENTION_TABLE_SPECS`);
+finans/defter tabloları listeye EKLENEMEZ. Sponsored ve influencer domain tabloları AYRI kalır; yalnız SAF
+purge yardımcıları (cutoff/circuit-breaker) ortaktır. Başlangıç saklama 180 gün (config:
+`SPONSORED_EVENT_RETENTION_DAYS`, `INFLUENCER_CLICK_RETENTION_DAYS`; alt sınır 30 gün güvenlik tabanı).
+
+## ADR-134 — Financial record preservation & orphan-free purge (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-103/104/125 · **Öncül:** TD-121, TD-113
+
+**Karar.** `OrderAttribution` / `OrderSponsoredAttribution` (finans snapshot), append-only iade defterleri
+(`OrderAttributionRefund` / `OrderSponsoredAttributionRefund`), `SponsorshipSettlement` / `SponsorshipCharge`
+/ `SponsorshipPayment` / `SponsorshipAdvanceAllocation` / `SponsorshipAgreement` / `SponsorAccount` ASLA
+retention'dan etkilenmez. Ham event tabloları YAPRAK'tır — hiçbir tablo onlara FK ile bağlı DEĞİLDİR ve
+finans snapshot'ları sipariş anında türetilir (event satırına FK yok) → ham satır silmek ORPHAN üretemez.
+Purge yalnız izinli iki tabloya `deleteMany` uygular; global unscoped `deleteMany({})` YASAKTIR.
+
+## ADR-135 — Purge safety: dry-run default, explicit apply, store scope, circuit breaker, env gate (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-108 · **Öncül:** TD-121, TD-113
+
+**Karar.** Retention güvenlik duruşu: (1) **dry-run varsayılan** — apply yalnız explicit (`dryRun:false` /
+worker `apply=true`); (2) **store scope zorunlu** — her sorgu `storeId + createdAt < cutoff`; (3) **cutoff
+SUNUCU config otoritesi** — istemci cutoff/gün GÖNDEREMEZ (yalnız dryRun bayrağı); (4) **batch delete** —
+`take → deleteMany(id in)` (her statement bounded, `ATTRIBUTION_RETENTION_BATCH_SIZE`); (5) **row-count
+circuit breaker** — bir tablo `ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN`'ı aşarsa APPLY reddedilir (dry-run
+her zaman raporlar); (6) **environment/enablement gate** — zamanlanmış worker `ATTRIBUTION_RETENTION_ENABLED=false`
+(varsayılan) ile ASLA otomatik silmez; (7) cutoff + aday/silinen sayı **QueueJobLog + AuditLog**'a yazılır.
+
+## ADR-136 — Overlap & idempotency: DAĞITIK PostgreSQL advisory lock + QueueJobLog audit (TODO-161A.1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-051/054 · **Öncül:** TD-054.3, TD-125
+· **Revizyon:** pre-ship hardening — process-local kilit tek otorite OLMAKTAN çıkarıldı.
+
+**Karar.** İki zamanlanmış job (`sponsorship-settlement-scheduler`, `attribution-event-retention`) mevcut
+in-process setTimeout-zinciri + overlap-guard desenine (ADR-051) eklenir; PARALEL scheduler kurulmaz.
+Overlap kilidinin **OTORİTESİ mevcut PostgreSQL'dir** (yeni Redis/altyapı YOK): `pg_try_advisory_lock`
+**session-level**, anahtar `(hashtext(jobType), hashtext(storeId))` (int,int formu). Process-local in-memory
+guard yalnız İKİNCİL hızlı-yol savunması olarak kalır; TEK otorite DEĞİLDİR.
+
+**Neden session-level (transaction değil).** İş uzun sürebilir (retention batch delete) ve tek bir
+transaction'a hapsetmek per-agreement hata izolasyonunu bozar (bir DB hatası tüm tx'i abort eder). Session
+kilidi işi tx'e sokmadan korur. **Bağlantı sabitleme:** acquire ile unlock aynı session'da olmalı → kilit
+işlemleri `connection_limit=1` olan AYRILMIŞ bir PrismaClient üzerinden yapılır (tek fiziksel bağlantı; bir
+session aynı anda birden çok anahtar tutabilir → paralellik korunur). **Crash-safe:** süreç çökerse ayrılmış
+bağlantı kapanır → PostgreSQL session advisory lock'larını OTOMATİK bırakır → **stale lock OLUŞMAZ**.
+
+**Granülerlik = (jobType, storeId).** Farklı store'lar paralel; aynı store'da settlement ve retention
+paralel (farklı jobType); manuel ve scheduled AYNI anahtarı paylaşır → biri diğerini dışlar. Kilit
+alınamazsa kontrollü **SKIPPED_LOCKED** (manuel uçta HTTP **409 JOB_ALREADY_RUNNING**, 500 sızmaz); kilit
+her success/error yolunda finally'de bırakılır. İş zaten idempotent (settlement unique-dönem + existing-check;
+retention id-bazlı delete) → kilit + idempotency birlikte duplicate DRAFT / çift-silme üretmez (çoklu-instance
+smoke ile doğrulandı: iki bağımsız lock manager = iki replica).
+
+**Çoklu-replica.** Her replica kendi timer'ını kurar (duplicate zamanlama) fakat dağıtık kilit bunu güvenli
+kılar (yalnız biri kazanır, diğeri SKIPPED_LOCKED). TD-054.3'ün tek-instance sınırı bu iki job için ARTIK
+GEÇERLİ DEĞİLDİR (shipping sync/barcode/reconcile worker'ları için açık kalır). Graceful shutdown timer'ları
+durdurur + ayrılmış lock bağlantısını kapatır.
+
+**Job-run audit.** Şemada VAR olan `QueueJobLog` STORE BAŞINA yazılır (tenant-izole panel); ince durum
+`payload.outcome` alanında: STARTED · COMPLETED · PARTIAL_SUCCESS · FAILED · SKIPPED_LOCKED · DRY_RUN
+(+ trigger MANUAL/SCHEDULED, startedAt/completedAt/durationMs, cutoff/period, sayımlar). Her (store,run) için
+TEK satır: STARTED açılır, terminal duruma GÜNCELLENİR (duplicate log YOK); kilitlenen tur tek SKIPPED_LOCKED
+satırı yazar. Yeni tablo/migration YOK.

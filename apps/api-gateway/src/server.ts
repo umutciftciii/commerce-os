@@ -134,6 +134,9 @@ import { createSponsoredData, type SponsoredData } from "./sponsored/data.js";
 import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./sponsored/routes.js";
 import { createSponsorshipData, type SponsorshipData } from "./sponsorship/data.js";
 import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
+import { registerCommercialAutomationRoutes } from "./commercial-automation/routes.js";
+import { buildSettlementSchedulerService } from "./commercial-automation/settlement-scheduler-worker.js";
+import { buildRetentionService } from "./commercial-automation/retention-worker.js";
 import { resolveSponsoredForCheckout } from "./sponsored/checkout-attribution.js";
 import {
   signSponsoredToken,
@@ -6254,6 +6257,25 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-161A.1 (ADR-130…136) — Commercial Automation & Retention: manuel dry-run/run/apply + status.
+  // Servisler HTTP tarafinda insa edilir; zamanlanmis worker'lar (main.ts) ayni servis mantigini kullanir.
+  // Modul-seviyesi withJobLock manuel ile zamanlanmis turlarin cakismasini onler (ayni surec).
+  registerCommercialAutomationRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    settlementScheduler: buildSettlementSchedulerService(config, logger),
+    retention: buildRetentionService(config, logger),
+    jobLog: prisma,
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    retentionConfig: {
+      sponsoredEventRetentionDays: config.SPONSORED_EVENT_RETENTION_DAYS,
+      influencerClickRetentionDays: config.INFLUENCER_CLICK_RETENTION_DAYS,
+      maxDeletePerRun: config.ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN,
+    },
   });
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).

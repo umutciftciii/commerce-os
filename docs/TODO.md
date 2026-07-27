@@ -1932,11 +1932,12 @@
   edilmiş PG/enterprise-demo; kullanıcı girişi) 25/25 adım DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**. Smoke'ta
   bulunan 3 UI metni düzeltildi (başlık "Sponsorlu Kampanyalar"; "Append-only"/"OVERDUE" jargonları Türkçeleştirildi).
 
-## TODO-161A.1 — Commercial Automation & Data Retention (Growth & Monetization — stabilization) — SIRADAKİ AKTİF FAZ
+## TODO-161A.1 — Commercial Automation & Data Retention (Growth & Monetization — stabilization) — DONE / KOD TAMAM
 
-- Durum: **PLANLANDI.** TODO-161A.2 birleşik sponsorluk akışının sıradaki stabilizasyon fazı: ertelenen teknik
-  borçları (TD-125 / TD-121 / TD-113) operasyonel otomasyona ve veri saklama hijyenine bağlar. Yeni ticari yüzey
-  EKLEMEZ.
+- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI.** Analiz:
+  `docs/analysis/TODO-161A.1-commercial-automation-retention.md`. ADR-130…136. **TD-125 / TD-121 / TD-113 CLOSED.**
+  Ertelenen teknik borçları operasyonel otomasyona ve veri saklama hijyenine bağladı. Yeni ticari yüzey EKLEMEDİ.
+  Canlı doğrulama (gerçek PostgreSQL, izole veri) 17/17 PASS; 42 yeni birim/route testi PASS; buildler temiz.
 - **TD-125 — Automatic Settlement Scheduling:**
   - Haftalık / aylık / campaign-end dönemlerinde **DRAFT** settlement üretimi.
   - **Otomatik finalize YOK** (tahakkuk yine admin onayıyla).

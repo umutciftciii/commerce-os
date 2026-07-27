@@ -196,6 +196,11 @@ import type {
   SponsorshipOpenChargeListResponse,
   SponsorshipAdvanceAllocationRequest,
   SponsorshipAllocationDetailResponse,
+  // TODO-161A.1 — Commercial automation (settlement scheduler + retention) operations.
+  CommercialAutomationRunRequest,
+  CommercialAutomationStatusResponse,
+  SettlementSchedulerRunResponse,
+  RetentionRunResponse,
   StoreAdminCustomerUpdateRequest,
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerCreateResponse,
@@ -855,6 +860,15 @@ export type {
   SponsorshipAdvanceDetailResponse,
   SponsorshipAllocationDetailResponse,
   SponsorshipOpenChargeListResponse,
+} from "@commerce-os/contracts";
+
+// TODO-161A.1 — Commercial automation operations kontrat tipleri (type-only re-export;
+// store-admin BFF + UI bunları api-client üzerinden import eder).
+export type {
+  CommercialAutomationRunRequest,
+  CommercialAutomationStatusResponse,
+  SettlementSchedulerRunResponse,
+  RetentionRunResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -1797,6 +1811,13 @@ export interface ApiClient {
       listAdvances(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipAdvanceListResponse>;
       listOpenCharges(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsorshipOpenChargeListResponse>;
       allocateAdvance(storeId: string, input: SponsorshipAdvanceAllocationRequest, token?: string): Promise<SponsorshipAllocationDetailResponse>;
+    };
+    // TODO-161A.1 — Commercial automation operations (settlement scheduler + attribution retention).
+    // Platform-admin auth, store-scoped. Retention APPLY (dryRun=false) is destructive.
+    commercialAutomation: {
+      getStatus(storeId: string, token?: string): Promise<CommercialAutomationStatusResponse>;
+      runSettlementScheduler(storeId: string, input: CommercialAutomationRunRequest, token?: string): Promise<SettlementSchedulerRunResponse>;
+      runRetention(storeId: string, input: CommercialAutomationRunRequest, token?: string): Promise<RetentionRunResponse>;
     };
     paymentProviders: {
       list(storeId: string, token?: string): Promise<PaymentProviderConfigListResponse>;
@@ -3164,6 +3185,15 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<SponsorshipOpenChargeListResponse>(`/stores/${storeId}/sponsorship-open-charges${buildQueryString(query)}`, token),
         allocateAdvance: (storeId, input, token) =>
           sendJson<SponsorshipAllocationDetailResponse>(`/stores/${storeId}/sponsorship-advance-allocations`, "POST", input, token),
+      },
+      // TODO-161A.1 — Commercial automation operations (settlement scheduler + attribution retention).
+      commercialAutomation: {
+        getStatus: (storeId, token) =>
+          getJson<CommercialAutomationStatusResponse>(`/stores/${storeId}/commercial-automation/status`, token),
+        runSettlementScheduler: (storeId, input, token) =>
+          sendJson<SettlementSchedulerRunResponse>(`/stores/${storeId}/commercial-automation/settlement-scheduler/run`, "POST", input, token),
+        runRetention: (storeId, input, token) =>
+          sendJson<RetentionRunResponse>(`/stores/${storeId}/commercial-automation/retention/run`, "POST", input, token),
       },
       paymentProviders: {
         list: (storeId, token) =>
