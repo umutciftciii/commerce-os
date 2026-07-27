@@ -718,10 +718,11 @@
 - Önerilen sıra: **Aşama A** (DR + tema XSS + bayat kayıt temizliği) → **Aşama B** (sağlayıcı + webhook imza +
   para-yolu smoke + rezervasyon expiry) → **Aşama C** (store-user auth + ölçek + future capability). Detay: analiz §9.
 
-## Security — PB-1 Payment Webhook Authenticity & Store Resolution — KOD TAMAM (commit YOK)
+## Security — PB-1 Payment Webhook Authenticity & Store Resolution — ✅ CLOSED / MERGED + DEPLOYED
 
-- Durum: **KOD + MIGRATION + TEST + CANLI EXPLOIT REGRESYONU + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler
-  geçti. Commit/push/PR/merge/deploy YAPILMADI.** ADR-156/157/158. Analiz:
+- Durum: **✅ CLOSED / MERGED + DEPLOYED (2026-07-27; PR #135, merge `382e1c8`; api-gateway rebuild + recreate;
+  migration `20260727170000` deploy edildi + `migrate status` up-to-date). Production-stack exploit regresyonu
+  21/21 (deploy edilen gateway :4000).** ADR-156/157/158. Analiz:
   `docs/analysis/PB-1-payment-webhook-authenticity.md`.
 - **Kapatılan açık:** Eski `/payments/webhooks/:provider` client body'yi (storeId/attemptId/status) otorite kabul
   ediyor + imzayı gate'lemiyordu → müşteri kendi siparişini bedavaya PAID yapabiliyordu. **KALDIRILDI.**
