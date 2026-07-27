@@ -110,6 +110,10 @@
   BFF mutation'lari icin double-submit CSRF, env kontrollu session/CSRF cookie adlari ve secure/sameSite
   ayarlari eklendi (ADR-018). Kalan borc: coklu instance production icin Redis/dagitik rate limit veya
   izleme, refresh token/rotasyon ve daha gelismis lockout politikasi.
+- **Launch Audit (2026-07-27):** rate limit artık **VAR** (platform login `server.ts:1548-1590,6670`;
+  customer login/OTP `customers/index.ts:1519-1540,1639,1788`, IP+identifier keyed lockout). Kalan gerçek
+  boşluk = limiter state in-memory `Map` → çok-replika round-robin ile bypass edilebilir → Redis/dağıtık
+  limiter gerekir (MEDIUM, launch-sonrası). Cookie/CSRF/session hardening kısmı **handled**.
 - Hedef faz: Faz 2
 
 ## TD-016 Admin UI auth baglama yok
@@ -455,6 +459,9 @@
   DRAFT/PLACED-UNPAID temizlik job'i. F3B.2 odeme adimi geldiginde stok rezervasyonunu odeme
   authorize'a baglamak (rezerv-on-auth) bu borcu buyuk olcude kapatir.
 - Karar kaydi: ADR-031. Bkz. TODO-064, TODO-065.
+- **Launch Audit (2026-07-27):** oversell bölümü **handled** (kilit doğru). Ancak (2)+(3) dilimi —
+  orphan DRAFT + expiry-yok — anonim checkout'ta gerçek stok-kilitlenmesi üretir; bu **HIGH** dilim ayrı
+  **[[TD-136]]** olarak izlenir. TD-033 gövdesi atomiklik (single-tx create+place) tamamlayıcısı olarak açık kalır.
 - Hedef faz: Faz 3B.2
 
 ## TD-034 Payment provider canli adaptorleri + gercek webhook imza dogrulamasi yok
@@ -473,6 +480,12 @@
   settlement is akislari + `/payments` operations ekrani (TODO-070).
 - Hedef faz: F3B.3+ (saglayici sozlesmesine bagli)
 - Bagli: ADR-033, TODO-066..071, Faz 3B.2 phase log.
+- **Launch Audit (2026-07-27) — somut risk netleştirmesi:** webhook shell yalnız placeholder DEĞİL; asıl
+  tehlike, sipariş PAID **geçişinin `signatureValid`'e gate'lenmemesi** ve store'un client-supplied `body.storeId`'den
+  çözülmesidir (`server.ts:9069-9147`; `verifyWebhookSignature(){ return true }` `stripe.ts:146`). `attemptId`
+  müşteriye payment-state yanıtında döndüğü için müşteri kendi siparişini bedavaya PAID işaretleyebilir. Bugün
+  MOCK-only ile sınırlı; **gerçek sağlayıcı açılmadan ÖNCE** imza zorunlu + store'u doğrulanmış attempt'ten türet.
+  Bu, canlı sağlayıcı kapısının (EXTERNAL DECISION) ayrılmaz parçası → launch için **PROD BLOCKER (gerçek-ödeme kapısı)**.
 
 ## TODO-127 — Provider logo dosya upload/asset storage (TODO-125'ten ayrıldı)
 - Sorun: `ShippingProviderConfig.logoUrl` manuel public URL (admin elle girer). Checkout/success/admin'de
@@ -1156,6 +1169,10 @@ e-Fatura/e-Arşiv üretmez, muhasebe fişi oluşturmaz. Ertelenen: Paraşüt/Log
 e-Fatura/e-Arşiv · banka hareketi eşleştirme · otomatik mutabakat · gelir muhasebeleştirme (revenue
 recognition) · komisyon faturaları · **çoklu para birimi kur dönüşümü** (şu an REVENUE_SHARE anlaşma
 para birimi mağaza siparişleriyle aynı olmalı; farklı para birimleri tek toplamda birleşmez).
+- **Launch Audit (2026-07-27) — yanlış kayıt düzeltmesi:** "aynı olmalı" bir invariant gibi yazılmış ama
+  kod bunu revenue-share settlement yolunda **uygulamıyor** (guard yok). FX dönüşümü (FUTURE CAPABILITY) ile
+  eksik enforcement (finansal-doğruluk guard'ı, HIGH) AYRI şeylerdir → enforcement boşluğu **[[TD-133]]** olarak
+  ayrı izlenir. Bu satırın kalanı (e-Fatura/muhasebe/gerçek FX dönüşümü) doğru şekilde ertelendi.
 
 ## TD-125 — Sponsorship: otomatik dönemsel settlement zamanlayıcısı (TODO-161A)
 
@@ -1288,3 +1305,57 @@ müşavir/hukuk onayıyla** belirlenmeden bu iş BAŞLATILMAZ — süre uygulama
 bir karar değildir; mevzuat doğrulaması olmadan otomatik purge YAZILMAZ. **Neden borç:** product blocker değil
 (erasure kişisel/davranışsal veriyi zaten tam siler); yalnız uzun-vadeli yasal-kimlik yaşam döngüsü boşluğu +
 hukuki onay bekliyor. Final enterprise UI/design polish'i bloklamaz.
+**Sınıflandırma (Launch Audit 2026-07-27):** yalnız **EXTERNAL DECISION REQUIRED** olarak kalır — kod tarafı
+hazır, karar hukukidir.
+
+---
+
+## Launch Readiness Audit bulguları (2026-07-27)
+
+> Kaynak: `docs/analysis/launch-readiness-product-gap-audit.md`. `main` HEAD `03042f3` üzerinde 6 paralel
+> salt-okunur kod keşfi. Aşağıdaki kayıtlar denetimde **doğrulanmış** (docs değil kod) gerçek boşluklardır.
+
+## TD-133 — Sponsorship REVENUE_SHARE currency-mismatch guard YOK (finansal doğruluk)
+
+**Durum:** AÇIK — HIGH. `collectBillableMetrics` (`apps/api-gateway/src/sponsorship/data.ts:738-822`) dönemin
+`OrderSponsoredAttribution.netRevenueMinor`'unu her satırın `currency`'sini yoksayarak toplar; `previewSettlement`
+(`:1563-1626`) `currency: agreement.currency` damgalar ama kontrol etmez. `isSameCurrency` yalnız payment↔charge
+(`:2047`), advance↔agreement (`:2183`), advance↔charge (`:2237`), agreement-update (`:1336`) yollarında uygulanır —
+**revenue-share↔orders yolunda DEĞİL**. Order currency variant-başına (`server.ts:2311-2312`); `Store`'da currency
+alanı yok. ADR-127'nin öngördüğü `assertSameCurrency` helper'ı kodda **yok** (grep 0). **Yanlış kayıt düzeltmesi:**
+TD-124 bu enforcement'ı mevcut bir invariant sanar ("mağaza siparişleriyle aynı olmalı") ama uygulanmıyor; bu FX
+dönüşümü (FUTURE) DEĞİL, eksik guard'dır. **Bugünkü sınır:** her şey TRY ise latent; karışık-para-birimli variant +
+REVENUE_SHARE anlaşma birlikte olduğunda net gelir toplamı yanlış tahakkuk üretir. **Kapsam:** revenue-share
+settlement yolunda aynı-currency guard (`400 CURRENCY_MISMATCH`) + karışık-currency dönem tespiti.
+
+## TD-134 — Tema token değerleri sanitize edilmeden `<style dangerouslySetInnerHTML>`'e enjekte ediliyor (stored-XSS / render-break)
+
+**Durum:** AÇIK — HIGH (store-user tema editörü öncesi PROD BLOCKER). Token değerleri yalnız `z.string().min(1)`
+(`packages/theme/src/schema.ts:40-45` `zConcrete`; CSS-value allowlist/escape yok); `generateCssVariables` yalnız
+anahtar adını kebab-case yapar, değeri ham `${name}: ${value};` bırakır (`packages/theme/src/css.ts:107-120`); public
+uç CSS'i döndürür (`server.ts:5145-5159`); storefront birebir enjekte eder (`apps/storefront-web/app/layout.tsx:96`
+`dangerouslySetInnerHTML`). Yalnız serbest `customCss` sanitize edilir (`packages/theme/src/custom-css.ts:35`) — token
+değerleri bypass eder. `#fff</style><script>…` değeri `<style>`'dan kaçar → public storefront stored XSS; masum `;`/`}`
+tüm stylesheet'i bozar. `.passthrough()` ek olarak keyfi fazladan anahtarları geçirir. **Bugünkü sınır:** tema düzenleme
+yalnız platform-admin gate'li (TD-019 → store-user auth yok); sink **kalıcı**. **Kapsam:** token değerleri için
+CSS-value allowlist/escape + `.passthrough()` yerine `.strict()`; merchant-facing tema editörü açılmadan ÖNCE.
+
+## TD-135 — Felaket kurtarma: backup manuel/tek-host/zamanlanmamış + test edilmiş restore YOK (DR)
+
+**Durum:** AÇIK — PROD BLOCKER (ilk gerçek merchant verisinden itibaren). `db:backup` gerçek `pg_dump | gzip`
+üretir (`infra/scripts/db-backup.zsh:22`) ama yalnız elle, cron yok, çıktı Postgres ile aynı yerel diskte
+(offsite/S3/rotasyon/şifreleme yok). **Restore yolu yok:** `db:restore-enterprise` (`package.json:30`) =
+`backup + seed-enterprise + backfill + verify` → demo kataloğunu yeniden üretir, `.sql.gz`'i okumaz; gerçek
+sipariş/müşteri verisini kurtaramaz. `infra/scripts/` altında `*restore*` script'i yok. Tarihte tek "restore" demo
+re-seed'di; gerçek işlem verisi kalıcı kayboldu (TD-116-c). **Kapsam:** off-host zamanlanmış backup (rotasyon +
+şifreleme) + dokümante & **tatbik edilmiş** `pg_restore` runbook'u. **Not:** migration güvenliği (migrate-deploy-only,
+ADR-108 guard'ları, baseline) ayrıca **handled**'dır; boşluk yalnız DR'dir.
+
+## TD-136 — Rezervasyon süre-aşımı / terk-edilmiş sipariş süpürücüsü + orphan DRAFT temizliği YOK
+
+**Durum:** AÇIK — HIGH (TD-033'ün stok-kilitlenmesi dilimi; genel TD-033'ten ayrıştırıldı). Rezervasyon yalnız
+`placeOrder`'da yaratılır (`server.ts:4464`), yalnız `cancelOrder`'da bırakılır; zamanlanmış expiry job yok.
+Anonim checkout ödemeden önce stok rezerve eder (`status:"PLACED"`, `paymentStatus:UNPAID`); başarısız `placeOrder`
+orphan DRAFT bırakır (`server.ts:5980-5983`). Oversell **engelli** (kilit doğru) ama terk edilen anonim checkout'lar
+stoku süresiz kilitler. **Kapsam:** single-tx create+place, başarısız DRAFT auto-cancel, worker expiry job
+(reserve-on-auth). Bu HIGH dilim TD-033 gövdesinden ayrı izlenir; TD-033'ün atomiklik notu tamamlayıcıdır.
