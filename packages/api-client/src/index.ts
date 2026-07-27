@@ -208,6 +208,11 @@ import type {
   StoreAdminCustomerCreateResponse,
   StoreAdminCredentialTokenResponse,
   StoreAdminRevokeSessionsResponse,
+  StoreAdminCustomerErasurePreviewResponse,
+  StoreAdminCustomerErasureApplyRequest,
+  StoreAdminCustomerErasureApplyResponse,
+  StoreAdminCustomerDeactivateResponse,
+  StoreAdminCustomerErasureStatusResponse,
   CustomerAccount,
   CustomerAddress,
   CustomerAddressInput,
@@ -587,6 +592,11 @@ export type {
   StoreAdminCredentialSetup,
   StoreAdminCredentialTokenResponse,
   StoreAdminRevokeSessionsResponse,
+  StoreAdminCustomerErasurePreviewResponse,
+  StoreAdminCustomerErasureApplyRequest,
+  StoreAdminCustomerErasureApplyResponse,
+  StoreAdminCustomerDeactivateResponse,
+  StoreAdminCustomerErasureStatusResponse,
   CustomerActivateRequest,
   CustomerActivateResponse,
   CustomerCouponStatus,
@@ -1683,6 +1693,28 @@ export interface ApiClient {
         customerId: string,
         token?: string,
       ): Promise<StoreAdminRevokeSessionsResponse>;
+      // TD-131 (ADR-149…155) — Customer Data Erasure Workflow.
+      deactivate(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCustomerDeactivateResponse>;
+      erasurePreview(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCustomerErasurePreviewResponse>;
+      erasureApply(
+        storeId: string,
+        customerId: string,
+        input: StoreAdminCustomerErasureApplyRequest,
+        token?: string,
+      ): Promise<StoreAdminCustomerErasureApplyResponse>;
+      erasureStatus(
+        storeId: string,
+        customerId: string,
+        token?: string,
+      ): Promise<StoreAdminCustomerErasureStatusResponse>;
       updateCommunicationPreferences(
         storeId: string,
         customerId: string,
@@ -3003,6 +3035,32 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/customers/${customerId}/sessions/revoke`,
             "POST",
             undefined,
+            token,
+          ),
+        deactivate: (storeId, customerId, token) =>
+          sendJson<StoreAdminCustomerDeactivateResponse>(
+            `/stores/${storeId}/customers/${customerId}/deactivate`,
+            "POST",
+            undefined,
+            token,
+          ),
+        erasurePreview: (storeId, customerId, token) =>
+          sendJson<StoreAdminCustomerErasurePreviewResponse>(
+            `/stores/${storeId}/customers/${customerId}/erasure/preview`,
+            "POST",
+            undefined,
+            token,
+          ),
+        erasureApply: (storeId, customerId, input, token) =>
+          sendJson<StoreAdminCustomerErasureApplyResponse>(
+            `/stores/${storeId}/customers/${customerId}/erasure/apply`,
+            "POST",
+            input,
+            token,
+          ),
+        erasureStatus: (storeId, customerId, token) =>
+          getJson<StoreAdminCustomerErasureStatusResponse>(
+            `/stores/${storeId}/customers/${customerId}/erasure/status`,
             token,
           ),
         updateCommunicationPreferences: (storeId, customerId, input, token) =>

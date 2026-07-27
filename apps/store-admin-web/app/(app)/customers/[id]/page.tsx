@@ -25,6 +25,7 @@ import type {
   CustomerIban,
   StoreAdminCustomerDetail,
   StoreAdminCustomerDetailResponse,
+  StoreAdminCustomerErasurePreviewResponse,
   StoreAdminCustomerListSummaryResponse,
   StoreAdminCustomerSecurity,
 } from "@commerce-os/api-client";
@@ -42,6 +43,7 @@ const STATUS_TONES: Record<string, Tone> = {
   PASSIVE: "neutral",
   BLOCKED: "danger",
   ARCHIVED: "warning",
+  ERASED: "danger",
 };
 
 const ORDER_STATUS_TONES: Record<string, Tone> = {
@@ -229,6 +231,12 @@ export default function CustomerDetailPage() {
           <IbansCard
             customerId={customerId}
             ibans={ibans}
+            onChanged={(message) => { flash(message); void load(); }}
+            onError={fail}
+          />
+          <DangerZoneCard
+            customerId={customerId}
+            status={customer.status}
             onChanged={(message) => { flash(message); void load(); }}
             onError={fail}
           />
@@ -686,6 +694,246 @@ function SecurityCard({
         />
       ) : null}
     </SurfaceCard>
+  );
+}
+
+/* ── Danger Zone: pasifleştir + kişisel veri silme (TD-131, KVKK/GDPR) ──────── */
+
+function DangerZoneCard({
+  customerId,
+  status,
+  onChanged,
+  onError,
+}: {
+  customerId: string;
+  status: string;
+  onChanged: (message: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const dict = getDictionary(useLocale());
+  const z = dict.storeAdmin.customers.detail.dangerZone;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [eraseOpen, setEraseOpen] = useState(false);
+  const erased = status === "ERASED";
+
+  async function deactivate() {
+    if (!window.confirm(z.deactivateConfirm)) return;
+    setBusy("deactivate");
+    try {
+      const result = await storeApi.deactivateCustomer(customerId);
+      onChanged(format(z.deactivated, { count: result.revokedCount }));
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <SurfaceCard title={z.title} description={z.description} icon={<CustomerIcon />}>
+      {erased ? (
+        <div className="space-y-3">
+          <Badge tone="danger" dot>
+            {z.erasedBadge}
+          </Badge>
+          <p className="text-sm text-white/55">{z.modalWarning}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-white/[0.07] p-3">
+            <p className="text-sm font-medium text-white/85">{z.deactivate}</p>
+            <p className="mt-0.5 text-xs text-white/45">{z.deactivateDesc}</p>
+            <div className="mt-3">
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void deactivate()}>
+                {z.deactivate}
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-lg border border-rose-500/25 bg-rose-500/[0.04] p-3">
+            <p className="text-sm font-medium text-rose-200/90">{z.erase}</p>
+            <p className="mt-0.5 text-xs text-white/45">{z.eraseDesc}</p>
+            <div className="mt-3">
+              <Button variant="danger" size="sm" disabled={busy !== null} onClick={() => setEraseOpen(true)}>
+                {z.erase}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {eraseOpen ? (
+        <ErasureModal
+          customerId={customerId}
+          onClose={() => setEraseOpen(false)}
+          onErased={(count) => {
+            setEraseOpen(false);
+            onChanged(format(z.eraseSuccess, { count }));
+          }}
+          onError={onError}
+        />
+      ) : null}
+    </SurfaceCard>
+  );
+}
+
+function ErasureCountRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between py-0.5">
+      <span className="text-white/55">{label}</span>
+      <span className="tabular-nums text-white/85">{value}</span>
+    </div>
+  );
+}
+
+function ErasureModal({
+  customerId,
+  onClose,
+  onErased,
+  onError,
+}: {
+  customerId: string;
+  onClose: () => void;
+  onErased: (deletedCount: number) => void;
+  onError: (error: unknown) => void;
+}) {
+  const locale = useLocale();
+  const dict = getDictionary(locale);
+  const z = dict.storeAdmin.customers.detail.dangerZone;
+  const c = dict.common;
+  const [preview, setPreview] = useState<StoreAdminCustomerErasurePreviewResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [phrase, setPhrase] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const result = await storeApi.previewCustomerErasure(customerId);
+        if (alive) setPreview(result);
+      } catch (error) {
+        if (alive) setLoadError(messageForError(error, locale));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [customerId, locale]);
+
+  const phraseOk = preview !== null && phrase.trim() === preview.confirmationPhrase;
+  const reasonOk = reason.trim().length > 0;
+  const canSubmit = phraseOk && reasonOk && !submitting && preview !== null && !preview.alreadyErased;
+
+  async function submit() {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const result = await storeApi.applyCustomerErasure(customerId, {
+        confirmationPhrase: phrase.trim(),
+        reason: reason.trim(),
+      });
+      onErased(result.deleteTotal);
+    } catch (error) {
+      onError(error);
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const warningLabels: Record<string, string> = {
+    ACTIVE_SESSIONS: z.warningActiveSessions,
+    OPEN_ORDERS: z.warningOpenOrders,
+    ALREADY_ERASED: z.warningAlreadyErased,
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={z.modalTitle}
+      closeLabel={c.actions.dismiss}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            {z.cancel}
+          </Button>
+          <Button variant="danger" onClick={() => void submit()} disabled={!canSubmit}>
+            {submitting ? z.erasing : z.confirmErase}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Alert tone="error">{z.modalWarning}</Alert>
+
+        {loadError ? (
+          <Alert tone="error">{loadError}</Alert>
+        ) : preview === null ? (
+          <p className="text-sm text-white/55">{z.loadingPreview}</p>
+        ) : (
+          <>
+            {preview.warnings.length > 0 ? (
+              <ul className="space-y-1 text-xs text-amber-300/80">
+                {preview.warnings.map((w) => (
+                  <li key={w}>• {warningLabels[w] ?? w}</li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded-lg border border-white/[0.07] p-3 text-xs">
+                <p className="mb-2 font-medium uppercase tracking-wide text-rose-200/80">{z.willDelete}</p>
+                <ErasureCountRow label={z.sessions} value={preview.delete.sessions} />
+                <ErasureCountRow label={z.recentlyViewed} value={preview.delete.recentlyViewed} />
+                <ErasureCountRow label={z.recommendationEvents} value={preview.delete.recommendationEvents} />
+                <ErasureCountRow label={z.wishlist} value={preview.delete.lists + preview.delete.listItems} />
+                <ErasureCountRow label={z.coupons} value={preview.delete.coupons} />
+                <ErasureCountRow label={z.addresses} value={preview.delete.addresses} />
+                <ErasureCountRow label={z.credentials} value={preview.delete.credentials + preview.delete.credentialTokens} />
+              </div>
+              <div className="rounded-lg border border-white/[0.07] p-3 text-xs">
+                <p className="mb-2 font-medium uppercase tracking-wide text-amber-200/80">{z.willAnonymize}</p>
+                <ErasureCountRow label={z.orderContact} value={preview.anonymize.orders} />
+                <ErasureCountRow label={z.addresses} value={preview.anonymize.orderAddresses} />
+                <ErasureCountRow label={z.reviewsAnonymized} value={preview.reviewsAnonymized} />
+              </div>
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-3 text-xs">
+                <p className="mb-2 font-medium uppercase tracking-wide text-emerald-200/80">{z.willPreserve}</p>
+                <ErasureCountRow label={z.orders} value={preview.preserve.orders} />
+                <ErasureCountRow label={z.orderLines} value={preview.preserve.orderLines} />
+                <ErasureCountRow label={z.payments} value={preview.preserve.payments} />
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t border-white/[0.07] pt-4">
+              <Input
+                label={z.reasonLabel}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder={z.reasonPlaceholder}
+                disabled={submitting || preview.alreadyErased}
+              />
+              <div>
+                <p className="mb-1.5 text-sm text-white/70">{z.confirmLabel}</p>
+                <p className="mb-2 select-all rounded bg-white/[0.06] px-2 py-1 font-mono text-sm text-rose-200/90">
+                  {preview.confirmationPhrase}
+                </p>
+                <Input
+                  value={phrase}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  disabled={submitting || preview.alreadyErased}
+                  aria-label={z.confirmLabel}
+                />
+                {phrase.length > 0 && !phraseOk ? (
+                  <p className="mt-1 text-xs text-rose-300/80">{z.confirmMismatch}</p>
+                ) : null}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 

@@ -200,6 +200,9 @@ enum CustomerStatus {
   PASSIVE
   BLOCKED
   ARCHIVED
+  // TD-131 (ADR-149) — Kişisel Verileri Sil sonrası FINAL/TERMINAL durum. Geri
+  // alınamaz; müşteri yeniden aktif edilemez, giriş yapamaz (login zaten ACTIVE ister).
+  ERASED
 }
 
 // Storefront uyelik profili icin cinsiyet (F3B.3). Zorunlu degil (nullable).
@@ -1403,6 +1406,11 @@ model Customer {
   status          CustomerStatus  @default(ACTIVE)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  // TD-131 (ADR-149) — Kişisel Verileri Sil (ERASE_PERSONAL_DATA) audit izleri.
+  // status=ERASED ile birlikte set edilir; PII değil (yalnız zaman + admin id + neden).
+  erasedAt        DateTime?
+  erasedByUserId  String?
+  eraseReason     String?
 
   store                   Store                            @relation(fields: [storeId], references: [id], onDelete: Cascade)
   addresses               CustomerAddress[]

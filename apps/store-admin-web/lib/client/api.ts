@@ -176,6 +176,10 @@ import type {
   StoreAdminCustomerCreateRequest,
   StoreAdminCustomerSummary,
   StoreAdminRevokeSessionsResponse,
+  StoreAdminCustomerDeactivateResponse,
+  StoreAdminCustomerErasurePreviewResponse,
+  StoreAdminCustomerErasureApplyRequest,
+  StoreAdminCustomerErasureApplyResponse,
   CustomerAccount,
   CustomerAddress,
   CustomerAddressInput,
@@ -1051,6 +1055,20 @@ export const storeApi = {
   revokeCustomerSessions: (id: string) =>
     mutatingCall<StoreAdminRevokeSessionsResponse>(`/api/customers/${id}/sessions/revoke`, {
       method: "POST",
+    }),
+  // TD-131 (ADR-149…155) — Customer Data Erasure Workflow.
+  deactivateCustomer: (id: string) =>
+    mutatingCall<StoreAdminCustomerDeactivateResponse>(`/api/customers/${id}/deactivate`, {
+      method: "POST",
+    }),
+  previewCustomerErasure: (id: string) =>
+    mutatingCall<StoreAdminCustomerErasurePreviewResponse>(`/api/customers/${id}/erasure/preview`, {
+      method: "POST",
+    }),
+  applyCustomerErasure: (id: string, input: StoreAdminCustomerErasureApplyRequest) =>
+    mutatingCall<StoreAdminCustomerErasureApplyResponse>(`/api/customers/${id}/erasure/apply`, {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
   updateCustomerCommPref: (id: string, input: CustomerCommunicationPreference) =>
     mutatingCall<CustomerCommunicationPreference>(`/api/customers/${id}/communication-preferences`, {

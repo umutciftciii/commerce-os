@@ -663,3 +663,26 @@
 - Testler: gateway 1566 · storefront 439 · store-admin 356 — hepsi yeşil; tüm tsc temiz.
 - Sıra: **TD-129/130'dan SONRA → Final enterprise UI/design polish (SON faz; yeni ürün geliştirme kararına kadar
   başlatılmaz).**
+
+## Compliance — Customer Data Erasure Workflow (TD-131) — KOD TAMAM (commit YOK)
+
+- Durum: **KOD + MIGRATION + TEST + CANLI DOĞRULAMA + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti.
+  Commit/push/PR/merge/deploy YAPILMADI (git kuralı).** ADR-149…155. KVKK md.7 / GDPR Art. 17 uyumu.
+- **İki ayrı aksiyon (ADR-149):** `Hesabı Pasifleştir` (DEACTIVATE → PASSIVE + oturum revoke; veri korunur, geri
+  alınabilir) ve `Kişisel Verileri Sil` (ERASE_PERSONAL_DATA → ERASED terminal; geri alınamaz). Migration
+  `20260727160000_customer_erasure` (additive: `CustomerStatus.ERASED` + `erasedAt/erasedByUserId/eraseReason`).
+- **Domain:** `apps/api-gateway/src/customer-erasure/` (core/data/service/routes). Dry-run preview (YAZMA YOK) +
+  apply (müşteri-izole advisory lock + tek transaction + kilit-altı ikinci okuma + idempotent) + deactivate.
+  API: `/erasure/preview`, `/erasure/apply`, `/deactivate`, `/erasure/status` (requireStorePlatformAdmin, tenant-izole).
+- **Sil:** session/credential/token/OTP/IBAN/commPref/address/wishlist(+item)/coupon/recentlyViewed/reviewHelpful +
+  FK'siz `RecommendationEvent` (deleteForCustomer, ADR-155). **Anonimleştir:** Customer + Order temas PII +
+  OrderAddress + CampaignRedemption.email. **Koru:** Order/OrderLine/Payment/redemption mali + `billingTaxId` yasal
+  kimlik (asgari saklama, ADR-151 → süre-sonu purge = TD-132). **Review:** KORU+ANONİM (silinmez; ADR-153).
+  Guest/cross-store DOKUNULMAZ; audit PII-SIZ (ADR-154).
+- **UI:** Store-admin müşteri detayında Danger Zone kartı + geri-alınamaz danger modal (dry-run özeti + confirmation
+  phrase + reason); ERASED müşteri "Silinmiş" rozetiyle görünür, düzenlenemez, giriş yapamaz. TR/EN.
+- Testler: 25 birim (customer-erasure core/service/data) + **47/47 canlı erasure smoke** (gerçek PostgreSQL,
+  enterprise-demo, izole müşteri); gateway 1594 · store-admin 356 — hepsi yeşil; build/typecheck/lint temiz.
+- Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
+  UI click-through smoke) bu iş kapsamında Faz B olarak ele alınır.
+- Sıra: **TD-131'den SONRA → TD-127 auth'lu smoke → Final enterprise UI/design polish (SON faz).**

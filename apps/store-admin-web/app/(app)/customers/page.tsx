@@ -47,6 +47,7 @@ const STATUS_TONES: Record<StoreAdminCustomerStatus, Tone> = {
   PASSIVE: "neutral",
   BLOCKED: "danger",
   ARCHIVED: "warning",
+  ERASED: "danger",
 };
 
 type LoadState =
