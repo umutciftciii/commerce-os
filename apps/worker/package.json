@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@commerce-os/backup": "workspace:*",
     "@commerce-os/config": "workspace:*",
     "@commerce-os/db": "workspace:*",
     "@commerce-os/logger": "workspace:*",

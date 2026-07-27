@@ -1350,14 +1350,23 @@ CSS-value allowlist/escape + `.passthrough()` yerine `.strict()`; merchant-facin
 
 ## TD-135 — Felaket kurtarma: backup manuel/tek-host/zamanlanmamış + test edilmiş restore YOK (DR)
 
-**Durum:** AÇIK — PROD BLOCKER (ilk gerçek merchant verisinden itibaren). `db:backup` gerçek `pg_dump | gzip`
-üretir (`infra/scripts/db-backup.zsh:22`) ama yalnız elle, cron yok, çıktı Postgres ile aynı yerel diskte
-(offsite/S3/rotasyon/şifreleme yok). **Restore yolu yok:** `db:restore-enterprise` (`package.json:30`) =
-`backup + seed-enterprise + backfill + verify` → demo kataloğunu yeniden üretir, `.sql.gz`'i okumaz; gerçek
-sipariş/müşteri verisini kurtaramaz. `infra/scripts/` altında `*restore*` script'i yok. Tarihte tek "restore" demo
-re-seed'di; gerçek işlem verisi kalıcı kayboldu (TD-116-c). **Kapsam:** off-host zamanlanmış backup (rotasyon +
-şifreleme) + dokümante & **tatbik edilmiş** `pg_restore` runbook'u. **Not:** migration güvenliği (migrate-deploy-only,
-ADR-108 guard'ları, baseline) ayrıca **handled**'dır; boşluk yalnız DR'dir.
+**Durum:** **ÇÖZÜLDÜ (kod/test/tatbik) — PB-2 CLOSED; PB-3 IMPLEMENTED-BUT-NOT-CONFIGURED (bkz. TD-139).**
+`@commerce-os/backup` paketi + api-gateway `database-backup` worker'ı + CLI'lar (`db:backup:run`/`db:restore`/
+`db:verify-restore`/`db:backup:retention`) ile: gerçek `pg_dump -Fc` + client-side AES-256-GCM (fail-closed) +
+S3-uyumlu offsite (SigV4, private, remote HEAD/checksum doğrulama) + GFS retention + **gerçek `db:restore`** +
+izole restore-verification. Manifest secret'siz + PII-sınıflandırmalı. Yanıltıcı `db:restore-enterprise` →
+`db:reseed-enterprise` (ADR-166). Uçtan uca **canlı DR smoke** (`infra/scripts/dr-smoke.zsh`): MinIO offsite +
+boş postgres, fixture ilişkileri korundu, source dokunulmadı — **PASS** (backup ~0.57s / restore ~1.1s).
+84 test (73 paket + 11 api-gateway). ADR-159…166. **PB-2 CLOSED.** Kalan yapılandırma açığı → TD-139.
+
+**Pre-ship hardening (2026-07-28, ADR-167…169):** zamanlama api-gateway `setTimeout`'tan **apps/worker** BullMQ Job
+Scheduler'a taşındı (API restart takvimi etkilemez; worker restart paralel timer üretmez; advisory lock impl
+`@commerce-os/db`'ye taşındı, job orchestration `@commerce-os/backup`'a); elle SigV4 → **AWS SDK v3** (bounded retry
++ timeout + **https-only**, prod'da HTTP reddedilir); encryption **envelope** version+keyId (rotation-hazır, truncation
+tespiti); **manifest HMAC** (kurcalanma → cross-environment/checksum guard atlatılamaz) + restore ortam guard'ı;
+`DATABASE_BACKUP_SOURCE_URL` (replica/host-vs-container). Testler **95 paket + worker/health** + **iki canlı smoke**
+(`dr-smoke.zsh` data-path + `dr-worker-smoke.zsh` worker-tetikli: COMPLETED + offsite + SKIPPED_LOCKED + Redis
+scheduler). PB-2 CLOSED kalır; PB-3 hâlâ TD-139'a bağlı.
 
 ## TD-136 — Rezervasyon süre-aşımı / terk-edilmiş sipariş süpürücüsü + orphan DRAFT temizliği YOK
 
@@ -1387,3 +1396,30 @@ ekledi; ödeme sağlayıcı config'i için webhook token+secret üreten **admin 
 helper'ları hazır). Gerçek sağlayıcı (EX-1/TD-137) canlıya alınana dek webhook tüketicisi olmadığından bloklamaz;
 token/secret bugün doğrudan DB'de (veya gelecek rotate ucuyla) sağlanır. **Kapsam:** gateway rotate ucu (audit'li)
 + store-admin ödeme sağlayıcı ekranında "Webhook URL + secret (bir kez göster)" + rotate butonu.
+
+## TD-139 — PB-3: production offsite storage YAPILANDIRILMADI (IMPLEMENTED-BUT-NOT-CONFIGURED)
+
+**Durum:** **AÇIK — PROD BLOCKER (PB-3).** DR pipeline (kod/test/tatbik) tamam ama **gerçek production offsite provider'ı
+yapılandırılmadı** ve gerçek production ortamından en az bir remote backup doğrulanmadı. Yalnız izole
+MinIO/local adapter smoke'u var (`dr-smoke.zsh` PASS). PB-3 ancak (a) production `.env`'inde gerçek
+S3-uyumlu provider (bucket/region/key/secret + encryption key repo-dışı) yapılandırılınca **ve** (b) production
+ortamından alınan en az bir remote backup `db:verify-restore` ile doğrulanınca CLOSED olur. O zamana dek
+**PB-3 OPEN / launch blocker (offsite yapılandırma)**. Durumu olduğundan iyi gösterme: local/MinIO smoke ≠
+production offsite. **Kapsam (operatör):** provider seç + bucket (private + versioning öner) + secret yönetimi
++ ilk production backup + doğrulama + izleme.
+
+## TD-140 — DR backup yalnız Postgres; `media-data` volume kapsam dışı
+
+**Durum:** AÇIK — DÜŞÜK/ORTA. DR backup yalnız PostgreSQL'i (tam logical) yedekler; yüklenen görsellerin tutulduğu
+`media-data` named volume (`/app/uploads`) DR pipeline'ına dahil DEĞİL. Host/volume kaybında görseller kaybolur
+(DB'deki storageKey'ler kalır ama dosya yok). **Kapsam:** medya volume'ünü ayrı bir offsite senkron/backup'a bağla
+(object storage'a mirror ya da düzenli tar+offsite). Görseller yeniden-üretilemez veri olduğundan launch öncesi
+değerlendirilmeli. ADR-159 kapsam notu.
+
+## TD-141 — Zamanlanmış restore-verification izole hedef DB provizyonu gerektirir
+
+**Durum:** AÇIK — DÜŞÜK. `DATABASE_BACKUP_VERIFY_AFTER=true` her zamanlanmış backup sonrası restore-verification
+koşar ama bunun için ayrı bir **izole/atılabilir PostgreSQL hedefi** (`DATABASE_BACKUP_VERIFY_TARGET_URL`)
+provizyonlanmalı. Target yoksa doğrulama atlanır (log uyarısı; sessiz değil). Periyodik otomatik doğrulama için
+ephemeral bir postgres (ör. ayrı container/instance) + reset döngüsü kurulmalı. Manuel/`dr-smoke.zsh` doğrulaması
+bu boşluğu kapatır (izole stack'i kendi kurar). **Kapsam:** production'da ephemeral verify-target orkestrasyonu.

@@ -737,3 +737,39 @@
   build/lint temiz. **Canlı exploit regresyonu 14/14** (gerçek PostgreSQL, izole fixture, cleanup).
 - Kalan (EX-1 canlı sağlayıcıya bağlı): **TD-137** sağlayıcı-native imza · **TD-138** webhook provisioning UI.
   Gerçek ödeme yalnız EX-1 + TD-137 sonrası etkinleştirilir.
+
+## DR — PB-2 Backup/Restore CLOSED · PB-3 Offsite IMPLEMENTED-BUT-NOT-CONFIGURED
+
+- **PB-2 (test edilmiş gerçek DB restore yolu) — ✅ CLOSED (2026-07-28).** Yeni `@commerce-os/backup` paketi
+  (SAF çekirdek + provider-bağımsız adapter'lar) + api-gateway `database-backup` scheduler worker + CLI'lar.
+  Gerçek `pg_dump -Fc` → client-side **AES-256-GCM** (fail-closed, ayrı domain anahtarı) → **S3-uyumlu offsite**
+  (SigV4, SDK'sız, private ACL, upload sonrası remote HEAD+sha256 doğrulama) → **GFS retention** (14/8/12, en-yeni
+  korunur, dry-run, parity) → **gerçek `db:restore`** (checksum+decrypt+hedef-guard+reset+restore) → **izole
+  restore-verification** (migrate status + kritik tablo + integrity + bilinen fixture). Secret-siz + PII-sınıflı
+  manifest. Advisory lock + QueueJobLog (yeni tablo YOK). ADR-159…166.
+- **Canlı DR smoke** (`infra/scripts/dr-smoke.zsh`): izole source+target postgres + **MinIO** offsite; fixture →
+  backup → encrypt → upload → remote checksum → boş DB → download → decrypt → restore → migrate 61/61 (latest eşleşti)
+  → fixture ilişkileri (Order/OrderLine/PaymentAttempt/Inventory) korundu → source dokunulmadı → **PASS**
+  (backup ~0.57s / restore ~1.1s). Testler: 73 paket + 11 api-gateway.
+- **PB-3 (offsite/otomatik/rotasyon) — ⚠️ IMPLEMENTED-BUT-NOT-CONFIGURED / OPEN.** Kod+test+smoke tamam ancak
+  **gerçek production offsite provider'ı yapılandırılmadı** ve production'dan doğrulanmış remote backup yok (yalnız
+  MinIO/local). PB-3 ancak gerçek provider config + ilk production remote backup doğrulaması sonrası CLOSED. Bkz.
+  **TD-139** (+ TD-140 media volume, TD-141 verify-target). Durumu olduğundan iyi gösterme: local smoke ≠ production offsite.
+- **Demo ayrımı:** `db:restore-enterprise` (yanıltıcı) → **`db:reseed-enterprise`**; eski ad deprecation köprüsü (ADR-166).
+- **Kapsam dışı (future capability):** PITR/WAL archiving, streaming replication, multi-region active-active,
+  tenant-level selective restore, Kubernetes operator, `media-data` volume backup (TD-140).
+- **Bu görevde commit/push/PR/merge/deploy YAPILMADI** (kullanıcı talimatı: kod+test+smoke+docs tamamla, dur).
+
+### PB-2/PB-3 pre-ship hardening (2026-07-28, ADR-167…169)
+
+- **Scheduler → worker:** backup zamanlaması api-gateway `setTimeout`'tan **apps/worker** BullMQ Job Scheduler'a
+  taşındı (API restart takvimi etkilemez; worker restart paralel timer üretmez; advisory lock `@commerce-os/db`'de,
+  job orchestration `@commerce-os/backup`'ta — worker+gateway paylaşır). api-gateway yalnız enqueue eder.
+- **S3 → AWS SDK v3:** elle SigV4 kaldırıldı; bounded retry + timeout + **https-only** (prod'da HTTP reddedilir,
+  local MinIO için explicit insecure override).
+- **Envelope + manifest HMAC:** encryption envelope version+keyId (rotation-hazır, truncation tespiti); manifest
+  HMAC-SHA256 (kurcalanma → cross-environment/checksum guard atlatılamaz) + restore ortam guard'ı.
+- **Testler:** 95 paket + worker/health; **iki canlı smoke** — `dr-smoke.zsh` (data-path) + `dr-worker-smoke.zsh`
+  (worker-tetikli: STARTED→COMPLETED, offsite obje, SKIPPED_LOCKED, Redis Job Scheduler, gateway'de scheduler yok).
+- **PB-2 CLOSED** kalır; **PB-3 OPEN / PROD BLOCKER (TD-139)** — production offsite provider yapılandırılıp
+  production kaynaklı remote backup + restore-verification geçene dek. Bu turda commit/push/PR/deploy YAPILMADI.

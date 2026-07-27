@@ -8,7 +8,8 @@
   `db:backfill-enterprise` → verify-enterprise 21/21, demo-store korundu, storefront smoke PASS.
   **Önleme:** `packages/db/scripts/enterprise/safety.mjs` — environment guard (prod/staging/host
   allowlist), store-scope guard, row-count circuit breaker (`ALLOW_DESTRUCTIVE_DEMO_RESET`), backup
-  guard (`pnpm db:backup` / `infra/scripts/db-backup.zsh`) + `pnpm db:restore-enterprise` zinciri.
+  guard (`pnpm db:backup` / `infra/scripts/db-backup.zsh`) + `pnpm db:reseed-enterprise` zinciri
+  (eski ad `db:restore-enterprise` → deprecation köprüsü; gerçek DR restore DEĞİL, ADR-166).
   20 birim + 3 statik-invariant test + 3 canlı guard testi (no-flag durur / flag geçer / prod-URL
   reddedilir). Runbook: docs/OPERATIONS.md "Demo veri güvenliği". Not: yerel DB'de `_prisma_migrations`
   yok (şema `db push` kurulmuş, TD-116-a); guard'lar imaj rebuild sonrası canlı (TD-116-b).
@@ -2091,8 +2092,15 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
   30 test + 14/14 canlı + **21/21 production-stack** exploit regresyonu. Analiz:
   `docs/analysis/PB-1-payment-webhook-authenticity.md`. **Kalan (EX-1'e bağlı):** TD-137 sağlayıcı-native imza,
   TD-138 provisioning UI. Gerçek ödeme yalnız EX-1+TD-137 sonrası.
-- **LR-PB-2 (PROD BLOCKER) — Felaket kurtarma.** Off-host zamanlanmış backup (rotasyon+şifreleme) +
-  dokümante & tatbik edilmiş `pg_restore` runbook'u. `db:restore-enterprise` restore DEĞİL (demo re-seed). Bkz. TD-135.
+- **LR-PB-2 — Felaket kurtarma restore yolu. ✅ CLOSED (2026-07-28).** `@commerce-os/backup` + `database-backup`
+  worker + CLI'lar (`db:backup:run`/`db:restore`/`db:verify-restore`/`db:backup:retention`): gerçek `pg_dump -Fc` +
+  AES-256-GCM (fail-closed) + S3-uyumlu offsite (SigV4/private/remote-doğrulama) + GFS retention + gerçek restore +
+  izole restore-verification. Canlı DR smoke (`infra/scripts/dr-smoke.zsh`) MinIO+boş-postgres PASS. `db:restore-enterprise`
+  → `db:reseed-enterprise` (ADR-166). ADR-159…166; runbook `docs/runbooks/database-backup-restore.md`. Bkz. TD-135.
+- **LR-PB-3 — Offsite backup otomasyonu. ⚠️ IMPLEMENTED-BUT-NOT-CONFIGURED (OPEN).** Zamanlama/retention/offsite
+  adapter kod+test+smoke tamam AMA gerçek **production offsite provider'ı yapılandırılmadı** + production'dan doğrulanmış
+  remote backup yok (yalnız MinIO/local smoke). Gerçek provider config + ilk production backup doğrulaması gelene dek
+  **OPEN / launch blocker**. Bkz. **TD-139** (+ TD-140 media volume, TD-141 verify-target).
 - **LR-H-1 (HIGH) — Tema token XSS.** Token değerleri için CSS-value allowlist/escape + `.passthrough()`→`.strict()`;
   merchant-facing tema editörü öncesi. Bkz. TD-134.
 - **LR-H-2 (HIGH) — Revenue-share currency guard.** Settlement toplamında aynı-currency guard (`400 CURRENCY_MISMATCH`)

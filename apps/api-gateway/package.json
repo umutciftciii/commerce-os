@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@commerce-os/auth": "workspace:*",
+    "@commerce-os/backup": "workspace:*",
     "@commerce-os/config": "workspace:*",
     "@commerce-os/contracts": "workspace:*",
     "@commerce-os/db": "workspace:*",

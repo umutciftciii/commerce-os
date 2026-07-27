@@ -18,6 +18,12 @@ WORKDIR /app
 # pnpm via corepack; version is pinned by the root package.json "packageManager".
 RUN corepack enable
 
+# PB-2/PB-3 — DR backup/restore araçları. api-gateway sürecindeki zamanlanmış `database-backup` worker'ı
+# ve `db:backup:run`/`db:restore` CLI'ları pg_dump/pg_restore/psql'i "direct" modda DATABASE_URL'e karşı
+# çalıştırır. postgres:16 ile SÜRÜM-EŞLİ client (postgres imajıyla aynı major). Yalnız ~a few MB; DR
+# kapalıyken (varsayılan) çalışmaz ama araç mevcut olmalıdır.
+RUN apk add --no-cache postgresql16-client
+
 # --- Source + manifests -----------------------------------------------------
 # Root workspace/build config first, then the workspaces. Every package.json is
 # needed so pnpm can resolve the workspace graph. Generated outputs are excluded

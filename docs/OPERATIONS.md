@@ -638,6 +638,17 @@ artığıdır → maliyet/marj + liste fiyatı + fiyat audit'i (son 30 gün en d
   etkilemez); karma oranlı mağazada satır oranlarından türetme follow-up'tır. Fatura ÜRETİMİ bu fazda yok;
   alanlar hazırdır.
 
+## Felaket kurtarma (DR): gerçek backup/restore — PB-2/PB-3
+
+> **Gerçek DB felaket kurtarma** (şifreli + offsite + doğrulanmış restore) ayrı bir runbook'tadır:
+> **`docs/runbooks/database-backup-restore.md`** (ADR-159…166). Komutlar: `pnpm db:backup:run` (encrypt+offsite),
+> `pnpm db:restore` (gerçek restore), `pnpm db:verify-restore` (izole doğrulama), `pnpm db:backup:retention`,
+> `./infra/scripts/dr-smoke.zsh` (uçtan uca izole DR tatbikatı). **PB-2 CLOSED; PB-3 production offsite
+> yapılandırması bekliyor (TD-139).**
+>
+> Aşağıdaki bölüm **demo veri** güvenliği içindir (gerçek DR DEĞİL). `db:restore-enterprise` gerçek restore değil,
+> demo re-seed'dir → **`db:reseed-enterprise`** olarak yeniden adlandırıldı (eski ad deprecation köprüsü; ADR-166).
+
 ## Demo veri güvenliği: backup, güvenli reset & recovery (TODO-159G / ADR-108)
 
 **Neden.** 2026-07-23'te elle `prisma db push` çalışan yerel DB'yi sıfırladı ve enterprise-demo
@@ -657,7 +668,7 @@ pnpm db:backup pre-reset       # etiketli
 ### Enterprise-demo kataloğunu güvenli geri yükle
 ```bash
 # Tek komut: yedek al → seed → search backfill → invariant doğrula
-pnpm db:restore-enterprise
+pnpm db:reseed-enterprise
 
 # Dolu bir kataloğu bilinçli EZMEK gerekiyorsa (circuit breaker > 10 ürün):
 ALLOW_DESTRUCTIVE_DEMO_RESET=true pnpm db:seed-enterprise && pnpm db:backfill-enterprise
@@ -717,7 +728,7 @@ sayıları birebir korundu (verify-enterprise 21/21, storefront smoke PASS). TD-
 `prisma db push` (özellikle `--force-reset` / `--accept-data-loss`), `prisma migrate reset`,
 `docker volume rm <postgres>` ve elle `DROP DATABASE/SCHEMA/TABLE` **her ortamda YASAKTIR.**
 Şema değişikliği yalnız `prisma migrate dev` (üret) → `prisma migrate deploy` (uygula) ile yapılır.
-Yerel dev'de dahi enterprise-demo kataloğunu yeniden kurmak gerekiyorsa: `pnpm db:restore-enterprise`
+Yerel dev'de dahi enterprise-demo kataloğunu yeniden kurmak gerekiyorsa: `pnpm db:reseed-enterprise`
 (backup→seed→backfill→verify) kullan; seed guard'ları (ADR-108) yıkıcı yolu zaten fail-safe kılar.
 Bu kural TD-116 (2026-07-23 veri kaybı) sonrası kalıcıdır.
 
