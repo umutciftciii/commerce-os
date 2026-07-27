@@ -8,6 +8,8 @@ import {
 } from "../../lib/server/cart-cookie";
 import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
+// TODO-161B (ADR-137) — Sepette düşük-yoğunluklu "Son İncelediklerin" (sepet ürünleri hariç).
+import { RecentlyViewedRail } from "../../components/recently-viewed/recently-viewed-rail";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,8 @@ export const dynamic = "force-dynamic";
  * PLP/PDP dili): serif Heading, editoryel EmptyState, hairline hata kutusu.
  */
 export default async function CartPage() {
-  const t = (await getStorefrontDict()).cart;
+  const dict = await getStorefrontDict();
+  const t = dict.cart;
   const items = await readCartItems();
 
   if (items.length === 0) {
@@ -64,6 +67,12 @@ export default async function CartPage() {
         canonicalItems={canonicalItems}
         reconcileNeeded={reconcileNeeded}
         t={t}
+      />
+      {/* TODO-161B — Düşük-yoğunluklu öneri: son incelenenler (sepetteki ürünler hariç; checkout akışı bozulmaz). */}
+      <RecentlyViewedRail
+        t={dict}
+        excludeSlugs={view.lines.map((line) => line.productSlug)}
+        limit={12}
       />
     </Container>
   );

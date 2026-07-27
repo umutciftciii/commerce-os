@@ -328,8 +328,8 @@
   ~~TODO-161A.2 Unified Sponsorship Commercial Flow~~ (DONE — PR #124) →
   ~~TODO-161A.1 Commercial Automation & Data Retention~~ (DONE — PR #126) →
   ~~BUG-PDP-001 PDP Quantity Unit Price Hotfix~~ (DONE / KOD TAMAM) →
-  **TODO-161B Recently Viewed & Product Recommendations (SIRADAKİ AKTİF)** → *final enterprise UI/design
-  polish fazı (henüz numaralandırılmadı)*.
+  ~~TODO-161B Recently Viewed & Product Recommendations~~ (KOD TAMAM — commit YOK; ADR-137…143) →
+  **Final enterprise UI/design polish (SIRADAKİ AKTİF; henüz numaralandırılmadı)**.
 - **TODO-160A konumlandırma:** TODO-160 ile TODO-161 arasına alındı. Katalog kimlik hijyeni (SKU'nun
   varyant-seviyesi tek otorite + deterministik üretim + çakışma yönetimi + governance) bir katalog-veri
   kalitesi işidir; sponsored yerleşim (TODO-161) ürün kimliğinin sağlam olmasından yararlanır. TODO-160'ın
@@ -611,9 +611,34 @@
   grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Test verisi temizlendi; demo bütün (471 ürün).
 - Sıra: **BUG-PDP-001'den SONRA → TODO-161B → final enterprise UI/design polish.**
 
-## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — SIRADAKİ AKTİF FAZ
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — KOD TAMAM (commit YOK)
 
-- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (BUG-PDP-001 tamamlandı).** Bu numara (TODO-161B) bu iş için REZERVE
-  edilmiştir; sponsorluk stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
-- Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
-- Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
+- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti. Commit/push/PR/
+  merge/deploy YAPILMADI (git kuralı §16).** Analiz: `docs/analysis/TODO-161B-recently-viewed-product-
+  recommendations.md`. ADR-137…143.
+- İki AYRI capability, tek fazda: (1) **Recently Viewed** — `RecentlyViewedProduct` (dual-key
+  customerId|visitorHash + kısmi unique index + XOR CHECK; HAM IP/UA saklanmaz; visitorHash =
+  HMAC(SESSION_SECRET, first-party `commerce_os_vid`); bot/prefetch elenir; max 50/kimlik write-time; guest→
+  customer idempotent merge; 90-gün retention TODO-161A.1 SAF altyapı reuse + AYRI domain/worker,
+  `RETENTION_TABLE_SPECS` allowlist'ine dokunulmaz). (2) **Similar Products** — geçmişten BAĞIMSIZ açıklanabilir
+  ağırlıklı skor (SAF `similarity-core.ts`; alt/üst kategori, marka, salesMode, fiyat yakınlığı, ortak dinamik
+  attribute; read-model aday sorgusu bounded scan-cap 200; deterministik sıralama; fallback katmanları).
+- **İzolasyon (kritik):** sponsored priority skora KARIŞMAZ (`injectSponsoredSlots` çağrılmaz), organik search
+  ranking DEĞİŞMEZ (`search-query.ts` sabit), cross-store karışma yok. Home "Son İncelediklerin" bilinçli olarak
+  `HomeSection` tipi YAPILMADI (kişiselleştirme+cache; ADR-141) → tek sabit client şerit.
+- API (public/customer): `POST/GET/DELETE /public/stores/:slug/recently-viewed`, `.../recently-viewed/merge`,
+  `GET /public/stores/:slug/products/:productId/similar`. Kartlar read-model `listing` snapshot'ından
+  (`publicSearchProductSchema`; ikinci hidrasyon yok, N+1 yok — ADR-143).
+- Yüzeyler: PDP Benzer Ürünler (statik related grid → açıklanabilir motor) + görüntüleme izleyici · Home Son
+  İncelediklerin · Cart düşük-yoğunluk şerit (sepet ürünleri hariç) · Hesabım Görüntüleme Geçmişi (temizle).
+  Mevcut `SearchProductCard`/`Section`/`Container` DS'i korundu; i18n TR+EN.
+- Migration: `20260727130000_add_recently_viewed_products` (additive; gerçek Postgres'te uygulandı + doğrulandı:
+  3 index + 2 kısmi unique + XOR CHECK + 3 FK Cascade).
+- Testler: 51 yeni backend test (similarity-core 20 · recently-viewed-core 23 · retention-service 8);
+  api-gateway suite yeşil (1529 test); storefront tsc temiz + 5 SSR UI testi.
+- **Pre-ship hardening (2026-07-27):** (1) **TD-128 CLOSED** — öneri kartı wishlist kalbi GERÇEK (island'lar
+  `WishlistProvider initialSavedIds` + BFF `savedIds`; auth→gateway, guest→cookie; optimistic+rollback).
+  (2) **Similarity candidate KATMANLI** (ADR-142 revize) — per-tier-kotalı (120) katmanlı sorgu + additive index
+  `ProductSearchDocument(storeId, brand)` (migration `20260727140000`); ilgisiz ilk-N sonucu bozmaz + katalog-sonundaki
+  ilgili aday bulunur (canlı 200-boundary smoke + EXPLAIN). TD-129/130 AÇIK.
+- Sıra: **TODO-161B'den SONRA → Final enterprise UI/design polish.**

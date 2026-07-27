@@ -118,6 +118,9 @@ import {
   registerCustomerListAdminRoutes,
   registerCustomerListRoutes,
 } from "./customer-lists/routes.js";
+// TODO-161B (ADR-137…143) — Recently Viewed & Similar Products (public/customer uçları).
+import { createRecentlyViewedData } from "./recently-viewed/data.js";
+import { registerRecentlyViewedRoutes } from "./recently-viewed/routes.js";
 import { createReviewData } from "./reviews/data.js";
 import {
   registerCustomerReviewRoutes,
@@ -6098,6 +6101,20 @@ export function createServer(
       findInventoryByVariantIds: (sid, ids) => dataAccess.findInventoryByVariantIds(sid, ids),
       listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
     },
+  });
+
+  // TODO-161B (ADR-137…143) — Recently Viewed & Similar Products. Public/customer uçları: kimlik =
+  // customer (x-customer-session) VEYA guest visitor (x-visitor-id → HMAC visitorHash). Öneri kartları
+  // read-model listing snapshot'ından (ikinci hidrasyon YOK). Sponsored/organik ranking'e DOKUNMAZ.
+  const recentlyViewedData = createRecentlyViewedData();
+  registerRecentlyViewedRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    data: recentlyViewedData,
+    toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+    resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
   });
 
   // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den

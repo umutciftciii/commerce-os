@@ -853,3 +853,36 @@ biri kazanır → duplicate DRAFT/çift-silme YOK). TD-054.3 tek-instance sını
 durum `payload.outcome`: STARTED→terminal (COMPLETED/PARTIAL_SUCCESS/FAILED/SKIPPED_LOCKED/DRY_RUN) +
 trigger/startedAt/completedAt/durationMs/cutoff/sayımlar. Store-admin `/operations` paneli son çalışmayı
 tenant-izole gösterir. Doğrulama: `docker compose logs api-gateway | grep -E "settlement scheduler|attribution retention"`.
+
+## Recently Viewed & Product Recommendations (TODO-161B / ADR-137…143)
+
+**Kapsam.** Görüntüleme geçmişi (`RecentlyViewedProduct`) sunucu-tarafı ve KVKK-uyumludur: HAM IP/UA
+SAKLANMAZ; guest kimliği `visitorHash = HMAC(SESSION_SECRET, first-party commerce_os_vid)`. Similar Products
+geçmişten BAĞIMSIZ açıklanabilir skordur; sponsored/organik ranking'e DOKUNMAZ.
+
+### Uçlar (public/customer)
+- `POST /public/stores/:slug/recently-viewed` — görüntüleme kaydı (bot/prefetch → `{recorded:false}`).
+- `GET /public/stores/:slug/recently-viewed?limit=` — geçmiş (kimlik: `x-customer-session` VEYA `x-visitor-id`).
+- `DELETE /public/stores/:slug/recently-viewed` — geçmişi temizle.
+- `POST /public/stores/:slug/recently-viewed/merge` — guest→customer idempotent merge (her iki header gerekli).
+- `GET /public/stores/:slug/products/:productId/similar?limit=` — benzer ürünler (kimlik gerekmez, bounded).
+
+Vitrin bu uçlara BFF proxy'leri üzerinden erişir: `app/api/recently-viewed/route.ts`, `app/api/similar/route.ts`
+(gateway URL sunucu-yalnız; visitor/customer cookie'leri header'a çevrilir; prefetch/purpose header'ları iletilir).
+
+### Zamanlanmış retention worker'ı (`recently-viewed-retention`)
+90-gün cutoff'unu store-scope batch DELETE eder (max 50/kimlik cap ise WRITE-TIME otoritedir — worker onu
+uygulamaz). TODO-161A.1 SAF altyapısını reuse eder (advisory lock + `QueueJobLog`); domain AYRI.
+
+Env: `RECENTLY_VIEWED_RETENTION_ENABLED` (false — açılmadan otomatik silme YOK), `_INTERVAL_SECONDS` (86400,
+min 3600), `RECENTLY_VIEWED_RETENTION_DAYS` (90, min 1), `_BATCH_SIZE` (1000), `_MAX_DELETE_PER_RUN` (200000,
+circuit breaker), `RECENTLY_VIEWED_MAX_PER_VISITOR` (50, write-time cap).
+
+**Overlap & görünürlük.** Dağıtık PostgreSQL advisory lock (jobType `recently-viewed-retention`, granülerlik
+(jobType,storeId)); kilitlenen tur SKIPPED_LOCKED. Her tur store başına TEK `QueueJobLog` satırı (queueName
+`recently-viewed`; `payload.outcome` DRY_RUN/COMPLETED/PARTIAL_SUCCESS/SKIPPED_LOCKED). Doğrulama:
+`docker compose logs api-gateway | grep -E "recently-viewed retention"`.
+
+**KVKK / silme.** `RecentlyViewedProduct` Customer/Store/Product'a `onDelete: Cascade` → müşteri/mağaza/ürün
+silinince otomatik temizlik; finansal OrderLine snapshot'ları ETKİLENMEZ. Kullanıcı geçmişini `DELETE` ucuyla
+kendisi temizleyebilir (Hesabım > Görüntüleme Geçmişi).

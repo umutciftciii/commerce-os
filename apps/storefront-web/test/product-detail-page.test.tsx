@@ -151,9 +151,10 @@ describe("storefront · product detail (decision center)", () => {
     expect(html).toContain("Teknik özellikler");
     expect(html).toContain("Kargo &amp; İade"); // React `&` → `&amp;` (statik markup)
     expect(html).toContain("Cozy hoodie for everyday wear");
-    // Benzer urunler (canli)
+    // TODO-161B — "Benzer Ürünler" artık açıklanabilir öneri motorundan CLIENT-fetch edilir
+    // (skeleton/empty/error). SSR loading durumunda başlık + iskelet render olur; spesifik öneri
+    // başlıkları (ör. "Demo Tote Bag") client fetch sonrası gelir (jsdom SSR'da YOK — bilinçli).
     expect(html).toContain("Benzer ürünler");
-    expect(html).toContain("Demo Tote Bag");
   });
 
   it("CATALOG_ONLY hides the numeric price and never shows add-to-cart", async () => {

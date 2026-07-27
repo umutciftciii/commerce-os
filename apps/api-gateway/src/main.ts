@@ -8,6 +8,7 @@ import { startBarcodeRetryWorker } from "./shipping/barcode-retry-worker.js";
 import { startCampaignReconcileWorker } from "./campaigns/reconcile-worker.js";
 import { startSettlementSchedulerWorker } from "./commercial-automation/settlement-scheduler-worker.js";
 import { startRetentionWorker } from "./commercial-automation/retention-worker.js";
+import { startRecentlyViewedRetentionWorker } from "./recently-viewed/retention-worker.js";
 import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 
 const config = loadConfig();
@@ -24,6 +25,8 @@ const campaignReconcileWorker = startCampaignReconcileWorker({ config, logger })
 const settlementSchedulerWorker = startSettlementSchedulerWorker({ config, logger });
 // TODO-161A.1 (TD-121+TD-113) — zamanlanmis attribution retention purge (ATTRIBUTION_RETENTION_ENABLED=false ise no-op).
 const retentionWorker = startRetentionWorker({ config, logger });
+// TODO-161B (ADR-139) — zamanlanmis Recently Viewed retention (RECENTLY_VIEWED_RETENTION_ENABLED=false ise no-op).
+const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger });
 
 const shutdown = async (signal: string) => {
   logger.info("api gateway shutting down", { signal });
@@ -32,6 +35,7 @@ const shutdown = async (signal: string) => {
   await campaignReconcileWorker.stop();
   await settlementSchedulerWorker.stop();
   await retentionWorker.stop();
+  await recentlyViewedRetentionWorker.stop();
   await disconnectDefaultAdvisoryLockManager();
   await app.close();
   await closeQueueConnections();

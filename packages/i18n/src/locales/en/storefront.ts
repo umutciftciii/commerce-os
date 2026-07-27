@@ -846,7 +846,17 @@ export const enStorefront: StorefrontDictionary = {
       favorites: "My favourites",
       lists: "All my lists",
       coupons: "My coupons",
+      viewHistory: "Recently viewed",
       logout: "Sign out",
+    },
+    // TODO-161B (ADR-137) — View history section copy.
+    viewHistory: {
+      title: "Recently viewed",
+      subtitle: "Products you have browsed. You can clear this history anytime.",
+      clear: "Clear history",
+      clearing: "Clearing…",
+      emptyTitle: "You haven't viewed any products yet",
+      emptyBody: "Products you browse will be listed here.",
     },
     wishlist: {
       favoritesTitle: "My favourites",

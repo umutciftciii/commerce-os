@@ -11,9 +11,9 @@ import {
   Muted,
   Stars,
 } from "../../../components/ui";
-// TODO-158C — Benzer ürünler kartı: legacy slate/brand `ui/ProductCard` yerine token'lı
-// premium `StorefrontProductCard` (aynı StorefrontProductSummary imzası; vitrin kart dili birleşir).
-import { StorefrontProductCard } from "../../../components/site/product-card";
+// TODO-161B (ADR-137/140) — Görüntüleme izleyici (mount beacon) + açıklanabilir "Benzer Ürünler" (read-model).
+import { RecentlyViewedTracker } from "../../../components/recently-viewed/recently-viewed-tracker";
+import { SimilarProducts } from "../../../components/recently-viewed/similar-products";
 import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
@@ -158,6 +158,8 @@ export default async function ProductDetailPage({
     <WishlistProvider initialSavedIds={savedProductIds}>
     <RatingProvider summaries={relatedRatings}>
     <Container className="py-12 lg:py-16">
+      {/* TODO-161B (ADR-137) — Görüntüleme kaydı (client mount beacon; SSR/bot/prefetch ELENİR). */}
+      <RecentlyViewedTracker productId={detail.id} />
       {/* TODO-156D — Product + BreadcrumbList JSON-LD (Google Rich Results). */}
       <JsonLd data={productLd} />
       <JsonLd data={breadcrumbLd} />
@@ -234,19 +236,9 @@ export default async function ProductDetailPage({
         />
       ) : null}
 
-      {/* Benzer urunler (canli) */}
-      {detail.related.length > 0 ? (
-        <section className="mt-20">
-          <Heading as="h2" className="mb-8 text-xl sm:text-2xl">
-            {dict.related.title}
-          </Heading>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-14">
-            {detail.related.map((item) => (
-              <StorefrontProductCard key={item.handle} product={item} t={dict} />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      {/* TODO-161B — Benzer Ürünler: açıklanabilir öneri motoru (read-model; mevcut ürün hariç,
+          sponsored/organik ranking'e dokunulmaz). Client island: skeleton/empty/error. */}
+      <SimilarProducts productId={detail.id} t={dict} />
     </Container>
     </RatingProvider>
     </WishlistProvider>

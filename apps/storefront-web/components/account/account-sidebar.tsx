@@ -13,7 +13,8 @@ export type AccountSection =
   | "reviews"
   | "favorites"
   | "lists"
-  | "coupons";
+  | "coupons"
+  | "viewHistory";
 
 const PROFILE_GROUP: AccountSection[] = [
   "profile",
@@ -94,6 +95,9 @@ export function AccountSidebar({ t, section }: { t: AccountDict; section: Accoun
       </Link>
       <Link href="/account?section=coupons" className={itemClass(section === "coupons")}>
         {t.menu.coupons}
+      </Link>
+      <Link href="/account?section=viewHistory" className={itemClass(section === "viewHistory")}>
+        {t.menu.viewHistory}
       </Link>
     </nav>
   );

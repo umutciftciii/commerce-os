@@ -1209,3 +1209,23 @@ click-through** yapılamadı.
 
 **Neden borç:** Product blocker DEĞİL (backend + guard'lar doğrulandı). Gerçek parola gerektiren canlı
 tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazından ÖNCE kapatılmalıdır.**
+
+## TODO-161B (ADR-137…143) — Recently Viewed & Product Recommendations sınırları (TD-128…TD-130)
+
+- **TD-128 — Öneri şeritlerinde wishlist kalbi no-op → ÇÖZÜLDÜ / CLOSED (2026-07-27, pre-ship hardening).**
+  Tüm öneri island'ları (`SimilarProducts`, `RecentlyViewedRail`, `ViewHistorySection`) grid'lerini `WishlistProvider
+  initialSavedIds={savedIds}` ile SARAR → wishlist kalbi GERÇEK: mevcut TODO-159D altyapısına bağlı (auth→gateway
+  `x-customer-session`, guest→imzalı cookie; `toggleWishlistAction`), optimistic + rollback provider'da. Doğru
+  başlangıç durumu için BFF GET yanıtları (`/api/recently-viewed`, `/api/similar`) `getWishlistStatus` ile `savedIds`
+  taşır (tek round-trip; auth→gateway batched, guest→cookie kesişimi). Paralel wishlist state YOK; no-op kontrol YOK;
+  sahte optimistic YOK. **Kalıntı (TD-128'e bağlı değil):** rating yıldızları öneri kartlarında hâlâ gizli (summaries
+  taşınmıyor) — bloklamayan kozmetik; ileride `getRatingSummaries` batched ile eklenebilir.
+- **TD-129 — Home "Son İncelediklerin" admin-CMS yapılandırılabilir DEĞİL (ADR-141 bilinçli kararı).** Kişiselleştirme +
+  cacheable `/home` sözleşmesi gerekçesiyle `HomeSection` tipi yapılmadı; storefront'ta sabit client şerit. **Borç:**
+  admin şeridin yerini/başlığını/görünürlüğünü yönetemez. **Çözüm (sonraki):** viewer-kimlikli home varyantı veya
+  ayrı "kişiselleştirilmiş bloklar" CMS katmanı (real-time personalization ileri fazı ile birlikte).
+- **TD-130 — Recommendation ölçümü (impression/click/add-to-cart/conversion + source/placement) MVP'de wire EDİLMEDİ.**
+  Yüzeyler hazır (kart `sponsoredToken` yolu değişmedi; TODO-160 SAF event yardımcıları yeniden kullanılabilir) ama
+  öneri tıklama/gösterim event'i YAZILMIYOR. **Kısıt:** influencer/sponsored tablolarına YAZILMAMALI (ayrı domain).
+  **Çözüm (sonraki):** ayrı `RecommendationEvent` tablosu veya generic funnel-event deposu + retention allowlist'ine
+  AYRI spec (ADR-133 desenine uygun). "Birlikte Görüntülenenler/Alınanlar" ileri fazının ölçüm temeli budur.

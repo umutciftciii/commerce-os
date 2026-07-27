@@ -2784,6 +2784,51 @@ export const publicSearchResponseSchema = z.object({
 export type PublicSearchResponse = z.infer<typeof publicSearchResponseSchema>;
 export type PublicSearchSort = z.infer<typeof publicSearchSortSchema>;
 export type PublicSearchProduct = z.infer<typeof publicSearchProductSchema>;
+
+/* ── TODO-161B (ADR-137…143) — Recently Viewed & Product Recommendations ─────────────────────────
+ * Öneri kartları read-model (`ProductSearchDocument.listing`) snapshot'ından üretilir; PLP/arama ile
+ * AYNI `publicSearchProductSchema` kart sözleşmesi (istemci ikinci hidrasyon YAPMAZ, fiyat otoritesi
+ * DEĞİL). Yanıtlar `{ data }` sarmalıdır. */
+export const RECENTLY_VIEWED_DEFAULT_LIMIT = 12;
+export const RECENTLY_VIEWED_MAX_LIMIT = 50;
+export const SIMILAR_PRODUCTS_DEFAULT_LIMIT = 8;
+export const SIMILAR_PRODUCTS_MAX_LIMIT = 24;
+/** Guest→customer merge tek istekte taşınan en fazla visitor satırı (bounded). */
+export const RECENTLY_VIEWED_MERGE_MAX_ITEMS = 50;
+
+export const recordProductViewRequestSchema = z.object({
+  productId: z.string().min(1).max(64),
+});
+export type RecordProductViewRequest = z.infer<typeof recordProductViewRequestSchema>;
+
+export const recordProductViewResponseSchema = z.object({
+  data: z.object({
+    /** false = bot/prefetch/tanımsız kimlik/geçersiz ürün → kayıt yapılmadı (sessiz, 200). */
+    recorded: z.boolean(),
+  }),
+});
+export type RecordProductViewResponse = z.infer<typeof recordProductViewResponseSchema>;
+
+export const recentlyViewedResponseSchema = z.object({
+  data: z.array(publicSearchProductSchema),
+});
+export type RecentlyViewedResponse = z.infer<typeof recentlyViewedResponseSchema>;
+
+export const clearRecentlyViewedResponseSchema = z.object({
+  data: z.object({ cleared: z.number().int().nonnegative() }),
+});
+export type ClearRecentlyViewedResponse = z.infer<typeof clearRecentlyViewedResponseSchema>;
+
+export const recentlyViewedMergeResponseSchema = z.object({
+  data: z.object({ merged: z.number().int().nonnegative() }),
+});
+export type RecentlyViewedMergeResponse = z.infer<typeof recentlyViewedMergeResponseSchema>;
+
+export const similarProductsResponseSchema = z.object({
+  data: z.array(publicSearchProductSchema),
+});
+export type SimilarProductsResponse = z.infer<typeof similarProductsResponseSchema>;
+
 export type PublicSearchSwatch = z.infer<typeof publicSearchSwatchSchema>;
 export type PublicSearchFacet = z.infer<typeof publicSearchFacetSchema>;
 export type PublicSearchFacetValue = z.infer<typeof publicSearchFacetValueSchema>;

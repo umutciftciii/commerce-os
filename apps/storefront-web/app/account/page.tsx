@@ -19,6 +19,8 @@ import { CouponsSection } from "../../components/account/sections/coupons-sectio
 import { FavoritesSection } from "../../components/account/sections/favorites-section";
 import { ListsSection } from "../../components/account/sections/lists-section";
 import { ReviewsSection } from "../../components/account/sections/reviews-section";
+// TODO-161B (ADR-137) — Hesabım > Görüntüleme Geçmişi (client island; temizle + bounded liste).
+import { ViewHistorySection } from "../../components/account/sections/view-history-section";
 import { getCouponCenter } from "../../lib/server/coupons";
 import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
 import { getMyReviews } from "../../lib/server/reviews";
@@ -42,6 +44,7 @@ const SECTIONS: AccountSection[] = [
   "favorites",
   "lists",
   "coupons",
+  "viewHistory",
 ];
 
 function resolveSection(value: string | undefined): AccountSection {
@@ -169,6 +172,9 @@ async function renderSection(
       const center = await getCouponCenter();
       return <CouponsSection coupons={center.coupons} t={t.coupons} />;
     }
+    case "viewHistory":
+      // TODO-161B — Görüntüleme geçmişi client island'da çözülür (kimlik = müşteri cookie).
+      return <ViewHistorySection t={dict} />;
     default:
       return null;
   }

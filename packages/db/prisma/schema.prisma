@@ -878,6 +878,8 @@ model Store {
   sponsorshipCharges               SponsorshipCharge[]
   sponsorshipPayments              SponsorshipPayment[]
   sponsorshipAdvanceAllocations    SponsorshipAdvanceAllocation[]
+  // TODO-161B (ADR-137) — Recently Viewed & Product Recommendations (store-scoped tenant sutunu).
+  recentlyViewedProducts           RecentlyViewedProduct[]
 }
 
 model StoreUser {
@@ -1074,6 +1076,8 @@ model Product {
   trackingLinks          InfluencerTrackingLink[]
   // TODO-161 (ADR-114) — Sponsorlu yerleşim placement'ları + attribution (ürün silinince Cascade/SetNull).
   sponsoredPlacements    SponsoredProductPlacement[]
+  // TODO-161B (ADR-137) — Recently Viewed geçmiş satırları (ürün FİZİKSEL silinince Cascade → orphan olmaz).
+  recentlyViewedBy       RecentlyViewedProduct[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1414,6 +1418,8 @@ model Customer {
   // TODO-159E (ADR-094) — Product Reviews & Ratings (musterinin yorumlari + faydali oylari).
   productReviews          ProductReview[]
   productReviewHelpfuls   ProductReviewHelpful[]
+  // TODO-161B (ADR-137) — Recently Viewed geçmişi (müşteri silinince Cascade → KVKK otomatik).
+  recentlyViewedProducts  RecentlyViewedProduct[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -3458,6 +3464,9 @@ model ProductSearchDocument {
   @@index([storeId, productCreatedAt])
   // TODO-155.2 — Reconciliation sweep: suresi gecmis kampanya snapshot'larini bounded taramak icin.
   @@index([storeId, campaignEndsAt])
+  // TODO-161B (ADR-142) — Similar Products Tier 3 (ayni marka) aday sorgusu: 50k+ katalogda marka-hedefli
+  // daraltma icin (aksi halde storeId index'i tum magazayi tarayip brand'i residual filtreler).
+  @@index([storeId, brand])
 }
 
 // Flat facet IS ATI: bir (urun × filterable attribute × DEGER) satiri. YALNIZ CategoryAttribute.
@@ -3976,13 +3985,13 @@ model SponsorshipAgreement {
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
 
-  store               Store                           @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  sponsorAccount      SponsorAccount                  @relation(fields: [sponsorAccountId], references: [id], onDelete: Restrict)
-  campaignLinks       SponsorshipAgreementCampaign[]
-  settlements         SponsorshipSettlement[]
-  charges             SponsorshipCharge[]
-  payments            SponsorshipPayment[]
-  advanceAllocations  SponsorshipAdvanceAllocation[]
+  store              Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sponsorAccount     SponsorAccount                 @relation(fields: [sponsorAccountId], references: [id], onDelete: Restrict)
+  campaignLinks      SponsorshipAgreementCampaign[]
+  settlements        SponsorshipSettlement[]
+  charges            SponsorshipCharge[]
+  payments           SponsorshipPayment[]
+  advanceAllocations SponsorshipAdvanceAllocation[]
 
   @@unique([storeId, agreementNumber])
   @@index([storeId])
@@ -4189,4 +4198,37 @@ model SponsorshipAdvanceAllocation {
   @@index([storeId, agreementId])
   @@index([advancePaymentId])
   @@index([chargeId])
+}
+
+/// TODO-161B (ADR-137/138/139) — Recently Viewed & Product Recommendations.
+///
+/// Kullanicinin/visitor'in gorduğu urunlerin sunucu-tarafi, KVKK-uyumlu kaydi. Guest kimligi HAM
+/// IP/UA DEGIL; `visitorHash = HMAC(SESSION_SECRET, first-party visitor id)` (tracking-core.hashIdentifier).
+/// Tam olarak BIR kimlik doludur (customerId XOR visitorHash — DB CHECK, migration). Aynı kimlik + product
+/// icin TEK kayit (kısmi unique index, migration; Prisma @@unique NULL-distinct semantigi guest satirlari
+/// dedupe etmez). Tekrar goruntulemede lastViewedAt=now + viewCount+1 (upsert). Kimlik basina max 50 kayit
+/// (write yolunda prune + retention re-prune). 90-gun retention (TODO-161A.1 SAF altyapi reuse, ayri worker).
+/// onDelete: Cascade → store/musteri/urun silinince otomatik temizlik (KVKK + orphan yok).
+model RecentlyViewedProduct {
+  id           String   @id @default(cuid())
+  storeId      String
+  customerId   String?
+  visitorHash  String?
+  productId    String
+  lastViewedAt DateTime @default(now())
+  viewCount    Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // NOT: (storeId,customerId,productId) ve (storeId,visitorHash,productId) KISMI unique index'leri +
+  // XOR-kimlik CHECK migration'da raw SQL ile eklenir (Prisma partial-unique/CHECK desteklemez).
+
+  // Kimlik+zaman listeleme (en-yeni-once) sorgulari.
+  @@index([storeId, customerId, lastViewedAt])
+  @@index([storeId, visitorHash, lastViewedAt])
+  // Urun silme/cascade + urun-bazli temizlik.
+  @@index([productId])
 }
