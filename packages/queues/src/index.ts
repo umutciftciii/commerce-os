@@ -13,6 +13,16 @@ export type { SearchIndexJob } from "@commerce-os/contracts";
 export const PLATFORM_EVENTS_QUEUE = "platform-events";
 // TODO-154 (ADR-079) — Search read-model reindex kuyruğu (mevcut BullMQ altyapısı; yeni evren DEĞİL).
 export const SEARCH_INDEX_QUEUE = "search-index";
+// PB-2/PB-3 — DB backup kuyruğu. Periyodik tetikleme BullMQ Job Scheduler ile (worker sürecinde);
+// api-gateway yalnız manuel one-off job enqueue eder. setTimeout scheduler'ından TAŞINDI.
+export const BACKUP_QUEUE = "database-backup";
+// Sabit scheduler id → upsert idempotent: worker restart PARALEL zamanlama üretmez (setTimeout zinciri sorunu yok).
+export const BACKUP_SCHEDULER_ID = "database-backup-schedule";
+
+export interface BackupJobData {
+  trigger: "MANUAL" | "SCHEDULED";
+  dryRun?: boolean;
+}
 
 const connections = new Set<Redis>();
 const queues = new Set<Queue>();
@@ -109,6 +119,54 @@ export async function enqueueSearchIndexJob(
     removeOnFail: 5000,
     ...options,
   });
+}
+
+export function backupQueue(redisUrl: string): Queue<BackupJobData> {
+  return createQueue<BackupJobData>(BACKUP_QUEUE, redisUrl);
+}
+
+/**
+ * Manuel one-off backup job'u kuyruğa koyar (api-gateway `POST /internal/backup/run` → worker'da çalışır).
+ * Backup ana API request sürecinde ÇALIŞMAZ. Retry/backoff sınırlı (kısa); advisory lock duplicate'i engeller.
+ */
+export async function enqueueBackupJob(
+  redisUrl: string,
+  data: BackupJobData,
+  options?: JobsOptions,
+): Promise<string> {
+  const queue = backupQueue(redisUrl);
+  const job = await queue.add(BACKUP_QUEUE, data, {
+    attempts: 1,
+    removeOnComplete: 1000,
+    removeOnFail: 1000,
+    ...options,
+  });
+  return job.id ?? "";
+}
+
+/**
+ * Periyodik backup zamanlamasını (BullMQ Job Scheduler) upsert eder — worker sürecinde çağrılır.
+ * Sabit id ile idempotent: restart/çift-çağrı PARALEL zamanlama üretmez. `cron` verilmezse `everyMs` kullanılır.
+ */
+export async function upsertBackupSchedule(
+  redisUrl: string,
+  opts: { cron?: string; everyMs?: number; tz?: string },
+): Promise<void> {
+  const queue = backupQueue(redisUrl);
+  const repeat = opts.cron
+    ? { pattern: opts.cron, ...(opts.tz ? { tz: opts.tz } : {}) }
+    : { every: opts.everyMs ?? 86_400_000 };
+  await queue.upsertJobScheduler(BACKUP_SCHEDULER_ID, repeat, {
+    name: BACKUP_QUEUE,
+    data: { trigger: "SCHEDULED" } satisfies BackupJobData,
+    opts: { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 },
+  });
+}
+
+/** Zamanlamayı kaldırır (test/temizlik). */
+export async function removeBackupSchedule(redisUrl: string): Promise<void> {
+  const queue = backupQueue(redisUrl);
+  await queue.removeJobScheduler(BACKUP_SCHEDULER_ID);
 }
 
 export async function checkRedisHealth(redisUrl: string): Promise<boolean> {

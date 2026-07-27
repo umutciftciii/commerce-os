@@ -6,10 +6,13 @@ import {
   createWorker,
   PLATFORM_EVENTS_QUEUE,
   SEARCH_INDEX_QUEUE,
+  BACKUP_QUEUE,
   type PlatformEventContract,
   type SearchIndexJob,
 } from "@commerce-os/queues";
 import { createDefaultSearchProvider } from "@commerce-os/search-service";
+import { disconnectPrisma, disconnectDefaultAdvisoryLockManager } from "@commerce-os/db";
+import { startBackupWorker } from "./backup.js";
 
 const config = loadConfig();
 const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
@@ -106,14 +109,21 @@ searchWorker.on("failed", (job, error) => {
   });
 });
 
+// PB-2/PB-3 — DB backup worker + scheduler (DATABASE_BACKUP_ENABLED=false ise no-op). Zamanlama BullMQ
+// Job Scheduler'da (worker restart paralel timer üretmez); yürütme bu süreçte, advisory lock ile korunur.
+const backupWorker = startBackupWorker({ config, logger });
+
 logger.info("worker started", {
-  queues: [PLATFORM_EVENTS_QUEUE, SEARCH_INDEX_QUEUE],
+  queues: [PLATFORM_EVENTS_QUEUE, SEARCH_INDEX_QUEUE, ...(backupWorker.enabled ? [BACKUP_QUEUE] : [])],
   concurrency: config.WORKER_CONCURRENCY,
 });
 
 const shutdown = async (signal: string) => {
   logger.info("worker shutting down", { signal });
+  await backupWorker.stop();
   await closeQueueConnections();
+  await disconnectDefaultAdvisoryLockManager();
+  await disconnectPrisma();
   process.exit(0);
 };
 

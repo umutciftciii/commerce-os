@@ -4527,3 +4527,126 @@ duplicate → tüm tx abort), sonra attempt+order update; paralel/duplicate webh
 Red/audit olayları eventId'yi UNIQUE kolona değil metadata'ya yazar (düzeltilmiş retry idempotency slotunu tüketmez).
 Order+PaymentAttempt+event aynı transaction. Canlı exploit regresyonu (gerçek PostgreSQL, 14/14) + 30 birim/route
 testi doğruladı.
+
+## ADR-159 — Logical backup scope + scheduler (PB-2/PB-3)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-108 (seed guard), ADR-136 (advisory lock) · **Öncül:** PB-2/PB-3
+
+**Karar.** DR temeli = **tam veritabanı (full logical) backup** — `pg_dump -Fc` (custom, sıkıştırılmış; transactional
+snapshot; `pg_restore` seçici/TOC). Artefakt adı deterministik: `<env>-<UTC-timestamp>.dump.enc` + `.sha256` + `.manifest.json`.
+Zamanlama, mevcut scheduler desenini reuse eder: api-gateway sürecinde `setTimeout` zincirli `database-backup` worker'ı
+(`DATABASE_BACKUP_ENABLED`, varsayılan kapalı), süreç-içi `running` guard + **dağıtık advisory lock** (jobType=`database-backup`,
+storeId=`<environment>`) → çok-replika/manuel-vs-scheduled paralel backup engellenir; kilit alınamazsa `SKIPPED_LOCKED`.
+Her tur `QueueJobLog`'a yazılır (yeni tablo YOK; ince durum `payload.outcome`). Backup ana API request akışında çalışmaz.
+**Kapsam dışı (future capability):** point-in-time recovery (WAL archiving), streaming replication, multi-region active-active,
+tenant-level selective restore, Kubernetes operator, `media-data` volume backup (yalnız Postgres). `db:backup` (eski zsh)
+yerel şifresiz pre-reseed guard olarak KALIR; DR pipeline `db:backup:run`'dır.
+
+## ADR-160 — Client-side backup encryption (AES-256-GCM, fail-closed)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** shipping/payment encryption (AES-256-GCM), ADR-159
+
+**Karar.** Backup offsite'a gönderilmeden ÖNCE **client-side** şifrelenir. Node'un yerleşik `crypto` **AES-256-GCM**
+primitive'i (streaming; büyük dump belleğe alınmaz) — standart/belgelenmiş, ÖZEL KRİPTO DEĞİL (shipping/payment
+credential şifrelemesiyle aynı ilke, farkı streaming olması). Anahtar `DATABASE_BACKUP_ENCRYPTION_KEY` env'inden (32 byte
+base64/hex); **ayrı domain** — payment/shipping anahtarına FALLBACK YOK. Anahtar yoksa/geçersizse backup **fail-closed**
+(şifresiz üretilmez; production'da secret yoksa backup başarısız). Dosya biçimi `MAGIC|IV|CIPHERTEXT|TAG`; GCM auth tag
+decrypt'te bütünlük+kimlik doğrular (bit-bozulması/yanlış anahtar/kurcalanma → `DECRYPT_FAILED`). Anahtar repo'ya
+YAZILMAZ, backup ile AYNI storage'da TUTULMAZ, loglanmaz.
+
+## ADR-161 — Offsite object storage (S3-compatible, SigV4, private, verified)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-159/160
+
+**Karar.** Offsite = S3-uyumlu object storage (AWS S3 / Cloudflare R2 / Backblaze B2 / MinIO). Provider-bağımsız
+`StorageAdapter` yüzeyi; S3 implementasyonu **SigV4** (HMAC-SHA256, `node:crypto`) + `fetch` ile — `@aws-sdk/*` bağımlılığı
+YOK (SigV4 belgelenmiş AWS wire-protokolü; özel kripto değil; AWS test vektörüne karşı doğrulanır). Kurallar: **public ACL
+ASLA gönderilmez** (obje private); upload'ta sha256 `x-amz-meta-sha256` metadata; upload TAMAMLANIP **remote HEAD**
+(boyut + sha256) doğrulanmadan job `COMPLETED` OLMAZ. **Production backup yalnız-local başarılı sayılmaz** —
+`requireOffsiteInProduction` (offsite yoksa `OFFSITE_REQUIRED`). Secret hiçbir `describe`/log'a sızmaz.
+
+## ADR-162 — Retention (GFS, deterministic, newest-protected)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-159
+
+**Karar.** Grandfather-Father-Son deterministik seçim: günlük 14 / haftalık 8 / aylık 12 (env ile ayarlanır; güvenli alt
+sınırlar). Her katmanda distinct period'ın EN YENİ backup'ı korunur. **En yeni başarılı backup ASLA purge edilmez**
+(`minKeep` alt-sınır guard'ı). Başarısız/yarım (PARTIAL) setler retention'a GİRMEZ (ayrı "incomplete" sınıfı). SAF
+seçim fonksiyonu (DB/IO'suz, birim-test edilebilir). Silme **dry-run varsayılan**, APPLY explicit, batch + audit'li;
+local↔remote inventory karşılaştırılır (parity). Clock/timezone UTC.
+
+## ADR-163 — Restore verification (isolated target + integrity + fixture)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-159, ADR-085
+
+**Karar.** Backup güvenilir sayılmadan önce **izole geçici PostgreSQL hedefinde gerçek restore** + doğrulama zorunlu:
+checksum → decrypt → boş-şema reset → restore → migrate status (manifest `migration.latest` ile eşleşme) → kritik tablo
+varlığı+sayısı → referential integrity örneklemesi (orphan yok) → **en az bir bilinen fixture kaydı + ilişkisi**
+(yalnız satır sayısı YETERSİZ). `dr-smoke.zsh` bunu uçtan uca (MinIO offsite + boş postgres) kanıtlar; source DB'ye
+dokunmaz. Opsiyonel `DATABASE_BACKUP_VERIFY_AFTER` her zamanlanmış backup sonrası izole hedefte doğrular.
+
+## ADR-164 — RPO / RTO hedefleri (ölçüm ayrı)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-159
+
+**Karar.** İlk hedef **RPO ≤ 24 saat** (günlük backup) / **RTO ≤ 4 saat**. Bunlar HEDEF'tir, garanti değil. Ölçülen
+(izole DR smoke, ~0.5 MB şifreli taze-şema DB): backup ~0.57 sn, restore ~1.1 sn. Production boyutunda değerler veri
+hacmiyle ölçeklenir → gerçek production tatbikatıyla yeniden ölçülmeli. Hedef ve ölçülen ayrı raporlanır (runbook §7).
+
+## ADR-165 — Production restore guard (CLI/runbook-only, no UI)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-108 (safety guard deseni)
+
+**Karar.** Restore yıkıcıdır → guard'lar (SAF, test edilebilir): (1) `--confirm-destructive` olmadan çalışmaz; (2) hedef
+süreç DATABASE_URL'i ile aynıysa (mevcut DB'yi ezme) reddedilir — `--allow-restore-over-current` ile bilinçli override;
+(3) production-benzeri hedef (prod/staging/RDS/Neon… marker) `--allow-production-target` + `--confirm-production-restore`
+çift onayı ister; (4) opsiyonel host allowlist. **Manuel production restore UI EKLENMEZ** — restore yalnız CLI/runbook
+üzerinden (yanlışlıkla panelden prod ezilmesi imkânsız). Operations UI yalnız görünürlük + manuel backup dry-run/run.
+
+## ADR-166 — Demo re-seed vs gerçek restore ayrımı
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-085/108, PB-2
+
+**Karar.** `db:restore-enterprise` yanıltıcıydı: gerçek restore değil, enterprise-demo kataloğunu deterministik
+YENİDEN SEED ediyordu (gerçek sipariş/müşteri/ödeme verisini kurtarmaz). **`db:reseed-enterprise`** olarak yeniden
+adlandırıldı; eski ad bir deprecation köprüsüne (`deprecated-restore-enterprise.zsh`) bağlandı (uyarı basar + reseed'e
+delege eder). Demo seed hiçbir zaman "backup restore" olarak raporlanmaz. Gerçek DR = `db:restore` (dump'tan).
+
+## ADR-167 — Backup zamanlaması api-gateway'den worker'a taşındı (PB-2/PB-3 hardening)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-159, ADR-136 · **Öncül:** pre-ship hardening
+
+**Karar.** `database-backup` zamanlaması api-gateway'in `setTimeout` zincirinden **apps/worker**'a (BullMQ **Job
+Scheduler**, `upsertJobScheduler` sabit id → idempotent) taşındı. Gerekçe: (a) API deploy/restart backup takvimini
+ETKİLEMEMELİ (zamanlama Redis'te, yürütme worker'da); (b) worker restart PARALEL timer zinciri üretmez (setTimeout
+sorunu); (c) çok-replika worker'da bile advisory lock (jobType=`database-backup`, storeId=`<environment>`) duplicate
+çalışmayı engeller (kilit yoksa `SKIPPED_LOCKED`); (d) worker downtime sonrası kaçırılan backup → `lastSuccessfulBackupAt`
+yaşlanır → health RPO ihlali (CRITICAL). api-gateway yalnız `/internal/backup/{health,status,run}` sunar; `run`
+worker kuyruğuna one-off job ENQUEUE eder (202). Advisory lock impl'i `@commerce-os/db`'ye taşındı (worker + gateway
+paylaşır; commercial-automation/advisory-lock.ts re-export köprüsü — davranış birebir). Backup job orchestration
+(`cycle-runner`/`job-log`/`health`) `@commerce-os/backup`'a taşındı (her iki app paylaşır). Job başında önceki
+`lastSuccessfulBackupAt` gözlemlenir (RPO-gap).
+
+## ADR-168 — S3 offsite AWS SDK v3 (elle SigV4 kaldırıldı) + https-only
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-161
+
+**Karar.** Elle yazılmış SigV4 signer production kodundan KALDIRILDI → resmi **`@aws-sdk/client-s3`** (v3). Provider-
+bağımsız: endpoint → path-style (MinIO/R2/B2), endpoint yok → AWS virtual-host. **Bounded retry** (`maxAttempts`,
+varsayılan 3) + **timeout** (NodeHttpHandler connection/request). **Public ACL asla gönderilmez** (obje private).
+PUT'ta sha256 metadata → upload sonrası HEAD ile remote bütünlük. **https-only**: production'da HTTP endpoint
+REDDEDİLİR; local/test MinIO için `DATABASE_BACKUP_S3_ALLOW_INSECURE=true` explicit override (production'da yine
+reddedilir). Secret `describe`/log'a sızmaz. Custom signer + testleri silindi.
+
+## ADR-169 — Encryption envelope (version+keyId) + manifest HMAC bütünlüğü
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-160, ADR-165
+
+**Karar.** Şifreleme formatı AÇIKÇA tanımlı bir **envelope**: `MAGIC(6) | VERSION(1) | KEYID_LEN(1) | KEYID | NONCE(12)
+| CIPHERTEXT | TAG(16)`. Her backup için YENİ rastgele nonce (reuse yok). GCM auth tag restore ÖNCESİ doğrulanır →
+bozuk/kurcalanmış/**truncate** edilmiş ciphertext DECRYPT_FAILED (restore YOK); yanlış anahtar kontrollü hata; bozuk
+MAGIC/VERSION → FORMAT_INVALID. Anahtar TAM 32 byte (hatalı uzunluk fail-closed). **keyId + version** envelope'ta VE
+manifest'te taşınır (key rotation); key DEĞERİ hiçbir yerde. **Manifest HMAC:** manifest, şifreli dosyadan AYRI
+olduğundan tek başına değiştirilebilir → encryption anahtarından TÜRETİLMİŞ MAC key ile HMAC-SHA256 imzalanır. Manifest
+kurcalanırsa (ör. `environment`/`checksum` değişimi) HMAC uyuşmaz → restore/verify reddeder → **cross-environment ve
+checksum guard'ı atlatılamaz**. Restore'da manifest ortamı hedef ortamla karşılaştırılır (`assertManifestEnvironment`).

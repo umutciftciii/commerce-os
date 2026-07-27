@@ -144,6 +144,9 @@ import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./s
 import { createSponsorshipData, type SponsorshipData } from "./sponsorship/data.js";
 import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
 import { registerCommercialAutomationRoutes } from "./commercial-automation/routes.js";
+import { registerBackupRoutes } from "./backup/routes.js";
+import { loadBackupConfig } from "@commerce-os/backup";
+import { enqueueBackupJob } from "@commerce-os/queues";
 import { buildSettlementSchedulerService } from "./commercial-automation/settlement-scheduler-worker.js";
 import { buildRetentionService } from "./commercial-automation/retention-worker.js";
 import { resolveSponsoredForCheckout } from "./sponsored/checkout-attribution.js";
@@ -6377,6 +6380,20 @@ export function createServer(
       maxDeletePerRun: config.ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN,
     },
   });
+
+  // PB-2/PB-3 — Backup görünürlük + manuel tetik (internal-token guard'lı). Manuel RESTORE ucu YOK.
+  // Backup YÜRÜTMESİ bu süreçte DEĞİL: periyodik zamanlama + yürütme apps/worker'da; manuel tetik yalnız
+  // worker kuyruğuna one-off job ENQUEUE eder (advisory lock çakışmayı çözer). API deploy/restart takvimi etkilemez.
+  {
+    const backupConfig = loadBackupConfig(process.env);
+    registerBackupRoutes(app, {
+      guard: requireInternalToken(config),
+      backupConfig,
+      jobLog: prisma,
+      enqueue: (data) => enqueueBackupJob(config.REDIS_URL, data),
+      logger,
+    });
+  }
 
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
   registerShippingAdminRoutes(app, {

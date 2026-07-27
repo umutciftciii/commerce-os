@@ -1,5 +1,15 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 
+// PB-2/PB-3 — Dağıtık advisory lock (worker + api-gateway paylaşır; bkz. advisory-lock.ts).
+export {
+  createPgAdvisoryLockManager,
+  getDefaultAdvisoryLockManager,
+  disconnectDefaultAdvisoryLockManager,
+  type StoreJobLocker,
+  type LockOutcome,
+  type AdvisoryLockManager,
+} from "./advisory-lock.js";
+
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };

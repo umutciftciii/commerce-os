@@ -1,0 +1,24 @@
+{
+  "name": "@commerce-os/backup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run test",
+    "backup:run": "node dist/cli/backup.js",
+    "backup:restore": "node dist/cli/restore.js",
+    "backup:verify": "node dist/cli/verify.js",
+    "backup:retention": "node dist/cli/retention.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1096.0",
+    "@commerce-os/db": "workspace:*",
+    "@commerce-os/logger": "workspace:*",
+    "@prisma/client": "^6.2.1",
+    "@smithy/node-http-handler": "^4.9.12"
+  }
+}

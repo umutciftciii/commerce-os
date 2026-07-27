@@ -27,7 +27,12 @@
     "db:audit-sku": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/audit-sku.mjs",
     "db:backfill-sku": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway node packages/db/scripts/backfill-sku.mjs",
     "db:backup": "./infra/scripts/db-backup.zsh",
-    "db:restore-enterprise": "pnpm db:backup pre-enterprise-restore && pnpm db:seed-enterprise && pnpm db:backfill-enterprise && pnpm db:verify-enterprise",
+    "db:backup:run": "tsx packages/backup/src/cli/backup.ts",
+    "db:restore": "tsx packages/backup/src/cli/restore.ts",
+    "db:verify-restore": "tsx packages/backup/src/cli/verify.ts",
+    "db:backup:retention": "tsx packages/backup/src/cli/retention.ts",
+    "db:reseed-enterprise": "pnpm db:backup pre-enterprise-reseed && pnpm db:seed-enterprise && pnpm db:backfill-enterprise && pnpm db:verify-enterprise",
+    "db:restore-enterprise": "./infra/scripts/deprecated-restore-enterprise.zsh",
     "db:cleanup-smoke": "docker compose -f infra/docker/docker-compose.yml exec -T api-gateway pnpm --filter @commerce-os/db db:cleanup-smoke",
     "format": "prettier --write ."
   },

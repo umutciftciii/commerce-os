@@ -3,6 +3,12 @@
 # pg_dump'ını sıkıştırılmış olarak infra/backups/ altına alır. Enterprise demo reset
 # runbook'unun zorunlu ilk adımıdır (bkz. docs/OPERATIONS.md).
 #
+# NOT (PB-2/PB-3): Bu yalnız YEREL, ŞİFRESİZ, OFFSITE-SİZ bir pre-reseed güvenlik anlık-görüntüsüdür
+# (dev). Production felaket kurtarma için ŞİFRELİ + OFFSITE + manifest'li DR pipeline'ını kullan:
+#   pnpm db:backup:run          (encrypt + S3 upload + remote HEAD doğrulama + manifest)
+#   pnpm db:restore -- ...      (checksum + decrypt + hedef-guard + restore)
+# Bkz. docs/runbooks/database-backup-restore.md.
+#
 # Kullanım:  ./infra/scripts/db-backup.zsh [etiket]
 #   etiket   dosya adına eklenir (varsayılan: manual)
 set -euo pipefail

@@ -30,6 +30,8 @@ const retentionWorker = startRetentionWorker({ config, logger });
 const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger });
 // TD-130 (ADR-148) — zamanlanmis Recommendation event retention (RECOMMENDATION_EVENT_RETENTION_ENABLED=false ise no-op).
 const recommendationEventRetentionWorker = startRecommendationEventRetentionWorker({ config, logger });
+// PB-2/PB-3 — DB backup zamanlaması + yürütmesi api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
+// Scheduler). API gateway yalnız /internal/backup/{health,status,run} sunar; run yalnız worker'a enqueue eder.
 
 const shutdown = async (signal: string) => {
   logger.info("api gateway shutting down", { signal });
