@@ -1932,12 +1932,18 @@
   edilmiş PG/enterprise-demo; kullanıcı girişi) 25/25 adım DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**. Smoke'ta
   bulunan 3 UI metni düzeltildi (başlık "Sponsorlu Kampanyalar"; "Append-only"/"OVERDUE" jargonları Türkçeleştirildi).
 
-## TODO-161A.1 — Commercial Automation & Data Retention (Growth & Monetization — stabilization) — DONE / KOD TAMAM
+## TODO-161A.1 — Commercial Automation & Data Retention (Growth & Monetization — stabilization) — DONE / MERGED + DEPLOYED
 
-- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI.** Analiz:
+- Durum: **DONE — MERGED + DEPLOYED (2026-07-27).** Commit `a6c607b` · PR `#126` · merge commit `36b188b` ·
+  deploy `api-gateway + store-admin-web`. Analiz:
   `docs/analysis/TODO-161A.1-commercial-automation-retention.md`. ADR-130…136. **TD-125 / TD-121 / TD-113 CLOSED.**
   Ertelenen teknik borçları operasyonel otomasyona ve veri saklama hijyenine bağladı. Yeni ticari yüzey EKLEMEDİ.
+  Zamanlayıcı eşzamanlılığı **dağıtık PostgreSQL advisory lock** (session `connection_limit=1`) + 409
+  `JOB_ALREADY_RUNNING`; job yaşam döngüsü `QueueJobLog`'a yazılır.
   Canlı doğrulama (gerçek PostgreSQL, izole veri) 17/17 PASS; 42 yeni birim/route testi PASS; buildler temiz.
+- Doğrulama borcu: **TD-127** — auth'lu `/operations` UI click-through smoke; backend/DB/liveness/auth guard
+  doğrulandı, yalnız parola gerektiren gerçek tıklama akışı eksik. Product blocker DEĞİL; final UI/design
+  polish'ten önce kapatılır.
 - **TD-125 — Automatic Settlement Scheduling:**
   - Haftalık / aylık / campaign-end dönemlerinde **DRAFT** settlement üretimi.
   - **Otomatik finalize YOK** (tahakkuk yine admin onayıyla).
@@ -1956,4 +1962,29 @@
   - Başlangıç retention: **180 gün**.
 - **Kapsam DIŞI:** e-Fatura, muhasebe entegrasyonu (TD-124), bidding, advertiser portal, sponsor-influencer ticari
   birleşimi, yeni placement tipleri (TD-120).
-- Sıra: **TODO-161A.2'den SONRA (sıradaki aktif faz)**; TODO-161B'den (Recently Viewed & Product Recommendations) ÖNCE.
+- Sıra: **TODO-161A.2'den SONRA — TAMAMLANDI**; sonraki hotfix = BUG-PDP-001; sonraki faz = TODO-161B
+  (Recently Viewed & Product Recommendations).
+
+## BUG-PDP-001 — PDP Quantity Changes Displayed Unit Price (hotfix) — SIRADAKİ AKTİF
+
+- Durum: **SIRADAKİ AKTİF FAZ (HOTFIX).** PDP'de adet değişimi gösterilen fiyatı çarpıyor.
+- Beklenen: PDP her zaman seçili varyantın **tek adet birim fiyatını** gösterir. Adet değişimi
+  satış/indirimli/liste fiyatını, son 30 gün en düşük fiyatı (Omnibus), kupon indirimi gösterimini veya
+  birim fiyat metnini DEĞİŞTİRMEZ. `quantity × unitPrice` yalnız cart line total / checkout summary /
+  order total / payment amount hesaplarında uygulanır. PDP'de ara toplam gösterilmez.
+- Gözlem: Artesan Bel Çantası adet 1→2 → ₺6.291,10 → ₺12.582,20 (HATALI); Xiaomi Edge 50 adetten bağımsız
+  sabit (DOĞRU). İki ürünün farklı render yoluna girmesi kök neden analizinde kanıtlanacak.
+- Fix ilkesi: tek fiyat otoritesi `selectedVariant.unitPrice` (sunucu-otoriter pricing projeksiyonu); PDP
+  price component quantity bağımlılığı taşımaz; quantity yalnız add-to-cart payload'ında.
+- Sunucu otoritesi (değişmez): cart/checkout/order/payment tutarları sunucuda çözülür (istemci birim fiyat
+  gönderse bile). PDP display salt sunum katmanı.
+- Kabul: PDP fiyatı adet 1→2→5 sabit (normal/indirimli/kuponlu/Omnibus); varyant değişince birim fiyat
+  değişir; quantity değişince varyant değişmez; TR/EN + mobile/desktop. Cart/checkout: line total = birim
+  fiyat × adet, OrderLine quantity+unitPrice ve payment amount doğru; kupon/kampanya adet matematiği doğru.
+- Sıra: **TODO-161A.1'den SONRA → BUG-PDP-001 (bu) → TODO-161B → final enterprise UI/design polish.**
+
+## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization)
+
+- Durum: **PLANLANDI — BUG-PDP-001'den SONRAKİ FAZ.** Bu numara bu iş için REZERVE edilmiştir.
+- Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
+- Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).

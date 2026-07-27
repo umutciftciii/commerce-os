@@ -323,8 +323,12 @@
 - Sıra: ~~TODO-159C~~ (DONE) → ~~TODO-159D Customer Lists & Wishlist~~ (DONE) →
   ~~TODO-159E Product Reviews & Ratings~~ (DONE) → ~~TODO-159F Order Payment Recovery & Collection~~
   (DONE — kritik ödeme açığı kapatıldı) → ~~TODO-160 Influencer Tracking & Attribution~~
-  (DONE — ADR-102…107; PR #113) → **TODO-160A SKU Generation & Governance (SIRADAKİ AKTİF FAZ)** →
-  **TODO-161 Sponsored Product Management** → *final enterprise UI/design polish fazı
+  (DONE — ADR-102…107; PR #113) → ~~TODO-160A SKU Generation & Governance~~ (DONE) →
+  ~~TODO-161 Sponsored Product Management~~ (DONE) → ~~TODO-161A Sponsorship Billing & Settlement~~ (DONE) →
+  ~~TODO-161A.2 Unified Sponsorship Commercial Flow~~ (DONE — PR #124) →
+  ~~TODO-161A.1 Commercial Automation & Data Retention~~ (DONE — PR #126) →
+  **BUG-PDP-001 PDP Quantity Unit Price Hotfix (SIRADAKİ AKTİF)** →
+  **TODO-161B Recently Viewed & Product Recommendations** → *final enterprise UI/design polish fazı
   (henüz numaralandırılmadı)*.
 - **TODO-160A konumlandırma:** TODO-160 ile TODO-161 arasına alındı. Katalog kimlik hijyeni (SKU'nun
   varyant-seviyesi tek otorite + deterministik üretim + çakışma yönetimi + governance) bir katalog-veri
@@ -549,12 +553,15 @@
 - Sıra: TODO-161A'dan SONRA. Canlı auth'lu tümleşik smoke (yerel dev + gerçek PG, 75.000 TL senaryosu 25/25)
   DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**.
 
-## Growth & Monetization — Commercial Automation & Data Retention (TODO-161A.1) — DONE / KOD TAMAM
+## Growth & Monetization — Commercial Automation & Data Retention (TODO-161A.1) — DONE / MERGED + DEPLOYED
 
-- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI.** Analiz:
+- Durum: **DONE — MERGED + DEPLOYED (2026-07-27).** Commit `a6c607b` · PR `#126` · merge commit `36b188b` ·
+  deploy `api-gateway + store-admin-web`. Analiz:
   `docs/analysis/TODO-161A.1-commercial-automation-retention.md`. ADR-130…136. **TD-125, TD-121, TD-113 CLOSED.**
   Ertelenen teknik borçları operasyonel otomasyona ve veri saklama hijyenine bağladı. Yeni ticari yüzey
   EKLEMEDİ; mevcut sponsorluk/attribution altyapısını otomatikleştirdi + saklama politikası uyguladı.
+  Zamanlayıcı eşzamanlılığı **dağıtık PostgreSQL advisory lock** (session `connection_limit=1`) + 409
+  `JOB_ALREADY_RUNNING` ile korunur; job yaşam döngüsü `QueueJobLog`'a yazılır.
   Canlı doğrulama (gerçek PostgreSQL, izole veri) 17/17 PASS; api-gateway testleri 42 yeni test PASS;
   build/typecheck (api-gateway + api-client + store-admin-web + contracts/config/db) temiz.
 - **Teslim edilenler:** iki zamanlanmış in-process worker (`sponsorship-settlement-scheduler`,
@@ -574,11 +581,28 @@
   **180 gün**.
 - **Kapsam DIŞI (bu faza ALINMAZ):** e-Fatura, muhasebe entegrasyonu (TD-124), bidding, advertiser portal,
   sponsor-influencer ticari birleşimi, yeni placement tipleri (TD-120).
-- Sıra: **TODO-161A.2'den SONRA — SIRADAKİ AKTİF FAZ**; TODO-161B'den ÖNCE.
+- Sıra: **TODO-161A.2'den SONRA — TAMAMLANDI**; sonraki hotfix = BUG-PDP-001; sonraki faz = TODO-161B.
+- Doğrulama borcu: TD-127 (auth'lu `/operations` UI click-through smoke) — final UI/design polish'ten önce kapatılır.
 
-## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — SIRADAKİ AKTİF FAZ
+## Bug — PDP Quantity Changes Displayed Unit Price (BUG-PDP-001) — SIRADAKİ AKTİF (HOTFIX)
 
-- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (TODO-161A.1 tamamlandı).** Bu numara (TODO-161B) bu iş için REZERVE
+- Durum: **SIRADAKİ AKTİF FAZ (HOTFIX).** PDP'de adet değişimi gösterilen fiyatı çarpıyor (birim fiyat ×
+  quantity). PDP her zaman seçili varyantın **tek adet birim fiyatını** göstermelidir.
+- Sorun: Bazı ürünlerde (ör. Artesan Bel Çantası) adet 1→2 yapılınca fiyat ₺6.291,10 → ₺12.582,20'ye
+  çıkıyor; doğru davranan ürünlerde (ör. Xiaomi Edge 50) fiyat adetten bağımsız sabit. İki ürünün farklı
+  render yoluna girmesi kök neden analizinde kanıtlanacak.
+- Ürün kararı: Adet değişimi satış fiyatını, indirimli fiyatı, liste fiyatını, son 30 günün en düşük
+  fiyatını (Omnibus), kupon indirimi gösterimini veya birim fiyat metnini DEĞİŞTİRMEZ. `quantity × unitPrice`
+  yalnız cart line total / checkout summary / order total / payment amount hesaplarında uygulanır. PDP'de
+  ara toplam gösterilmez. Fiyat otoritesi tek: `selectedVariant.unitPrice` (sunucu-otoriter pricing
+  projeksiyonu). PDP price component quantity bağımlılığı taşımaz; quantity yalnız add-to-cart payload'ında.
+- Sunucu otoritesi (değişmez): cart/checkout/order/payment tutarları sunucuda çözülür; PDP display salt
+  sunum katmanıdır.
+- Sıra: **TODO-161A.2'den SONRA → BUG-PDP-001 (bu) → TODO-161B → final enterprise UI/design polish.**
+
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B)
+
+- Durum: **PLANLANDI — BUG-PDP-001'den SONRAKİ FAZ.** Bu numara (TODO-161B) bu iş için REZERVE
   edilmiştir; sponsorluk stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
 - Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
-- Sıra: **TODO-161A.1'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
+- Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
