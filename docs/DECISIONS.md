@@ -4184,3 +4184,117 @@ durdurur + ayrılmış lock bağlantısını kapatır.
 (+ trigger MANUAL/SCHEDULED, startedAt/completedAt/durationMs, cutoff/period, sayımlar). Her (store,run) için
 TEK satır: STARTED açılır, terminal duruma GÜNCELLENİR (duplicate log YOK); kilitlenen tur tek SKIPPED_LOCKED
 satırı yazar. Yeni tablo/migration YOK.
+
+## ADR-137 — Recently Viewed identity: dual-key (customerId | visitorHash) + kısmi unique + XOR CHECK (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-093/106 · **Öncül:** TODO-161B
+
+**Karar.** Görüntüleme geçmişi `RecentlyViewedProduct` tablosunda tutulur; kimlik İKİ-anahtarlıdır ama tam
+olarak BİRİ dolu: authenticated → `customerId`; guest → `visitorHash`. `visitorHash =
+hashIdentifier(first-party visitorId, SESSION_SECRET)` (salted HMAC-SHA256; `tracking-core.ts`). HAM IP/UA/
+visitorId DB'ye YAZILMAZ. Guest kimliği first-party imzalı httpOnly `commerce_os_vid` cookie'sinden gelir
+(sponsored akışıyla PAYLAŞILIR — yeni cookie yok); BFF onu `x-visitor-id` header'ına, gateway HMAC ile
+hash'e çevirir. localStorage TEK otorite DEĞİLDİR — geçmiş SUNUCU-tarafındadır.
+
+**Neden kısmi unique index.** "Aynı kimlik + product = tek kayıt" gereği için `(storeId,customerId,productId)`
+ve `(storeId,visitorHash,productId)` UNIQUE olmalı. Postgres NULL'ları FARKLI sayar → guest satırlarında
+`customerId IS NULL` olduğundan normal composite unique guest'leri DEDUPE ETMEZ. Bu yüzden iki **kısmi**
+unique index (`WHERE customerId IS NOT NULL` / `WHERE visitorHash IS NOT NULL`) + `CHECK((customerId NOT
+NULL)::int + (visitorHash NOT NULL)::int = 1)` migration'da raw SQL ile eklenir (Prisma partial-unique/CHECK
+desteklemez). Upsert `find→update/create` + P2002-yakala-yeniden-oku deseniyle (customer-lists ile birebir).
+
+**Bot/prefetch.** Görüntüleme kaydı istemci-tarafı mount beacon'ıdır (SSR DEĞİL; PDP render'ını bloklamaz).
+Gateway `isBotUserAgent(ua)` + `Sec-Purpose/Purpose/X-Moz=prefetch/preload/prerender` header kontrolüyle
+bot/prefetch'i sessizce eler (`200 {recorded:false}`). Kimlik başına max 50 kayıt (write-time prune; ADR-139).
+
+## ADR-138 — Guest→customer görüntüleme geçmişi idempotent merge + cookie yaşam döngüsü (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-093/137 · **Öncül:** TODO-161B
+
+**Karar.** Login/register sonrası (BFF `mergeRecentlyViewedAction`, wishlist merge ile simetrik) guest
+(visitorHash) geçmişi customer'a birleştirilir. Geçmiş SUNUCU-tarafı olduğundan (wishlist'ten farklı: cookie'de
+ürün ref'i YOK) merge gateway'e `x-customer-session` + `x-visitor-id` ile "birleştir" der. Algoritma
+(idempotent): her guest satırı için aynı ürünün customer satırı varsa `lastViewedAt=max(...)`,
+`viewCount=min(cap, customer+guest)`; yoksa guest satırı customer'a TAŞINIR (visitorHash→customerId,
+createdAt korunur); çakışan (taşınamayan) guest satırları silinir; sonda cap (50) yeniden uygulanır. Tekrar
+merge şişirmez (guest satırları temizlenir → sonraki tur 0). Cross-store merge YOK (storeId scope).
+
+## ADR-139 — Recently Viewed retention: 90 gün + max 50; TODO-161A.1 SAF altyapı reuse, ayrı domain (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-133/135/136 · **Öncül:** TODO-161B
+
+**Karar.** Başlangıç retention 90 gün (`RECENTLY_VIEWED_RETENTION_DAYS`, alt sınır 1), kimlik başına max 50
+ürün (`RECENTLY_VIEWED_MAX_PER_VISITOR`). **Cap (50) write-time otoritesidir** — her `recordView` upsert'inden
+sonra fazlalık (en eski) silinir → tablo daima bounded. Zamanlanmış worker YALNIZ 90-gün cutoff'unu uygular
+(`lastViewedAt < cutoff` batch DELETE). TODO-161A.1 SAF altyapısı YENİDEN KULLANILIR: `computeCutoff` +
+`isCircuitBreakerTripped` (pure), dağıtık PostgreSQL advisory lock (`getDefaultAdvisoryLockManager`,
+jobType=`recently-viewed-retention`), `QueueJobLog` (queueName `recently-viewed` — AYRI). **Domain ayrı:**
+`RecentlyViewedProduct` yalnız bu faza aittir; `RETENTION_TABLE_SPECS` (sponsored/influencer allowlist)
+DEĞİŞTİRİLMEZ. Güvenlik ADR-135 ile aynı: `RECENTLY_VIEWED_RETENTION_ENABLED=false` varsayılan (env gate;
+açıkça etkinleştirilmeden ASLA otomatik DELETE), dry-run varsayılan, store-scope, circuit-breaker, batch.
+KVKK: `onDelete: Cascade` (Customer/Store/Product) → müşteri/mağaza silinince otomatik temizlik; finansal
+OrderLine snapshot'ları ETKİLENMEZ (ayrı tablo).
+
+## ADR-140 — Similar Products açıklanabilir skorlama + deterministik sıralama (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-079 · **Öncül:** TODO-161B
+
+**Karar.** MVP öneri motoru geçmişten BAĞIMSIZ, AÇIKLANABİLİR ağırlıklı skordur (SAF `similarity-core.ts`;
+ML/vector YOK). Sinyaller ve ağırlıklar: aynı alt kategori 40 · aynı üst kategori 18 (alt eşleşmeyi DIŞLAR,
+double-count yok) · aynı marka 25 · aynı salesMode 8 · fiyat yakınlığı 0–15 (yalnız aynı currency; lineer
+azalım `1-min(1,|a-c|/max(a,1))`) · ortak dinamik attribute değeri her biri 6, cap 18. Sert filtreler (skora
+girmez): aynı store · `status=ACTIVE` · `hasStock` · anchor hariç · duplicate yok. **Deterministik sıralama:**
+score DESC → productCreatedAt DESC → productId ASC (aynı girdi → aynı çıktı; Math.random/Date.now YOK). Sonuç
+bounded (varsayılan 8, max 24).
+
+## ADR-141 — Recommendation/source isolation + Home recently-viewed CMS-section DEĞİL (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-086/091/114 · **Öncül:** TODO-161B
+
+**Karar.** Öneri yüzeyleri sponsored ve organik ranking'ten TAM İZOLEDİR: Similar Products `injectSponsoredSlots`
+ÇAĞIRMAZ (sponsored priority skora karışmaz) ve `search-query.ts`'i DEĞİŞTİRMEZ (organik ranking sabit); ayrı
+bir uçtur. Farklı store ürünleri karışmaz (storeId scope). **Home "Son İncelediklerin" bir `HomeSection` tipi
+YAPILMADI:** (1) kişiselleştirilmiş + her-zaman-açık doğası admin-CMS yapılandırma modeline uymaz; (2) viewer-özel
+veri cacheable `/home` sözleşmesini kirletir; (3) `/home` ucu viewer kimliği taşımaz. Bunun yerine storefront
+Home sayfasında, mevcut `Section`/`Container`/canonical `SearchProductCard` bileşenlerini kullanan tek sabit
+client `RecentlyViewedRail` render edilir (geçmiş yoksa DOM'da yer kaplamaz). "Ayrı paralel home engine" DEĞİL —
+mevcut görsel dile uyar; `/home` orchestrasyonu değişmez.
+
+## ADR-142 — Similar Products KATMANLI DB-seviyesi aday daraltması + fallback (TODO-161B, revize)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-140/143 · **Öncül:** TODO-161B · **Revizyon:**
+pre-ship hardening — tek OR-sorgu + global createdAt LIMIT yerine per-tier-kotalı katmanlı sorgu.
+
+**Karar (revize).** Aday havuzu, her biri KENDİ sinyal-hedefli bounded sorgusu olan KATMANLARla kurulur (tek OR
++ global `ORDER BY createdAt DESC LIMIT` DEĞİL — o desen, katalog createdAt sırasının N. kaydından sonraki İLGİLİ
+adayı ya da bir sinyalin diğerini bastırması nedeniyle düşürebiliyordu). Her katman `ProductSearchDocument` üzerinde
+sert filtrelerle (storeId · status=ACTIVE · hasStock · anchor hariç) + katman-sinyali:
+1. **Aynı alt kategori** (`primaryCategoryId = anchorCat`).
+2. **Aynı üst kategori** (`primaryCategoryId IN sameParentCats` — anchor kategorisinin parent'ını paylaşan kardeşler;
+   adjacency-list, path/level yok → tek `ProductCategory` sorgusu).
+3. **Aynı marka + yakın fiyat** (`brand = anchorBrand AND minPriceMinor ∈ [0.5x, 2x]`).
+4. **Ortak dinamik attribute/facet** (`ProductFacetValue` `(attributeDefinitionId, optionId)` çiftleri; index'li).
+5. **Fallback** (yalnız birleşim < `SIMILAR_MIN_TARGET`=24): store-geneli en yeni ACTIVE+inStock.
+
+**Per-tier kota (kritik).** Her katman EN FAZLA `SIMILAR_PER_TIER`=120 getirir → TEK sinyal (ör. büyük bir kategori)
+global birleşim cap'ini (`SIMILAR_MAX_CANDIDATES`=400) doldurup DİĞER sinyalleri (ör. aynı marka farklı kategori)
+DIŞLAYAMAZ. Böylece "ilgisiz ilk 200 ürün sonucu bozmaz" (ilgisiz ürün hiçbir relevance katmanında değildir) ve
+"katalog sırasının 200 sonrasındaki İLGİLİ aday yine bulunur" (kendi katmanı onu getirir). Birleşim dedup edilir,
+toplam 400 ile bounded; nihai SAF skorlama deterministik sıralar (score→createdAt→id). Anchor hariç, duplicate yok.
+Store-geneli keyfi ilk-N fallback'in ANA otoritesi DEĞİLDİR. **Additive index:** `ProductSearchDocument
+(storeId, brand)` (migration `20260727140000`) → Tier 3 marka-hedefli daraltma (50k+ katalogda seq-scan yerine index
+scan; `EXPLAIN` ile doğrulandı). Canlı doğrulandı: en ilgili aday katalog recency-sırasının SON kaydına (418/418)
+taşındığında bile sonuçta #1 kalır; sonuçlar relevance-only (ilgisiz ürün yok).
+
+## ADR-143 — Recommendation performans sınırları: read-model-only aday, bounded scan, N+1 yok (TODO-161B)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-079 · **Öncül:** TODO-161B
+
+**Karar.** Öneri kartları read-model (`ProductSearchDocument.listing`) snapshot'ından üretilir — Product/Variant/
+Image/Promotion source-of-truth join'i YOK; store-geneli stok/kategori map'i per-request YÜKLENMEZ (buildPublicProduct
+yolu bilinçli KULLANILMADI). Bu, arama ucunun ADR-079 read-model desenidir. Aday sorgusu bounded (LIMIT cap 200);
+skorlama uygulamada (SAF). Ortak-attribute (`ProductFacetValue`) + salesMode (`Product`) + parent kategori yalnız
+BOUNDED aday kümesi için batch okunur (N+1 yok). Görünürlük+stok gate `ProductSearchDocument` hazır index'leriyle
+(`storeId,primaryCategoryId`/`storeId,hasStock`/`storeId,productCreatedAt`). 471 ürün ve 50k+ katalog varsayımında
+tüm katalog belleğe ALINMAZ. Recently-viewed kart hidrasyonu da aynı read-model gate'inden (deleted/passive/out-of-
+stock elenir). Kart snapshot'ı read-model worker'ıyla senkron (ürün değişince reindex → cache invalidation).

@@ -205,6 +205,21 @@ export const envSchema = z.object({
   // Circuit breaker: tek turda bir tablodan silinebilecek maksimum aday satir. Asilirsa APPLY reddedilir
   // (dry-run her zaman raporlar) → kontrolsuz kutlesel silme onlenir. Varsayilan 200000.
   ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
+  // ── TODO-161B (ADR-137/139) — Recently Viewed & Product Recommendations. ─────────────────────
+  // Kimlik (customer/visitor) basina saklanan en fazla goruntuleme kaydi. Write yolunda upsert sonrasi
+  // fazlalik (en eski) silinir → tablo her zaman bounded. Cap bu deger ILE otoritedir (ADR-139).
+  RECENTLY_VIEWED_MAX_PER_VISITOR: optionalNumberEnv(z.coerce.number().int().positive().max(500).default(50)),
+  // Zamanlanmis Recently Viewed retention worker'i. false (varsayilan) → env gate: acikca
+  // etkinlestirilmeden ASLA otomatik DELETE. Cutoff SUNUCU config'idir; istemci gonderemez.
+  RECENTLY_VIEWED_RETENTION_ENABLED: optionalBooleanEnv(false),
+  // Retention turu araligi (saniye). Varsayilan gunluk (86400s); alt sinir saatlik (3600s).
+  RECENTLY_VIEWED_RETENTION_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  // Goruntuleme kaydi saklama gunu (ADR-139 = 90). Alt sinir 1 (guvenlik tabani). lastViewedAt < cutoff budanir.
+  RECENTLY_VIEWED_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(1).default(90)),
+  // DELETE batch buyuklugu (take → deleteMany(id in); her statement bounded).
+  RECENTLY_VIEWED_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
+  // Circuit breaker: tek turda bir store'dan silinebilecek maksimum aday satir. Asilirsa APPLY reddedilir.
+  RECENTLY_VIEWED_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
   // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
   // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
   // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla

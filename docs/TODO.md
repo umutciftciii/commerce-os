@@ -1988,8 +1988,32 @@
   girilemez → non-interactive); grand/payment total sepet özetinde sunucu-otoriter doğrulandı. Demo bütün.
 - Sıra: **BUG-PDP-001 (bu) tamamlandı → TODO-161B → final enterprise UI/design polish.**
 
-## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization) — SIRADAKİ AKTİF
+## TODO-161B — Recently Viewed & Product Recommendations (Growth & Monetization) — KOD TAMAM (commit YOK)
 
-- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (BUG-PDP-001 tamamlandı).** Bu numara bu iş için REZERVE edilmiştir.
-- Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
-- Sıra: **BUG-PDP-001'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
+- Durum: **KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM; tüm gate'ler geçti. Commit/push/PR/merge/deploy
+  YAPILMADI (talep gereği durdu).** Analiz: `docs/analysis/TODO-161B-recently-viewed-product-recommendations.md`.
+  ADR-137…143.
+- İki AYRI capability: (1) Recently Viewed — sunucu-tarafı, KVKK-uyumlu görüntüleme geçmişi
+  (`RecentlyViewedProduct`; dual-key customerId|visitorHash, kısmi unique + XOR CHECK; HAM IP/UA saklanmaz;
+  visitorHash = HMAC(SESSION_SECRET, `commerce_os_vid`); bot/prefetch elenir; max 50/kimlik; guest→customer
+  idempotent merge; 90-gün retention TODO-161A.1 SAF altyapı reuse + ayrı worker). (2) Similar Products —
+  geçmişten BAĞIMSIZ açıklanabilir ağırlıklı skor (SAF `similarity-core.ts`; kategori/marka/fiyat/salesMode/
+  ortak-attribute; read-model aday sorgusu bounded; sponsored/organik ranking'e DOKUNMAZ; fallback katmanları).
+- API (public/customer): `POST/GET/DELETE .../recently-viewed`, `POST .../recently-viewed/merge`,
+  `GET .../products/:productId/similar`. Kartlar read-model `listing` snapshot'ından (publicSearchProductSchema).
+- Yüzeyler: PDP "Benzer Ürünler" (statik related grid → açıklanabilir motor client island) + PDP görüntüleme
+  izleyici · Home "Son İncelediklerin" client şerit (CMS-section DEĞİL; ADR-141) · Cart düşük-yoğunluk şerit
+  (sepet ürünleri hariç) · Hesabım "Görüntüleme Geçmişi" bölümü (temizle + bounded liste). i18n TR+EN.
+- **Pre-ship hardening (2026-07-27):** (1) **TD-128 CLOSED** — öneri kartlarında wishlist kalbi GERÇEK
+  (island'lar `WishlistProvider initialSavedIds` ile sarılı; BFF GET yanıtları `getWishlistStatus` → `savedIds`;
+  auth→gateway, guest→cookie; optimistic+rollback). (2) **Similarity candidate KATMANLI** (ADR-142 revize) —
+  tek OR + global createdAt LIMIT yerine per-tier-kotalı (SIMILAR_PER_TIER=120) katmanlı sorgu (alt/üst kategori,
+  marka+fiyat, ortak facet, fallback); ilgisiz ilk-N sonucu bozmaz + katalog-sonundaki ilgili aday bulunur.
+  Additive index `ProductSearchDocument(storeId, brand)` (migration `20260727140000`). Canlı 200-boundary smoke +
+  EXPLAIN doğrulandı.
+- Migration: `20260727130000_add_recently_viewed_products` + `20260727140000_add_search_brand_index` (additive;
+  gerçek Postgres'te uygulandı + doğrulandı; `prisma migrate status` up to date).
+- Testler: 51 yeni backend test + api-gateway suite yeşil (1529 test) + storefront (435 test, 5 yeni UI);
+  storefront tsc temiz. Gate'ler: build/typecheck/lint/test/git-diff/migrate-status — hepsi yeşil.
+- TD durumu: **TD-128 CLOSED**; TD-129 (Home şeridi CMS-yönetimli değil) + TD-130 (recommendation ölçümü) AÇIK.
+- Sıra: **TODO-161B (bu) → Final enterprise UI/design polish.**

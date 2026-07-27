@@ -871,7 +871,17 @@ export const trStorefront = {
       favorites: "Beğendiklerim",
       lists: "Tüm Listelerim",
       coupons: "Kuponlarım",
+      viewHistory: "Son İncelediklerim",
       logout: "Çıkış Yap",
+    },
+    // TODO-161B (ADR-137) — Görüntüleme geçmişi bölümü metinleri.
+    viewHistory: {
+      title: "Son İncelediklerim",
+      subtitle: "Gezdiğiniz ürünler burada. İstediğinizde geçmişi temizleyebilirsiniz.",
+      clear: "Geçmişi temizle",
+      clearing: "Temizleniyor…",
+      emptyTitle: "Henüz ürün görüntülemediniz",
+      emptyBody: "İncelediğiniz ürünler bu alanda listelenecek.",
     },
     // TODO-159D (ADR-093) — Favori + alışveriş listeleri UI metinleri.
     wishlist: {

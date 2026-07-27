@@ -10,6 +10,8 @@ import {
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HomeSections } from "../components/site/home/home-sections";
+// TODO-161B (ADR-137/141) — "Son İncelediklerin" client şeridi (kişiselleştirilmiş; geçmiş yoksa render olmaz).
+import { RecentlyViewedRail } from "../components/recently-viewed/recently-viewed-rail";
 import { WishlistProvider } from "../components/wishlist/wishlist-provider";
 import { RatingProvider } from "../components/reviews/rating-provider";
 import { getWishlistStatus } from "../lib/server/wishlist";
@@ -65,6 +67,9 @@ export default async function HomePage() {
       <WishlistProvider initialSavedIds={savedProductIds}>
         <RatingProvider summaries={cardRatings}>
           <HomeSections sections={home.sections} dict={dict} />
+          <Container className="pb-16">
+            <RecentlyViewedRail t={dict} />
+          </Container>
         </RatingProvider>
       </WishlistProvider>
     );
@@ -152,6 +157,11 @@ function HomeFallback({
           </Container>
         </Section>
       )}
+
+      {/* TODO-161B — Son İncelediklerin (kişiselleştirilmiş; geçmiş yoksa DOM'da hiç yer kaplamaz). */}
+      <Container className="pb-4">
+        <RecentlyViewedRail t={dict} />
+      </Container>
 
       <EditorialBanner dict={dict} />
     </>
