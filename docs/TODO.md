@@ -2084,12 +2084,13 @@ enterprise UI/design polish HÂLÂ son faz.
 Kaynak: `docs/analysis/launch-readiness-product-gap-audit.md`. Bu tur **yalnız analiz** (kod/migration/UI
 değişikliği yok). İş kalemleri öncelik sırasıyla:
 
-- **LR-PB-1 (PROD BLOCKER) — Ödeme webhook imza zorunluluğu → ÇÖZÜLDÜ / KOD TAMAM (2026-07-27; ADR-156/157/158;
-  commit YOK).** Eski client-otoriteli `/payments/webhooks/:provider` KALDIRILDI; doğrulanmış
+- **LR-PB-1 (PROD BLOCKER) — Ödeme webhook imza zorunluluğu → ✅ CLOSED / MERGED + DEPLOYED (2026-07-27; PR #135,
+  merge `382e1c8`; ADR-156/157/158).** Eski client-otoriteli `/payments/webhooks/:provider` KALDIRILDI; doğrulanmış
   `POST /public/payments/webhooks/:webhookToken` (HMAC + store token'dan + attempt provider reference'tan +
-  amount/currency invariant + monotonik + idempotency; fail-closed). Migration `20260727170000`. 30 test + 14/14
-  canlı exploit regresyonu (gerçek Postgres). Analiz: `docs/analysis/PB-1-payment-webhook-authenticity.md`. **Kalan
-  (EX-1'e bağlı):** TD-137 sağlayıcı-native imza, TD-138 provisioning UI. Gerçek ödeme yalnız EX-1+TD-137 sonrası.
+  amount/currency invariant + monotonik + idempotency; fail-closed). Migration `20260727170000` deploy edildi.
+  30 test + 14/14 canlı + **21/21 production-stack** exploit regresyonu. Analiz:
+  `docs/analysis/PB-1-payment-webhook-authenticity.md`. **Kalan (EX-1'e bağlı):** TD-137 sağlayıcı-native imza,
+  TD-138 provisioning UI. Gerçek ödeme yalnız EX-1+TD-137 sonrası.
 - **LR-PB-2 (PROD BLOCKER) — Felaket kurtarma.** Off-host zamanlanmış backup (rotasyon+şifreleme) +
   dokümante & tatbik edilmiş `pg_restore` runbook'u. `db:restore-enterprise` restore DEĞİL (demo re-seed). Bkz. TD-135.
 - **LR-H-1 (HIGH) — Tema token XSS.** Token değerleri için CSS-value allowlist/escape + `.passthrough()`→`.strict()`;
