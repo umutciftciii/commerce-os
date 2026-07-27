@@ -401,7 +401,7 @@ export interface CustomerDataAccess {
       birthDate?: Date | null;
       gender?: CustomerGender | null;
     },
-  ): Promise<CustomerAuthRecord | "NOT_FOUND" | "EMAIL_TAKEN" | "PHONE_TAKEN">;
+  ): Promise<CustomerAuthRecord | "NOT_FOUND" | "EMAIL_TAKEN" | "PHONE_TAKEN" | "ERASED_LOCKED">;
   // TODO-087 store-admin — müşteri oluşturma. E-posta/telefon store-scope unique;
   // çakışırsa sentinel döner. status admin tarafından set edilir (default ACTIVE).
   adminCreateCustomer(
@@ -1015,9 +1015,12 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
     async adminUpdateCustomer(storeId, customerId, input) {
       const current = await prisma.customer.findFirst({
         where: { id: customerId, storeId },
-        select: { id: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true },
+        select: { id: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true, status: true },
       });
       if (!current) return "NOT_FOUND";
+      // TD-131 (ADR-149) — ERASED terminal: anonimleştirilmiş müşteri düzenlenemez/
+      // yeniden aktifleştirilemez (kişisel veri geri getirilemez).
+      if (current.status === "ERASED") return "ERASED_LOCKED";
 
       const data: Prisma.CustomerUpdateInput = {};
       if (input.firstName !== undefined) data.firstName = input.firstName;
@@ -2255,6 +2258,11 @@ export function registerCustomerAdminRoutes(app: FastifyInstance, deps: Customer
     });
     if (result === "NOT_FOUND") {
       return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
+    }
+    if (result === "ERASED_LOCKED") {
+      return reply
+        .code(409)
+        .send(errorBody("CUSTOMER_ALREADY_ERASED", "Kişisel verileri silinmiş müşteri düzenlenemez."));
     }
     if (result === "EMAIL_TAKEN") {
       return reply.code(409).send(errorBody("EMAIL_TAKEN", "Bu e-posta bu mağazada kullanımda."));

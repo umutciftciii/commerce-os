@@ -4386,3 +4386,94 @@ retention, (3) store Cascade. İleride gerçek bir hard customer-deletion akış
 (tenant-scoped `deleteMany({where:{storeId,customerId}})`; guest/diğer müşteri/diğer store'a dokunmaz; finansal
 Order/OrderLine snapshot'ları ayrı tablo, `Order.customerId` zaten SetNull). Aynı gereklilik FK'siz
 `SponsoredProductEvent`/`AttributionClick` için de geçerlidir (bunlar da yalnız zaman-bazlı retention'la budanır).
+
+## ADR-149 — Deactivate vs Erase ayrımı + ERASED terminal durum (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-148/150…155 · **Öncül:** TD-131
+
+**Karar.** Müşteri veri silme İKİ ayrı, karıştırılmayan aksiyondur: **DEACTIVATE** (status→PASSIVE, oturumlar
+revoke, veri KORUNUR, geri ALINABİLİR) ve **ERASE_PERSONAL_DATA** (kişisel+davranışsal veri silinir/anonimleşir,
+status→**ERASED**, geri ALINAMAZ, müşteri yeniden aktifleştirilemez/giriş yapamaz). `CustomerStatus` enum'una
+additive `ERASED` değeri + `Customer.erasedAt/erasedByUserId/eraseReason` (nullable) kolonları eklendi
+(migration `20260727160000_customer_erasure`). ERASED **terminal**tir: `adminUpdateCustomer` ERASED müşteriyi
+düzenlemeyi/aktive etmeyi reddeder (`ERASED_LOCKED`→409 `CUSTOMER_ALREADY_ERASED`); login zaten `status===ACTIVE`
+ister → PASSIVE ve ERASED girişi otomatik engellenir (yeni guard gerekmez). Müşteri kaydı SİLİNMEZ, anonim
+placeholder olarak KORUNUR (finansal sipariş `Order.customerId` SetNull yerine anonim Customer'a bağlı kalır →
+referans bütünlüğü + gerçek satın alan yorumları anonim yaşamaya devam eder).
+
+## ADR-150 — Erasure eşzamanlılık: müşteri-izole advisory lock + tek transaction + kilit-altı ikinci okuma (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-149 · **Öncül:** TD-131 · **Reuse:** TODO-161A.1
+
+**Karar.** Apply, TODO-161A.1 SAF dağıtık advisory-lock altyapısını (`commercial-automation/advisory-lock.ts`,
+session-level `pg_try_advisory_lock`, `connection_limit=1`) YENİDEN KULLANIR ama **müşteri-izole** anahtarla:
+`lock(\`customer-erasure:${storeId}\`, customerId, fn)` → aynı mağazada farklı müşteriler PARALEL silinebilir;
+aynı müşteriye eşzamanlı ikinci apply kilidi ALAMAZ → 409 `ERASURE_IN_PROGRESS`. Kilit `fn` içinde tüm
+mutasyonlar TEK `prisma.$transaction`'dadır (yarım silme YOK; hata → tam rollback). Transaction başında **kilit
+altında ikinci okuma**: müşteri yeniden okunur → yoksa `NOT_FOUND`, zaten ERASED ise `ALREADY_ERASED`
+(idempotent; ikinci apply DELETE audit yazmaz). İdempotency anahtarı = terminal ERASED durumu (ayrı
+idempotencyKey kolonu gerekmez). Domain hata kodları: `CONFIRMATION_REQUIRED`, `REASON_REQUIRED`,
+`ERASURE_IN_PROGRESS`, `CUSTOMER_ALREADY_ERASED`, `CUSTOMER_NOT_FOUND`.
+
+## ADR-151 — Finansal/yasal kayıt koruma + asgari saklama seti (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-149/153 · **Öncül:** TD-131
+
+**Karar.** Erasure finansal/yasal kaydı SİLMEZ: `Order` (tutarlar/currency/orderNumber/status/tarihler),
+`OrderLine` (SKU/title/price/KDV/maliyet snapshot), `PaymentAttempt`, `OrderDiscount`,
+`OrderAttribution`/`OrderSponsoredAttribution` (+refund defterleri), `CampaignRedemption` mali tutarları KORUNUR.
+Siparişlerde **gereksiz temas PII'si** anonimleşir: `Order.customerEmail`→`erased-<id>@erased.invalid`,
+`Order.billingEmail`→null; `OrderAddress` (SHIPPING+BILLING) `fullName`→"Anonim Müşteri", `phone`/`addressLine1/2`/
+`district`/`postalCode` temizlenir (coğrafi-mali raporlama için `city`+`countryCode` kaba düzeyde korunur);
+`CampaignRedemption.email`→null (customerId korunur). **Yasal-kimlik istisnası (asgari saklama):**
+`Order.billingType/billingName/billingTaxId(TCKN)/billingCompanyName/billingTaxOffice/billingTaxNumber`
+erasure anında KORUNUR — resmi fatura kimliği yasal yükümlülük gereği tutulur (KVKK md.7 / GDPR 17(3)(b)).
+**Önemli sınır:** bu alanların **kesin saklama süresi ve süre-sonu anonimleştirme politikası, uygulama kodunun
+tek başına verdiği hukuki bir karar DEĞİLDİR** — süre (Türkiye'de tipik referans VUK/TTK ~5–10 yıl aralığı,
+yalnız gösterge) mali müşavir/hukuk onayıyla belirlenmelidir. Mevzuat doğrulaması olmadan **otomatik süre-sonu
+purge UYGULANMAZ**. Süre-sonu retention purge kapsam DIŞI → **TD-132** teknik borç (AÇIK kalır).
+
+## ADR-152 — Dry-run/apply + açık onay ifadesi (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-149/154 · **Öncül:** TD-131
+
+**Karar.** Erasure önce **dry-run** (`/erasure/preview`, POST ama YAZMA YOK) sunar: silinecek tablo başına kayıt
+sayıları, anonimleştirilecek alanlar/sayılar, korunacak finansal kayıt sayıları, review davranışı, aktif session,
+açık sipariş, risk uyarıları (`ACTIVE_SESSIONS`/`OPEN_ORDERS`/`ALREADY_ERASED`). Apply, istemcinin **birebir**
+yazması gereken sabit onay ifadesi (`KİŞİSEL VERİLERİ SİL`, sunucu-otoriter doğrulama) + zorunlu `reason` ister;
+storeId path'ten değil guard'lı (client otoritesi değil). Store-admin UI'da ayrı **danger modal** dry-run raporu +
+confirmation phrase input + reason ile açılır; onay eşleşene ve neden dolana kadar "Kalıcı sil" butonu disabled.
+
+## ADR-153 — Review anonimizasyonu: Customer-türetilmiş, ProductReview satırı korunur (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-094/151 · **Öncül:** TD-131
+
+**Karar.** `ProductReview` **silinmez** (mağaza güveni + moderasyon geçmişi korunur). Yorum yazar kimliği
+Customer kaydından türetildiği için müşteri anonimleştirilince yorum otomatik "Anonim Müşteri" adıyla görünür;
+`ProductReview.customerId` KORUNUR ama artık PII taşımayan placeholder Customer'a işaret eder (ilişkiyi null'a
+çekmek `customerId` non-nullable olduğundan ek migration gerektirir ve GEREKSİZDİR — anonimizasyon Customer
+düzeyinde tamdır). `ProductReviewHelpful` (davranışsal "faydalı" oyu) SİLİNİR; silinen her oy için ilgili
+`ProductReview.helpfulCount` denormalize sayacı aynı transaction'da düşürülür (başka müşterilerin yorumları da
+tutarlı kalır).
+
+## ADR-154 — PII-free audit / operation log (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-149 · **Öncül:** TD-131
+
+**Karar.** Dry-run ve apply operasyon kaydına düşer (mevcut `AuditLog`/`recordAudit`; queue job DEĞİL — senkron
+admin aksiyonu). action: dry-run=`SYSTEM`, apply=`DELETE`, deactivate=`UPDATE`; `entityType="Customer"`,
+`platformUserId`=actor. metadata **PII TAŞIMAZ** — yalnız mode (dry-run/apply), reason, silinen tablo sayıları,
+anonimleştirilen alan ADLARI, korunan finansal kayıt sayıları, sonuç. Ham email/telefon/TCKN/IBAN metadata'ya
+ASLA yazılmaz (mevcut PII-minimizasyon konvansiyonu; testte `@`/`TR\d`/uzun-rakam deseni negatif assert edilir).
+
+## ADR-155 — FK'siz event cleanup + guest/cross-store guard (TD-131)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-148 · **Öncül:** TD-131
+
+**Karar.** `RecommendationEvent.customerId` plain String (FK yok → DB Cascade kapsamaz) uygulama-seviyesinde
+temizlenir (`deleteMany({where:{storeId,customerId}})`; ADR-148'in hazır primitifi). `AttributionClick`/
+`SponsoredProductEvent` `customerId` TAŞIMAZ (yalnız `visitorIdHash` HMAC → guest); müşteri silmede DOKUNULMAZ.
+Guest kimliği (`visitorHash`/`visitorIdHash`) taşıyan hiçbir kayıt bir müşterinin silinmesiyle etkilenmez; guest
+event'leri yalnız zaman-bazlı retention'la budanır. Tüm silme/anonimleştirme sorguları `storeId`+`customerId`
+scoped → **cross-store** (başka mağazanın aynı e-posta/telefonlu/customerId'li müşterisi) yapısal olarak
+etkilenmez (canlı smoke + birim testle doğrulandı).

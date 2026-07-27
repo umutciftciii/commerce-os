@@ -1210,6 +1210,13 @@ click-through** yapılamadı.
 **Neden borç:** Product blocker DEĞİL (backend + guard'lar doğrulandı). Gerçek parola gerektiren canlı
 tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazından ÖNCE kapatılmalıdır.**
 
+**Deneme notu (2026-07-27, TD-131 Faz B).** `/operations` (docker store-admin-web :3002) in-app tarayıcıda açıldı;
+beklendiği gibi **login duvarına** yönlendirdi ("Sign in to store admin"). Otonom oturumda parola giremem/isteyemem
+(güvenlik kuralı + görev talimatı "parola isteme/okuma/loglama") ve kullanıcı giriş yapmak için mevcut değil →
+click-through **YÜRÜTÜLEMEDİ**. TD-127 **AÇIK kalır**. Kullanıcı store-admin'e giriş yaptığında UI click-through
+smoke (settlement dry-run/run · retention dry-run/apply · QueueJobLog · SKIPPED_LOCKED/PARTIAL_SUCCESS/FAILED ·
+loading/error/empty · TR/EN) sürülüp kapatılabilir.
+
 ## TODO-161B (ADR-137…143) — Recently Viewed & Product Recommendations sınırları (TD-128…TD-130)
 
 - **TD-128 — Öneri şeritlerinde wishlist kalbi no-op → ÇÖZÜLDÜ / CLOSED (2026-07-27, pre-ship hardening).**
@@ -1238,3 +1245,31 @@ tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazınd
   (yalnız status soft-deactivation); `customerId` FK'siz → KVKK hash + retention + store-Cascade ile karşılanır.
   İleri hard-deletion akışı için testli+hazır erasure primitifi `RecommendationEventData.deleteForCustomer(storeId,
   customerId)` eklendi (henüz bağlı değil; aynı gereklilik FK'siz `SponsoredProductEvent`/`AttributionClick` için).
+
+## TD-131 — Customer Data Erasure Workflow → ÇÖZÜLDÜ / CLOSED (2026-07-27; ADR-149…155)
+
+**Durum:** ÇÖZÜLDÜ (kod + migration + test + canlı doğrulama tamam; commit'e hazır). ADR-148'in öngördüğü
+"ileri hard-deletion akışı" tamamlandı. Store-admin müşteri detayında **iki ayrı aksiyon**: `Hesabı Pasifleştir`
+(DEACTIVATE → PASSIVE + oturum revoke, geri alınabilir) ve `Kişisel Verileri Sil` (ERASE_PERSONAL_DATA → ERASED
+terminal, geri alınamaz). Domain: `apps/api-gateway/src/customer-erasure/` (core/data/service/routes) — dry-run
+preview + apply (müşteri-izole advisory lock + tek transaction + kilit-altı ikinci okuma + idempotent) + deactivate.
+Silinir: session/credential/token/OTP/IBAN/commPref/address/wishlist(+item)/coupon/recentlyViewed/reviewHelpful +
+FK'siz `RecommendationEvent` (deleteForCustomer). Anonimleşir: Customer (name/email/phone/…) + Order temas PII +
+OrderAddress + CampaignRedemption.email. Korunur: Order/OrderLine/Payment/redemption mali + `billingTaxId` yasal
+kimlik. Review KORU+ANONİM (silinmez; yazar Customer'dan türer; helpfulCount recompute). Guest/cross-store
+DOKUNULMAZ. Audit PII-SIZ (ADR-154). Migration `20260727160000_customer_erasure` (additive: `CustomerStatus.ERASED`
++ 3 kolon). **Test:** 25 birim (core/service/data) + 47/47 canlı smoke (gerçek PostgreSQL, enterprise-demo).
+
+## TD-132 — Erasure: yasal-saklama süre-sonu retention purge (TD-131)
+
+**Durum:** AÇIK (2026-07-27). TD-131 erasure, `Order.billingTaxId/billingName/billingCompanyName/billingTaxOffice/
+billingTaxNumber` yasal fatura kimliğini **asgari saklama** gereği KORUR (VUK md.253 ~5 yıl; KVKK md.7/GDPR
+17(3)(b) yasal yükümlülük istisnası — ADR-151). Tam KVKK/GDPR uyumu için bu alanların **saklama süresi dolduğunda**
+otomatik silinmesi/anonimleştirilmesi gerekir. Şu an bu süre-sonu purge YOK (erasure anında bilinçli korunuyor).
+**Kapsam (kapatılınca):** sipariş yaşına göre (placedAt + statutoryRetentionDays) yasal-kimlik alanlarını budayan
+zamanlanmış retention job (TODO-161A.1 SAF altyapısı + `RETENTION_TABLE_SPECS` deseni reuse; dry-run/apply +
+advisory lock + circuit breaker). **ÖN KOŞUL:** saklama süresi ve süre-sonu anonimleştirme politikası **mali
+müşavir/hukuk onayıyla** belirlenmeden bu iş BAŞLATILMAZ — süre uygulama kodunun tek başına verebileceği hukuki
+bir karar değildir; mevzuat doğrulaması olmadan otomatik purge YAZILMAZ. **Neden borç:** product blocker değil
+(erasure kişisel/davranışsal veriyi zaten tam siler); yalnız uzun-vadeli yasal-kimlik yaşam döngüsü boşluğu +
+hukuki onay bekliyor. Final enterprise UI/design polish'i bloklamaz.

@@ -4895,7 +4895,7 @@ export const customerAccountSchema = z.object({
   gender: customerGenderSchema.nullable(),
   emailVerified: z.boolean(),
   phoneVerified: z.boolean(),
-  status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED"]),
+  status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED", "ERASED"]),
 });
 
 export const customerSessionResponseSchema = z.object({
@@ -5255,7 +5255,14 @@ export type CustomerOrderDetailResponse = z.infer<typeof customerOrderDetailResp
 /* ── Store-admin müşteri dizini (F3B.3) ───────────────────────────────────────
  * Mağaza paneli müşteri listesi. PII minimizasyonu: hash/token/OTP ASLA dönmez;
  * adres yalnızca şehir/ilçe özeti taşır (TCKN/VKN/IBAN bu yüzeyde yer almaz). */
-export const storeAdminCustomerStatusSchema = z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED"]);
+export const storeAdminCustomerStatusSchema = z.enum([
+  "ACTIVE",
+  "PASSIVE",
+  "BLOCKED",
+  "ARCHIVED",
+  // TD-131 (ADR-149) — kişisel verileri silinmiş/anonimleştirilmiş terminal durum.
+  "ERASED",
+]);
 
 export const storeAdminCustomerSummarySchema = z.object({
   id: z.string().min(1),
@@ -5438,6 +5445,111 @@ export type StoreAdminCredentialSetup = z.infer<typeof storeAdminCredentialSetup
 export type StoreAdminCustomerCreateResponse = z.infer<typeof storeAdminCustomerCreateResponseSchema>;
 export type StoreAdminCredentialTokenResponse = z.infer<typeof storeAdminCredentialTokenResponseSchema>;
 export type StoreAdminRevokeSessionsResponse = z.infer<typeof storeAdminRevokeSessionsResponseSchema>;
+
+/* ── TD-131 (ADR-149…155) — Customer Data Erasure Workflow ─────────────────────
+ * İki ayrı aksiyon: DEACTIVATE (PASSIVE, geri alınabilir) ve ERASE_PERSONAL_DATA
+ * (ERASED terminal, geri alınamaz). Erasure önce dry-run (preview) sunar; apply
+ * açık onay ifadesi + neden ister. Finansal/yasal kayıt korunur, kişisel+davranışsal
+ * veri silinir/anonimleşir. Sunucu-otoriter: storeId path'ten, PII response'a çıkmaz. */
+
+/** Silinecek/silinen tablo başına kayıt sayıları (dry-run count = apply deletedCount). */
+export const storeAdminCustomerErasureDeleteCountsSchema = z.object({
+  sessions: z.number().int().nonnegative(),
+  credentials: z.number().int().nonnegative(),
+  credentialTokens: z.number().int().nonnegative(),
+  otpVerifications: z.number().int().nonnegative(),
+  ibans: z.number().int().nonnegative(),
+  communicationPreferences: z.number().int().nonnegative(),
+  addresses: z.number().int().nonnegative(),
+  coupons: z.number().int().nonnegative(),
+  lists: z.number().int().nonnegative(),
+  listItems: z.number().int().nonnegative(),
+  reviewHelpfulVotes: z.number().int().nonnegative(),
+  recentlyViewed: z.number().int().nonnegative(),
+  recommendationEvents: z.number().int().nonnegative(),
+});
+
+export const storeAdminCustomerErasureAnonymizeCountsSchema = z.object({
+  orders: z.number().int().nonnegative(),
+  orderAddresses: z.number().int().nonnegative(),
+  campaignRedemptions: z.number().int().nonnegative(),
+});
+
+export const storeAdminCustomerErasurePreserveCountsSchema = z.object({
+  orders: z.number().int().nonnegative(),
+  orderLines: z.number().int().nonnegative(),
+  payments: z.number().int().nonnegative(),
+  campaignRedemptions: z.number().int().nonnegative(),
+});
+
+/** Erasure dry-run raporu (YAZMA YOK). Kişisel alan DEĞERİ taşımaz — yalnız sayaç/alan-adı. */
+export const storeAdminCustomerErasurePreviewResponseSchema = z.object({
+  customerId: z.string(),
+  status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED", "ERASED"]),
+  alreadyErased: z.boolean(),
+  erasedAt: z.string().datetime().nullable(),
+  confirmationPhrase: z.string(),
+  activeSessionCount: z.number().int().nonnegative(),
+  openOrderCount: z.number().int().nonnegative(),
+  delete: storeAdminCustomerErasureDeleteCountsSchema,
+  deleteTotal: z.number().int().nonnegative(),
+  anonymize: storeAdminCustomerErasureAnonymizeCountsSchema,
+  preserve: storeAdminCustomerErasurePreserveCountsSchema,
+  reviewsAnonymized: z.number().int().nonnegative(),
+  anonymizedCustomerFields: z.array(z.string()),
+  warnings: z.array(z.string()),
+});
+
+/** Erasure apply isteği — açık onay ifadesi (birebir) + neden zorunlu. */
+export const storeAdminCustomerErasureApplyRequestSchema = z.object({
+  confirmationPhrase: z.string().min(1, "Onay ifadesi zorunlu."),
+  reason: z.string().trim().min(1, "Neden zorunlu.").max(500),
+});
+
+export const storeAdminCustomerErasureApplyResponseSchema = z.object({
+  customerId: z.string(),
+  status: z.literal("ERASED"),
+  erasedAt: z.string().datetime(),
+  alreadyErased: z.boolean(),
+  deleted: storeAdminCustomerErasureDeleteCountsSchema,
+  deleteTotal: z.number().int().nonnegative(),
+  anonymized: storeAdminCustomerErasureAnonymizeCountsSchema,
+  reviewsAnonymized: z.number().int().nonnegative(),
+});
+
+export const storeAdminCustomerDeactivateResponseSchema = z.object({
+  customerId: z.string(),
+  status: z.literal("PASSIVE"),
+  revokedCount: z.number().int().nonnegative(),
+});
+
+export const storeAdminCustomerErasureStatusResponseSchema = z.object({
+  customerId: z.string(),
+  status: z.enum(["ACTIVE", "PASSIVE", "BLOCKED", "ARCHIVED", "ERASED"]),
+  erased: z.boolean(),
+  erasedAt: z.string().datetime().nullable(),
+  erasedByUserId: z.string().nullable(),
+  eraseReason: z.string().nullable(),
+});
+
+export type StoreAdminCustomerErasureDeleteCounts = z.infer<
+  typeof storeAdminCustomerErasureDeleteCountsSchema
+>;
+export type StoreAdminCustomerErasurePreviewResponse = z.infer<
+  typeof storeAdminCustomerErasurePreviewResponseSchema
+>;
+export type StoreAdminCustomerErasureApplyRequest = z.infer<
+  typeof storeAdminCustomerErasureApplyRequestSchema
+>;
+export type StoreAdminCustomerErasureApplyResponse = z.infer<
+  typeof storeAdminCustomerErasureApplyResponseSchema
+>;
+export type StoreAdminCustomerDeactivateResponse = z.infer<
+  typeof storeAdminCustomerDeactivateResponseSchema
+>;
+export type StoreAdminCustomerErasureStatusResponse = z.infer<
+  typeof storeAdminCustomerErasureStatusResponseSchema
+>;
 
 /** Storefront aktivasyon / parola belirleme (admin token'ı ile). Token tek
  *  seferlik; consumedAt sonrası reddedilir. Parola politikası kayıt ile aynı. */

@@ -2046,3 +2046,30 @@ TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Com
 - Testler: yeni backend (event-core + retention + routes) + home RECENTLY_VIEWED + storefront attribution;
   gateway 1566 · storefront 439 · store-admin 356 — hepsi yeşil; tüm tsc temiz.
 - Sıra: **TD-129/130 (bu) → Final enterprise UI/design polish (SON faz).**
+
+## TD-131 — Customer Data Erasure Workflow (Compliance / KVKK-GDPR) — KOD TAMAM (commit YOK)
+
+- Durum: **KOD + MIGRATION + TEST + CANLI DOĞRULAMA + DOKÜMANTASYON TAMAM (2026-07-27); tüm gate'ler geçti.
+  Commit/push/PR/merge/deploy YAPILMADI (git kuralı §8).** Analiz:
+  `docs/analysis/TD-131-customer-data-erasure-workflow.md`. ADR-149…155.
+- **İki ayrı aksiyon (karıştırılmaz):** DEACTIVATE (status→PASSIVE + oturum revoke; veri korunur, geri alınabilir)
+  ve ERASE_PERSONAL_DATA (status→ERASED terminal; kişisel+davranışsal veri silinir/anonimleşir; finansal/yasal
+  korunur; geri alınamaz; müşteri yeniden aktifleştirilemez/giriş yapamaz).
+- **Migration:** `20260727160000_customer_erasure` (additive: `CustomerStatus.ERASED` + `Customer.erasedAt/
+  erasedByUserId/eraseReason`; gerçek PostgreSQL'de uygulandı + doğrulandı).
+- **Domain:** `apps/api-gateway/src/customer-erasure/` (core/data/service/routes). Dry-run preview (YAZMA YOK) +
+  apply (müşteri-izole advisory lock `customer-erasure:<storeId>`/`<customerId>` + tek transaction + kilit-altı
+  ikinci okuma → idempotent) + deactivate. Hata kodları: `CONFIRMATION_REQUIRED`/`REASON_REQUIRED`/
+  `ERASURE_IN_PROGRESS`/`CUSTOMER_ALREADY_ERASED`/`CUSTOMER_NOT_FOUND`.
+- **Sil:** session/credential/token/OTP/IBAN/commPref/address/wishlist(+item)/coupon/recentlyViewed/reviewHelpful
+  + FK'siz `RecommendationEvent` (deleteForCustomer). **Anonimleştir:** Customer (name/email→placeholder/phone→null/
+  birthDate/gender/verified) + Order (customerEmail→placeholder, billingEmail→null) + OrderAddress (fullName/phone/
+  adres satırları) + CampaignRedemption.email. **Koru:** Order/OrderLine/PaymentAttempt/redemption mali + Order
+  yasal fatura kimliği (`billingTaxId` vb. — asgari saklama; süre-sonu purge = TD-132). **Review:** KORU+ANONİM
+  (silinmez; yazar Customer'dan türer; helpfulCount recompute). Guest/cross-store DOKUNULMAZ; audit PII-SIZ.
+- **UI:** Store-admin müşteri detayı Danger Zone kartı + geri-alınamaz danger modal (dry-run özeti + confirmation
+  phrase `KİŞİSEL VERİLERİ SİL` + reason). ERASED müşteri "Silinmiş" rozeti; düzenlenemez; giriş yapamaz. TR/EN.
+- **Testler:** 25 birim (customer-erasure core 6 / service 10 / data 9) + **47/47 canlı erasure smoke** (gerçek
+  PostgreSQL, enterprise-demo). gateway 1594 · store-admin 356 — yeşil; build/typecheck/lint temiz; `git diff --check` temiz.
+- Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
+  UI click-through) bu iş kapsamında Faz B olarak ele alındı.

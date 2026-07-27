@@ -923,3 +923,47 @@ customerId}})`; guest/diğer müşteri/diğer store event'lerine dokunmaz; finan
 tablodadır ve `Order.customerId` zaten `SetNull`'dur). Aynı gereklilik FK'siz `SponsoredProductEvent`/`AttributionClick`
 için de geçerlidir. `deleteForCustomer` bu faz kapsamında **testli+hazır**dır ama henüz bir akışa bağlı DEĞİLDİR
 (dead-hook değil; erasure sözleşmesinin garantisi). Kanıt: `apps/api-gateway/test/recommendation-events-data.test.ts`.
+
+## Customer Data Erasure Workflow — KVKK/GDPR (TD-131 / ADR-149…155)
+
+**Amaç.** Store-admin üzerinden bir müşterinin kişisel verisini tenant-güvenli, audit'li ve GERİ ALINAMAZ
+biçimde silmek/anonimleştirmek. Finansal/yasal kayıt korunur.
+
+**İki ayrı aksiyon (KARIŞTIRMA).**
+- **Hesabı Pasifleştir (DEACTIVATE):** `POST /stores/:storeId/customers/:customerId/deactivate` → status=PASSIVE +
+  tüm oturum revoke. Veri KORUNUR, GERİ ALINABİLİR. Giriş engellenir (login `status===ACTIVE` ister).
+- **Kişisel Verileri Sil (ERASE_PERSONAL_DATA):** GERİ ALINAMAZ. Önce dry-run, sonra apply.
+
+**Prosedür (store-admin UI).**
+1. Müşteri detayı → "Veri gizliliği / Silme" (Danger Zone) kartı → **Kişisel Verileri Sil**.
+2. Danger modal açılır ve **dry-run** (`POST …/erasure/preview`, YAZMA YOK) çalışır: silinecek/anonimleşecek/
+   korunacak sayıları + uyarılar (aktif oturum / açık sipariş / zaten silinmiş) gösterilir.
+3. Operatör **neden** yazar ve onay ifadesini **birebir** yazar: `KİŞİSEL VERİLERİ SİL`.
+4. "Kalıcı olarak sil" → `POST …/erasure/apply` (confirmation + reason). Sunucu: müşteri-izole advisory lock +
+   tek transaction + kilit-altı ikinci okuma. Eşzamanlı ikinci apply → 409 `ERASURE_IN_PROGRESS`. Zaten silinmiş →
+   409 `CUSTOMER_ALREADY_ERASED` (idempotent).
+5. Sonrası: müşteri "Silinmiş" rozetiyle görünür; düzenlenemez; giriş yapamaz. Sipariş geçmişi finansal snapshot'la
+   görünür (anonim). `GET …/erasure/status` erased/erasedAt/erasedByUserId/eraseReason döner.
+
+**Sil / Anonimleştir / Koru.**
+- **Sil:** session, credential, credential token, OTP, IBAN, iletişim tercihi, adres defteri, wishlist/listeler,
+  kupon cüzdanı, görüntüleme geçmişi, "faydalı" oyları + FK'siz `RecommendationEvent` (deleteForCustomer).
+- **Anonimleştir:** Customer (ad/e-posta→placeholder, telefon/doğum/cinsiyet→null, ERASED) · Order temas PII
+  (customerEmail→placeholder, billingEmail→null) · OrderAddress (ad/telefon/adres satırları; şehir kaba korunur) ·
+  CampaignRedemption.email.
+- **Koru:** Order/OrderLine/PaymentAttempt/redemption **mali** alanları + Order **yasal fatura kimliği**
+  (billingType/billingName/billingTaxId/billingCompanyName/billingTaxOffice/billingTaxNumber — asgari saklama; ADR-151).
+  **ProductReview SİLİNMEZ** (yazar anonimleşir; helpfulCount recompute).
+- **Dokunulmaz:** guest (`visitorHash`/`visitorIdHash`) event'leri + cross-store (başka mağaza) kayıtları.
+
+**Migration.** `20260727160000_customer_erasure` (additive: `CustomerStatus.ERASED` + `erasedAt/erasedByUserId/
+eraseReason`). Docker'da: `pnpm db:deploy` (veya host'ta `DATABASE_URL=… prisma migrate deploy`).
+
+**Audit.** dry-run=`SYSTEM`, apply=`DELETE`, deactivate=`UPDATE` (`entityType=Customer`). metadata **PII TAŞIMAZ** —
+yalnız mode/reason/sayaçlar/alan-adları. Ham e-posta/telefon/TCKN/IBAN ASLA audit'e yazılmaz.
+
+**Bilinen sınır (hukuki).** Sistem, erasure sırasında finansal sipariş + ödeme kayıtlarını ve zorunlu billing
+alanlarını KORUR. Ancak `billingTaxId` vb. yasal fatura alanlarının **kesin saklama süresi ve süre-sonu
+anonimleştirme politikası uygulama kodunun tek başına verdiği hukuki bir karar DEĞİLDİR** — süre ve politika
+**mali müşavir/hukuk onayıyla** belirlenmelidir. Mevzuat doğrulaması olmadan **otomatik süre-sonu purge
+UYGULANMAZ**. Bu yüzden **TD-132 AÇIK kalır** (erasure anında bu alanlar bilinçli korunuyor).

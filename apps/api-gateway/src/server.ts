@@ -113,6 +113,10 @@ import {
   resolveCustomerFromRequest,
   type CustomerDataAccess,
 } from "./customers/index.js";
+import { createCustomerErasureData } from "./customer-erasure/data.js";
+import { createCustomerErasureService } from "./customer-erasure/service.js";
+import { registerCustomerErasureRoutes } from "./customer-erasure/routes.js";
+import { getDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 import { createCustomerListData } from "./customer-lists/data.js";
 import {
   registerCustomerListAdminRoutes,
@@ -671,7 +675,7 @@ type StoreAdminCustomerRecord = {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
-  status: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+  status: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED" | "ERASED";
   emailVerifiedAt: Date | null;
   phoneVerifiedAt: Date | null;
   hasCredential: boolean;
@@ -1225,7 +1229,7 @@ export interface AppDataAccess extends CampaignDataAccess {
       limit: number;
       offset: number;
       search?: string;
-      status?: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED";
+      status?: "ACTIVE" | "PASSIVE" | "BLOCKED" | "ARCHIVED" | "ERASED";
       hasCredential?: boolean;
       sortBy?: "createdAt" | "firstName" | "email";
       sortOrder?: "asc" | "desc";
@@ -6231,6 +6235,27 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
   });
+
+  // TD-131 (ADR-149…155) — Customer Data Erasure Workflow (deactivate + kişisel veri
+  // silme). Dry-run/apply; advisory lock (müşteri-izole) + tek transaction + kilit-altı
+  // ikinci okuma; PII-SIZ audit. Finansal/yasal kayıt korunur.
+  {
+    const erasureData = createCustomerErasureData(prisma);
+    const erasureService = createCustomerErasureService({
+      data: erasureData,
+      locker: getDefaultAdvisoryLockManager({ logger }).lock,
+      recordAudit: (input) => dataAccess.createAuditLog(input),
+      logger,
+    });
+    registerCustomerErasureRoutes(app, {
+      service: erasureService,
+      data: erasureData,
+      requireStoreAdmin: async (request, reply, storeId) => {
+        const access = await requireStorePlatformAdmin(request, reply, storeId);
+        return access ? { actorUserId: access.session.platformUser.id } : null;
+      },
+    });
+  }
 
   // TODO-159D (ADR-093) — Store-admin müşteri liste ÖZETİ (salt-okunur; gizlilik-güvenli).
   registerCustomerListAdminRoutes(app, {
