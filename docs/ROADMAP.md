@@ -582,7 +582,9 @@
 - **Kapsam DIŞI (bu faza ALINMAZ):** e-Fatura, muhasebe entegrasyonu (TD-124), bidding, advertiser portal,
   sponsor-influencer ticari birleşimi, yeni placement tipleri (TD-120).
 - Sıra: **TODO-161A.2'den SONRA — TAMAMLANDI**; sonraki hotfix = BUG-PDP-001; sonraki faz = TODO-161B.
-- Doğrulama borcu: TD-127 (auth'lu `/operations` UI click-through smoke) — final UI/design polish'ten önce kapatılır.
+- Doğrulama borcu: TD-127 (auth'lu `/operations` UI click-through smoke) — **✅ CLOSED (2026-07-27)** ayrı
+  docs-only turda; settlement dry-run/run + retention dry-run/apply + 6 QueueJobLog durumu + SKIPPED_LOCKED +
+  güvenlik + TR/EN doğrulandı, kod defekti yok. Bkz. `docs/TECHNICAL_DEBT.md` TD-127.
 
 ## Bug — PDP Quantity Changes Displayed Unit Price (BUG-PDP-001) — DONE / KOD TAMAM
 
@@ -684,5 +686,5 @@
 - Testler: 25 birim (customer-erasure core/service/data) + **47/47 canlı erasure smoke** (gerçek PostgreSQL,
   enterprise-demo, izole müşteri); gateway 1594 · store-admin 356 — hepsi yeşil; build/typecheck/lint temiz.
 - Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
-  UI click-through smoke) bu iş kapsamında Faz B olarak ele alınır.
-- Sıra: **TD-131'den SONRA → TD-127 auth'lu smoke → Final enterprise UI/design polish (SON faz).**
+  UI click-through smoke) → **✅ CLOSED (2026-07-27)** ayrı docs-only turda.
+- Sıra: **TD-131 → TD-127 auth'lu smoke (✅ CLOSED) → Final enterprise UI/design polish (SON faz — SIRADAKİ).**

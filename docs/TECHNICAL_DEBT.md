@@ -1193,29 +1193,44 @@ kendi parolasıyla giriş yaptı. 75.000 TL senaryosunun 25 adımı DOĞRULANDI:
 
 ## TD-127 — Operations: auth'lu `/operations` UI click-through smoke (TODO-161A.1)
 
-**Durum:** AÇIK (2026-07-27). TODO-161A.1 (Commercial Automation & Data Retention) MERGED + DEPLOYED
-(commit `a6c607b`, PR #126, merge `36b188b`). Backend, DB, liveness ve auth guard katmanları doğrulandı
-(17/17 canlı doğrulama + 42 birim/route testi PASS); yalnız **parola gerektiren gerçek store-admin
-click-through** yapılamadı.
+**Durum:** ✅ CLOSED (2026-07-27). TODO-161A.1 (Commercial Automation & Data Retention) MERGED + DEPLOYED
+(commit `a6c607b`, PR #126, merge `36b188b`). Backend, DB, liveness ve auth guard katmanları zaten
+doğrulanmıştı (17/17 canlı doğrulama + 42 birim/route testi PASS); kalan tek boşluk **parola gerektiren
+gerçek store-admin click-through** idi ve bu doğrulama borcu bu turda **auth'lu gerçek UI üzerinden**
+kapatıldı. **Kod defekti bulunmadı → docs-only kapanış.**
 
-**Kapsam (kapatılınca doğrulanacak):**
-- `/operations` sayfası açılır ve görünürlük paneli yüklenir.
-- Settlement **dry-run** (önizleme) — DRAFT üretmeden dönem/uygunluk sonucu.
-- Settlement **run** — gerçek DRAFT settlement üretimi + `QueueJobLog` job-run kaydı.
-- Retention **dry-run** — silinecek ham event sayısı raporu (silme YOK).
-- Retention **apply** — açık onay ile purge; snapshot'lar korunur.
-- `QueueJobLog` görünümü — job durumu/başarı/hata satırları.
-- Hata / locked durumları — eşzamanlı tur reddi (409 `JOB_ALREADY_RUNNING`, dağıtık advisory lock).
+**Auth yöntemi (yalnız geçici doğrulama; kalıcı helper/script commit EDİLMEDİ).** TD-131 Faz B'deki
+fixture-session tekniği yeniden kullanıldı: token yerelde üretildi, hash (`sha256(token.SESSION_SECRET)`)
+gateway container İÇİNDE hesaplandı (secret asla dışarı çıkmaz/loglanmaz/repo'ya yazılmaz), **demo admin +
+demo store (edm-store) kapsamlı**, **30 dk TTL** `PlatformSession` eklendi, store-admin cookie'si
+(`commerce_os_store_admin_session`) tarayıcıya set edildi. Parola isteme/okuma/loglama YOK. Smoke sonunda
+session + tüm fixture kayıtları silindi; temp dosyalar kaldırıldı. Production/staging'de KULLANILMADI.
 
-**Neden borç:** Product blocker DEĞİL (backend + guard'lar doğrulandı). Gerçek parola gerektiren canlı
-tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazından ÖNCE kapatılmalıdır.**
+**Yürütülen doğrulama (deployed store-admin :3002 / gateway :4000, enterprise-demo):**
+- `/operations` auth sonrası açıldı; loading (skeleton), empty ("Henüz çalışmadı"), error state'leri;
+  **TR + EN** tam doğru (SKIPPED_LOCKED→"Atlandı (zaten çalışıyor)"), çıplak teknik kod/stack YOK.
+- **Settlement dry-run:** "İncelenen anlaşma: 4 · Oluşturulan: 0 · Oluşturulacak: 1 · Hatalı: 0" (DRAFT üretmedi).
+- **Settlement run:** Oluşturulan DRAFT: 1 (izole kapalı-dönem CAMPAIGN_END anlaşması). Tekrar run → Oluşturulan: 0
+  (**existing DRAFT duplicate ÜRETMEDİ**). DRAFT FINALIZED yapıldı + tekrar run → **FINALIZED kayda DOKUNMADI**
+  (`finalizedAt`/`updatedAt` değişmedi, yeni settlement yok).
+- **Retention dry-run:** "Silinecek kayıt: 2 · Silinen: 0" — yalnız **181 günlük** sponsored + influencer aday;
+  179 günlükler ve recommendation event'ler (ayrı domain) sayılmadı.
+- **Retention apply:** açık onay modalı (kapsam + kalıcı-silme uyarısı) → "Silinen kayıt: 2". DB doğrulaması:
+  181g sponsored + 181g influencer **silindi**; 179g'ler + recommendation event'ler + **FINALIZED settlement /
+  agreement (finans) korundu**.
+- **QueueJobLog (6 durum) UI'da doğru:** DRY_RUN (Önizleme), COMPLETED (Tamamlandı), SKIPPED_LOCKED
+  (Atlandı) canlı üretildi; STARTED (Çalışıyor, geçici) + PARTIAL_SUCCESS (Kısmen başarılı) + FAILED (Hata)
+  rozet render'ı servis-şekilli satırla doğrulandı. Tek satır/run (STARTED→terminal update).
+- **SKIPPED_LOCKED / concurrent:** harici psql ile dağıtık advisory lock tutulurken UI'dan run tetiklendi →
+  gateway **409 JOB_ALREADY_RUNNING** + `QueueJobLog` SKIPPED_LOCKED satırı; işlem yürütülmedi.
+- **Güvenlik:** cookie yok → `/operations` **/login'e redirect** (+ gateway 401); yanlış store → **404
+  STORE_ACCESS_DENIED**; cutoff/storeId **sunucu-otoritesi** (run body yalnız `dryRun`, storeId slug'dan
+  sunucuda çözülür, retention günleri sunucu config'i); apply **açık onay** gerektiriyor; internal 500 →
+  generic mesaj (stack sızmıyor).
 
-**Deneme notu (2026-07-27, TD-131 Faz B).** `/operations` (docker store-admin-web :3002) in-app tarayıcıda açıldı;
-beklendiği gibi **login duvarına** yönlendirdi ("Sign in to store admin"). Otonom oturumda parola giremem/isteyemem
-(güvenlik kuralı + görev talimatı "parola isteme/okuma/loglama") ve kullanıcı giriş yapmak için mevcut değil →
-click-through **YÜRÜTÜLEMEDİ**. TD-127 **AÇIK kalır**. Kullanıcı store-admin'e giriş yaptığında UI click-through
-smoke (settlement dry-run/run · retention dry-run/apply · QueueJobLog · SKIPPED_LOCKED/PARTIAL_SUCCESS/FAILED ·
-loading/error/empty · TR/EN) sürülüp kapatılabilir.
+**Minör gözlem (bloklamayan, defekt değil):** concurrent 409 `JOB_ALREADY_RUNNING` kodu store-admin i18n
+sözlüğünde eşlenmediğinden genel "beklenmeyen hata" mesajına düşer (güvenli by-design fallback — ham kod/stack
+sızmaz, run doğru reddedilir, tekrar denemede başarılı). İleride özel bir "zaten çalışıyor" kopyası eklenebilir.
 
 ## TODO-161B (ADR-137…143) — Recently Viewed & Product Recommendations sınırları (TD-128…TD-130)
 
