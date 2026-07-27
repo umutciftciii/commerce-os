@@ -47,74 +47,80 @@ type LoadState =
 type Pending = null | "settlement-dry" | "settlement-run" | "retention-dry" | "retention-apply";
 
 // İki dilli yerel etiketler (paylaşılan i18n paketine dokunulmaz; Türkçe birincil).
+// Kullanıcı-dostu iş dili: ham teknik terim (settlement scheduler / attribution retention /
+// dry-run / apply / DRAFT) YOK. "Mutabakat" terimi uygulamanın geri kalanıyla tutarlıdır.
 const L: Record<string, { tr: string; en: string }> = {
   eyebrow: { tr: "Sistem", en: "System" },
   title: { tr: "Operasyon", en: "Operations" },
   description: {
-    tr: "Ticari otomasyon işlerinin durumu ve elle tetikleme. Retention APPLY kalıcı silme yapar.",
-    en: "Commercial automation job status and manual triggers. Retention APPLY performs permanent deletion.",
+    tr: "Otomatik mutabakat oluşturma ve eski takip verilerinin temizliği. Silme işlemleri kalıcıdır.",
+    en: "Automatic settlement drafts and cleanup of old tracking data. Deletions are permanent.",
   },
   statusCardTitle: { tr: "Son Çalışma Durumu", en: "Last Run Status" },
   statusCardDesc: {
-    tr: "Zamanlanmış settlement scheduler ve attribution retention işlerinin son durumu.",
-    en: "Latest state of scheduled settlement scheduler and attribution retention jobs.",
+    tr: "Otomatik işlerin en son ne zaman ve nasıl çalıştığı.",
+    en: "When and how the automatic jobs last ran.",
   },
-  settlementScheduler: { tr: "Settlement Scheduler", en: "Settlement Scheduler" },
-  attributionRetention: { tr: "Attribution Retention", en: "Attribution Retention" },
-  retentionConfig: { tr: "Retention Yapılandırması", en: "Retention Config" },
-  neverRun: { tr: "Henüz çalışmadı", en: "Never run" },
+  settlementScheduler: { tr: "Otomatik Mutabakat", en: "Automatic Settlement" },
+  attributionRetention: { tr: "Takip Verisi Temizliği", en: "Tracking Data Cleanup" },
+  retentionConfig: { tr: "Saklama Süresi", en: "Retention Period" },
+  neverRun: { tr: "Henüz çalışmadı", en: "Not run yet" },
   lastAt: { tr: "Son çalışma", en: "Last run" },
-  attempts: { tr: "deneme", en: "attempts" },
-  createdDrafts: { tr: "Oluşturulan taslak", en: "Created drafts" },
-  candidateDrafts: { tr: "Aday taslak", en: "Candidate drafts" },
-  erroredAgreements: { tr: "Hatalı anlaşma", en: "Errored agreements" },
-  totalCandidates: { tr: "Aday kayıt", en: "Candidate records" },
-  totalDeleted: { tr: "Silinen kayıt", en: "Deleted records" },
-  sponsoredDays: { tr: "Sponsorlu olay (gün)", en: "Sponsored event (days)" },
-  influencerDays: { tr: "Influencer tıklama (gün)", en: "Influencer click (days)" },
-  maxDeletePerRun: { tr: "Çalışma başı azami silme", en: "Max delete per run" },
-  actionsCardTitle: { tr: "Manuel İşlemler", en: "Manual Actions" },
+  createdDrafts: { tr: "Oluşturulan taslak mutabakat", en: "Draft settlements created" },
+  candidateDrafts: { tr: "Oluşturulacak (önizleme)", en: "Would create" },
+  erroredAgreements: { tr: "Hatalı anlaşma", en: "Failed agreements" },
+  totalCandidates: { tr: "Silinecek kayıt", en: "Records to delete" },
+  totalDeleted: { tr: "Silinen kayıt", en: "Records deleted" },
+  sponsoredDays: { tr: "Sponsorlu olay kaydı", en: "Sponsored event records" },
+  influencerDays: { tr: "Influencer tıklama kaydı", en: "Influencer click records" },
+  maxDeletePerRun: { tr: "Tek seferde en fazla", en: "Max per run" },
+  daysShort: { tr: "gün", en: "days" },
+  actionsCardTitle: { tr: "Elle Çalıştır", en: "Run Manually" },
   actionsCardDesc: {
-    tr: "İşleri elle tetikleyin. Dry-run yalnız rapor üretir; APPLY yıkıcıdır.",
-    en: "Trigger jobs manually. Dry-run only reports; APPLY is destructive.",
+    tr: "İşleri şimdi elle başlatın. Önizleme yalnızca rapor verir; silme kalıcıdır.",
+    en: "Start jobs now. Preview only reports; deletion is permanent.",
   },
-  settlementDryRun: { tr: "Settlement dry-run", en: "Settlement dry-run" },
-  settlementRun: { tr: "Settlement çalıştır", en: "Run settlement" },
-  retentionDryRun: { tr: "Retention dry-run", en: "Retention dry-run" },
-  retentionApply: { tr: "Retention uygula (apply)", en: "Apply retention" },
+  settlementDryRun: { tr: "Önizle", en: "Preview" },
+  settlementRun: { tr: "Taslak Mutabakat Oluştur", en: "Create draft settlements" },
+  retentionDryRun: { tr: "Önizle", en: "Preview" },
+  retentionApply: { tr: "Eski Kayıtları Sil", en: "Delete old records" },
   settlementHint: {
-    tr: "Çalıştırma DRAFT mutabakat oluşturur (yıkıcı değil).",
-    en: "Running creates DRAFT settlements (not destructive).",
+    tr: "Kapanan dönemler için taslak mutabakat oluşturur. Tutarları kesinleştirmez, hiçbir şeyi silmez.",
+    en: "Creates draft settlements for closed periods. Does not finalize amounts or delete anything.",
   },
   retentionHint: {
-    tr: "Dry-run silmez; APPLY eski attribution kayıtlarını kalıcı siler.",
-    en: "Dry-run deletes nothing; APPLY permanently deletes old attribution records.",
+    tr: "Önizleme hiçbir şeyi silmez, yalnızca kaç kaydın sileneceğini gösterir. Silme; saklama süresi dolmuş eski takip kayıtlarını kalıcı olarak kaldırır, sipariş ve ödeme kayıtlarına dokunmaz.",
+    en: "Preview deletes nothing — it only shows how many records would go. Delete permanently removes old tracking records past their retention period; orders and payments are never touched.",
   },
-  confirmTitle: { tr: "Retention uygulansın mı?", en: "Apply retention?" },
+  confirmTitle: { tr: "Eski kayıtlar silinsin mi?", en: "Delete old records?" },
   confirmDesc: {
-    tr: "Bu işlem geri alınamaz. Kapsam ve eşik aşağıda.",
-    en: "This action cannot be undone. Scope and thresholds below.",
+    tr: "Bu işlem geri alınamaz. Silinecek kapsam aşağıda.",
+    en: "This cannot be undone. The scope is shown below.",
   },
   scope: { tr: "Kapsam", en: "Scope" },
   thisStore: { tr: "Bu mağaza", en: "This store" },
   confirmWarning: {
-    tr: "Eşiği aşan sponsorlu olay ve influencer tıklama kayıtları KALICI olarak silinecek.",
-    en: "Sponsored event and influencer click records past the cutoff will be PERMANENTLY deleted.",
+    tr: "Saklama süresi dolmuş sponsorlu olay ve influencer tıklama kayıtları KALICI olarak silinecek. Sipariş, ödeme ve mutabakat kayıtları etkilenmez.",
+    en: "Sponsored event and influencer click records past their retention period will be PERMANENTLY deleted. Orders, payments and settlements are not affected.",
   },
-  confirmApply: { tr: "Evet, uygula", en: "Yes, apply" },
+  confirmApply: { tr: "Evet, sil", en: "Yes, delete" },
   cancel: { tr: "Vazgeç", en: "Cancel" },
   close: { tr: "Kapat", en: "Close" },
   retry: { tr: "Tekrar dene", en: "Retry" },
-  loadError: { tr: "Durum yüklenemedi", en: "Failed to load status" },
+  loadError: { tr: "Durum yüklenemedi", en: "Couldn't load status" },
   running: { tr: "Çalışıyor…", en: "Running…" },
-  resultSettlementDry: {
-    tr: "Settlement dry-run tamamlandı",
-    en: "Settlement dry-run complete",
-  },
-  resultSettlementRun: { tr: "Settlement çalıştırıldı", en: "Settlement run complete" },
-  resultRetentionDry: { tr: "Retention dry-run tamamlandı", en: "Retention dry-run complete" },
-  resultRetentionApply: { tr: "Retention uygulandı", en: "Retention applied" },
-  scanned: { tr: "Taranan anlaşma", en: "Scanned agreements" },
+  resultSettlementDry: { tr: "Önizleme tamamlandı", en: "Preview complete" },
+  resultSettlementRun: { tr: "Taslak mutabakatlar oluşturuldu", en: "Draft settlements created" },
+  resultRetentionDry: { tr: "Önizleme tamamlandı", en: "Preview complete" },
+  resultRetentionApply: { tr: "Eski kayıtlar silindi", en: "Old records deleted" },
+  scanned: { tr: "İncelenen anlaşma", en: "Agreements checked" },
+  // Ham durum/sonuç kodları yerine okunur etiketler.
+  stCompleted: { tr: "Tamamlandı", en: "Completed" },
+  stFailed: { tr: "Hata", en: "Failed" },
+  stRunning: { tr: "Çalışıyor", en: "Running" },
+  stPartial: { tr: "Kısmen başarılı", en: "Partial success" },
+  stSkippedLocked: { tr: "Atlandı (zaten çalışıyor)", en: "Skipped (already running)" },
+  stDryRun: { tr: "Önizleme", en: "Preview" },
 };
 
 // report alanı kontrat tarafında `unknown`; güvenli sayısal okuma.
@@ -126,13 +132,38 @@ function reportNum(report: unknown, key: string): number | null {
   return null;
 }
 
-function jobTone(status: string | undefined): "success" | "danger" | "info" | "neutral" {
-  if (!status) return "neutral";
-  const normalized = status.toLowerCase();
-  if (normalized.includes("success") || normalized === "ok" || normalized === "completed") return "success";
-  if (normalized.includes("fail") || normalized.includes("error")) return "danger";
-  if (normalized.includes("run")) return "info";
-  return "neutral";
+function reportStr(report: unknown, key: string): string | null {
+  if (report && typeof report === "object" && key in report) {
+    const value = (report as Record<string, unknown>)[key];
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
+// Ham durum/sonuç kodunu (report.outcome önce; yoksa status) okunur etiket + tona çevirir.
+function describeRun(
+  job: NonNullable<JobRun>,
+  l: (key: keyof typeof L) => string,
+): { label: string; tone: "success" | "warning" | "info" | "neutral" } {
+  const code = (reportStr(job.report, "outcome") ?? job.status ?? "").toUpperCase();
+  switch (code) {
+    case "COMPLETED":
+      return { label: l("stCompleted"), tone: "success" };
+    case "FAILED":
+      return { label: l("stFailed"), tone: "warning" };
+    case "PARTIAL_SUCCESS":
+      return { label: l("stPartial"), tone: "warning" };
+    case "SKIPPED_LOCKED":
+      return { label: l("stSkippedLocked"), tone: "info" };
+    case "DRY_RUN":
+      return { label: l("stDryRun"), tone: "info" };
+    case "PROCESSING":
+    case "STARTED":
+    case "RUNNING":
+      return { label: l("stRunning"), tone: "info" };
+    default:
+      return { label: "—", tone: "neutral" };
+  }
 }
 
 export default function OperationsPage() {
@@ -269,8 +300,8 @@ export default function OperationsPage() {
               />
               <StatCard
                 label={l("retentionConfig")}
-                value={`${state.data.retentionConfig.sponsoredEventRetentionDays} / ${state.data.retentionConfig.influencerClickRetentionDays}`}
-                hint={`${l("sponsoredDays")} / ${l("influencerDays")} · ${l("maxDeletePerRun")}: ${state.data.retentionConfig.maxDeletePerRun}`}
+                value={`${state.data.retentionConfig.sponsoredEventRetentionDays} / ${state.data.retentionConfig.influencerClickRetentionDays} ${l("daysShort")}`}
+                hint={`${l("sponsoredDays")} · ${l("influencerDays")} · ${l("maxDeletePerRun")}: ${state.data.retentionConfig.maxDeletePerRun.toLocaleString(locale)}`}
                 icon={<PaymentIcon />}
               />
             </div>
@@ -384,17 +415,15 @@ function JobStatCard({
   if (!job) {
     return <StatCard label={label} value="—" hint={l("neverRun")} icon={<DashboardIcon />} />;
   }
-  const tone = jobTone(job.status);
-  const detail = [`${l("lastAt")}: ${formatDateTime(job.at, locale)}`, `${job.attempts} ${l("attempts")}`, ...lines(job)].join(
-    " · ",
-  );
+  const run = describeRun(job, l);
+  const detail = [`${l("lastAt")}: ${formatDateTime(job.at, locale)}`, ...lines(job)].join(" · ");
   return (
     <StatCard
       label={label}
-      value={<span className="text-[20px]">{job.status || "—"}</span>}
+      value={<span className="text-[20px]">{run.label}</span>}
       hint={detail}
-      badge={job.status || undefined}
-      badgeTone={tone === "danger" ? "warning" : tone}
+      badge={run.label}
+      badgeTone={run.tone}
       icon={<DashboardIcon />}
     />
   );
