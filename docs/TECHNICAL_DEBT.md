@@ -1190,3 +1190,22 @@ kendi parolasıyla giriş yaptı. 75.000 TL senaryosunun 25 adımı DOĞRULANDI:
   altında (canlı ikinci-mağaza denemesi yapılmadı).
 - Smoke sırasında bulunan 3 UI metni düzeltildi (sayfa başlığı "Sponsorlu Ürünler"→"Sponsorlu Kampanyalar";
   "Append-only defter" ve "OVERDUE türetilmiş" jargonları Türkçeleştirildi) ve tüm gate'ler yeniden PASS.
+
+## TD-127 — Operations: auth'lu `/operations` UI click-through smoke (TODO-161A.1)
+
+**Durum:** AÇIK (2026-07-27). TODO-161A.1 (Commercial Automation & Data Retention) MERGED + DEPLOYED
+(commit `a6c607b`, PR #126, merge `36b188b`). Backend, DB, liveness ve auth guard katmanları doğrulandı
+(17/17 canlı doğrulama + 42 birim/route testi PASS); yalnız **parola gerektiren gerçek store-admin
+click-through** yapılamadı.
+
+**Kapsam (kapatılınca doğrulanacak):**
+- `/operations` sayfası açılır ve görünürlük paneli yüklenir.
+- Settlement **dry-run** (önizleme) — DRAFT üretmeden dönem/uygunluk sonucu.
+- Settlement **run** — gerçek DRAFT settlement üretimi + `QueueJobLog` job-run kaydı.
+- Retention **dry-run** — silinecek ham event sayısı raporu (silme YOK).
+- Retention **apply** — açık onay ile purge; snapshot'lar korunur.
+- `QueueJobLog` görünümü — job durumu/başarı/hata satırları.
+- Hata / locked durumları — eşzamanlı tur reddi (409 `JOB_ALREADY_RUNNING`, dağıtık advisory lock).
+
+**Neden borç:** Product blocker DEĞİL (backend + guard'lar doğrulandı). Gerçek parola gerektiren canlı
+tıklama akışı kalan tek boşluk. **Final enterprise UI/design polish fazından ÖNCE kapatılmalıdır.**
