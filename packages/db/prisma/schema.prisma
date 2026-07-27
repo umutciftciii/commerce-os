@@ -2769,6 +2769,10 @@ model StoreSettings {
   // kampanya ne yayina alinabilir ne de teslim edilir. true: teslim engellenmez, ekranlarda
   // yalnizca gorunur risk gostergesi kalir.
   allowUnpaidSponsoredCampaigns Boolean  @default(false)
+  // TODO-161A.1 (ADR-132) — ADDITIVE. Store timezone; settlement scheduler donem sinirlarinin
+  // (weekly/monthly) OTORITESIDIR. Bos/satir yoksa COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE'a duser.
+  // IANA tz adi (or. "Europe/Istanbul"). Yalniz zamanlanmis settlement donem hesabinda kullanilir.
+  timezone                      String   @default("Europe/Istanbul")
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
 

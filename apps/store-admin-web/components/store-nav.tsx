@@ -36,6 +36,12 @@ const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   sales: { tr: "Satış", en: "Sales" },
   sponsorship: { tr: "Sponsorluk", en: "Sponsorship" },
   appearance: { tr: "Görünüm & Ayar", en: "Appearance & Settings" },
+  system: { tr: "Sistem", en: "System" },
+};
+
+// TODO-161A.1 — Ticari otomasyon operasyon ekranı etiketi (yerel; paylaşılan i18n'e dokunulmaz).
+const SYSTEM_LABELS: Record<string, { tr: string; en: string }> = {
+  operations: { tr: "Operasyon", en: "Operations" },
 };
 
 // TODO-161A — Sponsorluk ekranı etiketleri (paylaşılan i18n paketine dokunmadan; yerel).
@@ -55,6 +61,8 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
     locale === "tr" ? GROUP_LABELS[key].tr : GROUP_LABELS[key].en;
   const s = (key: keyof typeof SPONSORSHIP_LABELS) =>
     locale === "tr" ? SPONSORSHIP_LABELS[key].tr : SPONSORSHIP_LABELS[key].en;
+  const sys = (key: keyof typeof SYSTEM_LABELS) =>
+    locale === "tr" ? SYSTEM_LABELS[key].tr : SYSTEM_LABELS[key].en;
 
   const groups = [
     {
@@ -104,6 +112,12 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         { href: "/hero", label: t.hero, icon: <HomeIcon /> },
         { href: "/theme", label: t.theme, icon: <ThemeIcon /> },
         { href: "/settings", label: t.settings, icon: <SettingsIcon /> },
+      ],
+    },
+    {
+      heading: g("system"),
+      items: [
+        { href: "/operations", label: sys("operations"), icon: <DashboardIcon /> },
       ],
     },
   ];

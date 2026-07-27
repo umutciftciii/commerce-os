@@ -6,6 +6,9 @@ import { createServer } from "./server.js";
 import { startShipmentSyncWorker } from "./shipping/sync-worker.js";
 import { startBarcodeRetryWorker } from "./shipping/barcode-retry-worker.js";
 import { startCampaignReconcileWorker } from "./campaigns/reconcile-worker.js";
+import { startSettlementSchedulerWorker } from "./commercial-automation/settlement-scheduler-worker.js";
+import { startRetentionWorker } from "./commercial-automation/retention-worker.js";
+import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 
 const config = loadConfig();
 const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
@@ -17,12 +20,19 @@ const shipmentSyncWorker = startShipmentSyncWorker({ config, logger });
 const barcodeRetryWorker = startBarcodeRetryWorker({ config, logger });
 // TODO-155.2 — zamanlanmis kampanya rozeti reconciliation dongusu (CAMPAIGN_RECONCILE_ENABLED=false ise no-op).
 const campaignReconcileWorker = startCampaignReconcileWorker({ config, logger });
+// TODO-161A.1 (TD-125) — zamanlanmis settlement scheduler (SETTLEMENT_SCHEDULER_ENABLED=false ise no-op).
+const settlementSchedulerWorker = startSettlementSchedulerWorker({ config, logger });
+// TODO-161A.1 (TD-121+TD-113) — zamanlanmis attribution retention purge (ATTRIBUTION_RETENTION_ENABLED=false ise no-op).
+const retentionWorker = startRetentionWorker({ config, logger });
 
 const shutdown = async (signal: string) => {
   logger.info("api gateway shutting down", { signal });
   await shipmentSyncWorker.stop();
   await barcodeRetryWorker.stop();
   await campaignReconcileWorker.stop();
+  await settlementSchedulerWorker.stop();
+  await retentionWorker.stop();
+  await disconnectDefaultAdvisoryLockManager();
   await app.close();
   await closeQueueConnections();
   await disconnectPrisma();

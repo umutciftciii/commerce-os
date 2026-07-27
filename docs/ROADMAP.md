@@ -549,11 +549,20 @@
 - Sıra: TODO-161A'dan SONRA. Canlı auth'lu tümleşik smoke (yerel dev + gerçek PG, 75.000 TL senaryosu 25/25)
   DOĞRULANDI → **TD-126 KAPANDI (2026-07-27)**.
 
-## Growth & Monetization — Commercial Automation & Data Retention (TODO-161A.1) — SIRADAKİ AKTİF FAZ
+## Growth & Monetization — Commercial Automation & Data Retention (TODO-161A.1) — DONE / KOD TAMAM
 
-- Durum: **PLANLANDI — sponsorluk birleşik akışının (TODO-161A.2) sıradaki stabilizasyon fazı.** Ertelenen
-  teknik borçları (TD-125, TD-121, TD-113) operasyonel otomasyona ve veri saklama hijyenine bağlar. Yeni ticari
-  yüzey EKLEMEZ; mevcut sponsorluk/attribution altyapısını otomatikleştirir + saklama politikası uygular.
+- Durum: **DONE / KOD TAMAM (2026-07-27) — commit/PR YAPILMADI.** Analiz:
+  `docs/analysis/TODO-161A.1-commercial-automation-retention.md`. ADR-130…136. **TD-125, TD-121, TD-113 CLOSED.**
+  Ertelenen teknik borçları operasyonel otomasyona ve veri saklama hijyenine bağladı. Yeni ticari yüzey
+  EKLEMEDİ; mevcut sponsorluk/attribution altyapısını otomatikleştirdi + saklama politikası uyguladı.
+  Canlı doğrulama (gerçek PostgreSQL, izole veri) 17/17 PASS; api-gateway testleri 42 yeni test PASS;
+  build/typecheck (api-gateway + api-client + store-admin-web + contracts/config/db) temiz.
+- **Teslim edilenler:** iki zamanlanmış in-process worker (`sponsorship-settlement-scheduler`,
+  `attribution-event-retention`; ADR-051 deseni, default kapalı env bayrağı) · SAF çekirdekler
+  (timezone dönem matematiği, settlement uygunluk, retention cutoff/circuit-breaker) · DI-testable servisler
+  (previewSettlement reuse; DRAFT-only; per-agreement hata izolasyonu; store-scope batch purge) · manuel
+  dry-run/run/apply + status HTTP uçları (platform-admin + tenant-izole) · store-admin `/operations` görünürlük
+  paneli · `QueueJobLog` job-run audit (yeni tablo YOK) · additive migration `StoreSettings.timezone`.
 - **TD-125 — Otomatik mutabakat zamanlaması (Automatic Settlement Scheduling):** haftalık / aylık / campaign-end
   dönemlerinde **DRAFT** settlement üretimi (otomatik finalize YOK — tahakkuk yine manuel onaylanır); idempotency;
   scheduler overlap kilidi; timezone-aware dönem hesaplama; retry; job audit; **hata alan bir anlaşma diğerlerini
@@ -567,9 +576,9 @@
   sponsor-influencer ticari birleşimi, yeni placement tipleri (TD-120).
 - Sıra: **TODO-161A.2'den SONRA — SIRADAKİ AKTİF FAZ**; TODO-161B'den ÖNCE.
 
-## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B)
+## Growth & Monetization — Recently Viewed & Product Recommendations (TODO-161B) — SIRADAKİ AKTİF FAZ
 
-- Durum: **PLANLANDI (henüz başlanmadı).** Bu numara (TODO-161B) bu iş için REZERVE edilmiştir; sponsorluk
-  stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
+- Durum: **PLANLANDI — SIRADAKİ AKTİF FAZ (TODO-161A.1 tamamlandı).** Bu numara (TODO-161B) bu iş için REZERVE
+  edilmiştir; sponsorluk stabilizasyonu TODO-161A.2 olarak numaralandırıldı (birleşik akış = TODO-161/161A'nın alt-sürümü).
 - Kapsam (öneri): son görüntülenen ürünler + ürün öneri motoru (birlikte-alınan / benzer / kişiselleştirilmiş).
 - Sıra: **TODO-161A.1'den SONRA** (final enterprise UI/design polish'ten önce/sonra planlanır).
