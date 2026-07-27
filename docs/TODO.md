@@ -1941,9 +1941,11 @@
   Zamanlayıcı eşzamanlılığı **dağıtık PostgreSQL advisory lock** (session `connection_limit=1`) + 409
   `JOB_ALREADY_RUNNING`; job yaşam döngüsü `QueueJobLog`'a yazılır.
   Canlı doğrulama (gerçek PostgreSQL, izole veri) 17/17 PASS; 42 yeni birim/route testi PASS; buildler temiz.
-- Doğrulama borcu: **TD-127** — auth'lu `/operations` UI click-through smoke; backend/DB/liveness/auth guard
-  doğrulandı, yalnız parola gerektiren gerçek tıklama akışı eksik. Product blocker DEĞİL; final UI/design
-  polish'ten önce kapatılır.
+- Doğrulama borcu: **TD-127 ✅ CLOSED (2026-07-27)** — auth'lu `/operations` UI click-through smoke; fixture-session
+  (30 dk TTL, demo admin + edm-store, secret dışarı çıkmadan) ile deployed store-admin üzerinde settlement
+  dry-run/run (+ duplicate/FINALIZED korunması), retention dry-run/apply (181g sil / 179g + recommendation +
+  finans koru), 6 QueueJobLog durumu, SKIPPED_LOCKED (409 JOB_ALREADY_RUNNING), güvenlik (401/redirect · 404 ·
+  sunucu-otoritesi · açık onay · stack sızmıyor) ve TR/EN doğrulandı. Kod defekti yok → docs-only kapanış.
 - **TD-125 — Automatic Settlement Scheduling:**
   - Haftalık / aylık / campaign-end dönemlerinde **DRAFT** settlement üretimi.
   - **Otomatik finalize YOK** (tahakkuk yine admin onayıyla).
@@ -2072,4 +2074,4 @@ TODO-161B'nin iki açık teknik borcunu kapatan governance/ölçüm fazı. **Com
 - **Testler:** 25 birim (customer-erasure core 6 / service 10 / data 9) + **47/47 canlı erasure smoke** (gerçek
   PostgreSQL, enterprise-demo). gateway 1594 · store-admin 356 — yeşil; build/typecheck/lint temiz; `git diff --check` temiz.
 - Kalan borç: **TD-132** (yasal-kimlik süre-sonu retention purge). Doğrulama borcu **TD-127** (auth'lu `/operations`
-  UI click-through) bu iş kapsamında Faz B olarak ele alındı.
+  UI click-through) → **✅ CLOSED (2026-07-27)** ayrı docs-only turda; bkz. `docs/TECHNICAL_DEBT.md` TD-127.
