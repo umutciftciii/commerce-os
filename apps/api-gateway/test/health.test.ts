@@ -6392,22 +6392,16 @@ describe("api gateway · payment providers (F3B.2)", () => {
     await app.close();
   });
 
-  it("ignores duplicate webhooks by external event id (idempotency shell)", async () => {
+  it("PB-1: legacy client-authoritative webhook route is removed (404, no state change)", async () => {
+    // PB-1 — Eski `/payments/webhooks/:provider` (client body.storeId/attemptId/status ile
+    // siparişi PAID yapabiliyordu) KALDIRILDI. Exploit payload'ı artık hiçbir route'a düşmez.
     const { app } = await createTestApp();
-    const first = await app.inject({
+    const res = await app.inject({
       method: "POST",
       url: "/payments/webhooks/mock",
-      payload: { storeId: STORE, eventId: "evt_1" },
+      payload: { storeId: STORE, eventId: "evt_1", attemptId: "att_x", status: "PAID" },
     });
-    expect(first.statusCode).toBe(200);
-    // TODO-159F — webhook yanıtı `applied` (order transition uygulandı mı) alanını taşır.
-    expect(first.json()).toEqual({ received: true, duplicate: false, applied: false });
-    const second = await app.inject({
-      method: "POST",
-      url: "/payments/webhooks/mock",
-      payload: { storeId: STORE, eventId: "evt_1" },
-    });
-    expect(second.json()).toEqual({ received: true, duplicate: true });
+    expect(res.statusCode).toBe(404);
     await app.close();
   });
 

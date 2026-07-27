@@ -4477,3 +4477,53 @@ Guest kimliği (`visitorHash`/`visitorIdHash`) taşıyan hiçbir kayıt bir mü�
 event'leri yalnız zaman-bazlı retention'la budanır. Tüm silme/anonimleştirme sorguları `storeId`+`customerId`
 scoped → **cross-store** (başka mağazanın aynı e-posta/telefonlu/customerId'li müşterisi) yapısal olarak
 etkilenmez (canlı smoke + birim testle doğrulandı).
+
+## ADR-156 — Provider-authenticated payment webhook authority + server-side store resolution (PB-1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **Öncül:** PB-1 (Launch Audit), TD-034 · **İlgili:** ADR-100
+
+**Bağlam.** Eski `/payments/webhooks/:provider` ucu (ADR-100 shell) client body'sini otorite kabul ediyordu:
+`storeId` `body.storeId`'den, attempt `body.attemptId`'den, sipariş geçişi `body.status`'tan; imza doğrulaması
+placeholder (`verifyWebhookSignature(){return true}`) ve geçişe gate'lenmemiş. `attemptId` müşteriye payment-state
+yanıtında döndüğünden müşteri kendi siparişini bedavaya PAID yapabiliyordu (Launch Audit PB-1).
+
+**Karar.** Doğrulanmış webhook `POST /public/payments/webhooks/:webhookToken` olur (shipping webhook ADR-048
+deseni). **Invariant:** doğrulanmamış hiçbir webhook/client payload sipariş/ödeme durumunu değiştiremez.
+(1) **Kimlik URL token'ından:** `webhookToken` (opak `whk_…`, `PaymentProviderConfig.webhookToken` unique)
+config→store çözer; YETKİ vermez. (2) **Fail-closed:** bilinmeyen token / DISABLED config / secret'siz config
+AYNI generic 404. Gerçek sağlayıcı secret'i yoksa webhook İŞLENMEZ → EX-1 (canlı sağlayıcı) tamamlanana kadar
+hiçbir gerçek-para yolu açık kalmaz; MOCK zaten webhook kullanmaz (`/public/pay/:token` confirm). (3) **Store/
+order çözümü DOĞRULANMIŞ provider reference'tan:** attempt `(config.storeId, providerReference)` ile server-side
+(index `PaymentAttempt(storeId, providerReference)`); `attempt.provider == config.provider` doğrulanır. Bilinmeyen
+reference → order DEĞİŞMEZ, `WEBHOOK_REFERENCE_NOT_FOUND` (200 ack), tenant enumeration sızmaz. Payload'daki
+`storeId/orderId/amount/currency` yalnız karşılaştırma; OTORİTE değildir. Eski client-otoriteli uç KALDIRILDI.
+
+## ADR-157 — Raw-body HMAC signature verification + replay protection (PB-1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-156, ADR-048 (shipping webhook) · **Öncül:** PB-1
+
+**Karar.** İmza `hex(HMAC_SHA256(secret, "${timestamp}.${rawBody}"))` — `rawBody` **byte-aynen** (scoped
+`addContentTypeParser("application/json",{parseAs:"string"})`; JSON re-serialize edilmez, imza JSON parse ÖNCESİ).
+`timingSafeEqual` (uzunluk+hex ön-kontrol), `x-payment-timestamp` zorunlu, **300 sn tolerans** (replay penceresi);
+pencere-içi replay idempotency ile kesilir. Secret `PaymentProviderConfig.webhookSecretCipher`'dan decrypt; secret
+yoksa **fail-closed**. İmza yok/yanlış → `401`, DB'ye YAZILMAZ (inbox flood/DoS önlemi). `verifyWebhookSignature()
+{return true}` bypass'ı ve tüm adapter webhook metodları (`handleWebhook`/`extractWebhookEventId`/`mapWebhookStatus`)
+production kodundan KALDIRILDI. Bu faz PLATFORM imza şemasını kullanır; sağlayıcıya-özgü native imza (Stripe-Signature/
+iyzico/PayTR) EX-1 canlı sözleşmesiyle eklenir (**TD-137**). Test için ayrı "signed provider" fixture'ı aynı HMAC
+şemasını kullanır (production'la AYNI kod yolu; "her imza geçerli" adapter YOK); test secret production secret'ından ayrı.
+
+## ADR-158 — Amount/currency invariant + monotonic state + event idempotency (PB-1)
+
+**Tarih:** 2026-07-27 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-095/100 (payment-state), ADR-156/157 · **Öncül:** PB-1
+
+**Karar.** Doğrulanmış webhook dahi attempt snapshot'ıyla uyuşmalı: provider `amountMinor == PaymentAttempt.amount`
+ve `currency == PaymentAttempt.currency` (normalize). Uyuşmazsa order **PAID OLMAZ** → güvenli audit
+(`AMOUNT_MISMATCH`/`CURRENCY_MISMATCH`), 200 ack. Tutar Order total'e client/provider payload'ından ASLA yazılmaz
+(daima attempt snapshot). **Monotonik geçiş:** mevcut `payment-state.ts` `resolveOrderPaymentTransition` yeniden
+kullanılır — girdi `body.status` değil doğrulanmış payload status'u; PAID sonrası geç FAILED/CANCELLED geriye
+çevirmez; REFUNDED ayrı ileri geçiş (influencer+sponsored iade defteri parity korunur). **Idempotency:**
+`PaymentProviderEvent` unique `(storeId, provider, eventId)` — TEK transaction'da event create ÖNCE (P2002 →
+duplicate → tüm tx abort), sonra attempt+order update; paralel/duplicate webhook en çok tek geçiş uygular.
+Red/audit olayları eventId'yi UNIQUE kolona değil metadata'ya yazar (düzeltilmiş retry idempotency slotunu tüketmez).
+Order+PaymentAttempt+event aynı transaction. Canlı exploit regresyonu (gerçek PostgreSQL, 14/14) + 30 birim/route
+testi doğruladı.

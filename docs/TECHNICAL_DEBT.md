@@ -486,6 +486,14 @@
   müşteriye payment-state yanıtında döndüğü için müşteri kendi siparişini bedavaya PAID işaretleyebilir. Bugün
   MOCK-only ile sınırlı; **gerçek sağlayıcı açılmadan ÖNCE** imza zorunlu + store'u doğrulanmış attempt'ten türet.
   Bu, canlı sağlayıcı kapısının (EXTERNAL DECISION) ayrılmaz parçası → launch için **PROD BLOCKER (gerçek-ödeme kapısı)**.
+- **PB-1 ÇÖZÜLDÜ (2026-07-27; ADR-156/157/158; kod TAMAM, deploy YOK):** Eski client-otoriteli
+  `/payments/webhooks/:provider` ucu KALDIRILDI. Doğrulanmış webhook `POST /public/payments/webhooks/:webhookToken`:
+  HMAC(`timestamp.rawBody`) imza + replay penceresi, store token'dan, attempt/order DOĞRULANMIŞ provider
+  reference'tan, amount/currency invariant, monotonik geçiş, `(storeId,provider,eventId)` idempotency; fail-closed
+  (secret yok → 404). Tüm `verifyWebhookSignature(){return true}` bypass'ları + adapter webhook metodları silindi.
+  30 birim/route testi + **14/14 canlı exploit regresyonu** (gerçek PostgreSQL). Migration `20260727170000`.
+  Analiz: `docs/analysis/PB-1-payment-webhook-authenticity.md`. **Kalan (EX-1'e bağlı):** [[TD-137]] sağlayıcı-native
+  imza + [[TD-138]] webhook provisioning UI.
 
 ## TODO-127 — Provider logo dosya upload/asset storage (TODO-125'ten ayrıldı)
 - Sorun: `ShippingProviderConfig.logoUrl` manuel public URL (admin elle girer). Checkout/success/admin'de
@@ -1359,3 +1367,23 @@ Anonim checkout ödemeden önce stok rezerve eder (`status:"PLACED"`, `paymentSt
 orphan DRAFT bırakır (`server.ts:5980-5983`). Oversell **engelli** (kilit doğru) ama terk edilen anonim checkout'lar
 stoku süresiz kilitler. **Kapsam:** single-tx create+place, başarısız DRAFT auto-cancel, worker expiry job
 (reserve-on-auth). Bu HIGH dilim TD-033 gövdesinden ayrı izlenir; TD-033'ün atomiklik notu tamamlayıcıdır.
+
+## TD-137 — Payment webhook: sağlayıcı-native imza şeması (PB-1 devamı, EX-1'e bağlı)
+
+**Durum:** AÇIK — EX-1 (canlı ödeme sağlayıcısı) sözleşmesine bağlı. PB-1 (ADR-157) doğrulanmış webhook için
+**PLATFORM HMAC** şemasını (`hex(HMAC_SHA256(secret, timestamp.rawBody))`) kullanır ve gerçek sağlayıcıları
+webhookSecret'sız fail-closed bırakır. Gerçek sağlayıcı (Stripe/iyzico/PayTR) canlıya alınırken her sağlayıcının
+**native imza** doğrulaması (Stripe-Signature `t=…,v1=…`; iyzico/PayTR hash) + native payload→normalized event
+adapter'ı eklenmeli. **Kapsam:** provider başına `verifyNativeWebhook(rawBody, headers, secret)` + provider
+payload→`{eventId, providerReference, status, amountMinor, currency, occurredAt}` normalize; PB-1 route/invariant/
+idempotency altyapısı DEĞİŞMEZ (yalnız doğrulama+parse dalı eklenir). **Not:** yeni yetenek değil, EX-1'in ödeme
+otantiklik dilimi. Native imza gelmeden gerçek sağlayıcı webhook'u AÇILMAZ.
+
+## TD-138 — Payment webhook provisioning (token/secret rotate) admin UI (PB-1 devamı)
+
+**Durum:** AÇIK — MEDIUM (operasyonel). PB-1 `PaymentProviderConfig.webhookToken` + `webhookSecretCipher` alanlarını
+ekledi; ödeme sağlayıcı config'i için webhook token+secret üreten **admin rotate ucu/BFF/UI** henüz YOK (shipping'in
+`.../webhook/rotate` deseni birebir uygulanabilir — `generatePaymentWebhookToken`/`generatePaymentWebhookSecret`
+helper'ları hazır). Gerçek sağlayıcı (EX-1/TD-137) canlıya alınana dek webhook tüketicisi olmadığından bloklamaz;
+token/secret bugün doğrudan DB'de (veya gelecek rotate ucuyla) sağlanır. **Kapsam:** gateway rotate ucu (audit'li)
++ store-admin ödeme sağlayıcı ekranında "Webhook URL + secret (bir kez göster)" + rotate butonu.

@@ -6,14 +6,12 @@ import {
   type ConfirmPaymentInput,
   type CreatePaymentInput,
   type GetPaymentStatusInput,
-  type HandleWebhookInput,
   type PaymentProviderAdapter,
   type PaymentResult,
   type RefundPaymentInput,
   type ResolvedCredentials,
   type TestConnectionInput,
   type TestConnectionResult,
-  type WebhookResult,
 } from "../types.js";
 
 /**
@@ -97,13 +95,8 @@ export class ProviderApiAdapter implements PaymentProviderAdapter {
     return this.exchange(this.contract.buildStatusRequest(input, this.contract.sandboxBaseUrl));
   }
 
-  async handleWebhook(input: HandleWebhookInput): Promise<WebhookResult> {
-    // Webhook mapping + idempotency event id; imza dogrulama placeholder (TODO-071).
-    const signatureValid = this.contract.verifyWebhookSignature(input);
-    const eventId = this.contract.extractWebhookEventId(input.payload);
-    const mapped = this.contract.mapWebhookStatus(input.payload);
-    return { handled: mapped !== null && signatureValid, eventId, signatureValid };
-  }
+  // PB-1 — handleWebhook adapter'dan KALDIRILDI (verifyWebhookSignature bypass'ı içeriyordu).
+  // Doğrulanmış webhook payments/webhook-routes.ts (HMAC + provider reference resolution).
 
   async testConnection(input: TestConnectionInput): Promise<TestConnectionResult> {
     const state = this.contract.validateCredentials(input.context.credentials);

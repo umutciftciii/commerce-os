@@ -2,7 +2,6 @@ import type { PaymentAttemptStatus } from "@prisma/client";
 import type { PaymentHttpRequest, PaymentHttpResponse } from "../http.js";
 import type { ResolvedCredentials, PaymentResult } from "../../types.js";
 import {
-  asRecord,
   hmacSha256Base64,
   safeJsonParse,
   type CredentialState,
@@ -98,21 +97,7 @@ export const paytrContract: ProviderContract = {
     return raw === "success" ? "PAID" : raw === "failed" ? "FAILED" : "PENDING";
   },
 
-  extractWebhookEventId(payload: unknown): string | null {
-    const data = asRecord(payload);
-    return typeof data.merchant_oid === "string" ? data.merchant_oid : null;
-  },
-
-  mapWebhookStatus(payload: unknown): PaymentAttemptStatus | null {
-    const data = asRecord(payload);
-    const raw = typeof data.status === "string" ? data.status : null;
-    if (raw === "success") return "PAID";
-    if (raw === "failed") return "FAILED";
-    return null;
-  },
-
-  verifyWebhookSignature(): boolean {
-    // Placeholder: gercek PayTR callback hash dogrulamasi TODO-071.
-    return true;
-  },
+  // PB-1 — Webhook doğrulama/parse contract'tan KALDIRILDI (bypass `return true` idi).
+  // Doğrulanmış webhook payments/webhook-signature.ts + webhook-routes.ts'de (HMAC). Native
+  // PayTR callback hash'i EX-1 ile → TD-137.
 };

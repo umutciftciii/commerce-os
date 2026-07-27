@@ -339,6 +339,13 @@ import {
 import { registerPaymentRecoveryRoutes } from "./payments/recovery-routes.js";
 import { createLogPaymentNotificationDispatcher } from "./payments/notification.js";
 import { resolveOrderPaymentTransition } from "./payments/payment-state.js";
+import {
+  registerPaymentWebhookRoutes,
+  type PaymentWebhookApplyInput,
+  type PaymentWebhookApplyOutcome,
+  type PaymentWebhookAuditInput,
+  type PaymentWebhookPersistence,
+} from "./payments/webhook-routes.js";
 import type {
   AuditAction,
   FulfillmentStatus,
@@ -6401,6 +6408,137 @@ export function createServer(
     persistence: createPrismaShippingWebhookPersistence(),
   });
 
+  // PB-1 (ADR-156/157/158) — Provider-authenticated payment webhook. Client body ASLA
+  // otorite DEĞİL: store token'dan, attempt/order DOĞRULANMIŞ provider reference'tan,
+  // status doğrulanmış payload'dan. Fail-closed + HMAC imza + amount/currency invariant +
+  // monotonik geçiş + idempotency. (Eski /payments/webhooks/:provider açığı kaldırıldı.)
+  const webhookEventTypeForStatus = (status: PaymentAttemptStatus): PaymentProviderEventType => {
+    if (status === "PAID" || status === "AUTHORIZED") return "PAYMENT_CONFIRMED";
+    if (status === "FAILED") return "PAYMENT_FAILED";
+    if (status === "CANCELLED") return "PAYMENT_CANCELLED";
+    if (status === "REFUNDED") return "PAYMENT_REFUNDED";
+    return "STATUS_CHANGED";
+  };
+  const paymentWebhookPersistence: PaymentWebhookPersistence = {
+    findConfigByWebhookToken: (token) =>
+      prisma.paymentProviderConfig.findUnique({
+        where: { webhookToken: token },
+        select: { id: true, storeId: true, provider: true, status: true, webhookSecretCipher: true },
+      }),
+    findAttemptByProviderReference: (storeId, providerReference) =>
+      prisma.paymentAttempt.findFirst({
+        where: { storeId, providerReference },
+        select: {
+          id: true,
+          storeId: true,
+          orderId: true,
+          provider: true,
+          amount: true,
+          currency: true,
+          status: true,
+          threeDsApplied: true,
+          providerReference: true,
+        },
+      }),
+    isEventProcessed: async (storeId, provider, eventId) =>
+      (await dataAccess.findPaymentProviderEventByEventId(storeId, provider, eventId)) !== null,
+    // Red/audit olayları eventId'yi UNIQUE kolona YAZMAZ (metadata'ya) → düzeltilmiş retry
+    // idempotency slotunu tüketmez; PII/ham gövde audit'e girmez (spec §11).
+    recordAuditEvent: async (input: PaymentWebhookAuditInput) => {
+      await dataAccess.createPaymentProviderEvent(input.storeId, {
+        providerConfigId: input.providerConfigId,
+        attemptId: input.attemptId,
+        orderId: input.orderId,
+        provider: input.provider,
+        type: "WEBHOOK_RECEIVED",
+        eventId: null,
+        message: input.message,
+        metadata: { ...input.metadata, webhookEventId: input.eventId },
+      });
+    },
+    applyOutcome: async (input: PaymentWebhookApplyInput): Promise<PaymentWebhookApplyOutcome> => {
+      let refundTotalMinor: number | null = null;
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const order = await tx.order.findFirst({
+            where: { id: input.orderId, storeId: input.storeId },
+            select: { paymentStatus: true, totalAmount: true },
+          });
+          if (!order) return { outcome: "no_transition" as const, refundTotalMinor: null };
+          const next = resolveOrderPaymentTransition(order.paymentStatus, input.attemptStatus);
+          // Idempotency guard: (storeId, provider, eventId) unique. Duplicate → tüm tx abort.
+          await tx.paymentProviderEvent.create({
+            data: {
+              storeId: input.storeId,
+              providerConfigId: input.providerConfigId,
+              attemptId: input.attemptId,
+              orderId: input.orderId,
+              provider: input.provider,
+              type: webhookEventTypeForStatus(input.attemptStatus),
+              eventId: input.eventId,
+              message: `Verified webhook ${input.provider} → ${input.attemptStatus}${next ? "" : " (no order transition)"}.`,
+              metadata: { providerReference: input.providerReference, appliedOrderStatus: next ?? null },
+            } satisfies Prisma.PaymentProviderEventUncheckedCreateInput,
+          });
+          if (next === null) return { outcome: "no_transition" as const, refundTotalMinor: null };
+          const paid = input.attemptStatus === "PAID" || input.attemptStatus === "AUTHORIZED";
+          const failed = input.attemptStatus === "FAILED" || input.attemptStatus === "CANCELLED";
+          const stamp = input.occurredAt ?? new Date();
+          await tx.paymentAttempt.update({
+            where: { id: input.attemptId },
+            data: {
+              status: input.attemptStatus,
+              providerReference: input.providerReference,
+              threeDsApplied: input.threeDsApplied,
+              ...(paid ? { paidAt: stamp } : {}),
+              ...(failed ? { failedAt: stamp } : {}),
+              ...(paid || failed ? { accessTokenHash: null, accessTokenExpiresAt: null } : {}),
+            },
+          });
+          await tx.order.update({
+            where: { id: input.orderId },
+            data: { paymentStatus: next },
+          });
+          return {
+            outcome: "applied" as const,
+            refundTotalMinor: next === "REFUNDED" ? order.totalAmount : null,
+          };
+        });
+        refundTotalMinor = result.refundTotalMinor;
+        // İade defteri (best-effort, post-commit; idempotency: refundKey=refund:<eventId>).
+        if (refundTotalMinor !== null) {
+          const refundKey = `refund:${input.eventId}`;
+          try {
+            await influencerData.applyRefund(input.storeId, input.orderId, refundKey, refundTotalMinor);
+          } catch {
+            logger.warn("attribution refund reversal failed", {
+              storeId: input.storeId,
+              orderId: input.orderId,
+            });
+          }
+          try {
+            await sponsoredData.applyRefund(input.storeId, input.orderId, refundKey, 1);
+          } catch {
+            logger.warn("sponsored refund reversal failed", {
+              storeId: input.storeId,
+              orderId: input.orderId,
+            });
+          }
+        }
+        return result.outcome;
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          return "duplicate";
+        }
+        throw error;
+      }
+    },
+  };
+  registerPaymentWebhookRoutes(app, {
+    persistence: paymentWebhookPersistence,
+    decryptWebhookSecret: (cipher) => secretCipher.decrypt(cipher),
+  });
+
   // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar
   // + set-default). Kargo ucreti bu planlardan hesaplanir; provider canli quote DEGIL.
   registerShippingRatePlanRoutes(app, {
@@ -8365,19 +8503,9 @@ export function createServer(
     orderId: z.string().min(1),
   });
   const publicPaymentTokenQuerySchema = z.object({ token: z.string().min(1) });
-  const paymentWebhookParamSchema = z.object({ provider: z.string().min(1) });
-  const paymentWebhookBodySchema = z
-    .object({
-      storeId: z.string().min(1),
-      eventId: z.string().min(1),
-      // TODO-159F (ADR-100) — webhook nihai ödeme otoritesi. Sağlayıcı geri bildirimi
-      // bir attempt'e bağlıysa (attemptId + status) sipariş durumu MONOTONIC uygulanır.
-      attemptId: z.string().min(1).optional(),
-      status: z
-        .enum(["CREATED", "PENDING", "REQUIRES_ACTION", "AUTHORIZED", "PAID", "FAILED", "CANCELLED", "REFUNDED"])
-        .optional(),
-    })
-    .passthrough();
+  // PB-1 — Eski client-otoriteli webhook şeması (storeId/attemptId/status client body'den)
+  // KALDIRILDI. Doğrulanmış webhook artık `payments/webhook-routes.ts` +
+  // `payments/webhook-signature.ts` içindedir (HMAC + provider reference resolution).
 
   /** Secret cipher'lari decrypt eder; cozulemezse null (sizdirmaz). */
   function decryptCredentials(config: PaymentProviderConfigRecord): ResolvedCredentials {
@@ -9065,109 +9193,11 @@ export function createServer(
     });
   });
 
-  // --- Webhook shell: imza dogrulamasi placeholder; idempotency + event log hazir ---
-  app.post("/payments/webhooks/:provider", async (request, reply) => {
-    const params = paymentWebhookParamSchema.parse(request.params);
-    const providerUpper = params.provider.toUpperCase();
-    const validProviders: PaymentProviderType[] = ["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"];
-    if (!validProviders.includes(providerUpper as PaymentProviderType)) {
-      return reply.code(404).send(errorBody("PAYMENT_PROVIDER_UNKNOWN", "Unknown payment provider."));
-    }
-    const provider = providerUpper as PaymentProviderType;
-    const body = paymentWebhookBodySchema.parse(request.body ?? {});
-    const store = await dataAccess.findStoreById(body.storeId);
-    if (!store) {
-      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
-    }
-    // Idempotency: ayni (store, provider, eventId) daha once islendiyse no-op.
-    const existing = await dataAccess.findPaymentProviderEventByEventId(store.id, provider, body.eventId);
-    if (existing) {
-      return reply.code(200).send({ received: true, duplicate: true });
-    }
-    // Bu fazda imza dogrulamasi placeholder'dir (gercek verification sonraki faz).
-    const signature = (request.headers["x-payment-signature"] as string | undefined) ?? null;
-    const adapter = paymentAdapters.get(provider);
-    const result = await adapter.handleWebhook({
-      provider,
-      credentials: { apiKey: null, secretKey: null, webhookSecret: null, merchantId: null },
-      signature,
-      rawBody: JSON.stringify(request.body ?? {}),
-      payload: request.body ?? {},
-    });
-    await dataAccess.createPaymentProviderEvent(store.id, {
-      provider,
-      type: "WEBHOOK_RECEIVED",
-      eventId: body.eventId,
-      message: "Webhook received.",
-      metadata: { signatureValid: result.signatureValid, handled: result.handled },
-    });
-
-    // TODO-159F (ADR-100) — Webhook nihai ödeme otoritesi. Attempt referansı + durum
-    // verilmişse sipariş ödeme durumu MONOTONIC uygulanır: PAID sonrası geç gelen
-    // FAILED/CANCELLED webhook GERİYE ÇEVİRMEZ (resolveOrderPaymentTransition null döner).
-    // Duplicate eventId zaten yukarıda no-op edildiği için ikinci kez uygulanmaz.
-    let applied = false;
-    if (body.attemptId && body.status) {
-      const attempt = await dataAccess.findPaymentAttemptById(store.id, body.attemptId);
-      // Tenant + provider tutarlılığı: attempt bu store'a ait ve aynı sağlayıcı olmalı.
-      if (attempt && attempt.provider === provider) {
-        const order = await dataAccess.findOrderById(store.id, attempt.orderId);
-        if (order) {
-          const next = resolveOrderPaymentTransition(order.paymentStatus, body.status);
-          const paid = body.status === "PAID" || body.status === "AUTHORIZED";
-          const failed = body.status === "FAILED" || body.status === "CANCELLED";
-          await dataAccess.recordPaymentAttemptOutcome(store.id, {
-            attemptId: attempt.id,
-            orderId: attempt.orderId,
-            attemptStatus: body.status,
-            threeDsApplied: attempt.threeDsApplied,
-            providerReference: attempt.providerReference ?? null,
-            failureCode: null,
-            failureMessage: null,
-            ...(paid ? { paidAt: new Date() } : {}),
-            ...(failed ? { failedAt: new Date() } : {}),
-            orderPaymentStatus: next ?? null,
-            clearAccessToken: paid || failed,
-            event: {
-              type:
-                body.status === "PAID" || body.status === "AUTHORIZED"
-                  ? "PAYMENT_CONFIRMED"
-                  : body.status === "CANCELLED"
-                    ? "PAYMENT_CANCELLED"
-                    : body.status === "FAILED"
-                      ? "PAYMENT_FAILED"
-                      : "STATUS_CHANGED",
-              provider,
-              // eventId WEBHOOK_RECEIVED kaydında kullanıldı; unique(storeId,provider,eventId)
-              // çakışmasını önlemek için outcome event'i internal (eventId null) yazılır.
-              message: `Webhook ${provider} → ${body.status}${next ? "" : " (no order transition)"}.`,
-              metadata: { webhookEventId: body.eventId, appliedOrderStatus: next ?? null },
-            },
-          });
-          applied = true;
-          // TODO-160 (ADR-104) — İade webhook'u influencer NET gelirini düzeltir.
-          // REFUNDED = tam iade → net 0. Idempotency İKİ katmanlı: (1) webhook eventId
-          // dedup (yukarıda), (2) append-only defter refundKey=refund:<eventId>. Gross
-          // geriye dönük BOZULMAZ. Yalnız gerçek REFUNDED geçişinde (next) uygulanır.
-          if (next === "REFUNDED") {
-            try {
-              await influencerData.applyRefund(store.id, order.id, `refund:${body.eventId}`, order.totalAmount);
-            } catch {
-              logger.warn("attribution refund reversal failed", { storeId: store.id, orderId: order.id });
-            }
-            // TODO-161 (ADR-118) — REFUNDED = tam iade → sponsorlu net geliri de 0 (ratio=1). İki
-            // katmanlı idempotency (webhook eventId dedup + defter refundKey). Gross korunur.
-            try {
-              await sponsoredData.applyRefund(store.id, order.id, `refund:${body.eventId}`, 1);
-            } catch {
-              logger.warn("sponsored refund reversal failed", { storeId: store.id, orderId: order.id });
-            }
-          }
-        }
-      }
-    }
-    return reply.code(200).send({ received: true, duplicate: false, applied });
-  });
+  // PB-1 (ADR-156/157/158) — Eski client-otoriteli webhook (`/payments/webhooks/:provider`)
+  // KALDIRILDI. İmzasız/client-body ile sipariş PAID yapılabiliyordu. Doğrulanmış webhook
+  // artık `POST /public/payments/webhooks/:webhookToken` (registerPaymentWebhookRoutes):
+  // HMAC imza + store token'dan + attempt/order provider reference'tan + amount/currency
+  // invariant + monotonik geçiş + idempotency. Refund reversal parity applyOutcome içinde.
 
   return app;
 }
