@@ -1423,3 +1423,30 @@ koşar ama bunun için ayrı bir **izole/atılabilir PostgreSQL hedefi** (`DATAB
 provizyonlanmalı. Target yoksa doğrulama atlanır (log uyarısı; sessiz değil). Periyodik otomatik doğrulama için
 ephemeral bir postgres (ör. ayrı container/instance) + reset döngüsü kurulmalı. Manuel/`dr-smoke.zsh` doğrulaması
 bu boşluğu kapatır (izole stack'i kendi kurar). **Kapsam:** production'da ephemeral verify-target orkestrasyonu.
+
+## TD-143 — Influencer lifecycle canlı smoke — ✅ CLOSED (2026-07-28)
+
+Influencer Campaign Lifecycle fazı KOD + MIGRATION + birim/route testleri tamam; ancak §17 canlı smoke (3 kampanya + farklı
+UTM + click/order üretimi + PAUSED→terminal + ACTIVE→çalışır + REVOKED→çalışmaz + CANCELLED→conversion yok + cross-store)
+docker stack rebuild gerektirdiğinden bu turda ÇALIŞTIRILMADI. Migration gerçek PG'ye uygulanıp doğrulandı; data-layer
++ 39 yeni birim/route testi yeşil. Commit sonrası izole test influencer'da uçtan-uca smoke koşulmalı.
+
+## TD-144 — Currency-aware UTM analytics — ✅ CLOSED (2026-07-28)
+
+`campaignAnalyticsResponse.utm[].netRevenueMinor` toplam net; UI'da `summary.currency` (birincil) etiketiyle gösterilir.
+Çok para birimli kampanyada UTM satırı per-currency ayrıştırmaz (link/kampanya seviyesi ayrıştırır). Tek para birimli
+mağazada (varsayılan) doğru. Gerekirse UTM sorgusu currency GROUP BY ile genişletilir.
+
+## TD-145 — Tracking link formu UTM/customLabel alanları — ✅ CLOSED (2026-07-28)
+
+`utmContent/utmTerm/customLabel` şema + DB + API'de mevcut ve raporlarda gösterilir; ancak store-admin `LinkFormModal`
+create formu yalnız source/medium/campaign topluyor. Yeni alanlar API üzerinden set edilebilir; UI form alanları eklenmeli.
+UTM immutable (ADR-175) olduğundan yalnız create formunda.
+
+## TD-146 — Kampanya/link günlük zaman serisi grafiği — ✅ CLOSED (2026-07-28)
+
+`daily` zaman serisi API yanıtında döner; kampanya/link detay sayfaları KPI + tablo (link/UTM/son sipariş) gösteriyor ama
+günlük click/order/revenue serisini GRAFİK olarak render etmiyor (chart bileşeni ertelendi). Veri hazır; sparkline/line
+chart eklenebilir.
+
+**KAPANIŞ (2026-07-28, ADR-177…179):** TD-143/144/145/146 Analytics Demo Completion fazında kapatıldı. Currency-aware UTM (source/medium/campaign/content/term+customLabel, per-currency `revenues[]`, unique+CR); günlük zaman serisi bağımlılıksız inline-SVG grafik (7/30/90/özel, store-tz gün sınırı, zero-fill, link/UTM filtre, tooltip/legend/empty/a11y); tracking link formu 6 UTM/label alanı (trim+empty-to-null+max120+kontrol-karakter reddi+TR/EN+immutable ipucu); deterministik demo fixture (`influencer-demo-seed.mjs`) + runbook. Data-layer smoke gerçek PG'ye karşı PASS; birim testleri (analytics-range 10 + serialize currency 6 + lifecycle 23) yeşil.

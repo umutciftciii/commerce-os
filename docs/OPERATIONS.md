@@ -1013,3 +1013,31 @@ sağlayıcı webhook'u AÇILMAZ (secret'siz config → 404). MOCK ödeme webhook
 
 **Migration.** `20260727170000_payment_webhook_authenticity` (additive: `PaymentProviderConfig.webhookToken` unique +
 `PaymentAttempt(storeId, providerReference)` index). `prisma migrate deploy` ile uygulanır.
+
+## Influencer Campaign Lifecycle & Granular Analytics (2026-07-28, ADR-170…176)
+
+- **Migration.** `20260728120000_influencer_campaign_lifecycle` (ADDITIVE): `InfluencerCampaignStatus`e DRAFT/ENDED/
+  CANCELLED, `TrackingLinkStatus`e PAUSED/REVOKED enum değerleri; `InfluencerTrackingLink`e utmContent/utmTerm/customLabel/
+  activatedAt/pausedAt/revokedAt kolonları. `ALTER TYPE ... ADD VALUE` PostgreSQL'de transaction dışı; Prisma ayrı
+  ifadelerle uygular. Mevcut veriye DOKUNMAZ (RESET YOK); legacy ARCHIVED/INACTIVE korunur (uygulama ENDED/PAUSED'a
+  normalize eder). Deploy: `prisma migrate deploy`.
+- **Storefront route.** Yeni `/campaign-unavailable` sayfası (200 + `noindex,nofollow`) — durdurulmuş/bitmiş/iptal kampanya
+  bağlantısı terminali. `/t/[token]` route handler gateway `available:false` dönünce buraya 307 yönlendirir. Bu sayfa
+  attribution EVENT'i DEĞİLDİR. storefront değişince web REBUILD gerekir (Next dev COPY).
+- **Redirect davranışı.** Tracking URL yalnız campaign ACTIVE + link ACTIVE + tarih penceresi + influencer ACTIVE + store
+  ACTIVE + target ürün/kategori ACTIVE iken hedefe yönlendirir; aksi halde click/session/cookie YAZILMAZ. Kampanya durdurma
+  (PAUSED/ENDED/CANCELLED) veya link REVOKED anında etkilidir (sunucu-otoriter, cache otoritesi yok).
+- **Operatör aksiyonları.** Store-admin influencer detayında: kampanya "Analizi aç" → kampanya detay dashboard; link
+  "Durdur/Etkinleştir" (PAUSED↔ACTIVE), "İptal et" (REVOKED, terminal — geri alınamaz, onay ister), "Analizi aç" → link
+  detay. CANCELLED kampanya reactive edilemez (409). Gerçek tracking URL yalnız oluşturma/yenileme anında gösterilir
+  (dashboard token göstermez).
+
+## Influencer Analytics Demo Completion (2026-07-28, ADR-177…179)
+
+- **Demo fixture:** `packages/db/scripts/influencer-demo-seed.mjs` (idempotent; DEMO_FIXTURE / MELEK-DEMO / INFDEMO-).
+  `enterprise-demo` mağazasında influencer analytics demosu (kampanya/link/UTM/currency/zaman serisi). Çalıştırma +
+  beklenen KPI + tracking URL + yaşam döngüsü gösterimi: `docs/runbooks/influencer-analytics-demo.md`. Demo bitene
+  kadar KORUNUR; temizlik runbook §5.
+- **Timezone:** günlük analytics gün sınırları `StoreSettings.timezone` (varsayılan Europe/Istanbul) ile bucketlanır;
+  API+UI aynı sınır. Aralık bounded (max 366 gün, varsayılan 30); gelecek gün yok; veri olmayan gün sıfır (zero-fill).
+- **Yeni migration YOK** (alanlar 20260728120000'de). `prisma migrate status` temiz olmalı.

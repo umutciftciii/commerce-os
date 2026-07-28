@@ -4650,3 +4650,134 @@ manifest'te taşınır (key rotation); key DEĞERİ hiçbir yerde. **Manifest HM
 olduğundan tek başına değiştirilebilir → encryption anahtarından TÜRETİLMİŞ MAC key ile HMAC-SHA256 imzalanır. Manifest
 kurcalanırsa (ör. `environment`/`checksum` değişimi) HMAC uyuşmaz → restore/verify reddeder → **cross-environment ve
 checksum guard'ı atlatılamaz**. Restore'da manifest ortamı hedef ortamla karşılaştırılır (`assertManifestEnvironment`).
+
+## ADR-170 — Influencer campaign/link yaşam döngüsü (additive enum + legacy normalize)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-102…107 · **Öncül:** Influencer Campaign Lifecycle & Granular Analytics
+
+**Karar.** Kampanya durumu `DRAFT | ACTIVE | PAUSED | ENDED | CANCELLED` (+legacy `ARCHIVED`); link durumu `ACTIVE |
+PAUSED | REVOKED` (+legacy `INACTIVE`). Migration ADDITIVE (`ALTER TYPE ... ADD VALUE IF NOT EXISTS`) — §5 attribution
+kapanış politikası ENDED/CANCELLED ve PAUSED/REVOKED ayrımını ZORUNLU kıldığından bu migration gereklidir, "gereksiz"
+değildir. Legacy değerler saf helper'larla normalize edilir: `ARCHIVED→ENDED`, `INACTIVE→PAUSED`, bilinmeyen→terminal
+(fail-closed). Yeni UI legacy değer üretmez. Yaşam döngüsü kuralları: `PAUSED→ACTIVE` linkleri yeniden çalıştırır ama
+`REVOKED` linki OTOMATİK açmaz + yeni click'ler için pencere yeni click anından başlar; `CANCELLED` terminaldir
+(reactivation reddedilir → 409, explicit yeni kampanya gerekir); `ENDED` `endsAt` uzatımı SESSİZCE yeniden açmaz
+(explicit `status=ACTIVE` PATCH gerekir). Link `REVOKED` terminaldir (tekrar status değişimi 409). Link yaşam döngüsü
+zaman damgaları `activatedAt/pausedAt/revokedAt` eklendi (detay dashboard).
+
+## ADR-171 — Redirect erişim kuralı (sunucu-otoriter, store+target dahil) + race
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-102, ADR-170
+
+**Karar.** Tracking URL yalnız TÜM koşullar sağlanırsa hedefe yönlendirir: campaign ACTIVE · link ACTIVE · startsAt
+geçmiş · endsAt geçmemiş · influencer ACTIVE · **store ACTIVE (yeni)** · **target ürün/kategori ACTIVE (yeni)**. Saf
+`evaluateRedirectEligibility(...)` (birim-testli) ilk başarısız koşuldan domain reason üretir. ÖNCEKİ davranış: pasif
+kampanyada gateway `grant:null` dönerken GERÇEK ürün `targetPath`'ini de döndürüyordu → storefront kullanıcıyı ürüne
+gönderiyordu ("durdurulmuş kampanya hâlâ ürüne yönlendiriyor" kusuru). YENİ: uygun değilse `available:false` + hedef
+`targetPath:null` (ürün SIZDIRILMAZ) + reason + bucket döner; click/session/cookie/visitor YAZILMAZ; pencere
+başlatılmaz. **Race:** campaign/link/store/target status gateway'de TEK `resolveTrackingLinkByTokenHash` sorgusunda
+(eşzamanlı) DB'den okunur; istemci cache otoritesi yok; stop sonrası geç gelen istek güncel status okur → attribution
+üretmez (click insert + grant üretimi kapıdan SONRA sıralı).
+
+## ADR-172 — Durdurulmuş kampanya terminal sayfası (200 + noindex; 410 kısıtı)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-171
+
+**Karar.** `/t/[token]` route handler gateway `available:false` dönünce storefront `/campaign-unavailable?state=<bucket>`e
+307 ile yönlendirir. Terminal sayfa 3 genel mesaj kovası gösterir (`ended` = "kampanya sona erdi", `inactive` = "şu anda
+aktif değil", `unavailable` = "artık kullanılamıyor"); ürün adı / özel müşteri bilgisi SIZDIRILMAZ; tracking token yanıtta
+YER ALMAZ; bu sayfa görüntülenmesi bir attribution EVENT'i DEĞİLDİR. **HTTP semantiği:** ideal `410 Gone`; ancak Next.js
+App Router render edilen `page.tsx` için özel status döndüremez (yalnız route handler ham yanıtta). Ürün kararı: markalı
+UX önceliği → **200 + `robots: noindex, nofollow`** (talebin açıkça izin verdiği "güvenli 200 + noindex" yolu). SEO
+indexlenmez. reason→bucket eşlemesi: ENDED→ended; CANCELLED/LINK_REVOKED/TARGET_NOT_AVAILABLE→unavailable; diğerleri→inactive.
+
+## ADR-173 — Önceden oluşmuş attribution session kapanış politikası
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-102, ADR-170
+
+**Karar.** Yeni ziyaretler (PAUSED/ENDED/CANCELLED) redirect kapısında engellenir (click/session/cookie yok). Pencere-içi
+ÖNCEDEN geçerli oluşmuş session için conversion (checkout yan etkisi) kararı saf `evaluateConversionEligibility(...)`
+(birim-testli): campaign ∈ {ACTIVE, PAUSED, ENDED} ve link ∉ {REVOKED} ve influencer ACTIVE ve pencere içi → conversion
+YAZILIR. `CANCELLED`/`DRAFT` kampanya ve `REVOKED` link conversion ÜRETMEZ (kampanya ACTIVE olsa bile REVOKED link
+üretmez). `PAUSED` link conversion üretir (yalnız yeni click kapalı). Session SİLİNMEZ (cookie doğal TTL'inde kalır);
+yalnız conversion yazımı kapıdan geçer. ÖNCEKİ davranış campaign `!== ACTIVE` ise TÜM conversion'ı reddediyordu (ENDED/
+PAUSED pencere-içi geçerli session bile) → istenen politikadan katı; düzeltildi. Ayrıca link REVOKED checkout'ta artık
+engellenir (önceden link opsiyonel okunuyordu, engellenmiyordu).
+
+## ADR-174 — 3-seviyeli granüler analytics bilgi mimarisi
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-105
+
+**Karar.** Influencer detayı üç seviye: (A) Influencer toplamı `GET .../influencers/:id/analytics` — KPI + kampanya/aktif-
+kampanya/link sayıları + kampanya bazlı zengin satırlar; (B) Kampanya detayı `GET .../influencer-campaigns/:id/analytics`
+— KPI + link bazlı satırlar + UTM kırılımı + hedef breakdown + günlük seri + son atıflı siparişler; (C) Link detayı
+`GET .../influencer-tracking-links/:id/analytics` — KPI + günlük seri + son sipariş + son tıklama/dönüşüm zamanı. ÖNCEKİ
+kusur: veri katmanı breakdown üretse de store-admin YALNIZ influencer toplam KPI şeridini gösteriyordu; per-campaign/
+per-link performans ve drill-down YOKTU. YENİ: kampanya kartları metrikli (tıklama/tekil/sipariş/dönüşüm/net ciro) +
+"Analizi aç" → kampanya detayı; link satırları "Analizi aç" → link detayı. Aynı kampanyanın linkleri campaignId scope'uyla
+izole; hiyerarşi (influencer→campaign→link) + tenant SUNUCUDA doğrulanır; cross-store 404; server-side aggregation, N+1
+YOK (GROUP BY toplu sorgular). Gerçek tracking URL/token dashboard'da GÖSTERİLMEZ (ADR-102 politikası korunur).
+
+## ADR-175 — UTM immutable + click join; content/term/label additive
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-103, ADR-174
+
+**Karar.** Order UTM zaten `OrderAttribution.snapshot`'ta immutable (korunur). Click UTM'i AYRI snapshot edilmez; link'e
+join'lenir. Tarihsel doğruluk için UTM link OLUŞTURMADA set edilir ve SONRADAN DEĞİŞTİRİLMEZ (immutable) → click-seviyesi
+UTM raporu link join'iyle tarihsel doğru. `trackingLinkUpdateRequestSchema` yalnız yaşam döngüsü status geçişine
+indirgendi (UTM alanları kaldırıldı). Yeni link alanları `utmContent`, `utmTerm`, `customLabel` additive migration ile
+eklendi (raporlama bağlamı). Campaign/link yeniden adlandırılsa bile geçmiş order metriği snapshot sayesinde kaybolmaz.
+
+## ADR-176 — Multi-currency ayrı toplam + unique visitor semantiği
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-105
+
+**Karar.** **Multi-currency:** gelir YALNIZ aynı currency içinde toplanır. Analytics per-currency dizisi döner
+(`revenues: [{currency, gross, refunded, net, orders, aov}]`) + `hasMultipleCurrencies`. Üst-seviye `gross/net/currency`
+BİRİNCİL (en yüksek net gelirli) currency'i taşır — cross-currency SESSİZ TOPLAM ÜRETİLMEZ; birden fazla currency varsa
+UI her birini ayrı gösterir. `attributedOrders` sipariş SAYISI (currency-bağımsız) olduğundan toplanır. ÖNCEKİ kusur:
+`SUM(grossRevenueMinor)` tüm currency'ler arası toplanıyor, currency "en sık olan" seçiliyordu → sessiz yanlış toplam.
+**Unique visitor:** `COUNT(DISTINCT visitorIdHash)` (ham IP DEĞİL; ADR-106 KVKK), campaign/link + tarih scope'unda. Aynı
+kişinin tekrar tıklaması click'i artırır, unique'i artırmaz. Influencer toplam unique'i `DISTINCT visitorIdHash` union'dur;
+kampanya satır unique'lerinin aritmetik toplamından FARKLI olabilir (bir ziyaretçi iki kampanyada iki kez sayılır) —
+dokümante edildi.
+
+## ADR-177 — Influencer analytics demo fixture politikası
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-174…176 · **Öncül:** Analytics Demo Completion
+
+**Karar.** Müşteri demosu için deterministik + idempotent fixture: `packages/db/scripts/influencer-demo-seed.mjs`.
+`enterprise-demo` (edm-store) mağazasında tek influencer (**Melek İçmeli**, code `MELEK-DEMO`) + 3 kampanya
+(Instagram/TikTok/YouTube, farklı UTM + customLabel) + izleme linkleri + farklı sayıda tıklama (unique < clicks) +
+iki kampanyadan atıflı sipariş (**TRY + USD** → currency ayrımı). Fixture işaretleri: influencer `code=MELEK-DEMO`
++ `notes` `DEMO_FIXTURE`, siparişler `orderNumber` `INFDEMO-` öneki, e-posta `melek.demo@fixture.local`. **Idempotent:**
+her çalıştırma kendi fixture'ını (INFDEMO- sipariş → cascade attribution + MELEK-DEMO influencer → cascade campaign/
+link/click) silip yeniden kurar; başka veriye dokunmaz. **Koruma:** fixture demo sonuna kadar SİLİNMEZ (yalnız geçici
+teknik smoke verisi temizlenir). Token deterministik türetilir (SESSION_SECRET ile `tokenHash`); plain tracking URL
+runbook'ta. Fixture yalnız demo mağazasında; production seed akışına DOKUNMAZ.
+
+## ADR-178 — Analytics timezone day-bucketing + bounded aralık + zero-fill
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-174 · **Öncül:** TD-146
+
+**Karar.** Günlük zaman serisi gün sınırları **store timezone**'unda hesaplanır (`StoreSettings.timezone`, varsayılan
+`Europe/Istanbul`). SQL: `date_trunc('day', (col AT TIME ZONE 'UTC') AT TIME ZONE <tz>)` — UTC saklanan `createdAt`/
+`attributedAt` tz-yerel güne çevrilir. API ve UI **aynı gün sınırını** kullanır: sunucu tz-yerel gün dizisini üretir,
+UI aynı stringlerle render eder. Aralık **bounded** (`ANALYTICS_MAX_RANGE_DAYS=366`, varsayılan 30); aşan aralık alt
+sınırdan kırpılır. Üst sınır bugünü (tz) aşamaz → **gelecek gün gösterilmez**. **Zero-fill:** aralıktaki HER gün seride
+yer alır (veri yoksa sıfır + boş revenues) → grafik boşluksuz. Çözüm SAF/deterministik (`analytics-range.ts`,
+`resolveRange`, birim-testli; `nowMs` enjekte edilebilir). Ön ayarlar 7/30/90 gün + özel aralık.
+
+## ADR-179 — Currency-aware granüler aggregation (UTM + günlük per-currency)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-176 · **Öncül:** TD-144
+
+**Karar.** ADR-176 (para birimi başına ayrı toplam) UTM kırılımı ve günlük seriye genişletildi. **UTM breakdown:** her
+UTM kombinasyonu (source/medium/campaign/content/term + `customLabel`) için clicks/uniqueVisitors/attributedOrders/
+conversionRate + **currency başına ayrı gelir** (`revenues[]` + `hasMultipleCurrencies`). İki sorgu birleşir: clicks+
+unique (link'ten immutable UTM'e göre) ve orders+gelir (UTM + currency GROUP BY). Cross-currency SESSİZ TOPLANMAZ.
+**Günlük seri:** her gün per-currency `revenues[]` (gross/net) + conversionRate; üst-seviye gross/net birincil currency
+(geri uyum). Grafik farklı currency gelirlerini TEK çizgide birleştirmez → currency başına ayrı seri. **Zaman serisi
+filtreleri:** campaign dashboard günlük serisi link + UTM (source/medium/campaign) filtresiyle daraltılabilir (filtre
+linkId kümesine çözülür); özet/link tablosu/UTM kırılımı bu filtreden ETKİLENMEZ (tarih aralığında tam kampanya).
+Attribution snapshot (ADR-103) esas alınır; güncel link metadata geçmiş order metriğini değiştirmez.

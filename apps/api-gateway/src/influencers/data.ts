@@ -20,8 +20,16 @@ import {
   isRapidRepeatClick,
   reduceAttributionRevenue,
 } from "./tracking-core.js";
+import {
+  getAggregateAnalyticsImpl,
+  getCampaignAnalyticsImpl,
+  getLinkAnalyticsImpl,
+  type AggregateAnalyticsData,
+  type CampaignAnalyticsData,
+  type LinkAnalyticsData,
+} from "./analytics.js";
 
-type PrismaLike = typeof prisma;
+export type PrismaLike = typeof prisma;
 
 // ── Record tipleri ──────────────────────────────────────────────────────────
 export interface InfluencerRecord {
@@ -61,16 +69,28 @@ export interface TrackingLinkRecord {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  customLabel: string | null;
   status: TrackingLinkStatus;
+  activatedAt: Date | null;
+  pausedAt: Date | null;
+  revokedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-/** Public track çözümü: link + kampanya + influencer aktiflik/pencere için. */
+/**
+ * Public track çözümü: link + kampanya + influencer + store aktifliği + target
+ * aktifliği (ADR-171). `storeActive` StoreStatus=ACTIVE; `targetAvailable` PRODUCT/
+ * CATEGORY hedefi hâlâ ACTIVE mi (HOME/PATH her zaman true).
+ */
 export interface ResolvedTrackingLink {
   link: TrackingLinkRecord;
   campaign: InfluencerCampaignRecord;
   influencer: Pick<InfluencerRecord, "id" | "name" | "code" | "status">;
+  storeActive: boolean;
+  targetAvailable: boolean;
 }
 
 /** Grant doğrulandıktan sonra checkout'un yazacağı çözülmüş attribution. */
@@ -164,13 +184,22 @@ export interface InfluencerData {
       utmSource: string | null;
       utmMedium: string | null;
       utmCampaign: string | null;
+      utmContent: string | null;
+      utmTerm: string | null;
+      customLabel: string | null;
     },
   ): Promise<TrackingLinkListRow | "CAMPAIGN_NOT_FOUND" | "TOKEN_COLLISION">;
-  updateTrackingLink(
+  /**
+   * Yalnız yaşam döngüsü status geçişi (ADR-170). UTM immutable (ADR-175) → burada
+   * güncellenmez. Status geçişinde ilgili zaman damgası (activatedAt/pausedAt/revokedAt)
+   * set edilir; REVOKED terminaldir (REVOKED linke tekrar ACTIVE yazılamaz).
+   */
+  updateTrackingLinkStatus(
     storeId: string,
     id: string,
-    input: Partial<{ status: TrackingLinkStatus; utmSource: string | null; utmMedium: string | null; utmCampaign: string | null }>,
-  ): Promise<TrackingLinkListRow | null>;
+    status: TrackingLinkStatus,
+    at: Date,
+  ): Promise<TrackingLinkListRow | null | "REVOKED_TERMINAL">;
   /** Yenileme (rotation): eski tokenHash yerine yenisini yazar (eski token geçersizlenir). */
   regenerateTrackingLinkToken(storeId: string, id: string, tokenHash: string): Promise<TrackingLinkListRow | null | "TOKEN_COLLISION">;
   resolveProductTarget(storeId: string, productId: string): Promise<{ slug: string; title: string } | null>;
@@ -200,9 +229,14 @@ export interface InfluencerData {
   ): Promise<void>;
   applyRefund(storeId: string, orderId: string, refundKey: string, amountMinor: number): Promise<void>;
 
-  // Analytics
+  // Analytics (legacy tek-toplam + granüler 3-seviyeli — ADR-174)
   getAnalytics(storeId: string, filters: AnalyticsFilters): Promise<AnalyticsResult>;
   exportRows(storeId: string, filters: AnalyticsFilters): Promise<AttributionExportRow[]>;
+  getAggregateAnalytics(storeId: string, influencerId: string, filters: AnalyticsFilters, dayStrings: string[]): Promise<AggregateAnalyticsData>;
+  getCampaignAnalytics(storeId: string, campaignId: string, filters: AnalyticsFilters, dayStrings: string[]): Promise<CampaignAnalyticsData>;
+  getLinkAnalytics(storeId: string, linkId: string, filters: AnalyticsFilters, dayStrings: string[]): Promise<LinkAnalyticsData>;
+  /** Store timezone (StoreSettings.timezone; yoksa Europe/Istanbul). Günlük seri gün sınırı. */
+  getStoreTimezone(storeId: string): Promise<string>;
 }
 
 export interface TrackingLinkListRow extends TrackingLinkRecord {
@@ -221,6 +255,20 @@ export interface AnalyticsFilters {
   influencerId?: string;
   campaignId?: string;
   trackingLinkId?: string;
+  timezone?: string;
+  // Yalnız günlük seriyi daraltan filtreler (campaign dashboard).
+  filterTrackingLinkId?: string;
+  filterUtmSource?: string;
+  filterUtmMedium?: string;
+  filterUtmCampaign?: string;
+}
+
+export interface CurrencyRevenue {
+  currency: string;
+  orders: number;
+  grossRevenueMinor: number;
+  refundedRevenueMinor: number;
+  netRevenueMinor: number;
 }
 
 export interface AnalyticsResult {
@@ -232,6 +280,9 @@ export interface AnalyticsResult {
     refundedRevenueMinor: number;
     netRevenueMinor: number;
     currency: string;
+    /** Para birimi başına ayrı toplam (ADR-176) — sessiz cross-currency toplam yok. */
+    revenues: CurrencyRevenue[];
+    hasMultipleCurrencies: boolean;
   };
   daily: {
     date: string;
@@ -439,8 +490,9 @@ export function createInfluencerData(db: PrismaLike = prisma): InfluencerData {
       });
       if (!campaign) return "CAMPAIGN_NOT_FOUND";
       try {
+        // Link ACTIVE olarak oluşur → activatedAt işaretlenir (yaşam döngüsü izleme).
         const row = await db.influencerTrackingLink.create({
-          data: { storeId, ...input },
+          data: { storeId, ...input, activatedAt: new Date() },
           include: linkInclude(),
         });
         return toLinkRow(row);
@@ -449,10 +501,19 @@ export function createInfluencerData(db: PrismaLike = prisma): InfluencerData {
         throw error;
       }
     },
-    async updateTrackingLink(storeId, id, input) {
-      const existing = await db.influencerTrackingLink.findFirst({ where: { id, storeId }, select: { id: true } });
+    async updateTrackingLinkStatus(storeId, id, status, at) {
+      const existing = await db.influencerTrackingLink.findFirst({
+        where: { id, storeId },
+        select: { id: true, status: true },
+      });
       if (!existing) return null;
-      const row = await db.influencerTrackingLink.update({ where: { id }, data: input, include: linkInclude() });
+      // REVOKED terminaldir — geri alınamaz (ADR-170).
+      if (existing.status === "REVOKED") return "REVOKED_TERMINAL";
+      const data: Prisma.InfluencerTrackingLinkUpdateInput = { status };
+      if (status === "ACTIVE") data.activatedAt = at;
+      else if (status === "PAUSED" || status === "INACTIVE") data.pausedAt = at;
+      else if (status === "REVOKED") data.revokedAt = at;
+      const row = await db.influencerTrackingLink.update({ where: { id }, data, include: linkInclude() });
       return toLinkRow(row);
     },
     async regenerateTrackingLinkToken(storeId, id, tokenHash) {
@@ -482,15 +543,27 @@ export function createInfluencerData(db: PrismaLike = prisma): InfluencerData {
     async resolveTrackingLinkByTokenHash(storeId, tokenHash) {
       const row = await db.influencerTrackingLink.findFirst({
         where: { storeId, tokenHash },
-        include: { campaign: { include: { influencer: { select: { id: true, name: true, code: true, status: true } } } } },
+        include: {
+          campaign: { include: { influencer: { select: { id: true, name: true, code: true, status: true } } } },
+          store: { select: { status: true } },
+          product: { select: { status: true } },
+          category: { select: { status: true } },
+        },
       });
       if (!row) return null;
-      const { campaign, ...link } = row;
+      const { campaign, store, product, category, ...link } = row;
       const { influencer, ...campaignFields } = campaign;
+      // Target aktifliği (ADR-171): PRODUCT/CATEGORY hedefi hâlâ ACTIVE olmalı; hedef
+      // silinmişse (product/category null) kullanılamaz. HOME/PATH her zaman geçerli.
+      let targetAvailable = true;
+      if (link.targetType === "PRODUCT") targetAvailable = product?.status === "ACTIVE";
+      else if (link.targetType === "CATEGORY") targetAvailable = category?.status === "ACTIVE";
       return {
         link: toLink(link),
         campaign: toCampaign(campaignFields),
         influencer,
+        storeActive: store?.status === "ACTIVE",
+        targetAvailable,
       };
     },
     async findLastClickAt(storeId, trackingLinkId, visitorIdHash) {
@@ -562,6 +635,13 @@ export function createInfluencerData(db: PrismaLike = prisma): InfluencerData {
     // ---- Analytics --------------------------------------------------------
     getAnalytics: (storeId, filters) => getAnalyticsImpl(db, storeId, filters),
     exportRows: (storeId, filters) => exportRowsImpl(db, storeId, filters),
+    getAggregateAnalytics: (storeId, influencerId, filters, dayStrings) => getAggregateAnalyticsImpl(db, storeId, influencerId, filters, dayStrings),
+    getCampaignAnalytics: (storeId, campaignId, filters, dayStrings) => getCampaignAnalyticsImpl(db, storeId, campaignId, filters, dayStrings),
+    getLinkAnalytics: (storeId, linkId, filters, dayStrings) => getLinkAnalyticsImpl(db, storeId, linkId, filters, dayStrings),
+    async getStoreTimezone(storeId) {
+      const row = await db.storeSettings.findUnique({ where: { storeId }, select: { timezone: true } });
+      return row?.timezone || "Europe/Istanbul";
+    },
   };
 }
 
@@ -629,7 +709,13 @@ function toLink(r: TrackingLinkRecord): TrackingLinkRecord {
     utmSource: r.utmSource,
     utmMedium: r.utmMedium,
     utmCampaign: r.utmCampaign,
+    utmContent: r.utmContent,
+    utmTerm: r.utmTerm,
+    customLabel: r.customLabel,
     status: r.status,
+    activatedAt: r.activatedAt,
+    pausedAt: r.pausedAt,
+    revokedAt: r.revokedAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -737,10 +823,10 @@ async function getAnalyticsImpl(db: PrismaLike, storeId: string, f: AnalyticsFil
         Prisma.sql`SELECT COUNT(*)::bigint AS total, COUNT(DISTINCT c."visitorIdHash")::bigint AS uniques
           FROM "AttributionClick" c JOIN "InfluencerCampaign" cam ON cam."id" = c."campaignId" WHERE ${cw}`,
       ),
-      db.$queryRaw<{ orders: bigint; gross: bigint; refunded: bigint; net: bigint }[]>(
-        Prisma.sql`SELECT COUNT(*)::bigint AS orders, COALESCE(SUM(a."grossRevenueMinor"),0)::bigint AS gross,
+      db.$queryRaw<{ currency: string; orders: bigint; gross: bigint; refunded: bigint; net: bigint }[]>(
+        Prisma.sql`SELECT a."currency", COUNT(*)::bigint AS orders, COALESCE(SUM(a."grossRevenueMinor"),0)::bigint AS gross,
           COALESCE(SUM(a."refundedRevenueMinor"),0)::bigint AS refunded, COALESCE(SUM(a."netRevenueMinor"),0)::bigint AS net
-          FROM "OrderAttribution" a WHERE ${aw}`,
+          FROM "OrderAttribution" a WHERE ${aw} GROUP BY a."currency" ORDER BY net DESC`,
       ),
       db.$queryRaw<{ day: string; clicks: bigint; uniques: bigint }[]>(
         Prisma.sql`SELECT to_char(date_trunc('day', c."createdAt"), 'YYYY-MM-DD') AS day,
@@ -807,7 +893,17 @@ async function getAnalyticsImpl(db: PrismaLike, storeId: string, f: AnalyticsFil
   const clicksByLinkMap = new Map(clicksByLink.map((r) => [r.trackingLinkId, n(r.clicks)]));
 
   const cs = clickSummary[0] ?? { total: 0n, uniques: 0n };
-  const os = orderSummary[0] ?? { orders: 0n, gross: 0n, refunded: 0n, net: 0n };
+  // Para birimi başına ayrı gelir (ADR-176). Cross-currency SESSIZ TOPLANMAZ; birincil
+  // = en yüksek net gelirli currency; üst-seviye gross/net birincil currency'i taşır.
+  const revenues: CurrencyRevenue[] = orderSummary.map((r) => ({
+    currency: r.currency,
+    orders: n(r.orders),
+    grossRevenueMinor: n(r.gross),
+    refundedRevenueMinor: n(r.refunded),
+    netRevenueMinor: n(r.net),
+  }));
+  const primary = revenues[0];
+  const totalOrders = revenues.reduce((sum, r) => sum + r.orders, 0);
   const clicksByDay = new Map(dailyClicks.map((d) => [d.day, d]));
   const ordersByDay = new Map(dailyOrders.map((d) => [d.day, d]));
   const days = Array.from(new Set([...clicksByDay.keys(), ...ordersByDay.keys()])).sort();
@@ -816,11 +912,13 @@ async function getAnalyticsImpl(db: PrismaLike, storeId: string, f: AnalyticsFil
     summary: {
       totalClicks: n(cs.total),
       uniqueVisitors: n(cs.uniques),
-      attributedOrders: n(os.orders),
-      grossRevenueMinor: n(os.gross),
-      refundedRevenueMinor: n(os.refunded),
-      netRevenueMinor: n(os.net),
-      currency: currencyRow[0]?.currency ?? "TRY",
+      attributedOrders: totalOrders,
+      grossRevenueMinor: primary?.grossRevenueMinor ?? 0,
+      refundedRevenueMinor: primary?.refundedRevenueMinor ?? 0,
+      netRevenueMinor: primary?.netRevenueMinor ?? 0,
+      currency: primary?.currency ?? currencyRow[0]?.currency ?? "TRY",
+      revenues,
+      hasMultipleCurrencies: revenues.length > 1,
     },
     daily: days.map((day) => {
       const c = clicksByDay.get(day);

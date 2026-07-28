@@ -12,6 +12,18 @@ export const enStorefront: StorefrontDictionary = {
     title: "Demo Store · commerce-os",
     description: "Demo storefront running on the commerce-os platform.",
   },
+  // Stopped/ended/cancelled campaign link terminal page (ADR-172). No product name or
+  // private info is leaked; three generic state messages.
+  campaignUnavailable: {
+    metaTitle: "Link unavailable",
+    endedTitle: "This campaign has ended",
+    endedDescription: "This link is no longer active because the campaign has ended. Feel free to browse our store.",
+    inactiveTitle: "This campaign is not active right now",
+    inactiveDescription: "This campaign link is not active right now. Feel free to browse our store.",
+    unavailableTitle: "This link is no longer available",
+    unavailableDescription: "This link is no longer valid. Feel free to browse our store.",
+    action: "Go to store",
+  },
   shell: {
     brand: "Demo Store",
     announcement: "Free shipping on orders over ₺750 · Demo storefront",

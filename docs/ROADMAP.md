@@ -773,3 +773,37 @@
   (worker-tetikli: STARTED→COMPLETED, offsite obje, SKIPPED_LOCKED, Redis Job Scheduler, gateway'de scheduler yok).
 - **PB-2 CLOSED** kalır; **PB-3 OPEN / PROD BLOCKER (TD-139)** — production offsite provider yapılandırılıp
   production kaynaklı remote backup + restore-verification geçene dek. Bu turda commit/push/PR/deploy YAPILMADI.
+
+## Influencer Campaign Lifecycle & Granular Analytics (2026-07-28, ADR-170…176)
+
+- **Durum:** KOD + MIGRATION + TEST + DOKÜMANTASYON TAMAM · commit/PR YOK (talep gereği dur) · canlı smoke bekliyor (TD-143).
+- **Kapsam.** TODO-160 attribution çekirdeği üzerine iki ürün kusuru + yaşam döngüsü + granüler analitik:
+  1. **Redirect kusuru (ADR-171/172).** Durdurulmuş kampanyanın tracking URL'si ürüne yönlendiriyordu → artık markalı
+     terminal sayfa (`/campaign-unavailable`, 200+noindex); click/session/cookie/pencere YAZILMAZ; hedef ürün sızdırılmaz.
+     Redirect kapısına store aktifliği + target ürün/kategori aktifliği eklendi.
+  2. **Analitik kusuru (ADR-174/176).** Influencer detayı tek toplam gösteriyordu → 3-seviyeli IA: influencer toplam
+     (sayılar) + kampanya bazlı metrik tablosu + kampanya detay dashboard (link/UTM/hedef/seri/son sipariş) + link detay
+     dashboard. Multi-currency ayrı toplam (sessiz cross-currency toplam kaldırıldı).
+- **Yaşam döngüsü (ADR-170).** Campaign `DRAFT/ACTIVE/PAUSED/ENDED/CANCELLED` (+legacy ARCHIVED→ENDED); link `ACTIVE/
+  PAUSED/REVOKED` (+legacy INACTIVE→PAUSED). Additive migration `20260728120000` (gerçek PG'ye UYGULANDI + doğrulandı).
+- **Attribution kapanış (ADR-173).** PAUSED/ENDED pencere-içi eski session convert eder; CANCELLED/DRAFT ve REVOKED link
+  etmez; session silinmez.
+- **Gate'ler.** gateway build 0 · gateway test 1653/1653 (39 yeni influencer testi) · store-admin 356 · storefront 439 ·
+  lint 0 hata · her iki app tsc 0 · git diff --check temiz.
+- **Sıra:** bu faz TAMAM (commit'e hazır) → **H-1 Theme Token Stored XSS** (bu iş için ertelenmişti) devam edecek.
+
+## Influencer Analytics Demo Completion (2026-07-28, ADR-177…179)
+
+- **Durum:** TD-143/144/145/146 KAPATILDI · kod + fixture + runbook + testler tamam · SHIP hazır.
+- **TD-145** — tracking link formu tam (6 UTM/label alanı: source/medium/campaign/content/term + customLabel; trim +
+  empty-to-null + max120 + kontrol-karakter reddi + TR/EN + immutable ipucu). Liste/detayda customLabel + UTM görünür.
+- **TD-144** — currency-aware UTM kırılımı (clicks/unique/orders/CR + per-currency `revenues[]` + hasMultipleCurrencies +
+  customLabel); influencer/campaign/link/UTM her seviyede currency ayrımı; sessiz cross-currency toplam YOK.
+- **TD-146** — kampanya/link günlük zaman serisi grafiği (bağımlılıksız inline SVG; 7/30/90/özel aralık, store-timezone
+  gün sınırı, zero-fill, link/UTM filtre, tooltip/legend/empty/loading/a11y; currency başına ayrı seri).
+- **TD-143** — deterministik demo fixture (`influencer-demo-seed.mjs`: Melek İçmeli + 3 kampanya + UTM + 42 tıklama +
+  TRY/USD sipariş) + `docs/runbooks/influencer-analytics-demo.md`. Data-layer smoke gerçek PG'ye karşı PASS (25/26; 1
+  smoke-script alan hatası, ürün doğru).
+- **Gate'ler.** gateway build 0 · test 1669 (+16) · store-admin 356 · storefront 439 · lint 0 · tsc 0 · migrate status
+  temiz (yeni migration YOK — alanlar 20260728120000'de).
+- **Sıra:** SHIP (commit→PR→merge→deploy→smoke→worktree cleanup) → **H-1 Theme Token Stored XSS** (SIRADAKİ aktif faz).

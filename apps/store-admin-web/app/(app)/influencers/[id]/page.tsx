@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   Alert,
@@ -28,6 +29,7 @@ import type {
   TrackingLinkTargetType,
   TrackingLinkCreateRequest,
   AttributionKpiSummary,
+  AttributionCampaignRow,
 } from "@commerce-os/api-client";
 import {
   EntitySelectorField,
@@ -39,18 +41,28 @@ import { messageForError } from "../../../../lib/client/messages";
 import { formatDate } from "../../../../lib/client/format";
 import { DetailHero, SurfaceCard } from "../../../components/premium";
 import { InfluencerFormModal } from "../influencer-form";
-import { AttributionMetrics, type AttributionLabels } from "../attribution";
+import { AttributionMetrics, formatMoneyMinor, formatRate, type AttributionLabels } from "../attribution";
 
 type Locale = "tr" | "en";
 type Tone = "neutral" | "success" | "warning" | "info" | "danger";
 
 const STATUS_TONES: Record<InfluencerStatus, Tone> = { ACTIVE: "success", INACTIVE: "neutral" };
 const CAMPAIGN_TONES: Record<InfluencerCampaignStatus, Tone> = {
+  DRAFT: "info",
   ACTIVE: "success",
   PAUSED: "warning",
+  ENDED: "neutral",
+  CANCELLED: "danger",
   ARCHIVED: "neutral",
 };
-const CAMPAIGN_STATUSES: readonly InfluencerCampaignStatus[] = ["ACTIVE", "PAUSED", "ARCHIVED"];
+// Oluşturma formunda sunulan durumlar (ENDED/CANCELLED yaşam döngüsü geçişleridir → detayda).
+const CAMPAIGN_STATUSES: readonly InfluencerCampaignStatus[] = ["DRAFT", "ACTIVE", "PAUSED"];
+const LINK_TONES: Record<string, Tone> = {
+  ACTIVE: "success",
+  PAUSED: "warning",
+  REVOKED: "danger",
+  INACTIVE: "neutral",
+};
 const TARGET_TYPES: readonly TrackingLinkTargetType[] = ["HOME", "PRODUCT", "CATEGORY", "PATH"];
 
 const L = {
@@ -73,10 +85,25 @@ const L = {
     campaignEnds: "Bitiş (opsiyonel)",
     campaignLinks: "link",
     campaignStatusLabels: {
+      DRAFT: "Taslak",
       ACTIVE: "Aktif",
       PAUSED: "Duraklatıldı",
+      ENDED: "Sona erdi",
+      CANCELLED: "İptal edildi",
       ARCHIVED: "Arşivlendi",
     } as Record<InfluencerCampaignStatus, string>,
+    openAnalytics: "Analizi aç",
+    revoke: "İptal et",
+    revokeConfirm: "Bu link kalıcı olarak iptal edilecek (geri alınamaz). Emin misiniz?",
+    campaignActiveCount: "Aktif kampanya",
+    campaignCount: "Kampanya",
+    linkCount: "Link",
+    colClicks: "Tıklama",
+    colVisitors: "Tekil",
+    colOrders: "Sipariş",
+    colRevenue: "Net ciro",
+    colConversion: "Dönüşüm",
+    multiCurrencyNote: "Birden fazla para birimi — her biri ayrı gösterilir.",
     // Linkler
     linksTitle: "İzleme linkleri",
     linksDescription: "Tıklama ve atıflı sipariş sayıları. Link URL'si güvenlik için yalnız oluşturma/yenileme anında gösterilir.",
@@ -102,13 +129,17 @@ const L = {
     utmSource: "UTM Source (opsiyonel)",
     utmMedium: "UTM Medium (opsiyonel)",
     utmCampaign: "UTM Campaign (opsiyonel)",
+    utmContent: "UTM Content (opsiyonel)",
+    utmTerm: "UTM Term (opsiyonel)",
+    customLabel: "Özel etiket (opsiyonel)",
+    utmImmutableHint: "UTM alanları oluşturmadan sonra değiştirilemez. Değişiklik için 'Yeni link üret' kullanın (eski link geçmişi korunur).",
     targetTypeLabels: {
       HOME: "Ana sayfa",
       PRODUCT: "Ürün",
       CATEGORY: "Kategori",
       PATH: "Serbest yol",
     } as Record<TrackingLinkTargetType, string>,
-    linkStatusLabels: { ACTIVE: "Aktif", INACTIVE: "Pasif" } as Record<string, string>,
+    linkStatusLabels: { ACTIVE: "Aktif", PAUSED: "Duraklatıldı", REVOKED: "İptal edildi", INACTIVE: "Pasif" } as Record<string, string>,
     // Analitik
     metricsTitle: "Atıf özeti",
     metricsDescription: "Bu influencer'ın tüm zamanlar performansı.",
@@ -142,10 +173,25 @@ const L = {
     campaignEnds: "Ends at (optional)",
     campaignLinks: "links",
     campaignStatusLabels: {
+      DRAFT: "Draft",
       ACTIVE: "Active",
       PAUSED: "Paused",
+      ENDED: "Ended",
+      CANCELLED: "Cancelled",
       ARCHIVED: "Archived",
     } as Record<InfluencerCampaignStatus, string>,
+    openAnalytics: "Open analytics",
+    revoke: "Revoke",
+    revokeConfirm: "This link will be permanently revoked (cannot be undone). Continue?",
+    campaignActiveCount: "Active campaigns",
+    campaignCount: "Campaigns",
+    linkCount: "Links",
+    colClicks: "Clicks",
+    colVisitors: "Unique",
+    colOrders: "Orders",
+    colRevenue: "Net revenue",
+    colConversion: "Conversion",
+    multiCurrencyNote: "Multiple currencies — each shown separately.",
     linksTitle: "Tracking links",
     linksDescription: "Click and attributed-order counts. For security the link URL is shown only when created or regenerated.",
     newLink: "New link",
@@ -170,13 +216,17 @@ const L = {
     utmSource: "UTM Source (optional)",
     utmMedium: "UTM Medium (optional)",
     utmCampaign: "UTM Campaign (optional)",
+    utmContent: "UTM Content (optional)",
+    utmTerm: "UTM Term (optional)",
+    customLabel: "Custom label (optional)",
+    utmImmutableHint: "UTM fields cannot be changed after creation. Use 'Regenerate link' to change them (the old link's history is preserved).",
     targetTypeLabels: {
       HOME: "Home",
       PRODUCT: "Product",
       CATEGORY: "Category",
       PATH: "Custom path",
     } as Record<TrackingLinkTargetType, string>,
-    linkStatusLabels: { ACTIVE: "Active", INACTIVE: "Inactive" } as Record<string, string>,
+    linkStatusLabels: { ACTIVE: "Active", PAUSED: "Paused", REVOKED: "Revoked", INACTIVE: "Inactive" } as Record<string, string>,
     metricsTitle: "Attribution summary",
     metricsDescription: "All-time performance for this influencer.",
     save: "Save",
@@ -324,7 +374,16 @@ function InfluencerAnalyticsCard({
   );
 }
 
-/* ── Kampanyalar ────────────────────────────────────────────────────────────── */
+/* ── Kampanyalar (B seviyesi — per-campaign metrik + drill-down) ─────────────── */
+function CampaignMetricStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-[64px]">
+      <p className="text-[10px] uppercase tracking-wide text-white/40">{label}</p>
+      <p className="tabular-nums text-sm text-white/85">{value}</p>
+    </div>
+  );
+}
+
 function CampaignsSection({
   influencerId,
   t,
@@ -334,15 +393,18 @@ function CampaignsSection({
   t: (typeof L)[Locale];
   locale: Locale;
 }) {
-  const [campaigns, setCampaigns] = useState<InfluencerCampaignSummary[] | null>(null);
+  const [campaigns, setCampaigns] = useState<AttributionCampaignRow[] | null>(null);
+  const [totals, setTotals] = useState<{ campaignCount: number; activeCampaignCount: number; linkCount: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const result = await storeApi.listInfluencerCampaigns({ influencerId });
-      setCampaigns(result.data);
+      // Aggregate: kampanya satırları metriklerle + toplam sayılar (tek çağrı).
+      const result = await storeApi.getInfluencerAggregateAnalytics(influencerId);
+      setCampaigns(result.data.campaigns);
+      setTotals(result.data.totals);
     } catch (cause) {
       setError(messageForError(cause, locale));
       setCampaigns([]);
@@ -353,10 +415,16 @@ function CampaignsSection({
     void load();
   }, [load]);
 
+  const num = (v: number) => v.toLocaleString(locale === "tr" ? "tr-TR" : "en-US");
+
   return (
     <SurfaceCard
       title={t.campaignsTitle}
-      description={t.campaignsDescription}
+      description={
+        totals
+          ? `${t.campaignCount}: ${totals.campaignCount} · ${t.campaignActiveCount}: ${totals.activeCampaignCount} · ${t.linkCount}: ${totals.linkCount}`
+          : t.campaignsDescription
+      }
       actions={<Button onClick={() => setFormOpen(true)}>{t.newCampaign}</Button>}
     >
       {error ? <Alert tone="error">{error}</Alert> : null}
@@ -382,21 +450,45 @@ function CampaignsSection({
         <ul className="space-y-2">
           {campaigns.map((campaign) => (
             <li
-              key={campaign.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3"
+              key={campaign.campaignId}
+              className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3"
             >
-              <div className="min-w-0">
-                <p className="truncate font-medium text-white/90">{campaign.name}</p>
-                <p className="text-xs text-white/45">
-                  {t.campaignWindow}: {campaign.attributionWindowDays} · {campaign.linkCount}{" "}
-                  {t.campaignLinks}
-                  {campaign.startsAt ? ` · ${formatDate(campaign.startsAt)}` : ""}
-                  {campaign.endsAt ? ` → ${formatDate(campaign.endsAt)}` : ""}
-                </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-white/90">{campaign.campaignName}</p>
+                  <p className="text-xs text-white/45">
+                    {t.campaignWindow}: {campaign.attributionWindowDays} · {campaign.linkCount}{" "}
+                    {t.campaignLinks}
+                    {campaign.startsAt ? ` · ${formatDate(campaign.startsAt)}` : ""}
+                    {campaign.endsAt ? ` → ${formatDate(campaign.endsAt)}` : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge tone={CAMPAIGN_TONES[campaign.status]}>
+                    {t.campaignStatusLabels[campaign.status]}
+                  </Badge>
+                  <Link
+                    href={`/influencers/${influencerId}/campaigns/${campaign.campaignId}`}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/[0.06]"
+                  >
+                    {t.openAnalytics}
+                  </Link>
+                </div>
               </div>
-              <Badge tone={CAMPAIGN_TONES[campaign.status]}>
-                {t.campaignStatusLabels[campaign.status]}
-              </Badge>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/[0.05] pt-3">
+                <CampaignMetricStat label={t.colClicks} value={num(campaign.clicks)} />
+                <CampaignMetricStat label={t.colVisitors} value={num(campaign.uniqueVisitors)} />
+                <CampaignMetricStat label={t.colOrders} value={num(campaign.attributedOrders)} />
+                <CampaignMetricStat label={t.colConversion} value={formatRate(campaign.conversionRate, locale)} />
+                <CampaignMetricStat
+                  label={t.colRevenue}
+                  value={
+                    campaign.hasMultipleCurrencies
+                      ? campaign.revenues.map((r) => formatMoneyMinor(r.netRevenueMinor, r.currency, locale)).join(" · ")
+                      : formatMoneyMinor(campaign.netRevenueMinor, campaign.currency, locale)
+                  }
+                />
+              </div>
             </li>
           ))}
         </ul>
@@ -555,13 +647,13 @@ function TrackingLinksSection({
     }
   };
 
-  const toggleStatus = async (link: TrackingLinkSummary) => {
+  // Yaşam döngüsü geçişi (ADR-170): ACTIVE↔PAUSED. REVOKED terminal (ayrı aksiyon).
+  const setStatus = async (link: TrackingLinkSummary, status: "ACTIVE" | "PAUSED" | "REVOKED") => {
+    if (status === "REVOKED" && !window.confirm(t.revokeConfirm)) return;
     setBusyId(link.id);
     setError(null);
     try {
-      await storeApi.updateTrackingLink(link.id, {
-        status: link.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-      });
+      await storeApi.updateTrackingLink(link.id, { status });
       await load();
     } catch (cause) {
       setError(messageForError(cause, locale));
@@ -616,6 +708,11 @@ function TrackingLinksSection({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
+                  {link.customLabel ? (
+                    <p className="truncate text-sm font-medium text-white/90" title={link.customLabel}>
+                      {link.customLabel}
+                    </p>
+                  ) : null}
                   <p className="truncate font-mono text-sm text-white/85" title={link.targetPath}>
                     {link.targetPath}
                   </p>
@@ -624,32 +721,55 @@ function TrackingLinksSection({
                     {link.productTitle ? ` · ${link.productTitle}` : ""}
                     {link.categoryTitle ? ` · ${link.categoryTitle}` : ""}
                   </p>
+                  {link.utmSource || link.utmMedium || link.utmCampaign || link.utmContent || link.utmTerm ? (
+                    <p className="mt-0.5 text-[11px] text-white/40">
+                      UTM: {[link.utmSource, link.utmMedium, link.utmCampaign, link.utmContent, link.utmTerm].filter(Boolean).join(" / ")}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 text-xs text-white/45">
                     <span className="tabular-nums text-white/70">{link.totalClicks}</span> {t.clicks}{" "}
                     · <span className="tabular-nums text-white/70">{link.attributedOrders}</span>{" "}
                     {t.orders}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge tone={link.status === "ACTIVE" ? "success" : "neutral"}>
-                    {t.linkStatusLabels[link.status]}
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <Badge tone={LINK_TONES[link.status] ?? "neutral"}>
+                    {t.linkStatusLabels[link.status] ?? link.status}
                   </Badge>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busyId === link.id}
-                    onClick={() => void regenerate(link)}
+                  <Link
+                    href={`/influencers/${influencerId}/campaigns/${link.campaignId}/links/${link.id}`}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/[0.06]"
                   >
-                    {t.regenerate}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busyId === link.id}
-                    onClick={() => void toggleStatus(link)}
-                  >
-                    {link.status === "ACTIVE" ? t.deactivate : t.activate}
-                  </Button>
+                    {t.openAnalytics}
+                  </Link>
+                  {link.status !== "REVOKED" ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyId === link.id}
+                        onClick={() => void regenerate(link)}
+                      >
+                        {t.regenerate}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === link.id}
+                        onClick={() => void setStatus(link, link.status === "ACTIVE" ? "PAUSED" : "ACTIVE")}
+                      >
+                        {link.status === "ACTIVE" ? t.deactivate : t.activate}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busyId === link.id}
+                        onClick={() => void setStatus(link, "REVOKED")}
+                      >
+                        {t.revoke}
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </li>
@@ -722,8 +842,19 @@ function LinkFormModal({
   const [utmSource, setUtmSource] = useState("");
   const [utmMedium, setUtmMedium] = useState("");
   const [utmCampaign, setUtmCampaign] = useState("");
+  const [utmContent, setUtmContent] = useState("");
+  const [utmTerm, setUtmTerm] = useState("");
+  const [customLabel, setCustomLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Boş/whitespace → null (empty-to-null). Kontrol karakterlerini temizle; trim; max 120.
+  // Sunucu (contracts) da trim+max+tip doğrular; bu istemci ön-normalizasyondur.
+  const clean = (v: string): string | null => {
+    // eslint-disable-next-line no-control-regex
+    const stripped = v.replace(/[\x00-\x1F\x7F]/g, "").trim();
+    return stripped ? stripped.slice(0, 120) : null;
+  };
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -737,9 +868,12 @@ function LinkFormModal({
         productId: targetType === "PRODUCT" ? productIds[0] ?? null : null,
         categoryId: targetType === "CATEGORY" ? categoryIds[0] ?? null : null,
         targetPath: targetType === "PATH" ? (targetPath.trim() ? targetPath.trim() : null) : null,
-        utmSource: utmSource.trim() ? utmSource.trim() : null,
-        utmMedium: utmMedium.trim() ? utmMedium.trim() : null,
-        utmCampaign: utmCampaign.trim() ? utmCampaign.trim() : null,
+        utmSource: clean(utmSource),
+        utmMedium: clean(utmMedium),
+        utmCampaign: clean(utmCampaign),
+        utmContent: clean(utmContent),
+        utmTerm: clean(utmTerm),
+        customLabel: clean(customLabel),
       };
       const res = await storeApi.createTrackingLink(payload);
       onSaved(res.data.url);
@@ -825,14 +959,14 @@ function LinkFormModal({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-3">
-          <Input label={t.utmSource} value={utmSource} onChange={(e) => setUtmSource(e.target.value)} />
-          <Input label={t.utmMedium} value={utmMedium} onChange={(e) => setUtmMedium(e.target.value)} />
-          <Input
-            label={t.utmCampaign}
-            value={utmCampaign}
-            onChange={(e) => setUtmCampaign(e.target.value)}
-          />
+          <Input label={t.utmSource} value={utmSource} maxLength={120} onChange={(e) => setUtmSource(e.target.value)} />
+          <Input label={t.utmMedium} value={utmMedium} maxLength={120} onChange={(e) => setUtmMedium(e.target.value)} />
+          <Input label={t.utmCampaign} value={utmCampaign} maxLength={120} onChange={(e) => setUtmCampaign(e.target.value)} />
+          <Input label={t.utmContent} value={utmContent} maxLength={120} onChange={(e) => setUtmContent(e.target.value)} />
+          <Input label={t.utmTerm} value={utmTerm} maxLength={120} onChange={(e) => setUtmTerm(e.target.value)} />
+          <Input label={t.customLabel} value={customLabel} maxLength={120} onChange={(e) => setCustomLabel(e.target.value)} />
         </div>
+        <p className="text-xs text-white/40">{t.utmImmutableHint}</p>
       </form>
     </Modal>
   );

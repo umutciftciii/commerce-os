@@ -12,6 +12,18 @@ export const trStorefront = {
     title: "Demo Mağaza · commerce-os",
     description: "commerce-os platformu üzerinde çalışan demo vitrin.",
   },
+  // Durdurulmuş/bitmiş/iptal kampanya bağlantısı terminal sayfası (ADR-172).
+  // Ürün adı veya özel bilgi SIZDIRILMAZ; 3 genel durum mesajı.
+  campaignUnavailable: {
+    metaTitle: "Bağlantı kullanılamıyor",
+    endedTitle: "Kampanya sona erdi",
+    endedDescription: "Bu kampanya sona erdiği için bağlantı artık aktif değil. Dilerseniz mağazamıza göz atabilirsiniz.",
+    inactiveTitle: "Kampanya şu anda aktif değil",
+    inactiveDescription: "Bu kampanya bağlantısı şu anda aktif değil. Dilerseniz mağazamıza göz atabilirsiniz.",
+    unavailableTitle: "Bu bağlantı artık kullanılamıyor",
+    unavailableDescription: "Bu bağlantı artık geçerli değil. Dilerseniz mağazamıza göz atabilirsiniz.",
+    action: "Mağazaya git",
+  },
   shell: {
     brand: "Demo Mağaza",
     announcement: "₺750 ve üzeri siparişlerde ücretsiz kargo · Demo vitrin",

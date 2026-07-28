@@ -2117,3 +2117,33 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
 - **Bayat kayıt temizliği (yapıldı):** TODO-161B / TD-129/130 / TD-131 "commit YOK" → MERGED olarak düzeltildi.
   **TODO-159G:** recovery (`cb0fe74`) + seed-koruma (`f9834c9`) main'de → "commit/PR/deploy YAPILMADI" notu bayat;
   kalan yalnız TD-116-b (guard'lar imaj-rebuild sonrası canlı).
+
+## Influencer Campaign Lifecycle & Granular Analytics (2026-07-28, ADR-170…176) — KOD TAMAM / commit YOK
+
+TODO-160 çekirdeği üzerine iki kusur + yaşam döngüsü + granüler analitik. Analiz:
+`docs/analysis/influencer-campaign-lifecycle-and-analytics.md`.
+
+- **Yaşam döngüsü.** Campaign enum `DRAFT/ACTIVE/PAUSED/ENDED/CANCELLED` (+legacy ARCHIVED); link `ACTIVE/PAUSED/REVOKED`
+  (+legacy INACTIVE). Additive migration `20260728120000_influencer_campaign_lifecycle` (gerçek PG'ye uygulandı+doğrulandı).
+  Link alanları `utmContent/utmTerm/customLabel/activatedAt/pausedAt/revokedAt` eklendi.
+- **Redirect (ADR-171/172).** Saf `evaluateRedirectEligibility` (store+influencer+campaign+link+tarih+target). Uygun
+  değilse `available:false` (hedef sızmaz) → storefront `/campaign-unavailable?state=<bucket>` (200+noindex). Terminal
+  sayfa attribution EVENT'i değil. Gateway `POST /public/.../track/:token` yanıtına `available/reason/bucket` eklendi.
+- **Attribution (ADR-173).** Saf `evaluateConversionEligibility`; PAUSED/ENDED pencere-içi eski session convert eder;
+  CANCELLED/DRAFT + REVOKED link etmez. `resolveAttributionForCheckout` yeniden yazıldı (+link REVOKED engeli + link↔
+  campaign tutarlılık).
+- **Analitik (ADR-174/176).** `apps/api-gateway/src/influencers/analytics.ts` (aggregate/campaign/link, N+1 yok,
+  per-currency) + `serialize.ts`. 3 yeni gateway ucu + api-client + store-admin BFF + UI (kampanya kartı metrik + drill-down,
+  kampanya detay + link detay sayfaları). Multi-currency ayrı toplam.
+- **Test.** `influencer-lifecycle.test.ts` (26) + `influencer-serialize.test.ts` (13) + mevcut route testleri güncellendi.
+  Tüm suite yeşil.
+- **Sıra:** commit'e hazır → ardından **H-1 Theme Token Stored XSS**. Kalan: canlı smoke (TD-143), UTM per-currency (TD-144),
+  create formu yeni UTM alanları (TD-145), günlük seri grafiği (TD-146).
+
+## Influencer Analytics Demo Completion (2026-07-28) — TD-143/144/145/146 CLOSED
+
+Analytics demo tamamlama fazı: currency-aware UTM (TD-144), tam tracking link formu + customLabel (TD-145), günlük
+zaman serisi grafiği (TD-146), deterministik demo fixture + runbook + canlı smoke (TD-143). ADR-177…179. Yeni backend:
+`analytics-range.ts` (tz-aware bounded range + zero-fill, birim-testli); `analytics.ts` currency-aware daily/UTM;
+store-admin `analytics-chart.tsx` + `date-range-picker.tsx`. Fixture `packages/db/scripts/influencer-demo-seed.mjs`;
+runbook `docs/runbooks/influencer-analytics-demo.md`. Gate'ler yeşil; SHIP hazır → ardından **H-1 Theme Token Stored XSS**.

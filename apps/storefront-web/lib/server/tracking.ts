@@ -9,9 +9,17 @@
  */
 import { gatewayBaseUrl } from "./gateway";
 
-// Gateway track yanıtı (storefront contracts'a bağlanmaz; şekil sabit — bkz. ADR-102).
+// Gateway track yanıtı (storefront contracts'a bağlanmaz; şekil sabit — ADR-102/171).
+type TerminalBucket = "ended" | "inactive" | "unavailable";
 interface TrackClickResponse {
-  data: { grant: string | null; targetPath: string; cookieMaxAgeSeconds: number };
+  data: {
+    available: boolean;
+    grant: string | null;
+    targetPath: string | null;
+    reason: string | null;
+    bucket: TerminalBucket | null;
+    cookieMaxAgeSeconds: number;
+  };
 }
 
 export interface TrackForward {
@@ -22,8 +30,10 @@ export interface TrackForward {
 }
 
 export interface TrackResult {
+  available: boolean;
   grant: string | null;
-  targetPath: string;
+  targetPath: string | null;
+  bucket: TerminalBucket | null;
   cookieMaxAgeSeconds: number;
 }
 
@@ -49,8 +59,10 @@ export async function postTrackClick(
     if (!response.ok) return null; // 404/429 vb. → storefront güvenli fallback yapar
     const body = (await response.json()) as TrackClickResponse;
     return {
+      available: body.data.available,
       grant: body.data.grant,
       targetPath: body.data.targetPath,
+      bucket: body.data.bucket,
       cookieMaxAgeSeconds: body.data.cookieMaxAgeSeconds,
     };
   } catch {
