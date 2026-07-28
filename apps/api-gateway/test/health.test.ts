@@ -1288,6 +1288,13 @@ class MemoryDataAccess implements AppDataAccess {
     return this.inventory.filter((item) => item.storeId === storeId && wanted.has(item.variantId));
   }
 
+  // H-3 — In-memory impl rezervasyon süresi izlemez → boş map (add-back yok; testler expiry kurmaz).
+  async findExpiredReservedByVariant(storeId: string, variantIds: string[]) {
+    void storeId;
+    void variantIds;
+    return new Map<string, number>();
+  }
+
   async adjustInventory(
     storeId: string,
     variantId: string,

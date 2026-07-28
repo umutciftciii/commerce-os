@@ -146,8 +146,9 @@ import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
 import { registerCommercialAutomationRoutes } from "./commercial-automation/routes.js";
 import { registerBackupRoutes } from "./backup/routes.js";
 import { loadBackupConfig } from "@commerce-os/backup";
-import { enqueueBackupJob } from "@commerce-os/queues";
+import { enqueueBackupJob, enqueueInventoryMaintenanceJob } from "@commerce-os/queues";
 import { buildSettlementSchedulerService } from "./commercial-automation/settlement-scheduler-worker.js";
+import { registerReservationRoutes } from "./inventory-engine/reservation-routes.js";
 import { buildRetentionService } from "./commercial-automation/retention-worker.js";
 import { resolveSponsoredForCheckout } from "./sponsored/checkout-attribution.js";
 import {
@@ -342,6 +343,14 @@ import {
 import { registerPaymentRecoveryRoutes } from "./payments/recovery-routes.js";
 import { createLogPaymentNotificationDispatcher } from "./payments/notification.js";
 import { resolveOrderPaymentTransition } from "./payments/payment-state.js";
+import {
+  consumeOrderReservations,
+  releaseOrderReservations,
+  lazyExpireVariantReservations,
+  expiredReservedByVariant,
+  computeInitialExpiresAt,
+  type ReservationTtlPolicy,
+} from "@commerce-os/inventory";
 import {
   registerPaymentWebhookRoutes,
   type PaymentWebhookApplyInput,
@@ -1204,6 +1213,12 @@ export interface AppDataAccess extends CampaignDataAccess {
    * (oversatis onleme) icin GERCEK stok gerekir; eksik stok null'a (fail-open) dusmemelidir.
    */
   findInventoryByVariantIds(storeId: string, ids: string[]): Promise<InventoryRecord[]>;
+  /**
+   * H-3 (ADR-188) — Read-time expiry add-back: verilen varyantlar için süresi dolmuş ama henüz
+   * süpürülmemiş ACTIVE rezervasyonların toplam miktarı (variantId -> qty). Kullanılabilir stok
+   * `onHand − reserved + bu değer` ile hesaplanır → expired rezervasyon stoğu azaltmaz.
+   */
+  findExpiredReservedByVariant(storeId: string, variantIds: string[]): Promise<Map<string, number>>;
   adjustInventory(
     storeId: string,
     variantId: string,
@@ -2626,7 +2641,7 @@ function buildAdminProductScanSql(
   return { where, aggregateJoin, orderBy, needsAggregate };
 }
 
-function createPrismaDataAccess(): AppDataAccess {
+function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): AppDataAccess {
   const storeSelect = {
     id: true,
     name: true,
@@ -3851,6 +3866,8 @@ function createPrismaDataAccess(): AppDataAccess {
       });
       return items.map(withInventoryVariant);
     },
+    findExpiredReservedByVariant: (storeId, variantIds) =>
+      expiredReservedByVariant(prisma, storeId, variantIds, new Date()),
     adjustInventory: (storeId, variantId, input) =>
       prisma.$transaction(async (transaction: TransactionClient) => {
         const item =
@@ -4466,7 +4483,13 @@ function createPrismaDataAccess(): AppDataAccess {
           `;
           const item = rows[0];
           if (!item) return "RESERVATION_FAILED";
-          if (item.quantityOnHand - item.quantityReserved < line.quantity) return "INSUFFICIENT_STOCK";
+          // H-3 (ADR-188) — Write-time lazy expiry: kilit altında bu varyantın süresi dolmuş
+          // (ödeme-kesinleşmemiş) rezervasyonlarını bırak → sayaç tazelenir, yanlış oversell reddi
+          // imkânsız (doğruluk scheduler'dan bağımsız). Bırakılan miktar oversell kontrolüne yansır.
+          const nowTs = new Date();
+          const freed = await lazyExpireVariantReservations(transaction, storeId, line.variantId, nowTs);
+          const effectiveReserved = item.quantityReserved - freed;
+          if (item.quantityOnHand - effectiveReserved < line.quantity) return "INSUFFICIENT_STOCK";
           await transaction.inventoryItem.update({
             where: { variantId: line.variantId },
             data: { quantityReserved: { increment: line.quantity } },
@@ -4479,6 +4502,8 @@ function createPrismaDataAccess(): AppDataAccess {
               variantId: line.variantId,
               quantity: line.quantity,
               status: "ACTIVE",
+              // H-3 (ADR-187) — TTL: createdAt + RESERVATION_TTL_MINUTES (sunucu-otoriter).
+              expiresAt: computeInitialExpiresAt(nowTs, reservationTtlPolicy),
             },
           });
           await transaction.inventoryMovement.create({
@@ -4547,7 +4572,7 @@ function createPrismaDataAccess(): AppDataAccess {
           });
           await transaction.inventoryReservation.update({
             where: { id: reservation.id },
-            data: { status: "RELEASED", releasedAt: now },
+            data: { status: "RELEASED", releasedAt: now, releaseReason: "ORDER_CANCELLED" },
           });
           await transaction.inventoryMovement.create({
             data: {
@@ -4713,6 +4738,24 @@ function createPrismaDataAccess(): AppDataAccess {
             where: { id: input.orderId },
             data: { paymentStatus: input.orderPaymentStatus },
           });
+          // H-3 (ADR-190/191) — Ödeme sonucu → rezervasyon lifecycle (aynı tx; webhook applyOutcome ile aynı politika).
+          const stampNow = input.paidAt ?? input.failedAt ?? new Date();
+          if (input.orderPaymentStatus === "PAID" || input.orderPaymentStatus === "AUTHORIZED") {
+            const consume = await consumeOrderReservations(transaction, storeId, input.orderId, stampNow);
+            if (consume.lateAfterExpiry) {
+              await transaction.orderEvent.create({
+                data: {
+                  storeId,
+                  orderId: input.orderId,
+                  type: "LATE_PAYMENT_AFTER_EXPIRY",
+                  message: "Payment settled after reservation expiry; stock not auto-committed — manual review required.",
+                  metadata: { attemptStatus: input.attemptStatus },
+                },
+              });
+            }
+          } else if (input.orderPaymentStatus === "CANCELLED") {
+            await releaseOrderReservations(transaction, storeId, input.orderId, stampNow, "PAYMENT_CANCELLED");
+          }
         }
         await transaction.paymentProviderEvent.create({
           data: {
@@ -4770,7 +4813,13 @@ export function createServer(
   const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
   const dbHealthCheck = dependencies.checkDatabaseHealth ?? checkDatabaseHealth;
   const redisHealthCheck = dependencies.checkRedisHealth ?? checkRedisHealth;
-  const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess();
+  // H-3 (ADR-187) — Rezervasyon TTL politikası (sunucu-otoriter; config'ten türetilir).
+  const reservationTtlPolicy: ReservationTtlPolicy = {
+    ttlMinutes: config.RESERVATION_TTL_MINUTES,
+    paymentWindowMinutes: config.RESERVATION_PAYMENT_WINDOW_MINUTES,
+    maxMinutes: config.RESERVATION_MAX_MINUTES,
+  };
+  const dataAccess = dependencies.dataAccess ?? createPrismaDataAccess(reservationTtlPolicy);
   const customers = dependencies.customerDataAccess ?? createPrismaCustomerDataAccess();
   // TODO-154 (ADR-079) — Search read-model reindex emitter (fire-and-forget; Redis erisilemezse mutation
   // etkilenmez). Mutation handler'lari basarili yazimdan sonra reindex tetikler; worker asenkron isler.
@@ -4970,7 +5019,18 @@ export function createServer(
 
   async function loadPublicStockMap(storeId: string) {
     const page = await dataAccess.listInventory(storeId, { limit: PUBLIC_CATALOG_MAX, offset: 0 });
-    return new Map(page.data.map((item) => [item.variantId, item.quantityOnHand - item.quantityReserved]));
+    // H-3 (ADR-188) — Read-time expiry add-back: süresi dolmuş ama henüz süpürülmemiş ACTIVE
+    // rezervasyonlar kullanılabilir stoğu AZALTMAMALI (doğruluk scheduler'a bağlı değil).
+    const expired = await dataAccess.findExpiredReservedByVariant(
+      storeId,
+      page.data.map((item) => item.variantId),
+    );
+    return new Map(
+      page.data.map((item) => [
+        item.variantId,
+        Math.max(0, item.quantityOnHand - item.quantityReserved + (expired.get(item.variantId) ?? 0)),
+      ]),
+    );
   }
 
   // F4B — EU Omnibus: store'daki her varyant icin son 30 gunun en dusuk satis fiyati.
@@ -5464,8 +5524,18 @@ export function createServer(
     const productById = new Map(
       products.filter((product) => product.status === "ACTIVE").map((product) => [product.id, product]),
     );
+    // H-3 (ADR-188) — Read-time expiry add-back: süresi dolmuş ama süpürülmemiş rezervasyon
+    // sepette/checkout'ta kullanılabilir stoğu azaltmaz (oversell kapısı placeOrder'da lazy-expiry
+    // ile ayrıca korunur; burası görünürlük tutarlılığı içindir).
+    const expiredCart = await dataAccess.findExpiredReservedByVariant(
+      storeId,
+      inventory.map((item) => item.variantId),
+    );
     const stockMap = new Map(
-      inventory.map((item) => [item.variantId, item.quantityOnHand - item.quantityReserved]),
+      inventory.map((item) => [
+        item.variantId,
+        Math.max(0, item.quantityOnHand - item.quantityReserved + (expiredCart.get(item.variantId) ?? 0)),
+      ]),
     );
     for (const variant of variants) {
       const product = productById.get(variant.productId);
@@ -6381,6 +6451,21 @@ export function createServer(
     },
   });
 
+  // H-3 pre-ship (ADR-191…194) — Rezervasyon süre-aşımı / reconciliation (store-admin; public YOK).
+  // api-gateway süpürücüyü ÇALIŞTIRMAZ: manuel expiry/reconcile job'unu apps/worker kuyruğuna ENQUEUE
+  // eder; görünürlük (status) + reconciliation-scan salt-okunur. Client rezervasyon status/expiry değiştiremez.
+  registerReservationRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    prisma,
+    jobLog: prisma,
+    enqueueMaintenanceJob: (data) => enqueueInventoryMaintenanceJob(config.REDIS_URL, data),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    orphanDraftMaxAgeMinutes: config.ORPHAN_DRAFT_MAX_AGE_MINUTES,
+  });
+
   // PB-2/PB-3 — Backup görünürlük + manuel tetik (internal-token guard'lı). Manuel RESTORE ucu YOK.
   // Backup YÜRÜTMESİ bu süreçte DEĞİL: periyodik zamanlama + yürütme apps/worker'da; manuel tetik yalnız
   // worker kuyruğuna one-off job ENQUEUE eder (advisory lock çakışmayı çözer). API deploy/restart takvimi etkilemez.
@@ -6516,6 +6601,27 @@ export function createServer(
             where: { id: input.orderId },
             data: { paymentStatus: next },
           });
+          // H-3 (ADR-190/191) — Ödeme sonucu → rezervasyon lifecycle (aynı tx).
+          //  · PAID/AUTHORIZED → CONSUME (stok commit; idempotent, duplicate webhook ikinci consume yapmaz).
+          //    Geç-ödeme (expiry önce kazandı) → LATE_PAYMENT_AFTER_EXPIRY event + fail-closed (otomatik düşüş YOK).
+          //  · CANCELLED (terminal) → RELEASE (stok geri). PAYMENT_FAILED retryable → BIRAKILMAZ (TTL halleder).
+          const stampNow = input.occurredAt ?? new Date();
+          if (next === "PAID" || next === "AUTHORIZED") {
+            const consume = await consumeOrderReservations(tx, input.storeId, input.orderId, stampNow);
+            if (consume.lateAfterExpiry) {
+              await tx.orderEvent.create({
+                data: {
+                  storeId: input.storeId,
+                  orderId: input.orderId,
+                  type: "LATE_PAYMENT_AFTER_EXPIRY",
+                  message: "Payment settled after reservation expiry; stock not auto-committed — manual review required.",
+                  metadata: { attemptStatus: input.attemptStatus, providerReference: input.providerReference },
+                },
+              });
+            }
+          } else if (next === "CANCELLED") {
+            await releaseOrderReservations(tx, input.storeId, input.orderId, stampNow, "PAYMENT_CANCELLED");
+          }
           return {
             outcome: "applied" as const,
             refundTotalMinor: next === "REFUNDED" ? order.totalAmount : null,

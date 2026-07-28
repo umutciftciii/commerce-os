@@ -24,6 +24,23 @@ export interface BackupJobData {
   dryRun?: boolean;
 }
 
+// H-3 pre-ship (ADR-191 revize) — Rezervasyon bakım kuyruğu (expiry + reconcile). Periyodik expiry
+// tetiklemesi BullMQ Job Scheduler ile (worker sürecinde; sabit id → idempotent, restart paralel
+// zamanlama üretmez). api-gateway yalnız MANUEL one-off (expiry/reconcile) enqueue eder; süpürücü
+// api-gateway runtime'ında ÇALIŞMAZ. setTimeout scheduler'ından TAŞINDI (backup standardı).
+export const INVENTORY_MAINTENANCE_QUEUE = "inventory-maintenance";
+export const INVENTORY_RESERVATION_EXPIRY_SCHEDULER_ID = "inventory-reservation-expiry-schedule";
+
+export interface InventoryMaintenanceJobData {
+  /** Hangi bakım işi: süre-aşımı süpürme veya PAID+ACTIVE reconcile. */
+  jobType: "expiry" | "reconcile";
+  trigger: "MANUAL" | "SCHEDULED";
+  /** true → dry-run (yazma yok). expiry scheduled varsayılan apply; reconcile manuel varsayılan dry-run. */
+  dryRun?: boolean;
+  /** Manuel scoped tek-store run; yoksa tüm store'lar (sweep). */
+  storeId?: string;
+}
+
 const connections = new Set<Redis>();
 const queues = new Set<Queue>();
 const workers = new Set<Worker>();
@@ -167,6 +184,55 @@ export async function upsertBackupSchedule(
 export async function removeBackupSchedule(redisUrl: string): Promise<void> {
   const queue = backupQueue(redisUrl);
   await queue.removeJobScheduler(BACKUP_SCHEDULER_ID);
+}
+
+export function inventoryMaintenanceQueue(redisUrl: string): Queue<InventoryMaintenanceJobData> {
+  return createQueue<InventoryMaintenanceJobData>(INVENTORY_MAINTENANCE_QUEUE, redisUrl);
+}
+
+/**
+ * Manuel rezervasyon bakım job'u kuyruğa koyar (api-gateway `POST .../expiry/run` | `.../reconcile/run`
+ * → worker'da çalışır). İş api-gateway request sürecinde ÇALIŞMAZ. Advisory lock duplicate/paralel'i korur.
+ */
+export async function enqueueInventoryMaintenanceJob(
+  redisUrl: string,
+  data: InventoryMaintenanceJobData,
+  options?: JobsOptions,
+): Promise<string> {
+  const queue = inventoryMaintenanceQueue(redisUrl);
+  const job = await queue.add(data.jobType, data, {
+    attempts: 1,
+    removeOnComplete: 1000,
+    removeOnFail: 1000,
+    ...options,
+  });
+  return job.id ?? "";
+}
+
+/**
+ * Periyodik rezervasyon EXPIRY zamanlamasını (BullMQ Job Scheduler) upsert eder — worker sürecinde
+ * çağrılır. Sabit id ile idempotent: restart/çift-çağrı PARALEL zamanlama üretmez. `cron` > `everyMs`.
+ * Reconcile zamanlanmaz (yalnız manuel/operasyonel).
+ */
+export async function upsertReservationExpirySchedule(
+  redisUrl: string,
+  opts: { cron?: string; everyMs?: number; tz?: string },
+): Promise<void> {
+  const queue = inventoryMaintenanceQueue(redisUrl);
+  const repeat = opts.cron
+    ? { pattern: opts.cron, ...(opts.tz ? { tz: opts.tz } : {}) }
+    : { every: opts.everyMs ?? 300_000 };
+  await queue.upsertJobScheduler(INVENTORY_RESERVATION_EXPIRY_SCHEDULER_ID, repeat, {
+    name: "expiry",
+    data: { jobType: "expiry", trigger: "SCHEDULED" } satisfies InventoryMaintenanceJobData,
+    opts: { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 },
+  });
+}
+
+/** Rezervasyon expiry zamanlamasını kaldırır (worker disabled ise / test / temizlik). */
+export async function removeReservationExpirySchedule(redisUrl: string): Promise<void> {
+  const queue = inventoryMaintenanceQueue(redisUrl);
+  await queue.removeJobScheduler(INVENTORY_RESERVATION_EXPIRY_SCHEDULER_ID);
 }
 
 export async function checkRedisHealth(redisUrl: string): Promise<boolean> {

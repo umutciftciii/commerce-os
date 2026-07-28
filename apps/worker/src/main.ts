@@ -7,12 +7,14 @@ import {
   PLATFORM_EVENTS_QUEUE,
   SEARCH_INDEX_QUEUE,
   BACKUP_QUEUE,
+  INVENTORY_MAINTENANCE_QUEUE,
   type PlatformEventContract,
   type SearchIndexJob,
 } from "@commerce-os/queues";
 import { createDefaultSearchProvider } from "@commerce-os/search-service";
 import { disconnectPrisma, disconnectDefaultAdvisoryLockManager } from "@commerce-os/db";
 import { startBackupWorker } from "./backup.js";
+import { startReservationMaintenanceWorker } from "./inventory-reservation.js";
 
 const config = loadConfig();
 const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
@@ -113,14 +115,24 @@ searchWorker.on("failed", (job, error) => {
 // Job Scheduler'da (worker restart paralel timer üretmez); yürütme bu süreçte, advisory lock ile korunur.
 const backupWorker = startBackupWorker({ config, logger });
 
+// H-3 pre-ship — rezervasyon bakım worker'ı (expiry süpürücü + PAID+ACTIVE reconcile). Consumer her
+// zaman kayıtlı (manuel ops); periyodik expiry yalnız INVENTORY_RESERVATION_EXPIRY_ENABLED=true iken.
+const reservationMaintenanceWorker = startReservationMaintenanceWorker({ config, logger });
+
 logger.info("worker started", {
-  queues: [PLATFORM_EVENTS_QUEUE, SEARCH_INDEX_QUEUE, ...(backupWorker.enabled ? [BACKUP_QUEUE] : [])],
+  queues: [
+    PLATFORM_EVENTS_QUEUE,
+    SEARCH_INDEX_QUEUE,
+    INVENTORY_MAINTENANCE_QUEUE,
+    ...(backupWorker.enabled ? [BACKUP_QUEUE] : []),
+  ],
   concurrency: config.WORKER_CONCURRENCY,
 });
 
 const shutdown = async (signal: string) => {
   logger.info("worker shutting down", { signal });
   await backupWorker.stop();
+  await reservationMaintenanceWorker.stop();
   await closeQueueConnections();
   await disconnectDefaultAdvisoryLockManager();
   await disconnectPrisma();

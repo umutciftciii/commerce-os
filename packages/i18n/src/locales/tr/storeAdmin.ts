@@ -1307,6 +1307,7 @@ export const trStoreAdmin = {
       ACTIVE: "Rezerve",
       RELEASED: "Serbest bırakıldı",
       CONSUMED: "Kullanıldı",
+      EXPIRED: "Süresi doldu",
     },
     summary: {
       eyebrow: "Operasyon özeti",

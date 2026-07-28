@@ -1299,6 +1299,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
       ACTIVE: "Reserved",
       RELEASED: "Released",
       CONSUMED: "Consumed",
+      EXPIRED: "Expired",
     },
     summary: {
       eyebrow: "Operations overview",

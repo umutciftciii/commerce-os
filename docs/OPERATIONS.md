@@ -1106,3 +1106,53 @@ charge↔agreement · payment↔charge · allocation↔charge. Çıktı yalnız 
 
 **FX (kur dönüşümü) KAPSAM DIŞI (ADR-186).** Guard birleştirmeyi **reddeder**, dönüşüm yapmaz. Gerçek çok-para settlement
 ihtiyacı doğarsa ayrı bir FX conversion engine yeteneğidir → **TD-148** (FUTURE CAPABILITY, teknik borç değil).
+
+## Rezervasyon süre-aşımı süpürücü + orphan DRAFT temizliği (H-3 / ADR-187…193)
+
+**Amaç.** Terk edilen anonim checkout'ların stoğu süresiz kilitlemesini engellemek; süresi dolmuş rezervasyonları
+serbest bırakmak, süresi dolmuş ödenmemiş siparişleri ve eski orphan DRAFT'ları kontrollü kapatmak.
+
+**Otomatik davranış (write/read yolu, worker'dan bağımsız — doğruluk yalnız scheduler'a bağlı değil):**
+- `placeOrder` her rezervasyona `expiresAt = createdAt + RESERVATION_TTL_MINUTES` (varsayılan 15) yazar ve kilit
+  altında o varyantın süresi dolmuş rezervasyonlarını bırakır (lazy-expiry) → yanlış oversell reddi olmaz.
+- Storefront kullanılabilir stok read-time'da `onHand − reserved + expiredActiveReserved` ile hesaplanır →
+  süresi dolmuş rezervasyon PLP/PDP/sepette stoğu azaltmaz (süpürücü çalışmadan önce bile).
+- Ödeme PAID/AUTHORIZED → rezervasyon CONSUMED (stok commit); CANCELLED → release; PAYMENT_FAILED (retryable) bırakılmaz.
+
+**Worker-owned zamanlama (ADR-194; süpürücü api-gateway'de DEĞİL).** Domain mantığı `@commerce-os/inventory`
+paketinde; yürütme `apps/worker`. Periyodik expiry tetiği BullMQ Job Scheduler'da (Redis; sabit id
+`inventory-reservation-expiry-schedule`, idempotent upsert → worker restart duplicate üretmez; gateway restart/deploy
+takvimi etkilemez). Env (varsayılan KAPALI):
+```
+INVENTORY_RESERVATION_EXPIRY_ENABLED=true            # true → periyodik zamanlama upsert (worker'da)
+INVENTORY_RESERVATION_EXPIRY_INTERVAL_SECONDS=300    # BullMQ every = *1000 (cron verilmezse)
+INVENTORY_RESERVATION_EXPIRY_CRON=                   # opsiyonel; verilirse interval yerine
+INVENTORY_RESERVATION_EXPIRY_BATCH_SIZE=500
+INVENTORY_RESERVATION_EXPIRY_MAX_RELEASE_PER_RUN=100000   # circuit breaker
+INVENTORY_RESERVATION_RECONCILE_BATCH_SIZE=500
+INVENTORY_RESERVATION_RECONCILE_MAX_PER_RUN=100000
+ORPHAN_DRAFT_MAX_AGE_MINUTES=1440                    # 24s
+```
+Worker consumer HER ZAMAN kayıtlı (manuel enqueue işlensin); periyodik zamanlama YALNIZ `..._ENABLED=true` iken.
+(jobType, storeId) advisory lock + `FOR UPDATE SKIP LOCKED`. `QueueJobLog` (queue=`inventory-maintenance`,
+job=`inventory-reservation-expiry` | `inventory-reservation-reconcile`): STARTED→terminal (COMPLETED/DRY_RUN/
+PARTIAL_SUCCESS/CIRCUIT_BROKEN/FAILED) + kilit alınamazsa SKIPPED_LOCKED.
+
+**Manuel tetik + görünürlük (store-admin, auth-gated; gateway enqueue eder, worker çalıştırır).**
+- Görünürlük: `GET /stores/:storeId/inventory/reservations/status` → active/expired-aday/orphan-DRAFT sayacı, en eski
+  aktif, son expiry + son reconcile job, reconciliation özeti.
+- Reconciliation (salt-okunur): `GET /stores/:storeId/inventory/reservations/reconcile`.
+- Süpürücü (expiry): `POST /stores/:storeId/inventory/reservations/expiry/run` → worker kuyruğuna enqueue (202 +
+  jobId). **VARSAYILAN DRY-RUN**; uygulama için gövde `{"dryRun": false}`.
+- **PAID+ACTIVE reconcile** (ADR-195): `POST /stores/:storeId/inventory/reservations/reconcile/run` → enqueue.
+  VARSAYILAN DRY-RUN; apply için `{"dryRun": false}`. PAID/AUTHORIZED+ACTIVE'i güvenli CONSUMED'a alır (qty/line/
+  inventory doğrulama; belirsiz → MANUAL_REVIEW, mutate etmez; `SALE_COMMIT` yalnız ACTIVE→CONSUMED geçişinde).
+
+**Payment-vs-expiry yarışı.** Consume ve expiry ikisi de `InventoryItem` satırını `FOR UPDATE` kilitler → serialize.
+PAID sipariş rezervasyonu expiry tarafından **release edilmez** (reconcile→consume). Expiry önce kazanır ve ardından
+ödeme başarısı gelirse: sipariş PAID olur fakat stok otomatik düşülmez → `LATE_PAYMENT_AFTER_EXPIRY` order-event +
+reconciliation uyarısı → **manuel inceleme** (fail-closed; oversell yaratılmaz).
+
+**Baseline/doğrulama.** Migration `20260729120000` additive; backfill PAID/AUTHORIZED ACTIVE rezervasyonlara dokunmaz
+(meşru tutulan → `expiresAt` NULL), yalnız UNPAID/PLACED açık kilitlenmeyi kısa grace ile quarantine eder.
+Reconciliation `warningCount=0` → temiz.

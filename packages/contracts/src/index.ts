@@ -395,7 +395,7 @@ export const paymentStatusSchema = z.enum([
   "CANCELLED",
 ]);
 export const fulfillmentStatusSchema = z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED", "CANCELLED"]);
-export const inventoryReservationStatusSchema = z.enum(["ACTIVE", "RELEASED", "CONSUMED"]);
+export const inventoryReservationStatusSchema = z.enum(["ACTIVE", "RELEASED", "CONSUMED", "EXPIRED"]);
 
 /**
  * TODO-135 — Sipariş özet/liste DTO'larında kargo HAZIRLIK durumunu rozete

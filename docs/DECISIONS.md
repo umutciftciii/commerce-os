@@ -4871,3 +4871,112 @@ yabancı currency listesi + son tespit zamanı (SYSTEM audit'ten). Store-admin: 
 **Karar.** Bu faz kur dönüşümü / primary-currency fallback / çok-para toplama KURMAZ. Farklı currency'ler tek hesapta
 birleşemez — dönüşüm değil, **reddetme** politikası. Gerçek çok-para settlement ihtiyacı doğarsa bu ayrı bir FX conversion
 engine yeteneğidir (FUTURE CAPABILITY, [[TD-148]]); mevcut guard bir eksiklik/borç DEĞİL, bilinçli fail-closed sınırdır.
+
+## ADR-187 — Rezervasyon TTL politikası (H-3)
+
+**Karar.** Her checkout rezervasyonu (`placeOrder`) açık bir `expiresAt` taşır: `createdAt + RESERVATION_TTL_MINUTES`
+(varsayılan 15; env, min 5, maks 1440). SUNUCU-otoriter; client `expiresAt` gönderemez. Ödeme oturumu başlarsa
+(PAYMENT_PENDING) TEK kontrollü yenileme: `min(now + RESERVATION_PAYMENT_WINDOW_MINUTES(30), createdAt +
+RESERVATION_MAX_MINUTES(120))`; sayfa yenileme uzatmaz (heartbeat sistemi kurulmaz). Maksimum toplam süre cap'lidir.
+Tüm timestamp UTC. Migration backfill PAID/AUTHORIZED ACTIVE rezervasyonlara dokunmaz (meşru tutulan → `expiresAt`
+NULL kalır, süpürücü asla dokunmaz); yalnız UNPAID/PLACED açık stok-kilitlenmesi kısa grace ile quarantine edilir.
+
+## ADR-188 — Read-time expiry correctness (H-3)
+
+**Karar.** Doğruluk yalnız scheduler'a bağlı DEĞİL. Kullanılabilir stok üç katmanla korunur: (1) **read-time add-back** —
+`available = max(0, onHand − reserved + expiredActiveReserved)` (storefront PLP/PDP + sepet; `findExpiredReservedByVariant`),
+süresi dolmuş ama süpürülmemiş ACTIVE rezervasyon stoğu azaltmaz; (2) **write-time lazy expiry** — `placeOrder` içinde
+`FOR UPDATE` kilidi altında o varyantın süresi dolmuş (ödeme-kesinleşmemiş) rezervasyonları fiziksel bırakılır → yanlış
+oversell reddi imkânsız; (3) **scheduled sweep** — kalıcı temizlik. Sayaç (`InventoryItem.quantityReserved`) otorite kalır
+(storefront sıfır regresyon); admin envanter görünümü sayacı gösterir (gerçek reserved). Index: `[variantId,status,expiresAt]`.
+
+## ADR-189 — Rezervasyon lifecycle state machine (H-3)
+
+**Karar.** `ACTIVE → {CONSUMED | RELEASED | EXPIRED}`. Üç hedef terminal + immutable; terminal → ACTIVE imkânsız.
+Enum'a `EXPIRED` eklendi (additive). `releaseReason` (audit; PII taşımaz; sabit kodlar ORDER_CANCELLED/PAYMENT_CANCELLED/
+RESERVATION_EXPIRED/ORPHAN_DRAFT/MANUAL). Duplicate-guard: sipariş satırı başına en fazla bir ACTIVE rezervasyon
+(partial unique `orderLineId WHERE status='ACTIVE'`).
+
+## ADR-190 — Consume/Release idempotency (H-3)
+
+**Karar.** Ödeme `PAID/AUTHORIZED` geçişinde (webhook `applyOutcome` + manuel `recordPaymentAttemptOutcome`, aynı tx):
+`consumeOrderReservations` — her ACTIVE rezervasyon `CONSUMED` + `quantityReserved` VE `quantityOnHand` birlikte düşer
+(`SALE_COMMIT`). Idempotent: yalnız ACTIVE işlenir → duplicate webhook ikinci consume yapmaz. Ödeme `CANCELLED`/admin iptal
+→ `releaseOrderReservations` (RELEASED + releaseReason; idempotent; tenant-safe; aynı miktarı iki kez geri eklemez; terminal
+rezervasyona dokunmaz). `PAYMENT_FAILED` retryable → bırakılmaz (recovery penceresini bozmamak için; TTL/expiry halleder).
+`REFUNDED` (post-PAID, CONSUMED) restock KAPSAM DIŞI (ADR-193). Sayaç drift'inde negatife düşürülmez (yalnız durum değişir).
+Domain hata kodları + TR/EN: RESERVATION_EXPIRED · RESERVATION_ALREADY_CONSUMED · RESERVATION_ALREADY_RELEASED ·
+INSUFFICIENT_AVAILABLE_STOCK · RESERVATION_CONFLICT · LATE_PAYMENT_AFTER_EXPIRY · ORPHAN_DRAFT_DETECTED.
+
+## ADR-191 — Payment-vs-expiry race + expiry job (H-3)
+
+**Karar.** `inventory-reservation-expiry` worker'ı api-gateway süreci içinde (settlement-scheduler deseni: setTimeout
+zinciri + overlap guard; `INVENTORY_RESERVATION_EXPIRY_ENABLED=false` varsayılan no-op; api-gateway backup timer'ı DEĞİL).
+Tur: (jobType, storeId) advisory lock → cutoff=now → `FOR UPDATE SKIP LOCKED` ile bounded batch claim → her aday
+`InventoryItem` satırını `FOR UPDATE` kilitler ve siparişin `paymentStatus`'unu kilit-anında yeniden okur → PAID/AUTHORIZED
+ise **CONSUME (reconcile)**, aksi halde **EXPIRE**. Consume ve expiry ikisi de aynı `InventoryItem` satırını kilitler →
+serialize; PAID rezervasyon expiry tarafından **release EDİLMEZ**. **Geç ödeme** (expiry önce kazandı): ödeme başarısı
+ACTIVE rezervasyon bulamaz ama EXPIRED/RELEASED bulursa → sipariş PAID olur fakat stok **otomatik düşülmez** (oversell
+riski), `LATE_PAYMENT_AFTER_EXPIRY` order-event + reconciliation uyarısı → manuel inceleme (fail-closed). Job: dry-run/apply,
+circuit breaker (`MAX_RELEASE_PER_RUN`), `QueueJobLog` (STARTED→terminal + SKIPPED_LOCKED + CIRCUIT_BROKEN), idempotent, UTC.
+
+## ADR-192 — Orphan DRAFT / süresi-dolmuş sipariş cleanup (H-3)
+
+**Karar.** Süpürücü ikinci fazda siparişleri kontrollü terminale alır (fiziksel SİLMEZ; audit/history korunur):
+(1) **PLACED + UNPAID** + tüm rezervasyonları EXPIRED (ACTIVE kalmamış) → `CANCELLED` (`cancelReason=RESERVATION_EXPIRED`,
+`ORDER_EXPIRED` event); (2) **DRAFT** + `ORPHAN_DRAFT_MAX_AGE_MINUTES`'ten eski + ödeme attempt'i yok →
+`CANCELLED` (`cancelReason=ORPHAN_DRAFT`, event). CONSUMED/PAID/AUTHORIZED/FULFILLED asla dokunulmaz. Finansal kayıt yoksa
+yalnız lifecycle kapanır.
+
+## ADR-193 — Reconciliation policy + FUTURE capability sınırı (H-3)
+
+**Karar.** Salt-okunur reconciliation scan (`scanReservationReconciliation`): PAID+ACTIVE · CANCELLED+ACTIVE ·
+ACTIVE-unpaid-without-expiry · sayaç≠SUM(active qty) varyant · reserved>onHand varyant · LATE_PAYMENT_AFTER_EXPIRY sipariş.
+Uyarı üretir; **sessiz otomatik düzeltme YOK** — job yalnız kesin-orphan'ı reconcile eder, belirsizi raporlar. Store-admin
+görünürlük uçları (`/inventory/reservations/{status,reconcile,expiry/run}`; expiry/run VARSAYILAN dry-run, apply explicit
+`dryRun:false`; auth-gated; client rezervasyon status/expiry değiştiremez). **FUTURE CAPABILITY (teknik borç değil):**
+çok-depolu dağıtık rezervasyon tahsisi / waitlist / backorder + refund-on-restock politikası ayrı yeteneklerdir.
+
+## ADR-194 — Worker-owned rezervasyon expiry scheduling (H-3 pre-ship)
+
+**Karar.** Rezervasyon süre-aşımı süpürücüsü api-gateway runtime sürecinde ÇALIŞMAZ. Domain mantığı yeni
+`@commerce-os/inventory` paketine taşındı (api-gateway + apps/worker ortak tüketir). Periyodik tetik **BullMQ Job
+Scheduler** ile Redis'te tutulur (`INVENTORY_MAINTENANCE_QUEUE` + sabit `INVENTORY_RESERVATION_EXPIRY_SCHEDULER_ID`);
+yürütme YALNIZ `apps/worker` içinde (backup job standardı). Sabit scheduler id → `upsertJobScheduler` idempotent:
+worker restart PARALEL zamanlama üretmez; gateway restart/deploy takvimi ETKİLEMEZ. Consumer worker'da HER ZAMAN
+kayıtlı (manuel enqueue işlensin); periyodik zamanlama YALNIZ `INVENTORY_RESERVATION_EXPIRY_ENABLED=true` iken upsert
+edilir (varsayılan KAPALI → otomatik auto-expiry yok). Çok-replika güvenliği servis-içi (jobType, storeId) advisory
+lock; kilit alınamazsa `SKIPPED_LOCKED`. api-gateway yalnız auth'lu `POST .../expiry/run` | `.../reconcile/run`
+(→ `enqueueInventoryMaintenanceJob`) + salt-okunur `.../status` | `.../reconcile` sunar. api-gateway'de `setTimeout`/
+`setInterval`/process-local recurring loop KALMADI (ADR-191'in in-process setTimeout worker'ı bu ADR ile REVİZE edildi).
+
+## ADR-195 — PAID/AUTHORIZED + ACTIVE rezervasyon reconcile + manual-review (H-3 pre-ship)
+
+**Karar.** PAID/AUTHORIZED siparişe bağlı ACTIVE rezervasyon (consume yolu kaçırılmış legacy kayıt) CONSUMED
+olmalıdır. Bu, expiry job'ından AYRI kontrollü `inventory-reservation-reconcile` servisiyle yapılır (expiry süresi
+dolmuş adayları işler; reconcile expiresAt'tan BAĞIMSIZ PAID+ACTIVE'i işler). **VARSAYILAN DRY-RUN** (yıkıcı → apply
+explicit). Her aday: transaction + `FOR UPDATE SKIP LOCKED` claim + `InventoryItem` `FOR UPDATE`. Güvenli commit YALNIZ
+şu koşullarda: order gerçekten PAID/AUTHORIZED **ve** reservation.quantity == orderLine.quantity **ve** inventory item
+var **ve** sayaçlar yeterli → `quantityReserved` VE `quantityOnHand` birlikte düşer + `SALE_COMMIT` (yalnız ACTIVE→
+CONSUMED geçişinde → duplicate movement YOK; idempotent, ikinci apply no-op). Belirsiz kayıt (qty mismatch / eksik line
+/ eksik item / sayaç yetersiz) → **MUTATE ETME → MANUAL_REVIEW** (raporlanır; salt-okunur reconciliation scan
+PAID+ACTIVE kalıntısını uyarı olarak sürer). Migration içinde kör update YAPILMAZ — reconcile ayrı komut/job'dur
+(bounded batch + circuit breaker + QueueJobLog audit + advisory lock). Migration backfill PAID+ACTIVE'e dokunmaz.
+
+## ADR-196 — Rezervasyon stok muhasebesi invariant'ı + lock ordering (H-3 pre-ship)
+
+**Karar (invariant).** Tüm lifecycle boyunca: ACTIVE → `quantityReserved` içinde; CONSUMED → reserved VE onHand'dan
+düşülmüş; RELEASED → reserved'dan düşülmüş, onHand değişmemiş; EXPIRED → reserved'dan **fiziksel** düşülmüş (yalnız
+read-time add-back ile bırakılmaz → kalıcı sayaç şişmesi yok); her terminal geçiş stok etkisini **bir kez** üretir
+(status guard: yalnız ACTIVE işlenir → idempotent). Lazy write-time expiry (placeOrder) ve worker expiry ikisi de
+sayacı fiziksel azaltır; read-time add-back yalnız job/lazy çalışana kadarki pencere içindir.
+
+**Karar (lock ordering).** consume/release/lazy-expiry/expiry-job/reconcile hepsi tek serialize noktası olarak
+`InventoryItem` satırını `FOR UPDATE` kilitler. Toplu job'lar önce `InventoryReservation` adaylarını `FOR UPDATE SKIP
+LOCKED` ile (bloklamadan) claim eder, SONRA her aday için `InventoryItem`'ı kilitler → tutarlı sıra
+(**InventoryReservation → InventoryItem**) → deadlock yok; kilitli satırlar atlanır (paralel replica ilerler). Payment
+success (consume) yalnız InventoryItem kilitler. Payment-vs-expiry: aynı InventoryItem satırında serialize →
+oversell imkânsız; expiry job her adayda order.paymentStatus'u kilit-anında yeniden okur (PAID → CONSUME/reconcile,
+değilse EXPIRE). PAYMENT_FAILED retryable → bırakılmaz (TTL/expiresAt ≤ createdAt+maxMinutes cap'i ile eninde sonunda
+expiry'ye girer; terminal CANCELLED → release). Geç ödeme (expiry önce): fail-closed `LATE_PAYMENT_AFTER_EXPIRY`
++ manuel inceleme (bkz. ADR-191).

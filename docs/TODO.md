@@ -2110,7 +2110,20 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
   `AGREEMENT_CURRENCY_REQUIRED`/`SETTLEMENT_CURRENCY_MISMATCH`), sessiz dışlama yok; currency-aware dashboard + audit
   (PII-free) + store-admin uyarı; scheduler fail-closed; salt-okuma tarama (`db:scan-sponsorship-currency`); canlı smoke
   21/21 PASS. FX kapsam dışı (**TD-148** FUTURE). Bkz. `docs/analysis/H-2-revenue-share-currency-guard.md`.
-- **LR-H-3 (HIGH) — Rezervasyon expiry.** single-tx create+place + başarısız DRAFT auto-cancel + worker expiry job. Bkz. TD-136, TD-033.
+- **LR-H-3 (HIGH) — Rezervasyon expiry. ✅ ÇÖZÜLDÜ (2026-07-29, ADR-187…193, TD-136 CLOSED).** Rezervasyon lifecycle
+  (ACTIVE→CONSUMED/RELEASED/EXPIRED) + TTL (`RESERVATION_TTL_MINUTES`=15) + read-time expiry add-back
+  (`findExpiredReservedByVariant`; süresi dolmuş rezervasyon stoğu azaltmaz) + write-time lazy-expiry (`placeOrder`,
+  `FOR UPDATE`) + consume/release idempotent (PAID→`SALE_COMMIT`; CANCELLED→release; PAYMENT_FAILED retryable bırakılmaz)
+  + `inventory-reservation-expiry` worker (advisory lock + `FOR UPDATE SKIP LOCKED` + dry-run/apply + circuit breaker +
+  QueueJobLog) + orphan DRAFT/PLACED-UNPAID kontrollü CANCELLED (silmez) + payment-vs-expiry fail-closed
+  (`LATE_PAYMENT_AFTER_EXPIRY`) + salt-okuma reconciliation + store-admin uçları. Migration `20260729120000` gerçek PG'de
+  uygulandı (backfill PAID+ACTIVE'e dokunmadı; baseline temiz); 25 test + 18/18 canlı smoke PASS. **Pre-ship hardening
+  (ADR-194…196):** süpürücü api-gateway runtime'ından `@commerce-os/inventory` paketi + `apps/worker` BullMQ Job
+  Scheduler'a taşındı (gateway yalnız enqueue/status/reconcile-scan; setTimeout kalmadı); PAID+ACTIVE reconcile servisi
+  (dry-run varsayılan, SALE_COMMIT yalnız-eksikse, belirsiz→MANUAL_REVIEW); lock-ordering (Reservation→Item) + stok
+  counter invariant; 35 test + 13/13 hardening canlı smoke (PG+Redis) PASS. TD-033'te yalnız single-tx create+place
+  atomiklik dilimi açık kalır (stok-kilitlenmesi dilimi CLOSED). Çok-depolu/waitlist + refund-on-restock FUTURE
+  (ADR-193). Bkz. `docs/analysis/H-3-reservation-expiry-orphan-draft-cleanup.md`.
 - **LR-H-4 (HIGH) — Para-yolu auth'lu smoke.** Deployed stack'te checkout→attempt→webhook→PAID→fulfillment +
   Sponsored funnel (impression→click→order→refund); fixture-session tekniği. Bkz. TD-122.
 - **LR-MEDIUM:** dağıtık rate-limit (TD-015), dev seed APP_ENV guard, migrate-on-release gate, worker dağıtık kilit,

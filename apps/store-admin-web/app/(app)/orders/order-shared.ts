@@ -52,6 +52,8 @@ export const RESERVATION_STATUS_TONES: Record<ReservationStatus, Tone> = {
   ACTIVE: "info",
   RELEASED: "neutral",
   CONSUMED: "success",
+  // H-3 (ADR-189) — TTL süpürücü tarafından bırakılan rezervasyon.
+  EXPIRED: "warning",
 };
 
 // Yasam dongusu kurallari (backend nihai otorite; UI yalniz uygun aksiyonu gosterir).

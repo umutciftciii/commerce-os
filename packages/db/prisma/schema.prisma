@@ -191,6 +191,9 @@ enum InventoryMovementType {
   ADJUSTMENT
   SALE_RESERVATION
   SALE_RELEASE
+  // H-3 (ADR-190) — Rezervasyon satışa commit edilirken (ödeme PAID/AUTHORIZED) `quantityReserved`
+  // VE `quantityOnHand` birlikte düşer; bu hareket satışın kalıcı stok çıkışını temsil eder.
+  SALE_COMMIT
   RETURN
   IMPORT
 }
@@ -279,10 +282,14 @@ enum FulfillmentStatus {
   CANCELLED
 }
 
+// H-3 (ADR-189) — Rezervasyon lifecycle state machine. ACTIVE → {CONSUMED | RELEASED | EXPIRED}.
+// Üç hedef terminal + immutable (terminal → ACTIVE imkânsız). CONSUMED: ödeme başarıyla satışa
+// commit edildi. RELEASED: iptal/ödeme-iptali ile geri verildi. EXPIRED: TTL doldu, süpürücü bıraktı.
 enum InventoryReservationStatus {
   ACTIVE
   RELEASED
   CONSUMED
+  EXPIRED
 }
 
 // TODO-159E (ADR-094) — Ürün yorumu moderasyon durumu.
@@ -1794,6 +1801,9 @@ model InventoryReservation {
   expiresAt   DateTime?
   releasedAt  DateTime?
   consumedAt  DateTime?
+  // H-3 (ADR-189/190) — RELEASED/EXPIRED nedeni (audit). PII taşımaz; sabit kodlar:
+  // ORDER_CANCELLED · PAYMENT_CANCELLED · RESERVATION_EXPIRED · ORPHAN_DRAFT · MANUAL.
+  releaseReason String?
   createdAt   DateTime                   @default(now())
   updatedAt   DateTime                   @updatedAt
 
@@ -1807,6 +1817,9 @@ model InventoryReservation {
   @@index([orderLineId])
   @@index([variantId])
   @@index([status])
+  // H-3 (ADR-187/188) — Süpürücü aday sorgusu (status+expiresAt cutoff) + read-time expiry add-back.
+  @@index([storeId, status, expiresAt])
+  @@index([variantId, status, expiresAt])
 }
 
 // F3B.2 Payment Operations Foundation.

@@ -105,6 +105,9 @@ importers:
       '@commerce-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@commerce-os/inventory':
+        specifier: workspace:*
+        version: link:../../packages/inventory
       '@commerce-os/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -251,6 +254,9 @@ importers:
       '@commerce-os/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@commerce-os/inventory':
+        specifier: workspace:*
+        version: link:../../packages/inventory
       '@commerce-os/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -333,6 +339,18 @@ importers:
   packages/i18n: {}
 
   packages/integrations-sdk: {}
+
+  packages/inventory:
+    dependencies:
+      '@commerce-os/db':
+        specifier: workspace:*
+        version: link:../db
+      '@commerce-os/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@prisma/client':
+        specifier: ^6.2.1
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
 
   packages/logger: {}
 
