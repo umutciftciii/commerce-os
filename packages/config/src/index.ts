@@ -258,6 +258,36 @@ export const envSchema = z.object({
   // eksen × yüksek option pratik-dışı kombinasyonu erken reddeder). Alt sınır 1 (pozitif). TD-036 /
   // optionalNumberEnv: env_file'da `KEY=` boş bırakılırsa varsayılana düşer, config yüklemesi çökmez.
   MAX_PREVIEW_COMBINATIONS: optionalNumberEnv(z.coerce.number().int().positive().default(1000)),
+  // ── H-3 (ADR-187…192) — Rezervasyon TTL + süre-aşımı süpürücü + orphan DRAFT temizliği. ──────
+  // Checkout rezervasyonu (placeOrder) varsayılan ömrü (dk). SUNUCU-otoriter; client gönderemez.
+  // Varsayılan 15; alt sınır 5 (yanlışlıkla agresif expiry engeli), üst sınır 1440 (24s).
+  RESERVATION_TTL_MINUTES: optionalNumberEnv(z.coerce.number().int().min(5).max(1440).default(15)),
+  // Ödeme oturumu (PAYMENT_PENDING) açılınca TEK kontrollü TTL yenileme penceresi (dk). Sağlayıcı
+  // timeout'una uyumlu. Varsayılan 30; alt 5, üst 1440. Sayfa yenileme UZATMAZ.
+  RESERVATION_PAYMENT_WINDOW_MINUTES: optionalNumberEnv(z.coerce.number().int().min(5).max(1440).default(30)),
+  // Bir rezervasyonun createdAt'ten itibaren MUTLAK üst ömrü (dk). Yenileme bunu aşamaz (maks toplam
+  // süre cap). Varsayılan 120; alt 15, üst 10080 (7 gün).
+  RESERVATION_MAX_MINUTES: optionalNumberEnv(z.coerce.number().int().min(15).max(10080).default(120)),
+  // Zamanlanmış rezervasyon süre-aşımı süpürücü. Periyodik tetik apps/worker'da (BullMQ Job Scheduler);
+  // api-gateway runtime'ında ÇALIŞMAZ. false (varsayılan) → periyodik zamanlama KURULMAZ (manuel enqueue
+  // yine işlenir); açıkça etkinleştirilmeden ASLA otomatik expiry/cancel.
+  INVENTORY_RESERVATION_EXPIRY_ENABLED: optionalBooleanEnv(false),
+  // Süpürücü tur aralığı (saniye). Varsayılan 300 (5 dk); alt sınır 60. TTL kısa olduğundan sık tarama.
+  // BullMQ Job Scheduler `every` = bu değer * 1000 (cron verilmezse).
+  INVENTORY_RESERVATION_EXPIRY_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(60).default(300)),
+  // Opsiyonel cron ifadesi (verilirse interval yerine kullanılır). Boş → interval. TD-036 toleranslı.
+  INVENTORY_RESERVATION_EXPIRY_CRON: optionalEnv(z.string().min(1).optional()),
+  // Tur başına, store başına en fazla kaç expired rezervasyon işlenir (bounded batch).
+  INVENTORY_RESERVATION_EXPIRY_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(5000).default(500)),
+  // Circuit breaker: tek turda store başına bırakılabilecek maksimum rezervasyon. Aşılırsa APPLY
+  // reddedilir (dry-run her zaman raporlar) → kontrolsüz kütlesel expiry engellenir. Varsayılan 100000.
+  INVENTORY_RESERVATION_EXPIRY_MAX_RELEASE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(100000)),
+  // PAID/AUTHORIZED + ACTIVE reconcile (manuel/operasyonel; zamanlanmaz). Bounded batch + circuit breaker.
+  INVENTORY_RESERVATION_RECONCILE_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(5000).default(500)),
+  INVENTORY_RESERVATION_RECONCILE_MAX_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(100000)),
+  // Orphan DRAFT yaş eşiği (dk): ödeme attempt'i olmayan DRAFT sipariş bu yaştan eskiyse süpürücü
+  // kontrollü terminale (CANCELLED) alır. Varsayılan 1440 (24s); alt sınır 30 (aktif checkout'u koru).
+  ORPHAN_DRAFT_MAX_AGE_MINUTES: optionalNumberEnv(z.coerce.number().int().min(30).default(1440)),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

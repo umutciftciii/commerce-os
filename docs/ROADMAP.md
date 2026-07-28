@@ -706,8 +706,15 @@
   registry + save-time + render-time savunma + güvenli serializer; canlı smoke (vuln→fix) PASS. Kalan: storefront
   CSP ([[TD-147]], MEDIUM, derinlemesine savunma). (H-2) ✅ **ÇÖZÜLDÜ (2026-07-28, ADR-181…186, [[TD-133]] CLOSED).**
   Revenue-share tek-currency invariant + karışık-para fail-closed (`REVENUE_CURRENCY_MISMATCH`); currency-aware dashboard
-  + audit + store-admin uyarı; canlı smoke 21/21 PASS. FX dönüşümü kapsam dışı ([[TD-148]] FUTURE). (H-3) Rezervasyon
-  expiry + orphan DRAFT temizliği yok → stok kilitlenmesi ([[TD-136]]). (H-4)
+  + audit + store-admin uyarı; canlı smoke 21/21 PASS. FX dönüşümü kapsam dışı ([[TD-148]] FUTURE). (H-3) ✅
+  **ÇÖZÜLDÜ (2026-07-29, ADR-187…193, [[TD-136]] CLOSED).** Rezervasyon lifecycle (ACTIVE→CONSUMED/RELEASED/EXPIRED) +
+  TTL (15dk) + read-time expiry add-back + write-time lazy-expiry + `inventory-reservation-expiry` worker (advisory
+  lock + SKIP LOCKED + dry-run/apply + circuit breaker) + orphan DRAFT/PLACED-UNPAID kontrollü cancel + payment-vs-expiry
+  fail-closed (`LATE_PAYMENT_AFTER_EXPIRY`) + reconciliation; migration `20260729120000` gerçek PG'de uygulandı, 25 test
+  + 18/18 canlı smoke PASS. **Pre-ship hardening (ADR-194…196):** süpürücü api-gateway'den `@commerce-os/inventory`
+  paketi + `apps/worker` BullMQ Job Scheduler'a TAŞINDI (gateway yalnız enqueue/status); PAID+ACTIVE reconcile servisi
+  (dry-run+MANUAL_REVIEW); lock-ordering+counter invariant; 35 test + 13/13 hardening smoke PASS. Çok-depolu/waitlist
+  FUTURE (ADR-193). (H-4)
   Ödeme/checkout/Sponsored funnel deploy + auth'lu smoke kanıtı yok (TD-122).
 - **MEDIUM:** dağıtık rate-limit (TD-015), dev seed env guard, migrate-on-release gate, worker dağıtık kilit,
   search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı disabled buton, admin-web

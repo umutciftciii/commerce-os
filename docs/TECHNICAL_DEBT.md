@@ -462,7 +462,14 @@
 - **Launch Audit (2026-07-27):** oversell bölümü **handled** (kilit doğru). Ancak (2)+(3) dilimi —
   orphan DRAFT + expiry-yok — anonim checkout'ta gerçek stok-kilitlenmesi üretir; bu **HIGH** dilim ayrı
   **[[TD-136]]** olarak izlenir. TD-033 gövdesi atomiklik (single-tx create+place) tamamlayıcısı olarak açık kalır.
-- Hedef faz: Faz 3B.2
+- **H-3 (2026-07-29) güncellemesi:** dilim (2) **orphan DRAFT auto-cancel** ve (3) **rezervasyon expiry**
+  **ÇÖZÜLDÜ** ([[TD-136]] CLOSED; worker `inventory-reservation-expiry` + TTL + read-time add-back).
+  TD-033'te AÇIK kalan **yalnız** dilim (1): `createOrder`(DRAFT)+`placeOrder` **iki ayrı transaction**;
+  aralarındaki yaris penceresi oversell ÜRETMEZ (placeOrder FOR UPDATE ile yeniden doğrular; en kötü
+  durum benign 409/INSUFFICIENT_STOCK), fakat single-tx create+place atomiklik iyileştirmesi tamamlayıcı
+  olarak **OPEN** kalır (MEDIUM; reserve-on-auth ile birlikte ele alınabilir). Stok-kilitlenmesi riski YOK.
+- Durum güncelleme: OPEN (yalnız single-tx atomiklik dilimi; stok-kilitlenmesi/expiry dilimi CLOSED).
+- Hedef faz: Faz 3B.2 (atomiklik) — düşük öncelik.
 
 ## TD-034 Payment provider canli adaptorleri + gercek webhook imza dogrulamasi yok
 
@@ -1393,12 +1400,36 @@ scheduler). PB-2 CLOSED kalır; PB-3 hâlâ TD-139'a bağlı.
 
 ## TD-136 — Rezervasyon süre-aşımı / terk-edilmiş sipariş süpürücüsü + orphan DRAFT temizliği YOK
 
-**Durum:** AÇIK — HIGH (TD-033'ün stok-kilitlenmesi dilimi; genel TD-033'ten ayrıştırıldı). Rezervasyon yalnız
-`placeOrder`'da yaratılır (`server.ts:4464`), yalnız `cancelOrder`'da bırakılır; zamanlanmış expiry job yok.
-Anonim checkout ödemeden önce stok rezerve eder (`status:"PLACED"`, `paymentStatus:UNPAID`); başarısız `placeOrder`
-orphan DRAFT bırakır (`server.ts:5980-5983`). Oversell **engelli** (kilit doğru) ama terk edilen anonim checkout'lar
-stoku süresiz kilitler. **Kapsam:** single-tx create+place, başarısız DRAFT auto-cancel, worker expiry job
-(reserve-on-auth). Bu HIGH dilim TD-033 gövdesinden ayrı izlenir; TD-033'ün atomiklik notu tamamlayıcıdır.
+**Durum:** **ÇÖZÜLDÜ (H-3, 2026-07-29, ADR-187…193). CLOSED.** Rezervasyon lifecycle tamamlandı:
+`InventoryReservationStatus`'a `EXPIRED` eklendi; `placeOrder` artık `expiresAt=createdAt+RESERVATION_TTL_MINUTES`
+(varsayılan 15) yazıyor **ve** kilit altında lazy-expiry ile o varyantın süresi dolmuş rezervasyonlarını bırakıp
+oversell kontrolünü scheduler'dan bağımsız DOĞRU tutuyor. Kullanılabilir stok read-time'da
+`onHand−reserved+expiredActiveReserved` ile hesaplanıyor (PLP/PDP/sepet; `findExpiredReservedByVariant`) →
+süresi dolmuş rezervasyon stoğu azaltmıyor. Ödeme `PAID/AUTHORIZED` → `consumeOrderReservations` (idempotent;
+onHand+reserved birlikte düşer, `SALE_COMMIT`); geç-ödeme fail-closed `LATE_PAYMENT_AFTER_EXPIRY` order-event.
+Ödeme `CANCELLED`/admin iptal → `releaseOrderReservations` (idempotent, tenant-safe, `releaseReason`);
+`PAYMENT_FAILED` retryable → bırakılmaz (TTL halleder). Zamanlanmış `inventory-reservation-expiry` worker'ı
+(api-gateway içi, `INVENTORY_RESERVATION_EXPIRY_ENABLED=false` varsayılan; advisory lock + `FOR UPDATE SKIP
+LOCKED` + dry-run/apply + circuit breaker + `QueueJobLog`) expired rezervasyonları bırakır/`reconcile` eder,
+PLACED+UNPAID siparişleri ve eski orphan DRAFT'ları kontrollü `CANCELLED`'a alır (silmez). Payment-vs-expiry
+yarışı: her ikisi de `InventoryItem` satırını `FOR UPDATE` kilitler → serialize; PAID reservasyon expiry
+tarafından release EDİLMEZ (reconcile→consume). Salt-okunur reconciliation scan + store-admin görünürlük uçları
+(`/stores/:id/inventory/reservations/{status,reconcile,expiry/run}`). Migration `20260729120000` gerçek PG'de
+uygulandı; backfill PAID+ACTIVE rezervasyonlara dokunmadı (baseline temiz). 25 birim testi + 18/18 canlı smoke
+PASS (enterprise-demo, izole fixture). TD-033'ün atomiklik notu (single-tx create+place) tamamlayıcı olarak açık
+kalır (bkz. TD-033). **Kapsam-dışı FUTURE:** çok-depolu dağıtık rezervasyon/waitlist/backorder + refund-on-restock
+(ADR-193).
+
+**Pre-ship hardening (2026-07-29, ADR-194…196):** iki mimari düzeltme eklendi. (A) Süpürücü job **api-gateway
+runtime'ından ÇIKARILDI** → yeni `@commerce-os/inventory` paketi + `apps/worker` BullMQ consumer + Job Scheduler
+(sabit id `inventory-reservation-expiry-schedule`, idempotent upsert → worker restart duplicate üretmez; gateway
+restart/deploy takvimi etkilemez). Gateway yalnız manuel expiry/reconcile **enqueue** + status/reconcile-scan sunar;
+`setTimeout`/`setInterval` KALMADI. (B) Baseline **PAID/AUTHORIZED + ACTIVE** rezervasyonlar için ayrı kontrollü
+**reconcile** servisi (`inventory-reservation-reconcile`): dry-run varsayılan, transaction + `FOR UPDATE SKIP LOCKED`,
+qty/line/inventory doğrulama, `SALE_COMMIT` yalnız ACTIVE→CONSUMED geçişinde (duplicate movement yok), belirsiz kayıt
+**MANUAL_REVIEW** (mutate etmez). Lock sırası `InventoryReservation`(claim) → `InventoryItem` (ADR-196; deadlock yok).
+31 paket testi + 4 worker testi + **13/13 hardening canlı smoke** (PG+Redis; reconcile idempotency, BullMQ scheduler
+tek-kayıt, advisory-lock SKIPPED_LOCKED, payment-race reconcile) PASS.
 
 ## TD-137 — Payment webhook: sağlayıcı-native imza şeması (PB-1 devamı, EX-1'e bağlı)
 

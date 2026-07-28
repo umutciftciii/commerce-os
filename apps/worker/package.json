@@ -15,6 +15,7 @@
     "@commerce-os/backup": "workspace:*",
     "@commerce-os/config": "workspace:*",
     "@commerce-os/db": "workspace:*",
+    "@commerce-os/inventory": "workspace:*",
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/queues": "workspace:*",
     "@commerce-os/search-service": "workspace:*",
