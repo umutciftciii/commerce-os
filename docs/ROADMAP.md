@@ -702,8 +702,9 @@
 - **PROD BLOCKER:** (PB-1) Ödeme webhook'u imza doğrulamadan siparişi PAID yapıyor (`server.ts:9069-9147`) —
   gerçek-ödeme kapısı. (PB-2) Test edilmiş DB restore yolu yok (`db:restore-enterprise` = demo re-seed). (PB-3)
   Backup manuel/tek-host/zamanlanmamış/offsite-siz. → [[TD-034]], [[TD-135]].
-- **HIGH (launch öncesi):** (H-1) Tema token değerleri sanitize edilmeden `<style dangerouslySetInnerHTML>` →
-  stored-XSS/render-break ([[TD-134]]). (H-2) Sponsorship REVENUE_SHARE currency guard yok → toplam bozulması
+- **HIGH (launch öncesi):** (H-1) ✅ **ÇÖZÜLDÜ (2026-07-28, ADR-180, [[TD-134]] CLOSED).** Typed theme token
+  registry + save-time + render-time savunma + güvenli serializer; canlı smoke (vuln→fix) PASS. Kalan: storefront
+  CSP ([[TD-147]], MEDIUM, derinlemesine savunma). (H-2) Sponsorship REVENUE_SHARE currency guard yok → toplam bozulması
   ([[TD-133]]). (H-3) Rezervasyon expiry + orphan DRAFT temizliği yok → stok kilitlenmesi ([[TD-136]]). (H-4)
   Ödeme/checkout/Sponsored funnel deploy + auth'lu smoke kanıtı yok (TD-122).
 - **MEDIUM:** dağıtık rate-limit (TD-015), dev seed env guard, migrate-on-release gate, worker dağıtık kilit,
@@ -807,3 +808,23 @@
 - **Gate'ler.** gateway build 0 · test 1669 (+16) · store-admin 356 · storefront 439 · lint 0 · tsc 0 · migrate status
   temiz (yeni migration YOK — alanlar 20260728120000'de).
 - **Sıra:** SHIP (commit→PR→merge→deploy→smoke→worktree cleanup) → **H-1 Theme Token Stored XSS** (SIRADAKİ aktif faz).
+
+## H-1 — Theme Token Stored XSS (2026-07-28, ADR-180, TD-134 CLOSED)
+
+- **Durum:** kod + test + canlı smoke + docs TAMAM · **commit'e hazır** (git: commit/push/PR/merge/deploy YOK).
+- **Kök neden.** Theme Engine (ADR-087) token değerleri yalnız `z.string().min(1)` ile doğrulanıyor, serializer
+  (`css.ts`) ham `${name}:${value};` olarak `<style dangerouslySetInnerHTML>`'e basıyordu (3 sink tek serializer).
+  `#fff</style><script>…` → public storefront **stored XSS**; `.passthrough()` bilinmeyen anahtar da sızdırıyordu.
+- **Çözüm.** Typed **token registry** (COLOR/LENGTH/NUMBER/FONT_FAMILY_PRESET/FONT_WEIGHT/SHADOW_PRESET/DURATION/EASING);
+  **parse+range+normalize validators** (regex-only değil); **render-time defense** (serializer geçersizi atlar, bozuk ref
+  çökertmez); **save-time defense** (draft/publish/import + `THEME_TOKEN_*`/`THEME_PUBLISH_BLOCKED`, ham payload dönmez);
+  **font/shadow preset policy** (ham string yok → preset+allowlist); **customCss sertleştirme** (yorum-strip + `<` kaldırma
+  + fixpoint); store-admin field-level TR/EN + publish-blocked; legacy salt-okuma tarama scripti. Bkz.
+  `docs/analysis/H-1-theme-token-stored-xss.md`.
+- **Canlı smoke (enterprise-demo).** Payload DB'ye enjekte → **mevcut stack ham breakout servis etti** (endpoint +
+  storefront HTML 8× `<script>alert`, vuln doğrulandı) → gateway worktree fix imajıyla değiştirildi → **payload düştü**
+  (endpoint + storefront HTML temiz, `--accent` atlandı, `--paper` sağlam, sayfa kırılmadı, diğer store etkilenmedi) →
+  **fixture geri yüklendi.**
+- **Gate'ler.** theme 147 test + build 0 · gateway 1675 test (+6 XSS integration) + build 0 · store-admin 356 + next build ·
+  storefront 439 · i18n 47 · lint 0 hata · `git diff --check` temiz.
+- **Kalan.** Storefront CSP ([[TD-147]], MEDIUM — derinlemesine savunma; H-1 için gerekli değil).

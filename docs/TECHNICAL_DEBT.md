@@ -1338,15 +1338,21 @@ settlement yolunda aynı-currency guard (`400 CURRENCY_MISMATCH`) + karışık-c
 
 ## TD-134 — Tema token değerleri sanitize edilmeden `<style dangerouslySetInnerHTML>`'e enjekte ediliyor (stored-XSS / render-break)
 
-**Durum:** AÇIK — HIGH (store-user tema editörü öncesi PROD BLOCKER). Token değerleri yalnız `z.string().min(1)`
-(`packages/theme/src/schema.ts:40-45` `zConcrete`; CSS-value allowlist/escape yok); `generateCssVariables` yalnız
-anahtar adını kebab-case yapar, değeri ham `${name}: ${value};` bırakır (`packages/theme/src/css.ts:107-120`); public
-uç CSS'i döndürür (`server.ts:5145-5159`); storefront birebir enjekte eder (`apps/storefront-web/app/layout.tsx:96`
-`dangerouslySetInnerHTML`). Yalnız serbest `customCss` sanitize edilir (`packages/theme/src/custom-css.ts:35`) — token
-değerleri bypass eder. `#fff</style><script>…` değeri `<style>`'dan kaçar → public storefront stored XSS; masum `;`/`}`
-tüm stylesheet'i bozar. `.passthrough()` ek olarak keyfi fazladan anahtarları geçirir. **Bugünkü sınır:** tema düzenleme
-yalnız platform-admin gate'li (TD-019 → store-user auth yok); sink **kalıcı**. **Kapsam:** token değerleri için
-CSS-value allowlist/escape + `.passthrough()` yerine `.strict()`; merchant-facing tema editörü açılmadan ÖNCE.
+**Durum:** **ÇÖZÜLDÜ (H-1, 2026-07-28, ADR-180). CLOSED.** Typed theme token registry + save-time + render-time
+savunma ile kapatıldı. Artık token değerleri **serbest CSS değildir**: her token merkezi registry'de
+(`packages/theme/src/registry.ts`) bir tiple (COLOR/LENGTH/NUMBER/FONT_FAMILY_PRESET/FONT_WEIGHT/SHADOW_PRESET/
+DURATION/EASING) tanımlıdır; değerler parse+range+canonical-normalize ile doğrulanır
+(`packages/theme/src/validate.ts`) ve TEK güvenli serializer'dan geçer (`css.ts` `generateCssVariables` her değeri
+tipine göre validate eder, geçersizi ATLAR → render-time defense). Bilinmeyen primitive anahtar yayınlanmaz
+(`.passthrough()` enjeksiyon yolu kapandı). Save-time: gateway draft/publish/import token doğrulaması +
+`THEME_TOKEN_UNKNOWN/INVALID_VALUE/TYPE_MISMATCH/UNSAFE_VALUE` + `THEME_PUBLISH_BLOCKED` (ham payload/regex
+response'a dönmez). Font/shadow ham string kabul etmez → preset ID + kanonik allowlist. customCss sanitizer
+sertleştirildi (yorum-strip + tüm `<` kaldırma + fixpoint döngü). Store-admin field-level TR/EN + publish-blocked
+state. Legacy salt-okuma tarama scripti (`packages/db/scripts/security/scan-theme-tokens.mjs`). **Canlı smoke
+(enterprise-demo):** payload DB'ye enjekte → mevcut stack ham breakout servis etti (vuln doğrulandı, 8× DOM
+breakout); düzeltilmiş serializer aynı belgede payload'ı düşürdü (`--accent` atlandı, `--paper` sağlam). Testler:
+147 theme (validate/registry/custom-css/css) + 6 gateway integration (XSS regression). **Kalan risk:** storefront'ta
+CSP yok → derinlemesine savunma için **TD-147**.
 
 ## TD-135 — Felaket kurtarma: backup manuel/tek-host/zamanlanmamış + test edilmiş restore YOK (DR)
 
@@ -1450,3 +1456,15 @@ günlük click/order/revenue serisini GRAFİK olarak render etmiyor (chart bile�
 chart eklenebilir.
 
 **KAPANIŞ (2026-07-28, ADR-177…179):** TD-143/144/145/146 Analytics Demo Completion fazında kapatıldı. Currency-aware UTM (source/medium/campaign/content/term+customLabel, per-currency `revenues[]`, unique+CR); günlük zaman serisi bağımlılıksız inline-SVG grafik (7/30/90/özel, store-tz gün sınırı, zero-fill, link/UTM filtre, tooltip/legend/empty/a11y); tracking link formu 6 UTM/label alanı (trim+empty-to-null+max120+kontrol-karakter reddi+TR/EN+immutable ipucu); deterministik demo fixture (`influencer-demo-seed.mjs`) + runbook. Data-layer smoke gerçek PG'ye karşı PASS; birim testleri (analytics-range 10 + serialize currency 6 + lifecycle 23) yeşil.
+
+## TD-147 — Storefront CSP hardening (inline `<style>`/`<script>` için nonce/hash)
+
+**Durum:** AÇIK — MEDIUM (derinlemesine savunma; H-1 ana çözümü DEĞİL). Kod tabanında **hiç
+Content-Security-Policy başlığı yok** (`grep Content-Security-Policy` → 0 sonuç). Storefront tema CSS'ini
+`<style id="commerce-os-theme" dangerouslySetInnerHTML>` ile enjekte eder; JSON-LD ve Next runtime de inline
+`<script>` kullanır. H-1 (ADR-180) typed token registry + serializer ile stored-XSS'i **kaynağında** kapattı
+(CSP'ye bağlı değil) — bu yüzden bu borç MEDIUM. Ancak bir CSP (`style-src`/`script-src` nonce veya hash,
+`default-src 'self'`, `object-src 'none'`, `base-uri 'self'`) gelecekteki sink'lere karşı ikinci bir kat sağlar.
+**Kapsam:** inline `<style>`/`<script>`'lere nonce/hash; `unsafe-inline` KULLANMA (kullanılırsa ayrı borç olarak
+işaretle); Next.js `headers()`/middleware ile uygula; report-only aşamasıyla başla. Bu, H-1'i büyük bir CSP
+yeniden tasarımına dönüştürmemek için ayrıştırıldı (bkz. `docs/analysis/H-1-theme-token-stored-xss.md` §11).

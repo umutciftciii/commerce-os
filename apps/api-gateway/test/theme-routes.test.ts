@@ -183,11 +183,13 @@ afterEach(() => vi.clearAllMocks());
 describe("theme engine admin routes", () => {
   let app: ReturnType<typeof buildApp>["app"];
   let recordAudit: ReturnType<typeof buildApp>["recordAudit"];
+  let themes: ReturnType<typeof buildApp>["themes"];
 
   beforeEach(() => {
     const built = buildApp();
     app = built.app;
     recordAudit = built.recordAudit;
+    themes = built.themes;
   });
 
   it("GET presets → 10 presets", async () => {
@@ -325,6 +327,104 @@ describe("theme engine admin routes", () => {
     const saved = res.json().draft.document.customCss as string;
     expect(saved).not.toContain("<script");
     expect(saved).not.toContain("</style>");
+  });
+
+  // ── H-1 — Theme Token Stored XSS: save-time typed token savunması ──────────
+  it("saveDraft rejects a style-breaking color token → 400 THEME_TOKEN_UNSAFE_VALUE", async () => {
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "X" } });
+    const themeId = created.json().id;
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.brand.primary = "red;}</style><script>alert(1)</script>";
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${themeId}/draft`,
+      payload: { document: doc },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_TOKEN_UNSAFE_VALUE");
+    // GÜVENLİK: yanıt ham payload TAŞIMAZ (yalnız path/type/reason).
+    const raw = JSON.stringify(res.json());
+    expect(raw).not.toContain("<script");
+    expect(raw).not.toContain("alert(1)");
+    expect(res.json().error.details.tokens[0].path).toBe("tokens.brand.primary");
+  });
+
+  it("saveDraft rejects an unknown token key → 400 THEME_TOKEN_UNKNOWN", async () => {
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "U" } });
+    const themeId = created.json().id;
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT) as Record<string, unknown>;
+    (((doc.tokens as Record<string, unknown>).brand) as Record<string, string>).evil = "#fff";
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${themeId}/draft`,
+      payload: { document: doc },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_TOKEN_UNKNOWN");
+  });
+
+  it("saveDraft rejects a type-mismatched radius (vh unit) → 400 THEME_TOKEN_INVALID_VALUE", async () => {
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "R" } });
+    const themeId = created.json().id;
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.radius.md = "10vh";
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${themeId}/draft`,
+      payload: { document: doc },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_TOKEN_INVALID_VALUE");
+  });
+
+  it("publish is blocked when the draft holds legacy invalid tokens → 409 THEME_PUBLISH_BLOCKED", async () => {
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "Legacy" } });
+    const themeId = created.json().id;
+    // Save-time savunmasını ATLAYARAK DB'ye doğrudan bozuk token yaz (legacy simülasyonu).
+    const theme = themes.find((t) => t.id === themeId)!;
+    const draftVer = theme.versions.find((v) => v.status === "DRAFT")!;
+    const badDoc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    badDoc.tokens.brand.primary = "</style><script>alert(1)</script>";
+    draftVer.document = badDoc;
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/s1/themes/${themeId}/publish`,
+      payload: {},
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_PUBLISH_BLOCKED");
+  });
+
+  it("import rejects a document with unsafe tokens → 400", async () => {
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.text.primary = 'red";background:url(https://evil/x)';
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/s1/themes/import",
+      payload: { data: doc, name: "Imported" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.json().error.code)).toMatch(/^THEME_TOKEN_/);
+  });
+
+  it("public theme render drops legacy invalid tokens (no payload in CSS)", async () => {
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "Pub2" } });
+    const themeId = created.json().id;
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${themeId}/publish`, payload: {} });
+    // Yayınlanmış versiyonu legacy-bozuk yap (render-time defense sınavı).
+    const theme = themes.find((t) => t.id === themeId)!;
+    const pubVer = theme.versions.find((v) => v.status === "PUBLISHED")!;
+    const badDoc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    badDoc.tokens.brand.primary = "red;}</style><script>alert(1)</script>";
+    pubVer.document = badDoc;
+    const preview = await app.inject({ method: "GET", url: `/stores/s1/themes/${themeId}/preview` });
+    expect(preview.statusCode).toBe(200);
+    const css = preview.json().css as string;
+    expect(css).not.toContain("<script");
+    expect(css).not.toContain("</style>");
+    expect(css).not.toContain("alert(1)");
+    // Diğer geçerli tokenlar hâlâ üretilir.
+    expect(css).toContain("--paper: #f7f6f3;");
   });
 
   it("cannot delete a published theme → 409", async () => {

@@ -137,6 +137,16 @@ export const trStoreAdmin = {
       "Görselleri gruplayan eksen bu ürünün kayıtlı bir SELECT/COLOR varyant ekseni olmalı. Önce varyant eksenini seçip kaydedin.",
     INVALID_MEDIA_OPTION: "Bir görsele atanan renk, seçili eksene ait değil. Görsel etiketlerini kontrol edin.",
     MEDIA_AXIS_REQUIRED: "Görselleri renge etiketlemeden önce bir eksen seçmelisiniz.",
+    // H-1 — Typed tema token yönetişimi (Theme Studio).
+    THEME_TOKEN_UNKNOWN: "Bu tema desteklenmeyen bir tasarım token'ı içeriyor. Yalnız tanımlı tokenlar kaydedilebilir.",
+    THEME_TOKEN_INVALID_VALUE:
+      "Bir tema token değeri aralık dışında veya desteklenmeyen bir birim kullanıyor. Değeri kontrol edip tekrar deneyin.",
+    THEME_TOKEN_TYPE_MISMATCH:
+      "Bir tema token değeri beklenen tipe uymuyor (örneğin renk alanına renk girilmeli).",
+    THEME_TOKEN_UNSAFE_VALUE:
+      "Bir tema token değeri güvensiz karakterler içeriyor ve güvenlik nedeniyle reddedildi.",
+    THEME_PUBLISH_BLOCKED:
+      "Bu tema geçersiz tasarım token'ları içerdiği için yayınlanamıyor. Düzeltip tekrar deneyin.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",

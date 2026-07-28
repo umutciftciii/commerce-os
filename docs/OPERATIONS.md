@@ -1041,3 +1041,31 @@ sağlayıcı webhook'u AÇILMAZ (secret'siz config → 404). MOCK ödeme webhook
 - **Timezone:** günlük analytics gün sınırları `StoreSettings.timezone` (varsayılan Europe/Istanbul) ile bucketlanır;
   API+UI aynı sınır. Aralık bounded (max 366 gün, varsayılan 30); gelecek gün yok; veri olmayan gün sıfır (zero-fill).
 - **Yeni migration YOK** (alanlar 20260728120000'de). `prisma migrate status` temiz olmalı.
+
+## Theme Token Security — Typed Governance (H-1 / ADR-180, TD-134 CLOSED)
+
+Tema token değerleri **serbest CSS değildir**: her token typed registry (`packages/theme/src/registry.ts`) üzerinden
+doğrulanır ve tek güvenli serializer (`css.ts`) ile render edilir. İki kat savunma:
+
+- **Save-time** (gateway): Theme Studio draft kaydet/publish/import token doğrulaması. Geçersiz → `THEME_TOKEN_UNKNOWN
+  / THEME_TOKEN_INVALID_VALUE / THEME_TOKEN_TYPE_MISMATCH / THEME_TOKEN_UNSAFE_VALUE`; geçersiz draft publish → 409
+  `THEME_PUBLISH_BLOCKED`. Yanıt ham payload/regex TAŞIMAZ (yalnız path/type/reason).
+- **Render-time** (storefront + preview): serializer her değeri tipine göre doğrular; geçersiz/legacy token **atlanır**
+  (ham değer `<style>`'a girmez; diğer geçerli tokenlar çalışır; sayfa kırılmaz). DB'deki legacy geçersiz kayıtlar bu
+  katmanla güvenle sindirilir.
+
+**Legacy tarama (salt-okuma, önerilen periyodik kontrol):**
+
+```
+# Tüm store'lar
+node packages/db/scripts/security/scan-theme-tokens.mjs
+# Tek store + tam JSON
+node packages/db/scripts/security/scan-theme-tokens.mjs --store=<storeId> --json
+```
+
+Çıktı yalnız güvenli metadata (path/layer/type/reason + theme/version kimlikleri + status) — **ham token değeri
+loglanmaz**. Etkilenen PUBLISHED tema render'da güvenle atlanır; düzeltmek için Theme Studio'da geçersiz alanları
+düzeltip yeniden yayınlayın (publish geçersizken bloklanır). Script DB'yi **değiştirmez** (sessiz mutate YOK).
+
+**Kalan:** Storefront CSP yok (inline `<style>`/`<script>` nonce/hash) → **TD-147** (MEDIUM, derinlemesine savunma;
+H-1 için gerekli değil).

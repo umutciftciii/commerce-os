@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   generateThemeStylesheet,
   validateThemeDocument,
+  validateColor,
+  validateLength,
   type ThemeDocument,
 } from "@commerce-os/theme";
 import type {
@@ -11,7 +13,9 @@ import type {
   ThemeDetail,
   ThemePresetSummary,
 } from "@commerce-os/api-client";
+import type { Locale } from "@commerce-os/i18n";
 import { storeApi } from "../../../lib/client/api";
+import { messageForError } from "../../../lib/client/messages";
 import {
   Alert,
   Badge,
@@ -21,7 +25,30 @@ import {
   SectionCard,
   Select,
   Spinner,
+  useLocale,
 } from "../../../components/ui";
+
+// H-1 — Radius alanları için izinli uzunluk politikası (registry ile hizalı).
+const RADIUS_LENGTH_POLICY = { units: ["px", "rem", "em", "%"] as const, allowZeroUnitless: true };
+
+// Font preset seçenekleri: ham font-family artık kabul edilmez (typed policy).
+const FONT_PRESET_OPTIONS = [
+  { value: "system", label: "Sistem (sans-serif)" },
+  { value: "serif", label: "Serif" },
+  { value: "mono", label: "Monospace" },
+];
+
+/** Depolanmış font değerini (preset id veya legacy stack) seçili preset id'sine indirger. */
+function fontSelectValue(current: string): string {
+  const c = (current ?? "").toLowerCase();
+  if (c === "system" || c === "sans" || c === "inter") return "system";
+  if (c === "serif" || c === "playfair") return "serif";
+  if (c === "mono" || c === "monospace") return "mono";
+  // Legacy tam-stack: aile ipucuna göre eşle.
+  if (c.includes("serif") && !c.includes("sans-serif")) return "serif";
+  if (c.includes("mono")) return "mono";
+  return "system";
+}
 
 // ── Düzenlenebilir token alanları (mimari tümünü destekler; UI çekirdeği kapsar) ──
 type Group = "brand" | "surface" | "text" | "border" | "feedback";
@@ -86,6 +113,7 @@ function statusTone(status: string): "success" | "neutral" | "warning" {
 }
 
 export function ThemeStudio() {
+  const locale = useLocale() as Locale;
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
   const [presets, setPresets] = useState<ThemePresetSummary[]>([]);
   const [detail, setDetail] = useState<ThemeDetail | null>(null);
@@ -126,7 +154,8 @@ export function ThemeStudio() {
       await fn();
       if (okMsg) setNotice(okMsg);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "İşlem başarısız.");
+      // H-1 — kodu lokalize mesaja çevir (ham gateway mesajı/kodu gösterilmez).
+      setError(messageForError(e, locale));
     } finally {
       setBusy(false);
     }
@@ -246,6 +275,25 @@ export function ThemeStudio() {
       await refreshList();
     }, "Tema silindi.");
 
+  // H-1 — Alan-seviyesi doğrulama: geçersiz token'lar kaydetmeden ÖNCE işaretlenir
+  // (kaydetme/yayınlama engellenir; sunucu ikinci savunmadır). Renk + radius alanları.
+  const invalidFields = useMemo(() => {
+    const set = new Set<string>();
+    if (!doc) return set;
+    for (const section of COLOR_FIELDS) {
+      for (const [key] of section.keys) {
+        const value = String(doc.tokens[section.group]?.[key] ?? "");
+        if (!validateColor(value).ok) set.add(`${section.group}.${key}`);
+      }
+    }
+    for (const k of ["sm", "md", "lg"] as const) {
+      const value = String(doc.tokens.radius?.[k] ?? "");
+      if (!validateLength(value, RADIUS_LENGTH_POLICY).ok) set.add(`radius.${k}`);
+    }
+    return set;
+  }, [doc]);
+  const hasErrors = invalidFields.size > 0;
+
   // Canlı önizleme CSS'i (istemci tarafında @commerce-os/theme ile üretilir).
   const previewCss = useMemo(() => {
     if (!doc) return "";
@@ -349,10 +397,10 @@ export function ThemeStudio() {
             <Button variant="secondary" size="sm" onClick={closeEditor}>
               ← Listeye dön
             </Button>
-            <Button size="sm" onClick={saveDraft} disabled={busy || !doc}>
+            <Button size="sm" onClick={saveDraft} disabled={busy || !doc || hasErrors}>
               Taslağı kaydet
             </Button>
-            <Button size="sm" onClick={publish} disabled={busy}>
+            <Button size="sm" onClick={publish} disabled={busy || hasErrors}>
               Yayınla
             </Button>
             <Button variant="secondary" size="sm" onClick={exportTheme} disabled={busy}>
@@ -366,6 +414,15 @@ export function ThemeStudio() {
             </Alert>
           ) : (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {hasErrors ? (
+                <div className="lg:col-span-2">
+                  <Alert tone="error" title="Geçersiz token değeri">
+                    Bazı alanlar geçerli bir değer içermiyor (kırmızı ile
+                    işaretli). Kaydetme ve yayınlama, düzeltilene kadar
+                    engellenir.
+                  </Alert>
+                </div>
+              ) : null}
               {/* Editör */}
               <div className="space-y-5">
                 {COLOR_FIELDS.map((section) => (
@@ -376,11 +433,12 @@ export function ThemeStudio() {
                     <div className="grid grid-cols-2 gap-2">
                       {section.keys.map(([key, label]) => {
                         const value = String(doc.tokens[section.group][key] ?? "");
+                        const invalid = invalidFields.has(`${section.group}.${key}`);
                         return (
                           <div key={key} className="flex items-center gap-2">
                             <span
                               className="h-7 w-7 shrink-0 rounded border border-white/15"
-                              style={{ background: value }}
+                              style={{ background: invalid ? "transparent" : value }}
                               aria-hidden
                             />
                             <div className="min-w-0 flex-1">
@@ -388,8 +446,14 @@ export function ThemeStudio() {
                               <Input
                                 value={value}
                                 onChange={(e) => setColor(section.group, key, e.target.value)}
-                                className="text-xs"
+                                className={`text-xs ${invalid ? "border-red-500/70" : ""}`}
+                                aria-invalid={invalid}
                               />
+                              {invalid ? (
+                                <span className="mt-0.5 block text-[10px] text-red-400">
+                                  Geçerli bir renk girin (ör. #735389, rgb(...)).
+                                </span>
+                              ) : null}
                             </div>
                           </div>
                         );
@@ -403,16 +467,25 @@ export function ThemeStudio() {
                     Köşe yarıçapı
                   </p>
                   <div className="grid grid-cols-3 gap-2">
-                    {(["sm", "md", "lg"] as const).map((k) => (
-                      <div key={k}>
-                        <label className="block text-[11px] text-white/45">{k}</label>
-                        <Input
-                          value={String(doc.tokens.radius[k] ?? "")}
-                          onChange={(e) => setRadius(k, e.target.value)}
-                          className="text-xs"
-                        />
-                      </div>
-                    ))}
+                    {(["sm", "md", "lg"] as const).map((k) => {
+                      const invalid = invalidFields.has(`radius.${k}`);
+                      return (
+                        <div key={k}>
+                          <label className="block text-[11px] text-white/45">{k}</label>
+                          <Input
+                            value={String(doc.tokens.radius[k] ?? "")}
+                            onChange={(e) => setRadius(k, e.target.value)}
+                            className={`text-xs ${invalid ? "border-red-500/70" : ""}`}
+                            aria-invalid={invalid}
+                          />
+                          {invalid ? (
+                            <span className="mt-0.5 block text-[10px] text-red-400">
+                              px/rem/em/% (ör. 8px)
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -421,15 +494,17 @@ export function ThemeStudio() {
                     Tipografi
                   </p>
                   <label className="block text-[11px] text-white/45">Başlık ailesi</label>
-                  <Input
-                    value={doc.tokens.typography.headingFont}
+                  <Select
+                    value={fontSelectValue(doc.tokens.typography.headingFont)}
                     onChange={(e) => setFont("headingFont", e.target.value)}
+                    options={FONT_PRESET_OPTIONS}
                     className="mb-2 text-xs"
                   />
                   <label className="block text-[11px] text-white/45">Gövde ailesi</label>
-                  <Input
-                    value={doc.tokens.typography.bodyFont}
+                  <Select
+                    value={fontSelectValue(doc.tokens.typography.bodyFont)}
                     onChange={(e) => setFont("bodyFont", e.target.value)}
+                    options={FONT_PRESET_OPTIONS}
                     className="text-xs"
                   />
                 </div>

@@ -29,11 +29,14 @@ import {
   getPreset,
   validateThemeDocument,
   collectResolutionErrors,
+  collectThemeTokenIssues,
+  REASON_TO_ERROR_CODE,
   sanitizeCustomCss,
   generateStorefrontThemeCss,
   exportThemeJson,
   importTheme,
   type ThemeDocument,
+  type TokenIssue,
 } from "@commerce-os/theme";
 import type { ThemeDataAccess, ThemeRecord, ThemeVersionRecord } from "./data.js";
 
@@ -59,6 +62,30 @@ const themeParam = z.object({ storeId: z.string().min(1), themeId: z.string().mi
 
 function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
   return { error: { code, message, ...(extra ?? {}) } };
+}
+
+// H-1 — Typed theme token savunması. En-şiddetli sorun sınıfı hata kodunu seçer.
+const TOKEN_REASON_SEVERITY = ["UNSAFE_VALUE", "TYPE_MISMATCH", "INVALID_VALUE", "UNKNOWN"] as const;
+
+/**
+ * Token sorunlarından güvenli bir hata gövdesi kurar. GÜVENLİK: yanıt ham
+ * (saldırgan) DEĞER veya validation regex'i TAŞIMAZ — yalnız path/layer/type/reason.
+ */
+function tokenIssuesBody(issues: TokenIssue[], overrideCode?: string) {
+  const top = [...issues].sort(
+    (a, b) => TOKEN_REASON_SEVERITY.indexOf(a.reason) - TOKEN_REASON_SEVERITY.indexOf(b.reason),
+  )[0];
+  const code = overrideCode ?? REASON_TO_ERROR_CODE[top.reason];
+  return errorBody(code, "Theme token failed typed validation.", {
+    details: {
+      tokens: issues.slice(0, 50).map((i) => ({
+        path: i.path,
+        layer: i.layer,
+        type: i.type,
+        reason: i.reason,
+      })),
+    },
+  });
 }
 
 function docColorScheme(document: unknown): string {
@@ -273,6 +300,11 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
           issues: refErrors,
         }));
     }
+    // H-1 — typed token savunması: bilinmeyen/tip-uyumsuz/güvensiz token reddedilir.
+    const tokenIssues = collectThemeTokenIssues(validation.document);
+    if (tokenIssues.length > 0) {
+      return reply.code(400).send(tokenIssuesBody(tokenIssues));
+    }
     const document = withSanitizedCustomCss(validation.document);
     const saved = await dataAccess.saveDraft(storeId, themeId, {
       document: document as unknown as Record<string, unknown>,
@@ -299,10 +331,23 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     const body = themePublishRequestSchema.parse(request.body ?? {});
     const theme = await dataAccess.getTheme(storeId, themeId);
     if (!theme) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
-    if (!currentDraft(theme)) {
+    const draft = currentDraft(theme);
+    if (!draft) {
       return reply
         .code(409)
         .send(errorBody("THEME_NO_DRAFT", "No draft version to publish."));
+    }
+    // H-1 — Geçersiz/legacy token içeren draft YAYINLANAMAZ (save-time bypass'ı
+    // veya bu düzeltmeden önce kaydedilmiş bozuk draft'lara karşı ikinci kapı).
+    const draftDoc = asDocument(draft.document);
+    if (!draftDoc) {
+      return reply
+        .code(409)
+        .send(errorBody("THEME_PUBLISH_BLOCKED", "Draft document is unresolvable."));
+    }
+    const publishIssues = collectThemeTokenIssues(draftDoc);
+    if (publishIssues.length > 0) {
+      return reply.code(409).send(tokenIssuesBody(publishIssues, "THEME_PUBLISH_BLOCKED"));
     }
     const published = await dataAccess.publishTheme(storeId, themeId, { notes: body.notes ?? null });
     if (!published) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
@@ -386,6 +431,11 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
       return reply
         .code(400)
         .send(errorBody("INVALID_THEME_IMPORT", "Theme import invalid.", { issues: result.errors }));
+    }
+    // H-1 — içe aktarılan belge de typed token savunmasından geçer.
+    const importIssues = collectThemeTokenIssues(result.document);
+    if (importIssues.length > 0) {
+      return reply.code(400).send(tokenIssuesBody(importIssues));
     }
     const name = body.name ?? result.document.meta.name;
     const document = withSanitizedCustomCss({
