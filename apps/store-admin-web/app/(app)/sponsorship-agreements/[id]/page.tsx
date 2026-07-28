@@ -40,6 +40,27 @@ function errorText(error: unknown, locale: Locale): string {
   return messageForError(error, locale);
 }
 
+// H-2 (ADR-181…185) — revenue-share currency guard fail-closed kodları (settlement üret/kesinleştir engellenir).
+const CURRENCY_GUARD_CODES = new Set(["REVENUE_CURRENCY_MISMATCH", "SETTLEMENT_CURRENCY_MISMATCH", "AGREEMENT_CURRENCY_REQUIRED"]);
+interface CurrencyGuardWarning {
+  code: string;
+  message: string;
+  expectedCurrency?: string;
+  foundCurrencies?: string[];
+  mismatchedOrderCount?: number;
+}
+/** Currency-guard hatası ise kontrollü uyarı özeti üretir; değilse null. */
+function currencyGuardWarning(error: unknown): CurrencyGuardWarning | null {
+  if (!(error instanceof UiError) || !CURRENCY_GUARD_CODES.has(error.code)) return null;
+  return {
+    code: error.code,
+    message: sponsorshipError(error.code) ?? error.code,
+    expectedCurrency: error.details?.expectedCurrency,
+    foundCurrencies: error.details?.foundCurrencies,
+    mismatchedOrderCount: error.details?.mismatchedOrderCount,
+  };
+}
+
 const NEXT_STATUSES: Record<SponsorshipAgreementStatus, SponsorshipAgreementStatus[]> = {
   DRAFT: ["PENDING_APPROVAL", "ACTIVE", "CANCELLED"],
   PENDING_APPROVAL: ["ACTIVE", "DRAFT", "CANCELLED"],
@@ -251,9 +272,19 @@ function SettlementPanel({
   const [periodStart, setPeriodStart] = useState(agreement.startsAt.slice(0, 10));
   const [periodEnd, setPeriodEnd] = useState(agreement.endsAt.slice(0, 10));
   const [busy, setBusy] = useState(false);
+  // H-2 — karışık-para fail-closed uyarısı (kontrollü; ham finansal veri/PII göstermez).
+  const [currencyWarn, setCurrencyWarn] = useState<CurrencyGuardWarning | null>(null);
+
+  /** Currency-guard hatasıysa kontrollü uyarı kur; değilse genel hata olarak ilet. */
+  function handleActionError(e: unknown) {
+    const warn = currencyGuardWarning(e);
+    if (warn) setCurrencyWarn(warn);
+    else onError(errorText(e, locale));
+  }
 
   async function preview() {
     setBusy(true);
+    setCurrencyWarn(null);
     try {
       await storeApi.previewSponsorshipSettlement(agreement.id, {
         periodStart: new Date(periodStart).toISOString(),
@@ -263,29 +294,31 @@ function SettlementPanel({
       onNotice("Mutabakat taslağı hesaplandı.");
       onChange();
     } catch (e) {
-      onError(errorText(e, locale));
+      handleActionError(e);
     } finally {
       setBusy(false);
     }
   }
 
   async function finalize(settlementId: string) {
+    setCurrencyWarn(null);
     try {
       await storeApi.finalizeSponsorshipSettlement(settlementId);
       onNotice("Mutabakat kesinleşti (immutable).");
       onChange();
     } catch (e) {
-      onError(errorText(e, locale));
+      handleActionError(e);
     }
   }
 
   async function charge(settlementId: string) {
+    setCurrencyWarn(null);
     try {
       await storeApi.createSponsorshipCharge(settlementId, { issue: true });
       onNotice("Tahakkuk oluşturuldu ve düzenlendi.");
       onChange();
     } catch (e) {
-      onError(errorText(e, locale));
+      handleActionError(e);
     }
   }
 
@@ -306,6 +339,36 @@ function SettlementPanel({
         <div className="flex-1"><Input label="Dönem sonu" type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></div>
         <Button onClick={() => void preview()} disabled={busy}>{busy ? "…" : "Önizle / Hesapla"}</Button>
       </div>
+
+      {currencyWarn ? (
+        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-sm">
+          <p className="font-medium text-amber-200">Para birimi uyuşmazlığı — mutabakat oluşturulamaz</p>
+          <p className="mt-1 text-amber-100/80">{currencyWarn.message}</p>
+          {currencyWarn.expectedCurrency || typeof currencyWarn.mismatchedOrderCount === "number" ? (
+            <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs text-amber-100/70">
+              {currencyWarn.expectedCurrency ? (
+                <>
+                  <dt className="text-amber-100/50">Beklenen para birimi</dt>
+                  <dd className="font-medium tabular-nums">{currencyWarn.expectedCurrency}</dd>
+                </>
+              ) : null}
+              {currencyWarn.foundCurrencies && currencyWarn.foundCurrencies.length ? (
+                <>
+                  <dt className="text-amber-100/50">Bulunan para birimleri</dt>
+                  <dd className="font-medium tabular-nums">{currencyWarn.foundCurrencies.join(", ")}</dd>
+                </>
+              ) : null}
+              {typeof currencyWarn.mismatchedOrderCount === "number" ? (
+                <>
+                  <dt className="text-amber-100/50">Uyuşmayan kayıt sayısı</dt>
+                  <dd className="font-medium tabular-nums">{currencyWarn.mismatchedOrderCount}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
+          <p className="mt-2 text-xs text-amber-100/50">Farklı para birimleri tek toplamda birleştirilemez. Dönemi tek para birimine daraltın veya siparişlerin para birimini gözden geçirin.</p>
+        </div>
+      ) : null}
 
       {settlements.length === 0 ? (
         <p className="mt-4 px-1 text-sm text-white/40">Henüz mutabakat yok. Bir dönem seçip hesaplayın.</p>

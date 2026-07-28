@@ -307,6 +307,10 @@ export interface UiErrorDetails {
   // backend `error.details.attributeDefinitionId` taşınır (gömülü product create/update
   // akışı; dedike PUT üst-seviye taşır ama bu UI gömülü akışı kullanır).
   attributeDefinitionId?: string;
+  // H-2 (ADR-181…185) — revenue-share currency mismatch güvenli özeti (ham finansal veri/PII YOK).
+  expectedCurrency?: string;
+  foundCurrencies?: string[];
+  mismatchedOrderCount?: number;
 }
 
 export class UiError extends Error {
@@ -420,7 +424,13 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
           ? (body as {
               error?: {
                 code?: unknown;
-                details?: { usedIn?: unknown; attributeDefinitionId?: unknown };
+                details?: {
+                  usedIn?: unknown;
+                  attributeDefinitionId?: unknown;
+                  expectedCurrency?: unknown;
+                  foundCurrencies?: unknown;
+                  mismatchedOrderCount?: unknown;
+                };
               };
             }).error
           : undefined;
@@ -436,6 +446,19 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       const attributeDefinitionId = errorObj?.details?.attributeDefinitionId;
       if (typeof attributeDefinitionId === "string") {
         details = { ...details, attributeDefinitionId };
+      }
+      // H-2 (ADR-181…185) — currency mismatch güvenli özeti.
+      const expectedCurrency = errorObj?.details?.expectedCurrency;
+      if (typeof expectedCurrency === "string") {
+        details = { ...details, expectedCurrency };
+      }
+      const foundCurrencies = errorObj?.details?.foundCurrencies;
+      if (Array.isArray(foundCurrencies) && foundCurrencies.every((entry) => typeof entry === "string")) {
+        details = { ...details, foundCurrencies: foundCurrencies as string[] };
+      }
+      const mismatchedOrderCount = errorObj?.details?.mismatchedOrderCount;
+      if (typeof mismatchedOrderCount === "number") {
+        details = { ...details, mismatchedOrderCount };
       }
     } catch {
       // Govde JSON degil — genel UNKNOWN kodu kullanilir.

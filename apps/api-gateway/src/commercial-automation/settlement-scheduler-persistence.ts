@@ -5,6 +5,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import type { SponsorshipData } from "../sponsorship/data.js";
+import { isSettlementCurrencyMismatch } from "../sponsorship/data.js";
 import type { SchedulableAgreement } from "./settlement-schedule-core.js";
 import type {
   CreateDraftOutcome,
@@ -61,6 +62,11 @@ export function createPrismaSettlementSchedulerPersistence(
       const result = await sponsorship.previewSettlement(storeId, agreementId, input, now);
       if (typeof result === "string") {
         return { ok: false, code: result };
+      }
+      // H-2 — currency mismatch OBJESİ (string değil) fail-closed: draft üretilmez, kod QueueJobLog'a
+      // yazılır (anlaşma-başına izole). Karışık-para settlement otomatik olarak da OLUŞMAZ.
+      if (isSettlementCurrencyMismatch(result)) {
+        return { ok: false, code: result.code };
       }
       return { ok: true, settlementId: result.id };
     },

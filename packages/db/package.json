@@ -20,6 +20,7 @@
     "db:audit-primary-category": "node scripts/audit-primary-category.mjs",
     "db:audit-sku": "node scripts/audit-sku.mjs",
     "db:backfill-sku": "node scripts/backfill-sku.mjs",
+    "db:scan-sponsorship-currency": "node scripts/security/scan-sponsorship-currency.mjs",
     "db:cleanup-smoke": "tsx scripts/cleanup-smoke.ts"
   },
   "dependencies": {

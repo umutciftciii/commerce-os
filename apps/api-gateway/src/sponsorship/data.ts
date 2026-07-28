@@ -34,13 +34,17 @@ import {
   isCampaignCoveredByAgreement,
   isChargeOverdue,
   isSameCurrency,
+  isUsableAgreementCurrency,
   isValidReversalAmount,
   isWithinRemaining,
+  normalizeCurrency,
+  partitionRevenueCurrencies,
   resolveChargeStatus,
   resolveCommercialIneligibility,
   validatePricingTerms,
   type BillableMetrics,
   type CommercialIneligibilityReason,
+  type CurrencyPartition,
   type PricingTerms,
 } from "./billing-core.js";
 
@@ -311,6 +315,18 @@ export interface DashboardResult {
   activeAgreements: number;
   totalAgreements: number;
   overdueChargeCount: number;
+  /**
+   * H-2 / ADR-185 — currency mismatch görünürlüğü (operations). Karışık-para gelir SESSİZCE
+   * birleştirilmez; buradaki sayaçlar operatöre eksik/uyuşmayan finansal kapsamı gösterir.
+   */
+  currencyMismatch: {
+    mismatchedAttributionCount: number;
+    affectedCampaignCount: number;
+    affectedAgreementIds: string[];
+    mismatchedSettlementCount: number;
+    foundForeignCurrencies: string[];
+    lastDetectedAt: Date | null;
+  };
   currencies: Array<{
     currency: string;
     contractedMinor: number;
@@ -345,13 +361,31 @@ export type SettlementError =
   | "AGREEMENT_NOT_FOUND"
   | "INVALID_PERIOD"
   | "PERIOD_ALREADY_FINALIZED"
+  | "AGREEMENT_CURRENCY_REQUIRED"
   | "CURRENCY_MISMATCH";
+/**
+ * H-2 / ADR-181 — settlement dönemi birden fazla currency içerdiğinde fail-closed sonucu. String
+ * hata kodlarından AYRI bir OBJE'dir → route güvenli özet detayları (`expectedCurrency`,
+ * `foundCurrencies`, `mismatchedOrderCount`) döndürebilir. `currencyMismatch: true` ayırıcıdır;
+ * `SettlementRow`/`ChargeRow` bu alanı taşımaz. Ham finansal payload/PII TAŞIMAZ.
+ */
+export interface SettlementCurrencyMismatch {
+  currencyMismatch: true;
+  code: "REVENUE_CURRENCY_MISMATCH";
+  expectedCurrency: string;
+  foundCurrencies: string[];
+  mismatchedOrderCount: number;
+}
+export function isSettlementCurrencyMismatch(value: unknown): value is SettlementCurrencyMismatch {
+  return typeof value === "object" && value !== null && (value as { currencyMismatch?: unknown }).currencyMismatch === true;
+}
 export type ChargeError =
   | "SETTLEMENT_NOT_FOUND"
   | "SETTLEMENT_NOT_FINALIZED"
   | "CHARGE_ALREADY_EXISTS"
   | "CHARGE_NOT_FOUND"
-  | "INVALID_STATUS";
+  | "INVALID_STATUS"
+  | "SETTLEMENT_CURRENCY_MISMATCH";
 export type PaymentError =
   | "CHARGE_NOT_FOUND"
   | "PAYMENT_NOT_FOUND"
@@ -557,14 +591,25 @@ export interface SponsorshipData {
     agreementId: string,
     input: { periodStart: Date; periodEnd: Date; periodKind: SponsorshipSettlementPeriod },
     now: Date,
-  ): Promise<SettlementRow | SettlementError>;
+  ): Promise<SettlementRow | SettlementError | SettlementCurrencyMismatch>;
   listSettlements(
     storeId: string,
     filters: { status?: SponsorshipSettlementStatus; agreementId?: string },
     page: SponsorshipListPage,
   ): Promise<{ items: SettlementRow[]; total: number }>;
   getSettlement(storeId: string, id: string): Promise<SettlementRow | null>;
-  finalizeSettlement(storeId: string, id: string, now: Date): Promise<SettlementRow | null | "ALREADY_FINALIZED">;
+  finalizeSettlement(
+    storeId: string,
+    id: string,
+    now: Date,
+  ): Promise<
+    | SettlementRow
+    | null
+    | "ALREADY_FINALIZED"
+    | "AGREEMENT_CURRENCY_REQUIRED"
+    | "SETTLEMENT_CURRENCY_MISMATCH"
+    | SettlementCurrencyMismatch
+  >;
   deleteSettlement(storeId: string, id: string): Promise<"OK" | "NOT_FOUND" | "FINALIZED">;
 
   // Tahakkuk
@@ -733,6 +778,12 @@ export interface AllocationWriteInput {
  * - `attributedOrders`/`grossRevenueMinor`/`refundedRevenueMinor`: `OrderSponsoredAttribution`
  *   (zaten sunucu-otoriter, bot yok).
  *
+ * **H-2 / ADR-181 (currency guard):** gelir/attribution toplamları YALNIZ `expectedCurrency`
+ * (= agreement currency) satırlarından toplanır → snapshot revenue rakamları her zaman TEK para
+ * birimi (asla karışık toplam). Dönemde beklenen dışında currency'li attribution varsa
+ * `currency.hasMismatch = true` döner → çağıran (`previewSettlement`) fail-closed olur. Farklı
+ * currency'ler SESSİZCE toplanmaz VE sessizce dışlanmaz (§5); tespit çağırana taşınır.
+ *
  * Tüm sorgular `storeId` + kampanya kümesi + dönem ile scope'lanır (tenant izolasyonu).
  */
 async function collectBillableMetrics(
@@ -741,6 +792,7 @@ async function collectBillableMetrics(
   campaignIds: string[],
   periodStart: Date,
   periodEnd: Date,
+  expectedCurrency: string,
 ): Promise<{
   metrics: BillableMetrics;
   impressions: number;
@@ -748,7 +800,16 @@ async function collectBillableMetrics(
   totalOrders: number;
   grossRevenueMinor: number;
   refundedRevenueMinor: number;
+  currency: CurrencyPartition;
 }> {
+  const expected = normalizeCurrency(expectedCurrency);
+  const emptyPartition: CurrencyPartition = {
+    expected,
+    matchedCount: 0,
+    mismatchedCount: 0,
+    foundCurrencies: [],
+    hasMismatch: false,
+  };
   if (campaignIds.length === 0) {
     return {
       metrics: { billableImpressions: 0, billableClicks: 0, attributedOrders: 0, netRevenueMinor: 0 },
@@ -757,6 +818,7 @@ async function collectBillableMetrics(
       totalOrders: 0,
       grossRevenueMinor: 0,
       refundedRevenueMinor: 0,
+      currency: emptyPartition,
     };
   }
 
@@ -790,12 +852,31 @@ async function collectBillableMetrics(
   const billableImpressions = Number(billableRows.find((r) => r.type === "IMPRESSION")?.c ?? 0n);
   const billableClicks = Number(billableRows.find((r) => r.type === "CLICK")?.c ?? 0n);
 
-  // Sipariş attribution (sunucu-otoriter). attributedAt dönem içinde.
+  // H-2: dönem+kampanya kapsamındaki attribution'ların currency HİSTOGRAMI (para toplamı DEĞİL —
+  // yalnız satır sayısı). Beklenen dışı currency varsa fail-closed tetikler.
+  const currencyRows = await db.orderSponsoredAttribution.groupBy({
+    by: ["currency"],
+    where: {
+      storeId,
+      campaignId: { in: campaignIds },
+      attributedAt: { gte: periodStart, lt: periodEnd },
+    },
+    _count: { _all: true },
+  });
+  const currency = partitionRevenueCurrencies(
+    expected,
+    currencyRows.map((r) => ({ currency: r.currency, count: r._count._all })),
+  );
+
+  // Sipariş attribution (sunucu-otoriter). attributedAt dönem içinde. H-2: YALNIZ beklenen
+  // currency satırları toplanır → revenue rakamları asla karışık-para. `mode: "insensitive"`
+  // kanonik saklama varsayımı altında güvenli (attribution currency upper yazılır).
   const attrAgg = await db.orderSponsoredAttribution.aggregate({
     where: {
       storeId,
       campaignId: { in: campaignIds },
       attributedAt: { gte: periodStart, lt: periodEnd },
+      currency: { equals: expected, mode: "insensitive" },
     },
     _count: { _all: true },
     _sum: { grossRevenueMinor: true, refundedRevenueMinor: true, netRevenueMinor: true },
@@ -807,7 +888,7 @@ async function collectBillableMetrics(
 
   // Ücretlendirilebilir sipariş sayısı (CPA payı): TAM iade edilmiş siparişler HARİÇ
   // (refundedRevenueMinor >= grossRevenueMinor). Kısmi iade billable KALIR. Refund adjustment
-  // (ADR-123) CPA'yı böyle refund-sensitive kılar; iade sonrası sayı düşer.
+  // (ADR-123) CPA'yı böyle refund-sensitive kılar; iade sonrası sayı düşer. H-2: currency filtresi.
   const billableOrderRows = await db.$queryRaw<Array<{ c: bigint }>>(Prisma.sql`
     SELECT COUNT(*) AS c
     FROM "OrderSponsoredAttribution"
@@ -815,6 +896,7 @@ async function collectBillableMetrics(
       AND "campaignId" IN (${Prisma.join(campaignIds)})
       AND "attributedAt" >= ${periodStart}
       AND "attributedAt" < ${periodEnd}
+      AND UPPER("currency") = ${expected}
       AND "grossRevenueMinor" > "refundedRevenueMinor"
   `);
   const attributedOrders = Number(billableOrderRows[0]?.c ?? 0n);
@@ -827,6 +909,65 @@ async function collectBillableMetrics(
     totalOrders,
     grossRevenueMinor,
     refundedRevenueMinor,
+    currency,
+  };
+}
+
+/**
+ * H-2 / ADR-185 — currency-mismatch tespitini AuditLog'a yazar (SYSTEM aksiyonu). Metadata güvenli
+ * özet + BOUNDED order referans örneği taşır (PII/tam ödeme verisi YOK). Denetim izi, her çağırandan
+ * (route + zamanlanmış worker) bağımsız server-side üretilir → görünürlük garanti. Yazma hatası
+ * (audit ikincil) settlement fail-closed kararını ETKİLEMEZ.
+ */
+async function recordCurrencyMismatchAudit(
+  db: PrismaLike,
+  storeId: string,
+  agreementId: string,
+  partition: CurrencyPartition,
+  context: { periodStart: Date; periodEnd: Date; campaignIds: string[] },
+): Promise<void> {
+  try {
+    // Bounded (max 20) uyuşmayan order referans örneği — audit metadata (yalnız orderId, PII yok).
+    const sample = await db.orderSponsoredAttribution.findMany({
+      where: {
+        storeId,
+        campaignId: { in: context.campaignIds },
+        attributedAt: { gte: context.periodStart, lt: context.periodEnd },
+        NOT: { currency: { equals: partition.expected, mode: "insensitive" } },
+      },
+      select: { orderId: true, currency: true },
+      take: 20,
+    });
+    await db.auditLog.create({
+      data: {
+        storeId,
+        action: "SYSTEM",
+        entityType: "SponsorshipSettlement",
+        entityId: agreementId,
+        metadata: {
+          reason: "REVENUE_CURRENCY_MISMATCH",
+          expectedCurrency: partition.expected,
+          foundCurrencies: partition.foundCurrencies,
+          mismatchedOrderCount: partition.mismatchedCount,
+          periodStart: context.periodStart.toISOString(),
+          periodEnd: context.periodEnd.toISOString(),
+          sampleMismatchedOrders: sample.map((s) => ({ orderId: s.orderId, currency: normalizeCurrency(s.currency) })),
+        } as Prisma.InputJsonObject,
+      },
+    });
+  } catch {
+    // Audit ikincildir; başarısızlığı fail-closed guard'ı bloke etmez.
+  }
+}
+
+/** H-2 — CurrencyPartition → route/UI'ya taşınan güvenli mismatch OBJESİ (ham veri yok). */
+function toSettlementCurrencyMismatch(partition: CurrencyPartition): SettlementCurrencyMismatch {
+  return {
+    currencyMismatch: true,
+    code: "REVENUE_CURRENCY_MISMATCH",
+    expectedCurrency: partition.expected,
+    foundCurrencies: partition.foundCurrencies,
+    mismatchedOrderCount: partition.mismatchedCount,
   };
 }
 
@@ -1564,6 +1705,8 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       const agreement = await db.sponsorshipAgreement.findFirst({ where: { storeId, id: agreementId } });
       if (!agreement) return "AGREEMENT_NOT_FOUND";
       if (input.periodEnd.getTime() <= input.periodStart.getTime()) return "INVALID_PERIOD";
+      // H-2 / ADR-182: currency otoritesi eksikse finansal belge üretilmez (fail-closed).
+      if (!isUsableAgreementCurrency(agreement.currency)) return "AGREEMENT_CURRENCY_REQUIRED";
 
       // Aynı dönem zaten FINALIZED ise yeniden hesaplanamaz (immutable — ADR-123).
       const existing = await db.sponsorshipSettlement.findFirst({
@@ -1572,7 +1715,20 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       if (existing && existing.status === "FINALIZED") return "PERIOD_ALREADY_FINALIZED";
 
       const campaignIds = await agreementCampaignIds(db, storeId, agreementId);
-      const collected = await collectBillableMetrics(db, storeId, campaignIds, input.periodStart, input.periodEnd);
+      const collected = await collectBillableMetrics(db, storeId, campaignIds, input.periodStart, input.periodEnd, agreement.currency);
+
+      // H-2 / ADR-183: dönemde beklenen (agreement) currency dışında attribution varsa fail-closed.
+      // Draft OLUŞTURULMAZ/GÜNCELLENMEZ (kısmi settlement + sessiz dışlama YOK — §5); mismatch audit'e
+      // yazılır ve güvenli özet çağırana döner (UI kontrollü uyarı gösterir).
+      if (collected.currency.hasMismatch) {
+        await recordCurrencyMismatchAudit(db, storeId, agreementId, collected.currency, {
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          campaignIds,
+        });
+        return toSettlementCurrencyMismatch(collected.currency);
+      }
+
       const terms = toPricingTerms(agreement);
 
       // Bütçe tavanı: bu anlaşmanın DAHA ÖNCE tahakkuk ettirdiği matrah + bu dönem.
@@ -1718,9 +1874,45 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
     },
 
     async finalizeSettlement(storeId, id, now) {
-      const existing = await db.sponsorshipSettlement.findFirst({ where: { storeId, id }, select: { id: true, status: true } });
+      const existing = await db.sponsorshipSettlement.findFirst({
+        where: { storeId, id },
+        select: {
+          id: true,
+          status: true,
+          agreementId: true,
+          currency: true,
+          periodStart: true,
+          periodEnd: true,
+          agreement: { select: { currency: true } },
+        },
+      });
       if (!existing) return null;
       if (existing.status === "FINALIZED") return "ALREADY_FINALIZED";
+
+      // H-2 / ADR-184: finalize ÖNCESİ currency yeniden doğrulanır (draft'tan sonra veri değişmiş
+      // olabilir → fail-closed). Otorite = agreement.currency; settlement onunla eşleşmeli ve dönemde
+      // yabancı-currency attribution OLMAMALI. FINALIZED belge immutable kalır.
+      if (!isUsableAgreementCurrency(existing.agreement.currency)) return "AGREEMENT_CURRENCY_REQUIRED";
+      if (!isSameCurrency(existing.currency, existing.agreement.currency)) return "SETTLEMENT_CURRENCY_MISMATCH";
+
+      const campaignIds = await agreementCampaignIds(db, storeId, existing.agreementId);
+      const collected = await collectBillableMetrics(
+        db,
+        storeId,
+        campaignIds,
+        existing.periodStart,
+        existing.periodEnd,
+        existing.agreement.currency,
+      );
+      if (collected.currency.hasMismatch) {
+        await recordCurrencyMismatchAudit(db, storeId, existing.agreementId, collected.currency, {
+          periodStart: existing.periodStart,
+          periodEnd: existing.periodEnd,
+          campaignIds,
+        });
+        return toSettlementCurrencyMismatch(collected.currency);
+      }
+
       await db.sponsorshipSettlement.update({ where: { id }, data: { status: "FINALIZED", finalizedAt: now } });
       return this.getSettlement(storeId, id) as Promise<SettlementRow>;
     },
@@ -1745,6 +1937,8 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       if (settlement.charges.length > 0) return "CHARGE_ALREADY_EXISTS";
 
       const agreement = settlement.agreement;
+      // H-2 / ADR-184: charge currency settlement/agreement'tan türetilir; tutarsızsa fail-closed.
+      if (!isSameCurrency(settlement.currency, agreement.currency)) return "SETTLEMENT_CURRENCY_MISMATCH";
       const totals = computeChargeTotals(settlement.calculatedChargeMinor, agreement.taxRateBp);
       const issuedAt = input.issue ? now : null;
       const dueAt = computeDueAt(issuedAt ?? now, agreement.paymentTermDays);
@@ -1816,8 +2010,10 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
       if (settlement.status !== "FINALIZED") return "SETTLEMENT_NOT_FINALIZED";
 
       const agreement = settlement.agreement;
+      // H-2 / ADR-184: iade düzeltmesi de agreement currency otoritesine bağlıdır.
+      if (!isSameCurrency(settlement.currency, agreement.currency)) return "SETTLEMENT_CURRENCY_MISMATCH";
       const campaignIds = await agreementCampaignIds(db, storeId, settlement.agreementId);
-      const current = await collectBillableMetrics(db, storeId, campaignIds, settlement.periodStart, settlement.periodEnd);
+      const current = await collectBillableMetrics(db, storeId, campaignIds, settlement.periodStart, settlement.periodEnd, agreement.currency);
       const settledMetrics = (settlement.snapshot as { metrics?: BillableMetrics }).metrics ?? {
         billableImpressions: settlement.billableImpressions,
         billableClicks: settlement.billableClicks,
@@ -2404,12 +2600,21 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
         }
       }
 
-      // Kampanya net geliri: attribution tablosundan (mağaza para birimi). Kârlılık = net − charged.
+      // Kampanya net geliri: attribution tablosundan. H-2 / ADR-181: currency BAZINDA gruplanır ve
+      // net gelir YALNIZ anlaşma para birimiyle EŞLEŞEN attribution'dan alınır — mağaza-currency net'i
+      // anlaşma-currency kovasına SESSİZCE eklemek YASAK (eski MVP bug'ı). Uyuşmayan currency'ler
+      // toplanmaz; operations görünürlüğü için `currencyMismatch` özetinde raporlanır.
       const campaignIds = agreements.flatMap((a) => a.campaignLinks.map((l) => l.campaignId));
-      const netByCampaign = new Map<string, number>();
+      const campaignToCurrency = new Map<string, string>();
+      for (const a of agreements) for (const l of a.campaignLinks) campaignToCurrency.set(l.campaignId, normalizeCurrency(a.currency));
+
+      const netByCampaign = new Map<string, number>(); // yalnız EŞLEŞEN currency net'i (kârlılık için)
+      const foreignCurrencies = new Set<string>();
+      const mismatchedCampaigns = new Set<string>();
+      let mismatchedAttributionCount = 0;
       if (campaignIds.length) {
         const netAgg = await db.orderSponsoredAttribution.groupBy({
-          by: ["campaignId"],
+          by: ["campaignId", "currency"],
           where: {
             storeId,
             campaignId: { in: campaignIds },
@@ -2418,15 +2623,24 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
               : {}),
           },
           _sum: { netRevenueMinor: true },
+          _count: { _all: true },
         });
-        for (const r of netAgg) netByCampaign.set(r.campaignId, r._sum.netRevenueMinor ?? 0);
+        for (const r of netAgg) {
+          const expected = campaignToCurrency.get(r.campaignId);
+          if (!expected) continue;
+          const rowCurrency = normalizeCurrency(r.currency);
+          if (rowCurrency === expected) {
+            netByCampaign.set(r.campaignId, (netByCampaign.get(r.campaignId) ?? 0) + (r._sum.netRevenueMinor ?? 0));
+          } else {
+            // Uyuşmayan currency: TOPLANMAZ, yalnız görünürlük sayaçlarına.
+            foreignCurrencies.add(rowCurrency);
+            mismatchedCampaigns.add(r.campaignId);
+            mismatchedAttributionCount += r._count._all;
+          }
+        }
       }
 
-      // Sponsorlu net gelir → anlaşma para birimi kovasına (kampanya → currency haritası).
-      // Net gelir mağaza sipariş para birimindedir; anlaşma para birimiyle gruplamak MVP
-      // yaklaşımıdır (kur dönüşümü kapsam dışı — TD).
-      const campaignToCurrency = new Map<string, string>();
-      for (const a of agreements) for (const l of a.campaignLinks) campaignToCurrency.set(l.campaignId, a.currency);
+      // Eşleşen net gelir → anlaşma para birimi kovasına (artık her zaman tek-para; karışım yok).
       for (const [campaignId, net] of netByCampaign) {
         const currency = campaignToCurrency.get(campaignId);
         if (!currency) continue;
@@ -2453,12 +2667,48 @@ export function createSponsorshipData(db: PrismaLike = prisma): SponsorshipData 
           })
           .sort((a, b) => b.chargedMinor - a.chargedMinor);
 
+      // H-2 / ADR-185 — operations görünürlüğü: currency mismatch özeti. Uyuşan settlement (currency ≠
+      // agreement currency) + son tespit zamanı (SYSTEM audit). Ham veri/PII yok; bounded.
+      const affectedAgreementIds = [...new Set([...mismatchedCampaigns].map((cid) => {
+        const link = agreements.find((a) => a.campaignLinks.some((l) => l.campaignId === cid));
+        return link?.id;
+      }).filter((v): v is string => typeof v === "string"))];
+      const [settlementMismatchRows, lastMismatchAudit] = await Promise.all([
+        // settlement.currency ≠ agreement.currency (iki-kolon karşılaştırma → raw). storeId-scoped.
+        db.$queryRaw<Array<{ c: bigint }>>(Prisma.sql`
+          SELECT COUNT(*) AS c
+          FROM "SponsorshipSettlement" s
+          JOIN "SponsorshipAgreement" a ON a."id" = s."agreementId"
+          WHERE s."storeId" = ${storeId}
+            AND UPPER(s."currency") <> UPPER(a."currency")
+        `),
+        db.auditLog.findFirst({
+          where: { storeId, action: "SYSTEM", entityType: "SponsorshipSettlement" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true, metadata: true },
+        }),
+      ]);
+      const mismatchedSettlementCount = Number(settlementMismatchRows[0]?.c ?? 0n);
+      const lastDetectedAt =
+        lastMismatchAudit &&
+        (lastMismatchAudit.metadata as { reason?: string } | null)?.reason === "REVENUE_CURRENCY_MISMATCH"
+          ? lastMismatchAudit.createdAt
+          : null;
+
       return {
         activeSponsors,
         totalSponsors,
         activeAgreements,
         totalAgreements: agreements.length,
         overdueChargeCount,
+        currencyMismatch: {
+          mismatchedAttributionCount,
+          affectedCampaignCount: mismatchedCampaigns.size,
+          affectedAgreementIds: affectedAgreementIds.slice(0, 50),
+          mismatchedSettlementCount,
+          foundForeignCurrencies: [...foreignCurrencies].sort(),
+          lastDetectedAt,
+        },
         currencies: [...currencies.entries()]
           .map(([currency, v]) => ({
             currency,

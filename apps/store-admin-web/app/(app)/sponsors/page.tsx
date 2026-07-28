@@ -230,6 +230,23 @@ function SponsorshipDashboard({ locale }: { locale: Locale }) {
         <Kpi label="Vadesi geçen tahakkuk" value={`${data.overdueChargeCount}`} tone={data.overdueChargeCount > 0 ? "danger" : "neutral"} />
         <Kpi label="Para birimi" value={`${data.currencies.length}`} sub="ayrı gösterilir" />
       </div>
+      {data.currencyMismatch && (data.currencyMismatch.mismatchedAttributionCount > 0 || data.currencyMismatch.mismatchedSettlementCount > 0) ? (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+          <p className="font-medium text-amber-200">Para birimi uyuşmazlığı tespit edildi</p>
+          <p className="mt-1 text-amber-100/80">
+            Farklı para birimindeki gelir tek toplamda birleştirilmedi. Etkilenen mutabakatlar oluşturulamaz/kesinleştirilemez.
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-amber-100/70 sm:grid-cols-4">
+            <div><span className="text-amber-100/50">Uyuşmayan kayıt</span><div className="font-medium tabular-nums">{data.currencyMismatch.mismatchedAttributionCount}</div></div>
+            <div><span className="text-amber-100/50">Etkilenen kampanya</span><div className="font-medium tabular-nums">{data.currencyMismatch.affectedCampaignCount}</div></div>
+            <div><span className="text-amber-100/50">Etkilenen mutabakat</span><div className="font-medium tabular-nums">{data.currencyMismatch.mismatchedSettlementCount}</div></div>
+            <div><span className="text-amber-100/50">Yabancı para birimleri</span><div className="font-medium tabular-nums">{data.currencyMismatch.foundForeignCurrencies.join(", ") || "—"}</div></div>
+          </div>
+          {data.currencyMismatch.lastDetectedAt ? (
+            <p className="mt-2 text-xs text-amber-100/50">Son tespit: {formatDate(data.currencyMismatch.lastDetectedAt)}</p>
+          ) : null}
+        </div>
+      ) : null}
       {data.currencies.length > 0 ? (
         <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
           <table className="w-full min-w-[640px] text-sm">

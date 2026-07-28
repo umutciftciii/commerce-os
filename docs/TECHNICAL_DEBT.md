@@ -1325,7 +1325,24 @@ hazır, karar hukukidir.
 
 ## TD-133 — Sponsorship REVENUE_SHARE currency-mismatch guard YOK (finansal doğruluk)
 
-**Durum:** AÇIK — HIGH. `collectBillableMetrics` (`apps/api-gateway/src/sponsorship/data.ts:738-822`) dönemin
+**Durum:** **ÇÖZÜLDÜ (H-2, 2026-07-28, ADR-181…186). CLOSED.** Revenue toplamları artık YALNIZ agreement
+currency ile eşleşen attribution satırlarından alınır (`collectBillableMetrics(expectedCurrency)` filtre;
+snapshot her zaman tek-para) ve `partitionRevenueCurrencies` (SAF billing-core) karışık-para tespit edince
+`previewSettlement`/`finalizeSettlement`/`createChargeFromSettlement`/`createRefundAdjustment` **fail-closed**
+olur (`AGREEMENT_CURRENCY_REQUIRED` / `REVENUE_CURRENCY_MISMATCH` / `SETTLEMENT_CURRENCY_MISMATCH`). `getDashboard`
+net gelir kovası currency-aware yapıldı (mağaza-currency net'i anlaşma-currency kovasına sessizce ekleme bug'ı
+kapandı) + operations `currencyMismatch` özeti. Zamanlanmış scheduler adapter'ı mismatch objesini fail-closed
+koda çevirir (otomatik karışık-para settlement üretmez). Karışık-para kayıtlar sessizce dışlanmaz (kısmi
+settlement yok); mismatch AuditLog (SYSTEM, PII-free) + store-admin kontrollü uyarı + buton disable. Salt-okuma
+tarama: `packages/db/scripts/security/scan-sponsorship-currency.mjs` (`pnpm db:scan-sponsorship-currency`).
+**Testler:** 12 SAF currency-guard + 6 route (fail-closed HTTP + dashboard) + 3 persistence-adapter + 1 scheduler
+izolasyon. **Canlı smoke (enterprise-demo, izole fixture):** 21/21 PASS — TRY happy-path (preview→finalize→charge
+→payment) · karışık-para fail-closed (draft yok, audit yazıldı, TRY+USD birleşmedi) · finalize recheck · USD
+payment/advance reddi · cross-store izolasyon · boş currency fail-closed · fixture temizlendi. FX dönüşümü kapsam
+dışı → **[[TD-148]]** (FUTURE CAPABILITY). Migration GEREKMEDİ (currency alanları zaten var). Tarihsel kök neden
+aşağıda korunur.
+
+`collectBillableMetrics` (`apps/api-gateway/src/sponsorship/data.ts:738-822`) dönemin
 `OrderSponsoredAttribution.netRevenueMinor`'unu her satırın `currency`'sini yoksayarak toplar; `previewSettlement`
 (`:1563-1626`) `currency: agreement.currency` damgalar ama kontrol etmez. `isSameCurrency` yalnız payment↔charge
 (`:2047`), advance↔agreement (`:2183`), advance↔charge (`:2237`), agreement-update (`:1336`) yollarında uygulanır —
@@ -1468,3 +1485,13 @@ Content-Security-Policy başlığı yok** (`grep Content-Security-Policy` → 0 
 **Kapsam:** inline `<style>`/`<script>`'lere nonce/hash; `unsafe-inline` KULLANMA (kullanılırsa ayrı borç olarak
 işaretle); Next.js `headers()`/middleware ile uygula; report-only aşamasıyla başla. Bu, H-1'i büyük bir CSP
 yeniden tasarımına dönüştürmemek için ayrıştırıldı (bkz. `docs/analysis/H-1-theme-token-stored-xss.md` §11).
+
+## TD-148 — Sponsorship çok-para (FX) settlement — FUTURE CAPABILITY (borç değil)
+
+**Durum:** AÇIK — FUTURE CAPABILITY (teknik borç DEĞİL; ADR-186). H-2 guard'ı farklı para birimlerini tek hesapta
+**birleştirmeyi reddeder** (fail-closed) — kur dönüşümü yapmaz. Bugün gerçek çok-para ihtiyacı yok (mağaza pratikte
+tek-para; enterprise-demo tümü TRY). Eğer ileride bir anlaşma farklı para birimli siparişlerden gelir paylaşımı almak
+zorunda kalırsa, bu ayrı bir **FX conversion engine** yeteneğidir: dönem+currency bazında ayrı revenue bucket,
+güvenilir kaynaktan kur (snapshot'lanmış rate, audit'li), currency-başına ayrı charge veya settlement anında dönüşüm
+kararı. **Kapsam (gelecekte):** rate source + snapshot + rounding politikası + currency-başına settlement satırı; mevcut
+fail-closed guard'ı bu yetenek gelene kadar OTORİTE olarak kalır. Bunu bir eksiklik gibi ele ALMA — bilinçli sınırdır.

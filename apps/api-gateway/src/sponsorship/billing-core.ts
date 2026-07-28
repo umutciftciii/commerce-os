@@ -155,6 +155,71 @@ export function isSameCurrency(a: string, b: string): boolean {
   return a.trim().toUpperCase() === b.trim().toUpperCase();
 }
 
+// ─────────────────── Currency guard — H-2 / ADR-181…186 (SAF) ───────────────────
+
+/**
+ * ISO 4217 kanonik normalize: trim + upper. Bir currency kodu "geçerli biçimde" 3 harfli
+ * ISO 4217'dir (A-Z). Bu SAF katman FX yapmaz — yalnız kimlik/format doğrular (ADR-186).
+ */
+export function normalizeCurrency(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+/** Kod ISO 4217 biçiminde mi? (3 büyük harf) — allowlist format kapısı (ADR-186). */
+export function isIso4217(code: string): boolean {
+  return /^[A-Z]{3}$/.test(normalizeCurrency(code));
+}
+
+/**
+ * Bir agreement currency'si settlement/charge üretmeye uygun mu? Boş/whitespace/format-dışı →
+ * `AGREEMENT_CURRENCY_REQUIRED` (fail-closed; kayıp otorite ile finansal belge üretilmez).
+ */
+export function isUsableAgreementCurrency(code: string | null | undefined): boolean {
+  return typeof code === "string" && isIso4217(code);
+}
+
+/**
+ * Bir gelir/attribution currency dağılımını beklenen (agreement) currency'ye göre böler — SAF.
+ *
+ * Girdi: `[{ currency, count }]` (dönem+kampanya kapsamındaki attribution satırlarının currency
+ * histogramı — DB tarafında gruplanır). Çıktı: eşleşen satır sayısı + **yabancı** currency'lerin
+ * kanonik, tekilleştirilmiş, sıralı listesi + uyuşmayan satır sayısı. `expected` daima sonuçtaki
+ * `foundCurrencies`'e dahildir (varsa) ki UI "beklenen X, bulunan {X,Y}" diyebilsin.
+ *
+ * Bu fonksiyon TOPLAMA YAPMAZ (para birleştirmez) — yalnız KİMLİK karşılaştırır. Kur dönüşümü yok.
+ */
+export interface CurrencyBucket {
+  currency: string;
+  count: number;
+}
+export interface CurrencyPartition {
+  expected: string;
+  matchedCount: number;
+  mismatchedCount: number;
+  foundCurrencies: string[];
+  /** Beklenen dışında en az bir currency varsa true → fail-closed tetikleyicisi. */
+  hasMismatch: boolean;
+}
+export function partitionRevenueCurrencies(expected: string, buckets: readonly CurrencyBucket[]): CurrencyPartition {
+  const exp = normalizeCurrency(expected);
+  const found = new Set<string>();
+  let matched = 0;
+  let mismatched = 0;
+  for (const b of buckets) {
+    const cur = normalizeCurrency(b.currency);
+    if (cur.length > 0) found.add(cur);
+    if (cur === exp) matched += b.count;
+    else mismatched += b.count;
+  }
+  return {
+    expected: exp,
+    matchedCount: matched,
+    mismatchedCount: mismatched,
+    foundCurrencies: [...found].sort(),
+    hasMismatch: mismatched > 0,
+  };
+}
+
 // ─────────────────────── Tahsilat / bakiye / vade (ADR-125) ───────────────────────
 
 /**

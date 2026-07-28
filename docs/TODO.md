@@ -2105,8 +2105,11 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
   parse-tabanlı validators + render-time (serializer geçersizi atlar) + save-time (`THEME_TOKEN_*`/`THEME_PUBLISH_BLOCKED`)
   savunma; font/shadow preset policy; customCss sertleştirme; store-admin field-level TR/EN; legacy tarama scripti; canlı
   smoke (vuln→fix) PASS. Kalan: storefront CSP (**TD-147**, MEDIUM). Bkz. `docs/analysis/H-1-theme-token-stored-xss.md`.
-- **LR-H-2 (HIGH) — Revenue-share currency guard.** Settlement toplamında aynı-currency guard (`400 CURRENCY_MISMATCH`)
-  + karışık-currency dönem tespiti. Bkz. TD-133.
+- **LR-H-2 (HIGH) — Revenue-share currency guard. ✅ ÇÖZÜLDÜ (2026-07-28, ADR-181…186, TD-133 CLOSED).** Gelir toplamları
+  agreement currency'ye filtrelenir (snapshot tek-para); karışık-para dönem → **fail-closed** (`REVENUE_CURRENCY_MISMATCH`/
+  `AGREEMENT_CURRENCY_REQUIRED`/`SETTLEMENT_CURRENCY_MISMATCH`), sessiz dışlama yok; currency-aware dashboard + audit
+  (PII-free) + store-admin uyarı; scheduler fail-closed; salt-okuma tarama (`db:scan-sponsorship-currency`); canlı smoke
+  21/21 PASS. FX kapsam dışı (**TD-148** FUTURE). Bkz. `docs/analysis/H-2-revenue-share-currency-guard.md`.
 - **LR-H-3 (HIGH) — Rezervasyon expiry.** single-tx create+place + başarısız DRAFT auto-cancel + worker expiry job. Bkz. TD-136, TD-033.
 - **LR-H-4 (HIGH) — Para-yolu auth'lu smoke.** Deployed stack'te checkout→attempt→webhook→PAID→fulfillment +
   Sponsored funnel (impression→click→order→refund); fixture-session tekniği. Bkz. TD-122.
