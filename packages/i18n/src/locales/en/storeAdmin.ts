@@ -137,6 +137,16 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "The image-grouping axis must be a saved SELECT/COLOR variant axis of this product. Select and save the variant axis first.",
     INVALID_MEDIA_OPTION: "A color assigned to an image does not belong to the selected axis. Check the image tags.",
     MEDIA_AXIS_REQUIRED: "You must select an axis before tagging images by color.",
+    // H-1 — Typed theme token governance (Theme Studio).
+    THEME_TOKEN_UNKNOWN: "This theme uses an unsupported design token. Only defined tokens can be saved.",
+    THEME_TOKEN_INVALID_VALUE:
+      "A theme token value is out of range or uses an unsupported unit. Check the value and try again.",
+    THEME_TOKEN_TYPE_MISMATCH:
+      "A theme token value doesn't match its expected type (for example, a colour field needs a colour).",
+    THEME_TOKEN_UNSAFE_VALUE:
+      "A theme token value contains unsafe characters and was rejected for security reasons.",
+    THEME_PUBLISH_BLOCKED:
+      "This theme can't be published because it contains invalid design tokens. Fix them and try again.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",

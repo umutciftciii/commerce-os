@@ -2101,8 +2101,10 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
   adapter kod+test+smoke tamam AMA gerçek **production offsite provider'ı yapılandırılmadı** + production'dan doğrulanmış
   remote backup yok (yalnız MinIO/local smoke). Gerçek provider config + ilk production backup doğrulaması gelene dek
   **OPEN / launch blocker**. Bkz. **TD-139** (+ TD-140 media volume, TD-141 verify-target).
-- **LR-H-1 (HIGH) — Tema token XSS.** Token değerleri için CSS-value allowlist/escape + `.passthrough()`→`.strict()`;
-  merchant-facing tema editörü öncesi. Bkz. TD-134.
+- **LR-H-1 (HIGH) — Tema token XSS. ✅ ÇÖZÜLDÜ (2026-07-28, ADR-180, TD-134 CLOSED).** Typed token registry +
+  parse-tabanlı validators + render-time (serializer geçersizi atlar) + save-time (`THEME_TOKEN_*`/`THEME_PUBLISH_BLOCKED`)
+  savunma; font/shadow preset policy; customCss sertleştirme; store-admin field-level TR/EN; legacy tarama scripti; canlı
+  smoke (vuln→fix) PASS. Kalan: storefront CSP (**TD-147**, MEDIUM). Bkz. `docs/analysis/H-1-theme-token-stored-xss.md`.
 - **LR-H-2 (HIGH) — Revenue-share currency guard.** Settlement toplamında aynı-currency guard (`400 CURRENCY_MISMATCH`)
   + karışık-currency dönem tespiti. Bkz. TD-133.
 - **LR-H-3 (HIGH) — Rezervasyon expiry.** single-tx create+place + başarısız DRAFT auto-cancel + worker expiry job. Bkz. TD-136, TD-033.
@@ -2139,6 +2141,30 @@ TODO-160 çekirdeği üzerine iki kusur + yaşam döngüsü + granüler analitik
   Tüm suite yeşil.
 - **Sıra:** commit'e hazır → ardından **H-1 Theme Token Stored XSS**. Kalan: canlı smoke (TD-143), UTM per-currency (TD-144),
   create formu yeni UTM alanları (TD-145), günlük seri grafiği (TD-146).
+
+## H-1 — Theme Token Stored XSS (2026-07-28) — ADR-180 · TD-134 CLOSED
+
+Kök neden: Theme Engine (ADR-087) token değerleri `z.string().min(1)` ile doğrulanıp serializer'da ham olarak
+`<style dangerouslySetInnerHTML>`'e basılıyordu → public storefront stored XSS (`#fff</style><script>…`); `.passthrough()`
+bilinmeyen anahtar da sızdırıyordu. Üç render sink (storefront layout, gateway `/preview`, store-admin canlı önizleme) tek
+serializer'a bağlı.
+
+- **Registry + validators** (`packages/theme/src/registry.ts`, `validate.ts`): 8 tip (COLOR/LENGTH/NUMBER/
+  FONT_FAMILY_PRESET/FONT_WEIGHT/SHADOW_PRESET/DURATION/EASING); parse+range+canonical-normalize; generic string yok;
+  bilinmeyen primitive anahtar reddedilir.
+- **Render-time defense** (`css.ts`): serializer her değeri tipine göre validate eder, geçersizi atlar; bozuk ref
+  render'ı çökertmez; bilinmeyen anahtar yayınlanmaz.
+- **Save-time defense** (gateway `theme/routes.ts`): draft/publish/import token doğrulaması + `THEME_TOKEN_UNKNOWN/
+  INVALID_VALUE/TYPE_MISMATCH/UNSAFE_VALUE` + `THEME_PUBLISH_BLOCKED`; yanıt ham payload/regex taşımaz.
+- **Font/shadow preset policy**: ham font-family/box-shadow kabul edilmez → preset ID + kanonik allowlist.
+- **customCss sertleştirme** (`custom-css.ts`): yorum-strip + tüm `<` kaldırma + fixpoint döngü.
+- **Store-admin** (`theme-studio.tsx`): field-level doğrulama (renk/radius kırmızı işaret), publish-blocked state, font
+  preset selector, `messageForError` (lokalize); i18n TR/EN `THEME_TOKEN_*`/`THEME_PUBLISH_BLOCKED`.
+- **Legacy tarama**: salt-okuma `packages/db/scripts/security/scan-theme-tokens.mjs` (payload loglamaz).
+- **Test**: 147 theme (validate/registry/custom-css/css) + 6 gateway integration (XSS regression). **Canlı smoke**
+  (enterprise-demo): vuln doğrulandı (8× DOM breakout) → fix payload'ı düşürdü → fixture geri yüklendi.
+- **Kalan**: storefront CSP (**TD-147**, MEDIUM).
+- **Sıra**: kod/test/smoke/docs TAMAM → commit'e hazır (git işlemleri bu turda YOK).
 
 ## Influencer Analytics Demo Completion (2026-07-28) — TD-143/144/145/146 CLOSED
 

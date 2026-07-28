@@ -4781,3 +4781,41 @@ unique (link'ten immutable UTM'e göre) ve orders+gelir (UTM + currency GROUP BY
 filtreleri:** campaign dashboard günlük serisi link + UTM (source/medium/campaign) filtresiyle daraltılabilir (filtre
 linkId kümesine çözülür); özet/link tablosu/UTM kırılımı bu filtreden ETKİLENMEZ (tarih aralığında tam kampanya).
 Attribution snapshot (ADR-103) esas alınır; güncel link metadata geçmiş order metriğini değiştirmez.
+
+## ADR-180 — Typed theme token governance (H-1 Theme Token Stored XSS savunması)
+
+**Tarih:** 2026-07-28 · **Durum:** KABUL EDİLDİ · **İlgili:** ADR-087 (Theme Engine) · **Öncül:** TD-134 · **Takip:** TD-147 (CSP)
+
+**Bağlam.** Enterprise Theme Engine (ADR-087) token değerlerini yalnız `z.string().min(1)` ile doğruluyordu; serializer
+(`css.ts`) çözülmüş değeri ham `${name}: ${value};` olarak `<style dangerouslySetInnerHTML>` bloğuna basıyordu (storefront
+`layout.tsx`, gateway `/preview`, store-admin canlı önizleme — üçü tek serializer). `#fff</style><script>…` gibi bir token
+değeri `<style>`'dan kaçarak public storefront'ta **stored XSS** üretiyordu; `.passthrough()` bilinmeyen anahtarları da
+sızdırıyordu. Yalnız admin yazabilse de sink müşteri tarayıcısında **kalıcı** çalışır (ayrıcalık sınırını aşar). Bkz.
+`docs/analysis/H-1-theme-token-stored-xss.md`.
+
+**Karar.** **Tema token değerleri serbest CSS değildir.** Yalnız tanımlı token tipine/formatına uygun değerler kabul edilir
+ve tek güvenli, typed serializer'dan geçer.
+
+1. **Token registry** (`packages/theme/src/registry.ts`): her token merkezi olarak bir tiple tanımlıdır — COLOR / LENGTH /
+   NUMBER / FONT_FAMILY_PRESET / FONT_WEIGHT / SHADOW_PRESET / DURATION / EASING. Generic `string` tipi YOK; **bilinmeyen
+   primitive anahtar reddedilir** (passthrough enjeksiyon yolu kapanır). Yeni token = registry kaydı (DB migrasyonu değil).
+2. **Typed validators** (`packages/theme/src/validate.ts`): regex-only değil — parse + range + canonical-normalize. COLOR
+   `#RGB[A]`/`#RRGGBB[AA]` + güvenli `rgb()/rgba()/hsl()/hsla()` (virgül + modern boşluk/slash) + sınırlı adlı-renk
+   allowlist; `;{}<>` / yorum / `url(` / `@import` / `expression(` / `javascript:` / `data:` / kontrol karakteri / backslash
+   reddedilir. LENGTH birim allowlist (px/rem/em/%, gerektiğinde vh/vw) + min/max + negatif yalnız izinliyse; calc/var/url
+   reddedilir. NUMBER/FONT_WEIGHT/DURATION parse+range (NaN/Infinity/üstel reddedilir). **Font/Shadow ham string kabul etmez**
+   → preset ID + kanonik allowlist (sunucu-tanımlı güvenli sabite map).
+3. **Render-time defense** (`css.ts`): serializer her değeri tipine göre doğrular; geçersiz/güvensiz değeri **atlar** (ham
+   değer `<style>`'a girmez, sayfa kırılmaz, diğer geçerli tokenlar çalışır); bozuk ref render'ı çökertmez. Save-time yeterli
+   değildir — DB'de legacy geçersiz token bulunabilir.
+4. **Save-time defense** (gateway): draft/publish/import token doğrulaması + `THEME_TOKEN_UNKNOWN / THEME_TOKEN_INVALID_VALUE
+   / THEME_TOKEN_TYPE_MISMATCH / THEME_TOKEN_UNSAFE_VALUE` + geçersiz draft yayınlanamaz `THEME_PUBLISH_BLOCKED`. Yanıt **ham
+   payload veya regex TAŞIMAZ** (yalnız path/layer/type/reason). Store-admin field-level TR/EN + publish-blocked state.
+5. **Custom CSS sertleştirme** (`custom-css.ts`): yorumlar önce strip (obfuscation), tüm `<` kaldırılır (HTML breakout
+   imkânsız, `>` combinator korunur), filtreler fixpoint döngüde.
+
+**Sonuçlar.** Güvenlik invariant'ı sağlandı; preview/publish/storefront parity korundu (üç sink tek serializer). Varsayılan
+tema `globals.css` ile birebir parite (allowlist `DEFAULT_TYPOGRAPHY`/`DEFAULT_SHADOW`'dan türetilir). CSP bu zafiyetin ana
+çözümü DEĞİL (token validation yeterli) — derinlemesine savunma **TD-147**'ye ertelendi. Legacy tarama: salt-okuma
+`packages/db/scripts/security/scan-theme-tokens.mjs`. **Canlı smoke (enterprise-demo):** vuln doğrulandı (endpoint + storefront
+HTML 8× breakout) → fix payload'ı düşürdü (endpoint + HTML temiz, `--paper` sağlam). Testler: 147 theme + 6 gateway integration.

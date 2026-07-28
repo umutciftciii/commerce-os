@@ -1,5 +1,13 @@
 import type { ThemeDocument } from "./schema.js";
-import { resolveTheme, resolveValue } from "./resolve.js";
+import { resolveValue } from "./resolve.js";
+import {
+  componentSpec,
+  primitiveSpec,
+  semanticSpec,
+  validateSpec,
+  type TokenSpec,
+} from "./registry.js";
+import type { LengthPolicy } from "./validate.js";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -31,60 +39,115 @@ export function kebab(input: string): string {
     .toLowerCase();
 }
 
+const RADIUS_LENGTH: LengthPolicy = { units: ["px", "rem", "em", "%"], allowZeroUnitless: true };
+const colorSpec: TokenSpec = { type: "COLOR" };
+const fontSpec: TokenSpec = { type: "FONT_FAMILY_PRESET" };
+const radiusSpec: TokenSpec = { type: "LENGTH", length: RADIUS_LENGTH };
+const shadowSpec: TokenSpec = { type: "SHADOW_PRESET" };
+
 /**
- * Vitrinin kanonik değişkenleri → semantic/design token referansı.
- * SIRA ÖNEMLİDİR (deterministik çıktı). Değerler `{ref}`; resolver çözer.
+ * Vitrinin kanonik değişkenleri → semantic/design token referansı + TİP.
+ * SIRA ÖNEMLİDİR (deterministik çıktı). Değerler `{ref}`; resolver çözer;
+ * çözülmüş değer TİPİNE göre doğrulanır (H-1). Tip: [name, ref, spec].
  */
-export const STOREFRONT_VAR_BINDINGS: ReadonlyArray<readonly [string, string]> = [
+export const STOREFRONT_VAR_BINDINGS: ReadonlyArray<readonly [string, string, TokenSpec]> = [
   // Tipografi (primitive aile stack'i)
-  ["--font-sans", "{typography.bodyFont}"],
-  ["--font-serif", "{typography.headingFont}"],
+  ["--font-sans", "{typography.bodyFont}", fontSpec],
+  ["--font-serif", "{typography.headingFont}", fontSpec],
   // Yüzeyler
-  ["--paper", "{page.background}"],
-  ["--surface", "{page.surface}"],
-  ["--surface-muted", "{page.surfaceMuted}"],
+  ["--paper", "{page.background}", colorSpec],
+  ["--surface", "{page.surface}", colorSpec],
+  ["--surface-muted", "{page.surfaceMuted}", colorSpec],
   // Metin
-  ["--ink", "{content.primary}"],
-  ["--ink-muted", "{content.secondary}"],
-  ["--ink-subtle", "{content.muted}"],
+  ["--ink", "{content.primary}", colorSpec],
+  ["--ink-muted", "{content.secondary}", colorSpec],
+  ["--ink-subtle", "{content.muted}", colorSpec],
   // Çizgi
-  ["--line", "{line.default}"],
-  ["--line-strong", "{line.strong}"],
+  ["--line", "{line.default}", colorSpec],
+  ["--line-strong", "{line.strong}", colorSpec],
   // Aksan (tek birincil CTA + focus)
-  ["--accent", "{action.primary}"],
-  ["--accent-ink", "{action.primaryActive}"],
-  ["--accent-contrast", "{action.primaryContrast}"],
+  ["--accent", "{action.primary}", colorSpec],
+  ["--accent-ink", "{action.primaryActive}", colorSpec],
+  ["--accent-contrast", "{action.primaryContrast}", colorSpec],
   // Radius
-  ["--radius-none", "{radius.none}"],
-  ["--radius-sm", "{radius.sm}"],
-  ["--radius-md", "{radius.md}"],
+  ["--radius-none", "{radius.none}", radiusSpec],
+  ["--radius-sm", "{radius.sm}", radiusSpec],
+  ["--radius-md", "{radius.md}", radiusSpec],
   // Gölge
-  ["--shadow-sm", "{shadow.sm}"],
-  ["--shadow-md", "{shadow.md}"],
+  ["--shadow-sm", "{shadow.sm}", shadowSpec],
+  ["--shadow-md", "{shadow.md}", shadowSpec],
 ];
 
-/** Bir CSS değişken satır listesi: [name, value] çiftleri (deterministik). */
-export function generateCssVariables(doc: ThemeDocument): Array<[string, string]> {
-  const resolved = resolveTheme(doc);
+/**
+ * ThemeDocument → güvenli CSS değişken listesi. HER değer, ait olduğu token
+ * tipine göre {@link validateSpec} ile doğrulanır; GEÇERSİZ/GÜVENSİZ değer
+ * ATLANIR (render-time defense — ham değer `<style>` bloğuna asla girmez, sayfa
+ * kırılmaz, diğer geçerli tokenlar çalışır). Bilinmeyen primitive anahtarı hiç
+ * yayınlanmaz. Deterministik sıra korunur.
+ *
+ * `onDrop` verilirse atlanan her değişken için (payload'suz) geri çağrılır —
+ * audit/telemetri için (değer LOGLANMAZ).
+ */
+export function generateCssVariables(
+  doc: ThemeDocument,
+  onDrop?: (info: { name: string; reason: string }) => void,
+): Array<[string, string]> {
   const vars: Array<[string, string]> = [];
 
+  /** `{ref}`/somut değeri güvenle çözer; çözülemezse null (asla throw etmez). */
+  const safeResolve = (value: string): string | null => {
+    try {
+      return resolveValue(value, doc);
+    } catch {
+      return null;
+    }
+  };
+
+  const emit = (name: string, value: string | null, spec: TokenSpec) => {
+    if (value === null) {
+      if (onDrop) onDrop({ name, reason: "UNRESOLVED" });
+      return;
+    }
+    const result = validateSpec(spec, value);
+    if (result.ok) {
+      vars.push([name, result.value]);
+    } else if (onDrop) {
+      onDrop({ name, reason: result.reason });
+    }
+  };
+
   // A) Storefront uyum varları
-  for (const [name, ref] of STOREFRONT_VAR_BINDINGS) {
-    vars.push([name, resolveValue(ref, doc)]);
+  for (const [name, ref, spec] of STOREFRONT_VAR_BINDINGS) {
+    emit(name, safeResolve(ref), spec);
   }
 
   // B1) Design-system primitive varları — --ds-<grup>-<kebab anahtar>
-  for (const [path, value] of Object.entries(resolved.primitives)) {
-    vars.push([`--ds-${kebab(path)}`, value]);
+  const tokens = doc.tokens as unknown as Record<string, unknown>;
+  for (const [group, bag] of Object.entries(tokens ?? {})) {
+    if (!bag || typeof bag !== "object") continue;
+    for (const [key, raw] of Object.entries(bag as Record<string, unknown>)) {
+      if (raw == null) continue;
+      const path = `${group}.${key}`;
+      const spec = primitiveSpec(group, key);
+      if (spec === null || (spec as { unknown?: true }).unknown) {
+        if (onDrop) onDrop({ name: `--ds-${kebab(path)}`, reason: "UNKNOWN" });
+        continue;
+      }
+      const value = typeof raw === "number" ? String(raw) : String(raw);
+      emit(`--ds-${kebab(path)}`, value, spec as TokenSpec);
+    }
   }
   // B2) Semantic varları — --ds-<kebab anahtar>
-  for (const [key, value] of Object.entries(resolved.semantic)) {
-    vars.push([`--ds-${kebab(key)}`, value]);
+  for (const [key, value] of Object.entries(doc.semantic ?? {})) {
+    emit(`--ds-${kebab(key)}`, safeResolve(value), semanticSpec());
   }
   // B3) Component varları — --ds-<bileşen>-<kebab tokenKey>
-  for (const [name, tokens] of Object.entries(resolved.components)) {
-    for (const [key, value] of Object.entries(tokens)) {
-      vars.push([`--ds-${kebab(name)}-${kebab(key)}`, value]);
+  for (const [name, set] of Object.entries(doc.components ?? {})) {
+    const compTokens = (set as { tokens?: Record<string, unknown> })?.tokens ?? {};
+    for (const [key, value] of Object.entries(compTokens)) {
+      if (value == null) continue;
+      const raw = typeof value === "string" ? value : String(value);
+      emit(`--ds-${kebab(name)}-${kebab(key)}`, safeResolve(raw), componentSpec(key));
     }
   }
 

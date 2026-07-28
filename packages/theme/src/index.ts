@@ -5,6 +5,8 @@
  */
 export * from "./schema.js";
 export * from "./resolve.js";
+export * from "./validate.js";
+export * from "./registry.js";
 export * from "./css.js";
 export * from "./build.js";
 export * from "./presets.js";
