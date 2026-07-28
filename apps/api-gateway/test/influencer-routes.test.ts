@@ -67,6 +67,13 @@ function createMemoryData() {
     const campaign = campaigns.get(link.campaignId)!;
     const influencer = influencers.get(campaign.influencerId)!;
     return {
+      // Yeni nullable alanlar (ADR-170/175): kayıt eskiyse undefined olabilir → null garanti.
+      utmContent: null,
+      utmTerm: null,
+      customLabel: null,
+      activatedAt: null,
+      pausedAt: null,
+      revokedAt: null,
       ...link,
       campaignName: campaign.name,
       influencerId: influencer.id,
@@ -158,10 +165,11 @@ function createMemoryData() {
       links.set(rec.id, rec);
       return linkRow(rec);
     },
-    async updateTrackingLink(storeId, idv, input) {
+    async updateTrackingLinkStatus(storeId, idv, status) {
       const l = links.get(idv);
       if (!l || l.storeId !== storeId) return null;
-      Object.assign(l, input);
+      if (l.status === "REVOKED") return "REVOKED_TERMINAL";
+      l.status = status;
       return linkRow(l);
     },
     async regenerateTrackingLinkToken(storeId, idv, tokenHash) {
@@ -184,7 +192,21 @@ function createMemoryData() {
       if (!l) return null;
       const campaign = campaigns.get(l.campaignId)!;
       const influencer = influencers.get(campaign.influencerId)!;
-      return { link: l, campaign, influencer: { id: influencer.id, name: influencer.name, code: influencer.code, status: influencer.status } };
+      // Yeni alanlar (ADR-171): store aktif + target aktif. Mock'ta store ACTIVE;
+      // target PRODUCT/CATEGORY ise ilgili kayıt VAR ise aktif kabul (HOME/PATH true).
+      const targetAvailable =
+        l.targetType === "PRODUCT"
+          ? products.has(l.productId ?? "")
+          : l.targetType === "CATEGORY"
+            ? categories.has(l.categoryId ?? "")
+            : true;
+      return {
+        link: l,
+        campaign,
+        influencer: { id: influencer.id, name: influencer.name, code: influencer.code, status: influencer.status },
+        storeActive: true,
+        targetAvailable,
+      };
     },
     async findLastClickAt(storeId, trackingLinkId, visitorIdHash) {
       const matching = clicks

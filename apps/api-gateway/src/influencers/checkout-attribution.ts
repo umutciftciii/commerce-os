@@ -8,7 +8,13 @@
  * (imza/pencere/pasif/cross-store) → null (attribution yazılmaz; checkout etkilenmez).
  */
 import type { InfluencerData, ResolvedAttribution } from "./data.js";
-import { isWithinAttributionWindow, verifyAttributionGrant } from "./tracking-core.js";
+import {
+  evaluateConversionEligibility,
+  isWithinAttributionWindow,
+  normalizeCampaignStatus,
+  normalizeLinkStatus,
+  verifyAttributionGrant,
+} from "./tracking-core.js";
 
 export async function resolveAttributionForCheckout(
   data: InfluencerData,
@@ -21,17 +27,27 @@ export async function resolveAttributionForCheckout(
   if (!payload) return null;
   // Cross-store guard: grant başka mağazaya aitse KULLANILAMAZ.
   if (payload.storeId !== storeId) return null;
-  // Attribution penceresi (click anındaki pencereden türetilen expiresAt).
-  if (!isWithinAttributionWindow(nowMs, payload.expiresAt)) return null;
 
-  // Durum kontrolü: influencer + campaign hâlâ VAR + ACTIVE + tutarlı (tenant).
+  // Durum kontrolü: influencer + campaign hâlâ VAR + tutarlı (tenant).
   const influencer = await data.getInfluencer(storeId, payload.influencerId);
-  if (!influencer || influencer.status !== "ACTIVE") return null;
+  if (!influencer) return null;
   const campaign = await data.getCampaign(storeId, payload.campaignId);
-  if (!campaign || campaign.status !== "ACTIVE" || campaign.influencerId !== influencer.id) return null;
+  if (!campaign || campaign.influencerId !== influencer.id) return null;
 
   // Link opsiyonel (silinmişse trackingLinkId null; kampanya/influencer yeter).
   const link = payload.trackingLinkId ? await data.getTrackingLink(storeId, payload.trackingLinkId) : null;
+  // Link kampanyaya ait olmalı (aksi halde snapshot tutarsız → attribution yazma).
+  if (link && link.campaignId !== campaign.id) return null;
+
+  // Attribution kapanış politikası (ADR-173): PAUSED/ENDED pencere-içi eski session
+  // conversion üretir; CANCELLED/DRAFT ve REVOKED link üretmez; pencere dışı üretmez.
+  const eligible = evaluateConversionEligibility({
+    campaignStatus: normalizeCampaignStatus(campaign.status),
+    linkStatus: link ? normalizeLinkStatus(link.status) : null,
+    influencerActive: influencer.status === "ACTIVE",
+    withinWindow: isWithinAttributionWindow(nowMs, payload.expiresAt),
+  });
+  if (!eligible) return null;
 
   const snapshot: Record<string, unknown> = {
     model: "LAST_CLICK",

@@ -102,6 +102,10 @@ export const INFLUENCER_ANALYTICS_KEYS = [
   "influencerId",
   "campaignId",
   "trackingLinkId",
+  // TD-144/146 — kampanya zaman serisi link/UTM filtreleri.
+  "utmSource",
+  "utmMedium",
+  "utmCampaign",
 ];
 
 /**

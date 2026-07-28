@@ -598,9 +598,17 @@ enum InfluencerStatus {
   INACTIVE
 }
 
+// Kampanya yasam dongusu (ADR-170). DRAFT: henuz yayinlanmamis (redirect/attribution
+// yok). ACTIVE: canli. PAUSED: yeni click kapali, pencere-ici eski session convert eder.
+// ENDED: sureli bitis (endsAt gecti ya da elle sonlandirildi) — terminal; pencere-ici
+// eski session convert eder. CANCELLED: iptal — terminal; eski session da convert ETMEZ.
+// ARCHIVED: legacy (ENDED semantigi; yeni UI uretmez).
 enum InfluencerCampaignStatus {
+  DRAFT
   ACTIVE
   PAUSED
+  ENDED
+  CANCELLED
   ARCHIVED
 }
 
@@ -613,8 +621,14 @@ enum TrackingLinkTargetType {
   PATH
 }
 
+// Takip linki yasam dongusu (ADR-170). ACTIVE: canli. PAUSED: yeni click kapali,
+// pencere-ici eski session convert eder (yeniden ACTIVE yapilabilir). REVOKED: terminal
+// (rotation/iptal) — o linkten yeni click VE eski session conversion URETMEZ; geri
+// alinamaz. INACTIVE: legacy (PAUSED semantigi; yeni UI uretmez).
 enum TrackingLinkStatus {
   ACTIVE
+  PAUSED
+  REVOKED
   INACTIVE
 }
 
@@ -3653,10 +3667,19 @@ model InfluencerTrackingLink {
   targetPath  String                 @default("/")
   productId   String?
   categoryId  String?
+  // UTM raporlama baglamidir. ADR-175: UTM link olusturmada set edilir, sonradan
+  // DEGISTIRILMEZ (immutable) → click-seviyesi UTM raporu link join'iyle tarihsel dogru.
   utmSource   String?
   utmMedium   String?
   utmCampaign String?
+  utmContent  String?
+  utmTerm     String?
+  customLabel String?
   status      TrackingLinkStatus     @default(ACTIVE)
+  // Yasam dongusu zaman damgalari (ADR-170) — link detay dashboard'unda gosterilir.
+  activatedAt DateTime?
+  pausedAt    DateTime?
+  revokedAt   DateTime?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 

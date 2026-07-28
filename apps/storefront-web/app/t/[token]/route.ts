@@ -44,8 +44,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     visitorId,
   });
 
+  // Terminal (ADR-171/172): kampanya/link pasif·bitmiş·iptal ya da hedef kullanılamaz.
+  // Hedef ürüne YÖNLENDİRME YOK; markalı terminal sayfaya git. Click/session/cookie/
+  // visitor cookie YAZILMAZ (gateway zaten yazmadı; storefront de dokunmaz).
+  if (result && result.available === false) {
+    const state = result.bucket ?? "unavailable";
+    return NextResponse.redirect(new URL(`/campaign-unavailable?state=${encodeURIComponent(state)}`, origin));
+  }
+
   // Güvenli hedef: yalnız store-içi tek-slash yol; aksi halde ana sayfa.
-  const target = safeNextPath(result?.targetPath, "/");
+  const target = safeNextPath(result?.targetPath ?? undefined, "/");
   const response = NextResponse.redirect(new URL(target, origin));
 
   const secure = process.env.NODE_ENV === "production";
@@ -57,7 +65,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     secure,
     maxAge: VISITOR_COOKIE_MAX_AGE,
   });
-  // Last-click: geçerli grant mevcut attribution'ı EZER. Grant null (pasif/pencere-dışı)
+  // Last-click: geçerli grant mevcut attribution'ı EZER. Grant null (invalid token vb.)
   // → cookie'ye DOKUNMA (mevcut attribution korunur; direct ziyaret gibi).
   if (result?.grant) {
     response.cookies.set(ATTRIBUTION_COOKIE, result.grant, {

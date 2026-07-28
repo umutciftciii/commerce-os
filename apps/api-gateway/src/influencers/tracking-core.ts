@@ -327,6 +327,132 @@ export function createSlidingWindowLimiter(maxHits: number, windowMs: number): R
   };
 }
 
+// ── Yaşam döngüsü status normalizasyonu (ADR-170) ───────────────────────────
+export type CampaignLifecycleStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ENDED" | "CANCELLED";
+export type LinkLifecycleStatus = "ACTIVE" | "PAUSED" | "REVOKED";
+
+/**
+ * Kampanya status'unu kanonik yaşam döngüsüne normalize eder. Legacy `ARCHIVED`
+ * → `ENDED` (terminal, pencere-içi eski session convert eder). Bilinmeyen değer →
+ * `ENDED` (güvenli varsayılan: terminal, yeni click yok).
+ */
+export function normalizeCampaignStatus(status: string | null | undefined): CampaignLifecycleStatus {
+  switch (status) {
+    case "DRAFT":
+    case "ACTIVE":
+    case "PAUSED":
+    case "ENDED":
+    case "CANCELLED":
+      return status;
+    case "ARCHIVED":
+      return "ENDED";
+    default:
+      return "ENDED";
+  }
+}
+
+/** Link status normalizasyonu. Legacy `INACTIVE` → `PAUSED`. Bilinmeyen → `REVOKED`. */
+export function normalizeLinkStatus(status: string | null | undefined): LinkLifecycleStatus {
+  switch (status) {
+    case "ACTIVE":
+    case "PAUSED":
+    case "REVOKED":
+      return status;
+    case "INACTIVE":
+      return "PAUSED";
+    default:
+      return "REVOKED";
+  }
+}
+
+// ── Redirect erişim kuralı (ADR-171) ────────────────────────────────────────
+/** Public redirect reddedilme domain kodu (ham gösterilmez; §15 i18n eşlenir). */
+export type TrackingDenyReason =
+  | "STORE_NOT_ACTIVE"
+  | "INFLUENCER_NOT_ACTIVE"
+  | "CAMPAIGN_NOT_ACTIVE"
+  | "CAMPAIGN_ENDED"
+  | "CAMPAIGN_CANCELLED"
+  | "TRACKING_LINK_NOT_ACTIVE"
+  | "TRACKING_LINK_REVOKED"
+  | "TRACKING_TARGET_NOT_AVAILABLE";
+
+/** Terminal sayfa mesaj kovası — ürün adı/özel bilgi sızdırmadan 3 genel durum. */
+export type TerminalReasonBucket = "ended" | "inactive" | "unavailable";
+
+export function terminalReasonBucket(reason: TrackingDenyReason): TerminalReasonBucket {
+  switch (reason) {
+    case "CAMPAIGN_ENDED":
+      return "ended";
+    case "CAMPAIGN_CANCELLED":
+    case "TRACKING_LINK_REVOKED":
+    case "TRACKING_TARGET_NOT_AVAILABLE":
+      return "unavailable";
+    default:
+      return "inactive";
+  }
+}
+
+export interface RedirectEligibilityInput {
+  storeActive: boolean;
+  influencerActive: boolean;
+  campaignStatus: CampaignLifecycleStatus;
+  linkStatus: LinkLifecycleStatus;
+  startsAtMs: number | null;
+  endsAtMs: number | null;
+  targetAvailable: boolean;
+  nowMs: number;
+}
+
+export interface RedirectEligibility {
+  allowed: boolean;
+  reason: TrackingDenyReason | null;
+}
+
+/**
+ * Tracking URL yalnız TÜM koşullar sağlanırsa hedefe yönlendirir (ADR-171). İlk
+ * başarısız koşul reddetme nedenini belirler (terminal + terminal). SAF/deterministik
+ * — status'lar çağıran tarafça DB'den okunur ve normalize edilir. Sıra: store →
+ * influencer → campaign (terminal önce) → link → tarih penceresi → target.
+ */
+export function evaluateRedirectEligibility(input: RedirectEligibilityInput): RedirectEligibility {
+  if (!input.storeActive) return { allowed: false, reason: "STORE_NOT_ACTIVE" };
+  if (!input.influencerActive) return { allowed: false, reason: "INFLUENCER_NOT_ACTIVE" };
+  if (input.campaignStatus === "CANCELLED") return { allowed: false, reason: "CAMPAIGN_CANCELLED" };
+  if (input.campaignStatus === "ENDED") return { allowed: false, reason: "CAMPAIGN_ENDED" };
+  if (input.campaignStatus !== "ACTIVE") return { allowed: false, reason: "CAMPAIGN_NOT_ACTIVE" }; // DRAFT/PAUSED
+  if (input.linkStatus === "REVOKED") return { allowed: false, reason: "TRACKING_LINK_REVOKED" };
+  if (input.linkStatus !== "ACTIVE") return { allowed: false, reason: "TRACKING_LINK_NOT_ACTIVE" }; // PAUSED
+  // Tarih penceresi: başlamamış → henüz aktif değil; bitmiş → kampanya sona ermiş.
+  if (input.startsAtMs != null && input.startsAtMs > input.nowMs) return { allowed: false, reason: "CAMPAIGN_NOT_ACTIVE" };
+  if (input.endsAtMs != null && input.endsAtMs < input.nowMs) return { allowed: false, reason: "CAMPAIGN_ENDED" };
+  if (!input.targetAvailable) return { allowed: false, reason: "TRACKING_TARGET_NOT_AVAILABLE" };
+  return { allowed: true, reason: null };
+}
+
+// ── Attribution kapanış politikası (ADR-173) ────────────────────────────────
+export interface ConversionEligibilityInput {
+  campaignStatus: CampaignLifecycleStatus;
+  /** null = link silinmiş (kampanya/influencer yeterli). */
+  linkStatus: LinkLifecycleStatus | null;
+  influencerActive: boolean;
+  withinWindow: boolean;
+}
+
+/**
+ * Önceden geçerli oluşmuş bir attribution session'ının sipariş anında conversion
+ * üretip üretmeyeceği (ADR-173). Yeni click zaten redirect kapısında engellenir; bu
+ * yalnız pencere-içi ESKİ session içindir. CANCELLED/DRAFT kampanya ve REVOKED link
+ * conversion ÜRETMEZ; ACTIVE/PAUSED/ENDED üretir (pencere içindeyse). Session SİLİNMEZ.
+ */
+export function evaluateConversionEligibility(input: ConversionEligibilityInput): boolean {
+  if (!input.withinWindow) return false;
+  if (!input.influencerActive) return false;
+  if (input.campaignStatus === "CANCELLED" || input.campaignStatus === "DRAFT") return false;
+  if (input.linkStatus === "REVOKED") return false;
+  return true; // ACTIVE | PAUSED | ENDED (+ link ACTIVE|PAUSED|null)
+}
+
 // ── code normalize (influencer human-readable kimlik) ───────────────────────
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{1,47}$/;
 

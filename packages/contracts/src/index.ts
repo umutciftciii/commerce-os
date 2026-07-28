@@ -8069,9 +8069,11 @@ export type ReviewModerateResponse = z.infer<typeof reviewModerateResponseSchema
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export const influencerStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
-export const influencerCampaignStatusSchema = z.enum(["ACTIVE", "PAUSED", "ARCHIVED"]);
+// ADR-170 yaşam döngüsü. ARCHIVED/INACTIVE legacy (yeni UI üretmez); sunucu ENDED/
+// PAUSED semantiğine normalize eder (normalizeCampaignStatus/normalizeLinkStatus).
+export const influencerCampaignStatusSchema = z.enum(["DRAFT", "ACTIVE", "PAUSED", "ENDED", "CANCELLED", "ARCHIVED"]);
 export const trackingLinkTargetTypeSchema = z.enum(["HOME", "PRODUCT", "CATEGORY", "PATH"]);
-export const trackingLinkStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
+export const trackingLinkStatusSchema = z.enum(["ACTIVE", "PAUSED", "REVOKED", "INACTIVE"]);
 export const attributionModelSchema = z.enum(["LAST_CLICK"]);
 
 export const INFLUENCER_NAME_MAX_LENGTH = 160;
@@ -8224,7 +8226,13 @@ export const trackingLinkSummarySchema = z.object({
   utmSource: z.string().nullable(),
   utmMedium: z.string().nullable(),
   utmCampaign: z.string().nullable(),
+  utmContent: z.string().nullable(),
+  utmTerm: z.string().nullable(),
+  customLabel: z.string().nullable(),
   status: trackingLinkStatusSchema,
+  activatedAt: z.string().datetime().nullable(),
+  pausedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
   totalClicks: z.number().int().nonnegative(),
   attributedOrders: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
@@ -8251,6 +8259,9 @@ export const trackingLinkCreateRequestSchema = z
     utmSource: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
     utmMedium: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
     utmCampaign: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
+    utmContent: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
+    utmTerm: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
+    customLabel: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
   })
   .superRefine((value, ctx) => {
     if (value.targetType === "PRODUCT" && !value.productId) {
@@ -8264,12 +8275,13 @@ export const trackingLinkCreateRequestSchema = z
     }
   });
 
-/** Link büyük ölçüde immutable (token/hedef sabit); yalnız aktiflik + utm düzenlenir. */
+/**
+ * Link immutable (token/hedef/UTM sabit — ADR-175); yalnız yaşam döngüsü status
+ * geçişi. Kabul edilen hedef değerler: ACTIVE (etkinleştir) | PAUSED (durdur) |
+ * REVOKED (iptal, terminal). INACTIVE legacy — yeni istekte kullanılmaz.
+ */
 export const trackingLinkUpdateRequestSchema = z.object({
-  status: trackingLinkStatusSchema.optional(),
-  utmSource: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
-  utmMedium: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
-  utmCampaign: z.string().trim().max(TRACKING_UTM_MAX_LENGTH).nullish(),
+  status: z.enum(["ACTIVE", "PAUSED", "REVOKED"]),
 });
 
 export const trackingLinkListQuerySchema = adminListQueryBaseSchema.extend({
@@ -8289,21 +8301,44 @@ export const trackingLinkCreateResponseSchema = z.object({ data: trackingLinkWit
 
 /* ── Public tracking yanıtı (storefront BFF → gateway) ──────────────────────── */
 
+/** Public redirect reddedilme domain kodu (ADR-171). Ham gösterilmez → i18n eşlenir. */
+export const trackingDenyReasonSchema = z.enum([
+  "STORE_NOT_ACTIVE",
+  "INFLUENCER_NOT_ACTIVE",
+  "CAMPAIGN_NOT_ACTIVE",
+  "CAMPAIGN_ENDED",
+  "CAMPAIGN_CANCELLED",
+  "TRACKING_LINK_NOT_ACTIVE",
+  "TRACKING_LINK_REVOKED",
+  "TRACKING_TARGET_NOT_AVAILABLE",
+]);
+/** Terminal sayfa mesaj kovası — ürün adı/özel bilgi sızdırmaz (ADR-172). */
+export const terminalReasonBucketSchema = z.enum(["ended", "inactive", "unavailable"]);
+
 /**
- * Gateway click kaydı sonrası storefront'a döndürdüğü opak grant + güvenli hedef.
- * Storefront grant'i httpOnly cookie'ye yazar ve `targetPath`e redirect eder.
- * Geçersiz/expired link → 404 (grant yok); storefront güvenli fallback (`/`) yapar.
+ * Gateway click kaydı sonrası storefront'a döndürdüğü karar (ADR-171/172).
+ *  - available=true → grant + güvenli hedef (`targetPath`); storefront grant'i cookie'ye
+ *    yazar ve hedefe redirect eder.
+ *  - available=false → hedef ürün/sayfa SIZDIRILMAZ (targetPath null); storefront markalı
+ *    terminal sayfaya (`/campaign-unavailable?state=<bucket>`) yönlendirir. Click/session/
+ *    cookie yazılmaz. `reason` ham domain kodu (log/gözlem); `bucket` public mesaj kovası.
  */
 export const trackClickResponseSchema = z.object({
   data: z.object({
-    // null = redirect-only (link/kampanya pasif ya da pencere dışı → attribution YOK).
+    available: z.boolean(),
     grant: z.string().nullable(),
-    targetPath: z.string(),
+    targetPath: z.string().nullable(),
+    reason: trackingDenyReasonSchema.nullable(),
+    bucket: terminalReasonBucketSchema.nullable(),
     cookieMaxAgeSeconds: z.number().int().positive(),
   }),
 });
 
 /* ── Attribution dashboard + CSV export ─────────────────────────────────────── */
+
+/** Analytics tarih aralığı üst sınırı (gün) — bounded (ADR-178). Aşan aralık kırpılır. */
+export const ANALYTICS_MAX_RANGE_DAYS = 366;
+export const ANALYTICS_DEFAULT_RANGE_DAYS = 30;
 
 export const influencerAnalyticsQuerySchema = z.object({
   dateFrom: z.string().optional(),
@@ -8311,6 +8346,23 @@ export const influencerAnalyticsQuerySchema = z.object({
   influencerId: z.string().min(1).optional(),
   campaignId: z.string().min(1).optional(),
   trackingLinkId: z.string().min(1).optional(),
+  // Zaman serisi + kırılım filtreleri (campaign dashboard). UTM link'ten (immutable) eşlenir.
+  utmSource: z.string().min(1).max(TRACKING_UTM_MAX_LENGTH).optional(),
+  utmMedium: z.string().min(1).max(TRACKING_UTM_MAX_LENGTH).optional(),
+  utmCampaign: z.string().min(1).max(TRACKING_UTM_MAX_LENGTH).optional(),
+});
+
+/**
+ * Para birimi başına gelir (ADR-176). Gelir YALNIZ aynı currency içinde toplanır;
+ * çok para birimli mağazada sessiz tek toplam ÜRETİLMEZ — her currency ayrı satır.
+ */
+export const attributionCurrencyRevenueSchema = z.object({
+  currency: z.string(),
+  attributedOrders: z.number().int().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  refundedRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
+  averageOrderValueMinor: z.number().int().nonnegative(),
 });
 
 export const attributionKpiSummarySchema = z.object({
@@ -8322,16 +8374,30 @@ export const attributionKpiSummarySchema = z.object({
   refundedRevenueMinor: z.number().int().nonnegative(),
   netRevenueMinor: z.number().int().nonnegative(),
   averageOrderValueMinor: z.number().int().nonnegative(),
+  // Birincil (en yüksek net gelirli) currency — geriye dönük uyum. Gerçek dağılım `revenues`.
   currency: z.string(),
+  // Para birimi başına ayrı toplam (ADR-176). Tek currency ise tek eleman.
+  revenues: z.array(attributionCurrencyRevenueSchema),
+  hasMultipleCurrencies: z.boolean(),
+});
+
+/** Günlük seri için para birimi başına gelir (ADR-176/179 — cross-currency birleştirmez). */
+export const attributionDailyCurrencyRevenueSchema = z.object({
+  currency: z.string(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
 });
 
 export const attributionDailyPointSchema = z.object({
-  date: z.string(), // YYYY-MM-DD
+  date: z.string(), // YYYY-MM-DD (store timezone gün sınırı — ADR-178)
   clicks: z.number().int().nonnegative(),
   uniqueVisitors: z.number().int().nonnegative(),
   orders: z.number().int().nonnegative(),
+  conversionRate: z.number().nonnegative(),
+  // Birincil currency özet (geri uyum) — gerçek dağılım `revenues`.
   grossRevenueMinor: z.number().int().nonnegative(),
   netRevenueMinor: z.number().int().nonnegative(),
+  revenues: z.array(attributionDailyCurrencyRevenueSchema),
 });
 
 export const attributionInfluencerBreakdownSchema = z.object({
@@ -8384,6 +8450,140 @@ export const influencerAnalyticsResponseSchema = z.object({
   }),
 });
 
+/* ── Granüler 3-seviyeli dashboard (ADR-174) ────────────────────────────────── */
+
+/** Metrik gövdesi — tüm seviyelerde (campaign/link) ortak KPI (ADR-174/176). */
+export const attributionMetricBodySchema = z.object({
+  clicks: z.number().int().nonnegative(),
+  uniqueVisitors: z.number().int().nonnegative(),
+  attributedOrders: z.number().int().nonnegative(),
+  conversionRate: z.number().nonnegative(),
+  grossRevenueMinor: z.number().int().nonnegative(),
+  refundedRevenueMinor: z.number().int().nonnegative(),
+  netRevenueMinor: z.number().int().nonnegative(),
+  averageOrderValueMinor: z.number().int().nonnegative(),
+  currency: z.string(),
+  revenues: z.array(attributionCurrencyRevenueSchema),
+  hasMultipleCurrencies: z.boolean(),
+});
+
+/** Influencer toplamı: kampanya/link sayıları (yalnız aggregate seviyesinde). */
+export const attributionInfluencerTotalsSchema = z.object({
+  campaignCount: z.number().int().nonnegative(),
+  activeCampaignCount: z.number().int().nonnegative(),
+  linkCount: z.number().int().nonnegative(),
+});
+
+/** Kampanya bazlı zengin satır (B seviyesi tablo — satır tıklanınca kampanya detayı). */
+export const attributionCampaignRowSchema = attributionMetricBodySchema.extend({
+  campaignId: z.string(),
+  campaignName: z.string(),
+  influencerId: z.string(),
+  influencerName: z.string(),
+  status: influencerCampaignStatusSchema,
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  attributionWindowDays: z.number().int().positive(),
+  linkCount: z.number().int().nonnegative(),
+});
+
+/** Link bazlı zengin satır (C seviyesi tablo — seçili kampanya altında her URL). */
+export const attributionLinkRowSchema = attributionMetricBodySchema.extend({
+  trackingLinkId: z.string(),
+  campaignId: z.string(),
+  campaignName: z.string(),
+  targetType: trackingLinkTargetTypeSchema,
+  targetPath: z.string(),
+  productTitle: z.string().nullable(),
+  categoryTitle: z.string().nullable(),
+  status: trackingLinkStatusSchema,
+  createdAt: z.string().datetime(),
+  activatedAt: z.string().datetime().nullable(),
+  pausedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+  utmSource: z.string().nullable(),
+  utmMedium: z.string().nullable(),
+  utmCampaign: z.string().nullable(),
+  utmContent: z.string().nullable(),
+  utmTerm: z.string().nullable(),
+  customLabel: z.string().nullable(),
+  attributionWindowDays: z.number().int().positive(),
+});
+
+/**
+ * UTM kırılımı (kampanya detayı) — currency-aware (ADR-179/TD-144). Her UTM kombinasyonu
+ * için clicks/unique/orders/CR + para birimi başına AYRI gelir (sessiz cross-currency toplam
+ * YOK). customLabel dahil. UTM/customLabel link'ten (immutable) türetilir.
+ */
+export const attributionUtmBreakdownSchema = z.object({
+  utmSource: z.string().nullable(),
+  utmMedium: z.string().nullable(),
+  utmCampaign: z.string().nullable(),
+  utmContent: z.string().nullable(),
+  utmTerm: z.string().nullable(),
+  customLabel: z.string().nullable(),
+  clicks: z.number().int().nonnegative(),
+  uniqueVisitors: z.number().int().nonnegative(),
+  attributedOrders: z.number().int().nonnegative(),
+  conversionRate: z.number().nonnegative(),
+  revenues: z.array(attributionCurrencyRevenueSchema),
+  hasMultipleCurrencies: z.boolean(),
+});
+
+/** Son atıflı sipariş satırı (kampanya/link detayında). */
+export const attributionRecentOrderSchema = z.object({
+  orderNumber: z.string(),
+  attributedAt: z.string().datetime(),
+  targetPath: z.string().nullable(),
+  netRevenueMinor: z.number().int().nonnegative(),
+  currency: z.string(),
+});
+
+/** A. Influencer toplam dashboard yanıtı (`GET .../influencers/:id/analytics`). */
+export const influencerAggregateAnalyticsResponseSchema = z.object({
+  data: z.object({
+    summary: attributionKpiSummarySchema,
+    totals: attributionInfluencerTotalsSchema,
+    campaigns: z.array(attributionCampaignRowSchema),
+    daily: z.array(attributionDailyPointSchema),
+  }),
+});
+
+/** B. Kampanya detay dashboard yanıtı (`GET .../influencer-campaigns/:id/analytics`). */
+export const campaignAnalyticsResponseSchema = z.object({
+  data: z.object({
+    campaign: z.object({
+      campaignId: z.string(),
+      campaignName: z.string(),
+      influencerId: z.string(),
+      influencerName: z.string(),
+      status: influencerCampaignStatusSchema,
+      startsAt: z.string().datetime().nullable(),
+      endsAt: z.string().datetime().nullable(),
+      attributionWindowDays: z.number().int().positive(),
+      linkCount: z.number().int().nonnegative(),
+    }),
+    summary: attributionKpiSummarySchema,
+    links: z.array(attributionLinkRowSchema),
+    daily: z.array(attributionDailyPointSchema),
+    utm: z.array(attributionUtmBreakdownSchema),
+    targets: z.array(attributionTopLinkSchema),
+    recentOrders: z.array(attributionRecentOrderSchema),
+  }),
+});
+
+/** C. Link detay dashboard yanıtı (`GET .../influencer-tracking-links/:id/analytics`). */
+export const linkAnalyticsResponseSchema = z.object({
+  data: z.object({
+    link: attributionLinkRowSchema,
+    summary: attributionKpiSummarySchema,
+    daily: z.array(attributionDailyPointSchema),
+    recentOrders: z.array(attributionRecentOrderSchema),
+    lastClickAt: z.string().datetime().nullable(),
+    lastConversionAt: z.string().datetime().nullable(),
+  }),
+});
+
 export type InfluencerStatus = z.infer<typeof influencerStatusSchema>;
 export type InfluencerCampaignStatus = z.infer<typeof influencerCampaignStatusSchema>;
 export type TrackingLinkTargetType = z.infer<typeof trackingLinkTargetTypeSchema>;
@@ -8419,6 +8619,19 @@ export type AttributionCampaignBreakdown = z.infer<typeof attributionCampaignBre
 export type AttributionTopLink = z.infer<typeof attributionTopLinkSchema>;
 export type AttributionTopProduct = z.infer<typeof attributionTopProductSchema>;
 export type InfluencerAnalyticsResponse = z.infer<typeof influencerAnalyticsResponseSchema>;
+export type TrackingDenyReason = z.infer<typeof trackingDenyReasonSchema>;
+export type TerminalReasonBucket = z.infer<typeof terminalReasonBucketSchema>;
+export type AttributionCurrencyRevenue = z.infer<typeof attributionCurrencyRevenueSchema>;
+export type AttributionDailyCurrencyRevenue = z.infer<typeof attributionDailyCurrencyRevenueSchema>;
+export type AttributionMetricBody = z.infer<typeof attributionMetricBodySchema>;
+export type AttributionInfluencerTotals = z.infer<typeof attributionInfluencerTotalsSchema>;
+export type AttributionCampaignRow = z.infer<typeof attributionCampaignRowSchema>;
+export type AttributionLinkRow = z.infer<typeof attributionLinkRowSchema>;
+export type AttributionUtmBreakdown = z.infer<typeof attributionUtmBreakdownSchema>;
+export type AttributionRecentOrder = z.infer<typeof attributionRecentOrderSchema>;
+export type InfluencerAggregateAnalyticsResponse = z.infer<typeof influencerAggregateAnalyticsResponseSchema>;
+export type CampaignAnalyticsResponse = z.infer<typeof campaignAnalyticsResponseSchema>;
+export type LinkAnalyticsResponse = z.infer<typeof linkAnalyticsResponseSchema>;
 
 /* ════════════════════════════════════════════════════════════════════════════
  * TODO-161 (ADR-114…120) — Sponsored Product Management.

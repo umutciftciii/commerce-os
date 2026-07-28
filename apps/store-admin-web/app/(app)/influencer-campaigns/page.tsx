@@ -44,11 +44,15 @@ type Locale = "tr" | "en";
 type Tone = "neutral" | "success" | "warning" | "info" | "danger";
 
 const CAMPAIGN_TONES: Record<InfluencerCampaignStatus, Tone> = {
+  DRAFT: "info",
   ACTIVE: "success",
   PAUSED: "warning",
+  ENDED: "neutral",
+  CANCELLED: "danger",
   ARCHIVED: "neutral",
 };
-const CAMPAIGN_STATUSES: readonly InfluencerCampaignStatus[] = ["ACTIVE", "PAUSED", "ARCHIVED"];
+// Filtre/oluşturma: ENDED/CANCELLED yaşam döngüsü geçişleri (influencer detayında yönetilir).
+const CAMPAIGN_STATUSES: readonly InfluencerCampaignStatus[] = ["DRAFT", "ACTIVE", "PAUSED", "ENDED", "CANCELLED"];
 
 const L = {
   tr: {
@@ -89,8 +93,11 @@ const L = {
     validationName: "Kampanya adı zorunludur.",
     noInfluencers: "Önce bir influencer oluşturun.",
     statusLabels: {
+      DRAFT: "Taslak",
       ACTIVE: "Aktif",
       PAUSED: "Duraklatıldı",
+      ENDED: "Sona erdi",
+      CANCELLED: "İptal edildi",
       ARCHIVED: "Arşivlendi",
     } as Record<InfluencerCampaignStatus, string>,
   },
@@ -132,8 +139,11 @@ const L = {
     validationName: "Campaign name is required.",
     noInfluencers: "Create an influencer first.",
     statusLabels: {
+      DRAFT: "Draft",
       ACTIVE: "Active",
       PAUSED: "Paused",
+      ENDED: "Ended",
+      CANCELLED: "Cancelled",
       ARCHIVED: "Archived",
     } as Record<InfluencerCampaignStatus, string>,
   },

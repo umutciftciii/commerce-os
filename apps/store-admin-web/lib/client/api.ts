@@ -136,6 +136,9 @@ import type {
   TrackingLinkCreateRequest,
   TrackingLinkUpdateRequest,
   InfluencerAnalyticsResponse,
+  InfluencerAggregateAnalyticsResponse,
+  CampaignAnalyticsResponse,
+  LinkAnalyticsResponse,
   // TODO-161 — Sponsored Product Management (backend/contracts hazır; BFF proxy).
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -855,6 +858,13 @@ export const storeApi = {
     }),
   getInfluencerAnalytics: (query?: AdminListRequestQuery) =>
     call<InfluencerAnalyticsResponse>(`/api/influencer-analytics${listQueryString(query)}`),
+  // Granüler 3-seviyeli dashboard (ADR-174).
+  getInfluencerAggregateAnalytics: (influencerId: string, query?: AdminListRequestQuery) =>
+    call<InfluencerAggregateAnalyticsResponse>(`/api/influencers/${influencerId}/analytics${listQueryString(query)}`),
+  getCampaignAnalytics: (campaignId: string, query?: AdminListRequestQuery) =>
+    call<CampaignAnalyticsResponse>(`/api/influencer-campaigns/${campaignId}/analytics${listQueryString(query)}`),
+  getLinkAnalytics: (linkId: string, query?: AdminListRequestQuery) =>
+    call<LinkAnalyticsResponse>(`/api/influencer-tracking-links/${linkId}/analytics${listQueryString(query)}`),
   // CSV dışa aktarım: BFF text/csv döndürür; UI Blob indirir. call<> JSON bekler,
   // bu yüzden fetch'i doğrudan kullanıp response.text() döneriz.
   exportInfluencerAnalytics: async (query?: AdminListRequestQuery): Promise<string> => {

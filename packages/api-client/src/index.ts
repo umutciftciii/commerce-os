@@ -157,6 +157,9 @@ import type {
   TrackingLinkCreateRequest,
   TrackingLinkUpdateRequest,
   InfluencerAnalyticsResponse,
+  InfluencerAggregateAnalyticsResponse,
+  CampaignAnalyticsResponse,
+  LinkAnalyticsResponse,
   // TODO-161 (ADR-114…120) — Sponsored Product Management.
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -785,6 +788,19 @@ export type {
   AttributionCampaignBreakdown,
   AttributionTopLink,
   AttributionTopProduct,
+  // Influencer Campaign Lifecycle & Granular Analytics (ADR-170…176) — consumer tipleri.
+  TrackingDenyReason,
+  TerminalReasonBucket,
+  AttributionCurrencyRevenue,
+  AttributionMetricBody,
+  AttributionInfluencerTotals,
+  AttributionCampaignRow,
+  AttributionLinkRow,
+  AttributionUtmBreakdown,
+  AttributionRecentOrder,
+  InfluencerAggregateAnalyticsResponse,
+  CampaignAnalyticsResponse,
+  LinkAnalyticsResponse,
   // TODO-161 (ADR-114…120) — Sponsored Product Management (consumer tipleri).
   SponsoredCampaignStatus,
   SponsoredPlacementType,
@@ -1801,6 +1817,10 @@ export interface ApiClient {
       regenerateLink(storeId: string, linkId: string, token?: string): Promise<TrackingLinkCreateResponse>;
       analytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerAnalyticsResponse>;
       exportAnalytics(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      // Granüler 3-seviyeli dashboard (ADR-174).
+      aggregateAnalytics(storeId: string, influencerId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerAggregateAnalyticsResponse>;
+      campaignAnalytics(storeId: string, campaignId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CampaignAnalyticsResponse>;
+      linkAnalytics(storeId: string, linkId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<LinkAnalyticsResponse>;
     };
     // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
     sponsoredProducts: {
@@ -3173,6 +3193,12 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<InfluencerAnalyticsResponse>(`/stores/${storeId}/influencer-analytics${buildQueryString(query)}`, token),
         exportAnalytics: (storeId, token, query) =>
           getText(`/stores/${storeId}/influencer-analytics/export${buildQueryString(query)}`, token),
+        aggregateAnalytics: (storeId, influencerId, token, query) =>
+          getJson<InfluencerAggregateAnalyticsResponse>(`/stores/${storeId}/influencers/${influencerId}/analytics${buildQueryString(query)}`, token),
+        campaignAnalytics: (storeId, campaignId, token, query) =>
+          getJson<CampaignAnalyticsResponse>(`/stores/${storeId}/influencer-campaigns/${campaignId}/analytics${buildQueryString(query)}`, token),
+        linkAnalytics: (storeId, linkId, token, query) =>
+          getJson<LinkAnalyticsResponse>(`/stores/${storeId}/influencer-tracking-links/${linkId}/analytics${buildQueryString(query)}`, token),
       },
       // TODO-161 (ADR-114…120) — Sponsored Product Management.
       sponsoredProducts: {

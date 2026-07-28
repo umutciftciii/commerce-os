@@ -30,6 +30,11 @@ import {
   influencerUpdateRequestSchema,
   influencerAnalyticsQuerySchema,
   influencerAnalyticsResponseSchema,
+  influencerAggregateAnalyticsResponseSchema,
+  campaignAnalyticsResponseSchema,
+  linkAnalyticsResponseSchema,
+  ANALYTICS_DEFAULT_RANGE_DAYS,
+  ANALYTICS_MAX_RANGE_DAYS,
   resolveAdminListPage,
   trackClickResponseSchema,
   trackingLinkCreateRequestSchema,
@@ -51,9 +56,19 @@ import type {
   TrackingLinkListRow,
 } from "./data.js";
 import {
+  buildKpiSummary,
+  serializeCampaignRow,
+  serializeDaily,
+  serializeLinkRow,
+  serializeRecentOrders,
+  serializeUtm,
+} from "./serialize.js";
+import { resolveRange } from "./analytics-range.js";
+import {
   clampAttributionWindowDays,
   computeAttributionExpiry,
   computeAttributionMetrics,
+  evaluateRedirectEligibility,
   generateTrackingToken,
   hashIdentifier,
   hashTrackingToken,
@@ -61,9 +76,12 @@ import {
   isRapidRepeatClick,
   isValidTrackingTokenFormat,
   isWithinAttributionWindow,
+  normalizeCampaignStatus,
+  normalizeLinkStatus,
   resolveReferrerHost,
   resolveSafeTargetPath,
   signAttributionGrant,
+  terminalReasonBucket,
   DEFAULT_ATTRIBUTION_COOKIE_TTL_DAYS,
   DEFAULT_CLICK_DEDUPE_WINDOW_SECONDS,
   type RateLimiter,
@@ -166,7 +184,13 @@ function toLinkSummary(r: TrackingLinkListRow): TrackingLinkSummary {
     utmSource: r.utmSource,
     utmMedium: r.utmMedium,
     utmCampaign: r.utmCampaign,
+    utmContent: r.utmContent ?? null,
+    utmTerm: r.utmTerm ?? null,
+    customLabel: r.customLabel ?? null,
     status: r.status,
+    activatedAt: r.activatedAt?.toISOString() ?? null,
+    pausedAt: r.pausedAt?.toISOString() ?? null,
+    revokedAt: r.revokedAt?.toISOString() ?? null,
     totalClicks: r.totalClicks,
     attributedOrders: r.attributedOrders,
     createdAt: r.createdAt.toISOString(),
@@ -331,6 +355,13 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     const parsed = influencerCampaignUpdateRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send(errorBody("INVALID_BODY", "Invalid campaign."));
     const b = parsed.data;
+    // CANCELLED terminaldir (ADR-170): iptal edilmiş kampanya yeniden aktive edilemez /
+    // durumu değiştirilemez (explicit yeni kampanya gerekir). Diğer alan düzenlemeleri de reddedilir.
+    const current = await data.getCampaign(storeId, id);
+    if (!current) return reply.code(404).send(errorBody("NOT_FOUND", "Campaign not found."));
+    if (normalizeCampaignStatus(current.status) === "CANCELLED") {
+      return reply.code(409).send(errorBody("CAMPAIGN_CANCELLED", "Cancelled campaign is terminal."));
+    }
     const result = await data.updateCampaign(storeId, id, {
       ...(b.name !== undefined ? { name: b.name } : {}),
       ...(b.status !== undefined ? { status: b.status } : {}),
@@ -409,6 +440,9 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
         utmSource: b.utmSource ?? null,
         utmMedium: b.utmMedium ?? null,
         utmCampaign: b.utmCampaign ?? null,
+        utmContent: b.utmContent ?? null,
+        utmTerm: b.utmTerm ?? null,
+        customLabel: b.customLabel ?? null,
       });
       if (result !== "TOKEN_COLLISION") break;
     }
@@ -451,15 +485,12 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     if (!access) return;
     const parsed = trackingLinkUpdateRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send(errorBody("INVALID_BODY", "Invalid tracking link."));
-    const b = parsed.data;
-    const result = await data.updateTrackingLink(storeId, id, {
-      ...(b.status !== undefined ? { status: b.status } : {}),
-      ...(b.utmSource !== undefined ? { utmSource: b.utmSource ?? null } : {}),
-      ...(b.utmMedium !== undefined ? { utmMedium: b.utmMedium ?? null } : {}),
-      ...(b.utmCampaign !== undefined ? { utmCampaign: b.utmCampaign ?? null } : {}),
-    });
-    if (!result) return reply.code(404).send(errorBody("NOT_FOUND", "Tracking link not found."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerTrackingLink", entityId: id });
+    // Yalnız yaşam döngüsü status geçişi (UTM immutable — ADR-175). REVOKED terminal.
+    const result = await data.updateTrackingLinkStatus(storeId, id, parsed.data.status, new Date());
+    if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Tracking link not found."));
+    if (result === "REVOKED_TERMINAL")
+      return reply.code(409).send(errorBody("TRACKING_LINK_REVOKED", "Revoked link is terminal and cannot change status."));
+    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerTrackingLink", entityId: id, metadata: { status: parsed.data.status } });
     return reply.send(trackingLinkDetailResponseSchema.parse({ data: toLinkSummary(result) }));
   });
 
@@ -493,8 +524,31 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
             netRevenueMinor: metrics.netRevenueMinor,
             averageOrderValueMinor: metrics.averageOrderValueMinor,
             currency: result.summary.currency,
+            revenues: result.summary.revenues.map((r) => ({
+              currency: r.currency,
+              attributedOrders: r.orders,
+              grossRevenueMinor: r.grossRevenueMinor,
+              refundedRevenueMinor: r.refundedRevenueMinor,
+              netRevenueMinor: r.netRevenueMinor,
+              averageOrderValueMinor: r.orders > 0 ? Math.round(r.grossRevenueMinor / r.orders) : 0,
+            })),
+            hasMultipleCurrencies: result.summary.hasMultipleCurrencies,
           },
-          daily: result.daily,
+          // Günlük seri zenginleştirilmiş şemaya (conversionRate + per-currency) uyarlanır.
+          // Legacy uç tek-currency özet (summary.currency) taşır; granüler uçlar per-currency.
+          daily: result.daily.map((d) => ({
+            date: d.date,
+            clicks: d.clicks,
+            uniqueVisitors: d.uniqueVisitors,
+            orders: d.orders,
+            conversionRate: d.uniqueVisitors > 0 ? d.orders / d.uniqueVisitors : 0,
+            grossRevenueMinor: d.grossRevenueMinor,
+            netRevenueMinor: d.netRevenueMinor,
+            revenues:
+              d.grossRevenueMinor > 0 || d.netRevenueMinor > 0
+                ? [{ currency: result.summary.currency, grossRevenueMinor: d.grossRevenueMinor, netRevenueMinor: d.netRevenueMinor }]
+                : [],
+          })),
           influencers: result.influencers,
           campaigns: result.campaigns,
           topLinks: result.topLinks.map((l) => ({
@@ -553,6 +607,118 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     reply.header("Content-Disposition", `attachment; filename="influencer-attribution.csv"`);
     return reply.send(lines.join("\r\n"));
   });
+
+  // ---- A. Influencer toplam dashboard (aggregate + kampanya satırları) ---
+  app.get("/stores/:storeId/influencers/:influencerId/analytics", async (request, reply) => {
+    const { storeId, influencerId } = request.params as { storeId: string; influencerId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const parsed = influencerAnalyticsQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send(errorBody("INVALID_QUERY", "Invalid query."));
+    // Hiyerarşi + tenant doğrulama: influencer bu mağazaya ait olmalı.
+    const influencer = await data.getInfluencer(storeId, influencerId);
+    if (!influencer) return reply.code(404).send(errorBody("NOT_FOUND", "Influencer not found."));
+    const range = await resolveAnalyticsRange(data, storeId, parsed.data);
+    const filters: AnalyticsFilters = { influencerId, dateFrom: range.fromUtc, dateTo: range.toUtcExclusive, timezone: range.timezone };
+    const result = await data.getAggregateAnalytics(storeId, influencerId, filters, range.dayStrings);
+    return reply.send(
+      influencerAggregateAnalyticsResponseSchema.parse({
+        data: {
+          summary: buildKpiSummary(result.totals),
+          totals: {
+            campaignCount: result.campaignCount,
+            activeCampaignCount: result.activeCampaignCount,
+            linkCount: result.linkCount,
+          },
+          campaigns: result.campaigns.map(serializeCampaignRow),
+          daily: serializeDaily(result.daily),
+        },
+      }),
+    );
+  });
+
+  // ---- B. Kampanya detay dashboard (link satırları + UTM + hedef + seri) --
+  app.get("/stores/:storeId/influencer-campaigns/:campaignId/analytics", async (request, reply) => {
+    const { storeId, campaignId } = request.params as { storeId: string; campaignId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const parsed = influencerAnalyticsQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send(errorBody("INVALID_QUERY", "Invalid query."));
+    const range = await resolveAnalyticsRange(data, storeId, parsed.data);
+    const filters: AnalyticsFilters = {
+      campaignId,
+      dateFrom: range.fromUtc,
+      dateTo: range.toUtcExclusive,
+      timezone: range.timezone,
+      // Yalnız günlük seriyi daraltan filtreler.
+      filterTrackingLinkId: parsed.data.trackingLinkId,
+      filterUtmSource: parsed.data.utmSource,
+      filterUtmMedium: parsed.data.utmMedium,
+      filterUtmCampaign: parsed.data.utmCampaign,
+    };
+    const result = await data.getCampaignAnalytics(storeId, campaignId, filters, range.dayStrings);
+    if (!result.campaign) return reply.code(404).send(errorBody("NOT_FOUND", "Campaign not found."));
+    const links = result.links.map(serializeLinkRow);
+    return reply.send(
+      campaignAnalyticsResponseSchema.parse({
+        data: {
+          campaign: {
+            campaignId: result.campaign.campaignId,
+            campaignName: result.campaign.campaignName,
+            influencerId: result.campaign.influencerId,
+            influencerName: result.campaign.influencerName,
+            status: result.campaign.status,
+            startsAt: result.campaign.startsAt ? result.campaign.startsAt.toISOString() : null,
+            endsAt: result.campaign.endsAt ? result.campaign.endsAt.toISOString() : null,
+            attributionWindowDays: result.campaign.attributionWindowDays,
+            linkCount: result.campaign.linkCount,
+          },
+          summary: buildKpiSummary(result.totals),
+          links,
+          daily: serializeDaily(result.daily),
+          utm: serializeUtm(result.utm),
+          // Target breakdown: her link bir hedef (targetPath) — attributionTopLink şekli.
+          targets: links
+            .map((l) => ({
+              trackingLinkId: l.trackingLinkId,
+              campaignName: l.campaignName,
+              influencerName: result.campaign!.influencerName,
+              targetPath: l.targetPath,
+              clicks: l.clicks,
+              orders: l.attributedOrders,
+              netRevenueMinor: l.netRevenueMinor,
+            }))
+            .sort((a, b) => b.netRevenueMinor - a.netRevenueMinor),
+          recentOrders: serializeRecentOrders(result.recentOrders),
+        },
+      }),
+    );
+  });
+
+  // ---- C. Link detay dashboard -----------------------------------------
+  app.get("/stores/:storeId/influencer-tracking-links/:linkId/analytics", async (request, reply) => {
+    const { storeId, linkId } = request.params as { storeId: string; linkId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const parsed = influencerAnalyticsQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send(errorBody("INVALID_QUERY", "Invalid query."));
+    const range = await resolveAnalyticsRange(data, storeId, parsed.data);
+    const filters: AnalyticsFilters = { trackingLinkId: linkId, dateFrom: range.fromUtc, dateTo: range.toUtcExclusive, timezone: range.timezone };
+    const result = await data.getLinkAnalytics(storeId, linkId, filters, range.dayStrings);
+    if (!result.link) return reply.code(404).send(errorBody("NOT_FOUND", "Tracking link not found."));
+    return reply.send(
+      linkAnalyticsResponseSchema.parse({
+        data: {
+          link: serializeLinkRow(result.link),
+          summary: buildKpiSummary(result.totals),
+          daily: serializeDaily(result.daily),
+          recentOrders: serializeRecentOrders(result.recentOrders),
+          lastClickAt: result.lastClickAt ? result.lastClickAt.toISOString() : null,
+          lastConversionAt: result.lastConversionAt ? result.lastConversionAt.toISOString() : null,
+        },
+      }),
+    );
+  });
 }
 
 function toAnalyticsFilters(q: {
@@ -571,6 +737,26 @@ function toAnalyticsFilters(q: {
     campaignId: q.campaignId,
     trackingLinkId: q.trackingLinkId,
   };
+}
+
+/**
+ * Bounded, tz-aware analytics aralığı çözer (ADR-178). Store timezone StoreSettings'ten;
+ * varsayılan 30 gün, üst sınır ANALYTICS_MAX_RANGE_DAYS. Günlük seri zero-fill için dayStrings.
+ */
+async function resolveAnalyticsRange(
+  data: InfluencerData,
+  storeId: string,
+  q: { dateFrom?: string; dateTo?: string },
+) {
+  const timezone = await data.getStoreTimezone(storeId);
+  return resolveRange({
+    dateFrom: q.dateFrom,
+    dateTo: q.dateTo,
+    timezone,
+    defaultDays: ANALYTICS_DEFAULT_RANGE_DAYS,
+    maxDays: ANALYTICS_MAX_RANGE_DAYS,
+    nowMs: Date.now(),
+  });
 }
 
 function expandDateTo(value: string | undefined): Date | undefined {
@@ -621,24 +807,41 @@ export function registerPublicTrackingRoutes(app: FastifyInstance, deps: PublicT
     );
     if (!resolved) return reply.code(404).send(errorBody("NOT_FOUND", "Invalid link."));
 
-    const { link, campaign, influencer } = resolved;
+    const { link, campaign, influencer, storeActive, targetAvailable } = resolved;
     const nowMs = now();
-    const targetPath = resolveSafeTargetPath({ targetType: link.targetType, targetPath: link.targetPath });
 
-    // Aktiflik + pencere: link/kampanya/influencer ACTIVE + kampanya tarih aralığı.
-    const active =
-      link.status === "ACTIVE" &&
-      campaign.status === "ACTIVE" &&
-      influencer.status === "ACTIVE" &&
-      (!campaign.startsAt || campaign.startsAt.getTime() <= nowMs) &&
-      (!campaign.endsAt || campaign.endsAt.getTime() >= nowMs);
+    // Redirect erişim kuralı (ADR-171): store + influencer + campaign + link + tarih
+    // penceresi + target aktifliği. SUNUCU-otoriter, tek işlemde okunmuş status'lar.
+    const eligibility = evaluateRedirectEligibility({
+      storeActive,
+      influencerActive: influencer.status === "ACTIVE",
+      campaignStatus: normalizeCampaignStatus(campaign.status),
+      linkStatus: normalizeLinkStatus(link.status),
+      startsAtMs: campaign.startsAt ? campaign.startsAt.getTime() : null,
+      endsAtMs: campaign.endsAt ? campaign.endsAt.getTime() : null,
+      targetAvailable,
+      nowMs,
+    });
 
-    if (!active) {
-      // Redirect-only: kullanıcı hedefe gider ama attribution YOK (grant null).
+    if (!eligibility.allowed) {
+      // Terminal: hedef ürün/sayfa SIZDIRILMAZ (targetPath null). Click/session/cookie/
+      // visitor YAZILMAZ; pencere BAŞLATILMAZ. Storefront markalı terminal sayfaya gider.
+      const reason = eligibility.reason ?? "CAMPAIGN_NOT_ACTIVE";
       return reply.send(
-        trackClickResponseSchema.parse({ data: { grant: null, targetPath, cookieMaxAgeSeconds: cookieTtlSeconds } }),
+        trackClickResponseSchema.parse({
+          data: {
+            available: false,
+            grant: null,
+            targetPath: null,
+            reason,
+            bucket: terminalReasonBucket(reason),
+            cookieMaxAgeSeconds: cookieTtlSeconds,
+          },
+        }),
       );
     }
+
+    const targetPath = resolveSafeTargetPath({ targetType: link.targetType, targetPath: link.targetPath });
 
     // KVKK: yalnız tuzlu hash + referrer host (ham IP/UA saklanmaz).
     const userAgent = headerValue(request, "user-agent");
@@ -694,7 +897,14 @@ export function registerPublicTrackingRoutes(app: FastifyInstance, deps: PublicT
     const windowSeconds = Math.min(cookieTtlSeconds, Math.ceil((expiresAt - clickedAt) / 1000));
     return reply.send(
       trackClickResponseSchema.parse({
-        data: { grant, targetPath, cookieMaxAgeSeconds: Math.max(60, windowSeconds) },
+        data: {
+          available: true,
+          grant,
+          targetPath,
+          reason: null,
+          bucket: null,
+          cookieMaxAgeSeconds: Math.max(60, windowSeconds),
+        },
       }),
     );
   });
