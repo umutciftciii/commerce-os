@@ -704,8 +704,10 @@
   Backup manuel/tek-host/zamanlanmamış/offsite-siz. → [[TD-034]], [[TD-135]].
 - **HIGH (launch öncesi):** (H-1) ✅ **ÇÖZÜLDÜ (2026-07-28, ADR-180, [[TD-134]] CLOSED).** Typed theme token
   registry + save-time + render-time savunma + güvenli serializer; canlı smoke (vuln→fix) PASS. Kalan: storefront
-  CSP ([[TD-147]], MEDIUM, derinlemesine savunma). (H-2) Sponsorship REVENUE_SHARE currency guard yok → toplam bozulması
-  ([[TD-133]]). (H-3) Rezervasyon expiry + orphan DRAFT temizliği yok → stok kilitlenmesi ([[TD-136]]). (H-4)
+  CSP ([[TD-147]], MEDIUM, derinlemesine savunma). (H-2) ✅ **ÇÖZÜLDÜ (2026-07-28, ADR-181…186, [[TD-133]] CLOSED).**
+  Revenue-share tek-currency invariant + karışık-para fail-closed (`REVENUE_CURRENCY_MISMATCH`); currency-aware dashboard
+  + audit + store-admin uyarı; canlı smoke 21/21 PASS. FX dönüşümü kapsam dışı ([[TD-148]] FUTURE). (H-3) Rezervasyon
+  expiry + orphan DRAFT temizliği yok → stok kilitlenmesi ([[TD-136]]). (H-4)
   Ödeme/checkout/Sponsored funnel deploy + auth'lu smoke kanıtı yok (TD-122).
 - **MEDIUM:** dağıtık rate-limit (TD-015), dev seed env guard, migrate-on-release gate, worker dağıtık kilit,
   search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı disabled buton, admin-web
@@ -828,3 +830,29 @@
 - **Gate'ler.** theme 147 test + build 0 · gateway 1675 test (+6 XSS integration) + build 0 · store-admin 356 + next build ·
   storefront 439 · i18n 47 · lint 0 hata · `git diff --check` temiz.
 - **Kalan.** Storefront CSP ([[TD-147]], MEDIUM — derinlemesine savunma; H-1 için gerekli değil).
+## H-2 — Revenue Share Currency Guard (2026-07-28, ADR-181…186, TD-133 CLOSED)
+
+- **Durum:** kod + test + veri taraması + canlı smoke + docs TAMAM · **commit'e hazır** (git: commit/push/PR/merge/deploy YOK).
+- **Kök neden.** İki gizli currency-mixing: (1) `collectBillableMetrics` dönemin `OrderSponsoredAttribution` gelirlerini
+  satır `currency`'sini yoksayarak `_sum` ile topluyor → karışık-para tek `netRevenueMinor` → REVENUE_SHARE bozuk tahakkuk;
+  (2) `getDashboard` net geliri currency olmadan gruplayıp mağaza-currency net'i anlaşma-currency kovasına ekliyor.
+  `isSameCurrency` payment/advance yollarında vardı ama **revenue→settlement yolunda YOKTU**. Bkz.
+  `docs/analysis/H-2-revenue-share-currency-guard.md`.
+- **Çözüm.** SAF `partitionRevenueCurrencies` (billing-core; para toplamaz, KİMLİK karşılaştırır); `collectBillableMetrics
+  (expectedCurrency)` gelir toplamlarını agreement currency'ye filtreler (snapshot tek-para); `previewSettlement`/
+  `finalizeSettlement`/`createChargeFromSettlement`/`createRefundAdjustment` **fail-closed** (`AGREEMENT_CURRENCY_REQUIRED`/
+  `REVENUE_CURRENCY_MISMATCH`/`SETTLEMENT_CURRENCY_MISMATCH`); karışık-para SESSİZCE dışlanmaz (kısmi settlement yok);
+  currency-aware dashboard + `currencyMismatch` operations özeti; scheduler adapter fail-closed köprüsü; mismatch AuditLog
+  (SYSTEM, PII-free, bounded orderId örneği); store-admin kontrollü uyarı kartı (beklenen/bulunan currency + uyuşmayan
+  sayı) + buton disable + TR/EN. FX dönüşümü kapsam dışı (ADR-186, [[TD-148]] FUTURE CAPABILITY).
+- **Currency otoritesi.** Server-side `SponsorshipAgreement.currency` (ISO 4217); settlement/charge türetir; istemci
+  `input.currency` yalnız karşılaştırma. Attribution currency = sipariş currency → guard zorunlu.
+- **Canlı smoke (enterprise-demo, izole fixture).** 21/21 PASS: TRY happy-path (preview net 150000 → %10 charge 15000 →
+  finalize → payment) · karışık-para (TRY+USD) → `REVENUE_CURRENCY_MISMATCH`, draft OLUŞMADI, audit yazıldı (PII-free),
+  TRY+USD tek toplamda BİRLEŞMEDİ · finalize recheck (draft sonrası USD sızıntısı → fail-closed, DRAFT kaldı) · USD
+  payment TRY charge reddi · USD advance reddi · cross-store `AGREEMENT_NOT_FOUND` · boş currency `AGREEMENT_CURRENCY_REQUIRED`
+  · fixture temizlendi (0 kalıntı). Salt-okuma tarama baseline temiz (`db:scan-sponsorship-currency`).
+- **Gate'ler.** api-gateway build 0 + 1697 test (12 currency-guard + 6 route + 3 persistence + 1 scheduler yeni) · contracts
+  build 0 · store-admin tsc 0 · lint 0 hata · `git diff --check` temiz. Migration GEREKMEDİ (currency alanları mevcut).
+- **Kalan.** FX çok-para settlement ([[TD-148]] FUTURE CAPABILITY — teknik borç değil, bilinçli fail-closed sınır).
+- **Sıra:** commit'e hazır → **Final Enterprise UI/Design Polish** (kullanıcı başlatınca).

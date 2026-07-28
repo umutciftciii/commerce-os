@@ -72,6 +72,8 @@ interface DoubleConfig {
   existing?: FakeSettlement[];
   /** Bu agreementId için createDraftSettlement fırlatır (hata izolasyonu testi). */
   throwOnAgreementId?: string;
+  /** Bu agreementId için createDraftSettlement currency-mismatch koduyla fail-closed olur (H-2). */
+  mismatchOnAgreementId?: string;
 }
 
 function createDouble(cfg: DoubleConfig) {
@@ -92,6 +94,8 @@ function createDouble(cfg: DoubleConfig) {
     },
     async createDraftSettlement(_storeId, agreementId, input): Promise<CreateDraftOutcome> {
       if (cfg.throwOnAgreementId === agreementId) throw new Error("boom");
+      // H-2: karışık-para → draft ÜRETİLMEZ, kod QueueJobLog'a (fail-closed).
+      if (cfg.mismatchOnAgreementId === agreementId) return { ok: false, code: "REVENUE_CURRENCY_MISMATCH" };
       seq += 1;
       const id = `st_${seq}`;
       settlements.push({
@@ -229,6 +233,23 @@ describe("settlement scheduler service", () => {
     expect(summary.createdDrafts).toBe(1);
     expect(summary.erroredAgreements).toBe(1);
     expect(summary.perStore[0].errors[0].agreementId).toBe("ag_bad");
+  });
+
+  it("H-2: karışık-para anlaşma otomatik settlement üretmez (fail-closed, izole)", async () => {
+    const { svc, settlements } = service(
+      {
+        stores: [{ storeId: "store_a", timeZone: IST }],
+        agreements: { store_a: [weeklyAgreement("ag_ok"), weeklyAgreement("ag_mix")] },
+        mismatchOnAgreementId: "ag_mix",
+      },
+      jobLog.client,
+    );
+    const summary = await svc.runOnce({ now: NOW });
+    // Temiz anlaşma üretilir; karışık-para olan HATA olarak izole edilir, DRAFT açılmaz.
+    expect(summary.createdDrafts).toBe(1);
+    expect(summary.erroredAgreements).toBe(1);
+    expect(summary.perStore[0].errors[0].code).toBe("REVENUE_CURRENCY_MISMATCH");
+    expect(settlements.map((s) => s.agreementId)).toEqual(["ag_ok"]);
   });
 
   it("dry-run: hiçbir settlement üretilmez, aday sayılır", async () => {

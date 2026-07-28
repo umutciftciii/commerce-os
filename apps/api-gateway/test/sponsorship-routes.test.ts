@@ -241,6 +241,14 @@ function createDouble(overrides: Partial<SponsorshipData> = {}): SponsorshipData
       activeAgreements: 0,
       totalAgreements: 0,
       overdueChargeCount: 0,
+      currencyMismatch: {
+        mismatchedAttributionCount: 0,
+        affectedCampaignCount: 0,
+        affectedAgreementIds: [],
+        mismatchedSettlementCount: 0,
+        foundForeignCurrencies: [],
+        lastDetectedAt: null,
+      },
       currencies: [],
       bySponsor: [],
       byAgreement: [],
@@ -373,6 +381,103 @@ describe("sponsorship routes — validation & error mapping", () => {
     const res = await app.inject({ method: "POST", url: `/stores/${STORE_A}/sponsorship-payments/pay_1/reverse`, headers: auth(STORE_A), payload: {} });
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe("NOT_REVERSIBLE");
+  });
+});
+
+// ── H-2 / ADR-181…185 — Revenue-share currency guard (fail-closed HTTP eşlemesi) ──
+describe("sponsorship routes — H-2 currency guard", () => {
+  const mismatch = {
+    currencyMismatch: true as const,
+    code: "REVENUE_CURRENCY_MISMATCH" as const,
+    expectedCurrency: "TRY",
+    foundCurrencies: ["TRY", "USD"],
+    mismatchedOrderCount: 3,
+  };
+
+  it("preview — karışık-para → 409 REVENUE_CURRENCY_MISMATCH + güvenli özet detay", async () => {
+    const app = buildApp(createDouble({ previewSettlement: async () => mismatch }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/settlements/preview`,
+      headers: auth(STORE_A),
+      payload: { periodStart: "2026-07-01T00:00:00Z", periodEnd: "2026-07-31T00:00:00Z" },
+    });
+    expect(res.statusCode).toBe(409);
+    const body = res.json().error;
+    expect(body.code).toBe("REVENUE_CURRENCY_MISMATCH");
+    expect(body.details.expectedCurrency).toBe("TRY");
+    expect(body.details.mismatchedOrderCount).toBe(3);
+    expect(body.details.foundCurrencies).toEqual(["TRY", "USD"]);
+    // Ham finansal payload/PII sızmaz.
+    expect(JSON.stringify(body)).not.toMatch(/netRevenueMinor|orderId|customer/i);
+  });
+
+  it("preview — agreement currency eksik → 409 AGREEMENT_CURRENCY_REQUIRED", async () => {
+    const app = buildApp(createDouble({ previewSettlement: async () => "AGREEMENT_CURRENCY_REQUIRED" }));
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${STORE_A}/sponsorship-agreements/ag_1/settlements/preview`,
+      headers: auth(STORE_A),
+      payload: { periodStart: "2026-07-01T00:00:00Z", periodEnd: "2026-07-31T00:00:00Z" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("AGREEMENT_CURRENCY_REQUIRED");
+  });
+
+  it("finalize — karışık-para → 409 REVENUE_CURRENCY_MISMATCH", async () => {
+    const app = buildApp(createDouble({ finalizeSettlement: async () => mismatch }));
+    const res = await app.inject({ method: "POST", url: `/stores/${STORE_A}/sponsorship-settlements/st_1/finalize`, headers: auth(STORE_A) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("REVENUE_CURRENCY_MISMATCH");
+    expect(res.json().error.details.mismatchedOrderCount).toBe(3);
+  });
+
+  it("finalize — settlement/agreement currency uyuşmaz → 409 SETTLEMENT_CURRENCY_MISMATCH", async () => {
+    const app = buildApp(createDouble({ finalizeSettlement: async () => "SETTLEMENT_CURRENCY_MISMATCH" }));
+    const res = await app.inject({ method: "POST", url: `/stores/${STORE_A}/sponsorship-settlements/st_1/finalize`, headers: auth(STORE_A) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("SETTLEMENT_CURRENCY_MISMATCH");
+  });
+
+  it("charge — settlement currency uyuşmaz → 409 SETTLEMENT_CURRENCY_MISMATCH", async () => {
+    const app = buildApp(createDouble({ createChargeFromSettlement: async () => "SETTLEMENT_CURRENCY_MISMATCH" }));
+    const res = await app.inject({ method: "POST", url: `/stores/${STORE_A}/sponsorship-settlements/st_1/charge`, headers: auth(STORE_A), payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("SETTLEMENT_CURRENCY_MISMATCH");
+  });
+
+  it("dashboard — currencyMismatch özeti response'ta taşınır (operations görünürlüğü)", async () => {
+    const app = buildApp(
+      createDouble({
+        getDashboard: async () => ({
+          activeSponsors: 1,
+          totalSponsors: 1,
+          activeAgreements: 1,
+          totalAgreements: 1,
+          overdueChargeCount: 0,
+          currencyMismatch: {
+            mismatchedAttributionCount: 4,
+            affectedCampaignCount: 2,
+            affectedAgreementIds: ["ag_1"],
+            mismatchedSettlementCount: 1,
+            foundForeignCurrencies: ["USD"],
+            lastDetectedAt: new Date("2026-07-28T10:00:00Z"),
+          },
+          currencies: [],
+          bySponsor: [],
+          byAgreement: [],
+          byCampaign: [],
+          byPricingModel: [],
+          byDueStatus: [],
+        }),
+      } as unknown as Partial<SponsorshipData>),
+    );
+    const res = await app.inject({ method: "GET", url: `/stores/${STORE_A}/sponsorship-dashboard`, headers: auth(STORE_A) });
+    expect(res.statusCode).toBe(200);
+    const cm = res.json().data.currencyMismatch;
+    expect(cm.mismatchedAttributionCount).toBe(4);
+    expect(cm.foundForeignCurrencies).toEqual(["USD"]);
+    expect(cm.lastDetectedAt).toBe("2026-07-28T10:00:00.000Z"); // Date → ISO string
   });
 });
 

@@ -120,6 +120,10 @@ export const SPONSORSHIP_ERROR_LABELS: Record<string, string> = {
   BALANCE_CHANGED: "Bu kayıt siz görüntülerken değişti. Sayfayı yenileyip tekrar deneyin.",
   PAYMENT_NOT_FOUND: "Ödeme kaydı bulunamadı.",
   CAMPAIGN_NOT_LINKED: "Kampanya bu anlaşmaya bağlı değil.",
+  // H-2 (ADR-181…185) — revenue-share currency guard kodları (kullanıcı-dostu TR mesajlar).
+  AGREEMENT_CURRENCY_REQUIRED: "Anlaşmanın para birimi eksik veya geçersiz; mutabakat üretilemez.",
+  SETTLEMENT_CURRENCY_MISMATCH: "Mutabakatın para birimi anlaşmanın para birimiyle eşleşmiyor.",
+  REVENUE_CURRENCY_MISMATCH: "Bu dönemde birden fazla para biriminde gelir var; farklı para birimleri tek toplamda birleştirilemez.",
 };
 
 export function sponsorshipError(code: string): string | null {

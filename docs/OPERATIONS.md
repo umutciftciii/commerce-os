@@ -1069,3 +1069,40 @@ düzeltip yeniden yayınlayın (publish geçersizken bloklanır). Script DB'yi *
 
 **Kalan:** Storefront CSP yok (inline `<style>`/`<script>` nonce/hash) → **TD-147** (MEDIUM, derinlemesine savunma;
 H-1 için gerekli değil).
+## Sponsorship Revenue-Share Currency Guard (H-2 / ADR-181…186, TD-133 CLOSED)
+
+Sponsorship finansal kayıtlarında **farklı para birimleri tek toplamda birleştirilemez** (ADR-181). Gelir toplamları
+YALNIZ agreement currency ile eşleşen `OrderSponsoredAttribution` satırlarından alınır → settlement/charge revenue
+rakamları her zaman **tek para birimi**. Karışık-para dönem → **fail-closed** (draft/finalize/charge engellenir).
+
+**Fail-closed hata kodları (409):**
+- `AGREEMENT_CURRENCY_REQUIRED` — anlaşma currency'si eksik/geçersiz (ISO 4217 değil).
+- `REVENUE_CURRENCY_MISMATCH` — dönemde birden fazla currency'de attribution var (güvenli özet: `expectedCurrency`,
+  `foundCurrencies`, `mismatchedOrderCount` → `error.details`; ham finansal veri/PII YOK).
+- `SETTLEMENT_CURRENCY_MISMATCH` — settlement.currency ≠ agreement.currency (finalize/charge recheck).
+
+**Görünürlük.** Her mismatch tespiti `AuditLog` (action=SYSTEM, entityType=SponsorshipSettlement) satırı üretir:
+`reason=REVENUE_CURRENCY_MISMATCH` + expected/found currency + uyuşmayan sayı + dönem + BOUNDED (max 20) orderId örneği
+(PII yok). Store-admin **sponsorship dashboard** `currencyMismatch` özeti: uyuşmayan attribution/kampanya/settlement
+sayısı + yabancı currency listesi + son tespit zamanı → operatör eksik/uyuşmayan finansal kapsamı görür. Anlaşma
+detayında preview/finalize sırasında kontrollü uyarı kartı (beklenen/bulunan currency + uyuşmayan kayıt sayısı); üret/
+kesinleştir butonu engellenir; teknik kod yerine TR/EN mesaj.
+
+**Zamanlanmış settlement scheduler** karışık-para anlaşmayı fail-closed geçer (DRAFT üretmez; anlaşma-başına izole hata
+QueueJobLog'a `REVENUE_CURRENCY_MISMATCH` olarak). Weekly/monthly/campaign-end job ve advisory-lock akışı değişmez.
+
+**Salt-okuma denetim (periyodik önerilir):**
+
+```
+# Tüm store'lar
+pnpm --filter @commerce-os/db db:scan-sponsorship-currency
+# Tek store + tam JSON
+node packages/db/scripts/security/scan-sponsorship-currency.mjs --store=<storeId> --json
+```
+
+Kontroller: agreement currency eksik · order/attribution↔agreement · multi-currency campaign · settlement↔agreement ·
+charge↔agreement · payment↔charge · allocation↔charge. Çıktı yalnız sayılar + entity ID'leri + currency kodları
+(müşteri/kişisel/tam ödeme verisi YOK); bulgu varsa exit 1. Script DB'yi **değiştirmez**.
+
+**FX (kur dönüşümü) KAPSAM DIŞI (ADR-186).** Guard birleştirmeyi **reddeder**, dönüşüm yapmaz. Gerçek çok-para settlement
+ihtiyacı doğarsa ayrı bir FX conversion engine yeteneğidir → **TD-148** (FUTURE CAPABILITY, teknik borç değil).

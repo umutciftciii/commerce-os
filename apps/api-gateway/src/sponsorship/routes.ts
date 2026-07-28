@@ -67,7 +67,25 @@ import type {
   SponsorshipData,
   SponsorshipListPage,
 } from "./data.js";
+import { isSettlementCurrencyMismatch } from "./data.js";
 import { resolveChargeDisplayStatus } from "./billing-core.js";
+
+/**
+ * H-2 — currency-mismatch OBJESİNİ 409 + güvenli özet gövdeye çevirir (ham finansal veri/PII YOK).
+ * UI "Beklenen para birimi: X · Uyuşmayan kayıt sayısı: N" gösterir.
+ */
+function currencyMismatchReply(reply: FastifyReply, mismatch: { expectedCurrency: string; foundCurrencies: string[]; mismatchedOrderCount: number }) {
+  return reply.code(409).send(
+    // Güvenli özet `details` altında (istemci `error.details.*` okur) — ham finansal veri/PII YOK.
+    errorBody("REVENUE_CURRENCY_MISMATCH", "Settlement period contains revenue in more than one currency.", {
+      details: {
+        expectedCurrency: mismatch.expectedCurrency,
+        foundCurrencies: mismatch.foundCurrencies,
+        mismatchedOrderCount: mismatch.mismatchedOrderCount,
+      },
+    }),
+  );
+}
 
 type AuditFn = (input: {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
@@ -377,6 +395,10 @@ const SETTLEMENT_ERROR_STATUS: Record<string, { code: number; message: string }>
   INVALID_PERIOD: { code: 400, message: "periodEnd must be after periodStart." },
   PERIOD_ALREADY_FINALIZED: { code: 409, message: "This period is already finalized and immutable." },
   CURRENCY_MISMATCH: { code: 400, message: "Currency mismatch." },
+  // H-2 / ADR-182..184 — currency guard fail-closed kodları.
+  AGREEMENT_CURRENCY_REQUIRED: { code: 409, message: "Agreement currency is missing or invalid; settlement cannot be produced." },
+  SETTLEMENT_CURRENCY_MISMATCH: { code: 409, message: "Settlement currency does not match the agreement currency." },
+  REVENUE_CURRENCY_MISMATCH: { code: 409, message: "Settlement period contains revenue in more than one currency." },
 };
 const CHARGE_ERROR_STATUS: Record<string, { code: number; message: string }> = {
   SETTLEMENT_NOT_FOUND: { code: 404, message: "Settlement not found." },
@@ -384,6 +406,7 @@ const CHARGE_ERROR_STATUS: Record<string, { code: number; message: string }> = {
   CHARGE_ALREADY_EXISTS: { code: 409, message: "A charge already exists for this settlement." },
   CHARGE_NOT_FOUND: { code: 404, message: "Charge not found." },
   INVALID_STATUS: { code: 409, message: "Charge is not in a valid state for this action." },
+  SETTLEMENT_CURRENCY_MISMATCH: { code: 409, message: "Settlement currency does not match the agreement currency." },
 };
 const PAYMENT_ERROR_STATUS: Record<string, { code: number; message: string }> = {
   CHARGE_NOT_FOUND: { code: 404, message: "Charge not found." },
@@ -625,6 +648,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       { periodStart: new Date(b.periodStart), periodEnd: new Date(b.periodEnd), periodKind: b.periodKind ?? "MANUAL" },
       new Date(),
     );
+    if (isSettlementCurrencyMismatch(result)) return currencyMismatchReply(reply, result);
     if (typeof result === "string") {
       const e = SETTLEMENT_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
@@ -664,7 +688,13 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
     if (!access) return;
     const result = await data.finalizeSettlement(storeId, id, new Date());
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Settlement not found."));
+    if (isSettlementCurrencyMismatch(result)) return currencyMismatchReply(reply, result);
     if (result === "ALREADY_FINALIZED") return reply.code(409).send(errorBody("ALREADY_FINALIZED", "Settlement is already finalized."));
+    if (typeof result === "string") {
+      // H-2 — AGREEMENT_CURRENCY_REQUIRED / SETTLEMENT_CURRENCY_MISMATCH.
+      const e = SETTLEMENT_ERROR_STATUS[result] ?? { code: 409, message: "Settlement cannot be finalized." };
+      return reply.code(e.code).send(errorBody(result, e.message));
+    }
     await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipSettlement", entityId: id, metadata: { finalized: true } });
     return reply.send(sponsorshipSettlementDetailResponseSchema.parse({ data: serializeSettlement(result) }));
   });
@@ -1074,6 +1104,14 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       { dateFrom: parseDay(q.dateFrom), dateTo: expandDateTo(q.dateTo), sponsorAccountId: q.sponsorAccountId, agreementId: q.agreementId },
       new Date(),
     );
-    return reply.send(sponsorshipDashboardResponseSchema.parse({ data: result }));
+    // H-2 — `lastDetectedAt` (Date) → ISO string (contract serialize).
+    const payload = {
+      ...result,
+      currencyMismatch: {
+        ...result.currencyMismatch,
+        lastDetectedAt: result.currencyMismatch.lastDetectedAt?.toISOString() ?? null,
+      },
+    };
+    return reply.send(sponsorshipDashboardResponseSchema.parse({ data: payload }));
   });
 }

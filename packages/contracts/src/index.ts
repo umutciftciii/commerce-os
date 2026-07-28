@@ -9449,6 +9449,19 @@ export const sponsorshipDashboardQuerySchema = z.object({
   agreementId: z.string().optional(),
 });
 
+/**
+ * H-2 / ADR-185 — currency mismatch görünürlüğü (operations). Karışık-para gelir SESSİZCE
+ * birleştirilmez; bu sayaçlar uyuşmayan/eksik finansal kapsamı operatöre gösterir.
+ */
+export const sponsorshipCurrencyMismatchSummarySchema = z.object({
+  mismatchedAttributionCount: z.number().int().nonnegative(),
+  affectedCampaignCount: z.number().int().nonnegative(),
+  affectedAgreementIds: z.array(z.string()),
+  mismatchedSettlementCount: z.number().int().nonnegative(),
+  foundForeignCurrencies: z.array(z.string()),
+  lastDetectedAt: z.string().nullable(),
+});
+
 export const sponsorshipDashboardResponseSchema = z.object({
   data: z.object({
     activeSponsors: z.number().int().nonnegative(),
@@ -9456,6 +9469,7 @@ export const sponsorshipDashboardResponseSchema = z.object({
     activeAgreements: z.number().int().nonnegative(),
     totalAgreements: z.number().int().nonnegative(),
     overdueChargeCount: z.number().int().nonnegative(),
+    currencyMismatch: sponsorshipCurrencyMismatchSummarySchema,
     /** Her para birimi AYRI satırdır; tek toplam altında BİRLEŞTİRİLMEZ. */
     currencies: z.array(sponsorshipCurrencyKpiSchema),
     bySponsor: z.array(sponsorshipDashboardBreakdownRowSchema),

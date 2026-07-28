@@ -4819,3 +4819,55 @@ tema `globals.css` ile birebir parite (allowlist `DEFAULT_TYPOGRAPHY`/`DEFAULT_S
 çözümü DEĞİL (token validation yeterli) — derinlemesine savunma **TD-147**'ye ertelendi. Legacy tarama: salt-okuma
 `packages/db/scripts/security/scan-theme-tokens.mjs`. **Canlı smoke (enterprise-demo):** vuln doğrulandı (endpoint + storefront
 HTML 8× breakout) → fix payload'ı düşürdü (endpoint + HTML temiz, `--paper` sağlam). Testler: 147 theme + 6 gateway integration.
+
+## ADR-181 — Revenue-share tek-currency invariant + fail-closed karışık-para tespiti (H-2)
+
+**Bağlam.** `collectBillableMetrics` dönemin `OrderSponsoredAttribution` gelirlerini (`grossRevenueMinor/
+refundedRevenueMinor/netRevenueMinor`) satır `currency`'sini yoksayarak `_sum` ile topluyordu; `getDashboard`
+kampanya net gelirini currency olmadan gruplayıp mağaza-currency net'i anlaşma-currency kovasına ekliyordu. Karışık
+para birimli siparişler (TRY + USD) tek `netRevenueMinor`'a sessizce birleşiyor, REVENUE_SHARE tahakkuku bozuk toplam
+üretiyordu (finansal doğruluk açığı — [[TD-133]]). Bkz. `docs/analysis/H-2-revenue-share-currency-guard.md`.
+
+**Karar.** Gelir toplamları **YALNIZ** beklenen (agreement) currency ile eşleşen attribution satırlarından alınır →
+snapshot revenue rakamları her zaman **tek para birimi**. Dönemde beklenen dışında currency'li attribution varsa işlem
+**fail-closed** olur (draft oluşturulmaz/güncellenmez). SAF çekirdek `partitionRevenueCurrencies` (billing-core) para
+TOPLAMAZ — yalnız currency KİMLİĞİ karşılaştırır (`normalizeCurrency` trim+upper; FX/kur dönüşümü YOK). Karışık-para
+kayıtlar **sessizce dışlanmaz** (kısmi settlement yasak — operatör eksik finansal kapsam görmez); tespit çağırana
+`SettlementCurrencyMismatch` OBJESİ olarak taşınır.
+
+## ADR-182 — Agreement currency = tek otorite; eksikse settlement üretilmez
+
+**Karar.** Currency otoritesi server-side `SponsorshipAgreement.currency`'dir. `isUsableAgreementCurrency` (ISO 4217,
+3 harf) geçmezse `AGREEMENT_CURRENCY_REQUIRED` → finansal belge üretilmez. Settlement/charge currency agreement'tan
+TÜRETİLİR (istemci `input.currency` yalnız payment/advance'te KARŞILAŞTIRMA amaçlı; otorite değil). Order attribution
+currency sipariş para birimindedir ve agreement currency'den bağımsız set edilir → guard bu yüzden zorunludur.
+
+## ADR-183 — Settlement draft + zamanlanmış üretim fail-closed köprüsü
+
+**Karar.** `previewSettlement` karışık-para tespitinde `SettlementCurrencyMismatch` döner; route 409
+`REVENUE_CURRENCY_MISMATCH` + güvenli özet (`expectedCurrency`/`foundCurrencies`/`mismatchedOrderCount`, `error.details`
+altında; ham finansal veri/PII YOK). Zamanlanmış settlement scheduler'ın persistence adapter'ı bu objeyi
+`{ ok:false, code:"REVENUE_CURRENCY_MISMATCH" }`'e çevirir → otomatik tur DRAFT AÇMAZ, anlaşma-başına izole hata
+QueueJobLog'a yazılır (weekly/monthly/campaign-end job güvenli kalır; advisory-lock akışı değişmez).
+
+## ADR-184 — Finalize/charge/refund yeniden-doğrulama + immutability
+
+**Karar.** `finalizeSettlement` FINALIZE öncesi currency'yi YENİDEN doğrular: agreement currency kullanılabilir olmalı,
+`settlement.currency == agreement.currency` (aksi `SETTLEMENT_CURRENCY_MISMATCH`), ve dönemde yabancı-currency attribution
+OLMAMALI (aksi `REVENUE_CURRENCY_MISMATCH`) — draft oluştuktan sonra veri değişmişse fail-closed. `createChargeFromSettlement`
+ve `createRefundAdjustment` aynı `settlement.currency == agreement.currency` guard'ını uygular. FINALIZED settlement immutable
+kalır (guard yalnız geçiş anında; kesinleşmiş belge sonradan başka currency'ye çevrilmez).
+
+## ADR-185 — Currency mismatch gözlemlenebilirliği (audit + operations)
+
+**Karar.** Her mismatch tespiti (route + scheduler bağımsız) server-side `AuditLog` (SYSTEM) satırı üretir: `reason`,
+`expectedCurrency`, `foundCurrencies`, `mismatchedOrderCount`, dönem + BOUNDED (max 20) uyuşmayan `orderId` örneği (PII/tam
+ödeme verisi YOK). Sponsorship dashboard `currencyMismatch` özeti taşır: uyuşmayan attribution/kampanya/settlement sayısı +
+yabancı currency listesi + son tespit zamanı (SYSTEM audit'ten). Store-admin: anlaşma detayında kontrollü uyarı kartı
+(beklenen/bulunan currency + uyuşmayan kayıt sayısı) + settlement üret/kesinleştir engellenir; teknik kod yerine TR/EN mesaj.
+
+## ADR-186 — FX conversion KAPSAM DIŞI (FUTURE CAPABILITY, teknik borç değil)
+
+**Karar.** Bu faz kur dönüşümü / primary-currency fallback / çok-para toplama KURMAZ. Farklı currency'ler tek hesapta
+birleşemez — dönüşüm değil, **reddetme** politikası. Gerçek çok-para settlement ihtiyacı doğarsa bu ayrı bir FX conversion
+engine yeteneğidir (FUTURE CAPABILITY, [[TD-148]]); mevcut guard bir eksiklik/borç DEĞİL, bilinçli fail-closed sınırdır.
