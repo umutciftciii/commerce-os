@@ -1165,10 +1165,18 @@ DEĞİL, orijinal kapsamın devamı).
 
 ## TD-122 — Sponsored: canlı UI/e2e smoke (auth'lu store-admin) (TODO-161)
 
-**Durum:** Ertelendi. Gate'ler (build/typecheck/lint/test) + gateway entegrasyon testleri PASS; ancak
-auth'lu store-admin UI akışı (kampanya oluştur → home/search'te doğrula → impression/click/order/refund)
-Docker canlı stack üzerinde uçtan uca smoke edilmedi (store-admin parola gerektirir). Deploy öncesi
-enterprise-demo üzerinde manuel doğrulama önerilir (bkz. analiz §14).
+**Durum:** **CLOSED (2026-07-29, H-4).** Sponsored funnel'ın para/güvenlik özü — agreement-gated activation
+(`409 AGREEMENT_NOT_ACTIVE`), settlement/charge/payment (avans/mahsup/tahsilat/overpayment, unique-dönem +
+FINALIZED-immutable), revenue-share currency guard (same-currency tam sayı; karışık-para fail-closed),
+attribution store/campaign/product scope + duplicate/bot-prefetch guard + cross-store reddi + refund/reversal
+— gateway entegrasyon suite'leri (`sponsored-*`, `sponsorship-*`, `commercial-automation-*`; 1793 test PASS) +
+**canlı deployed gateway/DB smoke** ile doğrulandı: imzalı payment webhook 10/10 (fail-closed 404, unsigned/
+wrong-sig/old-ts → 401, amount/currency/reference mismatch → no mutation, monotonic no-rollback, idempotent),
+fixture CustomerSession auth (200/401/401), cross-store isolation (401 `CUSTOMER_UNAUTHORIZED`), consume-on-paid
+wired (server.ts:4744/:6610), veri bütünlüğü clean-except-legacy. **Residual (kapsam dışı):** store-admin
+tarayıcı UI-piksel click-through non-interactive session'da yapılamaz (parola gerekir; [[TD-126]]'nın
+kullanıcı-parolalı yöntemi tekrarlanamaz) → Final Enterprise UI Polish + deploy-öncesi manuel kontrol.
+Analiz: `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
 
 ## TD-123 — Sponsorship: Sponsor↔Influencer birleştirme (TODO-161A)
 
