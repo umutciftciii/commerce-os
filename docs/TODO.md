@@ -2124,8 +2124,15 @@ değişikliği yok). İş kalemleri öncelik sırasıyla:
   counter invariant; 35 test + 13/13 hardening canlı smoke (PG+Redis) PASS. TD-033'te yalnız single-tx create+place
   atomiklik dilimi açık kalır (stok-kilitlenmesi dilimi CLOSED). Çok-depolu/waitlist + refund-on-restock FUTURE
   (ADR-193). Bkz. `docs/analysis/H-3-reservation-expiry-orphan-draft-cleanup.md`.
-- **LR-H-4 (HIGH) — Para-yolu auth'lu smoke.** Deployed stack'te checkout→attempt→webhook→PAID→fulfillment +
-  Sponsored funnel (impression→click→order→refund); fixture-session tekniği. Bkz. TD-122.
+- **LR-H-4 (HIGH) — Para-yolu auth'lu smoke. ✅ DOĞRULANDI (2026-07-29, TD-122 CLOSED).** Deployed gateway'de
+  imzalı payment webhook 10/10 (legacy→404, unsigned/wrong-sig/old-ts→401, amount/currency/reference mismatch→
+  no-mutation, valid→PAID applied, duplicate→idempotent, PAID sonrası late FAILED→no rollback); fixture
+  `CustomerSession` auth (200/401/401) + cross-store isolation (401 `CUSTOMER_UNAUTHORIZED`); consume-on-paid iki
+  ödeme yolunda wired (`server.ts:4744`/`:6610`); Sponsored funnel/revenue-share/settlement/attribution/refund
+  gateway suite'leriyle kapsandı. Gate'ler yeşil (build/typecheck/lint + **1793 test PASS**); veri bütünlüğü
+  clean-except-legacy (2 pre-H-3 PAID+ACTIVE reservation kalıntısı → reconcile uyarısı, kod defekti değil).
+  **Kod defekti bulunmadı → docs-only kapanış.** Residual: store-admin UI-piksel click-through Final UI Polish'e
+  devredildi (parola; non-interactive). Bkz. `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
 - **LR-MEDIUM:** dağıtık rate-limit (TD-015), dev seed APP_ENV guard, migrate-on-release gate, worker dağıtık kilit,
   search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı, admin-web Settings inert sayfa.
 - **LR-FINAL-POLISH:** ERASED müşteri ACTIVE seçeneği (server 409-guard'lı), `JOB_ALREADY_RUNNING` i18n eşlemesi,

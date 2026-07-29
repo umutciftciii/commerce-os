@@ -1156,3 +1156,35 @@ reconciliation uyarısı → **manuel inceleme** (fail-closed; oversell yaratıl
 **Baseline/doğrulama.** Migration `20260729120000` additive; backfill PAID/AUTHORIZED ACTIVE rezervasyonlara dokunmaz
 (meşru tutulan → `expiresAt` NULL), yalnız UNPAID/PLACED açık kilitlenmeyi kısa grace ile quarantine eder.
 Reconciliation `warningCount=0` → temiz.
+
+## Authenticated money path & sponsored funnel smoke (H-4 / 2026-07-29)
+
+**Amaç.** Gerçek para/sponsorluk akışlarını deployed stack'te doğrula (verification-only; kod değişikliği yok).
+
+**Auth (fixture-session; yalnız smoke).** Kısa ömürlü `CustomerSession`:
+```
+TOKEN="smoke-h4-cust-$(openssl rand -hex 8)"
+# tokenHash KONTEYNER İÇİNDE hesaplanır — SESSION_SECRET dışarı sızmaz, yalnız hash döner:
+HASH=$(docker exec docker-api-gateway-1 node -e \
+  'const{createHash}=require("crypto");process.stdout.write(createHash("sha256").update(process.argv[1]+"."+process.env.SESSION_SECRET).digest("hex"))' "$TOKEN")
+# CustomerSession INSERT (TTL 10dk) → x-customer-session: $TOKEN ile çağır → smoke sonunda satırı SİL.
+```
+Secret/parola okunmaz/loglanmaz/commit edilmez. Store-admin/internal = `INTERNAL_API_TOKEN` (konteyner env; okunmaz).
+
+**Canlı imzalı payment webhook regresyonu (deployed :4000).** İzole `smoke-h4-*` store + bilinen webhook secret
+(dev-fallback `PAYMENT_ENCRYPTION_KEY` deterministik) ile HMAC imza `hex(HMAC_SHA256(secret, "<ts>.<rawBody>"))`,
+header `x-payment-signature` + `x-payment-timestamp`. Beklenen: legacy route→404, unknown token→404 generic,
+unsigned→401 `SIGNATURE_MISSING`, wrong-sig→401 `SIGNATURE_INVALID`, old-ts(>300s)→401 `TIMESTAMP_OUT_OF_RANGE`,
+wrong-amount→`AMOUNT_MISMATCH` (no mutation), wrong-currency→`CURRENCY_MISMATCH` (no mutation), unknown-ref→
+`WEBHOOK_REFERENCE_NOT_FOUND` (no mutation), valid→PAID `applied=true`, duplicate→`duplicate=true`, PAID sonrası
+late FAILED→no rollback. Tüm izole satırlar smoke sonunda silinir (0 kalıntı).
+
+**Veri bütünlüğü scan (salt-okunur).** `PAID+ACTIVE reservation`, `CANCELLED+ACTIVE`, duplicate `PaymentProviderEvent`,
+duplicate settlement, charge/payment currency mismatch, orphan OrderLine, reservedCounterMismatch, reservedExceedsOnHand.
+
+**Legacy PAID+ACTIVE reservation (beklenen durum, kod defekti değil).** H-3 backfill PAID/AUTHORIZED+ACTIVE'i
+bilinçli korur (`expiresAt` NULL; "meşru tutulan"); consume-on-paid wiring'inden önce ödenmiş eski siparişler
+PAID+ACTIVE kalır. **Güvenli çözüm smoke'un işi DEĞİL** (spec §15 salt-okuma); operatör isterse ADR-195 reconcile
+apply ucuyla çözer: `POST /stores/:storeId/inventory/reservations/reconcile/run` gövde `{"dryRun": false}` (qty/line/
+inventory doğrulama; belirsiz → MANUAL_REVIEW, mutate etmez). Bkz.
+`docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.

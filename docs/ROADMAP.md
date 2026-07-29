@@ -714,8 +714,15 @@
   + 18/18 canlı smoke PASS. **Pre-ship hardening (ADR-194…196):** süpürücü api-gateway'den `@commerce-os/inventory`
   paketi + `apps/worker` BullMQ Job Scheduler'a TAŞINDI (gateway yalnız enqueue/status); PAID+ACTIVE reconcile servisi
   (dry-run+MANUAL_REVIEW); lock-ordering+counter invariant; 35 test + 13/13 hardening smoke PASS. Çok-depolu/waitlist
-  FUTURE (ADR-193). (H-4)
-  Ödeme/checkout/Sponsored funnel deploy + auth'lu smoke kanıtı yok (TD-122).
+  FUTURE (ADR-193). (H-4) ✅ **DOĞRULANDI (2026-07-29, [[TD-122]] CLOSED).** Authenticated money path & sponsored
+  funnel smoke: tüm gate'ler yeşil (build/typecheck/lint + 1793 test PASS); canlı deployed gateway'de imzalı
+  payment webhook 10/10 (legacy→404, unsigned/wrong-sig/old-ts→401, amount/currency/reference mismatch→no
+  mutation, monotonic no-rollback, idempotent); fixture CustomerSession auth (200/401/401) + cross-store
+  isolation (401); consume-on-paid iki ödeme yolunda wired; revenue-share currency guard + settlement/attribution
+  gateway suite'leriyle kapsandı; veri bütünlüğü clean-except-legacy (2 pre-H-3 PAID+ACTIVE reservation kalıntısı
+  — reconcile uyarısı, kod defekti değil). **Kod defekti bulunmadı → docs-only kapanış.** Residual: store-admin
+  UI-piksel click-through Final UI Polish'e devredildi (parola; non-interactive). Analiz:
+  `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
 - **MEDIUM:** dağıtık rate-limit (TD-015), dev seed env guard, migrate-on-release gate, worker dağıtık kilit,
   search reconciliation süpürücü, kategori runtime redirect (TD-064), mail altyapısı disabled buton, admin-web
   Settings inert placeholder.
@@ -863,3 +870,34 @@
   build 0 · store-admin tsc 0 · lint 0 hata · `git diff --check` temiz. Migration GEREKMEDİ (currency alanları mevcut).
 - **Kalan.** FX çok-para settlement ([[TD-148]] FUTURE CAPABILITY — teknik borç değil, bilinçli fail-closed sınır).
 - **Sıra:** commit'e hazır → **Final Enterprise UI/Design Polish** (kullanıcı başlatınca).
+
+## H-4 — Authenticated Money Path & Sponsored Funnel Smoke (2026-07-29, TD-122 CLOSED)
+
+- **Durum:** DOĞRULAMA TAMAM · **kod defekti bulunmadı → docs-only kapanış** (git: commit/push/PR/merge SHIP aşamasında).
+- **Amaç.** Gerçek para/sponsorluk akışlarını uçtan uca doğrula: cart→checkout→payment→order · recovery · webhook
+  sonrası durum · reservation consume/release · sponsor→agreement→campaign→settlement→charge→payment · sponsored
+  attribution→revenue share→settlement · refund/reversal · tenant isolation · operations görünürlüğü.
+- **Auth.** Kısa ömürlü `CustomerSession` fixture (tokenHash = sha256("token.SESSION_SECRET"); secret yalnız
+  konteyner içinde; TTL 10dk; smoke sonunda silindi; secret/parola okunmadı/loglanmadı). Store-admin/internal =
+  `INTERNAL_API_TOKEN` (okunmadı).
+- **Canlı güvenlik (deployed gateway :4000).** İmzalı payment webhook 10/10: legacy→404, unknown token→404
+  generic (fail-closed), GET→404, unsigned→401 `SIGNATURE_MISSING`, wrong-sig→401 `SIGNATURE_INVALID`, old-ts→401
+  `TIMESTAMP_OUT_OF_RANGE`, wrong-amount→`AMOUNT_MISMATCH` no-mutation, wrong-currency→`CURRENCY_MISMATCH`
+  no-mutation, unknown-ref→`WEBHOOK_REFERENCE_NOT_FOUND` no-mutation, valid→PAID `applied=true`, duplicate→
+  `duplicate=true`, PAID sonrası late FAILED→no rollback (monotonic), duplicate `PaymentProviderEvent`=0.
+- **Canlı auth + isolation.** Minted session → own store 200 / no-session 401 / bogus 401; edm-store session
+  demo-store'da → 401 `CUSTOMER_UNAUTHORIZED` (session store-scoped, cross-store reddi).
+- **Consume/release.** Consume-on-paid iki ödeme-başarı yolunda da wired (`server.ts:4744` hosted-pay/manual +
+  `:6610` webhook applyOutcome; aynı tx; late-after-expiry fail-closed). Reconcile (ADR-193) salt-okunur.
+- **Sponsored/revenue/settlement/refund.** Gateway entegrasyon suite'leriyle kapsandı (`sponsored-*`,
+  `sponsorship-*`, `commercial-automation-*`; agreement-gated activation, currency guard fail-closed,
+  unique-dönem + finalized-immutable, attribution scope/duplicate/bot guard + cross-store reddi, reversal).
+- **Gate'ler.** `pnpm build`/`typecheck`/`lint` PASS · `pnpm test` **1793 passed / 0 failed** · `git diff --check`
+  temiz · `prisma migrate status` up to date. Migration GEREKMEDİ.
+- **Bulgu (F-1, kod defekti değil).** edm-store'da 2 legacy PAID+ACTIVE reservation (`OS-000001`/`OS-000002`,
+  H-3 consume-on-paid'den önce ödenmiş fixture kalıntısı). `reservedCounterMismatch=0`, `reservedExceedsOnHand=0`
+  → oversell yok. Spec §15 + ADR-193 salt-okunur → otomatik düzeltilmedi, reconcile uyarısı olarak raporlandı.
+- **Doğrulama sınırı.** Store-admin tarayıcı UI-piksel click-through non-interactive session'da yapılamaz
+  (parola; [[TD-126]] yöntemi tekrarlanamaz) → Final UI Polish + deploy-öncesi manuel kontrol.
+- **Sıra:** SHIP (docs-only PR → merge → değişen servis rebuild GEREKMEZ) → **Final Enterprise UI/Design Polish**.
+  Analiz: `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
