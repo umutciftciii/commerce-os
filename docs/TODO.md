@@ -2306,7 +2306,7 @@ count; disable/re-enable veri korunur; enterprise-demo FULL_PLATFORM'a döndür�
 admin/storefront canlı TARAYICI click-through (store-admin parola TD-126 → Final UI Polish) + commit/PR/deploy.
 Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.
 
-### TODO-164 — Tenant Theme Architecture (IMPLEMENTED, 2026-07-30 — commit bekliyor)
+### TODO-164 — Tenant Theme Architecture (CLOSED & DEPLOYED, 2026-07-30)
 
 Üç katmanlı tenant tema mimarisi mevcut Enterprise Theme Engine (ADR-087) + H-1 üstüne. **ADR-216…224.**
 - **`@commerce-os/theme` (yeni modüller):** `slots.ts` (8 slot contract, typed variant allowlist,
@@ -2342,5 +2342,8 @@ Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.
 
 **Gate:** `@commerce-os/theme` 180 · api-gateway theme/capability route testleri PASS; contracts/api-client/
 theme/gateway build + 4 app typecheck (storefront/store-admin/admin-web) temiz; migrate status up-to-date.
-**KALAN (opsiyonel):** store-admin/platform-admin canlı TARAYICI click-through (parola TD-126) + commit/PR/deploy.
-Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.
+**Shipping:** commit `ae4ac80` → **PR #149 MERGED** (merge commit `b4c43928`) → CI (lint·test·build) yeşil →
+4 servis (api-gateway/storefront-web/store-admin-web/admin-web) main'den rebuild+recreate healthy (worker
+DEĞİŞMEDİ; postgres/redis volume korundu) → migrate deploy "no pending" → **deploy-sonrası smoke 6/6 + security
+PASS** (enterprise-demo, BASE_COMMERCE'e restore). **KALAN (opsiyonel):** auth'lu TARAYICI click-through
+(store-admin parola TD-126). **TODO-164 CLOSED & DEPLOYED.**

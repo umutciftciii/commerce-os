@@ -999,7 +999,7 @@
     tam workspace build (27/27) + lint (0 error) + migrate status up-to-date; canlı smoke PASS.
 - **TODO-163 CLOSED.** Sıradaki: **TODO-164 Tenant Theme Architecture** bu capability temeli üstüne kurulur.
 
-## TODO-164 — Tenant Theme Architecture (2026-07-30, IMPLEMENTED — commit bekliyor)
+## TODO-164 — Tenant Theme Architecture (2026-07-30, CLOSED & DEPLOYED)
 
 - **Amaç.** Her mağaza ORTAK storefront engine üzerinde kendi görünümünü kullanabilir. Üç katman
   (Theme Tokens · Layout Presets · Versioned Custom Theme Package) mevcut Enterprise Theme Engine
@@ -1029,11 +1029,11 @@
 
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-164 Tenant Theme Architecture** (IMPLEMENTED — commit bekliyor).
-2. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164 tema temeli üstüne).
-3. **TODO-163 Tenant Module & Capability Management** (CLOSED — Faz 1+2+3 teslim).
-4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
-5. **Final Enterprise UI & Design Polish** (EN SON).
+1. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164 tema temeli üstüne).
+2. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
+3. **Final Enterprise UI & Design Polish** (EN SON).
 
-> Tamamlanan: **TODO-162 Storefront Discovery & Merchandising** (CLOSED & DEPLOYED) ·
+> Tamamlanan: **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·
+> **TODO-163 Tenant Module & Capability** (CLOSED & DEPLOYED, Faz 1+2+3) ·
+> **TODO-162 Storefront Discovery & Merchandising** (CLOSED & DEPLOYED) ·
 > **Product Split Baseline** (DONE, yukarı bkz.).
