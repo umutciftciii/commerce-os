@@ -38,8 +38,18 @@ function itemClass(active: boolean): string {
  * bolumleri (uyelik/sifre/iletisim/IBAN/adresler) ile birlikte listelenir; aktif
  * bolum vurgulanir.
  */
-export function AccountSidebar({ t, section }: { t: AccountDict; section: AccountSection }) {
+export function AccountSidebar({
+  t,
+  section,
+  caps,
+}: {
+  t: AccountDict;
+  section: AccountSection;
+  // TODO-163 Faz 2 — moduleKey→boolean (kapalı modülün menü linki gizlenir). Yoksa hepsi görünür.
+  caps?: Record<string, boolean>;
+}) {
   const profileActive = PROFILE_GROUP.includes(section);
+  const on = (key: string) => caps?.[key] !== false;
   return (
     <nav aria-label={t.sidebarTitle} className="space-y-1">
       <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -84,21 +94,31 @@ export function AccountSidebar({ t, section }: { t: AccountDict; section: Accoun
         </div>
       </div>
 
-      <Link href="/account?section=reviews" className={itemClass(section === "reviews")}>
-        {t.menu.reviews}
-      </Link>
-      <Link href="/account?section=favorites" className={itemClass(section === "favorites")}>
-        {t.menu.favorites}
-      </Link>
-      <Link href="/account?section=lists" className={itemClass(section === "lists")}>
-        {t.menu.lists}
-      </Link>
-      <Link href="/account?section=coupons" className={itemClass(section === "coupons")}>
-        {t.menu.coupons}
-      </Link>
-      <Link href="/account?section=viewHistory" className={itemClass(section === "viewHistory")}>
-        {t.menu.viewHistory}
-      </Link>
+      {on("REVIEWS") ? (
+        <Link href="/account?section=reviews" className={itemClass(section === "reviews")}>
+          {t.menu.reviews}
+        </Link>
+      ) : null}
+      {on("WISHLIST") ? (
+        <Link href="/account?section=favorites" className={itemClass(section === "favorites")}>
+          {t.menu.favorites}
+        </Link>
+      ) : null}
+      {on("CUSTOMER_LISTS") ? (
+        <Link href="/account?section=lists" className={itemClass(section === "lists")}>
+          {t.menu.lists}
+        </Link>
+      ) : null}
+      {on("CAMPAIGNS") ? (
+        <Link href="/account?section=coupons" className={itemClass(section === "coupons")}>
+          {t.menu.coupons}
+        </Link>
+      ) : null}
+      {on("RECENTLY_VIEWED") ? (
+        <Link href="/account?section=viewHistory" className={itemClass(section === "viewHistory")}>
+          {t.menu.viewHistory}
+        </Link>
+      ) : null}
     </nav>
   );
 }

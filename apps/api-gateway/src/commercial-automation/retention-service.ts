@@ -27,6 +27,13 @@ import {
   type TerminalJobOutcome,
 } from "./job-log.js";
 import type { StoreJobLocker } from "./advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
+
+// TODO-163 Faz 3 (TD-153) — retention domain'i → gateway modül anahtarı (per-tablo capability gate).
+const DOMAIN_MODULE: Record<RetentionDomain, string> = {
+  sponsored: "SPONSORED_PRODUCTS",
+  influencer: "INFLUENCER_TRACKING",
+};
 
 /** DB erişim portu (fake ile birim-test edilebilir). Tüm sorgular store + cutoff scope'lu. */
 export interface RetentionPersistence {
@@ -51,6 +58,8 @@ export interface TableRetentionResult {
   candidates: number;
   deleted: number;
   circuitBreakerTripped: boolean;
+  // TODO-163 Faz 3 (TD-153) — bu domain modülü store için KAPALI → tablo atlandı (sayım/silme yok).
+  skippedDisabled: boolean;
 }
 
 export interface StoreRetentionReport {
@@ -70,6 +79,8 @@ export interface RetentionSummary {
   mode: "dry-run" | "apply";
   /** Advisory lock alınamadığı için işlenmeyen store sayısı. */
   skippedLocked: number;
+  /** TODO-163 Faz 3 (TD-153) — modülü kapalı olduğundan atlanan (store,tablo) sayısı. */
+  skippedDisabledTables: number;
   perStore: StoreRetentionReport[];
 }
 
@@ -91,6 +102,8 @@ export interface RetentionServiceDeps {
   config: RetentionServiceConfig;
   /** Test enjeksiyonu: log timing kaynağı. */
   clock?: () => Date;
+  // TODO-163 Faz 3 (TD-153) — verildiyse: domain modülü kapalı store'da o tablo ATLANIR (per-tablo).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export interface RetentionRunOptions {
@@ -124,6 +137,7 @@ export function createRetentionService(deps: RetentionServiceDeps): RetentionSer
         totalDeleted: 0,
         mode,
         skippedLocked: 0,
+        skippedDisabledTables: 0,
         perStore: [],
       };
 
@@ -149,6 +163,21 @@ export function createRetentionService(deps: RetentionServiceDeps): RetentionSer
 
           for (const spec of RETENTION_TABLE_SPECS) {
             const retentionDays = retentionDaysByTable[spec.table];
+            // TODO-163 Faz 3 (TD-153) — bu domain modülü store için KAPALI → tablo ATLANIR (sayım/silme
+            // YOK). Diğer tablo (domain) etkilenmez; per-tablo audit report.tables[].skippedDisabled.
+            if (deps.capabilityGate && !(await deps.capabilityGate.isEnabled(storeId, DOMAIN_MODULE[spec.domain]))) {
+              report.tables.push({
+                table: spec.table,
+                domain: spec.domain,
+                retentionDays,
+                cutoff: "",
+                candidates: 0,
+                deleted: 0,
+                circuitBreakerTripped: false,
+                skippedDisabled: true,
+              });
+              continue;
+            }
             const cutoff = computeCutoff(now, retentionDays);
             const candidates = await persistence.countExpired(spec.table, storeId, cutoff);
 
@@ -182,6 +211,7 @@ export function createRetentionService(deps: RetentionServiceDeps): RetentionSer
               candidates,
               deleted,
               circuitBreakerTripped: tripped,
+              skippedDisabled: false,
             });
             report.totalCandidates += candidates;
             report.totalDeleted += deleted;
@@ -236,6 +266,7 @@ export function createRetentionService(deps: RetentionServiceDeps): RetentionSer
         summary.stores += 1;
         summary.totalCandidates += report.totalCandidates;
         summary.totalDeleted += report.totalDeleted;
+        summary.skippedDisabledTables += report.tables.filter((t) => t.skippedDisabled).length;
         summary.perStore.push(report);
       }
 

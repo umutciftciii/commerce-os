@@ -18,6 +18,7 @@ import {
 } from "./retention-service.js";
 import { createPrismaRetentionPersistence } from "./retention-persistence.js";
 import { getDefaultAdvisoryLockManager } from "./advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export interface RetentionWorkerHandle {
   enabled: boolean;
@@ -30,9 +31,15 @@ export interface RetentionWorkerDeps {
   config: AppConfig;
   logger: Logger;
   service?: RetentionService;
+  // TODO-163 Faz 3 (TD-153) — per-tablo: SPONSORED_PRODUCTS/INFLUENCER_TRACKING kapalıysa o tablo atlanır.
+  capabilityGate?: WorkerCapabilityGate;
 }
 
-export function buildRetentionService(config: AppConfig, logger: Logger): RetentionService {
+export function buildRetentionService(
+  config: AppConfig,
+  logger: Logger,
+  capabilityGate?: WorkerCapabilityGate,
+): RetentionService {
   return createRetentionService({
     persistence: createPrismaRetentionPersistence(prisma),
     jobLog: prisma,
@@ -46,6 +53,7 @@ export function buildRetentionService(config: AppConfig, logger: Logger): Retent
       batchSize: config.ATTRIBUTION_RETENTION_BATCH_SIZE,
       maxDeletePerRun: config.ATTRIBUTION_RETENTION_MAX_DELETE_PER_RUN,
     },
+    capabilityGate,
   });
 }
 
@@ -58,7 +66,7 @@ export function startRetentionWorker(deps: RetentionWorkerDeps): RetentionWorker
   }
 
   const intervalMs = config.ATTRIBUTION_RETENTION_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildRetentionService(config, logger);
+  const service = deps.service ?? buildRetentionService(config, logger, deps.capabilityGate);
 
   let stopped = false;
   let running = false;

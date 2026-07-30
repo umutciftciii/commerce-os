@@ -2280,3 +2280,28 @@ fabricated section / cross-store / bot / no-identity reddedildi). DB: 4 satır, 
 customerId null → KVKK hash + PII temiz. Retention worker "disabled" logu main.js wiring'i canlı doğruladı. Fixture
 temizlendi, gateway durduruldu. **KALAN (SHIP):** storefront/store-admin canlı TARAYICI smoke (§6-11) + analytics
 tarayıcı smoke (§8) + commit/PR/CI/merge/deploy (§15-18) — insan-sürücülü tarayıcı (store-admin parola TD-126) + prod.
+
+### TODO-163 Faz 3 — Capability Enforcement Closure (CLOSED, 2026-07-30)
+
+TODO-163 KAPANDI. Faz 3 dört kalan dilimi tamamladı (ADR-214/215):
+- **TD-153 Worker per-store skip** — paylaşılan `capabilities/worker-gate.ts` (prisma-backed, store-scoped,
+  bounded TTL, fail-closed, tenant-safe) `main.ts`'te TEK kez kurulup 6 OPSİYONEL worker'a enjekte edildi
+  (recommendation/recently-viewed/discovery retention · attribution retention per-tablo · settlement
+  scheduler · campaign reconcile emit-site). Kapalı store → mutation yok + `SKIPPED_DISABLED` (QueueJobLog
+  payload.outcome, status COMPLETED = hata değil, retry yok). CORE worker'lar gate'siz.
+- **TD-155 Store-admin direct-URL guard** — `lib/store-modules.ts` (route→modül tek otorite) + `lib/server/
+  module-access.ts` + `components/module-guard.tsx` (server component) + 14 route `layout.tsx`. Kapalı modül
+  sayfası doğrudan URL ile de data fetch/render YAPMAZ.
+- **TD-156 Kalan storefront gate'leri** — PDP tracker/similar/reviews, home discovery/ratings/sponsored/
+  recently-viewed, PLP/discovery-list ratings+wishlist, cart rail, nested WishlistProvider'lar, influencer
+  `/t/[token]` fail-closed; gateway sponsored TOKEN üretimi (home/discovery/search) SPONSORED_PRODUCTS'a bağlı.
+- **TD-154 Plan → capability editörü** — SAF `plan-capabilities.ts` (required/optional/unavailable + doğrulama
+  + preview + merge) + gateway `/admin/plans/:id/capabilities` (platform-admin, audit, cache clear) + api-client
+  + platform-admin PlanEditor UI. Effective sıra: store override > plan default > baseline > dependency.
+
+**Gate:** api-gateway 1831 · storefront 446 · store-admin 360 · admin-web 24 test PASS; build 27/27 · lint 0
+error · migrate status up-to-date · `git diff --check` temiz. **Canlı smoke (enterprise-demo → docker postgres):**
+worker gate dependency-cascade + core-korumalı; plan capability preview/merge (seeded metadata KORUNDU) + subscriber
+count; disable/re-enable veri korunur; enterprise-demo FULL_PLATFORM'a döndürüldü. **KALAN (opsiyonel):** store-
+admin/storefront canlı TARAYICI click-through (store-admin parola TD-126 → Final UI Polish) + commit/PR/deploy.
+Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.

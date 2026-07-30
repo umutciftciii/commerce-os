@@ -2,11 +2,38 @@ import { cache } from "react";
 import type {
   PublicStoreInfo,
   PublicHeroSlidesResponse,
+  PublicStoreCapabilitiesResponse,
   PublicTheme,
 } from "@commerce-os/api-client";
 import type { StorefrontStoreInfo, StorefrontHeroSlide } from "../catalog-types";
 import { demoStoreSlug } from "./env";
 import { getPublic } from "./gateway";
+
+/**
+ * TODO-163 Faz 2 (ADR-213) — Vitrin capability projeksiyonu. Gateway'in public
+ * `/public/stores/:slug/modules` ucundan (yalnız moduleKey→boolean) okunur; source/plan
+ * SIZMAZ. `getStoreInfo` gibi `cache()`'li → render-pass'te tek çağrı. Server-side
+ * enforcement OTORİTATİF gateway'dedir (kapalı modül 404/boş döner); bu projeksiyon UI
+ * gizleme + gereksiz fetch'ten kaçınma içindir. HATA/eksik key → `true` (göster): projeksiyon
+ * hatası özelliği YANLIŞLIKLA gizlemesin (gateway yine de gerçek veriyi kapatır; regresyonsuz).
+ */
+export const getStoreCapabilities = cache(async (): Promise<Record<string, boolean>> => {
+  try {
+    const result = await getPublic<PublicStoreCapabilitiesResponse>(
+      `/public/stores/${encodeURIComponent(demoStoreSlug())}/modules`,
+    );
+    if (!result.ok) return {};
+    return result.data.data.modules;
+  } catch {
+    return {};
+  }
+});
+
+/** Tek modül vitrinde gösterilmeli mi? Bilinmeyen/eksik/hata → true (göster; gateway otoriter). */
+export async function isStorefrontModuleEnabled(moduleKey: string): Promise<boolean> {
+  const modules = await getStoreCapabilities();
+  return modules[moduleKey] !== false;
+}
 
 /**
  * ADR-065 (Faz 3/Site Kabuğu) — Site-geneli marka bilgisi + ana sayfa hero

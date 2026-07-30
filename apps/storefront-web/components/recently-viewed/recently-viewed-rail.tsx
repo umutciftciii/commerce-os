@@ -26,6 +26,7 @@ export function RecentlyViewedRail({
   limit = 12,
   minItems = 1,
   placement = "HOME",
+  wishlistEnabled = true,
 }: {
   t: StorefrontDictionary;
   /** Başlık (varsayılan `related.recentlyViewedTitle`). */
@@ -40,6 +41,8 @@ export function RecentlyViewedRail({
   minItems?: number;
   /** TD-130 — ölçüm yerleşimi (HOME / CART). source her zaman RECENTLY_VIEWED. */
   placement?: RecommendationPlacement;
+  // TODO-163 Faz 3 (TD-156) — WISHLIST kapalıysa kalp gizlenir (provider enabled=false). Yoksa true.
+  wishlistEnabled?: boolean;
 }) {
   const [products, setProducts] = useState<PublicSearchProduct[] | null>(null);
   const [savedIds, setSavedIds] = useState<string[]>([]);
@@ -70,7 +73,7 @@ export function RecentlyViewedRail({
         {title ?? t.related.recentlyViewedTitle}
       </Heading>
       {/* TODO-161B (TD-128) — Wishlist kalbi GERÇEK (TODO-159D; auth→gateway, guest→cookie). */}
-      <WishlistProvider initialSavedIds={savedIds}>
+      <WishlistProvider initialSavedIds={savedIds} enabled={wishlistEnabled}>
         <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 sm:gap-6">
           {cards.map((card) => (
             <div key={card.id} className="w-[46%] shrink-0 snap-start sm:w-[30%] lg:w-[23%]">

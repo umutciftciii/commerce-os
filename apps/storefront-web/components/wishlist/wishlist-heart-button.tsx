@@ -30,10 +30,15 @@ export function WishlistHeartButton({
   className?: string;
   size?: number;
 }) {
-  const { isSaved, isPending, toggle } = useWishlist();
+  const { isSaved, isPending, toggle, enabled } = useWishlist();
   const [feedback, setFeedback] = useState<string>("");
   const saved = isSaved(productId);
   const pending = isPending(productId);
+
+  // TODO-163 Faz 2 — WISHLIST modülü kapalıysa kalp butonu hiç render edilmez (tüm hook'lar
+  // çağrıldıktan SONRA erken çıkış → React hook kuralı korunur). Gateway de toggle/status
+  // uçlarını kapatır (defense-in-depth).
+  if (!enabled) return null;
 
   const onClick = async (event: React.MouseEvent) => {
     event.preventDefault();

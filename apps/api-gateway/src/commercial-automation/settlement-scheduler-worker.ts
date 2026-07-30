@@ -21,6 +21,7 @@ import {
 } from "./settlement-scheduler-service.js";
 import { createPrismaSettlementSchedulerPersistence } from "./settlement-scheduler-persistence.js";
 import { getDefaultAdvisoryLockManager } from "./advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export interface SettlementSchedulerWorkerHandle {
   enabled: boolean;
@@ -34,6 +35,8 @@ export interface SettlementSchedulerWorkerDeps {
   logger: Logger;
   /** Test enjeksiyonu; verilmezse prisma persistence + previewSettlement kurulur. */
   service?: SettlementSchedulerService;
+  // TODO-163 Faz 3 (TD-153) — SPONSORSHIP_FINANCE kapalı store'da tur atlanır (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export function startSettlementSchedulerWorker(
@@ -47,7 +50,7 @@ export function startSettlementSchedulerWorker(
   }
 
   const intervalMs = config.SETTLEMENT_SCHEDULER_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildSettlementSchedulerService(config, logger);
+  const service = deps.service ?? buildSettlementSchedulerService(config, logger, deps.capabilityGate);
 
   let stopped = false;
   let running = false;
@@ -93,7 +96,11 @@ export function startSettlementSchedulerWorker(
   };
 }
 
-export function buildSettlementSchedulerService(config: AppConfig, logger: Logger): SettlementSchedulerService {
+export function buildSettlementSchedulerService(
+  config: AppConfig,
+  logger: Logger,
+  capabilityGate?: WorkerCapabilityGate,
+): SettlementSchedulerService {
   const sponsorship = createSponsorshipData(prisma);
   return createSettlementSchedulerService({
     persistence: createPrismaSettlementSchedulerPersistence(
@@ -106,5 +113,6 @@ export function buildSettlementSchedulerService(config: AppConfig, logger: Logge
     lock: getDefaultAdvisoryLockManager({ logger }).lock,
     defaultTimeZone: config.COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE,
     batchSize: config.SETTLEMENT_SCHEDULER_BATCH_SIZE,
+    capabilityGate,
   });
 }

@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { demoStoreSlug } from "../../../lib/server/env";
 import { safeNextPath } from "../../../lib/next-path";
 import { postTrackClick } from "../../../lib/server/tracking";
+import { isStorefrontModuleEnabled } from "../../../lib/server/site";
 import {
   ATTRIBUTION_COOKIE,
   VISITOR_COOKIE,
@@ -33,6 +34,14 @@ function clientIp(request: NextRequest): string | null {
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }): Promise<NextResponse> {
   const { token } = await params;
   const origin = request.nextUrl.origin;
+
+  // TODO-163 Faz 3 (TD-156) — INFLUENCER_TRACKING kapalıysa fail-closed: track POST YAPILMAZ, hiçbir
+  // cookie (visitor/attribution) YAZILMAZ; güvenli terminal sayfaya yönlendir (no-op değil). Gateway
+  // zaten track ucunu 404'ler; bu, boşa çağrıyı + ziyaretçi cookie tazelemesini de önler. Projeksiyon
+  // hatası → fail-open (gateway otoriter; regresyonsuz).
+  if (!(await isStorefrontModuleEnabled("INFLUENCER_TRACKING"))) {
+    return NextResponse.redirect(new URL("/campaign-unavailable?state=unavailable", origin));
+  }
 
   const existingVid = request.cookies.get(VISITOR_COOKIE)?.value;
   const visitorId = existingVid && /^[A-Za-z0-9_-]{8,64}$/.test(existingVid) ? existingVid : generateVisitorId();

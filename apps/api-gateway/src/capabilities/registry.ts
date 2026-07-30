@@ -1,36 +1,50 @@
-// TODO-163 (ADR-208/ADR-209) — Tenant Module & Capability Management.
+// TODO-163 (ADR-208/ADR-209 · Faz 2 ADR-211) — Tenant Module & Capability Management.
 //
-// TIPLI MODUL REGISTRY = "WHAT-var" tek otorite (source of truth). Hangi modullerin
-// VAR OLDUGU, hangilerinin CORE (kapatilamaz) oldugu ve core olmayanlarin registry
-// baseline default'u YALNIZ burada tanimlidir. StoreModule.moduleKey serbest string
-// DEGIL — bu registry'nin anahtarina karsi dogrulanir (bilinmeyen key reddedilir).
+// TIPLI MODUL REGISTRY = "WHAT-var" tek otorite (source of truth). Hangi modullerin VAR
+// OLDUGU, hangilerinin CORE (kapatilamaz) oldugu, core olmayanlarin baseline default'u ve
+// dependency zincirleri YALNIZ burada tanimlidir. StoreModule.moduleKey serbest string DEGIL
+// — bu registry'nin anahtarina karsi dogrulanir (bilinmeyen key reddedilir/fail-closed).
 //
-// GERIYE UYUMLULUK: Tum non-core moduller baseline ENABLED. Yani hicbir override/plan
-// yokken effective davranis MEVCUT davranisin AYNISIdir (nav'da her sey gorunur, hicbir
-// uc kapali degil) → regresyon yok. Bir magaza icin bir modul ancak ACIK override ya da
-// plan default ile KAPATILIR.
+// GERIYE UYUMLULUK: Tum non-core moduller baseline ENABLED. Override/plan yokken effective
+// davranis MEVCUT davranisin AYNISI → regresyon yok. Bir modul ancak ACIK override ya da plan
+// default ile KAPATILIR. Effective capability YALNIZ sunucuda turetilir (resolver.ts).
 //
-// Effective capability YALNIZ sunucuda (gateway) turetilir; istemci gonderemez (bkz.
-// resolver.ts + data.ts). Core icinde urun/musteri adina gore kosul YOK — yalniz modul
-// anahtarlarina bakilir.
+// Faz 2 taksonomisi (uppercase-snake key'ler; prompt sozlesmesiyle birebir). Core icinde
+// urun/musteri adina gore kosul YOK — yalniz modul anahtarlarina bakilir.
 
 export type StoreModuleGroup = "catalog" | "sales" | "sponsorship" | "appearance" | "system";
 
 export type StoreModuleKey =
-  | "catalog"
-  | "inventory"
-  | "orders"
-  | "customers"
-  | "reviews"
-  | "payments"
-  | "shipping"
-  | "campaigns"
-  | "influencers"
-  | "marketplace"
-  | "sponsorship"
-  | "home_experience"
-  | "theme"
-  | "operations";
+  // ── CORE (kapatilamaz) ──────────────────────────────────────────────────────
+  | "AUTH"
+  | "STORE"
+  | "CATALOG"
+  | "CATEGORIES"
+  | "BASIC_INVENTORY"
+  | "CUSTOMERS"
+  | "CART"
+  | "CHECKOUT"
+  | "ORDERS"
+  | "PAYMENTS"
+  | "SHIPPING"
+  | "AUDIT_SECURITY"
+  // ── OPTIONAL ────────────────────────────────────────────────────────────────
+  | "REVIEWS"
+  | "WISHLIST"
+  | "CUSTOMER_LISTS"
+  | "RECENTLY_VIEWED"
+  | "RECOMMENDATIONS"
+  | "RECOMMENDATION_ANALYTICS"
+  | "HOME_EXPERIENCE"
+  | "THEME_STUDIO"
+  | "CAMPAIGNS"
+  | "INFLUENCER_TRACKING"
+  | "SPONSORED_PRODUCTS"
+  | "SPONSORSHIP_FINANCE"
+  | "PAYMENT_RECOVERY"
+  | "MULTI_WAREHOUSE"
+  | "CUSTOMER_DATA_ERASURE"
+  | "OPERATIONS_ADVANCED";
 
 export interface StoreModuleDefinition {
   key: StoreModuleKey;
@@ -38,159 +52,49 @@ export interface StoreModuleDefinition {
   labelTr: string;
   labelEn: string;
   descriptionTr: string;
-  /**
-   * core=true → modul her zaman aktiftir ve KAPATILAMAZ (urunun calismasi icin
-   * zorunlu cekirdek). Override/plan bu modulu etkilemez.
-   */
+  /** core=true → daima aktif, KAPATILAMAZ (urun cekirdegi). Override/plan etkilemez. */
   core: boolean;
-  /**
-   * core olmayan moduller icin registry baseline default'u (acik override VE plan
-   * default yoksa gecerli). Geriye uyumluluk icin tumu true.
-   */
+  /** core olmayanlar icin baseline default (override VE plan yoksa). Geriye uyumluluk icin true. */
   baselineEnabled: boolean;
   /**
-   * Bu modulun ACIK olabilmesi icin ENABLED olmasi gereken diger moduller. Gereken
-   * bir modul kapaliysa bu modul de effective olarak kapatilir (resolver dependency
-   * pass). Tek yonlu bagimlilik; dongu tanimlanmamalidir.
+   * Bu modulun ENABLED olabilmesi icin ENABLED olmasi gereken diger moduller. Gereken bir
+   * modul effective KAPALIysa bu modul de effective kapatilir (resolver dependency pass).
+   * Tek yonlu; dongu tanimlanmamalidir.
    */
   requires?: StoreModuleKey[];
 }
 
-// Sira = varsayilan UI sunum sirasi (StoreNav gruplariyla ayni ritim).
 export const STORE_MODULE_REGISTRY: readonly StoreModuleDefinition[] = [
-  // ── Katalog ────────────────────────────────────────────────────────────────
-  {
-    key: "catalog",
-    group: "catalog",
-    labelTr: "Katalog",
-    labelEn: "Catalogue",
-    descriptionTr: "Ürünler, kategoriler ve öznitelikler. Çekirdek modül; kapatılamaz.",
-    core: true,
-    baselineEnabled: true,
-  },
-  {
-    key: "inventory",
-    group: "catalog",
-    labelTr: "Stok",
-    labelEn: "Inventory",
-    descriptionTr: "Depo ve stok izleme/düzeltme.",
-    core: false,
-    baselineEnabled: true,
-    requires: ["catalog"],
-  },
-  // ── Satış ──────────────────────────────────────────────────────────────────
-  {
-    key: "orders",
-    group: "sales",
-    labelTr: "Siparişler",
-    labelEn: "Orders",
-    descriptionTr: "Sipariş yönetimi ve fulfilment. Çekirdek modül; kapatılamaz.",
-    core: true,
-    baselineEnabled: true,
-  },
-  {
-    key: "customers",
-    group: "sales",
-    labelTr: "Müşteriler",
-    labelEn: "Customers",
-    descriptionTr: "Müşteri hesapları ve adres defteri.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "reviews",
-    group: "sales",
-    labelTr: "Değerlendirmeler",
-    labelEn: "Reviews",
-    descriptionTr: "Ürün değerlendirmeleri ve puanları.",
-    core: false,
-    baselineEnabled: true,
-    requires: ["catalog"],
-  },
-  {
-    key: "payments",
-    group: "sales",
-    labelTr: "Ödeme Sağlayıcılar",
-    labelEn: "Payment Providers",
-    descriptionTr: "Ödeme sağlayıcı yapılandırması.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "shipping",
-    group: "sales",
-    labelTr: "Kargo",
-    labelEn: "Shipping",
-    descriptionTr: "Kargo sağlayıcıları, tarifeler ve gönderiler.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "campaigns",
-    group: "sales",
-    labelTr: "Kampanyalar",
-    labelEn: "Campaigns",
-    descriptionTr: "Kampanya ve kuponlar.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "influencers",
-    group: "sales",
-    labelTr: "Influencer",
-    labelEn: "Influencers",
-    descriptionTr: "Influencer takibi ve attribution.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "marketplace",
-    group: "sales",
-    labelTr: "Pazaryeri",
-    labelEn: "Marketplace",
-    descriptionTr: "Pazaryeri entegrasyon yüzeyi.",
-    core: false,
-    baselineEnabled: true,
-  },
-  // ── Sponsorluk ─────────────────────────────────────────────────────────────
-  {
-    key: "sponsorship",
-    group: "sponsorship",
-    labelTr: "Sponsorluk",
-    labelEn: "Sponsorship",
-    descriptionTr: "Sponsorlu ürünler, anlaşmalar, tahakkuk ve mutabakat.",
-    core: false,
-    baselineEnabled: true,
-  },
-  // ── Görünüm & Ayar ─────────────────────────────────────────────────────────
-  {
-    key: "home_experience",
-    group: "appearance",
-    labelTr: "Ana Sayfa Deneyimi",
-    labelEn: "Home Experience",
-    descriptionTr: "Ana sayfa, hero ve keşif bölümleri.",
-    core: false,
-    baselineEnabled: true,
-  },
-  {
-    key: "theme",
-    group: "appearance",
-    labelTr: "Tema",
-    labelEn: "Theme",
-    descriptionTr: "Theme Studio ve tasarım token'ları.",
-    core: false,
-    baselineEnabled: true,
-  },
-  // ── Sistem ─────────────────────────────────────────────────────────────────
-  {
-    key: "operations",
-    group: "system",
-    labelTr: "Operasyon",
-    labelEn: "Operations",
-    descriptionTr: "Ticari otomasyon operasyon ekranı.",
-    core: false,
-    baselineEnabled: true,
-  },
+  // ── CORE ────────────────────────────────────────────────────────────────────
+  { key: "AUTH", group: "system", labelTr: "Kimlik", labelEn: "Auth", descriptionTr: "Oturum/kimlik. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "STORE", group: "system", labelTr: "Mağaza", labelEn: "Store", descriptionTr: "Mağaza ayarları. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "CATALOG", group: "catalog", labelTr: "Katalog", labelEn: "Catalogue", descriptionTr: "Ürünler ve öznitelikler. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "CATEGORIES", group: "catalog", labelTr: "Kategoriler", labelEn: "Categories", descriptionTr: "Kategori ağacı. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "BASIC_INVENTORY", group: "catalog", labelTr: "Temel Stok", labelEn: "Basic Inventory", descriptionTr: "Temel stok izleme. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "CUSTOMERS", group: "sales", labelTr: "Müşteriler", labelEn: "Customers", descriptionTr: "Müşteri hesapları. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "CART", group: "sales", labelTr: "Sepet", labelEn: "Cart", descriptionTr: "Sepet. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "CHECKOUT", group: "sales", labelTr: "Ödeme Akışı", labelEn: "Checkout", descriptionTr: "Checkout. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "ORDERS", group: "sales", labelTr: "Siparişler", labelEn: "Orders", descriptionTr: "Sipariş yönetimi. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "PAYMENTS", group: "sales", labelTr: "Ödeme Sağlayıcılar", labelEn: "Payments", descriptionTr: "Ödeme sağlayıcı yapılandırması. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "SHIPPING", group: "sales", labelTr: "Kargo", labelEn: "Shipping", descriptionTr: "Kargo sağlayıcı/tarife/gönderi. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "AUDIT_SECURITY", group: "system", labelTr: "Denetim & Güvenlik", labelEn: "Audit & Security", descriptionTr: "Denetim kaydı/güvenlik. Çekirdek.", core: true, baselineEnabled: true },
+  // ── OPTIONAL ────────────────────────────────────────────────────────────────
+  { key: "REVIEWS", group: "sales", labelTr: "Değerlendirmeler", labelEn: "Reviews", descriptionTr: "Ürün değerlendirme ve puanları.", core: false, baselineEnabled: true, requires: ["CATALOG"] },
+  { key: "WISHLIST", group: "sales", labelTr: "İstek Listesi", labelEn: "Wishlist", descriptionTr: "Müşteri istek listesi (kalp).", core: false, baselineEnabled: true, requires: ["CUSTOMER_LISTS"] },
+  { key: "CUSTOMER_LISTS", group: "sales", labelTr: "Müşteri Listeleri", labelEn: "Customer Lists", descriptionTr: "Ortak müşteri liste altyapısı.", core: false, baselineEnabled: true, requires: ["CUSTOMERS"] },
+  { key: "RECENTLY_VIEWED", group: "appearance", labelTr: "Son Görüntülenenler", labelEn: "Recently Viewed", descriptionTr: "Son görüntülenen ürün takibi.", core: false, baselineEnabled: true, requires: ["CATALOG"] },
+  { key: "RECOMMENDATIONS", group: "appearance", labelTr: "Öneriler", labelEn: "Recommendations", descriptionTr: "İlgili/benzer/sepet önerileri.", core: false, baselineEnabled: true, requires: ["RECENTLY_VIEWED"] },
+  { key: "RECOMMENDATION_ANALYTICS", group: "appearance", labelTr: "Öneri Analitiği", labelEn: "Recommendation Analytics", descriptionTr: "Öneri ölçümü (RecommendationEvent).", core: false, baselineEnabled: true, requires: ["RECOMMENDATIONS"] },
+  { key: "HOME_EXPERIENCE", group: "appearance", labelTr: "Ana Sayfa Deneyimi", labelEn: "Home Experience", descriptionTr: "Yönetilebilir ana sayfa + hero + keşif.", core: false, baselineEnabled: true },
+  { key: "THEME_STUDIO", group: "appearance", labelTr: "Theme Studio", labelEn: "Theme Studio", descriptionTr: "Tenant tema override'ları.", core: false, baselineEnabled: true, requires: ["HOME_EXPERIENCE"] },
+  { key: "CAMPAIGNS", group: "sales", labelTr: "Kampanyalar", labelEn: "Campaigns", descriptionTr: "Kampanya ve kuponlar.", core: false, baselineEnabled: true },
+  { key: "INFLUENCER_TRACKING", group: "sales", labelTr: "Influencer Takibi", labelEn: "Influencer Tracking", descriptionTr: "Influencer attribution.", core: false, baselineEnabled: true, requires: ["CAMPAIGNS"] },
+  { key: "SPONSORED_PRODUCTS", group: "sponsorship", labelTr: "Sponsorlu Ürünler", labelEn: "Sponsored Products", descriptionTr: "Sponsorlu ürün yerleşimleri.", core: false, baselineEnabled: true, requires: ["CAMPAIGNS"] },
+  { key: "SPONSORSHIP_FINANCE", group: "sponsorship", labelTr: "Sponsorluk Finansı", labelEn: "Sponsorship Finance", descriptionTr: "Sponsor anlaşma/tahakkuk/mutabakat.", core: false, baselineEnabled: true, requires: ["SPONSORED_PRODUCTS"] },
+  { key: "PAYMENT_RECOVERY", group: "sales", labelTr: "Ödeme Tahsilatı", labelEn: "Payment Recovery", descriptionTr: "UNPAID sipariş tahsilatı.", core: false, baselineEnabled: true, requires: ["PAYMENTS"] },
+  { key: "MULTI_WAREHOUSE", group: "catalog", labelTr: "Çoklu Depo", labelEn: "Multi-Warehouse", descriptionTr: "Depo-farkındalıklı stok.", core: false, baselineEnabled: true, requires: ["BASIC_INVENTORY"] },
+  { key: "CUSTOMER_DATA_ERASURE", group: "system", labelTr: "Müşteri Verisi Silme", labelEn: "Customer Data Erasure", descriptionTr: "KVKK/GDPR silme/anonimleştirme.", core: false, baselineEnabled: true, requires: ["CUSTOMERS"] },
+  { key: "OPERATIONS_ADVANCED", group: "system", labelTr: "Gelişmiş Operasyon", labelEn: "Advanced Operations", descriptionTr: "Zamanlayıcı/retention operasyon ekranı.", core: false, baselineEnabled: true },
 ] as const;
 
 const REGISTRY_BY_KEY: ReadonlyMap<StoreModuleKey, StoreModuleDefinition> = new Map(
@@ -203,13 +107,18 @@ export function isStoreModuleKey(value: unknown): value is StoreModuleKey {
 
 export function getStoreModuleDefinition(key: StoreModuleKey): StoreModuleDefinition {
   const def = REGISTRY_BY_KEY.get(key);
-  if (!def) {
-    // isStoreModuleKey ile korunmalidir; buraya dusmek programlama hatasidir.
-    throw new Error(`Unknown store module key: ${key}`);
-  }
+  if (!def) throw new Error(`Unknown store module key: ${key}`);
   return def;
 }
 
 export function listStoreModuleKeys(): StoreModuleKey[] {
   return STORE_MODULE_REGISTRY.map((m) => m.key);
+}
+
+/**
+ * Bir modulu (dogrudan) `requires` eden modullerin anahtarlari. Parent-disable guard'i ve
+ * dependency preview icin kullanilir (transitive icin resolver'in tam pass'ine bakilir).
+ */
+export function directDependentsOf(key: StoreModuleKey): StoreModuleKey[] {
+  return STORE_MODULE_REGISTRY.filter((m) => (m.requires ?? []).includes(key)).map((m) => m.key);
 }

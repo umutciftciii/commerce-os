@@ -951,10 +951,12 @@
   port/cherry-pick ile (migration içeren commit kör cherry-pick edilmez). Bkz. ADR (product
   split) — `docs/DECISIONS.md`.
 
-## TODO-163 — Tenant Module & Capability Management (2026-07-30, IN_PROGRESS)
+## TODO-163 — Tenant Module & Capability Management (2026-07-30, CLOSED)
 
-- **Durum:** IN_PROGRESS — Faz 1 (thin vertical slice) teslim edildi; gate'ler yeşil.
-  Analiz: `docs/analysis/TODO-163-tenant-module-capability.md`. Kararlar: **ADR-208…ADR-210**.
+- **Durum:** **CLOSED** — Faz 1 (thin vertical slice) + Faz 2 (enforcement expansion & storefront runtime)
+  + **Faz 3 (enforcement closure: worker skip + store-admin direct-URL guard + kalan storefront gate'leri
+  + plan capability editörü)** teslim edildi; tüm gate'ler yeşil + canlı smoke PASS. Analiz:
+  `docs/analysis/TODO-163-tenant-module-capability.md`. Kararlar: **ADR-208…ADR-215**.
 - **Amaç.** Modular ürün kimliğinin "mağaza-bazlı capability" sütunu: her tenant'ın hangi
   modüle sahip olduğu **sunucu-otoriter** türetilir. Core'da ürün/müşteri adına göre koşul YOK.
 - **Teslim edilen (Faz 1).**
@@ -968,14 +970,40 @@
     gizleme. api-client `admin.modules.{list,setOverride}`.
   - 12 route/orkestrasyon testi + api-gateway **1803 test PASS** (regresyon yok); build/lint temiz.
 - **Geriye uyumluluk.** Non-core baseline ENABLED → override/plan yokken mevcut davranış aynı.
-- **Kalan.** Enforcement yayılımı (kalan admin + public hot-path + cache) · storefront gizleme ·
-  plan→capability editörü. TODO-164 bu temel üstüne kurulacak.
+
+- **Teslim edilen (Faz 2 — Enforcement Expansion & Storefront Runtime; ADR-211…ADR-213).**
+  - **Taksonomi** 12 CORE + 16 OPTIONAL (uppercase-snake) + tam dependency grafiği (ADR-211).
+  - **Gateway server-side enforcement** TÜM opsiyonel modüllerde (admin 403 MODULE_DISABLED, public
+    404 leak-siz) — register-modül deps'leri modül-scope'lu sarmalayıcılarla gate'lendi; inline public
+    read'ler (home/hero/theme/campaigns/discovery) kapalıyken **graceful boş/base**. CORE gate YOK.
+  - **Store-scoped bounded TTL cache** (30s) — public hot-path N+1'siz; mutation→explicit invalidate;
+    DB hatası→fail-closed (core açık); cross-store leak yok (ADR-213).
+  - **Public projeksiyon** `GET /public/stores/:slug/modules` (boolean-only) + storefront
+    `getStoreCapabilities()`; account sidebar/section + wishlist kalp gizleme.
+  - **Parent-disable guard** (409 DEPENDENTS_ACTIVE + preview + cascade; sessiz cascade yok — ADR-212).
+  - **Testler:** capability-core (18) + capability-routes/cache (16) genişletildi; api-gateway
+    **1809 PASS** · storefront **446 PASS** · store-admin **356 PASS**; tam workspace build + lint temiz.
+  - **Canlı smoke (enterprise-demo):** REVIEWS off→public 404+projeksiyon false; HOME/THEME/CAMPAIGNS
+    off→graceful boş + SPONSORED/INFLUENCER dependency-off; re-enable→veri geri (silme yok). ✓
+- **Teslim edilen (Faz 3 — Enforcement Closure; ADR-214…ADR-215).**
+  - **Worker per-store skip** ([[TD-153]]): paylaşılan `worker-gate.ts` 6 opsiyonel worker'a enjekte;
+    kapalı store → mutation yok + `SKIPPED_DISABLED` (bounded QueueJobLog, hata değil, retry yok);
+    attribution retention per-tablo; CORE worker'lar gate'siz.
+  - **Store-admin direct-URL guard** ([[TD-155]]): paylaşılan route→modül haritası + `module-access` +
+    `ModuleGuard` server component + 14 route `layout.tsx` → kapalı sayfa data fetch/render YOK.
+  - **Kalan storefront gate'leri** ([[TD-156]]): tracker/similar/reviews/sponsored/influencer/wishlist —
+    kapalı modül veri çekmez + render etmez + event üretmez; sponsored token üretimi gateway'de kesildi.
+  - **Plan → capability editörü** ([[TD-154]]): SAF `plan-capabilities` (required/optional/unavailable +
+    doğrulama + preview + merge) + gateway `/admin/plans/:id/capabilities` + platform-admin PlanEditor UI.
+  - **Testler:** api-gateway **1831** · storefront **446** · store-admin **360** · admin-web **24** PASS;
+    tam workspace build (27/27) + lint (0 error) + migrate status up-to-date; canlı smoke PASS.
+- **TODO-163 CLOSED.** Sıradaki: **TODO-164 Tenant Theme Architecture** bu capability temeli üstüne kurulur.
 
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-163 Tenant Module & Capability Management** (IN_PROGRESS — Faz 1 teslim; kalan dilimler).
-2. **TODO-164 Tenant Theme Architecture** (PLANNED).
-3. **TODO-165 Fashion Vertical Foundation** (PLANNED).
+1. **TODO-164 Tenant Theme Architecture** (SIRADAKİ AKTİF — TODO-163 capability temeli üstüne).
+2. **TODO-165 Fashion Vertical Foundation** (PLANNED).
+3. **TODO-163 Tenant Module & Capability Management** (CLOSED — Faz 1+2+3 teslim).
 4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
 5. **Final Enterprise UI & Design Polish** (EN SON).
 

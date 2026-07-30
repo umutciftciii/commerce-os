@@ -21,7 +21,7 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontDiscoverySection, StorefrontProductSummary } from "../lib/catalog-types";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getDiscovery, getFeaturedProducts, getHome } from "../lib/server/catalog";
-import { getStoreInfo } from "../lib/server/site";
+import { getStoreInfo, isStorefrontModuleEnabled } from "../lib/server/site";
 import { buildMetadata } from "../lib/seo/metadata";
 import { homePath } from "../lib/seo/routes";
 
@@ -63,9 +63,23 @@ function collectDiscoveryProductIds(sections: StorefrontDiscoverySection[]): str
 
 export default async function HomePage() {
   const [dict, locale] = await Promise.all([getStorefrontDict(), getRequestLocale()]);
+  // TODO-163 Faz 3 (TD-156) — capability projeksiyonu (`cache()`'li → tek gateway çağrısı). Kapalı
+  // modül: veri ÇEKİLMEZ + section/island render EDİLMEZ → beacon/fetch/event yok. Gateway otoriter.
+  const [reviewsOn, recommendationsOn, recentlyViewedOn, sponsoredOn, wishlistOn] = await Promise.all([
+    isStorefrontModuleEnabled("REVIEWS"),
+    isStorefrontModuleEnabled("RECOMMENDATIONS"),
+    isStorefrontModuleEnabled("RECENTLY_VIEWED"),
+    isStorefrontModuleEnabled("SPONSORED_PRODUCTS"),
+    isStorefrontModuleEnabled("WISHLIST"),
+  ]);
+  const homeCaps = { recentlyViewed: recentlyViewedOn, sponsored: sponsoredOn, wishlist: wishlistOn };
   // TODO-162 (ADR-206) — Public /home (viewer-agnostic) + Katman B discovery (viewer-specific) PARALEL.
   // Discovery sunucu-tarafı çözülür → flash/CLS yok (§24); hata/boş → [] (vitrin bozulmaz).
-  const [home, discovery] = await Promise.all([getHome(locale), getDiscovery(locale)]);
+  // TODO-163 Faz 3 (TD-156) — RECOMMENDATIONS kapalıysa discovery ÇEKİLMEZ (gateway zaten [] döner).
+  const [home, discovery] = await Promise.all([
+    getHome(locale),
+    recommendationsOn ? getDiscovery(locale) : Promise.resolve<StorefrontDiscoverySection[]>([]),
+  ]);
 
   if (home.sections.length > 0 || discovery.length > 0) {
     // TODO-159D (ADR-093) — Public showcase + discovery ürünleri için TEK batched favori-durum + rating çözümü.
@@ -76,21 +90,22 @@ export default async function HomePage() {
     );
     const allIds = [...new Set([...showcaseIds, ...collectDiscoveryProductIds(discovery)])];
     const [savedProductIds, cardRatings] = await Promise.all([
-      getWishlistStatus(allIds).then((set) => [...set]),
-      getCardRatings(allIds),
+      wishlistOn ? getWishlistStatus(allIds).then((set) => [...set]) : Promise.resolve<string[]>([]),
+      reviewsOn ? getCardRatings(allIds) : Promise.resolve({}),
     ]);
     // Hero varsa: Hero → Discovery (hero altı, §6) → kalan public section'lar. Hero yoksa: Discovery → public.
     const heroFirst = home.sections.length > 0 && home.sections[0].type === "HERO_SLIDER";
     const heroSections = heroFirst ? home.sections.slice(0, 1) : [];
     const restSections = heroFirst ? home.sections.slice(1) : home.sections;
     return (
-      <WishlistProvider initialSavedIds={savedProductIds}>
+      <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
         <RatingProvider summaries={cardRatings}>
           {/* TD-129 — "Son İncelediklerin" artık yönetilebilir bir HomeSection tipidir (RECENTLY_VIEWED);
-              manuel sabit render KALDIRILDI. Admin şeridin yerini/başlığını/görünürlüğünü CMS'ten yönetir. */}
-          {heroSections.length > 0 ? <HomeSections sections={heroSections} dict={dict} /> : null}
+              manuel sabit render KALDIRILDI. Admin şeridin yerini/başlığını/görünürlüğünü CMS'ten yönetir.
+              TODO-163 Faz 3 (TD-156) — homeCaps kapalı RECENTLY_VIEWED/SPONSORED section'larını render dışı bırakır. */}
+          {heroSections.length > 0 ? <HomeSections sections={heroSections} dict={dict} caps={homeCaps} /> : null}
           <DiscoverySections sections={discovery} dict={dict} />
-          {restSections.length > 0 ? <HomeSections sections={restSections} dict={dict} /> : null}
+          {restSections.length > 0 ? <HomeSections sections={restSections} dict={dict} caps={homeCaps} /> : null}
         </RatingProvider>
       </WishlistProvider>
     );
@@ -102,11 +117,11 @@ export default async function HomePage() {
   const brandLabel = storeInfo?.storeName ?? dict.shell.brand;
   const featuredIds = featured.map((product) => product.id);
   const [savedProductIds, cardRatings] = await Promise.all([
-    getWishlistStatus(featuredIds).then((set) => [...set]),
-    getCardRatings(featuredIds),
+    wishlistOn ? getWishlistStatus(featuredIds).then((set) => [...set]) : Promise.resolve<string[]>([]),
+    reviewsOn ? getCardRatings(featuredIds) : Promise.resolve({}),
   ]);
   return (
-    <WishlistProvider initialSavedIds={savedProductIds}>
+    <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
       <RatingProvider summaries={cardRatings}>
         <HomeFallback dict={dict} featured={featured} brandLabel={brandLabel} />
       </RatingProvider>

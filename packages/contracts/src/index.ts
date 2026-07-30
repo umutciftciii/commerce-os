@@ -9912,11 +9912,93 @@ export const storeModulesResponseSchema = z.object({
   }),
 });
 
+// Faz 2: cascade → parent-disable onayı (aktif dependent varsa gerekli; sessiz cascade yok).
 export const updateStoreModuleRequestSchema = z.object({
   state: storeModuleStateSchema,
+  cascade: z.boolean().optional(),
+});
+
+// Faz 2: parent-disable preview — bir modülü DISABLE etmenin kapatacağı aktif dependent'lar.
+export const storeModuleDisablePreviewResponseSchema = z.object({
+  data: z.object({
+    moduleKey: z.string(),
+    dependents: z.array(z.string()),
+  }),
+});
+
+// Faz 2: PUBLIC capability projeksiyonu (storefront hot-path). YALNIZ moduleKey→boolean
+// (source/label/plan sızmaz). Effective durum sunucuda türetilir; istemci gönderemez.
+export const publicStoreCapabilitiesResponseSchema = z.object({
+  data: z.object({
+    modules: z.record(z.boolean()),
+  }),
+});
+
+// TODO-163 Faz 3 (TD-154 · ADR-215) — Plan → Capability editörü (platform-admin).
+// Bounded durum enum'u (arbitrary JSON DEĞİL): required=plan default açık, optional=baseline,
+// unavailable=plan default kapalı. Effective sıra korunur (store override > plan > baseline).
+export const planCapabilityStatusSchema = z.enum(["required", "optional", "unavailable"]);
+
+export const planCapabilityMatrixEntrySchema = z.object({
+  key: z.string(),
+  group: z.string(),
+  labelTr: z.string(),
+  labelEn: z.string(),
+  descriptionTr: z.string(),
+  core: z.boolean(),
+  requires: z.array(z.string()),
+  status: planCapabilityStatusSchema,
+  effectivePlanEnabled: z.boolean(),
+  blockedBy: z.string().nullable(),
+});
+
+export const planCapabilitiesResponseSchema = z.object({
+  data: z.object({
+    planId: z.string(),
+    modules: z.array(planCapabilityMatrixEntrySchema),
+  }),
+});
+
+// Editör apply/preview gövdesi: yalnız durum enum'u (değerler bounded; anahtarlar sunucuda registry'ye
+// karşı doğrulanır → bilinmeyen/core-unavailable/invalid-dependency reddedilir).
+export const planCapabilitiesUpdateRequestSchema = z.object({
+  statuses: z.record(planCapabilityStatusSchema),
+});
+
+export const planCapabilityValidationErrorSchema = z.object({
+  code: z.enum(["UNKNOWN_MODULE", "CORE_UNAVAILABLE", "INVALID_DEPENDENCY"]),
+  key: z.string(),
+  requires: z.string().optional(),
+});
+
+export const planCapabilityPreviewResponseSchema = z.object({
+  data: z.object({
+    ok: z.boolean(),
+    errors: z.array(planCapabilityValidationErrorSchema),
+    entries: z.array(
+      z.object({
+        key: z.string(),
+        proposedStatus: planCapabilityStatusSchema,
+        effectivePlanEnabled: z.boolean(),
+        blockedBy: z.string().nullable(),
+        changed: z.boolean(),
+      }),
+    ),
+    changedModules: z.array(z.string()),
+    dependencyDisabled: z.array(z.string()),
+    /** Bu plana bağlı (ACTIVE/TRIALING) mağaza sayısı — etki özeti (bounded). */
+    subscriberCount: z.number().int().nonnegative(),
+  }),
 });
 
 export type StoreModuleState = z.infer<typeof storeModuleStateSchema>;
 export type StoreModuleMatrixEntry = z.infer<typeof storeModuleMatrixEntrySchema>;
 export type StoreModulesResponse = z.infer<typeof storeModulesResponseSchema>;
 export type UpdateStoreModuleRequest = z.infer<typeof updateStoreModuleRequestSchema>;
+export type StoreModuleDisablePreviewResponse = z.infer<typeof storeModuleDisablePreviewResponseSchema>;
+export type PublicStoreCapabilitiesResponse = z.infer<typeof publicStoreCapabilitiesResponseSchema>;
+export type PlanCapabilityStatus = z.infer<typeof planCapabilityStatusSchema>;
+export type PlanCapabilityMatrixEntry = z.infer<typeof planCapabilityMatrixEntrySchema>;
+export type PlanCapabilitiesResponse = z.infer<typeof planCapabilitiesResponseSchema>;
+export type PlanCapabilitiesUpdateRequest = z.infer<typeof planCapabilitiesUpdateRequestSchema>;
+export type PlanCapabilityPreviewResponse = z.infer<typeof planCapabilityPreviewResponseSchema>;

@@ -15,6 +15,7 @@ import {
 } from "./retention-service.js";
 import { createPrismaRecommendationEventRetentionPersistence } from "./retention-persistence.js";
 import { getDefaultAdvisoryLockManager } from "../commercial-automation/advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export interface RecommendationEventRetentionWorkerHandle {
   enabled: boolean;
@@ -26,9 +27,15 @@ export interface RecommendationEventRetentionWorkerDeps {
   config: AppConfig;
   logger: Logger;
   service?: RecommendationEventRetentionService;
+  // TODO-163 Faz 3 (TD-153) — RECOMMENDATION_ANALYTICS kapalı store'da tur atlanır (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
-export function buildRecommendationEventRetentionService(config: AppConfig, logger: Logger): RecommendationEventRetentionService {
+export function buildRecommendationEventRetentionService(
+  config: AppConfig,
+  logger: Logger,
+  capabilityGate?: WorkerCapabilityGate,
+): RecommendationEventRetentionService {
   return createRecommendationEventRetentionService({
     persistence: createPrismaRecommendationEventRetentionPersistence(prisma),
     jobLog: prisma,
@@ -39,6 +46,7 @@ export function buildRecommendationEventRetentionService(config: AppConfig, logg
       batchSize: config.RECOMMENDATION_EVENT_RETENTION_BATCH_SIZE,
       maxDeletePerRun: config.RECOMMENDATION_EVENT_RETENTION_MAX_DELETE_PER_RUN,
     },
+    capabilityGate,
   });
 }
 
@@ -53,7 +61,7 @@ export function startRecommendationEventRetentionWorker(
   }
 
   const intervalMs = config.RECOMMENDATION_EVENT_RETENTION_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildRecommendationEventRetentionService(config, logger);
+  const service = deps.service ?? buildRecommendationEventRetentionService(config, logger, deps.capabilityGate);
 
   let stopped = false;
   let running = false;

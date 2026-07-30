@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import { storeApi } from "../lib/client/api";
+import { HREF_MODULE } from "../lib/store-modules";
 import {
   AttributeIcon,
   CampaignIcon,
@@ -55,32 +56,10 @@ const SPONSORSHIP_LABELS: Record<string, { tr: string; en: string }> = {
   payments: { tr: "Tahakkuk & Tahsilat", en: "Billing & Collections" },
 };
 
-// TODO-163 (ADR-208…ADR-210) — Nav item → modül anahtarı eşlemesi. Eşleşen modül effective
-// KAPALIysa item gizlenir. Eşlemesi olmayan item'lar (dashboard, ayarlar, modül yönetimi)
-// her zaman gösterilir (çekirdek/yönetim). Effective durum SUNUCUDA türetilir; burada yalnız
-// gizleme yapılır (güvenlik enforcement gateway'de).
-const HREF_MODULE: Record<string, string> = {
-  "/inventory": "inventory",
-  "/customers": "customers",
-  "/reviews": "reviews",
-  "/payment-providers": "payments",
-  "/shipping/shipments": "shipping",
-  "/shipping/providers": "shipping",
-  "/shipping/rates": "shipping",
-  "/campaigns": "campaigns",
-  "/influencers": "influencers",
-  "/influencer-campaigns": "influencers",
-  "/marketplace": "marketplace",
-  "/sponsors": "sponsorship",
-  "/sponsorship-agreements": "sponsorship",
-  "/sponsored-products": "sponsorship",
-  "/sponsorship-settlements": "sponsorship",
-  "/sponsorship-payments": "sponsorship",
-  "/home": "home_experience",
-  "/hero": "home_experience",
-  "/theme": "theme",
-  "/operations": "operations",
-};
+// TODO-163 (ADR-208…ADR-214) — Nav item → modül anahtarı eşlemesi paylaşılan `lib/store-modules`
+// içinde (sunucu-tarafı sayfa guard'ı `ModuleGuard` ile TEK OTORİTE; drift yok). Eşleşen modül
+// effective KAPALIysa item gizlenir; eşlemesi olmayan item'lar (dashboard, ayarlar, modül
+// yönetimi) her zaman gösterilir. Güvenlik enforcement gateway'de + route layout guard'ında.
 
 export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();

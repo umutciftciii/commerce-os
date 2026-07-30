@@ -24,6 +24,8 @@ import { ViewHistorySection } from "../../components/account/sections/view-histo
 import { getCouponCenter } from "../../lib/server/coupons";
 import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
 import { getMyReviews } from "../../lib/server/reviews";
+// TODO-163 Faz 2 — capability projeksiyonu (kapalı modül sekmesi/section render edilmez).
+import { getStoreCapabilities } from "../../lib/server/site";
 import { ProfileForm } from "../../components/account/sections/profile-form";
 import { PasswordForm } from "../../components/account/sections/password-form";
 import { CommunicationForm } from "../../components/account/sections/communication-form";
@@ -72,18 +74,35 @@ export default async function AccountPage({
   const locale = await getRequestLocale();
   const params = await searchParams;
   const section = resolveSection(params.section);
+  // TODO-163 Faz 2 — kapalı modüllerin sekmesi menüden gizlenir + doğrudan URL ile açılırsa
+  // section render edilmez (module-unavailable). Gateway zaten veriyi kapatır (defense-in-depth).
+  const caps = await getStoreCapabilities();
+  const SECTION_MODULE: Partial<Record<AccountSection, string>> = {
+    reviews: "REVIEWS",
+    favorites: "WISHLIST",
+    lists: "CUSTOMER_LISTS",
+    coupons: "CAMPAIGNS",
+    viewHistory: "RECENTLY_VIEWED",
+  };
+  const sectionModule = SECTION_MODULE[section];
+  const sectionDisabled = sectionModule ? caps[sectionModule] === false : false;
 
   return (
     <Container className="py-12">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[240px_1fr]">
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          <AccountSidebar t={t} section={section} />
+          <AccountSidebar t={t} section={section} caps={caps} />
         </aside>
         <section>
-          {await renderSection(section, dict, locale, {
-            tab: params.tab,
-            q: params.q,
-          })}
+          {sectionDisabled ? (
+            <EmptyState title="Bu bölüm şu anda kullanılamıyor." />
+          ) : (
+            await renderSection(section, dict, locale, {
+              tab: params.tab,
+              q: params.q,
+              wishlistEnabled: caps.WISHLIST !== false,
+            })
+          )}
         </section>
       </div>
     </Container>
@@ -94,7 +113,7 @@ async function renderSection(
   section: AccountSection,
   dict: Awaited<ReturnType<typeof getStorefrontDict>>,
   locale: Locale,
-  ordersParams: { tab?: string; q?: string },
+  ordersParams: { tab?: string; q?: string; wishlistEnabled?: boolean },
 ) {
   const t = dict.account;
   switch (section) {
@@ -174,7 +193,8 @@ async function renderSection(
     }
     case "viewHistory":
       // TODO-161B — Görüntüleme geçmişi client island'da çözülür (kimlik = müşteri cookie).
-      return <ViewHistorySection t={dict} />;
+      // TODO-163 Faz 3 (TD-156) — WISHLIST kapalıysa kalp gizlenir (bağımsız modül).
+      return <ViewHistorySection t={dict} wishlistEnabled={ordersParams.wishlistEnabled !== false} />;
     default:
       return null;
   }

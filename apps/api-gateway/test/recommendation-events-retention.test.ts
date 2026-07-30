@@ -167,3 +167,51 @@ describe("recommendation-event retention service", () => {
     expect(jobLog.rows[0].queueName).toBe("recommendation-events");
   });
 });
+
+// TODO-163 Faz 3 (TD-153) — RECOMMENDATION_ANALYTICS kapalı store'da tur atlanır (SKIPPED_DISABLED).
+describe("recommendation-event retention — capability gate (TD-153)", () => {
+  const gate = (enabled: Record<string, boolean>) => ({
+    isEnabled: async (storeId: string) => enabled[storeId] !== false,
+  });
+
+  function gatedSvc(rows: Row[], enabled: Record<string, boolean>) {
+    const double = createPersistenceDouble(rows);
+    return {
+      double,
+      svc: createRecommendationEventRetentionService({
+        persistence: double.persistence,
+        jobLog: jobLog.client,
+        logger: noopLogger,
+        lock: alwaysLock,
+        clock: () => NOW,
+        config: { retentionDays: RETENTION_DAYS, batchSize: 1000, maxDeletePerRun: 200_000 },
+        capabilityGate: gate(enabled),
+      }),
+    };
+  }
+
+  it("kapalı store: MUTATION YOK + SKIPPED_DISABLED jobLog; açık store işlenir; cross-store leak yok", async () => {
+    const rows = [row("store_off", 200), row("store_on", 200)];
+    const { double, svc } = gatedSvc(rows, { store_off: false, store_on: true });
+    const summary = await svc.runOnce({ now: NOW, apply: true });
+
+    expect(summary.skippedDisabled).toBe(1);
+    expect(summary.totalDeleted).toBe(1); // yalnız store_on
+    // store_off satırı DURUYOR (silme yok); store_on silindi → cross-store leak yok
+    expect(double.remaining().map((r) => r.storeId)).toEqual(["store_off"]);
+
+    const offReport = summary.perStore.find((p) => p.storeId === "store_off")!;
+    expect(offReport.outcome).toBe("SKIPPED_DISABLED");
+    const offLog = jobLog.rows.find((r) => r.storeId === "store_off");
+    expect(offLog.payload.outcome).toBe("SKIPPED_DISABLED");
+    expect(offLog.status).toBe("COMPLETED"); // HATA DEĞİL (retry storm yok)
+  });
+
+  it("gate enjekte edilmezse davranış eskisiyle AYNI (regresyonsuz; skippedDisabled=0)", async () => {
+    const { svc, remaining } = service([row("store_a", 200)], jobLog.client);
+    const summary = await svc.runOnce({ now: NOW, apply: true });
+    expect(summary.skippedDisabled).toBe(0);
+    expect(summary.totalDeleted).toBe(1);
+    expect(remaining()).toHaveLength(0);
+  });
+});

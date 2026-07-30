@@ -15,6 +15,7 @@ import {
 } from "./retention-service.js";
 import { createPrismaRecentlyViewedRetentionPersistence } from "./retention-persistence.js";
 import { getDefaultAdvisoryLockManager } from "../commercial-automation/advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export interface RecentlyViewedRetentionWorkerHandle {
   enabled: boolean;
@@ -26,9 +27,15 @@ export interface RecentlyViewedRetentionWorkerDeps {
   config: AppConfig;
   logger: Logger;
   service?: RecentlyViewedRetentionService;
+  // TODO-163 Faz 3 (TD-153) — RECENTLY_VIEWED kapalı store'da tur atlanır (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
-export function buildRecentlyViewedRetentionService(config: AppConfig, logger: Logger): RecentlyViewedRetentionService {
+export function buildRecentlyViewedRetentionService(
+  config: AppConfig,
+  logger: Logger,
+  capabilityGate?: WorkerCapabilityGate,
+): RecentlyViewedRetentionService {
   return createRecentlyViewedRetentionService({
     persistence: createPrismaRecentlyViewedRetentionPersistence(prisma),
     jobLog: prisma,
@@ -39,6 +46,7 @@ export function buildRecentlyViewedRetentionService(config: AppConfig, logger: L
       batchSize: config.RECENTLY_VIEWED_RETENTION_BATCH_SIZE,
       maxDeletePerRun: config.RECENTLY_VIEWED_RETENTION_MAX_DELETE_PER_RUN,
     },
+    capabilityGate,
   });
 }
 
@@ -53,7 +61,7 @@ export function startRecentlyViewedRetentionWorker(
   }
 
   const intervalMs = config.RECENTLY_VIEWED_RETENTION_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildRecentlyViewedRetentionService(config, logger);
+  const service = deps.service ?? buildRecentlyViewedRetentionService(config, logger, deps.capabilityGate);
 
   let stopped = false;
   let running = false;

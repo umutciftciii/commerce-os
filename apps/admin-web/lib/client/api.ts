@@ -8,6 +8,9 @@ import type {
   PlanCreateRequest,
   PlanListResponse,
   PlanUpdateRequest,
+  PlanCapabilitiesResponse,
+  PlanCapabilitiesUpdateRequest,
+  PlanCapabilityPreviewResponse,
   PlatformMeResponse,
   PlatformUserContract,
 } from "@commerce-os/api-client";
@@ -129,6 +132,20 @@ export const adminApi = {
     mutatingCall<Plan>("/api/admin/plans", { method: "POST", body: JSON.stringify(input) }),
   updatePlan: (id: string, input: PlanUpdateRequest) =>
     mutatingCall<Plan>(`/api/admin/plans/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+  // TODO-163 Faz 3 (TD-154) — Plan → Capability editörü.
+  getPlanCapabilities: (id: string) =>
+    call<PlanCapabilitiesResponse>(`/api/admin/plans/${id}/capabilities`),
+  previewPlanCapabilities: (id: string, input: PlanCapabilitiesUpdateRequest) =>
+    mutatingCall<PlanCapabilityPreviewResponse>(`/api/admin/plans/${id}/capabilities/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyPlanCapabilities: (id: string, input: PlanCapabilitiesUpdateRequest) =>
+    mutatingCall<PlanCapabilitiesResponse>(`/api/admin/plans/${id}/capabilities`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
 
   // System health
   systemHealth: () => call<SystemHealth>("/api/system/health"),

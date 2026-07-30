@@ -243,6 +243,9 @@ import { registerDiscoveryEventRoutes } from "./home/discovery-event-routes.js";
 // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
 import { createStoreModuleData } from "./capabilities/data.js";
 import { registerCapabilityRoutes, createRequireCapability } from "./capabilities/routes.js";
+import { registerPlanCapabilityRoutes } from "./capabilities/plan-routes.js";
+import { createCapabilityCache } from "./capabilities/cache.js";
+import type { StoreModuleKey } from "./capabilities/registry.js";
 // Faz 1B (ADR-067) — Attribute katalog cekirdegi (store + platform CRUD).
 import {
   registerPlatformAttributeRoutes,
@@ -5241,7 +5244,10 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const publicCampaigns = await dataAccess.listPublicActiveCampaigns(store.id);
+    // TODO-163 Faz 2 — CAMPAIGNS kapalıysa vitrin kampanya şeridi boş (graceful; 404 değil).
+    const publicCampaigns = (await capabilityCache.isEnabled(store.id, "CAMPAIGNS"))
+      ? await dataAccess.listPublicActiveCampaigns(store.id)
+      : [];
     const slides = selectPublicCampaignSlides(publicCampaigns, new Date());
     return publicCampaignSlidesResponseSchema.parse({ data: slides });
   });
@@ -5279,7 +5285,10 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const published = await themeDataAccess.getPublishedDocument(store.id);
+    // TODO-163 Faz 2 — THEME_STUDIO kapalıysa tenant override uygulanmaz; base (varsayılan) tema
+    // döner (storefront globals.css ile aynı; crash yok).
+    const themeEnabled = await capabilityCache.isEnabled(store.id, "THEME_STUDIO");
+    const published = themeEnabled ? await themeDataAccess.getPublishedDocument(store.id) : null;
     const resolved = published ? validateThemeDocument(published.document) : null;
     const document = resolved && resolved.ok ? resolved.document : DEFAULT_THEME_DOCUMENT;
     return publicThemeSchema.parse({
@@ -5300,7 +5309,10 @@ export function createServer(
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    const slides = await heroDataAccess.listPublishedHeroSlides(store.id);
+    // TODO-163 Faz 2 — HOME_EXPERIENCE kapalıysa hero boş (vitrin statik hero fallback'ine düşer).
+    const slides = (await capabilityCache.isEnabled(store.id, "HOME_EXPERIENCE"))
+      ? await heroDataAccess.listPublishedHeroSlides(store.id)
+      : [];
     return publicHeroSlidesResponseSchema.parse({
       data: slides.map((slide) => serializePublicHeroSlide(slide, config.MEDIA_PUBLIC_BASE_URL)),
     });
@@ -5321,7 +5333,11 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
     const now = new Date();
-    const sections = await homeDataAccess.listPublishedSections(store.id, now);
+    // TODO-163 Faz 2 — HOME_EXPERIENCE kapalıysa configured section YOK → vitrin basic home
+    // fallback'ine düşer (boş sections; crash/boş-sayfa yok).
+    const sections = (await capabilityCache.isEnabled(store.id, "HOME_EXPERIENCE"))
+      ? await homeDataAccess.listPublishedSections(store.id, now)
+      : [];
 
     // 1. geçiş — her section'ın ham verisini çöz; showcase'ler için ürün id'lerini topla.
     type HeroResolved = { kind: "HERO"; section: (typeof sections)[number]; slides: Awaited<ReturnType<typeof homeDataAccess.listPublishedHeroSlides>> };
@@ -5358,12 +5374,16 @@ export function createServer(
         const sponsoredConfig = parseHomeSponsoredShowcaseConfig(section.config);
         const maxItems = Math.min(sponsoredConfig.maxItems, SPONSORED_HOME_MAX_SLOTS);
         // Best-effort: sponsorlu çözüm hatası ana sayfanın diğer bölümlerini BOZMAZ (section boş → gizli).
+        // TODO-163 Faz 3 (TD-156) — SPONSORED_PRODUCTS kapalıysa aday ÇÖZÜLMEZ → token ÜRETİLMEZ
+        // (section boş → storefront'ta gizli). Organik section'lar etkilenmez.
         let candidates: Array<{ productId: string; campaignId: string; placementId: string }> = [];
-        try {
-          const resolvedCandidates = await sponsoredData.resolveHomeCandidates(store.id, { now, limit: maxItems });
-          candidates = resolvedCandidates.map((c) => ({ productId: c.item.productId, campaignId: c.campaignId, placementId: c.placementId }));
-        } catch {
-          candidates = [];
+        if (await capabilityCache.isEnabled(store.id, "SPONSORED_PRODUCTS")) {
+          try {
+            const resolvedCandidates = await sponsoredData.resolveHomeCandidates(store.id, { now, limit: maxItems });
+            candidates = resolvedCandidates.map((c) => ({ productId: c.item.productId, campaignId: c.campaignId, placementId: c.placementId }));
+          } catch {
+            candidates = [];
+          }
         }
         resolved.push({ kind: "SPONSORED", section, layout: sponsoredConfig.layout, maxItems, candidates });
       } else if (section.type === "PRODUCT_SHOWCASE") {
@@ -6266,6 +6286,30 @@ export function createServer(
     listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
   });
 
+  // TODO-163 (ADR-208…ADR-210 · Faz 2 ADR-211…213) — Tenant Module & Capability infra.
+  // Feature register'larindan ONCE kurulur ki modul-scope'lu guard fabrikalari asagidaki tum
+  // register deps'lerine (requireStoreAdmin/resolvePublicStore) sarilabilsin. Effective durum
+  // YALNIZ sunucuda turetilir; istemci gonderemez. Cache: store-scoped bounded TTL + explicit
+  // invalidation (mutation) + fail-closed (DB hatasi → non-core kapali, core acik).
+  const storeModuleData = createStoreModuleData(dataAccess);
+  const capabilityCache = createCapabilityCache(storeModuleData, { ttlMs: 30_000, logger });
+  const requireCapability = createRequireCapability(capabilityCache);
+  const requireStoreAdminForModule =
+    (moduleKey: StoreModuleKey) =>
+    async (request: FastifyRequest, reply: FastifyReply, storeId: string) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      if (!access) return null;
+      if (!(await requireCapability(reply, storeId, moduleKey))) return null;
+      return { actorUserId: access.session.platformUser.id };
+    };
+  const resolvePublicStoreForModule =
+    (moduleKey: StoreModuleKey) => async (slug: string) => {
+      const store = await resolvePublicStore(slug);
+      if (!store) return null;
+      if (!(await capabilityCache.isEnabled(store.id, moduleKey))) return null; // fail-closed, leak-siz
+      return store;
+    };
+
   // TODO-159D (ADR-093) — Customer Lists & Wishlist (own account). Katalog/stok
   // hidrasyonu enjekte edilen dataAccess yardımcılarından (N+1'siz batched; Prisma
   // customer-lists modülüne yalnız CustomerList/CustomerListItem CRUD için sızar).
@@ -6274,7 +6318,9 @@ export function createServer(
     config,
     customers,
     logger,
-    resolvePublicStore,
+    // Faz 2 — CUSTOMER_LISTS kapalıysa public liste/wishlist uçları 404 (leak-siz). WISHLIST
+    // bu modüle bağımlıdır → CUSTOMER_LISTS kapanınca wishlist de effective kapanır.
+    resolvePublicStore: resolvePublicStoreForModule("CUSTOMER_LISTS"),
     data: customerListData,
     catalog: {
       findProductsByIds: (sid, ids) => dataAccess.findProductsByIds(sid, ids),
@@ -6292,7 +6338,9 @@ export function createServer(
     config,
     customers,
     logger,
-    resolvePublicStore,
+    // Faz 2 — RECENTLY_VIEWED kapalıysa takip/liste + /similar uçları 404. RECOMMENDATIONS bu
+    // modüle bağımlıdır (dependency).
+    resolvePublicStore: resolvePublicStoreForModule("RECENTLY_VIEWED"),
     data: recentlyViewedData,
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
     resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
@@ -6305,12 +6353,9 @@ export function createServer(
     config,
     customers,
     logger,
-    resolvePublicStore,
+    resolvePublicStore: resolvePublicStoreForModule("RECOMMENDATION_ANALYTICS"),
     data: createRecommendationEventData(),
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("RECOMMENDATION_ANALYTICS"),
   });
 
   // TODO-162 (ADR-205) — Home Discovery section-analytics. Katman B keşif section'larının funnel ölçümü
@@ -6322,22 +6367,17 @@ export function createServer(
     config,
     customers,
     logger,
-    resolvePublicStore,
+    resolvePublicStore: resolvePublicStoreForModule("HOME_EXPERIENCE"),
     data: createDiscoveryEventData(),
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("HOME_EXPERIENCE"),
   });
 
-  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
-  // Effective modül matrisi (admin) + açık override. requireCapability, effective KAPALI
-  // modülü gerektiren feature route'larında (temsili) 403 CAPABILITY_DISABLED üretir.
-  const storeModuleData = createStoreModuleData(dataAccess);
-  const requireCapability = createRequireCapability(storeModuleData);
+  // TODO-163 — Capability yönetim + public projeksiyon uçları (infra yukarıda kuruldu).
   registerCapabilityRoutes(app, {
     data: storeModuleData,
+    cache: capabilityCache,
     logger,
+    resolvePublicStore,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -6357,6 +6397,9 @@ export function createServer(
     // TODO-161 (ADR-114/118) — Sponsorlu adayları çöz + her biri için GATEWAY-imzalı token üret
     // (impression/click ölçümü + checkout attribution taşıyıcısı). Organik ranking'e DOKUNMAZ.
     resolveSponsoredSearch: async ({ storeId, queryTokens, categorySlug, limit }) => {
+      // TODO-163 Faz 3 (TD-156) — SPONSORED_PRODUCTS kapalıysa arama sponsorlu adayı ÇÖZÜLMEZ →
+      // token üretilmez (organik sonuç akışı etkilenmez).
+      if (!(await capabilityCache.isEnabled(storeId, "SPONSORED_PRODUCTS"))) return [];
       const nowDate = new Date();
       const nowMs = nowDate.getTime();
       const expiresAt = computeSponsoredExpiry(nowMs, DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS);
@@ -6422,20 +6465,14 @@ export function createServer(
     registerCustomerErasureRoutes(app, {
       service: erasureService,
       data: erasureData,
-      requireStoreAdmin: async (request, reply, storeId) => {
-        const access = await requireStorePlatformAdmin(request, reply, storeId);
-        return access ? { actorUserId: access.session.platformUser.id } : null;
-      },
+      requireStoreAdmin: requireStoreAdminForModule("CUSTOMER_DATA_ERASURE"),
     });
   }
 
   // TODO-159D (ADR-093) — Store-admin müşteri liste ÖZETİ (salt-okunur; gizlilik-güvenli).
   registerCustomerListAdminRoutes(app, {
     data: customerListData,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("CUSTOMER_LISTS"),
   });
 
   // TODO-159E (ADR-094) — Product Reviews & Ratings.
@@ -6445,7 +6482,8 @@ export function createServer(
     config,
     customers,
     logger,
-    resolvePublicStore,
+    // Faz 2 — REVIEWS kapalıysa public summary/list + customer create/edit/helpful uçları 404.
+    resolvePublicStore: resolvePublicStoreForModule("REVIEWS"),
     data: reviewData,
     catalog: {
       listProductImages: (sid: string, pids: string[], coverOnly: boolean) =>
@@ -6456,10 +6494,7 @@ export function createServer(
   registerCustomerReviewRoutes(app, reviewRoutesDeps);
   registerReviewAdminRoutes(app, {
     data: reviewData,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("REVIEWS"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -6470,10 +6505,7 @@ export function createServer(
   registerInfluencerAdminRoutes(app, {
     config,
     data: influencerData,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("INFLUENCER_TRACKING"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     buildTrackingUrl: (token: string) => {
       const base = config.STOREFRONT_PUBLIC_BASE_URL;
@@ -6483,7 +6515,7 @@ export function createServer(
   registerPublicTrackingRoutes(app, {
     data: influencerData,
     config,
-    resolvePublicStore,
+    resolvePublicStore: resolvePublicStoreForModule("INFLUENCER_TRACKING"),
     logger,
     // Public track abuse koruması: IP başına 60 istek / 60 sn (enumeration/DoS yavaşlatma).
     rateLimiter: createSlidingWindowLimiter(60, 60_000),
@@ -6493,10 +6525,7 @@ export function createServer(
   registerSponsoredAdminRoutes(app, {
     config,
     data: sponsoredData,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("SPONSORED_PRODUCTS"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-161A.2 (ADR-128) — ticari uygunluk kapısı + anlaşma bağlama köprüsü (sponsorship domain'i).
     commercial: {
@@ -6508,7 +6537,7 @@ export function createServer(
   registerSponsoredPublicRoutes(app, {
     data: sponsoredData,
     config,
-    resolvePublicStore,
+    resolvePublicStore: resolvePublicStoreForModule("SPONSORED_PRODUCTS"),
     logger,
     // Public event abuse koruması: IP başına 120 istek / 60 sn (impression/click yoğunluğu).
     rateLimiter: createSlidingWindowLimiter(120, 60_000),
@@ -6517,10 +6546,7 @@ export function createServer(
   // TODO-161A (ADR-121…127) — Sponsorship Agreements, Billing & Settlement (store-admin; public YOK).
   registerSponsorshipAdminRoutes(app, {
     data: sponsorshipData,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("SPONSORSHIP_FINANCE"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -6528,10 +6554,7 @@ export function createServer(
   // Servisler HTTP tarafinda insa edilir; zamanlanmis worker'lar (main.ts) ayni servis mantigini kullanir.
   // Modul-seviyesi withJobLock manuel ile zamanlanmis turlarin cakismasini onler (ayni surec).
   registerCommercialAutomationRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("OPERATIONS_ADVANCED"),
     settlementScheduler: buildSettlementSchedulerService(config, logger),
     retention: buildRetentionService(config, logger),
     jobLog: prisma,
@@ -6587,10 +6610,7 @@ export function createServer(
   // ödeme durumu) + opaque token'lı public müşteri ödeme sayfası (/pay/:token).
   registerPaymentRecoveryRoutes(app, {
     config,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("PAYMENT_RECOVERY"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     notifications: createLogPaymentNotificationDispatcher(logger),
   });
@@ -6808,10 +6828,7 @@ export function createServer(
   // F4A — Kampanya/kupon yonetimi (ADR-058): store-admin CRUD + durum gecisleri.
   registerCampaignAdminRoutes(app, {
     dataAccess,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("CAMPAIGNS"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-155.2 — Kampanya lifecycle degisince search read-model'i tazele (rozet snapshot yenilensin).
     onCampaignChanged: (storeId) => searchIndex.reindexStore(storeId),
@@ -6823,10 +6840,7 @@ export function createServer(
   registerHeroAdminRoutes(app, {
     dataAccess: heroDataAccess,
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("HOME_EXPERIENCE"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -6852,6 +6866,12 @@ export function createServer(
 
     const store = await resolvePublicStore(params.storeSlug);
     if (!store) return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+
+    // TODO-163 Faz 2 — RECOMMENDATIONS kapalıysa kişiselleştirilmiş keşif section'ı üretilmez
+    // (boş sections → storefront hiçbir discovery render etmez; analytics event de oluşmaz).
+    if (!(await capabilityCache.isEnabled(store.id, "RECOMMENDATIONS"))) {
+      return publicHomeDiscoveryResponseSchema.parse({ sections: [] });
+    }
 
     // Kimlik: customer (session, store-scoped; cross-store session resolveCustomerFromRequest'te reddedilir) →
     // yoksa store-scoped visitorHash (x-visitor-id HMAC). customerId/visitorHash ASLA gövdeden alınmaz.
@@ -6978,10 +6998,14 @@ export function createServer(
       | { kind: "EDITORIAL"; section: (typeof discoverySections)[number] }
       | { kind: "GRID"; section: (typeof discoverySections)[number]; cards: Array<{ type: DiscoveryGridCardType; order: number; unit: RailUnit | null; editorial: boolean }> };
     const plans: SectionPlan[] = [];
+    // TODO-163 Faz 3 (TD-156) — SPONSORED_PRODUCTS kapalıysa keşifteki sponsorlu rail'ler ATLANIR
+    // (aday çözülmez, token üretilmez). Organik keşif section'ları (RECOMMENDATIONS altında) etkilenmez.
+    const sponsoredDiscoveryEnabled = await capabilityCache.isEnabled(store.id, "SPONSORED_PRODUCTS");
 
     for (const section of discoverySections) {
       const type = section.type as DiscoverySectionType;
       if (type === "SPONSORED_RAIL") {
+        if (!sponsoredDiscoveryEnabled) continue;
         const admin = railAdmin(section.config);
         const limit = candidateFetchLimit("SPONSORED_RAIL", admin.adminMaxItems);
         const candidates = await discoveryData.sponsoredCandidates(store.id, now, limit);
@@ -7282,10 +7306,7 @@ export function createServer(
       }
       return covers;
     },
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("HOME_EXPERIENCE"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -7293,10 +7314,7 @@ export function createServer(
   // CRUD + versiyon + publish/rollback + import/export + canli onizleme + preset).
   registerThemeAdminRoutes(app, {
     dataAccess: themeDataAccess,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("THEME_STUDIO"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -7437,20 +7455,14 @@ export function createServer(
   const inventoryService = createInventoryService(inventoryDataAccess);
   registerInventoryRoutes(app, {
     service: inventoryService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("MULTI_WAREHOUSE"),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
   // F4A.3 (ADR-060) — Kupon atama / musteri cuzdani (kampanya + musteri detayi).
   registerWalletAdminRoutes(app, {
     wallet,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: requireStoreAdminForModule("CAMPAIGNS"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -7699,6 +7711,36 @@ export function createServer(
       metadata: { fields: Object.keys(input) },
     });
     return serializePlan(plan);
+  });
+
+  // TODO-163 Faz 3 (TD-154 · ADR-215) — Plan → Capability editörü (platform-admin). Plan.metadata.modules
+  // default'larını yönetir (required/optional/unavailable) + preview + apply + audit. MERGE (diğer metadata
+  // korunur); StoreModule override'larına DOKUNMAZ (resolver'da override plan'ı yener); veri SİLMEZ. Plan
+  // default değişince capability cache TEMİZLENİR (effective tüm mağazalarda değişebilir).
+  registerPlanCapabilityRoutes(app, {
+    requirePlatformAdmin: async (request, reply) => {
+      const session = await requirePlatformAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
+    findPlan: async (planId) => {
+      const plan = await dataAccess.findPlanById(planId);
+      return plan ? { id: plan.id, metadata: plan.metadata ?? null } : null;
+    },
+    updatePlanMetadata: async (planId, metadata) => {
+      const plan = await dataAccess.updatePlan(planId, { metadata });
+      return plan ? { id: plan.id, metadata: plan.metadata ?? null } : null;
+    },
+    countActiveSubscriptions: (planId) =>
+      prisma.subscription.count({ where: { planId, status: { in: ["ACTIVE", "TRIALING"] } } }),
+    recordAudit: (audit) =>
+      dataAccess.createAuditLog({
+        action: "UPDATE",
+        platformUserId: audit.actorUserId,
+        entityType: "Plan",
+        entityId: audit.planId,
+        metadata: { capabilities: { changedModules: audit.changedModules } },
+      }),
+    invalidateCache: () => capabilityCache.clear(),
   });
 
   // TODO-159A (ADR-089) — Admin Data Grid kategori listesi (arama + durum + sıralama).
@@ -9319,8 +9361,8 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    // TODO-163 (ADR-210) — Modül kapalıysa 403 CAPABILITY_DISABLED (temsili enforcement).
-    if (!(await requireCapability(reply, params.storeId, "payments"))) return;
+    // TODO-163 — PAYMENTS çekirdek modül (daima açık); guard tutarlılık için korunur.
+    if (!(await requireCapability(reply, params.storeId, "PAYMENTS"))) return;
     const configs = await dataAccess.listPaymentProviderConfigs(params.storeId);
     return paymentProviderConfigListResponseSchema.parse({ data: configs.map(serializeConfig) });
   });
@@ -9329,8 +9371,8 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
-    // TODO-163 (ADR-210) — Modül kapalıysa 403 CAPABILITY_DISABLED (temsili enforcement).
-    if (!(await requireCapability(reply, params.storeId, "payments"))) return;
+    // TODO-163 — PAYMENTS çekirdek modül (daima açık); guard tutarlılık için korunur.
+    if (!(await requireCapability(reply, params.storeId, "PAYMENTS"))) return;
     const input = paymentProviderConfigCreateRequestSchema.parse(request.body);
     if (input.minAmount != null && input.maxAmount != null && input.minAmount > input.maxAmount) {
       return reply.code(400).send(errorBody("PAYMENT_AMOUNT_RANGE_INVALID", "minAmount maxAmount'tan buyuk olamaz."));

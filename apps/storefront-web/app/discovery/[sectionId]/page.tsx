@@ -8,6 +8,7 @@ import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getDiscovery } from "../../../lib/server/catalog";
 import { getWishlistStatus } from "../../../lib/server/wishlist";
 import { getCardRatings } from "../../../lib/server/reviews";
+import { isStorefrontModuleEnabled } from "../../../lib/server/site";
 
 /**
  * TODO-162 — Keşif bölümü "Tümünü gör" liste sayfası. Bir discovery section'ın (Günün Fırsatları, Sepetine
@@ -29,6 +30,14 @@ export default async function DiscoverySectionPage({
 }) {
   const { sectionId } = await params;
   const [dict, locale] = await Promise.all([getStorefrontDict(), getRequestLocale()]);
+  // TODO-163 Faz 3 (TD-156) — RECOMMENDATIONS kapalıysa keşif üretilmez → tüm katalog listesine düş
+  // (getDiscovery ÇAĞRILMAZ). REVIEWS/WISHLIST kapalıysa ilgili batch çekilmez.
+  const [recommendationsOn, reviewsOn, wishlistOn] = await Promise.all([
+    isStorefrontModuleEnabled("RECOMMENDATIONS"),
+    isStorefrontModuleEnabled("REVIEWS"),
+    isStorefrontModuleEnabled("WISHLIST"),
+  ]);
+  if (!recommendationsOn) redirect("/products");
   const sections = await getDiscovery(locale);
   const section = sections.find((item) => item.id === sectionId);
   // Bulunamadı / artık ürün yok → tüm katalog listesine düş (vitrin bozulmaz).
@@ -41,12 +50,12 @@ export default async function DiscoverySectionPage({
 
   const ids = section.products.map((product) => product.id);
   const [savedProductIds, cardRatings] = await Promise.all([
-    getWishlistStatus(ids).then((set) => [...set]),
-    getCardRatings(ids),
+    wishlistOn ? getWishlistStatus(ids).then((set) => [...set]) : Promise.resolve<string[]>([]),
+    reviewsOn ? getCardRatings(ids) : Promise.resolve({}),
   ]);
 
   return (
-    <WishlistProvider initialSavedIds={savedProductIds}>
+    <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
       <RatingProvider summaries={cardRatings}>
         <Section as="div" spacing="lg">
           <Container>

@@ -1,5 +1,5 @@
 import { loadConfig } from "@commerce-os/config";
-import { disconnectPrisma } from "@commerce-os/db";
+import { disconnectPrisma, prisma } from "@commerce-os/db";
 import { createLogger } from "@commerce-os/logger";
 import { closeQueueConnections } from "@commerce-os/queues";
 import { createServer } from "./server.js";
@@ -12,27 +12,32 @@ import { startRecentlyViewedRetentionWorker } from "./recently-viewed/retention-
 import { startRecommendationEventRetentionWorker } from "./recommendation-events/retention-worker.js";
 import { startDiscoveryEventRetentionWorker } from "./home/discovery-event-retention-worker.js";
 import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
+import { createWorkerCapabilityGate } from "./capabilities/worker-gate.js";
 
 const config = loadConfig();
 const logger = createLogger(config.SERVICE_NAME, config.LOG_LEVEL);
 const app = createServer(config);
-// TODO-129 — zamanlanmis shipment sync dongusu (SHIPMENT_SYNC_ENABLED=false ise no-op).
+// TODO-163 Faz 3 (TD-153) — OPSİYONEL, store-scope'lu worker'lar için TEK paylaşılan capability gate
+// (store-scoped, bounded TTL cache, fail-closed, tenant-safe). CORE worker'lara (shipment sync / barkod
+// retry / apps/worker inventory·backup) ENJEKTE EDİLMEZ → çekirdek asla capability ile kapanmaz.
+const capabilityGate = createWorkerCapabilityGate(prisma, { logger });
+// TODO-129 — zamanlanmis shipment sync dongusu (SHIPMENT_SYNC_ENABLED=false ise no-op). CORE (SHIPPING) → gate YOK.
 // createServer'a DEGIL surec girisine baglidir: testler createServer'i worker'siz kurar.
 const shipmentSyncWorker = startShipmentSyncWorker({ config, logger });
-// TODO-123 — zamanlanmis barkod retry/backoff dongusu (BARCODE_RETRY_ENABLED=false ise no-op).
+// TODO-123 — zamanlanmis barkod retry/backoff dongusu (BARCODE_RETRY_ENABLED=false ise no-op). CORE (SHIPPING) → gate YOK.
 const barcodeRetryWorker = startBarcodeRetryWorker({ config, logger });
 // TODO-155.2 — zamanlanmis kampanya rozeti reconciliation dongusu (CAMPAIGN_RECONCILE_ENABLED=false ise no-op).
-const campaignReconcileWorker = startCampaignReconcileWorker({ config, logger });
+const campaignReconcileWorker = startCampaignReconcileWorker({ config, logger, capabilityGate });
 // TODO-161A.1 (TD-125) — zamanlanmis settlement scheduler (SETTLEMENT_SCHEDULER_ENABLED=false ise no-op).
-const settlementSchedulerWorker = startSettlementSchedulerWorker({ config, logger });
+const settlementSchedulerWorker = startSettlementSchedulerWorker({ config, logger, capabilityGate });
 // TODO-161A.1 (TD-121+TD-113) — zamanlanmis attribution retention purge (ATTRIBUTION_RETENTION_ENABLED=false ise no-op).
-const retentionWorker = startRetentionWorker({ config, logger });
+const retentionWorker = startRetentionWorker({ config, logger, capabilityGate });
 // TODO-161B (ADR-139) — zamanlanmis Recently Viewed retention (RECENTLY_VIEWED_RETENTION_ENABLED=false ise no-op).
-const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger });
+const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger, capabilityGate });
 // TD-130 (ADR-148) — zamanlanmis Recommendation event retention (RECOMMENDATION_EVENT_RETENTION_ENABLED=false ise no-op).
-const recommendationEventRetentionWorker = startRecommendationEventRetentionWorker({ config, logger });
+const recommendationEventRetentionWorker = startRecommendationEventRetentionWorker({ config, logger, capabilityGate });
 // TODO-162 (ADR-205) — zamanlanmis Home Discovery event retention (HOME_DISCOVERY_EVENT_RETENTION_ENABLED=false ise no-op).
-const discoveryEventRetentionWorker = startDiscoveryEventRetentionWorker({ config, logger });
+const discoveryEventRetentionWorker = startDiscoveryEventRetentionWorker({ config, logger, capabilityGate });
 // H-3 pre-ship — rezervasyon süre-aşımı süpürücü api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
 // Scheduler). api-gateway yalnız manuel expiry/reconcile enqueue + status/reconcile-scan sunar.
 // PB-2/PB-3 — DB backup zamanlaması + yürütmesi api-gateway'den KALDIRILDI → apps/worker (BullMQ Job

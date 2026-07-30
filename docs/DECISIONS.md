@@ -5175,3 +5175,100 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
      capability-driven gizleme (sunum; güvenlik enforcement gateway'de).
 - **Sonuç.** 12 route/orkestrasyon testi; api-gateway 1803 test PASS (regresyon yok). Kalan
   enforcement yayılımı + storefront gizleme + plan editörü sonraki dilime bırakıldı.
+
+## ADR-211 — Faz 2: Capability taksonomi genişletme + dependency grafiği (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Faz 1 registry'si 14 kaba anahtar taşıyordu; uçtan uca enforcement için prompt
+  sözleşmesiyle birebir, daha granüler bir taksonomi gerekti.
+- **Karar.** Registry **12 CORE** (AUTH/STORE/CATALOG/CATEGORIES/BASIC_INVENTORY/CUSTOMERS/CART/
+  CHECKOUT/ORDERS/PAYMENTS/SHIPPING/AUDIT_SECURITY — kapatılamaz) + **16 OPTIONAL** (REVIEWS/
+  WISHLIST/CUSTOMER_LISTS/RECENTLY_VIEWED/RECOMMENDATIONS/RECOMMENDATION_ANALYTICS/HOME_EXPERIENCE/
+  THEME_STUDIO/CAMPAIGNS/INFLUENCER_TRACKING/SPONSORED_PRODUCTS/SPONSORSHIP_FINANCE/PAYMENT_RECOVERY/
+  MULTI_WAREHOUSE/CUSTOMER_DATA_ERASURE/OPERATIONS_ADVANCED) olarak uppercase-snake anahtarlarla
+  yeniden tanımlandı. Dependency zincirleri (`requires`): RECOMMENDATIONS→RECENTLY_VIEWED,
+  RECOMMENDATION_ANALYTICS→RECOMMENDATIONS, SPONSORED_PRODUCTS→CAMPAIGNS, SPONSORSHIP_FINANCE→
+  SPONSORED_PRODUCTS, INFLUENCER_TRACKING→CAMPAIGNS, PAYMENT_RECOVERY→PAYMENTS, MULTI_WAREHOUSE→
+  BASIC_INVENTORY, THEME_STUDIO→HOME_EXPERIENCE, WISHLIST→CUSTOMER_LISTS. Resolver dependency-pass
+  transitif kapatır (fixpoint). Geriye uyumlu: tümü baseline ENABLED.
+- **Sonuç.** Faz 1 (henüz canlı override'ı olmayan) lowercase anahtarları geçersiz olur;
+  `isStoreModuleKey` bunları eler (fail-closed). Migration DEĞİŞMEZ (moduleKey serbest metin kolonu).
+
+## ADR-212 — Faz 2: Parent-disable guard (sessiz cascade yasağı) (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Bir parent modülü DISABLE ederken effective AÇIK dependent varsa `setOverride`
+  **reddedilir** (`DEPENDENTS_ACTIVE`, 409 + dependent listesi); yalnız explicit `cascade:true` ile
+  yazılır. `GET .../modules/:key/disable-preview` kapanacak dependent'ları önden gösterir. Effective
+  resolver ayrıca okuma-anında transitif kapatır (görsel tutarlılık), ama yazma-anında sessiz
+  cascade olmaz — operatör bilinçli onaylar.
+- **Sonuç.** Yanlışlıkla zincir kapatma önlenir; audit'lenebilir (source=actorUserId).
+
+## ADR-213 — Faz 2: Public hot-path cache + projeksiyon + storefront gizleme (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Karar.**
+  1. **Store-scoped bounded TTL cache** (`capabilities/cache.ts`, 30s) — public hot-path + admin
+     enforcement N+1 sorgusunu önler. Mutation (PUT) sonrası **explicit invalidation**. DB hatası →
+     **fail-closed** (non-core kapalı, CORE açık; hata cache'lenmez). Cross-store leak yok (key=storeId).
+  2. **Public projeksiyon** `GET /public/stores/:slug/modules` → yalnız `moduleKey→boolean` (source/
+     plan/label SIZMAZ). Storefront `getStoreCapabilities()` (React cache'li) tüketir.
+  3. **Server-side enforcement** register-modül deps'lerini modül-scope'lu sarmalayıcılarla
+     (`requireStoreAdminForModule`/`resolvePublicStoreForModule`) gate eder → admin **403 MODULE_DISABLED**,
+     public **404 leak-siz**. Inline public read'ler (home/hero/theme/campaigns/discovery) kapalıyken
+     **graceful boş/base** döner (crash/boş-sayfa yok). CORE (shipping/reservation/backup/webhook) gate YOK.
+  4. **Storefront gizleme** (sunum; gateway otoriter): account sidebar/section, wishlist kalp butonu
+     (WishlistProvider `enabled`), reviews/home/theme/discovery/campaigns veri-boş→render-yok.
+- **Sonuç.** Modül kapatma = uçtan uca server-side enforcement (yalnız menü gizleme DEĞİL). Canlı
+  smoke (enterprise-demo): REVIEWS off → public 404 + projeksiyon false; HOME/THEME/CAMPAIGNS off →
+  graceful boş + SPONSORED/INFLUENCER dependency-off; re-enable → veri geri (silme yok). Kalan (sonraki
+  dilim, TD): worker skip wiring + plan capability editörü UI + store-admin per-page direct-URL guard.
+
+## ADR-214 — Faz 3: Worker per-store capability skip + store-admin direct-URL guard (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Faz 2 gateway + storefront enforcement'i tamamladı ama iki yüzey açıktı: (a) opsiyonel
+  ZAMANLANMIŞ worker'lar (retention/settlement/reconcile) kapalı mağazalarda da işlem yapıyordu; (b)
+  store-admin kapalı modül sayfasına DOĞRUDAN URL ile gidilince (menü gizli olsa da) ham fetch hatası
+  görülüyordu (sunucu-tarafı guard yok).
+- **Karar.**
+  1. **Worker gate.** Paylaşılan `capabilities/worker-gate.ts` — `createWorkerCapabilityGate(prisma)`
+     StoreModule + aktif Subscription.Plan.metadata sorgularından `createStoreModuleData`+`createCapabilityCache`
+     kurar (store-scoped, bounded TTL, fail-closed: DB hatası → non-core kapalı/core açık, cache'lenmez;
+     cross-store leak yok; OKUMA-yalnız). `main.ts`'te TEK gate kurulur ve 6 opsiyonel worker'a enjekte
+     edilir. Kapalı store → MUTATION YOK + `SKIPPED_DISABLED` (QueueJobLog `payload.outcome`, status
+     COMPLETED = HATA DEĞİL, retry yok; mevcut `SKIPPED_LOCKED` deseniyle simetrik). Attribution retention
+     PER-TABLO gate'lenir (SponsoredProductEvent→SPONSORED_PRODUCTS, AttributionClick→INFLUENCER_TRACKING);
+     campaign reconcile (per-store lock/jobLog'u YOK) emit-site'ta gate'lenir + sayaç. CORE worker'lara
+     (shipment sync / barkod retry / apps/worker inventory·backup) gate ENJEKTE EDİLMEZ.
+  2. **Store-admin sayfa guard.** `lib/store-modules.ts` (route→modül TEK OTORİTE; StoreNav ona bağlandı)
+     + `lib/server/module-access.ts` (`cache()`'li matris: cookie→token→store→gateway) + async server
+     component `components/module-guard.tsx` (kapalı → EmptyState "MODULE_DISABLED"; children RENDER
+     EDİLMEZ) + 14 opsiyonel route klasörüne server-component `layout.tsx` guard'ı. Bu, menü gizlemeye EK
+     savunma katmanıdır; NİHAİ enforcement yine gateway BFF'te (403/404). Matris hatası → fail-open (gateway
+     otoriter; regresyonsuz).
+- **Sonuç.** Kapalı modül uçtan uca: gateway (403/404) + storefront (render/beacon yok) + store-admin
+  (sayfa render yok) + worker (mutation yok, SKIPPED_DISABLED). Canlı smoke (enterprise-demo): CAMPAIGNS
+  off → worker gate SPONSORED/INFLUENCER dependency-off, core açık; re-enable → veri geri.
+
+## ADR-215 — Faz 3: Plan → Capability editörü (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Resolver `Plan.metadata.modules` boolean default'larını zaten okuyordu (plan > baseline)
+  ama platform-admin bunları yönetecek bir arayüz + doğrulama yoktu; `PATCH /admin/plans/:id` metadata'yı
+  TİPSİZ passthrough + FULL-REPLACE ediyordu (diğer metadata anahtarları kaybolabilirdi).
+- **Karar.** SAF `capabilities/plan-capabilities.ts`: editör 3 BOUNDED durum sunar (arbitrary JSON DEĞİL) —
+  `required`=plan default açık (modules[k]=true), `optional`=baseline (anahtar çıkarılır), `unavailable`=plan
+  default kapalı (modules[k]=false). Doğrulama: CORE `unavailable` reddedilir (CORE_UNAVAILABLE); bilinmeyen
+  anahtar reddedilir (UNKNOWN_MODULE); `required` bir modülün gerektirdiği modül `unavailable` yapılamaz
+  (INVALID_DEPENDENCY → plan payload dependency bypass edemez). `mergePlanModulesIntoMetadata` yalnız
+  `modules` alt-anahtarını değiştirir (diğer metadata KORUNUR; full-replace DEĞİL). Gateway
+  `GET/POST(preview)/PUT /admin/plans/:id/capabilities` (YALNIZ platform-admin; audit metadata
+  `{capabilities:{changedModules}}` — PII/secret yok; apply sonrası capability cache clear). Effective
+  çözüm sırası KORUNUR: **store override > plan default > registry baseline > dependency** — plan default
+  yazmak StoreModule override'larına DOKUNMAZ (resolver'da override plan'ı yener) ve veri SİLMEZ. platform-
+  admin `/plans` PlanEditor'e capability matrisi + canlı preview (değişen modüller + dependency-disabled +
+  abonelik etki sayısı) + apply.
+- **Sonuç.** Plan-seviyesi capability default'ları tipli/doğrulanmış/audit'li yönetilir; mağaza override'ları
+  korunur. Canlı smoke (enterprise-demo): preview CAMPAIGNS→SPONSORED dependency; core-unavailable reddi;
+  apply REVIEWS unavailable MERGE (seeded metadata KORUNDU) + plan-default worker gate'te yansıdı; restore.

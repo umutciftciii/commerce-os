@@ -17,6 +17,7 @@ import { SearchResultsRegion } from "../../components/search/results-region";
 import { SearchTransitionProvider } from "../../components/search/search-transition";
 import { ProductGrid } from "../../components/search/product-grid";
 import { WishlistProvider } from "../../components/wishlist/wishlist-provider";
+import { isStorefrontModuleEnabled } from "../../lib/server/site";
 import { RatingProvider } from "../../components/reviews/rating-provider";
 import { getWishlistStatus } from "../../lib/server/wishlist";
 import { getCardRatings } from "../../lib/server/reviews";
@@ -111,10 +112,16 @@ export default async function ProductsPage({
   const data = result.data;
   const cards = toListingCards(data.products);
   // TODO-159D/159E — Sayfadaki ürünler için TEK batched favori-durum + rating özeti (N+1 yok).
+  // TODO-163 Faz 3 (TD-156) — REVIEWS/WISHLIST kapalıysa ilgili batch ÇEKİLMEZ (boşa çağrı yok;
+  // kartlarda yıldız/kalp render edilmez). Gateway zaten otoriter.
   const cardIds = cards.map((card) => card.id);
+  const [reviewsOn, wishlistOn] = await Promise.all([
+    isStorefrontModuleEnabled("REVIEWS"),
+    isStorefrontModuleEnabled("WISHLIST"),
+  ]);
   const [savedProductIds, cardRatings] = await Promise.all([
-    getWishlistStatus(cardIds).then((set) => [...set]),
-    getCardRatings(cardIds),
+    wishlistOn ? getWishlistStatus(cardIds).then((set) => [...set]) : Promise.resolve<string[]>([]),
+    reviewsOn ? getCardRatings(cardIds) : Promise.resolve({}),
   ]);
   const currency = data.products[0]?.currency ?? "TRY";
   const facets = data.facets;
@@ -168,7 +175,7 @@ export default async function ProductsPage({
                 <SearchEmpty state={state} currency={currency} t={t} />
               ) : (
                 <div className="mt-8 lg:mt-10">
-                  <WishlistProvider initialSavedIds={savedProductIds}>
+                  <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
                     <RatingProvider summaries={cardRatings}>
                       <ProductGrid cards={cards} t={t} />
                     </RatingProvider>

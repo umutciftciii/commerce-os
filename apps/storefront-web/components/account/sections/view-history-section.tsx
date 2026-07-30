@@ -18,7 +18,14 @@ import { clearRecentlyViewed, fetchRecentlyViewed } from "../../../lib/recently-
 
 const GRID_CLASS = "grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4";
 
-export function ViewHistorySection({ t }: { t: StorefrontDictionary }) {
+export function ViewHistorySection({
+  t,
+  wishlistEnabled = true,
+}: {
+  t: StorefrontDictionary;
+  // TODO-163 Faz 3 (TD-156) — WISHLIST kapalıysa kalp gizlenir (provider enabled=false). Yoksa true.
+  wishlistEnabled?: boolean;
+}) {
   const v = t.account.viewHistory;
   const [state, setState] = useState<"loading" | "ready">("loading");
   const [products, setProducts] = useState<PublicSearchProduct[]>([]);
@@ -81,7 +88,7 @@ export function ViewHistorySection({ t }: { t: StorefrontDictionary }) {
           <EmptyState title={v.emptyTitle} description={v.emptyBody} />
         ) : (
           // TODO-161B (TD-128) — Wishlist kalbi GERÇEK (TODO-159D; hesap oturumu → gateway).
-          <WishlistProvider initialSavedIds={savedIds}>
+          <WishlistProvider initialSavedIds={savedIds} enabled={wishlistEnabled}>
             <div className={GRID_CLASS}>
               {toListingCards(products).map((card, index) => (
                 // TD-130 — Hesabım Görüntüleme Geçmişi: impression + click (add-to-cart aksiyonu yok →
