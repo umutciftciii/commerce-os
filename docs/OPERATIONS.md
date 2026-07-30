@@ -1256,9 +1256,12 @@ ile aynı; storefront ASLA kırılmaz). İç config/draft/audit SIZMAZ. Store-sc
 mevcut published KORUNUR) → atomik → yeni draft snapshot. Rollback: hedef versiyonu yeni draft'a geri yükler
 (publish ile yayına alınır); geçmiş revizyon SİLİNMEZ.
 
-**Platform Admin "Tema ve Marka".** admin-web store editor'de: aktif tema/versiyon/uyum/revision/rollback/
-capability özeti + theme-key ATAMA. Uçlar `GET/PUT /admin/stores/:id/theme-binding` (platform-admin auth;
-THEME_STUDIO'dan bağımsız). Atama yeni PUBLISHED versiyon üretir (immutable). Uyumsuz/bilinmeyen key → 409.
+**Platform Admin "Tema Yönetimi".** Sol menüde AYRI sayfa (`/themes`) — fleet tablosu: tüm mağazalar +
+aktif tema/layout preset/uyumluluk/Theme Studio; satırdan **Yönet** → tema atama + revision/rollback/uyarı
+paneli. Uçlar: `GET /admin/theme-bindings` (fleet, store-scope'suz platform admin) + `GET/PUT
+/admin/stores/:id/theme-binding` (per-store; platform-admin auth, THEME_STUDIO'dan bağımsız). Atama yeni
+PUBLISHED versiyon üretir (immutable). Uyumsuz/bilinmeyen key → 409. (NOT: panel artık mağaza Düzenle
+modalına gömülü DEĞİL — çok-mağazalı kontrol için kendi keşfedilebilir yüzeyinde.)
 
 **Compatibility.** `themeApiVersion ≤ engine`, `commerce-os ≥ minimumCommerceVersion` (semver), bilinen
 registry key, status ACTIVE, tokenSchemaVersion ≤ engine, slot variant allowlist. Uyumsuz PUBLISHED config →
