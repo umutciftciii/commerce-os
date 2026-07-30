@@ -4980,3 +4980,115 @@ oversell imkânsız; expiry job her adayda order.paymentStatus'u kilit-anında y
 değilse EXPIRE). PAYMENT_FAILED retryable → bırakılmaz (TTL/expiresAt ≤ createdAt+maxMinutes cap'i ile eninde sonunda
 expiry'ye girer; terminal CANCELLED → release). Geç ödeme (expiry önce): fail-closed `LATE_PAYMENT_AFTER_EXPIRY`
 + manuel inceleme (bkz. ADR-191).
+
+## ADR-197 — Eligibility-driven Home sections (TODO-162)
+
+**Karar.** Her keşif/kişiselleştirilmiş Home section'ı yalnızca **gerçek, doğrulanmış sinyal eşik değerini
+karşılıyorsa** render edilir. Merkezi saf resolver `resolveHomeSectionEligibility(context, section)`
+(`apps/api-gateway/src/home/eligibility-core.ts`) karar üretir: `{eligible, reason, itemCount, source,
+fallbackAllowed}`. Eligible değilse section **DOM'a hiç eklenmez** — başlık gösterilmez, spacing bırakılmaz,
+impression üretilmez, ağır ürün hydration yapılmaz. Sıra: bilinen-tip → auth-kapısı → viewer-desteği →
+no-signal (fallback yasağı) → admin-max invariant → eşik. Public yanıt `reason` **DÖNMEZ** (yalnız
+server-log/debug). RECENTLY_VIEWED deseninin (TD-129) genelleştirilmesidir; paralel CMS/ikinci home engine
+kurulmaz.
+
+## ADR-198 — Guest/authenticated context ayrımı (TODO-162)
+
+**Karar.** Eligibility context iki kimlik kaynağıyla çalışır: guest = store-scoped `visitorHash`
+(HMAC-SHA256, `x-visitor-id` → gateway; raw IP/UA/PII persist edilmez), authenticated = server-türetilmiş
+`customerId` (`resolveCustomerFromRequest`, client input DEĞİL; storeId mismatch/revoked/expired reddi).
+Guest kaynakları: visitor recently-viewed, guest cart/wishlist cookie, session recommendations, genel
+kampanyalar. Auth kaynakları: customer cart/wishlist/recently-viewed/completed-orders/recommendations/
+campaign eligibility. Yalnız-auth section'lar (REPURCHASE, SIMILAR_TO_PURCHASED) guest'te ASLA render
+edilmez (`AUTH_REQUIRED`).
+
+## ADR-199 — Merkezi min-threshold invariant (TODO-162)
+
+**Karar.** Section min/max tek doğruluk kaynağı `SECTION_BOUNDS` (kod sabiti, `eligibility-core.ts`):
+CONTINUE_BROWSING 2/4 · CART_RECOMMENDATIONS 3/8 · PERSONALIZED_DEALS 3/8 · REPURCHASE 2/6 ·
+SIMILAR_TO_PURCHASED 3/8 · WISHLIST_DEALS 2/6 · DAILY_DEALS 4/12 · SPONSORED_RAIL 3/8 ·
+GENERIC_PRODUCT_RAIL 4/12 · EDITORIAL_CAMPAIGN 1/1. Admin `config.maxItems` yalnız **max'ı düşürebilir**;
+**min'i düşüremez**. Admin max'ı min'in altına indirirse section eligible OLAMAZ (gizlenir) — sahte
+"yetersiz ürün" gösterilmez (`ADMIN_MAX_BELOW_MIN`). Storefront/admin/analytics hepsi buradan okur.
+
+## ADR-200 — No-fallback personalization (TODO-162)
+
+**Karar.** Kişiselleştirilmiş section'larda (CONTINUE_BROWSING, CART_RECOMMENDATIONS, PERSONALIZED_DEALS,
+REPURCHASE, SIMILAR_TO_PURCHASED, WISHLIST_DEALS) **fallback yasaktır**: gerçek kullanıcı sinyali yoksa
+section gizlenir (`NO_SIGNAL`); rastgele/popüler/genel ürünle doldurulmaz; genel fırsat "Sana Özel" adıyla
+gösterilmez. Fallback İZİNLİ tipler: EDITORIAL_CAMPAIGN, DAILY_DEALS, MANUAL/CATEGORY/NEW_ARRIVALS/
+BEST_SELLERS rail'leri, SPONSORED_RAIL. Admin fallback'i yalnız **kapatabilir** (izinli olduğu yerde), açamaz.
+
+## ADR-201 — Guest→customer merge reuse (TODO-162)
+
+**Karar.** Login/register sonrası merge MEVCUT altyapıyı reuse eder (yeni orkestratör kurulmaz):
+recently-viewed merge (`mergeGuestIntoCustomer` — dedupe, en yeni `lastViewedAt` korunur, viewCount
+capped-sum) + wishlist merge (canlı-katalog doğrulama + in-batch/idempotent dedupe + cap). Cart ve coupon
+cookie ile taşınır (DB merge yok, cihaz-bağlı). **Cross-store merge yapılmaz** (tüm merge store-scoped).
+Merge sonrası eligibility bir sonraki render'da yeniden hesaplanır (durum tutulmaz).
+
+## ADR-202 — Viewer-specific hydration + public/private cache ayrımı (TODO-162)
+
+**Karar.** İki katman: **Katman A** public `/home` (viewer-agnostic, cacheable-in-principle) — yalnız
+section config + editorial + Category Shortcuts + generic rail içeriği. **Katman B** viewer-specific
+çözümleme (`POST .../home/discovery`, force-dynamic + `no-store`, identity header'ları + cart variantId'leri)
+— kişiselleştirilmiş section'lar + DISCOVERY_GRID. Customer response **shared/CDN cache'e girmez**;
+`customerId` client'tan alınmaz; `visitorHash` store-scoped; logout sonrası `revalidatePath` + session
+yokluğu ile personalized içerik kaybolur; cross-store veri okunmaz. Discovery Grid (ilk viewport)
+storefront `force-dynamic` render'ında sunucu-tarafı çözülür (flash yok); fold-altı rail'ler lazy
+client-island (RecentlyViewedRail deseni; ineligible → null render).
+
+## ADR-203 — DISCOVERY_GRID section tipi + kart taksonomisi (TODO-162)
+
+**Karar.** Hero altı yeni section tipi `DISCOVERY_GRID`. İçinde kart taksonomisi (CONTINUE_BROWSING,
+CART_RECOMMENDATIONS, PERSONALIZED_DEALS, EDITORIAL_CAMPAIGN, DAILY_DEALS); her kart kendi eligibility'siyle
+değerlendirilir. Grid kuralı (`resolveDiscoveryGrid`): yalnız eligible kartlar; **min 2 / max 4**; 1 kart →
+grid render EDİLMEZ; kolon = kart sayısı (2→2, 3→3, 4→4); tablet 2×2; mobile tek kolon/carousel. Admin
+kartları **sıralayabilir**, eligibility'yi **değiştiremez**.
+
+## ADR-204 — Page-level dedupe (TODO-162)
+
+**Karar.** Sıralı çözümde bir `seen: Set<productId>` taşınır: Discovery Grid ürünleri sonraki ilk iki
+rail'de tekrarlanmaz; Cart Recommendations cart ürünlerini içermez; aynı ürün aynı section'da duplicate
+olmaz; sponsored görünüm bounded (max slot). **Dedupe sonrası min bozulursa section gizlenir** — min'i
+tamamlamak için ilgisiz ürün EKLENMEZ.
+
+## ADR-205 — Hidden-section analytics + HomeDiscoveryEvent bounded event modeli (TODO-162)
+
+**Karar.** Yeni ADDITIVE `HomeDiscoveryEvent` modeli (migration `20260730120000`): section-seviyesi funnel
+(`SECTION_IMPRESSION`/`CARD_IMPRESSION`/`PRODUCT_CLICK`/`CTA_CLICK`/`ADD_TO_CART`; `sectionId`/`sectionType`/
+`eligibilitySource`/`productId?`/`campaignId?`/`sponsoredCampaignId?`/`placement`). RecommendationEvent/
+SponsoredProductEvent deseni (plain-string ref, yalnız Store FK, KVKK HMAC kimlik). **Yalnız render edilen
+section event üretir** — eligibility=false → impression YOK (saf gate `shouldRecordDiscoveryEvent`:
+bot/prefetch/kimlik/hidden-section). Sponsored kartları AYRICA mevcut `SponsoredProductEvent` token ölçümünü
+kullanır (çift-ölçüm değil; bu tablo yalnız section funnel). Tenant isolation (`storeId` her index; cross-store
+productId reddi). Retention: TODO-161A.1 SAF altyapı reuse (ayrı jobType; influencer/sponsored allowlist'e
+dokunmaz).
+
+**Ingest uygulaması (TD-151, 2026-07-30).** `POST /public/stores/:storeSlug/home/discovery-events` +
+`GET /stores/:storeId/home/discovery-events/summary`. Ek server-authoritative guard: eventType/sectionType/
+eligibilitySource allowlist'i `SECTION_BOUNDS`'tan TÜRETİLİR (drift yok); `sectionId` gerçek yayınlanmış (enabled)
+section'a karşı doğrulanır (uydurma section reddi = "rendered" proxy'si) + istemci `sectionType` iddiası DB'deki
+gerçek tiple çapraz-doğrulanır (uyuşmazsa sessiz reddet). eligibilitySource top-level section granülerliğindedir
+(grid → "DISCOVERY" konteyner kaynağı). Storefront pasif SSR-üstü client tracker (IntersectionObserver impression +
+click delegation) → BFF proxy → gateway. `ADD_TO_CART` model/pipeline'da desteklidir ama discovery kart yüzeyinde
+emit EDİLMEZ (kart PDP'ye götürür; sepete-ekleme orada gerçekleşir → discovery bağlamı yok). Retention ayrı
+jobType/queueName `home-discovery-event-retention`/`home-discovery-events` (env-gated, default kapalı).
+
+**Discovery→PDP→add-to-cart attribution (pre-ship, 2026-07-30).** ADD_TO_CART discovery kart yüzeyinde
+gerçekleşmediğinden (kart PDP'ye götürür), attribution için first-party kısa-ömürlü bağlam kullanılır (mirror
+RecommendationEvent attribution; AYRI sessionStorage anahtarı). PRODUCT_CLICK'te `rememberDiscoveryClick`
+{sectionId, sectionType, eligibilitySource, clickId nonce, pageViewId, ts} yazar; PDP'de BAŞARILI add-to-cart sonrası
+`consumeDiscoveryAttribution` taze bağlamı TÜKETİR (tek-kullanımlık) ve ADD_TO_CART emit eder (dedupeKey=clickId →
+idempotent). Server-signed opaque token yerine first-party session context tercih edildi: gizli/internal veri
+query-string'de taşınmaz, ham customerId/visitorHash yok (sunucu ingest'te türetir), product-scoped (başka ürün için
+kullanılamaz), TTL 30dk, doğrudan PDP ziyareti sahte attribution üretmez. Sponsored: discovery ADD_TO_CART yazılabilir
+(sponsoredCampaignId client'ta null), OTORİTATİF sponsorship ölçümü AYRI token yolunda kalır → çift finansal attribution yok.
+
+## ADR-206 — Performance / lazy hydration (TODO-162)
+
+**Karar.** İlk viewport: Hero + Discovery Grid + Category Shortcuts + ilk rail (Discovery Grid sunucu-tarafı,
+CLS yok). Fold-altı section'lar lazy hydrate (section-level Suspense / IntersectionObserver island).
+Bounded sorgular: **önce eligibility count (ucuz), sonra limit'li ürün sorgusu**; N+1 yok (batched cover/
+campaign, `buildPublicProduct` deseni). Hidden section için ürün detayları hydrate edilmez. Viewer-specific
+resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).

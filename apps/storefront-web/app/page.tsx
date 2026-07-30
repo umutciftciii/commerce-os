@@ -10,6 +10,7 @@ import {
 } from "../components/ui";
 import { StorefrontProductCard } from "../components/site/product-card";
 import { HomeSections } from "../components/site/home/home-sections";
+import { DiscoverySections } from "../components/site/home/discovery-sections";
 import { WishlistProvider } from "../components/wishlist/wishlist-provider";
 import { RatingProvider } from "../components/reviews/rating-provider";
 import { getWishlistStatus } from "../lib/server/wishlist";
@@ -17,9 +18,9 @@ import { getCardRatings } from "../lib/server/reviews";
 import { EditorialBanner, ValueProps } from "../components/site/home/editorial";
 import type { Metadata } from "next";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
-import type { StorefrontProductSummary } from "../lib/catalog-types";
+import type { StorefrontDiscoverySection, StorefrontProductSummary } from "../lib/catalog-types";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
-import { getFeaturedProducts, getHome } from "../lib/server/catalog";
+import { getDiscovery, getFeaturedProducts, getHome } from "../lib/server/catalog";
 import { getStoreInfo } from "../lib/server/site";
 import { buildMetadata } from "../lib/seo/metadata";
 import { homePath } from "../lib/seo/routes";
@@ -48,25 +49,48 @@ export async function generateMetadata(): Promise<Metadata> {
  * public composed `/home` ucundan DB SIRASINDA gelir. Yapılandırılmamış mağazada (section yok)
  * generic karşılama + GERÇEK öne çıkan ürünler fallback'i gösterilir (vitrin asla boş görünmez).
  */
+/** TODO-162 — Discovery section (rail + grid kartları) içindeki tüm ürün id'lerini toplar (wishlist/rating batch). */
+function collectDiscoveryProductIds(sections: StorefrontDiscoverySection[]): string[] {
+  const ids: string[] = [];
+  for (const section of sections) {
+    for (const product of section.products) ids.push(product.id);
+    for (const card of section.cards ?? []) {
+      for (const product of card.products) ids.push(product.id);
+    }
+  }
+  return ids;
+}
+
 export default async function HomePage() {
   const [dict, locale] = await Promise.all([getStorefrontDict(), getRequestLocale()]);
-  const home = await getHome(locale);
+  // TODO-162 (ADR-206) — Public /home (viewer-agnostic) + Katman B discovery (viewer-specific) PARALEL.
+  // Discovery sunucu-tarafı çözülür → flash/CLS yok (§24); hata/boş → [] (vitrin bozulmaz).
+  const [home, discovery] = await Promise.all([getHome(locale), getDiscovery(locale)]);
 
-  if (home.sections.length > 0) {
-    // TODO-159D (ADR-093) — Tüm showcase ürünleri için TEK batched favori-durum çözümü.
+  if (home.sections.length > 0 || discovery.length > 0) {
+    // TODO-159D (ADR-093) — Public showcase + discovery ürünleri için TEK batched favori-durum + rating çözümü.
     const showcaseIds = home.sections.flatMap((section) =>
-      section.type === "PRODUCT_SHOWCASE" ? section.products.map((product) => product.id) : [],
+      section.type === "PRODUCT_SHOWCASE" || section.type === "SPONSORED_SHOWCASE"
+        ? section.products.map((product) => product.id)
+        : [],
     );
+    const allIds = [...new Set([...showcaseIds, ...collectDiscoveryProductIds(discovery)])];
     const [savedProductIds, cardRatings] = await Promise.all([
-      getWishlistStatus(showcaseIds).then((set) => [...set]),
-      getCardRatings(showcaseIds),
+      getWishlistStatus(allIds).then((set) => [...set]),
+      getCardRatings(allIds),
     ]);
+    // Hero varsa: Hero → Discovery (hero altı, §6) → kalan public section'lar. Hero yoksa: Discovery → public.
+    const heroFirst = home.sections.length > 0 && home.sections[0].type === "HERO_SLIDER";
+    const heroSections = heroFirst ? home.sections.slice(0, 1) : [];
+    const restSections = heroFirst ? home.sections.slice(1) : home.sections;
     return (
       <WishlistProvider initialSavedIds={savedProductIds}>
         <RatingProvider summaries={cardRatings}>
           {/* TD-129 — "Son İncelediklerin" artık yönetilebilir bir HomeSection tipidir (RECENTLY_VIEWED);
               manuel sabit render KALDIRILDI. Admin şeridin yerini/başlığını/görünürlüğünü CMS'ten yönetir. */}
-          <HomeSections sections={home.sections} dict={dict} />
+          {heroSections.length > 0 ? <HomeSections sections={heroSections} dict={dict} /> : null}
+          <DiscoverySections sections={discovery} dict={dict} />
+          {restSections.length > 0 ? <HomeSections sections={restSections} dict={dict} /> : null}
         </RatingProvider>
       </WishlistProvider>
     );

@@ -1567,6 +1567,20 @@ export const homeSectionTypeSchema = z.enum([
   // taşır (başlık TR/EN + maxItems + düzen); ürünler ziyaretçiye-özgüdür → /home'da DEĞİL, storefront
   // istemcisinde mevcut /recently-viewed ucundan hidrasyon. Böylece /home cacheable + viewer-agnostic kalır.
   "RECENTLY_VIEWED",
+  // TODO-162 (ADR-197…ADR-206) — Storefront Discovery & Merchandising. Eligibility-driven, ziyaretçiye-özgü
+  // keşif section'ları. RECENTLY_VIEWED deseninin GENELLEŞTİRİLMESİ: bu tipler public /home'da ÜRÜN TAŞIMAZ;
+  // içerik ve eligibility kararı viewer-specific Katman B ucundan (`POST .../home/discovery`) çözülür
+  // (force-dynamic + no-store; shared-cache'e girmez). Eligibility sağlanmazsa section DOM'a hiç eklenmez.
+  "DISCOVERY_GRID", // hero altı; içinde 2-4 eligible kart (§6)
+  "CONTINUE_BROWSING", // yalnız PDP view (§7)
+  "CART_RECOMMENDATIONS", // sepete göre öneri (§8)
+  "PERSONALIZED_DEALS", // gerçek kullanıcı sinyalinde kampanya (§9)
+  "DAILY_DEALS", // genel; gerçekten indirimli ürünler (§10)
+  "EDITORIAL_CAMPAIGN", // editoryal kart (§11)
+  "REPURCHASE", // yalnız auth; tekrar satın al (§12)
+  "SIMILAR_TO_PURCHASED", // yalnız auth; aldıklarına benzer (§13)
+  "WISHLIST_DEALS", // wishlist fırsatları (§14)
+  "SPONSORED_RAIL", // sponsorlu vitrin (§15) — mevcut sponsorship reuse
 ]);
 
 // Showcase düzeni. İleride EDITORIAL/MAGAZINE/MIXED eklenebilir (config alanı; migration'sız).
@@ -1638,6 +1652,85 @@ export const homeRecentlyViewedConfigSchema = z
   })
   .strict();
 export type HomeRecentlyViewedConfig = z.infer<typeof homeRecentlyViewedConfigSchema>;
+
+// ─────────────────────── TODO-162 (ADR-197…206) — Discovery section config'leri ───────────────────────
+// Ortak sunum+yönetim alanları. maxItems burada gevşek [1,12] doğrulanır; GERÇEK tip-bazlı min/max
+// invariant'ı gateway eligibility-core SECTION_BOUNDS'ta (tek doğruluk kaynağı, ADR-199). Admin yalnız
+// max'ı düşürebilir; min'i düşüremez (engine kelepçeler). guest/authSupported + fallbackDisabled §23 admin.
+const homeDiscoveryCommonConfig = {
+  titleTr: z.string().max(200).nullable().optional(),
+  titleEn: z.string().max(200).nullable().optional(),
+  maxItems: z.number().int().min(1).max(12).optional(),
+  guestSupported: z.boolean().optional(),
+  authSupported: z.boolean().optional(),
+  // Yalnız fallback-izinli (generic) tiplerde etkili; admin fallback'i KAPATABİLİR, açamaz (engine).
+  fallbackDisabled: z.boolean().optional(),
+};
+
+// Kişiselleştirilmiş/generic rail config'leri (CONTINUE_BROWSING, CART_RECOMMENDATIONS, PERSONALIZED_DEALS,
+// DAILY_DEALS, REPURCHASE, SIMILAR_TO_PURCHASED, WISHLIST_DEALS, SPONSORED_RAIL). Ürün seçimi YOK — içerik
+// viewer-specific Katman B'de eligibility motoru ile çözülür. Yalnız sunum + yönetim.
+export const homeDiscoveryRailConfigSchema = z
+  .object({
+    layout: homeShowcaseLayoutSchema.default("CAROUSEL"),
+    ...homeDiscoveryCommonConfig,
+  })
+  .strict();
+export type HomeDiscoveryRailConfig = z.infer<typeof homeDiscoveryRailConfigSchema>;
+
+// DISCOVERY_GRID (§6): hero altı grid. Admin kartları SIRALAR (eligibility'yi değiştiremez). Grid içeriği
+// 2-4 eligible kartla sınırlıdır (engine). cards: admin'in dahil ettiği kart tipleri + sırası.
+export const homeDiscoveryGridCardTypeSchema = z.enum([
+  "CONTINUE_BROWSING",
+  "CART_RECOMMENDATIONS",
+  "PERSONALIZED_DEALS",
+  "EDITORIAL_CAMPAIGN",
+  "DAILY_DEALS",
+]);
+export const homeDiscoveryGridConfigSchema = z
+  .object({
+    titleTr: z.string().max(200).nullable().optional(),
+    titleEn: z.string().max(200).nullable().optional(),
+    guestSupported: z.boolean().optional(),
+    authSupported: z.boolean().optional(),
+    cards: z
+      .array(
+        z.object({
+          type: homeDiscoveryGridCardTypeSchema,
+          order: z.number().int().min(0).max(999).default(0),
+        }),
+      )
+      .max(5)
+      .optional(),
+  })
+  .strict();
+export type HomeDiscoveryGridConfig = z.infer<typeof homeDiscoveryGridConfigSchema>;
+
+// EDITORIAL_CAMPAIGN (§11): editoryal kart. Campaign modelinde image/CTA/TR-EN YOK → içerik section
+// config'inde. Eksik içerikte fallback ÜRETİLMEZ; kart gizlenir (gateway doğrular). linkedCampaignId
+// yalnız yayın-penceresi doğrulaması için (opsiyonel); hedef route ctaHref (göreli, aynı origin).
+export const homeEditorialCampaignConfigSchema = z
+  .object({
+    mediaId: z.string().min(1).max(120).nullable().optional(),
+    titleTr: z.string().max(200).nullable().optional(),
+    titleEn: z.string().max(200).nullable().optional(),
+    bodyTr: z.string().max(600).nullable().optional(),
+    bodyEn: z.string().max(600).nullable().optional(),
+    ctaLabelTr: z.string().max(80).nullable().optional(),
+    ctaLabelEn: z.string().max(80).nullable().optional(),
+    // Göreli, aynı-origin route (örn. /products?category=... veya /campaigns/...). Mutlak URL reddedilir.
+    ctaHref: z
+      .string()
+      .max(400)
+      .regex(/^\/[^\s]*$/u, "ctaHref göreli (/ ile başlayan) bir yol olmalı")
+      .nullable()
+      .optional(),
+    linkedCampaignId: z.string().min(1).max(120).nullable().optional(),
+    guestSupported: z.boolean().optional(),
+    authSupported: z.boolean().optional(),
+  })
+  .strict();
+export type HomeEditorialCampaignConfig = z.infer<typeof homeEditorialCampaignConfigSchema>;
 
 // Admin section entity. config tip-özel (opaque record; admin UI type'a göre yorumlar).
 export const homeSectionSchema = z.object({
@@ -2904,6 +2997,80 @@ export const recommendationSummaryResponseSchema = z.object({
 });
 export type RecommendationSummaryResponse = z.infer<typeof recommendationSummaryResponseSchema>;
 
+// ───────────── TODO-162 (ADR-205) — Home Discovery section-analytics (event domain) ─────────────
+// Katman B kişiselleştirilmiş keşif section'larının funnel ölçümü (SECTION_IMPRESSION → CARD_IMPRESSION →
+// PRODUCT_CLICK/CTA_CLICK → ADD_TO_CART). AYRI davranış-event domaini: recommendation/influencer/sponsored
+// tablolarına YAZMAZ. eventType ALLOWLIST'tir; sectionType/eligibilitySource sunucuda gerçek yayınlanmış
+// discovery section'a karşı doğrulanır. storeId + kimlik + zaman SUNUCU otoritesidir (istemci belirleyemez).
+// Hidden/eligible-olmayan section event ÜRETMEZ (client yalnız render edileni emit eder; sunucu section
+// sahipliğini doğrular). Sponsorlu kartların OTORİTATİF ölçümü yine SponsoredProductEvent token'ıdır
+// (bu event yalnız funnel kırılımı; çift-ölçüm değil). Bkz. discovery-event-core.ts.
+export const homeDiscoveryEventTypeSchema = z.enum([
+  "SECTION_IMPRESSION",
+  "CARD_IMPRESSION",
+  "PRODUCT_CLICK",
+  "CTA_CLICK",
+  "ADD_TO_CART",
+]);
+export type HomeDiscoveryEventType = z.infer<typeof homeDiscoveryEventTypeSchema>;
+export const HOME_DISCOVERY_EVENT_TYPES = homeDiscoveryEventTypeSchema.options;
+
+// Event kayıt isteği (public). sectionId/sectionType/eligibilitySource gateway'de gerçek yayınlanmış
+// discovery section'a karşı doğrulanır; productId/campaign/sponsored store-sahipliği gateway'de kontrol edilir.
+// .strict(): customerId/storeId/visitorHash/config override gövdede KABUL EDİLMEZ (kimlik sunucu-türevi).
+// dedupeKey YALNIZ ADD_TO_CART idempotency'si (istemci nonce'u; aynı dönüşüm iki kez sayılmaz). Payload bounded.
+export const homeDiscoveryEventRequestSchema = z
+  .object({
+    type: homeDiscoveryEventTypeSchema,
+    sectionId: z.string().min(1).max(64),
+    sectionType: z.string().min(1).max(48),
+    eligibilitySource: z.string().min(1).max(48),
+    productId: z.string().min(1).max(64).nullable().optional(),
+    campaignId: z.string().min(1).max(64).nullable().optional(),
+    sponsoredCampaignId: z.string().min(1).max(64).nullable().optional(),
+    placement: z.literal("HOME").default("HOME"),
+    dedupeKey: z.string().min(1).max(96).nullable().optional(),
+  })
+  .strict();
+export type HomeDiscoveryEventRequest = z.infer<typeof homeDiscoveryEventRequestSchema>;
+
+export const homeDiscoveryEventResponseSchema = z.object({
+  data: z.object({ recorded: z.boolean(), deduped: z.boolean() }),
+});
+export type HomeDiscoveryEventResponse = z.infer<typeof homeDiscoveryEventResponseSchema>;
+
+// ── Store-admin discovery funnel özeti (platform-admin; store-scoped). Küçük funnel; büyük raporlama YOK. ──
+const homeDiscoverySummaryBucketSchema = z.object({
+  key: z.string(),
+  sectionImpressions: z.number().int(),
+  cardImpressions: z.number().int(),
+  productClicks: z.number().int(),
+  ctaClicks: z.number().int(),
+  addToCart: z.number().int(),
+  /** clickThroughRate = productClicks / cardImpressions (payda 0 → 0). */
+  ctr: z.number(),
+});
+export const homeDiscoverySummaryResponseSchema = z.object({
+  data: z.object({
+    range: z.object({ from: z.string().datetime(), to: z.string().datetime() }),
+    filters: z.object({
+      sectionType: z.string().nullable(),
+      eligibilitySource: z.string().nullable(),
+    }),
+    totals: z.object({
+      sectionImpressions: z.number().int(),
+      cardImpressions: z.number().int(),
+      productClicks: z.number().int(),
+      ctaClicks: z.number().int(),
+      addToCart: z.number().int(),
+      ctr: z.number(),
+    }),
+    bySectionType: z.array(homeDiscoverySummaryBucketSchema),
+    byEligibilitySource: z.array(homeDiscoverySummaryBucketSchema),
+  }),
+});
+export type HomeDiscoverySummaryResponse = z.infer<typeof homeDiscoverySummaryResponseSchema>;
+
 export type PublicSearchSwatch = z.infer<typeof publicSearchSwatchSchema>;
 export type PublicSearchFacet = z.infer<typeof publicSearchFacetSchema>;
 export type PublicSearchFacetValue = z.infer<typeof publicSearchFacetValueSchema>;
@@ -3086,6 +3253,77 @@ export const publicHomeSectionSchema = z.discriminatedUnion("type", [
 export const publicHomeResponseSchema = z.object({
   sections: z.array(publicHomeSectionSchema),
 });
+
+/* -------------------------------------------------------------------------- */
+/* TODO-162 (ADR-202) — Katman B viewer-specific Discovery response            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /public/stores/:storeSlug/home/discovery` istek gövdesi. YALNIZ güvenli public context taşır:
+ * kimlik header'lardan (x-customer-session / x-visitor-id) SUNUCU-tarafı türetilir; body ASLA customerId/
+ * storeId override/eligibility count/order history/admin config TAŞIMAZ. Sepet, mevcut public cart deseniyle
+ * yalnız {variantId, quantity} REFERANSI olarak gelir (sunucu yeniden çözer). seenProductIds bounded.
+ */
+export const publicHomeDiscoveryRequestSchema = z
+  .object({
+    locale: z.enum(["tr", "en"]).default("tr"),
+    currency: z.string().min(1).max(8).optional(),
+    // {variantId, quantity} referansı (public cart deseniyle simetrik; sunucu yeniden çözer). Inline —
+    // publicCartItemInputSchema bu noktadan SONRA tanımlı olduğundan bildirim-sırası bağımlılığı yaratmaz.
+    cartItems: z
+      .array(z.object({ variantId: z.string().min(1).max(120), quantity: z.number().int().positive().max(999) }))
+      .max(100)
+      .optional(),
+    // Guest wishlist cookie ürün referansları (auth'ta sunucu CustomerList otoritedir; guest'te bu). Bounded.
+    wishlistProductIds: z.array(z.string().min(1).max(120)).max(100).optional(),
+    seenProductIds: z.array(z.string().min(1).max(120)).max(100).optional(),
+  })
+  .strict();
+export type PublicHomeDiscoveryRequest = z.infer<typeof publicHomeDiscoveryRequestSchema>;
+
+/** Editoryal kart içeriği (EDITORIAL_CAMPAIGN). mediaUrl türetilmiş göreli/CDN url; iç mediaId sızmaz. */
+export const publicDiscoveryEditorialSchema = z.object({
+  mediaUrl: z.string().nullable(),
+  title: z.string(),
+  body: z.string().nullable(),
+  ctaLabel: z.string().nullable(),
+  ctaHref: z.string(),
+});
+
+/** DISCOVERY_GRID içindeki tek kart. Ürün-kartları products taşır; editoryal kart editorial taşır. */
+export const publicDiscoveryGridCardSchema = z.object({
+  type: z.string(),
+  source: z.string(),
+  title: z.string().nullable(),
+  products: z.array(publicProductSchema.extend({ sponsoredToken: z.string().optional() })),
+  editorial: publicDiscoveryEditorialSchema.nullable(),
+});
+
+/**
+ * Tek discovery section (viewer-specific). ALLOWLIST: yalnız sunum + public-safe ürün projeksiyonu.
+ * `reason`/customerId/visitorHash/iç campaign config/cost/tedarikçi verisi/debug metadata TAŞIMAZ.
+ * `source` = eligibility kaynağı (analytics). `sponsored` = SPONSORED_RAIL işareti (rozet ZORUNLU).
+ */
+export const publicDiscoverySectionSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  source: z.string(),
+  title: z.string().nullable(),
+  subtitle: z.string().nullable(),
+  layout: homeShowcaseLayoutSchema.nullable(),
+  sponsored: z.boolean(),
+  products: z.array(publicProductSchema.extend({ sponsoredToken: z.string().optional() })),
+  editorial: publicDiscoveryEditorialSchema.nullable(),
+  // DISCOVERY_GRID: kolon sayısı (kart sayısı) + kartlar; diğer tiplerde null.
+  columns: z.number().int().nullable(),
+  cards: z.array(publicDiscoveryGridCardSchema).nullable(),
+});
+export type PublicDiscoverySection = z.infer<typeof publicDiscoverySectionSchema>;
+
+export const publicHomeDiscoveryResponseSchema = z.object({
+  sections: z.array(publicDiscoverySectionSchema),
+});
+export type PublicHomeDiscoveryResponse = z.infer<typeof publicHomeDiscoveryResponseSchema>;
 
 /**
  * F4A / Storefront redesign — Vitrin ust band kampanya slider'i icin STORE

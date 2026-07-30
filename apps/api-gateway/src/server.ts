@@ -94,6 +94,11 @@ import {
   publicHeroSlidesResponseSchema,
   // TODO-158A (ADR-086) — Home Experience public composed projeksiyonu.
   publicHomeResponseSchema,
+  publicHomeDiscoveryRequestSchema,
+  publicHomeDiscoveryResponseSchema,
+  homeDiscoveryRailConfigSchema,
+  homeDiscoveryGridConfigSchema,
+  homeEditorialCampaignConfigSchema,
   publicRedirectListResponseSchema,
   publicProductSchema,
   storeAdminCustomerListResponseSchema,
@@ -137,7 +142,7 @@ import {
 import { createInfluencerData, type InfluencerData } from "./influencers/data.js";
 import { registerInfluencerAdminRoutes, registerPublicTrackingRoutes } from "./influencers/routes.js";
 import { resolveAttributionForCheckout } from "./influencers/checkout-attribution.js";
-import { createSlidingWindowLimiter } from "./influencers/tracking-core.js";
+import { createSlidingWindowLimiter, hashIdentifier } from "./influencers/tracking-core.js";
 // TODO-161 (ADR-114…120) — Sponsored Product Management.
 import { createSponsoredData, type SponsoredData } from "./sponsored/data.js";
 import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./sponsored/routes.js";
@@ -218,6 +223,23 @@ import {
   parseHomeHeroConfig,
   type HomeDataAccess,
 } from "./home/data.js";
+// TODO-162 (ADR-197…206) — Katman B viewer-specific Discovery resolver + eligibility motoru.
+import {
+  SECTION_BOUNDS,
+  isDiscoverySectionType,
+  resolveDiscoveryGrid,
+  type DiscoverySectionType,
+  type DiscoveryGridCardType,
+  type HomeEligibilityContext,
+} from "./home/eligibility-core.js";
+import {
+  sectionSignalGate,
+  finalizeRail,
+  candidateFetchLimit,
+} from "./home/discovery-core.js";
+import { createDiscoveryData, type DiscoveryIdentity } from "./home/discovery-data.js";
+import { createDiscoveryEventData } from "./home/discovery-event-data.js";
+import { registerDiscoveryEventRoutes } from "./home/discovery-event-routes.js";
 // Faz 1B (ADR-067) — Attribute katalog cekirdegi (store + platform CRUD).
 import {
   registerPlatformAttributeRoutes,
@@ -6252,6 +6274,23 @@ export function createServer(
     },
   });
 
+  // TODO-162 (ADR-205) — Home Discovery section-analytics. Katman B keşif section'larının funnel ölçümü
+  // (SECTION_IMPRESSION → CARD_IMPRESSION → PRODUCT_CLICK/CTA_CLICK → ADD_TO_CART). AYRI davranış-event
+  // domaini: recommendation/influencer/sponsored tablolarına YAZMAZ. Bot/prefetch elenir; eventType/section-
+  // type/eligibilitySource allowlist; sectionId gerçek yayınlanmış (enabled) section'a karşı doğrulanır;
+  // ürün/kampanya/sponsor store-sahipliği kontrol edilir. Sponsorlu OTORİTATİF ölçüm yine token'dadır.
+  registerDiscoveryEventRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore,
+    data: createDiscoveryEventData(),
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
   // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den
   // (searchProvider.search); Product/EAV source-of-truth join'i YOK. Kategori adı + kapak görseli
   // yalnız dönen SAYFA için bounded hidrasyon (display-only; mevcut PLP deseniyle simetrik).
@@ -6736,6 +6775,442 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // ───────────────── TODO-162 (ADR-197…206) — Katman B viewer-specific Discovery ─────────────────
+  // POST /public/stores/:storeSlug/home/discovery. Eligibility-driven kişiselleştirilmiş keşif section'ları.
+  // Kimlik SUNUCU-türevidir (customerId/storeId override/eligibility count/order history/admin config body'de
+  // KABUL EDİLMEZ). Cache: private, no-store → shared/CDN cache'e girmez; logout sonrası reuse edilmez.
+  // Public /home viewer-agnostic KALIR (bu uç ayrıdır). Yalnız eligible section + public-safe ürün projeksiyonu
+  // döner (reason/customerId/visitorHash/iç campaign config/cost/tedarikçi verisi/debug SIZMAZ).
+  const discoveryData = createDiscoveryData({
+    prisma,
+    recentlyViewed: recentlyViewedData,
+    sponsored: sponsoredData,
+    homeData: homeDataAccess,
+  });
+
+  app.post("/public/stores/:storeSlug/home/discovery", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const body = publicHomeDiscoveryRequestSchema.parse(request.body ?? {});
+    // §3 — viewer-specific → asla shared/CDN cache; logout sonrası bayat yanıt reuse edilmez.
+    void reply.header("Cache-Control", "private, no-store");
+    void reply.header("Vary", "Cookie, x-customer-session, x-visitor-id");
+
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+
+    // Kimlik: customer (session, store-scoped; cross-store session resolveCustomerFromRequest'te reddedilir) →
+    // yoksa store-scoped visitorHash (x-visitor-id HMAC). customerId/visitorHash ASLA gövdeden alınmaz.
+    const discoveryCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config }).catch(
+      () => null,
+    );
+    const rawVisitor = request.headers["x-visitor-id"];
+    const visitorIdHeader = Array.isArray(rawVisitor) ? rawVisitor[0] : rawVisitor;
+    const visitorHash = discoveryCustomer ? null : hashIdentifier(visitorIdHeader, config.SESSION_SECRET);
+    const identity: DiscoveryIdentity = { customerId: discoveryCustomer?.id ?? null, visitorHash };
+    const isAuthenticated = Boolean(discoveryCustomer);
+    const now = new Date();
+
+    // Cart productId'leri (aktif) — public cart index (server-authoritative; client yalnız {variantId,qty} ref).
+    const cartItems = body.cartItems ?? [];
+    let cartProductIds: string[] = [];
+    if (cartItems.length > 0) {
+      const cartIndex = await buildPublicCartIndex(
+        store.id,
+        cartItems.map((item) => item.variantId),
+      );
+      cartProductIds = [...new Set([...cartIndex.values()].map((entry) => entry.productId))];
+    }
+    const wishlistRefIds = isAuthenticated ? [] : (body.wishlistProductIds ?? []);
+
+    // Ucuz sinyal sayaçları (heavy query öncesi gate) → eligibility context.
+    const counts = await discoveryData.cheapCounts(store.id, identity, wishlistRefIds);
+    const context: HomeEligibilityContext = {
+      storeId: store.id,
+      visitorHash: identity.visitorHash,
+      customerId: identity.customerId,
+      isAuthenticated,
+      recentlyViewedCount: counts.recentlyViewedCount,
+      cartItemCount: cartProductIds.length,
+      wishlistItemCount: counts.wishlistItemCount,
+      completedOrderCount: counts.completedOrderCount,
+      recommendationCount: 0,
+      activeCampaignProductCount: 0,
+      eligibleSponsoredProductCount: 0,
+      locale: body.locale,
+      currency: body.currency ?? "TRY",
+    };
+
+    // Section admin config'inden ortak sunum/yönetim alanlarını çıkar (rail tipleri).
+    const railAdmin = (cfg: unknown) => {
+      const parsed = homeDiscoveryRailConfigSchema.safeParse(cfg ?? {});
+      const c = parsed.success ? parsed.data : { maxItems: undefined, guestSupported: undefined, authSupported: undefined, fallbackDisabled: undefined, layout: "CAROUSEL" as const };
+      return {
+        adminMaxItems: c.maxItems ?? null,
+        guestSupported: c.guestSupported,
+        authSupported: c.authSupported,
+        fallbackDisabledByAdmin: c.fallbackDisabled,
+        layout: parsed.success ? c.layout : ("CAROUSEL" as const),
+        titleTr: parsed.success ? (c.titleTr ?? null) : null,
+        titleEn: parsed.success ? (c.titleEn ?? null) : null,
+      };
+    };
+
+    // Section başlığını admin config'inden locale'e göre çöz (RecentlyViewed deseni; /home locale-agnostic
+    // kalsın diye başlık storefront'a değil buraya taşınır). Boşsa null → storefront i18n default başlığa düşer.
+    const localizedTitle = (titleTr: string | null, titleEn: string | null): string | null => {
+      const resolved = body.locale === "en" ? (titleEn ?? titleTr) : (titleTr ?? titleEn);
+      return resolved ?? null;
+    };
+
+    // Bir rail tipi için HAM aday productId listesi (bounded). attempt=false → boş (heavy query YOK).
+    async function rawCandidatesFor(type: DiscoverySectionType, adminMax: number | null): Promise<string[]> {
+      const limit = candidateFetchLimit(type, adminMax);
+      switch (type) {
+        case "CONTINUE_BROWSING":
+          return discoveryData.continueBrowsingIds(store!.id, identity, limit);
+        case "CART_RECOMMENDATIONS":
+          return discoveryData.cartRecommendationIds(store!.id, cartProductIds, limit);
+        case "REPURCHASE":
+          return identity.customerId ? discoveryData.repurchaseIds(store!.id, identity.customerId, limit) : [];
+        case "SIMILAR_TO_PURCHASED":
+          return identity.customerId ? discoveryData.similarToPurchasedIds(store!.id, identity.customerId, limit) : [];
+        case "PERSONALIZED_DEALS":
+          return discoveryData.personalizedSignalProductIds(store!.id, identity, cartProductIds, wishlistRefIds);
+        case "WISHLIST_DEALS":
+          return discoveryData.wishlistActiveProductIds(store!.id, identity, wishlistRefIds);
+        case "DAILY_DEALS":
+          return discoveryData.dailyDealCandidateIds(store!.id, now);
+        default:
+          return [];
+      }
+    }
+
+    // DAILY_DEALS/PERSONALIZED_DEALS/WISHLIST_DEALS → yalnız GERÇEKTEN indirimli tutulur (kampanya badge veya
+    // compareAt>price; sahte indirim/fiyat-düşüşü iddiası üretilmez — §9/§10/§14).
+    const needsDiscountFilter = (type: DiscoverySectionType) =>
+      type === "DAILY_DEALS" || type === "PERSONALIZED_DEALS" || type === "WISHLIST_DEALS";
+
+    // ─── Pass 1: tüm section + grid kartları için HAM aday id'lerini topla (union projeksiyon için) ───
+    type ProductBuilt = Awaited<ReturnType<typeof buildPublicProduct>>;
+    type RailUnit = {
+      type: DiscoverySectionType;
+      admin: ReturnType<typeof railAdmin>;
+      signalPresent: boolean;
+      candidateIds: string[];
+      discountFilter: boolean;
+    };
+    async function planRail(type: DiscoverySectionType, cfg: unknown): Promise<RailUnit | null> {
+      const gate = sectionSignalGate(context, type);
+      const admin = railAdmin(cfg);
+      if (!gate.attempt) {
+        return { type, admin, signalPresent: gate.signalPresent, candidateIds: [], discountFilter: needsDiscountFilter(type) };
+      }
+      const candidateIds = await rawCandidatesFor(type, admin.adminMaxItems);
+      return { type, admin, signalPresent: gate.signalPresent, candidateIds, discountFilter: needsDiscountFilter(type) };
+    }
+
+    // DISCOVERY_GRID bir KONTEYNER'dır (SECTION_BOUNDS'ta değil) → ayrıca dahil et.
+    const discoverySections = (await homeDataAccess.listPublishedSections(store.id, now)).filter(
+      (s) => s.type === "DISCOVERY_GRID" || isDiscoverySectionType(s.type),
+    );
+
+    // Plan: her section → tipine göre rail/sponsored/editorial/grid. Union id'leri topla.
+    const unionIds = new Set<string>();
+    type SponsoredCand = { productId: string; campaignId: string; placementId: string };
+    type SectionPlan =
+      | { kind: "RAIL"; section: (typeof discoverySections)[number]; unit: RailUnit }
+      | { kind: "SPONSORED"; section: (typeof discoverySections)[number]; admin: ReturnType<typeof railAdmin>; candidates: SponsoredCand[] }
+      | { kind: "EDITORIAL"; section: (typeof discoverySections)[number] }
+      | { kind: "GRID"; section: (typeof discoverySections)[number]; cards: Array<{ type: DiscoveryGridCardType; order: number; unit: RailUnit | null; editorial: boolean }> };
+    const plans: SectionPlan[] = [];
+
+    for (const section of discoverySections) {
+      const type = section.type as DiscoverySectionType;
+      if (type === "SPONSORED_RAIL") {
+        const admin = railAdmin(section.config);
+        const limit = candidateFetchLimit("SPONSORED_RAIL", admin.adminMaxItems);
+        const candidates = await discoveryData.sponsoredCandidates(store.id, now, limit);
+        candidates.forEach((c) => unionIds.add(c.productId));
+        plans.push({ kind: "SPONSORED", section, admin, candidates });
+      } else if (type === "EDITORIAL_CAMPAIGN") {
+        plans.push({ kind: "EDITORIAL", section });
+      } else if (section.type === "DISCOVERY_GRID") {
+        const parsed = homeDiscoveryGridConfigSchema.safeParse(section.config ?? {});
+        const cardConfigs =
+          parsed.success && parsed.data.cards && parsed.data.cards.length > 0
+            ? parsed.data.cards
+            : (["CONTINUE_BROWSING", "CART_RECOMMENDATIONS", "PERSONALIZED_DEALS", "DAILY_DEALS"] as const).map(
+                (t, i) => ({ type: t as DiscoveryGridCardType, order: i }),
+              );
+        const cards: Array<{ type: DiscoveryGridCardType; order: number; unit: RailUnit | null; editorial: boolean }> = [];
+        for (const cc of cardConfigs) {
+          if (cc.type === "EDITORIAL_CAMPAIGN") {
+            cards.push({ type: cc.type, order: cc.order, unit: null, editorial: true });
+          } else if (isDiscoverySectionType(cc.type)) {
+            const unit = await planRail(cc.type as DiscoverySectionType, section.config);
+            if (unit) unit.candidateIds.forEach((id) => unionIds.add(id));
+            cards.push({ type: cc.type, order: cc.order, unit, editorial: false });
+          }
+        }
+        plans.push({ kind: "GRID", section, cards });
+      } else if (isDiscoverySectionType(section.type)) {
+        const unit = await planRail(type, section.config);
+        if (unit) unit.candidateIds.forEach((id) => unionIds.add(id));
+        if (unit) plans.push({ kind: "RAIL", section, unit });
+      }
+    }
+
+    // ─── Pass 2: union'u TEK sefer ACTIVE katalog projeksiyonuyla kur (N+1 yok; /home ile aynı makine) ───
+    const builtById = new Map<string, ProductBuilt>();
+    if (unionIds.size > 0) {
+      const activeProducts = (await dataAccess.findProductsByIds(store.id, [...unionIds])).filter(
+        (product) => product.status === "ACTIVE",
+      );
+      const activeById = new Map(activeProducts.map((p) => [p.id, p]));
+      const neededIds = [...unionIds].filter((id) => activeById.has(id));
+      if (neededIds.length > 0) {
+        const [categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
+          loadPublicCategoryNames(store.id),
+          loadPublicStockMap(store.id),
+          dataAccess.listPublicActiveCampaigns(store.id),
+          loadPublicLowestPriceMap(store.id),
+        ]);
+        const coverMap = await dataAccess.listProductImages(store.id, neededIds, true);
+        await Promise.all(
+          neededIds.map(async (id) => {
+            const product = activeById.get(id)!;
+            const built = await buildPublicProduct(
+              { ...product, images: coverMap.get(id) ?? [] },
+              await loadActivePublicVariants(store.id, id),
+              categoryNames,
+              stockMap,
+              publicCampaigns,
+              now,
+              lowestMap,
+              config.MEDIA_PUBLIC_BASE_URL,
+            );
+            builtById.set(id, built);
+          }),
+        );
+      }
+    }
+
+    // "Gerçekten indirimli mi": kampanya badge veya herhangi bir varyantta compareAt>price (verified drop).
+    const isDiscounted = (built: ProductBuilt): boolean => {
+      if (built.campaign != null) return true;
+      return built.variants.some(
+        (v) => v.compareAtMinor != null && v.priceMinor != null && v.compareAtMinor > v.priceMinor,
+      );
+    };
+
+    // Aday id'leri → projekte + (gerekiyorsa) indirim süz; SIRA korunur.
+    const projectedIds = (ids: readonly string[], discountFilter: boolean): string[] =>
+      ids.filter((id) => {
+        const built = builtById.get(id);
+        if (!built) return false; // inactive/no-projection → düş
+        return discountFilter ? isDiscounted(built) : true;
+      });
+
+    // ─── Pass 3: DB sırasında finalize (dedupe + eşik-tekrar), public projeksiyon üret ───
+    const seen = new Set<string>();
+    const nowMs = now.getTime();
+    const sponsoredExpiry = computeSponsoredExpiry(nowMs, DEFAULT_SPONSORED_ATTRIBUTION_WINDOW_DAYS);
+
+    // Editoryal içerik çöz (config-driven; eksik içerik → null → kart gizlenir, fallback ÜRETİLMEZ).
+    async function resolveEditorial(section: (typeof discoverySections)[number]) {
+      const parsed = homeEditorialCampaignConfigSchema.safeParse(section.config ?? {});
+      if (!parsed.success) return null;
+      const c = parsed.data;
+      const title = body.locale === "en" ? (c.titleEn ?? c.titleTr) : (c.titleTr ?? c.titleEn);
+      const ctaHref = c.ctaHref ?? null;
+      if (!title || !ctaHref) return null; // içerik hazır değil → gizle
+      // linkedCampaignId varsa yayın-penceresi doğrula (bayat editoryal göstermemek için).
+      if (c.linkedCampaignId) {
+        const campaign = await prisma.campaign.findFirst({
+          where: {
+            id: c.linkedCampaignId,
+            storeId: store!.id,
+            status: "ACTIVE",
+            AND: [
+              { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+              { OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+            ],
+          },
+          select: { id: true },
+        });
+        if (!campaign) return null;
+      }
+      let mediaUrl: string | null = null;
+      if (c.mediaId) {
+        const asset = await prisma.mediaAsset.findFirst({
+          where: { id: c.mediaId, storeId: store!.id },
+          select: { storageKey: true },
+        });
+        mediaUrl = asset ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, asset.storageKey) : null;
+      }
+      const body_ = body.locale === "en" ? (c.bodyEn ?? c.bodyTr) : (c.bodyTr ?? c.bodyEn);
+      const ctaLabel = body.locale === "en" ? (c.ctaLabelEn ?? c.ctaLabelTr) : (c.ctaLabelTr ?? c.ctaLabelEn);
+      return { mediaUrl, title, body: body_ ?? null, ctaLabel: ctaLabel ?? null, ctaHref };
+    }
+
+    // Bir rail'i finalize et → seçilen projekte ürünler (sponsored token opsiyonel).
+    function finalizeRailUnit(unit: RailUnit): { source: string; products: ProductBuilt[] } | null {
+      const projected = projectedIds(unit.candidateIds, unit.discountFilter);
+      const decision = finalizeRail(
+        context,
+        {
+          type: unit.type,
+          candidateIds: projected,
+          signalPresent: unit.signalPresent,
+          adminMaxItems: unit.admin.adminMaxItems,
+          guestSupported: unit.admin.guestSupported,
+          authSupported: unit.admin.authSupported,
+          fallbackDisabledByAdmin: unit.admin.fallbackDisabledByAdmin,
+        },
+        seen,
+      );
+      if (!decision.eligible) return null;
+      const products = decision.productIds.map((id) => builtById.get(id)!).filter(Boolean);
+      return { source: decision.source, products };
+    }
+
+    const outSections: unknown[] = [];
+    for (const plan of plans) {
+      const base = {
+        id: plan.section.id,
+        title: plan.section.title,
+        subtitle: plan.section.subtitle,
+      };
+      if (plan.kind === "RAIL") {
+        const admin = plan.unit.admin;
+        const result = finalizeRailUnit(plan.unit);
+        if (!result) continue;
+        outSections.push({
+          ...base,
+          title: localizedTitle(admin.titleTr, admin.titleEn) ?? base.title,
+          type: plan.section.type,
+          source: result.source,
+          layout: admin.layout,
+          sponsored: false,
+          products: result.products,
+          editorial: null,
+          columns: null,
+          cards: null,
+        });
+      } else if (plan.kind === "SPONSORED") {
+        // Sponsorlu: projekte + token imzala; finalize (min 3 / max 8). Rozet storefront'ta ZORUNLU.
+        const candidateIds = plan.candidates.map((c) => c.productId).filter((id) => builtById.has(id));
+        const decision = finalizeRail(
+          context,
+          {
+            type: "SPONSORED_RAIL",
+            candidateIds,
+            signalPresent: true,
+            adminMaxItems: plan.admin.adminMaxItems,
+            guestSupported: plan.admin.guestSupported,
+            authSupported: plan.admin.authSupported,
+            fallbackDisabledByAdmin: plan.admin.fallbackDisabledByAdmin,
+          },
+          seen,
+        );
+        if (!decision.eligible) continue;
+        const byProduct = new Map(plan.candidates.map((c) => [c.productId, c]));
+        const products = decision.productIds.map((id) => {
+          const built = builtById.get(id)!;
+          const cand = byProduct.get(id)!;
+          const sponsoredToken = signSponsoredToken(
+            {
+              v: SPONSORED_TOKEN_VERSION,
+              storeId: store.id,
+              campaignId: cand.campaignId,
+              placementId: cand.placementId,
+              productId: id,
+              placement: "HOME_SHOWCASE",
+              issuedAt: nowMs,
+              expiresAt: sponsoredExpiry,
+            },
+            config.SESSION_SECRET,
+          );
+          return { ...built, sponsoredToken };
+        });
+        outSections.push({
+          ...base,
+          title: localizedTitle(plan.admin.titleTr, plan.admin.titleEn) ?? base.title,
+          type: "SPONSORED_RAIL",
+          source: decision.source,
+          layout: plan.admin.layout,
+          sponsored: true,
+          products,
+          editorial: null,
+          columns: null,
+          cards: null,
+        });
+      } else if (plan.kind === "EDITORIAL") {
+        const editorial = await resolveEditorial(plan.section);
+        if (!editorial) continue;
+        outSections.push({
+          ...base,
+          type: "EDITORIAL_CAMPAIGN",
+          source: SECTION_BOUNDS.EDITORIAL_CAMPAIGN.source,
+          layout: null,
+          sponsored: false,
+          products: [],
+          editorial,
+          columns: null,
+          cards: null,
+        });
+      } else {
+        // DISCOVERY_GRID: kartları finalize et (dedupe against seen), grid kuralı uygula (min2/max4).
+        const cardOutputs: Array<{ type: DiscoveryGridCardType; source: string; products: ProductBuilt[]; editorial: Awaited<ReturnType<typeof resolveEditorial>> }> = [];
+        const gridInputs: Array<{ type: DiscoveryGridCardType; eligible: boolean; order: number }> = [];
+        for (const card of plan.cards) {
+          if (card.editorial) {
+            const editorial = await resolveEditorial(plan.section);
+            const eligible = editorial != null;
+            gridInputs.push({ type: card.type, eligible, order: card.order });
+            if (eligible) cardOutputs.push({ type: card.type, source: SECTION_BOUNDS.EDITORIAL_CAMPAIGN.source, products: [], editorial });
+          } else if (card.unit) {
+            const result = finalizeRailUnit(card.unit);
+            const eligible = result != null;
+            gridInputs.push({ type: card.type, eligible, order: card.order });
+            if (result) cardOutputs.push({ type: card.type, source: result.source, products: result.products, editorial: null });
+          } else {
+            gridInputs.push({ type: card.type, eligible: false, order: card.order });
+          }
+        }
+        const grid = resolveDiscoveryGrid(gridInputs);
+        if (!grid.eligible) continue;
+        // Grid kuralına göre seçilen kart tiplerini, admin sırasında, çıktı kartlarıyla eşle.
+        const orderedCards = grid.cards
+          .map((cardType) => cardOutputs.find((co) => co.type === cardType))
+          .filter((co): co is NonNullable<typeof co> => Boolean(co))
+          .map((co) => ({
+            type: co.type,
+            source: co.source,
+            title: null,
+            products: co.products,
+            editorial: co.editorial,
+          }));
+        const gridCfg = homeDiscoveryGridConfigSchema.safeParse(plan.section.config ?? {});
+        const gridTitle = gridCfg.success ? localizedTitle(gridCfg.data.titleTr ?? null, gridCfg.data.titleEn ?? null) : null;
+        outSections.push({
+          ...base,
+          title: gridTitle ?? base.title,
+          type: "DISCOVERY_GRID",
+          source: "DISCOVERY",
+          layout: null,
+          sponsored: false,
+          products: [],
+          editorial: null,
+          columns: grid.columns,
+          cards: orderedCards,
+        });
+      }
+    }
+
+    return publicHomeDiscoveryResponseSchema.parse({ sections: outSections });
   });
 
   // TODO-158A (ADR-086) — Home Experience Platform: section CRUD + tip-özel alt varlıklar.

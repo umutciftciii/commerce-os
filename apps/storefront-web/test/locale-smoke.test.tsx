@@ -13,8 +13,10 @@ vi.mock("next/headers", () => ({
 
 // Ana sayfa canli katalogu cozer; smoke testte resolver sahtelenir (ag yok).
 // TODO-158A (ADR-086) — getHome bos section doner → sayfa fallback'e duser (generic hero + urunler).
+// TODO-162 (ADR-206) — page.tsx artik getHome + getDiscovery'yi PARALEL cozer; smoke'ta discovery bos doner.
 vi.mock("../lib/server/catalog", () => ({
   getHome: async () => ({ sections: [] }),
+  getDiscovery: async () => [],
   getFeaturedProducts: async () => ({ ok: true, data: [] }),
 }));
 

@@ -1188,3 +1188,26 @@ PAID+ACTIVE kalır. **Güvenli çözüm smoke'un işi DEĞİL** (spec §15 salt-
 apply ucuyla çözer: `POST /stores/:storeId/inventory/reservations/reconcile/run` gövde `{"dryRun": false}` (qty/line/
 inventory doğrulama; belirsiz → MANUAL_REVIEW, mutate etmez). Bkz.
 `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
+
+## TODO-162 — HomeDiscoveryEvent tablosu (2026-07-30, ADR-205)
+
+Yeni ADDITIVE `HomeDiscoveryEvent` (migration `20260730120000`): eligibility-driven Home keşif section'larının
+section-seviyesi funnel ölçümü. Yalnız RENDER EDİLEN section event üretir (eligibility=false → impression YOK);
+bot/prefetch event yazmaz (satır hiç oluşmaz → `isBot` kolonu yok). Sponsored kartları AYRICA mevcut
+`SponsoredProductEvent` token ölçümünü kullanır (bu tablo yalnız section funnel). Tenant isolation: `storeId`
+her index'te; cross-store productId reddi. Sponsored kartların OTORİTATİF ölçümü yine token'dadır (çift-ölçüm değil).
+
+### TD-151 — Discovery analytics ingest + retention (2026-07-30)
+
+Public ingest ucu `POST /public/stores/:storeSlug/home/discovery-events` (`Cache-Control` yok; best-effort → 200).
+Kimlik SUNUCU-türevi (customer session → visitorHash; KVKK HMAC). Doğrulama: eventType+sectionType+eligibilitySource
+allowlist; sectionId gerçek yayınlanmış (enabled) section'a karşı; ürün store-sahipliği. Admin funnel özeti
+`GET /stores/:storeId/home/discovery-events/summary` (platform-admin; store-scope; max 366 gün).
+
+Env (ingest): `HOME_DISCOVERY_EVENT_RATE_LIMIT_MAX` (600) / `_WINDOW_SECONDS` (60), `HOME_DISCOVERY_IMPRESSION_DEDUPE_SECONDS`
+(1800), `HOME_DISCOVERY_INTERACTION_DEDUPE_SECONDS` (30). Env (retention worker): `HOME_DISCOVERY_EVENT_RETENTION_ENABLED`
+(false — açılmadan otomatik silme YOK), `_INTERVAL_SECONDS` (86400, min 3600), `_RETENTION_DAYS` (180, min 30),
+`_BATCH_SIZE` (1000), `_MAX_DELETE_PER_RUN` (200000, circuit breaker). Retention ayrı jobType/queueName
+(`home-discovery-event-retention` / `home-discovery-events`); TODO-161A.1 SAF altyapı reuse (advisory lock + QueueJobLog);
+influencer/sponsored/recommendation `RETENTION_TABLE_SPECS` allowlist'ine DOKUNMAZ. Storefront emit BFF üzerinden
+(`/api/discovery/event` → gateway); gateway URL sunucu-yalnız. ADD_TO_CART discovery yüzeyinde emit edilmez.

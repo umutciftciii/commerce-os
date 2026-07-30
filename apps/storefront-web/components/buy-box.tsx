@@ -15,6 +15,7 @@ import { ctaLabel, primaryPriceText, showsNumericPrice } from "../lib/labels";
 import { formatMinor, resolveUnitPriceLabels } from "../lib/money";
 import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
 import { consumeRecommendationAttribution, trackRecommendationEvent } from "../lib/recommendation/track";
+import { trackDiscoveryAddToCart } from "../lib/discovery/track";
 import { usePdpSelection } from "./pdp-selection";
 import { WishlistHeartButton } from "./wishlist/wishlist-heart-button";
 import { Badge, Button, type BadgeTone } from "./ui";
@@ -130,12 +131,20 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
     }
   }
 
+  // TODO-162 — Keşif kaynaklı add-to-cart ölçümü: kullanıcı bu PDP'ye bir keşif kartından geldiyse (son-keşif-
+  // tıklama bağlamı tazeyse) ADD_TO_CART discovery event'i yazılır. Recommendation ölçümünden AYRI/simetrik
+  // (çift sayım yok; farklı sessionStorage anahtarı). Bağlam yoksa NO-OP. BAŞARILI sepete-eklemeden sonra çağrılır.
+  function trackDiscoveryOriginAddToCart() {
+    trackDiscoveryAddToCart(detail.id);
+  }
+
   function addToCart() {
     if (!selected) return;
     startTransition(async () => {
       await addToCartAction(selected.id, quantity);
       setAdded(true);
       trackRecommendedAddToCart();
+      trackDiscoveryOriginAddToCart();
     });
   }
 
@@ -144,6 +153,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
     startTransition(async () => {
       await addToCartAction(selected.id, quantity);
       trackRecommendedAddToCart();
+      trackDiscoveryOriginAddToCart();
       router.push("/checkout");
     });
   }

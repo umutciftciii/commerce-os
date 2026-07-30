@@ -617,8 +617,21 @@ export function createPrismaHomeDataAccess(): HomeDataAccess {
 
     listPublishedFeaturedCategories: (storeId, sectionId) =>
       prisma.homeFeaturedCategory.findMany({
-        // Kategori de ACTIVE olmalı (public görünürlük); enabled entry + ACTIVE kategori.
-        where: { storeId, sectionId, enabled: true, category: { status: "ACTIVE" } },
+        // Kategori ACTIVE olmalı (public görünürlük) VE en az bir ACTIVE ürün içermeli (TODO-162 §16:
+        // boş kategori kısayolu gizlenir — kullanıcıyı boş PLP'ye yönlendirmemek için). Ürün-kategori
+        // ilişkisi iki yolla: primaryCategory (birincil) VEYA assignment (çoklu-kategori).
+        where: {
+          storeId,
+          sectionId,
+          enabled: true,
+          category: {
+            status: "ACTIVE",
+            OR: [
+              { primaryProducts: { some: { status: "ACTIVE" } } },
+              { assignments: { some: { product: { status: "ACTIVE" } } } },
+            ],
+          },
+        },
         orderBy: { sortOrder: "asc" },
         select: homeFeaturedCategorySelect,
       }),

@@ -2,6 +2,7 @@ import { cache } from "react";
 import type {
   PublicCampaignBadge,
   PublicHomeResponse,
+  PublicHomeDiscoveryResponse,
   PublicProduct,
   PublicProductDetail,
   PublicProductListResponse,
@@ -17,6 +18,7 @@ import {
 import type {
   PriceDisplayMode,
   StorefrontCampaignView,
+  StorefrontDiscoverySection,
   StorefrontHome,
   StorefrontHomeSection,
   StorefrontPrice,
@@ -27,7 +29,10 @@ import type {
 import { deriveProductCommerceView } from "../sales-model";
 import { formatLowest, formatMinor, lowestMinor } from "../money";
 import { demoStoreSlug } from "./env";
-import { getPublic } from "./gateway";
+import { gatewayBaseUrl, getPublic } from "./gateway";
+import { cookies } from "next/headers";
+import { readCartItems } from "./cart-cookie";
+import { readWishlistRefs } from "./wishlist-cookie";
 
 /**
  * Vitrin katalog cozumleyici (TD-032 / F3A.1). Gateway'in AUTH GEREKTIRMEYEN
@@ -344,6 +349,80 @@ export const getHome = cache(async function getHome(
     return { sections: [] };
   }
 });
+
+const VISITOR_COOKIE = "commerce_os_vid";
+const CUSTOMER_COOKIE = "commerce_os_customer_session";
+
+/**
+ * TODO-162 (ADR-202/206) — Katman B viewer-specific Discovery section'ları (SUNUCU-tarafı, flash yok).
+ *
+ * Kimlik cookie'lerden okunur ve YALNIZ header ile gateway'e iletilir (`x-customer-session`/`x-visitor-id`);
+ * customerId/storeId GÖNDERİLMEZ (sunucu türetir). Sepet/guest-wishlist yalnız {variantId,qty}/{productId}
+ * REFERANSI olarak gider (sunucu yeniden çözer). Yanıt zaten eligible section'lardır → hepsi map + render edilir.
+ * Hata/boş → [] (vitrin bozulmaz). `no-store` + gateway `private, no-store` → shared-cache'e girmez.
+ */
+export async function getDiscovery(
+  locale: CampaignLabelLocale = "tr",
+): Promise<StorefrontDiscoverySection[]> {
+  try {
+    const cookieStore = await cookies();
+    const visitorId = cookieStore.get(VISITOR_COOKIE)?.value;
+    const customerToken = cookieStore.get(CUSTOMER_COOKIE)?.value;
+    const cartItems = (await readCartItems()).map((item) => ({
+      variantId: item.variantId,
+      quantity: item.quantity,
+    }));
+    // Auth'ta sunucu CustomerList otoritedir; guest'te cookie referansları.
+    const wishlistProductIds = customerToken
+      ? []
+      : (await readWishlistRefs()).map((ref) => ref.productId);
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (customerToken) headers["x-customer-session"] = customerToken;
+    else if (visitorId) headers["x-visitor-id"] = visitorId;
+
+    const response = await fetch(
+      `${gatewayBaseUrl()}/public/stores/${encodeURIComponent(demoStoreSlug())}/home/discovery`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ locale, cartItems, wishlistProductIds }),
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as PublicHomeDiscoveryResponse;
+    return data.sections.map((section) => ({
+      id: section.id,
+      type: section.type,
+      source: section.source,
+      title: section.title,
+      subtitle: section.subtitle,
+      layout: section.layout,
+      sponsored: section.sponsored,
+      products: section.products.map((product) => ({
+        ...toSummary(product, locale),
+        sponsoredToken: product.sponsoredToken,
+      })),
+      editorial: section.editorial,
+      columns: section.columns,
+      cards: section.cards
+        ? section.cards.map((card) => ({
+            type: card.type,
+            source: card.source,
+            title: card.title,
+            products: card.products.map((product) => ({
+              ...toSummary(product, locale),
+              sponsoredToken: product.sponsoredToken,
+            })),
+            editorial: card.editorial,
+          }))
+        : null,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Urun detayi: slug ile public detay ucundan cozulur. TODO-156D — React `cache()` ile sarili: PDP'de

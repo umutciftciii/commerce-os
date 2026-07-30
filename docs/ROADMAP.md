@@ -901,3 +901,40 @@
   (parola; [[TD-126]] yöntemi tekrarlanamaz) → Final UI Polish + deploy-öncesi manuel kontrol.
 - **Sıra:** SHIP (docs-only PR → merge → değişen servis rebuild GEREKMEZ) → **Final Enterprise UI/Design Polish**.
   Analiz: `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
+
+## TODO-162 — Storefront Discovery & Merchandising (2026-07-30, IN_PROGRESS)
+
+- **Durum:** IN_PROGRESS. FOUNDATION + **TD-149 (Katman B endpoint) + TD-150 (storefront Discovery UI) CLOSED —
+  canlı doğrulandı**. KALAN: analytics ingest (TD-151) + store-admin/preview (TD-152). Git: bu turda commit/push/PR/merge YOK.
+- **Amaç.** Home Experience'ı eligibility-driven bir keşif yüzeyine dönüştür (Amazon slider-altı ritminden
+  esin; görsel kopya değil). Bir section yalnız gerçek/doğrulanmış sinyal eşiğini karşılarsa render edilir;
+  aksi halde DOM'a hiç eklenmez (boş başlık/spacing/impression yok). Kişiselleştirilmişte fallback yasak.
+  Mevcut Home Experience/Recently Viewed/Wishlist/Cart/Orders/Campaign/Sponsored altyapıları REUSE; paralel
+  CMS/ikinci engine YOK.
+- **Teslim edilen (bu tur, build+test yeşil).**
+  - Analiz: `docs/analysis/TODO-162-storefront-discovery-merchandising.md` (5-ajanlı kod denetimi temelli).
+  - Eligibility motoru (saf): `apps/api-gateway/src/home/eligibility-core.ts` — `resolveHomeSectionEligibility`
+    + `SECTION_BOUNDS` (ADR-199) + `resolveDiscoveryGrid` (min2/max4). **25 birim testi PASS.**
+  - Analytics saf çekirdek: `apps/api-gateway/src/home/discovery-event-core.ts` (hidden-section event üretmez).
+    **9 birim testi PASS.**
+  - Kontratlar: 10 yeni section tipi allowlist + config şemaları (discovery rail/grid/editorial)
+    (`packages/contracts`); gateway `parseConfigForType` yeni tipleri doğrular. contracts+api-gateway build 0.
+  - Migration (ADDITIVE): `HomeDiscoveryEvent` (`20260730120000`) — **gerçek Postgres'te uygulandı + doğrulandı**
+    (tablo + 5 index; `prisma migrate status` up to date).
+- **Kalan (sıradaki oturum).** Katman B viewer-specific resolver + `POST .../home/discovery` endpoint (6
+  kişiselleştirilmiş data-access yolu: cart-recs/personalized-deals/repurchase/similar-to-purchased/
+  wishlist-deals/continue-browsing) · DISCOVERY_GRID + fold-altı lazy island'lar (storefront) · Category
+  Shortcuts boş-kategori fix · analytics ingest endpoint + retention worker · store-admin SectionEditor
+  genişletmesi + preview · entegrasyon/UI testleri · enterprise-demo canlı smoke. Bkz. [[TD-149]]…[[TD-152]].
+- **Kararlar.** ADR-197…ADR-206 (eligibility-driven · guest/auth context · min-threshold invariant ·
+  no-fallback personalization · merge reuse · viewer-specific hydration · DISCOVERY_GRID · page-level dedupe ·
+  hidden-section analytics · lazy hydration).
+
+## Sıralama (§29 — güncel öncelik)
+
+1. **TODO-162 Storefront Discovery & Merchandising** (IN_PROGRESS — bu faz).
+2. **TODO-163 Tenant Module & Capability Management** (PLANNED).
+3. **TODO-164 Tenant Theme Architecture** (PLANNED).
+4. **TODO-165 Fashion Vertical Foundation** (PLANNED).
+5. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-149…152 TODO-162 kalanı).
+6. **Final Enterprise UI & Design Polish** (EN SON).

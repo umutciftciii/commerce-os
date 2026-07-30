@@ -293,6 +293,41 @@ export interface StorefrontHome {
 }
 
 /**
+ * TODO-162 (ADR-202) — Katman B viewer-specific Discovery section (storefront görünümü). Gateway'in
+ * `/home/discovery` ucundan gelir; eligibility SUNUCU-tarafındadır → burada gelen her section RENDER
+ * EDİLİR (ineligible olanlar zaten yanıtta yoktur). `sponsored=true` → "Sponsorlu" etiketi ZORUNLU.
+ */
+export interface StorefrontDiscoveryEditorial {
+  mediaUrl: string | null;
+  title: string;
+  body: string | null;
+  ctaLabel: string | null;
+  ctaHref: string;
+}
+
+export interface StorefrontDiscoveryGridCard {
+  type: string;
+  source: string;
+  title: string | null;
+  products: StorefrontProductSummary[];
+  editorial: StorefrontDiscoveryEditorial | null;
+}
+
+export interface StorefrontDiscoverySection {
+  id: string;
+  type: string;
+  source: string;
+  title: string | null;
+  subtitle: string | null;
+  layout: "CAROUSEL" | "GRID" | null;
+  sponsored: boolean;
+  products: StorefrontProductSummary[];
+  editorial: StorefrontDiscoveryEditorial | null;
+  columns: number | null;
+  cards: StorefrontDiscoveryGridCard[] | null;
+}
+
+/**
  * F4A.3 — Sepet "Kuponlar" alanindaki kullanilabilir kupon karti gorunumu.
  * Gateway'in cuzdan projeksiyonundan (PublicWalletCoupon) turetilmis HAZIR
  * metinler tasir; kampanya ic verisi tasimaz.

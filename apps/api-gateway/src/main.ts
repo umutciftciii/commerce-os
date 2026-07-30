@@ -10,6 +10,7 @@ import { startSettlementSchedulerWorker } from "./commercial-automation/settleme
 import { startRetentionWorker } from "./commercial-automation/retention-worker.js";
 import { startRecentlyViewedRetentionWorker } from "./recently-viewed/retention-worker.js";
 import { startRecommendationEventRetentionWorker } from "./recommendation-events/retention-worker.js";
+import { startDiscoveryEventRetentionWorker } from "./home/discovery-event-retention-worker.js";
 import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 
 const config = loadConfig();
@@ -30,6 +31,8 @@ const retentionWorker = startRetentionWorker({ config, logger });
 const recentlyViewedRetentionWorker = startRecentlyViewedRetentionWorker({ config, logger });
 // TD-130 (ADR-148) — zamanlanmis Recommendation event retention (RECOMMENDATION_EVENT_RETENTION_ENABLED=false ise no-op).
 const recommendationEventRetentionWorker = startRecommendationEventRetentionWorker({ config, logger });
+// TODO-162 (ADR-205) — zamanlanmis Home Discovery event retention (HOME_DISCOVERY_EVENT_RETENTION_ENABLED=false ise no-op).
+const discoveryEventRetentionWorker = startDiscoveryEventRetentionWorker({ config, logger });
 // H-3 pre-ship — rezervasyon süre-aşımı süpürücü api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
 // Scheduler). api-gateway yalnız manuel expiry/reconcile enqueue + status/reconcile-scan sunar.
 // PB-2/PB-3 — DB backup zamanlaması + yürütmesi api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
@@ -44,6 +47,7 @@ const shutdown = async (signal: string) => {
   await retentionWorker.stop();
   await recentlyViewedRetentionWorker.stop();
   await recommendationEventRetentionWorker.stop();
+  await discoveryEventRetentionWorker.stop();
   await disconnectDefaultAdvisoryLockManager();
   await app.close();
   await closeQueueConnections();
