@@ -2347,3 +2347,10 @@ theme/gateway build + 4 app typecheck (storefront/store-admin/admin-web) temiz; 
 DEĞİŞMEDİ; postgres/redis volume korundu) → migrate deploy "no pending" → **deploy-sonrası smoke 6/6 + security
 PASS** (enterprise-demo, BASE_COMMERCE'e restore). **KALAN (opsiyonel):** auth'lu TARAYICI click-through
 (store-admin parola TD-126). **TODO-164 CLOSED & DEPLOYED.**
+
+**Takip (2026-07-30) — Tema Yönetimi ayrı yüzey:** Kullanıcı geri bildirimi üzerine platform-admin tema
+yönetimi mağaza **Düzenle** modalından çıkarılıp AYRI `/themes` sayfasına taşındı (sol menü "Tema Yönetimi" +
+fleet tablosu: mağaza·aktif tema·preset·uyumluluk·Theme Studio·Yönet). Yeni fleet ucu `GET /admin/theme-bindings`
+(store-scope'suz platform admin, N+1 yok). **PR #151 MERGED** (merge `2dfbc9a`) → api-gateway+admin-web deploy
+healthy → post-deploy fleet smoke PASS (2 mağaza, atama yansıdı, no-auth 401). Sebep: önemli yönetim modülünü
+ilgisiz modala gömmek çok-mağazalı kontrolü zorlaştırıyordu.
