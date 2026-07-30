@@ -23,6 +23,7 @@ import type {
   HomeSectionType,
 } from "@commerce-os/api-client";
 import { HomeIcon } from "../../../components/icons";
+import { MediaUpload, type MediaItem } from "../../../components/media-upload";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { homeLabels, type HomeLocale } from "./labels";
@@ -380,7 +381,10 @@ function SectionEditor({
   const [guestSupported, setGuestSupported] = useState(cfg.guestSupported !== false);
   const [authSupported, setAuthSupported] = useState(cfg.authSupported !== false);
   const [fallbackDisabled, setFallbackDisabled] = useState(cfg.fallbackDisabled === true);
+  // EDITORIAL görsel: mediaId OTORİTATİF (kaydedilen), mediaItems yalnız önizleme (url). Böylece edit'te url
+  // çözülemese bile mediaId korunur → mevcut görsel yanlışlıkla SİLİNMEZ. onAttach/onRemove ikisini de günceller.
   const [mediaId, setMediaId] = useState((cfg.mediaId as string) ?? "");
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [bodyTr, setBodyTr] = useState((cfg.bodyTr as string) ?? "");
   const [bodyEn, setBodyEn] = useState((cfg.bodyEn as string) ?? "");
   const [ctaLabelTr, setCtaLabelTr] = useState((cfg.ctaLabelTr as string) ?? "");
@@ -396,6 +400,23 @@ function SectionEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Edit + EDITORIAL + mevcut mediaId → görselin url'ini `ids` çözüm moduyla getir (önizleme). Bir kez.
+  useEffect(() => {
+    if (type !== "EDITORIAL_CAMPAIGN" || !mediaId || mediaItems.length > 0) return;
+    let active = true;
+    void storeApi
+      .listMedia({ ids: mediaId })
+      .then((result) => {
+        const asset = result.data.find((item) => item.id === mediaId);
+        if (active && asset) setMediaItems([{ id: asset.id, url: asset.url, altText: asset.altText }]);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+    // Yalnız açılışta (mediaId ilk değeri) çözülür; sonraki değişimler onAttach/onRemove ile yönetilir.
+  }, []);
 
   function buildConfig(): Record<string, unknown> {
     if (type === "HERO_SLIDER") {
@@ -823,7 +844,23 @@ function SectionEditor({
             <Input id="home-e-cta-tr" label={f.ctaLabelTrLabel} value={ctaLabelTr} onChange={(e) => setCtaLabelTr(e.target.value)} disabled={saving} />
             <Input id="home-e-cta-en" label={f.ctaLabelEnLabel} value={ctaLabelEn} onChange={(e) => setCtaLabelEn(e.target.value)} disabled={saving} />
             <Input id="home-e-href" label={f.editorialCtaHrefLabel} value={ctaHref} onChange={(e) => setCtaHref(e.target.value)} disabled={saving} placeholder="/products?category=..." />
-            <Input id="home-e-media" label={f.editorialMediaIdLabel} value={mediaId} onChange={(e) => setMediaId(e.target.value)} disabled={saving} />
+            <div>
+              <p className="mb-2 text-sm text-white/70">{f.editorialMediaIdLabel}</p>
+              <MediaUpload
+                context="HERO"
+                mode="single"
+                value={mediaItems}
+                onAttach={(asset) => {
+                  setMediaId(asset.id);
+                  setMediaItems([{ id: asset.id, url: asset.url, altText: asset.altText }]);
+                }}
+                onRemove={() => {
+                  setMediaId("");
+                  setMediaItems([]);
+                }}
+                disabled={saving}
+              />
+            </div>
             <Input id="home-e-campaign" label={f.linkedCampaignIdLabel} value={linkedCampaignId} onChange={(e) => setLinkedCampaignId(e.target.value)} disabled={saving} />
             <div className="flex flex-wrap gap-4">
               <Checkbox label={f.guestSupportedLabel} checked={guestSupported} onChange={setGuestSupported} disabled={saving} />
