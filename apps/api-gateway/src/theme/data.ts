@@ -162,7 +162,16 @@ export interface ThemeDataAccess {
    *  yeni PUBLISHED versiyon üretir (immutable snapshot korunur). */
   assignThemeBinding(
     storeId: string,
-    input: { themeKey: string; layoutPreset: string; themeApiVersion: number; publishedBy?: string | null },
+    input: {
+      themeKey: string;
+      layoutPreset: string;
+      themeApiVersion: number;
+      publishedBy?: string | null;
+      // TODO-164 fix — atanan temanın TOKEN belgesi (renk paleti). Verilirse mevcut
+      // belge yerine BU kullanılır (atama tam temayı uygular: renk + düzen).
+      document?: unknown;
+      schemaVersion?: number;
+    },
   ): Promise<ThemeRecord | null>;
   /** Platform Admin fleet: TÜM mağazalar + yayınlı tema özeti ("Tema Yönetimi" tablosu). */
   listThemeBindingSummaries(): Promise<ThemeBindingSummaryRow[]>;
@@ -447,21 +456,28 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
           layoutPreset: input.layoutPreset,
           slots: {},
         } as Prisma.InputJsonValue;
+        // TODO-164 fix — atanan temanın TOKEN belgesi (renk paleti) verildiyse ONU kullan;
+        // yoksa geriye-uyumlu olarak kaynak sürümün belgesini kopyala. Böylece atama TAM
+        // temayı uygular (renk + düzen), yalnız düzeni değil.
+        const assignedDocument = (
+          input.document !== undefined ? input.document : sourceVersion.document
+        ) as Prisma.InputJsonValue;
+        const assignedSchemaVersion = input.schemaVersion ?? sourceVersion.schemaVersion;
 
         // Eski published → ARCHIVED.
         if (published) {
           await tx.themeVersion.update({ where: { id: published.id }, data: { status: "ARCHIVED" } });
         }
         const nextVersion = (theme.versions[0]?.version ?? 0) + 1;
-        // Yeni PUBLISHED versiyon (immutable snapshot; belge kaynak sürümden kopya).
+        // Yeni PUBLISHED versiyon (immutable snapshot).
         await tx.themeVersion.create({
           data: {
             themeId: theme.id,
             storeId,
             version: nextVersion,
             status: "PUBLISHED",
-            schemaVersion: sourceVersion.schemaVersion,
-            document: sourceVersion.document as Prisma.InputJsonValue,
+            schemaVersion: assignedSchemaVersion,
+            document: assignedDocument,
             config: newConfig,
             themeKey: input.themeKey,
             layoutPreset: input.layoutPreset,
@@ -484,15 +500,15 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
             themeApiVersion: input.themeApiVersion,
           },
         });
-        // Düzenlemeye devam için yeni DRAFT snapshot.
+        // Düzenlemeye devam için yeni DRAFT snapshot (atanan tema belgesiyle).
         await tx.themeVersion.create({
           data: {
             themeId: theme.id,
             storeId,
             version: nextVersion + 1,
             status: "DRAFT",
-            schemaVersion: sourceVersion.schemaVersion,
-            document: sourceVersion.document as Prisma.InputJsonValue,
+            schemaVersion: assignedSchemaVersion,
+            document: assignedDocument,
             config: newConfig,
             themeKey: input.themeKey,
             layoutPreset: input.layoutPreset,

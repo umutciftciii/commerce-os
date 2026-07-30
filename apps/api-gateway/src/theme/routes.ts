@@ -50,6 +50,7 @@ import {
   compatibilityErrors,
   getThemeEntry,
   THEME_REGISTRY,
+  resolveThemeDocumentForKey,
   type ThemeConfig,
 } from "@commerce-os/theme";
 import type { ThemeDataAccess, ThemeRecord, ThemeVersionRecord } from "./data.js";
@@ -736,11 +737,17 @@ export function registerThemeBindingRoutes(app: FastifyInstance, deps: ThemeBind
       );
     }
     const entry = getThemeEntry(body.themeKey)!;
+    // TODO-164 fix — atama TAM temayı uygular: layout + TOKEN paleti (renk). Temanın
+    // token belgesini registry'den çöz + customCss sanitize (H-1) et. Böylece atama
+    // yalnız düzeni değil GÖRÜNÜR paleti de değiştirir.
+    const assignedDoc = withSanitizedCustomCss(resolveThemeDocumentForKey(entry.key));
     const assigned = await dataAccess.assignThemeBinding(storeId, {
       themeKey: entry.key,
       layoutPreset: entry.layoutPreset,
       themeApiVersion: entry.themeApiVersion,
       publishedBy: admin.actorUserId,
+      document: assignedDoc as unknown as Record<string, unknown>,
+      schemaVersion: assignedDoc.schemaVersion,
     });
     if (!assigned) {
       return reply.code(404).send(errorBody("THEME_NOT_FOUND", "No theme to assign for this store."));
