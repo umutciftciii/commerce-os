@@ -9,7 +9,14 @@ import { cn } from "@commerce-os/ui";
  * (üstte, sticky DEĞİL) doğal olarak yukarı kayar; header tepeye yapışır.
  * Tamamen token-tabanlı; JS yalnız scroll durumunu izler (passive listener).
  */
-export function StickyHeader({ children }: { children: ReactNode }) {
+export function StickyHeader({
+  children,
+  variant = "solid",
+}: {
+  children: ReactNode;
+  // TODO-164 — header slot variant (solid|minimal|floating). CSS `[data-header-variant]` sürer.
+  variant?: string;
+}) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -22,8 +29,9 @@ export function StickyHeader({ children }: { children: ReactNode }) {
   return (
     <header
       data-scrolled={scrolled ? "true" : "false"}
+      data-header-variant={variant}
       className={cn(
-        "relative sticky top-0 z-30 border-b bg-surface transition-shadow duration-300 ease-premium",
+        "site-header relative sticky top-0 z-30 border-b bg-surface transition-shadow duration-300 ease-premium",
         scrolled ? "border-line-strong shadow-md" : "border-line",
       )}
     >

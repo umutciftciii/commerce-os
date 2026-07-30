@@ -31,6 +31,16 @@ import {
 // H-1 — Radius alanları için izinli uzunluk politikası (registry ile hizalı).
 const RADIUS_LENGTH_POLICY = { units: ["px", "rem", "em", "%"] as const, allowZeroUnitless: true };
 
+// TODO-164 — Layout preset seçenekleri (registry LAYOUT_PRESET key'leriyle hizalı;
+// sunucu yine allowlist'e karşı doğrular). Ham/serbest değer kabul edilmez.
+const LAYOUT_PRESET_OPTIONS = [
+  { value: "BASE_COMMERCE", label: "Temel Ticaret (varsayılan)" },
+  { value: "FASHION_MINIMAL", label: "Moda — Sade" },
+  { value: "FASHION_EDITORIAL", label: "Moda — Editoryal" },
+  { value: "MARKETPLACE_DENSE", label: "Pazaryeri — Yoğun" },
+  { value: "PREMIUM_BOUTIQUE", label: "Premium Butik" },
+];
+
 // Font preset seçenekleri: ham font-family artık kabul edilmez (typed policy).
 const FONT_PRESET_OPTIONS = [
   { value: "system", label: "Sistem (sans-serif)" },
@@ -118,6 +128,8 @@ export function ThemeStudio() {
   const [presets, setPresets] = useState<ThemePresetSummary[]>([]);
   const [detail, setDetail] = useState<ThemeDetail | null>(null);
   const [doc, setDoc] = useState<ThemeDocument | null>(null);
+  // TODO-164 — seçili layout preset (BASE_COMMERCE + 4 preset). config ile birlikte kaydedilir.
+  const [layoutPreset, setLayoutPreset] = useState<string>("BASE_COMMERCE");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +177,7 @@ export function ThemeStudio() {
     run(async () => {
       const d = await storeApi.getTheme(themeId);
       setDetail(d);
+      setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
       const source = d.draft?.document ?? d.published?.document;
       const valid = validateThemeDocument(source);
       setDoc(valid.ok ? valid.document : null);
@@ -188,6 +201,7 @@ export function ThemeStudio() {
       setNewPreset("");
       await refreshList();
       setDetail(d);
+      setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
       const valid = validateThemeDocument(d.draft?.document);
       setDoc(valid.ok ? valid.document : null);
     }, "Tema oluşturuldu.");
@@ -211,27 +225,35 @@ export function ThemeStudio() {
         : prev,
     );
 
+  // TODO-164 — layout preset seçimini config'e çevir. themeKey = layout preset key
+  // (BASE_COMMERCE veya 4 preset). Slot ince-ayarı bu fazda yok (slots: {}).
+  const themeConfig = () => ({ themeKey: layoutPreset, layoutPreset, slots: {} });
+
   const saveDraft = () =>
     run(async () => {
       if (!detail || !doc) return;
       const d = await storeApi.saveThemeDraft(detail.id, {
         document: doc as unknown as Record<string, unknown>,
+        config: themeConfig(),
       });
       setDetail(d);
+      setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
       await refreshList();
     }, "Taslak kaydedildi.");
 
   const publish = () =>
     run(async () => {
       if (!detail) return;
-      // Önce mevcut düzenlemeleri taslağa yaz, sonra yayınla.
+      // Önce mevcut düzenlemeleri + config'i taslağa yaz, sonra yayınla.
       if (doc) {
         await storeApi.saveThemeDraft(detail.id, {
           document: doc as unknown as Record<string, unknown>,
+          config: themeConfig(),
         });
       }
       const d = await storeApi.publishTheme(detail.id, {});
       setDetail(d);
+      setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
       await refreshList();
     }, "Tema yayınlandı — vitrinde yayında.");
 
@@ -406,6 +428,22 @@ export function ThemeStudio() {
             <Button variant="secondary" size="sm" onClick={exportTheme} disabled={busy}>
               Dışa aktar
             </Button>
+          </div>
+
+          {/* TODO-164 — Layout preset seçimi (başlık/kart/hero/liste düzeni). Kaydet/Yayınla
+              ile birlikte config olarak gönderilir; sunucu variant'ları allowlist'e karşı doğrular. */}
+          <div className="mb-5 max-w-md">
+            <Select
+              label="Düzen preset"
+              value={layoutPreset}
+              onChange={(e) => setLayoutPreset(e.target.value)}
+              options={LAYOUT_PRESET_OPTIONS}
+              disabled={busy}
+            />
+            <p className="mt-1 text-xs text-white/40">
+              Ortak vitrin engine üzerinde başlık, ürün kartı, hero ve liste düzenini seçer.
+              Tokenlar (renk/tipografi) ayrıca aşağıdan düzenlenir.
+            </p>
           </div>
 
           {!doc ? (

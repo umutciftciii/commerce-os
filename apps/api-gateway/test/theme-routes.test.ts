@@ -6,7 +6,9 @@ import { DEFAULT_THEME_DOCUMENT, getPreset } from "@commerce-os/theme";
 // engellemek için boş stub yeter (in-memory fake dataAccess geçirilir; prisma çağrılmaz).
 vi.mock("@commerce-os/db", () => ({ prisma: {} }));
 
-const { registerThemeAdminRoutes } = await import("../src/theme/routes.js");
+const { registerThemeAdminRoutes, registerThemeBindingRoutes } = await import(
+  "../src/theme/routes.js"
+);
 type ThemeAdminRoutesDeps = Parameters<typeof registerThemeAdminRoutes>[1];
 type DataAccess = ThemeAdminRoutesDeps["dataAccess"];
 
@@ -18,6 +20,10 @@ interface VersionLike {
   label: string | null;
   notes: string | null;
   document: unknown;
+  config: unknown;
+  themeKey: string | null;
+  layoutPreset: string | null;
+  publishedBy: string | null;
   createdAt: Date;
   publishedAt: Date | null;
 }
@@ -28,6 +34,9 @@ interface ThemeLike {
   description: string | null;
   status: string;
   source: string | null;
+  themeKey: string;
+  layoutPreset: string;
+  themeApiVersion: number;
   createdAt: Date;
   updatedAt: Date;
   versions: VersionLike[];
@@ -59,6 +68,9 @@ function makeFakeDataAccess() {
         description: input.description ?? null,
         status: "DRAFT",
         source: input.source,
+        themeKey: input.themeKey,
+        layoutPreset: input.layoutPreset,
+        themeApiVersion: input.themeApiVersion,
         createdAt: now(),
         updatedAt: now(),
         versions: [
@@ -70,6 +82,10 @@ function makeFakeDataAccess() {
             label: null,
             notes: null,
             document: input.document,
+            config: input.config ?? {},
+            themeKey: input.themeKey,
+            layoutPreset: input.layoutPreset,
+            publishedBy: null,
             createdAt: now(),
             publishedAt: null,
           },
@@ -98,6 +114,9 @@ function makeFakeDataAccess() {
       if (d) {
         d.document = input.document;
         d.schemaVersion = input.schemaVersion;
+        if (input.config !== undefined) d.config = input.config;
+        if (input.themeKey !== undefined) d.themeKey = input.themeKey;
+        if (input.layoutPreset !== undefined) d.layoutPreset = input.layoutPreset;
         if (input.label !== undefined) d.label = input.label;
       } else {
         const next = (t.versions[0]?.version ?? 0) + 1;
@@ -109,13 +128,19 @@ function makeFakeDataAccess() {
           label: input.label ?? null,
           notes: null,
           document: input.document,
+          config: input.config ?? {},
+          themeKey: input.themeKey ?? null,
+          layoutPreset: input.layoutPreset ?? null,
+          publishedBy: null,
           createdAt: now(),
           publishedAt: null,
         });
       }
+      if (input.themeKey !== undefined) t.themeKey = input.themeKey;
+      if (input.layoutPreset !== undefined) t.layoutPreset = input.layoutPreset;
       return t as never;
     },
-    async publishTheme(storeId, themeId) {
+    async publishTheme(storeId, themeId, input) {
       const t = find(storeId, themeId);
       if (!t) return null;
       const d = draft(t);
@@ -124,12 +149,15 @@ function makeFakeDataAccess() {
       if (prev) prev.status = "ARCHIVED";
       d.status = "PUBLISHED";
       d.publishedAt = now();
+      d.publishedBy = input.publishedBy ?? null;
       for (const other of themes) {
         if (other.storeId === storeId && other.id !== themeId && other.status === "PUBLISHED") {
           other.status = "ARCHIVED";
         }
       }
       t.status = "PUBLISHED";
+      if (d.themeKey) t.themeKey = d.themeKey;
+      if (d.layoutPreset) t.layoutPreset = d.layoutPreset;
       const next = Math.max(...t.versions.map((v) => v.version)) + 1;
       t.versions.unshift({
         id: id("ver"),
@@ -139,6 +167,10 @@ function makeFakeDataAccess() {
         label: null,
         notes: null,
         document: d.document,
+        config: d.config,
+        themeKey: d.themeKey,
+        layoutPreset: d.layoutPreset,
+        publishedBy: null,
         createdAt: now(),
         publishedAt: null,
       });
@@ -153,14 +185,74 @@ function makeFakeDataAccess() {
       if (d) {
         d.document = target.document;
         d.schemaVersion = target.schemaVersion;
+        d.config = target.config;
+        d.themeKey = target.themeKey;
+        d.layoutPreset = target.layoutPreset;
         d.label = `rollback:v${version}`;
       }
       return t as never;
     },
-    async getPublishedDocument(storeId) {
+    async getPublishedState(storeId) {
       const t = themes.find((x) => x.storeId === storeId && x.status === "PUBLISHED");
       const v = t && published(t);
-      return v ? { document: v.document as never, schemaVersion: v.schemaVersion } : null;
+      if (!t || !v) return null;
+      return {
+        document: v.document as never,
+        schemaVersion: v.schemaVersion,
+        config: (v.config ?? {}) as never,
+        themeKey: t.themeKey,
+        layoutPreset: t.layoutPreset,
+        themeApiVersion: t.themeApiVersion,
+        publishedVersion: v.version,
+        publishedAt: v.publishedAt,
+      };
+    },
+    async assignThemeBinding(storeId, input) {
+      const t =
+        themes.find((x) => x.storeId === storeId && x.status === "PUBLISHED") ??
+        themes.find((x) => x.storeId === storeId);
+      if (!t) return null;
+      const source = published(t) ?? draft(t);
+      if (!source) return null;
+      const prev = published(t);
+      if (prev) prev.status = "ARCHIVED";
+      const next = Math.max(...t.versions.map((v) => v.version)) + 1;
+      const cfg = { themeKey: input.themeKey, layoutPreset: input.layoutPreset, slots: {} };
+      t.versions.unshift({
+        id: id("ver"),
+        version: next,
+        status: "PUBLISHED",
+        schemaVersion: source.schemaVersion,
+        label: `assign:${input.themeKey}`,
+        notes: null,
+        document: source.document,
+        config: cfg,
+        themeKey: input.themeKey,
+        layoutPreset: input.layoutPreset,
+        publishedBy: input.publishedBy ?? null,
+        createdAt: now(),
+        publishedAt: now(),
+      });
+      t.versions.unshift({
+        id: id("ver"),
+        version: next + 1,
+        status: "DRAFT",
+        schemaVersion: source.schemaVersion,
+        label: null,
+        notes: null,
+        document: source.document,
+        config: cfg,
+        themeKey: input.themeKey,
+        layoutPreset: input.layoutPreset,
+        publishedBy: null,
+        createdAt: now(),
+        publishedAt: null,
+      });
+      t.status = "PUBLISHED";
+      t.themeKey = input.themeKey;
+      t.layoutPreset = input.layoutPreset;
+      t.themeApiVersion = input.themeApiVersion;
+      return t as never;
     },
   };
   return { api, themes };
@@ -495,5 +587,181 @@ describe("theme preset documents", () => {
     for (const p of ["classic", "luxury", "dark-luxury", "sports"]) {
       expect(getPreset(p)).toBeDefined();
     }
+  });
+});
+
+// ── TODO-164 — layout config + compatibility publish gate ─────────────────────
+describe("theme layout config + compatibility (TODO-164)", () => {
+  let app: ReturnType<typeof buildApp>["app"];
+  let themes: ReturnType<typeof buildApp>["themes"];
+
+  beforeEach(() => {
+    const built = buildApp();
+    app = built.app;
+    themes = built.themes;
+  });
+
+  async function createTheme() {
+    const res = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "Cfg" } });
+    return res.json().id as string;
+  }
+
+  it("yeni tema BASE_COMMERCE binding ile başlar", async () => {
+    const id = await createTheme();
+    const res = await app.inject({ method: "GET", url: `/stores/s1/themes/${id}` });
+    expect(res.json().themeKey).toBe("BASE_COMMERCE");
+    expect(res.json().layoutPreset).toBe("BASE_COMMERCE");
+    expect(res.json().draft.config).toMatchObject({ themeKey: "BASE_COMMERCE" });
+  });
+
+  it("geçerli layout preset config kaydedilir", async () => {
+    const id = await createTheme();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: {
+        document: DEFAULT_THEME_DOCUMENT,
+        config: { themeKey: "FASHION_MINIMAL", layoutPreset: "FASHION_MINIMAL", slots: { productCard: "compact" } },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().layoutPreset).toBe("FASHION_MINIMAL");
+    expect(res.json().draft.config.slots.productCard).toBe("compact");
+  });
+
+  it("bilinmeyen theme-key config → 400 THEME_INCOMPATIBLE", async () => {
+    const id = await createTheme();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT, config: { themeKey: "attacker-theme" } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_INCOMPATIBLE");
+  });
+
+  it("izinsiz slot variant config → 400", async () => {
+    const id = await createTheme();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT, config: { themeKey: "BASE_COMMERCE", slots: { header: "evil" } } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_INCOMPATIBLE");
+  });
+
+  it("uyumsuz draft config publish edilemez → 409 (save-time bypass'a karşı)", async () => {
+    const id = await createTheme();
+    // Save-time doğrulamayı atlayıp bozuk config'i doğrudan fake store'a enjekte et.
+    const theme = themes.find((t) => t.id === id)!;
+    const draft = theme.versions.find((v) => v.status === "DRAFT")!;
+    draft.config = { themeKey: "attacker-theme", layoutPreset: "BASE_COMMERCE", slots: {} };
+    const res = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_INCOMPATIBLE");
+    // Mevcut yayın korunur (publish uygulanmadı).
+    expect(theme.status).not.toBe("PUBLISHED");
+  });
+
+  it("publish publishedBy ve invalidation çağırır", async () => {
+    const invalidate = vi.fn();
+    const { api } = makeFakeDataAccess();
+    const app2 = Fastify();
+    registerThemeAdminRoutes(app2, {
+      dataAccess: api,
+      requireStoreAdmin: async () => ({ actorUserId: "admin_9" }),
+      recordAudit: async () => {},
+      invalidateResolvedTheme: invalidate,
+    });
+    const created = await app2.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "P" } });
+    const id = created.json().id;
+    await app2.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT },
+    });
+    const pub = await app2.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    expect(pub.statusCode).toBe(200);
+    expect(invalidate).toHaveBeenCalledWith("s1");
+  });
+});
+
+// ── TODO-164 — Platform Admin theme binding ───────────────────────────────────
+function buildBindingApp(themeStudioEnabled = true) {
+  const { api, themes } = makeFakeDataAccess();
+  const invalidate = vi.fn();
+  const recordAudit = vi.fn(async () => {});
+  const admin = Fastify();
+  registerThemeAdminRoutes(admin, {
+    dataAccess: api,
+    requireStoreAdmin: async () => ({ actorUserId: "user_1" }),
+    recordAudit,
+    invalidateResolvedTheme: invalidate,
+  });
+  registerThemeBindingRoutes(admin, {
+    dataAccess: api,
+    requirePlatformStoreAdmin: async () => ({ actorUserId: "platform_1" }),
+    isThemeStudioEnabled: async () => themeStudioEnabled,
+    recordAudit,
+    invalidateResolvedTheme: invalidate,
+  });
+  return { app: admin, themes, invalidate, recordAudit };
+}
+
+describe("platform admin theme binding (TODO-164)", () => {
+  it("GET binding: aktif tema + atanabilir tema listesi", async () => {
+    const { app } = buildBindingApp();
+    const res = await app.inject({ method: "GET", url: "/admin/stores/s1/theme-binding" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.activeThemeKey).toBe("BASE_COMMERCE");
+    expect(body.capabilityEnabled).toBe(true);
+    expect(body.assignableThemes.length).toBeGreaterThanOrEqual(6);
+    expect(body.assignableThemes.some((t: { key: string }) => t.key === "FASHION_MINIMAL")).toBe(true);
+    expect(body.assignableThemes.some((t: { key: string }) => t.key === "demo-aurora")).toBe(true);
+  });
+
+  it("PUT binding: theme-key atar, published tema değişir, invalidation çağrılır", async () => {
+    const { app, themes, invalidate } = buildBindingApp();
+    // Bir published tema olmalı (atama hedefi).
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "A" } });
+    const id = created.json().id;
+    await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: DEFAULT_THEME_DOCUMENT } });
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/admin/stores/s1/theme-binding",
+      payload: { themeKey: "FASHION_MINIMAL" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().activeThemeKey).toBe("FASHION_MINIMAL");
+    expect(res.json().layoutPreset).toBe("FASHION_MINIMAL");
+    const pub = themes.find((t) => t.storeId === "s1" && t.status === "PUBLISHED")!;
+    expect(pub.themeKey).toBe("FASHION_MINIMAL");
+    expect(invalidate).toHaveBeenCalledWith("s1");
+  });
+
+  it("PUT binding bilinmeyen theme-key → 409", async () => {
+    const { app } = buildBindingApp();
+    const created = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "A" } });
+    const id = created.json().id;
+    await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: DEFAULT_THEME_DOCUMENT } });
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    const res = await app.inject({
+      method: "PUT",
+      url: "/admin/stores/s1/theme-binding",
+      payload: { themeKey: "attacker-theme" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_INCOMPATIBLE");
+  });
+
+  it("THEME_STUDIO kapalıyken capabilityEnabled false ama binding görünür", async () => {
+    const { app } = buildBindingApp(false);
+    const res = await app.inject({ method: "GET", url: "/admin/stores/s1/theme-binding" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().capabilityEnabled).toBe(false);
   });
 });

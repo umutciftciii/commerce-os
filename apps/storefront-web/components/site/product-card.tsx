@@ -10,6 +10,7 @@ import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating, type CardRating } from "../reviews/rating-provider";
 import { SponsoredBadge } from "../sponsored/sponsored-badge";
 import { trackSponsoredClick } from "../../lib/sponsored/track";
+import { useSlotVariant } from "../theme/theme-slots";
 
 /**
  * Premium vitrin ürün kartı (TODO-158C yeniden tasarım). Daha kompakt, daha premium:
@@ -30,6 +31,9 @@ export function StorefrontProductCard({
   t: StorefrontDictionary;
 }) {
   const [quickOpen, setQuickOpen] = useState(false);
+  // TODO-164 — ProductCard slot variant (comfortable|compact|premium). Presentation-only;
+  // CSS `.product-card[data-variant]` görsel yoğunluğu sürer. Sunucu-otoriter (allowlisted).
+  const cardVariant = useSlotVariant("productCard", "comfortable");
   const href = `/products/${product.handle}`;
   const { campaign } = product;
   const rating = useRating(product.id);
@@ -44,8 +48,8 @@ export function StorefrontProductCard({
         : null;
 
   return (
-    <div className="group relative flex flex-col">
-      <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
+    <div className="product-card group relative flex flex-col" data-variant={cardVariant}>
+      <div className="product-card-media relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
         <Link
           href={href}
           aria-label={product.title}

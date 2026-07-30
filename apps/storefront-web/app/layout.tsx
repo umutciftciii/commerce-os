@@ -6,6 +6,7 @@ import { getCartCount } from "../lib/server/cart-cookie";
 import { getCurrentCustomer } from "../lib/server/customer";
 import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
+import { ThemeSlotsProvider } from "../components/theme/theme-slots";
 import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
 import { getNavCategories } from "../lib/server/navigation";
@@ -81,10 +82,16 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     searchUrlTemplate: absoluteUrl(searchActionTemplate()),
   });
 
+  // TODO-164 (ADR-219/ADR-222) — Etkin layout preset + slot→variant haritası (sunucu
+  // resolver'dan; allowlisted). `data-layout-preset` CSS variant kancasıdır; `slots`
+  // ThemeSlotsProvider ile client slot bileşenlerine taşınır. Tema yoksa BASE_COMMERCE.
+  const layoutPreset = theme?.layoutPreset ?? "BASE_COMMERCE";
+  const themeSlots = theme?.slots ?? {};
   return (
     <html
       lang={locale}
       data-theme="default"
+      data-layout-preset={layoutPreset}
       className={fontVariables}
       style={theme?.colorScheme ? { colorScheme: theme.colorScheme } : undefined}
     >
@@ -103,32 +110,35 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         >
           {s.skipToContent}
         </a>
-        <div className="flex min-h-screen flex-col">
-          {campaignSlides.length > 0 ? (
-            <CampaignBar slides={campaignSlides} t={s} />
-          ) : (
-            <div className="bg-ink py-2 text-center text-[11px] font-medium uppercase tracking-wideish text-surface">
-              {s.announcement}
-            </div>
-          )}
+        <ThemeSlotsProvider slots={themeSlots}>
+          <div className="flex min-h-screen flex-col">
+            {campaignSlides.length > 0 ? (
+              <CampaignBar slides={campaignSlides} t={s} />
+            ) : (
+              <div className="bg-ink py-2 text-center text-[11px] font-medium uppercase tracking-wideish text-surface">
+                {s.announcement}
+              </div>
+            )}
 
-          <SiteHeader
-            locale={locale}
-            t={t}
-            languageLabels={dict.common.language}
-            cartCount={cartCount}
-            customer={customer}
-            storeName={storeInfo?.storeName ?? null}
-            logoUrl={storeInfo?.logoUrl ?? null}
-            categories={navCategories}
-          />
+            <SiteHeader
+              locale={locale}
+              t={t}
+              languageLabels={dict.common.language}
+              cartCount={cartCount}
+              customer={customer}
+              storeName={storeInfo?.storeName ?? null}
+              logoUrl={storeInfo?.logoUrl ?? null}
+              categories={navCategories}
+              variant={themeSlots.header ?? "solid"}
+            />
 
-          <main id="main" className="flex-1">
-            {children}
-          </main>
+            <main id="main" className="flex-1">
+              {children}
+            </main>
 
-          <SiteFooter t={t} />
-        </div>
+            <SiteFooter t={t} variant={themeSlots.footer ?? "expanded"} />
+          </div>
+        </ThemeSlotsProvider>
       </body>
     </html>
   );

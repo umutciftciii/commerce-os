@@ -208,10 +208,19 @@ import { registerHomeAdminRoutes } from "./home/routes.js";
 // TODO-158B (ADR-087) — Enterprise Theme Engine (Design Token store editor + public theme).
 import { registerThemeAdminRoutes } from "./theme/routes.js";
 import { createPrismaThemeDataAccess, type ThemeDataAccess } from "./theme/data.js";
+import { registerThemeBindingRoutes } from "./theme/routes.js";
 import {
   DEFAULT_THEME_DOCUMENT,
   generateStorefrontThemeCss,
   validateThemeDocument,
+  // TODO-164 — public tema projeksiyonu (layout preset + slot çözümü) + base fallback.
+  BASE_THEME_KEY,
+  BASE_LAYOUT_PRESET_KEY,
+  parseThemeConfig,
+  resolveConfigSlots,
+  checkThemeKeyCompatibility,
+  compatibilityErrors,
+  defaultSlotSelections,
 } from "@commerce-os/theme";
 import {
   createPrismaHomeDataAccess,
@@ -5058,6 +5067,73 @@ export function createServer(
   // TODO-158B (ADR-087) — Enterprise Theme Engine veri erisimi.
   const themeDataAccess = dependencies.themeDataAccess ?? createPrismaThemeDataAccess();
 
+  // TODO-164 (ADR-222) — Vitrin tema çözüm cache'i (store-scoped, bounded TTL).
+  // Publish/assign sonrası invalidate edilir. Değer ALLOWLIST projeksiyondur
+  // (css + colorScheme + layoutPreset + slots); ham belge/config TAŞIMAZ.
+  type ResolvedThemeProjection = {
+    css: string;
+    colorScheme: string;
+    schemaVersion: number;
+    themeKey: string;
+    layoutPreset: string;
+    slots: Record<string, string>;
+  };
+  const themeResolverCache = new Map<string, { value: ResolvedThemeProjection; expires: number }>();
+  const THEME_RESOLVER_TTL_MS = 30_000;
+  const THEME_RESOLVER_MAX = 500;
+  const invalidateResolvedTheme = (storeId: string): void => {
+    themeResolverCache.delete(storeId);
+  };
+
+  /**
+   * Vitrin tema çözümü (server-side). Sıra: (1) geçerli published custom/preset tema
+   * → (2) base theme. THEME_STUDIO kapalı / published yok / uyumsuz → base fallback
+   * (storefront globals.css ile aynı; ASLA kırılmaz). Sonuç yalnız presentation
+   * projeksiyonu; iç config/audit/draft SIZMAZ.
+   */
+  async function resolvePublicThemeProjection(storeId: string): Promise<ResolvedThemeProjection> {
+    const cached = themeResolverCache.get(storeId);
+    if (cached && cached.expires > Date.now()) return cached.value;
+
+    const baseProjection = (): ResolvedThemeProjection => ({
+      css: generateStorefrontThemeCss(DEFAULT_THEME_DOCUMENT),
+      colorScheme: DEFAULT_THEME_DOCUMENT.meta.colorScheme,
+      schemaVersion: DEFAULT_THEME_DOCUMENT.schemaVersion,
+      themeKey: BASE_THEME_KEY,
+      layoutPreset: BASE_LAYOUT_PRESET_KEY,
+      slots: defaultSlotSelections(),
+    });
+
+    let projection: ResolvedThemeProjection;
+    const themeEnabled = await capabilityCache.isEnabled(storeId, "THEME_STUDIO");
+    const published = themeEnabled ? await themeDataAccess.getPublishedState(storeId) : null;
+    if (!published) {
+      projection = baseProjection();
+    } else {
+      const config = parseThemeConfig(published.config);
+      const compat = checkThemeKeyCompatibility(config.themeKey, { slotSelections: config.slots });
+      const resolvedDoc = validateThemeDocument(published.document);
+      // Uyumsuz veya çözülemeyen belge → base fallback (storefront ayakta kalır).
+      if (compatibilityErrors(compat).length > 0 || !resolvedDoc.ok) {
+        projection = baseProjection();
+      } else {
+        const doc = resolvedDoc.document;
+        projection = {
+          css: generateStorefrontThemeCss(doc),
+          colorScheme: doc.meta.colorScheme,
+          schemaVersion: doc.schemaVersion,
+          themeKey: config.themeKey,
+          layoutPreset: config.layoutPreset,
+          slots: resolveConfigSlots(config),
+        };
+      }
+    }
+
+    if (themeResolverCache.size >= THEME_RESOLVER_MAX) themeResolverCache.clear();
+    themeResolverCache.set(storeId, { value: projection, expires: Date.now() + THEME_RESOLVER_TTL_MS });
+    return projection;
+  }
+
   // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
   // TD-032 / TODO-061: Public vitrin bu uclari token'siz cagirir; platform-admin
   // resolver'a ihtiyac kalmaz. Yalnizca ACTIVE store + ACTIVE urun/varyant doner;
@@ -5275,27 +5351,20 @@ export function createServer(
     });
   });
 
-  // TODO-158B (ADR-087) — Public tema: mağazanın PUBLISHED temasının SUNUCU-ÇÖZÜLMÜŞ
-  // CSS'i (vitrin head'e enjekte eder). PUBLISHED tema yoksa paketlenmiş varsayılan
-  // tema CSS'i döner → temasız mağaza globals.css ile AYNI görünür (geriye-uyumlu).
-  // ALLOWLIST: ham token belgesi/iç alanlar TAŞINMAZ; yalnız css + colorScheme.
+  // TODO-158B (ADR-087) + TODO-164 (ADR-222) — Public tema: mağazanın PUBLISHED
+  // temasının SUNUCU-ÇÖZÜLMÜŞ presentation projeksiyonu (css + colorScheme +
+  // layoutPreset + slot→variant haritası). Vitrin css'i head'e enjekte eder,
+  // layoutPreset/slots'u slot resolver'a verir. PUBLISHED yok / THEME_STUDIO kapalı
+  // / uyumsuz → base fallback (globals.css ile AYNI; ASLA kırılmaz). ALLOWLIST: ham
+  // token belgesi / iç config / draft / audit TAŞINMAZ.
   app.get("/public/stores/:storeSlug/theme", async (request, reply) => {
     const params = publicStoreParamSchema.parse(request.params);
     const store = await resolvePublicStore(params.storeSlug);
     if (!store) {
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
-    // TODO-163 Faz 2 — THEME_STUDIO kapalıysa tenant override uygulanmaz; base (varsayılan) tema
-    // döner (storefront globals.css ile aynı; crash yok).
-    const themeEnabled = await capabilityCache.isEnabled(store.id, "THEME_STUDIO");
-    const published = themeEnabled ? await themeDataAccess.getPublishedDocument(store.id) : null;
-    const resolved = published ? validateThemeDocument(published.document) : null;
-    const document = resolved && resolved.ok ? resolved.document : DEFAULT_THEME_DOCUMENT;
-    return publicThemeSchema.parse({
-      css: generateStorefrontThemeCss(document),
-      colorScheme: document.meta.colorScheme,
-      schemaVersion: document.schemaVersion,
-    });
+    const projection = await resolvePublicThemeProjection(store.id);
+    return publicThemeSchema.parse(projection);
   });
 
   // ADR-065 (Faz 3/Site Kabuğu) — Public hero slide'lari (ana sayfa carousel).
@@ -6378,6 +6447,8 @@ export function createServer(
     cache: capabilityCache,
     logger,
     resolvePublicStore,
+    // TODO-164 — modül değişimi (ör. THEME_STUDIO) tema resolver cache'ini de geçersiz kılar.
+    onModuleChange: invalidateResolvedTheme,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -7316,6 +7387,19 @@ export function createServer(
     dataAccess: themeDataAccess,
     requireStoreAdmin: requireStoreAdminForModule("THEME_STUDIO"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    invalidateResolvedTheme,
+  });
+  // TODO-164 (ADR-222) — Platform Admin "Tema ve Marka" (theme-binding). PLATFORM ADMIN
+  // (store scope) auth; THEME_STUDIO ile GATE'LENMEZ (yönetim eylemi her zaman mümkün).
+  registerThemeBindingRoutes(app, {
+    dataAccess: themeDataAccess,
+    requirePlatformStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    isThemeStudioEnabled: (storeId) => capabilityCache.isEnabled(storeId, "THEME_STUDIO"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    invalidateResolvedTheme,
   });
 
   // Faz 1B (ADR-067) — Attribute katalog cekirdegi. STORE uclari requireStorePlatformAdmin

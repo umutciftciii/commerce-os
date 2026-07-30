@@ -7660,10 +7660,20 @@ export function isCampaignSnapshotDisplayable(
 // `status` alanları String'tir (enum değil — migration'sız genişler); contracts
 // düzeyinde kabul edilen değerler allowlist'lenir.
 
-export const themeStatusSchema = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+// TODO-164 — INCOMPATIBLE/DISABLED additive (String kolon; migration'sız). Forward-compat.
+export const themeStatusSchema = z.enum([
+  "DRAFT",
+  "PUBLISHED",
+  "ARCHIVED",
+  "INCOMPATIBLE",
+  "DISABLED",
+]);
 
 /** Tam ThemeDocument — opak; gateway @commerce-os/theme ile doğrular. */
 export const themeDocumentPayloadSchema = z.record(z.unknown());
+
+/** TODO-164 — layout/slot config (opak; gateway themeConfigSchema ile doğrular). */
+export const themeConfigPayloadSchema = z.record(z.unknown());
 
 export const themeVersionSummarySchema = z.object({
   id: z.string().min(1),
@@ -7683,6 +7693,10 @@ export const themeSummarySchema = z.object({
   status: themeStatusSchema,
   source: z.string().nullable(),
   colorScheme: z.string(),
+  // TODO-164 — theme-key / layout preset (registry key + etkin düzen).
+  themeKey: z.string(),
+  layoutPreset: z.string(),
+  themeApiVersion: z.number().int().positive(),
   versionCount: z.number().int().nonnegative(),
   publishedVersion: z.number().int().positive().nullable(),
   draftVersion: z.number().int().positive().nullable(),
@@ -7698,6 +7712,8 @@ const themeVersionDocumentSchema = z.object({
   status: themeStatusSchema,
   schemaVersion: z.number().int().positive(),
   document: themeDocumentPayloadSchema,
+  // TODO-164 — sürümün layout/slot config'i (draft = düzenlenen, published = yayın).
+  config: themeConfigPayloadSchema,
 });
 
 export const themeDetailSchema = z.object({
@@ -7707,6 +7723,9 @@ export const themeDetailSchema = z.object({
   status: themeStatusSchema,
   source: z.string().nullable(),
   colorScheme: z.string(),
+  themeKey: z.string(),
+  layoutPreset: z.string(),
+  themeApiVersion: z.number().int().positive(),
   draft: themeVersionDocumentSchema.nullable(),
   published: themeVersionDocumentSchema.nullable(),
   versions: z.array(themeVersionSummarySchema),
@@ -7732,6 +7751,9 @@ export const themeUpdateRequestSchema = z
 export const themeDraftUpdateRequestSchema = z.object({
   document: themeDocumentPayloadSchema,
   label: z.string().max(120).optional(),
+  // TODO-164 — layout/slot config (opsiyonel; yoksa mevcut config korunur). Gateway
+  // themeConfigSchema + compatibility ile doğrular; geçersiz variant reddedilir.
+  config: themeConfigPayloadSchema.optional(),
 });
 
 export const themePublishRequestSchema = z.object({
@@ -7778,6 +7800,60 @@ export const publicThemeSchema = z.object({
   css: z.string(),
   colorScheme: z.string(),
   schemaVersion: z.number().int().positive(),
+  // TODO-164 — presentation projection: etkin layout preset + tam slot→variant haritası
+  // (storefront slot resolver bunu okur). İç config/audit/draft SIZMAZ.
+  themeKey: z.string(),
+  layoutPreset: z.string(),
+  slots: z.record(z.string(), z.string()),
+});
+
+/* ── TODO-164 (ADR-217/ADR-221/ADR-222) — Theme compatibility & Platform Admin binding ── */
+
+export const themeCompatibilityIssueSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["ERROR", "WARNING"]),
+  slot: z.string().optional(),
+  message: z.string(),
+});
+
+/**
+ * PLATFORM ADMIN — store "Tema ve Marka" görünümü (salt-okuma) + atama. İç token
+ * belgesi / draft config SIZMAZ; yalnız yönetim özeti.
+ */
+export const themeBindingResponseSchema = z.object({
+  storeId: z.string(),
+  // Aktif (yayın) tema özeti — yoksa base.
+  activeThemeKey: z.string(),
+  activeThemeName: z.string(),
+  kind: z.enum(["BASE", "LAYOUT_PRESET", "CUSTOM_PACKAGE"]),
+  layoutPreset: z.string(),
+  themeApiVersion: z.number().int().positive(),
+  publishedVersion: z.number().int().positive().nullable(),
+  draftVersion: z.number().int().positive().nullable(),
+  previousPublishedVersion: z.number().int().positive().nullable(),
+  lastPublishedAt: z.string().nullable(),
+  rollbackAvailable: z.boolean(),
+  capabilityEnabled: z.boolean(),
+  updateAvailable: z.boolean(),
+  compatible: z.boolean(),
+  issues: z.array(themeCompatibilityIssueSchema),
+  // Platform admin'in atayabileceği temalar (registry projeksiyonu).
+  assignableThemes: z.array(
+    z.object({
+      key: z.string(),
+      nameTr: z.string(),
+      nameEn: z.string(),
+      kind: z.enum(["BASE", "LAYOUT_PRESET", "CUSTOM_PACKAGE"]),
+      layoutPreset: z.string(),
+      status: z.enum(["ACTIVE", "DEPRECATED", "DISABLED"]),
+      compatible: z.boolean(),
+    }),
+  ),
+});
+
+/** Platform admin theme-key atama isteği. */
+export const themeBindingAssignRequestSchema = z.object({
+  themeKey: z.string().min(1).max(64),
 });
 
 export type ThemeStatus = z.infer<typeof themeStatusSchema>;
@@ -7796,6 +7872,9 @@ export type ThemePresetSummary = z.infer<typeof themePresetSummarySchema>;
 export type ThemePresetListResponse = z.infer<typeof themePresetListResponseSchema>;
 export type ThemePreviewResponse = z.infer<typeof themePreviewResponseSchema>;
 export type PublicTheme = z.infer<typeof publicThemeSchema>;
+export type ThemeCompatibilityIssue = z.infer<typeof themeCompatibilityIssueSchema>;
+export type ThemeBindingResponse = z.infer<typeof themeBindingResponseSchema>;
+export type ThemeBindingAssignRequest = z.infer<typeof themeBindingAssignRequestSchema>;
 
 /* ════════════════════════════════════════════════════════════════════════════
  * TODO-159D (ADR-093) — Customer Lists & Wishlist (own account).

@@ -31,6 +31,8 @@ export interface CapabilityRoutesDeps {
   ) => Promise<{ actorUserId: string } | null>;
   /** Public projeksiyon için store slug çözümü (yalnız ACTIVE). */
   resolvePublicStore: (slug: string) => Promise<{ id: string; slug: string } | null>;
+  /** TODO-164 — modül override değişince bağlı türev cache'leri (ör. tema resolver) geçersiz kıl. */
+  onModuleChange?: (storeId: string) => void;
   logger?: { warn: (m: string, meta?: Record<string, unknown>) => void };
 }
 
@@ -110,6 +112,9 @@ export function registerCapabilityRoutes(app: FastifyInstance, deps: CapabilityR
 
     // Mutation → bu store'un cache'ini geçersiz kıl (admin + public hot-path tutarlılığı).
     cache.invalidate(storeId);
+    // TODO-164 — THEME_STUDIO gibi modül değişimi tema resolver projeksiyonunu etkiler;
+    // türev cache'i de anında geçersiz kıl (yoksa storefront TTL'e kadar eski temayı verir).
+    deps.onModuleChange?.(storeId);
 
     const modules = await data.resolveEffective(storeId);
     return reply.send(

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { StorefrontHomeFeaturedCategory } from "../../lib/catalog-types";
+import { useSlotVariant } from "../theme/theme-slots";
 
 type NavLink = { href: string; label: string };
 
@@ -28,6 +29,8 @@ export function MobileMenu({
   closeLabel: string;
 }) {
   const [open, setOpen] = useState(false);
+  // TODO-164 — mobil navigasyon slot variant (drawer|fullscreen). CSS panel yoğunluğunu sürer.
+  const navVariant = useSlotVariant("mobileNavigation", "drawer");
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +46,7 @@ export function MobileMenu({
   }, [open]);
 
   return (
-    <div className="lg:hidden">
+    <div className="mobile-nav lg:hidden" data-variant={navVariant}>
       <button
         type="button"
         aria-expanded={open}
@@ -66,7 +69,7 @@ export function MobileMenu({
       {open ? (
         <div
           id="mobile-nav-panel"
-          className="absolute inset-x-0 top-full z-40 max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-line bg-surface shadow-md"
+          className="mobile-nav-panel absolute inset-x-0 top-full z-40 max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-line bg-surface shadow-md"
         >
           <nav className="flex flex-col px-5 py-2" aria-label="Mobil gezinme">
             {links.map((link) => (

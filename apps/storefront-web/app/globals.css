@@ -162,3 +162,64 @@
     }
   }
 }
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * TODO-164 (ADR-218/ADR-219) — Layout Preset SLOT VARIANT'ları.
+ * ════════════════════════════════════════════════════════════════════════════
+ * Sunucu resolver her slotun variant'ını `data-*` ile işaretler (allowlisted).
+ * Aşağıdaki kurallar GERÇEK görünür farkları token-tabanlı sürer (yalnız
+ * presentation; iş mantığı YOK). BASE_COMMERCE varyantları (solid/expanded/
+ * comfortable/full/drawer) globals varsayılanıyla AYNI kalır → geriye uyumlu.
+ */
+@layer components {
+  /* ── Header slot ────────────────────────────────────────────────────────── */
+  /* minimal: hairline kaldır, sakin; floating: yumuşak gölge + ayrık his. */
+  .site-header[data-header-variant="minimal"] {
+    border-bottom-color: transparent;
+  }
+  .site-header[data-header-variant="floating"] {
+    box-shadow: var(--shadow-md);
+    border-bottom-color: transparent;
+  }
+
+  /* ── Footer slot ────────────────────────────────────────────────────────── */
+  /* minimal: bülten bandını (ilk çocuk) gizler — yoğunluğu azaltan gerçek fark. */
+  .site-footer[data-footer-variant="minimal"] > div:first-child {
+    display: none;
+  }
+
+  /* ── Product card slot ──────────────────────────────────────────────────── */
+  /* compact: kare medya, sıkı köşe; premium: daha uzun medya, geniş köşe + gölge. */
+  .product-card[data-variant="compact"] .product-card-media {
+    aspect-ratio: 1 / 1;
+    border-radius: var(--radius-sm);
+  }
+  .product-card[data-variant="premium"] .product-card-media {
+    aspect-ratio: 3 / 4;
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* ── Hero slot ──────────────────────────────────────────────────────────── */
+  /* editorial: daha alçak/geniş şerit; split: keskin köşe (galeri hissi). */
+  .hero-frame[data-variant="editorial"] {
+    height: var(--hero-h-mobile);
+    border-radius: var(--radius-sm);
+  }
+  @media (min-width: 1024px) {
+    .hero-frame[data-variant="editorial"] {
+      height: calc(var(--hero-h-desktop) * 0.72);
+    }
+  }
+  .hero-frame[data-variant="split"] {
+    border-radius: var(--radius-none, 0px);
+  }
+
+  /* ── Mobile navigation slot ─────────────────────────────────────────────── */
+  /* fullscreen: panel tüm ekranı kaplar (drawer daha kısa açılır panel). */
+  .mobile-nav[data-variant="fullscreen"] .mobile-nav-panel {
+    max-height: calc(100vh - 4rem);
+    height: calc(100vh - 4rem);
+  }
+}

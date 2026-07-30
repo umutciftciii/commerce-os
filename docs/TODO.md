@@ -2305,3 +2305,42 @@ worker gate dependency-cascade + core-korumalı; plan capability preview/merge (
 count; disable/re-enable veri korunur; enterprise-demo FULL_PLATFORM'a döndürüldü. **KALAN (opsiyonel):** store-
 admin/storefront canlı TARAYICI click-through (store-admin parola TD-126 → Final UI Polish) + commit/PR/deploy.
 Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.
+
+### TODO-164 — Tenant Theme Architecture (IMPLEMENTED, 2026-07-30 — commit bekliyor)
+
+Üç katmanlı tenant tema mimarisi mevcut Enterprise Theme Engine (ADR-087) + H-1 üstüne. **ADR-216…224.**
+- **`@commerce-os/theme` (yeni modüller):** `slots.ts` (8 slot contract, typed variant allowlist,
+  presentation-only), `layout-presets.ts` (5 preset, slot→variant + token preset), `custom-package.ts`
+  (versioned manifest + `validateCustomThemePackage` + `demo-aurora`), `theme-registry.ts` (theme-key TEK
+  otorite; unknown reddi), `compatibility.ts` (themeApiVersion/semver/slot/status; publish gate), `config.ts`
+  (draft/publish/rollback slot config; katman önceliği preset→paket→override→default). 180 unit test.
+- **DB:** additive migration `20260730140000_tenant_theme_architecture` — `Theme.themeKey/layoutPreset/
+  themeApiVersion` + `ThemeVersion.config/themeKey/layoutPreset/publishedBy`. Backfill BASE_COMMERCE (görünüm
+  korunur; immutable).
+- **Gateway:** public resolver (published custom/preset → base fallback) + ALLOWLIST projeksiyon (css +
+  colorScheme + layoutPreset + slots) + store-scoped bounded TTL cache (30s) + publish/assign/**modül-değişimi**
+  invalidation; publish compatibility gate (409 THEME_INCOMPATIBLE, HAM config'e bakar); Platform Admin
+  `GET/PUT /admin/stores/:id/theme-binding` (platform-admin auth, capability'den bağımsız). `assignThemeBinding`
+  yeni PUBLISHED versiyon üretir (immutable snapshot).
+- **Storefront:** `components/theme/theme-slots.tsx` (`ThemeSlotsProvider`/`useSlotVariant`; sunucu-otoriter,
+  client override yok) + `data-layout-preset`/`data-*variant` + globals.css gerçek CSS variant farkları
+  (ProductCard compact/premium, Header solid/minimal/floating, Hero full/editorial/split, Footer minimal,
+  MobileNav fullscreen).
+- **UI:** store-admin Theme Studio layout preset `<Select>` (config gönderir); platform-admin "Tema ve Marka"
+  paneli (`components/theme-binding-panel.tsx`) — aktif tema/versiyon/uyum/revision/rollback/capability + atama.
+- **Güvenlik:** H-1 kararları korunur (typed token + customCss sanitize + render-time defense); slot/variant
+  allowlist; custom package manifest strict server-side validate; client theme-key override YAPAMAZ; cross-store
+  izolasyon (storeId-scoped); public projeksiyon iç config/draft/audit SIZDIRMAZ; audit yalnız id.
+
+**Canlı smoke (enterprise-demo → docker postgres, gateway+storefront worktree'den rebuild):**
+1. **Base** — public theme BASE_COMMERCE + tam slot haritası + css. ✓
+2. **Draft** — FASHION_MINIMAL (productCard:compact) draft kaydedildi; PRODUCTION storefront BASE kaldı (draft sızmadı). ✓
+3. **Publish** — storefront FASHION_MINIMAL (header:minimal, productCard:compact, hero:editorial); cache anında; demo-store BASE (izolasyon). ✓
+4. **Rollback** — v1'e rollback + publish → storefront BASE'e döndü; geçmiş revizyon silinmedi. ✓
+5. **Capability** — THEME_STUDIO disable → storefront base; theme verisi DB'de KORUNDU (FASHION_MINIMAL|PUBLISHED); re-enable → published tema geri. ✓ (modül-değişimi resolver cache invalidation ile anında)
+6. **Compatibility** — bilinmeyen theme-key/izinsiz variant publish 409; uyumsuz PUBLISHED config → storefront base fallback (crash yok). ✓
+
+**Gate:** `@commerce-os/theme` 180 · api-gateway theme/capability route testleri PASS; contracts/api-client/
+theme/gateway build + 4 app typecheck (storefront/store-admin/admin-web) temiz; migrate status up-to-date.
+**KALAN (opsiyonel):** store-admin/platform-admin canlı TARAYICI click-through (parola TD-126) + commit/PR/deploy.
+Git kuralı gereği bu aşamada commit/push/PR/merge/deploy YAPILMADI.

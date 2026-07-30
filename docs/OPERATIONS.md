@@ -1237,3 +1237,37 @@ Canlı **preview** değişen modülleri + dependency nedeniyle kapananları + pl
 KORUNUR: store override > plan default > registry baseline > dependency** — plan default'u değiştirmek mağaza
 override'larını EZMEZ ve veri SİLMEZ. Uçlar: `GET/POST(preview)/PUT /admin/plans/:id/capabilities` (yalnız
 platform-admin). Doğrulama sunucu-otoriter: core-unavailable / bilinmeyen anahtar / invalid-dependency → 400.
+
+## Tenant Theme Architecture (TODO-164, ADR-216…224)
+
+**Model.** Görsel kimlik store-scoped `Theme` + `ThemeVersion` (immutable snapshot; mağaza başına tek
+PUBLISHED). TODO-164 additive alanlar: `Theme.themeKey/layoutPreset/themeApiVersion`, `ThemeVersion.config/
+themeKey/layoutPreset/publishedBy`. Üç katman: **tokens** (renk/tipografi — `document`), **layout preset**
+(slot→variant düzeni — `config.layoutPreset`), **custom package** (`config.themeKey` = registry key).
+
+**Storefront çözümü (server-side, ALLOWLIST).** `GET /public/stores/:slug/theme` → `{css, colorScheme,
+schemaVersion, themeKey, layoutPreset, slots}`. Sıra: (1) geçerli published custom/preset tema → (2) base
+theme. THEME_STUDIO kapalı / published yok / **uyumsuz** / belge çözülemez → **base fallback** (globals.css
+ile aynı; storefront ASLA kırılmaz). İç config/draft/audit SIZMAZ. Store-scoped bounded TTL cache (30s, max
+500); **publish / assign / modül-değişimi** anında invalidate eder.
+
+**Draft/publish/rollback.** Store admin Theme Studio'da layout preset seçer + token düzenler → draft (config
++ document). **Draft PRODUCTION'a yansımaz.** Publish: compatibility gate (uyumsuz → 409 THEME_INCOMPATIBLE;
+mevcut published KORUNUR) → atomik → yeni draft snapshot. Rollback: hedef versiyonu yeni draft'a geri yükler
+(publish ile yayına alınır); geçmiş revizyon SİLİNMEZ.
+
+**Platform Admin "Tema ve Marka".** admin-web store editor'de: aktif tema/versiyon/uyum/revision/rollback/
+capability özeti + theme-key ATAMA. Uçlar `GET/PUT /admin/stores/:id/theme-binding` (platform-admin auth;
+THEME_STUDIO'dan bağımsız). Atama yeni PUBLISHED versiyon üretir (immutable). Uyumsuz/bilinmeyen key → 409.
+
+**Compatibility.** `themeApiVersion ≤ engine`, `commerce-os ≥ minimumCommerceVersion` (semver), bilinen
+registry key, status ACTIVE, tokenSchemaVersion ≤ engine, slot variant allowlist. Uyumsuz PUBLISHED config →
+storefront base fallback + Platform Admin warning (binding `compatible:false` + `issues`).
+
+**Güvenlik.** H-1 korunur (typed token + customCss sanitize + render-time defense). Slot/variant allowlist;
+custom package manifest strict server-side validate; client theme-key override YAPAMAZ (sunucu-otoriter);
+cross-store izolasyon (storeId-scoped, cross-store 404); audit yalnız id (PII/secret yok).
+
+**Worktree smoke (dev).** Kaynak image'a bake edilir (bind-mount yok) → değişikliği canlı görmek için
+`infra/docker` compose'u WORKTREE'den build + `up -d api-gateway storefront-web`; migration ayrı
+(`prisma migrate deploy`, DATABASE_URL=localhost:5432). Bkz. TD-158.

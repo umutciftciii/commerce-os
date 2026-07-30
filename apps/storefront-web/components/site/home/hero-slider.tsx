@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ButtonLink, Container } from "../../ui";
 import type { StorefrontHomeHeroSlide } from "../../../lib/catalog-types";
+import { useSlotVariant } from "../../theme/theme-slots";
 
 /**
  * TODO-158A (ADR-086) + TODO-158C (ADR-088) — Ana sayfa hero slider'ı (yönetilebilir; mock DEĞİL).
@@ -29,6 +30,8 @@ export function HeroSlider({
 }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  // TODO-164 — hero slot variant (full|editorial|split). CSS `.hero-frame[data-variant]` sürer.
+  const heroVariant = useSlotVariant("hero", "full");
   const count = slides.length;
   const multi = count > 1;
   const active = slides[Math.min(index, count - 1)];
@@ -61,7 +64,10 @@ export function HeroSlider({
       onBlurCapture={() => setPaused(false)}
     >
       <Container>
-        <div className="hero-frame relative overflow-hidden rounded-md bg-surface-muted shadow-md">
+        <div
+          className="hero-frame relative overflow-hidden rounded-md bg-surface-muted shadow-md"
+          data-variant={heroVariant}
+        >
           {/* Görsel — art-directed: mobilde mobileMediaUrl (varsa), masaüstünde mediaUrl. */}
           <picture>
             {active.mobileMediaUrl ? (

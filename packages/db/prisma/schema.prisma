@@ -3021,10 +3021,16 @@ model Theme {
   storeId     String
   name        String
   description String?
-  // "DRAFT" | "PUBLISHED" | "ARCHIVED" (String — enum değil; migration'sız genişler)
+  // "DRAFT" | "PUBLISHED" | "ARCHIVED" | "INCOMPATIBLE" | "DISABLED"
+  // (String — enum değil; migration'sız genişler; TODO-164 INCOMPATIBLE/DISABLED ekler)
   status      String   @default("DRAFT")
   // Türetildiği preset id'si ("modern" vb.) ya da "import" / "custom".
   source      String?
+  // TODO-164 (ADR-217/ADR-219) — additive tenant theme alanları. Registry theme-key
+  // (BASE / layout preset / custom package). Backfill BASE_COMMERCE → görünüm korunur.
+  themeKey        String @default("BASE_COMMERCE")
+  layoutPreset    String @default("BASE_COMMERCE")
+  themeApiVersion Int    @default(1)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3052,6 +3058,15 @@ model ThemeVersion {
   label         String?
   notes         String?
   document      Json
+  // TODO-164 (ADR-223) — layout/slot yapılandırması (draftConfig = DRAFT sürüm,
+  // publishedConfig = PUBLISHED sürüm; token `document` ile AYNI versiyonlama).
+  // Typed schema (@commerce-os/theme themeConfigSchema) ile doğrulanır.
+  config        Json      @default("{}")
+  // Sürüm anındaki theme-key/layout preset snapshot'ı (audit + rollback bütünlüğü).
+  themeKey      String?
+  layoutPreset  String?
+  // Publish eden platform kullanıcı id'si (audit; PII taşımaz — yalnız id).
+  publishedBy   String?
   createdAt     DateTime  @default(now())
   publishedAt   DateTime?
 

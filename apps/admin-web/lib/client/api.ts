@@ -3,6 +3,8 @@ import type {
   AdminStoreCreateRequest,
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
+  ThemeBindingResponse,
+  ThemeBindingAssignRequest,
   HealthResponse,
   Plan,
   PlanCreateRequest,
@@ -125,6 +127,15 @@ export const adminApi = {
     mutatingCall<AdminStore>("/api/admin/stores", { method: "POST", body: JSON.stringify(input) }),
   updateStore: (id: string, input: AdminStoreUpdateRequest) =>
     mutatingCall<AdminStore>(`/api/admin/stores/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+
+  // TODO-164 (ADR-222) — "Tema ve Marka" (theme-binding).
+  getThemeBinding: (id: string) =>
+    call<ThemeBindingResponse>(`/api/admin/stores/${id}/theme-binding`),
+  assignThemeBinding: (id: string, input: ThemeBindingAssignRequest) =>
+    mutatingCall<ThemeBindingResponse>(`/api/admin/stores/${id}/theme-binding`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
 
   // Plans
   listPlans: () => call<PlanListResponse>("/api/admin/plans"),
