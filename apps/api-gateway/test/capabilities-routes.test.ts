@@ -44,7 +44,7 @@ function buildApp(persistence: StoreModulePersistence, opts: { admin?: boolean }
   const data = createStoreModuleData(persistence);
   registerCapabilityRoutes(app, {
     data,
-    requireStoreAdmin: async (_req, reply, _storeId) => {
+    requireStoreAdmin: async (_req, reply) => {
       if (opts.admin === false) {
         reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "no" } });
         return null;
