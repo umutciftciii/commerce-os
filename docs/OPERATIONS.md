@@ -1262,6 +1262,10 @@ paneli. Uçlar: `GET /admin/theme-bindings` (fleet, store-scope'suz platform adm
 /admin/stores/:id/theme-binding` (per-store; platform-admin auth, THEME_STUDIO'dan bağımsız). Atama yeni
 PUBLISHED versiyon üretir (immutable). Uyumsuz/bilinmeyen key → 409. (NOT: panel artık mağaza Düzenle
 modalına gömülü DEĞİL — çok-mağazalı kontrol için kendi keşfedilebilir yüzeyinde.)
+**Atama TAM temayı uygular:** layout preset + slot düzeni + temanın TOKEN paleti (renk/tipografi —
+`resolveThemeDocumentForKey`, layout preset'in tokenPreset'inden). Yani atama yalnız düzeni değil GÖRÜNÜR
+paleti de değiştirir; store admin'in Theme Studio'da ayarladığı token'ları ÜZERİNE YAZAR — önceki versiyon
+ARCHIVED olduğundan **rollback ile geri alınabilir**, store admin sonra yeniden ince ayar yapabilir.
 
 **Compatibility.** `themeApiVersion ≤ engine`, `commerce-os ≥ minimumCommerceVersion` (semver), bilinen
 registry key, status ACTIVE, tokenSchemaVersion ≤ engine, slot variant allowlist. Uyumsuz PUBLISHED config →
