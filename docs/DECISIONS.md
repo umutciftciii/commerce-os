@@ -5129,3 +5129,49 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   Modular roadmap'te sıradaki aktif iş **TODO-163 Tenant Module & Capability Management**.
   Marketplace ayrımı ROADMAP "Product Split Baseline" bölümünde; marketplace tarafı ayrıntısı
   `../commerce-os-marketplace/docs/PRODUCT_SPLIT.md` (marketplace ADR: MP-000).
+
+## ADR-208 — Tenant Module & Capability: adanmış tablo + tipli registry (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Mağaza-bazlı modül/yetenek yönetimi için mevcut hiçbir tablo yeniden
+  kullanılamıyordu (greenfield). Kaynak-of-truth "hangi modüller VAR" ile "bir mağaza için
+  hangileri AÇIK" ayrılmalı; effective durum sunucu-otoriter olmalı.
+- **Karar.**
+  1. **WHAT-var = tipli kod registry** (`apps/api-gateway/src/capabilities/registry.ts`):
+     14 modül; `core` (kapatılamaz), `baselineEnabled`, opsiyonel `requires`. `moduleKey`
+     serbest string değil — bu registry'ye karşı doğrulanır (ADR-180 tipli-token deseniyle simetrik).
+  2. **Durum = adanmış tablo** `StoreModule` (`@@unique([storeId, moduleKey])`, Store FK cascade),
+     **sparse**: yalnız açık override edilen modüller için satır (`StoreModuleState` INHERIT/
+     ENABLED/DISABLED; INHERIT set → satır silinir). Plan default'u aktif aboneliğin
+     `Plan.metadata.modules`'ından türetilir.
+  3. `@commerce-os/*` kod paket namespace'i korunur; core'da ürün/müşteri adına göre koşul yok.
+- **Sonuç.** Additive migration (`20260730130000`); listeleme registry'den, durum tablodan.
+  Auditlenebilir (`source`), index'li, tenant-izole.
+
+## ADR-209 — Effective resolution: override > plan > baseline + dependency (SAF) (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Effective modül durumu **SAF** bir resolver ile türetilir
+  (`resolver.ts::resolveEffectiveModules`): core → daima açık; değilse **store override >
+  plan default > registry baseline**; sonra **dependency pass** (bir modülün `requires`
+  ettiği modül effective KAPALIysa o modül de kapatılır, fixpoint'e kadar). IO/tarih/rastgele
+  yok. Bilinmeyen key **fail-closed** (tanımsız capability asla açık sayılmaz).
+- **Geriye uyumluluk.** Tüm non-core modüller baseline ENABLED → override/plan yokken effective
+  davranış MEVCUT davranışın aynısı (regresyon yok). Bir modül ancak açık override / plan ile kapanır.
+- **Sonuç.** 16 saf birim testi; deterministik, DB'siz test edilebilir çekirdek (eligibility-core deseni).
+
+## ADR-210 — Sunucu-otoriter enforcement + AppDataAccess enjeksiyonu (TODO-163)
+
+- **Durum:** ACCEPTED.
+- **Karar.**
+  1. Effective capability YALNIZ gateway'de türetilir; istemci override state DIŞINDA hiçbir
+     yetki gönderemez. Admin uçları: `GET /stores/:storeId/modules` (matris),
+     `PUT /stores/:storeId/modules/:moduleKey` (override; core → 409, unknown → 404).
+  2. Feature route enforcement: `createRequireCapability(data)` → effective KAPALI modül
+     **403 CAPABILITY_DISABLED**. Temsili uygulama `/stores/:storeId/payment-providers` GET+POST.
+  3. Persistence **`AppDataAccess` soyutlaması üzerinden ENJEKTE** edilir (raw Prisma değil) →
+     in-memory test harness'i (`MemoryDataAccess`) ile birebir çalışır; monolit test deseni korunur.
+  4. store-admin: `/api/store/modules` BFF proxy + `/modules` yönetim ekranı + **StoreNav**
+     capability-driven gizleme (sunum; güvenlik enforcement gateway'de).
+- **Sonuç.** 12 route/orkestrasyon testi; api-gateway 1803 test PASS (regresyon yok). Kalan
+  enforcement yayılımı + storefront gizleme + plan editörü sonraki dilime bırakıldı.

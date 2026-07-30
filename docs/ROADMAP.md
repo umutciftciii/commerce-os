@@ -951,9 +951,29 @@
   port/cherry-pick ile (migration içeren commit kör cherry-pick edilmez). Bkz. ADR (product
   split) — `docs/DECISIONS.md`.
 
+## TODO-163 — Tenant Module & Capability Management (2026-07-30, IN_PROGRESS)
+
+- **Durum:** IN_PROGRESS — Faz 1 (thin vertical slice) teslim edildi; gate'ler yeşil.
+  Analiz: `docs/analysis/TODO-163-tenant-module-capability.md`. Kararlar: **ADR-208…ADR-210**.
+- **Amaç.** Modular ürün kimliğinin "mağaza-bazlı capability" sütunu: her tenant'ın hangi
+  modüle sahip olduğu **sunucu-otoriter** türetilir. Core'da ürün/müşteri adına göre koşul YOK.
+- **Teslim edilen (Faz 1).**
+  - Tipli **registry** (WHAT-var; 14 modül, core/baseline/requires) + **saf resolver**
+    (override > plan > baseline + dependency; fail-closed) — 16 birim testi.
+  - Adanmış **`StoreModule`** tablosu (sparse override) + `StoreModuleState` enum; additive
+    migration `20260730130000` **gerçek Postgres'te uygulandı + doğrulandı**.
+  - Gateway: `GET/PUT /stores/:storeId/modules` + `requireCapability` (temsili: payment-providers
+    → 403 CAPABILITY_DISABLED). Persistence `AppDataAccess` üzerinden enjekte (in-memory test uyumlu).
+  - store-admin: `/api/store/modules` BFF + `/modules` yönetim ekranı + **StoreNav** capability
+    gizleme. api-client `admin.modules.{list,setOverride}`.
+  - 12 route/orkestrasyon testi + api-gateway **1803 test PASS** (regresyon yok); build/lint temiz.
+- **Geriye uyumluluk.** Non-core baseline ENABLED → override/plan yokken mevcut davranış aynı.
+- **Kalan.** Enforcement yayılımı (kalan admin + public hot-path + cache) · storefront gizleme ·
+  plan→capability editörü. TODO-164 bu temel üstüne kurulacak.
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-163 Tenant Module & Capability Management** (PLANNED — sıradaki aktif iş).
+1. **TODO-163 Tenant Module & Capability Management** (IN_PROGRESS — Faz 1 teslim; kalan dilimler).
 2. **TODO-164 Tenant Theme Architecture** (PLANNED).
 3. **TODO-165 Fashion Vertical Foundation** (PLANNED).
 4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).

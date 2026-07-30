@@ -9885,3 +9885,38 @@ export type CommercialAutomationRunRequest = z.infer<typeof commercialAutomation
 export type CommercialAutomationStatusResponse = z.infer<typeof commercialAutomationStatusResponseSchema>;
 export type SettlementSchedulerRunResponse = z.infer<typeof settlementSchedulerRunResponseSchema>;
 export type RetentionRunResponse = z.infer<typeof retentionRunResponseSchema>;
+
+// ── TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management ────────
+// Effective modul matrisi (admin). effectiveEnabled + source SUNUCUDA turetilir;
+// istemci override state DISINDA hicbir yetki gonderemez. moduleKey allowlist gateway
+// registry'sine karsi dogrulanir (serbest string DEGIL).
+export const storeModuleStateSchema = z.enum(["INHERIT", "ENABLED", "DISABLED"]);
+
+export const storeModuleMatrixEntrySchema = z.object({
+  key: z.string(),
+  group: z.string(),
+  labelTr: z.string(),
+  labelEn: z.string(),
+  descriptionTr: z.string(),
+  core: z.boolean(),
+  effectiveEnabled: z.boolean(),
+  source: z.enum(["core", "override", "plan", "baseline", "dependency"]),
+  overrideState: storeModuleStateSchema,
+  blockedBy: z.string().nullable().optional(),
+});
+
+export const storeModulesResponseSchema = z.object({
+  data: z.object({
+    storeId: z.string(),
+    modules: z.array(storeModuleMatrixEntrySchema),
+  }),
+});
+
+export const updateStoreModuleRequestSchema = z.object({
+  state: storeModuleStateSchema,
+});
+
+export type StoreModuleState = z.infer<typeof storeModuleStateSchema>;
+export type StoreModuleMatrixEntry = z.infer<typeof storeModuleMatrixEntrySchema>;
+export type StoreModulesResponse = z.infer<typeof storeModulesResponseSchema>;
+export type UpdateStoreModuleRequest = z.infer<typeof updateStoreModuleRequestSchema>;

@@ -288,6 +288,9 @@ import type {
   // edilir (transport imzasında doğrudan kullanılmaz).
   MediaListResponse,
   MediaUploadResponse,
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  StoreModulesResponse,
+  StoreModuleState,
 } from "@commerce-os/contracts";
 
 /**
@@ -300,6 +303,10 @@ export type {
   AdminStoreCreateRequest,
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  StoreModuleState,
+  StoreModuleMatrixEntry,
+  StoreModulesResponse,
   HealthResponse,
   InventoryAdjustRequest,
   InventoryAdjustmentResponse,
@@ -1809,6 +1816,16 @@ export interface ApiClient {
         token?: string,
       ): Promise<ReviewModerateResponse>;
     };
+    // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management (effective matris + override).
+    modules: {
+      list(storeId: string, token?: string): Promise<StoreModulesResponse>;
+      setOverride(
+        storeId: string,
+        moduleKey: string,
+        state: StoreModuleState,
+        token?: string,
+      ): Promise<StoreModulesResponse>;
+    };
     // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (admin CRUD + dashboard + CSV).
     influencers: {
       list(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerListResponse>;
@@ -3167,6 +3184,18 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/reviews/${reviewId}/moderate`,
             "POST",
             input,
+            token,
+          ),
+      },
+      // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+      modules: {
+        list: (storeId, token) =>
+          getJson<StoreModulesResponse>(`/stores/${storeId}/modules`, token),
+        setOverride: (storeId, moduleKey, state, token) =>
+          sendJson<StoreModulesResponse>(
+            `/stores/${storeId}/modules/${moduleKey}`,
+            "PUT",
+            { state },
             token,
           ),
       },
