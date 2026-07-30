@@ -6,6 +6,8 @@ import {
   validateThemeDocument,
   validateColor,
   validateLength,
+  listSlotBuilderMenu,
+  listStartingPoints,
   type ThemeDocument,
 } from "@commerce-os/theme";
 import type {
@@ -122,6 +124,57 @@ function statusTone(status: string): "success" | "neutral" | "warning" {
   return "warning";
 }
 
+// ── TODO-164A — Custom Theme Builder yapısal seçenekler ──────────────────────
+// Slot variant menüsü + başlangıç noktaları @commerce-os/theme'den (tek otorite;
+// sunucu yine allowlist'e karşı doğrular). Yapısal enum'lar builder config'e yazılır.
+const SLOT_MENU = listSlotBuilderMenu();
+const STARTING_POINTS = listStartingPoints();
+const HERO_HEIGHT_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "compact", label: "Kompakt" },
+  { value: "standard", label: "Standart" },
+  { value: "tall", label: "Uzun" },
+  { value: "full", label: "Tam" },
+];
+const RADIUS_SCALE_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "sharp", label: "Keskin" },
+  { value: "soft", label: "Yumuşak" },
+  { value: "rounded", label: "Yuvarlak" },
+];
+const CONTAINER_GUTTER_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "tight", label: "Dar" },
+  { value: "normal", label: "Normal" },
+  { value: "wide", label: "Geniş" },
+];
+const IMAGE_RATIO_OPTIONS = [
+  { value: "", label: "Varsayılan" },
+  { value: "square", label: "Kare (1:1)" },
+  { value: "portrait", label: "Dikey (3:4)" },
+  { value: "landscape", label: "Yatay (4:3)" },
+];
+const VIEWPORTS = [
+  { key: "desktop", label: "Masaüstü", width: 1280 },
+  { key: "tablet", label: "Tablet", width: 768 },
+  { key: "mobile", label: "Mobil", width: 390 },
+] as const;
+
+/** Builder yapısal config (token belgesinden AYRI; slot + yapısal seçimler). */
+interface BuilderConfig {
+  slotVariants: Record<string, string>;
+  listing?: { columnsDesktop?: number };
+  hero?: { height?: string };
+  radius?: { scale?: string };
+  container?: { gutter?: string };
+  productCard?: { imageRatio?: string };
+}
+
+// Vitrin base URL (iframe önizleme). Yoksa gerçek vitrin önizlemesi devre dışı
+// (client-side mock her zaman çalışır). NEXT_PUBLIC_* → tarayıcıda okunur.
+const STOREFRONT_BASE_URL =
+  (process.env.NEXT_PUBLIC_STOREFRONT_URL ?? "").replace(/\/+$/, "") || null;
+
 export function ThemeStudio() {
   const locale = useLocale() as Locale;
   const [themes, setThemes] = useState<ThemeSummary[]>([]);
@@ -138,6 +191,11 @@ export function ThemeStudio() {
   // Yeni tema formu
   const [newName, setNewName] = useState("");
   const [newPreset, setNewPreset] = useState("");
+  // TODO-164A — başlangıç noktası (preset kopyası) + builder yapısal config + preview.
+  const [startingPoint, setStartingPoint] = useState("");
+  const [builderConfig, setBuilderConfig] = useState<BuilderConfig>({ slotVariants: {} });
+  const [viewport, setViewport] = useState<(typeof VIEWPORTS)[number]["key"]>("desktop");
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
   async function refreshList() {
     const list = await storeApi.listThemes();
@@ -173,11 +231,26 @@ export function ThemeStudio() {
     }
   }
 
+  const hydrateBuilder = (config: unknown): BuilderConfig => {
+    const c = (config ?? {}) as Record<string, unknown>;
+    const slots = (c.slotVariants ?? c.slots ?? {}) as Record<string, string>;
+    return {
+      slotVariants: { ...slots },
+      listing: (c.listing as BuilderConfig["listing"]) ?? {},
+      hero: (c.hero as BuilderConfig["hero"]) ?? {},
+      radius: (c.radius as BuilderConfig["radius"]) ?? {},
+      container: (c.container as BuilderConfig["container"]) ?? {},
+      productCard: (c.productCard as BuilderConfig["productCard"]) ?? {},
+    };
+  };
+
   const openEditor = (themeId: string) =>
     run(async () => {
       const d = await storeApi.getTheme(themeId);
       setDetail(d);
       setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
+      setBuilderConfig(hydrateBuilder(d.draft?.config ?? d.published?.config));
+      setIframeUrl(null);
       const source = d.draft?.document ?? d.published?.document;
       const valid = validateThemeDocument(source);
       setDoc(valid.ok ? valid.document : null);
@@ -195,16 +268,30 @@ export function ThemeStudio() {
       if (!newName.trim()) throw new Error("Tema adı gerekli.");
       const d = await storeApi.createTheme({
         name: newName.trim(),
-        ...(newPreset ? { presetId: newPreset } : {}),
+        // TODO-164A — başlangıç noktası seçiliyse preset kopyalanır; yoksa eski preset akışı.
+        ...(startingPoint ? { startingPoint } : newPreset ? { presetId: newPreset } : {}),
       });
       setNewName("");
       setNewPreset("");
+      setStartingPoint("");
       await refreshList();
       setDetail(d);
       setLayoutPreset(d.layoutPreset ?? "BASE_COMMERCE");
+      setBuilderConfig(hydrateBuilder(d.draft?.config));
       const valid = validateThemeDocument(d.draft?.document);
       setDoc(valid.ok ? valid.document : null);
     }, "Tema oluşturuldu.");
+
+  // TODO-164A — slot variant / yapısal grup güncelleyicileri.
+  const setSlotVariant = (slot: string, variant: string) =>
+    setBuilderConfig((prev) => {
+      const next = { ...prev.slotVariants };
+      if (variant) next[slot] = variant;
+      else delete next[slot];
+      return { ...prev, slotVariants: next };
+    });
+  const setBuilderGroup = <K extends keyof BuilderConfig>(group: K, value: BuilderConfig[K]) =>
+    setBuilderConfig((prev) => ({ ...prev, [group]: value }));
 
   const setColor = (group: Group, key: string, value: string) => {
     setDoc((prev) => {
@@ -225,9 +312,65 @@ export function ThemeStudio() {
         : prev,
     );
 
-  // TODO-164 — layout preset seçimini config'e çevir. themeKey = layout preset key
-  // (BASE_COMMERCE veya 4 preset). Slot ince-ayarı bu fazda yok (slots: {}).
-  const themeConfig = () => ({ themeKey: layoutPreset, layoutPreset, slots: {} });
+  // TODO-164/164A — layout preset + BUILDER yapısal config. themeKey = BASE_COMMERCE
+  // (builder teması = ortak engine + özel config). slotVariants + yapısal gruplar
+  // eklenir; sunucu allowlist/bounded doğrular. Boş yapısal alanlar ATLANIR (temiz config).
+  const themeConfig = () => {
+    const bc = builderConfig;
+    const clean = <T extends Record<string, unknown>>(o: T): Partial<T> => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== "" && v !== null) out[k] = v;
+      return out as Partial<T>;
+    };
+    const listing = clean({ columnsDesktop: bc.listing?.columnsDesktop });
+    const hero = clean({ height: bc.hero?.height });
+    const radius = clean({ scale: bc.radius?.scale });
+    const container = clean({ gutter: bc.container?.gutter });
+    const productCard = clean({ imageRatio: bc.productCard?.imageRatio });
+    return {
+      themeKey: "BASE_COMMERCE",
+      layoutPreset,
+      slots: {},
+      slotVariants: bc.slotVariants,
+      ...(Object.keys(listing).length ? { listing } : {}),
+      ...(Object.keys(hero).length ? { hero } : {}),
+      ...(Object.keys(radius).length ? { radius } : {}),
+      ...(Object.keys(container).length ? { container } : {}),
+      ...(Object.keys(productCard).length ? { productCard } : {}),
+    };
+  };
+
+  // TODO-164A — Kopyala / Arşivle / gerçek vitrin önizleme (imzalı token → iframe).
+  const duplicateTheme = () =>
+    run(async () => {
+      if (!detail) return;
+      const copy = await storeApi.duplicateTheme(detail.id, { name: `${detail.name} (kopya)` });
+      await refreshList();
+      setDetail(copy);
+      setBuilderConfig(hydrateBuilder(copy.draft?.config));
+      const valid = validateThemeDocument(copy.draft?.document);
+      setDoc(valid.ok ? valid.document : null);
+    }, "Tema kopyalandı.");
+
+  const archiveTheme = () =>
+    run(async () => {
+      if (!detail) return;
+      await storeApi.archiveTheme(detail.id);
+      await refreshList();
+      closeEditor();
+    }, "Tema arşivlendi.");
+
+  const openLivePreview = () =>
+    run(async () => {
+      if (!detail) return;
+      if (!STOREFRONT_BASE_URL) {
+        throw new Error("Vitrin önizleme adresi yapılandırılmadı (NEXT_PUBLIC_STOREFRONT_URL).");
+      }
+      // Önce güncel draft'ı kaydet (önizleme draft'ı yansıtır), sonra token al.
+      if (doc) await storeApi.saveThemeDraft(detail.id, { document: doc as unknown as Record<string, unknown>, config: themeConfig() });
+      const { token } = await storeApi.themePreviewToken(detail.id);
+      setIframeUrl(`${STOREFRONT_BASE_URL}/?themePreview=${encodeURIComponent(token)}`);
+    });
 
   const saveDraft = () =>
     run(async () => {
@@ -351,10 +494,25 @@ export function ThemeStudio() {
                 <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Örn. Bahar Koleksiyonu" />
               </div>
               <div className="flex-1">
-                <label className="mb-1 block text-xs text-white/50">Preset</label>
+                <label className="mb-1 block text-xs text-white/50">Başlangıç noktası</label>
+                <Select
+                  value={startingPoint}
+                  onChange={(e) => {
+                    setStartingPoint(e.target.value);
+                    if (e.target.value) setNewPreset("");
+                  }}
+                  options={[
+                    { value: "", label: "Preset paletinden seç →" },
+                    ...STARTING_POINTS.map((s) => ({ value: s.key, label: s.nameTr })),
+                  ]}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs text-white/50">Preset (palet)</label>
                 <Select
                   value={newPreset}
                   onChange={(e) => setNewPreset(e.target.value)}
+                  disabled={!!startingPoint}
                   options={[
                     { value: "", label: "Varsayılan" },
                     ...presets.map((p) => ({ value: p.id, label: p.name })),
@@ -425,6 +583,14 @@ export function ThemeStudio() {
             <Button size="sm" onClick={publish} disabled={busy || hasErrors}>
               Yayınla
             </Button>
+            <Button variant="secondary" size="sm" onClick={duplicateTheme} disabled={busy}>
+              Kopyala
+            </Button>
+            {detail.status !== "PUBLISHED" ? (
+              <Button variant="ghost" size="sm" onClick={archiveTheme} disabled={busy}>
+                Arşivle
+              </Button>
+            ) : null}
             <Button variant="secondary" size="sm" onClick={exportTheme} disabled={busy}>
               Dışa aktar
             </Button>
@@ -444,6 +610,93 @@ export function ThemeStudio() {
               Ortak vitrin engine üzerinde başlık, ürün kartı, hero ve liste düzenini seçer.
               Tokenlar (renk/tipografi) ayrıca aşağıdan düzenlenir.
             </p>
+          </div>
+
+          {/* TODO-164A — YAPI (Builder): slot variant seçimi + yapısal ince ayar. Her
+              seçim GÖRÜNÜR slot farkı üretir (sunucu allowlist/bounded doğrular). */}
+          <div className="mb-6 rounded-lg border border-white/10 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">
+              Yapı — Slot düzenleri
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {SLOT_MENU.map((slot) => (
+                <div key={slot.key}>
+                  <label className="mb-1 block text-[11px] text-white/45">{slot.nameTr}</label>
+                  <Select
+                    value={builderConfig.slotVariants[slot.key] ?? ""}
+                    onChange={(e) => setSlotVariant(slot.key, e.target.value)}
+                    disabled={busy}
+                    className="text-xs"
+                    options={[
+                      { value: "", label: `Varsayılan (${slot.defaultVariant})` },
+                      ...slot.variants.map((v) => ({ value: v.key, label: v.nameTr })),
+                    ]}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mb-3 mt-5 text-xs font-semibold uppercase tracking-wide text-white/60">
+              Yapı — Ölçü & yoğunluk
+            </p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <div>
+                <label className="mb-1 block text-[11px] text-white/45">Liste kolonu (masaüstü)</label>
+                <Select
+                  value={String(builderConfig.listing?.columnsDesktop ?? "")}
+                  onChange={(e) =>
+                    setBuilderGroup("listing", {
+                      columnsDesktop: e.target.value ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  disabled={busy}
+                  className="text-xs"
+                  options={[
+                    { value: "", label: "Varsayılan" },
+                    ...[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} kolon` })),
+                  ]}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-white/45">Hero yüksekliği</label>
+                <Select
+                  value={builderConfig.hero?.height ?? ""}
+                  onChange={(e) => setBuilderGroup("hero", { height: e.target.value || undefined })}
+                  disabled={busy}
+                  className="text-xs"
+                  options={HERO_HEIGHT_OPTIONS}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-white/45">Köşe ölçeği</label>
+                <Select
+                  value={builderConfig.radius?.scale ?? ""}
+                  onChange={(e) => setBuilderGroup("radius", { scale: e.target.value || undefined })}
+                  disabled={busy}
+                  className="text-xs"
+                  options={RADIUS_SCALE_OPTIONS}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-white/45">Kenar boşluğu</label>
+                <Select
+                  value={builderConfig.container?.gutter ?? ""}
+                  onChange={(e) => setBuilderGroup("container", { gutter: e.target.value || undefined })}
+                  disabled={busy}
+                  className="text-xs"
+                  options={CONTAINER_GUTTER_OPTIONS}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-white/45">Kart görsel oranı</label>
+                <Select
+                  value={builderConfig.productCard?.imageRatio ?? ""}
+                  onChange={(e) => setBuilderGroup("productCard", { imageRatio: e.target.value || undefined })}
+                  disabled={busy}
+                  className="text-xs"
+                  options={IMAGE_RATIO_OPTIONS}
+                />
+              </div>
+            </div>
           </div>
 
           {!doc ? (
@@ -568,10 +821,56 @@ export function ThemeStudio() {
                 ) : null}
               </div>
 
-              {/* Canlı önizleme (istemci-tarafı @commerce-os/theme ile) */}
+              {/* Önizleme: gerçek vitrin (iframe, imzalı token) + hızlı token mock. */}
               <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/50">
-                  Canlı önizleme
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/50">
+                    Önizleme
+                  </p>
+                  <div className="ml-auto flex gap-1">
+                    {VIEWPORTS.map((v) => (
+                      <Button
+                        key={v.key}
+                        size="sm"
+                        variant={viewport === v.key ? "secondary" : "ghost"}
+                        onClick={() => setViewport(v.key)}
+                      >
+                        {v.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button size="sm" onClick={openLivePreview} disabled={busy || !STOREFRONT_BASE_URL}>
+                    Gerçek vitrin
+                  </Button>
+                </div>
+
+                {/* Gerçek storefront önizlemesi — draft config+document uygulanır
+                    (Home/PLP/PDP/Cart/Checkout gezilebilir). Token store+theme scoped. */}
+                {iframeUrl ? (
+                  <div className="mb-4 overflow-x-auto rounded-lg border border-white/10 bg-black/20 p-2">
+                    <iframe
+                      key={`${iframeUrl}-${viewport}`}
+                      src={iframeUrl}
+                      title="Vitrin önizleme"
+                      className="mx-auto block rounded border border-white/10 bg-white"
+                      style={{
+                        width: VIEWPORTS.find((v) => v.key === viewport)!.width,
+                        maxWidth: "100%",
+                        height: 620,
+                      }}
+                    />
+                    <p className="mt-1 text-center text-[10px] text-white/40">
+                      {VIEWPORTS.find((v) => v.key === viewport)!.label} · taslak (yayın değişmedi)
+                    </p>
+                  </div>
+                ) : STOREFRONT_BASE_URL ? (
+                  <p className="mb-3 text-[11px] text-white/40">
+                    “Gerçek vitrin” ile taslağı gezilebilir bir vitrin önizlemesinde açın.
+                  </p>
+                ) : null}
+
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-white/40">
+                  Hızlı token önizleme
                 </p>
                 <style dangerouslySetInnerHTML={{ __html: previewCss }} />
                 <div

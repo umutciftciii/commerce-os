@@ -24,6 +24,7 @@ export function HomeSections({
   sections,
   dict,
   caps,
+  sectionVariant = "standard",
 }: {
   sections: StorefrontHomeSection[];
   dict: StorefrontDictionary;
@@ -31,9 +32,12 @@ export function HomeSections({
   // → beacon/fetch yok). `wishlist` ise rail içindeki (kendi provider'ını kuran) kalp butonunu gizler.
   // Alan yoksa (undefined) → göster (geriye uyumlu; gateway yine otoriter).
   caps?: { recentlyViewed?: boolean; sponsored?: boolean; wishlist?: boolean };
+  // TODO-164A — Home Section Frame slot variant'ı (STANDARD/FULL_BLEED/EDITORIAL/COMPACT).
+  // Sunucu-otoriter; async üst sayfadan prop olarak (nested async RSC'den kaçınmak için).
+  sectionVariant?: string;
 }) {
   return (
-    <div className="flex flex-col">
+    <div className="home-sections flex flex-col" data-section-variant={sectionVariant}>
       {sections.map((section) => {
         const visibility = visibilityClass(section.desktopVisible, section.mobileVisible);
         if (section.type === "HERO_SLIDER") {

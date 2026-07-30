@@ -1278,3 +1278,25 @@ cross-store izolasyon (storeId-scoped, cross-store 404); audit yalnız id (PII/s
 **Worktree smoke (dev).** Kaynak image'a bake edilir (bind-mount yok) → değişikliği canlı görmek için
 `infra/docker` compose'u WORKTREE'den build + `up -d api-gateway storefront-web`; migration ayrı
 (`prisma migrate deploy`, DATABASE_URL=localhost:5432). Bkz. TD-158.
+
+## Custom Theme Builder — smoke runbook (TODO-164A, enterprise-demo)
+
+Ön koşul: tam stack ayakta (`infra/docker` compose WORKTREE'den build + `up -d api-gateway storefront-web
+store-admin-web admin-web postgres redis`), `prisma migrate deploy` (yeni `20260730160000_custom_theme_builder`),
+store-admin `NEXT_PUBLIC_STOREFRONT_URL` = storefront kökü (iframe önizleme için).
+
+Yeni tema (store-admin → Tema Stüdyosu):
+1. "Başlangıç noktası" = BASE_COMMERCE → ad ver → Oluştur.
+2. Yapı: Header→CENTERED_BRAND, Product Card→EDITORIAL, PDP→GALLERY_FIRST, Hero→EDITORIAL_OVERLAY;
+   liste kolonu=4, köşe ölçeği=rounded.
+3. Stil: renk paleti + font preset değiştir.
+4. Önizleme: "Gerçek vitrin" → desktop/tablet/mobile doğrula (iframe draft'ı gösterir).
+Draft: Taslağı kaydet → production storefront DEĞİŞMEMELİ (yayın yok); iframe refresh → draft korunur.
+Publish: Yayınla → `GET /public/stores/:slug/theme` yeni config döner (css + slots) → storefront GÖRÜNÜR
+değişir; cache anında invalidate; başka store etkilenmez. Kritik kontrast düşükse `THEME_CONTRAST_FAILED` (409).
+İkinci tema: FASHION_EDITORIAL'dan oluştur → farklı slot/token → publish → öncekinden BELİRGİN farklı.
+Rollback: önceki versiyona geri yükle → Yayınla → görünüm geri döner.
+Kopyala/Arşivle: Kopyala → yeni DRAFT kimlik (history yok); Arşivle → DRAFT arşivlenir, PUBLISHED 409.
+Capability: THEME_STUDIO kapat → builder erişimi kapanır (ModuleGuard + 403), storefront base'e düşer, veri
+korunur; re-enable → published tema geri gelir.
+Tenant izolasyon: preview token yalnız kendi store+theme'ini açar; cross-store 401/base.

@@ -7726,6 +7726,9 @@ export const themeDetailSchema = z.object({
   themeKey: z.string(),
   layoutPreset: z.string(),
   themeApiVersion: z.number().int().positive(),
+  // TODO-164A — builder kimlik alanları (görünürlük/audit).
+  duplicatedFrom: z.string().nullable().optional(),
+  updatedAt: z.string().optional(),
   draft: themeVersionDocumentSchema.nullable(),
   published: themeVersionDocumentSchema.nullable(),
   versions: z.array(themeVersionSummarySchema),
@@ -7737,6 +7740,10 @@ export const themeCreateRequestSchema = z.object({
   description: z.string().max(500).optional(),
   // Preset id ("modern" vb.); yoksa paketlenmiş varsayılan tema kopyalanır.
   presetId: z.string().max(60).optional(),
+  // TODO-164A — başlangıç noktası (BASE_COMMERCE/FASHION_MINIMAL/FASHION_EDITORIAL/
+  // PREMIUM_BOUTIQUE/EMPTY). Verilirse preset'i kopyalayıp draft config+document
+  // snapshot'ı üretir (registry MUTATE edilmez). presetId ile geriye uyumlu.
+  startingPoint: z.string().max(40).optional(),
 });
 
 export const themeUpdateRequestSchema = z
@@ -7758,6 +7765,11 @@ export const themeDraftUpdateRequestSchema = z.object({
 
 export const themePublishRequestSchema = z.object({
   notes: z.string().max(500).optional(),
+});
+
+// TODO-164A — Tema kopyalama isteği (yeni tema adı).
+export const themeDuplicateRequestSchema = z.object({
+  name: z.string().min(1).max(120),
 });
 
 export const themeRollbackRequestSchema = z.object({
@@ -7790,6 +7802,14 @@ export const themePreviewResponseSchema = z.object({
   colorScheme: z.string(),
   schemaVersion: z.number().int().positive(),
 });
+
+// TODO-164A — Builder önizleme token'ı (kısa ömürlü, store+theme scoped, imzalı).
+// Store-admin iframe bunu storefront `/preview/theme?token=` route'una geçirir.
+export const themePreviewTokenResponseSchema = z.object({
+  token: z.string(),
+  expiresAt: z.string(),
+});
+export type ThemePreviewTokenResponse = z.infer<typeof themePreviewTokenResponseSchema>;
 
 /**
  * PUBLIC (vitrin) — yayınlanmış temanın SUNUCU-ÇÖZÜLMÜŞ CSS'i (ALLOWLIST).
@@ -7836,6 +7856,10 @@ export const themeBindingResponseSchema = z.object({
   capabilityEnabled: z.boolean(),
   updateAvailable: z.boolean(),
   compatible: z.boolean(),
+  // TODO-164A — builder görünürlüğü: taslak tema sayısı, kaynak preset, son güncelleme.
+  draftThemeCount: z.number().int().nonnegative().optional(),
+  sourcePreset: z.string().nullable().optional(),
+  lastUpdatedAt: z.string().nullable().optional(),
   issues: z.array(themeCompatibilityIssueSchema),
   // Platform admin'in atayabileceği temalar (registry projeksiyonu).
   assignableThemes: z.array(
@@ -7889,6 +7913,7 @@ export type ThemeDraftUpdateRequest = z.infer<typeof themeDraftUpdateRequestSche
 export type ThemePublishRequest = z.infer<typeof themePublishRequestSchema>;
 export type ThemeRollbackRequest = z.infer<typeof themeRollbackRequestSchema>;
 export type ThemeImportRequest = z.infer<typeof themeImportRequestSchema>;
+export type ThemeDuplicateRequest = z.infer<typeof themeDuplicateRequestSchema>;
 export type ThemeExportResponse = z.infer<typeof themeExportResponseSchema>;
 export type ThemePresetSummary = z.infer<typeof themePresetSummarySchema>;
 export type ThemePresetListResponse = z.infer<typeof themePresetListResponseSchema>;

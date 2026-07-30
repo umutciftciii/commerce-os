@@ -7,6 +7,8 @@ import type {
   ThemePublishRequest,
   ThemeRollbackRequest,
   ThemeImportRequest,
+  ThemeDuplicateRequest,
+  ThemePreviewTokenResponse,
   ThemeExportResponse,
   ThemePresetListResponse,
   ThemePreviewResponse,
@@ -1620,5 +1622,18 @@ export const storeApi = {
     mutatingCall<ThemeDetail>("/api/theme/import", {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+  // TODO-164A — Custom Theme Builder.
+  duplicateTheme: (themeId: string, input: ThemeDuplicateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  archiveTheme: (themeId: string) =>
+    mutatingCall<ThemeDetail>(`/api/theme/${themeId}/archive`, { method: "POST", body: "{}" }),
+  themePreviewToken: (themeId: string) =>
+    mutatingCall<ThemePreviewTokenResponse>(`/api/theme/${themeId}/preview-token`, {
+      method: "POST",
+      body: "{}",
     }),
 };

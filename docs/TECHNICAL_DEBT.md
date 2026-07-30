@@ -1665,3 +1665,26 @@ smoke + store-admin UI-piksel click-through (parola; TD-126 sınırı → Final 
   uygulanır (`prisma migrate deploy`, DATABASE_URL=localhost:5432). Paylaşılan paketler (@commerce-os/theme/
   contracts/api-client) IMAGE içinde turbo ile derlenir → değişiklikler yansır. Bkz. [[docker-smoke-vs-worktree]].
 - **Aksiyon.** Yok (bilgilendirme); TODO-164 canlı smoke bu yolla yapıldı (enterprise-demo, 6/6 senaryo PASS).
+
+## TD-159 — Builder responsiveOverrides henüz builder-UI'da açık değil (TODO-164A) — FUTURE
+
+`responsiveOverrides.{tablet,mobile}` config ŞEMADA mevcut ve builder-css `columns/containerPadding/heroHeight/
+sectionSpacing/productCardDensity` anahtarlarını `--tb-*` + sistem `@media` ile GERÇEK render eder; yalnız
+`navigationVariant` CSS ile değil server slot çözümüyle uygulanır (bu fazda render edilmez, yalnız doğrulanır).
+KRİTİK: builder **UI'ı responsiveOverrides'ı henüz KULLANICIYA AÇMIYOR** (Yapı sekmesi yalnız top-level slot +
+yapısal knob sunar) → "sessizce yoksayılan görünür kontrol" YOK. Gelecek: responsive override editörü + mobil
+nav breakpoint-duyarlı `useSlotVariant`. Etki: düşük (bounded future capability; güvenlik/veri etkisi yok).
+
+## TD-160 — Builder iframe preview env (TODO-164A) — CLOSED
+
+Store-admin "Gerçek vitrin" iframe önizlemesi `NEXT_PUBLIC_STOREFRONT_URL` okur. **Kapatıldı:** dev compose
+store-admin servisine `NEXT_PUBLIC_STOREFRONT_URL=http://localhost:3000` eklendi (dev'de runtime okunur).
+Prod deploy'da helm/compose'a ilgili public storefront kökü set edilmelidir (deploy config notu). Gateway
+preview-token + `GET /public/theme-preview` env'den bağımsız çalışır. Canlı smoke'ta iframe önizleme doğrulandı.
+
+## TD-161 — Builder token override çift-kaynak (document + config) (TODO-164A)
+
+Token render otoritesi `ThemeDocument` (Stil sekmesi düzenler). `builder-config.tokenOverrides` (opsiyonel)
+builder-css ile document CSS'inden SONRA layered override olarak yayımlanır → deterministik ama iki kaynak.
+Store-admin UI tokenOverrides'ı POPÜLE ETMEZ (yalnız document); alan spec bütünlüğü + programatik yol için
+mevcut. İyileştirme: tek kaynağa indirgeme (config→document derive) ileride değerlendirilir. Etki: düşük.

@@ -21,7 +21,7 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontDiscoverySection, StorefrontProductSummary } from "../lib/catalog-types";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getDiscovery, getFeaturedProducts, getHome } from "../lib/server/catalog";
-import { getStoreInfo, isStorefrontModuleEnabled } from "../lib/server/site";
+import { getStoreInfo, isStorefrontModuleEnabled, getServerSlotVariant } from "../lib/server/site";
 import { buildMetadata } from "../lib/seo/metadata";
 import { homePath } from "../lib/seo/routes";
 
@@ -97,15 +97,17 @@ export default async function HomePage() {
     const heroFirst = home.sections.length > 0 && home.sections[0].type === "HERO_SLIDER";
     const heroSections = heroFirst ? home.sections.slice(0, 1) : [];
     const restSections = heroFirst ? home.sections.slice(1) : home.sections;
+    // TODO-164A — Home Section Frame slot variant'ı (sunucu; nested async RSC'den kaçınmak için prop).
+    const sectionVariant = await getServerSlotVariant("homeSectionFrame", "standard");
     return (
       <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
         <RatingProvider summaries={cardRatings}>
           {/* TD-129 — "Son İncelediklerin" artık yönetilebilir bir HomeSection tipidir (RECENTLY_VIEWED);
               manuel sabit render KALDIRILDI. Admin şeridin yerini/başlığını/görünürlüğünü CMS'ten yönetir.
               TODO-163 Faz 3 (TD-156) — homeCaps kapalı RECENTLY_VIEWED/SPONSORED section'larını render dışı bırakır. */}
-          {heroSections.length > 0 ? <HomeSections sections={heroSections} dict={dict} caps={homeCaps} /> : null}
+          {heroSections.length > 0 ? <HomeSections sections={heroSections} dict={dict} caps={homeCaps} sectionVariant={sectionVariant} /> : null}
           <DiscoverySections sections={discovery} dict={dict} />
-          {restSections.length > 0 ? <HomeSections sections={restSections} dict={dict} caps={homeCaps} /> : null}
+          {restSections.length > 0 ? <HomeSections sections={restSections} dict={dict} caps={homeCaps} sectionVariant={sectionVariant} /> : null}
         </RatingProvider>
       </WishlistProvider>
     );

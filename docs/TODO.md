@@ -2354,3 +2354,33 @@ fleet tablosu: mağaza·aktif tema·preset·uyumluluk·Theme Studio·Yönet). Ye
 (store-scope'suz platform admin, N+1 yok). **PR #151 MERGED** (merge `2dfbc9a`) → api-gateway+admin-web deploy
 healthy → post-deploy fleet smoke PASS (2 mağaza, atama yansıdı, no-auth 401). Sebep: önemli yönetim modülünü
 ilgisiz modala gömmek çok-mağazalı kontrolü zorlaştırıyordu.
+
+### TODO-164A — Custom Theme Builder (CLOSED & DEPLOYED, 2026-07-31)
+
+Görsel tema oluşturucu; ortak engine + slot contract + H-1 ÜSTÜNE (paralel motor YOK). **ADR-225…231.**
+Analiz: `docs/analysis/TODO-164A-custom-theme-builder.md`.
+- **`@commerce-os/theme`:** `builder-config.ts` (genişletilmiş strict/bounded/H-1 config; slotVariants→slots
+  merge; unknown key/izinsiz variant/güvensiz değer reddi), `contrast.ts` (WCAG publish gate; buton 3:1,
+  metin 4.5:1), `builder-css.ts` (`--tb-*` + sistem breakpoint `@media`; arbitrary media query YOK),
+  `starting-points.ts` (BASE/FASHION_MINIMAL/FASHION_EDITORIAL/PREMIUM_BOUTIQUE/EMPTY; registry MUTATE etmez),
+  `slots.ts` variant genişleme (her slot ≥3 adlandırılmış; eski+default korunur; `builderVariants` UI menüsü).
+- **DB:** additive `20260730160000_custom_theme_builder` (`Theme.duplicatedFrom/createdBy/updatedBy` nullable).
+- **Gateway:** create `startingPoint`; duplicate/archive/preview-token; draft/publish builder config doğrulama
+  + contrast gate (THEME_CONTRAST_FAILED); public projeksiyon builder CSS ekler + slotVariants merge; public
+  preview projeksiyonu (imzalı token `preview-token.ts`, prod cache'ten AYRI); binding draftThemeCount/
+  sourcePreset/lastUpdatedAt.
+- **Storefront:** 8 slot TAM bağlı (productListingLayout/productDetailLayout/homeSectionFrame + PLP/PDP/home
+  wiring — nested async RSC yerine prop); UNLAYERED variant CSS (gerçek grid/flex/layout farkı); `--tb-*`
+  tüketimi; middleware+cookie preview (draft render; prod değişmez).
+- **Store-admin:** Theme Studio görsel builder (Yapı/Stil/Önizleme; startingPoint; Kopyala/Arşivle; 3-viewport +
+  gerçek vitrin iframe); BFF duplicate/archive/preview-token route'ları; storeApi metodları.
+- **Platform-admin:** binding paneli draftThemeCount/sourcePreset/lastUpdatedAt.
+- **Gate:** theme 229 · contracts 115 · api-client 23 · gateway 1850 · storefront 446 · store-admin 360 ·
+  admin-web 24 — TÜMÜ PASS; build/typecheck/lint temiz; git diff --check temiz.
+- **Canlı smoke (enterprise-demo, gerçek stack+tarayıcı):** migrate deploy (additive, mevcut korundu) + 8 slot
+  DOM/CSS farkı + preview izolasyonu (token 401) + publish/rollback + ikinci tema + duplicate/archive +
+  capability disable→base/re-enable + güvenlik (XSS/unsafe/unknown-key/variant 400) + contrast 409 + responsive
+  taşma yok. **CLOSED & DEPLOYED.**
+- **Canlı düzeltme:** link contrast `blocking:false` (shipped preset yayınlanabilir); `--tb-gutter` storefront
+  `.max-w-grid` padding'e bağlandı. TD-160 CLOSED (compose `NEXT_PUBLIC_STOREFRONT_URL`). Açık: TD-159
+  (responsiveOverrides UI-future), TD-161 (token çift-kaynak).

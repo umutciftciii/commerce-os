@@ -383,6 +383,8 @@ export type {
   ThemeUpdateRequest,
   ThemeDraftUpdateRequest,
   ThemePublishRequest,
+  ThemeDuplicateRequest,
+  ThemePreviewTokenResponse,
   ThemeRollbackRequest,
   ThemeImportRequest,
   ThemeExportResponse,
@@ -1035,6 +1037,8 @@ import type {
   ThemeUpdateRequest,
   ThemeDraftUpdateRequest,
   ThemePublishRequest,
+  ThemeDuplicateRequest,
+  ThemePreviewTokenResponse,
   ThemeRollbackRequest,
   ThemeImportRequest,
   ThemeExportResponse,
@@ -1490,6 +1494,19 @@ export interface ApiClient {
       export(storeId: string, themeId: string, token?: string): Promise<ThemeExportResponse>;
       import(storeId: string, input: ThemeImportRequest, token?: string): Promise<ThemeDetail>;
       presets(storeId: string, token?: string): Promise<ThemePresetListResponse>;
+      // TODO-164A — Custom Theme Builder.
+      duplicate(
+        storeId: string,
+        themeId: string,
+        input: ThemeDuplicateRequest,
+        token?: string,
+      ): Promise<ThemeDetail>;
+      archive(storeId: string, themeId: string, token?: string): Promise<ThemeDetail>;
+      previewToken(
+        storeId: string,
+        themeId: string,
+        token?: string,
+      ): Promise<ThemePreviewTokenResponse>;
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -2866,6 +2883,23 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<ThemeDetail>(`/stores/${storeId}/themes/import`, "POST", input, token),
         presets: (storeId, token) =>
           getJson<ThemePresetListResponse>(`/stores/${storeId}/theme/presets`, token),
+        // TODO-164A — Custom Theme Builder.
+        duplicate: (storeId, themeId, input, token) =>
+          sendJson<ThemeDetail>(
+            `/stores/${storeId}/themes/${themeId}/duplicate`,
+            "POST",
+            input,
+            token,
+          ),
+        archive: (storeId, themeId, token) =>
+          sendJson<ThemeDetail>(`/stores/${storeId}/themes/${themeId}/archive`, "POST", {}, token),
+        previewToken: (storeId, themeId, token) =>
+          sendJson<ThemePreviewTokenResponse>(
+            `/stores/${storeId}/themes/${themeId}/preview-token`,
+            "POST",
+            {},
+            token,
+          ),
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import type {
   PublicStoreInfo,
   PublicHeroSlidesResponse,
@@ -76,6 +77,17 @@ export const getStoreInfo = cache(async (): Promise<StorefrontStoreInfo | null> 
  */
 export const getStoreTheme = cache(async (): Promise<PublicTheme | null> => {
   try {
+    // TODO-164A — Builder preview izolasyonu: kısa ömürlü preview cookie'si varsa
+    // DRAFT projeksiyonunu çek (imzalı, store+theme scoped token; prod cache'ten AYRI).
+    // Yoksa yayınlanmış temayı çek. Production storefront (cookie yok) etkilenmez.
+    const previewToken = (await cookies()).get("cos_theme_preview")?.value;
+    if (previewToken) {
+      const preview = await getPublic<PublicTheme>(
+        `/public/theme-preview?token=${encodeURIComponent(previewToken)}`,
+      );
+      if (preview.ok) return preview.data;
+      // Token geçersiz/süresi dolmuş → normal yayına düş (sessizce).
+    }
     const result = await getPublic<PublicTheme>(
       `/public/stores/${encodeURIComponent(demoStoreSlug())}/theme`,
     );
@@ -85,6 +97,18 @@ export const getStoreTheme = cache(async (): Promise<PublicTheme | null> => {
     return null;
   }
 });
+
+/**
+ * TODO-164A — SUNUCU tarafı slot variant çözümü (RSC'ler için; `useSlotVariant`
+ * yalnız client island'larda çalışır). PUBLISHED temanın `slots` haritasından
+ * server-authoritative variant'ı okur; yoksa `fallback`. `getStoreTheme` cache'li
+ * → ekstra istek yok. Presentation-only (yalnız `data-*` sürer).
+ */
+export async function getServerSlotVariant(slot: string, fallback: string): Promise<string> {
+  const theme = await getStoreTheme();
+  const value = theme?.slots?.[slot];
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
 
 /**
  * Public hero slide listesi (yalniz PUBLISHED, position ASC). Ana sayfa carousel'i
