@@ -2,17 +2,18 @@ import { PageHeader } from "../../../components/ui";
 import { ThemeStudio } from "./theme-studio";
 
 /**
- * TODO-158B (ADR-087) — Theme Studio: mağazanın görsel kimliğini (Design Token'lar)
- * koddan ayrı yöneten modül. Preset seç → düzenle → canlı önizle → yayınla akışı.
- * Vitrin yalnız PUBLISHED temayı kullanır (public /theme ucu).
+ * TODO-164B (ADR-232) — "Marka ve Görünüm" (Store Admin Brand Customizer). Mağaza
+ * yalnız marka renkleri, izinli yazı tipleri, hazır düzen ve görselleri düzenler;
+ * teknik slot/token/versiyon/uyumluluk alanları GÖSTERİLMEZ (Platform Admin Theme
+ * Designer'a taşındı). Değişiklikler taslakta tutulur; yayınlandığında vitrine yansır.
  */
 export default function ThemePage() {
   return (
     <>
       <PageHeader
         eyebrow="Görünüm"
-        title="Tema Stüdyosu"
-        description="Marka renkleri, tipografi, köşe ve gölge token'larını yönetin. Değişiklikler taslakta tutulur; yayınladığınızda vitrine yansır."
+        title="Marka ve Görünüm"
+        description="Marka renklerinizi, yazı tipinizi ve hazır düzeninizi seçin; önizleyip yayınlayın."
       />
       <ThemeStudio />
     </>

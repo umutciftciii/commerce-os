@@ -147,6 +147,14 @@ export const trStoreAdmin = {
       "Bir tema token değeri güvensiz karakterler içeriyor ve güvenlik nedeniyle reddedildi.",
     THEME_PUBLISH_BLOCKED:
       "Bu tema geçersiz tasarım token'ları içerdiği için yayınlanamıyor. Düzeltip tekrar deneyin.",
+    THEME_CONTRAST_FAILED:
+      "Renk seçiminiz yeterli okunabilirlik (kontrast) sağlamıyor. Metin ile zemin arasındaki farkı artırıp tekrar deneyin.",
+    THEME_FIELD_LOCKED:
+      "Bu alan mağaza görünümünüzde kilitli ve değiştirilemez. Kilitli alanlar platform yöneticisi tarafından yönetilir.",
+    THEME_FONT_NOT_ALLOWED:
+      "Seçtiğiniz yazı tipi bu görünüm için izinli değil. Lütfen izin verilen yazı tiplerinden birini seçin.",
+    THEME_LAYOUT_NOT_ALLOWED:
+      "Seçtiğiniz hazır düzen bu görünüm için izinli değil. Lütfen izin verilen düzenlerden birini seçin.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
@@ -172,7 +180,7 @@ export const trStoreAdmin = {
     sponsoredProducts: "Sponsorlu Ürünler",
     hero: "Ana Sayfa",
     homeExperience: "Ana Sayfa Deneyimi",
-    theme: "Tema",
+    theme: "Marka ve Görünüm",
     settings: "Ayarlar",
   },
   storeStatusLabels: {

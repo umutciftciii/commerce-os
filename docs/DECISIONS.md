@@ -5461,3 +5461,70 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   operasyonudur (registry kod değişikliği + review). Registry preset'leri builder tarafından MUTATE edilmez
   (başlangıç noktası derin kopya döner).
 - **Sonuç.** Registry bütünlüğü korunur; promotion sınırı net.
+
+## ADR-232 — Theme Designer vs Brand Customizer + Platform Library Store (TODO-164B)
+
+- **Durum:** ACCEPTED (Dilim 1).
+- **Bağlam.** TODO-164A tam builder'ı Store Admin'e koymuştu → Platform/Store sorumlulukları karıştı, kullanıcıya
+  teknik iç detay (slot contract, themeApiVersion, raw token) gösterildi.
+- **Karar.** İki rol: **Platform Admin = Theme Designer & Library** (template/slot varyant/font-palet/override
+  policy/versiyon/atama/rollout/rollback), **Store Admin = Brand Customizer** (logo/renk/izinli font/görsel/sınırlı
+  düzen/preview/publish). Platform tema template'leri, `Theme` şemasını değiştirmemek + "her tema bir storeId'ye
+  ait" tenant-izolasyon invariant'ını korumak için **sentetik bir sistem mağazasında** yaşar (`Store.systemPurpose
+  = "THEME_LIBRARY"`). Sistem mağazaları normal mağaza listeleri, abonelik, storefront resolver (`resolvePublicStore`
+  → 404), rapor ve tenant seçicilerinden **kesinlikle** dışlanır (slug ile ayırmak yetmez → açık işaret + merkezi
+  `systemPurpose = null` filtresi). Mevcut motor/slot contract/H-1 aynen kullanılır (paralel motor YOK).
+- **Sonuç.** Rol ayrımı net; migration riski minimum; kütüphane mağazası tenant dünyasından izole. Dilim 1 backend
+  + store-admin tarafını teslim eder; Platform Designer UI (9-sekme) Dilim 2.
+
+## ADR-233 — Store Override Policy + server-side enforcement (TODO-164B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Platform Admin bir temayı mağazaya atarken alan yetkisi tanımlar: `FieldPolicy = editable|locked|
+  inherited|required|hidden` + izinli font/palet/düzen listeleri (`@commerce-os/theme/override-policy.ts`, SAF).
+  `enforceOverridePolicy` gateway'de save/publish anında SERVER-SIDE uygulanır: değişen locked/hidden/inherited
+  alan → **409 `THEME_FIELD_LOCKED`**; izinsiz font → `THEME_FONT_NOT_ALLOWED`; izinsiz düzen →
+  `THEME_LAYOUT_NOT_ALLOWED`. **Client gizlemesi yetki SAYILMAZ.** Baseline = platform-onaylı PUBLISHED sürüm.
+  Geriye uyum: policy yoksa `defaultOverridePolicy()` = hepsi editable (mevcut mağaza davranışı korunur). Platform
+  template (`ownerScope=PLATFORM`) → policy EXPLICIT zorunlu; eksikse publish `THEME_POLICY_INCOMPLETE`.
+  `allowedPalettes` = katalog kısıtı (renkler editable ise gate yok); `allowedFonts`/`allowedLayoutPresets` =
+  enforce edilebilir tek-alan gate. Ham değer yanıta sızmaz (yalnız path + code).
+- **Sonuç.** Locked alan API ile bypass edilemez; geriye uyumlu; açıklanabilir hatalar.
+
+## ADR-234 — Theme library versioning & controlled rollout (TODO-164B)
+
+- **Durum:** ACCEPTED (temel — tam orchestrator Dilim 2).
+- **Karar.** Mağaza teması bir platform template'inden türetildiğinde `Theme.sourceThemeId` + `sourceThemeVersion`
+  taşır. Platform template'e yeni sürüm yayınlandığında bağlı mağazalar **otomatik değişmez**; `updateAvailable`
+  türetilir (current vs target). Dilim 1 alanları + serialize'ı ekler (updateAvailable Dilim 1'de false); tam
+  rollout (affected-stores preview/per-store apply/rollback) Dilim 2. Tam deploy orchestrator KURULMAZ.
+- **Sonuç.** Sürüm izolasyonu (tenant başına kontrollü upgrade) temeli additive olarak kuruldu.
+
+## ADR-235 — Safe font library (TODO-164B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** 3 font yetersizdi. `font-library.ts` typed kütüphane: 16 güvenli aile (familyId → sunucu-tanımlı
+  stack) + 18 preset / 8 kategori (heading+body + önerilen ağırlık + fallback + locale + okunabilirlik +
+  kaynak/lisans). Stack'ler yaygın SİSTEM fontlarına + generic fallback'e dayanır → @font-face yükleme GEREKMEZ
+  (web-font barındırma ayrı TD). `validate.ts` `FONT_FAMILY_PRESETS` familyId'lerle ADDITIVE genişletildi → token
+  bir familyId sakladığında güvenli stack'e map edilir; serbest `font-family` reddi (H-1) KORUNUR.
+- **Sonuç.** Zengin, güvenli font seçimi; kullanıcı serbest font-family yazamaz.
+
+## ADR-236 — Semantic color UX + named palettes + field labels (TODO-164B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Hex-only input KALDIRILDI. `ColorField`: native renk seçici + hex input + kullanım açıklaması +
+  kontrast göstergesi + son renkler + "önizlemede göster". `field-labels.ts` teknik token adını ("primary",
+  "surface", "muted") kullanıcı diline çevirir (ör. `brand.primaryColor` → "Ana buton rengi"). `color-palettes.ts`
+  8 güvenli adlandırılmış palet (`applyPaletteToDocument` registry MUTATE etmez, girdiyi mutate etmez, hepsi WCAG
+  kritik kontrasttan geçer → publish-safe). Renk tokenları semantic `{ref}` üzerinden otomatik takip eder.
+- **Sonuç.** Anlaşılır, güvenli renk deneyimi; teknik jargon ana UI'dan kalktı.
+
+## ADR-237 — Preview highlight (TODO-164B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Store-admin "önizlemede göster" → preview iframe'ine `postMessage({type:"cos-theme-highlight",
+  target})`. Storefront `ThemePreviewHighlight` (yalnız draft-preview cookie varken mount edilir) mesajı dinler,
+  hedef CSS-var/slot için elemanları kısa süre outline'lar + görünüme kaydırır. Production vitrini ETKİLENMEZ.
+  Güvenlik: yalnız bilinen mesaj tipi işlenir; DOM'a HTML enjekte edilmez, yalnız geçici outline stili.
+- **Sonuç.** Kullanıcı bir ayarın vitrinde nereyi etkilediğini görür; production izole.

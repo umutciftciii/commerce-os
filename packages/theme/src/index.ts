@@ -27,3 +27,10 @@ export * from "./builder-config.js";
 export * from "./builder-css.js";
 export * from "./contrast.js";
 export * from "./starting-points.js";
+// TODO-164B (ADR-232…237) — Productization & Role Separation: güvenli font
+// kütüphanesi, adlandırılmış palet kütüphanesi, store override policy (server-side
+// enforcement) ve kullanıcı-dostu alan etiketleri.
+export * from "./font-library.js";
+export * from "./color-palettes.js";
+export * from "./override-policy.js";
+export * from "./field-labels.js";

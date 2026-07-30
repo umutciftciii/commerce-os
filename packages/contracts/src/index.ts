@@ -7716,6 +7716,36 @@ const themeVersionDocumentSchema = z.object({
   config: themeConfigPayloadSchema,
 });
 
+/* ── TODO-164B (ADR-233) — Store Override Policy (transport) ──
+ * Alan yetki modeli. Otorite @commerce-os/theme (override-policy.ts); contracts
+ * OPAK-tipli taşır (path/policy String → forward-compat; gateway strict doğrular).
+ */
+export const fieldPolicyValueSchema = z.enum([
+  "editable",
+  "locked",
+  "inherited",
+  "required",
+  "hidden",
+]);
+
+export const storeOverridePolicySchema = z.object({
+  fields: z.record(z.string(), fieldPolicyValueSchema),
+  allowedFonts: z.array(z.string()),
+  allowedPalettes: z.array(z.string()),
+  allowedLayoutPresets: z.array(z.string()),
+});
+
+/** Store Admin bağlamına yansıyan alan sınıflandırması (client gizleme; server enforce). */
+export const fieldPolicyProjectionSchema = z.object({
+  editable: z.array(z.string()),
+  locked: z.array(z.string()),
+  hidden: z.array(z.string()),
+});
+
+export type FieldPolicyValue = z.infer<typeof fieldPolicyValueSchema>;
+export type StoreOverridePolicyContract = z.infer<typeof storeOverridePolicySchema>;
+export type FieldPolicyProjection = z.infer<typeof fieldPolicyProjectionSchema>;
+
 export const themeDetailSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -7729,6 +7759,15 @@ export const themeDetailSchema = z.object({
   // TODO-164A — builder kimlik alanları (görünürlük/audit).
   duplicatedFrom: z.string().nullable().optional(),
   updatedAt: z.string().optional(),
+  // TODO-164B — rol ayrımı + override policy bağlamı. ownerScope STORE|PLATFORM;
+  // overridePolicy Store Admin alan yetkileri (null → hepsi editable, geriye uyum);
+  // fieldPolicyProjection UI'ın locked/hidden gizlemesi için; sourceThemeVersion +
+  // updateAvailable platform template'inden türetilen mağaza teması için.
+  ownerScope: z.string().optional(),
+  overridePolicy: storeOverridePolicySchema.nullable().optional(),
+  fieldPolicyProjection: fieldPolicyProjectionSchema.optional(),
+  sourceThemeVersion: z.number().int().positive().nullable().optional(),
+  updateAvailable: z.boolean().optional(),
   draft: themeVersionDocumentSchema.nullable(),
   published: themeVersionDocumentSchema.nullable(),
   versions: z.array(themeVersionSummarySchema),
@@ -7878,6 +7917,9 @@ export const themeBindingResponseSchema = z.object({
 /** Platform admin theme-key atama isteği. */
 export const themeBindingAssignRequestSchema = z.object({
   themeKey: z.string().min(1).max(64),
+  // TODO-164B — atama sırasında mağaza override policy'si (opsiyonel; verilmezse
+  // gateway varsayılan = hepsi editable uygular → mevcut davranış korunur).
+  overridePolicy: storeOverridePolicySchema.optional(),
 });
 
 /**
