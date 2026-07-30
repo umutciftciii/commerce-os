@@ -999,10 +999,38 @@
     tam workspace build (27/27) + lint (0 error) + migrate status up-to-date; canlı smoke PASS.
 - **TODO-163 CLOSED.** Sıradaki: **TODO-164 Tenant Theme Architecture** bu capability temeli üstüne kurulur.
 
+## TODO-164 — Tenant Theme Architecture (2026-07-30, IMPLEMENTED — commit bekliyor)
+
+- **Amaç.** Her mağaza ORTAK storefront engine üzerinde kendi görünümünü kullanabilir. Üç katman
+  (Theme Tokens · Layout Presets · Versioned Custom Theme Package) mevcut Enterprise Theme Engine
+  (TODO-158B/ADR-087) + H-1 typed-token savunması ÜSTÜNE kurulur; paralel storefront YOK.
+- **Kapsam.**
+  - `@commerce-os/theme`: **theme-key registry** (BASE + 4 layout preset + custom package; unknown reddi),
+    **slot contract** (8 slot, typed variant allowlist, presentation-only), **layout presets**
+    (BASE_COMMERCE/FASHION_MINIMAL/FASHION_EDITORIAL/MARKETPLACE_DENSE/PREMIUM_BOUTIQUE), **custom package**
+    manifest + `demo-aurora` (`packages/themes/`), **compatibility** (themeApiVersion/semver/slot/status),
+    **config** (draft/publish/rollback slot yapılandırması).
+  - DB additive migration `20260730140000_tenant_theme_architecture`: `Theme.themeKey/layoutPreset/
+    themeApiVersion` + `ThemeVersion.config/themeKey/layoutPreset/publishedBy`. Backfill BASE_COMMERCE →
+    görünüm KORUNUR (immutable migration).
+  - Gateway: public resolver (published custom/preset → base fallback) + ALLOWLIST projeksiyon (css +
+    colorScheme + layoutPreset + slots) + store-scoped bounded cache + publish/assign/modül-değişimi
+    invalidation; publish compatibility gate (409); Platform Admin `/admin/stores/:id/theme-binding`.
+  - Storefront: `ThemeSlotsProvider`/`useSlotVariant` + `data-layout-preset`/`data-*variant` + gerçek CSS
+    variant farkları (ProductCard/Header/Hero/Footer/MobileNav).
+  - UI: store-admin Theme Studio layout preset seçici (config); platform-admin "Tema ve Marka" paneli.
+- **Kararlar.** **ADR-216…ADR-224**. Analiz: `docs/analysis/TODO-164-tenant-theme-architecture.md`.
+- **Canlı smoke (enterprise-demo).** Base render (BASE_COMMERCE + tam slot haritası); draft (FASHION_MINIMAL
+  kaydedildi, production DEĞİŞMEDİ); publish (storefront FASHION_MINIMAL + compact, cache invalidate,
+  demo-store etkilenmedi); rollback (base'e döndü); capability disable→base / re-enable→published; compat
+  (uyumsuz publish 409, storefront base fallback). Testler: `@commerce-os/theme` **180** + api-gateway
+  theme/capability route PASS.
+- **Git.** Bu aşamada commit/push/PR/merge/deploy YOK (prompt kuralı) — implementasyon + smoke + docs tamam, DUR.
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-164 Tenant Theme Architecture** (SIRADAKİ AKTİF — TODO-163 capability temeli üstüne).
-2. **TODO-165 Fashion Vertical Foundation** (PLANNED).
+1. **TODO-164 Tenant Theme Architecture** (IMPLEMENTED — commit bekliyor).
+2. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164 tema temeli üstüne).
 3. **TODO-163 Tenant Module & Capability Management** (CLOSED — Faz 1+2+3 teslim).
 4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
 5. **Final Enterprise UI & Design Polish** (EN SON).

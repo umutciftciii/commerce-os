@@ -33,6 +33,7 @@ export function SiteHeader({
   storeName = null,
   logoUrl = null,
   categories = [],
+  variant = "solid",
 }: {
   locale: Locale;
   t: StorefrontDictionary;
@@ -43,13 +44,15 @@ export function SiteHeader({
   logoUrl?: string | null;
   // TODO-158C — Header kategori mega-menü kaynağı (admin FEATURED_CATEGORIES; public).
   categories?: StorefrontHomeFeaturedCategory[];
+  // TODO-164 — header slot variant (solid|minimal|floating). Presentation-only.
+  variant?: string;
 }) {
   const s = t.shell;
   const navLinks = [{ href: "/products", label: s.navProducts }];
   const brandLabel = storeName ?? s.brand;
 
   return (
-    <StickyHeader>
+    <StickyHeader variant={variant}>
       <Container className="flex h-16 items-center gap-4">
         {/* Sol: mobil menu + desktop nav (kategori mega menü + ürünler) */}
         <div className="flex flex-1 items-center gap-6">

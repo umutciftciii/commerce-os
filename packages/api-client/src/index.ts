@@ -39,6 +39,9 @@ import type {
   PlanCapabilitiesResponse,
   PlanCapabilitiesUpdateRequest,
   PlanCapabilityPreviewResponse,
+  // TODO-164 (ADR-222) — theme-binding transport imzaları.
+  ThemeBindingResponse,
+  ThemeBindingAssignRequest,
   PlatformLoginRequest,
   PlatformLoginResponse,
   PlatformLogoutResponse,
@@ -385,6 +388,10 @@ export type {
   ThemePresetSummary,
   ThemePresetListResponse,
   ThemePreviewResponse,
+  // TODO-164 (ADR-217/221/222) — Tenant theme compatibility + Platform Admin binding.
+  ThemeCompatibilityIssue,
+  ThemeBindingResponse,
+  ThemeBindingAssignRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -1161,6 +1168,15 @@ export interface ApiClient {
       create(input: AdminStoreCreateRequest, token?: string): Promise<AdminStore>;
       get(id: string, token?: string): Promise<AdminStore>;
       update(id: string, input: AdminStoreUpdateRequest, token?: string): Promise<AdminStore>;
+      // TODO-164 (ADR-222) — "Tema ve Marka": theme-binding görüntüle + theme-key ata.
+      themeBinding: {
+        get(id: string, token?: string): Promise<ThemeBindingResponse>;
+        assign(
+          id: string,
+          input: ThemeBindingAssignRequest,
+          token?: string,
+        ): Promise<ThemeBindingResponse>;
+      };
     };
     plans: {
       list(token?: string): Promise<PlanListResponse>;
@@ -2499,6 +2515,12 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         get: (id, token) => getJson<AdminStore>(`/admin/stores/${id}`, token),
         update: (id, input, token) =>
           sendJson<AdminStore>(`/admin/stores/${id}`, "PATCH", input, token),
+        themeBinding: {
+          get: (id, token) =>
+            getJson<ThemeBindingResponse>(`/admin/stores/${id}/theme-binding`, token),
+          assign: (id, input, token) =>
+            sendJson<ThemeBindingResponse>(`/admin/stores/${id}/theme-binding`, "PUT", input, token),
+        },
       },
       plans: {
         list: (token) => getJson<PlanListResponse>("/admin/plans", token),

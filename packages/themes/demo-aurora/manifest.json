@@ -1,0 +1,20 @@
+{
+  "$comment": "TODO-164 (ADR-220) — Generic demo custom theme package. Presentation-only: yalnız izinli slot variant seçimi + token preset. Business logic / arbitrary kod TAŞIMAZ. Müşteri adı YOK. Kaynak-doğru kopya packages/theme/src/custom-package.ts BUNDLED_CUSTOM_PACKAGES içindedir; bu dosya belge/örnektir. Registry theme-key otoritesi bunu CUSTOM_PACKAGE kaydı olarak yayınlar; manifest gateway'de validateCustomThemePackage ile server-side doğrulanır.",
+  "packageKey": "demo-aurora",
+  "version": 1,
+  "themeApiVersion": 1,
+  "minimumCommerceVersion": "1.0.0",
+  "nameTr": "Aurora (Demo Paket)",
+  "nameEn": "Aurora (Demo Package)",
+  "status": "ACTIVE",
+  "layoutPreset": "PREMIUM_BOUTIQUE",
+  "supportedSlots": ["header", "hero", "productCard", "productDetailLayout"],
+  "slots": {
+    "header": "minimal",
+    "hero": "split",
+    "productCard": "premium",
+    "productDetailLayout": "gallery-left"
+  },
+  "tokenPreset": "dark-luxury",
+  "tokenSchemaVersion": 1
+}

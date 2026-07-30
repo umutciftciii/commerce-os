@@ -1643,3 +1643,25 @@ smoke + store-admin UI-piksel click-through (parola; TD-126 sınırı → Final 
   search'te SPONSORED_PRODUCTS'a bağlandı (kapalı → token yok → rozet/beacon yok). Kapalı modül: veri
   çekilmez + section/island render edilmez + event üretilmez; public projeksiyon boolean-only kalır.
   storefront 446 test PASS.
+
+## TD-157 Layout preset slot varyantları ilk faz (TODO-164) — OPEN
+
+- **Bağlam.** TODO-164 slot contract 8 slot × N variant tanımlar (allowlist); bu fazda gerçek GÖRÜNÜR CSS
+  farkı YALNIZ birkaç slot için uygulandı (ProductCard comfortable/compact/premium, Header solid/minimal/
+  floating, Footer expanded/minimal, Hero full/editorial/split, MobileNav drawer/fullscreen). Prompt: "her
+  preset için tamamen farklı tasarım üretme; contract + en az iki gerçek çalışan varyant yeterli."
+- **Kalan.** `productDetailLayout` (standard/gallery-left/editorial), `productListingLayout` (standard/dense),
+  `homeSectionFrame` (standard/boxed) variant'ları ŞU AN sadece `data-*` işaretler; görsel farkları CSS/yapı
+  olarak henüz UYGULANMADI (kayıtlı ve resolve edilir, ama render aynı). Ayrıca custom package için @font-face
+  yükleme ve non-bundled paket kayıt akışı (registry harici manifest) FUTURE.
+- **Risk.** Düşük (presentation-only; eksik variant defaultVariant gibi render eder; kırılma yok).
+- **Plan.** TODO-165 Fashion Vertical Foundation bu slot variant'larını gerçek moda düzenleriyle doldurur.
+
+## TD-158 Storefront tema smoke — worktree docker rebuild gereği (TODO-164) — NOTE
+
+- **Bağlam.** Docker compose app'leri kaynağı IMAGE'a bake edip `dev` (tsx/next) çalıştırır (bind-mount YOK).
+  Bir gateway/storefront kaynak değişikliğini canlı smoke etmek için `infra/docker` compose'u WORKTREE'den
+  build etmek gerekir (context `../..` = worktree kökü) + `up -d api-gateway storefront-web`. Migration ayrı
+  uygulanır (`prisma migrate deploy`, DATABASE_URL=localhost:5432). Paylaşılan paketler (@commerce-os/theme/
+  contracts/api-client) IMAGE içinde turbo ile derlenir → değişiklikler yansır. Bkz. [[docker-smoke-vs-worktree]].
+- **Aksiyon.** Yok (bilgilendirme); TODO-164 canlı smoke bu yolla yapıldı (enterprise-demo, 6/6 senaryo PASS).

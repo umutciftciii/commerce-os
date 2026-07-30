@@ -12,12 +12,19 @@ import { NewsletterForm } from "./newsletter-form";
  * Tamamen token-tabanlı. Sosyal ikonlar MOCK'tur (gerçek hesap URL'i yok — store
  * settings entegrasyonu ileri faz, bkz. TECHNICAL_DEBT). Bülten de MOCK.
  */
-export function SiteFooter({ t }: { t: StorefrontDictionary }) {
+export function SiteFooter({
+  t,
+  variant = "expanded",
+}: {
+  t: StorefrontDictionary;
+  // TODO-164 — footer slot variant (expanded|minimal). CSS `[data-footer-variant]` sürer.
+  variant?: string;
+}) {
   const s = t.shell;
   const n = t.newsletter;
 
   return (
-    <footer className="mt-24 border-t border-line bg-surface">
+    <footer data-footer-variant={variant} className="site-footer mt-24 border-t border-line bg-surface">
       {/* Bülten bandı (MOCK) */}
       <div className="border-b border-line">
         <Container className="grid gap-8 py-14 lg:grid-cols-2 lg:items-center lg:gap-16">

@@ -5272,3 +5272,108 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
 - **Sonuç.** Plan-seviyesi capability default'ları tipli/doğrulanmış/audit'li yönetilir; mağaza override'ları
   korunur. Canlı smoke (enterprise-demo): preview CAMPAIGNS→SPONSORED dependency; core-unavailable reddi;
   apply REVIEWS unavailable MERGE (seeded metadata KORUNDU) + plan-default worker gate'te yansıdı; restore.
+
+## ADR-216 — Three-layer Tenant Theme Architecture (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Her mağaza ORTAK storefront engine üzerinde kendi görünümünü kullanmalı. TODO-158B (ADR-087)
+  token belgesi + versiyonlu draft/publish/rollback'i, H-1 typed token savunmasını, THEME_STUDIO capability'sini
+  zaten getirdi — ama layout/slot düzeyinde farklılaşma ve müşteriye-özel paket mekanizması yoktu.
+- **Karar.** Mevcut motorun ÜSTÜNE üç katman: **(1) Theme Tokens** (mevcut ThemeDocument), **(2) Layout Presets**
+  (`@commerce-os/theme` `layout-presets.ts` — slot→variant seçimi + varsayılan token preset), **(3) Versioned
+  Custom Theme Package** (`custom-package.ts` — bildirimsel manifest). Paralel storefront KURULMAZ; mevcut CSS-
+  var + prop-driven bileşenler yeniden kullanılır. Temel invariant: tema yalnız **presentation** katmanını
+  değiştirir; fiyat/stok/sepet/ödeme/sipariş/güvenlik mantığına erişmez; core'da müşteri-adı koşulu YOK.
+- **Sonuç.** Görsel farklılaşma migration'sız büyür (registry + preset + slot katalogları kod). Analiz:
+  `docs/analysis/TODO-164-tenant-theme-architecture.md`.
+
+## ADR-217 — Theme Registry (theme-key otoritesi) (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** `Theme.themeKey` serbest string olsaydı client bir key uydurup override yolları açabilirdi.
+- **Karar.** `@commerce-os/theme` `theme-registry.ts` TEK otorite: BASE_COMMERCE (kind BASE) + 4 layout preset
+  (LAYOUT_PRESET) + paketlenmiş custom package'lar (CUSTOM_PACKAGE). Her kayıt: key, ad TR/EN, kind, version,
+  themeApiVersion, minimumCommerceVersion, slots, tokenSchemaVersion, layoutPreset, status, fallbackThemeKey.
+  Bilinmeyen key REDDEDİLİR (fail-closed). H-1 token `registry.ts`'inden AYRIDIR (o token-tip otoritesi; bu
+  theme-key otoritesi).
+- **Sonuç.** Publish gate, storefront resolver ve Platform Admin atama tek registry'den çözer; sızıntı yolu yok.
+
+## ADR-218 — Presentation-only boundary + Slot contract (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Slotlar business data'ya erişip fiyat/stok hesaplarsa tema katmanı çekirdeğe sızardı.
+- **Karar.** `slots.ts` sabit slot kümesi (header, footer, mobileNavigation, productCard, productDetailLayout,
+  productListingLayout, hero, homeSectionFrame). Her slot: typed variant allowlist + defaultVariant + server/
+  client sınırı + canonical data kaynağı. Slot **fiyat/stok HESAPLAMAZ** (sunucudan önceden-hesaplı label
+  alır), kendi fetch'ini icat etmez, tenant izolasyonunu bypass etmez. `variants[0] == defaultVariant` →
+  BASE_COMMERCE görünümü bugünküyle aynı. Storefront `ThemeSlotsProvider`/`useSlotVariant` yalnız sunucu-
+  çözülmüş (allowlisted) variant STRING'ini okur; client override YAPAMAZ.
+- **Sonuç.** Görsel varyant değişimi presentation'da izole; çekirdek dokunulmaz. `data-*` + token CSS ile
+  gerçek görünür farklar (ProductCard compact/premium, Header solid/minimal/floating, Hero full/editorial/split).
+
+## ADR-219 — Layout Presets (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Karar.** İlk presetler BASE_COMMERCE / FASHION_MINIMAL / FASHION_EDITORIAL / MARKETPLACE_DENSE /
+  PREMIUM_BOUTIQUE. Her preset yalnız FARKLI olan slotları belirtir; kalan slotlar defaultVariant'a düşer
+  (`normalizeSlotSelections`). Bu fazda her preset için tamamen ayrı tasarım YOK; contract + en az iki gerçek
+  çalışan varyant yeterli. Preset ayrıca varsayılan token preseti (presets.ts) bağlar.
+- **Sonuç.** Store admin bir preset seçince hem düzen (slot variant) hem token paleti belirlenir; migration YOK.
+
+## ADR-220 — Versioned Custom Theme Package policy (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Müşteriye-özel görünüm çekirdeğe `if store.slug === …` koşulu olarak SIZMAMALI.
+- **Karar.** `custom-package.ts` bildirimsel manifest (packageKey, version, themeApiVersion,
+  minimumCommerceVersion, status, layoutPreset, supportedSlots, slots, tokenPreset, tokenSchemaVersion).
+  Paket YALNIZ izinli slot variant'larını + token preseti override eder; **business logic import etmez**,
+  arbitrary kod taşımaz. Server-side `validateCustomThemePackage` (bounded schema + slot/variant allowlist +
+  strict — bilinmeyen alan reddi). Örnek generic paket `packages/themes/demo-aurora/manifest.json` (müşteri
+  adı YOK); kaynak-doğru kopya `BUNDLED_CUSTOM_PACKAGES`. Registry üzerinden çözülür — client packageKey
+  uyduramaz.
+- **Sonuç.** Müşteri paketi presentation'a hapsedilir; çekirdek generic kalır.
+
+## ADR-221 — Theme Compatibility & Versioning (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `compatibility.ts`: themeApiVersion ≤ engine, commerce-os ≥ minimumCommerceVersion (semver),
+  bilinen key, status ACTIVE (DISABLED→ERROR, DEPRECATED→WARNING), tokenSchemaVersion ≤ engine, slot variant
+  allowlist. Uyumsuz tema **publish edilemez** (409 THEME_INCOMPATIBLE); mevcut published KORUNUR; storefront
+  base fallback'e güvenli geçer; Platform Admin warning görür. Doğrulama HAM themeKey'e bakar (resolver
+  fail-closed base'e düşürse de doğrulama sessizce downgrade ETMEZ → "invalid theme publish edilemez" korunur).
+- **Sonuç.** Engine sürüm sınırı aşan/bozuk tema yayına giremez; storefront asla kırılmaz.
+
+## ADR-222 — Storefront resolver, base fallback & Platform Admin binding (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Gateway `GET /public/stores/:slug/theme` server-side çözüm: **(1) geçerli published custom/preset
+  tema → (2) base theme**. THEME_STUDIO kapalı / published yok / uyumsuz / belge çözülemez → base fallback
+  (globals.css ile aynı; ASLA kırılmaz). Public projeksiyon ALLOWLIST: `css, colorScheme, schemaVersion,
+  themeKey, layoutPreset, slots` — iç config/audit/draft SIZMAZ. Store-scoped bounded TTL cache (30s, max 500)
+  + publish/assign sonrası `invalidateResolvedTheme`. Platform Admin `GET/PUT /admin/stores/:storeId/theme-
+  binding` (platform-admin auth; THEME_STUDIO ile GATE'LENMEZ — yönetim eylemi her zaman mümkün, capability
+  durumu yanıtta bilgi). Atama yeni PUBLISHED versiyon üretir (immutable snapshot korunur).
+- **Sonuç.** Vitrin tenant temasını sunucu-otoriter çözer; hata/uyumsuzlukta base'e düşer; platform admin
+  "Tema ve Marka" panelinden görüntüler/atar.
+
+## ADR-223 — Theme config katmanı (draft/publish/rollback) (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Additive `ThemeVersion.config` JSON (themeKey/layoutPreset/slots) mevcut `document` (token) ile
+  AYNI versiyonlamayı izler: DRAFT sürüm = draftConfig, PUBLISHED sürüm = publishedConfig. `Theme` seviyesinde
+  denormalize `themeKey`/`layoutPreset`/`themeApiVersion` (hızlı okuma + platform admin atama). `themeConfigSchema`
+  typed doğrulama; slot çözümü katman önceliği: layout preset → custom package slots → config override →
+  defaultVariant (render-safe tam harita). Publish atomik + compatibility gate; rollback yeni draft üretir
+  (geçmiş revizyon SİLİNMEZ); previousPublishedVersion ARCHIVED'dan türetilir; publishedBy audit (yalnız id).
+- **Sonuç.** Layout/slot yapılandırması token belgesiyle aynı güvenli draft/publish/rollback disiplinini alır.
+
+## ADR-224 — Capability entegrasyonu (TODO-164)
+
+- **Durum:** ACCEPTED.
+- **Karar.** TODO-163 (ADR-208…215) KORUNUR: THEME_STUDIO kapalıysa store-admin menü/direct-URL kapalı
+  (mevcut `ModuleGuard`), draft/publish API kapalı (`requireStoreAdminForModule`), storefront base theme
+  (`resolvePublicThemeProjection` capability-gate) — mevcut tema verisi KORUNUR (silinmez). THEME_STUDIO →
+  HOME_EXPERIENCE dependency KORUNUR. Store Admin kendi capability'sini açamaz (mevcut plan/override modeli).
+  Platform Admin binding capability'den bağımsız görüntülenir/atanır (yönetim eylemi).
+- **Sonuç.** Tema katmanı capability sistemine tam uyumlu; kapatınca güvenli base'e düşer, açınca published
+  tema geri gelir (veri kaybı yok).
