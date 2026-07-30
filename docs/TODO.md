@@ -2196,3 +2196,87 @@ zaman serisi grafiği (TD-146), deterministik demo fixture + runbook + canlı sm
 `analytics-range.ts` (tz-aware bounded range + zero-fill, birim-testli); `analytics.ts` currency-aware daily/UTM;
 store-admin `analytics-chart.tsx` + `date-range-picker.tsx`. Fixture `packages/db/scripts/influencer-demo-seed.mjs`;
 runbook `docs/runbooks/influencer-analytics-demo.md`. Gate'ler yeşil; SHIP hazır → ardından **H-1 Theme Token Stored XSS**.
+
+## TODO-162 Storefront Discovery & Merchandising (2026-07-30) — TÜM DİLİMLER TESLİM (commit YOK)
+
+Home Experience'ı eligibility-driven keşif yüzeyine dönüştürme fazı. Bir section yalnız gerçek/doğrulanmış
+sinyal eşiğini karşılarsa render edilir; aksi halde DOM'a hiç eklenmez (boş başlık/spacing/impression yok);
+kişiselleştirilmişte fallback yasak. Mevcut Home/Recently Viewed/Wishlist/Cart/Orders/Campaign/Sponsored
+altyapıları REUSE; paralel CMS yok.
+
+**Teslim (build+test yeşil):** analiz (`docs/analysis/TODO-162-...md`) · eligibility motoru
+(`home/eligibility-core.ts` + `SECTION_BOUNDS` + `resolveDiscoveryGrid`, 25 test) · analytics çekirdek
+(`home/discovery-event-core.ts`, 9 test) · kontrat allowlist (10 yeni tip + config şemaları) + gateway config
+validation · `HomeDiscoveryEvent` ADDITIVE migration (`20260730120000`, gerçek Postgres'te uygulandı+doğrulandı).
+ADR-197…ADR-206.
+
+**Kalan:** Katman B `POST .../home/discovery` resolver+endpoint (cart-recs/personalized-deals/repurchase/
+similar-to-purchased/wishlist-deals/continue-browsing data-access) · DISCOVERY_GRID + fold-altı lazy island'lar ·
+Category Shortcuts boş-kategori fix · analytics ingest + retention worker · store-admin SectionEditor+preview ·
+entegrasyon/UI test · enterprise-demo canlı smoke. Bkz. TD-149…TD-152.
+
+**Sıra:** kalan implementasyon → gate → canlı smoke (git işlemleri SHIP aşamasında; bu turda YOK).
+
+### TD-149 CLOSED (2026-07-30) — Katman B discovery resolver+endpoint CANLI
+
+`POST /public/stores/:storeSlug/home/discovery` uygulandı + enterprise-demo canlı smoke (guest 13/13 + grid + auth
+Repurchase/Similar + personalized/wishlist + dedupe + cache privacy + cross-store). 8 data-access yolu mevcut modülleri
+REUSE eder; orchestration saf çekirdek (12 test). Grid-filter defect bulundu+düzeltildi. api-gateway 1743 test PASS.
+Kalan TODO-162: storefront UI (TD-150), analytics ingest (TD-151), store-admin/preview (TD-152).
+
+### TD-150 CLOSED (2026-07-30) — storefront Discovery UI CANLI
+
+`getDiscovery` (SSR, flash yok) + `discovery-sections.tsx` (grid/rail/editorial/sponsored) + home page paralel
+fetch (Hero→Discovery→public) + i18n TR/EN default başlıklar + Category Shortcuts boş-kategori fix. Canlı smoke
+(next dev @3001 → gateway 4001, enterprise-demo): guest home SSR "Günün fırsatları" 12 indirimli + kategoriler +
+showcase; no-signal personalized YOK; cookie'li ziyaretçide CB/personalized/grid. Gate: storefront typecheck+lint 0,
+gateway build 0, 59 home test, migrate up-to-date. Kalan TODO-162: TD-151 (analytics ingest), TD-152 (admin/preview).
+
+### TD-151 CLOSED (2026-07-30) — Discovery analytics ingest + storefront emit + retention
+
+Public ingest ucu `POST /public/stores/:storeSlug/home/discovery-events` (`home/discovery-event-{data,routes}.ts`):
+SECTION_IMPRESSION/CARD_IMPRESSION/PRODUCT_CLICK/CTA_CLICK/ADD_TO_CART. Sunucu-otoriter: bot/prefetch/kimliksiz
+elenir; eventType+sectionType+eligibilitySource allowlist (SECTION_BOUNDS'tan türetilir); sectionId GERÇEK
+yayınlanmış (enabled) section'a karşı doğrulanır (uydurma reddi) + claimed↔actual type çapraz-doğrulama; ürün
+store-sahipliği; impression zaman-pencere dedupe + ADD_TO_CART dedupeKey idempotency; KVKK hash kimlik. Admin funnel
+özeti `GET /stores/:storeId/home/discovery-events/summary` (platform-admin; sectionType/eligibilitySource kırılımı +
+CTR). Storefront: BFF proxy `app/api/discovery/event/route.ts` + pasif client tracker (`discovery-tracker.tsx` +
+`lib/discovery/track.ts`) — IntersectionObserver impression + click delegation (flash yok). Retention: ayrı jobType
+`home-discovery-event-retention` (env-gated, default kapalı; advisory-lock + circuit-breaker + batch; RETENTION_TABLE_SPECS'e
+dokunmaz). ADD_TO_CART discovery kart yüzeyinde emit EDİLMEZ (kart PDP'ye götürür; model/pipeline destekler).
+Gate: api-gateway 1775 test PASS (+32 yeni: data 5/routes 20/retention 7), gateway build 0, storefront tsc+lint 0.
+Kalan TODO-162: TD-152 (store-admin SectionEditor yeni tipler + preview).
+
+### TD-152 CLOSED (2026-07-30) — store-admin yönetim UI + keşif önizleme
+
+Store-admin Home SectionEditor (`app/(app)/home/page.tsx` + `labels.ts`) 10 yeni keşif tipini yönetir: rail'ler
+(TR/EN başlık + düzen + maxItems tavanı + guest/authSupported + fallbackDisabled), DISCOVERY_GRID (TR/EN başlık +
+kart sırası düzenleyici ↑↓/ekle/kaldır + guest/auth), EDITORIAL_CAMPAIGN (TR/EN başlık+metin+CTA+mediaId+linkedCampaignId).
+Salt-görünüm `DISCOVERY_BOUNDS` aynası her tipin min/max/auth/fallback iş-kuralını ipucu gösterir (admin min düşüremez —
+motor kelepçeler). Başlık TR/EN config ile yönetilir (base title gizli). **Gateway tamamlaması:** discovery endpoint
+section başlığını artık config `titleTr/titleEn`'den locale'e göre çözer (RecentlyViewed deseni; rail/sponsored/grid),
+boşsa storefront i18n default'a düşer. **Keşif önizleme** (`home/preview/page.tsx` + `discovery-preview-logic.ts`):
+5 senaryo (misafir sinyalsiz / geçmişli / sepetli / üye geçmişsiz / üye sipariş geçmişli) × yapılandırılmış keşif
+bölümleri için eligible/hidden + sebep simülasyonu — ÖRNEK sinyal, açıkça etiketli disclaimer (gerçek veri değil;
+nihai kararı sunucu verir). Gate: gateway build 0 + 1775 test PASS (regresyon yok), store-admin tsc+lint 0.
+**TODO-162 tüm dilimler (foundation + TD-149/150/151/152) TESLİM** — commit/PR/merge SHIP aşamasında (bu turda YOK).
+
+### Pre-ship: Discovery→PDP→add-to-cart attribution (2026-07-30)
+
+TD-151 emit'i tamamlandı: keşif kartından PDP'ye geçişte first-party attribution bağlamı taşınır (mirror
+recommendation deseni, AYRI sessionStorage anahtarı `commerce_os_discovery_attr`). `lib/discovery/track.ts`:
+`rememberDiscoveryClick` (PRODUCT_CLICK'te, discovery-tracker'da) + `consumeDiscoveryAttribution` +
+`trackDiscoveryAddToCart`. `buy-box.tsx` başarılı `addToCartAction` sonrası (addToCart+buyNow) `ADD_TO_CART`
+emit eder (bağlam tazeyse; dedupeKey=`atc:${clickId}` → duplicate dönüşüm sayılmaz; bağlam TÜKETİLİR). Kurallar:
+kısa TTL (30dk), product-scoped, tek-kullanımlık, ham kimlik yok, query-string'de veri yok, doğrudan PDP →
+sahte attribution yok, cart API başarısız → event yok. Sponsored ayrımı: discovery ADD_TO_CART analytics'e yazılır
+(sponsoredCampaignId client'ta null), OTORİTATİF sponsorship ölçümü AYRI token yolunda (çift finansal attribution yok).
+**Regresyon fix:** `locale-smoke.test.tsx` catalog mock'una `getDiscovery` eklendi (TD-150 page.tsx paralel fetch
+değişikliğinden kalan; tam storefront vitest suite bu turda koşulunca yakalandı). Gate: storefront 446 test PASS +
+build 0, gateway/store-admin/worker build 0, migrate status up-to-date, diff --check temiz.
+**Canlı ingest smoke PASS:** yerel gateway (@4001, docker postgres/redis) + fixture CONTINUE_BROWSING section + guest;
+11/11 senaryo doğru (impression/click/add-to-cart recorded; dup impression + dup ADD_TO_CART dedupe; bad type /
+fabricated section / cross-store / bot / no-identity reddedildi). DB: 4 satır, visitorHash HMAC (ham vid değil),
+customerId null → KVKK hash + PII temiz. Retention worker "disabled" logu main.js wiring'i canlı doğruladı. Fixture
+temizlendi, gateway durduruldu. **KALAN (SHIP):** storefront/store-admin canlı TARAYICI smoke (§6-11) + analytics
+tarayıcı smoke (§8) + commit/PR/CI/merge/deploy (§15-18) — insan-sürücülü tarayıcı (store-admin parola TD-126) + prod.

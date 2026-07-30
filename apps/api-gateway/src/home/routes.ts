@@ -29,8 +29,12 @@ import {
   homeShowcaseConfigSchema,
   homeSponsoredShowcaseConfigSchema,
   homeRecentlyViewedConfigSchema,
+  homeDiscoveryRailConfigSchema,
+  homeDiscoveryGridConfigSchema,
+  homeEditorialCampaignConfigSchema,
   type HomeSectionType,
 } from "@commerce-os/contracts";
+import { isDiscoverySectionType } from "./eligibility-core.js";
 import { z } from "zod";
 import {
   serializeHomeSection,
@@ -91,6 +95,11 @@ function parseConfigForType(type: HomeSectionType, config: unknown): Record<stri
     if (type === "SPONSORED_SHOWCASE") return homeSponsoredShowcaseConfigSchema.parse(config ?? {});
     // TD-129 — RECENTLY_VIEWED: yalnız sunum (layout + maxItems + TR/EN başlık); içerik ziyaretçi geçmişinden.
     if (type === "RECENTLY_VIEWED") return homeRecentlyViewedConfigSchema.parse(config ?? {});
+    // TODO-162 — Discovery section'ları: ürün seçimi YOK; içerik viewer-specific Katman B'de eligibility
+    // motoru ile çözülür. Config yalnız sunum + yönetim (max/guest/auth/fallback + TR/EN başlık).
+    if (type === "DISCOVERY_GRID") return homeDiscoveryGridConfigSchema.parse(config ?? {});
+    if (type === "EDITORIAL_CAMPAIGN") return homeEditorialCampaignConfigSchema.parse(config ?? {});
+    if (isDiscoverySectionType(type)) return homeDiscoveryRailConfigSchema.parse(config ?? {});
     // PRODUCT_SHOWCASE: source zorunlu; verilmezse MANUAL default.
     return homeShowcaseConfigSchema.parse(config ?? { source: { kind: "MANUAL" } });
   } catch {

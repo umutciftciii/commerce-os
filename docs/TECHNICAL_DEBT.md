@@ -1534,3 +1534,62 @@ zorunda kalırsa, bu ayrı bir **FX conversion engine** yeteneğidir: dönem+cur
 güvenilir kaynaktan kur (snapshot'lanmış rate, audit'li), currency-başına ayrı charge veya settlement anında dönüşüm
 kararı. **Kapsam (gelecekte):** rate source + snapshot + rounding politikası + currency-başına settlement satırı; mevcut
 fail-closed guard'ı bu yetenek gelene kadar OTORİTE olarak kalır. Bunu bir eksiklik gibi ele ALMA — bilinçli sınırdır.
+
+## TD-149 — TODO-162 Katman B viewer-specific resolver + endpoint (2026-07-30) — CLOSED
+
+**Durum:** CLOSED (2026-07-30). `POST /public/stores/:storeSlug/home/discovery` CANLI (server.ts). Kimlik
+SUNUCU-türevi (customer session + store-scoped visitorHash; customerId/storeId override body'de KABUL EDİLMEZ —
+`.strict()` schema); `Cache-Control: private, no-store` + `Vary`. Eligibility motoru + page-level dedupe (seen-set);
+yalnız eligible section + public-safe projeksiyon (reason/customerId/visitorHash/iç config/cost SIZMAZ). 8 data-access
+yolu (`home/discovery-data.ts`, mevcut modüller REUSE): CONTINUE_BROWSING · CART_RECOMMENDATIONS (cart-anchor→rankSimilar,
+cart ürünleri hariç) · PERSONALIZED_DEALS (sinyal ürünleri × gerçekten-indirimli) · DAILY_DEALS (CAMPAIGN rule) ·
+REPURCHASE (paid+active) · SIMILAR_TO_PURCHASED (satın-alınan anchor→rankSimilar) · WISHLIST_DEALS (indirimli wishlist) ·
+SPONSORED_RAIL (mevcut sponsored home candidates + token). DISCOVERY_GRID (min2/max4). Orkestrasyon saf çekirdek
+`home/discovery-core.ts` (12 test). **Canlı smoke (enterprise-demo, fixture'lar oluşturulup temizlendi):** guest
+13/13 (no-signal→yalnız generic; CB 0/1→gizli,2→2,5→4; cart→8 öneri cart-hariç; cache private,no-store; PII/reason
+yok; spoof body→400; cross-store→404) · DISCOVERY_GRID columns=3 / 1-kart→gizli · REPURCHASE izole 3 (auth-only,
+guest'te yok) · SIMILAR_TO_PURCHASED 8 · PERSONALIZED_DEALS sinyalde 5 / no-signal→gizli · WISHLIST_DEALS indirimlide
+4 / 1→gizli / non-discounted→gizli · page-level dedupe doğrulandı. **Smoke sırasında bulunan+düzeltilen defect:**
+`discoverySections` filtresi DISCOVERY_GRID'i (SECTION_BOUNDS'ta değil) eliyordu → grid asla render olmuyordu; filtre
+düzeltildi. Gate: api-gateway build 0 + 1743 test PASS + 34 yeni core test + lint 0 + git diff temiz + migrate up-to-date.
+Kalan: yalnız store-admin yönetim UI + preview ([[TD-152]]) — TD-150/TD-151 CLOSED.
+
+## TD-150 — TODO-162 storefront Discovery UI + lazy hydration (2026-07-30) — CLOSED
+
+**Durum:** CLOSED (2026-07-30). Storefront `getDiscovery(locale)` (`lib/server/catalog.ts`) Katman B ucunu
+SUNUCU-tarafı çağırır (kimlik cookie→header; cart/guest-wishlist ref; `no-store`) → **flash/CLS yok** (§24;
+lazy client-island yerine SSR tercih edildi: ineligible section zaten yanıtta yok → boş-durum render edilmez).
+Renderer `components/site/home/discovery-sections.tsx` (Server Component): DISCOVERY_GRID (columns 2-4, tablet
+2×2, mobile tek kolon), rail'ler (yatay snap şerit, StorefrontProductCard reuse), SPONSORED_RAIL ("Sponsorlu"
+etiketi), EDITORIAL_CAMPAIGN kartı. Home page (`app/page.tsx`): public /home + discovery PARALEL; layout Hero →
+Discovery (hero altı) → kalan public; wishlist/rating batch'ine discovery ürün id'leri dahil. TR/EN default
+başlıklar (`i18n discovery.titles`). **Category Shortcuts boş-kategori fix** (`home/data.ts
+listPublishedFeaturedCategories`): ACTIVE kategori VE ≥1 ACTIVE ürün (primaryProducts VEYA assignments) →
+boş kategori kısayolu gizlenir (§16). a11y: h2/h3 hiyerarşi, section aria-label, tek-link kart (nested-link yok).
+**Canlı smoke (storefront `next dev` @ localhost:3001 → gateway 4001, enterprise-demo, fixture oluştur+temizle):**
+guest home SSR'de "Günün fırsatları" 12 indirimli ürün + Category Shortcuts + public showcase render; no-signal
+guest'te personalized section YOK (görünür-metin doğrulaması; "leak" grep artefaktı=dict serialization); cookie'li
+ziyaretçide CONTINUE_BROWSING/PERSONALIZED/GRID render. Gate: storefront typecheck PASS + lint 0 + gateway build 0 +
+59 home test + git diff temiz + migrate up-to-date. Kalan TODO-162: yalnız admin/preview ([[TD-152]]) — TD-151 CLOSED.
+
+## TD-151 — TODO-162 analytics ingest + retention (2026-07-30) — CLOSED
+
+**Durum:** CLOSED. `POST /public/stores/:storeSlug/home/discovery-events` ingest (`home/discovery-event-{data,routes}.ts`;
+bot/prefetch/kimlik gate + eventType/sectionType/eligibilitySource allowlist + sectionId enabled-guard + claimed↔actual
+type çapraz-doğrulama + ürün sahipliği + impression zaman-pencere/ADD_TO_CART dedupeKey) + admin funnel özeti
+`GET .../home/discovery-events/summary` + storefront BFF proxy + pasif client tracker (IntersectionObserver impression +
+click delegation) + retention worker (ayrı jobType `home-discovery-event-retention`, env-gated, advisory-lock+circuit-breaker;
+RETENTION_TABLE_SPECS dokunmaz). ADD_TO_CART discovery kart yüzeyinde emit edilmez (kart PDP'ye götürür). Gate: gateway
+1775 test PASS (+32), build 0, storefront tsc+lint 0. ADR-205 güncellendi.
+
+## TD-152 — TODO-162 store-admin yönetimi + preview (2026-07-30) — CLOSED
+
+**Durum:** CLOSED. Store-admin Home SectionEditor (`app/(app)/home/page.tsx` + `labels.ts`) 10 yeni keşif tipini
+yönetir: rail'ler (TR/EN başlık + düzen + maxItems tavanı + guest/authSupported + fallbackDisabled), DISCOVERY_GRID
+(TR/EN başlık + kart sırası düzenleyici + guest/auth), EDITORIAL_CAMPAIGN (TR/EN başlık/metin/CTA/mediaId/linkedCampaignId).
+Salt-görünüm `DISCOVERY_BOUNDS` aynası min/max/auth/fallback ipucu gösterir (admin min düşüremez — motor kelepçeler).
+Gateway tamamlaması: discovery endpoint section başlığını config `titleTr/titleEn`'den locale'e göre çözer
+(rail/sponsored/grid; RecentlyViewed deseni). Keşif önizleme (`home/preview/page.tsx` + `discovery-preview-logic.ts`):
+5 senaryo × keşif bölümleri eligible/hidden simülasyonu — ÖRNEK sinyal, disclaimer'lı (gerçek veri değil; nihai karar
+sunucuda). Gate: gateway build 0 + 1775 test PASS, store-admin tsc+lint 0. **Kalan:** yalnız enterprise-demo canlı
+smoke + store-admin UI-piksel click-through (parola; TD-126 sınırı → Final UI Polish/deploy-öncesi manuel).

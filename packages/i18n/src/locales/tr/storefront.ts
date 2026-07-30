@@ -171,6 +171,25 @@ export const trStorefront = {
       reviews: "{count} değerlendirme",
     },
   },
+  // TODO-162 (ADR-197…206) — Eligibility-driven keşif section'ları. Admin başlık vermezse tip-bazlı
+  // varsayılan başlık burada (locale). "Sponsorlu" etiketi search.sponsoredLabel'dan gelir.
+  discovery: {
+    gridEyebrow: "Senin için",
+    gridTitle: "Keşfet",
+    viewAll: "Tümünü gör",
+    exploreCard: "Kartı keşfet",
+    titles: {
+      CONTINUE_BROWSING: "Kaldığın yerden devam et",
+      CART_RECOMMENDATIONS: "Sepetine göre öneriler",
+      PERSONALIZED_DEALS: "Sana özel fırsatlar",
+      DAILY_DEALS: "Günün fırsatları",
+      REPURCHASE: "Tekrar satın al",
+      SIMILAR_TO_PURCHASED: "Aldıklarına benzer ürünler",
+      WISHLIST_DEALS: "Favorilerinde fırsat",
+      SPONSORED_RAIL: "Öne çıkan ürünler",
+      EDITORIAL_CAMPAIGN: "Öne çıkan kampanya",
+    },
+  },
   listing: {
     eyebrow: "Koleksiyon",
     title: "Tüm ürünler",

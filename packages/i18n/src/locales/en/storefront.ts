@@ -170,6 +170,25 @@ export const enStorefront: StorefrontDictionary = {
       reviews: "{count} reviews",
     },
   },
+  // TODO-162 (ADR-197…206) — Eligibility-driven discovery sections. Type-based default title when admin
+  // provides none. "Sponsored" label comes from search.sponsoredLabel.
+  discovery: {
+    gridEyebrow: "For you",
+    gridTitle: "Discover",
+    viewAll: "View all",
+    exploreCard: "Explore",
+    titles: {
+      CONTINUE_BROWSING: "Pick up where you left off",
+      CART_RECOMMENDATIONS: "Based on your cart",
+      PERSONALIZED_DEALS: "Deals picked for you",
+      DAILY_DEALS: "Today's deals",
+      REPURCHASE: "Buy it again",
+      SIMILAR_TO_PURCHASED: "Similar to your purchases",
+      WISHLIST_DEALS: "Deals in your favorites",
+      SPONSORED_RAIL: "Featured products",
+      EDITORIAL_CAMPAIGN: "Featured campaign",
+    },
+  },
   listing: {
     eyebrow: "Collection",
     title: "All products",

@@ -237,6 +237,24 @@ export const envSchema = z.object({
   RECOMMENDATION_EVENT_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
   RECOMMENDATION_EVENT_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
   RECOMMENDATION_EVENT_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
+  // ── TODO-162 (ADR-205) — Home Discovery section-analytics (event domain). ─────────────────────
+  // Discovery event kayit ucu rate limit (IP-hash kayan pencere): pencere basina azami istek. Section
+  // impression'lari yogun oldugundan recommendation'dan biraz yuksek varsayilan (funnel gurultusu).
+  HOME_DISCOVERY_EVENT_RATE_LIMIT_MAX: optionalNumberEnv(z.coerce.number().int().positive().default(600)),
+  HOME_DISCOVERY_EVENT_RATE_LIMIT_WINDOW_SECONDS: optionalNumberEnv(z.coerce.number().int().positive().default(60)),
+  // Impression dedupe penceresi (saniye): ayni kimlik+section(+urun) icin bu sure icinde tekrar
+  // SECTION/CARD_IMPRESSION YENI satir ACMAZ. Varsayilan 30 dk (1800s).
+  HOME_DISCOVERY_IMPRESSION_DEDUPE_SECONDS: optionalNumberEnv(z.coerce.number().int().min(0).default(1800)),
+  // Etkilesim (PRODUCT_CLICK/CTA_CLICK) dedupe penceresi (saniye): impression'dan KISA (cift-tetik guard).
+  HOME_DISCOVERY_INTERACTION_DEDUPE_SECONDS: optionalNumberEnv(z.coerce.number().int().min(0).default(30)),
+  // Zamanlanmis Discovery event retention worker'i (AYRI domain/jobType; sponsored/influencer/recommendation
+  // allowlist'ine dokunmaz). false (varsayilan) → env gate: acikca etkinlestirilmeden ASLA otomatik DELETE.
+  HOME_DISCOVERY_EVENT_RETENTION_ENABLED: optionalBooleanEnv(false),
+  HOME_DISCOVERY_EVENT_RETENTION_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  // Ham davranis-event saklama gunu (recommendation ile simetrik = 180). Alt sinir 30. createdAt < cutoff budanir.
+  HOME_DISCOVERY_EVENT_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
+  HOME_DISCOVERY_EVENT_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
+  HOME_DISCOVERY_EVENT_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
   // ADR-065 — Site-geneli gorsel yonetimi (Faz 1). "storage key sakla, URL turet":
   // DB'ye tam URL yazilmaz; public URL runtime'da MEDIA_PUBLIC_BASE_URL + storageKey
   // ile uretilir (resolveMediaUrl). Bos/absent ise gorseller /media/{key} goreli yolla

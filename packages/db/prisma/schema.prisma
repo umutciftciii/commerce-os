@@ -906,6 +906,8 @@ model Store {
   recentlyViewedProducts           RecentlyViewedProduct[]
   // TD-130 (ADR-145…148) — Recommendation Measurement event domaini (store-scoped tenant sutunu).
   recommendationEvents             RecommendationEvent[]
+  // TODO-162 (ADR-205) — Home Discovery section-analytics event domaini (store-scoped tenant sutunu).
+  homeDiscoveryEvents              HomeDiscoveryEvent[]
 }
 
 model StoreUser {
@@ -4318,6 +4320,54 @@ model RecommendationEvent {
   @@index([storeId, productId, eventType, createdAt])
   // Impression/click dedupe lookup: kimlik (visitorHash) + yuzey + urun + recency.
   @@index([storeId, source, placement, productId, visitorHash, eventType, createdAt])
+  // ADD_TO_CART idempotency lookup.
+  @@index([storeId, dedupeKey])
+}
+
+/// TODO-162 (ADR-205) — Home Discovery section-analytics ham event'i (AYRI domain).
+/// Eligibility-driven keşif section'larının funnel ölçümü (section/card impression, product/CTA click,
+/// add-to-cart). RecommendationEvent deseni: productId/campaignId/sponsoredCampaignId PLAIN string
+/// (FK YOK → minimal coupling). Yalnız Store FK (Cascade). visitorHash/sessionHash KVKK-uyumlu HMAC
+/// (ham IP/UA saklanmaz); **bot/prefetch VE hidden-section event ÜRETMEZ** (satır hiç yazılmaz → isBot
+/// kolonu YOK; §22). Sponsored kartları AYRICA mevcut SponsoredProductEvent token ölçümünü kullanır
+/// (bu tablo yalnız section-seviyesi funnel). sectionType = HomeSection.type; eligibilitySource =
+/// SECTION_BOUNDS.source. Retention: TODO-161A.1 SAF altyapı reuse (ayrı jobType; ADR-205).
+model HomeDiscoveryEvent {
+  id                  String   @id @default(cuid())
+  storeId             String
+  customerId          String?
+  visitorHash         String?
+  sessionHash         String?
+  /// HomeSection.id — hangi yönetilen section (analytics kırılımı için opak plain string).
+  sectionId           String
+  /// HomeSection.type (DISCOVERY_GRID, CONTINUE_BROWSING, …).
+  sectionType         String
+  /// Eligibility kararının türetildiği sinyal (SECTION_BOUNDS.source: RECENTLY_VIEWED, CART, …).
+  eligibilitySource   String
+  /// SECTION_IMPRESSION | CARD_IMPRESSION | PRODUCT_CLICK | CTA_CLICK | ADD_TO_CART.
+  eventType           String
+  /// Etkileşimli event'lerde ürün (impression'da null olabilir).
+  productId           String?
+  /// İlişkili kampanya (PERSONALIZED_DEALS/EDITORIAL/DAILY_DEALS) — plain string.
+  campaignId          String?
+  /// Sponsorlu kart — plain string (otoritatif ölçüm yine SponsoredProductEvent'te).
+  sponsoredCampaignId String?
+  /// Yerleşim: HOME (ileride genişleyebilir; String).
+  placement           String
+  /// YALNIZ ADD_TO_CART idempotency; impression/click zaman-pencere dedupe kullanır.
+  dedupeKey           String?
+  createdAt           DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Store-scope + zaman (retention cutoff createdAt < cutoff; store listeleme).
+  @@index([storeId, createdAt])
+  // Admin funnel özeti (eventType x sectionType x eligibilitySource, tarih aralığı).
+  @@index([storeId, sectionType, eligibilitySource, eventType, createdAt])
+  // Section-bazlı kırılım.
+  @@index([storeId, sectionId, eventType, createdAt])
+  // Impression/click dedupe lookup: kimlik + section + ürün + recency.
+  @@index([storeId, sectionId, productId, visitorHash, eventType, createdAt])
   // ADD_TO_CART idempotency lookup.
   @@index([storeId, dedupeKey])
 }

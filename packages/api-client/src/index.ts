@@ -512,6 +512,15 @@ export type {
   PublicHomeSection,
   PublicHomeHeroSlide,
   PublicHomeFeaturedCategory,
+  // TODO-162 (ADR-202) — Katman B viewer-specific Discovery projeksiyon tipleri (storefront tüketicisi).
+  PublicHomeDiscoveryResponse,
+  PublicHomeDiscoveryRequest,
+  PublicDiscoverySection,
+  // TODO-162 (ADR-205) — Home Discovery section-analytics (event domain) kontrat tipleri.
+  HomeDiscoveryEventType,
+  HomeDiscoveryEventRequest,
+  HomeDiscoveryEventResponse,
+  HomeDiscoverySummaryResponse,
   // TODO-155/156 (ADR-079) — Public Search & Facet API kontrat tipleri (storefront tuketicisi).
   PublicSearchResponse,
   PublicSearchSort,
