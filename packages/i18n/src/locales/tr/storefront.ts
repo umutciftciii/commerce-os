@@ -178,6 +178,7 @@ export const trStorefront = {
     gridTitle: "Keşfet",
     viewAll: "Tümünü gör",
     exploreCard: "Kartı keşfet",
+    personalizedBadge: "Senin için seçildi",
     titles: {
       CONTINUE_BROWSING: "Kaldığın yerden devam et",
       CART_RECOMMENDATIONS: "Sepetine göre öneriler",
