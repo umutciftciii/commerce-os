@@ -42,6 +42,7 @@ import type {
   // TODO-164 (ADR-222) — theme-binding transport imzaları.
   ThemeBindingResponse,
   ThemeBindingAssignRequest,
+  ThemeBindingListResponse,
   PlatformLoginRequest,
   PlatformLoginResponse,
   PlatformLogoutResponse,
@@ -392,6 +393,8 @@ export type {
   ThemeCompatibilityIssue,
   ThemeBindingResponse,
   ThemeBindingAssignRequest,
+  ThemeBindingListResponse,
+  ThemeBindingSummary,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -1177,6 +1180,10 @@ export interface ApiClient {
           token?: string,
         ): Promise<ThemeBindingResponse>;
       };
+    };
+    // TODO-164 — fleet "Tema Yönetimi" listesi (store-scope'suz platform admin).
+    themeBindings: {
+      list(token?: string): Promise<ThemeBindingListResponse>;
     };
     plans: {
       list(token?: string): Promise<PlanListResponse>;
@@ -2521,6 +2528,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           assign: (id, input, token) =>
             sendJson<ThemeBindingResponse>(`/admin/stores/${id}/theme-binding`, "PUT", input, token),
         },
+      },
+      themeBindings: {
+        list: (token) => getJson<ThemeBindingListResponse>("/admin/theme-bindings", token),
       },
       plans: {
         list: (token) => getJson<PlanListResponse>("/admin/plans", token),

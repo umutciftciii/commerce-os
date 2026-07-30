@@ -19,7 +19,6 @@ import {
 import { format, getDictionary } from "@commerce-os/i18n";
 import type { AdminStore, AdminStoreCreateRequest } from "@commerce-os/api-client";
 import { StoreIcon } from "../../../components/icons";
-import { ThemeBindingPanel } from "../../../components/theme-binding-panel";
 import { adminApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatDate } from "../../../lib/client/format";
@@ -296,11 +295,6 @@ function StoreEditor({
           />
         ) : null}
       </form>
-      {isEdit ? (
-        <div className="mt-5 border-t border-slate-700/50 pt-5">
-          <ThemeBindingPanel storeId={editor.store.id} />
-        </div>
-      ) : null}
     </Modal>
   );
 }

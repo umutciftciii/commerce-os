@@ -7397,6 +7397,11 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+    // Fleet "Tema Yönetimi" listesi — store-scope'suz platform admin.
+    requirePlatformAdmin: async (request, reply) => {
+      const session = await requireSuperAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
     isThemeStudioEnabled: (storeId) => capabilityCache.isEnabled(storeId, "THEME_STUDIO"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     invalidateResolvedTheme,

@@ -44,7 +44,14 @@ function kindLabel(kind: string): string {
   return "Temel";
 }
 
-export function ThemeBindingPanel({ storeId }: { storeId: string }) {
+export function ThemeBindingPanel({
+  storeId,
+  onChanged,
+}: {
+  storeId: string;
+  /** Atama başarılı olunca çağrılır (ör. fleet listesini yenilemek için). */
+  onChanged?: () => void;
+}) {
   const locale = useLocale();
   const [binding, setBinding] = useState<ThemeBindingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +84,7 @@ export function ThemeBindingPanel({ storeId }: { storeId: string }) {
       setBinding(updated);
       setSelected(updated.activeThemeKey);
       setToast(TR.assigned);
+      onChanged?.();
     } catch (e) {
       setError(messageForError(e, locale));
     } finally {

@@ -103,6 +103,23 @@ export interface PublishedThemeState {
   publishedAt: Date | null;
 }
 
+/**
+ * TODO-164 — Fleet "Tema Yönetimi" tablosu satırı (mağaza + yayınlı tema özeti).
+ * Yayınlı teması olmayan mağaza da döner (aktif = base). ALLOWLIST özet; ham belge
+ * TAŞINMAZ (yalnız config'ten themeKey/slot uyumluluğu türetilir).
+ */
+export interface ThemeBindingSummaryRow {
+  storeId: string;
+  storeName: string;
+  storeSlug: string;
+  storeStatus: string;
+  themeKey: string | null;
+  layoutPreset: string | null;
+  themeApiVersion: number | null;
+  publishedConfig: Prisma.JsonValue | null;
+  publishedVersion: number | null;
+}
+
 export interface ThemeDataAccess {
   listThemes(storeId: string): Promise<ThemeRecord[]>;
   getTheme(storeId: string, themeId: string): Promise<ThemeRecord | null>;
@@ -147,6 +164,8 @@ export interface ThemeDataAccess {
     storeId: string,
     input: { themeKey: string; layoutPreset: string; themeApiVersion: number; publishedBy?: string | null },
   ): Promise<ThemeRecord | null>;
+  /** Platform Admin fleet: TÜM mağazalar + yayınlı tema özeti ("Tema Yönetimi" tablosu). */
+  listThemeBindingSummaries(): Promise<ThemeBindingSummaryRow[]>;
 }
 
 function currentDraft(theme: ThemeRecord): ThemeVersionRecord | undefined {
@@ -480,6 +499,49 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
           },
         });
         return tx.theme.findFirst({ where: { id: theme.id, storeId }, select: themeSelect });
+      });
+    },
+
+    async listThemeBindingSummaries() {
+      // Tüm mağazalar + (varsa) PUBLISHED tema + onun PUBLISHED versiyon config'i.
+      // Yayınlı teması olmayan mağaza da döner (aktif = base). Tek sorgu (N+1 yok).
+      const stores = await prisma.store.findMany({
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          themes: {
+            where: { status: "PUBLISHED" },
+            select: {
+              themeKey: true,
+              layoutPreset: true,
+              themeApiVersion: true,
+              versions: {
+                where: { status: "PUBLISHED" },
+                select: { config: true, version: true },
+                take: 1,
+              },
+            },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      return stores.map((s) => {
+        const theme = s.themes[0];
+        const version = theme?.versions[0];
+        return {
+          storeId: s.id,
+          storeName: s.name,
+          storeSlug: s.slug,
+          storeStatus: String(s.status),
+          themeKey: theme?.themeKey ?? null,
+          layoutPreset: theme?.layoutPreset ?? null,
+          themeApiVersion: theme?.themeApiVersion ?? null,
+          publishedConfig: version?.config ?? null,
+          publishedVersion: version?.version ?? null,
+        };
       });
     },
   };

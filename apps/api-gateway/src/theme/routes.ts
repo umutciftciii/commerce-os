@@ -24,6 +24,7 @@ import {
   themePreviewResponseSchema,
   themeBindingResponseSchema,
   themeBindingAssignRequestSchema,
+  themeBindingListResponseSchema,
 } from "@commerce-os/contracts";
 import {
   DEFAULT_THEME_DOCUMENT,
@@ -597,6 +598,11 @@ export interface ThemeBindingRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<{ actorUserId: string } | null>;
+  /** Fleet "Tema Yönetimi" listesi için store-scope'suz platform admin auth. */
+  requirePlatformAdmin: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => Promise<{ actorUserId: string } | null>;
   isThemeStudioEnabled: (storeId: string) => Promise<boolean>;
   recordAudit: (input: {
     action: "CREATE" | "UPDATE" | "DELETE";
@@ -610,7 +616,40 @@ export interface ThemeBindingRoutesDeps {
 }
 
 export function registerThemeBindingRoutes(app: FastifyInstance, deps: ThemeBindingRoutesDeps): void {
-  const { dataAccess, requirePlatformStoreAdmin, isThemeStudioEnabled, recordAudit } = deps;
+  const { dataAccess, requirePlatformStoreAdmin, requirePlatformAdmin, isThemeStudioEnabled, recordAudit } =
+    deps;
+
+  // ── Fleet "Tema Yönetimi" — tüm mağazalar + yayınlı tema özeti ─────────────
+  app.get("/admin/theme-bindings", async (request, reply) => {
+    const admin = await requirePlatformAdmin(request, reply);
+    if (!admin) return;
+    const rows = await dataAccess.listThemeBindingSummaries();
+    const bindings = await Promise.all(
+      rows.map(async (r) => {
+        const rawConfig = themeConfigSchema.safeParse(r.publishedConfig ?? {});
+        const configThemeKey = rawConfig.success ? rawConfig.data.themeKey : "";
+        const configSlots = rawConfig.success ? rawConfig.data.slots : {};
+        const activeThemeKey = configThemeKey || r.themeKey || BASE_THEME_KEY;
+        const entry = getThemeEntry(activeThemeKey);
+        const compat = checkThemeKeyCompatibility(activeThemeKey, { slotSelections: configSlots });
+        const capabilityEnabled = await isThemeStudioEnabled(r.storeId);
+        return {
+          storeId: r.storeId,
+          storeName: r.storeName,
+          storeSlug: r.storeSlug,
+          storeStatus: r.storeStatus,
+          activeThemeKey,
+          activeThemeName: entry?.nameTr ?? activeThemeKey,
+          kind: entry?.kind ?? "BASE",
+          layoutPreset: r.layoutPreset ?? BASE_LAYOUT_PRESET_KEY,
+          publishedVersion: r.publishedVersion,
+          compatible: compat.compatible,
+          capabilityEnabled,
+        };
+      }),
+    );
+    return themeBindingListResponseSchema.parse({ bindings });
+  });
 
   async function buildBinding(storeId: string) {
     const [themes, capabilityEnabled] = await Promise.all([

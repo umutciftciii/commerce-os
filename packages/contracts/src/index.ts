@@ -7856,6 +7856,28 @@ export const themeBindingAssignRequestSchema = z.object({
   themeKey: z.string().min(1).max(64),
 });
 
+/**
+ * PLATFORM ADMIN "Tema Yönetimi" fleet tablosu satırı. Tüm mağazalar + yayınlı tema
+ * özeti (aktif tema/preset/uyumluluk/capability). ALLOWLIST: ham belge/config SIZMAZ.
+ */
+export const themeBindingSummarySchema = z.object({
+  storeId: z.string(),
+  storeName: z.string(),
+  storeSlug: z.string(),
+  storeStatus: z.string(),
+  activeThemeKey: z.string(),
+  activeThemeName: z.string(),
+  kind: z.enum(["BASE", "LAYOUT_PRESET", "CUSTOM_PACKAGE"]),
+  layoutPreset: z.string(),
+  publishedVersion: z.number().int().positive().nullable(),
+  compatible: z.boolean(),
+  capabilityEnabled: z.boolean(),
+});
+
+export const themeBindingListResponseSchema = z.object({
+  bindings: z.array(themeBindingSummarySchema),
+});
+
 export type ThemeStatus = z.infer<typeof themeStatusSchema>;
 export type ThemeVersionSummary = z.infer<typeof themeVersionSummarySchema>;
 export type ThemeSummary = z.infer<typeof themeSummarySchema>;
@@ -7875,6 +7897,8 @@ export type PublicTheme = z.infer<typeof publicThemeSchema>;
 export type ThemeCompatibilityIssue = z.infer<typeof themeCompatibilityIssueSchema>;
 export type ThemeBindingResponse = z.infer<typeof themeBindingResponseSchema>;
 export type ThemeBindingAssignRequest = z.infer<typeof themeBindingAssignRequestSchema>;
+export type ThemeBindingSummary = z.infer<typeof themeBindingSummarySchema>;
+export type ThemeBindingListResponse = z.infer<typeof themeBindingListResponseSchema>;
 
 /* ════════════════════════════════════════════════════════════════════════════
  * TODO-159D (ADR-093) — Customer Lists & Wishlist (own account).
