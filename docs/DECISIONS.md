@@ -5377,3 +5377,87 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   Platform Admin binding capability'den bağımsız görüntülenir/atanır (yönetim eylemi).
 - **Sonuç.** Tema katmanı capability sistemine tam uyumlu; kapatınca güvenli base'e düşer, açınca published
   tema geri gelir (veri kaybı yok).
+
+## ADR-225 — Visual Theme Builder (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** TODO-164 üç katmanlı tema mimarisini (token belgesi + layout preset + versiyonlu custom package)
+  kurdu ama slot contract UI'da görünmüyordu; store-admin editörü yalnız TOKEN düzenliyor, `slots: {}` daima
+  boş gönderiyordu. Amaç: kod yazmadan gerçek anlamda farklı storefront temaları üretmek.
+- **Karar.** Store Admin Theme Studio, ortak engine ÜSTÜNE görsel bir builder'a genişletilir (paralel motor/
+  storefront YOK). Builder yalnız **typed token + izinli slot variant + bounded yapısal config** üretir; raw
+  HTML/JS/arbitrary CSS KABUL ETMEZ (custom CSS alanı EKLENMEZ). Genişletilmiş config `ThemeVersion.config`
+  JSON'unda yaşar (`themeBuilderConfigSchema`): slotVariants, tokenOverrides, typography, container, radius,
+  shadow, buttonStyle, surfaceStyle, productCard, listing, productDetail, hero, navigation, media,
+  responsiveOverrides, colorScheme. Strict alt-şemalar (unknown key reddi), bounded numeric, H-1 tipli
+  length/color; client OTORİTE DEĞİL (gateway server-side doğrular). Üç bölüm: Yapı (slot/variant + yapısal),
+  Stil (token editörü), Önizleme (desktop/tablet/mobile).
+- **Sonuç.** Mağaza birden fazla tema taslağı üretip özelleştirebilir; çekirdek fork gerekmez.
+
+## ADR-226 — Safe slot composition & variant expansion (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Her shipped slot için ≥3 adlandırılmış builder variant `THEME_SLOT_REGISTRY.variants`
+  allowlist'ine ADDITIVE eklenir (Header STANDARD/CENTERED_BRAND/EDITORIAL_SPLIT; Footer STANDARD/MINIMAL/
+  MULTI_COLUMN; Hero FULL_WIDTH/SPLIT_CONTENT/EDITORIAL_OVERLAY; ProductCard STANDARD/MINIMAL/EDITORIAL/DENSE;
+  ProductListing STANDARD_GRID/EDITORIAL_GRID/DENSE_CATALOG; ProductDetail STANDARD/GALLERY_FIRST/EDITORIAL;
+  MobileNav BOTTOM_BAR/DRAWER/COMPACT_HEADER; HomeSectionFrame STANDARD/FULL_BLEED/EDITORIAL/COMPACT). Eski
+  (lowercase) variant'lar + `defaultVariant` KORUNUR → layout preset/custom package/eski config bozulmaz
+  (geriye uyumlu). Storefront GERÇEK DOM/class/layout farkı üretir (grid-template/flex/display/order); yalnız
+  `data-*` değiştirip aynı görünümü render ETMEZ. Daha önce bağlanmamış 3 slot (productListingLayout,
+  productDetailLayout, homeSectionFrame) storefront'a bağlanır (server slot çözümü + `data-*` + globals.css).
+  Variant CSS'i BİLEREK UNLAYERED yazılır → Tailwind `@layer utilities`'i güvenle geçer.
+- **Sonuç.** Her slot görünür şekilde farklı render eder; güvenlik allowlist ile korunur.
+
+## ADR-227 — Responsive override policy (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Builder yapısal/responsive config'i güvenli CSS'e serialize edilir (`builder-css.ts`): SABİT
+  değişken adları (`--tb-*`) + SİSTEM-TANIMLI breakpoint `@media` blokları (tablet ≤1024px, mobile ≤640px).
+  Override alabilen bounded anahtarlar: gridColumns, containerPadding, heroHeight, sectionSpacing,
+  productCardDensity, navigationVariant. Kullanıcı arbitrary media query / selector / property YAZAMAZ; enum→
+  sabit değer haritası, length→H-1 `validateLength` (render-time defense-in-depth). Builder CSS, token belge
+  CSS'inden SONRA yayımlanır (`:root[data-theme]` → override kazanır).
+- **Sonuç.** Typed, sınırlı, güvenli responsive kontrol; enjeksiyon yolu yok.
+
+## ADR-228 — Builder preview isolation (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Draft önizleme DURUMSUZ imzalı token ile (`storeId|themeId|exp`, HMAC/SESSION_SECRET, TTL 10 dk).
+  Store-admin iframe storefront'a `?themePreview=<token>` ile gelir; storefront middleware token'ı kısa ömürlü
+  httpOnly cookie'ye yazar → tüm sayfalar (Home/PLP/PDP/Cart/Checkout) DRAFT temayı gerçek bileşenlerle render
+  eder. Gateway `GET /public/theme-preview?token=` token'ı doğrular → DRAFT projeksiyonu döner; **production
+  tema cache'ine YAZMAZ** (izole), başka store'un draft'ı açılamaz (token store-scoped), gerçek müşteri verisi
+  kullanılmaz. Refresh sonrası draft korunur (DB'de); production storefront (token yok) ETKİLENMEZ.
+- **Sonuç.** Güvenli, izole, gerçek-bileşen önizleme; prod vitrin değişmez.
+
+## ADR-229 — Theme duplication (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Kopyalama aktif (draft>published) config+document snapshot'ını YENİ kimliğe kopyalar (tek DRAFT
+  versiyon); `duplicatedFrom` işaretlenir; history/audit KOPYALANMAZ. Additive migration `Theme.duplicatedFrom/
+  createdBy/updatedBy` (nullable; mevcut satırlar NULL, görünüm değişmez). Mağaza-başı tek PUBLISHED tema
+  değişmezi korunur (kopya DRAFT gelir).
+- **Sonuç.** Tema varyasyonları güvenli, izole kimliklerle üretilir.
+
+## ADR-230 — Accessibility publish gate (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Publish öncesi WCAG 2.1 kritik kontrast denetlenir (`contrast.ts`, saf): gövde/ikincil metni ↔
+  zemin ≥ 4.5:1 (HARD gate); buton etiketi (büyük/UI metni) ↔ buton zemini ≥ 3:1. **Bağlantı ↔ zemin** eşiği
+  4.5 ama `blocking:false` → alt-eşik ERROR değil **WARNING** (aksan-sürücülü + altı-çizili afordans; shipped
+  preset'lerin vivid marka linki, ör. FASHION_EDITORIAL `#ff2d6f` 3.6:1, YAYINLANABİLİR kalır — canlı smoke'ta
+  yakalanan gerçek gerileme). KRİTİK (gövde) başarısızlık → `THEME_CONTRAST_FAILED` 409 (publish REDDEDİLİR,
+  mevcut published korunur). AA-geçer/AAA-geçmez → WARNING (engellemez, gösterilir). Hesaplanamayan renk (named/
+  var) çift atlanır (preset paletleri hep hex). Yanıt ham renk TAŞIMAZ (yalnız çift/oran).
+- **Sonuç.** Erişilemez tema yayınlanamaz; güvenli, açıklanabilir kapı.
+
+## ADR-231 — Preset promotion boundary (TODO-164A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Builder'dan üretilen tema ileride reusable preset olabilir; bu fazda yalnız görünürlük: Platform
+  Admin bir mağaza temasını aday olarak görebilir (source preset, draft sayısı, son güncelleme binding'de).
+  Runtime'da registry'ye doğrudan preset KAYDI YAZILMAZ; preset promotion ayrı, kontrollü bir geliştirme
+  operasyonudur (registry kod değişikliği + review). Registry preset'leri builder tarafından MUTATE edilmez
+  (başlangıç noktası derin kopya döner).
+- **Sonuç.** Registry bütünlüğü korunur; promotion sınırı net.

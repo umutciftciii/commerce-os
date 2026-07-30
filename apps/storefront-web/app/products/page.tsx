@@ -17,7 +17,7 @@ import { SearchResultsRegion } from "../../components/search/results-region";
 import { SearchTransitionProvider } from "../../components/search/search-transition";
 import { ProductGrid } from "../../components/search/product-grid";
 import { WishlistProvider } from "../../components/wishlist/wishlist-provider";
-import { isStorefrontModuleEnabled } from "../../lib/server/site";
+import { isStorefrontModuleEnabled, getServerSlotVariant } from "../../lib/server/site";
 import { RatingProvider } from "../../components/reviews/rating-provider";
 import { getWishlistStatus } from "../../lib/server/wishlist";
 import { getCardRatings } from "../../lib/server/reviews";
@@ -111,6 +111,8 @@ export default async function ProductsPage({
 
   const data = result.data;
   const cards = toListingCards(data.products);
+  // TODO-164A — Listing slot variant'ı (sunucu; nested async RSC'den kaçınmak için prop olarak geçilir).
+  const listingVariant = await getServerSlotVariant("productListingLayout", "standard");
   // TODO-159D/159E — Sayfadaki ürünler için TEK batched favori-durum + rating özeti (N+1 yok).
   // TODO-163 Faz 3 (TD-156) — REVIEWS/WISHLIST kapalıysa ilgili batch ÇEKİLMEZ (boşa çağrı yok;
   // kartlarda yıldız/kalp render edilmez). Gateway zaten otoriter.
@@ -177,7 +179,7 @@ export default async function ProductsPage({
                 <div className="mt-8 lg:mt-10">
                   <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
                     <RatingProvider summaries={cardRatings}>
-                      <ProductGrid cards={cards} t={t} />
+                      <ProductGrid cards={cards} t={t} listingVariant={listingVariant} />
                     </RatingProvider>
                   </WishlistProvider>
                 </div>

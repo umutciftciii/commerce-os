@@ -18,7 +18,7 @@ import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
 import { WishlistProvider } from "../../../components/wishlist/wishlist-provider";
-import { isStorefrontModuleEnabled } from "../../../lib/server/site";
+import { isStorefrontModuleEnabled, getServerSlotVariant } from "../../../lib/server/site";
 import { RatingProvider } from "../../../components/reviews/rating-provider";
 import { PdpReviews } from "../../../components/reviews/pdp-reviews";
 import { getWishlistStatus } from "../../../lib/server/wishlist";
@@ -121,6 +121,8 @@ export default async function ProductDetailPage({
 
   const detail = result.data;
   const locale = await getRequestLocale();
+  // TODO-164A — Ürün detay slot variant'ı (STANDARD/GALLERY_FIRST/EDITORIAL).
+  const detailVariant = await getServerSlotVariant("productDetailLayout", "standard");
   // TODO-163 Faz 3 (TD-156) — kapalı modüller: veri ÇEKİLMEZ + render EDİLMEZ + client beacon MOUNT
   // edilmez (event üretilmez). Gateway zaten otoriter (kapalı public uç 404/boş); bu, boşa çağrıyı
   // ve ölü UI'ı önler. Capability projeksiyonu `cache()`'li → hepsi tek gateway çağrısı.
@@ -193,7 +195,10 @@ export default async function ProductDetailPage({
           VariantGallery arasinda PAYLASILIR (lift). Baslik blogu SUNUCU'da kalir (provider'in
           children'i). Baslangic = varsayilan (en ucuz) varyant → SSR dogru grupla gelir. */}
       <PdpSelectionProvider defaultVariantId={cheapestVariantId(detail.variants)}>
-        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
+        <div
+          data-detail-variant={detailVariant}
+          className="pdp-layout grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14"
+        >
           {/* Sol: medya galerisi (varyanta reaktif) */}
           <VariantGallery detail={detail} t={t} />
 

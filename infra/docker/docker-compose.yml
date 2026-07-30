@@ -158,6 +158,9 @@ services:
       # edm-store) sabitlenir. Tanımsızsa resolver `demo-store`'a düşer (store-context.ts). Üretim
       # store-user auth gelince bu geçici BFF seçimi kalkacak.
       STORE_ADMIN_DEMO_STORE_SLUG: enterprise-demo
+      # TODO-164A (TD-160) — Custom Theme Builder "Gerçek vitrin" iframe önizlemesi
+      # tarayıcıdan erişilen storefront kökünü okur (NEXT_PUBLIC → dev'de runtime).
+      NEXT_PUBLIC_STOREFRONT_URL: http://localhost:3000
     ports:
       - "3002:3002"
     healthcheck:

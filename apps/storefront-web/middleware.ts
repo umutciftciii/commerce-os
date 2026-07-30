@@ -11,11 +11,33 @@ import { resolveIncomingRedirect } from "./lib/seo/redirect-runtime";
  * Hedef path (query'siz, normalize) → mutlak URL. Canonical ile çelişmez: kanonik canlı sayfalar asla redirect
  * source olmaz (gateway write-path chain collapse + source=newPath silme garantisi).
  */
+/**
+ * TODO-164A (ADR-228) — Builder preview izolasyonu. Store-admin builder iframe'i
+ * storefront'a `?themePreview=<imzalı token>` ile gelir; middleware token'ı KISA
+ * ÖMÜRLÜ, httpOnly cookie'ye yazar → sonraki tüm sayfalar (Home/PLP/PDP/Cart/
+ * Checkout) DRAFT temayı render eder (getStoreTheme cookie'yi okur). Production
+ * storefront (token yok) ETKİLENMEZ. Cookie kısa TTL; refresh sonrası draft korunur.
+ */
+const PREVIEW_COOKIE = "cos_theme_preview";
+const PREVIEW_MAX_AGE = 600; // 10 dk (token TTL ile hizalı)
+
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  const previewToken = request.nextUrl.searchParams?.get?.("themePreview") ?? null;
+
   const match = await resolveIncomingRedirect(request.nextUrl.pathname);
-  if (!match) return NextResponse.next();
-  const target = new URL(match.target, request.nextUrl.origin);
-  return NextResponse.redirect(target, match.type);
+  const response = match
+    ? NextResponse.redirect(new URL(match.target, request.nextUrl.origin), match.type)
+    : NextResponse.next();
+
+  if (previewToken) {
+    response.cookies.set(PREVIEW_COOKIE, previewToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: PREVIEW_MAX_AGE,
+      path: "/",
+    });
+  }
+  return response;
 }
 
 /**

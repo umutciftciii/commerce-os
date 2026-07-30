@@ -1027,9 +1027,54 @@
   theme/capability route PASS.
 - **Git.** Bu aşamada commit/push/PR/merge/deploy YOK (prompt kuralı) — implementasyon + smoke + docs tamam, DUR.
 
+## TODO-164A — Custom Theme Builder (2026-07-31, CLOSED & DEPLOYED)
+
+- **Amaç.** Mağazaları birkaç sabit presete mahkûm etmemek; kod yazmadan gerçek farklı storefront temaları
+  üretmek. Ortak engine + slot contract + H-1 güvenlik modeli KORUNUR (paralel motor/storefront YOK).
+- **Kapsam.**
+  - `@commerce-os/theme`: **genişletilmiş builder config** (`builder-config.ts` — slotVariants + tokenOverrides
+    + typography + container + radius + shadow + buttonStyle + surfaceStyle + productCard + listing +
+    productDetail + hero + navigation + media + responsiveOverrides + colorScheme; strict/bounded/H-1-tipli),
+    **WCAG contrast publish gate** (`contrast.ts`), **responsive/yapısal CSS serializer** (`builder-css.ts` —
+    `--tb-*` + sistem breakpoint `@media`), **başlangıç noktaları** (`starting-points.ts` — BASE/FASHION_MINIMAL/
+    FASHION_EDITORIAL/PREMIUM_BOUTIQUE/EMPTY, registry MUTATE etmez), **slot variant genişleme** (her slot ≥3
+    adlandırılmış variant, additive; eski + default KORUNUR).
+  - DB additive migration `20260730160000_custom_theme_builder`: `Theme.duplicatedFrom/createdBy/updatedBy`
+    (nullable; görünüm değişmez). Builder config genişlemesi `ThemeVersion.config` JSON'unda → şema değişmez.
+  - Gateway: create `startingPoint`; **duplicate** / **archive** / **preview-token** uçları; draft/publish
+    builder config doğrulama (INVALID_THEME_CONFIG / THEME_INCOMPATIBLE); **contrast gate** (THEME_CONTRAST_FAILED
+    409); public projeksiyon builder CSS EKLER + slotVariants merge; **public preview projeksiyonu** (imzalı
+    token, prod cache'ten AYRI); binding'e draftThemeCount/sourcePreset/lastUpdatedAt.
+  - Storefront: 8 slotun TAMAMI bağlı (3 bağlanmamış slot + PLP/PDP/home wiring) + gerçek variant CSS
+    (UNLAYERED, layout farkı); `--tb-*` tüketimi; **middleware+cookie preview** (draft render, prod değişmez).
+  - Store Admin: Theme Studio → **görsel builder** (Yapı: slot variant + yapısal; Stil: token editörü;
+    Önizleme: desktop/tablet/mobile + gerçek vitrin iframe); startingPoint; **Kopyala/Arşivle**.
+  - Platform Admin: binding paneli draftThemeCount + sourcePreset + lastUpdatedAt.
+- **Kararlar.** **ADR-225…ADR-231**. Analiz: `docs/analysis/TODO-164A-custom-theme-builder.md`.
+- **Testler/gate.** `@commerce-os/theme` **229** (48 yeni) · contracts **115** · api-client **23** · api-gateway
+  **1850** (8 yeni builder route testi) · storefront **446** · store-admin **360** · admin-web **24** — TÜMÜ PASS.
+  Build/typecheck/lint TÜM etkilenen paket+app temiz; `git diff --check` temiz.
+- **Canlı smoke (enterprise-demo, gerçek stack + tarayıcı).** Migration `migrate deploy` (additive; 3 kolon
+  nullable, mevcut 11 Theme/54 versiyon + published korundu, görünüm değişmedi). Stack worktree'den rebuild
+  (4 servis). Builder (store-admin UI): startingPoint BASE_COMMERCE → 8 slot variant + renk/font/liste/hero/
+  radius/gutter → draft (production DEĞİŞMEDİ) → publish → **storefront GÖRÜNÜR değişti** (DOM/CSS ile
+  kanıtlandı: Header CENTERED_BRAND iki-satır, Footer MULTI_COLUMN, MobileNav BOTTOM_BAR fixed-bottom sheet,
+  Hero EDITORIAL_OVERLAY 608px, ProductCard EDITORIAL 3:4+shadow, PLP EDITORIAL_GRID 3-kolon@1280, PDP
+  GALLERY_FIRST tek-kolon, HomeFrame FULL_BLEED, accent #c2185b). Preview izolasyonu (imzalı token → draft
+  render; prod cache ayrı; tampered/garbage token → 401). İkinci tema FASHION_EDITORIAL'dan → belirgin farklı.
+  Duplicate (yeni kimlik/duplicatedFrom/history yok) · Archive (draft 200/published 409) · Rollback (görünüm
+  geri döndü, yeni revizyon). Capability disable→base fallback+builder API 403+veri korundu / re-enable→published
+  geri. Güvenlik: XSS token 400, unsafe length 400, unknown themeKey 400, unsupported variant 400. Contrast gate:
+  düşük gövde kontrastı → 409 THEME_CONTRAST_FAILED. Responsive 375/768/1280/1440 taşma YOK.
+- **Canlı smoke'ta yakalanan + düzeltilen 2 gerileme.** (1) FASHION_EDITORIAL preset'in vivid marka linki
+  (#ff2d6f 3.6:1) contrast gate'i HARD engelliyordu → link pair `blocking:false` (WARNING; gövde metni HARD
+  kalır) → shipped preset yayınlanabilir. (2) UI "Kenar boşluğu" (gutter) kontrolü `--tb-gutter`'ı emit ediyor
+  ama storefront TÜKETMİYORDU → `.max-w-grid` padding-inline'a bağlandı (canlı doğrulandı 40px). TD-160 CLOSED
+  (compose `NEXT_PUBLIC_STOREFRONT_URL`). TD-159 FUTURE (responsiveOverrides henüz builder-UI'da açık değil).
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164 tema temeli üstüne).
+1. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164/164A tema temeli üstüne).
 2. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
 3. **Final Enterprise UI & Design Polish** (EN SON).
 

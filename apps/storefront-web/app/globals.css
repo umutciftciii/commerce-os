@@ -44,6 +44,7 @@
   --radius-none: 0px;
   --radius-sm: 2px;
   --radius-md: 4px;
+  --radius-lg: 8px; /* TODO-164A — tanımlıydı-değildi; premium kart/gölge fallback'i */
 
   /* Golge — neredeyse yok; derinlik kontrast + bosluk ile kurulur. */
   --shadow-sm: 0 1px 2px 0 rgb(23 20 15 / 0.05);
@@ -223,3 +224,220 @@
     height: calc(100vh - 4rem);
   }
 }
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * TODO-164A (ADR-225/ADR-226) — CUSTOM THEME BUILDER slot variant'ları + builder
+ * yapısal değişkenleri.
+ * ════════════════════════════════════════════════════════════════════════════
+ * Bu blok BİLEREK UNLAYERED (hiçbir @layer içinde değil). Sebep: cascade layers
+ * modelinde katmansız kurallar, katmanlı (@layer utilities = Tailwind) kuralları
+ * GEÇER → attribute-selector'lu variant kuralları Tailwind utility'lerini güvenle
+ * override eder (grid-template-columns/aspect-ratio/flex/display/order gerçek
+ * layout farkı). Yalnız NON-STANDARD variant'lara kural yazılır → STANDART/eski
+ * variant'lar Tailwind varsayılanını KORUR (geriye uyumlu).
+ *
+ * Builder (@commerce-os/theme builder-css.ts) --tb-* değişkenlerini yayımlar;
+ * aşağıdaki kurallar bunları TÜKETİR (yoksa güvenli fallback). Tüm değerler
+ * sunucu-tarafında H-1 tipli doğrulamadan geçer; ham kullanıcı değeri CSS'e girmez.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* ── Builder yapısal değişken tüketimi (variant'tan bağımsız) ──────────────── */
+/* Container genişliği/gutter — max-w-grid'i (1440px) builder değeri override eder. */
+.max-w-grid {
+  max-width: var(--tb-container-max, 1440px);
+  /* Kenar boşluğu (gutter): builder değeri (--tb-gutter) tüm breakpoint'lerde
+     kazanır; ayarsızsa fallback varsayılan responsive padding'i (px-5/8/12) korur. */
+  padding-inline: var(--tb-gutter, 1.25rem);
+}
+@media (min-width: 640px) {
+  .max-w-grid {
+    padding-inline: var(--tb-gutter, 2rem);
+  }
+}
+@media (min-width: 1024px) {
+  .max-w-grid {
+    padding-inline: var(--tb-gutter, 3rem);
+  }
+}
+
+/* ── Header slot (yeni adlandırılmış variant'lar) ──────────────────────────── */
+/* CENTERED_BRAND: marka kendi satırında ORTALANIR (iki-satır), nav/aksiyon alta sarar. */
+.site-header[data-header-variant="CENTERED_BRAND"] > div {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 0.5rem;
+}
+.site-header[data-header-variant="CENTERED_BRAND"] > div > a {
+  order: -1;
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+}
+/* EDITORIAL_SPLIT: logo SOLA sabitlenir, nav/aksiyon sağa itilir (dergi hissi). */
+.site-header[data-header-variant="EDITORIAL_SPLIT"] > div > a {
+  order: -1;
+  margin-right: auto;
+}
+.site-header[data-header-variant="EDITORIAL_SPLIT"] {
+  border-bottom-width: 2px;
+}
+
+/* ── Footer slot (yeni adlandırılmış variant'lar) ──────────────────────────── */
+/* MINIMAL: bülten bandı + marka/sosyal bloğu gizlenir → tek satır kompakt. */
+.site-footer[data-footer-variant="MINIMAL"] > div:first-child {
+  display: none;
+}
+.site-footer[data-footer-variant="MINIMAL"] .col-span-2 {
+  display: none;
+}
+/* MULTI_COLUMN: bülten gizli ama 6-kolon link ızgarası ÖNE çıkar (yoğun keşif). */
+.site-footer[data-footer-variant="MULTI_COLUMN"] > div:first-child {
+  display: none;
+}
+
+/* ── Mobile navigation slot (yeni adlandırılmış variant'lar) ───────────────── */
+/* BOTTOM_BAR: panel EKRAN ALTINDAN yukarı açılan sheet (drawer top-full yerine). */
+.mobile-nav[data-variant="BOTTOM_BAR"] .mobile-nav-panel {
+  position: fixed;
+  inset-inline: 0;
+  top: auto;
+  bottom: 0;
+  max-height: 60vh;
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+}
+/* COMPACT_HEADER: kısa, sıkı açılır liste (yoğunluğu azaltır). */
+.mobile-nav[data-variant="COMPACT_HEADER"] .mobile-nav-panel {
+  max-height: 50vh;
+}
+.mobile-nav[data-variant="COMPACT_HEADER"] .mobile-nav-panel nav > a {
+  padding-block: 0.75rem;
+}
+
+/* ── Hero slot (yeni adlandırılmış variant'lar + builder yükseklik) ────────── */
+.hero-frame[data-variant="FULL_WIDTH"] {
+  height: var(--tb-hero-h, var(--hero-h-mobile));
+  border-radius: var(--radius-none);
+}
+@media (min-width: 1024px) {
+  .hero-frame[data-variant="FULL_WIDTH"] {
+    height: var(--tb-hero-h, var(--hero-h-desktop));
+  }
+}
+/* SPLIT_CONTENT: çerçeveli/ferah his — yuvarlak köşe + daha alçak şerit. */
+.hero-frame[data-variant="SPLIT_CONTENT"] {
+  height: var(--tb-hero-h, var(--hero-h-mobile));
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+@media (min-width: 1024px) {
+  .hero-frame[data-variant="SPLIT_CONTENT"] {
+    height: var(--tb-hero-h, calc(var(--hero-h-desktop) * 0.82));
+  }
+}
+/* EDITORIAL_OVERLAY: alçak sinematik şerit, keskin köşe (metin overlay öne çıkar). */
+.hero-frame[data-variant="EDITORIAL_OVERLAY"] {
+  height: var(--tb-hero-h, calc(var(--hero-h-mobile) * 0.9));
+  border-radius: var(--radius-none);
+}
+@media (min-width: 1024px) {
+  .hero-frame[data-variant="EDITORIAL_OVERLAY"] {
+    height: var(--tb-hero-h, calc(var(--hero-h-desktop) * 0.68));
+  }
+}
+
+/* ── Product card slot (yeni adlandırılmış variant'lar) ────────────────────── */
+/* MINIMAL: kare medya, çerçevesiz, sakin (gölge/kenar yok). */
+.product-card[data-variant="MINIMAL"] .product-card-media {
+  aspect-ratio: var(--tb-card-ratio, 1 / 1);
+  border-color: transparent;
+  border-radius: var(--radius-none);
+}
+/* EDITORIAL: uzun 3:4 medya, geniş köşe + yumuşak gölge, serif başlık. */
+.product-card[data-variant="EDITORIAL"] .product-card-media {
+  aspect-ratio: var(--tb-card-ratio, 3 / 4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.product-card[data-variant="EDITORIAL"] h3 {
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+}
+/* DENSE: sıkı kare medya, keskin köşe (katalog yoğunluğu). */
+.product-card[data-variant="DENSE"] .product-card-media {
+  aspect-ratio: var(--tb-card-ratio, 1 / 1);
+  border-radius: var(--radius-sm);
+}
+.product-card[data-variant="DENSE"] {
+  font-size: 0.85rem;
+}
+
+/* ── Product listing slot (PLP grid — GERÇEK kolon farkı) ──────────────────── */
+/* Tüm variant'lar builder --tb-listing-cols'u da tüketir (yoksa variant defaultu). */
+@media (min-width: 1024px) {
+  .product-grid[data-listing-variant="STANDARD_GRID"] {
+    grid-template-columns: repeat(var(--tb-listing-cols, 4), minmax(0, 1fr));
+  }
+  .product-grid[data-listing-variant="EDITORIAL_GRID"] {
+    grid-template-columns: repeat(var(--tb-listing-cols, 3), minmax(0, 1fr));
+    column-gap: 2.5rem;
+    row-gap: 4rem;
+  }
+  .product-grid[data-listing-variant="DENSE_CATALOG"] {
+    grid-template-columns: repeat(var(--tb-listing-cols, 5), minmax(0, 1fr));
+    column-gap: var(--tb-listing-gap, 1rem);
+    row-gap: 2rem;
+  }
+}
+/* dense (eski lowercase) da yoğun katalog gibi davransın (geriye uyum köprüsü). */
+@media (min-width: 1024px) {
+  .product-grid[data-listing-variant="dense"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* ── Product detail slot (PDP — GERÇEK düzen farkı) ────────────────────────── */
+/* GALLERY_FIRST: tek kolon; galeri tam genişlik ÜSTTE, buy box altta. */
+@media (min-width: 1024px) {
+  .pdp-layout[data-detail-variant="GALLERY_FIRST"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pdp-layout[data-detail-variant="GALLERY_FIRST"] > *:last-child {
+    max-width: 48rem;
+    margin-inline: auto;
+    width: 100%;
+  }
+  /* EDITORIAL: dar tek kolon, ortalanmış (dergi/uzun-form). */
+  .pdp-layout[data-detail-variant="EDITORIAL"] {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 56rem;
+    margin-inline: auto;
+    gap: 2.5rem;
+  }
+  /* gallery-left (eski) — galeri sol, buybox sağ (mevcut default zaten öyle; köprü). */
+  .pdp-layout[data-detail-variant="gallery-left"] {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+
+/* ── Home section frame slot (GERÇEK boşluk/genişlik farkı) ────────────────── */
+/* FULL_BLEED: bölümler kenardan-kenara (Container yatay padding sıfırlanır). */
+.home-sections[data-section-variant="FULL_BLEED"] {
+  --tb-section-gap: 0px;
+}
+.home-sections[data-section-variant="FULL_BLEED"] > * {
+  margin-block: var(--tb-section-gap, 0);
+}
+/* COMPACT: dikey ritim daraltılır (yoğun ana sayfa). */
+.home-sections[data-section-variant="COMPACT"] > * + * {
+  margin-top: calc(-1 * var(--tb-section-gap, 2rem));
+}
+/* EDITORIAL: geniş dikey nefes (dergi hissi). */
+.home-sections[data-section-variant="EDITORIAL"] > * + * {
+  margin-top: var(--tb-section-gap, 3rem);
+}
+
+/* ── Buton biçimi (builder buttonStyle → radius; presentation-only) ────────── */
+/* Builder radius scale zaten --radius-* override eder; ek köşe kuralı gerekmez. */

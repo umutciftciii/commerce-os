@@ -24,6 +24,9 @@ const TR = {
   draft: "Taslak revizyonu",
   previous: "Önceki yayın",
   lastPublish: "Son yayın",
+  lastUpdate: "Son güncelleme",
+  draftThemes: "Taslak temalar",
+  sourcePreset: "Kaynak preset",
   rollback: "Geri alma",
   rollbackYes: "mevcut",
   rollbackNo: "yok",
@@ -128,6 +131,9 @@ export function ThemeBindingPanel({
         <Row label={TR.previous} value={binding.previousPublishedVersion ? `v${binding.previousPublishedVersion}` : TR.none} />
         <Row label={TR.rollback} value={binding.rollbackAvailable ? TR.rollbackYes : TR.rollbackNo} />
         <Row label={TR.lastPublish} value={binding.lastPublishedAt ? new Date(binding.lastPublishedAt).toLocaleString(locale) : TR.none} />
+        <Row label={TR.lastUpdate} value={binding.lastUpdatedAt ? new Date(binding.lastUpdatedAt).toLocaleString(locale) : TR.none} />
+        <Row label={TR.draftThemes} value={String(binding.draftThemeCount ?? 0)} />
+        <Row label={TR.sourcePreset} value={binding.sourcePreset ?? TR.none} />
       </dl>
 
       <div className="flex items-end gap-2 border-t border-slate-700/50 pt-3">

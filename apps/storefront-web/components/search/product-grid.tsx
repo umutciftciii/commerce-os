@@ -6,12 +6,28 @@ import { SearchProductCard } from "./search-product-card";
  * TODO-156B (ANALIZ §6) — Responsive ürün grid'i (RSC). 2 (mobil) / 3 (tablet) / 4 (desktop) kolon;
  * sabit 4:5 kart oranı → layout shift minimum, ürün sayısından bağımsız düzen. İlk satır görselleri
  * (LCP) `priority`; gerisi lazy. Kartlar client island (swatch/hover); grid sunucuda render edilir.
+ *
+ * TODO-164A — Listing slot variant'ı (`productListingLayout`): STANDARD_GRID /
+ * EDITORIAL_GRID / DENSE_CATALOG. `data-listing-variant` + `.product-grid` ile
+ * GERÇEK kolon/gap farkı (globals.css). Sunucu-otoriter; `listingVariant` prop'u
+ * async üst sayfadan gelir (nested async RSC'den kaçınmak için — bkz. PLP page).
  */
 const PRIORITY_COUNT = 4; // desktop ilk satır (4 kolon) — LCP.
 
-export function ProductGrid({ cards, t }: { cards: SearchListingCard[]; t: StorefrontDictionary }) {
+export function ProductGrid({
+  cards,
+  t,
+  listingVariant = "standard",
+}: {
+  cards: SearchListingCard[];
+  t: StorefrontDictionary;
+  listingVariant?: string;
+}) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-14">
+    <div
+      data-listing-variant={listingVariant}
+      className="product-grid grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-14"
+    >
       {cards.map((card, index) => (
         <SearchProductCard key={card.id} card={card} t={t} priority={index < PRIORITY_COUNT} />
       ))}

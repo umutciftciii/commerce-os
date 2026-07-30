@@ -39,13 +39,31 @@ export const themeSlotKeySchema = z.enum(THEME_SLOT_KEYS);
 /** Slotun render katmanı: RSC (server) mi client island mı? Güvenlik/veri sınırı için belge. */
 export type SlotBoundary = "server" | "client";
 
+/** Builder UI'da bir variant için gösterilecek adlandırılmış seçenek. */
+export interface SlotBuilderVariant {
+  key: string;
+  nameTr: string;
+  nameEn: string;
+}
+
 export interface ThemeSlotDefinition {
   key: ThemeSlotKey;
   nameTr: string;
   nameEn: string;
-  /** İzinli variant anahtarları. İlk eleman defaultVariant'tır. */
+  /**
+   * İzinli variant anahtarları (ALLOWLIST — güvenlik sınırı). İlk eleman
+   * defaultVariant'tır (geriye uyum). TODO-164A: her slota adlandırılmış builder
+   * variant'ları ADDITIVE eklendi; eski (lowercase) variant'lar KORUNUR — layout
+   * preset / custom package / eski config'ler bozulmaz.
+   */
   variants: readonly string[];
   defaultVariant: string;
+  /**
+   * Builder UI'ın SUNDUĞU adlandırılmış variant menüsü (TODO-164A). `variants`
+   * allowlist'in bir alt-kümesidir; güvenlik `variants` ile sağlanır, bu yalnız
+   * sunum listesidir. İlk eleman "standart/varsayılan görünüm"tür.
+   */
+  builderVariants: readonly SlotBuilderVariant[];
   boundary: SlotBoundary;
   /** Business data kaynağı (canonical projeksiyon) — belge amaçlı. */
   dataSource: string;
@@ -60,8 +78,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "header",
     nameTr: "Başlık",
     nameEn: "Header",
-    variants: ["solid", "minimal", "floating"],
+    variants: ["solid", "minimal", "floating", "STANDARD", "CENTERED_BRAND", "EDITORIAL_SPLIT"],
     defaultVariant: "solid",
+    builderVariants: [
+      { key: "STANDARD", nameTr: "Standart", nameEn: "Standard" },
+      { key: "CENTERED_BRAND", nameTr: "Ortalı Marka", nameEn: "Centered Brand" },
+      { key: "EDITORIAL_SPLIT", nameTr: "Editoryal Bölünmüş", nameEn: "Editorial Split" },
+    ],
     boundary: "server",
     dataSource: "store-info + nav categories",
   },
@@ -69,8 +92,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "footer",
     nameTr: "Alt Bilgi",
     nameEn: "Footer",
-    variants: ["expanded", "minimal"],
+    variants: ["expanded", "minimal", "STANDARD", "MINIMAL", "MULTI_COLUMN"],
     defaultVariant: "expanded",
+    builderVariants: [
+      { key: "STANDARD", nameTr: "Standart", nameEn: "Standard" },
+      { key: "MINIMAL", nameTr: "Sade", nameEn: "Minimal" },
+      { key: "MULTI_COLUMN", nameTr: "Çok Kolonlu", nameEn: "Multi Column" },
+    ],
     boundary: "server",
     dataSource: "i18n dict",
   },
@@ -78,8 +106,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "mobileNavigation",
     nameTr: "Mobil Navigasyon",
     nameEn: "Mobile Navigation",
-    variants: ["drawer", "fullscreen"],
+    variants: ["drawer", "fullscreen", "BOTTOM_BAR", "DRAWER", "COMPACT_HEADER"],
     defaultVariant: "drawer",
+    builderVariants: [
+      { key: "DRAWER", nameTr: "Çekmece", nameEn: "Drawer" },
+      { key: "BOTTOM_BAR", nameTr: "Alt Bar", nameEn: "Bottom Bar" },
+      { key: "COMPACT_HEADER", nameTr: "Kompakt Başlık", nameEn: "Compact Header" },
+    ],
     boundary: "client",
     dataSource: "nav links + categories",
   },
@@ -87,8 +120,22 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "productCard",
     nameTr: "Ürün Kartı",
     nameEn: "Product Card",
-    variants: ["comfortable", "compact", "premium"],
+    variants: [
+      "comfortable",
+      "compact",
+      "premium",
+      "STANDARD",
+      "MINIMAL",
+      "EDITORIAL",
+      "DENSE",
+    ],
     defaultVariant: "comfortable",
+    builderVariants: [
+      { key: "STANDARD", nameTr: "Standart", nameEn: "Standard" },
+      { key: "MINIMAL", nameTr: "Sade", nameEn: "Minimal" },
+      { key: "EDITORIAL", nameTr: "Editoryal", nameEn: "Editorial" },
+      { key: "DENSE", nameTr: "Yoğun", nameEn: "Dense" },
+    ],
     boundary: "client",
     dataSource: "StorefrontProductSummary / SearchListingCard",
   },
@@ -96,8 +143,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "productDetailLayout",
     nameTr: "Ürün Detay Düzeni",
     nameEn: "Product Detail Layout",
-    variants: ["standard", "gallery-left", "editorial"],
+    variants: ["standard", "gallery-left", "editorial", "STANDARD", "GALLERY_FIRST", "EDITORIAL"],
     defaultVariant: "standard",
+    builderVariants: [
+      { key: "STANDARD", nameTr: "Standart", nameEn: "Standard" },
+      { key: "GALLERY_FIRST", nameTr: "Galeri Önce", nameEn: "Gallery First" },
+      { key: "EDITORIAL", nameTr: "Editoryal", nameEn: "Editorial" },
+    ],
     boundary: "server",
     dataSource: "StorefrontProductDetail",
   },
@@ -105,8 +157,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "productListingLayout",
     nameTr: "Ürün Liste Düzeni",
     nameEn: "Product Listing Layout",
-    variants: ["standard", "dense"],
+    variants: ["standard", "dense", "STANDARD_GRID", "EDITORIAL_GRID", "DENSE_CATALOG"],
     defaultVariant: "standard",
+    builderVariants: [
+      { key: "STANDARD_GRID", nameTr: "Standart Izgara", nameEn: "Standard Grid" },
+      { key: "EDITORIAL_GRID", nameTr: "Editoryal Izgara", nameEn: "Editorial Grid" },
+      { key: "DENSE_CATALOG", nameTr: "Yoğun Katalog", nameEn: "Dense Catalog" },
+    ],
     boundary: "server",
     dataSource: "search read-model",
   },
@@ -114,8 +171,13 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "hero",
     nameTr: "Hero",
     nameEn: "Hero",
-    variants: ["full", "editorial", "split"],
+    variants: ["full", "editorial", "split", "FULL_WIDTH", "SPLIT_CONTENT", "EDITORIAL_OVERLAY"],
     defaultVariant: "full",
+    builderVariants: [
+      { key: "FULL_WIDTH", nameTr: "Tam Genişlik", nameEn: "Full Width" },
+      { key: "SPLIT_CONTENT", nameTr: "Bölünmüş İçerik", nameEn: "Split Content" },
+      { key: "EDITORIAL_OVERLAY", nameTr: "Editoryal Overlay", nameEn: "Editorial Overlay" },
+    ],
     boundary: "client",
     dataSource: "StorefrontHomeHeroSlide[]",
   },
@@ -123,8 +185,14 @@ export const THEME_SLOT_REGISTRY: readonly ThemeSlotDefinition[] = [
     key: "homeSectionFrame",
     nameTr: "Ana Sayfa Bölüm Çerçevesi",
     nameEn: "Home Section Frame",
-    variants: ["standard", "boxed"],
+    variants: ["standard", "boxed", "STANDARD", "FULL_BLEED", "EDITORIAL", "COMPACT"],
     defaultVariant: "standard",
+    builderVariants: [
+      { key: "STANDARD", nameTr: "Standart", nameEn: "Standard" },
+      { key: "FULL_BLEED", nameTr: "Tam Taşma", nameEn: "Full Bleed" },
+      { key: "EDITORIAL", nameTr: "Editoryal", nameEn: "Editorial" },
+      { key: "COMPACT", nameTr: "Kompakt", nameEn: "Compact" },
+    ],
     boundary: "server",
     dataSource: "StorefrontHomeSection[]",
   },
@@ -192,3 +260,27 @@ export function normalizeSlotSelections(
 
 /** Slot seçimi şeması (record<slot, string>) — config doğrulaması için. */
 export const slotSelectionSchema = z.record(themeSlotKeySchema, z.string());
+
+/**
+ * Builder UI menüsü: her slot + sunulan adlandırılmış variant'lar (+ default).
+ * Güvenlik `variants` allowlist'iyle sağlanır; bu yalnız sunum içindir.
+ */
+export interface SlotBuilderMenuEntry {
+  key: ThemeSlotKey;
+  nameTr: string;
+  nameEn: string;
+  defaultVariant: string;
+  boundary: SlotBoundary;
+  variants: readonly SlotBuilderVariant[];
+}
+
+export function listSlotBuilderMenu(): SlotBuilderMenuEntry[] {
+  return THEME_SLOT_REGISTRY.map((s) => ({
+    key: s.key,
+    nameTr: s.nameTr,
+    nameEn: s.nameEn,
+    defaultVariant: s.defaultVariant,
+    boundary: s.boundary,
+    variants: s.builderVariants,
+  }));
+}

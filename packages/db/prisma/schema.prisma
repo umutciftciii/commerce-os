@@ -3031,6 +3031,13 @@ model Theme {
   themeKey        String @default("BASE_COMMERCE")
   layoutPreset    String @default("BASE_COMMERCE")
   themeApiVersion Int    @default(1)
+  // TODO-164A (ADR-225/ADR-229) — Custom Theme Builder kimlik alanları (additive,
+  // nullable). Kopyalama config+document snapshot'ı kopyalar, YENİ kimlik üretir,
+  // history/audit KOPYALAMAZ; kaynak temayı `duplicatedFrom` ile işaretler.
+  // createdBy/updatedBy = platform kullanıcı id (audit; PII taşımaz).
+  duplicatedFrom String?
+  createdBy      String?
+  updatedBy      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

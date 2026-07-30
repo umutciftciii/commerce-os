@@ -42,6 +42,10 @@ export type ThemeRecord = {
   themeKey: string;
   layoutPreset: string;
   themeApiVersion: number;
+  // TODO-164A — builder kimlik alanları (audit/görünürlük).
+  duplicatedFrom: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
   versions: ThemeVersionRecord[];
@@ -72,6 +76,9 @@ const themeSelect = {
   themeKey: true,
   layoutPreset: true,
   themeApiVersion: true,
+  duplicatedFrom: true,
+  createdBy: true,
+  updatedBy: true,
   createdAt: true,
   updatedAt: true,
   versions: { select: versionSelect, orderBy: { version: "desc" as const } },
@@ -89,6 +96,9 @@ export interface CreateThemeInput {
   layoutPreset: string;
   themeApiVersion: number;
   config: unknown;
+  // TODO-164A — builder kimlik alanları (opsiyonel; audit).
+  createdBy?: string | null;
+  duplicatedFrom?: string | null;
 }
 
 /** TODO-164 — PUBLISHED tema + versiyon config'i (vitrin resolver girdisi). */
@@ -130,6 +140,19 @@ export interface ThemeDataAccess {
     patch: { name?: string; description?: string | null },
   ): Promise<ThemeRecord | null>;
   deleteTheme(storeId: string, themeId: string): Promise<boolean>;
+  /** TODO-164A — Tema kopyala: aktif (draft>published) config+document snapshot'ını
+   *  YENİ kimliğe kopyalar (DRAFT, tek versiyon). history/audit KOPYALANMAZ. */
+  duplicateTheme(
+    storeId: string,
+    themeId: string,
+    input: { name: string; createdBy?: string | null },
+  ): Promise<ThemeRecord | null>;
+  /** TODO-164A — Temayı arşivle (PUBLISHED arşivlenemez → null döner yerine dokunmaz). */
+  archiveTheme(
+    storeId: string,
+    themeId: string,
+    input?: { updatedBy?: string | null },
+  ): Promise<ThemeRecord | null>;
   /** Mevcut DRAFT versiyonun belgesini + config'ini günceller (yoksa yeni draft yaratır). */
   saveDraft(
     storeId: string,
@@ -212,6 +235,9 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
           themeKey: input.themeKey,
           layoutPreset: input.layoutPreset,
           themeApiVersion: input.themeApiVersion,
+          duplicatedFrom: input.duplicatedFrom ?? null,
+          createdBy: input.createdBy ?? null,
+          updatedBy: input.createdBy ?? null,
           versions: {
             create: {
               storeId,
@@ -241,6 +267,62 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
     async deleteTheme(storeId, themeId) {
       const result = await prisma.theme.deleteMany({ where: { id: themeId, storeId } });
       return result.count > 0;
+    },
+
+    async duplicateTheme(storeId, themeId, input) {
+      const theme = await prisma.theme.findFirst({
+        where: { id: themeId, storeId },
+        select: themeSelect,
+      });
+      if (!theme) return null;
+      // Kopya kaynağı: aktif düzenlenebilir belge (draft öncelikli, yoksa published).
+      const source = currentDraft(theme) ?? currentPublished(theme) ?? theme.versions[0];
+      if (!source) return null;
+      // YENİ kimlik; status DRAFT; tek versiyon (v1); history/audit KOPYALANMAZ.
+      return prisma.theme.create({
+        data: {
+          storeId,
+          name: input.name,
+          description: theme.description,
+          source: `duplicate:${theme.id}`,
+          status: "DRAFT",
+          themeKey: theme.themeKey,
+          layoutPreset: theme.layoutPreset,
+          themeApiVersion: theme.themeApiVersion,
+          duplicatedFrom: theme.id,
+          createdBy: input.createdBy ?? null,
+          updatedBy: input.createdBy ?? null,
+          versions: {
+            create: {
+              storeId,
+              version: 1,
+              status: "DRAFT",
+              schemaVersion: source.schemaVersion,
+              document: source.document as Prisma.InputJsonValue,
+              config: source.config as Prisma.InputJsonValue,
+              themeKey: source.themeKey,
+              layoutPreset: source.layoutPreset,
+              label: "duplicate",
+            },
+          },
+        },
+        select: themeSelect,
+      });
+    },
+
+    async archiveTheme(storeId, themeId, input) {
+      const theme = await prisma.theme.findFirst({
+        where: { id: themeId, storeId },
+        select: { id: true, status: true },
+      });
+      if (!theme) return null;
+      // PUBLISHED tema arşivlenemez (önce başka tema publish edilmeli).
+      if (theme.status === "PUBLISHED") return null;
+      await prisma.theme.update({
+        where: { id: themeId },
+        data: { status: "ARCHIVED", ...(input?.updatedBy ? { updatedBy: input.updatedBy } : {}) },
+      });
+      return prisma.theme.findFirst({ where: { id: themeId, storeId }, select: themeSelect });
     },
 
     async saveDraft(storeId, themeId, input) {

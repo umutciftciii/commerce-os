@@ -21,3 +21,9 @@ export * from "./custom-package.js";
 export * from "./theme-registry.js";
 export * from "./compatibility.js";
 export * from "./config.js";
+// TODO-164A (ADR-225…231) — Custom Theme Builder: genişletilmiş config, WCAG
+// contrast publish gate, responsive/yapısal CSS serializer, başlangıç noktaları.
+export * from "./builder-config.js";
+export * from "./builder-css.js";
+export * from "./contrast.js";
+export * from "./starting-points.js";

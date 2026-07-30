@@ -25,6 +25,8 @@ import {
   themeBindingResponseSchema,
   themeBindingAssignRequestSchema,
   themeBindingListResponseSchema,
+  themeDuplicateRequestSchema,
+  themePreviewTokenResponseSchema,
 } from "@commerce-os/contracts";
 import {
   DEFAULT_THEME_DOCUMENT,
@@ -51,7 +53,14 @@ import {
   getThemeEntry,
   THEME_REGISTRY,
   resolveThemeDocumentForKey,
-  type ThemeConfig,
+  // TODO-164A — Custom Theme Builder: genişletilmiş config, contrast gate, başlangıç.
+  validateThemeBuilderConfig,
+  parseThemeBuilderConfig,
+  checkContrast,
+  contrastErrors,
+  resolveStartingPoint,
+  isThemeStartingPoint,
+  type ThemeBuilderConfig,
 } from "@commerce-os/theme";
 import type { ThemeDataAccess, ThemeRecord, ThemeVersionRecord } from "./data.js";
 
@@ -72,6 +81,8 @@ export interface ThemeAdminRoutesDeps {
   }) => Promise<void>;
   /** TODO-164 — yayınlanmış tema değişince vitrin resolver cache'ini geçersiz kıl. */
   invalidateResolvedTheme?: (storeId: string) => void;
+  /** TODO-164A — imzalı, kısa ömürlü builder preview token'ı üret (server.ts secret ile bağlar). */
+  issuePreviewToken?: (storeId: string, themeId: string) => { token: string; expiresAt: Date };
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
@@ -172,6 +183,8 @@ function serializeDetail(theme: ThemeRecord) {
     themeKey: theme.themeKey,
     layoutPreset: theme.layoutPreset,
     themeApiVersion: theme.themeApiVersion,
+    duplicatedFrom: theme.duplicatedFrom,
+    updatedAt: theme.updatedAt.toISOString(),
     draft: draft ? serializeVersionDoc(draft) : null,
     published: published ? serializeVersionDoc(published) : null,
     versions: theme.versions.map((v) => ({
@@ -209,27 +222,22 @@ const INITIAL_THEME_CONFIG = {
 } as const;
 
 /**
- * TODO-164 — Gönderilen config'i doğrular + compatibility denetler. Geçerli config'i
- * (render-safe) döndürür; hata varsa hata gövdesi. themeKey/layoutPreset registry'ye
- * karşı; slot variant'lar allowlist'e karşı denetlenir.
+ * TODO-164/164A — Gönderilen config'i doğrular + compatibility denetler. GENİŞLETİLMİŞ
+ * builder config (`themeBuilderConfigSchema`): yapısal + responsive + colorScheme grupları
+ * strict/bounded; bilinmeyen key / izinsiz variant / güvensiz değer REDDEDİLİR. Geçerli,
+ * NORMALIZE (slotVariants→slots merge) config döner. compatibility HAM themeKey/slots'a
+ * bakar (bilinmeyen key reddi — sessiz downgrade YOK).
  */
 function validateConfig(
   raw: unknown,
-): { ok: true; config: ThemeConfig } | { ok: false; code: string; issues: unknown[] } {
-  const parsed = themeConfigSchema.safeParse(raw ?? {});
-  if (!parsed.success) {
-    return {
-      ok: false,
-      code: "INVALID_THEME_CONFIG",
-      issues: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
-    };
+): { ok: true; config: ThemeBuilderConfig } | { ok: false; code: string; issues: unknown[] } {
+  const validated = validateThemeBuilderConfig(raw ?? {});
+  if (!validated.ok) {
+    return { ok: false, code: "INVALID_THEME_CONFIG", issues: validated.errors };
   }
-  // GÜVENLİK/DOĞRULAMA: compatibility HAM themeKey/slot'a bakar (bilinmeyen key
-  // REDDEDİLİR). parseThemeConfig bilinmeyen key'i base'e düşürür — bu RESOLVER
-  // fail-closed davranışıdır (runtime crash yok), ama doğrulama sessizce
-  // downgrade ETMEMELİ; yoksa "invalid theme publish edilemez" ihlal olurdu.
-  const compat = checkThemeKeyCompatibility(parsed.data.themeKey, {
-    slotSelections: parsed.data.slots,
+  const normalized = parseThemeBuilderConfig(raw ?? {});
+  const compat = checkThemeKeyCompatibility(validated.config.themeKey, {
+    slotSelections: normalized.slots,
   });
   const errors = compatibilityErrors(compat);
   if (errors.length > 0) {
@@ -239,23 +247,45 @@ function validateConfig(
       issues: errors.map((e) => ({ code: e.code, slot: e.slot, message: e.message })),
     };
   }
-  return { ok: true, config: parseThemeConfig(parsed.data) };
+  return { ok: true, config: normalized };
 }
 
-/** Depolanmış (ham) config'in yayınlanabilir olup olmadığı — publish gate için. */
+/**
+ * Depolanmış (ham) config'in yayınlanabilir olup olmadığı — publish gate için.
+ * compatibility HAM themeKey/slots'a bakar (bilinmeyen key REDDEDİLİR; `parseThemeBuilderConfig`
+ * fail-closed downgrade'i publish gate'te KULLANILMAZ, yoksa geçersiz tema sessizce yayınlanırdı).
+ */
 function rawConfigCompatible(
   rawConfig: unknown,
 ): { ok: true } | { ok: false; issues: unknown[] } {
-  const parsed = themeConfigSchema.safeParse(rawConfig ?? {});
-  // Şema bile geçmiyorsa yayınlanamaz (bozuk config).
-  const themeKey = parsed.success ? parsed.data.themeKey : "";
-  const slots = parsed.success ? parsed.data.slots : undefined;
-  const compat = checkThemeKeyCompatibility(themeKey, { slotSelections: slots });
+  const validated = validateThemeBuilderConfig(rawConfig ?? {});
+  if (!validated.ok) {
+    return { ok: false, issues: validated.errors.map((message) => ({ code: "INVALID_THEME_CONFIG", message })) };
+  }
+  const cfg = validated.config;
+  // slotVariants → slots merge (RAW; downgrade YOK — allowlist zaten şemada denetlendi).
+  const slots: Record<string, string> = { ...((cfg.slots ?? {}) as Record<string, string>) };
+  for (const [slot, variant] of Object.entries((cfg.slotVariants ?? {}) as Record<string, string>)) {
+    slots[slot] = variant;
+  }
+  const compat = checkThemeKeyCompatibility(cfg.themeKey, { slotSelections: slots });
   const errors = compatibilityErrors(compat);
   if (errors.length > 0) {
     return { ok: false, issues: errors.map((e) => ({ code: e.code, slot: e.slot, message: e.message })) };
   }
   return { ok: true };
+}
+
+/** Kontrast (WCAG) publish gate gövdesi — ham değer taşımaz (yalnız çift/oran). */
+function contrastFailureBody(doc: ThemeDocument) {
+  const result = checkContrast(doc);
+  const errors = contrastErrors(result);
+  if (errors.length === 0) return null;
+  return errorBody("THEME_CONTRAST_FAILED", "Theme fails minimum contrast (WCAG AA).", {
+    details: {
+      contrast: errors.map((e) => ({ label: e.label, ratio: e.ratio, threshold: e.threshold })),
+    },
+  });
 }
 
 export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminRoutesDeps): void {
@@ -289,17 +319,33 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (body.presetId && !getPreset(body.presetId)) {
       return reply.code(400).send(errorBody("THEME_PRESET_NOT_FOUND", "Unknown preset."));
     }
-    const document = withSanitizedCustomCss(initialDocument(body.presetId, body.name));
+    if (body.startingPoint && !isThemeStartingPoint(body.startingPoint)) {
+      return reply.code(400).send(errorBody("THEME_STARTING_POINT_NOT_FOUND", "Unknown starting point."));
+    }
+    // TODO-164A — Başlangıç noktası verildiyse preset'i KOPYALA (config+document
+    // snapshot; registry MUTATE edilmez). Yoksa eski davranış (presetId/default).
+    let document: ThemeDocument;
+    let config: ThemeBuilderConfig | typeof INITIAL_THEME_CONFIG = INITIAL_THEME_CONFIG;
+    let source = body.presetId ?? "default";
+    if (body.startingPoint) {
+      const snap = resolveStartingPoint(body.startingPoint);
+      document = withSanitizedCustomCss({ ...snap.document, meta: { ...snap.document.meta, name: body.name } });
+      config = snap.config;
+      source = `start:${body.startingPoint}`;
+    } else {
+      document = withSanitizedCustomCss(initialDocument(body.presetId, body.name));
+    }
     const created = await dataAccess.createTheme(storeId, {
       name: body.name,
       description: body.description ?? null,
-      source: body.presetId ?? "default",
+      source,
       schemaVersion: document.schemaVersion,
       document: document as unknown as Record<string, unknown>,
-      themeKey: BASE_THEME_KEY,
-      layoutPreset: BASE_LAYOUT_PRESET_KEY,
+      themeKey: config.themeKey,
+      layoutPreset: config.layoutPreset,
       themeApiVersion: THEME_API_VERSION,
-      config: INITIAL_THEME_CONFIG,
+      config: config as unknown as Record<string, unknown>,
+      createdBy: admin.actorUserId,
     });
     await recordAudit({
       action: "CREATE",
@@ -391,7 +437,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
       return reply.code(400).send(tokenIssuesBody(tokenIssues));
     }
     // TODO-164 — layout/slot config doğrulaması + compatibility (gönderildiyse).
-    let configPatch: { config: ThemeConfig; themeKey: string; layoutPreset: string } | undefined;
+    let configPatch: { config: ThemeBuilderConfig; themeKey: string; layoutPreset: string } | undefined;
     if (body.config !== undefined) {
       const cfg = validateConfig(body.config);
       if (!cfg.ok) {
@@ -449,6 +495,13 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     const publishIssues = collectThemeTokenIssues(draftDoc);
     if (publishIssues.length > 0) {
       return reply.code(409).send(tokenIssuesBody(publishIssues, "THEME_PUBLISH_BLOCKED"));
+    }
+    // TODO-164A (ADR-230) — Erişilebilirlik publish gate: KRİTİK kontrast (WCAG AA)
+    // başarısızsa YAYINLANAMAZ (mevcut published korunur). Uyarı seviyesi engellemez
+    // (store-admin gösterir). Ham renk değeri yanıta sızmaz.
+    const contrastFail = contrastFailureBody(draftDoc);
+    if (contrastFail) {
+      return reply.code(409).send(contrastFail);
     }
     // TODO-164 — compatibility gate: uyumsuz theme-key/layout/slot config YAYINLANAMAZ
     // (mevcut published korunur; storefront base fallback'te kalır). HAM config'e bakar
@@ -580,6 +633,67 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     });
     return reply.code(201).send(themeDetailSchema.parse(serializeDetail(created)));
   });
+
+  // ── Kopyala (yeni kimlik; config+document snapshot; history KOPYALANMAZ) ────
+  app.post("/stores/:storeId/themes/:themeId/duplicate", async (request, reply) => {
+    const { storeId, themeId } = themeParam.parse(request.params);
+    const admin = await requireStoreAdmin(request, reply, storeId);
+    if (!admin) return;
+    const body = themeDuplicateRequestSchema.parse(request.body);
+    const copy = await dataAccess.duplicateTheme(storeId, themeId, {
+      name: body.name,
+      createdBy: admin.actorUserId,
+    });
+    if (!copy) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
+    await recordAudit({
+      action: "CREATE",
+      platformUserId: admin.actorUserId,
+      storeId,
+      entityType: "Theme",
+      entityId: copy.id,
+      metadata: { op: "duplicate", duplicatedFrom: themeId },
+    });
+    return reply.code(201).send(themeDetailSchema.parse(serializeDetail(copy)));
+  });
+
+  // ── Arşivle (yayındaki tema arşivlenemez) ──────────────────────────────────
+  app.post("/stores/:storeId/themes/:themeId/archive", async (request, reply) => {
+    const { storeId, themeId } = themeParam.parse(request.params);
+    const admin = await requireStoreAdmin(request, reply, storeId);
+    if (!admin) return;
+    const theme = await dataAccess.getTheme(storeId, themeId);
+    if (!theme) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
+    if (theme.status === "PUBLISHED") {
+      return reply
+        .code(409)
+        .send(errorBody("THEME_PUBLISHED_ARCHIVE", "Cannot archive the published theme."));
+    }
+    const archived = await dataAccess.archiveTheme(storeId, themeId, { updatedBy: admin.actorUserId });
+    if (!archived) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
+    await recordAudit({
+      action: "UPDATE",
+      platformUserId: admin.actorUserId,
+      storeId,
+      entityType: "Theme",
+      entityId: themeId,
+      metadata: { op: "archive" },
+    });
+    return themeDetailSchema.parse(serializeDetail(archived));
+  });
+
+  // ── Preview token (kısa ömürlü, store+theme scoped, imzalı) ────────────────
+  app.post("/stores/:storeId/themes/:themeId/preview-token", async (request, reply) => {
+    const { storeId, themeId } = themeParam.parse(request.params);
+    const admin = await requireStoreAdmin(request, reply, storeId);
+    if (!admin) return;
+    const theme = await dataAccess.getTheme(storeId, themeId);
+    if (!theme) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
+    if (!deps.issuePreviewToken) {
+      return reply.code(503).send(errorBody("THEME_PREVIEW_UNAVAILABLE", "Preview is unavailable."));
+    }
+    const { token, expiresAt } = deps.issuePreviewToken(storeId, themeId);
+    return themePreviewTokenResponseSchema.parse({ token, expiresAt: expiresAt.toISOString() });
+  });
 }
 
 /**
@@ -673,6 +787,13 @@ export function registerThemeBindingRoutes(app: FastifyInstance, deps: ThemeBind
     const archived = (publishedTheme?.versions ?? []).filter((v) => v.status === "ARCHIVED");
     const previousPublishedVersion = archived.length > 0 ? Math.max(...archived.map((v) => v.version)) : null;
     const lastPublishedAt = publishedVer?.publishedAt?.toISOString() ?? null;
+    // TODO-164A — builder görünürlüğü: taslak tema sayısı + kaynak preset + son güncelleme.
+    const draftThemeCount = themes.filter((t) => t.status === "DRAFT").length;
+    const sourcePreset = publishedTheme?.source ?? null;
+    const lastUpdatedAt =
+      themes.length > 0
+        ? new Date(Math.max(...themes.map((t) => t.updatedAt.getTime()))).toISOString()
+        : null;
 
     const entry = getThemeEntry(activeThemeKey);
     const compat = checkThemeKeyCompatibility(activeThemeKey, { slotSelections: configSlots });
@@ -702,6 +823,9 @@ export function registerThemeBindingRoutes(app: FastifyInstance, deps: ThemeBind
       capabilityEnabled,
       updateAvailable: entry ? entry.version > (publishedTheme?.themeApiVersion ?? entry.version) : false,
       compatible: compat.compatible,
+      draftThemeCount,
+      sourcePreset,
+      lastUpdatedAt,
       issues: compat.issues.map((i) => ({
         code: i.code,
         severity: i.severity,

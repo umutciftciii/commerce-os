@@ -37,6 +37,9 @@ interface ThemeLike {
   themeKey: string;
   layoutPreset: string;
   themeApiVersion: number;
+  duplicatedFrom: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
   versions: VersionLike[];
@@ -71,6 +74,9 @@ function makeFakeDataAccess() {
         themeKey: input.themeKey,
         layoutPreset: input.layoutPreset,
         themeApiVersion: input.themeApiVersion,
+        duplicatedFrom: input.duplicatedFrom ?? null,
+        createdBy: input.createdBy ?? null,
+        updatedBy: input.createdBy ?? null,
         createdAt: now(),
         updatedAt: now(),
         versions: [
@@ -192,6 +198,55 @@ function makeFakeDataAccess() {
       }
       return t as never;
     },
+    // TODO-164A — kopyala/arşivle in-memory fake (prisma semantiğini yansıtır).
+    async duplicateTheme(storeId, themeId, input) {
+      const t = find(storeId, themeId);
+      if (!t) return null;
+      const source = draft(t) ?? published(t) ?? t.versions[0];
+      if (!source) return null;
+      const copy: ThemeLike = {
+        id: id("theme"),
+        storeId,
+        name: input.name,
+        description: t.description,
+        status: "DRAFT",
+        source: `duplicate:${t.id}`,
+        themeKey: t.themeKey,
+        layoutPreset: t.layoutPreset,
+        themeApiVersion: t.themeApiVersion,
+        duplicatedFrom: t.id,
+        createdBy: input.createdBy ?? null,
+        updatedBy: input.createdBy ?? null,
+        createdAt: now(),
+        updatedAt: now(),
+        versions: [
+          {
+            id: id("ver"),
+            version: 1,
+            status: "DRAFT",
+            schemaVersion: source.schemaVersion,
+            label: "duplicate",
+            notes: null,
+            document: source.document,
+            config: source.config,
+            themeKey: source.themeKey,
+            layoutPreset: source.layoutPreset,
+            publishedBy: null,
+            createdAt: now(),
+            publishedAt: null,
+          },
+        ],
+      };
+      themes.push(copy);
+      return copy as never;
+    },
+    async archiveTheme(storeId, themeId) {
+      const t = find(storeId, themeId);
+      if (!t) return null;
+      if (t.status === "PUBLISHED") return null;
+      t.status = "ARCHIVED";
+      return t as never;
+    },
     async getPublishedState(storeId) {
       const t = themes.find((x) => x.storeId === storeId && x.status === "PUBLISHED");
       const v = t && published(t);
@@ -292,6 +347,10 @@ function buildApp() {
     dataAccess: api,
     requireStoreAdmin: async () => ({ actorUserId: "user_1" }),
     recordAudit,
+    issuePreviewToken: (storeId, themeId) => ({
+      token: `tok_${storeId}_${themeId}`,
+      expiresAt: new Date("2026-07-20T12:10:00.000Z"),
+    }),
   });
   return { app, themes, recordAudit };
 }
@@ -818,5 +877,122 @@ describe("platform admin theme binding (TODO-164)", () => {
     expect(s1.activeThemeKey).toBe("FASHION_MINIMAL");
     expect(s1.compatible).toBe(true);
     expect(s2.activeThemeKey).toBe("BASE_COMMERCE");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TODO-164A — Custom Theme Builder route'ları
+// ═══════════════════════════════════════════════════════════════════════════
+describe("custom theme builder (TODO-164A)", () => {
+  let app: ReturnType<typeof buildApp>["app"];
+  beforeEach(() => {
+    app = buildApp().app;
+  });
+
+  const create = async (payload: Record<string, unknown>) =>
+    (await app.inject({ method: "POST", url: "/stores/s1/themes", payload })).json().id as string;
+
+  it("startingPoint'ten oluşturma → preset config+document snapshot'ı", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/s1/themes",
+      payload: { name: "Editorial", startingPoint: "FASHION_EDITORIAL" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.source).toBe("start:FASHION_EDITORIAL");
+    expect(body.layoutPreset).toBe("FASHION_EDITORIAL");
+    expect(Object.keys(body.draft.config.slots).length).toBeGreaterThan(0);
+  });
+
+  it("bilinmeyen startingPoint → 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/stores/s1/themes",
+      payload: { name: "X", startingPoint: "NOPE" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("THEME_STARTING_POINT_NOT_FOUND");
+  });
+
+  it("genişletilmiş builder config kabul edilir (draft save)", async () => {
+    const id = await create({ name: "B" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: {
+        document: DEFAULT_THEME_DOCUMENT,
+        config: {
+          themeKey: "BASE_COMMERCE",
+          slotVariants: { header: "CENTERED_BRAND", productCard: "EDITORIAL" },
+          listing: { columnsDesktop: 4 },
+          hero: { height: "tall", contentAlign: "center" },
+          responsiveOverrides: { mobile: { columns: 2 } },
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    // slotVariants slots'a merge edilir.
+    expect(res.json().draft.config.slots.header).toBe("CENTERED_BRAND");
+  });
+
+  it("güvensiz builder config değeri → 400 INVALID_THEME_CONFIG", async () => {
+    const id = await create({ name: "B" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT, config: { container: { width: "url(x)" } } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("INVALID_THEME_CONFIG");
+  });
+
+  it("kontrast publish gate: düşük kontrast → 409 THEME_CONTRAST_FAILED", async () => {
+    const id = await create({ name: "B" });
+    const bad = structuredClone(DEFAULT_THEME_DOCUMENT);
+    bad.tokens.text.primary = "#dddddd"; // beyaz zemin üstünde okunmaz
+    bad.tokens.text.secondary = "#e0e0e0";
+    await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: bad } });
+    const pub = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    expect(pub.statusCode).toBe(409);
+    expect(pub.json().error.code).toBe("THEME_CONTRAST_FAILED");
+  });
+
+  it("tema kopyalama → yeni kimlik, DRAFT, duplicatedFrom", async () => {
+    const id = await create({ name: "Kaynak" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/s1/themes/${id}/duplicate`,
+      payload: { name: "Kopya" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.id).not.toBe(id);
+    expect(body.name).toBe("Kopya");
+    expect(body.status).toBe("DRAFT");
+    expect(body.duplicatedFrom).toBe(id);
+    expect(body.versions).toHaveLength(1); // history KOPYALANMAZ
+  });
+
+  it("yayındaki tema arşivlenemez → 409; draft arşivlenir → 200", async () => {
+    // draft arşivle
+    const id = await create({ name: "A" });
+    const arch = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/archive`, payload: {} });
+    expect(arch.statusCode).toBe(200);
+    expect(arch.json().status).toBe("ARCHIVED");
+    // publish → arşivleme reddi
+    const id2 = await create({ name: "B" });
+    await app.inject({ method: "PUT", url: `/stores/s1/themes/${id2}/draft`, payload: { document: DEFAULT_THEME_DOCUMENT } });
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${id2}/publish`, payload: {} });
+    const arch2 = await app.inject({ method: "POST", url: `/stores/s1/themes/${id2}/archive`, payload: {} });
+    expect(arch2.statusCode).toBe(409);
+  });
+
+  it("preview-token → token + expiresAt", async () => {
+    const id = await create({ name: "P" });
+    const res = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/preview-token`, payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().token).toContain(id);
+    expect(typeof res.json().expiresAt).toBe("string");
   });
 });

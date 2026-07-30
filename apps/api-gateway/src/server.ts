@@ -209,6 +209,7 @@ import { registerHomeAdminRoutes } from "./home/routes.js";
 import { registerThemeAdminRoutes } from "./theme/routes.js";
 import { createPrismaThemeDataAccess, type ThemeDataAccess } from "./theme/data.js";
 import { registerThemeBindingRoutes } from "./theme/routes.js";
+import { createPreviewToken, verifyPreviewToken } from "./theme/preview-token.js";
 import {
   DEFAULT_THEME_DOCUMENT,
   generateStorefrontThemeCss,
@@ -216,11 +217,13 @@ import {
   // TODO-164 — public tema projeksiyonu (layout preset + slot çözümü) + base fallback.
   BASE_THEME_KEY,
   BASE_LAYOUT_PRESET_KEY,
-  parseThemeConfig,
   resolveConfigSlots,
   checkThemeKeyCompatibility,
   compatibilityErrors,
   defaultSlotSelections,
+  // TODO-164A — builder config → yapısal/responsive CSS.
+  parseThemeBuilderConfig,
+  generateBuilderCss,
 } from "@commerce-os/theme";
 import {
   createPrismaHomeDataAccess,
@@ -5110,28 +5113,67 @@ export function createServer(
     if (!published) {
       projection = baseProjection();
     } else {
-      const config = parseThemeConfig(published.config);
-      const compat = checkThemeKeyCompatibility(config.themeKey, { slotSelections: config.slots });
-      const resolvedDoc = validateThemeDocument(published.document);
-      // Uyumsuz veya çözülemeyen belge → base fallback (storefront ayakta kalır).
-      if (compatibilityErrors(compat).length > 0 || !resolvedDoc.ok) {
-        projection = baseProjection();
-      } else {
-        const doc = resolvedDoc.document;
-        projection = {
-          css: generateStorefrontThemeCss(doc),
-          colorScheme: doc.meta.colorScheme,
-          schemaVersion: doc.schemaVersion,
-          themeKey: config.themeKey,
-          layoutPreset: config.layoutPreset,
-          slots: resolveConfigSlots(config),
-        };
-      }
+      projection = buildThemeProjection(published.document, published.config) ?? baseProjection();
     }
 
     if (themeResolverCache.size >= THEME_RESOLVER_MAX) themeResolverCache.clear();
     themeResolverCache.set(storeId, { value: projection, expires: Date.now() + THEME_RESOLVER_TTL_MS });
     return projection;
+  }
+
+  /**
+   * TODO-164/164A — Bir (document, config) çiftinden ALLOWLIST projeksiyonu kurar.
+   * Uyumsuz/çözülemez → null (çağıran base fallback'e düşer). Token CSS'ine builder
+   * yapısal/responsive CSS'i EKLENİR (document CSS'inden sonra → override kazanır).
+   * Preview ve published resolver AYNI kodu paylaşır (tutarlılık).
+   */
+  function buildThemeProjection(
+    rawDocument: unknown,
+    rawConfig: unknown,
+  ): ResolvedThemeProjection | null {
+    const config = parseThemeBuilderConfig(rawConfig);
+    const compat = checkThemeKeyCompatibility(config.themeKey, { slotSelections: config.slots });
+    const resolvedDoc = validateThemeDocument(rawDocument);
+    if (compatibilityErrors(compat).length > 0 || !resolvedDoc.ok) return null;
+    const doc = resolvedDoc.document;
+    const builderCss = generateBuilderCss(config);
+    const css = builderCss
+      ? `${generateStorefrontThemeCss(doc)}\n\n${builderCss}`
+      : generateStorefrontThemeCss(doc);
+    return {
+      css,
+      colorScheme: config.colorScheme ?? doc.meta.colorScheme,
+      schemaVersion: doc.schemaVersion,
+      themeKey: config.themeKey,
+      layoutPreset: config.layoutPreset,
+      slots: resolveConfigSlots(config),
+    };
+  }
+
+  /**
+   * TODO-164A (ADR-228) — DRAFT preview projeksiyonu (imzalı token'la). Prod cache'e
+   * YAZMAZ (izole). Draft yoksa published, o da yoksa base. Store+theme scoped.
+   */
+  async function resolvePreviewProjection(
+    storeId: string,
+    themeId: string,
+  ): Promise<ResolvedThemeProjection> {
+    const base = (): ResolvedThemeProjection => ({
+      css: generateStorefrontThemeCss(DEFAULT_THEME_DOCUMENT),
+      colorScheme: DEFAULT_THEME_DOCUMENT.meta.colorScheme,
+      schemaVersion: DEFAULT_THEME_DOCUMENT.schemaVersion,
+      themeKey: BASE_THEME_KEY,
+      layoutPreset: BASE_LAYOUT_PRESET_KEY,
+      slots: defaultSlotSelections(),
+    });
+    const theme = await themeDataAccess.getTheme(storeId, themeId);
+    if (!theme) return base();
+    const source =
+      theme.versions.find((v) => v.status === "DRAFT") ??
+      theme.versions.find((v) => v.status === "PUBLISHED") ??
+      theme.versions[0];
+    if (!source) return base();
+    return buildThemeProjection(source.document, source.config) ?? base();
   }
 
   // --- Public storefront catalog (auth YOK, store-scoped, salt-okunur) -----
@@ -5364,6 +5406,24 @@ export function createServer(
       return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
     }
     const projection = await resolvePublicThemeProjection(store.id);
+    return publicThemeSchema.parse(projection);
+  });
+
+  // TODO-164A (ADR-228) — Builder DRAFT önizleme projeksiyonu. İmzalı, kısa ömürlü,
+  // store+theme scoped token ile; production tema cache'inden AYRI (yazmaz). Başka
+  // store'un draft'ı bu uçtan görülemez (token store-scoped). Gerçek müşteri verisi
+  // KULLANILMAZ (yalnız tema projeksiyonu; storefront demo katalog projeksiyonunu
+  // kendi public uçlarından çeker). Auth-less ama token-gated.
+  app.get("/public/theme-preview", async (request, reply) => {
+    const q = z.object({ token: z.string().min(1) }).safeParse(request.query);
+    if (!q.success) {
+      return reply.code(400).send(errorBody("THEME_PREVIEW_TOKEN_MISSING", "Preview token required."));
+    }
+    const payload = verifyPreviewToken(q.data.token, config.SESSION_SECRET);
+    if (!payload) {
+      return reply.code(401).send(errorBody("THEME_PREVIEW_TOKEN_INVALID", "Invalid or expired preview token."));
+    }
+    const projection = await resolvePreviewProjection(payload.storeId, payload.themeId);
     return publicThemeSchema.parse(projection);
   });
 
@@ -7388,6 +7448,9 @@ export function createServer(
     requireStoreAdmin: requireStoreAdminForModule("THEME_STUDIO"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     invalidateResolvedTheme,
+    // TODO-164A — imzalı, kısa ömürlü builder preview token'ı (SESSION_SECRET ile).
+    issuePreviewToken: (storeId, themeId) =>
+      createPreviewToken(storeId, themeId, config.SESSION_SECRET),
   });
   // TODO-164 (ADR-222) — Platform Admin "Tema ve Marka" (theme-binding). PLATFORM ADMIN
   // (store scope) auth; THEME_STUDIO ile GATE'LENMEZ (yönetim eylemi her zaman mümkün).
