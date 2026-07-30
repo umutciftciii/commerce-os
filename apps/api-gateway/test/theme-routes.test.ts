@@ -254,6 +254,29 @@ function makeFakeDataAccess() {
       t.themeApiVersion = input.themeApiVersion;
       return t as never;
     },
+    async listThemeBindingSummaries() {
+      // Fake: her mağaza-id için PUBLISHED tema özeti (mağaza tablosu yok, temalardan türet).
+      const byStore = new Map<string, ThemeLike>();
+      for (const t of themes) {
+        if (t.status === "PUBLISHED") byStore.set(t.storeId, t);
+      }
+      const storeIds = [...new Set(themes.map((t) => t.storeId))];
+      return storeIds.map((sid) => {
+        const t = byStore.get(sid);
+        const pub = t?.versions.find((v) => v.status === "PUBLISHED");
+        return {
+          storeId: sid,
+          storeName: sid,
+          storeSlug: sid,
+          storeStatus: "ACTIVE",
+          themeKey: t?.themeKey ?? null,
+          layoutPreset: t?.layoutPreset ?? null,
+          themeApiVersion: t?.themeApiVersion ?? null,
+          publishedConfig: (pub?.config ?? null) as never,
+          publishedVersion: pub?.version ?? null,
+        };
+      }) as never;
+    },
   };
   return { api, themes };
 }
@@ -702,6 +725,7 @@ function buildBindingApp(themeStudioEnabled = true) {
   registerThemeBindingRoutes(admin, {
     dataAccess: api,
     requirePlatformStoreAdmin: async () => ({ actorUserId: "platform_1" }),
+    requirePlatformAdmin: async () => ({ actorUserId: "platform_1" }),
     isThemeStudioEnabled: async () => themeStudioEnabled,
     recordAudit,
     invalidateResolvedTheme: invalidate,
@@ -763,5 +787,29 @@ describe("platform admin theme binding (TODO-164)", () => {
     const res = await app.inject({ method: "GET", url: "/admin/stores/s1/theme-binding" });
     expect(res.statusCode).toBe(200);
     expect(res.json().capabilityEnabled).toBe(false);
+  });
+
+  it("GET /admin/theme-bindings fleet listesi — mağaza başına aktif tema özeti", async () => {
+    const { app } = buildBindingApp();
+    // s1 published FASHION_MINIMAL, s2 base (published default)
+    const c1 = await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "A" } });
+    await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${c1.json().id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT, config: { themeKey: "FASHION_MINIMAL", layoutPreset: "FASHION_MINIMAL", slots: {} } },
+    });
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${c1.json().id}/publish`, payload: {} });
+    const c2 = await app.inject({ method: "POST", url: "/stores/s2/themes", payload: { name: "B" } });
+    await app.inject({ method: "PUT", url: `/stores/s2/themes/${c2.json().id}/draft`, payload: { document: DEFAULT_THEME_DOCUMENT } });
+    await app.inject({ method: "POST", url: `/stores/s2/themes/${c2.json().id}/publish`, payload: {} });
+
+    const res = await app.inject({ method: "GET", url: "/admin/theme-bindings" });
+    expect(res.statusCode).toBe(200);
+    const bindings = res.json().bindings as Array<{ storeId: string; activeThemeKey: string; compatible: boolean }>;
+    const s1 = bindings.find((b) => b.storeId === "s1")!;
+    const s2 = bindings.find((b) => b.storeId === "s2")!;
+    expect(s1.activeThemeKey).toBe("FASHION_MINIMAL");
+    expect(s1.compatible).toBe(true);
+    expect(s2.activeThemeKey).toBe("BASE_COMMERCE");
   });
 });

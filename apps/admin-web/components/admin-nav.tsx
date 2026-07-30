@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SidebarNav, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
-import { DashboardIcon, HealthIcon, PlanIcon, SettingsIcon, StoreIcon } from "./icons";
+import { DashboardIcon, HealthIcon, PlanIcon, SettingsIcon, StoreIcon, ThemeIcon } from "./icons";
 
 export function AdminNav() {
   const pathname = usePathname();
@@ -12,6 +12,7 @@ export function AdminNav() {
   const items = [
     { href: "/", label: t.dashboard, icon: <DashboardIcon /> },
     { href: "/stores", label: t.stores, icon: <StoreIcon /> },
+    { href: "/themes", label: t.themeManagement, icon: <ThemeIcon /> },
     { href: "/plans", label: t.plans, icon: <PlanIcon /> },
     { href: "/system-health", label: t.systemHealth, icon: <HealthIcon /> },
     { href: "/settings", label: t.settings, icon: <SettingsIcon /> },
