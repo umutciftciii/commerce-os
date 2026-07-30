@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type {
@@ -8,7 +7,6 @@ import type {
   StorefrontProductSummary,
 } from "../../../lib/catalog-types";
 import { Container, Eyebrow, Heading, ProductMedia } from "../../ui";
-import { StorefrontProductCard } from "../product-card";
 import { DiscoveryTracker } from "./discovery-tracker";
 
 /** Bir top-level section'ın izleme meta'sını (ürünler + editoryal CTA hedefleri) türetir. */
@@ -58,12 +56,58 @@ export function DiscoverySections({
   dict: StorefrontDictionary;
 }) {
   if (sections.length === 0) return null;
+  // Amazon-stili "gateway" düzen: DISCOVERY_GRID kendi grid bloğunu korur; diğer TÜM keşif bölümleri
+  // (rail/sponsored/editorial) kompakt tile (başlık + 2×2 kapak + CTA) olarak TEK responsive grid'de yan
+  // yana dizilir — 8-10 ürünlü yatay carousel yerine tıklamaya davetkâr kartlar (§dikkat çekicilik).
+  const gridSections = sections.filter((section) => section.type === "DISCOVERY_GRID");
+  const tileSections = sections.filter(
+    (section) =>
+      section.type !== "DISCOVERY_GRID" &&
+      (section.type === "EDITORIAL_CAMPAIGN" ? Boolean(section.editorial) : section.products.length > 0),
+  );
   return (
-    <div className="flex flex-col">
-      {sections.map((section) => {
-        // İzleme (impression/click) SSR render'ının üstüne pasif bir client katmanı olarak sarılır (flash yok).
+    <>
+      {tileSections.length > 0 ? (
+        <section className={SECTION_SPACING} aria-label={dict.discovery.gridTitle}>
+          <Container>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+              {tileSections.map((section) => {
+                // İzleme yalnız GÖSTERİLEN 4 kapak için (impression/click SSR ile bire bir).
+                const displayed = section.products.slice(0, 4);
+                const products = displayed.map((product) => ({ id: product.id, handle: product.handle }));
+                const ctaHrefs = section.editorial ? [section.editorial.ctaHref] : [];
+                return (
+                  <DiscoveryTracker
+                    key={section.id}
+                    className="h-full"
+                    sectionId={section.id}
+                    sectionType={section.type}
+                    source={section.source}
+                    products={products}
+                    ctaHrefs={ctaHrefs}
+                  >
+                    {section.type === "EDITORIAL_CAMPAIGN" && section.editorial ? (
+                      <EditorialCard editorial={section.editorial} dict={dict} compact />
+                    ) : (
+                      <GatewayTile
+                        sectionId={section.id}
+                        title={resolveTitle(section, dict)}
+                        products={section.products}
+                        source={section.source}
+                        sponsored={section.sponsored}
+                        dict={dict}
+                      />
+                    )}
+                  </DiscoveryTracker>
+                );
+              })}
+            </div>
+          </Container>
+        </section>
+      ) : null}
+      {gridSections.map((section) => {
         const { products, ctaHrefs } = trackerMeta(section);
-        const track = (node: ReactNode) => (
+        return (
           <DiscoveryTracker
             key={section.id}
             sectionId={section.id}
@@ -72,80 +116,88 @@ export function DiscoverySections({
             products={products}
             ctaHrefs={ctaHrefs}
           >
-            {node}
+            <DiscoveryGrid section={section} dict={dict} />
           </DiscoveryTracker>
         );
-        if (section.type === "DISCOVERY_GRID") {
-          return track(<DiscoveryGrid section={section} dict={dict} />);
-        }
-        if (section.type === "EDITORIAL_CAMPAIGN" && section.editorial) {
-          return track(
-            <section className={SECTION_SPACING}>
-              <Container>
-                <EditorialCard editorial={section.editorial} dict={dict} />
-              </Container>
-            </section>,
-          );
-        }
-        if (section.products.length === 0) return null;
-        return track(<DiscoveryRail section={section} dict={dict} />);
       })}
-    </div>
+    </>
   );
 }
 
-/** Ürün rail'i (yatay şerit, snap). SPONSORED_RAIL "Sponsorlu" etiketi taşır (ZORUNLU). */
-function DiscoveryRail({
-  section,
+/** Kişiselleştirilmiş (ziyaretçi sinyaline dayalı) kaynaklar → "Senin için seçildi" rozeti taşır. */
+const PERSONALIZED_SOURCES = new Set([
+  "RECENTLY_VIEWED",
+  "CART",
+  "PERSONALIZED_SIGNAL",
+  "ORDER_HISTORY",
+  "WISHLIST",
+]);
+
+/**
+ * Amazon-stili "gateway" tile: kapsayıcı yüzey (çerçeve + gölge) + opsiyonel "Senin için seçildi" rozeti +
+ * başlık + 2×2 kapak grid'i + CTA. 8-10 ürünlü carousel yerine kompakt, tıklamaya davetkâr kart. CTA bölümün
+ * KENDİ ürünlerine götürür (`/discovery/:sectionId`) — tüm katalog DEĞİL (bölüme özel öneri/fırsat listesi).
+ */
+function GatewayTile({
+  sectionId,
+  title,
+  products,
+  source,
+  sponsored,
   dict,
 }: {
-  section: StorefrontDiscoverySection;
+  sectionId: string;
+  title: string;
+  products: StorefrontProductSummary[];
+  source: string;
+  sponsored: boolean;
   dict: StorefrontDictionary;
 }) {
-  const title = resolveTitle(section, dict);
+  const four = products.slice(0, 4);
+  const personalized = PERSONALIZED_SOURCES.has(source);
   return (
-    <section className={SECTION_SPACING} aria-label={title || undefined}>
-      <Container>
-        {section.sponsored ? (
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
-            {dict.search.sponsoredLabel}
-          </p>
-        ) : null}
-        <div className="mb-8 flex items-end justify-between gap-4 sm:mb-10">
-          <div>
-            {section.subtitle ? <Eyebrow>{section.subtitle}</Eyebrow> : null}
-            <Heading as="h2" className="mt-2">
-              {title}
-            </Heading>
-          </div>
-          <Link
-            href="/products"
-            className="hidden shrink-0 items-center gap-1.5 pb-1 text-[11px] font-medium uppercase tracking-wideish text-accent transition-colors hover:text-accent-ink sm:inline-flex"
-          >
-            {dict.discovery.viewAll}
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-              <path
-                d="M4.5 2l4 4-4 4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </Link>
+    <article className="flex h-full flex-col rounded-lg border border-line bg-surface p-5 shadow-sm transition-shadow duration-300 ease-premium hover:shadow-md">
+      {personalized || sponsored ? (
+        <div className="mb-3 flex items-center gap-2">
+          {personalized ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-wideish text-accent">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+                <path d="M6 0l1.3 3.5L11 4.2 8.3 6.7 9 10.5 6 8.6 3 10.5l.7-3.8L1 4.2l3.7-.7z" />
+              </svg>
+              {dict.discovery.personalizedBadge}
+            </span>
+          ) : null}
+          {sponsored ? (
+            <span className="text-[10px] font-medium uppercase tracking-wideish text-ink-subtle">
+              {dict.search.sponsoredLabel}
+            </span>
+          ) : null}
         </div>
-        <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] sm:gap-5">
-          {section.products.map((product) => (
-            <div
-              key={product.handle}
-              className="w-[46%] shrink-0 snap-start sm:w-[30%] lg:w-[23%] xl:w-[18.5%]"
-            >
-              <StorefrontProductCard product={product} t={dict} />
-            </div>
-          ))}
-        </div>
-      </Container>
-    </section>
+      ) : null}
+      <Heading as="h3" className="mb-4 text-base sm:text-lg">
+        {title}
+      </Heading>
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+        {four.map((product) => (
+          <GridThumb key={product.handle} product={product} />
+        ))}
+      </div>
+      <Link
+        href={`/discovery/${sectionId}`}
+        className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent transition-colors hover:text-accent-ink"
+      >
+        {dict.discovery.viewAll}
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path
+            d="M4.5 2l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </Link>
+    </article>
   );
 }
 

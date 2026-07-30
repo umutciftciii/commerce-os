@@ -177,6 +177,7 @@ export const enStorefront: StorefrontDictionary = {
     gridTitle: "Discover",
     viewAll: "View all",
     exploreCard: "Explore",
+    personalizedBadge: "Selected for you",
     titles: {
       CONTINUE_BROWSING: "Pick up where you left off",
       CART_RECOMMENDATIONS: "Based on your cart",

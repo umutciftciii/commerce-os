@@ -24,6 +24,8 @@ export interface DiscoveryTrackerProps {
   products?: { id: string; handle: string }[];
   /** Editoryal CTA bağlantı hedefleri (CTA_CLICK tespiti). */
   ctaHrefs?: string[];
+  /** Sarmalayıcı div'e ek sınıf (örn. grid hücresinde h-full). */
+  className?: string;
   children: ReactNode;
 }
 
@@ -33,6 +35,7 @@ export function DiscoveryTracker({
   source,
   products = [],
   ctaHrefs = [],
+  className,
   children,
 }: DiscoveryTrackerProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -108,7 +111,7 @@ export function DiscoveryTracker({
   };
 
   return (
-    <div ref={rootRef} onClickCapture={handleClick}>
+    <div ref={rootRef} onClickCapture={handleClick} className={className}>
       {children}
     </div>
   );
