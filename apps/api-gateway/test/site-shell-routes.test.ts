@@ -88,6 +88,13 @@ function buildApp(settings: unknown) {
       return slug === demoStore.slug ? demoStore : null;
     },
     getStoreSettings,
+    // TODO-163 Faz 2 — capability persistence (baseline: override/plan yok → tüm modüller açık).
+    async listStoreModuleOverrides() {
+      return [];
+    },
+    async getActivePlanMetadata() {
+      return null;
+    },
   } as unknown as AppDataAccess;
   const heroDataAccess = {
     listHeroSlides,

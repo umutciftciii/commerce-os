@@ -11,6 +11,7 @@ import type { Logger } from "@commerce-os/logger";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeCutoff, isCircuitBreakerTripped } from "../commercial-automation/retention-core.js";
 import type { StoreJobLocker } from "../commercial-automation/advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 import type { DiscoveryEventRetentionPersistence } from "./discovery-event-retention-persistence.js";
 
 export const HOME_DISCOVERY_EVENT_RETENTION_JOB = "home-discovery-event-retention";
@@ -27,7 +28,7 @@ export interface DiscoveryEventRetentionRunOptions {
 export interface StoreRetentionReport {
   storeId: string;
   mode: "dry-run" | "apply";
-  outcome: "DRY_RUN" | "COMPLETED" | "PARTIAL_SUCCESS" | "SKIPPED_LOCKED";
+  outcome: "DRY_RUN" | "COMPLETED" | "PARTIAL_SUCCESS" | "SKIPPED_LOCKED" | "SKIPPED_DISABLED";
   cutoff: string;
   candidates: number;
   deleted: number;
@@ -40,6 +41,8 @@ export interface DiscoveryEventRetentionSummary {
   totalDeleted: number;
   mode: "dry-run" | "apply";
   skippedLocked: number;
+  // TODO-163 Faz 3 (TD-153) — HOME_EXPERIENCE kapalı store'lar için atlanan tur sayısı.
+  skippedDisabled: number;
   perStore: StoreRetentionReport[];
 }
 
@@ -56,6 +59,8 @@ export interface DiscoveryEventRetentionServiceDeps {
   lock: StoreJobLocker;
   config: DiscoveryEventRetentionServiceConfig;
   clock?: () => Date;
+  // TODO-163 Faz 3 (TD-153) — verildiyse: HOME_EXPERIENCE kapalı store'da tur ATLANIR (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export interface DiscoveryEventRetentionService {
@@ -104,10 +109,28 @@ export function createDiscoveryEventRetentionService(
         totalDeleted: 0,
         mode,
         skippedLocked: 0,
+        skippedDisabled: 0,
         perStore: [],
       };
 
       for (const storeId of storeIds) {
+        // TODO-163 Faz 3 (TD-153) — HOME_EXPERIENCE kapalı store: MUTATION YOK. Lock ALINMADAN
+        // SKIPPED_DISABLED (bounded jobLog; hata değil; retry yok); diğer store'lar devam eder.
+        if (deps.capabilityGate && !(await deps.capabilityGate.isEnabled(storeId, "HOME_EXPERIENCE"))) {
+          const at = clock();
+          await writeJobLog(jobLog, storeId, "COMPLETED", {
+            outcome: "SKIPPED_DISABLED",
+            trigger,
+            startedAt: at.toISOString(),
+            completedAt: at.toISOString(),
+            durationMs: 0,
+          });
+          summary.skippedDisabled += 1;
+          summary.stores += 1;
+          summary.perStore.push({ storeId, mode, outcome: "SKIPPED_DISABLED", cutoff: "", candidates: 0, deleted: 0, circuitBreakerTripped: false });
+          continue;
+        }
+
         const lockResult = await lock(HOME_DISCOVERY_EVENT_RETENTION_JOB, storeId, async () => {
           const startedAt = clock();
           const cutoff = computeCutoff(now, config.retentionDays);

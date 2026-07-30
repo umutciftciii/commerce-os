@@ -10,6 +10,7 @@ import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
 // TODO-161B (ADR-137) — Sepette düşük-yoğunluklu "Son İncelediklerin" (sepet ürünleri hariç).
 import { RecentlyViewedRail } from "../../components/recently-viewed/recently-viewed-rail";
+import { isStorefrontModuleEnabled } from "../../lib/server/site";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,12 @@ export default async function CartPage() {
     return <EmptyCart t={t} />;
   }
 
+  // TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED/WISHLIST capability projeksiyonu (island + kalp gizleme).
+  const [recentlyViewedOn, wishlistOn] = await Promise.all([
+    isStorefrontModuleEnabled("RECENTLY_VIEWED"),
+    isStorefrontModuleEnabled("WISHLIST"),
+  ]);
+
   // Cookie ile gateway-kanonik kalemler farkliysa istemci reconcile eder.
   const reconcileNeeded = !sameItems(items, canonicalItems);
 
@@ -68,13 +75,17 @@ export default async function CartPage() {
         reconcileNeeded={reconcileNeeded}
         t={t}
       />
-      {/* TODO-161B — Düşük-yoğunluklu öneri: son incelenenler (sepetteki ürünler hariç; checkout akışı bozulmaz). */}
-      <RecentlyViewedRail
-        t={dict}
-        excludeSlugs={view.lines.map((line) => line.productSlug)}
-        limit={12}
-        placement="CART"
-      />
+      {/* TODO-161B — Düşük-yoğunluklu öneri: son incelenenler (sepetteki ürünler hariç; checkout akışı bozulmaz).
+          TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED kapalıysa island MOUNT edilmez → /recently-viewed fetch yok. */}
+      {recentlyViewedOn ? (
+        <RecentlyViewedRail
+          t={dict}
+          excludeSlugs={view.lines.map((line) => line.productSlug)}
+          limit={12}
+          placement="CART"
+          wishlistEnabled={wishlistOn}
+        />
+      ) : null}
     </Container>
   );
 }

@@ -23,10 +23,14 @@ export function SimilarProducts({
   productId,
   t,
   limit = 8,
+  wishlistEnabled = true,
 }: {
   productId: string;
   t: StorefrontDictionary;
   limit?: number;
+  // TODO-163 Faz 3 (TD-156) — WISHLIST kapalıysa kalp butonu gizlenir (provider enabled=false).
+  // Parent server component (PDP) capability projeksiyonundan geçer. Yoksa true (geriye uyumlu).
+  wishlistEnabled?: boolean;
 }) {
   const [state, setState] = useState<"loading" | "ready">("loading");
   const [products, setProducts] = useState<PublicSearchProduct[]>([]);
@@ -63,7 +67,7 @@ export function SimilarProducts({
       ) : (
         // TODO-161B (TD-128) — Wishlist kalbi GERÇEK: TODO-159D altyapısına bağlı (auth→gateway,
         // guest→cookie); doğru başlangıç durumu BFF savedIds ile; optimistic + rollback provider'da.
-        <WishlistProvider initialSavedIds={savedIds}>
+        <WishlistProvider initialSavedIds={savedIds} enabled={wishlistEnabled}>
           <div className={GRID_CLASS}>
             {toListingCards(products).map((card, index) => (
               // TD-130 — PDP "Benzer Ürünler": impression/click + hedef PDP add-to-cart attribution.

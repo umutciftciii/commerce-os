@@ -99,7 +99,7 @@ describe("campaign reconcile · reconcileOnce", () => {
       lookbackMs: 7_200_000,
     });
     const summary = await service.reconcileOnce(new Date("2026-07-15T00:00:00Z"));
-    expect(summary).toEqual({ expiredRequeued: 0, storesRefreshed: 0 });
+    expect(summary).toEqual({ expiredRequeued: 0, storesRefreshed: 0, expiredSkippedDisabled: 0, storesSkippedDisabled: 0 });
     expect(products).toHaveLength(0);
     expect(stores).toHaveLength(0);
   });

@@ -28,6 +28,8 @@ export type JobOutcome =
   | "PARTIAL_SUCCESS"
   | "FAILED"
   | "SKIPPED_LOCKED"
+  // TODO-163 Faz 3 (TD-153) — store için opsiyonel modül KAPALI → tur atlandı (mutation yok; hata değil).
+  | "SKIPPED_DISABLED"
   | "DRY_RUN";
 
 /** Terminal (STARTED hariç) outcome'lar — job-run bir tura ait nihai durum. */
@@ -119,6 +121,34 @@ export async function recordSkippedLockedRun(db: JobLogClient, input: SkippedLoc
       attempts: 1,
       payload: {
         outcome: "SKIPPED_LOCKED",
+        trigger: input.trigger,
+        startedAt: input.startedAt.toISOString(),
+        completedAt: input.completedAt.toISOString(),
+        durationMs: input.completedAt.getTime() - input.startedAt.getTime(),
+      } as Prisma.InputJsonValue,
+    },
+  });
+}
+
+/**
+ * TODO-163 Faz 3 (TD-153) — Opsiyonel modül store için KAPALI olduğundan işlenmeyen store için TEK
+ * SKIPPED_DISABLED satırı (status COMPLETED — HATA DEĞİL; lock alınmaz; mutation yok; retry yok).
+ * `moduleKey` payload'da tutulur (audit; PII/secret içermez).
+ */
+export async function recordSkippedDisabledRun(
+  db: JobLogClient,
+  input: SkippedLockedInput & { moduleKey: string },
+): Promise<void> {
+  await db.queueJobLog.create({
+    data: {
+      storeId: input.storeId,
+      jobName: input.jobName,
+      queueName: COMMERCIAL_AUTOMATION_QUEUE,
+      status: "COMPLETED",
+      attempts: 1,
+      payload: {
+        outcome: "SKIPPED_DISABLED",
+        moduleKey: input.moduleKey,
         trigger: input.trigger,
         startedAt: input.startedAt.toISOString(),
         completedAt: input.completedAt.toISOString(),

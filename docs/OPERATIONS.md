@@ -1211,3 +1211,29 @@ Env (ingest): `HOME_DISCOVERY_EVENT_RATE_LIMIT_MAX` (600) / `_WINDOW_SECONDS` (6
 (`home-discovery-event-retention` / `home-discovery-events`); TODO-161A.1 SAF altyapı reuse (advisory lock + QueueJobLog);
 influencer/sponsored/recommendation `RETENTION_TABLE_SPECS` allowlist'ine DOKUNMAZ. Storefront emit BFF üzerinden
 (`/api/discovery/event` → gateway); gateway URL sunucu-yalnız. ADD_TO_CART discovery yüzeyinde emit edilmez.
+
+## Tenant Module & Capability — worker skip + plan editörü (TODO-163 Faz 3, ADR-214/215)
+
+**Worker per-store capability skip (TD-153).** OPSİYONEL, store-scope'lu ZAMANLANMIŞ worker'lar (hepsi
+env-gated, default KAPALI: `RECOMMENDATION_EVENT_RETENTION_ENABLED`, `RECENTLY_VIEWED_RETENTION_ENABLED`,
+`HOME_DISCOVERY_EVENT_RETENTION_ENABLED`, `ATTRIBUTION_RETENTION_ENABLED`, `SETTLEMENT_SCHEDULER_ENABLED`,
+`CAMPAIGN_RECONCILE_ENABLED`) her store için modül capability'sini kontrol eder. Modül KAPALIysa o store
+için işlem YAPILMAZ ve **`SKIPPED_DISABLED`** yazılır: retention/settlement worker'ları `QueueJobLog`
+`payload.outcome = "SKIPPED_DISABLED"` (status COMPLETED = HATA DEĞİL; `moduleKey` payload'da; retry yok;
+`SKIPPED_LOCKED` ile simetrik); attribution retention PER-TABLO atlar (SponsoredProductEvent→
+SPONSORED_PRODUCTS, AttributionClick→INFLUENCER_TRACKING); campaign reconcile (per-store lock/jobLog'u yok)
+reindex emit'ini atlar + `expiredSkippedDisabled`/`storesSkippedDisabled` sayaçlarını loglar. Bir store'un
+atlanması BATCH'i durdurmaz (diğer store'lar devam). **CORE worker'lar (shipment sync / barkod retry +
+apps/worker inventory reservation · backup) capability ile ASLA kapanmaz** (gate enjekte edilmez). Gate
+tek `createWorkerCapabilityGate(prisma)` (store-scoped bounded 30s TTL, fail-closed: DB hatası → non-core
+kapalı/core açık, cache'lenmez; cross-store leak yok). Görünürlük: `QueueJobLog` `payload.outcome` filtrele.
+
+**Plan → capability editörü (TD-154).** Platform-admin `/plans` ekranında her planın "Modüller" düğmesi
+capability matrisini açar: opsiyonel modüller için durum seçimi (**required** = plan default açık ·
+**optional** = registry baseline · **unavailable** = plan default kapalı). CORE modüller kilitli (kapatılamaz).
+Canlı **preview** değişen modülleri + dependency nedeniyle kapananları + plana bağlı mağaza sayısını gösterir;
+**apply** `Plan.metadata.modules`'ü MERGE eder (diğer metadata anahtarları korunur), audit üretir
+(`{capabilities:{changedModules}}` — PII/secret yok) ve capability cache'ini temizler. **Effective çözüm sırası
+KORUNUR: store override > plan default > registry baseline > dependency** — plan default'u değiştirmek mağaza
+override'larını EZMEZ ve veri SİLMEZ. Uçlar: `GET/POST(preview)/PUT /admin/plans/:id/capabilities` (yalnız
+platform-admin). Doğrulama sunucu-otoriter: core-unavailable / bilinmeyen anahtar / invalid-dependency → 400.

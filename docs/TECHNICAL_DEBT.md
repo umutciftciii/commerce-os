@@ -1593,3 +1593,53 @@ Gateway tamamlaması: discovery endpoint section başlığını config `titleTr/
 5 senaryo × keşif bölümleri eligible/hidden simülasyonu — ÖRNEK sinyal, disclaimer'lı (gerçek veri değil; nihai karar
 sunucuda). Gate: gateway build 0 + 1775 test PASS, store-admin tsc+lint 0. **Kalan:** yalnız enterprise-demo canlı
 smoke + store-admin UI-piksel click-through (parola; TD-126 sınırı → Final UI Polish/deploy-öncesi manuel).
+
+## TD-153 Worker per-store capability skip (TODO-163 Faz 3) — CLOSED (2026-07-30)
+
+- Durum: CLOSED
+- Çözüm (ADR-214): Paylaşılan `capabilities/worker-gate.ts` (`createWorkerCapabilityGate(prisma)` →
+  StoreModule + aktif Subscription.Plan.metadata sorgularından `createStoreModuleData`+`createCapabilityCache`;
+  store-scoped, bounded TTL, fail-closed, tenant-safe) `apps/api-gateway/src/main.ts`'te TEK kez kurulup
+  6 OPSİYONEL worker'a enjekte edildi: recommendation-event / recently-viewed / discovery-event retention
+  (per-store), attribution retention (per-store-per-tablo: SPONSORED_PRODUCTS/INFLUENCER_TRACKING),
+  settlement scheduler (SPONSORSHIP_FINANCE), campaign reconcile (emit-site gate). Kapalı store →
+  MUTATION YOK + `SKIPPED_DISABLED` (QueueJobLog `payload.outcome`, status COMPLETED = hata değil, retry
+  yok, `SKIPPED_LOCKED` deseniyle simetrik); diğer store'lar devam eder. CORE worker'lar (shipment sync /
+  barkod retry / apps/worker inventory·backup) gate ENJEKTE EDİLMEDİ → çekirdek asla kapanmaz. Testler +
+  canlı smoke PASS.
+
+## TD-154 Plan → capability editörü UI (TODO-163 Faz 3) — CLOSED (2026-07-30)
+
+- Durum: CLOSED
+- Çözüm (ADR-215): SAF `capabilities/plan-capabilities.ts` (status required/optional/unavailable ↔ boolean
+  plan default; core-unavailable + unknown + invalid-dependency doğrulama; preview dependency-pass; MERGE
+  helper). Gateway `GET/POST(preview)/PUT /admin/plans/:id/capabilities` (platform-admin; audit
+  `{capabilities:{changedModules}}`; MERGE → diğer metadata korunur; StoreModule override'a DOKUNMAZ; plan
+  değişince capability cache clear). api-client `admin.plans.capabilities.{get,preview,apply}`. platform-admin
+  `/plans` PlanEditor'e capability matrisi (TR/EN ad, status seçici, dependency uyarısı, canlı preview,
+  abonelik etki sayısı, apply). Effective sıra korunur: store override > plan default > registry baseline >
+  dependency. Testler (SAF + route) + canlı smoke PASS.
+
+## TD-155 Store-admin per-page direct-URL guard (TODO-163 Faz 3) — CLOSED (2026-07-30)
+
+- Durum: CLOSED
+- Çözüm (ADR-214): Paylaşılan `lib/store-modules.ts` (route→modül TEK OTORİTE; StoreNav ona bağlandı) +
+  `lib/server/module-access.ts` (`getStoreModuleMatrix` cache()'li; cookie→token→store→gateway matris) +
+  `components/module-guard.tsx` (async server component; kapalı → EmptyState "MODULE_DISABLED", children
+  render EDİLMEZ). 14 opsiyonel route klasörüne server-component `layout.tsx` guard'ı (inventory/reviews/
+  campaigns/influencers/influencer-campaigns/sponsors/sponsorship-agreements/-settlements/-payments/
+  sponsored-products/home/hero/theme/operations). Doğrudan URL ile veri fetch YOK + render YOK; boş
+  nav-grup zaten gizli. Testler (ModuleGuard + StoreNav) PASS.
+
+## TD-156 Kalan storefront render gate'leri (TODO-163 Faz 3) — CLOSED (2026-07-30)
+
+- Durum: CLOSED
+- Çözüm: Kalan yüzeyler kapatıldı — PDP recently-viewed tracker beacon (RECENTLY_VIEWED), SimilarProducts
+  fetch (RECOMMENDATIONS), reviews summary/list/eligibility + rating batch + PdpReviews (REVIEWS); home
+  discovery fetch (RECOMMENDATIONS) + card ratings (REVIEWS) + RECENTLY_VIEWED/SPONSORED section render;
+  PLP/discovery-list card ratings + wishlist; cart + rail RECENTLY_VIEWED; nested WishlistProvider'lar
+  (similar/rail/view-history) `wishlistEnabled` alır; influencer `/t/[token]` INFLUENCER_TRACKING kapalıysa
+  fail-closed (track POST + cookie YOK → terminal redirect). Gateway sponsored TOKEN ÜRETİMİ home/discovery/
+  search'te SPONSORED_PRODUCTS'a bağlandı (kapalı → token yok → rozet/beacon yok). Kapalı modül: veri
+  çekilmez + section/island render edilmez + event üretilmez; public projeksiyon boolean-only kalır.
+  storefront 446 test PASS.

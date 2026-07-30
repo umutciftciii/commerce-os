@@ -1,11 +1,12 @@
-// TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability veri erişim katmanı.
+// TODO-163 (ADR-208…ADR-210 · Faz 2 ADR-211/212) — Tenant Module & Capability veri katmanı.
 //
 // Persistence, gateway'in AppDataAccess soyutlaması üzerinden ENJEKTE edilir (raw Prisma
 // DEĞİL) → in-memory test harness'i (MemoryDataAccess) ile birebir çalışır; tenant-izole.
-// StoreModule satırları SPARSE: yalnız açık override edilen modüller için satır bulunur
-// (INHERIT set edilince satır SİLİNİR). Plan default'u aktif aboneliğin Plan.metadata'sından
-// türetilir. Effective durum SAF resolver ile hesaplanır (bu katman yalnız girdileri toplar).
+// StoreModule satırları SPARSE (INHERIT → satır SİLİNİR). Plan default'u aktif aboneliğin
+// Plan.metadata'sından türetilir. Effective durum SAF resolver ile hesaplanır.
 //
+// Faz 2: parent-disable guard — bir parent modülü DISABLE ederken aktif (effective açık)
+// dependent varsa REDDEDİLİR (sessiz cascade YOK); explicit `cascade` ile onaylanır.
 // Effective capability YALNIZ sunucuda türetilir; istemci gönderemez.
 import {
   STORE_MODULE_REGISTRY,
@@ -22,20 +23,16 @@ import {
 
 /** Gateway AppDataAccess'in bu domain için sağladığı dar persistence yüzeyi. */
 export interface StoreModulePersistence {
-  /** Açık override satırları (moduleKey + state). Bilinmeyen key'ler çağıran tarafça elenir. */
   listStoreModuleOverrides(
     storeId: string,
   ): Promise<Array<{ moduleKey: string; state: ModuleOverrideState | string }>>;
-  /** Aktif aboneliğin (ACTIVE/TRIALING) plan metadata'sı; yoksa null. */
   getActivePlanMetadata(storeId: string): Promise<unknown>;
-  /** Override upsert (state ENABLED/DISABLED). */
   upsertStoreModuleOverride(
     storeId: string,
     moduleKey: string,
     state: ModuleOverrideState,
     source: string | null,
   ): Promise<void>;
-  /** Override sil (INHERIT → sparse). */
   deleteStoreModuleOverride(storeId: string, moduleKey: string): Promise<void>;
 }
 
@@ -47,22 +44,26 @@ export interface EffectiveStoreModule extends EffectiveModule {
   core: boolean;
 }
 
+export type SetOverrideResult =
+  | { ok: true }
+  | { ok: false; reason: "CORE_IMMUTABLE" | "UNKNOWN_MODULE" }
+  | { ok: false; reason: "DEPENDENTS_ACTIVE"; dependents: StoreModuleKey[] };
+
 export interface StoreModuleData {
   resolveEffective(storeId: string): Promise<EffectiveStoreModule[]>;
   isEnabled(storeId: string, moduleKey: string): Promise<boolean>;
+  /** Bir modülü DISABLE etmenin kapatacağı aktif (effective açık) dependent'lar. */
+  previewDisable(storeId: string, moduleKey: string): Promise<StoreModuleKey[]>;
   setOverride(
     storeId: string,
     moduleKey: string,
     state: ModuleOverrideState,
     source: string | null,
-  ): Promise<{ ok: true } | { ok: false; reason: "CORE_IMMUTABLE" | "UNKNOWN_MODULE" }>;
+    opts?: { cascade?: boolean },
+  ): Promise<SetOverrideResult>;
 }
 
-function toEffectiveList(
-  overrides: Record<string, ModuleOverrideState>,
-  planDefaults: Record<string, boolean>,
-): EffectiveStoreModule[] {
-  const effective = resolveEffectiveModules({ overrides, planDefaults });
+function decorate(effective: Map<StoreModuleKey, EffectiveModule>): EffectiveStoreModule[] {
   return STORE_MODULE_REGISTRY.map((def) => {
     const e = effective.get(def.key)!;
     return {
@@ -74,6 +75,25 @@ function toEffectiveList(
       core: def.core,
     };
   });
+}
+
+/** Bir modülü DISABLE ederse effective açık→kapalı olacak (kendisi hariç) modüller. */
+function activeDependents(
+  overrides: Record<string, ModuleOverrideState>,
+  planDefaults: Record<string, boolean>,
+  moduleKey: StoreModuleKey,
+): StoreModuleKey[] {
+  const current = resolveEffectiveModules({ overrides, planDefaults });
+  const simulated = resolveEffectiveModules({
+    overrides: { ...overrides, [moduleKey]: "DISABLED" },
+    planDefaults,
+  });
+  const out: StoreModuleKey[] = [];
+  for (const [key, eff] of current) {
+    if (key === moduleKey) continue;
+    if (eff.enabled && simulated.get(key)?.enabled === false) out.push(key);
+  }
+  return out;
 }
 
 export function createStoreModuleData(persistence: StoreModulePersistence): StoreModuleData {
@@ -96,13 +116,19 @@ export function createStoreModuleData(persistence: StoreModulePersistence): Stor
 
   async function resolveEffective(storeId: string): Promise<EffectiveStoreModule[]> {
     const { overrides, planDefaults } = await loadInputs(storeId);
-    return toEffectiveList(overrides, planDefaults);
+    return decorate(resolveEffectiveModules({ overrides, planDefaults }));
   }
 
   async function isEnabled(storeId: string, moduleKey: string): Promise<boolean> {
     if (!isStoreModuleKey(moduleKey)) return false; // fail-closed
-    const list = await resolveEffective(storeId);
-    return list.find((m) => m.key === moduleKey)?.enabled === true;
+    const { overrides, planDefaults } = await loadInputs(storeId);
+    return resolveEffectiveModules({ overrides, planDefaults }).get(moduleKey)?.enabled === true;
+  }
+
+  async function previewDisable(storeId: string, moduleKey: string): Promise<StoreModuleKey[]> {
+    if (!isStoreModuleKey(moduleKey)) return [];
+    const { overrides, planDefaults } = await loadInputs(storeId);
+    return activeDependents(overrides, planDefaults, moduleKey);
   }
 
   async function setOverride(
@@ -110,7 +136,8 @@ export function createStoreModuleData(persistence: StoreModulePersistence): Stor
     moduleKey: string,
     state: ModuleOverrideState,
     source: string | null,
-  ): Promise<{ ok: true } | { ok: false; reason: "CORE_IMMUTABLE" | "UNKNOWN_MODULE" }> {
+    opts?: { cascade?: boolean },
+  ): Promise<SetOverrideResult> {
     if (!isStoreModuleKey(moduleKey)) return { ok: false, reason: "UNKNOWN_MODULE" };
     const def = getStoreModuleDefinition(moduleKey as StoreModuleKey);
     if (def.core) return { ok: false, reason: "CORE_IMMUTABLE" };
@@ -119,9 +146,19 @@ export function createStoreModuleData(persistence: StoreModulePersistence): Stor
       await persistence.deleteStoreModuleOverride(storeId, moduleKey);
       return { ok: true };
     }
+
+    // Parent-disable guard: aktif dependent varsa reddet (cascade onayı yoksa). Sessiz cascade yok.
+    if (state === "DISABLED" && !opts?.cascade) {
+      const { overrides, planDefaults } = await loadInputs(storeId);
+      const dependents = activeDependents(overrides, planDefaults, def.key);
+      if (dependents.length > 0) {
+        return { ok: false, reason: "DEPENDENTS_ACTIVE", dependents };
+      }
+    }
+
     await persistence.upsertStoreModuleOverride(storeId, moduleKey, state, source);
     return { ok: true };
   }
 
-  return { resolveEffective, isEnabled, setOverride };
+  return { resolveEffective, isEnabled, previewDisable, setOverride };
 }

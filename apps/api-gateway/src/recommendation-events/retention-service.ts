@@ -10,6 +10,7 @@ import type { Logger } from "@commerce-os/logger";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { computeCutoff, isCircuitBreakerTripped } from "../commercial-automation/retention-core.js";
 import type { StoreJobLocker } from "../commercial-automation/advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 import type { RecommendationEventRetentionPersistence } from "./retention-persistence.js";
 
 export const RECOMMENDATION_EVENT_RETENTION_JOB = "recommendation-event-retention";
@@ -26,7 +27,7 @@ export interface RecommendationEventRetentionRunOptions {
 export interface StoreRetentionReport {
   storeId: string;
   mode: "dry-run" | "apply";
-  outcome: "DRY_RUN" | "COMPLETED" | "PARTIAL_SUCCESS" | "SKIPPED_LOCKED";
+  outcome: "DRY_RUN" | "COMPLETED" | "PARTIAL_SUCCESS" | "SKIPPED_LOCKED" | "SKIPPED_DISABLED";
   cutoff: string;
   candidates: number;
   deleted: number;
@@ -39,6 +40,8 @@ export interface RecommendationEventRetentionSummary {
   totalDeleted: number;
   mode: "dry-run" | "apply";
   skippedLocked: number;
+  // TODO-163 Faz 3 (TD-153) — RECOMMENDATION_ANALYTICS kapalı store'lar için atlanan tur sayısı.
+  skippedDisabled: number;
   perStore: StoreRetentionReport[];
 }
 
@@ -55,6 +58,9 @@ export interface RecommendationEventRetentionServiceDeps {
   lock: StoreJobLocker;
   config: RecommendationEventRetentionServiceConfig;
   clock?: () => Date;
+  // TODO-163 Faz 3 (TD-153) — verildiyse: RECOMMENDATION_ANALYTICS kapalı store'da tur ATLANIR
+  // (mutation yok → SKIPPED_DISABLED). Enjekte edilmezse davranış eskisiyle aynı (regresyonsuz).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export interface RecommendationEventRetentionService {
@@ -103,10 +109,28 @@ export function createRecommendationEventRetentionService(
         totalDeleted: 0,
         mode,
         skippedLocked: 0,
+        skippedDisabled: 0,
         perStore: [],
       };
 
       for (const storeId of storeIds) {
+        // TODO-163 Faz 3 (TD-153) — RECOMMENDATION_ANALYTICS kapalı store: MUTATION YOK. Lock ALINMADAN
+        // SKIPPED_DISABLED (bounded jobLog; hata değil; retry yok); diğer store'lar devam eder.
+        if (deps.capabilityGate && !(await deps.capabilityGate.isEnabled(storeId, "RECOMMENDATION_ANALYTICS"))) {
+          const at = clock();
+          await writeJobLog(jobLog, storeId, "COMPLETED", {
+            outcome: "SKIPPED_DISABLED",
+            trigger,
+            startedAt: at.toISOString(),
+            completedAt: at.toISOString(),
+            durationMs: 0,
+          });
+          summary.skippedDisabled += 1;
+          summary.stores += 1;
+          summary.perStore.push({ storeId, mode, outcome: "SKIPPED_DISABLED", cutoff: "", candidates: 0, deleted: 0, circuitBreakerTripped: false });
+          continue;
+        }
+
         const lockResult = await lock(RECOMMENDATION_EVENT_RETENTION_JOB, storeId, async () => {
           const startedAt = clock();
           const cutoff = computeCutoff(now, config.retentionDays);

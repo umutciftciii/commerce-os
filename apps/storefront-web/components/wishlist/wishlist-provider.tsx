@@ -24,6 +24,9 @@ interface WishlistContextValue {
   isSaved: (productId: string) => boolean;
   isPending: (productId: string) => boolean;
   toggle: (productId: string) => Promise<WishlistToggleOutcome>;
+  // TODO-163 Faz 2 — WISHLIST modülü açık mı (kalp butonu render edilir mi). Provider yoksa
+  // (NOOP) geriye-uyumlu true; WISHLIST kapalıysa sayfa enabled=false geçer → kalp gizlenir.
+  enabled: boolean;
 }
 
 const WishlistContext = createContext<WishlistContextValue | null>(null);
@@ -32,13 +35,16 @@ const NOOP_CONTEXT: WishlistContextValue = {
   isSaved: () => false,
   isPending: () => false,
   toggle: async () => ({ ok: false, saved: false }),
+  enabled: true,
 };
 
 export function WishlistProvider({
   initialSavedIds,
+  enabled = true,
   children,
 }: {
   initialSavedIds: string[];
+  enabled?: boolean;
   children: React.ReactNode;
 }) {
   const [saved, setSaved] = useState<Set<string>>(() => new Set(initialSavedIds));
@@ -90,8 +96,9 @@ export function WishlistProvider({
       isSaved: (productId) => saved.has(productId),
       isPending: (productId) => pending.has(productId),
       toggle,
+      enabled,
     }),
-    [saved, pending, toggle],
+    [saved, pending, toggle, enabled],
   );
 
   return <WishlistContext.Provider value={value}>{children}</WishlistContext.Provider>;

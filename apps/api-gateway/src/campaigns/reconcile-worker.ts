@@ -14,6 +14,7 @@ import type { AppConfig } from "@commerce-os/config";
 import type { Logger } from "@commerce-os/logger";
 import { prisma } from "@commerce-os/db";
 import { createSearchIndexEmitter } from "../search-index/emitter.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 import {
   createCampaignReconcileService,
   createPrismaCampaignReconcilePersistence,
@@ -33,6 +34,8 @@ export interface CampaignReconcileWorkerDeps {
   logger: Logger;
   /** Test enjeksiyonu; verilmezse prisma persistence + gerçek emitter kurulur. */
   service?: CampaignReconcileService;
+  // TODO-163 Faz 3 (TD-153) — CAMPAIGNS kapalı store için reindex emit edilmez (emit-site gate).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export function startCampaignReconcileWorker(deps: CampaignReconcileWorkerDeps): CampaignReconcileWorkerHandle {
@@ -44,7 +47,7 @@ export function startCampaignReconcileWorker(deps: CampaignReconcileWorkerDeps):
   }
 
   const intervalMs = config.CAMPAIGN_RECONCILE_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildDefaultService(config, logger, intervalMs);
+  const service = deps.service ?? buildDefaultService(config, logger, intervalMs, deps.capabilityGate);
 
   let stopped = false;
   let running = false;
@@ -90,7 +93,12 @@ export function startCampaignReconcileWorker(deps: CampaignReconcileWorkerDeps):
   };
 }
 
-function buildDefaultService(config: AppConfig, logger: Logger, intervalMs: number): CampaignReconcileService {
+function buildDefaultService(
+  config: AppConfig,
+  logger: Logger,
+  intervalMs: number,
+  capabilityGate?: WorkerCapabilityGate,
+): CampaignReconcileService {
   return createCampaignReconcileService({
     persistence: createPrismaCampaignReconcilePersistence(prisma),
     emitter: createSearchIndexEmitter(config.REDIS_URL, logger),
@@ -98,5 +106,6 @@ function buildDefaultService(config: AppConfig, logger: Logger, intervalMs: numb
     batchSize: config.CAMPAIGN_RECONCILE_BATCH_SIZE,
     // Yeni-başlayan kampanyayı "yakın" saymak için interval × 2 (bir tur kaçsa bile yakalanır).
     lookbackMs: intervalMs * 2,
+    capabilityGate,
   });
 }

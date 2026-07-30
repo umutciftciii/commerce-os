@@ -18,9 +18,11 @@ import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
 import { WishlistProvider } from "../../../components/wishlist/wishlist-provider";
+import { isStorefrontModuleEnabled } from "../../../lib/server/site";
 import { RatingProvider } from "../../../components/reviews/rating-provider";
 import { PdpReviews } from "../../../components/reviews/pdp-reviews";
 import { getWishlistStatus } from "../../../lib/server/wishlist";
+import type { ReviewSummary } from "@commerce-os/api-client";
 import {
   getCardRatings,
   getProductReviews,
@@ -119,12 +121,29 @@ export default async function ProductDetailPage({
 
   const detail = result.data;
   const locale = await getRequestLocale();
-  // TODO-159E (ADR-094) — GERÇEK puan/değerlendirme: özet + ilk sayfa + uygunluk (mock KALDIRILDI).
-  const [reviewSummary, reviewsFirstPage, eligibility] = await Promise.all([
-    getProductReviewSummary(detail.id),
-    getProductReviews(detail.id, { sort: "newest" }),
-    getReviewEligibility(detail.id),
+  // TODO-163 Faz 3 (TD-156) — kapalı modüller: veri ÇEKİLMEZ + render EDİLMEZ + client beacon MOUNT
+  // edilmez (event üretilmez). Gateway zaten otoriter (kapalı public uç 404/boş); bu, boşa çağrıyı
+  // ve ölü UI'ı önler. Capability projeksiyonu `cache()`'li → hepsi tek gateway çağrısı.
+  const [reviewsOn, recentlyViewedOn, recommendationsOn, wishlistOn] = await Promise.all([
+    isStorefrontModuleEnabled("REVIEWS"),
+    isStorefrontModuleEnabled("RECENTLY_VIEWED"),
+    isStorefrontModuleEnabled("RECOMMENDATIONS"),
+    isStorefrontModuleEnabled("WISHLIST"),
   ]);
+  // TODO-159E (ADR-094) — GERÇEK puan/değerlendirme (REVIEWS kapalıysa fetch YOK → sıfır özet).
+  const zeroReviewSummary: ReviewSummary = {
+    productId: detail.id,
+    averageRating: 0,
+    reviewCount: 0,
+    ratingDistribution: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 },
+  };
+  const [reviewSummary, reviewsFirstPage, eligibility] = reviewsOn
+    ? await Promise.all([
+        getProductReviewSummary(detail.id),
+        getProductReviews(detail.id, { sort: "newest" }),
+        getReviewEligibility(detail.id),
+      ])
+    : [zeroReviewSummary, null, null];
 
   // TODO-156D — Breadcrumb TEK KAYNAK (görünür UI + JSON-LD). Kategori slug'ı public detay DTO'sunda
   // yok → kategori etiketi link'siz (uydurma URL üretilmez). Ürün kanonik URL'i mutlaklanır (JSON-LD).
@@ -150,16 +169,19 @@ export default async function ProductDetailPage({
   // TODO-159D/159E — PDP + benzer ürünler için TEK batched favori-durum + rating özeti.
   const relatedIds = detail.related.map((item) => item.id);
   const [savedProductIds, relatedRatings] = await Promise.all([
-    getWishlistStatus([detail.id, ...relatedIds]).then((set) => [...set]),
-    getCardRatings(relatedIds),
+    wishlistOn
+      ? getWishlistStatus([detail.id, ...relatedIds]).then((set) => [...set])
+      : Promise.resolve<string[]>([]),
+    reviewsOn ? getCardRatings(relatedIds) : Promise.resolve({}),
   ]);
 
   return (
-    <WishlistProvider initialSavedIds={savedProductIds}>
+    <WishlistProvider initialSavedIds={savedProductIds} enabled={wishlistOn}>
     <RatingProvider summaries={relatedRatings}>
     <Container className="py-12 lg:py-16">
-      {/* TODO-161B (ADR-137) — Görüntüleme kaydı (client mount beacon; SSR/bot/prefetch ELENİR). */}
-      <RecentlyViewedTracker productId={detail.id} />
+      {/* TODO-161B (ADR-137) — Görüntüleme kaydı (client mount beacon; SSR/bot/prefetch ELENİR).
+          TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED kapalıysa beacon MOUNT edilmez → view event yok. */}
+      {recentlyViewedOn ? <RecentlyViewedTracker productId={detail.id} /> : null}
       {/* TODO-156D — Product + BreadcrumbList JSON-LD (Google Rich Results). */}
       <JsonLd data={productLd} />
       <JsonLd data={breadcrumbLd} />
@@ -189,7 +211,8 @@ export default async function ProductDetailPage({
               <Heading as="h1" className="mt-4 text-2xl sm:text-3xl">
                 {detail.title}
               </Heading>
-              {reviewSummary.reviewCount > 0 ? (
+              {/* TODO-163 Faz 3 (TD-156) — REVIEWS kapalıysa puan/yorum bağlantısı hiç render edilmez. */}
+              {!reviewsOn ? null : reviewSummary.reviewCount > 0 ? (
                 <a
                   href="#reviews"
                   className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-subtle hover:text-ink"
@@ -224,8 +247,9 @@ export default async function ProductDetailPage({
           tasarımdaki derli toplu sekme yapısı. Gerçek içerik korunur (açıklama/özellik/kargo). */}
       <PdpDetailTabs detail={detail} t={dict} />
 
-      {/* TODO-159E (ADR-094) — Gerçek değerlendirme bölümü (özet + liste + yorum yaz + helpful). */}
-      {reviewsFirstPage ? (
+      {/* TODO-159E (ADR-094) — Gerçek değerlendirme bölümü (özet + liste + yorum yaz + helpful).
+          TODO-163 Faz 3 (TD-156) — REVIEWS kapalıysa fetch YOK (reviewsFirstPage=null) → render yok. */}
+      {reviewsOn && reviewsFirstPage ? (
         <PdpReviews
           productId={detail.id}
           initial={reviewsFirstPage}
@@ -237,8 +261,11 @@ export default async function ProductDetailPage({
       ) : null}
 
       {/* TODO-161B — Benzer Ürünler: açıklanabilir öneri motoru (read-model; mevcut ürün hariç,
-          sponsored/organik ranking'e dokunulmaz). Client island: skeleton/empty/error. */}
-      <SimilarProducts productId={detail.id} t={dict} />
+          sponsored/organik ranking'e dokunulmaz). Client island: skeleton/empty/error.
+          TODO-163 Faz 3 (TD-156) — RECOMMENDATIONS kapalıysa island MOUNT edilmez → /similar fetch yok. */}
+      {recommendationsOn ? (
+        <SimilarProducts productId={detail.id} t={dict} wishlistEnabled={wishlistOn} />
+      ) : null}
     </Container>
     </RatingProvider>
     </WishlistProvider>

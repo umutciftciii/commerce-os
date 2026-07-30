@@ -21,11 +21,13 @@ import {
   startJobRun,
   finishJobRun,
   recordSkippedLockedRun,
+  recordSkippedDisabledRun,
   SETTLEMENT_SCHEDULER_JOB,
   type JobLogClient,
   type TerminalJobOutcome,
 } from "./job-log.js";
 import type { StoreJobLocker } from "./advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export type CreateDraftOutcome =
   | { ok: true; settlementId: string }
@@ -76,6 +78,8 @@ export interface SettlementSchedulerSummary {
   erroredAgreements: number;
   /** Advisory lock alınamadığı için işlenmeyen store sayısı. */
   skippedLocked: number;
+  /** TODO-163 Faz 3 (TD-153) — SPONSORSHIP_FINANCE kapalı olduğundan işlenmeyen store sayısı. */
+  skippedDisabled: number;
   perStore: StoreSettlementReport[];
 }
 
@@ -85,6 +89,8 @@ export interface SettlementSchedulerServiceDeps {
   logger: Logger;
   /** Dağıtık (jobType, storeId) overlap kilidi (PostgreSQL advisory lock). */
   lock: StoreJobLocker;
+  // TODO-163 Faz 3 (TD-153) — verildiyse: SPONSORSHIP_FINANCE kapalı store'da tur ATLANIR (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
   /** Store timezone çözülemezse fallback (config.COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE). */
   defaultTimeZone: string;
   /** Tur başına store başına en fazla anlaşma (bounded). */
@@ -156,11 +162,30 @@ export function createSettlementSchedulerService(
         candidateDrafts: 0,
         erroredAgreements: 0,
         skippedLocked: 0,
+        skippedDisabled: 0,
         perStore: [],
       };
 
       for (const store of stores) {
         const timeZone = store.timeZone || defaultTimeZone;
+
+        // TODO-163 Faz 3 (TD-153) — SPONSORSHIP_FINANCE kapalı store: MUTATION YOK. Lock ALINMADAN
+        // SKIPPED_DISABLED (bounded jobLog; hata değil; retry yok); diğer store'lar devam eder.
+        if (deps.capabilityGate && !(await deps.capabilityGate.isEnabled(store.storeId, "SPONSORSHIP_FINANCE"))) {
+          const at = clock();
+          await recordSkippedDisabledRun(jobLog, {
+            storeId: store.storeId,
+            jobName: SETTLEMENT_SCHEDULER_JOB,
+            trigger,
+            startedAt: at,
+            completedAt: at,
+            moduleKey: "SPONSORSHIP_FINANCE",
+          });
+          summary.skippedDisabled += 1;
+          summary.stores += 1;
+          summary.perStore.push({ ...emptyReport(store.storeId, timeZone, mode), outcome: "SKIPPED_DISABLED" });
+          continue;
+        }
 
         const lockResult = await lock(SETTLEMENT_SCHEDULER_JOB, store.storeId, async () => {
           const startedAt = clock();

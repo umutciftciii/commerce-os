@@ -35,6 +35,10 @@ import type {
   PlanCreateRequest,
   PlanListResponse,
   PlanUpdateRequest,
+  // TODO-163 Faz 3 (TD-154) — Plan → Capability editörü (transport imzalarında kullanılan tipler).
+  PlanCapabilitiesResponse,
+  PlanCapabilitiesUpdateRequest,
+  PlanCapabilityPreviewResponse,
   PlatformLoginRequest,
   PlatformLoginResponse,
   PlatformLogoutResponse,
@@ -288,7 +292,7 @@ import type {
   // edilir (transport imzasında doğrudan kullanılmaz).
   MediaListResponse,
   MediaUploadResponse,
-  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management (internal kullanım).
   StoreModulesResponse,
   StoreModuleState,
 } from "@commerce-os/contracts";
@@ -303,10 +307,12 @@ export type {
   AdminStoreCreateRequest,
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
-  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management.
   StoreModuleState,
   StoreModuleMatrixEntry,
   StoreModulesResponse,
+  StoreModuleDisablePreviewResponse,
+  PublicStoreCapabilitiesResponse,
   HealthResponse,
   InventoryAdjustRequest,
   InventoryAdjustmentResponse,
@@ -328,6 +334,12 @@ export type {
   PlanCreateRequest,
   PlanListResponse,
   PlanUpdateRequest,
+  // TODO-163 Faz 3 (TD-154) — Plan → Capability editörü.
+  PlanCapabilityStatus,
+  PlanCapabilityMatrixEntry,
+  PlanCapabilitiesResponse,
+  PlanCapabilitiesUpdateRequest,
+  PlanCapabilityPreviewResponse,
   PlatformLoginRequest,
   PlatformLoginResponse,
   PlatformLogoutResponse,
@@ -1155,6 +1167,20 @@ export interface ApiClient {
       create(input: PlanCreateRequest, token?: string): Promise<Plan>;
       get(id: string, token?: string): Promise<Plan>;
       update(id: string, input: PlanUpdateRequest, token?: string): Promise<Plan>;
+      // TODO-163 Faz 3 (TD-154) — Plan → Capability editörü (platform-admin).
+      capabilities: {
+        get(id: string, token?: string): Promise<PlanCapabilitiesResponse>;
+        preview(
+          id: string,
+          input: PlanCapabilitiesUpdateRequest,
+          token?: string,
+        ): Promise<PlanCapabilityPreviewResponse>;
+        apply(
+          id: string,
+          input: PlanCapabilitiesUpdateRequest,
+          token?: string,
+        ): Promise<PlanCapabilitiesResponse>;
+      };
     };
     categories: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
@@ -2480,6 +2506,25 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         get: (id, token) => getJson<Plan>(`/admin/plans/${id}`, token),
         update: (id, input, token) =>
           sendJson<Plan>(`/admin/plans/${id}`, "PATCH", input, token),
+        // TODO-163 Faz 3 (TD-154) — Plan → Capability editörü.
+        capabilities: {
+          get: (id, token) =>
+            getJson<PlanCapabilitiesResponse>(`/admin/plans/${id}/capabilities`, token),
+          preview: (id, input, token) =>
+            sendJson<PlanCapabilityPreviewResponse>(
+              `/admin/plans/${id}/capabilities/preview`,
+              "POST",
+              input,
+              token,
+            ),
+          apply: (id, input, token) =>
+            sendJson<PlanCapabilitiesResponse>(
+              `/admin/plans/${id}/capabilities`,
+              "PUT",
+              input,
+              token,
+            ),
+        },
       },
       categories: {
         list: (storeId, token, query) =>

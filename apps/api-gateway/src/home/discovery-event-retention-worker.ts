@@ -15,6 +15,7 @@ import {
 } from "./discovery-event-retention-service.js";
 import { createPrismaDiscoveryEventRetentionPersistence } from "./discovery-event-retention-persistence.js";
 import { getDefaultAdvisoryLockManager } from "../commercial-automation/advisory-lock.js";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 export interface DiscoveryEventRetentionWorkerHandle {
   enabled: boolean;
@@ -26,9 +27,15 @@ export interface DiscoveryEventRetentionWorkerDeps {
   config: AppConfig;
   logger: Logger;
   service?: DiscoveryEventRetentionService;
+  // TODO-163 Faz 3 (TD-153) — HOME_EXPERIENCE kapalı store'da tur atlanır (SKIPPED_DISABLED).
+  capabilityGate?: WorkerCapabilityGate;
 }
 
-export function buildDiscoveryEventRetentionService(config: AppConfig, logger: Logger): DiscoveryEventRetentionService {
+export function buildDiscoveryEventRetentionService(
+  config: AppConfig,
+  logger: Logger,
+  capabilityGate?: WorkerCapabilityGate,
+): DiscoveryEventRetentionService {
   return createDiscoveryEventRetentionService({
     persistence: createPrismaDiscoveryEventRetentionPersistence(prisma),
     jobLog: prisma,
@@ -39,6 +46,7 @@ export function buildDiscoveryEventRetentionService(config: AppConfig, logger: L
       batchSize: config.HOME_DISCOVERY_EVENT_RETENTION_BATCH_SIZE,
       maxDeletePerRun: config.HOME_DISCOVERY_EVENT_RETENTION_MAX_DELETE_PER_RUN,
     },
+    capabilityGate,
   });
 }
 
@@ -53,7 +61,7 @@ export function startDiscoveryEventRetentionWorker(
   }
 
   const intervalMs = config.HOME_DISCOVERY_EVENT_RETENTION_INTERVAL_SECONDS * 1000;
-  const service = deps.service ?? buildDiscoveryEventRetentionService(config, logger);
+  const service = deps.service ?? buildDiscoveryEventRetentionService(config, logger, deps.capabilityGate);
 
   let stopped = false;
   let running = false;

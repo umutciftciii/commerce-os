@@ -13,6 +13,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import type { Logger } from "@commerce-os/logger";
+import type { WorkerCapabilityGate } from "../capabilities/worker-gate.js";
 
 /** Reconciliation'ın kullandığı reindex kuyruğu yüzeyi (SearchIndexEmitter alt kümesi; fire-and-forget). */
 export interface CampaignReconcileEmitter {
@@ -33,6 +34,9 @@ export interface CampaignReconcileSummary {
   expiredRequeued: number;
   /** Yeni açılan kampanya nedeniyle store reindex tetiklenen mağaza sayısı. */
   storesRefreshed: number;
+  // TODO-163 Faz 3 (TD-153) — CAMPAIGNS kapalı store olduğundan reindex ETMEDEN atlanan ürün/mağaza sayısı.
+  expiredSkippedDisabled: number;
+  storesSkippedDisabled: number;
 }
 
 export interface CampaignReconcileService {
@@ -47,6 +51,9 @@ export interface CampaignReconcileServiceDeps {
   batchSize: number;
   /** Yeni-başlayan kampanyayı "yakın" saymak için geriye bakış (genelde interval × 2). */
   lookbackMs: number;
+  // TODO-163 Faz 3 (TD-153) — verildiyse: CAMPAIGNS kapalı store için reindex EMIT edilmez (sessiz skip;
+  // bu global sweep'in per-store jobLog'u yok — emit-site gate + sayaç). Enjekte edilmezse davranış eskisi.
+  capabilityGate?: WorkerCapabilityGate;
 }
 
 export function createCampaignReconcileService(deps: CampaignReconcileServiceDeps): CampaignReconcileService {
@@ -54,23 +61,62 @@ export function createCampaignReconcileService(deps: CampaignReconcileServiceDep
   return {
     async reconcileOnce(nowInput?: Date): Promise<CampaignReconcileSummary> {
       const now = nowInput ?? new Date();
+      const gate = deps.capabilityGate;
+      // Store başına CAMPAIGNS kararı memo (aynı store'da tekrar await yok; cache zaten fail-closed/tenant-safe).
+      const decision = new Map<string, boolean>();
+      const campaignsOn = async (storeId: string): Promise<boolean> => {
+        if (!gate) return true;
+        let v = decision.get(storeId);
+        if (v === undefined) {
+          v = await gate.isEnabled(storeId, "CAMPAIGNS");
+          decision.set(storeId, v);
+        }
+        return v;
+      };
 
       // (a) Süresi geçmiş snapshot'lı ürünler → reindex (badge temizlenir/yenilenir). Bounded.
       const expired = await persistence.findExpiredSnapshotProducts(now, batchSize);
-      for (const row of expired) emitter.reindexProduct(row.storeId, row.productId);
+      let expiredRequeued = 0;
+      let expiredSkippedDisabled = 0;
+      for (const row of expired) {
+        if (await campaignsOn(row.storeId)) {
+          emitter.reindexProduct(row.storeId, row.productId);
+          expiredRequeued += 1;
+        } else {
+          expiredSkippedDisabled += 1;
+        }
+      }
 
       // (b) Yakın zamanda AÇILAN kampanyaların mağazaları → store reindex (event kaçırılmışsa yakala).
       const storeIds = await persistence.findRecentlyStartedCampaignStoreIds(now, lookbackMs);
-      for (const storeId of storeIds) emitter.reindexStore(storeId);
+      let storesRefreshed = 0;
+      let storesSkippedDisabled = 0;
+      for (const storeId of storeIds) {
+        if (await campaignsOn(storeId)) {
+          emitter.reindexStore(storeId);
+          storesRefreshed += 1;
+        } else {
+          storesSkippedDisabled += 1;
+        }
+      }
 
       const summary: CampaignReconcileSummary = {
-        expiredRequeued: expired.length,
-        storesRefreshed: storeIds.length,
+        expiredRequeued,
+        storesRefreshed,
+        expiredSkippedDisabled,
+        storesSkippedDisabled,
       };
-      if (summary.expiredRequeued > 0 || summary.storesRefreshed > 0) {
+      if (
+        summary.expiredRequeued > 0 ||
+        summary.storesRefreshed > 0 ||
+        summary.expiredSkippedDisabled > 0 ||
+        summary.storesSkippedDisabled > 0
+      ) {
         logger.info("campaign reconcile cycle completed", {
           expiredRequeued: summary.expiredRequeued,
           storesRefreshed: summary.storesRefreshed,
+          expiredSkippedDisabled: summary.expiredSkippedDisabled,
+          storesSkippedDisabled: summary.storesSkippedDisabled,
         });
       }
       return summary;

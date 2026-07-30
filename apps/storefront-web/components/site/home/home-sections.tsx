@@ -23,9 +23,14 @@ import { ValueProps } from "./editorial";
 export function HomeSections({
   sections,
   dict,
+  caps,
 }: {
   sections: StorefrontHomeSection[];
   dict: StorefrontDictionary;
+  // TODO-163 Faz 3 (TD-156) — kapalı modül section'ı hiç render edilmez (client island MOUNT edilmez
+  // → beacon/fetch yok). `wishlist` ise rail içindeki (kendi provider'ını kuran) kalp butonunu gizler.
+  // Alan yoksa (undefined) → göster (geriye uyumlu; gateway yine otoriter).
+  caps?: { recentlyViewed?: boolean; sponsored?: boolean; wishlist?: boolean };
 }) {
   return (
     <div className="flex flex-col">
@@ -66,6 +71,8 @@ export function HomeSections({
           // TD-129 — Yönetilebilir "Son İncelediklerin". İçerik ziyaretçi geçmişinden (client island
           // /recently-viewed'den çeker); geçmiş YOKSA şerit hiç render edilmez (boş-durum yer tutmaz).
           // Başlık admin TR/EN (getHome locale çözer); yoksa i18n varsayılanı. Ölçüm placement=HOME.
+          // TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED kapalıysa island MOUNT edilmez → /recently-viewed fetch yok.
+          if (caps?.recentlyViewed === false) return null;
           return (
             <div key={section.id} className={visibility}>
               <Container className="pb-16">
@@ -75,6 +82,7 @@ export function HomeSections({
                   eyebrow={section.subtitle ?? undefined}
                   limit={section.maxItems}
                   placement="HOME"
+                  wishlistEnabled={caps?.wishlist !== false}
                 />
               </Container>
             </div>
@@ -83,7 +91,10 @@ export function HomeSections({
         // TODO-161 (ADR-114) — Sponsorlu vitrin: PRODUCT_SHOWCASE düzeniyle render edilir; ürün kartları
         // sponsoredToken taşıdığından "Sponsorlu" rozetini + impression/click ölçümünü KENDİLERİ yapar.
         // Section başlığı ayrıca sponsorlu olduğunu işaretler (sponsoredLabel).
+        // TODO-163 Faz 3 (TD-156) — SPONSORED_PRODUCTS kapalıysa sponsorlu vitrin render edilmez
+        // (gateway zaten token üretmez; bu render-katmanı savunması).
         const isSponsored = section.type === "SPONSORED_SHOWCASE";
+        if (isSponsored && caps?.sponsored === false) return null;
         return (
           <ProductShowcaseSection
             key={section.id}
