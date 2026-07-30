@@ -40,6 +40,11 @@ interface ThemeLike {
   duplicatedFrom: string | null;
   createdBy: string | null;
   updatedBy: string | null;
+  // TODO-164B — rol ayrımı + override policy alanları.
+  ownerScope: string;
+  overridePolicy: unknown;
+  sourceThemeId: string | null;
+  sourceThemeVersion: number | null;
   createdAt: Date;
   updatedAt: Date;
   versions: VersionLike[];
@@ -77,6 +82,10 @@ function makeFakeDataAccess() {
         duplicatedFrom: input.duplicatedFrom ?? null,
         createdBy: input.createdBy ?? null,
         updatedBy: input.createdBy ?? null,
+        ownerScope: "STORE",
+        overridePolicy: null,
+        sourceThemeId: null,
+        sourceThemeVersion: null,
         createdAt: now(),
         updatedAt: now(),
         versions: [
@@ -217,6 +226,10 @@ function makeFakeDataAccess() {
         duplicatedFrom: t.id,
         createdBy: input.createdBy ?? null,
         updatedBy: input.createdBy ?? null,
+        ownerScope: "STORE",
+        overridePolicy: null,
+        sourceThemeId: null,
+        sourceThemeVersion: null,
         createdAt: now(),
         updatedAt: now(),
         versions: [
@@ -310,6 +323,7 @@ function makeFakeDataAccess() {
       t.themeKey = input.themeKey;
       t.layoutPreset = input.layoutPreset;
       t.themeApiVersion = input.themeApiVersion;
+      if (input.overridePolicy !== undefined) t.overridePolicy = input.overridePolicy;
       return t as never;
     },
     async listThemeBindingSummaries() {
@@ -994,5 +1008,125 @@ describe("custom theme builder (TODO-164A)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().token).toContain(id);
     expect(typeof res.json().expiresAt).toBe("string");
+  });
+});
+
+// TODO-164B (ADR-232/233) — Rol ayrımı + Store Override Policy server-side enforcement.
+describe("store override policy enforcement (TODO-164B)", () => {
+  let app: ReturnType<typeof buildApp>["app"];
+  let themes: ReturnType<typeof buildApp>["themes"];
+
+  beforeEach(() => {
+    const built = buildApp();
+    app = built.app;
+    themes = built.themes;
+  });
+
+  /** Tema oluştur + verilen belgeyle publish et (baseline = platform-onaylı state). */
+  async function createAndPublish(): Promise<string> {
+    const id = (await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "Brand" } }))
+      .json().id as string;
+    await app.inject({
+      method: "PUT",
+      url: `/stores/s1/themes/${id}/draft`,
+      payload: { document: DEFAULT_THEME_DOCUMENT },
+    });
+    await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    return id;
+  }
+
+  function setPolicy(id: string, policy: unknown, ownerScope = "STORE") {
+    const t = themes.find((x) => x.id === id)!;
+    t.overridePolicy = policy;
+    t.ownerScope = ownerScope;
+  }
+
+  it("detail ownerScope + fieldPolicyProjection taşır (varsayılan all-editable)", async () => {
+    const id = (await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "D" } })).json()
+      .id as string;
+    const res = await app.inject({ method: "GET", url: `/stores/s1/themes/${id}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ownerScope).toBe("STORE");
+    expect(body.overridePolicy).toBeNull();
+    expect(body.fieldPolicyProjection.editable).toContain("brand.primaryColor");
+    expect(body.updateAvailable).toBe(false);
+  });
+
+  it("locked renk alanı değişimi → 409 THEME_FIELD_LOCKED", async () => {
+    const id = await createAndPublish();
+    setPolicy(id, { fields: { "color.background": "locked" }, allowedFonts: [], allowedPalettes: [], allowedLayoutPresets: [] });
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.surface.background = "#010203";
+    const res = await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: doc } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_FIELD_LOCKED");
+    expect(res.json().error.details.violations[0].path).toBe("color.background");
+  });
+
+  it("editable alan değişimi (locked policy'de bile) → 200", async () => {
+    const id = await createAndPublish();
+    setPolicy(id, { fields: { "color.background": "locked" }, allowedFonts: [], allowedPalettes: [], allowedLayoutPresets: [] });
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.brand.primary = "#123456"; // editable
+    const res = await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: doc } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().draft.document.tokens.brand.primary).toBe("#123456");
+  });
+
+  it("izinsiz font ailesi → 409 THEME_FONT_NOT_ALLOWED", async () => {
+    const id = await createAndPublish();
+    setPolicy(id, {
+      fields: {},
+      allowedFonts: ["classic-serif"], // heading/body = georgia
+      allowedPalettes: [],
+      allowedLayoutPresets: [],
+    });
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.typography.bodyFont = "futura"; // izinli aile değil
+    const res = await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: doc } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_FONT_NOT_ALLOWED");
+  });
+
+  it("izinli font ailesi → 200", async () => {
+    const id = await createAndPublish();
+    setPolicy(id, {
+      fields: {},
+      allowedFonts: ["classic-serif"],
+      allowedPalettes: [],
+      allowedLayoutPresets: [],
+    });
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.typography.bodyFont = "georgia"; // izinli
+    const res = await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: doc } });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("platform template eksik policy ile publish → 409 THEME_POLICY_INCOMPLETE", async () => {
+    const id = (await app.inject({ method: "POST", url: "/stores/s1/themes", payload: { name: "PT" } })).json()
+      .id as string;
+    await app.inject({ method: "PUT", url: `/stores/s1/themes/${id}/draft`, payload: { document: DEFAULT_THEME_DOCUMENT } });
+    // Platform teması + EKSİK policy (yalnız bir alan explicit).
+    setPolicy(id, { fields: { "brand.primaryColor": "editable" }, allowedFonts: [], allowedPalettes: [], allowedLayoutPresets: [] }, "PLATFORM");
+    const res = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_POLICY_INCOMPLETE");
+    expect(res.json().error.details.missingFields.length).toBeGreaterThan(0);
+  });
+
+  it("publish locked alanı published baseline'dan farklıysa → 409", async () => {
+    const id = await createAndPublish();
+    // Baseline (published) default renk. Policy color.background locked.
+    setPolicy(id, { fields: { "color.background": "locked" }, allowedFonts: [], allowedPalettes: [], allowedLayoutPresets: [] });
+    // Draft'ı doğrudan (policy'siz) mutasyona uğrat → publish gate ikinci kapı yakalamalı.
+    const t = themes.find((x) => x.id === id)!;
+    const draftVer = t.versions.find((v) => v.status === "DRAFT")!;
+    const doc = structuredClone(DEFAULT_THEME_DOCUMENT);
+    doc.tokens.surface.background = "#e8e8e8"; // farklı ama kontrast-güvenli (açık zemin)
+    draftVer.document = doc;
+    const res = await app.inject({ method: "POST", url: `/stores/s1/themes/${id}/publish`, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("THEME_FIELD_LOCKED");
   });
 });

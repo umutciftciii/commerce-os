@@ -785,6 +785,21 @@ Doğrulama: apply sonrası tekrar `audit-sku` çalıştır → `flagged: 0` (hed
   hatası verir (`migrate deploy` etkilenmez — yalnız isimle atlar). Çözüm: dosyayı uygulamadan önce
   düzeltin; kaçırılırsa `UPDATE _prisma_migrations SET checksum='<yeni sha256>' WHERE migration_name=…`.
 
+## Theme productization migration + sistem mağazası (TODO-164B / ADR-232)
+
+- Migration `20260731120000_theme_productization_role_separation` **ADDITIVE**'dir: `Store.systemPurpose TEXT`
+  (nullable) + `Theme.ownerScope TEXT DEFAULT 'STORE'` + `Theme.overridePolicy JSONB` + `Theme.sourceThemeId TEXT` +
+  `Theme.sourceThemeVersion INTEGER` + `Theme_ownerScope_idx`. Var olan satırlar null/default'la dolar → mevcut tema
+  görünümü DEĞİŞMEZ. Apply yolu `prisma migrate deploy` (docker'da `pnpm db:deploy`). `db push`/`migrate reset`/
+  `volume rm` YASAK.
+- **Sistem mağazası (`systemPurpose ≠ null`, ör. `THEME_LIBRARY`)** normal mağaza listeleri (`listStores`), fleet
+  binding (`listThemeBindingSummaries`) ve storefront public resolver'dan (`resolvePublicStore` → 404) merkezi olarak
+  dışlanır. Bir tema kütüphanesi mağazası oluşturulacaksa (Dilim 2) mutlaka `systemPurpose="THEME_LIBRARY"` ile
+  idempotent upsert edilmeli; slug ile ayırmak YETMEZ.
+- **Override policy enforcement:** Store Admin save/publish gateway'de `enforceOverridePolicy` ile denetlenir; locked
+  alan API ile değiştirilemez (409 `THEME_FIELD_LOCKED`). Client gizlemesi yetki sayılmaz. Platform template
+  (`ownerScope=PLATFORM`) yayınlanmadan önce policy EXPLICIT olmalı (aksi halde 409 `THEME_POLICY_INCOMPLETE`).
+
 ## Birleşik sponsorluk: avans/mahsup + anlaşma-kapılı aktivasyon (TODO-161A.2 / ADR-128, ADR-129)
 
 Migration `20260726120000_add_sponsorship_advance_allocation` ADDITIVE: yeni tablo

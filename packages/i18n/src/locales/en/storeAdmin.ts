@@ -147,6 +147,14 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "A theme token value contains unsafe characters and was rejected for security reasons.",
     THEME_PUBLISH_BLOCKED:
       "This theme can't be published because it contains invalid design tokens. Fix them and try again.",
+    THEME_CONTRAST_FAILED:
+      "Your colour choice doesn't provide enough readability (contrast). Increase the difference between text and background and try again.",
+    THEME_FIELD_LOCKED:
+      "This field is locked for your store appearance and can't be changed. Locked fields are managed by the platform administrator.",
+    THEME_FONT_NOT_ALLOWED:
+      "The font you selected isn't allowed for this appearance. Please choose one of the permitted fonts.",
+    THEME_LAYOUT_NOT_ALLOWED:
+      "The layout you selected isn't allowed for this appearance. Please choose one of the permitted layouts.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",
@@ -172,7 +180,7 @@ export const enStoreAdmin: StoreAdminDictionary = {
     sponsoredProducts: "Sponsored Products",
     hero: "Home",
     homeExperience: "Home Experience",
-    theme: "Theme",
+    theme: "Brand & Appearance",
     settings: "Settings",
   },
   storeStatusLabels: {

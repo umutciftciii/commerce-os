@@ -1688,3 +1688,24 @@ Token render otoritesi `ThemeDocument` (Stil sekmesi düzenler). `builder-config
 builder-css ile document CSS'inden SONRA layered override olarak yayımlanır → deterministik ama iki kaynak.
 Store-admin UI tokenOverrides'ı POPÜLE ETMEZ (yalnız document); alan spec bütünlüğü + programatik yol için
 mevcut. İyileştirme: tek kaynağa indirgeme (config→document derive) ileride değerlendirilir. Etki: düşük.
+
+## TD-162 — Logo/favicon draft-staging + atomik publish (TODO-164B)
+
+Dilim 1'de logo/favicon tek otorite `StoreSettings`; "Marka ve Görünüm" logoyu Ayarlar → Marka'ya yönlendirir
+(çift kaynak yok — Düzeltme 2 çekirdeği KARŞILANDI). Kullanıcının istediği tam biçim (builder içinde draft-staged
+logo + preview geçici override + publish anında StoreSettings ATOMİK güncelleme) Dilim 2'ye ertelendi: `config`'te
+`pendingLogoMediaId` draft pointer + publish transaction'ında StoreSettings upsert + preview projeksiyonuna geçici
+enjeksiyon. `ThemeDocument.assets`'e YAZILMAYACAK (tek otorite korunur). Etki: orta (UX kolaylığı).
+
+## TD-163 — allowedPalettes katalog-kısıtı, publish-gate değil (TODO-164B)
+
+`override-policy.allowedPalettes` yalnız store-admin katalogunu filtreler; publish-time enforce EDİLMEZ — çünkü
+renkler editable ise store-admin zaten herhangi rengi girebilir (palet uygulaması yalnız kısayol). Hard renk kilidi
+per-alan `FieldPolicy=locked` ile sağlanır (enforce edilir). Palet-seviyesi kilit istenirse ayrı tasarım gerekir.
+Etki: düşük (belgelenmiş; güvenlik açığı değil).
+
+## TD-164 — Font kütüphanesi web-font yükleme (TODO-164B)
+
+`font-library.ts` stack'leri yaygın SİSTEM fontlarına dayanır (@font-face YOK). Bazı aileler (ör. Didot, Optima)
+tüm platformlarda mevcut olmayabilir → generic fallback devreye girer (güvenli ama görünüm platforma göre değişebilir).
+Kürasyonlu web-font barındırma (self-host + license metadata + preload) ayrı iş kalemi. Etki: düşük-orta (görsel).

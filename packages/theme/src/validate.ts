@@ -1,4 +1,5 @@
 import { DEFAULT_SHADOW, DEFAULT_TYPOGRAPHY } from "./build.js";
+import { FONT_LIBRARY_STACKS } from "./font-library.js";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -327,6 +328,7 @@ export function validateEasing(raw: string): ValidateResult {
  * girdisi doğrudan font-family CSS'ine YAZILMAZ.
  */
 export const FONT_FAMILY_PRESETS: Record<string, string> = {
+  // Legacy id'ler (TODO-164A — 3 font) KORUNUR.
   system: DEFAULT_TYPOGRAPHY.bodyFont,
   sans: DEFAULT_TYPOGRAPHY.bodyFont,
   inter: DEFAULT_TYPOGRAPHY.bodyFont,
@@ -334,6 +336,9 @@ export const FONT_FAMILY_PRESETS: Record<string, string> = {
   playfair: DEFAULT_TYPOGRAPHY.headingFont,
   mono: DEFAULT_TYPOGRAPHY.monoFont,
   monospace: DEFAULT_TYPOGRAPHY.monoFont,
+  // TODO-164B — Safe Font Library (font-library.ts) familyId'leri ADDITIVE eklenir.
+  // Değerler sunucu-tanımlı sabit stack'ler (kullanıcı girdisi değil).
+  ...FONT_LIBRARY_STACKS,
 };
 
 /** Legacy uyumu: hâlihazırda depolanmış kanonik stack string'leri de geçerli. */
@@ -341,6 +346,8 @@ const FONT_STACK_ALLOWLIST = new Set<string>([
   DEFAULT_TYPOGRAPHY.bodyFont,
   DEFAULT_TYPOGRAPHY.headingFont,
   DEFAULT_TYPOGRAPHY.monoFont,
+  // Font kütüphanesi stack'leri de doğrudan (çözülmüş) değerle geçerli olmalı.
+  ...Object.values(FONT_LIBRARY_STACKS),
 ]);
 
 export function validateFontFamily(raw: string): ValidateResult {

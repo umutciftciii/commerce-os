@@ -2384,3 +2384,28 @@ Analiz: `docs/analysis/TODO-164A-custom-theme-builder.md`.
 - **Canlı düzeltme:** link contrast `blocking:false` (shipped preset yayınlanabilir); `--tb-gutter` storefront
   `.max-w-grid` padding'e bağlandı. TD-160 CLOSED (compose `NEXT_PUBLIC_STOREFRONT_URL`). Açık: TD-159
   (responsiveOverrides UI-future), TD-161 (token çift-kaynak).
+
+### TODO-164B — Theme Builder Productization & Role Separation (Dilim 1 IMPLEMENTASYON TAMAM, commit YOK)
+
+Rol ayrımı (Platform Designer & Library ↔ Store Brand Customizer) + store override policy + font/palet kütüphaneleri.
+**ADR-232…237.** Analiz: `docs/analysis/TODO-164B-theme-productization.md`. Kararlar: (1) platform temaları sistem
+mağazasında (`systemPurpose=THEME_LIBRARY`); (2) fazlı — Dilim 1 temel, Dilim 2 platform 9-sekme Designer + versiyon
+upgrade + full-screen preview; (3) logo/favicon tek otorite = StoreSettings.
+- **`@commerce-os/theme`:** `override-policy.ts` (FieldPolicy editable/locked/inherited/required/hidden +
+  `enforceOverridePolicy` server-side + `isPolicyExplicit`), `font-library.ts` (16 aile / 18 preset / 8 kategori;
+  validate.ts ADDITIVE genişleme), `color-palettes.ts` (8 WCAG-güvenli palet + `applyPaletteToDocument`),
+  `field-labels.ts` (teknik yol → kullanıcı dili + previewTarget).
+- **DB:** additive `20260731120000_theme_productization_role_separation` (`Store.systemPurpose`,
+  `Theme.ownerScope/overridePolicy/sourceThemeId/sourceThemeVersion`; mevcut veri korunur).
+- **Gateway:** save/publish override policy enforcement (409 THEME_FIELD_LOCKED / FONT / LAYOUT / POLICY_INCOMPLETE +
+  publish 2. kapı); `serializeDetail` ownerScope/overridePolicy/fieldPolicyProjection/sourceThemeVersion/updateAvailable;
+  binding assign override policy; sistem mağazası dışlama (resolvePublicStore 404 + listStores + fleet).
+- **Store-admin:** Theme Studio → "Marka ve Görünüm" (Marka/Renkler/Tipografi/Görseller/Hazır düzen/Önizleme/Yayınlama);
+  `ColorField` (picker+hex+kontrast+açıklama+son renkler+highlight); teknik slot/token/version/config KALDIRILDI;
+  nav+başlık TR/EN; yeni hata mesajları.
+- **Storefront:** `ThemePreviewHighlight` (postMessage; yalnız preview cookie).
+- **Gate:** theme 268 · gateway 1857 · store-admin 365 · contracts/api-client/storefront/admin-web build — TÜMÜ PASS;
+  build 27/27 · lint temiz · typecheck temiz · git diff --check temiz.
+- **AÇIK:** Dilim 2 (platform 9-sekme Designer + versiyon upgrade/rollback + full-screen çok-sayfa preview);
+  gerçek browser smoke (canlı stack); TD-162 (logo draft-staging + atomik publish), TD-163 (allowedPalettes
+  publish-gate değil katalog), TD-164 (font web-font yükleme).

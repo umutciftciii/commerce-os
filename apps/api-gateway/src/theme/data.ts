@@ -46,6 +46,11 @@ export type ThemeRecord = {
   duplicatedFrom: string | null;
   createdBy: string | null;
   updatedBy: string | null;
+  // TODO-164B — rol ayrımı + override policy alanları.
+  ownerScope: string;
+  overridePolicy: Prisma.JsonValue | null;
+  sourceThemeId: string | null;
+  sourceThemeVersion: number | null;
   createdAt: Date;
   updatedAt: Date;
   versions: ThemeVersionRecord[];
@@ -79,6 +84,10 @@ const themeSelect = {
   duplicatedFrom: true,
   createdBy: true,
   updatedBy: true,
+  ownerScope: true,
+  overridePolicy: true,
+  sourceThemeId: true,
+  sourceThemeVersion: true,
   createdAt: true,
   updatedAt: true,
   versions: { select: versionSelect, orderBy: { version: "desc" as const } },
@@ -194,6 +203,9 @@ export interface ThemeDataAccess {
       // belge yerine BU kullanılır (atama tam temayı uygular: renk + düzen).
       document?: unknown;
       schemaVersion?: number;
+      // TODO-164B — atama sırasında mağaza override policy'si (opsiyonel). Verilirse
+      // Theme.overridePolicy'ye yazılır; Store Admin alan yetkileri buradan gelir.
+      overridePolicy?: unknown;
     },
   ): Promise<ThemeRecord | null>;
   /** Platform Admin fleet: TÜM mağazalar + yayınlı tema özeti ("Tema Yönetimi" tablosu). */
@@ -580,6 +592,10 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
             themeKey: input.themeKey,
             layoutPreset: input.layoutPreset,
             themeApiVersion: input.themeApiVersion,
+            // TODO-164B — atama override policy'yi de yazar (verildiyse).
+            ...(input.overridePolicy !== undefined
+              ? { overridePolicy: input.overridePolicy as Prisma.InputJsonValue }
+              : {}),
           },
         });
         // Düzenlemeye devam için yeni DRAFT snapshot (atanan tema belgesiyle).
@@ -603,7 +619,10 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
     async listThemeBindingSummaries() {
       // Tüm mağazalar + (varsa) PUBLISHED tema + onun PUBLISHED versiyon config'i.
       // Yayınlı teması olmayan mağaza da döner (aktif = base). Tek sorgu (N+1 yok).
+      // TODO-164B (ADR-232) — sistem mağazaları (systemPurpose ≠ null; ör. tema
+      // kütüphanesi) fleet tablosundan KESİNLİKLE dışlanır.
       const stores = await prisma.store.findMany({
+        where: { systemPurpose: null },
         select: {
           id: true,
           name: true,

@@ -455,7 +455,10 @@ type PlatformUserRecord = Pick<PlatformUser, "id" | "email" | "name" | "password
 type PlatformSessionRecord = Pick<PlatformSession, "id" | "expiresAt" | "revokedAt"> & {
   platformUser: PlatformUserRecord;
 };
-type StoreRecord = Pick<Store, "id" | "name" | "slug" | "status" | "metadata" | "createdAt" | "updatedAt"> & {
+type StoreRecord = Pick<
+  Store,
+  "id" | "name" | "slug" | "status" | "metadata" | "systemPurpose" | "createdAt" | "updatedAt"
+> & {
   domain?: string | null;
 };
 type PlanRecord = Pick<
@@ -2700,6 +2703,7 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     slug: true,
     status: true,
     metadata: true,
+    systemPurpose: true,
     createdAt: true,
     updatedAt: true,
     domains: {
@@ -3118,14 +3122,18 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
       return true;
     },
     listStores: async ({ limit, offset }) => {
+      // TODO-164B (ADR-232) — sistem mağazaları (systemPurpose ≠ null) normal
+      // mağaza listelerinde/sayımlarında GÖRÜNMEZ (tema kütüphanesi vb.).
+      const where = { systemPurpose: null } satisfies Prisma.StoreWhereInput;
       const [data, total] = await Promise.all([
         prisma.store.findMany({
+          where,
           orderBy: { createdAt: "asc" },
           skip: offset,
           take: limit,
           select: storeSelect,
         }),
-        prisma.store.count(),
+        prisma.store.count({ where }),
       ]);
       return { data: data.map((store) => ({ ...store, domain: store.domains[0]?.domain ?? null })), total };
     },
@@ -5183,7 +5191,10 @@ export function createServer(
   // alanlari sizmaz. Yalnizca GET (read-only); mutation ucu yoktur.
   async function resolvePublicStore(slug: string) {
     const store = await dataAccess.findStoreBySlug(slug);
-    if (!store || store.status !== "ACTIVE") {
+    // TODO-164B (ADR-232) — sistem mağazaları (systemPurpose ≠ null; ör. tema
+    // kütüphanesi) storefront'tan KESİNLİKLE erişilemez → 404 (tüm public route'lar
+    // tek noktadan bu resolver'ı kullanır).
+    if (!store || store.status !== "ACTIVE" || store.systemPurpose != null) {
       return null;
     }
     return store;

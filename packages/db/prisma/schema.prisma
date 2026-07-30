@@ -802,6 +802,11 @@ model Store {
   slug      String      @unique
   status    StoreStatus @default(DRAFT)
   metadata  Json?
+  // TODO-164B (ADR-232) — Sistem mağazası işareti. Normal mağazalar null. Örn.
+  // "THEME_LIBRARY" = Platform Admin tema template'lerini tutan sentetik mağaza;
+  // normal mağaza listeleri, abonelik, storefront resolver, rapor ve tenant
+  // seçicilerinden KESİNLİKLE dışlanır (slug ile ayırmak yetmez).
+  systemPurpose String?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -3038,6 +3043,18 @@ model Theme {
   duplicatedFrom String?
   createdBy      String?
   updatedBy      String?
+  // TODO-164B (ADR-232/233/234) — Theme Productization & Role Separation (additive,
+  // nullable → mevcut satırlar korunur).
+  //   ownerScope        "STORE" (mağaza teması) | "PLATFORM" (kütüphane template'i).
+  //   overridePolicy    Store Admin'in hangi alanları değiştirebileceği (editable/
+  //                     locked/inherited/required/hidden) + izinli font/palet/düzen.
+  //                     Null → geriye uyum (defaultOverridePolicy = hepsi editable).
+  //   sourceThemeId     Bu mağaza teması hangi PLATFORM template'inden türetildi.
+  //   sourceThemeVersion Türetildiği template published sürümü → update-available.
+  ownerScope         String  @default("STORE")
+  overridePolicy     Json?
+  sourceThemeId      String?
+  sourceThemeVersion Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3046,6 +3063,7 @@ model Theme {
 
   @@index([storeId])
   @@index([storeId, status])
+  @@index([ownerScope])
 }
 
 // Tema versiyonu (immutable snapshot). Her publish YENİ versiyon üretir; tema

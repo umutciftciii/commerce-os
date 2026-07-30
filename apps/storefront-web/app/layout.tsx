@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
 import { getDictionary } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getCartCount } from "../lib/server/cart-cookie";
@@ -7,6 +8,7 @@ import { getCurrentCustomer } from "../lib/server/customer";
 import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
 import { ThemeSlotsProvider } from "../components/theme/theme-slots";
+import { ThemePreviewHighlight } from "../components/theme/preview-highlight";
 import { CampaignBar } from "../components/site/campaign-bar";
 import { getCampaignSlides } from "../lib/server/campaigns";
 import { getNavCategories } from "../lib/server/navigation";
@@ -87,6 +89,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // ThemeSlotsProvider ile client slot bileşenlerine taşınır. Tema yoksa BASE_COMMERCE.
   const layoutPreset = theme?.layoutPreset ?? "BASE_COMMERCE";
   const themeSlots = theme?.slots ?? {};
+  // TODO-164B (ADR-237) — Preview highlight yalnız draft-preview bağlamında (cookie
+  // varken) mount edilir → production vitrini etkilenmez.
+  const isThemePreview = (await cookies()).get("cos_theme_preview") != null;
   return (
     <html
       lang={locale}
@@ -102,6 +107,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {theme?.css ? (
           <style id="commerce-os-theme" dangerouslySetInnerHTML={{ __html: theme.css }} />
         ) : null}
+        {isThemePreview ? <ThemePreviewHighlight /> : null}
         <JsonLd data={organizationLd} />
         <JsonLd data={webSiteLd} />
         <a

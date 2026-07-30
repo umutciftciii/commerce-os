@@ -61,6 +61,14 @@ import {
   resolveStartingPoint,
   isThemeStartingPoint,
   type ThemeBuilderConfig,
+  // TODO-164B — store override policy (server-side enforcement) + projeksiyon.
+  parseOverridePolicy,
+  enforceOverridePolicy,
+  projectFieldPolicy,
+  isPolicyExplicit,
+  missingPolicyFields,
+  type PolicyConfigView,
+  type PolicyThemeState,
 } from "@commerce-os/theme";
 import type { ThemeDataAccess, ThemeRecord, ThemeVersionRecord } from "./data.js";
 
@@ -173,6 +181,9 @@ function serializeDetail(theme: ThemeRecord) {
   const draft = currentDraft(theme);
   const published = currentPublished(theme);
   const active = draft ?? published;
+  // TODO-164B — rol ayrımı + override policy bağlamı. Store Admin UI locked/hidden
+  // alanları gizler; server enforcement asıl otoritedir.
+  const policy = parseOverridePolicy(theme.overridePolicy);
   return {
     id: theme.id,
     name: theme.name,
@@ -185,6 +196,20 @@ function serializeDetail(theme: ThemeRecord) {
     themeApiVersion: theme.themeApiVersion,
     duplicatedFrom: theme.duplicatedFrom,
     updatedAt: theme.updatedAt.toISOString(),
+    ownerScope: theme.ownerScope,
+    overridePolicy:
+      theme.overridePolicy == null
+        ? null
+        : {
+            fields: policy.fields,
+            allowedFonts: policy.allowedFonts,
+            allowedPalettes: policy.allowedPalettes,
+            allowedLayoutPresets: policy.allowedLayoutPresets,
+          },
+    fieldPolicyProjection: projectFieldPolicy(policy),
+    sourceThemeVersion: theme.sourceThemeVersion,
+    // Dilim 1: platform template sürüm karşılaştırması yok → false. Dilim 2'de hesaplanır.
+    updateAvailable: false,
     draft: draft ? serializeVersionDoc(draft) : null,
     published: published ? serializeVersionDoc(published) : null,
     versions: theme.versions.map((v) => ({
@@ -274,6 +299,48 @@ function rawConfigCompatible(
     return { ok: false, issues: errors.map((e) => ({ code: e.code, slot: e.slot, message: e.message })) };
   }
   return { ok: true };
+}
+
+/** Stored config JSON → policy karşılaştırması için config görünümü. */
+function policyConfigView(config: unknown): PolicyConfigView {
+  const c = (config ?? {}) as Record<string, unknown>;
+  return {
+    layoutPreset: typeof c.layoutPreset === "string" ? c.layoutPreset : undefined,
+    slots: (c.slots ?? {}) as Record<string, string | undefined>,
+    slotVariants: (c.slotVariants ?? {}) as Record<string, string | undefined>,
+  };
+}
+
+/**
+ * TODO-164B (ADR-233) — Store Override Policy server-side enforcement. Store Admin'in
+ * yaptığı değişiklikler mağaza temasının override policy'sine göre denetlenir; locked/
+ * hidden/inherited alan veya izinsiz font/düzen değişimi → 409 (THEME_FIELD_LOCKED /
+ * THEME_FONT_NOT_ALLOWED / THEME_LAYOUT_NOT_ALLOWED). Baseline = platform-onaylı state
+ * (published, yoksa mevcut draft). Baseline yoksa gate uygulanmaz (default all-editable).
+ * Ham değer yanıta SIZMAZ (yalnız path + code). Client gizlemesi yetki SAYILMAZ.
+ */
+function policyViolationBody(
+  theme: ThemeRecord,
+  baseline: ThemeVersionRecord | undefined,
+  nextDoc: ThemeDocument,
+  nextConfig: unknown,
+  changedAssetFields?: Parameters<typeof enforceOverridePolicy>[0]["changedAssetFields"],
+): { code: string; body: ReturnType<typeof errorBody> } | null {
+  if (!baseline) return null;
+  const prevDoc = asDocument(baseline.document);
+  if (!prevDoc) return null;
+  const policy = parseOverridePolicy(theme.overridePolicy);
+  const prev: PolicyThemeState = { document: prevDoc, config: policyConfigView(baseline.config) };
+  const next: PolicyThemeState = { document: nextDoc, config: policyConfigView(nextConfig) };
+  const result = enforceOverridePolicy({ policy, prev, next, changedAssetFields });
+  if (result.ok) return null;
+  const code = result.violations[0].code;
+  return {
+    code,
+    body: errorBody(code, "Field is locked by the store theme policy.", {
+      details: { violations: result.violations.map((v) => ({ path: v.path, code: v.code })) },
+    }),
+  };
 }
 
 /** Kontrast (WCAG) publish gate gövdesi — ham değer taşımaz (yalnız çift/oran). */
@@ -446,6 +513,14 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
       configPatch = { config: cfg.config, themeKey: cfg.config.themeKey, layoutPreset: cfg.config.layoutPreset };
     }
     const document = withSanitizedCustomCss(validation.document);
+    // TODO-164B — override policy enforcement (server-side). Locked/izinsiz alan
+    // değişimi baseline'a (published, yoksa mevcut draft) göre reddedilir.
+    const themeForPolicy = await dataAccess.getTheme(storeId, themeId);
+    if (!themeForPolicy) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
+    const draftBaseline = currentPublished(themeForPolicy) ?? currentDraft(themeForPolicy);
+    const nextConfig = body.config ?? currentDraft(themeForPolicy)?.config ?? {};
+    const draftViolation = policyViolationBody(themeForPolicy, draftBaseline, document, nextConfig);
+    if (draftViolation) return reply.code(409).send(draftViolation.body);
     const saved = await dataAccess.saveDraft(storeId, themeId, {
       document: document as unknown as Record<string, unknown>,
       schemaVersion: document.schemaVersion,
@@ -515,6 +590,23 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
         }),
       );
     }
+    // TODO-164B (ADR-233) — Platform template'i (ownerScope=PLATFORM) yayınlanmadan
+    // önce override policy EXPLICIT olmak zorundadır; eksik → 409 THEME_POLICY_INCOMPLETE.
+    if (theme.ownerScope === "PLATFORM") {
+      const policy = parseOverridePolicy(theme.overridePolicy);
+      if (!isPolicyExplicit(policy)) {
+        return reply.code(409).send(
+          errorBody("THEME_POLICY_INCOMPLETE", "Platform theme override policy is incomplete.", {
+            details: { missingFields: missingPolicyFields(policy) },
+          }),
+        );
+      }
+    }
+    // TODO-164B — Store Admin publish'i de policy'ye tabidir (baseline = platform-onaylı
+    // published; draft'ın locked alanı published'dan farklıysa reddedilir — save-time
+    // bypass'a / policy sonradan sıkılaştıysa ikinci kapı).
+    const publishViolation = policyViolationBody(theme, currentPublished(theme), draftDoc, draft.config);
+    if (publishViolation) return reply.code(409).send(publishViolation.body);
     const published = await dataAccess.publishTheme(storeId, themeId, {
       notes: body.notes ?? null,
       publishedBy: admin.actorUserId,
@@ -872,6 +964,9 @@ export function registerThemeBindingRoutes(app: FastifyInstance, deps: ThemeBind
       publishedBy: admin.actorUserId,
       document: assignedDoc as unknown as Record<string, unknown>,
       schemaVersion: assignedDoc.schemaVersion,
+      // TODO-164B — atama sırasında verilen override policy'yi mağaza temasına yaz
+      // (verilmezse Theme.overridePolicy dokunulmaz → default = hepsi editable).
+      ...(body.overridePolicy !== undefined ? { overridePolicy: body.overridePolicy } : {}),
     });
     if (!assigned) {
       return reply.code(404).send(errorBody("THEME_NOT_FOUND", "No theme to assign for this store."));

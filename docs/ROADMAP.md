@@ -1072,11 +1072,36 @@
   ama storefront TÜKETMİYORDU → `.max-w-grid` padding-inline'a bağlandı (canlı doğrulandı 40px). TD-160 CLOSED
   (compose `NEXT_PUBLIC_STOREFRONT_URL`). TD-159 FUTURE (responsiveOverrides henüz builder-UI'da açık değil).
 
+## TODO-164B — Theme Builder Productization & Role Separation (2026-07-31, Dilim 1 IMPLEMENTASYON, commit YOK)
+
+- **Amaç.** Tema yönetimini iki role ayır: **Platform Admin = Theme Designer & Library**, **Store Admin = Brand
+  Customizer**. Teknik iç detayları (slot contract, themeApiVersion, raw token) mağazadan kaldır; renk seçimini
+  hex-only'den kurtar; font seçeneklerini genişlet; alan açıklamaları + preview highlight ekle. Mevcut motor +
+  slot contract + H-1 KORUNUR (paralel motor YOK).
+- **Onaylı kararlar.** (1) Platform temaları sistem mağazasında (`Store.systemPurpose="THEME_LIBRARY"`; tenant
+  izolasyon invariant'ı korunur, sistem mağazası her yerden dışlanır). (2) Fazlı: Dilim 1 temel, Dilim 2 platform
+  9-sekme Designer + versiyon upgrade + full-screen preview. (3) Logo/favicon tek otorite = StoreSettings.
+- **Kapsam (Dilim 1).**
+  - `@commerce-os/theme`: `override-policy.ts` (FieldPolicy + `enforceOverridePolicy` server-side + explicit gate),
+    `font-library.ts` (16 aile / 18 preset / 8 kategori), `color-palettes.ts` (8 WCAG-güvenli palet), `field-labels.ts`.
+  - DB additive `20260731120000_theme_productization_role_separation` (`Store.systemPurpose`, `Theme.ownerScope/
+    overridePolicy/sourceThemeId/sourceThemeVersion`; mevcut veri korunur).
+  - Gateway: override policy enforcement (409 THEME_FIELD_LOCKED/FONT/LAYOUT/POLICY_INCOMPLETE); detail projeksiyonu;
+    binding assign policy; sistem mağazası dışlama (resolvePublicStore 404 + listStores + fleet).
+  - Store-admin: "Marka ve Görünüm" (ColorField picker+kontrast+açıklama+palet+font önizleme; teknik alanlar kaldırıldı).
+  - Storefront: `ThemePreviewHighlight` (postMessage; yalnız preview cookie).
+- **Kararlar.** **ADR-232…ADR-237**. Analiz: `docs/analysis/TODO-164B-theme-productization.md`.
+- **Testler/gate.** theme **268** · gateway **1857** (7 yeni policy testi) · store-admin **365** (5 yeni) · contracts/
+  api-client/storefront/admin-web build — TÜMÜ PASS. build 27/27 · lint temiz · typecheck temiz · git diff --check temiz.
+- **AÇIK.** Dilim 2 (platform Designer + versiyon upgrade/rollback + full-screen preview) · gerçek browser smoke
+  (canlı stack) · TD-162/163/164. **commit/push/PR/merge/deploy YOK** (bu aşamada).
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-165 Fashion Vertical Foundation** (SIRADAKİ AKTİF — TODO-164/164A tema temeli üstüne).
-2. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
-3. **Final Enterprise UI & Design Polish** (EN SON).
+1. **TODO-164B Dilim 2** (platform Theme Designer + versiyon upgrade + full-screen preview) — Dilim 1 üstüne.
+2. **TODO-165 Fashion Vertical Foundation** (TODO-164/164A/164B tema temeli üstüne).
+3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-162/163/164).
+4. **Final Enterprise UI & Design Polish** (EN SON).
 
 > Tamamlanan: **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·
 > **TODO-163 Tenant Module & Capability** (CLOSED & DEPLOYED, Faz 1+2+3) ·
