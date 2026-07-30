@@ -5092,3 +5092,40 @@ CLS yok). Fold-altı section'lar lazy hydrate (section-level Suspense / Intersec
 Bounded sorgular: **önce eligibility count (ucuz), sonra limit'li ürün sorgusu**; N+1 yok (batched cover/
 campaign, `buildPublicProduct` deseni). Hidden section için ürün detayları hydrate edilmez. Viewer-specific
 resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
+
+## ADR-207 — Product Split: Modular ↔ Marketplace ayrımı (2026-07-30)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** Tek `commerce-os` kod tabanı iki farklı ürün hedefine hizmet edecek şekilde
+  büyüdü: (a) müşterilere dağıtılan modüler e-ticaret ürünü, (b) çok satıcılı marketplace.
+  Marketplace domain'i (seller onboarding, offer modeli, komisyon, settlement, split order,
+  dispute, ranking) modular ürünün core davranışını kirletmeden geliştirilebilmeli; iki ürün
+  ayrı release/deployment/veri altyapısına sahip olmalı.
+- **Karar.**
+  1. **Baseline tag.** Temiz `main` commit'inde (`1001ee4`) annotated tag
+     `v1.0.0-product-split-baseline` oluşturuldu ve origin'e push edildi. İki ürünün ortak
+     tarihsel referansıdır.
+  2. **Modular kimliği.** Bu repo (`commerce-os`) = **Commerce OS Modular**: tek repo, ortak
+     release zinciri, mağaza-bazlı capability, ayrı deployment/DB desteği, Theme Studio,
+     versioned custom theme, vertical preset. Release deseni `modular-vX.Y.Z`.
+  3. **Marketplace repository.** Baseline tag'inden ayrı, bağımsız `.git` ile
+     `commerce-os-marketplace` reposu hazırlandı. Kaynak `origin` kaldırıldı
+     (`NO_REMOTE_CONFIGURED`); yeni remote verilmeden push/PR yok. Runtime namespace tam izole
+     (docker project `commerce_marketplace`, network/volume/container prefix
+     `commerce-marketplace-`, host portlar 13000–16379, DB `commerce_marketplace`, cookie
+     prefix `marketplace_`, CSRF header `x-commerce-marketplace-csrf`, object storage prefix
+     `commerce-marketplace/`). Durum `FOUNDATION_ONLY`; feature yok, production-ready değil.
+  4. **Kod paket namespace'i.** `@commerce-os/*` korunur (ürün ailesi). Core içinde müşteri
+     veya ürün adına göre koşul yazılmaz.
+  5. **Migration zinciri.** Baseline'a kadar ortak (64 migration, son
+     `20260730120000_add_home_discovery_events`); baseline sonrası bağımsız. Marketplace
+     migration'ları modular repoya eklenmez; modular migration'ları marketplace'e otomatik
+     taşınmaz.
+  6. **Ortak fix taşıma.** Security fix iki üründe de gerekiyorsa bilinçli port/cherry-pick
+     edilir; migration içeren commit kör cherry-pick edilmez; domain davranışı doğrulanmadan
+     taşınmaz. Gerçek tekrar oluşursa package extraction değerlendirilir. Şimdilik shared
+     repository oluşturulmadı.
+- **Sonuç.** İki ürün aynı host'ta yan yana çalışabilir; veri/deployment/oturum çakışması yok.
+  Modular roadmap'te sıradaki aktif iş **TODO-163 Tenant Module & Capability Management**.
+  Marketplace ayrımı ROADMAP "Product Split Baseline" bölümünde; marketplace tarafı ayrıntısı
+  `../commerce-os-marketplace/docs/PRODUCT_SPLIT.md` (marketplace ADR: MP-000).

@@ -902,10 +902,13 @@
 - **Sıra:** SHIP (docs-only PR → merge → değişen servis rebuild GEREKMEZ) → **Final Enterprise UI/Design Polish**.
   Analiz: `docs/analysis/H-4-authenticated-money-sponsored-funnel-smoke.md`.
 
-## TODO-162 — Storefront Discovery & Merchandising (2026-07-30, IN_PROGRESS)
+## TODO-162 — Storefront Discovery & Merchandising (2026-07-30, CLOSED & DEPLOYED)
 
-- **Durum:** IN_PROGRESS. FOUNDATION + **TD-149 (Katman B endpoint) + TD-150 (storefront Discovery UI) CLOSED —
-  canlı doğrulandı**. KALAN: analytics ingest (TD-151) + store-admin/preview (TD-152). Git: bu turda commit/push/PR/merge YOK.
+- **Durum:** CLOSED & DEPLOYED. FOUNDATION + TD-149…TD-152 CLOSED; discovery→PDP→add-to-cart
+  attribution dahil. PR #143 MERGED (merge `ba5bfde`); 4 servis deploy healthy; `prisma migrate
+  status` up-to-date; post-deploy ingest smoke 10/10 + KVKK/PII temiz. Worktree kaldırıldı.
+  Kalan yalnız opsiyonel tarayıcı UI smoke. (Bu kayıt product-split turunda gerçek durumla
+  bağdaştırıldı; öncesi IN_PROGRESS yazıyordu.)
 - **Amaç.** Home Experience'ı eligibility-driven bir keşif yüzeyine dönüştür (Amazon slider-altı ritminden
   esin; görsel kopya değil). Bir section yalnız gerçek/doğrulanmış sinyal eşiğini karşılarsa render edilir;
   aksi halde DOM'a hiç eklenmez (boş başlık/spacing/impression yok). Kişiselleştirilmişte fallback yasak.
@@ -930,11 +933,31 @@
   no-fallback personalization · merge reuse · viewer-specific hydration · DISCOVERY_GRID · page-level dedupe ·
   hidden-section analytics · lazy hydration).
 
+## Product Split Baseline — Modular ↔ Marketplace (2026-07-30, DONE)
+
+- **Durum:** DONE. Mevcut `commerce-os` reposu **Commerce OS Modular** ürün hattı olarak
+  tanımlandı; ayrı bir **Commerce OS Marketplace** repository baseline'dan hazırlandı.
+- **Baseline tag:** `v1.0.0-product-split-baseline` (annotated) → commit `1001ee4`; origin'e
+  push edildi. İki ürünün ortak tarihsel referansıdır.
+- **Modular ürün kimliği:** müşterilere dağıtılan modüler e-ticaret ürünü; tek repo, ortak
+  release zinciri, mağaza-bazlı capability, Theme Studio, versioned custom theme, vertical
+  preset. Release/tag deseni `modular-vX.Y.Z`.
+- **Marketplace:** ayrı repository (`../commerce-os-marketplace`), bağımsız `.git`,
+  `NO_REMOTE_CONFIGURED`, `FOUNDATION_ONLY`. Namespace/DB/redis/cookie/port tam izole; release
+  deseni `marketplace-vX.Y.Z`. Marketplace feature'ları bu modular roadmap'e implementasyon işi
+  olarak karışmaz (yalnız ürün hattı referansı).
+- **Migration zinciri:** baseline'a kadar ortak (64 migration, son
+  `20260730120000_add_home_discovery_events`); baseline sonrası bağımsız. Ortak fix'ler bilinçli
+  port/cherry-pick ile (migration içeren commit kör cherry-pick edilmez). Bkz. ADR (product
+  split) — `docs/DECISIONS.md`.
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-162 Storefront Discovery & Merchandising** (IN_PROGRESS — bu faz).
-2. **TODO-163 Tenant Module & Capability Management** (PLANNED).
-3. **TODO-164 Tenant Theme Architecture** (PLANNED).
-4. **TODO-165 Fashion Vertical Foundation** (PLANNED).
-5. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-149…152 TODO-162 kalanı).
-6. **Final Enterprise UI & Design Polish** (EN SON).
+1. **TODO-163 Tenant Module & Capability Management** (PLANNED — sıradaki aktif iş).
+2. **TODO-164 Tenant Theme Architecture** (PLANNED).
+3. **TODO-165 Fashion Vertical Foundation** (PLANNED).
+4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX).
+5. **Final Enterprise UI & Design Polish** (EN SON).
+
+> Tamamlanan: **TODO-162 Storefront Discovery & Merchandising** (CLOSED & DEPLOYED) ·
+> **Product Split Baseline** (DONE, yukarı bkz.).

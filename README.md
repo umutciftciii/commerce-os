@@ -3,6 +3,16 @@
 Multi-tenant commerce operations SaaS — backend foundation plus the frontend admin/store/storefront
 UI foundation.
 
+> **Ürün hattı: Commerce OS Modular.** Bu repo, müşterilere dağıtılan **modüler e-ticaret
+> ürünüdür** (tek repo, ortak release zinciri, mağaza-bazlı capability, ayrı deployment/DB
+> desteği, Theme Studio, versioned custom theme, vertical preset). Release deseni
+> `modular-vX.Y.Z`.
+>
+> Çok satıcılı **Commerce OS Marketplace** ayrı bir üründür ve ayrı repository'de gelişir
+> (`../commerce-os-marketplace`, bağımsız release/migration zinciri). Ortak tarihsel referans:
+> annotated tag `v1.0.0-product-split-baseline`. Ayrımın kuralları için `docs/DECISIONS.md`
+> (ADR-207) ve `docs/ROADMAP.md` "Product Split Baseline" bölümü.
+
 ## Docs
 
 Project tracking and technical context live under `docs/`:
