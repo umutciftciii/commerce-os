@@ -333,6 +333,26 @@ export interface StoreContext {
   status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED";
 }
 
+// TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+export type StoreModuleClientState = "INHERIT" | "ENABLED" | "DISABLED";
+
+export interface StoreModuleMatrixEntry {
+  key: string;
+  group: string;
+  labelTr: string;
+  labelEn: string;
+  descriptionTr: string;
+  core: boolean;
+  effectiveEnabled: boolean;
+  source: "core" | "override" | "plan" | "baseline" | "dependency";
+  overrideState: StoreModuleClientState;
+  blockedBy?: string | null;
+}
+
+export interface StoreModulesResponse {
+  data: { storeId: string; modules: StoreModuleMatrixEntry[] };
+}
+
 export interface DashboardSummary {
   store: StoreContext;
   products: { total: number; active: number };
@@ -546,6 +566,14 @@ export const storeApi = {
 
   // Store context
   storeContext: () => call<{ store: StoreContext }>("/api/store/context"),
+
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  listModules: () => call<StoreModulesResponse>("/api/store/modules"),
+  setModuleOverride: (moduleKey: string, state: StoreModuleClientState) =>
+    mutatingCall<StoreModulesResponse>("/api/store/modules", {
+      method: "PUT",
+      body: JSON.stringify({ moduleKey, state }),
+    }),
 
   // Dashboard
   dashboardSummary: () => call<DashboardSummary>("/api/dashboard/summary"),

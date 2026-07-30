@@ -45,6 +45,16 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+// TODO-163 (ADR-208) — Tenant Module & Capability Management.
+// Bir magazanin bir modul icin acik override durumu. INHERIT = acik override yok;
+// effective durum plan defaultuna, o da yoksa registry baseline'ina duser.
+// Effective capability YALNIZ sunucuda (gateway) turetilir; istemci gonderemez.
+enum StoreModuleState {
+  INHERIT
+  ENABLED
+  DISABLED
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -908,6 +918,8 @@ model Store {
   recommendationEvents             RecommendationEvent[]
   // TODO-162 (ADR-205) — Home Discovery section-analytics event domaini (store-scoped tenant sutunu).
   homeDiscoveryEvents              HomeDiscoveryEvent[]
+  // TODO-163 (ADR-208) — Tenant Module & Capability Management (store-scoped modul override'lari).
+  storeModules                     StoreModule[]
 }
 
 model StoreUser {
@@ -969,6 +981,30 @@ model Subscription {
 
   @@index([storeId])
   @@index([planId])
+}
+
+// TODO-163 (ADR-208) — Tenant Module & Capability Management.
+// Bir magazanin bir modul icin ACIK override kaydi (sparse: yalniz override edilen
+// moduller icin satir bulunur). Satir yoksa modul INHERIT kabul edilir → effective
+// durum plan defaultuna, o da yoksa registry baseline'ina duser (geriye uyumlu; satir
+// yoksa mevcut davranis). moduleKey degeri kod icindeki tipli registry'nin (source of
+// truth WHAT-var) anahtaridir; serbest string DEGIL — gateway yazarken registry'ye
+// karsi dogrular. source = audit (kim/ne ayarladi). Effective capability yalniz
+// gateway'de turetilir.
+model StoreModule {
+  id        String           @id @default(cuid())
+  storeId   String
+  moduleKey String
+  state     StoreModuleState @default(INHERIT)
+  source    String?
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, moduleKey])
+  @@index([storeId])
 }
 
 model AuditLog {

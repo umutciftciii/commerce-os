@@ -906,6 +906,35 @@ class MemoryDataAccess implements AppDataAccess {
     };
   }
 
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence (in-memory).
+  storeModuleOverrides = new Map<string, "ENABLED" | "DISABLED">();
+  planMetadataByStore = new Map<string, unknown>();
+
+  async listStoreModuleOverrides(storeId: string) {
+    const out: Array<{ moduleKey: string; state: string }> = [];
+    for (const [key, state] of this.storeModuleOverrides) {
+      const [sid, moduleKey] = key.split("::");
+      if (sid === storeId && moduleKey) out.push({ moduleKey, state });
+    }
+    return out;
+  }
+
+  async getActivePlanMetadata(storeId: string) {
+    return this.planMetadataByStore.get(storeId) ?? null;
+  }
+
+  async upsertStoreModuleOverride(
+    storeId: string,
+    moduleKey: string,
+    state: "ENABLED" | "DISABLED",
+  ) {
+    this.storeModuleOverrides.set(`${storeId}::${moduleKey}`, state);
+  }
+
+  async deleteStoreModuleOverride(storeId: string, moduleKey: string) {
+    this.storeModuleOverrides.delete(`${storeId}::${moduleKey}`);
+  }
+
   async listProducts(storeId: string, { limit, offset }: { limit: number; offset: number }) {
     const data = this.products.filter((product) => product.storeId === storeId);
     return { data: data.slice(offset, offset + limit), total: data.length };

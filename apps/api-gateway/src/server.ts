@@ -240,6 +240,9 @@ import {
 import { createDiscoveryData, type DiscoveryIdentity } from "./home/discovery-data.js";
 import { createDiscoveryEventData } from "./home/discovery-event-data.js";
 import { registerDiscoveryEventRoutes } from "./home/discovery-event-routes.js";
+// TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+import { createStoreModuleData } from "./capabilities/data.js";
+import { registerCapabilityRoutes, createRequireCapability } from "./capabilities/routes.js";
 // Faz 1B (ADR-067) — Attribute katalog cekirdegi (store + platform CRUD).
 import {
   registerPlatformAttributeRoutes,
@@ -1016,6 +1019,18 @@ export interface AppDataAccess extends CampaignDataAccess {
     storeId: string,
     input: { logoMediaId?: string | null; faviconMediaId?: string | null },
   ): Promise<StoreSettingsRecord>;
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence (sparse override + plan default).
+  listStoreModuleOverrides(
+    storeId: string,
+  ): Promise<Array<{ moduleKey: string; state: string }>>;
+  getActivePlanMetadata(storeId: string): Promise<unknown>;
+  upsertStoreModuleOverride(
+    storeId: string,
+    moduleKey: string,
+    state: "ENABLED" | "DISABLED",
+    source: string | null,
+  ): Promise<void>;
+  deleteStoreModuleOverride(storeId: string, moduleKey: string): Promise<void>;
   listProducts(
     storeId: string,
     input: { limit: number; offset: number },
@@ -3318,6 +3333,30 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
         },
         select: storeSettingsSelect,
       }),
+    // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence.
+    listStoreModuleOverrides: (storeId) =>
+      prisma.storeModule.findMany({
+        where: { storeId },
+        select: { moduleKey: true, state: true },
+      }),
+    getActivePlanMetadata: async (storeId) => {
+      const subscription = await prisma.subscription.findFirst({
+        where: { storeId, status: { in: ["ACTIVE", "TRIALING"] } },
+        orderBy: [{ status: "asc" }, { startsAt: "desc" }],
+        select: { plan: { select: { metadata: true } } },
+      });
+      return subscription?.plan?.metadata ?? null;
+    },
+    upsertStoreModuleOverride: async (storeId, moduleKey, state, source) => {
+      await prisma.storeModule.upsert({
+        where: { storeId_moduleKey: { storeId, moduleKey } },
+        create: { storeId, moduleKey, state, source },
+        update: { state, source },
+      });
+    },
+    deleteStoreModuleOverride: async (storeId, moduleKey) => {
+      await prisma.storeModule.deleteMany({ where: { storeId, moduleKey } });
+    },
     listProducts: async (storeId, { limit, offset }) => {
       const [data, total] = await Promise.all([
         prisma.product.findMany({
@@ -6285,6 +6324,20 @@ export function createServer(
     logger,
     resolvePublicStore,
     data: createDiscoveryEventData(),
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability Management.
+  // Effective modül matrisi (admin) + açık override. requireCapability, effective KAPALI
+  // modülü gerektiren feature route'larında (temsili) 403 CAPABILITY_DISABLED üretir.
+  const storeModuleData = createStoreModuleData(dataAccess);
+  const requireCapability = createRequireCapability(storeModuleData);
+  registerCapabilityRoutes(app, {
+    data: storeModuleData,
+    logger,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -9266,6 +9319,8 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
+    // TODO-163 (ADR-210) — Modül kapalıysa 403 CAPABILITY_DISABLED (temsili enforcement).
+    if (!(await requireCapability(reply, params.storeId, "payments"))) return;
     const configs = await dataAccess.listPaymentProviderConfigs(params.storeId);
     return paymentProviderConfigListResponseSchema.parse({ data: configs.map(serializeConfig) });
   });
@@ -9274,6 +9329,8 @@ export function createServer(
     const params = storeParamSchema.parse(request.params);
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
+    // TODO-163 (ADR-210) — Modül kapalıysa 403 CAPABILITY_DISABLED (temsili enforcement).
+    if (!(await requireCapability(reply, params.storeId, "payments"))) return;
     const input = paymentProviderConfigCreateRequestSchema.parse(request.body);
     if (input.minAmount != null && input.maxAmount != null && input.minAmount > input.maxAmount) {
       return reply.code(400).send(errorBody("PAYMENT_AMOUNT_RANGE_INVALID", "minAmount maxAmount'tan buyuk olamaz."));
