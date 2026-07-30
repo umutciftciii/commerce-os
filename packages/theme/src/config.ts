@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BASE_LAYOUT_PRESET_KEY,
+  getLayoutPreset,
   layoutPresetKeySchema,
   resolveLayoutPresetSlots,
   type LayoutPresetKey,
@@ -17,6 +18,8 @@ import {
   isKnownThemeKey,
 } from "./theme-registry.js";
 import { getBundledCustomPackage } from "./custom-package.js";
+import { DEFAULT_THEME_DOCUMENT, getPreset } from "./presets.js";
+import type { ThemeDocument } from "./schema.js";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -103,4 +106,32 @@ export function resolveConfigSlots(config: ThemeConfig): Record<ThemeSlotKey, st
   }
 
   return base;
+}
+
+/**
+ * Bir theme-key için TOKEN belgesini (renk/tipografi paleti) çözer. Platform Admin
+ * ataması bunu kullanır: bir tema atandığında YALNIZ düzen (slot) değil, temanın
+ * PALETİ de uygulanır (aksi halde atama görsel olarak "değişmedi" gibi görünür —
+ * en belirgin sinyal renk paletidir).
+ *
+ * Öncelik:
+ *   - CUSTOM_PACKAGE: manifest.tokenPreset → yoksa layout preset'in tokenPreset'i.
+ *   - LAYOUT_PRESET / BASE: layout preset'in tokenPreset'i.
+ * tokenPreset yoksa/bilinmiyorsa → DEFAULT_THEME_DOCUMENT (base palet).
+ */
+export function resolveThemeDocumentForKey(themeKey: string): ThemeDocument {
+  const entry = getThemeEntry(themeKey);
+  if (!entry) return DEFAULT_THEME_DOCUMENT;
+  let tokenPreset: string | null = null;
+  if (entry.kind === "CUSTOM_PACKAGE") {
+    tokenPreset = getBundledCustomPackage(themeKey)?.tokenPreset ?? null;
+  }
+  if (!tokenPreset) {
+    tokenPreset = getLayoutPreset(entry.layoutPreset)?.tokenPreset ?? null;
+  }
+  if (tokenPreset) {
+    const preset = getPreset(tokenPreset);
+    if (preset) return preset.document;
+  }
+  return DEFAULT_THEME_DOCUMENT;
 }

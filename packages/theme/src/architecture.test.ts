@@ -34,7 +34,13 @@ import {
   BUNDLED_CUSTOM_PACKAGES,
   getBundledCustomPackage,
 } from "./custom-package.js";
-import { parseThemeConfig, resolveConfigSlots, DEFAULT_THEME_CONFIG } from "./config.js";
+import {
+  parseThemeConfig,
+  resolveConfigSlots,
+  resolveThemeDocumentForKey,
+  DEFAULT_THEME_CONFIG,
+} from "./config.js";
+import { DEFAULT_THEME_DOCUMENT } from "./presets.js";
 
 // ── Slot contract ──────────────────────────────────────────────────────────
 describe("slot contract", () => {
@@ -282,5 +288,21 @@ describe("theme config", () => {
     const slots = resolveConfigSlots(cfg);
     expect(slots.productCard).toBe("premium"); // override
     expect(slots.header).toBe("minimal"); // bogus atıldı → preset değeri korunur
+  });
+
+  it("resolveThemeDocumentForKey token paletini (renk) döndürür — atama görsel değişir", () => {
+    // BASE → default palet.
+    expect(resolveThemeDocumentForKey("BASE_COMMERCE")).toEqual(DEFAULT_THEME_DOCUMENT);
+    // FASHION_EDITORIAL → "fashion" token preset (neon fuşya aksan; base'den FARKLI).
+    const fashion = resolveThemeDocumentForKey("FASHION_EDITORIAL");
+    expect(fashion.tokens.brand.accent).not.toBe(DEFAULT_THEME_DOCUMENT.tokens.brand.accent);
+    // PREMIUM_BOUTIQUE → "luxury" paleti; MARKETPLACE_DENSE → "electronics".
+    expect(resolveThemeDocumentForKey("PREMIUM_BOUTIQUE").tokens.brand.primary).not.toBe(
+      DEFAULT_THEME_DOCUMENT.tokens.brand.primary,
+    );
+    // demo-aurora (custom package) → manifest tokenPreset "dark-luxury".
+    expect(resolveThemeDocumentForKey("demo-aurora").meta.colorScheme).toBe("dark");
+    // bilinmeyen key → default (fail-safe).
+    expect(resolveThemeDocumentForKey("nope")).toEqual(DEFAULT_THEME_DOCUMENT);
   });
 });

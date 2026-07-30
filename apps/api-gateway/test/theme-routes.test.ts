@@ -218,14 +218,17 @@ function makeFakeDataAccess() {
       if (prev) prev.status = "ARCHIVED";
       const next = Math.max(...t.versions.map((v) => v.version)) + 1;
       const cfg = { themeKey: input.themeKey, layoutPreset: input.layoutPreset, slots: {} };
+      // TODO-164 fix — atanan tema belgesi verildiyse ONU kullan (renk paleti değişir).
+      const assignedDoc = input.document !== undefined ? input.document : source.document;
+      const assignedSchema = input.schemaVersion ?? source.schemaVersion;
       t.versions.unshift({
         id: id("ver"),
         version: next,
         status: "PUBLISHED",
-        schemaVersion: source.schemaVersion,
+        schemaVersion: assignedSchema,
         label: `assign:${input.themeKey}`,
         notes: null,
-        document: source.document,
+        document: assignedDoc,
         config: cfg,
         themeKey: input.themeKey,
         layoutPreset: input.layoutPreset,
@@ -237,10 +240,10 @@ function makeFakeDataAccess() {
         id: id("ver"),
         version: next + 1,
         status: "DRAFT",
-        schemaVersion: source.schemaVersion,
+        schemaVersion: assignedSchema,
         label: null,
         notes: null,
-        document: source.document,
+        document: assignedDoc,
         config: cfg,
         themeKey: input.themeKey,
         layoutPreset: input.layoutPreset,
@@ -765,6 +768,10 @@ describe("platform admin theme binding (TODO-164)", () => {
     const pub = themes.find((t) => t.storeId === "s1" && t.status === "PUBLISHED")!;
     expect(pub.themeKey).toBe("FASHION_MINIMAL");
     expect(invalidate).toHaveBeenCalledWith("s1");
+    // TODO-164 fix — atama TOKEN paletini de uygular: published belge base'den FARKLI.
+    const pubVer = pub.versions.find((v) => v.status === "PUBLISHED")!;
+    const doc = pubVer.document as typeof DEFAULT_THEME_DOCUMENT;
+    expect(doc.tokens.brand.primary).not.toBe(DEFAULT_THEME_DOCUMENT.tokens.brand.primary);
   });
 
   it("PUT binding bilinmeyen theme-key → 409", async () => {
