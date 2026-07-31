@@ -397,6 +397,24 @@ export type {
   ThemeBindingAssignRequest,
   ThemeBindingListResponse,
   ThemeBindingSummary,
+  // TODO-164B Dilim 2 (ADR-238…245) — Platform Theme Library / Designer / Rollout.
+  StoreOverridePolicyContract,
+  FieldPolicyProjection,
+  LibraryTemplateSummary,
+  LibraryListResponse,
+  LibraryTemplateCreateRequest,
+  ThemePolicyUpdateRequest,
+  ThemeChangeSummary,
+  ThemeFieldChange,
+  TemplateUsageResponse,
+  AssignableStoresResponse,
+  ThemeAssignPreviewRequest,
+  ThemeAssignPreviewResponse,
+  ThemeAssignRequest,
+  RolloutSummaryResponse,
+  LibraryPreviewTokenRequest,
+  PlatformThemeStatusResponse,
+  ThemeStageAssetsRequest,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -1044,6 +1062,20 @@ import type {
   ThemeExportResponse,
   ThemePresetListResponse,
   ThemePreviewResponse,
+  // TODO-164B Dilim 2 — Platform Theme Library / Designer / Rollout transport tipleri.
+  LibraryListResponse,
+  LibraryTemplateCreateRequest,
+  ThemePolicyUpdateRequest,
+  ThemeChangeSummary,
+  TemplateUsageResponse,
+  AssignableStoresResponse,
+  ThemeAssignPreviewRequest,
+  ThemeAssignPreviewResponse,
+  ThemeAssignRequest,
+  RolloutSummaryResponse,
+  LibraryPreviewTokenRequest,
+  PlatformThemeStatusResponse,
+  ThemeStageAssetsRequest,
 } from "@commerce-os/contracts";
 import { optionalEnvString } from "@commerce-os/utils";
 
@@ -1188,6 +1220,43 @@ export interface ApiClient {
     // TODO-164 — fleet "Tema Yönetimi" listesi (store-scope'suz platform admin).
     themeBindings: {
       list(token?: string): Promise<ThemeBindingListResponse>;
+    };
+    // TODO-164B Dilim 2 — Platform Theme Library / Designer / Rollout (SUPER_ADMIN).
+    themeLibrary: {
+      list(token?: string): Promise<LibraryListResponse>;
+      create(input: LibraryTemplateCreateRequest, token?: string): Promise<ThemeDetail>;
+      get(themeId: string, token?: string): Promise<ThemeDetail>;
+      updateMeta(themeId: string, input: ThemeUpdateRequest, token?: string): Promise<ThemeDetail>;
+      saveDraft(themeId: string, input: ThemeDraftUpdateRequest, token?: string): Promise<ThemeDetail>;
+      setPolicy(themeId: string, input: ThemePolicyUpdateRequest, token?: string): Promise<ThemeDetail>;
+      publish(themeId: string, input: ThemePublishRequest, token?: string): Promise<ThemeDetail>;
+      archive(themeId: string, token?: string): Promise<ThemeDetail>;
+      duplicate(themeId: string, input: ThemeDuplicateRequest, token?: string): Promise<ThemeDetail>;
+      rollback(themeId: string, input: ThemeRollbackRequest, token?: string): Promise<ThemeDetail>;
+      previewToken(
+        themeId: string,
+        input: LibraryPreviewTokenRequest,
+        token?: string,
+      ): Promise<ThemePreviewTokenResponse>;
+      stageAssets(themeId: string, input: ThemeStageAssetsRequest, token?: string): Promise<ThemeDetail>;
+      diff(
+        themeId: string,
+        query: { from?: string; to?: string },
+        token?: string,
+      ): Promise<ThemeChangeSummary>;
+      usage(themeId: string, token?: string): Promise<TemplateUsageResponse>;
+      assignableStores(token?: string): Promise<AssignableStoresResponse>;
+      assignPreview(
+        themeId: string,
+        input: ThemeAssignPreviewRequest,
+        token?: string,
+      ): Promise<ThemeAssignPreviewResponse>;
+      assign(themeId: string, input: ThemeAssignRequest, token?: string): Promise<RolloutSummaryResponse>;
+      updateApply(
+        themeId: string,
+        input: ThemeAssignRequest,
+        token?: string,
+      ): Promise<RolloutSummaryResponse>;
     };
     plans: {
       list(token?: string): Promise<PlanListResponse>;
@@ -1507,6 +1576,8 @@ export interface ApiClient {
         themeId: string,
         token?: string,
       ): Promise<ThemePreviewTokenResponse>;
+      // TODO-164B Dilim 2 — aktif platform teması durumu (Store Admin banner).
+      platformStatus(storeId: string, token?: string): Promise<PlatformThemeStatusResponse>;
     };
     // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi (upload/list/delete). Upload
     // multipart FormData ile; list opsiyonel context filtresiyle; delete 204/409.
@@ -2549,6 +2620,60 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       themeBindings: {
         list: (token) => getJson<ThemeBindingListResponse>("/admin/theme-bindings", token),
       },
+      // TODO-164B Dilim 2 — Platform Theme Library / Designer / Rollout (SUPER_ADMIN).
+      themeLibrary: {
+        list: (token) => getJson<LibraryListResponse>("/admin/theme-library", token),
+        create: (input, token) => sendJson<ThemeDetail>("/admin/theme-library", "POST", input, token),
+        get: (themeId, token) => getJson<ThemeDetail>(`/admin/theme-library/${themeId}`, token),
+        updateMeta: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}`, "PATCH", input, token),
+        saveDraft: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/draft`, "PUT", input, token),
+        setPolicy: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/policy`, "PUT", input, token),
+        publish: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/publish`, "POST", input, token),
+        archive: (themeId, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/archive`, "POST", {}, token),
+        duplicate: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/duplicate`, "POST", input, token),
+        rollback: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/rollback`, "POST", input, token),
+        previewToken: (themeId, input, token) =>
+          sendJson<ThemePreviewTokenResponse>(
+            `/admin/theme-library/${themeId}/preview-token`,
+            "POST",
+            input,
+            token,
+          ),
+        stageAssets: (themeId, input, token) =>
+          sendJson<ThemeDetail>(`/admin/theme-library/${themeId}/stage-assets`, "POST", input, token),
+        diff: (themeId, query, token) =>
+          getJson<ThemeChangeSummary>(
+            `/admin/theme-library/${themeId}/diff${buildQueryString(query)}`,
+            token,
+          ),
+        usage: (themeId, token) =>
+          getJson<TemplateUsageResponse>(`/admin/theme-library/${themeId}/usage`, token),
+        assignableStores: (token) =>
+          getJson<AssignableStoresResponse>("/admin/theme-library/assignable-stores", token),
+        assignPreview: (themeId, input, token) =>
+          sendJson<ThemeAssignPreviewResponse>(
+            `/admin/theme-library/${themeId}/assign/preview`,
+            "POST",
+            input,
+            token,
+          ),
+        assign: (themeId, input, token) =>
+          sendJson<RolloutSummaryResponse>(`/admin/theme-library/${themeId}/assign`, "POST", input, token),
+        updateApply: (themeId, input, token) =>
+          sendJson<RolloutSummaryResponse>(
+            `/admin/theme-library/${themeId}/update/apply`,
+            "POST",
+            input,
+            token,
+          ),
+      },
       plans: {
         list: (token) => getJson<PlanListResponse>("/admin/plans", token),
         create: (input, token) => sendJson<Plan>("/admin/plans", "POST", input, token),
@@ -2900,6 +3025,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             {},
             token,
           ),
+        platformStatus: (storeId, token) =>
+          getJson<PlatformThemeStatusResponse>(`/stores/${storeId}/theme/platform-status`, token),
       },
       // ADR-065 Faz 2 (Dilim 1) — Media kutuphanesi. upload multipart FormData ile
       // (sendForm — JSON.stringify YOK); remove 204 (kullanimdaysa 409 MEDIA_IN_USE).

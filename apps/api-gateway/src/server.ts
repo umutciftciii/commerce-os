@@ -209,6 +209,7 @@ import { registerHomeAdminRoutes } from "./home/routes.js";
 import { registerThemeAdminRoutes } from "./theme/routes.js";
 import { createPrismaThemeDataAccess, type ThemeDataAccess } from "./theme/data.js";
 import { registerThemeBindingRoutes } from "./theme/routes.js";
+import { registerThemeLibraryRoutes } from "./theme/library-routes.js";
 import { createPreviewToken, verifyPreviewToken } from "./theme/preview-token.js";
 import {
   DEFAULT_THEME_DOCUMENT,
@@ -5165,6 +5166,7 @@ export function createServer(
   async function resolvePreviewProjection(
     storeId: string,
     themeId: string,
+    version?: number,
   ): Promise<ResolvedThemeProjection> {
     const base = (): ResolvedThemeProjection => ({
       css: generateStorefrontThemeCss(DEFAULT_THEME_DOCUMENT),
@@ -5176,7 +5178,10 @@ export function createServer(
     });
     const theme = await themeDataAccess.getTheme(storeId, themeId);
     if (!theme) return base();
+    // TODO-164B Dilim 2 — belirli bir sürüm istendiyse (before/after "hedef sürüm")
+    // onu çöz; yoksa draft > published > ilk sürüm (geriye uyum).
     const source =
+      (version !== undefined ? theme.versions.find((v) => v.version === version) : undefined) ??
       theme.versions.find((v) => v.status === "DRAFT") ??
       theme.versions.find((v) => v.status === "PUBLISHED") ??
       theme.versions[0];
@@ -5434,7 +5439,7 @@ export function createServer(
     if (!payload) {
       return reply.code(401).send(errorBody("THEME_PREVIEW_TOKEN_INVALID", "Invalid or expired preview token."));
     }
-    const projection = await resolvePreviewProjection(payload.storeId, payload.themeId);
+    const projection = await resolvePreviewProjection(payload.storeId, payload.themeId, payload.version);
     return publicThemeSchema.parse(projection);
   });
 
@@ -7462,6 +7467,21 @@ export function createServer(
     // TODO-164A — imzalı, kısa ömürlü builder preview token'ı (SESSION_SECRET ile).
     issuePreviewToken: (storeId, themeId) =>
       createPreviewToken(storeId, themeId, config.SESSION_SECRET),
+  });
+
+  // TODO-164B Dilim 2 (ADR-238…245) — Platform Theme Library / Designer / Rollout.
+  // Yalnız SUPER_ADMIN (kütüphane store-scope'suz mutasyon). Preview token store+theme+
+  // VERSION scoped (before/after hedef sürüm). Mevcut Theme/ThemeVersion motoru reuse.
+  registerThemeLibraryRoutes(app, {
+    dataAccess: themeDataAccess,
+    requirePlatformAdmin: async (request, reply) => {
+      const session = await requireSuperAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    invalidateResolvedTheme,
+    issuePreviewToken: (storeId, themeId, version) =>
+      createPreviewToken(storeId, themeId, config.SESSION_SECRET, undefined, undefined, version),
   });
   // TODO-164 (ADR-222) — Platform Admin "Tema ve Marka" (theme-binding). PLATFORM ADMIN
   // (store scope) auth; THEME_STUDIO ile GATE'LENMEZ (yönetim eylemi her zaman mümkün).

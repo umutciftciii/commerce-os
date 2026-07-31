@@ -7968,6 +7968,184 @@ export type ThemeBindingSummary = z.infer<typeof themeBindingSummarySchema>;
 export type ThemeBindingListResponse = z.infer<typeof themeBindingListResponseSchema>;
 
 /* ════════════════════════════════════════════════════════════════════════════
+ * TODO-164B Dilim 2 (ADR-238…245) — Platform Theme Library, Designer & Rollout.
+ * Yalnız Platform Admin (super admin) mutate eder. ALLOWLIST: ham token belgesi /
+ * secret TAŞINMAZ; before/after özeti kullanıcı-dostu (yalnız path/label/before/after).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/** Kütüphane liste satırı — template özeti + kullanım/güncelleme sayaçları. */
+export const libraryTemplateSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  themeKey: z.string(),
+  status: z.string(),
+  ownerScope: z.string(),
+  compatible: z.boolean(),
+  sourcePreset: z.string().nullable(),
+  colorScheme: z.string(),
+  publishedVersion: z.number().int().positive().nullable(),
+  draftVersion: z.number().int().positive().nullable(),
+  policyComplete: z.boolean(),
+  usingCount: z.number().int().nonnegative(),
+  updatePendingCount: z.number().int().nonnegative(),
+  updatedAt: z.string(),
+  lastPublishedAt: z.string().nullable(),
+});
+export const libraryListResponseSchema = z.object({
+  templates: z.array(libraryTemplateSummarySchema),
+});
+
+/** Yeni platform template isteği (başlangıç noktası). */
+export const libraryTemplateCreateRequestSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional(),
+  startingPoint: z.string().max(40).optional(),
+});
+
+/** Override policy matris editörü — tam policy yazar (fields + allowlist'ler). */
+export const themePolicyUpdateRequestSchema = z.object({
+  overridePolicy: storeOverridePolicySchema,
+});
+
+/** Kullanıcı-dostu before/after değişiklik özeti (raw JSON DEĞİL). */
+export const themeChangeCategorySchema = z.enum([
+  "color",
+  "typography",
+  "layout",
+  "slot",
+  "media",
+  "policy",
+]);
+export const themeFieldChangeSchema = z.object({
+  path: z.string(),
+  labelTr: z.string(),
+  labelEn: z.string(),
+  category: themeChangeCategorySchema,
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  kind: z.enum(["added", "removed", "changed"]),
+});
+export const themeChangeSummarySchema = z.object({
+  changes: z.array(themeFieldChangeSchema),
+  counts: z.record(themeChangeCategorySchema, z.number().int().nonnegative()),
+  total: z.number().int().nonnegative(),
+  hasChanges: z.boolean(),
+});
+
+/** Bir template'i kullanan mağazalar + update-available durumu. */
+export const templateUsageRowSchema = z.object({
+  storeId: z.string(),
+  storeName: z.string(),
+  storeSlug: z.string(),
+  storeStatus: z.string(),
+  sourceThemeVersion: z.number().int().positive().nullable(),
+  updateAvailable: z.boolean(),
+});
+export const templateUsageResponseSchema = z.object({
+  templatePublishedVersion: z.number().int().positive().nullable(),
+  usingCount: z.number().int().nonnegative(),
+  updatePendingCount: z.number().int().nonnegative(),
+  usage: z.array(templateUsageRowSchema),
+});
+
+/** Atanabilir mağaza (sistem mağazaları HARİÇ). */
+export const assignableStoreSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  status: z.string(),
+  sourceThemeId: z.string().nullable(),
+  sourceThemeVersion: z.number().int().positive().nullable(),
+});
+export const assignableStoresResponseSchema = z.object({
+  stores: z.array(assignableStoreSchema),
+});
+
+/** Atama/rollout dry-run isteği (mağaza id listesi). */
+export const themeAssignPreviewRequestSchema = z.object({
+  storeIds: z.array(z.string().min(1)).min(1).max(500),
+});
+export const themeAssignStorePreviewSchema = z.object({
+  storeId: z.string(),
+  storeName: z.string(),
+  compatible: z.boolean(),
+  issues: z.array(themeCompatibilityIssueSchema),
+  summary: themeChangeSummarySchema,
+});
+export const themeAssignPreviewResponseSchema = z.object({
+  templateName: z.string(),
+  templatePublishedVersion: z.number().int().positive().nullable(),
+  previews: z.array(themeAssignStorePreviewSchema),
+});
+
+export const rolloutModeSchema = z.enum(["single", "selected", "pilot", "all-compatible"]);
+
+/** Atama/rollout apply isteği. */
+export const themeAssignRequestSchema = z.object({
+  storeIds: z.array(z.string().min(1)).min(1).max(500),
+  mode: rolloutModeSchema.default("selected"),
+  overridePolicy: storeOverridePolicySchema.optional(),
+});
+export const rolloutStoreResultSchema = z.object({
+  storeId: z.string(),
+  storeName: z.string().optional(),
+  status: z.enum(["success", "failed", "skipped"]),
+  reasonCode: z.string().optional(),
+  newVersion: z.number().int().positive().optional(),
+});
+export const rolloutSummaryResponseSchema = z.object({
+  mode: rolloutModeSchema,
+  total: z.number().int().nonnegative(),
+  succeeded: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  results: z.array(rolloutStoreResultSchema),
+});
+
+/** Kütüphane preview token isteği (opsiyonel hedef sürüm). */
+export const libraryPreviewTokenRequestSchema = z.object({
+  version: z.number().int().positive().optional(),
+});
+
+/** TD-162 — logo/favicon DRAFT staging isteği. null → o alanın staging'ini temizler. */
+export const themeStageAssetsRequestSchema = z
+  .object({
+    logoMediaId: z.string().min(1).max(64).nullable().optional(),
+    faviconMediaId: z.string().min(1).max(64).nullable().optional(),
+  })
+  .refine((v) => v.logoMediaId !== undefined || v.faviconMediaId !== undefined, {
+    message: "At least one asset field is required.",
+  });
+export type ThemeStageAssetsRequest = z.infer<typeof themeStageAssetsRequestSchema>;
+
+/** Store Admin — aktif platform teması durumu (update-available + kilitli/editable). */
+export const platformThemeStatusResponseSchema = z.object({
+  managedByPlatform: z.boolean(),
+  templateName: z.string().nullable(),
+  currentVersion: z.number().int().positive().nullable(),
+  templatePublishedVersion: z.number().int().positive().nullable(),
+  updateAvailable: z.boolean(),
+  editableFields: z.array(z.string()),
+  lockedFields: z.array(z.string()),
+});
+
+export type LibraryTemplateSummary = z.infer<typeof libraryTemplateSummarySchema>;
+export type LibraryListResponse = z.infer<typeof libraryListResponseSchema>;
+export type LibraryTemplateCreateRequest = z.infer<typeof libraryTemplateCreateRequestSchema>;
+export type ThemePolicyUpdateRequest = z.infer<typeof themePolicyUpdateRequestSchema>;
+export type ThemeChangeSummary = z.infer<typeof themeChangeSummarySchema>;
+export type ThemeFieldChange = z.infer<typeof themeFieldChangeSchema>;
+export type TemplateUsageResponse = z.infer<typeof templateUsageResponseSchema>;
+export type AssignableStoresResponse = z.infer<typeof assignableStoresResponseSchema>;
+export type ThemeAssignPreviewRequest = z.infer<typeof themeAssignPreviewRequestSchema>;
+export type ThemeAssignPreviewResponse = z.infer<typeof themeAssignPreviewResponseSchema>;
+export type ThemeAssignRequest = z.infer<typeof themeAssignRequestSchema>;
+export type RolloutSummaryResponse = z.infer<typeof rolloutSummaryResponseSchema>;
+export type LibraryPreviewTokenRequest = z.infer<typeof libraryPreviewTokenRequestSchema>;
+export type PlatformThemeStatusResponse = z.infer<typeof platformThemeStatusResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
  * TODO-159D (ADR-093) — Customer Lists & Wishlist (own account).
  *
  * Favori (wishlist) ve alışveriş listeleri AYRI iki sistem DEĞİL; ortak bir

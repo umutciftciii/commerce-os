@@ -3055,6 +3055,10 @@ model Theme {
   overridePolicy     Json?
   sourceThemeId      String?
   sourceThemeVersion Int?
+  // TODO-164B Dilim 2 (ADR-238/244) — override policy revizyon sayacı. Her policy
+  // değişikliğinde artar (audit + "policy değişti" before/after özeti; mevcut veriyi
+  // SİLMEZ). 0 = policy hiç değişmedi. Additive, güvenli default.
+  policyRevision     Int     @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3090,6 +3094,16 @@ model ThemeVersion {
   // Sürüm anındaki theme-key/layout preset snapshot'ı (audit + rollback bütünlüğü).
   themeKey      String?
   layoutPreset  String?
+  // TODO-164B Dilim 2 (ADR-243) — TD-162 logo/favicon DRAFT staging. Kalıcı OTORİTE
+  // StoreSettings olarak kalır; bunlar YALNIZ draft sürecinde sahnelenen (staged)
+  // referanslardır. Publish anında ATOMİK olarak StoreSettings'e yazılır ve o anki
+  // StoreSettings değeri `assetSnapshot`'a alınır (rollback için). Production görünümü
+  // publish'e kadar DEĞİŞMEZ. ThemeDocument içinde ikinci kalıcı logo kaynağı DEĞİL.
+  stagedLogoMediaId    String?
+  stagedFaviconMediaId String?
+  // Publish anında yakalanan önceki StoreSettings asset görünümü ({logoMediaId,
+  // faviconMediaId}) — rollback bu snapshot'a döner. Null = asset publish edilmedi.
+  assetSnapshot Json?
   // Publish eden platform kullanıcı id'si (audit; PII taşımaz — yalnız id).
   publishedBy   String?
   createdAt     DateTime  @default(now())

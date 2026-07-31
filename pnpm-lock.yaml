@@ -47,6 +47,9 @@ importers:
       '@commerce-os/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@commerce-os/theme':
+        specifier: workspace:*
+        version: link:../../packages/theme
       '@commerce-os/ui':
         specifier: workspace:*
         version: link:../../packages/ui

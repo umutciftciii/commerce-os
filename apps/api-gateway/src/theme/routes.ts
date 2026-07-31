@@ -27,6 +27,7 @@ import {
   themeBindingListResponseSchema,
   themeDuplicateRequestSchema,
   themePreviewTokenResponseSchema,
+  platformThemeStatusResponseSchema,
 } from "@commerce-os/contracts";
 import {
   DEFAULT_THEME_DOCUMENT,
@@ -67,10 +68,11 @@ import {
   projectFieldPolicy,
   isPolicyExplicit,
   missingPolicyFields,
+  computeUpdateAvailable,
   type PolicyConfigView,
   type PolicyThemeState,
 } from "@commerce-os/theme";
-import type { ThemeDataAccess, ThemeRecord, ThemeVersionRecord } from "./data.js";
+import { ThemeMediaError, type ThemeDataAccess, type ThemeRecord, type ThemeVersionRecord } from "./data.js";
 
 export interface ThemeAdminRoutesDeps {
   dataAccess: ThemeDataAccess;
@@ -96,8 +98,27 @@ export interface ThemeAdminRoutesDeps {
 const storeParam = z.object({ storeId: z.string().min(1) });
 const themeParam = z.object({ storeId: z.string().min(1), themeId: z.string().min(1) });
 
-function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
+export function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
   return { error: { code, message, ...(extra ?? {}) } };
+}
+
+/**
+ * TODO-164B Dilim 2 (hardening) — ThemeMediaError'ı ürün-standardı HTTP koduna eşler:
+ * NOT_FOUND → 404, NOT_OWNED → 409, INVALID → 400. Ham Prisma/FK mesajı SIZMAZ (yalnız
+ * domain code + hangi alan). ThemeMediaError değilse null (çağıran yeniden fırlatır).
+ */
+export function themeMediaErrorResponse(
+  error: unknown,
+): { status: number; body: ReturnType<typeof errorBody> } | null {
+  if (!(error instanceof ThemeMediaError)) return null;
+  const status = error.code === "THEME_MEDIA_NOT_FOUND" ? 404 : error.code === "THEME_MEDIA_NOT_OWNED" ? 409 : 400;
+  const message =
+    error.code === "THEME_MEDIA_NOT_FOUND"
+      ? "Staged media not found."
+      : error.code === "THEME_MEDIA_NOT_OWNED"
+        ? "Staged media belongs to another store."
+        : "Staged media is not a valid image.";
+  return { status, body: errorBody(error.code, message, { details: { field: error.field } }) };
 }
 
 // H-1 — Typed theme token savunması. En-şiddetli sorun sınıfı hata kodunu seçer.
@@ -107,7 +128,7 @@ const TOKEN_REASON_SEVERITY = ["UNSAFE_VALUE", "TYPE_MISMATCH", "INVALID_VALUE",
  * Token sorunlarından güvenli bir hata gövdesi kurar. GÜVENLİK: yanıt ham
  * (saldırgan) DEĞER veya validation regex'i TAŞIMAZ — yalnız path/layer/type/reason.
  */
-function tokenIssuesBody(issues: TokenIssue[], overrideCode?: string) {
+export function tokenIssuesBody(issues: TokenIssue[], overrideCode?: string) {
   const top = [...issues].sort(
     (a, b) => TOKEN_REASON_SEVERITY.indexOf(a.reason) - TOKEN_REASON_SEVERITY.indexOf(b.reason),
   )[0];
@@ -130,15 +151,15 @@ function docColorScheme(document: unknown): string {
 }
 
 /** Depolanmış JSON belgeyi doğrulanmış ThemeDocument'e çevirir (geçersizse null). */
-function asDocument(value: unknown): ThemeDocument | null {
+export function asDocument(value: unknown): ThemeDocument | null {
   const result = validateThemeDocument(value);
   return result.ok ? result.document : null;
 }
 
-function currentDraft(theme: ThemeRecord): ThemeVersionRecord | undefined {
+export function currentDraft(theme: ThemeRecord): ThemeVersionRecord | undefined {
   return theme.versions.find((v) => v.status === "DRAFT");
 }
-function currentPublished(theme: ThemeRecord): ThemeVersionRecord | undefined {
+export function currentPublished(theme: ThemeRecord): ThemeVersionRecord | undefined {
   return theme.versions.find((v) => v.status === "PUBLISHED");
 }
 /** Düzenlenebilir güncel belge: draft öncelikli, yoksa published. */
@@ -156,7 +177,7 @@ function serializeVersionDoc(version: ThemeVersionRecord) {
   };
 }
 
-function serializeSummary(theme: ThemeRecord) {
+export function serializeSummary(theme: ThemeRecord) {
   const draft = currentDraft(theme);
   const published = currentPublished(theme);
   const active = draft ?? published;
@@ -177,7 +198,7 @@ function serializeSummary(theme: ThemeRecord) {
   };
 }
 
-function serializeDetail(theme: ThemeRecord) {
+export function serializeDetail(theme: ThemeRecord) {
   const draft = currentDraft(theme);
   const published = currentPublished(theme);
   const active = draft ?? published;
@@ -226,14 +247,14 @@ function serializeDetail(theme: ThemeRecord) {
 }
 
 /** Bir belgeyi güvenli hale getirir: customCss'i temizler. Kopya döndürür. */
-function withSanitizedCustomCss(document: ThemeDocument): ThemeDocument {
+export function withSanitizedCustomCss(document: ThemeDocument): ThemeDocument {
   if (!document.customCss) return document;
   const { css } = sanitizeCustomCss(document.customCss);
   return { ...document, customCss: css };
 }
 
 /** Bir preset id'sinden (veya varsayılandan) başlangıç belgesi kurar; adı uygular. */
-function initialDocument(presetId: string | undefined, name: string): ThemeDocument {
+export function initialDocument(presetId: string | undefined, name: string): ThemeDocument {
   const base = presetId ? getPreset(presetId)?.document : undefined;
   const source = base ?? DEFAULT_THEME_DOCUMENT;
   return { ...source, meta: { ...source.meta, name } };
@@ -253,7 +274,7 @@ const INITIAL_THEME_CONFIG = {
  * NORMALIZE (slotVariants→slots merge) config döner. compatibility HAM themeKey/slots'a
  * bakar (bilinmeyen key reddi — sessiz downgrade YOK).
  */
-function validateConfig(
+export function validateConfig(
   raw: unknown,
 ): { ok: true; config: ThemeBuilderConfig } | { ok: false; code: string; issues: unknown[] } {
   const validated = validateThemeBuilderConfig(raw ?? {});
@@ -280,7 +301,7 @@ function validateConfig(
  * compatibility HAM themeKey/slots'a bakar (bilinmeyen key REDDEDİLİR; `parseThemeBuilderConfig`
  * fail-closed downgrade'i publish gate'te KULLANILMAZ, yoksa geçersiz tema sessizce yayınlanırdı).
  */
-function rawConfigCompatible(
+export function rawConfigCompatible(
   rawConfig: unknown,
 ): { ok: true } | { ok: false; issues: unknown[] } {
   const validated = validateThemeBuilderConfig(rawConfig ?? {});
@@ -302,7 +323,7 @@ function rawConfigCompatible(
 }
 
 /** Stored config JSON → policy karşılaştırması için config görünümü. */
-function policyConfigView(config: unknown): PolicyConfigView {
+export function policyConfigView(config: unknown): PolicyConfigView {
   const c = (config ?? {}) as Record<string, unknown>;
   return {
     layoutPreset: typeof c.layoutPreset === "string" ? c.layoutPreset : undefined,
@@ -344,7 +365,7 @@ function policyViolationBody(
 }
 
 /** Kontrast (WCAG) publish gate gövdesi — ham değer taşımaz (yalnız çift/oran). */
-function contrastFailureBody(doc: ThemeDocument) {
+export function contrastFailureBody(doc: ThemeDocument) {
   const result = checkContrast(doc);
   const errors = contrastErrors(result);
   if (errors.length === 0) return null;
@@ -607,10 +628,18 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     // bypass'a / policy sonradan sıkılaştıysa ikinci kapı).
     const publishViolation = policyViolationBody(theme, currentPublished(theme), draftDoc, draft.config);
     if (publishViolation) return reply.code(409).send(publishViolation.body);
-    const published = await dataAccess.publishTheme(storeId, themeId, {
-      notes: body.notes ?? null,
-      publishedBy: admin.actorUserId,
-    });
+    let published;
+    try {
+      published = await dataAccess.publishTheme(storeId, themeId, {
+        notes: body.notes ?? null,
+        publishedBy: admin.actorUserId,
+      });
+    } catch (err) {
+      // HARDENING — staged media geçersizse kontrollü domain hatası (ham FK 500 DEĞİL).
+      const mapped = themeMediaErrorResponse(err);
+      if (mapped) return reply.code(mapped.status).send(mapped.body);
+      throw err;
+    }
     if (!published) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     deps.invalidateResolvedTheme?.(storeId);
     await recordAudit({
@@ -785,6 +814,40 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     }
     const { token, expiresAt } = deps.issuePreviewToken(storeId, themeId);
     return themePreviewTokenResponseSchema.parse({ token, expiresAt: expiresAt.toISOString() });
+  });
+
+  // ── TODO-164B Dilim 2 — Store Admin: aktif platform teması durumu ──────────
+  // Marka Customizer bannerı: bu mağazanın teması bir platform template'inden mi
+  // türedi (managedByPlatform), yeni sürüm var mı (updateAvailable), editable/locked
+  // alanlar neler. Salt-okuma; Store Admin Platform Designer yetkilerine ERİŞMEZ.
+  app.get("/stores/:storeId/theme/platform-status", async (request, reply) => {
+    const { storeId } = storeParam.parse(request.params);
+    const admin = await requireStoreAdmin(request, reply, storeId);
+    if (!admin) return;
+    const themes = await dataAccess.listThemes(storeId);
+    const published = themes.find((t) => t.status === "PUBLISHED") ?? null;
+    const policy = parseOverridePolicy(published?.overridePolicy ?? null);
+    const projection = projectFieldPolicy(policy);
+    let templateName: string | null = null;
+    let templatePublishedVersion: number | null = null;
+    if (published?.sourceThemeId) {
+      const libStore = await dataAccess.ensureThemeLibraryStore();
+      const template = await dataAccess.getTheme(libStore.id, published.sourceThemeId);
+      if (template) {
+        templateName = template.name;
+        templatePublishedVersion =
+          template.versions.find((v) => v.status === "PUBLISHED")?.version ?? null;
+      }
+    }
+    return platformThemeStatusResponseSchema.parse({
+      managedByPlatform: published?.sourceThemeId != null,
+      templateName,
+      currentVersion: published?.sourceThemeVersion ?? null,
+      templatePublishedVersion,
+      updateAvailable: computeUpdateAvailable(published?.sourceThemeVersion ?? null, templatePublishedVersion),
+      editableFields: projection.editable,
+      lockedFields: projection.locked,
+    });
   });
 }
 

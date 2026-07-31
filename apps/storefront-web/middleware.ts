@@ -24,10 +24,17 @@ const PREVIEW_MAX_AGE = 600; // 10 dk (token TTL ile hizalı)
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const previewToken = request.nextUrl.searchParams?.get?.("themePreview") ?? null;
 
+  // TODO-164B Dilim 2 — preview token AYNI render'da geçerli olsun (ilk yükte de draft
+  // görünsün): request cookie'sine yazıp forward et. Böylece platform ve store-admin
+  // önizlemesi ilk yüklemede DRAFT/hedef sürümü gösterir (production token'sız etkilenmez).
+  if (previewToken) {
+    request.cookies.set(PREVIEW_COOKIE, previewToken);
+  }
+
   const match = await resolveIncomingRedirect(request.nextUrl.pathname);
   const response = match
     ? NextResponse.redirect(new URL(match.target, request.nextUrl.origin), match.type)
-    : NextResponse.next();
+    : NextResponse.next({ request: { headers: request.headers } });
 
   if (previewToken) {
     response.cookies.set(PREVIEW_COOKIE, previewToken, {

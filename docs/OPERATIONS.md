@@ -800,6 +800,30 @@ Doğrulama: apply sonrası tekrar `audit-sku` çalıştır → `flagged: 0` (hed
   alan API ile değiştirilemez (409 `THEME_FIELD_LOCKED`). Client gizlemesi yetki sayılmaz. Platform template
   (`ownerScope=PLATFORM`) yayınlanmadan önce policy EXPLICIT olmalı (aksi halde 409 `THEME_POLICY_INCOMPLETE`).
 
+## Platform Theme Library, Designer & Rollout (TODO-164B Dilim 2 / ADR-238…245)
+
+- Migration `20260731130000_theme_library_designer_rollout` **ADDITIVE**: `Theme.policyRevision INTEGER DEFAULT 0` +
+  `ThemeVersion.stagedLogoMediaId/stagedFaviconMediaId TEXT` + `ThemeVersion.assetSnapshot JSONB` (hepsi nullable/
+  default → mevcut satırlar + published görünüm DEĞİŞMEZ). Apply `prisma migrate deploy`.
+- **Kütüphane mağazası** `ensureThemeLibraryStore` ile idempotent get-or-create (`systemPurpose="THEME_LIBRARY"`,
+  slug `__theme-library__`, ACTIVE). İlk kütüphane isteğinde otomatik oluşur; elle seed GEREKMEZ. Bu mağaza
+  storefront/fleet/assignable-stores'dan dışlanır → müşteriye asla görünmez.
+- **Yetki:** Kütüphane uçları (`/admin/theme-library/*`) YALNIZ SUPER_ADMIN (requirePlatformAdmin). Store Admin
+  `GET /stores/:id/theme/platform-status` ile yalnız kendi mağazasının platform-teması DURUMUNU okur (mutasyon yok).
+- **TD-162 logo staging:** publish AYNI $transaction içinde `stagedLogo/Favicon` → StoreSettings'e atomik yazar +
+  `assetSnapshot` alır. Publish herhangi bir gate'te başarısızsa TÜM txn geri alınır → StoreSettings ve production
+  görünümü DEĞİŞMEZ. Rollback hedef sürümün `assetSnapshot`'ına döner. Manuel StoreSettings düzenlemesi GEREKMEZ.
+- **Geçersiz media (hardening):** staged media stage+publish'te txn-içi doğrulanır → `THEME_MEDIA_NOT_FOUND` (404) /
+  `THEME_MEDIA_NOT_OWNED` (409, cross-store) / `THEME_MEDIA_INVALID` (400, görsel değil). Geçersiz media artık 500
+  DEĞİL kontrollü 4xx döner; ham Prisma/FK mesajı sızmaz; StoreSettings kısmi update almaz (media stage↔publish
+  arasında silinse bile publish güvenli 404 döner, mevcut görünüm korunur).
+- **Controlled rollout:** `assign`/`update/apply` her mağaza için ayrı yürür; sonuç success/failed/skipped ayrı
+  raporlanır (bir mağaza başarısız → diğerleri sessizce başarılı SAYILMAZ). Her başarılı apply `invalidateResolvedTheme`
+  ile o mağazanın 30s tema cache'ini düşürür. Deploy orchestrator YOK — her apply idempotent, bounded audit'li.
+- **Preview:** version-scoped imzalı token (kısa TTL, production cache'ten izole). Storefront middleware token'ı
+  request cookie'sine forward eder (ilk yükte de draft/hedef sürüm). Gerçek müşteri verisi kullanılmaz (tema
+  template'ten, katalog demo mağazadan). Token sızsa bile store+theme+version scoped ve kısa ömürlü.
+
 ## Birleşik sponsorluk: avans/mahsup + anlaşma-kapılı aktivasyon (TODO-161A.2 / ADR-128, ADR-129)
 
 Migration `20260726120000_add_sponsorship_advance_allocation` ADDITIVE: yeni tablo

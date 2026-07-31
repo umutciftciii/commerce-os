@@ -53,6 +53,7 @@ export const trAdmin = {
     heading: "Yönetim",
     dashboard: "Platform Özeti",
     stores: "Mağazalar",
+    themeLibrary: "Tema Kütüphanesi",
     themeManagement: "Tema Yönetimi",
     plans: "Paketler",
     systemHealth: "Sistem Sağlığı",

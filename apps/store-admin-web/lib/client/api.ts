@@ -12,6 +12,7 @@ import type {
   ThemeExportResponse,
   ThemePresetListResponse,
   ThemePreviewResponse,
+  PlatformThemeStatusResponse,
   InventoryAdjustRequest,
   InventoryAdjustmentResponse,
   InventoryListResponse,
@@ -1636,4 +1637,6 @@ export const storeApi = {
       method: "POST",
       body: "{}",
     }),
+  // TODO-164B Dilim 2 — aktif platform teması durumu (banner).
+  themePlatformStatus: () => call<PlatformThemeStatusResponse>("/api/theme/platform-status"),
 };

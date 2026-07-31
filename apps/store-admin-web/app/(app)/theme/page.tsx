@@ -1,5 +1,6 @@
 import { PageHeader } from "../../../components/ui";
 import { ThemeStudio } from "./theme-studio";
+import { PlatformThemeBanner } from "./platform-theme-banner";
 
 /**
  * TODO-164B (ADR-232) — "Marka ve Görünüm" (Store Admin Brand Customizer). Mağaza
@@ -15,6 +16,7 @@ export default function ThemePage() {
         title="Marka ve Görünüm"
         description="Marka renklerinizi, yazı tipinizi ve hazır düzeninizi seçin; önizleyip yayınlayın."
       />
+      <PlatformThemeBanner />
       <ThemeStudio />
     </>
   );

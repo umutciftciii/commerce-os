@@ -5528,3 +5528,90 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   hedef CSS-var/slot için elemanları kısa süre outline'lar + görünüme kaydırır. Production vitrini ETKİLENMEZ.
   Güvenlik: yalnız bilinen mesaj tipi işlenir; DOM'a HTML enjekte edilmez, yalnız geçici outline stili.
 - **Sonuç.** Kullanıcı bir ayarın vitrinde nereyi etkilediğini görür; production izole.
+
+## ADR-238 — Platform Theme Library sistem mağazası (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Platform tema template'leri sentetik bir Store'da yaşar (`systemPurpose="THEME_LIBRARY"`,
+  slug `__theme-library__`, `ensureThemeLibraryStore` get-or-create). Böylece `Theme`/`ThemeVersion` şeması
+  DEĞİŞMEZ, "her tema bir storeId'ye aittir" tenant invariant'ı korunur ve mevcut motor (validate/publish/
+  rollback/preview) AYNEN kullanılır (paralel motor YOK). Template `ownerScope="PLATFORM"`. Sistem mağazası
+  fleet/storefront/public/tenant seçicilerinden zaten dışlanır (ADR-232).
+- **Sonuç.** Migration'sız kütüphane; motor tek.
+
+## ADR-239 — Override policy matris editörü + revizyonlama (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Platform Designer içinde alan-bazlı policy editörü (`PolicyMatrix`): her canonical alan →
+  editable/locked/inherited/required/hidden + font/palet/düzen allowlist'leri. `PUT .../policy` strict doğrular
+  (`validateOverridePolicy`; bilinmeyen alan/değer REDDEDİLİR → 400 `THEME_POLICY_INVALID`), yazar ve
+  `Theme.policyRevision`'ı artırır (audit). Publish gate: platform template `overridePolicy` NULL olamaz +
+  `isPolicyExplicit` olmalı (aksi halde 409 `THEME_POLICY_INCOMPLETE`). Policy değişikliği mevcut mağaza
+  verisini SİLMEZ.
+- **Sonuç.** Boş/geçersiz policy yayınlanamaz; her değişiklik izlenir.
+
+## ADR-240 — Template snapshot assignment (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Atama, published template `ThemeVersion` snapshot'ının (document+config) hedef mağazaya
+  KOPYALANMASIdır (`assignTemplateToStore`, $transaction): yeni PUBLISHED + DRAFT sürüm, `sourceThemeId`/
+  `sourceThemeVersion` + (verildiyse) `overridePolicy` yazılır. Template ile runtime bağı KURULMAZ (yalnız sürüm
+  işareti); başka mağaza ETKİLENMEZ; mağazanın bağımsız Theme/ThemeVersion lifecycle'ı korunur.
+- **Sonuç.** Tenant-izole, snapshot temelli atama.
+
+## ADR-241 — Controlled rollout (dry-run + per-store sonuç) (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Rollout modları: single/selected/pilot/all-compatible. Her apply öncesi `assign/preview` dry-run
+  (uyumluluk + before/after; MUTASYON YOK). Apply per-store yürütülür; sonuç success/failed/skipped ayrı sayılır
+  (`summarizeRollout`). Bir mağaza FAILED olduğunda diğerleri sessizce başarılı SAYILMAZ. PUBLISHED olmayan /
+  INCOMPATIBLE template apply edilemez (per-store failed reasonCode). Bounded audit. Deploy orchestrator bu fazda
+  KURULMAZ.
+- **Sonuç.** Görünür, güvenli toplu uygulama; sessiz kısmi başarı yok.
+
+## ADR-242 — Theme version upgrade + before/after semantiği (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Yeni template sürümü yayınlanınca bağlı mağazalar OTOMATİK değişmez. `computeUpdateAvailable`
+  (template published > mağaza sourceThemeVersion) update-pending hesaplar. `update/apply` yalnız gerçekten
+  güncelleme bekleyen mağazalara uygular (diğerleri skipped); apply yeni immutable store revision + cache
+  invalidation üretir. Before/after (`summarizeThemeChanges`) KULLANICI-DOSTU özet döner (renk/tipografi/düzen/
+  slot/medya/policy kategorileri; raw JSON YOK). Modlar: published↔draft, current↔target, store↔template-update.
+- **Sonuç.** Sessiz toplu upgrade yok; değişiklikler anlaşılır.
+
+## ADR-243 — Logo/favicon draft staging + atomik publish (TODO-164B Dilim 2, TD-162)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Kalıcı otorite StoreSettings kalır. `ThemeVersion.stagedLogoMediaId/stagedFaviconMediaId` DRAFT
+  sürecinde sahnelenir (production DEĞİŞMEZ). Publish anında AYNI $transaction içinde StoreSettings'e ATOMİK
+  yazılır ve sürümün `assetSnapshot`'ına (o anki sunulan asset görünümü) alınır. Publish başka adımda başarısızsa
+  tüm txn geri alınır → StoreSettings değişmez. Rollback hedef sürümün `assetSnapshot`'ına döner. ThemeDocument
+  içinde İKİNCİ kalıcı logo kaynağı OLUŞTURULMAZ (staging geçici, publish'te temizlenir).
+- **Hardening (pre-ship).** Staged logo/favicon media referansı stage VE publish anında
+  doğrulanır (`assertAssetOwnership`, txn-içi): media yok → `THEME_MEDIA_NOT_FOUND` (404),
+  başka mağazaya ait → `THEME_MEDIA_NOT_OWNED` (409), görsel değil (mimeType image/* değil) →
+  `THEME_MEDIA_INVALID` (400). Doğrulama HERHANGİ bir mutasyondan ÖNCE (txn geri alınır →
+  StoreSettings/ThemeVersion DEĞİŞMEZ, kısmi update yok); ham Prisma/FK mesajı/constraint adı/
+  stack SIZMAZ (yalnız domain code + alan). Böylece geçersiz media artık 500 üretmez.
+- **Sonuç.** TD-162 CLOSED — draft görünürlük + atomik publish + rollback + kontrollü media hatası.
+
+## ADR-244 — Version-scoped preview token + full-screen çok-sayfa önizleme (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Preview token payload'ı opsiyonel `version` taşır (store+theme+version scoped; geriye uyumlu).
+  `resolvePreviewProjection` version verildiyse o sürümü, yoksa draft>published>ilk çözer. Platform template
+  önizlemesi token'ın storeId'sini kütüphane mağazası yapar (tema template'ten), storefront demo katalog
+  projeksiyonunu kendi public uçlarından çeker → gerçek müşteri verisi KULLANILMAZ. Storefront middleware preview
+  token'ı AYNI render'a da uygular (request cookie forward) → ilk yükte de draft/hedef sürüm görünür. Full-screen
+  önizleme (admin + store) çok-sayfa (Home/PLP/PDP/Cart/Checkout/Account) + çok-viewport (375/768/1024/1440) +
+  before/after toggle; production cache'ten izole.
+- **Sonuç.** Gerçek component + demo veri ile izole, sürüm-duyarlı önizleme.
+
+## ADR-245 — Rol ayrımı: Store Admin platform teması durumu (salt-okuma) (TODO-164B Dilim 2)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Store Admin Brand Customizer üstünde platform teması banner'ı (`GET .../theme/platform-status`):
+  managedByPlatform, current/template sürüm, update-available, editable/locked alanlar, "Platform tarafından
+  yönetiliyor". Store Admin Platform Theme Designer yetkilerine ERİŞEMEZ; güncelleme platform tarafından kontrollü
+  uygulanır (rollout). Kütüphane mutasyonu YALNIZ SUPER_ADMIN (requirePlatformAdmin).
+- **Sonuç.** Net rol sınırı; store-admin bilgilendirilir ama bypass edemez.

@@ -1689,23 +1689,25 @@ builder-css ile document CSS'inden SONRA layered override olarak yayımlanır �
 Store-admin UI tokenOverrides'ı POPÜLE ETMEZ (yalnız document); alan spec bütünlüğü + programatik yol için
 mevcut. İyileştirme: tek kaynağa indirgeme (config→document derive) ileride değerlendirilir. Etki: düşük.
 
-## TD-162 — Logo/favicon draft-staging + atomik publish (TODO-164B)
+## TD-162 — Logo/favicon draft-staging + atomik publish (TODO-164B) — CLOSED (Dilim 2, ADR-243)
 
-Dilim 1'de logo/favicon tek otorite `StoreSettings`; "Marka ve Görünüm" logoyu Ayarlar → Marka'ya yönlendirir
-(çift kaynak yok — Düzeltme 2 çekirdeği KARŞILANDI). Kullanıcının istediği tam biçim (builder içinde draft-staged
-logo + preview geçici override + publish anında StoreSettings ATOMİK güncelleme) Dilim 2'ye ertelendi: `config`'te
-`pendingLogoMediaId` draft pointer + publish transaction'ında StoreSettings upsert + preview projeksiyonuna geçici
-enjeksiyon. `ThemeDocument.assets`'e YAZILMAYACAK (tek otorite korunur). Etki: orta (UX kolaylığı).
+**CLOSED (2026-07-31).** `ThemeVersion.stagedLogoMediaId/stagedFaviconMediaId` DRAFT staging + publish anında
+AYNI $transaction içinde StoreSettings'e ATOMİK yazma + sürümün `assetSnapshot`'ına alma; publish başarısızsa
+StoreSettings DEĞİŞMEZ (txn rollback); rollback hedef sürümün asset snapshot'ına döner. Kalıcı otorite StoreSettings
+kaldı; ThemeDocument içinde ikinci kalıcı logo kaynağı OLUŞTURULMADI (staging geçici, publish'te temizlenir). Preview
+draft-staged logoyu gösterir (version-scoped preview token). Gateway+data test: staged→StoreSettings→rollback.
 
-## TD-163 — allowedPalettes katalog-kısıtı, publish-gate değil (TODO-164B)
+## TD-163 — allowedPalettes katalog-kısıtı, publish-gate değil (TODO-164B) — CLOSED (Dilim 2)
 
-`override-policy.allowedPalettes` yalnız store-admin katalogunu filtreler; publish-time enforce EDİLMEZ — çünkü
-renkler editable ise store-admin zaten herhangi rengi girebilir (palet uygulaması yalnız kısayol). Hard renk kilidi
-per-alan `FieldPolicy=locked` ile sağlanır (enforce edilir). Palet-seviyesi kilit istenirse ayrı tasarım gerekir.
-Etki: düşük (belgelenmiş; güvenlik açığı değil).
+**CLOSED (2026-07-31).** Ürün kararı: palet-seviyesi HARD LOCK, override policy matris editörüyle (ADR-239)
+per-alan `FieldPolicy=locked` üzerinden GERÇEKTEN uygulanıyor (server-side `enforceOverridePolicy` →
+THEME_FIELD_LOCKED). Bir platform admini renk alanlarını kilitleyerek mağazanın rengi değiştirmesini engeller.
+`allowedPalettes` tasarım gereği KATALOG kısıtı olarak kalır (renkler editable ise kısayol filtresi; hard lock
+gerektiğinde field policy kullanılır). Güvenlik açığı değil; kullanıcıya görünen borç yok.
 
-## TD-164 — Font kütüphanesi web-font yükleme (TODO-164B)
+## TD-164 — Font kütüphanesi web-font yükleme (TODO-164B) — OPEN (non-blocking)
 
-`font-library.ts` stack'leri yaygın SİSTEM fontlarına dayanır (@font-face YOK). Bazı aileler (ör. Didot, Optima)
-tüm platformlarda mevcut olmayabilir → generic fallback devreye girer (güvenli ama görünüm platforma göre değişebilir).
-Kürasyonlu web-font barındırma (self-host + license metadata + preload) ayrı iş kalemi. Etki: düşük-orta (görsel).
+`font-library.ts` stack'leri yaygın SİSTEM fontlarına + bundled Inter/Playfair'e (next/font ile YÜKLÜ) dayanır →
+kullanıcıya görünen font GERÇEKTEN render edilir (generic fallback garantili). Bu nedenle TODO-164B kapanışını
+ENGELLEMEZ (kullanıcıya görünen font yükleniyor). Açık kalan yalnız harici/self-host web-font barındırma (custom
+uploaded font aileleri + license metadata + preload) — bu bir FUTURE iş kalemidir, blocker değil. Etki: düşük.

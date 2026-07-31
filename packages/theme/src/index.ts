@@ -34,3 +34,7 @@ export * from "./font-library.js";
 export * from "./color-palettes.js";
 export * from "./override-policy.js";
 export * from "./field-labels.js";
+// TODO-164B Dilim 2 (ADR-238…245) — Platform Theme Library, Designer & Controlled
+// Rollout: kullanıcı-dostu before/after diff + kütüphane versioning/rollout helper'ları.
+export * from "./theme-diff.js";
+export * from "./library.js";
