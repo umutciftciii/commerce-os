@@ -379,6 +379,20 @@ export const trStorefront = {
     couponManualHint: "Sepette “Kupon Kodu Ekle” ile kullanabilirsiniz.",
     couponAddToWallet: "Kuponu ekle",
     couponAddedToWallet: "Kupon eklendi. Sepette “Kuponlar”dan kullanın.",
+    // TODO-165 Fashion Vertical — moda seçici (renk/beden), beden tablosu ve özellik özeti.
+    fashion: {
+      sizeGuide: "Beden tablosu",
+      sizeGuideClose: "Kapat",
+      // Beden tablosunda ilk sütun başlığı.
+      sizeColumn: "Beden",
+      // {unit} ölçü birimiyle (ör. "cm") değiştirilir.
+      sizeGuideUnit: "Ölçüler {unit} cinsindendir",
+      // {count} kalan adetle değiştirilir (yalnız az stokta gösterilir).
+      lowStock: "Son {count} adet",
+      attributesTitle: "Ürün Özellikleri",
+      // {label} seçili seçenek adıyla değiştirilir (erişilebilirlik metni).
+      optionSelected: "Seçili: {label}",
+    },
   },
   buyBox: {
     priceNote: "KDV dahildir",

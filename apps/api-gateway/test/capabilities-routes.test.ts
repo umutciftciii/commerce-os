@@ -62,9 +62,13 @@ describe("capability data orchestration", () => {
     p = new FakePersistence();
   });
 
-  it("baseline: tüm modüller açık", async () => {
+  it("baseline: opt-in dışı tüm modüller açık (FASHION_VERTICAL varsayılan kapalı)", async () => {
     const list = await createStoreModuleData(p).resolveEffective("s1");
-    expect(list.every((m) => m.enabled)).toBe(true);
+    // TODO-165: FASHION_VERTICAL opt-in (baselineEnabled=false) → varsayılan kapalı.
+    for (const m of list) {
+      if (m.key === "FASHION_VERTICAL") expect(m.enabled).toBe(false);
+      else expect(m.enabled).toBe(true);
+    }
   });
 
   it("plan default kapatır, store override ezer", async () => {

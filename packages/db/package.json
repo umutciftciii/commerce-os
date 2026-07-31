@@ -15,6 +15,7 @@
     "db:seed": "node scripts/seed.mjs",
     "db:verify-seed": "node scripts/verify-seed.mjs",
     "db:seed-enterprise": "node scripts/enterprise-seed.mjs",
+    "db:seed-fashion": "node scripts/fashion-demo-seed.mjs",
     "db:seed-enterprise:dry": "node scripts/enterprise-seed.mjs --dry-run",
     "db:verify-enterprise": "node scripts/verify-enterprise-seed.mjs",
     "db:audit-primary-category": "node scripts/audit-primary-category.mjs",

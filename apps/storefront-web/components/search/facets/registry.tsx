@@ -5,6 +5,7 @@ import { resolveFacetKind, type FacetKind } from "../../../lib/search/facets";
 import type { FacetRendererProps } from "./types";
 import { FacetValueList } from "./facet-value-list";
 import { FacetColorSwatch } from "./facet-color-swatch";
+import { FacetSizeGrid } from "./facet-size-grid";
 import { FacetNumberRange } from "./facet-number-range";
 import { FacetDateRange } from "./facet-date-range";
 
@@ -20,6 +21,8 @@ const FACET_RENDERERS: Record<FacetKind, (props: FacetRendererProps) => ReactNod
   checkbox: FacetValueList,
   boolean: FacetValueList,
   color: FacetColorSwatch,
+  // TODO-165 Fashion Vertical — beden facet'i sıralı buton-ızgarası (checkbox semantiği, farklı sunum).
+  size: FacetSizeGrid,
   range: FacetNumberRange,
   date: FacetDateRange,
 };

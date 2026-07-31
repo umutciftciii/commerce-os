@@ -44,7 +44,8 @@ export type StoreModuleKey =
   | "PAYMENT_RECOVERY"
   | "MULTI_WAREHOUSE"
   | "CUSTOMER_DATA_ERASURE"
-  | "OPERATIONS_ADVANCED";
+  | "OPERATIONS_ADVANCED"
+  | "FASHION_VERTICAL";
 
 export interface StoreModuleDefinition {
   key: StoreModuleKey;
@@ -95,6 +96,13 @@ export const STORE_MODULE_REGISTRY: readonly StoreModuleDefinition[] = [
   { key: "MULTI_WAREHOUSE", group: "catalog", labelTr: "Çoklu Depo", labelEn: "Multi-Warehouse", descriptionTr: "Depo-farkındalıklı stok.", core: false, baselineEnabled: true, requires: ["BASIC_INVENTORY"] },
   { key: "CUSTOMER_DATA_ERASURE", group: "system", labelTr: "Müşteri Verisi Silme", labelEn: "Customer Data Erasure", descriptionTr: "KVKK/GDPR silme/anonimleştirme.", core: false, baselineEnabled: true, requires: ["CUSTOMERS"] },
   { key: "OPERATIONS_ADVANCED", group: "system", labelTr: "Gelişmiş Operasyon", labelEn: "Advanced Operations", descriptionTr: "Zamanlayıcı/retention operasyon ekranı.", core: false, baselineEnabled: true },
+  // ── OPT-IN (baseline KAPALI; TODO-165 Fashion Vertical) ──────────────────────
+  // Moda/tekstil dikeyi: beden/renk/koleksiyon/sezon + adımlı ürün formu + fashion
+  // PDP/PLP davranışları. Yeni capability, geriye-uyum kaygısı YOK → baselineEnabled=false
+  // (opt-in). Kapalıyken mevcut commerce davranışı AYNEN korunur; ancak açık override ile
+  // (ör. enterprise-demo) etkinleşir. CATALOG/CATEGORIES core olduğundan requires no-op'tur
+  // ama niyet belgelenir (fashion domain katalog+kategori şablonuna dayanır).
+  { key: "FASHION_VERTICAL", group: "catalog", labelTr: "Moda Dikeyi", labelEn: "Fashion Vertical", descriptionTr: "Moda/tekstil ürün, beden, renk, koleksiyon ve mağaza davranışları.", core: false, baselineEnabled: false, requires: ["CATALOG", "CATEGORIES"] },
 ] as const;
 
 const REGISTRY_BY_KEY: ReadonlyMap<StoreModuleKey, StoreModuleDefinition> = new Map(

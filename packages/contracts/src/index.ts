@@ -26,6 +26,11 @@ const optionalNullableStringSchema = z.string().max(500).nullable().optional();
  * ──────────────────────────────────────────────────────────────────────────── */
 export * from "./validators.js";
 
+// TODO-165 Fashion Vertical (ADR-248) — typed size-system registry (SAF, zod'suz). Ana
+// yuzeyden re-export edilir; client component'ler zod sizmadan `@commerce-os/contracts/
+// size-systems` altpath'inden tuketebilir.
+export * from "./size-systems.js";
+
 export const healthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   service: z.string(),
@@ -2738,12 +2743,66 @@ export const publicProductListResponseSchema = z.object({
   }),
 });
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-165 Fashion Vertical (ADR-247/249/250) — Public PDP fashion projeksiyonu.
+ * YALNIZ FASHION_VERTICAL açık mağazada + fashion ürününde dolu; aksi halde null
+ * (capability-aware, leak-free). Yapısal eksenler (renk/beden) + fashion attribute
+ * özetleri + published size chart özeti. Salt sunum verisi (hesaplama yok).
+ * ──────────────────────────────────────────────────────────────────────────── */
+export const publicFashionOptionSchema = z.object({
+  optionId: z.string(),
+  value: z.string(),
+  label: z.string(),
+  colorHex: z.string().nullable().default(null),
+  colorFamily: z.string().nullable().default(null),
+  order: z.number().int(),
+});
+export const publicFashionAxisSchema = z.object({
+  attributeDefinitionId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  dataType: z.string(), // "COLOR" | "SELECT"
+  kind: z.enum(["color", "size", "other"]),
+  options: z.array(publicFashionOptionSchema),
+});
+export const publicFashionVariantAxisSchema = z.object({
+  variantId: z.string(),
+  // attributeDefinitionId -> optionId (bu varyantın eksen seçimleri)
+  axisOptions: z.array(z.object({ attributeDefinitionId: z.string(), optionId: z.string() })),
+});
+export const publicFashionAttributeSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  values: z.array(z.string()), // görünür etiketler
+});
+// PDP size-chart özeti (inline; publicSizeChartSchema forward-reference'ından kaçınır).
+export const publicPdpSizeChartSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sizeSystemKey: z.string(),
+  measurementUnit: z.string(),
+  columns: z.array(z.object({ key: z.string(), label: z.string(), unit: z.string().optional() })),
+  rows: z.array(
+    z.object({ size: z.string(), cells: z.record(z.union([z.string(), z.number()])) }),
+  ),
+});
+export const publicFashionProjectionSchema = z.object({
+  optionAxes: z.array(publicFashionAxisSchema),
+  variantAxisOptions: z.array(publicFashionVariantAxisSchema),
+  attributes: z.array(publicFashionAttributeSchema),
+  sizeSystemKey: z.string().nullable().default(null),
+  sizeChart: publicPdpSizeChartSchema.nullable().default(null),
+});
+export type PublicFashionProjection = z.infer<typeof publicFashionProjectionSchema>;
+
 export const publicProductDetailSchema = publicProductSchema.extend({
   description: z.string().nullable(),
   callToActionLabel: z.string().nullable(),
   whatsappMessageTemplate: z.string().nullable(),
   inquiryFormTitle: z.string().nullable(),
   appointmentNote: z.string().nullable(),
+  // TODO-165 — capability-aware fashion projeksiyonu (kapalı/fashion-dışı → null).
+  fashion: publicFashionProjectionSchema.nullable().default(null),
   /**
    * TODO-156D (ADR-080) — Admin-kontrollü SEO override'ları (public-safe meta metni; zaten yayına yönelik).
    * Vitrin `generateMetadata` bunları title/description için KULLANIR, yoksa title/description'a düşer.
@@ -5323,6 +5382,14 @@ export const customerOrderLineSummarySchema = z.object({
   // Kozmetik (yasal snapshot DEĞİL) → güncel kapak gösterilir, snapshot YOK.
   // productId/mediaId/storageKey ASLA taşınmaz (gateway iç record'unda kalır).
   imageUrl: z.string().nullable(),
+  // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı/eski satırda null).
+  selectedColor: z.string().nullable().default(null),
+  selectedColorHex: z.string().nullable().default(null),
+  selectedSize: z.string().nullable().default(null),
+  sizeSystem: z.string().nullable().default(null),
+  swatchLabel: z.string().nullable().default(null),
+  materialSummary: z.string().nullable().default(null),
+  variantDisplayName: z.string().nullable().default(null),
 });
 
 export const customerOrderSummarySchema = z.object({
@@ -10350,3 +10417,99 @@ export type PlanCapabilityMatrixEntry = z.infer<typeof planCapabilityMatrixEntry
 export type PlanCapabilitiesResponse = z.infer<typeof planCapabilitiesResponseSchema>;
 export type PlanCapabilitiesUpdateRequest = z.infer<typeof planCapabilitiesUpdateRequestSchema>;
 export type PlanCapabilityPreviewResponse = z.infer<typeof planCapabilityPreviewResponseSchema>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-165 Fashion Vertical (ADR-249) — Size Chart sozlesmeleri.
+ * columns/rows PLAIN-TEXT sunum verisi (raw HTML/CSS/JS YOK). Hucre degerleri kisitli
+ * string/number; server-side ayrica dogrulanir. sizeSystemKey kod registry ile denetlenir.
+ * ──────────────────────────────────────────────────────────────────────────── */
+const sizeChartStatusSchema = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+const sizeChartScopeSchema = z.enum(["STORE", "CATEGORY", "PRODUCT"]);
+// Sunum guvenligi: hucre/etiket yalniz gorunur-metin; kontrol karakteri/aci parantez yok.
+const plainCellSchema = z
+  .union([z.string().max(120), z.number()])
+  .refine((v) => typeof v === "number" || !/[<>]/.test(v), { message: "raw markup not allowed" });
+const sizeChartColumnSchema = z.object({
+  key: z.string().min(1).max(40).regex(/^[a-zA-Z0-9_-]+$/),
+  label: z.string().min(1).max(60).regex(/^[^<>]*$/),
+  unit: z.string().max(12).regex(/^[^<>]*$/).optional(),
+});
+const sizeChartRowSchema = z.object({
+  size: z.string().min(1).max(40).regex(/^[^<>]*$/),
+  cells: z.record(plainCellSchema),
+});
+export const sizeChartRevisionSchema = z.object({
+  id: z.string(),
+  revision: z.number().int().positive(),
+  columns: z.array(sizeChartColumnSchema).max(20),
+  rows: z.array(sizeChartRowSchema).max(60),
+  locale: z.string().max(10).nullable(),
+  createdAt: z.string(),
+});
+export const sizeChartSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(120),
+  sizeSystemKey: z.string().min(1).max(40),
+  measurementUnit: z.string().max(12),
+  gender: z.string().max(40).nullable(),
+  locale: z.string().max(10).nullable(),
+  status: sizeChartStatusSchema,
+  publishedRevisionId: z.string().nullable(),
+  publishedRevision: sizeChartRevisionSchema.nullable(),
+  draftColumns: z.array(sizeChartColumnSchema).max(20),
+  draftRows: z.array(sizeChartRowSchema).max(60),
+  assignments: z.array(
+    z.object({
+      id: z.string(),
+      scope: sizeChartScopeSchema,
+      categoryId: z.string().nullable(),
+      productId: z.string().nullable(),
+    }),
+  ),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const sizeChartListResponseSchema = z.object({ data: z.array(sizeChartSchema) });
+export const sizeChartResponseSchema = z.object({ data: sizeChartSchema });
+export const sizeChartCreateRequestSchema = z.object({
+  name: z.string().min(1).max(120),
+  sizeSystemKey: z.string().min(1).max(40),
+  measurementUnit: z.string().max(12).optional(),
+  gender: z.string().max(40).nullable().optional(),
+  locale: z.string().max(10).nullable().optional(),
+  columns: z.array(sizeChartColumnSchema).max(20).optional(),
+  rows: z.array(sizeChartRowSchema).max(60).optional(),
+});
+export const sizeChartUpdateRequestSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  measurementUnit: z.string().max(12).optional(),
+  gender: z.string().max(40).nullable().optional(),
+  locale: z.string().max(10).nullable().optional(),
+  columns: z.array(sizeChartColumnSchema).max(20).optional(),
+  rows: z.array(sizeChartRowSchema).max(60).optional(),
+});
+export const sizeChartAssignRequestSchema = z.object({
+  scope: sizeChartScopeSchema,
+  categoryId: z.string().min(1).nullable().optional(),
+  productId: z.string().min(1).nullable().optional(),
+});
+// Public (storefront) — PDP beden tablosu projeksiyonu (yalniz published revision).
+export const publicSizeChartSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sizeSystemKey: z.string(),
+  measurementUnit: z.string(),
+  columns: z.array(sizeChartColumnSchema),
+  rows: z.array(sizeChartRowSchema),
+});
+
+export type SizeChartStatusContract = z.infer<typeof sizeChartStatusSchema>;
+export type SizeChartScopeContract = z.infer<typeof sizeChartScopeSchema>;
+export type SizeChartColumn = z.infer<typeof sizeChartColumnSchema>;
+export type SizeChartRow = z.infer<typeof sizeChartRowSchema>;
+export type SizeChartRevisionContract = z.infer<typeof sizeChartRevisionSchema>;
+export type SizeChartContract = z.infer<typeof sizeChartSchema>;
+export type SizeChartCreateRequest = z.infer<typeof sizeChartCreateRequestSchema>;
+export type SizeChartUpdateRequest = z.infer<typeof sizeChartUpdateRequestSchema>;
+export type SizeChartAssignRequest = z.infer<typeof sizeChartAssignRequestSchema>;
+export type PublicSizeChart = z.infer<typeof publicSizeChartSchema>;

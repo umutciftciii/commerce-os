@@ -925,6 +925,10 @@ model Store {
   homeDiscoveryEvents              HomeDiscoveryEvent[]
   // TODO-163 (ADR-208) — Tenant Module & Capability Management (store-scoped modul override'lari).
   storeModules                     StoreModule[]
+  // TODO-165 Fashion Vertical (ADR-249) — magaza-ozel beden olcu tablolari.
+  sizeCharts                       SizeChart[]
+  sizeChartRevisions               SizeChartRevision[]
+  sizeChartAssignments             SizeChartAssignment[]
 }
 
 model StoreUser {
@@ -1147,6 +1151,8 @@ model Product {
   sponsoredPlacements    SponsoredProductPlacement[]
   // TODO-161B (ADR-137) — Recently Viewed geçmiş satırları (ürün FİZİKSEL silinince Cascade → orphan olmaz).
   recentlyViewedBy       RecentlyViewedProduct[]
+  // TODO-165 Fashion Vertical (ADR-249) — urun scope'lu size chart atamalari.
+  sizeChartAssignments   SizeChartAssignment[]       @relation("SizeChartProduct")
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1306,6 +1312,8 @@ model ProductCategory {
   trackingLinks      InfluencerTrackingLink[]
   // TODO-161 (ADR-114) — Sponsorlu kampanya kategori hedefleri (kategori silinince SetNull).
   sponsoredCampaigns SponsoredProductCampaign[]
+  // TODO-165 Fashion Vertical (ADR-249) — kategori scope'lu size chart atamalari.
+  sizeChartAssignments SizeChartAssignment[]        @relation("SizeChartCategory")
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1778,6 +1786,18 @@ model OrderLine {
   lineVatAmountMinor   Int?
   lineGrossAmountMinor Int?
   lineCostMinor        Int?
+  // TODO-165 Fashion Vertical (ADR-252) — moda varyant SNAPSHOT'lari (additive, nullable).
+  // Yalniz FASHION_VERTICAL acik magazalarda + fashion eksenli varyantlarda server-side
+  // doldurulur (createOrder/addOrderLine); ProductVariantOptionValue ⋈ AttributeOption'dan
+  // TURETILIR ve IMMUTABLE'dir (urun/varyant sonradan degisse bile snapshot sabit kalir).
+  // ESKI/fashion-disi kalemlerde NULL. Client manipule EDEMEZ (variantId'den turetilir).
+  selectedColor        String? // secili renk display adi (AttributeOption.label)
+  selectedColorHex     String? // secili renk hex swatch (#rrggbb) — sunum
+  selectedSize         String? // secili beden display etiketi
+  sizeSystem           String? // beden sistemi anahtari (SizeSystemKey) — snapshot
+  swatchLabel          String? // swatch etiketi (renk ailesi / desen ozeti)
+  materialSummary      String? // kisa materyal/kompozisyon ozeti
+  variantDisplayName   String? // insan-okur varyant adi ("Kirmizi / M")
   createdAt            DateTime @default(now())
 
   store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -3434,6 +3454,99 @@ model ProductVariantOptionValue {
   @@index([variantId])
   @@index([attributeDefinitionId])
   @@index([optionId])
+}
+
+// ─────────────────────── TODO-165 Fashion Vertical (ADR-249) — Size Chart ───────────────────────
+// Magaza-ozel BEDEN OLCU TABLOSU. Store/kategori/urun scope; publish/rollback icin IMMUTABLE
+// revizyon snapshot'lari. `sizeSystemKey` serbest DEGIL — kod-seviyesi SIZE_SYSTEM_REGISTRY'ye
+// (@commerce-os/contracts/size-systems) karsi dogrulanir. columns/rows PLAIN-TEXT sunum verisidir
+// (raw HTML/CSS/JS YOK; server-side sema dogrulamasi). Tenant-scoped (cross-store erisim yok).
+enum SizeChartStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model SizeChart {
+  id                 String          @id @default(cuid())
+  storeId            String
+  name               String
+  // SizeSystemKey (kod registry ile dogrulanir; DB'de string). Ornek: "INTERNATIONAL","SHOES_EU".
+  sizeSystemKey      String
+  // "CM" | "IN" | "NONE" (SizeMeasurementUnit). Olcu kolonlarinin birimi.
+  measurementUnit    String          @default("CM")
+  // Opsiyonel cinsiyet/kategori uyum ipucu (SizeCategoryKind ya da gender etiketi).
+  gender             String?
+  locale             String?
+  status             SizeChartStatus @default(DRAFT)
+  // Yayinlanan aktif revizyon (SizeChartRevision.id). NULL → henuz yayinlanmadi.
+  publishedRevisionId String?
+  // DRAFT calisma kopyasi (yayinlanmamis duzenleme). Publish aninda bir SizeChartRevision
+  // snapshot'ina donusur. columns: [{key,label,unit?}], rows: [{size,cells}].
+  draftColumns       Json            @default("[]")
+  draftRows          Json            @default("[]")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  revisions   SizeChartRevision[]
+  assignments SizeChartAssignment[]
+
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+// Yayinlanmis/rollback icin IMMUTABLE snapshot. Her publish revision +1 uretir; eski
+// revizyonlar korunur (rollback bu snapshot'a doner). columns/rows JSON = dogrulanmis
+// sunum verisi (plain-text hucreler).
+model SizeChartRevision {
+  id          String   @id @default(cuid())
+  storeId     String
+  sizeChartId String
+  revision    Int
+  // columns: [{ key, label, unit? }] — olcu kolonlari ( or. "Gogus","Bel").
+  columns     Json
+  // rows: [{ size, cells: { <colKey>: string|number } }] — her beden icin olculer.
+  rows        Json
+  locale      String?
+  createdAt   DateTime @default(now())
+
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sizeChart SizeChart @relation(fields: [sizeChartId], references: [id], onDelete: Cascade)
+
+  @@unique([sizeChartId, revision])
+  @@index([storeId])
+  @@index([sizeChartId])
+}
+
+enum SizeChartScope {
+  STORE
+  CATEGORY
+  PRODUCT
+}
+
+// Bir size chart'in baglandigi kapsam. PDP cozumu: PRODUCT > CATEGORY > STORE onceligi.
+// categoryId/productId scope'a gore doldurulur (STORE scope'ta ikisi de NULL).
+model SizeChartAssignment {
+  id          String         @id @default(cuid())
+  storeId     String
+  sizeChartId String
+  scope       SizeChartScope
+  categoryId  String?
+  productId   String?
+  createdAt   DateTime       @default(now())
+
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sizeChart SizeChart        @relation(fields: [sizeChartId], references: [id], onDelete: Cascade)
+  category  ProductCategory? @relation("SizeChartCategory", fields: [categoryId], references: [id], onDelete: Cascade)
+  product   Product?         @relation("SizeChartProduct", fields: [productId], references: [id], onDelete: Cascade)
+
+  // Ayni scope-hedefi icin tek atama (cakisma engeli).
+  @@unique([storeId, scope, categoryId, productId])
+  @@index([storeId])
+  @@index([sizeChartId])
+  @@index([categoryId])
+  @@index([productId])
 }
 
 // ─────────────────────── TODO-150 (ADR-073) — Identity Management Engine ───────────────────────

@@ -8,7 +8,6 @@ import {
   EmptyState,
   Eyebrow,
   Heading,
-  Muted,
   Stars,
 } from "../../../components/ui";
 // TODO-161B (ADR-137/140) — Görüntüleme izleyici (mount beacon) + açıklanabilir "Benzer Ürünler" (read-model).
@@ -17,6 +16,7 @@ import { SimilarProducts } from "../../../components/recently-viewed/similar-pro
 import { BuyBox } from "../../../components/buy-box";
 import { PdpDetailTabs } from "../../../components/pdp-detail-tabs";
 import { PdpSelectionProvider } from "../../../components/pdp-selection";
+import { PdpSkuLabel } from "../../../components/pdp-sku-label";
 import { WishlistProvider } from "../../../components/wishlist/wishlist-provider";
 import { isStorefrontModuleEnabled, getServerSlotVariant } from "../../../lib/server/site";
 import { RatingProvider } from "../../../components/reviews/rating-provider";
@@ -235,11 +235,8 @@ export default async function ProductDetailPage({
                   {dict.reviews.emptyTitle}
                 </a>
               )}
-              {detail.sku ? (
-                <Muted className="mt-2">
-                  {t.skuLabel}: <span className="font-medium text-ink-muted">{detail.sku}</span>
-                </Muted>
-              ) : null}
+              {/* TODO-165 (SKU reactivity) — seçili varyanta göre reaktif "Ürün kodu". */}
+              <PdpSkuLabel variants={detail.variants} fallbackSku={detail.sku} label={t.skuLabel} />
             </div>
 
             <BuyBox detail={detail} t={dict} />

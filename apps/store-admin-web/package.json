@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@commerce-os/api-client": "workspace:*",
+    "@commerce-os/contracts": "workspace:*",
     "@commerce-os/i18n": "workspace:*",
     "@commerce-os/theme": "workspace:*",
     "@commerce-os/ui": "workspace:*",

@@ -10,7 +10,6 @@ import {
   directDependentsOf,
   getStoreModuleDefinition,
   isStoreModuleKey,
-  listStoreModuleKeys,
 } from "../src/capabilities/registry.js";
 import {
   extractPlanModuleDefaults,
@@ -62,9 +61,23 @@ describe("registry", () => {
 });
 
 describe("resolveEffectiveModules — geriye uyumluluk", () => {
-  it("override/plan yokken TÜM modüller açık", () => {
+  it("override/plan yokken effective = registry baseline (core + eski modüller açık)", () => {
     const eff = resolveEffectiveModules();
-    for (const key of listStoreModuleKeys()) expect(eff.get(key)?.enabled).toBe(true);
+    for (const def of STORE_MODULE_REGISTRY) {
+      // core her zaman açık; non-core baseline default'una eşit (opt-in modüller kapalı).
+      const expected = def.core ? true : def.baselineEnabled;
+      expect(eff.get(def.key)?.enabled).toBe(expected);
+    }
+  });
+
+  it("FASHION_VERTICAL opt-in: override/plan yokken KAPALI (baseline), diğer eski modüller açık", () => {
+    const eff = resolveEffectiveModules();
+    // TODO-165: yeni capability geriye-uyum kaygısı olmadan opt-in → varsayılan kapalı.
+    expect(getStoreModuleDefinition("FASHION_VERTICAL").baselineEnabled).toBe(false);
+    expect(eff.get("FASHION_VERTICAL")).toMatchObject({ enabled: false, source: "baseline" });
+    // Açık override ile etkinleşir (ör. enterprise-demo).
+    const on = resolveEffectiveModules({ overrides: { FASHION_VERTICAL: "ENABLED" } });
+    expect(on.get("FASHION_VERTICAL")).toMatchObject({ enabled: true, source: "override" });
   });
 
   it("core modül override ile kapatılamaz", () => {

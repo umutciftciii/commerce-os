@@ -430,6 +430,106 @@ export interface StorefrontVariantView {
   mediaOptionId: string | null;
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-165 Fashion Vertical (ADR-247/249/250) — Vitrin moda gorunum modelleri.
+ * Gateway'in capability-aware public PDP `fashion` projeksiyonundan (yalniz
+ * FASHION_VERTICAL acik + fashion urunde dolu; aksi halde null) turetilir. SALT
+ * SUNUM verisi: yapisal eksenler (renk/beden), fashion attribute ozetleri, published
+ * beden tablosu ozeti. Hicbir fiyat/stok hesabi TASIMAZ (fiyat/stok yine varyantta).
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface StorefrontFashionOption {
+  optionId: string;
+  value: string;
+  label: string;
+  /** Renk ekseninde swatch icin hex (#RRGGBB); beden/diger eksende null. */
+  colorHex: string | null;
+  colorFamily: string | null;
+  order: number;
+}
+
+export interface StorefrontFashionAxis {
+  attributeDefinitionId: string;
+  code: string;
+  name: string;
+  /** Ham dataType ("COLOR" | "SELECT" ...). Sunum karari `kind` uzerinden yapilir. */
+  dataType: string;
+  /** Vitrin sunum turu: renk → swatch, beden → buton izgara, diger → buton izgara. */
+  kind: "color" | "size" | "other";
+  options: StorefrontFashionOption[];
+}
+
+export interface StorefrontFashionVariantAxis {
+  variantId: string;
+  /** Bu varyantin her eksende (attributeDefinitionId) sectigi option (optionId). */
+  axisOptions: { attributeDefinitionId: string; optionId: string }[];
+}
+
+export interface StorefrontFashionAttribute {
+  code: string;
+  name: string;
+  /** Gorunur etiket degerleri (or. ["Pamuk", "Elastan"]). */
+  values: string[];
+}
+
+export interface StorefrontFashionSizeChart {
+  id: string;
+  name: string;
+  sizeSystemKey: string;
+  measurementUnit: string;
+  columns: { key: string; label: string; unit?: string }[];
+  rows: { size: string; cells: Record<string, string | number> }[];
+}
+
+/** PDP moda gorunumu (null → fashion-disi/capability kapali; mevcut davranis birebir). */
+export interface StorefrontFashionView {
+  /** Renk ekseni once, sonra beden (gateway sirasi korunur). */
+  optionAxes: StorefrontFashionAxis[];
+  variantAxisOptions: StorefrontFashionVariantAxis[];
+  attributes: StorefrontFashionAttribute[];
+  sizeSystemKey: string | null;
+  sizeChart: StorefrontFashionSizeChart | null;
+}
+
+/**
+ * TODO-165 — Bir varyantin eksen secimlerini (attributeDefinitionId → optionId) dondurur.
+ * Buy box, varsayilan (en ucuz) varyanttan baslangic renk/beden secimini bununla turetir.
+ */
+export function fashionAxisSelectionForVariant(
+  fashion: StorefrontFashionView,
+  variantId: string | null,
+): Record<string, string> {
+  if (!variantId) return {};
+  const entry = fashion.variantAxisOptions.find((item) => item.variantId === variantId);
+  if (!entry) return {};
+  const map: Record<string, string> = {};
+  for (const axisOption of entry.axisOptions) {
+    map[axisOption.attributeDefinitionId] = axisOption.optionId;
+  }
+  return map;
+}
+
+/**
+ * TODO-165 — TAM eksen secimi (her eksen icin bir option) → varyant id (birebir eslesme)
+ * ya da null (secim eksik ya da bu kombinasyon yok). Fiyat/stok/ATC yalniz tam secimde
+ * cozulur (gateway yine son otoritedir; bu yalniz istemci cozumu).
+ */
+export function fashionVariantIdForSelection(
+  fashion: StorefrontFashionView,
+  selection: Record<string, string | null | undefined>,
+): string | null {
+  const axisIds = fashion.optionAxes.map((axis) => axis.attributeDefinitionId);
+  if (axisIds.length === 0) return null;
+  if (axisIds.some((id) => !selection[id])) return null; // eksik secim → cozulmez
+  const match = fashion.variantAxisOptions.find((variant) =>
+    axisIds.every((id) =>
+      variant.axisOptions.some(
+        (axisOption) => axisOption.attributeDefinitionId === id && axisOption.optionId === selection[id],
+      ),
+    ),
+  );
+  return match?.variantId ?? null;
+}
+
 /** Urun detay sayfasini (satin alma karar merkezi) besleyen tam gorunum. */
 export interface StorefrontProductDetail extends StorefrontProductSummary {
   description: string | null;
@@ -461,6 +561,13 @@ export interface StorefrontProductDetail extends StorefrontProductSummary {
    */
   seoTitle: string | null;
   seoDescription: string | null;
+  /**
+   * TODO-165 (ADR-247/249/250) — Capability-aware moda projeksiyonu. YALNIZ FASHION_VERTICAL
+   * acik mağazada + fashion urunde dolu; aksi halde null (fashion-disi urun/kapali capability →
+   * mevcut duz varyant-butonu davranisi BIREBIR korunur). Yapisal eksenler + attribute ozetleri
+   * + published beden tablosu; fiyat/stok tasimaz (onlar variants[]'ta).
+   */
+  fashion: StorefrontFashionView | null;
   /** Benzer urunler (ayni katalogtan turetilir). */
   related: StorefrontProductSummary[];
 }

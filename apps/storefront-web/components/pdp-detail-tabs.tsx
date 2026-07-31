@@ -114,6 +114,25 @@ export function PdpDetailTabs({
         hidden={active !== "specs"}
         className="py-7"
       >
+        {/* TODO-165 Fashion Vertical — moda özellik özeti (materyal/kesim/bakım/sezon/koleksiyon).
+            Yalnız fashion ürününde (detail.fashion) + en az bir attribute varsa; aksi halde render
+            edilmez (fashion-dışı PDP birebir korunur). */}
+        {detail.fashion && detail.fashion.attributes.length > 0 ? (
+          <div className="mb-8">
+            <h3 className="mb-3 text-sm font-semibold text-ink">{d.fashion.attributesTitle}</h3>
+            <dl>
+              {detail.fashion.attributes.map((attribute) => (
+                <div
+                  key={attribute.code}
+                  className="grid grid-cols-[9rem_1fr] gap-4 border-b border-line py-3 text-sm last:border-b-0 sm:grid-cols-[11rem_1fr]"
+                >
+                  <dt className="text-ink-subtle">{attribute.name}</dt>
+                  <dd className="text-ink">{attribute.values.join(", ")}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
         <SpecsTable detail={detail} t={t} />
       </div>
 

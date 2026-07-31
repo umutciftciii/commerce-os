@@ -2432,3 +2432,26 @@ upgrade + full-screen preview; (3) logo/favicon tek otorite = StoreSettings.
 - **TD:** TD-162 **CLOSED** · TD-163 **CLOSED** · TD-164 OPEN (non-blocking).
 - **AÇIK:** gerçek browser smoke (canlı stack, deploy sonrası). **commit/push/PR/merge/deploy YOK** (bu aşamada).
 - **Sonuç:** **TODO-164B tüm dilimler TAMAM** (Dilim 1 deployed + Dilim 2 implemented). Sıradaki: **TODO-165**.
+
+### TODO-165 — Fashion Vertical Foundation (IMPLEMENTED — uçtan uca smoke geçti, commit YOK)
+
+**ADR-246…252.** Analiz: `docs/analysis/TODO-165-fashion-vertical-foundation.md`. Moda/tekstil dikeyi,
+`FASHION_VERTICAL` capability kontrollü (opt-in). Kapalıyken çekirdek commerce aynen korunur.
+
+- **Backend/domain:** capability (opt-in) · typed size-system registry (10 sistem) · kanonik fashion attribute
+  katalogu (EAV reuse, yeni motor yok) · additive migration `20260731140000_fashion_vertical_foundation`
+  (SizeChart×3 + OrderLine 7 snapshot kolonu) → **gerçek DB'ye deploy+status PASS, mevcut veri korundu** ·
+  size-chart backend (capability-gated, tenant-scoped, XSS-guard, advisory-lock publish/rollback) · order snapshot
+  wiring (createOrder/addOrderLine + customers serializer + contracts) · public DTO capability-aware fashion projeksiyonu.
+- **Storefront:** fashion PDP (renk swatch + beden seçici + **OOS disabled** + auto-heal + size-chart modal + medya +
+  materyal/kalıp/sezon + ATC engeli) · PLP fashion facetleri (renk/beden/sezon/koleksiyon/materyal/fit). Fashion-dışı/
+  kapalı → klasik davranış.
+- **Store Admin:** `admin.sizeCharts.*` + Beden Tabloları sayfası (CRUD/publish/rollback/bağla) + 10-adım fashion
+  wizard (Stepper; capability kapalı → klasik form).
+- **Seed:** `fashion-demo-seed.mjs` (idempotent) → 3 kategori/12 ürün/155 varyant/size chart; `edm-store` ENABLED,
+  `demo-store` KAPALI. Search backfill (facet).
+- **Smoke (GERÇEK browser + DB):** PDP swatch/beden/OOS/auto-heal/size-chart · PLP facet · **sipariş OS-000005 →
+  color/size snapshot + immutability PASS** · capability disable/re-enable + veri korundu · store-admin chart+wizard ·
+  responsive 375px (taşma yok).
+- **Gate:** api-gateway **1893** test · contracts **130** · build+lint+diff-check temiz.
+- **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Implementasyon+smoke tamam → **commit'e HAZIR**.

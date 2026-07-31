@@ -19,6 +19,7 @@ import type {
   PriceDisplayMode,
   StorefrontCampaignView,
   StorefrontDiscoverySection,
+  StorefrontFashionView,
   StorefrontHome,
   StorefrontHomeSection,
   StorefrontPrice,
@@ -224,7 +225,62 @@ function toDetail(detail: PublicProductDetail, locale: CampaignLabelLocale): Sto
     // TODO-156D (ADR-080) — Admin SEO override'lari (public-safe meta metni; yoksa null).
     seoTitle: detail.seoTitle ?? null,
     seoDescription: detail.seoDescription ?? null,
+    // TODO-165 (ADR-247/249/250) — capability-aware moda projeksiyonu (fashion-disi/kapali → null).
+    fashion: toFashionView(detail.fashion),
     related: detail.related.map((item) => toSummary(item, locale)),
+  };
+}
+
+/**
+ * TODO-165 — Public `fashion` DTO'sunu (null olabilir) vitrin moda gorunumune cevirir.
+ * Yapisal 1-1 esleme; salt sunum verisi (fiyat/stok hesabi YOK). null → null (fashion-disi
+ * urun / kapali capability → PDP mevcut duz varyant davranisinda kalir).
+ */
+function toFashionView(fashion: PublicProductDetail["fashion"]): StorefrontFashionView | null {
+  if (!fashion) return null;
+  return {
+    optionAxes: fashion.optionAxes.map((axis) => ({
+      attributeDefinitionId: axis.attributeDefinitionId,
+      code: axis.code,
+      name: axis.name,
+      dataType: axis.dataType,
+      kind: axis.kind,
+      options: axis.options.map((option) => ({
+        optionId: option.optionId,
+        value: option.value,
+        label: option.label,
+        colorHex: option.colorHex ?? null,
+        colorFamily: option.colorFamily ?? null,
+        order: option.order,
+      })),
+    })),
+    variantAxisOptions: fashion.variantAxisOptions.map((variant) => ({
+      variantId: variant.variantId,
+      axisOptions: variant.axisOptions.map((axisOption) => ({
+        attributeDefinitionId: axisOption.attributeDefinitionId,
+        optionId: axisOption.optionId,
+      })),
+    })),
+    attributes: fashion.attributes.map((attribute) => ({
+      code: attribute.code,
+      name: attribute.name,
+      values: attribute.values,
+    })),
+    sizeSystemKey: fashion.sizeSystemKey ?? null,
+    sizeChart: fashion.sizeChart
+      ? {
+          id: fashion.sizeChart.id,
+          name: fashion.sizeChart.name,
+          sizeSystemKey: fashion.sizeChart.sizeSystemKey,
+          measurementUnit: fashion.sizeChart.measurementUnit,
+          columns: fashion.sizeChart.columns.map((column) => ({
+            key: column.key,
+            label: column.label,
+            unit: column.unit,
+          })),
+          rows: fashion.sizeChart.rows.map((row) => ({ size: row.size, cells: row.cells })),
+        }
+      : null,
   };
 }
 

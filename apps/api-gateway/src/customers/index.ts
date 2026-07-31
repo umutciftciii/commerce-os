@@ -157,6 +157,48 @@ export interface CustomerOrderLineRecord {
   title: string;
   variantTitle: string;
   quantity: number;
+  // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı/eski satırda null).
+  selectedColor: string | null;
+  selectedColorHex: string | null;
+  selectedSize: string | null;
+  sizeSystem: string | null;
+  swatchLabel: string | null;
+  materialSummary: string | null;
+  variantDisplayName: string | null;
+}
+
+// TODO-165 (ADR-252) — OrderLine fashion snapshot alanlari (select fragment + map helper);
+// müşteri/admin sipariş görünümlerinde tekrarı önler. Fashion-dışı/eski satırda tüm alanlar null.
+export const FASHION_LINE_SELECT = {
+  selectedColor: true,
+  selectedColorHex: true,
+  selectedSize: true,
+  sizeSystem: true,
+  swatchLabel: true,
+  materialSummary: true,
+  variantDisplayName: true,
+} as const;
+
+type FashionLineFields = {
+  selectedColor: string | null;
+  selectedColorHex: string | null;
+  selectedSize: string | null;
+  sizeSystem: string | null;
+  swatchLabel: string | null;
+  materialSummary: string | null;
+  variantDisplayName: string | null;
+};
+
+export function pickFashionLine(line: FashionLineFields): FashionLineFields {
+  return {
+    selectedColor: line.selectedColor,
+    selectedColorHex: line.selectedColorHex,
+    selectedSize: line.selectedSize,
+    sizeSystem: line.sizeSystem,
+    swatchLabel: line.swatchLabel,
+    materialSummary: line.materialSummary,
+    variantDisplayName: line.variantDisplayName,
+  };
 }
 
 export interface CustomerOrderRecord {
@@ -780,6 +822,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               title: true,
               variantTitle: true,
               quantity: true,
+              ...FASHION_LINE_SELECT,
               product: { select: { slug: true } },
             },
           },
@@ -806,6 +849,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           title: line.title,
           variantTitle: line.variantTitle,
           quantity: line.quantity,
+          ...pickFashionLine(line),
         })),
       }));
     },
@@ -852,6 +896,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               quantity: true,
               unitPriceAmount: true,
               totalAmount: true,
+              ...FASHION_LINE_SELECT,
               product: { select: { slug: true } },
             },
           },
@@ -975,6 +1020,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           quantity: line.quantity,
           unitPriceAmount: line.unitPriceAmount,
           totalAmount: line.totalAmount,
+          ...pickFashionLine(line),
         })),
         addresses: order.addresses.map((address) => ({
           type: address.type,
@@ -1247,6 +1293,8 @@ function serializeCustomerOrderSummary(
       // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId iç record'da
       // kalır, DTO'ya girmez. Kapaksız ürün → null.
       imageUrl: coverUrlByProductId.get(line.productId) ?? null,
+      // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı satırda null).
+      ...pickFashionLine(line),
     })),
     createdAt: order.createdAt.toISOString(),
     // TODO-135 — Hazırlanan gönderiyi liste rozetinde yansıtmak için temsili durum.
@@ -1309,6 +1357,8 @@ function serializeCustomerOrderDetail(
       lineTotalMinor: line.totalAmount,
       // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId DTO'ya girmez.
       imageUrl: coverUrlByProductId.get(line.productId) ?? null,
+      // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı satırda null).
+      ...pickFashionLine(line),
     })),
     shippingAddress: shipping
       ? {

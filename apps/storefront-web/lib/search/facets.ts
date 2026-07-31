@@ -23,24 +23,31 @@ import {
   type SearchState,
 } from "./url-state";
 
-/** Registry anahtarı: facet'in görsel render türü (selectionMode + dataType'tan türetilir). */
-export type FacetKind = "checkbox" | "color" | "boolean" | "range" | "date";
+/** Registry anahtarı: facet'in görsel render türü (selectionMode + dataType/code'dan türetilir). */
+export type FacetKind = "checkbox" | "color" | "size" | "boolean" | "range" | "date";
 
 /**
- * (selectionMode, dataType) → tek render-türü. Backend kontratı:
+ * (selectionMode, dataType, code) → tek render-türü. Backend kontratı:
  *  - RANGE + DATE → "date"; diğer RANGE → "range"
  *  - BOOLEAN → "boolean"
- *  - MULTI + COLOR → "color"; diğer MULTI → "checkbox"
+ *  - MULTI + COLOR → "color"; MULTI + (COLOR değil) + code "size" içerir → "size"; diğer MULTI → "checkbox"
  * Bilinmeyen kombinasyon → "checkbox" (güvenli varsayılan). Yeni bir attribute tipi eklenince YALNIZ burası + registry.
+ *
+ * TODO-165 Fashion Vertical — "size" dalı: MULTI beden facet'i (kodu "size" içeren, renk OLMAYAN) sıralı
+ * buton-ızgarası olarak render edilir (checkbox semantiği korunur; URL codec değişmez). Renk dalı el değmez.
  */
-export function resolveFacetKind(facet: Pick<PublicSearchFacet, "selectionMode" | "dataType">): FacetKind {
+export function resolveFacetKind(
+  facet: Pick<PublicSearchFacet, "selectionMode" | "dataType" | "code">,
+): FacetKind {
   switch (facet.selectionMode) {
     case "RANGE":
       return facet.dataType === "DATE" ? "date" : "range";
     case "BOOLEAN":
       return "boolean";
     case "MULTI":
-      return facet.dataType === "COLOR" ? "color" : "checkbox";
+      if (facet.dataType === "COLOR") return "color";
+      if (/size/i.test(facet.code)) return "size";
+      return "checkbox";
     default:
       return "checkbox";
   }

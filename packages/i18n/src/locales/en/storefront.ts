@@ -359,6 +359,16 @@ export const enStorefront: StorefrontDictionary = {
     couponManualHint: "Use it in the cart via “Add coupon code”.",
     couponAddToWallet: "Add coupon",
     couponAddedToWallet: "Coupon added. Use it from “Coupons” in the cart.",
+    // TODO-165 Fashion Vertical — fashion selector (color/size), size chart and attribute summary.
+    fashion: {
+      sizeGuide: "Size chart",
+      sizeGuideClose: "Close",
+      sizeColumn: "Size",
+      sizeGuideUnit: "Measurements are in {unit}",
+      lowStock: "Only {count} left",
+      attributesTitle: "Product Details",
+      optionSelected: "Selected: {label}",
+    },
   },
   buyBox: {
     priceNote: "VAT included",

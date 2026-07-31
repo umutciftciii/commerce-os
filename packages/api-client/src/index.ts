@@ -53,6 +53,10 @@ import type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  SizeChartContract,
+  SizeChartCreateRequest,
+  SizeChartUpdateRequest,
+  SizeChartAssignRequest,
   HomeSection,
   HomeSectionCreateRequest,
   HomeSectionListResponse,
@@ -354,6 +358,10 @@ export type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  SizeChartContract,
+  SizeChartCreateRequest,
+  SizeChartUpdateRequest,
+  SizeChartAssignRequest,
   HomeSection,
   HomeSectionType,
   HomeSectionCreateRequest,
@@ -556,6 +564,8 @@ export type {
   PublicProductVariant,
   PublicProductListResponse,
   PublicProductDetail,
+  // TODO-165 (ADR-247/249/250) — Public PDP fashion projeksiyon tipleri (storefront tüketicisi).
+  PublicFashionProjection,
   // TODO-158A (ADR-086) — Home Experience public composed projeksiyon tipleri (storefront tüketicisi).
   PublicHomeResponse,
   PublicHomeSection,
@@ -1184,6 +1194,16 @@ export interface InternalHealthResponse {
   status: "ok" | "degraded";
 }
 
+// TODO-165 (ADR-249) — Beden tablosu (SizeChart) response zarflari. Gateway her okuma/mutasyon
+// ucunda { data } dondurur (list { data: [] }). Contracts type alias tanimlamadigi icin burada
+// turetilir; re-export ile tuketicilere acilir.
+export interface SizeChartResponse {
+  data: SizeChartContract;
+}
+export interface SizeChartListResponse {
+  data: SizeChartContract[];
+}
+
 export interface ApiClient {
   readonly baseUrl: string;
   health(): Promise<HealthResponse>;
@@ -1439,6 +1459,44 @@ export interface ApiClient {
       ): Promise<HeroSlideListResponse>;
       publish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
       unpublish(storeId: string, id: string, token?: string): Promise<HeroSlideStatusActionResponse>;
+    };
+    // TODO-165 (ADR-249) — Moda dikeyi beden tablosu (SizeChart). DRAFT taslak + PUBLISHED revizyon;
+    // publish/rollback/archive durum geçişleri; assignment STORE/CATEGORY/PRODUCT kapsamı. Tüm uçlar
+    // store-admin + FASHION_VERTICAL capability gerektirir (enforcement gateway'de). Her uç { data }.
+    sizeCharts: {
+      list(storeId: string, token?: string): Promise<SizeChartListResponse>;
+      get(storeId: string, id: string, token?: string): Promise<SizeChartResponse>;
+      create(
+        storeId: string,
+        input: SizeChartCreateRequest,
+        token?: string,
+      ): Promise<SizeChartResponse>;
+      update(
+        storeId: string,
+        id: string,
+        input: SizeChartUpdateRequest,
+        token?: string,
+      ): Promise<SizeChartResponse>;
+      publish(storeId: string, id: string, token?: string): Promise<SizeChartResponse>;
+      rollback(
+        storeId: string,
+        id: string,
+        revisionId: string,
+        token?: string,
+      ): Promise<SizeChartResponse>;
+      archive(storeId: string, id: string, token?: string): Promise<SizeChartResponse>;
+      assign(
+        storeId: string,
+        id: string,
+        input: SizeChartAssignRequest,
+        token?: string,
+      ): Promise<SizeChartResponse>;
+      unassign(
+        storeId: string,
+        id: string,
+        assignmentId: string,
+        token?: string,
+      ): Promise<SizeChartResponse>;
     };
     // TODO-158A (ADR-086) — Home Experience Platform. Section CRUD + tip-özel alt varlıklar
     // (hero slide, featured kategori, manuel showcase ürünleri). sortOrder server-assigned;
@@ -2856,6 +2914,53 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/hero-slides/${id}/unpublish`,
             "POST",
             undefined,
+            token,
+          ),
+      },
+      // TODO-165 (ADR-249) — Beden tablosu (SizeChart) proxy'si. rollback body { revisionId };
+      // assign body { scope, categoryId?, productId? }. Publish/rollback/archive/assign/unassign
+      // güncel çizelgeyi ({ data }) döner.
+      sizeCharts: {
+        list: (storeId, token) =>
+          getJson<SizeChartListResponse>(`/stores/${storeId}/size-charts`, token),
+        get: (storeId, id, token) =>
+          getJson<SizeChartResponse>(`/stores/${storeId}/size-charts/${id}`, token),
+        create: (storeId, input, token) =>
+          sendJson<SizeChartResponse>(`/stores/${storeId}/size-charts`, "POST", input, token),
+        update: (storeId, id, input, token) =>
+          sendJson<SizeChartResponse>(`/stores/${storeId}/size-charts/${id}`, "PATCH", input, token),
+        publish: (storeId, id, token) =>
+          sendJson<SizeChartResponse>(
+            `/stores/${storeId}/size-charts/${id}/publish`,
+            "POST",
+            undefined,
+            token,
+          ),
+        rollback: (storeId, id, revisionId, token) =>
+          sendJson<SizeChartResponse>(
+            `/stores/${storeId}/size-charts/${id}/rollback`,
+            "POST",
+            { revisionId },
+            token,
+          ),
+        archive: (storeId, id, token) =>
+          sendJson<SizeChartResponse>(
+            `/stores/${storeId}/size-charts/${id}/archive`,
+            "POST",
+            undefined,
+            token,
+          ),
+        assign: (storeId, id, input, token) =>
+          sendJson<SizeChartResponse>(
+            `/stores/${storeId}/size-charts/${id}/assignments`,
+            "POST",
+            input,
+            token,
+          ),
+        unassign: (storeId, id, assignmentId, token) =>
+          requestJson<SizeChartResponse>(
+            `/stores/${storeId}/size-charts/${id}/assignments/${assignmentId}`,
+            { method: "DELETE" },
             token,
           ),
       },

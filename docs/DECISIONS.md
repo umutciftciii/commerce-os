@@ -5615,3 +5615,76 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   yönetiliyor". Store Admin Platform Theme Designer yetkilerine ERİŞEMEZ; güncelleme platform tarafından kontrollü
   uygulanır (rollout). Kütüphane mutasyonu YALNIZ SUPER_ADMIN (requirePlatformAdmin).
 - **Sonuç.** Net rol sınırı; store-admin bilgilendirilir ama bypass edemez.
+
+## ADR-246 — Fashion capability sınırı (opt-in) (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Moda dikeyi tek typed capability `FASHION_VERTICAL` ile sınırlanır (registry.ts;
+  `core:false, baselineEnabled:false, requires:[CATALOG,CATEGORIES]`). Yeni capability olduğundan
+  geriye-uyum kaygısı YOK → **opt-in** (varsayılan KAPALI): mevcut/yeni mağazalarda commerce davranışı
+  aynen korunur, `demo-store` kapalı kalır; enterprise-demo `StoreModule` override=ENABLED ile açılır.
+  Backend gate: admin uçları `requireStoreAdminForModule("FASHION_VERTICAL")` (kapalı→403 MODULE_DISABLED),
+  public projeksiyon yalnız `capabilityCache.isEnabled` iken fashion alan ekler (leak-free), storefront
+  `isStorefrontModuleEnabled` ile UI ipucu. Store Admin bypass EDEMEZ (gateway otoriter).
+- **Sonuç.** Fashion, çekirdeği kirletmeden mağaza-bazlı açılır/kapanır; kapatınca veri korunur, tekrar açınca döner.
+
+## ADR-247 — Kanonik fashion attribute'ları (EAV reuse) (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Fashion alanları (gender/season/collection/material/fit/pattern/collar/sleeve/length/care/
+  origin/sustainability + color/colorFamily/size/sizeSystem) mevcut generic EAV motorunda PLATFORM-scoped
+  `AttributeDefinition`+`AttributeOption` olarak modellenir; kategoriye `CategoryAttribute` ile bağlanır.
+  **Yeni paralel attribute motoru KURULMAZ.** Tek otorite kod katalogu `fashion/canonical-attributes.ts`.
+  Sadece color(COLOR)+size(SELECT) `variantDefining` (eksen); MULTI_SELECT eksen olamaz. Yazım daima
+  `attributeValueService` üzerinden. Renk-medya ekseni = `Product.mediaDefiningAttributeId` (Variant Media Engine reuse).
+- **Sonuç.** Fashion, çekirdek attribute altyapısını yeniden kullanır; bakım tek noktada.
+
+## ADR-248 — Typed size-system registry (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Beden sistemleri kod-seviyesi typed registry (`@commerce-os/contracts/size-systems`):
+  INTERNATIONAL/EU/US/UK/TR/JEANS/SHOES_EU/SHOES_US/SHOES_UK/BRA. Her sistem ordered values + normalized +
+  displayLabel + localeLabel + measurementUnit + kategori uyumluluğu taşır. **Serbest JSON beden listesi YASAK.**
+  `size`/`sizeSystem` attribute opsiyonları bu registry'den doğrulanır. Fonksiyonlar: isSizeSystemKey,
+  normalizeSizeValue, isValidSizeValue, orderedValues, localeLabel, isCompatibleWithCategory, sizeSystemsForCategory.
+- **Sonuç.** Beden ekseni deterministik, doğrulanabilir, çok-locale; serbest metin drift'i önlenir.
+
+## ADR-249 — Size-chart versiyonlama (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `SizeChart` (store/kategori/ürün scope) + DRAFT çalışma kopyası (`draftColumns/draftRows`) +
+  IMMUTABLE `SizeChartRevision` (publish→revision+1, advisory-lock'lu atomik numaralandırma) + rollback (eski
+  revizyona döner) + `SizeChartAssignment` (STORE/CATEGORY/PRODUCT). PDP çözümü: PRODUCT > CATEGORY > STORE.
+  columns/rows PLAIN-TEXT (raw HTML/CSS/JS reddedilir; zod + servis MARKUP kalkanı). `sizeSystemKey` registry ile
+  doğrulanır. Tenant-scoped ({id,storeId}; cross-store 404). Yayınlı revizyon değiştirilemez.
+- **Sonuç.** Denetlenebilir, geri-alınabilir, güvenli beden tablosu; PDP'de modal/drawer.
+
+## ADR-250 — Renk swatch modeli (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Renk = `AttributeOption` (dataType COLOR): label=display adı, colorHex=`#rrggbb` swatch (regex-
+  doğrulanır; **raw CSS/serbest değer reddedilir**), value=normalized. Normalized renk ailesi (`colorFamily`)
+  kod-katalog map'i ile türetilir (swatch gruplama + snapshot). Image swatch = store'a ait `MediaAsset`
+  (`ProductImage.optionId`; media ownership guard). Aynı renk için gruplama = mediaDefiningAttributeId.
+- **Sonuç.** Gerçek swatch UI; unsafe stil/URL yok; PLP/PDP mevcut swatch bileşenleri reuse.
+
+## ADR-251 — Fashion variant matrix (mevcut 2C motorları orkestrasyonu) (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Color × Size matrisi YENİ motor değil, mevcut motorların orkestrasyonu:
+  `variantSelectionService.setSelections` (eksen) → `variantCombinationPreviewService.previewCombinations`
+  (saf Cartesian, `combinationKey`) → `variantGenerationService.generate` (advisory-lock diff, deterministik SKU
+  `SLUG-RENK-BEDEN`, active/inactive=archive/restore, manuel dokunulmaz) → `identityService`/pricing/
+  `inventoryService.preview/apply` (stok; `reserved` korunur, oversell invariant) → Variant Media Engine.
+  Invalid size/category server-side reddedilir; duplicate kombinasyon motorda fold'lanır.
+- **Sonuç.** Matris davranışı çekirdek varyant garantilerini (idempotent, tenant-safe, oversell-safe) miras alır.
+
+## ADR-252 — Fashion order snapshot (additive, server-authoritative) (TODO-165)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `OrderLine`'a additive nullable snapshot kolonları (selectedColor/selectedColorHex/selectedSize/
+  sizeSystem/swatchLabel/materialSummary/variantDisplayName). Saf `resolveFashionLineSnapshot` varyantın
+  normalized eksen değerlerinden (ProductVariantOptionValue ⋈ AttributeOption) türetir; server-side (createOrder/
+  addOrderLine) doldurulur → **IMMUTABLE** (ürün/varyant sonradan değişse bile sabit). Client MANIPULE EDEMEZ
+  (variantId'den türetilir). Fashion-dışı/eski kalemlerde NULL (geriye uyumlu).
+- **Sonuç.** Sipariş geçmişi renk/beden bağlamını kalıcı korur; manipülasyona kapalı.
