@@ -142,3 +142,63 @@ atama akışı; theme library versioning (update-available/apply/rollback); full
 ADR-232 Theme Designer vs Brand Customizer (platform library store) · ADR-233 Store override
 policy + server-side enforcement · ADR-234 Theme library versioning & controlled rollout ·
 ADR-235 Safe font library · ADR-236 Semantic color UX + field labels · ADR-237 Preview highlight.
+
+---
+
+## Dilim 2 — Platform Theme Library, Designer & Controlled Rollout (IMPLEMENTASYON TAMAM)
+
+> Durum: build/test/lint/typecheck yeşil; 3 Next app build PASS. commit/PR/deploy YOK.
+> ADR-238…245. Mevcut Theme/ThemeVersion motoru REUSE (paralel motor yok).
+
+### 14. Kütüphane mimarisi (ADR-238)
+Platform template'leri sentetik `THEME_LIBRARY` sistem mağazasında yaşar (`ensureThemeLibraryStore` get-or-create;
+slug `__theme-library__`; `ownerScope=PLATFORM`). Kütüphane CRUD'u mevcut store-scoped `ThemeDataAccess` metotlarını
+kütüphane storeId'siyle çağırır → tek motor, migration yok. Sistem mağazası fleet/storefront/assignable-stores/tenant
+seçimlerinden dışlanır (ADR-232 + `listAssignableStores` `systemPurpose:null`).
+
+### 15. Designer (9 sekme) + policy matris (ADR-239)
+admin-web `/theme-library/[id]`: Şablon/Marka/Renk Paleti/Tipografi/Bileşenler/Sayfa Düzenleri/Mobil/Önizleme/
+Yayınlama. Token editörü store-admin `COLOR_UI` haritasını + palet apply + font preset + slot variant + responsive
+override'ları yeniden kullanır. Policy matris editörü (`PolicyMatrix`) her canonical alan → 5 durum + font/palet/
+düzen allowlist; `PUT .../policy` strict validate (`validateOverridePolicy`) + `policyRevision++`. Publish gate:
+`overridePolicy` NULL olamaz + `isPolicyExplicit` (409 `THEME_POLICY_INCOMPLETE`).
+
+### 16. Assignment + controlled rollout (ADR-240/241)
+`assignTemplateToStore` published template snapshot'ını hedef mağazaya kopyalar ($transaction; yeni PUBLISHED+DRAFT;
+`sourceThemeId/sourceThemeVersion` + policy; runtime bağı yok). `assign/preview` dry-run (uyumluluk + before/after);
+`assign`/`update/apply` per-store yürütür → `summarizeRollout` (success/failed/skipped ayrı; failed gizlenmez).
+`update/apply` yalnız update bekleyen mağazalara (diğerleri skipped).
+
+### 17. Version upgrade + before/after (ADR-242)
+Yeni template sürümü bağlı mağazaları OTOMATİK değiştirmez. `computeUpdateAvailable` (template published > store
+sourceVersion). `summarizeThemeChanges` (theme-diff.ts) kullanıcı-dostu kategorize özet; raw JSON yok. Modlar:
+published↔draft, current↔target, store↔template-update.
+
+### 18. Logo staging + atomik publish (ADR-243, TD-162 CLOSED)
+`ThemeVersion.stagedLogoMediaId/stagedFaviconMediaId` DRAFT staging → publish anında AYNI txn'de StoreSettings'e
+atomik + `assetSnapshot`; başarısız → StoreSettings değişmez; rollback snapshot'a döner. ThemeDocument'te ikinci
+kalıcı logo YOK.
+
+### 19. Preview (ADR-244)
+Version-scoped preview token (`{storeId, themeId, version?}`). Platform template preview: token storeId=kütüphane
+mağazası (tema template'ten), katalog demo mağazadan → müşteri verisi kullanılmaz. Storefront middleware token'ı
+request cookie'sine forward eder → ilk yükte de draft/hedef sürüm. Full-screen çok-sayfa (Home/PLP/PDP/Cart/Checkout/
+Account) + çok-viewport (375/768/1024/1440) + before/after toggle; production cache'ten izole.
+
+### 20. Rol ayrımı (ADR-245)
+Store Admin `PlatformThemeBanner` (salt-okuma): managedByPlatform + version + update-available + editable/locked.
+Store Admin Platform Designer'a ERİŞEMEZ; kütüphane mutasyonu yalnız SUPER_ADMIN.
+
+### 21. Test/gate
+theme 287 · gateway 1866 (9 yeni: CRUD/policy-gate/policy-invalid/assign+usage+isolation/version-update/logo-staging/
+preview-version/unauthorized) · admin-web 30 (6 yeni: liste/empty/error/PolicyMatrix/BeforeAfter) · store-admin 365 ·
+contracts 115 · api-client 23 · storefront 446. 3 Next app build + tüm paket build · lint · typecheck · git diff --check temiz.
+
+### 22. Invalid media hardening (pre-ship)
+Staged logo/favicon media referansı stage VE publish anında `assertAssetOwnership` ile txn-içi doğrulanır (herhangi
+bir mutasyondan ÖNCE): media yok→`THEME_MEDIA_NOT_FOUND`(404), başka mağaza→`THEME_MEDIA_NOT_OWNED`(409), görsel
+değil→`THEME_MEDIA_INVALID`(400). `ThemeMediaError` route'ta `themeMediaErrorResponse` ile eşlenir; ham Prisma/FK/
+constraint/stack SIZMAZ. Geçersiz media artık **500 üretmez**; txn geri alınır → StoreSettings/ThemeVersion değişmez
+(kısmi update yok). stage↔publish arası media silinse bile publish güvenli 404 döner. Regression: 6 yeni gateway testi
+(not-found/not-owned/invalid/valid-atomik/deleted-after-stage-atomiklik/null-clear). Canlı DB smoke: 404/409 + sızıntı
+yok + StoreSettings null korundu.

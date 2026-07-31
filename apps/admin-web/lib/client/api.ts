@@ -6,6 +6,26 @@ import type {
   ThemeBindingResponse,
   ThemeBindingAssignRequest,
   ThemeBindingListResponse,
+  // TODO-164B Dilim 2 — Platform Theme Library / Designer / Rollout.
+  LibraryListResponse,
+  LibraryTemplateCreateRequest,
+  ThemeDetail,
+  ThemeUpdateRequest,
+  ThemeDraftUpdateRequest,
+  ThemePublishRequest,
+  ThemeDuplicateRequest,
+  ThemeRollbackRequest,
+  ThemePolicyUpdateRequest,
+  ThemeChangeSummary,
+  TemplateUsageResponse,
+  AssignableStoresResponse,
+  ThemeAssignPreviewRequest,
+  ThemeAssignPreviewResponse,
+  ThemeAssignRequest,
+  RolloutSummaryResponse,
+  LibraryPreviewTokenRequest,
+  ThemeStageAssetsRequest,
+  ThemePreviewTokenResponse,
   HealthResponse,
   Plan,
   PlanCreateRequest,
@@ -136,6 +156,60 @@ export const adminApi = {
   assignThemeBinding: (id: string, input: ThemeBindingAssignRequest) =>
     mutatingCall<ThemeBindingResponse>(`/api/admin/stores/${id}/theme-binding`, {
       method: "PUT",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-164B Dilim 2 — Platform Tema Kütüphanesi + Designer + Rollout.
+  listThemeLibrary: () => call<LibraryListResponse>("/api/admin/theme-library"),
+  createTemplate: (input: LibraryTemplateCreateRequest) =>
+    mutatingCall<ThemeDetail>("/api/admin/theme-library", { method: "POST", body: JSON.stringify(input) }),
+  getTemplate: (id: string) => call<ThemeDetail>(`/api/admin/theme-library/${id}`),
+  updateTemplateMeta: (id: string, input: ThemeUpdateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  saveTemplateDraft: (id: string, input: ThemeDraftUpdateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/draft`, { method: "PUT", body: JSON.stringify(input) }),
+  setTemplatePolicy: (id: string, input: ThemePolicyUpdateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/policy`, { method: "PUT", body: JSON.stringify(input) }),
+  publishTemplate: (id: string, input: ThemePublishRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/publish`, { method: "POST", body: JSON.stringify(input) }),
+  archiveTemplate: (id: string) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/archive`, { method: "POST", body: "{}" }),
+  duplicateTemplate: (id: string, input: ThemeDuplicateRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/duplicate`, { method: "POST", body: JSON.stringify(input) }),
+  rollbackTemplate: (id: string, input: ThemeRollbackRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/rollback`, { method: "POST", body: JSON.stringify(input) }),
+  templatePreviewToken: (id: string, input: LibraryPreviewTokenRequest) =>
+    mutatingCall<ThemePreviewTokenResponse>(`/api/admin/theme-library/${id}/preview-token`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  stageTemplateAssets: (id: string, input: ThemeStageAssetsRequest) =>
+    mutatingCall<ThemeDetail>(`/api/admin/theme-library/${id}/stage-assets`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  templateDiff: (id: string, query: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (query.from) qs.set("from", query.from);
+    if (query.to) qs.set("to", query.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return call<ThemeChangeSummary>(`/api/admin/theme-library/${id}/diff${suffix}`);
+  },
+  templateUsage: (id: string) => call<TemplateUsageResponse>(`/api/admin/theme-library/${id}/usage`),
+  assignableStores: () => call<AssignableStoresResponse>("/api/admin/theme-library/assignable-stores"),
+  assignPreview: (id: string, input: ThemeAssignPreviewRequest) =>
+    mutatingCall<ThemeAssignPreviewResponse>(`/api/admin/theme-library/${id}/assign/preview`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  assignTemplate: (id: string, input: ThemeAssignRequest) =>
+    mutatingCall<RolloutSummaryResponse>(`/api/admin/theme-library/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  applyTemplateUpdate: (id: string, input: ThemeAssignRequest) =>
+    mutatingCall<RolloutSummaryResponse>(`/api/admin/theme-library/${id}/update/apply`, {
+      method: "POST",
       body: JSON.stringify(input),
     }),
 

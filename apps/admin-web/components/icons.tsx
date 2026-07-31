@@ -48,6 +48,17 @@ export function ThemeIcon() {
   );
 }
 
+export function ThemeLibraryIcon() {
+  // Katmanlı kütüphane — TODO-164B Dilim 2 "Tema Kütüphanesi".
+  return (
+    <svg {...base} aria-hidden>
+      <rect x="3" y="4" width="14" height="16" rx="1.5" />
+      <path d="M7 4v16" />
+      <path d="M17 7l3.2.9a1 1 0 0 1 .7 1.2l-2.6 9.5" />
+    </svg>
+  );
+}
+
 export function PlanIcon() {
   return (
     <svg {...base} aria-hidden>

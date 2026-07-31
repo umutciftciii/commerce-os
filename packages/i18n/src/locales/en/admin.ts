@@ -53,6 +53,7 @@ export const enAdmin: AdminDictionary = {
     heading: "Management",
     dashboard: "Platform Overview",
     stores: "Stores",
+    themeLibrary: "Theme Library",
     themeManagement: "Theme Management",
     plans: "Plans",
     systemHealth: "System Health",

@@ -2406,6 +2406,29 @@ upgrade + full-screen preview; (3) logo/favicon tek otorite = StoreSettings.
 - **Storefront:** `ThemePreviewHighlight` (postMessage; yalnız preview cookie).
 - **Gate:** theme 268 · gateway 1857 · store-admin 365 · contracts/api-client/storefront/admin-web build — TÜMÜ PASS;
   build 27/27 · lint temiz · typecheck temiz · git diff --check temiz.
-- **AÇIK:** Dilim 2 (platform 9-sekme Designer + versiyon upgrade/rollback + full-screen çok-sayfa preview);
-  gerçek browser smoke (canlı stack); TD-162 (logo draft-staging + atomik publish), TD-163 (allowedPalettes
-  publish-gate değil katalog), TD-164 (font web-font yükleme).
+- **Dilim 1:** SHIPPED & DEPLOYED (PR #156, merge `4ed0629`).
+
+**Dilim 2 — Platform Theme Library, Designer & Controlled Rollout (IMPLEMENTASYON TAMAM, commit YOK).** ADR-238…245.
+- **`@commerce-os/theme`:** `theme-diff.ts` (`summarizeThemeChanges` — kullanıcı-dostu before/after: color/typography/
+  layout/slot/media/policy kategorileri, raw JSON yok), `library.ts` (kütüphane store kimliği, `computeUpdateAvailable`,
+  rollout modları + `summarizeRollout`).
+- **DB:** additive `20260731130000_theme_library_designer_rollout` (`Theme.policyRevision`, `ThemeVersion.
+  stagedLogoMediaId/stagedFaviconMediaId/assetSnapshot`).
+- **Gateway:** `theme/library-routes.ts` (SUPER_ADMIN) — kütüphane CRUD + designer draft + `PUT .../policy` matris
+  (strict validate → 400 THEME_POLICY_INVALID) + publish (null/eksik policy → 409 THEME_POLICY_INCOMPLETE) + archive/
+  duplicate/rollback + version-scoped `preview-token` + `diff` + `usage` + `assignable-stores` + `assign/preview`
+  (dry-run) + `assign` + `update/apply` (per-store success/failed/skipped). TD-162 logo staging: `publishTheme`
+  atomik StoreSettings + `assetSnapshot`, `rollbackToVersion` snapshot restore. Store-admin `theme/platform-status`.
+- **api-client/contracts:** `admin.themeLibrary.*` + `admin.theme.platformStatus`; library/policy/diff/usage/rollout/
+  preview şemaları + tipleri.
+- **admin-web:** "Tema Kütüphanesi" nav+icon+i18n; liste (`/theme-library`); 9-sekme Designer (`/theme-library/[id]`);
+  `PolicyMatrix`, `AssignmentDialog` (rollout), `PreviewFrame` (çok-sayfa/çok-viewport/before-after), `BeforeAfter`,
+  `Tabs`, `ColorField`, `NativeSelect`; 15 BFF route + `proxy.ts` helper.
+- **store-admin:** `PlatformThemeBanner` (aktif platform teması + current/template version + update-available +
+  editable/locked; salt-okuma — Platform Designer yetkisine erişmez). **storefront:** version-scoped preview token +
+  middleware request-cookie forward (ilk yükte de draft/hedef sürüm).
+- **Gate:** theme 287 · gateway 1866 (9 yeni) · admin-web 30 (6 yeni) · store-admin 365 · contracts 115 · api-client 23 ·
+  storefront 446 — TÜMÜ PASS; 3 Next app build + tüm paket build PASS · lint temiz · typecheck temiz · git diff --check temiz.
+- **TD:** TD-162 **CLOSED** · TD-163 **CLOSED** · TD-164 OPEN (non-blocking).
+- **AÇIK:** gerçek browser smoke (canlı stack, deploy sonrası). **commit/push/PR/merge/deploy YOK** (bu aşamada).
+- **Sonuç:** **TODO-164B tüm dilimler TAMAM** (Dilim 1 deployed + Dilim 2 implemented). Sıradaki: **TODO-165**.

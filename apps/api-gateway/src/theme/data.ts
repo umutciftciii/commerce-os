@@ -14,6 +14,11 @@
  */
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
+import {
+  THEME_LIBRARY_STORE_NAME,
+  THEME_LIBRARY_STORE_PURPOSE,
+  THEME_LIBRARY_STORE_SLUG,
+} from "@commerce-os/theme";
 
 export type ThemeVersionRecord = {
   id: string;
@@ -27,6 +32,10 @@ export type ThemeVersionRecord = {
   config: Prisma.JsonValue;
   themeKey: string | null;
   layoutPreset: string | null;
+  // TODO-164B Dilim 2 (TD-162) — logo/favicon DRAFT staging + publish asset snapshot.
+  stagedLogoMediaId: string | null;
+  stagedFaviconMediaId: string | null;
+  assetSnapshot: Prisma.JsonValue | null;
   publishedBy: string | null;
   createdAt: Date;
   publishedAt: Date | null;
@@ -51,6 +60,8 @@ export type ThemeRecord = {
   overridePolicy: Prisma.JsonValue | null;
   sourceThemeId: string | null;
   sourceThemeVersion: number | null;
+  // TODO-164B Dilim 2 — override policy revizyon sayacı.
+  policyRevision: number;
   createdAt: Date;
   updatedAt: Date;
   versions: ThemeVersionRecord[];
@@ -67,6 +78,9 @@ const versionSelect = {
   config: true,
   themeKey: true,
   layoutPreset: true,
+  stagedLogoMediaId: true,
+  stagedFaviconMediaId: true,
+  assetSnapshot: true,
   publishedBy: true,
   createdAt: true,
   publishedAt: true,
@@ -88,6 +102,7 @@ const themeSelect = {
   overridePolicy: true,
   sourceThemeId: true,
   sourceThemeVersion: true,
+  policyRevision: true,
   createdAt: true,
   updatedAt: true,
   versions: { select: versionSelect, orderBy: { version: "desc" as const } },
@@ -108,6 +123,8 @@ export interface CreateThemeInput {
   // TODO-164A — builder kimlik alanları (opsiyonel; audit).
   createdBy?: string | null;
   duplicatedFrom?: string | null;
+  // TODO-164B Dilim 2 — platform template'i için "PLATFORM" (varsayılan "STORE").
+  ownerScope?: string;
 }
 
 /** TODO-164 — PUBLISHED tema + versiyon config'i (vitrin resolver girdisi). */
@@ -210,6 +227,100 @@ export interface ThemeDataAccess {
   ): Promise<ThemeRecord | null>;
   /** Platform Admin fleet: TÜM mağazalar + yayınlı tema özeti ("Tema Yönetimi" tablosu). */
   listThemeBindingSummaries(): Promise<ThemeBindingSummaryRow[]>;
+
+  // ── TODO-164B Dilim 2 — Platform Theme Library / Designer / Rollout ──────────
+  /** Platform tema kütüphanesi sistem mağazasını get-or-create eder (systemPurpose). */
+  ensureThemeLibraryStore(): Promise<{ id: string }>;
+  /** Override policy'yi yazar + policyRevision++ (audit). Mevcut tema verisini SİLMEZ. */
+  setOverridePolicy(storeId: string, themeId: string, policy: unknown): Promise<ThemeRecord | null>;
+  /** TD-162 — logo/favicon DRAFT staging. Mevcut DRAFT versiyona sahneler (StoreSettings'e
+   *  publish'e kadar DOKUNMAZ). null → o alanın staging'ini temizler. */
+  stageThemeAssets(
+    storeId: string,
+    themeId: string,
+    input: { logoMediaId?: string | null; faviconMediaId?: string | null },
+  ): Promise<ThemeRecord | null>;
+  /** Platform template'in published snapshot'ını HEDEF mağazaya kopyalar (yeni PUBLISHED
+   *  + DRAFT sürüm; sourceThemeId/sourceThemeVersion + overridePolicy yazar). Template ile
+   *  runtime bağı KURMAZ. Başka mağazayı etkilemez. */
+  assignTemplateToStore(
+    targetStoreId: string,
+    input: {
+      sourceThemeId: string;
+      sourceThemeVersion: number;
+      document: unknown;
+      schemaVersion: number;
+      config: unknown;
+      themeKey: string;
+      layoutPreset: string;
+      themeApiVersion: number;
+      overridePolicy?: unknown;
+      publishedBy?: string | null;
+      label?: string;
+    },
+  ): Promise<ThemeRecord | null>;
+  /** Bir template'i kullanan mağazalar + türetildikleri sürüm (usage + update-pending). */
+  listTemplateUsage(templateThemeId: string): Promise<TemplateUsageRow[]>;
+  /** Atanabilir mağazalar (sistem mağazaları HARİÇ) + mevcut published tema source bağı. */
+  listAssignableStores(): Promise<AssignableStoreRow[]>;
+}
+
+/** Atama hedefi olabilecek mağaza satırı (sistem mağazaları hariç). */
+export interface AssignableStoreRow {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  sourceThemeId: string | null;
+  sourceThemeVersion: number | null;
+}
+
+/** Bir platform template'ini kullanan mağaza satırı (kullanım + update-available hesabı). */
+export interface TemplateUsageRow {
+  storeId: string;
+  storeName: string;
+  storeSlug: string;
+  storeStatus: string;
+  sourceThemeVersion: number | null;
+}
+
+/**
+ * TODO-164B Dilim 2 (hardening) — staged logo/favicon media referansı geçersizse
+ * publish/stage kontrollü DOMAIN hatası verir (ham Prisma/FK 500 DEĞİL). `code`:
+ *   THEME_MEDIA_NOT_FOUND  — media yok (silinmiş dahil; hard-delete → satır yok).
+ *   THEME_MEDIA_NOT_OWNED  — media başka mağazaya ait (tema mağazası ≠ media mağazası).
+ *   THEME_MEDIA_INVALID    — media görsel değil (mimeType image/* değil) — logo/favicon olamaz.
+ * Ham constraint adı/stack TAŞIMAZ (yalnız code + field).
+ */
+export class ThemeMediaError extends Error {
+  readonly code: "THEME_MEDIA_NOT_FOUND" | "THEME_MEDIA_NOT_OWNED" | "THEME_MEDIA_INVALID";
+  readonly field: "logo" | "favicon";
+  constructor(code: ThemeMediaError["code"], field: ThemeMediaError["field"]) {
+    super(`${code}:${field}`);
+    this.name = "ThemeMediaError";
+    this.code = code;
+    this.field = field;
+  }
+}
+
+/**
+ * Bir asset referansını tema mağazasına göre doğrular. `client` bir Prisma/tx client'ı
+ * olabilir (transaction içi güvenli doğrulama). null → sorun yok; aksi halde ThemeMediaError.
+ */
+async function assertAssetOwnership(
+  client: Prisma.TransactionClient,
+  themeStoreId: string,
+  mediaId: string | null | undefined,
+  field: "logo" | "favicon",
+): Promise<void> {
+  if (mediaId == null) return;
+  const media = await client.mediaAsset.findUnique({
+    where: { id: mediaId },
+    select: { storeId: true, mimeType: true },
+  });
+  if (!media) throw new ThemeMediaError("THEME_MEDIA_NOT_FOUND", field);
+  if (media.storeId !== themeStoreId) throw new ThemeMediaError("THEME_MEDIA_NOT_OWNED", field);
+  if (!media.mimeType.startsWith("image/")) throw new ThemeMediaError("THEME_MEDIA_INVALID", field);
 }
 
 function currentDraft(theme: ThemeRecord): ThemeVersionRecord | undefined {
@@ -250,6 +361,7 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
           duplicatedFrom: input.duplicatedFrom ?? null,
           createdBy: input.createdBy ?? null,
           updatedBy: input.createdBy ?? null,
+          ...(input.ownerScope !== undefined ? { ownerScope: input.ownerScope } : {}),
           versions: {
             create: {
               storeId,
@@ -404,6 +516,38 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
             data: { status: "ARCHIVED" },
           });
         }
+        // TD-162 — logo/favicon DRAFT staging ATOMİK publish. Kalıcı otorite StoreSettings.
+        // Bu txn içinde: (1) mevcut StoreSettings asset görünümünü oku, (2) staged değerleri
+        // uygula (varsa), (3) bu sürümün SUNDUĞU asset görünümünü `assetSnapshot`'a yaz
+        // (rollback bu snapshot'a döner). Publish başka bir adımda başarısız olursa TÜM txn
+        // geri alınır → StoreSettings DEĞİŞMEZ.
+        const settings = await tx.storeSettings.findUnique({
+          where: { storeId },
+          select: { logoMediaId: true, faviconMediaId: true },
+        });
+        const hasStagedLogo = draft.stagedLogoMediaId !== null && draft.stagedLogoMediaId !== undefined;
+        const hasStagedFavicon =
+          draft.stagedFaviconMediaId !== null && draft.stagedFaviconMediaId !== undefined;
+        // HARDENING — staged media'yı StoreSettings'e yazmadan ÖNCE txn içinde doğrula.
+        // Geçersizse ThemeMediaError fırlar → tüm txn geri alınır (StoreSettings/ThemeVersion
+        // DEĞİŞMEZ, kısmi update YOK) ve route kontrollü 4xx döner (ham FK 500 sızmaz).
+        if (hasStagedLogo) await assertAssetOwnership(tx, storeId, draft.stagedLogoMediaId, "logo");
+        if (hasStagedFavicon) await assertAssetOwnership(tx, storeId, draft.stagedFaviconMediaId, "favicon");
+        const finalLogo = hasStagedLogo ? draft.stagedLogoMediaId : (settings?.logoMediaId ?? null);
+        const finalFavicon = hasStagedFavicon
+          ? draft.stagedFaviconMediaId
+          : (settings?.faviconMediaId ?? null);
+        if (hasStagedLogo || hasStagedFavicon) {
+          await tx.storeSettings.upsert({
+            where: { storeId },
+            create: { storeId, logoMediaId: finalLogo, faviconMediaId: finalFavicon },
+            update: {
+              ...(hasStagedLogo ? { logoMediaId: finalLogo } : {}),
+              ...(hasStagedFavicon ? { faviconMediaId: finalFavicon } : {}),
+            },
+          });
+        }
+        const assetSnapshot = { logoMediaId: finalLogo, faviconMediaId: finalFavicon };
         // Draft → PUBLISHED (publishedBy audit; PII taşımaz — yalnız id).
         await tx.themeVersion.update({
           where: { id: draft.id },
@@ -411,6 +555,10 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
             status: "PUBLISHED",
             publishedAt: now,
             publishedBy: input.publishedBy ?? null,
+            assetSnapshot: assetSnapshot as Prisma.InputJsonValue,
+            // Staging artık uygulandı → published sürümde temizle.
+            stagedLogoMediaId: null,
+            stagedFaviconMediaId: null,
             ...(input.notes !== undefined ? { notes: input.notes } : {}),
           },
         });
@@ -494,6 +642,18 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
             ...(target.layoutPreset ? { layoutPreset: target.layoutPreset } : {}),
           },
         });
+        // TD-162 — rollback hedef sürümün SUNDUĞU logo/favicon snapshot'ına döner (varsa).
+        // Böylece marka görseli de sürümle tutarlı geri gelir (atomik, aynı txn).
+        const snap = target.assetSnapshot as { logoMediaId?: unknown; faviconMediaId?: unknown } | null;
+        if (snap && typeof snap === "object") {
+          const logoMediaId = typeof snap.logoMediaId === "string" ? snap.logoMediaId : null;
+          const faviconMediaId = typeof snap.faviconMediaId === "string" ? snap.faviconMediaId : null;
+          await tx.storeSettings.upsert({
+            where: { storeId },
+            create: { storeId, logoMediaId, faviconMediaId },
+            update: { logoMediaId, faviconMediaId },
+          });
+        }
         return tx.theme.findFirst({ where: { id: themeId, storeId }, select: themeSelect });
       });
     },
@@ -660,6 +820,171 @@ export function createPrismaThemeDataAccess(): ThemeDataAccess {
           publishedVersion: version?.version ?? null,
         };
       });
+    },
+
+    // ── TODO-164B Dilim 2 — Platform Theme Library ────────────────────────────
+    async ensureThemeLibraryStore() {
+      const existing = await prisma.store.findFirst({
+        where: { systemPurpose: THEME_LIBRARY_STORE_PURPOSE },
+        select: { id: true },
+      });
+      if (existing) return existing;
+      // Deterministik slug ile get-or-create (yarış durumunda unique slug korur).
+      const created = await prisma.store.upsert({
+        where: { slug: THEME_LIBRARY_STORE_SLUG },
+        create: {
+          name: THEME_LIBRARY_STORE_NAME,
+          slug: THEME_LIBRARY_STORE_SLUG,
+          status: "ACTIVE",
+          systemPurpose: THEME_LIBRARY_STORE_PURPOSE,
+        },
+        update: { systemPurpose: THEME_LIBRARY_STORE_PURPOSE },
+        select: { id: true },
+      });
+      return created;
+    },
+
+    async setOverridePolicy(storeId, themeId, policy) {
+      const result = await prisma.theme.updateMany({
+        where: { id: themeId, storeId },
+        data: {
+          overridePolicy: policy as Prisma.InputJsonValue,
+          policyRevision: { increment: 1 },
+        },
+      });
+      if (result.count === 0) return null;
+      return prisma.theme.findFirst({ where: { id: themeId, storeId }, select: themeSelect });
+    },
+
+    async stageThemeAssets(storeId, themeId, input) {
+      const theme = await prisma.theme.findFirst({ where: { id: themeId, storeId }, select: themeSelect });
+      if (!theme) return null;
+      const draft = currentDraft(theme);
+      if (!draft) return null;
+      // HARDENING — sahnelenen media'yı ERKEN doğrula (yok/başka mağaza/görsel değil →
+      // ThemeMediaError; route kontrollü 4xx döner). null = staging temizleme (izinli).
+      if (input.logoMediaId != null) await assertAssetOwnership(prisma, storeId, input.logoMediaId, "logo");
+      if (input.faviconMediaId != null) await assertAssetOwnership(prisma, storeId, input.faviconMediaId, "favicon");
+      await prisma.themeVersion.update({
+        where: { id: draft.id },
+        data: {
+          ...(input.logoMediaId !== undefined ? { stagedLogoMediaId: input.logoMediaId } : {}),
+          ...(input.faviconMediaId !== undefined ? { stagedFaviconMediaId: input.faviconMediaId } : {}),
+        },
+      });
+      return prisma.theme.findFirst({ where: { id: themeId, storeId }, select: themeSelect });
+    },
+
+    async assignTemplateToStore(targetStoreId, input) {
+      return prisma.$transaction(async (tx) => {
+        // Hedef mağazanın PUBLISHED (yoksa en güncel) teması — atama hedefi.
+        const theme =
+          (await tx.theme.findFirst({ where: { storeId: targetStoreId, status: "PUBLISHED" }, select: themeSelect })) ??
+          (await tx.theme.findFirst({ where: { storeId: targetStoreId }, select: themeSelect, orderBy: { updatedAt: "desc" } }));
+        if (!theme) return null;
+        const published = currentPublished(theme);
+        const now = new Date();
+        const doc = input.document as Prisma.InputJsonValue;
+        const cfg = input.config as Prisma.InputJsonValue;
+        if (published) {
+          await tx.themeVersion.update({ where: { id: published.id }, data: { status: "ARCHIVED" } });
+        }
+        const nextVersion = (theme.versions[0]?.version ?? 0) + 1;
+        // Yeni PUBLISHED versiyon (template snapshot'ının immutable kopyası).
+        await tx.themeVersion.create({
+          data: {
+            themeId: theme.id,
+            storeId: targetStoreId,
+            version: nextVersion,
+            status: "PUBLISHED",
+            schemaVersion: input.schemaVersion,
+            document: doc,
+            config: cfg,
+            themeKey: input.themeKey,
+            layoutPreset: input.layoutPreset,
+            publishedBy: input.publishedBy ?? null,
+            publishedAt: now,
+            label: input.label ?? `template:${input.sourceThemeId}@${input.sourceThemeVersion}`,
+          },
+        });
+        await tx.theme.updateMany({
+          where: { storeId: targetStoreId, status: "PUBLISHED", id: { not: theme.id } },
+          data: { status: "ARCHIVED" },
+        });
+        await tx.theme.update({
+          where: { id: theme.id },
+          data: {
+            status: "PUBLISHED",
+            themeKey: input.themeKey,
+            layoutPreset: input.layoutPreset,
+            themeApiVersion: input.themeApiVersion,
+            // Template bağı (update-available hesabı) — runtime bağı DEĞİL, sürüm işareti.
+            sourceThemeId: input.sourceThemeId,
+            sourceThemeVersion: input.sourceThemeVersion,
+            ...(input.overridePolicy !== undefined
+              ? { overridePolicy: input.overridePolicy as Prisma.InputJsonValue, policyRevision: { increment: 1 } }
+              : {}),
+          },
+        });
+        // Düzenlemeye devam için yeni DRAFT snapshot (template belgesiyle).
+        await tx.themeVersion.create({
+          data: {
+            themeId: theme.id,
+            storeId: targetStoreId,
+            version: nextVersion + 1,
+            status: "DRAFT",
+            schemaVersion: input.schemaVersion,
+            document: doc,
+            config: cfg,
+            themeKey: input.themeKey,
+            layoutPreset: input.layoutPreset,
+          },
+        });
+        return tx.theme.findFirst({ where: { id: theme.id, storeId: targetStoreId }, select: themeSelect });
+      });
+    },
+
+    async listTemplateUsage(templateThemeId) {
+      const themes = await prisma.theme.findMany({
+        where: { sourceThemeId: templateThemeId, status: "PUBLISHED", store: { systemPurpose: null } },
+        select: {
+          sourceThemeVersion: true,
+          store: { select: { id: true, name: true, slug: true, status: true } },
+        },
+      });
+      return themes.map((t) => ({
+        storeId: t.store.id,
+        storeName: t.store.name,
+        storeSlug: t.store.slug,
+        storeStatus: String(t.store.status),
+        sourceThemeVersion: t.sourceThemeVersion,
+      }));
+    },
+
+    async listAssignableStores() {
+      const stores = await prisma.store.findMany({
+        where: { systemPurpose: null },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          themes: {
+            where: { status: "PUBLISHED" },
+            select: { sourceThemeId: true, sourceThemeVersion: true },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      return stores.map((s) => ({
+        id: s.id,
+        name: s.name,
+        slug: s.slug,
+        status: String(s.status),
+        sourceThemeId: s.themes[0]?.sourceThemeId ?? null,
+        sourceThemeVersion: s.themes[0]?.sourceThemeVersion ?? null,
+      }));
     },
   };
 }

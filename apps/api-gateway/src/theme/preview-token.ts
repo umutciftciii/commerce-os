@@ -21,6 +21,9 @@ export const THEME_PREVIEW_TOKEN_TTL_SECONDS = 10 * 60;
 export interface PreviewTokenPayload {
   storeId: string;
   themeId: string;
+  /** TODO-164B Dilim 2 — belirli bir sürümü önizle (before/after "hedef sürüm"). Yoksa
+   *  mevcut draft çözülür (geriye uyum). Token STORE+THEME+VERSION scoped olur. */
+  version?: number;
   /** Epoch saniye. */
   exp: number;
 }
@@ -35,9 +38,11 @@ export function createPreviewToken(
   secret: string,
   ttlSeconds: number = THEME_PREVIEW_TOKEN_TTL_SECONDS,
   nowMs: number = Date.now(),
+  version?: number,
 ): { token: string; expiresAt: Date } {
   const exp = Math.floor(nowMs / 1000) + ttlSeconds;
-  const payload: PreviewTokenPayload = { storeId, themeId, exp };
+  const payload: PreviewTokenPayload =
+    version !== undefined ? { storeId, themeId, version, exp } : { storeId, themeId, exp };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = sign(body, secret);
   return { token: `${body}.${sig}`, expiresAt: new Date(exp * 1000) };
@@ -68,7 +73,8 @@ export function verifyPreviewToken(
     !payload ||
     typeof payload.storeId !== "string" ||
     typeof payload.themeId !== "string" ||
-    typeof payload.exp !== "number"
+    typeof payload.exp !== "number" ||
+    (payload.version !== undefined && typeof payload.version !== "number")
   ) {
     return null;
   }

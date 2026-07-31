@@ -1093,13 +1093,37 @@
 - **Kararlar.** **ADR-232…ADR-237**. Analiz: `docs/analysis/TODO-164B-theme-productization.md`.
 - **Testler/gate.** theme **268** · gateway **1857** (7 yeni policy testi) · store-admin **365** (5 yeni) · contracts/
   api-client/storefront/admin-web build — TÜMÜ PASS. build 27/27 · lint temiz · typecheck temiz · git diff --check temiz.
-- **AÇIK.** Dilim 2 (platform Designer + versiyon upgrade/rollback + full-screen preview) · gerçek browser smoke
-  (canlı stack) · TD-162/163/164. **commit/push/PR/merge/deploy YOK** (bu aşamada).
+- **Durum.** Dilim 1 SHIPPED & DEPLOYED (PR #156, merge `4ed0629`).
+
+### Dilim 2 — Platform Theme Library, Designer & Controlled Rollout (2026-07-31, IMPLEMENTASYON, commit YOK)
+
+- **Kapsam.**
+  - `@commerce-os/theme`: `theme-diff.ts` (kullanıcı-dostu before/after özeti — renk/tipografi/düzen/slot/medya/
+    policy) + `library.ts` (kütüphane store kimliği, `computeUpdateAvailable`, controlled rollout tipleri/özeti).
+  - DB additive `20260731130000_theme_library_designer_rollout` (`Theme.policyRevision`, `ThemeVersion.
+    stagedLogoMediaId/stagedFaviconMediaId/assetSnapshot`; mevcut veri korunur).
+  - Gateway `theme/library-routes.ts` (SUPER_ADMIN): kütüphane CRUD + designer draft + policy matris + publish
+    (policy-explicit gate) + archive/duplicate/rollback + version-scoped preview token + diff + usage + assignable
+    stores + assign/preview (dry-run) + assign + update/apply (controlled rollout). Logo staging atomik publish
+    (`data.ts` publishTheme/rollbackToVersion). Store-admin `platform-status` ucu.
+  - api-client: `admin.themeLibrary.*` + `admin.theme.platformStatus`. Contracts: library/policy/diff/usage/
+    rollout/preview şemaları.
+  - admin-web: "Tema Kütüphanesi" nav + liste + 9-sekme Designer (Şablon/Marka/Renk/Tipografi/Bileşenler/Sayfa
+    Düzenleri/Mobil/Önizleme/Yayınlama) + PolicyMatrix + AssignmentDialog (rollout) + PreviewFrame (çok-sayfa/
+    çok-viewport/before-after) + BeforeAfter.
+  - store-admin: Brand Customizer üstü `PlatformThemeBanner` (aktif platform teması + update-available + editable/
+    locked; salt-okuma). storefront: version-scoped preview token + middleware request-cookie forward (ilk yük draft).
+- **Kararlar.** **ADR-238…ADR-245**.
+- **Testler/gate.** theme **287** · gateway **1866** (9 yeni library testi) · store-admin **365** · contracts **115** ·
+  api-client **23** · admin-web **30** (6 yeni) · storefront **446** — TÜMÜ PASS. admin-web/store-admin/storefront
+  Next build + tüm paket build PASS · lint temiz · typecheck temiz · git diff --check temiz.
+- **TD.** TD-162 CLOSED · TD-163 CLOSED · TD-164 OPEN (non-blocking — sistem/bundled font yükleniyor; harici hosting future).
+- **AÇIK.** **commit/push/PR/merge/deploy YOK** (bu aşamada). Canlı stack smoke deploy sonrası (post-deploy).
 
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-164B Dilim 2** (platform Theme Designer + versiyon upgrade + full-screen preview) — Dilim 1 üstüne.
-2. **TODO-165 Fashion Vertical Foundation** (TODO-164/164A/164B tema temeli üstüne).
+1. **TODO-165 Fashion Vertical Foundation** (TODO-164/164A/164B tema temeli üstüne) — SIRADAKİ AKTİF.
+2. **Final Enterprise UI & Design Polish** — EN SON.
 3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-162/163/164).
 4. **Final Enterprise UI & Design Polish** (EN SON).
 
