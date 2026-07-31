@@ -65,6 +65,11 @@ import type {
   HeroSlideReorderRequest,
   HeroSlideStatusActionResponse,
   HeroSlideUpdateRequest,
+  SizeChartListResponse,
+  SizeChartResponse,
+  SizeChartCreateRequest,
+  SizeChartUpdateRequest,
+  SizeChartAssignRequest,
   HomeSection,
   HomeSectionCreateRequest,
   HomeSectionListResponse,
@@ -1511,6 +1516,39 @@ export const storeApi = {
     mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/publish`, { method: "POST" }),
   unpublishHeroSlide: (id: string) =>
     mutatingCall<HeroSlideStatusActionResponse>(`/api/hero-slides/${id}/unpublish`, { method: "POST" }),
+
+  // TODO-165 (ADR-249) — Moda dikeyi beden tablosu (SizeChart). BFF, FASHION_VERTICAL modülü + store
+  // context'ini sunucuda çözer. Tüm mutasyonlar güncel çizelgeyi ({ data }) döner.
+  listSizeCharts: () => call<SizeChartListResponse>("/api/size-charts"),
+  getSizeChart: (id: string) => call<SizeChartResponse>(`/api/size-charts/${id}`),
+  createSizeChart: (input: SizeChartCreateRequest) =>
+    mutatingCall<SizeChartResponse>("/api/size-charts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateSizeChart: (id: string, input: SizeChartUpdateRequest) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  publishSizeChart: (id: string) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/publish`, { method: "POST" }),
+  rollbackSizeChart: (id: string, revisionId: string) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ revisionId }),
+    }),
+  archiveSizeChart: (id: string) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/archive`, { method: "POST" }),
+  assignSizeChart: (id: string, input: SizeChartAssignRequest) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/assignments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  unassignSizeChart: (id: string, assignmentId: string) =>
+    mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/assignments/${assignmentId}`, {
+      method: "DELETE",
+    }),
 
   // TODO-158A (ADR-086) — Home Experience Platform: section CRUD + tip-özel alt varlıklar.
   listHomeSections: () => call<HomeSectionListResponse>("/api/home/sections"),

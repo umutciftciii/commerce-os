@@ -6,9 +6,10 @@
 // (ana kategori attribute şemasını sürer). Modal (create) ve detay sayfası (edit)
 // tarafından paylaşılır; gönder butonu `form={formId}` ile dışarıdan bağlanır.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
-import { Alert, Input, Select, Textarea, useLocale } from "../../../components/ui";
+import { Alert, Button, Input, Select, Stepper, Textarea, useLocale } from "../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
 import type {
   Product,
@@ -92,6 +93,45 @@ function formatTemplate(template: string, value: number): string {
   return template.replace("{value}", String(value));
 }
 
+// TODO-165 (ADR-249) — FASHION_VERTICAL açıkken ürün formu 10 adımlı sihirbaza dönüşür. Adımlar,
+// MEVCUT bölüm bileşenlerini gruplar (tek RHF örneği; state adımlar arası KORUNUR). Modül kapalıyken
+// klasik tek-akış form birebir korunur (adım UI'si render EDİLMEZ).
+const WIZARD_STEPS = [
+  { key: "basics", label: "Temel Bilgiler" },
+  { key: "category", label: "Kategori" },
+  { key: "fashion-attrs", label: "Fashion Özellikleri" },
+  { key: "colors", label: "Renkler" },
+  { key: "sizes", label: "Beden Sistemi ve Bedenler" },
+  { key: "variant-matrix", label: "Varyant Matrisi" },
+  { key: "media", label: "Medya" },
+  { key: "price-stock", label: "Fiyat ve Stok" },
+  { key: "size-chart", label: "Beden Tablosu" },
+  { key: "review", label: "Önizleme ve Yayınlama" },
+] as const;
+
+/**
+ * Bir adım grubunu sarmalar. Sihirbaz modunda aktif olmayan adımlar `hidden` ile GİZLENİR (unmount
+ * DEĞİL) → tüm inputlar kayıtlı kalır, state korunur, edit-only bölümler yeniden fetch etmez. Sihirbaz
+ * kapalıyken hiç gizlenmez → klasik tek-akış (bölümler space-y-4 ile alt alta).
+ */
+function StepGroup({
+  index,
+  wizard,
+  current,
+  children,
+}: {
+  index: number;
+  wizard: boolean;
+  current: number;
+  children: ReactNode;
+}) {
+  return (
+    <div hidden={wizard && current !== index} className="space-y-4">
+      {children}
+    </div>
+  );
+}
+
 /**
  * Ürün oluşturma/düzenleme formu (RHF). Public API (props) Faz 2A ile birebir korunur:
  * mevcut sayfa/modal ve testler değişmeden çalışır.
@@ -126,6 +166,32 @@ export function ProductForm({
   const [variantErrors, setVariantErrors] = useState<Record<string, string>>({});
   // Faz 2C-2 — Combination Engine önizlemesini yeniden çekmek için sinyal (her kaydetmede artar).
   const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
+
+  // TODO-165 (ADR-249) — FASHION_VERTICAL effective AÇIK ise form sihirbaz moduna geçer. Modül durumu
+  // client'ta türetilir (nav ile aynı desen); enforcement gateway'de. Yüklenene kadar klasik form
+  // (flash yok). Adım state'i tek RHF örneğinin YANINDA yaşar → alanlar adımlar arası korunur.
+  const [fashionEnabled, setFashionEnabled] = useState(false);
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    let active = true;
+    // FAIL-SAFE: modül durumu fetch'i BAŞARISIZ olsa bile (senkron throw ya da reject)
+    // form ASLA çökmez → klasik (sihirbaz olmayan) forma düşer. Sihirbaz yalnız opsiyonel
+    // sunumdur; asıl enforcement gateway'dedir. (Test ortamında da güvenli mount.)
+    void (async () => {
+      try {
+        const res = await storeApi.listModules();
+        if (!active) return;
+        const entry = res.data.modules.find((m) => m.key === "FASHION_VERTICAL");
+        setFashionEnabled(Boolean(entry?.effectiveEnabled));
+      } catch {
+        // Sessizce yok say: sihirbaz opsiyonel; enforcement gateway'de.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  const wizard = fashionEnabled;
 
   // Kategori-güdümlü attribute şeması, güncel çözümlenmiş liste resolver'a ref ile geçer.
   const attributesRef = useRef<ResolvedAttribute[]>([]);
@@ -573,6 +639,13 @@ export function ProductForm({
     <form id={formId} onSubmit={handleSubmit(onValid)} className="space-y-4" noValidate>
       {rootError ? <Alert tone="error">{rootError}</Alert> : null}
 
+      {wizard ? (
+        <div className="mb-2">
+          <Stepper steps={WIZARD_STEPS as unknown as { key: string; label: string }[]} current={step} onStepSelect={setStep} />
+        </div>
+      ) : null}
+
+      <StepGroup index={0} wizard={wizard} current={step}>
       <div>
         <Input
           id="product-title"
@@ -642,7 +715,9 @@ export function ProductForm({
         rows={3}
         {...register("description")}
       />
+      </StepGroup>
 
+      <StepGroup index={1} wizard={wizard} current={step}>
       <ProductCategoryField
         locale={locale}
         label={f.categoriesLabel}
@@ -655,7 +730,9 @@ export function ProductForm({
         disabled={isSubmitting}
         error={fieldError("primaryCategoryId")}
       />
+      </StepGroup>
 
+      <StepGroup index={2} wizard={wizard} current={step}>
       {/* Faz 2B — Kategori-güdümlü dinamik attribute alanları. Legacy kategoride
           (attribute tanımlı değil) hiçbir şey render edilmez. */}
       <AttributeSection
@@ -670,7 +747,9 @@ export function ProductForm({
           optionalHint: a.optionalHint,
         }}
       />
+      </StepGroup>
 
+      <StepGroup index={3} wizard={wizard} current={step}>
       {/* Faz 2C-1 (ADR-070) — Varyant EKSEN seçimi. Kategori variantDefining + option-tabanlı
           attribute tanımlamamışsa hiçbir şey render edilmez. KOMBINASYON URETMEZ. */}
       <VariantAttributeSection
@@ -689,7 +768,9 @@ export function ProductForm({
           optionRequired: va.optionRequired,
         }}
       />
+      </StepGroup>
 
+      <StepGroup index={4} wizard={wizard} current={step}>
       {/* Faz 2C-2 (ADR-071) — Oluşacak varyant kombinasyonlarının SALT-OKUNUR önizlemesi
           (yalnız düzenleme; kaydedilmiş reçeteden). DÜZENLEME/YAZMA YOK; ProductVariant ÜRETMEZ. */}
       <CombinationPreview
@@ -704,7 +785,9 @@ export function ProductForm({
           emptyLabel: va.previewEmpty,
         }}
       />
+      </StepGroup>
 
+      <StepGroup index={5} wizard={wizard} current={step}>
       {/* Faz 2C-3 (ADR-072) — "Varyantları Oluştur" aksiyonu + sonuç özeti. Yalnız düzenleme + eksen
           varsa görünür; preview limiti aşıldıysa / yükleniyorsa pasif. SKU Matrix DEĞİL. */}
       <GenerateVariantsAction
@@ -776,7 +859,9 @@ export function ProductForm({
         visible={Boolean(isEdit && product && hasVariantAxes)}
         productId={product?.id ?? ""}
       />
+      </StepGroup>
 
+      <StepGroup index={7} wizard={wizard} current={step}>
       <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
         <div className="flex items-start gap-2.5">
           <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
@@ -984,7 +1069,9 @@ export function ProductForm({
           <p className="text-xs text-white/30">{f.shippingDesiHint}</p>
         )}
       </div>
+      </StepGroup>
 
+      <StepGroup index={6} wizard={wizard} current={step}>
       {isEdit ? (
         <div className="space-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
           <div className="flex items-start gap-2.5">
@@ -1113,6 +1200,95 @@ export function ProductForm({
               )}
             </div>
           ) : null}
+        </div>
+      ) : wizard ? (
+        <div className="rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 text-sm text-white/45 sm:p-5">
+          {f.gallerySectionTitle}: Ürün kaydedildikten sonra medya ve varyant görselleri bu adımda
+          yönetilir.
+        </div>
+      ) : null}
+      </StepGroup>
+
+      {wizard ? (
+        <StepGroup index={8} wizard={wizard} current={step}>
+          <div className="space-y-3 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
+            <div className="flex items-start gap-2.5">
+              <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
+              <div>
+                <h3 className="text-sm font-semibold text-white/90">Beden Tablosu</h3>
+                <p className="mt-0.5 text-xs text-white/45">
+                  Ölçü tablolarını Beden Tabloları ekranından oluşturup bu ürüne (PRODUCT kapsamı)
+                  bağlayabilirsiniz.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/size-charts"
+              className="inline-flex items-center gap-1 text-sm font-medium text-indigo-300 transition-colors hover:text-indigo-200"
+            >
+              Beden Tablolarını Aç <span aria-hidden>→</span>
+            </Link>
+          </div>
+        </StepGroup>
+      ) : null}
+
+      {wizard ? (
+        <StepGroup index={9} wizard={wizard} current={step}>
+          <div className="space-y-3 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
+            <div className="flex items-start gap-2.5">
+              <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
+              <div>
+                <h3 className="text-sm font-semibold text-white/90">Önizleme ve Yayınlama</h3>
+                <p className="mt-0.5 text-xs text-white/45">
+                  Bilgileri gözden geçirin; kaydetmek için üstteki {isEdit ? "Kaydet" : "Oluştur"}{" "}
+                  düğmesini kullanın.
+                </p>
+              </div>
+            </div>
+            <dl className="grid grid-cols-1 gap-x-4 text-sm sm:grid-cols-2">
+              <div className="flex justify-between gap-3 border-b border-white/[0.06] py-1.5">
+                <dt className="text-white/40">{f.titleLabel}</dt>
+                <dd className="text-white/80">{watch("title") || "—"}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-white/[0.06] py-1.5">
+                <dt className="text-white/40">{f.slugLabel}</dt>
+                <dd className="font-mono text-white/70">{watch("slug") || "—"}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-white/[0.06] py-1.5">
+                <dt className="text-white/40">{f.statusLabel}</dt>
+                <dd className="text-white/80">{statusLabels[status]}</dd>
+              </div>
+              <div className="flex justify-between gap-3 border-b border-white/[0.06] py-1.5">
+                <dt className="text-white/40">{sm.modeLabel}</dt>
+                <dd className="text-white/80">{sm.modeLabels[salesMode]}</dd>
+              </div>
+            </dl>
+          </div>
+        </StepGroup>
+      ) : null}
+
+      {wizard ? (
+        <div className="flex items-center justify-between gap-3 border-t border-white/[0.08] pt-4">
+          <Button
+            variant="secondary"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={step === 0}
+          >
+            ← Geri
+          </Button>
+          <span className="text-xs text-white/35">
+            Adım {step + 1} / {WIZARD_STEPS.length}
+          </span>
+          {step < WIZARD_STEPS.length - 1 ? (
+            <Button
+              variant="secondary"
+              onClick={() => setStep((s) => Math.min(WIZARD_STEPS.length - 1, s + 1))}
+            >
+              İleri →
+            </Button>
+          ) : (
+            <span className="text-xs text-white/35">Son adım</span>
+          )}
         </div>
       ) : null}
     </form>

@@ -13,6 +13,10 @@
     "./validators": {
       "types": "./dist/validators.d.ts",
       "default": "./dist/validators.js"
+    },
+    "./size-systems": {
+      "types": "./dist/size-systems.d.ts",
+      "default": "./dist/size-systems.js"
     }
   },
   "scripts": {

@@ -150,6 +150,9 @@ importers:
       '@commerce-os/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@commerce-os/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@commerce-os/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n

@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
   estimateAutomaticUnitFinalMinor,
+  fashionAxisSelectionForVariant,
+  fashionVariantIdForSelection,
   maxPurchasableQuantity,
   type StorefrontCampaignView,
+  type StorefrontFashionView,
   type StorefrontProductDetail,
   type StorefrontVariantView,
 } from "../lib/catalog-types";
@@ -17,6 +20,7 @@ import { addToCartAction, claimCouponAction } from "../lib/server/cart-actions";
 import { consumeRecommendationAttribution, trackRecommendationEvent } from "../lib/recommendation/track";
 import { trackDiscoveryAddToCart } from "../lib/discovery/track";
 import { usePdpSelection } from "./pdp-selection";
+import { SizeChartModal } from "./size-chart-modal";
 import { WishlistHeartButton } from "./wishlist/wishlist-heart-button";
 import { Badge, Button, type BadgeTone } from "./ui";
 
@@ -53,7 +57,118 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const [quantity, setQuantity] = useState(commerce.minQuantity);
   const [added, setAdded] = useState(false);
 
-  const selected = variants.find((variant) => variant.id === selectedId) ?? variants[0];
+  // TODO-165 Fashion Vertical — capability-aware moda seçici. `detail.fashion` doluysa (yalnız
+  // FASHION_VERTICAL açık + fashion ürün) renk swatch + beden ızgarası render edilir; aksi halde
+  // (null / eksensiz) MEVCUT düz varyant-butonu davranışı BİREBİR korunur. Seçim, eksen bazlı
+  // harita (attributeDefinitionId → optionId). Başlangıç = varsayılan (en ucuz) varyantın eksen
+  // seçimleri → SSR ile aynı ilk state (hidrasyon sıçraması yok); fiyat/stok yine TAM çözülen
+  // varyanttan gelir (gateway son otorite). Fashion yoksa hiçbir davranış değişmez.
+  const fashion = detail.fashion;
+  const fashionMode = !!fashion && fashion.optionAxes.length > 0;
+  const variantById = useMemo(
+    () => new Map(variants.map((variant) => [variant.id, variant])),
+    [variants],
+  );
+  const [axisSelection, setAxisSelection] = useState<Record<string, string>>(() =>
+    fashionMode ? fashionAxisSelectionForVariant(fashion as StorefrontFashionView, selectedVariantId) : {},
+  );
+  const [sizeChartOpen, setSizeChartOpen] = useState(false);
+
+  const colorAxis = fashionMode
+    ? fashion!.optionAxes.find((axis) => axis.kind === "color") ?? null
+    : null;
+  // Renk dışı tüm eksenler buton ızgarası (tipik moda ürününde yalnız "beden").
+  const gridAxes = fashionMode ? fashion!.optionAxes.filter((axis) => axis.kind !== "color") : [];
+  // TAM eksen seçimi → varyant id (eksik/geçersiz kombinasyon → null → fiyat "başlayan"a düşer,
+  // ATC kilitli). Başlangıçta seçim tam olduğundan bu değer normalde doludur.
+  const resolvedVariantId = fashionMode
+    ? fashionVariantIdForSelection(fashion as StorefrontFashionView, axisSelection)
+    : null;
+  const selectedColorOption = colorAxis
+    ? colorAxis.options.find(
+        (option) => option.optionId === axisSelection[colorAxis.attributeDefinitionId],
+      ) ?? null
+    : null;
+
+  // Bir eksen-option'ı, `base` seçimindeki DİĞER (seçili) eksenler sabitken bir varyant üretiyor mu?
+  // requireStock=true → yalnız stokta bir varyant sayılır. Seçilmemiş eksen = joker (renk henüz
+  // seçilmemişken beden "tüm renkler arası stok var mı" olarak değerlendirilir).
+  const optionSatisfiable = (
+    axisId: string,
+    optionId: string,
+    base: Record<string, string>,
+    requireStock: boolean,
+  ): boolean => {
+    if (!fashion) return true;
+    const probe = { ...base, [axisId]: optionId };
+    return fashion.variantAxisOptions.some((variantAxis) => {
+      const matches = fashion.optionAxes.every((axis) => {
+        const want = probe[axis.attributeDefinitionId];
+        if (!want) return true;
+        return variantAxis.axisOptions.some(
+          (axisOption) =>
+            axisOption.attributeDefinitionId === axis.attributeDefinitionId &&
+            axisOption.optionId === want,
+        );
+      });
+      if (!matches) return false;
+      if (!requireStock) return true;
+      return variantById.get(variantAxis.variantId)?.inStock === true;
+    });
+  };
+  const optionInStock = (axisId: string, optionId: string): boolean =>
+    optionSatisfiable(axisId, optionId, axisSelection, true);
+
+  // Renk seçimi: renk değişince, her ızgara ekseninde mevcut seçim bu renkte GEÇERSİZSE en iyi
+  // seçeneğe otomatik geç (önce stokta, yoksa var olan ilk kombinasyon). Böylece seçim TAM kalır →
+  // galeri + fiyat tutarlı; kullanıcı geçersiz beden-renk kombinasyonunda takılmaz.
+  const selectColor = (optionId: string) => {
+    if (!colorAxis) return;
+    setAdded(false);
+    setAxisSelection((prev) => {
+      const next = { ...prev, [colorAxis.attributeDefinitionId]: optionId };
+      for (const axis of gridAxes) {
+        const current = next[axis.attributeDefinitionId];
+        // TODO-165: renk değişince mevcut beden bu renkte STOKTA değilse (var olsa bile) en iyi
+        // seçeneğe geç. requireStock=true → OOS-ama-var olan kombinasyonda takılıp kalınmaz;
+        // seçili beden daima stokta olan bir varyanta çözülür (server yine son güvenlik).
+        const currentOk = current
+          ? optionSatisfiable(axis.attributeDefinitionId, current, next, true)
+          : false;
+        if (!currentOk) {
+          const inStock = axis.options.find((option) =>
+            optionSatisfiable(axis.attributeDefinitionId, option.optionId, next, true),
+          );
+          const exists = axis.options.find((option) =>
+            optionSatisfiable(axis.attributeDefinitionId, option.optionId, next, false),
+          );
+          const pick = inStock ?? exists;
+          if (pick) next[axis.attributeDefinitionId] = pick.optionId;
+        }
+      }
+      return next;
+    });
+  };
+  const selectAxisOption = (axisId: string, optionId: string) => {
+    setAdded(false);
+    setAxisSelection((prev) => ({ ...prev, [axisId]: optionId }));
+  };
+
+  const selected = fashionMode
+    ? resolvedVariantId
+      ? variantById.get(resolvedVariantId)
+      : undefined
+    : variants.find((variant) => variant.id === selectedId) ?? variants[0];
+
+  // Fashion modda çözülen varyantı PAYLAŞILAN state'e yansıt (VariantGallery renk grubuna göre
+  // reaktif değişsin + adet stok limitine normalize olsun). Başlangıçta resolved === default
+  // olduğundan ilk render'da tetiklenmez (hidrasyon güvenli).
+  useEffect(() => {
+    if (!fashionMode) return;
+    if (resolvedVariantId && resolvedVariantId !== selectedVariantId) {
+      setSelectedVariantId(resolvedVariantId);
+    }
+  }, [fashionMode, resolvedVariantId, selectedVariantId, setSelectedVariantId]);
   const numeric = showsNumericPrice(price);
   const stock = stockLabel(selected, t.detail);
 
@@ -118,8 +233,23 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   // "sepete eklendi" geri bildirimi gosterilir. BUY_NOW (Simdi Al): sepete ekleyip
   // checkout'a yonlendirir. Adet/varyant istemci state'idir; fiyat/stok/uygunluk
   // gateway tarafinda yeniden dogrulanir.
+  // TODO-165 — Fashion modda TAM eksen seçimi (renk + beden) çözülmeden ATC kilitli. Fashion
+  // dışında koşul aynen korunur (fashionSelectionComplete=true). `!!selected` fashion modda zaten
+  // resolvedVariantId gerektirir; açıklık için ayrı bayrak tutulur.
+  const fashionSelectionComplete = !fashionMode || resolvedVariantId !== null;
   const canAddToCart =
-    commerce.primaryCta === "ADD_TO_CART" && !commerce.primaryCtaDisabled && !!selected && !outOfStock;
+    commerce.primaryCta === "ADD_TO_CART" &&
+    !commerce.primaryCtaDisabled &&
+    !!selected &&
+    !outOfStock &&
+    fashionSelectionComplete;
+
+  // TODO-165 — Az stok göstergesi: seçili varyant stoğu bilinir ve 1–5 arası ise "Son N adet".
+  const lowStock =
+    !!selected &&
+    selected.available !== null &&
+    selected.available > 0 &&
+    selected.available <= LOW_STOCK;
 
   // TD-130 — Öneri kaynaklı add-to-cart ölçümü: BAŞARILI sepete-ekleme sonrası, kullanıcı bu PDP'ye bir
   // öneri kartından geldiyse (son-öneri-tıklama attribution bağlamı tazeyse) ADD_TO_CART event'i yazılır.
@@ -219,8 +349,128 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         <Badge tone={stock.tone}>{stock.text}</Badge>
       </div>
 
-      {/* Varyant secimi */}
-      {variants.length > 0 ? (
+      {/* Varyant secimi — TODO-165: fashion modda renk swatch + beden ızgarası; aksi halde
+          MEVCUT düz varyant-butonu davranışı BİREBİR korunur. */}
+      {fashionMode && fashion ? (
+        <div className="mt-6 space-y-6">
+          {/* Renk swatch satırı (media-tanımlayıcı eksen; seçim galeriyi de değiştirir) */}
+          {colorAxis ? (
+            <div>
+              <div className="mb-2.5 flex items-baseline justify-between gap-2">
+                <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+                  {colorAxis.name}
+                </p>
+                {selectedColorOption ? (
+                  <span className="text-xs text-ink-muted">
+                    {format(t.detail.fashion.optionSelected, { label: selectedColorOption.label })}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2.5" role="group" aria-label={colorAxis.name}>
+                {colorAxis.options.map((option) => {
+                  const active = axisSelection[colorAxis.attributeDefinitionId] === option.optionId;
+                  const soldOut = !optionInStock(colorAxis.attributeDefinitionId, option.optionId);
+                  return (
+                    <button
+                      key={option.optionId}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={option.label}
+                      title={`${option.label}`}
+                      onClick={() => selectColor(option.optionId)}
+                      className={[
+                        "relative flex h-9 w-9 items-center justify-center rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+                        option.colorHex ? "border-line" : "border-dashed border-line-strong bg-surface-muted",
+                        active ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : "",
+                        soldOut ? "opacity-40" : "",
+                      ].join(" ")}
+                      style={option.colorHex ? { backgroundColor: option.colorHex } : undefined}
+                    >
+                      {active ? (
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                          <path
+                            d="M3 7.5l2.5 2.5L11 4.5"
+                            stroke={isLightHex(option.colorHex) ? "#111" : "#fff"}
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : null}
+                      <span className="sr-only">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Beden (ve varsa diğer) buton ızgarası — stokta olmayan seçenek devre dışı + üstü çizili */}
+          {gridAxes.map((axis) => {
+            const isSize = axis.kind === "size";
+            return (
+              <div key={axis.attributeDefinitionId}>
+                <div className="mb-2.5 flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
+                    {axis.name}
+                  </p>
+                  {isSize && fashion.sizeChart ? (
+                    <button
+                      type="button"
+                      onClick={() => setSizeChartOpen(true)}
+                      className="text-[11px] font-medium uppercase tracking-wideish text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      {t.detail.fashion.sizeGuide}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2" role="group" aria-label={axis.name}>
+                  {axis.options.map((option) => {
+                    const active = axisSelection[axis.attributeDefinitionId] === option.optionId;
+                    const soldOut = !optionInStock(axis.attributeDefinitionId, option.optionId);
+                    return (
+                      <button
+                        key={option.optionId}
+                        type="button"
+                        aria-pressed={active}
+                        // TODO-165: stokta olmayan beden DAİMA devre dışı (seçili olsa bile).
+                        // Renk değişiminde auto-heal seçili bedeni stokta olana taşır; bu yüzden
+                        // normalde seçili beden OOS kalmaz, ama başlangıç/uç durumda da korunur.
+                        disabled={soldOut}
+                        onClick={() => selectAxisOption(axis.attributeDefinitionId, option.optionId)}
+                        className={[
+                          "min-w-[3rem] border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          active
+                            ? "border-ink bg-ink text-surface"
+                            : "border-line text-ink-muted hover:border-ink hover:text-ink",
+                          soldOut
+                            ? "cursor-not-allowed text-line-strong line-through hover:border-line hover:text-line-strong"
+                            : "",
+                        ].join(" ")}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Az stok göstergesi (yalnız seçili varyant stoğu 1–5 arası) */}
+          {lowStock && selected ? (
+            <p role="status" className="text-xs font-medium text-ink">
+              {format(t.detail.fashion.lowStock, { count: selected.available ?? 0 })}
+            </p>
+          ) : null}
+
+          {selected ? (
+            <p className="text-xs text-ink-subtle">
+              {t.detail.skuLabel}: <span className="font-medium text-ink-muted">{selected.sku}</span>
+            </p>
+          ) : null}
+        </div>
+      ) : variants.length > 0 ? (
         <div className="mt-6">
           <p className="mb-2.5 text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
             {t.detail.variantTitle}
@@ -388,8 +638,33 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         </div>
         <p className="mt-1.5 text-xs text-ink-muted">{t.buyBox.seller.body}</p>
       </div>
+
+      {/* TODO-165 — Beden tablosu modalı (yalnız fashion + published beden tablosu varsa) */}
+      {fashionMode && fashion?.sizeChart ? (
+        <SizeChartModal
+          chart={fashion.sizeChart}
+          open={sizeChartOpen}
+          onClose={() => setSizeChartOpen(false)}
+          t={t.detail.fashion}
+        />
+      ) : null}
     </div>
   );
+}
+
+/**
+ * TODO-165 — Renk swatch onay-işareti kontrastı: açık renkte koyu tik, koyu renkte beyaz
+ * (kaba Rec. 601 luma eşiği; hex yoksa açık kabul → koyu tik). Facet swatch'la aynı mantık.
+ */
+function isLightHex(hex: string | null): boolean {
+  if (!hex) return true;
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!match) return true;
+  const n = parseInt(match[1], 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  return 0.299 * r + 0.587 * g + 0.114 * b > 160;
 }
 
 /**

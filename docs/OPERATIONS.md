@@ -1339,3 +1339,27 @@ Kopyala/Arşivle: Kopyala → yeni DRAFT kimlik (history yok); Arşivle → DRAF
 Capability: THEME_STUDIO kapat → builder erişimi kapanır (ModuleGuard + 403), storefront base'e düşer, veri
 korunur; re-enable → published tema geri gelir.
 Tenant izolasyon: preview token yalnız kendi store+theme'ini açar; cross-store 401/base.
+
+## TODO-165 — Fashion Vertical demo seed & smoke (enterprise-demo)
+
+Fashion dikeyi yalnız `enterprise-demo`/`edm-store` için idempotent seed'lenir; `demo-store` ETKİLENMEZ.
+
+```bash
+# 1) Migration (additive; mevcut veri korunur)
+DATABASE_URL=... pnpm --filter @commerce-os/db exec prisma migrate deploy --schema prisma/schema.prisma
+DATABASE_URL=... pnpm --filter @commerce-os/db exec prisma migrate status --schema prisma/schema.prisma  # "up to date"
+
+# 2) Fashion demo seed (idempotent; `fash-` prefix; edm-store scope guard; FASHION_VERTICAL=ENABLED)
+DATABASE_URL=... node packages/db/scripts/fashion-demo-seed.mjs        # 3 kategori · 12 ürün · 155 varyant · 1 size chart
+DATABASE_URL=... node packages/db/scripts/fashion-demo-seed.mjs --summary   # yalnız özet
+
+# 3) Search read-model backfill (PLP fashion facetleri için ProductSearchDocument+ProductFacetValue)
+pnpm --filter @commerce-os/search-service search:backfill --store edm-store   # (env: DATABASE_URL/REDIS_URL/INTERNAL_API_TOKEN/SESSION_SECRET)
+```
+
+- **Capability toggle:** `StoreModule(storeId=edm-store, moduleKey=FASHION_VERTICAL).state` = `ENABLED`/`DISABLED`.
+  Gateway capability cache TTL ~30 sn → değişiklik ~30 sn içinde yansır (ya da servis restart). Kapalıyken public PDP
+  `fashion=null`, `/public/stores/enterprise-demo/modules` → `FASHION_VERTICAL:false`; fashion admin uçları 403.
+- **Smoke:** PDP `/{slug}` (renk swatch + beden + OOS disabled + beden tablosu), PLP `?category=moda-kadin-giyim`
+  (renk/beden facet), guest checkout (`POST /public/stores/enterprise-demo/checkout`) → OrderLine fashion snapshot
+  (selectedColor/selectedSize/sizeSystem/…) IMMUTABLE. Store-admin `/size-charts` + `/products/{id}` (10-adım wizard).

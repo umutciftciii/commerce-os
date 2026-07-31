@@ -1711,3 +1711,25 @@ gerektiğinde field policy kullanılır). Güvenlik açığı değil; kullanıc�
 kullanıcıya görünen font GERÇEKTEN render edilir (generic fallback garantili). Bu nedenle TODO-164B kapanışını
 ENGELLEMEZ (kullanıcıya görünen font yükleniyor). Açık kalan yalnız harici/self-host web-font barındırma (custom
 uploaded font aileleri + license metadata + preload) — bu bir FUTURE iş kalemidir, blocker değil. Etki: düşük.
+
+## TD-165 — Size-chart STORE-scope tekilliği servis-enforce (TODO-165) — OPEN (non-blocking)
+
+`SizeChartAssignment.@@unique([storeId, scope, categoryId, productId])` — Postgres NULL'ları DISTINCT saydığından
+STORE-scope satırları (categoryId=NULL, productId=NULL) DB'de tekil değildir; STORE-scope tekilliği SERVİS
+katmanında (upsertAssignment önce mevcut satırı arar) enforce edilir. CATEGORY/PRODUCT scope için unique index
+zaten tekildir. İleride partial unique index (`WHERE scope='STORE'`) ile DB-seviyesi garanti eklenebilir. Etki: düşük.
+
+## TD-166 — Fashion Vertical geleceğe dönük iyileştirmeler (TODO-165) — OPEN (non-blocking, future)
+
+TODO-165 çekirdek kapsamı TAMAM & smoke geçti (bkz. ROADMAP/TODO). Aşağıdakiler yalnız GERÇEK future/
+non-blocking iyileştirmelerdir (çekirdek kullanıcı değeri DEĞİL — TODO-165 kapsamına dahil DEĞİL):
+- **Fashion'a özel inventory matris görünümü**: mevcut inventory workspace fashion varyantlarıyla çalışır (renk×beden
+  varyantlar + reservation/oversell invariant korunur); ancak renk-satır/beden-kolon gruplayan ADANMIŞ bir fashion
+  matris grid'i UI cilası olarak eklenebilir.
+- **Çok-eksenli beden sistemleri** (JEANS bel×boy, BRA band+cup): şu an tek `fashion.size` ekseni; JEANS/BRA için
+  bileşik eksen ayrıştırması ileride.
+- **Size-chart revizyon geçmişi ucu**: publish revision üretir + rollback `publishedRevisionId`'e döner; tam revizyon
+  seçici (geçmiş listesi) için ayrı liste ucu eklenebilir.
+- **Görsel içerik**: seed placeholder media asset id'leri yeniden kullanır (dosya yok → PDP'de kırık görsel); gerçek
+  fashion görselleri yüklenebilir. Yapı (variant media engine) doğru çalışır.
+Blocker değil; çekirdek etkilenmez.

@@ -669,3 +669,67 @@ export function Container({ className, ...props }: HTMLAttributes<HTMLDivElement
     <div className={cn("mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8", className)} {...props} />
   );
 }
+
+/* ────────────────────────────── Stepper ─────────────────────────────── */
+
+export interface StepperStep {
+  key: string;
+  label: string;
+}
+
+export interface StepperProps {
+  steps: StepperStep[];
+  current: number;
+  onStepSelect?: (index: number) => void;
+  className?: string;
+}
+
+/**
+ * TODO-165 — Çok adımlı sihirbaz başlığı (koyu-cam kit stili). Tamamlanan adımlar tıklanabilir
+ * (geriye serbest gezinme); ileri adımlar da tıklanabilir (validation submit'te resolver ile).
+ * Yatay kaydırılabilir; adım numarası + etiket. Aktif adım indigo vurgulu.
+ */
+export function Stepper({ steps, current, onStepSelect, className }: StepperProps) {
+  return (
+    <nav
+      aria-label="Adımlar"
+      className={cn("-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1", className)}
+    >
+      {steps.map((step, index) => {
+        const active = index === current;
+        const complete = index < current;
+        return (
+          <button
+            key={step.key}
+            type="button"
+            aria-current={active ? "step" : undefined}
+            onClick={() => onStepSelect?.(index)}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors",
+              active
+                ? "border-indigo-400/60 bg-indigo-500/[0.22] text-white shadow-[0_0_0_1px_rgba(129,140,248,0.20)]"
+                : complete
+                  ? "border-emerald-400/30 bg-emerald-500/[0.10] text-emerald-200/90 hover:bg-emerald-500/[0.16]"
+                  : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20 hover:bg-white/[0.06] hover:text-white/85",
+            )}
+          >
+            <span
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                active
+                  ? "bg-indigo-400/30 text-white"
+                  : complete
+                    ? "bg-emerald-400/25 text-emerald-100"
+                    : "bg-white/[0.06] text-white/45",
+              )}
+              aria-hidden
+            >
+              {complete ? "✓" : index + 1}
+            </span>
+            {step.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}

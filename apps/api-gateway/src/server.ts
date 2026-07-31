@@ -148,6 +148,12 @@ import { createSponsoredData, type SponsoredData } from "./sponsored/data.js";
 import { registerSponsoredAdminRoutes, registerSponsoredPublicRoutes } from "./sponsored/routes.js";
 import { createSponsorshipData, type SponsorshipData } from "./sponsorship/data.js";
 import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
+// TODO-165 (ADR-249) — Fashion Vertical size chart yonetimi.
+import { registerSizeChartRoutes } from "./fashion/size-chart-routes.js";
+import { createSizeChartService } from "./fashion/size-chart-service.js";
+import { createPrismaSizeChartDataAccess } from "./fashion/size-chart-data.js";
+import { resolveFashionSnapshotFromPrisma } from "./fashion/order-snapshot.js";
+import { buildPublicFashionProjection } from "./fashion/public-projection.js";
 import { registerCommercialAutomationRoutes } from "./commercial-automation/routes.js";
 import { registerBackupRoutes } from "./backup/routes.js";
 import { loadBackupConfig } from "@commerce-os/backup";
@@ -4202,6 +4208,13 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             vatAmountMinor: true,
             currency: true,
             status: true,
+            // TODO-165 (ADR-252) — fashion snapshot kaynagi: varyant eksen secimleri (renk/beden).
+            optionValueSelections: {
+              select: {
+                definition: { select: { code: true, dataType: true } },
+                option: { select: { value: true, label: true, colorHex: true } },
+              },
+            },
             product: {
               select: {
                 id: true,
@@ -4212,6 +4225,15 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
                 priceVisibility: true,
                 minOrderQuantity: true,
                 maxOrderQuantity: true,
+                // TODO-165 (ADR-252) — urun-seviyesi fashion meta (materyal + beden sistemi).
+                attributeValues: {
+                  select: {
+                    valueText: true,
+                    definition: { select: { code: true, dataType: true } },
+                    option: { select: { value: true, label: true } },
+                    optionLinks: { select: { option: { select: { value: true, label: true } } } },
+                  },
+                },
               },
             },
           },
@@ -4234,6 +4256,13 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           const unitNetPriceMinor =
             variant.netPriceMinor ?? splitGrossByVat(variant.priceMinor, unitVatRateBps).netMinor;
           const unitVatAmountMinor = variant.priceMinor - unitNetPriceMinor;
+          // TODO-165 (ADR-252) — fashion snapshot SERVER-side turetilir (client etkilemez);
+          // fashion-disi varyantta tum alanlar null (geriye uyumlu). IMMUTABLE.
+          const fashionSnapshot = resolveFashionSnapshotFromPrisma({
+            axisRows: variant.optionValueSelections,
+            productAttributeRows: variant.product.attributeValues,
+            variantTitle: variant.title,
+          });
           orderLines.push({
             storeId,
             productId: variant.productId,
@@ -4256,6 +4285,7 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             lineVatAmountMinor: unitVatAmountMinor * line.quantity,
             lineGrossAmountMinor: totalAmount,
             lineCostMinor: variant.costMinor != null ? variant.costMinor * line.quantity : null,
+            ...fashionSnapshot,
           });
         }
 
@@ -4399,6 +4429,13 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             vatAmountMinor: true,
             currency: true,
             status: true,
+            // TODO-165 (ADR-252) — fashion snapshot kaynagi (createOrder ile AYNI).
+            optionValueSelections: {
+              select: {
+                definition: { select: { code: true, dataType: true } },
+                option: { select: { value: true, label: true, colorHex: true } },
+              },
+            },
             product: {
               select: {
                 title: true,
@@ -4408,6 +4445,14 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
                 priceVisibility: true,
                 minOrderQuantity: true,
                 maxOrderQuantity: true,
+                attributeValues: {
+                  select: {
+                    valueText: true,
+                    definition: { select: { code: true, dataType: true } },
+                    option: { select: { value: true, label: true } },
+                    optionLinks: { select: { option: { select: { value: true, label: true } } } },
+                  },
+                },
               },
             },
           },
@@ -4425,6 +4470,11 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
         const unitNetPriceMinor =
           variant.netPriceMinor ?? splitGrossByVat(variant.priceMinor, unitVatRateBps).netMinor;
         const unitVatAmountMinor = variant.priceMinor - unitNetPriceMinor;
+        const fashionSnapshot = resolveFashionSnapshotFromPrisma({
+          axisRows: variant.optionValueSelections,
+          productAttributeRows: variant.product.attributeValues,
+          variantTitle: variant.title,
+        });
         await transaction.orderLine.create({
           data: {
             storeId,
@@ -4448,6 +4498,7 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             lineVatAmountMinor: unitVatAmountMinor * input.quantity,
             lineGrossAmountMinor: totalAmount,
             lineCostMinor: variant.costMinor != null ? variant.costMinor * input.quantity : null,
+            ...fashionSnapshot,
           },
         });
         const lines = await transaction.orderLine.findMany({ where: { orderId }, select: { totalAmount: true } });
@@ -5355,8 +5406,14 @@ export function createServer(
         ),
       ),
     );
+    // TODO-165 (ADR-247/249/250) — capability-aware fashion projeksiyonu. FASHION_VERTICAL
+    // kapaliysa veya fashion-disi urunse null (leak-free; eski DTO davranisi korunur).
+    const fashion = (await capabilityCache.isEnabled(store.id, "FASHION_VERTICAL"))
+      ? await buildPublicFashionProjection(store.id, product.id, product.primaryCategoryId ?? null)
+      : null;
     return publicProductDetailSchema.parse({
       ...summary,
+      fashion,
       description: product.description ?? null,
       callToActionLabel: product.callToActionLabel ?? null,
       whatsappMessageTemplate: product.whatsappMessageTemplate ?? null,
@@ -6694,6 +6751,14 @@ export function createServer(
   registerSponsorshipAdminRoutes(app, {
     data: sponsorshipData,
     requireStoreAdmin: requireStoreAdminForModule("SPONSORSHIP_FINANCE"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-165 (ADR-249) — Fashion Vertical: Size Chart yonetimi (store-admin). FASHION_VERTICAL
+  // capability-gate'li; kapaliyken 403 MODULE_DISABLED. Tenant-scoped; icerik plain-text.
+  registerSizeChartRoutes(app, {
+    service: createSizeChartService(createPrismaSizeChartDataAccess()),
+    requireStoreAdmin: requireStoreAdminForModule("FASHION_VERTICAL"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 

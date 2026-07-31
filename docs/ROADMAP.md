@@ -1120,9 +1120,59 @@
 - **TD.** TD-162 CLOSED · TD-163 CLOSED · TD-164 OPEN (non-blocking — sistem/bundled font yükleniyor; harici hosting future).
 - **AÇIK.** **commit/push/PR/merge/deploy YOK** (bu aşamada). Canlı stack smoke deploy sonrası (post-deploy).
 
+### TODO-165 Fashion Vertical Foundation — IMPLEMENTED (uçtan uca smoke geçti; commit YOK)
+
+> Completion Recovery: çekirdek kullanıcı değeri TD-166'ya ERTELENMEDİ; tümü TODO-165 içinde
+> tamamlandı ve GERÇEK browser + GERÇEK DB (docker postgres) ile doğrulandı. Aşağıdaki "İNEN &
+> DOĞRULANAN" listesi güncel; "KALAN" kutusu kapatıldı.
+
+- **Amaç.** Modular içine moda/tekstil dikeyi (ürün/varyant/beden/renk/sezon/koleksiyon + fashion PDP/PLP/
+  admin akışı) **tenant-capability kontrollü** ekle. Kapalıyken çekirdek commerce aynen korunur. Analiz:
+  `docs/analysis/TODO-165-fashion-vertical-foundation.md`.
+- **İNEN & DOĞRULANAN (bu oturum).**
+  - **Capability** `FASHION_VERTICAL` (registry.ts; opt-in `baselineEnabled:false`; resolver/cache/matrix/
+    plan-editor/projeksiyon otomatik alır). Gate: `requireStoreAdminForModule`/`resolvePublicStoreForModule`.
+    Capability testleri güncellendi (opt-in) — **55 PASS**.
+  - **Typed size-system registry** `@commerce-os/contracts/size-systems` (10 sistem; ordered/normalized/locale/
+    kategori-uyum; serbest JSON yok) — **15 PASS**.
+  - **Kanonik fashion attribute katalogu** `api-gateway/src/fashion/canonical-attributes.ts` (PLATFORM EAV reuse;
+    color-family map + hex-swatch doğrulama). Yeni motor YOK.
+  - **Şema + additive migration** `20260731140000_fashion_vertical_foundation`: `SizeChart`/`SizeChartRevision`/
+    `SizeChartAssignment` + `OrderLine` 7 additive fashion snapshot kolonu (+ SizeChart draft JSON). `db:generate` OK.
+  - **Size-chart backend** (service+prisma data+routes, capability-gated, tenant-scoped, XSS-guard, advisory-lock
+    publish/rollback) — server.ts'e wire edildi, **api-gateway build PASS**; servis testleri **11 PASS**.
+  - **Order snapshot resolver** (saf `resolveFashionLineSnapshot`, server-authoritative, immutable) — **5 PASS**.
+  - **Contracts** size-chart şemaları; contracts + api-gateway build temiz.
+- **TAMAMLANAN entegrasyon (Completion Recovery).**
+  - **Order snapshot wiring**: `createOrder`+`addOrderLine` select genişletildi (variant `optionValueSelections` +
+    product `attributeValues`); saf `resolveFashionSnapshotFromPrisma` ile 7 alan server-side dolduruldu; müşteri
+    order summary/detail serializer + contracts genişledi. **GERÇEK sipariş (OS-000005, Beyaz/M×2) → snapshot doğru;
+    ürün+varyant başlığı değiştirilince snapshot DEĞİŞMEDİ (immutability PASS).**
+  - **Public DTO**: `publicProductDetailSchema.fashion` (capability-aware; kapalıyken null) + `buildPublicFashionProjection`
+    (yapısal color/size eksenleri, variantAxisOptions, attribute özetleri, sizeSystemKey, published size chart —
+    scope PRODUCT>CATEGORY>STORE). Curl ile doğrulandı.
+  - **Storefront PDP**: renk swatch + beden seçici + **OOS beden disabled** (buy-box `soldOut` her zaman disable +
+    renk değişiminde stok-gerektiren auto-heal — smoke sırasında bulunan hata düzeltildi) + seçili renge göre medya +
+    **beden tablosu modal** + materyal/kalıp/sezon + düşük stok + eksik seçimde ATC engeli. Fashion-dışı/kapalı → klasik.
+  - **Storefront PLP**: fashion facetleri (renk swatch + beden ızgara + sezon/koleksiyon/materyal/fit) — `resolveFacetKind`
+    `size` branch + `facet-size-grid`; disjunctive facet + store-scoped count (backfill). URL codec korundu.
+  - **Store Admin**: `admin.sizeCharts.*` api-client + BFF + **Beden Tabloları** sayfası (liste/oluştur/düzenle/publish/
+    rollback/arşiv/bağla) + **10-adım fashion wizard** (Stepper primitive; tek RHF; capability kapalı → klasik form) +
+    nav ModuleGuard. GERÇEK browser'da doğrulandı (seed'li chart "Yayında"; wizard 10 adım render).
+  - **Seed**: `packages/db/scripts/fashion-demo-seed.mjs` (idempotent, `fash-` prefix, enterprise-demo scope) →
+    3 kategori · 12 ürün · 155 varyant (41 OOS) · size chart (PUBLISHED+revision+CATEGORY ataması) · `edm-store`
+    FASHION_VERTICAL=ENABLED; `demo-store` KAPALI. Search backfill (12 doc, 155 facet değeri).
+  - **Migration**: `prisma migrate deploy`+`status` GERÇEK DB'de PASS; additive (473 ürün/2205 varyant/6 sipariş korundu).
+  - **Capability**: DISABLE→fashion null + veri korundu + public modules false; ENABLE→geri geldi (30s cache TTL).
+- **Kararlar.** **ADR-246…ADR-252**.
+- **Testler/gate.** api-gateway **1893** (fashion size-chart 11 + order-snapshot 8 + capability) · contracts **130**
+  (size-systems 15) — PASS. contracts/api-client/api-gateway/db/storefront/store-admin build PASS · lint temiz ·
+  git diff --check temiz. GERÇEK browser smoke (PDP/PLP/order/capability/store-admin/responsive-375) PASS.
+- **AÇIK.** **commit/push/PR/merge/deploy YOK** (§20 kuralı). Implementasyon+smoke tamam; commit'e HAZIR.
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-165 Fashion Vertical Foundation** (TODO-164/164A/164B tema temeli üstüne) — SIRADAKİ AKTİF.
+1. **TODO-165 Fashion Vertical Foundation** — **IMPLEMENTED** (uçtan uca smoke geçti; commit bekliyor).
 2. **Final Enterprise UI & Design Polish** — EN SON.
 3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-162/163/164).
 4. **Final Enterprise UI & Design Polish** (EN SON).

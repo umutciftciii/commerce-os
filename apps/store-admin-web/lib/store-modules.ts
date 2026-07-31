@@ -9,6 +9,7 @@
 /** Rota href/prefix → gateway modül anahtarı (opsiyonel modüller). */
 export const HREF_MODULE: Record<string, string> = {
   "/inventory": "MULTI_WAREHOUSE",
+  "/size-charts": "FASHION_VERTICAL",
   "/reviews": "REVIEWS",
   "/campaigns": "CAMPAIGNS",
   "/influencers": "INFLUENCER_TRACKING",

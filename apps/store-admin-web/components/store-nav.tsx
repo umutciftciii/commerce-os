@@ -103,6 +103,11 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         { href: "/categories", label: t.categories, icon: <CategoryIcon /> },
         { href: "/attributes", label: t.attributes, icon: <AttributeIcon /> },
         { href: "/inventory", label: t.inventory, icon: <InventoryIcon /> },
+        {
+          href: "/size-charts",
+          label: locale === "tr" ? "Beden Tabloları" : "Size Charts",
+          icon: <AttributeIcon />,
+        },
       ],
     },
     {

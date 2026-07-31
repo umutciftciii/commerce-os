@@ -23,6 +23,7 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
   return {
     MockUiError,
     storeApiMock: {
+      listModules: vi.fn().mockResolvedValue({ data: { storeId: "s1", modules: [] } }),
       updateProduct: vi.fn(),
       createProduct: vi.fn(),
       listMedia: vi.fn(),
