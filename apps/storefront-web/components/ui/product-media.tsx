@@ -26,6 +26,7 @@ export function ProductMedia({
   className,
   priority = false,
   alt,
+  fit = "cover",
 }: {
   handle: string;
   title: string;
@@ -44,6 +45,11 @@ export function ProductMedia({
   priority?: boolean;
   /** Ozel alt metni (yoksa title). */
   alt?: string;
+  /**
+   * Gorselin cerceveye oturma bicimi. Kartlar/kucuk yuzeyler `cover` (kirparak
+   * doldurur); PDP ana gorseli `contain` (kirpmadan sigdirir — bkz. product-gallery).
+   */
+  fit?: "cover" | "contain";
 }) {
   const src = imageUrl ?? productImageSrc(handle);
   const label = alt ?? title;
@@ -60,7 +66,11 @@ export function ProductMedia({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fetchPriority React 19'da desteklenir; tip henuz dar.
         {...({ fetchPriority: priority ? "high" : "auto" } as any)}
         decoding="async"
-        className={cn("h-full w-full object-cover", className)}
+        className={cn(
+          "h-full w-full",
+          fit === "contain" ? "object-contain" : "object-cover",
+          className,
+        )}
       />
     );
   }

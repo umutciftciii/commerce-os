@@ -44,7 +44,7 @@ export function VariantGallery({
 
   return (
     <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
-      <ProductMedia handle={detail.handle} title={detail.title} imageUrl={coverUrl} />
+      <ProductMedia handle={detail.handle} title={detail.title} imageUrl={coverUrl} fit="contain" />
     </div>
   );
 }
