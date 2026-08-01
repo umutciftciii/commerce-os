@@ -380,7 +380,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                       onClick={() => selectColor(option.optionId)}
                       className={[
                         "relative flex h-9 w-9 items-center justify-center rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-                        option.colorHex ? "border-line" : "border-dashed border-line-strong bg-surface-muted",
+                        option.colorHex
+                          ? isLightHex(option.colorHex)
+                            ? "border-ink-subtle" // acik/beyaz renkler beyaz panele karismasin diye belirgin kenarlik
+                            : "border-line"
+                          : "border-dashed border-line-strong bg-surface-muted",
                         active ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : "",
                         soldOut ? "opacity-40" : "",
                       ].join(" ")}

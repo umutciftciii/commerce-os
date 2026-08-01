@@ -57,7 +57,11 @@ export function FacetColorSwatch({ facet, state, t }: FacetRendererProps) {
                   aria-hidden
                   style={value.colorHex ? { backgroundColor: value.colorHex } : undefined}
                   className={`relative flex h-8 w-8 items-center justify-center rounded-full border transition-shadow peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper ${
-                    value.colorHex ? "border-line" : "border-dashed border-line-strong bg-surface-muted"
+                    value.colorHex
+                      ? isLight(value.colorHex)
+                        ? "border-ink-subtle" // acik/beyaz renkler zemine karismasin diye belirgin kenarlik
+                        : "border-line"
+                      : "border-dashed border-line-strong bg-surface-muted"
                   } ${value.selected ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : ""}`}
                 >
                   {value.selected ? (
