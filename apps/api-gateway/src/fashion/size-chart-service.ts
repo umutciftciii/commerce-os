@@ -52,6 +52,23 @@ export interface SizeChartRecord {
   assignments?: SizeChartAssignmentRecord[];
 }
 
+/**
+ * TODO-165A Tasks 25/26 (perf) — `resolveEffective`'in DAR sonuç şekli. Hot PDP yolunda
+ * `SizeChartDataAccess.get()`'in TAMAMI (tüm revizyonlar + atamalar) YERİNE yalnız gösterim
+ * + yayınlı revizyon alanları taşınır — draftColumns/draftRows/assignments/diğer revizyonlar
+ * YOKTUR (resolution için gerekmezler).
+ */
+export interface SizeChartResolutionRecord {
+  id: string;
+  name: string;
+  sizeSystemKey: string;
+  measurementUnit: string;
+  gender: string | null;
+  status: SizeChartStatus;
+  publishedRevisionId: string | null;
+  publishedRevision: SizeChartRevisionRecord;
+}
+
 export type SizeChartErrorCode =
   | "SIZE_CHART_NOT_FOUND"
   | "SIZE_SYSTEM_UNKNOWN"
@@ -60,6 +77,7 @@ export type SizeChartErrorCode =
   | "SIZE_CHART_REVISION_NOT_FOUND"
   | "SIZE_CHART_ASSIGN_TARGET_INVALID"
   | "SIZE_CHART_ASSIGN_CROSS_STORE"
+  | "SIZE_CHART_ASSIGN_NOT_PUBLISHED"
   | "SIZE_CHART_ARCHIVED";
 
 export class SizeChartError extends Error {
@@ -138,6 +156,22 @@ export function validateSizeChartContent(
   }
 }
 
+// ── Selector (TODO-165A Task 13, ADR-090 desenini mirror eder) ────────────────
+// `ids` verildiginde arama/durum/siralama YOK SAYILIR — cozum modu (bkz.
+// AdminProductSelectorCriteria/BrandSelectorCriteria).
+export type SizeChartSelectorSortBy = "name" | "createdAt";
+
+export interface SizeChartSelectorCriteria {
+  limit: number;
+  offset: number;
+  search?: string;
+  status?: SizeChartStatus;
+  sortBy?: SizeChartSelectorSortBy;
+  sortOrder?: "asc" | "desc";
+  /** Cozum modu: verilirse YALNIZ bu id'ler (magaza icinde) doner. */
+  ids?: string[];
+}
+
 // ── Data access ──────────────────────────────────────────────────────────────
 export interface SizeChartDataAccess {
   list(storeId: string): Promise<SizeChartRecord[]>;
@@ -184,6 +218,40 @@ export interface SizeChartDataAccess {
   removeAssignment(storeId: string, sizeChartId: string, assignmentId: string): Promise<void>;
   categoryExists(storeId: string, categoryId: string): Promise<boolean>;
   productExists(storeId: string, productId: string): Promise<boolean>;
+  /** TODO-165A Task 13 — dual `?ids=` / arama-sayfalama secici (ADR-090 desenini mirror eder). */
+  selector(storeId: string, criteria: SizeChartSelectorCriteria): Promise<{ data: SizeChartRecord[]; total: number }>;
+  /**
+   * TODO-165A Tasks 25/26 — Bir urunun DOGRUDAN (PRODUCT-scope) atamasini productId ile
+   * bulur (chart-id degil urun-id ile arama; mevcut `get`/`assign` chart-id merkezlidir).
+   */
+  findProductAssignment(
+    storeId: string,
+    productId: string,
+  ): Promise<{ assignmentId: string; sizeChartId: string } | null>;
+  /**
+   * TODO-165A Tasks 25/26 — PRODUCT/CATEGORY/STORE hedeflerine ait HAM atama satirlari
+   * (public-projection.ts'teki `resolvePublishedSizeChart` ile AYNI sorgu sekli; oncelik
+   * siralamasi CAGIRANDA yapilir — bkz. `resolveEffectiveSizeChart`). Tek precedence
+   * uygulamasi bu ikisi arasinda PAYLASILIR; paralel bir kopya YAZILMAZ.
+   */
+  findResolutionCandidates(
+    storeId: string,
+    productId: string,
+    categoryId: string | null,
+  ): Promise<{ scope: SizeChartScope; sizeChartId: string }[]>;
+  /**
+   * TODO-165A Tasks 25/26 (perf fix) — precedence KARARI için DAR chart meta'sı (status +
+   * publishedRevisionId + gösterim alanları); revizyonlar/atamalar dahil DEĞİLDİR. Hot PDP
+   * yolunda `get()`'in ağır `include: { revisions, assignments }`'ı YERİNE kullanılır —
+   * `resolveEffective` her aday için bunu çağırır, YALNIZ kazanan için `getRevision`'ı ekler.
+   */
+  getResolutionMeta(
+    storeId: string,
+    id: string,
+  ): Promise<Pick<
+    SizeChartRecord,
+    "id" | "name" | "sizeSystemKey" | "measurementUnit" | "gender" | "status" | "publishedRevisionId"
+  > | null>;
 }
 
 export interface SizeChartService {
@@ -196,6 +264,23 @@ export interface SizeChartService {
   archive(storeId: string, id: string): Promise<SizeChartRecord>;
   assign(storeId: string, id: string, input: SizeChartAssignInput): Promise<SizeChartAssignmentRecord>;
   unassign(storeId: string, id: string, assignmentId: string): Promise<void>;
+  /** TODO-165A Task 13 — SEÇİCİ ucu (store-admin urun formu + merkezi AssignModal). */
+  selector(storeId: string, criteria: SizeChartSelectorCriteria): Promise<{ data: SizeChartRecord[]; total: number }>;
+  /** TODO-165A Tasks 25/26 — urun formunun "guncel baglanti" karti icin PRODUCT-scope atama + chart. */
+  findProductAssignment(
+    storeId: string,
+    productId: string,
+  ): Promise<{ assignmentId: string; chart: SizeChartRecord } | null>;
+  /**
+   * TODO-165A Tasks 25/26 — PRODUCT>CATEGORY>STORE oncelikli ÇÖZÜMLENMİŞ atama (yalnız
+   * PUBLISHED + publishedRevisionId'li chart kazanir). `public-projection.ts`'in
+   * `resolvePublishedSizeChart`'ı BU fonksiyonu cagirir — tek precedence uygulamasi.
+   */
+  resolveEffective(
+    storeId: string,
+    productId: string,
+    categoryId: string | null,
+  ): Promise<{ scope: SizeChartScope; chart: SizeChartResolutionRecord } | null>;
 }
 
 export interface SizeChartCreateInput {
@@ -301,7 +386,16 @@ export function createSizeChartService(dataAccess: SizeChartDataAccess): SizeCha
     },
 
     async assign(storeId, id, input) {
-      await requireChart(storeId, id);
+      const chart = await requireChart(storeId, id);
+      // TODO-165A Task 13 (spec §9) — yalniz PUBLISHED chart baglanabilir: DRAFT (henuz
+      // yayinlanmamis) veya ARCHIVED chart, resolvePublishedSizeChart'ta zaten cozulemez;
+      // burada ERKEN reddedilir ki UI net bir 400 alsin (sessiz-hicbir-sey-olmaz yerine).
+      if (chart.status !== "PUBLISHED") {
+        throw new SizeChartError(
+          "SIZE_CHART_ASSIGN_NOT_PUBLISHED",
+          "Only a published size chart can be assigned",
+        );
+      }
       let categoryId: string | null = null;
       let productId: string | null = null;
       if (input.scope === "CATEGORY") {
@@ -327,6 +421,46 @@ export function createSizeChartService(dataAccess: SizeChartDataAccess): SizeCha
     async unassign(storeId, id, assignmentId) {
       await requireChart(storeId, id);
       await dataAccess.removeAssignment(storeId, id, assignmentId);
+    },
+
+    selector: (storeId, criteria) => dataAccess.selector(storeId, criteria),
+
+    async findProductAssignment(storeId, productId) {
+      const found = await dataAccess.findProductAssignment(storeId, productId);
+      if (!found) return null;
+      const chart = await dataAccess.get(storeId, found.sizeChartId);
+      if (!chart) return null;
+      return { assignmentId: found.assignmentId, chart };
+    },
+
+    async resolveEffective(storeId, productId, categoryId) {
+      const candidates = await dataAccess.findResolutionCandidates(storeId, productId, categoryId);
+      // Oncelik: PRODUCT > CATEGORY > STORE (public-projection.ts ile AYNI siralama).
+      const rank = (scope: SizeChartScope) => (scope === "PRODUCT" ? 0 : scope === "CATEGORY" ? 1 : 2);
+      const sorted = [...candidates].sort((a, b) => rank(a.scope) - rank(b.scope));
+      // Perf (hot PDP yolu): her aday icin DAR meta (`getResolutionMeta`) — tam `get()`
+      // (tum revizyonlar + atamalar) DEGIL. Yalniz KAZANAN icin (yayinli) revizyon govdesi
+      // ayrica `getRevision` ile cekilir — diger adaylarin/revizyonlarin govdesi HIC YUKLENMEZ.
+      for (const candidate of sorted) {
+        const meta = await dataAccess.getResolutionMeta(storeId, candidate.sizeChartId);
+        if (!meta || meta.status !== "PUBLISHED" || !meta.publishedRevisionId) continue;
+        const revision = await dataAccess.getRevision(storeId, candidate.sizeChartId, meta.publishedRevisionId);
+        if (!revision) continue;
+        return {
+          scope: candidate.scope,
+          chart: {
+            id: meta.id,
+            name: meta.name,
+            sizeSystemKey: meta.sizeSystemKey,
+            measurementUnit: meta.measurementUnit,
+            gender: meta.gender,
+            status: meta.status,
+            publishedRevisionId: meta.publishedRevisionId,
+            publishedRevision: revision,
+          },
+        };
+      }
+      return null;
     },
   };
 }

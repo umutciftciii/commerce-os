@@ -43,6 +43,13 @@ describe("storefront-web · Dilim 6b orders-section thumbnail", () => {
           variantTitle: "M",
           quantity: 1,
           imageUrl: "/media/stores/s1/products/hoodie-cover.webp",
+          selectedColor: null,
+          selectedColorHex: null,
+          selectedSize: null,
+          sizeSystem: null,
+          swatchLabel: null,
+          materialSummary: null,
+          variantDisplayName: null,
         },
       ]),
     );
@@ -66,6 +73,13 @@ describe("storefront-web · Dilim 6b orders-section thumbnail", () => {
           variantTitle: "Std",
           quantity: 1,
           imageUrl: null,
+          selectedColor: null,
+          selectedColorHex: null,
+          selectedSize: null,
+          sizeSystem: null,
+          swatchLabel: null,
+          materialSummary: null,
+          variantDisplayName: null,
         },
       ]),
     );
@@ -83,7 +97,11 @@ describe("storefront-web · TODO-159E order review action", () => {
   function delivered(eligible: ReviewEligibleOrderLine[]): string {
     const model: CustomerOrderSummary = {
       ...order([
-        { variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null },
+        {
+          variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
       ]),
       status: "FULFILLED",
       paymentStatus: "PAID",

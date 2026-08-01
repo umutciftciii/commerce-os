@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicSearchProduct, PublicSearchResponse } from "@commerce-os/api-client";
 
 // next/navigation (client island'lar: SearchTransitionProvider useRouter, pagination/sort).
+// usePathname: TODO-165A (ADR-165A) Task 20 fix — FilterRail/ActiveFilterChips/SearchPagination/
+// SortControl artık href'lerin KALACAĞI route'u buradan okur (bkz. useSearchBasePath); düz PLP'de /products.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/products",
 }));
 
 // Locale cookie sahtelemesi.
@@ -36,6 +39,8 @@ function productFixture(overrides: Partial<PublicSearchProduct> = {}): PublicSea
     slug: "demo-hoodie",
     title: "Demo Hoodie",
     brand: "Marka",
+    // TODO-165A (ADR-165A) Task 11 — brandRef governed marka projeksiyonu; fixture bu PR'da eklendi.
+    brandRef: null,
     categoryLabel: "Giyim",
     minPriceMinor: 129900,
     maxPriceMinor: 149900,

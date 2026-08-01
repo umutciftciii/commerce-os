@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { buildSearchHref, withPrice, type SearchState } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 
 /**
  * TODO-156C (ANALIZ-156A §6.2) — FİYAT facet'i (top-level minPrice/maxPrice; ayrı bir attribute DEĞİL).
@@ -29,6 +29,7 @@ export function PriceFacet({
 function PriceForm({ state, currency, t }: { state: SearchState; currency: string; t: StorefrontDictionary }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const [min, setMin] = useState(state.minPrice != null ? String(Math.floor(state.minPrice / MINOR_PER_MAJOR)) : "");
   const [max, setMax] = useState(state.maxPrice != null ? String(Math.floor(state.maxPrice / MINOR_PER_MAJOR)) : "");
 
@@ -36,7 +37,7 @@ function PriceForm({ state, currency, t }: { state: SearchState; currency: strin
     event.preventDefault();
     const minMinor = majorToMinor(min);
     const maxMinor = majorToMinor(max);
-    navigate(buildSearchHref(withPrice(state, minMinor, maxMinor)), { replace: true });
+    navigate(buildSearchHref(withPrice(state, minMinor, maxMinor), basePath), { replace: true });
   };
 
   const symbol = currencySymbol(currency);

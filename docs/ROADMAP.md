@@ -1170,14 +1170,67 @@
   git diff --check temiz. GERÇEK browser smoke (PDP/PLP/order/capability/store-admin/responsive-375) PASS.
 - **AÇIK.** **commit/push/PR/merge/deploy YOK** (§20 kuralı). Implementasyon+smoke tamam; commit'e HAZIR.
 
+### TODO-165A — Product Data Governance & Editing UX Recovery (2026-08-02, IMPLEMENTED — uçtan uca GERÇEK browser+DB smoke geçti; commit YOK)
+
+- **Amaç.** TODO-165'in serbest-metin `Product.brand` string'ini + sabit-kod fashion sözlüklerini
+  (season/collection/material/fit/…) store-yönetilebilir governance katmanlarına taşı; size-chart bağlamayı
+  raw-ID input'tan searchable selector UX'e geçir. Mevcut EAV/capability/size-chart/tenant/selector (ADR-090)
+  motorları REUSE — paralel sistem YOK. Analiz: `docs/analysis/TODO-165A-product-data-governance.md`.
+- **İNEN & DOĞRULANAN.**
+  - **Brand entity**: store-scoped `Brand` modeli + `Product.brandId` (relation `governedBrand`); legacy
+    `Product.brand` string DORMANT (dual-write) korunur; public DTO'lara additive `brandRef` (ACTIVE-only);
+    search read-model brand alanları denormalize → PLP brand facet + `/markalar/[slug]`. Brand modülü `CATALOG`
+    (core, her zaman açık) ile gate'li — tüm mağazalar kullanabilir. Store-admin "Markalar" modülü (DataGrid +
+    editor + ürün formu selector + quick-create).
+  - **Store-scoped fashion taksonomileri**: `ProductTaxonomyValue` (governance otoritesi) ↔ store-scoped
+    `AttributeOption` (1:1, atama/facet kimliği) — her mağaza kendi opsiyonunu sahiplenir, global kanonik
+    opsiyon paylaşılan governance kaydı değildir. Governed opsiyon mutasyonu yalnız taxonomy servisinden
+    (`409 ATTRIBUTE_OPTION_GOVERNED` generic endpoint'lerde). Çok-kiracılı benzersizlik iki partial unique index
+    ile (global/store). Okuma önceliği store-scoped>global, de-dupe. `FASHION_VERTICAL` gate'li. Store-admin
+    "Ürün Sözlükleri" (tip-başına sekme, quick-create/arşiv/usageCount/reorder) + ürün formu governed fashion
+    attribute'ları taxonomy-backed searchable select + quick-add.
+  - **Bootstrap/provisioning**: migration-time backfill (`20260801130000`, `20260801140000`) + PLATFORM
+    fashion-definition provisioning (`20260802120000`, 11 tanım, idempotent, mağaza-bağımsız) + runtime
+    `ensureStoreTaxonomyDefaults` DISABLED→ENABLED geçişinde (fail-closed: bootstrap başarısızsa capability
+    sessizce "enabled" görünmez) + taxonomy list/quick-create'te lazy safety-net (plan-seviyesi enable gibi
+    diğer yolları self-heal eder). Kanonik güncelleme additif; mağaza-yönetilen değerleri asla overwrite etmez.
+  - **Size-chart selector UX**: yeni `GET /stores/:storeId/size-charts/selector` (dual-mode); `resolveEffective`
+    TEK precedence implementasyonu (PDP+admin paylaşır); merkezi `AssignModal` + ürün formu `size-chart-step.tsx`
+    raw ID input'ları searchable `EntitySelectorModal`'a taşındı. **TODO-165'te bulunan iki gerçek bug
+    düzeltildi**: `assign()` PUBLISHED-durum guard'ı eklendi (`SIZE_CHART_ASSIGN_NOT_PUBLISHED`); `upsertAssignment`
+    yanlış anahtar (sizeChartId dahil) düzeltildi → ikinci ürün bağlaması ilkinin yerini alır (gerçek
+    `@@unique` ile hizalı).
+  - **Selector'lar (ADR-090 reuse)**: Brand/Category/Product/Size-chart hepsi aynı `?ids=` + arama/sayfalama
+    desenini kullanır; hiçbir ekranda raw ID input yok (grep-clean).
+- **Kararlar.** **ADR-253…ADR-258**.
+- **Testler/gate (SDD ledger Task 29, tam gate — GREEN).** `pnpm db:generate` + `pnpm build` **27/27** ·
+  `pnpm -r exec tsc -p tsconfig.json --noEmit` **exit 0** · `pnpm test` **3320/3320** · `prisma migrate status`
+  **74** migration uygulanmış · `git diff --check` temiz · search read-model reindex **430/430** (marka alanları
+  dolu). 5 pre-existing PR#158 fashion fixture type-drift'i additive-only greenlendi (branch'in kendi
+  regresyonu değil).
+- **Gerçek browser smoke (SDD ledger Task 30, GERÇEK DB+stack — PASS).** İzole stack (kendi api-gateway:4001 +
+  storefront:3010 + store-admin:3012, isolated DB `commerce_os_todo165a`; kullanıcının :4000/:3000/:3002 stack'i
+  dokunulmadı): storefront `/markalar` dizini (desktop+mobile, gerçek markalar) · brand facet canlı ·
+  Brands admin liste+create (71→72) · Ürün Sözlükleri (tip-sekme, usageCount, reorder) · ürün formu Fashion
+  Özellikleri (searchable SEZON select + round-trip pre-select + quick-add) · merkezi size-chart AssignModal
+  (STORE=kimliksiz, PRODUCT=searchable 483 ürün, raw ID YOK) · responsive 375px.
+- **Güvenlik/tenant (SDD ledger Task 31).** 3320/3320 testin içinde tenant-isolation cross-store-rejection,
+  capability 403 MODULE_DISABLED, governed-option 409, arşivli-varlık reddi, size-chart cross-store 403,
+  `TAXONOMY_NOT_PROVISIONED` fail-closed. Plain-text validasyon (raw HTML/CSS/JS yok), colorHex regex, media
+  yalnız store-owned (storageKey sızmaz), client-supplied id server-side store-scoped doğrulanır. Yeni admin
+  UI'da `dangerouslySetInnerHTML` sıfır (grep).
+- **AÇIK.** **commit/push/PR/merge/deploy YOK** (§20 kuralı). Implementasyon+tam gate+gerçek smoke tamam;
+  commit'e HAZIR. Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
+
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-165 Fashion Vertical Foundation** — **IMPLEMENTED** (uçtan uca smoke geçti; commit bekliyor).
+1. **TODO-165A Product Data Governance & Editing UX Recovery** — **IMPLEMENTED** (uçtan uca smoke geçti; commit bekliyor).
 2. **Final Enterprise UI & Design Polish** — EN SON.
-3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-162/163/164).
+3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-164, TD-167+).
 4. **Final Enterprise UI & Design Polish** (EN SON).
 
-> Tamamlanan: **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·
+> Tamamlanan: **TODO-165 Fashion Vertical Foundation** (IMPLEMENTED, uçtan uca smoke geçti, commit YOK) ·
+> **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·
 > **TODO-163 Tenant Module & Capability** (CLOSED & DEPLOYED, Faz 1+2+3) ·
 > **TODO-162 Storefront Discovery & Merchandising** (CLOSED & DEPLOYED) ·
 > **Product Split Baseline** (DONE, yukarı bkz.).

@@ -26,7 +26,12 @@ function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSumm
     createdAt: "2026-06-01T00:00:00.000Z",
     shipmentStatus: null,
     lines: [
-      { variantId: "v1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1, imageUrl: null },
+      {
+        variantId: "v1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1, imageUrl: null,
+        // TODO-165 (ADR-252) — moda snapshot; fashion-dışı satırda null (pre-existing PR#158 fixture drift, gate greened).
+        selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+        swatchLabel: null, materialSummary: null, variantDisplayName: null,
+      },
     ],
     ...overrides,
   };
@@ -69,7 +74,11 @@ describe("searchOrders", () => {
     order({
       orderNumber: "OS-200",
       lines: [
-        { variantId: "v2", productSlug: "mug", sku: "MUG-RED", title: "Kupa", variantTitle: "Kırmızı", quantity: 1, imageUrl: null },
+        {
+          variantId: "v2", productSlug: "mug", sku: "MUG-RED", title: "Kupa", variantTitle: "Kırmızı", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
       ],
     }),
   ];

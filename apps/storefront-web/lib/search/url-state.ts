@@ -56,6 +56,12 @@ export type SearchFilterState =
 export interface SearchState {
   q: string | null;
   category: string | null;
+  /**
+   * TODO-165A (ADR-165A) Task 20 — Marka (Brand.slug) daraltması. `category` ile AYNI desen: ayrı, sabit
+   * query param (gateway `brand=<slug>` — bkz. apps/api-gateway/src/search/query-parser.ts). Attribute
+   * filtre sistemine (filter[code]) GİRMEZ. `/markalar/[slug]` marka-filtreli PLP'yi bu alanla besler.
+   */
+  brand: string | null;
   page: number;
   pageSize: number;
   sort: SearchSort;
@@ -71,6 +77,7 @@ export function emptySearchState(): SearchState {
   return {
     q: null,
     category: null,
+    brand: null,
     page: DEFAULT_PAGE,
     pageSize: DEFAULT_PAGE_SIZE,
     sort: DEFAULT_SORT,
@@ -157,6 +164,10 @@ export function parseSearchState(map: Map<string, string[]>): SearchState {
   const categoryRaw = firstString(map.get("category"))?.trim();
   state.category = categoryRaw && categoryRaw.length > 0 ? categoryRaw : null;
 
+  // brand (slug; ham korunur — category ile aynı desen)
+  const brandRaw = firstString(map.get("brand"))?.trim();
+  state.brand = brandRaw && brandRaw.length > 0 ? brandRaw : null;
+
   // sort
   const sortRaw = firstString(map.get("sort"));
   if (sortRaw && (SEARCH_SORTS as readonly string[]).includes(sortRaw)) {
@@ -231,6 +242,7 @@ export function serializeSearchState(state: SearchState): string {
 
   if (state.q) parts.push(`q=${enc(state.q)}`);
   if (state.category) parts.push(`category=${enc(state.category)}`);
+  if (state.brand) parts.push(`brand=${enc(state.brand)}`);
 
   // Dinamik filtreler (kod alfabetik).
   for (const code of Object.keys(state.filters).sort()) {
@@ -283,6 +295,11 @@ export function withQuery(state: SearchState, q: string | null): SearchState {
 
 export function withCategory(state: SearchState, category: string | null): SearchState {
   return { ...state, category: category && category.length > 0 ? category : null, page: DEFAULT_PAGE };
+}
+
+/** TODO-165A (ADR-165A) Task 20 — Marka daraltmasını ayarlar (withCategory ile aynı desen). */
+export function withBrand(state: SearchState, brand: string | null): SearchState {
+  return { ...state, brand: brand && brand.length > 0 ? brand : null, page: DEFAULT_PAGE };
 }
 
 /** Aramayi/filtreleri tamamen temizler (q + category + filtre + fiyat + stok); sort/pageSize korunur. */
@@ -403,6 +420,7 @@ export function hasActiveNarrowing(state: SearchState): boolean {
   return (
     state.q !== null ||
     state.category !== null ||
+    state.brand !== null ||
     state.minPrice !== null ||
     state.maxPrice !== null ||
     state.inStock ||

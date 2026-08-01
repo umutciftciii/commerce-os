@@ -27,6 +27,14 @@ export const PRODUCT_LIST_KEYS = [
 
 export const CATEGORY_LIST_KEYS = [...COMMON_KEYS, "status"];
 
+/**
+ * TODO-165A (ADR-165A) Task 15/16 — Marka (Brand) liste/seçici/ürün listesi anahtarları.
+ * Kategori deseniyle aynı (yalnız `status` filtresi); ürün listesinde filtre yok, yalnız
+ * arama/sayfalama.
+ */
+export const BRAND_LIST_KEYS = [...COMMON_KEYS, "status"];
+export const BRAND_PRODUCTS_LIST_KEYS = [...COMMON_KEYS];
+
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
@@ -133,8 +141,21 @@ export const PRODUCT_SELECTOR_KEYS = [...SELECTOR_KEYS, "status", "categoryId"];
 
 export const CATEGORY_SELECTOR_KEYS = [...SELECTOR_KEYS, "status"];
 
+/** TODO-165A (ADR-165A) Task 17 — Marka seçici anahtarları (kategori seçicisiyle simetrik). */
+export const BRAND_SELECTOR_KEYS = [...SELECTOR_KEYS, "status"];
+
+/** TODO-165A Tasks 25/26 — Beden tablosu seçici anahtarları (kategori/marka seçicisiyle simetrik). */
+export const SIZE_CHART_SELECTOR_KEYS = [...SELECTOR_KEYS, "status"];
+
 /** TODO-159B — Medya kütüphanesi (TD-095): gerçek sayfalama + arama + context. */
 export const MEDIA_LIST_KEYS = [...SELECTOR_KEYS, "context"];
+
+/**
+ * TODO-165A (ADR-165A) Task 24 — "Ürün Sözlükleri" (governed Product Taxonomy) liste
+ * anahtarları. `type` sekme seçimini taşır (SEASON/MATERIAL/…); doğrulama (enum, tanınmayan
+ * tip) gateway contract şemasındadır.
+ */
+export const PRODUCT_TAXONOMY_LIST_KEYS = [...COMMON_KEYS, "type", "status"];
 
 /**
  * Allowlist'teki anahtarları `Record<string,string>` olarak toplar. Boş değerler

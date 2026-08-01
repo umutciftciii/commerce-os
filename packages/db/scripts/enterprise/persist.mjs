@@ -100,6 +100,9 @@ async function wipeScope(prisma) {
   await prisma.campaign.deleteMany({ where });
   // Ürünler (cascade: variant→inventory/vov/movement, image, PAV(+options), assignment, PVA(+selection)).
   await prisma.product.deleteMany({ where });
+  // TODO-165A (T27) — Markalar (Product.brandId zaten SetNull/ürünler silindi; sıra önemsiz ama
+  // netlik için ürünlerden sonra). @@unique([storeId, slug]) — yeniden oluşturma çakışmasız.
+  await prisma.brand.deleteMany({ where });
   // Depolar (balances ürün cascade ile gitti).
   await prisma.warehouse.deleteMany({ where });
   // Kategoriler (cascade: assignment, categoryAttribute, campaignCategory).
@@ -164,6 +167,8 @@ export async function persistDataset(ds, { prisma: injected } = {}) {
     await wipeScope(prisma);
 
     counts.categories = await createManyChunked(prisma.productCategory, ds.categories);
+    // TODO-165A (T27) — Markalar ürünlerden ÖNCE (Product.brandId FK'si Brand'a işaret eder).
+    counts.brands = await createManyChunked(prisma.brand, ds.brands);
     counts.attributeDefinitions = await createManyChunked(prisma.attributeDefinition, ds.attributes.definitions);
     counts.attributeOptions = await createManyChunked(prisma.attributeOption, ds.attributes.options);
     counts.categoryAttributes = await createManyChunked(prisma.categoryAttribute, ds.attributes.categoryLinks);

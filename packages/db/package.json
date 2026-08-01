@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@commerce-os/auth": "workspace:*",
+    "@commerce-os/contracts": "workspace:*",
     "@commerce-os/logger": "workspace:*",
     "@commerce-os/theme": "workspace:*",
     "@commerce-os/utils": "workspace:*",

@@ -9,6 +9,7 @@ import { storeApi } from "../lib/client/api";
 import { HREF_MODULE } from "../lib/store-modules";
 import {
   AttributeIcon,
+  BrandIcon,
   CampaignIcon,
   CategoryIcon,
   CustomerIcon,
@@ -101,11 +102,21 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         { href: "/", label: t.dashboard, icon: <DashboardIcon /> },
         { href: "/products", label: t.products, icon: <ProductIcon /> },
         { href: "/categories", label: t.categories, icon: <CategoryIcon /> },
+        {
+          href: "/brands",
+          label: locale === "tr" ? "Markalar" : "Brands",
+          icon: <BrandIcon />,
+        },
         { href: "/attributes", label: t.attributes, icon: <AttributeIcon /> },
         { href: "/inventory", label: t.inventory, icon: <InventoryIcon /> },
         {
           href: "/size-charts",
           label: locale === "tr" ? "Beden Tabloları" : "Size Charts",
+          icon: <AttributeIcon />,
+        },
+        {
+          href: "/product-dictionaries",
+          label: locale === "tr" ? "Ürün Sözlükleri" : "Product Dictionaries",
           icon: <AttributeIcon />,
         },
       ],

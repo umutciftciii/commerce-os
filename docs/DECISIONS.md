@@ -5688,3 +5688,114 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   addOrderLine) doldurulur → **IMMUTABLE** (ürün/varyant sonradan değişse bile sabit). Client MANIPULE EDEMEZ
   (variantId'den türetilir). Fashion-dışı/eski kalemlerde NULL (geriye uyumlu).
 - **Sonuç.** Sipariş geçmişi renk/beden bağlamını kalıcı korur; manipülasyona kapalı.
+
+## ADR-253 — Brand entity ownership (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Serbest-metin `Product.brand` yerine store-scoped `Brand` modeli (`storeId`, `name`, `slug`
+  `@@unique([storeId, slug])`, `description?`, `logoMediaId?`/`coverMediaId?` → `MediaAsset` SetNull,
+  `websiteUrl?`, `status BrandStatus (ACTIVE|ARCHIVED)`, `seoTitle?`, `seoDescription?`). **Arşivli marka yeni
+  ürüne bağlanamaz** (servis guard); marka silinmez, yalnız arşivlenir. `Store` silinince `Brand` CASCADE kalkar;
+  `MediaAsset` silinince marka SetNull ile görselsiz kalır (marka SİLİNMEZ). Legacy `Product.brand` (serbest
+  string) **DORMANT read-model** olarak KORUNUR — geriye-uyumlu eski okuyucular (ör. admin ürün LIST) kırılmaz;
+  yeni yazma yolu bu tablodan geçmez. Brand yönetimi `CATALOG` (core, her zaman açık) modülüyle gate'lenir —
+  `FASHION_VERTICAL`'a bağlı DEĞİL, tüm mağazalar kullanabilir.
+- **Sonuç.** Marka, denetlenebilir/tekilleştirilmiş bir varlık olur; SEO/logo/kapak/açıklama taşıyabilir;
+  geriye-uyum kırılmaz.
+
+## ADR-254 — Product↔Brand relation & legacy dual-read (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `Product.brandId String?` + relation **`governedBrand`** (`onDelete: SetNull`) — relation adı
+  bilinçli olarak `governedBrand` seçildi (mevcut skaler `brand String?` alan adıyla Prisma aynı modelde
+  çakışamayacağı için). `brandId` **otoriter FK**; ürün create/update `brandId` kabul eder, geçerliliği
+  store-scoped doğrulanır (cross-store/arşivli marka reddedilir). `brand` (legacy string) **transitional
+  dual-write** olarak `brand.name`'e set edilir — eski okuyucular kırılmadan yeni yazma yolu FK üzerinden akar.
+  Public DTO'lara (`buildPublicProduct`, arama `toPublicProduct`) **additive** `brandRef` alanı eklendi —
+  YALNIZ `status=ACTIVE` marka için doldurulur (arşivli marka → `brandRef: null`, 404 brand-sayfası davranışıyla
+  tutarlı); `loadPublicBrandMap` N+1-safe batch helper birden fazla uçta (catalog/search/home/discovery) reuse
+  edilir. `ProductSearchDocument`'a `brandId/brandSlug/brandName` denormalize edildi (mevcut `brand` string
+  kolonuyla birlikte YAŞAR; reindex ikisini bağımsız yazar) → PLP brand facet + `/markalar/[slug]` + "aynı marka"
+  benzer-ürün adayı taraması.
+- **Sonuç.** Marka ataması yapısal ve tenant-doğrulanmış; geriye-uyumlu geçiş — hiçbir eski okuma yolu kırılmaz.
+
+## ADR-255 — Store-scoped ürün taksonomileri, EAV opsiyonlarına dayalı (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Fashion sözlükleri (sezon/koleksiyon/materyal/kalıp/…) için iki katmanlı governance modeli:
+  1. **`ProductTaxonomyValue` governance OTORİTESİDİR** — mağaza-yönetilen ad/slug/sıralama/durum/metadata
+     burada tutulur.
+  2. **Store-scoped `AttributeOption` (1:1) ATAMA/facet KİMLİĞİDİR** — ürün ataması hâlâ mevcut EAV motorundan
+     (`ProductAttributeValue.optionId`) akar; PDP/PLP/facet/order-snapshot DEĞİŞMEDEN çalışır.
+  3. **Her mağaza taksonomi değeri KENDİ store-scoped opsiyonunu SAHİPLENİR** — global bir opsiyon iki mağaza
+     arasında ASLA paylaşılan governance kaydı olarak kullanılmaz (her `create` YENİ bir store-scoped
+     `AttributeOption` üretir, mevcut global/kanonik opsiyona LINK VERMEZ).
+  4. Mevcut global kanonik opsiyonlar (`storeId NULL`) **legacy/varsayılan okuma kaynağı** olarak kalır ama
+     PAYLAŞILAN governance kaydı DEĞİLDİR.
+  5. Governed opsiyonlar YALNIZ taxonomy servisinden mutasyona uğrar — generic `AttributeOption` endpoint'leri
+     (rename/archive/reorder/delete) governed bir opsiyonu hedeflerse **409 `ATTRIBUTE_OPTION_GOVERNED`** döner
+     (raw Prisma/FK hatası SIZMAZ).
+  6. `slug`/`value` create-sonrası **IMMUTABLE**.
+  7. Rename/arşiv/restore/reorder her biri **tek `$transaction`** içinde iki modeli de (governance +
+     backing option) mirror'lar.
+  8. Çok-kiracılı benzersizlik eski `@@unique([attributeDefinitionId, value])` yerine **iki PARTIAL unique
+     index** ile sağlanır — global `WHERE storeId IS NULL`, store `WHERE storeId IS NOT NULL` — sıfır veri
+     kaybıyla swap edildi (Prisma partial unique index ifade edemediğinden DB-only, schema'da açıklayıcı yorum).
+  9. Okuma önceliği **store-scoped governed > global canonical**, `value`'ya göre de-dupe (aynı kanonik değeri
+     mağaza governance'a aldıysa tek seçenek olarak görünür, global ikizi gizlenir).
+  10. Yeni atamalar HER ZAMAN store-scoped opsiyona yazar.
+  11. **Bootstrap otoritesi**: migration anında `FASHION_VERTICAL=ENABLED` olan mağazalar T14b backfill'i ile
+      doldurulur; sonradan enable edilen/yeni mağazalar runtime `ensureStoreTaxonomyDefaults`'la (DISABLED→ENABLED
+      geçişinde, **fail-closed**: bootstrap başarısız olursa capability sessizce "enabled" görünmez) doldurulur.
+      Migration ve runtime AYNI otoriteyi (`GOVERNED_TAXONOMY_CODES`) paylaşır — parity-test korumalı.
+  12. **Kanonik güncelleme politikası**: registry'ye yeni bir kanonik değer eklenince mevcut mağazalara ADDİTİF
+      olarak ulaşır; bir kanonik değerin rename/kaldırılması mağaza-yönetilen `ProductTaxonomyValue` satırlarını
+      ASLA overwrite/silme/arşivlemez — governance başladıktan sonra `ProductTaxonomyValue` otoriterdir.
+- **Sonuç.** EAV motoru tek atama/facet yolu olarak kalır; taksonomi yönetimi mağaza-bazlı, denetlenebilir ve
+  çok-kiracılı güvenli hale gelir; hiçbir paralel assignment sistemi kurulmaz.
+
+## ADR-256 — Kontrollü fashion sözlükleri & bootstrap provisioning (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Store Admin "Ürün Sözlükleri" ekranı governed tip başına sekme sunar: quick-create (ad girilir,
+  slug/opsiyon otomatik türetilir), arşivleme (silme değil — kullanımdaki değerler asla kaybolmaz), kullanım
+  sayısı (`usageCount`, üç EAV tablosu üzerinden batch groupBy) ile "Sil" YALNIZ kullanılmıyorsa aktif, reorder
+  (tip-başına tam-aktif-küme). PLATFORM governed `fashion.*` `AttributeDefinition` tanımları (11 adet) migration
+  `20260802120000_provision_platform_fashion_attribute_definitions` ile idempotent (NOT-EXISTS) sağlanır —
+  böylece `ensureStoreTaxonomyDefaults`/tanım-kodu çözümü HERHANGİ bir mağaza için çalışır (yalnız
+  enterprise-demo'ya bağımlı değil); fashion seed find-only hale geldi (find-or-create hack kaldırıldı).
+  `ensureStoreTaxonomyDefaults` yalnız TÜM governed tipler tanım eksikliğinden atlanırsa (`TAXONOMY_NOT_PROVISIONED`)
+  fırlatır (fail-closed-honest — kısmi eksiklik sessizce yutulmaz, T10b revert'i tetikler). Taxonomy list/
+  quick-create handler'larında idempotent bir **lazy safety-net** çağrısı da vardır — plan-seviyesi capability
+  enable (`PUT /admin/plans/:id/capabilities`) gibi eager bootstrap'i bypass edebilecek yollar için kendi-kendini
+  iyileştirir (plan-seviyesi eager bootstrap TODO-165A kapsamında YAPILMADI — bkz. `docs/TECHNICAL_DEBT.md`).
+- **Sonuç.** Mağaza kendi sözlüğünü güvenli sınırlar içinde yönetir; hangi mağaza olursa olsun governed
+  dictionary'ler PLATFORM tanımlarına bağımlı kalmadan çalışır.
+
+## ADR-257 — Size-chart atama UX'i & seçici endpoint (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Yeni `GET /stores/:storeId/size-charts/selector` (dual-mode: `?ids=` resolve + arama/sayfalama)
+  → `{id,name,sizeSystemKey,gender,measurementUnit,status,publishedRevisionId,revision,previewSummary}`.
+  `SizeChartService.resolveEffective` TEK precedence implementasyonu olarak PDP (`resolvePublishedSizeChart`)
+  ve store-admin arasında PAYLAŞILIR (kod tekrarı yok; PRODUCT>CATEGORY>STORE). Merkezi `AssignModal`'daki raw
+  category/product ID `<Input>`'ları searchable `EntitySelectorModal`'a taşındı (STORE scope kimlik gerektirmez;
+  PRODUCT scope arama/sayfalama/durumlu ürün seçici) — kullanıcı ASLA ID yazmaz. Ürün formuna `size-chart-step.tsx`
+  eklendi (bağla/değiştir/kaldır/önizle/oluştur, edit-mode), aynı selector desenini kullanır. Yalnız `PUBLISHED`
+  chart bağlanabilir (`SIZE_CHART_ASSIGN_NOT_PUBLISHED` 400 guard — bu akış geliştirilirken bulunan gerçek TODO-165
+  regresyonu, burada düzeltildi); ikinci bir ürün bağlaması ilkinin yerini alır (gerçek
+  `@@unique([storeId, scope, categoryId, productId])` ile hizalanan upsert-replace — bu da TODO-165'te bulunan
+  gerçek bir bug'ın düzeltmesidir).
+- **Sonuç.** Size-chart bağlama artık tamamen selector-tabanlı, tutarlı tek precedence motoruyla; iki gizli
+  TODO-165 regresyonu ortaya çıkarılıp kapatıldı.
+
+## ADR-258 — Ürün/Kategori/Marka/Beden-tablosu searchable selector'ları (TODO-165A)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Brand, ProductTaxonomy ve SizeChart seçim UX'leri **ADR-090** (TODO-159B Admin Selectors & Media)
+  desenini reuse eder: `?ids=` resolve modu + arama/sayfalama, YENİ bir seçici mimarisi KURULMAZ. Hiçbir ekranda
+  ham (raw) ID input alanı YOKTUR (grep ile doğrulandı — `dangerouslySetInnerHTML` de dahil sıfır bulgu, yeni
+  admin UI'da). `useBrandSelectorBinding` (mirror `catalog-sources.tsx`), taxonomy select-field + quick-create,
+  size-chart select-field — hepsi aynı ortak selector primitive/deseni üzerine kurulu.
+- **Sonuç.** Selector UX'i platform genelinde tek bir tutarlı desene sahip; yeni entity tipleri eklemek mevcut
+  deseni klonlamakla sınırlı, yeni bir seçici motoru gerektirmez.

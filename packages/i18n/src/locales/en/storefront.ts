@@ -297,6 +297,8 @@ export const enStorefront: StorefrontDictionary = {
     // Active filter chip
     chipSearchLabel: "Search",
     chipCategoryLabel: "Category",
+    // TODO-165A (ADR-165A) Task 21 — Brand chip label (dedicated `brand` filter; same pattern as category).
+    chipBrandLabel: "Brand",
     // {group} facet name, {value} value to remove.
     chipRemoveLabel: "Remove {group}: {value} filter",
   },
@@ -1277,5 +1279,23 @@ export const enStorefront: StorefrontDictionary = {
       emptyFilter: "No coupons match this filter.",
       emptyHint: "If you have a code, add it with “Add coupon code”.",
     },
+  },
+  // TODO-165A (ADR-165A) Task 18-20 — Brand directory (/markalar) + detail (/markalar/[slug]) pages.
+  brands: {
+    metaTitle: "Brands",
+    metaDescription: "Discover all the brands available in our store.",
+    breadcrumbHome: "Home",
+    breadcrumbBrands: "Brands",
+    heading: "Brands",
+    tagline: "Discover the brands available in our store.",
+    emptyTitle: "No brands yet",
+    emptyDescription: "Brands will be listed here once published.",
+    errorTitle: "Couldn't load brands",
+    errorDescription: "We can't reach the brand catalog right now. Please try again shortly.",
+    productCount: "{count} products",
+    viewProducts: "View products",
+    notFoundTitle: "Brand not found",
+    notFoundDescription: "This brand may have been removed. Browse all brands.",
+    backToBrands: "All brands",
   },
 };

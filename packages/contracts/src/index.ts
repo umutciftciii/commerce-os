@@ -6,6 +6,11 @@ import {
   isValidTrPhone,
   isValidIban,
 } from "./validators.js";
+// TODO-165A (ADR-165A) — governed taksonomi TIP/durum listeleri TEK OTORITE
+// `product-taxonomy.ts`'dendir; `productTaxonomyTypeSchema`/`productTaxonomyStatusSchema`
+// bu listelerden TUREtilir (hardcoded ikinci bir kopya TUTULMAZ — drift riski).
+import type { ProductTaxonomyType, ProductTaxonomyStatus } from "./product-taxonomy.js";
+import { PRODUCT_TAXONOMY_TYPES, PRODUCT_TAXONOMY_STATUSES } from "./product-taxonomy.js";
 
 const jsonRecordSchema = z.record(z.unknown());
 const slugSchema = z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -30,6 +35,11 @@ export * from "./validators.js";
 // yuzeyden re-export edilir; client component'ler zod sizmadan `@commerce-os/contracts/
 // size-systems` altpath'inden tuketebilir.
 export * from "./size-systems.js";
+
+// TODO-165A (ADR-165A) — typed Product Taxonomy registry (SAF, zod'suz). Ana yuzeyden
+// re-export edilir; client component'ler zod sizmadan `@commerce-os/contracts/
+// product-taxonomy` altpath'inden tuketebilir.
+export * from "./product-taxonomy.js";
 
 export const healthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),
@@ -640,6 +650,257 @@ export const productCategoryUpdateRequestSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-165A (ADR-165A) — Product Data Governance: Brand (Marka) sozlesmeleri.
+ *
+ * Product.brand (legacy serbest metin) DORMANT kalir; governed marka yazma yolu
+ * bu tablo + `Product.brandId` uzerindendir (bkz. productCreateRequestSchema/
+ * productUpdateRequestSchema `brandId` uzantisi asagida). logoUrl/coverUrl runtime'da
+ * logoMediaId/coverMediaId'den turetilir (ProductCategory imageId/imageUrl deseniyle
+ * ayni), ham medya id'leri edit modu icindir.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const brandStatusSchema = z.enum(["ACTIVE", "ARCHIVED"]);
+
+export const brandSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  name: z.string().min(1),
+  slug: slugSchema,
+  description: z.string().nullable(),
+  logoMediaId: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  coverMediaId: z.string().nullable(),
+  coverUrl: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  status: brandStatusSchema,
+  seoTitle: z.string().nullable(),
+  seoDescription: z.string().nullable(),
+  // Turetilmis (COUNT) — admin liste/detay siralama ve gosterim icin.
+  productCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type Brand = z.infer<typeof brandSchema>;
+
+export const brandListResponseSchema = z.object({
+  data: z.array(brandSchema),
+  pagination: adminListPaginationSchema,
+});
+export const brandResponseSchema = z.object({ data: brandSchema });
+export type BrandListResponse = z.infer<typeof brandListResponseSchema>;
+export type BrandResponse = z.infer<typeof brandResponseSchema>;
+
+export const brandCreateRequestSchema = z.object({
+  name: z.string().min(1).max(160),
+  slug: slugSchema.optional(),
+  description: z.string().max(2000).nullable().optional(),
+  logoMediaId: z.string().min(1).nullable().optional(),
+  coverMediaId: z.string().min(1).nullable().optional(),
+  websiteUrl: z.string().max(500).nullable().optional(),
+  status: brandStatusSchema.default("ACTIVE"),
+  seoTitle: z.string().max(160).nullable().optional(),
+  seoDescription: z.string().max(320).nullable().optional(),
+});
+export type BrandCreateRequest = z.infer<typeof brandCreateRequestSchema>;
+
+export const brandUpdateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(160).optional(),
+    slug: slugSchema.optional(),
+    description: z.string().max(2000).nullable().optional(),
+    logoMediaId: z.string().min(1).nullable().optional(),
+    coverMediaId: z.string().min(1).nullable().optional(),
+    websiteUrl: z.string().max(500).nullable().optional(),
+    status: brandStatusSchema.optional(),
+    seoTitle: z.string().max(160).nullable().optional(),
+    seoDescription: z.string().max(320).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+export type BrandUpdateRequest = z.infer<typeof brandUpdateRequestSchema>;
+
+/** TODO-159A (ADR-089) — Marka liste query sozlesmesi. */
+export const adminBrandListSortBySchema = z.enum(["name", "createdAt", "productCount"]);
+
+export const adminBrandListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: adminBrandListSortBySchema.optional(),
+  status: brandStatusSchema.optional(),
+});
+export type AdminBrandListSortBy = z.infer<typeof adminBrandListSortBySchema>;
+export type AdminBrandListQuery = z.infer<typeof adminBrandListQuerySchema>;
+
+/** TODO-159B (ADR-090) — Marka SECICI sozlesmesi (dual `?ids=` modu, bkz. adminSelectorQueryBaseSchema). */
+export const adminBrandSelectorSortBySchema = z.enum(["name", "createdAt"]);
+
+export const adminBrandSelectorQuerySchema = adminSelectorQueryBaseSchema.extend({
+  sortBy: adminBrandSelectorSortBySchema.optional(),
+  status: brandStatusSchema.optional(),
+});
+
+export const adminBrandSelectorOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  slug: slugSchema,
+  status: brandStatusSchema,
+  logoUrl: z.string().nullable(),
+});
+
+export const adminBrandSelectorResponseSchema = z.object({
+  data: z.array(adminBrandSelectorOptionSchema),
+  pagination: adminListPaginationSchema,
+});
+export type AdminBrandSelectorSortBy = z.infer<typeof adminBrandSelectorSortBySchema>;
+export type AdminBrandSelectorQuery = z.infer<typeof adminBrandSelectorQuerySchema>;
+export type AdminBrandSelectorOption = z.infer<typeof adminBrandSelectorOptionSchema>;
+export type AdminBrandSelectorResponse = z.infer<typeof adminBrandSelectorResponseSchema>;
+
+/** Public (storefront) — PLP/PDP marka projeksiyonu (kart/rozet icin asgari alan). */
+export const publicBrandSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  slug: slugSchema,
+  logoUrl: z.string().nullable(),
+  description: z.string().nullable(),
+});
+export type PublicBrandSummary = z.infer<typeof publicBrandSummarySchema>;
+
+/** Public (storefront) — marka vitrin sayfasi projeksiyonu (ozet + kapak/SEO/urun sayisi). */
+export const publicBrandDetailSchema = publicBrandSummarySchema.extend({
+  coverUrl: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  seoTitle: z.string().nullable(),
+  seoDescription: z.string().nullable(),
+  productCount: z.number().int().nonnegative(),
+});
+export type PublicBrandDetail = z.infer<typeof publicBrandDetailSchema>;
+
+/** TODO-165A (Task 11) — `GET /public/stores/:slug/brands` govdesi (ACTIVE + >=1 gorunur urunlu markalar). */
+export const publicBrandListResponseSchema = z.object({
+  data: z.array(publicBrandSummarySchema),
+});
+export type PublicBrandListResponse = z.infer<typeof publicBrandListResponseSchema>;
+
+/** TODO-165A (Task 11) — `GET /public/stores/:slug/brands/:brandSlug` govdesi. */
+export const publicBrandDetailResponseSchema = z.object({
+  data: publicBrandDetailSchema,
+});
+export type PublicBrandDetailResponse = z.infer<typeof publicBrandDetailResponseSchema>;
+
+/**
+ * TODO-165A (ADR-165A) Task 15/16 gap — `GET /:brandId/products` COUNT-ONLY'den GERÇEK
+ * (sayfalanmış) ürün listesine YÜKSELTİLDİ. Admin "Bağlı ürünler" modalının minimal
+ * projeksiyonu: `sku` TEK örnek varyanttan (ilk/en eski) gelir — çok varyantlı üründe
+ * ADR-090 seçici deseniyle AYNI TERCİH: modal "hangi ürün bu?" sorusuna yanıt verir,
+ * varyant listesi taşımaz. `imageUrl` kapak görselinin türetilmiş public URL'idir;
+ * storageKey ASLA taşınmaz (ProductCategory/Brand imageUrl deseniyle aynı tek-çıkış).
+ */
+export const brandProductRowSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  status: productStatusSchema,
+  sku: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+});
+export type BrandProductRow = z.infer<typeof brandProductRowSchema>;
+
+export const brandProductsResponseSchema = z.object({
+  data: z.array(brandProductRowSchema),
+  pagination: adminListPaginationSchema,
+});
+export type BrandProductsResponse = z.infer<typeof brandProductsResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-165A (ADR-165A) — Product Data Governance: ProductTaxonomyValue sozlesmeleri.
+ *
+ * Governed taksonomi degeri (ör. Malzeme=Pamuk, Sezon=Yaz) — her deger TAM OLARAK bir
+ * AttributeOption'i "destekler" (governance sunum katmani; EAV deger secimi hala
+ * AttributeOption uzerinden akar, KIRILMAZ). `type` yalniz `ProductTaxonomyType`
+ * (product-taxonomy.ts) uyeleriyle sinirlidir — tip registry'nin `fashion.*`
+ * definitionCode'una baglidir (bkz. TAXONOMY_TYPE_REGISTRY).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const productTaxonomyTypeSchema = z.enum(
+  PRODUCT_TAXONOMY_TYPES as [ProductTaxonomyType, ...ProductTaxonomyType[]],
+);
+export type ProductTaxonomyTypeContract = z.infer<typeof productTaxonomyTypeSchema>;
+
+export const productTaxonomyStatusSchema = z.enum(
+  PRODUCT_TAXONOMY_STATUSES as [ProductTaxonomyStatus, ...ProductTaxonomyStatus[]],
+);
+export type ProductTaxonomyStatusContract = z.infer<typeof productTaxonomyStatusSchema>;
+
+export const productTaxonomyValueSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  type: productTaxonomyTypeSchema,
+  name: z.string().min(1),
+  slug: slugSchema,
+  status: productTaxonomyStatusSchema,
+  displayOrder: z.number().int(),
+  metadata: jsonRecordSchema,
+  parentId: z.string().min(1).nullable(),
+  attributeOptionId: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  /**
+   * Task 24 (store-admin "Ürün Sözlükleri" ekranı) — kaç ürün/varyant ataması bu değeri
+   * (destekledigi AttributeOption'i) kullanıyor. `TaxonomyService.usageCount`/`usageCountForOptions`
+   * ile birebir (ProductAttributeValue + ProductAttributeValueOption + VariantAttributeValue
+   * toplamı) — silme öncesi UI uyarısı + "kullanımda" rozeti için. Additive (yeni alan).
+   */
+  usageCount: z.number().int().min(0),
+});
+export type ProductTaxonomyValue = z.infer<typeof productTaxonomyValueSchema>;
+
+export const productTaxonomyListResponseSchema = z.object({
+  data: z.array(productTaxonomyValueSchema),
+  pagination: adminListPaginationSchema,
+});
+export const productTaxonomyResponseSchema = z.object({ data: productTaxonomyValueSchema });
+export type ProductTaxonomyListResponse = z.infer<typeof productTaxonomyListResponseSchema>;
+export type ProductTaxonomyResponse = z.infer<typeof productTaxonomyResponseSchema>;
+
+export const productTaxonomyCreateRequestSchema = z.object({
+  type: productTaxonomyTypeSchema,
+  name: z.string().min(1).max(160),
+  parentId: z.string().min(1).nullable().optional(),
+  metadata: jsonRecordSchema.optional(),
+});
+export type ProductTaxonomyCreateRequest = z.infer<typeof productTaxonomyCreateRequestSchema>;
+
+export const productTaxonomyUpdateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(160).optional(),
+    status: productTaxonomyStatusSchema.optional(),
+    displayOrder: z.number().int().optional(),
+    metadata: jsonRecordSchema.optional(),
+    parentId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required.",
+  });
+export type ProductTaxonomyUpdateRequest = z.infer<typeof productTaxonomyUpdateRequestSchema>;
+
+/**
+ * Merchandising surukle-birak sirasi — bir tip icindeki TAM sirali id kumesi.
+ * `type` (Task 10, ADR-165A) — reorder ucu `orderedIds`'in HANGI tip icin verildigini
+ * bilmeden "bu store'daki tum ACTIVE degerleri kapsiyor mu" kontrolunu yapamaz; route
+ * bu alanla store+type icin ACTIVE tam kume kontrolu yapar (kismi kume → 400).
+ */
+export const productTaxonomyReorderRequestSchema = z.object({
+  type: productTaxonomyTypeSchema,
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+export type ProductTaxonomyReorderRequest = z.infer<typeof productTaxonomyReorderRequestSchema>;
+
+export const productTaxonomyQuerySchema = adminListQueryBaseSchema.extend({
+  type: productTaxonomyTypeSchema.optional(),
+  status: productTaxonomyStatusSchema.optional(),
+});
+export type ProductTaxonomyQuery = z.infer<typeof productTaxonomyQuerySchema>;
 
 // ─────────────────────── Faz 1B (ADR-067) — Attribute katalog cekirdegi ───────────────────────
 // Kategoriye-bagli dinamik urun ozelliklerinin KATALOG kontratlari. Yalniz TANIM
@@ -1960,6 +2221,17 @@ export const productSchema = z.object({
   type: productTypeSchema,
   vendor: z.string().nullable(),
   brand: z.string().nullable(),
+  // TODO-165A (ADR-165A) Task 17 — governed marka FK (Task 7'de kabul edilen `brandId`
+  // GET/detail cikisinda eksikti; edit formu bu yuzden secili markayi ON-SECEMIYORDU).
+  // `brand` (yukarida) legacy serbest-metin alanidir ve DEGISMEDEN kalir.
+  brandId: z.string().nullable().default(null),
+  // Kucuk marka OZETI (id/name/slug) — edit formu ayrica marka kaydini FETCH ETMEDEN
+  // secili chip'i gosterebilsin diye. Public projeksiyondaki `brandRef` deseniyle
+  // isim/sekil tutarlidir (bkz. publicProductSchema). null = markasiz veya governed FK yok.
+  brandRef: z
+    .object({ id: z.string().min(1), name: z.string().min(1), slug: slugSchema })
+    .nullable()
+    .default(null),
   seoTitle: z.string().nullable(),
   seoDescription: z.string().nullable(),
   salesMode: productSalesModeSchema,
@@ -2162,6 +2434,10 @@ export const productCreateRequestSchema = z
     type: productTypeSchema.default("PHYSICAL"),
     vendor: z.string().max(120).nullable().optional(),
     brand: z.string().max(120).nullable().optional(),
+    // TODO-165A (ADR-165A) — governed marka FK. `brand` (serbest metin) DORMANT kalir;
+    // undefined = dokunma, null = markasiz. Cross-tenant/mevcutluk dogrulamasi route
+    // katmaninda (Brand seciciyle ayni gecerlilik kurali).
+    brandId: z.string().min(1).nullable().optional(),
     seoTitle: z.string().max(160).nullable().optional(),
     seoDescription: z.string().max(320).nullable().optional(),
     salesMode: productSalesModeSchema.default("ONLINE"),
@@ -2223,6 +2499,9 @@ export const productUpdateRequestSchema = z
     type: productTypeSchema.optional(),
     vendor: z.string().max(120).nullable().optional(),
     brand: z.string().max(120).nullable().optional(),
+    // TODO-165A (ADR-165A) — governed marka FK. undefined = dokunma; null = markayi
+    // kaldir. Cross-tenant/mevcutluk dogrulamasi route katmaninda.
+    brandId: z.string().min(1).nullable().optional(),
     seoTitle: z.string().max(160).nullable().optional(),
     seoDescription: z.string().max(320).nullable().optional(),
     salesMode: productSalesModeSchema.optional(),
@@ -2697,6 +2976,12 @@ export const publicProductSchema = z.object({
   slug: slugSchema,
   title: z.string().min(1),
   brand: z.string().nullable(),
+  /**
+   * TODO-165A (ADR-165A) Task 11 — Governed marka ENTITY projeksiyonu (ADDITIVE; legacy `brand`
+   * serbest-metin alanı YUKARIDA DEĞİŞMEDEN KALIR). Yalnız `product.brandId` set edilmişse dolu;
+   * aksi halde null. `/markalar/[slug]` bağlantısı + marka rozeti/logosu için (linking projection).
+   */
+  brandRef: publicBrandSummarySchema.nullable().default(null),
   categoryLabel: z.string().nullable(),
   salesMode: productSalesModeSchema,
   priceVisibility: productPriceVisibilitySchema,
@@ -2859,6 +3144,12 @@ export const publicSearchProductSchema = z.object({
   slug: slugSchema,
   title: z.string().min(1),
   brand: z.string().nullable(),
+  /**
+   * TODO-165A (ADR-165A) Task 11 — Governed marka ENTITY projeksiyonu (ADDITIVE; legacy `brand`
+   * serbest-metin alanı YUKARIDA DEĞİŞMEDEN KALIR). Yalnız read-model'de brandId set edilmişse
+   * dolu (bounded lookup ile hidratlanır); aksi halde null.
+   */
+  brandRef: publicBrandSummarySchema.nullable().default(null),
   categoryLabel: z.string().nullable(),
   minPriceMinor: z.number().int().nullable(),
   maxPriceMinor: z.number().int().nullable(),
@@ -10513,3 +10804,84 @@ export type SizeChartCreateRequest = z.infer<typeof sizeChartCreateRequestSchema
 export type SizeChartUpdateRequest = z.infer<typeof sizeChartUpdateRequestSchema>;
 export type SizeChartAssignRequest = z.infer<typeof sizeChartAssignRequestSchema>;
 export type PublicSizeChart = z.infer<typeof publicSizeChartSchema>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-165A (ADR-165A) — Beden Tablosu (SizeChart) SECICI sozlesmesi.
+ *
+ * TODO-159B (ADR-090) desenini mirror'lar (dual `?ids=` modu, bkz.
+ * adminSelectorQueryBaseSchema). Secici satiri tablonun TAMAMINI degil, urun formunda
+ * "beden tablosu ata" adiminin ihtiyac duydugu asgari projeksiyonu tasir: `revision`
+ * en-guncel taslak/yayin revizyon sayisi, `previewSummary` sunucuda uretilen kisa
+ * ozet metindir (ör. sutun x satir sayisi) — tam tablo govdesi secicide DONMEZ.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const adminSizeChartSelectorSortBySchema = z.enum(["name", "createdAt"]);
+
+export const adminSizeChartSelectorQuerySchema = adminSelectorQueryBaseSchema.extend({
+  sortBy: adminSizeChartSelectorSortBySchema.optional(),
+  status: sizeChartStatusSchema.optional(),
+});
+
+export const adminSizeChartSelectorOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  sizeSystemKey: z.string().min(1),
+  gender: z.string().max(40).nullable(),
+  measurementUnit: z.string().max(12),
+  status: sizeChartStatusSchema,
+  revision: z.number().int().nonnegative(),
+  publishedRevisionId: z.string().nullable(),
+  previewSummary: z.string(),
+});
+
+export const adminSizeChartSelectorResponseSchema = z.object({
+  data: z.array(adminSizeChartSelectorOptionSchema),
+  pagination: adminListPaginationSchema,
+});
+
+export type AdminSizeChartSelectorSortBy = z.infer<typeof adminSizeChartSelectorSortBySchema>;
+export type AdminSizeChartSelectorQuery = z.infer<typeof adminSizeChartSelectorQuerySchema>;
+export type AdminSizeChartSelectorOption = z.infer<typeof adminSizeChartSelectorOptionSchema>;
+export type AdminSizeChartSelectorResponse = z.infer<typeof adminSizeChartSelectorResponseSchema>;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * TODO-165A Tasks 25/26 — Bir ürünün GÜNCEL beden tablosu bağlantısını gösteren
+ * hafif okuma ucu (`GET /stores/:storeId/products/:productId/size-chart-assignment`).
+ *
+ * İki ayrı bilgi taşır: `productAssignment` (yalnız bu ürüne PRODUCT-scope doğrudan
+ * bağlıysa dolu) ve `effective` (PRODUCT>CATEGORY>STORE önceliğiyle ÇÖZÜLMÜŞ, sunucu
+ * `resolvePublishedSizeChart` ile AYNI mantığı kullanır — paralel bir çözümleme
+ * YAZILMAZ). Ürün formu "bağlı: X (ürün)" veya "kategori/mağaza varsayılanı: Y"
+ * ayrımını `effective.scope` ile kurar; kaldırma `productAssignment.assignmentId`
+ * üzerinden MEVCUT `DELETE .../assignments/:assignmentId` ucuna gider (paralel
+ * bir kaldırma ucu YOK).
+ * ──────────────────────────────────────────────────────────────────────────── */
+export const productSizeChartAssignmentSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sizeSystemKey: z.string(),
+  measurementUnit: z.string(),
+  gender: z.string().max(40).nullable(),
+  status: sizeChartStatusSchema,
+  publishedRevisionId: z.string().nullable(),
+});
+export const productSizeChartAssignmentSchema = z.object({
+  productAssignment: z
+    .object({
+      assignmentId: z.string(),
+      chart: productSizeChartAssignmentSummarySchema,
+    })
+    .nullable(),
+  effective: z
+    .object({
+      scope: sizeChartScopeSchema,
+      chart: productSizeChartAssignmentSummarySchema,
+    })
+    .nullable(),
+});
+export const productSizeChartAssignmentResponseSchema = z.object({
+  data: productSizeChartAssignmentSchema,
+});
+export type ProductSizeChartAssignmentSummary = z.infer<typeof productSizeChartAssignmentSummarySchema>;
+export type ProductSizeChartAssignment = z.infer<typeof productSizeChartAssignmentSchema>;
+export type ProductSizeChartAssignmentResponse = z.infer<typeof productSizeChartAssignmentResponseSchema>;

@@ -2455,3 +2455,35 @@ upgrade + full-screen preview; (3) logo/favicon tek otorite = StoreSettings.
   responsive 375px (taşma yok).
 - **Gate:** api-gateway **1893** test · contracts **130** · build+lint+diff-check temiz.
 - **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Implementasyon+smoke tamam → **commit'e HAZIR**.
+
+### TODO-165A — Product Data Governance & Editing UX Recovery (IMPLEMENTED — uçtan uca GERÇEK browser+DB smoke geçti, commit YOK)
+
+**ADR-253…258.** Analiz: `docs/analysis/TODO-165A-product-data-governance.md`. TODO-165'in serbest-metin
+`Product.brand`'ini + sabit-kod fashion sözlüklerini store-yönetilebilir governance'a taşır; size-chart
+bağlamayı raw-ID input'tan searchable selector'a geçirir. Mevcut EAV/capability/size-chart/tenant/selector
+(ADR-090) REUSE — paralel sistem yok.
+
+- **Brand:** store-scoped `Brand` modeli + `Product.brandId` (relation `governedBrand`); legacy `brand` string
+  DORMANT dual-write; public DTO additive `brandRef` (ACTIVE-only); search read-model brand denormalize →
+  PLP facet + `/markalar/[slug]`. `CATALOG` (core) gate — tüm mağazalar. Store-admin "Markalar" modülü.
+- **Fashion taksonomileri:** `ProductTaxonomyValue` (governance otoritesi) ↔ store-scoped `AttributeOption`
+  (1:1, atama/facet kimliği); her mağaza kendi opsiyonunu sahiplenir; governed opsiyon mutasyonu yalnız
+  taxonomy servisinden (409 `ATTRIBUTE_OPTION_GOVERNED`); iki partial unique index (global/store); okuma
+  önceliği store-scoped>global. `FASHION_VERTICAL` gate. Store-admin "Ürün Sözlükleri" (tip-sekme, quick-create/
+  arşiv/usageCount/reorder) + ürün formu taxonomy-backed searchable select+quick-add.
+- **Bootstrap:** migration-time backfill (`20260801130000`,`20260801140000`) + PLATFORM fashion-definition
+  provisioning (`20260802120000`, 11 tanım, idempotent, mağaza-bağımsız) + runtime
+  `ensureStoreTaxonomyDefaults` DISABLED→ENABLED'de fail-closed + lazy safety-net (list/quick-create).
+- **Size-chart selector:** yeni `GET .../size-charts/selector` (dual-mode); `resolveEffective` TEK precedence
+  (PDP+admin paylaşır); merkezi `AssignModal`+ürün formu raw ID → `EntitySelectorModal`. **TODO-165'te bulunan
+  2 gerçek bug düzeltildi:** `assign()` PUBLISHED-guard eksikti (`SIZE_CHART_ASSIGN_NOT_PUBLISHED` eklendi);
+  `upsertAssignment` yanlış anahtarla (sizeChartId dahil) lookup yapıyordu (gerçek `@@unique`'e göre düzeltildi
+  → ikinci ürün bağlaması ilkinin yerini alır).
+- **Selector'lar:** Brand/Category/Product/Size-chart hepsi ADR-090 desenini reuse eder (`?ids=`+arama); raw ID
+  input hiçbir ekranda yok (grep-clean).
+- **Gate (tam, GREEN):** `db:generate`+build **27/27** · `tsc --noEmit` **exit 0** · test **3320/3320** ·
+  `migrate status` **74** · `git diff --check` temiz · search reindex **430/430**.
+- **Gerçek browser smoke (izole stack, GERÇEK DB):** `/markalar` dizini · brand facet canlı · Brands admin
+  liste+create · Ürün Sözlükleri tab+usageCount+reorder · ürün formu Fashion Özellikleri round-trip+quick-add ·
+  merkezi size-chart AssignModal (raw ID YOK) · responsive 375px.
+- **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.

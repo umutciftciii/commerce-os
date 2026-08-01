@@ -140,12 +140,38 @@ describe("demo-store izolasyonu", () => {
   it("tüm satırlar STORE_ID scope'unda + edm- önekli id", () => {
     const scoped = [
       ...ds.categories, ...ds.products, ...ds.variants, ...ds.attributes.definitions,
-      ...ds.warehouses, ...ds.inventoryItems, ...ds.campaigns,
+      ...ds.warehouses, ...ds.inventoryItems, ...ds.campaigns, ...ds.brands,
     ];
     for (const row of scoped) {
       expect(row.storeId).toEqual(STORE_ID);
       expect(String(row.id).startsWith("edm-")).toBe(true);
     }
+  });
+});
+
+describe("markalar (Task 27 — gerçek Brand satırları + product.brandId)", () => {
+  it("BRANDS havuzundaki her marka için tam olarak bir Brand satırı üretilir", () => {
+    expect(ds.brands.length).toBeGreaterThanOrEqual(50);
+  });
+  it("marka slug benzersiz", () => {
+    const slugs = ds.brands.map((b: any) => b.slug);
+    expect(new Set(slugs).size).toEqual(slugs.length);
+  });
+  it("her ürünün brandId'si mevcut bir Brand'e işaret eder", () => {
+    const brandIds = new Set(ds.brands.map((b: any) => b.id));
+    for (const p of ds.products) {
+      expect(p.brandId).toBeTruthy();
+      expect(brandIds.has(p.brandId)).toBe(true);
+    }
+  });
+  it("legacy `brand` string, bağlı Brand.name ile dual-write tutarlı", () => {
+    const nameById = new Map(ds.brands.map((b: any) => [b.id, b.name]));
+    for (const p of ds.products) {
+      expect(p.brand).toEqual(nameById.get(p.brandId));
+    }
+  });
+  it("idempotency: aynı tohum → birebir aynı brands dizisi", () => {
+    expect(JSON.stringify(generateDataset().brands)).toEqual(JSON.stringify(ds.brands));
   });
 });
 

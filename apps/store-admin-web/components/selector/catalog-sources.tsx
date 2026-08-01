@@ -15,8 +15,10 @@
 
 import { useMemo } from "react";
 import type {
+  AdminBrandSelectorOption,
   AdminCategorySelectorOption,
   AdminProductSelectorOption,
+  AdminSizeChartSelectorOption,
 } from "@commerce-os/api-client";
 import { getDictionary, format, type Locale } from "@commerce-os/i18n";
 import { Badge } from "../ui";
@@ -223,5 +225,139 @@ export function useCategorySelectorBinding(
     };
     // Bağımlılık BİLİNÇLİ olarak içerikten türetilmiş anahtardır (idsKey /
     // extraKey): çağıran her render'da yeni dizi/nesne üretse bile efekt tekrarlanmaz.
+  }, [locale, extraKey]);
+}
+
+export interface BrandSelectorBinding {
+  source: SelectorSource<AdminBrandSelectorOption>;
+  presenter: SelectorPresenter<AdminBrandSelectorOption>;
+  labels: EntitySelectorLabels;
+  title: string;
+  description: string;
+}
+
+/**
+ * TODO-165A (ADR-165A) Task 17 — Marka seçici bağlaması (ürün formu). Kategori
+ * seçicisiyle AYNI desen (ADR-090); satırın birincil metni marka adı, ikincil
+ * metin kısa addır (slug). Arşivli marka durum rozeti taşır (ACTIVE sessiz kalır).
+ */
+export function useBrandSelectorBinding(
+  locale: Locale,
+  extraQuery?: Record<string, string | number | undefined>,
+): BrandSelectorBinding {
+  const dict = getDictionary(locale).storeAdmin;
+  const extraKey = JSON.stringify(extraQuery ?? {});
+
+  return useMemo(() => {
+    const extra = JSON.parse(extraKey) as Record<string, string | number | undefined>;
+    const b = dict.selector.brand;
+    return {
+      title: b.title,
+      description: b.description,
+      labels: buildSelectorLabels(dict, {
+        searchPlaceholder: b.searchPlaceholder,
+        listLabel: b.listLabel,
+      }),
+      source: {
+        keyOf: (item) => item.id,
+        fetchPage: async ({ search, page, pageSize }) => {
+          const result = await storeApi.listBrandSelector({
+            ...extra,
+            page,
+            pageSize,
+            search: search || undefined,
+          });
+          return { data: result.data, pagination: result.pagination };
+        },
+        // Çözüm modu: `ids` verildiğinde uç arama/sayfalama uygulamaz.
+        resolveByIds: async (ids) => {
+          const result = await storeApi.listBrandSelector({ ids: ids.join(",") });
+          return result.data;
+        },
+      },
+      presenter: {
+        primaryText: (item) => item.name,
+        secondaryText: (item) => item.slug,
+        imageUrl: (item) => item.logoUrl,
+        meta: (item) =>
+          item.status === "ACTIVE" ? null : (
+            <Badge tone="neutral">{b.statusLabels[item.status] ?? item.status}</Badge>
+          ),
+      },
+    };
+    // Bağımlılık BİLİNÇLİ olarak içerikten türetilmiş anahtardır (extraKey):
+    // çağıran her render'da yeni nesne üretse bile efekt tekrarlanmaz.
+  }, [locale, extraKey]);
+}
+
+export interface SizeChartSelectorBinding {
+  source: SelectorSource<AdminSizeChartSelectorOption>;
+  presenter: SelectorPresenter<AdminSizeChartSelectorOption>;
+  labels: EntitySelectorLabels;
+  title: string;
+  description: string;
+}
+
+const SIZE_CHART_STATUS_TONES = {
+  DRAFT: "warning",
+  PUBLISHED: "success",
+  ARCHIVED: "neutral",
+} as const;
+
+/**
+ * TODO-165A Tasks 25/26 — Beden tablosu seçici bağlaması (ürün formu). Kategori/marka
+ * seçicileriyle AYNI desen (ADR-090). Ürün formu binding'i `extraQuery: { status:
+ * "PUBLISHED" }` ile daraltır (yalnız yayınlanmış tablolar seçilebilir — DRAFT/ARCHIVED
+ * bağlanamaz, bkz. §9); ikinci bir filtre yazılmaz.
+ */
+export function useSizeChartSelectorBinding(
+  locale: Locale,
+  extraQuery?: Record<string, string | number | undefined>,
+): SizeChartSelectorBinding {
+  const dict = getDictionary(locale).storeAdmin;
+  const extraKey = JSON.stringify(extraQuery ?? {});
+
+  return useMemo(() => {
+    const extra = JSON.parse(extraKey) as Record<string, string | number | undefined>;
+    const sc = dict.selector.sizeChart;
+    return {
+      title: sc.title,
+      description: sc.description,
+      labels: buildSelectorLabels(dict, {
+        searchPlaceholder: sc.searchPlaceholder,
+        listLabel: sc.listLabel,
+      }),
+      source: {
+        keyOf: (item) => item.id,
+        fetchPage: async ({ search, page, pageSize }) => {
+          const result = await storeApi.listSizeChartSelector({
+            ...extra,
+            page,
+            pageSize,
+            search: search || undefined,
+          });
+          return { data: result.data, pagination: result.pagination };
+        },
+        resolveByIds: async (ids) => {
+          const result = await storeApi.listSizeChartSelector({ ids: ids.join(",") });
+          return result.data;
+        },
+      },
+      presenter: {
+        primaryText: (item) => item.name,
+        secondaryText: (item) =>
+          [item.sizeSystemKey, item.gender].filter((part): part is string => Boolean(part)).join(" · "),
+        meta: (item) => (
+          <>
+            <span className="text-white/40">{item.previewSummary}</span>
+            {item.status === "PUBLISHED" ? null : (
+              <Badge tone={SIZE_CHART_STATUS_TONES[item.status]}>{item.status}</Badge>
+            )}
+          </>
+        ),
+      },
+    };
+    // Bağımlılık BİLİNÇLİ olarak içerikten türetilmiş anahtardır (extraKey):
+    // çağıran her render'da yeni nesne üretse bile efekt tekrarlanmaz.
   }, [locale, extraKey]);
 }

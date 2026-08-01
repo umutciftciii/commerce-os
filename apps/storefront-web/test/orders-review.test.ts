@@ -26,7 +26,11 @@ function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSumm
     createdAt: "2026-07-01T00:00:00.000Z",
     shipmentStatus: null,
     lines: [
-      { variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null },
+      {
+          variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
     ],
     ...overrides,
   };
@@ -123,8 +127,16 @@ describe("resolveOrderReview", () => {
   it("birden fazla ürün → birden fazla yorumlanabilir kalem", () => {
     const multi = order({
       lines: [
-        { variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null },
-        { variantId: "v2", productSlug: "kulaklik", sku: "KL-1", title: "Kulaklık", variantTitle: "Siyah", quantity: 1, imageUrl: null },
+        {
+          variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
+        {
+          variantId: "v2", productSlug: "kulaklik", sku: "KL-1", title: "Kulaklık", variantTitle: "Siyah", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
       ],
     });
     const state = resolveOrderReview(multi, [
@@ -138,8 +150,16 @@ describe("resolveOrderReview", () => {
   it("çok ürün: bir kalem yazılabilir + biri yorumlanmış → ikisi ayrı gösterilir", () => {
     const multi = order({
       lines: [
-        { variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null },
-        { variantId: "v2", productSlug: "kulaklik", sku: "KL-1", title: "Kulaklık", variantTitle: "Siyah", quantity: 1, imageUrl: null },
+        {
+          variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
+        {
+          variantId: "v2", productSlug: "kulaklik", sku: "KL-1", title: "Kulaklık", variantTitle: "Siyah", quantity: 1, imageUrl: null,
+          selectedColor: null, selectedColorHex: null, selectedSize: null, sizeSystem: null,
+          swatchLabel: null, materialSummary: null, variantDisplayName: null,
+        },
       ],
     });
     const state = resolveOrderReview(

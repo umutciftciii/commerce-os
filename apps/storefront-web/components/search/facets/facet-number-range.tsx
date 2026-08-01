@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { buildSearchHref, setFilterRange } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 import type { FacetRendererProps } from "./types";
 
 /**
@@ -24,6 +24,7 @@ export function FacetNumberRange(props: FacetRendererProps) {
 function RangeForm({ facet, state, t }: FacetRendererProps) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const range = facet.range;
   const [min, setMin] = useState(range?.selectedMin != null ? String(range.selectedMin) : "");
   const [max, setMax] = useState(range?.selectedMax != null ? String(range.selectedMax) : "");
@@ -35,7 +36,7 @@ function RangeForm({ facet, state, t }: FacetRendererProps) {
     event.preventDefault();
     const parsedMin = toInt(min);
     const parsedMax = toInt(max);
-    navigate(buildSearchHref(setFilterRange(state, facet.code, parsedMin, parsedMax)), { replace: true });
+    navigate(buildSearchHref(setFilterRange(state, facet.code, parsedMin, parsedMax), basePath), { replace: true });
   };
 
   const unit = facet.unit ? ` (${facet.unit})` : "";

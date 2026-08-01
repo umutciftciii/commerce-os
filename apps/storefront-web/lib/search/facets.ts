@@ -16,6 +16,8 @@ import {
   buildSearchHref,
   removeFilter,
   removeFilterValue,
+  toggleFilterValue,
+  withBrand,
   withCategory,
   withInStock,
   withPrice,
@@ -25,6 +27,18 @@ import {
 
 /** Registry anahtarı: facet'in görsel render türü (selectionMode + dataType/code'dan türetilir). */
 export type FacetKind = "checkbox" | "color" | "size" | "boolean" | "range" | "date";
+
+/**
+ * TODO-165A (ADR-165A) Task 21 — Sentezlenmiş marka facet'inin (Task 11) SABİT kodu.
+ *
+ * `category` gibi marka da DEDICATED bir `SearchState.brand` alanıdır (attribute filtre sistemine
+ * GİRMEZ — bkz. url-state.ts). Ancak `category`'den farklı olarak marka backend `facets` dizisinde
+ * SIRADAN bir MULTI facet gibi GÖRÜNÜR (search-query.ts `synthesizeBrandFacet`) çünkü checkbox listesi
+ * + disjunctive count sunumunu paylaşır. Bu sabit, o iki dünyayı (dedicated alan ↔ jenerik facet UI)
+ * TEK yerde dikiyor: `facetActiveCount`, `deriveActiveChips` ve renderer (`facet-value-list.tsx`) BUNU
+ * kullanır — literal "brand" karşılaştırması dağılmaz.
+ */
+export const BRAND_FACET_CODE = "brand";
 
 /**
  * (selectionMode, dataType, code) → tek render-türü. Backend kontratı:
@@ -53,13 +67,33 @@ export function resolveFacetKind(
   }
 }
 
-/** Bir facet'te URL'de kaç aktif seçim var (rail başlık rozeti). */
+/** Bir facet'te URL'de kaç aktif seçim var (rail başlık rozeti). Marka: DEDICATED `state.brand`'den. */
 export function facetActiveCount(facet: PublicSearchFacet, state: SearchState): number {
+  if (facet.code === BRAND_FACET_CODE) return state.brand !== null ? 1 : 0;
   const filter = state.filters[facet.code];
   if (!filter) return 0;
   if (filter.kind === "values") return filter.values.length;
   // range: min ve/veya max sayılır (tek daralma = 1).
   return filter.min !== null || filter.max !== null ? 1 : 0;
+}
+
+/**
+ * Bir MULTI/BOOLEAN facet DEĞERİNE tıklanınca sıradaki `SearchState` (kod-duyarlı yazma hedefi).
+ * `code === "brand"` → DEDICATED `withBrand` (tek seçim: zaten seçiliyse temizler, değilse değeri set
+ * eder — `category` ile aynı desen). Diğer TÜM kodlar jenerik `toggleFilterValue` (filter[code], çoklu
+ * OR seçim) ile devam eder. `facet-value-list.tsx` YALNIZ bu fonksiyonu çağırır: write-target ayrımı
+ * burada MERKEZİLEŞİR (renderer'da literal "brand" karşılaştırması YOK).
+ */
+export function nextStateForFacetValueToggle(
+  facet: Pick<PublicSearchFacet, "code">,
+  state: SearchState,
+  value: string,
+  selected: boolean,
+): SearchState {
+  if (facet.code === BRAND_FACET_CODE) {
+    return withBrand(state, selected ? null : value);
+  }
+  return toggleFilterValue(state, facet.code, value);
 }
 
 /** Bir facet URL'de herhangi bir daralma taşıyor mu (kesin bilinen aktif). */
@@ -72,9 +106,12 @@ export function countActiveFilters(state: SearchState): number {
   let n = 0;
   if (state.q !== null) n += 1;
   if (state.category !== null) n += 1;
+  if (state.brand !== null) n += 1;
   if (state.minPrice !== null || state.maxPrice !== null) n += 1;
   if (state.inStock) n += 1;
-  for (const filter of Object.values(state.filters)) {
+  for (const [code, filter] of Object.entries(state.filters)) {
+    // Marka DEDICATED alanla yukarıda sayıldı; olası stale `filter[brand]=` çift saymaz (tek kaynak).
+    if (code === BRAND_FACET_CODE) continue;
     if (filter.kind === "values") n += filter.values.length;
     else if (filter.min !== null || filter.max !== null) n += 1;
   }
@@ -124,14 +161,23 @@ function rangeLabel(
 }
 
 /**
- * URL state → aktif filtre çipleri (sırayla: arama → kategori → fiyat → stok → dinamik facet'ler).
+ * URL state → aktif filtre çipleri (sırayla: arama → kategori → marka → fiyat → stok → dinamik facet'ler).
  * `facets` YALNIZCA etiket zenginleştirmesi için (stale değer facet'te yoksa ham value gösterilir).
  * Her çipin removeHref'i saf mutasyon + buildSearchHref ile üretilir (kanonik; deep-link güvenli).
  */
 export function deriveActiveChips(
   state: SearchState,
   facets: PublicSearchFacet[],
-  opts: { t: StorefrontDictionary; currency: string },
+  opts: {
+    t: StorefrontDictionary;
+    currency: string;
+    /**
+     * TODO-165A (ADR-165A) Task 20 fix — Kaldırma href'lerinin kaldığı ROUTE. Verilmezse `buildSearchHref`
+     * varsayılanına (`/products`) düşer (geriye-uyumlu); `/markalar/[slug]`'ta çağıran `usePathname()`'i geçer
+     * → çip kaldırma marka sayfasında KALIR (bkz. components/search/search-transition.tsx).
+     */
+    basePath?: string;
+  },
 ): ActiveFilterChip[] {
   const s = opts.t.search;
   const chips: ActiveFilterChip[] = [];
@@ -146,7 +192,7 @@ export function deriveActiveChips(
       groupLabel: s.chipSearchLabel,
       valueLabel: state.q,
       removeLabel: format(s.chipRemoveLabel, { group: s.chipSearchLabel, value: state.q }),
-      removeHref: buildSearchHref(withQuery(state, null)),
+      removeHref: buildSearchHref(withQuery(state, null), opts.basePath),
     });
   }
 
@@ -157,7 +203,22 @@ export function deriveActiveChips(
       groupLabel: s.chipCategoryLabel,
       valueLabel: state.category,
       removeLabel: format(s.chipRemoveLabel, { group: s.chipCategoryLabel, value: state.category }),
-      removeHref: buildSearchHref(withCategory(state, null)),
+      removeHref: buildSearchHref(withCategory(state, null), opts.basePath),
+    });
+  }
+
+  // Marka (dedicated `state.brand`; category ile aynı desen — Task 21/ADR-165A).
+  // Etiket: sentezlenmiş marka facet'inin değer listesinden (varsa) çözülür; facet henüz yoksa (ör.
+  // marka sayfasından gelen deep-link'te facet response'u henüz gelmemişse) ham slug'a düşer.
+  if (state.brand !== null) {
+    const brandFacet = facetByCode.get(BRAND_FACET_CODE);
+    const valueLabel = brandFacet?.values.find((v) => v.value === state.brand)?.label ?? state.brand;
+    chips.push({
+      id: "brand",
+      groupLabel: s.chipBrandLabel,
+      valueLabel,
+      removeLabel: format(s.chipRemoveLabel, { group: s.chipBrandLabel, value: valueLabel }),
+      removeHref: buildSearchHref(withBrand(state, null), opts.basePath),
     });
   }
 
@@ -169,7 +230,7 @@ export function deriveActiveChips(
       groupLabel: s.priceFacetLabel,
       valueLabel: value,
       removeLabel: format(s.chipRemoveLabel, { group: s.priceFacetLabel, value }),
-      removeHref: buildSearchHref(withPrice(state, null, null)),
+      removeHref: buildSearchHref(withPrice(state, null, null), opts.basePath),
     });
   }
 
@@ -180,7 +241,7 @@ export function deriveActiveChips(
       groupLabel: s.stockFacetLabel,
       valueLabel: s.stockInStockOnly,
       removeLabel: format(s.chipRemoveLabel, { group: s.stockFacetLabel, value: s.stockInStockOnly }),
-      removeHref: buildSearchHref(withInStock(state, false)),
+      removeHref: buildSearchHref(withInStock(state, false), opts.basePath),
     });
   }
 
@@ -195,6 +256,9 @@ export function deriveActiveChips(
   });
 
   for (const code of codes) {
+    // Marka yukarıda DEDICATED çip olarak eklendi; olası stale `filter[brand]=` bu döngüde asla
+    // ikinci/çelişen bir çip üretmez (tek gerçek kaynak = state.brand).
+    if (code === BRAND_FACET_CODE) continue;
     const filter = state.filters[code];
     const facet = facetByCode.get(code);
     const groupLabel = facet?.name ?? code;
@@ -207,7 +271,7 @@ export function deriveActiveChips(
           groupLabel,
           valueLabel,
           removeLabel: format(s.chipRemoveLabel, { group: groupLabel, value: valueLabel }),
-          removeHref: buildSearchHref(removeFilterValue(state, code, value)),
+          removeHref: buildSearchHref(removeFilterValue(state, code, value), opts.basePath),
         });
       }
     } else {
@@ -223,7 +287,7 @@ export function deriveActiveChips(
         groupLabel,
         valueLabel,
         removeLabel: format(s.chipRemoveLabel, { group: groupLabel, value: valueLabel }),
-        removeHref: buildSearchHref(removeFilter(state, code)),
+        removeHref: buildSearchHref(removeFilter(state, code), opts.basePath),
       });
     }
   }

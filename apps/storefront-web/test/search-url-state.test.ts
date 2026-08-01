@@ -9,6 +9,7 @@ import {
   searchParamsToMap,
   serializeSearchState,
   urlSearchParamsToMap,
+  withBrand,
   withCategory,
   withPage,
   withQuery,
@@ -184,6 +185,57 @@ describe("search url-state · mutasyonlar (page reset)", () => {
     expect(hasActiveNarrowing(emptySearchState())).toBe(false);
     expect(hasActiveNarrowing(withQuery(emptySearchState(), "x"))).toBe(true);
     expect(hasActiveNarrowing({ ...emptySearchState(), inStock: true })).toBe(true);
+  });
+});
+
+describe("search url-state · brand (TODO-165A Task 20 — kategori ile aynı desen)", () => {
+  it("brand query paramı okunur + trim edilir", () => {
+    expect(parse("brand=%20aurora%20").brand).toBe("aurora");
+  });
+
+  it("boş/whitespace brand → null", () => {
+    expect(parse("brand=%20%20").brand).toBeNull();
+  });
+
+  it("boş state.brand varsayılan null", () => {
+    expect(emptySearchState().brand).toBeNull();
+  });
+
+  it("serialize: brand category'den SONRA, filtrelerden ÖNCE yazılır", () => {
+    const state: SearchState = {
+      ...emptySearchState(),
+      category: "erkek",
+      brand: "aurora",
+      filters: { renk: { kind: "values", values: ["siyah"] } },
+    };
+    expect(serializeSearchState(state)).toBe("category=erkek&brand=aurora&filter[renk]=siyah");
+  });
+
+  it("withBrand: değer set eder + page=1'e döner", () => {
+    const base: SearchState = { ...emptySearchState(), page: 5 };
+    expect(withBrand(base, "aurora")).toMatchObject({ brand: "aurora", page: 1 });
+    expect(withBrand({ ...base, brand: "aurora" }, null)).toMatchObject({ brand: null, page: 1 });
+  });
+
+  it("round-trip: parse(serialize(state)) korur (brand dahil)", () => {
+    const state: SearchState = {
+      ...emptySearchState(),
+      q: "mont",
+      category: "erkek",
+      brand: "aurora",
+      sort: "price_asc",
+      page: 2,
+      filters: { renk: { kind: "values", values: ["siyah"] } },
+    };
+    expect(parse(serializeSearchState(state))).toEqual(state);
+  });
+
+  it("buildSearchHref brand'i taşır", () => {
+    expect(buildSearchHref(withBrand(emptySearchState(), "aurora"))).toBe("/products?brand=aurora");
+  });
+
+  it("hasActiveNarrowing brand'i daraltma sayar (kategori ile aynı)", () => {
+    expect(hasActiveNarrowing(withBrand(emptySearchState(), "aurora"))).toBe(true);
   });
 });
 

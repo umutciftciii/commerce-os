@@ -176,3 +176,23 @@ export function buildProductJsonLd(params: {
     offers,
   });
 }
+
+/**
+ * TODO-165A (ADR-165A) Task 20 — `Brand` JSON-LD (marka detay sayfası, `/markalar/[slug]`). Boş/null alan
+ * DÜŞER (uydurma alan yok). `url` = markanın kanonik mutlak URL'i (`brandPath` üzerinden çağıran verir).
+ */
+export function buildBrandJsonLd(params: {
+  name: string;
+  description?: string | null;
+  url: string;
+  logoUrl?: string | null;
+}): JsonLdObject {
+  return compact({
+    "@context": "https://schema.org",
+    "@type": "Brand",
+    name: params.name,
+    description: params.description ?? undefined,
+    url: params.url,
+    logo: params.logoUrl ?? undefined,
+  });
+}

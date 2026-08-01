@@ -765,6 +765,34 @@ enum CustomerCouponSource {
   CODE_CLAIMED
 }
 
+// TODO-165A (ADR-253) — Product Data Governance: Brand yasam durumu.
+enum BrandStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+// TODO-165A (ADR-255) — Governed urun taksonomisi TIP'leri (AttributeOption'a bagli
+// merchandising sozlukleri). Yalniz bu enum'daki tipler taksonomi olarak yonetilebilir.
+enum ProductTaxonomyType {
+  SEASON
+  COLLECTION
+  MATERIAL
+  FIT
+  PATTERN
+  COLLAR
+  SLEEVE
+  LENGTH
+  CARE_LABEL
+  SUSTAINABILITY_LABEL
+  COLOR_FAMILY
+}
+
+// TODO-165A (ADR-255) — Governed taksonomi degeri yasam durumu.
+enum ProductTaxonomyStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model PlatformUser {
   id           String           @id @default(cuid())
   email        String           @unique
@@ -929,6 +957,9 @@ model Store {
   sizeCharts                       SizeChart[]
   sizeChartRevisions               SizeChartRevision[]
   sizeChartAssignments             SizeChartAssignment[]
+  // TODO-165A (ADR-253, ADR-255) — Product Data Governance: marka + governed taksonomi (store-scoped).
+  brands                           Brand[]
+  productTaxonomyValues            ProductTaxonomyValue[]
 }
 
 model StoreUser {
@@ -1110,12 +1141,19 @@ model Product {
   // eksen secilebilir (service guard). onDelete: SetNull → eksen tanimini silmek galeriyi
   // klasik moda dusurur (gorsel kaybi YOK; etiketler ProductImage'da Restrict ile korunur).
   mediaDefiningAttributeId String?
+  // TODO-165A (ADR-254) — Governed marka (Brand) referansi. Nullable: legacy/markasiz urun null
+  // kalir; eski serbest-metin `brand` sutunu KORUNUR (dormant, gostergesel — yeni yazma yolu
+  // buradan gecmez). onDelete: SetNull → marka silinince urun markasiz kalir, urun SILINMEZ.
+  // NOT: iliski alani `governedBrand` adiyla tutulur — mevcut skaler `brand String?` sutunuyla
+  // Prisma alan adi cakismasini onlemek icin (ikisi de ayni modelde bulunamaz).
+  brandId                  String?
   createdAt                DateTime               @default(now())
   updatedAt                DateTime               @updatedAt
 
   store                  Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   primaryCategory        ProductCategory?            @relation("ProductPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
   mediaDefiningAttribute AttributeDefinition?        @relation("ProductMediaAxis", fields: [mediaDefiningAttributeId], references: [id], onDelete: SetNull)
+  governedBrand          Brand?                      @relation(fields: [brandId], references: [id], onDelete: SetNull)
   variants               ProductVariant[]
   assignments            ProductCategoryAssignment[]
   orderLines             OrderLine[]
@@ -1165,6 +1203,8 @@ model Product {
   // siralamasi + LIMIT/OFFSET. Bilesik index hem WHERE hem ORDER BY'i tek erisimle
   // karsilar (aksi halde her sayfa icin ayri sort adimi gerekir).
   @@index([storeId, createdAt])
+  // TODO-165A (ADR-254) — marka-bazli store-scoped filtreleme/listeleme.
+  @@index([storeId, brandId])
 }
 
 model ProductVariant {
@@ -2807,6 +2847,10 @@ model MediaAsset {
   // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri olarak kullanan urun satirlari
   // (onDelete: Restrict; media silme ucu MEDIA_IN_USE guard'i ile korunur).
   productAttributeValues ProductAttributeValue[]
+  // TODO-165A (ADR-253) — Brand logo/kapak gorseli (onDelete: SetNull; media silinince marka
+  // gorselsiz kalir, marka SILINMEZ).
+  brandLogoFor           Brand[]                 @relation("BrandLogo")
+  brandCoverFor          Brand[]                 @relation("BrandCover")
 
   @@index([storeId])
   @@index([storeId, context])
@@ -3214,6 +3258,10 @@ model AttributeOption {
   colorHex              String?
   sortOrder             Int             @default(0)
   status                AttributeStatus @default(ACTIVE)
+  // TODO-165A (ADR-255) — Governed taksonomi + genel amacli serbest metadata (ör. taksonomi
+  // sunum alanlari, harici kaynak referansi). Prisma tarafinda serbest; sema dogrulamasi
+  // service katmaninda yapilir.
+  metadata              Json?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
@@ -3229,8 +3277,13 @@ model AttributeOption {
   variantOptionValues     ProductVariantOptionValue[]
   // Faz 2C-7 (ADR-078) — bu option'a (renk) etiketli varyant-media gorselleri (onDelete: Restrict).
   productImages           ProductImage[]                  @relation("ProductImageMediaOption")
+  // TODO-165A (ADR-255) — bu secenegi DESTEKLEYEN governed taksonomi degeri (1:1 ters iliski;
+  // varligi "bu AttributeOption governed" isaretidir). onDelete davranisi ProductTaxonomyValue
+  // tarafinda tanimlidir (Cascade — taksonomi degeri silinince destekledigi option KALIR,
+  // ProductTaxonomyValue satiri kalkar).
+  taxonomyValue           ProductTaxonomyValue?           @relation("TaxonomyBackingOption")
 
-  @@unique([attributeDefinitionId, value])
+  // uniqueness enforced by two PARTIAL unique indexes in migration 20260801120000 (Prisma cannot express partial unique)
   @@index([attributeDefinitionId])
   @@index([storeId])
 }
@@ -3661,6 +3714,11 @@ model ProductSearchDocument {
   title                     String
   slug                      String
   brand                     String?
+  // TODO-165A (ADR-254) — Governed Brand snapshot (turetilmis; product.brandId varsa doldurulur).
+  // brand (yukarida, legacy serbest-metin) ile birlikte YASAR — reindex ikisini de bagimsiz yazar.
+  brandId                   String?
+  brandSlug                 String?
+  brandName                 String?
   // Normalize edilmis aranabilir metin (title + brand + searchable attribute degerleri + aciklama).
   // `searchVector` tsvector generated STORED kolon bundan turer (migration SQL); GIN indeks orada.
   searchText                String
@@ -3715,6 +3773,8 @@ model ProductSearchDocument {
   // TODO-161B (ADR-142) — Similar Products Tier 3 (ayni marka) aday sorgusu: 50k+ katalogda marka-hedefli
   // daraltma icin (aksi halde storeId index'i tum magazayi tarayip brand'i residual filtreler).
   @@index([storeId, brand])
+  // TODO-165A (ADR-254) — Governed marka slug'iyla PLP filtreleme/listeleme.
+  @@index([storeId, brandSlug])
 }
 
 // Flat facet IS ATI: bir (urun × filterable attribute × DEGER) satiri. YALNIZ CategoryAttribute.
@@ -4573,4 +4633,66 @@ model HomeDiscoveryEvent {
   @@index([storeId, sectionId, productId, visitorHash, eventType, createdAt])
   // ADD_TO_CART idempotency lookup.
   @@index([storeId, dedupeKey])
+}
+
+/// TODO-165A (ADR-253) — Product Data Governance: store-scoped Marka (Brand) varligi.
+/// Product.brand (legacy serbest metin) DORMANT kalir; yeni yazma yolu bu tablo +
+/// Product.brandId uzerinden gecer (servis katmani ileriki task). slug store icinde
+/// tekildir; logo/kapak MediaAsset'e SetNull (marka silinince gorsel referansi kalkar,
+/// gorselin kendisi SILINMEZ). Store silinince marka CASCADE kalkar.
+model Brand {
+  id             String      @id @default(cuid())
+  storeId        String
+  name           String
+  slug           String
+  description    String?
+  logoMediaId    String?
+  coverMediaId   String?
+  websiteUrl     String?
+  status         BrandStatus @default(ACTIVE)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  store      Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  logoMedia  MediaAsset? @relation("BrandLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
+  coverMedia MediaAsset? @relation("BrandCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
+  products   Product[]
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+  @@index([storeId, status])
+}
+
+/// TODO-165A (ADR-255) — Product Data Governance: Governed urun taksonomisi degeri
+/// (ör. Malzeme=Pamuk, Sezon=Yaz). Her taksonomi degeri TAM OLARAK bir AttributeOption'i
+/// "destekler" (1:1, attributeOptionId @unique) — governance/merchandising sunum katmani
+/// bu tablodadir, EAV-degeri secimi hala AttributeOption uzerinden akar (mevcut yol
+/// KIRILMAZ). slug create-sonrasi IMMUTABLE'dir (service guard; DB bunu zorlamaz).
+/// parent → hiyerarsik taksonomi (ör. COLOR_FAMILY altinda ton kirilimlari); silinen
+/// parent SetNull (cocuk taksonomi degeri KALIR, koksuz kalir). attributeOptionId → AttributeOption
+/// Cascade (destekledigi option silinince — ki normalde Restrict'li kullanim satirlari
+/// varsa zaten silinemez — taksonomi degeri de kalkar; orphan governance kaydi olmaz).
+model ProductTaxonomyValue {
+  id                String                @id @default(cuid())
+  storeId           String
+  type              ProductTaxonomyType
+  name              String
+  slug              String
+  status            ProductTaxonomyStatus @default(ACTIVE)
+  displayOrder      Int                   @default(0)
+  metadata          Json                  @default("{}")
+  parentId          String?
+  attributeOptionId String                @unique
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  parent          ProductTaxonomyValue?  @relation("TaxonomyParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children        ProductTaxonomyValue[] @relation("TaxonomyParent")
+  attributeOption AttributeOption        @relation("TaxonomyBackingOption", fields: [attributeOptionId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, type, slug])
+  @@index([storeId, type, status])
 }

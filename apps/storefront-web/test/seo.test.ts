@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { absoluteUrl, siteOrigin } from "../lib/seo/site-url";
 import {
+  brandPath,
+  brandsPath,
   categoryPath,
   homePath,
   productPath,
@@ -8,11 +10,14 @@ import {
   searchActionTemplate,
 } from "../lib/seo/routes";
 import {
+  buildBrandBreadcrumb,
+  buildBrandsBreadcrumb,
   buildCategoryBreadcrumb,
   buildProductBreadcrumb,
   buildProductsBreadcrumb,
 } from "../lib/seo/breadcrumb";
 import {
+  buildBrandJsonLd,
   buildBreadcrumbJsonLd,
   buildItemListJsonLd,
   buildOrganizationJsonLd,
@@ -28,6 +33,7 @@ import {
   productMetaTitle,
   truncateForMeta,
 } from "../lib/seo/product-seo";
+import { brandMetaDescription, brandMetaTitle } from "../lib/seo/brand-seo";
 import { buildMetadata } from "../lib/seo/metadata";
 import type { StorefrontVariantView } from "../lib/catalog-types";
 
@@ -76,6 +82,18 @@ describe("routes — URL governance (deterministik)", () => {
   it("searchAction şablonu ham yer tutucu içerir", () => {
     expect(searchActionTemplate()).toBe("/products?q={search_term_string}");
   });
+
+  // TODO-165A (ADR-165A) Task 18-20 — Marka dizin/detay path'leri (ADANMIŞ route; category gibi PLP
+  // query paramı DEĞİL).
+  it("brandsPath / brandPath (adanmış /markalar route)", () => {
+    expect(brandsPath()).toBe("/markalar");
+    expect(brandPath("aurora")).toBe("/markalar/aurora");
+    expect(brandPath("  ")).toBe("/markalar");
+  });
+
+  it("brandPath slug'ı encode eder", () => {
+    expect(brandPath("a b")).toBe("/markalar/a%20b");
+  });
 });
 
 describe("breadcrumb — tek kaynak trail", () => {
@@ -109,6 +127,22 @@ describe("breadcrumb — tek kaynak trail", () => {
     expect(buildProductsBreadcrumb(labels)).toEqual([
       { label: "Ana sayfa", path: "/" },
       { label: "Ürünler", path: null },
+    ]);
+  });
+
+  // TODO-165A (ADR-165A) Task 19/20 — Marka dizin/detay trail.
+  const brandLabels = { home: "Ana sayfa", brands: "Markalar" };
+  it("marka dizin trail: home › markalar(current)", () => {
+    expect(buildBrandsBreadcrumb(brandLabels)).toEqual([
+      { label: "Ana sayfa", path: "/" },
+      { label: "Markalar", path: null },
+    ]);
+  });
+  it("marka detay trail: home › markalar › [marka adı](current)", () => {
+    expect(buildBrandBreadcrumb({ labels: brandLabels, brandName: "Aurora" })).toEqual([
+      { label: "Ana sayfa", path: "/" },
+      { label: "Markalar", path: "/markalar" },
+      { label: "Aurora", path: null },
     ]);
   });
 });
@@ -198,6 +232,30 @@ describe("json-ld — builder'lar (boş alan yok, mutlak URL)", () => {
     expect(ld).not.toHaveProperty("description");
     expect(ld).not.toHaveProperty("brand");
   });
+
+  // TODO-165A (ADR-165A) Task 20 — Brand JSON-LD.
+  it("Brand: tam alanlar", () => {
+    const ld = buildBrandJsonLd({
+      name: "Aurora",
+      description: "Aurora koleksiyonu",
+      url: "https://m.example/markalar/aurora",
+      logoUrl: "https://m.example/logo.png",
+    });
+    expect(ld).toEqual({
+      "@context": "https://schema.org",
+      "@type": "Brand",
+      name: "Aurora",
+      description: "Aurora koleksiyonu",
+      url: "https://m.example/markalar/aurora",
+      logo: "https://m.example/logo.png",
+    });
+  });
+
+  it("Brand: description/logo yoksa alan düşer", () => {
+    const ld = buildBrandJsonLd({ name: "Aurora", url: "https://m.example/markalar/aurora" });
+    expect(ld).not.toHaveProperty("description");
+    expect(ld).not.toHaveProperty("logo");
+  });
 });
 
 describe("product-seo — türetme", () => {
@@ -249,6 +307,20 @@ describe("product-seo — türetme", () => {
         ],
       }),
     ).toEqual({ currency: "TRY", lowPriceMinor: 100000, highPriceMinor: 150000, offerCount: 2, inStock: true });
+  });
+});
+
+describe("brand-seo — türetme (TODO-165A Task 20)", () => {
+  it("başlık: seoTitle > name", () => {
+    expect(brandMetaTitle({ seoTitle: "SEO Başlık", name: "Aurora" })).toBe("SEO Başlık");
+    expect(brandMetaTitle({ seoTitle: null, name: "Aurora" })).toBe("Aurora");
+    expect(brandMetaTitle({ seoTitle: "  ", name: "Aurora" })).toBe("Aurora");
+  });
+
+  it("açıklama: seoDescription > description > fallback (kırpılmış)", () => {
+    expect(brandMetaDescription({ seoDescription: "S", description: "D" }, "F")).toBe("S");
+    expect(brandMetaDescription({ seoDescription: null, description: "D" }, "F")).toBe("D");
+    expect(brandMetaDescription({ seoDescription: null, description: null }, "F")).toBe("F");
   });
 });
 

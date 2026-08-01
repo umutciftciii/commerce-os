@@ -70,6 +70,14 @@ import type {
   SizeChartCreateRequest,
   SizeChartUpdateRequest,
   SizeChartAssignRequest,
+  // TODO-165A Tasks 25/26 — beden tablosu seçici + ürünün güncel bağlantı ucu.
+  AdminSizeChartSelectorResponse,
+  ProductSizeChartAssignmentResponse,
+  ProductTaxonomyListResponse,
+  ProductTaxonomyResponse,
+  ProductTaxonomyCreateRequest,
+  ProductTaxonomyUpdateRequest,
+  ProductTaxonomyReorderRequest,
   HomeSection,
   HomeSectionCreateRequest,
   HomeSectionListResponse,
@@ -261,6 +269,14 @@ import type {
   // TODO-159B (ADR-090) — Admin Searchable Selector yanıt tipleri.
   AdminProductSelectorResponse,
   AdminCategorySelectorResponse,
+  // TODO-165A (ADR-165A) Task 15/16 — Marka (Brand) yönetimi.
+  BrandListResponse,
+  BrandResponse,
+  BrandCreateRequest,
+  BrandUpdateRequest,
+  BrandProductsResponse,
+  // TODO-165A (ADR-165A) Task 17 — Marka SEÇİCİ ucu (ürün formu için).
+  AdminBrandSelectorResponse,
 } from "@commerce-os/api-client";
 // TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
 // re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
@@ -607,6 +623,32 @@ export const storeApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+
+  // TODO-165A (ADR-165A) Task 15/16 — Marka (Brand) yönetimi. Kategori deseniyle aynı
+  // (Data Grid query'si + create/update/archive/restore) + "Bağlı ürünler" gerçek listesi.
+  listBrands: (query?: AdminListRequestQuery) =>
+    call<BrandListResponse>(`/api/catalog/brands${listQueryString(query)}`),
+  getBrand: (brandId: string) => call<BrandResponse>(`/api/catalog/brands/${brandId}`),
+  createBrand: (input: BrandCreateRequest) =>
+    mutatingCall<BrandResponse>("/api/catalog/brands", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateBrand: (brandId: string, input: BrandUpdateRequest) =>
+    mutatingCall<BrandResponse>(`/api/catalog/brands/${brandId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  archiveBrand: (brandId: string) =>
+    mutatingCall<BrandResponse>(`/api/catalog/brands/${brandId}/archive`, { method: "POST" }),
+  restoreBrand: (brandId: string) =>
+    mutatingCall<BrandResponse>(`/api/catalog/brands/${brandId}/restore`, { method: "POST" }),
+  listBrandProducts: (brandId: string, query?: AdminListRequestQuery) =>
+    call<BrandProductsResponse>(`/api/catalog/brands/${brandId}/products${listQueryString(query)}`),
+  // TODO-165A (ADR-165A) Task 17 — Marka seçici ucu (ürün formu). `ids` verilirse
+  // ÇÖZÜM modudur (ADR-090 deseniyle aynı; ürün/kategori seçicileriyle simetrik).
+  listBrandSelector: (query?: AdminListRequestQuery) =>
+    call<AdminBrandSelectorResponse>(`/api/catalog/brands/selector${listQueryString(query)}`),
 
   // Faz 1B (ADR-067) — Attribute katalog cekirdegi (tanim + grup + secenek).
   listAttributes: () => call<AttributeDefinitionListResponse>("/api/catalog/attributes"),
@@ -1549,6 +1591,51 @@ export const storeApi = {
     mutatingCall<SizeChartResponse>(`/api/size-charts/${id}/assignments/${assignmentId}`, {
       method: "DELETE",
     }),
+  // TODO-165A Tasks 25/26 — beden tablosu seçici ucu (ürün formu + merkezi AssignModal).
+  // `ids` verilirse ÇÖZÜM modudur (ADR-090 deseniyle aynı).
+  listSizeChartSelector: (query?: AdminListRequestQuery) =>
+    call<AdminSizeChartSelectorResponse>(`/api/size-charts/selector${listQueryString(query)}`),
+  // TODO-165A Tasks 25/26 — bir ürünün güncel beden tablosu bağlantısı (PRODUCT-scope
+  // doğrudan atama + PRODUCT>CATEGORY>STORE önceliğiyle çözülmüş etkin chart).
+  getProductSizeChartAssignment: (productId: string, categoryId?: string | null) =>
+    call<ProductSizeChartAssignmentResponse>(
+      `/api/catalog/products/${productId}/size-chart-assignment${listQueryString(
+        categoryId ? { categoryId } : undefined,
+      )}`,
+    ),
+
+  // TODO-165A (ADR-165A) Task 24 — governed Product Taxonomy ("Ürün Sözlükleri"). BFF,
+  // FASHION_VERTICAL modülü + store context'ini sunucuda çözer. `reorder` bir tip icin TAM
+  // ACTIVE kumeyi bekler (kismi kume gateway'de 400 TAXONOMY_REORDER_INCOMPLETE ile reddedilir).
+  listProductTaxonomy: (query?: AdminListRequestQuery) =>
+    call<ProductTaxonomyListResponse>(`/api/product-taxonomy${listQueryString(query)}`),
+  getProductTaxonomyValue: (valueId: string) =>
+    call<ProductTaxonomyResponse>(`/api/product-taxonomy/${valueId}`),
+  createProductTaxonomyValue: (input: ProductTaxonomyCreateRequest) =>
+    mutatingCall<ProductTaxonomyResponse>("/api/product-taxonomy", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateProductTaxonomyValue: (valueId: string, input: ProductTaxonomyUpdateRequest) =>
+    mutatingCall<ProductTaxonomyResponse>(`/api/product-taxonomy/${valueId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  reorderProductTaxonomy: (input: ProductTaxonomyReorderRequest) =>
+    mutatingCall<ProductTaxonomyListResponse>("/api/product-taxonomy/reorder", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  archiveProductTaxonomyValue: (valueId: string) =>
+    mutatingCall<ProductTaxonomyResponse>(`/api/product-taxonomy/${valueId}/archive`, {
+      method: "POST",
+    }),
+  restoreProductTaxonomyValue: (valueId: string) =>
+    mutatingCall<ProductTaxonomyResponse>(`/api/product-taxonomy/${valueId}/restore`, {
+      method: "POST",
+    }),
+  deleteProductTaxonomyValue: (valueId: string) =>
+    mutatingCall<void>(`/api/product-taxonomy/${valueId}`, { method: "DELETE" }),
 
   // TODO-158A (ADR-086) — Home Experience Platform: section CRUD + tip-özel alt varlıklar.
   listHomeSections: () => call<HomeSectionListResponse>("/api/home/sections"),

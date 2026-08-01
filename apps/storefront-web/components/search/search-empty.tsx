@@ -22,11 +22,18 @@ export function SearchEmpty({
   state,
   currency,
   t,
+  basePath,
 }: {
   state: SearchState;
   /** Aktif filtre özetinde fiyat biçimi için (mağaza para birimi). */
   currency: string;
   t: StorefrontDictionary;
+  /**
+   * TODO-165A (ADR-165A) Task 20 fix — bu bileşen bir SUNUCU bileşenidir (`usePathname()` KULLANILAMAZ);
+   * çağıran RSC kendi path'ini prop olarak geçer. Verilmezse `buildSearchHref` varsayılanı (`/products`)
+   * korunur (geriye-uyumlu — düz PLP zaten `/products`'tan çağırır).
+   */
+  basePath?: string;
 }) {
   const s = t.search;
   const narrowed = hasActiveNarrowing(state);
@@ -49,8 +56,10 @@ export function SearchEmpty({
   }
 
   const summary = narrowed ? buildActiveSummary(state, currency, t) : [];
-  // Temizleme: q/category/filtre/fiyat/stok düşer, sort/pageSize korunur → /products (temiz).
-  const clearHref = buildSearchHref(clearedSearchState(state));
+  // Temizleme: q/category/brand/filtre/fiyat/stok düşer, sort/pageSize korunur → mevcut route'un temiz hali
+  // (düz PLP'de /products; marka sayfasında basePath ile /markalar/[slug] — brand path parametresidir,
+  // clearedSearchState onu state'ten düşürse de route değişmez).
+  const clearHref = buildSearchHref(clearedSearchState(state), basePath);
 
   return (
     <div className="mt-10">

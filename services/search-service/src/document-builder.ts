@@ -98,6 +98,10 @@ export function buildSearchDocument(source: SearchSourceProduct): SearchBuildRes
     title: source.title,
     slug: source.slug,
     brand: source.brand,
+    // TODO-165A (ADR-165A) Task 11 — governed marka snapshot (legacy `brand` YANINDA, bağımsız).
+    brandId: source.brandId,
+    brandSlug: source.brandSlug,
+    brandName: source.brandName,
     searchText,
     status: source.status,
     minPriceMinor,

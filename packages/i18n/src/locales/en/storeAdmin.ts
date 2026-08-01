@@ -52,6 +52,9 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "You must select a new primary category before removing the current one.",
     PRODUCT_SLUG_EXISTS: "This product slug is already in use.",
     PRODUCT_NOT_FOUND: "Product not found.",
+    // TODO-165A Tasks 25/26 — size chart binding rules (§9).
+    SIZE_CHART_ASSIGN_NOT_PUBLISHED: "Only a published size chart can be assigned.",
+    SIZE_CHART_ASSIGN_CROSS_STORE: "This record does not belong to this store.",
     VARIANT_SKU_EXISTS: "This SKU is already in use.",
     VARIANT_NOT_FOUND: "Variant not found.",
     INVENTORY_ITEM_NOT_FOUND: "Inventory record not found.",
@@ -296,6 +299,23 @@ export const enStoreAdmin: StoreAdminDictionary = {
       setPrimary: "Make primary",
       primaryHint: "The product's dynamic attribute schema comes from its primary category.",
     },
+    // TODO-165A (ADR-165A) Task 17 — Brand selector (product form). Same pattern as the
+    // category selector; only archived brands carry a status badge.
+    brand: {
+      title: "Select brand",
+      description: "Search by brand name or slug.",
+      searchPlaceholder: "Brand name…",
+      listLabel: "Brands",
+      statusLabels: { ACTIVE: "Active", ARCHIVED: "Archived" },
+    },
+    // TODO-165A Tasks 25/26 — Size chart selector (product form + central AssignModal).
+    // Only PUBLISHED charts are selectable (the endpoint already filters).
+    sizeChart: {
+      title: "Select size chart",
+      description: "Only published charts are selectable. Search by chart name.",
+      searchPlaceholder: "Chart name…",
+      listLabel: "Size charts",
+    },
   },
   products: {
     eyebrow: "Catalogue",
@@ -423,6 +443,10 @@ export const enStoreAdmin: StoreAdminDictionary = {
       statusLabel: "Status",
       brandLabel: "Brand (optional)",
       brandPlaceholder: "e.g. Acme",
+      // TODO-165A (ADR-165A) Task 17 — the free-text brand input was replaced by a
+      // searchable brand selector + inline quick-create (see brand-field.tsx).
+      brandHint: "Pick an existing brand or create a new one.",
+      brandCreateAction: "Create new brand",
       vendorLabel: "Vendor (optional)",
       vendorPlaceholder: "e.g. Acme Textiles",
       descriptionLabel: "Description (optional)",

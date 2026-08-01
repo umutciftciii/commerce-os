@@ -13,7 +13,7 @@
 
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { publicSearchResponseSchema } from "@commerce-os/contracts";
+import { publicSearchResponseSchema, type PublicBrandSummary } from "@commerce-os/contracts";
 import { SearchError, type SearchQuery, type SearchResult, type SearchResultItem } from "@commerce-os/search-service";
 import { parseSearchQuery } from "./query-parser.js";
 import {
@@ -36,6 +36,13 @@ export interface PublicSearchRoutesDeps {
   search: (storeId: string, query: SearchQuery) => Promise<SearchResult>;
   /** Sayfadaki kategori id'leri → görünen ad (bounded; display-only). */
   resolveCategoryNames: (storeId: string, categoryIds: string[]) => Promise<Map<string, string>>;
+  /**
+   * TODO-165A (ADR-165A) Task 11 — Sayfadaki governed marka id'leri → `brandRef` entity projeksiyonu
+   * (bounded; display-only, buildPublicProduct'taki brandMap deseniyle simetrik). Read-model yalnız
+   * brandId taşır (logoUrl/description YOK) — bu bounded lookup ile hidratlanır. Opsiyonel (yoksa
+   * brandRef her zaman null; mevcut arama davranışı BOZULMAZ).
+   */
+  resolveBrandRefs?: (storeId: string, brandIds: string[]) => Promise<Map<string, PublicBrandSummary>>;
   /**
    * TODO-155.1 — IÇ storageKey → public medya URL'i (resolveMediaUrl + MEDIA_PUBLIC_BASE_URL). Kart görselleri
    * artık read-model listing snapshot'ından gelir (ProductImage sorgusu YOK); yalnız url runtime'da türetilir.
@@ -106,6 +113,17 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
         ? await deps.resolveCategoryNames(store.id, categoryIds)
         : new Map<string, string>();
 
+    // TODO-165A (ADR-165A) Task 11 — sayfadaki governed marka id'leri → brandRef hidrasyonu (bounded).
+    // `!= null` BİLEREK hem null hem undefined'ı eler (bkz. server.ts loadPublicBrandMap deseniyle
+    // simetrik — bazı fixture/legacy satırlarda brandId hiç set edilmemiş olabilir).
+    const brandIds = [
+      ...new Set(result.items.map((item) => item.brandId).filter((id): id is string => id != null)),
+    ];
+    const brandRefs =
+      deps.resolveBrandRefs && brandIds.length > 0
+        ? await deps.resolveBrandRefs(store.id, brandIds)
+        : new Map<string, PublicBrandSummary>();
+
     // IÇ listing görselini → public ALLOWLIST görseli (url türetilir; storageKey/mediaId SIZMAZ).
     const toPublicImage = (
       img: { storageKey: string; altText: string | null } | null,
@@ -121,6 +139,9 @@ export function registerPublicSearchRoutes(app: FastifyInstance, deps: PublicSea
         slug: item.slug,
         title: item.title,
         brand: item.brand,
+        // TODO-165A (ADR-165A) Task 11 — governed marka ENTITY projeksiyonu (ADDITIVE; legacy `brand`
+        // serbest-metin alanı YUKARIDA DEĞİŞMEDEN kalır).
+        brandRef: item.brandId ? brandRefs.get(item.brandId) ?? null : null,
         categoryLabel: item.primaryCategoryId ? categoryNames.get(item.primaryCategoryId) ?? null : null,
         minPriceMinor: item.minPriceMinor,
         maxPriceMinor: item.maxPriceMinor,

@@ -16,6 +16,13 @@ import { StockFacet } from "./stock-facet";
  * Tek renderer ilkesi: rail ve drawer bu component'i sarar; kopya YOK. Sıra: Fiyat → Stok → dinamik facet'ler
  * (backend displayOrder). Her facet FacetSection (collapse) + registry FacetControl. `memo` ile facet/state
  * referansı değişmedikçe yeniden render yok (brief §14 performans). Facet yoksa yalnız fiyat/stok gösterilir.
+ *
+ * TODO-165A (ADR-165A) Task 21 — Sentezlenmiş marka facet'i (code "brand", search-query.ts
+ * `synthesizeBrandFacet`, displayOrder -1 → her zaman en önde) bu jenerik `facets` listesinden GEÇER;
+ * ayrı bir "marka section"a GEREK YOK çünkü zaten checkbox render'ı (registry → FacetValueList) paylaşır
+ * ve `facetActiveCount`/`FacetValueList` marka kodunu tanıyıp DEDICATED `state.brand`'e yazar (bkz.
+ * lib/search/facets.ts `nextStateForFacetValueToggle`). Bu dosya bu yüzden değişmedi (additive; mevcut
+ * facet render sırası bozulmadı) — kararın gerekçesi burada belgelenir.
  */
 export const FacetList = memo(function FacetList({
   facets,

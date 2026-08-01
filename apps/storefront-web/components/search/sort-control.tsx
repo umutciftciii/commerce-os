@@ -3,7 +3,7 @@
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { Select } from "../ui/field";
 import { buildSearchHref, withSort, type SearchSort, type SearchState } from "../../lib/search/url-state";
-import { useSearchTransition } from "./search-transition";
+import { useSearchBasePath, useSearchTransition } from "./search-transition";
 
 /**
  * TODO-156B (ANALIZ §7/§8 · brief §9) — Sıralama denetimi (yalnız backend'in desteklediği 6 anahtar).
@@ -22,6 +22,7 @@ const SORT_OPTIONS: { value: SearchSort; key: keyof StorefrontDictionary["search
 export function SortControl({ state, t }: { state: SearchState; t: StorefrontDictionary }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
 
   return (
     <label className="flex items-center gap-2">
@@ -31,7 +32,7 @@ export function SortControl({ state, t }: { state: SearchState; t: StorefrontDic
         value={state.sort}
         onChange={(event) => {
           const next = withSort(state, event.target.value as SearchSort);
-          navigate(buildSearchHref(next), { replace: true, scroll: false });
+          navigate(buildSearchHref(next, basePath), { replace: true, scroll: false });
         }}
         className="h-10 min-w-[11rem] text-xs"
       >

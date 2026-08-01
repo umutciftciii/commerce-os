@@ -211,7 +211,12 @@ export default function SizeChartsPage() {
   );
 }
 
-function CreateSizeChart({
+/**
+ * TODO-165A Tasks 25/26 — dışa açılır (export): ürün formunun Beden Tablosu adımındaki
+ * "Yeni beden tablosu oluştur" akışı (`size-chart-quick-create.tsx`) bu AYNI bileşeni
+ * mount eder — ikinci bir oluşturma formu YAZILMAZ.
+ */
+export function CreateSizeChart({
   locale,
   onClose,
   onCreated,

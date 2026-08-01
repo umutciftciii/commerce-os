@@ -9,6 +9,20 @@
 // Güvenlik: YALNIZ platform-admin (store-admin kendi planını/capability'sini değiştiremez). Doğrulama
 // SAF çekirdekte (core kapatılamaz · bilinmeyen anahtar · invalid dependency). Plan default'u yazmak
 // StoreModule override'larına DOKUNMAZ (resolver'da override plan'ı yener) ve veri SİLMEZ.
+//
+// TODO-165A (ADR-165A) Task 10b — TECH DEBT (deferred, tracked): bu PUT, FASHION_VERTICAL
+// plan default'unu required/optional yaparsa, override'i INHERIT olan (plana bağlı) TÜM
+// mağazalarda modülü effective ENABLED'a çevirebilir — capabilities/routes.ts'teki
+// store-level DISABLED→ENABLED eager fail-closed bootstrap hook'unu (`ensureFashionTaxonomyDefaults`)
+// TAMAMEN BYPASS eder (bu route hiç StoreModule yazmaz, yalnız Plan.metadata'yı değiştirir).
+// Eager per-store fail-closed bootstrap'ı burada (bir plana bağlı POTANSİYEL OLARAK ÇOK SAYIDA
+// mağaza + kısmi-hata semantiği: bir mağazanın bootstrap'ı patlarsa plan değişikliği geri mi
+// alınır, diğer mağazalar nasıl etkilenir) YAPMAK PRATİK DEĞİL — bilinçli olarak ERTELENDİ.
+// Bunun yerine `taxonomy-routes.ts`'in GET list ucuna eklenen LAZY idempotent safety-net
+// (`ensureStoreTaxonomyDefaults` ilk sözlük erişiminde) bu yolu kendi-kendini-iyileştirerek
+// kapatır — mağaza taksonomi ekranını ilk açtığında defaults garanti oluşur. Gerçek eager
+// per-plan bootstrap (ör. sınırlı-eşzamanlı arka plan job + ilerleme/hata raporu) ayrı bir
+// görev olarak dokümante edilecek (bkz. ADR-165A takip notları).
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   planCapabilitiesResponseSchema,

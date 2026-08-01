@@ -266,6 +266,13 @@ export interface AttributeDataAccess {
     attributeDefinitionId: string,
     value: string,
   ): Promise<AttributeOptionRecord | null>;
+  // TODO-165A (ADR-165A) Task 8 — governed-option mutation guard: option'i reverse
+  // `taxonomyValue` iliskisiyle BIRLIKTE yukler (governed marker = taxonomyValue non-null).
+  // Generic rename/archive/reorder (PATCH) mutasyonlarindan ONCE cagrilir.
+  findAttributeOptionGovernance(
+    attributeDefinitionId: string,
+    id: string,
+  ): Promise<{ id: string; taxonomyValue: { id: string } | null } | null>;
   createAttributeOption(input: AttributeOptionCreateInput): Promise<AttributeOptionRecord>;
   updateAttributeOption(
     attributeDefinitionId: string,
@@ -394,6 +401,11 @@ export function createPrismaAttributeDataAccess(): AttributeDataAccess {
       prisma.attributeOption.findFirst({ where: { id, attributeDefinitionId }, select: optionSelect }),
     findAttributeOptionByValue: (attributeDefinitionId, value) =>
       prisma.attributeOption.findFirst({ where: { attributeDefinitionId, value }, select: optionSelect }),
+    findAttributeOptionGovernance: (attributeDefinitionId, id) =>
+      prisma.attributeOption.findFirst({
+        where: { id, attributeDefinitionId },
+        select: { id: true, taxonomyValue: { select: { id: true } } },
+      }),
     createAttributeOption: (input) =>
       prisma.attributeOption.create({
         data: {

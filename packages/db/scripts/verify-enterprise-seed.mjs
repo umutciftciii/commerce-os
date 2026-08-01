@@ -38,6 +38,18 @@ async function main() {
   check("brand count ≥ 50", brands.length >= 50, { brands: brands.length });
   check("variant count ≥ 2000", variants >= 2000, { variants });
 
+  // TODO-165A (T27) — gerçek Brand satırları + product.brandId (governed model).
+  const [brandRows, productsWithBrandId, orphanBrandRefRows] = await Promise.all([
+    prisma.brand.count({ where }),
+    prisma.product.count({ where: { ...where, brandId: { not: null } } }),
+    prisma.$queryRaw`SELECT COUNT(*)::int AS n FROM "Product" p LEFT JOIN "Brand" b ON p."brandId" = b.id WHERE p."storeId" = ${STORE_ID} AND p."brandId" IS NOT NULL AND b.id IS NULL`,
+  ]);
+  check("Brand rows exist (≥ 50)", brandRows >= 50, { brandRows });
+  check("all products carry brandId", productsWithBrandId === products, { productsWithBrandId, products });
+  check("no orphan product.brandId", orphanBrandRefRows[0].n === 0, { orphanBrandRefRows: orphanBrandRefRows[0].n });
+  const dupBrandSlug = await prisma.brand.groupBy({ by: ["slug"], where, _count: { slug: true }, having: { slug: { _count: { gt: 1 } } } });
+  check("no duplicate brand slug", dupBrandSlug.length === 0, { dupGroups: dupBrandSlug.length });
+
   // Duplicate SKU / slug.
   const dupSku = await prisma.productVariant.groupBy({ by: ["sku"], where, _count: { sku: true }, having: { sku: { _count: { gt: 1 } } } });
   check("no duplicate SKU", dupSku.length === 0, { dupGroups: dupSku.length });
@@ -58,8 +70,12 @@ async function main() {
   const badAssign = assignments.filter((a) => !catIds.has(a.categoryId)).length;
   check("category assignments consistent", badAssign === 0, { badAssign });
 
-  // Attribute value ↔ definition tutarlılığı.
-  const defIds = new Set((await prisma.attributeDefinition.findMany({ where, select: { id: true } })).map((d) => d.id));
+  // Attribute value ↔ definition tutarlılığı. TODO-165A (T28) — governed fashion taksonomi
+  // (SEASON/COLLECTION/MATERIAL/FIT) tanımları PLATFORM scope'ludur (storeId=null; bkz.
+  // taxonomy-service.ts `platformDefinitionIdForCode`) — STORE tanımlarıyla birlikte sayılmalı.
+  const defIds = new Set(
+    (await prisma.attributeDefinition.findMany({ where: { OR: [{ storeId: STORE_ID }, { scope: "PLATFORM" }] }, select: { id: true } })).map((d) => d.id),
+  );
   const pav = await prisma.productAttributeValue.findMany({ where, select: { attributeDefinitionId: true } });
   const badPav = pav.filter((v) => !defIds.has(v.attributeDefinitionId)).length;
   check("product attribute values match definitions", badPav === 0, { badPav });
@@ -107,6 +123,19 @@ async function main() {
   // Kampanya projeksiyonu: aktif public rozet-tipi kampanya var.
   const badgeCampaigns = await prisma.campaign.count({ where: { ...where, status: "ACTIVE", isPublic: true, type: { in: ["COUPON_CODE", "AUTOMATIC_CART", "PRODUCT_DISCOUNT", "CATEGORY_DISCOUNT"] } } });
   check("active public badge campaigns exist", badgeCampaigns >= 5, { badgeCampaigns });
+
+  // TODO-165A (T28) — governed fashion taksonomi: STORE-scoped ProductTaxonomyValue + backing
+  // AttributeOption (storeId=edm-store, ASLA global/storeId=null) + PLATFORM tanım grounding.
+  const taxonomyValues = await prisma.productTaxonomyValue.findMany({
+    where: { storeId: STORE_ID, type: { in: ["SEASON", "COLLECTION", "MATERIAL", "FIT"] } },
+    include: { attributeOption: { select: { storeId: true, attributeDefinitionId: true } } },
+  });
+  check("governed fashion taxonomy values exist (SEASON/COLLECTION/MATERIAL/FIT)", taxonomyValues.length >= 8, { taxonomyValues: taxonomyValues.length });
+  const notStoreScoped = taxonomyValues.filter((v) => v.attributeOption.storeId !== STORE_ID).length;
+  check("governed taxonomy backing options are store-scoped (not global)", notStoreScoped === 0, { notStoreScoped });
+  const backingDefIds = new Set(taxonomyValues.map((v) => v.attributeOption.attributeDefinitionId));
+  const platformDefs = await prisma.attributeDefinition.count({ where: { id: { in: [...backingDefIds] }, scope: "PLATFORM", storeId: null } });
+  check("governed taxonomy backed by PLATFORM AttributeDefinitions", platformDefs === backingDefIds.size, { platformDefs, expected: backingDefIds.size });
 
   // Search read-model (backfill sonrası).
   if (!skipSearch) {

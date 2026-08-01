@@ -7,6 +7,13 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
+  ADMIN_SELECTOR_MAX_IDS,
+  adminSizeChartSelectorQuerySchema,
+  adminSizeChartSelectorResponseSchema,
+  buildAdminListPagination,
+  buildSelectorIdsPagination,
+  parseSelectorIds,
+  resolveAdminListPage,
   sizeChartAssignRequestSchema,
   sizeChartCreateRequestSchema,
   sizeChartListResponseSchema,
@@ -105,6 +112,67 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
     if (!access) return;
     const charts = await service.list(params.storeId);
     return sizeChartListResponseSchema.parse({ data: charts.map(serializeSizeChart) });
+  });
+
+  /**
+   * TODO-165A Task 13 (ADR-090 desenini mirror eder) — Beden Tablosu SEÇİCİ ucu.
+   * `/selector` STATİK'tir; `/:id` parametreli route'undan ÖNCE register edilir
+   * (product/category/brand seçicileriyle AYNI desen — bkz. `server.ts` ürün seçicisi).
+   */
+  app.get("/stores/:storeId/size-charts/selector", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const query = adminSizeChartSelectorQuerySchema.parse(request.query);
+
+    const serialize = (chart: SizeChartRecord) => {
+      const columns = chart.publishedRevision?.columns ?? chart.draftColumns;
+      const rows = chart.publishedRevision?.rows ?? chart.draftRows;
+      return {
+        id: chart.id,
+        name: chart.name,
+        sizeSystemKey: chart.sizeSystemKey,
+        gender: chart.gender,
+        measurementUnit: chart.measurementUnit,
+        status: chart.status,
+        revision: chart.publishedRevision?.revision ?? 0,
+        publishedRevisionId: chart.publishedRevisionId,
+        previewSummary: `${columns.length} sütun × ${rows.length} satır`,
+      };
+    };
+
+    if (query.ids !== undefined) {
+      const ids = parseSelectorIds(query.ids);
+      const resolved = await service.selector(params.storeId, {
+        limit: ADMIN_SELECTOR_MAX_IDS,
+        offset: 0,
+        ids,
+      });
+      // İstemcinin verdiği SIRA korunur (seçim sırası anlamlıdır).
+      const byId = new Map(resolved.data.map((chart) => [chart.id, chart]));
+      const ordered = ids
+        .map((id) => byId.get(id))
+        .filter((chart): chart is SizeChartRecord => chart !== undefined);
+      return adminSizeChartSelectorResponseSchema.parse({
+        data: ordered.map(serialize),
+        pagination: buildSelectorIdsPagination(ordered.length),
+      });
+    }
+
+    const { page, pageSize, limit, offset } = resolveAdminListPage(query);
+    const result = await service.selector(params.storeId, {
+      limit,
+      offset,
+      search: query.search,
+      status: query.status,
+      // Seçicinin anlamlı varsayılanı alfabetiktir.
+      sortBy: query.sortBy ?? "name",
+      sortOrder: query.sortOrder ?? "asc",
+    });
+    return adminSizeChartSelectorResponseSchema.parse({
+      data: result.data.map(serialize),
+      pagination: buildAdminListPagination({ page, pageSize, totalItems: result.total }),
+    });
   });
 
   app.get("/stores/:storeId/size-charts/:id", async (request, reply) => {

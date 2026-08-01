@@ -9,7 +9,7 @@ import {
 } from "../../lib/search/url-state";
 import { countActiveFilters } from "../../lib/search/facets";
 import { FacetList } from "./facets/facet-list";
-import { useSearchTransition } from "./search-transition";
+import { useSearchBasePath, useSearchTransition } from "./search-transition";
 
 /**
  * TODO-156C (ANALIZ-156A §4.1/§5.1, brief §2) — Desktop kalıcı filtre RAYI (≥ lg).
@@ -31,6 +31,7 @@ export function FilterRail({
 }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const activeCount = countActiveFilters(state);
   // Fiyat/stok/dinamik daralma (q/category hariç) → "Temizle" göster.
   const filtersActive =
@@ -51,7 +52,7 @@ export function FilterRail({
           {filtersActive ? (
             <button
               type="button"
-              onClick={() => navigate(buildSearchHref(clearedFiltersOnly(state)), { replace: true })}
+              onClick={() => navigate(buildSearchHref(clearedFiltersOnly(state), basePath), { replace: true })}
               className="text-[11px] font-medium uppercase tracking-wideish text-ink-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {s.clearFilters}

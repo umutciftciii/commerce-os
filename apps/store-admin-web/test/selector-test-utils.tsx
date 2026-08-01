@@ -137,6 +137,59 @@ export function makeProductSelectorFake(
   };
 }
 
+/** `storeApi.listBrandSelector` sahtesi (aynı iki modlu sözleşme: ids çözüm / arama+sayfalama). */
+export function makeBrandSelectorFake(
+  brands: { id: string; name: string; slug?: string; status?: "ACTIVE" | "ARCHIVED"; logoUrl?: string | null }[],
+) {
+  const toOption = (brand: (typeof brands)[number]) => ({
+    id: brand.id,
+    name: brand.name,
+    slug: brand.slug ?? brand.id,
+    status: brand.status ?? "ACTIVE",
+    logoUrl: brand.logoUrl ?? null,
+  });
+
+  return async (query?: Record<string, string | number | undefined>) => {
+    const rawIds = query?.ids;
+    if (typeof rawIds === "string") {
+      const ids = rawIds.split(",").filter(Boolean);
+      const data = ids
+        .map((id) => brands.find((brand) => brand.id === id))
+        .filter((brand): brand is (typeof brands)[number] => brand !== undefined)
+        .map(toOption);
+      return {
+        data,
+        pagination: {
+          limit: Math.max(1, data.length),
+          offset: 0,
+          total: data.length,
+          page: 1,
+          pageSize: Math.max(1, data.length),
+          totalItems: data.length,
+          totalPages: data.length === 0 ? 0 : 1,
+        },
+      };
+    }
+    const search = typeof query?.search === "string" ? query.search.toLowerCase() : "";
+    const matched = brands.filter((brand) => !search || brand.name.toLowerCase().includes(search));
+    const pageSize = Number(query?.pageSize ?? 25);
+    const page = Number(query?.page ?? 1);
+    const slice = matched.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      data: slice.map(toOption),
+      pagination: {
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        total: matched.length,
+        page,
+        pageSize,
+        totalItems: matched.length,
+        totalPages: matched.length === 0 ? 0 : Math.ceil(matched.length / pageSize),
+      },
+    };
+  };
+}
+
 /** Seçici modalını açar (alanın "Select" düğmesi). */
 export async function openSelector(user: UserEvent, index = 0): Promise<void> {
   const buttons = screen.getAllByRole("button", { name: "Select" });

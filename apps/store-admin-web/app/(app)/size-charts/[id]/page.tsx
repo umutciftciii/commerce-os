@@ -31,6 +31,15 @@ import {
 } from "@commerce-os/contracts/size-systems";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
+// TODO-165A Task 26 — raw Category/Product ID `<Input>`'ların yerini aranabilir
+// `EntitySelectorField` aldı (ADR-090 deseni; ürün formundaki AYNI seçiciler). Atama
+// listesindeki isimler `useSelectedItems` ile ÇÖZÜLÜR (ham id artık HİÇBİR YERDE GÖSTERİLMEZ).
+import {
+  EntitySelectorField,
+  useCategorySelectorBinding,
+  useProductSelectorBinding,
+  useSelectedItems,
+} from "../../../../components/selector";
 
 type SizeChartStatus = SizeChartContract["status"];
 type Scope = SizeChartAssignRequest["scope"];
@@ -86,6 +95,11 @@ export default function SizeChartDetailPage() {
   const chartId = params.id;
   const locale = useLocale();
 
+  // TODO-165A Task 26 — atama listesindeki kategori/ürün id'lerini İSİMLERE çözer (ham id
+  // artık gösterilmez). Ürün formundaki AYNI seçici bağlamaları (`components/selector`).
+  const categoryBinding = useCategorySelectorBinding(locale);
+  const productBinding = useProductSelectorBinding(locale);
+
   const [chart, setChart] = useState<SizeChartContract | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -140,6 +154,19 @@ export default function SizeChartDetailPage() {
 
   const isArchived = chart?.status === "ARCHIVED";
   const disabled = busy !== null || isArchived;
+
+  // TODO-165A Task 26 — atama satırlarındaki kategori/ürün id'lerini toplu (batched) çözer;
+  // sayfadan bağımsız (ADR-090 `useSelectedItems` — seçili kayıt her zaman görünür kalır).
+  const assignedCategoryIds = useMemo(
+    () => [...new Set((chart?.assignments ?? []).filter((a) => a.scope === "CATEGORY" && a.categoryId).map((a) => a.categoryId!))],
+    [chart],
+  );
+  const assignedProductIds = useMemo(
+    () => [...new Set((chart?.assignments ?? []).filter((a) => a.scope === "PRODUCT" && a.productId).map((a) => a.productId!))],
+    [chart],
+  );
+  const resolvedCategories = useSelectedItems({ ids: assignedCategoryIds, source: categoryBinding.source });
+  const resolvedProducts = useSelectedItems({ ids: assignedProductIds, source: productBinding.source });
 
   // ─── Kolon işlemleri ───
   const addColumn = () =>
@@ -504,38 +531,60 @@ export default function SizeChartDetailPage() {
               <p className="text-sm text-white/35">Henüz atama yok. "Bağla" ile mağaza, kategori veya ürüne bağlayın.</p>
             ) : (
               <ul className="space-y-2">
-                {chart.assignments.map((assignment) => (
-                  <li
-                    key={assignment.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2"
-                  >
-                    <div className="text-sm text-white/70">
-                      <Badge tone="info">{SCOPE_LABELS[assignment.scope]}</Badge>
-                      <span className="ml-2 font-mono text-xs text-white/40">
-                        {assignment.categoryId ?? assignment.productId ?? "—"}
-                      </span>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        void (async () => {
-                          setActionError(null);
-                          try {
-                            const result = await storeApi.unassignSizeChart(chartId, assignment.id);
-                            hydrate(result.data);
-                            setNotice("Atama kaldırıldı.");
-                          } catch (error) {
-                            setActionError(messageForError(error, locale));
-                          }
-                        })()
-                      }
+                {chart.assignments.map((assignment) => {
+                  // TODO-165A Task 26 — ham id ARTIK HİÇBİR YERDE GÖSTERİLMEZ: STORE
+                  // kapsamının kendisi bir kimliğe ihtiyaç duymaz; CATEGORY/PRODUCT
+                  // çözülmüş İSİM ile gösterilir (çözülene kadar "Yükleniyor…", silinmişse
+                  // "Kayıt bulunamadı").
+                  let identityLabel: string | null = null;
+                  if (assignment.scope === "CATEGORY" && assignment.categoryId) {
+                    const resolved = resolvedCategories.byId.get(assignment.categoryId);
+                    identityLabel = resolved
+                      ? categoryBinding.presenter.primaryText(resolved)
+                      : resolvedCategories.resolving
+                        ? "Yükleniyor…"
+                        : "Kayıt bulunamadı";
+                  } else if (assignment.scope === "PRODUCT" && assignment.productId) {
+                    const resolved = resolvedProducts.byId.get(assignment.productId);
+                    identityLabel = resolved
+                      ? productBinding.presenter.primaryText(resolved)
+                      : resolvedProducts.resolving
+                        ? "Yükleniyor…"
+                        : "Kayıt bulunamadı";
+                  }
+                  return (
+                    <li
+                      key={assignment.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2"
                     >
-                      Kaldır
-                    </Button>
-                  </li>
-                ))}
+                      <div className="text-sm text-white/70">
+                        <Badge tone="info">{SCOPE_LABELS[assignment.scope]}</Badge>
+                        {identityLabel ? (
+                          <span className="ml-2 text-xs text-white/50">{identityLabel}</span>
+                        ) : null}
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy !== null}
+                        onClick={() =>
+                          void (async () => {
+                            setActionError(null);
+                            try {
+                              const result = await storeApi.unassignSizeChart(chartId, assignment.id);
+                              hydrate(result.data);
+                              setNotice("Atama kaldırıldı.");
+                            } catch (error) {
+                              setActionError(messageForError(error, locale));
+                            }
+                          })()
+                        }
+                      >
+                        Kaldır
+                      </Button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </SectionCard>
@@ -559,6 +608,13 @@ export default function SizeChartDetailPage() {
   );
 }
 
+/**
+ * TODO-165A Task 26 — raw Category/Product ID `<Input>`'ların yerini aranabilir
+ * `EntitySelectorField` (tekli seçim; ADR-090) aldı. Kullanıcı HİÇBİR ZAMAN bir
+ * kategori/ürün kimliği YAZMAZ: PRODUCT kapsamı → ürün seçici (başlık/SKU gösterir),
+ * CATEGORY kapsamı → kategori seçici (ad/hiyerarşi yolu gösterir), STORE kapsamı → hiçbir
+ * kimlik alanı YOK (zaten hedefsiz).
+ */
 function AssignModal({
   locale,
   chartId,
@@ -572,26 +628,29 @@ function AssignModal({
   onAssigned: (chart: SizeChartContract) => void;
   onError: (message: string) => void;
 }) {
+  const categoryBinding = useCategorySelectorBinding(locale);
+  const productBinding = useProductSelectorBinding(locale);
+
   const [scope, setScope] = useState<Scope>("STORE");
-  const [categoryId, setCategoryId] = useState("");
-  const [productId, setProductId] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [productId, setProductId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit() {
     setError(null);
-    if (scope === "CATEGORY" && categoryId.trim().length === 0) {
-      setError("Kategori kimliği zorunludur.");
+    if (scope === "CATEGORY" && !categoryId) {
+      setError("Bir kategori seçin.");
       return;
     }
-    if (scope === "PRODUCT" && productId.trim().length === 0) {
-      setError("Ürün kimliği zorunludur.");
+    if (scope === "PRODUCT" && !productId) {
+      setError("Bir ürün seçin.");
       return;
     }
     const payload: SizeChartAssignRequest = {
       scope,
-      categoryId: scope === "CATEGORY" ? categoryId.trim() : null,
-      productId: scope === "PRODUCT" ? productId.trim() : null,
+      categoryId: scope === "CATEGORY" ? categoryId : null,
+      productId: scope === "PRODUCT" ? productId : null,
     };
     setSaving(true);
     try {
@@ -629,7 +688,12 @@ function AssignModal({
           id="assign-scope"
           label="Kapsam"
           value={scope}
-          onChange={(event) => setScope(event.target.value as Scope)}
+          onChange={(event) => {
+            // Kapsam değişince önceki seçim ANLAMSIZLAŞIR (başka kapsamın hedefi) — sıfırlanır.
+            setScope(event.target.value as Scope);
+            setCategoryId(null);
+            setProductId(null);
+          }}
           disabled={saving}
           options={(Object.keys(SCOPE_LABELS) as Scope[]).map((value) => ({
             value,
@@ -637,22 +701,32 @@ function AssignModal({
           }))}
         />
         {scope === "CATEGORY" ? (
-          <Input
-            id="assign-category"
-            label="Kategori Kimliği"
-            placeholder="cat_…"
-            value={categoryId}
-            onChange={(event) => setCategoryId(event.target.value)}
+          <EntitySelectorField
+            label="Kategori"
+            multiple={false}
+            value={categoryId ? [categoryId] : []}
+            onChange={(ids) => setCategoryId(ids[0] ?? null)}
+            source={categoryBinding.source}
+            presenter={categoryBinding.presenter}
+            labels={categoryBinding.labels}
+            toMessage={(cause) => messageForError(cause, locale)}
+            modalTitle={categoryBinding.title}
+            modalDescription={categoryBinding.description}
             disabled={saving}
           />
         ) : null}
         {scope === "PRODUCT" ? (
-          <Input
-            id="assign-product"
-            label="Ürün Kimliği"
-            placeholder="prod_…"
-            value={productId}
-            onChange={(event) => setProductId(event.target.value)}
+          <EntitySelectorField
+            label="Ürün"
+            multiple={false}
+            value={productId ? [productId] : []}
+            onChange={(ids) => setProductId(ids[0] ?? null)}
+            source={productBinding.source}
+            presenter={productBinding.presenter}
+            labels={productBinding.labels}
+            toMessage={(cause) => messageForError(cause, locale)}
+            modalTitle={productBinding.title}
+            modalDescription={productBinding.description}
             disabled={saving}
           />
         ) : null}

@@ -10,7 +10,7 @@ import {
   type SearchState,
 } from "../../lib/search/url-state";
 import { deriveActiveChips } from "../../lib/search/facets";
-import { useSearchTransition } from "./search-transition";
+import { useSearchBasePath, useSearchTransition } from "./search-transition";
 
 /**
  * TODO-156C (ANALIZ-156A §4/§7, brief §4) — Grid üstü AKTİF FİLTRE ÇİPLERİ.
@@ -32,7 +32,8 @@ export function ActiveFilterChips({
 }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
-  const chips = deriveActiveChips(state, facets, { t, currency });
+  const basePath = useSearchBasePath();
+  const chips = deriveActiveChips(state, facets, { t, currency, basePath });
   if (chips.length === 0) return null;
 
   const onRemove = (href: string) => (event: MouseEvent<HTMLAnchorElement>) => {
@@ -43,7 +44,7 @@ export function ActiveFilterChips({
     navigate(href, { replace: true });
   };
 
-  const clearAllHref = buildSearchHref(clearedSearchState(state));
+  const clearAllHref = buildSearchHref(clearedSearchState(state), basePath);
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line py-3" aria-label={s.activeFiltersRegion} role="group">

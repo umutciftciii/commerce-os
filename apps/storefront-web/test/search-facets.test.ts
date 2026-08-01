@@ -2,22 +2,26 @@ import { describe, expect, it } from "vitest";
 import { getDictionary } from "@commerce-os/i18n";
 import type { PublicSearchFacet } from "@commerce-os/api-client";
 import {
+  buildSearchHref,
   emptySearchState,
   clearedFiltersOnly,
   removeFilter,
   removeFilterValue,
   setFilterRange,
   toggleFilterValue,
+  withBrand,
   withInStock,
   withPrice,
   withQuery,
   type SearchState,
 } from "../lib/search/url-state";
 import {
+  BRAND_FACET_CODE,
   countActiveFilters,
   deriveActiveChips,
   facetActiveCount,
   isFacetActive,
+  nextStateForFacetValueToggle,
   resolveFacetKind,
 } from "../lib/search/facets";
 
@@ -119,12 +123,14 @@ describe("resolveFacetKind", () => {
   ];
   for (const [selectionMode, dataType, expected] of cases) {
     it(`${selectionMode}/${dataType} → ${expected}`, () => {
-      expect(resolveFacetKind({ selectionMode, dataType })).toBe(expected);
+      // `code: "test"` — resolveFacetKind artık `code`'a bakıyor (size dalı); bu paket "size"
+      // İÇERMEZ, dolayısıyla beklenen sonuçlar değişmez (pre-existing PR#158 fixture drift, gate greened).
+      expect(resolveFacetKind({ selectionMode, dataType, code: "test" })).toBe(expected);
     });
   }
 
   it("bilinmeyen selectionMode → checkbox fallback", () => {
-    expect(resolveFacetKind({ selectionMode: "WAT" as never, dataType: "SELECT" })).toBe("checkbox");
+    expect(resolveFacetKind({ selectionMode: "WAT" as never, dataType: "SELECT", code: "test" })).toBe("checkbox");
   });
 });
 
@@ -162,6 +168,111 @@ function rangeFacet(overrides: Partial<PublicSearchFacet> = {}): PublicSearchFac
     ...overrides,
   };
 }
+
+/** search-query.ts `synthesizeBrandFacet` şeklini birebir taklit eder (TODO-165A Task 11). */
+function brandFacet(overrides: Partial<PublicSearchFacet> = {}): PublicSearchFacet {
+  return {
+    attributeDefinitionId: "brand",
+    code: "brand",
+    name: "Marka",
+    dataType: "SELECT",
+    unit: null,
+    displayOrder: -1,
+    selectionMode: "MULTI",
+    values: [
+      { optionId: null, value: "aurora", label: "Aurora", colorHex: null, count: 12, selected: false },
+      { optionId: null, value: "nova", label: "Nova", colorHex: null, count: 5, selected: false },
+    ],
+    range: null,
+    ...overrides,
+  };
+}
+
+// ── Marka facet (TODO-165A Task 21) ─────────────────────────────────────────────
+
+describe("marka facet · dedicated state.brand ile TEK kaynak", () => {
+  it("resolveFacetKind: sentezlenmiş marka facet'i (MULTI/SELECT) → checkbox", () => {
+    expect(resolveFacetKind(brandFacet())).toBe("checkbox");
+  });
+
+  it("nextStateForFacetValueToggle: marka kodu → withBrand (dedicated alan), filters'a YAZMAZ", () => {
+    const next = nextStateForFacetValueToggle(brandFacet(), state(), "aurora", false);
+    expect(next.brand).toBe("aurora");
+    expect(next.filters[BRAND_FACET_CODE]).toBeUndefined();
+    expect(next.page).toBe(1);
+  });
+
+  it("nextStateForFacetValueToggle: zaten seçili marka tekrar tıklanınca temizlenir", () => {
+    const selected = state({ brand: "aurora", page: 3 });
+    const next = nextStateForFacetValueToggle(brandFacet(), selected, "aurora", true);
+    expect(next.brand).toBeNull();
+    expect(next.page).toBe(1);
+  });
+
+  it("nextStateForFacetValueToggle: marka DIŞI kod → jenerik toggleFilterValue ile aynı davranır", () => {
+    const viaHelper = nextStateForFacetValueToggle(optionFacet(), state(), "siyah", false);
+    const viaDirect = toggleFilterValue(state(), "renk", "siyah");
+    expect(viaHelper).toEqual(viaDirect);
+  });
+
+  it("facetActiveCount: marka için state.brand'e bakar, stale filters.brand'i YOK sayar", () => {
+    const withDedicated = state({ brand: "aurora" });
+    expect(facetActiveCount(brandFacet(), withDedicated)).toBe(1);
+
+    const empty = state();
+    expect(facetActiveCount(brandFacet(), empty)).toBe(0);
+
+    // Stale/yanlışlıkla yazılmış filters.brand jenerik yoldan hiçbir etkisi olmamalı.
+    const stale = state({ filters: { [BRAND_FACET_CODE]: { kind: "values", values: ["aurora"] } } });
+    expect(facetActiveCount(brandFacet(), stale)).toBe(0);
+  });
+
+  it("countActiveFilters: marka DEDICATED olarak bir kez sayılır (stale filters.brand ile çift sayılmaz)", () => {
+    const s = state({
+      category: "erkek",
+      brand: "aurora",
+      filters: { [BRAND_FACET_CODE]: { kind: "values", values: ["aurora"] } },
+    });
+    // category(1) + brand(1) = 2 — stale filters.brand göz ardı edilir.
+    expect(countActiveFilters(s)).toBe(2);
+  });
+
+  it("deriveActiveChips: marka çipi facet etiketinden değer alır; removeHref yalnız markayı temizler", () => {
+    const s = withBrand(state({ category: "erkek" }), "aurora");
+    const chips = deriveActiveChips(s, [brandFacet()], { t, currency: "TRY" });
+    const brandChip = chips.find((c) => c.id === "brand");
+    expect(brandChip).toBeDefined();
+    expect(brandChip?.groupLabel).toBe(t.search.chipBrandLabel);
+    expect(brandChip?.valueLabel).toBe("Aurora");
+    // removeHref markayı düşürür ama kategoriyi korur (buildSearchHref(withBrand(s, null)) ile eşdeğer).
+    expect(brandChip?.removeHref).toBe(buildSearchHref(withBrand(s, null)));
+    expect(brandChip?.removeHref).toContain("category=erkek");
+    expect(brandChip?.removeHref).not.toContain("brand=");
+  });
+
+  it("deriveActiveChips: marka facet'i henüz gelmemişse (deep-link) ham slug'a düşer", () => {
+    const s = withBrand(state(), "bilinmeyen-marka");
+    const chips = deriveActiveChips(s, [], { t, currency: "TRY" });
+    expect(chips.find((c) => c.id === "brand")?.valueLabel).toBe("bilinmeyen-marka");
+  });
+
+  it("deriveActiveChips: stale filters.brand jenerik döngüde ikinci/çelişen çip ÜRETMEZ", () => {
+    const s = state({
+      brand: "aurora",
+      filters: { [BRAND_FACET_CODE]: { kind: "values", values: ["aurora"] } },
+    });
+    const chips = deriveActiveChips(s, [brandFacet()], { t, currency: "TRY" });
+    const brandChips = chips.filter((c) => c.id === "brand" || c.id.startsWith(`${BRAND_FACET_CODE}:`));
+    expect(brandChips).toHaveLength(1);
+    expect(brandChips[0].id).toBe("brand");
+  });
+
+  it("çip sırası: arama → kategori → marka → fiyat → dinamik", () => {
+    const s = withPrice(withBrand(withQuery(state({ category: "erkek" }), "mont"), "aurora"), 10000, null);
+    const chips = deriveActiveChips(s, [brandFacet()], { t, currency: "TRY" });
+    expect(chips.map((c) => c.id)).toEqual(["q", "category", "brand", "price"]);
+  });
+});
 
 // ── Aktif sayaçlar ────────────────────────────────────────────────────────────
 

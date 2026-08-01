@@ -62,6 +62,16 @@ export function AttributeIcon() {
   );
 }
 
+// TODO-165A (ADR-165A) Task 15/16 — Marka (Brand) menüsü: etiket/rozet ikonu.
+export function BrandIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M12 3 4 8v8l8 5 8-5V8l-8-5Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export function OrderIcon() {
   return (
     <svg {...base} aria-hidden>
