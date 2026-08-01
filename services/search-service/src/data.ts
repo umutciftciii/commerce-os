@@ -141,6 +141,10 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           primaryCategoryId: true,
           // TODO-155.1 — media-tanımlayıcı eksen (Renk) → swatch projection kaynağı.
           mediaDefiningAttributeId: true,
+          // TODO-165A (ADR-165A) Task 11 — governed marka (Brand) snapshot kaynağı; legacy
+          // `brand` (yukarıda) ile BAĞIMSIZ (dual-write YOK, iki ayrı kaynak read-model'e yazılır).
+          brandId: true,
+          governedBrand: { select: { slug: true, name: true } },
           createdAt: true,
           updatedAt: true,
         },
@@ -406,6 +410,10 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           title: p.title,
           slug: p.slug,
           brand: p.brand ?? p.vendor ?? null,
+          // TODO-165A (ADR-165A) Task 11 — governed marka snapshot (legacy `brand` YUKARIDA, bağımsız).
+          brandId: p.brandId,
+          brandSlug: p.governedBrand?.slug ?? null,
+          brandName: p.governedBrand?.name ?? null,
           description: p.description,
           status: p.status,
           priceVisible: PRICE_VISIBLE.has(p.priceVisibility),
@@ -463,6 +471,10 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             title: document.title,
             slug: document.slug,
             brand: document.brand,
+            // TODO-165A (ADR-165A) Task 11 — governed marka snapshot (legacy `brand` YUKARIDA, bağımsız).
+            brandId: document.brandId,
+            brandSlug: document.brandSlug,
+            brandName: document.brandName,
             searchText: document.searchText,
             status: document.status,
             minPriceMinor: document.minPriceMinor,
@@ -487,6 +499,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             title: document.title,
             slug: document.slug,
             brand: document.brand,
+            brandId: document.brandId,
+            brandSlug: document.brandSlug,
+            brandName: document.brandName,
             searchText: document.searchText,
             status: document.status,
             minPriceMinor: document.minPriceMinor,

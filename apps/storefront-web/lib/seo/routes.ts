@@ -47,6 +47,23 @@ export function searchPath(state: SearchState): string {
 }
 
 /**
+ * TODO-165A (ADR-165A) Task 19/20 — Marka dizin sayfası (`/markalar`). Kategorinin aksine ADANMIŞ bir
+ * route'tur (governed Brand entity'si PLP'nin `category` gibi bir "filtre" değil, kendi kimliği/vitrini
+ * olan bir varlık — logo/kapak/açıklama/website taşır); bu yüzden `/products?brand=` PATTERN'i YERİNE
+ * `/markalar/[slug]` kanonik marka landing'idir (bkz. lib/seo/breadcrumb.ts + app/markalar).
+ */
+export function brandsPath(): string {
+  return "/markalar";
+}
+
+/** Marka detay path'i (slug = Brand.slug). Boş slug → dizin sayfası (güvenli; uydurma URL yok). */
+export function brandPath(slug: string): string {
+  const trimmed = slug.trim();
+  if (trimmed.length === 0) return brandsPath();
+  return `${brandsPath()}/${encodeURIComponent(trimmed)}`;
+}
+
+/**
  * Kategori landing href'inden (`/products?category=slug`) slug'ı çıkarır; yoksa null. `categoryPath`'in
  * TERSİ. Navigasyon kategorisini (FEATURED_CATEGORIES) seçili `state.category` slug'ıyla eşleştirmek için
  * TEK yer (chip aktif-vurgusu + PLP başlığı görünen adı aynı kaynağı kullanır).

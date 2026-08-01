@@ -92,7 +92,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     renderForm(makeProduct(), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
 
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await user.click(screen.getByRole("button", { name: "save" }));
 
     await waitFor(() => expect(storeApiMock.updateProduct).toHaveBeenCalledTimes(1));
@@ -110,7 +110,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     // Hydration: seçili kategori `ids` çözüm moduyla ASENKRON gelir; c1 ana →
     // "Primary category" rozeti tam 1 kez.
     await waitFor(() => expect(screen.getAllByText(/Primary category/).length).toBe(1));
-    await pickInSelector(user, /Accessories/);
+    await pickInSelector(user, /Accessories/, 1);
     // Ana hâlâ c1 → rozet hâlâ 1 (c2 "Make primary" gösterir).
     await waitFor(() => expect(screen.getByText("Make primary")).toBeTruthy());
     expect(screen.getAllByText(/Primary category/).length).toBe(1);

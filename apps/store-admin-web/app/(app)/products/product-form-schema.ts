@@ -36,7 +36,9 @@ export interface ProductFormValues {
   title: string;
   slug: string;
   status: ProductStatus;
-  brand: string;
+  // TODO-165A (ADR-165A) Task 17 — free-text `brand`in yerini governed marka SEÇİMİ
+  // aldı (bkz. brand-field.tsx). null = markasız (opsiyonel kalır, fallback YOK).
+  brandId: string | null;
   vendor: string;
   description: string;
   categoryIds: string[];
@@ -226,7 +228,9 @@ export function buildDefaultValues(mode: "create" | "edit", product?: Product): 
     title: initial?.title ?? "",
     slug: initial?.slug ?? "",
     status: initial?.status ?? "DRAFT",
-    brand: initial?.brand ?? "",
+    // TODO-165A (ADR-165A) Task 17 — düzenleme modunda governed markayı ÖN-SEÇ (backend
+    // artık admin GET/detail çıkışında brandId taşır; bkz. server.ts serializeProduct).
+    brandId: initial?.brandId ?? null,
     vendor: initial?.vendor ?? "",
     description: initial?.description ?? "",
     categoryIds: initial?.categoryIds ?? [],
@@ -308,7 +312,10 @@ export function buildUpdatePayload(
   const payload: ProductUpdateRequest = {
     title: values.title.trim(),
     status: values.status,
-    brand: values.brand.trim() === "" ? null : values.brand.trim(),
+    // TODO-165A (ADR-165A) Task 17 — governed `brandId` gönderilir (nullable); serbest-metin
+    // `brand` alanı ARTIK GÖNDERİLMEZ (route brandId geçerliyse zaten dual-write ile marka
+    // adını yazar; brandId: null legacy metni DOKUNULMADAN bırakır — bkz. server.ts Task 7).
+    brandId: values.brandId,
     vendor: values.vendor.trim() === "" ? null : values.vendor.trim(),
     description: values.description.trim() === "" ? null : values.description.trim(),
     categoryIds: values.categoryIds,
@@ -343,7 +350,9 @@ export function buildCreatePayload(
     ...salesFields(values),
     ...shippingFields(values),
   };
-  if (values.brand.trim() !== "") payload.brand = values.brand.trim();
+  // TODO-165A (ADR-165A) Task 17 — governed `brandId` gönderilir (serbest-metin `brand`
+  // fallback'i YOK). null iken hiç gönderilmez (route zaten null'ı "markasız" sayar).
+  if (values.brandId) payload.brandId = values.brandId;
   if (values.vendor.trim() !== "") payload.vendor = values.vendor.trim();
   if (values.description.trim() !== "") payload.description = values.description.trim();
   if (values.primaryCategoryId) payload.primaryCategoryId = values.primaryCategoryId;

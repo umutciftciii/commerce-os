@@ -7,6 +7,7 @@
 import { prisma } from "@commerce-os/db";
 import type { PublicFashionProjection } from "@commerce-os/contracts";
 import { colorFamilyOf, isValidHexSwatch } from "./canonical-attributes.js";
+import type { SizeChartService } from "./size-chart-service.js";
 
 const AXIS_COLOR = "fashion.color";
 const AXIS_SIZE = "fashion.size";
@@ -33,6 +34,7 @@ function axisKind(code: string, dataType: string): "color" | "size" | "other" {
 }
 
 export async function buildPublicFashionProjection(
+  sizeChartService: Pick<SizeChartService, "resolveEffective">,
   storeId: string,
   productId: string,
   primaryCategoryId: string | null,
@@ -139,7 +141,7 @@ export async function buildPublicFashionProjection(
   }
 
   // ── Size chart cozumu: PRODUCT > CATEGORY > STORE (published revision) ──
-  const sizeChart = await resolvePublishedSizeChart(storeId, productId, primaryCategoryId);
+  const sizeChart = await resolvePublishedSizeChart(sizeChartService, storeId, productId, primaryCategoryId);
 
   return {
     optionAxes,
@@ -153,59 +155,29 @@ export async function buildPublicFashionProjection(
   };
 }
 
-async function resolvePublishedSizeChart(
+/**
+ * TODO-165A Tasks 25/26 — Scope onceligi PRODUCT → CATEGORY → STORE (ilk PUBLISHED +
+ * revision'li chart kazanir). Precedence UYGULAMASI `SizeChartService.resolveEffective`'te
+ * YASAR (tek yer); bu fonksiyon SADECE onu cagirip PDP'nin public (scope'suz) sekline
+ * cevirir. Store-admin `GET .../size-chart-assignment` ucu AYNI `resolveEffective`'i
+ * DOGRUDAN cagirir (scope dahil) — paralel bir precedence kopyasi YOK.
+ */
+export async function resolvePublishedSizeChart(
+  sizeChartService: Pick<SizeChartService, "resolveEffective">,
   storeId: string,
   productId: string,
   primaryCategoryId: string | null,
 ): Promise<PublicFashionProjection["sizeChart"]> {
-  // Scope onceligi: PRODUCT → CATEGORY → STORE. Ilk PUBLISHED + revision'li chart kazanir.
-  const assignments = await prisma.sizeChartAssignment.findMany({
-    where: {
-      storeId,
-      OR: [
-        { scope: "PRODUCT", productId },
-        ...(primaryCategoryId ? [{ scope: "CATEGORY" as const, categoryId: primaryCategoryId }] : []),
-        { scope: "STORE" },
-      ],
-    },
-    select: { scope: true, sizeChartId: true },
-  });
-  if (assignments.length === 0) return null;
-  const rank = (s: string) => (s === "PRODUCT" ? 0 : s === "CATEGORY" ? 1 : 2);
-  assignments.sort((a, b) => rank(a.scope) - rank(b.scope));
-
-  for (const asg of assignments) {
-    const chart = await prisma.sizeChart.findFirst({
-      where: { id: asg.sizeChartId, storeId, status: "PUBLISHED", publishedRevisionId: { not: null } },
-      select: {
-        id: true,
-        name: true,
-        sizeSystemKey: true,
-        measurementUnit: true,
-        publishedRevisionId: true,
-      },
-    });
-    if (!chart || !chart.publishedRevisionId) continue;
-    const revision = await prisma.sizeChartRevision.findFirst({
-      where: { id: chart.publishedRevisionId, storeId },
-      select: { columns: true, rows: true },
-    });
-    if (!revision) continue;
-    return {
-      id: chart.id,
-      name: chart.name,
-      sizeSystemKey: chart.sizeSystemKey,
-      measurementUnit: chart.measurementUnit,
-      columns: (Array.isArray(revision.columns) ? revision.columns : []) as {
-        key: string;
-        label: string;
-        unit?: string;
-      }[],
-      rows: (Array.isArray(revision.rows) ? revision.rows : []) as {
-        size: string;
-        cells: Record<string, string | number>;
-      }[],
-    };
-  }
-  return null;
+  const resolved = await sizeChartService.resolveEffective(storeId, productId, primaryCategoryId);
+  const revision = resolved?.chart.publishedRevision;
+  if (!resolved || !revision) return null;
+  const { chart } = resolved;
+  return {
+    id: chart.id,
+    name: chart.name,
+    sizeSystemKey: chart.sizeSystemKey,
+    measurementUnit: chart.measurementUnit,
+    columns: revision.columns,
+    rows: revision.rows,
+  };
 }

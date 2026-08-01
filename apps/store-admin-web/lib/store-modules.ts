@@ -10,6 +10,13 @@
 export const HREF_MODULE: Record<string, string> = {
   "/inventory": "MULTI_WAREHOUSE",
   "/size-charts": "FASHION_VERTICAL",
+  // TODO-165A (ADR-165A) Task 24 — Ürün Sözlükleri (governed Product Taxonomy: Sezon/
+  // Koleksiyon/Materyal/Kalıp/Desen/Yaka/Kol/Boy/Bakım/Sürdürülebilirlik/Renk Ailesi).
+  "/product-dictionaries": "FASHION_VERTICAL",
+  // TODO-165A (ADR-165A) Task 15/16 — Marka (Brand). CATALOG çekirdek/always-on modüldür;
+  // burada listelenmesi yalnız `ModuleGuard`/`StoreNav` ile AYNI OTORİTEyi paylaşmak
+  // içindir (drift yok) — effective her zaman AÇIK, item asla gizlenmez.
+  "/brands": "CATALOG",
   "/reviews": "REVIEWS",
   "/campaigns": "CAMPAIGNS",
   "/influencers": "INFLUENCER_TRACKING",

@@ -1363,3 +1363,54 @@ pnpm --filter @commerce-os/search-service search:backfill --store edm-store   # 
 - **Smoke:** PDP `/{slug}` (renk swatch + beden + OOS disabled + beden tablosu), PLP `?category=moda-kadin-giyim`
   (renk/beden facet), guest checkout (`POST /public/stores/enterprise-demo/checkout`) → OrderLine fashion snapshot
   (selectedColor/selectedSize/sizeSystem/…) IMMUTABLE. Store-admin `/size-charts` + `/products/{id}` (10-adım wizard).
+
+## TODO-165A — Brand & Fashion Taksonomi Governance: migration + bootstrap + reindex (ADR-253…258)
+
+Brand + store-scoped fashion sözlükleri (ProductTaxonomyValue) + size-chart selector için 4 additive migration
++ 2 seviyeli (migration-time + runtime) bootstrap. Sıra ÖNEMLİ (her biri bir öncekine additive bağımlı).
+
+```bash
+# 1) Şema migration'ları (additive; mevcut veri korunur; sıra korunmalı)
+DATABASE_URL=... pnpm --filter @commerce-os/db exec prisma migrate deploy --schema prisma/schema.prisma
+DATABASE_URL=... pnpm --filter @commerce-os/db exec prisma migrate status --schema prisma/schema.prisma  # "up to date"
+# Kapsanan migrationlar (bu sırayla):
+#   20260801120000_add_brand_and_product_taxonomy            — Brand, ProductTaxonomyValue, AttributeOption.storeId/metadata
+#                                                                + iki partial unique index (global/store)
+#   20260801130000_backfill_product_brand                    — legacy Product.brand string'den Brand + Product.brandId backfill
+#   20260801140000_backfill_fashion_taxonomy                 — FASHION_VERTICAL-enabled mağazalar için store-scoped
+#                                                                AttributeOption + ProductTaxonomyValue backfill (migration-anı)
+#   20260802120000_provision_platform_fashion_attribute_definitions — 11 PLATFORM fashion.* AttributeDefinition (idempotent,
+#                                                                NOT-EXISTS) — HERHANGİ bir mağaza bootstrap edebilsin diye
+
+# 2) Fashion demo seed (idempotent; edm-store scope; artık store-scoped governed model ile doğar)
+DATABASE_URL=... node packages/db/scripts/fashion-demo-seed.mjs
+
+# 3) ZORUNLU: Search read-model reindex — marka alanları (brandId/brandSlug/brandName) + taksonomi facet'leri
+#    yalnız reindex SONRASI PLP'de görünür (seed/backfill kendisi search doc'u dokunmaz).
+pnpm --filter @commerce-os/search-service search:backfill --store <storeId>   # tek mağaza
+pnpm --filter @commerce-os/search-service search:backfill --all              # tüm mağazalar
+# Kısayol (enterprise-demo dahil tüm demo mağazalar):
+pnpm db:backfill-enterprise
+```
+
+- **Taksonomi bootstrap-on-enable (fail-closed):** `FASHION_VERTICAL` bir mağaza için DISABLED→ENABLED olunca
+  gateway `ensureStoreTaxonomyDefaults(storeId)` çağırır — canonical fashion sözlükleri (sezon/koleksiyon/
+  materyal/kalıp/…) store-scoped olarak oluşturulur. Bootstrap BAŞARISIZ olursa capability enable de başarısız
+  olur (`TAXONOMY_BOOTSTRAP_FAILED`, compensating revert) — **"enabled ama sözlüksüz" durum asla sessizce
+  oluşmaz**. Ek güvenlik ağı: taxonomy list/quick-create çağrıları da idempotent olarak aynı bootstrap'i tetikler
+  (plan-seviyesi toplu enable gibi diğer enable yollarını self-heal eder — bkz. `docs/TECHNICAL_DEBT.md` TD-169).
+  Re-run HER ZAMAN no-op'tur (mağaza-yönetilen değerler asla overwrite edilmez).
+- **Kanonik güncelleme politikası:** kod-seviyesi registry'ye (`GOVERNED_TAXONOMY_CODES`) yeni bir kanonik değer
+  eklenirse mevcut mağazalara sonraki bootstrap çağrısında (enable ya da lazy-list) ADDİTİF olarak ulaşır.
+  Bir kanonik değerin **rename/kaldırılması hiçbir mağaza-yönetilen `ProductTaxonomyValue` satırını
+  değiştirmez/silmez/arşivlemez** — governance başladıktan sonra o satır otoriterdir. Migration + runtime
+  AYNI kod otoritesini (`taxonomy-map.ts` → `GOVERNED_TAXONOMY_CODES`) kullanır (parity-test korumalı) — yeni
+  bir kanonik kod eklerken hem `canonical-attributes.ts` hem `taxonomy-map.ts` güncellenmeli.
+- **Capability toggle:** `StoreModule(storeId, moduleKey=FASHION_VERTICAL).state`. Kapalıyken taksonomi/brand
+  admin uçları (taksonomi `FASHION_VERTICAL`; Brand `CATALOG` — her zaman açık, kapanmaz) değişmeden erişilebilir/
+  erişilemez kalır; mevcut veri korunur; tekrar açınca `ensureStoreTaxonomyDefaults` yeniden çalışır (no-op eğer
+  zaten dolu).
+- **Smoke:** storefront `/markalar` + `/markalar/[slug]` (brand facet), store-admin `/brands` (liste/create/ürün
+  sayısı), `/product-dictionaries` (tip-sekme/usageCount/reorder), ürün formu Fashion Özellikleri (taxonomy
+  select+quick-add) + Beden Tablosu adımı (searchable selector, raw ID yok). Detay + gerçek browser kanıtı:
+  `docs/analysis/TODO-165A-product-data-governance.md` §8.

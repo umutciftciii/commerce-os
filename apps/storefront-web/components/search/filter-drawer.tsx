@@ -10,7 +10,7 @@ import {
 } from "../../lib/search/url-state";
 import { countActiveFilters } from "../../lib/search/facets";
 import { FacetList } from "./facets/facet-list";
-import { useSearchTransition } from "./search-transition";
+import { useSearchBasePath, useSearchTransition } from "./search-transition";
 
 /**
  * TODO-156C (ANALIZ-156A §4.2-§4.3/§5.2, brief §3) — Mobil/tablet filtre DRAWER'ı (< lg).
@@ -35,6 +35,7 @@ export function FilterDrawer({
 }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -152,7 +153,7 @@ export function FilterDrawer({
               <button
                 type="button"
                 disabled={!filtersActive}
-                onClick={() => navigate(buildSearchHref(clearedFiltersOnly(state)), { replace: true })}
+                onClick={() => navigate(buildSearchHref(clearedFiltersOnly(state), basePath), { replace: true })}
                 className="h-11 flex-1 rounded-none border border-line px-4 text-xs font-medium uppercase tracking-wideish text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
               >
                 {s.filterClear}

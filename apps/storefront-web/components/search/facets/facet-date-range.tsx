@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { buildSearchHref, setFilterRange } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 import type { FacetRendererProps } from "./types";
 
 /**
@@ -20,6 +20,7 @@ export function FacetDateRange(props: FacetRendererProps) {
 function DateForm({ facet, state, t }: FacetRendererProps) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const range = facet.range;
   const [from, setFrom] = useState(range?.selectedMin != null ? epochToDay(range.selectedMin) : "");
   const [to, setTo] = useState(range?.selectedMax != null ? epochToDay(range.selectedMax) : "");
@@ -29,7 +30,7 @@ function DateForm({ facet, state, t }: FacetRendererProps) {
     // Başlangıç = günün 00:00 UTC; bitiş = günün 23:59:59.999 UTC (kapsayıcı üst sınır).
     const min = dayToEpoch(from, false);
     const max = dayToEpoch(to, true);
-    navigate(buildSearchHref(setFilterRange(state, facet.code, min, max)), { replace: true });
+    navigate(buildSearchHref(setFilterRange(state, facet.code, min, max), basePath), { replace: true });
   };
 
   return (

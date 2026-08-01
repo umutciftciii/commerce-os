@@ -43,6 +43,7 @@ import {
   type AttributeDataAccess,
   type AttributeDefinitionRecord,
 } from "./data.js";
+import { assertOptionNotGoverned, AttributeOptionGovernedError } from "../taxonomy/option-resolver.js";
 
 type Actor = { actorUserId: string };
 
@@ -74,6 +75,41 @@ export interface PlatformAttributeRoutesDeps {
 
 function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
   return { error: { code, message, ...(extra ?? {}) } };
+}
+
+// TODO-165A (ADR-165A) Task 8 — governed-option mutation guard. Generic option PATCH
+// (rename/archive/reorder) ONCE option'i reverse `taxonomyValue` iliskisiyle yukler; governed
+// (taxonomyValue non-null) ise 409 ATTRIBUTE_OPTION_GOVERNED doner (raw Prisma/FK hatasi
+// SIZDIRILMAZ). Governed secenekler yalniz Task 9'un taxonomy servisi uzerinden yonetilir.
+// Donen `true` → cagiran devam edebilir; `false` → reply zaten gonderildi (route return etmeli).
+async function guardOptionNotGoverned(
+  dataAccess: AttributeDataAccess,
+  reply: FastifyReply,
+  attributeDefinitionId: string,
+  optionId: string,
+): Promise<boolean> {
+  const existing = await dataAccess.findAttributeOptionGovernance(attributeDefinitionId, optionId);
+  if (!existing) {
+    await reply.code(404).send(errorBody("ATTRIBUTE_OPTION_NOT_FOUND", "Option not found."));
+    return false;
+  }
+  try {
+    assertOptionNotGoverned(existing);
+  } catch (error) {
+    if (error instanceof AttributeOptionGovernedError) {
+      await reply
+        .code(409)
+        .send(
+          errorBody(
+            "ATTRIBUTE_OPTION_GOVERNED",
+            "This option is governed by a taxonomy value and cannot be mutated directly.",
+          ),
+        );
+      return false;
+    }
+    throw error;
+  }
+  return true;
 }
 
 // SELECT/MULTI_SELECT/COLOR disindaki tipler secenek TASIMAZ.
@@ -329,6 +365,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     const definition = await requireEditableStoreDefinition(reply, params.storeId, params.attributeId);
     if (!definition) return;
     const input = attributeOptionUpdateRequestSchema.parse(request.body);
+    if (!(await guardOptionNotGoverned(dataAccess, reply, definition.id, params.optionId))) return;
     const record = await dataAccess.updateAttributeOption(definition.id, params.optionId, input);
     if (!record) return reply.code(404).send(errorBody("ATTRIBUTE_OPTION_NOT_FOUND", "Option not found."));
     await recordAudit({
@@ -676,6 +713,7 @@ export function registerPlatformAttributeRoutes(app: FastifyInstance, deps: Plat
     const definition = await requirePlatformDefinition(reply, params.attributeId);
     if (!definition) return;
     const input = attributeOptionUpdateRequestSchema.parse(request.body);
+    if (!(await guardOptionNotGoverned(dataAccess, reply, definition.id, params.optionId))) return;
     const record = await dataAccess.updateAttributeOption(definition.id, params.optionId, input);
     if (!record) return reply.code(404).send(errorBody("ATTRIBUTE_OPTION_NOT_FOUND", "Option not found."));
     await recordAudit({

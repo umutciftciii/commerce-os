@@ -79,6 +79,7 @@ export function generateDataset() {
       name: undefined, // persist doldurur (constants'tan)
     },
     categories: [],
+    brands: [],
     attributes: { definitions: [], options: [], categoryLinks: [] },
     products: [],
     variants: [],
@@ -115,6 +116,19 @@ export function generateDataset() {
     catBySlug.set(node.slug, { ...node, id: row.id });
   }
   const leaves = CATEGORY_TREE.filter((n) => n.kind);
+
+  // 1.5) Markalar — BRANDS havuzundaki HER marka için gerçek Brand satırı (Task 27 / ADR-165A).
+  //      Kullanılsın/kullanılmasın tüm marka evreni persist edilir; ürünler brandId ile bağlanır.
+  //      Legacy `product.brand` (serbest metin) dual-write: her zaman brand.name'e eşit kalır.
+  const brandIdByName = new Map();
+  for (const b of BRANDS) {
+    const slug = slugify(b.name);
+    const id = ID.brand(slug);
+    brandIdByName.set(b.name, id);
+    out.brands.push({
+      id, storeId: STORE_ID, name: b.name, slug, description: null, status: "ACTIVE",
+    });
+  }
 
   // 2) Attribute tanımları + option'ları ----------------------------------
   const optionIndex = new Map(); // `${code}:${value}` -> optionId
@@ -281,6 +295,7 @@ export function generateDataset() {
         status,
         type: "PHYSICAL",
         brand: brand.name,
+        brandId: brandIdByName.get(brand.name) ?? null,
         vendor: null,
         seoTitle: `${title} | Enterprise Demo`,
         seoDescription: truncate(`${title} — ${description}`, 155),

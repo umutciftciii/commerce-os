@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { canonicalPath, isIndexable, robotsFor } from "../lib/search/seo";
-import { emptySearchState, withCategory, withPage, withQuery, type SearchState } from "../lib/search/url-state";
+import {
+  emptySearchState,
+  withBrand,
+  withCategory,
+  withPage,
+  withQuery,
+  type SearchState,
+} from "../lib/search/url-state";
 
 describe("search seo", () => {
   it("düz PLP indexable", () => {
@@ -46,5 +53,22 @@ describe("search seo", () => {
   it("page>1 aramada self-canonical q + page taşır", () => {
     const state = withPage(withQuery(emptySearchState(), "mont"), 3);
     expect(canonicalPath(state)).toBe("/products?q=mont&page=3");
+  });
+
+  // TODO-165A (ADR-165A) Task 20 — brand da category gibi indexable + canonical'da korunur (collapse-to-plain
+  // riski önlenir; bkz. lib/search/seo.ts yorum).
+  it("marka-yalnız indexable", () => {
+    const state = withBrand(emptySearchState(), "aurora");
+    expect(isIndexable(state)).toBe(true);
+    expect(robotsFor(state)).toEqual({ index: true, follow: true });
+  });
+
+  it("canonical indexable: marka korunur (düz /products'a düşmez)", () => {
+    expect(canonicalPath(withBrand(emptySearchState(), "aurora"))).toBe("/products?brand=aurora");
+  });
+
+  it("canonical indexable: kategori + marka birlikte korunur", () => {
+    const state = withBrand(withCategory(emptySearchState(), "erkek"), "aurora");
+    expect(canonicalPath(state)).toBe("/products?category=erkek&brand=aurora");
   });
 });

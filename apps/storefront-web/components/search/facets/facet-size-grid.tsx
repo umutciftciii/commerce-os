@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { format } from "@commerce-os/i18n";
 import { buildSearchHref, toggleFilterValue } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 import type { FacetRendererProps } from "./types";
 
 /**
@@ -19,6 +19,7 @@ const DEFAULT_VISIBLE = 12;
 export function FacetSizeGrid({ facet, state, t }: FacetRendererProps) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const [expanded, setExpanded] = useState(false);
 
   const values = facet.values;
@@ -42,7 +43,7 @@ export function FacetSizeGrid({ facet, state, t }: FacetRendererProps) {
               disabled={disabled}
               title={`${value.label} (${value.count})`}
               onClick={() =>
-                navigate(buildSearchHref(toggleFilterValue(state, facet.code, value.value)), {
+                navigate(buildSearchHref(toggleFilterValue(state, facet.code, value.value), basePath), {
                   replace: true,
                 })
               }

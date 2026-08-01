@@ -38,6 +38,8 @@ class MemoryAttributes implements AttributeDataAccess {
   options: AttributeOptionRecord[] = [];
   links: CategoryAttributeRecord[] = [];
   categories: AttributeCategoryRef[] = [];
+  // TODO-165A (ADR-165A) Task 8 — governed-option marker (optionId -> taxonomyValueId).
+  governedOptionIds: Map<string, string> = new Map();
   private seq = 0;
   private id(p: string) {
     this.seq += 1;
@@ -128,6 +130,12 @@ class MemoryAttributes implements AttributeDataAccess {
   }
   async findAttributeOptionByValue(attributeDefinitionId: string, value: string) {
     return this.options.find((o) => o.attributeDefinitionId === attributeDefinitionId && o.value === value) ?? null;
+  }
+  async findAttributeOptionGovernance(attributeDefinitionId: string, id: string) {
+    const rec = this.options.find((o) => o.id === id && o.attributeDefinitionId === attributeDefinitionId);
+    if (!rec) return null;
+    const taxonomyValueId = this.governedOptionIds.get(id);
+    return { id: rec.id, taxonomyValue: taxonomyValueId ? { id: taxonomyValueId } : null };
   }
   async createAttributeOption(input: Parameters<AttributeDataAccess["createAttributeOption"]>[0]) {
     const rec: AttributeOptionRecord = {

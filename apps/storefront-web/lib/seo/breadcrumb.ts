@@ -3,7 +3,7 @@
  * `BreadcrumbList` builder'ı AYNI trail'i tüketir → görünür breadcrumb ile yapısal veri ASLA çelişmez,
  * kopya üretilmez. Path'ler URL governance builder'larından (routes.ts) gelir.
  */
-import { homePath, productPath, productsPath, categoryPath } from "./routes";
+import { brandsPath, homePath, productPath, productsPath, categoryPath } from "./routes";
 
 /** Bir breadcrumb düğümü. `path === null` → geçerli sayfa (link YOK, aria-current="page"). */
 export interface BreadcrumbItem {
@@ -61,4 +61,29 @@ export function buildProductsBreadcrumb(labels: BreadcrumbLabels): BreadcrumbIte
 /** İç kullanım: PDP kanonik path (JSON-LD son düğüm URL'i için). */
 export function productBreadcrumbLeafPath(handle: string): string {
   return productPath(handle);
+}
+
+export interface BrandBreadcrumbLabels {
+  home: string;
+  brands: string;
+}
+
+/** Marka dizin trail: Ana sayfa › Markalar (current). */
+export function buildBrandsBreadcrumb(labels: BrandBreadcrumbLabels): BreadcrumbItem[] {
+  return [
+    { label: labels.home, path: homePath() },
+    { label: labels.brands, path: null },
+  ];
+}
+
+/** Marka detay trail: Ana sayfa › Markalar › [Marka adı] (current). */
+export function buildBrandBreadcrumb(params: {
+  labels: BrandBreadcrumbLabels;
+  brandName: string;
+}): BreadcrumbItem[] {
+  return [
+    { label: params.labels.home, path: homePath() },
+    { label: params.labels.brands, path: brandsPath() },
+    { label: params.brandName, path: null },
+  ];
 }

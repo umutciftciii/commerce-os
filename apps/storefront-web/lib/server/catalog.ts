@@ -17,6 +17,7 @@ import {
 } from "@commerce-os/utils";
 import type {
   PriceDisplayMode,
+  StorefrontBrandSummary,
   StorefrontCampaignView,
   StorefrontDiscoverySection,
   StorefrontFashionView,
@@ -142,6 +143,23 @@ function toCampaignView(
   };
 }
 
+/**
+ * TODO-165A (ADR-165A) Task 18 — Public governed marka ENTITY DTO'sunu (varsa) vitrin bağlantı gorunumune
+ * cevirir. `brandRef` null ise (urun.brandId set edilmemis) null doner — uydurma marka linki YOK.
+ */
+function toBrandRef(
+  brandRef: PublicProduct["brandRef"],
+): StorefrontBrandSummary | null {
+  if (!brandRef) return null;
+  return {
+    id: brandRef.id,
+    name: brandRef.name,
+    slug: brandRef.slug,
+    logoUrl: brandRef.logoUrl,
+    description: brandRef.description,
+  };
+}
+
 /** Public urun DTO'sunu liste/kart ozet gorunumune cevirir. */
 function toSummary(product: PublicProduct, locale: CampaignLabelLocale): StorefrontProductSummary {
   const commerce = deriveProductCommerceView(product);
@@ -154,6 +172,7 @@ function toSummary(product: PublicProduct, locale: CampaignLabelLocale): Storefr
     handle: product.slug,
     title: product.title,
     brand: product.brand,
+    brandRef: toBrandRef(product.brandRef),
     categoryLabel: product.categoryLabel,
     // ADR-065 (Faz 3/Dilim 1) — Kapak = liste/ilgili ucundaki ilk gorsel; yoksa null
     // (kart yer tutucuya duser). Detayda images[0] yine kapaktir (tutarli).

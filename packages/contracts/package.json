@@ -17,6 +17,10 @@
     "./size-systems": {
       "types": "./dist/size-systems.d.ts",
       "default": "./dist/size-systems.js"
+    },
+    "./product-taxonomy": {
+      "types": "./dist/product-taxonomy.d.ts",
+      "default": "./dist/product-taxonomy.js"
     }
   },
   "scripts": {

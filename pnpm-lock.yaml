@@ -322,6 +322,9 @@ importers:
       '@commerce-os/auth':
         specifier: workspace:*
         version: link:../auth
+      '@commerce-os/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@commerce-os/logger':
         specifier: workspace:*
         version: link:../logger

@@ -7,7 +7,6 @@
 // tarafından paylaşılır; gönder butonu `form={formId}` ile dışarıdan bağlanır.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { Alert, Button, Input, Select, Stepper, Textarea, useLocale } from "../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
@@ -23,6 +22,12 @@ import { MediaUpload } from "../../../components/media-upload";
 // TODO-159B (ADR-090) — Kategori ataması aranabilir seçiciye taşındı; form artık
 // kategori kataloğunu prop olarak ALMAZ.
 import { ProductCategoryField } from "./product-category-field";
+// TODO-165A (ADR-165A) Task 17 — Serbest-metin marka girişinin yerini governed marka
+// SEÇİCİSİ + satır-içi hızlı-oluşturma aldı.
+import { ProductBrandField } from "./brand-field";
+// TODO-165A Tasks 25/26 — bare "/size-charts'a git" bağlantısının yerini bind/change/
+// remove/preview/create yüzeyi aldı; kullanıcı hiçbir zaman Ürün ID'si YAZMAZ.
+import { SizeChartStep } from "./size-chart/size-chart-step";
 import {
   buildCreatePayload,
   buildDefaultValues,
@@ -36,7 +41,10 @@ import {
   type ProductFormValues,
 } from "./product-form-schema";
 import { useCategoryAttributes } from "./attributes/use-category-attributes";
-import { AttributeSection } from "./attributes/attribute-section";
+// TODO-165A (ADR-165A) Task 22/23 — Governed fashion.* attribute'ları taksonomi-güdümlü
+// aranabilir seçimlerle render eder; governed OLMAYANLAR için `AttributeSection`'ı
+// (değişmeden) sürer. `<AttributeSection>` DOĞRUDAN artık burada import EDİLMEZ.
+import { FashionAttributesStep } from "./fashion/fashion-attributes-step";
 import {
   attributeValuesToInputs,
   buildAttributeValueMap,
@@ -269,6 +277,8 @@ export function ProductForm({
   const status = watch("status");
   const categoryIds = watch("categoryIds");
   const primaryCategoryId = watch("primaryCategoryId");
+  // TODO-165A (ADR-165A) Task 17 — governed marka seçimi (bkz. ProductBrandField).
+  const brandId = watch("brandId");
   const images = watch("images");
   const variantSelections = watch("variantSelections");
   // Faz 2C-7 (ADR-078) — Variant Media Engine: görselleri gruplayan media-tanımlayıcı eksen.
@@ -691,12 +701,11 @@ export function ProductForm({
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Input
-          id="product-brand"
-          label={f.brandLabel}
-          placeholder={f.brandPlaceholder}
+        <ProductBrandField
+          locale={locale}
+          value={brandId}
+          onChange={(id) => setValue("brandId", id, { shouldDirty: true })}
           disabled={isSubmitting}
-          {...register("brand")}
         />
         <Input
           id="product-vendor"
@@ -734,13 +743,18 @@ export function ProductForm({
 
       <StepGroup index={2} wizard={wizard} current={step}>
       {/* Faz 2B — Kategori-güdümlü dinamik attribute alanları. Legacy kategoride
-          (attribute tanımlı değil) hiçbir şey render edilmez. */}
-      <AttributeSection
+          (attribute tanımlı değil) hiçbir şey render edilmez.
+          TODO-165A (ADR-165A) Task 22/23 — governed fashion.* attribute'ları (Sezon/
+          Materyal/Kalıp/...) artık taksonomi-güdümlü aranabilir seçim + satır-içi
+          hızlı-ekle ile render edilir; governed olmayanlar generic AttributeSection'da
+          KALIR (dokunulmadı). */}
+      <FashionAttributesStep
         control={control}
         state={attrState}
         disabled={isSubmitting}
         labels={{
           sectionTitle: a.generalGroup,
+          governedSectionTitle: locale === "tr" ? "Moda Özellikleri" : "Fashion Attributes",
           loadingLabel: a.loading,
           errorLabel: a.loadError,
           requiredHint: a.requiredHint,
@@ -1211,24 +1225,11 @@ export function ProductForm({
 
       {wizard ? (
         <StepGroup index={8} wizard={wizard} current={step}>
-          <div className="space-y-3 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-4 sm:p-5">
-            <div className="flex items-start gap-2.5">
-              <span aria-hidden className="mt-1 h-4 w-0.5 shrink-0 rounded-full bg-indigo-500/150" />
-              <div>
-                <h3 className="text-sm font-semibold text-white/90">Beden Tablosu</h3>
-                <p className="mt-0.5 text-xs text-white/45">
-                  Ölçü tablolarını Beden Tabloları ekranından oluşturup bu ürüne (PRODUCT kapsamı)
-                  bağlayabilirsiniz.
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/size-charts"
-              className="inline-flex items-center gap-1 text-sm font-medium text-indigo-300 transition-colors hover:text-indigo-200"
-            >
-              Beden Tablolarını Aç <span aria-hidden>→</span>
-            </Link>
-          </div>
+          <SizeChartStep
+            productId={isEdit && product ? product.id : null}
+            categoryId={primaryCategoryId ?? null}
+            disabled={isSubmitting}
+          />
         </StepGroup>
       ) : null}
 

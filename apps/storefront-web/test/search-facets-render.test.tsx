@@ -11,6 +11,7 @@ import {
   emptySearchState,
   setFilterRange,
   toggleFilterValue,
+  withBrand,
   withInStock,
   withPrice,
   type SearchState,
@@ -87,6 +88,25 @@ function booleanFacet(): PublicSearchFacet {
   };
 }
 
+/** search-query.ts `synthesizeBrandFacet` şeklini birebir taklit eder (TODO-165A Task 11/21). */
+function brandFacet(overrides: Partial<PublicSearchFacet> = {}): PublicSearchFacet {
+  return {
+    attributeDefinitionId: "brand",
+    code: "brand",
+    name: "Marka",
+    dataType: "SELECT",
+    unit: null,
+    displayOrder: -1,
+    selectionMode: "MULTI",
+    values: [
+      { optionId: null, value: "aurora", label: "Aurora", colorHex: null, count: 12, selected: true },
+      { optionId: null, value: "nova", label: "Nova", colorHex: null, count: 5, selected: false },
+    ],
+    range: null,
+    ...overrides,
+  };
+}
+
 describe("FacetControl · registry render", () => {
   it("SELECT/MULTI → checkbox listesi + label + count", () => {
     const out = renderToStaticMarkup(<FacetControl facet={selectFacet()} state={state()} t={t} />);
@@ -118,6 +138,14 @@ describe("FacetControl · registry render", () => {
     expect(out).toContain('type="checkbox"');
     expect(out).toContain("Evet");
     expect(out).toContain("Hayır");
+  });
+
+  it("TODO-165A Task 21 — sentezlenmiş marka facet'i (code=brand) checkbox listesi render eder; seçili değer backend'in selected'ından işaretli", () => {
+    const out = renderToStaticMarkup(<FacetControl facet={brandFacet()} state={withBrand(state(), "aurora")} t={t} />);
+    expect(out).toContain('type="checkbox"');
+    expect(out).toContain("Aurora");
+    expect(out).toContain("Nova");
+    expect(out).toContain("checked");
   });
 });
 
@@ -155,6 +183,15 @@ describe("ActiveFilterChips", () => {
     expect(out).toContain(t.search.clearAll);
     // Her çip gerçek link (href) taşır.
     expect(out).toContain("href=");
+  });
+
+  it("TODO-165A Task 21 — marka çipi render eder (dedicated state.brand)", () => {
+    const s = withBrand(state(), "aurora");
+    const out = renderToStaticMarkup(
+      <ActiveFilterChips facets={[brandFacet()]} state={s} currency="TRY" t={t} />,
+    );
+    expect(out).toContain(t.search.chipBrandLabel);
+    expect(out).toContain("Aurora");
   });
 });
 

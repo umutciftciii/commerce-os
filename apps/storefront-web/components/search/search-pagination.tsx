@@ -5,7 +5,7 @@ import type { MouseEvent } from "react";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import { buildSearchHref, withPage, type SearchState } from "../../lib/search/url-state";
 import { paginationRange } from "../../lib/search/pagination";
-import { useSearchTransition } from "./search-transition";
+import { useSearchBasePath, useSearchTransition } from "./search-transition";
 
 /**
  * TODO-156B (brief §10) — SSR numaralı pagination. Deterministik href'ler codec'ten türer (SEO otoritesi).
@@ -28,12 +28,13 @@ export function SearchPagination({
 }) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   if (totalPages <= 1) return null;
 
   const current = Math.min(Math.max(state.page, 1), totalPages);
   const tokens = paginationRange(current, totalPages);
 
-  const hrefFor = (page: number) => buildSearchHref(withPage(state, page));
+  const hrefFor = (page: number) => buildSearchHref(withPage(state, page), basePath);
 
   const onNavigate = (page: number) => (event: MouseEvent<HTMLAnchorElement>) => {
     // Sol tık + modifier yok → SPA geçişi (push, en üste scroll). Aksi tarayıcıya bırak (yeni sekme vb.).

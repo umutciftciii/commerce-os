@@ -144,6 +144,14 @@ export interface SearchSourceProduct {
   title: string;
   slug: string;
   brand: string | null;
+  /**
+   * TODO-165A (ADR-165A) Task 11 — Governed marka (Brand) snapshot kaynağı (product.governedBrand
+   * relation'ından; product.brandId varsa dolu). Legacy `brand` (yukarıda, serbest-metin) ile
+   * BAĞIMSIZ yaşar — data katmanı ikisini de ayrı ayrı doldurur (dual-write YOK, iki farklı kaynak).
+   */
+  brandId: string | null;
+  brandSlug: string | null;
+  brandName: string | null;
   description: string | null;
   status: SearchProductStatus;
   priceVisible: boolean;
@@ -220,6 +228,10 @@ export interface SearchDocumentData {
   title: string;
   slug: string;
   brand: string | null;
+  // TODO-165A (ADR-165A) Task 11 — Governed marka snapshot (legacy `brand` YANINDA, bağımsız).
+  brandId: string | null;
+  brandSlug: string | null;
+  brandName: string | null;
   searchText: string;
   status: SearchProductStatus;
   minPriceMinor: number | null;
@@ -358,6 +370,12 @@ export interface SearchQuery {
   maxPrice?: number;
   /** Yalnız stokta (hasStock=true) ürünler. */
   inStock?: boolean;
+  /**
+   * TODO-165A (ADR-165A) Task 11 — Governed marka slug daraltması (Brand.slug). Attribute facet
+   * sistemine GİRMEZ (brand bir AttributeDefinition değil) — read-model'in brandSlug kolonunda
+   * doğrudan eşleşir; `assembleFacets`'ten AYRI sentezlenen `brand` facet ile simetrik.
+   */
+  brand?: string;
   filters: SearchFilter[];
 }
 
@@ -409,6 +427,8 @@ export interface SearchResultItem {
   slug: string;
   title: string;
   brand: string | null;
+  /** TODO-165A (ADR-165A) Task 11 — Governed marka id'si (gateway `brandRef` hidrasyonu için; bounded lookup anahtarı). */
+  brandId: string | null;
   primaryCategoryId: string | null;
   minPriceMinor: number | null;
   maxPriceMinor: number | null;

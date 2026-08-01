@@ -57,6 +57,30 @@ import type {
   SizeChartCreateRequest,
   SizeChartUpdateRequest,
   SizeChartAssignRequest,
+  // TODO-165A (ADR-165A) — Beden tablosu (SizeChart) SECICI sozlesmesi.
+  AdminSizeChartSelectorResponse,
+  // TODO-165A Tasks 25/26 — bir ürünün güncel beden tablosu bağlantısı sözleşmesi.
+  ProductSizeChartAssignmentResponse,
+  // TODO-165A (ADR-165A) — Brand (Marka) sozlesmeleri. NOT: Brand/AdminBrandList*/AdminBrandSelector*
+  // (SortBy/Query/Option)/BrandProductRow/PublicBrandSummary/PublicBrandDetail burada import EDİLMEZ
+  // (bu dosyada gerçek tip konumunda kullanılmazlar) — aşağıdaki `export type {...} from
+  // "@commerce-os/contracts"` bloğu onları BAĞIMSIZ olarak zaten re-export eder (@typescript-eslint/
+  // no-unused-vars: kullanılmayan import olurdu).
+  BrandListResponse,
+  BrandResponse,
+  BrandCreateRequest,
+  BrandUpdateRequest,
+  AdminBrandSelectorResponse,
+  // TODO-165A (ADR-165A) Task 15/16 gap — Marka "Bağlı ürünler" listesi (COUNT-ONLY'den yükseltildi).
+  BrandProductsResponse,
+  // TODO-165A (ADR-165A) — ProductTaxonomyValue sozlesmeleri. NOT: ProductTaxonomyTypeContract/
+  // ProductTaxonomyStatusContract/ProductTaxonomyValue/ProductTaxonomyQuery yukarıdaki notla aynı
+  // sebeple burada import EDİLMEZ (aşağıda bağımsız re-export edilirler).
+  ProductTaxonomyListResponse,
+  ProductTaxonomyResponse,
+  ProductTaxonomyCreateRequest,
+  ProductTaxonomyUpdateRequest,
+  ProductTaxonomyReorderRequest,
   HomeSection,
   HomeSectionCreateRequest,
   HomeSectionListResponse,
@@ -362,6 +386,43 @@ export type {
   SizeChartCreateRequest,
   SizeChartUpdateRequest,
   SizeChartAssignRequest,
+  // TODO-165A (ADR-165A) — Beden tablosu (SizeChart) SECICI sozlesmesi.
+  AdminSizeChartSelectorSortBy,
+  AdminSizeChartSelectorQuery,
+  AdminSizeChartSelectorOption,
+  AdminSizeChartSelectorResponse,
+  // TODO-165A Tasks 25/26 — bir ürünün güncel beden tablosu bağlantısı sözleşmesi.
+  ProductSizeChartAssignmentResponse,
+  // TODO-165A (ADR-165A) — Brand (Marka) sozlesmeleri.
+  Brand,
+  BrandListResponse,
+  BrandResponse,
+  BrandCreateRequest,
+  BrandUpdateRequest,
+  AdminBrandListSortBy,
+  AdminBrandListQuery,
+  AdminBrandSelectorSortBy,
+  AdminBrandSelectorQuery,
+  AdminBrandSelectorOption,
+  AdminBrandSelectorResponse,
+  // TODO-165A (ADR-165A) Task 15/16 gap — Marka "Bağlı ürünler" listesi (COUNT-ONLY'den yükseltildi).
+  BrandProductRow,
+  BrandProductsResponse,
+  PublicBrandSummary,
+  PublicBrandDetail,
+  // TODO-165A (ADR-165A) Task 18 -- Public brand liste/detay govde sozlesmeleri.
+  PublicBrandListResponse,
+  PublicBrandDetailResponse,
+  // TODO-165A (ADR-165A) — ProductTaxonomyValue sozlesmeleri.
+  ProductTaxonomyTypeContract,
+  ProductTaxonomyStatusContract,
+  ProductTaxonomyValue,
+  ProductTaxonomyListResponse,
+  ProductTaxonomyResponse,
+  ProductTaxonomyCreateRequest,
+  ProductTaxonomyUpdateRequest,
+  ProductTaxonomyReorderRequest,
+  ProductTaxonomyQuery,
   HomeSection,
   HomeSectionType,
   HomeSectionCreateRequest,
@@ -1098,6 +1159,17 @@ import { optionalEnvString } from "@commerce-os/utils";
 export { publicSearchResponseSchema, PUBLIC_SEARCH_SORTS } from "@commerce-os/contracts";
 
 /**
+ * TODO-165A (ADR-165A) Task 18 — Public Brand allowlist şemaları (DEĞER re-export). YALNIZCA sunucu-tarafı
+ * BFF (storefront `lib/server/brands.ts`) yanıtı doğrulamak için kullanır; contracts'a doğrudan bağlanmaz.
+ */
+export {
+  publicBrandSummarySchema,
+  publicBrandDetailSchema,
+  publicBrandListResponseSchema,
+  publicBrandDetailResponseSchema,
+} from "@commerce-os/contracts";
+
+/**
  * TODO-156E (ADR-084) — Public Autocomplete runtime allowlist şeması (DEĞER re-export). YALNIZCA sunucu-tarafı
  * BFF (storefront `lib/server/autocomplete.ts` / `app/api/autocomplete`) yanıtı doğrulamak için kullanır.
  */
@@ -1497,6 +1569,91 @@ export interface ApiClient {
         assignmentId: string,
         token?: string,
       ): Promise<SizeChartResponse>;
+      /**
+       * TODO-165A (Task 13, ADR-090 desenini mirror eder) — Beden tablosu SEÇİCİ ucu.
+       * `query.ids` verilirse ÇÖZÜM modudur (arama/sayfalama uygulanmaz; sira korunur).
+       */
+      selector(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminSizeChartSelectorResponse>;
+      /**
+       * TODO-165A Tasks 25/26 — bir ürünün GÜNCEL beden tablosu bağlantısı (PRODUCT-scope
+       * doğrudan atama + PRODUCT>CATEGORY>STORE önceliğiyle çözülmüş etkin chart).
+       * `categoryId` opsiyoneldir (istemci ürünün ana kategorisini biliyorsa gönderir).
+       */
+      getProductAssignment(
+        storeId: string,
+        productId: string,
+        categoryId?: string,
+        token?: string,
+      ): Promise<ProductSizeChartAssignmentResponse>;
+    };
+    // TODO-165A (ADR-165A) — Marka (Brand) yonetimi. list/selector query'si buildQueryString
+    // ile kurulur (Task 4 pattern); selector `query.ids` verilirse COZUM modudur (arama/
+    // sayfalama uygulanmaz; route katmani istemcinin verdigi sirayi korur).
+    brands: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<BrandListResponse>;
+      selector(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminBrandSelectorResponse>;
+      create(storeId: string, input: BrandCreateRequest, token?: string): Promise<BrandResponse>;
+      get(storeId: string, brandId: string, token?: string): Promise<BrandResponse>;
+      update(
+        storeId: string,
+        brandId: string,
+        input: BrandUpdateRequest,
+        token?: string,
+      ): Promise<BrandResponse>;
+      archive(storeId: string, brandId: string, token?: string): Promise<BrandResponse>;
+      restore(storeId: string, brandId: string, token?: string): Promise<BrandResponse>;
+      /**
+       * TODO-165A (ADR-165A) Task 15/16 gap — marka "Bağlı ürünler" listesi (COUNT-ONLY'den
+       * GERÇEK sayfalanmış listeye yükseltildi). query: page/pageSize/search.
+       */
+      products(
+        storeId: string,
+        brandId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<BrandProductsResponse>;
+    };
+    // TODO-165A (ADR-165A) — Governed Product Taxonomy (Malzeme/Sezon/Yaka vb.) yonetimi.
+    // reorder body'si `type` tasir (store+type icin TAM ACTIVE kume beklenir; kismi kume
+    // sunucuda 400 TAXONOMY_REORDER_INCOMPLETE ile reddedilir).
+    productTaxonomy: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<ProductTaxonomyListResponse>;
+      get(storeId: string, valueId: string, token?: string): Promise<ProductTaxonomyResponse>;
+      create(
+        storeId: string,
+        input: ProductTaxonomyCreateRequest,
+        token?: string,
+      ): Promise<ProductTaxonomyResponse>;
+      update(
+        storeId: string,
+        valueId: string,
+        input: ProductTaxonomyUpdateRequest,
+        token?: string,
+      ): Promise<ProductTaxonomyResponse>;
+      reorder(
+        storeId: string,
+        input: ProductTaxonomyReorderRequest,
+        token?: string,
+      ): Promise<ProductTaxonomyListResponse>;
+      archive(storeId: string, valueId: string, token?: string): Promise<ProductTaxonomyResponse>;
+      restore(storeId: string, valueId: string, token?: string): Promise<ProductTaxonomyResponse>;
+      delete(storeId: string, valueId: string, token?: string): Promise<void>;
     };
     // TODO-158A (ADR-086) — Home Experience Platform. Section CRUD + tip-özel alt varlıklar
     // (hero slide, featured kategori, manuel showcase ürünleri). sortOrder server-assigned;
@@ -2963,6 +3120,100 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             { method: "DELETE" },
             token,
           ),
+        selector: (storeId, token, query) =>
+          getJson<AdminSizeChartSelectorResponse>(
+            `/stores/${storeId}/size-charts/selector${buildQueryString(query)}`,
+            token,
+          ),
+        getProductAssignment: (storeId, productId, categoryId, token) =>
+          getJson<ProductSizeChartAssignmentResponse>(
+            `/stores/${storeId}/products/${productId}/size-chart-assignment${buildQueryString({ categoryId })}`,
+            token,
+          ),
+      },
+      // TODO-165A (ADR-165A) — Marka (Brand) proxy'si. selector `ids` verilirse cozum modu
+      // (route katmani sirayi korur); list/selector query'si buildQueryString ile kurulur.
+      brands: {
+        list: (storeId, token, query) =>
+          getJson<BrandListResponse>(`/stores/${storeId}/brands${buildQueryString(query)}`, token),
+        selector: (storeId, token, query) =>
+          getJson<AdminBrandSelectorResponse>(
+            `/stores/${storeId}/brands/selector${buildQueryString(query)}`,
+            token,
+          ),
+        create: (storeId, input, token) =>
+          sendJson<BrandResponse>(`/stores/${storeId}/brands`, "POST", input, token),
+        get: (storeId, brandId, token) =>
+          getJson<BrandResponse>(`/stores/${storeId}/brands/${brandId}`, token),
+        update: (storeId, brandId, input, token) =>
+          sendJson<BrandResponse>(`/stores/${storeId}/brands/${brandId}`, "PATCH", input, token),
+        archive: (storeId, brandId, token) =>
+          sendJson<BrandResponse>(
+            `/stores/${storeId}/brands/${brandId}/archive`,
+            "POST",
+            undefined,
+            token,
+          ),
+        restore: (storeId, brandId, token) =>
+          sendJson<BrandResponse>(
+            `/stores/${storeId}/brands/${brandId}/restore`,
+            "POST",
+            undefined,
+            token,
+          ),
+        products: (storeId, brandId, token, query) =>
+          getJson<BrandProductsResponse>(
+            `/stores/${storeId}/brands/${brandId}/products${buildQueryString(query)}`,
+            token,
+          ),
+      },
+      // TODO-165A (ADR-165A) — Governed Product Taxonomy proxy'si. reorder body { type,
+      // orderedIds } TAM-KUME kurali sunucuda dogrulanir (kismi kume 400 doner).
+      productTaxonomy: {
+        list: (storeId, token, query) =>
+          getJson<ProductTaxonomyListResponse>(
+            `/stores/${storeId}/product-taxonomy${buildQueryString(query)}`,
+            token,
+          ),
+        get: (storeId, valueId, token) =>
+          getJson<ProductTaxonomyResponse>(`/stores/${storeId}/product-taxonomy/${valueId}`, token),
+        create: (storeId, input, token) =>
+          sendJson<ProductTaxonomyResponse>(
+            `/stores/${storeId}/product-taxonomy`,
+            "POST",
+            input,
+            token,
+          ),
+        update: (storeId, valueId, input, token) =>
+          sendJson<ProductTaxonomyResponse>(
+            `/stores/${storeId}/product-taxonomy/${valueId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        reorder: (storeId, input, token) =>
+          sendJson<ProductTaxonomyListResponse>(
+            `/stores/${storeId}/product-taxonomy/reorder`,
+            "POST",
+            input,
+            token,
+          ),
+        archive: (storeId, valueId, token) =>
+          sendJson<ProductTaxonomyResponse>(
+            `/stores/${storeId}/product-taxonomy/${valueId}/archive`,
+            "POST",
+            undefined,
+            token,
+          ),
+        restore: (storeId, valueId, token) =>
+          sendJson<ProductTaxonomyResponse>(
+            `/stores/${storeId}/product-taxonomy/${valueId}/restore`,
+            "POST",
+            undefined,
+            token,
+          ),
+        delete: (storeId, valueId, token) =>
+          sendJson<void>(`/stores/${storeId}/product-taxonomy/${valueId}`, "DELETE", undefined, token),
       },
       // TODO-158A (ADR-086) — Home Experience Platform. Section CRUD + tip-özel alt varlıklar.
       home: {

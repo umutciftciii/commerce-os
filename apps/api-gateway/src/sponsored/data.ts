@@ -268,6 +268,8 @@ interface SearchDocRow {
   slug: string;
   title: string;
   brand: string | null;
+  // TODO-165A (ADR-165A) Task 11 — governed marka id'si (gateway brandRef hidrasyonu için).
+  brandId: string | null;
   primaryCategoryId: string | null;
   minPriceMinor: number | null;
   maxPriceMinor: number | null;
@@ -297,6 +299,7 @@ function toResultItem(r: SearchDocRow, now: Date): SearchResultItem {
     slug: r.slug,
     title: r.title,
     brand: r.brand,
+    brandId: r.brandId,
     primaryCategoryId: r.primaryCategoryId,
     minPriceMinor: r.minPriceMinor,
     maxPriceMinor: r.maxPriceMinor,
@@ -317,6 +320,8 @@ const SEARCH_DOC_SELECT = {
   slug: true,
   title: true,
   brand: true,
+  // TODO-165A (ADR-165A) Task 11 — governed marka id'si (gateway brandRef hidrasyonu için).
+  brandId: true,
   primaryCategoryId: true,
   minPriceMinor: true,
   maxPriceMinor: true,

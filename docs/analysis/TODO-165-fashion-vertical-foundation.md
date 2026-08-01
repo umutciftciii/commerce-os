@@ -427,3 +427,28 @@ tekrar aç → geri gelir. Responsive: mobile/tablet/desktop PLP+PDP.
   custom chart registry'yi override etmez (ölçü tablosu ≠ beden ekseni).
 - **R4 Kapsam**: bu faz commit/push/PR/deploy YAPMAZ (§20). Analiz→impl→migration→test→
   smoke→docs tamamlanır, durulur.
+
+## 21. TODO-165A follow-up (governance katmanı + 2 gerçek bug düzeltmesi)
+
+TODO-165A (`docs/analysis/TODO-165A-product-data-governance.md`, ADR-253…258), bu dokümanın §1.4/§8
+tasarımının ÜSTÜNE iki governance katmanı ekledi: (1) serbest-metin `Product.brand` yerine store-scoped
+`Brand` entity + `Product.brandId`; (2) sabit-kod fashion sözlükleri (season/collection/material/fit/…)
+yerine store-yönetilebilir `ProductTaxonomyValue` (governance otoritesi) ↔ store-scoped `AttributeOption`
+(1:1, atama/facet kimliği) çifti. Bu bölümdeki `§1.1` EAV/attribute mimarisi ve `§5` size-chart modeli
+DEĞİŞMEDİ — governance, mevcut motorların üstüne additive olarak eklendi (paralel sistem yok).
+
+Ayrıca, TODO-165A'nın size-chart bağlama UX'ini (merkezi `AssignModal` + ürün-formu size-chart adımı)
+searchable selector'a taşırken **bu dokümanın §5'inde tasarlanan size-chart servisinde iki gerçek
+regresyon bulundu ve düzeltildi** (`apps/api-gateway/src/fashion/size-chart-service.ts`):
+
+1. **`assign()`** herhangi bir durum (DRAFT/ARCHIVED dahil) bir size-chart'ı PRODUCT/CATEGORY/STORE scope'a
+   bağlayabiliyordu — §5'in "Yayınlı revision immutable" ilkesinin ima ettiği "yalnız yayınlı chart
+   bağlanabilir" kuralı KOD SEVİYESİNDE yoktu. Fix: `SIZE_CHART_ASSIGN_NOT_PUBLISHED` (400) guard eklendi.
+2. **`upsertAssignment`** lookup'ı yanlışlıkla `sizeChartId`'yi de anahtara dahil ediyordu — bu, gerçek
+   `SizeChartAssignment.@@unique([storeId, scope, categoryId, productId])`'i bypass ediyor ve bir ürüne
+   İKİNCİ bir size-chart bağlanmasını (chart değiştirme) DUPLICATE bir atama satırı olarak bırakıyordu
+   (ilkini silmiyordu). Fix: lookup artık gerçek unique alanlarla (sizeChartId HARİÇ) yapılıyor → ikinci
+   bağlama ilkinin YERİNİ alıyor (beklenen upsert-replace davranışı).
+
+Detay + ADR referansı: `docs/analysis/TODO-165A-product-data-governance.md` §7; `docs/DECISIONS.md`
+ADR-257.

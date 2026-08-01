@@ -80,6 +80,10 @@ export function parseSearchQuery(rawQuery: unknown): ParseSearchResult {
   // category
   const categorySlug = firstString(raw.category)?.trim() || undefined;
 
+  // TODO-165A (ADR-165A) Task 11 — marka slug daraltması (Brand.slug). Attribute filtre sistemine
+  // GİRMEZ (bkz. filter[code]) — ayrı, sabit query param (search-service brandSlug kolonuna eşlenir).
+  const brand = firstString(raw.brand)?.trim() || undefined;
+
   // page / pageSize
   let page = 1;
   const pageRaw = firstString(raw.page);
@@ -201,6 +205,7 @@ export function parseSearchQuery(rawQuery: unknown): ParseSearchResult {
     minPrice,
     maxPrice,
     inStock,
+    brand,
     filters,
   };
   return { ok: true, value };

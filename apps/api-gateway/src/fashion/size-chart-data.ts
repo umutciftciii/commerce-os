@@ -206,29 +206,71 @@ export function createPrismaSizeChartDataAccess(): SizeChartDataAccess {
     },
 
     async upsertAssignment(input) {
-      // Ayni scope-hedefi icin tekil (unique index). categoryId/productId NULL-distinct
-      // oldugundan STORE-scope tekilligi: once ayni scope satirini bul, yoksa yarat.
+      // Ayni scope-hedefi icin tekil (unique index @@unique([storeId,scope,categoryId,
+      // productId]) — sizeChartId BU ANAHTARA DAHIL DEGILDIR). Arama sizeChartId'siz
+      // yapilir: aksi halde ayni hedefe (orn. ayni urun) IKINCI FARKLI chart baglama
+      // denemesi mevcut satiri BULAMAZ ve create() unique-constraint ihlaliyle patlar
+      // (TODO-165A Task 13 fix — "ikinci PRODUCT ataması ilkini DEĞİŞTİRİR" kuralı).
       const existing = await prisma.sizeChartAssignment.findFirst({
         where: {
           storeId: input.storeId,
-          sizeChartId: input.sizeChartId,
           scope: input.scope,
           categoryId: input.categoryId,
           productId: input.productId,
         },
       });
-      const row =
-        existing ??
-        (await prisma.sizeChartAssignment.create({
-          data: {
-            storeId: input.storeId,
-            sizeChartId: input.sizeChartId,
-            scope: input.scope,
-            categoryId: input.categoryId,
-            productId: input.productId,
-          },
-        }));
+      const row = existing
+        ? existing.sizeChartId === input.sizeChartId
+          ? existing
+          : await prisma.sizeChartAssignment.update({
+              where: { id: existing.id },
+              data: { sizeChartId: input.sizeChartId },
+            })
+        : await prisma.sizeChartAssignment.create({
+            data: {
+              storeId: input.storeId,
+              sizeChartId: input.sizeChartId,
+              scope: input.scope,
+              categoryId: input.categoryId,
+              productId: input.productId,
+            },
+          });
       return { id: row.id, scope: row.scope as typeof input.scope, categoryId: row.categoryId, productId: row.productId };
+    },
+
+    async selector(storeId, criteria) {
+      if (criteria.ids && criteria.ids.length > 0) {
+        const rows = await prisma.sizeChart.findMany({
+          where: { storeId, id: { in: criteria.ids } },
+          include: includeDetail,
+        });
+        const byId = new Map(rows.map((r) => [r.id, mapChart(r as unknown as ChartRow)]));
+        // Cagiranin verdigi sirayi koru (secim sirasi UI'da anlamli olabilir).
+        const data = criteria.ids.map((id) => byId.get(id)).filter((c): c is SizeChartRecord => !!c);
+        return { data, total: data.length };
+      }
+      const where = {
+        storeId,
+        ...(criteria.status ? { status: criteria.status } : {}),
+        ...(criteria.search
+          ? { name: { contains: criteria.search, mode: "insensitive" as const } }
+          : {}),
+      };
+      const orderBy =
+        criteria.sortBy === "name"
+          ? ({ name: criteria.sortOrder ?? "asc" } as const)
+          : ({ createdAt: criteria.sortOrder ?? "desc" } as const);
+      const [rows, total] = await Promise.all([
+        prisma.sizeChart.findMany({
+          where,
+          include: includeDetail,
+          orderBy,
+          take: criteria.limit,
+          skip: criteria.offset,
+        }),
+        prisma.sizeChart.count({ where }),
+      ]);
+      return { data: rows.map((r) => mapChart(r as unknown as ChartRow)), total };
     },
 
     async removeAssignment(storeId, sizeChartId, assignmentId) {
@@ -245,6 +287,47 @@ export function createPrismaSizeChartDataAccess(): SizeChartDataAccess {
     async productExists(storeId, productId) {
       const p = await prisma.product.findFirst({ where: { id: productId, storeId }, select: { id: true } });
       return !!p;
+    },
+
+    async findProductAssignment(storeId, productId) {
+      const row = await prisma.sizeChartAssignment.findFirst({
+        where: { storeId, scope: "PRODUCT", productId },
+        select: { id: true, sizeChartId: true },
+      });
+      return row ? { assignmentId: row.id, sizeChartId: row.sizeChartId } : null;
+    },
+
+    async findResolutionCandidates(storeId, productId, categoryId) {
+      const rows = await prisma.sizeChartAssignment.findMany({
+        where: {
+          storeId,
+          OR: [
+            { scope: "PRODUCT", productId },
+            ...(categoryId ? [{ scope: "CATEGORY" as const, categoryId }] : []),
+            { scope: "STORE" },
+          ],
+        },
+        select: { scope: true, sizeChartId: true },
+      });
+      return rows.map((r) => ({ scope: r.scope as SizeChartScope, sizeChartId: r.sizeChartId }));
+    },
+
+    async getResolutionMeta(storeId, id) {
+      // Perf (hot PDP yolu) — `get()`'in `include: { revisions, assignments }`'ı YOK; yalnız
+      // precedence kararı + gösterim için gereken dar alan seti.
+      const row = await prisma.sizeChart.findFirst({
+        where: { id, storeId },
+        select: {
+          id: true,
+          name: true,
+          sizeSystemKey: true,
+          measurementUnit: true,
+          gender: true,
+          status: true,
+          publishedRevisionId: true,
+        },
+      });
+      return row ? { ...row, status: row.status as SizeChartStatus } : null;
     },
   };
 }

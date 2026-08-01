@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
 import { SearchError, type SearchProvider, type SearchResult } from "@commerce-os/search-service";
+import type { BrandDataAccess, BrandRecord } from "../src/brand/brand-data.js";
 
 /**
  * TODO-155 (ADR-079) — Faz 2C-8B · Public arama ucu ENTEGRASYON testleri (fake SearchProvider; DB YOK).
@@ -54,6 +55,8 @@ const sampleResult: SearchResult = {
       slug: "laptop-pro",
       title: "Laptop Pro",
       brand: "Acme",
+      // TODO-165A (ADR-165A) Task 11 — governed marka id'si (SearchResultItem artık required alan taşır).
+      brandId: null,
       primaryCategoryId: "cat_laptops",
       minPriceMinor: 150000,
       maxPriceMinor: 250000,
@@ -100,7 +103,7 @@ const sampleResult: SearchResult = {
 
 const searchFn = vi.fn();
 
-function buildApp() {
+function buildApp(overrides: { brandDataAccess?: BrandDataAccess } = {}) {
   const dataAccess = {
     async findStoreBySlug(slug: string) {
       return slug === demoStore.slug ? demoStore : null;
@@ -122,7 +125,83 @@ function buildApp() {
     search: searchFn,
   } as unknown as SearchProvider;
 
-  return createServer(config, { dataAccess, searchProvider });
+  return createServer(config, { dataAccess, searchProvider, brandDataAccess: overrides.brandDataAccess });
+}
+
+/**
+ * TODO-165A (ADR-165A) Task 11 — hafif in-memory `BrandDataAccess` fake'i (yalnız `selector`
+ * gerçek kullanılır — `loadPublicBrandMap`/`resolveBrandRefs` bunu çağırır; diğer metodlar bu
+ * dosyada hiç tetiklenmez). `brandDataAccess` enjekte edilmezse `createServer` gerçek Prisma'ya
+ * düşer (bu yüzden `brandId: null` içeren mevcut testler onu HİÇ tetiklemez — bounded early-return).
+ */
+function createFakeBrandDataAccess(rows: BrandRecord[]): BrandDataAccess {
+  return {
+    async list() {
+      return { data: rows, total: rows.length };
+    },
+    async get(storeId, id) {
+      return rows.find((r) => r.storeId === storeId && r.id === id) ?? null;
+    },
+    async findBySlug(storeId, slug) {
+      return rows.find((r) => r.storeId === storeId && r.slug === slug) ?? null;
+    },
+    async create() {
+      throw new Error("not used in this test");
+    },
+    async update() {
+      throw new Error("not used in this test");
+    },
+    async setStatus() {
+      throw new Error("not used in this test");
+    },
+    async selector(storeId, criteria) {
+      if (criteria.ids && criteria.ids.length > 0) {
+        const data = criteria.ids
+          .map((id) => rows.find((r) => r.storeId === storeId && r.id === id))
+          .filter((r): r is BrandRecord => !!r);
+        return { data, total: data.length };
+      }
+      return { data: rows.filter((r) => r.storeId === storeId), total: rows.length };
+    },
+    async productCount() {
+      return 0;
+    },
+    async productsByBrand() {
+      return new Map();
+    },
+    async visibleProductCounts() {
+      return new Map();
+    },
+    async mediaBelongsToStore() {
+      return false;
+    },
+    async listProducts() {
+      throw new Error("not used in this test");
+    },
+  };
+}
+
+function brandRecord(overrides: Partial<BrandRecord> = {}): BrandRecord {
+  const now = new Date("2026-01-01T00:00:00.000Z");
+  return {
+    id: "brand_nike",
+    storeId: "store_demo",
+    name: "Nike",
+    slug: "nike",
+    description: "Spor giyim markası",
+    logoMediaId: null,
+    logoStorageKey: "stores/store_demo/brands/nike.webp",
+    coverMediaId: null,
+    coverStorageKey: null,
+    websiteUrl: null,
+    status: "ACTIVE",
+    seoTitle: null,
+    seoDescription: null,
+    productCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
 }
 
 afterEach(() => {
@@ -268,5 +347,69 @@ describe("GET /public/stores/:slug/search — başarı + ALLOWLIST", () => {
     expect(p.secondaryImage).not.toHaveProperty("storageKey");
     expect(p.swatches[0]).not.toHaveProperty("storageKey");
     expect(p.swatches[0]).not.toHaveProperty("image");
+  });
+});
+
+describe("GET /public/stores/:slug/search — brandRef hidrasyonu (TODO-165A Task 11)", () => {
+  // İki ürün: biri governed markaya bağlı (brandId dolu), diğeri değil (brandId null) — TEK istekte
+  // ikisi de doğrulanır (aynı sayfada karışık marka/markasız ürün gerçekçi senaryo).
+  const brandResult: SearchResult = {
+    ...sampleResult,
+    pagination: { ...sampleResult.pagination, totalItems: 2 },
+    items: [
+      { ...sampleResult.items[0], productId: "prod_1", brandId: "brand_nike" },
+      { ...sampleResult.items[0], productId: "prod_2", slug: "no-brand-shoe", title: "No Brand Shoe", brandId: null },
+    ],
+  };
+
+  it("brandId dolu ürün → brandRef {id,name,slug,logoUrl,description} ile hidratlanır", async () => {
+    searchFn.mockResolvedValue(brandResult);
+    const brandDataAccess = createFakeBrandDataAccess([brandRecord()]);
+    const app = buildApp({ brandDataAccess });
+
+    const res = await app.inject({ method: "GET", url: "/public/stores/demo-store/search" });
+    expect(res.statusCode).toBe(200);
+    const products = res.json().products as Array<{ id: string; brandRef: unknown }>;
+    const withBrand = products.find((p) => p.id === "prod_1")!;
+    expect(withBrand.brandRef).toEqual({
+      id: "brand_nike",
+      name: "Nike",
+      slug: "nike",
+      logoUrl: "/media/stores/store_demo/brands/nike.webp",
+      description: "Spor giyim markası",
+    });
+  });
+
+  it("brandId null olan ürün → brandRef null (aynı sayfada karışık marka/markasız)", async () => {
+    searchFn.mockResolvedValue(brandResult);
+    const brandDataAccess = createFakeBrandDataAccess([brandRecord()]);
+    const app = buildApp({ brandDataAccess });
+
+    const res = await app.inject({ method: "GET", url: "/public/stores/demo-store/search" });
+    const products = res.json().products as Array<{ id: string; brandRef: unknown }>;
+    const withoutBrand = products.find((p) => p.id === "prod_2")!;
+    expect(withoutBrand.brandRef).toBeNull();
+  });
+
+  it("brandId dolu AMA marka ARCHIVED → brandRef null (kırık link olmaz; detay ucu da 404 verir)", async () => {
+    searchFn.mockResolvedValue(brandResult);
+    const brandDataAccess = createFakeBrandDataAccess([brandRecord({ status: "ARCHIVED" })]);
+    const app = buildApp({ brandDataAccess });
+
+    const res = await app.inject({ method: "GET", url: "/public/stores/demo-store/search" });
+    const products = res.json().products as Array<{ id: string; brandRef: unknown }>;
+    const withArchivedBrand = products.find((p) => p.id === "prod_1")!;
+    expect(withArchivedBrand.brandRef).toBeNull();
+  });
+
+  it("brandId dolu ama markaDataAccess'te bulunamıyor (silinmiş/erişilemez) → brandRef null (defansif)", async () => {
+    searchFn.mockResolvedValue(brandResult);
+    const brandDataAccess = createFakeBrandDataAccess([]); // hiç marka yok
+    const app = buildApp({ brandDataAccess });
+
+    const res = await app.inject({ method: "GET", url: "/public/stores/demo-store/search" });
+    const products = res.json().products as Array<{ id: string; brandRef: unknown }>;
+    const withBrand = products.find((p) => p.id === "prod_1")!;
+    expect(withBrand.brandRef).toBeNull();
   });
 });

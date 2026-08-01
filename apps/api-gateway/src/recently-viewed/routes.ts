@@ -129,6 +129,10 @@ export function registerRecentlyViewedRoutes(app: FastifyInstance, deps: Recentl
       slug: row.slug,
       title: row.title,
       brand: row.brand,
+      // TODO-165A (ADR-165A) Task 11 — brandRef henüz bu modülde hidratlanmıyor (recently-viewed/similar
+      // read-model satırı brandId taşımaz; ayrı bir bounded lookup follow-up'ı gerektirir). Additive/
+      // nullable alan olduğundan kart görünümünü BOZMAZ — yalnız marka rozeti/linki burada eksik kalır.
+      brandRef: null,
       categoryLabel: row.primaryCategoryId ? categoryNames.get(row.primaryCategoryId) ?? null : null,
       minPriceMinor: row.minPriceMinor,
       maxPriceMinor: row.maxPriceMinor,

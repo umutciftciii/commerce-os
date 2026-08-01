@@ -105,6 +105,12 @@ import {
   storeAdminCustomerSummarySchema,
   digitsOnly,
   type PublicCheckoutBilling,
+  // TODO-165A (ADR-165A) Task 11 — public marka (Brand) uçları + ürün DTO brandRef projeksiyonu.
+  publicBrandListResponseSchema,
+  publicBrandDetailResponseSchema,
+  type PublicBrandSummary,
+  // TODO-165A Tasks 25/26 — ürünün güncel beden tablosu bağlantısı (store-admin okuma ucu).
+  productSizeChartAssignmentResponseSchema,
 } from "@commerce-os/contracts";
 import {
   installmentOptionsFor,
@@ -150,8 +156,20 @@ import { createSponsorshipData, type SponsorshipData } from "./sponsorship/data.
 import { registerSponsorshipAdminRoutes } from "./sponsorship/routes.js";
 // TODO-165 (ADR-249) — Fashion Vertical size chart yonetimi.
 import { registerSizeChartRoutes } from "./fashion/size-chart-routes.js";
-import { createSizeChartService } from "./fashion/size-chart-service.js";
+import {
+  createSizeChartService,
+  type SizeChartDataAccess,
+  type SizeChartRecord,
+} from "./fashion/size-chart-service.js";
 import { createPrismaSizeChartDataAccess } from "./fashion/size-chart-data.js";
+// TODO-165A (ADR-165A) — Product Data Governance: Brand (Marka) yonetimi.
+import { registerBrandRoutes } from "./brand/brand-routes.js";
+import { createBrandService, BrandError } from "./brand/brand-service.js";
+import { createPrismaBrandDataAccess, type BrandDataAccess, type BrandRecord } from "./brand/brand-data.js";
+// TODO-165A (ADR-165A) — Product Data Governance: Task 10 — Governed Product Taxonomy uclari.
+import { registerTaxonomyRoutes } from "./taxonomy/taxonomy-routes.js";
+import { createTaxonomyService } from "./taxonomy/taxonomy-service.js";
+import { createPrismaTaxonomyDataAccess, type TaxonomyDataAccess } from "./taxonomy/taxonomy-data.js";
 import { resolveFashionSnapshotFromPrisma } from "./fashion/order-snapshot.js";
 import { buildPublicFashionProjection } from "./fashion/public-projection.js";
 import { registerCommercialAutomationRoutes } from "./commercial-automation/routes.js";
@@ -506,6 +524,9 @@ type ProductRecord = Pick<
   | "type"
   | "vendor"
   | "brand"
+  // TODO-165A (ADR-165A) — governed marka FK (Task 7); legacy `brand` skaleri dual-write
+  // ile senkron tutulur ama BU alan otorite kaynagidir (admin/gorunum katmanlari icin).
+  | "brandId"
   | "seoTitle"
   | "seoDescription"
   | "salesMode"
@@ -529,7 +550,14 @@ type ProductRecord = Pick<
   | "mediaDefiningAttributeId"
   | "createdAt"
   | "updatedAt"
-> & { categoryIds: string[]; images: ProductImageRecord[] };
+> & {
+  categoryIds: string[];
+  images: ProductImageRecord[];
+  // TODO-165A (ADR-165A) Task 17 — governed marka relation projeksiyonu; yalniz
+  // `productDetailSelect` yolunda (GET/create/update reload) join'lenir. Liste
+  // yolunda (`productSelect`) ALAN HIÇ YOK (join maliyeti yok) — bu yuzden opsiyonel.
+  governedBrand?: { id: string; name: string; slug: string } | null;
+};
 // ADR-065 (Faz 2/Dilim 2) — galeri ogesinin ham hali (storageKey tasinir, url
 // serializeProduct'ta baseUrl ile turetilir). Liste yolunda [] kalir (hafif select).
 // Faz 2C-7 (ADR-078) — optionId: bu gorselin media-tanimlayici eksen (Renk) etiketi;
@@ -1112,6 +1140,9 @@ export interface AppDataAccess extends CampaignDataAccess {
       type: "PHYSICAL";
       vendor?: string | null;
       brand?: string | null;
+      // TODO-165A (ADR-165A) — governed marka FK (Task 7); route katmaninda dogrulanir.
+      // null = markasiz; undefined = degeri belirtilmemis (route null'a normalize eder).
+      brandId?: string | null;
       seoTitle?: string | null;
       seoDescription?: string | null;
       salesMode: ProductSalesMode;
@@ -1148,6 +1179,9 @@ export interface AppDataAccess extends CampaignDataAccess {
       type?: "PHYSICAL";
       vendor?: string | null;
       brand?: string | null;
+      // TODO-165A (ADR-165A) — governed marka FK (Task 7). undefined = dokunma;
+      // string/null = route'ta dogrulanmis/normalize edilmis deger.
+      brandId?: string | null;
       seoTitle?: string | null;
       seoDescription?: string | null;
       salesMode?: ProductSalesMode;
@@ -1552,6 +1586,15 @@ export interface ServerDependencies extends ServerHealthChecks {
   // TODO-155 (ADR-079) — Public arama/facet sağlayıcısı (SearchProvider.search). Varsayılan prisma-backed
   // PostgresSearchProvider; testlerde in-memory fake enjekte edilebilir (DB-siz endpoint testi).
   searchProvider?: SearchProvider;
+  // TODO-165A (ADR-165A) — Brand (Marka) veri erisimi. Varsayilan prisma-backed;
+  // testlerde in-memory fake enjekte edilebilir (brandService bunun uzerine kurulur).
+  brandDataAccess?: BrandDataAccess;
+  // TODO-165A (ADR-165A) Task 13 — Size Chart veri erisimi. Varsayilan prisma-backed;
+  // testlerde in-memory fake enjekte edilebilir (sizeChartService bunun uzerine kurulur).
+  sizeChartDataAccess?: SizeChartDataAccess;
+  // TODO-165A (ADR-165A) — Task 10: Governed Product Taxonomy veri erisimi. Varsayilan
+  // prisma-backed; testlerde in-memory fake enjekte edilebilir (taxonomyService bunun uzerine kurulur).
+  taxonomyDataAccess?: TaxonomyDataAccess;
 }
 
 const paginationQuerySchema = z.object({
@@ -1732,6 +1775,17 @@ function serializeProduct(product: ProductRecord, baseUrl?: string) {
     description: product.description ?? null,
     vendor: product.vendor ?? null,
     brand: product.brand ?? null,
+    // TODO-165A (ADR-165A) Task 17 — brandId zaten ProductRecord'da tasinir (Task 7);
+    // burada YALNIZ null-normalize edilir. brandRef governedBrand join'inden turer —
+    // liste yolunda (governedBrand yok) null kalir (beklenen; yalniz detay yolu doldurur).
+    brandId: product.brandId ?? null,
+    brandRef: product.governedBrand
+      ? {
+          id: product.governedBrand.id,
+          name: product.governedBrand.name,
+          slug: product.governedBrand.slug,
+        }
+      : null,
     seoTitle: product.seoTitle ?? null,
     seoDescription: product.seoDescription ?? null,
     maxOrderQuantity: product.maxOrderQuantity ?? null,
@@ -2053,7 +2107,7 @@ function buildPublicVariant(
   };
 }
 
-function buildPublicProduct(
+export function buildPublicProduct(
   product: ProductRecord,
   activeVariants: VariantRecord[],
   categoryNames: Map<string, string>,
@@ -2073,6 +2127,10 @@ function buildPublicProduct(
   // Yalniz detay ucunda TEK batched sorgudan dolu gecirilir; liste/ilgili urunlerde bos
   // (default) → mediaOptionId null (PLP sorgu sayisi + kapak davranisi degismez).
   mediaOptionByVariantId: Map<string, string> = new Map(),
+  // TODO-165A (ADR-165A) Task 11 — brandId -> public marka ENTITY projeksiyonu (bounded; cagiran
+  // TEK batched sorguyla hazirlar — N+1 yok). Bos/default → brandRef her zaman null (mevcut
+  // davranis BOZULMAZ; additive alan).
+  brandMap: Map<string, PublicBrandSummary> = new Map(),
 ) {
   const variants = activeVariants.map((variant) =>
     buildPublicVariant(product, variant, stockByVariantId, lowestByVariantId, mediaOptionByVariantId),
@@ -2099,6 +2157,9 @@ function buildPublicProduct(
     slug: product.slug,
     title: product.title,
     brand: product.brand ?? product.vendor ?? null,
+    // TODO-165A (ADR-165A) Task 11 — governed marka ENTITY projeksiyonu (ADDITIVE; legacy `brand`
+    // serbest-metin alanı YUKARIDA DEĞİŞMEDEN kalır). brandId yoksa ya da harita bulunamazsa null.
+    brandRef: product.brandId ? brandMap.get(product.brandId) ?? null : null,
     categoryLabel: publicCategoryLabel(product, categoryNames),
     salesMode: product.salesMode,
     priceVisibility: product.priceVisibility,
@@ -2761,6 +2822,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     type: true,
     vendor: true,
     brand: true,
+    // TODO-165A (ADR-165A) — governed marka FK (Task 7).
+    brandId: true,
     seoTitle: true,
     seoDescription: true,
     salesMode: true,
@@ -2801,6 +2864,10 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
       },
       orderBy: { position: "asc" },
     },
+    // TODO-165A (ADR-165A) Task 17 — governed marka OZETI (edit formunun secili
+    // markayi ayrica FETCH ETMEDEN on-secebilmesi icin). Yalniz DETAY yolunda
+    // (GET/create/update reload); hafif liste select'i join maliyetinden muaf kalir.
+    governedBrand: { select: { id: true, name: true, slug: true } },
   } satisfies Prisma.ProductSelect;
   const variantSelect = {
     id: true,
@@ -3628,6 +3695,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             type: input.type,
             vendor: input.vendor ?? null,
             brand: input.brand ?? null,
+            // TODO-165A (ADR-165A) — governed marka FK (Task 7); route'ta dogrulanmis.
+            brandId: input.brandId ?? null,
             seoTitle: input.seoTitle ?? null,
             seoDescription: input.seoDescription ?? null,
             salesMode: input.salesMode,
@@ -3689,6 +3758,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             description: data.description === undefined ? undefined : data.description,
             vendor: data.vendor === undefined ? undefined : data.vendor,
             brand: data.brand === undefined ? undefined : data.brand,
+            // TODO-165A (ADR-165A) — governed marka FK (Task 7); route'ta dogrulanmis.
+            brandId: data.brandId === undefined ? undefined : data.brandId,
             seoTitle: data.seoTitle === undefined ? undefined : data.seoTitle,
             seoDescription: data.seoDescription === undefined ? undefined : data.seoDescription,
             maxOrderQuantity: data.maxOrderQuantity === undefined ? undefined : data.maxOrderQuantity,
@@ -5266,6 +5337,35 @@ export function createServer(
     return new Map(page.data.map((category) => [category.id, category.name]));
   }
 
+  // TODO-165A (ADR-165A) Task 11 — governed marka (Brand) → public ENTITY projeksiyon yardimcilari.
+  // Brand CORE'dur (capability-gate YOK). storageKey ASLA public govdeye sizmaz — yalniz
+  // resolveMediaUrl ile turetilmis logoUrl (ProductCategory imageUrl deseniyle ayni tek-cikis noktasi).
+  function toPublicBrandSummary(brand: BrandRecord): PublicBrandSummary {
+    return {
+      id: brand.id,
+      name: brand.name,
+      slug: brand.slug,
+      logoUrl: brand.logoStorageKey ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, brand.logoStorageKey) : null,
+      description: brand.description,
+    };
+  }
+
+  // Sayfadaki (product.brandId) kumesi -> public marka ENTITY haritasi (bounded batched sorgu;
+  // buildPublicProduct/search brandRef hidrasyonu AYNI yardimciyi kullanir — N+1 yok).
+  async function loadPublicBrandMap(storeId: string, brandIds: (string | null | undefined)[]) {
+    // `!= null` BİLEREK hem null hem undefined'ı eler — bazı fixture/legacy kayıtlarda
+    // (ör. Task 7 öncesi test double'ları) `brandId` alanı hiç set edilmemiş olabilir.
+    const ids = [...new Set(brandIds.filter((id): id is string => id != null))];
+    if (ids.length === 0) return new Map<string, PublicBrandSummary>();
+    // `selector`'in `ids` modu (ADR-090 deseni) BİLEREK durum/arama/sıralamayı yok sayar (admin secici
+    // zaten-atanmis ARSIVLENMIS ogeleri de gostermeli) — bu yuzden ACTIVE gate'i burada, sonuc uzerinde
+    // POST-FILTER olarak uygulanir. ARSIVLENMIS marka → brandRef null (public detay ucu da 404 verir;
+    // vitrinde kirik link olusmaz).
+    const resolved = await brandDataAccess.selector(storeId, { limit: ids.length, offset: 0, ids });
+    const active = resolved.data.filter((brand) => brand.status === "ACTIVE");
+    return new Map(active.map((brand) => [brand.id, toPublicBrandSummary(brand)]));
+  }
+
   async function loadPublicStockMap(storeId: string) {
     const page = await dataAccess.listInventory(storeId, { limit: PUBLIC_CATALOG_MAX, offset: 0 });
     // H-3 (ADR-188) — Read-time expiry add-back: süresi dolmuş ama henüz süpürülmemiş ACTIVE
@@ -5320,6 +5420,8 @@ export function createServer(
       slice.map((product) => product.id),
       true,
     );
+    // TODO-165A (ADR-165A) Task 11 — sayfadaki brandId'ler → public marka haritasi (bounded).
+    const brandMap = await loadPublicBrandMap(store.id, slice.map((product) => product.brandId));
     const data = await Promise.all(
       slice.map(async (product) =>
         buildPublicProduct(
@@ -5331,6 +5433,8 @@ export function createServer(
           badgeNow,
           lowestMap,
           config.MEDIA_PUBLIC_BASE_URL,
+          new Map(),
+          brandMap,
         ),
       ),
     );
@@ -5381,6 +5485,11 @@ export function createServer(
     const mediaOptionByVariantId = product.mediaDefiningAttributeId
       ? await dataAccess.resolveVariantMediaOptions(store.id, product.id, product.mediaDefiningAttributeId)
       : new Map<string, string>();
+    // TODO-165A (ADR-165A) Task 11 — birincil urun + ilgili urunlerin brandId'leri → tek batched harita.
+    const brandMap = await loadPublicBrandMap(store.id, [
+      product.brandId,
+      ...relatedProducts.map((item) => item.brandId),
+    ]);
     const summary = buildPublicProduct(
       { ...product, images: galleryMap.get(product.id) ?? [] },
       variants,
@@ -5391,6 +5500,7 @@ export function createServer(
       lowestMap,
       config.MEDIA_PUBLIC_BASE_URL,
       mediaOptionByVariantId,
+      brandMap,
     );
     const related = await Promise.all(
       relatedProducts.map(async (item) =>
@@ -5403,13 +5513,15 @@ export function createServer(
           badgeNow,
           lowestMap,
           config.MEDIA_PUBLIC_BASE_URL,
+          new Map(),
+          brandMap,
         ),
       ),
     );
     // TODO-165 (ADR-247/249/250) — capability-aware fashion projeksiyonu. FASHION_VERTICAL
     // kapaliysa veya fashion-disi urunse null (leak-free; eski DTO davranisi korunur).
     const fashion = (await capabilityCache.isEnabled(store.id, "FASHION_VERTICAL"))
-      ? await buildPublicFashionProjection(store.id, product.id, product.primaryCategoryId ?? null)
+      ? await buildPublicFashionProjection(sizeChartService, store.id, product.id, product.primaryCategoryId ?? null)
       : null;
     return publicProductDetailSchema.parse({
       ...summary,
@@ -5423,6 +5535,54 @@ export function createServer(
       seoTitle: product.seoTitle ?? null,
       seoDescription: product.seoDescription ?? null,
       related,
+    });
+  });
+
+  // TODO-165A (ADR-165A) Task 11 — Public marka (Brand) uclari. Brand CORE'dur (capability-gate
+  // YOK). Yalniz ACTIVE marka + en az 1 GORUNUR (status ACTIVE) urunu olan markalar listelenir
+  // (bos/arsivlenmis marka vitrinde HIC gorunmez). Detay ucu cross-store/bilinmeyen/arsivlenmis
+  // marka icin 404 doner (leak-free — diger public uclarla ayni desen).
+  app.get("/public/stores/:storeSlug/brands", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const activeBrands = await brandDataAccess.list(store.id, {
+      limit: PUBLIC_CATALOG_MAX,
+      offset: 0,
+      status: "ACTIVE",
+    });
+    const visibleCounts = await brandDataAccess.visibleProductCounts(
+      store.id,
+      activeBrands.data.map((brand) => brand.id),
+    );
+    const visible = activeBrands.data.filter((brand) => (visibleCounts.get(brand.id) ?? 0) > 0);
+    return publicBrandListResponseSchema.parse({
+      data: visible.map((brand) => toPublicBrandSummary(brand)),
+    });
+  });
+
+  app.get("/public/stores/:storeSlug/brands/:brandSlug", async (request, reply) => {
+    const params = publicStoreParamSchema.extend({ brandSlug: z.string().min(1) }).parse(request.params);
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    const brand = await brandDataAccess.findBySlug(store.id, params.brandSlug);
+    if (!brand || brand.status !== "ACTIVE") {
+      return reply.code(404).send(errorBody("BRAND_NOT_FOUND", "Brand not found."));
+    }
+    const visibleCounts = await brandDataAccess.visibleProductCounts(store.id, [brand.id]);
+    return publicBrandDetailResponseSchema.parse({
+      data: {
+        ...toPublicBrandSummary(brand),
+        coverUrl: brand.coverStorageKey ? resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, brand.coverStorageKey) : null,
+        websiteUrl: brand.websiteUrl,
+        seoTitle: brand.seoTitle,
+        seoDescription: brand.seoDescription,
+        productCount: visibleCounts.get(brand.id) ?? 0,
+      },
     });
   });
 
@@ -5645,6 +5805,8 @@ export function createServer(
         ]);
         const coverMap = await dataAccess.listProductImages(store.id, neededIds, true);
         const badgeNow = new Date();
+        // TODO-165A (ADR-165A) Task 11 — birlesik urun kumesinin brandId'leri → tek batched harita.
+        const brandMap = await loadPublicBrandMap(store.id, neededIds.map((id) => activeById.get(id)!.brandId));
         await Promise.all(
           neededIds.map(async (id) => {
             const product = activeById.get(id)!;
@@ -5657,6 +5819,8 @@ export function createServer(
               badgeNow,
               lowestMap,
               config.MEDIA_PUBLIC_BASE_URL,
+              new Map(),
+              brandMap,
             );
             builtById.set(id, built);
           }),
@@ -6496,6 +6660,11 @@ export function createServer(
   const storeModuleData = createStoreModuleData(dataAccess);
   const capabilityCache = createCapabilityCache(storeModuleData, { ttlMs: 30_000, logger });
   const requireCapability = createRequireCapability(capabilityCache);
+  // TODO-165A (ADR-165A) — Task 10b: taksonomi servisi HOISTED (Task 10'un register'indan
+  // ONCE) ki asagidaki registerCapabilityRoutes FASHION_VERTICAL DISABLED→ENABLED gecisinde
+  // ensureStoreTaxonomyDefaults'i cagirabilsin. TEK instance — Task 10'un registerTaxonomyRoutes'u
+  // ASAGIDA AYNI instance'i yeniden kullanir (iki ayri servis instance'i ACILMAZ).
+  const taxonomyService = createTaxonomyService(dependencies.taxonomyDataAccess ?? createPrismaTaxonomyDataAccess());
   const requireStoreAdminForModule =
     (moduleKey: StoreModuleKey) =>
     async (request: FastifyRequest, reply: FastifyReply, storeId: string) => {
@@ -6582,6 +6751,10 @@ export function createServer(
     resolvePublicStore,
     // TODO-164 — modül değişimi (ör. THEME_STUDIO) tema resolver cache'ini de geçersiz kılar.
     onModuleChange: invalidateResolvedTheme,
+    // TODO-165A Task 10b — FASHION_VERTICAL DISABLED→ENABLED capability-transition hook
+    // (bkz. capabilities/routes.ts). Migration (Task 14b) yalnız migration-anında enabled
+    // olan mağazaları kapsar; bu hook yeni/sonradan-enable edilen mağazaları kapsar.
+    ensureFashionTaxonomyDefaults: (storeId) => taxonomyService.ensureStoreTaxonomyDefaults(storeId),
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -6595,6 +6768,9 @@ export function createServer(
     resolvePublicStore,
     search: (storeId, query) => searchProvider.search(storeId, query),
     resolveCategoryNames: (storeId) => loadPublicCategoryNames(storeId),
+    // TODO-165A (ADR-165A) Task 11 — sayfadaki governed marka id'leri → brandRef hidrasyonu (bounded;
+    // buildPublicProduct'taki loadPublicBrandMap AYNI yardımcıyı kullanır).
+    resolveBrandRefs: (storeId, brandIds) => loadPublicBrandMap(storeId, brandIds),
     // TODO-155.1 — Kart görselleri read-model listing snapshot'ından; url runtime'da storageKey'den türetilir
     // (ProductImage sorgusu YOK). storageKey/mediaId DTO'ya sızmaz (tek çıkış: resolveMediaUrl).
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
@@ -6756,8 +6932,95 @@ export function createServer(
 
   // TODO-165 (ADR-249) — Fashion Vertical: Size Chart yonetimi (store-admin). FASHION_VERTICAL
   // capability-gate'li; kapaliyken 403 MODULE_DISABLED. Tenant-scoped; icerik plain-text.
+  // `sizeChartService` HOISTED edilir (Task 25/26'nin asagidaki `/size-chart-assignment` ucu
+  // + public PDP projeksiyonu (~yukarida "fashion" degiskeni) AYNI instance'i paylasir — iki
+  // ayri servis instance'i ACILMAZ).
+  const sizeChartService = createSizeChartService(
+    dependencies.sizeChartDataAccess ?? createPrismaSizeChartDataAccess(),
+  );
   registerSizeChartRoutes(app, {
-    service: createSizeChartService(createPrismaSizeChartDataAccess()),
+    service: sizeChartService,
+    requireStoreAdmin: requireStoreAdminForModule("FASHION_VERTICAL"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  /**
+   * TODO-165A Tasks 25/26 — Bir ürünün GÜNCEL beden tablosu bağlantısını gösteren okuma ucu.
+   * Ürün formunun "bağlı/varsayılan" kartı bunu okur; `categoryId` istemcinin (form zaten
+   * `primaryCategoryId`'yi RHF state'inde taşır) opsiyonel query'sidir — ürünü/kategoriyi
+   * yeniden çözmek için ayrı bir `dataAccess.findProductById` YAPILMAZ (küçük/additive uç).
+   * `productExists` guard'ı YOK: salt-okuma, sızıntı yok (bulunamayan id → iki alan da null).
+   */
+  app.get("/stores/:storeId/products/:productId/size-chart-assignment", async (request, reply) => {
+    const params = z
+      .object({ storeId: z.string().min(1), productId: z.string().min(1) })
+      .parse(request.params);
+    const access = await requireStoreAdminForModule("FASHION_VERTICAL")(request, reply, params.storeId);
+    if (!access) return;
+    const query = z.object({ categoryId: z.string().min(1).optional() }).parse(request.query);
+
+    const productAssignment = await sizeChartService.findProductAssignment(params.storeId, params.productId);
+    const effective = await sizeChartService.resolveEffective(
+      params.storeId,
+      params.productId,
+      query.categoryId ?? null,
+    );
+    // `productAssignment.chart` (tam `SizeChartRecord`, `get()`'ten) ve `effective.chart`
+    // (dar `SizeChartResolutionRecord`, perf-fix `resolveEffective`'ten) ORTAK bir yapısal
+    // alt-kümeyi paylaşır — `toSummary` ikisini de kabul eder (tek dönüşüm, iki tip).
+    const toSummary = (chart: {
+      id: string;
+      name: string;
+      sizeSystemKey: string;
+      measurementUnit: string;
+      gender: string | null;
+      status: SizeChartRecord["status"];
+      publishedRevisionId: string | null;
+    }) => ({
+      id: chart.id,
+      name: chart.name,
+      sizeSystemKey: chart.sizeSystemKey,
+      measurementUnit: chart.measurementUnit,
+      gender: chart.gender,
+      status: chart.status,
+      publishedRevisionId: chart.publishedRevisionId,
+    });
+    return productSizeChartAssignmentResponseSchema.parse({
+      data: {
+        productAssignment: productAssignment
+          ? { assignmentId: productAssignment.assignmentId, chart: toSummary(productAssignment.chart) }
+          : null,
+        effective: effective ? { scope: effective.scope, chart: toSummary(effective.chart) } : null,
+      },
+    });
+  });
+
+  // TODO-165A (ADR-165A) — Product Data Governance: Brand (Marka) yonetimi (store-admin).
+  // CATALOG capability-gate'li; CATALOG core/always-on oldugundan (registry.ts) tenant guard
+  // her zaman calisir ve capability kontrolu her zaman gecer (fail-closed dahi core=acik).
+  // Hoisted (route seviyesinde degil) — Task 7 (ADR-165A) urun create/update handler'lari da
+  // AYNI servis ile brandId'yi dogrular (storeId-scoped `get`); iki ayri instance ACILMAZ. Task 11
+  // (ADR-165A) — public marka uclari (~yukarida, "Public storefront catalog" bolumu) + buildPublicProduct
+  // brandRef hidrasyonu AYNI `brandDataAccess` instance'ini kapanis (closure) ile yeniden kullanir
+  // (bu fonksiyon icindeki tum route'lar TEK createServer() cagrisinda, istek islenmeden ONCE
+  // senkron kurulur — daha asagida tanimlanan const'a erisim guvenlidir).
+  const brandDataAccess = dependencies.brandDataAccess ?? createPrismaBrandDataAccess();
+  const brandService = createBrandService(brandDataAccess);
+  registerBrandRoutes(app, {
+    service: brandService,
+    requireStoreAdmin: requireStoreAdminForModule("CATALOG"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+  });
+
+  // TODO-165A (ADR-165A) — Task 10: Governed Product Taxonomy yonetimi (store-admin).
+  // FASHION_VERTICAL capability-gate'li (opt-in, baselineEnabled=false); kapaliyken 403
+  // MODULE_DISABLED. Bootstrap (ensureStoreTaxonomyDefaults) BILEREK bu route'larda lazy
+  // olarak cagirilmaz — bkz. taxonomy-routes.ts dosya basi not (Task 10b'nin
+  // FASHION_VERTICAL capability-transition hook'u yukarida kurulmustur; `taxonomyService`
+  // instance'i orada HOISTED edilip burada yeniden kullanilir — iki ayri instance ACILMAZ).
+  registerTaxonomyRoutes(app, {
+    service: taxonomyService,
     requireStoreAdmin: requireStoreAdminForModule("FASHION_VERTICAL"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
@@ -7267,6 +7530,8 @@ export function createServer(
           loadPublicLowestPriceMap(store.id),
         ]);
         const coverMap = await dataAccess.listProductImages(store.id, neededIds, true);
+        // TODO-165A (ADR-165A) Task 11 — birlesik urun kumesinin brandId'leri → tek batched harita.
+        const brandMap = await loadPublicBrandMap(store.id, neededIds.map((id) => activeById.get(id)!.brandId));
         await Promise.all(
           neededIds.map(async (id) => {
             const product = activeById.get(id)!;
@@ -7279,6 +7544,8 @@ export function createServer(
               now,
               lowestMap,
               config.MEDIA_PUBLIC_BASE_URL,
+              new Map(),
+              brandMap,
             );
             builtById.set(id, built);
           }),
@@ -8540,6 +8807,28 @@ export function createServer(
     // kategoride null → otomatik o kategori; coklu kategoride primary yoksa REQUIRED.
     const primary = await resolvePrimaryCategory(reply, params.storeId, categoryIds, input.primaryCategoryId, undefined);
     if (!primary) return;
+    // TODO-165A (ADR-165A) Task 7 — brandId verildiyse (non-null) URUN OLUSTURULMADAN ONCE
+    // dogrulanir: storeId-scoped `get` cross-store/mevcut-olmayan markayi ayni sekilde
+    // BRAND_NOT_FOUND ile reddeder (sizinti yok, 403 yerine 400). ARCHIVED marka 409.
+    // Basariliysa legacy `brand` metni marka adiyla dual-write icin hazirlanir.
+    let brandMirrorName: string | undefined;
+    if (input.brandId !== undefined && input.brandId !== null) {
+      let brand: Awaited<ReturnType<typeof brandService.get>>;
+      try {
+        brand = await brandService.get(params.storeId, input.brandId);
+      } catch (error) {
+        if (error instanceof BrandError && error.code === "BRAND_NOT_FOUND") {
+          return reply.code(400).send(errorBody("PRODUCT_BRAND_INVALID", "Brand not found for this store."));
+        }
+        throw error;
+      }
+      if (brand.status === "ARCHIVED") {
+        return reply
+          .code(409)
+          .send(errorBody("PRODUCT_BRAND_ARCHIVED", "Brand is archived and cannot be assigned to a product."));
+      }
+      brandMirrorName = brand.name;
+    }
     // Faz 2A — attribute degerleri URUN OLUSTURULMADAN ONCE dogrulanir (gecersizse hicbir
     // yazim olmaz). undefined = eski davranis (attribute yazilmaz, geriye donuk uyumlu).
     let attributeEntries: Awaited<ReturnType<typeof attributeValueService.prepareProductValues>> | null = null;
@@ -8597,6 +8886,11 @@ export function createServer(
     try {
       product = await dataAccess.createProduct(params.storeId, {
         ...productInput,
+        // TODO-165A (ADR-165A) Task 7 — brandId gecerliyse legacy `brand` metni marka
+        // adiyla dual-write edilir (gonderilen serbest metni EZER); brandId absent/null
+        // ise davranis degismez (bare legacy `brand` gecer yol).
+        brand: brandMirrorName ?? productInput.brand,
+        brandId: input.brandId ?? null,
         categoryIds,
         primaryCategoryId: primary.primaryCategoryId,
       });
@@ -8674,6 +8968,28 @@ export function createServer(
       variantSelections,
       ...productInput
     } = input;
+    // TODO-165A (ADR-165A) Task 7 — brandId gonderildiyse (non-null) YAZIMDAN ONCE dogrulanir
+    // (create ile ayni kural: storeId-scoped BRAND_NOT_FOUND → 400 PRODUCT_BRAND_INVALID,
+    // ARCHIVED → 409). undefined = dokunma (mevcut brandId/brand korunur); null = temizle
+    // (asagida legacy `brand` metnine DOKUNULMAZ — istemci ayrica `brand` gondermedikce).
+    let brandMirrorName: string | undefined;
+    if (input.brandId !== undefined && input.brandId !== null) {
+      let brand: Awaited<ReturnType<typeof brandService.get>>;
+      try {
+        brand = await brandService.get(params.storeId, input.brandId);
+      } catch (error) {
+        if (error instanceof BrandError && error.code === "BRAND_NOT_FOUND") {
+          return reply.code(400).send(errorBody("PRODUCT_BRAND_INVALID", "Brand not found for this store."));
+        }
+        throw error;
+      }
+      if (brand.status === "ARCHIVED") {
+        return reply
+          .code(409)
+          .send(errorBody("PRODUCT_BRAND_ARCHIVED", "Brand is archived and cannot be assigned to a product."));
+      }
+      brandMirrorName = brand.name;
+    }
     // Faz 2C-7 (ADR-078) — media-tanimlayici eksen: string ise dogrula (SELECT/COLOR + bu urunun
     // ekseni); null = klasik moda don (gecerli); undefined = dokunma. Etkin eksen (input ?? mevcut)
     // etiket dogrulamasinin referansidir. Yazimlardan ONCE (biri gecersizse hicbir yazim olmaz).
@@ -8806,6 +9122,10 @@ export function createServer(
         ...(rawMediaDefiningAttributeId === undefined
           ? {}
           : { mediaDefiningAttributeId: rawMediaDefiningAttributeId }),
+        // TODO-165A (ADR-165A) Task 7 — brandId gecerliyse legacy `brand` metni marka
+        // adiyla dual-write ile EZILIR; brandId absent/null ise `productInput.brand`
+        // (istemcinin ayrica gonderdigi bare legacy metin, verilmediyse dokunulmaz) korunur.
+        ...(brandMirrorName === undefined ? {} : { brand: brandMirrorName }),
       }, access.session.platformUser.id);
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;

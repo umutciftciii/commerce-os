@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { format } from "@commerce-os/i18n";
-import { buildSearchHref, toggleFilterValue } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { buildSearchHref } from "../../../lib/search/url-state";
+import { nextStateForFacetValueToggle } from "../../../lib/search/facets";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 import type { FacetRendererProps } from "./types";
 
 /**
@@ -12,13 +13,19 @@ import type { FacetRendererProps } from "./types";
  * SELECT / MULTI_SELECT / TEXT (MULTI) VE BOOLEAN (Evet/Hayır) facet'leri AYNI checkbox render'ını paylaşır
  * (brief §7: "switch yerine checkbox"). Her satır: native <input type=checkbox> (klavye + aria doğal) + etiket
  * + disjunctive count. count=0 & seçili değil → disabled (dimmed). Uzun listelerde "daha fazla göster" (ilk N).
- * Tıklama YALNIZ URL'i günceller (toggleFilterValue → replace); yerel seçim kopyası YOK.
+ * Tıklama YALNIZ URL'i günceller (replace); yerel seçim kopyası YOK.
+ *
+ * TODO-165A (ADR-165A) Task 21 — Sentezlenmiş marka facet'i (code "brand") de bu listeyi paylaşır ama
+ * DEDICATED `state.brand` alanına yazar (jenerik `filter[brand]` DEĞİL — o kod hiçbir zaman gerçek bir
+ * `AttributeDefinition`e karşılık gelmez, o yüzden jenerik yoldan yazılsa backend'de SESSİZCE hiçbir şeyi
+ * daraltmaz). Write-target ayrımı `nextStateForFacetValueToggle`'da merkezileşir (facets.ts).
  */
 const DEFAULT_VISIBLE = 8;
 
 export function FacetValueList({ facet, state, t }: FacetRendererProps) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const [expanded, setExpanded] = useState(false);
 
   const values = facet.values;
@@ -51,7 +58,15 @@ export function FacetValueList({ facet, state, t }: FacetRendererProps) {
                   type="checkbox"
                   checked={value.selected}
                   disabled={disabled}
-                  onChange={() => navigate(buildSearchHref(toggleFilterValue(state, facet.code, value.value)), { replace: true })}
+                  onChange={() =>
+                    navigate(
+                      buildSearchHref(
+                        nextStateForFacetValueToggle(facet, state, value.value, value.selected),
+                        basePath,
+                      ),
+                      { replace: true },
+                    )
+                  }
                   className="h-4 w-4 shrink-0 accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1"
                 />
                 <span className="flex-1 truncate">{value.label}</span>

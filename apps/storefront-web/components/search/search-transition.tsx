@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 /**
  * TODO-156B (ANALIZ-156A §7.4) — İstemci URL güncelleme + geçiş (transition) bağlamı.
@@ -45,4 +45,20 @@ export function useSearchTransition(): SearchTransitionValue {
     return { isPending: false, navigate: () => {} };
   }
   return ctx;
+}
+
+/**
+ * TODO-165A (ADR-165A) Task 20 fix (coordinator review) — PLP arama bileşenleri (`FilterRail`,
+ * `ActiveFilterChips`, `SearchPagination`, `SortControl`, facet renderer'ları...) `buildSearchHref(state)`'i
+ * SABİT `/products` varsayılanıyla çağırıyordu; bu, `/markalar/[slug]` marka vitrininde sayfalama/sıralama/
+ * filtre etkileşimlerini marka bağlamından (header/canonical/JSON-LD) KOPARIYORDU (TD-165A.1). `usePathname()`
+ * GEÇERLİ route'u döner (`/products` ya da `/markalar/<slug>`) — bileşenler ayrı bir context/prop'a
+ * gerek KALMADAN bunu `buildSearchHref`'in ikinci argümanı olarak geçirir; her iki route de KENDİ
+ * path'inde kalır (minimal, düşük-riskli; page.tsx'lerde HİÇBİR wiring gerekmez).
+ */
+export function useSearchBasePath(): string {
+  // usePathname() gerçek Next uygulamasında hep string döner; ama app-router bağlamı DIŞINDA (ör.
+  // renderToStaticMarkup birim testleri) `null` dönebilir (Next'in kendi runtime davranışı — tip
+  // imzası bunu yansıtmaz). Bu durumda buildSearchHref'in kendi varsayılanına (`/products`) düş.
+  return usePathname() ?? "/products";
 }

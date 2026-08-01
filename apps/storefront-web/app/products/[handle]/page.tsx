@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import {
@@ -36,7 +37,7 @@ import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getStorefrontProductByHandle } from "../../../lib/server/catalog";
 import { salesModeLabel } from "../../../lib/labels";
 import { cheapestVariantId } from "../../../lib/catalog-types";
-import { productPath } from "../../../lib/seo/routes";
+import { brandPath, productPath } from "../../../lib/seo/routes";
 import { absoluteUrl } from "../../../lib/seo/site-url";
 import { buildMetadata } from "../../../lib/seo/metadata";
 import { buildProductBreadcrumb } from "../../../lib/seo/breadcrumb";
@@ -209,7 +210,19 @@ export default async function ProductDetailPage({
                 <Badge tone="muted">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
                 {detail.brand ? (
                   <Eyebrow as="span">
-                    {t.brandLabel}: {detail.brand}
+                    {t.brandLabel}:{" "}
+                    {/* TODO-165A (ADR-165A) Task 20 — governed brandRef varsa marka vitrinine link (additive;
+                        brandRef yoksa legacy düz-metin davranışı DEĞİŞMEZ). */}
+                    {detail.brandRef ? (
+                      <Link
+                        href={brandPath(detail.brandRef.slug)}
+                        className="underline decoration-line underline-offset-4 transition-colors hover:text-ink"
+                      >
+                        {detail.brand}
+                      </Link>
+                    ) : (
+                      detail.brand
+                    )}
                   </Eyebrow>
                 ) : null}
               </div>

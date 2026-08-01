@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { format } from "@commerce-os/i18n";
 import { buildSearchHref, toggleFilterValue } from "../../../lib/search/url-state";
-import { useSearchTransition } from "../search-transition";
+import { useSearchBasePath, useSearchTransition } from "../search-transition";
 import type { FacetRendererProps } from "./types";
 
 /**
@@ -18,6 +18,7 @@ const DEFAULT_VISIBLE = 12;
 export function FacetColorSwatch({ facet, state, t }: FacetRendererProps) {
   const s = t.search;
   const { navigate } = useSearchTransition();
+  const basePath = useSearchBasePath();
   const [expanded, setExpanded] = useState(false);
 
   const values = facet.values;
@@ -50,7 +51,7 @@ export function FacetColorSwatch({ facet, state, t }: FacetRendererProps) {
                   checked={value.selected}
                   disabled={disabled}
                   aria-label={`${swatchLabel} · ${value.count}`}
-                  onChange={() => navigate(buildSearchHref(toggleFilterValue(state, facet.code, value.value)), { replace: true })}
+                  onChange={() => navigate(buildSearchHref(toggleFilterValue(state, facet.code, value.value), basePath), { replace: true })}
                   className="peer sr-only"
                 />
                 <span

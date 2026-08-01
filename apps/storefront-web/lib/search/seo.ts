@@ -39,6 +39,9 @@ export function canonicalPath(state: SearchState): string {
   if (isIndexable(state)) {
     const canonical = emptySearchState();
     canonical.category = state.category;
+    // TODO-165A (ADR-165A) Task 20 — brand da category gibi korunur (isIndexable brand'i narrowing
+    // saymaz — bkz. yukarı); aksi halde /products?brand=x canonical'ı yanlışlıkla düz /products'a düşerdi.
+    canonical.brand = state.brand;
     canonical.page = state.page; // page>1 self-canonical; page=1 serialize'da düşer.
     return buildSearchHref(canonical);
   }

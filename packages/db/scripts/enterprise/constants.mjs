@@ -58,6 +58,8 @@ export const ID = {
   coupon: (n) => `edm-coupon-${String(n).padStart(2, "0")}`,
   media: (slug) => `edm-media-${slug}`,
   shippingPlan: () => `edm-shipping-default`,
+  // TODO-165A (T27) — gerçek Brand satırı (BRANDS havuzundaki her marka için; slug = catalog.mjs slugify).
+  brand: (slug) => `edm-brand-${slug}`,
 };
 
 /** Hedef ölçek (üst sınır/hedef; üretici bunlara göre boyutlanır). */

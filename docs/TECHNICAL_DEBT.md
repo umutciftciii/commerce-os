@@ -1733,3 +1733,81 @@ non-blocking iyileştirmelerdir (çekirdek kullanıcı değeri DEĞİL — TODO-
 - **Görsel içerik**: seed placeholder media asset id'leri yeniden kullanır (dosya yok → PDP'de kırık görsel); gerçek
   fashion görselleri yüklenebilir. Yapı (variant media engine) doğru çalışır.
 Blocker değil; çekirdek etkilenmez.
+
+## TD-167 — Legacy `Product.brand` string dual-read emeklilik (TODO-165A) — OPEN (non-blocking)
+
+`Product.brandId` (`governedBrand`) artık otoriter FK'dir; legacy `brand` string DORMANT read-model olarak
+KORUNUYOR (dual-write: brandId set/değişince `brand` = `brand.name`). Admin ürün **LIST** görünümü
+(`apps/store-admin-web/app/(app)/products/page.tsx`) hâlâ legacy `product.brand` string'ini okuyor (T7 dual-write
+sayesinde ÇALIŞIYOR ama tek kaynak değil) — legacy string emekli edilince `brandRef`'e geçmesi gerekir. Ayrıca
+dead i18n `brandPlaceholder` anahtarı (artık serbest-metin marka input'u kaldırıldığı için kullanılmıyor) temizlik
+bekliyor. Etki: düşük (veri kaybı/güvenlik riski yok — geriye-uyum amaçlı bilinçli DORMANT tasarım).
+
+## TD-168 — Opsiyonel kontrollü re-point migration: legacy global-option atamaları (TODO-165A) — OPEN (deferred)
+
+TODO-165A T14b, `FASHION_VERTICAL`-enabled mağazalar için governed global-canonical opsiyonların YENİ
+store-scoped kopyalarını oluşturdu; ancak bu opsiyonlara zaten atanmış MEVCUT ürün/varyant değerleri
+(`ProductAttributeValue`, `ProductAttributeValueOption`, `VariantAttributeValue`) global opsiyona re-point
+EDİLMEDİ — güvenli geçiş kararı (bkz. ADR-255 §11). Bu satırlar legacy okunmaya devam eder (resolver
+store-scoped>global önceliğiyle yeni seçimler doğru çalışır; eski atama görünürlüğü etkilenmez). İleride
+opsiyonel, KONTROLLÜ, transaction-safe bir re-point migration'ı (üç tabloyu birlikte, mağaza-bazlı,
+idempotent) eklenip mevcut atamalar store-scoped opsiyonlara taşınabilir. T14b bu nedenle
+`FASHION_VERTICAL`-migration-öncesi-enabled olmayan (yani migration `20260802120000`'dan SONRA enable edilen)
+mağazalar için NO-OP kalır — bu mağazalar runtime `ensureStoreTaxonomyDefaults` (bootstrap-on-enable) ile bir
+sonraki taksonomi erişiminde kapsanır. Etki: düşük (veri kaybı yok; iki-kaynaklı-ama-tutarlı okuma önceliği var).
+
+## TD-169 — Plan-seviyesi FASHION_VERTICAL enable, lazy net'e dayanıyor + compensating-revert CAS değil (TODO-165A) — OPEN (non-blocking)
+
+Store-seviyesi `FASHION_VERTICAL` DISABLED→ENABLED geçişi eager fail-closed bootstrap çalıştırır
+(`ensureStoreTaxonomyDefaults`, başarısızsa `TAXONOMY_BOOTSTRAP_FAILED` + compensating revert). Ancak
+**plan-seviyesi** `PUT /admin/plans/:id/capabilities` (INHERIT mağazaları toplu etkiler) bu eager bootstrap'i
+ATLAYABİLİR — güvenlik ağı yalnız taxonomy list/quick-create handler'ındaki idempotent **lazy** çağrı
+(`ensureStoreTaxonomyDefaults`, ilk taksonomi okumasında self-heal). Eager toplu plan-bazlı bootstrap
+ERTELENDİ (bkz. `apps/api-gateway/src/capabilities/plan-routes.ts` inline TD notu). Ayrıca store-seviyesi
+compensating-revert **CAS (compare-and-swap) DEĞİL** — düz bir overwrite; iki eşzamanlı çakışan enable/disable
+PUT'u arasında dar bir yarış penceresi var (pratikte capability state tekil admin operasyonu; ölçülebilir kullanıcı
+etkisi yok). Etki: düşük (self-healing lazy net kapsıyor; dar eşzamanlılık penceresi).
+
+## TD-170 — TODO-165A küçük/kozmetik ertelemeler (TODO-165A) — OPEN (non-blocking)
+
+Aşağıdakiler review turlarında bulunup bilinçli olarak ERTELENDİ (spec-dışı, davranış-etkisiz veya çok dar):
+- **`clearedFiltersOnly`** (`apps/storefront-web/lib/search/url-state.ts`) `q`/`category`'yi korur ama `brand`'i
+  korumuyor — marka sayfasında "filtreleri temizle" markayı da düşürüyor (kategori sayfasındaki davranışla
+  tutarsız; küçük UX drift).
+- Backend brand facet section adı `"Marka"` HARDCODED (locale-aware değil) — `services/search-service/src/
+  search-query.ts` `synthesizeBrandFacet`.
+- Recently-viewed/similar-products uçları (`apps/api-gateway/src/recently-viewed/routes.ts`) `brandRef: null`
+  döner — bu modüllerin read-model'i henüz `brandId` taşımıyor (T11 kapsamı yalnız catalog+search'ü kapsadı).
+- Synthesize edilen `brand` facet kodu, bir mağazanın kendi `AttributeDefinition.code="brand"` tanımlamasıyla
+  çakışabilir ihtimaline karşı reserved-word guard'ı YOK (dar/teorik risk).
+- Size-chart selector her zaman `sortOrder` default geçtiğinden data-access `createdAt desc` fallback dead code
+  (`size-chart-service.ts`/`size-chart-data.ts`) — davranış-etkisiz.
+- Taxonomy reorder ekranı tip-başına `pageSize=100` çeker — governed sözlük sınırlı büyüklükte olduğundan
+  bugün sorun değil; 100'den büyük bir tip reorder listesinde eksik görünür (bounded future risk).
+- `SizeChartService.resolveEffective` artık iki sorgu (`getResolutionMeta`+`getRevision`) — hot-path perf için
+  bilinçli küçültme; iki sorgu arasında teorik, güvenli-şekilde-bozulan (safe-degrading) dar bir yarış var
+  (kazanan chart iki sorgu arasında unpublish edilirse eski revizyon dönebilir — kullanıcı etkisi yok, sonraki
+  okuma düzelir).
+- PR#158 (TODO-165 Fashion Vertical) fashion test-fixture type drift'i (5 dosya) bu branch'te additive-only
+  greenlendi (branch'in kendi regresyonu değil; `tsc --noEmit` gate'ini yeşile çevirmek için gerekliydi) — bkz.
+  SDD ledger Task 29.
+Etki: hepsi düşük; kullanıcıya görünen davranış kırılmıyor.
+
+## TD-171 — `schema.prisma`/api-gateway placeholder `(ADR-165A)` yorumları kısmen düzeltildi (TODO-165A) — OPEN (non-blocking)
+
+Implementasyon sırasında henüz gerçek ADR numaraları atanmamıştı; kod yorumları geçici `(ADR-165A)` placeholder'ı
+kullandı. Bu görev (T32) sırasında **`packages/db/prisma/schema.prisma`** içindeki TÜM `(ADR-165A)` yorumları
+gerçek numaralara (`ADR-253` Brand model/BrandStatus/logo-kapak, `ADR-254` Product↔Brand relation/dual-read/
+search-doc brand alanları, `ADR-255` ProductTaxonomyType/Status/ProductTaxonomyValue/AttributeOption.metadata/
+taxonomyValue) düzeltildi + `pnpm db:generate` (comment-only, migration YOK) çalıştırıldı. **`apps/api-gateway/
+src/**` ve `apps/api-gateway/test/**` içindeki `(ADR-165A)` yorumları (server.ts, brand/*, taxonomy/*,
+attributes/routes.ts, capabilities/plan-routes.ts, search/*, recently-viewed/routes.ts, sponsored/data.ts, ilgili
+test dosyaları — toplam onlarca satır) **DEĞİŞTİRİLMEDİ** (kapsam/risk-bütçesi nedeniyle bu görevde ertelendi) —
+haritalama netti (marka satırları→ADR-253/254, taksonomi satırları→ADR-255/256, selector satırları→ADR-258) ama
+büyük hacim düşük-değer bir metin-değişikliği olduğundan ertelendi. Uygulanmış migration `.sql` dosyalarındaki
+`(ADR-165A)` yorumları KASITLI OLARAK DOKUNULMADI (immutable — değiştirmek migration checksum'ını bozar). Etki:
+düşük (yalnız kod-yorumu doğruluğu; davranış etkisi yok).
+
+### TD-172 — Marka arşiv/yeniden-adlandırma search read-model gecikmesi (TODO-165A, final review)
+- **Durum:** OPEN (Minor). Public katalog/detay projektörleri `brandRef`'i ACTIVE-only gösterir (arşivli marka → `brandRef: null`, `/markalar/[slug]` → 404). Ancak search read-model (`ProductSearchDocument.brandSlug/brandName`) marka `status` ile FİLTRELENMEZ; `synthesizeBrandFacet` facet'i canlı bu kolondan türetir. Marka arşivlemek hiçbir ürün satırına dokunmadığından reindex tetiklenmez → arşivli marka bir sonraki ürün-dokunuşu/`search:backfill`'e kadar facet olarak görünmeye + slug filtresiyle ürün döndürmeye devam eder.
+- **Etki:** Nadir admin işlemi; reindex ile kendini iyileştirir; kullanıcı-görünür kritik yol kırılmaz. Kalıcı çözüm: marka archive/rename'de ilgili ürünleri reindex kuyruğuna al VEYA facet sentezini `Brand.status='ACTIVE'` join'iyle kısıtla.

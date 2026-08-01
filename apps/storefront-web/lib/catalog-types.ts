@@ -55,6 +55,28 @@ export interface StorefrontPrice {
   lowestRecentLabel: string | null;
 }
 
+/**
+ * TODO-165A (ADR-165A) Task 18 — Governed marka (Brand) vitrin projeksiyonu. Hem ürün kartı/PDP'nin
+ * `brandRef` bağlantısı HEM `/markalar` dizin listesi/kartı AYNI şekli kullanır (DRY). `publicBrandSummarySchema`
+ * ile 1-1 (allowlist; iç alan taşımaz).
+ */
+export interface StorefrontBrandSummary {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  description: string | null;
+}
+
+/** `/markalar/[slug]` vitrin sayfası için genişletilmiş marka görünümü (kapak/website/SEO/ürün sayısı). */
+export interface StorefrontBrandDetail extends StorefrontBrandSummary {
+  coverUrl: string | null;
+  websiteUrl: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  productCount: number;
+}
+
 /** Liste/karti besleyen ozet urun gorunumu. */
 export interface StorefrontProductSummary {
   /**
@@ -67,6 +89,12 @@ export interface StorefrontProductSummary {
   handle: string;
   title: string;
   brand: string | null;
+  /**
+   * TODO-165A (ADR-165A) Task 18 — Governed marka ENTITY bağlantısı (ADDITIVE; legacy `brand` serbest-metin
+   * alanı yukarıda DEĞİŞMEDEN kalır). Yalnız ürünün `brandId`'si set edilmişse dolu; aksi halde null.
+   * `/markalar/[slug]` bağlantısı + kart/PDP marka rozeti-linki için (linking projection).
+   */
+  brandRef?: StorefrontBrandSummary | null;
   categoryLabel: string | null;
   /**
    * ADR-065 (Faz 3/Dilim 1) — Kapak gorseli public URL'i (liste ucundaki images[0]).

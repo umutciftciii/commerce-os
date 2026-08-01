@@ -52,6 +52,9 @@ export const trStoreAdmin = {
       "Ana kategoriyi kaldırmadan önce yeni bir ana kategori seçmelisiniz.",
     PRODUCT_SLUG_EXISTS: "Bu ürün kısa adı (slug) zaten kullanılıyor.",
     PRODUCT_NOT_FOUND: "Ürün bulunamadı.",
+    // TODO-165A Tasks 25/26 — beden tablosu bağlama kuralları (§9).
+    SIZE_CHART_ASSIGN_NOT_PUBLISHED: "Yalnız yayınlanmış bir beden tablosu bağlanabilir.",
+    SIZE_CHART_ASSIGN_CROSS_STORE: "Bu kayıt bu mağazaya ait değil.",
     VARIANT_SKU_EXISTS: "Bu SKU zaten kullanılıyor.",
     VARIANT_NOT_FOUND: "Varyant bulunamadı.",
     INVENTORY_ITEM_NOT_FOUND: "Stok kaydı bulunamadı.",
@@ -297,6 +300,23 @@ export const trStoreAdmin = {
       setPrimary: "Ana kategori yap",
       primaryHint: "Ürünün dinamik özellik şeması ana kategoriden gelir.",
     },
+    // TODO-165A (ADR-165A) Task 17 — Marka seçici (ürün formu). Kategori seçicisiyle
+    // aynı desen; yalnız arşivli markalar için durum rozeti taşınır.
+    brand: {
+      title: "Marka seç",
+      description: "Marka adı veya kısa adı ile arayın.",
+      searchPlaceholder: "Marka adı…",
+      listLabel: "Markalar",
+      statusLabels: { ACTIVE: "Aktif", ARCHIVED: "Arşivli" },
+    },
+    // TODO-165A Tasks 25/26 — Beden tablosu seçici (ürün formu + merkezi AssignModal).
+    // Yalnız YAYINLANMIŞ (status=PUBLISHED) tablolar seçilebilir (uç zaten filtreler).
+    sizeChart: {
+      title: "Beden tablosu seç",
+      description: "Yalnız yayınlanmış tablolar seçilebilir. Tablo adıyla arayın.",
+      searchPlaceholder: "Tablo adı…",
+      listLabel: "Beden tabloları",
+    },
   },
   products: {
     eyebrow: "Katalog",
@@ -425,6 +445,10 @@ export const trStoreAdmin = {
       statusLabel: "Durum",
       brandLabel: "Marka (opsiyonel)",
       brandPlaceholder: "Örn. Acme",
+      // TODO-165A (ADR-165A) Task 17 — free-text marka girişinin yerini aranabilir
+      // marka SEÇİCİSİ + satır-içi hızlı-oluşturma aldı (bkz. brand-field.tsx).
+      brandHint: "Mevcut bir markayı seçin ya da yeni bir marka oluşturun.",
+      brandCreateAction: "Yeni marka oluştur",
       vendorLabel: "Tedarikçi (opsiyonel)",
       vendorPlaceholder: "Örn. Acme Tekstil",
       descriptionLabel: "Açıklama (opsiyonel)",

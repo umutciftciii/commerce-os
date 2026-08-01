@@ -286,6 +286,13 @@ export const ALL_FASHION_ATTRIBUTES: readonly FashionAttributeDefinition[] = [
   ...FASHION_VARIANT_ATTRIBUTES,
 ];
 
+/**
+ * Katalogda tanimli tum `fashion.*` kod listesi — TODO-165A governance bridge
+ * (`apps/api-gateway/src/taxonomy/taxonomy-map.ts`) taksonomi tip registry'sindeki
+ * `definitionCode`'larin bu katalogda gercekten var oldugunu dogrulamak icin kullanir.
+ */
+export const CANONICAL_ATTRIBUTE_CODES: string[] = ALL_FASHION_ATTRIBUTES.map((a) => a.code);
+
 const BY_CODE = new Map(ALL_FASHION_ATTRIBUTES.map((a) => [a.code, a]));
 
 export function isFashionAttributeCode(code: string): boolean {

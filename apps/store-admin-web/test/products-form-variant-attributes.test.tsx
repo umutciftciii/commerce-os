@@ -160,7 +160,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
     renderCreate();
 
     expect(screen.queryByText("Colour")).toBeNull();
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
 
     await waitFor(() => expect(screen.getByText("Variant attributes")).toBeTruthy());
     // Varyant bölümüne özel sorgula (FabricLevel ürün-seviyesi bölümünde görünür — o bölüm ayrı).
@@ -178,7 +178,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
     const user = userEvent.setup();
     installSchema();
     renderCreate();
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     // Eksen kapalıyken option yok.
@@ -200,7 +200,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     await user.click(screen.getByLabelText("Colour"));
@@ -223,7 +223,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
 
     await user.click(screen.getByLabelText("Colour")); // enable, seçme
@@ -244,7 +244,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await waitFor(() => expect(storeApiMock.listCategoryAttributes).toHaveBeenCalled());
 
     expect(screen.queryByText("Variant attributes")).toBeNull();
@@ -292,7 +292,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
 
     await user.type(screen.getByLabelText("Product name"), "Tee");
     await user.type(screen.getByLabelText("Slug"), "tee");
-    await pickInSelector(user, /Apparel/);
+    await pickInSelector(user, /Apparel/, 1);
     await waitFor(() => expect(screen.getByText("Colour")).toBeTruthy());
     await user.click(screen.getByLabelText("Colour"));
     await user.click(await screen.findByRole("checkbox", { name: "Black" }));

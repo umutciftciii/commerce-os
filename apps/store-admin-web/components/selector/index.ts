@@ -24,7 +24,14 @@ export type {
 } from "./entity-selector";
 export {
   buildSelectorLabels,
+  useBrandSelectorBinding,
   useCategorySelectorBinding,
   useProductSelectorBinding,
+  useSizeChartSelectorBinding,
 } from "./catalog-sources";
-export type { CategorySelectorBinding, ProductSelectorBinding } from "./catalog-sources";
+export type {
+  BrandSelectorBinding,
+  CategorySelectorBinding,
+  ProductSelectorBinding,
+  SizeChartSelectorBinding,
+} from "./catalog-sources";

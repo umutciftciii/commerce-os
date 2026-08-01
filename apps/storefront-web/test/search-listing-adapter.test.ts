@@ -8,6 +8,8 @@ function product(overrides: Partial<PublicSearchProduct> = {}): PublicSearchProd
     slug: "demo-hoodie",
     title: "Demo Hoodie",
     brand: "Marka",
+    // TODO-165A (ADR-165A) Task 11 — brandRef governed marka projeksiyonu; fixture bu PR'da eklendi.
+    brandRef: null,
     categoryLabel: "Giyim",
     minPriceMinor: 129900,
     maxPriceMinor: 149900,

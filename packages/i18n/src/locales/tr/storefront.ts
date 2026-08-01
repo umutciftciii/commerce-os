@@ -317,6 +317,8 @@ export const trStorefront = {
     // Aktif filtre çipi
     chipSearchLabel: "Arama",
     chipCategoryLabel: "Kategori",
+    // TODO-165A (ADR-165A) Task 21 — Marka çip etiketi (dedicated `brand` filtresi; kategori ile aynı desen).
+    chipBrandLabel: "Marka",
     // {group} facet adı, {value} kaldırılacak değer.
     chipRemoveLabel: "{group}: {value} filtresini kaldır",
   },
@@ -1318,6 +1320,25 @@ export const trStorefront = {
       emptyFilter: "Bu filtrede kupon bulunamadı.",
       emptyHint: "Kodunuz varsa “Kupon Kodu Ekle” ile tanımlayabilirsiniz.",
     },
+  },
+  // TODO-165A (ADR-165A) Task 18-20 — Marka dizin (/markalar) + detay (/markalar/[slug]) sayfaları.
+  brands: {
+    metaTitle: "Markalar",
+    metaDescription: "Mağazamızdaki tüm markaları keşfedin.",
+    breadcrumbHome: "Ana sayfa",
+    breadcrumbBrands: "Markalar",
+    heading: "Markalar",
+    tagline: "Mağazamızda satılan markaları keşfedin.",
+    emptyTitle: "Henüz marka yok",
+    emptyDescription: "Markalar yayınlandığında burada listelenecek.",
+    errorTitle: "Markalar yüklenemedi",
+    errorDescription: "Şu an markalara ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
+    // {count} ürün sayısıyla değiştirilir (marka detay sayfası alt başlığı).
+    productCount: "{count} ürün",
+    viewProducts: "Ürünleri gör",
+    notFoundTitle: "Marka bulunamadı",
+    notFoundDescription: "Bu marka kaldırılmış olabilir. Tüm markalara göz atın.",
+    backToBrands: "Tüm markalar",
   },
 };
 

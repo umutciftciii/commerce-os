@@ -113,6 +113,9 @@ function detail(overrides: Partial<StorefrontProductDetail> = {}): StorefrontPro
         secondaryCoupon: null,
       },
     ],
+    // TODO-165 (ADR-252) — PDP moda görünümü; fashion-dışı fixture'da null (pre-existing PR#158
+    // fixture drift, gate greened; StorefrontFashionView bu testte kapsam dışı).
+    fashion: null,
     ...overrides,
   };
 }

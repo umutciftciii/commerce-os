@@ -214,6 +214,52 @@ export function assembleFacets(input: {
   return facets;
 }
 
+// ── TODO-165A (ADR-165A) Task 11 — Marka (Brand) SENTEZLENMİŞ facet (SAF) ──
+//
+// Brand bir AttributeDefinition DEĞİLDİR (ProductFacetValue kaynağı yok) — read-model'in kendi
+// brandSlug/brandName kolonlarından SENTEZLENİR. `assembleFacets`'in (yukarıda) tükettiği meta/count
+// akışına GİRMEZ; ayrı, küçük bir SAF birleştirici burada. Disjunctive semantik: sayım satırları
+// çağıran tarafından (searchReadModel) marka filtresi HARİÇ tutularak hesaplanmış olarak gelir
+// (facet kendi seçimini sıfırlamaz — §6 ile aynı kural).
+
+export interface BrandFacetCountRow {
+  brandSlug: string;
+  brandName: string;
+  count: number;
+}
+
+/**
+ * Ham (brandSlug,brandName,count) satırlarından disjunctive `SearchFacet` üretir. Satır yoksa null
+ * (facet listesine hiç girmez — additive: mevcut PLP'de marka facet'i olmayan aramalar bozulmaz).
+ * `attributeDefinitionId`/`code` = sabit "brand" (sentetik; gerçek AttributeDefinition YOK).
+ */
+export function synthesizeBrandFacet(
+  rows: BrandFacetCountRow[],
+  selectedBrandSlug: string | null,
+): SearchFacet | null {
+  if (rows.length === 0) return null;
+  const values: SearchFacetValue[] = rows.map((r) => ({
+    optionId: null,
+    value: r.brandSlug,
+    label: r.brandName,
+    colorHex: null,
+    count: r.count,
+    selected: r.brandSlug === selectedBrandSlug,
+  }));
+  values.sort((a, b) => a.label.localeCompare(b.label, "tr"));
+  return {
+    attributeDefinitionId: "brand",
+    code: "brand",
+    name: "Marka",
+    dataType: "SELECT",
+    unit: null,
+    displayOrder: -1,
+    selectionMode: "MULTI",
+    values,
+    range: null,
+  };
+}
+
 // ── SQL parça yardımcıları ──
 
 /** Boş dizide `1=0` (asla eşleşmez); aksi halde `col IN (...)`. */
@@ -278,16 +324,17 @@ export async function searchReadModel(
   // 2) Dinamik filtre çözümü + doğrulama.
   const resolvedFilters = await resolveFilters(client, storeId, query.filters, categoryIds);
 
-  // 3) Sabit taban predikatı (kategori + fiyat + stok + keyword).
+  // 3) Sabit taban predikatı (kategori + marka + fiyat + stok + keyword).
   const q = query.q ? normalizeText(query.q) : "";
-  const basePredicate = buildBasePredicate(storeId, query, categoryIds, q);
 
-  // 4) Tam where (excludeCode ile bir facet'in kendi filtresi hariç bırakılabilir).
-  const whereWith = (excludeCode: string | null): Prisma.Sql => {
+  // 4) Tam where (excludeCode ile bir attribute facet'in kendi filtresi hariç bırakılabilir;
+  // includeBrand=false ile marka facet'inin KENDİ disjunctive sayımı için marka filtresi hariç tutulur).
+  const whereWith = (excludeCode: string | null, includeBrand = true): Prisma.Sql => {
+    const base = buildBasePredicate(storeId, query, categoryIds, q, includeBrand);
     const facetParts = resolvedFilters
       .filter((rf) => rf.code !== excludeCode)
       .map((rf) => facetExists(storeId, rf));
-    return joinAnd([basePredicate, ...facetParts]);
+    return joinAnd([base, ...facetParts]);
   };
   const whereAll = whereWith(null);
 
@@ -295,7 +342,7 @@ export async function searchReadModel(
   const offset = (query.page - 1) * query.pageSize;
   const orderBy = buildOrderBy(query.sort, q);
   const itemRows = await client.$queryRaw<RawItemRow[]>(Prisma.sql`
-    SELECT d."productId", d.slug, d.title, d.brand, d."primaryCategoryId",
+    SELECT d."productId", d.slug, d.title, d.brand, d."brandId", d."primaryCategoryId",
            d."minPriceMinor", d."maxPriceMinor", d.currency, d.availability, d."hasStock", d."variantCount",
            d."compareAtMinor", d."discountPercent", d."omnibusPreviousPriceMinor", d.listing,
            d.campaign, d."campaignStartsAt", d."campaignEndsAt"
@@ -316,7 +363,7 @@ export async function searchReadModel(
     WHERE f."storeId" = ${storeId} AND ${baseOnly}`);
   const universeDefIds = universeRows.map((r) => r.attributeDefinitionId);
 
-  const facets =
+  const attributeFacets =
     universeDefIds.length === 0
       ? []
       : await buildFacets(
@@ -328,6 +375,20 @@ export async function searchReadModel(
           whereWith,
           categoryIds,
         );
+
+  // TODO-165A (ADR-165A) Task 11 — Sentezlenmiş marka facet'i (attribute facet listesine EK; sistem
+  // AttributeDefinition ÜZERİNDEN değil, ProductSearchDocument.brandSlug/brandName'den DOĞRUDAN
+  // toplanır). Disjunctive: marka filtresinin KENDİSİ whereWith(null, includeBrand=false) ile HARİÇ
+  // tutularak sayılır (seçili marka diğer marka seçeneklerini sıfırlamaz).
+  const brandRows = await client.$queryRaw<Array<{ brandSlug: string; brandName: string; count: number }>>(
+    Prisma.sql`
+    SELECT d."brandSlug" AS "brandSlug", d."brandName" AS "brandName", COUNT(*)::int AS count
+    FROM "ProductSearchDocument" d
+    WHERE ${whereWith(null, false)} AND d."brandSlug" IS NOT NULL
+    GROUP BY d."brandSlug", d."brandName"`,
+  );
+  const brandFacet = synthesizeBrandFacet(brandRows, query.brand ?? null);
+  const facets = brandFacet ? [brandFacet, ...attributeFacets] : attributeFacets;
 
   // TODO-155.2 — read-time bastırma anı (tek `now`; deterministik map).
   const now = new Date();
@@ -344,6 +405,8 @@ interface RawItemRow {
   slug: string;
   title: string;
   brand: string | null;
+  /** TODO-165A (ADR-165A) Task 11 — governed marka id'si (gateway brandRef hidrasyonu için). */
+  brandId: string | null;
   primaryCategoryId: string | null;
   minPriceMinor: number | null;
   maxPriceMinor: number | null;
@@ -374,6 +437,7 @@ function toResultItem(r: RawItemRow, now: Date): SearchResultItem {
     slug: r.slug,
     title: r.title,
     brand: r.brand,
+    brandId: r.brandId,
     primaryCategoryId: r.primaryCategoryId,
     minPriceMinor: r.minPriceMinor,
     maxPriceMinor: r.maxPriceMinor,
@@ -390,12 +454,18 @@ function toResultItem(r: RawItemRow, now: Date): SearchResultItem {
   };
 }
 
-/** Taban predikatı: store + ACTIVE + kategori(subtree) + fiyat overlap + stok + keyword (dinamik facet HARİÇ). */
+/**
+ * Taban predikatı: store + ACTIVE + kategori(subtree) + fiyat overlap + stok + keyword (dinamik
+ * attribute facet HARİÇ). TODO-165A (ADR-165A) Task 11 — `includeBrand=false` marka filtresini
+ * BİLEREK dışarıda bırakır (marka facet'inin KENDİ disjunctive sayımı için — §6 ile aynı kural:
+ * bir facet kendi seçimini sıfırlamaz).
+ */
 function buildBasePredicate(
   storeId: string,
   query: SearchQuery,
   categoryIds: string[] | null,
   normalizedQ: string,
+  includeBrand = true,
 ): Prisma.Sql {
   const parts: Prisma.Sql[] = [
     Prisma.sql`d."storeId" = ${storeId}`,
@@ -403,6 +473,9 @@ function buildBasePredicate(
   ];
   if (categoryIds) {
     parts.push(inClause(Prisma.sql`d."primaryCategoryId"`, categoryIds));
+  }
+  if (includeBrand && query.brand) {
+    parts.push(Prisma.sql`d."brandSlug" = ${query.brand}`);
   }
   // Fiyat: ürün [min,max] aralığı filtre [minPrice,maxPrice] ile OVERLAP. Fiyat gizliyse (min null) elenir.
   if (query.minPrice !== undefined || query.maxPrice !== undefined) {
