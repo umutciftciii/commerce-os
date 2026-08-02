@@ -13,6 +13,17 @@
   20 birim + 3 statik-invariant test + 3 canlı guard testi (no-flag durur / flag geçer / prod-URL
   reddedilir). Runbook: docs/OPERATIONS.md "Demo veri güvenliği". Not: yerel DB'de `_prisma_migrations`
   yok (şema `db push` kurulmuş, TD-116-a); guard'lar imaj rebuild sonrası canlı (TD-116-b).
+- **TODO-166 — Slug & Redirect Management (ADR-265).** (DONE · worktree · tam gate + browser smoke
+  doğrulandı; **commit/PR/deploy YAPILMADI**.) Store-admin "SEO > Slug ve Yönlendirmeler" modülü:
+  mevcut motoru (SlugHistory/Redirect + `@commerce-os/utils` SAF resolver) YÖNETİR, yeni motor kurmaz.
+  Yeni gateway uçları `/stores/:storeId/seo/redirects` (list/create/detail/patch/delete) +
+  `/stores/:storeId/seo/slugs[/:type/:id]` (`CATALOG` core-gate); api-client + BFF proxy; DataGrid
+  tabanlı Slug/Yönlendirme ekranları + detay drawer + manuel redirect formu. **BRAND** eklendi
+  (`SlugEntityType += BRAND`, `brandUrlPath`, atomik `recordSlugChange`). `Redirect.origin`
+  (AUTOMATIC/MANUAL) — otomatik salt-toggle, manuel tam CRUD. Manuel doğrulama: source≠target /
+  reserved-shadow / off-site / loop / canlı-entity-shadow / kaynak-tekilliği; hedef query'si korunur.
+  **404 önerileri:** ertelendi (yakalama altyapısı YOK) → future. **Kategori runtime redirect:** TD-064
+  sınırı korunur (query-tabanlı). TD-057 KAPANDI. Bkz. `docs/analysis/SLUG-redirect-management.md`.
 - TODO-001: Faz 0 commit.
 - TODO-002: Faz 1 multi-tenant API plani.
 - TODO-003: Claude frontend/admin foundation promptu. (DONE — UI foundation eklendi)

@@ -73,6 +73,14 @@ import type {
   AdminBrandSelectorResponse,
   // TODO-165A (ADR-165A) Task 15/16 gap — Marka "Bağlı ürünler" listesi (COUNT-ONLY'den yükseltildi).
   BrandProductsResponse,
+  // TODO-166 (ADR-265) — Admin Slug & Redirect Management sözleşmeleri.
+  AdminRedirectListResponse,
+  AdminRedirectResponse,
+  AdminRedirectDetailResponse,
+  AdminRedirectCreateRequest,
+  AdminRedirectUpdateRequest,
+  AdminSlugListResponse,
+  AdminSlugDetailResponse,
   // TODO-165A (ADR-165A) — ProductTaxonomyValue sozlesmeleri. NOT: ProductTaxonomyTypeContract/
   // ProductTaxonomyStatusContract/ProductTaxonomyValue/ProductTaxonomyQuery yukarıdaki notla aynı
   // sebeple burada import EDİLMEZ (aşağıda bağımsız re-export edilirler).
@@ -393,6 +401,20 @@ export type {
   AdminSizeChartSelectorResponse,
   // TODO-165A Tasks 25/26 — bir ürünün güncel beden tablosu bağlantısı sözleşmesi.
   ProductSizeChartAssignmentResponse,
+  // TODO-166 (ADR-265) — Admin Slug & Redirect Management sozlesmeleri.
+  AdminRedirect,
+  AdminRedirectDetail,
+  AdminRedirectListResponse,
+  AdminRedirectResponse,
+  AdminRedirectDetailResponse,
+  AdminRedirectListQuery,
+  AdminRedirectCreateRequest,
+  AdminRedirectUpdateRequest,
+  AdminSlugRecord,
+  AdminSlugDetail,
+  AdminSlugListResponse,
+  AdminSlugDetailResponse,
+  AdminSlugListQuery,
   // TODO-165A (ADR-165A) — Brand (Marka) sozlesmeleri.
   Brand,
   BrandListResponse,
@@ -1624,6 +1646,36 @@ export interface ApiClient {
         token?: string,
         query?: Record<string, string | number | undefined>,
       ): Promise<BrandProductsResponse>;
+    };
+    // TODO-166 (ADR-265) — Admin Slug & Redirect Management (SEO modülü).
+    redirects: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminRedirectListResponse>;
+      get(storeId: string, redirectId: string, token?: string): Promise<AdminRedirectDetailResponse>;
+      create(storeId: string, input: AdminRedirectCreateRequest, token?: string): Promise<AdminRedirectResponse>;
+      update(
+        storeId: string,
+        redirectId: string,
+        input: AdminRedirectUpdateRequest,
+        token?: string,
+      ): Promise<AdminRedirectResponse>;
+      remove(storeId: string, redirectId: string, token?: string): Promise<void>;
+    };
+    slugs: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminSlugListResponse>;
+      get(
+        storeId: string,
+        entityType: string,
+        entityId: string,
+        token?: string,
+      ): Promise<AdminSlugDetailResponse>;
     };
     // TODO-165A (ADR-165A) — Governed Product Taxonomy (Malzeme/Sezon/Yaka vb.) yonetimi.
     // reorder body'si `type` tasir (store+type icin TAM ACTIVE kume beklenir; kismi kume
@@ -3164,6 +3216,36 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         products: (storeId, brandId, token, query) =>
           getJson<BrandProductsResponse>(
             `/stores/${storeId}/brands/${brandId}/products${buildQueryString(query)}`,
+            token,
+          ),
+      },
+      // TODO-166 (ADR-265) — Admin Slug & Redirect Management proxy'si (store-scoped).
+      redirects: {
+        list: (storeId, token, query) =>
+          getJson<AdminRedirectListResponse>(
+            `/stores/${storeId}/seo/redirects${buildQueryString(query)}`,
+            token,
+          ),
+        get: (storeId, redirectId, token) =>
+          getJson<AdminRedirectDetailResponse>(`/stores/${storeId}/seo/redirects/${redirectId}`, token),
+        create: (storeId, input, token) =>
+          sendJson<AdminRedirectResponse>(`/stores/${storeId}/seo/redirects`, "POST", input, token),
+        update: (storeId, redirectId, input, token) =>
+          sendJson<AdminRedirectResponse>(
+            `/stores/${storeId}/seo/redirects/${redirectId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        remove: (storeId, redirectId, token) =>
+          sendJson<void>(`/stores/${storeId}/seo/redirects/${redirectId}`, "DELETE", undefined, token),
+      },
+      slugs: {
+        list: (storeId, token, query) =>
+          getJson<AdminSlugListResponse>(`/stores/${storeId}/seo/slugs${buildQueryString(query)}`, token),
+        get: (storeId, entityType, entityId, token) =>
+          getJson<AdminSlugDetailResponse>(
+            `/stores/${storeId}/seo/slugs/${entityType}/${entityId}`,
             token,
           ),
       },

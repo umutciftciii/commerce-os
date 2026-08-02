@@ -5874,3 +5874,13 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   buton görünürlük şartı DEĞİL. Capability kapalıysa fashion projeksiyonu null → buton yok.
 - **Sonuç.** Product-scope bağlı published beden tablosu, eksen tipinden bağımsız olarak PDP'de erişilebilir
   modal/drawer ile görünür; Category/Store fallback precedence'i korunur.
+
+## ADR-265 — Admin Slug & Redirect Management (TODO-166)
+
+- **Durum:** ACCEPTED.
+- **Bağlam.** TODO-156D slug/redirect motorunu (SlugHistory/Redirect + `@commerce-os/utils` SAF resolver) kurdu ama Admin yönetim yüzeyi YOKTU (TD-057). Marka slug lifecycle de eksikti (slug değişince redirect/history YAZILMIYORDU).
+- **Karar — mevcut motoru YÖNET, yeni motor KURMA.** `Redirect`/`SlugHistory`/`recordSlugChange`/SAF resolver TEK OTORİTE kalır (ADR-262 normu). Yeni Admin katmanı yalnız okuma+yönetim ekler: store-scoped `/stores/:storeId/seo/redirects` (list/create/detail/patch/delete) + `/stores/:storeId/seo/slugs[/:type/:id]`. `requireStoreAdminForModule("CATALOG")` ile korunur — CATALOG core/always-on → ayrı capability GEREKMEZ (registry'ye modül eklenmez, feature görünür).
+- **Karar — BRAND motora eklendi.** `SlugEntityType += BRAND`, `brandUrlPath` (`/markalar/{slug}`), `entityPath`/`recordSlugChange` BRAND'i kapsar; marka güncelleme prisma veri katmanı slug değişince AYNI transaction'da `recordSlugChange` çağırır (ürün/kategori ile simetrik; atomik).
+- **Karar — manuel redirect + origin ayrımı.** `Redirect.origin` (`AUTOMATIC`|`MANUAL`, additive migration, varsayılan AUTOMATIC) kolonu eklendi. Manuel redirect SAF `validateManualRedirect` (source≠target, güvenli-yerel-hedef, reserved/canonical shadow, loop) + gateway canlı-entity shadow + kaynak-tekilliği ile doğrulanır. Otomatik redirect'ler kullanıcı tarafından SİLİNEMEZ ve source/target/type düzenlenemez (yalnız aktif/pasif) → canonical bütünlüğü; SlugHistory immutable kalır.
+- **Karar — hedef query'si KORUNUR.** Manuel redirect kaynağı eşleşme için normalize edilir (query düşer) ama hedef query'yi korur (kategori hedefi `/products?category=...`). entityType türetilir (kaynak path deseni) ve liste filtresi DB seviyesinde aynı desenle uygulanır (sayfalama-doğru).
+- **Sonuç.** Store-admin "SEO > Slug ve Yönlendirmeler" yüzeyi; TD-057 KAPANDI. 404 önerileri (yakalama altyapısı yok) ve kategori runtime redirect (TD-064, query-tabanlı) ertelenir; ürün + marka path-tabanlı 301 tam çalışır (smoke doğrulandı).

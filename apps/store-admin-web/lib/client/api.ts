@@ -271,6 +271,14 @@ import type {
   BrandProductsResponse,
   // TODO-165A (ADR-165A) Task 17 — Marka SEÇİCİ ucu (ürün formu için).
   AdminBrandSelectorResponse,
+  // TODO-166 (ADR-265) — Admin Slug & Redirect Management tipleri.
+  AdminRedirectListResponse,
+  AdminRedirectResponse,
+  AdminRedirectDetailResponse,
+  AdminRedirectCreateRequest,
+  AdminRedirectUpdateRequest,
+  AdminSlugListResponse,
+  AdminSlugDetailResponse,
 } from "@commerce-os/api-client";
 // TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
 // re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
@@ -643,6 +651,28 @@ export const storeApi = {
   // ÇÖZÜM modudur (ADR-090 deseniyle aynı; ürün/kategori seçicileriyle simetrik).
   listBrandSelector: (query?: AdminListRequestQuery) =>
     call<AdminBrandSelectorResponse>(`/api/catalog/brands/selector${listQueryString(query)}`),
+
+  // TODO-166 (ADR-265) — Admin Slug & Redirect Management (SEO modülü).
+  listRedirects: (query?: AdminListRequestQuery) =>
+    call<AdminRedirectListResponse>(`/api/seo/redirects${listQueryString(query)}`),
+  getRedirect: (redirectId: string) =>
+    call<AdminRedirectDetailResponse>(`/api/seo/redirects/${redirectId}`),
+  createRedirect: (input: AdminRedirectCreateRequest) =>
+    mutatingCall<AdminRedirectResponse>("/api/seo/redirects", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateRedirect: (redirectId: string, input: AdminRedirectUpdateRequest) =>
+    mutatingCall<AdminRedirectResponse>(`/api/seo/redirects/${redirectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteRedirect: (redirectId: string) =>
+    mutatingCall<void>(`/api/seo/redirects/${redirectId}`, { method: "DELETE" }),
+  listSlugs: (query?: AdminListRequestQuery) =>
+    call<AdminSlugListResponse>(`/api/seo/slugs${listQueryString(query)}`),
+  getSlug: (entityType: string, entityId: string) =>
+    call<AdminSlugDetailResponse>(`/api/seo/slugs/${entityType}/${entityId}`),
 
   // Faz 1B (ADR-067) — Attribute katalog cekirdegi (tanim + grup + secenek).
   listAttributes: () => call<AttributeDefinitionListResponse>("/api/catalog/attributes"),

@@ -105,6 +105,7 @@ describe("recordSlugChange — SlugHistory write (§1)", () => {
         sourcePath: "/products/iphone-15",
         targetPath: "/products/iphone-15-pro",
         type: "PERMANENT_301",
+        origin: "AUTOMATIC",
         enabled: true,
       },
     ]);
@@ -177,6 +178,7 @@ describe("recordSlugChange — otomatik redirect + chain collapse (§2/§3)", ()
         sourcePath: "/products/iphone-pro",
         targetPath: "/products/iphone",
         type: "PERMANENT_301",
+        origin: "AUTOMATIC",
         enabled: true,
       },
     ]);
@@ -196,5 +198,43 @@ describe("recordSlugChange — otomatik redirect + chain collapse (§2/§3)", ()
     await recordSlugChange(tx, { storeId: S, entityType: "PRODUCT", entityId: "p", oldSlug: "a", newSlug: "a" });
     expect(history).toHaveLength(0);
     expect(redirects).toHaveLength(0);
+  });
+});
+
+describe("recordSlugChange — BRAND (ADR-265)", () => {
+  it("marka slug değişince /markalar 301 + history + origin=AUTOMATIC yazar", async () => {
+    const { tx, history, redirects } = makeFakeTx();
+    await recordSlugChange(tx, {
+      storeId: S,
+      entityType: "BRAND",
+      entityId: "b1",
+      oldSlug: "nike-eski",
+      newSlug: "nike",
+      createdBy: "admin-1",
+    });
+    expect(history).toEqual([
+      { storeId: S, entityType: "BRAND", entityId: "b1", oldSlug: "nike-eski", createdBy: "admin-1" },
+    ]);
+    expect(redirects).toEqual([
+      {
+        storeId: S,
+        sourcePath: "/markalar/nike-eski",
+        targetPath: "/markalar/nike",
+        type: "PERMANENT_301",
+        origin: "AUTOMATIC",
+        enabled: true,
+      },
+    ]);
+  });
+
+  it("marka çoklu rename → tek canonical hedefe collapse (zincir yok)", async () => {
+    const { tx, redirects } = makeFakeTx();
+    await recordSlugChange(tx, { storeId: S, entityType: "BRAND", entityId: "b1", oldSlug: "a", newSlug: "b" });
+    await recordSlugChange(tx, { storeId: S, entityType: "BRAND", entityId: "b1", oldSlug: "b", newSlug: "c" });
+    // /markalar/a ve /markalar/b her ikisi de nihai /markalar/c'ye işaret eder; hiçbiri kaynak-zinciri değil.
+    const targets = new Set(redirects.map((r) => r.targetPath));
+    expect(targets).toEqual(new Set(["/markalar/c"]));
+    // Yeni canlı path (/markalar/c) bir redirect kaynağı OLMAMALI (loop tohumu temizlendi).
+    expect(redirects.find((r) => r.sourcePath === "/markalar/c")).toBeUndefined();
   });
 });
