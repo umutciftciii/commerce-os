@@ -240,7 +240,7 @@ function BrandsView() {
       >
         <DataGridToolbar
           labels={{
-            searchPlaceholder: "Marka adı veya slug ara…",
+            searchPlaceholder: "Marka adı ara…",
             searchLabel: g.searchLabel,
             searchSubmit: g.searchSubmit,
             filters: g.filters,

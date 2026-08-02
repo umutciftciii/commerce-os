@@ -1120,7 +1120,7 @@
 - **TD.** TD-162 CLOSED · TD-163 CLOSED · TD-164 OPEN (non-blocking — sistem/bundled font yükleniyor; harici hosting future).
 - **AÇIK.** **commit/push/PR/merge/deploy YOK** (bu aşamada). Canlı stack smoke deploy sonrası (post-deploy).
 
-### TODO-165 Fashion Vertical Foundation — IMPLEMENTED (uçtan uca smoke geçti; commit YOK)
+### TODO-165 Fashion Vertical Foundation — ✅ CLOSED & DEPLOYED (PR #158, main `83bcd8e`; 2026-08-02 düzeltildi)
 
 > Completion Recovery: çekirdek kullanıcı değeri TD-166'ya ERTELENMEDİ; tümü TODO-165 içinde
 > tamamlandı ve GERÇEK browser + GERÇEK DB (docker postgres) ile doğrulandı. Aşağıdaki "İNEN &
@@ -1168,9 +1168,10 @@
 - **Testler/gate.** api-gateway **1893** (fashion size-chart 11 + order-snapshot 8 + capability) · contracts **130**
   (size-systems 15) — PASS. contracts/api-client/api-gateway/db/storefront/store-admin build PASS · lint temiz ·
   git diff --check temiz. GERÇEK browser smoke (PDP/PLP/order/capability/store-admin/responsive-375) PASS.
-- **AÇIK.** **commit/push/PR/merge/deploy YOK** (§20 kuralı). Implementasyon+smoke tamam; commit'e HAZIR.
+- **DURUM (2026-08-02 güncellendi).** ✅ **CLOSED & DEPLOYED** — PR #158, main `83bcd8e`. (Önceki
+  "commit YOK" ifadesi bayattı.)
 
-### TODO-165A — Product Data Governance & Editing UX Recovery (2026-08-02, IMPLEMENTED — uçtan uca GERÇEK browser+DB smoke geçti; commit YOK)
+### TODO-165A — Product Data Governance & Editing UX Recovery — ✅ CLOSED & DEPLOYED (PR #160, merge `bfb88f2`; 2026-08-02 düzeltildi)
 
 - **Amaç.** TODO-165'in serbest-metin `Product.brand` string'ini + sabit-kod fashion sözlüklerini
   (season/collection/material/fit/…) store-yönetilebilir governance katmanlarına taşı; size-chart bağlamayı
@@ -1219,16 +1220,25 @@
   `TAXONOMY_NOT_PROVISIONED` fail-closed. Plain-text validasyon (raw HTML/CSS/JS yok), colorHex regex, media
   yalnız store-owned (storageKey sızmaz), client-supplied id server-side store-scoped doğrulanır. Yeni admin
   UI'da `dangerouslySetInnerHTML` sıfır (grep).
-- **AÇIK.** **commit/push/PR/merge/deploy YOK** (§20 kuralı). Implementasyon+tam gate+gerçek smoke tamam;
-  commit'e HAZIR. Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
+- **DURUM (2026-08-02 güncellendi).** ✅ **CLOSED & DEPLOYED** — PR #160 (merge `bfb88f2`), main `83bcd8e`.
+  (Önceki "commit YOK" ifadesi bayattı.) Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
 
 ## Sıralama (§29 — güncel öncelik)
 
-1. **TODO-165A Product Data Governance & Editing UX Recovery** — **IMPLEMENTED** (uçtan uca smoke geçti; commit bekliyor).
-2. **TODO-165B PDP, Catalog Projection & Slug Lifecycle Recovery** — **IMPLEMENTED** (6 storefront/katalog blocker;
-   ADR-259…264; TODO-165A ile birlikte commit bekliyor). Analiz: `docs/analysis/TODO-165B-pdp-catalog-recovery.md`.
-3. **Final Enterprise UI & Design Polish** — EN SON.
-4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-164, TD-167+, TD-173).
+> **Güncelleme (2026-08-02, Final Polish readiness audit):** TODO-165 / 165A / 165B artık **CLOSED &
+> DEPLOYED** (`main == origin/main == 83bcd8e`; PR #158 fashion, PR #160 165A `bfb88f2`, PR #161 165B).
+> Aşağıdaki "IMPLEMENTED / commit bekliyor" ifadeleri bayattı ve düzeltildi. Sıradaki aktif iş:
+> **Final Enterprise UI Polish** (readiness = **READY**; bkz. `docs/TECHNICAL_DEBT.md` "Final Enterprise
+> UI Polish — Readiness Audit (2026-08-02)").
+
+1. **Final Enterprise UI & Design Polish** — **SIRADAKİ AKTİF İŞ** (readiness audit READY; kapsam:
+   TD-170, TD-173, TD-157, C1 form `aria-describedby`, D1 Modal focus-trap, B1 storefront buton/input token
+   birleştirme — bkz. readiness raporu).
+2. Kalan launch blocker + teknik borçlar (**PB-3/TD-139 offsite backup — tek açık PROD BLOCKER, altyapı**,
+   TD-147 CSP, TD-148 FX, TD-164, TD-167+).
+
+> **Tamamlanan (CLOSED & DEPLOYED, `83bcd8e`):** TODO-165A Product Data Governance (PR #160), TODO-165B
+> PDP/Catalog/Slug Recovery (PR #161), TODO-165 Fashion Vertical Foundation (PR #158).
 
 > Tamamlanan: **TODO-165 Fashion Vertical Foundation** (IMPLEMENTED, uçtan uca smoke geçti, commit YOK) ·
 > **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·

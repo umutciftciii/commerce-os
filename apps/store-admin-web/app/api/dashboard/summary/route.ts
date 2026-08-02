@@ -31,17 +31,24 @@ export async function GET(request: NextRequest) {
     // "Kritik stok" sayısı legacy lowStockThreshold yerine motorun LOW_STOCK durumundan (tek authority
     // InventoryBalance.reorderPoint) gelir. Depo verilmez → gateway default depoyu çözer. pageSize=1:
     // yalnız summary lazım, satır taşınmaz.
-    const [products, categories, matrix] = await Promise.all([
-      api.admin.products.list(ctx.store.id, ctx.token),
+    // "Aktif ürün" sayısı tüm katalogtan gelmeli. Önceden ilk sayfa satırları
+    // filtrelenerek hesaplanıyordu → mağaza tek sayfadan büyükse ciddi undercount
+    // (ör. 418 aktif ürün "24" görünüyordu). Toplamlar gibi bu sayı da gateway
+    // pagination `total`'ından kesin alınır: status=ACTIVE ile ayrı bir hafif
+    // sayım (pageSize=1, satır taşımaz) yapılır.
+    const [products, activeProductCount, categories, matrix] = await Promise.all([
+      api.admin.products.list(ctx.store.id, ctx.token, { pageSize: 1 }),
+      api.admin.products.list(ctx.store.id, ctx.token, { pageSize: 1, status: "ACTIVE" }),
       api.admin.categories.list(ctx.store.id, ctx.token),
       api.admin.inventory.storeMatrix(ctx.store.id, ctx.token, { pageSize: 1 }),
     ]);
 
-    const activeProducts = products.data.filter((product) => product.status === "ACTIVE").length;
-
     const summary: DashboardSummary = {
       store: ctx.store,
-      products: { total: products.pagination.total, active: activeProducts },
+      products: {
+        total: products.pagination.total,
+        active: activeProductCount.pagination.total,
+      },
       categories: { total: categories.pagination.total },
       inventory: {
         records: matrix.summary.totalVariants,

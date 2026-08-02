@@ -2454,9 +2454,10 @@ upgrade + full-screen preview; (3) logo/favicon tek otorite = StoreSettings.
   color/size snapshot + immutability PASS** · capability disable/re-enable + veri korundu · store-admin chart+wizard ·
   responsive 375px (taşma yok).
 - **Gate:** api-gateway **1893** test · contracts **130** · build+lint+diff-check temiz.
-- **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Implementasyon+smoke tamam → **commit'e HAZIR**.
+- **DURUM (2026-08-02 düzeltildi):** ✅ **CLOSED & DEPLOYED** — PR #158, main `83bcd8e`. (Önceki
+  "commit YOK" bayattı; Final Polish readiness audit ile doğrulandı.)
 
-### TODO-165A — Product Data Governance & Editing UX Recovery (IMPLEMENTED — uçtan uca GERÇEK browser+DB smoke geçti, commit YOK)
+### TODO-165A — Product Data Governance & Editing UX Recovery — ✅ CLOSED & DEPLOYED (PR #160, merge `bfb88f2`)
 
 **ADR-253…258.** Analiz: `docs/analysis/TODO-165A-product-data-governance.md`. TODO-165'in serbest-metin
 `Product.brand`'ini + sabit-kod fashion sözlüklerini store-yönetilebilir governance'a taşır; size-chart
@@ -2486,9 +2487,10 @@ bağlamayı raw-ID input'tan searchable selector'a geçirir. Mevcut EAV/capabili
 - **Gerçek browser smoke (izole stack, GERÇEK DB):** `/markalar` dizini · brand facet canlı · Brands admin
   liste+create · Ürün Sözlükleri tab+usageCount+reorder · ürün formu Fashion Özellikleri round-trip+quick-add ·
   merkezi size-chart AssignModal (raw ID YOK) · responsive 375px.
-- **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
+- **DURUM (2026-08-02 düzeltildi):** ✅ **CLOSED & DEPLOYED** — PR #160 (merge `bfb88f2`). (Önceki
+  "commit YOK" bayattı.) Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
 
-## TODO-165B — PDP, Catalog Projection & Slug Lifecycle Recovery (ADR-259…264)
+## TODO-165B — PDP, Catalog Projection & Slug Lifecycle Recovery (ADR-259…264) — ✅ CLOSED & DEPLOYED (PR #161, main `83bcd8e`)
 
 TODO-165A ship edilmeden bulunan 6 storefront/katalog blocker'ı aynı recovery fazında çözer. Yeni motor
 KURULMAZ (projection/search-read-model/redirect/theme-slot altyapısı reuse). Analiz:
@@ -2513,5 +2515,25 @@ KURULMAZ (projection/search-read-model/redirect/theme-slot altyapısı reuse). A
   `axisKind` normalize (numara/beden→size, yalnız UX). `resolveEffective` precedence reuse; PDP cache'siz. (ADR-264)
 - **Migration:** `20260802130000_todo165b_slug_lock_and_category_arrays` (additive; slugLocked + categoryIds/Slugs
   + 2 GIN index).
-- **AÇIK:** **commit/push/PR/merge/deploy YOK** — tam gate + gerçek browser smoke sonrası durulur. TODO-165A
-  değişiklikleriyle birlikte commit'e hazır.
+- **DURUM (2026-08-02 düzeltildi):** ✅ **CLOSED & DEPLOYED** — PR #161, main `83bcd8e`. (Önceki
+  "commit YOK" bayattı.)
+
+---
+
+## Final Enterprise UI Polish — Readiness Audit (2026-08-02) — SIRADAKİ AKTİF İŞ
+
+`main == origin/main == 83bcd8e`, çalışma ağacı temiz, çalışan docker servisleri merge commit'inden
+build (2026-08-02), migration `76` uygulanmış (1 tarihsel rolled-back kayıt = benign), 3 mağaza
+(demo-store, enterprise-demo, sistem `__theme-library__` platform listesinden DIŞLANMIŞ). 3 yüzey gerçek
+browser smoke + kod/doküman denetimi. **Karar: READY** (açık UI PROD blocker yok; tek açık PROD BLOCKER =
+PB-3/TD-139 offsite backup, altyapı config — UI-polish blocker'ı değil).
+
+- **Bu turda yapılan UI recovery'leri** (worktree, typecheck+lint+test yeşil, browser-doğrulandı, commit YOK):
+  TD-024 dashboard aktif-ürün undercount (24→418), Store Admin beden-tablosu raw enum rozeti, Store Admin
+  marka arama "slug" sızıntısı, Platform Admin tema sürüm raw enum rozeti, storefront tükenen-beden a11y
+  (`aria-label`). Detay: `docs/TECHNICAL_DEBT.md` "Final Enterprise UI Polish — Readiness Audit (2026-08-02)".
+- **Final Polish kapsamı:** TD-170, TD-173, TD-157, C1 (form `aria-describedby`), D1 (Modal focus-trap),
+  B1 (storefront buton/input token birleştirme).
+- **Doküman hijyeni:** duplicate TD-039 → TD-039B; ROADMAP/TODO'da 165/165A/165B "commit YOK" bayat
+  kayıtları CLOSED & DEPLOYED olarak düzeltildi. (Geri kalan roadmap staleness — 164B vb. — pre-existing;
+  ayrı hijyen turu önerilir.)
