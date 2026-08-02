@@ -20,3 +20,12 @@ export function productUrlPath(slug: string): string {
 export function categoryUrlPath(slug: string): string {
   return `/products?category=${encodeURIComponent(slug)}`;
 }
+
+/**
+ * Marka detay path'i (storefront `/markalar/[slug]` rotası — ADR-265). Ürün path'iyle simetrik:
+ * path-segment tabanlı → runtime redirect'te güvenle eşleşir (kategori gibi query-tabanlı DEĞİL).
+ * Gateway marka slug değişiminde bu path'ten redirect source/target üretir; storefront aynı path'i bekler.
+ */
+export function brandUrlPath(slug: string): string {
+  return `/markalar/${encodeURIComponent(slug)}`;
+}

@@ -8,6 +8,7 @@
 
 import { prisma as defaultPrisma } from "@commerce-os/db";
 import type { PrismaClient } from "@prisma/client";
+import { recordSlugChange } from "../seo/slug-governance.js";
 
 export type BrandStatus = "ACTIVE" | "ARCHIVED";
 export type BrandListSortBy = "name" | "createdAt" | "productCount";
@@ -104,7 +105,7 @@ export interface BrandDataAccess {
   /** Slug tekillik kontrolu icin (store-scoped `@@unique([storeId, slug])`). */
   findBySlug(storeId: string, slug: string): Promise<BrandRecord | null>;
   create(input: BrandCreateData): Promise<BrandRecord>;
-  update(storeId: string, id: string, patch: BrandUpdateData): Promise<BrandRecord>;
+  update(storeId: string, id: string, patch: BrandUpdateData, actorId?: string | null): Promise<BrandRecord>;
   setStatus(storeId: string, id: string, status: BrandStatus): Promise<BrandRecord>;
   /** TODO-159B (ADR-090) desenini mirror eden dual `?ids=` / arama-sayfalama secici. */
   selector(storeId: string, criteria: BrandSelectorCriteria): Promise<{ data: BrandRecord[]; total: number }>;
@@ -258,25 +259,44 @@ export function createPrismaBrandDataAccess(prisma: PrismaClient = defaultPrisma
       return mapBrand(row as unknown as BrandRow);
     },
 
-    async update(storeId, id, patch) {
+    async update(storeId, id, patch, actorId) {
       // storeId guard: route/servis zaten get() ile once dogrular; burada id ile update
       // (Prisma composite where gerektirmez, cagiran taraf tenant'i onceden dogruladi).
-      const row = await prisma.brand.update({
-        where: { id },
-        data: {
-          ...(patch.name !== undefined ? { name: patch.name } : {}),
-          ...(patch.slug !== undefined ? { slug: patch.slug } : {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {}),
-          ...(patch.logoMediaId !== undefined ? { logoMediaId: patch.logoMediaId } : {}),
-          ...(patch.coverMediaId !== undefined ? { coverMediaId: patch.coverMediaId } : {}),
-          ...(patch.websiteUrl !== undefined ? { websiteUrl: patch.websiteUrl } : {}),
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.seoTitle !== undefined ? { seoTitle: patch.seoTitle } : {}),
-          ...(patch.seoDescription !== undefined ? { seoDescription: patch.seoDescription } : {}),
-        },
-        include: includeMediaAndCount,
+      const data = {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.slug !== undefined ? { slug: patch.slug } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.logoMediaId !== undefined ? { logoMediaId: patch.logoMediaId } : {}),
+        ...(patch.coverMediaId !== undefined ? { coverMediaId: patch.coverMediaId } : {}),
+        ...(patch.websiteUrl !== undefined ? { websiteUrl: patch.websiteUrl } : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.seoTitle !== undefined ? { seoTitle: patch.seoTitle } : {}),
+        ...(patch.seoDescription !== undefined ? { seoDescription: patch.seoDescription } : {}),
+      };
+
+      // ADR-265 — Slug DEĞİŞİYORSA: AYNI transaction'da SlugHistory + otomatik 301 redirect yaz
+      // (urun/kategori ile simetrik; atomik → history yazilamazsa update de geri alinir). Slug
+      // gelmiyorsa (metadata-only patch) transaction'a girmeye gerek yok (mevcut hizli yol).
+      if (patch.slug === undefined) {
+        const row = await prisma.brand.update({ where: { id }, data, include: includeMediaAndCount });
+        void storeId;
+        return mapBrand(row as unknown as BrandRow);
+      }
+
+      const row = await prisma.$transaction(async (tx) => {
+        const existing = await tx.brand.findFirst({ where: { id, storeId }, select: { slug: true } });
+        if (existing && patch.slug !== undefined && patch.slug !== existing.slug) {
+          await recordSlugChange(tx, {
+            storeId,
+            entityType: "BRAND",
+            entityId: id,
+            oldSlug: existing.slug,
+            newSlug: patch.slug,
+            createdBy: actorId ?? null,
+          });
+        }
+        return tx.brand.update({ where: { id }, data, include: includeMediaAndCount });
       });
-      void storeId;
       return mapBrand(row as unknown as BrandRow);
     },
 

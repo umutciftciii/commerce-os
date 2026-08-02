@@ -23,6 +23,7 @@ import {
   PaymentIcon,
   ProductIcon,
   SettingsIcon,
+  SeoIcon,
   ShippingIcon,
   ThemeIcon,
 } from "./icons";
@@ -39,6 +40,7 @@ const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   catalog: { tr: "Katalog", en: "Catalogue" },
   sales: { tr: "Satış", en: "Sales" },
   sponsorship: { tr: "Sponsorluk", en: "Sponsorship" },
+  seo: { tr: "SEO", en: "SEO" },
   appearance: { tr: "Görünüm & Ayar", en: "Appearance & Settings" },
   system: { tr: "Sistem", en: "System" },
 };
@@ -149,6 +151,21 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         { href: "/sponsored-products", label: s("campaigns"), icon: <MarketplaceIcon /> },
         { href: "/sponsorship-settlements", label: s("settlements"), icon: <PaymentIcon /> },
         { href: "/sponsorship-payments", label: s("payments"), icon: <PaymentIcon /> },
+      ],
+    },
+    {
+      heading: g("seo"),
+      items: [
+        {
+          href: "/seo/slugs",
+          label: locale === "tr" ? "Sluglar" : "Slugs",
+          icon: <SeoIcon />,
+        },
+        {
+          href: "/seo/redirects",
+          label: locale === "tr" ? "Yönlendirmeler" : "Redirects",
+          icon: <SeoIcon />,
+        },
       ],
     },
     {

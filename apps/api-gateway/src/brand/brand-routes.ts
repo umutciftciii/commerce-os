@@ -209,7 +209,7 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
     if (!access) return;
     const body = brandUpdateRequestSchema.parse(request.body);
     return handle(reply, async () => {
-      const brand = await service.update(params.storeId, params.brandId, body);
+      const brand = await service.update(params.storeId, params.brandId, body, access.actorUserId);
       await recordAudit({
         action: "UPDATE",
         platformUserId: access.actorUserId,

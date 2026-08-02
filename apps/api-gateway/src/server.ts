@@ -166,6 +166,10 @@ import { createPrismaSizeChartDataAccess } from "./fashion/size-chart-data.js";
 import { registerBrandRoutes } from "./brand/brand-routes.js";
 import { createBrandService, BrandError } from "./brand/brand-service.js";
 import { createPrismaBrandDataAccess, type BrandDataAccess, type BrandRecord } from "./brand/brand-data.js";
+// TODO-166 (ADR-265) — Admin Slug & Redirect Management (SEO modülü / TD-057 kapanışı).
+import { registerSeoRoutes } from "./seo/seo-routes.js";
+import { createRedirectService } from "./seo/redirect-service.js";
+import { createPrismaRedirectDataAccess, type RedirectDataAccess } from "./seo/redirect-data.js";
 // TODO-165A (ADR-165A) — Product Data Governance: Task 10 — Governed Product Taxonomy uclari.
 import { registerTaxonomyRoutes } from "./taxonomy/taxonomy-routes.js";
 import { createTaxonomyService } from "./taxonomy/taxonomy-service.js";
@@ -1597,6 +1601,9 @@ export interface ServerDependencies extends ServerHealthChecks {
   // TODO-165A (ADR-165A) — Brand (Marka) veri erisimi. Varsayilan prisma-backed;
   // testlerde in-memory fake enjekte edilebilir (brandService bunun uzerine kurulur).
   brandDataAccess?: BrandDataAccess;
+  // TODO-166 (ADR-265) — Admin Slug & Redirect veri erisimi. Varsayilan prisma-backed;
+  // testlerde in-memory fake enjekte edilebilir (redirectService bunun uzerine kurulur).
+  redirectDataAccess?: RedirectDataAccess;
   // TODO-165A (ADR-165A) Task 13 — Size Chart veri erisimi. Varsayilan prisma-backed;
   // testlerde in-memory fake enjekte edilebilir (sizeChartService bunun uzerine kurulur).
   sizeChartDataAccess?: SizeChartDataAccess;
@@ -7055,6 +7062,17 @@ export function createServer(
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
     // TODO-165B — marka adı/slug değişince ürün search read-model snapshot'ı bayatlar → reindex.
     onBrandChanged: (storeId) => searchIndex.reindexStore(storeId),
+  });
+
+  // TODO-166 (ADR-265) — Admin Slug & Redirect Management (TD-057 kapanışı). Mevcut Redirect/
+  // SlugHistory motorunu (recordSlugChange + @commerce-os/utils saf resolver) YÖNETİR; yeni motor
+  // kurmaz. CATALOG core/always-on → SEO yüzeyi her yetkili store-admin için görünür.
+  const redirectDataAccess = dependencies.redirectDataAccess ?? createPrismaRedirectDataAccess();
+  registerSeoRoutes(app, {
+    service: createRedirectService(redirectDataAccess),
+    data: redirectDataAccess,
+    requireStoreAdmin: requireStoreAdminForModule("CATALOG"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   // TODO-165A (ADR-165A) — Task 10: Governed Product Taxonomy yonetimi (store-admin).

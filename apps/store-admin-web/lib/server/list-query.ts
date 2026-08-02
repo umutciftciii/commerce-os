@@ -38,6 +38,14 @@ export const BRAND_PRODUCTS_LIST_KEYS = [...COMMON_KEYS];
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
+ * TODO-166 (ADR-265) — Admin Slug & Redirect Management liste anahtarları. Tümü sunucu-otoriter
+ * filtrelerdir (origin/type/enabled/entityType, status/hasRedirects); doğrulama gateway contract
+ * şemasındadır.
+ */
+export const REDIRECT_LIST_KEYS = [...COMMON_KEYS, "origin", "type", "enabled", "entityType"];
+export const SLUG_LIST_KEYS = [...COMMON_KEYS, "entityType", "status", "hasRedirects"];
+
+/**
  * TODO-159E (ADR-094) — Ürün yorumu moderasyon liste anahtarları. Tümü sunucu-otoriter
  * filtrelerdir (durum/rating/verified/ürün/tarih); doğrulama gateway contract şemasındadır.
  */

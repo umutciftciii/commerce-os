@@ -85,7 +85,12 @@ export interface BrandService {
   list(storeId: string, criteria: BrandListCriteria): Promise<{ data: BrandRecord[]; total: number }>;
   get(storeId: string, id: string): Promise<BrandRecord>;
   create(storeId: string, input: BrandCreateInput): Promise<BrandRecord>;
-  update(storeId: string, id: string, patch: BrandUpdateInput): Promise<BrandRecord>;
+  /**
+   * ADR-265 — `actorId`, slug değişince yazılan SlugHistory.createdBy'a geçer (ürün/kategori ile
+   * simetrik). Slug gerçekten değişirse veri katmanı AYNI transaction'da SlugHistory + otomatik 301
+   * redirect yazar (atomik; chain collapse + loop guard `recordSlugChange` içinde).
+   */
+  update(storeId: string, id: string, patch: BrandUpdateInput, actorId?: string | null): Promise<BrandRecord>;
   archive(storeId: string, id: string): Promise<BrandRecord>;
   restore(storeId: string, id: string): Promise<BrandRecord>;
   selector(storeId: string, criteria: BrandSelectorCriteria): Promise<{ data: BrandRecord[]; total: number }>;
@@ -160,7 +165,7 @@ export function createBrandService(data: BrandDataAccess): BrandService {
       });
     },
 
-    async update(storeId, id, patch) {
+    async update(storeId, id, patch, actorId) {
       // Tenant guard + varlik dogrulamasi. ARCHIVED marka icin de metadata duzenleme
       // izinlidir (bkz. dosya basi not) — burada BRAND_ARCHIVED FIRLATILMAZ.
       await requireBrand(storeId, id);
@@ -176,17 +181,22 @@ export function createBrandService(data: BrandDataAccess): BrandService {
       if (patch.logoMediaId !== undefined) await requireMediaOwnership(storeId, patch.logoMediaId);
       if (patch.coverMediaId !== undefined) await requireMediaOwnership(storeId, patch.coverMediaId);
 
-      return data.update(storeId, id, {
-        name,
-        slug,
-        description: patch.description,
-        logoMediaId: patch.logoMediaId,
-        coverMediaId: patch.coverMediaId,
-        websiteUrl: patch.websiteUrl,
-        status: patch.status,
-        seoTitle: patch.seoTitle,
-        seoDescription: patch.seoDescription,
-      });
+      return data.update(
+        storeId,
+        id,
+        {
+          name,
+          slug,
+          description: patch.description,
+          logoMediaId: patch.logoMediaId,
+          coverMediaId: patch.coverMediaId,
+          websiteUrl: patch.websiteUrl,
+          status: patch.status,
+          seoTitle: patch.seoTitle,
+          seoDescription: patch.seoDescription,
+        },
+        actorId ?? null,
+      );
     },
 
     async archive(storeId, id) {

@@ -3839,6 +3839,9 @@ enum SlugEntityType {
   PRODUCT
   CATEGORY
   CMS_PAGE
+  // ADR-265 — Marka slug yasam dongusu (storefront `/markalar/[slug]`). Marka slug degisince
+  // SlugHistory + otomatik 301 uretimi bu tur uzerinden yazilir (urun/kategori ile simetrik).
+  BRAND
 }
 
 /// HTTP redirect statusu. Otomatik slug degisimi DAIMA PERMANENT_301 (uygulama karari).
@@ -3847,6 +3850,14 @@ enum RedirectType {
   FOUND_302
   TEMPORARY_307
   PERMANENT_308
+}
+
+/// ADR-265 — Redirect kaydinin KAYNAGI. AUTOMATIC: slug degisiminden `recordSlugChange` uretti
+/// (kullanici dogrudan SILEMEZ; yalniz aktif/pasif). MANUAL: Admin SEO ekraninda elle olusturuldu
+/// (tam CRUD). Otomatik/manuel ayrimi kolon + filtre + silme guvenligi icin tasinir.
+enum RedirectOrigin {
+  AUTOMATIC
+  MANUAL
 }
 
 /// Bir entity'nin ESKI slug'i (slug degisince yazilir). Amac: eski URL'ler bozulmasin →
@@ -3870,21 +3881,25 @@ model SlugHistory {
 /// Yonlendirme kurali (kaynak path → hedef path). Cozumleme (chain/loop guard) SAF motorda
 /// (@commerce-os/utils redirect.ts). (store, sourcePath) tekil → tek kaynak-tek kural (precedence net).
 model Redirect {
-  id         String       @id @default(cuid())
+  id         String         @id @default(cuid())
   storeId    String
   sourcePath String
   targetPath String
-  type       RedirectType @default(PERMANENT_301)
-  enabled    Boolean      @default(true)
+  type       RedirectType   @default(PERMANENT_301)
+  // ADR-265 — kaynak: otomatik (slug degisimi) vs manuel (Admin SEO). Mevcut satirlar slug
+  // degisiminden gelir → varsayilan AUTOMATIC. Admin elle olusturunca MANUAL yazilir.
+  origin     RedirectOrigin @default(AUTOMATIC)
+  enabled    Boolean        @default(true)
   notes      String?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, sourcePath])
   @@index([storeId])
   @@index([storeId, enabled])
+  @@index([storeId, origin])
 }
 
 // ============================================================================

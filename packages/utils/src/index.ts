@@ -34,6 +34,7 @@ export {
 } from "./slug.js";
 
 // TODO-156D (ADR-082) — Redirect çözümleme motoru (SAF, chain/loop korumalı).
+// + ADR-265 — Manuel redirect güvenlik motoru (Admin SEO modülü / TD-057).
 export {
   REDIRECT_TYPES,
   REDIRECT_ENUM_TO_STATUS,
@@ -42,13 +43,22 @@ export {
   buildRedirectIndex,
   resolveRedirect,
   resolveRedirectFromRules,
+  isSafeLocalRedirectTarget,
+  isReservedRedirectSource,
+  redirectWouldCreateLoop,
+  validateManualRedirect,
   type RedirectType,
   type RedirectRule,
   type RedirectResolution,
+  type ManualRedirectInput,
+  type ManualRedirectContext,
+  type ManualRedirectValidation,
+  type ManualRedirectValidationError,
 } from "./redirect.js";
 
 // TODO-156D tamamlama (ADR-081/082) — Entity → kanonik URL path (gateway yazar + storefront çözer, tek kaynak).
-export { productUrlPath, categoryUrlPath } from "./seo-paths.js";
+// + ADR-265 — marka path (`/markalar/{slug}`).
+export { productUrlPath, categoryUrlPath, brandUrlPath } from "./seo-paths.js";
 
 // TODO-160A (ADR-111) — SKU üretim/normalizasyon motoru (SAF, çerçeve-bağımsız, TEK OTORİTE).
 export {

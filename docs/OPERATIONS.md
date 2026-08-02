@@ -1471,3 +1471,29 @@ Denetim sırasında doğrulanan ve operatörlerin bilmesi gereken durumlar (`mai
 - **Platform Admin "Ayarlar" kaldırıldı (Final Polish §8):** İnert placeholder ekran nav'dan çıkarıldı; `/settings`
   route'u dashboard'a (`/`) redirect eder (eski bookmark güvenli). Gerçek platform ayarları geldiğinde route
   yeniden aktifleştirilebilir. Veri/işlev kaybı yok (ekran zaten disabled placeholder'dı).
+
+## TODO-166 — Slug & Redirect Management (ADR-265)
+
+Store-admin "SEO > Slug ve Yönlendirmeler" modülü. Mevcut motoru (SlugHistory/Redirect + SAF resolver)
+yönetir; yeni motor kurmaz.
+
+**Migration (additive, geriye-uyumlu):** `20260803120000_todo166_slug_redirect_admin`
+- `SlugEntityType += BRAND`, yeni `RedirectOrigin` enum (AUTOMATIC/MANUAL), `Redirect.origin` (default AUTOMATIC)
+  + `@@index([storeId, origin])`. Mevcut redirect satırları slug-değişiminden geldiği için AUTOMATIC varsayılanı doğru.
+- Deploy: `pnpm --filter @commerce-os/db db:deploy` (docker imaj-içi migrate; host build gerekmez).
+
+**Uçlar (hepsi store-scoped, `CATALOG` core-gate — always-on):**
+- `GET/POST /stores/:storeId/seo/redirects` · `GET/PATCH/DELETE /stores/:storeId/seo/redirects/:id`
+- `GET /stores/:storeId/seo/slugs` · `GET /stores/:storeId/seo/slugs/:entityType/:entityId`
+- Public (değişmedi): `GET /public/stores/:slug/redirects` — storefront runtime bunu okur (60s TTL cache, TD-065).
+
+**Davranış kuralları:**
+- Otomatik redirect: SİLİNEMEZ / source-target-type düzenlenemez → yalnız aktif/pasif. Manuel: tam CRUD.
+- Manuel doğrulama: source≠target, reserved/canonical-shadow, off-site (`//`,`://`) reddi, loop, canlı-entity-shadow,
+  kaynak-tekilliği. Kaynak normalize edilir (query düşer); **hedef query'si korunur** (kategori `?category=`).
+- Marka/ürün redirect'i path-tabanlı → runtime 301 tam çalışır. Kategori query-tabanlı → runtime 301 VERMEZ (TD-064).
+
+**Smoke (worktree stack, enterprise-demo, paylaşımlı docker postgres):**
+- Gateway :4100, store-admin :3100, storefront :3200 (host `next dev`, `API_GATEWAY_URL=http://localhost:4100`,
+  `STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
+- Ürün/marka slug PATCH → eski URL storefront'ta 301 (cache TTL ≤60s sonra). Kategori → 200 (PLP listelemesi, TD-064).

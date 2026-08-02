@@ -1120,6 +1120,21 @@
 - **TD.** TD-162 CLOSED · TD-163 CLOSED · TD-164 OPEN (non-blocking — sistem/bundled font yükleniyor; harici hosting future).
 - **AÇIK.** **commit/push/PR/merge/deploy YOK** (bu aşamada). Canlı stack smoke deploy sonrası (post-deploy).
 
+### TODO-166 — Slug & Redirect Management (ADR-265, 2026-08-03, DONE · worktree, commit/PR/deploy YOK)
+
+- Amaç: Store-admin için merkezi **SEO > Slug ve Yönlendirmeler** modülü — mevcut slug/redirect motorunu
+  (TODO-156D: SlugHistory/Redirect + `@commerce-os/utils` SAF resolver) yönet; yeni motor kurma.
+- Kapsam: Gateway admin uçları (`/stores/:storeId/seo/redirects` + `/seo/slugs`, `CATALOG` core-gate),
+  api-client + BFF proxy, DataGrid tabanlı Slug/Yönlendirme ekranları + detay drawer + manuel redirect
+  formu (ADR-089/090 desenleri). **BRAND** motora eklendi (`SlugEntityType += BRAND`, `brandUrlPath`,
+  atomik `recordSlugChange`). `Redirect.origin` (AUTOMATIC/MANUAL) — otomatik salt-toggle, manuel tam CRUD.
+- Kabul: SAF motor + governance + servis testleri; tam gate (build/lint/typecheck/2097 gateway test);
+  GERÇEK browser smoke (worktree stack + enterprise-demo + docker postgres) — ürün+marka eski URL → 301,
+  slug/redirect listeleri + detay + filtre + pasifleştirme. Smoke 2 bug yakaladı+düzeltti (hedef-query,
+  entityType-pagination).
+- 404 önerileri: yakalama altyapısı YOK → future. Kategori runtime redirect: TD-064 sınırı (query-tabanlı).
+- Durum: TD-057 KAPANDI. Bkz. `docs/analysis/SLUG-redirect-management.md`.
+
 ### TODO-165 Fashion Vertical Foundation — ✅ CLOSED & DEPLOYED (PR #158, main `83bcd8e`; 2026-08-02 düzeltildi)
 
 > Completion Recovery: çekirdek kullanıcı değeri TD-166'ya ERTELENMEDİ; tümü TODO-165 içinde

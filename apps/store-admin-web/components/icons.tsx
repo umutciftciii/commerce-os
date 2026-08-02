@@ -72,6 +72,16 @@ export function BrandIcon() {
   );
 }
 
+// TODO-166 (ADR-265) — SEO / Slug & Yönlendirmeler ikonu (zincir/bağlantı glifi).
+export function SeoIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M9 12a3 3 0 0 1 3-3h3a3 3 0 0 1 0 6h-1.5" />
+      <path d="M15 12a3 3 0 0 1-3 3H9a3 3 0 0 1 0-6h1.5" />
+    </svg>
+  );
+}
+
 export function OrderIcon() {
   return (
     <svg {...base} aria-hidden>

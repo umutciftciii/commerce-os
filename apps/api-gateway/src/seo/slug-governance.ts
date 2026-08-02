@@ -7,9 +7,11 @@
  * ile TEK KAYNAK — storefront runtime çözümleyici aynı path'i bekler.
  */
 import type { TransactionClient } from "@commerce-os/db";
-import { productUrlPath, categoryUrlPath } from "@commerce-os/utils";
+import { productUrlPath, categoryUrlPath, brandUrlPath } from "@commerce-os/utils";
 
-export type SlugGovernanceEntityType = "PRODUCT" | "CATEGORY";
+// ADR-265 — BRAND eklendi (marka slug yaşam döngüsü; storefront `/markalar/[slug]`). Ürün/kategori
+// ile simetrik: marka slug değişince SlugHistory + otomatik 301 bu tür üzerinden yazılır.
+export type SlugGovernanceEntityType = "PRODUCT" | "CATEGORY" | "BRAND";
 
 export interface SlugChangeParams {
   storeId: string;
@@ -20,9 +22,16 @@ export interface SlugChangeParams {
   createdBy?: string | null;
 }
 
-/** Entity türüne göre kanonik path (redirect source/target). */
+/** Entity türüne göre kanonik path (redirect source/target). Storefront rota şekliyle TEK KAYNAK. */
 export function entityPath(entityType: SlugGovernanceEntityType, slug: string): string {
-  return entityType === "PRODUCT" ? productUrlPath(slug) : categoryUrlPath(slug);
+  switch (entityType) {
+    case "PRODUCT":
+      return productUrlPath(slug);
+    case "CATEGORY":
+      return categoryUrlPath(slug);
+    case "BRAND":
+      return brandUrlPath(slug);
+  }
 }
 
 /**
@@ -54,10 +63,19 @@ export async function recordSlugChange(tx: TransactionClient, params: SlugChange
   // 3) Yeni path artık canlı → ondan yönlendiren kural olamaz.
   await tx.redirect.deleteMany({ where: { storeId, sourcePath: newPath } });
 
-  // 4) Eski→yeni kalıcı (301) redirect.
+  // 4) Eski→yeni kalıcı (301) redirect. origin=AUTOMATIC (create): slug-değişiminden türedi →
+  //    kullanıcı Admin'de doğrudan SİLEMEZ (yalnız aktif/pasif). update'te origin'e DOKUNULMAZ
+  //    (nadir kenar durumda mevcut satırın kaynağı korunur; yeniden aktifleştirilir).
   await tx.redirect.upsert({
     where: { storeId_sourcePath: { storeId, sourcePath: oldPath } },
-    create: { storeId, sourcePath: oldPath, targetPath: newPath, type: "PERMANENT_301", enabled: true },
+    create: {
+      storeId,
+      sourcePath: oldPath,
+      targetPath: newPath,
+      type: "PERMANENT_301",
+      origin: "AUTOMATIC",
+      enabled: true,
+    },
     update: { targetPath: newPath, type: "PERMANENT_301", enabled: true },
   });
 }

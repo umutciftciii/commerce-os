@@ -10904,3 +10904,136 @@ export const productSizeChartAssignmentResponseSchema = z.object({
 export type ProductSizeChartAssignmentSummary = z.infer<typeof productSizeChartAssignmentSummarySchema>;
 export type ProductSizeChartAssignment = z.infer<typeof productSizeChartAssignmentSchema>;
 export type ProductSizeChartAssignmentResponse = z.infer<typeof productSizeChartAssignmentResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TODO-166 (ADR-265) — Admin Slug & Redirect Management (TD-057 kapanışı).
+ *
+ * Store-admin SEO modülü sözleşmeleri. Mevcut motoru (SlugHistory/Redirect +
+ * @commerce-os/utils saf resolver) YÖNETİR; yeni motor KURMAZ. İki yüzey:
+ *  - Redirect'ler: otomatik (slug-değişimi) + manuel (elle) yönlendirme kuralları.
+ *  - Slug'lar: ürün/kategori/marka güncel slug + geçmiş projeksiyonu.
+ * Tüm uçlar store-scoped; response'lar allowlist projeksiyonu (storeId sızmaz).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const REDIRECT_TYPE_VALUES = ["PERMANENT_301", "FOUND_302", "TEMPORARY_307", "PERMANENT_308"] as const;
+export const adminRedirectTypeSchema = z.enum(REDIRECT_TYPE_VALUES);
+export const adminRedirectOriginSchema = z.enum(["AUTOMATIC", "MANUAL"]);
+/** Redirect'in kaynak path şeklinden TÜRETİLEN entity türü (kolon/filtre; DB'de tutulmaz). */
+export const adminRedirectEntityTypeSchema = z.enum(["PRODUCT", "CATEGORY", "BRAND", "OTHER"]);
+
+export const REDIRECT_PATH_MAX_LENGTH = 2048;
+export const REDIRECT_NOTES_MAX_LENGTH = 500;
+const redirectPathInputSchema = z.string().trim().min(1).max(REDIRECT_PATH_MAX_LENGTH);
+
+export const adminRedirectSchema = z.object({
+  id: z.string(),
+  sourcePath: z.string(),
+  targetPath: z.string(),
+  type: adminRedirectTypeSchema,
+  /** HTTP sayısal statü (301/302/307/308) — type'tan türetilir (istemci kolaylığı). */
+  status: z.number().int(),
+  origin: adminRedirectOriginSchema,
+  entityType: adminRedirectEntityTypeSchema,
+  enabled: z.boolean(),
+  notes: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+/** Detay: SAF resolver ile çözülen zincir (canonical hedef + zincir uzunluğu + loop bayrağı). */
+export const adminRedirectDetailSchema = adminRedirectSchema.extend({
+  resolvedTarget: z.string().nullable(),
+  chainLength: z.number().int().nonnegative(),
+  hasLoop: z.boolean(),
+});
+
+export const adminRedirectListResponseSchema = z.object({
+  data: z.array(adminRedirectSchema),
+  pagination: adminListPaginationSchema,
+});
+export const adminRedirectDetailResponseSchema = z.object({ data: adminRedirectDetailSchema });
+export const adminRedirectResponseSchema = z.object({ data: adminRedirectSchema });
+
+export const adminRedirectListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: z.enum(["createdAt", "updatedAt", "sourcePath"]).optional(),
+  origin: adminRedirectOriginSchema.optional(),
+  type: adminRedirectTypeSchema.optional(),
+  entityType: adminRedirectEntityTypeSchema.optional(),
+  /** Query-string boolean: "true"/"false". */
+  enabled: z.enum(["true", "false"]).optional(),
+});
+
+export const adminRedirectCreateRequestSchema = z.object({
+  sourcePath: redirectPathInputSchema,
+  targetPath: redirectPathInputSchema,
+  type: adminRedirectTypeSchema.optional(),
+  notes: z.string().trim().max(REDIRECT_NOTES_MAX_LENGTH).optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const adminRedirectUpdateRequestSchema = z
+  .object({
+    sourcePath: redirectPathInputSchema.optional(),
+    targetPath: redirectPathInputSchema.optional(),
+    type: adminRedirectTypeSchema.optional(),
+    notes: z.string().trim().max(REDIRECT_NOTES_MAX_LENGTH).nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required." });
+
+export type AdminRedirect = z.infer<typeof adminRedirectSchema>;
+export type AdminRedirectDetail = z.infer<typeof adminRedirectDetailSchema>;
+export type AdminRedirectListResponse = z.infer<typeof adminRedirectListResponseSchema>;
+export type AdminRedirectDetailResponse = z.infer<typeof adminRedirectDetailResponseSchema>;
+export type AdminRedirectResponse = z.infer<typeof adminRedirectResponseSchema>;
+export type AdminRedirectListQuery = z.infer<typeof adminRedirectListQuerySchema>;
+export type AdminRedirectCreateRequest = z.infer<typeof adminRedirectCreateRequestSchema>;
+export type AdminRedirectUpdateRequest = z.infer<typeof adminRedirectUpdateRequestSchema>;
+
+/* ---- Slug projeksiyonu (ürün/kategori/marka güncel slug + geçmiş) -------------- */
+
+export const adminSlugEntityTypeSchema = z.enum(["PRODUCT", "CATEGORY", "BRAND"]);
+
+export const adminSlugRecordSchema = z.object({
+  entityType: adminSlugEntityTypeSchema,
+  entityId: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  canonicalUrl: z.string(),
+  status: z.string(),
+  previousSlugCount: z.number().int().nonnegative(),
+  redirectCount: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime(),
+});
+
+export const adminSlugHistoryEntrySchema = z.object({
+  oldSlug: z.string(),
+  oldPath: z.string(),
+  createdAt: z.string().datetime(),
+});
+
+export const adminSlugDetailSchema = adminSlugRecordSchema.extend({
+  history: z.array(adminSlugHistoryEntrySchema),
+});
+
+export const adminSlugListResponseSchema = z.object({
+  data: z.array(adminSlugRecordSchema),
+  pagination: adminListPaginationSchema,
+});
+export const adminSlugDetailResponseSchema = z.object({ data: adminSlugDetailSchema });
+
+export const adminSlugListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: z.enum(["updatedAt", "slug", "name"]).optional(),
+  entityType: adminSlugEntityTypeSchema.optional(),
+  status: z.enum(["active", "archived"]).optional(),
+  /** Yalnız yönlendirmesi (slug geçmişi) olan kayıtlar. */
+  hasRedirects: z.enum(["true", "false"]).optional(),
+});
+
+export type AdminSlugEntityType = z.infer<typeof adminSlugEntityTypeSchema>;
+export type AdminSlugRecord = z.infer<typeof adminSlugRecordSchema>;
+export type AdminSlugHistoryEntry = z.infer<typeof adminSlugHistoryEntrySchema>;
+export type AdminSlugDetail = z.infer<typeof adminSlugDetailSchema>;
+export type AdminSlugListResponse = z.infer<typeof adminSlugListResponseSchema>;
+export type AdminSlugDetailResponse = z.infer<typeof adminSlugDetailResponseSchema>;
+export type AdminSlugListQuery = z.infer<typeof adminSlugListQuerySchema>;
