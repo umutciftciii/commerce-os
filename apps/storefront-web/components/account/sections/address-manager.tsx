@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, Select } from "@commerce-os/ui";
+import { Alert, Button, Input, Select } from "../../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerAddress } from "@commerce-os/api-client";
 import { isValidTaxNumber, isValidTckn, isValidTrPhone } from "@commerce-os/api-client/validators";
@@ -74,7 +74,7 @@ export function AddressManager({ t, addresses }: { t: AccountDict; addresses: Cu
                     {address.addressName ? `${address.addressName} · ` : ""}
                     {address.fullName}
                     {address.isDefaultShipping ? (
-                      <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                      <span className="ml-2 rounded-full bg-ink px-2 py-0.5 text-xs font-medium text-surface">
                         {a.default}
                       </span>
                     ) : null}
@@ -93,7 +93,7 @@ export function AddressManager({ t, addresses }: { t: AccountDict; addresses: Cu
                 <div className="flex shrink-0 flex-col items-end gap-2 text-sm">
                   <button
                     type="button"
-                    className="font-medium text-brand-700 hover:text-brand-800"
+                    className="font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
                     onClick={() => setMode(address.id)}
                   >
                     {a.edit}

@@ -2,11 +2,10 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import type {
   PublicStoreInfo,
-  PublicHeroSlidesResponse,
   PublicStoreCapabilitiesResponse,
   PublicTheme,
 } from "@commerce-os/api-client";
-import type { StorefrontStoreInfo, StorefrontHeroSlide } from "../catalog-types";
+import type { StorefrontStoreInfo } from "../catalog-types";
 import { demoStoreSlug } from "./env";
 import { getPublic } from "./gateway";
 
@@ -110,26 +109,7 @@ export async function getServerSlotVariant(slot: string, fallback: string): Prom
   return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
-/**
- * Public hero slide listesi (yalniz PUBLISHED, position ASC). Ana sayfa carousel'i
- * icin; hata/bos → bos dizi (home statik hero panel fallback'ine duser). Bu uc
- * yalniz ana sayfada cagrilir (layout degil) — hero site-geneli degil, sayfa-ozeldir.
- */
-export async function getHeroSlides(): Promise<StorefrontHeroSlide[]> {
-  try {
-    const result = await getPublic<PublicHeroSlidesResponse>(
-      `/public/stores/${encodeURIComponent(demoStoreSlug())}/hero-slides`,
-    );
-    if (!result.ok) return [];
-    return result.data.data.map((slide) => ({
-      key: slide.key,
-      mediaUrl: slide.mediaUrl,
-      headline: slide.headline,
-      subtext: slide.subtext,
-      ctaLabel: slide.ctaLabel,
-      ctaHref: slide.ctaHref,
-    }));
-  } catch {
-    return [];
-  }
-}
+// Final Polish §5 — Legacy `getHeroSlides()` (eski `/public/.../hero-slides` ucunu okurdu)
+// KALDIRILDI: storefront hero'yu artık yalnız HomeSection (`getHome` → `HERO_SLIDER`)
+// besler; bu fonksiyonun hiç çağrılmadığı kanıtlandı (orphaned). Store-admin'deki
+// yinelenen "Ana Sayfa" yönetim ekranı da kaldırıldı (`/hero` → `/home` redirect).

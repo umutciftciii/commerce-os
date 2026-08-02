@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Alert, Button, Input } from "@commerce-os/ui";
+import { Alert, Button, ButtonLink, Input } from "../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { activateAction } from "../../lib/server/auth-actions";
 
@@ -30,7 +30,7 @@ export function ActivateForm({ t, token }: { t: AuthDict; token: string }) {
         <Alert tone="error">{t.activate.missingToken}</Alert>
         <Link
           href="/auth/login"
-          className="inline-block text-sm font-medium text-brand-700 hover:text-brand-800"
+          className="inline-block text-sm font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
         >
           {t.activate.backToLogin}
         </Link>
@@ -42,12 +42,9 @@ export function ActivateForm({ t, token }: { t: AuthDict; token: string }) {
     return (
       <div className="space-y-4">
         <Alert tone="success">{t.activate.success}</Alert>
-        <Link
-          href="/auth/login"
-          className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-brand-700 px-4 text-sm font-medium text-white hover:bg-brand-800"
-        >
+        <ButtonLink href="/auth/login" className="w-full">
           {t.activate.backToLogin}
-        </Link>
+        </ButtonLink>
       </div>
     );
   }
@@ -87,10 +84,10 @@ export function ActivateForm({ t, token }: { t: AuthDict; token: string }) {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
-        <p className="mt-1.5 text-xs text-slate-500">{t.activate.passwordRules}</p>
+        <p className="mt-1.5 text-xs text-ink-subtle">{t.activate.passwordRules}</p>
         <button
           type="button"
-          className="mt-1 text-xs font-medium text-brand-700 hover:text-brand-800"
+          className="mt-1 text-xs font-medium text-ink-muted underline decoration-line underline-offset-2 hover:text-ink hover:decoration-ink"
           onClick={() => setShowPassword((v) => !v)}
         >
           {showPassword ? t.passwordHide : t.passwordShow}

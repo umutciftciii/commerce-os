@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getDictionary } from "@commerce-os/i18n";
 import { ProductGallery } from "../components/product-gallery.js";
 import {
+  containZoomOrigin,
   resolveImageAlt,
   shouldShowThumbnailStrip,
   type GalleryImage,
@@ -25,6 +26,37 @@ describe("shouldShowThumbnailStrip", () => {
   });
   it("birden fazla gorselde serit gosterilir", () => {
     expect(shouldShowThumbnailStrip([img("/media/a.webp"), img("/media/b.webp")])).toBe(true);
+  });
+});
+
+describe("containZoomOrigin — hover zoom görsel-sınırı farkındalığı (§2 regresyon)", () => {
+  // Kare frame (500x500). Yatay görsel (1000x500 → aspect 2): üst-alt letterbox.
+  it("yatay görselde dikey eksende letterbox'a taşan işaretçiyi görsel kenarına kelepçeler (beyaz boşlukta zoom yok)", () => {
+    // Görsel yüksekliği = 500/2 = 250, offY = 125 → görsel [y:125..375].
+    // İşaretçi y=10 (üst beyaz boşluk) → cy=125 → %25.
+    const o = containZoomOrigin(250, 10, 500, 500, 1000, 500);
+    expect(o.x).toBe(50);
+    expect(o.y).toBe(25);
+  });
+
+  // Dikey görsel (500x1000 → aspect 0.5): sol-sağ letterbox.
+  it("dikey görselde yatay eksende letterbox'a taşan işaretçiyi kelepçeler", () => {
+    // Görsel genişliği = 500*0.5 = 250, offX = 125 → görsel [x:125..375].
+    // İşaretçi x=490 (sağ beyaz boşluk) → cx=375 → %75.
+    const o = containZoomOrigin(490, 250, 500, 500, 500, 1000);
+    expect(o.x).toBe(75);
+    expect(o.y).toBe(50);
+  });
+
+  it("görsel içindeki işaretçi doğrudan yüzdeye çevrilir (kelepçe yok)", () => {
+    const o = containZoomOrigin(300, 250, 500, 500, 1000, 500);
+    expect(o.x).toBe(60);
+    expect(o.y).toBe(50);
+  });
+
+  it("geçersiz boyutlarda güvenli merkeze (50/50) düşer", () => {
+    expect(containZoomOrigin(10, 10, 0, 500, 1000, 500)).toEqual({ x: 50, y: 50 });
+    expect(containZoomOrigin(10, 10, 500, 500, 0, 500)).toEqual({ x: 50, y: 50 });
   });
 });
 
@@ -70,5 +102,30 @@ describe("<ProductGallery> statik render", () => {
 
   it("ilk thumbnail aktif isaretlenir (aria-pressed)", () => {
     expect(html).toContain('aria-pressed="true"');
+  });
+
+  // Final Polish §2 — çerçeve-içi hover zoom + opsiyonel tam-ekran aksiyonu.
+  it("çerçeve-içi zoom katmanı (transform-origin) ve overflow-hidden çerçeve render eder", () => {
+    expect(html).toContain("overflow-hidden");
+    expect(html).toContain("transform-origin");
+  });
+
+  it("opsiyonel tam-ekran (büyüt) aksiyonu açık etiketle render edilir", () => {
+    expect(html).toContain(`aria-label="${t.galleryZoom}"`);
+  });
+});
+
+describe("<ProductGallery> tek görsel — hover zoom yine çalışır, şerit gizli (§2)", () => {
+  const html = renderToStaticMarkup(
+    <ProductGallery images={[img("/media/only.webp", "Tek")]} title="Tekli" t={t} />,
+  );
+
+  it("tek görselde thumbnail şeridi render edilmez", () => {
+    expect((html.match(/aria-pressed/g) ?? []).length).toBe(0);
+  });
+
+  it("tek görselde de ana görsel + zoom katmanı vardır", () => {
+    expect(html).toContain('src="/media/only.webp"');
+    expect(html).toContain("transform-origin");
   });
 });

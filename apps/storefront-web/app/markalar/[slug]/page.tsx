@@ -187,7 +187,14 @@ export default async function BrandDetailPage({
     reviewsOn ? getCardRatings(cardIds) : Promise.resolve({}),
   ]);
   const currency = data.products[0]?.currency ?? "TRY";
-  const facets = data.facets;
+  // TD-170 — Marka bu route'ta SAYFA KİMLİĞİDİR (path parametresi), kaldırılabilir bir
+  // filtre değil. Sunuma özgü bileşenlere brand'i SIYRILMIŞ state veririz: böylece
+  // (a) yanıltıcı bir "Marka ×" çipi çıkmaz, (b) href'ler brand'i query'ye eklemez
+  // (basePath=/markalar/<slug> zaten path'te taşır), (c) "Tümünü temizle" marka
+  // landing'inde kalır (brand korunur). Fetch ise TAM state (brand dahil) ile yapıldı.
+  const viewState: SearchState = { ...state, brand: null };
+  // Marka landing'inde marka facet'ini raydan gizle (zaten bu markadasın).
+  const facets = data.facets.filter((facet) => facet.code !== "brand");
 
   // TODO-165A (Task 20, brief §14) — ItemList JSON-LD yalnız indexlenebilir görünümde (PLP ile aynı kural:
   // arama/filtre daraltmasız marka sayfasında; noindex durumunda yapısal veri üretilmez).
@@ -211,12 +218,12 @@ export default async function BrandDetailPage({
           {header}
           <SearchTransitionProvider>
             <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[17rem_minmax(0,1fr)] xl:gap-12">
-              <FilterRail facets={facets} state={state} currency={currency} t={dict} />
+              <FilterRail facets={facets} state={viewState} currency={currency} t={dict} />
               <div className="min-w-0">
-                <ActiveFilterChips facets={facets} state={state} currency={currency} t={dict} />
+                <ActiveFilterChips facets={facets} state={viewState} currency={currency} t={dict} />
                 <SearchResultsRegion label={searchDict.resultsRegion}>
                   {cards.length === 0 ? (
-                    <SearchEmpty state={state} currency={currency} t={dict} basePath={brandPath(brand.slug)} />
+                    <SearchEmpty state={viewState} currency={currency} t={dict} basePath={brandPath(brand.slug)} />
                   ) : (
                     <div className="mt-8 lg:mt-10">
                       <ProductGrid cards={cards} t={dict} listingVariant={listingVariant} />
@@ -224,7 +231,7 @@ export default async function BrandDetailPage({
                   )}
                 </SearchResultsRegion>
                 <SearchPagination
-                  state={state}
+                  state={viewState}
                   totalPages={data.pagination.totalPages}
                   hasPreviousPage={data.pagination.hasPreviousPage}
                   hasNextPage={data.pagination.hasNextPage}

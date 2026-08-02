@@ -50,7 +50,7 @@ export const FacetList = memo(function FacetList({
       </FacetSection>
 
       {facets.map((facet) => (
-        <FacetSection key={facet.code} title={facetTitle(facet)} activeCount={facetActiveCount(facet, state)}>
+        <FacetSection key={facet.code} title={facetTitle(facet, t)} activeCount={facetActiveCount(facet, state)}>
           <FacetControl facet={facet} state={state} t={t} />
         </FacetSection>
       ))}
@@ -58,7 +58,14 @@ export const FacetList = memo(function FacetList({
   );
 });
 
-/** Facet başlığı: ad + (varsa) birim eki, ör. "Ağırlık (g)". */
-function facetTitle(facet: PublicSearchFacet): string {
+/**
+ * Facet başlığı: ad + (varsa) birim eki, ör. "Ağırlık (g)".
+ *
+ * TD-170 — Sentezlenmiş marka facet'inin adı sunucuda sabit "Marka" (TR) olarak
+ * üretilir (search-query.ts synthesizeBrandFacet). Vitrin bunu locale'den türetir
+ * (`brandLabel`: TR "Marka" / EN "Brand"); diğer facet'ler backend adını kullanır.
+ */
+export function facetTitle(facet: PublicSearchFacet, t: StorefrontDictionary): string {
+  if (facet.code === "brand") return t.detail.brandLabel;
   return facet.unit ? `${facet.name} (${facet.unit})` : facet.name;
 }

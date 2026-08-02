@@ -22,15 +22,19 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cn } from "@commerce-os/ui";
+import { cn, fieldAria, useFocusTrap } from "@commerce-os/ui";
 
 export { cn } from "@commerce-os/ui";
 export type { ClassValue } from "@commerce-os/ui";
 
 // Dil/locale akışı: paylaşılan paketten aynen.
 export { LocaleProvider, useLocale, LanguageSwitcher } from "@commerce-os/ui";
+// Portal'li ipucu: overflow/sticky/tablo stacking-context'inden bagimsiz (§6).
+// store-admin koyu-glass yuzeyini `unstyled` + className ile verir.
+export { Tooltip } from "@commerce-os/ui";
+export type { TooltipProps } from "@commerce-os/ui";
 export type {
   LocaleProviderProps,
   LanguageSwitcherProps,
@@ -373,27 +377,83 @@ const fieldBase =
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
+  error?: string | null;
+  hint?: string | null;
 }
 
-function FieldLabel({ children }: { children: ReactNode }) {
+function FieldLabel({ children, required }: { children: ReactNode; required?: boolean }) {
+  // Zorunlu göstergesi CSS ::after ile verilir (DOM text'ine GİRMEZ → erişilebilir
+  // etiket adı sade kalır; ekran okuyucuya required durumu `aria-required` ile iletilir).
   return (
-    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-white/35">
+    <span
+      className={cn(
+        "mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-white/35",
+        required && "after:ml-0.5 after:text-rose-300 after:content-['*']",
+      )}
+    >
       {children}
     </span>
   );
 }
 
+// Hata/yardim metni — id'li render, describedby ile alana baglanir (C1).
+function FieldMessage({
+  error,
+  hint,
+  errorId,
+  hintId,
+}: {
+  error?: string | null;
+  hint?: string | null;
+  errorId?: string;
+  hintId?: string;
+}) {
+  if (error && errorId)
+    return (
+      <p id={errorId} className="mt-1.5 text-[11px] text-rose-300">
+        {error}
+      </p>
+    );
+  if (hint && hintId)
+    return (
+      <p id={hintId} className="mt-1.5 text-[11px] text-white/45">
+        {hint}
+      </p>
+    );
+  return null;
+}
+
 // forwardRef: react-hook-form `register` uncontrolled input'a ref bağlar (Faz 2B).
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, id, className, ...props },
+  { label, id, className, error, hint, required, ...props },
   ref,
 ) {
-  const control = <input ref={ref} id={id} className={cn("h-10 px-3", fieldBase, className)} {...props} />;
-  if (!label) return control;
+  const aria = fieldAria(id, { error, hint, required });
+  const control = (
+    <input
+      ref={ref}
+      id={id}
+      required={required}
+      className={cn("h-10 px-3", fieldBase, error && "border-rose-400/60 focus:ring-rose-400/20", className)}
+      {...aria.control}
+      {...props}
+    />
+  );
+  const messages = (
+    <FieldMessage error={error} hint={hint} errorId={aria.errorId} hintId={aria.hintId} />
+  );
+  if (!label)
+    return (
+      <span className="block">
+        {control}
+        {messages}
+      </span>
+    );
   return (
     <label htmlFor={id} className="block">
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel required={required}>{label}</FieldLabel>
       {control}
+      {messages}
     </label>
   );
 });
@@ -406,17 +466,27 @@ export interface SelectOption {
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   options: SelectOption[];
+  error?: string | null;
+  hint?: string | null;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { label, id, className, options, ...props },
+  { label, id, className, options, error, hint, required, ...props },
   ref,
 ) {
+  const aria = fieldAria(id, { error, hint, required });
   const control = (
     <select
       ref={ref}
       id={id}
-      className={cn("h-10 px-3 [&>option]:text-slate-900", fieldBase, className)}
+      required={required}
+      className={cn(
+        "h-10 px-3 [&>option]:text-slate-900",
+        fieldBase,
+        error && "border-rose-400/60 focus:ring-rose-400/20",
+        className,
+      )}
+      {...aria.control}
       {...props}
     >
       {options.map((option) => (
@@ -426,29 +496,61 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       ))}
     </select>
   );
-  if (!label) return control;
+  const messages = (
+    <FieldMessage error={error} hint={hint} errorId={aria.errorId} hintId={aria.hintId} />
+  );
+  if (!label)
+    return (
+      <span className="block">
+        {control}
+        {messages}
+      </span>
+    );
   return (
     <label htmlFor={id} className="block">
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel required={required}>{label}</FieldLabel>
       {control}
+      {messages}
     </label>
   );
 });
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
+  error?: string | null;
+  hint?: string | null;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { label, id, className, ...props },
+  { label, id, className, error, hint, required, ...props },
   ref,
 ) {
-  const control = <textarea ref={ref} id={id} className={cn("px-3 py-2", fieldBase, className)} {...props} />;
-  if (!label) return control;
+  const aria = fieldAria(id, { error, hint, required });
+  const control = (
+    <textarea
+      ref={ref}
+      id={id}
+      required={required}
+      className={cn("px-3 py-2", fieldBase, error && "border-rose-400/60 focus:ring-rose-400/20", className)}
+      {...aria.control}
+      {...props}
+    />
+  );
+  const messages = (
+    <FieldMessage error={error} hint={hint} errorId={aria.errorId} hintId={aria.hintId} />
+  );
+  if (!label)
+    return (
+      <span className="block">
+        {control}
+        {messages}
+      </span>
+    );
   return (
     <label htmlFor={id} className="block">
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel required={required}>{label}</FieldLabel>
       {control}
+      {messages}
     </label>
   );
 });
@@ -583,11 +685,19 @@ export function Modal({
   // input'tan calardi — "yeni saglayici" modalindaki focus firlamasi bug'i buydu.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Benzersiz id'ler — ic ice / es zamanli modallarda baslik/aciklama cakismaz.
+  const uid = useId();
+  const titleId = `modal-title-${uid}`;
+  const descriptionId = `modal-description-${uid}`;
   // Portal yalnız mount sonrası (client). SSR'da document yok; ayrıca portal,
   // backdrop-blur'lu ata kartların (containing block) `position: fixed`'i hapsetmesini
   // engeller — modal her zaman viewport'a göre tam ekran açılır.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Odak tuzagi (D1): acilista ilk elemani odakla, Tab dongusunu iceride tut,
+  // kapaninca odaki tetikleyiciye don. mount sonrasi aktif olur (portal hazir).
+  useFocusTrap(open && mounted, panelRef);
 
   useEffect(() => {
     if (!open) return;
@@ -595,7 +705,6 @@ export function Modal({
       if (event.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
-    panelRef.current?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -608,7 +717,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-modal flex items-center justify-center p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -618,8 +727,8 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        aria-describedby={description ? "modal-description" : undefined}
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
           "relative z-10 flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-2xl",
@@ -630,11 +739,11 @@ export function Modal({
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
           <div className="min-w-0">
-            <h2 id="modal-title" className="text-[13px] font-semibold text-white/90">
+            <h2 id={titleId} className="text-[13px] font-semibold text-white/90">
               {title}
             </h2>
             {description ? (
-              <p id="modal-description" className="mt-0.5 text-[11px] text-white/30">
+              <p id={descriptionId} className="mt-0.5 text-[11px] text-white/30">
                 {description}
               </p>
             ) : null}

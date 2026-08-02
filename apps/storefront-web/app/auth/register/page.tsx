@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Container } from "@commerce-os/ui";
+import { Container } from "../../../components/ui";
 import { getStorefrontDict } from "../../../lib/i18n";
 import { getCurrentCustomer } from "../../../lib/server/customer";
 import { safeNextPath } from "../../../lib/next-path";

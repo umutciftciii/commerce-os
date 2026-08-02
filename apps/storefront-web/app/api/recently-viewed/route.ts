@@ -11,15 +11,27 @@ import { randomUUID } from "node:crypto";
 import { gatewayBaseUrl } from "../../../lib/server/gateway";
 import { demoStoreSlug } from "../../../lib/server/env";
 import { getWishlistStatus } from "../../../lib/server/wishlist";
+import { getCardRatings } from "../../../lib/server/reviews";
+import type { CardRating } from "../../../components/reviews/rating-provider";
 
-/** Gateway yanıtındaki ürünlerin favori durumunu (TODO-159D wishlist) ekler (auth→gateway, guest→cookie). */
-async function withSavedIds(json: unknown): Promise<{ data: unknown[]; savedIds: string[] }> {
+/**
+ * Gateway yanıtındaki ürünlere favori durumunu (TODO-159D wishlist) VE rating özetini
+ * (FP-3 — SUNUCU projection reuse: `getCardRatings`, yorumu olan ürünler) ekler. Böylece
+ * client rail'ler (son görüntülenen/benzer) RatingProvider'ı besleyip yıldızları gösterir;
+ * client TAHMİN üretmez.
+ */
+async function withSavedIds(
+  json: unknown,
+): Promise<{ data: unknown[]; savedIds: string[]; ratings: Record<string, CardRating> }> {
   const data = Array.isArray((json as { data?: unknown[] })?.data) ? (json as { data: unknown[] }).data : [];
   const productIds = data
     .map((p) => (p && typeof p === "object" ? (p as { id?: unknown }).id : undefined))
     .filter((id): id is string => typeof id === "string");
-  const saved = productIds.length > 0 ? await getWishlistStatus(productIds) : new Set<string>();
-  return { data, savedIds: [...saved] };
+  const [saved, ratings] = await Promise.all([
+    productIds.length > 0 ? getWishlistStatus(productIds) : Promise.resolve(new Set<string>()),
+    productIds.length > 0 ? getCardRatings(productIds) : Promise.resolve<Record<string, CardRating>>({}),
+  ]);
+  return { data, savedIds: [...saved], ratings };
 }
 
 export const dynamic = "force-dynamic";
@@ -121,7 +133,11 @@ export async function GET(request: Request) {
     const enriched = await withSavedIds(json);
     return withVisitorCookie(NextResponse.json(enriched, { status: 200 }), visitorId, isNewVisitor);
   } catch {
-    return withVisitorCookie(NextResponse.json({ data: [], savedIds: [] }, { status: 200 }), visitorId, isNewVisitor);
+    return withVisitorCookie(
+      NextResponse.json({ data: [], savedIds: [], ratings: {} }, { status: 200 }),
+      visitorId,
+      isNewVisitor,
+    );
   }
 }
 

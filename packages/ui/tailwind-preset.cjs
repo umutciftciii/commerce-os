@@ -59,6 +59,21 @@ module.exports = {
       letterSpacing: {
         tightish: "-0.011em",
       },
+      // Merkezi katman (z-index) hiyerarsisi — tum frontend'ler bu adlandirilmis
+      // olcegi paylasir; "rastgele" z-10/z-50 yerine anlamli katman adlari kullanilir.
+      // Alcaktan yuksege: yapisal krom < menu/popover < surukleme paneli < diyalog <
+      // bildirim < ipucu. Ipucu (tooltip) en ustte cunku bir diyalog/drawer icindeki
+      // kontrolu de acikladiginda gorunur kalmasi gerekir (body portal'inda render edilir).
+      zIndex: {
+        sticky: "20", // yapisan sabit baslik/altbilgi (tablo sticky header, sticky footer)
+        nav: "30", // uygulama krom kabugu / topbar
+        dropdown: "40", // acilir menuler
+        popover: "50", // popover / kolon yapilandirma
+        drawer: "60", // yan surukleme paneli
+        modal: "70", // diyalog / modal
+        toast: "80", // bildirim tost'lari
+        tooltip: "90", // ipucu — anlattigi katmanin uzerinde kalmali (en ust)
+      },
     },
   },
 };

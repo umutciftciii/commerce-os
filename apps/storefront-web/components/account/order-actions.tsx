@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Alert, Button } from "@commerce-os/ui";
+import { Alert, Button } from "../ui";
 import { format } from "@commerce-os/i18n";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { ProductReviewStatus } from "@commerce-os/api-client";

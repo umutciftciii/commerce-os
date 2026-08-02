@@ -1461,3 +1461,13 @@ Denetim sırasında doğrulanan ve operatörlerin bilmesi gereken durumlar (`mai
   Aktif 418 / Kategori 40 / Kritik stok 187. Doğrulama SQL:
   `SELECT status, count(*) FROM "Product" WHERE "storeId"='edm-store' GROUP BY status;`
 - **Tek açık PROD BLOCKER:** PB-3 / TD-139 (offsite/otomatik backup depolama config'i) — altyapı, UI dışı.
+- **Ana Sayfa yönetimi tek otorite (Final Polish §5):** Vitrin hero/slider'ının TEK yönetim yüzeyi "Ana Sayfa
+  Deneyimi" (`/home`). Eski "Ana Sayfa" (`/hero`) ekranı kaldırıldı; route `/home`'a redirect eder (eski bookmark
+  güvenli). `HeroSlide` tablosu + gateway `/hero-slides` ucu KORUNDU (veri silinmedi); yalnız store-admin yönetim
+  yüzeyi + orphaned storefront reader + legacy BFF temizlendi.
+- **UI worktree browser smoke:** docker MAIN'den çalışır; worktree değişikliklerini görmek için worktree'den
+  `next dev --port 3100` + `STOREFRONT_DEMO_STORE_SLUG=enterprise-demo` (yoksa demo-store, ürün yok). `turbo build`
+  ile `next dev` aynı app'te çakışır (`.next` clobber) — build sonrası dev'i `.next` silip yeniden başlat.
+- **Platform Admin "Ayarlar" kaldırıldı (Final Polish §8):** İnert placeholder ekran nav'dan çıkarıldı; `/settings`
+  route'u dashboard'a (`/`) redirect eder (eski bookmark güvenli). Gerçek platform ayarları geldiğinde route
+  yeniden aktifleştirilebilir. Veri/işlev kaybı yok (ekran zaten disabled placeholder'dı).

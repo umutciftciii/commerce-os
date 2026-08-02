@@ -11,7 +11,7 @@ import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
-import { ButtonLink, Container, Heading, ProductMedia, Subheading } from "../../../../components/ui";
+import { ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -81,15 +81,14 @@ export default async function OrderDetailPage({
           <ul className="space-y-3">
             {order.lines.map((line) => (
               <li key={line.variantId} className="flex items-center gap-3">
-                {/* Dilim 6b — Ürün kapak thumbnail'i (Dilim 6a wrapper deseni:
-                    sabit boyut + overflow-hidden, ProductMedia h-full w-full doldurur). */}
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border border-line bg-surface-muted">
-                  <ProductMedia
-                    handle={line.productSlug}
-                    title={line.title}
-                    imageUrl={line.imageUrl}
-                  />
-                </div>
+                {/* TD-173 — Ortak ürün medya çerçevesi (line-thumbnail). */}
+                <ProductMediaFrame
+                  variant="line-thumbnail"
+                  handle={line.productSlug}
+                  title={line.title}
+                  imageUrl={line.imageUrl}
+                  className="h-12 w-12 shrink-0 rounded-md border border-line"
+                />
                 <span className="min-w-0 flex-1 text-sm text-ink-muted">
                   <Link href={`/products/${line.productSlug}`} className="hover:underline">
                     {line.title}
@@ -147,7 +146,7 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
+export function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
   return (
     <section className="border border-line p-4">
       <Subheading as="h2" className="mb-3">{o.detail.summary}</Subheading>
@@ -167,7 +166,13 @@ function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrderDetail 
               : formatMinor(order.shippingMinor, order.currency)
           }
         />
-        <Row label={o.detail.tax} value={formatMinor(order.taxMinor, order.currency)} />
+        {order.taxMinor > 0 ? (
+          <Row label={o.detail.tax} value={formatMinor(order.taxMinor, order.currency)} />
+        ) : (
+          // Inclusive-VAT (server-authoritative taxMinor=0): yanıltıcı "₺0,00" yerine
+          // kullanıcı-dostu not. Client-side KDV tahmini YOK; vergi modeli değişmez.
+          <p className="text-xs text-ink-muted">{o.detail.taxIncludedNote}</p>
+        )}
         <div className="border-t border-line pt-2">
           <Row label={o.detail.total} value={formatMinor(order.totalMinor, order.currency)} strong />
         </div>

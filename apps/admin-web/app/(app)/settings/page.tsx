@@ -1,30 +1,12 @@
-import { Button, Input, PageHeader, SectionCard } from "@commerce-os/ui";
-import { SettingsIcon } from "../../../components/icons";
-import { getAdminDict, getCommonDict } from "../../../lib/i18n";
+import { redirect } from "next/navigation";
 
-export default async function SettingsPage() {
-  const t = (await getAdminDict()).settings;
-  const c = await getCommonDict();
-
-  return (
-    <>
-      <PageHeader eyebrow={t.eyebrow} title={t.title} description={t.description} />
-      <SectionCard
-        title={t.cardTitle}
-        description={t.cardDescription}
-        icon={<SettingsIcon />}
-        actions={
-          <Button size="sm" disabled>
-            {c.actions.save}
-          </Button>
-        }
-      >
-        <div className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input label={t.platformName} defaultValue="commerce-os" disabled />
-          <Input label={t.supportEmail} defaultValue="destek@commerce-os.dev" disabled />
-        </div>
-        <p className="mt-4 text-xs text-slate-400">{t.note}</p>
-      </SectionCard>
-    </>
-  );
+/**
+ * Final Polish §8 — Platform Admin "Ayarlar" ekranı İNERT placeholder'dı (tüm alanlar
+ * disabled, sabit örnek veri; gerçek bir ayar işlevi yoktu). Kullanıcıya aktif bir özellik
+ * gibi gösterilmemesi için nav'dan kaldırıldı ve bu route dashboard'a yönlendirilir (eski
+ * bookmark/deep-link güvenli çalışır). Gerçek platform ayarları geldiğinde bu route yeniden
+ * aktifleştirilebilir.
+ */
+export default function SettingsRedirect() {
+  redirect("/");
 }

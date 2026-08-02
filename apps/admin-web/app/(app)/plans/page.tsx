@@ -355,6 +355,13 @@ function PlanCapabilityEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // §14 — bağımlılık/değişiklik prose'unda ham modül anahtarı (SHIPPING vb.) yerine
+  // kullanıcı dostu modül adı. Eşleşme yoksa (bilinmeyen key) ham değere düşer.
+  const capLabel = (key: string): string => {
+    const entry = matrix?.find((m) => m.key === key);
+    return entry ? (locale === "tr" ? entry.labelTr : entry.labelEn) : key;
+  };
+
   useEffect(() => {
     let active = true;
     adminApi
@@ -459,14 +466,18 @@ function PlanCapabilityEditor({
                         <td className="px-3 py-2 align-top">
                           <div className="font-medium text-slate-900">{label}</div>
                           <div className="text-[11px] text-slate-400">
-                            {m.key}
-                            {m.requires.length > 0 ? ` · ${s.dependsOn}: ${m.requires.join(", ")}` : ""}
+                            {/* Ham modül anahtarı yalnız İKİNCİL teknik detay olarak (küçük gri);
+                                bağımlılıklar kullanıcı dostu adlarla gösterilir. */}
+                            <span className="font-mono">{m.key}</span>
+                            {m.requires.length > 0
+                              ? ` · ${s.dependsOn}: ${m.requires.map(capLabel).join(", ")}`
+                              : ""}
                           </div>
                           {off && !m.core ? (
                             <div className="text-[11px] font-medium text-amber-600">
                               {s.effectiveOff}
                               {preview?.entries.find((e) => e.key === m.key)?.blockedBy
-                                ? ` (${preview.entries.find((e) => e.key === m.key)?.blockedBy})`
+                                ? ` (${capLabel(preview.entries.find((e) => e.key === m.key)!.blockedBy!)})`
                                 : ""}
                             </div>
                           ) : null}
@@ -501,12 +512,14 @@ function PlanCapabilityEditor({
                 <p>{s.subscribers(preview.subscriberCount)}</p>
                 <p className="mt-1">
                   <span className="font-semibold">{s.changed}:</span>{" "}
-                  {preview.changedModules.length > 0 ? preview.changedModules.join(", ") : s.noChange}
+                  {preview.changedModules.length > 0
+                    ? preview.changedModules.map(capLabel).join(", ")
+                    : s.noChange}
                 </p>
                 {preview.dependencyDisabled.length > 0 ? (
                   <p className="mt-1 text-amber-700">
                     <span className="font-semibold">{s.depDisabled}:</span>{" "}
-                    {preview.dependencyDisabled.join(", ")}
+                    {preview.dependencyDisabled.map(capLabel).join(", ")}
                   </p>
                 ) : null}
               </div>

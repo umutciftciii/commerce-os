@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Alert, Button } from "@commerce-os/ui";
+import { Alert, Button } from "../../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerCommunicationPreference } from "@commerce-os/api-client";
 import { updateCommunicationPreferencesAction } from "../../../lib/server/account-actions";

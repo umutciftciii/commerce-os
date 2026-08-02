@@ -397,6 +397,14 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
+/* TD-157 — productCardDensity (mobil): kart ızgarası satır aralığı builder --tb-card-gap'i
+   TÜKETİR (comfortable 24px / compact 12px / editorial 40px). Değişken yalnız mobil override'da
+   (@media max-width:640px) emit edilir; verilmezse mevcut varsayılan (gap-y-10 = 2.5rem) korunur. */
+@media (max-width: 640px) {
+  .product-grid {
+    row-gap: var(--tb-card-gap, 2.5rem);
+  }
+}
 
 /* ── Product detail slot (PDP — GERÇEK düzen farkı) ────────────────────────── */
 /* GALLERY_FIRST: tek kolon; galeri tam genişlik ÜSTTE, buy box altta. */

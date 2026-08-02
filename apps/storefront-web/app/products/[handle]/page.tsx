@@ -198,13 +198,34 @@ export default async function ProductDetailPage({
       <PdpSelectionProvider defaultVariantId={cheapestVariantId(detail.variants)}>
         <div
           data-detail-variant={detailVariant}
-          className="pdp-layout grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14"
+          className="pdp-layout grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-12"
         >
-          {/* Sol: medya galerisi (varyanta reaktif) */}
-          <VariantGallery detail={detail} t={t} />
+          {/* Sol: medya galerisi (varyanta reaktif) + detay sekmeleri (§3 layout dengesi:
+              tablar galerinin hemen altında, soldaki boşluğu doldurur; sağ sütun sticky). */}
+          <div className="min-w-0 space-y-12">
+            <VariantGallery detail={detail} t={t} />
+            <PdpDetailTabs
+              detail={detail}
+              t={dict}
+              reviewCount={reviewsOn ? reviewSummary.reviewCount : 0}
+              reviewsSlot={
+                reviewsOn && reviewsFirstPage ? (
+                  <PdpReviews
+                    productId={detail.id}
+                    initial={reviewsFirstPage}
+                    eligibility={eligibility}
+                    loginHref={`/auth/login?next=${encodeURIComponent(productPath(detail.handle))}`}
+                    t={dict}
+                    locale={locale}
+                    embedded
+                  />
+                ) : null
+              }
+            />
+          </div>
 
-          {/* Sag: baslik + buy box */}
-          <div>
+          {/* Sag: baslik + buy box (sticky — yalnız viewport içinde güvenli çalışır) */}
+          <div className="lg:sticky lg:top-24 lg:self-start">
             <div className="mb-6">
               <div className="flex flex-wrap items-center gap-3">
                 <Badge tone="muted">{salesModeLabel(detail.commerce.salesMode, dict)}</Badge>
@@ -257,23 +278,8 @@ export default async function ProductDetailPage({
         </div>
       </PdpSelectionProvider>
 
-      {/* Orta: detay sekmeleri ("Storefront - PDP" tasarımı) — açıklama / özellik / kargo&iade.
-          Uzun yığılmış bölümler + yan yer tutucular (yorum/S&C/birlikte-alınan/son-bakılan) yerine
-          tasarımdaki derli toplu sekme yapısı. Gerçek içerik korunur (açıklama/özellik/kargo). */}
-      <PdpDetailTabs detail={detail} t={dict} />
-
-      {/* TODO-159E (ADR-094) — Gerçek değerlendirme bölümü (özet + liste + yorum yaz + helpful).
-          TODO-163 Faz 3 (TD-156) — REVIEWS kapalıysa fetch YOK (reviewsFirstPage=null) → render yok. */}
-      {reviewsOn && reviewsFirstPage ? (
-        <PdpReviews
-          productId={detail.id}
-          initial={reviewsFirstPage}
-          eligibility={eligibility}
-          loginHref={`/auth/login?next=${encodeURIComponent(productPath(detail.handle))}`}
-          t={dict}
-          locale={locale}
-        />
-      ) : null}
+      {/* Detay sekmeleri (açıklama/özellik/kargo/değerlendirmeler) artık ürün bloğunun
+          SOL sütununda, galerinin hemen altında render edilir (§3/§4) — bkz. yukarıdaki grid. */}
 
       {/* TODO-161B — Benzer Ürünler: açıklanabilir öneri motoru (read-model; mevcut ürün hariç,
           sponsored/organik ranking'e dokunulmaz). Client island: skeleton/empty/error.

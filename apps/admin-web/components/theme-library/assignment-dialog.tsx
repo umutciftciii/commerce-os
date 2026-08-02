@@ -27,6 +27,19 @@ const MODE_LABEL: Record<string, string> = {
   "all-compatible": "Tüm uyumlu mağazalar",
 };
 
+// §14 — ham reason kodu yerine kullanıcı dostu mesaj (ham kod title'da ikincil teknik detay).
+const REASON_CODE_LABEL: Record<string, string> = {
+  TEMPLATE_NOT_PUBLISHED: "Şablon yayınlanmamış",
+  THEME_INCOMPATIBLE: "Tema uyumsuz",
+  NO_UPDATE_PENDING: "Bekleyen güncelleme yok",
+  STORE_HAS_NO_THEME: "Mağazada tema yok",
+  ASSIGN_ERROR: "Atama hatası",
+};
+function reasonLabel(code: string | undefined): string {
+  if (!code) return "";
+  return REASON_CODE_LABEL[code] ?? code;
+}
+
 export function AssignmentDialog({
   templateId,
   templateName,
@@ -241,8 +254,8 @@ export function AssignmentDialog({
                   {r.status === "success"
                     ? `Uygulandı (v${r.newVersion ?? "?"})`
                     : r.status === "failed"
-                      ? `Başarısız · ${r.reasonCode ?? ""}`
-                      : `Atlandı · ${r.reasonCode ?? ""}`}
+                      ? `Başarısız · ${reasonLabel(r.reasonCode)}`
+                      : `Atlandı · ${reasonLabel(r.reasonCode)}`}
                 </span>
               </li>
             ))}

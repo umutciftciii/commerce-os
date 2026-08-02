@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, Select } from "@commerce-os/ui";
+import { Alert, Button, Input, Select } from "../../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerAccount } from "@commerce-os/api-client";
 import { updateProfileAction } from "../../../lib/server/account-actions";

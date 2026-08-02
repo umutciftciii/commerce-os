@@ -55,7 +55,9 @@ describe("storefront-web · Dilim 6b orders-section thumbnail", () => {
     );
     expect(html).toContain('src="/media/stores/s1/products/hoodie-cover.webp"');
     expect(html).toContain('alt="Hoodie"');
-    expect(html).toContain("object-cover");
+    // TD-173 — sipariş satırı artık ortak ProductMediaFrame (line-thumbnail = object-contain,
+    // kırpma yok); eski ProductMedia cover değil.
+    expect(html).toContain("object-contain");
     // Gerçek görsel modunda ProductMedia placeholder (role="img") RENDER EDİLMEZ →
     // eski monogram yer tutucusu tamamen gitti (img yolu). (bg-slate-100 sayfanın
     // başka yerlerinde — buton/hover — meşru; DS göçü kapsam dışı, ona dokunulmadı.)

@@ -320,8 +320,11 @@ export const enStorefront: StorefrontDictionary = {
     // TODO-165B — PDP gallery actions (Amazon-style: zoom, share).
     galleryZoom: "Zoom",
     galleryZoomClose: "Close",
+    galleryPrev: "Previous image",
+    galleryNext: "Next image",
     galleryShare: "Share",
     galleryShareCopied: "Link copied",
+    reviewsTabTitle: "Reviews",
     benefitsTitle: "Highlights",
     benefits: [
       "Carefully selected materials and craftsmanship",
@@ -1055,6 +1058,7 @@ export const enStorefront: StorefrontDictionary = {
         shipping: "Shipping",
         freeShipping: "Free",
         tax: "VAT included",
+        taxIncludedNote: "Prices include VAT",
         total: "Total",
         productsTitle: "Items",
         shippingAddress: "Shipping address",

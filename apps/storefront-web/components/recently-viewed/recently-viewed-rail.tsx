@@ -12,6 +12,7 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { PublicSearchProduct } from "@commerce-os/api-client";
 import { Eyebrow, Heading } from "../ui";
 import { WishlistProvider } from "../wishlist/wishlist-provider";
+import { RatingProvider, type CardRating } from "../reviews/rating-provider";
 import { RecommendationCard } from "../recommendation/recommendation-card";
 import { toListingCards } from "../../lib/search/listing-adapter";
 import { fetchRecentlyViewed } from "../../lib/recently-viewed/track";
@@ -46,6 +47,7 @@ export function RecentlyViewedRail({
 }) {
   const [products, setProducts] = useState<PublicSearchProduct[] | null>(null);
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [ratings, setRatings] = useState<Record<string, CardRating>>({});
 
   useEffect(() => {
     let active = true;
@@ -53,6 +55,7 @@ export function RecentlyViewedRail({
       if (!active) return;
       setProducts(result.products);
       setSavedIds(result.savedIds);
+      setRatings(result.ratings);
     });
     return () => {
       active = false;
@@ -73,15 +76,18 @@ export function RecentlyViewedRail({
         {title ?? t.related.recentlyViewedTitle}
       </Heading>
       {/* TODO-161B (TD-128) — Wishlist kalbi GERÇEK (TODO-159D; auth→gateway, guest→cookie). */}
+      {/* FP-3 — rating özetleri SUNUCUDAN (BFF getCardRatings); yorumu olan ürünlerde yıldız gösterilir. */}
       <WishlistProvider initialSavedIds={savedIds} enabled={wishlistEnabled}>
-        <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 sm:gap-6">
-          {cards.map((card) => (
-            <div key={card.id} className="w-[46%] shrink-0 snap-start sm:w-[30%] lg:w-[23%]">
-              {/* TD-130 — Son İncelediklerin ölçümü: impression/click + hedef PDP add-to-cart attribution. */}
-              <RecommendationCard card={card} t={t} context={{ source: "RECENTLY_VIEWED", placement }} />
-            </div>
-          ))}
-        </div>
+        <RatingProvider summaries={ratings}>
+          <div className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 sm:gap-6">
+            {cards.map((card) => (
+              <div key={card.id} className="w-[46%] shrink-0 snap-start sm:w-[30%] lg:w-[23%]">
+                {/* TD-130 — Son İncelediklerin ölçümü: impression/click + hedef PDP add-to-cart attribution. */}
+                <RecommendationCard card={card} t={t} context={{ source: "RECENTLY_VIEWED", placement }} />
+              </div>
+            ))}
+          </div>
+        </RatingProvider>
       </WishlistProvider>
     </section>
   );

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./cn";
+import { useFocusTrap } from "./use-focus-trap";
 
 export interface ModalProps {
   open: boolean;
@@ -32,6 +33,13 @@ export function Modal({
   className,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // Benzersiz id'ler — ic ice / es zamanli modallarda baslik/aciklama cakismaz.
+  const uid = useId();
+  const titleId = `modal-title-${uid}`;
+  const descriptionId = `modal-description-${uid}`;
+
+  // Odak tuzagi + acilista ilk elemani odakla + kapaninca tetikleyiciye don.
+  useFocusTrap(open, panelRef);
 
   useEffect(() => {
     if (!open) return;
@@ -39,8 +47,6 @@ export function Modal({
       if (event.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKeyDown);
-    // Acilista paneli odakla; ekran okuyucu baglami diyalog basligindan baslar.
-    panelRef.current?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -53,7 +59,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-modal flex items-center justify-center p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -63,8 +69,8 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
-        aria-describedby={description ? "modal-description" : undefined}
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
           // Panel viewport yuksekligini asmaz; basligi/footer'i sabit kalir,
@@ -75,11 +81,11 @@ export function Modal({
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
           <div className="min-w-0">
-            <h2 id="modal-title" className="text-sm font-semibold tracking-tightish text-slate-900">
+            <h2 id={titleId} className="text-sm font-semibold tracking-tightish text-slate-900">
               {title}
             </h2>
             {description ? (
-              <p id="modal-description" className="mt-0.5 text-sm text-slate-500">
+              <p id={descriptionId} className="mt-0.5 text-sm text-slate-500">
                 {description}
               </p>
             ) : null}

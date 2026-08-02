@@ -212,7 +212,7 @@ export function DataGridToolbar({
               <div
                 role="dialog"
                 aria-label={labels.filters}
-                className="absolute right-0 z-30 mt-2 w-[20rem] space-y-3 rounded-xl border border-white/[0.11] bg-[color:var(--dg-header-surface)] p-4 shadow-2xl"
+                className="absolute right-0 z-popover mt-2 w-[20rem] space-y-3 rounded-xl border border-white/[0.11] bg-[color:var(--dg-header-surface)] p-4 shadow-2xl"
               >
                 {filters.map((def) =>
                   def.kind === "select" ? (
