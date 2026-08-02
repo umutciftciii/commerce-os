@@ -1120,7 +1120,7 @@
 - **TD.** TD-162 CLOSED · TD-163 CLOSED · TD-164 OPEN (non-blocking — sistem/bundled font yükleniyor; harici hosting future).
 - **AÇIK.** **commit/push/PR/merge/deploy YOK** (bu aşamada). Canlı stack smoke deploy sonrası (post-deploy).
 
-### TODO-166 — Slug & Redirect Management (ADR-265, 2026-08-03, DONE · worktree, commit/PR/deploy YOK)
+### TODO-166 — Slug & Redirect Management — ✅ CLOSED & DEPLOYED (PR #164, merge `e253fa7`; 2026-08-03)
 
 - Amaç: Store-admin için merkezi **SEO > Slug ve Yönlendirmeler** modülü — mevcut slug/redirect motorunu
   (TODO-156D: SlugHistory/Redirect + `@commerce-os/utils` SAF resolver) yönet; yeni motor kurma.

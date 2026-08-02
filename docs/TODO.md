@@ -13,8 +13,10 @@
   20 birim + 3 statik-invariant test + 3 canlı guard testi (no-flag durur / flag geçer / prod-URL
   reddedilir). Runbook: docs/OPERATIONS.md "Demo veri güvenliği". Not: yerel DB'de `_prisma_migrations`
   yok (şema `db push` kurulmuş, TD-116-a); guard'lar imaj rebuild sonrası canlı (TD-116-b).
-- **TODO-166 — Slug & Redirect Management (ADR-265).** (DONE · worktree · tam gate + browser smoke
-  doğrulandı; **commit/PR/deploy YAPILMADI**.) Store-admin "SEO > Slug ve Yönlendirmeler" modülü:
+- **TODO-166 — Slug & Redirect Management (ADR-265) — ✅ CLOSED & DEPLOYED (PR #164, main `e253fa7`; 2026-08-03).**
+  (Tam gate + GERÇEK browser + post-deploy smoke doğrulandı; api-gateway/store-admin-web/storefront-web main'den
+  rebuild+recreate, migrate deploy no-op + status up-to-date, canlı ürün&marka eski URL → 301 Location canonical.)
+  Store-admin "SEO > Slug ve Yönlendirmeler" modülü:
   mevcut motoru (SlugHistory/Redirect + `@commerce-os/utils` SAF resolver) YÖNETİR, yeni motor kurmaz.
   Yeni gateway uçları `/stores/:storeId/seo/redirects` (list/create/detail/patch/delete) +
   `/stores/:storeId/seo/slugs[/:type/:id]` (`CATALOG` core-gate); api-client + BFF proxy; DataGrid
