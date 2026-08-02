@@ -200,6 +200,14 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   // tutarlarinda uygulanir. Ham minor tutar varsa istemcide bicimlenir; yoksa
   // sunucudan gelen tekil etikete geri dusulur (gizli/talep modunda numeric false).
   const currency = selected?.currency ?? "TRY";
+  // TODO-165B — Fashion kart fiyat özeti + beden tablosu görünürlüğü.
+  // multiColor: birden fazla renk → renk kartlarında başlangıç fiyatı; beden kartlarında fiyat
+  // GÖSTERİLMEZ (kesin fiyat buy-box'ta seçilen bedenden). Tek renk/renksiz → beden kartlarında fiyat.
+  const multiColor = !!colorAxis && colorAxis.options.length > 1;
+  const showSizePrices = fashionMode && !multiColor;
+  const hasSizeAxis = gridAxes.some((axis) => axis.kind === "size");
+  // Beden tablosu aksiyonu YALNIZ fashion.sizeChart varlığına bağlıdır (axis-kind bağımsız — TODO-165B).
+  const sizeChartAvailable = fashionMode && !!fashion?.sizeChart;
   const unitMinor = selected?.priceMinor ?? null;
   const compareMinor = selected?.compareAtMinor ?? null;
   const { unitLabel: unitPriceLabel, compareLabel: compareUnitLabel } = resolveUnitPriceLabels({
@@ -353,8 +361,24 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
           MEVCUT düz varyant-butonu davranışı BİREBİR korunur. */}
       {fashionMode && fashion ? (
         <div className="mt-6 space-y-6">
-          {/* Renk swatch satırı (media-tanımlayıcı eksen; seçim galeriyi de değiştirir) */}
-          {colorAxis ? (
+          {/* TODO-165B — Beden tablosu: size ekseni YOKSA burada bağımsız görünür (yalnız
+              fashion.sizeChart varlığına bağlı; axis-kind bağımsız). */}
+          {sizeChartAvailable && !hasSizeAxis ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSizeChartOpen(true)}
+                className="text-[11px] font-medium uppercase tracking-wideish text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {t.detail.fashion.sizeGuide}
+              </button>
+            </div>
+          ) : null}
+
+          {/* Renk kartları (media-tanımlayıcı eksen; seçim galeriyi de değiştirir). TODO-165B:
+              yalnız ÇOK renk varsa kart dizisi; tek renkte gereksiz dizi gösterilmez. Her kart:
+              swatch + renk adı + o rengin başlangıç fiyatı (+ indirimliyse eski fiyat) + OOS. */}
+          {multiColor && colorAxis ? (
             <div>
               <div className="mb-2.5 flex items-baseline justify-between gap-2">
                 <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
@@ -366,42 +390,67 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-2.5" role="group" aria-label={colorAxis.name}>
+              <div className="flex flex-wrap gap-2" role="group" aria-label={colorAxis.name}>
                 {colorAxis.options.map((option) => {
                   const active = axisSelection[colorAxis.attributeDefinitionId] === option.optionId;
                   const soldOut = !optionInStock(colorAxis.attributeDefinitionId, option.optionId);
+                  const priceCur = option.priceCurrency ?? currency;
                   return (
                     <button
                       key={option.optionId}
                       type="button"
                       aria-pressed={active}
                       aria-label={option.label}
-                      title={`${option.label}`}
                       onClick={() => selectColor(option.optionId)}
                       className={[
-                        "relative flex h-9 w-9 items-center justify-center rounded-full border transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-                        option.colorHex
-                          ? isLightHex(option.colorHex)
-                            ? "border-ink-subtle" // acik/beyaz renkler beyaz panele karismasin diye belirgin kenarlik
-                            : "border-line"
-                          : "border-dashed border-line-strong bg-surface-muted",
-                        active ? "ring-2 ring-ink ring-offset-2 ring-offset-surface" : "",
-                        soldOut ? "opacity-40" : "",
+                        "flex items-center gap-2.5 border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+                        active ? "border-ink ring-1 ring-ink" : "border-line hover:border-ink",
+                        soldOut ? "opacity-50" : "",
                       ].join(" ")}
-                      style={option.colorHex ? { backgroundColor: option.colorHex } : undefined}
                     >
-                      {active ? (
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                          <path
-                            d="M3 7.5l2.5 2.5L11 4.5"
-                            stroke={isLightHex(option.colorHex) ? "#111" : "#fff"}
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      ) : null}
-                      <span className="sr-only">{option.label}</span>
+                      <span
+                        className={[
+                          "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
+                          option.colorHex
+                            ? isLightHex(option.colorHex)
+                              ? "border-ink-subtle"
+                              : "border-line"
+                            : "border-dashed border-line-strong bg-surface-muted",
+                        ].join(" ")}
+                        style={option.colorHex ? { backgroundColor: option.colorHex } : undefined}
+                        aria-hidden
+                      >
+                        {active ? (
+                          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                            <path
+                              d="M3 7.5l2.5 2.5L11 4.5"
+                              stroke={isLightHex(option.colorHex) ? "#111" : "#fff"}
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : null}
+                      </span>
+                      <span className="flex flex-col">
+                        <span className="text-sm text-ink">{option.label}</span>
+                        {soldOut ? (
+                          <span className="text-[11px] text-ink-subtle">{t.detail.fashion.soldOut}</span>
+                        ) : option.startingPriceMinor !== null ? (
+                          <span className="flex items-baseline gap-1.5">
+                            <span className="text-xs font-semibold text-ink">
+                              {format(t.detail.fashion.startingAt, {
+                                price: formatMinor(option.startingPriceMinor, priceCur),
+                              })}
+                            </span>
+                            {option.compareAtMinor !== null ? (
+                              <span className="text-[11px] text-ink-subtle line-through">
+                                {formatMinor(option.compareAtMinor, priceCur)}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
+                      </span>
                     </button>
                   );
                 })}
@@ -418,7 +467,8 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                   <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">
                     {axis.name}
                   </p>
-                  {isSize && fashion.sizeChart ? (
+                  {/* TODO-165B — size ekseni başlığı yanında; yalnız sizeChart varlığına bağlı. */}
+                  {isSize && sizeChartAvailable ? (
                     <button
                       type="button"
                       onClick={() => setSizeChartOpen(true)}
@@ -443,7 +493,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                         disabled={soldOut}
                         onClick={() => selectAxisOption(axis.attributeDefinitionId, option.optionId)}
                         className={[
-                          "min-w-[3rem] border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          "min-w-[3rem] border px-3 py-2 text-center text-sm leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                           active
                             ? "border-ink bg-ink text-surface"
                             : "border-line text-ink-muted hover:border-ink hover:text-ink",
@@ -452,7 +502,19 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                             : "",
                         ].join(" ")}
                       >
-                        {option.label}
+                        <span className="block">{option.label}</span>
+                        {/* TODO-165B — tek renkli üründe beden kartında kesin fiyat (o beden = tek varyant).
+                            Çok renkte gösterilmez: kesin fiyat renk+beden seçilince buy-box'ta belirir. */}
+                        {showSizePrices && !soldOut && option.startingPriceMinor !== null ? (
+                          <span
+                            className={[
+                              "mt-0.5 block text-[11px] font-normal no-underline",
+                              active ? "text-surface/80" : "text-ink-subtle",
+                            ].join(" ")}
+                          >
+                            {formatMinor(option.startingPriceMinor, option.priceCurrency ?? currency)}
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}

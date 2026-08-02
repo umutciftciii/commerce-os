@@ -1811,3 +1811,13 @@ düşük (yalnız kod-yorumu doğruluğu; davranış etkisi yok).
 ### TD-172 — Marka arşiv/yeniden-adlandırma search read-model gecikmesi (TODO-165A, final review)
 - **Durum:** OPEN (Minor). Public katalog/detay projektörleri `brandRef`'i ACTIVE-only gösterir (arşivli marka → `brandRef: null`, `/markalar/[slug]` → 404). Ancak search read-model (`ProductSearchDocument.brandSlug/brandName`) marka `status` ile FİLTRELENMEZ; `synthesizeBrandFacet` facet'i canlı bu kolondan türetir. Marka arşivlemek hiçbir ürün satırına dokunmadığından reindex tetiklenmez → arşivli marka bir sonraki ürün-dokunuşu/`search:backfill`'e kadar facet olarak görünmeye + slug filtresiyle ürün döndürmeye devam eder.
 - **Etki:** Nadir admin işlemi; reindex ile kendini iyileştirir; kullanıcı-görünür kritik yol kırılmaz. Kalıcı çözüm: marka archive/rename'de ilgili ürünleri reindex kuyruğuna al VEYA facet sentezini `Brand.status='ACTIVE'` join'iyle kısıtla.
+- **Güncelleme (TODO-165B, ADR-263):** Marka **rename** (name/slug PATCH) artık `onBrandChanged`→`reindexStore` tetikler (search doc `brandSlug/brandName` snapshot tazelenir). **Archive/restore** hâlâ reindex tetiklemiyor → arşivli marka facet'te bir sonraki ürün-dokunuşuna kadar kalabilir (bu TD'nin kalan kısmı OPEN).
+
+### TD-173 — TODO-165B ertelenen küçük borçlar (recovery, non-blocking)
+
+- **Durum:** OPEN (Minor). TODO-165B recovery kapsamında bilinçli ertelenen kozmetik/optimizasyon kalemleri:
+  - **Kategori/marka rename reindex granülerliği:** `reindexStore` tüm mağazayı yeniden indeksler (kategori/marka rename SEYREK olduğu için kabul edildi). Optimizasyon: yalnız etkilenen ürünleri (assignment/subtree veya `brandId`) hedefleyen kategori/marka-scoped reindex API'si.
+  - **discovery-sections `GridThumb` aspect değişimi:** ortak primitive'e geçişte kart görsel oranı kare→`aspect-[4/5]` oldu (2 kolonlu kompakt grid; layout güvenli ama görsel ritim değişti — F14 görsel doğrulama önerildi).
+  - **Sepet/sipariş/checkout satır thumbnail'ları + QuickView modal + `home-sections` kategori karosu:** ortak `ProductMediaFrame`'e taşınmadı (ürün-kartı kapsamı dışı; farklı bağlam/tam-taşan görsel). İstenirse ayrı kapsamda `gallery-main`/yeni variant ile ele alınabilir.
+  - **Fashion projeksiyon fiyat özeti:** option başına `startingPriceMinor` çok-eksende o option'ın TÜM kombinasyonlarındaki min'dir (renk kartı "başlangıç" semantiği doğru); seçilen kesin kombinasyon fiyatı yine buy-box'ta gösterilir (tasarım gereği).
+- **Etki:** Hiçbiri kritik yolu kırmaz; kullanıcı-görünür doğruluk korunur.

@@ -440,6 +440,16 @@ export const enStoreAdmin: StoreAdminDictionary = {
       slugPlaceholder: "cotton-sweatshirt",
       slugHint: "Lowercase letters, numbers and hyphens only.",
       slugLockedHint: "The slug cannot be changed once created.",
+      // TODO-165B — Slug lifecycle UI (edit mode). Automatic mode derives the slug from the
+      // product name on save; manual mode lets the merchant edit it directly.
+      slugModeAutomatic: "Automatic (from product name)",
+      slugModeManual: "Manual",
+      slugModeAutomaticHint: "The slug is generated from the product name. Turn on manual mode to edit it yourself.",
+      slugSwitchToManual: "Edit manually",
+      slugSwitchToAutomatic: "Use automatic",
+      slugRegenerate: "Regenerate from name",
+      slugNextLabel: "New slug",
+      slugRedirectWarning: "A 301 redirect will be created from the old address.",
       statusLabel: "Status",
       brandLabel: "Brand (optional)",
       brandPlaceholder: "e.g. Acme",

@@ -95,6 +95,9 @@ export function buildSearchDocument(source: SearchSourceProduct): SearchBuildRes
     storeId: source.storeId,
     productId: source.id,
     primaryCategoryId: source.primaryCategoryId,
+    // TODO-165B — PLP/kategori görünürlüğü: ürünün bağlı olduğu TÜM kategoriler (primary + secondary).
+    categoryIds: source.categoryIds,
+    categorySlugs: source.categorySlugs,
     title: source.title,
     slug: source.slug,
     brand: source.brand,

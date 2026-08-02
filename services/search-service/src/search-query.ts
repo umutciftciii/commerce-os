@@ -472,7 +472,10 @@ function buildBasePredicate(
     Prisma.sql`d.status = 'ACTIVE'::"ProductStatus"`,
   ];
   if (categoryIds) {
-    parts.push(inClause(Prisma.sql`d."primaryCategoryId"`, categoryIds));
+    // TODO-165B — Ürün, subtree kategori id'lerinden HERHANGİ birine (primary VEYA secondary
+    // ProductCategoryAssignment) bağlıysa görünür. Array overlap (&&): tek doküman/ürün olduğu için
+    // duplicate DÖNMEZ; GIN index (categoryIds) ile ölçeklenir. primaryCategoryId artık yalnız canonical.
+    parts.push(Prisma.sql`d."categoryIds" && ARRAY[${Prisma.join(categoryIds)}]::text[]`);
   }
   if (includeBrand && query.brand) {
     parts.push(Prisma.sql`d."brandSlug" = ${query.brand}`);

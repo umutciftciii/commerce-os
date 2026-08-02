@@ -19,6 +19,7 @@
     "db:seed-enterprise:dry": "node scripts/enterprise-seed.mjs --dry-run",
     "db:verify-enterprise": "node scripts/verify-enterprise-seed.mjs",
     "db:audit-primary-category": "node scripts/audit-primary-category.mjs",
+    "db:backfill-fashion-categories": "node scripts/backfill-fashion-category-assignments.mjs",
     "db:audit-sku": "node scripts/audit-sku.mjs",
     "db:backfill-sku": "node scripts/backfill-sku.mjs",
     "db:scan-sponsorship-currency": "node scripts/security/scan-sponsorship-currency.mjs",

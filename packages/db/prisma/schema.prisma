@@ -1103,6 +1103,11 @@ model Product {
   storeId                  String
   title                    String
   slug                     String
+  // TODO-165B — Slug yasam dongusu. false (varsayilan): urun adi degisince slug otomatik
+  // yeniden uretilir (generateSlug) + eski slug icin 301 redirect kaydi (recordSlugChange).
+  // true: kullanici slug'i manuel kilitlemistir; ad degisse bile slug KORUNUR. Kullanici
+  // "Urun adindan yeniden uret" aksiyonuyla kilidi kaldirip slug'i tazeleyebilir.
+  slugLocked               Boolean                @default(false)
   description              String?
   status                   ProductStatus          @default(DRAFT)
   type                     ProductType            @default(PHYSICAL)
@@ -3710,7 +3715,15 @@ model ProductSearchDocument {
   id                        String                   @id @default(cuid())
   storeId                   String
   productId                 String                   @unique
+  // primaryCategoryId YALNIZ breadcrumb/canonical navigation icindir (URL, ekmek kirintisi).
+  // PLP/kategori gorunurlugu ARTIK categoryIds/categorySlugs uzerinden calisir (TODO-165B).
   primaryCategoryId         String?
+  // TODO-165B — Cok-kategori indexleme. Urunun bagli oldugu TUM kategoriler (primary + secondary
+  // ProductCategoryAssignment). Kategori subtree sorgusu categoryIds ile (id containment), slug
+  // dogrudan erisim categorySlugs ile eslenir. Urun bagli oldugu HER kategoride gorunur; PLP
+  // duplicate DONMEZ (tek dokuman/urun). Tenant isolation storeId ile korunur.
+  categoryIds               String[]                 @default([])
+  categorySlugs             String[]                 @default([])
   title                     String
   slug                      String
   brand                     String?
@@ -3775,6 +3788,10 @@ model ProductSearchDocument {
   @@index([storeId, brand])
   // TODO-165A (ADR-254) — Governed marka slug'iyla PLP filtreleme/listeleme.
   @@index([storeId, brandSlug])
+  // TODO-165B — Cok-kategori PLP filtreleme icin array containment (categoryIds && subtree_ids /
+  // categorySlugs && [slug]). GIN indeks olmadan buyuk katalogda seq-scan olur.
+  @@index([categoryIds], type: Gin)
+  @@index([categorySlugs], type: Gin)
 }
 
 // Flat facet IS ATI: bir (urun × filterable attribute × DEGER) satiri. YALNIZ CategoryAttribute.

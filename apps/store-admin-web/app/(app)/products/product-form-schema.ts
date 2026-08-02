@@ -35,6 +35,11 @@ export const APPOINTMENT_NOTE_MAX = 500;
 export interface ProductFormValues {
   title: string;
   slug: string;
+  // TODO-165B — Slug yaşam döngüsü. slugLocked=false (otomatik): ad değişince slug server'da
+  // yeniden üretilir (slug GÖNDERİLMEZ). true (manuel): kullanıcı slug'ı elle yönetir (gönderilir).
+  // regenerateFromTitle: "Ürün adından yeniden üret" aksiyonu (tek submit; ad değişmese de tazeler).
+  slugLocked: boolean;
+  regenerateFromTitle: boolean;
   status: ProductStatus;
   // TODO-165A (ADR-165A) Task 17 — free-text `brand`in yerini governed marka SEÇİMİ
   // aldı (bkz. brand-field.tsx). null = markasız (opsiyonel kalır, fallback YOK).
@@ -227,6 +232,9 @@ export function buildDefaultValues(mode: "create" | "edit", product?: Product): 
   return {
     title: initial?.title ?? "",
     slug: initial?.slug ?? "",
+    // TODO-165B — mevcut kilit durumunu round-trip'le; regenerate aksiyonu her zaman kapalı başlar.
+    slugLocked: initial?.slugLocked ?? false,
+    regenerateFromTitle: false,
     status: initial?.status ?? "DRAFT",
     // TODO-165A (ADR-165A) Task 17 — düzenleme modunda governed markayı ÖN-SEÇ (backend
     // artık admin GET/detail çıkışında brandId taşır; bkz. server.ts serializeProduct).
@@ -311,6 +319,12 @@ export function buildUpdatePayload(
 ): ProductUpdateRequest {
   const payload: ProductUpdateRequest = {
     title: values.title.trim(),
+    // TODO-165B — Slug yaşam döngüsü. Otomatik modda (kilit yok) slug GÖNDERİLMEZ → server ad'dan
+    // yeniden üretir + 301 yazar. Manuel modda (kilit) kullanıcının slug'ı gönderilir. "Yeniden üret"
+    // aksiyonu (regenerateFromTitle) ad değişmese de server'a başlıktan üretmesini söyler + kilidi kaldırır.
+    slugLocked: values.slugLocked,
+    ...(values.slugLocked ? { slug: values.slug.trim() } : {}),
+    ...(values.regenerateFromTitle ? { regenerateFromTitle: true } : {}),
     status: values.status,
     // TODO-165A (ADR-165A) Task 17 — governed `brandId` gönderilir (nullable); serbest-metin
     // `brand` alanı ARTIK GÖNDERİLMEZ (route brandId geçerliyse zaten dual-write ile marka

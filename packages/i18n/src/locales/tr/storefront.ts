@@ -337,6 +337,11 @@ export const trStorefront = {
     // {title} ürün başlığıyla, {n} 1'den başlayan görsel sırasıyla değiştirilir.
     galleryThumbAlt: "{title} küçük görseli {n}",
     galleryHint: "Görseller hazırlanıyor",
+    // TODO-165B — PDP galeri aksiyonları (Amazon-tarzı: yakınlaştır, paylaş).
+    galleryZoom: "Büyüt",
+    galleryZoomClose: "Kapat",
+    galleryShare: "Paylaş",
+    galleryShareCopied: "Bağlantı kopyalandı",
     benefitsTitle: "Öne çıkanlar",
     benefits: [
       "Özenle seçilmiş malzeme ve işçilik",
@@ -394,6 +399,9 @@ export const trStorefront = {
       attributesTitle: "Ürün Özellikleri",
       // {label} seçili seçenek adıyla değiştirilir (erişilebilirlik metni).
       optionSelected: "Seçili: {label}",
+      // TODO-165B — Renk/beden kartı fiyat özeti. {price} biçimlenmiş tutarla değiştirilir.
+      startingAt: "{price}’den",
+      soldOut: "Tükendi",
     },
   },
   buyBox: {

@@ -1414,3 +1414,32 @@ pnpm db:backfill-enterprise
   sayısı), `/product-dictionaries` (tip-sekme/usageCount/reorder), ürün formu Fashion Özellikleri (taxonomy
   select+quick-add) + Beden Tablosu adımı (searchable selector, raw ID yok). Detay + gerçek browser kanıtı:
   `docs/analysis/TODO-165A-product-data-governance.md` §8.
+
+## TODO-165B — Katalog recovery runbook (kategori backfill + reindex, ADR-263)
+
+Fashion kategorileri (`fash-cat-*`) storefront nav'da görünür ama boştu; ürünler eski `edm-cat-*` taksonomisine
+bağlıydı. İdempotent seed-fix eski→fashion kategori eşlemesiyle ürünleri ikinci kategoriye de bağlar (eski
+bağlantılar KORUNUR); ardından search read-model reindex edilir (`categoryIds/categorySlugs` snapshot'ları dolar).
+
+**Sıra (enterprise-demo örneği):**
+
+```bash
+# 1) DB migration (slugLocked + categoryIds/categorySlugs + GIN index) — additive, immutable.
+DATABASE_URL=... pnpm --filter @commerce-os/db db:deploy
+
+# 2) Kategori assignment backfill — önce dry-run, sonra apply (idempotent; tekrar apply=0).
+DATABASE_URL=... pnpm --filter @commerce-os/db db:backfill-fashion-categories -- --store=edm-store          # dry-run
+DATABASE_URL=... pnpm --filter @commerce-os/db db:backfill-fashion-categories -- --store=edm-store --apply
+
+# 3) Search read-model reindex (categoryIds/categorySlugs + fiyat/stok snapshot'ları tazelenir).
+DATABASE_URL=... REDIS_URL=... INTERNAL_API_TOKEN=... SESSION_SECRET=... \
+  pnpm --filter @commerce-os/search-service search:backfill --store edm-store
+```
+
+**Doğrulama (SQL):** `SELECT count(*) FROM "ProductSearchDocument" WHERE "storeId"='edm-store' AND status='ACTIVE'
+AND "categorySlugs" && ARRAY['moda-ayakkabi']::text[];` → 0'dan büyük olmalı (recovery öncesi 0, sonrası 25).
+
+**Not — normal akış:** Ürün/kategori assignment mutation'ları zaten reindex tetikler (yeni alanları doldurur).
+Kategori/marka **rename** için store-seviyesi reindex otomatik tetiklenir (ADR-263). Full backfill YALNIZ recovery/
+ilk-göç içindir; rutin gereksinim değildir. Backfill CLI config env ister (REDIS_URL/INTERNAL_API_TOKEN/SESSION_SECRET);
+docker container'dan alınabilir (`docker exec <gw> printenv`).

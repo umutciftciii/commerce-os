@@ -5,7 +5,7 @@ import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { ListingSwatch, SearchListingCard } from "../../lib/search/listing-adapter";
 import { Badge } from "../ui/badge";
-import { ProductMedia } from "../ui/product-media";
+import { ProductMediaFrame } from "../ui/product-media";
 import { Stars } from "../ui/stars";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating } from "../reviews/rating-provider";
@@ -53,30 +53,32 @@ export function SearchProductCard({
 
   return (
     <div className="group relative flex flex-col">
-      {/* Görsel çerçevesi: dış sarmalayıcı `div` (interaktif iç-içe geçmeyi önler — kalp butonu <a> içinde OLAMAZ). */}
-      <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
+      {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
+          Link tıklama katmanı + overlay'ler children olarak geçer (kalp butonu <a> içinde OLAMAZ →
+          Link mutlak-konumlu ince katman, kalp/rozet üstünde). Hover-zoom yalnız görsele (mediaClassName). */}
+      <ProductMediaFrame
+        variant="product-card"
+        handle={card.slug}
+        title={card.title}
+        imageUrl={baseImageUrl}
+        alt={baseAlt}
+        priority={priority}
+        className="rounded-md border border-line transition-shadow duration-300 ease-premium group-hover:shadow-md"
+        mediaClassName="transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+      >
+        {/* PDP tıklama katmanı (tüm çerçeveyi kaplar; kalp/rozet DOM'da sonra → üstte kalır). */}
         <Link
           href={card.href}
           aria-label={card.title}
-          className="block h-full w-full"
+          className="absolute inset-0"
           onClick={() => {
             // TODO-161 — Sponsorlu kart tıklaması: CLICK event + checkout attribution cookie'si.
             if (card.sponsored && card.sponsoredToken) trackSponsoredClick(card.sponsoredToken, "search");
           }}
-        >
-          {/* Temel görsel (swatch önizleme dahil) — layout-shift'siz drop-in. */}
-          <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100">
-            <ProductMedia
-              handle={card.slug}
-              title={card.title}
-              imageUrl={baseImageUrl}
-              alt={baseAlt}
-              priority={priority}
-            />
-          </div>
-        </Link>
+        />
 
-        {/* Secondary hover katmanı: yalnız hover-capable cihazda fade-in. pointer-events-none → altındaki Link tıklanır. */}
+        {/* Secondary hover katmanı: yalnız hover-capable cihazda fade-in. pointer-events-none → altındaki Link tıklanır.
+            Temel görselle tutarlı olması için object-contain (blocker 6). */}
         {showSecondary ? (
           <img
             src={card.secondaryImage!.url}
@@ -84,7 +86,7 @@ export function SearchProductCard({
             aria-hidden
             loading="lazy"
             decoding="async"
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-500 ease-premium [@media(hover:hover)]:group-hover:opacity-100 motion-reduce:transition-none"
+            className="pointer-events-none absolute inset-0 h-full w-full object-contain opacity-0 transition-opacity duration-500 ease-premium [@media(hover:hover)]:group-hover:opacity-100 motion-reduce:transition-none"
           />
         ) : null}
 
@@ -104,7 +106,7 @@ export function SearchProductCard({
           ) : null}
         </div>
 
-        {/* TODO-159D (ADR-093) — Gerçek favori toggle; kalp butonu <a> DIŞINDA (sarmalayıcı div içinde). */}
+        {/* TODO-159D (ADR-093) — Gerçek favori toggle; kalp butonu <a> DIŞINDA (çerçeve içi overlay). */}
         <WishlistHeartButton
           productId={card.id}
           labels={{
@@ -115,7 +117,7 @@ export function SearchProductCard({
             error: t.home.card.wishlistError,
           }}
         />
-      </div>
+      </ProductMediaFrame>
 
       <div className="flex flex-1 flex-col pt-4">
         {card.categoryLabel ? (

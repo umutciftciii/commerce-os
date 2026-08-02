@@ -170,6 +170,11 @@ export interface SearchSourceProduct {
    */
   categoryIds: string[];
   /**
+   * TODO-165B — categoryIds ile AYNI sira/kaynaktan turetilen kategori slug'lari (PLP dogrudan slug
+   * erisimi + read-model tutarliligi icin). Silinmis/eslesmeyen id'ler slug uretmez (filtrelenir).
+   */
+  categorySlugs: string[];
+  /**
    * TODO-155.2 — Bu mağazanın rozet-üretebilir aktif public kampanyaları (store-seviyesi; her ürün için AYNI
    * referans — data katmanı bir kez yükler). Builder `selectIndexableCampaignSnapshot` ile en ucuz varyant
    * fiyatı üzerinden rozet snapshot'ı üretir (PDP ile aynı formül).
@@ -225,6 +230,10 @@ export interface SearchDocumentData {
   storeId: string;
   productId: string;
   primaryCategoryId: string | null;
+  // TODO-165B — Urunun bagli oldugu TUM kategoriler (primary + secondary). PLP/kategori
+  // gorunurlugu bunlar uzerinden calisir; primaryCategoryId yalniz breadcrumb/canonical.
+  categoryIds: string[];
+  categorySlugs: string[];
   title: string;
   slug: string;
   brand: string | null;

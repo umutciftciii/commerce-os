@@ -3,7 +3,7 @@ import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { ctaLabel, primaryPriceText, showsNumericPrice } from "../../lib/labels";
 import { Badge } from "./badge";
-import { ProductMedia } from "./product-media";
+import { ProductMediaFrame } from "./product-media";
 
 /**
  * PLP (Adim 3) vitrin urun karti — minimal/editoryel (Ssense/Net-a-Porter dili):
@@ -37,32 +37,35 @@ export function ProductCard({
 
   return (
     <div className="group relative flex flex-col">
-      <Link
-        href={href}
-        aria-label={product.title}
-        className="relative block aspect-[4/5] overflow-hidden border border-line bg-surface"
-      >
-        <div className="h-full w-full transition-transform duration-700 ease-premium group-hover:scale-[1.04]">
-          <ProductMedia handle={product.handle} title={product.title} imageUrl={imageUrl ?? product.coverUrl} />
-        </div>
+      <Link href={href} aria-label={product.title} className="relative block">
+        {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding); rozetler
+            overlay (children), hover-zoom yalnız görsele uygulanır (çerçeve taşmayı keser). */}
+        <ProductMediaFrame
+          variant="product-card"
+          handle={product.handle}
+          title={product.title}
+          imageUrl={imageUrl ?? product.coverUrl}
+          className="border border-line"
+          mediaClassName="transition-transform duration-700 ease-premium group-hover:scale-[1.04]"
+        >
+          {/* GERCEK: kampanya/indirim rozeti (notr — aksan tasimaz). */}
+          {campaign ? (
+            <Badge tone="ink" className="absolute left-3 top-3">
+              {campaign.badgeText}
+            </Badge>
+          ) : product.badgeKind ? (
+            <Badge tone="ink" className="absolute left-3 top-3">
+              {product.badgeKind === "discount" ? t.badges.discount : t.badges.new}
+            </Badge>
+          ) : null}
 
-        {/* GERCEK: kampanya/indirim rozeti (notr — aksan tasimaz). */}
-        {campaign ? (
-          <Badge tone="ink" className="absolute left-3 top-3">
-            {campaign.badgeText}
-          </Badge>
-        ) : product.badgeKind ? (
-          <Badge tone="ink" className="absolute left-3 top-3">
-            {product.badgeKind === "discount" ? t.badges.discount : t.badges.new}
-          </Badge>
-        ) : null}
-
-        {/* F4A.6 — Otomatik indirim birincil iken (stackable ise) EK kupon cipi. */}
-        {isAutomatic && secondaryCoupon ? (
-          <Badge tone="outline" className="absolute right-3 top-3 bg-surface">
-            {secondaryCoupon.badgeText}
-          </Badge>
-        ) : null}
+          {/* F4A.6 — Otomatik indirim birincil iken (stackable ise) EK kupon cipi. */}
+          {isAutomatic && secondaryCoupon ? (
+            <Badge tone="outline" className="absolute right-3 top-3 bg-surface">
+              {secondaryCoupon.badgeText}
+            </Badge>
+          ) : null}
+        </ProductMediaFrame>
       </Link>
 
       <div className="flex flex-1 flex-col pt-4">

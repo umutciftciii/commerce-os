@@ -442,6 +442,16 @@ export const trStoreAdmin = {
       slugPlaceholder: "pamuklu-sweatshirt",
       slugHint: "Yalnızca küçük harf, rakam ve tire.",
       slugLockedHint: "Kısa ad oluşturulduktan sonra değiştirilemez.",
+      // TODO-165B — Slug yaşam döngüsü UI'ı (düzenleme modu). Otomatik modda slug kaydederken
+      // ürün adından türetilir; manuel modda satıcı doğrudan düzenler.
+      slugModeAutomatic: "Otomatik (ürün adından)",
+      slugModeManual: "Manuel",
+      slugModeAutomaticHint: "Kısa ad ürün adından üretilir. Kendiniz düzenlemek için manuel moda geçin.",
+      slugSwitchToManual: "Elle düzenle",
+      slugSwitchToAutomatic: "Otomatiğe geç",
+      slugRegenerate: "Ürün adından yeniden üret",
+      slugNextLabel: "Yeni slug",
+      slugRedirectWarning: "Eski adresten 301 yönlendirme oluşturulacak.",
       statusLabel: "Durum",
       brandLabel: "Marka (opsiyonel)",
       brandPlaceholder: "Örn. Acme",

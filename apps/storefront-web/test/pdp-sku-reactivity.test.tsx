@@ -36,8 +36,8 @@ const fashion: StorefrontFashionView = {
       dataType: "COLOR",
       kind: "color",
       options: [
-        { optionId: "c-siyah", value: "black", label: "Siyah", colorHex: "#111", colorFamily: "black", order: 0 },
-        { optionId: "c-mavi", value: "blue", label: "Mavi", colorHex: "#00f", colorFamily: "blue", order: 1 },
+        { optionId: "c-siyah", value: "black", label: "Siyah", colorHex: "#111", colorFamily: "black", order: 0, startingPriceMinor: 10000, compareAtMinor: null, priceCurrency: "TRY", inStock: true },
+        { optionId: "c-mavi", value: "blue", label: "Mavi", colorHex: "#00f", colorFamily: "blue", order: 1, startingPriceMinor: 12000, compareAtMinor: null, priceCurrency: "TRY", inStock: true },
       ],
     },
     {
@@ -47,8 +47,8 @@ const fashion: StorefrontFashionView = {
       dataType: "SELECT",
       kind: "size",
       options: [
-        { optionId: "s-S", value: "S", label: "S", colorHex: null, colorFamily: null, order: 0 },
-        { optionId: "s-M", value: "M", label: "M", colorHex: null, colorFamily: null, order: 1 },
+        { optionId: "s-S", value: "S", label: "S", colorHex: null, colorFamily: null, order: 0, startingPriceMinor: 10000, compareAtMinor: null, priceCurrency: "TRY", inStock: true },
+        { optionId: "s-M", value: "M", label: "M", colorHex: null, colorFamily: null, order: 1, startingPriceMinor: 10000, compareAtMinor: null, priceCurrency: "TRY", inStock: true },
       ],
     },
   ],

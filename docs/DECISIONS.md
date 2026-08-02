@@ -5799,3 +5799,78 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
   size-chart select-field — hepsi aynı ortak selector primitive/deseni üzerine kurulu.
 - **Sonuç.** Selector UX'i platform genelinde tek bir tutarlı desene sahip; yeni entity tipleri eklemek mevcut
   deseni klonlamakla sınırlı, yeni bir seçici motoru gerektirmez.
+
+## ADR-259 — PDP galeri medya kontratı (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** PDP galerisi Amazon-tarzı kompakt düzene geçer: DESKTOP'ta solda dikey thumbnail şeridi + sağda
+  KONTROLLÜ ana görsel (`max-w-[520px]`, `aspect-[4/5]`), MOBILE/TABLET'te ana görsel üstte + altta yatay
+  kaydırmalı thumbnail (`flex-col-reverse lg:flex-row`). Ana görsel ortak `ProductMediaFrame variant="gallery-main"`
+  ile render edilir → `object-contain` + nötr zemin + güvenli iç boşluk; **frame'de max boyut sınırı** olduğundan
+  `GALLERY_FIRST` slot varyantında bile devasa render OLMAZ (eski kök neden: frame'de yalnız `aspect-[4/5]`, boyut
+  sınırı yoktu). Zoom YALNIZ kullanıcı etkileşimiyle (tam-ekran lightbox; Esc/ok tuşları); thumbnail hover/click +
+  ok tuşlarıyla gezinme; share aksiyonu (`navigator.share`/clipboard). Tema slot yapısı + variant-media (renk→galeri)
+  davranışı KORUNUR — galeri, `productDetailLayout` slot'unun içindeki alt bileşendir.
+- **Sonuç.** Ana görsel ürün bilgi kolonunu domine etmez; kırpma/aşırı-zoom yok; 375/768/1024/1440 taşma yok.
+
+## ADR-260 — Ürün-kartı görsel-fit standardı & ortak medya primitive (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `ProductMediaFrame` primitive'i (aspect-ratio + fit + padding + nötr zemin) `variant` başına TEK YERDE
+  tanımlar: `product-card`/`gallery-main`=`contain`, `gallery-thumbnail`=`cover`, `variant-card`=`contain`. Ürün-kartı
+  tüketicileri (PLP, arama, site kart, discovery, wishlist) bu primitive'e geçer → eski `object-cover` aşırı-zoom/crop
+  giderilir (kök neden: her tüketici kendi frame'ini `cover` ile kopyalıyordu). Overlay'ler (rozet) `children`,
+  hover-zoom `mediaClassName` ile taşınır (frame `overflow-hidden` taşmayı keser). Hero/banner + tam-taşan kategori
+  karoları KAPSAM DIŞI (kural: yalnız ürün medya kartları). Sepet/sipariş satır thumbnail'ları ayrı kapsam.
+- **Sonuç.** `object-cover/contain` kararı tek kaynakta; kartlarda görsel merkezli, kırpmasız, katmanlı düzen kayması yok.
+
+## ADR-261 — Varyant-kartı fiyat stratejisi (server-authoritative renk/beden özeti) (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** Public fashion projeksiyonu her option'a `startingPriceMinor`/`compareAtMinor`/`priceCurrency`/`inStock`
+  ekler (additive). Değer, o option'a sahip **ACTIVE + görünür-fiyatlı** varyantların min fiyatından SERVER'da türetilir
+  (client fiyat hesabı YOK); karışık para birimi → `startingPriceMinor=null` (fail-safe, yanıltıcı özet gösterilmez);
+  fiyat gizli/varyant yok → null. Projeksiyon ayrıca `productVariantOptionValue` sorgusuna `variant.status=ACTIVE`
+  filtresi ekler → arşivli/inactive varyant option'ları optionAxes'e ve fiyat özetine SIZMAZ. Buy-box: **çok renkte**
+  renk kartlarında başlangıç fiyatı (indirimliyse eski/yeni), **tek renkte** renk bölümü gizli + beden kartlarında
+  kesin fiyat, **renk+beden'de** renk kartında özet + seçilen bedenle buy-box'ta kesin fiyat. quantity unit price'ı
+  değiştirmez (`resolveUnitPriceLabels` korunur).
+- **Sonuç.** Renk/beden kartları doğru, para-invariant, yanlış-fallback'siz fiyat gösterir; money source-of-truth server.
+
+## ADR-262 — Ürün slug yaşam döngüsü & 301 redirect (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `Product.slugLocked Boolean` (additive migration) manuel kilidi kalıcılaştırır. Slug kararı SAF
+  `resolveProductSlugOnUpdate` (server-authoritative, `generateSlug` üzerinden): (1) `regenerateFromTitle` aksiyonu →
+  başlıktan üret + kilidi kaldır; (2) manuel slug override; (3) ad değişti + kilit yok → otomatik yeniden üret;
+  (4) aksi → koru. Slug gerçekten değişince MEVCUT `recordSlugChange` reuse edilir (SlugHistory + 301, chain-collapse +
+  loop-guard). Store-admin form: otomatik/manuel toggle, otomatik modda slug GÖNDERİLMEZ (server türetir), manuel modda
+  gönderilir, "Ürün adından yeniden üret" aksiyonu + 301 önizleme. Tenant-scoped; collision deterministik sonek.
+  YENİ redirect/slug-history modeli KURULMAZ (TODO-156D altyapısı reuse).
+- **Sonuç.** Ad değişikliği sessizce eski slug'ı bırakmaz; eski URL'ler doğrudan (chain'siz) güncel sluga 301'lenir.
+
+## ADR-263 — Kategori read-model çoklu-üyelik tutarlılığı (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** `ProductSearchDocument`'a `categoryIds String[]` + `categorySlugs String[]` (additive; GIN index).
+  Reindex, ürünün TÜM kategori üyeliklerini (primary + secondary `ProductCategoryAssignment`) yazar. PLP filtresi
+  `d.primaryCategoryId IN (...)` yerine `d.categoryIds && ARRAY[subtree_ids]` (overlap) kullanır → ürün bağlı olduğu
+  HER kategoride görünür, tek doküman olduğundan duplicate DÖNMEZ. `primaryCategoryId` artık yalnız breadcrumb/canonical.
+  Mutation akışı zaten reindex tetikliyordu (yeni alanları doldurur); kategori/marka **rename** için store-seviyesi
+  reindex EKLENDİ (categorySlugs/brandSlug snapshot bayatlığını önler). Demo veri tutarsızlığı (fashion kategorileri
+  boş, ürünler eski taksonomide) idempotent `backfill-fashion-category-assignments` ile giderilir (eski bağlantılar korunur).
+- **Sonuç.** Store-admin'de kategoriye bağlı aktif/yayınlı ürün storefront PLP'de görünür; normal mutation akışı
+  read-model'i günceller, full reindex yalnız recovery/runbook.
+
+## ADR-264 — Beden-tablosu public projeksiyon görünürlüğü (TODO-165B)
+
+- **Durum:** ACCEPTED.
+- **Karar.** PDP "Beden Tablosu" aksiyonunun görünürlüğü YALNIZ `fashion.sizeChart` (public projeksiyonda çözülmüş
+  published revision) varlığına bağlıdır — `axis.kind` / option code / kategori adı / heuristiğe DEĞİL (kök neden:
+  buton yalnız `kind==='size'` ekseni yanında render ediliyordu; eski taksonomi `numara` eksenini `size` saymıyordu,
+  buton hiç çıkmıyordu). `resolveEffective` TEK precedence (PRODUCT>CATEGORY>STORE, yalnız PUBLISHED + publishedRevision)
+  reuse edilir; unpublished/archived görünmez; PDP projeksiyonu cache'siz (her istek taze → assignment/publish/rollback
+  anında yansır). Ayrıca `axisKind` normalize edilir (numara/beden→`size`) ama bu YALNIZ varyant kartı UX'i içindir,
+  buton görünürlük şartı DEĞİL. Capability kapalıysa fashion projeksiyonu null → buton yok.
+- **Sonuç.** Product-scope bağlı published beden tablosu, eksen tipinden bağımsız olarak PDP'de erişilebilir
+  modal/drawer ile görünür; Category/Store fallback precedence'i korunur.

@@ -50,6 +50,12 @@ export interface BrandRoutesDeps {
   }) => Promise<void>;
   /** storageKey → public URL (server.ts: resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, key)). */
   toPublicMediaUrl: (storageKey: string) => string;
+  /**
+   * TODO-165B — Marka adı/slug'ı değişince search read-model'deki brandSlug/brandName snapshot'ı
+   * bayatlar (PLP marka filtresi + kart marka etiketi eski değeri gösterir). Markanın ürünlerini
+   * yeniden indeksle (mağaza-seviyesi; marka rename seyrek). Opsiyonel (test DI'da atlanabilir).
+   */
+  onBrandChanged?: (storeId: string) => void;
 }
 
 const storeParam = z.object({ storeId: z.string().min(1) });
@@ -91,7 +97,7 @@ function serializeBrandOption(brand: BrandRecord, toPublicMediaUrl: (storageKey:
 }
 
 export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps) {
-  const { service, requireStoreAdmin, recordAudit, toPublicMediaUrl } = deps;
+  const { service, requireStoreAdmin, recordAudit, toPublicMediaUrl, onBrandChanged } = deps;
 
   async function handle(reply: FastifyReply, fn: () => Promise<unknown>) {
     try {
@@ -211,6 +217,10 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
         entityType: "Brand",
         entityId: brand.id,
       });
+      // TODO-165B — marka adı/slug değişince ürün search read-model snapshot'ı bayatlar → reindex.
+      if (body.name !== undefined || body.slug !== undefined) {
+        onBrandChanged?.(params.storeId);
+      }
       return brandResponseSchema.parse({ data: serializeBrand(brand, toPublicMediaUrl) });
     });
   });
