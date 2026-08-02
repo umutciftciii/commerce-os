@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Badge, Button, Card, EmptyState } from "@commerce-os/ui";
+import { Badge, Card } from "@commerce-os/ui";
+import { Alert, Button, EmptyState } from "../../ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontCouponCenterView } from "../../../lib/catalog-types";
 import {

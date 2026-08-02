@@ -5,7 +5,7 @@ import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
-import { Badge, ButtonLink, ProductMedia, ProductMediaFrame, Stars } from "../ui";
+import { Badge, ButtonLink, ProductMediaFrame, Stars } from "../ui";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating, type CardRating } from "../reviews/rating-provider";
 import { SponsoredBadge } from "../sponsored/sponsored-badge";
@@ -179,9 +179,14 @@ function QuickView({
             <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
-        <div className="aspect-square w-full bg-surface-muted sm:w-1/2">
-          <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
-        </div>
+        {/* TD-173 — Hızlı bakış görseli ortak çerçevede (contain, kırpma yok, placeholder). */}
+        <ProductMediaFrame
+          variant="line-thumbnail"
+          handle={product.handle}
+          title={product.title}
+          imageUrl={product.coverUrl}
+          className="w-full sm:w-1/2"
+        />
         <div className="flex w-full flex-col justify-center gap-3 p-6 sm:w-1/2 sm:p-8">
           {product.categoryLabel ? (
             <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-subtle">

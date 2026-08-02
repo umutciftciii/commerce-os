@@ -340,8 +340,11 @@ export const trStorefront = {
     // TODO-165B — PDP galeri aksiyonları (Amazon-tarzı: yakınlaştır, paylaş).
     galleryZoom: "Büyüt",
     galleryZoomClose: "Kapat",
+    galleryPrev: "Önceki görsel",
+    galleryNext: "Sonraki görsel",
     galleryShare: "Paylaş",
     galleryShareCopied: "Bağlantı kopyalandı",
+    reviewsTabTitle: "Değerlendirmeler",
     benefitsTitle: "Öne çıkanlar",
     benefits: [
       "Özenle seçilmiş malzeme ve işçilik",
@@ -1088,6 +1091,7 @@ export const trStorefront = {
         shipping: "Kargo",
         freeShipping: "Ücretsiz",
         tax: "KDV dahil",
+        taxIncludedNote: "Fiyatlara KDV dahildir",
         total: "Toplam",
         productsTitle: "Ürünler",
         shippingAddress: "Teslimat adresi",

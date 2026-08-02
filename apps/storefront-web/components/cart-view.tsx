@@ -17,7 +17,7 @@ import {
 } from "../lib/server/cart-actions";
 import type { StorefrontWalletCouponView } from "../lib/catalog-types";
 import { cn } from "@commerce-os/ui";
-import { Badge, Button, ButtonLink, Input, ProductMedia, Subheading } from "./ui";
+import { Badge, Button, ButtonLink, Input, ProductMediaFrame, Subheading } from "./ui";
 
 type CartDict = StorefrontDictionary["cart"];
 
@@ -169,12 +169,15 @@ function CartLineRow({
           />
         </div>
 
-        {/* Dilim 6a — Ürün kapak thumbnail'i (drop-in ProductMedia; imageUrl yoksa
-            deterministik yer tutucu). PLP/PDP kutu deseni: sabit boyutlu wrapper +
-            ince hairline cerceve, ProductMedia h-full w-full ile doldurur. */}
-        <div className="h-24 w-24 shrink-0 overflow-hidden border border-line bg-surface-muted">
-          <ProductMedia handle={line.productSlug} title={line.title} imageUrl={line.imageUrl} />
-        </div>
+        {/* TD-173 — Ortak ürün medya çerçevesi (line-thumbnail: kare, contain, nötr zemin,
+            tutarlı placeholder, layout shift yok). Tüm sepet/sipariş satırlarıyla aynı. */}
+        <ProductMediaFrame
+          variant="line-thumbnail"
+          handle={line.productSlug}
+          title={line.title}
+          imageUrl={line.imageUrl}
+          className="h-24 w-24 shrink-0 border border-line"
+        />
 
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">

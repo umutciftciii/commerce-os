@@ -33,6 +33,7 @@ export function PdpReviews({
   loginHref,
   t,
   locale,
+  embedded = false,
 }: {
   productId: string;
   initial: ReviewPublicListResponse;
@@ -40,6 +41,8 @@ export function PdpReviews({
   loginHref: string;
   t: StorefrontDictionary;
   locale: string;
+  /** Sekme içinde gömülüyse dış boşluk/başlık/çapa kaldırılır (§4). */
+  embedded?: boolean;
 }) {
   const r = t.reviews;
   const [summary, setSummary] = useState<ReviewSummary>(initial.summary);
@@ -87,10 +90,16 @@ export function PdpReviews({
   const hasReviews = summary.reviewCount > 0;
 
   return (
-    <section className="mt-20 border-t border-line pt-12" id="reviews" aria-label={r.title}>
-      <h2 className="text-xl font-medium text-ink sm:text-2xl">{r.title}</h2>
+    <section
+      className={embedded ? "" : "mt-20 border-t border-line pt-12"}
+      id={embedded ? undefined : "reviews"}
+      aria-label={r.title}
+    >
+      {embedded ? null : (
+        <h2 className="text-xl font-medium text-ink sm:text-2xl">{r.title}</h2>
+      )}
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className={embedded ? "grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)]" : "mt-8 grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)]"}>
         {/* Özet + dağılım + yaz aksiyonu */}
         <div className="space-y-6">
           {hasReviews ? (

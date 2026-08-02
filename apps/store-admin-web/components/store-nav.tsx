@@ -155,7 +155,6 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       heading: g("appearance"),
       items: [
         { href: "/home", label: t.homeExperience, icon: <HomeIcon /> },
-        { href: "/hero", label: t.hero, icon: <HomeIcon /> },
         { href: "/theme", label: t.theme, icon: <ThemeIcon /> },
         { href: "/settings", label: t.settings, icon: <SettingsIcon /> },
         { href: "/modules", label: locale === "tr" ? "Modüller" : "Modules", icon: <SettingsIcon /> },

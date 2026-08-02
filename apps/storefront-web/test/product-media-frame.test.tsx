@@ -76,4 +76,24 @@ describe("ProductMediaFrame — object-fit sözleşmesi", () => {
     expect(html).not.toContain("<img");
     expect(html).toContain('role="img"');
   });
+
+  // TD-173 — Sepet/sipariş/wishlist satır thumbnail'i: kare, contain, tutarlı placeholder.
+  it("variant=line-thumbnail img'i object-contain + kare (aspect-square) çerçeve taşır", () => {
+    const html = renderToStaticMarkup(
+      <ProductMediaFrame variant="line-thumbnail" handle="p" title="Ürün" imageUrl={IMG} />,
+    );
+    expect(html).toContain("object-contain");
+    expect(html).not.toContain("object-cover");
+    expect(html).toContain("aspect-square");
+  });
+
+  it("variant=line-thumbnail görselsiz ortak placeholder (monogram) gösterir — beyaz boş kart yok", () => {
+    const html = renderToStaticMarkup(
+      <ProductMediaFrame variant="line-thumbnail" handle="p" title="Örnek" />,
+    );
+    expect(html).not.toContain("<img");
+    expect(html).toContain('role="img"');
+    // Deterministik monogram (başlığın ilk harfi).
+    expect(html).toContain(">Ö<");
+  });
 });

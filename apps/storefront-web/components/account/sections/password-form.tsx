@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Alert, Button, Input } from "@commerce-os/ui";
+import { Alert, Button, Input } from "../../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { changePasswordAction } from "../../../lib/server/account-actions";
 

@@ -1854,3 +1854,44 @@ Detay/sınıflandırma: bkz. bu turun final raporu.
 
 Doküman hijyeni: duplicate **TD-039** id ayrıştırıldı (ikinci giriş → **TD-039B**). ROADMAP/TODO tail'inde
 TODO-165/165A/165B "commit YOK" bayat durumları CLOSED & DEPLOYED olarak düzeltildi.
+
+## Final Enterprise UI Polish — Implementation (2026-08-02, worktree, commit YOK)
+
+Denetimde Final Polish kapsamına bırakılan kalemlerin uygulanması. Detay: `docs/analysis/FINAL-enterprise-ui-polish.md`. Gate: typecheck+lint+test(1199)+build(9/9)+`git diff --check` YEŞİL; browser smoke (desktop 1440 + mobil 375).
+
+**RESOLVED:**
+- **B1 (buton/input token):** storefront auth/account/checkout/pay editorial local kite hizalandı; header ÜYE OL editorial; semantik status Badge/Card korundu.
+- **C1 (form aria):** paylaşılan `fieldAria` + üç input sistemi `aria-invalid`/`aria-describedby`/`aria-required` + id'li mesaj; zorunlu göstergesi CSS `::after` (etiket adı sade).
+- **D1 (modal focus trap):** ortak `useFocusTrap` (saf çekirdek `focus-trap.ts` + client `use-focus-trap.ts`, RSC sınırı); shared + store-admin modal + gallery lightbox; `useId` benzersiz id.
+- **TD-170 (brand facet):** facet label locale'den (`facetTitle`); marka landing'de yanıltıcı brand chip kaldırıldı + marka facet'i raydan gizlendi; clear-all brand path'te kalır (context korunur).
+- **§6 tooltip/z-index:** merkezi z-index ölçeği (preset); portallı Tooltip (collision+auto-flip); pricing InfoTip kırpılma fix.
+- **§5 Ana Sayfa duplicate:** `/hero`→`/home` redirect; nav + orphaned dead-code + legacy BFF/client temizlendi; veri korundu.
+- **FP-3 (rating):** recently-viewed + similar rail'leri BFF `getCardRatings` reuse ile RatingProvider'a bağlandı.
+- **PDP:** hover zoom (§2), layout dengesi + sticky buy-box (§3), Reviews 4. tab + hash (§4).
+
+**PARTIAL / follow-up:**
+- **TD-173 (product media):** cart/order-summary hâlâ `ProductMedia`; `ProductMediaFrame` altına alınmalı.
+- **TD-157 (theme preset):** heroHeight geçersiz-değer + ham enum düzeltildi; orphaned `--tb-heading-scale`/`--tb-line-height`/`--tb-card-gap` wiring/removal + preview/publish doğrulaması follow-up.
+- **§14/15/16 geniş taramalar:** primitive + hedefli düzeltmeler yapıldı; Platform Admin raw enum/slug (plans capability keys, theme-library sourcePreset, themes layoutPreset/kind, assignment reasonCode) + her ekran görsel taraması follow-up.
+- **§17 responsive:** PDP 375/1440 doğrulandı; 768/1024 + checkout/wizard/theme-designer matris follow-up.
+
+## Final Polish — Completion Recovery (2026-08-02, worktree, commit YOK)
+
+İlk turda PARTIAL kalanlar KAPATILDI. Detay: `docs/analysis/FINAL-enterprise-ui-polish.md` (Completion Recovery). Gate: typecheck+lint(11/11)+test(1231)+build(9/9)+`git diff --check` YEŞİL; storefront browser matris 375/768/1024/1280.
+
+- **TD-173 CLOSED:** `ProductMediaFrame` tam geçişi — yeni `line-thumbnail` varyantı (kare/contain/placeholder); cart, order success, account order detail+list, PDP hızlı-bakış geçirildi (wishlist/PLP/search/discovery zaten frame'de). Test +2. Browser (cart contain) doğrulandı.
+- **TD-157 CLOSED:** heroHeight geçersiz enum + ham enum → friendly label; `productCardDensity`→`--tb-card-gap` storefront'ta tüketilir (mobil grid row-gap); `headingScale`/`lineHeight` kontrollü kaldırıldı (utility-based tipografide güvenli bağlanamıyordu). No-op kontrol/geçersiz değer kalmadı.
+- **§14 Platform Admin CLOSED:** raw sourcePreset/layoutPreset/kind/reasonCode/capability-key → friendly (getLayoutPreset.nameTr / capLabel / reasonLabel; ham key yalnız ikincil teknik detay). Theme designer status/source friendly.
+- **§8 Settings CLOSED:** inert placeholder nav'dan kaldırıldı + `/settings`→`/` redirect.
+- **§17/§7:** storefront browser responsive matris + PDP tablist klavye doğrulandı; admin browser oturum-gated (tasarım-responsive + test-kapsamlı).
+
+**Final Enterprise UI Polish: IMPLEMENTED.** TD-173/TD-157/B1/C1/D1/TD-170/FP-3 CLOSED. Kalan tek PROD BLOCKER pre-existing PB-3/TD-139 (offsite backup, UI dışı — kapsam dışı).
+
+## Final Acceptance Recovery (2026-08-02) — durum: IN_PROGRESS
+
+Üç kabul (acceptance) browser smoke'u istendi. Detay: `docs/analysis/FINAL-enterprise-ui-polish.md` (Final Acceptance Recovery).
+- **Hover zoom regresyonu: ÇÖZÜLDÜ + browser kanıtı.** Kök neden: (1) saydam overlay img base'in üstünde → duplicate/seam; (2) cached ölçüm-img'i onLoad ateşlemiyor → maxScale=1 → zoom yok; (3) origin frame'e göre → beyaz boşlukta zoom. Fix: tek OPAK katman + `img.complete` ile ölçüm + `containZoomOrigin` letterbox-aware kelepçe. Test: containZoomOrigin 4 + gallery 18/18 + storefront 523/523.
+- **Theme smoke: KISMİ.** Canlı admin oturumunda TD-157 kontrolleri (removed sliders, friendly/valid enum), draft-preview GÖRÜNÜR storefront diff (sarı zemin), publish + WCAG-kontrast + override-policy governance gate'leri DOĞRULANDI. Canlı store-assignment→production-swap→sürüm-rollback YAPILMADI (paylaşılan enterprise-demo store mutasyon riski; 0-store atama → canlı storefront etkilenmedi). Smoke tema DB'den temizlendi.
+- **Checkout smoke: KISMİ.** Non-auth yüzeyler doğrulandı (sepet TD-173, checkout→login gate, editorial login + aria + 375). Tam kimlik-doğrulamalı akış YAPILMADI (güvenlik kuralı: hesap oluşturma + parola girme kısıtlı; bilinen-parolalı müşteri fixture'ı yok).
+
+**Sonuç:** Üç smoke tam geçmediğinden **TD-157 CLOSED / Final Enterprise UI Polish IMPLEMENTED KABUL EDİLMEZ; durum IN_PROGRESS.** (Önceki "Completion Recovery" bölümündeki CLOSED işaretleri kontrol-seviyesi doğrulamayı yansıtır; tam acceptance için store-swap+rollback ve auth'lu checkout kullanıcı-tarafı oturum gerektirir.) Kod tarafı: typecheck+lint+test(1235)+build YEŞİL.

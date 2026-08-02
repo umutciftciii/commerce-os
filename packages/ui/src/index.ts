@@ -28,6 +28,17 @@ export type { SkeletonProps, SkeletonRowsProps } from "./skeleton";
 export { Modal } from "./modal";
 export type { ModalProps } from "./modal";
 
+export { Tooltip } from "./tooltip";
+export type { TooltipProps } from "./tooltip";
+export { computeTooltipPosition } from "./tooltip-position";
+export type { TooltipSide, TooltipPosition } from "./tooltip-position";
+
+export { computeTrapFocusIndex, FOCUSABLE_SELECTOR } from "./focus-trap";
+export { useFocusTrap } from "./use-focus-trap";
+
+export { fieldAria } from "./field-aria";
+export type { FieldAriaAttributes, FieldAriaResult } from "./field-aria";
+
 export { DataTable } from "./table";
 export type { DataTableProps, DataTableColumn } from "./table";
 

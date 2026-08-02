@@ -126,12 +126,11 @@ export function builderBaseVariables(config: ThemeBuilderConfig): Var[] {
   // Tipografi
   pushLen(vars, "--tb-base-size", config.typography?.baseSize);
   pushLen(vars, "--tb-letter-spacing", config.typography?.letterSpacing);
-  if (typeof config.typography?.lineHeight === "number") {
-    vars.push(["--tb-line-height", String(config.typography.lineHeight)]);
-  }
-  if (typeof config.typography?.headingScale === "number") {
-    vars.push(["--tb-heading-scale", String(config.typography.headingScale)]);
-  }
+  // TD-157 — `headingScale`/`lineHeight` EMIT KALDIRILDI: vitrinin editoryel tipografisi
+  // Tailwind text-* utility'leriyle (font-size + line-height paketli) kurulu; bu iki global
+  // çarpanı güvenli tüketmek tip sistemini refactor etmeyi gerektirir. No-op CSS değişkeni
+  // üretmemek için üretim durduruldu (Theme Designer kontrolleri de kaldırıldı). Tüketilen
+  // yapı/stil değişkenleri (container/section/hero/listing/card-ratio/card-gap) korunur.
 
   return vars;
 }

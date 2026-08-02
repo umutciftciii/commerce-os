@@ -1,27 +1,40 @@
 "use client";
 
-import { type KeyboardEvent, useId, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useState } from "react";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { salesModeLabel } from "../lib/labels";
 import type { StorefrontProductDetail } from "../lib/catalog-types";
 
 /**
- * PDP detay sekmeleri ("Storefront - PDP" tasarımı).
+ * PDP detay sekmeleri ("Storefront - PDP" tasarımı) — Final Polish (§4).
  *
- * Uzun yığılmış bölümler (açıklama / özellik / paket / kullanım / kargo) yerine
- * tasarımdaki 3 sekme: **Ürün açıklaması · Teknik özellikler · Kargo & İade**.
- * Tamamen token-tabanlı (aksan taşımaz). Erişilebilir tablist: `role=tab/tabpanel`,
+ * Dört sekme: **Ürün açıklaması · Teknik özellikler · Kargo & İade · Değerlendirmeler**.
+ * Değerlendirmeler artık başıboş bir bölüm değil, sekmenin içindedir (özet + liste +
+ * yorum formu aynı panelde). Sekme başlığında yorum sayısı gösterilir. Deep-link/hash
+ * (#description/#specs/#shipping/#reviews) desteklenir; başlıktaki puan bağlantısı
+ * (#reviews) doğru sekmeyi açar. Erişilebilir tablist: `role=tab/tabpanel`,
  * `aria-selected`, ok tuşlarıyla gezinme; seçili olmayan paneller `hidden`.
- * GERÇEK içerik (açıklama/marka/kategori/sku/seçenek) sunucudan; uydurma yok.
  */
-type TabId = "description" | "specs" | "shipping";
+type TabId = "description" | "specs" | "shipping" | "reviews";
+
+const HASH_TO_TAB: Record<string, TabId> = {
+  description: "description",
+  specs: "specs",
+  shipping: "shipping",
+  reviews: "reviews",
+};
 
 export function PdpDetailTabs({
   detail,
   t,
+  reviewsSlot,
+  reviewCount = 0,
 }: {
   detail: StorefrontProductDetail;
   t: StorefrontDictionary;
+  /** REVIEWS açıksa render edilecek değerlendirme bloğu; null ise sekme gizlenir. */
+  reviewsSlot?: ReactNode;
+  reviewCount?: number;
 }) {
   const d = t.detail;
   const [active, setActive] = useState<TabId>("description");
@@ -31,10 +44,41 @@ export function PdpDetailTabs({
     { id: "description", label: d.descriptionTitle },
     { id: "specs", label: d.specsTitle },
     { id: "shipping", label: d.shippingTabTitle },
+    ...(reviewsSlot
+      ? [
+          {
+            id: "reviews" as const,
+            label: reviewCount > 0 ? `${d.reviewsTabTitle} (${reviewCount})` : d.reviewsTabTitle,
+          },
+        ]
+      : []),
   ];
 
   const tabId = (id: TabId) => `${baseId}-tab-${id}`;
   const panelId = (id: TabId) => `${baseId}-panel-${id}`;
+
+  // Deep-link/hash: yüklemede + hashchange'de ilgili sekmeyi aç ve görünüre kaydır.
+  useEffect(() => {
+    const syncFromHash = () => {
+      const hash = window.location.hash.slice(1);
+      const target = HASH_TO_TAB[hash];
+      if (!target) return;
+      if (target === "reviews" && !reviewsSlot) return;
+      setActive(target);
+      document.getElementById(`${baseId}-tabs`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, [baseId, reviewsSlot]);
+
+  const selectTab = (id: TabId) => {
+    setActive(id);
+    // Paylaşılabilir deep-link: sekmeyi hash'e yaz (sayfayı zıplatmadan).
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${id}`);
+    }
+  };
 
   // Klavye: Sol/Sağ ok ile sekmeler arası döngü (WAI-ARIA tabs deseni).
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -46,17 +90,19 @@ export function PdpDetailTabs({
         ? (index + 1) % tabs.length
         : (index - 1 + tabs.length) % tabs.length;
     const next = tabs[nextIndex].id;
-    setActive(next);
+    selectTab(next);
     document.getElementById(tabId(next))?.focus();
   };
 
   return (
-    <div className="mt-16 max-w-3xl lg:mt-20">
+    <div id={`${baseId}-tabs`} className="scroll-mt-24">
+      {/* #reviews gibi eski deep-link'ler için sabit çapa (sekme yapısı içinde). */}
+      <span id="reviews" aria-hidden className="block" />
       <div
         role="tablist"
         aria-label={d.detailTabsLabel}
         onKeyDown={onKeyDown}
-        className="flex gap-6 border-b border-line sm:gap-8"
+        className="flex gap-6 overflow-x-auto border-b border-line sm:gap-8"
       >
         {tabs.map((tab) => {
           const selected = tab.id === active;
@@ -69,7 +115,7 @@ export function PdpDetailTabs({
               aria-selected={selected}
               aria-controls={panelId(tab.id)}
               tabIndex={selected ? 0 : -1}
-              onClick={() => setActive(tab.id)}
+              onClick={() => selectTab(tab.id)}
               className={[
                 "-mb-px whitespace-nowrap border-b-2 pb-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                 selected ? "border-ink text-ink" : "border-transparent text-ink-subtle hover:text-ink",
@@ -150,6 +196,19 @@ export function PdpDetailTabs({
           <InfoRow title={t.buyBox.secure.title} body={t.buyBox.secure.body} />
         </dl>
       </div>
+
+      {/* Değerlendirmeler — özet + liste + yorum formu aynı panelde (§4). */}
+      {reviewsSlot ? (
+        <div
+          id={panelId("reviews")}
+          role="tabpanel"
+          aria-labelledby={tabId("reviews")}
+          hidden={active !== "reviews"}
+          className="py-7"
+        >
+          {reviewsSlot}
+        </div>
+      ) : null}
     </div>
   );
 }

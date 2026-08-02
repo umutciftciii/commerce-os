@@ -2537,3 +2537,10 @@ PB-3/TD-139 offsite backup, altyapı config — UI-polish blocker'ı değil).
 - **Doküman hijyeni:** duplicate TD-039 → TD-039B; ROADMAP/TODO'da 165/165A/165B "commit YOK" bayat
   kayıtları CLOSED & DEPLOYED olarak düzeltildi. (Geri kalan roadmap staleness — 164B vb. — pre-existing;
   ayrı hijyen turu önerilir.)
+
+- **Final Enterprise UI Polish — IMPLEMENTED (2026-08-02, worktree, commit YOK):** Foundation (z-index+portal Tooltip / B1 buton-input / C1 form-aria / D1 modal focus-trap), PDP (hover-zoom + layout dengesi + Reviews 4. tab + hash), §5 Ana Sayfa duplicate (`/hero`→`/home` redirect, data korundu), TD-170 brand facet, FP-3 rating (rail'ler). Gate: typecheck+lint+test(1199)+build(9/9)+diff-check YEŞİL; browser smoke desktop+mobil. Detay: `docs/analysis/FINAL-enterprise-ui-polish.md`.
+  - **Follow-up (bu turda kısmi):** TD-173 cart/order media-frame, TD-157 orphaned `--tb-*` var wiring + preview doğrulaması, Platform/Store Admin geniş görsel tarama (raw enum/slug), responsive tam matris (768/1024).
+
+- **Final Enterprise UI Polish — IN_PROGRESS (Final Acceptance Recovery, 2026-08-02):** Hover-zoom regresyonu düzeltildi+browser-doğrulandı; theme+checkout browser smoke kısmi (store-swap/rollback ve auth-checkout kullanıcı oturumu gerektirir). Detay: docs/analysis/FINAL-enterprise-ui-polish.md.
+
+- **Final Polish acceptance durumu (2026-08-02): IN_PROGRESS.** Hover-zoom regresyonu ÇÖZÜLDÜ+browser-doğrulandı. Theme (draft-preview görünür diff + publish + governance DOĞRULANDI; store-swap+rollback yapılmadı) ve Checkout (non-auth yüzeyler doğrulandı; auth-akışı güvenlik-sınırlı) smoke'ları KISMİ. Üçü tam geçmeden CLOSED değil.

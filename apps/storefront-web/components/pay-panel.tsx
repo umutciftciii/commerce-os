@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Button } from "@commerce-os/ui";
+import { Button } from "./ui";
 import type { PublicPayResolveResponse } from "@commerce-os/api-client";
 import { payAction } from "../lib/server/pay-actions";
 

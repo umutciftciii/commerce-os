@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { getLayoutPreset } from "@commerce-os/theme";
 import {
   Alert,
   Badge,
@@ -29,7 +30,7 @@ import { messageForError } from "../../../lib/client/messages";
 
 const KIND_LABEL: Record<string, string> = {
   BASE: "Temel",
-  LAYOUT_PRESET: "Layout Preset",
+  LAYOUT_PRESET: "Düzen Şablonu",
   CUSTOM_PACKAGE: "Özel Paket",
 };
 
@@ -76,7 +77,13 @@ export default function ThemeManagementPage() {
         </div>
       ),
     },
-    { header: "Layout preset", cell: (b) => <span className="text-slate-600">{b.layoutPreset}</span> },
+    {
+      header: "Düzen şablonu",
+      // §14 — ham anahtar (BASE_COMMERCE vb.) yerine kullanıcı dostu ad.
+      cell: (b) => (
+        <span className="text-slate-600">{getLayoutPreset(b.layoutPreset)?.nameTr ?? b.layoutPreset}</span>
+      ),
+    },
     {
       header: "Uyumluluk",
       cell: (b) =>

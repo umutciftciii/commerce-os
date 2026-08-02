@@ -107,7 +107,8 @@ export type ProductMediaFrameVariant =
   | "product-card"
   | "gallery-main"
   | "gallery-thumbnail"
-  | "variant-card";
+  | "variant-card"
+  | "line-thumbnail";
 
 const FRAME_CONFIG: Record<
   ProductMediaFrameVariant,
@@ -121,6 +122,9 @@ const FRAME_CONFIG: Record<
   "gallery-thumbnail": { aspect: "aspect-square", fit: "cover", pad: "", bg: "bg-surface-muted" },
   // Varyant kartı (renk görseli): kompakt, contain.
   "variant-card": { aspect: "aspect-square", fit: "contain", pad: "p-1", bg: "bg-surface" },
+  // TD-173 — Sepet/sipariş/wishlist satır thumbnail'i: kare, contain (kırpma yok), nötr zemin,
+  // ince iç boşluk, tutarlı placeholder. Layout shift yok (aspect sabit). Tüm satır-yüzeyleri paylaşır.
+  "line-thumbnail": { aspect: "aspect-square", fit: "contain", pad: "p-1.5", bg: "bg-surface-muted" },
 };
 
 export function ProductMediaFrame({

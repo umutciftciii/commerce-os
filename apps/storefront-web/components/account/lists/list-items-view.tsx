@@ -10,7 +10,8 @@
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Badge, Button } from "@commerce-os/ui";
+import { Badge } from "@commerce-os/ui";
+import { Alert, Button } from "../../ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerListItem, CustomerListSummary } from "@commerce-os/api-client";
 import { formatMinor } from "../../../lib/money";

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Container, EmptyState } from "@commerce-os/ui";
+import { Container, EmptyState } from "../../components/ui";
 import type { Locale } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../../lib/i18n";
 import { resolveOrdersTab } from "../../lib/orders";

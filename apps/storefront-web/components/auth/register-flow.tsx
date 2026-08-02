@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Alert, Button, Input } from "@commerce-os/ui";
+import { Alert, Button, Input } from "../ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import { classifyIdentifier } from "@commerce-os/api-client/validators";
 import {
@@ -150,7 +150,7 @@ export function RegisterFlow({ t, next }: { t: AuthDict; next: string }) {
             {t.register.haveAccount}{" "}
             <Link
               href={`/auth/login?next=${encodeURIComponent(next)}`}
-              className="font-medium text-brand-700 hover:text-brand-800"
+              className="font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
             >
               {t.register.loginCta}
             </Link>
@@ -190,7 +190,7 @@ export function RegisterFlow({ t, next }: { t: AuthDict; next: string }) {
             </button>
             <button
               type="button"
-              className="font-medium text-brand-700 hover:text-brand-800"
+              className="font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
               onClick={resend}
               disabled={pending}
             >
@@ -233,7 +233,7 @@ export function RegisterFlow({ t, next }: { t: AuthDict; next: string }) {
               <span className="text-xs text-slate-500">{t.register.passwordHint}</span>
               <button
                 type="button"
-                className="text-xs font-medium text-brand-700 hover:text-brand-800"
+                className="text-xs font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
                 onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? t.passwordHide : t.passwordShow}

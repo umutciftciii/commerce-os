@@ -12,6 +12,9 @@ export { Display, Heading, Subheading, Eyebrow, Lead, Text, Muted } from "./typo
 export { Badge } from "./badge";
 export type { BadgeProps, BadgeTone } from "./badge";
 export { Input, Textarea, Select, Field } from "./field";
+export type { SelectOption } from "./field";
+export { Alert } from "./alert";
+export type { AlertTone } from "./alert";
 export { ProductMedia, ProductMediaFrame, productImageSrc } from "./product-media";
 export { ProductCard } from "./product-card";
 export { ProductCardSkeleton } from "./product-card-skeleton";

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Button, Container, EmptyState } from "@commerce-os/ui";
+import { Button, Container, EmptyState } from "../../../components/ui";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { resolvePayToken } from "../../../lib/server/pay";
 import { PayPanel } from "../../../components/pay-panel";

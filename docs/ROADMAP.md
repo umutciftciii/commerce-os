@@ -1245,3 +1245,14 @@
 > **TODO-163 Tenant Module & Capability** (CLOSED & DEPLOYED, Faz 1+2+3) ·
 > **TODO-162 Storefront Discovery & Merchandising** (CLOSED & DEPLOYED) ·
 > **Product Split Baseline** (DONE, yukarı bkz.).
+
+> **Final Enterprise UI Polish** (IMPLEMENTED, worktree `commerce-os-ui-polish-872a6a`, commit YOK): Foundation
+> primitive'leri (z-index/Tooltip/B1/C1/D1) + PDP (hover-zoom/layout/Reviews-tab) + Ana Sayfa duplicate redirect +
+> TD-170 brand facet + FP-3 rating. Tam gate YEŞİL; browser smoke. Follow-up: TD-173, TD-157 kalanı, admin geniş tarama.
+> Detay: `docs/analysis/FINAL-enterprise-ui-polish.md`.
+
+> **Final Enterprise UI Polish — IMPLEMENTED** (worktree `commerce-os-ui-polish-872a6a`, commit YOK): Foundation
+> (z-index/Tooltip/B1/C1/D1) + PDP (hover-zoom/layout/Reviews-tab) + Ana Sayfa duplicate redirect + TD-170 +
+> FP-3 + TD-173 (ProductMediaFrame tam geçiş) + TD-157 (theme control wiring) + Platform Admin raw-enum temizliği
+> + Settings kararı. Tam gate YEŞİL (test 1231, build 9/9); browser matris 375/768/1024/1280. Kalan PROD BLOCKER
+> pre-existing PB-3/TD-139 (offsite backup). Detay: `docs/analysis/FINAL-enterprise-ui-polish.md`.

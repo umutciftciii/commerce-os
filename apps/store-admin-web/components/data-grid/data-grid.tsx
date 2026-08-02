@@ -61,7 +61,7 @@ export interface DataGridProps<Row> {
  * Arka plan OPAK olmalı (altından satır sızmasın) → `--dg-header-surface` token'ı.
  */
 const HEAD_CELL =
-  "sticky top-0 z-10 border-b border-[color:var(--dg-header-border)] bg-[color:var(--dg-header-surface)] px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-white/[0.26]";
+  "sticky top-0 z-sticky border-b border-[color:var(--dg-header-border)] bg-[color:var(--dg-header-surface)] px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-white/[0.26]";
 
 export function DataGrid<Row>({
   columns,

@@ -1,4 +1,4 @@
-import { Container } from "@commerce-os/ui";
+import { Container } from "../../../components/ui";
 import { getStorefrontDict } from "../../../lib/i18n";
 import { ActivateForm } from "../../../components/auth/activate-form";
 

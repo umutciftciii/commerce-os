@@ -14,10 +14,8 @@
 // degistiginde `key` verilir → ic secili-indeks 0'a (grubun kapagina) reset olur.
 
 import type { StorefrontDictionary } from "@commerce-os/i18n";
-import { ProductMediaFrame } from "./ui";
 import { ProductGallery } from "./product-gallery";
 import { usePdpSelection } from "./pdp-selection";
-import { shouldShowThumbnailStrip } from "../lib/gallery";
 import { galleryImagesForVariant, type StorefrontProductDetail } from "../lib/catalog-types";
 
 export function VariantGallery({
@@ -36,24 +34,15 @@ export function VariantGallery({
   );
   // Grup anahtari: media ekseni varsa secili varyantin renk grubu, yoksa sabit ("all").
   const groupKey = detail.mediaDefiningAttributeId ? (selected?.mediaOptionId ?? "__shared__") : "all";
-  const coverUrl = images[0]?.url ?? detail.coverUrl;
 
-  if (shouldShowThumbnailStrip(images)) {
-    return <ProductGallery key={groupKey} images={images} title={detail.title} t={t} />;
-  }
+  // Final Polish (§2) — TÜM PDP'ler ProductGallery'den geçer: çok görselde thumbnail
+  // şeridi + hover zoom, TEK/SIFIR görselde şerit gizli ama AYNI hover-zoom + kontrollü
+  // çerçeve. Böylece "ana görselde mouse-over zoom" her üründe tutarlı çalışır. Görsel
+  // yoksa kapak URL'inden tek elemanlı galeri kurulur (ProductMediaFrame placeholder).
+  const galleryImages =
+    images.length > 0
+      ? images
+      : [{ url: detail.coverUrl ?? "", altText: null, variantOptionId: null }];
 
-  // TODO-165B — Tek/sıfır görsel: galeri ana görseliyle AYNI kontrollü çerçeve (contain + max
-  // boyut + nötr zemin); devasa render yok.
-  return (
-    <div className="mx-auto w-full max-w-[520px]">
-      <ProductMediaFrame
-        variant="gallery-main"
-        handle={detail.handle}
-        title={detail.title}
-        imageUrl={coverUrl}
-        priority
-        className="border border-line"
-      />
-    </div>
-  );
+  return <ProductGallery key={groupKey} images={galleryImages} title={detail.title} t={t} />;
 }

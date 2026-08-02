@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Alert, Button, Input } from "@commerce-os/ui";
+import { Alert, Button, Input } from "../ui";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import { loginAction } from "../../lib/server/auth-actions";
 
@@ -63,7 +63,7 @@ export function LoginForm({ t, next }: { t: AuthDict; next: string }) {
         />
         <button
           type="button"
-          className="mt-1.5 text-xs font-medium text-brand-700 hover:text-brand-800"
+          className="mt-1.5 text-xs font-medium text-ink-muted underline decoration-line underline-offset-2 hover:text-ink hover:decoration-ink"
           onClick={() => setShowPassword((v) => !v)}
         >
           {showPassword ? t.passwordHide : t.passwordShow}
@@ -72,11 +72,11 @@ export function LoginForm({ t, next }: { t: AuthDict; next: string }) {
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? t.submitting : t.login.submit}
       </Button>
-      <p className="text-center text-sm text-slate-600">
+      <p className="text-center text-sm text-ink-muted">
         {t.login.noAccount}{" "}
         <Link
           href={`/auth/register?next=${encodeURIComponent(next)}`}
-          className="font-medium text-brand-700 hover:text-brand-800"
+          className="font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
         >
           {t.login.registerCta}
         </Link>

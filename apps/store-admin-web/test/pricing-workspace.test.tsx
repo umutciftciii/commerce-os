@@ -124,12 +124,17 @@ describe("Pricing workspace — terminology & layout", () => {
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
 
-    const tips = Array.from(container.querySelectorAll('[role="tooltip"]')).map((n) => n.textContent ?? "");
-    expect(tips.some((t) => t.includes("siparişte kullanılan satış fiyatıdır"))).toBe(true);
-    expect(tips.some((t) => t.includes("karşılaştırma fiyatıdır"))).toBe(true);
-    expect(tips.some((t) => t.includes("Müşteriye gösterilmez"))).toBe(true);
-    expect(tips.some((t) => t.includes("dahil KDV oranıdır"))).toBe(true);
-    expect(tips.some((t) => t.includes("kampanya veya indirim değildir"))).toBe(true);
+    // §6: ipucu artık PORTAL'e render edilir (hover/focus'ta), böylece tablonun
+    // overflow-x-auto kabı tarafından kırpılmaz. Erişilebilir kontrat, klavye ile
+    // odaklanabilen tetikleyici butonun aria-label'ıdır (ekran okuyucu anında okur).
+    const labels = Array.from(container.querySelectorAll("button[aria-label]")).map(
+      (n) => n.getAttribute("aria-label") ?? "",
+    );
+    expect(labels.some((t) => t.includes("siparişte kullanılan satış fiyatıdır"))).toBe(true);
+    expect(labels.some((t) => t.includes("karşılaştırma fiyatıdır"))).toBe(true);
+    expect(labels.some((t) => t.includes("Müşteriye gösterilmez"))).toBe(true);
+    expect(labels.some((t) => t.includes("dahil KDV oranıdır"))).toBe(true);
+    expect(labels.some((t) => t.includes("kampanya veya indirim değildir"))).toBe(true);
   });
 });
 

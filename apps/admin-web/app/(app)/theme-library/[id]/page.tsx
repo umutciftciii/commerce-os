@@ -391,8 +391,12 @@ export default function ThemeDesignerPage() {
             </Button>
             <dl className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 p-3 text-sm">
               <Info label="Theme key" value={detail?.themeKey ?? "—"} mono />
-              <Info label="Durum" value={detail?.status ?? "—"} />
-              <Info label="Kaynak" value={detail?.source ?? "—"} />
+              {/* §14 — ham enum/preset anahtarı yerine kullanıcı dostu ad. */}
+              <Info label="Durum" value={detail ? (VERSION_STATUS_LABEL[detail.status] ?? detail.status) : "—"} />
+              <Info
+                label="Kaynak"
+                value={detail?.source ? (getLayoutPreset(detail.source)?.nameTr ?? detail.source) : "—"}
+              />
               <Info label="Sürüm şeması" value={String(detail?.themeApiVersion ?? "—")} />
               <Info label="Yayın sürümü" value={String(detail?.published?.version ?? "—")} />
               <Info label="Taslak sürümü" value={String(detail?.draft?.version ?? "—")} />
@@ -503,34 +507,9 @@ export default function ThemeDesignerPage() {
                   ))}
                 </NativeSelect>
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">Başlık ölçeği</span>
-                  <Input
-                    type="number"
-                    step="0.05"
-                    min="1"
-                    max="2"
-                    value={String(config.typography?.headingScale ?? 1.25)}
-                    onChange={(e) =>
-                      mutateConfig({ ...config, typography: { ...config.typography, headingScale: Number(e.target.value) } })
-                    }
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">Satır yüksekliği</span>
-                  <Input
-                    type="number"
-                    step="0.05"
-                    min="1"
-                    max="2.5"
-                    value={String(config.typography?.lineHeight ?? 1.5)}
-                    onChange={(e) =>
-                      mutateConfig({ ...config, typography: { ...config.typography, lineHeight: Number(e.target.value) } })
-                    }
-                  />
-                </label>
-              </div>
+              {/* TD-157 — "Başlık ölçeği"/"Satır yüksekliği" kontrolleri KALDIRILDI: vitrinin editoryel
+                  tipografisi Tailwind text-* utility tabanlı olduğundan bu iki global çarpanı güvenli
+                  tüketmek mümkün değildi (no-op idi). Güvenli tüketilen yazı-tipi seti kontrolü korundu. */}
               <p className="text-xs text-slate-400">
                 Yalnız izin listesindeki güvenli yazı tipleri kullanılabilir (serbest font-family girilemez). Türkçe
                 karakter desteği garanti edilir.
@@ -738,10 +717,17 @@ function MobileControls({ config, onChange }: { config: BuilderConfig; onChange:
       </label>
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">Vitrin yüksekliği</span>
+        {/* TD-157 — Değerler şema HERO_HEIGHTS ile hizalı (eski "medium" GEÇERSİZ'di, sunucu reddederdi).
+            §14 — kullanıcı dostu TR etiket (ham enum sızıntısı yok). */}
         <NativeSelect value={String(mobile.heroHeight ?? "compact")} onChange={(e) => setMobile("heroHeight", e.target.value)}>
-          {["compact", "medium", "tall"].map((h) => (
-            <option key={h} value={h}>
-              {h}
+          {[
+            ["compact", "Kompakt"],
+            ["standard", "Standart"],
+            ["tall", "Uzun"],
+            ["full", "Tam ekran"],
+          ].map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
             </option>
           ))}
         </NativeSelect>
@@ -752,22 +738,30 @@ function MobileControls({ config, onChange }: { config: BuilderConfig; onChange:
           value={String(mobile.navigationVariant ?? "drawer")}
           onChange={(e) => setMobile("navigationVariant", e.target.value)}
         >
-          {["drawer", "bottomBar"].map((v) => (
-            <option key={v} value={v}>
-              {v}
+          {[
+            ["drawer", "Çekmece menü"],
+            ["bottomBar", "Alt çubuk"],
+          ].map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
             </option>
           ))}
         </NativeSelect>
       </label>
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">Kart yoğunluğu</span>
+        {/* TD-157 — Değerler şema CARD_DENSITIES ile hizalı; §14 — friendly TR etiket. */}
         <NativeSelect
           value={String(mobile.productCardDensity ?? "comfortable")}
           onChange={(e) => setMobile("productCardDensity", e.target.value)}
         >
-          {["compact", "comfortable"].map((v) => (
-            <option key={v} value={v}>
-              {v}
+          {[
+            ["comfortable", "Ferah"],
+            ["compact", "Sıkışık"],
+            ["editorial", "Editoryel"],
+          ].map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
             </option>
           ))}
         </NativeSelect>

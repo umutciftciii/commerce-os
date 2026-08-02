@@ -47,12 +47,12 @@ export function AccountMenu({
   if (!customer) {
     return (
       <span className="flex items-center gap-4">
-        <Link href="/auth/login" className="transition-colors hover:text-slate-900">
+        <Link href="/auth/login" className="text-ink-muted transition-colors hover:text-ink">
           {t.login}
         </Link>
         <Link
           href="/auth/register"
-          className="rounded-lg bg-brand-600 px-3 py-1.5 text-white transition-colors hover:bg-brand-700"
+          className="rounded-none bg-ink px-4 py-2 text-xs font-medium uppercase tracking-wideish text-surface transition-opacity hover:opacity-90"
         >
           {t.register}
         </Link>

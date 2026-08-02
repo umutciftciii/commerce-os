@@ -17,7 +17,7 @@ import {
   useLocale,
   type DataTableColumn,
 } from "@commerce-os/ui";
-import { listStartingPoints } from "@commerce-os/theme";
+import { getLayoutPreset, listStartingPoints } from "@commerce-os/theme";
 import { NativeSelect } from "../../../components/theme-library/native-select";
 import type { LibraryTemplateSummary } from "@commerce-os/api-client";
 import { ThemeLibraryIcon } from "../../../components/icons";
@@ -124,7 +124,15 @@ export default function ThemeLibraryPage() {
         </div>
       ),
     },
-    { header: "Kaynak", cell: (t) => <span className="text-xs text-slate-500">{t.sourcePreset ?? "—"}</span> },
+    {
+      header: "Kaynak",
+      // §14 — ham preset anahtarı (BASE_COMMERCE vb.) yerine kullanıcı dostu ad (getLayoutPreset.nameTr).
+      cell: (t) => (
+        <span className="text-xs text-slate-500">
+          {t.sourcePreset ? (getLayoutPreset(t.sourcePreset)?.nameTr ?? t.sourcePreset) : "—"}
+        </span>
+      ),
+    },
     {
       header: "Son yayın",
       cell: (t) => (

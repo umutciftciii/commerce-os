@@ -11,7 +11,7 @@
 import { useState } from "react";
 import { getDictionary, type Locale } from "@commerce-os/i18n";
 import type { CommercialField, CommercialPreviewResponse, CommercialPreviewRow } from "@commerce-os/api-client";
-import { useLocale } from "../../../../components/ui";
+import { cn, Tooltip, useLocale } from "../../../../components/ui";
 import { MetricGrid, MetricTile } from "../../../components/premium";
 import { formatMinor, minorToInput } from "../../../../lib/client/format";
 import { useCommercialMatrix, type MatrixField } from "../commercial/use-commercial-matrix";
@@ -89,20 +89,35 @@ function CheckGlyph() {
 
 /* ───────────────────────────── tooltip ───────────────────────────── */
 
-/** Erişilebilir yardım balonu: "?" ikonu + role=tooltip metni (DOM'da; hover'da görünür). */
+/**
+ * Erişilebilir yardım balonu: "?" ikonu + portal'li ipucu (§6). Tetikleyici
+ * gerçek bir buton olduğundan klavye ile odaklanır; ipucu `document.body`'ye
+ * render edilir, böylece tablonun `overflow-x-auto` kabı tarafından KIRPILMAZ ve
+ * viewport çarpışmasında yön değiştirir. Koyu-glass yüzey `unstyled` ile verilir.
+ */
 function InfoTip({ text }: { text: string }) {
   return (
-    <span className="group relative ml-1 inline-flex align-middle">
-      <span className={`inline-flex ${pw.faint}`} aria-hidden>
-        <InfoGlyph />
-      </span>
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-56 -translate-x-1/2 rounded-lg border p-2 text-[11px] font-normal normal-case leading-relaxed opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 ${pw.lineStrong} ${pw.surfaceRaised} ${pw.muted}`}
+    <Tooltip
+      label={text}
+      unstyled
+      className={cn(
+        "w-56 rounded-lg border p-2 text-[11px] font-normal normal-case leading-relaxed shadow-lg",
+        pw.lineStrong,
+        pw.surfaceRaised,
+        pw.muted,
+      )}
+    >
+      <button
+        type="button"
+        aria-label={text}
+        className={cn(
+          "ml-1 inline-flex rounded align-middle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60",
+          pw.faint,
+        )}
       >
-        {text}
-      </span>
-    </span>
+        <InfoGlyph />
+      </button>
+    </Tooltip>
   );
 }
 

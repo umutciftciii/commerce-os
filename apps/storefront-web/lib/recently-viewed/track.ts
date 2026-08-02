@@ -8,21 +8,27 @@
 "use client";
 
 import type { PublicSearchProduct } from "@commerce-os/api-client";
+import type { CardRating } from "../../components/reviews/rating-provider";
 
-/** Öneri yanıtı: ürünler + favori (wishlist) durumu (TODO-159D initialSavedIds). */
+/** Öneri yanıtı: ürünler + favori (wishlist) durumu + rating özetleri (FP-3). */
 export interface RecommendationResult {
   products: PublicSearchProduct[];
   savedIds: string[];
+  /** productId → { average, count } (SUNUCU projection; yalnız yorumu olan ürünler). */
+  ratings: Record<string, CardRating>;
 }
 
-const EMPTY_RESULT: RecommendationResult = { products: [], savedIds: [] };
+const EMPTY_RESULT: RecommendationResult = { products: [], savedIds: [], ratings: {} };
 
 function parseResult(json: unknown): RecommendationResult {
   const data = (json as { data?: unknown })?.data;
   const savedIds = (json as { savedIds?: unknown })?.savedIds;
+  const ratings = (json as { ratings?: unknown })?.ratings;
   return {
     products: Array.isArray(data) ? (data as PublicSearchProduct[]) : [],
     savedIds: Array.isArray(savedIds) ? (savedIds as string[]) : [],
+    ratings:
+      ratings && typeof ratings === "object" ? (ratings as Record<string, CardRating>) : {},
   };
 }
 

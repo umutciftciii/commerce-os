@@ -17,7 +17,7 @@ import {
 import { resolveOrderReview } from "../../../lib/orders-review";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
-import { Button, EmptyState, Field, Heading, Input, ProductMedia, Text } from "../../ui";
+import { Button, EmptyState, Field, Heading, Input, ProductMediaFrame, Text } from "../../ui";
 
 type OrdersDict = StorefrontDictionary["account"]["orders"];
 
@@ -171,12 +171,14 @@ function OrderCard({
       <ul className="mt-3 space-y-2">
         {order.lines.map((line) => (
           <li key={line.variantId} className="flex items-center gap-3">
-            {/* Dilim 6b — Ürün kapak thumbnail'i (drop-in ProductMedia; imageUrl
-                yoksa deterministik yer tutucu). Dilim 6a deseni: sabit boyutlu
-                wrapper + overflow-hidden, ProductMedia h-full w-full ile doldurur. */}
-            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-line bg-surface-muted">
-              <ProductMedia handle={line.productSlug} title={line.title} imageUrl={line.imageUrl} />
-            </div>
+            {/* TD-173 — Ortak ürün medya çerçevesi (line-thumbnail). */}
+            <ProductMediaFrame
+              variant="line-thumbnail"
+              handle={line.productSlug}
+              title={line.title}
+              imageUrl={line.imageUrl}
+              className="h-10 w-10 shrink-0 rounded-md border border-line"
+            />
             <span className="min-w-0 text-sm text-ink-muted">
               {line.title}
               {line.variantTitle ? (
