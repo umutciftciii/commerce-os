@@ -52,6 +52,14 @@ const TABS: TabItem[] = [
   { id: "publish", label: "Yayınlama" },
 ];
 
+// Sürüm rozeti ham enum yerine okunur etiket gösterir (liste sayfasındaki
+// STATUS_LABEL ile aynı sözlük).
+const VERSION_STATUS_LABEL: Record<string, string> = {
+  PUBLISHED: "Yayında",
+  DRAFT: "Taslak",
+  ARCHIVED: "Arşiv",
+};
+
 type Grp = "brand" | "surface" | "text" | "border" | "feedback";
 interface ColorUi {
   path: CanonicalFieldPath;
@@ -616,7 +624,7 @@ export default function ThemeDesignerPage() {
                     <span className="flex items-center gap-2">
                       <span className="font-mono">v{v.version}</span>
                       <Badge tone={v.status === "PUBLISHED" ? "success" : v.status === "DRAFT" ? "warning" : "neutral"}>
-                        {v.status}
+                        {VERSION_STATUS_LABEL[v.status] ?? v.status}
                       </Badge>
                       {v.label ? <span className="text-xs text-slate-400">{v.label}</span> : null}
                     </span>

@@ -487,6 +487,9 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                         key={option.optionId}
                         type="button"
                         aria-pressed={active}
+                        // Üstü-çizili görsel işaret renk-körü/ekran-okuyucu kullanıcıya "tükendi"
+                        // bilgisini vermez; tükenmiş seçenekte erişilebilir ad "{beden} — Tükendi" olur.
+                        aria-label={soldOut ? `${option.label} — ${t.detail.fashion.soldOut}` : undefined}
                         // TODO-165: stokta olmayan beden DAİMA devre dışı (seçili olsa bile).
                         // Renk değişiminde auto-heal seçili bedeni stokta olana taşır; bu yüzden
                         // normalde seçili beden OOS kalmaz, ama başlangıç/uç durumda da korunur.

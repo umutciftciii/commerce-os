@@ -485,14 +485,21 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
 
 describe("store-admin BFF — dashboard summary", () => {
   it("aggregates totals, active products and low stock server-side", async () => {
-    apiClient.admin.products.list.mockResolvedValue({
-      data: [
-        { status: "ACTIVE" },
-        { status: "DRAFT" },
-        { status: "ACTIVE" },
-      ],
-      pagination: { limit: 50, offset: 0, total: 3 },
-    });
+    // "Aktif ürün" sayısı artık ilk-sayfa satırları filtrelenerek DEĞİL, gateway'e
+    // status=ACTIVE ile ikinci bir sayım çağrısı yapılıp `pagination.total` okunarak
+    // bulunur (mağaza tek sayfadan büyükse undercount'u önler). Mock buna göre
+    // status-farkındadır: filtresiz çağrı toplam 3, status=ACTIVE çağrısı 2 döner.
+    apiClient.admin.products.list.mockImplementation(
+      (_storeId: string, _token: string, query?: { status?: string }) =>
+        Promise.resolve({
+          data: [],
+          pagination: {
+            limit: 1,
+            offset: 0,
+            total: query?.status === "ACTIVE" ? 2 : 3,
+          },
+        }),
+    );
     apiClient.admin.categories.list.mockResolvedValue({
       data: [{ id: "c1" }],
       pagination: { limit: 50, offset: 0, total: 1 },

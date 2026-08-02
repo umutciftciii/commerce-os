@@ -311,17 +311,19 @@
 
 ## TD-024 Store-admin dashboard pagination-aware aggregation eksik
 
-- Durum: OPEN
+- Durum: RESOLVED (2026-08-02, Final Polish readiness audit)
 - Oncelik: LOW
 - Etki: `apps/store-admin-web` dashboard ozeti (`/api/dashboard/summary`) toplam urun/kategori/stok
-  sayilarini gateway pagination `total`'inden kesin alir; ancak "aktif urun" ve "kritik stok" sayilari
-  yalnizca ilk sayfa (gateway varsayilan limit 50) uzerinden hesaplanir. Demo veri seti icin dogru,
-  ama 50'den fazla urun/varyantta bu iki sayi eksik kalir. api-client list helper'lari su an
-  limit/offset query'si gondermiyor.
-- Cozum onerisi: Ya gateway'e hafif sayim/aggregate ucu eklemek, ya api-client list helper'larina
-  limit/offset/filter ekleyip dashboard'da sayfalama ile toplamak, ya da aktif/kritik sayimlari
-  dogrudan dondurmek. Faz 2B kapsaminda backend davranisi degistirilmedigi icin ertelendi.
-- Hedef faz: Faz 2C+
+  sayilarini gateway pagination `total`'inden kesin alir; ancak "aktif urun" sayisi yalnizca ilk sayfa
+  (gateway varsayilan limit) uzerinden `data.filter(status==="ACTIVE")` ile hesaplaniyordu. Demo veri
+  seti icin dogru, ama tek sayfadan buyuk katalogta ciddi undercount: enterprise-demo'da 418 aktif urun
+  dashboard'da **24** goruluyordu.
+- Cozum (2026-08-02): "Aktif urun" artik ilk-sayfa satirlarindan degil, gateway'e `status=ACTIVE` ile
+  yapilan ikinci hafif sayim cagrisinin `pagination.total`'indan alinir (`pageSize=1`, satir tasinmaz).
+  `apps/store-admin-web/app/api/dashboard/summary/route.ts`. "Kritik stok" zaten Inventory Engine'in
+  sayfadan-bagimsiz `summary`'sinden geliyordu (TD-152A/159C) — o kisimda hata yoktu. Browser'da
+  dogrulandi (dashboard 24 → 418) + `bff-security.test.ts` mekanizmaya gore guncellendi.
+- Hedef faz: Faz 2C+ (kapatildi)
 
 ## TD-025 Payment, shipping, fulfillment, cart ve notification eksik
 
@@ -570,7 +572,10 @@
   hâlâ zorlanmaz (nihai otorite yalnız tip/tenant/option/required); server-side kural motoru açık kalır. Sorun 3
   çözüldü (dinamik form + okuma tüketimi Faz 2B'de eklendi).
 
-## TD-039 Faz 2B dinamik ürün formu: bilinen sınırlar (kapsam gereği)
+## TD-039B Faz 2B dinamik ürün formu: bilinen sınırlar (kapsam gereği)
+- Not (2026-08-02, readiness audit): Bu baslik onceden TD-039 idi ve `primaryCategoryId` follow-up'i
+  (bkz. yukaridaki TD-039) ile ayni id'yi paylasiyordu (duplicate). Ikisi ayri borctur; bu giris
+  TD-039B'ye tasindi.
 - Tarih: 2026-07-17 (Faz 2B, TODO-146, ADR-069)
 - Sorun 1 (RICH_TEXT düz textarea): RICH_TEXT dataType zengin metin editörü yerine düz `<textarea>` ile render edilir.
   Değer yine `valueText`'e yazılır; WYSIWYG/markdown editörü ileride. Etki: düşük.
@@ -1821,3 +1826,31 @@ düşük (yalnız kod-yorumu doğruluğu; davranış etkisi yok).
   - **Sepet/sipariş/checkout satır thumbnail'ları + QuickView modal + `home-sections` kategori karosu:** ortak `ProductMediaFrame`'e taşınmadı (ürün-kartı kapsamı dışı; farklı bağlam/tam-taşan görsel). İstenirse ayrı kapsamda `gallery-main`/yeni variant ile ele alınabilir.
   - **Fashion projeksiyon fiyat özeti:** option başına `startingPriceMinor` çok-eksende o option'ın TÜM kombinasyonlarındaki min'dir (renk kartı "başlangıç" semantiği doğru); seçilen kesin kombinasyon fiyatı yine buy-box'ta gösterilir (tasarım gereği).
 - **Etki:** Hiçbiri kritik yolu kırmaz; kullanıcı-görünür doğruluk korunur.
+
+## Final Enterprise UI Polish — Readiness Audit (2026-08-02)
+
+`main == origin/main == 83bcd8e`. Final Polish öncesi denetim: 3 yüzey (Platform Admin :3001, Store
+Admin :3002, Storefront :3000) gerçek browser smoke + kod/doküman denetimi. Sonuç: **READY** — açık UI
+PROD blocker yok. Bu turda yapılan küçük/orta UI düzeltmeleri (worktree; typecheck+lint+test yeşil,
+browser-doğrulandı; commit YOK):
+
+1. **TD-024 (RESOLVED):** Store Admin dashboard "Aktif ürün" undercount (24 → 418). Bkz. TD-024.
+2. **Store Admin — beden tablosu seçici raw enum rozeti (E1):** `catalog-sources.tsx` DRAFT/ARCHIVED ham
+   enum yerine okunur etiket (`SIZE_CHART_STATUS_LABELS`; size-charts sayfasıyla tutarlı).
+3. **Store Admin — marka arama placeholder (E3):** `brands/page.tsx` "…veya slug ara…" → "Marka adı
+   ara…" (teknik "slug" terimi kullanıcıdan gizlendi).
+4. **Platform Admin — tema sürüm rozeti raw enum (E2):** `theme-library/[id]/page.tsx` `{v.status}` →
+   `VERSION_STATUS_LABEL` (liste sayfasıyla tutarlı). Demo'da tema şablonu 0 → typecheck/test ile doğrulandı.
+5. **Storefront — tükenen beden a11y (buy-box):** OOS (disabled + üstü-çizili) beden butonuna
+   `aria-label="{beden} — Tükendi"` (mevcut `t.detail.fashion.soldOut`); ekran-okuyucuya renk-dışı
+   OOS göstergesi. Browser'da doğrulandı (`aria-label="XXL — Tükendi"`).
+
+Denetimde bulunup **Final Polish kapsamına** bırakılan (bu turda düzeltilmeyen) kullanıcı-görünür kalemler:
+storefront buton/input token ikiliği (shared `@commerce-os/ui` vs local editorial kit — B1), hardcoded
+non-locale "Marka" facet adı + marka sayfasında filtre-temizlemede brand düşmesi (TD-170), thumbnail
+medya-primitive tutarlılığı + discovery aspect (TD-173), layout preset no-op kontrolleri (TD-157),
+form error mesajlarının `aria-describedby` ile bağlanmaması (C1), Modal focus-trap yokluğu (D1).
+Detay/sınıflandırma: bkz. bu turun final raporu.
+
+Doküman hijyeni: duplicate **TD-039** id ayrıştırıldı (ikinci giriş → **TD-039B**). ROADMAP/TODO tail'inde
+TODO-165/165A/165B "commit YOK" bayat durumları CLOSED & DEPLOYED olarak düzeltildi.

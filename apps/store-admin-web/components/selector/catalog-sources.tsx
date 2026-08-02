@@ -304,6 +304,15 @@ const SIZE_CHART_STATUS_TONES = {
   ARCHIVED: "neutral",
 } as const;
 
+// Beden tablosu seçicisinde ham enum (DRAFT/ARCHIVED) yerine okunur etiket gösterilir.
+// Etiketler size-charts liste sayfasıyla aynıdır (o sayfa da TR sabittir); tek kaynak
+// haline getirmek i18n anahtarı gerektirir (bkz. TD-170) — bu düzeltme davranışı bozmaz.
+const SIZE_CHART_STATUS_LABELS: Record<keyof typeof SIZE_CHART_STATUS_TONES, string> = {
+  DRAFT: "Taslak",
+  PUBLISHED: "Yayında",
+  ARCHIVED: "Arşiv",
+};
+
 /**
  * TODO-165A Tasks 25/26 — Beden tablosu seçici bağlaması (ürün formu). Kategori/marka
  * seçicileriyle AYNI desen (ADR-090). Ürün formu binding'i `extraQuery: { status:
@@ -351,7 +360,9 @@ export function useSizeChartSelectorBinding(
           <>
             <span className="text-white/40">{item.previewSummary}</span>
             {item.status === "PUBLISHED" ? null : (
-              <Badge tone={SIZE_CHART_STATUS_TONES[item.status]}>{item.status}</Badge>
+              <Badge tone={SIZE_CHART_STATUS_TONES[item.status]}>
+                {SIZE_CHART_STATUS_LABELS[item.status] ?? item.status}
+              </Badge>
             )}
           </>
         ),

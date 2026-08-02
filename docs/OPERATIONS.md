@@ -1443,3 +1443,21 @@ AND "categorySlugs" && ARRAY['moda-ayakkabi']::text[];` → 0'dan büyük olmal�
 Kategori/marka **rename** için store-seviyesi reindex otomatik tetiklenir (ADR-263). Full backfill YALNIZ recovery/
 ilk-göç içindir; rutin gereksinim değildir. Backfill CLI config env ister (REDIS_URL/INTERNAL_API_TOKEN/SESSION_SECRET);
 docker container'dan alınabilir (`docker exec <gw> printenv`).
+
+## Final Enterprise UI Polish — Readiness Audit ops notları (2026-08-02)
+
+Denetim sırasında doğrulanan ve operatörlerin bilmesi gereken durumlar (`main == origin/main == 83bcd8e`):
+
+- **Deploy provenance:** Çalışan docker imajları merge commit'inden (2026-08-02) build edilmiş; host portları
+  Storefront `:3000`, Platform Admin `:3001`, Store Admin `:3002`, API Gateway `:4000`.
+- **Migration durumu (benign anomali):** `_prisma_migrations`'ta `20260724171728_add_sponsored_product_management`
+  **iki kayıt** taşır — biri `rolled_back_at` dolu (tarihsel, `finished_at` NULL), biri başarılı. Prisma bunu
+  UYGULANMIŞ sayar (tüm sponsored tabloları mevcut). `prisma migrate status` "1 rolled back" gösterebilir;
+  **aksiyon gerekmez** — yeniden uygulama denemesi yok. Uygulanmış migration sayısı sağlıklı.
+- **Sistem mağazası dışlama:** DB'de 3 mağaza var (demo-store, enterprise-demo, sistem `__theme-library__`);
+  Platform Admin "Mağazalar" listesi/sayacı sistem mağazasını DIŞLAR (doğru → "Toplam mağaza 2").
+- **Dashboard KPI düzeltmesi (TD-024):** Store Admin "Aktif ürün" sayısı artık gateway'e `status=ACTIVE`
+  filtreli sayım çağrısıyla türetilir (ilk-sayfa filtre değil). `enterprise-demo` beklenen: Toplam 471 /
+  Aktif 418 / Kategori 40 / Kritik stok 187. Doğrulama SQL:
+  `SELECT status, count(*) FROM "Product" WHERE "storeId"='edm-store' GROUP BY status;`
+- **Tek açık PROD BLOCKER:** PB-3 / TD-139 (offsite/otomatik backup depolama config'i) — altyapı, UI dışı.
