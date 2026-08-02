@@ -473,6 +473,14 @@ export interface StorefrontFashionOption {
   colorHex: string | null;
   colorFamily: string | null;
   order: number;
+  // TODO-165B — Kart fiyat ozeti (SERVER-authoritative; bu option'a sahip aktif+gorunur
+  // varyantlarin min fiyati). null → fiyat gosterilmez (gizli/karisik-para/varyant yok).
+  startingPriceMinor: number | null;
+  /** Eski fiyat (yalniz min varyant indirimliyse); null → indirim yok. */
+  compareAtMinor: number | null;
+  priceCurrency: string | null;
+  /** Option'in en az bir aktif varyanti satilabilir mi (OOS isaretlemesi). */
+  inStock: boolean;
 }
 
 export interface StorefrontFashionAxis {

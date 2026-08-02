@@ -57,8 +57,10 @@ describe("<ProductGallery> statik render", () => {
   });
 
   it("her gorsel icin bir thumbnail butonu render eder", () => {
-    const buttonCount = (html.match(/<button/g) ?? []).length;
-    expect(buttonCount).toBe(3);
+    // TODO-165B (ADR-259): galeri artik thumbnail + zoom-trigger + share butonlari icerir; thumbnail'lar
+    // aria-pressed (secim state) tasir, zoom/share tasimaz → thumbnail sayimini aria-pressed ile yap.
+    const thumbnailCount = (html.match(/aria-pressed/g) ?? []).length;
+    expect(thumbnailCount).toBe(3);
   });
 
   it("altText'siz thumbnail icin baslik + indeksten yedek aria-label turetir", () => {

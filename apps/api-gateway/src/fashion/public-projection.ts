@@ -5,7 +5,7 @@
 // endpoint gate'ler). Salt sunum verisi; hesaplama yok. Renk ailesi kod-katalogdan.
 
 import { prisma } from "@commerce-os/db";
-import type { PublicFashionProjection } from "@commerce-os/contracts";
+import type { PublicFashionProjection, PublicProductVariant } from "@commerce-os/contracts";
 import { colorFamilyOf, isValidHexSwatch } from "./canonical-attributes.js";
 import type { SizeChartService } from "./size-chart-service.js";
 
@@ -27,9 +27,17 @@ const SUMMARY_CODES: Record<string, string> = {
   "fashion.length": "Boy",
 };
 
-function axisKind(code: string, dataType: string): "color" | "size" | "other" {
+// TODO-165B — Beden ekseni normalize. Fashion vertical yalniz `fashion.size` code'unu "size"
+// sayiyordu; enterprise-demo gibi eski taksonomiler `numara`/`beden`/`bez_bedeni` kullaniyor →
+// eksen "other" dusup beden kartlari renk-disi grupta yanlis render ediliyordu. Kod ipuclariyla
+// (size/beden/numara) normalize edilir. NOT: bu YALNIZ varyant UX'i (kart gruplama) icindir;
+// "Beden Tablosu" butonunun gorunurlugu ayrica fashion.sizeChart VARLIGINA baglidir (buy-box).
+const SIZE_CODE_HINTS = ["size", "beden", "numara"];
+
+export function axisKind(code: string, dataType: string): "color" | "size" | "other" {
   if (code === AXIS_COLOR || dataType === "COLOR") return "color";
-  if (code === AXIS_SIZE) return "size";
+  const lower = code.toLowerCase();
+  if (code === AXIS_SIZE || SIZE_CODE_HINTS.some((hint) => lower.includes(hint))) return "size";
   return "other";
 }
 
@@ -38,10 +46,15 @@ export async function buildPublicFashionProjection(
   storeId: string,
   productId: string,
   primaryCategoryId: string | null,
+  // TODO-165B — Renk/beden kartı fiyat özeti için ZATEN hesaplanmış public varyant DTO'ları
+  // (buildPublicProduct çıktısı). Server-authoritative fiyat/stok kaynağı; projeksiyon yeni
+  // fiyat türetmez, yalnız option→min seçim yapar.
+  variants: readonly PublicProductVariant[] = [],
 ): Promise<PublicFashionProjection | null> {
-  // 1) Varyant eksen secimleri (renk/beden) — normalized tablodan.
+  // 1) Varyant eksen secimleri (renk/beden) — normalized tablodan. TODO-165B: YALNIZ ACTIVE
+  // varyant (hidden/archived/inactive varyant option'ları optionAxes'e ve fiyat özetine SIZMAZ).
   const variantOptionValues = await prisma.productVariantOptionValue.findMany({
-    where: { storeId, variant: { productId } },
+    where: { storeId, variant: { productId, status: "ACTIVE" } },
     select: {
       variantId: true,
       attributeDefinitionId: true,
@@ -107,13 +120,60 @@ export async function buildPublicFashionProjection(
     variantAxisOptions.set(row.variantId, list);
   }
 
+  // ── TODO-165B — Option başına fiyat özeti (renk/beden kartları için; SERVER-authoritative) ──
+  // optionId → o option'a sahip ACTIVE varyant id'leri (variantAxisOptions'tan ters harita).
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+  const variantIdsByOption = new Map<string, string[]>();
+  for (const [variantId, opts] of variantAxisOptions) {
+    for (const o of opts) {
+      const arr = variantIdsByOption.get(o.optionId) ?? [];
+      arr.push(variantId);
+      variantIdsByOption.set(o.optionId, arr);
+    }
+  }
+  function optionPriceSummary(optionId: string): {
+    startingPriceMinor: number | null;
+    compareAtMinor: number | null;
+    priceCurrency: string | null;
+    inStock: boolean;
+  } {
+    let startingPriceMinor: number | null = null;
+    let compareAtMinor: number | null = null;
+    let priceCurrency: string | null = null;
+    let inStock = false;
+    let mixedCurrency = false;
+    for (const variantId of variantIdsByOption.get(optionId) ?? []) {
+      const v = variantById.get(variantId);
+      if (!v) continue; // ACTIVE-only listede yoksa atla (savunma).
+      if (v.inStock) inStock = true;
+      if (v.priceMinor === null) continue; // fiyat gizli → özete girmez.
+      if (priceCurrency === null) priceCurrency = v.currency;
+      else if (priceCurrency !== v.currency) mixedCurrency = true;
+      if (startingPriceMinor === null || v.priceMinor < startingPriceMinor) {
+        startingPriceMinor = v.priceMinor;
+        // Eski fiyat yalnız gerçekten indirimliyse (compareAt > satış).
+        compareAtMinor = v.compareAtMinor !== null && v.compareAtMinor > v.priceMinor ? v.compareAtMinor : null;
+      }
+    }
+    // Karışık para birimi → tek fiyat özeti YANILTICI olur; fail-safe null (UI fiyat göstermez).
+    if (mixedCurrency) return { startingPriceMinor: null, compareAtMinor: null, priceCurrency: null, inStock };
+    return {
+      startingPriceMinor,
+      compareAtMinor,
+      priceCurrency: startingPriceMinor !== null ? priceCurrency : null,
+      inStock,
+    };
+  }
+
   const optionAxes = [...axes.values()].map((a) => ({
     attributeDefinitionId: a.attributeDefinitionId,
     code: a.code,
     name: a.name,
     dataType: a.dataType,
     kind: a.kind,
-    options: [...a.options.values()].sort((x, y) => x.order - y.order),
+    options: [...a.options.values()]
+      .sort((x, y) => x.order - y.order)
+      .map((opt) => ({ ...opt, ...optionPriceSummary(opt.optionId) })),
   }));
   // Renk eksenini once goster (swatch), beden sonra.
   optionAxes.sort((x, y) => {

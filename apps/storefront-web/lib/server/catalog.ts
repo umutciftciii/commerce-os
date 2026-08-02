@@ -271,6 +271,11 @@ function toFashionView(fashion: PublicProductDetail["fashion"]): StorefrontFashi
         colorHex: option.colorHex ?? null,
         colorFamily: option.colorFamily ?? null,
         order: option.order,
+        // TODO-165B — server-authoritative kart fiyat özeti.
+        startingPriceMinor: option.startingPriceMinor ?? null,
+        compareAtMinor: option.compareAtMinor ?? null,
+        priceCurrency: option.priceCurrency ?? null,
+        inStock: option.inStock ?? true,
       })),
     })),
     variantAxisOptions: fashion.variantAxisOptions.map((variant) => ({

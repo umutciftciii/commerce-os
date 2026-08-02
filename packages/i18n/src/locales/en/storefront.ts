@@ -317,6 +317,11 @@ export const enStorefront: StorefrontDictionary = {
     // {title} is replaced with the product title, {n} with the 1-based image index.
     galleryThumbAlt: "{title} thumbnail {n}",
     galleryHint: "Images coming together",
+    // TODO-165B — PDP gallery actions (Amazon-style: zoom, share).
+    galleryZoom: "Zoom",
+    galleryZoomClose: "Close",
+    galleryShare: "Share",
+    galleryShareCopied: "Link copied",
     benefitsTitle: "Highlights",
     benefits: [
       "Carefully selected materials and craftsmanship",
@@ -370,6 +375,9 @@ export const enStorefront: StorefrontDictionary = {
       lowStock: "Only {count} left",
       attributesTitle: "Product Details",
       optionSelected: "Selected: {label}",
+      // TODO-165B — color/size card price summary. {price} is the formatted amount.
+      startingAt: "From {price}",
+      soldOut: "Sold out",
     },
   },
   buyBox: {

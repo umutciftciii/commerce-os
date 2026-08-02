@@ -232,3 +232,15 @@ kanıtlanmıştır (backend+bileşen ayrıca review edilip test edildi).
 `db:generate` + `pnpm build` 27/27 · `pnpm -r exec tsc -p tsconfig.json --noEmit` exit 0 ·
 `pnpm test` 3320/3320 · `prisma migrate status` 74 migration uygulanmış · `git diff --check`
 temiz · search read-model reindex 430/430 (marka alanları dolu). Detay: SDD ledger Task 29/30/31.
+
+---
+
+## Ek Not — TODO-165B Recovery (ship öncesi bulunan 6 blocker)
+
+TODO-165A ship edilmeden önce storefront/katalog doğruluğunda 6 blocker bulundu ve aynı recovery fazında
+(TODO-165B) çözüldü — TODO-165A değişiklikleriyle birlikte commit'e hazır. Bu blocker'ların ikisi TODO-165A
+alanına doğrudan dokunur: (5) **beden tablosu PDP'de görünmüyordu** — kök neden, buton yalnız `axis.kind==='size'`
+ekseni yanında render ediliyordu ve enterprise-demo `numara` ekseni `size` sayılmıyordu; çözüm butonu
+`fashion.sizeChart` varlığına bağladı (ADR-264). (2) **renk/beden kartlarında fiyat yoktu** — public fashion
+projeksiyonu option'a server-authoritative fiyat özeti ekledi (ADR-261). Detaylı analiz + kök nedenler:
+`docs/analysis/TODO-165B-pdp-catalog-recovery.md`. ADR-259…264.

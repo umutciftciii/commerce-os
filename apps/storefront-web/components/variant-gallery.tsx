@@ -14,7 +14,7 @@
 // degistiginde `key` verilir → ic secili-indeks 0'a (grubun kapagina) reset olur.
 
 import type { StorefrontDictionary } from "@commerce-os/i18n";
-import { ProductMedia } from "./ui";
+import { ProductMediaFrame } from "./ui";
 import { ProductGallery } from "./product-gallery";
 import { usePdpSelection } from "./pdp-selection";
 import { shouldShowThumbnailStrip } from "../lib/gallery";
@@ -42,9 +42,18 @@ export function VariantGallery({
     return <ProductGallery key={groupKey} images={images} title={detail.title} t={t} />;
   }
 
+  // TODO-165B — Tek/sıfır görsel: galeri ana görseliyle AYNI kontrollü çerçeve (contain + max
+  // boyut + nötr zemin); devasa render yok.
   return (
-    <div className="aspect-[4/5] overflow-hidden border border-line bg-surface">
-      <ProductMedia handle={detail.handle} title={detail.title} imageUrl={coverUrl} fit="contain" />
+    <div className="mx-auto w-full max-w-[520px]">
+      <ProductMediaFrame
+        variant="gallery-main"
+        handle={detail.handle}
+        title={detail.title}
+        imageUrl={coverUrl}
+        priority
+        className="border border-line"
+      />
     </div>
   );
 }

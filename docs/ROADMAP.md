@@ -1225,9 +1225,10 @@
 ## Sıralama (§29 — güncel öncelik)
 
 1. **TODO-165A Product Data Governance & Editing UX Recovery** — **IMPLEMENTED** (uçtan uca smoke geçti; commit bekliyor).
-2. **Final Enterprise UI & Design Polish** — EN SON.
-3. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-164, TD-167+).
-4. **Final Enterprise UI & Design Polish** (EN SON).
+2. **TODO-165B PDP, Catalog Projection & Slug Lifecycle Recovery** — **IMPLEMENTED** (6 storefront/katalog blocker;
+   ADR-259…264; TODO-165A ile birlikte commit bekliyor). Analiz: `docs/analysis/TODO-165B-pdp-catalog-recovery.md`.
+3. **Final Enterprise UI & Design Polish** — EN SON.
+4. Kalan launch blocker + teknik borçlar (TD-147 CSP, TD-148 FX, TD-164, TD-167+, TD-173).
 
 > Tamamlanan: **TODO-165 Fashion Vertical Foundation** (IMPLEMENTED, uçtan uca smoke geçti, commit YOK) ·
 > **TODO-164 Tenant Theme Architecture** (CLOSED & DEPLOYED, PR #149) ·

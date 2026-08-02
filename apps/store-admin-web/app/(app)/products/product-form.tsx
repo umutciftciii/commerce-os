@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useForm } from "react-hook-form";
 import { Alert, Button, Input, Select, Stepper, Textarea, useLocale } from "../../../components/ui";
 import { getDictionary } from "@commerce-os/i18n";
+import { slugify } from "@commerce-os/utils";
 import type {
   Product,
   ProductPriceVisibility,
@@ -275,6 +276,11 @@ export function ProductForm({
   const appointmentRequired = watch("appointmentRequired");
   const whatsappEnabled = watch("whatsappEnabled");
   const status = watch("status");
+  // TODO-165B — Slug yaşam döngüsü (yalnız edit). slugLocked=false → otomatik (server ad'dan üretir,
+  // slug GÖNDERİLMEZ); true → manuel. previewSlug ile ad'dan türeyecek slug önizlenir + 301 uyarısı.
+  const slugLocked = watch("slugLocked");
+  const currentSlug = product?.slug ?? "";
+  const previewSlug = slugify(watch("title"));
   const categoryIds = watch("categoryIds");
   const primaryCategoryId = watch("primaryCategoryId");
   // TODO-165A (ADR-165A) Task 17 — governed marka seçimi (bkz. ProductBrandField).
@@ -673,23 +679,100 @@ export function ProductForm({
         ) : null}
       </div>
 
-      <div>
-        <Input
-          id="product-slug"
-          label={f.slugLabel}
-          placeholder={f.slugPlaceholder}
-          disabled={isSubmitting || isEdit}
-          required={!isEdit}
-          aria-invalid={fieldError("slug") ? true : undefined}
-          {...register("slug")}
-        />
-        <p className="mt-1.5 text-xs text-white/30">{isEdit ? f.slugLockedHint : f.slugHint}</p>
-        {fieldError("slug") ? (
-          <p role="alert" className="mt-1 text-xs text-rose-300">
-            {fieldError("slug")}
-          </p>
-        ) : null}
-      </div>
+      {!isEdit ? (
+        <div>
+          <Input
+            id="product-slug"
+            label={f.slugLabel}
+            placeholder={f.slugPlaceholder}
+            disabled={isSubmitting}
+            required
+            aria-invalid={fieldError("slug") ? true : undefined}
+            {...register("slug")}
+          />
+          <p className="mt-1.5 text-xs text-white/30">{f.slugHint}</p>
+          {fieldError("slug") ? (
+            <p role="alert" className="mt-1 text-xs text-rose-300">
+              {fieldError("slug")}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        // TODO-165B — Slug yaşam döngüsü (edit). Otomatik: salt-okunur mevcut slug + ad'dan türeyecek
+        // önizleme + 301 uyarısı. Manuel: düzenlenebilir input. Her iki modda "ad'dan yeniden üret".
+        <div className="space-y-2 rounded-xl border border-white/[0.09] bg-white/[0.02] p-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white/85">{f.slugLabel}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  slugLocked
+                    ? "bg-white/[0.06] text-white/60"
+                    : "bg-indigo-500/15 text-indigo-200"
+                }`}
+              >
+                {slugLocked ? f.slugModeManual : f.slugModeAutomatic}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="text-xs text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+              onClick={() => setValue("slugLocked", !slugLocked, { shouldDirty: true })}
+              disabled={isSubmitting}
+            >
+              {slugLocked ? f.slugSwitchToAutomatic : f.slugSwitchToManual}
+            </button>
+          </div>
+
+          {slugLocked ? (
+            <div>
+              <Input
+                id="product-slug"
+                placeholder={f.slugPlaceholder}
+                disabled={isSubmitting}
+                aria-invalid={fieldError("slug") ? true : undefined}
+                {...register("slug")}
+              />
+              <p className="mt-1.5 text-xs text-white/30">{f.slugHint}</p>
+              {watch("slug").trim() !== "" && watch("slug").trim() !== currentSlug ? (
+                <p className="mt-1 text-xs text-amber-300/80">{f.slugRedirectWarning}</p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="font-mono text-sm text-white/70">{currentSlug || "—"}</p>
+              <p className="text-xs text-white/30">{f.slugModeAutomaticHint}</p>
+              {previewSlug !== "" && previewSlug !== currentSlug ? (
+                <div className="mt-1 space-y-1">
+                  <p className="text-xs text-white/50">
+                    {f.slugNextLabel}: <span className="font-mono text-white/75">{previewSlug}</span>
+                  </p>
+                  <p className="text-xs text-amber-300/80">{f.slugRedirectWarning}</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="text-xs text-indigo-300 hover:text-indigo-200 disabled:opacity-50"
+            onClick={() => {
+              setValue("slug", previewSlug, { shouldDirty: true });
+              setValue("slugLocked", false, { shouldDirty: true });
+              setValue("regenerateFromTitle", true, { shouldDirty: true });
+            }}
+            disabled={isSubmitting || previewSlug === ""}
+          >
+            {f.slugRegenerate}
+          </button>
+
+          {fieldError("slug") ? (
+            <p role="alert" className="mt-1 text-xs text-rose-300">
+              {fieldError("slug")}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       <Select
         id="product-status"

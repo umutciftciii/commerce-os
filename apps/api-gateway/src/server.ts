@@ -364,6 +364,7 @@ import {
   redirectEnumToStatus,
 } from "@commerce-os/utils";
 import { recordSlugChange } from "./seo/slug-governance.js";
+import { resolveProductSlugOnUpdate } from "./seo/product-slug.js";
 import { buildOrderSalesSummary } from "./orders/sales-summary.js";
 import {
   computeStoreShippingQuote,
@@ -519,6 +520,8 @@ type ProductRecord = Pick<
   | "storeId"
   | "title"
   | "slug"
+  // TODO-165B — slug kilidi (admin form + updateProduct slug yaşam döngüsü).
+  | "slugLocked"
   | "description"
   | "status"
   | "type"
@@ -1174,6 +1177,11 @@ export interface AppDataAccess extends CampaignDataAccess {
     input: {
       title?: string;
       slug?: string;
+      // TODO-165B — Slug yasam dongusu sinyalleri. `slug` manuel override, `slugLocked`
+      // kilit durumu, `regenerateFromTitle` "adindan yeniden uret" aksiyonu. Data-access
+      // resolveProductSlugOnUpdate ile nihai slug/kilidi hesaplar; slug degisirse 301 yazar.
+      slugLocked?: boolean;
+      regenerateFromTitle?: boolean;
       description?: string | null;
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       type?: "PHYSICAL";
@@ -1772,6 +1780,8 @@ function serializeStoreSettings(
 function serializeProduct(product: ProductRecord, baseUrl?: string) {
   return productSchema.parse({
     ...product,
+    // TODO-165B — slug kilidi (admin form: otomatik/manuel durumu).
+    slugLocked: product.slugLocked,
     description: product.description ?? null,
     vendor: product.vendor ?? null,
     brand: product.brand ?? null,
@@ -2817,6 +2827,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     storeId: true,
     title: true,
     slug: true,
+    // TODO-165B — Slug kilidi (admin form: otomatik/manuel durumu + "yeniden üret" aksiyonu).
+    slugLocked: true,
     description: true,
     status: true,
     type: true,
@@ -3735,19 +3747,39 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
       prisma.$transaction(async (transaction: TransactionClient) => {
         const existing = await transaction.product.findFirst({
           where: { id: productId, storeId },
-          select: { id: true, slug: true },
+          select: { id: true, title: true, slug: true, slugLocked: true },
         });
         if (!existing) return null;
-        const { categoryIds, ...data } = input;
-        // TODO-156D — Slug gerçekten değişiyorsa (yeni slug gönderildi + eski ≠ yeni) AYNI transaction'da
-        // SlugHistory + otomatik 301 redirect yaz (atomik; ürün slug'ı ile birlikte commit).
-        if (data.slug !== undefined && data.slug !== existing.slug) {
+        // TODO-165B — regenerateFromTitle bir Prisma kolonu DEGIL (aksiyon sinyali); slug/slugLocked
+        // burada server-authoritative hesaplanir → data'dan ayiklanir, hesaplanan degerler geri yazilir.
+        const { categoryIds, regenerateFromTitle, slug: explicitSlug, slugLocked: nextSlugLocked, ...data } = input;
+        // TODO-165B — Slug yasam dongusu: ad degisince (kilit yoksa) slug otomatik yeniden uretilir,
+        // manuel override / "adindan yeniden uret" aksiyonu desteklenir. Collision store slug seti
+        // uzerinden deterministik cozulur (kendi slug'i haric).
+        const storeSlugRows = await transaction.product.findMany({
+          where: { storeId },
+          select: { slug: true },
+        });
+        const existingSlugs = new Set(storeSlugRows.map((row) => row.slug));
+        const slugResult = resolveProductSlugOnUpdate({
+          currentTitle: existing.title,
+          currentSlug: existing.slug,
+          currentSlugLocked: existing.slugLocked,
+          nextTitle: data.title,
+          explicitSlug,
+          nextSlugLocked,
+          regenerateFromTitle,
+          existingSlugs,
+        });
+        // TODO-156D/165B — Slug gerçekten değiştiyse AYNI transaction'da SlugHistory + otomatik 301
+        // redirect yaz (atomik; chain collapse + loop guard recordSlugChange içinde).
+        if (slugResult.slugChanged) {
           await recordSlugChange(transaction, {
             storeId,
             entityType: "PRODUCT",
             entityId: productId,
             oldSlug: existing.slug,
-            newSlug: data.slug,
+            newSlug: slugResult.slug,
             createdBy: actorId ?? null,
           });
         }
@@ -3755,6 +3787,9 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           where: { id: productId },
           data: {
             ...data,
+            // TODO-165B — hesaplanan nihai slug + kilit (server-authoritative).
+            slug: slugResult.slug,
+            slugLocked: slugResult.slugLocked,
             description: data.description === undefined ? undefined : data.description,
             vendor: data.vendor === undefined ? undefined : data.vendor,
             brand: data.brand === undefined ? undefined : data.brand,
@@ -5521,7 +5556,14 @@ export function createServer(
     // TODO-165 (ADR-247/249/250) — capability-aware fashion projeksiyonu. FASHION_VERTICAL
     // kapaliysa veya fashion-disi urunse null (leak-free; eski DTO davranisi korunur).
     const fashion = (await capabilityCache.isEnabled(store.id, "FASHION_VERTICAL"))
-      ? await buildPublicFashionProjection(sizeChartService, store.id, product.id, product.primaryCategoryId ?? null)
+      ? await buildPublicFashionProjection(
+          sizeChartService,
+          store.id,
+          product.id,
+          product.primaryCategoryId ?? null,
+          // TODO-165B — renk/beden kartı fiyat özeti için zaten hesaplanmış public varyantlar.
+          summary.variants,
+        )
       : null;
     return publicProductDetailSchema.parse({
       ...summary,
@@ -7011,6 +7053,8 @@ export function createServer(
     requireStoreAdmin: requireStoreAdminForModule("CATALOG"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     toPublicMediaUrl: (storageKey) => resolveMediaUrl(config.MEDIA_PUBLIC_BASE_URL, storageKey),
+    // TODO-165B — marka adı/slug değişince ürün search read-model snapshot'ı bayatlar → reindex.
+    onBrandChanged: (storeId) => searchIndex.reindexStore(storeId),
   });
 
   // TODO-165A (ADR-165A) — Task 10: Governed Product Taxonomy yonetimi (store-admin).
@@ -8471,6 +8515,12 @@ export function createServer(
       entityId: category.id,
       metadata: { fields: Object.keys(input) },
     });
+    // TODO-165B — Kategori slug değişince search read-model'deki categorySlugs snapshot'ı bayatlar
+    // (ürünler yeni slug'la sorgulanınca bulunmaz). Kategori rename seyrek → mağaza-seviyesi
+    // reindex (tek job) kabul edilebilir; storefront PLP/suggestion yeni slug'la tutarlı kalır.
+    if (input.slug) {
+      searchIndex.reindexStore(params.storeId);
+    }
     return serializeCategory(category, config.MEDIA_PUBLIC_BASE_URL);
   });
 

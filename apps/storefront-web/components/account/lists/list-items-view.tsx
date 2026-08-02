@@ -14,7 +14,7 @@ import { Alert, Badge, Button } from "@commerce-os/ui";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { CustomerListItem, CustomerListSummary } from "@commerce-os/api-client";
 import { formatMinor } from "../../../lib/money";
-import { ProductMedia } from "../../ui/product-media";
+import { ProductMediaFrame } from "../../ui/product-media";
 import {
   addVariantToCartAction,
   batchAddListToCartAction,
@@ -90,9 +90,15 @@ export function ListItemsView({
             key={item.id}
             className="flex gap-4 rounded-md border border-line bg-surface p-4"
           >
-            <div className="h-24 w-20 shrink-0 overflow-hidden rounded-sm border border-line bg-surface-muted">
-              <ProductMedia handle={item.productSlug} title={item.productTitle} imageUrl={item.imageUrl} />
-            </div>
+            {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
+                Genişlik w-20 sabit; aspect-[4/5] yüksekliği verir (~eski h-24). */}
+            <ProductMediaFrame
+              variant="product-card"
+              handle={item.productSlug}
+              title={item.productTitle}
+              imageUrl={item.imageUrl}
+              className="w-20 shrink-0 rounded-sm border border-line"
+            />
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="min-w-0">
                 <a

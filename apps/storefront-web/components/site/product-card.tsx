@@ -5,7 +5,7 @@ import Link from "next/link";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
 import type { StorefrontProductSummary } from "../../lib/catalog-types";
 import { primaryPriceText, showsNumericPrice } from "../../lib/labels";
-import { Badge, ButtonLink, ProductMedia, Stars } from "../ui";
+import { Badge, ButtonLink, ProductMedia, ProductMediaFrame, Stars } from "../ui";
 import { WishlistHeartButton } from "../wishlist/wishlist-heart-button";
 import { useRating, type CardRating } from "../reviews/rating-provider";
 import { SponsoredBadge } from "../sponsored/sponsored-badge";
@@ -49,20 +49,28 @@ export function StorefrontProductCard({
 
   return (
     <div className="product-card group relative flex flex-col" data-variant={cardVariant}>
-      <div className="product-card-media relative aspect-[4/5] overflow-hidden rounded-md border border-line bg-surface transition-shadow duration-300 ease-premium group-hover:shadow-md">
+      {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
+          `product-card-media` sınıfı korunur (globals.css data-variant aspect/border override'ları); frame'in
+          aspect-[4/5] utility'sini CSS variant kuralları eskisi gibi override eder. Link tıklama katmanı +
+          rozet/kalp/hızlı-bakış overlay'leri children (kalp/hızlı-bakış butonu <a> içinde OLAMAZ). */}
+      <ProductMediaFrame
+        variant="product-card"
+        handle={product.handle}
+        title={product.title}
+        imageUrl={product.coverUrl}
+        className="product-card-media rounded-md border border-line transition-shadow duration-300 ease-premium group-hover:shadow-md"
+        mediaClassName="transition-transform duration-500 ease-premium group-hover:scale-[1.04]"
+      >
+        {/* PDP tıklama katmanı (tüm çerçeveyi kaplar; rozet/kalp/hızlı-bakış DOM'da sonra → üstte kalır). */}
         <Link
           href={href}
           aria-label={product.title}
-          className="block h-full w-full"
+          className="absolute inset-0"
           onClick={() => {
             // TODO-161 — Sponsorlu kart tıklaması: CLICK event + checkout attribution cookie'si.
             if (product.sponsoredToken) trackSponsoredClick(product.sponsoredToken, "home");
           }}
-        >
-          <div className="h-full w-full transition-transform duration-500 ease-premium group-hover:scale-[1.04]">
-            <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
-          </div>
-        </Link>
+        />
 
         {/* Rozetler (sol üst yığın): kampanya/indirim/yeni (nötr) + TÜKENDİ (outline). */}
         <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
@@ -99,7 +107,7 @@ export function StorefrontProductCard({
             {t.home.card.quickView}
           </button>
         </div>
-      </div>
+      </ProductMediaFrame>
 
       {/* Bilgi — kompakt yoğunluk. */}
       <div className="flex flex-1 flex-col pt-3">

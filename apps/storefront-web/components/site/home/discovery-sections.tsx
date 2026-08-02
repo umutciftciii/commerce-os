@@ -6,7 +6,7 @@ import type {
   StorefrontDiscoverySection,
   StorefrontProductSummary,
 } from "../../../lib/catalog-types";
-import { Container, Eyebrow, Heading, ProductMedia } from "../../ui";
+import { Container, Eyebrow, Heading, ProductMediaFrame } from "../../ui";
 import { DiscoveryTracker } from "./discovery-tracker";
 
 /** Bir top-level section'ın izleme meta'sını (ürünler + editoryal CTA hedefleri) türetir. */
@@ -288,11 +288,16 @@ function DiscoveryGridCardTile({
 function GridThumb({ product }: { product: StorefrontProductSummary }) {
   return (
     <Link href={`/products/${product.handle}`} className="group/thumb block">
-      <div className="relative aspect-square overflow-hidden rounded border border-line bg-surface-muted">
-        <div className="h-full w-full transition-transform duration-500 ease-premium group-hover/thumb:scale-[1.04]">
-          <ProductMedia handle={product.handle} title={product.title} imageUrl={product.coverUrl} />
-        </div>
-      </div>
+      {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
+          NOT: bu thumbnail eskiden aspect-square idi; product-card variant'ı aspect-[4/5] uygular (kare→4/5). */}
+      <ProductMediaFrame
+        variant="product-card"
+        handle={product.handle}
+        title={product.title}
+        imageUrl={product.coverUrl}
+        className="rounded border border-line"
+        mediaClassName="transition-transform duration-500 ease-premium group-hover/thumb:scale-[1.04]"
+      />
       <p className="mt-1.5 line-clamp-1 text-[12px] text-ink-subtle">{product.title}</p>
     </Link>
   );

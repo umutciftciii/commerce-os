@@ -366,6 +366,20 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
       });
       const categoryIdsByProduct = groupBy(categoryAssignments, (a) => a.productId);
 
+      // (12b) TODO-165B — Kategori id→slug map (categorySlugs projeksiyonu için). Primary + tüm
+      // assignment kategori id'leri tek sorguda çözülür; silinmiş/eşleşmeyen id slug üretmez.
+      const allCategoryIds = new Set<string>();
+      for (const p of products) if (p.primaryCategoryId) allCategoryIds.add(p.primaryCategoryId);
+      for (const a of categoryAssignments) allCategoryIds.add(a.categoryId);
+      const categorySlugRows =
+        allCategoryIds.size > 0
+          ? await client.productCategory.findMany({
+              where: { storeId, id: { in: [...allCategoryIds] } },
+              select: { id: true, slug: true },
+            })
+          : [];
+      const slugByCategoryId = new Map(categorySlugRows.map((c) => [c.id, c.slug]));
+
       // (13) TODO-155.2 — Store'un rozet-uygun aktif public kampanyaları (bir kez; her ürün için AYNI referans).
       const campaigns = await loadStoreCampaigns(client, storeId);
       // Snapshot değerlendirme anı (Omnibus `since` gibi IO katmanında → builder SAF/deterministik kalır).
@@ -384,6 +398,14 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           mediaOptionId: mediaOptionByVariant.get(v.id) ?? null,
         }));
         const cats = p.primaryCategoryId ? caByCategory.get(p.primaryCategoryId) ?? [] : [];
+        // TODO-155.2/165B — primary + tüm atanmış kategori id'leri (union, dedupe). categoryIds
+        // (kampanya kapsamı + PLP) ve categorySlugs bundan türetilir → tek kaynak, tutarlı.
+        const productCategoryIds = [
+          ...new Set([
+            ...(p.primaryCategoryId ? [p.primaryCategoryId] : []),
+            ...(categoryIdsByProduct.get(p.id) ?? []).map((a) => a.categoryId),
+          ]),
+        ];
         const images: SearchSourceImage[] = (imagesByProduct.get(p.id) ?? []).map((img) => ({
           mediaId: img.mediaId,
           storageKey: img.media.storageKey,
@@ -425,13 +447,12 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           productAttributeValues: (pavByProduct.get(p.id) ?? []).map(toProductAttributeValue),
           variantAttributeValues: vavByProduct.get(p.id) ?? [],
           variantOptionValues: vovByProduct.get(p.id) ?? [],
-          // TODO-155.2 — kampanya kapsamı: primaryCategory + tüm atanmış kategoriler (union, dedupe).
-          categoryIds: [
-            ...new Set([
-              ...(p.primaryCategoryId ? [p.primaryCategoryId] : []),
-              ...(categoryIdsByProduct.get(p.id) ?? []).map((a) => a.categoryId),
-            ]),
-          ],
+          // TODO-155.2/165B — kampanya kapsamı + PLP görünürlüğü: primaryCategory + tüm atanmış
+          // kategoriler (union, dedupe). categorySlugs AYNI sıradan türetilir (eşleşmeyen id atlanır).
+          categoryIds: productCategoryIds,
+          categorySlugs: productCategoryIds
+            .map((id) => slugByCategoryId.get(id))
+            .filter((s): s is string => s !== undefined),
           campaigns,
           evaluationNow,
           mediaDefiningAttributeId: p.mediaDefiningAttributeId,
@@ -468,6 +489,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
             storeId: document.storeId,
             productId: document.productId,
             primaryCategoryId: document.primaryCategoryId,
+            // TODO-165B — çok-kategori indexleme (primary + secondary).
+            categoryIds: document.categoryIds,
+            categorySlugs: document.categorySlugs,
             title: document.title,
             slug: document.slug,
             brand: document.brand,
@@ -496,6 +520,9 @@ export function createPrismaSearchDataAccess(client: PrismaClient): SearchDataAc
           },
           update: {
             primaryCategoryId: document.primaryCategoryId,
+            // TODO-165B — çok-kategori indexleme (primary + secondary).
+            categoryIds: document.categoryIds,
+            categorySlugs: document.categorySlugs,
             title: document.title,
             slug: document.slug,
             brand: document.brand,

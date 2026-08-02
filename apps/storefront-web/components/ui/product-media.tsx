@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "@commerce-os/ui";
 
 /**
@@ -87,6 +88,78 @@ export function ProductMedia({
       >
         {monogram}
       </span>
+    </div>
+  );
+}
+
+/**
+ * TODO-165B (ADR — product-card image fit standard) — Ortak ürün medya ÇERÇEVESİ.
+ *
+ * `ProductMedia` yalnız görseli doldurur (h-full w-full); aspect-ratio + fit + iç boşluk + nötr
+ * zemin kararı bugüne kadar her tüketicide KOPYALANIYORDU ve kartlar `cover` ile aşırı zoom/crop
+ * yapıyordu (blocker 6). Bu primitive o kararı TEK YERDE toplar: `variant`'a göre aspect/fit/pad/bg.
+ *
+ * Kural: ürün kartları `contain` (kırpma yok, görsel merkezli, nötr zemin, kontrollü padding).
+ * Hero/banner bu primitive'i KULLANMAZ. Overlay'ler (rozet vb.) `children` olarak geçer; görsel-özel
+ * hover efekti `mediaClassName` ile img'e uygulanır (çerçeve overflow-hidden ile taşmayı keser).
+ */
+export type ProductMediaFrameVariant =
+  | "product-card"
+  | "gallery-main"
+  | "gallery-thumbnail"
+  | "variant-card";
+
+const FRAME_CONFIG: Record<
+  ProductMediaFrameVariant,
+  { aspect: string; fit: "cover" | "contain"; pad: string; bg: string }
+> = {
+  // Kart: kırpmadan sığdır + nötr zemin + kontrollü iç boşluk.
+  "product-card": { aspect: "aspect-[4/5]", fit: "contain", pad: "p-2 sm:p-3", bg: "bg-surface" },
+  // PDP ana görseli: 4/5 (moda portresi), contain (kırpma yok), güvenli iç boşluk (F9 galeri).
+  "gallery-main": { aspect: "aspect-[4/5]", fit: "contain", pad: "p-4 sm:p-6", bg: "bg-surface" },
+  // Thumbnail: küçük net önizleme (cover kabul edilebilir).
+  "gallery-thumbnail": { aspect: "aspect-square", fit: "cover", pad: "", bg: "bg-surface-muted" },
+  // Varyant kartı (renk görseli): kompakt, contain.
+  "variant-card": { aspect: "aspect-square", fit: "contain", pad: "p-1", bg: "bg-surface" },
+};
+
+export function ProductMediaFrame({
+  variant,
+  handle,
+  title,
+  imageUrl,
+  alt,
+  priority = false,
+  className,
+  mediaClassName,
+  children,
+}: {
+  variant: ProductMediaFrameVariant;
+  handle: string;
+  title: string;
+  imageUrl?: string | null;
+  alt?: string;
+  priority?: boolean;
+  /** Çerçeve (dış kutu) ek sınıfları — kenarlık vb. */
+  className?: string;
+  /** Görsele (img) uygulanan ek sınıflar — ör. hover zoom. */
+  mediaClassName?: string;
+  /** Çerçeve içi mutlak-konumlu overlay'ler (rozet, hover katmanı). */
+  children?: ReactNode;
+}) {
+  const cfg = FRAME_CONFIG[variant];
+  return (
+    <div className={cn("relative overflow-hidden", cfg.aspect, cfg.bg, cfg.pad, className)}>
+      <ProductMedia
+        handle={handle}
+        title={title}
+        imageUrl={imageUrl}
+        alt={alt}
+        priority={priority}
+        fit={cfg.fit}
+        className={mediaClassName}
+      />
+      {children}
     </div>
   );
 }

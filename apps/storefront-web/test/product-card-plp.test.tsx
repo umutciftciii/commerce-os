@@ -110,8 +110,8 @@ describe("PLP ProductCard · commerce semantics", () => {
     expect(html).not.toContain("Sepete ekle");
   });
 
-  // ADR-065 (Faz 3/Dilim 1) — Kapak gorseli: coverUrl dolu → gercek <img> (object-cover);
-  // yoksa deterministik yer tutucu (monogram). productImageSrc fallback'i DEGISMEZ.
+  // ADR-065 (Faz 3/Dilim 1) — Kapak gorseli: coverUrl dolu → gercek <img>. TODO-165B (ADR-260):
+  // ortak ProductMediaFrame primitive'e gecis; kartlar artik object-CONTAIN (kirpma/asiri-zoom yok).
   it("renders the real cover image when coverUrl is set", () => {
     const html = renderToStaticMarkup(
       <ProductCard
@@ -120,7 +120,7 @@ describe("PLP ProductCard · commerce semantics", () => {
       />,
     );
     expect(html).toContain('src="/media/stores/s1/products/cover.webp"');
-    expect(html).toContain("object-cover");
+    expect(html).toContain("object-contain");
   });
 
   it("falls back to the deterministic placeholder when coverUrl is null (regression gate)", () => {

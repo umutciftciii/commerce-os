@@ -2487,3 +2487,31 @@ bağlamayı raw-ID input'tan searchable selector'a geçirir. Mevcut EAV/capabili
   liste+create · Ürün Sözlükleri tab+usageCount+reorder · ürün formu Fashion Özellikleri round-trip+quick-add ·
   merkezi size-chart AssignModal (raw ID YOK) · responsive 375px.
 - **AÇIK:** **commit/push/PR/merge/deploy YOK** (§20). Ertelenen küçük borçlar `docs/TECHNICAL_DEBT.md`'de.
+
+## TODO-165B — PDP, Catalog Projection & Slug Lifecycle Recovery (ADR-259…264)
+
+TODO-165A ship edilmeden bulunan 6 storefront/katalog blocker'ı aynı recovery fazında çözer. Yeni motor
+KURULMAZ (projection/search-read-model/redirect/theme-slot altyapısı reuse). Analiz:
+`docs/analysis/TODO-165B-pdp-catalog-recovery.md`.
+
+- **Blocker 1 — PDP galeri:** Amazon-tarzı düzen (desktop dikey thumbnail + kontrollü ana görsel, mobile yatax);
+  `ProductMediaFrame variant="gallery-main"` (contain + max boyut + nötr zemin); zoom lightbox + share + klavye.
+  Kök neden: ana görsel frame'inde max sınır yoktu → `GALLERY_FIRST`'te devasa. (ADR-259)
+- **Blocker 6 — Kart görselleri:** ortak `ProductMediaFrame` primitive (fit/aspect/padding TEK yerde); ürün
+  kartları `cover`→`contain` (aşırı-zoom/crop giderildi). Hero/kategori-karosu kapsam dışı. (ADR-260)
+- **Blocker 2 — Varyant fiyat kartları:** projeksiyon option'a `startingPriceMinor/compareAtMinor/priceCurrency/
+  inStock` (server-authoritative, ACTIVE+görünür varyant min, mixed-currency fail-safe, inactive-sızıntı filtresi).
+  Buy-box: çok-renk→renk kartı fiyatı, tek-renk→beden kartı fiyatı, renk+beden→renk özeti+buy-box kesin. (ADR-261)
+- **Blocker 3 — Slug yaşam döngüsü:** `Product.slugLocked` migration + SAF `resolveProductSlugOnUpdate`
+  (otomatik/manuel/regenerate) + `recordSlugChange` reuse (301+SlugHistory, chain-collapse). Store-admin form:
+  otomatik/manuel toggle + "adından yeniden üret" + 301 önizleme. Canlı kanıt: `edm-prod-0266` title=Camper
+  slug=puma → düzeltilecek. (ADR-262)
+- **Blocker 4 — Kategori PLP:** `ProductSearchDocument.categoryIds/categorySlugs` (primary+secondary, GIN);
+  PLP array-overlap filtresi (duplicate yok); kategori/marka rename reindex; idempotent fashion-kategori backfill
+  (28+39+35=102 assignment; moda-ayakkabi 0→25 ürün). (ADR-263)
+- **Blocker 5 — Beden tablosu:** buton görünürlüğü `fashion.sizeChart` varlığına bağlı (axis-kind bağımsız);
+  `axisKind` normalize (numara/beden→size, yalnız UX). `resolveEffective` precedence reuse; PDP cache'siz. (ADR-264)
+- **Migration:** `20260802130000_todo165b_slug_lock_and_category_arrays` (additive; slugLocked + categoryIds/Slugs
+  + 2 GIN index).
+- **AÇIK:** **commit/push/PR/merge/deploy YOK** — tam gate + gerçek browser smoke sonrası durulur. TODO-165A
+  değişiklikleriyle birlikte commit'e hazır.

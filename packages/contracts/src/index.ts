@@ -2216,6 +2216,8 @@ export const productSchema = z.object({
   storeId: z.string().min(1),
   title: z.string().min(1),
   slug: slugSchema,
+  // TODO-165B — Slug kilidi (admin form otomatik/manuel durumu + "yeniden üret" aksiyonu).
+  slugLocked: z.boolean().default(false),
   description: z.string().nullable(),
   status: productStatusSchema,
   type: productTypeSchema,
@@ -2429,6 +2431,9 @@ export const productCreateRequestSchema = z
   .object({
     title: z.string().min(1).max(220),
     slug: slugSchema,
+    // TODO-165B — Manuel slug kilidi. true: ad degisse bile slug korunur. create'te
+    // varsayilan false (kullanici slug'i elle girse de kilit acik baslar; sonra kilitleyebilir).
+    slugLocked: z.boolean().default(false),
     description: optionalNullableStringSchema,
     status: productStatusSchema.default("DRAFT"),
     type: productTypeSchema.default("PHYSICAL"),
@@ -2494,6 +2499,11 @@ export const productUpdateRequestSchema = z
   .object({
     title: z.string().min(1).max(220).optional(),
     slug: slugSchema.optional(),
+    // TODO-165B — Slug yasam dongusu. `slug` (manuel override) + `slugLocked` (kilit)
+    // + `regenerateFromTitle` (adindan yeniden uret aksiyonu) server-authoritative
+    // resolveProductSlugOnUpdate ile cozulur; slug gercekten degisirse 301 redirect yazilir.
+    slugLocked: z.boolean().optional(),
+    regenerateFromTitle: z.boolean().optional(),
     description: optionalNullableStringSchema,
     status: productStatusSchema.optional(),
     type: productTypeSchema.optional(),
@@ -3041,6 +3051,15 @@ export const publicFashionOptionSchema = z.object({
   colorHex: z.string().nullable().default(null),
   colorFamily: z.string().nullable().default(null),
   order: z.number().int(),
+  // TODO-165B — Renk/beden kartı fiyat özeti (SERVER-authoritative; bu option'a sahip ACTIVE
+  // + görünür-fiyatlı varyantların min priceMinor'ı). compareAtMinor = o min varyantın eski
+  // fiyatı (yalnız indirimliyse). Karışık para birimi → startingPriceMinor null (fail-safe).
+  // priceVisibility gizli veya varyant yoksa null → UI fiyat göstermez. inStock: option'ın
+  // en az bir ACTIVE varyantı satılabilir mi (OOS işaretlemesi için).
+  startingPriceMinor: z.number().int().nonnegative().nullable().default(null),
+  compareAtMinor: z.number().int().nonnegative().nullable().default(null),
+  priceCurrency: z.string().nullable().default(null),
+  inStock: z.boolean().default(true),
 });
 export const publicFashionAxisSchema = z.object({
   attributeDefinitionId: z.string(),
