@@ -1649,7 +1649,7 @@ smoke + store-admin UI-piksel click-through (parola; TD-126 sınırı → Final 
   çekilmez + section/island render edilmez + event üretilmez; public projeksiyon boolean-only kalır.
   storefront 446 test PASS.
 
-## TD-157 Layout preset slot varyantları ilk faz (TODO-164) — OPEN
+## TD-157 Layout preset slot varyantları ilk faz (TODO-164) — CLOSED & DEPLOYED
 
 - **Bağlam.** TODO-164 slot contract 8 slot × N variant tanımlar (allowlist); bu fazda gerçek GÖRÜNÜR CSS
   farkı YALNIZ birkaç slot için uygulandı (ProductCard comfortable/compact/premium, Header solid/minimal/
@@ -1894,4 +1894,4 @@ Denetimde Final Polish kapsamına bırakılan kalemlerin uygulanması. Detay: `d
 - **Theme smoke: KISMİ.** Canlı admin oturumunda TD-157 kontrolleri (removed sliders, friendly/valid enum), draft-preview GÖRÜNÜR storefront diff (sarı zemin), publish + WCAG-kontrast + override-policy governance gate'leri DOĞRULANDI. Canlı store-assignment→production-swap→sürüm-rollback YAPILMADI (paylaşılan enterprise-demo store mutasyon riski; 0-store atama → canlı storefront etkilenmedi). Smoke tema DB'den temizlendi.
 - **Checkout smoke: KISMİ.** Non-auth yüzeyler doğrulandı (sepet TD-173, checkout→login gate, editorial login + aria + 375). Tam kimlik-doğrulamalı akış YAPILMADI (güvenlik kuralı: hesap oluşturma + parola girme kısıtlı; bilinen-parolalı müşteri fixture'ı yok).
 
-**Sonuç:** Üç smoke tam geçmediğinden **TD-157 CLOSED / Final Enterprise UI Polish IMPLEMENTED KABUL EDİLMEZ; durum IN_PROGRESS.** (Önceki "Completion Recovery" bölümündeki CLOSED işaretleri kontrol-seviyesi doğrulamayı yansıtır; tam acceptance için store-swap+rollback ve auth'lu checkout kullanıcı-tarafı oturum gerektirir.) Kod tarafı: typecheck+lint+test(1235)+build YEŞİL.
+**Sonuç (güncelleme 2026-08-02, ayrı acceptance turu):** Üç smoke İZOLE test verisiyle TAM GEÇTİ → **TD-157 CLOSED & DEPLOYED / Final Enterprise UI Polish CLOSED & DEPLOYED.** (a) Hover-zoom regresyonu çözüldü+browser; (b) Theme publish/rollback throwaway store'da tam lifecycle (draft-preview görünür diff→publish→preview=published→revision→rollback→immutable revision + cache invalidation + tenant isolation); (c) Authenticated checkout izole müşteri (env-driven parola) ile login→order PAID→account detail; reservation invariant + order snapshot immutable + KDV/fiyat doğru. Ek: **inclusive-VAT order-detail düzeltmesi** (taxMinor=0 → "Fiyatlara KDV dahildir" / "Prices include VAT", yanıltıcı ₺0,00 kaldırıldı). PR #163 (merge 1dd7d71); docker storefront/store-admin/admin/api-gateway main'den rebuild + post-deploy smoke PASS; izole smoke FK-güvenli temizlendi. Gate: build+typecheck+lint+test(storefront523/store-admin364/admin30/ui31/theme287)+git diff --check YEŞİL. Kalan tek pre-existing PROD BLOCKER PB-3/TD-139 (offsite backup, UI dışı).
