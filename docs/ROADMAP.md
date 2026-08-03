@@ -1335,7 +1335,7 @@ remove→badge temiz; mobil temiz). Açık follow-up TD-177 (PLP/home bounded st
 deselection persist). **Gift Card blocker KALDIRILDI.** TODO-168 DEĞİŞMEDİ. Detay:
 `docs/analysis/BUG-CART-002-availability-badge-selection.md`.
 
-## Financial Reporting Foundation — IN_PROGRESS (2026-08-03; commit/deploy YOK)
+## Financial Reporting Foundation — CLOSED & DEPLOYED (2026-08-03, PR #168 merge `9a4c8db` + fix PR #169 `eb31cc3`)
 
 Store-Admin **Finans > Raporlar** modülü: sipariş SNAPSHOT'larından türetilen (canlı fiyat DEĞİL) mağaza-geneli
 finansal raporlar. Kapsam: satış özeti (KPI + günlük seri + önceki-dönem karşılaştırması), ürün/varyant
@@ -1347,7 +1347,14 @@ uydurulmaz** (yalnız iade ADEDİ + `refundAmountsSupported=false`); minimum `Or
 §5'te KARARLAŞTIRILDI. **Kârlılık** cost snapshot mevcut olduğundan DESTEKLENİR, kapsam-kapılı (all-or-null).
 **Migration YOK** (snapshot sorgusu; `FinancialDailyAggregate` gelecek ölçek yolu). Yeni capability key YOK
 (Orders/dashboard katmanı; store-scoped 404 izolasyonu). Gate GREEN: build 27/27 (`/finance/reports` + 9 BFF
-route) · typecheck temiz · lint 0 error · test 2219 (31 finans). Karar: [ADR-268](./adr/ADR-268-financial-reporting-authority.md);
+route) · typecheck temiz · lint 0 error · test 4171 (api-gateway alt kümesi 2219; 32 finans). **Deploy:**
+api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`; postgres/redis/worker/storefront/admin-web
+DOKUNULMADI, named volume'lar korundu); migration YOK, schema "up to date". **Post-deploy smoke PASS:** izole
+fixture (normal/indirimli/kargolu/ücretsiz-kargo PAID + CANCELLED + UNPAID + USD; CARD/BANK_TRANSFER) deployed
+:4000 API'de reconciliation birebir (gross 419400 / net 411400 / cancelled hariç / unpaid ödemede yok / USD ayrı),
+deployed :3002 UI enterprise-demo'da render + currency dropdown fix (TRY seçili → [TRY,USD]), responsive 375/768/
+1440; fixture FK-güvenli temizlendi (demo-store pristine). Follow-up fix PR #169: currency seçimi sonrası dropdown
+çökmesi (availableCurrencies tümünü listeler). Karar: [ADR-268](./adr/ADR-268-financial-reporting-authority.md);
 analiz: `docs/analysis/FINANCIAL-reporting-foundation.md`. Future: refund tutarı, payment fee, FX,
 profitability allocation, FinancialDailyAggregate, XLSX, scheduled reports, platform cross-store.
 

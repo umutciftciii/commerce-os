@@ -1,7 +1,8 @@
 # ADR-268 — Financial Reporting Authority (Financial Reporting Foundation)
 
-- **Status:** IN_PROGRESS — Financial Reporting Foundation. Backend + Store-Admin UI implemented;
-  full gate (build/typecheck/lint/test) GREEN; **not committed/merged/deployed** (commit yasağı).
+- **Status:** ACCEPTED & DEPLOYED — Financial Reporting Foundation (PR #168 merge `9a4c8db`;
+  currency-selector fix PR #169 merge `eb31cc3`). api-gateway + store-admin-web rebuilt/recreated from main;
+  no migration (schema up to date); post-deploy smoke PASS (reconciliation exact; fixtures cleaned).
 - **Date:** 2026-08-03
 - **Builds on:** F4B (cost/margin snapshot), F4C / ADR-063/ADR-064 (VAT + `buildOrderSalesSummary`
   per-order authority), ADR-176/ADR-178 (per-currency segregation + tz-aware bounded ranges),
