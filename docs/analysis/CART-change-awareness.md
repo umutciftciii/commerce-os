@@ -1,14 +1,22 @@
 # CART Change Awareness & Price Movement Notifications — Design & Analysis
 
-> **TODO-167** · Design/spec (brainstorming output).
+> **TODO-168** · Design/spec + implementation record.
 >
-> ## ⏸️ STATUS: PAUSED — BLOCKED ON "Persistent Cart & Cross-Device Cart Foundation"
+> ## ✅ STATUS: IMPLEMENTED (2026-08-03, worktree, commit YOK) — hybrid model per [ADR-267](../adr/ADR-267-cart-change-semantics.md)
 >
-> **Decision (2026-08-03):** implementation deferred. This feature was designed against the **current
-> stateless cookie-only cart**. The team will first build **Persistent Cart & Cross-Device Cart
-> Foundation** (a server-side persisted cart), which changes where cart state lives. Building the
-> cookie-carried snapshot+ack now and then re-doing it on top of the persisted cart would be wasted work,
-> so this is resumed **after** that foundation lands.
+> **Faz B implemented on top of the Persistent Cart (ADR-266) hybrid model.** Snapshot/ack authority is
+> **identity-split** (auth = DB `CartLine` snapshot columns + `CartChangeAck`, genuine cross-device; anon =
+> signed `commerce_os_cart_meta` cookie), driven by one shared pure engine
+> (`apps/api-gateway/src/cart-changes/change-engine.ts`). The §2–§4/§8/§10 "cookie-carried, zero-migration"
+> framing below is **superseded by [ADR-267](../adr/ADR-267-cart-change-semantics.md) + the
+> [roadmap](./PERSISTENT-CART-roadmap.md) Faz B** for the authenticated path; §1 audit, §5 change types, §6
+> fingerprint/dedup, §7 acknowledgement, §9 three-tier checkout, §12 analytics, §13 UX, §15 tests remain the
+> behaviour reference and are what shipped. Gate GREEN (build 27/27 · lint 42/42 · typecheck · test:
+> gateway 2184 / storefront 534 / store-admin 364 · `git diff --check`). No commit/push/PR/merge/deploy.
+>
+> **Original pause context (historical):** implementation was deferred until the Persistent Cart foundation
+> landed (it did — TODO-167 / ADR-266, merged `0a602d2`). The cookie-only design premises for the
+> authenticated path were then replaced as noted above.
 >
 > **What stays valid regardless of the foundation:**
 > - **§1 (audited architecture)** — accurate as of 2026-08-03; the durable reference.

@@ -1,8 +1,13 @@
 import type {
+  CartChangeSeverity,
+  CartChangeType,
   OrderShippingSelection,
   PublicAddressSummary,
   PublicBillingSummary,
   PublicCart,
+  PublicCartChange,
+  PublicCartLine,
+  PublicCartLineChange,
   PublicCartLineStatus,
   PublicCartSummary,
   // TODO-167 (ADR-266) — Persistent (authenticated) cart tipleri.
@@ -31,7 +36,8 @@ import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
 import { getCustomer, getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
 import { readCustomerToken } from "./customer-cookie";
-import { readClaimedCoupons, writeCartNotice } from "./cart-cookie";
+import { readCartMeta, readClaimedCoupons, writeCartNotice } from "./cart-cookie";
+import type { CartMeta, CartMetaSnapshot } from "../cart-meta-token";
 import { readAttributionGrant } from "./attribution-cookie";
 import { readSponsoredGrants } from "./sponsored-cookie";
 
@@ -42,6 +48,34 @@ import { readSponsoredGrants } from "./sponsored-cookie";
  * vitrin gorunum modellerine cevirir. Numerik fiyat yalnizca gateway'in dondurdugu
  * (gorunur fiyatli, ONLINE) satirlardan formatlanir.
  */
+
+/**
+ * TODO-168 (ADR-267) — Bir satırdaki değişiklik işareti (vitrin görünümü). Para etiketleri
+ * SUNUCU-tarafında biçimlenir (mevcut label deseni); ham fingerprint dışında teknik detay UI'ya sızmaz.
+ */
+export interface CartLineChangeView {
+  changeType: CartChangeType;
+  severity: CartChangeSeverity;
+  requiresAction: boolean;
+  blocking: boolean;
+  acknowledged: boolean;
+  fingerprint: string;
+  /** Para değişimlerinde eski/yeni birim fiyat etiketi (PRICE/DISCOUNT tipleri); diğerlerinde null. */
+  oldValueLabel: string | null;
+  newValueLabel: string | null;
+  oldValueMinor: number | null;
+  newValueMinor: number | null;
+  currency: string | null;
+}
+
+/** Cart-seviyesi değişiklik (panel öğesi): satır işareti + sunum (ürün/varyant/görsel). */
+export interface CartChangeView extends CartLineChangeView {
+  variantId: string;
+  title: string;
+  variantTitle: string;
+  productSlug: string;
+  imageUrl: string | null;
+}
 
 export interface CartLineView {
   variantId: string;
@@ -57,6 +91,8 @@ export interface CartLineView {
   maxQuantity: number | null;
   inStock: boolean;
   status: PublicCartLineStatus;
+  /** TODO-168 (ADR-267) — Bu satırdaki değişiklik işareti (yoksa null). */
+  change: CartLineChangeView | null;
   /** ADR-065 (Faz 3/Dilim 6a) — Kapak URL'i (gateway allowlist). Yoksa null → yer tutucu. */
   imageUrl: string | null;
   /** Dilim 6a-refine — Satir secim durumu (checkbox). false → toplam/checkout'a girmez. */
@@ -139,6 +175,15 @@ export interface CartView {
   /** TODO-125 — Secilebilir kargo secenekleri + secili secenek. */
   shippingOptions: ShippingOptionView[];
   selectedShippingOptionId: string | null;
+  // TODO-168 (ADR-267) — Cart Change Awareness (severity-sirali panel + ozet bayraklar).
+  changes: CartChangeView[];
+  unacknowledgedChangeCount: number;
+  hasBlockingChanges: boolean;
+  hasWarnings: boolean;
+  /** Ack bekleyen en az bir WARN → checkout WARN gate (INFO/BLOCKING tetiklemez). */
+  requiresAcknowledgement: boolean;
+  /** TODO-168 — Analytics cartIdHash grouping için opak cart id (anon: cookie cid; auth: Cart.id). */
+  changeCartId: string | null;
 }
 
 export interface OrderConfirmationView {
@@ -180,7 +225,8 @@ export type CartResult<T> = { ok: true; data: T } | { ok: false; reason: CartFai
 
 export type CheckoutResult =
   | { ok: true; confirmation: OrderConfirmationView }
-  | { ok: false; reason: "cart-not-ready" | "coupon-invalid" | "rejected" | "no-store" | "error" };
+  // TODO-168 — "cart-changed": WARN degisiklik ack edilmemis → sepete don + panel goster.
+  | { ok: false; reason: "cart-not-ready" | "cart-changed" | "coupon-invalid" | "rejected" | "no-store" | "error" };
 
 function cartPath(): string {
   return `/public/stores/${encodeURIComponent(demoStoreSlug())}/cart`;
@@ -235,7 +281,44 @@ function toShippingOptionView(option: ShippingOption): ShippingOptionView {
   };
 }
 
-function toCartView(cart: PublicCart): CartView {
+/** TODO-168 — Para değişimi mi (etiket biçimlenir); stok/varlık/adet değişiminde false (mesaj i18n'den). */
+function isMoneyChangeType(t: CartChangeType): boolean {
+  return t === "PRICE_DECREASED" || t === "PRICE_INCREASED" || t === "DISCOUNT_STARTED" || t === "DISCOUNT_ENDED";
+}
+
+/** PublicCartLineChange → vitrin işareti (para etiketleri sunucu-tarafında biçimlenir). */
+function toLineChangeView(change: PublicCartLineChange): CartLineChangeView {
+  const money = isMoneyChangeType(change.changeType) && change.currency != null;
+  return {
+    changeType: change.changeType,
+    severity: change.severity,
+    requiresAction: change.requiresAction,
+    blocking: change.blocking,
+    acknowledged: change.acknowledged,
+    fingerprint: change.fingerprint,
+    oldValueLabel:
+      money && change.oldValueMinor != null ? formatMinor(change.oldValueMinor, change.currency as string) : null,
+    newValueLabel:
+      money && change.newValueMinor != null ? formatMinor(change.newValueMinor, change.currency as string) : null,
+    oldValueMinor: change.oldValueMinor,
+    newValueMinor: change.newValueMinor,
+    currency: change.currency,
+  };
+}
+
+function toCartView(cart: PublicCart, changeCartId: string | null = null): CartView {
+  const lineByVariant = new Map(cart.lines.map((l) => [l.variantId, l]));
+  const changes: CartChangeView[] = cart.changes.map((c: PublicCartChange) => {
+    const line = lineByVariant.get(c.variantId);
+    return {
+      ...toLineChangeView(c),
+      variantId: c.variantId,
+      title: line?.title ?? c.variantId,
+      variantTitle: line?.variantTitle ?? "",
+      productSlug: line?.productSlug ?? "",
+      imageUrl: line?.imageUrl ?? null,
+    };
+  });
   return {
     currency: cart.currency,
     itemCount: cart.itemCount,
@@ -245,6 +328,12 @@ function toCartView(cart: PublicCart): CartView {
     summary: toSummaryView(cart.summary, cart.shipping),
     shippingOptions: cart.shipping.options.map(toShippingOptionView),
     selectedShippingOptionId: cart.shipping.selectedOptionId,
+    changes,
+    unacknowledgedChangeCount: cart.unacknowledgedChangeCount,
+    hasBlockingChanges: cart.hasBlockingChanges,
+    hasWarnings: cart.hasWarnings,
+    requiresAcknowledgement: cart.requiresAcknowledgement,
+    changeCartId,
     lines: cart.lines.map((line) => ({
       variantId: line.variantId,
       productSlug: line.productSlug,
@@ -259,6 +348,7 @@ function toCartView(cart: PublicCart): CartView {
       maxQuantity: line.maxOrderQuantity,
       inStock: line.inStock,
       status: line.status,
+      change: line.change ? toLineChangeView(line.change) : null,
       imageUrl: line.imageUrl,
       selected: line.selected,
       compareAtLabel:
@@ -284,6 +374,79 @@ export async function getPaymentAvailability(): Promise<boolean> {
     return result.ok ? result.data.testPaymentEnabled : false;
   } catch {
     return false;
+  }
+}
+
+/**
+ * TODO-168 (ADR-267) — ANONIM meta cookie'yi gateway'in `changeContext` gövdesine çevirir. Snapshot
+ * cookie OTORİTE DEĞİL; gateway güncel projeksiyonla karşılaştırıp değişiklikleri türetir.
+ */
+function metaToChangeContext(meta: CartMeta): {
+  cartId: string;
+  snapshots: Array<{
+    variantId: string;
+    unitPriceMinor: number;
+    listPriceMinor: number | null;
+    discountedUnitPriceMinor: number | null;
+    currency: string;
+    inStock: boolean;
+    orderable: boolean;
+  }>;
+  acknowledgedFingerprints: string[];
+} {
+  return {
+    cartId: meta.cid,
+    snapshots: Object.entries(meta.s).map(([variantId, s]) => ({
+      variantId,
+      unitPriceMinor: s.u,
+      listPriceMinor: s.l,
+      discountedUnitPriceMinor: s.d,
+      currency: s.c,
+      inStock: s.k === 1,
+      orderable: s.o === 1,
+    })),
+    acknowledgedFingerprints: meta.a,
+  };
+}
+
+/** TODO-168 — Güncel bir satırın add-time REFERANS snapshot'ı (meta cookie'ye yazmak için). */
+export function lineToMetaSnapshot(line: PublicCartLine, nowSeconds: number): CartMetaSnapshot {
+  const orderable = line.status !== "UNAVAILABLE";
+  return {
+    u: line.unitPriceMinor,
+    l: line.compareAtMinor,
+    d: line.discountedUnitPriceMinor,
+    c: line.currency,
+    k: orderable && line.inStock ? 1 : 0,
+    o: orderable ? 1 : 0,
+    t: nowSeconds,
+  };
+}
+
+/**
+ * TODO-168 — ANONIM baseline yardımcı: sepeti gateway'de çözer ve her satır için güncel snapshot'ı
+ * döndürür (add/reconcile aksiyonları eksik baseline'ları meta cookie'ye yazar). Hata → null.
+ */
+export async function resolveCartBaselines(
+  items: CartItem[],
+  couponCode?: string | null,
+  shippingOptionId?: string | null,
+  deselectedVariantIds?: string[],
+): Promise<Record<string, CartMetaSnapshot> | null> {
+  try {
+    const result = await postPublic<PublicCart>(cartPath(), {
+      items,
+      couponCode: couponCode ?? null,
+      shippingOptionId: shippingOptionId ?? null,
+      deselectedVariantIds: deselectedVariantIds ?? [],
+    });
+    if (!result.ok) return null;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const out: Record<string, CartMetaSnapshot> = {};
+    for (const line of result.data.lines) out[line.variantId] = lineToMetaSnapshot(line, nowSeconds);
+    return out;
+  } catch {
+    return null;
   }
 }
 
@@ -313,6 +476,19 @@ export async function resolveCart(
     } catch {
       claimedCodes = [];
     }
+    // TODO-168 (ADR-267) — ANONIM cart-change: meta cookie'den snapshot/ack gateway'e taşınır.
+    // Auth yolda GÖNDERİLMEZ (snapshot/ack DB'den; auth cart projeksiyonu değişiklikleri zaten taşır).
+    let changeContext:
+      | ReturnType<typeof metaToChangeContext>
+      | undefined;
+    if (!customerToken) {
+      try {
+        const meta = await readCartMeta();
+        if (meta) changeContext = metaToChangeContext(meta);
+      } catch {
+        changeContext = undefined;
+      }
+    }
     const body = {
       items,
       couponCode: couponCode ?? null,
@@ -320,6 +496,7 @@ export async function resolveCart(
       shippingOptionId: shippingOptionId ?? null,
       // Dilim 6a-refine — Secim-disi satirlar; gateway toplam/checkout'a katmaz.
       deselectedVariantIds: deselectedVariantIds ?? [],
+      ...(changeContext ? { changeContext } : {}),
     };
     const result = customerToken
       ? await sendCustomer<PublicCart>("POST", cartPath(), customerToken, body)
@@ -327,7 +504,8 @@ export async function resolveCart(
     if (!result.ok) {
       return { ok: false, reason: result.status === 404 ? "no-store" : "error" };
     }
-    return { ok: true, data: toCartView(result.data) };
+    // Anon: analytics cartId = meta cookie cid (varsa). Auth yol resolveAuthCartView'da set edilir.
+    return { ok: true, data: toCartView(result.data, changeContext?.cartId ?? null) };
   } catch {
     return { ok: false, reason: "error" };
   }
@@ -383,7 +561,7 @@ export async function getAuthCartProjection(): Promise<CustomerCartProjection | 
 export async function resolveAuthCartView(): Promise<CartResult<CartView> | null> {
   const proj = await getAuthCartProjection();
   if (!proj) return null;
-  return { ok: true, data: toCartView(proj.cart) };
+  return { ok: true, data: toCartView(proj.cart, proj.cartId || null) };
 }
 
 export type AuthCartMutationResult = { ok: true } | { ok: false; code: string };
@@ -479,6 +657,38 @@ export async function authMergeGuestCart(items: CartItem[]): Promise<AuthMergeRe
   return { merged: r.merged, skipped: r.skipped, limitExceeded: r.limitExceeded };
 }
 
+// ── TODO-168 (ADR-267) — Authenticated cart-change acknowledgement (cross-device) ──────────────
+// Ack CartChangeAck tablosuna yazılır (version bump YOK); guncel projeksiyon degisikligi acknowledged
+// doner (WARN checkout gate acilir). BLOCKING'i COZMEZ. Best-effort: hata sessizce yutulur (revalidate
+// sonrasi cart guncel state'i gosterir).
+
+/** Tek bir fingerprint'i onaylar (auth). */
+export async function authAcknowledgeChange(fingerprint: string): Promise<void> {
+  try {
+    const token = await readCustomerToken();
+    if (!token) return;
+    await sendCustomer(
+      "POST",
+      `${authCartPath()}/changes/${encodeURIComponent(fingerprint)}/acknowledge`,
+      token,
+      {},
+    );
+  } catch {
+    // sessizce yut: ack kritik değil; revalidate güncel state'i gösterir.
+  }
+}
+
+/** Görünen tüm (INFO+WARN) değişiklikleri onaylar (auth "tümünü gördüm"). */
+export async function authAcknowledgeAllChanges(): Promise<void> {
+  try {
+    const token = await readCustomerToken();
+    if (!token) return;
+    await sendCustomer("POST", `${authCartPath()}/changes/acknowledge-all`, token, {});
+  } catch {
+    // sessizce yut.
+  }
+}
+
 /** F4A.3 — Kupon/cuzdan uclari taban yolu. */
 function couponActionPath(action: "claim" | "apply" | "remove"): string {
   return `/public/stores/${encodeURIComponent(demoStoreSlug())}/cart/coupons/${action}`;
@@ -565,6 +775,17 @@ export async function submitCheckout(
     } catch {
       sponsoredGrants = [];
     }
+    // TODO-168 (ADR-267) — ANONIM checkout WARN gate: meta cookie snapshot/ack gövdeye eklenir.
+    // Auth yolda GÖNDERİLMEZ (gateway DB snapshot/ack kullanır).
+    let checkoutChangeContext: ReturnType<typeof metaToChangeContext> | undefined;
+    if (!customerToken) {
+      try {
+        const meta = await readCartMeta();
+        if (meta) checkoutChangeContext = metaToChangeContext(meta);
+      } catch {
+        checkoutChangeContext = undefined;
+      }
+    }
     const body = {
       items,
       contact,
@@ -575,6 +796,7 @@ export async function submitCheckout(
       shippingOptionId: shippingOptionId ?? null,
       ...(attributionGrant ? { attributionGrant } : {}),
       ...(sponsoredGrants.length > 0 ? { sponsoredGrants } : {}),
+      ...(checkoutChangeContext ? { changeContext: checkoutChangeContext } : {}),
     };
     const result = customerToken
       ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)
@@ -585,6 +807,10 @@ export async function submitCheckout(
       // kaldirilarak duzeltilebilir bir durumdur, ayri mesaj gosterilir.
       if (result.status === 409 && result.code === "COUPON_INVALID") {
         return { ok: false, reason: "coupon-invalid" };
+      }
+      // TODO-168 — WARN degisiklik ack edilmemis: sepete don, panel goster (ham kod gosterilmez).
+      if (result.status === 409 && result.code === "CART_CHANGED") {
+        return { ok: false, reason: "cart-changed" };
       }
       if (result.status === 409) return { ok: false, reason: "cart-not-ready" };
       if (result.status === 400) return { ok: false, reason: "rejected" };

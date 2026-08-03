@@ -30,6 +30,12 @@ function view(
     subtotalLabel: "₺1.299,00",
     shippingOptions: [],
     selectedShippingOptionId: null,
+    changes: [],
+    unacknowledgedChangeCount: 0,
+    hasBlockingChanges: false,
+    hasWarnings: false,
+    requiresAcknowledgement: false,
+    changeCartId: null,
     lines: [
       {
         variantId: "v1",
@@ -45,6 +51,7 @@ function view(
         maxQuantity: null,
         inStock: true,
         status: "OK",
+        change: null,
         imageUrl: null,
         selected: true,
         compareAtLabel: null,

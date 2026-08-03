@@ -2565,11 +2565,29 @@ Cart+CartLine additive migration + partial-unique ACTIVE; version/409 CART_STALE
 checkout DB-cart otoriter + CONVERTED; env-gated 90-gün expiry sweep. ADR-266. Gate YEŞİL (build/lint/test).
 Detay: `docs/analysis/PERSISTENT-cart-implementation.md`.
 
-## TODO-168 — Cart Change Awareness
+## TODO-168 — Cart Change Awareness — IN_PROGRESS (2026-08-03, worktree, commit YOK)
 
-**DURUM: BLOCKED_BY TODO-167.** Snapshot/ack: auth=DB (CartLine kolon + CartChangeAck), guest=cookie meta;
-ortak change engine; cross-device acknowledgement TODO-168 kapsamında. ADR-267 rezerve.
-Tasarım: `docs/analysis/CART-change-awareness.md`.
+**DURUM: IMPLEMENTED + FULL GATE GREEN (commit/PR/deploy YOK).** ADR-267 ACCEPTED
+(`docs/adr/ADR-267-cart-change-semantics.md`). Additive migration `20260803150000_todo168_cart_change_awareness`
+(CartLine snapshot kolonları + CartChangeAck + CartChangeEvent; drop/backfill YOK).
+
+**Ne yapıldı:** Ortak SAF change-engine (`apps/api-gateway/src/cart-changes/change-engine.ts`, kimlik-agnostik)
++ projection köprüsü + ack-data + event-data + analytics ingest route (`/cart-change-events`). Snapshot/ack
+otoritesi identity-split: **auth = DB** (CartLine snapshot kolonları lazy-baseline + `CartChangeAck`,
+**cross-device ack IMPLEMENTED**); **anon = imzalı `commerce_os_cart_meta` cookie** (versiyonlu, byte-bütçeli,
+severity-farkında budama, orphan temizliği, malformed→fail-safe). Checkout 3-seviye: INFO bloklamaz · WARN
+`409 CART_CHANGED` ack'e kadar · BLOCKING mevcut `409 CART_NOT_READY`. Ack = **fingerprint invalidation**
+(snapshot mutasyonu YOK; ADR-267 §6). Cart projection'a `changes/unacknowledgedChangeCount/hasBlockingChanges/
+hasWarnings/requiresAcknowledgement` eklendi; UI CartChangeBar + satır işaretleri + TR/EN + a11y (role=status/
+alert, aria-live, not-color-only, erişilebilir kapat). `CartChangeEvent` best-effort analytics (RecommendationEvent
+kalıbı, KVKK-hash, `(storeId,dedupeKey)` idempotent, read side-effect-free).
+
+**Gate YEŞİL:** build 27/27 · lint 42/42 · typecheck · test (gateway 2184 [+52 yeni: engine 31 / projection 8 /
+ack-routes 6 / event-routes 7], storefront 534 [+8 meta], store-admin 364) · `git diff --check` temiz.
+
+**Açık borç / future:** `FREE_SHIPPING_ELIGIBILITY_CHANGED` + `SELLER_CHANGED` (marketplace) = future;
+`CartChangeEvent` retention worker = future (tablo/ingest hazır); cookie size politikası ADR-267 §Consequences.
+Tasarım: `docs/analysis/CART-change-awareness.md` + `docs/analysis/PERSISTENT-CART-roadmap.md` Faz B.
 
 ## TODO-167 Persistent Cart — CLOSED & DEPLOYED (2026-08-03)
 

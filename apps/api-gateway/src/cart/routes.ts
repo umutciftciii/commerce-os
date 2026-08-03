@@ -24,6 +24,9 @@ import {
   type CartData,
   type CartRecord,
 } from "./data.js";
+import type { CartLineSnapshot } from "../cart-changes/change-engine.js";
+import { attachChangesToCart, snapshotFromDbLine } from "../cart-changes/projection.js";
+import type { CartChangeAckData } from "../cart-changes/ack-data.js";
 
 interface ResolvedStore {
   id: string;
@@ -43,6 +46,8 @@ export interface CustomerCartRoutesDeps {
   /** x-customer-session → {id, storeId} | null (server.ts resolveCustomerFromRequest sarar). */
   resolveCustomer: (request: FastifyRequest, storeId: string) => Promise<ResolvedCustomer | null>;
   data: CartData;
+  /** TODO-168 (ADR-267) — cross-device ack veri katmani (fingerprint listeleme/ekleme). */
+  ackData: CartChangeAckData;
   catalog: {
     findVariantsByIds: (storeId: string, ids: string[]) => Promise<Array<{ id: string; storeId: string }>>;
   };
@@ -95,7 +100,9 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     return customer;
   }
 
-  async function projection(
+  // TODO-168 (ADR-267) — Otoriter projeksiyon + DB snapshot → cart-changes. Anonim ile AYNI SAF motor;
+  // tek fark snapshot/ack DB'den gelir. Agir projectCart bir kez calisir; ack sonrasi re-attach SAFtir.
+  async function assembleBase(
     store: ResolvedStore,
     customer: ResolvedCustomer,
     request: FastifyRequest,
@@ -104,8 +111,34 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     const items = record.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
     const cart = await deps.projectCart({ store, customer, request, items });
     const lineIds: Record<string, string> = {};
-    for (const l of record.lines) lineIds[l.variantId] = l.id;
-    return { version: record.version, status: record.status, cart, lineIds };
+    const snapshotByVariant = new Map<string, CartLineSnapshot>();
+    for (const l of record.lines) {
+      lineIds[l.variantId] = l.id;
+      const snap = snapshotFromDbLine(l);
+      if (snap) snapshotByVariant.set(l.variantId, snap);
+    }
+    return { cart, lineIds, snapshotByVariant };
+  }
+
+  async function projection(
+    store: ResolvedStore,
+    customer: ResolvedCustomer,
+    request: FastifyRequest,
+    record: CartRecord,
+  ) {
+    const acked = new Set(await deps.ackData.listAckFingerprints(store.id, record.id));
+    const { cart, lineIds, snapshotByVariant } = await assembleBase(store, customer, request, record);
+    const { cart: enriched, baselines } = attachChangesToCart(
+      cart,
+      { storeId: store.id, cartId: record.id },
+      snapshotByVariant,
+      acked,
+    );
+    // "Ilk guvenilir resolve = baseline": snapshot'siz satirlara guncel referans yazilir (idempotent).
+    if (baselines.length > 0) {
+      await deps.data.baselineLineSnapshots({ storeId: store.id, cartId: record.id, baselines });
+    }
+    return { version: record.version, status: record.status, cartId: record.id, cart: enriched, lineIds };
   }
 
   /** Mutation sonucunu 200 doner; typed data hatalarini HTTP'ye esler (stale → guncel projeksiyon). */
@@ -279,6 +312,85 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
         },
         cart: await projection(store, customer, request, cart),
       },
+    });
+  });
+
+  // ── POST cart/changes/:fingerprint/acknowledge (TODO-168 — per-fingerprint cross-device ack) ──
+  // Ack cart line'lari MUTASYONA UGRATMAZ (version bump yok); yalniz CartChangeAck ekler → guncel
+  // projeksiyonda o degisiklik acknowledged doner (WARN checkout gate acilir). BLOCKING'i COZMEZ.
+  app.post(`${base}/changes/:fingerprint/acknowledge`, async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const { fingerprint } = request.params as { fingerprint: string };
+    const record = await deps.data.ensureActiveCart(store.id, customer.id, defaultCurrency);
+    const acked = new Set(await deps.ackData.listAckFingerprints(store.id, record.id));
+    const { cart, lineIds, snapshotByVariant } = await assembleBase(store, customer, request, record);
+    const attached = attachChangesToCart(cart, { storeId: store.id, cartId: record.id }, snapshotByVariant, acked);
+    if (attached.baselines.length > 0) {
+      await deps.data.baselineLineSnapshots({ storeId: store.id, cartId: record.id, baselines: attached.baselines });
+    }
+    const target = attached.cart.changes.find((c) => c.fingerprint === fingerprint);
+    if (target) {
+      await deps.ackData.insertAck({
+        storeId: store.id,
+        cartId: record.id,
+        cartLineId: lineIds[target.variantId] ?? null,
+        customerId: customer.id,
+        fingerprint,
+        changeType: target.changeType,
+      });
+      acked.add(fingerprint);
+    }
+    // SAF re-attach (agir projectCart tekrar CALISMAZ) — guncel ack ile.
+    const { cart: finalCart } = attachChangesToCart(
+      cart,
+      { storeId: store.id, cartId: record.id },
+      snapshotByVariant,
+      acked,
+    );
+    return reply.code(200).send({
+      data: { version: record.version, status: record.status, cartId: record.id, cart: finalCart, lineIds },
+    });
+  });
+
+  // ── POST cart/changes/acknowledge-all (TODO-168 — "tumunu gordum": INFO+WARN dismiss) ──────────
+  // BLOCKING ack EDILMEZ (ack yetmez; satir surekli gorunur kalir). INFO+WARN fingerprint'leri ack'lenir.
+  app.post(`${base}/changes/acknowledge-all`, async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const record = await deps.data.ensureActiveCart(store.id, customer.id, defaultCurrency);
+    const acked = new Set(await deps.ackData.listAckFingerprints(store.id, record.id));
+    const { cart, lineIds, snapshotByVariant } = await assembleBase(store, customer, request, record);
+    const attached = attachChangesToCart(cart, { storeId: store.id, cartId: record.id }, snapshotByVariant, acked);
+    if (attached.baselines.length > 0) {
+      await deps.data.baselineLineSnapshots({ storeId: store.id, cartId: record.id, baselines: attached.baselines });
+    }
+    const toAck = attached.cart.changes.filter((c) => c.severity !== "BLOCKING" && !acked.has(c.fingerprint));
+    if (toAck.length > 0) {
+      await deps.ackData.insertAcks(
+        toAck.map((c) => ({
+          storeId: store.id,
+          cartId: record.id,
+          cartLineId: lineIds[c.variantId] ?? null,
+          customerId: customer.id,
+          fingerprint: c.fingerprint,
+          changeType: c.changeType,
+        })),
+      );
+      for (const c of toAck) acked.add(c.fingerprint);
+    }
+    const { cart: finalCart } = attachChangesToCart(
+      cart,
+      { storeId: store.id, cartId: record.id },
+      snapshotByVariant,
+      acked,
+    );
+    return reply.code(200).send({
+      data: { version: record.version, status: record.status, cartId: record.id, cart: finalCart, lineIds },
     });
   });
 }

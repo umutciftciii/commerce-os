@@ -175,6 +175,15 @@ flow still works. Viewports 375/768/1024/1440. Leave enterprise-demo pristine.
 
 # Faz B — Cart Change Awareness (TODO-168)
 
+> **✅ IMPLEMENTED (2026-08-03, worktree, commit YOK).** Decision: [ADR-267](../adr/ADR-267-cart-change-semantics.md).
+> Gate GREEN (build 27/27 · lint 42/42 · typecheck · test gateway 2184 / storefront 534). Additive migration
+> `20260803150000_todo168_cart_change_awareness`. Shipped exactly to the binding below: shared pure engine
+> `cart-changes/change-engine.ts`; auth snapshot/ack in DB (`CartLine` snapshot columns + `CartChangeAck`,
+> cross-device); anon snapshot/ack in signed `commerce_os_cart_meta` cookie; INFO/WARN(`409 CART_CHANGED`)/
+> BLOCKING(`409 CART_NOT_READY`) checkout tiers; `CartChangeEvent` best-effort analytics. Ack re-baselines by
+> **fingerprint invalidation, not snapshot mutation** (ADR-267 §6). Open: `FREE_SHIPPING`/`SELLER_CHANGED` +
+> event retention worker = future. No commit/push/PR/merge/deploy.
+
 Starts only after Faz A ships. Behaviour is fully specified in
 [CART-change-awareness.md](CART-change-awareness.md); this section records only how it **binds to the
 hybrid cart** from Faz A.

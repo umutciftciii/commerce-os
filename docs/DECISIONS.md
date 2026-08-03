@@ -5894,4 +5894,19 @@ partial-unique + P2002 idempotent; `Cart.version` atomik conditional-update opti
 eklenir, dup quantity toplanır, [1,999] clamp, 100-cap + MERGE_LIMIT_EXCEEDED — sessiz kayıp yok; cookie
 yalnız başarıda temizlenir). Checkout DB-cart otoriter + order PLACE'de CONVERTED. Lifecycle
 ACTIVE|CONVERTED|MERGED|EXPIRED; env-gated 90-gün sweep (default OFF, hard-delete yok). Detay:
-`docs/adr/ADR-266-persistent-cart-authority.md`. **ADR-267 rezerve** (Cart Change Semantics — TODO-168).
+`docs/adr/ADR-266-persistent-cart-authority.md`. Devamı **ADR-267** (Cart Change Semantics — TODO-168).
+
+## ADR-267 — Cart Change Semantics (Cart Change Awareness)
+
+**Accepted (TODO-168 Faz B, 2026-08-03; implemented, commit YOK).** Snapshot = yalnız açıklama referansı,
+ASLA sipariş fiyatı (sipariş her zaman taze server fiyatı). Snapshot/ack otoritesi **identity-split**:
+auth = DB (`CartLine` snapshot kolonları lazy-baseline + `CartChangeAck`, **cross-device ack default**);
+anon = imzalı `commerce_os_cart_meta` cookie (versiyonlu, byte-bütçeli, severity-farkında budama). **Tek
+ortak SAF engine** (`cart-changes/change-engine.ts`) — kimlik-agnostik; fark yalnız snapshot/ack kaynağı.
+Fingerprint = `hash(storeId,cartId,variantId,changeType,old,new,currency)` (store-scoped; yeni değer → yeni
+fingerprint → eski ack gizlemez). Para minor-unit; currency mismatch fiyat hareketi DEĞİL. Checkout 3-seviye:
+INFO bloklamaz · WARN `409 CART_CHANGED` (ack'e kadar) · BLOCKING mevcut `409 CART_NOT_READY` (ack yetmez).
+Ack = **fingerprint invalidation** (snapshot mutasyonu YOK, version bump YOK → race-free/cross-device).
+`CartChangeEvent` best-effort analytics (RecommendationEvent kalıbı, KVKK-hash kimlik, `(storeId,dedupeKey)`
+idempotent, read side-effect-free). Additive migration; drop/backfill yok. Future: `FREE_SHIPPING`/
+`SELLER_CHANGED` + event retention worker. Detay: `docs/adr/ADR-267-cart-change-semantics.md`.

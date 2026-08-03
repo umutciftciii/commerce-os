@@ -3845,6 +3845,12 @@ export const publicCartRequestSchema = z.object({
    * doğrular; geçersiz/uygunsuzsa güvenli varsayılana (default/en ucuz) düşer.
    */
   shippingOptionId: z.string().max(120).nullable().optional(),
+  /**
+   * TODO-168 (ADR-267) — ANONIM degisiklik baglami (storefront commerce_os_cart_meta cookie'sinden).
+   * Sunucu bu snapshot+ack ile degisiklikleri SAF motorla hesaplar; cookie OTORITE DEGIL, yalniz
+   * karsilastirma referansi. Authenticated yolda YOKSAYILIR (snapshot/ack DB'den gelir).
+   */
+  changeContext: z.lazy(() => publicCartChangeContextSchema).optional(),
 });
 
 /**
@@ -3921,6 +3927,46 @@ export const publicCartLineStatusSchema = z.enum([
   "QUANTITY_ADJUSTED",
 ]);
 
+// ── TODO-168 (ADR-267) — Cart Change Awareness (sepet degisiklik farkindaligi) ─────────────
+/** Desteklenen degisiklik tipleri (SAF change-engine ile birebir; SELLER/FREE_SHIPPING future). */
+export const cartChangeTypeSchema = z.enum([
+  "PRICE_DECREASED",
+  "PRICE_INCREASED",
+  "DISCOUNT_STARTED",
+  "DISCOUNT_ENDED",
+  "VARIANT_OUT_OF_STOCK",
+  "VARIANT_BACK_IN_STOCK",
+  "PRODUCT_UNAVAILABLE",
+  "PRODUCT_AVAILABLE_AGAIN",
+  "QUANTITY_ADJUSTED",
+]);
+/** INFO bloklamaz · WARN ack'e kadar 409 CART_CHANGED · BLOCKING ack yetmez (CART_NOT_READY). */
+export const cartChangeSeveritySchema = z.enum(["INFO", "WARN", "BLOCKING"]);
+
+/**
+ * Bir satirdaki birincil degisiklik isareti (sunucu-otoriter, deterministik). old/new minor-unit;
+ * stok/varlik degisiminde 1/0 bit. fingerprint = hash(store,cart,variant,tip,old,new,currency);
+ * yeni fiyat degisikligi YENI fingerprint uretir (eski ack gizlemez). Ham teknik detay sizmaz.
+ */
+export const publicCartLineChangeSchema = z.object({
+  changeType: cartChangeTypeSchema,
+  severity: cartChangeSeveritySchema,
+  /** WARN → checkout ack bekler (INFO/BLOCKING icin false). */
+  requiresAction: z.boolean(),
+  /** BLOCKING → ack yetmez; satir duzeltilmeli. */
+  blocking: z.boolean(),
+  oldValueMinor: z.number().int().nullable(),
+  newValueMinor: z.number().int().nullable(),
+  currency: currencySchema.nullable(),
+  fingerprint: z.string().min(1).max(64),
+  acknowledged: z.boolean(),
+});
+
+/** Cart-seviyesi degisiklik listesi ogesi (satir isaretinin variantId ile zenginlesmis hali). */
+export const publicCartChangeSchema = publicCartLineChangeSchema.extend({
+  variantId: z.string().min(1),
+});
+
 /**
  * Gateway tarafindan cozulmus (sunucu-otoriter) tek sepet satiri. unitPriceMinor/
  * lineTotalMinor yalnizca ONLINE + gorunur fiyatli satilabilir varyant icindir;
@@ -3962,6 +4008,9 @@ export const publicCartLineSchema = z.object({
   // (unitPrice/lineTotal) + indirimli gosterir. Kampanya yoksa null (compareAt yedegine duser).
   discountedUnitPriceMinor: z.number().int().nonnegative().nullable(),
   discountedLineTotalMinor: z.number().int().nonnegative().nullable(),
+  // TODO-168 (ADR-267) — Bu satirin add-time snapshot'ina gore birincil degisikligi (yoksa null).
+  // Additive/default: degisiklik-farkinda olmayan cagrilar icin null; farkinda yol acikca doldurur.
+  change: publicCartLineChangeSchema.nullable().default(null),
 });
 
 export const publicCartSchema = z.object({
@@ -3980,6 +4029,15 @@ export const publicCartSchema = z.object({
   // ADDRESS_REQUIRED; aktif tarife yoksa NO_RATE_PLAN. (Sema asagida tanimli —
   // ileri referans icin z.lazy kullanilir.)
   shipping: z.lazy(() => cartShippingQuoteResponseSchema),
+  // TODO-168 (ADR-267) — Cart Change Awareness (hepsi additive/default → geriye uyumlu).
+  // Severity-sirali degisiklik listesi + ozet bayraklar. Fiyat/stok her okumada TAZE turetilir;
+  // bu alanlar yalniz "neyin degistigi" + ack durumunu tasir (siparis fiyati DEGIL).
+  changes: z.array(publicCartChangeSchema).default([]),
+  unacknowledgedChangeCount: z.number().int().nonnegative().default(0),
+  hasBlockingChanges: z.boolean().default(false),
+  hasWarnings: z.boolean().default(false),
+  /** Ack bekleyen en az bir WARN var mi → checkout WARN gate (INFO/BLOCKING tetiklemez). */
+  requiresAcknowledgement: z.boolean().default(false),
 });
 
 // ============================================================================
@@ -4001,6 +4059,8 @@ export const cartStatusSchema = z.enum(["ACTIVE", "CONVERTED", "MERGED", "EXPIRE
 export const customerCartProjectionSchema = z.object({
   version: z.number().int().nonnegative(),
   status: cartStatusSchema,
+  // TODO-168 (ADR-267) — Cart.id (analytics cartIdHash grouping; opak, gateway KVKK-hash'ler). Additive.
+  cartId: z.string().default(""),
   cart: publicCartSchema,
   /** variantId → DB cart line id (istemci PATCH/DELETE /lines/:lineId icin; satirsiz = bos). */
   lineIds: z.record(z.string(), z.string()),
@@ -4061,6 +4121,77 @@ export const customerCartMergeResponseSchema = z.object({
     result: customerCartMergeResultSchema,
     cart: customerCartProjectionSchema,
   }),
+});
+
+// ============================================================================
+// TODO-168 (ADR-267) — Cart Change Awareness kontratlari.
+// ============================================================================
+
+/**
+ * ANONIM referans snapshot (bir satir icin add-time deger). Storefront commerce_os_cart_meta
+ * cookie'sinden gelir; sunucu SAF motorla guncel projeksiyonla karsilastirir. Cookie OTORITE DEGIL.
+ */
+export const publicCartLineSnapshotSchema = z.object({
+  variantId: z.string().min(1).max(120),
+  unitPriceMinor: z.number().int().nonnegative(),
+  listPriceMinor: z.number().int().nonnegative().nullable(),
+  discountedUnitPriceMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema,
+  inStock: z.boolean(),
+  orderable: z.boolean(),
+});
+
+/** ANONIM degisiklik baglami: cookie cartId + snapshot listesi + onaylanan fingerprint'ler. */
+export const publicCartChangeContextSchema = z.object({
+  cartId: z.string().min(1).max(80),
+  snapshots: z.array(publicCartLineSnapshotSchema).max(CART_MAX_LINES).default([]),
+  acknowledgedFingerprints: z.array(z.string().min(1).max(64)).max(500).default([]),
+});
+
+/**
+ * ANONIM baseline yaniti: guncel her satirin snapshot-referans degerleri. Storefront bunu meta
+ * cookie'ye yazarak eksik/legacy satirlar icin baseline kurar (ilk guvenilir resolve = baseline).
+ * (Auth yolda gerek yok — baseline DB'de lazy yazilir.)
+ */
+export const publicCartResolveResponseSchema = z.object({
+  cart: publicCartSchema,
+  baselines: z.array(publicCartLineSnapshotSchema),
+});
+
+/**
+ * POST /customer/cart/changes/:fingerprint/acknowledge — AUTH per-fingerprint ack (cross-device).
+ * Body gerekmez (fingerprint path'te). Ack cart line'lari MUTASYONA UGRATMAZ (version bump yok);
+ * yalniz CartChangeAck satiri ekler → guncel projeksiyonda o degisiklik acknowledged doner.
+ */
+export const customerCartAckResponseSchema = z.object({ data: customerCartProjectionSchema });
+
+/** Analytics event tipi (RecommendationEvent deseni; read side-effect-free, yalniz acik ingest). */
+export const cartChangeEventTypeSchema = z.enum([
+  "detected",
+  "viewed",
+  "acknowledged",
+  "checkout_blocked",
+  "item_removed",
+]);
+export const cartChangeEventPlacementSchema = z.enum(["CART_BAR", "CART_LINE", "CHECKOUT"]);
+
+/** BFF → gateway best-effort ingest govdesi (KVKK: ham cart/musteri gonderilmez; sunucu hash'ler). */
+export const cartChangeEventRequestSchema = z.object({
+  cartId: z.string().min(1).max(80),
+  changeType: cartChangeTypeSchema,
+  eventType: cartChangeEventTypeSchema,
+  severity: cartChangeSeveritySchema.optional(),
+  fingerprint: z.string().min(1).max(64),
+  productId: z.string().max(120).optional(),
+  variantId: z.string().max(120).optional(),
+  oldMinor: z.number().int().optional(),
+  newMinor: z.number().int().optional(),
+  currency: currencySchema.optional(),
+  placement: cartChangeEventPlacementSchema.optional(),
+});
+
+export const cartChangeEventResponseSchema = z.object({
+  data: z.object({ recorded: z.boolean(), deduped: z.boolean() }),
 });
 
 export const publicCheckoutContactSchema = z.object({
@@ -4139,6 +4270,11 @@ export const publicCheckoutRequestSchema = z
      * ÜCRETİ İSTEMCİDEN DEĞİL seçilen plandan yeniden hesaplar (tamper-proof, ADR-047).
      */
     shippingOptionId: z.string().max(120).nullable().optional(),
+    /**
+     * TODO-168 (ADR-267) — ANONIM checkout degisiklik baglami (cookie meta). Auth checkout'ta
+     * YOKSAYILIR (snapshot/ack DB'den). WARN degisiklik ack edilmemisse checkout 409 CART_CHANGED.
+     */
+    changeContext: z.lazy(() => publicCartChangeContextSchema).optional(),
     /**
      * TODO-160 (ADR-102) — Influencer attribution GRANT (opak, GATEWAY-imzalı).
      * Storefront first-party cookie'sinden aynen taşınır; gateway KENDİ imzasını
@@ -5438,6 +5574,19 @@ export type CustomerCartReconcileRequest = z.infer<typeof customerCartReconcileR
 export type CustomerCartMergeRequest = z.infer<typeof customerCartMergeRequestSchema>;
 export type CustomerCartMergeResult = z.infer<typeof customerCartMergeResultSchema>;
 export type CustomerCartMergeResponse = z.infer<typeof customerCartMergeResponseSchema>;
+// TODO-168 (ADR-267) — Cart Change Awareness tipleri.
+export type CartChangeType = z.infer<typeof cartChangeTypeSchema>;
+export type CartChangeSeverity = z.infer<typeof cartChangeSeveritySchema>;
+export type PublicCartLineChange = z.infer<typeof publicCartLineChangeSchema>;
+export type PublicCartChange = z.infer<typeof publicCartChangeSchema>;
+export type PublicCartLineSnapshot = z.infer<typeof publicCartLineSnapshotSchema>;
+export type PublicCartChangeContext = z.infer<typeof publicCartChangeContextSchema>;
+export type PublicCartResolveResponse = z.infer<typeof publicCartResolveResponseSchema>;
+export type CustomerCartAckResponse = z.infer<typeof customerCartAckResponseSchema>;
+export type CartChangeEventType = z.infer<typeof cartChangeEventTypeSchema>;
+export type CartChangeEventPlacement = z.infer<typeof cartChangeEventPlacementSchema>;
+export type CartChangeEventRequest = z.infer<typeof cartChangeEventRequestSchema>;
+export type CartChangeEventResponse = z.infer<typeof cartChangeEventResponseSchema>;
 export type PublicCheckoutContact = z.infer<typeof publicCheckoutContactSchema>;
 export type PublicCheckoutAddress = z.infer<typeof publicCheckoutAddressSchema>;
 export type PublicCheckoutRequest = z.infer<typeof publicCheckoutRequestSchema>;

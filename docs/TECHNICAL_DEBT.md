@@ -1948,3 +1948,18 @@ checkout DB-cart authority · convert-on-paid (settlement) · failed-payment→A
 FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9 orders unchanged). ADR-266
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
+
+## TD-176 — Cart Change Awareness future scopes (TODO-168) — OPEN (deferred, non-blocking)
+
+TODO-168 (ADR-267) IMPLEMENTED; the following are explicitly out-of-scope future additives (design leaves
+room, no code now):
+- **`CartChangeEvent` retention worker** — table + idempotent ingest shipped; automatic DELETE not built
+  (default-safe = off). Add later by reusing the recommendation-events retention worker pattern
+  (env-gated, advisory-locked, `QueueJobLog`) with a distinct jobType.
+- **`FREE_SHIPPING_ELIGIBILITY_CHANGED`** — cart-level aggregate change type (not per-line); future.
+- **`SELLER_CHANGED`** — marketplace-only; N/A for Modular single-seller; future.
+- **Read-only admin cart-change history surface** — `CartChangeEvent` is analytics/audit only today; no
+  admin UI. Future if a support surface is needed.
+- **Anon meta cookie audit boundary** — anonymous baseline is captured on the first reliable *mutation*
+  (Next.js only allows cookie writes in actions/route handlers), not the first *render*; pre-feature carts
+  therefore begin change detection from their next mutation. Acceptable per ADR-267 §Consequences.

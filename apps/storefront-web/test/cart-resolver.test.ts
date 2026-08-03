@@ -69,6 +69,12 @@ function publicCart(overrides: Record<string, unknown> = {}) {
       options: [],
       selectedOptionId: null,
     },
+    // TODO-168 (ADR-267) — Cart Change Awareness alanlari (gateway her zaman doldurur; default'lu).
+    changes: [],
+    unacknowledgedChangeCount: 0,
+    hasBlockingChanges: false,
+    hasWarnings: false,
+    requiresAcknowledgement: false,
     lines: [
       {
         variantId: "v1",
@@ -85,6 +91,7 @@ function publicCart(overrides: Record<string, unknown> = {}) {
         maxOrderQuantity: null,
         inStock: true,
         status: "OK",
+        change: null,
       },
     ],
     ...overrides,

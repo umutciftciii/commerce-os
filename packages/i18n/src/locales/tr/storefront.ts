@@ -549,6 +549,8 @@ export const trStorefront = {
     increase: "Adet artır",
     decrease: "Adet azalt",
     remove: "Kaldır",
+    // TODO-168 — Kaldır butonu erişilebilir etiketi (ekran okuyucu; {title} ürün adıyla doldurulur).
+    removeItemLabel: "{title} ürününü sepetten kaldır",
     unitPrice: "Birim fiyat",
     lineTotal: "Satır toplamı",
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
@@ -569,6 +571,22 @@ export const trStorefront = {
     statusUnavailable: "Bu ürün şu anda satışa kapalı.",
     statusOutOfStock: "Stokta kalmadı.",
     statusQuantityAdjusted: "Adet, mevcut stoğa göre güncellendi.",
+    // TODO-168 (ADR-267) — Cart Change Awareness paneli + satır işaretleri. Ham CART_CHANGED
+    // kodu/fingerprint ASLA gösterilmez; yalnız bu editoryel metinlere eşlenir. {old}/{new} biçimli
+    // fiyat etiketleriyle (sunucu-tarafında) doldurulur.
+    changesTitle: "Sepetinizle ilgili değişiklikler",
+    changesAckAll: "Tümünü gördüm",
+    changeDismiss: "Bu bildirimi kapat",
+    checkoutChangedNotice: "Sepetinizde fiyat değişikliği var. Devam etmeden önce lütfen gözden geçirin.",
+    changePriceDecreased: "Fiyat {old}'dan {new}'a düştü.",
+    changePriceIncreased: "Fiyat {old}'dan {new}'a yükseldi.",
+    changeDiscountStarted: "Bu ürün indirime girdi.",
+    changeDiscountEnded: "Bu üründeki indirim sona erdi.",
+    changeOutOfStock: "Seçtiğiniz varyant artık stokta yok.",
+    changeBackInStock: "Ürün yeniden stokta.",
+    changeUnavailable: "Ürün artık satışta değil.",
+    changeAvailableAgain: "Ürün yeniden satışta.",
+    changeQuantityAdjusted: "Adet, mevcut stoğa göre güncellendi.",
     errorTitle: "Sepet yüklenemedi",
     errorDescription: "Şu an sepete ulaşamıyoruz. Lütfen birazdan tekrar deneyin.",
     discount: "İndirim",
