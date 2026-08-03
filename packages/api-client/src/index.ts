@@ -204,6 +204,11 @@ import type {
   InfluencerAggregateAnalyticsResponse,
   CampaignAnalyticsResponse,
   LinkAnalyticsResponse,
+  // ADR-268 — Financial Reporting Foundation.
+  FinanceSummaryResponse,
+  FinanceBreakdownsResponse,
+  FinancePaymentReportResponse,
+  FinanceDiscountReportResponse,
   // TODO-161 (ADR-114…120) — Sponsored Product Management.
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -1074,6 +1079,14 @@ export type {
 
 // TD-130 — Recommendation Measurement görünürlük özeti kontrat tipi (type-only re-export).
 export type { RecommendationSummaryResponse } from "@commerce-os/contracts";
+
+// ADR-268 — Financial Reporting Foundation kontrat tipleri (type-only re-export).
+export type {
+  FinanceSummaryResponse,
+  FinanceBreakdownsResponse,
+  FinancePaymentReportResponse,
+  FinanceDiscountReportResponse,
+} from "@commerce-os/contracts";
 
 /**
  * F3C.1 — Shipping provider foundation kontrat tipleri (type-only re-export).
@@ -2276,6 +2289,18 @@ export interface ApiClient {
       aggregateAnalytics(storeId: string, influencerId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<InfluencerAggregateAnalyticsResponse>;
       campaignAnalytics(storeId: string, campaignId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CampaignAnalyticsResponse>;
       linkAnalytics(storeId: string, linkId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<LinkAnalyticsResponse>;
+    };
+    // ADR-268 — Financial Reporting Foundation (Finans > Raporlar).
+    finance: {
+      summary(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<FinanceSummaryResponse>;
+      breakdowns(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<FinanceBreakdownsResponse>;
+      payments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<FinancePaymentReportResponse>;
+      discounts(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<FinanceDiscountReportResponse>;
+      exportSummary(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      exportProducts(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      exportOrders(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      exportPayments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      exportDiscounts(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
     };
     // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
     sponsoredProducts: {
@@ -3938,6 +3963,27 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<CampaignAnalyticsResponse>(`/stores/${storeId}/influencer-campaigns/${campaignId}/analytics${buildQueryString(query)}`, token),
         linkAnalytics: (storeId, linkId, token, query) =>
           getJson<LinkAnalyticsResponse>(`/stores/${storeId}/influencer-tracking-links/${linkId}/analytics${buildQueryString(query)}`, token),
+      },
+      // ADR-268 — Financial Reporting Foundation (Finans > Raporlar).
+      finance: {
+        summary: (storeId, token, query) =>
+          getJson<FinanceSummaryResponse>(`/stores/${storeId}/finance/summary${buildQueryString(query)}`, token),
+        breakdowns: (storeId, token, query) =>
+          getJson<FinanceBreakdownsResponse>(`/stores/${storeId}/finance/breakdowns${buildQueryString(query)}`, token),
+        payments: (storeId, token, query) =>
+          getJson<FinancePaymentReportResponse>(`/stores/${storeId}/finance/payments${buildQueryString(query)}`, token),
+        discounts: (storeId, token, query) =>
+          getJson<FinanceDiscountReportResponse>(`/stores/${storeId}/finance/discounts${buildQueryString(query)}`, token),
+        exportSummary: (storeId, token, query) =>
+          getText(`/stores/${storeId}/finance/summary/export${buildQueryString(query)}`, token),
+        exportProducts: (storeId, token, query) =>
+          getText(`/stores/${storeId}/finance/products/export${buildQueryString(query)}`, token),
+        exportOrders: (storeId, token, query) =>
+          getText(`/stores/${storeId}/finance/orders/export${buildQueryString(query)}`, token),
+        exportPayments: (storeId, token, query) =>
+          getText(`/stores/${storeId}/finance/payments/export${buildQueryString(query)}`, token),
+        exportDiscounts: (storeId, token, query) =>
+          getText(`/stores/${storeId}/finance/discounts/export${buildQueryString(query)}`, token),
       },
       // TODO-161 (ADR-114…120) — Sponsored Product Management.
       sponsoredProducts: {

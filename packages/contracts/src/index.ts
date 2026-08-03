@@ -5069,6 +5069,192 @@ export const orderCancelRequestSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+// ============================================================================
+// Financial Reporting Foundation (ADR-268) — Finans > Raporlar sözleşmeleri.
+// Tümü minor-unit; KDV fiyata DAHİL (inclusive). Her currency AYRI; FX yok.
+// KAYNAK DOĞRUSU sipariş snapshot'larıdır (canlı fiyat değil).
+// ============================================================================
+const financeDayStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD bekleniyor");
+
+export const financePeriodPresetSchema = z.enum([
+  "today",
+  "yesterday",
+  "last7",
+  "last30",
+  "thisMonth",
+  "lastMonth",
+  "thisYear",
+  "custom",
+]);
+
+export const financeReportQuerySchema = z.object({
+  period: financePeriodPresetSchema.optional(),
+  dateFrom: financeDayStringSchema.optional(),
+  dateTo: financeDayStringSchema.optional(),
+  currency: currencySchema.optional(),
+  status: orderStatusSchema.optional(),
+  paymentStatus: paymentStatusSchema.optional(),
+  productId: z.string().min(1).max(64).optional(),
+  variantId: z.string().min(1).max(64).optional(),
+  categoryId: z.string().min(1).max(64).optional(),
+  brandId: z.string().min(1).max(64).optional(),
+  campaignId: z.string().min(1).max(64).optional(),
+  paymentMethod: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]).optional(),
+});
+
+const financeRangeSchema = z.object({
+  from: financeDayStringSchema,
+  to: financeDayStringSchema,
+  timezone: z.string().min(1),
+  days: z.number().int().nonnegative(),
+});
+
+const financeDeltaSchema = z.object({
+  current: z.number(),
+  previous: z.number(),
+  deltaMinor: z.number(),
+  deltaPct: z.number().nullable(),
+});
+
+const financeSummaryMetricsSchema = z.object({
+  currency: currencySchema,
+  grossSalesMinor: z.number().int(),
+  discountsMinor: z.number().int(),
+  productRefundsMinor: z.number().int(),
+  netProductSalesMinor: z.number().int(),
+  shippingRevenueMinor: z.number().int(),
+  shippingRefundsMinor: z.number().int(),
+  taxMinor: z.number().int(),
+  totalRevenueMinor: z.number().int(),
+  orderCount: z.number().int(),
+  paidOrderCount: z.number().int(),
+  cancelledOrderCount: z.number().int(),
+  refundedOrderCount: z.number().int(),
+  unitsSold: z.number().int(),
+  averageOrderValueMinor: z.number().int(),
+  grossProfitMinor: z.number().int().nullable(),
+  netProfitMinor: z.number().int().nullable(),
+  costMinor: z.number().int().nullable(),
+  taxCoveredOrderCount: z.number().int(),
+  costCoveredOrderCount: z.number().int(),
+});
+
+const financeComparisonSchema = z.object({
+  totalRevenue: financeDeltaSchema,
+  netProductSales: financeDeltaSchema,
+  grossSales: financeDeltaSchema,
+  discounts: financeDeltaSchema,
+  orders: financeDeltaSchema,
+  averageOrderValue: financeDeltaSchema,
+  unitsSold: financeDeltaSchema,
+});
+
+const financeDailyPointSchema = z.object({
+  date: financeDayStringSchema,
+  grossSalesMinor: z.number().int(),
+  discountsMinor: z.number().int(),
+  netProductSalesMinor: z.number().int(),
+  shippingRevenueMinor: z.number().int(),
+  totalRevenueMinor: z.number().int(),
+  taxMinor: z.number().int(),
+  orderCount: z.number().int(),
+  paidOrderCount: z.number().int(),
+  unitsSold: z.number().int(),
+  cancelledOrderCount: z.number().int(),
+  refundedOrderCount: z.number().int(),
+});
+
+export const financeSummaryResponseSchema = z.object({
+  data: z.object({
+    range: financeRangeSchema,
+    currency: currencySchema,
+    availableCurrencies: z.array(currencySchema),
+    /** İade tutar defteri bu fazda yok → false (UI dürüst mesaj gösterir; §Refund). */
+    refundAmountsSupported: z.boolean(),
+    summary: financeSummaryMetricsSchema,
+    comparison: financeComparisonSchema,
+    daily: z.array(financeDailyPointSchema),
+  }),
+});
+
+const financeProductRowSchema = z.object({
+  productId: z.string(),
+  title: z.string(),
+  sku: z.string(),
+  units: z.number().int(),
+  grossMinor: z.number().int(),
+  listGrossMinor: z.number().int(),
+  discountMinor: z.number().int(),
+  netMinor: z.number().int(),
+  costMinor: z.number().int(),
+  orderCount: z.number().int(),
+  coveredUnits: z.number().int(),
+});
+
+const financeVariantRowSchema = financeProductRowSchema.extend({
+  variantId: z.string(),
+  variantTitle: z.string(),
+});
+
+const financeDimensionRowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  units: z.number().int(),
+  grossMinor: z.number().int(),
+  orderCount: z.number().int(),
+});
+
+const financePaymentRowSchema = z.object({
+  provider: z.string(),
+  method: z.string(),
+  paidCount: z.number().int(),
+  failedCount: z.number().int(),
+  refundedCount: z.number().int(),
+  collectedMinor: z.number().int(),
+  currency: currencySchema,
+});
+
+const financeDiscountRowSchema = z.object({
+  campaignId: z.string().nullable(),
+  couponId: z.string().nullable(),
+  code: z.string().nullable(),
+  label: z.string(),
+  usageCount: z.number().int(),
+  discountMinor: z.number().int(),
+  ordersGrossMinor: z.number().int(),
+});
+
+export const financeBreakdownsResponseSchema = z.object({
+  data: z.object({
+    range: financeRangeSchema,
+    currency: currencySchema,
+    byProduct: z.array(financeProductRowSchema),
+    byVariant: z.array(financeVariantRowSchema),
+    byCategory: z.array(financeDimensionRowSchema),
+    byBrand: z.array(financeDimensionRowSchema),
+    byPaymentMethod: z.array(financePaymentRowSchema),
+    byCampaign: z.array(financeDiscountRowSchema),
+  }),
+});
+
+export const financePaymentReportResponseSchema = z.object({
+  data: z.object({
+    range: financeRangeSchema,
+    currency: currencySchema,
+    rows: z.array(financePaymentRowSchema),
+  }),
+});
+
+export const financeDiscountReportResponseSchema = z.object({
+  data: z.object({
+    range: financeRangeSchema,
+    currency: currencySchema,
+    rows: z.array(financeDiscountRowSchema),
+  }),
+});
+
 // --- F3B.2 Payment provider operasyon altyapisi (provider-ready; canli odeme YOK) ---
 export const paymentProviderTypeSchema = z.enum([
   "MOCK",
@@ -5672,6 +5858,13 @@ export type OrderSalesSummary = z.infer<typeof orderSalesSummarySchema>;
 export type OrderSalesSummaryVatLine = z.infer<typeof orderSalesSummaryVatLineSchema>;
 export type OrderListResponse = z.infer<typeof orderListResponseSchema>;
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
+// ADR-268 — Financial Reporting Foundation tipleri.
+export type FinancePeriodPreset = z.infer<typeof financePeriodPresetSchema>;
+export type FinanceReportQuery = z.infer<typeof financeReportQuerySchema>;
+export type FinanceSummaryResponse = z.infer<typeof financeSummaryResponseSchema>;
+export type FinanceBreakdownsResponse = z.infer<typeof financeBreakdownsResponseSchema>;
+export type FinancePaymentReportResponse = z.infer<typeof financePaymentReportResponseSchema>;
+export type FinanceDiscountReportResponse = z.infer<typeof financeDiscountReportResponseSchema>;
 export type AdminOrderListSortBy = z.infer<typeof adminOrderListSortBySchema>;
 export type OrderCreateRequest = z.infer<typeof orderCreateRequestSchema>;
 export type OrderUpdateRequest = z.infer<typeof orderUpdateRequestSchema>;

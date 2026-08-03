@@ -2,6 +2,17 @@
 
 ## Yakin Isler
 
+- **Financial Reporting Foundation — 🟡 IN_PROGRESS (commit/deploy YOK).** Store-Admin **Finans > Raporlar**:
+  sipariş snapshot'larından türetilen mağaza-geneli finansal raporlar (satış özeti + ürün/varyant + kategori/marka
+  + ödeme + indirim + CSV). Backend: `apps/api-gateway/src/finance/` (`metrics.ts` SAF sözlük · `date-range.ts`
+  tz preset'leri · `data.ts` `$queryRaw` agregasyon · `csv.ts` BOM+injection · `routes.ts` 9 uç), contracts finance
+  şemaları, api-client `admin.finance.*`, BFF `app/api/finance/*`, UI `app/(app)/finance/reports`, nav "Finans".
+  KDV inclusive; per-currency (FX yok); satış≠tahsilat; reconciliation (özet=Σgünlük) yapıca+test. **Refund tutarı
+  uydurulmaz** (adet + `refundAmountsSupported=false`; min `OrderRefund` ADR-268 §5). Kârlılık kapsam-kapılı
+  (cost snapshot var). Migration YOK. Gate GREEN (build 27/27 · typecheck · lint 0 · test 2219/31 finans).
+  Kalan: gerçek browser smoke (fixture) + commit. Karar ADR-268; analiz `docs/analysis/FINANCIAL-reporting-foundation.md`.
+  **Gift Cards & Store Credit = FUTURE BACKLOG** (bu fazda geliştirilmedi; sahte kart gösterilmez).
+
 - **BUG-CART-002 — PDP availability, cart badge & line-selection consistency — ✅ CLOSED & DEPLOYED**
   (PR #167 MERGED, main merge `cf6823a` / fix `37a30de`; 2026-08-03). api-gateway + storefront-web main'den
   rebuild+recreate; migrate status "up to date" (yeni migration yok); postgres/redis/worker/admin/store-admin

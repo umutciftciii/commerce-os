@@ -1334,3 +1334,25 @@ OOS disabled+üstü-çizili+aria; add→badge refresh'siz+toast; deselect→"0 �
 remove→badge temiz; mobil temiz). Açık follow-up TD-177 (PLP/home bounded stok) · TD-174 (cross-device
 deselection persist). **Gift Card blocker KALDIRILDI.** TODO-168 DEĞİŞMEDİ. Detay:
 `docs/analysis/BUG-CART-002-availability-badge-selection.md`.
+
+## Financial Reporting Foundation — IN_PROGRESS (2026-08-03; commit/deploy YOK)
+
+Store-Admin **Finans > Raporlar** modülü: sipariş SNAPSHOT'larından türetilen (canlı fiyat DEĞİL) mağaza-geneli
+finansal raporlar. Kapsam: satış özeti (KPI + günlük seri + önceki-dönem karşılaştırması), ürün/varyant
+performansı, kategori & marka kırılımı, ödeme raporu, indirim raporu, CSV export (BOM'lu, injection-korumalı).
+Tek server-side metrik sözlüğü (`finance/metrics.ts`, SAF) + tz-aware bounded aralık (`resolveRange` yeniden
+kullanım) + `$queryRaw` DB agregasyonu (günlük-grain → saf fold ⇒ reconciliation yapıca garanti). KDV inclusive
+(revenue'ya 2. kez eklenmez); her currency AYRI (FX yok); satış ≠ tahsilat. **Refund tutar defteri YOK →
+uydurulmaz** (yalnız iade ADEDİ + `refundAmountsSupported=false`); minimum `OrderRefund` read-model'i ADR-268
+§5'te KARARLAŞTIRILDI. **Kârlılık** cost snapshot mevcut olduğundan DESTEKLENİR, kapsam-kapılı (all-or-null).
+**Migration YOK** (snapshot sorgusu; `FinancialDailyAggregate` gelecek ölçek yolu). Yeni capability key YOK
+(Orders/dashboard katmanı; store-scoped 404 izolasyonu). Gate GREEN: build 27/27 (`/finance/reports` + 9 BFF
+route) · typecheck temiz · lint 0 error · test 2219 (31 finans). Karar: [ADR-268](./adr/ADR-268-financial-reporting-authority.md);
+analiz: `docs/analysis/FINANCIAL-reporting-foundation.md`. Future: refund tutarı, payment fee, FX,
+profitability allocation, FinancialDailyAggregate, XLSX, scheduled reports, platform cross-store.
+
+## Gift Cards & Store Credit — FUTURE BACKLOG
+
+Bu fazda geliştirilmedi. Financial Reporting sözlüğü, gelecekte gift card issued liability / redeemed
+allocation / outstanding & expired balance / store credit movement kaynaklarını EKlenebilir şekilde tasarlandı;
+ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLMEZ.

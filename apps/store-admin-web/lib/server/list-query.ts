@@ -125,6 +125,26 @@ export const INFLUENCER_ANALYTICS_KEYS = [
 ];
 
 /**
+ * ADR-268 — Financial Reporting (Finans > Raporlar) sorgu anahtarları. `period` hazır
+ * dönemi (today/last30/…), dateFrom/dateTo custom aralığı taşır. Filtreler URL'de
+ * korunur (§9); doğrulama (enum/format) gateway contract şemasındadır.
+ */
+export const FINANCE_REPORT_KEYS = [
+  "period",
+  "dateFrom",
+  "dateTo",
+  "currency",
+  "status",
+  "paymentStatus",
+  "productId",
+  "variantId",
+  "categoryId",
+  "brandId",
+  "campaignId",
+  "paymentMethod",
+];
+
+/**
  * TODO-159C (ADR-092) — Envanter matrisi liste anahtarları. `warehouseId` matrisin
  * BAKILAN deposunu seçer; `stockStatus`/`reserved`/`variantStatus`/`productStatus`
  * sunucu-otoriter filtrelerdir. Doğrulama gateway contract şemasındadır.

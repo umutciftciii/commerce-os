@@ -1978,3 +1978,20 @@ room, no code now):
   topla → `loadPublicStockMapForVariants`). Search read-model zaten ayrı raw-SQL `onHand−reserved` otoritesi
   kullanır (etkilenmez). Aynı bounded-scan sınıfı: `pdp-404-public-catalog-max`.
 - İlişki: BUG-CART-002.
+
+## Financial Reporting Foundation — açık future kalemler (ADR-268)
+
+- **Refund amount read-model (TD-FR-1):** müşteri iade TUTARI defteri yok. Bu fazda iade tutarı raporlanmaz
+  (yalnız adet + `refundAmountsSupported=false`). Karar: append-only `OrderRefund { orderId, amountMinor,
+  shippingPortionMinor, reason, refundedAt, createdBy }` + gerçek iade akışı; geldiğinde Product/Shipping Refunds
+  Net/Total'dan TEK kez düşülür. Detay ADR-268 §5.
+- **Payment fee/commission (TD-FR-2):** `PaymentAttempt`'te fee alanı yok → net tahsilat (fee sonrası) hesaplanamaz;
+  ödeme raporu brüt tahsilatı gösterir. Sağlayıcı fee snapshot'ı gelirse additive eklenir.
+- **FX / multi-currency consolidation (TD-FR-3):** her currency AYRI raporlanır; birleşik tek-para görünüm YOK
+  (FX katmanı yok — bilinçli). Gelecekte oran snapshot'lı consolidation gerekebilir.
+- **FinancialDailyAggregate (TD-FR-4):** bu fazda snapshot sorgusu yeterli; gerçek hacimde sorgu gecikirse
+  rebuildable günlük read-model + worker (search-index emitter→queue→worker kalıbı). Accounting source DEĞİL.
+- **Profitability allocation (TD-FR-5):** kâr kapsam-kapılı satır maliyetinden; blended margin / allocation /
+  zaman-serisi kâr future.
+- **XLSX export (TD-FR-6):** CSV mevcut; XLSX primitive yok → future.
+- **Scheduled/emailed reports & Platform cross-store aggregation (TD-FR-7):** bu fazda yok.

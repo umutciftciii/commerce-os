@@ -1574,3 +1574,24 @@ export API_GATEWAY_URL=http://localhost:4100 STOREFRONT_DEMO_STORE_SLUG=enterpri
 add reddedilir, toast yok, badge değişmez. (B) stoklu add → badge refresh'siz artar + "Sepete eklendi".
 (C) sepet: deselect → "0 ürün / Kargo — / ₺0,00 / checkout disabled", re-select geri döner; OOS satır
 toplama girmez. Boyutlar 375/768/1024/1440.
+
+## Finance Reports smoke runbook (ADR-268 · Finans > Raporlar)
+
+**Amaç:** izole mağaza fixture'ıyla finansal raporların DB gerçeğiyle birebir uyuştuğunu doğrulamak.
+
+**Fixture (izole store):** normal PAID · indirimli PAID · kargolu · ücretsiz-kargo · CANCELLED · UNPAID
+siparişler; farklı ürün/kategori/marka; iki ödeme yöntemi (or. CARD + BANK_TRANSFER). Refund akışı VARSA
+kısmi/tam refund; YOKSA yalnız iade adedi doğrulanır (tutar raporlanmaz). Siparişler PLACED (placedAt set) +
+OrderLine KDV/maliyet snapshot'lı olmalı (kâr/KDV kapsamı için).
+
+**Adımlar:** store-admin'e giriş → sol menü **Finans > Raporlar**. (1) **Satış Özeti:** KPI kartları (Toplam
+gelir / Net ürün satışı / Brüt satış / İndirim / Kargo / KDV / Sipariş / Ödenen / Ort. sepet / Satılan adet /
+İptal / İadeli adet / Brüt&Net kâr) fixture toplamıyla eşleşmeli; İadeli kart "İade tutarı altyapısı henüz yok"
+ipucu; günlük çubuk grafik + günlük tablo; önceki-dönem rozetleri (▲/▼ + %; previous=0 → "yeni"). (2) **Dönem
+filtresi** (bugün/son7/son30/buAy/geçenAy/buYıl/özel) + **para birimi** seçimi URL'de korunur (reload sonrası
+kalır). (3) **Ürün Performansı / Kategori & Marka / Ödeme / İndirim** sekmeleri: satır toplamları fixture ile
+uyumlu; kâr yalnız tam maliyet-kapsamlı satırda dolu. (4) **CSV indir** (her sekme): dosya UTF-8 BOM'lu, TR
+Excel'de düzgün açılır, `=`/`+` ile başlayan metin nötrlenir. **Mutabakat:** özet Toplam gelir = günlük tablo
+Σ = ürün kırılımı net ile tutarlı; CANCELLED satışa girmez; UNPAID tahsilata girmez.
+
+**Boyutlar:** 375 / 768 / 1024 / 1440. **Temizlik:** smoke sonunda fixture store + siparişleri sil.
