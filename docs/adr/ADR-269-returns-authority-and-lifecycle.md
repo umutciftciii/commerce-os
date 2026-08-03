@@ -1,9 +1,13 @@
 # ADR-269 — Returns Authority & Lifecycle (Returns Management Foundation)
 
-- **Status:** PROPOSED — TODO-169 Returns Management Foundation. Additive schema + new
-  `apps/api-gateway/src/returns/` module + storefront customer flow + store-admin module.
-  NOT deployed (analysis + implementation + gate + browser smoke only; no commit/PR per task rule).
-- **Date:** 2026-08-03
+- **Status:** ACCEPTED & DEPLOYED — TODO-169 Returns Management Foundation (PR #171 merge `360fb96`;
+  2026-08-04). Additive schema + `apps/api-gateway/src/returns/` module + storefront customer flow +
+  store-admin module. api-gateway + storefront-web + store-admin-web rebuilt/recreated from main
+  (`--no-deps`; postgres/redis/worker/admin-web untouched, volumes preserved); migration
+  `20260804090000_todo169_returns_management_foundation` applied (`migrate deploy`); post-deploy smoke
+  PASS (deployed :4000 eligibility/create/approve→RefundIntent PENDING/inspection→restock/tenant 401-404/
+  private media 404/refundAmountsSupported=false; fixtures cleaned, demo-store pristine).
+- **Date:** 2026-08-04 (proposed 2026-08-03)
 - **Builds on:** ADR-268 (Financial Reporting Authority — snapshot authority, `refundAmountsSupported=false`),
   ADR-101 (manual shipment status state-machine `evaluateManualStatusChange`), ADR-076 (Inventory Engine
   append-only adjustments + `batchId`), ADR-065 (media pipeline: sharp/webp + `StorageDriver`),
