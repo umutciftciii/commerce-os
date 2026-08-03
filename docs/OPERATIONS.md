@@ -1520,3 +1520,21 @@ checkout DB-cart authority · convert-on-paid (settlement) · failed-payment→A
 FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9 orders unchanged). ADR-266
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
+
+## TODO-168 Cart Change Awareness — operasyon notları (2026-08-03, IMPLEMENTED, deploy YOK)
+
+- **Yeni env YOK.** Değişiklik motoru cart okuma yolunda çalışır (ek servis yok). Analytics ingest
+  (`POST /public/stores/:slug/cart-change-events`) best-effort: bot/prefetch elenir, IP-hash rate-limit
+  (sabit 240/60s), her yol 200 (ölçüm hatası UX'i etkilemez). Meta imza anahtarı = mevcut
+  `STOREFRONT_CART_SECRET` (ayrı anahtar yok).
+- **Migration:** `20260803150000_todo168_cart_change_awareness` — additive (CartLine snapshot kolonları +
+  `CartChangeAck` + `CartChangeEvent`); `migrate deploy` ile uygulanır, drop/backfill YOK. Mevcut cart'lar
+  ilk güvenilir resolve'da baseline kazanır (sahte geçmiş yok).
+- **Anon meta cookie** `commerce_os_cart_meta`: imzalı/versiyonlu/byte-bütçeli (<3800 B). Aşımda önce en
+  eski INFO/senkron snapshot, sonra en eski ack budanır; WARN/BLOCKING snapshot korunur; **cart kalemleri
+  asla düşürülmez**. Bozuk/eski cookie → fail-safe (baseline yeniden kurulur; birincil sepet bozulmaz).
+- **Ack** cart line'ları mutasyona uğratmaz (version bump YOK) → cross-device DB'den görünür; yeni fiyat
+  hareketi yeni fingerprint → panel tekrar gelir. `CartChangeEvent` `(storeId,dedupeKey)` idempotent;
+  **retention worker = future** (tablo/ingest hazır, otomatik DELETE yok → default güvenli).
+- **Checkout kodları:** WARN → `409 CART_CHANGED` (gövdede güncel change-enriched cart; storefront sepete
+  yönlendirir, ham kod gösterilmez); BLOCKING → mevcut `409 CART_NOT_READY`.

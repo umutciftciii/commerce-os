@@ -139,8 +139,14 @@ import { registerRecentlyViewedRoutes } from "./recently-viewed/routes.js";
 import { createRecommendationEventData } from "./recommendation-events/data.js";
 import { registerRecommendationEventRoutes } from "./recommendation-events/routes.js";
 // TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation.
-import { createCartData } from "./cart/data.js";
+import { createCartData, type CartRecord } from "./cart/data.js";
 import { registerCustomerCartRoutes } from "./cart/routes.js";
+// TODO-168 (ADR-267) — Cart Change Awareness.
+import type { CartLineSnapshot } from "./cart-changes/change-engine.js";
+import { attachChangesToCart, snapshotFromDbLine } from "./cart-changes/projection.js";
+import { createCartChangeAckData } from "./cart-changes/ack-data.js";
+import { createCartChangeEventData } from "./cart-changes/event-data.js";
+import { registerCartChangeEventRoutes } from "./cart-changes/event-routes.js";
 import { createReviewData } from "./reviews/data.js";
 import {
   registerCustomerReviewRoutes,
@@ -6140,6 +6146,21 @@ export function createServer(
       shippingOptionId?: string | null;
       claimedCodes?: string[];
       deselectedVariantIds?: string[];
+      // TODO-168 (ADR-267) — ANONIM degisiklik baglami (cookie meta). Verildiyse SAF motorla
+      // degisiklikler cart'a islenir. Authenticated yolda VERILMEZ (snapshot/ack DB'den; cart routes).
+      changeContext?: {
+        cartId: string;
+        snapshots: Array<{
+          variantId: string;
+          unitPriceMinor: number;
+          listPriceMinor: number | null;
+          discountedUnitPriceMinor: number | null;
+          currency: string;
+          inStock: boolean;
+          orderable: boolean;
+        }>;
+        acknowledgedFingerprints: string[];
+      } | null;
     },
   ) {
     const index = await buildPublicCartIndex(store.id, items.map((item) => item.variantId));
@@ -6197,6 +6218,29 @@ export function createServer(
       coverUrlByProductId,
       opts?.deselectedVariantIds ?? [],
     );
+    // TODO-168 (ADR-267) — ANONIM cart-change: snapshot/ack cookie meta'dan (body). Fiyat/stok TAZE
+    // turetilir; snapshot yalniz karsilastirma referansi. Auth yolda changeContext VERILMEZ (DB'den).
+    if (opts?.changeContext) {
+      const snapshotByVariant = new Map<string, CartLineSnapshot>();
+      for (const s of opts.changeContext.snapshots) {
+        snapshotByVariant.set(s.variantId, {
+          unitPriceMinor: s.unitPriceMinor,
+          listPriceMinor: s.listPriceMinor,
+          discountedUnitPriceMinor: s.discountedUnitPriceMinor,
+          currency: s.currency,
+          inStock: s.inStock,
+          orderable: s.orderable,
+        });
+      }
+      const acked = new Set(opts.changeContext.acknowledgedFingerprints);
+      const { cart: enriched } = attachChangesToCart(
+        cart,
+        { storeId: store.id, cartId: opts.changeContext.cartId },
+        snapshotByVariant,
+        acked,
+      );
+      return enriched;
+    }
     return cart;
   }
 
@@ -6212,6 +6256,7 @@ export function createServer(
       shippingOptionId: body.shippingOptionId ?? null,
       claimedCodes: body.claimedCodes ?? [],
       deselectedVariantIds: body.deselectedVariantIds ?? [],
+      changeContext: body.changeContext ?? null,
     });
   });
 
@@ -6219,6 +6264,7 @@ export function createServer(
   // Ayni ORTAK projeksiyon (resolvePublicCartProjection) + DB cart membership. Anonim
   // cookie sepeti DEGISMEZ; bu route'lar yalniz oturum acmis musteri icindir.
   const cartData = createCartData(prisma);
+  const cartChangeAckData = createCartChangeAckData(prisma);
   registerCustomerCartRoutes(app, {
     logger,
     resolvePublicStore: async (slug) => {
@@ -6230,6 +6276,7 @@ export function createServer(
       return c ? { id: c.id, storeId } : null;
     },
     data: cartData,
+    ackData: cartChangeAckData,
     catalog: {
       findVariantsByIds: async (storeId, ids) => {
         const variants = await dataAccess.findVariantsByIds(storeId, ids);
@@ -6388,10 +6435,12 @@ export function createServer(
     // listesine GUVENILMEZ (cross-device + login-merge sonrasi anonim cookie temizlenmis
     // olabilir). Oturum yoksa (anonim) istemci cookie item'lari kullanilir (geriye-uyumlu).
     let effectiveItems = body.items;
+    // TODO-168 — DB cart record'u degisiklik hesabi (WARN gate) icin de tutulur (snapshot kolonlari).
+    let checkoutDbCart: CartRecord | null = null;
     if (checkoutCustomer) {
-      const dbCart = await cartData.findActiveCart(store.id, checkoutCustomer.id);
-      if (dbCart) {
-        effectiveItems = dbCart.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+      checkoutDbCart = await cartData.findActiveCart(store.id, checkoutCustomer.id);
+      if (checkoutDbCart) {
+        effectiveItems = checkoutDbCart.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
       }
     }
 
@@ -6439,6 +6488,47 @@ export function createServer(
     );
     if (!cart.checkoutReady) {
       return reply.code(409).send(errorBody("CART_NOT_READY", "Cart contains unavailable items.", cart));
+    }
+    // TODO-168 (ADR-267) — WARN degisiklik gate. checkoutReady=true oldugundan BLOCKING (stok/varlik/
+    // qty) zaten elenmis; geriye INFO + WARN kalir. Ack edilmemis WARN (PRICE_INCREASED/DISCOUNT_ENDED)
+    // varsa 409 CART_CHANGED + degisiklik-zenginlestirilmis cart (error.details). Snapshot/ack kaynagi
+    // kimlik-bazli: auth → DB (snapshot kolonlari + CartChangeAck); anon → body.changeContext (cookie meta).
+    {
+      const snapshotByVariant = new Map<string, CartLineSnapshot>();
+      let acked = new Set<string>();
+      let changeCartId = "";
+      if (checkoutCustomer && checkoutDbCart) {
+        changeCartId = checkoutDbCart.id;
+        for (const l of checkoutDbCart.lines) {
+          const snap = snapshotFromDbLine(l);
+          if (snap) snapshotByVariant.set(l.variantId, snap);
+        }
+        acked = new Set(await cartChangeAckData.listAckFingerprints(store.id, checkoutDbCart.id));
+      } else if (body.changeContext) {
+        changeCartId = body.changeContext.cartId;
+        for (const s of body.changeContext.snapshots) {
+          snapshotByVariant.set(s.variantId, {
+            unitPriceMinor: s.unitPriceMinor,
+            listPriceMinor: s.listPriceMinor,
+            discountedUnitPriceMinor: s.discountedUnitPriceMinor,
+            currency: s.currency,
+            inStock: s.inStock,
+            orderable: s.orderable,
+          });
+        }
+        acked = new Set(body.changeContext.acknowledgedFingerprints);
+      }
+      if (changeCartId) {
+        const { cart: enrichedCart } = attachChangesToCart(
+          cart,
+          { storeId: store.id, cartId: changeCartId },
+          snapshotByVariant,
+          acked,
+        );
+        if (enrichedCart.requiresAcknowledgement) {
+          return reply.code(409).send(errorBody("CART_CHANGED", "Sepetinizde fiyat değişikliği var.", enrichedCart));
+        }
+      }
     }
     // F4A — Gecersiz kuponla siparis OLUSTURULMAZ (sessiz sifir-indirim yok);
     // istemci acik hata alir ve kuponu duzeltir/kaldirir.
@@ -6845,6 +6935,20 @@ export function createServer(
     resolvePublicStore: resolvePublicStoreForModule("RECOMMENDATION_ANALYTICS"),
     data: createRecommendationEventData(),
     requireStoreAdmin: requireStoreAdminForModule("RECOMMENDATION_ANALYTICS"),
+  });
+
+  // TODO-168 (ADR-267) — Cart Change Awareness best-effort analytics ingest (cart core; capability
+  // gate YOK — cart her store'da vardir). KVKK-hash kimlik; (storeId, dedupeKey) idempotent; read
+  // side-effect-free. Olcum hatasi UX'i etkilemez (her yol 200).
+  registerCartChangeEventRoutes(app, {
+    config,
+    customers,
+    logger,
+    resolvePublicStore: async (slug) => {
+      const s = await resolvePublicStore(slug);
+      return s ? { id: s.id, slug: s.slug } : null;
+    },
+    data: createCartChangeEventData(prisma),
   });
 
   // TODO-162 (ADR-205) — Home Discovery section-analytics. Katman B keşif section'larının funnel ölçümü

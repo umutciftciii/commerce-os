@@ -24,6 +24,25 @@ export interface CartLineRecord {
   cartId: string;
   variantId: string;
   quantity: number;
+  // TODO-168 (ADR-267) — add-time REFERANS snapshot (baseline yoksa hepsi null).
+  addedUnitPriceMinor: number | null;
+  addedListPriceMinor: number | null;
+  addedDiscountedUnitPriceMinor: number | null;
+  addedCurrency: string | null;
+  addedInStock: boolean | null;
+  addedOrderable: boolean | null;
+  addedAt: Date | null;
+}
+
+/** TODO-168 — Bir satır için baseline snapshot yazımı girdisi (addedAt null olanlar için). */
+export interface CartLineBaselineInput {
+  variantId: string;
+  unitPriceMinor: number;
+  listPriceMinor: number | null;
+  discountedUnitPriceMinor: number | null;
+  currency: string;
+  inStock: boolean;
+  orderable: boolean;
 }
 
 export interface CartRecord {
@@ -103,6 +122,16 @@ export interface CartData {
   }): Promise<{ cart: CartRecord; result: MergeResult }>;
   markConverted(p: { storeId: string; customerId: string }): Promise<void>;
   sweepExpired(p: { olderThan: Date; limit: number }): Promise<number>;
+  /**
+   * TODO-168 (ADR-267) — Snapshot'ı OLMAYAN (addedAt IS NULL) satırlara baseline yazar (idempotent:
+   * yalnız null'ları set eder). add/re-add → yeni baseline; quantity/increment DOKUNMAZ (snapshot korunur).
+   */
+  baselineLineSnapshots(p: {
+    storeId: string;
+    cartId: string;
+    baselines: CartLineBaselineInput[];
+    now?: Date;
+  }): Promise<void>;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -125,7 +154,20 @@ function toRecord(row: {
   convertedAt: Date | null;
   mergedAt: Date | null;
   expiredAt: Date | null;
-  lines: Array<{ id: string; storeId: string; cartId: string; variantId: string; quantity: number }>;
+  lines: Array<{
+    id: string;
+    storeId: string;
+    cartId: string;
+    variantId: string;
+    quantity: number;
+    addedUnitPriceMinor: number | null;
+    addedListPriceMinor: number | null;
+    addedDiscountedUnitPriceMinor: number | null;
+    addedCurrency: string | null;
+    addedInStock: boolean | null;
+    addedOrderable: boolean | null;
+    addedAt: Date | null;
+  }>;
 }): CartRecord {
   return {
     id: row.id,
@@ -144,6 +186,13 @@ function toRecord(row: {
       cartId: l.cartId,
       variantId: l.variantId,
       quantity: l.quantity,
+      addedUnitPriceMinor: l.addedUnitPriceMinor,
+      addedListPriceMinor: l.addedListPriceMinor,
+      addedDiscountedUnitPriceMinor: l.addedDiscountedUnitPriceMinor,
+      addedCurrency: l.addedCurrency,
+      addedInStock: l.addedInStock,
+      addedOrderable: l.addedOrderable,
+      addedAt: l.addedAt,
     })),
   };
 }
@@ -299,6 +348,26 @@ export function createCartData(db: PrismaClient): CartData {
         });
         await tx.cartLine.deleteMany({ where: { cartId: active.id } });
       });
+    },
+
+    async baselineLineSnapshots({ storeId, cartId, baselines, now }) {
+      if (baselines.length === 0) return;
+      const at = now ?? new Date();
+      for (const b of baselines) {
+        // addedAt IS NULL guard → idempotent: mevcut baseline'i ASLA ezmez (yeni fiyat baseline'i kaydırmaz).
+        await db.cartLine.updateMany({
+          where: { cartId, storeId, variantId: b.variantId, addedAt: null },
+          data: {
+            addedUnitPriceMinor: b.unitPriceMinor,
+            addedListPriceMinor: b.listPriceMinor,
+            addedDiscountedUnitPriceMinor: b.discountedUnitPriceMinor,
+            addedCurrency: b.currency,
+            addedInStock: b.inStock,
+            addedOrderable: b.orderable,
+            addedAt: at,
+          },
+        });
+      }
     },
 
     async sweepExpired({ olderThan, limit }) {

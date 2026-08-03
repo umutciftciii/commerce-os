@@ -31,7 +31,34 @@ interface MemCart {
   convertedAt: Date | null;
   mergedAt: Date | null;
   expiredAt: Date | null;
-  lines: Array<{ id: string; variantId: string; quantity: number }>;
+  lines: Array<{
+    id: string;
+    variantId: string;
+    quantity: number;
+    addedUnitPriceMinor: number | null;
+    addedListPriceMinor: number | null;
+    addedDiscountedUnitPriceMinor: number | null;
+    addedCurrency: string | null;
+    addedInStock: boolean | null;
+    addedOrderable: boolean | null;
+    addedAt: Date | null;
+  }>;
+}
+
+/** Yeni bir mem-satır (snapshot alanlari null; baseline sonradan yazilir). */
+function memLine(id: string, variantId: string, quantity: number) {
+  return {
+    id,
+    variantId,
+    quantity,
+    addedUnitPriceMinor: null,
+    addedListPriceMinor: null,
+    addedDiscountedUnitPriceMinor: null,
+    addedCurrency: null,
+    addedInStock: null,
+    addedOrderable: null,
+    addedAt: null,
+  };
 }
 
 export function createInMemoryCartData(): CartData {
@@ -59,6 +86,13 @@ export function createInMemoryCartData(): CartData {
       cartId: c.id,
       variantId: l.variantId,
       quantity: l.quantity,
+      addedUnitPriceMinor: l.addedUnitPriceMinor,
+      addedListPriceMinor: l.addedListPriceMinor,
+      addedDiscountedUnitPriceMinor: l.addedDiscountedUnitPriceMinor,
+      addedCurrency: l.addedCurrency,
+      addedInStock: l.addedInStock,
+      addedOrderable: l.addedOrderable,
+      addedAt: l.addedAt,
     })),
   });
 
@@ -109,7 +143,7 @@ export function createInMemoryCartData(): CartData {
           return;
         }
         if (cart.lines.length >= CART_MAX_LINES) throw new CartLineLimitError();
-        cart.lines.push({ id: `line-${++seq}`, variantId, quantity: clampQuantity(quantity) });
+        cart.lines.push(memLine(`line-${++seq}`, variantId, clampQuantity(quantity)));
       });
     },
     async setLineQuantity({ storeId, customerId, expectedVersion, lineId, quantity }) {
@@ -141,7 +175,7 @@ export function createInMemoryCartData(): CartData {
       const existing: CartLineRef[] = cart.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
       const validGuest = guestItems.filter((g) => validVariantIds.has(g.variantId));
       const result = mergeCartLines(existing, validGuest);
-      cart.lines = result.lines.map((l) => ({ id: `line-${++seq}`, variantId: l.variantId, quantity: l.quantity }));
+      cart.lines = result.lines.map((l) => memLine(`line-${++seq}`, l.variantId, l.quantity));
       cart.version += 1;
       cart.lastActivityAt = new Date();
       return { cart: toRecord(cart), result };
@@ -152,6 +186,22 @@ export function createInMemoryCartData(): CartData {
       cart.status = "CONVERTED";
       cart.convertedAt = new Date();
       cart.lines = [];
+    },
+    async baselineLineSnapshots({ storeId, cartId, baselines, now }) {
+      const cart = carts.find((c) => c.id === cartId && c.storeId === storeId);
+      if (!cart) return;
+      const at = now ?? new Date();
+      for (const b of baselines) {
+        const line = cart.lines.find((l) => l.variantId === b.variantId && l.addedAt === null);
+        if (!line) continue;
+        line.addedUnitPriceMinor = b.unitPriceMinor;
+        line.addedListPriceMinor = b.listPriceMinor;
+        line.addedDiscountedUnitPriceMinor = b.discountedUnitPriceMinor;
+        line.addedCurrency = b.currency;
+        line.addedInStock = b.inStock;
+        line.addedOrderable = b.orderable;
+        line.addedAt = at;
+      }
     },
     async sweepExpired({ olderThan, limit }) {
       const stale = carts

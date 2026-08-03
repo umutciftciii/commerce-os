@@ -4,8 +4,14 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { PublicCouponReason } from "@commerce-os/api-client";
 import { format, type StorefrontDictionary } from "@commerce-os/i18n";
-import type { CartView as CartViewModel, CartLineView } from "../lib/server/cart";
+import type {
+  CartView as CartViewModel,
+  CartLineChangeView,
+  CartLineView,
+} from "../lib/server/cart";
 import {
+  acknowledgeAllCartChangesAction,
+  acknowledgeCartChangeAction,
   applyWalletCouponAction,
   claimCouponAction,
   clearCartNoticeAction,
@@ -16,6 +22,7 @@ import {
   updateCartItemAction,
   type ClaimCouponResult,
 } from "../lib/server/cart-actions";
+import { emitCartChangeEvent } from "../lib/cart-change-analytics";
 import type { CartNotice } from "../lib/server/cart-cookie";
 import type { StorefrontWalletCouponView } from "../lib/catalog-types";
 import { cn } from "@commerce-os/ui";
@@ -98,6 +105,10 @@ export function CartView({
             <DismissButton onClick={() => setShowReconciled(false)} />
           </div>
         ) : null}
+
+        {/* TODO-168 (ADR-267) — Sepet değişiklik farkındalığı paneli (fiyat/stok/varlık).
+            view.changes sunucu-otoriter; ham CART_CHANGED kodu/fingerprint gösterilmez. */}
+        <CartChangeBar view={view} t={t} pending={isPending} startTransition={startTransition} />
 
         {/* F4A.3 — Sepet ust kupon alani: kullanilabilir kupon kartlari + manuel
             "Kupon Kodu Ekle" (claim). Uygulama kart uzerinden "Kullan" ile yapilir. */}
@@ -209,6 +220,205 @@ function NoticeIcon({ critical }: { critical: boolean }) {
   );
 }
 
+/**
+ * TODO-168 (ADR-267) — Değişiklik mesajını i18n'e eşler. Ham changeType/fingerprint gösterilmez;
+ * para değişimlerinde {old}/{new} sunucu-biçimli etiketlerle doldurulur.
+ */
+function changeMessage(change: Pick<CartLineChangeView, "changeType" | "oldValueLabel" | "newValueLabel">, t: CartDict): string {
+  const old = change.oldValueLabel ?? "";
+  const nv = change.newValueLabel ?? "";
+  switch (change.changeType) {
+    case "PRICE_DECREASED":
+      return format(t.changePriceDecreased, { old, new: nv });
+    case "PRICE_INCREASED":
+      return format(t.changePriceIncreased, { old, new: nv });
+    case "DISCOUNT_STARTED":
+      return t.changeDiscountStarted;
+    case "DISCOUNT_ENDED":
+      return t.changeDiscountEnded;
+    case "VARIANT_OUT_OF_STOCK":
+      return t.changeOutOfStock;
+    case "VARIANT_BACK_IN_STOCK":
+      return t.changeBackInStock;
+    case "PRODUCT_UNAVAILABLE":
+      return t.changeUnavailable;
+    case "PRODUCT_AVAILABLE_AGAIN":
+      return t.changeAvailableAgain;
+    case "QUANTITY_ADJUSTED":
+      return t.changeQuantityAdjusted;
+    default:
+      return "";
+  }
+}
+
+/** Severity ikonu (yalnız renk DEĞİL: farklı şekil + aria-hidden; metin mesajı esas anlatım). */
+function ChangeIcon({ severity }: { severity: CartLineChangeView["severity"] }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className={cn(
+        "mt-0.5 h-4 w-4 shrink-0",
+        severity === "BLOCKING" ? "text-red-600" : severity === "WARN" ? "text-amber-600" : "text-ink-muted",
+      )}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    >
+      {severity === "BLOCKING" ? (
+        <>
+          <path d="M10 2.5 1.8 16.5h16.4L10 2.5Z" strokeLinejoin="round" />
+          <path d="M10 8v3.5M10 14h.01" strokeLinecap="round" />
+        </>
+      ) : severity === "WARN" ? (
+        <>
+          <circle cx="10" cy="10" r="8" />
+          <path d="M10 6v5M10 14h.01" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <circle cx="10" cy="10" r="8" />
+          <path d="M7 10.5l2 2 4-4.5" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/**
+ * TODO-168 (ADR-267) — Sepet değişiklik paneli. Onaylanmamış (INFO+WARN+BLOCKING) değişiklikleri
+ * severity-sıralı listeler: ürün thumbnail + ad + varyant + editoryel mesaj + eski→yeni fiyat + durum
+ * ikonu; tek-mesaj kapat + "Tümünü gördüm". BLOCKING'de role=alert/aria-live=assertive (yalnız renkle
+ * anlatmaz). Ack CartChangeAck (auth) veya meta cookie (anon) üzerinden; ham teknik detay sızmaz.
+ */
+function CartChangeBar({
+  view,
+  t,
+  pending,
+  startTransition,
+}: {
+  view: CartViewModel;
+  t: CartDict;
+  pending: boolean;
+  startTransition: (cb: () => void) => void;
+}) {
+  const visible = view.changes.filter((c) => !c.acknowledged);
+  const cartId = view.changeCartId;
+
+  // Panel görüntülendiğinde her görünür değişiklik için best-effort "detected" (gateway dedupe eder).
+  useEffect(() => {
+    if (!cartId || visible.length === 0) return;
+    for (const c of visible) {
+      emitCartChangeEvent({
+        cartId,
+        changeType: c.changeType,
+        eventType: "detected",
+        fingerprint: c.fingerprint,
+        severity: c.severity,
+        variantId: c.variantId,
+        oldMinor: c.oldValueMinor,
+        newMinor: c.newValueMinor,
+        currency: c.currency,
+        placement: "CART_BAR",
+      });
+    }
+    // fingerprint listesi değiştiğinde yeniden (yeni değişiklik).
+  }, [cartId, visible.map((c) => c.fingerprint).join(",")]);
+
+  if (visible.length === 0) return null;
+  const hasBlocking = visible.some((c) => c.blocking);
+
+  function dismissOne(fingerprint: string, change: (typeof visible)[number]) {
+    if (cartId) {
+      emitCartChangeEvent({
+        cartId,
+        changeType: change.changeType,
+        eventType: "acknowledged",
+        fingerprint,
+        severity: change.severity,
+        variantId: change.variantId,
+        placement: "CART_BAR",
+      });
+    }
+    startTransition(() => {
+      void acknowledgeCartChangeAction(fingerprint);
+    });
+  }
+
+  function dismissAll() {
+    if (cartId) {
+      for (const c of visible) {
+        if (c.severity === "BLOCKING") continue;
+        emitCartChangeEvent({
+          cartId,
+          changeType: c.changeType,
+          eventType: "acknowledged",
+          fingerprint: c.fingerprint,
+          severity: c.severity,
+          variantId: c.variantId,
+          placement: "CART_BAR",
+        });
+      }
+    }
+    startTransition(() => {
+      void acknowledgeAllCartChangesAction();
+    });
+  }
+
+  const hasDismissibleAll = visible.some((c) => c.severity !== "BLOCKING");
+
+  return (
+    <section
+      role={hasBlocking ? "alert" : "status"}
+      aria-live={hasBlocking ? "assertive" : "polite"}
+      className="border border-ink-subtle bg-surface"
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <h2 className="text-sm font-semibold text-ink">{t.changesTitle}</h2>
+        {hasDismissibleAll ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={dismissAll}
+            className="text-xs font-medium text-ink-subtle underline decoration-line underline-offset-4 transition-colors hover:text-ink disabled:opacity-40"
+          >
+            {t.changesAckAll}
+          </button>
+        ) : null}
+      </div>
+      <ul className="divide-y divide-line">
+        {visible.map((change) => (
+          <li key={change.fingerprint} className="flex items-start gap-3 px-4 py-3">
+            <ProductMediaFrame
+              variant="line-thumbnail"
+              handle={change.productSlug}
+              title={change.title}
+              imageUrl={change.imageUrl}
+              className="h-12 w-12 shrink-0 border border-line"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-ink">{change.title}</p>
+              {change.variantTitle ? (
+                <p className="truncate text-xs text-ink-subtle">{change.variantTitle}</p>
+              ) : null}
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-ink-muted">
+                <ChangeIcon severity={change.severity} />
+                <span>{changeMessage(change, t)}</span>
+              </p>
+            </div>
+            {change.severity !== "BLOCKING" ? (
+              <DismissButton
+                onClick={() => dismissOne(change.fingerprint, change)}
+                label={t.changeDismiss}
+              />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function CartLineRow({
   line,
   t,
@@ -237,36 +447,35 @@ function CartLineRow({
   const strikeLabel = hasCampaignPrice ? line.unitPriceLabel : line.compareAtLabel;
 
   return (
-    // Dilim 6a-refine — Secimi kaldirilan satir SOLUK gosterilir (toplama/checkout'a
-    // girmez); sepette kalir. Kaldir/checkbox etkilesimi tam opak kalir.
-    <div className={cn("border border-line bg-surface p-5", !line.selected && "opacity-55")}>
-      <div className="flex gap-4">
-        {/* Dilim 6a-refine — Satir SECIM checkbox'i (mockup). Isaretli satir toplama/
-            checkout'a dahildir; kaldirilan satir sepette kalir ama dahil edilmez.
-            Native checkbox; accent-ink (menekse DEGIL → tek-accent kurali korunur). */}
-        <div className="flex items-start pt-1">
-          <input
-            type="checkbox"
-            checked={line.selected}
-            disabled={pending}
-            onChange={() => onToggleSelected(line)}
-            aria-label={line.selected ? t.deselectItem : t.selectItem}
-            className="h-4 w-4 shrink-0 cursor-pointer accent-ink disabled:cursor-not-allowed"
+    // Dilim 6a-refine — Secimi kaldirilan satir SOLUK gosterilir (toplama/checkout'a girmez).
+    // TODO-168 mobil fix — 375/320'de yatay tasma yok: mobilde ust satir (thumbnail+bilgi) +
+    // alt satir (adet+fiyat+kaldir, tam genislik); sm+ mevcut iki-sutun (bilgi solda, aksiyon sagda).
+    <div className={cn("border border-line bg-surface p-4 sm:p-5", !line.selected && "opacity-55")}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {/* ── Blok A: checkbox + thumbnail + urun bilgisi (her zaman satir; thumbnail sabit) ── */}
+        <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+          {/* Dilim 6a-refine — Satir SECIM checkbox'i. Native accent-ink (tek-accent kurali). */}
+          <div className="flex items-start pt-1">
+            <input
+              type="checkbox"
+              checked={line.selected}
+              disabled={pending}
+              onChange={() => onToggleSelected(line)}
+              aria-label={line.selected ? t.deselectItem : t.selectItem}
+              className="h-4 w-4 shrink-0 cursor-pointer accent-ink disabled:cursor-not-allowed"
+            />
+          </div>
+
+          {/* TD-173 — Ortak medya cercevesi (kare, oran korunur; mobilde biraz kucuk, sm+ 96px). */}
+          <ProductMediaFrame
+            variant="line-thumbnail"
+            handle={line.productSlug}
+            title={line.title}
+            imageUrl={line.imageUrl}
+            className="h-20 w-20 shrink-0 border border-line sm:h-24 sm:w-24"
           />
-        </div>
 
-        {/* TD-173 — Ortak ürün medya çerçevesi (line-thumbnail: kare, contain, nötr zemin,
-            tutarlı placeholder, layout shift yok). Tüm sepet/sipariş satırlarıyla aynı. */}
-        <ProductMediaFrame
-          variant="line-thumbnail"
-          handle={line.productSlug}
-          title={line.title}
-          imageUrl={line.imageUrl}
-          className="h-24 w-24 shrink-0 border border-line"
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <Link
               href={`/products/${line.productSlug}`}
               className="text-sm font-semibold text-ink transition-colors hover:text-ink-muted"
@@ -275,8 +484,7 @@ function CartLineRow({
             </Link>
             <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
             <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
-            {/* Dilim 6a-refine — Statik kargo tahmini (urun-bazli hazirlik suresi
-                backend'i yok; gercek veri gelince degistirilir). Yalniz satilabilir satirda. */}
+            {/* Dilim 6a-refine — Statik kargo tahmini (yalniz satilabilir satirda). */}
             {!unavailable ? (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-subtle">
                 <TruckIcon />
@@ -298,57 +506,78 @@ function CartLineRow({
                 {t.statusQuantityAdjusted}
               </Badge>
             ) : null}
+            {/* TODO-168 (ADR-267) — Satır-içi değişiklik işareti (yalnız onaylanmamış; panelle simetrik).
+                Yalnız renkle DEĞİL: ikon + metin (wrap eder, ezilmez). Fiyat değişiminde eski→yeni etikette. */}
+            {line.change && !line.change.acknowledged ? (
+              <p
+                role="status"
+                className={cn(
+                  "mt-2 flex items-start gap-1.5 text-xs",
+                  line.change.severity === "BLOCKING"
+                    ? "text-red-600"
+                    : line.change.severity === "WARN"
+                      ? "text-amber-700"
+                      : "text-ink-muted",
+                )}
+              >
+                <ChangeIcon severity={line.change.severity} />
+                <span className="min-w-0">{changeMessage(line.change, t)}</span>
+              </p>
+            ) : null}
           </div>
+        </div>
 
-          <div className="flex items-center gap-4">
+        {/* ── Blok B: aksiyon kumesi. Mobilde tam-genislik alt satir (adet solda, fiyat+kaldir sagda);
+            sm+ sag-hizali tek satir. Thumbnail dar sutununa SIKISMAZ → 320/375'te tasma yok. ── */}
+        <div className="flex items-center justify-between gap-3 sm:flex-none sm:justify-end sm:gap-4">
+          {!unavailable ? (
+            // Dilim 6a — Miktar seçici: tek hairline cerceve; touch target 36px (h-9 w-9).
+            <div className="inline-flex shrink-0 items-center border border-line">
+              <button
+                type="button"
+                aria-label={t.decrease}
+                disabled={pending || atMin}
+                onClick={() => onSetQuantity(line, line.quantity - 1)}
+                className="h-9 w-9 border-r border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
+              >
+                −
+              </button>
+              <span className="w-9 text-center text-sm font-medium text-ink">{line.quantity}</span>
+              <button
+                type="button"
+                aria-label={t.increase}
+                disabled={pending || atMax}
+                onClick={() => onSetQuantity(line, line.quantity + 1)}
+                className="h-9 w-9 border-l border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
+              >
+                +
+              </button>
+            </div>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+
+          <div className="flex shrink-0 items-center gap-3 sm:gap-4">
             {!unavailable ? (
-              // Dilim 6a — Miktar seçici: tek hairline cerceve icinde −/+ ince dikey
-              // ayraclarla ayrilir (mockup anatomisi; renk mevcut border-line).
-              <div className="inline-flex items-center border border-line">
-                <button
-                  type="button"
-                  aria-label={t.decrease}
-                  disabled={pending || atMin}
-                  onClick={() => onSetQuantity(line, line.quantity - 1)}
-                  className="h-9 w-9 border-r border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
-                >
-                  −
-                </button>
-                <span className="w-9 text-center text-sm font-medium text-ink">{line.quantity}</span>
-                <button
-                  type="button"
-                  aria-label={t.increase}
-                  disabled={pending || atMax}
-                  onClick={() => onSetQuantity(line, line.quantity + 1)}
-                  className="h-9 w-9 border-l border-line text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
-                >
-                  +
-                </button>
+              <div className="text-right">
+                {/* Buyuk: kampanya varsa kampanya-sonrasi satir toplami, yoksa normal. */}
+                <p className="text-sm font-semibold text-ink">{bigPriceLabel}</p>
+                {/* Kucuk: ustu-cizili + guncel birim (notr ink-subtle). */}
+                <p className="text-xs text-ink-subtle">
+                  {strikeLabel ? (
+                    <span className="mr-1.5 text-line-strong line-through">{strikeLabel}</span>
+                  ) : null}
+                  {currentUnitLabel}
+                </p>
               </div>
             ) : null}
-
-            <div className="text-right">
-              {!unavailable ? (
-                <>
-                  {/* Buyuk: kampanya varsa kampanya-sonrasi satir toplami, yoksa normal. */}
-                  <p className="text-sm font-semibold text-ink">{bigPriceLabel}</p>
-                  {/* Kucuk: ustu-cizili (kampanya→orijinal birim / yoksa compareAt liste) +
-                      guncel birim. Notr ink-subtle (accent yok). */}
-                  <p className="text-xs text-ink-subtle">
-                    {strikeLabel ? (
-                      <span className="mr-1.5 text-line-strong line-through">{strikeLabel}</span>
-                    ) : null}
-                    {currentUnitLabel}
-                  </p>
-                </>
-              ) : null}
-            </div>
 
             <button
               type="button"
               disabled={pending}
               onClick={() => onRemove(line)}
-              className="text-xs font-medium text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
+              aria-label={format(t.removeItemLabel, { title: line.title })}
+              className="shrink-0 py-2 text-xs font-medium text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
             >
               {t.remove}
             </button>

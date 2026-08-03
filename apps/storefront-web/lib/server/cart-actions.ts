@@ -14,28 +14,36 @@ import { isValidTaxNumber, isValidTckn } from "@commerce-os/api-client";
 import type { PublicCouponReason } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
 import {
+  authAcknowledgeAllChanges,
+  authAcknowledgeChange,
   authAddLine,
   authMergeGuestCart,
   authRemoveLine,
   authSetLine,
   claimCouponRemote,
   getAuthCartProjection,
+  resolveCart,
+  resolveCartBaselines,
   submitCheckout,
   submitTestPayment,
   syncWalletApplied,
 } from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
+import { emptyCartMeta, mintCartId } from "../cart-meta-token";
 import { readCustomerToken } from "./customer-cookie";
 import {
   addClaimedCoupon,
   clearCartCookie,
+  clearCartMeta,
   clearCartNotice,
   readCartItems,
+  readCartMeta,
   readCoupon,
   readDeselectedItems,
   readShippingOption,
   toggleDeselectedItem,
   writeCartItems,
+  writeCartMeta,
   writeCartNotice,
   writeCheckoutConfirmationCookie,
   writeCoupon,
@@ -124,6 +132,62 @@ async function hasCustomerSession(): Promise<boolean> {
   }
 }
 
+/**
+ * TODO-168 (ADR-267) — ANONIM meta baseline senkronu (yalniz misafir; auth snapshot DB'de LAZY).
+ * Sepeti gateway'de cozup EKSIK baseline'lari meta cookie'ye yazar (mevcut snapshot'a DOKUNMAZ →
+ * add-time referans korunur, quantity degisikligi baseline'i kaydirmaz); sepette olmayan snapshot'lari
+ * (orphan) budar. Ilk add'de cid basilir. Hata → sessiz no-op (birincil sepet ETKILENMEZ).
+ */
+async function baselineAnonCartMeta(): Promise<void> {
+  try {
+    const items = await readCartItems();
+    if (items.length === 0) {
+      await clearCartMeta();
+      return;
+    }
+    const coupon = await readCoupon();
+    const shipping = await readShippingOption();
+    const deselected = await readDeselectedItems();
+    const baselines = await resolveCartBaselines(items, coupon, shipping, deselected);
+    if (!baselines) return;
+    const meta = (await readCartMeta()) ?? emptyCartMeta(mintCartId());
+    const itemVariantIds = new Set(items.map((i) => i.variantId));
+    for (const [variantId, snap] of Object.entries(baselines)) {
+      if (!meta.s[variantId]) meta.s[variantId] = snap; // yalniz eksik baseline (add-time referans korunur)
+    }
+    for (const variantId of Object.keys(meta.s)) {
+      if (!itemVariantIds.has(variantId)) delete meta.s[variantId]; // orphan snapshot budama
+    }
+    await writeCartMeta(meta);
+  } catch {
+    // best-effort: cart-change farkindaligi bozuk cookie'de degrade olur; sepet CALISMAYA devam eder.
+  }
+}
+
+/** TODO-168 — Sepette olmayan snapshot'lari budar (gateway cagrisi YOK; remove/update/reconcile icin). */
+async function pruneAnonCartMeta(): Promise<void> {
+  try {
+    const items = await readCartItems();
+    if (items.length === 0) {
+      await clearCartMeta();
+      return;
+    }
+    const meta = await readCartMeta();
+    if (!meta) return;
+    const itemVariantIds = new Set(items.map((i) => i.variantId));
+    let changed = false;
+    for (const variantId of Object.keys(meta.s)) {
+      if (!itemVariantIds.has(variantId)) {
+        delete meta.s[variantId];
+        changed = true;
+      }
+    }
+    if (changed) await writeCartMeta(meta);
+  } catch {
+    // best-effort.
+  }
+}
+
 /** Bir varyanti sepete ekler (mevcut adede ekleyerek). */
 export async function addToCartAction(variantId: string, quantity: number): Promise<void> {
   const qty = Math.max(1, Math.floor(quantity || 1));
@@ -134,6 +198,8 @@ export async function addToCartAction(variantId: string, quantity: number): Prom
   }
   const items = await readCartItems();
   await writeCartItems(addItem(items, variantId, qty));
+  // TODO-168 — misafir: yeni satirin add-time snapshot'ini baseline'la (mevcutlara dokunmaz).
+  await baselineAnonCartMeta();
   revalidateCart();
 }
 
@@ -147,6 +213,8 @@ export async function updateCartItemAction(variantId: string, quantity: number):
   }
   const items = await readCartItems();
   await writeCartItems(upsertItem(items, variantId, qty));
+  // TODO-168 — quantity degisikligi snapshot'i KAYDIRMAZ; yalniz 0 (kaldirma) → orphan budama.
+  if (qty <= 0) await pruneAnonCartMeta();
   revalidateCart();
 }
 
@@ -159,6 +227,8 @@ export async function removeCartItemAction(variantId: string): Promise<void> {
   }
   const items = await readCartItems();
   await writeCartItems(removeItem(items, variantId));
+  // TODO-168 — kaldirilan satirin snapshot'ini/orphan'ini buda.
+  await pruneAnonCartMeta();
   revalidateCart();
 }
 
@@ -210,6 +280,62 @@ export async function reconcileCartAction(
   canonicalItems: Array<{ variantId: string; quantity: number }>,
 ): Promise<void> {
   await writeCartItems(canonicalItems);
+  // TODO-168 — cozulemeyen (dusurulen) satirlarin orphan snapshot'larini buda.
+  await pruneAnonCartMeta();
+  revalidateCart();
+}
+
+/**
+ * TODO-168 (ADR-267) — Tek bir degisikligi "gordum" (per-fingerprint ack). Auth → CartChangeAck DB
+ * (cross-device); misafir → meta cookie `a` kumesi. INFO surface'i kapatir + WARN checkout gate'ini
+ * acar. BLOCKING'i COZMEZ (satir yine gorunur). Ham teknik detay UI'ya sizmaz (yalniz fingerprint).
+ */
+export async function acknowledgeCartChangeAction(fingerprint: string): Promise<void> {
+  const fp = typeof fingerprint === "string" ? fingerprint.trim() : "";
+  if (!fp) return;
+  if (await hasCustomerSession()) {
+    await authAcknowledgeChange(fp);
+    revalidateCart();
+    return;
+  }
+  try {
+    const meta = await readCartMeta();
+    if (!meta) return; // meta yoksa gosterilecek degisiklik de yok
+    if (!meta.a.includes(fp)) meta.a.push(fp);
+    await writeCartMeta(meta);
+  } catch {
+    // best-effort.
+  }
+  revalidateCart();
+}
+
+/** TODO-168 — "Tumunu gordum": gorunur (INFO+WARN) degisiklikleri onaylar (BLOCKING haric). */
+export async function acknowledgeAllCartChangesAction(): Promise<void> {
+  if (await hasCustomerSession()) {
+    await authAcknowledgeAllChanges();
+    revalidateCart();
+    return;
+  }
+  try {
+    const meta = await readCartMeta();
+    if (!meta) return;
+    // Guncel degisiklikleri coz → BLOCKING disi fingerprint'leri ack kumesine ekle.
+    const items = await readCartItems();
+    const coupon = await readCoupon();
+    const shipping = await readShippingOption();
+    const deselected = await readDeselectedItems();
+    const view = await resolveCart(items, coupon, shipping, deselected);
+    if (view.ok) {
+      for (const change of view.data.changes) {
+        if (change.severity !== "BLOCKING" && !meta.a.includes(change.fingerprint)) {
+          meta.a.push(change.fingerprint);
+        }
+      }
+    }
+    await writeCartMeta(meta);
+  } catch {
+    // best-effort.
+  }
   revalidateCart();
 }
 
@@ -373,6 +499,12 @@ export async function submitCheckoutAction(
   );
 
   if (!result.ok) {
+    // TODO-168 — WARN degisiklik ack edilmemis: kullaniciyi SEPETE dondur (panel otomatik gorunur;
+    // ham CART_CHANGED kodu gosterilmez). Sepette resolveCart degisiklikleri yeniden hesaplar.
+    if (result.reason === "cart-changed") {
+      revalidateCart();
+      redirect("/cart");
+    }
     // Sepet artik gecersizse (stok/uygunluk) cookie'yi tazele.
     if (result.reason === "cart-not-ready") {
       revalidateCart();

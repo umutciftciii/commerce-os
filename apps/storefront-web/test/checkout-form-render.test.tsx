@@ -45,6 +45,12 @@ function view(overrides: Partial<CartView> = {}): CartView {
     subtotalLabel: "₺1.299,00",
     shippingOptions: [shippingOption()],
     selectedShippingOptionId: "opt-standard",
+    changes: [],
+    unacknowledgedChangeCount: 0,
+    hasBlockingChanges: false,
+    hasWarnings: false,
+    requiresAcknowledgement: false,
+    changeCartId: null,
     lines: [
       {
         variantId: "v1",
@@ -60,6 +66,7 @@ function view(overrides: Partial<CartView> = {}): CartView {
         maxQuantity: null,
         inStock: true,
         status: "OK",
+        change: null,
         imageUrl: null,
         selected: true,
         compareAtLabel: null,

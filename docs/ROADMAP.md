@@ -1291,3 +1291,18 @@ checkout DB-cart authority · convert-on-paid (settlement) · failed-payment→A
 FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9 orders unchanged). ADR-266
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
+
+## TODO-168 — Cart Change Awareness (Faz B) — IMPLEMENTED (2026-08-03, worktree, commit YOK)
+
+Add-time snapshot vs live server-authoritative projection → deterministic change list; INFO surfaced /
+WARN gates checkout (`409 CART_CHANGED` until acked) / BLOCKING keeps existing `409 CART_NOT_READY`. One shared
+pure engine (`cart-changes/change-engine.ts`, identity-agnostic); snapshot/ack identity-split: **auth = DB**
+(`CartLine` snapshot columns lazy-baseline + `CartChangeAck`, **cross-device ack**); **anon = signed
+`commerce_os_cart_meta` cookie** (versioned, byte-budgeted, severity-aware pruning, orphan cleanup, malformed→
+fail-safe). Snapshot is explain-only, never an order price; ack = fingerprint invalidation (no snapshot
+mutation). `CartChangeEvent` best-effort analytics (RecommendationEvent pattern, KVKK-hash, idempotent).
+UI: CartChangeBar + per-line markers + TR/EN + a11y. ADR-267. Additive migration
+`20260803150000_todo168_cart_change_awareness` (no drop/backfill). Gate GREEN (build 27/27 · lint 42/42 ·
+typecheck · test gateway 2184 [+52] / storefront 534 [+8] / store-admin 364 · `git diff --check`). Future:
+`FREE_SHIPPING_ELIGIBILITY_CHANGED` + `SELLER_CHANGED` + event retention worker. Detail:
+`docs/analysis/PERSISTENT-CART-roadmap.md` Faz B + `docs/adr/ADR-267-cart-change-semantics.md`.

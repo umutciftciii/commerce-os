@@ -26,6 +26,24 @@ const validVariants: Record<string, Set<string>> = {
   [STORE_B.id]: new Set(["vb1"]),
 };
 
+/** TODO-168 — in-memory CartChangeAck double (route testleri icin). */
+function createInMemoryAckData() {
+  const acks: Array<{ storeId: string; cartId: string; fingerprint: string }> = [];
+  return {
+    async listAckFingerprints(storeId: string, cartId: string) {
+      return acks.filter((a) => a.storeId === storeId && a.cartId === cartId).map((a) => a.fingerprint);
+    },
+    async insertAck(input: { storeId: string; cartId: string; fingerprint: string }) {
+      if (!acks.some((a) => a.cartId === input.cartId && a.fingerprint === input.fingerprint)) {
+        acks.push({ storeId: input.storeId, cartId: input.cartId, fingerprint: input.fingerprint });
+      }
+    },
+    async insertAcks(inputs: Array<{ storeId: string; cartId: string; fingerprint: string }>) {
+      for (const i of inputs) await this.insertAck(i);
+    },
+  };
+}
+
 function buildApp(): FastifyInstance {
   const data = createInMemoryCartData();
 
@@ -35,6 +53,7 @@ function buildApp(): FastifyInstance {
     resolvePublicStore: async (slug) =>
       slug === STORE.slug ? STORE : slug === STORE_B.slug ? STORE_B : null,
     data,
+    ackData: createInMemoryAckData(),
     catalog: {
       findVariantsByIds: async (storeId, ids) =>
         ids
@@ -109,7 +128,7 @@ describe("customer cart routes: GET (lazy) + add", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.data.version).toBe(2);
-    expect(body.data.cart.lines).toEqual([{ variantId: "v1", quantity: 2 }]);
+    expect(body.data.cart.lines).toEqual([{ variantId: "v1", quantity: 2, change: null }]);
   });
 
   it("409 CART_STALE with the current authoritative projection on version mismatch", async () => {
@@ -131,7 +150,7 @@ describe("customer cart routes: GET (lazy) + add", () => {
     const body = res.json();
     expect(body.error.code).toBe("CART_STALE");
     expect(body.data.version).toBe(2);
-    expect(body.data.cart.lines).toEqual([{ variantId: "v1", quantity: 1 }]);
+    expect(body.data.cart.lines).toEqual([{ variantId: "v1", quantity: 1, change: null }]);
   });
 
   it("404 when adding a variant that does not belong to the store", async () => {
@@ -188,8 +207,8 @@ describe("customer cart routes: guest merge", () => {
     const body = res.json();
     expect(body.data.result.merged).toBeGreaterThan(0);
     expect(body.data.cart.cart.lines).toEqual([
-      { variantId: "v1", quantity: 5 },
-      { variantId: "v2", quantity: 1 },
+      { variantId: "v1", quantity: 5, change: null },
+      { variantId: "v2", quantity: 1, change: null },
     ]);
   });
 });

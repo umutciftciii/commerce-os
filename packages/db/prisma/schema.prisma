@@ -825,18 +825,18 @@ model PlatformSession {
 }
 
 model Store {
-  id        String      @id @default(cuid())
-  name      String
-  slug      String      @unique
-  status    StoreStatus @default(DRAFT)
-  metadata  Json?
+  id            String      @id @default(cuid())
+  name          String
+  slug          String      @unique
+  status        StoreStatus @default(DRAFT)
+  metadata      Json?
   // TODO-164B (ADR-232) — Sistem mağazası işareti. Normal mağazalar null. Örn.
   // "THEME_LIBRARY" = Platform Admin tema template'lerini tutan sentetik mağaza;
   // normal mağaza listeleri, abonelik, storefront resolver, rapor ve tenant
   // seçicilerinden KESİNLİKLE dışlanır (slug ile ayırmak yetmez).
   systemPurpose String?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   users                            StoreUser[]
   domains                          StoreDomain[]
@@ -954,6 +954,9 @@ model Store {
   recommendationEvents             RecommendationEvent[]
   // TODO-162 (ADR-205) — Home Discovery section-analytics event domaini (store-scoped tenant sutunu).
   homeDiscoveryEvents              HomeDiscoveryEvent[]
+  // TODO-168 (ADR-267) — Cart Change Awareness: cross-device ack + analytics event (store-scoped).
+  cartChangeAcks                   CartChangeAck[]
+  cartChangeEvents                 CartChangeEvent[]
   // TODO-163 (ADR-208) — Tenant Module & Capability Management (store-scoped modul override'lari).
   storeModules                     StoreModule[]
   // TODO-165 Fashion Vertical (ADR-249) — magaza-ozel beden olcu tablolari.
@@ -1345,25 +1348,25 @@ model ProductCategory {
   createdAt DateTime              @default(now())
   updatedAt DateTime              @updatedAt
 
-  store              Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  parent             ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children           ProductCategory[]           @relation("ProductCategoryTree")
-  assignments        ProductCategoryAssignment[]
+  store                Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  parent               ProductCategory?            @relation("ProductCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children             ProductCategory[]           @relation("ProductCategoryTree")
+  assignments          ProductCategoryAssignment[]
   // Faz 1A (ADR-067) — bu kategoriyi ANA kategori olarak tutan urunler (Restrict).
-  primaryProducts    Product[]                   @relation("ProductPrimaryCategory")
-  campaignCategories CampaignCategory[]
-  image              MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
+  primaryProducts      Product[]                   @relation("ProductPrimaryCategory")
+  campaignCategories   CampaignCategory[]
+  image                MediaAsset?                 @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
   // Faz 1B (ADR-067) — bu kategoriye bagli attribute davranislari (tek sahip).
-  attributeLinks     CategoryAttribute[]
+  attributeLinks       CategoryAttribute[]
   // TODO-158A (ADR-086) — Home Experience: bu kategoriyi öne çıkaran section girdileri
   // (onDelete: Cascade → kategori silinince featured girdisi otomatik kalkar; ağaç bozulmaz).
-  homeFeaturedIn     HomeFeaturedCategory[]
+  homeFeaturedIn       HomeFeaturedCategory[]
   // TODO-160 (ADR-102) — Kategori hedefli takip linkleri (kategori silinince SetNull).
-  trackingLinks      InfluencerTrackingLink[]
+  trackingLinks        InfluencerTrackingLink[]
   // TODO-161 (ADR-114) — Sponsorlu kampanya kategori hedefleri (kategori silinince SetNull).
-  sponsoredCampaigns SponsoredProductCampaign[]
+  sponsoredCampaigns   SponsoredProductCampaign[]
   // TODO-165 Fashion Vertical (ADR-249) — kategori scope'lu size chart atamalari.
-  sizeChartAssignments SizeChartAssignment[]        @relation("SizeChartCategory")
+  sizeChartAssignments SizeChartAssignment[]       @relation("SizeChartCategory")
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1906,21 +1909,21 @@ model OrderEvent {
 }
 
 model InventoryReservation {
-  id          String                     @id @default(cuid())
-  storeId     String
-  orderId     String
-  orderLineId String
-  variantId   String
-  quantity    Int
-  status      InventoryReservationStatus @default(ACTIVE)
-  expiresAt   DateTime?
-  releasedAt  DateTime?
-  consumedAt  DateTime?
+  id            String                     @id @default(cuid())
+  storeId       String
+  orderId       String
+  orderLineId   String
+  variantId     String
+  quantity      Int
+  status        InventoryReservationStatus @default(ACTIVE)
+  expiresAt     DateTime?
+  releasedAt    DateTime?
+  consumedAt    DateTime?
   // H-3 (ADR-189/190) — RELEASED/EXPIRED nedeni (audit). PII taşımaz; sabit kodlar:
   // ORDER_CANCELLED · PAYMENT_CANCELLED · RESERVATION_EXPIRED · ORPHAN_DRAFT · MANUAL.
   releaseReason String?
-  createdAt   DateTime                   @default(now())
-  updatedAt   DateTime                   @updatedAt
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
 
   store     Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -2756,9 +2759,11 @@ model Cart {
   mergedAt       DateTime?
   expiredAt      DateTime?
 
-  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  lines    CartLine[]
+  store      Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer   Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lines      CartLine[]
+  // TODO-168 (ADR-267) — cross-device acknowledgement kayitlari (cart CONVERTED olsa da audit kalir).
+  changeAcks CartChangeAck[]
 
   @@index([storeId])
   @@index([storeId, customerId, status])
@@ -2775,6 +2780,18 @@ model CartLine {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // TODO-168 (ADR-267) — Cart Change Awareness REFERANS snapshot'i (additive, nullable).
+  // add/replace'te veya ilk guvenilir resolve'da baseline yazilir; ack'te yeniden-baseline edilir.
+  // ASLA siparis fiyati DEGIL — yalniz "neyin degistigini" acikladigi karsilastirma referansi.
+  // quantity DEGISIMI snapshot'a DOKUNMAZ (kullanicinin bilincli adet degisikligi fiyat olayi degildir).
+  addedUnitPriceMinor           Int?
+  addedListPriceMinor           Int?
+  addedDiscountedUnitPriceMinor Int?
+  addedCurrency                 String?
+  addedInStock                  Boolean?
+  addedOrderable                Boolean?
+  addedAt                       DateTime?
+
   cart    Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
   variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
   store   Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -2784,6 +2801,70 @@ model CartLine {
   @@index([storeId])
   @@index([cartId])
   @@index([variantId])
+}
+
+// ============================================================================
+// TODO-168 (ADR-267) — Cart Change Awareness.
+//
+// Snapshot otoritesi kimlik-bazli AYRILIR: authenticated → DB (CartLine snapshot kolonlari +
+// bu CartChangeAck tablosu, gercek cross-device ack); anonim → HMAC-imzali commerce_os_cart_meta
+// cookie (storefront). ORTAK saf change-engine (cart-changes/change-engine.ts) ikisinde de calisir.
+// Fiyat/stok DEGISIKLIGI her okumada assemblePublicCart ile TAZE turetilir; bu tablolar yalniz
+// ack durumu (checkout WARN gate) + best-effort analytics tutar — UI'nin dogruluk kaynagi DEGIL.
+// ============================================================================
+
+// Per-fingerprint cross-device acknowledgement (checkout WARN gate + INFO surface kapatma).
+// Yeni fiyat degisikligi YENI fingerprint uretir → eski ack yeni degisikligi gizlemez (ADR-267 §6).
+model CartChangeAck {
+  id             String   @id @default(cuid())
+  storeId        String
+  cartId         String
+  // Hangi satir (opsiyonel baglam; satir silinirse ack yasamaya devam eder — audit).
+  cartLineId     String?
+  // Ack'i kimin verdigi (audit; FK'siz plain — musteri silinse de ack tarihi korunur).
+  customerId     String?
+  fingerprint    String
+  changeType     String
+  acknowledgedAt DateTime @default(now())
+
+  cart  Cart  @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Per-fingerprint ack idempotency (ayni degisiklik iki kez ack edilmez).
+  @@unique([cartId, fingerprint])
+  @@index([storeId, cartId])
+}
+
+// Best-effort analytics/audit (RecommendationEvent deseni; FK-minimal, KVKK-hash kimlik, dedupeKey
+// idempotent). Read side-effect-FREE — satir yalniz acik analytics ingest ucundan yazilir. UI'nin
+// degisiklik listesi DETERMINISTIK olarak okumada turetilir; bu tablo yalniz "oldu" bilgisini kaydeder.
+model CartChangeEvent {
+  id             String   @id @default(cuid())
+  storeId        String
+  // KVKK: ham cart id/musteri DEGIL — HMAC hash (SESSION_SECRET). Cross-store cakisma yok (storeId ayri).
+  cartIdHash     String
+  customerIdHash String?
+  productId      String?
+  variantId      String?
+  changeType     String
+  // detected | viewed | acknowledged | checkout_blocked | item_removed
+  eventType      String
+  severity       String?
+  oldMinor       Int?
+  newMinor       Int?
+  currency       String?
+  fingerprint    String
+  placement      String? // CART_BAR | CART_LINE | CHECKOUT
+  // = hash(eventType, fingerprint) → (storeId, dedupeKey) idempotent upsert; re-render 0 yeni satir.
+  dedupeKey      String
+  occurredAt     DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, dedupeKey])
+  @@index([storeId, occurredAt])
+  @@index([storeId, changeType, occurredAt])
+  @@index([storeId, cartIdHash, occurredAt])
 }
 
 // ============================================================================
@@ -3164,27 +3245,27 @@ model HomeShowcaseProduct {
 // Bir mağazanın birden çok teması olabilir; store seviyesinde YALNIZ biri
 // "PUBLISHED" olur (vitrin onu kullanır). Servis katmanı tekilliği uygular.
 model Theme {
-  id          String   @id @default(cuid())
-  storeId     String
-  name        String
-  description String?
+  id                 String   @id @default(cuid())
+  storeId            String
+  name               String
+  description        String?
   // "DRAFT" | "PUBLISHED" | "ARCHIVED" | "INCOMPATIBLE" | "DISABLED"
   // (String — enum değil; migration'sız genişler; TODO-164 INCOMPATIBLE/DISABLED ekler)
-  status      String   @default("DRAFT")
+  status             String   @default("DRAFT")
   // Türetildiği preset id'si ("modern" vb.) ya da "import" / "custom".
-  source      String?
+  source             String?
   // TODO-164 (ADR-217/ADR-219) — additive tenant theme alanları. Registry theme-key
   // (BASE / layout preset / custom package). Backfill BASE_COMMERCE → görünüm korunur.
-  themeKey        String @default("BASE_COMMERCE")
-  layoutPreset    String @default("BASE_COMMERCE")
-  themeApiVersion Int    @default(1)
+  themeKey           String   @default("BASE_COMMERCE")
+  layoutPreset       String   @default("BASE_COMMERCE")
+  themeApiVersion    Int      @default(1)
   // TODO-164A (ADR-225/ADR-229) — Custom Theme Builder kimlik alanları (additive,
   // nullable). Kopyalama config+document snapshot'ı kopyalar, YENİ kimlik üretir,
   // history/audit KOPYALAMAZ; kaynak temayı `duplicatedFrom` ile işaretler.
   // createdBy/updatedBy = platform kullanıcı id (audit; PII taşımaz).
-  duplicatedFrom String?
-  createdBy      String?
-  updatedBy      String?
+  duplicatedFrom     String?
+  createdBy          String?
+  updatedBy          String?
   // TODO-164B (ADR-232/233/234) — Theme Productization & Role Separation (additive,
   // nullable → mevcut satırlar korunur).
   //   ownerScope        "STORE" (mağaza teması) | "PLATFORM" (kütüphane template'i).
@@ -3193,16 +3274,16 @@ model Theme {
   //                     Null → geriye uyum (defaultOverridePolicy = hepsi editable).
   //   sourceThemeId     Bu mağaza teması hangi PLATFORM template'inden türetildi.
   //   sourceThemeVersion Türetildiği template published sürümü → update-available.
-  ownerScope         String  @default("STORE")
+  ownerScope         String   @default("STORE")
   overridePolicy     Json?
   sourceThemeId      String?
   sourceThemeVersion Int?
   // TODO-164B Dilim 2 (ADR-238/244) — override policy revizyon sayacı. Her policy
   // değişikliğinde artar (audit + "policy değişti" before/after özeti; mevcut veriyi
   // SİLMEZ). 0 = policy hiç değişmedi. Additive, güvenli default.
-  policyRevision     Int     @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  policyRevision     Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   versions ThemeVersion[]
@@ -3219,23 +3300,23 @@ model Theme {
 // customCss) taşır; `schemaVersion` @commerce-os/theme belge sürümüdür.
 // storeId denormalize tenant sütunudur (hızlı izolasyon + savunma).
 model ThemeVersion {
-  id            String    @id @default(cuid())
-  themeId       String
-  storeId       String
-  version       Int
+  id                   String    @id @default(cuid())
+  themeId              String
+  storeId              String
+  version              Int
   // "DRAFT" | "PUBLISHED" | "ARCHIVED"
-  status        String    @default("DRAFT")
-  schemaVersion Int       @default(1)
-  label         String?
-  notes         String?
-  document      Json
+  status               String    @default("DRAFT")
+  schemaVersion        Int       @default(1)
+  label                String?
+  notes                String?
+  document             Json
   // TODO-164 (ADR-223) — layout/slot yapılandırması (draftConfig = DRAFT sürüm,
   // publishedConfig = PUBLISHED sürüm; token `document` ile AYNI versiyonlama).
   // Typed schema (@commerce-os/theme themeConfigSchema) ile doğrulanır.
-  config        Json      @default("{}")
+  config               Json      @default("{}")
   // Sürüm anındaki theme-key/layout preset snapshot'ı (audit + rollback bütünlüğü).
-  themeKey      String?
-  layoutPreset  String?
+  themeKey             String?
+  layoutPreset         String?
   // TODO-164B Dilim 2 (ADR-243) — TD-162 logo/favicon DRAFT staging. Kalıcı OTORİTE
   // StoreSettings olarak kalır; bunlar YALNIZ draft sürecinde sahnelenen (staged)
   // referanslardır. Publish anında ATOMİK olarak StoreSettings'e yazılır ve o anki
@@ -3245,11 +3326,11 @@ model ThemeVersion {
   stagedFaviconMediaId String?
   // Publish anında yakalanan önceki StoreSettings asset görünümü ({logoMediaId,
   // faviconMediaId}) — rollback bu snapshot'a döner. Null = asset publish edilmedi.
-  assetSnapshot Json?
+  assetSnapshot        Json?
   // Publish eden platform kullanıcı id'si (audit; PII taşımaz — yalnız id).
-  publishedBy   String?
-  createdAt     DateTime  @default(now())
-  publishedAt   DateTime?
+  publishedBy          String?
+  createdAt            DateTime  @default(now())
+  publishedAt          DateTime?
 
   theme Theme @relation(fields: [themeId], references: [id], onDelete: Cascade)
 
@@ -3599,25 +3680,25 @@ enum SizeChartStatus {
 }
 
 model SizeChart {
-  id                 String          @id @default(cuid())
-  storeId            String
-  name               String
+  id                  String          @id @default(cuid())
+  storeId             String
+  name                String
   // SizeSystemKey (kod registry ile dogrulanir; DB'de string). Ornek: "INTERNATIONAL","SHOES_EU".
-  sizeSystemKey      String
+  sizeSystemKey       String
   // "CM" | "IN" | "NONE" (SizeMeasurementUnit). Olcu kolonlarinin birimi.
-  measurementUnit    String          @default("CM")
+  measurementUnit     String          @default("CM")
   // Opsiyonel cinsiyet/kategori uyum ipucu (SizeCategoryKind ya da gender etiketi).
-  gender             String?
-  locale             String?
-  status             SizeChartStatus @default(DRAFT)
+  gender              String?
+  locale              String?
+  status              SizeChartStatus @default(DRAFT)
   // Yayinlanan aktif revizyon (SizeChartRevision.id). NULL → henuz yayinlanmadi.
   publishedRevisionId String?
   // DRAFT calisma kopyasi (yayinlanmamis duzenleme). Publish aninda bir SizeChartRevision
   // snapshot'ina donusur. columns: [{key,label,unit?}], rows: [{size,cells}].
-  draftColumns       Json            @default("[]")
-  draftRows          Json            @default("[]")
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  draftColumns        Json            @default("[]")
+  draftRows           Json            @default("[]")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
   store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
   revisions   SizeChartRevision[]

@@ -6,6 +6,12 @@ import {
   decodeCartToken,
   encodeCartToken,
 } from "../cart-token";
+// TODO-168 (ADR-267) — ANONIM cart-change meta cookie (snapshot + ack).
+import {
+  type CartMeta,
+  decodeCartMeta,
+  serializeCartMetaWithinBudget,
+} from "../cart-meta-token";
 import type { OrderConfirmationView } from "./cart";
 
 /**
@@ -77,6 +83,45 @@ export async function clearCartCookie(): Promise<void> {
   store.delete(SHIPPING_OPTION_COOKIE);
   store.delete(CLAIMED_COUPONS_COOKIE);
   store.delete(CART_DESELECTED_COOKIE);
+  // TODO-168 — orphan meta kalmasin (cart reset/checkout/login-merge sonrasi baseline yeniden kurulur).
+  store.delete(CART_META_COOKIE);
+}
+
+// TODO-168 (ADR-267) — ANONIM cart-change meta cookie: add-time snapshot + onaylanan fingerprint'ler.
+// AYRI cookie (birincil sepet DEGISMEZ); imzali + surumlu + byte-butceli. Okuma RSC-guvenli; yazma
+// yalniz action/route (Next kisiti). Bozuk/eski → null (fail-safe: taze baseline; sepet bozulmaz).
+const CART_META_COOKIE = "commerce_os_cart_meta";
+
+/** Meta cookie'yi cozer (RSC-guvenli; mutasyon yok). Gecersiz/yok → null. */
+export async function readCartMeta(): Promise<CartMeta | null> {
+  const store = await cookies();
+  return decodeCartMeta(store.get(CART_META_COOKIE)?.value, cartSecret());
+}
+
+/**
+ * Meta cookie'yi byte-butcesi altinda yazar (yalniz action/route). `keepVariantIds`: WARN/BLOCKING
+ * degisiklik ureten varyantlar (budamada korunur). Snapshot bosalir + ack kalmazsa cookie SILINIR.
+ */
+export async function writeCartMeta(meta: CartMeta, keepVariantIds?: ReadonlySet<string>): Promise<void> {
+  const store = await cookies();
+  if (Object.keys(meta.s).length === 0 && meta.a.length === 0) {
+    store.delete(CART_META_COOKIE);
+    return;
+  }
+  const { token } = serializeCartMetaWithinBudget(meta, cartSecret(), keepVariantIds ?? new Set());
+  store.set(CART_META_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+/** Meta cookie'yi siler (cart reset / orphan temizligi). */
+export async function clearCartMeta(): Promise<void> {
+  const store = await cookies();
+  store.delete(CART_META_COOKIE);
 }
 
 // TODO-167 (ADR-266) — Persistent cart KULLANICI-DOSTU bildirimi (kisa omurlu, one-shot). Server
