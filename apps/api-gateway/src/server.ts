@@ -379,6 +379,8 @@ import {
 import { recordSlugChange } from "./seo/slug-governance.js";
 import { resolveProductSlugOnUpdate } from "./seo/product-slug.js";
 import { buildOrderSalesSummary } from "./orders/sales-summary.js";
+import { registerFinanceRoutes } from "./finance/routes.js";
+import { createFinanceData } from "./finance/data.js";
 import {
   computeStoreShippingQuote,
   listActiveRatePlans,
@@ -7110,6 +7112,25 @@ export function createServer(
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+  });
+
+  // ADR-268 — Financial Reporting Foundation (Finans > Raporlar). Sipariş snapshot'larından
+  // türetilen store-scoped finansal raporlar; siparişler/dashboard ile aynı erişim katmanı
+  // (platform-admin + store 404 izolasyonu; yeni capability key YOK). İş günü mağaza
+  // timezone'unda (StoreSettings.timezone; fallback config default).
+  registerFinanceRoutes(app, {
+    data: createFinanceData(prisma),
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    getStoreTimezone: async (storeId) => {
+      const settings = await prisma.storeSettings.findUnique({
+        where: { storeId },
+        select: { timezone: true },
+      });
+      return settings?.timezone || config.COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE || "Europe/Istanbul";
     },
   });
 

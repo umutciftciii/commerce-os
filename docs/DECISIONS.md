@@ -5910,3 +5910,17 @@ Ack = **fingerprint invalidation** (snapshot mutasyonu YOK, version bump YOK →
 `CartChangeEvent` best-effort analytics (RecommendationEvent kalıbı, KVKK-hash kimlik, `(storeId,dedupeKey)`
 idempotent, read side-effect-free). Additive migration; drop/backfill yok. Future: `FREE_SHIPPING`/
 `SELLER_CHANGED` + event retention worker. Detay: `docs/adr/ADR-267-cart-change-semantics.md`.
+
+## ADR-268 — Financial Reporting Authority (Financial Reporting Foundation) — IN_PROGRESS (2026-08-03)
+
+Store-Admin finansal raporlama otoritesi = **sipariş SNAPSHOT'ları** (Order/OrderLine/OrderDiscount/
+PaymentAttempt); canlı Product/Variant fiyatı ASLA. Tek SAF metrik sözlüğü (`finance/metrics.ts`); runtime =
+DB günlük-grain `$queryRaw` agregasyon → saf fold ⇒ "özet = Σ günlük" yapıca. KDV **inclusive**
+(`Order.taxAmount=0`; vergi yalnız `lineVatAmountMinor`'dan; revenue'ya 2. kez eklenmez). Her currency AYRI —
+FX YOK (identity karşılaştırma). Satış tarihi `COALESCE(placedAt,createdAt)`; tahsilat AYRI (`paidAt/collectedAt`).
+**Migration YOK** (snapshot sorgusu; `FinancialDailyAggregate` gelecek ölçek yolu, accounting source değil).
+**Refund:** tutar defteri yok → tutar RAPORLANMAZ (uydurulmaz); adet + `refundAmountsSupported=false`; min
+`OrderRefund` append-only ledger KARARLAŞTIRILDI. **Kârlılık:** cost snapshot (`lineCostMinor`) mevcut →
+DESTEKLENİR, dönem TAM kapsamlıysa (all-or-null), kapsam dışa verilir. Tenant izolasyonu `requireStorePlatformAdmin`
+(yeni capability key YOK). CSV server-side + injection-guard + UTF-8 BOM. Detay:
+`docs/adr/ADR-268-financial-reporting-authority.md`.

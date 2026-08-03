@@ -39,6 +39,7 @@ import {
 const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   catalog: { tr: "Katalog", en: "Catalogue" },
   sales: { tr: "Satış", en: "Sales" },
+  finance: { tr: "Finans", en: "Finance" },
   sponsorship: { tr: "Sponsorluk", en: "Sponsorship" },
   seo: { tr: "SEO", en: "SEO" },
   appearance: { tr: "Görünüm & Ayar", en: "Appearance & Settings" },
@@ -141,6 +142,17 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           icon: <CampaignIcon />,
         },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
+      ],
+    },
+    {
+      // ADR-268 — Financial Reporting Foundation (Finans > Raporlar).
+      heading: g("finance"),
+      items: [
+        {
+          href: "/finance/reports",
+          label: locale === "tr" ? "Raporlar" : "Reports",
+          icon: <PaymentIcon />,
+        },
       ],
     },
     {

@@ -149,6 +149,11 @@ import type {
   InfluencerAggregateAnalyticsResponse,
   CampaignAnalyticsResponse,
   LinkAnalyticsResponse,
+  // ADR-268 — Financial Reporting Foundation.
+  FinanceSummaryResponse,
+  FinanceBreakdownsResponse,
+  FinancePaymentReportResponse,
+  FinanceDiscountReportResponse,
   // TODO-161 — Sponsored Product Management (backend/contracts hazır; BFF proxy).
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -416,6 +421,42 @@ function listQueryString(query?: AdminListRequestQuery): string {
   }
   const serialized = params.toString();
   return serialized ? `?${serialized}` : "";
+}
+
+/** ADR-268 — Finans rapor filtreleri (period/currency/tarih/kırılım id'leri). */
+export type FinanceReportParams = Record<string, string | undefined>;
+
+/** Finans sorgu string'i (boş değerler atlanır; gateway varsayılanı devreye girsin). */
+function financeQueryString(query?: FinanceReportParams): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === "") continue;
+    params.set(key, value);
+  }
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+/** CSV dışa aktarımı: BFF text/csv döndürür; call<> JSON bekler → fetch + text(). */
+async function fetchCsv(path: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(path);
+  } catch {
+    throw new UiError("NETWORK");
+  }
+  if (!response.ok) {
+    let code = "UNKNOWN";
+    try {
+      const body = (await response.json()) as { error?: { code?: unknown } };
+      if (typeof body.error?.code === "string") code = body.error.code;
+    } catch {
+      // Gövde JSON değil — genel UNKNOWN.
+    }
+    throw new UiError(code);
+  }
+  return response.text();
 }
 
 let csrfTokenCache: { token: string; headerName: string } | null = null;
@@ -1011,6 +1052,27 @@ export const storeApi = {
     }
     return response.text();
   },
+
+  // ADR-268 — Financial Reporting (Finans > Raporlar). Salt-okunur; sipariş
+  // snapshot'larından türetilir; her currency ayrı. CSV export'lar Blob ile indirilir.
+  getFinanceSummary: (query?: FinanceReportParams) =>
+    call<FinanceSummaryResponse>(`/api/finance/summary${financeQueryString(query)}`),
+  getFinanceBreakdowns: (query?: FinanceReportParams) =>
+    call<FinanceBreakdownsResponse>(`/api/finance/breakdowns${financeQueryString(query)}`),
+  getFinancePayments: (query?: FinanceReportParams) =>
+    call<FinancePaymentReportResponse>(`/api/finance/payments${financeQueryString(query)}`),
+  getFinanceDiscounts: (query?: FinanceReportParams) =>
+    call<FinanceDiscountReportResponse>(`/api/finance/discounts${financeQueryString(query)}`),
+  exportFinanceSummary: (query?: FinanceReportParams) =>
+    fetchCsv(`/api/finance/summary/export${financeQueryString(query)}`),
+  exportFinanceProducts: (query?: FinanceReportParams) =>
+    fetchCsv(`/api/finance/products/export${financeQueryString(query)}`),
+  exportFinanceOrders: (query?: FinanceReportParams) =>
+    fetchCsv(`/api/finance/orders/export${financeQueryString(query)}`),
+  exportFinancePayments: (query?: FinanceReportParams) =>
+    fetchCsv(`/api/finance/payments/export${financeQueryString(query)}`),
+  exportFinanceDiscounts: (query?: FinanceReportParams) =>
+    fetchCsv(`/api/finance/discounts/export${financeQueryString(query)}`),
 
   // Sponsored Products (TODO-161) — sponsorlu kampanya CRUD + performans dashboard + CSV.
   listSponsoredCampaigns: (query?: AdminListRequestQuery) =>
