@@ -58,8 +58,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const s = t.shell;
   // TODO-167 (ADR-266) — Nav rozeti: oturum acmis musteride KALICI DB cart adedi (cross-device),
   // misafirde cookie. DB cart cozumlenemezse cookie'ye guvenli duser.
+  // BUG-CART-002 — Rozet SEMANTIGI: "sepetteki TUM satirlarin toplam adedi" (secim/stok bagimsiz;
+  // deselect/OOS satir da cantada sayilir). Iki yuzey de ayni: misafir cookie adet toplami
+  // (getCartCount) ile auth DB cart satir adet toplami. (Ozetteki "N urun" = SECILI+orderable
+  // itemCount; rozet ise cantadaki toplam — bilincli ayri semantik.)
   const authCartProjection = await getAuthCartProjection();
-  const cartCount = authCartProjection ? authCartProjection.cart.itemCount : await getCartCount();
+  const cartCount = authCartProjection
+    ? authCartProjection.cart.lines.reduce((sum, line) => sum + line.quantity, 0)
+    : await getCartCount();
   const customer = await getCurrentCustomer();
   // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
   // duyuru metnine düşer (vitrin asla kırılmaz).

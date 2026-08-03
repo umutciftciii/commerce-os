@@ -413,6 +413,10 @@ export const enStorefront: StorefrontDictionary = {
     // {max} is replaced with the stock limit.
     maxQtyNote: "You can add at most {max} of this item.",
     outOfStock: "This item is currently out of stock.",
+    // BUG-CART-002 — Server-side add rejection (stock guard).
+    addFailedOutOfStock: "This variant is sold out.",
+    addFailedStockLimit: "You can't add more of this item (stock limit).",
+    ctaOutOfStock: "Sold out",
   },
   cta: {
     addToCart: "Add to cart",

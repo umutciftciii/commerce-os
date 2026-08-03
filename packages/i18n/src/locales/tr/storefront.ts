@@ -437,6 +437,10 @@ export const trStorefront = {
     // {max} stok limiti ile degistirilir.
     maxQtyNote: "Bu üründen en fazla {max} adet ekleyebilirsiniz.",
     outOfStock: "Bu ürün şu an stokta yok.",
+    // BUG-CART-002 — Sepete ekleme sunucu tarafinda reddedildiginde (stok kapisi).
+    addFailedOutOfStock: "Bu varyant tükendi.",
+    addFailedStockLimit: "Bu üründen daha fazla ekleyemezsiniz (stok sınırı).",
+    ctaOutOfStock: "Tükendi",
   },
   cta: {
     addToCart: "Sepete ekle",

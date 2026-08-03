@@ -56,6 +56,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const selectedId = selectedVariantId;
   const [quantity, setQuantity] = useState(commerce.minQuantity);
   const [added, setAdded] = useState(false);
+  // BUG-CART-002 — Sunucu add-reddi (stok kapisi) kodu; varyant/renk/adet degisince temizlenir.
+  const [addError, setAddError] = useState<"VARIANT_OUT_OF_STOCK" | "VARIANT_STOCK_LIMIT" | "ERROR" | null>(
+    null,
+  );
 
   // TODO-165 Fashion Vertical — capability-aware moda seçici. `detail.fashion` doluysa (yalnız
   // FASHION_VERTICAL açık + fashion ürün) renk swatch + beden ızgarası render edilir; aksi halde
@@ -125,25 +129,24 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   const selectColor = (optionId: string) => {
     if (!colorAxis) return;
     setAdded(false);
+    setAddError(null);
     setAxisSelection((prev) => {
       const next = { ...prev, [colorAxis.attributeDefinitionId]: optionId };
       for (const axis of gridAxes) {
         const current = next[axis.attributeDefinitionId];
-        // TODO-165: renk değişince mevcut beden bu renkte STOKTA değilse (var olsa bile) en iyi
-        // seçeneğe geç. requireStock=true → OOS-ama-var olan kombinasyonda takılıp kalınmaz;
-        // seçili beden daima stokta olan bir varyanta çözülür (server yine son güvenlik).
-        const currentOk = current
-          ? optionSatisfiable(axis.attributeDefinitionId, current, next, true)
+        // BUG-CART-002 (§4) — Renk degisince mevcut bedeni KORU (bu renkte STOK DISI olsa bile);
+        // boylece kullanici "bu renkte bu beden tukendi" bilgisini net gorur (CTA "Tukendi", beden
+        // uzeri-cizili/disabled). Amazon-benzeri: stok disi kombinasyonu SESSIZCE baska (stokta)
+        // bedene KAYDIRMA. Yalniz secili beden bu renkte HIC YOKSA (kombinasyon uretmiyorsa) ilk
+        // VAR OLAN bedene gec (gecersiz-secim tuzagini onlemek icin; stok kriteri DEGIL, varlik).
+        const stillExists = current
+          ? optionSatisfiable(axis.attributeDefinitionId, current, next, false)
           : false;
-        if (!currentOk) {
-          const inStock = axis.options.find((option) =>
-            optionSatisfiable(axis.attributeDefinitionId, option.optionId, next, true),
-          );
-          const exists = axis.options.find((option) =>
+        if (!stillExists) {
+          const firstExisting = axis.options.find((option) =>
             optionSatisfiable(axis.attributeDefinitionId, option.optionId, next, false),
           );
-          const pick = inStock ?? exists;
-          if (pick) next[axis.attributeDefinitionId] = pick.optionId;
+          if (firstExisting) next[axis.attributeDefinitionId] = firstExisting.optionId;
         }
       }
       return next;
@@ -151,6 +154,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   };
   const selectAxisOption = (axisId: string, optionId: string) => {
     setAdded(false);
+    setAddError(null);
     setAxisSelection((prev) => ({ ...prev, [axisId]: optionId }));
   };
 
@@ -279,17 +283,34 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
   function addToCart() {
     if (!selected) return;
     startTransition(async () => {
-      await addToCartAction(selected.id, quantity);
-      setAdded(true);
-      trackRecommendedAddToCart();
-      trackDiscoveryOriginAddToCart();
+      // BUG-CART-002 — Basari YALNIZ sunucu satiri gercekten yazdiginda. Fail-closed stok kapisi
+      // reddederse (409) "sepete eklendi" toast'i GOSTERILMEZ; net "Bu varyant tukendi" gosterilir.
+      const res = await addToCartAction(selected.id, quantity);
+      if (res.ok) {
+        setAdded(true);
+        setAddError(null);
+        trackRecommendedAddToCart();
+        trackDiscoveryOriginAddToCart();
+      } else {
+        setAdded(false);
+        setAddError(res.code === "CART_STALE" ? "ERROR" : res.code);
+      }
+      // Nav rozeti (root layout RSC) + PDP stok projeksiyonu client'ta aninda tazelenir; hard
+      // refresh gerekmez. Diger mutation'larla (login/profil/liste) AYNI desen: action → refresh.
+      router.refresh();
     });
   }
 
   function buyNow() {
     if (!selected) return;
     startTransition(async () => {
-      await addToCartAction(selected.id, quantity);
+      const res = await addToCartAction(selected.id, quantity);
+      if (!res.ok) {
+        setAdded(false);
+        setAddError(res.code === "CART_STALE" ? "ERROR" : res.code);
+        router.refresh();
+        return;
+      }
       trackRecommendedAddToCart();
       trackDiscoveryOriginAddToCart();
       router.push("/checkout");
@@ -547,20 +568,30 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
           <div className="flex flex-wrap gap-2">
             {variants.map((variant) => {
               const active = variant.id === selected?.id;
+              // BUG-CART-002 (§4) — Stok disi flat varyant: devre disi + uzeri-cizili + erisilebilir
+              // ad "{varyant} — Tukendi" (renk-koru/ekran-okuyucuya da bildirir; yalniz gorsel degil).
+              const soldOut = variant.inStock === false;
               return (
                 <button
                   key={variant.id}
                   type="button"
                   aria-pressed={active}
+                  disabled={soldOut}
+                  aria-disabled={soldOut || undefined}
+                  aria-label={soldOut ? `${variant.title} — ${t.detail.stockOut}` : undefined}
                   onClick={() => {
                     setSelectedVariantId(variant.id);
                     setAdded(false);
+                    setAddError(null);
                   }}
                   className={[
                     "border px-4 py-2 text-sm transition-colors",
                     active
                       ? "border-ink bg-ink text-surface"
                       : "border-line text-ink-muted hover:border-ink hover:text-ink",
+                    soldOut
+                      ? "cursor-not-allowed text-line-strong line-through hover:border-line hover:text-line-strong"
+                      : "",
                   ].join(" ")}
                 >
                   {variant.title}
@@ -590,6 +621,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
               onClick={() => {
                 setQuantity((q) => clamp(q - 1));
                 setAdded(false);
+                setAddError(null);
               }}
               className="h-10 w-10 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
             >
@@ -603,6 +635,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
               onClick={() => {
                 setQuantity((q) => clamp(q + 1));
                 setAdded(false);
+                setAddError(null);
               }}
               className="h-10 w-10 text-lg text-ink-muted transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:text-line-strong disabled:hover:bg-transparent"
             >
@@ -639,7 +672,11 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
               disabled={!canAddToCart || isPending}
               onClick={addToCart}
             >
-              {detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t)}
+              {/* BUG-CART-002 (§4) — Secili varyant stok disi iken CTA metni "Tukendi" (buton zaten
+                  canAddToCart=false ile devre disi). */}
+              {outOfStock
+                ? t.buyBox.ctaOutOfStock
+                : (detail.callToActionLabel ?? ctaLabel(commerce.primaryCta, t))}
             </Button>
             {commerce.secondaryCta ? (
               <Button
@@ -651,8 +688,8 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                 {ctaLabel(commerce.secondaryCta, t)}
               </Button>
             ) : null}
-            {/* Sepete eklendi geri bildirimi (yonlendirme yok) */}
-            {added ? (
+            {/* Sepete eklendi geri bildirimi (yonlendirme yok) — YALNIZ gercek basari sonrasi. */}
+            {added && !addError ? (
               <div
                 role="status"
                 className="mt-1 flex items-center justify-between gap-2 border border-line bg-surface-muted px-3 py-2.5 text-sm text-ink"
@@ -661,6 +698,19 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                 <Link href="/cart" className="text-xs font-semibold underline underline-offset-4 hover:text-ink-muted">
                   {t.buyBox.goToCart}
                 </Link>
+              </div>
+            ) : null}
+            {/* BUG-CART-002 — Sunucu add-reddi (stok kapisi): basari toast'i YERINE net hata. */}
+            {addError ? (
+              <div
+                role="alert"
+                className="mt-1 border border-line-strong bg-surface-muted px-3 py-2.5 text-sm font-medium text-ink"
+              >
+                {addError === "VARIANT_STOCK_LIMIT"
+                  ? t.buyBox.addFailedStockLimit
+                  : addError === "ERROR"
+                    ? t.buyBox.outOfStock
+                    : t.buyBox.addFailedOutOfStock}
               </div>
             ) : null}
           </>

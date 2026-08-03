@@ -34,7 +34,10 @@ export default async function CartPage() {
 
   // TODO-167 (ADR-266) — Oturum acmis musteride sepet KALICI DB cart'tan (cross-device)
   // gelir; misafirde mevcut cookie referans kalemlerinden. Anonim yol DEGISMEDI.
-  const authView = await resolveAuthCartView();
+  // BUG-CART-002 — Checkbox secim-disi varyantlar (storefront cookie) auth gorunume de tasinir;
+  // aksi halde deselect edilen satir her refresh'te yeniden secili render olurdu (regresyon C).
+  const authDeselected = await readDeselectedItems();
+  const authView = await resolveAuthCartView(authDeselected);
   if (authView) {
     if (!authView.ok || authView.data.isEmpty) {
       return <EmptyCart t={t} />;

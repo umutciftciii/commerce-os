@@ -4271,6 +4271,14 @@ export const publicCheckoutRequestSchema = z
      */
     shippingOptionId: z.string().max(120).nullable().optional(),
     /**
+     * BUG-CART-002 — Checkbox ile secim-disi birakilan varyantlar. Auth checkout'ta DB cart
+     * OTORITEDIR (istemci `items` yoksayilir) ama secim TRANSIENT bir gorunum durumu oldugundan
+     * ayrica tasinir: sunucu DB cart satirlarindan bu varyantlari checkout'a KATMAZ (guest yoluyla
+     * ayni deselection semantigi). Boylece kullanici secim-disi (or. OUT_OF_STOCK) satiri
+     * kaldirmadan checkout'a devam edebilir. Fiyat/stok yine sunucu-otoriter dogrulanir.
+     */
+    deselectedVariantIds: z.array(z.string().min(1)).max(100).optional(),
+    /**
      * TODO-168 (ADR-267) — ANONIM checkout degisiklik baglami (cookie meta). Auth checkout'ta
      * YOKSAYILIR (snapshot/ack DB'den). WARN degisiklik ack edilmemisse checkout 409 CART_CHANGED.
      */

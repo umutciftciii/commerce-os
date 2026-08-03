@@ -540,8 +540,15 @@ function authCartPath(): string {
   return `/public/stores/${encodeURIComponent(demoStoreSlug())}/customer/cart`;
 }
 
-/** Oturum acmis musterinin DB sepeti projeksiyonu (version/status/lineIds/cart). Oturum yoksa null. */
-export async function getAuthCartProjection(): Promise<CustomerCartProjection | null> {
+/**
+ * Oturum acmis musterinin DB sepeti projeksiyonu (version/status/lineIds/cart). Oturum yoksa null.
+ * BUG-CART-002 — `deselectedVariantIds` verilirse gateway'e `?deselected=` ile tasinir; auth cart
+ * gorunumunde de checkbox secim-disi satirlar toplam/checkout'a girmez (anonim ile ayni semantik).
+ * Mutation/header sayaci bu argumani VERMEZ (deselection yalniz gorunum icin gereklidir).
+ */
+export async function getAuthCartProjection(
+  deselectedVariantIds?: string[],
+): Promise<CustomerCartProjection | null> {
   let token: string | null = null;
   try {
     token = await readCustomerToken();
@@ -550,7 +557,11 @@ export async function getAuthCartProjection(): Promise<CustomerCartProjection | 
   }
   if (!token) return null;
   try {
-    const result = await getCustomer<CustomerCartResponse>(authCartPath(), token);
+    const query =
+      deselectedVariantIds && deselectedVariantIds.length > 0
+        ? `?deselected=${encodeURIComponent(deselectedVariantIds.join(","))}`
+        : "";
+    const result = await getCustomer<CustomerCartResponse>(`${authCartPath()}${query}`, token);
     return result.ok ? result.data.data : null;
   } catch {
     return null;
@@ -558,8 +569,10 @@ export async function getAuthCartProjection(): Promise<CustomerCartProjection | 
 }
 
 /** Auth cart gorunumu (CartView). Oturum yoksa null → cagiran anonim cookie yoluna duser. */
-export async function resolveAuthCartView(): Promise<CartResult<CartView> | null> {
-  const proj = await getAuthCartProjection();
+export async function resolveAuthCartView(
+  deselectedVariantIds?: string[],
+): Promise<CartResult<CartView> | null> {
+  const proj = await getAuthCartProjection(deselectedVariantIds);
   if (!proj) return null;
   return { ok: true, data: toCartView(proj.cart, proj.cartId || null) };
 }
@@ -746,6 +759,8 @@ export async function submitCheckout(
   billingAddress?: PublicCheckoutRequest["shippingAddress"] | null,
   couponCode?: string | null,
   shippingOptionId?: string | null,
+  // BUG-CART-002 — Secim-disi varyantlar; auth checkout'ta DB cart satirlarindan dislanir.
+  deselectedVariantIds?: string[],
 ): Promise<CheckoutResult> {
   try {
     // F3B.3: Oturum acmis musteride checkout, `x-customer-session` ile gonderilir;
@@ -794,6 +809,9 @@ export async function submitCheckout(
       ...(billingAddress ? { billingAddress } : {}),
       couponCode: couponCode ?? null,
       shippingOptionId: shippingOptionId ?? null,
+      ...(deselectedVariantIds && deselectedVariantIds.length > 0
+        ? { deselectedVariantIds }
+        : {}),
       ...(attributionGrant ? { attributionGrant } : {}),
       ...(sponsoredGrants.length > 0 ? { sponsoredGrants } : {}),
       ...(checkoutChangeContext ? { changeContext: checkoutChangeContext } : {}),

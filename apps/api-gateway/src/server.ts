@@ -2518,6 +2518,11 @@ function assemblePublicCart(
   });
   const shippingOk = quote.outcome.status === "OK";
   const selectedPlan = optionsResult.selected?.plan ?? null;
+  // BUG-CART-002 — Kargo YALNIZ gonderilecek (secili + orderable) bir sey varken toplama girer.
+  // Seçili tek satır OUT_OF_STOCK/UNAVAILABLE ise subtotal=0'dir; kargo ucretini (or. ₺49,90) bu
+  // durumda toplama katmak "0 ürün + ₺49,90 = ₺49,90" hatasini uretir. subtotal>0 kapisi bunu keser
+  // (grand total ₺0; vitrin kargoyu "—" gosterir). Kargo secenekleri/adres durumu YINE hesaplanir.
+  const hasShippableSelection = subtotalMinor > 0;
 
   // F4A — Kampanya/kupon indirimi motoru. Indirim yalnizca checkout'a hazir
   // (tum satirlar OK) sepete uygulanir; aksi halde yanlis grand total gosterilmez.
@@ -2544,8 +2549,8 @@ function assemblePublicCart(
     : emptyDiscountResult();
 
   const summary = computeCartSummary(subtotalMinor, currency, discount, {
-    shippingMinor: shippingOk ? quote.outcome.amountMinor ?? 0 : 0,
-    includeInTotal: shippingOk,
+    shippingMinor: shippingOk && hasShippableSelection ? quote.outcome.amountMinor ?? 0 : 0,
+    includeInTotal: shippingOk && hasShippableSelection,
     freeThresholdMinor: selectedPlan?.freeShippingThresholdMinor ?? null,
   });
   // F4A.3 (ADR-060) — Sepet "Kuponlar" kartlari. Yalniz kapsami bu sepete uyan
@@ -5433,6 +5438,33 @@ export function createServer(
     );
   }
 
+  /**
+   * BUG-CART-002 — Varyant-scoped GERCEK stok haritasi (fail-CLOSED).
+   *
+   * `loadPublicStockMap` mağazanın YALNIZ en son güncellenen `PUBLIC_CATALOG_MAX`
+   * envanter satırını (updatedAt desc) yükler; bu pencerenin DIŞINDA kalan bir
+   * varyantın stok satırı haritada bulunmaz → projeksiyon `available:null → inStock:true`
+   * ile FAIL-OPEN olur (tükenmiş varyant PDP'de satın alınabilir görünür). Sepet/checkout
+   * kapısı ise varyant-bazlı DOĞRUDAN lookup (`findInventoryByVariantIds`) kullandığı için
+   * GERÇEK `available:0`'ı görür → PDP↔sepet tutarsızlığı. Bu helper, projeksiyona giren
+   * KESIN varyant kümesi için doğrudan lookup yapar (sınırsız) → eksik stok null'a düşmez.
+   * `loadPublicStockMap(PUBLIC_CATALOG_MAX)` ile AYNI formül (onHand − reserved + expired-addback).
+   */
+  async function loadPublicStockMapForVariants(storeId: string, variantIds: string[]) {
+    const uniqueIds = [...new Set(variantIds)];
+    if (uniqueIds.length === 0) return new Map<string, number>();
+    const [inventory, expired] = await Promise.all([
+      dataAccess.findInventoryByVariantIds(storeId, uniqueIds),
+      dataAccess.findExpiredReservedByVariant(storeId, uniqueIds),
+    ]);
+    return new Map(
+      inventory.map((item) => [
+        item.variantId,
+        Math.max(0, item.quantityOnHand - item.quantityReserved + (expired.get(item.variantId) ?? 0)),
+      ]),
+    );
+  }
+
   // F4B — EU Omnibus: store'daki her varyant icin son 30 gunun en dusuk satis fiyati.
   async function loadPublicLowestPriceMap(storeId: string) {
     return dataAccess.lowestRecentPriceByStore(storeId, OMNIBUS_WINDOW_DAYS);
@@ -5512,9 +5544,8 @@ export function createServer(
     }
     // Ilgili urunler icin bounded aktif ornek yeterli (tam katalog gerekmez).
     const relatedPool = await loadActivePublicProducts(store.id);
-    const [categoryNames, stockMap, publicCampaigns, lowestMap] = await Promise.all([
+    const [categoryNames, publicCampaigns, lowestMap] = await Promise.all([
       loadPublicCategoryNames(store.id),
-      loadPublicStockMap(store.id),
       // F4A.1 — Rozet projeksiyonu icin ACTIVE + isPublic kampanyalar (store-scoped).
       dataAccess.listPublicActiveCampaigns(store.id),
       // F4B — Omnibus: son 30 gunun en dusuk satis fiyati (variant-bazli).
@@ -5530,6 +5561,21 @@ export function createServer(
       dataAccess.listProductImages(store.id, relatedProducts.map((item) => item.id), true),
     ]);
     const variants = await loadActivePublicVariants(store.id, product.id);
+    // BUG-CART-002 — Ilgili urunlerin varyantlarini ONCEDEN yukle (asagida buildPublicProduct'a
+    // tekrar yuklemeden verilir) + birincil urun varyantlariyla birlikte VARYANT-SCOPED (fail-CLOSED)
+    // stok haritasi kur. Bounded loadPublicStockMap(PUBLIC_CATALOG_MAX) yerine dogrudan lookup:
+    // pencerenin disindaki tukenmis varyant artik yanlislikla inStock gorunmez (PDP↔sepet tutarli).
+    const relatedVariantsById = new Map(
+      await Promise.all(
+        relatedProducts.map(
+          async (item) => [item.id, await loadActivePublicVariants(store.id, item.id)] as const,
+        ),
+      ),
+    );
+    const stockMap = await loadPublicStockMapForVariants(store.id, [
+      ...variants.map((variant) => variant.id),
+      ...[...relatedVariantsById.values()].flat().map((variant) => variant.id),
+    ]);
     // Faz 2C-7 (ADR-078) — YALNIZ media-tanimlayici eksen tanimliysa varyant->Renk-option
     // haritasini TEK batched sorguyla cek (N+1 yok); yoksa bos → mediaOptionId null (klasik).
     // Bu ek sorgu SADECE detay ucundadir; liste/PLP sorgu sayisi degismez.
@@ -5557,7 +5603,7 @@ export function createServer(
       relatedProducts.map(async (item) =>
         buildPublicProduct(
           { ...item, images: relatedCoverMap.get(item.id) ?? [] },
-          await loadActivePublicVariants(store.id, item.id),
+          relatedVariantsById.get(item.id) ?? [],
           categoryNames,
           stockMap,
           publicCampaigns,
@@ -6285,8 +6331,11 @@ export function createServer(
     },
     // Faz A: authenticated cart projeksiyonu membership + OTOMATIK kampanya/stok/fiyat
     // uzerine kuruludur. Kupon-kodu + kargo-secenegi persist'i (auth cart) follow-up (TD-174).
-    projectCart: ({ store, request, items }) =>
-      resolvePublicCartProjection(store, request as FastifyRequest, items),
+    // BUG-CART-002 — deselection (checkbox) auth yolda da uygulanir (ayni ORTAK assembler girdisi).
+    projectCart: ({ store, request, items, deselectedVariantIds }) =>
+      resolvePublicCartProjection(store, request as FastifyRequest, items, {
+        deselectedVariantIds: deselectedVariantIds ?? [],
+      }),
   });
 
   /**
@@ -6435,13 +6484,24 @@ export function createServer(
     // listesine GUVENILMEZ (cross-device + login-merge sonrasi anonim cookie temizlenmis
     // olabilir). Oturum yoksa (anonim) istemci cookie item'lari kullanilir (geriye-uyumlu).
     let effectiveItems = body.items;
+    // BUG-CART-002 — Secim-disi (checkbox kaldirilmis) varyantlar checkout'a KATILMAZ (auth+anon).
+    const checkoutDeselected = new Set(body.deselectedVariantIds ?? []);
     // TODO-168 — DB cart record'u degisiklik hesabi (WARN gate) icin de tutulur (snapshot kolonlari).
     let checkoutDbCart: CartRecord | null = null;
     if (checkoutCustomer) {
       checkoutDbCart = await cartData.findActiveCart(store.id, checkoutCustomer.id);
       if (checkoutDbCart) {
-        effectiveItems = checkoutDbCart.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+        // Auth: DB cart OTORITEDIR (istemci `items` yoksayilir). Secim-disi satirlar DB'de KALIR
+        // (membership) ama checkout item listesine girmez → deselect edilmis OUT_OF_STOCK bir satir
+        // artik checkout'u bloke etmez (kullanici kaldirmadan devam edebilir; ADR-266 + BUG-CART-002).
+        effectiveItems = checkoutDbCart.lines
+          .filter((l) => !checkoutDeselected.has(l.variantId))
+          .map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
       }
+    } else {
+      // Anon: istemci cookie item'lari (zaten storefront'ta deselection ile filtrelenir); ek guvenlik
+      // olarak burada da secim-disi olanlari duser (cift savunma; guest yolu davranisi degismez).
+      effectiveItems = body.items.filter((item) => !checkoutDeselected.has(item.variantId));
     }
 
     // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout

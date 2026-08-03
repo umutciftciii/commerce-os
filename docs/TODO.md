@@ -2,6 +2,17 @@
 
 ## Yakin Isler
 
+- **BUG-CART-002 — PDP availability, cart badge & line-selection consistency — 🔧 IN_PROGRESS**
+  (implementasyon + tam gate + GERÇEK browser smoke PASS; **commit/PR/deploy YAPILMADI**). 2026-08-03.
+  TODO-167/168 sonrası production-critical regresyon: (A) PDP fail-open bounded stok projeksiyonu →
+  tükenmiş varyant "eklenebilir" görünüyordu (+ add endpoint stok kontrolü yoktu + optimistic başarı
+  toast'ı); (B) header badge add sonrası refresh gerektiriyordu; (C) auth checkbox kendini yeniden
+  seçiyordu + "0 ürün + ₺49,90" özeti. Düzeltmeler: variant-scoped fail-CLOSED stok (`loadPublicStockMapForVariants`),
+  add-guard `409 VARIANT_OUT_OF_STOCK`/`VARIANT_STOCK_LIMIT`, `router.refresh()` badge senkronu,
+  auth deselection threading (`?deselected=` + checkout), kargo `subtotal>0` kapısı. Analiz:
+  `docs/analysis/BUG-CART-002-availability-badge-selection.md`. Kalan borç: **TD-177** (PLP/home hâlâ
+  bounded stok). **Gift Card işi `BLOCKED_BY BUG-CART-002`** (bu regresyon kapanana kadar başlamaz).
+
 - **TODO-159G: Demo Data Safety & Recovery (HOTFIX — ADR-108 / TD-116).** (DONE — recovery + önleme
   tamamlandı; commit/PR/deploy YAPILMADI.) 2026-07-23 yıkıcı `prisma db push` enterprise-demo
   kataloğunu (471 ürün/2202 varyant) sildi. **Recovery:** deterministik `db:seed-enterprise` +

@@ -57,6 +57,9 @@ export interface CustomerCartRoutesDeps {
     customer: ResolvedCustomer;
     request: FastifyRequest;
     items: Array<{ variantId: string; quantity: number }>;
+    // BUG-CART-002 — Secim-disi (checkbox kaldirilmis) varyantlar; yaniti selected:false gosterir
+    // ve toplam/kargo/checkout hesabina KATMAZ (anonim yolla ayni deselection semantigi).
+    deselectedVariantIds?: string[];
   }) => Promise<PublicCart>;
   /** Yeni cart olusturulurken varsayilan para birimi (projeksiyon otoriter; bu bilgi amaclidir). */
   defaultCurrency?: string;
@@ -71,6 +74,23 @@ export interface CustomerCartRoutesDeps {
 
 function errorBody(code: string, message: string, extra?: Record<string, unknown>) {
   return { error: { code, message, ...(extra ?? {}) } };
+}
+
+/**
+ * BUG-CART-002 — `?deselected=a,b` (veya tekrar eden query) → temizlenmis variantId dizisi.
+ * Virgul/dizi ikisini de kabul eder; bos parcalari atar, tekillestirir, 100 ile sinirlar
+ * (cart line cap ile ayni). Salt-okuma bir gorunum girdisi; membership'i DEGISTIRMEZ.
+ */
+function parseDeselectedQuery(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  const ids: string[] = [];
+  for (const part of raw) {
+    if (typeof part !== "string") continue;
+    const id = part.trim();
+    if (id && !ids.includes(id)) ids.push(id);
+    if (ids.length >= 100) break;
+  }
+  return ids;
 }
 
 export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerCartRoutesDeps): void {
@@ -107,9 +127,10 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     customer: ResolvedCustomer,
     request: FastifyRequest,
     record: CartRecord,
+    deselectedVariantIds?: string[],
   ) {
     const items = record.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
-    const cart = await deps.projectCart({ store, customer, request, items });
+    const cart = await deps.projectCart({ store, customer, request, items, deselectedVariantIds });
     const lineIds: Record<string, string> = {};
     const snapshotByVariant = new Map<string, CartLineSnapshot>();
     for (const l of record.lines) {
@@ -125,9 +146,16 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     customer: ResolvedCustomer,
     request: FastifyRequest,
     record: CartRecord,
+    deselectedVariantIds?: string[],
   ) {
     const acked = new Set(await deps.ackData.listAckFingerprints(store.id, record.id));
-    const { cart, lineIds, snapshotByVariant } = await assembleBase(store, customer, request, record);
+    const { cart, lineIds, snapshotByVariant } = await assembleBase(
+      store,
+      customer,
+      request,
+      record,
+      deselectedVariantIds,
+    );
     const { cart: enriched, baselines } = attachChangesToCart(
       cart,
       { storeId: store.id, cartId: record.id },
@@ -183,7 +211,13 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     const customer = await requireCustomer(request, reply, store.id);
     if (!customer) return;
     const record = await deps.data.ensureActiveCart(store.id, customer.id, defaultCurrency);
-    return reply.code(200).send({ data: await projection(store, customer, request, record) });
+    // BUG-CART-002 — Checkbox deselection (auth): istemci storefront cookie'sindeki secim-disi
+    // varyantlari `?deselected=a,b` ile tasir. Auth cart DB'de membership'i tutar; secim ise
+    // transient bir gorunum durumu (ayni-cihaz refresh'te korunur; cross-device persist = TD-174).
+    const deselected = parseDeselectedQuery((request.query as { deselected?: unknown }).deselected);
+    return reply
+      .code(200)
+      .send({ data: await projection(store, customer, request, record, deselected) });
   });
 
   // ── POST cart/lines (add/increment) ────────────────────────────────────────────────
@@ -201,7 +235,33 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
       return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Ürün bulunamadı."));
     }
     // Cart lazy: mutation aktif cart yoksa CART_INACTIVE dondurur; once ensure ederiz.
-    await deps.data.ensureActiveCart(store.id, customer.id, defaultCurrency);
+    const record = await deps.data.ensureActiveCart(store.id, customer.id, defaultCurrency);
+    // BUG-CART-002 — FAIL-CLOSED stok kapisi (add aninda). Stale PDP verisi tukenmis bir varyanti
+    // "satin alinabilir" gosterebilir; sunucu MUTATION'DAN ONCE ORTAK projeksiyonla (ayni availability
+    // otoritesi) prospektif satiri dogrular. Mevcut adet + istenen adet stogu asamaz. Reddedilirse
+    // hicbir satir yazilmaz/artmaz; govdede GUNCEL (degismemis) otoriter projeksiyon doner → istemci
+    // toast yerine "Bu varyant tukendi" gosterir. (Cross-cart oversell kapisi ayrica placeOrder'da
+    // FOR UPDATE ile korunur; buradaki kapi UX + ayni-cart cift-tik yarisi icindir.)
+    const existingQty = record.lines.find((l) => l.variantId === variantId)?.quantity ?? 0;
+    const desiredTotal = Math.min(existingQty + quantity, 999);
+    const prospective = record.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+    const idx = prospective.findIndex((i) => i.variantId === variantId);
+    if (idx >= 0) prospective[idx] = { variantId, quantity: desiredTotal };
+    else prospective.push({ variantId, quantity: desiredTotal });
+    const preview = await deps.projectCart({ store, customer, request, items: prospective });
+    const previewLine = preview.lines.find((l) => l.variantId === variantId);
+    if (!previewLine || previewLine.status === "UNAVAILABLE" || previewLine.availableQuantity <= 0) {
+      return reply.code(409).send({
+        error: { code: "VARIANT_OUT_OF_STOCK", message: "Bu varyant tükendi." },
+        data: await projection(store, customer, request, record),
+      });
+    }
+    if (previewLine.availableQuantity < desiredTotal) {
+      return reply.code(409).send({
+        error: { code: "VARIANT_STOCK_LIMIT", message: "Bu üründen daha fazla eklenemiyor (stok sınırı)." },
+        data: await projection(store, customer, request, record),
+      });
+    }
     return runMutation(store, customer, request, reply, () =>
       deps.data.addOrIncrementLine({
         storeId: store.id,
