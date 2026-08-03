@@ -2,7 +2,11 @@
 
 ## Yakin Isler
 
-- **TODO-169 Returns Management Foundation — 🟡 IN_PROGRESS (commit YOK)** (ADR-269; 2026-08-04).
+- **TODO-169 Returns Management Foundation — ✅ CLOSED & DEPLOYED** (PR #171 merge `360fb96`; ADR-269; 2026-08-04).
+  api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (`--no-deps`; postgres/redis/worker/
+  admin-web DOKUNULMADI, volume korundu); migration `20260804090000_todo169...` `migrate deploy`; post-deploy
+  smoke PASS (deployed :4000 eligibility/create/approve→RefundIntent PENDING/inspect→restock/tenant 401-404/
+  private media 404/refundAmountsSupported=false; fixture temizlendi). CI (lint·test·build) yeşil.
   Müşteri iade talebi + Store Admin iade operasyon süreci. İade **OrderLine + quantity** seviyesinde
   (bir sipariş N `ReturnRequest`, her request N `ReturnItem`; kısmi/tekrarlı iade). İlk faz çözüm:
   `REFUND_TO_ORIGINAL_PAYMENT` + `REPLACEMENT` (Store Credit/Gift Card = FUTURE). **Eligibility server-side**

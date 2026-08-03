@@ -1335,7 +1335,7 @@ remove→badge temiz; mobil temiz). Açık follow-up TD-177 (PLP/home bounded st
 deselection persist). **Gift Card blocker KALDIRILDI.** TODO-168 DEĞİŞMEDİ. Detay:
 `docs/analysis/BUG-CART-002-availability-badge-selection.md`.
 
-## TODO-169 Returns Management Foundation — IN_PROGRESS (2026-08-04, commit YOK) — ADR-269
+## TODO-169 Returns Management Foundation — CLOSED & DEPLOYED (2026-08-04, PR #171 merge `360fb96`) — ADR-269
 
 Müşteri iade talebi + Store Admin iade operasyon süreci. İade **OrderLine + quantity** seviyesinde modellenir
 (bir sipariş zamanla N `ReturnRequest`; her request N `ReturnItem`; kısmi adet + çoklu satır + tekrarlı iade;
