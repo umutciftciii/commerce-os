@@ -871,6 +871,18 @@ export type {
   CustomerWishlistMergeRequest,
   CustomerWishlistMergeResponse,
   StoreAdminCustomerListSummaryResponse,
+  // TODO-167 (ADR-266) — Persistent Cart (customer cart) tipleri (type-only re-export).
+  CartStatus,
+  CustomerCartProjection,
+  CustomerCartResponse,
+  CustomerCartStaleResponse,
+  CustomerCartAddLineRequest,
+  CustomerCartSetLineRequest,
+  CustomerCartDeleteLineRequest,
+  CustomerCartReconcileRequest,
+  CustomerCartMergeRequest,
+  CustomerCartMergeResult,
+  CustomerCartMergeResponse,
 } from "@commerce-os/contracts";
 
 /**
@@ -1211,6 +1223,9 @@ export {
   CUSTOMER_WISHLIST_STATUS_MAX_IDS,
   CUSTOMER_WISHLIST_MERGE_MAX_ITEMS,
   CUSTOMER_LIST_ITEM_QUANTITY_MAX,
+  // TODO-167 (ADR-266) — Persistent Cart sunucu-otoriter sinir sabitleri (DEGER re-export).
+  CART_MAX_LINES,
+  CART_MAX_QUANTITY,
 } from "@commerce-os/contracts";
 
 /**

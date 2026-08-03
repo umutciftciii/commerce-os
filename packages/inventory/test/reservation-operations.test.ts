@@ -68,6 +68,18 @@ function createTx(reservations: FakeReservation[], items: FakeItem[]) {
         return data;
       },
     },
+    // TODO-167 (ADR-266) — consumeOrderReservations ödeme-settled'da alıcının cart'ını CONVERTED yapar;
+    // bu birim testinde müşteri/cart yok → customerId:null → cart op'ları no-op (davranış değişmez).
+    order: {
+      findUnique: async () => ({ customerId: null }),
+    },
+    cart: {
+      findFirst: async () => null,
+      update: async ({ data }: any) => data,
+    },
+    cartLine: {
+      deleteMany: async () => ({ count: 0 }),
+    },
     // $queryRaw`SELECT ... WHERE storeId=${storeId} AND variantId=${variantId} FOR UPDATE`
     $queryRaw: async (_strings: TemplateStringsArray, ...values: any[]) => {
       const variantId = values[1];

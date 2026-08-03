@@ -3982,6 +3982,87 @@ export const publicCartSchema = z.object({
   shipping: z.lazy(() => cartShippingQuoteResponseSchema),
 });
 
+// ============================================================================
+// TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation (customer cart).
+//
+// Authenticated musterinin KALICI DB sepeti. Anonim sepet mevcut publicCart* akisini
+// kullanmaya devam eder (cookie). Projeksiyon AYNI publicCartSchema'dir (kaynaga gore
+// FARKLI fiyatlama YOK); yalniz `version` (optimistic-concurrency) + `status` eklenir.
+// Mutation'lar beklenen `cartVersion` tasir; uyusmazsa 409 CART_STALE + guncel projeksiyon.
+// ============================================================================
+
+/** Persistent cart limitleri (anonim cookie ile ayni ust sinirlar; sunucu-otoriter). */
+export const CART_MAX_LINES = 100;
+export const CART_MAX_QUANTITY = 999;
+
+export const cartStatusSchema = z.enum(["ACTIVE", "CONVERTED", "MERGED", "EXPIRED"]);
+
+/** Cart projeksiyonu: guncel version + status + ortak publicCart + variantId→lineId eslemesi. */
+export const customerCartProjectionSchema = z.object({
+  version: z.number().int().nonnegative(),
+  status: cartStatusSchema,
+  cart: publicCartSchema,
+  /** variantId → DB cart line id (istemci PATCH/DELETE /lines/:lineId icin; satirsiz = bos). */
+  lineIds: z.record(z.string(), z.string()),
+});
+
+export const customerCartResponseSchema = z.object({ data: customerCartProjectionSchema });
+
+/**
+ * 409 CART_STALE govdesi: beklenen version guncelden farkli. Istemci SESSIZ overwrite
+ * YAPMAZ; `data` icindeki guncel otoriter projeksiyonu gosterir ve yeniden dener.
+ */
+export const customerCartStaleResponseSchema = z.object({
+  error: z.object({ code: z.literal("CART_STALE"), message: z.string() }),
+  data: customerCartProjectionSchema,
+});
+
+/** POST /customer/cart/lines — bir varyanti ekler/artirir (mevcut adede ekler). */
+export const customerCartAddLineRequestSchema = z.object({
+  variantId: z.string().min(1).max(120),
+  quantity: z.number().int().positive().max(CART_MAX_QUANTITY),
+  cartVersion: z.number().int().nonnegative(),
+});
+
+/** PATCH /customer/cart/lines/:lineId — satir adedini AYARLAR (0 → satiri kaldirir). */
+export const customerCartSetLineRequestSchema = z.object({
+  quantity: z.number().int().nonnegative().max(CART_MAX_QUANTITY),
+  cartVersion: z.number().int().nonnegative(),
+});
+
+/** DELETE /customer/cart/lines/:lineId — satiri kaldirir (beklenen version ile). */
+export const customerCartDeleteLineRequestSchema = z.object({
+  cartVersion: z.number().int().nonnegative(),
+});
+
+/**
+ * POST /customer/cart/reconcile — cozulemeyen (silinmis/pasif/baska-store) varyant
+ * satirlarini SUNUCUDA budar (istemci kalemine guvenmez); guncel projeksiyon doner.
+ */
+export const customerCartReconcileRequestSchema = z.object({
+  cartVersion: z.number().int().nonnegative(),
+});
+
+/** POST /customer/cart/merge — login sonrasi anonim cookie sepetini DB sepetine merge. */
+export const customerCartMergeRequestSchema = z.object({
+  items: z.array(publicCartItemInputSchema).max(CART_MAX_LINES),
+});
+
+/** Merge sonucu: uygulanan/atlanan sayilar + 100-sinira sigmayan satirlar (sessiz kayip yok). */
+export const customerCartMergeResultSchema = z.object({
+  merged: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  overflow: z.array(publicCartItemInputSchema),
+  limitExceeded: z.boolean(),
+});
+
+export const customerCartMergeResponseSchema = z.object({
+  data: z.object({
+    result: customerCartMergeResultSchema,
+    cart: customerCartProjectionSchema,
+  }),
+});
+
 export const publicCheckoutContactSchema = z.object({
   fullName: z.string().min(1).max(220),
   email: z.string().email().max(320),
@@ -5345,6 +5426,18 @@ export type PublicCartLine = z.infer<typeof publicCartLineSchema>;
 export type PublicCouponStatus = z.infer<typeof publicCouponStatusSchema>;
 export type PublicCartSummary = z.infer<typeof publicCartSummarySchema>;
 export type PublicCart = z.infer<typeof publicCartSchema>;
+// TODO-167 (ADR-266) — Persistent Cart (customer cart) tipleri.
+export type CartStatus = z.infer<typeof cartStatusSchema>;
+export type CustomerCartProjection = z.infer<typeof customerCartProjectionSchema>;
+export type CustomerCartResponse = z.infer<typeof customerCartResponseSchema>;
+export type CustomerCartStaleResponse = z.infer<typeof customerCartStaleResponseSchema>;
+export type CustomerCartAddLineRequest = z.infer<typeof customerCartAddLineRequestSchema>;
+export type CustomerCartSetLineRequest = z.infer<typeof customerCartSetLineRequestSchema>;
+export type CustomerCartDeleteLineRequest = z.infer<typeof customerCartDeleteLineRequestSchema>;
+export type CustomerCartReconcileRequest = z.infer<typeof customerCartReconcileRequestSchema>;
+export type CustomerCartMergeRequest = z.infer<typeof customerCartMergeRequestSchema>;
+export type CustomerCartMergeResult = z.infer<typeof customerCartMergeResultSchema>;
+export type CustomerCartMergeResponse = z.infer<typeof customerCartMergeResponseSchema>;
 export type PublicCheckoutContact = z.infer<typeof publicCheckoutContactSchema>;
 export type PublicCheckoutAddress = z.infer<typeof publicCheckoutAddressSchema>;
 export type PublicCheckoutRequest = z.infer<typeof publicCheckoutRequestSchema>;

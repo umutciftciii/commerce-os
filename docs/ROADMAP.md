@@ -1271,3 +1271,13 @@
 > FP-3 + TD-173 (ProductMediaFrame tam geçiş) + TD-157 (theme control wiring) + Platform Admin raw-enum temizliği
 > + Settings kararı. Tam gate YEŞİL (test 1231, build 9/9); browser matris 375/768/1024/1280. Kalan PROD BLOCKER
 > pre-existing PB-3/TD-139 (offsite backup). Detay: `docs/analysis/FINAL-enterprise-ui-polish.md`.
+
+## TODO-167 — Persistent Cart & Cross-Device Foundation (Faz A) — IMPLEMENTED (2026-08-03, worktree, commit YOK)
+
+Hibrit cart: anonim=HMAC cookie (değişmez), authenticated=kalıcı DB cart (cross-device). Cart REFERANS tutar
+(fiyat YOK; ortak `assemblePublicCart` — kaynağa göre farklı fiyatlama yok). Tek ACTIVE/(store,customer)
+partial-unique; `Cart.version` optimistic-concurrency (409 CART_STALE); deterministik login-merge
+(100-cap + MERGE_LIMIT_EXCEEDED); checkout DB-cart otoriter + CONVERTED; env-gated 90-gün expiry sweep
+(default OFF). ADR-266. Gate YEŞİL (build 27/27 + lint 42/42 + test 2132 + git diff --check).
+Faz B (**TODO-168 Cart Change Awareness**) BLOCKED_BY 167. Detay:
+`docs/analysis/PERSISTENT-cart-implementation.md`.

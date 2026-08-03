@@ -1497,3 +1497,16 @@ yönetir; yeni motor kurmaz.
 - Gateway :4100, store-admin :3100, storefront :3200 (host `next dev`, `API_GATEWAY_URL=http://localhost:4100`,
   `STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
 - Ürün/marka slug PATCH → eski URL storefront'ta 301 (cache TTL ≤60s sonra). Kategori → 200 (PLP listelemesi, TD-064).
+
+## TODO-167 Persistent Cart (Faz A) — operasyon notları (2026-08-03)
+
+- **Migration (additive):** `20260803140000_todo167_persistent_cart` — CartStatus enum + Cart + CartLine +
+  **partial unique** `Cart_active_customer_key ON (storeId,customerId) WHERE status='ACTIVE'`. Drop/backfill
+  YOK (auth cart lazy oluşur; anon cart DB'ye girmez). `prisma migrate deploy` ile uygulanır.
+- **Env (yeni; expiry sweep, hepsi default güvenli):** `CART_EXPIRY_SWEEP_ENABLED` (default **false** →
+  no-op), `CART_EXPIRY_SWEEP_INTERVAL_SECONDS` (86400), `CART_EXPIRY_RETENTION_DAYS` (90, min 30),
+  `CART_EXPIRY_SWEEP_BATCH_SIZE` (1000). Açıkça etkinleştirilmeden ASLA otomatik EXPIRE.
+- **Sweep:** global (cross-store), advisory-locked, idempotent (conditional update); ACTIVE cart
+  lastActivityAt < cutoff → EXPIRED. Hard-delete YOK (CONVERTED/MERGED/EXPIRED korunur; retention future).
+- **Cross-device:** auth cart DB'de; mutation'lar `Cart.version` optimistic-concurrency (stale → 409
+  CART_STALE, istemci güncel cart'ı gösterir).

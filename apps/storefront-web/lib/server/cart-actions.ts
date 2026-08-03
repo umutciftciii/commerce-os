@@ -13,17 +13,30 @@ import type {
 import { isValidTaxNumber, isValidTckn } from "@commerce-os/api-client";
 import type { PublicCouponReason } from "@commerce-os/api-client";
 import type { OrderConfirmationView } from "./cart";
-import { claimCouponRemote, submitCheckout, submitTestPayment, syncWalletApplied } from "./cart";
+import {
+  authAddLine,
+  authMergeGuestCart,
+  authRemoveLine,
+  authSetLine,
+  claimCouponRemote,
+  getAuthCartProjection,
+  submitCheckout,
+  submitTestPayment,
+  syncWalletApplied,
+} from "./cart";
 import { addItem, removeItem, upsertItem } from "../cart-token";
+import { readCustomerToken } from "./customer-cookie";
 import {
   addClaimedCoupon,
   clearCartCookie,
+  clearCartNotice,
   readCartItems,
   readCoupon,
   readDeselectedItems,
   readShippingOption,
   toggleDeselectedItem,
   writeCartItems,
+  writeCartNotice,
   writeCheckoutConfirmationCookie,
   writeCoupon,
   writeShippingOption,
@@ -99,25 +112,87 @@ export async function selectShippingOptionAction(optionId: string | null): Promi
   revalidateCart();
 }
 
+/**
+ * TODO-167 (ADR-266) — Sepet kaynagi kimlige gore secilir: oturum acmis musteride
+ * KALICI DB cart (cross-device), misafirde mevcut HMAC cookie. Anonim yol DEGISMEZ.
+ */
+async function hasCustomerSession(): Promise<boolean> {
+  try {
+    return Boolean(await readCustomerToken());
+  } catch {
+    return false;
+  }
+}
+
 /** Bir varyanti sepete ekler (mevcut adede ekleyerek). */
 export async function addToCartAction(variantId: string, quantity: number): Promise<void> {
+  const qty = Math.max(1, Math.floor(quantity || 1));
+  if (await hasCustomerSession()) {
+    await authAddLine(variantId, qty);
+    revalidateCart();
+    return;
+  }
   const items = await readCartItems();
-  await writeCartItems(addItem(items, variantId, Math.max(1, Math.floor(quantity || 1))));
+  await writeCartItems(addItem(items, variantId, qty));
   revalidateCart();
 }
 
 /** Bir sepet satirinin adedini ayarlar (<=0 ise satiri kaldirir). */
 export async function updateCartItemAction(variantId: string, quantity: number): Promise<void> {
+  const qty = Math.floor(quantity);
+  if (await hasCustomerSession()) {
+    await authSetLine(variantId, qty);
+    revalidateCart();
+    return;
+  }
   const items = await readCartItems();
-  await writeCartItems(upsertItem(items, variantId, Math.floor(quantity)));
+  await writeCartItems(upsertItem(items, variantId, qty));
   revalidateCart();
 }
 
 /** Bir varyanti sepetten cikarir. */
 export async function removeCartItemAction(variantId: string): Promise<void> {
+  if (await hasCustomerSession()) {
+    await authRemoveLine(variantId);
+    revalidateCart();
+    return;
+  }
   const items = await readCartItems();
   await writeCartItems(removeItem(items, variantId));
   revalidateCart();
+}
+
+/**
+ * TODO-167 (ADR-266) — Login sonrasi anonim cookie sepetini authenticated DB sepetine
+ * DETERMINISTIK merge eder; BASARILIYSA anonim cookie temizlenir (cift-defter yok; kismi/
+ * basarisizda cookie KORUNUR → sonraki oturumda tekrar denenir). Login akisini BOZMAZ
+ * (kendi hatasini yutar; wishlist/recently-viewed merge'inden BAGIMSIZ).
+ */
+export async function mergeGuestCartAction(): Promise<void> {
+  try {
+    if (!(await hasCustomerSession())) return;
+    const items = await readCartItems();
+    if (items.length === 0) return;
+    const result = await authMergeGuestCart(items);
+    if (result) {
+      await clearCartCookie();
+      // Kullanici-dostu merge bildirimi (cart sayfasi gosterir). Ham kod tasinmaz.
+      await writeCartNotice({
+        kind: "merge",
+        merged: result.merged,
+        limitExceeded: result.limitExceeded,
+        // Gonderilenden az urun tasindiysa (gecersiz/stoksuz veya sinir) ve sinir degilse: kismi.
+        partial: items.length > result.merged && !result.limitExceeded,
+      });
+    }
+  } catch {
+    // best-effort: merge hatasi login'i bozmaz (anonim cookie korunur).
+  }
+}
+
+/** Bildirimi temizler (one-shot: gosterimden sonra client mount'ta veya kapat ile). */
+export async function clearCartNoticeAction(): Promise<void> {
+  await clearCartNotice();
 }
 
 /**
@@ -230,9 +305,21 @@ export async function submitCheckoutAction(
   // Dilim 6a-refine — Checkout YALNIZCA secili satirlari siparise alir; secimi
   // kaldirilan satirlar sepette kalir ama siparise girmez (gateway yine fiyat/stok
   // otoriter dogrular). Hic secili satir yoksa checkout'a gecilmez.
-  const allItems = await readCartItems();
-  const deselected = await readDeselectedItems();
-  const items = allItems.filter((item) => !deselected.includes(item.variantId));
+  // TODO-167 (ADR-266) — Oturum acmis musteride sepet KALICI DB cart'tan gelir (cookie
+  // login-merge sonrasi bos olabilir). Gateway checkout DB cart'i ZATEN otoriter alir; burada
+  // yalniz bos-sepet guard'i + gorunum icin item listesi turetilir. Deselection auth cart'ta
+  // Faz A kapsam disi (tum satirlar dahil). Misafirde mevcut cookie + deselection yolu DEGISMEZ.
+  const authProj = await getAuthCartProjection();
+  let items: Array<{ variantId: string; quantity: number }>;
+  if (authProj) {
+    items = authProj.cart.lines
+      .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)
+      .map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity }));
+  } else {
+    const allItems = await readCartItems();
+    const deselected = await readDeselectedItems();
+    items = allItems.filter((item) => !deselected.includes(item.variantId));
+  }
   if (items.length === 0) {
     return { status: "error", errorReason: "cart-not-ready" };
   }
@@ -335,6 +422,9 @@ export async function submitTestPaymentAction(
 ): Promise<TestPaymentActionState> {
   const outcome = await submitTestPayment(orderId, token, payload);
   if (!outcome.ok) {
+    // TODO-167 (ADR-266) — Ödeme tamamlanmadı → cart CONVERTED OLMAZ (settlement yok); sepet ACTIVE
+    // korunur. Kullanıcı sepete döndüğünde "ödeme tamamlanmadı, sepetiniz korundu" bildirimi görür.
+    await writeCartNotice({ kind: "paymentPreserved" });
     if (outcome.code) return { status: "error", reason: outcome.code };
     if (outcome.status === 403) return { status: "error", reason: "PAYMENT_TOKEN_INVALID" };
     if (outcome.status === 409) return { status: "error", reason: "PAYMENT_NOT_PAYABLE" };

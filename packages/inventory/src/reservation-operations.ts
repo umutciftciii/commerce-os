@@ -157,6 +157,24 @@ export async function consumeOrderReservations(
       committedQty += r.quantity;
     }
   }
+  // TODO-167 (ADR-266) — Ödeme SETTLED (SALE_COMMIT) → alıcının ACTIVE cart'ı CONVERTED (+ satırlar
+  // temizlenir). Bu fonksiyon YALNIZ ödeme başarısında çağrılır (checkout PLACE'de DEĞİL) → başarısız/
+  // beklemede ödeme cart'ı ACTIVE bırakır (yeniden denenebilir); sonraki cart erişimi yeni boş ACTIVE
+  // cart'ı LAZY oluşturur. Aynı ödeme tx'i içinde atomik (cart iff ödeme commit).
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { customerId: true } });
+  if (order?.customerId) {
+    const activeCart = await tx.cart.findFirst({
+      where: { storeId, customerId: order.customerId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (activeCart) {
+      await tx.cart.update({
+        where: { id: activeCart.id },
+        data: { status: "CONVERTED", convertedAt: now },
+      });
+      await tx.cartLine.deleteMany({ where: { cartId: activeCart.id } });
+    }
+  }
   return { consumed: active.length, committedQty, lateAfterExpiry: false };
 }
 

@@ -16,6 +16,7 @@ import { customerBasePath } from "./customer";
 import { clearCustomerToken, readCustomerToken, writeCustomerToken } from "./customer-cookie";
 import { mergeGuestWishlistAction } from "./wishlist-actions";
 import { mergeRecentlyViewedAction } from "./recently-viewed-actions";
+import { mergeGuestCartAction } from "./cart-actions";
 
 export type AuthActionResult<T = undefined> =
   | (T extends undefined ? { ok: true } : { ok: true; data: T })
@@ -81,6 +82,8 @@ export async function registerCompleteAction(input: {
   await mergeGuestWishlistAction();
   // TODO-161B (ADR-138) — Misafir görüntüleme geçmişini müşteriye idempotent merge et.
   await mergeRecentlyViewedAction();
+  // TODO-167 (ADR-266) — Anonim cookie sepetini authenticated DB sepetine deterministik merge et.
+  await mergeGuestCartAction();
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -104,6 +107,8 @@ export async function loginAction(
   await mergeGuestWishlistAction();
   // TODO-161B (ADR-138) — Misafir görüntüleme geçmişini müşteriye idempotent merge et.
   await mergeRecentlyViewedAction();
+  // TODO-167 (ADR-266) — Anonim cookie sepetini authenticated DB sepetine deterministik merge et.
+  await mergeGuestCartAction();
   revalidatePath("/", "layout");
   return { ok: true };
 }

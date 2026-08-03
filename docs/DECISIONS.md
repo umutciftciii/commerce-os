@@ -5884,3 +5884,14 @@ resolver tüm geçmişi çekmez — yalnız gerekli son N kayıt (cap'li read).
 - **Karar — manuel redirect + origin ayrımı.** `Redirect.origin` (`AUTOMATIC`|`MANUAL`, additive migration, varsayılan AUTOMATIC) kolonu eklendi. Manuel redirect SAF `validateManualRedirect` (source≠target, güvenli-yerel-hedef, reserved/canonical shadow, loop) + gateway canlı-entity shadow + kaynak-tekilliği ile doğrulanır. Otomatik redirect'ler kullanıcı tarafından SİLİNEMEZ ve source/target/type düzenlenemez (yalnız aktif/pasif) → canonical bütünlüğü; SlugHistory immutable kalır.
 - **Karar — hedef query'si KORUNUR.** Manuel redirect kaynağı eşleşme için normalize edilir (query düşer) ama hedef query'yi korur (kategori hedefi `/products?category=...`). entityType türetilir (kaynak path deseni) ve liste filtresi DB seviyesinde aynı desenle uygulanır (sayfalama-doğru).
 - **Sonuç.** Store-admin "SEO > Slug ve Yönlendirmeler" yüzeyi; TD-057 KAPANDI. 404 önerileri (yakalama altyapısı yok) ve kategori runtime redirect (TD-064, query-tabanlı) ertelenir; ürün + marka path-tabanlı 301 tam çalışır (smoke doğrulandı).
+
+## ADR-266 — Persistent Cart Authority (Hybrid Cart Model)
+
+**Accepted (TODO-167 Faz A, 2026-08-03).** Anonim cart cookie kalır; authenticated cart kalıcı DB
+(cross-device). Cart yalnız REFERANS tutar (fiyat yok; ortak assemblePublicCart). Tek ACTIVE/(store,customer)
+partial-unique + P2002 idempotent; `Cart.version` atomik conditional-update optimistic-concurrency
+(409 CART_STALE + güncel projeksiyon). Deterministik login-merge (mevcut korunur, guest cookie sırasıyla
+eklenir, dup quantity toplanır, [1,999] clamp, 100-cap + MERGE_LIMIT_EXCEEDED — sessiz kayıp yok; cookie
+yalnız başarıda temizlenir). Checkout DB-cart otoriter + order PLACE'de CONVERTED. Lifecycle
+ACTIVE|CONVERTED|MERGED|EXPIRED; env-gated 90-gün sweep (default OFF, hard-delete yok). Detay:
+`docs/adr/ADR-266-persistent-cart-authority.md`. **ADR-267 rezerve** (Cart Change Semantics — TODO-168).

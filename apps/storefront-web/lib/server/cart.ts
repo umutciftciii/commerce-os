@@ -5,6 +5,10 @@ import type {
   PublicCart,
   PublicCartLineStatus,
   PublicCartSummary,
+  // TODO-167 (ADR-266) — Persistent (authenticated) cart tipleri.
+  CustomerCartProjection,
+  CustomerCartResponse,
+  CustomerCartMergeResponse,
   PublicCheckoutBilling,
   PublicCheckoutRequest,
   PublicCouponClaimResponse,
@@ -25,9 +29,9 @@ import type { CartItem } from "../cart-token";
 import type { StorefrontWalletCouponView } from "../catalog-types";
 import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
-import { getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
+import { getCustomer, getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
 import { readCustomerToken } from "./customer-cookie";
-import { readClaimedCoupons } from "./cart-cookie";
+import { readClaimedCoupons, writeCartNotice } from "./cart-cookie";
 import { readAttributionGrant } from "./attribution-cookie";
 import { readSponsoredGrants } from "./sponsored-cookie";
 
@@ -346,6 +350,133 @@ export async function resolveCartWithCanonicalItems(
     .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)
     .map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity }));
   return { ok: true, data: { view: result.data, canonicalItems } };
+}
+
+// ── TODO-167 (ADR-266) — Authenticated persistent cart (DB; cross-device) ──────────────
+// Oturum acmis musteride sepet DB'de yasar (cross-device). Cookie sepeti DEGISMEZ; bu
+// yollar yalniz token varken kullanilir. Mutation'lar sunucudan guncel version okur
+// (read-then-mutate) → CART_STALE'de BIR kez otoriter state ile yeniden dener (sessiz
+// overwrite yok). Fiyat/stok projeksiyonu anonim ile AYNI (sunucu-otoriter).
+
+function authCartPath(): string {
+  return `/public/stores/${encodeURIComponent(demoStoreSlug())}/customer/cart`;
+}
+
+/** Oturum acmis musterinin DB sepeti projeksiyonu (version/status/lineIds/cart). Oturum yoksa null. */
+export async function getAuthCartProjection(): Promise<CustomerCartProjection | null> {
+  let token: string | null = null;
+  try {
+    token = await readCustomerToken();
+  } catch {
+    token = null;
+  }
+  if (!token) return null;
+  try {
+    const result = await getCustomer<CustomerCartResponse>(authCartPath(), token);
+    return result.ok ? result.data.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Auth cart gorunumu (CartView). Oturum yoksa null → cagiran anonim cookie yoluna duser. */
+export async function resolveAuthCartView(): Promise<CartResult<CartView> | null> {
+  const proj = await getAuthCartProjection();
+  if (!proj) return null;
+  return { ok: true, data: toCartView(proj.cart) };
+}
+
+export type AuthCartMutationResult = { ok: true } | { ok: false; code: string };
+
+async function mutateAuthCart(
+  run: (token: string, proj: CustomerCartProjection) => Promise<FetchOutcome<unknown>>,
+): Promise<AuthCartMutationResult> {
+  let token: string | null = null;
+  try {
+    token = await readCustomerToken();
+  } catch {
+    token = null;
+  }
+  if (!token) return { ok: false, code: "CUSTOMER_UNAUTHORIZED" };
+  const proj = await getAuthCartProjection();
+  if (!proj) return { ok: false, code: "CART_UNAVAILABLE" };
+  const res = await run(token, proj);
+  if (!res.ok && res.code === "CART_STALE") {
+    // TODO-167 (ADR-266) — Cross-device: SESSIZ OVERWRITE YAPMA. Kullanici-dostu "başka cihazda
+    // güncellendi" bildirimini yaz; revalidate sonrasi cart sayfasi GÜNCEL otoriter projeksiyonu +
+    // uyariyi gösterir. Kullanici işlemini gözden geçirip tekrar dener (kör overwrite yok).
+    await writeCartNotice({ kind: "crossDevice" });
+    return { ok: false, code: "CART_STALE" };
+  }
+  return res.ok ? { ok: true } : { ok: false, code: res.code ?? "CART_MUTATION_FAILED" };
+}
+
+const okOutcome: FetchOutcome<unknown> = { ok: true, data: {} };
+
+/** Bir varyanti auth sepete ekler/artirir. */
+export async function authAddLine(variantId: string, quantity: number): Promise<AuthCartMutationResult> {
+  return mutateAuthCart((token, proj) =>
+    sendCustomer("POST", `${authCartPath()}/lines`, token, {
+      variantId,
+      quantity,
+      cartVersion: proj.version,
+    }),
+  );
+}
+
+/** Bir satirin adedini ayarlar (0 → kaldirir; satir yoksa quantity>0 ise ekler). */
+export async function authSetLine(variantId: string, quantity: number): Promise<AuthCartMutationResult> {
+  return mutateAuthCart((token, proj) => {
+    const lineId = proj.lineIds[variantId];
+    if (!lineId) {
+      if (quantity > 0) {
+        return sendCustomer("POST", `${authCartPath()}/lines`, token, {
+          variantId,
+          quantity,
+          cartVersion: proj.version,
+        });
+      }
+      return Promise.resolve(okOutcome);
+    }
+    return sendCustomer("PATCH", `${authCartPath()}/lines/${encodeURIComponent(lineId)}`, token, {
+      quantity,
+      cartVersion: proj.version,
+    });
+  });
+}
+
+/** Bir varyanti auth sepetten cikarir. */
+export async function authRemoveLine(variantId: string): Promise<AuthCartMutationResult> {
+  return mutateAuthCart((token, proj) => {
+    const lineId = proj.lineIds[variantId];
+    if (!lineId) return Promise.resolve(okOutcome);
+    return sendCustomer("DELETE", `${authCartPath()}/lines/${encodeURIComponent(lineId)}`, token, {
+      cartVersion: proj.version,
+    });
+  });
+}
+
+export interface AuthMergeResult {
+  merged: number;
+  skipped: number;
+  limitExceeded: boolean;
+}
+
+/** Login sonrasi anonim cookie sepetini auth DB sepetine merge eder (deterministik; overflow raporlu). */
+export async function authMergeGuestCart(items: CartItem[]): Promise<AuthMergeResult | null> {
+  let token: string | null = null;
+  try {
+    token = await readCustomerToken();
+  } catch {
+    token = null;
+  }
+  if (!token) return null;
+  const result = await sendCustomer<CustomerCartMergeResponse>("POST", `${authCartPath()}/merge`, token, {
+    items: items.map((i) => ({ variantId: i.variantId, quantity: i.quantity })),
+  });
+  if (!result.ok) return null;
+  const r = result.data.data.result;
+  return { merged: r.merged, skipped: r.skipped, limitExceeded: r.limitExceeded };
 }
 
 /** F4A.3 — Kupon/cuzdan uclari taban yolu. */

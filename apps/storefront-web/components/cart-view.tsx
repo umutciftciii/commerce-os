@@ -8,6 +8,7 @@ import type { CartView as CartViewModel, CartLineView } from "../lib/server/cart
 import {
   applyWalletCouponAction,
   claimCouponAction,
+  clearCartNoticeAction,
   reconcileCartAction,
   removeCartItemAction,
   removeCouponAction,
@@ -15,6 +16,7 @@ import {
   updateCartItemAction,
   type ClaimCouponResult,
 } from "../lib/server/cart-actions";
+import type { CartNotice } from "../lib/server/cart-cookie";
 import type { StorefrontWalletCouponView } from "../lib/catalog-types";
 import { cn } from "@commerce-os/ui";
 import { Badge, Button, ButtonLink, Input, ProductMediaFrame, Subheading } from "./ui";
@@ -36,11 +38,15 @@ export function CartView({
   view,
   canonicalItems,
   reconcileNeeded,
+  notice,
   t,
 }: {
   view: CartViewModel;
   canonicalItems: Array<{ variantId: string; quantity: number }>;
   reconcileNeeded: boolean;
+  // TODO-167 (ADR-266) — Persistent cart kullanici-dostu bildirimi (merge / cross-device /
+  // ödeme-korundu). One-shot: gösterildikten sonra client temizler.
+  notice?: CartNotice | null;
   t: CartDict;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -81,6 +87,8 @@ export function CartView({
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
       <div className="space-y-4">
+        {/* TODO-167 — Persistent cart bildirimi (merge / cross-device / ödeme-korundu). */}
+        <CartNoticeBanner notice={notice ?? null} t={t} />
         {showReconciled ? (
           <div
             role="status"
@@ -120,6 +128,84 @@ export function CartView({
 
       <CartSummary view={view} t={t} pending={isPending} />
     </div>
+  );
+}
+
+/**
+ * TODO-167 (ADR-266) — Persistent cart kullanici-dostu bildirimi. Ham hata kodu (CART_STALE /
+ * MERGE_LIMIT_EXCEEDED) ASLA gösterilmez; yalniz i18n metnine eslenir. One-shot (mount'ta sunucu
+ * cookie'si temizlenir). Kritik cross-device mesaji role="alert"; digerleri role="status" (kontrollü
+ * aria-live). Durum yalniz renkle degil ikon + baslik + metinle anlatilir. Kapatma erisilebilir.
+ */
+function CartNoticeBanner({ notice, t }: { notice: CartNotice | null; t: CartDict }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (notice) {
+      // Gösterildikten sonra sunucudaki bildirim cookie'sini temizle (tekrar gösterme).
+      void clearCartNoticeAction();
+    }
+  }, [notice]);
+
+  if (!notice || !visible) return null;
+
+  let title: string | null;
+  let body: string;
+  let critical = false;
+  if (notice.kind === "merge") {
+    title = t.mergeNoticeTitle;
+    body = notice.limitExceeded
+      ? t.mergeNoticeLimit
+      : notice.partial
+        ? t.mergeNoticePartial
+        : format(t.mergeNoticeSuccess, { count: notice.merged ?? 0 });
+  } else if (notice.kind === "crossDevice") {
+    title = t.crossDeviceTitle;
+    body = t.crossDeviceNotice;
+    critical = true;
+  } else {
+    title = null;
+    body = t.paymentPreservedNotice;
+  }
+
+  return (
+    <div
+      role={critical ? "alert" : "status"}
+      aria-live={critical ? "assertive" : "polite"}
+      className={cn(
+        "flex items-start justify-between gap-3 border px-4 py-3 text-sm text-ink",
+        critical ? "border-ink-subtle bg-surface" : "border-line bg-surface-muted",
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <NoticeIcon critical={critical} />
+        <div>
+          {title ? <p className="font-semibold text-ink">{title}</p> : null}
+          <p className={cn(title ? "mt-0.5 text-ink-muted" : "text-ink")}>{body}</p>
+        </div>
+      </div>
+      <DismissButton onClick={() => setVisible(false)} label={t.noticeDismiss} />
+    </div>
+  );
+}
+
+function NoticeIcon({ critical }: { critical: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    >
+      <circle cx="10" cy="10" r="8" />
+      {critical ? (
+        <path d="M10 6v5M10 14h.01" strokeLinecap="round" />
+      ) : (
+        <path d="M10 9v5M10 6h.01" strokeLinecap="round" />
+      )}
+    </svg>
   );
 }
 
@@ -721,9 +807,14 @@ function formatCouponDate(iso: string): string {
   }
 }
 
-function DismissButton({ onClick }: { onClick: () => void }) {
+function DismissButton({ onClick, label }: { onClick: () => void; label?: string }) {
   return (
-    <button type="button" onClick={onClick} aria-label="×" className="text-current opacity-60 hover:opacity-100">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label ?? "×"}
+      className="shrink-0 text-current opacity-60 transition-opacity hover:opacity-100"
+    >
       ×
     </button>
   );
