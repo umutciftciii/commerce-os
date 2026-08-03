@@ -1,8 +1,14 @@
 # TODO-167 — Persistent Cart & Cross-Device Foundation (Faz A) — Implementation Record
 
-> **Status:** IMPLEMENTED (no commit/push/PR/merge/deploy). Gate GREEN. See "Verification" + "Browser
-> smoke" below. Design: [ADR-266](../adr/ADR-266-persistent-cart-authority.md) ·
-> [roadmap](./PERSISTENT-CART-roadmap.md). Faz B (Cart Change Awareness) = **TODO-168**, BLOCKED_BY 167.
+> **Status: CLOSED & DEPLOYED** (2026-08-03). PR #165 merged (merge commit `0a602d2`); api-gateway +
+> storefront-web rebuilt from main + `20260803140000_todo167_persistent_cart` applied via `migrate deploy`
+> (partial ACTIVE index verified live). **Post-deploy smoke 20/20 PASS** on the deployed gateway :4000
+> (cart mechanics · CART_STALE concurrency · login merge · checkout DB-cart authority · convert-on-paid ·
+> failed-payment→ACTIVE · DB invariants); temp fixtures FK-safe cleaned + inventory restored to baseline;
+> enterprise-demo left pristine (473 products / 9 orders / inventory unchanged). Design:
+> [ADR-266](../adr/ADR-266-persistent-cart-authority.md) · [roadmap](./PERSISTENT-CART-roadmap.md).
+> **ADR-266 ACCEPTED. TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 future; cart hard-delete/
+> anonymization future; cross-device Cart-Change acknowledgement = TODO-168 scope.
 
 ## 1. What shipped (hybrid cart)
 

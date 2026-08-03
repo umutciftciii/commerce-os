@@ -1938,3 +1938,13 @@ cart HTML'de (one-shot). Gate YEŞİL: build 27/27 + lint 42/42 + test (gateway 
 cart 35) + git diff --check. enterprise-demo PRISTINE. Ortam notu: browser-automation add-to-cart button-onClick'i
 tetikleyemedi (login form-submit + gateway-API ile sürüldü; her adımın fonksiyonel davranışı HTTP+DB ile bağımsız
 kanıtlı). Detay: docs/analysis/PERSISTENT-cart-implementation.md §8.
+
+## TODO-167 Persistent Cart — CLOSED & DEPLOYED (2026-08-03)
+
+PR #165 merged (merge commit `0a602d2`). api-gateway + storefront-web rebuilt from main; migration
+`20260803140000_todo167_persistent_cart` applied via `migrate deploy` (partial ACTIVE index verified live).
+Post-deploy smoke 20/20 PASS (deployed gateway :4000): cart mechanics · CART_STALE concurrency · login merge ·
+checkout DB-cart authority · convert-on-paid (settlement) · failed-payment→ACTIVE · DB invariants. Temp fixtures
+FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9 orders unchanged). ADR-266
+ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
+future; cross-device Cart-Change acknowledgement = TODO-168 scope.
