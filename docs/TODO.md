@@ -2565,9 +2565,22 @@ Cart+CartLine additive migration + partial-unique ACTIVE; version/409 CART_STALE
 checkout DB-cart otoriter + CONVERTED; env-gated 90-gün expiry sweep. ADR-266. Gate YEŞİL (build/lint/test).
 Detay: `docs/analysis/PERSISTENT-cart-implementation.md`.
 
-## TODO-168 — Cart Change Awareness — IN_PROGRESS (2026-08-03, worktree, commit YOK)
+## TODO-168 — Cart Change Awareness — CLOSED & DEPLOYED (2026-08-03)
 
-**DURUM: IMPLEMENTED + FULL GATE GREEN (commit/PR/deploy YOK).** ADR-267 ACCEPTED
+**PR #166 MERGED** (merge commit `65c7ca1`). api-gateway + storefront-web main'den rebuild + recreate
+(docker `--no-deps`; store-admin/admin/worker/postgres/redis DOKUNULMADI); migration
+`20260803150000_todo168_cart_change_awareness` gerçek commerce_os'a `migrate deploy` ("schema up to date";
+CartChangeAck + CartChangeEvent + CartLine snapshot kolonları canlı doğrulandı). **Post-deploy smoke PASS**
+(deployed gateway :4000, anon changeContext = prod-safe): INFO(PRICE_DECREASED) · WARN(PRICE_INCREASED) ·
+checkout 409 CART_CHANGED · ack sonrası gate açıldı · VARIANT_BACK_IN_STOCK · VARIANT_OUT_OF_STOCK BLOCKING
+(demo-store stok geçici 0→25 geri alındı) · analytics recorded+dedupe(KVKK-hash) · auth ack ucu 401(wired) ·
+storefront :3000 /cart 200. Mobil cart-line taşma fix (320/375/768/1024/1440 taşmasız) pre-merge canlı +
+merged kodda doğrulandı; task_203ad8ee RESOLVED. Test analytics kayıtları temizlendi; **enterprise-demo
+PRISTINE** (471 ürün / 9 sipariş). ADR-267 ACCEPTED. Açık: **TD-176** future. Worktree kaldırıldı.
+
+--- (implementasyon kaydı) ---
+
+**DURUM: IMPLEMENTED + FULL GATE GREEN.** ADR-267 ACCEPTED
 (`docs/adr/ADR-267-cart-change-semantics.md`). Additive migration `20260803150000_todo168_cart_change_awareness`
 (CartLine snapshot kolonları + CartChangeAck + CartChangeEvent; drop/backfill YOK).
 

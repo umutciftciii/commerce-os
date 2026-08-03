@@ -1292,7 +1292,16 @@ FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
 
-## TODO-168 — Cart Change Awareness (Faz B) — IMPLEMENTED (2026-08-03, worktree, commit YOK)
+## TODO-168 — Cart Change Awareness (Faz B) — CLOSED & DEPLOYED (2026-08-03)
+
+PR #166 MERGED (merge `65c7ca1`). api-gateway + storefront-web rebuilt/recreated from main (docker
+`--no-deps`); migration `20260803150000_todo168_cart_change_awareness` applied to prod via `migrate deploy`.
+Post-deploy smoke PASS on deployed gateway :4000 (prod-safe anon changeContext): INFO/WARN/checkout-409-
+CART_CHANGED/ack-pass/back-in-stock/BLOCKING(temp stock restored)/analytics-dedupe/auth-ack-401-wired/
+storefront-200. Mobile cart-line overflow fixed (no overflow 320-1440). enterprise-demo PRISTINE
+(471 products / 9 orders). ADR-267 ACCEPTED. Open: TD-176 future.
+
+### (implementation record)
 
 Add-time snapshot vs live server-authoritative projection → deterministic change list; INFO surfaced /
 WARN gates checkout (`409 CART_CHANGED` until acked) / BLOCKING keeps existing `409 CART_NOT_READY`. One shared

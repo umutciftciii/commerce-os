@@ -1,6 +1,6 @@
 # ADR-267 — Cart Change Semantics (Cart Change Awareness)
 
-- **Status:** ACCEPTED (implemented, not yet merged/deployed) — TODO-168.
+- **Status:** ACCEPTED & DEPLOYED — TODO-168 (PR #166 merged `65c7ca1`; migration `20260803150000_todo168_cart_change_awareness` applied to prod; post-deploy smoke PASS).
 - **Date:** 2026-08-03
 - **Builds on:** [ADR-266](./ADR-266-persistent-cart-authority.md) (Persistent Cart & Cross-Device Foundation).
 - **Supersedes for the authenticated path:** the "cookie-carried, zero-migration" framing of

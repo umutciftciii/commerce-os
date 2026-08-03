@@ -1521,7 +1521,16 @@ FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
 
-## TODO-168 Cart Change Awareness — operasyon notları (2026-08-03, IMPLEMENTED, deploy YOK)
+## TODO-168 Cart Change Awareness — CLOSED & DEPLOYED (2026-08-03)
+
+PR #166 MERGED (merge `65c7ca1`). api-gateway + storefront-web `docker compose build` + `up -d --no-deps`
+(store-admin/admin/worker/postgres/redis DOKUNULMADI, volume'lara dokunulmadı). Migration
+`20260803150000_todo168_cart_change_awareness` → `migrate deploy` (prod commerce_os; "Database schema is up
+to date"). Post-deploy smoke deployed gateway :4000'de prod-safe (anon changeContext ile DB mutasyonu YOK;
+BLOCKING için demo-store stok geçici 0→25 geri alındı): INFO/WARN/409-CART_CHANGED/ack/back-in-stock/BLOCKING/
+analytics-dedupe/auth-ack-401/storefront-200 PASS. Test analytics kayıtları silindi; enterprise-demo PRISTINE.
+
+## TODO-168 Cart Change Awareness — operasyon notları (2026-08-03)
 
 - **Yeni env YOK.** Değişiklik motoru cart okuma yolunda çalışır (ek servis yok). Analytics ingest
   (`POST /public/stores/:slug/cart-change-events`) best-effort: bot/prefetch elenir, IP-hash rate-limit
