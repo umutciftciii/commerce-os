@@ -1,6 +1,7 @@
 # BUG-CART-002 — PDP availability, cart badge and line-selection consistency
 
-**Durum:** IN_PROGRESS (implementasyon tamam; tam gate + gerçek browser smoke PASS; commit/PR/deploy YAPILMADI).
+**Durum:** ✅ CLOSED & DEPLOYED (PR #167 MERGED, main merge `cf6823a` / fix `37a30de`; api-gateway + storefront-web
+main'den rebuild+recreate; migrate status "up to date" — yeni migration yok; post-deploy smoke PASS :4000/:3000).
 **Tarih:** 2026-08-03
 **Kapsam:** Storefront (PDP buy-box + cart) + api-gateway (public katalog/sepet projeksiyonu + auth cart route).
 **İlişki:** TODO-167/ADR-266 (Persistent Cart) + TODO-168/ADR-267 (Cart Change Awareness) SONRASI regresyon.

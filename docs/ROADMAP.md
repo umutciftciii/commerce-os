@@ -1316,7 +1316,7 @@ typecheck · test gateway 2184 [+52] / storefront 534 [+8] / store-admin 364 · 
 `FREE_SHIPPING_ELIGIBILITY_CHANGED` + `SELLER_CHANGED` + event retention worker. Detail:
 `docs/analysis/PERSISTENT-CART-roadmap.md` Faz B + `docs/adr/ADR-267-cart-change-semantics.md`.
 
-## BUG-CART-002 — PDP availability, cart badge & line-selection consistency — IN_PROGRESS (2026-08-03, commit YOK)
+## BUG-CART-002 — PDP availability, cart badge & line-selection consistency — CLOSED & DEPLOYED (2026-08-03, PR #167 merge `cf6823a`)
 
 TODO-167/168 sonrası production-critical regresyon. (A) PDP fail-open bounded stok projeksiyonu
 (`loadPublicStockMap(PUBLIC_CATALOG_MAX)` pencere dışı varyant → `inStock:true`) → tükenmiş varyant
@@ -1327,6 +1327,10 @@ stok (`loadPublicStockMapForVariants`), add-guard `409 VARIANT_OUT_OF_STOCK`/`VA
 `AddToCartResult` + anon on-doğrulama, PDP OOS UX (disabled/strikethrough/aria "Tükendi", `selectColor`
 sessiz-kaydırma kaldırıldı), `router.refresh()` badge senkronu, `deselectedVariantIds` auth VIEW+checkout
 threading, kargo `hasShippableSelection` kapısı + vitrin "—". Gate GREEN (build 27/27 · gateway 2188 · storefront
-534 · lint 0 error · typecheck). GERÇEK browser smoke PASS (worktree gw :4100 + storefront :3100, enterprise-demo).
-Kalan borç TD-177 (PLP/home bounded stok). **Gift Card `BLOCKED_BY BUG-CART-002`.** Detay:
+534 · lint 0 error · typecheck). api-gateway + storefront-web main'den rebuild+recreate (postgres/redis/worker/
+admin/store-admin DOKUNULMADI, volume korundu); migrate status "up to date" (yeni migration yok). Post-deploy
+smoke PASS deployed :4000/:3000 (fail-open giderildi: deployed :4000 OOS varyant `available:0,inStock:false`;
+OOS disabled+üstü-çizili+aria; add→badge refresh'siz+toast; deselect→"0 ürün/—/₺0/disabled"; re-select geri;
+remove→badge temiz; mobil temiz). Açık follow-up TD-177 (PLP/home bounded stok) · TD-174 (cross-device
+deselection persist). **Gift Card blocker KALDIRILDI.** TODO-168 DEĞİŞMEDİ. Detay:
 `docs/analysis/BUG-CART-002-availability-badge-selection.md`.

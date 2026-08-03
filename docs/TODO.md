@@ -2,16 +2,22 @@
 
 ## Yakin Isler
 
-- **BUG-CART-002 — PDP availability, cart badge & line-selection consistency — 🔧 IN_PROGRESS**
-  (implementasyon + tam gate + GERÇEK browser smoke PASS; **commit/PR/deploy YAPILMADI**). 2026-08-03.
+- **BUG-CART-002 — PDP availability, cart badge & line-selection consistency — ✅ CLOSED & DEPLOYED**
+  (PR #167 MERGED, main merge `cf6823a` / fix `37a30de`; 2026-08-03). api-gateway + storefront-web main'den
+  rebuild+recreate; migrate status "up to date" (yeni migration yok); postgres/redis/worker/admin/store-admin
+  DOKUNULMADI, volume'lar korundu. Post-deploy smoke PASS (:4000/:3000): OOS varyant disabled+üstü-çizili+aria
+  "… — Tükendi" (deployed :4000 artık `available:0,inStock:false` — fail-open giderildi); stoklu add → badge
+  refresh'siz + "Sepete eklendi"; deselect → "0 ürün / Kargo — / ₺0,00 / checkout disabled", re-select geri
+  döner; remove → badge temizlenir; mobil layout temiz.
   TODO-167/168 sonrası production-critical regresyon: (A) PDP fail-open bounded stok projeksiyonu →
-  tükenmiş varyant "eklenebilir" görünüyordu (+ add endpoint stok kontrolü yoktu + optimistic başarı
-  toast'ı); (B) header badge add sonrası refresh gerektiriyordu; (C) auth checkbox kendini yeniden
-  seçiyordu + "0 ürün + ₺49,90" özeti. Düzeltmeler: variant-scoped fail-CLOSED stok (`loadPublicStockMapForVariants`),
-  add-guard `409 VARIANT_OUT_OF_STOCK`/`VARIANT_STOCK_LIMIT`, `router.refresh()` badge senkronu,
-  auth deselection threading (`?deselected=` + checkout), kargo `subtotal>0` kapısı. Analiz:
-  `docs/analysis/BUG-CART-002-availability-badge-selection.md`. Kalan borç: **TD-177** (PLP/home hâlâ
-  bounded stok). **Gift Card işi `BLOCKED_BY BUG-CART-002`** (bu regresyon kapanana kadar başlamaz).
+  tükenmiş varyant "eklenebilir" görünüyordu (+ add endpoint stok kontrolü yoktu + optimistic başarı toast'ı);
+  (B) header badge add sonrası refresh gerektiriyordu; (C) auth checkbox kendini yeniden seçiyordu + "0 ürün +
+  ₺49,90" özeti. Düzeltmeler: variant-scoped fail-CLOSED stok (`loadPublicStockMapForVariants`), add-guard
+  `409 VARIANT_OUT_OF_STOCK`/`VARIANT_STOCK_LIMIT`, `router.refresh()` badge senkronu, auth deselection
+  threading (`?deselected=` + checkout), kargo `subtotal>0` kapısı. Analiz:
+  `docs/analysis/BUG-CART-002-availability-badge-selection.md`. Açık follow-up: **TD-177** (PLP/home hâlâ
+  bounded stok, kozmetik) · **TD-174** (cross-device deselection persist). **Gift Card blocker KALDIRILDI**
+  (BUG-CART-002 CLOSED; Gift Card artık başlayabilir). TODO-168 durumu DEĞİŞMEDİ.
 
 - **TODO-159G: Demo Data Safety & Recovery (HOTFIX — ADR-108 / TD-116).** (DONE — recovery + önleme
   tamamlandı; commit/PR/deploy YAPILMADI.) 2026-07-23 yıkıcı `prisma db push` enterprise-demo
