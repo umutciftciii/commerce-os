@@ -325,6 +325,14 @@ describe("catalog contracts", () => {
 
   // ADR-065 (Faz 2/Dilim 4) — magaza marka ayarlari contract kablolamasi.
   it("ADR-065 Faz 2/Dilim 4: store settings response allows all-null media (nullable)", () => {
+    // TODO-169 (ADR-269) — response iade politikası alanlarını da taşır (serializer default'lar).
+    const returnPolicy = {
+      returnWindowDays: 14,
+      returnsRequireApproval: true,
+      returnsCustomerPaysShipping: true,
+      returnsAllowReplacement: true,
+      returnsAllowOriginalPaymentRefund: true,
+    };
     const allNull = storeSettingsSchema.parse({
       storeId: "store_1",
       storeName: "Demo Store",
@@ -332,6 +340,7 @@ describe("catalog contracts", () => {
       logoUrl: null,
       faviconMediaId: null,
       faviconUrl: null,
+      ...returnPolicy,
     });
     expect(allNull).toMatchObject({ storeName: "Demo Store", logoMediaId: null, faviconUrl: null });
     // Bagli logo + favicon ile de gecerli.
@@ -342,6 +351,7 @@ describe("catalog contracts", () => {
       logoUrl: "/media/stores/store_1/branding/logo.webp",
       faviconMediaId: "media_fav",
       faviconUrl: "/media/stores/store_1/branding/fav.webp",
+      ...returnPolicy,
     });
     expect(bound).toMatchObject({ logoMediaId: "media_logo", faviconMediaId: "media_fav" });
   });

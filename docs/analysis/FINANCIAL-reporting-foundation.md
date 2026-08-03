@@ -89,6 +89,13 @@ Rebuildable read-model; never the accounting source. Introduce only when query l
 No refund amounts reported (never fabricated). Refund **counts** shown; `refundAmountsSupported=false`
 surfaced. Minimum future read-model specified in ADR-268 §5 (`OrderRefund` append-only ledger).
 
+> **Update (TODO-169 / ADR-269, 2026-08-04):** the Returns Management Foundation now creates `RefundIntent`
+> (status `PENDING`) rows on approved refund-resolution returns, computed from immutable OrderLine snapshots.
+> These are the **upstream** records for the ADR-268 §5 `OrderRefund` ledger but **do not touch finance**:
+> `refundAmountsSupported` stays `false` and `productRefundsMinor`/`shippingRefundsMinor` stay `0` until
+> **TODO-170 Refund Ledger & Payment Reversal** processes the intents, performs the reversal, and writes the
+> ledger that finance reads (subtracting from Net/Total exactly once). Gross sales are never reduced by a return.
+
 ## 11. Profitability decision
 
 Supported (cost snapshot exists), coverage-gated (all-or-null per period), coverage disclosed. Allocation/

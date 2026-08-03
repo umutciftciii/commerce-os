@@ -92,6 +92,15 @@ export function OrderIcon() {
   );
 }
 
+export function ReturnIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a5 5 0 0 1 5 5v1a5 5 0 0 1-5 5H8" />
+    </svg>
+  );
+}
+
 export function InventoryIcon() {
   return (
     <svg {...base} aria-hidden>

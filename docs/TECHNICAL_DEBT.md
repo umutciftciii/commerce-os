@@ -1979,6 +1979,27 @@ room, no code now):
   kullanır (etkilenmez). Aynı bounded-scan sınıfı: `pdp-404-public-catalog-max`.
 - İlişki: BUG-CART-002.
 
+## Returns Management Foundation — açık future kalemler (ADR-269 / TODO-169)
+
+- **Gerçek provider refund + OrderRefund ledger (TD-RET-1 → TODO-170):** bu faz yalnız `RefundIntent` (PENDING)
+  üretir; gerçek para iadesi YAPILMAZ ve finans raporuna tutar DÜŞMEZ (`refundAmountsSupported=false`). TODO-170
+  PENDING intent'leri işleyip append-only `OrderRefund` (ADR-268 §5) yazacak ve Financial Reporting'i besleyecek.
+- **Private media = uygulama-katmanı (TD-RET-2):** iade attachment'ları non-enumerable key + `/media/*` onRequest
+  guard (404) + auth-gate'li stream ile korunur; dosya fiziksel olarak public root altında (gerçek private-bucket/
+  signed-URL YOK). Object-store/signed-URL migration'ı future. `StorageDriver.read` eklendi (S3Driver de uygulamalı).
+- **Gerçek email teslimi (TD-RET-3):** bildirimler post-commit fail-open emit edilir ama platformda gerçek
+  transactional email gönderici/şablon YOK (notification-service + worker log-only). Returns bu boşluğu paylaşır;
+  gerçek teslim platform-geneli future iştir.
+- **Return-exclusion registry (TD-RET-4):** ürün/ürün-türü iade-dışı bırakma kaydı yok → eligibility bu eksende
+  her zaman uygun (`excluded=false`). Politika/registry gelince `computeLineEligibility` uzantı noktası hazır.
+- **Otomatik iade etiketi (TD-RET-5):** ilk faz manuel iade kargosu (müşteri tracking no girer, admin teslim alındı
+  işaretler); carrier return-label API entegrasyonu future (sahte etiket üretilmez).
+- **`COMPLETED` para-doğrulamalı geçişi (TD-RET-6):** bu faz `REFUND_PENDING`/`REPLACEMENT_PENDING` → `CLOSED`
+  arşivler; sonucu doğrulanmış `COMPLETED` geçişi TODO-170 refund işlemine kapılıdır.
+- **`Shipment.deliveredAt` webhook yolu (TD-RET-7):** deliveredAt manuel-durum + provider-sync yollarında set
+  edilir; provider webhook yolunda (webhook-routes) DELIVERED eşlemesi henüz deliveredAt yazmaz (sync bir sonraki
+  turda düzeltir). Additive; eligibility fallback `updatedAt` bunu telafi eder.
+
 ## Financial Reporting Foundation — açık future kalemler (ADR-268)
 
 - **Refund amount read-model (TD-FR-1):** müşteri iade TUTARI defteri yok. Bu fazda iade tutarı raporlanmaz

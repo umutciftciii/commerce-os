@@ -1714,6 +1714,12 @@ export const storeSettingsSchema = z.object({
   logoUrl: z.string().nullable(),
   faviconMediaId: z.string().nullable(),
   faviconUrl: z.string().nullable(),
+  // TODO-169 (ADR-269) — Mağaza iade politikası (satır yoksa aynı default'lar resolver'da).
+  returnWindowDays: z.number().int().nonnegative(),
+  returnsRequireApproval: z.boolean(),
+  returnsCustomerPaysShipping: z.boolean(),
+  returnsAllowReplacement: z.boolean(),
+  returnsAllowOriginalPaymentRefund: z.boolean(),
 });
 
 // null = bagi kaldir (FK NULL); absent = dokunma; string = bagla/degistir. Tenant +
@@ -1723,6 +1729,12 @@ export const storeSettingsUpdateRequestSchema = z
   .object({
     logoMediaId: z.string().min(1).nullable().optional(),
     faviconMediaId: z.string().min(1).nullable().optional(),
+    // TODO-169 (ADR-269) — İade politikası düzenleme (additive; absent=dokunma).
+    returnWindowDays: z.number().int().min(0).max(365).optional(),
+    returnsRequireApproval: z.boolean().optional(),
+    returnsCustomerPaysShipping: z.boolean().optional(),
+    returnsAllowReplacement: z.boolean().optional(),
+    returnsAllowOriginalPaymentRefund: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -11480,3 +11492,365 @@ export type AdminSlugDetail = z.infer<typeof adminSlugDetailSchema>;
 export type AdminSlugListResponse = z.infer<typeof adminSlugListResponseSchema>;
 export type AdminSlugDetailResponse = z.infer<typeof adminSlugDetailResponseSchema>;
 export type AdminSlugListQuery = z.infer<typeof adminSlugListQuerySchema>;
+
+/* ═══════════════════════ TODO-169 (ADR-269) — Returns Management Foundation ═══════════════════════
+ * Müşteri iade talebi + Store Admin iade operasyonu. İade OrderLine + quantity seviyesinde.
+ * Enum'lar Prisma ile birebir (stable/dildir); TR/EN etiketler i18n katmanındadır. Para minor-unit.
+ * Müşteri yüzeyi allowlist: adminNote / iç alan / secret ASLA dönmez. */
+
+export const returnStatusSchema = z.enum([
+  "REQUESTED",
+  "UNDER_REVIEW",
+  "PARTIALLY_APPROVED",
+  "APPROVED",
+  "REJECTED",
+  "AWAITING_SHIPMENT",
+  "RETURN_SHIPPED",
+  "RECEIVED",
+  "INSPECTION_REQUIRED",
+  "INSPECTED",
+  "REFUND_PENDING",
+  "REPLACEMENT_PENDING",
+  "COMPLETED",
+  "CANCELLED_BY_CUSTOMER",
+  "EXPIRED",
+  "CLOSED",
+]);
+
+export const returnResolutionTypeSchema = z.enum(["REFUND_TO_ORIGINAL_PAYMENT", "REPLACEMENT"]);
+
+export const returnReasonSchema = z.enum([
+  "NO_LONGER_NEEDED",
+  "ORDERED_BY_MISTAKE",
+  "BETTER_PRICE_AVAILABLE",
+  "NOT_AS_DESCRIBED",
+  "WRONG_ITEM_RECEIVED",
+  "DEFECTIVE_OR_NOT_WORKING",
+  "DAMAGED_PRODUCT",
+  "DAMAGED_PACKAGING",
+  "MISSING_PARTS_OR_ACCESSORIES",
+  "QUALITY_NOT_EXPECTED",
+  "SIZE_OR_FIT_ISSUE",
+  "DELIVERY_TOO_LATE",
+  "UNAUTHORIZED_PURCHASE",
+  "OTHER",
+]);
+
+export const returnItemConditionStatusSchema = z.enum([
+  "NEW_UNOPENED",
+  "OPENED_UNUSED",
+  "USED",
+  "DAMAGED",
+]);
+export const returnInspectionResultSchema = z.enum(["PASSED", "FAILED", "PARTIAL"]);
+export const returnRestockDecisionSchema = z.enum([
+  "RESTOCK_AS_SELLABLE",
+  "RESTOCK_AS_DAMAGED",
+  "DO_NOT_RESTOCK",
+  "RETURN_TO_VENDOR",
+  "DISPOSE",
+]);
+export const refundIntentStatusSchema = z.enum(["PENDING", "PROCESSED", "CANCELLED"]);
+
+/** Nedene göre açıklama zorunlu mu (server + client aynı kural). Kusurlu/hasarlı/yanlış/OTHER → zorunlu. */
+export const RETURN_REASONS_REQUIRING_COMMENT: readonly z.infer<typeof returnReasonSchema>[] = [
+  "NOT_AS_DESCRIBED",
+  "WRONG_ITEM_RECEIVED",
+  "DEFECTIVE_OR_NOT_WORKING",
+  "DAMAGED_PRODUCT",
+  "DAMAGED_PACKAGING",
+  "MISSING_PARTS_OR_ACCESSORIES",
+  "OTHER",
+] as const;
+
+export function returnReasonRequiresComment(reason: z.infer<typeof returnReasonSchema>): boolean {
+  return RETURN_REASONS_REQUIRING_COMMENT.includes(reason);
+}
+
+export const RETURN_COMMENT_MAX = 1000;
+
+/* ── Müşteri: iade uygunluğu (order detay üzeri) ─────────────────────────────── */
+export const returnLineEligibilityStatusSchema = z.enum([
+  "ELIGIBLE",
+  "NOT_DELIVERED",
+  "WINDOW_EXPIRED",
+  "FULLY_RETURNED",
+  "NOT_ELIGIBLE",
+]);
+
+export const customerReturnEligibilityLineSchema = z.object({
+  orderLineId: z.string(),
+  variantId: z.string(),
+  productSlug: z.string(),
+  sku: z.string(),
+  title: z.string(),
+  variantTitle: z.string(),
+  imageUrl: z.string().nullable(),
+  purchasedQuantity: z.number().int().positive(),
+  remainingReturnableQty: z.number().int().nonnegative(),
+  unitPriceMinor: z.number().int().nonnegative(),
+  eligibility: returnLineEligibilityStatusSchema,
+  returnWindowEndsAt: z.string().datetime().nullable(),
+  hasActiveReturn: z.boolean(),
+});
+
+export const customerReturnEligibilitySchema = z.object({
+  orderNumber: z.string(),
+  currency: currencySchema,
+  returnable: z.boolean(),
+  returnWindowEndsAt: z.string().datetime().nullable(),
+  allowReplacement: z.boolean(),
+  allowOriginalPaymentRefund: z.boolean(),
+  customerPaysReturnShipping: z.boolean(),
+  lines: z.array(customerReturnEligibilityLineSchema),
+});
+export const customerReturnEligibilityResponseSchema = z.object({
+  eligibility: customerReturnEligibilitySchema,
+});
+
+/* ── Müşteri: iade talebi oluşturma ───────────────────────────────────────────── */
+export const customerReturnCreateItemSchema = z.object({
+  orderLineId: z.string().min(1),
+  quantity: z.number().int().positive(),
+  reason: returnReasonSchema,
+  customerComment: z.string().max(RETURN_COMMENT_MAX).optional(),
+  // Daha önce yüklenmiş (bu müşteriye ait) iade attachment media id'leri.
+  attachmentMediaIds: z.array(z.string().min(1)).max(6).optional(),
+});
+
+export const customerReturnCreateRequestSchema = z.object({
+  orderNumber: z.string().min(1),
+  resolutionType: returnResolutionTypeSchema,
+  customerNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+  items: z.array(customerReturnCreateItemSchema).min(1),
+});
+
+/* ── Müşteri: iade özeti / detay / takip ──────────────────────────────────────── */
+export const customerReturnItemSchema = z.object({
+  id: z.string(),
+  orderLineId: z.string(),
+  title: z.string(),
+  variantTitle: z.string(),
+  sku: z.string(),
+  imageUrl: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  approvedQuantity: z.number().int().nonnegative().nullable(),
+  reason: returnReasonSchema,
+  customerComment: z.string().nullable(),
+  attachmentCount: z.number().int().nonnegative(),
+});
+
+export const customerReturnHistoryEntrySchema = z.object({
+  toStatus: returnStatusSchema,
+  actorType: z.enum(["CUSTOMER", "ADMIN", "SYSTEM"]),
+  createdAt: z.string().datetime(),
+});
+
+export const customerReturnSummarySchema = z.object({
+  returnNumber: z.string(),
+  orderNumber: z.string(),
+  status: returnStatusSchema,
+  resolutionType: returnResolutionTypeSchema,
+  itemCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+
+export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
+  currency: currencySchema,
+  customerNote: z.string().nullable(),
+  returnCarrier: z.string().nullable(),
+  returnTrackingNumber: z.string().nullable(),
+  customerPaysReturnShipping: z.boolean(),
+  // Snapshot verisinden TAHMİNİ iade tutarı (yalnız bilgilendirme; nihai TODO-170).
+  estimatedRefundMinor: z.number().int().nonnegative().nullable(),
+  returnWindowEndsAt: z.string().datetime(),
+  canCancel: z.boolean(),
+  canSubmitTracking: z.boolean(),
+  items: z.array(customerReturnItemSchema),
+  history: z.array(customerReturnHistoryEntrySchema),
+});
+
+export const customerReturnListResponseSchema = z.object({
+  data: z.array(customerReturnSummarySchema),
+});
+export const customerReturnDetailResponseSchema = z.object({ return: customerReturnDetailSchema });
+export const customerReturnCreateResponseSchema = z.object({
+  return: customerReturnDetailSchema,
+});
+
+// Müşteri iade kargo takip no gönderimi (AWAITING_SHIPMENT → RETURN_SHIPPED) + iptal.
+export const customerReturnTrackingRequestSchema = z.object({
+  carrier: z.string().min(1).max(120),
+  trackingNumber: z.string().min(1).max(120),
+});
+
+/* ── Store Admin: iade listesi ────────────────────────────────────────────────── */
+export const adminReturnListItemSchema = z.object({
+  id: z.string(),
+  returnNumber: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  itemCount: z.number().int().nonnegative(),
+  totalQuantity: z.number().int().nonnegative(),
+  resolutionType: returnResolutionTypeSchema,
+  status: returnStatusSchema,
+  requestedAt: z.string().datetime(),
+  returnWindowEndsAt: z.string().datetime(),
+  // SLA: talepten bu yana geçen gün (server hesaplar; renk yalnız gösterge, tek sinyal değil).
+  ageDays: z.number().int().nonnegative(),
+});
+
+export const adminReturnListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: z.enum(["requestedAt", "returnWindowEndsAt", "status"]).optional(),
+  status: returnStatusSchema.optional(),
+  resolutionType: returnResolutionTypeSchema.optional(),
+  reason: returnReasonSchema.optional(),
+  orderNumber: z.string().optional(),
+  // SLA gecikenler (ageDays >= eşik). true → yalnız geciken talepler.
+  overdue: z.enum(["true", "false"]).optional(),
+});
+
+export const adminReturnListResponseSchema = z.object({
+  data: z.array(adminReturnListItemSchema),
+  pagination: adminListPaginationSchema,
+});
+
+/* ── Store Admin: iade detayı ─────────────────────────────────────────────────── */
+export const adminReturnAttachmentSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  // Auth-gate'li iade attachment erişim yolu (public /media DEĞİL; sahip/store-admin stream).
+  url: z.string(),
+});
+
+export const adminReturnItemSchema = z.object({
+  id: z.string(),
+  orderLineId: z.string(),
+  title: z.string(),
+  variantTitle: z.string(),
+  sku: z.string(),
+  imageUrl: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  approvedQuantity: z.number().int().nonnegative().nullable(),
+  rejectedQuantity: z.number().int().nonnegative().nullable(),
+  reason: returnReasonSchema,
+  customerComment: z.string().nullable(),
+  conditionStatus: returnItemConditionStatusSchema.nullable(),
+  inspectionResult: returnInspectionResultSchema.nullable(),
+  restockDecision: returnRestockDecisionSchema.nullable(),
+  restockedAt: z.string().datetime().nullable(),
+  unitPriceMinor: z.number().int().nonnegative(),
+  // Bu satırın toplam satın alınan adedi + (bu talep hariç) daha önce iade edilen tutulan adet.
+  purchasedQuantity: z.number().int().positive(),
+  priorReturnedQuantity: z.number().int().nonnegative(),
+  attachments: z.array(adminReturnAttachmentSchema),
+});
+
+export const adminReturnHistoryEntrySchema = z.object({
+  fromStatus: returnStatusSchema.nullable(),
+  toStatus: returnStatusSchema,
+  actorType: z.enum(["CUSTOMER", "ADMIN", "SYSTEM"]),
+  actorId: z.string().nullable(),
+  note: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const adminReturnRefundIntentSchema = z.object({
+  currency: currencySchema,
+  productRefundMinor: z.number().int().nonnegative(),
+  shippingRefundMinor: z.number().int().nonnegative(),
+  taxRefundMinor: z.number().int().nonnegative(),
+  totalRefundMinor: z.number().int().nonnegative(),
+  status: refundIntentStatusSchema,
+});
+
+export const adminReturnDetailSchema = z.object({
+  id: z.string(),
+  returnNumber: z.string(),
+  orderNumber: z.string(),
+  status: returnStatusSchema,
+  resolutionType: returnResolutionTypeSchema,
+  currency: currencySchema,
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  shippingAddress: customerOrderAddressSummarySchema.nullable(),
+  customerNote: z.string().nullable(),
+  adminNote: z.string().nullable(),
+  rejectionReason: z.string().nullable(),
+  returnCarrier: z.string().nullable(),
+  returnTrackingNumber: z.string().nullable(),
+  refundShipping: z.boolean(),
+  returnWindowEndsAt: z.string().datetime(),
+  requestedAt: z.string().datetime(),
+  version: z.number().int().nonnegative(),
+  // Sipariş ödeme özeti (allowlist; refund uygunluğu için paymentStatus).
+  orderPaymentStatus: customerOrderPaymentStatusSchema,
+  items: z.array(adminReturnItemSchema),
+  history: z.array(adminReturnHistoryEntrySchema),
+  refundIntent: adminReturnRefundIntentSchema.nullable(),
+});
+
+export const adminReturnDetailResponseSchema = z.object({ return: adminReturnDetailSchema });
+
+/* ── Store Admin: aksiyon istekleri (hepsi state-machine + yetkiden geçer) ─────── */
+export const adminReturnApproveItemSchema = z.object({
+  returnItemId: z.string().min(1),
+  approvedQuantity: z.number().int().nonnegative(),
+});
+// Tam onay: items verilmezse tüm kalemler istenen adetle onaylanır. Kısmi: per-item approvedQuantity.
+export const adminReturnApproveRequestSchema = z.object({
+  items: z.array(adminReturnApproveItemSchema).optional(),
+  adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+});
+export const adminReturnRejectRequestSchema = z.object({
+  rejectionReason: z.string().min(1).max(RETURN_COMMENT_MAX),
+  adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+});
+export const adminReturnInspectItemSchema = z.object({
+  returnItemId: z.string().min(1),
+  conditionStatus: returnItemConditionStatusSchema,
+  inspectionResult: returnInspectionResultSchema,
+  restockDecision: returnRestockDecisionSchema,
+});
+export const adminReturnInspectRequestSchema = z.object({
+  items: z.array(adminReturnInspectItemSchema).min(1),
+  adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+});
+// Basit durum ilerletmeleri (incelemeye al / teslim alındı / refund|replacement pending / kapat).
+export const adminReturnTransitionRequestSchema = z.object({
+  targetStatus: returnStatusSchema,
+  adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+  refundShipping: z.boolean().optional(),
+});
+
+export type ReturnStatusValue = z.infer<typeof returnStatusSchema>;
+export type ReturnResolutionTypeValue = z.infer<typeof returnResolutionTypeSchema>;
+export type ReturnReasonValue = z.infer<typeof returnReasonSchema>;
+export type ReturnLineEligibilityStatus = z.infer<typeof returnLineEligibilityStatusSchema>;
+export type CustomerReturnEligibilityLine = z.infer<typeof customerReturnEligibilityLineSchema>;
+export type CustomerReturnEligibility = z.infer<typeof customerReturnEligibilitySchema>;
+export type CustomerReturnEligibilityResponse = z.infer<typeof customerReturnEligibilityResponseSchema>;
+export type CustomerReturnCreateItem = z.infer<typeof customerReturnCreateItemSchema>;
+export type CustomerReturnCreateRequest = z.infer<typeof customerReturnCreateRequestSchema>;
+export type CustomerReturnItem = z.infer<typeof customerReturnItemSchema>;
+export type CustomerReturnHistoryEntry = z.infer<typeof customerReturnHistoryEntrySchema>;
+export type CustomerReturnSummary = z.infer<typeof customerReturnSummarySchema>;
+export type CustomerReturnDetail = z.infer<typeof customerReturnDetailSchema>;
+export type CustomerReturnListResponse = z.infer<typeof customerReturnListResponseSchema>;
+export type CustomerReturnDetailResponse = z.infer<typeof customerReturnDetailResponseSchema>;
+export type CustomerReturnCreateResponse = z.infer<typeof customerReturnCreateResponseSchema>;
+export type CustomerReturnTrackingRequest = z.infer<typeof customerReturnTrackingRequestSchema>;
+export type AdminReturnListItem = z.infer<typeof adminReturnListItemSchema>;
+export type AdminReturnListQuery = z.infer<typeof adminReturnListQuerySchema>;
+export type AdminReturnListResponse = z.infer<typeof adminReturnListResponseSchema>;
+export type AdminReturnAttachment = z.infer<typeof adminReturnAttachmentSchema>;
+export type AdminReturnItem = z.infer<typeof adminReturnItemSchema>;
+export type AdminReturnHistoryEntry = z.infer<typeof adminReturnHistoryEntrySchema>;
+export type AdminReturnRefundIntent = z.infer<typeof adminReturnRefundIntentSchema>;
+export type AdminReturnDetail = z.infer<typeof adminReturnDetailSchema>;
+export type AdminReturnDetailResponse = z.infer<typeof adminReturnDetailResponseSchema>;
+export type AdminReturnApproveRequest = z.infer<typeof adminReturnApproveRequestSchema>;
+export type AdminReturnRejectRequest = z.infer<typeof adminReturnRejectRequestSchema>;
+export type AdminReturnInspectRequest = z.infer<typeof adminReturnInspectRequestSchema>;
+export type AdminReturnTransitionRequest = z.infer<typeof adminReturnTransitionRequestSchema>;

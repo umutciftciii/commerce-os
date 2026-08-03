@@ -21,6 +21,13 @@ import type {
   OrderCreateRequest,
   OrderListQuery,
   OrderListResponse,
+  // TODO-169 (ADR-269) — İade yönetimi.
+  AdminReturnListResponse,
+  AdminReturnDetailResponse,
+  AdminReturnApproveRequest,
+  AdminReturnRejectRequest,
+  AdminReturnInspectRequest,
+  AdminReturnTransitionRequest,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -936,6 +943,33 @@ export const storeApi = {
     mutatingCall<Order>(`/api/orders/${orderId}/place`, { method: "POST" }),
   cancelOrder: (orderId: string, input: OrderCancelRequest = {}) =>
     mutatingCall<Order>(`/api/orders/${orderId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // Returns (TODO-169 / ADR-269) — iade operasyonu. Okumalar salt; aksiyonlar CSRF'li.
+  // Her aksiyon güncel AdminReturnDetail döner (UI refetch yerine doğrudan yansıtır).
+  listReturns: (query?: AdminListRequestQuery) =>
+    call<AdminReturnListResponse>(`/api/orders/returns${listQueryString(query)}`),
+  getReturn: (returnId: string) =>
+    call<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}`),
+  transitionReturn: (returnId: string, input: AdminReturnTransitionRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/transition`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  rejectReturn: (returnId: string, input: AdminReturnRejectRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/reject`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  approveReturn: (returnId: string, input: AdminReturnApproveRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/approve`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  inspectReturn: (returnId: string, input: AdminReturnInspectRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/inspect`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

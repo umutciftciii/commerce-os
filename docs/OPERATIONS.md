@@ -1595,3 +1595,29 @@ Excel'de düzgün açılır, `=`/`+` ile başlayan metin nötrlenir. **Mutabakat
 Σ = ürün kırılımı net ile tutarlı; CANCELLED satışa girmez; UNPAID tahsilata girmez.
 
 **Boyutlar:** 375 / 768 / 1024 / 1440. **Temizlik:** smoke sonunda fixture store + siparişleri sil.
+
+## Returns Management smoke runbook (ADR-269 · TODO-169)
+
+**Amaç:** izole store/customer/order ile müşteri iade akışı + admin operasyonu + RefundIntent (PENDING, finansa
+dokunmaz) doğrulaması. Servisler: worktree gateway (:4100) + storefront (:3100) + store-admin, `enterprise-demo`
+env; DB'ye migration `20260804090000_todo169_returns_management_foundation` uygulanmış olmalı (`prisma migrate deploy`).
+
+**Fixture (izole):** bir müşteri + DELIVERED bir sipariş (≥1 gönderi `ShipmentStatus.DELIVERED`, `deliveredAt`
+set — manuel durum route'undan ilerletilebilir), çok satırlı; ayrıca (a) reddedilecek talep, (b) süresi geçmiş
+sipariş (deliveredAt eski), (c) iptal edilecek talep, (d) replacement talebi için stoklu satır.
+
+**Müşteri akışı:** Siparişlerim → DELIVERED sipariş → "Ürünleri iade et" → iade edilebilir tarih + kalan adet
+görünür → bir ürün seç + adet → neden seç (kusurlu → açıklama ZORUNLU) → foto ekle → orijinal ödeme yöntemini seç
+→ talep gönder → referans no + takip ekranı. İkinci kez aynı satır için kalan uygunluk DOĞRU düşmeli.
+
+**Admin akışı:** `Siparişler > İadeler` liste → detay → incelemeye al → kısmi onay → (müşteri durumu görsün) →
+(müşteri) tracking gir → teslim alındı → inceleme sonucu + restock kararı → RESTOCK_AS_SELLABLE'da stok idempotent
+artar → refund pending → **RefundIntent PENDING oluşur, GERÇEK refund YAPILMAZ, finans raporu DEĞİŞMEZ**.
+
+**Ek senaryolar:** reddedilen talep (zorunlu neden) · süresi geçmiş sipariş ("İade süresi doldu") · müşteri iptali
+(yalnız onay öncesi) · replacement (stok/varyant mevcutsa). **Responsive:** 375 / 768 / 1024 / 1440. Smoke sonunda
+fixture FK-güvenli temizlenir (RefundIntent → ReturnStatusHistory → ReturnAttachment+MediaAsset → ReturnItem →
+ReturnRequest → ReturnNumberCounter; sonra order/customer/shipment).
+
+**Tenant izolasyon kontrolü:** başka müşteri/başka store iade no → 404 (403 değil); attachment yalnız sahip/store
+admin stream eder; public `/media/*/returns/*` → 404.

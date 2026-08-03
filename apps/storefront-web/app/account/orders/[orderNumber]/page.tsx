@@ -6,7 +6,7 @@ import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
 import { getMyReviews } from "../../../../lib/server/reviews";
-import { isReorderable, returnEligibility } from "../../../../lib/orders";
+import { canRequestReturn, isReorderable } from "../../../../lib/orders";
 import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
@@ -126,7 +126,7 @@ export default async function OrderDetailPage({
             orderNumber={order.orderNumber}
             t={o}
             reorderable={isReorderable(order)}
-            returnState={returnEligibility(order)}
+            canReturn={canRequestReturn(order)}
             review={reviewState}
             reviewsT={dict.reviews}
             layout="detail"

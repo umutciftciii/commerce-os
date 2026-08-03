@@ -16,6 +16,14 @@ import type {
   OrderListQuery,
   OrderListResponse,
   OrderUpdateRequest,
+  // TODO-169 (ADR-269) — Store Admin iade yönetimi kontrat tipleri.
+  AdminReturnListQuery,
+  AdminReturnListResponse,
+  AdminReturnDetailResponse,
+  AdminReturnApproveRequest,
+  AdminReturnRejectRequest,
+  AdminReturnInspectRequest,
+  AdminReturnTransitionRequest,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -375,6 +383,23 @@ export type {
   OrderListQuery,
   OrderListResponse,
   OrderUpdateRequest,
+  // TODO-169 (ADR-269) — Store Admin iade yönetimi kontrat tipleri (store-admin tüketir).
+  ReturnStatusValue,
+  ReturnResolutionTypeValue,
+  ReturnReasonValue,
+  AdminReturnListItem,
+  AdminReturnListQuery,
+  AdminReturnListResponse,
+  AdminReturnDetail,
+  AdminReturnItem,
+  AdminReturnHistoryEntry,
+  AdminReturnRefundIntent,
+  AdminReturnAttachment,
+  AdminReturnDetailResponse,
+  AdminReturnApproveRequest,
+  AdminReturnRejectRequest,
+  AdminReturnInspectRequest,
+  AdminReturnTransitionRequest,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -2127,6 +2152,36 @@ export interface ApiClient {
       place(storeId: string, orderId: string, token?: string): Promise<Order>;
       cancel(storeId: string, orderId: string, input?: OrderCancelRequest, token?: string): Promise<Order>;
     };
+    // TODO-169 (ADR-269) — Store Admin iade operasyonları. Tümü store-scoped
+    // (requireStorePlatformAdmin); mutasyonlar state-machine + yetki + version'dan geçer.
+    returns: {
+      list(storeId: string, query?: AdminReturnListQuery, token?: string): Promise<AdminReturnListResponse>;
+      get(storeId: string, returnId: string, token?: string): Promise<AdminReturnDetailResponse>;
+      transition(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnTransitionRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      reject(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnRejectRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      approve(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnApproveRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      inspect(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnInspectRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+    };
     customers: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
       list(
@@ -3757,6 +3812,46 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/place`, "POST", undefined, token),
         cancel: (storeId, orderId, input = {}, token) =>
           sendJson<Order>(`/stores/${storeId}/orders/${orderId}/cancel`, "POST", input, token),
+      },
+      // TODO-169 (ADR-269) — İade yönetimi. Liste query'si allowlist gateway'de doğrulanır.
+      returns: {
+        list: (storeId, query, token) =>
+          getJson<AdminReturnListResponse>(
+            `/stores/${storeId}/returns${buildQueryString(
+              query as Record<string, string | number | undefined> | undefined,
+            )}`,
+            token,
+          ),
+        get: (storeId, returnId, token) =>
+          getJson<AdminReturnDetailResponse>(`/stores/${storeId}/returns/${returnId}`, token),
+        transition: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/transition`,
+            "POST",
+            input,
+            token,
+          ),
+        reject: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/reject`,
+            "POST",
+            input,
+            token,
+          ),
+        approve: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/approve`,
+            "POST",
+            input,
+            token,
+          ),
+        inspect: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/inspect`,
+            "POST",
+            input,
+            token,
+          ),
       },
       customers: {
         list: (storeId, token, query) =>

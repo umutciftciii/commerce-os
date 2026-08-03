@@ -10,8 +10,8 @@ import { formatMinor } from "../../../lib/money";
 import {
   ORDERS_TABS,
   applyOrderFilters,
+  canRequestReturn,
   isReorderable,
-  returnEligibility,
   type OrdersTab,
 } from "../../../lib/orders";
 import { resolveOrderReview } from "../../../lib/orders-review";
@@ -194,7 +194,7 @@ function OrderCard({
         orderNumber={order.orderNumber}
         t={o}
         reorderable={isReorderable(order)}
-        returnState={returnEligibility(order)}
+        canReturn={canRequestReturn(order)}
         review={resolveOrderReview(order, eligible, reviews)}
         reviewsT={reviewsT}
       />

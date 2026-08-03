@@ -201,6 +201,9 @@ import {
   SPONSORED_TOKEN_VERSION,
 } from "./sponsored/sponsored-core.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
+import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
+import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
+import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
 import {
   createPrismaShippingWebhookPersistence,
   registerShippingWebhookRoutes,
@@ -528,6 +531,12 @@ type StoreSettingsRecord = {
   faviconMediaId: string | null;
   logo: { storageKey: string } | null;
   favicon: { storageKey: string } | null;
+  // TODO-169 (ADR-269) — Mağaza iade politikası alanları.
+  returnWindowDays: number;
+  returnsRequireApproval: boolean;
+  returnsCustomerPaysShipping: boolean;
+  returnsAllowReplacement: boolean;
+  returnsAllowOriginalPaymentRefund: boolean;
 };
 type ProductRecord = Pick<
   Product,
@@ -1088,7 +1097,16 @@ export interface AppDataAccess extends CampaignDataAccess {
   getStoreSettings(storeId: string): Promise<StoreSettingsRecord | null>;
   upsertStoreSettings(
     storeId: string,
-    input: { logoMediaId?: string | null; faviconMediaId?: string | null },
+    input: {
+      logoMediaId?: string | null;
+      faviconMediaId?: string | null;
+      // TODO-169 (ADR-269) — İade politikası (absent=dokunma; nullable DEĞİL — boolean/int).
+      returnWindowDays?: number;
+      returnsRequireApproval?: boolean;
+      returnsCustomerPaysShipping?: boolean;
+      returnsAllowReplacement?: boolean;
+      returnsAllowOriginalPaymentRefund?: boolean;
+    },
   ): Promise<StoreSettingsRecord>;
   // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence (sparse override + plan default).
   listStoreModuleOverrides(
@@ -1792,6 +1810,12 @@ function serializeStoreSettings(
     logoUrl: row?.logo ? resolveMediaUrl(baseUrl, row.logo.storageKey) : null,
     faviconMediaId: row?.faviconMediaId ?? null,
     faviconUrl: row?.favicon ? resolveMediaUrl(baseUrl, row.favicon.storageKey) : null,
+    // TODO-169 (ADR-269) — Satır yoksa güvenli default'lar (schema default'larıyla birebir; ADR-269 §3).
+    returnWindowDays: row?.returnWindowDays ?? 14,
+    returnsRequireApproval: row?.returnsRequireApproval ?? true,
+    returnsCustomerPaysShipping: row?.returnsCustomerPaysShipping ?? true,
+    returnsAllowReplacement: row?.returnsAllowReplacement ?? true,
+    returnsAllowOriginalPaymentRefund: row?.returnsAllowOriginalPaymentRefund ?? true,
   });
 }
 
@@ -2844,6 +2868,12 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     faviconMediaId: true,
     logo: { select: { storageKey: true } },
     favicon: { select: { storageKey: true } },
+    // TODO-169 (ADR-269) — İade politikası alanları (defaults DB'de; satır yoksa serialize default).
+    returnWindowDays: true,
+    returnsRequireApproval: true,
+    returnsCustomerPaysShipping: true,
+    returnsAllowReplacement: true,
+    returnsAllowOriginalPaymentRefund: true,
   } satisfies Prisma.StoreSettingsSelect;
   const productSelect = {
     id: true,
@@ -3456,12 +3486,23 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           storeId,
           logoMediaId: input.logoMediaId ?? null,
           faviconMediaId: input.faviconMediaId ?? null,
+          // TODO-169 — İlk kayıt: verilen politika alanları yazılır, absent olanlar schema default'ına düşer.
+          ...(input.returnWindowDays !== undefined ? { returnWindowDays: input.returnWindowDays } : {}),
+          ...(input.returnsRequireApproval !== undefined ? { returnsRequireApproval: input.returnsRequireApproval } : {}),
+          ...(input.returnsCustomerPaysShipping !== undefined ? { returnsCustomerPaysShipping: input.returnsCustomerPaysShipping } : {}),
+          ...(input.returnsAllowReplacement !== undefined ? { returnsAllowReplacement: input.returnsAllowReplacement } : {}),
+          ...(input.returnsAllowOriginalPaymentRefund !== undefined ? { returnsAllowOriginalPaymentRefund: input.returnsAllowOriginalPaymentRefund } : {}),
         },
         // Guncelleme: absent=dokunma, null=temizle. Yalniz gonderilen anahtarlari yaz
         // (bir alani set ederken digerinin korunmasi bu spread'e bagli — KRITIK).
         update: {
           ...(input.logoMediaId !== undefined ? { logoMediaId: input.logoMediaId } : {}),
           ...(input.faviconMediaId !== undefined ? { faviconMediaId: input.faviconMediaId } : {}),
+          ...(input.returnWindowDays !== undefined ? { returnWindowDays: input.returnWindowDays } : {}),
+          ...(input.returnsRequireApproval !== undefined ? { returnsRequireApproval: input.returnsRequireApproval } : {}),
+          ...(input.returnsCustomerPaysShipping !== undefined ? { returnsCustomerPaysShipping: input.returnsCustomerPaysShipping } : {}),
+          ...(input.returnsAllowReplacement !== undefined ? { returnsAllowReplacement: input.returnsAllowReplacement } : {}),
+          ...(input.returnsAllowOriginalPaymentRefund !== undefined ? { returnsAllowOriginalPaymentRefund: input.returnsAllowOriginalPaymentRefund } : {}),
         },
         select: storeSettingsSelect,
       }),
@@ -7396,6 +7437,17 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
+  // TODO-169 (ADR-269) — Returns Management: store-admin iade operasyon uçları (state-machine +
+  // yetki + optimistic version). Private attachment stream + müşteri uçları mediaStorage'a bağımlı
+  // olduğundan MEDIA bölümünden SONRA kaydedilir (aşağıda).
+  registerReturnAdminRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
   // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection: store-admin
   // tahsilat uçları (ödeme bağlantısı oluştur/yenile/e-postala, manuel ödeme,
   // ödeme durumu) + opaque token'lı public müşteri ödeme sayfası (/pay/:token).
@@ -7599,7 +7651,18 @@ export function createServer(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  const mediaStorage = new LocalDiskDriver(mediaDir);
   if (mediaStaticEnabled) {
+    // TODO-169 (ADR-269 §8) — İade attachment'ları PRIVATE. Public statik servis, path'inde
+    // "/returns/" içeren HER /media isteğini 404'ler; bu dosyalar yalnız auth-gate'li iade
+    // attachment route'undan (sahip müşteri / store admin) stream edilir. Non-enumerable key +
+    // bu guard = uygulama-katmanı gizlilik (gerçek private-bucket/signed-URL: TECHNICAL_DEBT).
+    app.addHook("onRequest", async (request, reply) => {
+      const path = request.url.split("?")[0];
+      if (path.startsWith("/media/") && path.includes("/returns/")) {
+        await reply.code(404).send(errorBody("NOT_FOUND", "Not found."));
+      }
+    });
     app.register(fastifyStatic, {
       root: mediaDir,
       prefix: "/media/",
@@ -7608,12 +7671,31 @@ export function createServer(
   }
   registerMediaAdminRoutes(app, {
     config,
-    storage: new LocalDiskDriver(mediaDir),
+    storage: mediaStorage,
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-169 (ADR-269 §8) — İade attachment PRIVATE stream (auth-gate'li; sahip müşteri / store
+  // admin) + storefront müşteri iade uçları (upload PRIVATE context'e yazar). mediaStorage'a bağımlı.
+  registerReturnAttachmentServeRoutes(app, {
+    storage: mediaStorage,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    resolveCustomer: (request, storeId) =>
+      resolveCustomerFromRequest(request, storeId, { customers, config }),
+    resolvePublicStore,
+  });
+  registerReturnCustomerRoutes(app, {
+    config,
+    customers,
+    storage: mediaStorage,
+    resolvePublicStore,
   });
 
   // F4A — Kampanya/kupon yonetimi (ADR-058): store-admin CRUD + durum gecisleri.

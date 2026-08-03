@@ -1335,6 +1335,38 @@ remove→badge temiz; mobil temiz). Açık follow-up TD-177 (PLP/home bounded st
 deselection persist). **Gift Card blocker KALDIRILDI.** TODO-168 DEĞİŞMEDİ. Detay:
 `docs/analysis/BUG-CART-002-availability-badge-selection.md`.
 
+## TODO-169 Returns Management Foundation — IN_PROGRESS (2026-08-04, commit YOK) — ADR-269
+
+Müşteri iade talebi + Store Admin iade operasyon süreci. İade **OrderLine + quantity** seviyesinde modellenir
+(bir sipariş zamanla N `ReturnRequest`; her request N `ReturnItem`; kısmi adet + çoklu satır + tekrarlı iade;
+toplam talep+kabul+tamamlanan adet satın alınanı AŞAMAZ). İlk faz çözüm türleri: `REFUND_TO_ORIGINAL_PAYMENT`,
+`REPLACEMENT` (Store Credit / Gift Card / Manufacturer / Instant / Exchange = FUTURE, enum-reserve edilmedi).
+**Eligibility server-authoritative fail-closed:** order-level DELIVERED YOK → teslim shipment-seviyesi (≥1 DELIVERED
+gönderi); stabil ankor additive `Shipment.deliveredAt` (DELIVERED geçişinde manuel+sync yollarında set, migration
+mevcut DELIVERED'ları `updatedAt` ile backfill, çoklu gönderide MAX); `returnWindowDays` içinde; kalan iade
+edilebilir qty > 0 (red/iptal/expire adedi havuza döner). Mağaza politikası `StoreSettings` additive 5 alan
+(`returnWindowDays=14` TR mesafeli satış, `returnsRequireApproval`, `returnsCustomerPaysShipping`,
+`returnsAllowReplacement`, `returnsAllowOriginalPaymentRefund`; satır yoksa aynı güvenli default). Saf state-machine
+(`returns/status-map.ts`, 17 durum, terminal immutable, aktör yetkisi ayrımı, illegal→409). Append-only
+`ReturnStatusHistory(actorType/actorId)` birincil audit; admin aksiyonları ek `recordAudit`. **Finans etkisi YOK bu
+fazda:** `RefundIntent` PENDING oluşur ama `refundAmountsSupported=false` KALIR, gross satış azalmaz; ADR-268 §5
+`OrderRefund` defterinin upstream'i (TODO-170 işler). Tutar SAF hesap (immutable OrderLine snapshot × iade oranı;
+order-discount gross-ağırlıklı dağıtım son-satır remainder; inclusive KDV üstüne eklenmez; kargo yalnız politika/
+admin kararıyla). Restock yalnız `RESTOCK_AS_SELLABLE` (idempotent, `InventoryMovement RETURN` +
+`InventoryAdjustment RETURN_RESTOCK`). Attachment PRIVATE (`MediaContext.RETURN_ATTACHMENT`; public `/media/*`
+onRequest guard 404; auth-gate'li stream; `StorageDriver.read`). Kargo: mevcut carrier/label altyapısı iade-etiketi
+üretmez → ilk faz manuel talimat + müşteri tracking no + admin "teslim alındı" (sahte etiket YOK). Bildirim
+post-commit fail-open (domain txn rollback etmez; gerçek email teslimi platform-geneli placeholder — dürüstçe
+dokümante). Backend `apps/api-gateway/src/returns/` (status-map · eligibility · refund-calc SAF+36 birim test ·
+service · routes-customer/admin/attachment · serialize); contracts return şemaları; `StoreSettings` politika wiring.
+Migration `20260804090000_todo169_returns_management_foundation` (additive: 8 yeni enum + 2 enum value +
+`Shipment.deliveredAt` + `StoreSettings` 5 alan + `ReturnNumberCounter/ReturnRequest/ReturnItem/ReturnAttachment/
+ReturnStatusHistory/RefundIntent`). Backend gate: gateway typecheck 0 hata. UI: storefront müşteri sihirbazı
+(ürün/adet → neden/açıklama/foto → çözüm → özet/onay + takip ekranı) + admin `Siparişler > İadeler` (liste + detay
++ aksiyonlar). **Kapsam dışı:** gerçek provider refund (TODO-170), Gift Card / Store Credit, Marketplace repo,
+otomatik iade etiketi, PB-3/TD-139. Karar [ADR-269](./adr/ADR-269-returns-authority-and-lifecycle.md); analiz
+`docs/analysis/RETURNS-management-foundation.md`. **TODO-170 Refund Ledger & Payment Reversal — BLOCKED_BY TODO-169.**
+
 ## Financial Reporting Foundation — CLOSED & DEPLOYED (2026-08-03, PR #168 merge `9a4c8db` + fix PR #169 `eb31cc3`)
 
 Store-Admin **Finans > Raporlar** modülü: sipariş SNAPSHOT'larından türetilen (canlı fiyat DEĞİL) mağaza-geneli

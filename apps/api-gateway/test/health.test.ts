@@ -3244,6 +3244,12 @@ describe("api gateway", () => {
       logoUrl: null,
       faviconMediaId: null,
       faviconUrl: null,
+      // TODO-169 (ADR-269) — satir yoksa iade politikasi guvenli default'lari doner.
+      returnWindowDays: 14,
+      returnsRequireApproval: true,
+      returnsCustomerPaysShipping: true,
+      returnsAllowReplacement: true,
+      returnsAllowOriginalPaymentRefund: true,
     });
     // GET olusturma YAPMAZ (satir hala yok).
     expect(dataAccess.storeSettings).toHaveLength(0);

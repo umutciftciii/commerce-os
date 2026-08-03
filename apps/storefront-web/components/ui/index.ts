@@ -20,3 +20,10 @@ export { ProductCard } from "./product-card";
 export { ProductCardSkeleton } from "./product-card-skeleton";
 export { EmptyState } from "./empty-state";
 export { Stars } from "./stars";
+// TODO-169 — İade sihirbazı editoryel primitive'leri (adım göstergesi, seçim, sayaç, foto).
+export { Stepper } from "./stepper";
+export type { StepDefinition } from "./stepper";
+export { Checkbox, Radio } from "./choice";
+export { CharCounter } from "./char-counter";
+export { PhotoUpload } from "./photo-upload";
+export type { PhotoUploadResult, PhotoUploadLabels } from "./photo-upload";
