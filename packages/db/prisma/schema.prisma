@@ -919,6 +919,9 @@ model Store {
   // TODO-159D (ADR-093) — Customer Lists & Wishlist: ortak liste altyapisi (store-scoped tenant sutunu).
   customerLists                    CustomerList[]
   customerListItems                CustomerListItem[]
+  // TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation (store-scoped tenant sutunu).
+  carts                            Cart[]
+  cartLines                        CartLine[]
   // TODO-159E (ADR-094) — Product Reviews & Ratings (store-scoped tenant sutunu).
   productReviews                   ProductReview[]
   productReviewHelpfuls            ProductReviewHelpful[]
@@ -1285,6 +1288,8 @@ model ProductVariant {
   customerListItems     CustomerListItem[]
   // TODO-159E (ADR-094) — bu varyant BAGLAMINDA yazilmis yorumlar (SetNull → varyant silinince yorum yasar).
   reviews               ProductReview[]
+  // TODO-167 (ADR-266) — Persistent cart satirlari (onDelete: Cascade → varyant silinince cart satiri kalkar).
+  cartLines             CartLine[]
 
   @@unique([storeId, sku])
   // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
@@ -1542,6 +1547,8 @@ model Customer {
   customerCoupons         CustomerCoupon[]
   // TODO-159D (ADR-093) — Customer Lists & Wishlist (favori + alisveris listeleri).
   customerLists           CustomerList[]
+  // TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation (customer-owned kalici sepet).
+  carts                   Cart[]
   // TODO-159E (ADR-094) — Product Reviews & Ratings (musterinin yorumlari + faydali oylari).
   productReviews          ProductReview[]
   productReviewHelpfuls   ProductReviewHelpful[]
@@ -2710,6 +2717,72 @@ model CustomerListItem {
   @@index([storeId])
   @@index([listId, addedAt])
   @@index([productId])
+  @@index([variantId])
+}
+
+// ============================================================================
+// TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation.
+//
+// Authenticated musterinin KALICI, cross-device sepeti. Anonim sepet DB'ye GIRMEZ
+// (mevcut commerce_os_cart HMAC cookie'de kalir). Cart yalniz REFERANS tutar
+// (variant + quantity); fiyat/liste/indirim SAKLANMAZ — her okumada assemblePublicCart
+// ile sunucu-otoriter TAZE hesaplanir. Snapshot/ack alanlari BU FAZDA YOK (TODO-168).
+// Her (store, customer) icin TEK ACTIVE cart: migration'daki KISMI unique index ile
+// zorlanir — UNIQUE(storeId, customerId) WHERE status='ACTIVE' (Prisma partial index'i
+// sema dilinde ifade edemez; bkz. migration.sql + ADR-266). version optimistic-
+// concurrency icin atomik artar (stale mutation → 409 CART_STALE).
+// ============================================================================
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  MERGED
+  EXPIRED
+}
+
+model Cart {
+  id             String     @id @default(cuid())
+  storeId        String
+  customerId     String
+  status         CartStatus @default(ACTIVE)
+  // Optimistic-concurrency + checkout tazelik token'i. Her anlamli mutation'da +1.
+  version        Int        @default(1)
+  // Sepetin yerlesik para birimi (tek-para invariant'i; satirlar yalniz referans tutar).
+  currency       String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  lastActivityAt DateTime   @default(now())
+  convertedAt    DateTime?
+  mergedAt       DateTime?
+  expiredAt      DateTime?
+
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lines    CartLine[]
+
+  @@index([storeId])
+  @@index([storeId, customerId, status])
+  // Expiry sweep taramasi (ACTIVE cart'lar lastActivityAt esigine gore).
+  @@index([status, lastActivityAt])
+}
+
+model CartLine {
+  id        String   @id @default(cuid())
+  storeId   String
+  cartId    String
+  variantId String
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  store   Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Bir varyant bir cart'ta TEK satir; merge quantity toplar.
+  @@unique([cartId, variantId])
+  @@index([storeId])
+  @@index([cartId])
   @@index([variantId])
 }
 

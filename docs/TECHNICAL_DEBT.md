@@ -1895,3 +1895,46 @@ Denetimde Final Polish kapsamına bırakılan kalemlerin uygulanması. Detay: `d
 - **Checkout smoke: KISMİ.** Non-auth yüzeyler doğrulandı (sepet TD-173, checkout→login gate, editorial login + aria + 375). Tam kimlik-doğrulamalı akış YAPILMADI (güvenlik kuralı: hesap oluşturma + parola girme kısıtlı; bilinen-parolalı müşteri fixture'ı yok).
 
 **Sonuç (güncelleme 2026-08-02, ayrı acceptance turu):** Üç smoke İZOLE test verisiyle TAM GEÇTİ → **TD-157 CLOSED & DEPLOYED / Final Enterprise UI Polish CLOSED & DEPLOYED.** (a) Hover-zoom regresyonu çözüldü+browser; (b) Theme publish/rollback throwaway store'da tam lifecycle (draft-preview görünür diff→publish→preview=published→revision→rollback→immutable revision + cache invalidation + tenant isolation); (c) Authenticated checkout izole müşteri (env-driven parola) ile login→order PAID→account detail; reservation invariant + order snapshot immutable + KDV/fiyat doğru. Ek: **inclusive-VAT order-detail düzeltmesi** (taxMinor=0 → "Fiyatlara KDV dahildir" / "Prices include VAT", yanıltıcı ₺0,00 kaldırıldı). PR #163 (merge 1dd7d71); docker storefront/store-admin/admin/api-gateway main'den rebuild + post-deploy smoke PASS; izole smoke FK-güvenli temizlendi. Gate: build+typecheck+lint+test(storefront523/store-admin364/admin30/ui31/theme287)+git diff --check YEŞİL. Kalan tek pre-existing PROD BLOCKER PB-3/TD-139 (offsite backup, UI dışı).
+
+## TODO-167 Persistent Cart & Cross-Device Foundation (Faz A) — 2026-08-03 (worktree, commit YOK)
+
+Hibrit cart: anonim=cookie (değişmez), authenticated=kalıcı DB cart (cross-device). Cart REFERANS tutar
+(fiyat YOK; ortak assemblePublicCart). Tek ACTIVE/(store,customer) partial-unique; version optimistic-
+concurrency (409 CART_STALE); deterministik login-merge (100-cap + MERGE_LIMIT_EXCEEDED, sessiz kayıp yok);
+checkout DB-cart otoriter + CONVERTED; env-gated 90-gün expiry sweep (default OFF). Detay:
+`docs/analysis/PERSISTENT-cart-implementation.md`, `docs/adr/ADR-266-persistent-cart-authority.md`.
+Gate: build 27/27 + lint 42/42 + test 2132 + git diff --check YEŞİL. Yeni testler: cart-core(14)/
+cart-data(10)/customer-cart-routes(8)/cart-expiry-service(3).
+
+**Yeni açık borçlar:**
+- **TD-174** — authenticated cart kupon-kodu + kargo-seçeneği SEÇİMİ persist edilmiyor (otomatik kampanyalar
+  uygulanır; seçim threading follow-up). Faz A membership + cross-device odaklı.
+- **TD-175** — cart CONVERTED order PLACE anında (anonim cookie-temizleme ile parity), strictly-on-paid
+  değil; "başarısız ödeme cart'ı korur" refinement ödeme-yolu hook'ları gerektirir (future).
+
+### TODO-167 update (2026-08-03) — TD-175 RESOLVED + isolated acceptance PASSED
+
+- **TD-175 RESOLVED:** cart CONVERTED artık ödeme SETTLEMENT'ında (`consumeOrderReservations` / SALE_COMMIT —
+  webhook + test-payment tek chokepoint) yapılıyor; order PLACE'de DEĞİL. Başarısız ödeme cart'ı ACTIVE
+  bırakır (yeniden denenebilir); başarılı ödeme convert eder (+ satır temizler, sonraki okuma yeni boş ACTIVE
+  lazy oluşturur). Ödeme tx'i içinde atomik. Değişiklik: `packages/inventory/src/reservation-operations.ts`.
+- **İzole browser acceptance (FONKSİYONEL) GEÇTİ:** ayrı `cart_smoke` DB + worktree gateway :4100 + izole
+  seed + bilinen-parolalı müşteri + MOCK/TEST ödeme. Canlı HTTP + DB kanıtı: cart mekaniği 17/17 (CART_STALE
+  concurrency dahil), checkout DB-cart otoritesi + failed-payment→ACTIVE, convert-on-paid doğrudan DB PROOF,
+  login-merge 4/4, DB invariant 4/4 (tek ACTIVE, unique, CartLine'da fiyat kolonu YOK, sızıntı yok).
+  enterprise-demo PRISTINE bırakıldı. **Görsel/responsive UI walkthrough (375/768/1024/1440) çalıştırılMADI**
+  (storefront dev boot edilmedi; aynı server-authoritative projeksiyonu render eder). Detay:
+  `docs/analysis/PERSISTENT-cart-implementation.md §8`.
+- **Kalan açık borç:** TD-174 (auth cart kupon/kargo seçim persist).
+
+### TODO-167 update (2026-08-03) — UI acceptance RUN
+
+Friendly persistent-cart notice UI eklendi (merge / cross-device / payment-preserved → TR/EN dostu metin;
+ham CART_STALE/MERGE_LIMIT_EXCEEDED gösterilmez; role=status/alert + aria-live + not-color-only + erişilebilir
+kapat). İzole storefront (:3100) + gateway (:4100) canlı browser: authenticated DB cart render (satır/adet/
+üstü-çizili+indirimli fiyat/sipariş özeti/ÖDEMEYE GEÇ), cross-device görsel (API-doldurulmuş cart browser'da),
+empty cart, **responsive 375/768/1024/1440 (yatay taşma yok)**, a11y canlı-doğrulandı; merge banner login sonrası
+cart HTML'de (one-shot). Gate YEŞİL: build 27/27 + lint 42/42 + test (gateway 2132 / storefront 526 / inventory 31 /
+cart 35) + git diff --check. enterprise-demo PRISTINE. Ortam notu: browser-automation add-to-cart button-onClick'i
+tetikleyemedi (login form-submit + gateway-API ile sürüldü; her adımın fonksiyonel davranışı HTTP+DB ile bağımsız
+kanıtlı). Detay: docs/analysis/PERSISTENT-cart-implementation.md §8.

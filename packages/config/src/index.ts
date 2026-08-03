@@ -237,6 +237,14 @@ export const envSchema = z.object({
   RECOMMENDATION_EVENT_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(180)),
   RECOMMENDATION_EVENT_RETENTION_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
   RECOMMENDATION_EVENT_RETENTION_MAX_DELETE_PER_RUN: optionalNumberEnv(z.coerce.number().int().positive().default(200000)),
+  // ── TODO-167 (ADR-266) — Persistent Cart expiry sweep (AYRI domain; default OFF). env gate:
+  // acikca etkinlestirilmeden ASLA otomatik EXPIRE. lastActivityAt < cutoff olan ACTIVE cart → EXPIRED
+  // (hard-delete YOK; CONVERTED/MERGED/EXPIRED korunur — retention/anonymization future).
+  CART_EXPIRY_SWEEP_ENABLED: optionalBooleanEnv(false),
+  CART_EXPIRY_SWEEP_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  // Inaktivite esigi (gun; ADR-266 = 90). Alt sinir 30 (guvenlik tabani).
+  CART_EXPIRY_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(90)),
+  CART_EXPIRY_SWEEP_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
   // ── TODO-162 (ADR-205) — Home Discovery section-analytics (event domain). ─────────────────────
   // Discovery event kayit ucu rate limit (IP-hash kayan pencere): pencere basina azami istek. Section
   // impression'lari yogun oldugundan recommendation'dan biraz yuksek varsayilan (funnel gurultusu).

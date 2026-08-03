@@ -2,11 +2,14 @@ import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui"
 import { getStorefrontDict } from "../../lib/i18n";
 import {
   readCartItems,
+  readCartNotice,
   readCoupon,
   readDeselectedItems,
   readShippingOption,
 } from "../../lib/server/cart-cookie";
-import { resolveCartWithCanonicalItems } from "../../lib/server/cart";
+import type { CartNotice } from "../../lib/server/cart-cookie";
+import { resolveAuthCartView, resolveCartWithCanonicalItems } from "../../lib/server/cart";
+import type { CartView as CartViewModel } from "../../lib/server/cart";
 import { CartView } from "../../components/cart-view";
 // TODO-161B (ADR-137) — Sepette düşük-yoğunluklu "Son İncelediklerin" (sepet ürünleri hariç).
 import { RecentlyViewedRail } from "../../components/recently-viewed/recently-viewed-rail";
@@ -25,6 +28,22 @@ export const dynamic = "force-dynamic";
 export default async function CartPage() {
   const dict = await getStorefrontDict();
   const t = dict.cart;
+  // TODO-167 (ADR-266) — Kullanici-dostu persistent-cart bildirimi (merge / cross-device). Salt-okuma
+  // (RSC mutasyon yapamaz); CartView gösterdikten sonra one-shot temizler.
+  const notice = await readCartNotice();
+
+  // TODO-167 (ADR-266) — Oturum acmis musteride sepet KALICI DB cart'tan (cross-device)
+  // gelir; misafirde mevcut cookie referans kalemlerinden. Anonim yol DEGISMEDI.
+  const authView = await resolveAuthCartView();
+  if (authView) {
+    if (!authView.ok || authView.data.isEmpty) {
+      return <EmptyCart t={t} />;
+    }
+    return (
+      <CartPageShell view={authView.data} canonicalItems={[]} reconcileNeeded={false} notice={notice} t={t} dict={dict} />
+    );
+  }
+
   const items = await readCartItems();
 
   if (items.length === 0) {
@@ -54,15 +73,42 @@ export default async function CartPage() {
     return <EmptyCart t={t} />;
   }
 
+  // Cookie ile gateway-kanonik kalemler farkliysa istemci reconcile eder (yalniz misafir).
+  const reconcileNeeded = !sameItems(items, canonicalItems);
+
+  return (
+    <CartPageShell
+      view={view}
+      canonicalItems={canonicalItems}
+      reconcileNeeded={reconcileNeeded}
+      notice={notice}
+      t={t}
+      dict={dict}
+    />
+  );
+}
+
+/** Ortak sepet govdesi (auth DB cart + misafir cookie ayni render'i paylasir). */
+async function CartPageShell({
+  view,
+  canonicalItems,
+  reconcileNeeded,
+  notice,
+  t,
+  dict,
+}: {
+  view: CartViewModel;
+  canonicalItems: Array<{ variantId: string; quantity: number }>;
+  reconcileNeeded: boolean;
+  notice: CartNotice | null;
+  t: Awaited<ReturnType<typeof getStorefrontDict>>["cart"];
+  dict: Awaited<ReturnType<typeof getStorefrontDict>>;
+}) {
   // TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED/WISHLIST capability projeksiyonu (island + kalp gizleme).
   const [recentlyViewedOn, wishlistOn] = await Promise.all([
     isStorefrontModuleEnabled("RECENTLY_VIEWED"),
     isStorefrontModuleEnabled("WISHLIST"),
   ]);
-
-  // Cookie ile gateway-kanonik kalemler farkliysa istemci reconcile eder.
-  const reconcileNeeded = !sameItems(items, canonicalItems);
-
   return (
     <Container className="py-12">
       {/* Dilim 6a-refine — Baslikta sepetteki kalem sayisi (mockup: "Sepetim (N)"). */}
@@ -73,10 +119,10 @@ export default async function CartPage() {
         view={view}
         canonicalItems={canonicalItems}
         reconcileNeeded={reconcileNeeded}
+        notice={notice}
         t={t}
       />
-      {/* TODO-161B — Düşük-yoğunluklu öneri: son incelenenler (sepetteki ürünler hariç; checkout akışı bozulmaz).
-          TODO-163 Faz 3 (TD-156) — RECENTLY_VIEWED kapalıysa island MOUNT edilmez → /recently-viewed fetch yok. */}
+      {/* TODO-161B — Düşük-yoğunluklu öneri: son incelenenler (sepetteki ürünler hariç; checkout akışı bozulmaz). */}
       {recentlyViewedOn ? (
         <RecentlyViewedRail
           t={dict}

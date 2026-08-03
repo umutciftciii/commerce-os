@@ -529,6 +529,18 @@ export const enStorefront: StorefrontDictionary = {
     summaryNote: "Prices include VAT. Amounts are re-validated when your order is placed.",
     reconciledNotice: "Your cart was updated to match current stock and prices.",
     blockedNotice: "Update the flagged items below to continue.",
+    // TODO-167 (ADR-266) — Persistent cart friendly notices (raw CART_STALE / MERGE_LIMIT_EXCEEDED
+    // codes are NEVER shown; all mapped to this copy).
+    mergeNoticeTitle: "Your cart was merged",
+    // {count} is replaced with the number of merged items.
+    mergeNoticeSuccess: "{count} item(s) from your guest cart moved to your account.",
+    mergeNoticePartial: "Some items couldn't be added because they're no longer available.",
+    mergeNoticeLimit: "Your cart reached the 100-item limit, so some items couldn't be added.",
+    crossDeviceTitle: "Your cart was updated",
+    crossDeviceNotice:
+      "Your cart was changed on another device. Showing the latest version; please try your action again.",
+    paymentPreservedNotice: "Payment wasn't completed; your cart was kept.",
+    noticeDismiss: "Dismiss notice",
     statusUnavailable: "This item is currently not for sale.",
     statusOutOfStock: "Out of stock.",
     statusQuantityAdjusted: "Quantity adjusted to available stock.",

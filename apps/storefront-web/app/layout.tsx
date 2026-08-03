@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getDictionary } from "@commerce-os/i18n";
 import { getRequestLocale, getStorefrontDict } from "../lib/i18n";
 import { getCartCount } from "../lib/server/cart-cookie";
+import { getAuthCartProjection } from "../lib/server/cart";
 import { getCurrentCustomer } from "../lib/server/customer";
 import { SiteHeader } from "../components/site/site-header";
 import { SiteFooter } from "../components/site/site-footer";
@@ -55,7 +56,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const dict = getDictionary(locale);
   const t = dict.storefront;
   const s = t.shell;
-  const cartCount = await getCartCount();
+  // TODO-167 (ADR-266) — Nav rozeti: oturum acmis musteride KALICI DB cart adedi (cross-device),
+  // misafirde cookie. DB cart cozumlenemezse cookie'ye guvenli duser.
+  const authCartProjection = await getAuthCartProjection();
+  const cartCount = authCartProjection ? authCartProjection.cart.itemCount : await getCartCount();
   const customer = await getCurrentCustomer();
   // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
   // duyuru metnine düşer (vitrin asla kırılmaz).

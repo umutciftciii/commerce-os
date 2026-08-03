@@ -2557,3 +2557,16 @@ PB-3/TD-139 offsite backup, altyapı config — UI-polish blocker'ı değil).
 - **Final Enterprise UI Polish — CLOSED & DEPLOYED (2026-08-02):** Foundation (z-index+portal Tooltip / B1 / C1 aria / D1 focus-trap), PDP (hover-zoom+layout+Reviews tab), §5 duplicate-home temizliği, TD-170 brand facet, FP-3 rating, TD-173 ProductMediaFrame, TD-157 theme wiring + inclusive-VAT order-detail düzeltmesi. PR #163 (merge 1dd7d71). Detay: docs/analysis/FINAL-enterprise-ui-polish.md.
 
 - **Final Polish acceptance durumu (2026-08-02): CLOSED & DEPLOYED.** Üç smoke İZOLE test verisiyle TAM GEÇTİ: (1) hover-zoom regresyonu çözüldü+browser; (2) theme publish/rollback throwaway store'da tam lifecycle + immutable revision + cache invalidation + tenant isolation; (3) authenticated checkout izole müşteri (env-driven parola) ile order PAID + account detail (reservation invariant + snapshot immutable + KDV doğru). docker 4 web/gateway servisi main'den rebuild + post-deploy smoke PASS; izole veri FK-güvenli temizlendi.
+
+## TODO-167 — Persistent Cart & Cross-Device Foundation (Faz A)
+
+**DURUM: IN_PROGRESS → IMPLEMENTED (worktree, commit YOK).** Hibrit cart (anon=cookie / auth=DB cross-device);
+Cart+CartLine additive migration + partial-unique ACTIVE; version/409 CART_STALE; login-merge deterministik;
+checkout DB-cart otoriter + CONVERTED; env-gated 90-gün expiry sweep. ADR-266. Gate YEŞİL (build/lint/test).
+Detay: `docs/analysis/PERSISTENT-cart-implementation.md`.
+
+## TODO-168 — Cart Change Awareness
+
+**DURUM: BLOCKED_BY TODO-167.** Snapshot/ack: auth=DB (CartLine kolon + CartChangeAck), guest=cookie meta;
+ortak change engine; cross-device acknowledgement TODO-168 kapsamında. ADR-267 rezerve.
+Tasarım: `docs/analysis/CART-change-awareness.md`.

@@ -79,6 +79,62 @@ export async function clearCartCookie(): Promise<void> {
   store.delete(CART_DESELECTED_COOKIE);
 }
 
+// TODO-167 (ADR-266) — Persistent cart KULLANICI-DOSTU bildirimi (kisa omurlu, one-shot). Server
+// action yazar (login-merge / stale-mutation), cart sayfasi OKUR (mutasyon YAPMADAN — RSC kisiti),
+// gosterildikten sonra client `clearCartNoticeAction` ile temizler. Ham kod (CART_STALE /
+// MERGE_LIMIT_EXCEEDED) ASLA tasinmaz; yalnizca `kind` + sayisal alanlar → istemci i18n metnine esler.
+const CART_NOTICE_COOKIE = "commerce_os_cart_notice";
+const CART_NOTICE_MAX_AGE = 300; // 5 dk emniyet penceresi (one-shot mount-clear ile birlikte)
+
+export interface CartNotice {
+  kind: "merge" | "crossDevice" | "paymentPreserved";
+  /** merge: taşınan ürün adedi. */
+  merged?: number;
+  /** merge: 100-satır sınırı aşıldı mı. */
+  limitExceeded?: boolean;
+  /** merge: bazı ürünler (geçersiz/stoksuz) eklenemedi mi. */
+  partial?: boolean;
+}
+
+function isCartNotice(value: unknown): value is CartNotice {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ["merge", "crossDevice", "paymentPreserved"].includes((value as { kind?: string }).kind ?? "")
+  );
+}
+
+/** Bildirimi yazar (yalniz action/route handler). */
+export async function writeCartNotice(notice: CartNotice): Promise<void> {
+  const store = await cookies();
+  store.set(CART_NOTICE_COOKIE, JSON.stringify(notice), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: CART_NOTICE_MAX_AGE,
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+/** Bildirimi okur (sunucu bileseni; MUTASYON YAPMAZ). Gecersiz/yok -> null. */
+export async function readCartNotice(): Promise<CartNotice | null> {
+  const store = await cookies();
+  const raw = store.get(CART_NOTICE_COOKIE)?.value;
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isCartNotice(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bildirimi siler (one-shot; gosterimden sonra client tetikler veya kapat). */
+export async function clearCartNotice(): Promise<void> {
+  const store = await cookies();
+  store.delete(CART_NOTICE_COOKIE);
+}
+
 /** Dilim 6a-refine — variantId format kontrolu (gateway ile ayni: [A-Za-z0-9_-] max120). */
 function normalizeVariantId(raw: string): string | null {
   const value = raw.trim();

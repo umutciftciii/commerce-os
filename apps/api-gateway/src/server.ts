@@ -138,6 +138,9 @@ import { createRecentlyViewedData } from "./recently-viewed/data.js";
 import { registerRecentlyViewedRoutes } from "./recently-viewed/routes.js";
 import { createRecommendationEventData } from "./recommendation-events/data.js";
 import { registerRecommendationEventRoutes } from "./recommendation-events/routes.js";
+// TODO-167 (ADR-266) — Persistent Cart & Cross-Device Foundation.
+import { createCartData } from "./cart/data.js";
+import { registerCustomerCartRoutes } from "./cart/routes.js";
 import { createReviewData } from "./reviews/data.js";
 import {
   registerCustomerReviewRoutes,
@@ -6123,14 +6126,23 @@ export function createServer(
     return candidates;
   }
 
-  app.post("/public/stores/:storeSlug/cart", async (request, reply) => {
-    const params = publicStoreParamSchema.parse(request.params);
-    const body = publicCartRequestSchema.parse(request.body ?? {});
-    const store = await resolvePublicStore(params.storeSlug);
-    if (!store) {
-      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
-    }
-    const index = await buildPublicCartIndex(store.id, body.items.map((item) => item.variantId));
+  /**
+   * TODO-167 (ADR-266) — ORTAK sepet projeksiyonu. Anonim (cookie items) ve authenticated
+   * (DB cart items) sepetler AYNI server-authoritative assembler'dan gecer; kaynaga gore
+   * FARKLI fiyatlama YOKTUR. Musteri (varsa) request'ten cozulur → default adres/kargo + cuzdan.
+   */
+  async function resolvePublicCartProjection(
+    store: { id: string; slug: string },
+    request: FastifyRequest,
+    items: Array<{ variantId: string; quantity: number }>,
+    opts?: {
+      couponCode?: string | null;
+      shippingOptionId?: string | null;
+      claimedCodes?: string[];
+      deselectedVariantIds?: string[];
+    },
+  ) {
+    const index = await buildPublicCartIndex(store.id, items.map((item) => item.variantId));
     // F3C.2/TODO-125 — Kargo SECENEKLERI store tarife planlarindan uretilir. Oturum
     // acmis musteri + default teslimat adresi varsa secenekler fiyatlanir; aksi halde
     // ADDRESS_REQUIRED (taşıyıcılar yine listelenir, fiyatsiz).
@@ -6153,7 +6165,7 @@ export function createServer(
     // F4A — Kampanya/kupon baglami DB'den yuklenir; oturum acik musteri varsa
     // per-customer limitleri sepet aninda da degerlendirilir (misafirde checkout'ta).
     const discountContext = await dataAccess.loadCampaignDiscountContext(store.id, {
-      normalizedCouponCode: normalizeCouponCode(body.couponCode ?? null),
+      normalizedCouponCode: normalizeCouponCode(opts?.couponCode ?? null),
       customerId: cartCustomer?.id ?? null,
       email: null,
     });
@@ -6161,31 +6173,73 @@ export function createServer(
     const walletCandidates = await loadCartWalletCandidates(store.id, {
       customerId: cartCustomer?.id ?? null,
       email: cartCustomer?.email ?? null,
-      claimedCodes: (body.claimedCodes ?? []).map((code) => normalizeCouponCode(code) ?? "").filter(Boolean),
+      claimedCodes: (opts?.claimedCodes ?? []).map((code) => normalizeCouponCode(code) ?? "").filter(Boolean),
     });
     // ADR-065 (Faz 3/Dilim 6a) — Sepet satiri kapaklari: variantId'ler index'ten
     // productId'ye cozulur, TEK batched sorguyla kapak URL'leri hazirlanir (N+1 yok).
     const coverUrlByProductId = await buildCartCoverUrlMap(
       store.id,
-      body.items.map((item) => index.get(item.variantId)?.productId).filter((id): id is string => Boolean(id)),
+      items.map((item) => index.get(item.variantId)?.productId).filter((id): id is string => Boolean(id)),
     );
     const { cart } = assemblePublicCart(
       store.slug,
       index,
-      body.items,
-      { couponCode: body.couponCode ?? null, context: discountContext },
+      items,
+      { couponCode: opts?.couponCode ?? null, context: discountContext },
       {
         plans,
         providerDisplays,
         address,
         addressKnown,
-        requestedOptionId: body.shippingOptionId ?? null,
+        requestedOptionId: opts?.shippingOptionId ?? null,
       },
       { candidates: walletCandidates },
       coverUrlByProductId,
-      body.deselectedVariantIds ?? [],
+      opts?.deselectedVariantIds ?? [],
     );
     return cart;
+  }
+
+  app.post("/public/stores/:storeSlug/cart", async (request, reply) => {
+    const params = publicStoreParamSchema.parse(request.params);
+    const body = publicCartRequestSchema.parse(request.body ?? {});
+    const store = await resolvePublicStore(params.storeSlug);
+    if (!store) {
+      return reply.code(404).send(errorBody("STORE_NOT_FOUND", "Store not found."));
+    }
+    return resolvePublicCartProjection(store, request, body.items, {
+      couponCode: body.couponCode ?? null,
+      shippingOptionId: body.shippingOptionId ?? null,
+      claimedCodes: body.claimedCodes ?? [],
+      deselectedVariantIds: body.deselectedVariantIds ?? [],
+    });
+  });
+
+  // ── TODO-167 (ADR-266) — Persistent Cart (authenticated) route'lari ────────────────
+  // Ayni ORTAK projeksiyon (resolvePublicCartProjection) + DB cart membership. Anonim
+  // cookie sepeti DEGISMEZ; bu route'lar yalniz oturum acmis musteri icindir.
+  const cartData = createCartData(prisma);
+  registerCustomerCartRoutes(app, {
+    logger,
+    resolvePublicStore: async (slug) => {
+      const s = await resolvePublicStore(slug);
+      return s ? { id: s.id, slug: s.slug } : null;
+    },
+    resolveCustomer: async (request, storeId) => {
+      const c = await resolveCustomerFromRequest(request, storeId, { customers, config });
+      return c ? { id: c.id, storeId } : null;
+    },
+    data: cartData,
+    catalog: {
+      findVariantsByIds: async (storeId, ids) => {
+        const variants = await dataAccess.findVariantsByIds(storeId, ids);
+        return variants.map((v) => ({ id: v.id, storeId: v.storeId }));
+      },
+    },
+    // Faz A: authenticated cart projeksiyonu membership + OTOMATIK kampanya/stok/fiyat
+    // uzerine kuruludur. Kupon-kodu + kargo-secenegi persist'i (auth cart) follow-up (TD-174).
+    projectCart: ({ store, request, items }) =>
+      resolvePublicCartProjection(store, request as FastifyRequest, items),
   });
 
   /**
@@ -6330,11 +6384,22 @@ export function createServer(
     // uyumlu). Oturum store scope'u resolveCustomerFromRequest icinde dogrulanir.
     const checkoutCustomer = await resolveCustomerFromRequest(request, store.id, { customers, config });
 
+    // TODO-167 (ADR-266) — Authenticated checkout: DB ACTIVE cart OTORITEDIR; istemci line
+    // listesine GUVENILMEZ (cross-device + login-merge sonrasi anonim cookie temizlenmis
+    // olabilir). Oturum yoksa (anonim) istemci cookie item'lari kullanilir (geriye-uyumlu).
+    let effectiveItems = body.items;
+    if (checkoutCustomer) {
+      const dbCart = await cartData.findActiveCart(store.id, checkoutCustomer.id);
+      if (dbCart) {
+        effectiveItems = dbCart.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+      }
+    }
+
     // 1) Sepeti sunucu-otoriter yeniden coz; tum satirlar OK degilse checkout
     //    engellenir (stok/limit/uygunluk reconcile edilmeden siparis olusmaz).
     //    F3C.2 — Kargo quote'u checkout teslimat adresinden hesaplanir (adres her
     //    zaman mevcut → addressKnown=true). Quote OK degilse odeme adimina gecilmez.
-    const index = await buildPublicCartIndex(store.id, body.items.map((item) => item.variantId));
+    const index = await buildPublicCartIndex(store.id, effectiveItems.map((item) => item.variantId));
     const [plans, providerDisplays] = await Promise.all([
       dataAccess.listActiveShippingRatePlans(store.id),
       dataAccess.listShippingProviderDisplays(store.id),
@@ -6362,7 +6427,7 @@ export function createServer(
     const { cart, discount } = assemblePublicCart(
       store.slug,
       index,
-      body.items,
+      effectiveItems,
       { couponCode: body.couponCode ?? null, context: discountContext },
       {
         plans,
@@ -6561,6 +6626,10 @@ export function createServer(
     if (!placed) {
       return reply.code(400).send(errorBody("CHECKOUT_REJECTED", "Checkout could not be completed."));
     }
+
+    // TODO-167 (ADR-266) — NOT: authenticated DB cart CONVERTED donusumu checkout PLACE'de DEGIL,
+    // ODEME SETTLED (SALE_COMMIT → consumeOrderReservations) noktasinda yapilir. Boylece BASARISIZ
+    // odeme cart'i ACTIVE birakir (yeniden denenebilir); basarili odemede cart CONVERTED olur.
 
     // TODO-160 (ADR-102/103) — Influencer attribution SNAPSHOT'i. Grant SUNUCU-otoriter
     // doğrulanır (gateway-imzalı; istemci alanlarına güvenilmez), influencer/campaign

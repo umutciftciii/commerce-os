@@ -554,6 +554,18 @@ export const trStorefront = {
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
     reconciledNotice: "Sepetiniz güncel stok ve fiyatlara göre güncellendi.",
     blockedNotice: "Devam etmek için aşağıda uyarı verilen ürünleri güncelleyin.",
+    // TODO-167 (ADR-266) — Persistent cart kullanıcı-dostu bildirimleri (ham CART_STALE /
+    // MERGE_LIMIT_EXCEEDED kodları ASLA gösterilmez; hepsi bu metinlere eşlenir).
+    mergeNoticeTitle: "Sepetiniz birleştirildi",
+    // {count} yer tutucusu birleştirilen ürün adediyle değiştirilir.
+    mergeNoticeSuccess: "Misafir sepetinizdeki {count} ürün hesabınıza taşındı.",
+    mergeNoticePartial: "Bazı ürünler artık mevcut olmadığı için eklenemedi.",
+    mergeNoticeLimit: "Sepet 100 ürün sınırına ulaştığı için bazı ürünler eklenemedi.",
+    crossDeviceTitle: "Sepetiniz güncellendi",
+    crossDeviceNotice:
+      "Sepetiniz başka bir cihazda değiştirildi. En güncel hâli gösteriliyor; işleminizi tekrar deneyin.",
+    paymentPreservedNotice: "Ödeme tamamlanmadı; sepetiniz korundu.",
+    noticeDismiss: "Bildirimi kapat",
     statusUnavailable: "Bu ürün şu anda satışa kapalı.",
     statusOutOfStock: "Stokta kalmadı.",
     statusQuantityAdjusted: "Adet, mevcut stoğa göre güncellendi.",
