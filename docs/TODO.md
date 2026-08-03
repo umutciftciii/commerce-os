@@ -2,7 +2,11 @@
 
 ## Yakin Isler
 
-- **Financial Reporting Foundation — 🟡 IN_PROGRESS (commit/deploy YOK).** Store-Admin **Finans > Raporlar**:
+- **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
+  PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;
+  postgres/redis/worker/storefront/admin-web DOKUNULMADI, volume korundu); migration YOK, schema up to date.
+  Post-deploy smoke PASS (izole fixture reconciliation birebir; currency dropdown fix; responsive; fixture temizlendi).
+  Store-Admin **Finans > Raporlar**:
   sipariş snapshot'larından türetilen mağaza-geneli finansal raporlar (satış özeti + ürün/varyant + kategori/marka
   + ödeme + indirim + CSV). Backend: `apps/api-gateway/src/finance/` (`metrics.ts` SAF sözlük · `date-range.ts`
   tz preset'leri · `data.ts` `$queryRaw` agregasyon · `csv.ts` BOM+injection · `routes.ts` 9 uç), contracts finance
