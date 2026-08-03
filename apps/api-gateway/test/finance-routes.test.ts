@@ -31,9 +31,15 @@ function dailyRow(date: string): FinanceDailyRow {
   };
 }
 
+function usdRow(date: string): FinanceDailyRow {
+  return { ...dailyRow(date), currency: "USD", grossSalesMinor: 5000, discountsMinor: 0, shippingRevenueMinor: 0, totalMinor: 5000, orderCount: 1, paidOrderCount: 1, unitsSold: 1 };
+}
+
 const fakeData: FinanceDataAccess = {
+  // Çoklu-para: TRY + USD satırları (currency filtresine BAKMADAN döner — availableCurrencies
+  // testinin currency seçimiyle çökmediğini doğrulamak için).
   async getDailyRows() {
-    return [dailyRow("2026-08-03")];
+    return [dailyRow("2026-08-03"), usdRow("2026-08-03")];
   },
   async getBreakdowns() {
     return {
@@ -85,9 +91,21 @@ describe("finance routes", () => {
     expect(body.data.summary.netProductSalesMinor).toBe(8500);
     expect(body.data.summary.totalRevenueMinor).toBe(10500);
     expect(body.data.summary.grossProfitMinor).toBe(3083); // netExVat - cost
-    expect(body.data.availableCurrencies).toEqual(["TRY"]);
+    // Çoklu-para: TRY seçili olsa da availableCurrencies TÜM para birimlerini listeler.
+    expect(body.data.availableCurrencies).toEqual(["TRY", "USD"]);
     // Günlük seri aralık günü kadar (7) — zero-fill.
     expect(body.data.daily).toHaveLength(7);
+    await app.close();
+  });
+
+  it("currency seçimi: USD seçilince özet USD'yi izole eder, availableCurrencies yine tümü", async () => {
+    const app = buildApp();
+    const res = await app.inject({ method: "GET", url: "/stores/store-a/finance/summary?period=last7&currency=USD" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.currency).toBe("USD");
+    expect(body.data.summary.grossSalesMinor).toBe(5000); // yalnız USD satırı
+    expect(body.data.availableCurrencies).toEqual(["TRY", "USD"]); // dropdown çökmez
     await app.close();
   });
 

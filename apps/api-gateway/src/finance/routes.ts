@@ -136,9 +136,12 @@ export function registerFinanceRoutes(app: FastifyInstance, deps: FinanceRoutesD
 
     const range = await resolveRangeFor(storeId, query);
     const filters = toFilters(query);
+    // Günlük fetch currency-FİLTRESİZ: availableCurrencies TÜM para birimlerini listeler
+    // (seçim yapılınca dropdown çökmesin). Seçili currency `summarizeDailyRows`/seri ile izole edilir.
+    const dailyFilters: FinanceFilters = { ...filters, currency: undefined };
     const [currentRows, previousRows] = await Promise.all([
-      data.getDailyRows(storeId, { fromUtc: range.current.fromUtc, toUtcExclusive: range.current.toUtcExclusive, timezone: range.timezone }, filters),
-      data.getDailyRows(storeId, { fromUtc: range.previous.fromUtc, toUtcExclusive: range.previous.toUtcExclusive, timezone: range.timezone }, filters),
+      data.getDailyRows(storeId, { fromUtc: range.current.fromUtc, toUtcExclusive: range.current.toUtcExclusive, timezone: range.timezone }, dailyFilters),
+      data.getDailyRows(storeId, { fromUtc: range.previous.fromUtc, toUtcExclusive: range.previous.toUtcExclusive, timezone: range.timezone }, dailyFilters),
     ]);
 
     const currency = chooseCurrency(currentRows, filters.currency);
@@ -246,7 +249,8 @@ export function registerFinanceRoutes(app: FastifyInstance, deps: FinanceRoutesD
     if (!query) return;
     const range = await resolveRangeFor(storeId, query);
     const filters = toFilters(query);
-    const rows = await data.getDailyRows(storeId, { fromUtc: range.current.fromUtc, toUtcExclusive: range.current.toUtcExclusive, timezone: range.timezone }, filters);
+    const dailyFilters: FinanceFilters = { ...filters, currency: undefined };
+    const rows = await data.getDailyRows(storeId, { fromUtc: range.current.fromUtc, toUtcExclusive: range.current.toUtcExclusive, timezone: range.timezone }, dailyFilters);
     const currency = chooseCurrency(rows, filters.currency);
     const series = buildDailySeries(range.current, rows, currency);
     const csv = buildCsv(
