@@ -5924,3 +5924,27 @@ FX YOK (identity karşılaştırma). Satış tarihi `COALESCE(placedAt,createdAt
 DESTEKLENİR, dönem TAM kapsamlıysa (all-or-null), kapsam dışa verilir. Tenant izolasyonu `requireStorePlatformAdmin`
 (yeni capability key YOK). CSV server-side + injection-guard + UTF-8 BOM. Detay:
 `docs/adr/ADR-268-financial-reporting-authority.md`.
+
+## ADR-269 — Returns Authority & Lifecycle (Returns Management Foundation) — PROPOSED (2026-08-04)
+
+Müşteri iade talebi + Store Admin iade operasyonu. İade **OrderLine + quantity** seviyesinde (bir sipariş N
+`ReturnRequest`, her request N `ReturnItem`; kısmi/tekrarlı iade; toplam talep+kabul adet satın alınanı aşamaz).
+İlk faz çözüm: `REFUND_TO_ORIGINAL_PAYMENT` + `REPLACEMENT`. **Eligibility SERVER-SIDE fail-closed:** sipariş
+DELIVERED (order-level DELIVERED YOK → shipment-seviyesi; ≥1 teslim gönderi) + teslim ankoru additive
+`Shipment.deliveredAt` (DELIVERED geçişinde set; migration `updatedAt` backfill; çoklu gönderide MAX) +
+returnWindowDays içinde + kalan iade edilebilir qty>0 (red/iptal/expire adedi HAVUZA döner, approved/received/
+completed TUTULUR). Mağaza politikası `StoreSettings` additive 5 alan (returnWindowDays=14 TR mesafeli · requires
+Approval · customerPaysShipping · allowReplacement · allowOriginalPaymentRefund); satır yoksa aynı güvenli default.
+Saf state-machine `returns/status-map.ts` (17 durum; terminal immutable; müşteri yalnız onay-öncesi iptal + kargo-
+verildi; sistem yalnız süre-doldu; illegal transition 409). Append-only `ReturnStatusHistory(actorType/actorId)` =
+birincil audit (AuditLog yalnız platformUserId taşır); admin aksiyonları ek `recordAudit`. **RefundIntent PENDING
+bu fazda FİNANSA DOKUNMAZ** (`refundAmountsSupported=false` KALIR; Σ`subtotalAmount` brüt satış ASLA azalmaz);
+ADR-268 §5 `OrderRefund` defterinin UPSTREAM kaydı → TODO-170 işler. Tutar SAF (`returns/refund-calc.ts`):
+immutable OrderLine snapshot × iade oranı; order-level indirim gross-ağırlıklı dağıtım (kalan SON pozitif satıra →
+Σ tam); KDV inclusive (gross içinde; ÜSTÜNE eklenmez, disclosure için pro-rata); kargo yalnız politika/admin (ücretsiz
+kargoda 0). Restock yalnız `RESTOCK_AS_SELLABLE` → idempotent `quantityOnHand++` + `InventoryMovement RETURN` +
+`InventoryAdjustment RETURN_RESTOCK` (batchId, store-scoped). Attachment PRIVATE: `MediaContext.RETURN_ATTACHMENT`,
+public `/media/*` onRequest guard 404, auth-gate'li stream (`StorageDriver.read` eklendi; sahip müşteri / store admin).
+Bildirim post-commit fail-open (domain txn rollback etmez; gerçek email platform-geneli placeholder). Additive migration
+(2 enum value + Shipment.deliveredAt + StoreSettings 5 alan + 6 tablo). Detay:
+`docs/adr/ADR-269-returns-authority-and-lifecycle.md`; analiz `docs/analysis/RETURNS-management-foundation.md`.

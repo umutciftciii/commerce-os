@@ -14,4 +14,10 @@ export interface StorageDriver {
   delete(key: string): Promise<void>;
   /** `key` yolunda dosya var mi? */
   exists(key: string): Promise<boolean>;
+  /**
+   * TODO-169 (ADR-269 §8) — `key` yolundaki dosyayi buffer olarak okur. PRIVATE medya
+   * (iade attachment) auth-gate'li route'tan stream edilmek uzere gerekir; public statik
+   * servisin (`/media/*`) kapatildigi durumdaki tek erisim yoludur. Dosya yoksa null.
+   */
+  read(key: string): Promise<Buffer | null>;
 }

@@ -2,17 +2,18 @@ import { describe, expect, it } from "vitest";
 import type { CustomerOrderSummary } from "@commerce-os/api-client";
 import {
   applyOrderFilters,
+  canRequestReturn,
   canWriteReview,
   filterOrdersByTab,
   resolveOrdersTab,
-  returnEligibility,
   searchOrders,
 } from "../lib/orders";
 
 /**
- * TODO-079 — Hesabım > Siparişlerim saf yardımcı testleri. Arama/sekme filtreleme
- * ve post-order CTA görünürlük kuralları (iade 15 gün penceresi, yorum teslimat
- * sonrası) deterministik doğrulanır.
+ * TODO-079 / TODO-169 — Hesabım > Siparişlerim saf yardımcı testleri. Arama/sekme
+ * filtreleme ve post-order CTA görünürlük kuralları deterministik doğrulanır. İade
+ * CTA'sı artık yalnız GÖRÜNÜRLÜK kapısıdır (15 gün pencere tahmini KALDIRILDI;
+ * gerçek uygunluk sunucudan gelir).
  */
 function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSummary {
   return {
@@ -115,31 +116,23 @@ describe("applyOrderFilters", () => {
   });
 });
 
-describe("returnEligibility", () => {
-  const now = new Date("2026-06-20T00:00:00.000Z");
-
-  it("visible within 15 days for fulfilled order", () => {
-    const o = order({ fulfillmentStatus: "FULFILLED", createdAt: "2026-06-10T00:00:00.000Z" });
-    expect(returnEligibility(o, now)).toEqual({ visible: true, windowExpired: false });
-  });
-
-  it("window expired after 15 days", () => {
-    const o = order({ fulfillmentStatus: "FULFILLED", createdAt: "2026-05-01T00:00:00.000Z" });
-    expect(returnEligibility(o, now)).toEqual({ visible: true, windowExpired: true });
+describe("canRequestReturn", () => {
+  it("visible for a shipped (FULFILLED/PARTIAL) order regardless of age", () => {
+    expect(canRequestReturn(order({ fulfillmentStatus: "FULFILLED" }))).toBe(true);
+    expect(canRequestReturn(order({ fulfillmentStatus: "PARTIAL" }))).toBe(true);
+    // Yaş artık istemcide değerlendirilmez (pencere kararı sunucuda).
+    expect(
+      canRequestReturn(order({ fulfillmentStatus: "FULFILLED", createdAt: "2020-01-01T00:00:00.000Z" })),
+    ).toBe(true);
   });
 
   it("not visible when not shipped yet", () => {
-    const o = order({ fulfillmentStatus: "UNFULFILLED", createdAt: "2026-06-19T00:00:00.000Z" });
-    expect(returnEligibility(o, now).visible).toBe(false);
+    expect(canRequestReturn(order({ fulfillmentStatus: "UNFULFILLED" }))).toBe(false);
   });
 
   it("not visible when cancelled or refunded", () => {
-    expect(returnEligibility(order({ status: "CANCELLED", fulfillmentStatus: "FULFILLED" }), now).visible).toBe(
-      false,
-    );
-    expect(
-      returnEligibility(order({ paymentStatus: "REFUNDED", fulfillmentStatus: "FULFILLED" }), now).visible,
-    ).toBe(false);
+    expect(canRequestReturn(order({ status: "CANCELLED", fulfillmentStatus: "FULFILLED" }))).toBe(false);
+    expect(canRequestReturn(order({ paymentStatus: "REFUNDED", fulfillmentStatus: "FULFILLED" }))).toBe(false);
   });
 });
 

@@ -14,6 +14,8 @@ const CONTEXT_SEGMENT: Record<MediaContext, string> = {
   CATEGORY: "categories",
   HERO: "hero",
   BRANDING: "branding",
+  // TODO-169 (ADR-269) — İade attachment'ları (PRIVATE; public statik servis kapalı).
+  RETURN_ATTACHMENT: "returns",
 };
 
 export function buildStorageKey(storeId: string, context: MediaContext, uuid: string): string {

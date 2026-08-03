@@ -14,6 +14,10 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@commerce-os/ui", "@commerce-os/i18n"],
   eslint: { ignoreDuringBuilds: true },
+  // TODO-169 — İade fotoğrafı yüklemesi Server Action ile taşınır; varsayılan 1MB
+  // gövde sınırı gerçek fotoğraflar için yetersiz. Gateway üst sınırı 5MB olduğundan
+  // (MAX_ATTACHMENT_BYTES) boundary/overhead payıyla 6MB'a çıkarılır.
+  experimental: { serverActions: { bodySizeLimit: "6mb" } },
   // Pin file-tracing to the monorepo root (two levels up) so Next doesn't have
   // to infer it from multiple lockfiles. Portable between worktree and main.
   outputFileTracingRoot: join(import.meta.dirname, "../.."),

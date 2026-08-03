@@ -20,16 +20,6 @@ export function resolveOrdersTab(value: string | undefined): OrdersTab {
     : "all";
 }
 
-/** İade penceresi (gün). Gerçek iade akışı sonraki fazda (F3K/F3C). */
-export const RETURN_WINDOW_DAYS = 15;
-
-/** İki tarih arası tam gün farkı (negatif olmaz). */
-export function daysSince(createdAtIso: string, now: Date = new Date()): number {
-  const created = new Date(createdAtIso).getTime();
-  if (Number.isNaN(created)) return Number.POSITIVE_INFINITY;
-  return Math.floor((now.getTime() - created) / (1000 * 60 * 60 * 24));
-}
-
 /** "Tekrar satın al" sekmesi/CTA uygunluğu: iptal/taslak değilse. */
 export function isReorderable(order: Pick<CustomerOrderSummary, "status">): boolean {
   return order.status !== "CANCELLED" && order.status !== "DRAFT";
@@ -85,26 +75,19 @@ export function applyOrderFilters(
 }
 
 /**
- * İade talebi CTA görünürlüğü (placeholder akış). Görünür koşulu: sipariş
- * FULFILLED/PARTIAL (gönderilmiş) + iptal/iade değil. `windowExpired` 15 günlük
- * pencere dolduğunda true olur → CTA "İade süresi doldu" notuyla pasifleşir.
+ * TODO-169 (ADR-269) — İade CTA'sı yalnız GÖRÜNÜRLÜK kapısıdır; UYGUNLUK KARARI
+ * DEĞİLDİR. İstemci 15 günlük pencereyi TAHMİN ETMEZ (eski `windowExpired` guess
+ * KALDIRILDI): gerçek uygunluk/pencere/kalan adet sunucudan (`getReturnEligibility`)
+ * sihirbaz açılışında gelir. Burada yalnız "iade başlatma bağlantısını göster"
+ * kaba koşulu var: gönderilmiş (FULFILLED/PARTIAL) + iptal/iade edilmemiş sipariş.
  */
-export interface ReturnEligibility {
-  visible: boolean;
-  windowExpired: boolean;
-}
-
-export function returnEligibility(
-  order: Pick<CustomerOrderSummary, "status" | "paymentStatus" | "fulfillmentStatus" | "createdAt">,
-  now: Date = new Date(),
-): ReturnEligibility {
+export function canRequestReturn(
+  order: Pick<CustomerOrderSummary, "status" | "paymentStatus" | "fulfillmentStatus">,
+): boolean {
   const closed = order.status === "CANCELLED" || order.paymentStatus === "REFUNDED";
   const shipped =
     order.fulfillmentStatus === "FULFILLED" || order.fulfillmentStatus === "PARTIAL";
-  if (closed || !shipped) {
-    return { visible: false, windowExpired: false };
-  }
-  return { visible: true, windowExpired: daysSince(order.createdAt, now) > RETURN_WINDOW_DAYS };
+  return !closed && shipped;
 }
 
 /** Ürün yorumu CTA: yalnız teslim/tamamlanmış (FULFILLED) siparişte aktif. */

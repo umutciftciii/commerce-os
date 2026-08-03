@@ -2,13 +2,12 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Alert, Button } from "../ui";
+import { Alert, Button, ButtonLink } from "../ui";
 import { format } from "@commerce-os/i18n";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { ProductReviewStatus } from "@commerce-os/api-client";
 import { buyAgainAction, type BuyAgainState } from "../../lib/server/order-actions";
 import { ReviewForm } from "../reviews/pdp-reviews";
-import type { ReturnEligibility } from "../../lib/orders";
 import type {
   OrderReviewReason,
   OrderReviewState,
@@ -31,7 +30,7 @@ export function OrderActions({
   orderNumber,
   t,
   reorderable,
-  returnState,
+  canReturn,
   review,
   reviewsT,
   layout = "card",
@@ -39,14 +38,15 @@ export function OrderActions({
   orderNumber: string;
   t: OrdersDict;
   reorderable: boolean;
-  returnState: ReturnEligibility;
+  // TODO-169 — İade CTA görünürlüğü (yalnız kaba kapı; uygunluk sunucuda). Bkz. canRequestReturn.
+  canReturn: boolean;
   review: OrderReviewState;
   reviewsT: ReviewsDict;
   layout?: "card" | "detail";
 }) {
   const [pending, startTransition] = useTransition();
   const [buyAgain, setBuyAgain] = useState<BuyAgainState>({ status: "idle" });
-  const [panel, setPanel] = useState<null | "support" | "return">(null);
+  const [panel, setPanel] = useState<null | "support">(null);
 
   function runBuyAgain() {
     setPanel(null);
@@ -55,7 +55,7 @@ export function OrderActions({
     });
   }
 
-  function togglePanel(next: "support" | "return") {
+  function togglePanel(next: "support") {
     setBuyAgain({ status: "idle" });
     setPanel((current) => (current === next ? null : next));
   }
@@ -78,16 +78,14 @@ export function OrderActions({
           {t.actions.support}
         </Button>
         <OrderReviewAction state={review} t={t} reviewsT={reviewsT} />
-        {returnState.visible ? (
-          <Button
+        {canReturn ? (
+          <ButtonLink
+            href={`/account/returns/new?order=${encodeURIComponent(orderNumber)}`}
             size="sm"
             variant="secondary"
-            onClick={() => togglePanel("return")}
-            disabled={returnState.windowExpired}
-            title={returnState.windowExpired ? t.return.expired : undefined}
           >
             {t.actions.return}
-          </Button>
+          </ButtonLink>
         ) : null}
       </div>
 
@@ -109,7 +107,6 @@ export function OrderActions({
       ) : null}
 
       {panel === "support" ? <Alert tone="info">{t.support.note}</Alert> : null}
-      {panel === "return" ? <Alert tone="info">{t.return.note}</Alert> : null}
     </div>
   );
 }

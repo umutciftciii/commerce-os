@@ -160,6 +160,10 @@ enum MediaContext {
   CATEGORY
   HERO
   BRANDING
+  // TODO-169 (ADR-269) — Müşteri iade fotoğraf kanıtı. PRIVATE: bu context'teki asset'ler
+  // public `/media/*` static handler'ından SUNULMAZ; yalnız auth-gate'li iade attachment
+  // route'undan (sahip müşteri veya store admin) stream edilir. Non-enumerable storage key.
+  RETURN_ATTACHMENT
 }
 
 // ADR-065 — Yayin durumu (hero slide gibi vitrin icerikleri icin). DRAFT admin'de
@@ -338,6 +342,11 @@ enum InventoryAdjustmentSource {
   ORDER_COMMIT
   IMPORT
   SYSTEM
+  // TODO-169 (ADR-269) — İade edilen ürünün SATILABILIR olarak stoğa geri alınması
+  // (RESTOCK_AS_SELLABLE kararı sonrası). quantityOnHand += received qty; idempotent
+  // (ReturnItem başına en fazla bir kez, restockedAt guard'ı). Diğer restock kararları
+  // (DAMAGED/DO_NOT_RESTOCK/RETURN_TO_VENDOR/DISPOSE) inventory'ye DOKUNMAZ.
+  RETURN_RESTOCK
 }
 
 enum PaymentProviderType {
@@ -966,6 +975,13 @@ model Store {
   // TODO-165A (ADR-253, ADR-255) — Product Data Governance: marka + governed taksonomi (store-scoped).
   brands                           Brand[]
   productTaxonomyValues            ProductTaxonomyValue[]
+  // TODO-169 (ADR-269) — Returns Management Foundation (store-scoped tenant sütunu; Cascade).
+  returnRequests                   ReturnRequest[]
+  returnItems                      ReturnItem[]
+  returnAttachments                ReturnAttachment[]
+  returnStatusHistory              ReturnStatusHistory[]
+  refundIntents                    RefundIntent[]
+  returnNumberCounters             ReturnNumberCounter[]
 }
 
 model StoreUser {
@@ -1557,6 +1573,8 @@ model Customer {
   productReviewHelpfuls   ProductReviewHelpful[]
   // TODO-161B (ADR-137) — Recently Viewed geçmişi (müşteri silinince Cascade → KVKK otomatik).
   recentlyViewedProducts  RecentlyViewedProduct[]
+  // TODO-169 (ADR-269) — Müşterinin iade talepleri (yalnız kendi siparişleri için).
+  returnRequests          ReturnRequest[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -1803,6 +1821,9 @@ model Order {
   // TODO-161 (ADR-118) — sponsorlu urun attribution'lari (siparis basina N; urun-satiri kaynakli).
   // Influencer attribution'dan BAGIMSIZ + BIRLIKTE var olabilir (ADR-120 coexistence).
   sponsoredAttributions OrderSponsoredAttribution[]
+  // TODO-169 (ADR-269) — Returns Management Foundation. Bir sipariş zamanla N iade talebi içerebilir.
+  returnRequests        ReturnRequest[]
+  refundIntents         RefundIntent[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -1862,6 +1883,8 @@ model OrderLine {
   reservations InventoryReservation[]
   // TODO-159E (ADR-094) — bir sipariş kalemi en fazla bir yoruma kaynak (orderLineId UNIQUE).
   review       ProductReview?
+  // TODO-169 (ADR-269) — bu satırdan doğan iade kalemleri (kısmi/tekrarlı iade adet hesabı).
+  returnItems  ReturnItem[]
 
   @@index([storeId])
   @@index([orderId])
@@ -2036,6 +2059,8 @@ model PaymentAttempt {
   order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   providerConfig PaymentProviderConfig? @relation(fields: [providerConfigId], references: [id], onDelete: SetNull)
   events         PaymentProviderEvent[]
+  // TODO-169 (ADR-269) — Bu attempt'e referans veren iade niyetleri (orijinal ödeme yöntemine iade).
+  refundIntents  RefundIntent[]
 
   @@unique([storeId, idempotencyKey], map: "payment_attempt_store_idempotency_key")
   @@index([storeId])
@@ -2212,6 +2237,11 @@ model Shipment {
   barcodeNextRetryAt        DateTime?
   barcodeLastAttemptAt      DateTime?
   barcodeRetryBlockedReason String?
+  // TODO-169 (ADR-269) — İade penceresi için STABIL teslim tarihi ankoru. status → DELIVERED
+  // geçişinde (manuel durum route + provider-sync eşlemesi) set edilir. Migration mevcut
+  // DELIVERED gönderileri `updatedAt` ile backfill eder (mevcut en iyi yaklaşım; dokümante).
+  // Eligibility, siparişin teslim edilmiş gönderileri üzerinden MAX(deliveredAt) alır.
+  deliveredAt               DateTime?
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 
@@ -3010,6 +3040,8 @@ model MediaAsset {
   // gorselsiz kalir, marka SILINMEZ).
   brandLogoFor           Brand[]                 @relation("BrandLogo")
   brandCoverFor          Brand[]                 @relation("BrandCover")
+  // TODO-169 (ADR-269) — İade fotoğraf kanıtı bağları (private; MEDIA_IN_USE guard'ına dahil).
+  returnAttachments      ReturnAttachment[]
 
   @@index([storeId])
   @@index([storeId, context])
@@ -3077,19 +3109,28 @@ model HeroSlide {
 // Magaza ayarlari (1-1; repoda ilk 1-1 iliski). Logo/favicon MediaAsset'e opsiyonel
 // FK. Ileride tema/renk/SEO default'lari da buraya eklenir. PK = FK (storeId).
 model StoreSettings {
-  storeId                       String   @id
-  logoMediaId                   String?
-  faviconMediaId                String?
+  storeId                           String   @id
+  logoMediaId                       String?
+  faviconMediaId                    String?
   // TODO-161A (ADR-124) — ADDITIVE. false (varsayilan): ticari olarak UYGUN olmayan `SPONSORED`
   // kampanya ne yayina alinabilir ne de teslim edilir. true: teslim engellenmez, ekranlarda
   // yalnizca gorunur risk gostergesi kalir.
-  allowUnpaidSponsoredCampaigns Boolean  @default(false)
+  allowUnpaidSponsoredCampaigns     Boolean  @default(false)
   // TODO-161A.1 (ADR-132) — ADDITIVE. Store timezone; settlement scheduler donem sinirlarinin
   // (weekly/monthly) OTORITESIDIR. Bos/satir yoksa COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE'a duser.
   // IANA tz adi (or. "Europe/Istanbul"). Yalniz zamanlanmis settlement donem hesabinda kullanilir.
-  timezone                      String   @default("Europe/Istanbul")
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
+  timezone                          String   @default("Europe/Istanbul")
+  // TODO-169 (ADR-269) — Mağaza iade politikası (additive). Satır yoksa AYNI default'lar
+  // resolver'da uygulanır. returnWindowDays=14: TR mesafeli satış cayma hakkı (yasal temel).
+  // requiresApproval: talep önce incelenir. customerPaysReturnShipping: ilk faz manuel iade
+  // kargosu müşteri sorumluluğu. allowReplacement/allowOriginalPaymentRefund: sunulan çözümler.
+  returnWindowDays                  Int      @default(14)
+  returnsRequireApproval            Boolean  @default(true)
+  returnsCustomerPaysShipping       Boolean  @default(true)
+  returnsAllowReplacement           Boolean  @default(true)
+  returnsAllowOriginalPaymentRefund Boolean  @default(true)
+  createdAt                         DateTime @default(now())
+  updatedAt                         DateTime @updatedAt
 
   store   Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   logo    MediaAsset? @relation("StoreLogo", fields: [logoMediaId], references: [id], onDelete: SetNull)
@@ -4881,4 +4922,252 @@ model ProductTaxonomyValue {
 
   @@unique([storeId, type, slug])
   @@index([storeId, type, status])
+}
+
+// ─────────────────────── TODO-169 (ADR-269) — Returns Management Foundation ───────────────────────
+// Müşteri iade talebi + Store Admin iade operasyonu. İade OrderLine + quantity seviyesinde modellenir;
+// bir sipariş N ReturnRequest, her request N ReturnItem içerir. RefundIntent PENDING bu fazda finansa
+// DOKUNMAZ (ADR-268 §5 OrderRefund defterinin upstream'i; TODO-170 işler). Tüm modeller additive.
+
+// İade talebi yaşam döngüsü (saf state-machine `returns/status-map.ts`). Terminal durumlar immutable.
+enum ReturnStatus {
+  REQUESTED
+  UNDER_REVIEW
+  PARTIALLY_APPROVED
+  APPROVED
+  REJECTED
+  AWAITING_SHIPMENT
+  RETURN_SHIPPED
+  RECEIVED
+  INSPECTION_REQUIRED
+  INSPECTED
+  REFUND_PENDING
+  REPLACEMENT_PENDING
+  COMPLETED
+  CANCELLED_BY_CUSTOMER
+  EXPIRED
+  CLOSED
+}
+
+// İlk faz çözüm türleri. STORE_CREDIT/GIFT_CARD_BALANCE/MANUFACTURER_SUPPORT/INSTANT_REFUND/
+// EXCHANGE_WITH_DIFFERENT_PRODUCT gelecekte additive eklenecek (bkz. ADR-269 §1).
+enum ReturnResolutionType {
+  REFUND_TO_ORIGINAL_PAYMENT
+  REPLACEMENT
+}
+
+// Governed iade nedeni. TR/EN kullanıcı etiketleri i18n katmanındadır; enum stable/dildir.
+enum ReturnReason {
+  NO_LONGER_NEEDED
+  ORDERED_BY_MISTAKE
+  BETTER_PRICE_AVAILABLE
+  NOT_AS_DESCRIBED
+  WRONG_ITEM_RECEIVED
+  DEFECTIVE_OR_NOT_WORKING
+  DAMAGED_PRODUCT
+  DAMAGED_PACKAGING
+  MISSING_PARTS_OR_ACCESSORIES
+  QUALITY_NOT_EXPECTED
+  SIZE_OR_FIT_ISSUE
+  DELIVERY_TOO_LATE
+  UNAUTHORIZED_PURCHASE
+  OTHER
+}
+
+// İade edilen ürünün fiziksel durumu (admin inceleme sonucu).
+enum ReturnItemConditionStatus {
+  NEW_UNOPENED
+  OPENED_UNUSED
+  USED
+  DAMAGED
+}
+
+// Kalem inceleme sonucu.
+enum ReturnInspectionResult {
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+// İnceleme sonrası stok kararı. YALNIZ RESTOCK_AS_SELLABLE inventory adjustment üretir.
+enum ReturnRestockDecision {
+  RESTOCK_AS_SELLABLE
+  RESTOCK_AS_DAMAGED
+  DO_NOT_RESTOCK
+  RETURN_TO_VENDOR
+  DISPOSE
+}
+
+// Durum geçişini yapan aktör tipi (append-only ReturnStatusHistory). AuditLog yalnız platformUserId
+// taşıdığı için müşteri aktörü burada birinci-sınıf temsil edilir.
+enum ReturnActorType {
+  CUSTOMER
+  ADMIN
+  SYSTEM
+}
+
+// RefundIntent durumu. PENDING = hesaplandı, henüz işlenmedi (TODO-170 işler). PROCESSED/CANCELLED
+// bu fazda üretilmez (TODO-170 rezerve).
+enum RefundIntentStatus {
+  PENDING
+  PROCESSED
+  CANCELLED
+}
+
+// Store-scoped iade numarası sayacı (OrderNumberCounter deseni). returnNumber üretimi create
+// transaction'ı içinde bu satırın atomik increment'iyle yapılır.
+model ReturnNumberCounter {
+  storeId   String   @id
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+// İade talebi aggregate kökü. version = optimistic concurrency (eşzamanlı admin aksiyonu koruması).
+model ReturnRequest {
+  id                   String               @id @default(cuid())
+  storeId              String
+  orderId              String
+  customerId           String
+  returnNumber         String
+  status               ReturnStatus         @default(REQUESTED)
+  resolutionType       ReturnResolutionType
+  // Talep anında snapshot'lanan iade penceresi bitişi (teslim tarihi + returnWindowDays).
+  returnWindowEndsAt   DateTime
+  customerNote         String?
+  // Müşteriye ASLA gösterilmez (serileştirmede allowlist dışı).
+  adminNote            String?
+  // Reddetme zorunlu neden (status=REJECTED iken service tarafından zorunlu kılınır).
+  rejectionReason      String?
+  // İlk faz manuel iade kargosu: müşteri taşıyıcı + takip no girer; admin teslim alındı işaretler.
+  returnCarrier        String?
+  returnTrackingNumber String?
+  // Admin kararı: kargo ücreti iade edilsin mi (refund-calc shippingRefundMinor bunu esas alır).
+  refundShipping       Boolean              @default(false)
+  requestedAt          DateTime             @default(now())
+  reviewedAt           DateTime?
+  approvedAt           DateTime?
+  rejectedAt           DateTime?
+  shippedAt            DateTime?
+  receivedAt           DateTime?
+  inspectedAt          DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  version              Int                  @default(0)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  store        Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order        Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer     Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items        ReturnItem[]
+  history      ReturnStatusHistory[]
+  refundIntent RefundIntent?
+
+  @@unique([storeId, returnNumber])
+  @@index([storeId])
+  @@index([orderId])
+  @@index([customerId])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+}
+
+// İade kalemi: bir OrderLine'ın belirli adedi. approvedQuantity/rejectedQuantity kısmi onay için.
+model ReturnItem {
+  id               String                     @id @default(cuid())
+  storeId          String
+  returnRequestId  String
+  orderLineId      String
+  quantity         Int
+  reason           ReturnReason
+  customerComment  String?
+  conditionStatus  ReturnItemConditionStatus?
+  inspectionResult ReturnInspectionResult?
+  approvedQuantity Int?
+  rejectedQuantity Int?
+  restockDecision  ReturnRestockDecision?
+  // Idempotent restock guard: RESTOCK_AS_SELLABLE bir kez uygulanınca set edilir.
+  restockedAt      DateTime?
+  restockBatchId   String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  store         Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnRequest ReturnRequest      @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderLine     OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  attachments   ReturnAttachment[]
+
+  @@index([storeId])
+  @@index([returnRequestId])
+  @@index([orderLineId])
+}
+
+// İade kalemi fotoğraf/kanıt eki. media PRIVATE (public /media'dan sunulmaz); mediaAsset Restrict
+// (MEDIA_IN_USE guard'ına dahil — kullanımdaki medya silinemez).
+model ReturnAttachment {
+  id           String   @id @default(cuid())
+  storeId      String
+  returnItemId String
+  mediaAssetId String
+  type         String   @default("PHOTO")
+  createdAt    DateTime @default(now())
+
+  store      Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnItem ReturnItem @relation(fields: [returnItemId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@index([storeId])
+  @@index([returnItemId])
+  @@index([mediaAssetId])
+}
+
+// Append-only durum geçmişi (birincil audit trail). actorId scalar (customerId ya da platformUserId;
+// FK DEĞİL — aktör silinse bile tarihsel kayıt korunur, ProductPriceChange deseni).
+model ReturnStatusHistory {
+  id              String          @id @default(cuid())
+  storeId         String
+  returnRequestId String
+  fromStatus      ReturnStatus?
+  toStatus        ReturnStatus
+  actorType       ReturnActorType
+  actorId         String?
+  note            String?
+  createdAt       DateTime        @default(now())
+
+  store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([returnRequestId])
+}
+
+// Finansal iade NIYETI (immutable snapshot'lardan hesaplanır). status=PENDING bu fazda finansa
+// DOKUNMAZ; TODO-170 Refund Ledger & Payment Reversal işler. 1-1 ReturnRequest.
+model RefundIntent {
+  id                  String             @id @default(cuid())
+  storeId             String
+  returnRequestId     String             @unique
+  orderId             String
+  paymentAttemptId    String?
+  currency            String
+  productRefundMinor  Int
+  shippingRefundMinor Int
+  taxRefundMinor      Int
+  totalRefundMinor    Int
+  status              RefundIntentStatus @default(PENDING)
+  // Store-scoped idempotency (çift intent koruması; TODO-170 provider çağrısı için de kullanılır).
+  idempotencyKey      String
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnRequest  ReturnRequest   @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAttempt PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId])
+  @@index([orderId])
+  @@index([status])
 }

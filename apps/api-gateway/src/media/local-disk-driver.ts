@@ -1,4 +1,4 @@
-import { access, mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { StorageDriver } from "./storage.js";
@@ -17,7 +17,9 @@ import type { StorageDriver } from "./storage.js";
 // seed/demo store id'leri hyphen tasir (or. "edm-store"). Tire traversal riski
 // TASIMAZ (Katman 1 `..`/mutlak/NUL + Katman 3 baseDir sinir kontrolu ayridir);
 // bu yuzden hyphen'e izin verilir, aksi halde hyphenli store'a upload 500 verir.
-const STORAGE_KEY_PATTERN = /^stores\/[a-z0-9-]+\/(products|categories|hero|branding)\/[^/]+\.webp$/;
+// TODO-169 (ADR-269) — `returns` segmenti iade attachment'ları (PRIVATE) içindir; public
+// statik servis bu path'i onRequest guard'ıyla 404'ler, erişim yalnız auth-gate'li route'tan.
+const STORAGE_KEY_PATTERN = /^stores\/[a-z0-9-]+\/(products|categories|hero|branding|returns)\/[^/]+\.webp$/;
 
 export type StorageKeyErrorCode = "INVALID_STORAGE_KEY" | "PATH_TRAVERSAL_BLOCKED";
 
@@ -82,6 +84,16 @@ export class LocalDiskDriver implements StorageDriver {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async read(key: string): Promise<Buffer | null> {
+    const full = this.resolveSafe(key);
+    try {
+      return await readFile(full);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
     }
   }
 }

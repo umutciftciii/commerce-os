@@ -20,6 +20,7 @@ import {
   InventoryIcon,
   MarketplaceIcon,
   OrderIcon,
+  ReturnIcon,
   PaymentIcon,
   ProductIcon,
   SettingsIcon,
@@ -128,6 +129,13 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       heading: g("sales"),
       items: [
         { href: "/orders", label: t.orders, icon: <OrderIcon /> },
+        {
+          // TODO-169 (ADR-269) — İadeler çekirdek modül (capability-gate yok); paylaşılan
+          // i18n'e dokunmadan yerel locale etiketi (store-nav Markalar/Brands örneği gibi).
+          href: "/orders/returns",
+          label: locale === "tr" ? "İadeler" : "Returns",
+          icon: <ReturnIcon />,
+        },
         { href: "/customers", label: t.customers, icon: <CustomerIcon /> },
         { href: "/reviews", label: t.reviews, icon: <ReviewIcon /> },
         { href: "/payment-providers", label: t.paymentProviders, icon: <PaymentIcon /> },

@@ -42,11 +42,14 @@ export function AccountSidebar({
   t,
   section,
   caps,
+  activeReturns = false,
 }: {
   t: AccountDict;
   section: AccountSection;
   // TODO-163 Faz 2 — moduleKey→boolean (kapalı modülün menü linki gizlenir). Yoksa hepsi görünür.
   caps?: Record<string, boolean>;
+  // TODO-169 — İadeler ayrı route'tur (/account/returns), section değil; aktiflik ayrı işaretlenir.
+  activeReturns?: boolean;
 }) {
   const profileActive = PROFILE_GROUP.includes(section);
   const on = (key: string) => caps?.[key] !== false;
@@ -57,6 +60,9 @@ export function AccountSidebar({
       </p>
       <Link href="/account?section=orders" className={itemClass(section === "orders")}>
         {t.menu.orders}
+      </Link>
+      <Link href="/account/returns" className={itemClass(activeReturns)}>
+        {t.menu.returns}
       </Link>
       <Link href="/account?section=requests" className={itemClass(section === "requests")}>
         {t.menu.requests}

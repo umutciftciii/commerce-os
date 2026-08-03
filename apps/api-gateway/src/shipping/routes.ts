@@ -1608,7 +1608,12 @@ export function registerShippingAdminRoutes(
     const updated = await prisma.$transaction(async (tx) => {
       const s = await tx.shipment.update({
         where: { id: loaded.shipment.id },
-        data: { status: input.status },
+        data: {
+          status: input.status,
+          // TODO-169 (ADR-269) — İade penceresi ankoru: DELIVERED geçişinde stabil teslim tarihi.
+          // Zaten set edilmişse (idempotent) korunur.
+          ...(input.status === "DELIVERED" && !loaded.shipment.deliveredAt ? { deliveredAt: now } : {}),
+        },
       });
       await tx.shipmentEvent.create({
         data: {

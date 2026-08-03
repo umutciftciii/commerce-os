@@ -459,6 +459,12 @@ export function createPrismaShipmentSyncPersistence(): ShipmentSyncPersistence {
             nextSyncAt: null,
             syncAttempts: 0,
             lastSyncErrorCode: null,
+            // TODO-169 (ADR-269) — İade penceresi ankoru: sağlayıcı sync DELIVERED'e taşıdığında
+            // teslim tarihini set et (statusEvent.occurredAt varsa onu, yoksa sync anını). Zaten
+            // set edilmişse korunur (updateMany guard aşağıda; burada yalnız yeni-DELIVERED için).
+            ...(input.nextStatus === "DELIVERED"
+              ? { deliveredAt: input.statusEvent?.occurredAt ?? input.syncedAt }
+              : {}),
           },
         });
         if (input.statusEvent) {
