@@ -82,6 +82,62 @@ function buildApp(): FastifyInstance {
   return app;
 }
 
+/**
+ * BUG-CART-002 — Stok-farkinda projectCart double: her varyant icin `stock` (available) modeller;
+ * add-endpoint FAIL-CLOSED stok kapisi + deselection threading testleri icin. `deselectedVariantIds`
+ * verilirse ilgili satir `selected:false` doner (auth deselection = gorunum girdisi).
+ */
+function buildStockApp(stock: Record<string, number>): FastifyInstance {
+  const data = createInMemoryCartData();
+  const app = Fastify({ logger: false });
+  registerCustomerCartRoutes(app, {
+    logger: { info() {}, warn() {} },
+    resolvePublicStore: async (slug) =>
+      slug === STORE.slug ? STORE : slug === STORE_B.slug ? STORE_B : null,
+    data,
+    ackData: createInMemoryAckData(),
+    catalog: {
+      findVariantsByIds: async (storeId, ids) =>
+        ids
+          .filter((id) => validVariants[storeId]?.has(id))
+          .map((id) => ({ id, storeId })) as never,
+    },
+    resolveCustomer: async (request, storeId) => {
+      const header = request.headers["x-customer-session"];
+      const token = Array.isArray(header) ? header[0] : header;
+      if (!token) return null;
+      const s = sessions[token];
+      if (!s || s.storeId !== storeId) return null;
+      return { id: s.customerId, storeId: s.storeId };
+    },
+    projectCart: async ({ store, items, deselectedVariantIds }) => {
+      const deselected = new Set(deselectedVariantIds ?? []);
+      const lines = items.map((i) => {
+        const available = stock[i.variantId] ?? 0;
+        const availableQuantity = Math.max(0, Math.min(i.quantity, available));
+        const status =
+          available <= 0 ? "OUT_OF_STOCK" : availableQuantity < i.quantity ? "QUANTITY_ADJUSTED" : "OK";
+        return {
+          variantId: i.variantId,
+          quantity: i.quantity,
+          availableQuantity,
+          inStock: available > 0,
+          status,
+          selected: !deselected.has(i.variantId),
+        };
+      });
+      return {
+        storeSlug: store.slug,
+        currency: "TRY",
+        lines,
+        itemCount: lines.reduce((s, l) => s + (l.selected ? l.availableQuantity : 0), 0),
+        checkoutReady: lines.length > 0 && lines.every((l) => l.selected && l.status === "OK"),
+      } as never;
+    },
+  });
+  return app;
+}
+
 const A = { "x-customer-session": "tok-a" };
 const B = { "x-customer-session": "tok-b" };
 const base = "/public/stores/store-a/customer/cart";
@@ -185,6 +241,84 @@ describe("customer cart routes: line mutation tenant isolation", () => {
       payload: { cartVersion: 1 },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("customer cart routes: add-endpoint FAIL-CLOSED stock guard (BUG-CART-002)", () => {
+  it("409 VARIANT_OUT_OF_STOCK when adding an out-of-stock variant; cart stays empty", async () => {
+    const stockApp = buildStockApp({ v1: 5, v2: 0, v3: 1 });
+    await stockApp.inject({ method: "GET", url: base, headers: A });
+    const res = await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v2", quantity: 1, cartVersion: 1 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("VARIANT_OUT_OF_STOCK");
+    // Hicbir satir yazilmadi (cart bos, version bump yok).
+    const after = await stockApp.inject({ method: "GET", url: base, headers: A });
+    expect(after.json().data.cart.lines).toEqual([]);
+  });
+
+  it("allows the in-stock add, then 409 VARIANT_STOCK_LIMIT on the increment past stock", async () => {
+    const stockApp = buildStockApp({ v3: 1 });
+    await stockApp.inject({ method: "GET", url: base, headers: A });
+    const first = await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v3", quantity: 1, cartVersion: 1 },
+    });
+    expect(first.statusCode).toBe(200);
+    // Mevcut 1 + istenen 1 = 2 > available 1 → reddedilir; satir 1'de kalir.
+    const second = await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v3", quantity: 1, cartVersion: 2 },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.code).toBe("VARIANT_STOCK_LIMIT");
+    const after = await stockApp.inject({ method: "GET", url: base, headers: A });
+    expect(after.json().data.cart.lines).toMatchObject([{ variantId: "v3", quantity: 1 }]);
+  });
+
+  it("adds a fully-fulfillable in-stock quantity (200)", async () => {
+    const stockApp = buildStockApp({ v1: 5 });
+    await stockApp.inject({ method: "GET", url: base, headers: A });
+    const res = await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v1", quantity: 3, cartVersion: 1 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.cart.lines).toMatchObject([{ variantId: "v1", quantity: 3 }]);
+  });
+});
+
+describe("customer cart routes: auth deselection threading (BUG-CART-002)", () => {
+  it("GET ?deselected= marks the matching line selected:false (survives refresh)", async () => {
+    const stockApp = buildStockApp({ v1: 5, v2: 5 });
+    await stockApp.inject({ method: "GET", url: base, headers: A });
+    await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v1", quantity: 1, cartVersion: 1 },
+    });
+    await stockApp.inject({
+      method: "POST",
+      url: `${base}/lines`,
+      headers: A,
+      payload: { variantId: "v2", quantity: 1, cartVersion: 2 },
+    });
+    const res = await stockApp.inject({ method: "GET", url: `${base}?deselected=v1`, headers: A });
+    expect(res.statusCode).toBe(200);
+    const byId = Object.fromEntries(res.json().data.cart.lines.map((l: { variantId: string; selected: boolean }) => [l.variantId, l.selected]));
+    expect(byId.v1).toBe(false);
+    expect(byId.v2).toBe(true);
   });
 });
 

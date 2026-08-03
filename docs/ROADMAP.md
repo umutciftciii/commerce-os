@@ -1315,3 +1315,18 @@ UI: CartChangeBar + per-line markers + TR/EN + a11y. ADR-267. Additive migration
 typecheck · test gateway 2184 [+52] / storefront 534 [+8] / store-admin 364 · `git diff --check`). Future:
 `FREE_SHIPPING_ELIGIBILITY_CHANGED` + `SELLER_CHANGED` + event retention worker. Detail:
 `docs/analysis/PERSISTENT-CART-roadmap.md` Faz B + `docs/adr/ADR-267-cart-change-semantics.md`.
+
+## BUG-CART-002 — PDP availability, cart badge & line-selection consistency — IN_PROGRESS (2026-08-03, commit YOK)
+
+TODO-167/168 sonrası production-critical regresyon. (A) PDP fail-open bounded stok projeksiyonu
+(`loadPublicStockMap(PUBLIC_CATALOG_MAX)` pencere dışı varyant → `inStock:true`) → tükenmiş varyant
+"eklenebilir" görünüyordu; add endpoint stok kontrolü yoktu; başarı toast'ı optimistic'ti. (B) header badge
+add sonrası `router.refresh()` yokluğundan stale kalıyordu. (C) auth checkbox deselection gateway'e taşınmıyordu
+(re-check) + kargo `subtotal>0` kapısı yokluğundan "0 ürün + ₺49,90". Düzeltmeler: variant-scoped fail-CLOSED
+stok (`loadPublicStockMapForVariants`), add-guard `409 VARIANT_OUT_OF_STOCK`/`VARIANT_STOCK_LIMIT`,
+`AddToCartResult` + anon on-doğrulama, PDP OOS UX (disabled/strikethrough/aria "Tükendi", `selectColor`
+sessiz-kaydırma kaldırıldı), `router.refresh()` badge senkronu, `deselectedVariantIds` auth VIEW+checkout
+threading, kargo `hasShippableSelection` kapısı + vitrin "—". Gate GREEN (build 27/27 · gateway 2188 · storefront
+534 · lint 0 error · typecheck). GERÇEK browser smoke PASS (worktree gw :4100 + storefront :3100, enterprise-demo).
+Kalan borç TD-177 (PLP/home bounded stok). **Gift Card `BLOCKED_BY BUG-CART-002`.** Detay:
+`docs/analysis/BUG-CART-002-availability-badge-selection.md`.

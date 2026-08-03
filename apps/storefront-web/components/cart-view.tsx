@@ -659,7 +659,11 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           <div className="flex items-center justify-between">
             <dt className="text-ink-muted">{t.shipping}</dt>
             <dd className="font-medium text-ink">
-              {s.shippingStatus !== "OK" ? (
+              {/* BUG-CART-002 — Secili+orderable urun YOKKEN (itemCount 0) kargo HESAPLANMAZ: "—"
+                  gosterilir ve toplam ₺0 kalir (eski "0 urun + ₺49,90" hatasi giderildi). */}
+              {view.itemCount === 0 ? (
+                <span className="text-ink-muted">—</span>
+              ) : s.shippingStatus !== "OK" ? (
                 <span className="text-right text-xs font-normal text-ink-muted">
                   {s.shippingStatus === "ADDRESS_REQUIRED"
                     ? t.shippingPending
@@ -685,7 +689,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
           </div>
         </dl>
 
-        {s.shippingStatus === "OK" && !s.shippingIsFree ? (
+        {view.itemCount > 0 && s.shippingStatus === "OK" && !s.shippingIsFree ? (
           <p className="mt-2 text-xs text-ink-subtle">
             {format(t.freeShippingHint, { amount: s.freeShippingThresholdLabel })}
           </p>

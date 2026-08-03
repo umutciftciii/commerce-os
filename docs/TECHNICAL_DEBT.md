@@ -1963,3 +1963,18 @@ room, no code now):
 - **Anon meta cookie audit boundary** — anonymous baseline is captured on the first reliable *mutation*
   (Next.js only allows cookie writes in actions/route handlers), not the first *render*; pre-feature carts
   therefore begin change detection from their next mutation. Acceptable per ADR-267 §Consequences.
+
+## TD-177 — PLP list + home showcase hâlâ bounded (fail-open) stok haritası — OPEN (non-blocking)
+
+- Durum: OPEN
+- Öncelik: MEDIUM
+- Etki: BUG-CART-002'de PDP detay ucu variant-scoped fail-CLOSED stok haritasına (`loadPublicStockMapForVariants`
+  → `findInventoryByVariantIds`) geçti. Ancak `GET /public/stores/:slug/products` (PLP liste) ve home showcase
+  section'ları hâlâ `loadPublicStockMap` (bounded `listInventory(PUBLIC_CATALOG_MAX=200, updatedAt desc)`)
+  kullanıyor → pencerenin dışındaki varyant `available:null → inStock:true` (kart stok rozeti kozmetik
+  fail-open). Checkout güvende: kullanıcı PDP'ye tıkladığında detay ucu artık DOĞRU OOS gösterir (disabled)
+  ve add endpoint fail-closed'dur; PLP fail-open yalnız kart üzerindeki rozet/nokta görselini etkiler.
+- Çözüm önerisi: PLP/home caller'larını da variant-scoped'a çevir (slice'ın ürünlerinin varyant id'lerini
+  topla → `loadPublicStockMapForVariants`). Search read-model zaten ayrı raw-SQL `onHand−reserved` otoritesi
+  kullanır (etkilenmez). Aynı bounded-scan sınıfı: `pdp-404-public-catalog-max`.
+- İlişki: BUG-CART-002.

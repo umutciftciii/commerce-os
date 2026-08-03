@@ -1547,3 +1547,30 @@ analytics-dedupe/auth-ack-401/storefront-200 PASS. Test analytics kayıtları si
   **retention worker = future** (tablo/ingest hazır, otomatik DELETE yok → default güvenli).
 - **Checkout kodları:** WARN → `409 CART_CHANGED` (gövdede güncel change-enriched cart; storefront sepete
   yönlendirir, ham kod gösterilmez); BLOCKING → mevcut `409 CART_NOT_READY`.
+
+## BUG-CART-002 smoke runbook — PDP availability / cart badge / line-selection
+
+Worktree kodunu deployed stack'i bozmadan doğrulamak için AYRI portlarda yerel dev sunucuları + mevcut
+Postgres (enterprise-demo seeded). Şema değişmedi → migration gerekmez.
+
+```bash
+# node_modules yoksa (worktree gotcha): pnpm install --prefer-offline && pnpm db:generate && pnpm build
+# 1) worktree gateway :4100 (deployed :4000'e dokunma) — DB=localhost:5432
+set -a && . ./.env.example && set +a
+export API_GATEWAY_PORT=4100 SHIPMENT_SYNC_ENABLED=false MEDIA_STORAGE_DIR=/tmp/smoke-uploads MEDIA_PUBLIC_BASE_URL=''
+pnpm --filter @commerce-os/api-gateway dev   # health: curl localhost:4100/health
+
+# 2) worktree storefront :3100 → gateway :4100, enterprise-demo
+set -a && . ./.env.example && set +a
+export API_GATEWAY_URL=http://localhost:4100 STOREFRONT_DEMO_STORE_SLUG=enterprise-demo
+(cd apps/storefront-web && ./node_modules/.bin/next dev --port 3100)
+```
+
+**Fail-open kanıtı (OLD :4000 vs NEW :4100):** aynı ürünün detay ucunda bir varyant OLD'da
+`available:null,inStock:true` (bounded fail-open), NEW'de gerçek `available:N`. OOS örnek varyant bul:
+`curl :4100/public/stores/enterprise-demo/products/<slug>` → `inStock:false` olan varyant.
+
+**Kontrol listesi (§10):** (A) OOS varyant PDP'de disabled+üstü-çizili+aria "… — Tükendi", CTA "Tükendi";
+add reddedilir, toast yok, badge değişmez. (B) stoklu add → badge refresh'siz artar + "Sepete eklendi".
+(C) sepet: deselect → "0 ürün / Kargo — / ₺0,00 / checkout disabled", re-select geri döner; OOS satır
+toplama girmez. Boyutlar 375/768/1024/1440.

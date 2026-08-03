@@ -160,3 +160,16 @@ the storefront's React Server Action *button-onClick* interactions (add-to-cart)
 checkout chain was driven via a mix of the working login form-submit + gateway-API cart population; the
 **functional** behavior of every step is independently proven live via HTTP + DB (above), and the UI
 rendering + responsive + a11y are visually captured.
+
+---
+
+## BUG-CART-002 addendum — availability at ADD is now fail-CLOSED (2026-08-03)
+
+TODO-167/168 sonrası: sepet REFERANS tutar ve her okumada server-authoritative reprice edilir; ancak **add
+anında** stok doğrulaması yoktu (route yalnız store-ownership). BUG-CART-002 add yolunu fail-CLOSED yaptı:
+`POST /customer/cart/lines` mutation ÖNCESİ ORTAK projeksiyonla prospektif satırı doğrular (`409
+VARIANT_OUT_OF_STOCK` / `VARIANT_STOCK_LIMIT`); anon add yazmadan önce `resolveCart(prospective)` ile
+doğrular. İki senaryo ayrık kalır: (1) **add sırasında** stok yok → mutation reddi; (2) **add sonrası**
+tükenme → Cart Change Awareness BLOCKING (satır kalır). Ayrıca auth deselection artık VIEW projeksiyonuna +
+checkout'a `deselectedVariantIds` ile taşınır (aynı-cihaz; cross-device persist = TD-174). Detay:
+`docs/analysis/BUG-CART-002-availability-badge-selection.md`.

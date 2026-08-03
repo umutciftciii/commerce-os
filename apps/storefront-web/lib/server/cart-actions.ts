@@ -188,19 +188,54 @@ async function pruneAnonCartMeta(): Promise<void> {
   }
 }
 
+/**
+ * BUG-CART-002 — Sepete ekleme SONUCU. Basari YALNIZ satir gercekten yazildiktan (auth: DB'ye
+ * persist / anon: cookie) sonra dondurulur → vitrin "Sepete eklendi" toast'ini yalniz `ok` iken
+ * gosterir. Fail-closed stok kapisi (auth: gateway 409, anon: ORTAK projeksiyon on-dogrulamasi)
+ * tukenmis/limiti asan eklemeyi reddeder; istemci "Bu varyant tukendi" gosterir ve refresh eder.
+ */
+export type AddToCartResult =
+  | { ok: true }
+  | { ok: false; code: "VARIANT_OUT_OF_STOCK" | "VARIANT_STOCK_LIMIT" | "CART_STALE" | "ERROR" };
+
 /** Bir varyanti sepete ekler (mevcut adede ekleyerek). */
-export async function addToCartAction(variantId: string, quantity: number): Promise<void> {
+export async function addToCartAction(variantId: string, quantity: number): Promise<AddToCartResult> {
   const qty = Math.max(1, Math.floor(quantity || 1));
   if (await hasCustomerSession()) {
-    await authAddLine(variantId, qty);
+    // Auth: gateway POST /lines FAIL-CLOSED stok kapisi uygular; 409 kodu buraya tasinir.
+    const res = await authAddLine(variantId, qty);
+    if (!res.ok) {
+      const code =
+        res.code === "VARIANT_OUT_OF_STOCK" || res.code === "VARIANT_STOCK_LIMIT" || res.code === "CART_STALE"
+          ? res.code
+          : "ERROR";
+      return { ok: false, code };
+    }
     revalidateCart();
-    return;
+    return { ok: true };
   }
+  // Anon: cookie otoriter; gateway add-endpoint'i yoktur. Yazmadan ONCE ORTAK projeksiyonla
+  // (auth kapisiyla ayni availability otoritesi) prospektif satiri dogrula → tukenmis/limiti asan
+  // eklemeyi reddet. Projeksiyon (gecici ag hatasi) cozulemezse yazmaya izin ver (sepet sayfasi +
+  // checkout yine sunucu-otoriter gate'ler; birincil savunma = dogru PDP projeksiyonu).
   const items = await readCartItems();
-  await writeCartItems(addItem(items, variantId, qty));
+  const next = addItem(items, variantId, qty);
+  const requestedTotal = next.find((item) => item.variantId === variantId)?.quantity ?? qty;
+  const check = await resolveCart(next);
+  if (check.ok) {
+    const line = check.data.lines.find((l) => l.variantId === variantId);
+    if (!line || line.status === "UNAVAILABLE" || line.availableQuantity <= 0) {
+      return { ok: false, code: "VARIANT_OUT_OF_STOCK" };
+    }
+    if (line.availableQuantity < requestedTotal) {
+      return { ok: false, code: "VARIANT_STOCK_LIMIT" };
+    }
+  }
+  await writeCartItems(next);
   // TODO-168 — misafir: yeni satirin add-time snapshot'ini baseline'la (mevcutlara dokunmaz).
   await baselineAnonCartMeta();
   revalidateCart();
+  return { ok: true };
 }
 
 /** Bir sepet satirinin adedini ayarlar (<=0 ise satiri kaldirir). */
@@ -432,19 +467,25 @@ export async function submitCheckoutAction(
   // kaldirilan satirlar sepette kalir ama siparise girmez (gateway yine fiyat/stok
   // otoriter dogrular). Hic secili satir yoksa checkout'a gecilmez.
   // TODO-167 (ADR-266) — Oturum acmis musteride sepet KALICI DB cart'tan gelir (cookie
-  // login-merge sonrasi bos olabilir). Gateway checkout DB cart'i ZATEN otoriter alir; burada
-  // yalniz bos-sepet guard'i + gorunum icin item listesi turetilir. Deselection auth cart'ta
-  // Faz A kapsam disi (tum satirlar dahil). Misafirde mevcut cookie + deselection yolu DEGISMEZ.
-  const authProj = await getAuthCartProjection();
+  // login-merge sonrasi bos olabilir). Burada bos-sepet guard'i + gorunum icin item listesi
+  // turetilir. BUG-CART-002 — auth yolda da deselection UYGULANIR: secim-disi (checkbox
+  // kaldirilmis) + OUT_OF_STOCK/UNAVAILABLE satirlar checkout item listesinden dislanir
+  // (misafir yoluyla ayni semantik). Gateway yine fiyat/stok otoriter dogrular.
+  const deselectedForCheckout = await readDeselectedItems();
+  const authProj = await getAuthCartProjection(deselectedForCheckout);
   let items: Array<{ variantId: string; quantity: number }>;
   if (authProj) {
     items = authProj.cart.lines
-      .filter((line) => line.status !== "UNAVAILABLE" && line.availableQuantity > 0)
+      .filter(
+        (line) =>
+          line.selected &&
+          line.status !== "UNAVAILABLE" &&
+          line.availableQuantity > 0,
+      )
       .map((line) => ({ variantId: line.variantId, quantity: line.availableQuantity }));
   } else {
     const allItems = await readCartItems();
-    const deselected = await readDeselectedItems();
-    items = allItems.filter((item) => !deselected.includes(item.variantId));
+    items = allItems.filter((item) => !deselectedForCheckout.includes(item.variantId));
   }
   if (items.length === 0) {
     return { status: "error", errorReason: "cart-not-ready" };
@@ -496,6 +537,8 @@ export async function submitCheckoutAction(
     billingAddress,
     coupon,
     shippingOptionId || null,
+    // BUG-CART-002 — Secim-disi varyantlar checkout'a katilmaz (auth: gateway DB cart'tan diser).
+    deselectedForCheckout,
   );
 
   if (!result.ok) {
