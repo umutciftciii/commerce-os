@@ -820,7 +820,28 @@ model PlatformSession {
   id             String    @id @default(cuid())
   platformUserId String
   tokenHash      String    @unique
+  // ADR-271 (Unified Session Policy) — iki-kapili omur.
+  // `expiresAt` GERI-UYUMLULUK icin korunur; ADR-271 sonrasi login'de
+  // `absoluteExpiresAt` ile ayni degere set edilir. Otoriter gecerlilik:
+  //   now <= min(lastActivityAt + idleTimeout(rememberMe), absoluteExpiresAt) && revokedAt == null
+  // idle deadline SAKLANMAZ; `lastActivityAt`'ten policy ile HESAPLANIR.
   expiresAt      DateTime
+  // ADR-271 — kayan idle capasi (anlamli aktiviteyle throttle'li yenilenir).
+  // Mevcut satirlar icin backfill = updatedAt.
+  lastActivityAt DateTime  @default(now())
+  // ADR-271 — mutlak tavan; idle yenileme bunu ASLA asamaz. Guvenli-additive
+  // olması için nullable: ADR-271 oncesi/paralel main-branch INSERT'leri bunu
+  // set etmez → validator `absoluteExpiresAt ?? expiresAt` ile geriye duser.
+  // Mevcut satirlar icin backfill = expiresAt.
+  absoluteExpiresAt DateTime?
+  // ADR-271 — login/extend'de secilen politika penceresi (server-otoriter).
+  rememberMe     Boolean   @default(false)
+  // ADR-271 — token rotation soyagaci (fixation savunmasi/denetim izi).
+  rotatedFromSessionId String?
+  // ADR-271 hardening (M1) — legacy cutover marker. 0 = ADR-271-oncesi (grandfathered:
+  // yalniz absolute tavan uygulanir, idle collapse YOK) → ilk ANLAMLI aktivitede 1'e terfi
+  // (taze idle penceresi o an baslar). 1 = ADR-271-native (idle+absolute). Yeni satirlar 1.
+  policyVersion  Int       @default(1)
   revokedAt      DateTime?
   userAgent      String?
   ipAddress      String?
@@ -1629,7 +1650,20 @@ model CustomerSession {
   storeId    String
   customerId String
   tokenHash  String    @unique
+  // ADR-271 (Unified Session Policy) — PlatformSession ile ORTAK iki-kapili omur.
+  // `expiresAt` geri-uyumluluk icin korunur (ADR-271 sonrasi = absoluteExpiresAt).
+  // Otoriter gecerlilik: now <= min(lastActivityAt + idleTimeout(rememberMe),
+  // absoluteExpiresAt) && revokedAt == null. idle deadline HESAPLANIR, saklanmaz.
   expiresAt  DateTime
+  lastActivityAt DateTime @default(now())
+  // Guvenli-additive: nullable → validator `absoluteExpiresAt ?? expiresAt`.
+  // Backfill: absoluteExpiresAt = expiresAt, lastActivityAt = updatedAt.
+  absoluteExpiresAt DateTime?
+  rememberMe Boolean   @default(false)
+  rotatedFromSessionId String?
+  // ADR-271 hardening (M1) — PlatformSession ile ORTAK legacy cutover marker.
+  // 0 = grandfathered (absolute-only, idle collapse YOK) → ilk anlamli aktivitede 1'e terfi.
+  policyVersion Int    @default(1)
   revokedAt  DateTime?
   userAgent  String?
   ipAddress  String?
@@ -5156,6 +5190,11 @@ model RefundIntent {
   taxRefundMinor      Int
   totalRefundMinor    Int
   status              RefundIntentStatus @default(PENDING)
+  // R1 (ADR-269 hardening) — iade refund'suz terminal olunca (REJECTED/CANCELLED_BY_CUSTOMER/
+  // EXPIRED/CLOSED-finansalsiz) PENDING intent AYNI tx'te CANCELLED yapilir; silinmez (append-only
+  // finansal iz). Iptal ani + nedeni burada tutulur (audit/denetim; projection bunu saymaz).
+  cancelledAt         DateTime?
+  cancellationReason  String?
   // Store-scoped idempotency (çift intent koruması; TODO-170 provider çağrısı için de kullanılır).
   idempotencyKey      String
   createdAt           DateTime           @default(now())

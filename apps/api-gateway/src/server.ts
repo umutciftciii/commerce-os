@@ -5,6 +5,16 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { verifyPassword } from "@commerce-os/auth";
 import type { AppConfig } from "@commerce-os/config";
+// ADR-271 — Unified Session Policy (tek kaynak): iki-kapili omur + throttle + rotation.
+import {
+  computeSessionExpiry,
+  effectiveAbsolute,
+  isLegacySession,
+  isSessionValid,
+  resolveSessionPolicy,
+  sessionTiming,
+  shouldBumpActivity,
+} from "@commerce-os/config";
 import {
   adminStoreCreateRequestSchema,
   adminStoreListResponseSchema,
@@ -40,6 +50,7 @@ import {
   platformLoginResponseSchema,
   platformLogoutResponseSchema,
   platformMeResponseSchema,
+  platformSessionExtendResponseSchema,
   productCategoryCreateRequestSchema,
   productCategoryListResponseSchema,
   productCategorySchema,
@@ -211,6 +222,7 @@ import {
 } from "./shipping/webhook-routes.js";
 import { registerShippingRatePlanRoutes } from "./shipping/rate-plan-routes.js";
 import { registerMediaAdminRoutes } from "./media/routes.js";
+import { classifyMediaRequestPath } from "./media/private-guard.js";
 import { LocalDiskDriver } from "./media/local-disk-driver.js";
 // ADR-065 (Faz 2/Dilim 3) — kategori GET response'unda imageUrl'u storageKey'den
 // turetmek icin. server.ts'in resolveMediaUrl'u ilk tuketen yeri.
@@ -497,7 +509,11 @@ export interface ServerHealthChecks {
 }
 
 type PlatformUserRecord = Pick<PlatformUser, "id" | "email" | "name" | "passwordHash" | "role">;
-type PlatformSessionRecord = Pick<PlatformSession, "id" | "expiresAt" | "revokedAt"> & {
+// ADR-271 — iki-kapili omur icin idle/absolute alanlari da secilir.
+type PlatformSessionRecord = Pick<
+  PlatformSession,
+  "id" | "expiresAt" | "revokedAt" | "lastActivityAt" | "absoluteExpiresAt" | "rememberMe" | "policyVersion"
+> & {
   platformUser: PlatformUserRecord;
 };
 type StoreRecord = Pick<
@@ -979,11 +995,37 @@ export interface AppDataAccess extends CampaignDataAccess {
     platformUserId: string;
     tokenHash: string;
     expiresAt: Date;
+    // ADR-271 — iki-kapili omur + politika penceresi + rotation soyagaci.
+    lastActivityAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    rotatedFromSessionId?: string | null;
     userAgent?: string;
     ipAddress?: string;
   }): Promise<Pick<PlatformSession, "id" | "expiresAt">>;
   findPlatformSessionByTokenHash(tokenHash: string): Promise<PlatformSessionRecord | null>;
   revokePlatformSession(sessionId: string): Promise<boolean>;
+  // ADR-271 — idle capasini (throttle'li) yenile; absolute'e DOKUNMAZ. Idempotent
+  // (yalniz ACTIVE satiri gunceller). Yalniz gecen sure throttle'i astiysa cagrilir.
+  // M1 — promoteToNative: legacy (policyVersion=0) oturumu ilk anlamli aktivitede native'e (1) tasir.
+  touchPlatformSessionActivity(
+    sessionId: string,
+    lastActivityAt: Date,
+    promoteToNative?: boolean,
+  ): Promise<void>;
+  // ADR-271 — extend: token ROTATE + idle capasini yenile; absolute DEGISMEZ.
+  // Yeni satir olusturur (rotatedFromSessionId) ve eskiyi revoke eder (atomik).
+  rotatePlatformSession(input: {
+    currentSessionId: string;
+    platformUserId: string;
+    newTokenHash: string;
+    lastActivityAt: Date;
+    expiresAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    userAgent?: string;
+    ipAddress?: string;
+  }): Promise<Pick<PlatformSession, "id" | "expiresAt"> | null>;
   listStores(input: { limit: number; offset: number }): Promise<{ data: StoreRecord[]; total: number }>;
   findStoreById(id: string): Promise<StoreRecord | null>;
   findStoreBySlug(slug: string): Promise<StoreRecord | null>;
@@ -3249,6 +3291,11 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           id: true,
           expiresAt: true,
           revokedAt: true,
+          // ADR-271 — iki-kapili omur degerlendirmesi icin.
+          lastActivityAt: true,
+          absoluteExpiresAt: true,
+          rememberMe: true,
+          policyVersion: true, // M1 — legacy (0) → absolute-only; ilk aktivitede 1'e terfi.
           platformUser: {
             select: { id: true, email: true, name: true, passwordHash: true, role: true },
           },
@@ -3260,6 +3307,40 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
         data: { revokedAt: new Date() },
       });
       return true;
+    },
+    // ADR-271 — idle capasini yenile (absolute'e dokunmaz). Idempotent:
+    // yalniz ACTIVE (revokedAt IS NULL) satiri gunceller; race'te no-op guvenli.
+    touchPlatformSessionActivity: async (sessionId, lastActivityAt, promoteToNative) => {
+      await prisma.platformSession.updateMany({
+        where: { id: sessionId, revokedAt: null },
+        data: { lastActivityAt, ...(promoteToNative ? { policyVersion: 1 } : {}) },
+      });
+    },
+    // ADR-271 — extend/rotation: yeni oturum olustur (rotatedFromSessionId) +
+    // eskiyi revoke et, tek transaction. absolute DEGISMEZ (cagiran gecirir).
+    rotatePlatformSession: async (input) => {
+      return prisma.$transaction(async (tx) => {
+        const revoked = await tx.platformSession.updateMany({
+          where: { id: input.currentSessionId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        // Eski oturum zaten revoke/expired ise DIRILTME: rotation reddedilir.
+        if (revoked.count === 0) return null;
+        return tx.platformSession.create({
+          data: {
+            platformUserId: input.platformUserId,
+            tokenHash: input.newTokenHash,
+            expiresAt: input.expiresAt,
+            lastActivityAt: input.lastActivityAt,
+            absoluteExpiresAt: input.absoluteExpiresAt,
+            rememberMe: input.rememberMe,
+            rotatedFromSessionId: input.currentSessionId,
+            userAgent: input.userAgent ?? null,
+            ipAddress: input.ipAddress ?? null,
+          },
+          select: { id: true, expiresAt: true },
+        });
+      });
     },
     listStores: async ({ limit, offset }) => {
       // TODO-164B (ADR-232) — sistem mağazaları (systemPurpose ≠ null) normal
@@ -5136,6 +5217,26 @@ export function createServer(
   // F4A.3 (ADR-060) — Musteri kupon cuzdani veri erisimi (atama/claim/apply state).
   const wallet: WalletDataAccess = createPrismaWalletDataAccess();
   const loginRateLimiter = createLoginRateLimiter(config);
+  // ADR-271 — cozumlenmis oturum politikasi (SESSION_* env override + varsayilan).
+  // Hem platform hem customer auth yolu AYNI evaluator'i kullanir.
+  const sessionPolicy = resolveSessionPolicy(config);
+  // ADR-271 — extend rate limit (login limiter penceresini yeniden kullanir;
+  // anahtar = ip:sessionId). Suistimali sinirlar; sayfa yenileme spam'ini bogar.
+  const extendHits = new Map<string, { count: number; resetAt: number }>();
+  const isExtendLimited = (key: string): boolean => {
+    const entry = extendHits.get(key);
+    if (!entry || entry.resetAt <= Date.now()) return false;
+    return entry.count >= config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS;
+  };
+  const recordExtend = (key: string): void => {
+    const now = Date.now();
+    const entry = extendHits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      extendHits.set(key, { count: 1, resetAt: now + config.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000 });
+    } else {
+      entry.count += 1;
+    }
+  };
   // F3B.2: Payment credential cipher (encryption-at-rest). Dev fallback uyarisi
   // yalnizca bir kez loglanir. Calisma ortami canli mi? (LIVE-MOCK guard icin).
   let cipherWarned = false;
@@ -5176,7 +5277,14 @@ export function createServer(
   } = { current: null };
   const app = Fastify({ logger: false });
 
-  async function authenticatePlatform(request: FastifyRequest, reply: FastifyReply) {
+  async function authenticatePlatform(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    opts: { countAsActivity?: boolean } = {},
+  ) {
+    // S1 — yalniz ANLAMLI aktivite idle capasini yeniler. /me, health, session-timing, passive
+    // polling countAsActivity=false gecer (bunlar idle'i uzatmamali). Varsayilan: aktivite say.
+    const countAsActivity = opts.countAsActivity ?? true;
     const token = bearerToken(request);
     if (!token) {
       await reply.code(401).send(errorBody("UNAUTHORIZED", "Unauthorized."));
@@ -5186,9 +5294,31 @@ export function createServer(
     const session = await dataAccess.findPlatformSessionByTokenHash(
       hashSessionToken(token, config.SESSION_SECRET),
     );
-    if (!session || session.revokedAt || session.expiresAt.getTime() <= Date.now()) {
+    // ADR-271 — iki-kapili gecerlilik: revoked degil VE now <= min(idle, absolute).
+    // Client'a teknik expiry ayrimi (idle mi absolute mi) SIZDIRILMAZ → tek 401.
+    const now = new Date();
+    if (!session || !isSessionValid(sessionPolicy, session, now)) {
       await reply.code(401).send(errorBody("UNAUTHORIZED", "Unauthorized."));
       return null;
+    }
+
+    // S1/M1 — anlamli aktivitede (yalniz countAsActivity) idle capasini yenile / legacy oturumu
+    // native'e tasi. absolute'u ASLA asma. Fire-and-forget: yazim request'i BLOKLAMAZ/500'lemez.
+    if (countAsActivity && now.getTime() <= effectiveAbsolute(session).getTime()) {
+      const warn = (error: unknown) =>
+        logger.warn("platform session activity touch failed", {
+          message: error instanceof Error ? error.message : "unknown",
+        });
+      if (isLegacySession(session)) {
+        // M1 — ilk anlamli aktivite: native'e (policyVersion=1) terfi + taze idle penceresi.
+        void dataAccess.touchPlatformSessionActivity(session.id, now, true).catch(warn);
+        session.lastActivityAt = now;
+        session.policyVersion = 1;
+      } else if (shouldBumpActivity(sessionPolicy, session.lastActivityAt, now)) {
+        // ADR-271 — throttle'li idle yenileme (her request'te DB write YOK).
+        void dataAccess.touchPlatformSessionActivity(session.id, now).catch(warn);
+        session.lastActivityAt = now;
+      }
     }
 
     return session;
@@ -7664,14 +7794,22 @@ export function createServer(
   }
   const mediaStorage = new LocalDiskDriver(mediaDir);
   if (mediaStaticEnabled) {
-    // TODO-169 (ADR-269 §8) — İade attachment'ları PRIVATE. Public statik servis, path'inde
-    // "/returns/" içeren HER /media isteğini 404'ler; bu dosyalar yalnız auth-gate'li iade
-    // attachment route'undan (sahip müşteri / store admin) stream edilir. Non-enumerable key +
-    // bu guard = uygulama-katmanı gizlilik (gerçek private-bucket/signed-URL: TECHNICAL_DEBT).
+    // TODO-169 (ADR-269 §8) + C1 (post-audit hardening) — İade attachment'ları PRIVATE. Public
+    // statik servis, `returns` SEGMENTİNE ulaşan HER /media isteğini reddeder; bu dosyalar yalnız
+    // auth-gate'li iade attachment route'undan (sahip müşteri / store admin) stream edilir.
+    //
+    // C1 açığı: eski guard HAM url'de `"/returns/"` substring'i arıyordu → `%2F` (encoded slash),
+    // `%252F` (double), `%5C`, karışık-case ile BYPASS edilebiliyordu (fastifyStatic decode edip
+    // servis ediyordu). Yeni guard path'i TAM decode eder (iteratif; multi-encoding), backslash'i
+    // normalize eder, segment bazında `returns` arar; malformed encoding / traversal / kontrol
+    // karakteri → reddedilir (fail-closed). Static'e ULAŞMADAN çalışır (onRequest, static'ten önce).
     app.addHook("onRequest", async (request, reply) => {
-      const path = request.url.split("?")[0];
-      if (path.startsWith("/media/") && path.includes("/returns/")) {
-        await reply.code(404).send(errorBody("NOT_FOUND", "Not found."));
+      const verdict = classifyMediaRequestPath(request.url);
+      if (verdict === "malformed") {
+        return reply.code(400).send(errorBody("BAD_REQUEST", "Malformed path."));
+      }
+      if (verdict === "private") {
+        return reply.code(404).send(errorBody("NOT_FOUND", "Not found."));
       }
     });
     app.register(fastifyStatic, {
@@ -8411,12 +8549,22 @@ export function createServer(
     }
     loginRateLimiter.reset(request.ip, input.email);
 
+    // ADR-271 — yeni oturum: taze rasgele token (fixation savunmasi; mevcut
+    // cookie ASLA yeniden kullanilmaz) + iki-kapili omur politikadan turer.
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + config.SESSION_TTL_SECONDS * 1000);
+    const now = new Date();
+    const { absoluteExpiresAt, expiresAt } = computeSessionExpiry(
+      sessionPolicy,
+      input.rememberMe,
+      now,
+    );
     const session = await dataAccess.createPlatformSession({
       platformUserId: user.id,
       tokenHash: hashSessionToken(token, config.SESSION_SECRET),
       expiresAt,
+      lastActivityAt: now,
+      absoluteExpiresAt,
+      rememberMe: input.rememberMe,
       userAgent: request.headers["user-agent"],
       ipAddress: request.ip,
     });
@@ -8426,7 +8574,7 @@ export function createServer(
       platformUserId: user.id,
       entityType: "PlatformSession",
       entityId: session.id,
-      metadata: { authSurface: "platform" },
+      metadata: { authSurface: "platform", rememberMe: input.rememberMe },
     });
 
     return platformLoginResponseSchema.parse({
@@ -8437,7 +8585,8 @@ export function createServer(
   });
 
   app.post("/auth/platform/logout", async (request, reply) => {
-    const session = await authenticatePlatform(request, reply);
+    // S1 — logout aktivite DEĞİL (zaten revoke ediliyor); idle bump gereksiz.
+    const session = await authenticatePlatform(request, reply, { countAsActivity: false });
     if (!session) {
       return;
     }
@@ -8454,11 +8603,14 @@ export function createServer(
   });
 
   app.get("/auth/platform/me", async (request, reply) => {
-    const session = await authenticatePlatform(request, reply);
+    // S1 — /me PASİF (uyarı/geri-sayım polling'i); idle capasini UZATMAZ.
+    const session = await authenticatePlatform(request, reply, { countAsActivity: false });
     if (!session) {
       return;
     }
 
+    // ADR-271 — istemci uyari/geri-sayim icin oturum zamanlamasi (idle+absolute+lead).
+    const timing = sessionTiming(sessionPolicy, session);
     return platformMeResponseSchema.parse({
       user: {
         id: session.platformUser.id,
@@ -8466,7 +8618,78 @@ export function createServer(
         name: session.platformUser.name,
         role: session.platformUser.role,
       },
-      session: { id: session.id, expiresAt: session.expiresAt.toISOString() },
+      session: {
+        id: session.id,
+        expiresAt: session.expiresAt.toISOString(),
+        timing: {
+          idleExpiresAt: timing.idleExpiresAt.toISOString(),
+          absoluteExpiresAt: timing.absoluteExpiresAt.toISOString(),
+          warningLeadSeconds: timing.warningLeadSeconds,
+          rememberMe: timing.rememberMe,
+          lastActivityAt: timing.lastActivityAt.toISOString(),
+        },
+      },
+    });
+  });
+
+  // ADR-271 — Oturum uzatma (extend). YALNIZ aktif (gecerli) oturum uzatilir —
+  // authenticatePlatform expired/revoked'u zaten 401 yapar (dirilme YOK). Token
+  // ROTATE edilir (fixation savunmasi); absolute tavan DEGISMEZ; idle capasi
+  // yenilenir. CSRF: admin BFF double-submit (proxyMutation) kapisi. Rate-limited.
+  app.post("/auth/platform/extend", async (request, reply) => {
+    // S1 — extend kendi rotation'inda lastActivityAt=now yazar; on-auth bump'a gerek yok (cift yazim).
+    const session = await authenticatePlatform(request, reply, { countAsActivity: false });
+    if (!session) return;
+    const key = `${request.ip}:${session.id}`;
+    if (isExtendLimited(key)) {
+      return reply
+        .code(429)
+        .send(errorBody("AUTH_RATE_LIMITED", "Too many attempts. Please try again later."));
+    }
+    recordExtend(key);
+
+    const now = new Date();
+    const abs = effectiveAbsolute(session); // absolute DEGISMEZ (uzatilamaz)
+    const newToken = randomBytes(32).toString("base64url");
+    const rotated = await dataAccess.rotatePlatformSession({
+      currentSessionId: session.id,
+      platformUserId: session.platformUser.id,
+      newTokenHash: hashSessionToken(newToken, config.SESSION_SECRET),
+      lastActivityAt: now,
+      expiresAt: abs,
+      absoluteExpiresAt: abs,
+      rememberMe: session.rememberMe,
+      userAgent: request.headers["user-agent"],
+      ipAddress: request.ip,
+    });
+    if (!rotated) {
+      // Yarista eski oturum revoke/expired olduysa DIRILTME.
+      return reply.code(401).send(errorBody("UNAUTHORIZED", "Unauthorized."));
+    }
+    await dataAccess.createAuditLog({
+      action: "UPDATE",
+      platformUserId: session.platformUser.id,
+      entityType: "PlatformSession",
+      entityId: rotated.id,
+      metadata: { authSurface: "platform", event: "SESSION_EXTEND", rememberMe: session.rememberMe },
+    });
+    const timing = sessionTiming(sessionPolicy, {
+      lastActivityAt: now,
+      absoluteExpiresAt: abs,
+      expiresAt: abs,
+      rememberMe: session.rememberMe,
+      revokedAt: null,
+    });
+    return platformSessionExtendResponseSchema.parse({
+      token: newToken,
+      expiresAt: abs.toISOString(),
+      timing: {
+        idleExpiresAt: timing.idleExpiresAt.toISOString(),
+        absoluteExpiresAt: timing.absoluteExpiresAt.toISOString(),
+        warningLeadSeconds: timing.warningLeadSeconds,
+        rememberMe: timing.rememberMe,
+        lastActivityAt: timing.lastActivityAt.toISOString(),
+      },
     });
   });
 

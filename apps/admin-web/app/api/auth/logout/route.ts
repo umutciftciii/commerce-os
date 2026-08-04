@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createApiClient } from "@commerce-os/api-client";
 import { getSessionToken, clearSessionCookie } from "../../../../lib/server/session";
-import { isValidCsrfRequest } from "../../../../lib/server/csrf";
+import { isValidCsrfRequest, clearCsrfCookie } from "../../../../lib/server/csrf";
 import { csrfForbiddenResponse } from "../../../../lib/server/respond";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
   }
   const response = NextResponse.json({ ok: true });
   clearSessionCookie(response);
+  clearCsrfCookie(response); // S4 — CSRF cookie'sini de temizle (yetim token birakma).
   if (token) {
     try {
       await createApiClient().auth.platformLogout(token);

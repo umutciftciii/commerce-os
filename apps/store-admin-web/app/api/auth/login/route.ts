@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * olana kadar gecici cozum — bkz. docs/TECHNICAL_DEBT.md.
  */
 export async function POST(request: NextRequest) {
-  let body: { email?: unknown; password?: unknown };
+  let body: { email?: unknown; password?: unknown; rememberMe?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -21,11 +21,13 @@ export async function POST(request: NextRequest) {
 
   const email = typeof body.email === "string" ? body.email : "";
   const password = typeof body.password === "string" ? body.password : "";
+  // ADR-271 — "Beni hatırla" (server-otoriter oturum penceresi). Varsayılan KAPALI.
+  const rememberMe = body.rememberMe === true;
 
   try {
-    const result = await createApiClient().auth.platformLogin({ email, password });
+    const result = await createApiClient().auth.platformLogin({ email, password, rememberMe });
     const response = NextResponse.json({ user: result.user });
-    setSessionCookie(response, result.token, result.expiresAt);
+    setSessionCookie(response, result.token, result.expiresAt, rememberMe);
     return response;
   } catch (error) {
     return errorResponse(error);

@@ -46,6 +46,7 @@ import type {
   CreatePaymentLinkRequest,
   RecordManualPaymentRequest,
   PlatformMeResponse,
+  SessionTiming,
   PlatformUserContract,
   Product,
   ProductCategory,
@@ -640,13 +641,16 @@ function identityQueryString(query: IdentityApplyRequest): string {
 
 export const storeApi = {
   // Auth / session
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, rememberMe = false) =>
     call<{ user: StoreUser }>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, rememberMe }),
     }),
   me: () => call<PlatformMeResponse>("/api/auth/me"),
   logout: () => mutatingCall<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+  // ADR-271 — oturum uzatma (CSRF korumalı; token rotate). Yeni zamanlama döner.
+  extendSession: () =>
+    mutatingCall<{ timing: SessionTiming }>("/api/auth/extend", { method: "POST" }),
 
   // Store context
   storeContext: () => call<{ store: StoreContext }>("/api/store/context"),

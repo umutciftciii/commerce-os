@@ -32,7 +32,10 @@ describe("adminApi auth flow", () => {
     expect(result.user.email).toBe("a@b.co");
     expect(calls[0]?.url).toBe("/api/auth/login");
     expect(calls[0]?.init?.method).toBe("POST");
-    expect(calls[0]?.init?.body).toBe(JSON.stringify({ email: "a@b.co", password: "pw" }));
+    // ADR-271 — login gövdesi rememberMe taşır (varsayılan false).
+    expect(calls[0]?.init?.body).toBe(
+      JSON.stringify({ email: "a@b.co", password: "pw", rememberMe: false }),
+    );
     // Token istemci yanit govdesinde yer almaz.
     expect(JSON.stringify(result)).not.toContain("token");
   });

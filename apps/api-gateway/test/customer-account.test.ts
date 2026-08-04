@@ -179,7 +179,17 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
   })[] = [];
   sessions = new Map<
     string,
-    { id: string; storeId: string; customerId: string; expiresAt: Date; revokedAt: Date | null }
+    {
+      id: string;
+      storeId: string;
+      customerId: string;
+      expiresAt: Date;
+      // ADR-271 — iki-kapili omur alanlari.
+      lastActivityAt: Date;
+      absoluteExpiresAt: Date | null;
+      rememberMe: boolean;
+      revokedAt: Date | null;
+    }
   >();
   prefs = new Map<string, { smsEnabled: boolean; emailEnabled: boolean; phoneEnabled: boolean }>();
   addresses: (CustomerAddressRecord & { storeId: string; customerId: string; deleted: boolean })[] = [];
@@ -297,12 +307,19 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
     customerId: string;
     tokenHash: string;
     expiresAt: Date;
+    lastActivityAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    rotatedFromSessionId?: string | null;
   }) {
     this.sessions.set(input.tokenHash, {
       id: this.id("ses"),
       storeId: input.storeId,
       customerId: input.customerId,
       expiresAt: input.expiresAt,
+      lastActivityAt: input.lastActivityAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      rememberMe: input.rememberMe,
       revokedAt: null,
     });
   }
@@ -314,6 +331,9 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       id: s.id,
       storeId: s.storeId,
       expiresAt: s.expiresAt,
+      lastActivityAt: s.lastActivityAt,
+      absoluteExpiresAt: s.absoluteExpiresAt,
+      rememberMe: s.rememberMe,
       revokedAt: s.revokedAt,
       customer,
     };
@@ -326,6 +346,47 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       }
     }
     return false;
+  }
+  // ADR-271 — idle capasini yenile (absolute'e dokunmaz).
+  async touchSessionActivity(id: string, lastActivityAt: Date) {
+    for (const s of this.sessions.values()) {
+      if (s.id === id && !s.revokedAt) {
+        s.lastActivityAt = lastActivityAt;
+        return;
+      }
+    }
+  }
+  // ADR-271 — extend/rotation: eskiyi revoke + yenisini olustur.
+  async rotateSession(input: {
+    currentSessionId: string;
+    storeId: string;
+    customerId: string;
+    newTokenHash: string;
+    lastActivityAt: Date;
+    expiresAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+  }) {
+    let found: { revokedAt: Date | null } | null = null;
+    for (const s of this.sessions.values()) {
+      if (s.id === input.currentSessionId) {
+        found = s;
+        break;
+      }
+    }
+    if (!found || found.revokedAt) return false;
+    found.revokedAt = new Date();
+    this.sessions.set(input.newTokenHash, {
+      id: this.id("ses"),
+      storeId: input.storeId,
+      customerId: input.customerId,
+      expiresAt: input.expiresAt,
+      lastActivityAt: input.lastActivityAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      rememberMe: input.rememberMe,
+      revokedAt: null,
+    });
+    return true;
   }
   async getCommPref(_storeId: string, customerId: string) {
     return this.prefs.get(customerId) ?? { smsEnabled: false, emailEnabled: true, phoneEnabled: false };
@@ -680,6 +741,40 @@ describe("api gateway · customer account (F3B.3)", () => {
     });
     expect(bad.statusCode).toBe(401);
     expect(bad.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("extends an active customer session, rotating the token (ADR-271)", async () => {
+    const { app } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+
+    const ext = await app.inject({
+      method: "POST",
+      url: `${base}/extend`,
+      headers: { "x-customer-session": token },
+    });
+    expect(ext.statusCode).toBe(200);
+    const body = ext.json();
+    expect(body.token).toBeTruthy();
+    expect(body.token).not.toBe(token); // rotate
+    expect(body.timing.warningLeadSeconds).toEqual(expect.any(Number));
+
+    // Eski token gecersiz, yeni token gecerli.
+    const oldMe = await app.inject({ method: "GET", url: `${base}/me`, headers: { "x-customer-session": token } });
+    expect(oldMe.statusCode).toBe(401);
+    const newMe = await app.inject({ method: "GET", url: `${base}/me`, headers: { "x-customer-session": body.token } });
+    expect(newMe.statusCode).toBe(200);
+  });
+
+  it("does not extend a revoked/expired customer session (ADR-271)", async () => {
+    const { app } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    await app.inject({ method: "POST", url: `${base}/logout`, headers: { "x-customer-session": token } });
+    const ext = await app.inject({
+      method: "POST",
+      url: `${base}/extend`,
+      headers: { "x-customer-session": token },
+    });
+    expect(ext.statusCode).toBe(401);
   });
 
   it("logs out: session is revoked and me returns 401 afterwards", async () => {

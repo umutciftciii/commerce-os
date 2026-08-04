@@ -107,3 +107,34 @@ TODO-169 sonrası 3 blocker (item 1/2/4) kapatıldı, **migration YOK**:
   döngüsüyle hizalı (settled = COMPLETED/REJECTED/CANCELLED_BY_CUSTOMER/EXPIRED/CLOSED).
 
 Bkz. [ADR-270](../adr/ADR-270-returns-ux-recovery-and-pending-work.md).
+
+---
+
+## Post-Audit Hardening (2026-08-04)
+
+Cross-module review, deliver edilmiş iade işinde finansal-invariant / correctness açıkları buldu. Hepsi **additive**
+(append-only; mevcut kolon repurpose edilmedi), commit/deploy YOK, follow-up migration
+`20260804170000_adr271_returns_session_hardening`. Durum: **Return Financial Invariants IN_PROGRESS**.
+
+- **R1 — RefundIntent CANCELLED lifecycle:** refund'suz terminal geçiş
+  (`REJECTED`/`CANCELLED_BY_CUSTOMER`/`EXPIRED`/`CLOSED` finansalsız) PENDING `RefundIntent`'i AYNI tx'te `CANCELLED`
+  yapar (silinmez). Additive alanlar `RefundIntent.cancelledAt`/`cancellationReason`. Projection yalnız PENDING'i
+  "pending financial impact" sayar → sonlanmış iadeler artık hayalet provizyonel düşüş göstermez.
+- **R2 — çift-talep serileştirme:** `createReturnRequest` `pg_advisory_xact_lock(storeId:orderNumber)` alır →
+  eşzamanlı talepler aynı sipariş için serileşir, over-claim etmez.
+- **R3 — atomik optimistic version:** admin mutation'larına zorunlu `expectedVersion` (contracts);
+  `applyReturnTransition` atomik (`updateMany where version=expected`; count=0 → 409 `VERSION_CONFLICT`, yan etki yok).
+  Store-admin UI `ret.version` gönderir, 409'da reload + dostça mesaj.
+- **R5 — COMPLETED guard (kodla enforce):** REFUND için gerçek refund (intent `PROCESSED`), REPLACEMENT için
+  doğrulanmış fulfillment olmadan `COMPLETED` yasak → 409 `COMPLETION_NOT_ALLOWED`. TODO-170'e kadar en ileri
+  finansal durum `REFUND_PENDING`/`REPLACEMENT_PENDING`.
+- **P1/P2 — admin-actionable allowlist:** pending-work "actionable" artık "settled-olmayan her şey" DEĞİL; açık
+  allowlist (`REQUESTED`/`UNDER_REVIEW`/`RECEIVED`/`INSPECTION_REQUIRED`/`INSPECTED`/`REFUND_PENDING`/
+  `REPLACEMENT_PENDING`). Müşteri/kargo-bekleyen (`APPROVED`/`PARTIALLY_APPROVED`/`AWAITING_SHIPMENT`/`RETURN_SHIPPED`)
+  SAYILMAZ. `INSPECTED` artık inspection bucket'ında (eskiden kayıptı). Invariant: sidebar actionable == Σ dashboard
+  bucket.
+- **Testler:** `returns-lifecycle.integration.test.ts` (`commerce_os_test` DB, `DATABASE_URL` set; CI'da SKIP).
+- **TODO-170 durumu:** R1 orijinal blocker'ı çözdü, fakat TODO-170 (append-only `OrderRefund` ledger) ayrı ve
+  **hâlâ BLOCKED** — bu return financial invariants + private media hardening (C1) ship edilene kadar başlanmamalı.
+
+Bkz. [ADR-269](../adr/ADR-269-returns-authority-and-lifecycle.md) "Post-Audit Hardening".

@@ -184,10 +184,17 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       { type: "ADMIN", id: access.actorUserId },
       {
         note: input.adminNote,
-        ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
+        expectedVersion: input.expectedVersion,
         ...(timestampField ? { timestampField } : {}),
-        ...(input.refundShipping !== undefined
-          ? { extraData: { refundShipping: input.refundShipping } }
+        // R4 — adminNote + refundShipping TEK extraData'da birleştirilir (eski çift-spread
+        // ikinci anahtarla ilkini eziyordu → ikisi birlikte verilince adminNote düşüyordu).
+        ...(input.adminNote !== undefined || input.refundShipping !== undefined
+          ? {
+              extraData: {
+                ...(input.adminNote !== undefined ? { adminNote: input.adminNote } : {}),
+                ...(input.refundShipping !== undefined ? { refundShipping: input.refundShipping } : {}),
+              },
+            }
           : {}),
         onCommit: async (tx) => {
           // REFUND_PENDING'e geçişte refund intent tazele (adet/kargo kararı güncel olsun).
@@ -213,6 +220,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       { type: "ADMIN", id: access.actorUserId },
       {
         note: input.rejectionReason,
+        expectedVersion: input.expectedVersion,
         timestampField: "rejectedAt",
         extraData: { rejectionReason: input.rejectionReason, ...(input.adminNote ? { adminNote: input.adminNote } : {}) },
       },
@@ -252,6 +260,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       { type: "ADMIN", id: access.actorUserId },
       {
         note: input.adminNote,
+        expectedVersion: input.expectedVersion,
         timestampField: "approvedAt",
         ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
         onCommit: async (tx) => {
@@ -318,6 +327,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       { type: "ADMIN", id: access.actorUserId },
       {
         note: input.adminNote,
+        expectedVersion: input.expectedVersion,
         timestampField: "inspectedAt",
         ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
         onCommit: async (tx) => {
@@ -372,6 +382,10 @@ async function finishTransition(
       ACTOR_NOT_ALLOWED: { code: 403, msg: "Bu geçiş için yetkiniz yok." },
       NO_CHANGE: { code: 409, msg: "İade zaten bu durumda." },
       VERSION_CONFLICT: { code: 409, msg: "İade bu sırada değişti; yenileyin." },
+      COMPLETION_NOT_ALLOWED: {
+        code: 409,
+        msg: "İade tamamlanamaz: gerçek iade/değişim sonucu henüz oluşmadı.",
+      },
     };
     const m = map[result.code] ?? { code: 409, msg: "Geçiş reddedildi." };
     return reply.code(m.code).send(errorBody(result.code, m.msg));

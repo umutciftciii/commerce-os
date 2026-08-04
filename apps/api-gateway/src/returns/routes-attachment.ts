@@ -44,8 +44,12 @@ async function streamAttachment(
 ) {
   const bytes = await storage.read(attachment.mediaAsset.storageKey);
   if (!bytes) return reply.code(404).send(errorBody("ATTACHMENT_FILE_MISSING", "Dosya bulunamadı."));
+  // C1 (post-audit) — private response hardening: tarayıcı MIME-sniffing'i kapat (nosniff),
+  // içeriği inline göster (güvenli Content-Disposition; storageKey/dosya adı SIZMAZ), önbelleğe alma.
   return reply
     .header("Cache-Control", "private, no-store")
+    .header("X-Content-Type-Options", "nosniff")
+    .header("Content-Disposition", "inline")
     .type(attachment.mediaAsset.mimeType)
     .send(bytes);
 }

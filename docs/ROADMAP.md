@@ -1422,3 +1422,32 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   gerçek browser smoke storefront + store-admin (CTA deep-link/focus · badge 3→2 mutation · ship→RETURN_SHIPPED→
   RECEIVED · responsive 375/768/1024/1440); demo restore. Item 3 yalnız analiz+plan (ADR-271).
 - Sonraki: **Unified Session Policy** implementasyonu (ADR-271 §5, 7 adım) → sonra TODO-170 Refund Ledger.
+
+## Unified Session Policy (ADR-271) — IN_PROGRESS (post-audit hardening) — 2026-08-04
+
+- Durum: **🔶 IN_PROGRESS — post-audit hardening; ship M1 kararı + M2 deploy runbook'a bağlı; COMMIT/DEPLOY YOK.**
+  ADR-271 §7 (temel) + **§8 hardening**. Analiz + implementasyon + tam gate + gerçek browser smoke sonrası
+  cross-module review deploy/correctness açıkları buldu; hardening additive olarak §7 üzerine eklendi (git kuralı
+  gereği duruldu).
+- **Post-audit hardening (ADR-271 §8 / ADR-269):** M1 policyVersion legacy cutover (sessiz kitlesel-logout önlendi) ·
+  M2 fast-default migration (full-table lock yok; §7 backfill'i büyük tabloda kilit yapabilir → düşük trafik/maintenance
+  penceresi) · S1 `/me`/logout/extend `countAsActivity=false` · S2 multi-tab false-expiry `me()`-teyitli · S4 logout CSRF
+  cookie temizliği · C1 private media guard iteratif-decode/segment-bazlı (substring bypass kapatıldı) · R1–R5 return
+  financial invariants (RefundIntent CANCELLED lifecycle · advisory lock · atomic optimistic version · COMPLETED guard) ·
+  P1/P2 admin-actionable allowlist. Follow-up migration `20260804170000_adr271_returns_session_hardening`.
+- Amaç: Storefront + Store Admin + Platform Admin için ORTAK oturum politikası — idle + absolute iki-kapı,
+  remember-me, extend (rotation), warning modal + geri sayım, multi-tab, safe returnTo, güvenli logout.
+- Kapsam: tek policy kaynağı (`packages/config/src/session-policy.ts`); additive migration
+  (`lastActivityAt`/`absoluteExpiresAt?`/`rememberMe`/`rotatedFromSessionId`, backfill, replay-safe); gateway
+  dual-gate + throttle'lı sliding refresh + extend uçları (platform+customer, CSRF/rate-limit, absolute sabit,
+  expired diriltilmez); 3 app remember-me UI + cookie policy'den + ortak `SessionGuard` (a11y modal + aria-live
+  geri sayım + BroadcastChannel `*_session_sync`) + safe returnTo + expiry mesajı. `expiresAt` REPURPOSE EDİLMEDİ
+  (korundu; idle hesaplanır). store-admin PlatformSession'a biner. Token httpOnly (JS/localStorage'da YOK).
+- Kabul: gate GREEN (repo-typecheck exit 0 · lint 0 error · config 48/contracts 151/gw 2279/admin 36/store-admin
+  368/storefront 550); live API smoke (login/me/extend-rotation/idle-expiry/expired-cannot-extend/remember windows)
+  + real browser smoke (admin tam yaşam döngüsü + storefront login/remember-me + mobil responsive) — test-clock
+  (`SESSION_*` env) ile, gerçek 30 dk bekleme YOK.
+- **TODO-170 Refund Ledger — ⛔ BLOCKED** (yeniden): return financial invariants (R1–R5, P1/P2) + private media
+  hardening (C1) ship edilene kadar append-only refund ledger'a başlanmamalı. R1 orijinal blocker'ı çözdü ama
+  commit/deploy yok. Sıradaki roadmap adayı (hardening ship sonrası): **Storefront Social Login & Customer Identity
+  Linking** (TD-181) — bu oturum temeli üzerine kurulur.

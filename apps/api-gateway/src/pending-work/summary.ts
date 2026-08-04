@@ -40,8 +40,23 @@ export const RETURN_SETTLED_STATUSES: ReturnStatus[] = [
 ];
 
 const NEW_REQUEST_STATUSES: ReturnStatus[] = ["REQUESTED", "UNDER_REVIEW"];
-const INSPECTION_STATUSES: ReturnStatus[] = ["RECEIVED", "INSPECTION_REQUIRED"];
+// P1/P2 — INSPECTED de admin-actionable (inceleme sonrası refund/replacement/reject kararı bekler);
+// eski gruplama onu KAYIP bırakıyordu. Inspection bucket'ına dahil edilir.
+const INSPECTION_STATUSES: ReturnStatus[] = ["RECEIVED", "INSPECTION_REQUIRED", "INSPECTED"];
 const FINANCIAL_ACTION_STATUSES: ReturnStatus[] = ["REFUND_PENDING", "REPLACEMENT_PENDING"];
+
+/**
+ * P1/P2 — Admin'in GERÇEKTEN aksiyon alabileceği durumların AÇIK allowlist'i (= üç dashboard
+ * bucket'ının birleşimi). "actionable = settled olmayan HER durum" YANLIŞTI: APPROVED /
+ * PARTIALLY_APPROVED / AWAITING_SHIPMENT / RETURN_SHIPPED müşteriyi/kargoyu bekler, admin'i DEĞİL —
+ * bunlar sayılmaz. Invariant: actionable.count === newRequests + inspection + financialAction
+ * (üç bucket ayrık; sidebar sayacı == dashboard admin-actionable toplamı).
+ */
+export const RETURN_ADMIN_ACTIONABLE_STATUSES: ReturnStatus[] = [
+  ...NEW_REQUEST_STATUSES,
+  ...INSPECTION_STATUSES,
+  ...FINANCIAL_ACTION_STATUSES,
+];
 
 function bucketFor<S extends string>(rows: StatusCountRow<S>[], statuses: S[]): PendingBucket {
   let count = 0;
@@ -61,13 +76,11 @@ export function buildPendingWorkSummary(
   reviewRows: StatusCountRow<ProductReviewStatus>[],
   returnRows: StatusCountRow<ReturnStatus>[],
 ): PendingWorkSummaryResult {
-  const actionableStatuses = returnRows
-    .map((r) => r.status)
-    .filter((s) => !RETURN_SETTLED_STATUSES.includes(s));
   return {
     reviews: bucketFor(reviewRows, ["PENDING"]),
     returns: {
-      actionable: bucketFor(returnRows, actionableStatuses),
+      // P1/P2 — açık admin-actionable allowlist (müşteri/kargo-bekleyen + terminal HARİÇ).
+      actionable: bucketFor(returnRows, RETURN_ADMIN_ACTIONABLE_STATUSES),
       newRequests: bucketFor(returnRows, NEW_REQUEST_STATUSES),
       inspection: bucketFor(returnRows, INSPECTION_STATUSES),
       financialAction: bucketFor(returnRows, FINANCIAL_ACTION_STATUSES),

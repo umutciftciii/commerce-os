@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { optionalBooleanEnv, optionalEnv, optionalNumberEnv, optionalUrlEnv } from "./env.js";
+import {
+  DEFAULT_SESSION_POLICY,
+  assertActivityThrottleSeconds,
+  type SessionPolicy,
+} from "./session-policy.js";
 
 export {
   emptyToUndefined,
@@ -9,6 +14,10 @@ export {
   optionalNumberEnv,
   optionalUrlEnv,
 } from "./env.js";
+
+// ADR-271 — Unified Session Policy (saf modul) tekrar disa aktarilir; gateway ve
+// Next BFF ayni tek kaynagi kullanir.
+export * from "./session-policy.js";
 
 export const envSchema = z.object({
   // --- Opsiyonel (varsayilanli) temel ayarlar -------------------------------
@@ -44,6 +53,34 @@ export const envSchema = z.object({
   // (alisveris devamliligi). OTP kisa omurlu + denemesi sinirli + resend cooldown.
   CUSTOMER_SESSION_TTL_SECONDS: optionalNumberEnv(
     z.coerce.number().int().positive().default(60 * 60 * 24 * 30),
+  ),
+  // ── ADR-271 (Unified Session Policy) — iki-kapili omur pencereleri. ────────────
+  // SESSION_TTL_SECONDS / CUSTOMER_SESSION_TTL_SECONDS ARTIK OTORITE DEGIL; oturum
+  // omru asagidaki policy'den turer (resolveSessionPolicy). Bu env'ler yalniz
+  // varsayilani override eder (or. izole smoke'ta gercek 30 dk beklememek icin
+  // pencereler kucultulur — SUNUCU-otoriter; istemci gonderemez). Hepsi TD-036
+  // toleransli (bos → varsayilan). Alt sinirlar guvenlik tabani.
+  // "Beni hatirla" KAPALI:
+  SESSION_IDLE_TIMEOUT_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.rememberOff.idleTimeoutSeconds),
+  ),
+  SESSION_ABSOLUTE_EXPIRY_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.rememberOff.absoluteExpirySeconds),
+  ),
+  // "Beni hatirla" ACIK:
+  SESSION_REMEMBER_IDLE_TIMEOUT_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.rememberOn.idleTimeoutSeconds),
+  ),
+  SESSION_REMEMBER_ABSOLUTE_EXPIRY_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.rememberOn.absoluteExpirySeconds),
+  ),
+  // idle bitimine kac saniye kala uyari; DB throttle penceresi.
+  SESSION_WARNING_LEAD_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.warningLeadSeconds),
+  ),
+  // S3 — 0/negatif REDDEDİLİR (footgun); production alt sınırı (≥30) loadConfig'te fail-fast.
+  SESSION_ACTIVITY_THROTTLE_SECONDS: optionalNumberEnv(
+    z.coerce.number().int().positive().default(DEFAULT_SESSION_POLICY.activityThrottleSeconds),
   ),
   CUSTOMER_OTP_TTL_SECONDS: optionalNumberEnv(z.coerce.number().int().positive().default(300)),
   CUSTOMER_OTP_MAX_ATTEMPTS: optionalNumberEnv(z.coerce.number().int().positive().default(5)),
@@ -334,6 +371,33 @@ export class ConfigValidationError extends Error {
   }
 }
 
+/**
+ * ADR-271 — Cozumlenmis oturum politikasi. Varsayilanlar DEFAULT_SESSION_POLICY;
+ * SESSION_* env'leri override eder (izole smoke'ta kucuk pencereler). Gateway ve
+ * BFF ayni cozumleyiciyi kullanir → tek kaynak, uc uygulama ortak.
+ */
+export function resolveSessionPolicy(config: Partial<AppConfig>): SessionPolicy {
+  // Eksik alanlar (kismi/fake config) DEFAULT_SESSION_POLICY'ye duser. Prod'da
+  // zod default'lari zaten degerleri doldurur; bu fallback yalniz partial config
+  // (or. bazi route testleri) icin guvenlik agidir → NaN pencere olusmaz.
+  const d = DEFAULT_SESSION_POLICY;
+  return {
+    rememberOff: {
+      idleTimeoutSeconds: config.SESSION_IDLE_TIMEOUT_SECONDS ?? d.rememberOff.idleTimeoutSeconds,
+      absoluteExpirySeconds:
+        config.SESSION_ABSOLUTE_EXPIRY_SECONDS ?? d.rememberOff.absoluteExpirySeconds,
+    },
+    rememberOn: {
+      idleTimeoutSeconds:
+        config.SESSION_REMEMBER_IDLE_TIMEOUT_SECONDS ?? d.rememberOn.idleTimeoutSeconds,
+      absoluteExpirySeconds:
+        config.SESSION_REMEMBER_ABSOLUTE_EXPIRY_SECONDS ?? d.rememberOn.absoluteExpirySeconds,
+    },
+    warningLeadSeconds: config.SESSION_WARNING_LEAD_SECONDS ?? d.warningLeadSeconds,
+    activityThrottleSeconds: config.SESSION_ACTIVITY_THROTTLE_SECONDS ?? d.activityThrottleSeconds,
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = envSchema.safeParse(env);
   if (!result.success) {
@@ -343,6 +407,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       return `${key}: ${issue.message}`;
     });
     throw new ConfigValidationError(issues);
+  }
+  // S3 — activity throttle production alt sınırı (config parser fail-fast; test override sızamaz).
+  try {
+    assertActivityThrottleSeconds(
+      result.data.SESSION_ACTIVITY_THROTTLE_SECONDS,
+      env.NODE_ENV === "production",
+    );
+  } catch (error) {
+    throw new ConfigValidationError([
+      `SESSION_ACTIVITY_THROTTLE_SECONDS: ${error instanceof Error ? error.message : "invalid"}`,
+    ]);
   }
   return result.data;
 }

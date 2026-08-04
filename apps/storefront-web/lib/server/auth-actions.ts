@@ -10,6 +10,9 @@ import { revalidatePath } from "next/cache";
 import type {
   CustomerOtpChallengeResponse,
   CustomerSessionResponse,
+  CustomerSessionExtendResponse,
+  CustomerMeResponse,
+  SessionTiming,
 } from "@commerce-os/api-client";
 import { postPublic, sendCustomer } from "./gateway";
 import { customerBasePath } from "./customer";
@@ -67,17 +70,20 @@ export async function registerCompleteAction(input: {
   password: string;
   kvkkConsent: boolean;
   clarificationConsent: boolean;
+  rememberMe?: boolean;
 }): Promise<AuthActionResult> {
+  const rememberMe = input.rememberMe === true;
   const result = await sendCustomer<CustomerSessionResponse>(
     "POST",
     `${customerBasePath()}/register/complete`,
     null,
-    input,
+    { ...input, rememberMe },
   );
   if (!result.ok) {
     return { ok: false, code: result.code ?? "REGISTER_FAILED" };
   }
-  await writeCustomerToken(result.data.token);
+  // ADR-271 — cookie kaliciligi rememberMe'ye gore; expires gateway absolute deadline'i.
+  await writeCustomerToken(result.data.token, rememberMe, result.data.expiresAt);
   // TODO-159D (ADR-093) — Misafir favorilerini yeni hesabın wishlist'ine idempotent merge et.
   await mergeGuestWishlistAction();
   // TODO-161B (ADR-138) — Misafir görüntüleme geçmişini müşteriye idempotent merge et.
@@ -92,17 +98,19 @@ export async function registerCompleteAction(input: {
 export async function loginAction(
   identifier: string,
   password: string,
+  rememberMe = false,
 ): Promise<AuthActionResult> {
   const result = await sendCustomer<CustomerSessionResponse>(
     "POST",
     `${customerBasePath()}/login`,
     null,
-    { identifier, password },
+    { identifier, password, rememberMe },
   );
   if (!result.ok) {
     return { ok: false, code: result.code ?? "INVALID_CREDENTIALS" };
   }
-  await writeCustomerToken(result.data.token);
+  // ADR-271 — cookie kaliciligi rememberMe'ye gore; expires gateway absolute deadline'i.
+  await writeCustomerToken(result.data.token, rememberMe, result.data.expiresAt);
   // TODO-159D (ADR-093) — Giriş sonrası misafir favorilerini müşterinin wishlist'ine merge et.
   await mergeGuestWishlistAction();
   // TODO-161B (ADR-138) — Misafir görüntüleme geçmişini müşteriye idempotent merge et.
@@ -138,4 +146,39 @@ export async function logoutAction(): Promise<void> {
   }
   await clearCustomerToken();
   revalidatePath("/", "layout");
+}
+
+/**
+ * ADR-271 — Oturum zamanlamasini dondurur (istemci uyari/geri-sayim icin). Aktif
+ * oturum yoksa/gecersizse null. CSRF gerektirmez (salt-okuma; state degistirmez).
+ */
+export async function sessionTimingAction(): Promise<SessionTiming | null> {
+  const token = await readCustomerToken();
+  if (!token) return null;
+  const result = await sendCustomer<CustomerMeResponse>("GET", `${customerBasePath()}/me`, token);
+  if (!result.ok) return null;
+  return result.data.session.timing ?? null;
+}
+
+/**
+ * ADR-271 — Oturum uzatma (extend). YALNIZ aktif oturum uzatilir (gateway expired'i
+ * diriltmez); token ROTATE edilir (absolute DEGISMEZ) ve cookie yeni token ile
+ * rememberMe'ye gore yeniden yazilir. CSRF: Server Action same-origin (Next) +
+ * httpOnly cookie server-to-server → cross-site forge edilemez. Yeni timing doner.
+ */
+export async function extendSessionAction(): Promise<
+  AuthActionResult<{ timing: SessionTiming }>
+> {
+  const token = await readCustomerToken();
+  if (!token) return { ok: false, code: "CUSTOMER_UNAUTHORIZED" };
+  const result = await sendCustomer<CustomerSessionExtendResponse>(
+    "POST",
+    `${customerBasePath()}/extend`,
+    token,
+  );
+  if (!result.ok) {
+    return { ok: false, code: result.code ?? "CUSTOMER_UNAUTHORIZED" };
+  }
+  await writeCustomerToken(result.data.token, result.data.timing.rememberMe, result.data.expiresAt);
+  return { ok: true, data: { timing: result.data.timing } };
 }
