@@ -14,6 +14,7 @@ import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
+import { ReturnsDeepLinkFocus } from "../../../../components/account/returns/returns-deep-link-focus";
 import { ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
 
 type ReturnsDict = Awaited<ReturnType<typeof getStorefrontDict>>["account"]["returns"];
@@ -143,7 +144,10 @@ export default async function OrderDetailPage({
         <ReturnImpact o={o} order={order} />
 
         {orderReturns.length > 0 ? (
-          <ReturnsSection o={o} r={r} returns={orderReturns} locale={locale} />
+          <>
+            <ReturnsDeepLinkFocus />
+            <ReturnsSection o={o} r={r} returns={orderReturns} locale={locale} />
+          </>
         ) : null}
 
         {order.shipment ? (
@@ -348,11 +352,29 @@ function ReturnsSection({
   locale: Locale;
 }) {
   return (
-    <section className="border border-line p-4">
-      <Subheading as="h2" className="mb-3">{o.detail.returnsTitle}</Subheading>
+    <section
+      id="returns"
+      aria-labelledby="returns-heading"
+      tabIndex={-1}
+      className="scroll-mt-24 border border-line p-4 outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+    >
+      <Subheading
+        as="h2"
+        id="returns-heading"
+        data-returns-heading
+        tabIndex={-1}
+        className="mb-3 scroll-mt-24 outline-none focus:ring-2 focus:ring-ink focus:ring-offset-2"
+      >
+        {o.detail.returnsTitle}
+      </Subheading>
       <ul className="space-y-3">
         {returns.map((rr) => (
-          <li key={rr.returnNumber} className="flex flex-wrap items-center justify-between gap-3 border border-line p-3">
+          <li
+            key={rr.returnNumber}
+            id={`return-${rr.returnNumber}`}
+            tabIndex={-1}
+            className="flex scroll-mt-24 flex-wrap items-center justify-between gap-3 border border-line p-3 outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+          >
             <div className="min-w-0">
               <p className="text-sm font-medium text-ink">
                 {o.detail.returnRef}: {rr.returnNumber}

@@ -20,6 +20,18 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
     MockUiError,
     storeApiMock: {
       dashboardSummary: vi.fn(),
+      // TODO-170-recovery — Dashboard artık "Bekleyen İşler" kartı için pendingWork çeker; 0 döndür.
+      pendingWork: vi.fn(() =>
+        Promise.resolve({
+          reviews: { count: 0, oldestAt: null },
+          returns: {
+            actionable: { count: 0, oldestAt: null },
+            newRequests: { count: 0, oldestAt: null },
+            inspection: { count: 0, oldestAt: null },
+            financialAction: { count: 0, oldestAt: null },
+          },
+        }),
+      ),
       listCategories: vi.fn(),
       createCategory: vi.fn(),
       updateCategory: vi.fn(),

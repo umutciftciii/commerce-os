@@ -11,9 +11,12 @@ import {
   StatCard,
   useLocale,
 } from "../../components/ui";
+import Link from "next/link";
 import { getDictionary } from "@commerce-os/i18n";
+import type { PendingWorkSummary } from "@commerce-os/api-client";
 import { CategoryIcon, InventoryIcon, ProductIcon } from "../../components/icons";
 import { storeApi, type DashboardSummary, type StoreContext } from "../../lib/client/api";
+import { onPendingWorkChanged } from "../../lib/client/pending-work-events";
 import { messageForError } from "../../lib/client/messages";
 
 type LoadState =
@@ -43,6 +46,29 @@ export default function StoreDashboardPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // TODO-170-recovery — Bekleyen İşler (tür/adet/en eski bekleme + filtreli ekran linki). Mount'ta
+  // yüklenir ve ilgili mutasyon sonrası (event) tazelenir. Store-scoped (BFF).
+  const [pending, setPending] = useState<PendingWorkSummary | null>(null);
+  useEffect(() => {
+    let active = true;
+    const loadPending = () => {
+      storeApi
+        .pendingWork()
+        .then((res) => {
+          if (active) setPending(res);
+        })
+        .catch(() => {
+          /* opsiyonel kart; sessizce yok say */
+        });
+    };
+    loadPending();
+    const unsubscribe = onPendingWorkChanged(loadPending);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   const loading = state.status === "loading";
   const summary = state.status === "ready" ? state.summary : null;
@@ -154,6 +180,113 @@ export default function StoreDashboardPage() {
           ) : null}
         </SectionCard>
       </div>
+
+      <div className="mt-6">
+        <PendingWorkCard pending={pending} locale={locale} />
+      </div>
     </>
+  );
+}
+
+/**
+ * TODO-170-recovery — "Bekleyen İşler" kartı. Her satır: tür + adet + en eski bekleme süresi +
+ * doğrudan ilgili filtreli ekrana link. 0 olan türler gizlenir; hepsi 0 ise dürüst boş-durum.
+ * Etiketler yerel (paylaşılan i18n'e dokunmadan, store-nav deseniyle).
+ */
+function PendingWorkCard({
+  pending,
+  locale,
+}: {
+  pending: PendingWorkSummary | null;
+  locale: string;
+}) {
+  const tr = locale === "tr";
+  const title = tr ? "Bekleyen İşler" : "Pending work";
+  const description = tr
+    ? "Aksiyon bekleyen moderasyon ve iade işleri."
+    : "Moderation and return work awaiting action.";
+  const now = Date.now();
+  const ageDays = (iso: string | null): number | null => {
+    if (!iso) return null;
+    return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 86_400_000));
+  };
+  const oldestLabel = (iso: string | null): string => {
+    const days = ageDays(iso);
+    if (days === null) return "";
+    if (days === 0) return tr ? "en eski: bugün" : "oldest: today";
+    return tr ? `en eski: ${days} gün önce` : `oldest: ${days}d ago`;
+  };
+
+  const rows = pending
+    ? [
+        {
+          key: "reviews",
+          label: tr ? "değerlendirme onay bekliyor" : "reviews awaiting approval",
+          count: pending.reviews.count,
+          oldestAt: pending.reviews.oldestAt,
+          href: "/reviews?status=PENDING",
+        },
+        {
+          key: "newRequests",
+          label: tr ? "iade talebi incelenmeyi bekliyor" : "return requests awaiting review",
+          count: pending.returns.newRequests.count,
+          oldestAt: pending.returns.newRequests.oldestAt,
+          href: "/orders/returns?status=REQUESTED",
+        },
+        {
+          key: "inspection",
+          label: tr ? "iade ürün inceleme bekliyor" : "returns awaiting inspection",
+          count: pending.returns.inspection.count,
+          oldestAt: pending.returns.inspection.oldestAt,
+          href: "/orders/returns?status=INSPECTION_REQUIRED",
+        },
+        {
+          key: "financialAction",
+          label: tr
+            ? "iade inceleme sonrası finansal aksiyon bekliyor"
+            : "returns awaiting post-inspection action",
+          count: pending.returns.financialAction.count,
+          oldestAt: pending.returns.financialAction.oldestAt,
+          href: "/orders/returns?status=REFUND_PENDING",
+        },
+      ].filter((r) => r.count > 0)
+    : [];
+
+  return (
+    <SectionCard title={title} description={description}>
+      {pending === null ? (
+        <Skeleton className="h-16 w-full" />
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-white/45">
+          {tr ? "Şu anda bekleyen iş yok." : "No pending work right now."}
+        </p>
+      ) : (
+        <ul className="divide-y divide-white/[0.06]">
+          {rows.map((row) => (
+            <li key={row.key}>
+              <Link
+                href={row.href}
+                className="flex items-center gap-3 py-2.5 transition-colors hover:bg-white/[0.03]"
+              >
+                <span className="inline-flex min-w-[28px] shrink-0 items-center justify-center rounded-md bg-indigo-500/90 px-2 py-1 text-sm font-semibold text-white">
+                  {row.count > 99 ? "99+" : row.count}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-white/90">
+                    {row.count} {row.label}
+                  </span>
+                  {row.oldestAt ? (
+                    <span className="block text-xs text-white/40">{oldestLabel(row.oldestAt)}</span>
+                  ) : null}
+                </span>
+                <span aria-hidden className="text-white/30">
+                  →
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
   );
 }

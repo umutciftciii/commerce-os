@@ -1301,6 +1301,9 @@ export const enStorefront: StorefrontDictionary = {
           costCustomer: "Return shipping is paid by you.",
           costStore: "Return shipping is paid by the store.",
           addressNote: "The return address and instructions are provided by the store; ship the item in its original packaging.",
+          shipByLabel: "Ship by",
+          packaging:
+            "Pack the item securely in its original packaging; include any accessories and the invoice if available.",
         },
         progressHelp: {
           REQUESTED: "Your request has been sent to the store and is under review.",

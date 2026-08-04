@@ -12,7 +12,21 @@ const { moduleAccessMock } = vi.hoisted(() => ({
 vi.mock("../lib/server/module-access", () => moduleAccessMock);
 
 const { storeApiMock } = vi.hoisted(() => ({
-  storeApiMock: { listModules: vi.fn() },
+  storeApiMock: {
+    listModules: vi.fn(),
+    // TODO-170-recovery — StoreNav artık bekleyen-iş sayaçlarını çeker; testte 0 döndür (rozet yok).
+    pendingWork: vi.fn(() =>
+      Promise.resolve({
+        reviews: { count: 0, oldestAt: null },
+        returns: {
+          actionable: { count: 0, oldestAt: null },
+          newRequests: { count: 0, oldestAt: null },
+          inspection: { count: 0, oldestAt: null },
+          financialAction: { count: 0, oldestAt: null },
+        },
+      }),
+    ),
+  },
 }));
 vi.mock("../lib/client/api", () => ({ storeApi: storeApiMock, UiError: class extends Error {} }));
 // StoreNav usePathname (aktif-durum) kullanır; jsdom'da router yok → sabit yol mock'la.

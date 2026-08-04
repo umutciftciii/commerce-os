@@ -1406,3 +1406,19 @@ profitability allocation, FinancialDailyAggregate, XLSX, scheduled reports, plat
 Bu fazda geliştirilmedi. Financial Reporting sözlüğü, gelecekte gift card issued liability / redeemed
 allocation / outstanding & expired balance / store credit movement kaynaklarını EKlenebilir şekilde tasarlandı;
 ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLMEZ.
+
+## Pre-Refund UX Recovery & Unified Session Policy (design) — 2026-08-04
+
+- Durum: **IMPLEMENTED (item 1/2/4) — TAM GATE + BROWSER SMOKE PASS, COMMIT YOK.** ADR-270. Item 3 Unified
+  Session Policy = **DESIGN-ONLY** (ADR-271), sıradaki bağımsız faz.
+- Amac: TODO-169 sonrası müşteri/mağaza çıkmazlarını kapatmak — bozuk iade CTA'sı, görünmeyen bekleyen iş,
+  onaydan sonra erişilemeyen geri-kargo akışı.
+- Kapsam: (1) BUG-RETURN-DEEPLINK — projeksiyon `primaryReturnNumber` + tek canonical `resolveReturnCtaHref` +
+  order-detail `#returns` erişilebilir focus. (2) Pending Work Indicators — gateway bounded aggregate
+  (`/stores/:id/pending-work-summary`, 2 groupBy) → sidebar rozet + dashboard "Bekleyen İşler" + mutation
+  event-refresh; Platform Admin'e mağaza-op sayacı YOK. (4) Return-shipment — approve → otomatik
+  `AWAITING_SHIPMENT` (aynı tx) + `shipByDate` + "Ürünü geri gönderin" + admin "Müşteri tarafından gönderildi".
+- Kabul kriterleri: migration YOK; gate GREEN (typecheck 0 · lint 42/42 · test 42/42 gw 2279 · build 27/27);
+  gerçek browser smoke storefront + store-admin (CTA deep-link/focus · badge 3→2 mutation · ship→RETURN_SHIPPED→
+  RECEIVED · responsive 375/768/1024/1440); demo restore. Item 3 yalnız analiz+plan (ADR-271).
+- Sonraki: **Unified Session Policy** implementasyonu (ADR-271 §5, 7 adım) → sonra TODO-170 Refund Ledger.

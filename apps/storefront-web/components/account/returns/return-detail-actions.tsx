@@ -51,12 +51,16 @@ export function ReturnTrackingForm({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-ink-muted">{d.trackingHelp}</p>
+      <p id="return-tracking-help" className="text-sm text-ink-muted">
+        {d.trackingHelp}
+      </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Input
           label={d.carrierLabel}
           id="return-carrier"
           value={carrier}
+          required
+          aria-describedby="return-tracking-help"
           placeholder={d.carrierPlaceholder}
           onChange={(e) => setCarrier(e.target.value)}
         />
@@ -64,6 +68,8 @@ export function ReturnTrackingForm({
           label={d.trackingLabel}
           id="return-tracking"
           value={trackingNumber}
+          required
+          aria-describedby="return-tracking-help"
           onChange={(e) => setTrackingNumber(e.target.value)}
         />
       </div>

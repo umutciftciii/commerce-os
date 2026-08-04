@@ -27,6 +27,7 @@ import {
 import { serializeAdminReturnDetail, serializeAdminReturnListItem } from "./serialize.js";
 import { resolveReturnItemCovers } from "./covers.js";
 import { computeReturnOrderSummaries } from "./projection.js";
+import { evaluateReturnTransition } from "./status-map.js";
 
 export interface ReturnAdminRoutesDeps {
   requireStoreAdmin: (
@@ -263,6 +264,28 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
           }
           // Onaylanan REFUND talebi için refund intent (PENDING) oluştur.
           await upsertRefundIntentForReturn(tx, params.storeId, params.returnId);
+          // BUG-RETURN-DEEPLINK / TODO-169 recovery — onaydan sonra müşteriyi çıkmazda bırakma:
+          // ilk-faz çözümlerinin (REFUND/REPLACEMENT) ikisi de ürünün geri gönderilmesini gerektirir,
+          // bu yüzden onay AYNI tx'te otomatik AWAITING_SHIPMENT'e ilerler (ADMIN aktör; state-machine
+          // guard'ı korunur; history append-only iki kayıt: APPROVED → AWAITING_SHIPMENT). Müşterinin
+          // "Ürünü kargoya verdim" akışı böylece ekstra bir admin adımı beklemeden erişilebilir olur.
+          if (evaluateReturnTransition(target, "AWAITING_SHIPMENT", "ADMIN").ok) {
+            await tx.returnRequest.update({
+              where: { id: params.returnId },
+              data: { status: "AWAITING_SHIPMENT", version: { increment: 1 } },
+            });
+            await tx.returnStatusHistory.create({
+              data: {
+                storeId: params.storeId,
+                returnRequestId: params.returnId,
+                fromStatus: target,
+                toStatus: "AWAITING_SHIPMENT",
+                actorType: "ADMIN",
+                actorId: access.actorUserId,
+                note: null,
+              },
+            });
+          }
         },
       },
     );

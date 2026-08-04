@@ -202,6 +202,7 @@ import {
 } from "./sponsored/sponsored-core.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
+import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
 import {
@@ -7448,6 +7449,14 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-169 (blocker #3) — iade kalemi ürün kapak görseli URL'i türetimi (storefront ile aynı semantik).
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
+  });
+
+  // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
+  registerPendingWorkRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
   });
 
   // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection: store-admin

@@ -18,6 +18,7 @@ import { resolveOrderReview } from "../../../lib/orders-review";
 import {
   resolveReturnWindowLabel,
   resolveReturnActivityLabel,
+  resolveReturnCtaHref,
 } from "../../../lib/returns-summary";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
@@ -258,7 +259,7 @@ function ReturnSummaryBadge({
             {format(rb.status[activity.status], { count: activity.count })}
           </span>
           <Link
-            href="/account?section=returns"
+            href={resolveReturnCtaHref(order.orderNumber, summary)}
             className="text-xs font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
           >
             {rb.viewStatus}

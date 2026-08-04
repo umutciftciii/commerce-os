@@ -71,6 +71,8 @@ export function resolveReturnWindow(
 }
 
 export interface ReturnProjectionRequestInput {
+  /** İnsan-görünür iade numarası (deep-link hedefi; store-scoped unique). */
+  returnNumber: string;
   status: ReturnStatus;
   createdAt: Date;
   items: Array<{ quantity: number; approvedQuantity: number | null }>;
@@ -97,6 +99,11 @@ export interface ReturnOrderSummary {
   // ── Aktivite (blocker #5/#6) ──
   requestCount: number;
   activeRequestCount: number;
+  /**
+   * BUG-RETURN-DEEPLINK — CTA tek-otorite hedefi: tam olarak bir "odak" iade varsa onun returnNumber'ı,
+   * belirsizse null. Odak = tek aktif iade; hiç aktif yoksa tek toplam iade. React'te türetme YOK.
+   */
+  primaryReturnNumber: string | null;
   returnedItemQuantity: number;
   pendingItemQuantity: number;
   latestStatus: ReturnStatus | null;
@@ -123,6 +130,8 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
   let approvedRefundIntentMinor = 0;
   let completedRefundMinor = 0;
   let latest: { status: ReturnStatus; at: number } | null = null;
+  // Deep-link odak seçimi için aktif iade numaraları (sıra önemsiz; tek eleman → deep-link).
+  const activeReturnNumbers: string[] = [];
 
   for (const r of input.requests) {
     const itemQty = r.items.reduce((a, b) => a + b.quantity, 0);
@@ -131,6 +140,7 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
     if (isActiveReturnStatus(r.status)) {
       activeRequestCount += 1;
       pendingItemQuantity += itemQty;
+      activeReturnNumbers.push(r.returnNumber);
     }
     if (GOODS_RECEIVED_STATUSES.includes(r.status)) {
       returnedItemQuantity += approvedQty;
@@ -149,6 +159,15 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
     }
   }
 
+  // Odak iade: tek aktif iade varsa o; hiç aktif yoksa ama tek toplam iade varsa o; aksi halde
+  // belirsiz → null (CTA sipariş detayındaki #returns bölümüne gider, kullanıcı seçer).
+  const primaryReturnNumber =
+    activeReturnNumbers.length === 1
+      ? activeReturnNumbers[0]
+      : activeRequestCount === 0 && input.requests.length === 1
+        ? input.requests[0].returnNumber
+        : null;
+
   return {
     currency: input.currency,
     deliveredAt: input.deliveryAnchor?.toISOString() ?? null,
@@ -158,6 +177,7 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
     windowState,
     requestCount: input.requests.length,
     activeRequestCount,
+    primaryReturnNumber,
     returnedItemQuantity,
     pendingItemQuantity,
     latestStatus: latest?.status ?? null,
@@ -200,6 +220,7 @@ export async function computeReturnOrderSummaries(
       where: { storeId, orderId: { in: orderIds } },
       select: {
         orderId: true,
+        returnNumber: true,
         status: true,
         createdAt: true,
         items: { select: { quantity: true, approvedQuantity: true } },
@@ -218,6 +239,7 @@ export async function computeReturnOrderSummaries(
   for (const r of requests) {
     const list = requestsByOrder.get(r.orderId) ?? [];
     list.push({
+      returnNumber: r.returnNumber,
       status: r.status,
       createdAt: r.createdAt,
       items: r.items.map((it) => ({ quantity: it.quantity, approvedQuantity: it.approvedQuantity })),

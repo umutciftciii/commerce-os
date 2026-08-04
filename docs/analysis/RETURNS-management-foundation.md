@@ -88,3 +88,22 @@ PENDING intent is an approved *intent*, not a realized refund (`completedRefundM
 window label = "16.08.2026 tarihine kadar iade edilebilir", badge "1 ürün iade onaylandı" with delivery preserved,
 create→approve→RefundIntent PENDING, admin `imageUrl` non-null, pending financial impact on both surfaces, CTA
 non-overflowing at 320/375/1024 — fixture cleaned. See [ADR-269 §11](../adr/ADR-269-returns-authority-and-lifecycle.md).
+
+---
+
+## Pre-Refund UX Recovery (ADR-270) — 2026-08-04
+
+TODO-169 sonrası 3 blocker (item 1/2/4) kapatıldı, **migration YOK**:
+- **BUG-RETURN-DEEPLINK (kök neden):** order-card CTA `/account?section=returns`'e gidiyordu ama `returns`
+  geçerli account section değil (`SECTIONS` allowlist + `renderSection` switch yok → `resolveSection` Orders'a
+  düşürüyor). Fix: projeksiyon `primaryReturnNumber` (tek "odak" iade) + tek canonical `resolveReturnCtaHref`
+  (tek aktif → `/account/returns/{no}`, çok → `/account/orders/{no}#returns`); order-detail `#returns` anchor +
+  `ReturnsDeepLinkFocus` island (refresh/back güvenli, sticky altında değil, erişilebilir başlığa focus).
+- **Return-shipment çıkmazı:** `canSubmitTracking` yalnız `AWAITING_SHIPMENT`'te true; approve `APPROVED`'de
+  bırakıyordu. Fix: approve aynı tx'te otomatik `APPROVED/PARTIALLY_APPROVED → AWAITING_SHIPMENT` (SYSTEM/ADMIN
+  guard + append-only history). Müşteri "Ürünü geri gönderin" `shipByDate` (approvedAt + `RETURN_SHIP_BACK_DAYS`=7)
+  + paketleme + a11y; admin "Müşteri tarafından gönderildi" + "Teslim alındı"→`receivedAt`.
+- Pending Work: iade `actionable`/`newRequests`/`inspection`/`financialAction` bucket'ları ADR-269 yaşam
+  döngüsüyle hizalı (settled = COMPLETED/REJECTED/CANCELLED_BY_CUSTOMER/EXPIRED/CLOSED).
+
+Bkz. [ADR-270](../adr/ADR-270-returns-ux-recovery-and-pending-work.md).

@@ -2029,3 +2029,38 @@ room, no code now):
   zaman-serisi kâr future.
 - **XLSX export (TD-FR-6):** CSV mevcut; XLSX primitive yok → future.
 - **Scheduled/emailed reports & Platform cross-store aggregation (TD-FR-7):** bu fazda yok.
+
+## Pre-Refund UX Recovery — açık future kalemler (ADR-270 / ADR-271) — 2026-08-04
+
+- **TD-UX-1 — Unified Session Policy implementasyonu (BLOCKING sonraki faz):** ADR-271 tasarımı uygulanacak —
+  additive migration (`PlatformSession`/`CustomerSession`: `lastActivityAt`/`absoluteExpiresAt`/`rememberMe`),
+  gateway iki-kapılı (idle+absolute) sliding refresh, extend endpoint (CSRF+rate-limit, expired diriltmez,
+  rotation), remember-me UI ×3, expiry UX (safe returnTo + mesaj + unsaved-form uyarı), warning modal + countdown,
+  multi-tab (BroadcastChannel), tek policy kaynağı (customer-cookie 30d hardcode kaldırılır). TODO-170 bu bitene
+  kadar BLOCKED. 7-adım geçiş sırası ADR-271 §5.
+- **TD-UX-2 — Return address/instructions per-store (future):** İlk faz "iade adresi VEYA mağaza talimatı" i18n
+  talimatıyla karşılandı (manuel iade kargolaması). Gerçek per-store iade adresi + paketleme + `returnShipBackDays`
+  → `StoreSettings` additive alanları + settings PATCH/UI (contract test kuplajı dikkatle) future. Şimdilik
+  `RETURN_SHIP_BACK_DAYS=7` config-default sabiti.
+- **TD-UX-3 — Pending-work filtreli link query-param hydration:** Dashboard kartı + sidebar rozetleri doğru
+  ekrana (`/reviews?status=PENDING`, `/orders/returns?status=…`) yönlendiriyor; hedef liste ekranlarının bu
+  query-param'ı başlangıç filtre state'ine hydrate etmesi (şu an ekrana iner, filtre otomatik uygulanmayabilir)
+  future iyileştirme.
+- **TD-UX-4 — Platform-level pending-work summary:** Platform Admin'e mağaza-op sayacı BİLİNÇLİ eklenmedi
+  (mağaza operasyonunu platform sidebar'a karıştırma kuralı). Gerçek platform-seviyesi aksiyon kuyruğu (ör.
+  mağaza yaşam döngüsü / platform moderasyonu) oluşursa ayrı bir platform-scoped özet future.
+- **TD-UX-5 — Gerçek notification center:** Bu faz spec gereği yalnız dashboard + nav badge sundu. Gerçek
+  notification inbox (okundu/okunmadı, geçmiş, push) roadmap'e alındı → future faz.
+- **TD-UX-6 (smoke side-effect) — ✅ CLOSED (repaired + hardened, 2026-08-04):** Browser smoke, bir enterprise-demo
+  müşterisi (edm-store) için password-login testinde `CustomerCredential` upsert'ü (`ON CONFLICT (customerId)`)
+  mevcut credential'ın `passwordHash`'ini geçici bir smoke şifresine ezdi. **Kök neden analizi:** credential seed
+  kaynaklı DEĞİL — müşteri storefront'tan manuel kaydolmuş (seed/enterprise-seed bu credential'ı üretmez); orijinal
+  hash geri alınamaz (yerel backup yok, `DATABASE_BACKUP_ENABLED=false`). **Onarım (kullanıcı kararı — local demo):**
+  credential kullanıcının belirlediği bilinen bir demo parolasına resetlendi; deployed :4000 üzerinden doğrulandı —
+  yeni parola login 200, eski smoke şifresi → 401, customerId değişmedi, orders(4)/returns(1)/reviews(3 PENDING)/
+  R000001 APPROVED korundu, prod/başka store etkilenmedi. Diğer tüm smoke mutasyonları zaten restore edilmişti.
+  **Hardening (kalıcı):**
+  `packages/db/scripts/smoke-credential-safety.ts` — `assertSmokeCredentialTarget` (yalnız `smk_`/`smoke-`/
+  `rev-`/`test-` fixture; gerçek müşteri fail-closed) + `withSmokeCredential` (snapshot + `try/finally` birebir
+  restore; cleanup fail = smoke fail) + 7 birim test (`packages/db/test/smoke-credential-safety.test.ts`); kural
+  `docs/OPERATIONS.md`'ye kalıcı yazıldı (izole `smk_` müşteri + FK-güvenli teardown).

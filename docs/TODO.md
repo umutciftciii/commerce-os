@@ -57,9 +57,34 @@
   admin imageUrl non-null/pending finansal etki/CTA 320-375-1024 PASS; fixture temizlendi. **TODO-169 ancak bununla
   IMPLEMENTED sayılır; TODO-170 gerçek refund ledger için UNBLOCKED.**
 
-- **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED_BY TODO-169** (planlı). PENDING `RefundIntent`'leri
-  işler: gerçek provider refund + append-only `OrderRefund` ledger (ADR-268 §5) → Financial Reporting
-  `productRefundsMinor`/`shippingRefundsMinor` beslenir, `refundAmountsSupported=true` olur (net/total'dan TAM BİR KEZ düşülür).
+- **Pre-Refund UX Recovery (Returns UX + Pending Work + Return-Shipment) — ✅ IMPLEMENTED, TAM GATE + BROWSER
+  SMOKE PASS, COMMIT YOK** (ADR-270; 2026-08-04). TODO-169 sonrası 3 production-facing blocker kapatıldı (item
+  1/2/4); **migration YOK** (hesaplanan alanlar + mevcut kolonlarda `groupBy`). (1) **BUG-RETURN-DEEPLINK:**
+  `/account?section=returns` geçersiz section → Orders'a düşüyordu; projeksiyon `primaryReturnNumber` + tek
+  canonical `resolveReturnCtaHref` (tek aktif iade → `/account/returns/{no}`, çok iade → `/account/orders/{no}#returns`);
+  order-detail `#returns` erişilebilir focus (scroll-mt + focusable heading + `ReturnsDeepLinkFocus` island;
+  refresh/back güvenli). (2) **Pending Work Indicators:** gateway `GET /stores/:id/pending-work-summary` (2
+  `groupBy`, bounded, N+1 yok) → sidebar rozetleri (Değerlendirmeler/İadeler; 0 gizli, `99+`, erişilebilir ad)
+  + Dashboard "Bekleyen İşler" kartı (tür/adet/en eski/filtreli link); mutation event-bridge ile ANINDA tazeleme
+  (approve → 3→2 canlı doğrulandı). Platform Admin'e mağaza-op sayacı EKLENMEDİ (bilinçli). (4) **Return-shipment:**
+  approve → aynı tx'te otomatik `AWAITING_SHIPMENT` (SYSTEM/ADMIN guard, append-only history) → çıkmaz kalktı;
+  "Ürünü geri gönderin" `shipByDate`(approvedAt+7) + paketleme + a11y; tracking → `RETURN_SHIPPED` (idempotent,
+  duplicate 409, tenant 401/404); admin "Müşteri tarafından gönderildi" + "Teslim alındı"→`receivedAt`. Gate
+  GREEN (typecheck 0 · lint 42/42 0 err · test 42/42 gw 2279 +18 yeni · build 27/27). Browser smoke worktree
+  :4100/:3100/:3202 postgres :5432 enterprise-demo PASS (responsive 375/768/1024/1440). **Item 3 Unified Session
+  Policy YALNIZ tasarım** (ADR-271). Git kuralı: commit/push/PR/merge/deploy YOK.
+
+- **Unified Session Policy — 🟡 DESIGN-ONLY (sıradaki bağımsız faz)** (ADR-271; 2026-08-04). Mevcut auth/session
+  analizi + additive migration planı (`PlatformSession`/`CustomerSession`: `lastActivityAt`/`absoluteExpiresAt`/
+  `rememberMe`) + üç-app ortak policy kontratı (remember-off idle 30dk/abs 8s · remember-on idle 7g/abs 30g,
+  tek config kaynağı) + extend/warning/multi-tab/expiry-UX davranış sözleşmesi + risk & 7-adım geçiş sırası.
+  **Implementasyon YOK** (migration/remember-me/idle/absolute/extend/modal/multi-tab sonraki faz). Login
+  autocomplete zaten doğru (`username`/`current-password`, smoke'ta doğrulandı).
+
+- **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED** (Unified Session Policy fazının ARDINDAN; planlı).
+  PENDING `RefundIntent`'leri işler: gerçek provider refund + append-only `OrderRefund` ledger (ADR-268 §5) →
+  Financial Reporting `productRefundsMinor`/`shippingRefundsMinor` beslenir, `refundAmountsSupported=true` olur
+  (net/total'dan TAM BİR KEZ düşülür).
 
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;

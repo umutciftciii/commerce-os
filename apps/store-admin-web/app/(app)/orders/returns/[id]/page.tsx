@@ -329,6 +329,11 @@ export default function ReturnDetailPage() {
               ) : null}
               {ret.returnCarrier || ret.returnTrackingNumber ? (
                 <div className="mt-2 border-t border-white/[0.06] pt-2">
+                  {/* TODO-169 recovery — takip bilgisi bu fazda YALNIZ müşteri "Ürünü kargoya verdim"
+                      akışından set edilir; admin'e kaynağı açıkça göster. */}
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                    {isTr ? "Müşteri tarafından gönderildi" : "Shipped by customer"}
+                  </p>
                   <RailRow label={isTr ? "İade kargo" : "Return carrier"} value={ret.returnCarrier ?? "—"} />
                   <RailRow label={isTr ? "Takip no" : "Tracking"} value={ret.returnTrackingNumber ?? "—"} />
                 </div>
