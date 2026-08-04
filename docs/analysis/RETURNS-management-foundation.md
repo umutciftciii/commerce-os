@@ -62,3 +62,29 @@ restock, RefundIntent creation, tenant isolation, append-only history, concurren
 Real provider refund + `OrderRefund` ledger + finance wiring (TODO-170); object-store/signed-URL private
 media; real email delivery; return-exclusion registry; automated return labels; store credit / gift card /
 manufacturer support / exchange-with-different-product; fraud/risk scoring; marketplace seller return routing.
+
+## 5. Customer & Order Integration Recovery (TODO-169.1)
+
+The foundation shipped the domain + wizard + admin module but **did not surface returns on the order pages**.
+Six acceptance blockers were fixed in the same worktree (additive; no migration):
+
+| # | Blocker | Fix (evidence) |
+|---|---|---|
+| 1 | Return window/policy invisible | Eligibility + projection expose `deliveredAt`/`returnWindowDays`/`returnWindowEndsAt`/`remainingDays`/`windowState` (anchor = `Shipment.deliveredAt`, never purchase). Storefront labels on order list/detail/wizard/return-tracking (`returns/eligibility.ts`, `returns/projection.ts`, i18n `account.orders.returnBadge`). |
+| 2 | Summary CTA overflow | `SummaryPanel` nav → full-width stacked (`Geri` secondary + primary submit); no overflow 320/375/1024 (`return-wizard.tsx`). |
+| 3 | Admin thumbnail blank | Root cause `serialize.ts:172 imageUrl:null` + no cover map. Shared `resolveReturnItemCovers` (store-scoped ProductImage) wired into `routes-admin.loadAdminDetail`; monogram placeholder fallback. |
+| 4 | Return-shipping UX thin | Prominent "ship it back" block (who-pays + instruction + deadline + tracking form) + stage help texts on customer return detail; admin received/inspect/tracking already present. |
+| 5 | Order list ignores returns | Separate return badge from `returnSummary` (`latestStatus`+qty) + "view return status"; `Teslim edildi` preserved; review panel moved out of the action bar (regression). |
+| 6 | Order detail no returns | `Returns` section + pending financial impact on customer (`order.returnSummary` + `listReturns` filtered) and Store-Admin (`orders/[id]` + `GET …/orders/:id/return-summary`). |
+
+**Return projection (blocker #8)** is the shared authority (`returns/projection.ts`, pure + unit-tested):
+`requestCount / activeRequestCount / returnedItemQuantity / pendingItemQuantity / approvedRefundIntentMinor /
+completedRefundMinor / hasPendingFinancialImpact / latestStatus / returnWindowEndsAt`. Reused by customer list
+(fail-open), customer detail, admin order detail, and eligibility. **Financial semantics stay honest** (blocker #7):
+PENDING intent is an approved *intent*, not a realized refund (`completedRefundMinor=0`); the customer sees an
+"expected net" line, the admin a provisional-profit note; Financial Reporting revenue is unchanged
+(`refundAmountsSupported=false`). Gate: build/lint/typecheck 0 errors, **4229 tests green** (added
+`returns-projection` + `returns-summary` unit tests). Browser smoke (isolated `SMOKE-10`, 3-item DELIVERED):
+window label = "16.08.2026 tarihine kadar iade edilebilir", badge "1 ürün iade onaylandı" with delivery preserved,
+create→approve→RefundIntent PENDING, admin `imageUrl` non-null, pending financial impact on both surfaces, CTA
+non-overflowing at 320/375/1024 — fixture cleaned. See [ADR-269 §11](../adr/ADR-269-returns-authority-and-lifecycle.md).

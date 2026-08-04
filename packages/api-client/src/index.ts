@@ -24,6 +24,7 @@ import type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
+  AdminOrderReturnsResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -400,6 +401,10 @@ export type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
+  // TODO-169 (blocker #6/#8) — ortak iade özeti projeksiyonu + sipariş-iade entegrasyonu.
+  ReturnOrderSummary,
+  ReturnWindowState,
+  AdminOrderReturnsResponse,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -2181,6 +2186,8 @@ export interface ApiClient {
         input: AdminReturnInspectRequest,
         token?: string,
       ): Promise<AdminReturnDetailResponse>;
+      // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
+      orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
     };
     customers: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
@@ -3850,6 +3857,11 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/returns/${returnId}/inspect`,
             "POST",
             input,
+            token,
+          ),
+        orderReturns: (storeId, orderId, token) =>
+          getJson<AdminOrderReturnsResponse>(
+            `/stores/${storeId}/orders/${orderId}/return-summary`,
             token,
           ),
       },

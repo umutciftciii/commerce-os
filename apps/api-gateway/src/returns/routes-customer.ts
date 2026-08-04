@@ -30,6 +30,7 @@ import {
 } from "./service.js";
 import { computeRefund, type RefundCalcLine } from "./refund-calc.js";
 import { evaluateReturnTransition } from "./status-map.js";
+import { resolveReturnWindow } from "./projection.js";
 
 export interface ReturnCustomerRoutesDeps {
   config: AppConfig;
@@ -129,13 +130,19 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
     );
     const eligByLine = new Map(elig.lines.map((l) => [l.orderLineId, l]));
     const covers = await coverUrls(store.id, order.lines.map((l) => l.productId));
+    // TODO-169 (blocker #1) — pencere alanları tek otoriteden (projection.resolveReturnWindow).
+    const win = resolveReturnWindow(elig.anchor, policy.returnWindowDays, new Date());
 
     return customerReturnEligibilityResponseSchema.parse({
       eligibility: {
         orderNumber,
         currency: order.currency,
         returnable: elig.anchor !== null,
+        deliveredAt: elig.anchor?.toISOString() ?? null,
+        returnWindowDays: policy.returnWindowDays,
         returnWindowEndsAt: elig.windowEnd?.toISOString() ?? null,
+        remainingDays: win.remainingDays,
+        windowState: win.windowState,
         allowReplacement: policy.allowReplacement,
         allowOriginalPaymentRefund: policy.allowOriginalPaymentRefund,
         customerPaysReturnShipping: policy.customerPaysReturnShipping,

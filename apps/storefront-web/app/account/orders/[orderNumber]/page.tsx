@@ -2,16 +2,21 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { format, formatDate, type Locale } from "@commerce-os/i18n";
 import type { CustomerOrderDetail } from "@commerce-os/api-client";
+import type { CustomerReturnSummary } from "@commerce-os/contracts";
 import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
 import { getMyReviews } from "../../../../lib/server/reviews";
+import { listReturns } from "../../../../lib/server/returns";
 import { canRequestReturn, isReorderable } from "../../../../lib/orders";
+import { resolveReturnWindowLabel } from "../../../../lib/returns-summary";
 import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
 import { ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
+
+type ReturnsDict = Awaited<ReturnType<typeof getStorefrontDict>>["account"]["returns"];
 
 export const dynamic = "force-dynamic";
 
@@ -38,14 +43,19 @@ export default async function OrderDetailPage({
   const locale = await getRequestLocale();
   // TODO-159E hotfix — Detay sayfasında da gerçek yorum aksiyonu için sunucu-otoriter
   // uygunluk + mevcut yorumlar (yeni uç YOK; account/reviews ile aynı veri).
-  const [order, reviewData] = await Promise.all([
+  const [order, reviewData, allReturns] = await Promise.all([
     getCustomerOrderDetail(orderNumber),
     getMyReviews(),
+    listReturns(),
   ]);
   if (!order) {
     notFound();
   }
   const o = t.orders;
+  const r = t.returns;
+  // TODO-169 (blocker #6) — bu siparişe ait iade talepleri (yalnız kendi; server-scoped liste filtreli).
+  const orderReturns = allReturns.filter((rr) => rr.orderNumber === order.orderNumber);
+  const windowLabel = resolveReturnWindowLabel(order.returnSummary ?? null);
   const reviewState = resolveOrderReview(
     order,
     reviewData?.eligible ?? [],
@@ -74,6 +84,26 @@ export default async function OrderDetailPage({
             fulfillmentStatus={order.fulfillmentStatus}
             shipmentStatus={order.shipment?.status ?? null}
           />
+          {/* TODO-169 (blocker #1) — iade penceresi etiketi (teslim-türetilmiş; satın alma tarihi değil). */}
+          {windowLabel ? (
+            <p
+              className={
+                windowLabel.kind === "expired"
+                  ? "text-xs text-ink-subtle"
+                  : windowLabel.kind === "endingSoon"
+                    ? "text-xs font-medium text-accent-ink"
+                    : "text-xs text-ink-muted"
+              }
+            >
+              {windowLabel.kind === "eligible"
+                ? format(o.returnBadge.window.eligible, {
+                    date: formatDate(windowLabel.endsAt, locale),
+                  })
+                : windowLabel.kind === "endingSoon"
+                  ? format(o.returnBadge.window.endingSoon, { count: windowLabel.remainingDays })
+                  : o.returnBadge.window.expired}
+            </p>
+          ) : null}
         </header>
 
         <section className="border border-line p-4">
@@ -109,6 +139,12 @@ export default async function OrderDetailPage({
         </section>
 
         <OrderSummary o={o} order={order} />
+
+        <ReturnImpact o={o} order={order} />
+
+        {orderReturns.length > 0 ? (
+          <ReturnsSection o={o} r={r} returns={orderReturns} locale={locale} />
+        ) : null}
 
         {order.shipment ? (
           <ShipmentTracking shipment={order.shipment} t={o.detail.tracking} locale={locale} />
@@ -254,6 +290,92 @@ function PaymentBlock({
       ) : (
         <p className="text-sm text-ink-subtle">{o.detail.noPayment}</p>
       )}
+    </section>
+  );
+}
+
+/**
+ * TODO-169 (blocker #7) — İADE finansal etkisi. Orijinal tutar özetini (OrderSummary) DEĞİŞTİRMEZ;
+ * AYRI bir blok olarak "beklenen" etkiyi gösterir. RefundIntent PENDING gerçekleşen iade DEĞİLDİR:
+ * "Gerçekleşen iade —" + "Para iadesi bekleniyor / Henüz tahsilattan düşülmedi". Yalnız onaylı iade
+ * niyeti (approvedRefundIntentMinor > 0) varsa render edilir.
+ */
+function ReturnImpact({ o, order }: { o: OrdersDict; order: CustomerOrderDetail }) {
+  const s = order.returnSummary;
+  if (!s || s.approvedRefundIntentMinor <= 0) return null;
+  const ri = o.detail.returnImpact;
+  const realized = s.completedRefundMinor > 0;
+  const expectedNet = Math.max(0, order.totalMinor - s.approvedRefundIntentMinor);
+  return (
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-3">{ri.title}</Subheading>
+      <div className="space-y-2">
+        <Row label={ri.approvedIntent} value={formatMinor(s.approvedRefundIntentMinor, order.currency)} />
+        <Row
+          label={ri.realizedRefund}
+          value={realized ? formatMinor(s.completedRefundMinor, order.currency) : ri.notRealized}
+        />
+        <Row label={ri.currentCollected} value={formatMinor(order.totalMinor, order.currency)} />
+        <div className="border-t border-line pt-2">
+          <Row
+            label={`${ri.expectedNet} (${ri.expectedTag})`}
+            value={formatMinor(expectedNet, order.currency)}
+            strong
+          />
+        </div>
+        {s.hasPendingFinancialImpact ? (
+          <p className="text-xs text-ink-muted">{ri.pendingNote}</p>
+        ) : null}
+        {!realized ? <p className="text-xs text-ink-subtle">{ri.noRefundYet}</p> : null}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * TODO-169 (blocker #6) — Sipariş detayında bu siparişe ait iade talepleri (kompakt kartlar).
+ * Her kart iade No + durum + çözüm + adet + tarih taşır ve iade takip ekranına linkler.
+ */
+function ReturnsSection({
+  o,
+  r,
+  returns,
+  locale,
+}: {
+  o: OrdersDict;
+  r: ReturnsDict;
+  returns: CustomerReturnSummary[];
+  locale: Locale;
+}) {
+  return (
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-3">{o.detail.returnsTitle}</Subheading>
+      <ul className="space-y-3">
+        {returns.map((rr) => (
+          <li key={rr.returnNumber} className="flex flex-wrap items-center justify-between gap-3 border border-line p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">
+                {o.detail.returnRef}: {rr.returnNumber}
+              </p>
+              <p className="text-xs text-ink-muted">
+                {formatDate(rr.createdAt, locale)} · {format(r.itemCount, { count: rr.itemCount })} ·{" "}
+                {r.resolutions[rr.resolutionType]}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center rounded-full border border-ink-subtle bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink">
+                {r.statuses[rr.status]}
+              </span>
+              <Link
+                href={`/account/returns/${encodeURIComponent(rr.returnNumber)}`}
+                className="text-xs font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
+              >
+                {o.detail.viewReturn}
+              </Link>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

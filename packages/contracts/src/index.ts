@@ -6171,6 +6171,10 @@ export const customerOrderSummarySchema = z.object({
   // yansıtmak için TEMSİLİ kargo durumu; shipment yoksa null. Müşteri-güvenli:
   // yalnız DURUM enum'u taşınır (statusText/iç alan yok).
   shipmentStatus: orderSummaryShipmentStatusSchema.nullable().default(null),
+  // TODO-169 (blocker #5/#8) — ORTAK iade özeti projeksiyonu. Teslim rozetini DEĞİŞTİRMEZ; iade
+  // durumunu AYRI taşır. İade yoksa da pencere bilgisi (returnWindowEndsAt/windowState) döner.
+  // Forward-ref (returnOrderSummarySchema bu dosyada aşağıda tanımlı) için z.lazy.
+  returnSummary: z.lazy(() => returnOrderSummarySchema).nullable().default(null),
 });
 
 export const customerOrderListResponseSchema = z.object({
@@ -6307,6 +6311,9 @@ export const customerOrderDetailSchema = z.object({
   shipment: customerOrderShipmentSchema.nullable(),
   // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti; yoksa null.
   shippingSelection: orderShippingSelectionSchema.nullable(),
+  // TODO-169 (blocker #6/#7/#8) — ORTAK iade özeti (pencere + aktivite + pending finansal etki).
+  // Teslimat/finansal orijinal özeti DEĞİŞTİRMEZ; iade etkisini AYRI + "beklenen" olarak taşır.
+  returnSummary: z.lazy(() => returnOrderSummarySchema).nullable().default(null),
 });
 
 export const customerOrderDetailResponseSchema = z.object({
@@ -11569,6 +11576,35 @@ export function returnReasonRequiresComment(reason: z.infer<typeof returnReasonS
 
 export const RETURN_COMMENT_MAX = 1000;
 
+/* ── ORTAK: sipariş-bazında iade özeti projeksiyonu (TODO-169 blocker #8) ─────────
+ * Tek server-side otorite. Müşteri sipariş listesi/detayı + Store-Admin sipariş detayı AYNI özeti
+ * kullanır (React'te yeniden hesap YOK). windowState = teslim-türetilmiş sipariş-seviyesi pencere
+ * durumu (iade olmasa da geçerli). Finans dürüstlüğü: approvedRefundIntentMinor (PENDING niyet) ≠
+ * completedRefundMinor (gerçekleşen; TODO-170'e kadar 0). Gross satış ASLA düşülmez. */
+export const returnWindowStateSchema = z.enum(["NOT_DELIVERED", "ELIGIBLE", "EXPIRED"]);
+
+export const returnOrderSummarySchema = z.object({
+  currency: currencySchema,
+  // Pencere (blocker #1) — teslim ankoru + policy'den türetilir; teslim yoksa null.
+  deliveredAt: z.string().datetime().nullable(),
+  returnWindowDays: z.number().int().nonnegative(),
+  returnWindowEndsAt: z.string().datetime().nullable(),
+  remainingDays: z.number().int().nullable(),
+  windowState: returnWindowStateSchema,
+  // Aktivite (blocker #5/#6).
+  requestCount: z.number().int().nonnegative(),
+  activeRequestCount: z.number().int().nonnegative(),
+  returnedItemQuantity: z.number().int().nonnegative(),
+  pendingItemQuantity: z.number().int().nonnegative(),
+  latestStatus: returnStatusSchema.nullable(),
+  // Finansal etki (blocker #7) — niyet vs gerçekleşen AYRI.
+  approvedRefundIntentMinor: z.number().int().nonnegative(),
+  completedRefundMinor: z.number().int().nonnegative(),
+  hasPendingFinancialImpact: z.boolean(),
+});
+export type ReturnWindowState = z.infer<typeof returnWindowStateSchema>;
+export type ReturnOrderSummary = z.infer<typeof returnOrderSummarySchema>;
+
 /* ── Müşteri: iade uygunluğu (order detay üzeri) ─────────────────────────────── */
 export const returnLineEligibilityStatusSchema = z.enum([
   "ELIGIBLE",
@@ -11598,7 +11634,14 @@ export const customerReturnEligibilitySchema = z.object({
   orderNumber: z.string(),
   currency: currencySchema,
   returnable: z.boolean(),
+  // TODO-169 (blocker #1) — teslim ankoru + policy'den türetilen pencere alanları (server-authoritative).
+  // deliveredAt = iade penceresi başlangıç otoritesi (satın alma/placedAt DEĞİL). returnWindowDays =
+  // store policy (default 14). remainingDays/windowState = müşteri-facing etiketler için türetilir.
+  deliveredAt: z.string().datetime().nullable(),
+  returnWindowDays: z.number().int().nonnegative(),
   returnWindowEndsAt: z.string().datetime().nullable(),
+  remainingDays: z.number().int().nullable(),
+  windowState: returnWindowStateSchema,
   allowReplacement: z.boolean(),
   allowOriginalPaymentRefund: z.boolean(),
   customerPaysReturnShipping: z.boolean(),
@@ -11715,6 +11758,14 @@ export const adminReturnListResponseSchema = z.object({
   data: z.array(adminReturnListItemSchema),
   pagination: adminListPaginationSchema,
 });
+
+/* ── Store Admin: sipariş detayına iade entegrasyonu (blocker #6) ────────────────
+ * Bir siparişin ORTAK iade özeti (projection) + o siparişe ait iade talepleri. */
+export const adminOrderReturnsResponseSchema = z.object({
+  summary: returnOrderSummarySchema,
+  returns: z.array(adminReturnListItemSchema),
+});
+export type AdminOrderReturnsResponse = z.infer<typeof adminOrderReturnsResponseSchema>;
 
 /* ── Store Admin: iade detayı ─────────────────────────────────────────────────── */
 export const adminReturnAttachmentSchema = z.object({

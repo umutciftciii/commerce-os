@@ -493,10 +493,15 @@ function ReturnItemRow({
   const remaining = Math.max(0, item.purchasedQuantity - item.priorReturnedQuantity - item.quantity);
   return (
     <li className="flex gap-3 py-3">
-      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.03]">
+      {/* TODO-169 (blocker #3) — kapak görseli (store-scoped); yoksa ortak monogram placeholder. */}
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.03]">
         {item.imageUrl ? (
           <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
-        ) : null}
+        ) : (
+          <span className="font-serif text-lg text-white/25">
+            {(item.title.trim()[0] ?? "?").toLocaleUpperCase(locale === "tr" ? "tr" : "en")}
+          </span>
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">

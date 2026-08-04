@@ -47,6 +47,9 @@ export function OrderActions({
   const [pending, startTransition] = useTransition();
   const [buyAgain, setBuyAgain] = useState<BuyAgainState>({ status: "idle" });
   const [panel, setPanel] = useState<null | "support">(null);
+  // TODO-169 (blocker #5 regresyon) — review paneli AYRI aç/kapa state'i. Panel action-bar'ın DIŞINDA
+  // (altında) render edilir → aksiyon çubuğu SABİT kalır, iade CTA alt satıra İTİLMEZ.
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   function runBuyAgain() {
     setPanel(null);
@@ -62,6 +65,7 @@ export function OrderActions({
 
   return (
     <div className={layout === "detail" ? "space-y-3" : "mt-4 space-y-3"}>
+      {/* Sabit aksiyon çubuğu — SIRA state'e göre DEĞİŞMEZ (review paneli burada render EDİLMEZ). */}
       <div className="flex flex-wrap gap-2">
         <Link
           href={`/account/orders/${encodeURIComponent(orderNumber)}`}
@@ -77,7 +81,12 @@ export function OrderActions({
         <Button size="sm" variant="secondary" onClick={() => togglePanel("support")}>
           {t.actions.support}
         </Button>
-        <OrderReviewAction state={review} t={t} reviewsT={reviewsT} />
+        <OrderReviewTrigger
+          state={review}
+          t={t}
+          open={reviewOpen}
+          onToggle={() => setReviewOpen((v) => !v)}
+        />
         {canReturn ? (
           <ButtonLink
             href={`/account/returns/new?order=${encodeURIComponent(orderNumber)}`}
@@ -88,6 +97,11 @@ export function OrderActions({
           </ButtonLink>
         ) : null}
       </div>
+
+      {/* Review paneli — action-bar'ın DIŞINDA (destek notu gibi), sabit çubuğu bozmadan. */}
+      {reviewOpen && review.visible ? (
+        <OrderReviewPanel state={review} t={t} reviewsT={reviewsT} />
+      ) : null}
 
       {buyAgain.status === "success" ? (
         <Alert tone="success">
@@ -123,26 +137,24 @@ function reasonText(reason: OrderReviewReason, t: OrdersDict): string {
 }
 
 /**
- * TODO-159E hotfix — Sipariş yüzeyi "Ürün yorumu yaz" aksiyonu.
+ * TODO-159E hotfix / TODO-169 blocker #5 — Sipariş yüzeyi "Ürün yorumu yaz" aksiyonu.
  *
- * Durum {@link resolveOrderReview} ile SUNUCU verisinden (eligible + reviews) türetilir;
- * istemcide uygunluk yeniden hesaplanmaz. Tek uygun kalem → form doğrudan açılır. Çok kalem
- * → seçim listesi (her kalem ayrı durumla). Uygun değil → açıklamalı disabled. Gönderim
- * sonrası ilgili kalem tekrar form SUNMAZ (moderasyon/PENDING durumu gösterilir).
+ * Durum {@link resolveOrderReview} ile SUNUCU verisinden (eligible + reviews) türetilir; istemcide
+ * uygunluk yeniden hesaplanmaz. Aksiyon iki parçaya AYRILIR: sabit action-bar'da kalan {@link
+ * OrderReviewTrigger} (buton) + bar'ın DIŞINDA render edilen {@link OrderReviewPanel} (açılır içerik).
+ * Böylece panel açıldığında action-bar akışı bozulmaz, iade CTA alt satıra itilmez (regresyon fix).
  */
-function OrderReviewAction({
+function OrderReviewTrigger({
   state,
   t,
-  reviewsT,
+  open,
+  onToggle,
 }: {
   state: OrderReviewState;
   t: OrdersDict;
-  reviewsT: ReviewsDict;
+  open: boolean;
+  onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  // Bu oturumda gönderilen (PENDING'e düşen) orderLineId'ler → tekrar form açılmaz.
-  const [submitted, setSubmitted] = useState<Record<string, true>>({});
-
   // Uygun değil ve mevcut yorum da yok → açıklamalı disabled (placeholder ASLA gösterilmez).
   if (!state.visible) {
     return (
@@ -151,56 +163,55 @@ function OrderReviewAction({
       </Button>
     );
   }
+  return (
+    <Button size="sm" variant="secondary" onClick={onToggle} aria-expanded={open}>
+      {t.actions.review}
+    </Button>
+  );
+}
 
+function OrderReviewPanel({
+  state,
+  t,
+  reviewsT,
+}: {
+  state: OrderReviewState;
+  t: OrdersDict;
+  reviewsT: ReviewsDict;
+}) {
+  // Bu oturumda gönderilen (PENDING'e düşen) orderLineId'ler → tekrar form açılmaz.
+  const [submitted, setSubmitted] = useState<Record<string, true>>({});
+  if (!state.visible) return null;
   const single = state.reviewable.length === 1 && state.reviewed.length === 0;
 
   return (
-    <>
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {t.actions.review}
-      </Button>
-      {open ? (
-        <div
-          className="w-full rounded-lg border border-slate-200 bg-white p-3"
-          role="group"
-          aria-label={t.review.chooseTitle}
-        >
-          {!single ? (
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {t.review.chooseTitle}
-            </p>
-          ) : null}
-          <ul className="space-y-2">
-            {state.reviewable.map((item) => (
-              <ReviewableRow
-                key={item.orderLineId}
-                item={item}
-                t={t}
-                reviewsT={reviewsT}
-                autoOpen={single}
-                done={Boolean(submitted[item.orderLineId])}
-                onSubmitted={() =>
-                  setSubmitted((prev) => ({ ...prev, [item.orderLineId]: true }))
-                }
-              />
-            ))}
-            {state.reviewed.map((item) => (
-              <ReviewedRow
-                key={item.reviewId}
-                item={item}
-                t={t}
-                statusLabels={reviewsT.statusLabels}
-              />
-            ))}
-          </ul>
-        </div>
+    <div
+      className="w-full rounded-lg border border-slate-200 bg-white p-3"
+      role="group"
+      aria-label={t.review.chooseTitle}
+    >
+      {!single ? (
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t.review.chooseTitle}
+        </p>
       ) : null}
-    </>
+      <ul className="space-y-2">
+        {state.reviewable.map((item) => (
+          <ReviewableRow
+            key={item.orderLineId}
+            item={item}
+            t={t}
+            reviewsT={reviewsT}
+            autoOpen={single}
+            done={Boolean(submitted[item.orderLineId])}
+            onSubmitted={() => setSubmitted((prev) => ({ ...prev, [item.orderLineId]: true }))}
+          />
+        ))}
+        {state.reviewed.map((item) => (
+          <ReviewedRow key={item.reviewId} item={item} t={t} statusLabels={reviewsT.statusLabels} />
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -1621,3 +1621,16 @@ ReturnRequest → ReturnNumberCounter; sonra order/customer/shipment).
 
 **Tenant izolasyon kontrolü:** başka müşteri/başka store iade no → 404 (403 değil); attachment yalnız sahip/store
 admin stream eder; public `/media/*/returns/*` → 404.
+
+**TODO-169.1 Order-integration recovery smoke (2026-08-04):** izole 3-ürün DELIVERED sipariş (deliveredAt = now−2gün)
+ile ek olarak doğrula — (a) **Siparişlerim** kartında iade son tarihi (`… tarihine kadar iade edilebilir`) + teslim
+rozeti KORUNUR; (b) bir ürün için iade oluştur → kart AYRI iade rozeti gösterir (`1 ürün için iade talebi` →
+onay sonrası `1 ürün iade onaylandı`) + "İade durumunu görüntüle"; (c) **sipariş detayı**nda `İadeler` bölümü;
+(d) admin iade detayında ürün **görseli** (boş değil; yoksa monogram); (e) admin onayı → RefundIntent PENDING →
+müşteri + admin sipariş özetinde **pending finansal etki** ("beklenen net" / "Para iadesi bekleniyor · Henüz
+tahsilattan düşülmedi") görünür ama **gerçekleşen iade `—`** ve Financial Reporting revenue DEĞİŞMEZ; (f) sihirbaz
+özet CTA'sı **320/375/1024**'te taşmaz (tam-genişlik `İade talebini gönder` + `Geri`); (g) review paneli açıkken
+iade CTA action-bar'da yer değiştirmez. Ortak `returns/projection.ts` tek otorite (customer list/detail + admin
+order detail + eligibility; customer list fail-open). Not: worktree smoke için gateway ayrı portta (`:4100`) docker
+postgres'e bağlanır ve media docker volume'undan kopyalanır; fixture (SMOKE- önekli customer/order + geçici platform
+session) FK-güvenli temizlenir. **Responsive:** 320 / 375 / 768 / 1024 / 1440.

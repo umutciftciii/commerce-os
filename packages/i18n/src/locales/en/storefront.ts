@@ -1059,6 +1059,35 @@ export const enStorefront: StorefrontDictionary = {
         PARTIAL: "Partially shipped",
         CANCELLED: "Cancelled",
       },
+      // TODO-169 (blocker #1/#5) — Return summary badges. Does NOT change the delivery badge; carries
+      // return status separately. Window is derived server-side from delivery + policy.
+      returnBadge: {
+        window: {
+          eligible: "Returnable until {date}",
+          endingSoon: "{count} days left to return",
+          expired: "Return window closed",
+        },
+        viewStatus: "View return status",
+        pendingRefund: "Refund pending",
+        status: {
+          REQUESTED: "Return requested for {count} item(s)",
+          UNDER_REVIEW: "Return under review for {count} item(s)",
+          APPROVED: "Return approved for {count} item(s)",
+          PARTIALLY_APPROVED: "Return approved for {count} item(s)",
+          REJECTED: "Return rejected for {count} item(s)",
+          AWAITING_SHIPMENT: "Awaiting return shipment for {count} item(s)",
+          RETURN_SHIPPED: "{count} item(s) shipped back",
+          RECEIVED: "{count} item(s) received by store",
+          INSPECTION_REQUIRED: "{count} item(s) under inspection",
+          INSPECTED: "{count} item(s) inspected",
+          REFUND_PENDING: "Refund pending for {count} item(s)",
+          REPLACEMENT_PENDING: "Replacement pending for {count} item(s)",
+          COMPLETED: "{count} item(s) returned",
+          CANCELLED_BY_CUSTOMER: "Return cancelled for {count} item(s)",
+          EXPIRED: "Return window expired for {count} item(s)",
+          CLOSED: "Return completed for {count} item(s)",
+        },
+      },
       buyAgain: {
         success: "{count} items added to your cart.",
         partial: "Some items are no longer available.",
@@ -1106,6 +1135,23 @@ export const enStorefront: StorefrontDictionary = {
         notFoundNote: "This order is not yours or no longer exists.",
         individual: "Individual",
         corporate: "Corporate",
+        // TODO-169 (blocker #6) — Returns section on order detail.
+        returnsTitle: "Returns",
+        returnRef: "Return no",
+        viewReturn: "View return detail",
+        // TODO-169 (blocker #7) — Return financial impact (does NOT change the original summary).
+        // A PENDING RefundIntent is NOT a realized refund; shown as "expected".
+        returnImpact: {
+          title: "Return financial impact",
+          approvedIntent: "Approved refund intent",
+          realizedRefund: "Realized refund",
+          currentCollected: "Currently collected",
+          expectedNet: "Expected net after return",
+          expectedTag: "expected",
+          notRealized: "—",
+          pendingNote: "Refund pending · Not yet deducted from collection.",
+          noRefundYet: "No refund has been issued yet.",
+        },
         tracking: {
           title: "Shipment tracking",
           provider: "Carrier",
@@ -1248,6 +1294,32 @@ export const enStorefront: StorefrontDictionary = {
         title: "Return no.",
         status: "Status",
         resolution: "Resolution",
+        // TODO-169 (blocker #4) — post-approval prominent return-shipping instructions + stage help.
+        shipBack: {
+          title: "Ship the item back",
+          help: "Your return is approved. Ship the item and enter the tracking number below.",
+          costCustomer: "Return shipping is paid by you.",
+          costStore: "Return shipping is paid by the store.",
+          addressNote: "The return address and instructions are provided by the store; ship the item in its original packaging.",
+        },
+        progressHelp: {
+          REQUESTED: "Your request has been sent to the store and is under review.",
+          UNDER_REVIEW: "Your request is under review.",
+          PARTIALLY_APPROVED: "Your return is partially approved; please ship the item.",
+          APPROVED: "Your return is approved; please ship the item.",
+          REJECTED: "Your return request was rejected.",
+          AWAITING_SHIPMENT: "Awaiting you to ship the item.",
+          RETURN_SHIPPED: "The item has been shipped; awaiting arrival at the store.",
+          RECEIVED: "The item has reached the store.",
+          INSPECTION_REQUIRED: "The item is under inspection.",
+          INSPECTED: "The item has been inspected; awaiting return approval.",
+          REFUND_PENDING: "Refund pending.",
+          REPLACEMENT_PENDING: "Replacement pending.",
+          COMPLETED: "Return completed.",
+          CANCELLED_BY_CUSTOMER: "The return request was cancelled.",
+          EXPIRED: "The return window has expired.",
+          CLOSED: "The return has been closed.",
+        },
         estimatedRefund: "Estimated refund",
         estimatedRefundNote:
           "This is an estimate; the final amount is confirmed after the store approves and inspects.",

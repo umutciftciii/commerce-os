@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { format, formatDate } from "@commerce-os/i18n";
 import { Container, EmptyState, Heading, ButtonLink } from "../../../../components/ui";
-import { getStorefrontDict } from "../../../../lib/i18n";
+import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { getCurrentCustomer } from "../../../../lib/server/customer";
 import { getReturnEligibility } from "../../../../lib/server/returns";
 import { AccountSidebar } from "../../../../components/account/account-sidebar";
@@ -34,7 +35,20 @@ export default async function NewReturnPage({
   const dict = await getStorefrontDict();
   const t = dict.account;
   const r = t.returns;
+  const locale = await getRequestLocale();
   const eligibility = await getReturnEligibility(orderNumber);
+  // TODO-169 (blocker #1) — sihirbaz yüzeyinde iade penceresi etiketi (teslim-türetilmiş; server).
+  const rb = t.orders.returnBadge;
+  const windowText =
+    eligibility && eligibility.windowState === "ELIGIBLE" && eligibility.returnWindowEndsAt
+      ? eligibility.remainingDays !== null && eligibility.remainingDays <= 3
+        ? format(rb.window.endingSoon, { count: Math.max(0, eligibility.remainingDays) })
+        : format(rb.window.eligible, {
+            date: formatDate(eligibility.returnWindowEndsAt, locale),
+          })
+      : eligibility && eligibility.windowState === "EXPIRED"
+        ? rb.window.expired
+        : null;
 
   return (
     <Container className="py-12">
@@ -48,6 +62,9 @@ export default async function NewReturnPage({
               {r.wizard.orderLabel}: {orderNumber}
             </p>
             <Heading as="h1">{r.wizard.title}</Heading>
+            {windowText ? (
+              <p className="text-xs font-medium text-ink-muted">{windowText}</p>
+            ) : null}
           </div>
 
           {eligibility && eligibility.returnable ? (

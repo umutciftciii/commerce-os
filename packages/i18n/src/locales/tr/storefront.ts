@@ -1092,6 +1092,35 @@ export const trStorefront = {
         PARTIAL: "Kısmi gönderim",
         CANCELLED: "İptal edildi",
       },
+      // TODO-169 (blocker #1/#5) — İADE özeti rozetleri. Teslimat rozetini DEĞİŞTİRMEZ; iade
+      // durumunu AYRI taşır. Pencere: teslim + policy'den türetilir (server-authoritative).
+      returnBadge: {
+        window: {
+          eligible: "{date} tarihine kadar iade edilebilir",
+          endingSoon: "İade süresinin bitmesine {count} gün kaldı",
+          expired: "İade süresi doldu",
+        },
+        viewStatus: "İade durumunu görüntüle",
+        pendingRefund: "Para iadesi bekleniyor",
+        status: {
+          REQUESTED: "{count} ürün için iade talebi oluşturuldu",
+          UNDER_REVIEW: "{count} ürün için iade talebi inceleniyor",
+          APPROVED: "{count} ürün iade onaylandı",
+          PARTIALLY_APPROVED: "{count} ürün iade onaylandı",
+          REJECTED: "{count} ürün iade reddedildi",
+          AWAITING_SHIPMENT: "{count} ürünün geri gönderilmesi bekleniyor",
+          RETURN_SHIPPED: "{count} ürün geri gönderildi",
+          RECEIVED: "{count} ürün mağazaya ulaştı",
+          INSPECTION_REQUIRED: "{count} ürün inceleniyor",
+          INSPECTED: "{count} ürün incelendi",
+          REFUND_PENDING: "{count} ürün için para iadesi bekleniyor",
+          REPLACEMENT_PENDING: "{count} ürün için değişim bekleniyor",
+          COMPLETED: "{count} ürün iade edildi",
+          CANCELLED_BY_CUSTOMER: "{count} ürün için iade iptal edildi",
+          EXPIRED: "{count} ürün için iade süresi doldu",
+          CLOSED: "{count} ürün iade tamamlandı",
+        },
+      },
       buyAgain: {
         success: "{count} ürün sepete eklendi.",
         partial: "Bazı ürünler artık mevcut değil.",
@@ -1140,6 +1169,23 @@ export const trStorefront = {
         notFoundNote: "Bu sipariş size ait değil veya artık mevcut değil.",
         individual: "Bireysel",
         corporate: "Kurumsal",
+        // TODO-169 (blocker #6) — Sipariş detayına İADELER bölümü.
+        returnsTitle: "İadeler",
+        returnRef: "İade No",
+        viewReturn: "İade detayını görüntüle",
+        // TODO-169 (blocker #7) — İADE finansal etkisi (orijinal özeti DEĞİŞTİRMEZ; AYRI blok).
+        // RefundIntent PENDING gerçekleşen iade DEĞİLDİR; "beklenen" olarak gösterilir.
+        returnImpact: {
+          title: "İade finansal etkisi",
+          approvedIntent: "Onaylanan iade niyeti",
+          realizedRefund: "Gerçekleşen iade",
+          currentCollected: "Mevcut tahsilat",
+          expectedNet: "İade sonrası beklenen net",
+          expectedTag: "beklenen",
+          notRealized: "—",
+          pendingNote: "Para iadesi bekleniyor · Henüz tahsilattan düşülmedi.",
+          noRefundYet: "Henüz para iadesi yapılmadı.",
+        },
         tracking: {
           title: "Kargo Takibi",
           provider: "Kargo firması",
@@ -1291,6 +1337,33 @@ export const trStorefront = {
         title: "İade No",
         status: "Durum",
         resolution: "Çözüm tercihi",
+        // TODO-169 (blocker #4) — onay sonrası BELİRGİN geri-kargo talimatı + mevcut aşama açıklaması.
+        shipBack: {
+          title: "Ürünü geri gönderin",
+          help: "İadeniz onaylandı. Ürünü kargoya verip aşağıya takip numarasını girin.",
+          costCustomer: "İade kargo ücreti size aittir.",
+          costStore: "İade kargo ücreti mağazaya aittir.",
+          addressNote: "İade adresi ve talimatlar mağaza tarafından iletilir; ürünü orijinal ambalajıyla gönderin.",
+        },
+        // Mevcut aşama açıklaması (müşteri-facing). status → tek cümle.
+        progressHelp: {
+          REQUESTED: "Talebiniz mağazaya iletildi ve inceleniyor.",
+          UNDER_REVIEW: "Talebiniz inceleniyor.",
+          PARTIALLY_APPROVED: "İadeniz kısmen onaylandı; ürünü kargoya vermeniz bekleniyor.",
+          APPROVED: "İadeniz onaylandı; ürünü kargoya vermeniz bekleniyor.",
+          REJECTED: "İade talebiniz reddedildi.",
+          AWAITING_SHIPMENT: "Ürünü kargoya vermeniz bekleniyor.",
+          RETURN_SHIPPED: "Ürün kargoya verildi; mağazaya ulaşması bekleniyor.",
+          RECEIVED: "Ürün mağazaya ulaştı.",
+          INSPECTION_REQUIRED: "Ürün inceleniyor.",
+          INSPECTED: "Ürün incelendi; iade onayı bekleniyor.",
+          REFUND_PENDING: "Para iadesi bekleniyor.",
+          REPLACEMENT_PENDING: "Değişim bekleniyor.",
+          COMPLETED: "İade tamamlandı.",
+          CANCELLED_BY_CUSTOMER: "İade talebi iptal edildi.",
+          EXPIRED: "İade süresi doldu.",
+          CLOSED: "İade süreci kapatıldı.",
+        },
         estimatedRefund: "Tahmini iade tutarı",
         estimatedRefundNote:
           "Bu bir tahmindir; nihai tutar mağaza onayı ve inceleme sonrasında kesinleşir.",

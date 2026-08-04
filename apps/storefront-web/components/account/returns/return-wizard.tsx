@@ -708,22 +708,25 @@ function SummaryPanel({
 }) {
   const w = t.wizard;
   const isLast = step === totalSteps - 1;
+  // TODO-169 (blocker #2) — dar sağ rail (~248px) + uzun TR CTA ("İade talebini gönder") taşmasın:
+  // butonlar TAM GENİŞLİK + alt alta (primary üstte, "Geri" altta). Sabit dar width yok; metin tek/iki
+  // güvenli satır. Loading'de yalnız etiket değişir (buton genişliği sabit → layout kaymaz).
   const nav = (
-    <div className="flex gap-2">
-      {step > 0 ? (
-        <Button variant="secondary" size="sm" onClick={onBack} disabled={submitting} className="flex-1">
-          {w.back}
-        </Button>
-      ) : null}
+    <div className="flex flex-col gap-2">
       {isLast ? (
-        <Button variant="primary" size="sm" onClick={onSubmit} disabled={submitting} className="flex-1">
+        <Button variant="primary" size="sm" onClick={onSubmit} disabled={submitting} className="w-full">
           {submitting ? w.submitting : w.submit}
         </Button>
       ) : (
-        <Button variant="primary" size="sm" onClick={onNext} disabled={submitting} className="flex-1">
+        <Button variant="primary" size="sm" onClick={onNext} disabled={submitting} className="w-full">
           {w.next}
         </Button>
       )}
+      {step > 0 ? (
+        <Button variant="secondary" size="sm" onClick={onBack} disabled={submitting} className="w-full">
+          {w.back}
+        </Button>
+      ) : null}
     </div>
   );
 

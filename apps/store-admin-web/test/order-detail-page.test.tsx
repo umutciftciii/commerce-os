@@ -20,6 +20,13 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
       getOrder: vi.fn(),
       placeOrder: vi.fn(),
       cancelOrder: vi.fn(),
+      // TODO-169 (blocker #6) — sipariş detayı iade özeti (fail-open); varsayılan: iade yok.
+      getOrderReturnSummary: vi
+        .fn()
+        .mockResolvedValue({
+          summary: { hasPendingFinancialImpact: false, approvedRefundIntentMinor: 0 },
+          returns: [],
+        }),
     },
   };
 });

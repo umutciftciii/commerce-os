@@ -95,6 +95,13 @@ surfaced. Minimum future read-model specified in ADR-268 §5 (`OrderRefund` appe
 > `refundAmountsSupported` stays `false` and `productRefundsMinor`/`shippingRefundsMinor` stay `0` until
 > **TODO-170 Refund Ledger & Payment Reversal** processes the intents, performs the reversal, and writes the
 > ledger that finance reads (subtracting from Net/Total exactly once). Gross sales are never reduced by a return.
+>
+> **Update (TODO-169.1, 2026-08-04):** the returns order-integration recovery surfaces the **pending** financial
+> impact on the customer and Store-Admin **order-detail** pages (approved RefundIntent intent vs realized refund,
+> `hasPendingFinancialImpact`, an "expected net" line, and a provisional-profit note) — but the **Financial
+> Reporting read-model is unchanged**: `refundAmountsSupported` stays `false`, refund amounts stay `0`, revenue is
+> not reduced. The order-level pending display is informational (server-side `returns/projection.ts`), not an
+> accounting entry; the ledger wiring remains TODO-170.
 
 ## 11. Profitability decision
 

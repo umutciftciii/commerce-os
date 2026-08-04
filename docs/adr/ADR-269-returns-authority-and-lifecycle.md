@@ -187,6 +187,36 @@ platform. `ReturnStatusHistory` gives the customer-visible trail regardless of e
   `customerNote`/`customerComment` is visible to the admin.
 - Every state transition passes the state machine **and** the actor-authority check; illegal → fail-closed.
 
+### 11. Ortak return order-summary projection is the single authority for order surfaces (TODO-169.1)
+
+Post-deploy acceptance review surfaced that returns were **not integrated into the order surfaces** (order
+list still showed only fulfillment; order detail had no returns section; the return window was invisible; the
+admin return thumbnail was blank; the summary CTA overflowed; the review panel pushed the return CTA out of the
+action bar). The recovery keeps everything **additive** (no schema/migration change) and introduces a single
+server-side authority so React never re-computes return state:
+
+- **`returns/projection.ts`** — a pure `buildReturnOrderSummary` + batched `computeReturnOrderSummaries`
+  producing per-order: window fields (`deliveredAt`/`returnWindowDays`/`returnWindowEndsAt`/`remainingDays`/
+  `windowState`, all delivery-derived from `Shipment.deliveredAt`, **never** purchase/`placedAt`), activity
+  (`requestCount`/`activeRequestCount`/`returnedItemQuantity`/`pendingItemQuantity`/`latestStatus`), and
+  **honest finance** (`approvedRefundIntentMinor` = Σ PENDING intents vs `completedRefundMinor` = Σ PROCESSED,
+  today `0`; `hasPendingFinancialImpact`). `resolveReturnWindow` is the shared window authority (eligibility +
+  projection). Gross sales are **never** reduced.
+- **Reuse** (contract `returnOrderSummarySchema`, forward-ref `z.lazy`): customer order list + customer order
+  detail (`customers/index.ts`, **fail-open** — a projection error degrades to a hidden badge, never a 500),
+  Store-Admin order detail (new `GET /stores/:storeId/orders/:orderId/return-summary` →
+  `adminOrderReturnsResponseSchema`), and the eligibility endpoint (window fields).
+- **Media parity (blocker #3):** `resolveReturnItemCovers` (store-scoped `ProductImage`, position-asc cover;
+  cross-store media never) is shared by the customer and admin serializers — the admin `imageUrl: null` hardcode
+  is replaced; missing cover → shared placeholder. There is **no** immutable OrderLine media snapshot (documented
+  gap); the current-product cover is the fallback, identical on both surfaces.
+- **Delivery badge is preserved (blocker #5):** the return badge is a *separate* signal; `Teslim edildi` is never
+  removed (delivery and return are distinct lifecycles). The review panel renders **outside** the fixed action bar
+  so the return CTA never shifts.
+- **Provisional profitability (blocker #7):** while a PENDING intent exists, admin profit figures carry a
+  "provisional / return in progress" note; the customer order detail shows an "expected net after return" line
+  explicitly labelled *expected*, plus "refund pending · not yet deducted". `refundAmountsSupported` stays `false`.
+
 ## Consequences
 
 - **Additive & reversible:** new models/enums/columns only; no existing column is repurposed; legacy orders

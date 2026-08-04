@@ -25,6 +25,7 @@ function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSumm
     itemCount: 1,
     createdAt: "2026-07-01T00:00:00.000Z",
     shipmentStatus: null,
+    returnSummary: null,
     lines: [
       {
           variantId: "v1", productSlug: "tablet", sku: "TB-1", title: "Tablet", variantTitle: "Yeşil", quantity: 1, imageUrl: null,

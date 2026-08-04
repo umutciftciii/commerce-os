@@ -28,6 +28,28 @@
   analiz `docs/analysis/RETURNS-management-foundation.md`. **Kapsam dışı:** gerçek provider refund (TODO-170),
   Gift Card/Store Credit, Marketplace repo, otomatik iade etiketi. Kalan: UI gate + browser smoke + commit.
 
+- **TODO-169.1 Returns — Customer & Order Integration Recovery — ✅ IMPLEMENTED (commit bekliyor)** (2026-08-04; ADR-269).
+  Post-deploy kabul denetiminde çıkan 6 blocker aynı worktree'de düzeltildi (davranış additive; migration YOK):
+  **(1) İade penceresi görünürlüğü** — eligibility yanıtı + ortak projeksiyon artık `deliveredAt`/`returnWindowDays`/
+  `returnWindowEndsAt`/`remainingDays`/`windowState` taşır; başlangıç otoritesi `Shipment.deliveredAt` (satın alma
+  DEĞİL); storefront etiketleri (`… tarihine kadar iade edilebilir` / `… gün kaldı` / `süre doldu`) sipariş listesi +
+  detay + sihirbaz + iade takip yüzeylerinde. **(2) Özet CTA taşması** — sihirbaz özet rail'i tam-genişlik alt-alta
+  (`Geri` secondary + `İade talebini gönder` primary); 320/375/1024 taşma yok. **(3) Store Admin iade görseli** —
+  `serialize.ts` artık ortak `resolveReturnItemCovers` (store-scoped ProductImage; storefront ile AYNI semantik) ile
+  `imageUrl` doldurur (eski sabit `null` kaldırıldı); yoksa monogram placeholder; cross-store medya asla. **(4) Geri
+  kargo UX** — müşteri iade detayında belirgin "Ürünü geri gönderin" bloğu (kim öder + talimat + son tarih + takip
+  girişi) + aşama açıklamaları. **(5) Sipariş listesi iade rozeti** — teslim rozeti KORUNUR, iade durumu AYRI rozet
+  (`latestStatus` + adet) + "İade durumunu görüntüle"; review paneli regresyonu düzeltildi (panel action-bar DIŞINA
+  taşındı → iade CTA sabit). **(6) Sipariş detayı iade entegrasyonu** — müşteri + Store Admin sipariş detayında
+  `İadeler` bölümü + **pending finansal etki** (onaylanan RefundIntent niyeti vs gerçekleşen; `hasPendingFinancialImpact`;
+  gerçek refund YOK → "beklenen"/provisional; gross satış düşülmez). **Ortak return projection** (`returns/projection.ts`,
+  SAF+testli) tek server-side otorite: customer list/detail + admin order detail + return summary AYNI özeti kullanır
+  (React'te hesap YOK; fail-open → hatası order görünümünü bozmaz). Yeni admin ucu `GET /stores/:storeId/orders/:orderId/
+  return-summary`. Gate: build+lint+typecheck 0 hata, **4229 test yeşil** (projection+returns-summary birim testleri eklendi).
+  Browser smoke: izole `SMOKE-10` 3-ürün DELIVERED sipariş → pencere/rozet/create/approve→RefundIntent PENDING/
+  admin imageUrl non-null/pending finansal etki/CTA 320-375-1024 PASS; fixture temizlendi. **TODO-169 ancak bununla
+  IMPLEMENTED sayılır; TODO-170 gerçek refund ledger için UNBLOCKED.**
+
 - **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED_BY TODO-169** (planlı). PENDING `RefundIntent`'leri
   işler: gerçek provider refund + append-only `OrderRefund` ledger (ADR-268 §5) → Financial Reporting
   `productRefundsMinor`/`shippingRefundsMinor` beslenir, `refundAmountsSupported=true` olur (net/total'dan TAM BİR KEZ düşülür).
