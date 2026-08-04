@@ -77,8 +77,9 @@
   :4100/:3100/:3202 postgres :5432 enterprise-demo PASS (responsive 375/768/1024/1440). **Item 3 Unified Session
   Policy YALNIZ tasarım** (ADR-271). Git kuralı: commit/push/PR/merge/deploy YOK.
 
-- **Unified Session Policy — 🔶 IN_PROGRESS (post-audit hardening; ship M1 kararı + M2 runbook'a bağlı)**
-  (ADR-271 §7 + **§8 hardening**; 2026-08-04). Tek policy kaynağı `packages/config/src/session-policy.ts` (remember-off idle 30dk/abs
+- **Unified Session Policy — ✅ CLOSED & DEPLOYED (2026-08-05, PR #177)** (ADR-271 §7 + **§8 hardening**).
+  Multi-tab logout + false-expiry reconciliation gerçek tarayıcıda doğrulandı; migrate-before-app uygulandı; docker
+  stack rebuild/recreate; post-deploy smoke yeşil. Tek policy kaynağı `packages/config/src/session-policy.ts` (remember-off idle 30dk/abs
   8 saat · remember-on idle 7g/abs 30g; env override + default-tolerant). Additive migration
   (`20260804160000_...`: `lastActivityAt`/`absoluteExpiresAt?`/`rememberMe`/`rotatedFromSessionId`; backfill;
   replay-safe; canlı DB'de 79 oturum backfill). Gateway dual-gate `min(idle,absolute)` + throttle'lı sliding
@@ -96,14 +97,14 @@
   `20260804170000_adr271_returns_session_hardening`. Gerçek-DB testleri (`session-legacy.integration.test.ts`)
   `commerce_os_test` DB'ye `DATABASE_URL` ile koşar; CI'da (DB yok) SKIP.
 
-- **Private Media Hardening — 🔶 IN_PROGRESS (C1; 2026-08-04)**. Eski guard ham URL'de `/returns/` substring
+- **Private Media Hardening — ✅ CLOSED & DEPLOYED (C1; 2026-08-05, PR #177; post-deploy encoded-path smoke yeşil)**. Eski guard ham URL'de `/returns/` substring
   arıyordu → `%2F`/`%252F`/`%5C`/mixed-case ile BYPASS ediliyordu (fastifyStatic decode edip 200 servis ediyordu).
   Yeni guard `apps/api-gateway/src/media/private-guard.ts` (`classifyMediaRequestPath`) path'i TAM (iteratif) decode
   eder, backslash normalize eder, SEGMENT bazında `returns` arar; malformed/traversal → 400, private → 404. Private
   stream response'a `X-Content-Type-Options: nosniff` + `Content-Disposition: inline` + `Cache-Control: private,no-store`
   eklendi. Kalan borç: gerçek private-bucket/signed-URL ileriye ertelendi (TECHNICAL_DEBT).
 
-- **Return Financial Invariants — 🔶 IN_PROGRESS (R1–R5, P1/P2; 2026-08-04; ADR-269 Post-Audit Hardening)**.
+- **Return Financial Invariants — ✅ CLOSED & DEPLOYED (R1–R5, P1/P2; 2026-08-05, PR #177; ADR-269 Post-Audit Hardening)**.
   R1: refund'suz terminal geçişte PENDING `RefundIntent` AYNI tx'te CANCELLED (silinmez; additive `cancelledAt`/
   `cancellationReason`; projection yalnız PENDING'i pending-financial-impact sayar). R2: `createReturnRequest`
   `pg_advisory_xact_lock(storeId:orderNumber)` ile serileşir (çift-talep over-claim etmez). R3: admin mutation'larına
@@ -115,8 +116,7 @@
   invariant sidebar actionable == dashboard bucket toplamı. Testler: `returns-lifecycle.integration.test.ts`
   (`commerce_os_test` DB, CI'da SKIP).
 
-- **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED** (Return Financial Invariants + Private Media Hardening
-  tamamlanmadan başlanmamalı; planlı, henüz başlanmadı). Gerekçe: R1 (RefundIntent CANCELLED lifecycle) artık çözüldü
+- **TODO-170 Refund Ledger & Payment Reversal — 🟢 UNBLOCKED (2026-08-05; ADR-271 + audit hardening PR #177 merge & deploy edildi)**. Sıradaki iş; planlı, henüz başlanmadı. Gerekçe: R1 (RefundIntent CANCELLED lifecycle) çözüldü
   ama commit/deploy yok ve refund ledger'ın append-only garantisi ancak return financial invariants + private media
   hardening ship edildikten sonra güvenle inşa edilebilir. PENDING `RefundIntent`'leri işler: gerçek provider refund +
   append-only `OrderRefund` ledger (ADR-268 §5) → Financial Reporting `productRefundsMinor`/`shippingRefundsMinor`
