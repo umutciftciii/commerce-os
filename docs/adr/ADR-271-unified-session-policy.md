@@ -216,6 +216,7 @@ Cross-module review found deploy- and correctness-blocking gaps in the delivered
 **Deferred TD.** S7 (client `warningLeadSeconds` not re-fetched from server between polls) and P3 (single-tab
 pending-work refresh) remain **future** — low impact; see TECHNICAL_DEBT.
 
-**Status.** Unified Session Policy → **IMPLEMENTED / NOT SHIPPED** (technically green; ship gated on M1 being an
-accepted product decision + M2 deploy runbook). **TODO-170 BLOCKED** until this branch is merged and deployed.
-Doc fixes: `8 s`→`8 saat`; `expiresAt` repurpose contradiction resolved (kept, §2/§5).
+**Status.** ADR-271 → **ACCEPTED & DEPLOYED** (2026-08-05, PR #177; multi-tab logout + false-expiry reconciliation
+verified in a real browser; migrate-before-app applied; docker stack rebuilt/recreated; post-deploy smoke green).
+Unified Session Policy + Post-Audit Critical Hardening → **CLOSED & DEPLOYED**. **TODO-170 UNBLOCKED.** S7/P3 remain
+future (TECHNICAL_DEBT). Doc fixes: `8 s`→`8 saat`; `expiresAt` repurpose contradiction resolved (kept, §2/§5).

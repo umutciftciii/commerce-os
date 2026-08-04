@@ -1423,7 +1423,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   RECEIVED · responsive 375/768/1024/1440); demo restore. Item 3 yalnız analiz+plan (ADR-271).
 - Sonraki: **Unified Session Policy** implementasyonu (ADR-271 §5, 7 adım) → sonra TODO-170 Refund Ledger.
 
-## Unified Session Policy (ADR-271) — IN_PROGRESS (post-audit hardening) — 2026-08-04
+## Unified Session Policy (ADR-271) — ✅ ACCEPTED & DEPLOYED (post-audit hardening; PR #177) — 2026-08-05
 
 - Durum: **🔶 IN_PROGRESS — post-audit hardening; ship M1 kararı + M2 deploy runbook'a bağlı; COMMIT/DEPLOY YOK.**
   ADR-271 §7 (temel) + **§8 hardening**. Analiz + implementasyon + tam gate + gerçek browser smoke sonrası
