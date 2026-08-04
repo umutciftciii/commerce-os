@@ -1,6 +1,6 @@
 # ADR-271 — Unified Session Policy (DESIGN ONLY — next independent phase)
 
-- **Status:** PROPOSED / DESIGN-ONLY. **No implementation in this pass** — per direction, item 3 is limited to
+- **Status:** ACCEPTED (design) / NOT IMPLEMENTED — next independent phase. **No implementation in this pass** — per direction, item 3 is limited to
   analysis, migration & data-model plan, the three-app policy contract, risks, and migration sequence.
   Implementation (migration, remember-me, idle/absolute expiry, extend endpoint, warning modal, multi-tab) is
   the **next independent phase**.

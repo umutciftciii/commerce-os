@@ -57,8 +57,9 @@
   admin imageUrl non-null/pending finansal etki/CTA 320-375-1024 PASS; fixture temizlendi. **TODO-169 ancak bununla
   IMPLEMENTED sayılır; TODO-170 gerçek refund ledger için UNBLOCKED.**
 
-- **Pre-Refund UX Recovery (Returns UX + Pending Work + Return-Shipment) — ✅ IMPLEMENTED, TAM GATE + BROWSER
-  SMOKE PASS, COMMIT YOK** (ADR-270; 2026-08-04). TODO-169 sonrası 3 production-facing blocker kapatıldı (item
+- **Pre-Refund UX Recovery (Returns UX + Pending Work + Return-Shipment) — ✅ CLOSED & DEPLOYED** (PR #175
+  merge `064a44d`; ADR-270; 2026-08-04). api-gateway + storefront-web + store-admin-web main'den rebuild+recreate
+  (`--no-deps --force-recreate`; postgres/redis/worker/admin-web dokunulmadı); migration YOK; post-deploy smoke PASS. TODO-169 sonrası 3 production-facing blocker kapatıldı (item
   1/2/4); **migration YOK** (hesaplanan alanlar + mevcut kolonlarda `groupBy`). (1) **BUG-RETURN-DEEPLINK:**
   `/account?section=returns` geçersiz section → Orders'a düşüyordu; projeksiyon `primaryReturnNumber` + tek
   canonical `resolveReturnCtaHref` (tek aktif iade → `/account/returns/{no}`, çok iade → `/account/orders/{no}#returns`);

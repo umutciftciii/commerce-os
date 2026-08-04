@@ -5949,7 +5949,7 @@ Bildirim post-commit fail-open (domain txn rollback etmez; gerçek email platfor
 (2 enum value + Shipment.deliveredAt + StoreSettings 5 alan + 6 tablo). Detay:
 `docs/adr/ADR-269-returns-authority-and-lifecycle.md`; analiz `docs/analysis/RETURNS-management-foundation.md`.
 
-## ADR-270 — Returns UX Recovery, Pending Work Indicators & Return-Shipment Unblock — ACCEPTED (COMMIT YOK) (2026-08-04)
+## ADR-270 — Returns UX Recovery, Pending Work Indicators & Return-Shipment Unblock — ACCEPTED & DEPLOYED (PR #175) (2026-08-04)
 
 Baglam: TODO-169 sonrası 3 production-facing blocker. Karar: **migration YOK** (hesaplanan alan + `groupBy`).
 (1) **BUG-RETURN-DEEPLINK** — `/account?section=returns` geçersiz section → Orders'a düşüyordu; projeksiyon
