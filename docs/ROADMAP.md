@@ -1367,14 +1367,16 @@ ReturnStatusHistory/RefundIntent`). Backend gate: gateway typecheck 0 hata. UI: 
 otomatik iade etiketi, PB-3/TD-139. Karar [ADR-269](./adr/ADR-269-returns-authority-and-lifecycle.md); analiz
 `docs/analysis/RETURNS-management-foundation.md`. **TODO-170 Refund Ledger & Payment Reversal — BLOCKED_BY TODO-169.**
 
-**TODO-169.1 Customer & Order Integration Recovery (2026-08-04, IMPLEMENTED / commit bekliyor)** — post-deploy
-kabul denetiminde çıkan 6 blocker düzeltildi (additive, migration YOK): iade penceresi görünürlüğü (deliveredAt-türevi),
-özet CTA responsive, Store-Admin iade görseli (ortak cover helper), geri-kargo UX, sipariş listesi iade rozeti +
-review regresyonu, sipariş detayı iade entegrasyonu + **pending finansal etki** (RefundIntent PENDING ≠ gerçekleşen;
-Financial Reporting revenue DEĞİŞMEZ). Ortak `returns/projection.ts` tek server-side otorite (customer list/detail +
-admin order detail + eligibility). Gate 0 hata, 4229 test yeşil; browser smoke PASS (izole SMOKE-10; 320/375/1024).
-Ayrıntı [ADR-269 §11](./adr/ADR-269-returns-authority-and-lifecycle.md) + analiz §5. **TODO-169 bununla IMPLEMENTED;
-TODO-170 UNBLOCKED.**
+**TODO-169.1 Customer & Order Integration Recovery — CLOSED & DEPLOYED (2026-08-04, PR #173 merge `eef32e0`)** —
+post-deploy kabul denetiminde çıkan 6 blocker düzeltildi (additive, **ek migration YOK**): iade penceresi görünürlüğü
+(deliveredAt-türevi), özet CTA responsive, Store-Admin iade görseli (ortak cover helper), geri-kargo UX, sipariş listesi
+iade rozeti + review regresyonu, sipariş detayı iade entegrasyonu + **pending finansal etki** (RefundIntent PENDING ≠
+gerçekleşen; Financial Reporting revenue DEĞİŞMEZ, `refundAmountsSupported=false`). Ortak `returns/projection.ts` tek
+server-side otorite (customer list/detail + admin order detail + eligibility). Gate 0 hata, 4229 test yeşil; api-gateway+
+storefront-web+store-admin-web main'den rebuild+recreate (`--no-deps --force-recreate`; postgres/redis/worker/admin-web
+DOKUNULMADI, volume korundu); post-deploy smoke PASS (window/badge/lifecycle→RESTOCK/REFUND_PENDING/admin imageUrl/
+pending etki/security 404·409; izole fixture temizlendi). Ayrıntı [ADR-269 §11](./adr/ADR-269-returns-authority-and-lifecycle.md)
++ analiz §5. **TODO-169 + TODO-169.1 CLOSED & DEPLOYED; ADR-269 ACCEPTED & DEPLOYED; TODO-170 UNBLOCKED.**
 
 ## Financial Reporting Foundation — CLOSED & DEPLOYED (2026-08-03, PR #168 merge `9a4c8db` + fix PR #169 `eb31cc3`)
 

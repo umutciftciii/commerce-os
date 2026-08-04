@@ -28,8 +28,15 @@
   analiz `docs/analysis/RETURNS-management-foundation.md`. **Kapsam dışı:** gerçek provider refund (TODO-170),
   Gift Card/Store Credit, Marketplace repo, otomatik iade etiketi. Kalan: UI gate + browser smoke + commit.
 
-- **TODO-169.1 Returns — Customer & Order Integration Recovery — ✅ IMPLEMENTED (commit bekliyor)** (2026-08-04; ADR-269).
-  Post-deploy kabul denetiminde çıkan 6 blocker aynı worktree'de düzeltildi (davranış additive; migration YOK):
+- **TODO-169.1 Returns — Customer & Order Integration Recovery — ✅ CLOSED & DEPLOYED** (PR #173 merge `eef32e0`;
+  commit `d3172bd`; ADR-269; 2026-08-04). api-gateway + storefront-web + store-admin-web main'den rebuild+recreate
+  (`--no-deps --force-recreate`; postgres/redis/worker/admin-web DOKUNULMADI, media-data volume korundu); **ek
+  migration YOK** (foundation `20260804090000...` zaten uygulanmış; `migrate status` = up to date). CI (lint·test·
+  build) yeşil (5m44s). Post-deploy smoke PASS (deployed :4000 window/badge/create→approve→RefundIntent PENDING/
+  AWAITING→SHIPPED→RECEIVED→inspect+RESTOCK_AS_SELLABLE/REFUND_PENDING/admin imageUrl non-null/pending finansal
+  etki customer+admin/`refundAmountsSupported=false` değişmedi; security: cross-store 404 · illegal 409 · duplicate-
+  qty 409 · public return media 404; izole SMOKE fixture + restock envanteri geri alınarak temizlendi, demo-store
+  pristine). Post-deploy kabul denetiminde çıkan 6 blocker additive düzeltildi (davranış additive; migration YOK):
   **(1) İade penceresi görünürlüğü** — eligibility yanıtı + ortak projeksiyon artık `deliveredAt`/`returnWindowDays`/
   `returnWindowEndsAt`/`remainingDays`/`windowState` taşır; başlangıç otoritesi `Shipment.deliveredAt` (satın alma
   DEĞİL); storefront etiketleri (`… tarihine kadar iade edilebilir` / `… gün kaldı` / `süre doldu`) sipariş listesi +
