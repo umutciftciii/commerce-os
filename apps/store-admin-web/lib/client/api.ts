@@ -28,6 +28,7 @@ import type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
+  PendingWorkSummary,
   AdminOrderReturnsResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
@@ -297,6 +298,14 @@ import type {
 // re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
 // bağlanmadan, api-client sınırını koruyarak). Sadece tip; runtime import yok.
 import type { createApiClient } from "@commerce-os/api-client";
+import { notifyPendingWorkChanged } from "./pending-work-events";
+
+// TODO-170-recovery — Bekleyen İş sayaçlarını etkileyen mutasyonlar başarıyla dönünce sidebar +
+// dashboard'a ANINDA tazeleme sinyali gönderilir (poll YOK). Sonucu değiştirmeden geçirir.
+function refreshPendingWork<T>(result: T): T {
+  notifyPendingWorkChanged();
+  return result;
+}
 
 type SponsorshipAdminApi = ReturnType<typeof createApiClient>["admin"]["sponsorship"];
 
@@ -958,22 +967,22 @@ export const storeApi = {
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/transition`, {
       method: "POST",
       body: JSON.stringify(input),
-    }),
+    }).then(refreshPendingWork),
   rejectReturn: (returnId: string, input: AdminReturnRejectRequest) =>
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/reject`, {
       method: "POST",
       body: JSON.stringify(input),
-    }),
+    }).then(refreshPendingWork),
   approveReturn: (returnId: string, input: AdminReturnApproveRequest) =>
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/approve`, {
       method: "POST",
       body: JSON.stringify(input),
-    }),
+    }).then(refreshPendingWork),
   inspectReturn: (returnId: string, input: AdminReturnInspectRequest) =>
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/inspect`, {
       method: "POST",
       body: JSON.stringify(input),
-    }),
+    }).then(refreshPendingWork),
   // TODO-169 (blocker #6) — sipariş detayında iade özeti + o siparişin talepleri.
   getOrderReturnSummary: (orderId: string) =>
     call<AdminOrderReturnsResponse>(`/api/orders/${orderId}/return-summary`),
@@ -1002,6 +1011,9 @@ export const storeApi = {
       body: JSON.stringify(input),
     }),
 
+  // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
+  pendingWork: () => call<PendingWorkSummary>(`/api/pending-work`),
+
   // Reviews (TODO-159E / ADR-094) — moderasyon dizini + detay + moderate. Mutasyon CSRF'li.
   listReviews: (query?: AdminListRequestQuery) =>
     call<AdminReviewListResponse>(`/api/reviews${listQueryString(query)}`),
@@ -1010,7 +1022,7 @@ export const storeApi = {
     mutatingCall<ReviewModerateResponse>(`/api/reviews/${id}/moderate`, {
       method: "POST",
       body: JSON.stringify(input),
-    }),
+    }).then(refreshPendingWork),
 
   // Influencers (TODO-160) — influencer/kampanya/izleme-linki yönetimi + atıf
   // analitiği. Okumalar salt; mutasyonlar CSRF'li. Analitik CSV'si text/csv döner.

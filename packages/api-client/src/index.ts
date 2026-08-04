@@ -25,6 +25,7 @@ import type {
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
   AdminOrderReturnsResponse,
+  PendingWorkSummary,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -405,6 +406,8 @@ export type {
   ReturnOrderSummary,
   ReturnWindowState,
   AdminOrderReturnsResponse,
+  // TODO-170-recovery — Bekleyen İş Özeti (sidebar + dashboard).
+  PendingWorkSummary,
   Plan,
   PlanCreateRequest,
   PlanListResponse,
@@ -2189,6 +2192,10 @@ export interface ApiClient {
       // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
       orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
     };
+    // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
+    pendingWork: {
+      get(storeId: string, token?: string): Promise<PendingWorkSummary>;
+    };
     customers: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
       list(
@@ -3864,6 +3871,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/orders/${orderId}/return-summary`,
             token,
           ),
+      },
+      pendingWork: {
+        get: (storeId, token) =>
+          getJson<PendingWorkSummary>(`/stores/${storeId}/pending-work-summary`, token),
       },
       customers: {
         list: (storeId, token, query) =>

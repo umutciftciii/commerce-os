@@ -5948,3 +5948,26 @@ public `/media/*` onRequest guard 404, auth-gate'li stream (`StorageDriver.read`
 Bildirim post-commit fail-open (domain txn rollback etmez; gerçek email platform-geneli placeholder). Additive migration
 (2 enum value + Shipment.deliveredAt + StoreSettings 5 alan + 6 tablo). Detay:
 `docs/adr/ADR-269-returns-authority-and-lifecycle.md`; analiz `docs/analysis/RETURNS-management-foundation.md`.
+
+## ADR-270 — Returns UX Recovery, Pending Work Indicators & Return-Shipment Unblock — ACCEPTED (COMMIT YOK) (2026-08-04)
+
+Baglam: TODO-169 sonrası 3 production-facing blocker. Karar: **migration YOK** (hesaplanan alan + `groupBy`).
+(1) **BUG-RETURN-DEEPLINK** — `/account?section=returns` geçersiz section → Orders'a düşüyordu; projeksiyon
+`primaryReturnNumber` + tek canonical `resolveReturnCtaHref` (tek aktif → iade takip detayı, çok → sipariş
+detayı `#returns`) + erişilebilir `ReturnsDeepLinkFocus` (refresh/back güvenli, sticky altında değil).
+(2) **Pending Work Indicators** — gateway `GET /stores/:id/pending-work-summary` (2 groupBy, bounded, N+1 yok) →
+sidebar rozet (0 gizli/`99+`/erişilebilir ad) + Dashboard "Bekleyen İşler" + mutation event-refresh (approve →
+badge düşer); Platform Admin'e mağaza-op sayacı BİLİNÇLİ eklenmedi. (3) **Return-shipment** — approve aynı tx'te
+otomatik `AWAITING_SHIPMENT` (çıkmaz kalkar) + `shipByDate` + "Ürünü geri gönderin" + admin "Müşteri tarafından
+gönderildi"/`receivedAt`. Sonuc: gate GREEN + gerçek browser smoke PASS (storefront+store-admin, responsive
+375-1440). Detay: `docs/adr/ADR-270-returns-ux-recovery-and-pending-work.md`.
+
+## ADR-271 — Unified Session Policy — PROPOSED / DESIGN-ONLY (2026-08-04)
+
+Baglam: parçalı session (iki opaque-token sistemi, yalnız absolute `expiresAt`, idle/remember-me/extend/warning/
+multi-tab YOK; login autocomplete zaten doğru). Karar (TASARIM): additive migration (`PlatformSession`/
+`CustomerSession`: `lastActivityAt`/`absoluteExpiresAt`/`rememberMe`) + iki-kapılı `min(idle,absolute)` +
+tek policy kaynağı (remember-off 30dk/8s · remember-on 7g/30g) + extend (CSRF+rate-limit, expired diriltmez,
+rotation) + expiry UX (safe returnTo+mesaj) + warning modal + multi-tab (BroadcastChannel). **Implementasyon YOK**
+— sonraki bağımsız faz (7-adım sıra ADR-271 §5). TODO-170 bu bitene kadar BLOCKED. Detay:
+`docs/adr/ADR-271-unified-session-policy.md`.

@@ -90,14 +90,23 @@ export default async function ReturnDetailPage({
             <p className="text-sm text-ink">{r.detail.progressHelp[detail.status]}</p>
           </div>
 
-          {/* TODO-169 (blocker #4) — onay sonrası BELİRGİN geri-kargo talimatı + takip formu. */}
+          {/* TODO-169 recovery (blocker #4) — onay sonrası BELİRGİN geri-kargo bölümü + takip formu.
+              Approve otomatik AWAITING_SHIPMENT'e ilerlediğinden bu bölüm çıkmaz olmadan erişilebilir. */}
           {detail.canSubmitTracking ? (
-            <section className="border border-ink p-4">
-              <Subheading as="h2" className="mb-2">
+            <section
+              aria-labelledby="ship-back-heading"
+              className="border border-ink p-4"
+            >
+              <Subheading as="h2" id="ship-back-heading" className="mb-2">
                 {r.detail.shipBack.title}
               </Subheading>
               <p className="text-sm text-ink-muted">{r.detail.shipBack.help}</p>
-              <ul className="mt-3 space-y-1 text-xs text-ink-muted">
+              {detail.shipByDate ? (
+                <p className="mt-3 text-sm font-medium text-accent-ink">
+                  {r.detail.shipBack.shipByLabel}: {formatDate(detail.shipByDate, locale)}
+                </p>
+              ) : null}
+              <ul className="mt-2 space-y-1 text-xs text-ink-muted">
                 <li>
                   •{" "}
                   {detail.customerPaysReturnShipping
@@ -105,9 +114,7 @@ export default async function ReturnDetailPage({
                     : r.detail.shipBack.costStore}
                 </li>
                 <li>• {r.detail.shipBack.addressNote}</li>
-                <li>
-                  • {r.detail.windowEndsAt}: {formatDate(detail.returnWindowEndsAt, locale)}
-                </li>
+                <li>• {r.detail.shipBack.packaging}</li>
               </ul>
               <div className="mt-4">
                 <ReturnTrackingForm returnNumber={detail.returnNumber} t={r} />

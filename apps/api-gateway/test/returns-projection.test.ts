@@ -13,8 +13,10 @@ function req(
   items: Array<[number, number | null]>,
   refund?: { totalRefundMinor: number; status: "PENDING" | "PROCESSED" | "CANCELLED" },
   createdAt = "2026-08-02T00:00:00Z",
+  returnNumber = "RET-1",
 ): ReturnProjectionRequestInput {
   return {
+    returnNumber,
     status,
     createdAt: d(createdAt),
     items: items.map(([quantity, approvedQuantity]) => ({ quantity, approvedQuantity })),
@@ -190,5 +192,61 @@ describe("returns projection — financial impact (ADR-268/§7, blocker #7)", ()
     });
     expect(s.approvedRefundIntentMinor).toBe(0);
     expect(s.hasPendingFinancialImpact).toBe(false);
+  });
+});
+
+// BUG-RETURN-DEEPLINK — CTA tek-otorite deep-link hedefi (primaryReturnNumber).
+describe("returns projection — deep-link primaryReturnNumber (BUG-RETURN-DEEPLINK)", () => {
+  const base = {
+    currency: "TRY",
+    now: d("2026-08-10T00:00:00Z"),
+    returnWindowDays: 14,
+    deliveryAnchor: d("2026-08-02T00:00:00Z"),
+  };
+
+  it("hiç iade yoksa null", () => {
+    const s = buildReturnOrderSummary({ ...base, requests: [] });
+    expect(s.primaryReturnNumber).toBeNull();
+  });
+
+  it("tek aktif iade → o iadenin numarası (takip detayına deep-link)", () => {
+    const s = buildReturnOrderSummary({
+      ...base,
+      requests: [req("APPROVED", [[1, 1]], undefined, "2026-08-03T00:00:00Z", "RET-42")],
+    });
+    expect(s.activeRequestCount).toBe(1);
+    expect(s.primaryReturnNumber).toBe("RET-42");
+  });
+
+  it("birden fazla aktif iade → null (sipariş detayı #returns'e gider)", () => {
+    const s = buildReturnOrderSummary({
+      ...base,
+      requests: [
+        req("APPROVED", [[1, 1]], undefined, "2026-08-03T00:00:00Z", "RET-1"),
+        req("REQUESTED", [[1, null]], undefined, "2026-08-04T00:00:00Z", "RET-2"),
+      ],
+    });
+    expect(s.activeRequestCount).toBe(2);
+    expect(s.primaryReturnNumber).toBeNull();
+  });
+
+  it("aktif iade yok ama tek toplam iade (kapalı) → o iadenin numarası", () => {
+    const s = buildReturnOrderSummary({
+      ...base,
+      requests: [req("COMPLETED", [[1, 1]], undefined, "2026-08-03T00:00:00Z", "RET-9")],
+    });
+    expect(s.activeRequestCount).toBe(0);
+    expect(s.primaryReturnNumber).toBe("RET-9");
+  });
+
+  it("aktif iade yok, birden fazla kapalı iade → null", () => {
+    const s = buildReturnOrderSummary({
+      ...base,
+      requests: [
+        req("REJECTED", [[1, null]], undefined, "2026-08-03T00:00:00Z", "RET-1"),
+        req("COMPLETED", [[1, 1]], undefined, "2026-08-04T00:00:00Z", "RET-2"),
+      ],
+    });
+    expect(s.primaryReturnNumber).toBeNull();
   });
 });

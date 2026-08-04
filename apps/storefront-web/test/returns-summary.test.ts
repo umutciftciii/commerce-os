@@ -4,6 +4,7 @@ import {
   resolveReturnWindowLabel,
   resolveReturnActivityLabel,
   hasPendingReturnRefund,
+  resolveReturnCtaHref,
 } from "../lib/returns-summary";
 
 function summary(overrides: Partial<ReturnOrderSummary> = {}): ReturnOrderSummary {
@@ -16,6 +17,7 @@ function summary(overrides: Partial<ReturnOrderSummary> = {}): ReturnOrderSummar
     windowState: "ELIGIBLE",
     requestCount: 0,
     activeRequestCount: 0,
+    primaryReturnNumber: null,
     returnedItemQuantity: 0,
     pendingItemQuantity: 0,
     latestStatus: null,
@@ -77,5 +79,30 @@ describe("hasPendingReturnRefund (TODO-169 blocker #7)", () => {
     expect(hasPendingReturnRefund(summary({ hasPendingFinancialImpact: true }))).toBe(true);
     expect(hasPendingReturnRefund(summary())).toBe(false);
     expect(hasPendingReturnRefund(null)).toBe(false);
+  });
+});
+
+describe("resolveReturnCtaHref (BUG-RETURN-DEEPLINK)", () => {
+  it("tek odak iade → iade takip detayına deep-link", () => {
+    expect(resolveReturnCtaHref("ORD-100", summary({ primaryReturnNumber: "RET-42" }))).toBe(
+      "/account/returns/RET-42",
+    );
+  });
+
+  it("belirsiz (odak iade yok) → sipariş detayı #returns", () => {
+    expect(resolveReturnCtaHref("ORD-100", summary({ primaryReturnNumber: null }))).toBe(
+      "/account/orders/ORD-100#returns",
+    );
+  });
+
+  it("summary yoksa → sipariş detayı #returns (fail-open)", () => {
+    expect(resolveReturnCtaHref("ORD-7", null)).toBe("/account/orders/ORD-7#returns");
+  });
+
+  it("returnNumber ve orderNumber URL-encode edilir", () => {
+    expect(resolveReturnCtaHref("ORD/7", summary({ primaryReturnNumber: "RET 9" }))).toBe(
+      "/account/returns/RET%209",
+    );
+    expect(resolveReturnCtaHref("ORD/7", null)).toBe("/account/orders/ORD%2F7#returns");
   });
 });

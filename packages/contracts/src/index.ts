@@ -11594,6 +11594,10 @@ export const returnOrderSummarySchema = z.object({
   // Aktivite (blocker #5/#6).
   requestCount: z.number().int().nonnegative(),
   activeRequestCount: z.number().int().nonnegative(),
+  // TODO-169 recovery (BUG-RETURN-DEEPLINK) — CTA tek-otorite deep-link hedefi: tam olarak bir
+  // "odak" iade varsa (tek aktif; yoksa tek toplam) onun returnNumber'ı, belirsizse null (→ sipariş
+  // detayı #returns). React'te ayrı hesap YOK; her CTA aynı contract'ı kullanır.
+  primaryReturnNumber: z.string().nullable().default(null),
   returnedItemQuantity: z.number().int().nonnegative(),
   pendingItemQuantity: z.number().int().nonnegative(),
   latestStatus: returnStatusSchema.nullable(),
@@ -11707,6 +11711,9 @@ export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
   // Snapshot verisinden TAHMİNİ iade tutarı (yalnız bilgilendirme; nihai TODO-170).
   estimatedRefundMinor: z.number().int().nonnegative().nullable(),
   returnWindowEndsAt: z.string().datetime(),
+  // TODO-169 recovery — "Ürünü geri gönderin" akışı: ürünün mağazaya son gönderim tarihi (onay
+  // ankoru + kargolama süresi). Sunucu-otoriter; AWAITING_SHIPMENT'te müşteriye gösterilir.
+  shipByDate: z.string().datetime().nullable().default(null),
   canCancel: z.boolean(),
   canSubmitTracking: z.boolean(),
   items: z.array(customerReturnItemSchema),
@@ -11766,6 +11773,31 @@ export const adminOrderReturnsResponseSchema = z.object({
   returns: z.array(adminReturnListItemSchema),
 });
 export type AdminOrderReturnsResponse = z.infer<typeof adminOrderReturnsResponseSchema>;
+
+/* ── Store Admin: Bekleyen İş Özeti (Pending Work Summary) ───────────────────────
+ * TODO-170-recovery — tek server-side otorite; store-scoped bounded aggregate (N+1 YOK).
+ * Sidebar sayaçları + Dashboard "Bekleyen İşler" kartı AYNI özeti kullanır. Ham enum
+ * kullanıcıya sızmaz (etiketler i18n'den). Sayılar gerçek bekleyen kayıt sayısıdır; route
+ * açılınca otomatik sıfırlanmaz. `oldest*At` en eski bekleme ankoru (bekleme süresi türetimi). */
+const pendingBucketSchema = z.object({
+  count: z.number().int().nonnegative(),
+  oldestAt: z.string().datetime().nullable(),
+});
+export const pendingWorkSummarySchema = z.object({
+  // Bekleyen ürün değerlendirmeleri (moderasyon).
+  reviews: pendingBucketSchema,
+  returns: z.object({
+    // Sidebar rozeti: ilerleyen (settled olmayan) tüm iadeler.
+    actionable: pendingBucketSchema,
+    // Yeni talepler — incelenmeyi bekliyor (REQUESTED/UNDER_REVIEW).
+    newRequests: pendingBucketSchema,
+    // Ürün mağazaya ulaştı — inceleme bekliyor (RECEIVED/INSPECTION_REQUIRED).
+    inspection: pendingBucketSchema,
+    // İnceleme sonrası finansal/operasyonel aksiyon bekliyor (REFUND_PENDING/REPLACEMENT_PENDING).
+    financialAction: pendingBucketSchema,
+  }),
+});
+export type PendingWorkSummary = z.infer<typeof pendingWorkSummarySchema>;
 
 /* ── Store Admin: iade detayı ─────────────────────────────────────────────────── */
 export const adminReturnAttachmentSchema = z.object({

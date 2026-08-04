@@ -1344,6 +1344,9 @@ export const trStorefront = {
           costCustomer: "İade kargo ücreti size aittir.",
           costStore: "İade kargo ücreti mağazaya aittir.",
           addressNote: "İade adresi ve talimatlar mağaza tarafından iletilir; ürünü orijinal ambalajıyla gönderin.",
+          shipByLabel: "Son gönderim tarihi",
+          packaging:
+            "Ürünü orijinal ambalajıyla, hasar görmeyecek şekilde paketleyin; varsa aksesuar ve faturayı ekleyin.",
         },
         // Mevcut aşama açıklaması (müşteri-facing). status → tek cümle.
         progressHelp: {

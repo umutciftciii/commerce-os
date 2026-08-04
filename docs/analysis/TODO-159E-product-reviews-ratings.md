@@ -265,3 +265,14 @@ moderationNote. Yeni tablo altyapısı yaratılmaz; mevcut kit + `AuditLog` yaz�
 - **TD-108:** review approved/rejected e-posta/push bildirimi yok (notification-service stub; pull-model
   Account ekranı). Bildirim altyapısı ayrı roadmap işi.
 - Sonraki faz: görsel/video yorumu · satıcı yanıtı · yorum-bazlı ürün skorlama · guest helpful.
+
+---
+
+## Pending Work Indicators (ADR-270) — 2026-08-04
+
+Bekleyen değerlendirme (`ProductReviewStatus.PENDING`) sayımı artık ortak **Pending Work Summary**
+projeksiyonunun parçası: gateway `GET /stores/:id/pending-work-summary` (`productReview.groupBy(status)` +
+`_min.createdAt`; `[storeId,status,createdAt]` index-covered). Store-Admin sidebar rozeti "Değerlendirmeler (N)"
++ Dashboard "Bekleyen İşler" kartı; `moderateReview` başarısında `notifyPendingWorkChanged()` ile ANINDA tazelenir
+(approve/reject → sayaç düşer, canlı doğrulandı). 0 rozet gizli · `99+` · erişilebilir ad (salt-renk değil).
+Bkz. [ADR-270](../adr/ADR-270-returns-ux-recovery-and-pending-work.md).

@@ -55,3 +55,19 @@ export function resolveReturnActivityLabel(
 export function hasPendingReturnRefund(summary: ReturnOrderSummary | null | undefined): boolean {
   return Boolean(summary?.hasPendingFinancialImpact);
 }
+
+/**
+ * BUG-RETURN-DEEPLINK — "İade durumunu görüntüle" CTA'sının TEK canonical hedefi. Her CTA (sipariş
+ * kartı + sipariş detayı) aynı contract'ı kullanır; karar server `returnSummary` projeksiyonundan gelir:
+ *  - Tam olarak bir odak iade (summary.primaryReturnNumber) varsa → iade takip detayı.
+ *  - Belirsizse (birden çok aktif iade) → sipariş detayındaki "#returns" bölümü (auto-open + focus).
+ * Hash refresh sonrası da çalışır (client focus-on-hash); browser back bozulmaz (normal navigation).
+ */
+export function resolveReturnCtaHref(
+  orderNumber: string,
+  summary: ReturnOrderSummary | null | undefined,
+): string {
+  const primary = summary?.primaryReturnNumber;
+  if (primary) return `/account/returns/${encodeURIComponent(primary)}`;
+  return `/account/orders/${encodeURIComponent(orderNumber)}#returns`;
+}

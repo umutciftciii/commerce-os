@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
+import type { PendingWorkSummary } from "@commerce-os/api-client";
 import { storeApi } from "../lib/client/api";
+import { onPendingWorkChanged } from "../lib/client/pending-work-events";
 import { HREF_MODULE } from "../lib/store-modules";
 import {
   AttributeIcon,
@@ -92,6 +94,36 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       active = false;
     };
   }, []);
+
+  // TODO-170-recovery — Bekleyen İş sayaçları (Değerlendirmeler/İadeler rozetleri). Mount'ta yüklenir
+  // ve ilgili mutasyon sonrası (event) tazelenir; route açılınca sıfırlanmaz. Store-scoped (BFF).
+  const [pending, setPending] = useState<PendingWorkSummary | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      storeApi
+        .pendingWork()
+        .then((res) => {
+          if (active) setPending(res);
+        })
+        .catch(() => {
+          // Sessizce yok say: rozet opsiyonel iyileştirmedir (enforcement ekranların kendisinde).
+        });
+    };
+    load();
+    const unsubscribe = onPendingWorkChanged(load);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+  const badgeFor = (href: string): number | undefined => {
+    if (!pending) return undefined;
+    if (href === "/reviews") return pending.reviews.count || undefined;
+    if (href === "/orders/returns") return pending.returns.actionable.count || undefined;
+    return undefined;
+  };
+
   const g = (key: keyof typeof GROUP_LABELS) =>
     locale === "tr" ? GROUP_LABELS[key].tr : GROUP_LABELS[key].en;
   const s = (key: keyof typeof SPONSORSHIP_LABELS) =>
@@ -230,6 +262,7 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           </p>
           {group.items.map((item) => {
             const active = isActive(item.href);
+            const badge = badgeFor(item.href);
             return (
               <Link
                 key={item.href}
@@ -247,12 +280,40 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <span className="flex h-[15px] w-[15px] shrink-0 items-center justify-center">
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {badge ? <NavBadge count={badge} label={item.label} locale={locale} /> : null}
               </Link>
             );
           })}
         </div>
       ))}
     </nav>
+  );
+}
+
+/**
+ * TODO-170-recovery — Bekleyen iş sayaç rozeti. 0 asla gösterilmez (çağıran taraf gizler);
+ * büyük sayı "99+" olarak kısaltılır. Sayı yalnız görsel değil: erişilebilir ad ("… bekleyen")
+ * ekran okuyucuya duyurulur (durum salt-renkle anlatılmaz).
+ */
+function NavBadge({
+  count,
+  label,
+  locale,
+}: {
+  count: number;
+  label: string;
+  locale: string;
+}) {
+  const shown = count > 99 ? "99+" : String(count);
+  const aria =
+    locale === "tr" ? `${label}: ${count} bekleyen` : `${label}: ${count} pending`;
+  return (
+    <span
+      aria-label={aria}
+      className="ml-1 inline-flex min-w-[18px] shrink-0 items-center justify-center rounded-full bg-indigo-500/90 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+    >
+      <span aria-hidden="true">{shown}</span>
+    </span>
   );
 }

@@ -1634,3 +1634,50 @@ iade CTA action-bar'da yer değiştirmez. Ortak `returns/projection.ts` tek otor
 order detail + eligibility; customer list fail-open). Not: worktree smoke için gateway ayrı portta (`:4100`) docker
 postgres'e bağlanır ve media docker volume'undan kopyalanır; fixture (SMOKE- önekli customer/order + geçici platform
 session) FK-güvenli temizlenir. **Responsive:** 320 / 375 / 768 / 1024 / 1440.
+
+## Pre-Refund UX Recovery smoke runbook (ADR-270) — 2026-08-04
+
+Worktree stack (deployed :3000/:3002/:4000 dokunulmadan shifted portlar; shared postgres :5432 enterprise-demo):
+
+```bash
+# Gateway :4100 — bilinen SESSION_SECRET (session forge için), postgres :5432
+set -a; . /tmp/smoke.env; set +a   # DATABASE_URL :5432, SESSION_SECRET=..., API_GATEWAY_PORT=4100, SHIPMENT_SYNC_ENABLED=false
+pnpm --filter @commerce-os/api-gateway exec tsx src/main.ts    # curl :4100/health
+# Storefront :3100 → :4100
+API_GATEWAY_URL=http://localhost:4100 STOREFRONT_DEMO_STORE_SLUG=enterprise-demo \
+  pnpm --filter @commerce-os/storefront-web exec next dev --port 3100
+# Store-admin :3202 → :4100
+API_GATEWAY_URL=http://localhost:4100 STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo SESSION_SECRET=<same> \
+  pnpm --filter @commerce-os/store-admin-web exec next dev --port 3202
+```
+
+- **Auth (forge):** `PlatformSession`/`CustomerSession` satırı: `tokenHash = sha256("${token}.${SESSION_SECRET}")`;
+  cookie `commerce_os_store_admin_session` (Bearer) / `commerce_os_customer_session` (`x-customer-session`).
+  **TUZAK:** storefront login redirect'i customer cookie'sini **httpOnly** boş cookie ile temizler → `document.cookie`
+  ile forge EDİLEMEZ; gerçek login gerekir (`CustomerCredential` upsert + UI login). `ON CONFLICT (customerId)`
+  upsert mevcut seed credential'ının hash'ini ezer (bkz. TD-UX-6) → smoke sonrası `pnpm db:reseed-enterprise`.
+- **Doğrulanan (PASS):** pending-work endpoint (reviews 3/returns actionable 1); CTA → `/account/returns/R000001`;
+  order-detail `#returns` focus = `returns-heading`; sidebar rozet 3/1 erişilebilir ad; approve review → badge
+  3→2; approve return → `AWAITING_SHIPMENT` (append-only history); customer tracking → `RETURN_SHIPPED`
+  (`shippedAt` server-side); duplicate 409; foreign 401/404; admin "Müşteri tarafından gönderildi";
+  "Teslim alındı"→`RECEIVED`+`receivedAt`; responsive 375/768/1024/1440 taşmasız.
+- **Temizlik:** reviews→PENDING, iade R000001→APPROVED, forge session + smoke history sil, server'ları kapat.
+
+### Browser-smoke credential güvenliği (KALICI KURAL — TD-UX-6)
+
+Bir browser smoke **MEVCUT (gerçek/seed) bir müşterinin parolasını DEĞİŞTİREMEZ**. Zorunlu desen:
+
+- **İzole `smk_` fixture müşteri** oluştur; login smoke'unu O müşteri ile yap — gerçek/seed müşteriye dokunma.
+- Credential yazan her yardımcı önce `assertSmokeCredentialTarget({customerId,email})` çağırır
+  (`packages/db/scripts/smoke-credential-safety.ts`) → hedef `smk_`/`smoke-`/`rev-`/`test-` öneki değilse
+  **fail-closed** atar (gerçek credential ASLA ezilemez).
+- Zorunlu ise `withSmokeCredential(deps, target, hash, body)`: mutasyon öncesi **snapshot**, `try/finally`'de
+  **birebir restore** (yoksa oluşturduğu fixture credential'ı siler). Body hata atsa da finally çalışır; restore
+  hatası yayılır → **cleanup başarısız = smoke başarısız**.
+- Fixture teardown FK-güvenli (bağımlılık sırasıyla): `CustomerSession`/`CustomerCredential` →
+  `ReturnStatusHistory`/`RefundIntent` → `ReturnItem`/`ReturnAttachment` → `ReturnRequest` → `Order` → `Customer`.
+- **TUZAK (yaşandı):** `CustomerCredential.upsert({ where: { customerId } })` mevcut satırı `ON CONFLICT` ile
+  UPDATE eder → gerçek müşterinin hash'ini ezer. `smk_` müşteri + guard bunu yapısal olarak imkânsız kılar.
+
+Guard birim testleri: `packages/db/test/smoke-credential-safety.test.ts` (7 test; gerçek (non-smoke) bir kimlik
+fail-closed reddedilir, body-hata-restore, snapshot-yoksa-sil).

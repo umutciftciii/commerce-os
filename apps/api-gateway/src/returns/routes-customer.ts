@@ -46,6 +46,13 @@ function errorBody(code: string, message: string, details?: unknown) {
 const MAX_ATTACHMENT_BYTES = 5_242_880;
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * TODO-169 recovery — Onaydan sonra ürünün mağazaya son gönderim süresi (gün). İlk faz manuel iade
+ * kargolamasında güvenli varsayılan; ileride store politikasına taşınabilir (TECHNICAL_DEBT).
+ */
+const RETURN_SHIP_BACK_DAYS = 7;
+
 export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnCustomerRoutesDeps): void {
   async function requireStore(request: FastifyRequest, reply: FastifyReply) {
     const slug = (request.params as { storeSlug: string }).storeSlug;
@@ -424,6 +431,9 @@ async function loadCustomerDetail(
   const estimatedRefundMinor = await estimateRefund(storeId, rr);
   const canCancel = evaluateReturnTransition(rr.status, "CANCELLED_BY_CUSTOMER", "CUSTOMER").ok;
   const canSubmitTracking = evaluateReturnTransition(rr.status, "RETURN_SHIPPED", "CUSTOMER").ok;
+  // Son gönderim tarihi: onay ankoru + kargolama süresi (yoksa iade penceresi sonuna düş).
+  const shipAnchor = rr.approvedAt ?? rr.reviewedAt ?? rr.returnWindowEndsAt;
+  const shipByDate = new Date(shipAnchor.getTime() + RETURN_SHIP_BACK_DAYS * DAY_MS).toISOString();
 
   return {
     returnNumber: rr.returnNumber,
@@ -439,6 +449,7 @@ async function loadCustomerDetail(
     customerPaysReturnShipping: policy.customerPaysReturnShipping,
     estimatedRefundMinor,
     returnWindowEndsAt: rr.returnWindowEndsAt.toISOString(),
+    shipByDate,
     canCancel,
     canSubmitTracking,
     items: rr.items.map((item) => ({
