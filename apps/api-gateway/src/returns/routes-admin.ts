@@ -15,14 +15,18 @@ import {
   adminReturnInspectRequestSchema,
   adminReturnRejectRequestSchema,
   adminReturnTransitionRequestSchema,
+  adminOrderReturnsResponseSchema,
 } from "@commerce-os/contracts";
 import {
   applyReturnTransition,
   applyRestockForItem,
   getHeldReturnedQtyByLine,
+  resolveStoreReturnPolicy,
   upsertRefundIntentForReturn,
 } from "./service.js";
 import { serializeAdminReturnDetail, serializeAdminReturnListItem } from "./serialize.js";
+import { resolveReturnItemCovers } from "./covers.js";
+import { computeReturnOrderSummaries } from "./projection.js";
 
 export interface ReturnAdminRoutesDeps {
   requireStoreAdmin: (
@@ -38,6 +42,8 @@ export interface ReturnAdminRoutesDeps {
     entityId?: string;
     metadata?: Record<string, unknown>;
   }) => void | Promise<void>;
+  // TODO-169 (blocker #3) — iade kalemi kapak görseli URL türetimi (storefront ile aynı helper).
+  mediaBaseUrl: string | undefined;
 }
 
 function errorBody(code: string, message: string, details?: unknown) {
@@ -119,9 +125,47 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     const params = returnParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);
     if (!access) return;
-    const detail = await loadAdminDetail(params.storeId, params.returnId);
+    const detail = await loadAdminDetail(params.storeId, params.returnId, deps.mediaBaseUrl);
     if (!detail) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
     return adminReturnDetailResponseSchema.parse({ return: detail });
+  });
+
+  // TODO-169 (blocker #6) — Sipariş detayına iade entegrasyonu: bir siparişin ORTAK iade özeti
+  // (projection) + o siparişe ait iade talepleri (liste kartları). React ayrı hesap yapmaz.
+  app.get("/stores/:storeId/orders/:orderId/return-summary", async (request, reply) => {
+    const params = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) }).parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const order = await prisma.order.findFirst({
+      where: { id: params.orderId, storeId: params.storeId },
+      select: { id: true, currency: true },
+    });
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+
+    const policy = await resolveStoreReturnPolicy(prisma, params.storeId);
+    const summaries = await computeReturnOrderSummaries(prisma, params.storeId, [order], policy, new Date());
+    const summary = summaries.get(order.id)!;
+
+    const rows = await prisma.returnRequest.findMany({
+      where: { storeId: params.storeId, orderId: order.id },
+      orderBy: { requestedAt: "desc" },
+      select: {
+        id: true,
+        returnNumber: true,
+        status: true,
+        resolutionType: true,
+        requestedAt: true,
+        returnWindowEndsAt: true,
+        order: { select: { orderNumber: true } },
+        customer: { select: { firstName: true, lastName: true, email: true } },
+        items: { select: { quantity: true } },
+      },
+    });
+    const now = Date.now();
+    return adminOrderReturnsResponseSchema.parse({
+      summary,
+      returns: rows.map((r) => serializeAdminReturnListItem(r, now)),
+    });
   });
 
   // İncelemeye al / teslim alındı / refund|replacement pending / kapat (basit geçişler)
@@ -317,11 +361,11 @@ async function finishTransition(
     entityId: returnId,
     metadata: { action: `return.${action}`, toStatus: result.status },
   });
-  const detail = await loadAdminDetail(storeId, returnId);
+  const detail = await loadAdminDetail(storeId, returnId, deps.mediaBaseUrl);
   return adminReturnDetailResponseSchema.parse({ return: detail });
 }
 
-async function loadAdminDetail(storeId: string, returnId: string) {
+async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: string | undefined) {
   const rr = await prisma.returnRequest.findFirst({
     where: { id: returnId, storeId },
     include: {
@@ -356,5 +400,11 @@ async function loadAdminDetail(storeId: string, returnId: string) {
   if (!rr) return null;
   // Bu satırların (bu talep HARİÇ) daha önce tutulan iade adedi — "kalan iade edilebilir" için.
   const priorHeld = await getHeldReturnedQtyByLine(prisma, storeId, rr.orderId, returnId);
-  return serializeAdminReturnDetail(rr, priorHeld);
+  // TODO-169 (blocker #3) — kalem kapak görselleri (store-scoped; storefront ile aynı semantik).
+  const covers = await resolveReturnItemCovers(
+    storeId,
+    rr.items.map((i) => i.orderLine.productId),
+    mediaBaseUrl,
+  );
+  return serializeAdminReturnDetail(rr, priorHeld, covers);
 }

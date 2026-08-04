@@ -1367,6 +1367,15 @@ ReturnStatusHistory/RefundIntent`). Backend gate: gateway typecheck 0 hata. UI: 
 otomatik iade etiketi, PB-3/TD-139. Karar [ADR-269](./adr/ADR-269-returns-authority-and-lifecycle.md); analiz
 `docs/analysis/RETURNS-management-foundation.md`. **TODO-170 Refund Ledger & Payment Reversal — BLOCKED_BY TODO-169.**
 
+**TODO-169.1 Customer & Order Integration Recovery (2026-08-04, IMPLEMENTED / commit bekliyor)** — post-deploy
+kabul denetiminde çıkan 6 blocker düzeltildi (additive, migration YOK): iade penceresi görünürlüğü (deliveredAt-türevi),
+özet CTA responsive, Store-Admin iade görseli (ortak cover helper), geri-kargo UX, sipariş listesi iade rozeti +
+review regresyonu, sipariş detayı iade entegrasyonu + **pending finansal etki** (RefundIntent PENDING ≠ gerçekleşen;
+Financial Reporting revenue DEĞİŞMEZ). Ortak `returns/projection.ts` tek server-side otorite (customer list/detail +
+admin order detail + eligibility). Gate 0 hata, 4229 test yeşil; browser smoke PASS (izole SMOKE-10; 320/375/1024).
+Ayrıntı [ADR-269 §11](./adr/ADR-269-returns-authority-and-lifecycle.md) + analiz §5. **TODO-169 bununla IMPLEMENTED;
+TODO-170 UNBLOCKED.**
+
 ## Financial Reporting Foundation — CLOSED & DEPLOYED (2026-08-03, PR #168 merge `9a4c8db` + fix PR #169 `eb31cc3`)
 
 Store-Admin **Finans > Raporlar** modülü: sipariş SNAPSHOT'larından türetilen (canlı fiyat DEĞİL) mağaza-geneli

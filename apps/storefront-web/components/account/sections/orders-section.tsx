@@ -15,6 +15,10 @@ import {
   type OrdersTab,
 } from "../../../lib/orders";
 import { resolveOrderReview } from "../../../lib/orders-review";
+import {
+  resolveReturnWindowLabel,
+  resolveReturnActivityLabel,
+} from "../../../lib/returns-summary";
 import { OrderStatusBadges } from "../order-badges";
 import { OrderActions } from "../order-actions";
 import { Button, EmptyState, Field, Heading, Input, ProductMediaFrame, Text } from "../../ui";
@@ -168,6 +172,8 @@ function OrderCard({
         />
       </div>
 
+      <ReturnSummaryBadge o={o} order={order} locale={locale} />
+
       <ul className="mt-3 space-y-2">
         {order.lines.map((line) => (
           <li key={line.variantId} className="flex items-center gap-3">
@@ -199,5 +205,66 @@ function OrderCard({
         reviewsT={reviewsT}
       />
     </li>
+  );
+}
+
+/**
+ * TODO-169 (blocker #1/#5) — Sipariş kartında İADE özeti: (1) iade penceresi etiketi (teslim-türetilmiş),
+ * (2) aktif iade durumu rozeti + "İade durumunu görüntüle" linki. Teslimat rozetini DEĞİŞTİRMEZ (ayrı
+ * satır). Tüm türetme server `returnSummary` projeksiyonundan; metin i18n'den (format).
+ */
+function ReturnSummaryBadge({
+  o,
+  order,
+  locale,
+}: {
+  o: OrdersDict;
+  order: CustomerOrderSummary;
+  locale: Locale;
+}) {
+  const summary = order.returnSummary ?? null;
+  const window = resolveReturnWindowLabel(summary);
+  const activity = resolveReturnActivityLabel(summary);
+  if (!window && !activity) return null;
+  const rb = o.returnBadge;
+
+  const windowText =
+    window?.kind === "eligible"
+      ? format(rb.window.eligible, { date: formatDate(window.endsAt, locale) })
+      : window?.kind === "endingSoon"
+        ? format(rb.window.endingSoon, { count: window.remainingDays })
+        : window?.kind === "expired"
+          ? rb.window.expired
+          : null;
+
+  return (
+    <div className="mt-2 space-y-1">
+      {windowText ? (
+        <p
+          className={
+            window?.kind === "expired"
+              ? "text-xs text-ink-subtle"
+              : window?.kind === "endingSoon"
+                ? "text-xs font-medium text-accent-ink"
+                : "text-xs text-ink-muted"
+          }
+        >
+          {windowText}
+        </p>
+      ) : null}
+      {activity ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full border border-ink-subtle bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink">
+            {format(rb.status[activity.status], { count: activity.count })}
+          </span>
+          <Link
+            href="/account?section=returns"
+            className="text-xs font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
+          >
+            {rb.viewStatus}
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }

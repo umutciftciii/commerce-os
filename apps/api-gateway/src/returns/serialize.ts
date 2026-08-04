@@ -100,6 +100,7 @@ export interface AdminReturnDetailRow {
     restockedAt: Date | null;
     orderLine: {
       id: string;
+      productId: string;
       title: string;
       variantTitle: string;
       sku: string;
@@ -126,7 +127,12 @@ export interface AdminReturnDetailRow {
   } | null;
 }
 
-export function serializeAdminReturnDetail(row: AdminReturnDetailRow, priorHeld: Map<string, number>) {
+export function serializeAdminReturnDetail(
+  row: AdminReturnDetailRow,
+  priorHeld: Map<string, number>,
+  // TODO-169 (blocker #3) — productId → kapak URL'i (store-scoped). Kapaksız → null (placeholder).
+  covers: Map<string, string> = new Map(),
+) {
   const name = row.customer
     ? [row.customer.firstName, row.customer.lastName].filter(Boolean).join(" ").trim() || null
     : null;
@@ -169,7 +175,9 @@ export function serializeAdminReturnDetail(row: AdminReturnDetailRow, priorHeld:
       title: item.orderLine.title,
       variantTitle: item.orderLine.variantTitle,
       sku: item.orderLine.sku,
-      imageUrl: null,
+      // TODO-169 (blocker #3) — önce store-scoped ürün kapak görseli; yoksa null → ortak placeholder.
+      // cross-store medya ASLA (covers store-scoped sorgudan gelir).
+      imageUrl: covers.get(item.orderLine.productId) ?? null,
       quantity: item.quantity,
       approvedQuantity: item.approvedQuantity,
       rejectedQuantity: item.rejectedQuantity,

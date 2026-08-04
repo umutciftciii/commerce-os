@@ -28,6 +28,7 @@ import type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
+  AdminOrderReturnsResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -973,6 +974,9 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // TODO-169 (blocker #6) — sipariş detayında iade özeti + o siparişin talepleri.
+  getOrderReturnSummary: (orderId: string) =>
+    call<AdminOrderReturnsResponse>(`/api/orders/${orderId}/return-summary`),
 
   // TODO-159F — Order Payment Recovery & Collection (mevcut sipariş tahsilatı).
   getOrderPayment: (orderId: string) =>

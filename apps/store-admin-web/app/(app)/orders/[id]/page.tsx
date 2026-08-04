@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Alert, Badge, Button, SkeletonRows, useLocale } from "../../../../components/ui";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { Order, OrderFulfillmentDisplay } from "@commerce-os/api-client";
+import type {
+  Order,
+  OrderFulfillmentDisplay,
+  AdminOrderReturnsResponse,
+} from "@commerce-os/api-client";
 import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
@@ -27,6 +32,9 @@ import {
   ORDER_STATUS_TONES,
   PAYMENT_STATUS_TONES,
   RESERVATION_STATUS_TONES,
+  RETURN_STATUS_TONES,
+  returnStatusLabel,
+  returnResolutionLabel,
   type OrderStatus,
   type PaymentStatus,
   type ReservationStatus,
@@ -240,12 +248,33 @@ function vatRateText(rateBps: number): string {
  * (F4C öncesi) siparişte yanıltıcı sıfır yerine "eski format" bilgisi verilir.
  * Maliyet snapshot'ı yoksa kâr satırları "—" kalır. "Net kâr" vurgulanır.
  */
-function SalesSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
+function SalesSummaryPanel({
+  order,
+  d,
+  pendingReturn,
+  locale,
+}: {
+  order: Order;
+  d: DetailDict;
+  // TODO-169 (blocker #7) — pending iade finansal etkisi varsa kâr KESİN gerçekleşmiş gibi gösterilmez.
+  pendingReturn: boolean;
+  locale: string;
+}) {
   const summary = order.salesSummary;
   if (!summary) return null;
   const sales = summary.sales;
+  const isTr = locale === "tr";
   return (
     <SurfaceCard title={d.salesSummaryTitle} description={d.salesSummarySubtitle}>
+      {pendingReturn ? (
+        <div className="mb-3">
+          <Alert tone="warning">
+            {isTr
+              ? "İade süreci devam ediyor — kâr/net değerleri provizyonel; iade tamamlanana kadar kesinleşmez."
+              : "A return is in progress — profit/net figures are provisional and not final until the return settles."}
+          </Alert>
+        </div>
+      ) : null}
       {sales === null ? (
         <Alert tone="info">{d.salesLegacyNotice}</Alert>
       ) : (
@@ -311,6 +340,73 @@ function SalesSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
           ) : null}
         </>
       )}
+    </SurfaceCard>
+  );
+}
+
+/**
+ * TODO-169 (blocker #6/#7) — Sipariş detayında iade talepleri + pending finansal etki.
+ * RefundIntent PENDING "gerçekleşen iade" DEĞİLDİR: onaylanan niyet ile gerçekleşen AYRI gösterilir;
+ * gerçek refund yoksa açıkça "henüz yapılmadı / TODO-170" belirtilir. Gross satış ASLA düşülmez.
+ */
+function OrderReturnsSection({
+  data,
+  locale,
+}: {
+  data: AdminOrderReturnsResponse;
+  locale: string;
+}) {
+  const isTr = locale === "tr";
+  const s = data.summary;
+  const realized = s.completedRefundMinor > 0;
+  return (
+    <SurfaceCard title={isTr ? "İadeler" : "Returns"}>
+      {/* Pending finansal etki (niyet vs gerçekleşen). */}
+      {s.approvedRefundIntentMinor > 0 ? (
+        <div className="mb-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3">
+          <MoneyRow
+            label={isTr ? "Onaylanan iade niyeti" : "Approved refund intent"}
+            value={formatMinor(s.approvedRefundIntentMinor, s.currency)}
+          />
+          <MoneyRow
+            label={isTr ? "Gerçekleşen iade" : "Realized refund"}
+            value={realized ? formatMinor(s.completedRefundMinor, s.currency) : "—"}
+          />
+          {!realized ? (
+            <p className="mt-2 text-xs text-amber-200/70">
+              {isTr
+                ? "Para iadesi bekleniyor · Henüz tahsilattan düşülmedi (gerçek refund TODO-170)."
+                : "Refund pending · Not yet deducted from collection (actual refund is TODO-170)."}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <ul className="space-y-2">
+        {data.returns.map((r) => (
+          <li
+            key={r.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white/85">{r.returnNumber}</p>
+              <p className="text-xs text-white/40">
+                {formatDate(r.requestedAt)} · {r.itemCount} {isTr ? "kalem" : "items"} ·{" "}
+                {r.totalQuantity} {isTr ? "adet" : "qty"} · {returnResolutionLabel(r.resolutionType, locale)}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge tone={RETURN_STATUS_TONES[r.status]}>{returnStatusLabel(r.status, locale)}</Badge>
+              <Link
+                href={`/orders/returns/${r.id}`}
+                className="text-xs font-medium text-white/60 underline decoration-white/20 underline-offset-2 hover:text-white/90"
+              >
+                {isTr ? "Detay" : "Detail"}
+              </Link>
+            </div>
+          </li>
+        ))}
+      </ul>
     </SurfaceCard>
   );
 }
@@ -460,6 +556,24 @@ export default function OrderDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // TODO-169 (blocker #6/#7) — sipariş detayında ORTAK iade özeti + o siparişin talepleri.
+  // Fail-open: iade verisi alınamazsa sipariş görünümü bozulmaz (null → bölüm gizlenir).
+  const [orderReturns, setOrderReturns] = useState<AdminOrderReturnsResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void storeApi
+      .getOrderReturnSummary(orderId)
+      .then((res) => {
+        if (!cancelled) setOrderReturns(res);
+      })
+      .catch(() => {
+        if (!cancelled) setOrderReturns(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   const order = state.status === "ready" ? state.order : null;
 
@@ -640,12 +754,23 @@ export default function OrderDetailPage() {
                   </div>
                 </SurfaceCard>
 
+                {/* TODO-169 (blocker #6/#7) — Sipariş detayına iade entegrasyonu: bu siparişin iade
+                    talepleri + pending finansal etki (RefundIntent PENDING ≠ gerçekleşen iade). */}
+                {orderReturns && orderReturns.returns.length > 0 ? (
+                  <OrderReturnsSection data={orderReturns} locale={locale} />
+                ) : null}
+
                 {/* F4C (ADR-064) — Bölüm A (ödeme özeti) + Bölüm B (satış özeti).
                     Sunucu salesSummary dönmezse legacy tutar kartına düşülür. */}
                 {order.salesSummary ? (
                   <>
                     <PaymentSummaryPanel order={order} d={d} />
-                    <SalesSummaryPanel order={order} d={d} />
+                    <SalesSummaryPanel
+                      order={order}
+                      d={d}
+                      locale={locale}
+                      pendingReturn={Boolean(orderReturns?.summary.hasPendingFinancialImpact)}
+                    />
                   </>
                 ) : (
                   <SurfaceCard title={d.summaryTitle}>

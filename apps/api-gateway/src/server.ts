@@ -7446,6 +7446,8 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    // TODO-169 (blocker #3) — iade kalemi ürün kapak görseli URL'i türetimi (storefront ile aynı semantik).
+    mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
   });
 
   // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection: store-admin

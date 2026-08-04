@@ -1999,6 +1999,19 @@ room, no code now):
 - **`Shipment.deliveredAt` webhook yolu (TD-RET-7):** deliveredAt manuel-durum + provider-sync yollarında set
   edilir; provider webhook yolunda (webhook-routes) DELIVERED eşlemesi henüz deliveredAt yazmaz (sync bir sonraki
   turda düzeltir). Additive; eligibility fallback `updatedAt` bunu telafi eder.
+- **Return order-summary projection perf (TD-RET-8, TODO-169.1):** ortak `computeReturnOrderSummaries`
+  (customer order list) her sayfa için shipment+returnRequest'i batched (N+1'siz) sorgular; müşteri sipariş
+  sayısı büyürse (yüzlerce) pencere ankoru + iade toplaması sipariş listesi gecikmesine katkı yapabilir. Fail-open
+  (hata → boş özet, order bozulmaz). İleride: teslim ankorunu order/shipment read-model'e materialize et ya da
+  yalnız DELIVERED siparişlerde hesapla. Non-blocking.
+- **Return shipping UX (TD-RET-9, TODO-169.1):** geri kargo hâlâ MANUEL (müşteri carrier+tracking string girer,
+  admin teslim-alındı işaretler). "Ürünü geri gönderin" bloğu son-gönderim tarihini iade penceresi bitişinden
+  türetir (ayrı ship-by SLA alanı yok) ve iade adresini metinle anlatır (yapılandırılabilir mağaza iade adresi +
+  otomatik etiket TD-RET-5 ile birlikte future). Non-blocking.
+- **Pending profitability semantics (TD-RET-10, TODO-169.1):** sipariş detayında pending iade finansal etkisi
+  "beklenen/provisional" olarak gösterilir (RefundIntent PENDING ≠ gerçekleşen); Financial Reporting revenue TODO-170
+  öncesi DÜŞMEZ (`refundAmountsSupported=false` korunur). Gerçek gerçekleşen refund + kesinleşmiş kâr düzeltmesi
+  TODO-170'e (OrderRefund ledger) kapılı. "beklenen net" satırı sipariş-seviyesi bilgilendirmedir, muhasebe kaydı değil.
 
 ## Financial Reporting Foundation — açık future kalemler (ADR-268)
 

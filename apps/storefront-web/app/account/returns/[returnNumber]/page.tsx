@@ -85,6 +85,36 @@ export default async function ReturnDetailPage({
             </p>
           </header>
 
+          {/* TODO-169 (blocker #4) — mevcut aşama açıklaması (müşteri-facing tek cümle). */}
+          <div className="border border-line bg-surface-muted p-3">
+            <p className="text-sm text-ink">{r.detail.progressHelp[detail.status]}</p>
+          </div>
+
+          {/* TODO-169 (blocker #4) — onay sonrası BELİRGİN geri-kargo talimatı + takip formu. */}
+          {detail.canSubmitTracking ? (
+            <section className="border border-ink p-4">
+              <Subheading as="h2" className="mb-2">
+                {r.detail.shipBack.title}
+              </Subheading>
+              <p className="text-sm text-ink-muted">{r.detail.shipBack.help}</p>
+              <ul className="mt-3 space-y-1 text-xs text-ink-muted">
+                <li>
+                  •{" "}
+                  {detail.customerPaysReturnShipping
+                    ? r.detail.shipBack.costCustomer
+                    : r.detail.shipBack.costStore}
+                </li>
+                <li>• {r.detail.shipBack.addressNote}</li>
+                <li>
+                  • {r.detail.windowEndsAt}: {formatDate(detail.returnWindowEndsAt, locale)}
+                </li>
+              </ul>
+              <div className="mt-4">
+                <ReturnTrackingForm returnNumber={detail.returnNumber} t={r} />
+              </div>
+            </section>
+          ) : null}
+
           {detail.estimatedRefundMinor !== null ? (
             <section className="border border-line p-4">
               <Subheading as="h2" className="mb-1">
@@ -121,15 +151,6 @@ export default async function ReturnDetailPage({
                   <Row label={r.detail.trackingNumber} value={detail.returnTrackingNumber} />
                 ) : null}
               </dl>
-            </section>
-          ) : null}
-
-          {detail.canSubmitTracking ? (
-            <section className="border border-line p-4">
-              <Subheading as="h2" className="mb-3">
-                {r.detail.trackingTitle}
-              </Subheading>
-              <ReturnTrackingForm returnNumber={detail.returnNumber} t={r} />
             </section>
           ) : null}
 

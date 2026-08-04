@@ -22,6 +22,9 @@ import { Prisma } from "@prisma/client";
 // Faz 3/Dilim 6b — siparis satiri thumbnail'i icin paylasilan kapak URL haritasi
 // (tek allowlist noktasi; N+1'siz). listProductImages DI ile deps'ten gelir.
 import { buildProductCoverUrlMap, type ListProductImagesFn } from "../media/cover.js";
+// TODO-169 (blocker #5/#6/#8) — ORTAK iade özeti projeksiyonu (sipariş listesi/detayı aynı otoriteyi kullanır).
+import { computeReturnOrderSummaries } from "../returns/projection.js";
+import { resolveStoreReturnPolicy } from "../returns/service.js";
 import type {
   BillingType,
   CustomerCredentialTokenPurpose,
@@ -45,6 +48,7 @@ import {
   customerMeResponseSchema,
   customerOrderListResponseSchema,
   customerOrderDetailResponseSchema,
+  type ReturnOrderSummary,
   pickOrderShipmentStatus,
   customerOtpChallengeResponseSchema,
   customerOtpVerifyRequestSchema,
@@ -1274,6 +1278,8 @@ function serializeCustomerOrderSummary(
   // Dilim 6b — productId → güncel kapak URL'i (batched, tek çağrı). Kapaksız/
   // görselsiz ürün haritada yoktur → imageUrl null (ProductMedia placeholder).
   coverUrlByProductId: Map<string, string>,
+  // TODO-169 (blocker #5) — ORTAK iade özeti (server-authoritative); iade yoksa null.
+  returnSummary: ReturnOrderSummary | null = null,
 ) {
   return {
     orderNumber: order.orderNumber,
@@ -1299,6 +1305,8 @@ function serializeCustomerOrderSummary(
     createdAt: order.createdAt.toISOString(),
     // TODO-135 — Hazırlanan gönderiyi liste rozetinde yansıtmak için temsili durum.
     shipmentStatus: order.shipmentStatus,
+    // TODO-169 — Teslim rozetini DEĞİŞTİRMEZ; iade durumunu AYRI taşır.
+    returnSummary,
   };
 }
 
@@ -1311,6 +1319,8 @@ function serializeCustomerOrderDetail(
   order: CustomerOrderDetailRecord,
   // Dilim 6b — productId → güncel kapak URL'i (bu siparişin satırları için batched).
   coverUrlByProductId: Map<string, string>,
+  // TODO-169 (blocker #6/#7) — ORTAK iade özeti; iade yoksa null.
+  returnSummary: ReturnOrderSummary | null = null,
 ) {
   const shipping = order.addresses.find((address) => address.type === "SHIPPING") ?? null;
   let billing: {
@@ -1421,6 +1431,8 @@ function serializeCustomerOrderDetail(
             logoAlt: null,
           }
         : null,
+    // TODO-169 — Teslimat/finansal orijinal özeti DEĞİŞTİRMEZ; iade etkisini AYRI taşır.
+    returnSummary,
   };
 }
 
@@ -2140,8 +2152,21 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
       store.id,
       orders.flatMap((order) => order.lines.map((line) => line.productId)),
     );
+    // TODO-169 (blocker #5) — ORTAK iade özeti: sipariş id'lerini (customer-scoped) çözüp TEK batched
+    // projeksiyon (N+1 YOK). Teslim rozeti korunur; iade durumu AYRI rozet olarak taşınır.
+    const returnSummaryByOrderNumber = await buildOrderReturnSummaries(
+      store.id,
+      customer.id,
+      orders.map((o) => o.orderNumber),
+    );
     return customerOrderListResponseSchema.parse({
-      data: orders.map((order) => serializeCustomerOrderSummary(order, coverUrlByProductId)),
+      data: orders.map((order) =>
+        serializeCustomerOrderSummary(
+          order,
+          coverUrlByProductId,
+          returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
+        ),
+      ),
     });
   });
 
@@ -2163,10 +2188,56 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
       store.id,
       order.lines.map((line) => line.productId),
     );
+    // TODO-169 (blocker #6/#7) — ORTAK iade özeti (pencere + pending finansal etki).
+    const returnSummaryByOrderNumber = await buildOrderReturnSummaries(store.id, customer.id, [
+      order.orderNumber,
+    ]);
     return customerOrderDetailResponseSchema.parse({
-      order: serializeCustomerOrderDetail(order, coverUrlByProductId),
+      order: serializeCustomerOrderDetail(
+        order,
+        coverUrlByProductId,
+        returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
+      ),
     });
   });
+}
+
+/**
+ * TODO-169 (blocker #5/#6/#8) — verilen (customer-scoped) sipariş numaraları için ORTAK iade özeti.
+ * Sipariş id/currency'yi customer+store scoped çözer (başka müşterinin siparişi karışmaz), policy'yi
+ * tek kez alır, batched projeksiyon üretir. Dönüş: orderNumber → ReturnOrderSummary.
+ */
+async function buildOrderReturnSummaries(
+  storeId: string,
+  customerId: string,
+  orderNumbers: string[],
+): Promise<Map<string, ReturnOrderSummary>> {
+  const byOrderNumber = new Map<string, ReturnOrderSummary>();
+  if (orderNumbers.length === 0) return byOrderNumber;
+  // FAIL-OPEN: iade özeti sipariş görünümünün TAMAMLAYICISIDIR; projeksiyon hatası (ör. geçici DB
+  // sorunu) sipariş listesini/detayını 500'e düşürmemeli → hata durumunda boş harita (rozet gizlenir).
+  try {
+    const orders = await prisma.order.findMany({
+      where: { storeId, customerId, orderNumber: { in: orderNumbers } },
+      select: { id: true, orderNumber: true, currency: true },
+    });
+    if (orders.length === 0) return byOrderNumber;
+    const policy = await resolveStoreReturnPolicy(prisma, storeId);
+    const byId = await computeReturnOrderSummaries(
+      prisma,
+      storeId,
+      orders.map((o) => ({ id: o.id, currency: o.currency })),
+      policy,
+      new Date(),
+    );
+    for (const o of orders) {
+      const summary = byId.get(o.id);
+      if (summary) byOrderNumber.set(o.orderNumber, summary);
+    }
+  } catch {
+    return new Map();
+  }
+  return byOrderNumber;
 }
 
 /* ── Store-admin müşteri yönetimi (F3B.3) ─────────────────────────────────────
