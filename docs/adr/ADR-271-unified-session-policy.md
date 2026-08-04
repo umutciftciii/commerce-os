@@ -1,10 +1,10 @@
 # ADR-271 — Unified Session Policy
 
-- **Status:** ACCEPTED / **IMPLEMENTED** (2026-08-04). Design accepted earlier; this pass delivers the full
-  implementation — additive migration, single policy module, gateway dual-gate validation + sliding refresh,
-  remember-me (three apps), extend endpoints (both session types) with token rotation, expiry UX + safe
-  returnTo, accessible warning modal + countdown, and multi-tab sync. Not committed/deployed in this pass
-  (analysis + implementation + full gate + real browser smoke, then stop).
+- **Status:** **ACCEPTED & DEPLOYED** (2026-08-05, PR #177). Design accepted earlier; the implementation pass
+  delivered the full feature — additive migration, single policy module, gateway dual-gate validation + sliding
+  refresh, remember-me (three apps), extend endpoints (both session types) with token rotation, expiry UX + safe
+  returnTo, accessible warning modal + countdown, and multi-tab sync — plus the post-audit critical hardening
+  (§8). Merged (#177), migrate-before-app applied, docker stack rebuilt/recreated, post-deploy smoke green.
 - **Date:** 2026-08-04
 - **Related:** ADR-032 (single `Customer` identity), F3B.3 (`x-customer-session`), ADR-270 (recovery closed
   blockers 1/2/4). **Unblocks:** TODO-170 (Refund Ledger) once this closes.
