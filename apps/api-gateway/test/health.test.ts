@@ -320,7 +320,18 @@ class MemoryDataAccess implements AppDataAccess {
   readonly users: UserRecord[];
   readonly sessions = new Map<
     string,
-    { id: string; platformUserId: string; tokenHash: string; expiresAt: Date; revokedAt: Date | null }
+    {
+      id: string;
+      platformUserId: string;
+      tokenHash: string;
+      expiresAt: Date;
+      // ADR-271 — iki-kapili omur alanlari (faithful store).
+      lastActivityAt: Date;
+      absoluteExpiresAt: Date | null;
+      rememberMe: boolean;
+      rotatedFromSessionId: string | null;
+      revokedAt: Date | null;
+    }
   >();
   readonly stores: StoreRecord[] = [
     {
@@ -600,13 +611,21 @@ class MemoryDataAccess implements AppDataAccess {
     platformUserId: string;
     tokenHash: string;
     expiresAt: Date;
+    lastActivityAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    rotatedFromSessionId?: string | null;
   }) {
     const session = {
       id: `session_${this.sessions.size + 1}`,
       platformUserId: input.platformUserId,
       tokenHash: input.tokenHash,
       expiresAt: input.expiresAt,
-      revokedAt: null,
+      lastActivityAt: input.lastActivityAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      rememberMe: input.rememberMe,
+      rotatedFromSessionId: input.rotatedFromSessionId ?? null,
+      revokedAt: null as Date | null,
     };
     this.sessions.set(input.tokenHash, session);
     return { id: session.id, expiresAt: session.expiresAt };
@@ -626,6 +645,50 @@ class MemoryDataAccess implements AppDataAccess {
       }
     }
     return false;
+  }
+
+  // ADR-271 — idle capasini yenile (absolute'e dokunmaz).
+  async touchPlatformSessionActivity(sessionId: string, lastActivityAt: Date) {
+    for (const session of this.sessions.values()) {
+      if (session.id === sessionId && !session.revokedAt) {
+        session.lastActivityAt = lastActivityAt;
+        return;
+      }
+    }
+  }
+
+  // ADR-271 — extend/rotation: eskiyi revoke + yenisini olustur (atomik taklit).
+  async rotatePlatformSession(input: {
+    currentSessionId: string;
+    platformUserId: string;
+    newTokenHash: string;
+    lastActivityAt: Date;
+    expiresAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+  }) {
+    let current: { revokedAt: Date | null } | null = null;
+    for (const session of this.sessions.values()) {
+      if (session.id === input.currentSessionId) {
+        current = session;
+        break;
+      }
+    }
+    if (!current || current.revokedAt) return null;
+    current.revokedAt = new Date();
+    const session = {
+      id: `session_${this.sessions.size + 1}`,
+      platformUserId: input.platformUserId,
+      tokenHash: input.newTokenHash,
+      expiresAt: input.expiresAt,
+      lastActivityAt: input.lastActivityAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      rememberMe: input.rememberMe,
+      rotatedFromSessionId: input.currentSessionId,
+      revokedAt: null as Date | null,
+    };
+    this.sessions.set(input.newTokenHash, session);
+    return { id: session.id, expiresAt: session.expiresAt };
   }
 
   async listStores({ limit, offset }: { limit: number; offset: number }) {
@@ -2871,7 +2934,12 @@ describe("api gateway", () => {
     const token = await login();
     const session = [...dataAccess.sessions.values()][0];
     if (session) {
+      // ADR-271 — otoriter mutlak tavan `absoluteExpiresAt`'tir (expiresAt =
+      // geri-uyumluluk yansimasi). Suresi gecmis oturumu zorlamak icin absolute'u
+      // da gecmise cek (yalniz expiresAt yetmez; idle capasi de gecmise alinir).
       session.expiresAt = new Date(Date.now() - 1000);
+      session.absoluteExpiresAt = new Date(Date.now() - 1000);
+      session.lastActivityAt = new Date(Date.now() - 1000);
     }
 
     const meResponse = await app.inject({
@@ -2881,6 +2949,101 @@ describe("api gateway", () => {
     });
     expect(meResponse.statusCode).toBe(401);
     expect(meResponse.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
+    await app.close();
+  });
+
+  it("extends an active session, rotating the token (ADR-271)", async () => {
+    const { app, login } = await createTestApp();
+    const token = await login();
+
+    const ext = await app.inject({
+      method: "POST",
+      url: "/auth/platform/extend",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(ext.statusCode).toBe(200);
+    const body = ext.json();
+    expect(body.token).toBeTruthy();
+    // Token ROTATE edildi (fixation savunmasi).
+    expect(body.token).not.toBe(token);
+    expect(body.timing).toMatchObject({ warningLeadSeconds: expect.any(Number) });
+
+    // Eski token artik gecersiz.
+    const oldMe = await app.inject({
+      method: "GET",
+      url: "/auth/platform/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(oldMe.statusCode).toBe(401);
+
+    // Yeni token gecerli.
+    const newMe = await app.inject({
+      method: "GET",
+      url: "/auth/platform/me",
+      headers: { authorization: `Bearer ${body.token}` },
+    });
+    expect(newMe.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("expires an idle session even while the absolute ceiling is still in the future (ADR-271)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const session = [...dataAccess.sessions.values()][0];
+    if (session) {
+      // Idle: son aktivite 31 dk once (varsayilan idle 30 dk) — ama absolute (8s) hala ileride.
+      session.lastActivityAt = new Date(Date.now() - 31 * 60 * 1000);
+    }
+    const me = await app.inject({
+      method: "GET",
+      url: "/auth/platform/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("remember-me selects the longer absolute window and reports it in me.timing (ADR-271)", async () => {
+    const { app } = await createTestApp();
+    const rememberLogin = await app.inject({
+      method: "POST",
+      url: "/auth/platform/login",
+      payload: {
+        email: "platform-admin@example.local",
+        password: "local-admin-password",
+        rememberMe: true,
+      },
+    });
+    expect(rememberLogin.statusCode).toBe(200);
+    const token = rememberLogin.json<{ token: string }>().token;
+    const me = await app.inject({
+      method: "GET",
+      url: "/auth/platform/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode).toBe(200);
+    const timing = me.json().session.timing;
+    expect(timing.rememberMe).toBe(true);
+    // rememberOn absolute (30 gun) → 8 saatten (rememberOff) belirgin sekilde uzun.
+    const absMs = new Date(timing.absoluteExpiresAt).getTime() - Date.now();
+    expect(absMs).toBeGreaterThan(20 * 24 * 60 * 60 * 1000);
+  });
+
+  it("does not revive an expired session on extend (ADR-271)", async () => {
+    const { app, dataAccess, login } = await createTestApp();
+    const token = await login();
+    const session = [...dataAccess.sessions.values()][0];
+    if (session) {
+      session.absoluteExpiresAt = new Date(Date.now() - 1000);
+      session.expiresAt = new Date(Date.now() - 1000);
+      session.lastActivityAt = new Date(Date.now() - 1000);
+    }
+    const ext = await app.inject({
+      method: "POST",
+      url: "/auth/platform/extend",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(ext.statusCode).toBe(401);
     await app.close();
   });
 

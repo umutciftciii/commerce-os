@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createApiClient } from "@commerce-os/api-client";
 import { clearSessionCookie, getSessionToken } from "../../../../lib/server/session";
 import { csrfForbiddenResponse } from "../../../../lib/server/respond";
-import { isValidCsrfRequest } from "../../../../lib/server/csrf";
+import { isValidCsrfRequest, clearCsrfCookie } from "../../../../lib/server/csrf";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +19,6 @@ export async function POST(request: NextRequest) {
   }
   const response = NextResponse.json({ ok: true });
   clearSessionCookie(response);
+  clearCsrfCookie(response); // S4 — CSRF cookie'sini de temizle (yetim token birakma).
   return response;
 }

@@ -5967,7 +5967,44 @@ gönderildi"/`receivedAt`. Sonuc: gate GREEN + gerçek browser smoke PASS (store
 Baglam: parçalı session (iki opaque-token sistemi, yalnız absolute `expiresAt`, idle/remember-me/extend/warning/
 multi-tab YOK; login autocomplete zaten doğru). Karar (TASARIM): additive migration (`PlatformSession`/
 `CustomerSession`: `lastActivityAt`/`absoluteExpiresAt`/`rememberMe`) + iki-kapılı `min(idle,absolute)` +
-tek policy kaynağı (remember-off 30dk/8s · remember-on 7g/30g) + extend (CSRF+rate-limit, expired diriltmez,
+tek policy kaynağı (remember-off 30dk/8 saat · remember-on 7g/30g) + extend (CSRF+rate-limit, expired diriltmez,
 rotation) + expiry UX (safe returnTo+mesaj) + warning modal + multi-tab (BroadcastChannel). **Implementasyon YOK**
 — sonraki bağımsız faz (7-adım sıra ADR-271 §5). TODO-170 bu bitene kadar BLOCKED. Detay:
 `docs/adr/ADR-271-unified-session-policy.md`.
+
+- **Unified Session Policy IMPLEMENTED (ADR-271) — 2026-08-04.** Additive migration
+  (`PlatformSession`/`CustomerSession`: `lastActivityAt`/`absoluteExpiresAt?`/`rememberMe`/`rotatedFromSessionId`;
+  replay-safe, backfilled) + iki-kapılı geçerlilik `revokedAt==null && now ≤ min(lastActivityAt+idle(rememberMe),
+  absoluteExpiresAt ?? expiresAt)`. **Karar: `expiresAt` REPURPOSE EDİLMEDİ** — korunur (login'de = absolute),
+  idle deadline `lastActivityAt`'ten hesaplanır (spec formülü). `absoluteExpiresAt` nullable → paralel main-branch
+  insert'leri kırılmaz (validator `?? expiresAt`). Tek policy kaynağı `packages/config/src/session-policy.ts` (saf;
+  env override + default-tolerant). Gateway: dual-gate + throttle'lı sliding refresh (anlamlı aktivite; mousemove
+  değil) + extend (platform+customer; aktif-only, token rotation, absolute değişmez, CSRF/rate-limit, audit).
+  BFF: cookie kalıcılığı gateway yanıtından (rememberMe→persistent, off→session cookie; hardcoded 30d/8h KALDIRILDI);
+  ortak `SessionGuard` (erişilebilir modal + aria-live geri sayım + `me()`-teyitli expiry + BroadcastChannel
+  `*_session_sync`); safe returnTo üç uygulamada. store-admin PlatformSession'a biner (iki tablo). Token httpOnly
+  cookie'de (JS/localStorage'da YOK — browser'da doğrulandı). TODO-170 UNBLOCKED. Sıradaki roadmap adayı: Storefront
+  Social Login & Identity Linking (TD-181). Detay: `docs/adr/ADR-271-unified-session-policy.md` §7 +
+  `docs/analysis/ADR-271-session-analysis.md`.
+
+- **Post-Audit Hardening (ADR-271 §8 + ADR-269 Post-Audit) — 2026-08-04; status IN_PROGRESS, COMMIT/DEPLOY YOK.**
+  Cross-module review deliver edilmiş session + returns işinde deploy/correctness açıkları buldu; hepsi additive,
+  follow-up migration `20260804170000_adr271_returns_session_hardening` (fast-default; tablo rewrite yok).
+  Session tarafı: **M1** `policyVersion` legacy cutover — §7 backfill'i mevcut uzun oturumları deploy'da 30dk'ya
+  idle-collapse edecekti; legacy oturumlar (policyVersion=0) ilk anlamlı aktiviteye kadar **absolute-only** sayılır,
+  sonra native'e (=1) terfi eder → sessiz kitlesel-logout önlendi. **M2** fast-default migration (full-table lock yok;
+  §7'nin backfill UPDATE'i büyük session tablosunda kilit yapabilir → düşük trafik/maintenance penceresinde deploy).
+  **M3** ölü `absoluteExpiresAt` index drop. **S1** `/me`/logout/extend `countAsActivity=false` (me() polling idle
+  oturumu sonsuza dek diri tutmaz). **S2** multi-tab false-expiry `me()`-teyitli. **S4** logout CSRF cookie temizliği.
+  Returns tarafı: **R1** refund'suz terminal geçişte PENDING `RefundIntent` AYNI tx'te CANCELLED (additive `cancelledAt`/
+  `cancellationReason`; projection yalnız PENDING'i pending-financial-impact sayar). **R2** `createReturnRequest`
+  `pg_advisory_xact_lock` ile serileşir (over-claim etmez). **R3** admin mutation'larına zorunlu `expectedVersion` +
+  ATOMİK optimistic lock (count=0 → 409 `VERSION_CONFLICT`, yan etki yok). **R5** `COMPLETED` kodla enforce edilen
+  guard (REFUND=intent PROCESSED, REPLACEMENT=fulfillment; aksi 409 `COMPLETION_NOT_ALLOWED`; TODO-170'e kadar en ileri
+  durum REFUND_PENDING/REPLACEMENT_PENDING). **P1/P2** pending-work açık admin-actionable allowlist (settled-olmayan
+  her şey DEĞİL); INSPECTED artık inspection bucket'ında; invariant sidebar==Σ dashboard bucket. **C1** private media
+  guard iteratif-decode + segment-bazlı `returns` eşleşmesi (eski substring guard `%2F`/`%5C`/mixed-case ile
+  bypass ediliyordu; malformed→400, private→404, nosniff+no-store header). Gerçek-DB testleri (`returns-lifecycle`/
+  `session-legacy` integration) `commerce_os_test`'e `DATABASE_URL` ile koşar, CI'da SKIP. **TODO-170 yeniden
+  BLOCKED** (return financial invariants + private media hardening ship edilene kadar refund ledger'a başlanmamalı).
+  Detay: `docs/adr/ADR-271-unified-session-policy.md` §8 + `docs/adr/ADR-269-returns-authority-and-lifecycle.md`.

@@ -20,6 +20,7 @@ export function LoginForm({ t, next }: { t: AuthDict; next: string }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -27,7 +28,7 @@ export function LoginForm({ t, next }: { t: AuthDict; next: string }) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
-      const result = await loginAction(identifier, password);
+      const result = await loginAction(identifier, password, rememberMe);
       if (result.ok) {
         router.push(next);
         router.refresh();
@@ -69,6 +70,18 @@ export function LoginForm({ t, next }: { t: AuthDict; next: string }) {
           {showPassword ? t.passwordHide : t.passwordShow}
         </button>
       </div>
+      <label className="flex items-start gap-2.5 text-sm text-ink-muted">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 rounded border-line text-ink focus:ring-2 focus:ring-ink/40 focus:ring-offset-1"
+          checked={rememberMe}
+          onChange={(e) => setRememberMe(e.target.checked)}
+        />
+        <span>
+          <span className="font-medium text-ink">{t.rememberMe}</span>
+          <span className="mt-0.5 block text-xs text-ink-muted">{t.rememberMeHint}</span>
+        </span>
+      </label>
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? t.submitting : t.login.submit}
       </Button>

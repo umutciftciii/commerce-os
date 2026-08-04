@@ -55,7 +55,9 @@
   return-summary`. Gate: build+lint+typecheck 0 hata, **4229 test yeşil** (projection+returns-summary birim testleri eklendi).
   Browser smoke: izole `SMOKE-10` 3-ürün DELIVERED sipariş → pencere/rozet/create/approve→RefundIntent PENDING/
   admin imageUrl non-null/pending finansal etki/CTA 320-375-1024 PASS; fixture temizlendi. **TODO-169 ancak bununla
-  IMPLEMENTED sayılır; TODO-170 gerçek refund ledger için UNBLOCKED.**
+  IMPLEMENTED sayılır.** (Post-audit güncelleme 2026-08-04: TODO-170 önce UNBLOCKED sanıldı; cross-module review
+  finansal invariant açıkları buldu → **TODO-170 yeniden ⛔ BLOCKED**; aşağıya bak. Hardening ile R1–R5/P1-P2
+  düzeltildi ama commit/deploy YOK, dolayısıyla TODO-170 hâlâ başlanmamalı.)
 
 - **Pre-Refund UX Recovery (Returns UX + Pending Work + Return-Shipment) — ✅ CLOSED & DEPLOYED** (PR #175
   merge `064a44d`; ADR-270; 2026-08-04). api-gateway + storefront-web + store-admin-web main'den rebuild+recreate
@@ -75,17 +77,50 @@
   :4100/:3100/:3202 postgres :5432 enterprise-demo PASS (responsive 375/768/1024/1440). **Item 3 Unified Session
   Policy YALNIZ tasarım** (ADR-271). Git kuralı: commit/push/PR/merge/deploy YOK.
 
-- **Unified Session Policy — 🟡 DESIGN-ONLY (sıradaki bağımsız faz)** (ADR-271; 2026-08-04). Mevcut auth/session
-  analizi + additive migration planı (`PlatformSession`/`CustomerSession`: `lastActivityAt`/`absoluteExpiresAt`/
-  `rememberMe`) + üç-app ortak policy kontratı (remember-off idle 30dk/abs 8s · remember-on idle 7g/abs 30g,
-  tek config kaynağı) + extend/warning/multi-tab/expiry-UX davranış sözleşmesi + risk & 7-adım geçiş sırası.
-  **Implementasyon YOK** (migration/remember-me/idle/absolute/extend/modal/multi-tab sonraki faz). Login
-  autocomplete zaten doğru (`username`/`current-password`, smoke'ta doğrulandı).
+- **Unified Session Policy — 🔶 IN_PROGRESS (post-audit hardening; ship M1 kararı + M2 runbook'a bağlı)**
+  (ADR-271 §7 + **§8 hardening**; 2026-08-04). Tek policy kaynağı `packages/config/src/session-policy.ts` (remember-off idle 30dk/abs
+  8 saat · remember-on idle 7g/abs 30g; env override + default-tolerant). Additive migration
+  (`20260804160000_...`: `lastActivityAt`/`absoluteExpiresAt?`/`rememberMe`/`rotatedFromSessionId`; backfill;
+  replay-safe; canlı DB'de 79 oturum backfill). Gateway dual-gate `min(idle,absolute)` + throttle'lı sliding
+  refresh (anlamlı aktivite; mousemove değil) + extend uçları (platform `/auth/platform/extend`, customer
+  `/public/.../customer/extend`; aktif-only, token rotation, absolute SABİT, CSRF/rate-limit, audit). 3 app
+  remember-me UI + cookie policy'den (rememberMe→persistent, off→session; hardcoded 30d/8h KALDIRILDI) + ortak
+  `SessionGuard` (a11y modal + aria-live geri sayım + `me()`-teyitli expiry + BroadcastChannel `*_session_sync`) +
+  safe returnTo + expiry mesajı. **`expiresAt` REPURPOSE EDİLMEDİ** (korundu; idle hesaplanır). store-admin
+  PlatformSession'a biner. Token httpOnly (JS/localStorage'da YOK — browser'da doğrulandı). Login autocomplete
+  zaten doğru. Analiz: `docs/analysis/ADR-271-session-analysis.md`. Git kuralı: commit/push/PR/merge/deploy YOK.
+  **Post-audit hardening (2026-08-04; ADR-271 §8):** M1 policyVersion legacy cutover (sessiz kitlesel-logout önlendi),
+  M2 fast-default migration (full-table lock yok — §7 backfill'i büyük tabloda kilitleyebilir, düşük trafik/maintenance
+  penceresinde deploy), M3 ölü `absoluteExpiresAt` index drop, S1 `/me`/logout/extend `countAsActivity=false`,
+  S2 multi-tab false-expiry `me()`-teyitli, S4 logout CSRF cookie temizliği. Follow-up migration
+  `20260804170000_adr271_returns_session_hardening`. Gerçek-DB testleri (`session-legacy.integration.test.ts`)
+  `commerce_os_test` DB'ye `DATABASE_URL` ile koşar; CI'da (DB yok) SKIP.
 
-- **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED** (Unified Session Policy fazının ARDINDAN; planlı).
-  PENDING `RefundIntent`'leri işler: gerçek provider refund + append-only `OrderRefund` ledger (ADR-268 §5) →
-  Financial Reporting `productRefundsMinor`/`shippingRefundsMinor` beslenir, `refundAmountsSupported=true` olur
-  (net/total'dan TAM BİR KEZ düşülür).
+- **Private Media Hardening — 🔶 IN_PROGRESS (C1; 2026-08-04)**. Eski guard ham URL'de `/returns/` substring
+  arıyordu → `%2F`/`%252F`/`%5C`/mixed-case ile BYPASS ediliyordu (fastifyStatic decode edip 200 servis ediyordu).
+  Yeni guard `apps/api-gateway/src/media/private-guard.ts` (`classifyMediaRequestPath`) path'i TAM (iteratif) decode
+  eder, backslash normalize eder, SEGMENT bazında `returns` arar; malformed/traversal → 400, private → 404. Private
+  stream response'a `X-Content-Type-Options: nosniff` + `Content-Disposition: inline` + `Cache-Control: private,no-store`
+  eklendi. Kalan borç: gerçek private-bucket/signed-URL ileriye ertelendi (TECHNICAL_DEBT).
+
+- **Return Financial Invariants — 🔶 IN_PROGRESS (R1–R5, P1/P2; 2026-08-04; ADR-269 Post-Audit Hardening)**.
+  R1: refund'suz terminal geçişte PENDING `RefundIntent` AYNI tx'te CANCELLED (silinmez; additive `cancelledAt`/
+  `cancellationReason`; projection yalnız PENDING'i pending-financial-impact sayar). R2: `createReturnRequest`
+  `pg_advisory_xact_lock(storeId:orderNumber)` ile serileşir (çift-talep over-claim etmez). R3: admin mutation'larına
+  zorunlu `expectedVersion` + ATOMİK optimistic lock (updateMany where version=expected; count=0 → 409
+  `VERSION_CONFLICT`, yan etki yok; UI reload+dostça mesaj). R5: `COMPLETED` kodla enforce edilen guard'a tabi
+  (REFUND için intent PROCESSED, REPLACEMENT için fulfillment doğrulanmadan → 409 `COMPLETION_NOT_ALLOWED`;
+  TODO-170'e kadar en ileri finansal durum `REFUND_PENDING`/`REPLACEMENT_PENDING`). P1/P2: pending-work "actionable"
+  artık açık admin-actionable allowlist (settled-olmayan her şey DEĞİL); INSPECTED artık inspection bucket'ında;
+  invariant sidebar actionable == dashboard bucket toplamı. Testler: `returns-lifecycle.integration.test.ts`
+  (`commerce_os_test` DB, CI'da SKIP).
+
+- **TODO-170 Refund Ledger & Payment Reversal — ⛔ BLOCKED** (Return Financial Invariants + Private Media Hardening
+  tamamlanmadan başlanmamalı; planlı, henüz başlanmadı). Gerekçe: R1 (RefundIntent CANCELLED lifecycle) artık çözüldü
+  ama commit/deploy yok ve refund ledger'ın append-only garantisi ancak return financial invariants + private media
+  hardening ship edildikten sonra güvenle inşa edilebilir. PENDING `RefundIntent`'leri işler: gerçek provider refund +
+  append-only `OrderRefund` ledger (ADR-268 §5) → Financial Reporting `productRefundsMinor`/`shippingRefundsMinor`
+  beslenir, `refundAmountsSupported=true` olur (net/total'dan TAM BİR KEZ düşülür).
 
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;

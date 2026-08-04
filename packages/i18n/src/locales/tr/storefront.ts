@@ -892,6 +892,21 @@ export const trStorefront = {
     passwordShow: "Şifreyi göster",
     passwordHide: "Şifreyi gizle",
     submitting: "İşleniyor…",
+    // ADR-271 — "Beni hatırla"
+    rememberMe: "Beni hatırla",
+    rememberMeHint: "Bu cihazda oturumunuz daha uzun süre (30 güne kadar) açık kalır. Ortak cihazlarda kapalı bırakın.",
+    // ADR-271 — Oturum uyarı/geri-sayım/uzatma metinleri.
+    session: {
+      warningTitle: "Oturumunuz birazdan sona erecek",
+      warningBody: "Hareketsizlik nedeniyle oturumunuz {time} içinde otomatik olarak sonlanacak.",
+      countdownLabel: "Kalan süre",
+      extend: "Oturumu uzat",
+      extendBusy: "Uzatılıyor…",
+      logout: "Çıkış yap",
+      closeLabel: "Kapat",
+      expiredMessage: "Oturumunuz sona erdi. Devam etmek için tekrar giriş yapın.",
+      extendError: "Oturum uzatılamadı. Lütfen tekrar giriş yapın.",
+    },
     login: {
       title: "Giriş Yap",
       subtitle: "Hesabınıza giriş yapın.",

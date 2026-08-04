@@ -2064,3 +2064,55 @@ room, no code now):
   `rev-`/`test-` fixture; gerçek müşteri fail-closed) + `withSmokeCredential` (snapshot + `try/finally` birebir
   restore; cleanup fail = smoke fail) + 7 birim test (`packages/db/test/smoke-credential-safety.test.ts`); kural
   `docs/OPERATIONS.md`'ye kalıcı yazıldı (izole `smk_` müşteri + FK-güvenli teardown).
+
+## Unified Session Policy (ADR-271) — future teknik borç (2026-08-04)
+
+ADR-271 IMPLEMENTED (analiz + implementasyon + tam gate + gerçek browser smoke; commit/deploy YOK). Aşağıdaki
+başlıklar bilinçli olarak KAPSAM DIŞI bırakıldı (bu faz temeli kurar; hepsi additive genişletir):
+
+- **TD-178 (Session device management UI) — 🔵 FUTURE:** Account/Security ekranında aktif oturum listesi (cihaz/UA/IP,
+  son etkinlik, oturum sonu). Bu fazda yalnız yardımcı metin + i18n hazır (`session.helperRememberOn/Off`,
+  `lastActivity`, `endsAt`); liste UI + veri ucu future. `PlatformSession`/`CustomerSession` zaten UA/IP tutuyor.
+- **TD-179 (All-devices logout / revoke-all UX) — 🔵 FUTURE:** Kullanıcı-tetikli "tüm cihazlardan çıkış". Gateway
+  `revokeAllSessions` (customer) zaten var (parola değişiminde kullanılıyor); platform tarafı + UX + audit future.
+- **TD-180 (Session anomaly detection) — 🔵 FUTURE:** Eşzamanlı uzak IP/UA sıçraması, imkânsız-seyahat, rotation
+  soyağacı (`rotatedFromSessionId`) üzerinden anomali skorlama + opsiyonel step-up. Şu an yalnız rotation kaydı var.
+- **TD-181 (Storefront social login & identity linking) — 🔵 FUTURE (roadmap adayı):** Sosyal sağlayıcı (Google/Apple)
+  ile giriş + tek `Customer` kimliğine bağlama (ADR-032). Unified Session Policy bunun oturum temelidir; sıradaki
+  roadmap adayı budur.
+- **TD-182 (Provider logout / token revocation) — 🔵 FUTURE:** Sosyal login geldiğinde sağlayıcı tarafı logout /
+  refresh-token revocation (RP-initiated logout). TD-181'e bağımlı.
+- **TD-183 (Unsaved-form granular escalation) — 🟡 FUTURE:** Idle-öncesi uyarı modalı + geri sayım zaten "sessiz
+  redirect yok" garantisini verir (kullanıcı 5 dk önceden uyarılır) ve POST otomatik yeniden gönderilmez. Form-bazlı
+  "kirli durum" tespitiyle modalı yükseltme (or. "kaydedilmemiş değişiklik var") her formun opt-in'ini gerektirir →
+  additive; formlar kademeli benimser.
+- **TD-184 (Legacy TTL config temizliği) — 🟢 MINOR:** `SESSION_TTL_SECONDS` / `CUSTOMER_SESSION_TTL_SECONDS` artık
+  oturum ömrü OTORİTESİ DEĞİL (policy penceresi otorite); geriye-uyum için env şemasında bırakıldı. İleride
+  kaldırılabilir (başka tüketici yoksa) — düşük öncelik.
+- **TD-185 (ADR-271 §7 migration full-table UPDATE — kabul edilen borç) — 🟡 (2026-08-04):** Orijinal §7 migration'ının
+  backfill'i (`UPDATE … SET lastActivityAt = updatedAt, rememberMe = false`) immutable kaldı (zaten uygulandı). Bu
+  koşulsuz full-table `UPDATE` büyük `PlatformSession`/`CustomerSession` tablosunda satır-kilidi/tablo-yükü yaratabilir
+  → **prod deploy'da düşük-trafik/maintenance penceresi gerektirir** (M2 kabul edilen borç). Follow-up hardening
+  migration `20260804170000` fast-default kullanır (tablo rewrite/UPDATE yok); ileriki ADR-271 migration'ları da
+  fast-default/`SET DEFAULT` pattern'ini izlemeli. Detay: ADR-271 §8, OPERATIONS deploy runbook.
+- **TD-186 (Private media hâlâ uygulama-katmanı guard) — 🟡 (2026-08-04; C1 sonrası kalan borç):** C1 hardening'i
+  substring-bypass'ı kapattı (iteratif-decode + segment-bazlı `returns` eşleşmesi), ama private media erişimi hâlâ
+  **uygulama-katmanı guard + non-enumerable storage key** üzerine kurulu (fastifyStatic dosya sistemi + gateway
+  `classifyMediaRequestPath`). Gerçek private-bucket / signed-URL (object-store, süreli imzalı erişim) ileriye
+  ertelendi. Detay: ADR-269 Post-Audit Hardening (C1), `apps/api-gateway/src/media/private-guard.ts`.
+- **TD-187 (RefundIntent enum genişletme — henüz gerekmiyor) — 🟢 MINOR (2026-08-04):** `RefundIntent` durum enum'u
+  `PENDING`/`PROCESSED`/`CANCELLED` (R1 ile eklendi) ile yeterli; `CONSUMED`/`FAILED` gibi değerler **eklenmedi**.
+  TODO-170 gerçek provider refund + append-only ledger geldiğinde (partial-fail / provider-hata modellemesi gerekirse)
+  additive olarak eklenebilir. Şu an gereksiz karmaşıklık olmasın diye kapsam dışı.
+- **S5 (Cookie Secure env hardening) — ✅ CLOSED (2026-08-04):** Ortak `@commerce-os/utils` `resolveCookieSecure`/
+  `resolveSameSite`. Boş/whitespace env → default (prod `Secure=true`); `"false"`/geçersiz production'da **fail-fast**;
+  5 cookie modülü (Platform Admin + Store Admin session & CSRF, Storefront customer) tek policy + set/clear parity.
+  `ADMIN_COOKIE_SECURE=""` → kazara `Secure=false` footgun'u kapandı. Testler: utils parser + admin parity.
+- **S3 (Activity throttle footgun) — ✅ CLOSED (2026-08-04):** `SESSION_ACTIVITY_THROTTLE_SECONDS` `.positive()`
+  (0 reddedilir) + `assertActivityThrottleSeconds` production alt sınırı **30 sn** (default 300); `loadConfig` fail-fast;
+  <30 yalnız dev/test, production'a sızamaz. Birim: saniye.
+- **S7 (warningLeadSeconds server-refresh) — 🟡 FUTURE (düşük etki):** SessionGuard client'ı `warningLeadSeconds`'i
+  poll'lar arası server'dan yeniden almaz (login/extend/me anındaki değeri kullanır). Politika nadiren değiştiği için
+  düşük etkili; ileride timing yanıtından tazelenebilir.
+- **P3 (single-tab pending-work refresh) — 🟡 FUTURE (düşük etki):** Bekleyen-iş sayacı mutation sonrası aynı sekmede
+  tazelenir; sekmeler arası anlık senkron (BroadcastChannel) future. P1/P2 semantiği doğru (allowlist + invariant).

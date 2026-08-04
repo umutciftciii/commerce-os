@@ -1681,3 +1681,61 @@ Bir browser smoke **MEVCUT (gerçek/seed) bir müşterinin parolasını DEĞİŞ
 
 Guard birim testleri: `packages/db/test/smoke-credential-safety.test.ts` (7 test; gerçek (non-smoke) bir kimlik
 fail-closed reddedilir, body-hata-restore, snapshot-yoksa-sil).
+
+## Unified Session Policy (ADR-271) — env & runbook
+
+Oturum ömrü ARTIK `SESSION_TTL_SECONDS`/`CUSTOMER_SESSION_TTL_SECONDS` OTORİTESİNDE DEĞİL; tek policy kaynağından
+(`packages/config/src/session-policy.ts` → `resolveSessionPolicy`) türer. Aşağıdaki env'ler yalnız varsayılanı
+override eder (hepsi opsiyonel/TD-036 toleranslı; boş → varsayılan). **SUNUCU-otoriter; istemci gönderemez.**
+
+| Env | Varsayılan | Anlam |
+|---|---|---|
+| `SESSION_IDLE_TIMEOUT_SECONDS` | 1800 (30 dk) | remember-off idle penceresi |
+| `SESSION_ABSOLUTE_EXPIRY_SECONDS` | 28800 (8 saat) | remember-off mutlak tavan |
+| `SESSION_REMEMBER_IDLE_TIMEOUT_SECONDS` | 604800 (7 g) | remember-on idle penceresi |
+| `SESSION_REMEMBER_ABSOLUTE_EXPIRY_SECONDS` | 2592000 (30 g) | remember-on mutlak tavan |
+| `SESSION_WARNING_LEAD_SECONDS` | 300 (5 dk) | idle bitimine kaç sn kala uyarı |
+| `SESSION_ACTIVITY_THROTTLE_SECONDS` | 300 (5 dk) | `lastActivityAt` DB yazma throttle. **S3:** 0/negatif reddedilir; **production'da min 30 sn** (aksi `loadConfig` fail-fast). <30 yalnız dev/test. |
+
+**Cookie güvenliği (S5).** `ADMIN_COOKIE_SECURE` (Platform + Store Admin session & CSRF) ve `STOREFRONT_COOKIE_SECURE`
+(müşteri cookie) ortak güvenli parser'dan geçer: **unset/boş → production'da `Secure=true`** (default); `"true"`→true;
+`"false"`/geçersiz **production'da fail-fast** (insecure cookie üretilemez) — dev/test'te `"false"` kabul edilir.
+`ADMIN_COOKIE_SAME_SITE` (`strict`/`lax`; default `lax`). Session ve CSRF cookie AYNI policy'yi kullanır; set/clear
+seçenekleri eşleşir. Yani prod'da bu env'leri **unset bırakmak güvenlidir** (otomatik Secure); yalnız local http
+smoke için `NODE_ENV=development` (Secure=false).
+
+**Migration:** `20260804160000_adr271_unified_session_policy` — additive (`lastActivityAt`, `absoluteExpiresAt?`,
+`rememberMe`, `rotatedFromSessionId` her iki oturum tablosuna), `IF NOT EXISTS` ile replay-safe, mevcut satırları
+backfill eder (`absoluteExpiresAt=expiresAt`, `lastActivityAt=updatedAt`, `rememberMe=false`). Deploy sırasında
+`prisma migrate deploy` yeterli; ADR-271-öncesi süreçlerle aynı DB'de çakışmaz (yeni kolonlar default/nullable).
+
+**⚠️ ZORUNLU deploy sırası — migrate-before-app (ADR-271 §8 hardening).** ADR-271 migration'ları (temel
+`20260804160000` + follow-up hardening `20260804170000_adr271_returns_session_hardening`) **uygulama boot'undan ÖNCE**
+uygulanmalı. **old-app/new-schema GÜVENLİDİR** (tüm değişiklikler additive; eski app yeni kolonları görmezden gelir);
+**new-app/old-schema DESTEKLENMEZ** (yeni app `policyVersion`/hardening kolonlarını bekler). Sıra: önce
+`prisma migrate deploy`, sonra yeni imajları recreate et. Follow-up migration `20260804170000` **fast-default**
+kullanır (`ADD COLUMN … DEFAULT` + `SET DEFAULT` → tablo rewrite/koşulsuz UPDATE YOK, kilit riski minimal). **Ancak**
+temel §7 migration'ının backfill'i (`UPDATE … SET lastActivityAt/rememberMe`) koşulsuz full-table `UPDATE`'tir ve
+büyük `PlatformSession`/`CustomerSession` tablosunda kilit yapabilir → **düşük trafik / maintenance penceresinde
+deploy edin** (TD-185). M1 `policyVersion` cutover sayesinde deploy anında mevcut uzun oturumlar 30 dk'ya
+idle-collapse OLMAZ (legacy=absolute-only, ilk aktivitede native'e terfi).
+
+**Gerçek-DB testleri:** `returns-lifecycle.integration.test.ts` ve `session-legacy.integration.test.ts`
+`commerce_os_test` veritabanına `DATABASE_URL` set edilerek koşar (R1–R5/P1-P2 ve legacy policy invariant'ları);
+CI'da (DB yok) otomatik SKIP edilir. Örn. `DATABASE_URL=postgres://…/commerce_os_test pnpm --filter
+@commerce-os/api-gateway test`.
+
+**Oturum smoke (test-clock override — gerçek 30 dk BEKLEME YOK):** worktree gateway'i küçültülmüş pencerelerle
+başlat, ör.:
+```
+SESSION_IDLE_TIMEOUT_SECONDS=45 SESSION_WARNING_LEAD_SECONDS=25 SESSION_ABSOLUTE_EXPIRY_SECONDS=120 \
+SESSION_ACTIVITY_THROTTLE_SECONDS=5 CUSTOMER_OTP_DEV_CODE=424242 API_GATEWAY_PORT=4100 \
+pnpm --filter @commerce-os/api-gateway dev
+```
+Next app'leri `API_GATEWAY_URL=http://localhost:4100` ile ayrı portlarda (3100/3101/3102) koştur; login
+(remember-me kapalı) → ~20 sn hareketsiz → warning modal + geri sayım → "Oturumu uzat"/idle-expiry → login +
+"Oturumunuz sona erdi..." mesajı; ikinci sekmede logout senkronu. Platform admin: `platform-admin@example.local`
+/ `local-admin-password`.
+
+**Güvenlik notu:** session token yalnız httpOnly cookie'dedir (JS/localStorage'da YOK). Çok-sekme senkron
+localStorage anahtarı `*_session_sync` yalnız mesaj tipi (`logout`/`expired`/`extended`) taşır, ASLA token.

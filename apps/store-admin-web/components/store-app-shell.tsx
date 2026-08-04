@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LanguageSwitcher, useLocale } from "@commerce-os/ui";
 import { getDictionary } from "@commerce-os/i18n";
+import type { SessionTiming } from "@commerce-os/contracts";
 import { Badge } from "./ui";
 import { StoreNav } from "./store-nav";
 import { StoreContextProvider } from "./store-context";
+import { SessionGuard } from "./session-guard";
 import { storeApi, type StoreContext, type StoreUser } from "../lib/client/api";
+import { SESSION_CHANNEL, postSessionMessage } from "../lib/client/session-sync";
+import { safeInternalPath } from "../lib/safe-path";
 
 type GuardState =
   | { status: "loading" }
-  | { status: "ready"; user: StoreUser; store: StoreContext }
+  | { status: "ready"; user: StoreUser; store: StoreContext; timing?: SessionTiming }
   | { status: "unauthed" };
 
 const ACTIVE_STORE_LABEL = { tr: "Aktif Mağaza", en: "Active Store" };
@@ -44,6 +48,7 @@ function BrandMark() {
  */
 export function StoreAppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [state, setState] = useState<GuardState>({ status: "loading" });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -55,7 +60,8 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
     let active = true;
     Promise.all([storeApi.me(), storeApi.storeContext()])
       .then(([me, ctx]) => {
-        if (active) setState({ status: "ready", user: me.user, store: ctx.store });
+        if (active)
+          setState({ status: "ready", user: me.user, store: ctx.store, timing: me.session.timing });
       })
       .catch(() => {
         if (!active) return;
@@ -66,6 +72,21 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [router]);
+
+  // ADR-271 — oturum bitişinde/çıkışta güvenli login yönlendirmesi (returnTo + expired).
+  const onSessionEnded = useCallback(
+    (reason: "expired" | "logout") => {
+      const returnTo = safeInternalPath(pathname ?? "/", "/");
+      const params = new URLSearchParams();
+      if (reason === "expired") {
+        params.set("reason", "expired");
+        if (returnTo !== "/") params.set("returnTo", returnTo);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `/login?${qs}` : "/login");
+    },
+    [pathname, router],
+  );
 
   if (state.status !== "ready") {
     return (
@@ -98,8 +119,21 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
     await storeApi.logout().catch(() => {
       // Cookie sunucu tarafinda her durumda temizlenir.
     });
+    // ADR-271 — diğer sekmeleri de çıkar (çok sekme senkronu).
+    postSessionMessage({ type: "logout" });
     router.replace("/login");
   }
+
+  const sessionMessages = {
+    warningTitle: store.session.warningTitle,
+    warningBody: store.session.warningBody,
+    countdownLabel: store.session.countdownLabel,
+    extend: store.session.extend,
+    extendBusy: store.session.extendBusy,
+    logout: store.session.logout,
+    extendError: store.session.extendError,
+    closeLabel: store.session.closeLabel,
+  };
 
   /**
    * Kenar menü içeriği (marka + aktif mağaza kartı + nav + kullanıcı/çıkış).
@@ -173,6 +207,15 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
 
   return (
     <StoreContextProvider store={state.store}>
+      <SessionGuard
+        channelName={SESSION_CHANNEL}
+        initialTiming={state.status === "ready" ? state.timing : undefined}
+        messages={sessionMessages}
+        refreshTiming={() => storeApi.me().then((me) => me.session.timing ?? null).catch(() => null)}
+        extendSession={() => storeApi.extendSession().then((r) => r.timing)}
+        logout={() => storeApi.logout().then(() => undefined)}
+        onEnded={onSessionEnded}
+      />
       <div className="flex h-screen overflow-hidden">
         {/* SIDEBAR (lg+) */}
         <aside className="z-10 hidden w-[248px] shrink-0 flex-col overflow-hidden border-r border-white/[0.07] bg-white/[0.045] backdrop-blur-2xl backdrop-saturate-150 lg:flex">

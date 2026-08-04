@@ -64,6 +64,10 @@ function hashSessionToken(token: string, secret: string): string {
 const adminSession = {
   id: "psess_1",
   expiresAt: new Date(Date.now() + 3_600_000),
+  // ADR-271 — iki-kapili omur alanlari (gecerli/taze oturum fake'i).
+  lastActivityAt: new Date(),
+  absoluteExpiresAt: new Date(Date.now() + 3_600_000),
+  rememberMe: false,
   revokedAt: null,
   platformUser: { id: "padmin_1", email: "admin@example.com", name: "Admin", passwordHash: "x", role: "SUPER_ADMIN" },
 };
@@ -101,7 +105,19 @@ class MemoryCustomers {
   customers: (CustomerAuthRecord & { createdAt: Date })[] = [];
   credentials = new Map<string, { passwordHash: string; passwordChangedAt: Date }>();
   tokens: TokenRow[] = [];
-  sessions = new Map<string, { id: string; storeId: string; customerId: string; expiresAt: Date; revokedAt: Date | null }>();
+  sessions = new Map<
+    string,
+    {
+      id: string;
+      storeId: string;
+      customerId: string;
+      expiresAt: Date;
+      lastActivityAt: Date;
+      absoluteExpiresAt: Date | null;
+      rememberMe: boolean;
+      revokedAt: Date | null;
+    }
+  >();
 
   private id(prefix: string) {
     this.seq += 1;
@@ -130,12 +146,24 @@ class MemoryCustomers {
     const c = this.credentials.get(customerId);
     return c ? { passwordChangedAt: c.passwordChangedAt } : null;
   }
-  async createSession(input: { storeId: string; customerId: string; tokenHash: string; expiresAt: Date }) {
+  async createSession(input: {
+    storeId: string;
+    customerId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    lastActivityAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    rotatedFromSessionId?: string | null;
+  }) {
     this.sessions.set(input.tokenHash, {
       id: this.id("ses"),
       storeId: input.storeId,
       customerId: input.customerId,
       expiresAt: input.expiresAt,
+      lastActivityAt: input.lastActivityAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      rememberMe: input.rememberMe,
       revokedAt: null,
     });
   }
@@ -143,7 +171,16 @@ class MemoryCustomers {
     const s = this.sessions.get(tokenHash);
     if (!s) return null;
     const customer = this.customers.find((c) => c.id === s.customerId)!;
-    return { id: s.id, storeId: s.storeId, expiresAt: s.expiresAt, revokedAt: s.revokedAt, customer };
+    return {
+      id: s.id,
+      storeId: s.storeId,
+      expiresAt: s.expiresAt,
+      lastActivityAt: s.lastActivityAt,
+      absoluteExpiresAt: s.absoluteExpiresAt,
+      rememberMe: s.rememberMe,
+      revokedAt: s.revokedAt,
+      customer,
+    };
   }
   async countActiveSessions(storeId: string, customerId: string) {
     let count = 0;

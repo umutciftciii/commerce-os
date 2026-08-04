@@ -33,6 +33,26 @@ export const trAdmin = {
     footnote: "Bu konsol yalnızca yetkili platform yöneticileri içindir.",
     requiredEmail: "Geçerli bir e-posta adresi girin.",
     requiredPassword: "Parolanızı girin.",
+    // ADR-271 — "Beni hatırla"
+    rememberMe: "Beni hatırla",
+    rememberMeHint: "Bu cihazda oturumunuz daha uzun süre (30 güne kadar) açık kalır. Ortak cihazlarda kapalı bırakın.",
+  },
+  // ADR-271 — Oturum yaşam döngüsü UX'i (uyarı modalı, geri sayım, uzatma, çıkış).
+  session: {
+    warningTitle: "Oturumunuz birazdan sona erecek",
+    warningBody: "Hareketsizlik nedeniyle oturumunuz {time} içinde otomatik olarak sonlanacak.",
+    countdownLabel: "Kalan süre",
+    extend: "Oturumu uzat",
+    extendBusy: "Uzatılıyor…",
+    logout: "Çıkış yap",
+    closeLabel: "Kapat",
+    expiredMessage: "Oturumunuz sona erdi. Devam etmek için tekrar giriş yapın.",
+    extendError: "Oturum uzatılamadı. Lütfen tekrar giriş yapın.",
+    // Oturum yönetimi / güvenlik yardımcı metinleri.
+    helperRememberOn: "“Beni hatırla” açık: bu cihazda oturumunuz uzun süre (en çok 30 gün) açık kalır.",
+    helperRememberOff: "“Beni hatırla” kapalı: 30 dakika hareketsizlikte veya en çok 8 saat sonra oturumunuz sonlanır.",
+    lastActivity: "Son etkinlik",
+    endsAt: "Oturum sonu",
   },
   errors: {
     INVALID_CREDENTIALS: "E-posta veya parola hatalı.",

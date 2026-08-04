@@ -277,6 +277,9 @@ export const platformUserSchema = z.object({
 export const platformLoginRequestSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  // ADR-271 — "Beni hatirla". Server-otoriter oturum penceresini secer
+  // (kapali: idle 30dk/abs 8s, acik: idle 7g/abs 30g). Varsayilan KAPALI.
+  rememberMe: z.boolean().optional().default(false),
 });
 
 export const platformLoginResponseSchema = z.object({
@@ -285,16 +288,37 @@ export const platformLoginResponseSchema = z.object({
   user: platformUserSchema,
 });
 
+// ADR-271 — istemci uyari/geri-sayim + oturum yonetimi UX'i icin oturum zamanlamasi.
+// idleExpiresAt = lastActivityAt + idleTimeout; absoluteExpiresAt = mutlak tavan.
+// warningLeadSeconds = idle bitimine kac saniye kala uyari. Hepsi opsiyonel
+// (geriye uyumlu; eski istemci yok sayar).
+export const sessionTimingSchema = z.object({
+  idleExpiresAt: z.string().datetime(),
+  absoluteExpiresAt: z.string().datetime(),
+  warningLeadSeconds: z.number().int().nonnegative(),
+  rememberMe: z.boolean(),
+  lastActivityAt: z.string().datetime(),
+});
+
 export const platformMeResponseSchema = z.object({
   user: platformUserSchema,
   session: z.object({
     id: z.string().min(1),
     expiresAt: z.string().datetime(),
+    timing: sessionTimingSchema.optional(),
   }),
 });
 
 export const platformLogoutResponseSchema = z.object({
   revoked: z.boolean(),
+});
+
+// ADR-271 — oturum uzatma (extend): token ROTATE edilir; yeni token + zamanlama
+// doner (BFF cookie'yi yeni token ile yeniden yazar). absoluteExpiresAt DEGISMEZ.
+export const platformSessionExtendResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  timing: sessionTimingSchema,
 });
 
 export const storeStatusSchema = z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]);
@@ -5580,6 +5604,8 @@ export type PlatformLoginRequest = z.infer<typeof platformLoginRequestSchema>;
 export type PlatformLoginResponse = z.infer<typeof platformLoginResponseSchema>;
 export type PlatformMeResponse = z.infer<typeof platformMeResponseSchema>;
 export type PlatformLogoutResponse = z.infer<typeof platformLogoutResponseSchema>;
+export type PlatformSessionExtendResponse = z.infer<typeof platformSessionExtendResponseSchema>;
+export type SessionTiming = z.infer<typeof sessionTimingSchema>;
 export type AdminStore = z.infer<typeof adminStoreSchema>;
 export type AdminStoreListResponse = z.infer<typeof adminStoreListResponseSchema>;
 export type AdminStoreCreateRequest = z.infer<typeof adminStoreCreateRequestSchema>;
@@ -5937,6 +5963,8 @@ export const customerRegisterCompleteRequestSchema = z.object({
   clarificationConsent: z.literal(true, {
     errorMap: () => ({ message: "Aydinlatma metni onayi zorunlu." }),
   }),
+  // ADR-271 — kayit tamamlaninca acilan oturum icin "Beni hatirla". Varsayilan KAPALI.
+  rememberMe: z.boolean().optional().default(false),
 });
 
 /* ── Giris / oturum ───────────────────────────────────────────────────────── */
@@ -5944,6 +5972,8 @@ export const customerRegisterCompleteRequestSchema = z.object({
 export const customerLoginRequestSchema = z.object({
   identifier: customerIdentifierSchema,
   password: z.string().min(1).max(200),
+  // ADR-271 — "Beni hatirla" (bkz. platformLoginRequestSchema). Varsayilan KAPALI.
+  rememberMe: z.boolean().optional().default(false),
 });
 
 /** Oturum acan musterinin guvenli profili (kendi hesabi). */
@@ -5968,10 +5998,20 @@ export const customerSessionResponseSchema = z.object({
 
 export const customerMeResponseSchema = z.object({
   customer: customerAccountSchema,
-  session: z.object({ expiresAt: z.string().datetime() }),
+  session: z.object({
+    expiresAt: z.string().datetime(),
+    timing: sessionTimingSchema.optional(),
+  }),
 });
 
 export const customerLogoutResponseSchema = z.object({ revoked: z.boolean() });
+
+// ADR-271 — musteri oturum uzatma (extend): token ROTATE; yeni token + zamanlama.
+export const customerSessionExtendResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  timing: sessionTimingSchema,
+});
 
 /* ── Profil / sifre / iletisim tercihleri ─────────────────────────────────── */
 
@@ -6096,6 +6136,7 @@ export type CustomerLoginRequest = z.infer<typeof customerLoginRequestSchema>;
 export type CustomerAccount = z.infer<typeof customerAccountSchema>;
 export type CustomerSessionResponse = z.infer<typeof customerSessionResponseSchema>;
 export type CustomerMeResponse = z.infer<typeof customerMeResponseSchema>;
+export type CustomerSessionExtendResponse = z.infer<typeof customerSessionExtendResponseSchema>;
 export type CustomerProfileUpdateRequest = z.infer<typeof customerProfileUpdateRequestSchema>;
 export type CustomerPasswordChangeRequest = z.infer<typeof customerPasswordChangeRequestSchema>;
 export type CustomerCommunicationPreference = z.infer<
@@ -11881,14 +11922,20 @@ export const adminReturnApproveItemSchema = z.object({
   returnItemId: z.string().min(1),
   approvedQuantity: z.number().int().nonnegative(),
 });
+// R3 (ADR-269 hardening) — optimistic concurrency. Her state-changing admin mutation, detayda
+// gördüğü kaydın `version`'ini geri gönderir; gateway tx içinde eşleşmezse 409 VERSION_CONFLICT
+// döner (bayat approve intent OLUŞTURMAZ, bayat inspect restock ÜRETMEZ). Zorunlu.
+export const returnExpectedVersionSchema = z.number().int().nonnegative();
 // Tam onay: items verilmezse tüm kalemler istenen adetle onaylanır. Kısmi: per-item approvedQuantity.
 export const adminReturnApproveRequestSchema = z.object({
   items: z.array(adminReturnApproveItemSchema).optional(),
   adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+  expectedVersion: returnExpectedVersionSchema,
 });
 export const adminReturnRejectRequestSchema = z.object({
   rejectionReason: z.string().min(1).max(RETURN_COMMENT_MAX),
   adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+  expectedVersion: returnExpectedVersionSchema,
 });
 export const adminReturnInspectItemSchema = z.object({
   returnItemId: z.string().min(1),
@@ -11899,12 +11946,14 @@ export const adminReturnInspectItemSchema = z.object({
 export const adminReturnInspectRequestSchema = z.object({
   items: z.array(adminReturnInspectItemSchema).min(1),
   adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+  expectedVersion: returnExpectedVersionSchema,
 });
 // Basit durum ilerletmeleri (incelemeye al / teslim alındı / refund|replacement pending / kapat).
 export const adminReturnTransitionRequestSchema = z.object({
   targetStatus: returnStatusSchema,
   adminNote: z.string().max(RETURN_COMMENT_MAX).optional(),
   refundShipping: z.boolean().optional(),
+  expectedVersion: returnExpectedVersionSchema,
 });
 
 export type ReturnStatusValue = z.infer<typeof returnStatusSchema>;

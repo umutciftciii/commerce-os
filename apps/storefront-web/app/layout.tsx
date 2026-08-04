@@ -7,6 +7,7 @@ import { getCartCount } from "../lib/server/cart-cookie";
 import { getAuthCartProjection } from "../lib/server/cart";
 import { getCurrentCustomer } from "../lib/server/customer";
 import { SiteHeader } from "../components/site/site-header";
+import { StorefrontSessionGuard } from "../components/auth/storefront-session-guard";
 import { SiteFooter } from "../components/site/site-footer";
 import { ThemeSlotsProvider } from "../components/theme/theme-slots";
 import { ThemePreviewHighlight } from "../components/theme/preview-highlight";
@@ -118,6 +119,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <style id="commerce-os-theme" dangerouslySetInnerHTML={{ __html: theme.css }} />
         ) : null}
         {isThemePreview ? <ThemePreviewHighlight /> : null}
+        {/* ADR-271 — Oturum muhafızı yalnız oturum açmış müşteride mount edilir
+            (anonim vitrinde ek istek yok). Uyarı modalı + geri sayım + uzatma +
+            çok sekme senkronu; sunucu otoriter. */}
+        {customer ? <StorefrontSessionGuard /> : null}
         <JsonLd data={organizationLd} />
         <JsonLd data={webSiteLd} />
         <a

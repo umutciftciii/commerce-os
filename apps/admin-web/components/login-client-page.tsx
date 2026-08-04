@@ -6,6 +6,7 @@ import { Alert, Button, Input, LanguageSwitcher, Spinner, useLocale } from "@com
 import { getDictionary } from "@commerce-os/i18n";
 import { adminApi } from "../lib/client/api";
 import { messageForError } from "../lib/client/messages";
+import { safeInternalPath } from "../lib/safe-path";
 
 type FormState = "checking" | "idle" | "submitting" | "redirecting";
 
@@ -20,7 +21,20 @@ export function LoginClientPage() {
   const [formState, setFormState] = useState<FormState>("checking");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ADR-271 — oturum sona erdi bildirimi (idle/absolute expiry sonrası).
+  const [notice, setNotice] = useState<string | null>(null);
+  const [returnTo, setReturnTo] = useState("/");
+
+  // ADR-271 — güvenli returnTo + expired reason (URL'den; open-redirect savunması).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setReturnTo(safeInternalPath(params.get("returnTo"), "/"));
+    if (params.get("reason") === "expired") {
+      setNotice(admin.session.expiredMessage);
+    }
+  }, [admin.session.expiredMessage]);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +43,7 @@ export function LoginClientPage() {
       .then(() => {
         if (active) {
           setFormState("redirecting");
-          router.replace("/");
+          router.replace(safeInternalPath(new URLSearchParams(window.location.search).get("returnTo"), "/"));
         }
       })
       .catch(() => {
@@ -55,9 +69,9 @@ export function LoginClientPage() {
 
     setFormState("submitting");
     try {
-      await adminApi.login(email, password);
+      await adminApi.login(email, password, rememberMe);
       setFormState("redirecting");
-      router.replace("/");
+      router.replace(returnTo);
     } catch (caught) {
       setError(messageForError(caught, locale));
       setFormState("idle");
@@ -90,6 +104,7 @@ export function LoginClientPage() {
 
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-panel">
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
+            {notice ? <Alert tone="warning">{notice}</Alert> : null}
             {error ? <Alert tone="error">{error}</Alert> : null}
             <Input
               id="email"
@@ -113,6 +128,19 @@ export function LoginClientPage() {
               disabled={busy}
               required
             />
+            <label className="flex items-start gap-2.5 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                disabled={busy}
+              />
+              <span>
+                <span className="font-medium text-slate-700">{t.rememberMe}</span>
+                <span className="mt-0.5 block text-xs text-slate-400">{t.rememberMeHint}</span>
+              </span>
+            </label>
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? t.submitting : t.submit}
             </Button>

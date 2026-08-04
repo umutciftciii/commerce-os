@@ -17,6 +17,16 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { hashPassword, verifyPassword } from "@commerce-os/auth";
 import type { AppConfig } from "@commerce-os/config";
+// ADR-271 — Unified Session Policy (tek kaynak): iki-kapili omur + throttle + timing.
+import {
+  computeSessionExpiry,
+  effectiveAbsolute,
+  isLegacySession,
+  isSessionValid,
+  resolveSessionPolicy,
+  sessionTiming,
+  shouldBumpActivity,
+} from "@commerce-os/config";
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
 // Faz 3/Dilim 6b — siparis satiri thumbnail'i icin paylasilan kapak URL haritasi
@@ -46,6 +56,7 @@ import {
   customerLoginRequestSchema,
   customerLogoutResponseSchema,
   customerMeResponseSchema,
+  customerSessionExtendResponseSchema,
   customerOrderListResponseSchema,
   customerOrderDetailResponseSchema,
   type ReturnOrderSummary,
@@ -102,7 +113,13 @@ export interface CustomerSessionRecord {
   id: string;
   storeId: string;
   expiresAt: Date;
+  // ADR-271 — iki-kapili omur alanlari.
+  lastActivityAt: Date;
+  absoluteExpiresAt: Date | null;
+  rememberMe: boolean;
   revokedAt: Date | null;
+  // M1 — legacy cutover marker (0 = grandfathered absolute-only; ilk aktivitede 1'e terfi).
+  policyVersion?: number;
   customer: CustomerAuthRecord;
 }
 
@@ -383,11 +400,33 @@ export interface CustomerDataAccess {
     customerId: string;
     tokenHash: string;
     expiresAt: Date;
+    // ADR-271 — iki-kapili omur + politika penceresi + rotation soyagaci.
+    lastActivityAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    rotatedFromSessionId?: string | null;
     userAgent?: string | null;
     ipAddress?: string | null;
   }): Promise<void>;
   findSessionByTokenHash(tokenHash: string): Promise<CustomerSessionRecord | null>;
   revokeSession(id: string): Promise<boolean>;
+  // ADR-271 — idle capasini (throttle'li) yenile; absolute'e DOKUNMAZ. Idempotent.
+  // M1 — promoteToNative: legacy (policyVersion=0) oturumu ilk anlamli aktivitede native'e (1) tasir.
+  touchSessionActivity(id: string, lastActivityAt: Date, promoteToNative?: boolean): Promise<void>;
+  // ADR-271 — extend: token ROTATE + idle yenile; absolute DEGISMEZ. Eskiyi revoke
+  // eder, yenisini olusturur (atomik). Eski revoke/expired ise null (dirilmez).
+  rotateSession(input: {
+    currentSessionId: string;
+    storeId: string;
+    customerId: string;
+    newTokenHash: string;
+    lastActivityAt: Date;
+    expiresAt: Date;
+    absoluteExpiresAt: Date;
+    rememberMe: boolean;
+    userAgent?: string | null;
+    ipAddress?: string | null;
+  }): Promise<boolean>;
   getCommPref(
     storeId: string,
     customerId: string,
@@ -602,6 +641,10 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           customerId: input.customerId,
           tokenHash: input.tokenHash,
           expiresAt: input.expiresAt,
+          lastActivityAt: input.lastActivityAt,
+          absoluteExpiresAt: input.absoluteExpiresAt,
+          rememberMe: input.rememberMe,
+          rotatedFromSessionId: input.rotatedFromSessionId ?? null,
           userAgent: input.userAgent ?? null,
           ipAddress: input.ipAddress ?? null,
         },
@@ -614,7 +657,11 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           id: true,
           storeId: true,
           expiresAt: true,
+          lastActivityAt: true,
+          absoluteExpiresAt: true,
+          rememberMe: true,
           revokedAt: true,
+          policyVersion: true, // M1 — legacy (0) → absolute-only; ilk aktivitede terfi.
           customer: { select: customerAuthSelect },
         },
       });
@@ -626,6 +673,39 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         data: { revokedAt: new Date() },
       });
       return result.count > 0;
+    },
+    // ADR-271 — idle capasini yenile (absolute'e dokunmaz). Idempotent: yalniz
+    // ACTIVE satiri gunceller; race'te no-op guvenli.
+    async touchSessionActivity(id, lastActivityAt, promoteToNative) {
+      await prisma.customerSession.updateMany({
+        where: { id, revokedAt: null },
+        data: { lastActivityAt, ...(promoteToNative ? { policyVersion: 1 } : {}) },
+      });
+    },
+    // ADR-271 — extend/rotation (tek transaction): eskiyi revoke + yenisini olustur.
+    async rotateSession(input) {
+      return prisma.$transaction(async (tx) => {
+        const revoked = await tx.customerSession.updateMany({
+          where: { id: input.currentSessionId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        if (revoked.count === 0) return false;
+        await tx.customerSession.create({
+          data: {
+            storeId: input.storeId,
+            customerId: input.customerId,
+            tokenHash: input.newTokenHash,
+            expiresAt: input.expiresAt,
+            lastActivityAt: input.lastActivityAt,
+            absoluteExpiresAt: input.absoluteExpiresAt,
+            rememberMe: input.rememberMe,
+            rotatedFromSessionId: input.currentSessionId,
+            userAgent: input.userAgent ?? null,
+            ipAddress: input.ipAddress ?? null,
+          },
+        });
+        return true;
+      });
     },
     async getCommPref(storeId, customerId) {
       const pref = await prisma.customerCommunicationPreference.findUnique({
@@ -1625,7 +1705,11 @@ export async function resolveCustomerFromRequest(
   request: FastifyRequest,
   storeId: string,
   deps: { customers: CustomerDataAccess; config: AppConfig },
+  opts: { countAsActivity?: boolean } = {},
 ): Promise<CustomerAuthRecord | null> {
+  // S1 — yalniz ANLAMLI aktivite idle capasini yeniler; pasif session-timing polling
+  // countAsActivity=false gecer (idle'i uzatmaz). Varsayilan: aktivite say.
+  const countAsActivity = opts.countAsActivity ?? true;
   const header = request.headers["x-customer-session"];
   const token = Array.isArray(header) ? header[0] : header;
   if (!token) return null;
@@ -1633,19 +1717,45 @@ export async function resolveCustomerFromRequest(
     hashSessionToken(token, deps.config.SESSION_SECRET),
   );
   if (!session) return null;
+  // Tenant izolasyonu: baska store'un oturumu ASLA kabul edilmez (store-scoped).
   if (session.storeId !== storeId) return null;
-  if (session.revokedAt || session.expiresAt.getTime() <= Date.now()) return null;
+  // ADR-271 — iki-kapili gecerlilik (revoked + idle + absolute). Teknik expiry
+  // ayrimi client'a sizdirilmaz (cagiran jenerik 401 uretir).
+  const now = new Date();
+  const policy = resolveSessionPolicy(deps.config);
+  if (!isSessionValid(policy, session, now)) return null;
   if (session.customer.status !== "ACTIVE") return null;
+
+  // S1/M1 — anlamli aktivitede idle yenile / legacy oturumu native'e tasi (absolute'u ASMADAN).
+  // Fire-and-forget: aktivite yazimi istegi bloklamaz/500'lemez.
+  if (countAsActivity && now.getTime() <= effectiveAbsolute(session).getTime()) {
+    const bestEffort = () => {
+      /* aktivite yazimi best-effort; okuma yolu etkilenmez */
+    };
+    if (isLegacySession(session)) {
+      // M1 — ilk anlamli aktivite: native'e (policyVersion=1) terfi + taze idle penceresi.
+      void deps.customers.touchSessionActivity(session.id, now, true).catch(bestEffort);
+    } else if (shouldBumpActivity(policy, session.lastActivityAt, now)) {
+      void deps.customers.touchSessionActivity(session.id, now).catch(bestEffort);
+    }
+  }
   return session.customer;
 }
 
 export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoutesDeps): void {
   const { config, customers, logger, resolvePublicStore, listProductImages } = deps;
+  // ADR-271 — cozumlenmis oturum politikasi (platform ile ORTAK evaluator/pencereler).
+  const sessionPolicy = resolveSessionPolicy(config);
   const loginLimiter = createWindowRateLimiter(
     config.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
     config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
   );
   const otpStartLimiter = createWindowRateLimiter(config.CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS, 1);
+  // ADR-271 — extend rate limit (login penceresini yeniden kullanir; anahtar ip:sessionId).
+  const extendLimiter = createWindowRateLimiter(
+    config.AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    config.AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+  );
 
   async function requireStore(request: FastifyRequest, reply: FastifyReply) {
     const slug = (request.params as { storeSlug: string }).storeSlug;
@@ -1661,8 +1771,9 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
+    opts: { countAsActivity?: boolean } = {},
   ): Promise<CustomerAuthRecord | null> {
-    const customer = await resolveCustomerFromRequest(request, storeId, { customers, config });
+    const customer = await resolveCustomerFromRequest(request, storeId, { customers, config }, opts);
     if (!customer) {
       await reply.code(401).send(errorBody("CUSTOMER_UNAUTHORIZED", "Oturum gerekli."));
       return null;
@@ -1822,13 +1933,22 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     });
     await customers.consumeOtp(ok.otp.id);
 
+    // ADR-271 — kayit sonrasi oturum: iki-kapili omur politikadan turer + rememberMe.
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + config.CUSTOMER_SESSION_TTL_SECONDS * 1000);
+    const now = new Date();
+    const { absoluteExpiresAt, expiresAt } = computeSessionExpiry(
+      sessionPolicy,
+      body.rememberMe,
+      now,
+    );
     await customers.createSession({
       storeId: store.id,
       customerId: account.id,
       tokenHash: hashSessionToken(token, config.SESSION_SECRET),
       expiresAt,
+      lastActivityAt: now,
+      absoluteExpiresAt,
+      rememberMe: body.rememberMe,
       userAgent: request.headers["user-agent"] ?? null,
       ipAddress: request.ip,
     });
@@ -1868,13 +1988,22 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     if (!passwordOk) return genericFail();
     loginLimiter.reset(rateKey);
 
+    // ADR-271 — yeni oturum: taze token (fixation savunmasi) + iki-kapili omur + rememberMe.
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + config.CUSTOMER_SESSION_TTL_SECONDS * 1000);
+    const now = new Date();
+    const { absoluteExpiresAt, expiresAt } = computeSessionExpiry(
+      sessionPolicy,
+      body.rememberMe,
+      now,
+    );
     await customers.createSession({
       storeId: store.id,
       customerId: customer.id,
       tokenHash: hashSessionToken(token, config.SESSION_SECRET),
       expiresAt,
+      lastActivityAt: now,
+      absoluteExpiresAt,
+      rememberMe: body.rememberMe,
       userAgent: request.headers["user-agent"] ?? null,
       ipAddress: request.ip,
     });
@@ -1935,20 +2064,105 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     return customerLogoutResponseSchema.parse({ revoked });
   });
 
+  // --- Oturum uzatma (extend, ADR-271) --------------------------------------
+  // YALNIZ aktif (gecerli + store-scoped + ACTIVE) oturum uzatilir; expired/revoked
+  // DIRILTILMEZ. Token ROTATE edilir; absolute tavan DEGISMEZ; idle capasi yenilenir.
+  // CSRF: storefront Server Action same-origin (Next) + httpOnly cookie server-to-server
+  // (attacker x-customer-session'i okuyamaz/uyduramaz). Rate-limited.
+  app.post("/public/stores/:storeSlug/customer/extend", async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const header = request.headers["x-customer-session"];
+    const token = Array.isArray(header) ? header[0] : header;
+    if (!token) {
+      return reply.code(401).send(errorBody("CUSTOMER_UNAUTHORIZED", "Oturum gerekli."));
+    }
+    const session = await customers.findSessionByTokenHash(
+      hashSessionToken(token, config.SESSION_SECRET),
+    );
+    const now = new Date();
+    // Iki-kapili gecerlilik + store scope + ACTIVE; teknik expiry ayrimi sizdirilmaz.
+    if (
+      !session ||
+      session.storeId !== store.id ||
+      !isSessionValid(sessionPolicy, session, now) ||
+      session.customer.status !== "ACTIVE"
+    ) {
+      return reply.code(401).send(errorBody("CUSTOMER_UNAUTHORIZED", "Oturum gerekli."));
+    }
+    const rateKey = `${request.ip}:${session.id}`;
+    if (extendLimiter.isLimited(rateKey)) {
+      return reply
+        .code(429)
+        .send(errorBody("AUTH_RATE_LIMITED", "Cok fazla deneme. Daha sonra tekrar deneyin."));
+    }
+    extendLimiter.record(rateKey);
+
+    const abs = effectiveAbsolute(session); // absolute DEGISMEZ
+    const newToken = randomBytes(32).toString("base64url");
+    const rotated = await customers.rotateSession({
+      currentSessionId: session.id,
+      storeId: store.id,
+      customerId: session.customer.id,
+      newTokenHash: hashSessionToken(newToken, config.SESSION_SECRET),
+      lastActivityAt: now,
+      expiresAt: abs,
+      absoluteExpiresAt: abs,
+      rememberMe: session.rememberMe,
+      userAgent: request.headers["user-agent"] ?? null,
+      ipAddress: request.ip,
+    });
+    if (!rotated) {
+      return reply.code(401).send(errorBody("CUSTOMER_UNAUTHORIZED", "Oturum gerekli."));
+    }
+    const timing = sessionTiming(sessionPolicy, {
+      lastActivityAt: now,
+      absoluteExpiresAt: abs,
+      expiresAt: abs,
+      rememberMe: session.rememberMe,
+      revokedAt: null,
+    });
+    return customerSessionExtendResponseSchema.parse({
+      token: newToken,
+      expiresAt: abs.toISOString(),
+      timing: {
+        idleExpiresAt: timing.idleExpiresAt.toISOString(),
+        absoluteExpiresAt: timing.absoluteExpiresAt.toISOString(),
+        warningLeadSeconds: timing.warningLeadSeconds,
+        rememberMe: timing.rememberMe,
+        lastActivityAt: timing.lastActivityAt.toISOString(),
+      },
+    });
+  });
+
   // --- Me -------------------------------------------------------------------
   app.get("/public/stores/:storeSlug/customer/me", async (request, reply) => {
     const store = await requireStore(request, reply);
     if (!store) return;
-    const customer = await requireCustomer(request, reply, store.id);
+    // S1 — /me PASİF (SessionGuard geri-sayım polling'i); idle capasini UZATMAZ.
+    const customer = await requireCustomer(request, reply, store.id, { countAsActivity: false });
     if (!customer) return;
     const header = request.headers["x-customer-session"];
     const token = Array.isArray(header) ? header[0] : header;
     const session = token
       ? await customers.findSessionByTokenHash(hashSessionToken(token, config.SESSION_SECRET))
       : null;
+    // ADR-271 — istemci uyari/geri-sayim icin oturum zamanlamasi (idle+absolute+lead).
+    const timing = session ? sessionTiming(sessionPolicy, session) : null;
     return customerMeResponseSchema.parse({
       customer: toAccount(customer),
-      session: { expiresAt: (session?.expiresAt ?? new Date()).toISOString() },
+      session: {
+        expiresAt: (session?.expiresAt ?? new Date()).toISOString(),
+        timing: timing
+          ? {
+              idleExpiresAt: timing.idleExpiresAt.toISOString(),
+              absoluteExpiresAt: timing.absoluteExpiresAt.toISOString(),
+              warningLeadSeconds: timing.warningLeadSeconds,
+              rememberMe: timing.rememberMe,
+              lastActivityAt: timing.lastActivityAt.toISOString(),
+            }
+          : undefined,
+      },
     });
   });
 

@@ -15,7 +15,7 @@ import {
   useLocale,
 } from "../../../../../components/ui";
 import type { AdminReturnDetail, AdminReturnItem } from "@commerce-os/api-client";
-import { storeApi } from "../../../../../lib/client/api";
+import { storeApi, UiError } from "../../../../../lib/client/api";
 import { messageForError } from "../../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../../lib/client/format";
 import {
@@ -106,12 +106,18 @@ export default function ReturnDetailPage() {
         setNotice(successMsg);
         setDialog(null);
       } catch (error) {
+        // R3 — optimistic conflict: kayıt bu sırada değişti. Güncel detayı yeniden yükle
+        // (taze version) ve kullanıcıya dostça mesaj göster; ham teknik kod gösterme.
+        if (error instanceof UiError && error.code === "VERSION_CONFLICT") {
+          await load();
+          setDialog(null);
+        }
         setActionError(messageForError(error, locale));
       } finally {
         setBusy(false);
       }
     },
-    [locale],
+    [locale, load],
   );
 
   if (state.status === "loading") return <SkeletonRows rows={6} />;
@@ -136,7 +142,7 @@ export default function ReturnDetailPage() {
           disabled={busy}
           onClick={() =>
             void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "UNDER_REVIEW" }),
+              () => storeApi.transitionReturn(ret.id, { targetStatus: "UNDER_REVIEW", expectedVersion: ret.version }),
               doneMsg,
             )
           }
@@ -149,7 +155,7 @@ export default function ReturnDetailPage() {
           <Button
             size="sm"
             disabled={busy}
-            onClick={() => void runAction(() => storeApi.approveReturn(ret.id, {}), doneMsg)}
+            onClick={() => void runAction(() => storeApi.approveReturn(ret.id, { expectedVersion: ret.version }), doneMsg)}
           >
             {isTr ? "Tamamen onayla" : "Approve all"}
           </Button>
@@ -164,7 +170,7 @@ export default function ReturnDetailPage() {
           disabled={busy}
           onClick={() =>
             void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "AWAITING_SHIPMENT" }),
+              () => storeApi.transitionReturn(ret.id, { targetStatus: "AWAITING_SHIPMENT", expectedVersion: ret.version }),
               doneMsg,
             )
           }
@@ -178,7 +184,7 @@ export default function ReturnDetailPage() {
           disabled={busy}
           onClick={() =>
             void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "RECEIVED" }),
+              () => storeApi.transitionReturn(ret.id, { targetStatus: "RECEIVED", expectedVersion: ret.version }),
               doneMsg,
             )
           }
@@ -202,7 +208,7 @@ export default function ReturnDetailPage() {
           disabled={busy}
           onClick={() =>
             void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "REPLACEMENT_PENDING" }),
+              () => storeApi.transitionReturn(ret.id, { targetStatus: "REPLACEMENT_PENDING", expectedVersion: ret.version }),
               doneMsg,
             )
           }
@@ -222,7 +228,7 @@ export default function ReturnDetailPage() {
           disabled={busy}
           onClick={() =>
             void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "CLOSED" }),
+              () => storeApi.transitionReturn(ret.id, { targetStatus: "CLOSED", expectedVersion: ret.version }),
               doneMsg,
             )
           }
@@ -418,7 +424,7 @@ export default function ReturnDetailPage() {
           onClose={() => setDialog(null)}
           onSubmit={(rejectionReason, adminNote) =>
             void runAction(
-              () => storeApi.rejectReturn(ret.id, { rejectionReason, ...(adminNote ? { adminNote } : {}) }),
+              () => storeApi.rejectReturn(ret.id, { rejectionReason, expectedVersion: ret.version, ...(adminNote ? { adminNote } : {}) }),
               doneMsg,
             )
           }
@@ -433,7 +439,7 @@ export default function ReturnDetailPage() {
           onClose={() => setDialog(null)}
           onSubmit={(items, adminNote) =>
             void runAction(
-              () => storeApi.approveReturn(ret.id, { items, ...(adminNote ? { adminNote } : {}) }),
+              () => storeApi.approveReturn(ret.id, { items, expectedVersion: ret.version, ...(adminNote ? { adminNote } : {}) }),
               doneMsg,
             )
           }
@@ -448,7 +454,7 @@ export default function ReturnDetailPage() {
           onClose={() => setDialog(null)}
           onSubmit={(items, adminNote) =>
             void runAction(
-              () => storeApi.inspectReturn(ret.id, { items, ...(adminNote ? { adminNote } : {}) }),
+              () => storeApi.inspectReturn(ret.id, { items, expectedVersion: ret.version, ...(adminNote ? { adminNote } : {}) }),
               doneMsg,
             )
           }
@@ -466,6 +472,7 @@ export default function ReturnDetailPage() {
                 storeApi.transitionReturn(ret.id, {
                   targetStatus: "REFUND_PENDING",
                   refundShipping,
+                  expectedVersion: ret.version,
                   ...(adminNote ? { adminNote } : {}),
                 }),
               doneMsg,

@@ -31,6 +31,37 @@ export const RELEASING_TERMINAL_STATUSES: ReturnStatus[] = [
   "EXPIRED",
 ];
 
+/**
+ * R1 (ADR-269 hardening) — refund'a GÖTÜRMEYEN terminal durumlar. Bu durumlardan birine geçişte
+ * PENDING RefundIntent AYNI tx'te CANCELLED yapılır (yetim niyet TODO-170'te gerçek refund'a
+ * dönüşemesin). CLOSED buraya dahildir: yalnız PENDING (finansal sonuç oluşmamış) intent iptal
+ * edilir — TODO-170 sonrası CONSUMED/PROCESSED intent'e DOKUNULMAZ (cancelPendingRefundIntent
+ * yalnız PENDING'i hedefler).
+ */
+export const TERMINAL_NON_REFUND_STATUSES: ReturnStatus[] = [
+  "REJECTED",
+  "CANCELLED_BY_CUSTOMER",
+  "EXPIRED",
+  "CLOSED",
+];
+
+/**
+ * PENDING RefundIntent'i CANCELLED yapar (append-only: SİLİNMEZ). Yalnız PENDING hedeflenir →
+ * idempotent ve TODO-170'in CONSUMED/PROCESSED intent'ine dokunmaz. Iptal ani + nedeni yazılır
+ * (finansal denetim izi). Intent yoksa / PENDING değilse no-op.
+ */
+export async function cancelPendingRefundIntent(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  returnRequestId: string,
+  reason: string,
+): Promise<void> {
+  await tx.refundIntent.updateMany({
+    where: { storeId, returnRequestId, status: "PENDING" },
+    data: { status: "CANCELLED", cancelledAt: new Date(), cancellationReason: reason.slice(0, 500) },
+  });
+}
+
 export interface StoreReturnPolicy {
   returnWindowDays: number;
   requiresApproval: boolean;
@@ -193,6 +224,12 @@ export async function createReturnRequest(
   now: Date,
 ): Promise<CreateReturnResult> {
   return prisma.$transaction(async (tx) => {
+    // R2 — aynı sipariş için eşzamanlı iade taleplerini SERİLEŞTİR (over-claim savunması). Held/remaining
+    // adet okuması bu kilit ALTINDA yapılır; iki paralel create aynı satın alınan adedi ayrı ayrı claim
+    // edemez. tx-scoped advisory lock (commit/rollback'te otomatik bırakılır); repo deseni (variant-gen).
+    // $executeRaw ($queryRaw DEĞİL): pg_advisory_xact_lock void döner.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`return:${input.storeId}:${input.orderNumber}`}))`;
+
     const order = await tx.order.findFirst({
       where: { storeId: input.storeId, orderNumber: input.orderNumber, customerId: input.customerId },
       select: {
@@ -315,7 +352,32 @@ export type TransitionError =
   | { ok: false; code: "TERMINAL" }
   | { ok: false; code: "ACTOR_NOT_ALLOWED" }
   | { ok: false; code: "NO_CHANGE" }
-  | { ok: false; code: "VERSION_CONFLICT" };
+  | { ok: false; code: "VERSION_CONFLICT" }
+  | { ok: false; code: "COMPLETION_NOT_ALLOWED" };
+
+/**
+ * R5 (ADR-269 hardening) — COMPLETED (gerçek/doğrulanmış sonuç) yalnız finansal/fulfillment sonucu
+ * OLUŞTUKTAN sonra. TODO-170 (gerçek refund yürütme) gelene kadar hiçbir REFUND intent PROCESSED
+ * olmaz → COMPLETED erişilemez; en ileri finansal durum REFUND_PENDING'dir. REPLACEMENT için
+ * fulfillment doğrulama altyapısı yok → REPLACEMENT_PENDING'de kalır. Guard YORUM değil KOD.
+ */
+async function isCompletionAllowed(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  returnRequestId: string,
+): Promise<boolean> {
+  const rr = await tx.returnRequest.findFirst({
+    where: { id: returnRequestId, storeId },
+    select: { resolutionType: true, refundIntent: { select: { status: true } } },
+  });
+  if (!rr) return false;
+  if (rr.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT") {
+    // Gerçek refund tamamlanmadan (intent PROCESSED) COMPLETED YASAK.
+    return rr.refundIntent?.status === "PROCESSED";
+  }
+  // REPLACEMENT: fulfillment doğrulanamaz (altyapı yok) → COMPLETED YASAK.
+  return false;
+}
 
 export type TransitionResult = { ok: true; status: ReturnStatus } | TransitionError;
 
@@ -336,9 +398,9 @@ export async function applyReturnTransition(
   opts: {
     note?: string;
     expectedVersion?: number;
-    extraData?: Prisma.ReturnRequestUpdateInput;
+    extraData?: Prisma.ReturnRequestUpdateManyMutationInput;
     onCommit?: (tx: Prisma.TransactionClient, current: { id: string; status: ReturnStatus }) => Promise<void>;
-    timestampField?: keyof Prisma.ReturnRequestUpdateInput;
+    timestampField?: keyof Prisma.ReturnRequestUpdateManyMutationInput;
   } = {},
 ): Promise<TransitionResult> {
   return prisma.$transaction(async (tx) => {
@@ -354,9 +416,18 @@ export async function applyReturnTransition(
     const verdict = evaluateReturnTransition(current.status, target, actor.type);
     if (!verdict.ok) return { ok: false, code: verdict.reason };
 
+    // R5 — COMPLETED yalnız finansal/fulfillment sonucu doğrulanınca (TODO-170). Guard fail-closed.
+    if (target === "COMPLETED" && !(await isCompletionAllowed(tx, storeId, current.id))) {
+      return { ok: false, code: "COMPLETION_NOT_ALLOWED" };
+    }
+
     const now = new Date();
-    await tx.returnRequest.update({
-      where: { id: current.id },
+    // R3 — ATOMIK optimistic lock: update `version` KOŞULLU. İki eşzamanlı geçiş aynı version'ı
+    // okusa bile yalnız BİRİ eşleşir (satır kilidi + WHERE version); diğeri count=0 → VERSION_CONFLICT
+    // ve history/onCommit yan-etkileri (bayat approve intent'i, bayat inspect restock'u) ÇALIŞMAZ.
+    const guardVersion = opts.expectedVersion ?? current.version;
+    const updated = await tx.returnRequest.updateMany({
+      where: { id: current.id, storeId, version: guardVersion },
       data: {
         status: target,
         version: { increment: 1 },
@@ -364,6 +435,7 @@ export async function applyReturnTransition(
         ...(opts.extraData ?? {}),
       },
     });
+    if (updated.count === 0) return { ok: false, code: "VERSION_CONFLICT" };
     await tx.returnStatusHistory.create({
       data: {
         storeId,
@@ -375,6 +447,13 @@ export async function applyReturnTransition(
         note: opts.note?.trim() || null,
       },
     });
+    // R1 — refund'a götürmeyen terminal duruma geçişte yetim PENDING intent'i AYNI tx'te iptal et.
+    if (TERMINAL_NON_REFUND_STATUSES.includes(target)) {
+      const reason = opts.note?.trim()
+        ? `Return ${target}: ${opts.note.trim()}`
+        : `Return ${target}: refund not settled.`;
+      await cancelPendingRefundIntent(tx, storeId, current.id, reason);
+    }
     if (opts.onCommit) await opts.onCommit(tx, { id: current.id, status: current.status });
     return { ok: true, status: target };
   });

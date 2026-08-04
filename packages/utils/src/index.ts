@@ -84,6 +84,9 @@ export {
   type GenerateSkuResult,
 } from "./sku.js";
 
+// S5 (post-audit) — cookie güvenlik env'leri ORTAK güvenli parser (üç uygulama).
+export { resolveCookieSecure, resolveSameSite } from "./cookie-security.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

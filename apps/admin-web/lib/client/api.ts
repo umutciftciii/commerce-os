@@ -35,6 +35,7 @@ import type {
   PlanCapabilitiesUpdateRequest,
   PlanCapabilityPreviewResponse,
   PlatformMeResponse,
+  SessionTiming,
   PlatformUserContract,
 } from "@commerce-os/api-client";
 
@@ -134,13 +135,16 @@ export type SystemInternal =
 
 export const adminApi = {
   // Auth
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, rememberMe = false) =>
     call<{ user: AdminUser }>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, rememberMe }),
     }),
   me: () => call<PlatformMeResponse>("/api/auth/me"),
   logout: () => mutatingCall<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+  // ADR-271 — oturum uzatma (CSRF korumali; token rotate). Yeni zamanlama doner.
+  extendSession: () =>
+    mutatingCall<{ timing: SessionTiming }>("/api/auth/extend", { method: "POST" }),
 
   // Stores
   listStores: () => call<AdminStoreListResponse>("/api/admin/stores"),

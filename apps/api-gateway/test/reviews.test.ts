@@ -277,6 +277,10 @@ function buildApp(): { app: FastifyInstance; data: ReviewData } {
         customerId: s.customerId,
         tokenHash,
         expiresAt: new Date(Date.now() + 3_600_000),
+        // ADR-271 — iki-kapili omur alanlari (gecerli/taze oturum fake'i).
+        lastActivityAt: new Date(),
+        absoluteExpiresAt: new Date(Date.now() + 3_600_000),
+        rememberMe: false,
         revokedAt: null,
         customer: { id: s.customerId, storeId: s.storeId, status: "ACTIVE" as const },
       };

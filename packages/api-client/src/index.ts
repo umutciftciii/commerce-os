@@ -57,6 +57,7 @@ import type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  PlatformSessionExtendResponse,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -422,6 +423,9 @@ export type {
   PlatformLoginResponse,
   PlatformLogoutResponse,
   PlatformMeResponse,
+  PlatformSessionExtendResponse,
+  CustomerSessionExtendResponse,
+  SessionTiming,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -1385,6 +1389,8 @@ export interface ApiClient {
     platformLogin(input: PlatformLoginRequest): Promise<PlatformLoginResponse>;
     platformLogout(token?: string): Promise<PlatformLogoutResponse>;
     platformMe(token?: string): Promise<PlatformMeResponse>;
+    // ADR-271 — oturum uzatma (token rotate; absolute degismez). Aktif token gerekir.
+    platformExtend(token?: string): Promise<PlatformSessionExtendResponse>;
   };
   admin: {
     stores: {
@@ -2988,6 +2994,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       platformLogout: (token) =>
         sendJson<PlatformLogoutResponse>("/auth/platform/logout", "POST", undefined, token),
       platformMe: (token) => getJson<PlatformMeResponse>("/auth/platform/me", token),
+      platformExtend: (token) =>
+        sendJson<PlatformSessionExtendResponse>("/auth/platform/extend", "POST", undefined, token),
     },
     admin: {
       stores: {

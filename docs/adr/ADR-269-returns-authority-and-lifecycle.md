@@ -228,3 +228,40 @@ server-side authority so React never re-computes return state:
   and the new returns domain — all in one migration.
 - **Follow-ups (TECHNICAL_DEBT):** object-store/signed-URL private media; real email delivery; return-exclusion
   registry (product/type opt-out); automated return labels; the `COMPLETED` money-verified transition (TODO-170).
+
+## Post-Audit Hardening (2026-08-04) — status: Return Financial Invariants IN_PROGRESS
+
+Cross-module review found correctness/financial-invariant gaps in the delivered returns work. Fixes are **additive**
+(append-only; no existing column repurposed) and are, like §7's returns work, currently **uncommitted** (no commit/
+push/PR/merge/deploy). Follow-up migration `20260804170000_adr271_returns_session_hardening`.
+
+- **R1 — RefundIntent CANCELLED lifecycle.** A refund-less terminal transition
+  (`REJECTED`/`CANCELLED_BY_CUSTOMER`/`EXPIRED`/`CLOSED` without financial effect) now flips any PENDING
+  `RefundIntent` to `CANCELLED` **in the same transaction** (never deleted — append-only). New additive fields:
+  `RefundIntent.cancelledAt`, `RefundIntent.cancellationReason`. The projection counts **only** PENDING intents as
+  "pending financial impact"; `CANCELLED` intents are excluded, so terminated returns no longer show phantom
+  provisional deductions.
+- **R2 — Concurrent double-claim serialization.** `createReturnRequest` now takes
+  `pg_advisory_xact_lock(storeId:orderNumber)`, serializing concurrent requests for the same order so two in-flight
+  claims can no longer over-claim item quantities.
+- **R3 — Atomic optimistic version.** Admin mutations require a mandatory `expectedVersion` (contracts).
+  `applyReturnTransition` is an atomic optimistic lock (`updateMany where version = expected`; `count = 0` →
+  `409 VERSION_CONFLICT`, **no side effect**). Store-Admin UI sends `ret.version`, reloads on `409`, and shows a
+  friendly conflict message.
+- **R5 — COMPLETED guard enforced in code.** `COMPLETED` is now guarded: `REFUND` may not complete without a real
+  refund (intent `PROCESSED`); `REPLACEMENT` may not complete without verified fulfillment → otherwise
+  `409 COMPLETION_NOT_ALLOWED`. Until TODO-170 lands the real refund ledger, the furthest financial state is
+  `REFUND_PENDING` / `REPLACEMENT_PENDING`.
+- **P1/P2 — Admin-actionable allowlist.** Pending-work "actionable" is no longer "everything not settled". It is an
+  explicit admin-actionable allowlist (`REQUESTED`/`UNDER_REVIEW`/`RECEIVED`/`INSPECTION_REQUIRED`/`INSPECTED`/
+  `REFUND_PENDING`/`REPLACEMENT_PENDING`). Customer/carrier-waiting states
+  (`APPROVED`/`PARTIALLY_APPROVED`/`AWAITING_SHIPMENT`/`RETURN_SHIPPED`) do **not** count. `INSPECTED` now lives in the
+  inspection bucket (previously lost). Invariant: sidebar actionable count == Σ dashboard buckets.
+- **Tests.** Real-DB integration suite `returns-lifecycle.integration.test.ts` (R1 cancellation, R2 serialization,
+  R3 version conflict, R5 completion guard, P1/P2 bucketing) runs against `commerce_os_test` with `DATABASE_URL` set;
+  skipped in CI where no DB is available.
+
+**TODO-170 relationship.** R1 removed the original blocker (a refund ledger must never be started while a PENDING
+intent could be silently dropped). R1 is now resolved, but TODO-170 remains a separate, **still-blocked** effort:
+the append-only `OrderRefund` ledger should not begin until these return financial invariants (and the private-media
+hardening, C1) are shipped.
