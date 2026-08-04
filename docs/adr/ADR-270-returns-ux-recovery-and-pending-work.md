@@ -1,7 +1,7 @@
 # ADR-270 — Returns UX Recovery, Pending Work Indicators & Return-Shipment Unblock
 
-- **Status:** ACCEPTED — implemented, full gate GREEN, real browser smoke PASS, **NOT committed/deployed**
-  (git kuralı: commit/push/PR/merge/deploy yok; analiz + implementasyon + tam gate + browser smoke sonrası dur).
+- **Status:** ACCEPTED & DEPLOYED — PR #175 (merge `064a44d`); full gate GREEN, browser + post-deploy smoke PASS.
+  api-gateway + storefront-web + store-admin-web main'den rebuild/recreate (`--no-deps --force-recreate`; postgres/redis/worker/admin-web dokunulmadı, volume korundu); migration YOK (`migrate deploy` → No pending); post-deploy smoke PASS (deployed :3000 CTA deep-link/focus/responsive, :4000 pending-work reviews 3/returns 1, yeni route canlı).
 - **Date:** 2026-08-04
 - **Builds on:** ADR-269 (Returns Authority & Lifecycle — 17-state machine, `evaluateReturnTransition`,
   `returns/projection.ts` `buildReturnOrderSummary`), ADR-094 (Product Reviews & Ratings — `ProductReviewStatus`),
