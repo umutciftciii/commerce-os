@@ -6009,7 +6009,7 @@ rotation) + expiry UX (safe returnTo+mesaj) + warning modal + multi-tab (Broadca
   BLOCKED** (return financial invariants + private media hardening ship edilene kadar refund ledger'a başlanmamalı).
   Detay: `docs/adr/ADR-271-unified-session-policy.md` §8 + `docs/adr/ADR-269-returns-authority-and-lifecycle.md`.
 
-## ADR-272 — Refund Ledger & Payment Reversal (TODO-170) — IN_PROGRESS (2026-08-05; COMMIT/DEPLOY YOK)
+## ADR-272 — Refund Ledger & Payment Reversal (TODO-170) — ACCEPTED & DEPLOYED (2026-08-05; PR #179 merge `9023d3d`)
 
 TODO-169 `RefundIntent` (PENDING) finansal talimattır ama para HAREKET ETMEZ (hiçbir kod
 `refundPayment` çağırmaz; canlı provider transport kapalı; MOCK refund'u çağrılmayan stub;

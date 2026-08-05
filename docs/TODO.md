@@ -116,7 +116,7 @@
   invariant sidebar actionable == dashboard bucket toplamı. Testler: `returns-lifecycle.integration.test.ts`
   (`commerce_os_test` DB, CI'da SKIP).
 
-- **TODO-170 Refund Ledger & Payment Reversal — 🟠 IN_PROGRESS (2026-08-05; ADR-272; COMMIT/DEPLOY YOK)**. Append-only
+- **TODO-170 Refund Ledger & Payment Reversal — ✅ CLOSED & DEPLOYED (2026-08-05; ADR-272; PR #179 merge `9023d3d`)**. Append-only
   `OrderRefund` + `OrderRefundEvent` ledger; yalnız `SUCCEEDED` finansa yansır. Partial + çoklu refund; cap invariant
   `Σ SUCCEEDED + Σ active ≤ captured` (`pg_advisory_xact_lock` + version guard). RefundIntent additive `CONSUMED`
   (atomik, bir kez; R5 COMPLETED guard artık SUCCEEDED OrderRefund'a bakar). Capability DÜRÜST: MOCK→otomatik,

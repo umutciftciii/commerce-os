@@ -1,10 +1,13 @@
 # ADR-272 — Refund Ledger & Payment Reversal (TODO-170)
 
-- **Status:** IN_PROGRESS — TODO-170 Refund Ledger & Payment Reversal. Additive schema + new
+- **Status:** ACCEPTED & DEPLOYED — TODO-170 Refund Ledger & Payment Reversal (PR #179 merge `9023d3d`;
+  2026-08-05). Additive schema (`OrderRefund`/`OrderRefundEvent` + `RefundIntentStatus.CONSUMED`) +
   `apps/api-gateway/src/refunds/` module + finance ledger integration + store-admin refund UX +
-  storefront customer refund status. **Uncommitted** (no commit/push/PR/merge/deploy). Migration
-  `20260805100000_todo170_refund_ledger_payment_reversal` authored; full gate + real-DB concurrency
-  tests + browser/HTTP smoke required before closure.
+  ledger-authoritative refund status + storefront customer refund status. api-gateway + storefront-web +
+  store-admin-web rebuilt/recreated from main (`--no-deps --force-recreate`; postgres/redis/worker/admin-web
+  untouched, volumes preserved); migration `20260805100000_todo170_refund_ledger_payment_reversal` applied
+  (`migrate deploy` → "Database schema is up to date"). Full gate GREEN; real-DB integration 16/16; live HTTP
+  smoke 29/29; store-admin browser smoke PASS; post-deploy smoke 15/15 (fixtures cleaned, demo-store pristine).
 - **Date:** 2026-08-05
 - **Builds on:** ADR-268 (Financial Reporting Authority — snapshot authority, `refundAmountsSupported`
   flag, §5 future `OrderRefund` ledger), ADR-269 (Returns Authority & Lifecycle — `RefundIntent` PENDING,
