@@ -1501,6 +1501,14 @@ export interface AppDataAccess extends CampaignDataAccess {
        * CampaignRedemption yazilir; limit asilirsa siparis OLUSMAZ.
        */
       discounts?: OrderDiscountInput[];
+      /**
+       * TD-FR-7 — Kampanya/checkout motorunun satır-bazlı (variantId → tutar) indirim
+       * DAĞITIMI (DiscountEngineResult.lineDiscounts). VERİLDİĞİNDE her OrderLine'a
+       * `discountAllocatedMinor` snapshot'lanır (kapsam-dışı satır 0); iade kalemin
+       * FİİLEN ödenenini yansıtır. Motorun çalıştığı checkout HER ZAMAN (indirim 0 olsa
+       * bile boş dizi) geçmeli. Verilmezse (admin manuel sipariş) kolon NULL → legacy.
+       */
+      lineDiscounts?: Array<{ variantId: string; discountMinor: number }>;
       addresses: Array<{
         type: "SHIPPING" | "BILLING";
         fullName: string;
@@ -4492,6 +4500,12 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           },
         });
         const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+        // TD-FR-7 — Motor satır-bazlı indirim dağıtımı verildiyse variantId→tutar
+        // haritası; her OrderLine'a `discountAllocatedMinor` snapshot'lanır. Verilmezse
+        // (admin manuel sipariş) kolon NULL kalır → iade legacy oransal fallback.
+        const lineDiscountByVariant = input.lineDiscounts
+          ? new Map(input.lineDiscounts.map((d) => [d.variantId, d.discountMinor]))
+          : null;
         const orderLines = [];
         for (const line of input.lines) {
           const variant = variantById.get(line.variantId);
@@ -4538,6 +4552,10 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             lineVatAmountMinor: unitVatAmountMinor * line.quantity,
             lineGrossAmountMinor: totalAmount,
             lineCostMinor: variant.costMinor != null ? variant.costMinor * line.quantity : null,
+            // TD-FR-7 — Kalem-bazlı indirim snapshot'ı (kapsam-dışı satır 0; motor yoksa null).
+            discountAllocatedMinor: lineDiscountByVariant
+              ? (lineDiscountByVariant.get(variant.id) ?? 0)
+              : null,
             ...fashionSnapshot,
           });
         }
@@ -6881,6 +6899,12 @@ export function createServer(
         discountValue: line.discountValue,
         discountAmountMinor: line.discountAmountMinor,
         scopeSummary: { eligibleSubtotalMinor: line.eligibleSubtotalMinor },
+      })),
+      // TD-FR-7 — Motorun scope-aware satır dağıtımını siparişe SNAPSHOT'la (indirim 0
+      // olsa bile boş dizi geçilir → tüm OrderLine'lara 0 yazılır, iade tam fiyat döner).
+      lineDiscounts: discount.lineDiscounts.map((d) => ({
+        variantId: d.variantId,
+        discountMinor: d.discountMinor,
       })),
       billing: {
         type: billingInfo.type,

@@ -1900,6 +1900,14 @@ model OrderLine {
   lineVatAmountMinor   Int?
   lineGrossAmountMinor Int?
   lineCostMinor        Int?
+  // TD-FR-7 — Bu kaleme siparis aninda FIILEN dusen order-level indirim (KDV DAHIL).
+  // Kaynak dogrusu = kampanya/checkout motoru (scope'u bilir; DiscountEngineResult
+  // .lineDiscounts). Snapshot IMMUTABLE'dir. Iade hesabi (returns/refund-calc) bu
+  // degeri kullanarak kalemin FIILEN odedigi tutari iade eder; oransal (gross-agirlikli)
+  // dagitim resmi/finansal olarak YANLIS oldugundan terk edilmistir. Kampanya YOKSA
+  // (checkout) 0 yazilir. Admin manuel siparis / ESKI kalemlerde NULL → refund-calc
+  // legacy oransal fallback'e duser (geri uyum; backfill YAPILMADI). Client etkileyemez.
+  discountAllocatedMinor Int?
   // TODO-165 Fashion Vertical (ADR-252) — moda varyant SNAPSHOT'lari (additive, nullable).
   // Yalniz FASHION_VERTICAL acik magazalarda + fashion eksenli varyantlarda server-side
   // doldurulur (createOrder/addOrderLine); ProductVariantOptionValue ⋈ AttributeOption'dan
