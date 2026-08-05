@@ -530,7 +530,7 @@ async function estimateRefund(
       currency: true,
       discountAmount: true,
       shippingAmount: true,
-      lines: { select: { id: true, quantity: true, unitPriceAmount: true, totalAmount: true, lineGrossAmountMinor: true, lineVatAmountMinor: true } },
+      lines: { select: { id: true, quantity: true, unitPriceAmount: true, totalAmount: true, lineGrossAmountMinor: true, lineVatAmountMinor: true, discountAllocatedMinor: true } },
     },
   });
   if (!order) return null;
@@ -541,6 +541,8 @@ async function estimateRefund(
     returnedQuantity: returnedByLine.get(l.id) ?? 0,
     lineGrossMinor: l.lineGrossAmountMinor ?? l.totalAmount,
     lineVatMinor: l.lineVatAmountMinor,
+    // TD-FR-7 — kalem-bazlı indirim snapshot'ı (legacy siparişte null → oransal fallback).
+    discountAllocatedMinor: l.discountAllocatedMinor,
   }));
   const refund = computeRefund({
     currency: order.currency,

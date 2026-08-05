@@ -21,6 +21,14 @@ export interface RefundCalcLine {
   lineGrossMinor: number;
   /** Satır KDV snapshot'ı (lineVatAmountMinor); legacy'de null. */
   lineVatMinor: number | null;
+  /**
+   * TD-FR-7 — Sipariş anında bu kaleme FİİLEN düşen order-level indirim (KDV DAHİL).
+   * Kampanya/checkout motoru scope'u bilerek dağıtır (OrderLine.discountAllocatedMinor).
+   * Bu değer set ise iade, kalemin fiilen ödenenini (lineGross − discountAllocated)
+   * yansıtır; oransal (gross-ağırlıklı) dağıtım YAPILMAZ. undefined/null = legacy
+   * snapshot yok → order-level indirim gross-ağırlıklı oransal dağıtılır (geri uyum).
+   */
+  discountAllocatedMinor?: number | null;
 }
 
 export interface RefundCalcInput {
@@ -81,8 +89,19 @@ export function allocateOrderDiscount(weights: number[], total: number): number[
 
 /** İade tutarı hesabı (saf). Tüm alanlar minor-unit; tutarlar asla negatif olmaz. */
 export function computeRefund(input: RefundCalcInput): RefundCalcResult {
-  const weights = input.lines.map((l) => l.lineGrossMinor);
-  const allocations = allocateOrderDiscount(weights, input.orderLevelDiscountMinor);
+  // TD-FR-7 — Kalem-bazlı indirim SNAPSHOT'i (discountAllocatedMinor) TÜM satırlarda
+  // varsa: her kalem sipariş anında FİİLEN düşen indirimini taşır → oransal dağıtım
+  // YAPILMAZ (scope'lu indirimde yanlış olurdu). Herhangi bir satırda snapshot yoksa
+  // (legacy sipariş) TÜM sipariş için gross-ağırlıklı oransal fallback (geri uyum);
+  // karışık mod order indirimini çift saymamak için ya-hep-ya-hiç değerlendirilir.
+  const hasSnapshot =
+    input.lines.length > 0 && input.lines.every((l) => l.discountAllocatedMinor != null);
+  const allocations = hasSnapshot
+    ? input.lines.map((l) => l.discountAllocatedMinor as number)
+    : allocateOrderDiscount(
+        input.lines.map((l) => l.lineGrossMinor),
+        input.orderLevelDiscountMinor,
+      );
 
   const perLine: RefundCalcLineResult[] = [];
   let productRefundMinor = 0;
@@ -90,17 +109,19 @@ export function computeRefund(input: RefundCalcInput): RefundCalcResult {
 
   input.lines.forEach((line, i) => {
     const allocatedDiscountMinor = allocations[i];
-    // Satırın iade tabanı: brüt − pay edilen order indirimi (negatife düşmez).
+    // Satırın iade tabanı: brüt − o kaleme düşen indirim (negatife düşmez).
+    // Snapshot modda = kalemin fiilen ödenen tutarı; legacy'de = oransal pay sonrası.
     const base = Math.max(0, line.lineGrossMinor - allocatedDiscountMinor);
     let productRefund = 0;
     let taxRefund = 0;
     if (line.returnedQuantity > 0 && line.lineQuantity > 0) {
       productRefund = Math.max(0, Math.round((base * line.returnedQuantity) / line.lineQuantity));
-      if (line.lineVatMinor != null) {
-        taxRefund = Math.max(
-          0,
-          Math.round((line.lineVatMinor * line.returnedQuantity) / line.lineQuantity),
-        );
+      // Disclosed KDV, iade edilen (indirim-sonrası) tutarın İÇİNDEKİ orandan türer:
+      // KDV oranı brütte sabit (vat/gross); indirim KDV-dahil brütü düşürdüğünden
+      // aynı oran indirimli tabanda da geçerlidir. Bu, indirimli kalemde brütten
+      // KDV göstermenin (fazla-disclosure) tutarsızlığını da çözer (TD-FR-7 §3).
+      if (line.lineVatMinor != null && line.lineGrossMinor > 0) {
+        taxRefund = Math.max(0, Math.round((line.lineVatMinor * productRefund) / line.lineGrossMinor));
       }
     }
     productRefundMinor += productRefund;

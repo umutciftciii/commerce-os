@@ -1,0 +1,11 @@
+-- TD-FR-7 — Kalem-bazli indirim SNAPSHOT'i (per-line discount refund accuracy).
+-- Iade, kalemin FIILEN odedigi (indirim uygulanmissa indirimli, degilse tam) tutari
+-- iade etmeli. Order-level indirimin gross-agirlikli oransal dagitimi scope'lu
+-- indirimde YANLISTIR. Bu kolon, kampanya/checkout motorunun scope-aware satir
+-- dagitimini (DiscountEngineResult.lineDiscounts) siparis aninda snapshot'lar.
+--
+-- Additive + NULLABLE: yeni siparislerde her satira yazilir (kapsam-disi = 0);
+-- ESKI siparisler NULL kalir → returns/refund-calc legacy oransal fallback'e duser
+-- (geri uyumlu). BACKFILL YAPILMADI: OrderDiscount.scopeSummary yalniz eligible
+-- ara toplami tutar, "hangi kaleme ne dustu"yu guvenilir turetemez.
+ALTER TABLE "OrderLine" ADD COLUMN "discountAllocatedMinor" INTEGER;
