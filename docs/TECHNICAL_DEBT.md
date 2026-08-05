@@ -2028,6 +2028,19 @@ room, no code now):
 - **Chargeback / dispute & Gift Card/Store Credit refund hedefi (TD-FR-6, future):** OrderRefund ledger yalnız
   orijinal ödemeye iade (`REFUND_TO_ORIGINAL_PAYMENT`) kapsar; chargeback/dispute ve alternatif iade hedefleri
   (store credit / gift card) kapsam dışı — additive genişletilebilir.
+- **⚠️ Per-line discount refund accuracy (TD-FR-7, KARARLI — sıradaki iş, 2026-08-06):** İade, kalemin
+  **FİİLEN ödenen** (indirim dahil/değil) tutarını iade etmeli; mevcut `returns/refund-calc.ts` sipariş
+  indirimini kalemlere **brüt-ağırlıkla oransal** dağıtıyor (ADR-269 §6 / ADR-066) ve bu **scope'lu
+  kampanyalarda YANLIŞ** (finansal). Kanıt (OS-000004 / R000001): "Seçili Ürünlerde %20" yalnız Karaca'ya
+  (`scopeSummary.eligibleSubtotalMinor=1980120`) uygulanmışken indirimsiz Casper kaleminin iadesi ₺6.313,50
+  yerine ₺5.541,95 hesaplanıyor (**−₺771,55 eksik-iade**; simetrik olarak indirimli kalemde fazla-iade).
+  **Kök neden:** sipariş anında indirim **kalem-bazında snapshot'lanmıyor** (`OrderDiscount` yalnız sipariş
+  düzeyi + `scopeSummary.eligibleSubtotalMinor`). **Karar:** additive `OrderLine.discountAllocatedMinor`
+  (KDV-dahil, kaleme fiilen düşen indirim; checkout/kampanya motoru placement'ta snapshot'lar; invariant
+  Σ==`Order.discountAmount`); refund-calc oransal dağıtımı bırakır, `(lineGross − discountAllocated)`
+  üzerinden hesaplar (disclosed KDV de indirim-sonrası taban → ADR-269 §6'daki KDV tutarsızlığını da çözer);
+  nullable kolon → legacy null'da oransal fallback, set'te exact; scope'tan best-effort backfill. Detay:
+  `docs/analysis/PER-LINE-DISCOUNT-REFUND-ACCURACY.md`. Ayrı ticket/ADR hak ediyor (finansal doğruluk).
 - **Payment fee/commission (TD-FR-2):** `PaymentAttempt`'te fee alanı yok → net tahsilat (fee sonrası) hesaplanamaz;
   ödeme raporu brüt tahsilatı gösterir. Sağlayıcı fee snapshot'ı gelirse additive eklenir.
 - **FX / multi-currency consolidation (TD-FR-3):** her currency AYRI raporlanır; birleşik tek-para görünüm YOK
