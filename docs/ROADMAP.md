@@ -1452,7 +1452,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   commit/deploy yok. Sıradaki roadmap adayı (hardening ship sonrası): **Storefront Social Login & Customer Identity
   Linking** (TD-181) — bu oturum temeli üzerine kurulur.
 
-## TODO-170 Refund Ledger & Payment Reversal — IN_PROGRESS (2026-08-05, ADR-272; COMMIT/DEPLOY YOK)
+## TODO-170 Refund Ledger & Payment Reversal — CLOSED & DEPLOYED (2026-08-05, ADR-272; PR #179 merge `9023d3d`)
 
 - Amaç: TODO-169'un PENDING `RefundIntent` (finansal talimat) boşluğunu gerçek para hareketine dönüştürmek —
   **sahte provider capability üretmeden**. Denetim (4 paralel ajan) doğruladı: refund iskeleti var ama çalışan yol

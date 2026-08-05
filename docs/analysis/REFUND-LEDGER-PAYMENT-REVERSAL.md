@@ -1,8 +1,7 @@
 # TODO-170 — Refund Ledger & Payment Reversal (analiz)
 
-- **Durum:** IN_PROGRESS (uncommitted; commit/push/PR/merge/deploy YOK — worktree
-  `refund-ledger-payment-reversal-396fb4`).
-- **Baseline:** `main == origin/main == 7b78876` (ADR-271 Unified Session Policy CLOSED & DEPLOYED).
+- **Durum:** CLOSED & DEPLOYED (PR #179 merge `9023d3d`; 2026-08-05). Post-deploy smoke 15/15.
+- **Baseline:** `main == 7b78876` → merged `9023d3d` (ADR-271 Unified Session Policy CLOSED & DEPLOYED).
 - **Builds on:** ADR-268 (Financial Reporting Authority — snapshot otorite, `refundAmountsSupported=false`,
   §5 gelecek `OrderRefund` ledger'ı), ADR-269 (Returns Authority & Lifecycle — `RefundIntent` PENDING,
   R1 CANCELLED, R3 version guard, R5 COMPLETED guard), ADR-270 (Returns UX Recovery — auto-advance

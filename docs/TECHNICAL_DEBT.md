@@ -2015,11 +2015,11 @@ room, no code now):
 
 ## Financial Reporting Foundation — açık future kalemler (ADR-268)
 
-- **Refund amount read-model (TD-FR-1):** ✅ **CLOSURE CANDIDATE (TODO-170 / ADR-272, 2026-08-05).** Append-only
-  `OrderRefund` + `OrderRefundEvent` ledger inşa edildi; yalnız `SUCCEEDED` refund'lar `completedAt` (store tz)
+- **Refund amount read-model (TD-FR-1):** ✅ **CLOSED (TODO-170 / ADR-272, PR #179 merge `9023d3d`; 2026-08-05).**
+  Append-only `OrderRefund` + `OrderRefundEvent` ledger; yalnız `SUCCEEDED` refund'lar `completedAt` (store tz)
   ile gün×currency bucketlenip Product/Shipping Refunds olarak Net/Total'dan **TEK kez** düşülür (inclusive KDV
   üstüne eklenmez; attribution `refundedRevenueMinor` karışmaz; cancelled order zaten satış evreni dışı). Finance
-  `refundAmountsSupported=true`. Kapanış PR merge & deploy sonrası kesinleşir. Detay ADR-272.
+  `refundAmountsSupported=true`. Deploy edildi (post-deploy smoke 15/15). Detay ADR-272.
 - **Provider-native refund webhook + scheduled reconciliation (TD-FR-5, TODO-170 future):** bu fazda otomatik
   refund yalnız MOCK için yürütülür; reconciliation kontrollü `refresh` (status query) ile manueldir. Gerçek online
   provider (Stripe/iyzico/PayTR) canlı refund transport'u (EX-1) ve provider-native refund webhook imzası (TD-137)
