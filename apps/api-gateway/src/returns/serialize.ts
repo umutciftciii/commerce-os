@@ -14,6 +14,7 @@ import type {
   PaymentStatus,
   AddressType,
 } from "@prisma/client";
+import type { AdminReturnRefundSummary } from "@commerce-os/contracts";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -132,6 +133,8 @@ export function serializeAdminReturnDetail(
   priorHeld: Map<string, number>,
   // TODO-169 (blocker #3) — productId → kapak URL'i (store-scoped). Kapaksız → null (placeholder).
   covers: Map<string, string> = new Map(),
+  // TODO-170 (ADR-272) — ledger-otoriteli refund özeti (route'ta hesaplanır; yoksa null).
+  refundSummary: AdminReturnRefundSummary | null = null,
 ) {
   const name = row.customer
     ? [row.customer.firstName, row.customer.lastName].filter(Boolean).join(" ").trim() || null
@@ -215,6 +218,7 @@ export function serializeAdminReturnDetail(
           status: row.refundIntent.status,
         }
       : null,
+    refundSummary,
   };
 }
 

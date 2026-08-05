@@ -116,11 +116,18 @@
   invariant sidebar actionable == dashboard bucket toplamı. Testler: `returns-lifecycle.integration.test.ts`
   (`commerce_os_test` DB, CI'da SKIP).
 
-- **TODO-170 Refund Ledger & Payment Reversal — 🟢 UNBLOCKED (2026-08-05; ADR-271 + audit hardening PR #177 merge & deploy edildi)**. Sıradaki iş; planlı, henüz başlanmadı. Gerekçe: R1 (RefundIntent CANCELLED lifecycle) çözüldü
-  ama commit/deploy yok ve refund ledger'ın append-only garantisi ancak return financial invariants + private media
-  hardening ship edildikten sonra güvenle inşa edilebilir. PENDING `RefundIntent`'leri işler: gerçek provider refund +
-  append-only `OrderRefund` ledger (ADR-268 §5) → Financial Reporting `productRefundsMinor`/`shippingRefundsMinor`
-  beslenir, `refundAmountsSupported=true` olur (net/total'dan TAM BİR KEZ düşülür).
+- **TODO-170 Refund Ledger & Payment Reversal — 🟠 IN_PROGRESS (2026-08-05; ADR-272; COMMIT/DEPLOY YOK)**. Append-only
+  `OrderRefund` + `OrderRefundEvent` ledger; yalnız `SUCCEEDED` finansa yansır. Partial + çoklu refund; cap invariant
+  `Σ SUCCEEDED + Σ active ≤ captured` (`pg_advisory_xact_lock` + version guard). RefundIntent additive `CONSUMED`
+  (atomik, bir kez; R5 COMPLETED guard artık SUCCEEDED OrderRefund'a bakar). Capability DÜRÜST: MOCK→otomatik,
+  gerçek online provider→MANUAL_OFFLINE (transport/native-webhook yok; sahte başarı YOK), offline→manuel (SUPER_ADMIN).
+  Async/timeout/retry + duplicate providerRefundId koruması (unique + DUPLICATE_CALLBACK). Order paymentStatus
+  PROJEKSİYON (REFUNDED/PARTIALLY_REFUNDED; attempt REFUNDED'a çevrilmez). Finance: SUCCEEDED refund'lar
+  `completedAt` (tz) bucketlenip Net/Total'dan TEK kez düşülür; `refundAmountsSupported=true` (**TD-FR-1 closure candidate**).
+  Migration `20260805100000_todo170_refund_ledger_payment_reversal` (additive; deploy edildi commerce_os + commerce_os_test).
+  Store-admin refund paneli (başlat/yenile/tekrar/manuel/iptal) + storefront maskeli müşteri refund durumu. Testler:
+  `refunds-ledger.integration` (16/16 gerçek-DB) + `refunds-pure` + finance/projection güncellemeleri yeşil. Backend:
+  `apps/api-gateway/src/refunds/` (capability · cap-calc · provider-port · mock-refund · service · serialize · routes-admin).
 
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;

@@ -178,6 +178,23 @@ export const trStoreAdmin = {
       "Seçtiğiniz yazı tipi bu görünüm için izinli değil. Lütfen izin verilen yazı tiplerinden birini seçin.",
     THEME_LAYOUT_NOT_ALLOWED:
       "Seçtiğiniz hazır düzen bu görünüm için izinli değil. Lütfen izin verilen düzenlerden birini seçin.",
+    // TODO-170 (ADR-270) — İade defteri & ödeme ters çevirme hataları. Ham sağlayıcı
+    // hata kodu/mesajı ASLA kullanıcıya gösterilmez; bu dostça karşılıklar gösterilir.
+    NOT_REFUND_RESOLUTION: "Bu iade talebi orijinal ödemeye para iadesi için uygun değil.",
+    RETURN_NOT_REFUND_PENDING: "İade talebi para iadesi aşamasında değil. Önce iadeyi bu aşamaya taşıyın.",
+    INTENT_NOT_FOUND: "Bu iade için henüz bir iade tutarı (niyet) oluşturulmamış.",
+    STALE_INTENT: "İade tutarı güncellendi. En güncel hâli yüklendi; lütfen tekrar deneyin.",
+    NO_PAYMENT_ATTEMPT: "Bu siparişte iade edilebilecek bir ödeme kaydı bulunamadı.",
+    PAYMENT_NOT_CAPTURED: "Sipariş ödemesi tahsil edilmemiş; iade başlatılamaz.",
+    EXCEEDS_REFUNDABLE: "İade tutarı, iade edilebilir kalan tutarı aşıyor.",
+    CURRENCY_MISMATCH: "İade para birimi sipariş ödemesiyle uyuşmuyor.",
+    REFUND_ALREADY_ACTIVE: "Bu iade için zaten devam eden bir para iadesi var.",
+    REFUND_NOT_FOUND: "Para iadesi kaydı bulunamadı.",
+    INVALID_STATE: "Para iadesi bu durumunda bu işlem yapılamaz.",
+    RETRY_NOT_ALLOWED: "Bu para iadesi tekrar denenemez (yalnız başarısız iadeler denenebilir).",
+    AUTOMATIC_ONLY: "Bu ödeme yöntemi otomatik iade kullanır; manuel tamamlama yapılamaz.",
+    MANUAL_ONLY: "Bu ödeme yöntemi için iade manuel (banka/EFT) yapılır; otomatik iade desteklenmez.",
+    MISSING_MANUAL_DETAILS: "Manuel iade için referans (banka/dekont) ve açıklama zorunludur.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",

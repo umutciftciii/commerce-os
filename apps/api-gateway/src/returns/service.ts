@@ -368,12 +368,19 @@ async function isCompletionAllowed(
 ): Promise<boolean> {
   const rr = await tx.returnRequest.findFirst({
     where: { id: returnRequestId, storeId },
-    select: { resolutionType: true, refundIntent: { select: { status: true } } },
+    select: { resolutionType: true, refundIntent: { select: { totalRefundMinor: true } } },
   });
   if (!rr) return false;
   if (rr.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT") {
-    // Gerçek refund tamamlanmadan (intent PROCESSED) COMPLETED YASAK.
-    return rr.refundIntent?.status === "PROCESSED";
+    // TODO-170 (ADR-272) — Gerçek refund tamamlanmadan COMPLETED YASAK: SUCCEEDED OrderRefund toplamı
+    // intent totalını karşılamalı (ledger gerçek para hareketi otoritesi; intent status'e bakılmaz).
+    const intentTotal = rr.refundIntent?.totalRefundMinor ?? null;
+    if (intentTotal === null) return false;
+    const agg = await tx.orderRefund.aggregate({
+      where: { storeId, returnRequestId, status: "SUCCEEDED" },
+      _sum: { totalRefundMinor: true },
+    });
+    return (agg._sum.totalRefundMinor ?? 0) >= intentTotal;
   }
   // REPLACEMENT: fulfillment doğrulanamaz (altyapı yok) → COMPLETED YASAK.
   return false;

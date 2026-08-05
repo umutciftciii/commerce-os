@@ -1385,6 +1385,28 @@ export const trStorefront = {
         estimatedRefund: "Tahmini iade tutarı",
         estimatedRefundNote:
           "Bu bir tahmindir; nihai tutar mağaza onayı ve inceleme sonrasında kesinleşir.",
+        // TODO-170 (ADR-272) — MASKELİ müşteri para iadesi durumu. Teknik provider kodu/secret ASLA
+        // gösterilmez; durum yalnız renkle değil metin etiketiyle iletilir (a11y).
+        refund: {
+          title: "Para iadesi",
+          statuses: {
+            PENDING: "Para iadesi bekleniyor",
+            PROCESSING: "Para iadesi işleniyor",
+            SUCCEEDED: "Para iadesi tamamlandı",
+            FAILED: "Para iadesi başarısız oldu",
+          },
+          realizedLabel: "Gerçekleşen iade",
+          pendingLabel: "Bekleyen iade",
+          expectedTotal: "Beklenen toplam",
+          method: "İade yöntemi",
+          completedAt: "Tamamlanma tarihi",
+          // Bekleniyor/işleniyor için genel süre bilgisi (teknik detay yok).
+          timeframeNote: "Para iadesi, bankanıza bağlı olarak birkaç iş günü sürebilir.",
+          // Başarısız durumda güven verici genel mesaj — ham hata kodu ASLA.
+          failedNote: "Para iadesi tamamlanamadı; mağaza en kısa sürede sizinle iletişime geçecek.",
+          // NONE: gerçek iade henüz başlatılmadı (yalnız beklenen niyet var).
+          noneNote: "İade tutarı henüz işleme alınmadı.",
+        },
         note: "Notunuz",
         items: "Ürünler",
         quantity: "İade adedi",

@@ -24,6 +24,8 @@ function dailyRow(date: string): FinanceDailyRow {
     orderCount: 2,
     paidOrderCount: 2,
     refundedOrderCount: 0,
+    productRefundsMinor: 0,
+    shippingRefundsMinor: 0,
     unitsSold: 3,
     cancelledOrderCount: 1,
     taxCoveredOrderCount: 2,
@@ -86,7 +88,8 @@ describe("finance routes", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.data.currency).toBe("TRY");
-    expect(body.data.refundAmountsSupported).toBe(false);
+    // ADR-272 — gerçek OrderRefund ledger sorguları tamamlandı; refund tutarları artık desteklenir.
+    expect(body.data.refundAmountsSupported).toBe(true);
     expect(body.data.summary.grossSalesMinor).toBe(10000);
     expect(body.data.summary.netProductSalesMinor).toBe(8500);
     expect(body.data.summary.totalRevenueMinor).toBe(10500);

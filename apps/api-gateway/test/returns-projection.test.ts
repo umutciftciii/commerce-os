@@ -11,9 +11,10 @@ const d = (iso: string) => new Date(iso);
 function req(
   status: ReturnProjectionRequestInput["status"],
   items: Array<[number, number | null]>,
-  refund?: { totalRefundMinor: number; status: "PENDING" | "PROCESSED" | "CANCELLED" },
+  refund?: { totalRefundMinor: number; status: "PENDING" | "PROCESSED" | "CONSUMED" | "CANCELLED" },
   createdAt = "2026-08-02T00:00:00Z",
   returnNumber = "RET-1",
+  realizedRefundMinor = 0,
 ): ReturnProjectionRequestInput {
   return {
     returnNumber,
@@ -21,6 +22,7 @@ function req(
     createdAt: d(createdAt),
     items: items.map(([quantity, approvedQuantity]) => ({ quantity, approvedQuantity })),
     refundIntent: refund ?? null,
+    realizedRefundMinor,
   };
 }
 
@@ -169,17 +171,31 @@ describe("returns projection — financial impact (ADR-268/§7, blocker #7)", ()
     expect(s.hasPendingFinancialImpact).toBe(true);
   });
 
-  it("PROCESSED refund → completed sayılır, pending etki yok (TODO-170)", () => {
+  it("CONSUMED intent + gerçekleşen ledger refund → completed sayılır, pending etki yok (ADR-272)", () => {
     const s = buildReturnOrderSummary({
       currency: "TRY",
       now: d("2026-08-10T00:00:00Z"),
       returnWindowDays: 14,
       deliveryAnchor: d("2026-08-02T00:00:00Z"),
-      requests: [req("COMPLETED", [[1, 1]], { totalRefundMinor: 631350, status: "PROCESSED" })],
+      // Intent CONSUMED (beklenen), ledger'da SUCCEEDED refund realized = 631350 (gerçekleşen).
+      requests: [req("COMPLETED", [[1, 1]], { totalRefundMinor: 631350, status: "CONSUMED" }, undefined, "RET-1", 631350)],
     });
-    expect(s.approvedRefundIntentMinor).toBe(0);
+    expect(s.approvedRefundIntentMinor).toBe(631350);
     expect(s.completedRefundMinor).toBe(631350);
     expect(s.hasPendingFinancialImpact).toBe(false);
+  });
+
+  it("CONSUMED intent ama refund FAILED (realized 0) → beklenen var, gerçekleşen 0, pending etki (ADR-272)", () => {
+    const s = buildReturnOrderSummary({
+      currency: "TRY",
+      now: d("2026-08-10T00:00:00Z"),
+      returnWindowDays: 14,
+      deliveryAnchor: d("2026-08-02T00:00:00Z"),
+      requests: [req("REFUND_PENDING", [[1, 1]], { totalRefundMinor: 631350, status: "CONSUMED" }, undefined, "RET-1", 0)],
+    });
+    expect(s.approvedRefundIntentMinor).toBe(631350);
+    expect(s.completedRefundMinor).toBe(0);
+    expect(s.hasPendingFinancialImpact).toBe(true);
   });
 
   it("refund intent yoksa finansal etki yok", () => {

@@ -166,3 +166,24 @@ export function computeRemainingMinor(totalAmountMinor: number, capturedMinor: n
 export function isWithinRemaining(requestedMinor: number, remainingMinor: number): boolean {
   return requestedMinor > 0 && requestedMinor <= remainingMinor;
 }
+
+/**
+ * TODO-170 (ADR-272) — Refund SUCCEEDED sonrası sipariş ödeme durumu PROJEKSİYONU (SAF, monotonic).
+ *
+ * capturedMinor = sumCapturedMinor (PAID/AUTHORIZED attempt toplamı; ledger refund'ları bu toplamı
+ * DEĞİŞTİRMEZ — attempt REFUNDED'a çevrilmez, aksi halde captured otoritesi bozulur). succeededRefundMinor
+ * = Σ SUCCEEDED OrderRefund.totalRefundMinor. Tam iade (>=captured) → REFUNDED; kısmi (0<..<captured) →
+ * PARTIALLY_REFUNDED. Zaten REFUNDED ise geri çevirmez (monotonic). Değişiklik yoksa null döner.
+ * Partial refund order'ın delivery lifecycle'ını (fulfillment/OrderStatus) DEĞİŞTİRMEZ — yalnız paymentStatus.
+ */
+export function resolveRefundedPaymentStatus(
+  current: PaymentStatus,
+  capturedMinor: number,
+  succeededRefundMinor: number,
+): PaymentStatus | null {
+  if (capturedMinor <= 0 || succeededRefundMinor <= 0) return null;
+  if (current === "REFUNDED") return null;
+  const target: PaymentStatus = succeededRefundMinor >= capturedMinor ? "REFUNDED" : "PARTIALLY_REFUNDED";
+  if (target === current) return null;
+  return target;
+}

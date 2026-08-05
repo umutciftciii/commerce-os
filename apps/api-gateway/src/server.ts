@@ -213,6 +213,7 @@ import {
 } from "./sponsored/sponsored-core.js";
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
+import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
@@ -7579,6 +7580,26 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-169 (blocker #3) — iade kalemi ürün kapak görseli URL'i türetimi (storefront ile aynı semantik).
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
+  });
+
+  // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal: store-admin refund başlat/yenile/tekrar/iptal +
+  // manuel tamamlama (AYRI güçlü yetki: SUPER_ADMIN). Store-scoped; cross-store 404.
+  registerRefundAdminRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    requireStoreSuperAdmin: async (request, reply, storeId) => {
+      // Store scope + SUPER_ADMIN daraltması (manuel iade tamamlama güçlü yetki gerektirir).
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      if (!access) return null;
+      if (access.session.platformUser.role !== "SUPER_ADMIN") {
+        await reply.code(403).send(errorBody("FORBIDDEN", "Manuel iade tamamlama için yetki yetersiz."));
+        return null;
+      }
+      return { actorUserId: access.session.platformUser.id };
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).

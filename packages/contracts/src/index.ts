@@ -11598,7 +11598,8 @@ export const returnRestockDecisionSchema = z.enum([
   "RETURN_TO_VENDOR",
   "DISPOSE",
 ]);
-export const refundIntentStatusSchema = z.enum(["PENDING", "PROCESSED", "CANCELLED"]);
+// ADR-272: CONSUMED additive (ilk OrderRefund oluşturulurken atomik consume). PROCESSED legacy/kullanılmaz.
+export const refundIntentStatusSchema = z.enum(["PENDING", "PROCESSED", "CONSUMED", "CANCELLED"]);
 
 /** Nedene göre açıklama zorunlu mu (server + client aynı kural). Kusurlu/hasarlı/yanlış/OTHER → zorunlu. */
 export const RETURN_REASONS_REQUIRING_COMMENT: readonly z.infer<typeof returnReasonSchema>[] = [
@@ -11743,14 +11744,29 @@ export const customerReturnSummarySchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+/* TODO-170 (ADR-272) — Customer (vitrin) refund durumu — MASKELİ; teknik provider kodu YOK. */
+export const customerRefundSummarySchema = z.object({
+  // NONE = henüz refund başlatılmadı (yalnız beklenen niyet var).
+  status: z.enum(["NONE", "PENDING", "PROCESSING", "SUCCEEDED", "FAILED"]),
+  currency: currencySchema,
+  refundedTotalMinor: z.number().int().nonnegative(),
+  expectedTotalMinor: z.number().int().nonnegative(),
+  // Maskeli ödeme yöntemi ("Kart •••• 1234" / "Banka havalesi"); ham PAN/secret ASLA.
+  methodLabel: z.string().nullable(),
+  completedAt: z.string().datetime().nullable(),
+});
+export type CustomerRefundSummary = z.infer<typeof customerRefundSummarySchema>;
+
 export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
   currency: currencySchema,
   customerNote: z.string().nullable(),
   returnCarrier: z.string().nullable(),
   returnTrackingNumber: z.string().nullable(),
   customerPaysReturnShipping: z.boolean(),
-  // Snapshot verisinden TAHMİNİ iade tutarı (yalnız bilgilendirme; nihai TODO-170).
+  // Snapshot verisinden TAHMİNİ iade tutarı (yalnız bilgilendirme; nihai gerçek tutar `refund`'da).
   estimatedRefundMinor: z.number().int().nonnegative().nullable(),
+  // TODO-170 (ADR-272) — MASKELİ müşteri refund durumu (teknik provider kodu YOK). null = henüz refund yok.
+  refund: customerRefundSummarySchema.nullable().default(null),
   returnWindowEndsAt: z.string().datetime(),
   // TODO-169 recovery — "Ürünü geri gönderin" akışı: ürünün mağazaya son gönderim tarihi (onay
   // ankoru + kargolama süresi). Sunucu-otoriter; AWAITING_SHIPMENT'te müşteriye gösterilir.
@@ -11880,6 +11896,17 @@ export const adminReturnHistoryEntrySchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+// ADR-272 — ORTAK refund durum semantiği (ledger-otoriteli; store-admin + müşteri AYNI değeri kullanır).
+export const refundSummaryStatusSchema = z.enum([
+  "INTENT_PENDING",
+  "PROCESSING",
+  "SUCCEEDED",
+  "PARTIALLY_SUCCEEDED",
+  "FAILED",
+  "CANCELLED",
+]);
+export type RefundSummaryStatusValue = z.infer<typeof refundSummaryStatusSchema>;
+
 export const adminReturnRefundIntentSchema = z.object({
   currency: currencySchema,
   productRefundMinor: z.number().int().nonnegative(),
@@ -11888,6 +11915,26 @@ export const adminReturnRefundIntentSchema = z.object({
   totalRefundMinor: z.number().int().nonnegative(),
   status: refundIntentStatusSchema,
 });
+
+/**
+ * TODO-170 (ADR-272) — İade talebi refund ÖZETİ (ledger-otoriteli; return/order detail sağ rayı için).
+ * `status` ortak semantiktir; tamamlanmış refund sonrası ASLA "beklemede" göstermez. Amount'lar: niyet
+ * snapshot'ı (product/shipping/tax/total) + GERÇEKLEŞEN (realized) + sipariş düzeyi kalan refundable.
+ */
+export const adminReturnRefundSummarySchema = z.object({
+  status: refundSummaryStatusSchema,
+  currency: currencySchema,
+  productRefundMinor: z.number().int().nonnegative(),
+  shippingRefundMinor: z.number().int().nonnegative(),
+  taxRefundMinor: z.number().int().nonnegative(),
+  intentTotalMinor: z.number().int().nonnegative(),
+  realizedRefundMinor: z.number().int().nonnegative(),
+  refundableRemainingMinor: z.number().int().nonnegative(),
+  completedAt: z.string().datetime().nullable(),
+  // provider referansı ya da manuel dekont/reference (admin yüzeyi; müşteriye ham kod gitmez).
+  reference: z.string().nullable(),
+});
+export type AdminReturnRefundSummary = z.infer<typeof adminReturnRefundSummarySchema>;
 
 export const adminReturnDetailSchema = z.object({
   id: z.string(),
@@ -11913,9 +11960,132 @@ export const adminReturnDetailSchema = z.object({
   items: z.array(adminReturnItemSchema),
   history: z.array(adminReturnHistoryEntrySchema),
   refundIntent: adminReturnRefundIntentSchema.nullable(),
+  // TODO-170 (ADR-272) — ledger-otoriteli refund özeti (sağ ray semantik durumu + gerçekleşen tutar).
+  refundSummary: adminReturnRefundSummarySchema.nullable().default(null),
 });
 
 export const adminReturnDetailResponseSchema = z.object({ return: adminReturnDetailSchema });
+
+/* ── TODO-170 (ADR-272): Refund Ledger & Payment Reversal ───────────────────────
+ * OrderRefund = gerçekleşen/denenen para hareketi. Ham provider hata KODU müşteriye ASLA sızmaz
+ * (admin yüzeyinde kontrollü gösterilir). Maskelenmemiş ödeme verisi gösterilmez. */
+export const orderRefundStatusSchema = z.enum(["PENDING", "PROCESSING", "SUCCEEDED", "FAILED", "CANCELLED"]);
+export type OrderRefundStatusValue = z.infer<typeof orderRefundStatusSchema>;
+export const refundExecutionModeSchema = z.enum(["PROVIDER_AUTOMATIC", "MANUAL_OFFLINE"]);
+export type RefundExecutionModeValue = z.infer<typeof refundExecutionModeSchema>;
+export const refundCapabilityReasonSchema = z.enum([
+  "PROVIDER_AUTOMATIC",
+  "PROVIDER_AUTOMATIC_UNSUPPORTED",
+  "MANUAL_OFFLINE_PAYMENT",
+]);
+export const orderRefundEventTypeSchema = z.enum([
+  "REQUESTED",
+  "PROVIDER_SUBMITTED",
+  "PROCESSING",
+  "SUCCEEDED",
+  "FAILED",
+  "CANCELLED",
+  "RETRY",
+  "MANUAL_COMPLETED",
+  "RECONCILED",
+  "STATUS_QUERIED",
+  "DUPLICATE_CALLBACK",
+]);
+const refundProviderEnum = z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]);
+const refundMethodEnum = z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]);
+
+export const adminRefundCapabilitySchema = z.object({
+  mode: refundExecutionModeSchema,
+  supportsRefund: z.boolean(),
+  supportsPartialRefund: z.boolean(),
+  provider: refundProviderEnum.nullable(),
+  method: refundMethodEnum,
+  manualMethod: paymentManualMethodSchema.nullable(),
+  reason: refundCapabilityReasonSchema,
+});
+export type AdminRefundCapability = z.infer<typeof adminRefundCapabilitySchema>;
+
+export const adminRefundEventSchema = z.object({
+  type: orderRefundEventTypeSchema,
+  actorType: z.enum(["ADMIN", "SYSTEM", "PROVIDER"]),
+  amountMinor: z.number().int(),
+  providerReference: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const adminOrderRefundSchema = z.object({
+  id: z.string(),
+  status: orderRefundStatusSchema,
+  executionMode: refundExecutionModeSchema,
+  provider: refundProviderEnum.nullable(),
+  method: refundMethodEnum,
+  currency: currencySchema,
+  productRefundMinor: z.number().int().nonnegative(),
+  shippingRefundMinor: z.number().int().nonnegative(),
+  taxRefundMinor: z.number().int().nonnegative(),
+  totalRefundMinor: z.number().int().nonnegative(),
+  providerRefundId: z.string().nullable(),
+  providerReference: z.string().nullable(),
+  // Admin'e kontrollü gösterilen teknik hata (müşteriye asla); ham secret içermez.
+  failureCode: z.string().nullable(),
+  failureMessage: z.string().nullable(),
+  manualMethod: paymentManualMethodSchema.nullable(),
+  manualReference: z.string().nullable(),
+  manualNote: z.string().nullable(),
+  requestedAt: z.string().datetime(),
+  processingStartedAt: z.string().datetime().nullable(),
+  completedAt: z.string().datetime().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  cancelledAt: z.string().datetime().nullable(),
+  version: z.number().int().nonnegative(),
+  events: z.array(adminRefundEventSchema),
+});
+export type AdminOrderRefund = z.infer<typeof adminOrderRefundSchema>;
+
+export const adminRefundContextSchema = z.object({
+  currency: currencySchema,
+  capturedMinor: z.number().int().nonnegative(),
+  succeededRefundMinor: z.number().int().nonnegative(),
+  activeRefundMinor: z.number().int().nonnegative(),
+  refundableRemainingMinor: z.number().int().nonnegative(),
+  // ORTAK ledger-otoriteli durum (bu iade talebi için); rail/panel AYNI otoriteyi kullanır.
+  summaryStatus: refundSummaryStatusSchema,
+  intent: adminReturnRefundIntentSchema.nullable(),
+  capability: adminRefundCapabilitySchema.nullable(),
+  // Bu iade için "Para iadesini başlat" mümkün mü (intent PENDING/CONSUMED + REFUND_PENDING + aktif refund yok + kalan yeterli).
+  canInitiate: z.boolean(),
+  refunds: z.array(adminOrderRefundSchema),
+});
+export type AdminRefundContext = z.infer<typeof adminRefundContextSchema>;
+
+export const adminRefundContextResponseSchema = z.object({ context: adminRefundContextSchema });
+export type AdminRefundContextResponse = z.infer<typeof adminRefundContextResponseSchema>;
+export const adminRefundResponseSchema = z.object({
+  refund: adminOrderRefundSchema,
+  context: adminRefundContextSchema,
+});
+export type AdminRefundResponse = z.infer<typeof adminRefundResponseSchema>;
+
+export const adminInitiateRefundRequestSchema = z.object({
+  // Intent 1:1 ReturnRequest — server iade talebinden türetir; client yalnız optimistic version yollar.
+  expectedReturnVersion: z.number().int().nonnegative(),
+});
+export type AdminInitiateRefundRequest = z.infer<typeof adminInitiateRefundRequestSchema>;
+export const adminManualCompleteRefundRequestSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  manualReference: z.string().min(1).max(200),
+  manualNote: z.string().min(1).max(1000),
+});
+export type AdminManualCompleteRefundRequest = z.infer<typeof adminManualCompleteRefundRequestSchema>;
+export const adminRefundVersionActionRequestSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+});
+export type AdminRefundVersionActionRequest = z.infer<typeof adminRefundVersionActionRequestSchema>;
+export const adminCancelRefundRequestSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+  reason: z.string().max(300).optional(),
+});
+export type AdminCancelRefundRequest = z.infer<typeof adminCancelRefundRequestSchema>;
 
 /* ── Store Admin: aksiyon istekleri (hepsi state-machine + yetkiden geçer) ─────── */
 export const adminReturnApproveItemSchema = z.object({

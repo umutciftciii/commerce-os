@@ -1003,6 +1003,8 @@ model Store {
   returnStatusHistory              ReturnStatusHistory[]
   refundIntents                    RefundIntent[]
   returnNumberCounters             ReturnNumberCounter[]
+  // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal (store-scoped; Cascade).
+  orderRefunds                     OrderRefund[]
 }
 
 model StoreUser {
@@ -1858,6 +1860,8 @@ model Order {
   // TODO-169 (ADR-269) — Returns Management Foundation. Bir sipariş zamanla N iade talebi içerebilir.
   returnRequests        ReturnRequest[]
   refundIntents         RefundIntent[]
+  // TODO-170 (ADR-272) — Refund Ledger. Bir sipariş zamanla N refund (partial/çoklu) içerebilir.
+  orderRefunds          OrderRefund[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -2095,6 +2099,8 @@ model PaymentAttempt {
   events         PaymentProviderEvent[]
   // TODO-169 (ADR-269) — Bu attempt'e referans veren iade niyetleri (orijinal ödeme yöntemine iade).
   refundIntents  RefundIntent[]
+  // TODO-170 (ADR-272) — Bu attempt'ten gerçekleşen/denenen para iadeleri (ledger).
+  orderRefunds   OrderRefund[]
 
   @@unique([storeId, idempotencyKey], map: "payment_attempt_store_idempotency_key")
   @@index([storeId])
@@ -5040,11 +5046,14 @@ enum ReturnActorType {
   SYSTEM
 }
 
-// RefundIntent durumu. PENDING = hesaplandı, henüz işlenmedi (TODO-170 işler). PROCESSED/CANCELLED
-// bu fazda üretilmez (TODO-170 rezerve).
+// RefundIntent durumu. PENDING = hesaplandı, henüz işlenmedi. CONSUMED (TODO-170) = ilk OrderRefund
+// oluşturulurken AYNI tx'te atomik consume edildi (yalnız bir kez). CANCELLED (ADR-269 R1) = refund'suz
+// terminal iade. PROCESSED legacy/kullanılmaz olarak KORUNUR (hiç yazılmadı; drop/rename YOK — TODO-170
+// COMPLETED guard'ı artık SUCCEEDED OrderRefund'a bakar, intent PROCESSED'a değil).
 enum RefundIntentStatus {
   PENDING
   PROCESSED
+  CONSUMED
   CANCELLED
 }
 
@@ -5098,6 +5107,7 @@ model ReturnRequest {
   items        ReturnItem[]
   history      ReturnStatusHistory[]
   refundIntent RefundIntent?
+  orderRefunds OrderRefund[]
 
   @@unique([storeId, returnNumber])
   @@index([storeId])
@@ -5204,9 +5214,130 @@ model RefundIntent {
   returnRequest  ReturnRequest   @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
   order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   paymentAttempt PaymentAttempt? @relation(fields: [paymentAttemptId], references: [id], onDelete: SetNull)
+  orderRefunds   OrderRefund[]
 
   @@unique([storeId, idempotencyKey])
   @@index([storeId])
   @@index([orderId])
   @@index([status])
+}
+
+// ─── TODO-170 (ADR-272) Refund Ledger & Payment Reversal ───────────────────────────────────────
+// OrderRefund = GERÇEKLEŞEN/DENENEN para hareketi (append-only ledger head). ReturnRequest onayı ≠
+// refund; RefundIntent finansal talimattır; OrderRefund para hareketidir. Yalnız SUCCEEDED finanstan
+// düşer. Partial + çoklu refund desteklenir; cap invariant (Σ SUCCEEDED + Σ active ≤ captured) order+
+// currency düzeyinde advisory lock + version guard ile korunur.
+
+enum OrderRefundStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+// Refund yürütme kipi. PROVIDER_AUTOMATIC = otomatik sağlayıcı çağrısı (bu fazda yalnız MOCK gerçek
+// çalışır). MANUAL_OFFLINE = admin'in offline tamamladığı iade (banka havalesi ya da otomatik iade
+// desteklemeyen gerçek kart sağlayıcısı) — banka/reference + açıklama zorunlu, güçlü yetki.
+enum RefundExecutionMode {
+  PROVIDER_AUTOMATIC
+  MANUAL_OFFLINE
+}
+
+enum OrderRefundEventType {
+  REQUESTED
+  PROVIDER_SUBMITTED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  RETRY
+  MANUAL_COMPLETED
+  RECONCILED
+  STATUS_QUERIED
+  DUPLICATE_CALLBACK
+}
+
+enum OrderRefundActorType {
+  ADMIN
+  SYSTEM
+  PROVIDER
+}
+
+model OrderRefund {
+  id                        String               @id @default(cuid())
+  storeId                   String
+  orderId                   String
+  returnRequestId           String?
+  refundIntentId            String?
+  paymentAttemptId          String
+  // Otomatik yürütmede sağlayıcı; saf MANUAL_OFFLINE'da null.
+  provider                  PaymentProviderType?
+  executionMode             RefundExecutionMode
+  method                    PaymentMethodType
+  status                    OrderRefundStatus    @default(PENDING)
+  currency                  String
+  // Inclusive KDV: taxRefundMinor productRefundMinor'ın İÇİNDEDİR (disclosure only; üstüne eklenmez).
+  productRefundMinor        Int
+  shippingRefundMinor       Int
+  taxRefundMinor            Int
+  totalRefundMinor          Int
+  providerRefundId          String?
+  providerReference         String?
+  failureCode               String?
+  failureMessage            String?
+  // MANUAL_OFFLINE alanları (banka havalesi / manuel kart iadesi).
+  manualMethod              PaymentManualMethod?
+  manualReference           String?
+  manualNote                String?
+  manualCompletedByPlatformUserId String?
+  // Server-üretimi idempotency (client belirlemez). İlk: order-refund:<intentId>; retry: ...:retry:<n>.
+  idempotencyKey            String
+  requestedByPlatformUserId String?
+  requestedAt               DateTime             @default(now())
+  processingStartedAt       DateTime?
+  completedAt               DateTime?
+  failedAt                  DateTime?
+  cancelledAt               DateTime?
+  version                   Int                  @default(0)
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+
+  store          Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAttempt PaymentAttempt @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
+  returnRequest  ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  refundIntent   RefundIntent?  @relation(fields: [refundIntentId], references: [id], onDelete: SetNull)
+  events         OrderRefundEvent[]
+
+  @@unique([storeId, idempotencyKey])
+  // Aynı providerRefundId yalnız bir kez kabul edilir (duplicate callback koruması). NULL'lar distinct.
+  @@unique([storeId, provider, providerRefundId])
+  @@index([storeId])
+  @@index([orderId])
+  @@index([status])
+  @@index([returnRequestId])
+  @@index([refundIntentId])
+  // Finans: SUCCEEDED refund'lar completedAt (store tz) ile gün×currency bucketlenir.
+  @@index([storeId, status, completedAt])
+}
+
+// Append-only refund audit izi. actorId scalar (FK DEĞİL — aktör silinse bile korunur; ReturnStatusHistory
+// deseni). storeId scalar (scoping; cascade OrderRefund üzerinden).
+model OrderRefundEvent {
+  id                String               @id @default(cuid())
+  storeId           String
+  orderRefundId     String
+  type              OrderRefundEventType
+  actorType         OrderRefundActorType
+  actorId           String?
+  amountMinor       Int
+  providerReference String?
+  metadata          Json?
+  createdAt         DateTime             @default(now())
+
+  orderRefund OrderRefund @relation(fields: [orderRefundId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([orderRefundId])
 }

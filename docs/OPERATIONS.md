@@ -1739,3 +1739,38 @@ Next app'leri `API_GATEWAY_URL=http://localhost:4100` ile ayrı portlarda (3100/
 
 **Güvenlik notu:** session token yalnız httpOnly cookie'dedir (JS/localStorage'da YOK). Çok-sekme senkron
 localStorage anahtarı `*_session_sync` yalnız mesaj tipi (`logout`/`expired`/`extended`) taşır, ASLA token.
+
+## TODO-170 Refund Ledger & Payment Reversal (ADR-272) — operasyon notları (2026-08-05)
+
+**⚠️ ZORUNLU deploy sırası — migrate-before-app.** Additive migration
+`20260805100000_todo170_refund_ledger_payment_reversal` (yeni `OrderRefund`/`OrderRefundEvent` tabloları + enum'lar
++ `RefundIntentStatus ADD VALUE 'CONSUMED'`) **uygulama boot'undan ÖNCE** `prisma migrate deploy` ile uygulanır.
+old-app/new-schema GÜVENLİ (tümü additive; eski app yeni tabloları/enum değerini görmezden gelir);
+new-app/old-schema DESTEKLENMEZ (yeni app `OrderRefund` + `CONSUMED` bekler). drop/rename YOK; PENDING intent'lerden
+**otomatik OrderRefund üretilmez**; **sahte başarılı refund backfill EDİLMEZ** (fresh replay + mevcut DB upgrade aynı
+sonucu verir).
+
+```
+DATABASE_URL=... pnpm --filter @commerce-os/db exec prisma migrate deploy --schema prisma/schema.prisma
+```
+
+**Gözlemlenebilirlik / metrikler (yapılandırılmış audit + event ledger).** Para hareketi `OrderRefund` +
+append-only `OrderRefundEvent` (type: REQUESTED/PROVIDER_SUBMITTED/PROCESSING/SUCCEEDED/FAILED/CANCELLED/RETRY/
+MANUAL_COMPLETED/RECONCILED/STATUS_QUERIED/DUPLICATE_CALLBACK) ile denetlenebilir. Türetilebilir metrikler
+(store-scoped): refund requested (event REQUESTED), succeeded/failed (SUCCEEDED/FAILED), manual refund count
+(MANUAL_COMPLETED), duplicate idempotency/callback (DUPLICATE_CALLBACK), reconciliation mismatch (STATUS_QUERIED
+metadata.unknown). Admin aksiyonları ayrıca `AuditLog`'a yazılır (CREATE/UPDATE + `metadata.action=refund.*`).
+**PII/secret güvenliği:** token, provider secret, banka detayı, maskelenmemiş PAN **ASLA loglanmaz**; müşteri
+yüzeyinde ham provider hata kodu gösterilmez (yalnız admin, kontrollü).
+
+**Yetki:** refund başlat/yenile/tekrar/iptal → store platform admin; **manuel iade tamamlama → SUPER_ADMIN**
+(ayrı güçlü yetki; banka/reference + açıklama zorunlu). Cross-store 404.
+
+**Refund smoke runbook (MOCK).** İzole store/customer/PAID-MOCK-order/return(REFUND_PENDING)/RefundIntent(PENDING)
+fixture; admin "Para iadesini başlat" → OrderRefund PROCESSING→SUCCEEDED → ReturnRequest COMPLETED → müşteri "Para
+iadesi tamamlandı" → order paymentStatus REFUNDED/PARTIALLY_REFUNDED → Finance net düşüş (`refundAmountsSupported=true`).
+MOCK senaryoları `PaymentAttempt.scenario` konvansiyonuyla kontrol edilir (MOCK-only): `refund_failure` (FAILED+retry),
+`refund_async`/`refund_timeout` (PROCESSING→refresh reconcile), `refund_duplicate` (DUPLICATE_CALLBACK). Manuel akış
+için MANUAL/offline (banka havalesi) attempt → "Manuel iade tamamlandı" (SUPER_ADMIN). Fixture temizliği: `store.delete`
+cascade. Gerçek-DB integration testi: `DATABASE_URL=…/commerce_os_test pnpm --filter @commerce-os/api-gateway exec
+vitest run test/refunds-ledger.integration.test.ts` (16 test; CI'da DB yoksa SKIP).

@@ -83,14 +83,17 @@ function buildDailySeries(range: ResolvedRange, rows: FinanceDailyRow[], currenc
     const gross = r?.grossSalesMinor ?? 0;
     const discount = r?.discountsMinor ?? 0;
     const shipping = r?.shippingRevenueMinor ?? 0;
-    const net = gross - discount;
+    // TODO-170 (ADR-272) — gerçekleşen refund'ları per-day net/total'den de düş (özet ile mutabık kalsın).
+    const productRefunds = r?.productRefundsMinor ?? 0;
+    const shippingRefunds = r?.shippingRefundsMinor ?? 0;
+    const net = gross - discount - productRefunds;
     return {
       date,
       grossSalesMinor: gross,
       discountsMinor: discount,
       netProductSalesMinor: net,
       shippingRevenueMinor: shipping,
-      totalRevenueMinor: net + shipping,
+      totalRevenueMinor: net + shipping - shippingRefunds,
       taxMinor: r?.taxMinor ?? 0,
       orderCount: r?.orderCount ?? 0,
       paidOrderCount: r?.paidOrderCount ?? 0,
@@ -154,7 +157,9 @@ export function registerFinanceRoutes(app: FastifyInstance, deps: FinanceRoutesD
           range: rangeMeta(range.current),
           currency,
           availableCurrencies: listCurrencies(currentRows),
-          refundAmountsSupported: false,
+          // TODO-170 (ADR-272) — gerçek OrderRefund ledger sorguları tamamlandı; refund tutarları artık
+          // Net/Total'den (yalnız SUCCEEDED) düşülür. TD-FR-1 closure candidate.
+          refundAmountsSupported: true,
           summary,
           comparison: {
             totalRevenue: computeDelta(summary.totalRevenueMinor, prev.totalRevenueMinor),

@@ -1339,6 +1339,25 @@ export const enStorefront: StorefrontDictionary = {
         estimatedRefund: "Estimated refund",
         estimatedRefundNote:
           "This is an estimate; the final amount is confirmed after the store approves and inspects.",
+        // TODO-170 (ADR-272) — masked customer refund status. Technical provider code/secret is NEVER
+        // shown; status is conveyed with a text label, not by color alone (a11y).
+        refund: {
+          title: "Refund",
+          statuses: {
+            PENDING: "Refund pending",
+            PROCESSING: "Refund processing",
+            SUCCEEDED: "Refund completed",
+            FAILED: "Refund failed",
+          },
+          realizedLabel: "Refunded",
+          pendingLabel: "Pending refund",
+          expectedTotal: "Expected total",
+          method: "Refund method",
+          completedAt: "Completed on",
+          timeframeNote: "Depending on your bank, the refund may take a few business days.",
+          failedNote: "The refund could not be completed; the store will contact you shortly.",
+          noneNote: "The refund amount has not been processed yet.",
+        },
         note: "Your note",
         items: "Items",
         quantity: "Return qty",
