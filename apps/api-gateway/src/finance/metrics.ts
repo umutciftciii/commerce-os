@@ -11,10 +11,11 @@
  * ── Metrik sözlüğü (tümü minor-unit; KDV fiyata DAHİL/inclusive) ──────────────
  *  Gross Sales        = Σ Order.subtotalAmount            (indirim ÖNCESİ brüt satış)
  *  Discounts          = Σ Order.discountAmount            (= Σ OrderDiscount.discountAmountMinor)
- *  Product Refunds    = 0 (bu fazda tutar defteri YOK — ADR-268 §Refund; sahte üretilmez)
+ *  Product Refunds    = Σ SUCCEEDED OrderRefund.productRefundMinor (ADR-272 ledger; completedAt günü;
+ *                       inclusive KDV — taxRefund ürün refund'un İÇİNDE, ÜSTÜNE eklenmez; TEK KEZ düşülür)
  *  Net Product Sales  = Gross Sales − Discounts − Product Refunds
  *  Shipping Revenue   = Σ Order.shippingAmount
- *  Shipping Refunds   = 0 (aynı gerekçe)
+ *  Shipping Refunds   = Σ SUCCEEDED OrderRefund.shippingRefundMinor (ADR-272 ledger)
  *  Total Revenue      = Net Product Sales + Shipping Revenue − Shipping Refunds
  *  Tax (KDV)          = Σ OrderLine.lineVatAmountMinor    (inclusive; AYRI gösterilir,
  *                       revenue'ya İKİNCİ KEZ EKLENMEZ; yalnız snapshot'lı satırlardan)
@@ -70,6 +71,10 @@ export interface FinanceDailyRow {
   orderCount: number;
   paidOrderCount: number;
   refundedOrderCount: number;
+  /** Σ SUCCEEDED OrderRefund.productRefundMinor (ADR-272; completedAt günü, inclusive KDV içinde). */
+  productRefundsMinor: number;
+  /** Σ SUCCEEDED OrderRefund.shippingRefundMinor (ADR-272). */
+  shippingRefundsMinor: number;
   unitsSold: number;
   cancelledOrderCount: number;
   /** KDV snapshot'ı TAM olan satış siparişi sayısı (tax kapsamı). */
@@ -164,6 +169,8 @@ export function summarizeDailyRows(currency: string, rows: FinanceDailyRow[]): F
     if (row.currency !== currency) continue;
     summary.grossSalesMinor += row.grossSalesMinor;
     summary.discountsMinor += row.discountsMinor;
+    summary.productRefundsMinor += row.productRefundsMinor;
+    summary.shippingRefundsMinor += row.shippingRefundsMinor;
     summary.shippingRevenueMinor += row.shippingRevenueMinor;
     summary.taxMinor += row.taxMinor;
     summary.orderCount += row.orderCount;

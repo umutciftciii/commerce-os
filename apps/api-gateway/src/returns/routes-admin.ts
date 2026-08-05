@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "@commerce-os/db";
-import type { AuditAction } from "@prisma/client";
+import type { AuditAction, OrderRefundStatus, RefundIntentStatus } from "@prisma/client";
 import { z } from "zod";
 import {
   adminReturnDetailResponseSchema,
@@ -16,7 +16,11 @@ import {
   adminReturnRejectRequestSchema,
   adminReturnTransitionRequestSchema,
   adminOrderReturnsResponseSchema,
+  type AdminReturnRefundSummary,
 } from "@commerce-os/contracts";
+import { sumCapturedMinor } from "../payments/payment-state.js";
+import { computeRefundableRemainingMinor, sumSucceededRefundMinor } from "../refunds/cap-calc.js";
+import { resolveRefundSummaryStatus } from "../refunds/summary-status.js";
 import {
   applyReturnTransition,
   applyRestockForItem,
@@ -410,10 +414,22 @@ async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: 
         select: {
           orderNumber: true,
           paymentStatus: true,
+          currency: true,
           addresses: true,
         },
       },
       customer: { select: { firstName: true, lastName: true, email: true } },
+      // TODO-170 (ADR-272) — ledger-otoriteli refund özeti için bu talebin refund satırları.
+      orderRefunds: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          status: true,
+          totalRefundMinor: true,
+          completedAt: true,
+          providerReference: true,
+          manualReference: true,
+        },
+      },
       items: {
         include: {
           orderLine: {
@@ -443,5 +459,72 @@ async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: 
     rr.items.map((i) => i.orderLine.productId),
     mediaBaseUrl,
   );
-  return serializeAdminReturnDetail(rr, priorHeld, covers);
+  const refundSummary = await buildReturnRefundSummary(storeId, rr.orderId, rr);
+  return serializeAdminReturnDetail(rr, priorHeld, covers, refundSummary);
+}
+
+/**
+ * TODO-170 (ADR-272) — İade talebi refund ÖZETİ (ledger-otoriteli). intent yoksa null. status ortak
+ * çözümleyiciden (ledger > intent > return). realized = Σ SUCCEEDED (bu talep); remaining = sipariş düzeyi.
+ */
+async function buildReturnRefundSummary(
+  storeId: string,
+  orderId: string,
+  rr: {
+    order: { currency: string };
+    refundIntent: {
+      currency: string;
+      productRefundMinor: number;
+      shippingRefundMinor: number;
+      taxRefundMinor: number;
+      totalRefundMinor: number;
+      status: RefundIntentStatus;
+    } | null;
+    orderRefunds: Array<{
+      status: OrderRefundStatus;
+      totalRefundMinor: number;
+      completedAt: Date | null;
+      providerReference: string | null;
+      manualReference: string | null;
+    }>;
+  },
+): Promise<AdminReturnRefundSummary | null> {
+  const intent = rr.refundIntent;
+  if (!intent) return null;
+  const currency = intent.currency;
+  const attempts = await prisma.paymentAttempt.findMany({
+    where: { storeId, orderId, currency },
+    select: { status: true, amount: true },
+  });
+  const orderLedger = await prisma.orderRefund.findMany({
+    where: { storeId, orderId },
+    select: { status: true, totalRefundMinor: true, currency: true },
+  });
+  const capturedMinor = sumCapturedMinor(attempts);
+  const orderSucceeded = sumSucceededRefundMinor(orderLedger, currency);
+  const refundableRemainingMinor = computeRefundableRemainingMinor(capturedMinor, orderLedger, currency);
+  const status = resolveRefundSummaryStatus({
+    refunds: rr.orderRefunds.map((r) => ({ status: r.status })),
+    intentStatus: intent.status,
+    orderCapturedMinor: capturedMinor,
+    orderSucceededRefundMinor: orderSucceeded,
+  });
+  const succeeded = rr.orderRefunds.filter((r) => r.status === "SUCCEEDED");
+  const realizedRefundMinor = succeeded.reduce((s, r) => s + r.totalRefundMinor, 0);
+  const latest = succeeded.reduce<(typeof succeeded)[number] | null>(
+    (a, b) => ((a?.completedAt?.getTime() ?? 0) >= (b.completedAt?.getTime() ?? 0) ? a : b),
+    null,
+  );
+  return {
+    status,
+    currency,
+    productRefundMinor: intent.productRefundMinor,
+    shippingRefundMinor: intent.shippingRefundMinor,
+    taxRefundMinor: intent.taxRefundMinor,
+    intentTotalMinor: intent.totalRefundMinor,
+    realizedRefundMinor,
+    refundableRemainingMinor,
+    completedAt: latest?.completedAt?.toISOString() ?? null,
+    reference: latest ? latest.providerReference ?? latest.manualReference ?? null : null,
+  };
 }

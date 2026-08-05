@@ -265,3 +265,13 @@ push/PR/merge/deploy). Follow-up migration `20260804170000_adr271_returns_sessio
 intent could be silently dropped). R1 is now resolved, but TODO-170 remains a separate, **still-blocked** effort:
 the append-only `OrderRefund` ledger should not begin until these return financial invariants (and the private-media
 hardening, C1) are shipped.
+
+**TODO-170 update (2026-08-05, ADR-272 — IN_PROGRESS).** The refund ledger is now implemented (see
+[ADR-272](ADR-272-refund-ledger-and-payment-reversal.md)). Two changes intersect this ADR's decisions:
+(1) **§5 / R5** — the `RefundIntent` lifecycle gains an additive **`CONSUMED`** value (atomic single consume when the
+first `OrderRefund` is created); the `PROCESSED` value is kept as unused legacy. The R5 `COMPLETED` guard
+(`isCompletionAllowed`) now keys off **Σ SUCCEEDED `OrderRefund` ≥ intent total** instead of `RefundIntent.status ===
+"PROCESSED"` (which was never written). `cancelPendingRefundIntent` is unchanged (targets only PENDING), so a CONSUMED
+intent is never cancelled. (2) **§11 projection** — `completedRefundMinor` now comes from the SUCCEEDED `OrderRefund`
+ledger (realized money), not intent status; `refundAmountsSupported` in finance flips to `true`. A return reaches
+`COMPLETED` only after a real (or manually-confirmed offline) refund succeeds.

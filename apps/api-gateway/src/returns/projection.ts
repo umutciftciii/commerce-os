@@ -6,9 +6,10 @@
  *  1. İade PENCERESİ (teslim ankoru + policy'den türetilir; iade olmasa da gösterilir) — blocker #1.
  *  2. İade AKTİVİTESİ (bu siparişin ReturnRequest'leri; durum/adet/finansal etki) — blocker #5/#6/#7.
  *
- * FINANS DÜRÜSTLÜĞÜ (ADR-268/§7): RefundIntent PENDING "gerçekleşen iade" DEĞİLDİR. approvedRefundIntent
- * (niyet) ile completedRefund (gerçekleşen; TODO-170'e kadar 0) AYRI taşınır; hasPendingFinancialImpact
- * UI'a "beklenen/provisional" ayrımını yaptırır. Gross satış ASLA düşülmez.
+ * FINANS DÜRÜSTLÜĞÜ (ADR-268/§7 · ADR-272): RefundIntent (PENDING/CONSUMED) "beklenen" iadeyi taşır;
+ * completedRefund artık TODO-170 OrderRefund LEDGER'ından gelir (Σ SUCCEEDED.totalRefundMinor) — gerçekten
+ * geri dönen para. approvedRefundIntent (niyet) ile completedRefund (gerçekleşen) AYRI taşınır;
+ * hasPendingFinancialImpact = beklenen > gerçekleşen. CANCELLED intent sayılmaz. Gross satış ASLA düşülmez.
  */
 import type { Prisma, PrismaClient, ReturnStatus, RefundIntentStatus } from "@prisma/client";
 import {
@@ -77,6 +78,8 @@ export interface ReturnProjectionRequestInput {
   createdAt: Date;
   items: Array<{ quantity: number; approvedQuantity: number | null }>;
   refundIntent: { totalRefundMinor: number; status: RefundIntentStatus } | null;
+  /** TODO-170 — bu iade için GERÇEKLEŞEN refund (Σ SUCCEEDED OrderRefund.totalRefundMinor). */
+  realizedRefundMinor: number;
 }
 
 export interface ReturnOrderSummaryInput {
@@ -145,14 +148,11 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
     if (GOODS_RECEIVED_STATUSES.includes(r.status)) {
       returnedItemQuantity += approvedQty;
     }
-    if (r.refundIntent) {
-      // Niyet (PENDING) vs gerçekleşen (PROCESSED). CANCELLED intent sayılmaz.
-      if (r.refundIntent.status === "PENDING") {
-        approvedRefundIntentMinor += r.refundIntent.totalRefundMinor;
-      } else if (r.refundIntent.status === "PROCESSED") {
-        completedRefundMinor += r.refundIntent.totalRefundMinor;
-      }
+    // Beklenen niyet (PENDING/CONSUMED; CANCELLED sayılmaz) vs gerçekleşen (ledger SUCCEEDED, ADR-272).
+    if (r.refundIntent && r.refundIntent.status !== "CANCELLED") {
+      approvedRefundIntentMinor += r.refundIntent.totalRefundMinor;
     }
+    completedRefundMinor += r.realizedRefundMinor;
     const at = r.createdAt.getTime();
     if (latest === null || at > latest.at) {
       latest = { status: r.status, at };
@@ -183,7 +183,7 @@ export function buildReturnOrderSummary(input: ReturnOrderSummaryInput): ReturnO
     latestStatus: latest?.status ?? null,
     approvedRefundIntentMinor,
     completedRefundMinor,
-    // Beklenen finansal etki: onaylı niyet var ama henüz gerçekleşmemiş.
+    // Beklenen finansal etki: onaylı niyet var ama henüz TAM gerçekleşmemiş (ledger'da eksik kalan var).
     hasPendingFinancialImpact:
       approvedRefundIntentMinor > 0 && completedRefundMinor < approvedRefundIntentMinor,
   };
@@ -225,6 +225,8 @@ export async function computeReturnOrderSummaries(
         createdAt: true,
         items: { select: { quantity: true, approvedQuantity: true } },
         refundIntent: { select: { totalRefundMinor: true, status: true } },
+        // TODO-170 — gerçekleşen refund (ledger SUCCEEDED); realizedRefundMinor türetimi.
+        orderRefunds: { where: { status: "SUCCEEDED" }, select: { totalRefundMinor: true } },
       },
     }),
   ]);
@@ -246,6 +248,7 @@ export async function computeReturnOrderSummaries(
       refundIntent: r.refundIntent
         ? { totalRefundMinor: r.refundIntent.totalRefundMinor, status: r.refundIntent.status }
         : null,
+      realizedRefundMinor: r.orderRefunds.reduce((a, b) => a + b.totalRefundMinor, 0),
     });
     requestsByOrder.set(r.orderId, list);
   }

@@ -2015,10 +2015,19 @@ room, no code now):
 
 ## Financial Reporting Foundation — açık future kalemler (ADR-268)
 
-- **Refund amount read-model (TD-FR-1):** müşteri iade TUTARI defteri yok. Bu fazda iade tutarı raporlanmaz
-  (yalnız adet + `refundAmountsSupported=false`). Karar: append-only `OrderRefund { orderId, amountMinor,
-  shippingPortionMinor, reason, refundedAt, createdBy }` + gerçek iade akışı; geldiğinde Product/Shipping Refunds
-  Net/Total'dan TEK kez düşülür. Detay ADR-268 §5.
+- **Refund amount read-model (TD-FR-1):** ✅ **CLOSURE CANDIDATE (TODO-170 / ADR-272, 2026-08-05).** Append-only
+  `OrderRefund` + `OrderRefundEvent` ledger inşa edildi; yalnız `SUCCEEDED` refund'lar `completedAt` (store tz)
+  ile gün×currency bucketlenip Product/Shipping Refunds olarak Net/Total'dan **TEK kez** düşülür (inclusive KDV
+  üstüne eklenmez; attribution `refundedRevenueMinor` karışmaz; cancelled order zaten satış evreni dışı). Finance
+  `refundAmountsSupported=true`. Kapanış PR merge & deploy sonrası kesinleşir. Detay ADR-272.
+- **Provider-native refund webhook + scheduled reconciliation (TD-FR-5, TODO-170 future):** bu fazda otomatik
+  refund yalnız MOCK için yürütülür; reconciliation kontrollü `refresh` (status query) ile manueldir. Gerçek online
+  provider (Stripe/iyzico/PayTR) canlı refund transport'u (EX-1) ve provider-native refund webhook imzası (TD-137)
+  gelince: imzalı refund callback + zamanlanmış otomatik reconciliation worker eklenmeli. Şimdilik gerçek online
+  provider refund'ları `MANUAL_OFFLINE` workflow'una düşürülür (sahte başarı üretilmez).
+- **Chargeback / dispute & Gift Card/Store Credit refund hedefi (TD-FR-6, future):** OrderRefund ledger yalnız
+  orijinal ödemeye iade (`REFUND_TO_ORIGINAL_PAYMENT`) kapsar; chargeback/dispute ve alternatif iade hedefleri
+  (store credit / gift card) kapsam dışı — additive genişletilebilir.
 - **Payment fee/commission (TD-FR-2):** `PaymentAttempt`'te fee alanı yok → net tahsilat (fee sonrası) hesaplanamaz;
   ödeme raporu brüt tahsilatı gösterir. Sağlayıcı fee snapshot'ı gelirse additive eklenir.
 - **FX / multi-currency consolidation (TD-FR-3):** her currency AYRI raporlanır; birleşik tek-para görünüm YOK

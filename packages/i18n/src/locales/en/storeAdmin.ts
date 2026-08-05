@@ -177,6 +177,23 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "The font you selected isn't allowed for this appearance. Please choose one of the permitted fonts.",
     THEME_LAYOUT_NOT_ALLOWED:
       "The layout you selected isn't allowed for this appearance. Please choose one of the permitted layouts.",
+    // TODO-170 (ADR-270) — Refund ledger & payment reversal errors. Raw provider error
+    // codes/messages are NEVER shown to the user; these friendly equivalents are shown instead.
+    NOT_REFUND_RESOLUTION: "This return isn't eligible for a refund to the original payment.",
+    RETURN_NOT_REFUND_PENDING: "The return isn't at the refund stage yet. Move it to refund first.",
+    INTENT_NOT_FOUND: "No refund amount has been prepared for this return yet.",
+    STALE_INTENT: "The refund amount was updated. The latest version was loaded; please try again.",
+    NO_PAYMENT_ATTEMPT: "No refundable payment was found for this order.",
+    PAYMENT_NOT_CAPTURED: "The order payment wasn't captured; a refund can't be started.",
+    EXCEEDS_REFUNDABLE: "The refund amount exceeds the remaining refundable balance.",
+    CURRENCY_MISMATCH: "The refund currency doesn't match the order payment.",
+    REFUND_ALREADY_ACTIVE: "There is already an active refund in progress for this return.",
+    REFUND_NOT_FOUND: "Refund record not found.",
+    INVALID_STATE: "This action isn't allowed in the refund's current state.",
+    RETRY_NOT_ALLOWED: "This refund can't be retried (only failed refunds can be retried).",
+    AUTOMATIC_ONLY: "This payment method uses automatic refunds; it can't be completed manually.",
+    MANUAL_ONLY: "This payment method is refunded manually (bank/transfer); automatic refunds aren't supported.",
+    MISSING_MANUAL_DETAILS: "A reference (bank/receipt) and note are required for a manual refund.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",

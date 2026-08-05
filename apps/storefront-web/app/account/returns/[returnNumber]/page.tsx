@@ -134,6 +134,12 @@ export default async function ReturnDetailPage({
             </section>
           ) : null}
 
+          {/* TODO-170 (ADR-272) — MASKELİ para iadesi durumu + AYRI iade finansal özeti (bekleyen vs
+              gerçekleşen). Sunucu-otoriter; teknik provider kodu/secret ASLA gösterilmez. */}
+          {detail.refund ? (
+            <RefundSection refund={detail.refund} r={r} locale={locale} />
+          ) : null}
+
           <ItemsSection detail={detail} r={r} />
 
           {detail.customerNote ? (
@@ -183,6 +189,82 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-ink-muted">{label}</dt>
       <dd className="text-ink">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * TODO-170 (ADR-272) — Müşteri para iadesi durumu + AYRI iade finansal özeti.
+ * Sunucu-otoriter maskeli veri yalnız RENDER edilir; istemci hesap yapmaz. Durum
+ * yalnız renkle değil METİN etiketiyle iletilir (a11y). Teknik provider kodu / ham
+ * hata / maskesiz PAN ASLA gösterilmez — FAILED'da güven verici genel mesaj kullanılır.
+ * Bekleyen (expected − refunded) vs gerçekleşen (refunded) tutarlar orijinal sipariş
+ * toplamından AYRI gösterilir.
+ */
+function RefundSection({
+  refund,
+  r,
+  locale,
+}: {
+  refund: NonNullable<CustomerReturnDetail["refund"]>;
+  r: ReturnsDict;
+  locale: Locale;
+}) {
+  const rf = r.detail.refund;
+
+  // NONE = gerçek iade henüz başlatılmadı. Yalnız beklenen tutar varsa hafif bir not göster.
+  if (refund.status === "NONE") {
+    if (refund.expectedTotalMinor <= 0) return null;
+    return (
+      <section className="border border-line p-4" aria-labelledby="refund-heading">
+        <Subheading as="h2" id="refund-heading" className="mb-1">
+          {rf.title}
+        </Subheading>
+        <p className="text-sm text-ink-muted">{rf.noneNote}</p>
+      </section>
+    );
+  }
+
+  const pendingMinor = Math.max(refund.expectedTotalMinor - refund.refundedTotalMinor, 0);
+  const isInFlight = refund.status === "PENDING" || refund.status === "PROCESSING";
+
+  return (
+    <section className="border border-ink p-4" aria-labelledby="refund-heading">
+      <Subheading as="h2" id="refund-heading" className="mb-3">
+        {rf.title}
+      </Subheading>
+
+      {/* Durum: metin etiketi daima var (renk-yalnız DEĞİL). */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Badge tone="ink">{rf.statuses[refund.status]}</Badge>
+      </div>
+
+      {/* Bilgilendirici not: beklemede/işleniyor → genel süre; başarısız → güven verici mesaj. */}
+      {isInFlight ? <p className="mb-3 text-xs text-ink-muted">{rf.timeframeNote}</p> : null}
+      {refund.status === "FAILED" ? (
+        <p className="mb-3 text-sm text-ink">{rf.failedNote}</p>
+      ) : null}
+
+      {/* Ayrı iade finansal özeti — orijinal sipariş toplamından bağımsız. */}
+      <dl className="space-y-1.5 text-sm">
+        <Row
+          label={rf.realizedLabel}
+          value={formatMinor(refund.refundedTotalMinor, refund.currency)}
+        />
+        {pendingMinor > 0 ? (
+          <Row label={rf.pendingLabel} value={formatMinor(pendingMinor, refund.currency)} />
+        ) : null}
+        {refund.expectedTotalMinor !== refund.refundedTotalMinor ? (
+          <Row
+            label={rf.expectedTotal}
+            value={formatMinor(refund.expectedTotalMinor, refund.currency)}
+          />
+        ) : null}
+        {refund.methodLabel ? <Row label={rf.method} value={refund.methodLabel} /> : null}
+        {refund.status === "SUCCEEDED" && refund.completedAt ? (
+          <Row label={rf.completedAt} value={formatDate(refund.completedAt, locale)} />
+        ) : null}
+      </dl>
+    </section>
   );
 }
 

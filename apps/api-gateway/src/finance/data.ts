@@ -302,6 +302,8 @@ export function createFinanceData(db: PrismaLike = prisma): FinanceDataAccess {
           orderCount: num(r.order_count),
           paidOrderCount: num(r.paid_count),
           refundedOrderCount: num(r.refunded_count),
+          productRefundsMinor: 0,
+          shippingRefundsMinor: 0,
           unitsSold: num(r.units),
           cancelledOrderCount: 0,
           taxCoveredOrderCount: num(r.tax_covered),
@@ -327,8 +329,70 @@ export function createFinanceData(db: PrismaLike = prisma): FinanceDataAccess {
             orderCount: 0,
             paidOrderCount: 0,
             refundedOrderCount: 0,
+            productRefundsMinor: 0,
+            shippingRefundsMinor: 0,
             unitsSold: 0,
             cancelledOrderCount: num(r.cancelled),
+            taxCoveredOrderCount: 0,
+            costCoveredOrderCount: 0,
+          });
+        }
+      }
+
+      // TODO-170 (ADR-272) — GERÇEKLEŞEN refund'lar (yalnız SUCCEEDED OrderRefund), refund tarihiyle
+      // (completedAt, store tz) gün×currency bucketlenir. Order sales evrenine + order-level filtrelere bağlı
+      // (product filter dışı order'ın refund'u sayılmaz). productRefund inclusive KDV içerir → TEK KEZ düşülür;
+      // shippingRefund ayrı. Cancelled order (satış evreni dışı) zaten join'de elenir → çift-sayım yok.
+      const refundStatusClause = filters.status
+        ? Prisma.sql`o."status"::text = ${filters.status}`
+        : Prisma.sql`o."status" IN ${SALES_STATUS_LITERAL}`;
+      const refundParts: Prisma.Sql[] = [
+        Prisma.sql`r."storeId" = ${storeId}`,
+        Prisma.sql`r."status" = 'SUCCEEDED'`,
+        Prisma.sql`r."completedAt" IS NOT NULL`,
+        Prisma.sql`r."completedAt" >= ${range.fromUtc}`,
+        Prisma.sql`r."completedAt" < ${range.toUtcExclusive}`,
+        refundStatusClause,
+        ...orderFilterFragments(filters),
+        ...(filters.currency ? [Prisma.sql`r."currency" = ${filters.currency}`] : []),
+      ];
+      const refundWhere = Prisma.join(refundParts, " AND ");
+      const refundRows = await db.$queryRaw<
+        Array<{ day: string; currency: string; product_refund: bigint; shipping_refund: bigint }>
+      >(Prisma.sql`
+        SELECT to_char((r."completedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day,
+          r."currency" AS currency,
+          COALESCE(SUM(r."productRefundMinor"),0)::bigint AS product_refund,
+          COALESCE(SUM(r."shippingRefundMinor"),0)::bigint AS shipping_refund
+        FROM "OrderRefund" r
+        JOIN "Order" o ON o."id" = r."orderId"
+        WHERE ${refundWhere}
+        GROUP BY day, r."currency"
+      `);
+      for (const r of refundRows) {
+        const key = keyOf(r.day, r.currency);
+        const existing = map.get(key);
+        if (existing) {
+          existing.productRefundsMinor = num(r.product_refund);
+          existing.shippingRefundsMinor = num(r.shipping_refund);
+        } else {
+          map.set(key, {
+            date: r.day,
+            currency: r.currency,
+            grossSalesMinor: 0,
+            discountsMinor: 0,
+            shippingRevenueMinor: 0,
+            totalMinor: 0,
+            taxMinor: 0,
+            netExVatMinor: 0,
+            costMinor: 0,
+            orderCount: 0,
+            paidOrderCount: 0,
+            refundedOrderCount: 0,
+            productRefundsMinor: num(r.product_refund),
+            shippingRefundsMinor: num(r.shipping_refund),
+            unitsSold: 0,
+            cancelledOrderCount: 0,
             taxCoveredOrderCount: 0,
             costCoveredOrderCount: 0,
           });

@@ -340,6 +340,26 @@ type SponsorshipCampaignCommercialSummaryResult = Awaited<
 type SponsorshipAdvanceListResult = Awaited<ReturnType<SponsorshipAdminApi["listAdvances"]>>;
 type SponsorshipOpenChargeListResult = Awaited<ReturnType<SponsorshipAdminApi["listOpenCharges"]>>;
 
+// TODO-170 (ADR-270) — İade defteri & ödeme ters çevirme. api-client refund request/response
+// tipleri ayrıca re-export EDİLMEDİĞİNDEN (sponsorship deseniyle aynı), tipler client metod
+// imzalarından türetilir; api-client sınırı korunur, contracts'a doğrudan bağlanılmaz.
+type RefundsAdminApi = ReturnType<typeof createApiClient>["admin"]["refunds"];
+type AdminRefundContextResult = Awaited<ReturnType<RefundsAdminApi["returnContext"]>>;
+type AdminRefundResult = Awaited<ReturnType<RefundsAdminApi["initiate"]>>;
+type AdminInitiateRefundInput = Parameters<RefundsAdminApi["initiate"]>[2];
+type AdminRefundVersionActionInput = Parameters<RefundsAdminApi["retry"]>[2];
+type AdminManualCompleteRefundInput = Parameters<RefundsAdminApi["manualComplete"]>[2];
+type AdminCancelRefundInput = Parameters<RefundsAdminApi["cancel"]>[2];
+
+/** İade defteri bağlamı (yakalanan/iade edilebilir + capability + refund satırları). */
+export type RefundContext = AdminRefundContextResult["context"];
+/** Tek bir iade (refund) kaydı — durum, tutarlar, sağlayıcı, olay zaman çizelgesi. */
+export type OrderRefund = RefundContext["refunds"][number];
+/** İade kaydına ait tek olay (zaman çizelgesi ögesi). */
+export type OrderRefundEvent = OrderRefund["events"][number];
+/** İade capability özeti (PROVIDER_AUTOMATIC / MANUAL_OFFLINE + reason). */
+export type RefundCapability = NonNullable<RefundContext["capability"]>;
+
 /**
  * Tarayici -> ayni-origin BFF (/api/*) istemcisi. Gateway'e dogrudan gitmez
  * (CORS/secret yok); tum cagrilar store-admin-web route handler'lari uzerinden
@@ -990,6 +1010,38 @@ export const storeApi = {
   // TODO-169 (blocker #6) — sipariş detayında iade özeti + o siparişin talepleri.
   getOrderReturnSummary: (orderId: string) =>
     call<AdminOrderReturnsResponse>(`/api/orders/${orderId}/return-summary`),
+
+  // Refunds (TODO-170 / ADR-270) — İade defteri & ödeme ters çevirme. Okumalar salt;
+  // aksiyonlar CSRF'li + expectedVersion (optimistic concurrency). Mutasyonlar Bekleyen İş
+  // sayaçlarını (REFUND_PENDING) etkileyebildiğinden başarıda anında tazeleme sinyali gönderir.
+  getRefundContext: (returnId: string) =>
+    call<AdminRefundContextResult>(`/api/orders/returns/${returnId}/refund-context`),
+  getOrderRefundContext: (orderId: string) =>
+    call<AdminRefundContextResult>(`/api/orders/${orderId}/refund-context`),
+  initiateRefund: (returnId: string, input: AdminInitiateRefundInput) =>
+    mutatingCall<AdminRefundResult>(`/api/orders/returns/${returnId}/refund`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
+  refreshRefund: (refundId: string) =>
+    mutatingCall<AdminRefundResult>(`/api/refunds/${refundId}/refresh`, {
+      method: "POST",
+    }).then(refreshPendingWork),
+  retryRefund: (refundId: string, input: AdminRefundVersionActionInput) =>
+    mutatingCall<AdminRefundResult>(`/api/refunds/${refundId}/retry`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
+  manualCompleteRefund: (refundId: string, input: AdminManualCompleteRefundInput) =>
+    mutatingCall<AdminRefundResult>(`/api/refunds/${refundId}/manual-complete`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
+  cancelRefund: (refundId: string, input: AdminCancelRefundInput) =>
+    mutatingCall<AdminRefundResult>(`/api/refunds/${refundId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
 
   // TODO-159F — Order Payment Recovery & Collection (mevcut sipariş tahsilatı).
   getOrderPayment: (orderId: string) =>

@@ -1451,3 +1451,29 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   hardening (C1) ship edilene kadar append-only refund ledger'a başlanmamalı. R1 orijinal blocker'ı çözdü ama
   commit/deploy yok. Sıradaki roadmap adayı (hardening ship sonrası): **Storefront Social Login & Customer Identity
   Linking** (TD-181) — bu oturum temeli üzerine kurulur.
+
+## TODO-170 Refund Ledger & Payment Reversal — IN_PROGRESS (2026-08-05, ADR-272; COMMIT/DEPLOY YOK)
+
+- Amaç: TODO-169'un PENDING `RefundIntent` (finansal talimat) boşluğunu gerçek para hareketine dönüştürmek —
+  **sahte provider capability üretmeden**. Denetim (4 paralel ajan) doğruladı: refund iskeleti var ama çalışan yol
+  yok (çağıran yok, canlı transport kapalı, MOCK stub, partial order-state yok, `refundAmountsSupported=false`).
+- Yeni: append-only **`OrderRefund`** (ledger head) + **`OrderRefundEvent`**; yalnız `SUCCEEDED` finansal gerçektir.
+  Partial + çoklu refund; cap invariant `Σ SUCCEEDED + Σ active ≤ captured` (order+currency; `pg_advisory_xact_lock`
+  + `updateMany where version`). RefundIntent additive **`CONSUMED`** (atomik, bir kez; `PROCESSED` legacy korunur);
+  R5 COMPLETED guard artık SUCCEEDED OrderRefund toplamına bakar.
+- Provider capability DÜRÜST: MOCK→PROVIDER_AUTOMATIC; gerçek online provider (Stripe/iyzico/PayTR/generic)→
+  MANUAL_OFFLINE (transport + native webhook yok → manuel workflow, taklit yok); offline tahsilat→MANUAL_OFFLINE
+  (banka/reference + açıklama + SUPER_ADMIN). Async/timeout/retry güvenli (kör retry yok; reconcile `refresh`);
+  duplicate providerRefundId `@@unique` + `DUPLICATE_CALLBACK`.
+- Order paymentStatus PROJEKSİYON (`resolveRefundedPaymentStatus`; REFUNDED/PARTIALLY_REFUNDED monotonic; attempt
+  REFUNDED'a çevrilmez → captured otoritesi korunur; yeni OrderStatus yok). Finance: SUCCEEDED refund'lar
+  `completedAt` (store tz) bucketlenip Net/Total'dan TEK kez düşülür (inclusive KDV üstüne eklenmez);
+  `refundAmountsSupported=true` → **TD-FR-1 closure candidate**.
+- UI: Store-admin iade detayı refund paneli (başlat/durumu yenile/tekrar dene/manuel tamamla/iptal + event timeline,
+  expectedVersion, erişilebilir confirmation, ham provider kodu müşteriye sızmaz) + storefront maskeli müşteri refund
+  durumu (bekleniyor/işleniyor/tamamlandı/başarısız + ayrı finansal özet; teknik kod YOK).
+- Migration `20260805100000_todo170_refund_ledger_payment_reversal` (additive; drop/rename yok; auto-backfill yok;
+  migrate-before-app). Testler: `refunds-ledger.integration` 16/16 gerçek-DB (full/partial/concurrent cap/duplicate
+  idempotency+callback/success/failure/timeout+reconcile/retry/manual/stale/currency/cross-store/finance) + `refunds-pure`
+  + finance/projection güncellemeleri. Kapsam dışı (future): provider-native refund webhook + scheduled reconciliation
+  (TD-FR-5), chargeback/dispute, Gift Card/Store Credit refund (TD-FR-6), gerçek online provider canlı transport (EX-1).

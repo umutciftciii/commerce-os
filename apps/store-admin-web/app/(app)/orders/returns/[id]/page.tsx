@@ -27,6 +27,8 @@ import {
   Timeline,
   TimelineItem,
 } from "../../../../components/premium";
+// TODO-170 (ADR-270) — İade defteri & ödeme ters çevirme paneli (REFUND_TO_ORIGINAL_PAYMENT).
+import { RefundPanel } from "./refund-panel";
 import {
   RETURN_STATUS_TONES,
   RETURN_RESOLUTION_TONES,
@@ -54,6 +56,44 @@ import {
   type ReturnInspectionResult,
   type ReturnRestockDecision,
 } from "../../order-shared";
+
+// TODO-170 (ADR-272) — ledger-otoriteli refund özeti durumu → tone/glyph/etiket. Durum RENK-TEK-BAŞINA
+// değil (glyph + metin). Tamamlanmış refund sonrası ASLA "beklemede" göstermez.
+const REFUND_SUMMARY_TONE: Record<string, Tone> = {
+  INTENT_PENDING: "warning",
+  PROCESSING: "info",
+  SUCCEEDED: "success",
+  PARTIALLY_SUCCEEDED: "success",
+  FAILED: "danger",
+  CANCELLED: "neutral",
+};
+const REFUND_SUMMARY_GLYPH: Record<string, string> = {
+  INTENT_PENDING: "○",
+  PROCESSING: "◐",
+  SUCCEEDED: "✓",
+  PARTIALLY_SUCCEEDED: "◑",
+  FAILED: "✕",
+  CANCELLED: "⊘",
+};
+function refundSummaryLabel(status: string, isTr: boolean): string {
+  const tr: Record<string, string> = {
+    INTENT_PENDING: "İade Niyeti · Beklemede",
+    PROCESSING: "Para İadesi · İşleniyor",
+    SUCCEEDED: "Para İadesi · Tamamlandı",
+    PARTIALLY_SUCCEEDED: "Kısmi Para İadesi · Tamamlandı",
+    FAILED: "Para İadesi · Başarısız",
+    CANCELLED: "İade Niyeti · İptal Edildi",
+  };
+  const en: Record<string, string> = {
+    INTENT_PENDING: "Refund Intent · Pending",
+    PROCESSING: "Refund · Processing",
+    SUCCEEDED: "Refund · Completed",
+    PARTIALLY_SUCCEEDED: "Partial Refund · Completed",
+    FAILED: "Refund · Failed",
+    CANCELLED: "Refund Intent · Cancelled",
+  };
+  return (isTr ? tr : en)[status] ?? status;
+}
 
 type LoadState =
   | { status: "loading" }
@@ -312,6 +352,17 @@ export default function ReturnDetailPage() {
                 </Timeline>
               )}
             </SurfaceCard>
+
+            {/* TODO-170 (ADR-270) — Para iadesi orijinal ödemeye ise iade defteri paneli.
+                Aksiyon sonrası load() ile üst detay (ret.version/durum) tazelenir. */}
+            {ret.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" ? (
+              <RefundPanel
+                returnId={ret.id}
+                returnVersion={ret.version}
+                locale={locale}
+                onChanged={load}
+              />
+            ) : null}
           </>
         }
         rail={
@@ -355,34 +406,71 @@ export default function ReturnDetailPage() {
                 label={isTr ? "Kargo iadesi" : "Refund shipping"}
                 value={ret.refundShipping ? (isTr ? "Evet" : "Yes") : isTr ? "Hayır" : "No"}
               />
-              {ret.refundIntent ? (
+              {ret.refundSummary ? (
                 <div className="mt-2 border-t border-white/[0.06] pt-2">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300/80">
-                    {isTr
-                      ? "İade Niyeti (beklemede) — henüz tahsil edilmedi"
-                      : "Refund Intent (pending) — not yet collected"}
-                  </p>
+                  {/* TODO-170 (ADR-272) — ledger-otoriteli semantik durum; tamamlanınca "beklemede" GÖSTERMEZ. */}
+                  <RailRow
+                    label={isTr ? "Para iadesi" : "Refund"}
+                    value={
+                      <Badge tone={REFUND_SUMMARY_TONE[ret.refundSummary.status]}>
+                        <span aria-hidden="true">{REFUND_SUMMARY_GLYPH[ret.refundSummary.status]}</span>{" "}
+                        {refundSummaryLabel(ret.refundSummary.status, isTr)}
+                      </Badge>
+                    }
+                  />
                   <RailRow
                     label={isTr ? "Ürün" : "Product"}
-                    value={formatMinor(ret.refundIntent.productRefundMinor, ret.refundIntent.currency)}
+                    value={formatMinor(ret.refundSummary.productRefundMinor, ret.refundSummary.currency)}
                   />
                   <RailRow
                     label={isTr ? "Kargo" : "Shipping"}
-                    value={formatMinor(ret.refundIntent.shippingRefundMinor, ret.refundIntent.currency)}
+                    value={formatMinor(ret.refundSummary.shippingRefundMinor, ret.refundSummary.currency)}
                   />
                   <RailRow
                     label={isTr ? "KDV (dahil)" : "VAT (incl.)"}
-                    value={formatMinor(ret.refundIntent.taxRefundMinor, ret.refundIntent.currency)}
+                    value={formatMinor(ret.refundSummary.taxRefundMinor, ret.refundSummary.currency)}
                   />
                   <RailRow
-                    label={isTr ? "Toplam" : "Total"}
+                    label={isTr ? "Niyet toplamı" : "Intent total"}
                     value={
                       <span className="font-semibold text-white/90">
-                        {formatMinor(ret.refundIntent.totalRefundMinor, ret.refundIntent.currency)}
+                        {formatMinor(ret.refundSummary.intentTotalMinor, ret.refundSummary.currency)}
                       </span>
                     }
                   />
-                  <RailRow label={isTr ? "Durum" : "Status"} value={ret.refundIntent.status} />
+                  {ret.refundSummary.status !== "INTENT_PENDING" && ret.refundSummary.status !== "CANCELLED" ? (
+                    <>
+                      <RailRow
+                        label={isTr ? "Gerçekleşen iade" : "Refunded"}
+                        value={
+                          <span className="font-semibold text-emerald-300/90">
+                            {formatMinor(ret.refundSummary.realizedRefundMinor, ret.refundSummary.currency)}
+                          </span>
+                        }
+                      />
+                      <RailRow
+                        label={isTr ? "Kalan tahsilat" : "Remaining collected"}
+                        value={formatMinor(ret.refundSummary.refundableRemainingMinor, ret.refundSummary.currency)}
+                      />
+                      {ret.refundSummary.completedAt ? (
+                        <RailRow
+                          label={isTr ? "Tamamlanma" : "Completed"}
+                          value={formatDate(ret.refundSummary.completedAt)}
+                        />
+                      ) : null}
+                      {ret.refundSummary.reference ? (
+                        <RailRow
+                          label={isTr ? "Referans" : "Reference"}
+                          value={<span className="font-mono text-[11px] text-white/60">{ret.refundSummary.reference}</span>}
+                        />
+                      ) : null}
+                    </>
+                  ) : null}
+                  {ret.refundSummary.status === "INTENT_PENDING" ? (
+                    <p className="mt-1 text-[11px] text-amber-300/70">
+                      {isTr ? "Henüz tahsil edilmedi." : "Not yet collected."}
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-white/30">
@@ -883,8 +971,8 @@ function RefundDialog({
       title={isTr ? "İade sürecine al" : "Move to refund"}
       description={
         isTr
-          ? "İade niyeti (beklemede) güncellenir. Para hareketi bu aşamada YAPILMAZ (TODO-170)."
-          : "The refund intent (pending) is refreshed. No money moves at this stage (TODO-170)."
+          ? "İade talebi para iadesi aşamasına alınır ve iade tutarı hesaplanır. Parayı iade etmek için aşağıdaki İade Defteri panelinden “Para iadesini başlat”ı kullanın."
+          : "The return moves to the refund stage and the refund amount is calculated. Use “Start refund” in the Refund ledger panel below to actually refund the money."
       }
       closeLabel={isTr ? "Vazgeç" : "Cancel"}
       footer={

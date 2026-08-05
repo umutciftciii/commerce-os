@@ -21,6 +21,7 @@ import type { CustomerAuthRecord, CustomerDataAccess } from "../customers/index.
 import { resolveCustomerFromRequest } from "../customers/index.js";
 import type { StorageDriver } from "../media/storage.js";
 import { buildStorageKey } from "../media/storage-key.js";
+import { buildCustomerRefundSummary, maskPaymentMethodLabel } from "../refunds/serialize.js";
 import {
   createReturnRequest,
   applyReturnTransition,
@@ -422,6 +423,20 @@ async function loadCustomerDetail(
         },
       },
       history: { orderBy: { createdAt: "asc" } },
+      // TODO-170 (ADR-272) — müşteri refund durumu (MASKELİ) için intent + ledger + ödeme yöntemi.
+      refundIntent: {
+        select: {
+          status: true,
+          totalRefundMinor: true,
+          paymentAttempt: {
+            select: { method: true, cardBrand: true, cardLast4: true, manualMethod: true },
+          },
+        },
+      },
+      orderRefunds: {
+        select: { status: true, totalRefundMinor: true, completedAt: true, requestedAt: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!rr) return null;
@@ -429,6 +444,21 @@ async function loadCustomerDetail(
   const policy = await resolveStoreReturnPolicy(prisma, storeId);
   const covers = await coverUrlsFor(storeId, rr.items.map((i) => i.orderLine.productId), deps.config);
   const estimatedRefundMinor = await estimateRefund(storeId, rr);
+  // Refund özeti yalnız aktif (CANCELLED olmayan) refund niyeti varken; teknik provider kodu MÜŞTERİYE YOK.
+  const refund =
+    rr.refundIntent && rr.refundIntent.status !== "CANCELLED"
+      ? buildCustomerRefundSummary({
+          currency: rr.order.currency,
+          expectedTotalMinor: rr.refundIntent.totalRefundMinor,
+          refunds: rr.orderRefunds.map((r) => ({
+            status: r.status,
+            totalRefundMinor: r.totalRefundMinor,
+            completedAt: r.completedAt,
+            requestedAt: r.requestedAt,
+          })),
+          methodLabel: maskPaymentMethodLabel(rr.refundIntent.paymentAttempt),
+        })
+      : null;
   const canCancel = evaluateReturnTransition(rr.status, "CANCELLED_BY_CUSTOMER", "CUSTOMER").ok;
   const canSubmitTracking = evaluateReturnTransition(rr.status, "RETURN_SHIPPED", "CUSTOMER").ok;
   // Son gönderim tarihi: onay ankoru + kargolama süresi (yoksa iade penceresi sonuna düş).
@@ -448,6 +478,7 @@ async function loadCustomerDetail(
     returnTrackingNumber: rr.returnTrackingNumber,
     customerPaysReturnShipping: policy.customerPaysReturnShipping,
     estimatedRefundMinor,
+    refund,
     returnWindowEndsAt: rr.returnWindowEndsAt.toISOString(),
     shipByDate,
     canCancel,

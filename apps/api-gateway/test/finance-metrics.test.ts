@@ -25,6 +25,8 @@ function row(partial: Partial<FinanceDailyRow> & { date: string; currency: strin
     orderCount: 0,
     paidOrderCount: 0,
     refundedOrderCount: 0,
+    productRefundsMinor: 0,
+    shippingRefundsMinor: 0,
     unitsSold: 0,
     cancelledOrderCount: 0,
     taxCoveredOrderCount: 0,
@@ -50,6 +52,32 @@ describe("summarizeDailyRows — sözlük formülleri", () => {
     expect(s.taxMinor).toBe(2100);
     expect(s.unitsSold).toBe(4);
     expect(s.orderCount).toBe(3);
+  });
+
+  it("ADR-272: SUCCEEDED refund'lar Net/Total'den TEK KEZ düşülür (inclusive KDV üstüne eklenmez)", () => {
+    const rows = [
+      row({
+        date: "2026-08-01",
+        currency: "TRY",
+        grossSalesMinor: 10000,
+        discountsMinor: 1000,
+        shippingRevenueMinor: 2000,
+        productRefundsMinor: 3000, // inclusive KDV içerir → yalnız bir kez düşülür
+        shippingRefundsMinor: 500,
+        taxMinor: 1400,
+        orderCount: 2,
+        totalMinor: 11000,
+      }),
+    ];
+    const s = summarizeDailyRows("TRY", rows);
+    expect(s.productRefundsMinor).toBe(3000);
+    expect(s.shippingRefundsMinor).toBe(500);
+    // Net = gross - discount - productRefund = 10000 - 1000 - 3000
+    expect(s.netProductSalesMinor).toBe(6000);
+    // Total = net + shipping - shippingRefund = 6000 + 2000 - 500
+    expect(s.totalRevenueMinor).toBe(7500);
+    // KDV ayrı taşınır; refund'un tax kısmı ürün refund'un İÇİNDE (ayrıca düşülmez).
+    expect(s.taxMinor).toBe(1400);
   });
 
   it("reconciliation: özet toplamları günlük satırların alan-toplamına birebir eşittir", () => {

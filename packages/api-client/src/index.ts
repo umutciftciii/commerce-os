@@ -25,6 +25,12 @@ import type {
   AdminReturnInspectRequest,
   AdminReturnTransitionRequest,
   AdminOrderReturnsResponse,
+  AdminRefundContextResponse,
+  AdminRefundResponse,
+  AdminInitiateRefundRequest,
+  AdminManualCompleteRefundRequest,
+  AdminRefundVersionActionRequest,
+  AdminCancelRefundRequest,
   PendingWorkSummary,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
@@ -2198,6 +2204,36 @@ export interface ApiClient {
       // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
       orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
     };
+    // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal (para iadesi başlat/yenile/tekrar/iptal/manuel).
+    refunds: {
+      returnContext(storeId: string, returnId: string, token?: string): Promise<AdminRefundContextResponse>;
+      orderContext(storeId: string, orderId: string, token?: string): Promise<AdminRefundContextResponse>;
+      initiate(
+        storeId: string,
+        returnId: string,
+        input: AdminInitiateRefundRequest,
+        token?: string,
+      ): Promise<AdminRefundResponse>;
+      refresh(storeId: string, refundId: string, token?: string): Promise<AdminRefundResponse>;
+      retry(
+        storeId: string,
+        refundId: string,
+        input: AdminRefundVersionActionRequest,
+        token?: string,
+      ): Promise<AdminRefundResponse>;
+      manualComplete(
+        storeId: string,
+        refundId: string,
+        input: AdminManualCompleteRefundRequest,
+        token?: string,
+      ): Promise<AdminRefundResponse>;
+      cancel(
+        storeId: string,
+        refundId: string,
+        input: AdminCancelRefundRequest,
+        token?: string,
+      ): Promise<AdminRefundResponse>;
+    };
     // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
     pendingWork: {
       get(storeId: string, token?: string): Promise<PendingWorkSummary>;
@@ -3879,6 +3915,33 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/orders/${orderId}/return-summary`,
             token,
           ),
+      },
+      refunds: {
+        returnContext: (storeId, returnId, token) =>
+          getJson<AdminRefundContextResponse>(
+            `/stores/${storeId}/returns/${returnId}/refund-context`,
+            token,
+          ),
+        orderContext: (storeId, orderId, token) =>
+          getJson<AdminRefundContextResponse>(
+            `/stores/${storeId}/orders/${orderId}/refund-context`,
+            token,
+          ),
+        initiate: (storeId, returnId, input, token) =>
+          sendJson<AdminRefundResponse>(`/stores/${storeId}/returns/${returnId}/refund`, "POST", input, token),
+        refresh: (storeId, refundId, token) =>
+          sendJson<AdminRefundResponse>(`/stores/${storeId}/refunds/${refundId}/refresh`, "POST", undefined, token),
+        retry: (storeId, refundId, input, token) =>
+          sendJson<AdminRefundResponse>(`/stores/${storeId}/refunds/${refundId}/retry`, "POST", input, token),
+        manualComplete: (storeId, refundId, input, token) =>
+          sendJson<AdminRefundResponse>(
+            `/stores/${storeId}/refunds/${refundId}/manual-complete`,
+            "POST",
+            input,
+            token,
+          ),
+        cancel: (storeId, refundId, input, token) =>
+          sendJson<AdminRefundResponse>(`/stores/${storeId}/refunds/${refundId}/cancel`, "POST", input, token),
       },
       pendingWork: {
         get: (storeId, token) =>

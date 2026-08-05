@@ -6008,3 +6008,30 @@ rotation) + expiry UX (safe returnTo+mesaj) + warning modal + multi-tab (Broadca
   `session-legacy` integration) `commerce_os_test`'e `DATABASE_URL` ile koşar, CI'da SKIP. **TODO-170 yeniden
   BLOCKED** (return financial invariants + private media hardening ship edilene kadar refund ledger'a başlanmamalı).
   Detay: `docs/adr/ADR-271-unified-session-policy.md` §8 + `docs/adr/ADR-269-returns-authority-and-lifecycle.md`.
+
+## ADR-272 — Refund Ledger & Payment Reversal (TODO-170) — IN_PROGRESS (2026-08-05; COMMIT/DEPLOY YOK)
+
+TODO-169 `RefundIntent` (PENDING) finansal talimattır ama para HAREKET ETMEZ (hiçbir kod
+`refundPayment` çağırmaz; canlı provider transport kapalı; MOCK refund'u çağrılmayan stub;
+partial order-state üretilmez; finans `refundAmountsSupported=false`). ADR-272 bu boşluğu **sahte
+provider capability üretmeden** doldurur:
+- **`OrderRefund` (append-only ledger head) + `OrderRefundEvent`** yeni modeller; yalnız `SUCCEEDED`
+  finansal gerçektir. Partial + çoklu refund. Cap invariant `Σ SUCCEEDED + Σ active ≤ captured`
+  (order+currency) `pg_advisory_xact_lock` + `updateMany where version` ile korunur.
+- **RefundIntent lifecycle:** additive `CONSUMED` (ilk OrderRefund oluşturulurken atomik consume,
+  yalnız bir kez; `PROCESSED` legacy/kullanılmaz korunur). R5 COMPLETED guard artık intent PROCESSED
+  yerine **SUCCEEDED OrderRefund toplamı ≥ intent total**'a bakar.
+- **Capability (SAF, dürüst):** MOCK→PROVIDER_AUTOMATIC; gerçek online provider→MANUAL_OFFLINE
+  (`PROVIDER_AUTOMATIC_UNSUPPORTED`; transport kapalı + native webhook yok → manuel workflow, sahte
+  başarı YOK); manuel/offline tahsilat→MANUAL_OFFLINE (banka/reference + açıklama + SUPER_ADMIN).
+- **Async/timeout/retry:** anında SUCCEEDED→COMPLETED; async→PROCESSING; timeout→UNKNOWN (kör retry YOK,
+  reconcile); FAILED→REFUND_PENDING kalır, güvenli retry (yeni attempt). Duplicate providerRefundId
+  `@@unique([storeId,provider,providerRefundId])` + `DUPLICATE_CALLBACK` (çift para yok).
+- **Order paymentStatus PROJEKSİYON:** `resolveRefundedPaymentStatus` (REFUNDED/PARTIALLY_REFUNDED,
+  monotonic); PaymentAttempt REFUNDED'a ÇEVRİLMEZ (captured otoritesi korunur); yeni OrderStatus yok.
+- **Finance:** SUCCEEDED refund'lar `completedAt` (store tz) ile bucketlenip Net/Total'dan TEK kez
+  düşülür (inclusive KDV üstüne eklenmez); `refundAmountsSupported=true`. **TD-FR-1 closure candidate.**
+Additive migration `20260805100000_todo170_refund_ledger_payment_reversal`. Gerçek-DB concurrency
+testleri (`refunds-ledger.integration` 16/16) + saf testler (`refunds-pure`) yeşil; `commerce_os_test`'e
+`DATABASE_URL` ile koşar, CI'da SKIP. Detay: `docs/adr/ADR-272-refund-ledger-and-payment-reversal.md` +
+`docs/analysis/REFUND-LEDGER-PAYMENT-REVERSAL.md`.
