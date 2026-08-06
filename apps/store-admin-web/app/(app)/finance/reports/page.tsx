@@ -358,7 +358,7 @@ function OverviewTab({ data, currency }: { data: FinanceSummaryResponse["data"];
       {/* İptal / iade / kârlılık — dürüst durum */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi label="İptal sipariş" value={String(s.cancelledOrderCount)} tip="Satışa dahil değildir." />
-        <Kpi label="İadeli sipariş (adet)" value={String(s.refundedOrderCount)} hint={data.refundAmountsSupported ? undefined : "İade tutarı altyapısı henüz yok"} tip="paymentStatus REFUNDED/PARTIALLY_REFUNDED. Tutar bu fazda raporlanmaz." />
+        <Kpi label="İadeli sipariş (adet)" value={String(s.refundedOrderCount)} hint={data.refundAmountsSupported ? undefined : "İade tutarı altyapısı henüz yok"} tip="paymentStatus REFUNDED/PARTIALLY_REFUNDED. İade tutarı (yalnız SUCCEEDED) Toplam gelir ve Net ürün satışına zaten yansımıştır; burada ayrıca satır olarak gösterilmez." />
         <Kpi label="Brüt kâr" value={money(s.grossProfitMinor, currency)} hint={s.grossProfitMinor === null ? `Maliyet verisi: ${s.costCoveredOrderCount}/${s.orderCount} sipariş` : "Vergisiz net − maliyet"} tip="Yalnız tüm siparişlerde maliyet snapshot'ı varsa hesaplanır." />
         <Kpi label="Net kâr" value={money(s.netProfitMinor, currency)} hint={s.netProfitMinor === null ? "Kapsam yetersiz" : "Brüt kâr − indirim"} tip="Kârlılık kapsam-kapılıdır (ADR-268 §8)." />
       </div>

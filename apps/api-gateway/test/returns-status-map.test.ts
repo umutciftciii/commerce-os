@@ -70,9 +70,18 @@ describe("returns state machine (ADR-269 §4)", () => {
     });
   });
 
-  it("refund/replacement pending can be archived (CLOSED) this phase", () => {
-    expect(evaluateReturnTransition("REFUND_PENDING", "CLOSED", "ADMIN")).toEqual({ ok: true });
-    expect(evaluateReturnTransition("REPLACEMENT_PENDING", "CLOSED", "ADMIN")).toEqual({ ok: true });
+  it("TD-FR-7 — admin can no longer silently CLOSE a pending refund settle (REFUND_UNSETTLED)", () => {
+    const refund = evaluateReturnTransition("REFUND_PENDING", "CLOSED", "ADMIN");
+    expect(refund.ok).toBe(false);
+    if (!refund.ok) expect(refund.reason).toBe("REFUND_UNSETTLED");
+    const completed = evaluateReturnTransition("COMPLETED", "CLOSED", "ADMIN");
+    expect(completed.ok).toBe(false);
+    if (!completed.ok) expect(completed.reason).toBe("REFUND_UNSETTLED");
+  });
+
+  it("TD-FR-7 review fix — admin CAN archive REPLACEMENT_PENDING → CLOSED (no refund-settle guard, avoids dead-end)", () => {
+    const replacement = evaluateReturnTransition("REPLACEMENT_PENDING", "CLOSED", "ADMIN");
+    expect(replacement.ok).toBe(true);
   });
 
   it("rejects illegal jumps (fail-closed)", () => {

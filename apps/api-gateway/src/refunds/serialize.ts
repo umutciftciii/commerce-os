@@ -73,6 +73,11 @@ export interface AdminRefundContextInput {
   capturedMinor: number;
   succeededRefundMinor: number;
   activeRefundMinor: number;
+  // TD-FR-7 — PENDING ve PROCESSING AYRI (birleşik activeRefundMinor geriye uyumlu korunur).
+  pendingMinor: number;
+  processingMinor: number;
+  // TD-FR-7 — payment-state.computeNetCollectedMinor çağrısının sonucu (server-side TEK otorite).
+  netCollectedMinor: number;
   refundableRemainingMinor: number;
   intent: {
     currency: string;
@@ -94,6 +99,9 @@ export function buildAdminRefundContext(input: AdminRefundContextInput): AdminRe
     capturedMinor: input.capturedMinor,
     succeededRefundMinor: input.succeededRefundMinor,
     activeRefundMinor: input.activeRefundMinor,
+    pendingMinor: input.pendingMinor,
+    processingMinor: input.processingMinor,
+    netCollectedMinor: input.netCollectedMinor,
     refundableRemainingMinor: input.refundableRemainingMinor,
     summaryStatus: input.summaryStatus,
     intent: input.intent

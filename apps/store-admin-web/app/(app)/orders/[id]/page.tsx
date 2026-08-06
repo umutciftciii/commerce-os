@@ -11,7 +11,7 @@ import type {
   AdminOrderReturnsResponse,
 } from "@commerce-os/api-client";
 import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
-import { storeApi } from "../../../../lib/client/api";
+import { storeApi, type RefundContext } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../lib/client/format";
 import {
@@ -196,10 +196,27 @@ function CampaignPanel({ order, d }: { order: Order; d: DetailDict }) {
  * `order.salesSummary` projeksiyonu (ara toplam / indirim+etiket / kargo /
  * ödenmesi gereken / net ödenen / kalan bakiye). Sunucu özet dönmezse (eski
  * yanıt) çağıran taraf legacy tutar kartına düşer.
+ *
+ * TD-FR-7 — refundContext (order-level refund-context uç noktası; fail-open, opsiyonel)
+ * verilmişse ve succeededRefundMinor > 0 ise "Gerçekleşen iade" + "İade sonrası net
+ * tahsilat" satırları eklenir. YALNIZ OrderRefund SUCCEEDED figürleri kullanılır
+ * (refundContext.succeededRefundMinor zaten yalnız SUCCEEDED'dan türetilir — PENDING/
+ * PROCESSING dahil değildir). `netCollectedMinor` SUNUCUDAN gelir (payment-state.
+ * computeNetCollectedMinor — TEK server-side otorite); client'ta finansal hesap YOK.
  */
-function PaymentSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
+function PaymentSummaryPanel({
+  order,
+  d,
+  refundContext,
+}: {
+  order: Order;
+  d: DetailDict;
+  refundContext: RefundContext | null;
+}) {
   const summary = order.salesSummary!;
   const currency = summary.currency;
+  const succeededRefundMinor = refundContext?.succeededRefundMinor ?? 0;
+  const netCollectedMinor = refundContext?.netCollectedMinor ?? 0;
   return (
     <SurfaceCard title={d.paymentSummaryTitle}>
       <MoneyRow label={d.paymentSubtotal} value={formatMinor(summary.subtotalGrossMinor, currency)} />
@@ -233,6 +250,18 @@ function PaymentSummaryPanel({ order, d }: { order: Order; d: DetailDict }) {
       </div>
       <MoneyRow label={d.paymentPaid} value={formatMinor(summary.paidGrossMinor, currency)} />
       <MoneyRow label={d.paymentRemaining} value={formatMinor(summary.remainingGrossMinor, currency)} />
+      {succeededRefundMinor > 0 ? (
+        <>
+          <MoneyRow
+            label={d.paymentRefunded}
+            value={`−${formatMinor(succeededRefundMinor, currency)}`}
+          />
+          <div className="mt-1 flex items-center justify-between border-t border-white/[0.09] pt-2 text-sm">
+            <span className="font-semibold text-white/90">{d.paymentNetCollected}</span>
+            <span className="font-semibold text-white/90">{formatMinor(netCollectedMinor, currency)}</span>
+          </div>
+        </>
+      ) : null}
     </SurfaceCard>
   );
 }
@@ -347,7 +376,8 @@ function SalesSummaryPanel({
 /**
  * TODO-169 (blocker #6/#7) — Sipariş detayında iade talepleri + pending finansal etki.
  * RefundIntent PENDING "gerçekleşen iade" DEĞİLDİR: onaylanan niyet ile gerçekleşen AYRI gösterilir;
- * gerçek refund yoksa açıkça "henüz yapılmadı / TODO-170" belirtilir. Gross satış ASLA düşülmez.
+ * gerçekleşen (SUCCEEDED) refund yoksa açıkça "henüz gerçekleşmedi" belirtilir (TD-FR-7: gerçek refund
+ * artık Ücret Özeti'nde de görünür). Gross satış ASLA düşülmez.
  */
 function OrderReturnsSection({
   data,
@@ -375,10 +405,16 @@ function OrderReturnsSection({
           {!realized ? (
             <p className="mt-2 text-xs text-amber-200/70">
               {isTr
-                ? "Para iadesi bekleniyor · Henüz tahsilattan düşülmedi (gerçek refund TODO-170)."
-                : "Refund pending · Not yet deducted from collection (actual refund is TODO-170)."}
+                ? "Para iadesi bekleniyor · iade gerçekleşince (SUCCEEDED) tahsilattan düşülür ve Ücret Özeti'nde görünür."
+                : "Refund pending · deducted from collection once it succeeds and reflected in the Fee Summary."}
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-2 text-xs text-amber-200/70">
+              {isTr
+                ? "Gerçekleşen iade tahsilattan düşülmüştür — detay için Ücret Özeti'ne bakın."
+                : "The realized refund has been deducted from the collection — see the Fee Summary for detail."}
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -575,6 +611,25 @@ export default function OrderDetailPage() {
     };
   }, [orderId]);
 
+  // TD-FR-7 — Ücret Özeti'nde gerçekleşen (yalnız SUCCEEDED) iade + iade sonrası net
+  // tahsilat gösterimi için order-level refund-context. Fail-open: alınamazsa panel
+  // yalnız mevcut satırları gösterir (yeni satırlar gizlenir).
+  const [refundContext, setRefundContext] = useState<RefundContext | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void storeApi
+      .getOrderRefundContext(orderId)
+      .then((res) => {
+        if (!cancelled) setRefundContext(res.context);
+      })
+      .catch(() => {
+        if (!cancelled) setRefundContext(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
   const order = state.status === "ready" ? state.order : null;
 
   const activeReservations = useMemo(
@@ -764,7 +819,7 @@ export default function OrderDetailPage() {
                     Sunucu salesSummary dönmezse legacy tutar kartına düşülür. */}
                 {order.salesSummary ? (
                   <>
-                    <PaymentSummaryPanel order={order} d={d} />
+                    <PaymentSummaryPanel order={order} d={d} refundContext={refundContext} />
                     <SalesSummaryPanel
                       order={order}
                       d={d}

@@ -28,11 +28,23 @@ export function sumSucceededRefundMinor(refunds: readonly RefundLedgerRow[], cur
     .reduce((s, r) => s + r.totalRefundMinor, 0);
 }
 
-/** Aktif (henüz sonuçlanmamış: PENDING/PROCESSING) refund toplamı. */
-export function sumActiveRefundMinor(refunds: readonly RefundLedgerRow[], currency: string): number {
+/** Yalnız PENDING refund toplamı — pending/processing AYRI gösterim için (TD-FR-7). */
+export function sumPendingRefundMinor(refunds: readonly RefundLedgerRow[], currency: string): number {
   return refunds
-    .filter((r) => r.currency === currency && (r.status === "PENDING" || r.status === "PROCESSING"))
+    .filter((r) => r.currency === currency && r.status === "PENDING")
     .reduce((s, r) => s + r.totalRefundMinor, 0);
+}
+
+/** Yalnız PROCESSING refund toplamı — pending/processing AYRI gösterim için (TD-FR-7). */
+export function sumProcessingRefundMinor(refunds: readonly RefundLedgerRow[], currency: string): number {
+  return refunds
+    .filter((r) => r.currency === currency && r.status === "PROCESSING")
+    .reduce((s, r) => s + r.totalRefundMinor, 0);
+}
+
+/** Aktif (henüz sonuçlanmamış: PENDING/PROCESSING) refund toplamı. sumPending + sumProcessing (TEK otorite). */
+export function sumActiveRefundMinor(refunds: readonly RefundLedgerRow[], currency: string): number {
+  return sumPendingRefundMinor(refunds, currency) + sumProcessingRefundMinor(refunds, currency);
 }
 
 /**

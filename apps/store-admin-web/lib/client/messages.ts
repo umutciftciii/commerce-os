@@ -19,6 +19,19 @@ export function messageForCode(code: string, locale?: Locale, details?: UiErrorD
     return format(dict.media.inUseWithList, { places });
   }
 
+  // TD-FR-7 Faz 1 / Task 5 — "İadeyi yap" (inspect-decision) inceleme kararını kaydettikten
+  // sonra refund orkestrasyonu başarısız olursa gateway REFUND_INITIATE_FAILED döner; ALTINDAKİ
+  // gerçek refund hata kodu (ör. EXCEEDS_REFUNDABLE) `details.refundErrorCode`'da taşınır. Bilinen
+  // bir kodsa okunabilir sebeple birleştirilir; değilse genel mesaja düşülür.
+  if (code === "REFUND_INITIATE_FAILED") {
+    const reasonCode = details?.refundErrorCode;
+    const reason = reasonCode ? errors[reasonCode] : undefined;
+    if (reason) {
+      return format(errors.REFUND_INITIATE_FAILED_WITH_REASON, { reason });
+    }
+    return errors.REFUND_INITIATE_FAILED;
+  }
+
   return errors[code] ?? errors.UNKNOWN;
 }
 

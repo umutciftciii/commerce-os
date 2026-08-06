@@ -72,7 +72,8 @@ export type ReturnTransitionRejection =
   | "ILLEGAL_TRANSITION"
   | "TERMINAL"
   | "NO_CHANGE"
-  | "ACTOR_NOT_ALLOWED";
+  | "ACTOR_NOT_ALLOWED"
+  | "REFUND_UNSETTLED";
 
 /**
  * Bir (from → to) geçişinin verilen aktör tarafından yapılıp yapılamayacağını belirleyen SAF kural.
@@ -91,6 +92,16 @@ export function evaluateReturnTransition(
   }
   if (!RETURN_TRANSITIONS[from].includes(to)) {
     return { ok: false, reason: "ILLEGAL_TRANSITION" };
+  }
+  // TD-FR-7 (returns-flow-simplification) — "no silent close": REFUND_PENDING/COMPLETED'ten CLOSED'a
+  // admin'in "Kapat" demesiyle para iadesi yapılmadan RefundIntent CANCELLED edilip talebin sessizce
+  // kapanması (sessiz finansal tutarsızlık) burada yapısal olarak engellenir. Refund settle yolu
+  // artık COMPLETED (terminal) üzerinden izlenir. Guard YALNIZ bu iki refund-settle bağlamlı
+  // from-durumunu kapsar; REPLACEMENT_PENDING → CLOSED (admin arşivleme) ve diğer tüm yollar
+  // serbesttir — aksi halde REPLACEMENT_PENDING'in COMPLETED yolu olmadığından (bu fazda replacement
+  // sonucu doğrulanmıyor) admin arşivleyemez ve talep kalıcı çıkmaza girer (regresyon).
+  if (to === "CLOSED" && actor === "ADMIN" && (from === "REFUND_PENDING" || from === "COMPLETED")) {
+    return { ok: false, reason: "REFUND_UNSETTLED" };
   }
   const key = `${from}->${to}`;
   const allowedActor = transitionActor(key);

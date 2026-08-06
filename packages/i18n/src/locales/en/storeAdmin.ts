@@ -194,6 +194,13 @@ export const enStoreAdmin: StoreAdminDictionary = {
     AUTOMATIC_ONLY: "This payment method uses automatic refunds; it can't be completed manually.",
     MANUAL_ONLY: "This payment method is refunded manually (bank/transfer); automatic refunds aren't supported.",
     MISSING_MANUAL_DETAILS: "A reference (bank/receipt) and note are required for a manual refund.",
+    // TD-FR-7 Phase 1 / Task 5 — "Complete the return" (inspect-decision): the inspection
+    // decision was saved but refund orchestration failed (decision is NOT rolled back; only
+    // the refund itself failed).
+    REFUND_INITIATE_FAILED:
+      "The inspection decision was saved, but the refund could not be started. You can retry it from the refund ledger panel.",
+    REFUND_INITIATE_FAILED_WITH_REASON:
+      "The inspection decision was saved, but the refund could not be started: {reason} You can retry it from the refund ledger panel.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",
@@ -1431,6 +1438,9 @@ export const enStoreAdmin: StoreAdminDictionary = {
       paymentPayable: "Amount payable",
       paymentPaid: "Net paid",
       paymentRemaining: "Remaining balance",
+      // TD-FR-7 — Only SUCCEEDED OrderRefund total; net collected = captured − succeeded refund.
+      paymentRefunded: "Realized refund",
+      paymentNetCollected: "Net collected after refund",
       salesSummaryTitle: "Sales summary",
       salesSummarySubtitle:
         "Calculated from the price/VAT/cost snapshots taken at order time; not affected by current product data.",

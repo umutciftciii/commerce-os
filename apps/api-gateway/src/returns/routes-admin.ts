@@ -21,9 +21,16 @@ import {
 import { sumCapturedMinor } from "../payments/payment-state.js";
 import { computeRefundableRemainingMinor, sumSucceededRefundMinor } from "../refunds/cap-calc.js";
 import { resolveRefundSummaryStatus } from "../refunds/summary-status.js";
+import { initiateRefund } from "../refunds/service.js";
+import { createRefundProviderPort } from "../refunds/mock-refund.js";
+// TD-FR-7 Faz 1 / Task 4 fix round 1 (Important) — initiateRefund'ün RefundResult'ını admin'e
+// AYNI HTTP eşlemesiyle yansıtmak için manuel `/refund` endpoint'inin otoritesini REUSE eder
+// (kopyalanmış bir tablo DEĞİL — tek kaynak refunds/routes-admin.ts).
+import { HTTP_BY_CODE as REFUND_HTTP_BY_CODE } from "../refunds/routes-admin.js";
 import {
+  advanceInspectedToRefundPending,
+  applyInspectionDecisions,
   applyReturnTransition,
-  applyRestockForItem,
   getHeldReturnedQtyByLine,
   resolveStoreReturnPolicy,
   upsertRefundIntentForReturn,
@@ -32,6 +39,7 @@ import { serializeAdminReturnDetail, serializeAdminReturnListItem } from "./seri
 import { resolveReturnItemCovers } from "./covers.js";
 import { computeReturnOrderSummaries } from "./projection.js";
 import { evaluateReturnTransition } from "./status-map.js";
+import { writeReviewStartedEvent } from "./review-event.js";
 
 export interface ReturnAdminRoutesDeps {
   requireStoreAdmin: (
@@ -57,6 +65,11 @@ function errorBody(code: string, message: string, details?: unknown) {
 
 const storeParam = z.object({ storeId: z.string().min(1) });
 const returnParam = z.object({ storeId: z.string().min(1), returnId: z.string().min(1) });
+
+// TD-FR-7 Faz 1 / Task 4 — inspect-decision orchestration için MOCK-yürütülen refund provider port.
+// refunds/routes-admin.ts'teki modül-seviyesi singleton'la AYNI factory (createRefundProviderPort);
+// stateless olduğundan ayrı bir örnek üretmek davranışı değiştirmez.
+const refundProviderPort = createRefundProviderPort();
 
 export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdminRoutesDeps): void {
   // Liste
@@ -227,6 +240,16 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         expectedVersion: input.expectedVersion,
         timestampField: "rejectedAt",
         extraData: { rejectionReason: input.rejectionReason, ...(input.adminNote ? { adminNote: input.adminNote } : {}) },
+        onCommit: async (tx, current) => {
+          // TD-FR-7 (K2) — ilk gerçek admin kararı (reject): idempotent RETURN_REVIEW_STARTED izi.
+          await writeReviewStartedEvent(tx, {
+            storeId: params.storeId,
+            returnRequestId: params.returnId,
+            sourceStatus: current.status,
+            decisionType: "REJECT",
+            platformUserId: access.actorUserId,
+          });
+        },
       },
     );
     return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "reject");
@@ -267,7 +290,17 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         expectedVersion: input.expectedVersion,
         timestampField: "approvedAt",
         ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
-        onCommit: async (tx) => {
+        onCommit: async (tx, current) => {
+          // TD-FR-7 (K2) — ilk gerçek admin kararı (approve): idempotent RETURN_REVIEW_STARTED izi.
+          // Bu blok, aşağıdaki asıl onCommit yan-etkilerinden (item update, refund intent, otomatik
+          // AWAITING_SHIPMENT geçişi) ÖNCE çalışır.
+          await writeReviewStartedEvent(tx, {
+            storeId: params.storeId,
+            returnRequestId: params.returnId,
+            sourceStatus: current.status,
+            decisionType: "APPROVE",
+            platformUserId: access.actorUserId,
+          });
           for (const item of rr.items) {
             const approved = approvalByItem.has(item.id) ? approvalByItem.get(item.id)! : item.quantity;
             await tx.returnItem.update({
@@ -335,26 +368,121 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         timestampField: "inspectedAt",
         ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
         onCommit: async (tx) => {
-          for (const decision of input.items) {
-            await tx.returnItem.update({
-              where: { id: decision.returnItemId },
-              data: {
-                conditionStatus: decision.conditionStatus,
-                inspectionResult: decision.inspectionResult,
-                restockDecision: decision.restockDecision,
-              },
-            });
-          }
-          // Yalnız RESTOCK_AS_SELLABLE kararı sonrası idempotent stok artışı.
-          for (const decision of input.items) {
-            if (decision.restockDecision === "RESTOCK_AS_SELLABLE") {
-              await applyRestockForItem(tx, params.storeId, decision.returnItemId, access.actorUserId);
-            }
-          }
+          await applyInspectionDecisions(tx, params.storeId, access.actorUserId, input.items);
         },
       },
     );
     return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "inspect");
+  });
+
+  // TD-FR-7 Faz 1 / Task 4 — "İadeyi yap": TEK admin aksiyonunda inceleme kararı + (kabul varsa)
+  // refund başlatma orchestration. Mevcut parçaları REUSE eder: applyInspectionDecisions (kalem
+  // condition/sonuç/stok kararı — approvedQuantity'ye DOKUNMAZ, o approve aşamasında zaten
+  // sabitlenmiştir), advanceInspectedToRefundPending (kabul varsa AYNI tx'te INSPECTED→REFUND_PENDING
+  // + upsertRefundIntentForReturn), initiateRefund (tx COMMIT SONRASI çağrılır — provider I/O asla
+  // DB transaction içinde değildir; mevcut iki-aşamalı initiateRefund/executeAutomatic yapısı korunur).
+  // Kabul yoksa (Σ approvedQuantity=0) orchestration no-op kalır (refund başlatılmaz, REFUND_PENDING'e
+  // geçilmez) — tam-red akışı mevcut /reject route'undadır.
+  app.post("/stores/:storeId/returns/:returnId/inspect-decision", async (request, reply) => {
+    const params = returnParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReturnInspectRequestSchema.parse(request.body);
+
+    const rr = await prisma.returnRequest.findFirst({
+      where: { id: params.returnId, storeId: params.storeId },
+      select: { id: true, items: { select: { id: true } } },
+    });
+    if (!rr) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
+    const itemIds = new Set(rr.items.map((i) => i.id));
+    for (const decision of input.items) {
+      if (!itemIds.has(decision.returnItemId)) {
+        return reply.code(400).send(errorBody("RETURN_ITEM_NOT_FOUND", "İade kalemi bu talebe ait değil."));
+      }
+    }
+
+    // Box'lanmış mutable state: onCommit closure'ı içinde set edilir, tx sonrası okunur. Düz bir
+    // `let` reassign edilse TS closure-narrowing sınırlaması yüzünden dış okumada `never`'a daralır
+    // (doğrulanmış TS davranışı) — obje alanı mutasyonu bunu bypass eder.
+    const refundOrchestration: { value: { refundIntentId: string; expectedReturnVersion: number } | null } = {
+      value: null,
+    };
+
+    const result = await applyReturnTransition(
+      params.storeId,
+      params.returnId,
+      "INSPECTED",
+      { type: "ADMIN", id: access.actorUserId },
+      {
+        note: input.adminNote,
+        expectedVersion: input.expectedVersion,
+        timestampField: "inspectedAt",
+        ...(input.adminNote ? { extraData: { adminNote: input.adminNote } } : {}),
+        onCommit: async (tx) => {
+          await applyInspectionDecisions(tx, params.storeId, access.actorUserId, input.items);
+          const advance = await advanceInspectedToRefundPending(tx, params.storeId, params.returnId, {
+            type: "ADMIN",
+            id: access.actorUserId,
+          });
+          if (advance.advanced && advance.refundIntentId && advance.expectedReturnVersion !== undefined) {
+            refundOrchestration.value = {
+              refundIntentId: advance.refundIntentId,
+              expectedReturnVersion: advance.expectedReturnVersion,
+            };
+          }
+        },
+      },
+    );
+
+    if (result.ok && refundOrchestration.value) {
+      // Provider I/O tx DIŞINDA (MOCK PROVIDER_AUTOMATIC ise otomatik yürütülür; FAILED olsa dahi
+      // inceleme kararı + REFUND_PENDING geçişi az önce commit edildi — decision SİLİNMEZ).
+      const refundResult = await initiateRefund(
+        {
+          storeId: params.storeId,
+          refundIntentId: refundOrchestration.value.refundIntentId,
+          expectedReturnVersion: refundOrchestration.value.expectedReturnVersion,
+          actorUserId: access.actorUserId,
+        },
+        { providerPort: refundProviderPort },
+      );
+      // Fix round 1 (Important) — initiateRefund BAŞARISIZ olursa (ör. EXCEEDS_REFUNDABLE,
+      // CURRENCY_MISMATCH, VERSION_CONFLICT, REFUND_ALREADY_ACTIVE — yarışan bir başka iade cap'i
+      // tüketmiş olabilir) inceleme kararı + REFUND_PENDING geçişi ZATEN commit edilmiştir (ayrı tx)
+      // — GERİ ALINMAZ (manuel/retry mümkün kalsın). Ama admin'e SESSİZ-BAŞARI (200) DÖNÜLMEZ: aynı
+      // hata kodu/HTTP eşlemesi manuel `/refund` endpoint'inden REUSE edilerek açık 4xx döner.
+      if (!refundResult.ok) {
+        const mapped = REFUND_HTTP_BY_CODE[refundResult.code];
+        await deps.recordAudit({
+          action: "UPDATE",
+          platformUserId: access.actorUserId,
+          storeId: params.storeId,
+          entityType: "ReturnRequest",
+          entityId: params.returnId,
+          metadata: {
+            action: "return.inspect-decision.refund_initiate_failed",
+            refundErrorCode: refundResult.code,
+          },
+        });
+        return reply.code(mapped.status).send(
+          errorBody(
+            "REFUND_INITIATE_FAILED",
+            `İade başlatılamadı: ${mapped.message} İnceleme kararı kaydedildi; İade panelinden tekrar deneyebilirsiniz.`,
+            { refundErrorCode: refundResult.code },
+          ),
+        );
+      }
+    }
+
+    return finishTransition(
+      reply,
+      result,
+      deps,
+      params.storeId,
+      params.returnId,
+      access.actorUserId,
+      "inspect-decision",
+    );
   });
 }
 
@@ -389,6 +517,15 @@ async function finishTransition(
       COMPLETION_NOT_ALLOWED: {
         code: 409,
         msg: "İade tamamlanamaz: gerçek iade/değişim sonucu henüz oluşmadı.",
+      },
+      // TD-FR-7 (returns-flow-simplification) — "no silent close": admin artık REFUND_PENDING/
+      // COMPLETED durumundan doğrudan CLOSED'a geçemez; para iadesi yapılmadan talebin sessizce
+      // kapanmasını engeller. Refund settle yolu COMPLETED'tir. REPLACEMENT_PENDING → CLOSED ise
+      // bir refund-settle değildir (bu fazda replacement sonucu doğrulanmıyor) ve admin arşivlemesi
+      // için serbest bırakılır — aksi halde replacement talepleri kalıcı çıkmaza girer.
+      REFUND_UNSETTLED: {
+        code: 409,
+        msg: "Bu iade, para iadesi tamamlanmadan kapatılamaz. 'İadeyi yap' ile iadeyi tamamlayın.",
       },
     };
     const m = map[result.code] ?? { code: 409, msg: "Geçiş reddedildi." };

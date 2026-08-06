@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canStartCollection,
+  computeNetCollectedMinor,
   computeRemainingMinor,
   isAttemptActive,
   isAttemptTerminal,
@@ -119,5 +120,13 @@ describe("payment-state · captured / remaining / overpayment", () => {
     expect(isWithinRemaining(8000, 7000)).toBe(false); // overpayment
     expect(isWithinRemaining(0, 7000)).toBe(false); // sıfır
     expect(isWithinRemaining(1000, 0)).toBe(false); // zaten ödenmiş
+  });
+});
+
+describe("computeNetCollectedMinor (refund sonrası net tahsilat)", () => {
+  it("captured - succeeded refund, never negative", () => {
+    expect(computeNetCollectedMinor(2844556, 631350)).toBe(2213206);
+    expect(computeNetCollectedMinor(1000, 0)).toBe(1000);
+    expect(computeNetCollectedMinor(1000, 1500)).toBe(0);
   });
 });

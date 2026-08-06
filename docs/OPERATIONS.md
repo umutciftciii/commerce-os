@@ -1774,3 +1774,41 @@ MOCK senaryoları `PaymentAttempt.scenario` konvansiyonuyla kontrol edilir (MOCK
 için MANUAL/offline (banka havalesi) attempt → "Manuel iade tamamlandı" (SUPER_ADMIN). Fixture temizliği: `store.delete`
 cascade. Gerçek-DB integration testi: `DATABASE_URL=…/commerce_os_test pnpm --filter @commerce-os/api-gateway exec
 vitest run test/refunds-ledger.integration.test.ts` (16 test; CI'da DB yoksa SKIP).
+
+## Return Decision Flow Simplification — Faz 1 (2026-08-06) — operasyon notları (IMPLEMENTED / NOT SHIPPED)
+
+**Durum:** kod tamamlandı, tüm review temiz, 2396 test yeşil. **Commit/push/PR/merge/deploy YOK** — bu
+bölüm bir sonraki deploy turu için hazırlık notudur, henüz canlıya YANSIMADI. **Migration YOK** (K2 —
+`reviewStartedAt` kolonu yerine append-only history event).
+
+**Davranış değişikliği (deploy edildiğinde):**
+- Admin artık `REFUND_PENDING`/`COMPLETED` durumundaki bir iadeyi "Kapat" ile refund'suz kapatamaz —
+  `POST /stores/:storeId/returns/:returnId/transition {targetStatus:"CLOSED"}` bu iki kaynak durumdan
+  ADMIN aktörüne **409 `REFUND_UNSETTLED`** döner ("Bu iade, para iadesi tamamlanmadan kapatılamaz.
+  'İadeyi yap' ile iadeyi tamamlayın."). `REPLACEMENT_PENDING → CLOSED` admin arşivleme yolu AÇIK kalır
+  (replacement bu fazda refund invariant'ına tabi değil).
+- Refund artık **REFUND_PENDING'te manuel/retry refund panelinden** yürütülür (Store-Admin iade detayı,
+  ADR-272 refund paneli — başlat/durumu yenile/tekrar dene/manuel tamamla/iptal) veya inceleme ekranındaki
+  tek "İadeyi yap" aksiyonuyla (kabul edilen kalem/adet üzerinden, `POST
+  /stores/:storeId/returns/:returnId/inspect-decision`) otomatik tetiklenir.
+- `COMPLETED` terminaldir; yeni return'ler artık `CLOSED` ÜRETMEZ (yalnız SUCCEEDED `OrderRefund` refund
+  çözümünü tamamlar → return `COMPLETED`). Legacy `CLOSED` kayıtlar (bu revizyondan önce üretilmiş)
+  DOKUNULMADAN okunur kalır — geriye dönük veri düzeltmesi YOK.
+- Admin `REQUESTED` durumunda artık doğrudan Onayla/Reddet görür ("İncelemeye al" ara adımı kaldırıldı);
+  ilk gerçek karar anında idempotent `RETURN_REVIEW_STARTED` history izi otomatik yazılır (ek admin aksiyonu
+  gerekmez, UI'da görünmez — yalnız audit/`ReturnStatusHistory`).
+- Sipariş detayı Ücret Özeti'nde, `succeededRefundMinor > 0` olan siparişlerde "Gerçekleşen iade (−)" ve
+  "İade sonrası net tahsilat" satırları görünür (kaynak: `GET
+  /stores/:storeId/orders/:orderId/refund-context`, daha önce yazılmış ama tüketilmiyordu).
+
+**Deploy sırası:** migration YOK → sıradan kod deploy'u (api-gateway + store-admin-web). Geriye dönük
+uyumlu: eski client yeni `REFUND_UNSETTLED` kodunu tanımasa da HTTP 409 olarak görür (var olan hata
+işleme yolu genel 409 mesajına düşer). `RETURN_REVIEW_STARTED` event'i mevcut `ReturnStatusHistory`
+şemasına (kolon eklemeden) yazıldığından eski/yeni app aynı satırları okuyabilir.
+
+**Smoke (izole çok-kalemli fixture, deploy sonrası doğrulanacak):** REQUESTED doğrudan Onayla/Reddet ·
+approve→otomatik AWAITING_SHIPMENT · inspection'da bir quantity accept + bir quantity reject → "İadeyi
+yap" → COMPLETED · `REFUND_PENDING`'de "Kapat" butonu YOK (backend 409 doğrulanır) · order summary'de
+refund satırları · Financial Reporting net düşüş değişmedi (`refundAmountsSupported=true` zaten korunur).
+Detay + tam plan: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` §9 + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`
+Gate 5.

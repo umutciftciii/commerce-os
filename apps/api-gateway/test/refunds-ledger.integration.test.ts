@@ -18,6 +18,8 @@ import {
 } from "../src/refunds/service.js";
 import { createRefundProviderPort } from "../src/refunds/mock-refund.js";
 import { createFinanceData } from "../src/finance/data.js";
+import { loadOrderMoney } from "../src/refunds/routes-admin.js";
+import { computeNetCollectedMinor } from "../src/payments/payment-state.js";
 
 const deps = { providerPort: createRefundProviderPort() };
 
@@ -312,5 +314,93 @@ describe.skipIf(!hasTestDb)("Refund Ledger (live DB, ADR-272)", () => {
     const f = await make();
     const res = await initiateRefund({ storeId: "other-store", refundIntentId: f.refundIntentId, expectedReturnVersion: 0, actorUserId: "a" }, deps);
     expect(res).toEqual({ ok: false, code: "INTENT_NOT_FOUND" });
+  });
+});
+
+/**
+ * TD-FR-7 — refund-context yanıt figürleri: pendingMinor/processingMinor/succeededRefundMinor AYRI,
+ * netCollectedMinor SUNUCUDAN (computeNetCollectedMinor — artık dead-code DEĞİL, gerçek çağrı yolu).
+ * routes-admin.ts'in `loadOrderMoney`'i (order-level + return-level refund-context endpoint'lerinin
+ * TEK kaynağı) doğrudan çağrılır — HTTP harness kurmadan gerçek Postgres verisiyle doğrulanır.
+ */
+describe.skipIf(!hasTestDb)("loadOrderMoney (routes-admin.ts) — TD-FR-7 pending/processing/succeeded/net", () => {
+  it("PENDING + PROCESSING + SUCCEEDED AYRI toplanır; netCollectedMinor = captured − succeeded (pending/processing netten düşmez)", async () => {
+    const f = await make({ totalRefundMinor: 2000, capturedMinor: 10000 });
+    // f zaten REFUND_PENDING intent'li bir refund akışı hazırlar; onu SUCCEEDED yap (2000).
+    const res = await initiateRefund({ storeId: f.storeId, refundIntentId: f.refundIntentId, expectedReturnVersion: 0, actorUserId: "a" }, deps);
+    expect(res.ok).toBe(true);
+    // Ek olarak elle bir PENDING (1000) ve bir PROCESSING (500) OrderRefund satırı ekle — aynı order/attempt.
+    const sfx = randomUUID().slice(0, 8);
+    await prisma.orderRefund.create({
+      data: {
+        id: `rf-pending-${sfx}`,
+        storeId: f.storeId,
+        orderId: f.orderId,
+        paymentAttemptId: f.paymentAttemptId,
+        executionMode: "MANUAL_OFFLINE",
+        method: "BANK_TRANSFER",
+        status: "PENDING",
+        currency: "TRY",
+        productRefundMinor: 1000,
+        shippingRefundMinor: 0,
+        taxRefundMinor: 0,
+        totalRefundMinor: 1000,
+        idempotencyKey: `test-pending-${sfx}`,
+      },
+    });
+    await prisma.orderRefund.create({
+      data: {
+        id: `rf-processing-${sfx}`,
+        storeId: f.storeId,
+        orderId: f.orderId,
+        paymentAttemptId: f.paymentAttemptId,
+        executionMode: "PROVIDER_AUTOMATIC",
+        method: "CARD",
+        status: "PROCESSING",
+        currency: "TRY",
+        productRefundMinor: 500,
+        shippingRefundMinor: 0,
+        taxRefundMinor: 0,
+        totalRefundMinor: 500,
+        idempotencyKey: `test-processing-${sfx}`,
+      },
+    });
+
+    const money = await loadOrderMoney(f.storeId, f.orderId, "TRY");
+    expect(money.capturedMinor).toBe(10000);
+    expect(money.succeededRefundMinor).toBe(2000);
+    expect(money.pendingMinor).toBe(1000);
+    expect(money.processingMinor).toBe(500);
+    expect(money.activeRefundMinor).toBe(1500); // pending + processing (geriye uyumlu birleşik figür)
+    // netCollectedMinor YALNIZ succeeded'ı düşer; pending/processing DAHİL EDİLMEZ.
+    expect(money.netCollectedMinor).toBe(8000);
+    expect(money.netCollectedMinor).toBe(computeNetCollectedMinor(money.capturedMinor, money.succeededRefundMinor));
+    // cap invariant: refundableRemaining = captured − (succeeded + active) = 10000 − 3500
+    expect(money.refundableRemainingMinor).toBe(6500);
+  });
+
+  it("hiç refund yokken netCollectedMinor = capturedMinor; pending/processing = 0", async () => {
+    const f = await seedDeliveredOrder({ withPaidPayment: false, unitPriceMinor: 5000 });
+    fixtures.push(f);
+    const sfx = randomUUID().slice(0, 8);
+    await prisma.paymentAttempt.create({
+      data: {
+        id: `rf-pay-noref-${sfx}`,
+        storeId: f.storeId,
+        orderId: f.orderId,
+        type: "ONLINE",
+        provider: "MOCK",
+        method: "CARD",
+        amount: 5000,
+        currency: "TRY",
+        status: "PAID",
+      },
+    });
+    const money = await loadOrderMoney(f.storeId, f.orderId, "TRY");
+    expect(money.capturedMinor).toBe(5000);
+    expect(money.succeededRefundMinor).toBe(0);
+    expect(money.pendingMinor).toBe(0);
+    expect(money.processingMinor).toBe(0);
+    expect(money.netCollectedMinor).toBe(5000);
   });
 });

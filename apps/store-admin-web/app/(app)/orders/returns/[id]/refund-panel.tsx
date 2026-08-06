@@ -127,6 +127,7 @@ export function RefundPanel({
   returnVersion,
   locale,
   onChanged,
+  refreshKey,
 }: {
   returnId: string;
   /** Güncel iade (return) sürümü — "Para iadesini başlat" optimistic kilidinde kullanılır. */
@@ -134,6 +135,14 @@ export function RefundPanel({
   locale: Locale;
   /** Aksiyon sonrası üst iade detayını (ret.version/durum) tazelemek için ebeveyn reload'u. */
   onChanged: () => void | Promise<void>;
+  /**
+   * TD-FR-7 ship-polish #1 — üst sayfadaki inspect-decision/reject mutasyonu (bu panelin
+   * KENDİ initiate/retry/cancel/manual aksiyonlarından BAĞIMSIZ) sonuçlandığında ebeveyn bu
+   * sayacı bir artırır. Panel kendi getRefundContext state'ini yalnız returnId/locale
+   * değiştiğinde DEĞİL, bu sayaç değiştiğinde de yeniden çeker — aksi halde inspect-decision
+   * sonrası panel elle sayfa yenilenene kadar eski context'i gösterirdi.
+   */
+  refreshKey?: number;
 }) {
   const isTr = locale === "tr";
   const [state, setState] = useState<PanelState>({ status: "loading" });
@@ -152,9 +161,14 @@ export function RefundPanel({
     }
   }, [returnId, locale]);
 
+  // TD-FR-7 ship-polish #1 — `refreshKey` deps'e eklenir: ebeveyn bunu bir artırdığında
+  // (inspect-decision/reject sonrası) tek seferlik yeniden fetch tetiklenir. `load` zaten
+  // yalnız returnId/locale değişince yeniden oluşturulan bir referans olduğundan ve
+  // `refreshKey` yalnız DIŞARIDAN (ebeveyn mutation sonucu) değiştiğinden — bu effect
+  // kendi içinde refreshKey'i asla set ETMEZ — sonsuz döngü OLUŞMAZ.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   // Aksiyon sonucu güncel context döner → doğrudan yansıt; ayrıca üst iade detayını tazele.
   // 409 VERSION_CONFLICT / STALE_INTENT: kayıt değişti → dostça mesaj + iki tarafı yeniden yükle.

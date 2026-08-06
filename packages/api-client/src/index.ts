@@ -2201,6 +2201,17 @@ export interface ApiClient {
         input: AdminReturnInspectRequest,
         token?: string,
       ): Promise<AdminReturnDetailResponse>;
+      // TD-FR-7 Faz 1 / Task 4/5 — "İadeyi yap": inceleme kararı + (kabul varsa) refund
+      // başlatma TEK aksiyonda. Aynı istek şekli (AdminReturnInspectRequest) `/inspect`
+      // ile paylaşılır; gateway `adminReturnInspectRequestSchema`'yı reuse eder. Başarısız
+      // refund orkestrasyonu (ör. EXCEEDS_REFUNDABLE/CURRENCY_MISMATCH) 4xx döner — inceleme
+      // kararı ZATEN commit edilmiştir (geri alınmaz), yalnız refund'ın kendisi başarısız olur.
+      inspectDecision(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnInspectRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
       // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
       orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
     };
@@ -3906,6 +3917,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         inspect: (storeId, returnId, input, token) =>
           sendJson<AdminReturnDetailResponse>(
             `/stores/${storeId}/returns/${returnId}/inspect`,
+            "POST",
+            input,
+            token,
+          ),
+        inspectDecision: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/inspect-decision`,
             "POST",
             input,
             token,

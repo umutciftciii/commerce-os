@@ -19,3 +19,6 @@ coverage
 *.log
 *.tsbuildinfo
 infra/backups/
+
+# SDD çalışma alanı (git-ignored scratch)
+.superpowers/

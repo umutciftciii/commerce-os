@@ -129,6 +129,37 @@
   `refunds-ledger.integration` (16/16 gerçek-DB) + `refunds-pure` + finance/projection güncellemeleri yeşil. Backend:
   `apps/api-gateway/src/refunds/` (capability · cap-calc · provider-port · mock-refund · service · serialize · routes-admin).
 
+- **TODO-171 Return Decision Flow Simplification — Faz 1 (PR1) — IMPLEMENTED / NOT SHIPPED (2026-08-06)**.
+  Kanıtlı denetim (4 yüzey: state-machine · refund lifecycle · shipment/inspection · finansal projeksiyon;
+  K1–K4 kararlandı) admin'in yalnız gerçek kararlar vermesini sağladı: "Kapat" tuzağı (`REFUND_PENDING →
+  CLOSED` guard'sız admin geçişi → RefundIntent sessizce CANCELLED, ledger boş, `Order.paymentStatus` PAID
+  kalıyordu) **yapısal olarak engellendi** — `evaluateReturnTransition` `to==="CLOSED" && actor==="ADMIN" &&
+  from∈{REFUND_PENDING,COMPLETED}` → yeni ret sebebi `REFUND_UNSETTLED` (409); `REPLACEMENT_PENDING → CLOSED`
+  admin arşivleme serbest KALDI (dead-end önlenir). `COMPLETED` yeni akışta terminal (otomatik `COMPLETED →
+  CLOSED` YOK; yeni return `CLOSED` ÜRETMEZ; legacy `CLOSED` kayıtlar okunur kalır). "İncelemeye al" +
+  "Gönderim bekleniyor" + "Kapat" butonları store-admin UI'dan kaldırıldı (`order-shared.ts`
+  `canCloseReturn`/`canReviewReturn`/`canAwaitShipment` kaldırıldı); approve→`AWAITING_SHIPMENT` otomasyonu
+  (ADR-270, mevcut) korundu. İlk gerçek admin kararında (approve/reject) idempotent `RETURN_REVIEW_STARTED`
+  append-only history event yazılır (`returns/review-event.ts` `writeReviewStartedEvent`; yapısal exact-match
+  idempotency `fromStatus=toStatus=sourceStatus` — substring/serbest-metin arama DEĞİL; ayrı kolon/tarih
+  otoritesi YOK, K2). **İnceleme = tek karar merkezi:** kalem/adet bazlı kabul (`approvedQuantity`) admin'e
+  TEK "İadeyi yap" aksiyonuyla (`POST /stores/:storeId/returns/:returnId/inspect-decision`) mevcut
+  iki-aşamalı `initiateRefund` orchestration'ına bağlanır (decision tx commit → provider I/O tx DIŞINDA;
+  `initiateRefund` başarısız dönerse inceleme kararı geri alınmaz ama admin'e sessiz-başarı YOK — aynı
+  `HTTP_BY_CODE` eşlemesi reuse edilip açık 4xx döner); red (`rejectedQuantity`) refund hesabına HİÇ girmez
+  + `DO_NOT_RESTOCK` (phantom envanter önlenir). **Finansal görünürlük:** atıl `GET
+  /stores/:storeId/orders/:orderId/refund-context` (`loadOrderMoney`, daha önce yazılmış ama UI'da hiç
+  tüketilmiyordu) admin sipariş detayı Ücret Özeti'ne bağlandı ("Gerçekleşen iade (−)" + "İade sonrası net
+  tahsilat", yalnız `succeededRefundMinor>0` iken); saf `computeNetCollectedMinor(captured,succeeded)=
+  max(0,captured−succeeded)` eklendi (`payments/payment-state.ts`); 3 stale copy düzeltildi (admin sipariş
+  detayı, storefront sipariş detayı, finans raporu — "gerçek refund TODO-170'te" artık YANLIŞ, TODO-170
+  kapandı). **TODO-170 (Refund Ledger) semantiği KORUNUR** — `OrderRefund`/`RefundIntent`/cap invariant/
+  `CONSUMED`'a DOKUNULMADI, yalnız reuse edildi. Migration **YOK** (K2). Durum: kod tamamlandı, tüm review
+  temiz, **2396 test yeşil**; **commit/push/PR/merge/deploy YOK**. Karar: ADR-269 (§ "Faz 1 Revizyonu") +
+  ADR-272 (§ "Faz 1 Revizyonu") güncellendi. Analiz: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` (ACCEPTED)
+  + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`. **PR2 (Fast Refund Controls) ve PR3 (Reverse Shipment) bu
+  fazda PLANNED** — implementasyon YAPILMADI (bkz. ROADMAP).
+
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;
   postgres/redis/worker/storefront/admin-web DOKUNULMADI, volume korundu); migration YOK, schema up to date.

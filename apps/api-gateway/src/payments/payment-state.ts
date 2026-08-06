@@ -187,3 +187,12 @@ export function resolveRefundedPaymentStatus(
   if (target === current) return null;
   return target;
 }
+
+/**
+ * TD-FR-7 — İade sonrası NET tahsilat (minor). Yalnız SUCCEEDED OrderRefund toplamı
+ * (succeededRefundMinor) tahsilattan (capturedMinor) düşülür. PENDING/PROCESSING refund
+ * netten düşmez (çağıran taraf zaten yalnız SUCCEEDED toplamını geçirmelidir). Negatif olmaz.
+ */
+export function computeNetCollectedMinor(capturedMinor: number, succeededRefundMinor: number): number {
+  return Math.max(0, capturedMinor - succeededRefundMinor);
+}

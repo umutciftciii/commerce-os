@@ -19,11 +19,13 @@ import { resolveRefundCapability } from "./capability.js";
 import {
   computeRefundableRemainingMinor,
   sumActiveRefundMinor,
+  sumPendingRefundMinor,
+  sumProcessingRefundMinor,
   sumSucceededRefundMinor,
   type RefundLedgerRow,
 } from "./cap-calc.js";
 import { createRefundProviderPort } from "./mock-refund.js";
-import { sumCapturedMinor } from "../payments/payment-state.js";
+import { computeNetCollectedMinor, sumCapturedMinor } from "../payments/payment-state.js";
 import {
   cancelRefund,
   completeManualRefund,
@@ -69,7 +71,10 @@ const returnParam = z.object({ storeId: z.string().min(1), returnId: z.string().
 const orderParam = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) });
 const refundParam = z.object({ storeId: z.string().min(1), refundId: z.string().min(1) });
 
-const HTTP_BY_CODE: Record<RefundErrorCode, { status: number; message: string }> = {
+// Exported (TD-FR-7 Faz 1 / Task 4 fix round 1) — returns/routes-admin.ts (`/inspect-decision`
+// orchestration) REUSE eder: initiateRefund'ün RefundResult'ını admin'e AYNI HTTP eşlemesiyle
+// dürüst şekilde yansıtır (sessiz-başarı YOK; kopyalanmış bir tablo DEĞİL, TEK otorite).
+export const HTTP_BY_CODE: Record<RefundErrorCode, { status: number; message: string }> = {
   INTENT_NOT_FOUND: { status: 404, message: "İade niyeti bulunamadı." },
   REFUND_NOT_FOUND: { status: 404, message: "İade kaydı bulunamadı." },
   VERSION_CONFLICT: { status: 409, message: "Kayıt bu sırada değişti; yenileyin." },
@@ -93,8 +98,14 @@ function sendRefundError(reply: FastifyReply, code: RefundErrorCode): void {
   void reply.code(mapped.status).send(errorBody(code, mapped.message));
 }
 
-/** Order-level captured + ledger rows (cap hesabı için). */
-async function loadOrderMoney(storeId: string, orderId: string, currency: string) {
+/**
+ * Order-level captured + ledger rows (cap hesabı için). TD-FR-7 — TEK server-side otorite: bu figürler
+ * "İadeler" bölümü (returns/projection.ts) ile AYNI kaynaktan (OrderRefund ledger, SUCCEEDED-only) türetilir;
+ * netCollectedMinor artık burada computeNetCollectedMinor (payments/payment-state.ts) çağrısıyla hesaplanır —
+ * frontend ELLE tekrar hesaplamaz. Export edilmiştir (TD-FR-7) — refund-context yanıt figürlerinin
+ * integration testi (HTTP route harness kurmadan) bu fonksiyonu doğrudan çağırır.
+ */
+export async function loadOrderMoney(storeId: string, orderId: string, currency: string) {
   const attempts = await prisma.paymentAttempt.findMany({
     where: { storeId, orderId, currency },
     select: { status: true, amount: true },
@@ -104,10 +115,16 @@ async function loadOrderMoney(storeId: string, orderId: string, currency: string
     select: { status: true, totalRefundMinor: true, currency: true },
   });
   const capturedMinor = sumCapturedMinor(attempts);
+  const succeededRefundMinor = sumSucceededRefundMinor(ledger, currency);
+  const pendingMinor = sumPendingRefundMinor(ledger, currency);
+  const processingMinor = sumProcessingRefundMinor(ledger, currency);
   return {
     capturedMinor,
-    succeededRefundMinor: sumSucceededRefundMinor(ledger, currency),
+    succeededRefundMinor,
     activeRefundMinor: sumActiveRefundMinor(ledger, currency),
+    pendingMinor,
+    processingMinor,
+    netCollectedMinor: computeNetCollectedMinor(capturedMinor, succeededRefundMinor),
     refundableRemainingMinor: computeRefundableRemainingMinor(capturedMinor, ledger, currency),
   };
 }
@@ -177,6 +194,9 @@ async function buildReturnContext(storeId: string, returnId: string) {
     capturedMinor: money.capturedMinor,
     succeededRefundMinor: money.succeededRefundMinor,
     activeRefundMinor: money.activeRefundMinor,
+    pendingMinor: money.pendingMinor,
+    processingMinor: money.processingMinor,
+    netCollectedMinor: money.netCollectedMinor,
     refundableRemainingMinor: money.refundableRemainingMinor,
     summaryStatus,
     intent: intent
@@ -232,6 +252,9 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
       capturedMinor: money.capturedMinor,
       succeededRefundMinor: money.succeededRefundMinor,
       activeRefundMinor: money.activeRefundMinor,
+      pendingMinor: money.pendingMinor,
+      processingMinor: money.processingMinor,
+      netCollectedMinor: money.netCollectedMinor,
       refundableRemainingMinor: money.refundableRemainingMinor,
       summaryStatus: resolveRefundSummaryStatus({
         refunds: refunds.map((r) => ({ status: r.status })),
@@ -394,6 +417,9 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
             capturedMinor: money.capturedMinor,
             succeededRefundMinor: money.succeededRefundMinor,
             activeRefundMinor: money.activeRefundMinor,
+            pendingMinor: money.pendingMinor,
+            processingMinor: money.processingMinor,
+            netCollectedMinor: money.netCollectedMinor,
             refundableRemainingMinor: money.refundableRemainingMinor,
             summaryStatus: resolveRefundSummaryStatus({
               refunds: refunds.map((r) => ({ status: r.status })),

@@ -275,3 +275,38 @@ first `OrderRefund` is created); the `PROCESSED` value is kept as unused legacy.
 intent is never cancelled. (2) **§11 projection** — `completedRefundMinor` now comes from the SUCCEEDED `OrderRefund`
 ledger (realized money), not intent status; `refundAmountsSupported` in finance flips to `true`. A return reaches
 `COMPLETED` only after a real (or manually-confirmed offline) refund succeeds.
+
+## Faz 1 Revizyonu — Return Decision Flow Simplification (2026-08-06) — status: IMPLEMENTED / NOT SHIPPED
+
+Kanıtlı denetim (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`, K1–K4 kararlandı 2026-08-06;
+implementasyon planı `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`) §4'ün lifecycle kurallarını
+karar-odaklı hale getirdi. Kod tamamlandı, tüm review temiz, 2396 test yeşil — **commit/push/PR/merge/
+deploy YOK**, migration YOK (K2). Aşağıdakiler §4'ün revizyonudur:
+
+- **`CLOSED` artık admin hedefi değil.** `REFUND_PENDING → CLOSED` ve `COMPLETED → CLOSED` admin
+  geçişleri `evaluateReturnTransition`'da yapısal olarak reddedilir (yeni ret sebebi `REFUND_UNSETTLED`;
+  `POST /returns/:id/transition` → 409). `RETURN_TRANSITIONS` tablosunda bu geçişler SYSTEM/legacy
+  arşivleme için KALIR; yalnız ADMIN aktörüne kapanır. `REPLACEMENT_PENDING → CLOSED` admin arşivleme
+  serbest KALIR (refund'suz olduğu için finansal risk yok; aksi halde replacement talepleri COMPLETED
+  yolu bu fazda doğrulanmadığından kalıcı çıkmaza girerdi).
+- **`COMPLETED` yeni akışta terminal ve son duraktır.** Otomatik `COMPLETED → CLOSED` YOKTUR; yeni
+  return'ler artık `CLOSED` ÜRETMEZ. Legacy `CLOSED` kayıtlar (bu revizyondan önce üretilmiş) okunabilir
+  kalır, geriye dönük değiştirilmez.
+- **`REQUESTED → UNDER_REVIEW` ("İncelemeye al") kaldırıldı** — admin `REQUESTED`'te doğrudan
+  onay/red görür. İlk gerçek admin kararı (approve veya reject) anında append-only
+  `RETURN_REVIEW_STARTED` izi yazılır (`returns/review-event.ts` `writeReviewStartedEvent`; actor
+  ADMIN, yapısal exact-match idempotency — `fromStatus=toStatus=sourceStatus`, ayrı kolon/tarih
+  otoritesi YOK — K2).
+- **İnceleme = tek karar merkezi.** Kalem/adet bazlı kabul (`approvedQuantity`) admin'e tek "İadeyi yap"
+  aksiyonuyla (`POST /returns/:id/inspect-decision`) mevcut iki-aşamalı `initiateRefund` orchestration'ına
+  (Decision §5, ADR-272 §5/§7 AYNEN korunur) bağlanır; red (`rejectedQuantity`) refund hesabına HİÇ
+  girmez + `DO_NOT_RESTOCK`. Kalem-bazlı red disposition / ters-kargo Faz 3'e bırakıldı (K1) — bu faz
+  yeni bir ReturnItem state machine ile büyütülmedi.
+- **TODO-170 semantiği korunur.** Bu revizyon `RefundIntent`/`OrderRefund` invariant'larına (§5, ADR-272)
+  DOKUNMAZ; yalnız hangi admin aksiyonlarının hangi geçişleri tetiklediğini sadeleştirir.
+  `isCompletionAllowed` (R5 guard) ve Σ SUCCEEDED `OrderRefund` otoritesi AYNEN kullanılır.
+- **Finansal görünürlük:** atıl order-level `refund-context` uç noktası (`GET
+  /stores/:storeId/orders/:orderId/refund-context`) admin sipariş detayı Ücret Özeti'ne bağlandı.
+
+PR2 (Fast Refund Controls) ve PR3 (Reverse Shipment) bu fazda **PLANNED** — implementasyon YAPILMADI.
+Detay: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` §3–§7 + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
