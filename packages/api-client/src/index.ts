@@ -23,6 +23,8 @@ import type {
   AdminReturnApproveRequest,
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
+  AdminReturnFastRefundRequest,
+  AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
   AdminOrderReturnsResponse,
   AdminRefundContextResponse,
@@ -408,6 +410,9 @@ export type {
   AdminReturnApproveRequest,
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
+  AdminReturnFastRefundRequest,
+  AdminReturnFastRefundContext,
+  AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
   // TODO-169 (blocker #6/#8) — ortak iade özeti projeksiyonu + sipariş-iade entegrasyonu.
   ReturnOrderSummary,
@@ -2212,6 +2217,19 @@ export interface ApiClient {
         input: AdminReturnInspectRequest,
         token?: string,
       ): Promise<AdminReturnDetailResponse>;
+      // TODO-172 (ADR-273) — Fast Refund Controls: teslim alma + inceleme atlanarak doğrudan iade
+      // (AYRI güçlü yetki SUPER_ADMIN, backend-enforced). fastRefundContext bounded risk/uygunluk özeti.
+      fastRefund(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnFastRefundRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      fastRefundContext(
+        storeId: string,
+        returnId: string,
+        token?: string,
+      ): Promise<AdminReturnFastRefundContextResponse>;
       // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
       orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
     };
@@ -3926,6 +3944,18 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/returns/${returnId}/inspect-decision`,
             "POST",
             input,
+            token,
+          ),
+        fastRefund: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/fast-refund`,
+            "POST",
+            input,
+            token,
+          ),
+        fastRefundContext: (storeId, returnId, token) =>
+          getJson<AdminReturnFastRefundContextResponse>(
+            `/stores/${storeId}/returns/${returnId}/fast-refund-context`,
             token,
           ),
         orderReturns: (storeId, orderId, token) =>

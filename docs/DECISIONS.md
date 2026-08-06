@@ -6076,3 +6076,36 @@ Kod tamamlandı, tüm review temiz, **2396 test yeşil**; **commit/push/PR/merge
 `docs/adr/ADR-269-returns-authority-and-lifecycle.md` (§ "Faz 1 Revizyonu") +
 `docs/adr/ADR-272-refund-ledger-and-payment-reversal.md` (§ "Faz 1 Revizyonu") +
 `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
+
+
+## ADR-273 — Fast Refund Controls (TODO-172) — IMPLEMENTED / NOT SHIPPED (2026-08-07)
+
+Teslim alma + inceleme adımlarını atlayarak refund başlatan **kontrollü "Hızlı iade" akışı**; finansal
+ve fraud riski permission + store-configurable limit + zorunlu gerekçe + audit ile sınırlandırıldı.
+TODO-171 (Return Decision Flow Faz 1) sonrası PR2. TODO-170 (Refund Ledger) semantiği KORUNUR
+(`OrderRefund`/`RefundIntent`/cap invariant/`CONSUMED` dokunulmadı; `initiateRefund` REUSE).
+
+**Kararlar:**
+- **Permission = SUPER_ADMIN role-gate (yeni tablo YOK).** Mevcut rol-tabanlı sistem reuse edildi;
+  refund `manual-complete`'ın `requireStoreSuperAdmin` deseni birebir mirror'landı. SUPPORT_ADMIN → 403.
+  Backend-enforced; cross-store 404. İade domenine ilk granular yetki (`RETURN_FAST_REFUND`).
+- **Store-config = StoreSettings additive** (`fastRefundEnabled` default false, `fastRefundMaxAmountMinor`
+  BigInt? **null=KAPALI, sınırsız DEĞİL**, `fastRefundCurrency` String? — set edilirse order currency ile
+  birebir eşleşmeli). Ayrı return-config tablosu YOK. Ayarları yalnız SUPER_ADMIN düzenler; auditlenir.
+- **Kaynak durumlar = AWAITING_SHIPMENT + RECEIVED** (APPROVED ve RETURN_SHIPPED hariç). Faz 1'de approve
+  otomatik AWAITING_SHIPMENT'e ilerlediğinden "onaylandı, henüz teslim alınmadı"nın gerçek durumu budur;
+  RETURN_SHIPPED (ürün yolda) ayrı/riskli karar. skippedSteps: AWAITING_SHIPMENT →
+  [CUSTOMER_RETURN_SHIPMENT, STORE_RECEIPT, INSPECTION]; RECEIVED → [INSPECTION].
+- **Yetkilendirilmiş bypass:** bu kenarlar `RETURN_TRANSITIONS`'a EKLENMEZ (`evaluateReturnTransition`
+  çağrılmaz); Fast Refund kendi açık-allowlist + version-guard'lı tek meşru giriş noktasıdır (generic
+  `/transition`'ın permission/limit atlayarak REFUND_PENDING üretmesini önler).
+- **Orchestration:** tek aksiyon → tx (guard'lı REFUND_PENDING + `RETURN_FAST_REFUND_STARTED` history
+  marker: skippedSteps/reason JSON) → audit `return.fast_refund.started` → commit sonrası `initiateRefund`
+  (provider I/O tx DIŞINDA). Idempotent. Gerçek refund (OrderRefund SUCCEEDED) olmadan COMPLETED olmaz.
+- **Risk görünürlüğü:** `GET /returns/:id/fast-refund-context` bounded özet (tutar/limit/müşteri sipariş+
+  iade sayısı/son-90-gün hızlı iade/atlanan adımlar/uygunluk); fraud scoring YOK.
+- **Customer UX değişmedi:** maskeli refund durumu (TODO-170) korunur; "fast" etiketi sızmaz.
+
+Migration additive (`20260807090000_todo172_fast_refund_controls`; 3 kolon, default kapalı, mevcut
+store'larda otomatik açılmaz). Saf 17 + gerçek-DB 20 test yeşil. **commit/push/PR/merge/deploy YOK.**
+Detay: `docs/adr/ADR-273-fast-refund-controls.md` + `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`.

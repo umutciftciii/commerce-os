@@ -3177,6 +3177,16 @@ model StoreSettings {
   returnsCustomerPaysShipping       Boolean  @default(true)
   returnsAllowReplacement           Boolean  @default(true)
   returnsAllowOriginalPaymentRefund Boolean  @default(true)
+  // TODO-172 (ADR-273) — Fast Refund Controls (additive; hepsi default kapalı). Teslim alma +
+  // inceleme adımları atlanarak doğrudan para iadesi başlatan kontrollü akış. fastRefundEnabled=false
+  // (varsayılan): UI gizli + backend reddeder. fastRefundMaxAmountMinor null: hızlı iade KAPALI
+  // (sınırsız DEĞİL). fastRefundCurrency null: limit sipariş para biriminde yorumlanır; set edilirse
+  // sipariş para birimiyle birebir eşleşmeli (aksi FAST_REFUND_CURRENCY_MISMATCH). Limit minor-unit;
+  // client'ta hesaplanmaz. Ayrı return-config tablosu YOK. BigInt: para alanı konvansiyonu (Int) dışı
+  // ilk BigInt kolonu; serileştirme sınırında Number'a çevrilir (limit güvenli-tamsayı aralığında).
+  fastRefundEnabled                 Boolean  @default(false)
+  fastRefundMaxAmountMinor          BigInt?
+  fastRefundCurrency                String?
   createdAt                         DateTime @default(now())
   updatedAt                         DateTime @updatedAt
 
@@ -5185,6 +5195,11 @@ model ReturnStatusHistory {
   actorType       ReturnActorType
   actorId         String?
   note            String?
+  // TODO-172 (ADR-273) — YAPISAL audit (additive). Domain sorgusu artık note içindeki JSON'a
+  // (substring/parse) BAĞLI DEĞİL: `eventType` exact-query edilebilir ayrımcı, `metadata` yapısal
+  // payload. `note` yalnız insan-okur amaçlı kalır. PII/secret metadata'ya YAZILMAZ.
+  eventType       String?
+  metadata        Json?
   createdAt       DateTime        @default(now())
 
   store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -5192,6 +5207,8 @@ model ReturnStatusHistory {
 
   @@index([storeId])
   @@index([returnRequestId])
+  // Son-90-gün hızlı iade sayımı (eventType exact + store + zaman) için.
+  @@index([storeId, eventType, createdAt])
 }
 
 // Finansal iade NIYETI (immutable snapshot'lardan hesaplanır). status=PENDING bu fazda finansa

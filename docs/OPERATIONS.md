@@ -1635,6 +1635,67 @@ order detail + eligibility; customer list fail-open). Not: worktree smoke için 
 postgres'e bağlanır ve media docker volume'undan kopyalanır; fixture (SMOKE- önekli customer/order + geçici platform
 session) FK-güvenli temizlenir. **Responsive:** 320 / 375 / 768 / 1024 / 1440.
 
+## Test DB izolasyonu — DB integration suite vs fresh replay (TODO-172 ship-hardening) — 2026-08-07
+
+**Kural:** DB entegrasyon test suite'i (api-gateway `*.integration.test.ts`) ile fresh migration replay / migrate
+deploy / başka ağır DB işlemleri **AYNI postgres instance'ta EŞZAMANLI çalıştırılamaz.** Gözlem: api-gateway
+suite tek başına (sessiz) `2433/2433` yeşilken, eşzamanlı bir `commerce_os_replay` fresh-replay koşusuyla üst üste
+çalıştırıldığında 7 test aralıklı flake verdi (aynı postgres backend'inde lock/IO contention). Bu bir **altyapı
+hatasıdır**, kod değil — test sonucu dış yükten etkileniyorsa geçersiz kabul edilir.
+
+**Uygulama:**
+- Her DB-bağımlı suite **izole** koşar; workspace test koşusu sırasında `prisma migrate deploy`/replay/başka
+  suite tetiklenmez.
+- Fresh migration replay için **ayrı DB adı** kullanılır (ör. `commerce_os_replay`), asla `commerce_os_test` ile
+  paylaşılmaz; replay bittiğinde DB düşürülür.
+- CI task graph'ında migration-replay job'ı ile DB-integration job'ı **aynı DB üzerinde paralel schedule EDİLMEZ**
+  (ayrı DB/namespace veya concurrency guard). Guard yoksa suite'ler sıralı koşulur.
+- İki ardışık tam-workspace acceptance koşusu, eşzamanlı ağır DB işlemi olmadan yapılır (aksi halde geçersiz).
+
+## Fast Refund Controls smoke & config runbook (ADR-273 · TODO-172) — 2026-08-07
+
+**Özellik varsayılan KAPALIDIR** (mevcut store'larda otomatik açılmaz). Açmak için (yalnız SUPER_ADMIN):
+Store-admin `Ayarlar` → Fast Refund alanları, VEYA `PATCH /stores/:id/settings`
+`{ fastRefundEnabled: true, fastRefundMaxAmountMinor: <minor>, fastRefundCurrency?: <ISO> }`.
+Kurallar: `fastRefundMaxAmountMinor` **null = kapalı** (sınırsız değil); değer **kanonik ondalık STRING**
+(ör. `"25000"`; number/negatif/baştan-sıfır → 400); `fastRefundCurrency` set edilirse sipariş para birimiyle
+birebir eşleşmeli (aksi `FAST_REFUND_CURRENCY_MISMATCH`). İki additive migration uygulanmış olmalı
+(`prisma migrate deploy`): `20260807090000_todo172_fast_refund_controls` (StoreSettings) +
+`20260807120000_todo172_return_history_structured_metadata` (ReturnStatusHistory `eventType`/`metadata`).
+
+**Amaç:** izole SUPER_ADMIN + AWAITING_SHIPMENT/RECEIVED iade ile hızlı iade akışı + limit/permission
+kapıları + risk özeti + gerçek OrderRefund (TODO-170 ledger) doğrulaması. Servisler: worktree gateway
+(:4100) + store-admin (ayrı port), `enterprise-demo` env, docker postgres (:5432).
+
+**Fixture (izole):** SUPER_ADMIN platform session + bir müşteri + PAID (MOCK provider) çok-satırlı sipariş;
+onaylanmış (AWAITING_SHIPMENT) bir iade (RefundIntent PENDING); StoreSettings `fastRefundEnabled=true`,
+limit = intent totalRefundMinor (sınır-dahil senaryosu için).
+
+**AWAITING_SHIPMENT hızlı iade (happy):** iade detay → "Hızlı iade yap" CTA görünür → modal (atlanan adımlar
+`Müşterinin ürünü geri göndermesi/Ürünün teslim alınması/Ürün incelemesi`, tutar/limit, risk özeti, ⚠ uyarı,
+zorunlu gerekçe) → gerekçe gir → onayla → RefundIntent CONSUMED, OrderRefund **SUCCEEDED** (MOCK), iade
+**COMPLETED**; history'de `RETURN_FAST_REFUND_STARTED` marker (skippedSteps); AuditLog `return.fast_refund.started`.
+Müşteri görünümü: yalnız maskeli "Para iadesi tamamlandı" + tutar/tarih ("fast" etiketi YOK).
+
+**RECEIVED hızlı iade:** approve → (customer) RETURN_SHIPPED → admin "Teslim alındı" (RECEIVED) → hızlı iade →
+atlanan adım YALNIZ `Ürün incelemesi`.
+
+**Negatif kapılar:** (a) normal admin (SUPPORT_ADMIN) → CTA GÖRÜNMEZ + doğrudan `POST fast-refund` → 403;
+(b) `fastRefundEnabled=false` → CTA yok + 409 `FAST_REFUND_DISABLED`; (c) limit null → 409
+`FAST_REFUND_LIMIT_NOT_SET`; (d) tutar > limit → CTA görünür, modal onay KİLİTLİ + "Normal iade akışına devam
+edin"; doğrudan çağrı 409 `FAST_REFUND_LIMIT_EXCEEDED`; (e) `fastRefundCurrency` uyumsuz → 409
+`FAST_REFUND_CURRENCY_MISMATCH`; (f) REQUESTED/RETURN_SHIPPED → 409 `FAST_REFUND_INVALID_STATE`; (g) çift
+tıklama → yalnız 1 OrderRefund (ikinci INVALID_STATE/VERSION_CONFLICT); (h) stale version → 409
+`VERSION_CONFLICT`; (i) cross-store yanlış storeId → 404; (j) provider decline (MOCK `refund_failure`) →
+başlatma 200 ama OrderRefund FAILED + iade REFUND_PENDING (COMPLETED OLMAZ), refund panelinden retry.
+
+**Responsive:** 375 / 768 / 1024 / 1440. **A11y:** modal focus trap; gerekçe label + zorunlu (CSS `::after`,
+DOM `*` değil); uyarı renk-tek-başına değil (⚠ glyph + metin); kilitli onayda erişilebilir açıklama.
+
+**Temizlik:** fixture FK-güvenli temizlenir (OrderRefund/OrderRefundEvent → RefundIntent → ReturnStatusHistory
+→ ReturnItem → ReturnRequest → order/customer/payment); StoreSettings fast-refund alanları geri kapatılır veya
+izole store cascade ile silinir. enterprise-demo/gerçek hesap DOKUNULMAZ.
+
 ## Pre-Refund UX Recovery smoke runbook (ADR-270) — 2026-08-04
 
 Worktree stack (deployed :3000/:3002/:4000 dokunulmadan shifted portlar; shared postgres :5432 enterprise-demo):

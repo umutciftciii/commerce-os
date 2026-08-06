@@ -286,7 +286,7 @@ describe("store-admin order detail — dedicated route page", () => {
   it("shows Place for a DRAFT order and triggers placeOrder", async () => {
     storeApiMock.getOrder.mockResolvedValue(makeOrder({ status: "DRAFT" }));
     storeApiMock.placeOrder.mockResolvedValue(makeOrder({ status: "PLACED" }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrderDetailPage />);
     await screen.findByText("Sipariş ORD-1001");
@@ -301,7 +301,7 @@ describe("store-admin order detail — dedicated route page", () => {
       makeOrder({ status: "PLACED", placedAt: new Date().toISOString() }),
     );
     storeApiMock.cancelOrder.mockResolvedValue(makeOrder({ status: "CANCELLED" }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrderDetailPage />);
     await screen.findByText("Sipariş ORD-1001");

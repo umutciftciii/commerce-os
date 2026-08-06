@@ -229,7 +229,7 @@ afterEach(() => {
 
 describe("ProductForm fashion attributes (TODO-165A Task 22/23)", () => {
   it("renders governed SELECT/MULTI_SELECT from the taxonomy list (no hardcoded options) and non-governed attribute stays on the generic path", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -249,7 +249,7 @@ describe("ProductForm fashion attributes (TODO-165A Task 22/23)", () => {
   });
 
   it("submits the taxonomy value's attributeOptionId through the existing attribute-values payload (single writer)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.createProduct.mockResolvedValue(makeProduct());
     renderCreate();
@@ -275,7 +275,7 @@ describe("ProductForm fashion attributes (TODO-165A Task 22/23)", () => {
   });
 
   it("edit round-trip: taxonomy-backed value pre-selects on load and survives an unrelated re-save", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     storeApiMock.getProductAttributeValues.mockResolvedValue({
@@ -329,7 +329,7 @@ describe("ProductForm fashion attributes (TODO-165A Task 22/23)", () => {
   });
 
   it("inline quick-add creates a taxonomy value, auto-selects it WITHOUT remounting the form, and surfaces a 409 duplicate", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 

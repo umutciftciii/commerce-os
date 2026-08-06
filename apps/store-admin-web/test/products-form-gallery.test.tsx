@@ -116,7 +116,7 @@ afterEach(() => {
 
 describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
   it("fills MediaUpload value from initial.images with id = mediaId, and submits imageMediaIds in order", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct({ images: IMAGES }));
 
     renderForm({ product: makeProduct({ images: IMAGES }) });
@@ -147,7 +147,7 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
   });
 
   it("reorders via move-down then submits the new imageMediaIds order", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct({ images: IMAGES }));
 
     renderForm({ product: makeProduct({ images: IMAGES }) });
@@ -171,7 +171,7 @@ describe("ProductForm gallery (ADR-065 Faz 2/Dilim 2)", () => {
   });
 
   it("removes an image then drops it from imageMediaIds", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct({ images: [IMAGES[1]] }));
 
     renderForm({ product: makeProduct({ images: IMAGES }) });

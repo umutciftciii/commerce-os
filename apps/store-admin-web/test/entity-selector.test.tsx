@@ -105,7 +105,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("açılışta ilk sayfayı yükler ve toplam kaydı gösterir", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 
@@ -115,7 +115,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("arama DEBOUNCE edilir: her tuş vuruşunda istek atılmaz", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const source = makeSource();
     render(<Harness source={source} />);
     await open(user);
@@ -132,7 +132,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("sonraki sayfaya geçer ve sunucudan yeni dilimi ister", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const source = makeSource();
     render(<Harness source={source} />);
     await open(user);
@@ -146,7 +146,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("yükleme durumunu duyurur", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const source = makeSource({
       // Hiç çözülmeyen promise: yükleme durumu ekranda kalır.
       fetchPage: vi.fn(() => new Promise<never>(() => {})),
@@ -159,7 +159,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("hiç kayıt yokken BOŞ, arama sonuç vermezken FİLTRELİ-BOŞ metni gösterilir", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const source = makeSource({
       fetchPage: vi.fn(async ({ search }) => ({
         data: [],
@@ -178,7 +178,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
   });
 
   it("hata durumunda mesaj + 'Try again' gösterilir ve yeniden dene isteği tekrarlar", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const fetchPage = vi
       .fn()
       .mockRejectedValueOnce(new Error("boom"))
@@ -199,7 +199,7 @@ describe("EntitySelectorField — arama ve sayfalama", () => {
 
 describe("EntitySelectorField — seçim", () => {
   it("çoklu seçim: birden fazla kayıt seçilir ve çipler alanda görünür", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 
@@ -215,7 +215,7 @@ describe("EntitySelectorField — seçim", () => {
   });
 
   it("tekli seçim: ikinci seçim öncekinin YERİNE geçer", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} multiple={false} />);
     await open(user);
 
@@ -230,7 +230,7 @@ describe("EntitySelectorField — seçim", () => {
   });
 
   it("seçim kaldırma: çipteki ✕ değeri düşürür", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} initial={["p1"]} />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Remove Ürün 1" })).toBeTruthy());
@@ -251,7 +251,7 @@ describe("EntitySelectorField — seçim", () => {
   });
 
   it("100. kaydın ötesindeki kayıt aranıp SEÇİLEBİLİR", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 
@@ -265,7 +265,7 @@ describe("EntitySelectorField — seçim", () => {
   });
 
   it("modal yeniden açıldığında seçimler işaretli gelir", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} initial={["p1"]} />);
     await open(user);
 
@@ -289,7 +289,7 @@ describe("EntitySelectorField — seçim", () => {
   });
 
   it("çözülemeyen seçili id sessizce yutulmaz, kullanıcıya bildirilir", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} initial={["silinmis"]} />);
     await waitFor(() =>
       expect(
@@ -304,7 +304,7 @@ describe("EntitySelectorField — seçim", () => {
 
 describe("EntitySelectorField — erişilebilirlik", () => {
   it("arama kutusu combobox'tır ve açılışta ODAKLANIR", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 
@@ -315,7 +315,7 @@ describe("EntitySelectorField — erişilebilirlik", () => {
   });
 
   it("klavye: ArrowDown imleci ilerletir, Enter seçer", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 
@@ -342,7 +342,7 @@ describe("EntitySelectorField — erişilebilirlik", () => {
   });
 
   it("Escape modalı kapatır; seçim korunur", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness source={makeSource()} />);
     await open(user);
 

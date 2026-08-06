@@ -3413,6 +3413,10 @@ describe("api gateway", () => {
       returnsCustomerPaysShipping: true,
       returnsAllowReplacement: true,
       returnsAllowOriginalPaymentRefund: true,
+      // TODO-172 (ADR-273) — satir yoksa Fast Refund kapali default'lari doner.
+      fastRefundEnabled: false,
+      fastRefundMaxAmountMinor: null,
+      fastRefundCurrency: null,
     });
     // GET olusturma YAPMAZ (satir hala yok).
     expect(dataAccess.storeSettings).toHaveLength(0);

@@ -25,7 +25,7 @@ afterEach(() => {
 describe("payment providers — new provider modal", () => {
   it("keeps focus on the display-name input while typing (no focus loss regression)", async () => {
     storeApiMock.listPaymentProviders.mockResolvedValue({ data: [] });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<PaymentProvidersPage />);
 

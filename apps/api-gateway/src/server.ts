@@ -392,6 +392,8 @@ import {
   splitGrossByVat,
   vatFromNet,
   redirectEnumToStatus,
+  minorToCanonicalString,
+  parseMinorString,
 } from "@commerce-os/utils";
 import { recordSlugChange } from "./seo/slug-governance.js";
 import { resolveProductSlugOnUpdate } from "./seo/product-slug.js";
@@ -555,6 +557,10 @@ type StoreSettingsRecord = {
   returnsCustomerPaysShipping: boolean;
   returnsAllowReplacement: boolean;
   returnsAllowOriginalPaymentRefund: boolean;
+  // TODO-172 (ADR-273) — Fast Refund Controls (limit BigInt; serileştirmede Number'a çevrilir).
+  fastRefundEnabled: boolean;
+  fastRefundMaxAmountMinor: bigint | null;
+  fastRefundCurrency: string | null;
 };
 type ProductRecord = Pick<
   Product,
@@ -1150,6 +1156,11 @@ export interface AppDataAccess extends CampaignDataAccess {
       returnsCustomerPaysShipping?: boolean;
       returnsAllowReplacement?: boolean;
       returnsAllowOriginalPaymentRefund?: boolean;
+      // TODO-172 (ADR-273) — Fast Refund Controls (absent=dokunma; null=temizle=kapalı). Limit KANONİK
+      // ONDALIK STRING (Number/float YOK); server parseMinorString ile BigInt'e doğrular.
+      fastRefundEnabled?: boolean;
+      fastRefundMaxAmountMinor?: string | null;
+      fastRefundCurrency?: string | null;
     },
   ): Promise<StoreSettingsRecord>;
   // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence (sparse override + plan default).
@@ -1868,6 +1879,12 @@ function serializeStoreSettings(
     returnsCustomerPaysShipping: row?.returnsCustomerPaysShipping ?? true,
     returnsAllowReplacement: row?.returnsAllowReplacement ?? true,
     returnsAllowOriginalPaymentRefund: row?.returnsAllowOriginalPaymentRefund ?? true,
+    // TODO-172 (ADR-273) — Fast Refund Controls (satır yoksa kapalı default). BigInt limit → KANONİK
+    // STRING (Number/float YOK; 2^53 üstü precision korunur).
+    fastRefundEnabled: row?.fastRefundEnabled ?? false,
+    fastRefundMaxAmountMinor:
+      row?.fastRefundMaxAmountMinor == null ? null : minorToCanonicalString(row.fastRefundMaxAmountMinor),
+    fastRefundCurrency: row?.fastRefundCurrency ?? null,
   });
 }
 
@@ -2926,6 +2943,10 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     returnsCustomerPaysShipping: true,
     returnsAllowReplacement: true,
     returnsAllowOriginalPaymentRefund: true,
+    // TODO-172 (ADR-273) — Fast Refund Controls.
+    fastRefundEnabled: true,
+    fastRefundMaxAmountMinor: true,
+    fastRefundCurrency: true,
   } satisfies Prisma.StoreSettingsSelect;
   const productSelect = {
     id: true,
@@ -3583,6 +3604,12 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           ...(input.returnsCustomerPaysShipping !== undefined ? { returnsCustomerPaysShipping: input.returnsCustomerPaysShipping } : {}),
           ...(input.returnsAllowReplacement !== undefined ? { returnsAllowReplacement: input.returnsAllowReplacement } : {}),
           ...(input.returnsAllowOriginalPaymentRefund !== undefined ? { returnsAllowOriginalPaymentRefund: input.returnsAllowOriginalPaymentRefund } : {}),
+          // TODO-172 — Fast Refund alanları (number → BigInt sınırında; null=limit yok=kapalı).
+          ...(input.fastRefundEnabled !== undefined ? { fastRefundEnabled: input.fastRefundEnabled } : {}),
+          ...(input.fastRefundMaxAmountMinor !== undefined
+            ? { fastRefundMaxAmountMinor: input.fastRefundMaxAmountMinor === null ? null : parseMinorString(input.fastRefundMaxAmountMinor) }
+            : {}),
+          ...(input.fastRefundCurrency !== undefined ? { fastRefundCurrency: input.fastRefundCurrency } : {}),
         },
         // Guncelleme: absent=dokunma, null=temizle. Yalniz gonderilen anahtarlari yaz
         // (bir alani set ederken digerinin korunmasi bu spread'e bagli — KRITIK).
@@ -3594,6 +3621,12 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           ...(input.returnsCustomerPaysShipping !== undefined ? { returnsCustomerPaysShipping: input.returnsCustomerPaysShipping } : {}),
           ...(input.returnsAllowReplacement !== undefined ? { returnsAllowReplacement: input.returnsAllowReplacement } : {}),
           ...(input.returnsAllowOriginalPaymentRefund !== undefined ? { returnsAllowOriginalPaymentRefund: input.returnsAllowOriginalPaymentRefund } : {}),
+          // TODO-172 — Fast Refund alanları (absent=dokunma; null limit=temizle=kapalı; number → BigInt).
+          ...(input.fastRefundEnabled !== undefined ? { fastRefundEnabled: input.fastRefundEnabled } : {}),
+          ...(input.fastRefundMaxAmountMinor !== undefined
+            ? { fastRefundMaxAmountMinor: input.fastRefundMaxAmountMinor === null ? null : parseMinorString(input.fastRefundMaxAmountMinor) }
+            : {}),
+          ...(input.fastRefundCurrency !== undefined ? { fastRefundCurrency: input.fastRefundCurrency } : {}),
         },
         select: storeSettingsSelect,
       }),
@@ -7599,7 +7632,20 @@ export function createServer(
   registerReturnAdminRoutes(app, {
     requireStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
+      return access
+        ? { actorUserId: access.session.platformUser.id, role: access.session.platformUser.role }
+        : null;
+    },
+    // TODO-172 (ADR-273) — Fast Refund güçlü yetki: SUPER_ADMIN. Refund manual-complete deseninin
+    // BİREBİR mirror'ı; store scope + cross-store 404 requireStorePlatformAdmin'den, SUPER_ADMIN daraltması burada.
+    requireStoreSuperAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      if (!access) return null;
+      if (access.session.platformUser.role !== "SUPER_ADMIN") {
+        await reply.code(403).send(errorBody("FORBIDDEN", "Hızlı iade için yetki yetersiz."));
+        return null;
+      }
+      return { actorUserId: access.session.platformUser.id };
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-169 (blocker #3) — iade kalemi ürün kapak görseli URL'i türetimi (storefront ile aynı semantik).
@@ -9174,6 +9220,16 @@ export function createServer(
     const access = await requireStorePlatformAdmin(request, reply, params.storeId);
     if (!access) return;
     const input = storeSettingsUpdateRequestSchema.parse(request.body);
+    // TODO-172 (ADR-273) — Fast Refund konfigürasyonu güçlü yetki: yalnız SUPER_ADMIN düzenler
+    // (aksiyonla aynı yetki sınıfı; UI gizlemesi tek başına yeterli değil, backend-enforced).
+    const touchesFastRefund =
+      input.fastRefundEnabled !== undefined ||
+      input.fastRefundMaxAmountMinor !== undefined ||
+      input.fastRefundCurrency !== undefined;
+    if (touchesFastRefund && access.session.platformUser.role !== "SUPER_ADMIN") {
+      await reply.code(403).send(errorBody("FORBIDDEN", "Hızlı iade ayarları için yetki yetersiz."));
+      return;
+    }
     // R3: her media alani icin AYRI BRANDING dogrulamasi (cross-tenant/yanlis-context
     // baglama reddi). null = bagi kaldir -> dogrulama atlanir, FK NULL yapilir.
     if (

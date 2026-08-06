@@ -368,14 +368,46 @@ export async function loadOrderRefunds(storeId: string, returnRequestId: string)
   });
 }
 
-export function buildReturnAdminApp(actorUserId = "test-admin"): FastifyInstance {
+export function buildReturnAdminApp(
+  actorUserId = "test-admin",
+  role: "SUPER_ADMIN" | "SUPPORT_ADMIN" = "SUPER_ADMIN",
+): FastifyInstance {
   const app = Fastify({ logger: false });
+  // Gerçek server'daki gibi ZodError → 400 VALIDATION_ERROR (bare test app'i aksi halde 500 döner);
+  // route-seviyesi `.parse` doğrulamalarının HTTP davranışını gerçekçi test etmek için.
+  app.setErrorHandler(async (error, _request, reply) => {
+    const { z } = await import("zod");
+    if (error instanceof z.ZodError) {
+      await reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "Validation failed." } });
+      return;
+    }
+    await reply.code(500).send({ error: { code: "INTERNAL", message: "Internal error." } });
+  });
   registerReturnAdminRoutes(app, {
-    requireStoreAdmin: async () => ({ actorUserId }),
-    recordAudit: async () => {},
+    requireStoreAdmin: async () => ({ actorUserId, role }),
+    // TODO-172 — Fast Refund güçlü yetki stub'ı: yalnız SUPER_ADMIN geçer (gerçek server wiring'i
+    // ile aynı 403 davranışı). SUPPORT_ADMIN app'iyle permission-denied testlenir.
+    requireStoreSuperAdmin: async (_request, reply) => {
+      if (role !== "SUPER_ADMIN") {
+        await reply.code(403).send({ error: { code: "FORBIDDEN", message: "Forbidden." } });
+        return null;
+      }
+      return { actorUserId };
+    },
+    // Audit çağrılarını app'e bağlı dizide YAKALA (gerçek prisma.auditLog.create platformUserId FK'sı
+    // nedeniyle sahte "test-admin" ile patlar). Testler `capturedAudits(app)` ile doğrular.
+    recordAudit: async (input) => {
+      (app as unknown as { __auditLog: unknown[] }).__auditLog.push(input);
+    },
     mediaBaseUrl: undefined,
   });
+  (app as unknown as { __auditLog: unknown[] }).__auditLog = [];
   return app;
+}
+
+/** buildReturnAdminApp ile kurulan app'in yakaladığı audit çağrıları (recordAudit input'ları). */
+export function capturedAudits(app: FastifyInstance): Array<{ metadata?: Record<string, unknown> }> {
+  return (app as unknown as { __auditLog: Array<{ metadata?: Record<string, unknown> }> }).__auditLog;
 }
 
 /** Bir iade talebinin guncel optimistic version'ini dondurur. */
@@ -431,7 +463,10 @@ export async function loadReturnState(storeId: string, returnRequestId: string) 
       refundIntent: {
         select: { status: true, cancelledAt: true, cancellationReason: true, totalRefundMinor: true },
       },
-      history: { select: { fromStatus: true, toStatus: true, note: true }, orderBy: { createdAt: "asc" } },
+      history: {
+        select: { fromStatus: true, toStatus: true, note: true, eventType: true, metadata: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 }

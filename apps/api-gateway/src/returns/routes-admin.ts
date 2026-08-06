@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "@commerce-os/db";
-import type { AuditAction, OrderRefundStatus, RefundIntentStatus } from "@prisma/client";
+import type { AuditAction, OrderRefundStatus, RefundIntentStatus, PlatformUserRole } from "@prisma/client";
 import { z } from "zod";
 import {
   adminReturnDetailResponseSchema,
@@ -15,6 +15,8 @@ import {
   adminReturnInspectRequestSchema,
   adminReturnRejectRequestSchema,
   adminReturnTransitionRequestSchema,
+  adminReturnFastRefundRequestSchema,
+  adminReturnFastRefundContextResponseSchema,
   adminOrderReturnsResponseSchema,
   type AdminReturnRefundSummary,
 } from "@commerce-os/contracts";
@@ -31,8 +33,11 @@ import {
   advanceInspectedToRefundPending,
   applyInspectionDecisions,
   applyReturnTransition,
+  buildFastRefundContext,
   getHeldReturnedQtyByLine,
+  loadFastRefundSettings,
   resolveStoreReturnPolicy,
+  startFastRefundToRefundPending,
   upsertRefundIntentForReturn,
 } from "./service.js";
 import { serializeAdminReturnDetail, serializeAdminReturnListItem } from "./serialize.js";
@@ -43,6 +48,14 @@ import { writeReviewStartedEvent } from "./review-event.js";
 
 export interface ReturnAdminRoutesDeps {
   requireStoreAdmin: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    storeId: string,
+  ) => Promise<{ actorUserId: string; role: PlatformUserRole } | null>;
+  // TODO-172 (ADR-273) — Fast Refund AYRI güçlü yetki: SUPER_ADMIN. Backend-enforced; UI gizlemesi
+  // tek başına yeterli değil. requireStoreAdmin (herhangi platform admin) İLE PARALEL değil, refund
+  // manual-complete deseninin BİREBİR mirror'ı (server.ts wiring); yeni yetki tablosu kurulmaz.
+  requireStoreSuperAdmin: (
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
@@ -70,6 +83,32 @@ const returnParam = z.object({ storeId: z.string().min(1), returnId: z.string().
 // refunds/routes-admin.ts'teki modül-seviyesi singleton'la AYNI factory (createRefundProviderPort);
 // stateless olduğundan ayrı bir örnek üretmek davranışı değiştirmez.
 const refundProviderPort = createRefundProviderPort();
+
+// TODO-172 (ADR-273) — Fast Refund uygunluk/guard kodları → HTTP. Hepsi 409 (çakışan durum/limit);
+// RETURN_NOT_FOUND yalnız 404. initiateRefund'ın kendi hata eşlemesi ayrı (REFUND_HTTP_BY_CODE).
+const FAST_REFUND_HTTP_BY_CODE: Record<string, { status: number; message: string }> = {
+  RETURN_NOT_FOUND: { status: 404, message: "İade bulunamadı." },
+  FAST_REFUND_DISABLED: { status: 409, message: "Bu mağazada hızlı iade kapalı." },
+  FAST_REFUND_LIMIT_NOT_SET: { status: 409, message: "Hızlı iade limiti tanımlı değil (kapalı)." },
+  FAST_REFUND_INVALID_STATE: {
+    status: 409,
+    message: "Hızlı iade yalnız onaylanmış veya teslim alınmış iadelerde yapılabilir.",
+  },
+  NOT_REFUND_RESOLUTION: { status: 409, message: "Bu iade orijinal ödemeye iade çözümünde değil." },
+  FAST_REFUND_INTENT_NOT_PENDING: {
+    status: 409,
+    message: "İade tutarı hazır değil (bekleyen iade kaydı yok).",
+  },
+  FAST_REFUND_CURRENCY_MISMATCH: {
+    status: 409,
+    message: "Limit para birimi sipariş para birimiyle eşleşmiyor; normal iade akışını kullanın.",
+  },
+  FAST_REFUND_LIMIT_EXCEEDED: {
+    status: 409,
+    message: "İade tutarı hızlı iade limitini aşıyor; normal iade akışını kullanın.",
+  },
+  VERSION_CONFLICT: { status: 409, message: "İade bu sırada değişti; yenileyin." },
+};
 
 export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdminRoutesDeps): void {
   // Liste
@@ -483,6 +522,105 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       access.actorUserId,
       "inspect-decision",
     );
+  });
+
+  // TODO-172 (ADR-273) — Fast Refund onay modalı için bounded risk/uygunluk özeti (salt-okunur).
+  // requireStoreAdmin ile korunur (herhangi platform admin okuyabilir); `permitted` viewer'ın
+  // SUPER_ADMIN olup olmadığından türetilir. Böylece CTA görünürlüğü sunucu-otoriter belirlenir.
+  app.get("/stores/:storeId/returns/:returnId/fast-refund-context", async (request, reply) => {
+    const params = returnParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const settings = await loadFastRefundSettings(prisma, params.storeId);
+    const context = await buildFastRefundContext(params.storeId, params.returnId, {
+      permitted: access.role === "SUPER_ADMIN",
+      settings,
+    });
+    if (!context) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
+    return adminReturnFastRefundContextResponseSchema.parse({ context });
+  });
+
+  // TODO-172 (ADR-273) — Fast Refund: teslim alma + inceleme atlanarak doğrudan para iadesi.
+  // AYRI güçlü yetki (requireStoreSuperAdmin — backend-enforced). Akış: permission → eligibility
+  // (kaynak/limit/currency/intent, tx içinde version-guard'lı REFUND_PENDING + skippedSteps history)
+  // → audit (return.fast_refund.started) → initiateRefund (tx DIŞINDA; provider I/O asla tx içinde).
+  // Idempotent: çift tıklama INVALID_STATE/VERSION_CONFLICT + initiateRefund advisory-lock ile deduped.
+  app.post("/stores/:storeId/returns/:returnId/fast-refund", async (request, reply) => {
+    const params = returnParam.parse(request.params);
+    const access = await deps.requireStoreSuperAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReturnFastRefundRequestSchema.parse(request.body);
+
+    const settings = await loadFastRefundSettings(prisma, params.storeId);
+    const started = await startFastRefundToRefundPending(params.storeId, params.returnId, {
+      actorUserId: access.actorUserId,
+      expectedVersion: input.expectedVersion,
+      reason: input.reason,
+      settings,
+    });
+    if (!started.ok) {
+      const mapped = FAST_REFUND_HTTP_BY_CODE[started.code] ?? {
+        status: 409,
+        message: "Hızlı iade reddedildi.",
+      };
+      return reply.code(mapped.status).send(errorBody(started.code, mapped.message));
+    }
+
+    // REFUND_PENDING geçişi + skippedSteps history az önce COMMIT edildi. Audit (provider sonucundan
+    // BAĞIMSIZ): hızlı iade başlatıldı — kim, hangi kaynak, hangi adımlar atlandı, tutar/limit, gerekçe.
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReturnRequest",
+      entityId: params.returnId,
+      metadata: {
+        action: "return.fast_refund.started",
+        sourceStatus: started.sourceStatus,
+        skippedSteps: started.skippedSteps,
+        amountMinor: started.amountMinor,
+        limitMinor: started.limitMinor,
+        reason: input.reason,
+      },
+    });
+
+    // Provider I/O tx DIŞINDA (inspect-decision ile AYNI otorite). Başarısızlıkta geçiş GERİ ALINMAZ
+    // (retry/manuel mümkün kalır) ama admin'e SESSİZ-BAŞARI dönülmez: initiateRefund'ın HTTP eşlemesi
+    // REUSE edilerek açık 4xx döner.
+    const refundResult = await initiateRefund(
+      {
+        storeId: params.storeId,
+        refundIntentId: started.refundIntentId,
+        expectedReturnVersion: started.expectedReturnVersion,
+        actorUserId: access.actorUserId,
+      },
+      { providerPort: refundProviderPort },
+    );
+    if (!refundResult.ok) {
+      const mapped = REFUND_HTTP_BY_CODE[refundResult.code];
+      await deps.recordAudit({
+        action: "UPDATE",
+        platformUserId: access.actorUserId,
+        storeId: params.storeId,
+        entityType: "ReturnRequest",
+        entityId: params.returnId,
+        metadata: {
+          action: "return.fast_refund.refund_initiate_failed",
+          refundErrorCode: refundResult.code,
+        },
+      });
+      return reply.code(mapped.status).send(
+        errorBody(
+          "REFUND_INITIATE_FAILED",
+          `İade başlatılamadı: ${mapped.message} İade panelinden tekrar deneyebilirsiniz.`,
+          { refundErrorCode: refundResult.code },
+        ),
+      );
+    }
+
+    const detail = await loadAdminDetail(params.storeId, params.returnId, deps.mediaBaseUrl);
+    if (!detail) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
+    return adminReturnDetailResponseSchema.parse({ return: detail });
   });
 }
 

@@ -244,7 +244,7 @@ describe("store-admin orders — filters (TODO-073)", () => {
 
   it("applies the payment status filter to the URL via Filtrele", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
 
@@ -255,7 +255,7 @@ describe("store-admin orders — filters (TODO-073)", () => {
 
   it("searches by customer/email/order number via Filtrele", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
 
@@ -266,7 +266,7 @@ describe("store-admin orders — filters (TODO-073)", () => {
 
   it("combines multiple filters into the URL query", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder()]));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
 
@@ -280,7 +280,7 @@ describe("store-admin orders — filters (TODO-073)", () => {
     searchParamsRef.current = new URLSearchParams("status=CANCELLED");
     // Dolu sonuç: yalnız filtre bar'daki "Temizle" görünür (boş durum CTA'sı değil).
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ status: "CANCELLED" })]));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
 
@@ -302,7 +302,7 @@ describe("store-admin orders — lifecycle actions", () => {
   it("shows Place for a DRAFT order and triggers placeOrder", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ status: "DRAFT" })]));
     storeApiMock.placeOrder.mockResolvedValue(makeOrder({ status: "PLACED", placedAt: new Date().toISOString() }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
@@ -317,7 +317,7 @@ describe("store-admin orders — lifecycle actions", () => {
       page(1, [makeOrder({ status: "PLACED", placedAt: new Date().toISOString() })]),
     );
     storeApiMock.cancelOrder.mockResolvedValue(makeOrder({ status: "CANCELLED" }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
@@ -341,7 +341,7 @@ describe("store-admin orders — lifecycle actions", () => {
   it("shows a localized error when a place action fails", async () => {
     storeApiMock.listOrders.mockResolvedValue(page(1, [makeOrder({ status: "DRAFT" })]));
     storeApiMock.placeOrder.mockRejectedValue(new MockUiError("ORDER_INSUFFICIENT_STOCK"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrdersPage />);
     await screen.findByText("ORD-1001");
@@ -390,7 +390,7 @@ describe("store-admin orders — create draft", () => {
     );
     storeApiMock.createOrder.mockResolvedValue(makeOrder({ id: "o9", orderNumber: "ORD-9" }));
     storeApiMock.getOrder.mockResolvedValue(makeOrder({ id: "o9", orderNumber: "ORD-9" }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrdersPage />);
     await user.click(await screen.findByRole("button", { name: "İlk siparişi oluştur" }));
@@ -429,7 +429,7 @@ describe("store-admin orders — create draft", () => {
         },
       ]),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<OrdersPage />);
     await user.click(await screen.findByRole("button", { name: "İlk siparişi oluştur" }));
