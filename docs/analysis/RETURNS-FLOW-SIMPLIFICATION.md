@@ -1,7 +1,7 @@
 # İade Akışı Sadeleştirme — Revize Tasarım & Implementasyon Planı
 
 **Tarih:** 2026-08-06
-**Durum:** Faz 1 (PR1) **IMPLEMENTED / NOT SHIPPED** (2026-08-06) — kod tamamlandı, tüm review temiz, 2396
+**Durum:** Faz 1 (PR1) **CLOSED & DEPLOYED (PR #183)** (2026-08-06) — kod tamamlandı, tüm review temiz, 2396
 test yeşil; **commit/push/PR/merge/deploy YOK**, migration YOK (K2). PR2 (Fast Refund Controls) ve PR3
 (Reverse Shipment) **PLANNED** — implementasyon YAPILMADI. K1–K4 kararlandı 2026-08-06 (bkz. §12).
 **İlgili:** TODO-169 (Returns Foundation), TODO-170 (Refund Ledger — semantiği KORUNUR, dokunulmadı),

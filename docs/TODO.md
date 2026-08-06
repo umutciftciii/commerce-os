@@ -129,7 +129,7 @@
   `refunds-ledger.integration` (16/16 gerçek-DB) + `refunds-pure` + finance/projection güncellemeleri yeşil. Backend:
   `apps/api-gateway/src/refunds/` (capability · cap-calc · provider-port · mock-refund · service · serialize · routes-admin).
 
-- **TODO-171 Return Decision Flow Simplification — Faz 1 (PR1) — IMPLEMENTED / NOT SHIPPED (2026-08-06)**.
+- **TODO-171 Return Decision Flow Simplification — Faz 1 (PR1) — CLOSED & DEPLOYED (PR #183) (2026-08-06)**.
   Kanıtlı denetim (4 yüzey: state-machine · refund lifecycle · shipment/inspection · finansal projeksiyon;
   K1–K4 kararlandı) admin'in yalnız gerçek kararlar vermesini sağladı: "Kapat" tuzağı (`REFUND_PENDING →
   CLOSED` guard'sız admin geçişi → RefundIntent sessizce CANCELLED, ledger boş, `Order.paymentStatus` PAID
