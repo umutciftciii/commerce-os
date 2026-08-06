@@ -1,7 +1,11 @@
 # ADR-273 — Fast Refund Controls (TODO-172)
 
-**Durum:** IMPLEMENTED / NOT SHIPPED (2026-08-07). Kod + tam gate + browser/HTTP smoke tamamlandı;
-commit/push/PR/merge/deploy YAPILMADI (talimat gereği).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #185 merge `14fbb8c`). CI (lint·test·build) yeşil; merge
+commit (squash/rebase yok). Deploy: `prisma migrate deploy` (no pending — smoke'ta uygulanmıştı) + api-gateway
+& store-admin-web main'den rebuild/recreate (`--no-deps --force-recreate`; storefront/worker/admin-web/postgres/
+redis/volume DOKUNULMADI). Post-deploy smoke (deployed :4000) PASS: positive (AWAITING_SHIPMENT happy → OrderRefund
+SUCCEEDED → COMPLETED; string wire; yapısal eventType/metadata) + negatifler (SUPPORT 403 · number PATCH 400 ·
+stale 409 · cross-store 404 · limit-exceeded 409 · duplicate 409). İzole fixture temizlendi; production DB pristine.
 
 **İlişkili:** [ADR-269](ADR-269-returns-authority-and-lifecycle.md) (Returns Foundation),
 [ADR-272](ADR-272-refund-ledger-and-payment-reversal.md) (Refund Ledger — semantiği KORUNDU),
