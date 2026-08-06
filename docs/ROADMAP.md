@@ -1478,7 +1478,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   + finance/projection güncellemeleri. Kapsam dışı (future): provider-native refund webhook + scheduled reconciliation
   (TD-FR-5), chargeback/dispute, Gift Card/Store Credit refund (TD-FR-6), gerçek online provider canlı transport (EX-1).
 
-## Return Decision Flow Simplification — Faz 1 (TODO-171) — IMPLEMENTED / NOT SHIPPED (2026-08-06)
+## Return Decision Flow Simplification — Faz 1 (TODO-171) — CLOSED & DEPLOYED (PR #183) (2026-08-06)
 
 - Amaç: TODO-170 sonrası kanıtlı denetim (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`, K1–K4 kararlandı
   2026-08-06) "Kapat" tuzağını yapısal olarak yok etti, inceleme'yi kalem/adet karar merkezine dönüştürdü,
@@ -1493,7 +1493,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   quantity refund'a girmez, phantom envanter önlenir). Atıl order-level `refund-context` uç noktası
   Ücret Özeti'ne bağlandı ("Gerçekleşen iade (−)" + "İade sonrası net tahsilat"); 3 stale copy düzeltildi
   (admin sipariş detayı, storefront sipariş detayı, finans raporu).
-- Durum: **IMPLEMENTED / NOT SHIPPED** — kod tamamlandı, tüm review temiz, 2396 test yeşil; commit/push/
+- Durum: **CLOSED & DEPLOYED (PR #183)** — kod tamamlandı, tüm review temiz, 2396 test yeşil; commit/push/
   PR/merge/deploy YOK. Migration YOK. **TODO-170 (Refund Ledger) semantiği KORUNUR** — `OrderRefund`/
   `RefundIntent`/cap invariant'a dokunulmadı. Karar: ADR-269 (§ "Faz 1 Revizyonu") + ADR-272 (§ "Faz 1
   Revizyonu") güncellendi. Analiz: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` +
