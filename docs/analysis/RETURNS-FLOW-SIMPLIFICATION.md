@@ -3,7 +3,7 @@
 **Tarih:** 2026-08-06
 **Durum:** Faz 1 (PR1) **CLOSED & DEPLOYED (PR #183)** (2026-08-06) — kod tamamlandı, tüm review temiz, 2396
 test yeşil; **commit/push/PR/merge/deploy YOK**, migration YOK (K2). **PR2 (Fast Refund Controls / TODO-172)
-IMPLEMENTED / NOT SHIPPED (2026-08-07; ADR-273)** — kaynak durumlar **AWAITING_SHIPMENT + RECEIVED**
+CLOSED & DEPLOYED (2026-08-07; ADR-273; PR #185)** — kaynak durumlar **AWAITING_SHIPMENT + RECEIVED**
 (APPROVED Faz 1'de geçici/ulaşılamaz olduğundan allowlist dışı; kullanıcı kararı 2026-08-07), SUPER_ADMIN
 role-gate, StoreSettings 3 additive alan, yetkilendirilmiş bypass + `initiateRefund` REUSE, risk context,
 iki additive migration. **Ship-hardening:** BigInt→kanonik string kontrat (float YOK; TD-194 CLOSED),

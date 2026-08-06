@@ -6078,7 +6078,7 @@ Kod tamamlandı, tüm review temiz, **2396 test yeşil**; **commit/push/PR/merge
 `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
 
 
-## ADR-273 — Fast Refund Controls (TODO-172) — IMPLEMENTED / NOT SHIPPED (2026-08-07)
+## ADR-273 — Fast Refund Controls (TODO-172) — ACCEPTED & DEPLOYED (2026-08-07; PR #185 merge 14fbb8c)
 
 Teslim alma + inceleme adımlarını atlayarak refund başlatan **kontrollü "Hızlı iade" akışı**; finansal
 ve fraud riski permission + store-configurable limit + zorunlu gerekçe + audit ile sınırlandırıldı.

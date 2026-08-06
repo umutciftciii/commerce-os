@@ -1498,7 +1498,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   `RefundIntent`/cap invariant'a dokunulmadı. Karar: ADR-269 (§ "Faz 1 Revizyonu") + ADR-272 (§ "Faz 1
   Revizyonu") güncellendi. Analiz: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` +
   `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
-- **PR2 — Fast Refund Controls (TODO-172): IMPLEMENTED / NOT SHIPPED (2026-08-07; ADR-273).** Granular
+- **PR2 — Fast Refund Controls (TODO-172): CLOSED & DEPLOYED (2026-08-07; ADR-273; PR #185).** Granular
   yetki `RETURN_FAST_REFUND` = **SUPER_ADMIN role-gate** (mevcut rol-tabanlı sistem reuse; refund
   `manual-complete` `requireStoreSuperAdmin` deseni mirror; yeni tablo YOK). `StoreSettings` additive
   `fastRefundEnabled` (default false) + `fastRefundMaxAmountMinor BigInt?` (**null=kapalı, sınırsız değil**)

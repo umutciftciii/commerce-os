@@ -160,7 +160,7 @@
   + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`. **PR2 (Fast Refund Controls) ve PR3 (Reverse Shipment) bu
   fazda PLANNED** — implementasyon YAPILMADI (bkz. ROADMAP).
 
-- **TODO-172 Fast Refund Controls (Return Flow Faz 2 / PR2) — IMPLEMENTED / NOT SHIPPED (2026-08-07)**.
+- **TODO-172 Fast Refund Controls (Return Flow Faz 2 / PR2) — CLOSED & DEPLOYED (2026-08-07; PR #185 merge 14fbb8c)**.
   Teslim alma + inceleme adımlarını atlayarak refund başlatan **kontrollü "Hızlı iade" akışı**; finansal/
   fraud riski permission + store-configurable limit + zorunlu gerekçe + audit ile sınırlandı. ADR-273.
   **Permission = SUPER_ADMIN role-gate** (mevcut rol-tabanlı sistem reuse; refund `manual-complete`
