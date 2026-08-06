@@ -87,6 +87,17 @@ export {
 // S5 (post-audit) — cookie güvenlik env'leri ORTAK güvenli parser (üç uygulama).
 export { resolveCookieSecure, resolveSameSite } from "./cookie-security.js";
 
+// TODO-172 (ADR-273) — minor-unit BigInt finansal tutar güvenli taşıma/biçimlendirme (float YOK).
+export {
+  CANONICAL_MINOR_STRING_RE,
+  isCanonicalMinorString,
+  parseMinorString,
+  minorToCanonicalString,
+  compareMinorStrings,
+  minorToMajorParts,
+  formatMinorMoney,
+} from "./money.js";
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

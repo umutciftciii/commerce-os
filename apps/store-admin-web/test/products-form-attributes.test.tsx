@@ -192,7 +192,7 @@ afterEach(() => {
 
 describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   it("fetches and renders category attributes, grouped and ordered, on category selection", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -219,7 +219,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("blocks save when a required attribute is empty", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -235,7 +235,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("applies validationRules (minLength) before save", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -252,7 +252,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("builds a Phase 2A attributeValues payload on save", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.createProduct.mockResolvedValue(makeProduct());
     renderCreate();
@@ -281,7 +281,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("hydrates existing attribute values on edit and round-trips them on save", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     storeApiMock.getProductAttributeValues.mockResolvedValue({
@@ -317,7 +317,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("legacy category (no attributes) renders nothing and sends no attributeValues", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.listAttributes.mockResolvedValue({ data: [] });
     storeApiMock.listAttributeGroups.mockResolvedValue({ data: [] });
     storeApiMock.listCategoryAttributes.mockResolvedValue({ data: [] });
@@ -339,7 +339,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("maps a backend attribute error to the field", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.createProduct.mockRejectedValue(
       new MockUiError("ATTRIBUTE_OPTION_INVALID", { attributeDefinitionId: "dc" }),
@@ -360,7 +360,7 @@ describe("ProductForm dynamic attributes (Faz 2B / TODO-146)", () => {
   });
 
   it("memoizes: re-selecting the same category does not refetch attributes", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 

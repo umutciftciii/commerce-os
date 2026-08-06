@@ -100,7 +100,7 @@ describe("TODO-139 EditShippingAddress", () => {
     storeApiMock.getCbsDistricts.mockResolvedValue({
       districts: [{ code: "1071", name: "Kadıköy", cityCode: "34" }],
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <EditShippingAddress
         order={ORDER}
@@ -133,7 +133,7 @@ describe("TODO-139 EditShippingAddress", () => {
       providerErrorCode: null,
     });
     const onSaved = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <EditShippingAddress
         order={ORDER}
@@ -162,7 +162,7 @@ describe("TODO-139 EditShippingAddress", () => {
       providerResent: false,
       providerErrorCode: "AUTH_FAILED",
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <EditShippingAddress
         order={ORDER}

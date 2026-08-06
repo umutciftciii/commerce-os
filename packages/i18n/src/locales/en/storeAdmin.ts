@@ -201,6 +201,16 @@ export const enStoreAdmin: StoreAdminDictionary = {
       "The inspection decision was saved, but the refund could not be started. You can retry it from the refund ledger panel.",
     REFUND_INITIATE_FAILED_WITH_REASON:
       "The inspection decision was saved, but the refund could not be started: {reason} You can retry it from the refund ledger panel.",
+    // TODO-172 (ADR-273) — Fast Refund Controls errors (friendly; raw codes never shown).
+    FAST_REFUND_DISABLED: "Fast refund is disabled for this store.",
+    FAST_REFUND_LIMIT_NOT_SET: "No fast-refund limit is set, so fast refund is disabled.",
+    FAST_REFUND_INVALID_STATE:
+      "Fast refund is only available for approved (not yet received) or received returns.",
+    FAST_REFUND_INTENT_NOT_PENDING: "The refund amount is not ready; approve the return first.",
+    FAST_REFUND_CURRENCY_MISMATCH:
+      "The limit currency does not match the order currency. Continue with the normal return flow.",
+    FAST_REFUND_LIMIT_EXCEEDED:
+      "The refund amount exceeds the fast-refund limit. Continue with the normal return flow.",
     NOT_FOUND: "Record not found.",
     NETWORK: "Could not reach the server. Check your connection and try again.",
     UNKNOWN: "An unexpected error occurred. Please try again.",

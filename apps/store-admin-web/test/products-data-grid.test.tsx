@@ -166,7 +166,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("arama gönderilince URL'e yazılır ve sayfa parametresi düşürülür", async () => {
     searchParamsRef.current = new URLSearchParams("page=3");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 100, 3));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");
@@ -182,7 +182,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("sıralama değişince URL güncellenir ve sayfa 1'e döner", async () => {
     searchParamsRef.current = new URLSearchParams("page=4");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 100, 4));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");
@@ -198,7 +198,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("sayfa boyutu değişince URL'e yazılır ve sayfa 1'e döner", async () => {
     searchParamsRef.current = new URLSearchParams("page=2");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 100, 2));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");
@@ -213,7 +213,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("sonraki sayfa düğmesi page parametresini yazar (filtreleri korur)", async () => {
     searchParamsRef.current = new URLSearchParams("status=ACTIVE");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 100));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");
@@ -228,7 +228,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("filtre çipi kaldırılınca yalnız o filtre URL'den düşer", async () => {
     searchParamsRef.current = new URLSearchParams("status=DRAFT&search=kazak");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 1));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");
@@ -243,7 +243,7 @@ describe("Ürünler Data Grid — URL yazımı ve sayfa sıfırlama", () => {
   it("tüm filtreleri temizle arama ve filtreleri birlikte kaldırır", async () => {
     searchParamsRef.current = new URLSearchParams("status=DRAFT&search=kazak&sortBy=title");
     storeApiMock.listProducts.mockResolvedValue(pageResult([product()], 1));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
     await screen.findByText("Sweatshirt");

@@ -29,6 +29,15 @@ import {
   type ShipmentEligibilityInput,
 } from "./eligibility.js";
 import { computeRefund, type RefundCalcLine } from "./refund-calc.js";
+import { minorToCanonicalString } from "@commerce-os/utils";
+import {
+  deriveSkippedSteps,
+  evaluateFastRefundEligibility,
+  FAST_REFUND_SOURCE_STATUSES,
+  RETURN_FAST_REFUND_STARTED_ACTION,
+  type FastRefundRejectionCode,
+  type FastRefundSettings,
+} from "./fast-refund.js";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -651,6 +660,233 @@ export async function advanceInspectedToRefundPending(
   const intent = await tx.refundIntent.findFirst({ where: { storeId, returnRequestId }, select: { id: true } });
   if (!intent) return { advanced: false };
   return { advanced: true, refundIntentId: intent.id, expectedReturnVersion: rr.version + 1 };
+}
+
+// ── Fast Refund Controls (TODO-172 / ADR-273) ────────────────────────────────────
+
+/**
+ * StoreSettings'ten Fast Refund konfigürasyonunu okur (BigInt limit → Number sınırında çevrilir).
+ * Satır yoksa özellik KAPALI kabul edilir (fail-closed).
+ */
+export async function loadFastRefundSettings(db: Tx, storeId: string): Promise<FastRefundSettings> {
+  const row = await db.storeSettings.findUnique({
+    where: { storeId },
+    select: { fastRefundEnabled: true, fastRefundMaxAmountMinor: true, fastRefundCurrency: true },
+  });
+  if (!row) return { enabled: false, maxAmountMinor: null, currency: null };
+  return {
+    enabled: row.fastRefundEnabled,
+    // BigInt olarak KORUNUR — Number/float'a çevrilmez (precision güvenliği).
+    maxAmountMinor: row.fastRefundMaxAmountMinor,
+    currency: row.fastRefundCurrency,
+  };
+}
+
+export type FastRefundStartOutcome =
+  | {
+      ok: true;
+      refundIntentId: string;
+      expectedReturnVersion: number;
+      // minor-unit tutarlar KANONİK STRING (BigInt tabanlı; Number/float YOK).
+      amountMinor: string;
+      limitMinor: string;
+      sourceStatus: ReturnStatus;
+      skippedSteps: string[];
+    }
+  | { ok: false; code: FastRefundRejectionCode | "RETURN_NOT_FOUND" | "VERSION_CONFLICT" };
+
+/**
+ * Fast Refund'ın DB tarafı: kaynak durumdan (APPROVED/RECEIVED) doğrudan REFUND_PENDING'e geçen
+ * KONTROLLÜ bypass. Teslim alma/inceleme kenarları state-machine'de KASITLI yok — bu yüzden
+ * evaluateReturnTransition ÇAĞRILMAZ; onun yerine saf `evaluateFastRefundEligibility` allowlist'i
+ * (permission route'ta, limit/currency/intent burada) kapıdır. Bu, generic /transition'ın bu kenarı
+ * yetki/limit atlayarak açmasını önler (fast refund tek meşru giriş noktasıdır).
+ *
+ * Adımlar (tx): kaynak/çözüm/intent/limit/currency doğrula → optimistic version-guard'lı updateMany
+ * → append-only history (RETURN_FAST_REFUND_STARTED marker + skippedSteps + reason JSON). Provider
+ * çağrısı YOK (route commit sonrası initiateRefund'ı çalıştırır — I/O asla tx içinde değil).
+ * Idempotent: başarıdan sonra durum REFUND_PENDING olduğundan ikinci çağrı INVALID_STATE/VERSION_CONFLICT
+ * ile reddedilir; duplicate OrderRefund initiateRefund'ın advisory-lock + active-guard'ıyla da engellidir.
+ */
+export async function startFastRefundToRefundPending(
+  storeId: string,
+  returnRequestId: string,
+  opts: { actorUserId: string; expectedVersion: number; reason: string; settings: FastRefundSettings },
+): Promise<FastRefundStartOutcome> {
+  return prisma.$transaction(async (tx) => {
+    const rr = await tx.returnRequest.findFirst({
+      where: { id: returnRequestId, storeId },
+      select: { status: true, version: true, resolutionType: true, orderId: true },
+    });
+    if (!rr) return { ok: false, code: "RETURN_NOT_FOUND" };
+
+    const order = await tx.order.findFirst({
+      where: { id: rr.orderId, storeId },
+      select: { currency: true },
+    });
+    const orderCurrency = order?.currency ?? "TRY";
+
+    const intent = await tx.refundIntent.findUnique({
+      where: { returnRequestId },
+      select: { id: true, status: true, totalRefundMinor: true },
+    });
+
+    const eligibility = evaluateFastRefundEligibility({
+      status: rr.status,
+      resolutionType: rr.resolutionType,
+      intentStatus: intent?.status ?? null,
+      settings: opts.settings,
+      orderCurrency,
+      refundTotalMinor: intent?.totalRefundMinor ?? 0,
+    });
+    if (!eligibility.ok) return { ok: false, code: eligibility.code };
+    // Uygunluk intent PENDING'i garantiler; TS daraltması için açık kontrol.
+    if (!intent) return { ok: false, code: "FAST_REFUND_INTENT_NOT_PENDING" };
+
+    // Optimistic version guard (çift tıklama / stale). expectedVersion mismatch → conflict.
+    if (rr.version !== opts.expectedVersion) return { ok: false, code: "VERSION_CONFLICT" };
+    const updated = await tx.returnRequest.updateMany({
+      where: { id: returnRequestId, storeId, version: opts.expectedVersion },
+      data: { status: "REFUND_PENDING", version: { increment: 1 } },
+    });
+    if (updated.count === 0) return { ok: false, code: "VERSION_CONFLICT" };
+
+    const skippedSteps = deriveSkippedSteps(rr.status);
+    // limitMinor eligibility'de non-null garantili (LIMIT_NOT_SET reddedildi). KANONİK STRING (Number YOK).
+    const limitMinor = minorToCanonicalString(opts.settings.maxAmountMinor as bigint);
+    const amountMinor = String(intent.totalRefundMinor);
+    // Blocker 2 — YAPISAL audit: eventType (exact-queryable) + metadata (Json). `note` insan-okur.
+    // Domain sorgusu (son-90-gün sayımı) artık note içindeki JSON'a DEĞİL, eventType'a dayanır.
+    await tx.returnStatusHistory.create({
+      data: {
+        storeId,
+        returnRequestId,
+        fromStatus: rr.status,
+        toStatus: "REFUND_PENDING",
+        actorType: "ADMIN",
+        actorId: opts.actorUserId,
+        eventType: RETURN_FAST_REFUND_STARTED_ACTION,
+        metadata: {
+          sourceStatus: rr.status,
+          skippedSteps,
+          amountMinor,
+          limitMinor,
+          reason: opts.reason,
+          permission: "RETURN_FAST_REFUND",
+        },
+        note: `Hızlı iade başlatıldı (${rr.status} → REFUND_PENDING; teslim alma/inceleme atlandı).`,
+      },
+    });
+
+    return {
+      ok: true,
+      refundIntentId: intent.id,
+      expectedReturnVersion: opts.expectedVersion + 1,
+      amountMinor,
+      limitMinor,
+      sourceStatus: rr.status,
+      skippedSteps,
+    };
+  });
+}
+
+export interface FastRefundContext {
+  permitted: boolean;
+  enabled: boolean;
+  eligible: boolean;
+  reasonCode: string | null;
+  sourceStatus: ReturnStatus | null;
+  skippedSteps: string[];
+  currency: string;
+  // minor-unit tutarlar KANONİK STRING (BigInt tabanlı; Number/float YOK).
+  refundAmountMinor: string;
+  limitMinor: string | null;
+  withinLimit: boolean;
+  orderTotalMinor: string;
+  customerOrderCount: number;
+  customerReturnCount: number;
+  fastRefundsLast90Days: number;
+  deliveryReceived: boolean;
+  inspectionDone: boolean;
+}
+
+const FAST_REFUND_LOOKBACK_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * Fast Refund onay modalı için bounded risk/uygunluk özeti (salt-okunur). Fraud scoring YOK —
+ * yalnız mevcut veriden sayımlar. `permitted` route'tan gelir (viewer SUPER_ADMIN mı). eligible =
+ * permitted && saf-uygunluk. reasonCode: engel varsa ilk kod (permission yoksa NOT_PERMITTED).
+ * Son-90-gün hızlı iade sayımı ReturnStatusHistory YAPISAL `eventType` alanına göre (exact-match).
+ */
+export async function buildFastRefundContext(
+  storeId: string,
+  returnRequestId: string,
+  opts: { permitted: boolean; settings: FastRefundSettings },
+): Promise<FastRefundContext | null> {
+  const rr = await prisma.returnRequest.findFirst({
+    where: { id: returnRequestId, storeId },
+    select: { status: true, resolutionType: true, orderId: true, customerId: true },
+  });
+  if (!rr) return null;
+
+  const order = await prisma.order.findFirst({
+    where: { id: rr.orderId, storeId },
+    select: { currency: true, totalAmount: true },
+  });
+  const orderCurrency = order?.currency ?? "TRY";
+
+  const intent = await prisma.refundIntent.findUnique({
+    where: { returnRequestId },
+    select: { status: true, totalRefundMinor: true },
+  });
+  const refundAmountMinor = intent?.totalRefundMinor ?? 0;
+
+  const [customerOrderCount, customerReturnCount, fastRefundsLast90Days] = await Promise.all([
+    prisma.order.count({ where: { storeId, customerId: rr.customerId } }),
+    prisma.returnRequest.count({ where: { storeId, customerId: rr.customerId } }),
+    // Blocker 2 — son-90-gün hızlı iade sayımı YAPISAL `eventType` exact-match (note substring DEĞİL).
+    prisma.returnStatusHistory.count({
+      where: {
+        storeId,
+        createdAt: { gte: new Date(Date.now() - FAST_REFUND_LOOKBACK_MS) },
+        eventType: RETURN_FAST_REFUND_STARTED_ACTION,
+        returnRequest: { customerId: rr.customerId },
+      },
+    }),
+  ]);
+
+  const eligibility = evaluateFastRefundEligibility({
+    status: rr.status,
+    resolutionType: rr.resolutionType,
+    intentStatus: intent?.status ?? null,
+    settings: opts.settings,
+    orderCurrency,
+    refundTotalMinor: refundAmountMinor,
+  });
+  const limitBig = opts.settings.maxAmountMinor;
+  // BigInt karşılaştırma (float YOK). refundAmountMinor Int (güvenli) → BigInt'e yükselt.
+  const withinLimit = limitBig === null ? false : BigInt(refundAmountMinor) <= limitBig;
+  const isSource = FAST_REFUND_SOURCE_STATUSES.includes(rr.status);
+
+  return {
+    permitted: opts.permitted,
+    enabled: opts.settings.enabled,
+    eligible: opts.permitted && eligibility.ok,
+    reasonCode: !opts.permitted ? "NOT_PERMITTED" : eligibility.ok ? null : eligibility.code,
+    sourceStatus: isSource ? rr.status : null,
+    skippedSteps: isSource ? deriveSkippedSteps(rr.status) : [],
+    currency: orderCurrency,
+    // Kanonik minor string (Number/float YOK).
+    refundAmountMinor: String(refundAmountMinor),
+    limitMinor: limitBig === null ? null : minorToCanonicalString(limitBig),
+    withinLimit,
+    orderTotalMinor: String(order?.totalAmount ?? 0),
+    customerOrderCount,
+    customerReturnCount,
+    fastRefundsLast90Days,
+    deliveryReceived: rr.status === "RECEIVED",
+    inspectionDone: false,
+  };
 }
 
 // ── Refund intent (approve zamanı; PENDING; finansa dokunmaz) ─────────────────────

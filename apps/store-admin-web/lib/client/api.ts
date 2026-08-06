@@ -27,6 +27,8 @@ import type {
   AdminReturnApproveRequest,
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
+  AdminReturnFastRefundRequest,
+  AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
   PendingWorkSummary,
   AdminOrderReturnsResponse,
@@ -1021,6 +1023,17 @@ export const storeApi = {
   // TEK aksiyonda (karar merkezi). Aynı istek şekli inspectReturn ile paylaşılır.
   inspectDecisionReturn: (returnId: string, input: AdminReturnInspectRequest) =>
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/inspect-decision`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
+  // TODO-172 (ADR-273) — "Hızlı iade yap": teslim alma + inceleme atlanarak doğrudan iade (güçlü
+  // yetki SUPER_ADMIN). fastRefundContext bounded risk/uygunluk özeti (CTA görünürlüğü + modal risk).
+  getFastRefundContext: (returnId: string) =>
+    call<AdminReturnFastRefundContextResponse>(
+      `/api/orders/returns/${returnId}/fast-refund-context`,
+    ),
+  fastRefund: (returnId: string, input: AdminReturnFastRefundRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/fast-refund`, {
       method: "POST",
       body: JSON.stringify(input),
     }).then(refreshPendingWork),

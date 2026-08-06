@@ -1498,10 +1498,19 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   `RefundIntent`/cap invariant'a dokunulmadı. Karar: ADR-269 (§ "Faz 1 Revizyonu") + ADR-272 (§ "Faz 1
   Revizyonu") güncellendi. Analiz: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` +
   `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
-- **PR2 — Fast Refund Controls: PLANNED.** Yeni granular permission `RETURN_FAST_REFUND` (varsayılan
-  yalnız SUPER_ADMIN); `StoreSettings` additive `fastRefundEnabled`/`fastRefundMaxAmountMinor` (+ gerekirse
-  `fastRefundCurrency`, K3; limit `null` = kapalı, sınırsız değil); teslim alma/inceleme adımlarını
-  atlayarak doğrudan refund; zorunlu gerekçe + audit. Migration additive; ayrı return-config tablosu yok.
+- **PR2 — Fast Refund Controls (TODO-172): IMPLEMENTED / NOT SHIPPED (2026-08-07; ADR-273).** Granular
+  yetki `RETURN_FAST_REFUND` = **SUPER_ADMIN role-gate** (mevcut rol-tabanlı sistem reuse; refund
+  `manual-complete` `requireStoreSuperAdmin` deseni mirror; yeni tablo YOK). `StoreSettings` additive
+  `fastRefundEnabled` (default false) + `fastRefundMaxAmountMinor BigInt?` (**null=kapalı, sınırsız değil**)
+  + `fastRefundCurrency String?` (order currency ile birebir eşleşme). **Kaynak durumlar = AWAITING_SHIPMENT
+  + RECEIVED** (APPROVED Faz 1'de geçici/ulaşılamaz, RETURN_SHIPPED ürün yolda = ayrı karar). Teslim alma/
+  inceleme atlanarak `initiateRefund` (TODO-170 REUSE; provider I/O tx dışında); zorunlu gerekçe + audit
+  (`return.fast_refund.started`) + `RETURN_FAST_REFUND_STARTED` history marker (skippedSteps). Bounded risk
+  context endpoint (fraud scoring YOK). Idempotent; gerçek refund olmadan COMPLETED olmaz. Store-admin CTA +
+  onay modalı; customer UX değişmedi (maskeli durum korunur). Migration additive; ayrı return-config tablosu
+  yok. Saf 17 + gerçek-DB 20 test yeşil. **Ship-hardening:** BigInt→kanonik string kontrat (TD-194 CLOSED),
+  yapısal history `eventType`/`metadata` (2. additive migration), flaky store-admin kök-neden fix (5× yeşil,
+  TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.**
 - **PR3 — Reverse Shipment: PLANNED.** `Shipment.direction` üç yönlü additive enum baştan (K4:
   `OUTBOUND_TO_CUSTOMER`/`CUSTOMER_RETURN_TO_STORE`/`STORE_RETURN_TO_CUSTOMER`; genel "OUTBOUND"
   kullanılmaz); reddedilen ürünün müşteriye geri gönderimi için `STORE_RETURN_TO_CUSTOMER` disposition +

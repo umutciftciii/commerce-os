@@ -1731,6 +1731,14 @@ export type InventoryStoreMatrixSummary = z.infer<typeof inventoryStoreMatrixSum
 // runtime'da storageKey'den turetilen public URL (render icin). storeName
 // salt-okunur echo'dur (Store.name) ve yalniz response'ta yer alir; hepsi nullable
 // olabilir (henuz logo/favicon baglanmamis magaza).
+// TODO-172 (ADR-273) — minor-unit BigInt finansal tutarların API taşıması: KANONİK ONDALIK STRING
+// (işaretsiz, baştan-sıfırsız base-10 tamsayı). `Number(bigint)`/`parseInt` precision kaybını önler;
+// `JSON.stringify` BigInt hatasını önler. Runtime parse/format @commerce-os/utils money helper'larında
+// (isCanonicalMinorString ile AYNI desen — contracts'ın utils'e bağımlılığı yok, desen bilinçli kopya).
+export const canonicalMinorAmountString = z
+  .string()
+  .regex(/^(0|[1-9]\d*)$/, "Non-negative canonical minor-unit amount string required");
+
 export const storeSettingsSchema = z.object({
   storeId: z.string().min(1),
   storeName: z.string(),
@@ -1744,6 +1752,13 @@ export const storeSettingsSchema = z.object({
   returnsCustomerPaysShipping: z.boolean(),
   returnsAllowReplacement: z.boolean(),
   returnsAllowOriginalPaymentRefund: z.boolean(),
+  // TODO-172 (ADR-273) — Fast Refund Controls (additive; satır yoksa hepsi kapalı default'lanır).
+  // maxAmountMinor null = hızlı iade KAPALI (sınırsız DEĞİL). currency null = sipariş para biriminde
+  // yorumlanır. DB'de BigInt → API'de KANONİK ONDALIK STRING (Number/float YOK; 2^53 üstü precision
+  // korunur). Client @commerce-os/utils money helper'larıyla parse/format eder.
+  fastRefundEnabled: z.boolean(),
+  fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable(),
+  fastRefundCurrency: z.string().nullable(),
 });
 
 // null = bagi kaldir (FK NULL); absent = dokunma; string = bagla/degistir. Tenant +
@@ -1759,6 +1774,12 @@ export const storeSettingsUpdateRequestSchema = z
     returnsCustomerPaysShipping: z.boolean().optional(),
     returnsAllowReplacement: z.boolean().optional(),
     returnsAllowOriginalPaymentRefund: z.boolean().optional(),
+    // TODO-172 (ADR-273) — Fast Refund Controls (additive; absent=dokunma). maxAmountMinor null =
+    // limiti kaldır → hızlı iade kapat. Değer KANONİK ONDALIK STRING (Number/float YOK). currency null
+    // = sipariş para birimine bırak. Bu alanları yalnız SUPER_ADMIN düzenler (route-seviyesi guard).
+    fastRefundEnabled: z.boolean().optional(),
+    fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable().optional(),
+    fastRefundCurrency: z.string().min(3).max(3).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
@@ -12132,6 +12153,41 @@ export const adminReturnTransitionRequestSchema = z.object({
   expectedVersion: returnExpectedVersionSchema,
 });
 
+// TODO-172 (ADR-273) — Fast Refund Controls. Teslim alma + inceleme adımları atlanarak doğrudan
+// para iadesi başlatan tek admin aksiyonu. reason ZORUNLU (audit + history). expectedVersion ile
+// optimistic lock (çift tıklama/stale). Tutar/limit client'tan GELMEZ; sunucu StoreSettings +
+// RefundIntent otoritesinden hesaplar (gönderilse bile yok sayılır — bilinçli olarak şemada YOK).
+export const adminReturnFastRefundRequestSchema = z.object({
+  reason: z.string().trim().min(3).max(RETURN_COMMENT_MAX),
+  expectedVersion: returnExpectedVersionSchema,
+});
+
+// Fast-refund onay modalı için bounded risk/uygunluk özeti (salt-okunur; mevcut veriden türetilir,
+// fraud scoring YOK). permitted: viewer SUPER_ADMIN mı. eligible: permitted && enabled && limit-içi &&
+// kaynak-durum && refund-çözümü && intent PENDING. reasonCode: eligible değilse ilk engel kodu.
+export const adminReturnFastRefundContextSchema = z.object({
+  permitted: z.boolean(),
+  enabled: z.boolean(),
+  eligible: z.boolean(),
+  reasonCode: z.string().nullable(),
+  sourceStatus: returnStatusSchema.nullable(),
+  skippedSteps: z.array(z.string()),
+  currency: z.string(),
+  // TODO-172 (ADR-273) — minor-unit finansal tutarlar KANONİK ONDALIK STRING (Number/float YOK).
+  refundAmountMinor: canonicalMinorAmountString,
+  limitMinor: canonicalMinorAmountString.nullable(),
+  withinLimit: z.boolean(),
+  orderTotalMinor: canonicalMinorAmountString,
+  customerOrderCount: z.number().int().nonnegative(),
+  customerReturnCount: z.number().int().nonnegative(),
+  fastRefundsLast90Days: z.number().int().nonnegative(),
+  deliveryReceived: z.boolean(),
+  inspectionDone: z.boolean(),
+});
+export const adminReturnFastRefundContextResponseSchema = z.object({
+  context: adminReturnFastRefundContextSchema,
+});
+
 export type ReturnStatusValue = z.infer<typeof returnStatusSchema>;
 export type ReturnResolutionTypeValue = z.infer<typeof returnResolutionTypeSchema>;
 export type ReturnReasonValue = z.infer<typeof returnReasonSchema>;
@@ -12162,3 +12218,8 @@ export type AdminReturnApproveRequest = z.infer<typeof adminReturnApproveRequest
 export type AdminReturnRejectRequest = z.infer<typeof adminReturnRejectRequestSchema>;
 export type AdminReturnInspectRequest = z.infer<typeof adminReturnInspectRequestSchema>;
 export type AdminReturnTransitionRequest = z.infer<typeof adminReturnTransitionRequestSchema>;
+export type AdminReturnFastRefundRequest = z.infer<typeof adminReturnFastRefundRequestSchema>;
+export type AdminReturnFastRefundContext = z.infer<typeof adminReturnFastRefundContextSchema>;
+export type AdminReturnFastRefundContextResponse = z.infer<
+  typeof adminReturnFastRefundContextResponseSchema
+>;

@@ -154,7 +154,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
         { changedVariants: 1, unchangedVariants: 0, changedFieldCount: 1 },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -195,7 +195,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
         { changedVariants: 1 },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -227,7 +227,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
         { changedVariants: 1, unchangedVariants: 0, changedFieldCount: 1 },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -246,7 +246,7 @@ describe("Pricing workspace — quick edit (default mode)", () => {
 describe("Pricing workspace — bulk operation (guided)", () => {
   it("switches to bulk, shows guided operations, and requires a selection before preview", async () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow(), makeRow({ variantId: "v2", sku: "SKU-2", title: "Siyah / L" })]));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -281,7 +281,7 @@ describe("Pricing workspace — bulk operation (guided)", () => {
         { changedVariants: 1, unchangedVariants: 0, changedFieldCount: 1 },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -309,7 +309,7 @@ describe("Pricing workspace — bulk operation (guided)", () => {
   it("changes VAT via guided operation → SET_FIXED on VAT_RATE", async () => {
     storeApiMock.getCommercialMatrix.mockResolvedValue(makeMatrix([makeRow()]));
     storeApiMock.previewCommercial.mockResolvedValue(makeMatrix([makeRow()], { changedVariants: 0 }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -343,7 +343,7 @@ describe("Pricing workspace — warning / blocking UX", () => {
     );
     blocked.blocked = true;
     storeApiMock.previewCommercial.mockResolvedValue(blocked);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");
@@ -377,7 +377,7 @@ describe("Pricing workspace — warning / blocking UX", () => {
         { changedVariants: 1, warningCount: 1, negativeMarginCount: 1 },
       ),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderWorkspace();
     await screen.findByRole("heading", { name: "Fiyatlandırma" });
     await screen.findByRole("table");

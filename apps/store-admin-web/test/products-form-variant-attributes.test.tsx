@@ -155,7 +155,7 @@ afterEach(() => {
 
 describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   it("renders only variantDefining option-based attributes; excludes TEXT + product-level", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -175,7 +175,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("reveals options after enabling an axis; hides archived options", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
     await pickInSelector(user, /Apparel/, 1);
@@ -193,7 +193,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("builds a variantSelections payload on save (option selection)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.createProduct.mockResolvedValue(makeProduct());
     renderCreate();
@@ -217,7 +217,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("blocks save when an enabled axis has no options (option required)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     renderCreate();
 
@@ -236,7 +236,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("sends no variantSelections and renders nothing for a legacy category (no variant attributes)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.listAttributes.mockResolvedValue({ data: [] });
     storeApiMock.listCategoryAttributes.mockResolvedValue({ data: [] });
     storeApiMock.createProduct.mockResolvedValue(makeProduct());
@@ -256,7 +256,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("hydrates existing variant selections on edit and round-trips them on save", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     storeApiMock.getProductVariantSelections.mockResolvedValue({
@@ -283,7 +283,7 @@ describe("ProductForm variant attributes (Faz 2C-1 / TODO-147)", () => {
   });
 
   it("maps a backend variant selection error to the axis", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     installSchema();
     storeApiMock.createProduct.mockRejectedValue(
       new MockUiError("VARIANT_OPTION_INVALID", { attributeDefinitionId: "dc" }),

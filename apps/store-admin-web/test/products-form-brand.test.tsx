@@ -110,7 +110,7 @@ describe("ProductForm marka seçici (TODO-165A Task 17)", () => {
   });
 
   it("Yeni marka oluştur → BrandEditor'da kaydedince yeni marka OTOMATİK seçilir; form state (başlık) KORUNUR", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.createBrand.mockResolvedValue({ data: newBrandRecord() });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     // `listBrandSelector` sahtesi "b-new"yi ÇÖZEBİLİR olarak seeded — gerçek backend'de

@@ -160,6 +160,36 @@
   + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`. **PR2 (Fast Refund Controls) ve PR3 (Reverse Shipment) bu
   fazda PLANNED** — implementasyon YAPILMADI (bkz. ROADMAP).
 
+- **TODO-172 Fast Refund Controls (Return Flow Faz 2 / PR2) — IMPLEMENTED / NOT SHIPPED (2026-08-07)**.
+  Teslim alma + inceleme adımlarını atlayarak refund başlatan **kontrollü "Hızlı iade" akışı**; finansal/
+  fraud riski permission + store-configurable limit + zorunlu gerekçe + audit ile sınırlandı. ADR-273.
+  **Permission = SUPER_ADMIN role-gate** (mevcut rol-tabanlı sistem reuse; refund `manual-complete`
+  `requireStoreSuperAdmin` deseni birebir mirror; yeni yetki tablosu YOK; SUPPORT_ADMIN 403; cross-store
+  404). **StoreSettings additive** `fastRefundEnabled` (default false) + `fastRefundMaxAmountMinor BigInt?`
+  (**null=KAPALI, sınırsız DEĞİL**) + `fastRefundCurrency String?` (set edilirse order currency ile birebir
+  eşleşmeli); ayarları yalnız SUPER_ADMIN düzenler; auditlenir. **Kaynak durumlar = AWAITING_SHIPMENT +
+  RECEIVED** (Faz 1'de approve otomatik AWAITING_SHIPMENT'e ilerlediğinden "onaylandı, teslim alınmadı"nın
+  gerçek durumu; APPROVED ve RETURN_SHIPPED hariç). Bu kenarlar state-machine'e EKLENMEZ; Fast Refund kendi
+  açık-allowlist + version-guard'lı **tek meşru giriş noktası** (generic `/transition`'ın permission/limit
+  atlayarak REFUND_PENDING üretmesi engellenir). **Orchestration:** `POST /stores/:id/returns/:id/fast-refund`
+  → tx (guard'lı REFUND_PENDING + `RETURN_FAST_REFUND_STARTED` history marker: skippedSteps/reason JSON) →
+  audit `return.fast_refund.started` → commit sonrası `initiateRefund` (TODO-170 REUSE; provider I/O tx
+  DIŞINDA). Idempotent (çift tıklama INVALID_STATE/VERSION_CONFLICT; initiateRefund advisory-lock). Gerçek
+  refund (OrderRefund SUCCEEDED) olmadan COMPLETED olmaz. **Risk görünürlüğü:** `GET .../fast-refund-context`
+  bounded özet (tutar/limit/müşteri sipariş+iade sayısı/son-90-gün hızlı iade/atlanan adımlar/uygunluk);
+  fraud scoring YOK. **Store-admin UX:** "Hızlı iade yap" CTA (permission+enabled+kaynak durum) + onay modalı
+  (zorunlu gerekçe + atlanan adımlar + tutar/limit + risk özeti + açık uyarı ⚠ renk-tek-başına DEĞİL; limit
+  aşımında CTA gizlenmez, neden + "Normal iade akışına devam edin"). **Customer UX değişmedi** (maskeli refund
+  durumu TODO-170 korunur; "fast" etiketi sızmaz). Migration additive `20260807090000_todo172_fast_refund_controls`
+  (3 kolon, default kapalı, mevcut store'larda otomatik açılmaz). Testler: saf 17 (`returns-fast-refund-pure`)
+  + gerçek-DB 20 (`returns-fast-refund.integration`) yeşil; gateway/store-admin/contracts suite yeşil.
+  **Ship-hardening (2026-08-07):** (1) BigInt finansal serialization → **kanonik ondalık string kontrat** +
+  ortak `@commerce-os/utils` money helper (float YOK; TD-194 CLOSED); (2) history note-JSON → **yapısal
+  `eventType`+`metadata`** kolonları (domain sorgusu exact-match; 2. additive migration); (3) **flaky
+  store-admin testleri kök-neden çözüldü** (`userEvent delay:null` + `vitest.config.ts maxForks=çekirdek−2`
+  + `findByText`; store-admin 5× tam yeşil; TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.** Detay:
+  `docs/adr/ADR-273-fast-refund-controls.md`. **PR3 (Reverse Shipment) PLANNED.**
+
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;
   postgres/redis/worker/storefront/admin-web DOKUNULMADI, volume korundu); migration YOK, schema up to date.

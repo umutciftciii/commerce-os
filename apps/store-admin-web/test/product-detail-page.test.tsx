@@ -127,7 +127,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
     storeApiMock.updateProduct.mockResolvedValue(makeProduct({ title: "Sweatshirt XL" }));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -158,7 +158,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
     storeApiMock.updateProduct.mockRejectedValue(new MockUiError("PRODUCT_NOT_PURCHASABLE"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -173,7 +173,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
     storeApiMock.createVariant.mockResolvedValue({ id: "v1" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -212,7 +212,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.getProduct.mockResolvedValue(makeProduct());
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -244,7 +244,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.updateProduct.mockImplementation(
       () => new Promise((resolve) => { resolveUpdate = resolve; }),
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -268,7 +268,7 @@ describe("store-admin product detail — dedicated route page", () => {
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.listVariants.mockResolvedValue(page(0, []));
     storeApiMock.updateProduct.mockRejectedValue(new MockUiError("PRODUCT_NOT_PURCHASABLE"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");
@@ -320,7 +320,7 @@ describe("store-admin product detail — dedicated route page", () => {
         compareAtBelowPriceCount: 0,
       },
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductDetailPage />);
     await screen.findByText("Temel bilgiler");

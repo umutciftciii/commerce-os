@@ -171,7 +171,7 @@ describe("store-admin categories", () => {
       ]),
     );
     storeApiMock.createCategory.mockResolvedValue({ id: "c2" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<CategoriesPage />);
 
@@ -191,7 +191,7 @@ describe("store-admin categories", () => {
   it("maps a duplicate-slug error to a friendly Turkish message", async () => {
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.createCategory.mockRejectedValue(new MockUiError("CATEGORY_SLUG_EXISTS"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<CategoriesPage />);
 
@@ -211,7 +211,7 @@ describe("store-admin products & variants", () => {
     storeApiMock.listProducts.mockResolvedValue(page(0, []));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.createProduct.mockResolvedValue({ id: "p1" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
 
@@ -349,7 +349,7 @@ describe("store-admin product sales model", () => {
     storeApiMock.listProducts.mockResolvedValue(page(0, []));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.createProduct.mockResolvedValue({ id: "p9" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
 
@@ -379,7 +379,7 @@ describe("store-admin product sales model", () => {
   it("blocks an invalid max-order-quantity client side with a localized message", async () => {
     storeApiMock.listProducts.mockResolvedValue(page(0, []));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
 
@@ -401,7 +401,7 @@ describe("store-admin product sales model", () => {
     storeApiMock.listProducts.mockResolvedValue(page(0, []));
     storeApiMock.listCategories.mockResolvedValue(page(0, []));
     storeApiMock.createProduct.mockRejectedValue(new MockUiError("PRODUCT_NOT_PURCHASABLE"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<ProductsPage />);
 
@@ -516,7 +516,7 @@ describe("store-admin inventory (global monitoring center)", () => {
       source: "DIRECT_EDIT",
       preview: {},
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<InventoryPage />);
     await screen.findByText("Kapüşonlu");
@@ -546,7 +546,7 @@ describe("store-admin inventory (global monitoring center)", () => {
       rows: [],
       summary: {},
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<InventoryPage />);
     await screen.findByText("Kapüşonlu");

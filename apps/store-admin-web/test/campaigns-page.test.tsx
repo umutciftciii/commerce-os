@@ -91,7 +91,7 @@ describe("store-admin · F4A campaigns page", () => {
 
   it("validates the form before sending anything to the server", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -108,7 +108,7 @@ describe("store-admin · F4A campaigns page", () => {
   it("pauses an active campaign via the status action", async () => {
     seedHappyPath();
     storeApiMock.campaignStatusAction.mockResolvedValue({ ...COUPON_CAMPAIGN, status: "PAUSED" });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -124,7 +124,7 @@ describe("store-admin · F4A campaigns page", () => {
 describe("store-admin · F4A.1 auto coupon code generator", () => {
   it("fills the coupon input with a generated, editable code", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -145,7 +145,7 @@ describe("store-admin · F4A.1 auto coupon code generator", () => {
 
   it("does not show the generate button while editing an existing campaign", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -188,7 +188,7 @@ describe("store-admin · F4A.2 campaign analytics", () => {
   it("shows analytics and links recent redemptions to the order detail", async () => {
     seedHappyPath();
     storeApiMock.getCampaign.mockResolvedValue(DETAIL_WITH_ANALYTICS);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -221,7 +221,7 @@ describe("store-admin · F4A.2 campaign analytics", () => {
         lastRedemptionAt: null,
       },
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -236,7 +236,7 @@ describe("store-admin · F4A.2 campaign analytics", () => {
 describe("store-admin · F4A.4 campaign presentation & access model", () => {
   it("renders the six form sections and the coupon card preview", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -253,7 +253,7 @@ describe("store-admin · F4A.4 campaign presentation & access model", () => {
 
   it("never renders any follow-to-earn / reserved audience option", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -269,7 +269,7 @@ describe("store-admin · F4A.4 campaign presentation & access model", () => {
 
   it("offers only the supported claim access models for a coupon campaign", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -286,7 +286,7 @@ describe("store-admin · F4A.4 campaign presentation & access model", () => {
   it("saves the display fields and derived access model on create", async () => {
     seedHappyPath();
     storeApiMock.createCampaign.mockResolvedValue({});
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 
@@ -311,7 +311,7 @@ describe("store-admin · F4A.4 campaign presentation & access model", () => {
 
   it("edits an existing campaign with null display fields without crashing", async () => {
     seedHappyPath();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CampaignsPage />);
     await screen.findByText("TEST250 Kuponu");
 

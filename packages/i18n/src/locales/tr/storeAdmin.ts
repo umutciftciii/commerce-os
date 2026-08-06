@@ -201,6 +201,16 @@ export const trStoreAdmin = {
       "İnceleme kararı kaydedildi ancak iade başlatılamadı. İade Defteri panelinden tekrar deneyebilirsiniz.",
     REFUND_INITIATE_FAILED_WITH_REASON:
       "İnceleme kararı kaydedildi ancak iade başlatılamadı: {reason} İade Defteri panelinden tekrar deneyebilirsiniz.",
+    // TODO-172 (ADR-273) — Fast Refund Controls hataları (dostça; ham kod gösterilmez).
+    FAST_REFUND_DISABLED: "Bu mağazada hızlı iade kapalı.",
+    FAST_REFUND_LIMIT_NOT_SET: "Hızlı iade limiti tanımlı değil; bu nedenle hızlı iade kapalı.",
+    FAST_REFUND_INVALID_STATE:
+      "Hızlı iade yalnız onaylanmış (henüz teslim alınmamış) veya teslim alınmış iadelerde yapılabilir.",
+    FAST_REFUND_INTENT_NOT_PENDING: "İade tutarı hazır değil; önce iadeyi onaylayın.",
+    FAST_REFUND_CURRENCY_MISMATCH:
+      "Limit para birimi sipariş para birimiyle eşleşmiyor. Normal iade akışına devam edin.",
+    FAST_REFUND_LIMIT_EXCEEDED:
+      "İade tutarı hızlı iade limitini aşıyor. Normal iade akışına devam edin.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",

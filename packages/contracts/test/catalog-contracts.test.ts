@@ -332,6 +332,10 @@ describe("catalog contracts", () => {
       returnsCustomerPaysShipping: true,
       returnsAllowReplacement: true,
       returnsAllowOriginalPaymentRefund: true,
+      // TODO-172 (ADR-273) — response Fast Refund alanlarını da taşır (serializer default'lar).
+      fastRefundEnabled: false,
+      fastRefundMaxAmountMinor: null,
+      fastRefundCurrency: null,
     };
     const allNull = storeSettingsSchema.parse({
       storeId: "store_1",
@@ -368,6 +372,24 @@ describe("catalog contracts", () => {
     expect(storeSettingsUpdateRequestSchema.parse({ faviconMediaId: null })).toEqual({ faviconMediaId: null });
     // Bos string reddedilir (min(1)).
     expect(() => storeSettingsUpdateRequestSchema.parse({ logoMediaId: "" })).toThrow();
+    // TODO-172 (ADR-273) — Fast Refund ayarları additive: tek alan güncelleme geçerli, null limit temizler.
+    // Limit KANONİK ONDALIK STRING (Number/float YOK).
+    expect(storeSettingsUpdateRequestSchema.parse({ fastRefundEnabled: true })).toEqual({
+      fastRefundEnabled: true,
+    });
+    expect(storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: "50000" })).toEqual({
+      fastRefundMaxAmountMinor: "50000",
+    });
+    expect(storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: null })).toEqual({
+      fastRefundMaxAmountMinor: null,
+    });
+    // number reddedilir (string zorunlu); negatif/ondalık/baştan-sıfır reddedilir (kanonik regex).
+    expect(() => storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: 50000 })).toThrow();
+    expect(() => storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: "-1" })).toThrow();
+    expect(() => storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: "1.5" })).toThrow();
+    expect(() => storeSettingsUpdateRequestSchema.parse({ fastRefundMaxAmountMinor: "007" })).toThrow();
+    // Geçersiz para birimi uzunluğu reddedilir (min/max 3).
+    expect(() => storeSettingsUpdateRequestSchema.parse({ fastRefundCurrency: "TR" })).toThrow();
   });
 
   it("ADR-065 Faz 2/Dilim 2: product response carries an images array (defaults to [])", () => {

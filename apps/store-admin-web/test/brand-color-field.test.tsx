@@ -80,7 +80,7 @@ describe("ColorField (Marka ve Görünüm renk seçici)", () => {
 
   it("Önizlemede göster butonu onHighlight tetikler", async () => {
     const onHighlight = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <ColorField
         label="Ana buton rengi"

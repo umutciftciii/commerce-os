@@ -88,7 +88,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
   it("tek kategori seçilince otomatik ana olur ve submit payload'a girer", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     renderForm(makeProduct(), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
 
@@ -103,7 +103,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
   });
 
   it("ikinci kategori eklenince mevcut ana korunur ve görsel olarak işaretlenir", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     renderForm(makeProduct({ categoryIds: ["c1"], primaryCategoryId: "c1" }), [cat("c1", "Apparel"), cat("c2", "Accessories")]);
 
@@ -124,7 +124,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
   });
 
   it("ana kategori kaldırılıp çok kategori kalınca submit ENGELLENIR (backend'e gitmez)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderForm(
       makeProduct({ categoryIds: ["c1", "c2", "c3"], primaryCategoryId: "c1" }),
       [cat("c1", "Apparel"), cat("c2", "Accessories"), cat("c3", "Home")],
@@ -134,9 +134,10 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
     await user.click(screen.getByRole("button", { name: "Remove Apparel" }));
     await user.click(screen.getByRole("button", { name: "save" }));
 
-    // Submit engellendi: hata gösterildi, updateProduct çağrılmadı.
+    // Submit engellendi: hata gösterildi, updateProduct çağrılmadı. `findByText` (async) — validasyon
+    // hatasının render commit'ini bekler; senkron `getByText` userEvent zamanlamasına bağlı kırılgandı.
     expect(
-      screen.getByText("You selected multiple categories; choose a primary category."),
+      await screen.findByText("You selected multiple categories; choose a primary category."),
     ).toBeTruthy();
     expect(storeApiMock.updateProduct).not.toHaveBeenCalled();
   });
@@ -149,7 +150,7 @@ describe("ProductForm ana kategori (Faz 1A / ADR-067)", () => {
   });
 
   it("seçili kategori arama sonucunda OLMASA BİLE görünür ve kaldırılabilir (TD-093)", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     storeApiMock.updateProduct.mockResolvedValue(makeProduct());
     // Katalogda 120 kategori var; seçili olan SON sıradaki (ilk sayfada DEĞİL).
     const many = Array.from({ length: 120 }, (_, index) => cat(`c${index}`, `Cat ${index}`));

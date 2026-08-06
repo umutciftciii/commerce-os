@@ -125,7 +125,7 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
     storeApiMock.prepareDhlShipment.mockResolvedValue({ shipment: { id: "shp_new" } });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
     await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
@@ -142,7 +142,7 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
     storeApiMock.prepareDhlShipment.mockRejectedValue(new Error("401 no valid subscription"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
     await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
@@ -159,7 +159,7 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [provider()] });
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
     storeApiMock.prepareDhlShipment.mockRejectedValue(new UiErrorMock("RECIPIENT_EMAIL_REQUIRED"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
     await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));
@@ -178,7 +178,7 @@ describe("order detail shipment summary card (F3C.5 online-first)", () => {
     storeApiMock.getOrderShipping.mockResolvedValue({ shipments: [] });
     storeApiMock.prepareDhlShipment.mockRejectedValue(new Error("provider down"));
     storeApiMock.createShipmentDraft.mockResolvedValue({ shipment: { id: "shp_manual" } });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<OrderShipmentSummary order={ORDER} locale="tr" />);
 
     await user.click(await screen.findByRole("button", { name: "Gönderi Oluştur" }));

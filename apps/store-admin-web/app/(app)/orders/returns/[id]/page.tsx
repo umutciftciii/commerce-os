@@ -14,10 +14,16 @@ import {
   Textarea,
   useLocale,
 } from "../../../../../components/ui";
-import type { AdminReturnDetail, AdminReturnItem } from "@commerce-os/api-client";
+import type {
+  AdminReturnDetail,
+  AdminReturnItem,
+  AdminReturnFastRefundContext,
+} from "@commerce-os/api-client";
 import { storeApi, UiError } from "../../../../../lib/client/api";
 import { messageForError } from "../../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../../lib/client/format";
+// TODO-172 (ADR-273) — Fast Refund minor-unit tutarları KANONİK STRING; float'sız BigInt formatter.
+import { formatMinorMoney } from "@commerce-os/utils";
 import {
   DetailHero,
   DetailLayout,
@@ -98,7 +104,7 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; ret: AdminReturnDetail };
 
-type Dialog = "reject" | "partial" | "inspect" | "refund" | null;
+type Dialog = "reject" | "partial" | "inspect" | "refund" | "fast-refund" | null;
 
 const PAYMENT_TONES: Record<AdminReturnDetail["orderPaymentStatus"], Tone> = {
   UNPAID: "warning",
@@ -125,6 +131,10 @@ export default function ReturnDetailPage() {
   // refund başlatılamamış) bir artar; RefundPanel bunu prop olarak alıp kendi
   // useEffect deps'ine ekler → tek seferlik yeniden fetch, sonsuz döngü YOK.
   const [refreshKey, setRefreshKey] = useState(0);
+  // TODO-172 (ADR-273) — Fast Refund bounded risk/uygunluk özeti. Yalnız kaynak durumlarda
+  // (AWAITING_SHIPMENT/RECEIVED) + refund çözümünde çekilir; permission/enabled sunucudan gelir
+  // (CTA görünürlüğü sunucu-otoriter, UI gizlemesi tek başına yeterli değil — backend de zorlar).
+  const [fastCtx, setFastCtx] = useState<AdminReturnFastRefundContext | null>(null);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -139,6 +149,31 @@ export default function ReturnDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Fast Refund context'i yalnız kaynak durumda + refund çözümünde çek (gereksiz istek yok).
+  // refreshKey değişince (mutation sonrası) yeniden çekilir; durum değişince gizlenir.
+  const readyRet = state.status === "ready" ? state.ret : null;
+  const fastEligibleStatus =
+    readyRet?.status === "AWAITING_SHIPMENT" || readyRet?.status === "RECEIVED";
+  const fastRefundResolution = readyRet?.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT";
+  useEffect(() => {
+    if (!readyRet || !fastEligibleStatus || !fastRefundResolution) {
+      setFastCtx(null);
+      return;
+    }
+    let cancelled = false;
+    void storeApi
+      .getFastRefundContext(readyRet.id)
+      .then((r) => {
+        if (!cancelled) setFastCtx(r.context);
+      })
+      .catch(() => {
+        if (!cancelled) setFastCtx(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readyRet, fastEligibleStatus, fastRefundResolution, refreshKey]);
 
   // Aksiyon sonucu güncel detay döner → doğrudan state'e yansıt (ekstra fetch yok).
   // `refreshRefundPanel` — yalnız inspect-decision/reject gibi refund-context'i etkileyebilecek
@@ -222,6 +257,14 @@ export default function ReturnDetailPage() {
       {canInspectReturn(s) ? (
         <Button size="sm" disabled={busy} onClick={() => setDialog("inspect")}>
           {isTr ? "İnceleme sonucu gir" : "Enter inspection"}
+        </Button>
+      ) : null}
+      {/* TODO-172 (ADR-273) — Hızlı iade CTA. Yalnız permission + fastRefundEnabled + kaynak durumda
+          görünür (sunucu-otoriter fastCtx). Limit aşımı/uygunsuzluk CTA'yı GİZLEMEZ — modal içinde
+          nedeni açıkça gösterilir + normal iade akışına yönlendirilir (spec §8). */}
+      {fastCtx && fastCtx.permitted && fastCtx.enabled ? (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog("fast-refund")}>
+          {isTr ? "Hızlı iade yap" : "Fast refund"}
         </Button>
       ) : null}
       {canRefundPending(s) && ret.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" ? (
@@ -599,7 +642,201 @@ export default function ReturnDetailPage() {
           }
         />
       ) : null}
+
+      {dialog === "fast-refund" && fastCtx ? (
+        <FastRefundDialog
+          busy={busy}
+          locale={locale}
+          ctx={fastCtx}
+          currency={ret.currency}
+          onClose={() => setDialog(null)}
+          onSubmit={(reason) =>
+            void runAction(
+              () => storeApi.fastRefund(ret.id, { reason, expectedVersion: ret.version }),
+              isTr ? "Hızlı iade başlatıldı." : "Fast refund started.",
+              // Refund backend'de otomatik başlar; RefundPanel + fast-refund context tazelenmeli.
+              { refreshRefundPanel: true },
+            )
+          }
+        />
+      ) : null}
     </>
+  );
+}
+
+// TODO-172 (ADR-273) — Fast Refund onay modalı. Zorunlu gerekçe + atlanan adımlar + tutar/limit +
+// bounded risk özeti + açık uyarı (renk-tek-başına DEĞİL: ⚠ glyph + metin). Limit aşımı/uygunsuzlukta
+// onay butonu kilitlenir ve "Normal iade akışına devam edin" yönlendirmesi gösterilir (CTA gizlenmez).
+function FastRefundDialog({
+  busy,
+  locale,
+  ctx,
+  currency,
+  onClose,
+  onSubmit,
+}: {
+  busy: boolean;
+  locale: string;
+  ctx: AdminReturnFastRefundContext;
+  currency: string;
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const isTr = locale === "tr";
+  const [reason, setReason] = useState("");
+  const reasonValid = reason.trim().length >= 3;
+  const canConfirm = ctx.eligible && reasonValid && !busy;
+
+  const stepLabel = (step: string): string => {
+    const map: Record<string, [string, string]> = {
+      CUSTOMER_RETURN_SHIPMENT: ["Müşterinin ürünü geri göndermesi", "Customer return shipment"],
+      STORE_RECEIPT: ["Ürünün teslim alınması", "Store receipt"],
+      INSPECTION: ["Ürün incelemesi", "Inspection"],
+    };
+    const entry = map[step];
+    return entry ? (isTr ? entry[0] : entry[1]) : step;
+  };
+
+  const reasonMessage = (): string | null => {
+    if (ctx.eligible) return null;
+    switch (ctx.reasonCode) {
+      case "FAST_REFUND_LIMIT_EXCEEDED":
+        return isTr
+          ? "İade tutarı hızlı iade limitini aşıyor. Normal iade akışına devam edin."
+          : "The refund amount exceeds the fast-refund limit. Continue with the normal return flow.";
+      case "FAST_REFUND_CURRENCY_MISMATCH":
+        return isTr
+          ? "Limit para birimi sipariş para birimiyle eşleşmiyor. Normal iade akışına devam edin."
+          : "The limit currency does not match the order currency. Continue with the normal return flow.";
+      case "FAST_REFUND_LIMIT_NOT_SET":
+        return isTr
+          ? "Hızlı iade limiti tanımlı değil. Normal iade akışına devam edin."
+          : "No fast-refund limit is set. Continue with the normal return flow.";
+      default:
+        return isTr
+          ? "Bu iade hızlı iadeye uygun değil. Normal iade akışına devam edin."
+          : "This return is not eligible for fast refund. Continue with the normal return flow.";
+    }
+  };
+  const blockMsg = reasonMessage();
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={isTr ? "Hızlı iade yap" : "Fast refund"}
+      description={
+        isTr
+          ? "Teslim alma ve inceleme adımları atlanarak müşteriye doğrudan para iadesi yapılacak."
+          : "The receiving and inspection steps will be skipped and the customer refunded directly."
+      }
+      closeLabel={isTr ? "Vazgeç" : "Cancel"}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            {isTr ? "Vazgeç" : "Cancel"}
+          </Button>
+          <Button variant="danger" disabled={!canConfirm} onClick={() => onSubmit(reason.trim())}>
+            {busy
+              ? isTr
+                ? "İşleniyor…"
+                : "Processing…"
+              : isTr
+                ? "Hızlı iadeyi onayla"
+                : "Confirm fast refund"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Açık uyarı — renk-tek-başına DEĞİL: ⚠ glyph + metin (a11y). */}
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.08] p-3 text-sm text-amber-200"
+        >
+          <span aria-hidden className="mt-0.5">
+            ⚠
+          </span>
+          <span>
+            {isTr
+              ? "Teslim alma ve inceleme adımları atlanarak müşteriye doğrudan para iadesi yapılacak. Bu işlem geri alınamaz."
+              : "The receiving and inspection steps will be skipped and the customer refunded directly. This action cannot be undone."}
+          </span>
+        </div>
+
+        {/* Atlanan adımlar */}
+        <div>
+          <div className="mb-1 text-xs uppercase tracking-wide text-white/40">
+            {isTr ? "Atlanan adımlar" : "Skipped steps"}
+          </div>
+          <ul className="space-y-1 text-sm text-white/80">
+            {ctx.skippedSteps.map((step) => (
+              <li key={step} className="flex items-center gap-2">
+                <span aria-hidden className="text-white/30">
+                  ⏭
+                </span>
+                {stepLabel(step)}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Tutar + limit + risk özeti */}
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <dt className="text-white/50">{isTr ? "İade tutarı" : "Refund amount"}</dt>
+          <dd className="text-right font-medium text-white/90">
+            {formatMinorMoney(ctx.refundAmountMinor, currency, locale)}
+          </dd>
+          <dt className="text-white/50">{isTr ? "Sipariş toplamı" : "Order total"}</dt>
+          <dd className="text-right text-white/80">
+            {formatMinorMoney(ctx.orderTotalMinor, currency, locale)}
+          </dd>
+          <dt className="text-white/50">{isTr ? "Hızlı iade limiti" : "Fast-refund limit"}</dt>
+          <dd className="text-right text-white/80">
+            {ctx.limitMinor === null ? "—" : formatMinorMoney(ctx.limitMinor, ctx.currency, locale)}
+          </dd>
+          <dt className="text-white/50">{isTr ? "Müşteri sipariş sayısı" : "Customer orders"}</dt>
+          <dd className="text-right text-white/80">{ctx.customerOrderCount}</dd>
+          <dt className="text-white/50">{isTr ? "Müşteri iade sayısı" : "Customer returns"}</dt>
+          <dd className="text-right text-white/80">{ctx.customerReturnCount}</dd>
+          <dt className="text-white/50">
+            {isTr ? "Son 90 gün hızlı iade" : "Fast refunds (90 days)"}
+          </dt>
+          <dd className="text-right text-white/80">{ctx.fastRefundsLast90Days}</dd>
+          <dt className="text-white/50">{isTr ? "Teslim alındı" : "Received"}</dt>
+          <dd className="text-right text-white/80">
+            {ctx.deliveryReceived ? (isTr ? "Evet" : "Yes") : isTr ? "Hayır" : "No"}
+          </dd>
+          <dt className="text-white/50">{isTr ? "İnceleme yapıldı" : "Inspected"}</dt>
+          <dd className="text-right text-white/80">
+            {ctx.inspectionDone ? (isTr ? "Evet" : "Yes") : isTr ? "Hayır" : "No"}
+          </dd>
+        </dl>
+
+        {/* Limit aşımı / uygunsuzluk — CTA gizlenmez; neden açık gösterilir + normal akışa yönlendir. */}
+        {blockMsg ? (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-400/[0.08] p-3 text-sm text-rose-200"
+          >
+            <span aria-hidden className="mt-0.5">
+              ⛔
+            </span>
+            <span>{blockMsg}</span>
+          </div>
+        ) : null}
+
+        <Textarea
+          id="fast-refund-reason"
+          label={isTr ? "Gerekçe" : "Reason"}
+          required
+          rows={3}
+          maxLength={1000}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+    </Modal>
   );
 }
 

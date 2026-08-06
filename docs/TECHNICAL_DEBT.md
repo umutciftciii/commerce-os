@@ -2180,3 +2180,40 @@ commit/deploy YOK). Aşağıdakiler bilinçli olarak kapsam dışı bırakıldı
   kaydetmesi, SONRA reddetmesi gerekir (iki adım). Bilinçli değil, bu fazın kapsamı dışında bırakıldı;
   `RECEIVED → REJECTED` doğrudan geçiş eklenirse (K1'in "Faz 3" kalem-bazlı red modeliyle birlikte
   değerlendirilmeli) admin akışı bir adım kısalır.
+
+## TODO-172 (ADR-273) — Fast Refund Controls teknik borç / gelecek
+
+- **TD-193 (Fast Refund limit tek-para-birimi varsayımı) — 🟡 FUTURE:** `fastRefundMaxAmountMinor` bare
+  minor-unit; `fastRefundCurrency` null iken limit **sipariş para biriminde** yorumlanır (mağazanın tek
+  para birimi çalıştığı varsayımı). Store'da currency alanı YOK (otorite `Order.currency`). Gerçek
+  multi-currency store için `fastRefundCurrency` set edilmeli (aksi eşleşmezse `FAST_REFUND_CURRENCY_MISMATCH`
+  → normal akış); per-currency ayrı limit tablosu ileride değerlendirilebilir.
+- **TD-194 (Fast Refund BigInt kolonu serileştirme sınırı) — ✅ CLOSED (2026-08-07):** ilk çözüm
+  serileştirmede `Number(bigint)` kullanıyordu (2^53 üstü precision riski). Ship-hardening'de **kanonik
+  ondalik string kontrat** + ortak BigInt-tabanlı `@commerce-os/utils` money helper
+  (`parseMinorString`/`minorToCanonicalString`/`compareMinorStrings`/`formatMinorMoney`; float YOK) ile
+  kapatıldı: `fastRefundMaxAmountMinor` + fast-refund-context tutarları API'de string taşınır, server
+  string→BigInt doğrular, client güvenli helper'la parse/format eder. `packages/utils/test/money.test.ts`
+  (0/eşit/üstü/`MAX_SAFE_INTEGER`+1/invalid/negative/leading-zero/round-trip). Güvenli sözleşme artık borç
+  değil. NOT: diğer para alanları (Order.totalAmount vb.) hâlâ INTEGER minor-unit — bu kapsam TODO-172
+  değil; genel BigInt göçü ayrı bir iş olarak değerlendirilebilir (bu özellik için gerekmiyor).
+- **TD-195 (Yüksek-tutar çift onay — dual approval) — 🟡 FUTURE:** Fast Refund tek SUPER_ADMIN onayıyla
+  başlatılır. Yüksek-tutarlı hızlı iadeler için ikinci bir onaylayıcı (dört-göz ilkesi) gelecekte
+  eklenebilir; şu an limit + audit + risk özeti caydırıcı kontroller.
+- **TD-196 (Fraud scoring motoru) — 🟡 FUTURE:** Risk context yalnız mevcut veriden **bounded summary**
+  üretir (müşteri sipariş/iade sayısı, son-90-gün hızlı iade). Davranışsal fraud scoring motoru (anomali,
+  velocity, cihaz/IP) kurulmadı — kapsam dışı; gerektiğinde ayrı modül.
+- **TD-197 (Per-role return permissions) — 🟡 FUTURE:** Fast Refund iade domenine ilk granular yetkiyi
+  (`RETURN_FAST_REFUND` = SUPER_ADMIN) getirdi. approve/reject/inspect gibi diğer iade aksiyonları hâlâ
+  kaba-taneli (herhangi platform admin). İleride per-role return permission matrisi değerlendirilebilir.
+- **TD-198 (Fast Refund UI component testi yok; browser smoke'a dayanıyor) — 🟢 MINOR:** Store-admin return
+  detail sayfasının dedicated component testi yok (mevcut durum; CTA/modal davranışı browser smoke ile
+  doğrulanır). Backend saf+entegrasyon 37 test kapsar. İleride RTL component testi eklenebilir.
+- **TD-199 (store-admin test flaky — KÖK NEDEN çözüldü) — ✅ CLOSED (2026-08-07):** iki form testi
+  (campaigns/categories create) tam-suite yük altında 5000ms timeout'una takılıyordu. Kök neden:
+  `userEvent` varsayılan `delay: 0` her tuşta `setTimeout(0)` macrotask planlar; ~67 tuşluk ağır akışlar +
+  varsayılan `forks` havuzunun çekirdek-sayısı-kadar fork'la CPU'yu aşırı-abone etmesi event-loop'u
+  aç bırakıyor. Fix (maske DEĞİL): o iki dosyada `userEvent.setup({ delay: null })` (async assertion'lar
+  güvenli) + `apps/store-admin-web/vitest.config.ts` `maxForks = çekirdek−2` (zamanlama düzeltmesi) +
+  `products-form-primary-category` senkron-assertion race'i `findByText` ile giderildi. Store-admin suite
+  5× arka arkaya tam yeşil. `.skip`/retry/timeout-artırma KULLANILMADI.

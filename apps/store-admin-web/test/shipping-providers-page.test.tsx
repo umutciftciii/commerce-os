@@ -95,7 +95,7 @@ describe("shipping providers page (F3C.1 Faz B)", () => {
 
   it("opens the credentials modal with masked state and password-type secret inputs", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [DHL_CONFIG] });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ShippingProvidersPage />);
 
     const credBtn = await screen.findByRole("button", { name: "Kimlik bilgileri" });
@@ -120,7 +120,7 @@ describe("shipping providers page (F3C.1 Faz B)", () => {
 
   it("shows the provider-operation-permission-disabled warning (security-lock framing, no 'Canlı')", async () => {
     storeApiMock.listShippingProviders.mockResolvedValue({ data: [DHL_CONFIG] });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ShippingProvidersPage />);
     await user.click(await screen.findByRole("button", { name: "Kimlik bilgileri" }));
     const dialog = await screen.findByRole("dialog");
