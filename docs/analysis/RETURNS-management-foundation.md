@@ -138,3 +138,18 @@ Cross-module review, deliver edilmiş iade işinde finansal-invariant / correctn
   **hâlâ BLOCKED** — bu return financial invariants + private media hardening (C1) ship edilene kadar başlanmamalı.
 
 Bkz. [ADR-269](../adr/ADR-269-returns-authority-and-lifecycle.md) "Post-Audit Hardening".
+
+---
+
+## Return Decision Flow Simplification — Faz 1 (2026-08-06) — status: IMPLEMENTED / NOT SHIPPED
+
+TODO-170 (Refund Ledger, ADR-272) ship edildikten sonra, bu foundation'ın §4 lifecycle kararlarına
+(`REFUND_PENDING/REPLACEMENT_PENDING → CLOSED` admin geçişi, "İncelemeye al" ara adımı, `COMPLETED` yolu)
+karar-odaklı bir revizyon uygulandı. "Kapat" tuzağı (§4/R1'in çözdüğü sessiz finansal tutarsızlığın
+**yapısal** kapanışı) yapısal guard'la kapatıldı, inceleme kalem/adet karar merkezine dönüştü, `COMPLETED`
+terminal oldu ve gerçekleşen refund sipariş Ücret Özeti'nde görünür kılındı. Kod tamamlandı (2396 test
+yeşil), commit/deploy YOK. Tam analiz ve K1–K4 kararları ayrı belgede:
+[`RETURNS-FLOW-SIMPLIFICATION.md`](RETURNS-FLOW-SIMPLIFICATION.md) (ACCEPTED) + implementasyon planı
+[`RETURNS-FLOW-PHASE1-PLAN.md`](RETURNS-FLOW-PHASE1-PLAN.md); ADR güncellemeleri:
+[ADR-269](../adr/ADR-269-returns-authority-and-lifecycle.md) § "Faz 1 Revizyonu" +
+[ADR-272](../adr/ADR-272-refund-ledger-and-payment-reversal.md) § "Faz 1 Revizyonu".

@@ -190,6 +190,27 @@ describe.skipIf(!hasTestDb)("Returns lifecycle (live DB)", () => {
     await app.close();
   });
 
+  it("TD-FR-7 — admin cannot CLOSE a REFUND_PENDING return (no silent close, 409 REFUND_UNSETTLED)", async () => {
+    seeded = await seedDeliveredOrder();
+    const app = buildReturnAdminApp();
+    const rrId = await createRefundReturn(seeded);
+    await driveToRefundPending(app, seeded, rrId);
+
+    const v = await currentReturnVersion(seeded.storeId, rrId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/stores/${seeded.storeId}/returns/${rrId}/transition`,
+      payload: { targetStatus: "CLOSED", expectedVersion: v },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("REFUND_UNSETTLED");
+
+    const st = await loadReturnState(seeded.storeId, rrId);
+    expect(st?.status).toBe("REFUND_PENDING"); // hâlâ pending; intent iptal edilmedi
+    expect(st?.refundIntent?.status).toBe("PENDING");
+    await app.close();
+  });
+
   it("REPLACEMENT_PENDING → COMPLETED admin tarafindan YASAK (R5)", async () => {
     seeded = await seedDeliveredOrder();
     const app = buildReturnAdminApp();

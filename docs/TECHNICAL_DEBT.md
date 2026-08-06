@@ -2138,3 +2138,45 @@ başlıklar bilinçli olarak KAPSAM DIŞI bırakıldı (bu faz temeli kurar; hep
   düşük etkili; ileride timing yanıtından tazelenebilir.
 - **P3 (single-tab pending-work refresh) — 🟡 FUTURE (düşük etki):** Bekleyen-iş sayacı mutation sonrası aynı sekmede
   tazelenir; sekmeler arası anlık senkron (BroadcastChannel) future. P1/P2 semantiği doğru (allowlist + invariant).
+
+## Return Decision Flow Simplification — Faz 1 açık future kalemler (2026-08-06)
+
+Faz 1 (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`, K1–K4) implementasyonu tamamlandı (2396 test yeşil;
+commit/deploy YOK). Aşağıdakiler bilinçli olarak kapsam dışı bırakıldı veya denetimde bulunan küçük borçlar:
+
+- **TD-188 (PROCESSING refund reconcile — TD-FR-5 ile AYNI borç, çoğaltılmadı) — 🟡 FUTURE:** İnceleme→
+  "İadeyi yap" orchestration'ında (`apps/api-gateway/src/returns/routes-admin.ts`
+  `POST /stores/:storeId/returns/:returnId/inspect-decision`) provider async kabul ederse (`PROCESSING`)
+  otomatik reconcile scheduler YOK — yalnız admin `refresh` (status query). MOCK/manuel modda sorun değil;
+  bu zaten TODO-170/ADR-272'nin **TD-FR-5**'i (provider-native refund webhook + scheduled reconciliation)
+  ile aynı borç — ayrı TD numarası açılmadı, Faz 1 bu borcu genişletmedi/kapatmadı.
+- **TD-189 (Review-started event $queryRaw'ı yalnız gerçek-DB integration testiyle doğrulanıyor) — 🟡 FUTURE:**
+  `writeReviewStartedEvent` (`apps/api-gateway/src/returns/review-event.ts:63-71`) idempotency'yi parametreli
+  `$queryRaw` exact-match (`fromStatus::text = toStatus::text`) ile kurar; bu SQL yolu yalnız
+  `test/returns-review-event.integration.test.ts` (gerçek `commerce_os_test` DB, `DATABASE_URL` set) ile
+  kapsanır — CI'da DB yoksa **SKIP** edilir (repo genelinde kabul edilen desen). Raw SQL sözdiziminde bir
+  regresyon, yalnız yerel/manuel DB'li çalıştırmada yakalanır, varsayılan CI'da DEĞİL. Pure/mock-tx birim
+  testi (DB'siz) eklenmedi.
+- **TD-190 (Order-level vs return-level refund-context iki ayrı endpoint, DRY değil ama tutarlı) — 🟢 MINOR:**
+  `GET /stores/:storeId/returns/:returnId/refund-context` (`refunds/routes-admin.ts:225`) ve `GET
+  /stores/:storeId/orders/:orderId/refund-context` (`refunds/routes-admin.ts:235`) AYNI veri otoritesini
+  (`loadOrderMoney`, `refunds/routes-admin.ts:108`) çağırır — tek kaynak, tutarlı. Ancak yanıt objesini
+  kuran alan listesi (`capturedMinor/succeededRefundMinor/activeRefundMinor/pendingMinor/processingMinor/
+  netCollectedMinor/refundableRemainingMinor`) üç ayrı yerde (`buildReturnContext` ~L194, order-level route
+  ~L252, manual-complete route ~L417) elle tekrarlanıyor. Ortak bir `serializeMoneyFigures(money)` helper'ı
+  çıkarılabilir — davranış değişmez, yalnız kopya azalır.
+- **TD-191 (Finance raporunda `refundAmountsSupported` ölü hint dalı) — 🟢 MINOR:**
+  `apps/store-admin-web/app/(app)/finance/reports/page.tsx:361` `hint={data.refundAmountsSupported ?
+  undefined : "İade tutarı altyapısı henüz yok"}` — TODO-170/ADR-272 deploy sonrası `refundAmountsSupported`
+  her zaman `true` döner (bkz. `finance/metrics.ts`), dolayısıyla `false` dalı (uyarı metni) fiilen hiç
+  render edilmiyor. Kod hâlâ doğru/güvenli (flag korunuyor, taklit değer üretilmiyor) ama görünmeyen ölü UI
+  dalı — flag tamamen kaldırılırsa (yalnız TODO-170 kalıcı/geri alınamaz kabul edilirse) sadeleştirilebilir;
+  şimdilik dokunulmadı (flag'in kendisi ADR-268 §5 dürüstlük sözleşmesinin parçası).
+- **TD-192 (RECEIVED/INSPECTION_REQUIRED'ten doğrudan red — backend izin vermiyor, iki adımlı yol gerekli) —
+  🟡 FUTURE:** State-machine (`apps/api-gateway/src/returns/status-map.ts:46-48`) `RECEIVED` ve
+  `INSPECTION_REQUIRED`'den yalnız `INSPECTED`/`INSPECTION_REQUIRED`'e izin verir — `REJECTED` YOK
+  (`REJECTED` yalnız `REQUESTED`/`UNDER_REVIEW`/`INSPECTED`'ten erişilebilir). Ürün teslim alındıktan
+  (`RECEIVED`) sonra admin doğrudan `/reject` çağıramaz — önce inceleme kararını (`INSPECTED`'e geçiş)
+  kaydetmesi, SONRA reddetmesi gerekir (iki adım). Bilinçli değil, bu fazın kapsamı dışında bırakıldı;
+  `RECEIVED → REJECTED` doğrudan geçiş eklenirse (K1'in "Faz 3" kalem-bazlı red modeliyle birlikte
+  değerlendirilmeli) admin akışı bir adım kısalır.

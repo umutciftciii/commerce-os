@@ -4,6 +4,8 @@ import {
   computeRefundableRemainingMinor,
   isWithinRefundable,
   sumActiveRefundMinor,
+  sumPendingRefundMinor,
+  sumProcessingRefundMinor,
   sumSucceededRefundMinor,
   type RefundLedgerRow,
 } from "../src/refunds/cap-calc.js";
@@ -44,6 +46,23 @@ describe("cap-calc (ADR-272 §4 — cap invariant)", () => {
     expect(sumSucceededRefundMinor(ledger, "TRY")).toBe(100);
     expect(sumActiveRefundMinor(ledger, "TRY")).toBe(80);
     expect(computeRefundableRemainingMinor(1000, ledger, "TRY")).toBe(1000 - 180);
+  });
+
+  it("TD-FR-7: sumPendingRefundMinor + sumProcessingRefundMinor AYRI toplanır; toplamları sumActiveRefundMinor'a eşit", () => {
+    const ledger = rows([["SUCCEEDED", 100], ["PENDING", 50], ["PENDING", 20], ["PROCESSING", 30], ["FAILED", 999]]);
+    expect(sumPendingRefundMinor(ledger, "TRY")).toBe(70);
+    expect(sumProcessingRefundMinor(ledger, "TRY")).toBe(30);
+    expect(sumActiveRefundMinor(ledger, "TRY")).toBe(sumPendingRefundMinor(ledger, "TRY") + sumProcessingRefundMinor(ledger, "TRY"));
+  });
+
+  it("TD-FR-7: sumPending/sumProcessing da currency-scoped (FX yok)", () => {
+    const ledger: RefundLedgerRow[] = [
+      { status: "PENDING", totalRefundMinor: 100, currency: "USD" },
+      { status: "PENDING", totalRefundMinor: 40, currency: "TRY" },
+      { status: "PROCESSING", totalRefundMinor: 200, currency: "USD" },
+    ];
+    expect(sumPendingRefundMinor(ledger, "TRY")).toBe(40);
+    expect(sumProcessingRefundMinor(ledger, "TRY")).toBe(0);
   });
 
   it("farklı currency toplanmaz (FX yok)", () => {

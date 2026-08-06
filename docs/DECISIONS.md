@@ -6035,3 +6035,44 @@ Additive migration `20260805100000_todo170_refund_ledger_payment_reversal`. Ger�
 testleri (`refunds-ledger.integration` 16/16) + saf testler (`refunds-pure`) yeşil; `commerce_os_test`'e
 `DATABASE_URL` ile koşar, CI'da SKIP. Detay: `docs/adr/ADR-272-refund-ledger-and-payment-reversal.md` +
 `docs/analysis/REFUND-LEDGER-PAYMENT-REVERSAL.md`.
+
+## Return Decision Flow Simplification — Faz 1 (K1–K4, 2026-08-06) — IMPLEMENTED / NOT SHIPPED
+
+Kanıtlı denetim (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`) "Kapat" tuzağını (refund'suz sessiz
+kapanış: `REFUND_PENDING → CLOSED` guard'sız admin geçişi → RefundIntent CANCELLED, ledger boş,
+`Order.paymentStatus` PAID kalıyordu) yapısal olarak kapattı. **`COMPLETED` terminal olur** — refund
+SUCCEEDED → `COMPLETED` (mevcut); otomatik `COMPLETED → CLOSED` YOK, yeni akışta `CLOSED` ÜRETİLMEZ
+(legacy `CLOSED` kayıtlar okunur kalır); admin manuel "Kapat" aksiyonu kaldırıldı; backend
+`REFUND_PENDING/COMPLETED → CLOSED` admin yolu guard ile kapalı (`REFUND_UNSETTLED`, 409).
+
+**K1 → Faz 3'e bırakıldı.** Faz 1: ReturnItem `approvedQuantity`/`rejectedQuantity` net kayıt + kabul→refund
++ red refund'a girmez + kısmi finansal ayrım; reddedilen adet için bağımsız disposition/ters-kargo YOK.
+İtem-level red disposition + `STORE_RETURN_TO_CUSTOMER` + `returnItemId`/quantity bağı + duplicate guard +
+müşteri tracking + fulfillment/stok bağımsızlığı Faz 3'te birlikte ele alınacak. Faz 1 yeni bir ReturnItem
+state machine ile büyütülmedi.
+
+**K2 → Yalnız history event.** Review başlangıcı ayrı bir durum geçişi/kolon DEĞİL — ilk gerçek admin
+kararında (approve veya reject transaction'ı içinde) idempotent `RETURN_REVIEW_STARTED` append-only
+`ReturnStatusHistory` event'i yazılır (actor ADMIN; yapısal exact-match idempotency
+`fromStatus=toStatus=sourceStatus`, substring/serbest-metin arama DEĞİL; tx-bağlı — rollback olursa event
+de rollback olur). Ayrı `reviewStartedAt` kolonu / ikinci tarih otoritesi oluşturulmadı.
+
+**K3 → StoreSettings (PR2, PLANNED).** Fast refund store-config = `StoreSettings` additive alanlar:
+`fastRefundEnabled` (default false) + `fastRefundMaxAmountMinor` (BigInt, `null` = KAPALI — sınırsız
+yorumlanmaz) + gerekirse `fastRefundCurrency`. Server-side currency eşleşme zorunlu; audit; ayrı
+return-config tablosu kurulmayacak. Bu faz henüz UYGULANMADI.
+
+**K4 → Üç yönlü enum baştan (PR3, PLANNED).** Reverse shipment `Shipment.direction` genel "OUTBOUND"
+belirsiz ismiyle DEĞİL, baştan üç yönlü additive enum ile modellenecek: `OUTBOUND_TO_CUSTOMER` (mevcut
+satırlar migrate) / `CUSTOMER_RETURN_TO_STORE` / `STORE_RETURN_TO_CUSTOMER`. Her direction için ayrı
+davranış (create-guard, duplicate kontrolü, fulfillment projeksiyonu yalnız `OUTBOUND_TO_CUSTOMER`,
+müşteri/ters-gönderi tracking, stok hareketi) baştan direction-aware kurgulanacak. Bu faz henüz
+UYGULANMADI.
+
+Kod tamamlandı, tüm review temiz, **2396 test yeşil**; **commit/push/PR/merge/deploy YOK**, migration YOK
+(K2). **TODO-170 (Refund Ledger) semantiği KORUNUR** — `OrderRefund`/`RefundIntent`/cap invariant/
+`CONSUMED`'a dokunulmadı; inspection→refund orchestration mevcut `initiateRefund`'ı reuse eder; order-level
+`refund-context` (daha önce yazılmış, UI'da hiç tüketilmiyordu) Ücret Özeti'ne bağlandı. Detay:
+`docs/adr/ADR-269-returns-authority-and-lifecycle.md` (§ "Faz 1 Revizyonu") +
+`docs/adr/ADR-272-refund-ledger-and-payment-reversal.md` (§ "Faz 1 Revizyonu") +
+`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.

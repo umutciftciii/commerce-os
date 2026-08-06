@@ -195,6 +195,12 @@ export const trStoreAdmin = {
     AUTOMATIC_ONLY: "Bu ödeme yöntemi otomatik iade kullanır; manuel tamamlama yapılamaz.",
     MANUAL_ONLY: "Bu ödeme yöntemi için iade manuel (banka/EFT) yapılır; otomatik iade desteklenmez.",
     MISSING_MANUAL_DETAILS: "Manuel iade için referans (banka/dekont) ve açıklama zorunludur.",
+    // TD-FR-7 Faz 1 / Task 5 — "İadeyi yap" (inspect-decision): inceleme kararı kaydedildi ama
+    // refund orkestrasyonu başarısız oldu (karar GERİ ALINMAZ; yalnız refund'ın kendisi başarısız).
+    REFUND_INITIATE_FAILED:
+      "İnceleme kararı kaydedildi ancak iade başlatılamadı. İade Defteri panelinden tekrar deneyebilirsiniz.",
+    REFUND_INITIATE_FAILED_WITH_REASON:
+      "İnceleme kararı kaydedildi ancak iade başlatılamadı: {reason} İade Defteri panelinden tekrar deneyebilirsiniz.",
     NOT_FOUND: "Kayıt bulunamadı.",
     NETWORK: "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
     UNKNOWN: "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
@@ -1440,6 +1446,9 @@ export const trStoreAdmin = {
       paymentPayable: "Ödenmesi gereken",
       paymentPaid: "Net ödenen",
       paymentRemaining: "Kalan bakiye",
+      // TD-FR-7 — Yalnız SUCCEEDED OrderRefund toplamı; net tahsilat = captured − succeeded refund.
+      paymentRefunded: "Gerçekleşen iade",
+      paymentNetCollected: "İade sonrası net tahsilat",
       salesSummaryTitle: "Satış özeti",
       salesSummarySubtitle:
         "Sipariş anındaki fiyat/KDV/maliyet snapshot'larından hesaplanır; güncel ürün verisinden etkilenmez.",

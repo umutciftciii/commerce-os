@@ -42,19 +42,17 @@ import {
   returnConditionLabel,
   returnInspectionLabel,
   returnRestockLabel,
-  canReviewReturn,
   canApproveReturn,
   canRejectReturn,
-  canAwaitShipment,
   canReceiveReturn,
   canInspectReturn,
   canRefundPending,
   canReplacementPending,
-  canCloseReturn,
   type Tone,
   type ReturnConditionStatus,
   type ReturnInspectionResult,
   type ReturnRestockDecision,
+  type ReturnResolutionType,
 } from "../../order-shared";
 
 // TODO-170 (ADR-272) — ledger-otoriteli refund özeti durumu → tone/glyph/etiket. Durum RENK-TEK-BAŞINA
@@ -120,6 +118,13 @@ export default function ReturnDetailPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // TD-FR-7 Faz 1 ship-polish #1 — RefundPanel (gömülü, kendi getRefundContext state'ine
+  // sahip) inspect-decision/reject sonrası kendiliğinden tazelenmez (sayfa elle yenilenene
+  // kadar eski görünür). Bu sayaç yalnız ilgili mutation SONUÇLANINCA (başarı VEYA hata —
+  // hata durumunda bile backend state'i değişmiş olabilir, örn. REFUND_PENDING'e geçmiş ama
+  // refund başlatılamamış) bir artar; RefundPanel bunu prop olarak alıp kendi
+  // useEffect deps'ine ekler → tek seferlik yeniden fetch, sonsuz döngü YOK.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -136,8 +141,16 @@ export default function ReturnDetailPage() {
   }, [load]);
 
   // Aksiyon sonucu güncel detay döner → doğrudan state'e yansıt (ekstra fetch yok).
+  // `refreshRefundPanel` — yalnız inspect-decision/reject gibi refund-context'i etkileyebilecek
+  // mutasyonlar için true geçilir; RefundPanel'in KENDİ ayrı getRefundContext state'ini
+  // tazelemesi için refreshKey'i BİR artırır (başarı VE hata dalında — hata dalında da backend
+  // state'i değişmiş olabilir).
   const runAction = useCallback(
-    async (fn: () => Promise<{ return: AdminReturnDetail }>, successMsg: string) => {
+    async (
+      fn: () => Promise<{ return: AdminReturnDetail }>,
+      successMsg: string,
+      opts?: { refreshRefundPanel?: boolean },
+    ) => {
       setActionError(null);
       setBusy(true);
       try {
@@ -145,6 +158,7 @@ export default function ReturnDetailPage() {
         setState({ status: "ready", ret: result.return });
         setNotice(successMsg);
         setDialog(null);
+        if (opts?.refreshRefundPanel) setRefreshKey((k) => k + 1);
       } catch (error) {
         // R3 — optimistic conflict: kayıt bu sırada değişti. Güncel detayı yeniden yükle
         // (taze version) ve kullanıcıya dostça mesaj göster; ham teknik kod gösterme.
@@ -153,6 +167,7 @@ export default function ReturnDetailPage() {
           setDialog(null);
         }
         setActionError(messageForError(error, locale));
+        if (opts?.refreshRefundPanel) setRefreshKey((k) => k + 1);
       } finally {
         setBusy(false);
       }
@@ -176,20 +191,6 @@ export default function ReturnDetailPage() {
 
   const actions = (
     <>
-      {canReviewReturn(s) ? (
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={() =>
-            void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "UNDER_REVIEW", expectedVersion: ret.version }),
-              doneMsg,
-            )
-          }
-        >
-          {isTr ? "İncelemeye al" : "Start review"}
-        </Button>
-      ) : null}
       {canApproveReturn(s) ? (
         <>
           <Button
@@ -203,20 +204,6 @@ export default function ReturnDetailPage() {
             {isTr ? "Kısmi onayla" : "Partial approve"}
           </Button>
         </>
-      ) : null}
-      {canAwaitShipment(s) ? (
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={() =>
-            void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "AWAITING_SHIPMENT", expectedVersion: ret.version }),
-              doneMsg,
-            )
-          }
-        >
-          {isTr ? "Gönderim bekleniyor" : "Await shipment"}
-        </Button>
       ) : null}
       {canReceiveReturn(s) ? (
         <Button
@@ -259,21 +246,6 @@ export default function ReturnDetailPage() {
       {canRejectReturn(s) ? (
         <Button size="sm" variant="danger" disabled={busy} onClick={() => setDialog("reject")}>
           {isTr ? "Reddet" : "Reject"}
-        </Button>
-      ) : null}
-      {canCloseReturn(s) ? (
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={busy}
-          onClick={() =>
-            void runAction(
-              () => storeApi.transitionReturn(ret.id, { targetStatus: "CLOSED", expectedVersion: ret.version }),
-              doneMsg,
-            )
-          }
-        >
-          {isTr ? "Kapat" : "Close"}
         </Button>
       ) : null}
     </>
@@ -354,13 +326,17 @@ export default function ReturnDetailPage() {
             </SurfaceCard>
 
             {/* TODO-170 (ADR-270) — Para iadesi orijinal ödemeye ise iade defteri paneli.
-                Aksiyon sonrası load() ile üst detay (ret.version/durum) tazelenir. */}
+                Aksiyon sonrası load() ile üst detay (ret.version/durum) tazelenir.
+                TD-FR-7 ship-polish #1 — refreshKey inspect-decision/reject sonrası panelin
+                KENDİ getRefundContext state'ini de tazeler (aksi halde elle yenileyene kadar
+                eski "henüz para iadesi kaydı yok" görünümü kalırdı). */}
             {ret.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" ? (
               <RefundPanel
                 returnId={ret.id}
                 returnVersion={ret.version}
                 locale={locale}
                 onChanged={load}
+                refreshKey={refreshKey}
               />
             ) : null}
           </>
@@ -535,15 +511,70 @@ export default function ReturnDetailPage() {
       ) : null}
 
       {dialog === "inspect" ? (
+        // TD-FR-7 Faz 1 / Task 5 — inceleme = karar merkezi. Kabul: TEK aksiyonda
+        // inspect-decision (inceleme kararı + kabul varsa refund otomatik başlar). Red:
+        // backend state-machine'i RECEIVED/INSPECTION_REQUIRED → REJECTED'i doğrudan izin
+        // vermez (yalnız INSPECTED → REJECTED izinli) — bu yüzden önce inspectReturn (→
+        // INSPECTED) sonra rejectReturn (→ REJECTED) sıralı çağrılır (backend'e DOKUNULMADI;
+        // mevcut iki route reuse edilir). İlk adım commit olduktan sonra ikinci adım HANGİ
+        // SEBEPLE olursa olsun (ağ/5xx/version) başarısız olursa dialog AÇIK BIRAKILMAZ (Fix
+        // round 1, Important #1 — açık kalırsa içindeki butonlar INSPECTED→INSPECTED
+        // NO_CHANGE 409 ile kırılırdı); kapat + tazele ki üst aksiyon çubuğu (artık INSPECTED
+        // için geçerli Reddet/İade sürecine al) devam yolunu sunabilsin.
         <InspectDialog
           busy={busy}
           locale={locale}
           items={ret.items}
+          resolutionType={ret.resolutionType}
           onClose={() => setDialog(null)}
-          onSubmit={(items, adminNote) =>
+          onAccept={(items, adminNote) =>
             void runAction(
-              () => storeApi.inspectReturn(ret.id, { items, expectedVersion: ret.version, ...(adminNote ? { adminNote } : {}) }),
+              () =>
+                storeApi.inspectDecisionReturn(ret.id, {
+                  items,
+                  expectedVersion: ret.version,
+                  ...(adminNote ? { adminNote } : {}),
+                }),
               doneMsg,
+              // TD-FR-7 ship-polish #1 — bu çağrı REFUND_TO_ORIGINAL_PAYMENT çözümünde para
+              // iadesini backend'de otomatik başlatır; RefundPanel'in kendi context'i taze
+              // olmalı. Hata dalında da bump edilir (backend REFUND_PENDING'e geçmiş ama
+              // refund init başarısız olmuş olabilir — panel güncel gerçeği göstermeli).
+              { refreshRefundPanel: true },
+            )
+          }
+          onReject={(items, rejectionReason, adminNote) =>
+            void runAction(
+              async () => {
+                // Fix round 1 (Important #2) — reddedilen bir iade satılabilir stoğa GİREMEZ (ürün
+                // müşteride kalır / fiziksel iade Faz 3 ters-kargoya kadar gerçekleşmez). Dialog'daki
+                // restock seçimi yalnız KABUL yolu için anlamlıdır; reddet çağrısında her kalemin
+                // restockDecision'ını DO_NOT_RESTOCK'a zorluyoruz ki applyInspectionDecisions sessizce
+                // stok artırmasın (phantom envanter / oversatış riski).
+                const rejectItems = items.map((i) => ({ ...i, restockDecision: "DO_NOT_RESTOCK" as const }));
+                const inspected = await storeApi.inspectReturn(ret.id, {
+                  items: rejectItems,
+                  expectedVersion: ret.version,
+                  ...(adminNote ? { adminNote } : {}),
+                });
+                try {
+                  return await storeApi.rejectReturn(ret.id, {
+                    rejectionReason,
+                    expectedVersion: inspected.return.version,
+                  });
+                } catch (error) {
+                  // İnceleme adımı ZATEN commit edildi (INSPECTED) — reject adımı ne sebeple
+                  // başarısız olursa olsun dialogu kapatıp taze detayı yüklüyoruz (VERSION_CONFLICT
+                  // için runAction'ın kendi davranışını TÜM hata kodlarına genelliyoruz).
+                  setDialog(null);
+                  await load();
+                  throw error;
+                }
+              },
+              isTr ? "İade reddedildi." : "Return rejected.",
+              // TD-FR-7 ship-polish #1 — reddetme öncesi inceleme kararı zaten commit
+              // edilmiş olabilir; RefundPanel'in context'i (varsa) tazelenmeli.
+              { refreshRefundPanel: true },
             )
           }
         />
@@ -830,28 +861,44 @@ function PartialApproveDialog({
   );
 }
 
+type InspectItemDecision = {
+  returnItemId: string;
+  conditionStatus: ReturnConditionStatus;
+  inspectionResult: ReturnInspectionResult;
+  restockDecision: ReturnRestockDecision;
+};
+
+/**
+ * TD-FR-7 Faz 1 / Task 5 — inceleme = karar merkezi. Kalem başına fiziksel durum/sonuç/stok
+ * kararı hâlâ burada girilir (Faz 1'de approvedQuantity'ye DOKUNMAZ, o approve aşamasında
+ * sabitlenmiştir). Ama sonuç artık "kaydet" değil — admin ya kabul edip (İadeyi yap → refund
+ * otomatik başlar) ya da gerekçeli reddeder (Reddet). İki karar da açıkça ayrı CTA'lar: birincil
+ * = gerçek karar (İadeyi yap), yıkıcı = açık confirmation (Reddet, ret nedeni zorunlu).
+ */
 function InspectDialog({
   busy,
   locale,
   items,
+  resolutionType,
   onClose,
-  onSubmit,
+  onAccept,
+  onReject,
 }: {
   busy: boolean;
   locale: string;
   items: AdminReturnItem[];
+  resolutionType: ReturnResolutionType;
   onClose: () => void;
-  onSubmit: (
-    items: {
-      returnItemId: string;
-      conditionStatus: ReturnConditionStatus;
-      inspectionResult: ReturnInspectionResult;
-      restockDecision: ReturnRestockDecision;
-    }[],
-    adminNote?: string,
-  ) => void;
+  onAccept: (items: InspectItemDecision[], adminNote?: string) => void;
+  onReject: (items: InspectItemDecision[], rejectionReason: string, adminNote?: string) => void;
 }) {
   const isTr = locale === "tr";
+  // Fix round 1 (Important #2) — accept'in "İadeyi yap" birincil aksiyonu YALNIZ
+  // REFUND_TO_ORIGINAL_PAYMENT çözümünde para iadesini otomatik başlatır (backend
+  // advanceInspectedToRefundPending resolutionType kontrolü yapar). REPLACEMENT çözümünde
+  // aynı çağrı yalnız inceleme kararını kaydeder (INSPECTED'de kalır) — admin ayrıca üstteki
+  // "Değişim sürecine al" butonuna tıklamalıdır. Copy bunu YANLIŞ VAAT ETMEDEN yansıtır.
+  const isRefundResolution = resolutionType === "REFUND_TO_ORIGINAL_PAYMENT";
   const [rows, setRows] = useState<
     Record<string, { condition: ReturnConditionStatus; inspection: ReturnInspectionResult; restock: ReturnRestockDecision }>
   >(() =>
@@ -867,15 +914,30 @@ function InspectDialog({
     ),
   );
   const [note, setNote] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
+  const canReject = rejectionReason.trim().length > 0;
+
+  const itemDecisions = (): InspectItemDecision[] =>
+    items.map((i) => ({
+      returnItemId: i.id,
+      conditionStatus: rows[i.id].condition,
+      inspectionResult: rows[i.id].inspection,
+      restockDecision: rows[i.id].restock,
+    }));
+
   return (
     <Modal
       open
       onClose={onClose}
       title={isTr ? "İnceleme sonucu" : "Inspection result"}
       description={
-        isTr
-          ? "Kalem başına durum, sonuç ve stok kararı. Yalnız 'Satılabilir stoğa al' stok artırır."
-          : "Per-item condition, result and restock decision. Only 'Restock as sellable' increments stock."
+        isRefundResolution
+          ? isTr
+            ? "Kalem başına durum, sonuç ve stok kararı. Yalnız 'Satılabilir stoğa al' stok artırır. Ardından iadeyi kabul edip para iadesini başlatın veya gerekçeli şekilde reddedin."
+            : "Per-item condition, result and restock decision. Only 'Restock as sellable' increments stock. Then either accept the return to start the refund, or reject it with a reason."
+          : isTr
+            ? "Kalem başına durum, sonuç ve stok kararı. Yalnız 'Satılabilir stoğa al' stok artırır. Bu, para iadesi başlatmaz — kaydettikten sonra değişimi başlatmak için üstteki 'Değişim sürecine al' butonunu kullanın; ya da gerekçeli şekilde reddedin."
+            : "Per-item condition, result and restock decision. Only 'Restock as sellable' increments stock. This does not start a refund — after saving, use 'Move to replacement' above to proceed, or reject it with a reason."
       }
       closeLabel={isTr ? "Vazgeç" : "Cancel"}
       footer={
@@ -884,20 +946,28 @@ function InspectDialog({
             {isTr ? "Vazgeç" : "Cancel"}
           </Button>
           <Button
-            disabled={busy}
-            onClick={() =>
-              onSubmit(
-                items.map((i) => ({
-                  returnItemId: i.id,
-                  conditionStatus: rows[i.id].condition,
-                  inspectionResult: rows[i.id].inspection,
-                  restockDecision: rows[i.id].restock,
-                })),
-                note.trim() || undefined,
-              )
-            }
+            variant="danger"
+            disabled={busy || !canReject}
+            onClick={() => onReject(itemDecisions(), rejectionReason.trim(), note.trim() || undefined)}
           >
-            {busy ? (isTr ? "Kaydediliyor…" : "Saving…") : isTr ? "Kaydet" : "Save"}
+            {busy ? (isTr ? "Reddediliyor…" : "Rejecting…") : isTr ? "Reddet" : "Reject"}
+          </Button>
+          <Button disabled={busy} onClick={() => onAccept(itemDecisions(), note.trim() || undefined)}>
+            {isRefundResolution
+              ? busy
+                ? isTr
+                  ? "İşleniyor…"
+                  : "Processing…"
+                : isTr
+                  ? "İadeyi yap"
+                  : "Complete return"
+              : busy
+                ? isTr
+                  ? "Kaydediliyor…"
+                  : "Saving…"
+                : isTr
+                  ? "İncelemeyi kaydet"
+                  : "Save inspection"}
           </Button>
         </>
       }
@@ -944,6 +1014,18 @@ function InspectDialog({
           maxLength={1000}
           value={note}
           onChange={(e) => setNote(e.target.value)}
+        />
+        <Textarea
+          id="inspect-reject-reason"
+          label={
+            isTr
+              ? "Ret nedeni (yalnız 'Reddet' için zorunlu, müşteriye görünür)"
+              : "Rejection reason (required only to Reject, visible to the customer)"
+          }
+          rows={2}
+          maxLength={1000}
+          value={rejectionReason}
+          onChange={(e) => setRejectionReason(e.target.value)}
         />
       </div>
     </Modal>

@@ -215,24 +215,38 @@ export const returnRestockLabel = (value: ReturnRestockDecision, locale: string)
  * İade durumundan hangi ADMIN aksiyonlarının geçerli olduğunu türeten SAF yardımcılar.
  * Gateway state-machine'i (returns/status-map.ts) nihai otoritedir ve illegal geçişi
  * fail-closed (409/403) reddeder; bunlar YALNIZ uygun butonu göstermek içindir.
- *   REQUESTED/UNDER_REVIEW → incelemeye al (yalnız REQUESTED) / onayla / kısmi onayla / reddet
- *   APPROVED/PARTIALLY_APPROVED → gönderim bekleniyor (AWAITING_SHIPMENT)
+ *
+ * TD-FR-7 Faz 1 / Task 5 — akış sadeleştirme: aradaki "yalnız ilerlet" aksiyonları
+ * (incelemeye al / gönderim bekleniyor / kapat) kaldırıldı; UI SADECE gerçek admin
+ * KARARLARINI gösterir, backend'in zaten otomatik yaptığı geçişleri değil.
+ *   REQUESTED/UNDER_REVIEW → onayla / kısmi onayla / reddet (incelemeye almak için ayrı
+ *     bir aksiyon YOK — REQUESTED'te doğrudan karar verilir)
+ *   APPROVED/PARTIALLY_APPROVED → (AWAITING_SHIPMENT'a geçiş approve onCommit'inde otomatik;
+ *     admin aksiyonu YOK)
  *   RETURN_SHIPPED → teslim alındı (RECEIVED)
- *   RECEIVED/INSPECTION_REQUIRED → inceleme sonucu gir (INSPECTED)
- *   INSPECTED → refund pending / replacement pending / reddet
- *   REFUND_PENDING/REPLACEMENT_PENDING → kapat (CLOSED)
+ *   RECEIVED/INSPECTION_REQUIRED → inceleme = karar merkezi: kabul → "İadeyi yap" (REPLACEMENT
+ *     çözümünde etiket "İncelemeyi kaydet") / red → "Reddet" (INSPECTED ara adımından REJECTED;
+ *     mevcut reject akışı reuse edilir). inspect-decision endpoint'i YALNIZ
+ *     REFUND_TO_ORIGINAL_PAYMENT çözümünde kabul edilen adet varsa refund'ı AYNI aksiyonda
+ *     otomatik başlatır (backend `advanceInspectedToRefundPending` resolutionType kontrolü
+ *     yapar); REPLACEMENT çözümünde aynı çağrı yalnız inceleme kararını kaydeder.
+ *   INSPECTED → refund pending / replacement pending / reddet (fallback butonlar):
+ *     - REPLACEMENT çözümünde bu NORMAL/TEK yoldur — "İncelemeyi kaydet" INSPECTED'de bırakır,
+ *       admin buradan "Değişim sürecine al" ile devam eder (inspect-decision REPLACEMENT'ı
+ *       otomatik ilerletmez).
+ *     - REFUND_TO_ORIGINAL_PAYMENT çözümünde normal akış artık inspect-decision ile tek adımda
+ *       REFUND_PENDING'e ilerler; bu fallback yalnız ara-adım hatası (reject'in ikinci adımı
+ *       başarısız olup INSPECTED'de kalması) veya eski kayıt senaryosu için.
+ *   REFUND_PENDING/REPLACEMENT_PENDING/COMPLETED → (Kapat YOK — "no silent close"; ADR-272
+ *     ile backend zaten 409 REFUND_UNSETTLED döner. Kapanış yalnız COMPLETED üzerinden, para
+ *     iadesi otoritesi refund-panel'dedir.)
  * (Müşteri iptali ve süre-doldu admin'e KAPALI; bu yüzden buton yok.)
  */
-export const canReviewReturn = (s: ReturnStatus) => s === "REQUESTED";
 export const canApproveReturn = (s: ReturnStatus) => s === "REQUESTED" || s === "UNDER_REVIEW";
 export const canRejectReturn = (s: ReturnStatus) =>
   s === "REQUESTED" || s === "UNDER_REVIEW" || s === "INSPECTED";
-export const canAwaitShipment = (s: ReturnStatus) =>
-  s === "APPROVED" || s === "PARTIALLY_APPROVED";
 export const canReceiveReturn = (s: ReturnStatus) => s === "RETURN_SHIPPED";
 export const canInspectReturn = (s: ReturnStatus) =>
   s === "RECEIVED" || s === "INSPECTION_REQUIRED";
 export const canRefundPending = (s: ReturnStatus) => s === "INSPECTED";
 export const canReplacementPending = (s: ReturnStatus) => s === "INSPECTED";
-export const canCloseReturn = (s: ReturnStatus) =>
-  s === "REFUND_PENDING" || s === "REPLACEMENT_PENDING" || s === "COMPLETED";

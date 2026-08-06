@@ -100,3 +100,32 @@ universe) never get a refund subtraction. `gross − successful refunds = net` r
   `OrderRefund` covering the intent total; `PROCESSED` never written (kept as legacy enum value only).
 - **Follow-ups (TECHNICAL_DEBT):** provider-native refund webhook signatures + scheduled reconciliation;
   live online-provider refund transport (EX-1); chargeback/dispute; Gift Card / Store Credit refund target.
+
+## Faz 1 Revizyonu — Return Decision Flow Simplification (2026-08-06) — status: IMPLEMENTED / NOT SHIPPED
+
+**TODO-170 semantiği korunur** — bu revizyon `OrderRefund`/`RefundIntent`/cap invariant/`CONSUMED` mantığına
+DOKUNMAZ (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`, K1–K4). Faz 1 iki noktada bu ADR'nin üzerine
+kod ekler; kod tamamlandı, tüm review temiz, 2396 test yeşil — commit/push/PR/merge/deploy YOK, migration
+YOK:
+
+1. **Inspection → refund orchestration, mevcut `initiateRefund`'ı reuse eder.** İnceleme'de kabul edilen
+   quantity (`approvedQuantity`) için admin'e TEK "İadeyi yap" aksiyonu görünür
+   (`POST /stores/:storeId/returns/:returnId/inspect-decision`,
+   `apps/api-gateway/src/returns/routes-admin.ts`); arkada aynı iki-aşamalı akış çalışır — decision tx
+   (advisory lock + cap invariant + `OrderRefund` PENDING + `RefundIntent` CONSUMED) commit olur,
+   provider/manual execution tx **dışında** başlar (Decision §5/§7 AYNEN, `refunds/service.ts`). Yeni bir
+   refund orchestration YAZILMADI; `initiateRefund` başarısız dönerse (`EXCEEDS_REFUNDABLE`/
+   `CURRENCY_MISMATCH`/`VERSION_CONFLICT`/`REFUND_ALREADY_ACTIVE` vb.) inceleme kararı ZATEN commit
+   edilmiştir (geri alınmaz, manuel/retry mümkün kalır) ama admin'e sessiz-başarı DÖNÜLMEZ — aynı
+   `HTTP_BY_CODE` eşlemesi (`refunds/routes-admin.ts`) reuse edilerek açık 4xx döner.
+2. **Order-level refund-context tek otorite haline getirildi.** `GET
+   /stores/:storeId/orders/:orderId/refund-context` (`loadOrderMoney`, `refunds/routes-admin.ts:108`) daha
+   önce yazılmış ama UI'da hiç tüketilmiyordu; Faz 1 bunu admin sipariş detayı Ücret Özeti'ne bağladı
+   ("Gerçekleşen iade (−)" + "İade sonrası net tahsilat", yalnız `succeededRefundMinor > 0` iken). Saf
+   yardımcı `computeNetCollectedMinor(captured, succeeded) = max(0, captured − succeeded)` eklendi
+   (`payments/payment-state.ts`) ve `loadOrderMoney`'e PENDING/PROCESSING ayrı figürlerle (`pendingMinor`/
+   `processingMinor`) birlikte gömüldü. §9 (Finance yalnız SUCCEEDED) ve §8 (paymentStatus projeksiyon)
+   davranışı DEĞİŞMEDİ — yalnız aynı verinin ikinci bir yüzeyde (order-level, return-bağımsız) görünür
+   kılınması.
+
+Detay: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.

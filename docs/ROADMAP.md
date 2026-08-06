@@ -1477,3 +1477,33 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   idempotency+callback/success/failure/timeout+reconcile/retry/manual/stale/currency/cross-store/finance) + `refunds-pure`
   + finance/projection güncellemeleri. Kapsam dışı (future): provider-native refund webhook + scheduled reconciliation
   (TD-FR-5), chargeback/dispute, Gift Card/Store Credit refund (TD-FR-6), gerçek online provider canlı transport (EX-1).
+
+## Return Decision Flow Simplification — Faz 1 (TODO-171) — IMPLEMENTED / NOT SHIPPED (2026-08-06)
+
+- Amaç: TODO-170 sonrası kanıtlı denetim (`docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`, K1–K4 kararlandı
+  2026-08-06) "Kapat" tuzağını yapısal olarak yok etti, inceleme'yi kalem/adet karar merkezine dönüştürdü,
+  `COMPLETED`'ı terminal yaptı ve gerçekleşen refund'ı sipariş Ücret Özeti'nde görünür kıldı.
+- Kapsam (PR1): `REFUND_PENDING/COMPLETED → CLOSED` admin geçişi state-machine guard'ıyla kapatıldı
+  (`REFUND_UNSETTLED`, 409); `REPLACEMENT_PENDING → CLOSED` admin arşivleme serbest kaldı (dead-end
+  önlenir). "İncelemeye al" + "Gönderim bekleniyor" + "Kapat" butonları store-admin UI'dan kaldırıldı;
+  approve→`AWAITING_SHIPMENT` otomasyonu (mevcut, ADR-270) korundu. İlk admin kararında idempotent
+  `RETURN_REVIEW_STARTED` history event yazılır (kolon YOK, K2). İnceleme kalem/adet kabul → mevcut
+  iki-aşamalı `initiateRefund`'ı reuse eden tek "İadeyi yap" aksiyonu (`POST
+  /returns/:id/inspect-decision`); red → zorunlu gerekçe → `REJECTED` + `DO_NOT_RESTOCK` (reddedilen
+  quantity refund'a girmez, phantom envanter önlenir). Atıl order-level `refund-context` uç noktası
+  Ücret Özeti'ne bağlandı ("Gerçekleşen iade (−)" + "İade sonrası net tahsilat"); 3 stale copy düzeltildi
+  (admin sipariş detayı, storefront sipariş detayı, finans raporu).
+- Durum: **IMPLEMENTED / NOT SHIPPED** — kod tamamlandı, tüm review temiz, 2396 test yeşil; commit/push/
+  PR/merge/deploy YOK. Migration YOK. **TODO-170 (Refund Ledger) semantiği KORUNUR** — `OrderRefund`/
+  `RefundIntent`/cap invariant'a dokunulmadı. Karar: ADR-269 (§ "Faz 1 Revizyonu") + ADR-272 (§ "Faz 1
+  Revizyonu") güncellendi. Analiz: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` +
+  `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
+- **PR2 — Fast Refund Controls: PLANNED.** Yeni granular permission `RETURN_FAST_REFUND` (varsayılan
+  yalnız SUPER_ADMIN); `StoreSettings` additive `fastRefundEnabled`/`fastRefundMaxAmountMinor` (+ gerekirse
+  `fastRefundCurrency`, K3; limit `null` = kapalı, sınırsız değil); teslim alma/inceleme adımlarını
+  atlayarak doğrudan refund; zorunlu gerekçe + audit. Migration additive; ayrı return-config tablosu yok.
+- **PR3 — Reverse Shipment: PLANNED.** `Shipment.direction` üç yönlü additive enum baştan (K4:
+  `OUTBOUND_TO_CUSTOMER`/`CUSTOMER_RETURN_TO_STORE`/`STORE_RETURN_TO_CUSTOMER`; genel "OUTBOUND"
+  kullanılmaz); reddedilen ürünün müşteriye geri gönderimi için `STORE_RETURN_TO_CUSTOMER` disposition +
+  direction-aware create-guard/duplicate/projeksiyon/stok. Migration additive (nullable/default → geri
+  uyumlu); `ReturnRestockDecision`'a `STORE_RETURN_TO_CUSTOMER` ayrı migration adımıyla eklenir.

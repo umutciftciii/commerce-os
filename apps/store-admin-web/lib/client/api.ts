@@ -380,6 +380,10 @@ export interface UiErrorDetails {
   expectedCurrency?: string;
   foundCurrencies?: string[];
   mismatchedOrderCount?: number;
+  // TD-FR-7 Faz 1 / Task 5 — inspect-decision refund orkestrasyonu başarısız olduğunda
+  // gateway'in `REFUND_INITIATE_FAILED` zarfına gömdüğü ALTINDAKİ refund hata kodu
+  // (ör. EXCEEDS_REFUNDABLE, CURRENCY_MISMATCH) — messages.ts bunu okunabilir sebebe çevirir.
+  refundErrorCode?: string;
 }
 
 export class UiError extends Error {
@@ -555,6 +559,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
                   expectedCurrency?: unknown;
                   foundCurrencies?: unknown;
                   mismatchedOrderCount?: unknown;
+                  refundErrorCode?: unknown;
                 };
               };
             }).error
@@ -584,6 +589,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       const mismatchedOrderCount = errorObj?.details?.mismatchedOrderCount;
       if (typeof mismatchedOrderCount === "number") {
         details = { ...details, mismatchedOrderCount };
+      }
+      // TD-FR-7 Faz 1 / Task 5 — inspect-decision refund orkestrasyon hatasının altındaki kod.
+      const refundErrorCode = errorObj?.details?.refundErrorCode;
+      if (typeof refundErrorCode === "string") {
+        details = { ...details, refundErrorCode };
       }
     } catch {
       // Govde JSON degil — genel UNKNOWN kodu kullanilir.
@@ -1004,6 +1014,13 @@ export const storeApi = {
     }).then(refreshPendingWork),
   inspectReturn: (returnId: string, input: AdminReturnInspectRequest) =>
     mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/inspect`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then(refreshPendingWork),
+  // TD-FR-7 Faz 1 / Task 5 — "İadeyi yap": inceleme kararı + (kabul varsa) refund başlatma
+  // TEK aksiyonda (karar merkezi). Aynı istek şekli inspectReturn ile paylaşılır.
+  inspectDecisionReturn: (returnId: string, input: AdminReturnInspectRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/inspect-decision`, {
       method: "POST",
       body: JSON.stringify(input),
     }).then(refreshPendingWork),

@@ -27,6 +27,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
           summary: { hasPendingFinancialImpact: false, approvedRefundIntentMinor: 0 },
           returns: [],
         }),
+      // TD-FR-7 (Faz 1) — sipariş detayı order-level refund-context (fail-open); varsayılan: gerçekleşen iade yok.
+      getOrderRefundContext: vi.fn().mockResolvedValue({ context: null }),
     },
   };
 });

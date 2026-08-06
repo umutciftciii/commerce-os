@@ -12047,6 +12047,12 @@ export const adminRefundContextSchema = z.object({
   capturedMinor: z.number().int().nonnegative(),
   succeededRefundMinor: z.number().int().nonnegative(),
   activeRefundMinor: z.number().int().nonnegative(),
+  // TD-FR-7 (ADR-272 ek) — PENDING ve PROCESSING AYRI figürler (activeRefundMinor = pendingMinor + processingMinor,
+  // geriye uyumlu korunur). Yalnız SUCCEEDED netten düşer; PENDING/PROCESSING düşmez.
+  pendingMinor: z.number().int().nonnegative(),
+  processingMinor: z.number().int().nonnegative(),
+  // TD-FR-7 — server-side TEK otorite net tahsilat (payment-state.computeNetCollectedMinor: captured − succeeded).
+  netCollectedMinor: z.number().int().nonnegative(),
   refundableRemainingMinor: z.number().int().nonnegative(),
   // ORTAK ledger-otoriteli durum (bu iade talebi için); rail/panel AYNI otoriteyi kullanır.
   summaryStatus: refundSummaryStatusSchema,

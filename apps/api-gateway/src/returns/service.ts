@@ -7,7 +7,15 @@
  * otoriteden (status-map) geçer; para hesabı saf refund-calc'tan gelir.
  */
 import { prisma } from "@commerce-os/db";
-import type { Prisma, PrismaClient, ReturnStatus, ReturnActorType } from "@prisma/client";
+import type {
+  Prisma,
+  PrismaClient,
+  ReturnStatus,
+  ReturnActorType,
+  ReturnItemConditionStatus,
+  ReturnInspectionResult,
+  ReturnRestockDecision,
+} from "@prisma/client";
 import type {
   ReturnReasonValue,
   ReturnResolutionTypeValue,
@@ -353,7 +361,8 @@ export type TransitionError =
   | { ok: false; code: "ACTOR_NOT_ALLOWED" }
   | { ok: false; code: "NO_CHANGE" }
   | { ok: false; code: "VERSION_CONFLICT" }
-  | { ok: false; code: "COMPLETION_NOT_ALLOWED" };
+  | { ok: false; code: "COMPLETION_NOT_ALLOWED" }
+  | { ok: false; code: "REFUND_UNSETTLED" };
 
 /**
  * R5 (ADR-269 hardening) — COMPLETED (gerçek/doğrulanmış sonuç) yalnız finansal/fulfillment sonucu
@@ -388,7 +397,7 @@ async function isCompletionAllowed(
 
 export type TransitionResult = { ok: true; status: ReturnStatus } | TransitionError;
 
-interface TransitionActor {
+export interface TransitionActor {
   type: ReturnActorType;
   id: string | null;
 }
@@ -542,6 +551,106 @@ export async function applyRestockForItem(
     },
   });
   await tx.returnItem.update({ where: { id: item.id }, data: { restockedAt: new Date(), restockBatchId: batchId } });
+}
+
+// ── İnceleme kararı uygulama (condition/sonuç/stok kararı; approvedQuantity'ye DOKUNMAZ) ──────────
+
+export interface InspectionItemDecision {
+  returnItemId: string;
+  conditionStatus: ReturnItemConditionStatus;
+  inspectionResult: ReturnInspectionResult;
+  restockDecision: ReturnRestockDecision;
+}
+
+/**
+ * TD-FR-7 Faz 1 / Task 4 — İnceleme kararlarını (kalem başına fiziksel durum/sonuç/stok kararı)
+ * uygular. approvedQuantity/rejectedQuantity'ye DOKUNMAZ (bunlar approve aşamasında zaten
+ * sabitlenmiştir — Faz 1'de inceleme, onay aşamasında belirlenen kabul/red adedini DEĞİŞTİRMEZ,
+ * yalnız fiziksel durumu + stok kararını kaydeder). Yalnız RESTOCK_AS_SELLABLE kararı sonrası
+ * idempotent restock. `/inspect` (yalnız kayıt) ve `/inspect-decision` (kayıt + refund orchestration)
+ * route'ları bu TEK yerden reuse eder.
+ */
+export async function applyInspectionDecisions(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  actorUserId: string | null,
+  decisions: InspectionItemDecision[],
+): Promise<void> {
+  for (const decision of decisions) {
+    await tx.returnItem.update({
+      where: { id: decision.returnItemId },
+      data: {
+        conditionStatus: decision.conditionStatus,
+        inspectionResult: decision.inspectionResult,
+        restockDecision: decision.restockDecision,
+      },
+    });
+  }
+  for (const decision of decisions) {
+    if (decision.restockDecision === "RESTOCK_AS_SELLABLE") {
+      await applyRestockForItem(tx, storeId, decision.returnItemId, actorUserId);
+    }
+  }
+}
+
+// ── Inspection → refund orchestration (tek aksiyon; TD-FR-7 Faz 1 / Task 4) ───────────────────────
+
+export interface AdvanceToRefundPendingResult {
+  advanced: boolean;
+  refundIntentId?: string;
+  expectedReturnVersion?: number;
+}
+
+/**
+ * INSPECTED durumundaki talebi, kabul edilen (Σ approvedQuantity > 0) adet varsa AYNI tx'te
+ * REFUND_PENDING'e ilerletir + refund intent'i tazeler (approvedQuantity ile — upsertRefundIntentForReturn
+ * `approvedQuantity ?? quantity` kullandığından reddedilen adet refund'a GİRMEZ). Kabul yoksa (tüm
+ * kalemler approvedQuantity=0) veya çözüm REFUND_TO_ORIGINAL_PAYMENT değilse no-op (`advanced:false`)
+ * — orkestrasyon yalnız gerçek bir kabul varsa refund'a bağlanır; tam-red akışı mevcut /reject
+ * route'undadır (bu fonksiyon çağrılmaz). Version yarışını kaybederse (count===0) güvenli no-op;
+ * çağıran taraf `advanced:false` görüp refund BAŞLATMAZ.
+ */
+export async function advanceInspectedToRefundPending(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  returnRequestId: string,
+  actor: TransitionActor,
+): Promise<AdvanceToRefundPendingResult> {
+  const rr = await tx.returnRequest.findFirst({
+    where: { id: returnRequestId, storeId },
+    select: {
+      status: true,
+      version: true,
+      resolutionType: true,
+      items: { select: { approvedQuantity: true, quantity: true } },
+    },
+  });
+  if (!rr || rr.resolutionType !== "REFUND_TO_ORIGINAL_PAYMENT") return { advanced: false };
+  const totalApproved = rr.items.reduce((sum, i) => sum + (i.approvedQuantity ?? i.quantity), 0);
+  if (totalApproved <= 0) return { advanced: false };
+  const verdict = evaluateReturnTransition(rr.status, "REFUND_PENDING", actor.type);
+  if (!verdict.ok) return { advanced: false };
+
+  const updated = await tx.returnRequest.updateMany({
+    where: { id: returnRequestId, storeId, version: rr.version },
+    data: { status: "REFUND_PENDING", version: { increment: 1 } },
+  });
+  if (updated.count === 0) return { advanced: false };
+  await tx.returnStatusHistory.create({
+    data: {
+      storeId,
+      returnRequestId,
+      fromStatus: rr.status,
+      toStatus: "REFUND_PENDING",
+      actorType: actor.type,
+      actorId: actor.id,
+      note: null,
+    },
+  });
+  await upsertRefundIntentForReturn(tx, storeId, returnRequestId);
+  const intent = await tx.refundIntent.findFirst({ where: { storeId, returnRequestId }, select: { id: true } });
+  if (!intent) return { advanced: false };
+  return { advanced: true, refundIntentId: intent.id, expectedReturnVersion: rr.version + 1 };
 }
 
 // ── Refund intent (approve zamanı; PENDING; finansa dokunmaz) ─────────────────────
