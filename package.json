@@ -12,7 +12,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",
-    "test": "turbo run test",
+    "test": "turbo run test --concurrency=1",
     "test:unit": "vitest run tests/unit packages/*/test apps/*/test",
     "test:integration": "vitest run tests/integration",
     "db:generate": "pnpm exec prisma generate --schema packages/db/prisma/schema.prisma",
