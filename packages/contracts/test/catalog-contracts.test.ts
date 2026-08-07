@@ -336,6 +336,9 @@ describe("catalog contracts", () => {
       fastRefundEnabled: false,
       fastRefundMaxAmountMinor: null,
       fastRefundCurrency: null,
+      // TODO-174B (ADR-281) — response goodwill/store-credit policy alanlarını da taşır (null=kapalı).
+      maxGoodwillCreditPerActionMinor: null,
+      goodwillCreditCurrency: null,
     };
     const allNull = storeSettingsSchema.parse({
       storeId: "store_1",
