@@ -1,6 +1,6 @@
 # ADR-276 — Cancellation Refund: Intent-less Ledger Entry
 
-**Durum:** ACCEPTED (implemented; PR/deploy bekliyor — TODO-174).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #191 merge `5ce426d`; CI lint·test·build 4m13s PASS).
 
 **İlişkili:** [ADR-275](ADR-275-customer-order-cancellation-authority.md),
 [ADR-272](ADR-272-refund-ledger-and-payment-reversal.md) (Refund Ledger — REUSE, semantiği korunur),

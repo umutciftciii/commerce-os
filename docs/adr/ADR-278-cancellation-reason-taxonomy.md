@@ -1,6 +1,6 @@
 # ADR-278 — Cancellation Reason Taxonomy (Platform-Governed)
 
-**Durum:** ACCEPTED (implemented; PR/deploy bekliyor — TODO-174).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #191 merge `5ce426d`; CI lint·test·build 4m13s PASS).
 
 **İlişkili:** [ADR-275](ADR-275-customer-order-cancellation-authority.md),
 [ADR-269](ADR-269-returns-authority-and-lifecycle.md) (`ReturnReason` enum+i18n deseni — genişletilerek mirror).

@@ -2,7 +2,7 @@
 
 ## Yakin Isler
 
-- **TODO-174 Customer Self-Service Order Cancellation — 🚧 IMPLEMENTED (PR/deploy bekliyor).** Müşteri kendi
+- **TODO-174 Customer Self-Service Order Cancellation — ✅ CLOSED & DEPLOYED** (PR #191 merge `5ce426d`; ADR-275…278; 2026-08-07). CI (lint·test·build) 4m13s PASS. Deploy: docker `api-gateway`+`storefront-web`+`store-admin-web` main'den rebuild+recreate (`--no-deps --force-recreate`; postgres/redis/worker/admin-web DOKUNULMADI); migration `20260807140000_todo174...` zaten `migrate deploy` ile canlı (No pending). Post-deploy smoke (deployed :4000, gerçek login + izole fixture): ELIG→ALLOWED / TRANSIT→BLOCKED_IN_TRANSIT / DELIVERED→BLOCKED_DELIVERED · POST cancel→CANCELLED+source=CUSTOMER+intent'siz OrderRefund SUCCEEDED (paymentStatus REFUNDED) · duplicate 200 (idempotent) · OTHER-no-note 400 · nonexistent 404 · reports/cancellations 401 (admin-gated, wired) · storefront :3000 200 / store-admin :3002 307. Fixture FK-güvenli temizlendi (enterprise-demo pristine). Müşteri kendi
   siparişini self-servis iptal eder (`POST /public/stores/:slug/customer/orders/:orderNumber/cancel` +
   `GET .../cancel-eligibility`; 2 adımlı storefront modali). **Uygunluk = CARRIER HANDOFF** (shipment varlığı
   DEĞİL; ADR-275): ALLOWED (handoff yok) / BLOCKED_IN_TRANSIT ("kargoya verildi") / BLOCKED_DELIVERED (→ Return

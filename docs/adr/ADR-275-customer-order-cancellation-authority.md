@@ -1,6 +1,6 @@
 # ADR-275 — Customer Self-Service Order Cancellation: Authority & Lifecycle
 
-**Durum:** ACCEPTED (implemented; PR/deploy bekliyor — TODO-174). Baseline `981ea5c`.
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #191 merge `5ce426d`; CI lint·test·build 4m13s PASS). Baseline `981ea5c`.
 
 **İlişkili:** [ADR-276](ADR-276-cancellation-refund.md) (iptal refund'u — intent'siz ledger),
 [ADR-277](ADR-277-cancellation-coupon-rollback.md) (coupon/campaign geri alma),

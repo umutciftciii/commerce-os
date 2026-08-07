@@ -6161,4 +6161,4 @@ Müşteri kendi siparişini self-servis iptal eder. `POST /public/stores/:slug/c
   kategori+kod dağılımı/trend/ödeme+kargo yöntemi/kaynak/top ürün) + filtreler; Store Admin YALNIZ görüntüler.
 
 Migration additive (`20260807140000_todo174_customer_order_cancellation`; Order 4 kolon + version, 3 enum).
-Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. Detay: ADR-275…278.
+Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. **CLOSED & DEPLOYED (2026-08-07):** PR #191 merge `5ce426d`; CI 4m13s PASS; deploy 3 web/backend servis rebuild (bağımlılıklar dokunulmadı); post-deploy smoke deployed :4000 yeşil. Detay: ADR-275…278.

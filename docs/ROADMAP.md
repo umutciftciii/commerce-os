@@ -1549,3 +1549,5 @@ advisory lock + shipment FOR UPDATE + Order.version guard + handoff sertleştirm
 (api-gateway 2504 / storefront 550 / store-admin 368); browser smoke 375/768/1024/1440 izole fixture (enterprise-
 demo dokunulmadı). Kararlar: ADR-275 (authority/lifecycle) · ADR-276 (intent'siz refund) · ADR-277 (coupon
 rollback) · ADR-278 (taksonomi). Detay: `docs/DECISIONS.md`.
+
+**CLOSED & DEPLOYED (2026-08-07):** PR #191 (merge `5ce426d`); CI 4m13s PASS. Deploy: api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (bağımlılıklar dokunulmadı); migration zaten canlı. Post-deploy smoke deployed :4000 (gerçek login + izole fixture): eligibility 3/3 + cancel+intent'siz refund SUCCEEDED + idempotent/validation/404 + web app'ler 200/307. FK-güvenli teardown (enterprise-demo dokunulmadı).

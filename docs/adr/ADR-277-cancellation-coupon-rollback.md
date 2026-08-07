@@ -1,6 +1,6 @@
 # ADR-277 — Coupon / Campaign Rollback on Cancellation
 
-**Durum:** ACCEPTED (implemented; PR/deploy bekliyor — TODO-174).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #191 merge `5ce426d`; CI lint·test·build 4m13s PASS).
 
 **İlişkili:** [ADR-275](ADR-275-customer-order-cancellation-authority.md),
 [ADR-058](ADR-058-campaigns-coupons.md) (F4A Campaigns & Coupons — "no-compensation" sınırlaması BURADA,
