@@ -1,0 +1,546 @@
+/**
+ * TODO-174B (ADR-281/282/284) — Customer Shopping Balance / Store Credit · domain servisi.
+ *
+ * Framework-agnostik (prisma doğrudan). Domain hataları THROW EDİLMEZ → `{ ok:false, code }` sentinel;
+ * route katmanı HTTP'ye eşler (fail-closed). Tüm sorgular storeId-first scoped. Değer hareketi
+ * IMMUTABLE ledger'da (append-only); bakiye OTORİTESİ = Σ spendable lot remaining (ledger-calc).
+ *
+ * Concurrency: (store,customer) başına `pg_advisory_xact_lock` ile serialize. No negative balance:
+ * FEFO tahsis kilit altında yeniden hesaplanır + koşullu lot güncellemesi (remaining>=take) ile çift
+ * harcama engellenir. Idempotency: LedgerEntry @@unique([storeId, idempotencyKey]) — aynı key ikinci
+ * hareket üretmez (P2002 → dedup). cachedAvailableMinor kilit altında lot'lardan yeniden türetilir.
+ */
+import { prisma } from "@commerce-os/db";
+import { Prisma } from "@prisma/client";
+import type {
+  CreditActorType,
+  CreditLedgerType,
+  CreditSourceType,
+  PrismaClient,
+} from "@prisma/client";
+import {
+  allocateFefo,
+  availableBalanceMinor,
+  computeExpiresAt,
+  isValidExpiryDays,
+  planRestore,
+  type CreditExpiryDays,
+  type CreditLotView,
+} from "./ledger-calc.js";
+
+type Tx = Prisma.TransactionClient | PrismaClient;
+
+export type CreditErrorCode =
+  | "INVALID_AMOUNT"
+  | "INVALID_EXPIRY"
+  | "POLICY_DISABLED"
+  | "EXCEEDS_POLICY_LIMIT"
+  | "ACCOUNT_NOT_FOUND"
+  | "INSUFFICIENT_BALANCE"
+  | "CURRENCY_MISMATCH";
+
+export interface CreditActor {
+  type: CreditActorType;
+  id: string | null;
+}
+
+async function lockCustomer(tx: Tx, storeId: string, customerId: string): Promise<void> {
+  // $executeRaw ($queryRaw DEĞİL): pg_advisory_xact_lock void döner. (store,customer) başına serialize.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`credit:${storeId}:${customerId}`}))`;
+}
+
+/** ACTIVE lot'ları (FEFO/available için) storeId+customerId+currency scoped yükler. */
+async function loadActiveLots(
+  tx: Tx,
+  storeId: string,
+  customerId: string,
+  currency: string,
+): Promise<CreditLotView[]> {
+  const rows = await tx.customerCreditLot.findMany({
+    where: { storeId, customerId, currency, status: "ACTIVE" },
+    select: { id: true, remainingAmountMinor: true, expiresAt: true, status: true, createdAt: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    remainingAmountMinor: r.remainingAmountMinor,
+    expiresAt: r.expiresAt,
+    status: r.status,
+    createdAt: r.createdAt,
+  }));
+}
+
+/** Hesabı upsert eder (yoksa oluşturur), id döner. */
+async function getOrCreateAccountId(
+  tx: Tx,
+  storeId: string,
+  customerId: string,
+  currency: string,
+): Promise<string> {
+  const existing = await tx.customerCreditAccount.findUnique({
+    where: { storeId_customerId_currency: { storeId, customerId, currency } },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+  const created = await tx.customerCreditAccount.create({
+    data: { storeId, customerId, currency },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/** cachedAvailableMinor'ı ACTIVE lot'lardan kilit altında yeniden türetir (deterministik otorite). */
+async function refreshCache(
+  tx: Tx,
+  accountId: string,
+  storeId: string,
+  customerId: string,
+  currency: string,
+  now: Date,
+): Promise<bigint> {
+  const lots = await loadActiveLots(tx, storeId, customerId, currency);
+  const available = availableBalanceMinor(lots, now);
+  await tx.customerCreditAccount.update({
+    where: { id: accountId },
+    data: { cachedAvailableMinor: available, version: { increment: 1 } },
+  });
+  return available;
+}
+
+// ---------------------------------------------------------------------------
+// 1) CREDIT: goodwill / adjustment kredisi (admin + recovery). Top-level (kendi tx + kilit).
+// ---------------------------------------------------------------------------
+
+export interface IssueCreditParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  amountMinor: bigint;
+  expiryDays: number;
+  sourceType: CreditSourceType;
+  sourceId?: string | null;
+  ledgerType: CreditLedgerType;
+  description: string;
+  actor: CreditActor;
+  idempotencyKey: string;
+  /** Politika sınırı (minor). null = özellik KAPALI (reddedilir). undefined = politika denetimi atla (sistem). */
+  policyMaxMinor?: bigint | null;
+  /** true → policyMaxMinor aşımı serbest (SUPER_ADMIN override). */
+  overridePolicy?: boolean;
+}
+
+export type IssueCreditResult =
+  | { ok: true; entryId: string; lotId: string; balanceAfterMinor: bigint; deduped: boolean }
+  | { ok: false; code: CreditErrorCode };
+
+export async function issueCredit(params: IssueCreditParams): Promise<IssueCreditResult> {
+  const { storeId, customerId, currency, amountMinor } = params;
+  if (amountMinor <= 0n) return { ok: false, code: "INVALID_AMOUNT" };
+  if (!isValidExpiryDays(params.expiryDays)) return { ok: false, code: "INVALID_EXPIRY" };
+  // Politika: undefined → sistem (atla). null → KAPALI. override yoksa sınır uygulanır.
+  if (params.policyMaxMinor !== undefined && !params.overridePolicy) {
+    if (params.policyMaxMinor === null) return { ok: false, code: "POLICY_DISABLED" };
+    if (amountMinor > params.policyMaxMinor) return { ok: false, code: "EXCEEDS_POLICY_LIMIT" };
+  }
+  const now = new Date();
+  const expiresAt = computeExpiresAt(now, params.expiryDays as CreditExpiryDays);
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockCustomer(tx, storeId, customerId);
+      // Idempotency (dedup) — aynı key varsa mevcut hareketi döndür (sayfa refresh / retry güvenli).
+      const dupe = await tx.customerCreditLedgerEntry.findUnique({
+        where: { storeId_idempotencyKey: { storeId, idempotencyKey: params.idempotencyKey } },
+        select: { id: true, lotId: true, balanceAfterMinor: true },
+      });
+      if (dupe) {
+        return { ok: true as const, entryId: dupe.id, lotId: dupe.lotId ?? "", balanceAfterMinor: dupe.balanceAfterMinor, deduped: true };
+      }
+      const accountId = await getOrCreateAccountId(tx, storeId, customerId, currency);
+      const lot = await tx.customerCreditLot.create({
+        data: {
+          storeId,
+          customerId,
+          accountId,
+          currency,
+          originalAmountMinor: amountMinor,
+          remainingAmountMinor: amountMinor,
+          expiresAt,
+          status: "ACTIVE",
+          sourceType: params.sourceType,
+          sourceId: params.sourceId ?? null,
+          issuedByType: params.actor.type,
+          issuedById: params.actor.id,
+        },
+        select: { id: true },
+      });
+      const available = await refreshCache(tx, accountId, storeId, customerId, currency, now);
+      const entry = await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId,
+          lotId: lot.id,
+          type: params.ledgerType,
+          direction: "CREDIT",
+          amountMinor,
+          balanceAfterMinor: available,
+          currency,
+          sourceType: params.sourceType,
+          sourceId: params.sourceId ?? null,
+          description: params.description,
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          idempotencyKey: params.idempotencyKey,
+        },
+        select: { id: true },
+      });
+      return { ok: true as const, entryId: entry.id, lotId: lot.id, balanceAfterMinor: available, deduped: false };
+    });
+  } catch (err) {
+    // Yarış: aynı key iki eşzamanlı istek → unique ihlali → dedup okuması.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const existing = await prisma.customerCreditLedgerEntry.findUnique({
+        where: { storeId_idempotencyKey: { storeId, idempotencyKey: params.idempotencyKey } },
+        select: { id: true, lotId: true, balanceAfterMinor: true },
+      });
+      if (existing) {
+        return { ok: true, entryId: existing.id, lotId: existing.lotId ?? "", balanceAfterMinor: existing.balanceAfterMinor, deduped: true };
+      }
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 2) DEBIT: checkout harcaması (FEFO). Çağıranın tx'i İÇİNDE çalışır (placeOrder ile atomik).
+// ---------------------------------------------------------------------------
+
+export interface SpendCreditParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  /** Harcanacak tutar; çağıran zaten min(available, payable) verir. 0 → no-op. */
+  requestedMinor: bigint;
+  orderId: string;
+  actor: CreditActor;
+  /** Ledger açıklaması (i18n değil; storefront'ta key ile render). */
+  description: string;
+}
+
+export type SpendCreditResult =
+  | { ok: true; usedMinor: bigint; groupKey: string; allocations: { lotId: string; amountMinor: bigint }[] }
+  | { ok: false; code: CreditErrorCode };
+
+export async function spendCreditInTx(tx: Tx, params: SpendCreditParams): Promise<SpendCreditResult> {
+  const { storeId, customerId, currency, orderId } = params;
+  const groupKey = `credit-spend:${orderId}`;
+  if (params.requestedMinor <= 0n) {
+    return { ok: true, usedMinor: 0n, groupKey, allocations: [] };
+  }
+  await lockCustomer(tx, storeId, customerId);
+
+  const account = await tx.customerCreditAccount.findUnique({
+    where: { storeId_customerId_currency: { storeId, customerId, currency } },
+    select: { id: true },
+  });
+  if (!account) return { ok: false, code: "ACCOUNT_NOT_FOUND" };
+
+  const now = new Date();
+  const lots = await loadActiveLots(tx, storeId, customerId, currency);
+  const alloc = allocateFefo(lots, params.requestedMinor, now);
+  if (!alloc.ok) return { ok: false, code: "INSUFFICIENT_BALANCE" };
+
+  const preAvailable = availableBalanceMinor(lots, now);
+  let running = preAvailable;
+  for (const a of alloc.allocations) {
+    // Koşullu güncelleme (remaining>=take) — çift harcama / yarış savunması (kilit + guard).
+    const updated = await tx.customerCreditLot.updateMany({
+      where: { id: a.lotId, storeId, status: "ACTIVE", remainingAmountMinor: { gte: a.amountMinor } },
+      data: {
+        remainingAmountMinor: { decrement: a.amountMinor },
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count !== 1) return { ok: false, code: "INSUFFICIENT_BALANCE" };
+    // Lot bittiyse CONSUMED işaretle.
+    await tx.customerCreditLot.updateMany({
+      where: { id: a.lotId, storeId, remainingAmountMinor: 0n, status: "ACTIVE" },
+      data: { status: "CONSUMED" },
+    });
+    running -= a.amountMinor;
+    await tx.customerCreditLedgerEntry.create({
+      data: {
+        storeId,
+        customerId,
+        accountId: account.id,
+        lotId: a.lotId,
+        type: "ORDER_PAYMENT_DEBIT",
+        direction: "DEBIT",
+        amountMinor: a.amountMinor,
+        balanceAfterMinor: running,
+        currency,
+        sourceType: "ORDER_PAYMENT",
+        sourceId: orderId,
+        orderId,
+        groupKey,
+        description: params.description,
+        createdByType: params.actor.type,
+        createdById: params.actor.id,
+        idempotencyKey: `credit-spend:${orderId}:${a.lotId}`,
+      },
+    });
+  }
+  await refreshCache(tx, account.id, storeId, customerId, currency, now);
+  return { ok: true, usedMinor: alloc.totalMinor, groupKey, allocations: alloc.allocations };
+}
+
+// ---------------------------------------------------------------------------
+// 3) RESTORE: iptal/iade sonrası bakiye geri yükleme. Çağıranın tx'i İÇİNDE (cancellation ile atomik).
+// ---------------------------------------------------------------------------
+
+export interface RestoreCreditParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  orderId: string;
+  ledgerType: Extract<CreditLedgerType, "ORDER_CANCELLATION_RESTORE" | "REFUND_RESTORE">;
+  sourceType: Extract<CreditSourceType, "ORDER_CANCELLATION" | "ORDER_REFUND">;
+  actor: CreditActor;
+  description: string;
+}
+
+export interface RestoreCreditResult {
+  restoredMinor: bigint;
+  skippedExpiredMinor: bigint;
+  entriesCreated: number;
+}
+
+/**
+ * Siparişin ORDER_PAYMENT_DEBIT hareketlerini lot bazında toplar; her lot için expiry hâlâ
+ * gelecekteyse remaining geri yüklenir + lot ACTIVE'e döner (revive); süresi geçmişse revive YOK
+ * (skippedExpired). Idempotent: her lot için `credit-restore:<orderId>:<lotId>` key; tekrar çağrıda
+ * duplicate restore üretmez (P2002 → o lot atlanır).
+ */
+export async function restoreCreditForOrderInTx(
+  tx: Tx,
+  params: RestoreCreditParams,
+): Promise<RestoreCreditResult> {
+  const { storeId, customerId, currency, orderId } = params;
+  await lockCustomer(tx, storeId, customerId);
+
+  const account = await tx.customerCreditAccount.findUnique({
+    where: { storeId_customerId_currency: { storeId, customerId, currency } },
+    select: { id: true },
+  });
+  if (!account) return { restoredMinor: 0n, skippedExpiredMinor: 0n, entriesCreated: 0 };
+
+  const debits = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, orderId, type: "ORDER_PAYMENT_DEBIT", direction: "DEBIT" },
+    select: { lotId: true, amountMinor: true },
+  });
+  // Lot bazında topla (aynı lot birden çok debit taşımaz normalde ama savunmacı).
+  const perLot = new Map<string, bigint>();
+  for (const d of debits) {
+    if (!d.lotId) continue;
+    perLot.set(d.lotId, (perLot.get(d.lotId) ?? 0n) + d.amountMinor);
+  }
+  if (perLot.size === 0) return { restoredMinor: 0n, skippedExpiredMinor: 0n, entriesCreated: 0 };
+
+  const now = new Date();
+  const lotRows = await tx.customerCreditLot.findMany({
+    where: { storeId, id: { in: [...perLot.keys()] } },
+    select: { id: true, expiresAt: true },
+  });
+  const lotById = new Map(lotRows.map((l) => [l.id, { expiresAt: l.expiresAt }]));
+  const decisions = planRestore(
+    [...perLot.entries()].map(([lotId, amountMinor]) => ({ lotId, amountMinor })),
+    lotById,
+    now,
+  );
+
+  let restoredMinor = 0n;
+  let skippedExpiredMinor = 0n;
+  let entriesCreated = 0;
+  for (const dec of decisions) {
+    skippedExpiredMinor += dec.skippedExpiredMinor;
+    if (dec.restoreMinor <= 0n) continue;
+    const idempotencyKey = `credit-restore:${orderId}:${dec.lotId}`;
+    // Idempotency guard: bu lot için restore zaten yazıldıysa atla.
+    const exists = await tx.customerCreditLedgerEntry.findUnique({
+      where: { storeId_idempotencyKey: { storeId, idempotencyKey } },
+      select: { id: true },
+    });
+    if (exists) continue;
+    // Lot'u revive et: remaining geri yükle + ACTIVE (CONSUMED'dan dönebilir). Süresi geçmiş lot
+    // buraya gelmez (planRestore skip etti) → yapay canlandırma YOK.
+    await tx.customerCreditLot.updateMany({
+      where: { id: dec.lotId, storeId },
+      data: { remainingAmountMinor: { increment: dec.restoreMinor }, status: "ACTIVE", version: { increment: 1 } },
+    });
+    restoredMinor += dec.restoreMinor;
+    entriesCreated += 1;
+    // balanceAfter geçici; refreshCache sonrası doğru available zaten cache'te. Entry balanceAfter'ı
+    // running olarak hesaplamak yerine restore sonrası nihai available'ı kullanacağız (aşağıda).
+    await tx.customerCreditLedgerEntry.create({
+      data: {
+        storeId,
+        customerId,
+        accountId: account.id,
+        lotId: dec.lotId,
+        type: params.ledgerType,
+        direction: "CREDIT",
+        amountMinor: dec.restoreMinor,
+        balanceAfterMinor: 0n, // aşağıda düzeltilir
+        currency,
+        sourceType: params.sourceType,
+        sourceId: orderId,
+        orderId,
+        groupKey: `credit-restore:${orderId}`,
+        description: params.description,
+        createdByType: params.actor.type,
+        createdById: params.actor.id,
+        idempotencyKey,
+      },
+    });
+  }
+  const available = await refreshCache(tx, account.id, storeId, customerId, currency, now);
+  // Bu restore grubunun balanceAfter'larını nihai available'a hizala (append-only; yalnız bu order'ın
+  // henüz 0 bırakılmış restore satırları — deterministik son değer).
+  if (entriesCreated > 0) {
+    await tx.customerCreditLedgerEntry.updateMany({
+      where: { storeId, orderId, type: params.ledgerType, balanceAfterMinor: 0n },
+      data: { balanceAfterMinor: available },
+    });
+  }
+  return { restoredMinor, skippedExpiredMinor, entriesCreated };
+}
+
+// ---------------------------------------------------------------------------
+// 4) EXPIRE: worker housekeeping — süresi dolmuş lot'ları materialize et (available'a etkisi YOK,
+//    zaten expiresAt>now ile hariç). Idempotent (status guard + per-lot idempotencyKey).
+// ---------------------------------------------------------------------------
+
+export async function expireLotsForStore(storeId: string, batchSize = 200): Promise<number> {
+  const now = new Date();
+  const due = await prisma.customerCreditLot.findMany({
+    where: { storeId, status: "ACTIVE", remainingAmountMinor: { gt: 0n }, expiresAt: { lte: now } },
+    select: { id: true, customerId: true, accountId: true, currency: true, remainingAmountMinor: true },
+    take: batchSize,
+  });
+  let processed = 0;
+  for (const lot of due) {
+    await prisma.$transaction(async (tx) => {
+      await lockCustomer(tx, storeId, lot.customerId);
+      // Guard: hâlâ ACTIVE + süresi geçmiş mi (yarış: bu arada harcanmış/restore olmuş olabilir).
+      const flipped = await tx.customerCreditLot.updateMany({
+        where: { id: lot.id, storeId, status: "ACTIVE", expiresAt: { lte: new Date() }, remainingAmountMinor: { gt: 0n } },
+        data: { status: "EXPIRED", version: { increment: 1 } },
+      });
+      if (flipped.count !== 1) return;
+      const nowInner = new Date();
+      const available = await refreshCache(tx, lot.accountId, storeId, lot.customerId, lot.currency, nowInner);
+      await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId: lot.customerId,
+          accountId: lot.accountId,
+          lotId: lot.id,
+          type: "EXPIRE",
+          direction: "DEBIT",
+          amountMinor: lot.remainingAmountMinor,
+          balanceAfterMinor: available,
+          currency: lot.currency,
+          sourceType: "EXPIRY",
+          sourceId: lot.id,
+          description: "credit.expired",
+          createdByType: "SYSTEM",
+          createdById: null,
+          idempotencyKey: `credit-expire:${lot.id}`,
+        },
+      });
+      processed += 1;
+    });
+  }
+  return processed;
+}
+
+// ---------------------------------------------------------------------------
+// 5) READ MODEL: bakiye + hareket geçmişi (storefront + admin). storeId-first scoped.
+// ---------------------------------------------------------------------------
+
+export interface CreditLedgerEntryView {
+  id: string;
+  type: CreditLedgerType;
+  direction: "CREDIT" | "DEBIT";
+  amountMinor: bigint;
+  balanceAfterMinor: bigint;
+  currency: string;
+  description: string;
+  orderId: string | null;
+  createdAt: Date;
+}
+
+export interface CustomerBalanceView {
+  currency: string;
+  availableMinor: bigint;
+  entries: CreditLedgerEntryView[];
+}
+
+/**
+ * Müşteri bakiyesi + son hareketler. availableMinor ANLIK spendable (expiresAt>now); worker'dan
+ * bağımsız (cache yerine lot'lardan türetilir → her zaman doğru). currency verilmezse mağaza para
+ * biriminde tek hesap varsayımı: ilk/verilen currency. entries createdAt DESC, limit.
+ */
+export async function getCustomerBalance(
+  storeId: string,
+  customerId: string,
+  currency: string,
+  entryLimit = 50,
+): Promise<CustomerBalanceView> {
+  const now = new Date();
+  const lots = await loadActiveLots(prisma, storeId, customerId, currency);
+  const availableMinor = availableBalanceMinor(lots, now);
+  const entryRows = await prisma.customerCreditLedgerEntry.findMany({
+    where: { storeId, customerId, currency },
+    orderBy: { createdAt: "desc" },
+    take: entryLimit,
+    select: {
+      id: true,
+      type: true,
+      direction: true,
+      amountMinor: true,
+      balanceAfterMinor: true,
+      currency: true,
+      description: true,
+      orderId: true,
+      createdAt: true,
+    },
+  });
+  return {
+    currency,
+    availableMinor,
+    entries: entryRows.map((e) => ({
+      id: e.id,
+      type: e.type,
+      direction: e.direction,
+      amountMinor: e.amountMinor,
+      balanceAfterMinor: e.balanceAfterMinor,
+      currency: e.currency,
+      description: e.description,
+      orderId: e.orderId,
+      createdAt: e.createdAt,
+    })),
+  };
+}
+
+/** Anlık kullanılabilir bakiye (minor) — checkout/read için hafif. */
+export async function getAvailableBalanceMinor(
+  tx: Tx,
+  storeId: string,
+  customerId: string,
+  currency: string,
+): Promise<bigint> {
+  const now = new Date();
+  const lots = await loadActiveLots(tx, storeId, customerId, currency);
+  return availableBalanceMinor(lots, now);
+}
