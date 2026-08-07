@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@commerce-os/db";
 import { applyStoreCreditToOrderInTx } from "../src/customer-credit/checkout.js";
 import { issueCredit, restoreCreditForOrderInTx, getAvailableBalanceMinor } from "../src/customer-credit/service.js";
+import { prepareCancellationRefund } from "../src/refunds/service.js";
 
 const hasTestDb = Boolean(process.env.DATABASE_URL);
 const created: string[] = [];
@@ -115,5 +116,34 @@ describe.skipIf(!hasTestDb)("Store Credit checkout allocation (integration)", ()
     );
     expect(restore.restoredMinor).toBe(30000n);
     expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(30000n);
+  });
+
+  it("mixed (credit+kart) iptal: prepareCancellationRefund yalnız KART kısmını iade eder (credit hariç)", async () => {
+    const f = await seed(100000); // ₺1000
+    await grant(f.storeId, f.customerId, 25000n, "gm"); // ₺250 credit
+    await apply(f); // credit 250 harcanır → STORE_CREDIT attempt PAID 25000; external 75000
+    // Kart ödemesi (external ₺750) PAID attempt olarak eklenir.
+    await prisma.paymentAttempt.create({
+      data: { storeId: f.storeId, orderId: f.orderId, type: "ONLINE", provider: "MOCK", method: "CARD", amount: 75000, currency: "TRY", status: "PAID", paidAt: new Date() },
+    });
+    // İptal refund hazırlığı: STORE_CREDIT HÂRİÇ external captured = 75000 → refund yalnız kart.
+    const prep = await prisma.$transaction((tx) => prepareCancellationRefund(tx, { storeId: f.storeId, orderId: f.orderId, actorUserId: null }));
+    expect(prep.status).toBe("CREATED");
+    expect(prep.refundId).toBeTruthy();
+    const refund = await prisma.orderRefund.findFirstOrThrow({ where: { orderId: f.orderId }, select: { totalRefundMinor: true, paymentAttemptId: true } });
+    expect(refund.totalRefundMinor).toBe(75000); // yalnız kart; credit 250 dahil DEĞİL
+    // Referanslanan attempt STORE_CREDIT DEĞİL (kart).
+    const refAttempt = await prisma.paymentAttempt.findUniqueOrThrow({ where: { id: refund.paymentAttemptId }, select: { method: true } });
+    expect(refAttempt.method).toBe("CARD");
+    // Credit kısmı restore ile bakiyeye geri.
+    const restore = await prisma.$transaction((tx) =>
+      restoreCreditForOrderInTx(tx, {
+        storeId: f.storeId, customerId: f.customerId, currency: "TRY", orderId: f.orderId,
+        ledgerType: "ORDER_CANCELLATION_RESTORE", sourceType: "ORDER_CANCELLATION",
+        actor: { type: "SYSTEM", id: null }, description: "credit.cancellationRestore",
+      }),
+    );
+    expect(restore.restoredMinor).toBe(25000n);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(25000n);
   });
 });
