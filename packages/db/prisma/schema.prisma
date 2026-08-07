@@ -418,6 +418,9 @@ enum PaymentMethodType {
   BANK_TRANSFER
   CASH_ON_DELIVERY
   PAYMENT_LINK
+  // TODO-174B (ADR-282) — Alışveriş bakiyesi (store credit) ile iç mutabakat. MANUAL type attempt;
+  // status semantiği (PAID) ve sumCapturedMinor/paymentStatus projeksiyonu DEĞİŞMEDEN reuse edilir.
+  STORE_CREDIT
 }
 
 enum PaymentProviderStatus {
@@ -1021,6 +1024,12 @@ model Store {
   // TODO-174A (ADR-279) — Sipariş deneyimi değerlendirmeleri (ürün review'dan AYRIK).
   orderExperienceReviews           OrderExperienceReview[]
   productRatingAggregates          ProductRatingAggregate[]
+  // TODO-174B (ADR-281/283) — Store Credit ledger + sipariş-deneyimi recovery (store-scoped tenant sütunu).
+  creditAccounts                   CustomerCreditAccount[]
+  creditLots                       CustomerCreditLot[]
+  creditLedgerEntries              CustomerCreditLedgerEntry[]
+  recoveryCases                    OrderRecoveryCase[]
+  recoveryActivities               OrderRecoveryActivity[]
   // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (store-scoped tenant sutunu).
   influencers                      Influencer[]
   influencerCampaigns              InfluencerCampaign[]
@@ -1667,6 +1676,12 @@ model Customer {
   recentlyViewedProducts  RecentlyViewedProduct[]
   // TODO-169 (ADR-269) — Müşterinin iade talepleri (yalnız kendi siparişleri için).
   returnRequests          ReturnRequest[]
+  // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit (hesap + lot + immutable ledger).
+  creditAccounts          CustomerCreditAccount[]
+  creditLots              CustomerCreditLot[]
+  creditLedgerEntries     CustomerCreditLedgerEntry[]
+  // TODO-174B (ADR-283) — müşteriye ait sipariş-deneyimi recovery case'leri.
+  recoveryCases           OrderRecoveryCase[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -1858,63 +1873,70 @@ model OrderNumberCounter {
 }
 
 model Order {
-  id                   String                @id @default(cuid())
-  storeId              String
-  orderNumber          String
-  customerId           String?
-  customerEmail        String
-  currency             String
-  status               OrderStatus           @default(DRAFT)
-  paymentStatus        PaymentStatus         @default(UNPAID)
-  fulfillmentStatus    FulfillmentStatus     @default(UNFULFILLED)
-  subtotalAmount       Int                   @default(0)
-  discountAmount       Int                   @default(0)
-  shippingAmount       Int                   @default(0)
+  id                         String                           @id @default(cuid())
+  storeId                    String
+  orderNumber                String
+  customerId                 String?
+  customerEmail              String
+  currency                   String
+  status                     OrderStatus                      @default(DRAFT)
+  paymentStatus              PaymentStatus                    @default(UNPAID)
+  fulfillmentStatus          FulfillmentStatus                @default(UNFULFILLED)
+  subtotalAmount             Int                              @default(0)
+  discountAmount             Int                              @default(0)
+  shippingAmount             Int                              @default(0)
   // F3C.2 — Kargo ucreti SNAPSHOT'i (siparis aninda magaza tarifesinden hesaplanan
   // tutarin kaynagi ve plan kimligi). Tutar shippingAmount'tadir; bu alanlar
   // izlenebilirlik icindir. Provider canli quote DEGILDIR (bkz. ADR-036).
-  shippingCurrency     String?
-  shippingSource       ShippingRateSource?
-  shippingRatePlanId   String?
-  shippingRatePlanName String?
+  shippingCurrency           String?
+  shippingSource             ShippingRateSource?
+  shippingRatePlanId         String?
+  shippingRatePlanName       String?
   // TODO-125 (ADR-047) — Checkout'ta SEÇİLEN kargo sağlayıcı/seçenek SNAPSHOT'i.
   // Tarihsel sipariş, config sonradan değişse bile sabit kalsın diye sağlayıcı
   // görünüm bilgisi de yazılır. shippingProvider = taşıyıcı kimliği (enum),
   // shippingProviderName = görünen ad, shippingLogoUrl = public logo (secret DEĞİL),
   // shippingEtaText = tahmini teslim metni. ratePlanName service/method adıdır.
-  shippingProvider     ShippingProviderType?
-  shippingProviderName String?
-  shippingLogoUrl      String?
-  shippingEtaText      String?
-  taxAmount            Int                   @default(0)
-  totalAmount          Int                   @default(0)
-  placedAt             DateTime?
-  cancelledAt          DateTime?
-  cancelReason         String?
+  shippingProvider           ShippingProviderType?
+  shippingProviderName       String?
+  shippingLogoUrl            String?
+  shippingEtaText            String?
+  taxAmount                  Int                              @default(0)
+  totalAmount                Int                              @default(0)
+  // TODO-174B (ADR-282) — Store Credit ödeme SNAPSHOT'ı (denormalize; finansal source-of-truth
+  // DEĞİL — otorite STORE_CREDIT PaymentAttempt + credit ledger). shoppingCreditUsedMinor: bu
+  // siparişte alışveriş bakiyesinden düşülen tutar. externalPaymentAmountMinor = totalAmount −
+  // shoppingCreditUsedMinor (PSP/manuel ile tahsil edilecek/edilen kısım). BigInt: credit ledger
+  // minor-money kontratıyla tutarlı (Int Order tutarları dokunulmaz; sınırda kanonik string).
+  shoppingCreditUsedMinor    BigInt                           @default(0)
+  externalPaymentAmountMinor BigInt                           @default(0)
+  placedAt                   DateTime?
+  cancelledAt                DateTime?
+  cancelReason               String?
   // TODO-174 (ADR-275/ADR-278) — İptal provenance'i (additive; legacy `cancelReason` serbest metin
   // geriye-dönük görüntüleme için KORUNUR). `cancelSource` iptali başlatan aktör; `cancelReasonCode`/
   // `cancelReasonCategory` platform-tanımlı taksonomi (contracts registry doğrular); `cancelReasonNote`
   // müşteri açıklaması (OTHER'da zorunlu). Hepsi iptal edilmemiş siparişte null.
-  cancelSource         OrderCancellationSource?
-  cancelReasonCode     OrderCancellationReason?
-  cancelReasonCategory OrderCancellationReasonCategory?
-  cancelReasonNote     String?
+  cancelSource               OrderCancellationSource?
+  cancelReasonCode           OrderCancellationReason?
+  cancelReasonCategory       OrderCancellationReasonCategory?
+  cancelReasonNote           String?
   // TODO-174 (ADR-275) — Optimistic concurrency (self-servis iptal ↔ admin handoff yarışı). updateMany
   // version guard: yalnız bir operasyon kazanır. Sipariş ömrü boyunca placeOrder sonrası bump edilir.
-  version              Int                   @default(0)
+  version                    Int                              @default(0)
   // Fatura kimlik bilgileri (F3B.2). Fatura ADRESI OrderAddress(type=BILLING)
   // kaydinda tutulur; burada yalnizca fatura tipi + vergi/kimlik kimlik alanlari
   // bulunur. Bireysel: billingTaxId = T.C. Kimlik No (11 hane). Kurumsal: firma
   // unvani + vergi dairesi + vergi no. PII gereksiz log/event metadata'ya yazilmaz.
-  billingType          BillingType?
-  billingName          String?
-  billingTaxId         String?
-  billingCompanyName   String?
-  billingTaxOffice     String?
-  billingTaxNumber     String?
-  billingEmail         String?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  billingType                BillingType?
+  billingName                String?
+  billingTaxId               String?
+  billingCompanyName         String?
+  billingTaxOffice           String?
+  billingTaxNumber           String?
+  billingEmail               String?
+  createdAt                  DateTime                         @default(now())
+  updatedAt                  DateTime                         @updatedAt
 
   store                 Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer              Customer?                   @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -1944,6 +1966,8 @@ model Order {
   refundIntents         RefundIntent[]
   // TODO-170 (ADR-272) — Refund Ledger. Bir sipariş zamanla N refund (partial/çoklu) içerebilir.
   orderRefunds          OrderRefund[]
+  // TODO-174B (ADR-283) — bu siparişe bağlı sipariş-deneyimi recovery case'leri (deneyim başına en fazla bir).
+  recoveryCases         OrderRecoveryCase[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -2180,6 +2204,10 @@ model PaymentAttempt {
   manualReference      String?
   manualNote           String?
   collectedAt          DateTime?
+  // TODO-174B (ADR-282) — STORE_CREDIT attempt'i, harcamayı oluşturan credit ledger DEBIT
+  // hareket(ler)ine bağlar (çok-lot FEFO harcaması tek groupKey ile gruplanır). İptal/iade
+  // allocation'ında hangi lot'a ne kadar iade edileceğini deterministik çözmek için okunur.
+  creditLedgerGroupKey String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
@@ -3178,15 +3206,270 @@ model OrderExperienceReview {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  store        Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order        Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  // TODO-174B (ADR-283) — bu değerlendirmeden doğan recovery case (1-2★ otomatik / 3★ manuel; en fazla bir).
+  recoveryCase OrderRecoveryCase?
 
   // Sipariş başına müşteri başına en fazla bir değerlendirme (servis check-then-insert + P2002).
   @@unique([storeId, orderId, customerId])
   @@index([storeId, createdAt])
   @@index([customerId])
   @@index([orderId])
+}
+
+// ============================================================================
+// TODO-174B (ADR-281/282/284) — Customer Shopping Balance / Store Credit.
+//
+// GERÇEK değer-taşıyan, IMMUTABLE, lot-tabanlı FEFO ledger. Kupon "wallet"ından (state tablosu)
+// AYRIDIR — bu finansal bir defterdir. Şablon: OrderRefund+OrderRefundEvent (append-only head+event,
+// advisory-lock + version guard + idempotency). Para minor-unit BigInt; API sınırında kanonik string
+// (@commerce-os/utils), float YOK. Bakiye OTORİTESİ = Σ canlı lot remaining (status=ACTIVE ∧
+// expiresAt > now). cachedAvailableMinor yalnız perf; deterministik doğrulanabilir.
+//
+// GIFT CARD SATIN ALMA / KOD REDEEM bu kapsamda YOKTUR (FUTURE: "Gift Card Purchase / Code Redemption").
+// ============================================================================
+
+enum CreditLotStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+}
+
+enum CreditDirection {
+  CREDIT
+  DEBIT
+}
+
+enum CreditActorType {
+  PLATFORM_USER
+  CUSTOMER
+  SYSTEM
+}
+
+enum CreditSourceType {
+  ADMIN_GOODWILL
+  RECOVERY_GOODWILL
+  ADMIN_ADJUSTMENT
+  ORDER_PAYMENT
+  ORDER_CANCELLATION
+  ORDER_REFUND
+  EXPIRY
+  SYSTEM
+}
+
+enum CreditLedgerType {
+  ADMIN_GOODWILL_CREDIT
+  RECOVERY_GOODWILL_CREDIT
+  ORDER_PAYMENT_DEBIT
+  ORDER_CANCELLATION_RESTORE
+  REFUND_RESTORE
+  ADMIN_ADJUSTMENT_CREDIT
+  ADMIN_ADJUSTMENT_DEBIT
+  EXPIRE
+}
+
+// Müşteri başına (store, currency) bakiye çıpası + perf cache. Otorite lot toplamıdır.
+model CustomerCreditAccount {
+  id                   String   @id @default(cuid())
+  storeId              String
+  customerId           String
+  currency             String
+  cachedAvailableMinor BigInt   @default(0)
+  version              Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  store    Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer                    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lots     CustomerCreditLot[]
+  entries  CustomerCreditLedgerEntry[]
+
+  @@unique([storeId, customerId, currency])
+  @@index([storeId])
+  @@index([customerId])
+}
+
+// Bir grant = spendable "lot" (mutable head; remaining lock altında azalır). expiresAt ZORUNLU
+// (grant'ta 30/60/120/180 günden biri). FEFO: expiresAt ASC, createdAt ASC tüketilir.
+model CustomerCreditLot {
+  id                   String           @id @default(cuid())
+  storeId              String
+  customerId           String
+  accountId            String
+  currency             String
+  originalAmountMinor  BigInt
+  remainingAmountMinor BigInt
+  expiresAt            DateTime
+  status               CreditLotStatus  @default(ACTIVE)
+  sourceType           CreditSourceType
+  sourceId             String?
+  issuedByType         CreditActorType  @default(PLATFORM_USER)
+  issuedById           String?
+  version              Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  store    Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer                    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  account  CustomerCreditAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entries  CustomerCreditLedgerEntry[]
+
+  @@index([storeId, customerId, status, expiresAt])
+  @@index([storeId, status, expiresAt])
+  @@index([accountId])
+}
+
+// Append-only, IMMUTABLE. Her hareket bir satır; lot'a bağlı (EXPIRE/DEBIT/CREDIT/RESTORE). Çok-lot'lu
+// tek mantıksal hareket ortak groupKey ile gruplanır. orderId SCALAR (FK yok; audit resilience). UPDATE/DELETE YOK.
+model CustomerCreditLedgerEntry {
+  id                String           @id @default(cuid())
+  storeId           String
+  customerId        String
+  accountId         String
+  lotId             String?
+  type              CreditLedgerType
+  direction         CreditDirection
+  amountMinor       BigInt
+  balanceAfterMinor BigInt
+  currency          String
+  sourceType        CreditSourceType
+  sourceId          String?
+  orderId           String?
+  groupKey          String?
+  description       String
+  createdByType     CreditActorType  @default(SYSTEM)
+  createdById       String?
+  idempotencyKey    String
+  createdAt         DateTime         @default(now())
+
+  store    Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  account  CustomerCreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  lot      CustomerCreditLot?    @relation(fields: [lotId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, idempotencyKey])
+  @@index([storeId, customerId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([lotId])
+  @@index([orderId])
+  @@index([groupKey])
+}
+
+// ============================================================================
+// TODO-174B (ADR-283) — Order Experience Recovery Operations.
+//
+// 1-2★ OrderExperienceReview → otomatik recovery case. 3★ → yalnız manuel. 4-5★ → case yok.
+// Review başına en fazla bir case (orderExperienceReviewId @unique). Append-only activity/history;
+// internal note'lar storefront'a ASLA sızmaz. ProductReview/ProductRatingAggregate'e sıfır dokunuş.
+// ============================================================================
+
+enum RecoveryCaseStatus {
+  OPEN
+  ASSIGNED
+  CONTACT_ATTEMPTED
+  CUSTOMER_REACHED
+  ACTION_REQUIRED
+  RESOLVED
+  CLOSED
+  UNREACHABLE
+  NO_ACTION_REQUIRED
+}
+
+enum RecoveryPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RecoveryActivityType {
+  ASSIGNED
+  CONTACT_CALL
+  CONTACT_EMAIL
+  UNREACHABLE
+  ISSUE_HEARD
+  ACTION_REQUIRED
+  GOODWILL_CREDIT
+  RESOLVED
+  CLOSED
+  NOTE
+}
+
+enum RecoveryOutcome {
+  ISSUE_RESOLVED
+  APOLOGY_ACCEPTED
+  REFUND_QUESTION
+  DELIVERY_COMPLAINT
+  PRICE_COMPLAINT
+  PRODUCT_EXPECTATION_MISMATCH
+  CUSTOMER_UNREACHABLE
+  CUSTOMER_DECLINED
+  OTHER
+}
+
+enum RecoveryResolutionType {
+  GOODWILL_CREDIT
+  APOLOGY
+  REFUND_FOLLOWUP
+  NO_ACTION
+  OTHER
+}
+
+model OrderRecoveryCase {
+  id                      String                  @id @default(cuid())
+  storeId                 String
+  orderExperienceReviewId String                  @unique
+  customerId              String
+  orderId                 String
+  status                  RecoveryCaseStatus      @default(OPEN)
+  priority                RecoveryPriority        @default(MEDIUM)
+  assigneePlatformUserId  String?
+  openedAt                DateTime                @default(now())
+  firstContactAt          DateTime?
+  dueAt                   DateTime
+  resolvedAt              DateTime?
+  closedAt                DateTime?
+  resolutionType          RecoveryResolutionType?
+  resolutionNote          String?
+  createdByPlatformUserId String?
+  updatedByPlatformUserId String?
+  version                 Int                     @default(0)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  store      Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  review     OrderExperienceReview   @relation(fields: [orderExperienceReviewId], references: [id], onDelete: Cascade)
+  customer   Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order      Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  activities OrderRecoveryActivity[]
+
+  @@index([storeId, status, dueAt])
+  @@index([storeId, assigneePlatformUserId, status])
+  @@index([customerId])
+  @@index([orderId])
+}
+
+// Append-only recovery aktivite/geçmişi. actorId SCALAR (FK yok; aktör silinse bile korunur).
+// note internal — storefront'a sızmaz. creditLedgerEntryId: goodwill kredi verildiyse ledger'a idempotent bağ.
+model OrderRecoveryActivity {
+  id                  String               @id @default(cuid())
+  storeId             String
+  recoveryCaseId      String
+  type                RecoveryActivityType
+  actorType           CreditActorType      @default(PLATFORM_USER)
+  actorId             String?
+  outcome             RecoveryOutcome?
+  note                String?
+  creditLedgerEntryId String?
+  metadata            Json?
+  createdAt           DateTime             @default(now())
+
+  store        Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  recoveryCase OrderRecoveryCase @relation(fields: [recoveryCaseId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, recoveryCaseId, createdAt])
+  @@index([recoveryCaseId])
 }
 
 // ============================================================================
@@ -3334,6 +3617,13 @@ model StoreSettings {
   fastRefundEnabled                 Boolean  @default(false)
   fastRefundMaxAmountMinor          BigInt?
   fastRefundCurrency                String?
+  // TODO-174B (ADR-281) — Goodwill / Store Credit compensation policy (additive; default kapalı).
+  // maxGoodwillCreditPerActionMinor null: özellik KAPALI (normal operatör kredi VEREMEZ; SUPER_ADMIN
+  // ayrı yetkiyle override eder). Değer: tek aksiyonda verilebilecek üst sınır (minor). null=kapalı
+  // deseni fastRefundMaxAmountMinor ile birebir (sınırsız DEĞİL). goodwillCreditCurrency null: limit
+  // mağaza para biriminde yorumlanır. BigInt para konvansiyonu; serileştirmede kanonik string.
+  maxGoodwillCreditPerActionMinor   BigInt?
+  goodwillCreditCurrency            String?
   createdAt                         DateTime @default(now())
   updatedAt                         DateTime @updatedAt
 
