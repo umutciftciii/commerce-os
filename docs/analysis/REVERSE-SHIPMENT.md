@@ -1,6 +1,6 @@
 # Reverse Shipment — Denetim & Spec (Return Flow Simplification PR3)
 
-**Tarih:** 2026-08-07 · **Durum:** IMPLEMENTED / NOT SHIPPED · **ADR:** [ADR-274](../adr/ADR-274-reverse-shipment.md)
+**Tarih:** 2026-08-07 · **Durum:** CLOSED & DEPLOYED (PR #188) · **ADR:** [ADR-274](../adr/ADR-274-reverse-shipment.md)
 **Kararlar:** K1–K5 (kullanıcı, 2026-08-06/07). Commit/push/PR/merge/deploy YOK.
 
 Amaç: incelemede reddedilen ürün/adetlerin mağazadan müşteriye güvenli geri gönderimi; normal fulfillment'tan,

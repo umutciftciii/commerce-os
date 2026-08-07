@@ -190,7 +190,7 @@
   + `findByText`; store-admin 5× tam yeşil; TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.** Detay:
   `docs/adr/ADR-273-fast-refund-controls.md`. **PR3 (Reverse Shipment) → TODO-173 IMPLEMENTED (aşağıda).**
 
-- **TODO-173 Reverse Shipment (Return Flow PR3) — 🟡 IMPLEMENTED / NOT SHIPPED** (ADR-274,
+- **TODO-173 Reverse Shipment (Return Flow PR3) — ✅ CLOSED & DEPLOYED** (PR #188 `3f01ccc`; test-infra PR #187 `cb70738`) (ADR-274,
   `docs/analysis/REVERSE-SHIPMENT.md`). İncelemede reddedilen ürünün mağazadan müşteriye güvenli geri
   gönderimi; normal fulfillment / müşteri-iade kargosu / refund ledger'dan AYRIK. Üç yönlü `ShipmentDirection`
   (yalnız `STORE_RETURN_TO_CUSTOMER` gerçek akış; `CUSTOMER_RETURN_TO_STORE` reserved — K2). Ayrı disposition

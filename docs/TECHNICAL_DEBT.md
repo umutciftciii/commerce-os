@@ -2230,3 +2230,15 @@ commit/deploy YOK). Aşağıdakiler bilinçli olarak kapsam dışı bırakıldı
   kaydı FUTURE (bu faz yalnız lojistik/audit izi).
 - **TD-173-4 — SUPER_ADMIN istisna yönetimi.** Yüksek-maliyetli carrier override / manuel ücret yazma /
   force-cancel-complete için güçlü yetki katmanı FUTURE (bu faz normal operasyon = `requireStoreAdmin`).
+
+## Test Infrastructure Hardening — CLOSED (PR #187 `cb70738`, 2026-08-07)
+
+CPU oversubscription kaynaklı UI-test flakiness'i YAPISAL çözüldü (timeout/skip/retry YOK): ortak
+`vitest.shared.ts` `boundedForkPool({heavy})` (heavy UI = `min(4,cores-1)`, backend = `cores-2`) + UI/backend
+vitest config'leri + root `test`=`turbo run test --concurrency=1` (cross-suite serial) + turbo.json test
+`passThroughEnv:["DATABASE_URL"]`. Doğrulama: 3 flaky ×10 izole, 3 UI suite ×5, full workspace ×2 (42/42
+first-try). Reverse Shipment ile ayrı PR (feature diff kapsamı korundu).
+
+> **Ayrı FUTURE — CI governance (Actions outage'dan öğrenilen):** `workflow_dispatch` desteği · main branch
+> protection · required CI checks · Actions outage runbook. Reverse/test-infra PR'larına KARIŞTIRILMADI;
+> bağımsız iş olarak ele alınacak.
