@@ -8,7 +8,7 @@ CLOSED & DEPLOYED (2026-08-07; ADR-273; PR #185)** — kaynak durumlar **AWAITIN
 role-gate, StoreSettings 3 additive alan, yetkilendirilmiş bypass + `initiateRefund` REUSE, risk context,
 iki additive migration. **Ship-hardening:** BigInt→kanonik string kontrat (float YOK; TD-194 CLOSED),
 yapısal history `eventType`/`metadata`, flaky store-admin kök-neden fix (5× yeşil; TD-199 CLOSED). Saf 17 +
-gerçek-DB 20 + utils money test yeşil. **PR3 (Reverse Shipment / TODO-173) IMPLEMENTED / NOT SHIPPED**
+gerçek-DB 20 + utils money test yeşil. **PR3 (Reverse Shipment / TODO-173) CLOSED & DEPLOYED** (PR #188 `3f01ccc`)
 (2026-08-07; ADR-274 · `docs/analysis/REVERSE-SHIPMENT.md`) — ayrı disposition domain'i (K1 düzeltmesi:
 `ReturnRestockDecision` GENİŞLETİLMEDİ), `STORE_RETURN_TO_CUSTOMER`-only (K2), `requireStoreAdmin` (K3),
 `Shipment` REUSE + provider config REUSE (K5); direction-aware projeksiyon izolasyonu; additive migration

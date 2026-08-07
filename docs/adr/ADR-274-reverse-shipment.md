@@ -1,8 +1,13 @@
 # ADR-274 — Reverse Shipment (Return Flow Simplification PR3)
 
-**Durum:** IMPLEMENTED / NOT SHIPPED (2026-08-07). Kod + migration + testler + browser/HTTP smoke tamamlandı;
-**commit/push/PR/merge/deploy YOK** (kullanıcı kararı). `prisma migrate deploy` yalnız worktree smoke DB'sinde
-uygulandı. Baseline `e15e50e`.
+**Durum:** ACCEPTED & DEPLOYED (2026-08-07; PR #188 merge `3f01ccc`). CI (lint·test·build) yeşil; merge commit
+(squash/rebase yok). Split-ship: test-infra hardening ayrı PR #187 (`cb70738`) ÖNCE merge edildi (CI-determinizmi),
+sonra bu PR. Deploy: `prisma migrate deploy` → production `commerce_os` (todo173 uygulandı, up-to-date) + api-gateway
+& store-admin-web & storefront-web main'den rebuild/recreate (`--no-deps --force-recreate`; admin-web/worker/postgres/
+redis/volume DOKUNULMADI). Post-deploy smoke (deployed :4000) PASS 13/13: disposition create + cap 409 · reverse
+create + direction · reverse dup 409 · stale 409 · IN_TRANSIT → DELIVERED · disposition COMPLETED · cross-store 404;
+SQL izolasyon (order FULFILLED/PAID değişmez · OrderRefund/RefundIntent/inventory 0 · outbound teslim ankoru intact).
+İzole fixture temizlendi; production demo verisi dokunulmadı. Baseline `e15e50e`.
 
 **İlişkili:** [ADR-269](ADR-269-returns-authority-and-lifecycle.md) (Returns Foundation — inspection/
 rejectedQuantity),

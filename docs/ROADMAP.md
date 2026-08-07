@@ -1511,7 +1511,7 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   yok. Saf 17 + gerçek-DB 20 test yeşil. **Ship-hardening:** BigInt→kanonik string kontrat (TD-194 CLOSED),
   yapısal history `eventType`/`metadata` (2. additive migration), flaky store-admin kök-neden fix (5× yeşil,
   TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.**
-- **PR3 — Reverse Shipment (TODO-173): IMPLEMENTED / NOT SHIPPED** (ADR-274). `Shipment.direction` üç
+- **PR3 — Reverse Shipment (TODO-173): CLOSED & DEPLOYED** (PR #188 `3f01ccc`) (ADR-274). `Shipment.direction` üç
   yönlü additive enum baştan (`OUTBOUND_TO_CUSTOMER`/`CUSTOMER_RETURN_TO_STORE`/`STORE_RETURN_TO_CUSTOMER`;
   genel "OUTBOUND" kullanılmaz). Bu PR'da yalnız `STORE_RETURN_TO_CUSTOMER` gerçek akış; `CUSTOMER_RETURN_
   TO_STORE` **reserved** (K2). Reddedilen adet disposition'ı **ayrı** domain (`ReturnRejectedDisposition` +
