@@ -1,6 +1,6 @@
 # BUG-CART-004 — Checkout Store-Credit (Alışveriş Bakiyesi) UX
 
-**Durum:** ✅ CLOSED & DEPLOYED (PR #TBD)
+**Durum:** ✅ CLOSED & DEPLOYED (PR #198)
 **Tarih:** 2026-08-08
 **Kapsam:** storefront-web (checkout) + packages/i18n. Backend/gateway DEĞİŞMEDİ (tahsis zaten doğru).
 **İlişki:** TODO-174B (ADR-282) store credit checkout allocation sonrası UX kusuru.
