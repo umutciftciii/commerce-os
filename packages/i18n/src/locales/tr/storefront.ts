@@ -1266,6 +1266,8 @@ export const trStorefront = {
       listTitle: "İadelerim",
       listSubtitle: "İade taleplerinizi görüntüleyin ve takip edin.",
       listEmpty: "Henüz bir iade talebiniz yok.",
+      listEmptyDescription: "İade taleplerinizi buradan takip edebilirsiniz. Bir siparişi iade etmek için siparişlerinize göz atın.",
+      listEmptyCta: "Siparişlerime git",
       reference: "İade No",
       orderRef: "Sipariş",
       createdAt: "Talep tarihi",
@@ -1314,6 +1316,8 @@ export const trStorefront = {
         itemsHelp: "İade etmek istediğiniz ürünleri ve adetlerini seçin.",
         selectItem: "Bu ürünü iade et",
         quantityLabel: "Adet",
+        decreaseQuantity: "İade adedini azalt",
+        increaseQuantity: "İade adedini artır",
         remainingQty: "{count} adet iade edilebilir",
         purchasedQty: "Satın alınan {count} adet",
         activeReturnNote: "Bu ürün için açık bir iade talebiniz var.",
@@ -1406,6 +1410,30 @@ export const trStorefront = {
           failedNote: "Para iadesi tamamlanamadı; mağaza en kısa sürede sizinle iletişime geçecek.",
           // NONE: gerçek iade henüz başlatılmadı (yalnız beklenen niyet var).
           noneNote: "İade tutarı henüz işleme alınmadı.",
+        },
+        // TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (reddedilen ürünün geri gönderimi).
+        // PARA İADESİ DEĞİLDİR; teknik disposition kodu / internal not gösterilmez. Durum renk+metin ile iletilir.
+        reverseShipment: {
+          title: "Ürün size geri gönderiliyor",
+          disclaimer: "Bu bir kargo bildirimidir, para iadesi yapılmadı.",
+          ariaLabel: "Ürün geri gönderimi",
+          // Tüm kargo durumları kapsanır (ham enum sızmaz); lojistik-ara durumlar müşteriye "Hazırlanıyor".
+          statuses: {
+            DRAFT: "Hazırlanıyor",
+            ORDER_CREATED: "Hazırlanıyor",
+            LABEL_PENDING: "Hazırlanıyor",
+            LABEL_CREATED: "Hazırlanıyor",
+            IN_TRANSIT: "Yolda",
+            OUT_FOR_DELIVERY: "Dağıtımda",
+            DELIVERED: "Teslim edildi",
+            DELIVERY_FAILED: "Teslim edilemedi",
+            RETURNED: "Göndericiye iade edildi",
+            CANCELLED: "İptal edildi",
+            FAILED: "Başarısız",
+          },
+          shipped: "Gönderim",
+          estimatedDelivery: "Tahmini teslim",
+          delivered: "Teslim",
         },
         note: "Notunuz",
         items: "Ürünler",

@@ -2841,3 +2841,13 @@ checkout DB-cart authority · convert-on-paid (settlement) · failed-payment→A
 FK-safe cleaned + inventory restored; enterprise-demo pristine (473 products / 9 orders unchanged). ADR-266
 ACCEPTED. **TODO-168 (Cart Change Awareness) UNBLOCKED.** TD-174 open future; cart hard-delete/anonymization
 future; cross-device Cart-Change acknowledgement = TODO-168 scope.
+
+## Post-PR163 Returns/Refund/Reverse Shipment UI Alignment — 2026-08-07
+
+Ayrı polish işi (B1/C1/D1/TD-170/TD-173/TD-157/FP-3'ü YENİDEN AÇMAZ). PR #163 sonrası eklenen Returns/Refund/
+Fast-Refund/Reverse-Shipment yüzeyleri (TODO-169…173) enterprise UI standardına hizalandı. Delta audit →
+yalnız doğrulanan drift/eksik uygulandı (9 dosya). Store Admin: friendly ödeme rozeti + reverse iptal onay
+modalleri (danger) + responsive/modal/badge tutarlılığı + Alert dismiss ghost + SLA checkbox focus ring.
+Storefront: reverse-shipment section i18n sözlüğü + wizard aria-label/çift-hata + badge parite + boş-state CTA +
+`Row` uzun-değer taşma fix. Gate tam yeşil; izole fixture browser smoke 375/768/1024/1440 (store-admin +
+storefront), FK-güvenli teardown. Detay: `docs/TECHNICAL_DEBT.md`. **Backend/API/migration değişmedi.**

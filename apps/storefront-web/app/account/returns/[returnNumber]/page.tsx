@@ -68,7 +68,7 @@ export default async function ReturnDetailPage({
               </Heading>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="ink">{r.statuses[detail.status]}</Badge>
+              <Badge tone="outline">{r.statuses[detail.status]}</Badge>
               <Badge tone="muted">{r.resolutions[detail.resolutionType]}</Badge>
             </div>
             <p className="text-sm text-ink-muted">
@@ -143,7 +143,7 @@ export default async function ReturnDetailPage({
           {/* TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (STORE_RETURN_TO_CUSTOMER). Refund'dan
               AYRIK; teknik disposition kodu / internal not YOK. */}
           {detail.reverseShipments.length > 0 ? (
-            <ReverseShipmentSection shipments={detail.reverseShipments} locale={locale} />
+            <ReverseShipmentSection shipments={detail.reverseShipments} r={r} locale={locale} />
           ) : null}
 
           <ItemsSection detail={detail} r={r} />
@@ -190,10 +190,12 @@ export default async function ReturnDetailPage({
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  // Uzun değerler (ör. takip numarası) 375px'de yatay taşmaya yol açmasın:
+  // etiket sabit (shrink-0), değer daralabilir ve gerekirse kırılır.
   return (
-    <div className="flex items-center justify-between gap-4">
-      <dt className="text-ink-muted">{label}</dt>
-      <dd className="text-ink">{value}</dd>
+    <div className="flex items-start justify-between gap-4">
+      <dt className="shrink-0 text-ink-muted">{label}</dt>
+      <dd className="min-w-0 break-all text-right text-ink">{value}</dd>
     </div>
   );
 }
@@ -359,72 +361,52 @@ function Timeline({
 
 // TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (reddedilen ürünün geri gönderimi). PARA İADESİ
 // DEĞİLDİR; teknik disposition kodu / internal not gösterilmez. Durum renk+metin ile iletilir.
+// Tüm string'ler sözlükten (detail.reverseShipment) gelir; locale dallanması YOK (TR/EN parite).
 function ReverseShipmentSection({
   shipments,
+  r,
   locale,
 }: {
   shipments: CustomerReturnDetail["reverseShipments"];
+  r: ReturnsDict;
   locale: Locale;
 }) {
-  const isTr = locale === "tr";
-  const statusLabel: Record<string, string> = isTr
-    ? {
-        DRAFT: "Hazırlanıyor",
-        IN_TRANSIT: "Yolda",
-        OUT_FOR_DELIVERY: "Dağıtımda",
-        DELIVERED: "Teslim edildi",
-        DELIVERY_FAILED: "Teslim edilemedi",
-        CANCELLED: "İptal edildi",
-        FAILED: "Başarısız",
-      }
-    : {
-        DRAFT: "Preparing",
-        IN_TRANSIT: "In transit",
-        OUT_FOR_DELIVERY: "Out for delivery",
-        DELIVERED: "Delivered",
-        DELIVERY_FAILED: "Delivery failed",
-        CANCELLED: "Cancelled",
-        FAILED: "Failed",
-      };
+  const rs = r.detail.reverseShipment;
   return (
-    <section className="border border-line p-4" aria-label={isTr ? "Ürün geri gönderimi" : "Product return to you"}>
+    <section className="border border-line p-4" aria-label={rs.ariaLabel}>
       <Subheading as="h2" className="mb-1">
-        {isTr ? "Ürün size geri gönderiliyor" : "Product is being sent back to you"}
+        {rs.title}
       </Subheading>
-      <Text className="mb-3 text-xs text-ink-subtle">
-        {isTr
-          ? "Bu bir kargo bildirimidir, para iadesi yapılmadı."
-          : "This is a shipping notice — no refund was issued."}
-      </Text>
+      <Text className="mb-3 text-xs text-ink-subtle">{rs.disclaimer}</Text>
       <ul className="space-y-3">
         {shipments.map((s, i) => (
-          <li key={i} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-ink">
+          <li
+            key={`${s.trackingNumber ?? "no-track"}-${s.status}-${i}`}
+            className="border-t border-line pt-3 first:border-t-0 first:pt-0"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-sm font-medium text-ink">
                 {s.productTitle}
                 {s.variantTitle ? <span className="text-ink-muted"> · {s.variantTitle}</span> : null}
                 <span className="text-ink-subtle"> × {s.quantity}</span>
               </p>
-              <Badge tone={s.status === "DELIVERED" ? "ink" : "muted"}>
-                {statusLabel[s.status] ?? s.status}
+              <Badge tone={s.status === "DELIVERED" ? "ink" : "muted"} className="shrink-0">
+                {rs.statuses[s.status] ?? s.status}
               </Badge>
             </div>
             <dl className="mt-1.5 space-y-1 text-sm">
-              {s.carrierName ? <Row label={isTr ? "Taşıyıcı" : "Carrier"} value={s.carrierName} /> : null}
+              {s.carrierName ? <Row label={r.detail.carrier} value={s.carrierName} /> : null}
               {s.trackingNumber ? (
-                <Row label={isTr ? "Takip numarası" : "Tracking number"} value={s.trackingNumber} />
+                <Row label={r.detail.trackingNumber} value={s.trackingNumber} />
               ) : null}
               {s.shippedAt ? (
-                <Row label={isTr ? "Gönderim" : "Shipped"} value={formatDate(s.shippedAt, locale)} />
+                <Row label={rs.shipped} value={formatDate(s.shippedAt, locale)} />
               ) : null}
               {s.estimatedDeliveryAt ? (
-                <Row
-                  label={isTr ? "Tahmini teslim" : "Estimated delivery"}
-                  value={formatDate(s.estimatedDeliveryAt, locale)}
-                />
+                <Row label={rs.estimatedDelivery} value={formatDate(s.estimatedDeliveryAt, locale)} />
               ) : null}
               {s.deliveredAt ? (
-                <Row label={isTr ? "Teslim" : "Delivered"} value={formatDate(s.deliveredAt, locale)} />
+                <Row label={rs.delivered} value={formatDate(s.deliveredAt, locale)} />
               ) : null}
             </dl>
           </li>

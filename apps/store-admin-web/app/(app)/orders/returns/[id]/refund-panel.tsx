@@ -247,13 +247,9 @@ export function RefundPanel({
           <Alert
             tone="error"
             action={
-              <button
-                type="button"
-                className="text-red-300 underline"
-                onClick={() => setActionError(null)}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setActionError(null)}>
                 {isTr ? "Kapat" : "Dismiss"}
-              </button>
+              </Button>
             }
           >
             {actionError}

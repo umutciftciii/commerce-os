@@ -53,6 +53,8 @@ type Dialog =
   | { kind: "disposition"; item: ItemRow }
   | { kind: "reverse"; item: ItemRow }
   | { kind: "tracking"; shipment: ReverseShipment }
+  | { kind: "cancel-disposition"; disposition: Disposition }
+  | { kind: "cancel-shipment"; shipment: ReverseShipment }
   | null;
 
 export function ReverseShipmentPanel({
@@ -104,7 +106,7 @@ export function ReverseShipmentPanel({
         {rejectedItems.map((item) => (
           <li key={item.id} className="py-4 space-y-3">
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-white/90">
                   {item.title}
                   {item.variantTitle ? <span className="text-white/50"> · {item.variantTitle}</span> : null}
@@ -116,7 +118,7 @@ export function ReverseShipmentPanel({
                 </p>
               </div>
               {item.undispositionedRejectedQuantity > 0 ? (
-                <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "disposition", item })}>
+                <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setDialog({ kind: "disposition", item })}>
                   {isTr ? "Disposition ekle" : "Add disposition"}
                 </Button>
               ) : null}
@@ -128,9 +130,9 @@ export function ReverseShipmentPanel({
                 {item.dispositions.map((d) => {
                   const st = DISPOSITION_STATUS[d.status];
                   return (
-                    <li key={d.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="flex items-center gap-2">
-                        <Badge tone={st.tone}>{isTr ? st.tr : st.en}</Badge>
+                    <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Badge tone={st.tone} dot>{isTr ? st.tr : st.en}</Badge>
                         <span className="text-white/80">
                           {isTr ? DISPOSITION_LABELS[d.type].tr : DISPOSITION_LABELS[d.type].en} × {d.quantity}
                         </span>
@@ -140,25 +142,21 @@ export function ReverseShipmentPanel({
                           </span>
                         ) : null}
                       </span>
-                      <span className="flex items-center gap-2">
+                      <span className="flex shrink-0 items-center gap-2">
                         {d.type === "RETURN_TO_CUSTOMER" && d.reverseShippableRemaining > 0 ? (
                           <Button size="sm" variant="primary" onClick={() => setDialog({ kind: "reverse", item })}>
                             {isTr ? "Müşteriye geri gönder" : "Return to customer"}
                           </Button>
                         ) : null}
                         {d.status === "PENDING" ? (
-                          <button
-                            type="button"
-                            className="text-white/40 underline hover:text-white/70"
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             disabled={busy}
-                            onClick={() =>
-                              run(() =>
-                                storeApi.cancelReturnDisposition(ret.id, d.id, { dispositionId: d.id, expectedVersion: ret.version }),
-                              )
-                            }
+                            onClick={() => setDialog({ kind: "cancel-disposition", disposition: d })}
                           >
                             {isTr ? "İptal" : "Cancel"}
-                          </button>
+                          </Button>
                         ) : null}
                       </span>
                     </li>
@@ -181,6 +179,7 @@ export function ReverseShipmentPanel({
                       run(() => storeApi.reverseShipmentStatus(ret.id, s.id, { status }))
                     }
                     onTracking={() => setDialog({ kind: "tracking", shipment: s })}
+                    onCancel={() => setDialog({ kind: "cancel-shipment", shipment: s })}
                   />
                 ))}
               </ul>
@@ -221,7 +220,93 @@ export function ReverseShipmentPanel({
           onSubmit={(input) => run(() => storeApi.reverseShipmentTracking(ret.id, dialog.shipment.id, input))}
         />
       ) : null}
+
+      {/* Yıkıcı iptaller onay adımından geçer (refund panel standardı). */}
+      {dialog?.kind === "cancel-disposition" ? (
+        <ConfirmDialog
+          isTr={isTr}
+          busy={busy}
+          danger
+          title={isTr ? "Kararı iptal et" : "Cancel disposition"}
+          description={isTr ? "Bu bekleyen karar iptal edilecek." : "This pending disposition will be cancelled."}
+          confirmLabel={isTr ? "Kararı iptal et" : "Cancel disposition"}
+          onClose={() => setDialog(null)}
+          onConfirm={() =>
+            run(() =>
+              storeApi.cancelReturnDisposition(ret.id, dialog.disposition.id, {
+                dispositionId: dialog.disposition.id,
+                expectedVersion: ret.version,
+              }),
+            )
+          }
+        />
+      ) : null}
+
+      {dialog?.kind === "cancel-shipment" ? (
+        <ConfirmDialog
+          isTr={isTr}
+          busy={busy}
+          danger
+          title={isTr ? "Gönderiyi iptal et" : "Cancel shipment"}
+          description={isTr ? "Bu ters gönderi iptal edilecek." : "This reverse shipment will be cancelled."}
+          confirmLabel={isTr ? "Gönderiyi iptal et" : "Cancel shipment"}
+          onClose={() => setDialog(null)}
+          onConfirm={() =>
+            run(() => storeApi.reverseShipmentStatus(ret.id, dialog.shipment.id, { status: "CANCELLED" }))
+          }
+        />
+      ) : null}
     </SurfaceCard>
+  );
+}
+
+/**
+ * Yıkıcı işlem onay modali (refund panel deseniyle aynı): fragment footer (Modal zaten flex/justify-end/gap
+ * uygular), secondary "Vazgeç" + primary/danger onay. Odak-tuzağı/ESC/scroll-lock paylaşılan Modal'dan gelir.
+ */
+function ConfirmDialog({
+  isTr,
+  busy,
+  danger,
+  title,
+  description,
+  confirmLabel,
+  onClose,
+  onConfirm,
+}: {
+  isTr: boolean;
+  busy: boolean;
+  danger?: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      description={description}
+      closeLabel={isTr ? "Vazgeç" : "Cancel"}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            {isTr ? "Vazgeç" : "Cancel"}
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} disabled={busy} onClick={onConfirm}>
+            {busy ? (isTr ? "İşleniyor…" : "Processing…") : confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-white/60">
+        {isTr
+          ? "Bu işlem geri alınamaz. Devam etmek istiyor musunuz?"
+          : "This action cannot be undone. Do you want to continue?"}
+      </p>
+    </Modal>
   );
 }
 
@@ -231,20 +316,22 @@ function ReverseShipmentRow({
   busy,
   onStatus,
   onTracking,
+  onCancel,
 }: {
   shipment: ReverseShipment;
   returnId: string;
   isTr: boolean;
   busy: boolean;
-  onStatus: (status: "IN_TRANSIT" | "DELIVERED" | "CANCELLED") => void;
+  onStatus: (status: "IN_TRANSIT" | "DELIVERED") => void;
   onTracking: () => void;
+  onCancel: () => void;
 }) {
   const meta = SHIP_STATUS[shipment.status] ?? SHIP_STATUS.DRAFT;
   const terminal = ["DELIVERED", "CANCELLED", "FAILED"].includes(shipment.status);
   return (
     <li className="space-y-1.5 text-xs">
       <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <Badge tone={meta.tone} dot>
             <span aria-hidden>{meta.glyph}</span> {isTr ? meta.tr : meta.en}
           </Badge>
@@ -252,7 +339,9 @@ function ReverseShipmentRow({
             {isTr ? "Adet" : "Qty"}: {shipment.returnQuantity}
           </span>
           {shipment.carrierName ? <span className="text-white/60">· {shipment.carrierName}</span> : null}
-          {shipment.trackingNumber ? <span className="text-white/40">· {shipment.trackingNumber}</span> : null}
+          {shipment.trackingNumber ? (
+            <span className="min-w-0 break-all text-white/40">· {shipment.trackingNumber}</span>
+          ) : null}
         </span>
       </div>
       <p className="text-white/40">
@@ -272,14 +361,10 @@ function ReverseShipmentRow({
           <Button size="sm" variant="ghost" disabled={busy} onClick={onTracking}>
             {isTr ? "Takip güncelle" : "Update tracking"}
           </Button>
-          <button
-            type="button"
-            className="text-red-300/80 underline hover:text-red-200 disabled:opacity-50"
-            disabled={busy}
-            onClick={() => onStatus("CANCELLED")}
-          >
+          {/* Yıkıcı: onaylı + belirgin (danger). Ters gönderiyi iptal eder. */}
+          <Button size="sm" variant="danger" disabled={busy} onClick={onCancel}>
             {isTr ? "İptal et" : "Cancel"}
-          </button>
+          </Button>
         </div>
       ) : null}
     </li>
@@ -311,8 +396,8 @@ function DispositionDialog({
       title={isTr ? "Disposition ekle" : "Add disposition"}
       description={item.title}
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             {isTr ? "Vazgeç" : "Cancel"}
           </Button>
           <Button
@@ -322,7 +407,7 @@ function DispositionDialog({
           >
             {isTr ? "Kaydet" : "Save"}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="space-y-3">
@@ -384,8 +469,8 @@ function ReverseDialog({
       title={isTr ? "Müşteriye geri gönder" : "Return to customer"}
       description={item.title}
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             {isTr ? "Vazgeç" : "Cancel"}
           </Button>
           <Button
@@ -395,7 +480,7 @@ function ReverseDialog({
           >
             {isTr ? "Gönderi oluştur" : "Create shipment"}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="space-y-3">
@@ -464,14 +549,14 @@ function TrackingDialog({
       closeLabel={isTr ? "Kapat" : "Close"}
       title={isTr ? "Takip güncelle" : "Update tracking"}
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             {isTr ? "Vazgeç" : "Cancel"}
           </Button>
           <Button variant="primary" disabled={busy} onClick={() => onSubmit({ carrierName: carrier.trim() || undefined, trackingNumber: tracking.trim() || undefined })}>
             {isTr ? "Kaydet" : "Save"}
           </Button>
-        </div>
+        </>
       }
     >
       <div className="space-y-3">

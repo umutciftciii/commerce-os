@@ -1521,3 +1521,14 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   tracking/KPI/iade-penceresi projeksiyon izolasyonu. Reverse shipment OrderRefund/RefundIntent/envanter/
   paymentStatus ÜRETMEZ. `requireStoreAdmin` (K3). Migration additive replay ✓; gerçek-DB concurrency +
   20 yeni test + tam gate yeşil (2453 api-gateway). **Commit/deploy YOK.**
+
+## Post-PR163 Returns/Refund/Reverse Shipment UI Alignment — 2026-08-07
+
+PR #163 (Final Enterprise UI Polish) sonrası eklenen Returns/Refund/Fast-Refund/Reverse-Shipment yüzeyleri
+(TODO-169…173) enterprise UI standardına hizalandı — **yeni yüzeylere sınırlı polish + gerçek UI bug fix**;
+B1/C1/D1/TD-170/TD-173/TD-157/FP-3 CLOSED & DEPLOYED kalır, yeniden açılmadı. Store-admin ham-enum ödeme
+rozeti→friendly, reverse-shipment yıkıcı iptaller→onay modali (danger hiyerarşi), responsive taşma guard'ları,
+modal/badge tutarlılığı; storefront reverse-shipment section i18n sözlüğe taşındı (isTr dallanması kaldırıldı,
+11-değerli statuses), wizard a11y aria-label + çift-hata giderme, `Row` uzun-değer taşma fix (375px, smoke'ta
+bulundu). Backend/API/migration DEĞİŞMEDİ. Gate tam yeşil + izole throwaway fixture ile browser smoke
+(375/768/1024/1440), FK-güvenli teardown (enterprise-demo dokunulmadı). Detay: `docs/TECHNICAL_DEBT.md`.
