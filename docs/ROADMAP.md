@@ -1401,11 +1401,22 @@ deployed :3002 UI enterprise-demo'da render + currency dropdown fix (TRY seçili
 analiz: `docs/analysis/FINANCIAL-reporting-foundation.md`. Future: refund tutarı, payment fee, FX,
 profitability allocation, FinancialDailyAggregate, XLSX, scheduled reports, platform cross-store.
 
-## Gift Cards & Store Credit — FUTURE BACKLOG
+## Customer Shopping Balance / Store Credit — ✅ ACTIVE (TODO-174B, 2026-08-07; ADR-281…284)
 
-Bu fazda geliştirilmedi. Financial Reporting sözlüğü, gelecekte gift card issued liability / redeemed
-allocation / outstanding & expired balance / store credit movement kaynaklarını EKlenebilir şekilde tasarlandı;
-ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLMEZ.
+Gerçek TL alışveriş bakiyesi (store credit) foundation ACTIVE: lot-tabanlı FEFO immutable ledger
+(`CustomerCreditAccount`/`CustomerCreditLot`/`CustomerCreditLedgerEntry`; BigInt minor-money, advisory-lock +
+version guard + idempotency; expiry zorunlu 30/60/120/180 gün, lot-seviyesi FEFO; available=Σ canlı lot). Admin
+goodwill credit (policy-gated + recovery entegrasyonu), storefront `Alışveriş Bakiyem` + hareket geçmişi, checkout
+allocation (STORE_CREDIT PaymentAttempt; tam/kısmi credit), cancellation restore (kaynak-bazlı; kart→PSP,
+credit→bakiye). Order Experience Recovery Operations (ADR-283) bu bakiyeyi geri kazanım aksiyonuna bağlar.
+
+## Gift Card Purchase / Code Redemption — FUTURE BACKLOG
+
+Hediye kartı satın alma / gift card ürünü / kod üretme / redeem / 3. kişiye hediye / e-posta teslim /
+gift-card ürün-expiry politikası bu fazda KAPSAM DIŞI (TODO-174B spec §13). Customer Shopping Balance foundation
+(yukarıda) ACTIVE; **satın alınabilir gift card implement edilmiş DEĞİL.** Financial Reporting sözlüğü gift card
+issued liability / redeemed allocation / outstanding & expired balance kaynaklarını EKlenebilir tasarlandı; ancak
+bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLMEZ.
 
 ## Pre-Refund UX Recovery & Unified Session Policy (design) — 2026-08-04
 

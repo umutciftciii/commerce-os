@@ -2307,7 +2307,24 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 
 - **TD-174A-1** `OrderExperienceReview` için Store Admin görünürlük/moderasyon UI'ı ve sipariş-deneyimi
   metriği (raporlama) YOK — bu fazda yalnız müşteri yakalama. Ürün kararı: ileride admin raporlamasında
-  kullanılabilir (ADR-279). FUTURE.
+  kullanılabilir (ADR-279). **✅ RESOLVED (TODO-174B, 2026-08-07):** Store Admin `Müşteri Deneyimi > Sipariş
+  Deneyimi` yüzeyi (liste + KPI + recovery case detay/lifecycle) + otomatik recovery case (1-2★) + goodwill
+  credit shipped (ADR-283). ProductReview/aggregate'e sıfır dokunuş korundu.
+
+## TODO-174B Order Experience Recovery + Store Credit — açık borç (FUTURE)
+
+- **TD-174B-1** Store Admin **sipariş detayı** "Sipariş Deneyimi" kartı + payment-summary "alışveriş bakiyesi
+  kullanıldı" satırı henüz sipariş-detay yüzeyine eklenmedi (order detail response enrichment gerekir). Recovery
+  verisi ayrı `Sipariş Deneyimi` yüzeyinde tam görünür; order-detail çapraz-link FUTURE. Storefront sipariş
+  detayında credit-used satırı da (order snapshot `shoppingCreditUsedMinor` hazır) FUTURE.
+- **TD-174B-2** Gelişmiş credit reporting (outstanding liability / issued / spent / restored / expired /
+  adjustments finans ekranı) henüz ayrı rapor yüzeyi değil — veriler ledger'dan türetilebilir (KPI endpoint
+  goodwill toplamı sağlar). Finans>Raporlar entegrasyonu FUTURE.
+- **TD-174B-3** 4-viewport browser smoke (izole fixture, gerçek auth) merge öncesi manuel adım olarak önerilir;
+  otomatik kapsama güçlü (33 yeni test + ~4000 regresyon yeşil + iki app tam production build).
+- **Gift Card Purchase / Code Redemption** — hediye kartı satın alma / kod üretme / redeem / 3. kişiye hediye /
+  e-posta teslim / gift-card ürün-expiry politikası bu fazda KAPSAM DIŞI (spec §13). Customer Shopping Balance /
+  Store Credit foundation ACTIVE; gift-card ürünü FUTURE.
 - **TD-174A-2** Store Admin birleşik İadeler listesinde `RETURN_REQUEST` satırları refund tutar/durum
   kolonlarını (refundStatus/refundAmountMinor) DOLDURMAZ (null) — iade refund durumu iade detayında
   gösterilir. Cancellation satırları refund alanlarını taşır. İstenirse return satırlarına da roll-up
