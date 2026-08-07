@@ -1,6 +1,6 @@
 # BUG-CART-003 — Variant Media / Coupon Repricing / Checkout Cart Identity Regression
 
-**Durum:** ✅ CLOSED & DEPLOYED (PR #TBD)
+**Durum:** ✅ CLOSED & DEPLOYED (PR #197)
 **Tarih:** 2026-08-08
 **Kapsam:** api-gateway (public/auth sepet projeksiyonu) + storefront-web (cart/checkout server resolver).
 **İlişki:** TODO-167/ADR-266 (Persistent Cart) sonrası regresyon; TD-174 kısmen kapatır. Videoda doğrulandı
