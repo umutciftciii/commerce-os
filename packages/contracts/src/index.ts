@@ -4566,6 +4566,12 @@ export const publicCheckoutRequestSchema = z
      * yazılır. Influencer attributionGrant'inden BAĞIMSIZ (ADR-120 coexistence). Geçersiz → atlanır.
      */
     sponsoredGrants: z.array(z.string().max(2048)).max(48).nullable().optional(),
+    /**
+     * TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle. true → sunucu min(availableCredit,
+     * payableOrderAmount) kadarını otomatik uygular (kısmi tutar girişi YOK). Yalnız oturum açmış
+     * müşteride etkilidir (anonim checkout'ta yoksayılır). Tutar İSTEMCİDEN GELMEZ (server-authoritative).
+     */
+    useShoppingCredit: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.billing && value.billing.sameAsShipping === false && !value.billingAddress) {
