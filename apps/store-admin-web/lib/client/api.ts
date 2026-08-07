@@ -28,6 +28,11 @@ import type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnFastRefundRequest,
+  AdminReturnDispositionCreateRequest,
+  AdminReturnDispositionCancelRequest,
+  AdminReverseShipmentCreateRequest,
+  AdminReverseShipmentStatusRequest,
+  AdminReverseShipmentTrackingRequest,
   AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
   PendingWorkSummary,
@@ -1040,6 +1045,46 @@ export const storeApi = {
   // TODO-169 (blocker #6) — sipariş detayında iade özeti + o siparişin talepleri.
   getOrderReturnSummary: (orderId: string) =>
     call<AdminOrderReturnsResponse>(`/api/orders/${orderId}/return-summary`),
+
+  // TODO-173 (ADR-274) — reddedilen adet disposition + reverse shipment (STORE_RETURN_TO_CUSTOMER).
+  // Tümü güncel iade detayını döndürür (UI reprojection).
+  setReturnDisposition: (returnId: string, input: AdminReturnDispositionCreateRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/dispositions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  cancelReturnDisposition: (
+    returnId: string,
+    dispositionId: string,
+    input: AdminReturnDispositionCancelRequest,
+  ) =>
+    mutatingCall<AdminReturnDetailResponse>(
+      `/api/orders/returns/${returnId}/dispositions/${dispositionId}/cancel`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  createReverseShipment: (returnId: string, input: AdminReverseShipmentCreateRequest) =>
+    mutatingCall<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}/reverse-shipments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  reverseShipmentStatus: (
+    returnId: string,
+    shipmentId: string,
+    input: AdminReverseShipmentStatusRequest,
+  ) =>
+    mutatingCall<AdminReturnDetailResponse>(
+      `/api/orders/returns/${returnId}/reverse-shipments/${shipmentId}/status`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  reverseShipmentTracking: (
+    returnId: string,
+    shipmentId: string,
+    input: AdminReverseShipmentTrackingRequest,
+  ) =>
+    mutatingCall<AdminReturnDetailResponse>(
+      `/api/orders/returns/${returnId}/reverse-shipments/${shipmentId}/tracking`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
 
   // Refunds (TODO-170 / ADR-270) — İade defteri & ödeme ters çevirme. Okumalar salt;
   // aksiyonlar CSRF'li + expectedVersion (optimistic concurrency). Mutasyonlar Bekleyen İş

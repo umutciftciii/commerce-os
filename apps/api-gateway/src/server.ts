@@ -3208,7 +3208,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     } },
     // TODO-135 — Karşılama rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
     // shipment durumu (yalnız DURUM alanı; statusText/iç ID/ham payload çekilmez).
-    shipments: { select: { status: true } },
+    // TODO-173 (ADR-274) — sipariş kargo rozeti yalnız OUTBOUND_TO_CUSTOMER'dan türetilir.
+    shipments: { where: { direction: "OUTBOUND_TO_CUSTOMER" }, select: { status: true } },
     // F4A.2 — Kampanya/kupon indirim SNAPSHOT satırları (OrderDiscount). Yalnız
     // güvenli alanlar; scopeSummary/couponId iç alanları çekilmez.
     discounts: { orderBy: { createdAt: "asc" }, select: {

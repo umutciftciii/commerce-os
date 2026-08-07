@@ -2217,3 +2217,16 @@ commit/deploy YOK). Aşağıdakiler bilinçli olarak kapsam dışı bırakıldı
   güvenli) + `apps/store-admin-web/vitest.config.ts` `maxForks = çekirdek−2` (zamanlama düzeltmesi) +
   `products-form-primary-category` senkron-assertion race'i `findByText` ile giderildi. Store-admin suite
   5× arka arkaya tam yeşil. `.skip`/retry/timeout-artırma KULLANILMADI.
+
+## TD-173-* — Reverse Shipment FUTURE (TODO-173 / ADR-274)
+
+- **TD-173-1 — `CUSTOMER_RETURN_TO_STORE` modele bağlama.** Müşteri→mağaza iade kargosu bugün `ReturnRequest.
+  returnCarrier/returnTrackingNumber/shippedAt` string alanlarıdır; enum değeri RESERVED. Shipment modeline
+  taşıma: dual-write → backfill → storefront/admin projection migration → legacy field deprecation. Bağımsız
+  migration + regresyon fazı; Reverse Shipment PR'ına sıkıştırılmadı (K2).
+- **TD-173-2 — Reverse shipment gerçek carrier/label automation.** Şu an manuel (serbest-metin carrier +
+  takip no; provider çağrısı yok). Gerçek online carrier label transportu FUTURE.
+- **TD-173-3 — Reverse shipment SLA + maliyet muhasebesi.** Ters gönderi teslim SLA'sı ve lojistik maliyet
+  kaydı FUTURE (bu faz yalnız lojistik/audit izi).
+- **TD-173-4 — SUPER_ADMIN istisna yönetimi.** Yüksek-maliyetli carrier override / manuel ücret yazma /
+  force-cancel-complete için güçlü yetki katmanı FUTURE (bu faz normal operasyon = `requireStoreAdmin`).

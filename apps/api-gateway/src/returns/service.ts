@@ -253,7 +253,11 @@ export async function createReturnRequest(
         id: true,
         currency: true,
         lines: { select: { id: true, quantity: true, unitPriceAmount: true } },
-        shipments: { select: { status: true, deliveredAt: true, updatedAt: true } },
+        // TODO-173 (ADR-274) — teslim ankoru yalnız OUTBOUND_TO_CUSTOMER'dan (reverse pencereyi kaydırmaz).
+        shipments: {
+          where: { direction: "OUTBOUND_TO_CUSTOMER" },
+          select: { status: true, deliveredAt: true, updatedAt: true },
+        },
       },
     });
     if (!order) return { ok: false, code: "ORDER_NOT_FOUND" };

@@ -201,3 +201,12 @@ Hatalar / kısıtlar:
 - <ör. TD-035: sandbox varış şubesi çözülemedi → 20001 (beklenen)>
 - <...>
 ```
+
+## TODO-173 (ADR-274) — Reverse shipment (STORE_RETURN_TO_CUSTOMER) operasyon notu
+
+Reverse shipment MANUELDIR: provider entegrasyonu YOKTUR (sync/webhook/barcode worker'ları `direction`
+filtreleriyle onları SEÇMEZ). Operatör iade detayında reddedilen kalem için disposition = "Müşteriye geri
+gönder" seçer, ters gönderi oluşturur (serbest-metin taşıyıcı + takip no opsiyonel), sonra elle "Kargoya
+verildi" → "Teslim edildi" ilerletir. **Bu para iadesi DEĞİLDİR** — OrderRefund/paymentStatus/envanter
+değişmez. Reverse gönderiler normal shipping operasyon listesinde varsayılan GÖRÜNMEZ (liste+KPI OUTBOUND'a
+scoped); `?direction=STORE_RETURN_TO_CUSTOMER` ile filtrelenebilir.

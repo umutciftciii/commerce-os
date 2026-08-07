@@ -7062,6 +7062,14 @@ export const shipmentStatusValueSchema = z.enum([
   "FAILED",
 ]);
 
+// TODO-173 (ADR-274) — kargo yönü (shipmentListQuerySchema'dan önce tanımlı olmalı — TDZ).
+export const shipmentDirectionSchema = z.enum([
+  "OUTBOUND_TO_CUSTOMER",
+  "CUSTOMER_RETURN_TO_STORE",
+  "STORE_RETURN_TO_CUSTOMER",
+]);
+export type ShipmentDirectionValue = z.infer<typeof shipmentDirectionSchema>;
+
 export const shipmentEventSchema = z.object({
   id: z.string(),
   eventType: shipmentEventTypeSchema,
@@ -7332,6 +7340,10 @@ export const shipmentListQuerySchema = z.object({
   dateTo: z.string().optional(),
   // Hizli filtreler: sorunlu / barkod bekleyen / teslim edilemeyen.
   flag: z.enum(["PROBLEM", "AWAITING_LABEL", "UNDELIVERABLE"]).optional(),
+  // TODO-173 (ADR-274) — kargo yönü filtresi. Belirtilmezse operasyon listesi + KPI OUTBOUND_TO_
+  // CUSTOMER'a düşer (normal gönderiler; reverse/customer-return SLA'yı kirletmez). Ayrı yönler
+  // filtrelenebilir.
+  direction: shipmentDirectionSchema.optional(),
   take: z.coerce.number().int().min(1).max(200).optional(),
   skip: z.coerce.number().int().min(0).optional(),
 });
@@ -11778,6 +11790,22 @@ export const customerRefundSummarySchema = z.object({
 });
 export type CustomerRefundSummary = z.infer<typeof customerRefundSummarySchema>;
 
+// TODO-173 (ADR-274) — Müşteri sade reverse tracking görünümü — teknik disposition kodu / internal
+// reason / recipient PII YOK; refund'dan AYRIK ("Ürün size geri gönderiliyor").
+export const customerReverseShipmentSchema = z.object({
+  productTitle: z.string(),
+  variantTitle: z.string().nullable(),
+  quantity: z.number().int().positive(),
+  carrierName: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  status: shipmentStatusValueSchema,
+  shippedAt: z.string().datetime().nullable(),
+  estimatedDeliveryAt: z.string().datetime().nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+});
+export type CustomerReverseShipment = z.infer<typeof customerReverseShipmentSchema>;
+
 export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
   currency: currencySchema,
   customerNote: z.string().nullable(),
@@ -11796,6 +11824,8 @@ export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
   canSubmitTracking: z.boolean(),
   items: z.array(customerReturnItemSchema),
   history: z.array(customerReturnHistoryEntrySchema),
+  // TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (STORE_RETURN_TO_CUSTOMER). Refund'dan AYRIK.
+  reverseShipments: z.array(customerReverseShipmentSchema).default([]),
 });
 
 export const customerReturnListResponseSchema = z.object({
@@ -11877,6 +11907,69 @@ export const pendingWorkSummarySchema = z.object({
 });
 export type PendingWorkSummary = z.infer<typeof pendingWorkSummarySchema>;
 
+/* ── TODO-173 (ADR-274): Reverse Shipment enum + record şemaları (admin detail'den önce) ──── */
+export const returnRejectedDispositionSchema = z.enum([
+  "RETURN_TO_CUSTOMER",
+  "DESTROY",
+  "SEND_TO_VENDOR",
+  "KEEP_IN_STORE",
+  "CONTACT_CUSTOMER",
+]);
+export type ReturnRejectedDispositionValue = z.infer<typeof returnRejectedDispositionSchema>;
+
+export const returnDispositionStatusSchema = z.enum(["PENDING", "COMPLETED", "CANCELLED"]);
+export type ReturnDispositionStatusValue = z.infer<typeof returnDispositionStatusSchema>;
+
+// Reverse shipment manuel durum hedefi (mevcut ShipmentStatus alt-kümesi + CANCELLED). "Kargoya verildi"
+// = IN_TRANSIT; "Teslim edildi" = DELIVERED; "İptal et" = CANCELLED (quantity serbest bırakır).
+export const reverseShipmentStatusTargetSchema = z.enum([
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "CANCELLED",
+]);
+export type ReverseShipmentStatusTarget = z.infer<typeof reverseShipmentStatusTargetSchema>;
+
+// Admin disposition kaydı (internal reason DAHİL — müşteriye ASLA sızmaz; yalnız admin DTO).
+export const adminReturnDispositionSchema = z.object({
+  id: z.string(),
+  returnItemId: z.string(),
+  type: returnRejectedDispositionSchema,
+  quantity: z.number().int().positive(),
+  status: returnDispositionStatusSchema,
+  reason: z.string().nullable(),
+  version: z.number().int().nonnegative(),
+  // RETURN_TO_CUSTOMER için türetme: bu tipteki (aktif) disposition'lardan zaten sevk edilen + kalan.
+  reverseShippedQuantity: z.number().int().nonnegative(),
+  reverseShippableRemaining: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AdminReturnDisposition = z.infer<typeof adminReturnDispositionSchema>;
+
+// Reverse shipment admin kaydı (STORE_RETURN_TO_CUSTOMER). reason internal (admin görünümü).
+export const reverseShipmentSchema = z.object({
+  id: z.string(),
+  direction: shipmentDirectionSchema,
+  returnRequestId: z.string().nullable(),
+  returnItemId: z.string().nullable(),
+  returnQuantity: z.number().int().positive().nullable(),
+  status: shipmentStatusValueSchema,
+  carrierName: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  trackingUrl: z.string().nullable(),
+  reason: z.string().nullable(),
+  recipientName: z.string().nullable(),
+  recipientCityName: z.string().nullable(),
+  recipientDistrictName: z.string().nullable(),
+  recipientAddress: z.string().nullable(),
+  estimatedDeliveryAt: z.string().datetime().nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ReverseShipment = z.infer<typeof reverseShipmentSchema>;
+
 /* ── Store Admin: iade detayı ─────────────────────────────────────────────────── */
 export const adminReturnAttachmentSchema = z.object({
   id: z.string(),
@@ -11906,6 +11999,11 @@ export const adminReturnItemSchema = z.object({
   purchasedQuantity: z.number().int().positive(),
   priorReturnedQuantity: z.number().int().nonnegative(),
   attachments: z.array(adminReturnAttachmentSchema),
+  // TODO-173 (ADR-274) — reddedilen adet disposition'ları + bu kalemden doğan reverse shipment'lar.
+  // undispositionedRejectedQuantity = rejectedQuantity − Σ(aktif disposition quantity) (karar bekleyen).
+  dispositions: z.array(adminReturnDispositionSchema).default([]),
+  reverseShipments: z.array(reverseShipmentSchema).default([]),
+  undispositionedRejectedQuantity: z.number().int().nonnegative().default(0),
 });
 
 export const adminReturnHistoryEntrySchema = z.object({
@@ -12187,6 +12285,71 @@ export const adminReturnFastRefundContextSchema = z.object({
 export const adminReturnFastRefundContextResponseSchema = z.object({
   context: adminReturnFastRefundContextSchema,
 });
+
+/* ── TODO-173 (ADR-274): Reverse Shipment + reddedilen-adet disposition (request/response) ──
+ * Direction üç yönlü; bu PR'da yalnız STORE_RETURN_TO_CUSTOMER gerçek akış (K2). Reddedilen adet
+ * disposition'ı ReturnRestockDecision'dan AYRI domain'dir (K1). Tüm mutation'lar expectedVersion +
+ * store-admin (K3); reverse shipment OrderRefund/RefundIntent/envanter ÜRETMEZ. Enum/record şemaları
+ * yukarıda (admin return detail'den önce) tanımlıdır. */
+// Disposition oluşturma (reddedilen adet üzerinde; Σ ≤ rejectedQuantity backend-enforce).
+export const adminReturnDispositionCreateRequestSchema = z.object({
+  returnItemId: z.string().min(1),
+  type: returnRejectedDispositionSchema,
+  quantity: z.number().int().positive(),
+  reason: z.string().trim().max(RETURN_COMMENT_MAX).optional(),
+  expectedVersion: returnExpectedVersionSchema,
+});
+export type AdminReturnDispositionCreateRequest = z.infer<
+  typeof adminReturnDispositionCreateRequestSchema
+>;
+
+// Disposition iptali (PENDING → CANCELLED; quantity serbest). COMPLETED iptal EDİLEMEZ (immutable).
+export const adminReturnDispositionCancelRequestSchema = z.object({
+  dispositionId: z.string().min(1),
+  reason: z.string().trim().max(RETURN_COMMENT_MAX).optional(),
+  expectedVersion: returnExpectedVersionSchema,
+});
+export type AdminReturnDispositionCancelRequest = z.infer<
+  typeof adminReturnDispositionCancelRequestSchema
+>;
+
+// Reverse shipment oluşturma. reason ZORUNLU (audit). quantity cap + duplicate backend-enforce.
+export const adminReverseShipmentCreateRequestSchema = z.object({
+  returnItemId: z.string().min(1),
+  quantity: z.number().int().positive(),
+  carrierName: z.string().trim().max(120).optional(),
+  trackingNumber: z.string().trim().max(120).optional(),
+  trackingUrl: z.string().trim().url().max(500).optional(),
+  estimatedDeliveryAt: z.string().datetime().optional(),
+  reason: z.string().trim().min(3).max(RETURN_COMMENT_MAX),
+  expectedVersion: returnExpectedVersionSchema,
+});
+export type AdminReverseShipmentCreateRequest = z.infer<
+  typeof adminReverseShipmentCreateRequestSchema
+>;
+
+// Reverse shipment durum aksiyonu (kargoya verildi/teslim/iptal). Monotonic + terminal guard backend'de.
+export const adminReverseShipmentStatusRequestSchema = z.object({
+  status: reverseShipmentStatusTargetSchema,
+  note: z.string().trim().max(RETURN_COMMENT_MAX).optional(),
+});
+export type AdminReverseShipmentStatusRequest = z.infer<
+  typeof adminReverseShipmentStatusRequestSchema
+>;
+
+// Reverse shipment carrier/tracking güncelleme (terminal olmayan gönderide).
+export const adminReverseShipmentTrackingRequestSchema = z.object({
+  carrierName: z.string().trim().max(120).nullable().optional(),
+  trackingNumber: z.string().trim().max(120).nullable().optional(),
+  trackingUrl: z.string().trim().url().max(500).nullable().optional(),
+  estimatedDeliveryAt: z.string().datetime().nullable().optional(),
+});
+export type AdminReverseShipmentTrackingRequest = z.infer<
+  typeof adminReverseShipmentTrackingRequestSchema
+>;
+
+export const adminReverseShipmentResponseSchema = z.object({ shipment: reverseShipmentSchema });
+export type AdminReverseShipmentResponse = z.infer<typeof adminReverseShipmentResponseSchema>;
 
 export type ReturnStatusValue = z.infer<typeof returnStatusSchema>;
 export type ReturnResolutionTypeValue = z.infer<typeof returnResolutionTypeSchema>;

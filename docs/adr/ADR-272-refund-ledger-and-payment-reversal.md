@@ -129,3 +129,6 @@ YOK:
    kılınması.
 
 Detay: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
+
+> **Guncelleme (TODO-173 / ADR-274):** Reverse Shipment bu ledger semantigini KORUR — ters gonderi
+> OrderRefund/RefundIntent URETMEZ; cap invariant/paymentStatus-a dokunmaz. Bkz. ADR-274.

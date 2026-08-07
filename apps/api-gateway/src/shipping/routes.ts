@@ -844,9 +844,17 @@ export function registerShippingAdminRoutes(
     "RETURNED",
   ];
 
+  // TODO-173 (ADR-274) — duplicate guard DIRECTION-AWARE: yalnız aynı yöndeki (varsayılan OUTBOUND_TO_
+  // CUSTOMER) aktif gönderi yeni gönderiyi bloklar. Aksi halde DELIVERED bir outbound gönderi, aynı
+  // siparişin STORE_RETURN_TO_CUSTOMER ters gönderisini yanlışlıkla 409'lardı.
   async function findActiveShipment(storeId: string, orderId: string) {
     return prisma.shipment.findFirst({
-      where: { storeId, orderId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+      where: {
+        storeId,
+        orderId,
+        direction: "OUTBOUND_TO_CUSTOMER",
+        status: { in: ACTIVE_SHIPMENT_STATUSES },
+      },
       orderBy: { createdAt: "desc" },
       include: { events: { orderBy: { createdAt: "asc" } } },
     });
@@ -1389,7 +1397,10 @@ export function registerShippingAdminRoutes(
     if (!access) return;
     const query = shipmentListQuerySchema.parse(request.query);
 
-    const where: Prisma.ShipmentWhereInput = { storeId: params.storeId };
+    // TODO-173 (ADR-274) — operasyon listesi + KPI DIRECTION-AWARE: belirtilmezse OUTBOUND_TO_CUSTOMER
+    // (normal gönderiler; reverse/customer-return KPI/SLA'yı kirletmez). Ayrı yön filtrelenebilir.
+    const direction = query.direction ?? "OUTBOUND_TO_CUSTOMER";
+    const where: Prisma.ShipmentWhereInput = { storeId: params.storeId, direction };
     if (query.provider) where.provider = query.provider;
     // Hizli filtreler — explicit status verilirse onu uygula (asagida override).
     if (query.flag === "PROBLEM") where.status = { in: ["DELIVERY_FAILED", "RETURNED", "FAILED"] };
@@ -1426,8 +1437,13 @@ export function registerShippingAdminRoutes(
         },
       }),
       prisma.shipment.count({ where }),
-      // KPI = magazadaki TUM gönderiler (genel bakis; liste filtresinden bagimsiz).
-      prisma.shipment.groupBy({ by: ["status"], where: { storeId: params.storeId }, _count: { _all: true } }),
+      // KPI = magazadaki gönderiler (genel bakis; liste filtresinden bagimsiz) — AMA aynı direction'da
+      // (TODO-173: reverse/customer-return KPI'yı kirletmez).
+      prisma.shipment.groupBy({
+        by: ["status"],
+        where: { storeId: params.storeId, direction },
+        _count: { _all: true },
+      }),
     ]);
 
     const kpi = { prepared: 0, awaitingLabel: 0, inTransit: 0, delivered: 0, problem: 0 };
@@ -1590,6 +1606,11 @@ export function registerShippingAdminRoutes(
     const input = shipmentStatusUpdateRequestSchema.parse(request.body);
     const loaded = await loadStoreShipmentWithCfg(params.storeId, params.shipmentId);
     if (!loaded) return reply.code(404).send(errorBody("SHIPMENT_NOT_FOUND", "Gönderi bulunamadı."));
+    // TODO-173 (ADR-274) — bu outbound operasyon route'u yalnız OUTBOUND_TO_CUSTOMER gönderileri yönetir;
+    // reverse/customer-return gönderileri AYRI route'tan geçer (order FULFILLED kirlenmesin).
+    if (loaded.shipment.direction !== "OUTBOUND_TO_CUSTOMER") {
+      return reply.code(404).send(errorBody("SHIPMENT_NOT_FOUND", "Gönderi bulunamadı."));
+    }
     const current = loaded.shipment.status;
     const verdict = evaluateManualStatusChange(current, input.status);
     if (!verdict.ok) {

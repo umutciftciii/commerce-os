@@ -188,7 +188,17 @@
   `eventType`+`metadata`** kolonları (domain sorgusu exact-match; 2. additive migration); (3) **flaky
   store-admin testleri kök-neden çözüldü** (`userEvent delay:null` + `vitest.config.ts maxForks=çekirdek−2`
   + `findByText`; store-admin 5× tam yeşil; TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.** Detay:
-  `docs/adr/ADR-273-fast-refund-controls.md`. **PR3 (Reverse Shipment) PLANNED.**
+  `docs/adr/ADR-273-fast-refund-controls.md`. **PR3 (Reverse Shipment) → TODO-173 IMPLEMENTED (aşağıda).**
+
+- **TODO-173 Reverse Shipment (Return Flow PR3) — 🟡 IMPLEMENTED / NOT SHIPPED** (ADR-274,
+  `docs/analysis/REVERSE-SHIPMENT.md`). İncelemede reddedilen ürünün mağazadan müşteriye güvenli geri
+  gönderimi; normal fulfillment / müşteri-iade kargosu / refund ledger'dan AYRIK. Üç yönlü `ShipmentDirection`
+  (yalnız `STORE_RETURN_TO_CUSTOMER` gerçek akış; `CUSTOMER_RETURN_TO_STORE` reserved — K2). Ayrı disposition
+  domain'i (`ReturnRejectedDisposition` + `ReturnItemDisposition`; `ReturnRestockDecision` GENİŞLETİLMEDİ —
+  K1 düzeltmesi). Reverse shipment `Shipment` REUSE + provider config REUSE (K5), OrderRefund/RefundIntent/
+  envanter/paymentStatus ÜRETMEZ, `requireStoreAdmin` (K3). Direction-aware duplicate/fulfillment/tracking/
+  KPI/iade-penceresi izolasyonu. Additive migration replay ✓; gerçek-DB concurrency (advisory lock) + 20 yeni
+  test + tam gate yeşil (2453 api-gateway, 0 regresyon). **commit/push/PR/merge/deploy YOK.**
 
 - **Financial Reporting Foundation — ✅ CLOSED & DEPLOYED** (PR #168 merge `9a4c8db` + currency-selector fix
   PR #169 `eb31cc3`; 2026-08-03). api-gateway + store-admin-web main'den rebuild+recreate (`--no-deps`;

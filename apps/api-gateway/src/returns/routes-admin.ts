@@ -18,8 +18,20 @@ import {
   adminReturnFastRefundRequestSchema,
   adminReturnFastRefundContextResponseSchema,
   adminOrderReturnsResponseSchema,
+  adminReturnDispositionCreateRequestSchema,
+  adminReturnDispositionCancelRequestSchema,
+  adminReverseShipmentCreateRequestSchema,
+  adminReverseShipmentStatusRequestSchema,
+  adminReverseShipmentTrackingRequestSchema,
   type AdminReturnRefundSummary,
 } from "@commerce-os/contracts";
+import {
+  setReturnItemDisposition,
+  cancelReturnItemDisposition,
+  createReverseShipment,
+  updateReverseShipmentStatus,
+  updateReverseShipmentTracking,
+} from "./reverse-shipment.js";
 import { sumCapturedMinor } from "../payments/payment-state.js";
 import { computeRefundableRemainingMinor, sumSucceededRefundMinor } from "../refunds/cap-calc.js";
 import { resolveRefundSummaryStatus } from "../refunds/summary-status.js";
@@ -622,6 +634,173 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!detail) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
     return adminReturnDetailResponseSchema.parse({ return: detail });
   });
+
+  // ── TODO-173 (ADR-274) — Reddedilen adet disposition + reverse shipment (STORE_RETURN_TO_CUSTOMER).
+  // Tümü requireStoreAdmin (K3; refund/payment yetkisinden AYRI). expectedVersion + cap/duplicate
+  // backend-enforce. Reverse shipment OrderRefund/RefundIntent/envanter/paymentStatus ÜRETMEZ.
+  async function refreshDetail(reply: FastifyReply, storeId: string, returnId: string) {
+    const detail = await loadAdminDetail(storeId, returnId, deps.mediaBaseUrl);
+    if (!detail) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
+    return adminReturnDetailResponseSchema.parse({ return: detail });
+  }
+
+  // Disposition oluştur (reddedilen adet üzerinde).
+  app.post("/stores/:storeId/returns/:returnId/dispositions", async (request, reply) => {
+    const params = returnParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReturnDispositionCreateRequestSchema.parse(request.body);
+    const result = await setReturnItemDisposition(params.storeId, params.returnId, input, {
+      type: "ADMIN",
+      id: access.actorUserId,
+    });
+    if (!result.ok) return replyReverseError(reply, result.code);
+    await deps.recordAudit({
+      action: "CREATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReturnItemDisposition",
+      entityId: result.dispositionId,
+      metadata: {
+        action: "return.disposition.set",
+        returnId: params.returnId,
+        returnItemId: input.returnItemId,
+        type: input.type,
+        quantity: input.quantity,
+      },
+    });
+    return refreshDetail(reply, params.storeId, params.returnId);
+  });
+
+  // Disposition iptal (quantity serbest).
+  app.post("/stores/:storeId/returns/:returnId/dispositions/:dispositionId/cancel", async (request, reply) => {
+    const params = z
+      .object({ storeId: z.string().min(1), returnId: z.string().min(1), dispositionId: z.string().min(1) })
+      .parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const body = adminReturnDispositionCancelRequestSchema.parse({
+      ...(request.body as Record<string, unknown>),
+      dispositionId: params.dispositionId,
+    });
+    const result = await cancelReturnItemDisposition(params.storeId, params.returnId, body, {
+      type: "ADMIN",
+      id: access.actorUserId,
+    });
+    if (!result.ok) return replyReverseError(reply, result.code);
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReturnItemDisposition",
+      entityId: params.dispositionId,
+      metadata: { action: "return.disposition.cancel", returnId: params.returnId },
+    });
+    return refreshDetail(reply, params.storeId, params.returnId);
+  });
+
+  // Reverse shipment oluştur (yalnız RETURN_TO_CUSTOMER disposition kapasitesi kadar).
+  app.post("/stores/:storeId/returns/:returnId/reverse-shipments", async (request, reply) => {
+    const params = returnParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReverseShipmentCreateRequestSchema.parse(request.body);
+    const result = await createReverseShipment(params.storeId, params.returnId, input, {
+      type: "ADMIN",
+      id: access.actorUserId,
+    });
+    if (!result.ok) return replyReverseError(reply, result.code);
+    await deps.recordAudit({
+      action: "CREATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReverseShipment",
+      entityId: result.shipmentId,
+      metadata: {
+        action: "return.reverse_shipment.create",
+        returnId: params.returnId,
+        returnItemId: input.returnItemId,
+        quantity: input.quantity,
+      },
+    });
+    return refreshDetail(reply, params.storeId, params.returnId);
+  });
+
+  // Reverse shipment durum aksiyonu (kargoya verildi/teslim/iptal).
+  app.post("/stores/:storeId/returns/:returnId/reverse-shipments/:shipmentId/status", async (request, reply) => {
+    const params = z
+      .object({ storeId: z.string().min(1), returnId: z.string().min(1), shipmentId: z.string().min(1) })
+      .parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReverseShipmentStatusRequestSchema.parse(request.body);
+    const result = await updateReverseShipmentStatus(
+      params.storeId,
+      params.shipmentId,
+      input.status,
+      input.note,
+      { type: "ADMIN", id: access.actorUserId },
+    );
+    if (!result.ok) return replyReverseError(reply, result.code);
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReverseShipment",
+      entityId: params.shipmentId,
+      metadata: { action: "return.reverse_shipment.status", returnId: params.returnId, status: input.status },
+    });
+    return refreshDetail(reply, params.storeId, params.returnId);
+  });
+
+  // Reverse shipment carrier/tracking güncelle.
+  app.post("/stores/:storeId/returns/:returnId/reverse-shipments/:shipmentId/tracking", async (request, reply) => {
+    const params = z
+      .object({ storeId: z.string().min(1), returnId: z.string().min(1), shipmentId: z.string().min(1) })
+      .parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const input = adminReverseShipmentTrackingRequestSchema.parse(request.body);
+    const result = await updateReverseShipmentTracking(params.storeId, params.shipmentId, input, {
+      type: "ADMIN",
+      id: access.actorUserId,
+    });
+    if (!result.ok) return replyReverseError(reply, result.code);
+    await deps.recordAudit({
+      action: "UPDATE",
+      platformUserId: access.actorUserId,
+      storeId: params.storeId,
+      entityType: "ReverseShipment",
+      entityId: params.shipmentId,
+      metadata: { action: "return.reverse_shipment.tracking", returnId: params.returnId },
+    });
+    return refreshDetail(reply, params.storeId, params.returnId);
+  });
+}
+
+// TODO-173 (ADR-274) — reverse/disposition domain kodları → HTTP eşlemesi (fail-closed).
+const REVERSE_HTTP_BY_CODE: Record<string, { status: number; message: string }> = {
+  RETURN_NOT_FOUND: { status: 404, message: "İade bulunamadı." },
+  RETURN_ITEM_NOT_FOUND: { status: 404, message: "İade kalemi bu talebe ait değil." },
+  DISPOSITION_NOT_FOUND: { status: 404, message: "Disposition kaydı bulunamadı." },
+  SHIPMENT_NOT_FOUND: { status: 404, message: "Ters gönderi bulunamadı." },
+  VERSION_CONFLICT: { status: 409, message: "Kayıt güncellendi; sayfayı yenileyip tekrar deneyin." },
+  NO_REJECTED_QUANTITY: { status: 409, message: "Bu kalemde reddedilmiş adet yok." },
+  DISPOSITION_QUANTITY_EXCEEDED: { status: 409, message: "Disposition adedi reddedilen adedi aşamaz." },
+  DISPOSITION_NOT_CANCELLABLE: { status: 409, message: "Yalnız beklemedeki disposition iptal edilebilir." },
+  DISPOSITION_CONSUMED: { status: 409, message: "Bu disposition için ters gönderi oluşturulmuş; iptal edilemez." },
+  REVERSE_NO_DISPOSITION: { status: 409, message: "Önce 'Müşteriye geri gönder' disposition'ı seçin." },
+  REVERSE_QUANTITY_EXCEEDED: { status: 409, message: "Ters gönderi adedi kalan gönderilebilir adedi aşamaz." },
+  MISSING_SHIPPING_ADDRESS: { status: 409, message: "Müşteri teslimat adresi bulunamadı." },
+  SHIPMENT_TERMINAL: { status: 409, message: "Gönderi terminal durumda; güncellenemez." },
+  STATUS_REGRESSION: { status: 409, message: "Gönderi durumu geriye alınamaz." },
+  INVALID_TARGET: { status: 409, message: "Geçersiz durum hedefi." },
+  NO_CHANGE: { status: 409, message: "Durum zaten bu değerde." },
+};
+
+function replyReverseError(reply: FastifyReply, code: string) {
+  const m = REVERSE_HTTP_BY_CODE[code] ?? { status: 409, message: "İşlem reddedildi." };
+  return reply.code(m.status).send(errorBody(code, m.message));
 }
 
 const TRANSITION_TIMESTAMP: Partial<Record<string, "reviewedAt" | "receivedAt" | "shippedAt" | "completedAt">> = {
@@ -719,6 +898,12 @@ async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: 
             },
           },
           attachments: { select: { id: true, type: true } },
+          // TODO-173 (ADR-274) — reddedilen adet disposition'ları + bu kalemin reverse shipment'ları.
+          dispositions: { orderBy: { createdAt: "asc" } },
+          shipments: {
+            where: { direction: "STORE_RETURN_TO_CUSTOMER" },
+            orderBy: { createdAt: "asc" },
+          },
         },
       },
       history: { orderBy: { createdAt: "asc" } },

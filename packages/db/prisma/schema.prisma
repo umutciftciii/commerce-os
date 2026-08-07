@@ -476,6 +476,18 @@ enum ShipmentStatus {
   FAILED
 }
 
+// TODO-173 (ADR-274) — Kargo yönü. Mevcut tüm gönderiler (implicit outbound) default ile
+// OUTBOUND_TO_CUSTOMER'a düşer (geri uyumlu). CUSTOMER_RETURN_TO_STORE bu fazda RESERVED
+// domain value'dur (müşteri→mağaza iade kargosu bugün ReturnRequest string alanlarındadır;
+// Shipment kaydı üretilmez — bkz. ADR-274 §FUTURE). STORE_RETURN_TO_CUSTOMER = incelemede
+// reddedilen ürünün mağazadan müşteriye geri gönderimi (bu PR'ın gerçek akışı). Genel/belirsiz
+// "OUTBOUND"/"RETURN" KULLANILMAZ; tüm shipment projeksiyon/guard'ları direction-aware'dir.
+enum ShipmentDirection {
+  OUTBOUND_TO_CUSTOMER
+  CUSTOMER_RETURN_TO_STORE
+  STORE_RETURN_TO_CUSTOMER
+}
+
 // TODO-104 — imzasi gecerli webhook teslimatinin isleme sonucu.
 // ACCEPTED = shipment bulundu, durum/event islendi.
 // IGNORED_UNKNOWN_SHIPMENT = imza gecerli ama eslesen gonderi yok (audit kaydi kalir).
@@ -817,36 +829,36 @@ model PlatformUser {
 }
 
 model PlatformSession {
-  id             String    @id @default(cuid())
-  platformUserId String
-  tokenHash      String    @unique
+  id                   String    @id @default(cuid())
+  platformUserId       String
+  tokenHash            String    @unique
   // ADR-271 (Unified Session Policy) — iki-kapili omur.
   // `expiresAt` GERI-UYUMLULUK icin korunur; ADR-271 sonrasi login'de
   // `absoluteExpiresAt` ile ayni degere set edilir. Otoriter gecerlilik:
   //   now <= min(lastActivityAt + idleTimeout(rememberMe), absoluteExpiresAt) && revokedAt == null
   // idle deadline SAKLANMAZ; `lastActivityAt`'ten policy ile HESAPLANIR.
-  expiresAt      DateTime
+  expiresAt            DateTime
   // ADR-271 — kayan idle capasi (anlamli aktiviteyle throttle'li yenilenir).
   // Mevcut satirlar icin backfill = updatedAt.
-  lastActivityAt DateTime  @default(now())
+  lastActivityAt       DateTime  @default(now())
   // ADR-271 — mutlak tavan; idle yenileme bunu ASLA asamaz. Guvenli-additive
   // olması için nullable: ADR-271 oncesi/paralel main-branch INSERT'leri bunu
   // set etmez → validator `absoluteExpiresAt ?? expiresAt` ile geriye duser.
   // Mevcut satirlar icin backfill = expiresAt.
-  absoluteExpiresAt DateTime?
+  absoluteExpiresAt    DateTime?
   // ADR-271 — login/extend'de secilen politika penceresi (server-otoriter).
-  rememberMe     Boolean   @default(false)
+  rememberMe           Boolean   @default(false)
   // ADR-271 — token rotation soyagaci (fixation savunmasi/denetim izi).
   rotatedFromSessionId String?
   // ADR-271 hardening (M1) — legacy cutover marker. 0 = ADR-271-oncesi (grandfathered:
   // yalniz absolute tavan uygulanir, idle collapse YOK) → ilk ANLAMLI aktivitede 1'e terfi
   // (taze idle penceresi o an baslar). 1 = ADR-271-native (idle+absolute). Yeni satirlar 1.
-  policyVersion  Int       @default(1)
-  revokedAt      DateTime?
-  userAgent      String?
-  ipAddress      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  policyVersion        Int       @default(1)
+  revokedAt            DateTime?
+  userAgent            String?
+  ipAddress            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
 
@@ -1003,6 +1015,8 @@ model Store {
   returnStatusHistory              ReturnStatusHistory[]
   refundIntents                    RefundIntent[]
   returnNumberCounters             ReturnNumberCounter[]
+  // TODO-173 (ADR-274) — reddedilen adet disposition kayıtları (store-scoped; Cascade).
+  returnItemDispositions           ReturnItemDisposition[]
   // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal (store-scoped; Cascade).
   orderRefunds                     OrderRefund[]
 }
@@ -1648,29 +1662,29 @@ model CustomerCredentialToken {
 // Musteri oturumu (F3B.3). PlatformSession deseni: raw token DB'de tutulmaz,
 // yalnizca sha256 tokenHash. Storefront httpOnly cookie -> gateway server-to-server.
 model CustomerSession {
-  id         String    @id @default(cuid())
-  storeId    String
-  customerId String
-  tokenHash  String    @unique
+  id                   String    @id @default(cuid())
+  storeId              String
+  customerId           String
+  tokenHash            String    @unique
   // ADR-271 (Unified Session Policy) — PlatformSession ile ORTAK iki-kapili omur.
   // `expiresAt` geri-uyumluluk icin korunur (ADR-271 sonrasi = absoluteExpiresAt).
   // Otoriter gecerlilik: now <= min(lastActivityAt + idleTimeout(rememberMe),
   // absoluteExpiresAt) && revokedAt == null. idle deadline HESAPLANIR, saklanmaz.
-  expiresAt  DateTime
-  lastActivityAt DateTime @default(now())
+  expiresAt            DateTime
+  lastActivityAt       DateTime  @default(now())
   // Guvenli-additive: nullable → validator `absoluteExpiresAt ?? expiresAt`.
   // Backfill: absoluteExpiresAt = expiresAt, lastActivityAt = updatedAt.
-  absoluteExpiresAt DateTime?
-  rememberMe Boolean   @default(false)
+  absoluteExpiresAt    DateTime?
+  rememberMe           Boolean   @default(false)
   rotatedFromSessionId String?
   // ADR-271 hardening (M1) — PlatformSession ile ORTAK legacy cutover marker.
   // 0 = grandfathered (absolute-only, idle collapse YOK) → ilk anlamli aktivitede 1'e terfi.
-  policyVersion Int    @default(1)
-  revokedAt  DateTime?
-  userAgent  String?
-  ipAddress  String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  policyVersion        Int       @default(1)
+  revokedAt            DateTime?
+  userAgent            String?
+  ipAddress            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -1872,34 +1886,34 @@ model Order {
 }
 
 model OrderLine {
-  id                   String   @id @default(cuid())
-  storeId              String
-  orderId              String
-  productId            String
-  variantId            String
-  sku                  String
-  title                String
-  variantTitle         String
-  quantity             Int
-  unitPriceAmount      Int
-  totalAmount          Int
-  currency             String
+  id                     String   @id @default(cuid())
+  storeId                String
+  orderId                String
+  productId              String
+  variantId              String
+  sku                    String
+  title                  String
+  variantTitle           String
+  quantity               Int
+  unitPriceAmount        Int
+  totalAmount            Int
+  currency               String
   // F4C (ADR-063/ADR-064) — Siparis ani KDV/maliyet/liste SNAPSHOT'lari
   // (fatura/yasal belge + kar analizi temeli). unitPriceAmount/totalAmount
   // KDV DAHIL brut olarak KALIR (geri uyum); asagidaki alanlar additive'dir ve
   // ESKI siparislerde NULL kalir (legacy — yeniden HESAPLANMAZ, yaniltici sifir
   // gosterilmez). unitGross/lineGross bilincli acik yazilir (fatura semantigi).
   // unitListPriceMinor = siparis anindaki liste fiyati (compareAt ?? brut satis).
-  unitNetPriceMinor    Int?
-  unitVatRateBps       Int?
-  unitVatAmountMinor   Int?
-  unitGrossPriceMinor  Int?
-  unitListPriceMinor   Int?
-  unitCostMinor        Int?
-  lineNetAmountMinor   Int?
-  lineVatAmountMinor   Int?
-  lineGrossAmountMinor Int?
-  lineCostMinor        Int?
+  unitNetPriceMinor      Int?
+  unitVatRateBps         Int?
+  unitVatAmountMinor     Int?
+  unitGrossPriceMinor    Int?
+  unitListPriceMinor     Int?
+  unitCostMinor          Int?
+  lineNetAmountMinor     Int?
+  lineVatAmountMinor     Int?
+  lineGrossAmountMinor   Int?
+  lineCostMinor          Int?
   // TD-FR-7 — Bu kaleme siparis aninda FIILEN dusen order-level indirim (KDV DAHIL).
   // Kaynak dogrusu = kampanya/checkout motoru (scope'u bilir; DiscountEngineResult
   // .lineDiscounts). Snapshot IMMUTABLE'dir. Iade hesabi (returns/refund-calc) bu
@@ -1913,14 +1927,14 @@ model OrderLine {
   // doldurulur (createOrder/addOrderLine); ProductVariantOptionValue ⋈ AttributeOption'dan
   // TURETILIR ve IMMUTABLE'dir (urun/varyant sonradan degisse bile snapshot sabit kalir).
   // ESKI/fashion-disi kalemlerde NULL. Client manipule EDEMEZ (variantId'den turetilir).
-  selectedColor        String? // secili renk display adi (AttributeOption.label)
-  selectedColorHex     String? // secili renk hex swatch (#rrggbb) — sunum
-  selectedSize         String? // secili beden display etiketi
-  sizeSystem           String? // beden sistemi anahtari (SizeSystemKey) — snapshot
-  swatchLabel          String? // swatch etiketi (renk ailesi / desen ozeti)
-  materialSummary      String? // kisa materyal/kompozisyon ozeti
-  variantDisplayName   String? // insan-okur varyant adi ("Kirmizi / M")
-  createdAt            DateTime @default(now())
+  selectedColor          String? // secili renk display adi (AttributeOption.label)
+  selectedColorHex       String? // secili renk hex swatch (#rrggbb) — sunum
+  selectedSize           String? // secili beden display etiketi
+  sizeSystem             String? // beden sistemi anahtari (SizeSystemKey) — snapshot
+  swatchLabel            String? // swatch etiketi (renk ailesi / desen ozeti)
+  materialSummary        String? // kisa materyal/kompozisyon ozeti
+  variantDisplayName     String? // insan-okur varyant adi ("Kirmizi / M")
+  createdAt              DateTime @default(now())
 
   store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -2228,8 +2242,30 @@ model Shipment {
   id                        String               @id @default(cuid())
   storeId                   String
   orderId                   String
+  // TODO-173 (ADR-274) — Kargo yönü. Mevcut kayıtlar default OUTBOUND_TO_CUSTOMER. Tüm duplicate
+  // guard / fulfillment / tracking / KPI projeksiyonları bu alanla direction-aware'dir.
+  direction                 ShipmentDirection    @default(OUTBOUND_TO_CUSTOMER)
+  // TODO-173 (ADR-274) — Reverse shipment (STORE_RETURN_TO_CUSTOMER) MANUELDIR: gerçek carrier
+  // entegrasyonu yoktur → provider/providerConfigId, siparişin mevcut OUTBOUND gönderisinin config'ini
+  // REUSE eder (kolonlar NOT NULL kalır; tip sürtünmesi yok). Reverse gönderiler sync/webhook/barcode
+  // worker'larından `direction` filtreleriyle DIŞLANIR (provider çağrısı hiç yapılmaz).
   providerConfigId          String
   provider                  ShippingProviderType
+  // TODO-173 (ADR-274) — Reverse shipment bağları (yalnız STORE_RETURN_TO_CUSTOMER'da dolu; outbound'da null).
+  // returnQuantity = bu ters gönderiyle müşteriye geri gönderilen adet (cap invariant'a girer).
+  // sourceShipmentId = orijinal outbound gönderiye zayıf referans (izlenebilirlik). reverseShipmentReason =
+  // zorunlu operasyonel gerekçe (internal; müşteriye sızmaz). createdByPlatformUserId = audit aktörü.
+  returnRequestId           String?
+  returnItemId              String?
+  returnQuantity            Int?
+  sourceShipmentId          String?
+  reverseShipmentReason     String?
+  createdByPlatformUserId   String?
+  // TODO-173 (ADR-274) — Reverse shipment MANUEL taşıyıcı SERBEST-METNİ (provider enum'u
+  // MOCK/GELIVER/DHL taşımaz; ör. "Yurtiçi Kargo"). Yalnız STORE_RETURN_TO_CUSTOMER'da dolu.
+  carrierName               String?
+  // TODO-173 (ADR-274) — Müşteriye gösterilen tahmini teslim tarihi (opsiyonel; admin girer).
+  estimatedDeliveryAt       DateTime?
   externalOrderId           String?
   externalShipmentId        String?
   externalInvoiceId         String?
@@ -2293,10 +2329,15 @@ model Shipment {
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 
-  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  providerConfig ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
-  events         ShipmentEvent[]
+  store            Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order            Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  providerConfig   ShippingProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  events           ShipmentEvent[]
+  // TODO-173 (ADR-274) — Reverse shipment bağları (nullable; yalnız STORE_RETURN_TO_CUSTOMER).
+  returnRequest    ReturnRequest?         @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  returnItem       ReturnItem?            @relation(fields: [returnItemId], references: [id], onDelete: SetNull)
+  sourceShipment   Shipment?              @relation("ReverseShipmentSource", fields: [sourceShipmentId], references: [id], onDelete: SetNull)
+  reverseShipments Shipment[]             @relation("ReverseShipmentSource")
 
   @@unique([storeId, referenceId])
   @@index([storeId])
@@ -2309,6 +2350,13 @@ model Shipment {
   // TODO-123 — barkod retry worker'inin uygun gonderi secimi (status + backoff siralamasi).
   @@index([status, barcodeNextRetryAt])
   @@index([lastBarcodeErrorCode, barcodeNextRetryAt])
+  // TODO-173 (ADR-274) — direction-aware projeksiyon/guard/liste sorguları için.
+  @@index([storeId, direction])
+  @@index([direction, status])
+  @@index([returnRequestId])
+  @@index([returnItemId])
+  @@index([sourceShipmentId])
+  @@index([trackingNumber])
 }
 
 model ShipmentEvent {
@@ -5048,12 +5096,34 @@ enum ReturnInspectionResult {
 }
 
 // İnceleme sonrası stok kararı. YALNIZ RESTOCK_AS_SELLABLE inventory adjustment üretir.
+// NOT (TODO-173/ADR-274): Bu enum yalnız KABUL EDİLEN (received) adedin stok kararıdır; reddedilen
+// adet disposition'ı için GENİŞLETİLMEZ — o ayrı ReturnRejectedDisposition domain'idir (K1).
 enum ReturnRestockDecision {
   RESTOCK_AS_SELLABLE
   RESTOCK_AS_DAMAGED
   DO_NOT_RESTOCK
   RETURN_TO_VENDOR
   DISPOSE
+}
+
+// TODO-173 (ADR-274) — Reddedilen (rejected) adet için disposition türü. ReturnRestockDecision'dan
+// AYRIDIR (o kabul-adet-scoped stok kararıdır). Yalnız RETURN_TO_CUSTOMER reverse shipment üretebilir;
+// diğerleri lojistik/audit no-op'tur (fiziksel aksiyon backend'de tetiklenmez).
+enum ReturnRejectedDisposition {
+  RETURN_TO_CUSTOMER
+  DESTROY
+  SEND_TO_VENDOR
+  KEEP_IN_STORE
+  CONTACT_CUSTOMER
+}
+
+// TODO-173 (ADR-274) — Disposition kaydının yaşam döngüsü. PENDING = karar verildi, quantity cap'e girer
+// (rezerve). CANCELLED = quantity SERBEST bırakılır (cap'ten düşer, tekrar dispose edilebilir). COMPLETED =
+// terminal/IMMUTABLE (değiştirilemez/iptal edilemez; RETURN_TO_CUSTOMER'da reverse shipment kesinleşince).
+enum ReturnDispositionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
 }
 
 // Durum geçişini yapan aktör tipi (append-only ReturnStatusHistory). AuditLog yalnız platformUserId
@@ -5119,13 +5189,16 @@ model ReturnRequest {
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
-  store        Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order        Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customer     Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  store        Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order        Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer     Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
   items        ReturnItem[]
   history      ReturnStatusHistory[]
   refundIntent RefundIntent?
   orderRefunds OrderRefund[]
+  // TODO-173 (ADR-274) — reddedilen adet disposition'ları + bu iadeden doğan reverse shipment'lar.
+  dispositions ReturnItemDisposition[]
+  shipments    Shipment[]
 
   @@unique([storeId, returnNumber])
   @@index([storeId])
@@ -5155,14 +5228,47 @@ model ReturnItem {
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
 
-  store         Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  returnRequest ReturnRequest      @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
-  orderLine     OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnRequest ReturnRequest           @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderLine     OrderLine               @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
   attachments   ReturnAttachment[]
+  // TODO-173 (ADR-274) — bu kalemin reddedilen adedine ait disposition'lar + reverse shipment'lar.
+  dispositions  ReturnItemDisposition[]
+  shipments     Shipment[]
 
   @@index([storeId])
   @@index([returnRequestId])
   @@index([orderLineId])
+}
+
+// TODO-173 (ADR-274) — Reddedilen (rejected) adet için disposition kararı. ReturnRestockDecision'dan
+// AYRI domain'dir (o kabul-adet-scoped). Kurallar (backend-enforce): yalnız rejectedQuantity üzerinde;
+// Σ(quantity where status != CANCELLED, returnItemId) ≤ ReturnItem.rejectedQuantity; aynı reddedilen adet
+// iki aktif disposition'da olamaz; RETURN_TO_CUSTOMER reverse shipment üretebilir (diğerleri no-op);
+// CANCELLED quantity'yi serbest bırakır; COMPLETED immutable. Her karar append-only ReturnStatusHistory
+// (eventType/metadata) + AuditLog üretir. reason internal'dır (müşteriye sızmaz). version = optimistic lock.
+model ReturnItemDisposition {
+  id                      String                    @id @default(cuid())
+  storeId                 String
+  returnRequestId         String
+  returnItemId            String
+  type                    ReturnRejectedDisposition
+  quantity                Int
+  status                  ReturnDispositionStatus   @default(PENDING)
+  reason                  String?
+  createdByPlatformUserId String?
+  version                 Int                       @default(0)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  store         Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  returnItem    ReturnItem    @relation(fields: [returnItemId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([returnRequestId])
+  @@index([returnItemId])
+  @@index([returnItemId, status])
 }
 
 // İade kalemi fotoğraf/kanıt eki. media PRIVATE (public /media'dan sunulmaz); mediaAsset Restrict
@@ -5290,49 +5396,49 @@ enum OrderRefundActorType {
 }
 
 model OrderRefund {
-  id                        String               @id @default(cuid())
-  storeId                   String
-  orderId                   String
-  returnRequestId           String?
-  refundIntentId            String?
-  paymentAttemptId          String
+  id                              String               @id @default(cuid())
+  storeId                         String
+  orderId                         String
+  returnRequestId                 String?
+  refundIntentId                  String?
+  paymentAttemptId                String
   // Otomatik yürütmede sağlayıcı; saf MANUAL_OFFLINE'da null.
-  provider                  PaymentProviderType?
-  executionMode             RefundExecutionMode
-  method                    PaymentMethodType
-  status                    OrderRefundStatus    @default(PENDING)
-  currency                  String
+  provider                        PaymentProviderType?
+  executionMode                   RefundExecutionMode
+  method                          PaymentMethodType
+  status                          OrderRefundStatus    @default(PENDING)
+  currency                        String
   // Inclusive KDV: taxRefundMinor productRefundMinor'ın İÇİNDEDİR (disclosure only; üstüne eklenmez).
-  productRefundMinor        Int
-  shippingRefundMinor       Int
-  taxRefundMinor            Int
-  totalRefundMinor          Int
-  providerRefundId          String?
-  providerReference         String?
-  failureCode               String?
-  failureMessage            String?
+  productRefundMinor              Int
+  shippingRefundMinor             Int
+  taxRefundMinor                  Int
+  totalRefundMinor                Int
+  providerRefundId                String?
+  providerReference               String?
+  failureCode                     String?
+  failureMessage                  String?
   // MANUAL_OFFLINE alanları (banka havalesi / manuel kart iadesi).
-  manualMethod              PaymentManualMethod?
-  manualReference           String?
-  manualNote                String?
+  manualMethod                    PaymentManualMethod?
+  manualReference                 String?
+  manualNote                      String?
   manualCompletedByPlatformUserId String?
   // Server-üretimi idempotency (client belirlemez). İlk: order-refund:<intentId>; retry: ...:retry:<n>.
-  idempotencyKey            String
-  requestedByPlatformUserId String?
-  requestedAt               DateTime             @default(now())
-  processingStartedAt       DateTime?
-  completedAt               DateTime?
-  failedAt                  DateTime?
-  cancelledAt               DateTime?
-  version                   Int                  @default(0)
-  createdAt                 DateTime             @default(now())
-  updatedAt                 DateTime             @updatedAt
+  idempotencyKey                  String
+  requestedByPlatformUserId       String?
+  requestedAt                     DateTime             @default(now())
+  processingStartedAt             DateTime?
+  completedAt                     DateTime?
+  failedAt                        DateTime?
+  cancelledAt                     DateTime?
+  version                         Int                  @default(0)
+  createdAt                       DateTime             @default(now())
+  updatedAt                       DateTime             @updatedAt
 
-  store          Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  paymentAttempt PaymentAttempt @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
-  returnRequest  ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
-  refundIntent   RefundIntent?  @relation(fields: [refundIntentId], references: [id], onDelete: SetNull)
+  store          Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentAttempt PaymentAttempt     @relation(fields: [paymentAttemptId], references: [id], onDelete: Cascade)
+  returnRequest  ReturnRequest?     @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
+  refundIntent   RefundIntent?      @relation(fields: [refundIntentId], references: [id], onDelete: SetNull)
   events         OrderRefundEvent[]
 
   @@unique([storeId, idempotencyKey])

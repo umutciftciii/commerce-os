@@ -140,6 +140,12 @@ export default async function ReturnDetailPage({
             <RefundSection refund={detail.refund} r={r} locale={locale} />
           ) : null}
 
+          {/* TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (STORE_RETURN_TO_CUSTOMER). Refund'dan
+              AYRIK; teknik disposition kodu / internal not YOK. */}
+          {detail.reverseShipments.length > 0 ? (
+            <ReverseShipmentSection shipments={detail.reverseShipments} locale={locale} />
+          ) : null}
+
           <ItemsSection detail={detail} r={r} />
 
           {detail.customerNote ? (
@@ -347,6 +353,83 @@ function Timeline({
           </li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// TODO-173 (ADR-274) — "Ürün size geri gönderiliyor" (reddedilen ürünün geri gönderimi). PARA İADESİ
+// DEĞİLDİR; teknik disposition kodu / internal not gösterilmez. Durum renk+metin ile iletilir.
+function ReverseShipmentSection({
+  shipments,
+  locale,
+}: {
+  shipments: CustomerReturnDetail["reverseShipments"];
+  locale: Locale;
+}) {
+  const isTr = locale === "tr";
+  const statusLabel: Record<string, string> = isTr
+    ? {
+        DRAFT: "Hazırlanıyor",
+        IN_TRANSIT: "Yolda",
+        OUT_FOR_DELIVERY: "Dağıtımda",
+        DELIVERED: "Teslim edildi",
+        DELIVERY_FAILED: "Teslim edilemedi",
+        CANCELLED: "İptal edildi",
+        FAILED: "Başarısız",
+      }
+    : {
+        DRAFT: "Preparing",
+        IN_TRANSIT: "In transit",
+        OUT_FOR_DELIVERY: "Out for delivery",
+        DELIVERED: "Delivered",
+        DELIVERY_FAILED: "Delivery failed",
+        CANCELLED: "Cancelled",
+        FAILED: "Failed",
+      };
+  return (
+    <section className="border border-line p-4" aria-label={isTr ? "Ürün geri gönderimi" : "Product return to you"}>
+      <Subheading as="h2" className="mb-1">
+        {isTr ? "Ürün size geri gönderiliyor" : "Product is being sent back to you"}
+      </Subheading>
+      <Text className="mb-3 text-xs text-ink-subtle">
+        {isTr
+          ? "Bu bir kargo bildirimidir, para iadesi yapılmadı."
+          : "This is a shipping notice — no refund was issued."}
+      </Text>
+      <ul className="space-y-3">
+        {shipments.map((s, i) => (
+          <li key={i} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-ink">
+                {s.productTitle}
+                {s.variantTitle ? <span className="text-ink-muted"> · {s.variantTitle}</span> : null}
+                <span className="text-ink-subtle"> × {s.quantity}</span>
+              </p>
+              <Badge tone={s.status === "DELIVERED" ? "ink" : "muted"}>
+                {statusLabel[s.status] ?? s.status}
+              </Badge>
+            </div>
+            <dl className="mt-1.5 space-y-1 text-sm">
+              {s.carrierName ? <Row label={isTr ? "Taşıyıcı" : "Carrier"} value={s.carrierName} /> : null}
+              {s.trackingNumber ? (
+                <Row label={isTr ? "Takip numarası" : "Tracking number"} value={s.trackingNumber} />
+              ) : null}
+              {s.shippedAt ? (
+                <Row label={isTr ? "Gönderim" : "Shipped"} value={formatDate(s.shippedAt, locale)} />
+              ) : null}
+              {s.estimatedDeliveryAt ? (
+                <Row
+                  label={isTr ? "Tahmini teslim" : "Estimated delivery"}
+                  value={formatDate(s.estimatedDeliveryAt, locale)}
+                />
+              ) : null}
+              {s.deliveredAt ? (
+                <Row label={isTr ? "Teslim" : "Delivered"} value={formatDate(s.deliveredAt, locale)} />
+              ) : null}
+            </dl>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

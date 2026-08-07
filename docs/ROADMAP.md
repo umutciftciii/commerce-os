@@ -1511,8 +1511,13 @@ ancak bugün sahte kolon, sıfır değer veya boş Gift Card kartı GÖSTERİLME
   yok. Saf 17 + gerçek-DB 20 test yeşil. **Ship-hardening:** BigInt→kanonik string kontrat (TD-194 CLOSED),
   yapısal history `eventType`/`metadata` (2. additive migration), flaky store-admin kök-neden fix (5× yeşil,
   TD-199 CLOSED). **commit/push/PR/merge/deploy YOK.**
-- **PR3 — Reverse Shipment: PLANNED.** `Shipment.direction` üç yönlü additive enum baştan (K4:
-  `OUTBOUND_TO_CUSTOMER`/`CUSTOMER_RETURN_TO_STORE`/`STORE_RETURN_TO_CUSTOMER`; genel "OUTBOUND"
-  kullanılmaz); reddedilen ürünün müşteriye geri gönderimi için `STORE_RETURN_TO_CUSTOMER` disposition +
-  direction-aware create-guard/duplicate/projeksiyon/stok. Migration additive (nullable/default → geri
-  uyumlu); `ReturnRestockDecision`'a `STORE_RETURN_TO_CUSTOMER` ayrı migration adımıyla eklenir.
+- **PR3 — Reverse Shipment (TODO-173): IMPLEMENTED / NOT SHIPPED** (ADR-274). `Shipment.direction` üç
+  yönlü additive enum baştan (`OUTBOUND_TO_CUSTOMER`/`CUSTOMER_RETURN_TO_STORE`/`STORE_RETURN_TO_CUSTOMER`;
+  genel "OUTBOUND" kullanılmaz). Bu PR'da yalnız `STORE_RETURN_TO_CUSTOMER` gerçek akış; `CUSTOMER_RETURN_
+  TO_STORE` **reserved** (K2). Reddedilen adet disposition'ı **ayrı** domain (`ReturnRejectedDisposition` +
+  `ReturnItemDisposition`; `ReturnRestockDecision` GENİŞLETİLMEDİ — K1 düzeltmesi). Yalnız RETURN_TO_
+  CUSTOMER reverse shipment üretir; provider `direction` filtreleriyle sync/webhook/barcode'dan dışlanır
+  (provider/providerConfig NOT NULL, outbound config REUSE). Direction-aware duplicate guard + fulfillment/
+  tracking/KPI/iade-penceresi projeksiyon izolasyonu. Reverse shipment OrderRefund/RefundIntent/envanter/
+  paymentStatus ÜRETMEZ. `requireStoreAdmin` (K3). Migration additive replay ✓; gerçek-DB concurrency +
+  20 yeni test + tam gate yeşil (2453 api-gateway). **Commit/deploy YOK.**

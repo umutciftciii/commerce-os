@@ -213,7 +213,9 @@ export async function computeReturnOrderSummaries(
 
   const [shipments, requests] = await Promise.all([
     db.shipment.findMany({
-      where: { storeId, orderId: { in: orderIds } },
+      // TODO-173 (ADR-274) — iade penceresi teslim ankoru yalnız OUTBOUND_TO_CUSTOMER'dan gelir;
+      // reverse (STORE_RETURN_TO_CUSTOMER) DELIVERED gönderisi iade penceresini KAYDIRAMAZ.
+      where: { storeId, orderId: { in: orderIds }, direction: "OUTBOUND_TO_CUSTOMER" },
       select: { orderId: true, status: true, deliveredAt: true, updatedAt: true },
     }),
     db.returnRequest.findMany({
