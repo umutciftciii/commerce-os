@@ -1567,3 +1567,5 @@ tamamlanamadı). Migration additive `20260807150000_todo174a...`. Gate tam yeşi
 run; api-gateway 2525); browser smoke gerçek enterprise-demo verisiyle her iki yüzeyde + responsive 375/1440.
 Kararlar: ADR-279 (order experience review) · ADR-280 (refund origin & unified visibility). Detay:
 `docs/DECISIONS.md`.
+
+**CLOSED & DEPLOYED (2026-08-07):** PR #192 (merge `43f4e6b`); CI 6m2s PASS. Deploy: api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (bağımlılıklar dokunulmadı); migration deployed DB'de zaten canlı. Post-deploy smoke deployed :4000: müşteri+admin birleşik listeler + kaynak filtresi + order-experience uygunluk yeşil; web app'ler 307. enterprise-demo pristine.

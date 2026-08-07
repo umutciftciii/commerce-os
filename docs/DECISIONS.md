@@ -6163,7 +6163,7 @@ Müşteri kendi siparişini self-servis iptal eder. `POST /public/stores/:slug/c
 Migration additive (`20260807140000_todo174_customer_order_cancellation`; Order 4 kolon + version, 3 enum).
 Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. **CLOSED & DEPLOYED (2026-08-07):** PR #191 merge `5ce426d`; CI 4m13s PASS; deploy 3 web/backend servis rebuild (bağımlılıklar dokunulmadı); post-deploy smoke deployed :4000 yeşil. Detay: ADR-275…278.
 
-## ADR-279 — Order Experience Review (TODO-174A) — ACCEPTED (2026-08-07)
+## ADR-279 — Order Experience Review (TODO-174A) — ACCEPTED & DEPLOYED (2026-08-07; PR #192 merge `43f4e6b`)
 
 **Bağlam:** İptal edilmiş (teslim EDİLMEMİŞ) siparişte vitrin "Ürün yorumu yaz" CTA'sı disabled kalıyordu.
 Ürün kararı: iptal siparişte değerlendirme CTA'sı kapanmayacak, ama teslim alınmayan ürün için sahte
@@ -6183,7 +6183,7 @@ Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. **CLOSED 
   EN "Rate your order experience" (ürün yorumu gibi görünmez); gönderim sonrası "Deneyimini değerlendirdin".
 - Kapsam: admin moderasyon/görünürlük YOK (bu faz); ileride sipariş deneyimi metriği olarak kullanılabilir.
 
-## ADR-280 — Refund Origin & Unified Refund Visibility (TODO-174A) — ACCEPTED (2026-08-07)
+## ADR-280 — Refund Origin & Unified Refund Visibility (TODO-174A) — ACCEPTED & DEPLOYED (2026-08-07; PR #192 merge `43f4e6b`)
 
 **Bağlam:** İki refund akışı var — ReturnRequest→RefundIntent→OrderRefund (TODO-169/170) ve intent'siz
 cancellation OrderRefund (TODO-174). Cancellation refund'ları hem Store Admin > İadeler hem vitrin >
