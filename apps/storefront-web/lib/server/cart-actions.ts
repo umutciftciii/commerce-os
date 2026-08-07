@@ -472,7 +472,7 @@ export async function submitCheckoutAction(
   // kaldirilmis) + OUT_OF_STOCK/UNAVAILABLE satirlar checkout item listesinden dislanir
   // (misafir yoluyla ayni semantik). Gateway yine fiyat/stok otoriter dogrular.
   const deselectedForCheckout = await readDeselectedItems();
-  const authProj = await getAuthCartProjection(deselectedForCheckout);
+  const authProj = await getAuthCartProjection({ deselectedVariantIds: deselectedForCheckout });
   let items: Array<{ variantId: string; quantity: number }>;
   if (authProj) {
     items = authProj.cart.lines

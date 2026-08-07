@@ -36,7 +36,7 @@ import { formatMinor } from "../money";
 import { demoStoreSlug } from "./env";
 import { getCustomer, getPublic, postPublic, sendCustomer, type FetchOutcome } from "./gateway";
 import { readCustomerToken } from "./customer-cookie";
-import { readCartMeta, readClaimedCoupons, writeCartNotice } from "./cart-cookie";
+import { readCartItems, readCartMeta, readClaimedCoupons, writeCartNotice } from "./cart-cookie";
 import type { CartMeta, CartMetaSnapshot } from "../cart-meta-token";
 import { readAttributionGrant } from "./attribution-cookie";
 import { readSponsoredGrants } from "./sponsored-cookie";
@@ -541,13 +541,26 @@ function authCartPath(): string {
 }
 
 /**
+ * BUG-CART-003 (BUG 2) — Auth DB cart görünüm/fiyatlama girdileri. `deselectedVariantIds`
+ * checkbox seçim-dışı satırlar içindir; `couponCode`/`shippingOptionId` uygulanan kupon +
+ * seçili kargo (kaynak dogrusu cookie'ler). Bu üçü gateway'e query ile taşınır; `claimedCodes`
+ * misafir-claim kodları cookie'den İÇERİDE okunur (anonim `resolveCart` ile simetrik).
+ */
+export interface AuthCartViewOptions {
+  deselectedVariantIds?: string[];
+  couponCode?: string | null;
+  shippingOptionId?: string | null;
+}
+
+/**
  * Oturum acmis musterinin DB sepeti projeksiyonu (version/status/lineIds/cart). Oturum yoksa null.
- * BUG-CART-002 — `deselectedVariantIds` verilirse gateway'e `?deselected=` ile tasinir; auth cart
- * gorunumunde de checkbox secim-disi satirlar toplam/checkout'a girmez (anonim ile ayni semantik).
- * Mutation/header sayaci bu argumani VERMEZ (deselection yalniz gorunum icin gereklidir).
+ * BUG-CART-002 — `deselectedVariantIds` → `?deselected=`; auth cart gorunumunde de checkbox secim-disi
+ * satirlar toplam/checkout'a girmez. BUG-CART-003 (BUG 2) — uygulanan kupon/kargo `?coupon=`/`?shippingOption=`
+ * ile tasinir ki gateway ANONIM yolla AYNI motorla YENIDEN fiyatlasin (explicit kupon totals'i etkiler).
+ * Misafir-claim kodlari cookie'den okunur (`?claimed=`). Mutation/header sayaci bu argumanlari VERMEZ.
  */
 export async function getAuthCartProjection(
-  deselectedVariantIds?: string[],
+  opts?: AuthCartViewOptions,
 ): Promise<CustomerCartProjection | null> {
   let token: string | null = null;
   try {
@@ -557,11 +570,25 @@ export async function getAuthCartProjection(
   }
   if (!token) return null;
   try {
-    const query =
-      deselectedVariantIds && deselectedVariantIds.length > 0
-        ? `?deselected=${encodeURIComponent(deselectedVariantIds.join(","))}`
-        : "";
-    const result = await getCustomer<CustomerCartResponse>(`${authCartPath()}${query}`, token);
+    // F4A.3 — Misafir cuzdanindaki claim'li kodlar (auth'ta DB cuzdani zaten gelir ama parite icin).
+    let claimedCodes: string[] = [];
+    try {
+      claimedCodes = await readClaimedCoupons();
+    } catch {
+      claimedCodes = [];
+    }
+    const params = new URLSearchParams();
+    if (opts?.deselectedVariantIds && opts.deselectedVariantIds.length > 0) {
+      params.set("deselected", opts.deselectedVariantIds.join(","));
+    }
+    if (opts?.couponCode) params.set("coupon", opts.couponCode);
+    if (opts?.shippingOptionId) params.set("shippingOption", opts.shippingOptionId);
+    if (claimedCodes.length > 0) params.set("claimed", claimedCodes.join(","));
+    const query = params.toString();
+    const result = await getCustomer<CustomerCartResponse>(
+      `${authCartPath()}${query ? `?${query}` : ""}`,
+      token,
+    );
     return result.ok ? result.data.data : null;
   } catch {
     return null;
@@ -570,11 +597,54 @@ export async function getAuthCartProjection(
 
 /** Auth cart gorunumu (CartView). Oturum yoksa null → cagiran anonim cookie yoluna duser. */
 export async function resolveAuthCartView(
-  deselectedVariantIds?: string[],
+  opts?: AuthCartViewOptions,
 ): Promise<CartResult<CartView> | null> {
-  const proj = await getAuthCartProjection(deselectedVariantIds);
+  const proj = await getAuthCartProjection(opts);
   if (!proj) return null;
   return { ok: true, data: toCartView(proj.cart, proj.cartId || null) };
+}
+
+/**
+ * BUG-CART-003 (BUG 3) — Checkout sepet çözümü. Cart sayfası ile checkout AYNI kanonik sepeti
+ * görmeli: oturum açmış müşteride DB cart OTORİTER (cross-device; login-merge sonrası cookie boş
+ * olabilir). Önceki hata checkout page'in yalnız cookie (`readCartItems`) okuyup "Sepetiniz boş"
+ * göstermesiydi. Bu helper cart sayfasıyla aynı auth-first çözümü uygular; misafirde cookie'ye düşer.
+ */
+export type CheckoutViewResult =
+  | { kind: "ok"; view: CartView }
+  | { kind: "empty" }
+  | { kind: "error" };
+
+export async function resolveCheckoutView(
+  opts: AuthCartViewOptions,
+): Promise<CheckoutViewResult> {
+  // Oturum açmış müşteride DB cart OTORİTER (cart sayfasıyla AYNI kanonik sepet).
+  const authView = await resolveAuthCartView(opts);
+  if (authView) {
+    if (!authView.ok) return { kind: "error" };
+    // Checkout YALNIZCA seçili + sipariş verilebilir satırlardan oluşur; hiç yoksa boş-checkout
+    // (deselection tüm satırları kaldırmış ya da hepsi UNAVAILABLE/stok-dışı olabilir).
+    const orderableSelected = authView.data.lines.filter(
+      (line) => line.selected && line.status !== "UNAVAILABLE" && line.availableQuantity > 0,
+    );
+    if (authView.data.isEmpty || orderableSelected.length === 0) return { kind: "empty" };
+    return { kind: "ok", view: authView.data };
+  }
+  // Misafir yolu (checkout oturum-korumalı; bu dal nadiren — token yoksa cookie sepetine düşer).
+  let items: CartItem[] = [];
+  try {
+    items = await readCartItems();
+  } catch {
+    items = [];
+  }
+  if (items.length === 0) return { kind: "empty" };
+  const deselected = new Set(opts.deselectedVariantIds ?? []);
+  const filtered = items.filter((item) => !deselected.has(item.variantId));
+  if (filtered.length === 0) return { kind: "empty" };
+  const result = await resolveCart(filtered, opts.couponCode ?? null, opts.shippingOptionId ?? null);
+  if (!result.ok) return { kind: "error" };
+  if (result.data.isEmpty) return { kind: "empty" };
+  return { kind: "ok", view: result.data };
 }
 
 export type AuthCartMutationResult = { ok: true } | { ok: false; code: string };

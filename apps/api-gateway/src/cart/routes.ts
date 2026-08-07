@@ -60,6 +60,12 @@ export interface CustomerCartRoutesDeps {
     // BUG-CART-002 — Secim-disi (checkbox kaldirilmis) varyantlar; yaniti selected:false gosterir
     // ve toplam/kargo/checkout hesabina KATMAZ (anonim yolla ayni deselection semantigi).
     deselectedVariantIds?: string[];
+    // BUG-CART-003 (BUG 2) — Uygulanan kupon kodu + secili kargo secenegi + misafir-claim kodlari;
+    // auth cart da anonim yolla AYNI server-otoriter motorla yeniden fiyatlanir (aksi halde yalniz
+    // otomatik kampanya uygulanir, explicit kupon SESSIZCE yoksayilirdi — TD-174 kapanisi).
+    couponCode?: string | null;
+    shippingOptionId?: string | null;
+    claimedCodes?: string[];
   }) => Promise<PublicCart>;
   /** Yeni cart olusturulurken varsayilan para birimi (projeksiyon otoriter; bu bilgi amaclidir). */
   defaultCurrency?: string;
@@ -91,6 +97,32 @@ function parseDeselectedQuery(value: unknown): string[] {
     if (ids.length >= 100) break;
   }
   return ids;
+}
+
+/** BUG-CART-003 (BUG 2) — Tekil string query değeri (ilk deger; bos → null). */
+function parseStringQuery(value: unknown): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * BUG-CART-003 (BUG 2) — GET query'sinden salt-okuma fiyatlama girdileri. Auth cart
+ * membership'i (DB) DEGISTIRMEZ; yalniz bu istegin projeksiyonunu explicit kupon/kargo/claim
+ * ile anonim yolla AYNI sekilde yeniden fiyatlar. Kaynak dogrusu istemci cookie'leridir
+ * (commerce_os_coupon / commerce_os_shipping_option / commerce_os_claimed_coupons).
+ */
+function parsePricingQuery(query: Record<string, unknown>): {
+  couponCode: string | null;
+  shippingOptionId: string | null;
+  claimedCodes: string[];
+} {
+  return {
+    couponCode: parseStringQuery(query.coupon),
+    shippingOptionId: parseStringQuery(query.shippingOption),
+    claimedCodes: parseDeselectedQuery(query.claimed),
+  };
 }
 
 export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerCartRoutesDeps): void {
@@ -128,9 +160,21 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     request: FastifyRequest,
     record: CartRecord,
     deselectedVariantIds?: string[],
+    // BUG-CART-003 (BUG 2) — explicit kupon/kargo/claim (GET display yolu). Mutasyon yollari
+    // vermez (izleyen GET taze fiyatlar); membership'i etkilemez.
+    pricing?: { couponCode?: string | null; shippingOptionId?: string | null; claimedCodes?: string[] },
   ) {
     const items = record.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
-    const cart = await deps.projectCart({ store, customer, request, items, deselectedVariantIds });
+    const cart = await deps.projectCart({
+      store,
+      customer,
+      request,
+      items,
+      deselectedVariantIds,
+      couponCode: pricing?.couponCode ?? null,
+      shippingOptionId: pricing?.shippingOptionId ?? null,
+      claimedCodes: pricing?.claimedCodes ?? [],
+    });
     const lineIds: Record<string, string> = {};
     const snapshotByVariant = new Map<string, CartLineSnapshot>();
     for (const l of record.lines) {
@@ -147,6 +191,7 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     request: FastifyRequest,
     record: CartRecord,
     deselectedVariantIds?: string[],
+    pricing?: { couponCode?: string | null; shippingOptionId?: string | null; claimedCodes?: string[] },
   ) {
     const acked = new Set(await deps.ackData.listAckFingerprints(store.id, record.id));
     const { cart, lineIds, snapshotByVariant } = await assembleBase(
@@ -155,6 +200,7 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
       request,
       record,
       deselectedVariantIds,
+      pricing,
     );
     const { cart: enriched, baselines } = attachChangesToCart(
       cart,
@@ -214,10 +260,14 @@ export function registerCustomerCartRoutes(app: FastifyInstance, deps: CustomerC
     // BUG-CART-002 — Checkbox deselection (auth): istemci storefront cookie'sindeki secim-disi
     // varyantlari `?deselected=a,b` ile tasir. Auth cart DB'de membership'i tutar; secim ise
     // transient bir gorunum durumu (ayni-cihaz refresh'te korunur; cross-device persist = TD-174).
-    const deselected = parseDeselectedQuery((request.query as { deselected?: unknown }).deselected);
+    const query = request.query as Record<string, unknown>;
+    const deselected = parseDeselectedQuery(query.deselected);
+    // BUG-CART-003 (BUG 2) — explicit kupon/kargo/claim de anonim yolla AYNI sekilde yeniden
+    // fiyatlanir; aksi halde auth cart'ta uygulanan kupon totals'i degistirmezdi.
+    const pricing = parsePricingQuery(query);
     return reply
       .code(200)
-      .send({ data: await projection(store, customer, request, record, deselected) });
+      .send({ data: await projection(store, customer, request, record, deselected, pricing) });
   });
 
   // ── POST cart/lines (add/increment) ────────────────────────────────────────────────

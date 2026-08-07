@@ -31,7 +31,11 @@ vi.mock("../lib/server/customer-cookie", () => ({
   readCustomerToken: () => readCustomerTokenMock(),
 }));
 
-import { resolveCart, submitCheckout } from "../lib/server/cart";
+import { resolveCart, resolveAuthCartView, resolveCheckoutView, submitCheckout } from "../lib/server/cart";
+
+function customerCartResponse(cart: Record<string, unknown>) {
+  return { data: { version: 1, status: "ACTIVE", cartId: "cart-1", cart, lineIds: {} } };
+}
 
 function publicCart(overrides: Record<string, unknown> = {}) {
   return {
@@ -92,6 +96,7 @@ function publicCart(overrides: Record<string, unknown> = {}) {
         inStock: true,
         status: "OK",
         change: null,
+        selected: true,
       },
     ],
     ...overrides,
@@ -208,6 +213,59 @@ describe("storefront-web · cart resolver", () => {
     expect(result.confirmation.orderNumber).toBe("OS-000123");
     expect(result.confirmation.paymentPending).toBe(true);
     expect(result.confirmation.totalLabel).toContain("2.598");
+  });
+
+  it("threads the applied coupon + shipping option into the authenticated DB-cart read (BUG-CART-003 / BUG 2)", async () => {
+    // Oturum acmis musteri: sepet DB'den (GET /customer/cart) gelir. Uygulanan kupon/kargo
+    // query ile TASINMALI ki gateway ayni server-otoriter motorla YENIDEN fiyatlasin; aksi
+    // halde explicit kupon totals'i degistirmez (yalniz otomatik kampanya uygulanir).
+    readCustomerTokenMock.mockResolvedValue("cust-session-token");
+    nextResponses = [jsonResponse(customerCartResponse(publicCart()))];
+
+    const result = await resolveAuthCartView({ couponCode: "WELCOME10", shippingOptionId: "rp1" });
+    expect(result).not.toBeNull();
+    expect(result?.ok).toBe(true);
+
+    const url = calls[0]?.url ?? "";
+    expect(url).toContain("/public/stores/demo-store/customer/cart");
+    expect(url).toContain("coupon=WELCOME10");
+    expect(url).toContain("shippingOption=rp1");
+    // x-customer-session ile gonderilmeli (auth DB cart); Bearer sizmamali.
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    const lowered = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    expect(lowered["x-customer-session"]).toBe("cust-session-token");
+    expect(JSON.stringify(calls[0]?.init)).not.toMatch(/Bearer/i);
+  });
+
+  it("returns null from resolveAuthCartView when there is no customer session (guest falls back to cookie)", async () => {
+    readCustomerTokenMock.mockResolvedValue(null);
+    const result = await resolveAuthCartView({ couponCode: "WELCOME10" });
+    expect(result).toBeNull();
+    // Auth endpoint'e istek YAPILMAMALI (token yok).
+    expect(calls.length).toBe(0);
+  });
+
+  it("resolveCheckoutView resolves the authenticated DB cart, not the (empty post-merge) cookie (BUG-CART-003 / BUG 3)", async () => {
+    // Login-merge sonrasi cookie sepeti bostur; checkout ise DB cart'i (GET /customer/cart) okumali.
+    // Onceki hata: checkout page readCartItems() (cookie) okuyup "Sepetiniz bos" gosteriyordu.
+    readCustomerTokenMock.mockResolvedValue("cust-session-token");
+    nextResponses = [jsonResponse(customerCartResponse(publicCart()))];
+
+    const result = await resolveCheckoutView({ couponCode: "WELCOME10", shippingOptionId: "rp1" });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.view.isEmpty).toBe(false);
+    expect(result.view.lines[0]).toMatchObject({ title: "Demo Hoodie", quantity: 2 });
+    // Auth DB cart okundu + kupon thread edildi.
+    expect(calls[0]?.url).toContain("/public/stores/demo-store/customer/cart");
+    expect(calls[0]?.url).toContain("coupon=WELCOME10");
+  });
+
+  it("resolveCheckoutView returns empty when the authenticated DB cart has no orderable selected line", async () => {
+    readCustomerTokenMock.mockResolvedValue("cust-session-token");
+    nextResponses = [jsonResponse(customerCartResponse(publicCart({ lines: [] })))];
+    const result = await resolveCheckoutView({});
+    expect(result.kind).toBe("empty");
   });
 
   it("maps checkout failure statuses to actionable reasons", async () => {

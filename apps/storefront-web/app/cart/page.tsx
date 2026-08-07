@@ -36,8 +36,16 @@ export default async function CartPage() {
   // gelir; misafirde mevcut cookie referans kalemlerinden. Anonim yol DEGISMEDI.
   // BUG-CART-002 — Checkbox secim-disi varyantlar (storefront cookie) auth gorunume de tasinir;
   // aksi halde deselect edilen satir her refresh'te yeniden secili render olurdu (regresyon C).
+  // BUG-CART-003 (BUG 2) — Uygulanan kupon + secili kargo auth DB cart görünümüne de taşınır;
+  // aksi halde oturum açmış müşteride explicit kupon totals'i değiştirmezdi (yalnız otomatik kampanya).
+  const coupon = await readCoupon();
+  const shippingOption = await readShippingOption();
   const authDeselected = await readDeselectedItems();
-  const authView = await resolveAuthCartView(authDeselected);
+  const authView = await resolveAuthCartView({
+    deselectedVariantIds: authDeselected,
+    couponCode: coupon,
+    shippingOptionId: shippingOption,
+  });
   if (authView) {
     if (!authView.ok || authView.data.isEmpty) {
       return <EmptyCart t={t} />;
@@ -53,8 +61,6 @@ export default async function CartPage() {
     return <EmptyCart t={t} />;
   }
 
-  const coupon = await readCoupon();
-  const shippingOption = await readShippingOption();
   const deselected = await readDeselectedItems();
   const result = await resolveCartWithCanonicalItems(items, coupon, shippingOption, deselected);
   if (!result.ok) {
