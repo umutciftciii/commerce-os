@@ -112,14 +112,16 @@ Para her yerde **minor-unit `BigInt`** (bakiye büyüyebilir; API'de kanonik str
 ### 3.3 Order snapshot alanları (additive)
 
 `Order` modeline (finansal source-of-truth değil, denormalize snapshot):
-- `shoppingCreditUsedMinor Int @default(0)`
-- `externalPaymentAmountMinor Int @default(0)` (= totalAmount − shoppingCreditUsed; denormalize)
+- `shoppingCreditUsedMinor BigInt @default(0)`
+- `externalPaymentAmountMinor BigInt @default(0)` (= totalAmount − shoppingCreditUsed; denormalize)
+
+**Not (düzeltme):** Bu iki alan **kesinlikle `Int` değil `BigInt`** — ledger (account/lot/entry) BigInt minor-money kontratıyla tutarlı; API sınırında kanonik minor-string (`@commerce-os/utils`), float yok. (Mevcut `Order.totalAmount` vb. `Int` kalır; bu iki yeni alan minor-money kontratına tabidir.)
 
 ### 3.4 Payment method genişletme
 
 - `PaymentMethodType`'a `STORE_CREDIT` değeri.
 - `PaymentAttempt`'e `creditLedgerGroupKey String?` (attempt ↔ ledger DEBIT bağı; refund allocation deterministik).
-- Store credit ödemesi = `type: MANUAL, method: STORE_CREDIT, status: PAID` attempt (recovery-routes.ts manuel-tahsilat deseni).
+- Store credit ödemesi = **mevcut manuel-tahsilat semantiğini aynen reuse eden** attempt: `type: MANUAL`, `method: STORE_CREDIT`, `status: "PAID"` — bu, `recovery-routes.ts:639-662` manuel PAID tahsilat deseniyle **birebir aynı** status akışıdır. **Yeni PaymentAttemptStatus/PaymentStatus değeri icat edilmez.** `PaymentAttemptStatus.PAID` zaten mevcut (`schema.prisma:439`); `sumCapturedMinor` PAID/AUTHORIZED'ı sayar (`payment-state.ts:105,147`); order geçişi `resolveOrderPaymentTransition(order.paymentStatus, "PAID")` ile — hepsi değişmeden. Tek eklenen enum değeri `PaymentMethodType.STORE_CREDIT`'tir (method ayrımı için), status/projeksiyon semantiği dokunulmaz.
 
 ### 3.5 StoreSettings policy (additive)
 
@@ -154,13 +156,16 @@ Para her yerde **minor-unit `BigInt`** (bakiye büyüyebilir; API'de kanonik str
 
 ### 4.3 İptal / iade restore
 - Full-order cancellation (`cancelCustomerOrder`), coupon rollback yanında: STORE_CREDIT attempt(ler)inin `creditLedgerGroupKey`'inden hangi lot'a ne kadar harcandığı okunur.
-- Her kaynak lot için: `expiresAt > now` (hâlâ canlı) → `remaining` geri artır + `ORDER_CANCELLATION_RESTORE` ledger entry (orijinal expiry korunur). Lot **süresi dolmuşsa yapay canlandırma YOK** — o porsiyon restore edilmez, history'de "süresi dolduğu için iade edilmedi" olarak yapısal kayıt.
+- Her kaynak lot için (düzeltme — deterministik):
+  - **`expiresAt > now` (expiry hâlâ gelecekte):** `remaining` geri yüklenir; lot harcamada `CONSUMED` olmuşsa **`status` tekrar `ACTIVE`'e döner** (remaining>0 olduğu için); `ORDER_CANCELLATION_RESTORE` ledger entry yazılır. **Orijinal expiry korunur** — uzatma yok.
+  - **`expiresAt <= now` (lot süresi geçmiş):** **kesinlikle revive YOK** — lot `EXPIRED` kalır, remaining artırılmaz, available'a girmez; history'de "süresi dolduğu için iade edilmedi" yapısal kaydı. Süresi geçmiş kredi iptal/refund ile yapay canlandırılmaz.
 - Kart ile ödenen kısım mevcut PSP/manuel refund yoluna gider (mevcut `prepareCancellationRefund`, ama STORE_CREDIT attempt'i hariç tutulur → yalnız kart attempt'i refund edilir).
 - **Idempotent:** iptal tekrarında duplicate restore yok (idempotencyKey `credit-restore:<orderId>:<lotId>`); Order CANCELLED tekrar açılmaz. PSP refund fail olsa da credit restore transaction'ı doğru state'te idempotent kalır.
 
 ### 4.4 Expiry (FEFO lot)
-- **Available her zaman doğru:** okuma/harcama `expiresAt > now` filtresiyle hesaplar (worker gecikse bile süresi geçen lot available'a girmez).
-- **Scheduled worker** (H-3 reservation-expiry worker deseni): `expiresAt <= now ∧ status=ACTIVE ∧ remaining>0` lot'ları `EXPIRED` yapar + `EXPIRE` ledger entry ("Süresi doldu") yazar + cache günceller. İdempotent (status guard). Worker default açık, config'lenebilir.
+- **Available her zaman doğru — otorite budur:** her okuma/harcama `expiresAt > now` filtresiyle hesaplar. Süresi geçen lot, worker hiç çalışmasa bile available'a **girmez**. Available balance hiçbir zaman worker'a bağlı değildir.
+- **Worker = yalnız housekeeping / event materialization** (finansal doğruluk için değil): `expiresAt <= now ∧ status=ACTIVE ∧ remaining>0` lot'ları `EXPIRED` işaretler + `EXPIRE` ledger entry ("Süresi doldu") yazar + cache günceller. İdempotent (status guard).
+- **Governance (düzeltme):** worker **production'da zorlanmaz / default-open değildir.** Mevcut scheduler governance desenine uyar: env-gate `CREDIT_EXPIRY_SWEEP_ENABLED=false` (varsayılan) → döngü **kurulmaz**, tek satır bilgi loglanır — `shipping/sync-worker.ts`, `cart/expiry-worker.ts`, `commercial-automation/settlement-scheduler-worker.ts` desenleriyle birebir. Açıkça etkinleştirilmeden çalışmaz.
 - Restore edilen kredi asla yeni/uzatılmış expiry almaz; orijinal lot expiry'si otoritedir.
 
 ---
@@ -241,4 +246,4 @@ Regression: ProductReview/Aggregate untouched.
 
 - Kısmi-tahsilat kısıtı (`recovery-routes.ts:620`) credit+kart kombinasyonu için gevşetilmeli — F5'te dikkat.
 - Order detail/finans ekranlarına credit satırları eklenirken mevcut toplam invariant'ları (subtotal/discount/shipping/tax/total) bozulmamalı; credit **ödeme** tarafında, `orderTotals`'a indirim olarak girmez.
-- BigInt (lot/account/ledger) vs Int (order snapshot alanları): sınırda kanonik string kontratı; float yok.
+- Para tipleri: ledger (account/lot/entry) **ve** yeni Order snapshot alanları (`shoppingCreditUsedMinor`/`externalPaymentAmountMinor`) **BigInt** minor-money kontratı; API sınırında kanonik minor-string (`@commerce-os/utils`), float yok. Mevcut `Order.totalAmount` vb. `Int` kalır (dokunulmaz); credit tarafı ile aritmetikte tip köprüsü dikkatli kurulur.
