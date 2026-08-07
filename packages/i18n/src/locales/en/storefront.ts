@@ -682,6 +682,12 @@ export const enStorefront: StorefrontDictionary = {
     creditToggleLabel: "Use my shopping balance",
     creditToggleHint:
       "Your available shopping balance is applied automatically; any remaining amount proceeds to payment.",
+    creditAvailableLabel: "Your shopping balance",
+    creditUseAction: "Use on this order",
+    creditAppliedLabel: "Shopping balance",
+    creditRemainderNote: "The remaining amount is collected at the payment step.",
+    creditFullyCoveredNote: "Your balance fully covers this order.",
+    amountPayable: "Amount to pay",
     summaryTitle: "Order summary",
     summaryNote: "Prices include VAT. Amounts are re-validated when your order is placed.",
     subtotal: "Subtotal",

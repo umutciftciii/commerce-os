@@ -11,6 +11,8 @@ import {
   submitCheckoutAction,
 } from "../lib/server/cart-actions";
 import { districtsOf, trProvinceNames } from "../lib/tr-location-data";
+import { formatMinor } from "../lib/money";
+import { computeShoppingCreditPreview } from "../lib/credit";
 import { formatTrPhone } from "../lib/phone";
 import { hasProviderLogo, providerInitials } from "../lib/shipment";
 import { Badge, Button, Field as FieldShell, Input, Select, Subheading } from "./ui";
@@ -44,12 +46,19 @@ export function CheckoutForm({
   view,
   t,
   paymentTestEnabled = false,
+  availableCreditMinor = 0,
   addressBook,
 }: {
   view: CartView;
   t: CheckoutDict;
   /** F3B.2: Aktif TEST/MOCK provider varsa ödeme bölümü test-akış metnini gösterir. */
   paymentTestEnabled?: boolean;
+  /**
+   * TODO-174B UX — Oturum açmış müşterinin kullanılabilir alışveriş bakiyesi (minor).
+   * >0 ise sipariş özetinde "Alışveriş bakiyesi" kontrolü + canlı "Ödenecek" önizlemesi
+   * gösterilir; 0 ise HİÇ gösterilmez (yanıltıcı boş toggle önlenir).
+   */
+  availableCreditMinor?: number;
   /**
    * F3B.3: Oturum acmis musteride teslimat, adres defterinden secilir. Verilirse
    * iletisim/teslimat kartlari yerine adres secici + e-posta render edilir; secilen
@@ -62,6 +71,10 @@ export function CheckoutForm({
   };
 }) {
   const [state, formAction, isPending] = useActionState(submitCheckoutAction, initialState);
+  // TODO-174B UX — Alışveriş bakiyesi tercihi (yalnız bakiye>0'da anlamlı). Kontrol sipariş
+  // özetinde yaşar (paranın gösterildiği yer); işaretlenince "Ödenecek" canlı düşer. Checkbox
+  // `name="useShoppingCredit"` ile form gönderimine girer (sunucu min(bakiye, ödenecek) uygular).
+  const [useCredit, setUseCredit] = useState(false);
 
   // F3B.2: Order olusumu basariliysa Server Action SUNUCU-TARAFI redirect yapar
   // (/checkout/payment veya /checkout/success). Bu nedenle burada "success" durumu
@@ -151,19 +164,20 @@ export function CheckoutForm({
           ) : (
             <p className="mt-2 text-sm leading-relaxed text-ink-muted">{t.paymentNote}</p>
           )}
-          {/* TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle. Server-authoritative:
-              min(available, payable) uygulanır; bakiye 0 ise no-op (yalnız oturum açmış müşteride etkili). */}
-          <label className="mt-4 flex items-start gap-3 rounded-xl border border-line/60 p-3 text-sm">
-            <input type="checkbox" name="useShoppingCredit" value="true" className="mt-0.5" />
-            <span>
-              <span className="font-medium text-ink">{t.creditToggleLabel}</span>
-              <span className="mt-0.5 block text-ink-muted">{t.creditToggleHint}</span>
-            </span>
-          </label>
+          {/* TODO-174B UX — "Alışveriş bakiyesi" kontrolü ödeme kartından ÇIKARILDI; artık
+              sipariş özetinde (paranın gösterildiği yer) yaşar ve "Ödenecek"i canlı düşürür. */}
         </div>
       </div>
 
-      <CheckoutSummary view={view} t={t} isPending={isPending} paymentTestEnabled={paymentTestEnabled} />
+      <CheckoutSummary
+        view={view}
+        t={t}
+        isPending={isPending}
+        paymentTestEnabled={paymentTestEnabled}
+        availableCreditMinor={availableCreditMinor}
+        useCredit={useCredit}
+        onUseCreditChange={setUseCredit}
+      />
     </form>
   );
 }
@@ -468,13 +482,23 @@ function CheckoutSummary({
   t,
   isPending,
   paymentTestEnabled,
+  availableCreditMinor,
+  useCredit,
+  onUseCreditChange,
 }: {
   view: CartView;
   t: CheckoutDict;
   isPending: boolean;
   paymentTestEnabled: boolean;
+  /** TODO-174B UX — Kullanılabilir alışveriş bakiyesi (minor); >0 ise kredi kontrolü gösterilir. */
+  availableCreditMinor: number;
+  useCredit: boolean;
+  onUseCreditChange: (value: boolean) => void;
 }) {
   const s = view.summary;
+  // TODO-174B UX — Kredi ödeme yöntemidir: Genel toplam DEĞİŞMEZ; yalnız "Ödenecek" düşer.
+  const hasCredit = availableCreditMinor > 0;
+  const creditPreview = computeShoppingCreditPreview(availableCreditMinor, s.grandTotalMinor);
   // F3C.2 — Kargo TARİFE quote'u OK değilse (adres yok / tarife yok / kural yok /
   // ölçü eksik) ödeme adımına geçilmez: satır boş kalmaz, net mesaj basılır ve
   // submit bloklanır (gateway de 409 ile bloklar; bu istemci-tarafı eşleğidir).
@@ -546,6 +570,48 @@ function CheckoutSummary({
             <dd>{s.taxIncludedLabel}</dd>
           </div>
         </dl>
+
+        {/* TODO-174B UX — Alışveriş bakiyesi kontrolü. YALNIZ bakiye>0'da gösterilir (0'da
+            "seçili ama etkisiz" yanılgısı olmaz). Paranın gösterildiği yerdedir (özet); seçilince
+            "Ödenecek" canlı düşer. Kredi indirim DEĞİL → Genel toplam korunur. Checkbox
+            name="useShoppingCredit" form gönderimine girer (sunucu min(bakiye, ödenecek) uygular). */}
+        {hasCredit ? (
+          <div className="mt-4 border border-line bg-surface-muted p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-medium text-ink">{t.creditAvailableLabel}</span>
+              <span className="text-base font-semibold text-ink">
+                {formatMinor(availableCreditMinor, view.currency)}
+              </span>
+            </div>
+            <label className="mt-2.5 flex cursor-pointer items-center gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                name="useShoppingCredit"
+                value="true"
+                checked={useCredit}
+                onChange={(event) => onUseCreditChange(event.target.checked)}
+              />
+              <span className="font-medium text-ink">{t.creditUseAction}</span>
+            </label>
+            {useCredit ? (
+              <dl className="mt-3 space-y-2 border-t border-line pt-3 text-sm">
+                <Row
+                  label={t.creditAppliedLabel}
+                  value={`−${formatMinor(creditPreview.appliedMinor, view.currency)}`}
+                />
+                <div className="flex items-center justify-between">
+                  <dt className="font-semibold text-ink">{t.amountPayable}</dt>
+                  <dd className="text-base font-semibold text-ink">
+                    {formatMinor(creditPreview.remainingMinor, view.currency)}
+                  </dd>
+                </div>
+                <p className="text-xs leading-relaxed text-ink-subtle">
+                  {creditPreview.remainingMinor === 0 ? t.creditFullyCoveredNote : t.creditRemainderNote}
+                </p>
+              </dl>
+            ) : null}
+          </div>
+        ) : null}
 
         {shippingBlocked ? (
           <div className="mt-4 border border-line-strong bg-surface-muted px-4 py-3 text-sm text-ink">

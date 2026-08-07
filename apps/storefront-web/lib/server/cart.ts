@@ -122,6 +122,11 @@ export interface CartSummaryView {
   taxIncludedLabel: string;
   taxRatePercent: number;
   grandTotalLabel: string;
+  /**
+   * TODO-174B UX — Genel toplamın ham (minor) değeri; checkout'ta "Alışveriş bakiyesi"
+   * canlı önizlemesi (min(bakiye, ödenecek)) için gerekli. Etiket zaten grandTotalLabel'da.
+   */
+  grandTotalMinor: number;
   couponCode: string | null;
   couponStatus: PublicCouponStatus;
   /** F4A — INVALID kuponun makine-okunur nedeni (UI kopyasi i18n'den secilir). */
@@ -249,6 +254,7 @@ function toSummaryView(summary: PublicCartSummary, shipping: PublicCart["shippin
     taxIncludedLabel: formatMinor(summary.taxIncludedMinor, summary.currency),
     taxRatePercent: summary.taxRatePercent,
     grandTotalLabel: formatMinor(summary.grandTotalMinor, summary.currency),
+    grandTotalMinor: summary.grandTotalMinor,
     couponCode: summary.couponCode,
     couponStatus: summary.couponStatus,
     couponReason: summary.couponReason,

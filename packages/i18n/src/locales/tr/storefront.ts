@@ -710,6 +710,12 @@ export const trStorefront = {
     creditToggleLabel: "Alışveriş bakiyemi kullan",
     creditToggleHint:
       "Kullanılabilir alışveriş bakiyeniz otomatik olarak uygulanır; kalan tutar için ödeme adımına geçilir.",
+    creditAvailableLabel: "Alışveriş bakiyen",
+    creditUseAction: "Bu siparişte kullan",
+    creditAppliedLabel: "Alışveriş bakiyesi",
+    creditRemainderNote: "Kalan tutar ödeme adımında tahsil edilir.",
+    creditFullyCoveredNote: "Bakiyen bu siparişi tamamen karşılıyor.",
+    amountPayable: "Ödenecek",
     summaryTitle: "Sipariş özeti",
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
     subtotal: "Ara toplam",

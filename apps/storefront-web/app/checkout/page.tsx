@@ -8,6 +8,7 @@ import {
   readShippingOption,
 } from "../../lib/server/cart-cookie";
 import { getPaymentAvailability, resolveCheckoutView } from "../../lib/server/cart";
+import { getShoppingBalance } from "../../lib/server/balance";
 import { getCurrentCustomer, listCustomerAddresses } from "../../lib/server/customer";
 import { CheckoutForm } from "../../components/checkout-form";
 
@@ -86,7 +87,13 @@ export default async function CheckoutPage() {
     );
   }
 
-  const paymentTestEnabled = await getPaymentAvailability();
+  const [paymentTestEnabled, balance] = await Promise.all([
+    getPaymentAvailability(),
+    // TODO-174B UX — Oturum açmış müşterinin kullanılabilir alışveriş bakiyesi. 0 ise
+    // checkout kredi kontrolü HİÇ gösterilmez (yanıltıcı "seçili ama etkisiz" durumu önlenir).
+    getShoppingBalance(),
+  ]);
+  const availableCreditMinor = Number(balance.availableMinor) || 0;
 
   return (
     <Container className="py-12">
@@ -99,6 +106,7 @@ export default async function CheckoutPage() {
         view={result.data}
         t={t}
         paymentTestEnabled={paymentTestEnabled}
+        availableCreditMinor={availableCreditMinor}
         addressBook={{ addresses, accountEmail: customer.email }}
       />
     </Container>
