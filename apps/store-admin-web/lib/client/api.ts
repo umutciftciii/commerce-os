@@ -311,6 +311,7 @@ import type {
   RecoveryActionRequest,
   ManualOpenCaseRequest,
   AdminIssueCreditRequest,
+  AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
 } from "@commerce-os/api-client";
 // TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
@@ -1838,6 +1839,11 @@ export const storeApi = {
     call<CustomerCreditBalanceResponse>(`/api/customers/${customerId}/credit${listQueryString(query)}`),
   issueCustomerCredit: (customerId: string, input: AdminIssueCreditRequest) =>
     mutatingCall<CustomerCreditBalanceResponse>(`/api/customers/${customerId}/credit`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  adjustCustomerCredit: (customerId: string, input: AdminAdjustCreditRequest) =>
+    mutatingCall<CustomerCreditBalanceResponse>(`/api/customers/${customerId}/credit/adjust`, {
       method: "POST",
       body: JSON.stringify(input),
     }),

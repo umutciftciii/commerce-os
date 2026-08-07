@@ -22,6 +22,7 @@ import { SurfaceCard } from "../../../components/premium";
 import { storeApi } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate } from "../../../../lib/client/format";
+import { creditReasonOptions, tlToMinor } from "../../../../lib/client/credit-format";
 import type { RecoveryCaseDetailDto } from "@commerce-os/api-client";
 
 const OUTCOMES = [
@@ -59,7 +60,7 @@ export default function RecoveryCaseDetailPage({ params }: { params: Promise<{ c
   const [creditModal, setCreditModal] = useState(false);
   const [creditAmount, setCreditAmount] = useState("");
   const [creditExpiry, setCreditExpiry] = useState(60);
-  const [creditReason, setCreditReason] = useState("");
+  const [creditReason, setCreditReason] = useState(() => creditReasonOptions(locale === "tr")[0]!.value);
   const [creditKey, setCreditKey] = useState(randomKey());
 
   const load = useCallback(async () => {
@@ -100,19 +101,23 @@ export default function RecoveryCaseDetailPage({ params }: { params: Promise<{ c
   );
 
   const submitCredit = useCallback(async () => {
+    const amountMinor = tlToMinor(creditAmount);
+    if (!amountMinor) {
+      setErr(tr ? "Geçerli bir tutar girin (₺)." : "Enter a valid amount (₺).");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
       await storeApi.issueCustomerCredit(detail!.customer.id, {
-        amountMinor: creditAmount,
+        amountMinor,
         expiryDays: creditExpiry as never,
-        reason: creditReason || "recovery-goodwill",
+        reason: creditReason,
         recoveryCaseId: caseId,
         idempotencyKey: creditKey,
       });
       setCreditModal(false);
       setCreditAmount("");
-      setCreditReason("");
       setCreditKey(randomKey());
       await load();
     } catch (error) {
@@ -120,7 +125,7 @@ export default function RecoveryCaseDetailPage({ params }: { params: Promise<{ c
     } finally {
       setBusy(false);
     }
-  }, [detail, creditAmount, creditExpiry, creditReason, creditKey, caseId, load, locale]);
+  }, [detail, creditAmount, creditExpiry, creditReason, creditKey, caseId, load, locale, tr]);
 
   if (!detail) {
     return (
@@ -299,10 +304,10 @@ export default function RecoveryCaseDetailPage({ params }: { params: Promise<{ c
         >
           <div className="space-y-3">
             <Input
-              label={tr ? "Tutar (kuruş)" : "Amount (minor)"}
+              label={tr ? "Tutar (₺)" : "Amount (₺)"}
               value={creditAmount}
-              onChange={(e) => setCreditAmount(e.target.value.replace(/[^0-9]/g, ""))}
-              placeholder="10000"
+              onChange={(e) => setCreditAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
+              placeholder={tr ? "250,00" : "250.00"}
             />
             <Select
               label={tr ? "Son kullanım" : "Expiry"}
@@ -310,7 +315,12 @@ export default function RecoveryCaseDetailPage({ params }: { params: Promise<{ c
               onChange={(e) => setCreditExpiry(Number(e.target.value))}
               options={EXPIRY_DAYS.map((d) => ({ value: String(d), label: `${d} ${tr ? "gün" : "days"}` }))}
             />
-            <Input label={tr ? "Neden" : "Reason"} value={creditReason} onChange={(e) => setCreditReason(e.target.value)} />
+            <Select
+              label={tr ? "Neden" : "Reason"}
+              value={creditReason}
+              onChange={(e) => setCreditReason(e.target.value)}
+              options={creditReasonOptions(tr)}
+            />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setCreditModal(false)}>{tr ? "Vazgeç" : "Cancel"}</Button>
               <Button variant="primary" disabled={busy || !creditAmount} onClick={submitCredit}>

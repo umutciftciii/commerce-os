@@ -35,6 +35,7 @@ import { CustomerIcon } from "../../../../components/icons";
 import { storeApi, type ActivationInfo } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../lib/client/format";
+import { creditReasonOptions, tlToMinor } from "../../../../lib/client/credit-format";
 import { SurfaceCard } from "../../../components/premium";
 import { ActivationLinkModal } from "../activation-link-modal";
 
@@ -397,12 +398,16 @@ function CustomerCreditCard({
 }) {
   const locale = useLocale();
   const tr = locale === "tr";
+  const reasonOptions = creditReasonOptions(tr);
+  const expiryOptions = [30, 60, 120, 180].map((d) => ({ value: String(d), label: `${d} ${tr ? "gün" : "days"}` }));
   const [data, setData] = useState<CustomerCreditBalanceResponse | null | "error">(null);
-  const [modal, setModal] = useState(false);
-  const [amount, setAmount] = useState("");
+  const [mode, setMode] = useState<null | "ADD" | "ADJUST">(null);
+  // Girdi TL (₺) — kuruş DEĞİL. tlToMinor ile API sınırında minor'a çevrilir.
+  const [amountTl, setAmountTl] = useState("");
   const [expiry, setExpiry] = useState(60);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(reasonOptions[0]!.value);
   const [note, setNote] = useState("");
+  const [adjDir, setAdjDir] = useState<"CREDIT" | "DEBIT">("DEBIT");
   const [key, setKey] = useState(() => `ac-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
   const [busy, setBusy] = useState(false);
 
@@ -420,39 +425,69 @@ function CustomerCreditCard({
     load();
   }, [load]);
 
+  const resetForm = useCallback(() => {
+    setMode(null);
+    setAmountTl("");
+    setReason(reasonOptions[0]!.value);
+    setNote("");
+    setKey(`ac-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
+  }, [reasonOptions]);
+
   const submit = useCallback(async () => {
+    const amountMinor = tlToMinor(amountTl);
+    if (!amountMinor) {
+      onError(new Error(tr ? "Geçerli bir tutar girin (₺)." : "Enter a valid amount (₺)."));
+      return;
+    }
     setBusy(true);
     try {
-      await storeApi.issueCustomerCredit(customerId, {
-        amountMinor: amount,
-        expiryDays: expiry as never,
-        reason: reason || "admin-goodwill",
-        internalNote: note || undefined,
-        idempotencyKey: key,
-      });
-      setModal(false);
-      setAmount("");
-      setReason("");
-      setNote("");
-      setKey(`ac-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
-      onChanged(tr ? "Bakiye eklendi." : "Balance added.");
+      if (mode === "ADD") {
+        await storeApi.issueCustomerCredit(customerId, {
+          amountMinor,
+          expiryDays: expiry as never,
+          reason,
+          internalNote: note || undefined,
+          idempotencyKey: key,
+        });
+        onChanged(tr ? "Bakiye eklendi." : "Balance added.");
+      } else {
+        await storeApi.adjustCustomerCredit(customerId, {
+          direction: adjDir,
+          amountMinor,
+          reason,
+          internalNote: note || undefined,
+          idempotencyKey: key,
+          ...(adjDir === "CREDIT" ? { expiryDays: expiry as never } : {}),
+        });
+        onChanged(tr ? "Bakiye düzeltildi." : "Balance adjusted.");
+      }
+      resetForm();
       load();
     } catch (error) {
       onError(error);
     } finally {
       setBusy(false);
     }
-  }, [customerId, amount, expiry, reason, note, key, onChanged, onError, load, tr]);
+  }, [mode, customerId, amountTl, expiry, reason, note, adjDir, key, onChanged, onError, load, resetForm, tr]);
 
   const title = tr ? "Alışveriş Bakiyesi" : "Shopping Balance";
   if (data === null) return <SurfaceCard title={title} icon={<CustomerIcon />}><SkeletonRows rows={3} /></SurfaceCard>;
   if (data === "error") return <SurfaceCard title={title} icon={<CustomerIcon />}><p className="text-sm text-white/40">{tr ? "Yüklenemedi." : "Failed to load."}</p></SurfaceCard>;
 
+  const showExpiry = mode === "ADD" || (mode === "ADJUST" && adjDir === "CREDIT");
+  const modalTitle =
+    mode === "ADD" ? (tr ? "Bakiye Ekle" : "Add balance") : tr ? "Bakiye Düzelt" : "Adjust balance";
+
   return (
     <SurfaceCard
       title={title}
       icon={<CustomerIcon />}
-      actions={<Button variant="secondary" onClick={() => setModal(true)}>{tr ? "Bakiye Ekle" : "Add balance"}</Button>}
+      actions={
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setMode("ADJUST")}>{tr ? "Düzelt" : "Adjust"}</Button>
+          <Button variant="secondary" onClick={() => setMode("ADD")}>{tr ? "Bakiye Ekle" : "Add balance"}</Button>
+        </div>
+      }
     >
       <div className="mb-4">
         <div className="text-xs text-white/40">{tr ? "Kullanılabilir bakiye" : "Available balance"}</div>
@@ -477,21 +512,53 @@ function CustomerCreditCard({
         ))}
       </div>
 
-      {modal && (
-        <Modal open onClose={() => setModal(false)} closeLabel={tr ? "Kapat" : "Close"} title={tr ? "Bakiye Ekle" : "Add balance"}>
+      {mode && (
+        <Modal open onClose={resetForm} closeLabel={tr ? "Kapat" : "Close"} title={modalTitle}>
           <div className="space-y-3">
-            <Input label={tr ? "Tutar (kuruş)" : "Amount (minor)"} value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="10000" />
-            <Select
-              label={tr ? "Son kullanım" : "Expiry"}
-              value={String(expiry)}
-              onChange={(e) => setExpiry(Number(e.target.value))}
-              options={[30, 60, 120, 180].map((d) => ({ value: String(d), label: `${d} ${tr ? "gün" : "days"}` }))}
+            {mode === "ADJUST" && (
+              <>
+                <Select
+                  label={tr ? "İşlem" : "Operation"}
+                  value={adjDir}
+                  onChange={(e) => setAdjDir(e.target.value as "CREDIT" | "DEBIT")}
+                  options={[
+                    { value: "DEBIT", label: tr ? "Bakiye azalt (düzelt/geri al)" : "Reduce balance (correct)" },
+                    { value: "CREDIT", label: tr ? "Bakiye artır" : "Increase balance" },
+                  ]}
+                />
+                <p className="text-xs text-white/40">
+                  {tr
+                    ? "Düzeltme SUPER_ADMIN yetkisi gerektirir. Azaltma mevcut bakiyeyi aşamaz."
+                    : "Adjustment requires SUPER_ADMIN. Reduction cannot exceed available balance."}
+                </p>
+              </>
+            )}
+            <Input
+              label={tr ? "Tutar (₺)" : "Amount (₺)"}
+              value={amountTl}
+              onChange={(e) => setAmountTl(e.target.value.replace(/[^0-9.,]/g, ""))}
+              placeholder={tr ? "250,00" : "250.00"}
             />
-            <Input label={tr ? "Neden" : "Reason"} value={reason} onChange={(e) => setReason(e.target.value)} />
+            {showExpiry && (
+              <Select
+                label={tr ? "Son kullanım" : "Expiry"}
+                value={String(expiry)}
+                onChange={(e) => setExpiry(Number(e.target.value))}
+                options={expiryOptions}
+              />
+            )}
+            <Select
+              label={tr ? "Neden" : "Reason"}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              options={reasonOptions}
+            />
             <Textarea label={tr ? "Dahili not" : "Internal note"} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr ? "Müşteriye görünmez" : "Not shown to customer"} />
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setModal(false)}>{tr ? "Vazgeç" : "Cancel"}</Button>
-              <Button variant="primary" disabled={busy || !amount} onClick={submit}>{tr ? "Ekle" : "Add"}</Button>
+              <Button variant="secondary" onClick={resetForm}>{tr ? "Vazgeç" : "Cancel"}</Button>
+              <Button variant="primary" disabled={busy || !amountTl} onClick={submit}>
+                {mode === "ADD" ? (tr ? "Ekle" : "Add") : tr ? "Uygula" : "Apply"}
+              </Button>
             </div>
           </div>
         </Modal>

@@ -1824,6 +1824,23 @@ export const positiveMinorAmountString = canonicalMinorAmountString.refine((s) =
   message: "Amount must be positive.",
 });
 
+/** Admin manuel bakiye düzeltmesi (CREDIT ekle / DEBIT çıkar). GÜÇLÜ YETKİ (SUPER_ADMIN). */
+export const adminAdjustCreditRequestSchema = z
+  .object({
+    direction: z.enum(["CREDIT", "DEBIT"]),
+    amountMinor: positiveMinorAmountString,
+    reason: z.string().min(1).max(80),
+    internalNote: z.string().max(500).optional(),
+    idempotencyKey: z.string().min(8).max(200),
+    // CREDIT düzeltmesinde grant expiry zorunlu; DEBIT'te yoksayılır.
+    expiryDays: creditExpiryDaysSchema.optional(),
+  })
+  .refine((v) => v.direction !== "CREDIT" || v.expiryDays !== undefined, {
+    message: "CREDIT düzeltmesi için son kullanım (expiryDays) zorunlu.",
+    path: ["expiryDays"],
+  });
+export type AdminAdjustCreditRequest = z.infer<typeof adminAdjustCreditRequestSchema>;
+
 /** Admin/recovery goodwill kredi verme isteği. */
 export const adminIssueCreditRequestSchema = z.object({
   amountMinor: positiveMinorAmountString,

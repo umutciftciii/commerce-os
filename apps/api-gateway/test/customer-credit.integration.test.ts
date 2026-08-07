@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@commerce-os/db";
 import {
+  adminAdjustBalance,
   getAvailableBalanceMinor,
   getCustomerBalance,
   expireLotsForStore,
@@ -245,5 +246,56 @@ describe.skipIf(!hasTestDb)("Store Credit ledger (integration)", () => {
     await issue(a, 40000n, 30, "iso-a");
     expect(await getAvailableBalanceMinor(prisma, a.storeId, a.customerId, "TRY")).toBe(40000n);
     expect(await getAvailableBalanceMinor(prisma, b.storeId, b.customerId, "TRY")).toBe(0n);
+  });
+
+  it("admin adjust DEBIT: hatalı yüklemeyi geri alır (FEFO azaltma; no-negative)", async () => {
+    const f = await seed();
+    await issue(f, 25000n, 60, "adj1"); // ₺250 yüklendi (hatalı)
+    const res = await adminAdjustBalance({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", direction: "DEBIT",
+      amountMinor: 25000n, reason: "CORRECTION", actor: { type: "PLATFORM_USER", id: "sa" }, idempotencyKey: "corr-1",
+    });
+    expect(res.ok).toBe(true);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(0n);
+    const debit = await prisma.customerCreditLedgerEntry.findFirst({ where: { storeId: f.storeId, type: "ADMIN_ADJUSTMENT_DEBIT" } });
+    expect(debit?.amountMinor).toBe(25000n);
+  });
+
+  it("admin adjust DEBIT: bakiyeyi aşamaz (INSUFFICIENT_BALANCE)", async () => {
+    const f = await seed();
+    await issue(f, 10000n, 60, "adj2");
+    const res = await adminAdjustBalance({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", direction: "DEBIT",
+      amountMinor: 15000n, reason: "CORRECTION", actor: { type: "PLATFORM_USER", id: "sa" }, idempotencyKey: "corr-2",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("INSUFFICIENT_BALANCE");
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(10000n);
+  });
+
+  it("admin adjust DEBIT: idempotent (aynı key tekrar → çift debit yok)", async () => {
+    const f = await seed();
+    await issue(f, 30000n, 60, "adj3");
+    const p = { storeId: f.storeId, customerId: f.customerId, currency: "TRY", direction: "DEBIT" as const, amountMinor: 10000n, reason: "CORRECTION", actor: { type: "PLATFORM_USER" as const, id: "sa" }, idempotencyKey: "corr-3" };
+    await adminAdjustBalance(p);
+    const second = await adminAdjustBalance(p);
+    expect(second.ok).toBe(true);
+    if (second.ok) expect(second.deduped).toBe(true);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(20000n); // yalnız bir kez düştü
+  });
+
+  it("admin adjust CREDIT: bakiye artırır (expiry zorunlu)", async () => {
+    const f = await seed();
+    const res = await adminAdjustBalance({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", direction: "CREDIT",
+      amountMinor: 5000n, reason: "PRICE_ADJUSTMENT", actor: { type: "PLATFORM_USER", id: "sa" }, idempotencyKey: "adjc-1", expiryDays: 90 as never,
+    });
+    expect(res.ok).toBe(false); // 90 geçersiz expiry
+    const ok = await adminAdjustBalance({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", direction: "CREDIT",
+      amountMinor: 5000n, reason: "PRICE_ADJUSTMENT", actor: { type: "PLATFORM_USER", id: "sa" }, idempotencyKey: "adjc-2", expiryDays: 120,
+    });
+    expect(ok.ok).toBe(true);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(5000n);
   });
 });

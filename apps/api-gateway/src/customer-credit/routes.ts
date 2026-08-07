@@ -12,10 +12,17 @@ import { prisma } from "@commerce-os/db";
 import type { AuditAction } from "@prisma/client";
 import { parseMinorString, minorToCanonicalString } from "@commerce-os/utils";
 import {
+  adminAdjustCreditRequestSchema,
   adminIssueCreditRequestSchema,
   customerCreditBalanceResponseSchema,
 } from "@commerce-os/contracts";
-import { getCustomerBalance, issueCredit, type CreditErrorCode, type CustomerBalanceView } from "./service.js";
+import {
+  adminAdjustBalance,
+  getCustomerBalance,
+  issueCredit,
+  type CreditErrorCode,
+  type CustomerBalanceView,
+} from "./service.js";
 import { recordGoodwillCreditActivity } from "../order-experience/recovery-service.js";
 
 const DEFAULT_CURRENCY = "TRY";
@@ -204,5 +211,69 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
 
     const view = await getCustomerBalance(params.storeId, params.customerId, currency);
     await reply.code(result.deduped ? 200 : 201).send(await serializeBalance(params.storeId, view));
+  });
+
+  // POST — manuel bakiye düzeltmesi (CREDIT ekle / DEBIT çıkar). GÜÇLÜ YETKİ: yalnız SUPER_ADMIN
+  // (hatalı yükleme düzeltme / geri alma). Client tutarına kör güven yok; server-side validasyon.
+  app.post("/stores/:storeId/customers/:customerId/credit/adjust", async (request, reply) => {
+    const params = customerParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    if (!access.isSuperAdmin) {
+      await reply.code(403).send(errorBody("FORBIDDEN", "Bakiye düzeltme için yetki yetersiz (SUPER_ADMIN)."));
+      return;
+    }
+    const input = adminAdjustCreditRequestSchema.parse(request.body);
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: params.customerId, storeId: params.storeId },
+      select: { id: true },
+    });
+    if (!customer) {
+      await reply.code(404).send(errorBody("NOT_FOUND", "Müşteri bulunamadı."));
+      return;
+    }
+    const settings = await prisma.storeSettings.findUnique({
+      where: { storeId: params.storeId },
+      select: { goodwillCreditCurrency: true },
+    });
+    const currency = settings?.goodwillCreditCurrency ?? DEFAULT_CURRENCY;
+
+    const result = await adminAdjustBalance({
+      storeId: params.storeId,
+      customerId: params.customerId,
+      currency,
+      direction: input.direction,
+      amountMinor: parseMinorString(input.amountMinor),
+      reason: input.reason,
+      note: input.internalNote ?? null,
+      actor: { type: "PLATFORM_USER", id: access.actorUserId },
+      idempotencyKey: `${params.storeId}:${input.idempotencyKey}`,
+      expiryDays: input.expiryDays,
+    });
+    if (!result.ok) {
+      const http = CREDIT_HTTP[result.code];
+      await reply.code(http.status).send(errorBody(result.code, http.message));
+      return;
+    }
+    await deps.recordAudit({
+      storeId: params.storeId,
+      platformUserId: access.actorUserId,
+      action: "UPDATE",
+      entityType: "CustomerCreditLedgerEntry",
+      entityId: result.entryIds[0] ?? params.customerId,
+      metadata: {
+        customerId: params.customerId,
+        action: "credit-adjustment",
+        direction: input.direction,
+        amountMinor: input.amountMinor,
+        currency,
+        reason: input.reason,
+        internalNote: input.internalNote ?? null,
+        deduped: result.deduped,
+      },
+    });
+    const view = await getCustomerBalance(params.storeId, params.customerId, currency);
+    await reply.send(await serializeBalance(params.storeId, view));
   });
 }
