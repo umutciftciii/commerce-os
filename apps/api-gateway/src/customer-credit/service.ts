@@ -464,6 +464,22 @@ export async function expireLotsForStore(storeId: string, batchSize = 200): Prom
   return processed;
 }
 
+/** Worker: süresi dolmuş lot'u olan mağazaları bulup her birini sweep eder. Toplam materialize sayısı döner. */
+export async function sweepExpiredCreditAllStores(batchPerStore = 200): Promise<number> {
+  const now = new Date();
+  const due = await prisma.customerCreditLot.findMany({
+    where: { status: "ACTIVE", remainingAmountMinor: { gt: 0n }, expiresAt: { lte: now } },
+    select: { storeId: true },
+    distinct: ["storeId"],
+    take: 1000,
+  });
+  let total = 0;
+  for (const { storeId } of due) {
+    total += await expireLotsForStore(storeId, batchPerStore);
+  }
+  return total;
+}
+
 // ---------------------------------------------------------------------------
 // 5) READ MODEL: bakiye + hareket geçmişi (storefront + admin). storeId-first scoped.
 // ---------------------------------------------------------------------------

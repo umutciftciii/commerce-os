@@ -4900,7 +4900,9 @@ export const orderPaymentAttemptSchema = z.object({
   type: paymentAttemptTypeSchema.default("ONLINE"),
   provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
   mode: z.enum(["TEST", "LIVE"]).nullable(),
-  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
+  // TODO-174B (ADR-282) — STORE_CREDIT: alışveriş bakiyesiyle ödenen MANUAL attempt sipariş ödeme
+  // listesinde görünür (external ödemeden ayrı; admin ödeme özetinde ayrı satır).
+  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]),
   amount: z.number().int().nonnegative(),
   currency: currencySchema,
   status: z.enum([
@@ -12492,7 +12494,9 @@ export const orderRefundEventTypeSchema = z.enum([
   "DUPLICATE_CALLBACK",
 ]);
 const refundProviderEnum = z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]);
-const refundMethodEnum = z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]);
+// TODO-174B (ADR-282) — STORE_CREDIT eklendi: iade edilen attempt'in yöntemi store credit olabilir
+// (bu attempt provider'a iade EDİLMEZ, bakiyeye restore edilir; ancak method serileştirilir).
+const refundMethodEnum = z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]);
 
 export const adminRefundCapabilitySchema = z.object({
   mode: refundExecutionModeSchema,

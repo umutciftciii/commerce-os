@@ -3152,6 +3152,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
       manualReference: true,
       manualNote: true,
       collectedAt: true,
+      // TODO-174B (ADR-282) — STORE_CREDIT attempt ↔ credit ledger DEBIT bağı (OrderRecord uyumu).
+      creditLedgerGroupKey: true,
       createdAt: true,
       updatedAt: true,
     } },

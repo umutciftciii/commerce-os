@@ -12,6 +12,7 @@ import { startRecentlyViewedRetentionWorker } from "./recently-viewed/retention-
 import { startRecommendationEventRetentionWorker } from "./recommendation-events/retention-worker.js";
 import { startDiscoveryEventRetentionWorker } from "./home/discovery-event-retention-worker.js";
 import { startCartExpiryWorker } from "./cart/expiry-worker.js";
+import { startCreditExpiryWorker } from "./customer-credit/expiry-worker.js";
 import { disconnectDefaultAdvisoryLockManager } from "./commercial-automation/advisory-lock.js";
 import { createWorkerCapabilityGate } from "./capabilities/worker-gate.js";
 
@@ -41,6 +42,9 @@ const recommendationEventRetentionWorker = startRecommendationEventRetentionWork
 const discoveryEventRetentionWorker = startDiscoveryEventRetentionWorker({ config, logger, capabilityGate });
 // TODO-167 (ADR-266) — zamanlanmis Persistent Cart expiry sweep (CART_EXPIRY_SWEEP_ENABLED=false ise no-op).
 const cartExpiryWorker = startCartExpiryWorker({ config, logger });
+// TODO-174B (ADR-284) — zamanlanmis Store Credit lot expiry sweep (CREDIT_EXPIRY_SWEEP_ENABLED=false ise
+// no-op). available bakiye zaten expiresAt>now ile doğru; worker yalnız EXPIRED materialize + EXPIRE entry.
+const creditExpiryWorker = startCreditExpiryWorker({ config, logger });
 // H-3 pre-ship — rezervasyon süre-aşımı süpürücü api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
 // Scheduler). api-gateway yalnız manuel expiry/reconcile enqueue + status/reconcile-scan sunar.
 // PB-2/PB-3 — DB backup zamanlaması + yürütmesi api-gateway'den KALDIRILDI → apps/worker (BullMQ Job
@@ -57,6 +61,7 @@ const shutdown = async (signal: string) => {
   await recommendationEventRetentionWorker.stop();
   await discoveryEventRetentionWorker.stop();
   await cartExpiryWorker.stop();
+  await creditExpiryWorker.stop();
   await disconnectDefaultAdvisoryLockManager();
   await app.close();
   await closeQueueConnections();
