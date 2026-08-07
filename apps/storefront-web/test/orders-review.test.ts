@@ -5,7 +5,8 @@ import type {
   ProductReviewStatus,
   ReviewEligibleOrderLine,
 } from "@commerce-os/api-client";
-import { resolveOrderReview } from "../lib/orders-review";
+import type { OrderExperienceEligibility } from "@commerce-os/api-client";
+import { resolveOrderReview, resolveOrderExperience } from "../lib/orders-review";
 
 /**
  * TODO-159E hotfix — Sipariş yüzeyi yorum aksiyonu resolver testleri. Uygunluk
@@ -200,5 +201,37 @@ describe("resolveOrderReview", () => {
     );
     expect(state.reviewable).toHaveLength(1);
     expect(state.reviewed).toHaveLength(0);
+  });
+});
+
+/**
+ * TODO-174A (ADR-279) — Sipariş DENEYİMİ değerlendirmesi CTA durumu resolver'ı. Uygunluk
+ * SUNUCU listesinden gelir (yalnız iptal + teslim-edilmemiş siparişler). Bu saf fonksiyon
+ * o listeyi ilgili siparişe eşler; uygun değilse null (CTA gösterilmez).
+ */
+function eligibility(
+  overrides: Partial<OrderExperienceEligibility> = {},
+): OrderExperienceEligibility {
+  return { orderNumber: "OS-1", submitted: false, rating: null, ...overrides };
+}
+
+describe("resolveOrderExperience (TODO-174A)", () => {
+  it("iptal edilmiş (uygun) sipariş listede → eligible state (submitted false)", () => {
+    const state = resolveOrderExperience("OS-1", [eligibility()]);
+    expect(state).not.toBeNull();
+    expect(state?.eligible).toBe(true);
+    expect(state?.submitted).toBe(false);
+    expect(state?.rating).toBeNull();
+  });
+
+  it("zaten değerlendirilmiş → submitted true + rating korunur (duplicate koruması)", () => {
+    const state = resolveOrderExperience("OS-1", [eligibility({ submitted: true, rating: 5 })]);
+    expect(state?.submitted).toBe(true);
+    expect(state?.rating).toBe(5);
+  });
+
+  it("listede olmayan sipariş (uygun değil / teslim edilmiş) → null (CTA gösterilmez)", () => {
+    expect(resolveOrderExperience("OS-2", [eligibility()])).toBeNull();
+    expect(resolveOrderExperience("OS-1", [])).toBeNull();
   });
 });

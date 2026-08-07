@@ -2302,3 +2302,17 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 - **TD-CXL-4** İptal Raporu CSV export'u YOK (finance raporlarının aksine); tab'da export butonu gizli. FUTURE.
 - **TD-CXL-5** Taksonomi değişikliği (yeni reason ekleme/INACTIVE) gelecekteki `Store → Platform Request & Task
   Management` domain'i üzerinden yapılacak; bu fazda enum + registry çift-kaynak elle güncellenir (ADR-278).
+
+## TODO-174A Cancellation UX & Refund Visibility — açık borç (FUTURE)
+
+- **TD-174A-1** `OrderExperienceReview` için Store Admin görünürlük/moderasyon UI'ı ve sipariş-deneyimi
+  metriği (raporlama) YOK — bu fazda yalnız müşteri yakalama. Ürün kararı: ileride admin raporlamasında
+  kullanılabilir (ADR-279). FUTURE.
+- **TD-174A-2** Store Admin birleşik İadeler listesinde `RETURN_REQUEST` satırları refund tutar/durum
+  kolonlarını (refundStatus/refundAmountMinor) DOLDURMAZ (null) — iade refund durumu iade detayında
+  gösterilir. Cancellation satırları refund alanlarını taşır. İstenirse return satırlarına da roll-up
+  refund özeti eklenebilir (ADR-280). FUTURE.
+- **TD-174A-3** Birleşik admin listesinde sıralama yalnız `createdAt` (requestedAt); eski return-özel
+  sortBy `returnWindowEndsAt`/`status` kaldırıldı (kaynaklar-arası anlamsız). Return-only görünümde bu
+  sıralamalar istenirse `source=RETURN_REQUEST` filtresiyle geri getirilebilir (kod eklenmesi gerekir).
+  FUTURE.

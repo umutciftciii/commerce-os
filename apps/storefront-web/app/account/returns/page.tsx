@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { format, formatDate } from "@commerce-os/i18n";
+import type { CustomerRefundVisibilityItem } from "@commerce-os/contracts";
+import { format, formatDate, type Locale } from "@commerce-os/i18n";
 import { Badge, ButtonLink, Container, EmptyState, Heading, Text } from "../../../components/ui";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
+import { formatMinor } from "../../../lib/money";
 import { getCurrentCustomer } from "../../../lib/server/customer";
 import { listReturns } from "../../../lib/server/returns";
 import { AccountSidebar } from "../../../components/account/account-sidebar";
@@ -49,35 +51,123 @@ export default async function ReturnsListPage() {
             />
           ) : (
             <ul className="space-y-3">
-              {returns.map((item) => (
-                <li key={item.returnNumber}>
-                  <Link
-                    href={`/account/returns/${encodeURIComponent(item.returnNumber)}`}
-                    className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border border-line p-4 transition-colors hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    <div className="min-w-0 space-y-0.5">
-                      <p className="text-sm font-medium text-ink">
-                        {r.reference}: {item.returnNumber}
-                      </p>
-                      <p className="text-xs text-ink-subtle">
-                        {r.orderRef}: {item.orderNumber} ·{" "}
-                        {format(r.itemCount, { count: item.itemCount })}
-                      </p>
-                      <p className="text-xs text-ink-subtle">
-                        {r.createdAt}: {formatDate(item.createdAt, locale)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge tone="muted">{r.resolutions[item.resolutionType]}</Badge>
-                      <Badge tone="outline">{r.statuses[item.status]}</Badge>
-                    </div>
-                  </Link>
-                </li>
-              ))}
+              {returns.map((item) =>
+                item.source === "ORDER_CANCELLATION" ? (
+                  <li key={`cancel:${item.reference}`}>
+                    <CancellationRefundCard
+                      item={item}
+                      rf={r.refunds}
+                      reasons={t.cancellations.reasons}
+                      locale={locale}
+                    />
+                  </li>
+                ) : (
+                  <li key={`return:${item.reference}`}>
+                    <Link
+                      href={`/account/returns/${encodeURIComponent(item.reference)}`}
+                      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border border-line p-4 transition-colors hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="text-sm font-medium text-ink">
+                          {r.reference}: {item.reference}
+                        </p>
+                        <p className="text-xs text-ink-subtle">
+                          {r.orderRef}: {item.orderNumber}
+                          {item.itemCount !== null
+                            ? ` · ${format(r.itemCount, { count: item.itemCount })}`
+                            : ""}
+                        </p>
+                        <p className="text-xs text-ink-subtle">
+                          {r.createdAt}: {formatDate(item.createdAt, locale)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {item.resolutionType ? (
+                          <Badge tone="muted">{r.resolutions[item.resolutionType]}</Badge>
+                        ) : null}
+                        {item.returnStatus ? (
+                          <Badge tone="outline">{r.statuses[item.returnStatus]}</Badge>
+                        ) : null}
+                      </div>
+                    </Link>
+                  </li>
+                ),
+              )}
             </ul>
           )}
         </section>
       </div>
     </Container>
+  );
+}
+
+/**
+ * TODO-174A — Sipariş iptali geri ödemesi kartı (vitrin "İadelerim"). ReturnRequest DEĞİL; "iade talebi"
+ * copy'si kullanılmaz. Detay için sipariş sayfasına (iptal bloğu + refund durumu) yönlendirir. Refund
+ * MASKELİdir; FAILED yanıltıcı gösterilmez (destek/kurtarma metni + nötr rozet, danger tonu YOK — editorial).
+ */
+function CancellationRefundCard({
+  item,
+  rf,
+  reasons,
+  locale,
+}: {
+  item: CustomerRefundVisibilityItem;
+  rf: {
+    cancellationTitle: string;
+    orderRef: string;
+    amountLabel: string;
+    reasonLabel: string;
+    methodLabel: string;
+    createdAt: string;
+    completedAt: string;
+    statusValues: Record<"NONE" | "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED", string>;
+    failedSupport: string;
+  };
+  reasons: Record<string, string>;
+  locale: Locale;
+}) {
+  const refund = item.refund;
+  const statusKey = refund?.status ?? "NONE";
+  const failed = statusKey === "FAILED";
+  return (
+    <Link
+      href={`/account/orders/${encodeURIComponent(item.orderNumber)}`}
+      className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 border border-line p-4 transition-colors hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-medium text-ink">{rf.cancellationTitle}</p>
+        <p className="text-xs text-ink-subtle">
+          {rf.orderRef}: {item.orderNumber}
+        </p>
+        {item.cancellationReasonCode ? (
+          <p className="text-xs text-ink-subtle">
+            {rf.reasonLabel}: {reasons[item.cancellationReasonCode] ?? item.cancellationReasonCode}
+          </p>
+        ) : null}
+        <p className="text-xs text-ink-subtle">
+          {rf.createdAt}: {formatDate(item.createdAt, locale)}
+        </p>
+        {refund?.completedAt ? (
+          <p className="text-xs text-ink-subtle">
+            {rf.completedAt}: {formatDate(refund.completedAt, locale)}
+          </p>
+        ) : null}
+        {refund?.methodLabel ? (
+          <p className="text-xs text-ink-subtle">
+            {rf.methodLabel}: {refund.methodLabel}
+          </p>
+        ) : null}
+        {failed ? <p className="text-xs text-ink-subtle">{rf.failedSupport}</p> : null}
+      </div>
+      <div className="flex flex-col items-end gap-2">
+        {refund ? (
+          <p className="text-sm font-medium text-ink">
+            {formatMinor(refund.expectedTotalMinor, refund.currency)}
+          </p>
+        ) : null}
+        <Badge tone="outline">{rf.statusValues[statusKey]}</Badge>
+      </div>
+    </Link>
   );
 }

@@ -1,6 +1,7 @@
 import type {
   CustomerOrderSummary,
   CustomerReview,
+  OrderExperienceEligibility,
   ProductReviewStatus,
   ReviewEligibleOrderLine,
 } from "@commerce-os/api-client";
@@ -131,4 +132,29 @@ export function resolveOrderReview(
   }
 
   return { visible, actionable, reason, reviewable, reviewed };
+}
+
+/**
+ * TODO-174A (ADR-279) — Sipariş DENEYİMİ değerlendirmesi CTA durumu (ürün review'dan AYRIK).
+ *
+ * Uygunluk SUNUCU-otoriterdir: gateway `/order-experience` ucu yalnız iptal edilmiş + teslim
+ * EDİLMEMİŞ + müşteriye ait siparişleri döner. Bu resolver o listeyi ilgili siparişe eşler.
+ * Sipariş uygun değilse `null` döner (CTA gösterilmez; ürün-review CTA'sı kendi mantığında kalır).
+ */
+export interface OrderExperienceState {
+  /** Deneyim değerlendirmesi yapılabilir mi (iptal + teslim-edilmemiş + kendi siparişi). */
+  eligible: boolean;
+  /** Bu sipariş için zaten bir deneyim değerlendirmesi verilmiş mi. */
+  submitted: boolean;
+  /** Verilmişse puan (1-5); yoksa null. */
+  rating: number | null;
+}
+
+export function resolveOrderExperience(
+  orderNumber: string,
+  list: readonly OrderExperienceEligibility[],
+): OrderExperienceState | null {
+  const entry = list.find((e) => e.orderNumber === orderNumber);
+  if (!entry) return null;
+  return { eligible: true, submitted: entry.submitted, rating: entry.rating };
 }

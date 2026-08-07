@@ -1061,9 +1061,10 @@ export default function OrderDetailPage() {
                         value={formatDate(order.cancelledAt)}
                       />
                     ) : null}
-                    {order.cancelReason ? (
-                      <RailRow label={d.cancelReasonLabel} value={order.cancelReason} />
-                    ) : null}
+                    {/* TODO-174A — İptal nedeni burada HAM `cancelReason` (kod) olarak render
+                        ediliyordu (ör. WILL_NOT_ARRIVE_IN_TIME). Kaldırıldı: neden, iptal edilen
+                        siparişte ana kolondaki "İptal detayı" kartında (OrderCancellationSection)
+                        i18n/registry'den ÇÖZÜMLENMİŞ label ile zaten gösterilir. Ham kod UI'a sızmaz. */}
                   </div>
                 </RailCard>
 

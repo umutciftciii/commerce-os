@@ -446,6 +446,8 @@ export async function initiateRefund(input: InitiateInput, deps: RefundServiceDe
         data: {
           storeId: input.storeId,
           orderId: intent.orderId,
+          // TODO-174A (ADR-280) — pozitif menşe: iade talebi akışı.
+          origin: "RETURN_REQUEST",
           returnRequestId: intent.returnRequestId,
           refundIntentId: intent.id,
           paymentAttemptId: attempt.id,
@@ -710,6 +712,8 @@ export async function prepareCancellationRefund(
       data: {
         storeId: input.storeId,
         orderId: order.id,
+        // TODO-174A (ADR-280) — pozitif menşe: intent'siz sipariş iptali geri ödemesi.
+        origin: "ORDER_CANCELLATION",
         returnRequestId: null,
         refundIntentId: null,
         paymentAttemptId: attempt.id,

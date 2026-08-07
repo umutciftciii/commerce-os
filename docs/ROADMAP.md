@@ -1551,3 +1551,19 @@ demo dokunulmadı). Kararlar: ADR-275 (authority/lifecycle) · ADR-276 (intent's
 rollback) · ADR-278 (taksonomi). Detay: `docs/DECISIONS.md`.
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #191 (merge `5ce426d`); CI 4m13s PASS. Deploy: api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (bağımlılıklar dokunulmadı); migration zaten canlı. Post-deploy smoke deployed :4000 (gerçek login + izole fixture): eligibility 3/3 + cancel+intent'siz refund SUCCEEDED + idempotent/validation/404 + web app'ler 200/307. FK-güvenli teardown (enterprise-demo dokunulmadı).
+
+## TODO-174A Cancellation UX & Refund Visibility — 2026-08-07
+
+TODO-174 sonrası bulunan 3 UX/ürün eksiğinin follow-up'ı (yeni cancellation domaini YARATMAZ; mevcut
+altyapıyı reuse eder). **(1)** İptal edilmiş (teslim EDİLMEMİŞ) siparişte değerlendirme CTA'sı artık aktif —
+ayrı **`OrderExperienceReview`** domaini (ürün puanına/`ProductRatingAggregate`'e HİÇ yansımaz; sipariş başına
+tek = duplicate koruması); vitrin CTA "Sipariş deneyimini değerlendir". **(2)** Ham iptal nedeni kodu
+(`WILL_NOT_ARRIVE_IN_TIME`) store-admin sipariş detayı "Müşteri bilgileri" rail'inden sızıyordu → kaldırıldı
+(neden "İptal detayı" kartında çözümlenmiş label); storefront OTHER notu; ham enum hiçbir yüzeye sızmaz. **(3)**
+Cancellation kaynaklı OrderRefund'lar Store Admin > İadeler + vitrin > İadelerim'de görünmüyordu → additive
+**`RefundOrigin`** enum kolonu + PROJEKSİYON birleşimi (domain tabloları birleşmez): admin birleşik liste +
+**KAYNAK** filtresi; vitrin birleşik "İadelerim" cancellation refund kartı (maskeli; işleniyor/tamamlandı/
+tamamlanamadı). Migration additive `20260807150000_todo174a...`. Gate tam yeşil (typecheck/lint/build/test iki
+run; api-gateway 2525); browser smoke gerçek enterprise-demo verisiyle her iki yüzeyde + responsive 375/1440.
+Kararlar: ADR-279 (order experience review) · ADR-280 (refund origin & unified visibility). Detay:
+`docs/DECISIONS.md`.

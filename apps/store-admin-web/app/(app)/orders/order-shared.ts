@@ -5,6 +5,8 @@ import type {
   ReturnResolutionTypeValue,
   ReturnReasonValue,
   AdminReturnItem,
+  OrderRefundStatusValue,
+  RefundOriginValue,
 } from "@commerce-os/api-client";
 
 export type Tone = "neutral" | "success" | "warning" | "info" | "danger";
@@ -267,6 +269,35 @@ export const cancellationReasonCategoryLabel = (
 ) => pick(locale, CANCELLATION_REASON_CATEGORY_LABELS[value]);
 export const cancellationReasonLabel = (value: OrderCancellationReason, locale: string) =>
   pick(locale, CANCELLATION_REASON_LABELS[value]);
+
+/* ── TODO-174A — Refund menşei (birleşik İadeler listesi) + refund durumu etiketleri ──────── */
+const REFUND_SOURCE_LABELS: Record<RefundOriginValue, Bi> = {
+  RETURN_REQUEST: { tr: "İade talebi", en: "Return request" },
+  ORDER_CANCELLATION: { tr: "Sipariş iptali", en: "Order cancellation" },
+};
+export const REFUND_SOURCE_TONES: Record<RefundOriginValue, Tone> = {
+  RETURN_REQUEST: "info",
+  ORDER_CANCELLATION: "warning",
+};
+export const refundSourceLabel = (value: RefundOriginValue, locale: string) =>
+  pick(locale, REFUND_SOURCE_LABELS[value]);
+
+const REFUND_STATUS_LABELS: Record<OrderRefundStatusValue, Bi> = {
+  PENDING: { tr: "Beklemede", en: "Pending" },
+  PROCESSING: { tr: "İşleniyor", en: "Processing" },
+  SUCCEEDED: { tr: "Tamamlandı", en: "Succeeded" },
+  FAILED: { tr: "Başarısız", en: "Failed" },
+  CANCELLED: { tr: "İptal edildi", en: "Cancelled" },
+};
+export const REFUND_STATUS_TONES: Record<OrderRefundStatusValue, Tone> = {
+  PENDING: "warning",
+  PROCESSING: "info",
+  SUCCEEDED: "success",
+  FAILED: "danger",
+  CANCELLED: "neutral",
+};
+export const refundStatusLabel = (value: OrderRefundStatusValue, locale: string) =>
+  pick(locale, REFUND_STATUS_LABELS[value]);
 
 export const returnStatusLabel = (status: ReturnStatus, locale: string) =>
   pick(locale, RETURN_STATUS_LABELS[status]);

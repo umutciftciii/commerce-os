@@ -24,6 +24,7 @@ import { ViewHistorySection } from "../../components/account/sections/view-histo
 import { getCouponCenter } from "../../lib/server/coupons";
 import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
 import { getMyReviews } from "../../lib/server/reviews";
+import { listOrderExperience } from "../../lib/server/order-experience";
 // TODO-163 Faz 2 — capability projeksiyonu (kapalı modül sekmesi/section render edilmez).
 import { getStoreCapabilities } from "../../lib/server/site";
 import { ProfileForm } from "../../components/account/sections/profile-form";
@@ -120,7 +121,13 @@ async function renderSection(
     case "orders": {
       // TODO-159E hotfix — Sipariş kartındaki "Ürün yorumu yaz" aksiyonu için sunucu-otoriter
       // uygunluk (eligible) + mevcut yorumlar aynı sayfada çözülür (yeni uç YOK).
-      const [orders, reviewData] = await Promise.all([listCustomerOrders(), getMyReviews()]);
+      // TODO-174A — İptal edilmiş siparişlerde "Sipariş deneyimini değerlendir" CTA'sı için
+      // deneyim-uygunluk listesi (server-otoriter) aynı sayfada çözülür.
+      const [orders, reviewData, experienceList] = await Promise.all([
+        listCustomerOrders(),
+        getMyReviews(),
+        listOrderExperience(),
+      ]);
       return (
         <OrdersSection
           t={t}
@@ -131,6 +138,7 @@ async function renderSection(
           reviewsT={dict.reviews}
           eligible={reviewData?.eligible ?? []}
           reviews={reviewData?.reviews ?? []}
+          experienceList={experienceList}
         />
       );
     }

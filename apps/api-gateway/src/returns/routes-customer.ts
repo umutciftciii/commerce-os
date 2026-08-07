@@ -14,8 +14,9 @@ import {
   customerReturnCreateResponseSchema,
   customerReturnDetailResponseSchema,
   customerReturnEligibilityResponseSchema,
-  customerReturnListResponseSchema,
+  customerRefundVisibilityListResponseSchema,
   customerReturnTrackingRequestSchema,
+  type CustomerRefundVisibilityItem,
 } from "@commerce-os/contracts";
 import type { CustomerAuthRecord, CustomerDataAccess } from "../customers/index.js";
 import { resolveCustomerFromRequest } from "../customers/index.js";
@@ -23,6 +24,10 @@ import { serializeCustomerReverseShipment } from "./reverse-serialize.js";
 import type { StorageDriver } from "../media/storage.js";
 import { buildStorageKey } from "../media/storage-key.js";
 import { buildCustomerRefundSummary, maskPaymentMethodLabel } from "../refunds/serialize.js";
+import {
+  mapCustomerCancellationItem,
+  type CustomerCancellationRowSource,
+} from "../refunds/visibility.js";
 import {
   createReturnRequest,
   applyReturnTransition,
@@ -206,34 +211,70 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
     return reply.code(201).send(customerReturnCreateResponseSchema.parse({ return: detail }));
   });
 
-  // ── Liste ────────────────────────────────────────────────────────────────────
+  // ── Liste — TODO-174A: BİRLEŞİK "İadelerim" (iade talepleri + sipariş iptali geri ödemeleri) ──
+  // Müşteri YALNIZ kendi kayıtlarını görür. ReturnRequest ve OrderRefund AYRI domain'ler; yalnız
+  // projeksiyon birleşimi. Cancellation satırı kendi kaynağıyla (source) etiketlenir, "iade talebi"
+  // gibi sunulmaz. Refund MASKELİ (buildCustomerRefundSummary), ham provider kodu SIZMAZ.
   app.get("/public/stores/:storeSlug/customer/returns", async (request, reply) => {
     const store = await requireStore(request, reply);
     if (!store) return;
     const customer = await requireCustomer(request, reply, store.id);
     if (!customer) return;
-    const rows = await prisma.returnRequest.findMany({
-      where: { storeId: store.id, customerId: customer.id },
-      orderBy: { createdAt: "desc" },
-      select: {
-        returnNumber: true,
-        status: true,
-        resolutionType: true,
-        createdAt: true,
-        order: { select: { orderNumber: true } },
-        items: { select: { id: true } },
-      },
-    });
-    return customerReturnListResponseSchema.parse({
-      data: rows.map((r) => ({
-        returnNumber: r.returnNumber,
-        orderNumber: r.order.orderNumber,
-        status: r.status,
-        resolutionType: r.resolutionType,
-        itemCount: r.items.length,
-        createdAt: r.createdAt.toISOString(),
-      })),
-    });
+
+    const [returnRows, cancelRows] = await Promise.all([
+      prisma.returnRequest.findMany({
+        where: { storeId: store.id, customerId: customer.id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          returnNumber: true,
+          status: true,
+          resolutionType: true,
+          createdAt: true,
+          order: { select: { orderNumber: true } },
+          items: { select: { id: true } },
+        },
+      }),
+      prisma.orderRefund.findMany({
+        where: {
+          storeId: store.id,
+          origin: "ORDER_CANCELLATION",
+          order: { customerId: customer.id },
+        },
+        orderBy: { requestedAt: "desc" },
+        select: {
+          status: true,
+          currency: true,
+          totalRefundMinor: true,
+          requestedAt: true,
+          completedAt: true,
+          order: {
+            select: { orderNumber: true, cancelReasonCode: true, cancelReasonNote: true },
+          },
+          paymentAttempt: {
+            select: { method: true, cardBrand: true, cardLast4: true, manualMethod: true },
+          },
+        },
+      }),
+    ]);
+
+    const returnItems: CustomerRefundVisibilityItem[] = returnRows.map((r) => ({
+      source: "RETURN_REQUEST",
+      reference: r.returnNumber,
+      orderNumber: r.order.orderNumber,
+      createdAt: r.createdAt.toISOString(),
+      returnStatus: r.status,
+      resolutionType: r.resolutionType,
+      itemCount: r.items.length,
+      refund: null,
+      cancellationReasonCode: null,
+      cancellationReasonNote: null,
+    }));
+    const cancelItems = (cancelRows as CustomerCancellationRowSource[]).map(mapCustomerCancellationItem);
+
+    const data = [...returnItems, ...cancelItems].sort((a, b) =>
+      a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0,
+    );
+    return customerRefundVisibilityListResponseSchema.parse({ data });
   });
 
   // ── Detay / takip ekranı ────────────────────────────────────────────────────

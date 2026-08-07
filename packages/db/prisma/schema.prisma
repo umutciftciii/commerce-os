@@ -1018,6 +1018,8 @@ model Store {
   // TODO-159E (ADR-094) — Product Reviews & Ratings (store-scoped tenant sutunu).
   productReviews                   ProductReview[]
   productReviewHelpfuls            ProductReviewHelpful[]
+  // TODO-174A (ADR-279) — Sipariş deneyimi değerlendirmeleri (ürün review'dan AYRIK).
+  orderExperienceReviews           OrderExperienceReview[]
   productRatingAggregates          ProductRatingAggregate[]
   // TODO-160 (ADR-102…107) — Influencer Tracking & Attribution (store-scoped tenant sutunu).
   influencers                      Influencer[]
@@ -1659,6 +1661,8 @@ model Customer {
   // TODO-159E (ADR-094) — Product Reviews & Ratings (musterinin yorumlari + faydali oylari).
   productReviews          ProductReview[]
   productReviewHelpfuls   ProductReviewHelpful[]
+  // TODO-174A (ADR-279) — musterinin siparis deneyimi degerlendirmeleri.
+  orderExperienceReviews  OrderExperienceReview[]
   // TODO-161B (ADR-137) — Recently Viewed geçmişi (müşteri silinince Cascade → KVKK otomatik).
   recentlyViewedProducts  RecentlyViewedProduct[]
   // TODO-169 (ADR-269) — Müşterinin iade talepleri (yalnız kendi siparişleri için).
@@ -1928,6 +1932,8 @@ model Order {
   customerCoupons       CustomerCoupon[]
   // TODO-159E (ADR-094) — bu siparisten dogan urun yorumlari (uygunluk provenance'i).
   reviews               ProductReview[]
+  // TODO-174A (ADR-279) — bu siparise ait deneyim degerlendirmesi (en fazla bir; iptal sonrasi).
+  experienceReviews     OrderExperienceReview[]
   // TODO-160 (ADR-103) — siparis attribution snapshot'i (varsa TEK; influencer kaynakli).
   attribution           OrderAttribution?
   // TODO-161 (ADR-118) — sponsorlu urun attribution'lari (siparis basina N; urun-satiri kaynakli).
@@ -3150,6 +3156,37 @@ model ProductRatingAggregate {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
+}
+
+// ============================================================================
+// TODO-174A (ADR-279) — Sipariş Deneyimi Değerlendirmesi.
+//
+// ProductReview'DAN TAMAMEN AYRIK: bu değerlendirme ÜRÜN puanına, PDP/PLP rating'lerine
+// veya ProductRatingAggregate'e HİÇBİR ŞEKİLDE yansımaz (verifiedPurchase kavramı YOK;
+// "ürünü kullandım" anlamı üretmez). İptal edilmiş ve teslim EDİLMEMİŞ siparişte müşterinin
+// sipariş/iptal deneyimini (1-5 + opsiyonel yorum) tutar. İleride admin raporlamasında
+// sipariş deneyimi metriği olarak kullanılabilir. Bir müşteri bir sipariş için EN FAZLA bir
+// değerlendirme (duplicate koruması @@unique([storeId, orderId, customerId])).
+// ============================================================================
+model OrderExperienceReview {
+  id         String   @id @default(cuid())
+  storeId    String
+  orderId    String
+  customerId String
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  // Sipariş başına müşteri başına en fazla bir değerlendirme (servis check-then-insert + P2002).
+  @@unique([storeId, orderId, customerId])
+  @@index([storeId, createdAt])
+  @@index([customerId])
+  @@index([orderId])
 }
 
 // ============================================================================
@@ -5457,10 +5494,21 @@ enum OrderRefundActorType {
   PROVIDER
 }
 
+// TODO-174A (ADR-280) — Refund'un menşei (pozitif, sorgu-dostu ayrım). ReturnRequest akışı
+// (returnRequestId + refundIntentId DOLU) ile intent'siz cancellation akışı (her ikisi NULL)
+// arasındaki farkı nullable-FK çıkarımına güvenmeden (SetNull kırılganlığı) taşır. Backfill:
+// returnRequestId IS NULL → ORDER_CANCELLATION, aksi RETURN_REQUEST. Enum stable/dildir.
+enum RefundOrigin {
+  RETURN_REQUEST
+  ORDER_CANCELLATION
+}
+
 model OrderRefund {
   id                              String               @id @default(cuid())
   storeId                         String
   orderId                         String
+  // TODO-174A (ADR-280) — refund menşei; birleşik iade/refund görünürlüğü + admin kaynak filtresi.
+  origin                          RefundOrigin         @default(RETURN_REQUEST)
   returnRequestId                 String?
   refundIntentId                  String?
   paymentAttemptId                String
@@ -5513,6 +5561,8 @@ model OrderRefund {
   @@index([refundIntentId])
   // Finans: SUCCEEDED refund'lar completedAt (store tz) ile gün×currency bucketlenir.
   @@index([storeId, status, completedAt])
+  // TODO-174A: birleşik iade/refund listesi — store+menşe scope, requestedAt sıralama.
+  @@index([storeId, origin, requestedAt])
 }
 
 // Append-only refund audit izi. actorId scalar (FK DEĞİL — aktör silinse bile korunur; ReturnStatusHistory

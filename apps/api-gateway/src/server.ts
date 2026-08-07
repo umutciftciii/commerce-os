@@ -217,6 +217,7 @@ import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
+import { registerOrderExperienceRoutes } from "./order-experience/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
   registerShippingWebhookRoutes,
@@ -7948,6 +7949,12 @@ export function createServer(
     config,
     customers,
     storage: mediaStorage,
+    resolvePublicStore,
+  });
+  // TODO-174A (ADR-279) — Sipariş deneyimi değerlendirmesi (iptal edilmiş + teslim-edilmemiş sipariş).
+  registerOrderExperienceRoutes(app, {
+    config,
+    customers,
     resolvePublicStore,
   });
 

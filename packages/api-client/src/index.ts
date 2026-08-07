@@ -18,7 +18,8 @@ import type {
   OrderUpdateRequest,
   // TODO-169 (ADR-269) — Store Admin iade yönetimi kontrat tipleri.
   AdminReturnListQuery,
-  AdminReturnListResponse,
+  // TODO-174A — birleşik iade/refund görünürlüğü (iade talepleri + sipariş iptali geri ödemeleri).
+  AdminRefundVisibilityListResponse,
   AdminReturnDetailResponse,
   AdminReturnApproveRequest,
   AdminReturnRejectRequest,
@@ -408,6 +409,10 @@ export type {
   AdminReturnListItem,
   AdminReturnListQuery,
   AdminReturnListResponse,
+  AdminRefundVisibilityListResponse,
+  AdminRefundVisibilityItem,
+  RefundOriginValue,
+  OrderRefundStatusValue,
   AdminReturnDetail,
   AdminReturnItem,
   AdminReturnHistoryEntry,
@@ -979,6 +984,11 @@ export type {
   ReviewPublicListResponse,
   CustomerReview,
   ReviewEligibleOrderLine,
+  // TODO-174A — Sipariş deneyimi değerlendirmesi (ProductReview'dan AYRIK).
+  OrderExperienceEligibility,
+  OrderExperienceListResponse,
+  OrderExperienceReviewResponse,
+  OrderExperienceReviewCreateInput,
   CustomerReviewsResponse,
   ReviewEligibilityResponse,
   ReviewCreateRequest,
@@ -2195,7 +2205,11 @@ export interface ApiClient {
     // TODO-169 (ADR-269) — Store Admin iade operasyonları. Tümü store-scoped
     // (requireStorePlatformAdmin); mutasyonlar state-machine + yetki + version'dan geçer.
     returns: {
-      list(storeId: string, query?: AdminReturnListQuery, token?: string): Promise<AdminReturnListResponse>;
+      list(
+        storeId: string,
+        query?: AdminReturnListQuery,
+        token?: string,
+      ): Promise<AdminRefundVisibilityListResponse>;
       get(storeId: string, returnId: string, token?: string): Promise<AdminReturnDetailResponse>;
       transition(
         storeId: string,
@@ -3955,7 +3969,7 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       // TODO-169 (ADR-269) — İade yönetimi. Liste query'si allowlist gateway'de doğrulanır.
       returns: {
         list: (storeId, query, token) =>
-          getJson<AdminReturnListResponse>(
+          getJson<AdminRefundVisibilityListResponse>(
             `/stores/${storeId}/returns${buildQueryString(
               query as Record<string, string | number | undefined> | undefined,
             )}`,

@@ -12056,6 +12056,12 @@ export const customerRefundSummarySchema = z.object({
 });
 export type CustomerRefundSummary = z.infer<typeof customerRefundSummarySchema>;
 
+/* ── TODO-174A (ADR-280) — Refund menşei (birleşik iade/refund görünürlüğü) ──────────
+ * ReturnRequest akışı ile intent'siz cancellation akışını POZİTİF ayırır (nullable-FK
+ * çıkarımına güvenmeden). Hem Store Admin hem vitrin birleşik projeksiyonu bunun üstüne kurulur. */
+export const refundOriginSchema = z.enum(["RETURN_REQUEST", "ORDER_CANCELLATION"]);
+export type RefundOriginValue = z.infer<typeof refundOriginSchema>;
+
 // TODO-173 (ADR-274) — Müşteri sade reverse tracking görünümü — teknik disposition kodu / internal
 // reason / recipient PII YOK; refund'dan AYRIK ("Ürün size geri gönderiliyor").
 export const customerReverseShipmentSchema = z.object({
@@ -12097,6 +12103,70 @@ export const customerReturnDetailSchema = customerReturnSummarySchema.extend({
 export const customerReturnListResponseSchema = z.object({
   data: z.array(customerReturnSummarySchema),
 });
+
+/* ── TODO-174A — Vitrin "İadelerim" BİRLEŞİK satırı: iade talebi + sipariş iptali geri ödemesi ──
+ * ReturnRequest ve OrderRefund AYRI domain'ler kalır; bu yalnız PROJEKSİYON birleşimidir (yeni
+ * tablo YOK). Cancellation satırı "return request varmış" gibi sunulmaz — kendi kaynağıyla
+ * (`source`) etiketlenir. Müşteri YALNIZ kendi kayıtlarını görür (server-scoped). */
+export const customerRefundVisibilityItemSchema = z.object({
+  source: refundOriginSchema,
+  // Kart tıklaması: RETURN_REQUEST → iade detayı (`reference`=returnNumber);
+  // ORDER_CANCELLATION → sipariş detayı (`reference`=orderNumber → /account/orders/:orderNumber).
+  reference: z.string(),
+  orderNumber: z.string(),
+  createdAt: z.string().datetime(),
+  // Yalnız iade talebi (RETURN_REQUEST) satırları:
+  returnStatus: returnStatusSchema.nullable().default(null),
+  resolutionType: returnResolutionTypeSchema.nullable().default(null),
+  itemCount: z.number().int().nonnegative().nullable().default(null),
+  // Yalnız sipariş iptali (ORDER_CANCELLATION) satırları — MASKELİ refund + insani neden:
+  refund: customerRefundSummarySchema.nullable().default(null),
+  cancellationReasonCode: orderCancellationReasonSchema.nullable().default(null),
+  cancellationReasonNote: z.string().nullable().default(null),
+});
+export type CustomerRefundVisibilityItem = z.infer<typeof customerRefundVisibilityItemSchema>;
+
+export const customerRefundVisibilityListResponseSchema = z.object({
+  data: z.array(customerRefundVisibilityItemSchema),
+});
+export type CustomerRefundVisibilityListResponse = z.infer<
+  typeof customerRefundVisibilityListResponseSchema
+>;
+
+/* ── TODO-174A (ADR-279) — Sipariş Deneyimi Değerlendirmesi (ProductReview'dan TAMAMEN AYRIK) ──
+ * ÜRÜN puanına / ProductRatingAggregate'e / PDP-PLP rating'lerine ASLA yansımaz ("ürünü kullandım"
+ * anlamı üretmez). İptal edilmiş ve teslim EDİLMEMİŞ siparişte sipariş/iptal deneyimi (1-5 + opsiyonel
+ * yorum). Bir müşteri bir sipariş için EN FAZLA bir değerlendirme (duplicate koruması). */
+export const ORDER_EXPERIENCE_COMMENT_MAX = 1000;
+export const orderExperienceReviewCreateSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(ORDER_EXPERIENCE_COMMENT_MAX).optional(),
+});
+export type OrderExperienceReviewCreateInput = z.infer<typeof orderExperienceReviewCreateSchema>;
+
+// Vitrin sipariş kartı/detayında deneyim-değerlendirme CTA durumu (server-otoriter uygunluk).
+// `eligible` = iptal edilmiş + teslim EDİLMEMİŞ + müşteriye ait. `submitted` = zaten değerlendirilmiş.
+export const orderExperienceEligibilitySchema = z.object({
+  orderNumber: z.string(),
+  submitted: z.boolean(),
+  rating: z.number().int().min(1).max(5).nullable().default(null),
+});
+export type OrderExperienceEligibility = z.infer<typeof orderExperienceEligibilitySchema>;
+
+export const orderExperienceListResponseSchema = z.object({
+  data: z.array(orderExperienceEligibilitySchema),
+});
+export type OrderExperienceListResponse = z.infer<typeof orderExperienceListResponseSchema>;
+
+export const orderExperienceReviewResponseSchema = z.object({
+  review: z.object({
+    orderNumber: z.string(),
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().nullable(),
+    createdAt: z.string().datetime(),
+  }),
+});
+export type OrderExperienceReviewResponse = z.infer<typeof orderExperienceReviewResponseSchema>;
 export const customerReturnDetailResponseSchema = z.object({ return: customerReturnDetailSchema });
 export const customerReturnCreateResponseSchema = z.object({
   return: customerReturnDetailSchema,
@@ -12133,6 +12203,9 @@ export const adminReturnListQuerySchema = adminListQueryBaseSchema.extend({
   orderNumber: z.string().optional(),
   // SLA gecikenler (ageDays >= eşik). true → yalnız geciken talepler.
   overdue: z.enum(["true", "false"]).optional(),
+  // TODO-174A — kaynak filtresi: yok → hepsi; RETURN_REQUEST → yalnız iade talepleri;
+  // ORDER_CANCELLATION → yalnız sipariş iptali geri ödemeleri.
+  source: refundOriginSchema.optional(),
 });
 
 export const adminReturnListResponseSchema = z.object({
@@ -12356,6 +12429,48 @@ export const adminReturnDetailResponseSchema = z.object({ return: adminReturnDet
  * (admin yüzeyinde kontrollü gösterilir). Maskelenmemiş ödeme verisi gösterilmez. */
 export const orderRefundStatusSchema = z.enum(["PENDING", "PROCESSING", "SUCCEEDED", "FAILED", "CANCELLED"]);
 export type OrderRefundStatusValue = z.infer<typeof orderRefundStatusSchema>;
+
+/* ── TODO-174A — Store Admin BİRLEŞİK İadeler satırı: iade talebi + sipariş iptali geri ödemesi ──
+ * ReturnRequest ve OrderRefund AYRI domain'ler; bu PROJEKSİYON birleşimidir (yeni tablo YOK; Refund
+ * Ledger/OrderRefund source-of-truth kalır). Cancellation satırı için "return request" copy'si
+ * KULLANILMAZ. Detay yönü `detailKind`/`detailId` ile: RETURN → iade detayı, ORDER → sipariş detayı. */
+export const adminRefundVisibilityItemSchema = z.object({
+  source: refundOriginSchema,
+  detailKind: z.enum(["RETURN", "ORDER"]),
+  detailId: z.string(),
+  // Görünen referans: returnNumber (iade) | orderNumber (iptal geri ödemesi).
+  reference: z.string(),
+  orderNumber: z.string(),
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  // Birleşik sıralama/gösterim ankoru (return.requestedAt | orderRefund.requestedAt).
+  createdAt: z.string().datetime(),
+  // Yalnız iade talebi (RETURN_REQUEST):
+  itemCount: z.number().int().nonnegative().nullable(),
+  totalQuantity: z.number().int().nonnegative().nullable(),
+  resolutionType: returnResolutionTypeSchema.nullable(),
+  returnStatus: returnStatusSchema.nullable(),
+  returnWindowEndsAt: z.string().datetime().nullable(),
+  ageDays: z.number().int().nonnegative().nullable(),
+  // Refund alanları (iptal satırı DAİMA taşır; iade satırı refund oluştuysa taşır):
+  refundStatus: orderRefundStatusSchema.nullable(),
+  refundAmountMinor: z.number().int().nonnegative().nullable(),
+  currency: currencySchema.nullable(),
+  // Admin'e maskeli ödeme yöntemi ("Kart •••• 1234" / "Banka havalesi"); ham PAN/secret ASLA.
+  refundMethodLabel: z.string().nullable(),
+  refundCompletedAt: z.string().datetime().nullable(),
+  // Yalnız sipariş iptali (ORDER_CANCELLATION) — insani etiket UI'da registry/i18n'den türetilir:
+  cancellationReasonCode: orderCancellationReasonSchema.nullable(),
+});
+export type AdminRefundVisibilityItem = z.infer<typeof adminRefundVisibilityItemSchema>;
+
+export const adminRefundVisibilityListResponseSchema = z.object({
+  data: z.array(adminRefundVisibilityItemSchema),
+  pagination: adminListPaginationSchema,
+});
+export type AdminRefundVisibilityListResponse = z.infer<
+  typeof adminRefundVisibilityListResponseSchema
+>;
 export const refundExecutionModeSchema = z.enum(["PROVIDER_AUTOMATIC", "MANUAL_OFFLINE"]);
 export type RefundExecutionModeValue = z.infer<typeof refundExecutionModeSchema>;
 export const refundCapabilityReasonSchema = z.enum([

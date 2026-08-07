@@ -6162,3 +6162,49 @@ Müşteri kendi siparişini self-servis iptal eder. `POST /public/stores/:slug/c
 
 Migration additive (`20260807140000_todo174_customer_order_cancellation`; Order 4 kolon + version, 3 enum).
 Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. **CLOSED & DEPLOYED (2026-08-07):** PR #191 merge `5ce426d`; CI 4m13s PASS; deploy 3 web/backend servis rebuild (bağımlılıklar dokunulmadı); post-deploy smoke deployed :4000 yeşil. Detay: ADR-275…278.
+
+## ADR-279 — Order Experience Review (TODO-174A) — ACCEPTED (2026-08-07)
+
+**Bağlam:** İptal edilmiş (teslim EDİLMEMİŞ) siparişte vitrin "Ürün yorumu yaz" CTA'sı disabled kalıyordu.
+Ürün kararı: iptal siparişte değerlendirme CTA'sı kapanmayacak, ama teslim alınmayan ürün için sahte
+"ürünü kullandım" anlamı üretilmeyecek. `ProductReview` katı biçimde ÜRÜN-seviyesi + `verifiedPurchase` +
+`ProductRatingAggregate`'e bağlı olduğundan oraya yazmak ürün puanını bozardı.
+
+**Karar:** Ayrı **`OrderExperienceReview`** domaini (ProductReview/aggregate akışına HİÇ dokunmaz).
+- Model: `(storeId, orderId, customerId)` + rating(1-5) + comment?; `@@unique([storeId, orderId, customerId])`
+  (sipariş başına müşteri başına en fazla bir → duplicate koruması). Ürün puanına / PDP-PLP rating'lerine /
+  `ProductRatingAggregate`'e ASLA yansımaz.
+- Uygunluk SUNUCU-otoriter (`isOrderExperienceEligible`): status CANCELLED + teslim EDİLMEMİŞ
+  (`OUTBOUND_TO_CUSTOMER` DELIVERED shipment YOK) + müşteriye ait. İptal zaten carrier-handoff öncesiyle
+  sınırlı olduğundan CANCELLED çoğunlukla teslim-edilmemişi ima eder; yine de delivered kontrolü açık.
+- Uçlar (`x-customer-session`): `GET .../customer/order-experience` (uygunluk + submitted/rating) +
+  `POST .../customer/orders/:orderNumber/order-experience` (ownership+eligibility fail-closed → 404;
+  duplicate → 409; comment düz-metin sanitize). Storefront CTA copy: TR "Sipariş deneyimini değerlendir" /
+  EN "Rate your order experience" (ürün yorumu gibi görünmez); gönderim sonrası "Deneyimini değerlendirdin".
+- Kapsam: admin moderasyon/görünürlük YOK (bu faz); ileride sipariş deneyimi metriği olarak kullanılabilir.
+
+## ADR-280 — Refund Origin & Unified Refund Visibility (TODO-174A) — ACCEPTED (2026-08-07)
+
+**Bağlam:** İki refund akışı var — ReturnRequest→RefundIntent→OrderRefund (TODO-169/170) ve intent'siz
+cancellation OrderRefund (TODO-174). Cancellation refund'ları hem Store Admin > İadeler hem vitrin >
+İadelerim'de GÖRÜNMÜYORDU (her iki proje yalnız `ReturnRequest` sorguluyordu). Menşe yalnız nullable-FK'den
+(`returnRequestId IS NULL`) türetilebiliyordu — negatif çıkarım + `onDelete: SetNull` kırılganlığı.
+
+**Karar:** `OrderRefund`'a additive **`RefundOrigin`** enum kolonu (`RETURN_REQUEST | ORDER_CANCELLATION`,
+DEFAULT `RETURN_REQUEST`; backfill `returnRequestId IS NULL → ORDER_CANCELLATION`). Her iki oluşturma yolu
+menşeyi AÇIKÇA yazar. Domain tabloları BİRLEŞTİRİLMEZ; yalnız **projeksiyon** katmanında birleşik görünürlük:
+- Store Admin > İadeler: birleşik liste (`adminRefundVisibilityItemSchema`) — iade talebi + sipariş iptali
+  geri ödemesi; `source`/`detailKind`/`detailId` (cancellation → sipariş detayına linkler) + maskeli refund
+  yöntemi + tutar/durum + insani iptal nedeni; **KAYNAK** filtresi (Tümü/İade talebi/Sipariş iptali).
+  return-özel filtre (durum/çözüm/neden/SLA) aktifken cancellation hariç; birleşik sıralama createdAt.
+  Merge-pagination: tek kaynakta DB skip/take; birleşikte her kaynaktan (skip+take) → merge + slice.
+- Vitrin > İadelerim: birleşik liste (`customerRefundVisibilityItemSchema`) — cancellation kartı MASKELİ
+  refund özeti (`buildCustomerRefundSummary`) + insani neden; "return request" copy'si YOK. Status copy:
+  PENDING/PROCESSING → "işleniyor", SUCCEEDED → "tamamlandı", FAILED → "tamamlanamadı" + destek notu
+  (editorial kit: danger tonu YOK, durum METİNLE). Detay için sipariş detayına (iptal bloğu) yönlendirir.
+- Güvenlik: müşteri yalnız kendi kayıtları (server-scoped); cross-store/cross-customer izolasyonu; ham
+  provider payload / PAN sızmaz (maske). Refund Ledger / `OrderRefund` source-of-truth kalır.
+
+Migration additive (`20260807150000_todo174a_experience_review_refund_origin`; `RefundOrigin` enum +
+`OrderRefund.origin` + backfill + index; `OrderExperienceReview` tablosu). Saf + gerçek-DB testleri yeşil;
+tam workspace test iki run yeşil; browser smoke (gerçek enterprise-demo verisi) her iki yüzeyde yeşil.

@@ -4,6 +4,7 @@ import type { Locale, StorefrontDictionary } from "@commerce-os/i18n";
 import type {
   CustomerOrderSummary,
   CustomerReview,
+  OrderExperienceEligibility,
   ReviewEligibleOrderLine,
 } from "@commerce-os/api-client";
 import { formatMinor } from "../../../lib/money";
@@ -15,7 +16,7 @@ import {
   isReorderable,
   type OrdersTab,
 } from "../../../lib/orders";
-import { resolveOrderReview } from "../../../lib/orders-review";
+import { resolveOrderReview, resolveOrderExperience } from "../../../lib/orders-review";
 import {
   resolveReturnWindowLabel,
   resolveReturnActivityLabel,
@@ -54,6 +55,7 @@ export function OrdersSection({
   reviewsT,
   eligible = [],
   reviews = [],
+  experienceList = [],
 }: {
   t: StorefrontDictionary["account"];
   orders: CustomerOrderSummary[];
@@ -64,6 +66,8 @@ export function OrdersSection({
   // TODO-159E hotfix — Sunucu-otoriter yorum uygunluğu (eligible) + mevcut yorumlar.
   eligible?: ReviewEligibleOrderLine[];
   reviews?: CustomerReview[];
+  // TODO-174A — sipariş DENEYİMİ değerlendirmesine uygun siparişler (iptal + teslim-edilmemiş).
+  experienceList?: OrderExperienceEligibility[];
 }) {
   const o = t.orders;
   const filtered = applyOrderFilters(orders, { tab, query });
@@ -125,6 +129,7 @@ export function OrdersSection({
               reviewsT={reviewsT}
               eligible={eligible}
               reviews={reviews}
+              experienceList={experienceList}
             />
           ))}
         </ul>
@@ -141,6 +146,7 @@ function OrderCard({
   reviewsT,
   eligible,
   reviews,
+  experienceList,
 }: {
   o: OrdersDict;
   cancellationsT: StorefrontDictionary["account"]["cancellations"];
@@ -149,6 +155,7 @@ function OrderCard({
   reviewsT: StorefrontDictionary["reviews"];
   eligible: ReviewEligibleOrderLine[];
   reviews: CustomerReview[];
+  experienceList: OrderExperienceEligibility[];
 }) {
   return (
     <li className="border border-line p-4">
@@ -211,6 +218,7 @@ function OrderCard({
         cancelT={cancellationsT}
         review={resolveOrderReview(order, eligible, reviews)}
         reviewsT={reviewsT}
+        experience={resolveOrderExperience(order.orderNumber, experienceList)}
       />
     </li>
   );

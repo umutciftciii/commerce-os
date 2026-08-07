@@ -10,7 +10,7 @@ import { z } from "zod";
 import {
   adminReturnDetailResponseSchema,
   adminReturnListQuerySchema,
-  adminReturnListResponseSchema,
+  adminRefundVisibilityListResponseSchema,
   adminReturnApproveRequestSchema,
   adminReturnInspectRequestSchema,
   adminReturnRejectRequestSchema,
@@ -53,6 +53,14 @@ import {
   upsertRefundIntentForReturn,
 } from "./service.js";
 import { serializeAdminReturnDetail, serializeAdminReturnListItem } from "./serialize.js";
+import {
+  isAdminRowOverdue,
+  mapAdminCancellationRow,
+  mapAdminReturnRow,
+  mergeVisibilityRows,
+  type AdminCancellationRowSource,
+  type AdminReturnRowSource,
+} from "../refunds/visibility.js";
 import { resolveReturnItemCovers } from "./covers.js";
 import { computeReturnOrderSummaries } from "./projection.js";
 import { evaluateReturnTransition } from "./status-map.js";
@@ -123,7 +131,9 @@ const FAST_REFUND_HTTP_BY_CODE: Record<string, { status: number; message: string
 };
 
 export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdminRoutesDeps): void {
-  // Liste
+  // Liste — TODO-174A: BİRLEŞİK iade talepleri + sipariş iptali geri ödemeleri (source filtreli).
+  // ReturnRequest ve OrderRefund AYRI domain'ler; yalnız projeksiyon birleşimi. Cancellation satırı
+  // için "return request" copy'si yok (source ile etiketlenir). Sıralama birleşik createdAt (requestedAt).
   app.get("/stores/:storeId/returns", async (request, reply) => {
     const params = storeParam.parse(request.params);
     const access = await deps.requireStoreAdmin(request, reply, params.storeId);
@@ -131,51 +141,104 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     const query = adminReturnListQuerySchema.parse(request.query);
     const page = query.page ?? 1;
     const pageSize = Math.min(query.pageSize ?? 20, 100);
+    const skip = (page - 1) * pageSize;
+    const order: "asc" | "desc" = query.sortOrder ?? "desc";
+    const now = Date.now();
 
-    const where = {
+    // Return-özel filtre aktifse cancellation satırları hariç tutulur (return status/çözüm/neden/SLA
+    // cancellation'a uygulanamaz). Kaynak (source) filtresi kaynağı doğrudan seçer.
+    const returnOnlyFilter = Boolean(
+      query.status || query.resolutionType || query.reason || query.overdue === "true",
+    );
+    const includeReturns = query.source !== "ORDER_CANCELLATION";
+    const includeCancellations = query.source !== "RETURN_REQUEST" && !returnOnlyFilter;
+
+    const returnWhere = {
       storeId: params.storeId,
       ...(query.status ? { status: query.status } : {}),
       ...(query.resolutionType ? { resolutionType: query.resolutionType } : {}),
       ...(query.reason ? { items: { some: { reason: query.reason } } } : {}),
       ...(query.orderNumber ? { order: { orderNumber: { contains: query.orderNumber } } } : {}),
     };
+    const cancelWhere = {
+      storeId: params.storeId,
+      origin: "ORDER_CANCELLATION" as const,
+      ...(query.orderNumber ? { order: { orderNumber: { contains: query.orderNumber } } } : {}),
+    };
 
-    const sortBy = query.sortBy ?? "requestedAt";
-    const dir = query.sortOrder ?? (sortBy === "requestedAt" ? "desc" : "asc");
-    const orderBy =
-      sortBy === "status"
-        ? { status: dir }
-        : sortBy === "returnWindowEndsAt"
-          ? { returnWindowEndsAt: dir }
-          : { requestedAt: dir };
-
-    const [rows, total] = await Promise.all([
-      prisma.returnRequest.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+    const returnSelect = {
+      id: true,
+      returnNumber: true,
+      status: true,
+      resolutionType: true,
+      requestedAt: true,
+      returnWindowEndsAt: true,
+      order: { select: { orderNumber: true } },
+      customer: { select: { firstName: true, lastName: true, email: true } },
+      items: { select: { quantity: true } },
+    };
+    const cancelSelect = {
+      id: true,
+      status: true,
+      currency: true,
+      totalRefundMinor: true,
+      requestedAt: true,
+      completedAt: true,
+      order: {
         select: {
           id: true,
-          returnNumber: true,
-          status: true,
-          resolutionType: true,
-          requestedAt: true,
-          returnWindowEndsAt: true,
-          order: { select: { orderNumber: true } },
+          orderNumber: true,
+          cancelReasonCode: true,
           customer: { select: { firstName: true, lastName: true, email: true } },
-          items: { select: { quantity: true } },
         },
-      }),
-      prisma.returnRequest.count({ where }),
-    ]);
+      },
+      paymentAttempt: {
+        select: { method: true, cardBrand: true, cardLast4: true, manualMethod: true },
+      },
+    };
 
-    const now = Date.now();
-    let data = rows.map((r) => serializeAdminReturnListItem(r, now));
-    if (query.overdue === "true") data = data.filter((r) => r.ageDays >= 3 && !isSettled(r.status));
+    // Tek kaynak → DB skip/take doğrudan (verimli, doğru pagination). Birleşik → her kaynaktan
+    // (skip+take) çekilip merge + slice (doğru sayfa dilimi garantisi).
+    const merging = includeReturns && includeCancellations;
+    const fetchTake = merging ? skip + pageSize : pageSize;
+    const fetchSkip = merging ? 0 : skip;
+
+    const [returnRowsRaw, returnTotal] = includeReturns
+      ? await Promise.all([
+          prisma.returnRequest.findMany({
+            where: returnWhere,
+            orderBy: { requestedAt: order },
+            skip: fetchSkip,
+            take: fetchTake,
+            select: returnSelect,
+          }),
+          prisma.returnRequest.count({ where: returnWhere }),
+        ])
+      : [[], 0];
+    const [cancelRowsRaw, cancelTotal] = includeCancellations
+      ? await Promise.all([
+          prisma.orderRefund.findMany({
+            where: cancelWhere,
+            orderBy: { requestedAt: order },
+            skip: fetchSkip,
+            take: fetchTake,
+            select: cancelSelect,
+          }),
+          prisma.orderRefund.count({ where: cancelWhere }),
+        ])
+      : [[], 0];
+
+    let returnRows = (returnRowsRaw as AdminReturnRowSource[]).map((r) => mapAdminReturnRow(r, now));
+    if (query.overdue === "true") returnRows = returnRows.filter(isAdminRowOverdue);
+    const cancelRows = (cancelRowsRaw as AdminCancellationRowSource[]).map(mapAdminCancellationRow);
+
+    const total = returnTotal + cancelTotal;
+    const data = merging
+      ? mergeVisibilityRows([...returnRows, ...cancelRows], { skip, take: pageSize, order })
+      : [...returnRows, ...cancelRows];
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    return adminReturnListResponseSchema.parse({
+    return adminRefundVisibilityListResponseSchema.parse({
       data,
       pagination: {
         page,
@@ -184,7 +247,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         totalItems: total,
         totalPages,
         limit: pageSize,
-        offset: (page - 1) * pageSize,
+        offset: skip,
       },
     });
   });
@@ -809,10 +872,6 @@ const TRANSITION_TIMESTAMP: Partial<Record<string, "reviewedAt" | "receivedAt" |
   RETURN_SHIPPED: "shippedAt",
   COMPLETED: "completedAt",
 };
-
-function isSettled(status: string): boolean {
-  return ["COMPLETED", "REJECTED", "CANCELLED_BY_CUSTOMER", "EXPIRED", "CLOSED"].includes(status);
-}
 
 async function finishTransition(
   reply: FastifyReply,

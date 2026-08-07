@@ -18,12 +18,12 @@ import {
   type DataGridColumn,
 } from "../../../../components/data-grid";
 import { format, getDictionary } from "@commerce-os/i18n";
-import type { AdminListPagination, AdminReturnListItem } from "@commerce-os/api-client";
+import type { AdminListPagination, AdminRefundVisibilityItem } from "@commerce-os/api-client";
 import { ADMIN_LIST_PAGE_SIZE_OPTIONS } from "@commerce-os/api-client";
 import { ReturnIcon } from "../../../../components/icons";
 import { storeApi, type AdminListRequestQuery } from "../../../../lib/client/api";
 import { messageForError } from "../../../../lib/client/messages";
-import { formatDate } from "../../../../lib/client/format";
+import { formatDate, formatMinor } from "../../../../lib/client/format";
 import { MetricGrid, MetricTile, SurfaceCard } from "../../../components/premium";
 import {
   RETURN_STATUS_TONES,
@@ -31,18 +31,26 @@ import {
   RETURN_STATUS_VALUES,
   RETURN_RESOLUTION_VALUES,
   RETURN_REASON_VALUES,
+  REFUND_SOURCE_TONES,
+  REFUND_STATUS_TONES,
+  refundSourceLabel,
+  refundStatusLabel,
   returnStatusLabel,
   returnResolutionLabel,
   returnReasonLabel,
+  cancellationReasonLabel,
   type ReturnStatus,
   type ReturnResolutionType,
   type ReturnReason,
 } from "../order-shared";
 
+// TODO-174A — birleşik "İadeler" listesindeki kaynak (source) filtre değerleri.
+const REFUND_SOURCE_VALUES = ["RETURN_REQUEST", "ORDER_CANCELLATION"] as const;
+
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; rows: AdminReturnListItem[]; pagination: AdminListPagination };
+  | { status: "ready"; rows: AdminRefundVisibilityItem[]; pagination: AdminListPagination };
 
 const DETAIL_LINK_CLASS =
   "inline-flex h-8 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90";
@@ -58,13 +66,15 @@ const SETTLED_STATUSES: ReturnStatus[] = [
   "CLOSED",
 ];
 
-const SORT_VALUES = ["requestedAt", "returnWindowEndsAt", "status"] as const;
+// TODO-174A — birleşik liste createdAt (requestedAt) ile sıralanır (kaynaklar-arası tek anlamlı anahtar).
+const SORT_VALUES = ["requestedAt"] as const;
 type SortBy = (typeof SORT_VALUES)[number];
 
 type ReturnFilters = {
   status: string;
   resolutionType: string;
   reason: string;
+  source: string;
   orderNumber: string;
   overdue: boolean;
 };
@@ -82,6 +92,7 @@ const EMPTY_FILTERS: ReturnFilters = {
   status: "",
   resolutionType: "",
   reason: "",
+  source: "",
   orderNumber: "",
   overdue: false,
 };
@@ -91,6 +102,7 @@ function readFilters(params: { get(name: string): string | null }): ReturnFilter
     status: params.get("status") ?? "",
     resolutionType: params.get("resolutionType") ?? "",
     reason: params.get("reason") ?? "",
+    source: params.get("source") ?? "",
     orderNumber: params.get("orderNumber")?.trim() ?? "",
     overdue: params.get("overdue") === "true",
   };
@@ -120,6 +132,7 @@ function filterRecord(f: ReturnFilters): AdminListRequestQuery {
     q.resolutionType = f.resolutionType;
   }
   if ((RETURN_REASON_VALUES as string[]).includes(f.reason)) q.reason = f.reason;
+  if ((REFUND_SOURCE_VALUES as readonly string[]).includes(f.source)) q.source = f.source;
   if (f.orderNumber) q.orderNumber = f.orderNumber;
   if (f.overdue) q.overdue = "true";
   return q;
@@ -216,29 +229,42 @@ function ReturnsView() {
   const rows = state.status === "ready" ? state.rows : [];
 
   // Görünen sayfadan hızlı özet (mağaza-geneli kesin toplam = sayfalama çubuğu).
+  // Açık = sonuçlanmamış iade talebi VEYA işlenmekte olan iptal geri ödemesi (PENDING/PROCESSING).
   const pageMetrics = useMemo(() => {
     let open = 0;
     let overdue = 0;
     for (const r of rows) {
-      const settled = (SETTLED_STATUSES as string[]).includes(r.status);
-      if (!settled) open += 1;
-      if (!settled && r.ageDays >= OVERDUE_AGE_DAYS) overdue += 1;
+      if (r.source === "RETURN_REQUEST") {
+        const settled = r.returnStatus != null && (SETTLED_STATUSES as string[]).includes(r.returnStatus);
+        if (!settled) open += 1;
+        if (!settled && (r.ageDays ?? 0) >= OVERDUE_AGE_DAYS) overdue += 1;
+      } else if (r.refundStatus === "PENDING" || r.refundStatus === "PROCESSING") {
+        open += 1;
+      }
     }
     return { open, overdue };
   }, [rows]);
 
-  const columns: DataGridColumn<AdminReturnListItem>[] = [
+  const columns: DataGridColumn<AdminRefundVisibilityItem>[] = [
     {
-      // Sıralama allowlist'te iade no yok → bu kolon talep tarihine göre sıralar (hücrede iade no + tarih).
+      // Sıralama birleşik createdAt (requestedAt). Hücrede referans (iade no / sipariş no) + tarih.
       key: "requestedAt",
       sortable: true,
-      header: isTr ? "İade No" : "Return no",
+      header: isTr ? "Kayıt" : "Record",
       className: "whitespace-nowrap",
       cell: (r) => (
         <div className="min-w-0">
-          <p className="font-mono text-sm font-medium tracking-tight text-white/90">{r.returnNumber}</p>
-          <p className="text-xs text-white/30">{formatDate(r.requestedAt)}</p>
+          <p className="font-mono text-sm font-medium tracking-tight text-white/90">{r.reference}</p>
+          <p className="text-xs text-white/30">{formatDate(r.createdAt)}</p>
         </div>
+      ),
+    },
+    {
+      key: "source",
+      header: isTr ? "Kaynak" : "Source",
+      className: "whitespace-nowrap",
+      cell: (r) => (
+        <Badge tone={REFUND_SOURCE_TONES[r.source]}>{refundSourceLabel(r.source, locale)}</Badge>
       ),
     },
     {
@@ -254,7 +280,7 @@ function ReturnsView() {
       cell: (r) => (
         <div className="min-w-0">
           <p className="truncate text-white/80" title={r.customerName ?? undefined}>
-            {r.customerName ?? (isTr ? "—" : "—")}
+            {r.customerName ?? "—"}
           </p>
           {r.customerEmail ? (
             <p className="truncate text-xs text-white/30" title={r.customerEmail}>
@@ -265,52 +291,73 @@ function ReturnsView() {
       ),
     },
     {
-      key: "items",
-      header: isTr ? "Ürün / Adet" : "Items / Qty",
+      // Return: kalem/adet; Cancellation: iade tutarı (birleşik "özet" kolonu).
+      key: "summary",
+      header: isTr ? "Özet" : "Summary",
       className: "whitespace-nowrap",
-      cell: (r) => (
-        <span className="text-white/45">
-          {isTr
-            ? `${r.itemCount} kalem · ${r.totalQuantity} adet`
-            : `${r.itemCount} items · ${r.totalQuantity} qty`}
-        </span>
-      ),
+      cell: (r) =>
+        r.source === "RETURN_REQUEST" ? (
+          <span className="text-white/45">
+            {isTr
+              ? `${r.itemCount ?? 0} kalem · ${r.totalQuantity ?? 0} adet`
+              : `${r.itemCount ?? 0} items · ${r.totalQuantity ?? 0} qty`}
+          </span>
+        ) : (
+          <span className="text-white/80">
+            {r.refundAmountMinor != null && r.currency
+              ? formatMinor(r.refundAmountMinor, r.currency)
+              : "—"}
+          </span>
+        ),
     },
     {
-      key: "resolutionType",
-      header: isTr ? "Çözüm" : "Resolution",
-      className: "whitespace-nowrap",
-      cell: (r) => (
-        <Badge tone={RETURN_RESOLUTION_TONES[r.resolutionType]}>
-          {returnResolutionLabel(r.resolutionType, locale)}
-        </Badge>
-      ),
-    },
-    {
+      // Return: iade durumu; Cancellation: geri ödeme durumu (birleşik "durum" kolonu).
       key: "status",
-      sortable: true,
       header: isTr ? "Durum" : "Status",
       className: "whitespace-nowrap",
-      cell: (r) => (
-        <Badge tone={RETURN_STATUS_TONES[r.status]}>{returnStatusLabel(r.status, locale)}</Badge>
-      ),
+      cell: (r) =>
+        r.source === "RETURN_REQUEST" && r.returnStatus ? (
+          <Badge tone={RETURN_STATUS_TONES[r.returnStatus]}>
+            {returnStatusLabel(r.returnStatus, locale)}
+          </Badge>
+        ) : r.refundStatus ? (
+          <Badge tone={REFUND_STATUS_TONES[r.refundStatus]}>
+            {refundStatusLabel(r.refundStatus, locale)}
+          </Badge>
+        ) : (
+          <span className="text-white/30">—</span>
+        ),
     },
     {
-      key: "returnWindowEndsAt",
-      sortable: true,
-      header: isTr ? "Son Tarih" : "Window ends",
+      // Return: çözüm türü; Cancellation: iptal nedeni (insani label) — "return request" copy'si YOK.
+      key: "detail",
+      header: isTr ? "Çözüm / Neden" : "Resolution / Reason",
       className: "whitespace-nowrap",
-      cell: (r) => <span className="text-white/45">{formatDate(r.returnWindowEndsAt)}</span>,
+      cell: (r) =>
+        r.source === "RETURN_REQUEST" && r.resolutionType ? (
+          <Badge tone={RETURN_RESOLUTION_TONES[r.resolutionType]}>
+            {returnResolutionLabel(r.resolutionType, locale)}
+          </Badge>
+        ) : r.cancellationReasonCode ? (
+          <span className="text-white/60">
+            {cancellationReasonLabel(r.cancellationReasonCode, locale)}
+          </span>
+        ) : (
+          <span className="text-white/30">—</span>
+        ),
     },
     {
       key: "sla",
       header: "SLA",
       className: "whitespace-nowrap",
       cell: (r) => {
-        const settled = (SETTLED_STATUSES as string[]).includes(r.status);
+        // SLA yalnız iade talebine uygulanır (iptal geri ödemesinde iade penceresi/yaşı yok).
+        if (r.source !== "RETURN_REQUEST" || r.returnStatus == null || r.ageDays == null) {
+          return <span className="text-white/30">—</span>;
+        }
+        const settled = (SETTLED_STATUSES as string[]).includes(r.returnStatus);
         const overdue = !settled && r.ageDays >= OVERDUE_AGE_DAYS;
         const label = isTr ? `${r.ageDays} gün` : `${r.ageDays}d`;
-        // Metin her zaman görünür; rozet tonu yalnız ek gösterge (renk tek sinyal değil).
         return (
           <Badge tone={overdue ? "danger" : "neutral"}>
             {overdue ? (isTr ? `Gecikti · ${label}` : `Overdue · ${label}`) : label}
@@ -325,7 +372,14 @@ function ReturnsView() {
       className: "whitespace-nowrap",
       cell: (r) => (
         <div className="flex justify-end">
-          <Link href={`/orders/returns/${r.id}`} className={DETAIL_LINK_CLASS}>
+          <Link
+            href={
+              r.detailKind === "RETURN"
+                ? `/orders/returns/${r.detailId}`
+                : `/orders/${r.detailId}`
+            }
+            className={DETAIL_LINK_CLASS}
+          >
             {isTr ? "Detay" : "Detail"}
           </Link>
         </div>
@@ -340,8 +394,8 @@ function ReturnsView() {
         title={isTr ? "İadeler" : "Returns"}
         description={
           isTr
-            ? "Müşteri iade taleplerini inceleyin, onaylayın, teslim alın ve sonuçlandırın."
-            : "Review, approve, receive and resolve customer return requests."
+            ? "İade taleplerini ve sipariş iptali geri ödemelerini tek listede inceleyin ve sonuçlandırın."
+            : "Review and resolve return requests and order-cancellation refunds in one list."
         }
         actions={
           <Button variant="secondary" onClick={() => void load()}>
@@ -414,6 +468,19 @@ function ReturnsView() {
                 ]}
               />
               <Select
+                id="returns-filter-source"
+                label={isTr ? "Kaynak" : "Source"}
+                value={form.source}
+                onChange={(event) => setForm((prev) => ({ ...prev, source: event.target.value }))}
+                options={[
+                  { value: "", label: g.filterAll },
+                  ...REFUND_SOURCE_VALUES.map((value) => ({
+                    value,
+                    label: refundSourceLabel(value, locale),
+                  })),
+                ]}
+              />
+              <Select
                 id="returns-filter-reason"
                 label={isTr ? "Neden" : "Reason"}
                 value={form.reason}
@@ -463,7 +530,7 @@ function ReturnsView() {
       </div>
 
       <SurfaceCard
-        title={isTr ? "İade Talepleri" : "Return requests"}
+        title={isTr ? "İadeler ve geri ödemeler" : "Returns & refunds"}
         description={
           state.status === "ready"
             ? format(g.rangeLabel, {
@@ -481,12 +548,12 @@ function ReturnsView() {
         <DataGrid
           columns={columns}
           rows={rows}
-          rowKey={(r) => r.id}
+          rowKey={(r) => `${r.source}:${r.detailId}`}
           status={state.status}
           errorMessage={state.status === "error" ? state.message : undefined}
           onRetry={() => void load()}
           filtered={activeCount > 0}
-          caption={isTr ? "İade Talepleri" : "Return requests"}
+          caption={isTr ? "İadeler ve geri ödemeler" : "Returns & refunds"}
           sortBy={view.sortBy}
           sortOrder={view.sortOrder}
           onSortChange={(sortBy, sortOrder) => updateView({ sortBy: sortBy as SortBy, sortOrder })}
@@ -495,10 +562,10 @@ function ReturnsView() {
             loading: g.loading,
             errorTitle: g.errorTitle,
             retry: c.actions.retry,
-            emptyTitle: isTr ? "Henüz iade yok" : "No returns yet",
+            emptyTitle: isTr ? "Henüz kayıt yok" : "No records yet",
             emptyDescription: isTr
-              ? "Bu mağazada henüz iade talebi bulunmuyor."
-              : "There are no return requests for this store yet.",
+              ? "Bu mağazada henüz iade talebi veya sipariş iptali geri ödemesi bulunmuyor."
+              : "There are no return requests or order-cancellation refunds for this store yet.",
             emptyFilteredTitle: g.emptyFilteredTitle,
             emptyFilteredDescription: g.emptyFilteredDescription,
             selectRow: g.selectRow,

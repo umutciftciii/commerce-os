@@ -22,7 +22,8 @@ import type {
   OrderListQuery,
   OrderListResponse,
   // TODO-169 (ADR-269) — İade yönetimi.
-  AdminReturnListResponse,
+  // TODO-174A — birleşik iade/refund görünürlüğü (liste tipi ReturnList'in yerini aldı).
+  AdminRefundVisibilityListResponse,
   AdminReturnDetailResponse,
   AdminReturnApproveRequest,
   AdminReturnRejectRequest,
@@ -1003,7 +1004,7 @@ export const storeApi = {
   // Returns (TODO-169 / ADR-269) — iade operasyonu. Okumalar salt; aksiyonlar CSRF'li.
   // Her aksiyon güncel AdminReturnDetail döner (UI refetch yerine doğrudan yansıtır).
   listReturns: (query?: AdminListRequestQuery) =>
-    call<AdminReturnListResponse>(`/api/orders/returns${listQueryString(query)}`),
+    call<AdminRefundVisibilityListResponse>(`/api/orders/returns${listQueryString(query)}`),
   getReturn: (returnId: string) =>
     call<AdminReturnDetailResponse>(`/api/orders/returns/${returnId}`),
   transitionReturn: (returnId: string, input: AdminReturnTransitionRequest) =>
