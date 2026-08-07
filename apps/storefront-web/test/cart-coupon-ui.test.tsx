@@ -70,6 +70,7 @@ function view(
       taxIncludedLabel: "₺216,50",
       taxRatePercent: 20,
       grandTotalLabel: "₺1.348,90",
+      grandTotalMinor: 134890,
       couponCode: null,
       couponStatus: "NONE",
       couponReason: null,
@@ -153,6 +154,7 @@ describe("storefront-web · F4A.3 cart Kuponlar area", () => {
         discountLabel: "₺250,00",
         discountLines: [{ label: "TEST250 Kupon", code: "TEST250", amountLabel: "₺250,00" }],
         grandTotalLabel: "₺1.098,90",
+        grandTotalMinor: 109890,
       }),
     );
     expect(html).toContain(t.couponRemove);

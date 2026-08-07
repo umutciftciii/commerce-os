@@ -84,6 +84,7 @@ function view(overrides: Partial<CartView> = {}): CartView {
       taxIncludedLabel: "₺216,50",
       taxRatePercent: 20,
       grandTotalLabel: "₺1.348,90",
+      grandTotalMinor: 134890,
       couponCode: null,
       couponStatus: "NONE",
       couponReason: null,
@@ -144,5 +145,21 @@ describe("storefront-web · checkout form smoke render", () => {
     const html = render(view({ shippingOptions: [], selectedShippingOptionId: null }));
     expect(html).toContain(t.shippingOptions.noneTitle);
     expect(html).not.toContain('role="radiogroup"');
+  });
+
+  // TODO-174B UX — Alışveriş bakiyesi kontrolü YALNIZ bakiye>0'da gösterilir (0'da "seçili ama
+  // etkisiz" yanılgısı olmaz) ve balance tutarını belirtir; kontrol sipariş özetindedir.
+  it("shows the shopping-credit control with the available balance when balance > 0", () => {
+    const html = render(view(), { availableCreditMinor: 30500 });
+    expect(html).toContain(t.creditAvailableLabel); // "Alışveriş bakiyen"
+    expect(html).toContain("₺305,00"); // formatlanmış bakiye
+    expect(html).toContain(t.creditUseAction); // "Bu siparişte kullan"
+    expect(html).toContain('name="useShoppingCredit"');
+  });
+
+  it("hides the shopping-credit control entirely when the balance is zero", () => {
+    const html = render(view()); // availableCreditMinor defaults to 0
+    expect(html).not.toContain('name="useShoppingCredit"');
+    expect(html).not.toContain(t.creditAvailableLabel);
   });
 });
