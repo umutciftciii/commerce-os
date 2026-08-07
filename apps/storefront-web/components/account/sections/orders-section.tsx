@@ -10,6 +10,7 @@ import { formatMinor } from "../../../lib/money";
 import {
   ORDERS_TABS,
   applyOrderFilters,
+  canCancelOrder,
   canRequestReturn,
   isReorderable,
   type OrdersTab,
@@ -118,6 +119,7 @@ export function OrdersSection({
             <OrderCard
               key={order.orderNumber}
               o={o}
+              cancellationsT={t.cancellations}
               order={order}
               locale={locale}
               reviewsT={reviewsT}
@@ -133,6 +135,7 @@ export function OrdersSection({
 
 function OrderCard({
   o,
+  cancellationsT,
   order,
   locale,
   reviewsT,
@@ -140,6 +143,7 @@ function OrderCard({
   reviews,
 }: {
   o: OrdersDict;
+  cancellationsT: StorefrontDictionary["account"]["cancellations"];
   order: CustomerOrderSummary;
   locale: Locale;
   reviewsT: StorefrontDictionary["reviews"];
@@ -202,6 +206,9 @@ function OrderCard({
         t={o}
         reorderable={isReorderable(order)}
         canReturn={canRequestReturn(order)}
+        canCancel={canCancelOrder(order)}
+        cancelSummary={order.cancellationSummary}
+        cancelT={cancellationsT}
         review={resolveOrderReview(order, eligible, reviews)}
         reviewsT={reviewsT}
       />

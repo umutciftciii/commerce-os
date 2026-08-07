@@ -296,6 +296,57 @@ enum FulfillmentStatus {
   CANCELLED
 }
 
+// TODO-174 (ADR-275) — İptali başlatan aktör kaynağı. Müşteri self-servis iptal (CUSTOMER),
+// mağaza admin iptali (ADMIN), sistem/otomatik (SYSTEM; ör. orphan-draft süpürücü). AuditLog yalnız
+// platformUserId taşıdığından müşteri aktörü birinci-sınıf burada temsil edilir.
+enum OrderCancellationSource {
+  CUSTOMER
+  ADMIN
+  SYSTEM
+}
+
+// TODO-174 (ADR-278) — Platform-tanımlı iptal nedeni taksonomisi (KATEGORİ). Store Admin DEĞİŞTİREMEZ.
+// TR/EN etiketleri i18n katmanındadır; enum stable/dildir. Kaldırma = registry'de INACTIVE (enum değeri
+// KALICI — geçmiş raporlar korunur). Not: "Teslimat adresini yanlış girdim" operasyonel düzeltilebilir
+// olduğu için EKLENMEZ (ADR-278).
+enum OrderCancellationReasonCategory {
+  ORDER_MISTAKE
+  PRICE_PROMOTION
+  DELIVERY
+  PAYMENT
+  PRODUCT_DECISION
+  OTHER
+}
+
+// TODO-174 (ADR-278) — Platform-tanımlı iptal nedeni taksonomisi (KOD). Kategori registry'de kod→kategori
+// eşlemesiyle türetilir (packages/contracts CANCELLATION_REASON_TAXONOMY). OTHER seçiminde açıklama zorunlu.
+enum OrderCancellationReason {
+  // ORDER_MISTAKE
+  WRONG_PRODUCT
+  WRONG_VARIANT_SIZE_COLOR
+  WRONG_QUANTITY
+  DUPLICATE_ORDER
+  ACCIDENTAL_ORDER
+  // PRICE_PROMOTION
+  FOUND_CHEAPER_ELSEWHERE
+  COUPON_DISCOUNT_NOT_AS_EXPECTED
+  TOTAL_PRICE_TOO_HIGH
+  // DELIVERY
+  DELIVERY_ESTIMATE_TOO_LONG
+  SHIPPING_FEE_TOO_HIGH
+  WILL_NOT_ARRIVE_IN_TIME
+  // PAYMENT
+  WRONG_PAYMENT_METHOD
+  INSTALLMENT_OR_PAYMENT_OPTION_UNSUITABLE
+  PAYMENT_CONCERN
+  // PRODUCT_DECISION
+  NO_LONGER_NEEDED
+  CHANGED_MIND
+  PREFER_DIFFERENT_PRODUCT
+  // OTHER
+  OTHER
+}
+
 // H-3 (ADR-189) — Rezervasyon lifecycle state machine. ACTIVE → {CONSUMED | RELEASED | EXPIRED}.
 // Üç hedef terminal + immutable (terminal → ACTIVE imkânsız). CONSUMED: ödeme başarıyla satışa
 // commit edildi. RELEASED: iptal/ödeme-iptali ile geri verildi. EXPIRED: TTL doldu, süpürücü bıraktı.
@@ -1836,6 +1887,17 @@ model Order {
   placedAt             DateTime?
   cancelledAt          DateTime?
   cancelReason         String?
+  // TODO-174 (ADR-275/ADR-278) — İptal provenance'i (additive; legacy `cancelReason` serbest metin
+  // geriye-dönük görüntüleme için KORUNUR). `cancelSource` iptali başlatan aktör; `cancelReasonCode`/
+  // `cancelReasonCategory` platform-tanımlı taksonomi (contracts registry doğrular); `cancelReasonNote`
+  // müşteri açıklaması (OTHER'da zorunlu). Hepsi iptal edilmemiş siparişte null.
+  cancelSource         OrderCancellationSource?
+  cancelReasonCode     OrderCancellationReason?
+  cancelReasonCategory OrderCancellationReasonCategory?
+  cancelReasonNote     String?
+  // TODO-174 (ADR-275) — Optimistic concurrency (self-servis iptal ↔ admin handoff yarışı). updateMany
+  // version guard: yalnız bir operasyon kazanır. Sipariş ömrü boyunca placeOrder sonrası bump edilir.
+  version              Int                   @default(0)
   // Fatura kimlik bilgileri (F3B.2). Fatura ADRESI OrderAddress(type=BILLING)
   // kaydinda tutulur; burada yalnizca fatura tipi + vergi/kimlik kimlik alanlari
   // bulunur. Bireysel: billingTaxId = T.C. Kimlik No (11 hane). Kurumsal: firma

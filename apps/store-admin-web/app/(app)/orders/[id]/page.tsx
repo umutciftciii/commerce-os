@@ -28,6 +28,9 @@ import {
 import {
   canCancel,
   canPlace,
+  cancellationReasonCategoryLabel,
+  cancellationReasonLabel,
+  cancellationSourceLabel,
   FULFILLMENT_DISPLAY_TONES,
   ORDER_STATUS_TONES,
   PAYMENT_STATUS_TONES,
@@ -448,6 +451,133 @@ function OrderReturnsSection({
 }
 
 /**
+ * TODO-174 (ADR-275/278) — İptal detay paneli (sipariş CANCELLED iken). İptal
+ * provenance'ını (kaynak/kategori/neden/müşteri notu) + iptal tarihini gösterir ve
+ * refund-context'ten OTOMATİK iade durumunu türetir (RefundIntent/OrderRefund
+ * SUCCEEDED figürleri; client'ta finansal hesap YOK — yalnız türetilmiş durum).
+ * Başarısız iade (tahsilat var, gerçekleşen/işlenen iade yok) → kurtarma uyarısı.
+ */
+function OrderCancellationSection({
+  order,
+  refundContext,
+  locale,
+}: {
+  order: Order;
+  refundContext: RefundContext | null;
+  locale: string;
+}) {
+  const isTr = locale === "tr";
+  const captured = refundContext?.capturedMinor ?? 0;
+  const succeeded = refundContext?.succeededRefundMinor ?? 0;
+  const active = refundContext?.activeRefundMinor ?? 0;
+  const currency = refundContext?.currency ?? order.currency;
+
+  // Otomatik iade durumu — refund-context'ten türetilir (sıra önemli).
+  type RefundView = { tone: "success" | "info" | "warning" | "neutral"; text: string; hint?: string; failed?: boolean };
+  const refundView: RefundView | null = (() => {
+    if (!refundContext) return null;
+    if (captured === 0) {
+      return {
+        tone: "neutral",
+        text: isTr ? "Ödeme alınmadığı için iade yok" : "No refund — no payment was captured",
+      };
+    }
+    if (succeeded >= captured) {
+      return { tone: "success", text: isTr ? "İade tamamlandı" : "Refund completed" };
+    }
+    if (active > 0) {
+      return { tone: "info", text: isTr ? "İade işleniyor" : "Refund processing" };
+    }
+    if (succeeded > 0) {
+      return {
+        tone: "info",
+        text: isTr ? "Kısmi iade gerçekleşti" : "Partial refund completed",
+        hint: isTr
+          ? "Tahsil edilen tutarın bir kısmı iade edildi — kalan için Ücret Özeti / iade araçlarına bakın."
+          : "Part of the captured amount was refunded — see the Fee Summary / refund tools for the remainder.",
+      };
+    }
+    return {
+      tone: "warning",
+      failed: true,
+      text: isTr ? "İade başarısız — kurtarma gerekli" : "Refund failed — recovery required",
+      hint: isTr
+        ? "Tahsilat var ancak gerçekleşen ya da işlenen iade yok. İade araçlarını (Ücret Özeti / iade paneli) kullanarak iadeyi başlatın."
+        : "Payment was captured but no refund succeeded or is processing. Use the refund tools (Fee Summary / refund panel) to initiate the refund.",
+    };
+  })();
+
+  return (
+    <SurfaceCard title={isTr ? "İptal detayı" : "Cancellation detail"}>
+      <div className="divide-y divide-white/[0.06]">
+        <RailRow
+          label={isTr ? "İptal kaynağı" : "Cancellation source"}
+          value={order.cancelSource ? cancellationSourceLabel(order.cancelSource, locale) : "—"}
+        />
+        <RailRow
+          label={isTr ? "İptal tarihi" : "Cancelled at"}
+          value={order.cancelledAt ? formatDate(order.cancelledAt) : "—"}
+        />
+        <RailRow
+          label={isTr ? "Neden kategorisi" : "Reason category"}
+          value={
+            order.cancelReasonCategory
+              ? cancellationReasonCategoryLabel(order.cancelReasonCategory, locale)
+              : "—"
+          }
+        />
+        <RailRow
+          label={isTr ? "Neden" : "Reason"}
+          value={
+            order.cancelReasonCode
+              ? cancellationReasonLabel(order.cancelReasonCode, locale)
+              : order.cancelReason ?? "—"
+          }
+        />
+        {order.cancelReasonNote ? (
+          <RailRow label={isTr ? "Müşteri notu" : "Customer note"} value={order.cancelReasonNote} />
+        ) : null}
+      </div>
+
+      {/* Otomatik iade durumu (refund-context türevi). */}
+      {refundView ? (
+        <div className="mt-4">
+          {refundView.failed ? (
+            <Alert tone="warning" title={refundView.text}>
+              {refundView.hint}
+            </Alert>
+          ) : (
+            <div className="rounded-xl border border-white/[0.09] bg-white/[0.04] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-white/70">
+                  {isTr ? "Otomatik iade" : "Automatic refund"}
+                </span>
+                <Badge tone={refundView.tone}>{refundView.text}</Badge>
+              </div>
+              {captured > 0 ? (
+                <div className="mt-2 divide-y divide-white/[0.06]">
+                  <MoneyRow
+                    label={isTr ? "Tahsil edilen" : "Captured"}
+                    value={formatMinor(captured, currency)}
+                  />
+                  <MoneyRow
+                    label={isTr ? "Gerçekleşen iade" : "Refunded"}
+                    value={formatMinor(succeeded, currency)}
+                  />
+                </div>
+              ) : null}
+              {refundView.hint ? (
+                <p className="mt-2 text-xs text-white/40">{refundView.hint}</p>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </SurfaceCard>
+  );
+}
+
+/**
  * F3B.2 — Ödeme gözlemlenebilirlik paneli. Provider/mod/yöntem, maskeli kart,
  * taksit, işlem (transaction) No, deneme No/durumu, ödeme/başarısızlık tarihi ve
  * başarısızlık nedeni. Deneme yoksa empty state. Full PAN/CVC ASLA gosterilmez.
@@ -813,6 +943,16 @@ export default function OrderDetailPage() {
                     talepleri + pending finansal etki (RefundIntent PENDING ≠ gerçekleşen iade). */}
                 {orderReturns && orderReturns.returns.length > 0 ? (
                   <OrderReturnsSection data={orderReturns} locale={locale} />
+                ) : null}
+
+                {/* TODO-174 (ADR-275/278) — İptal detayı: iptal edilen siparişte provenance +
+                    otomatik iade durumu (refund-context türevi). */}
+                {order.status === "CANCELLED" ? (
+                  <OrderCancellationSection
+                    order={order}
+                    refundContext={refundContext}
+                    locale={locale}
+                  />
                 ) : null}
 
                 {/* F4C (ADR-064) — Bölüm A (ödeme özeti) + Bölüm B (satış özeti).

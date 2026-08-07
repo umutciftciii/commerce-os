@@ -783,6 +783,10 @@ type OrderRecord = Pick<
   | "placedAt"
   | "cancelledAt"
   | "cancelReason"
+  | "cancelSource"
+  | "cancelReasonCode"
+  | "cancelReasonCategory"
+  | "cancelReasonNote"
   | "billingType"
   | "billingName"
   | "billingTaxId"
@@ -2016,6 +2020,10 @@ function serializeOrder(order: OrderRecord) {
     placedAt: order.placedAt?.toISOString() ?? null,
     cancelledAt: order.cancelledAt?.toISOString() ?? null,
     cancelReason: order.cancelReason ?? null,
+    cancelSource: order.cancelSource ?? null,
+    cancelReasonCode: order.cancelReasonCode ?? null,
+    cancelReasonCategory: order.cancelReasonCategory ?? null,
+    cancelReasonNote: order.cancelReasonNote ?? null,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     lines: order.lines.map((line) => ({
@@ -3097,6 +3105,10 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     placedAt: true,
     cancelledAt: true,
     cancelReason: true,
+    cancelSource: true,
+    cancelReasonCode: true,
+    cancelReasonCategory: true,
+    cancelReasonNote: true,
     billingType: true,
     billingName: true,
     billingTaxId: true,

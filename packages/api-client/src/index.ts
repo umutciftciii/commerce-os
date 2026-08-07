@@ -233,6 +233,8 @@ import type {
   FinanceBreakdownsResponse,
   FinancePaymentReportResponse,
   FinanceDiscountReportResponse,
+  // TODO-174 (ADR-275) — İptal raporu (Store Admin; yalnız görüntüleme).
+  CancellationReportResponse,
   // TODO-161 (ADR-114…120) — Sponsored Product Management.
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -1144,6 +1146,9 @@ export type {
   FinanceBreakdownsResponse,
   FinancePaymentReportResponse,
   FinanceDiscountReportResponse,
+  // TODO-174 (ADR-275) — İptal raporu (Store Admin; yalnız görüntüleme).
+  CancellationReportResponse,
+  CancellationReportQuery,
 } from "@commerce-os/contracts";
 
 /**
@@ -2486,6 +2491,8 @@ export interface ApiClient {
       exportOrders(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
       exportPayments(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
       exportDiscounts(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
+      // TODO-174 (ADR-275) — İptal raporu (yalnız görüntüleme; taksonomi CRUD yok).
+      cancellations(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CancellationReportResponse>;
     };
     // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
     sponsoredProducts: {
@@ -4301,6 +4308,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getText(`/stores/${storeId}/finance/payments/export${buildQueryString(query)}`, token),
         exportDiscounts: (storeId, token, query) =>
           getText(`/stores/${storeId}/finance/discounts/export${buildQueryString(query)}`, token),
+        // TODO-174 (ADR-275) — İptal raporu (yalnız görüntüleme; taksonomi CRUD yok).
+        cancellations: (storeId, token, query) =>
+          getJson<CancellationReportResponse>(`/stores/${storeId}/reports/cancellations${buildQueryString(query)}`, token),
       },
       // TODO-161 (ADR-114…120) — Sponsored Product Management.
       sponsoredProducts: {

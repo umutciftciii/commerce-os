@@ -171,6 +171,8 @@ import type {
   FinanceBreakdownsResponse,
   FinancePaymentReportResponse,
   FinanceDiscountReportResponse,
+  // TODO-174 (ADR-275) — İptal raporu (Store Admin; yalnız görüntüleme).
+  CancellationReportResponse,
   // TODO-161 — Sponsored Product Management (backend/contracts hazır; BFF proxy).
   SponsoredCampaignListResponse,
   SponsoredCampaignDetailResponse,
@@ -1254,6 +1256,11 @@ export const storeApi = {
     fetchCsv(`/api/finance/payments/export${financeQueryString(query)}`),
   exportFinanceDiscounts: (query?: FinanceReportParams) =>
     fetchCsv(`/api/finance/discounts/export${financeQueryString(query)}`),
+
+  // TODO-174 (ADR-275) — İptal raporu (Finans > Raporlar > İptal). Salt-okunur; sipariş
+  // iptal kayıtlarından türetilir; taksonomi CRUD YOK (Store Admin yalnız görüntüler).
+  getCancellationReport: (query?: FinanceReportParams) =>
+    call<CancellationReportResponse>(`/api/reports/cancellations${financeQueryString(query)}`),
 
   // Sponsored Products (TODO-161) — sponsorlu kampanya CRUD + performans dashboard + CSV.
   listSponsoredCampaigns: (query?: AdminListRequestQuery) =>

@@ -1534,3 +1534,18 @@ bulundu). Backend/API/migration DEĞİŞMEDİ. Gate tam yeşil + izole throwaway
 (375/768/1024/1440), FK-güvenli teardown (enterprise-demo dokunulmadı). Detay: `docs/TECHNICAL_DEBT.md`.
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #190 (merge `ab1bbec`); CI lint·test·build 5m59s PASS. Deploy: docker `storefront-web` + `store-admin-web` main'den rebuild+recreate (api-gateway/worker/postgres/redis DOKUNULMADI — i18n reverseShipment/wizard yalnız web dict). Post-deploy smoke: store-admin returns list + R000001 detay production build render + SA-1 friendly ödeme rozeti + taşma yok; storefront home/PLP 200, account/returns login-render, reverseShipment key deployed bundle'da. İzole browser-smoke fixture FK-güvenli temizlendi (enterprise-demo R000001 değişmedi).
+
+## TODO-174 Customer Self-Service Order Cancellation — 2026-08-07
+
+Müşteri kendi siparişini self-servis iptal eder. Uygunluk sınırı **carrier handoff** (shipment varlığı değil):
+handoff öncesi (DRAFT/ORDER_CREATED/LABEL_*) iptal edilebilir; IN_TRANSIT/OUT_FOR_DELIVERY → "kargoya verildi"
+mesajı; DELIVERED → mevcut Return Flow. 2 adımlı storefront modali (neden → özet+onay); platform-tanımlı iptal
+taksonomisi (Store Admin CRUD yok; OTHER'da açıklama zorunlu). Başarılı iptal rezervasyonu release eder, pre-
+handoff outbound shipment'ı CANCELLED yapar, coupon/campaign kullanımını geri alır (expired kampanya revive
+edilmez), PAID siparişte tam refundable bakiye (kargo dahil) üzerinden intent'siz OrderRefund ile otomatik
+refund başlatır (refund tutarı client'tan alınmaz; başarısızlık order'ı CANCELLED bırakır). Concurrency:
+advisory lock + shipment FOR UPDATE + Order.version guard + handoff sertleştirme. Store Admin iptal detay paneli
++ Finans>Raporlar "İptal Raporu" (metrikler + filtreler; yalnız görüntüleme). Migration additive. Gate tam yeşil
+(api-gateway 2504 / storefront 550 / store-admin 368); browser smoke 375/768/1024/1440 izole fixture (enterprise-
+demo dokunulmadı). Kararlar: ADR-275 (authority/lifecycle) · ADR-276 (intent'siz refund) · ADR-277 (coupon
+rollback) · ADR-278 (taksonomi). Detay: `docs/DECISIONS.md`.

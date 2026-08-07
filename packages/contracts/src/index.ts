@@ -5013,6 +5013,43 @@ export const orderSalesSummarySchema = z.object({
     .nullable(),
 });
 
+/* TODO-174 (ADR-275/278) — İptal taksonomisi enum'ları. orderSchema + finance iptal raporu + customer
+ * cancellation blokları ORTAK kullanır; forward-ref olmaması için burada (erken) tanımlı (Prisma sırası). */
+export const orderCancellationSourceSchema = z.enum(["CUSTOMER", "ADMIN", "SYSTEM"]);
+export type OrderCancellationSourceValue = z.infer<typeof orderCancellationSourceSchema>;
+
+export const orderCancellationReasonCategorySchema = z.enum([
+  "ORDER_MISTAKE",
+  "PRICE_PROMOTION",
+  "DELIVERY",
+  "PAYMENT",
+  "PRODUCT_DECISION",
+  "OTHER",
+]);
+export type OrderCancellationReasonCategoryValue = z.infer<typeof orderCancellationReasonCategorySchema>;
+
+export const orderCancellationReasonSchema = z.enum([
+  "WRONG_PRODUCT",
+  "WRONG_VARIANT_SIZE_COLOR",
+  "WRONG_QUANTITY",
+  "DUPLICATE_ORDER",
+  "ACCIDENTAL_ORDER",
+  "FOUND_CHEAPER_ELSEWHERE",
+  "COUPON_DISCOUNT_NOT_AS_EXPECTED",
+  "TOTAL_PRICE_TOO_HIGH",
+  "DELIVERY_ESTIMATE_TOO_LONG",
+  "SHIPPING_FEE_TOO_HIGH",
+  "WILL_NOT_ARRIVE_IN_TIME",
+  "WRONG_PAYMENT_METHOD",
+  "INSTALLMENT_OR_PAYMENT_OPTION_UNSUITABLE",
+  "PAYMENT_CONCERN",
+  "NO_LONGER_NEEDED",
+  "CHANGED_MIND",
+  "PREFER_DIFFERENT_PRODUCT",
+  "OTHER",
+]);
+export type OrderCancellationReasonValue = z.infer<typeof orderCancellationReasonSchema>;
+
 export const orderSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -5031,6 +5068,11 @@ export const orderSchema = z.object({
   placedAt: z.string().datetime().nullable(),
   cancelledAt: z.string().datetime().nullable(),
   cancelReason: z.string().nullable(),
+  // TODO-174 (ADR-275/278) — iptal provenance (store-admin görünürlüğü). Legacy/admin iptalde null.
+  cancelSource: orderCancellationSourceSchema.nullable().default(null),
+  cancelReasonCode: orderCancellationReasonSchema.nullable().default(null),
+  cancelReasonCategory: orderCancellationReasonCategorySchema.nullable().default(null),
+  cancelReasonNote: z.string().nullable().default(null),
   billing: orderBillingSchema.nullable().default(null),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -5311,6 +5353,79 @@ export const financeDiscountReportResponseSchema = z.object({
     rows: z.array(financeDiscountRowSchema),
   }),
 });
+
+/* ══ TODO-174 (ADR-275) — İptal raporu (Store Admin; YALNIZ görüntüleme, taksonomi CRUD YOK) ═══════ */
+export const cancellationReportQuerySchema = z.object({
+  period: financePeriodPresetSchema.optional(),
+  dateFrom: financeDayStringSchema.optional(),
+  dateTo: financeDayStringSchema.optional(),
+  currency: currencySchema.optional(),
+  reasonCategory: orderCancellationReasonCategorySchema.optional(),
+  reasonCode: orderCancellationReasonSchema.optional(),
+  productId: z.string().min(1).max(64).optional(),
+  categoryId: z.string().min(1).max(64).optional(),
+  paymentMethod: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]).optional(),
+  shippingProvider: z.string().min(1).max(32).optional(),
+});
+export type CancellationReportQuery = z.infer<typeof cancellationReportQuerySchema>;
+
+const cancellationReasonCategoryRowSchema = z.object({
+  category: orderCancellationReasonCategorySchema.nullable(),
+  count: z.number().int().nonnegative(),
+  revenueMinor: z.number().int().nonnegative(),
+  sharePct: z.number(),
+});
+const cancellationReasonRowSchema = z.object({
+  code: orderCancellationReasonSchema.nullable(),
+  category: orderCancellationReasonCategorySchema.nullable(),
+  count: z.number().int().nonnegative(),
+  revenueMinor: z.number().int().nonnegative(),
+});
+const cancellationTrendPointSchema = z.object({
+  date: z.string(),
+  count: z.number().int().nonnegative(),
+  revenueMinor: z.number().int().nonnegative(),
+});
+const cancellationDimensionRowSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  count: z.number().int().nonnegative(),
+  revenueMinor: z.number().int().nonnegative(),
+});
+const cancellationProductRowSchema = z.object({
+  productId: z.string(),
+  title: z.string(),
+  count: z.number().int().nonnegative(),
+  quantity: z.number().int().nonnegative(),
+});
+const cancellationSourceRowSchema = z.object({
+  source: orderCancellationSourceSchema.nullable(),
+  count: z.number().int().nonnegative(),
+});
+
+export const cancellationReportResponseSchema = z.object({
+  data: z.object({
+    range: financeRangeSchema,
+    currency: currencySchema,
+    totals: z.object({
+      cancellationCount: z.number().int().nonnegative(),
+      cancelledRevenueMinor: z.number().int().nonnegative(),
+      refundedRevenueMinor: z.number().int().nonnegative(),
+      ordersInRangeCount: z.number().int().nonnegative(),
+      cancellationRatePct: z.number(),
+      deliveryRelatedCount: z.number().int().nonnegative(),
+      deliveryRelatedRatePct: z.number(),
+    }),
+    reasonCategoryDistribution: z.array(cancellationReasonCategoryRowSchema),
+    reasonDistribution: z.array(cancellationReasonRowSchema),
+    trend: z.array(cancellationTrendPointSchema),
+    paymentMethodBreakdown: z.array(cancellationDimensionRowSchema),
+    shippingMethodBreakdown: z.array(cancellationDimensionRowSchema),
+    sourceBreakdown: z.array(cancellationSourceRowSchema),
+    topProducts: z.array(cancellationProductRowSchema),
+  }),
+});
+export type CancellationReportResponse = z.infer<typeof cancellationReportResponseSchema>;
 
 // --- F3B.2 Payment provider operasyon altyapisi (provider-ready; canli odeme YOK) ---
 export const paymentProviderTypeSchema = z.enum([
@@ -6237,6 +6352,8 @@ export const customerOrderSummarySchema = z.object({
   // durumunu AYRI taşır. İade yoksa da pencere bilgisi (returnWindowEndsAt/windowState) döner.
   // Forward-ref (returnOrderSummarySchema bu dosyada aşağıda tanımlı) için z.lazy.
   returnSummary: z.lazy(() => returnOrderSummarySchema).nullable().default(null),
+  // TODO-174 (ADR-275) — iptal uygunluğu özeti (CTA/mesaj kararı). İptal edilmiş siparişte provenance taşır.
+  cancellationSummary: z.lazy(() => cancellationOrderSummarySchema).nullable().default(null),
 });
 
 export const customerOrderListResponseSchema = z.object({
@@ -6376,6 +6493,8 @@ export const customerOrderDetailSchema = z.object({
   // TODO-169 (blocker #6/#7/#8) — ORTAK iade özeti (pencere + aktivite + pending finansal etki).
   // Teslimat/finansal orijinal özeti DEĞİŞTİRMEZ; iade etkisini AYRI + "beklenen" olarak taşır.
   returnSummary: z.lazy(() => returnOrderSummarySchema).nullable().default(null),
+  // TODO-174 (ADR-275) — iptal uygunluğu + provenance özeti (CTA/mesaj + iptal edilmiş sipariş detayı).
+  cancellationSummary: z.lazy(() => cancellationOrderSummarySchema).nullable().default(null),
 });
 
 export const customerOrderDetailResponseSchema = z.object({
@@ -11683,6 +11802,153 @@ export const returnOrderSummarySchema = z.object({
 });
 export type ReturnWindowState = z.infer<typeof returnWindowStateSchema>;
 export type ReturnOrderSummary = z.infer<typeof returnOrderSummarySchema>;
+
+/* ══ TODO-174 (ADR-275/277/278) — Customer Self-Service Order Cancellation ═════════════════════════
+ * Platform-tanımlı iptal taksonomisi + sipariş-bazında iptal uygunluğu özeti + müşteri iptal talebi.
+ * Store Admin taksonomiyi DEĞİŞTİREMEZ (registry burada platform-owned). Refund tutarı client'tan
+ * KABUL EDİLMEZ (server-authoritative). Enum'lar dosyanın başında (finance raporu da kullanır) tanımlı. */
+
+/**
+ * Platform-tanımlı iptal nedeni taksonomisi — TEK OTORİTE (server + client aynı registry). Store Admin
+ * CRUD YAPAMAZ. Kaldırma = `active:false` (enum değeri kalıcı → geçmiş raporlar korunur; ADR-278). TR/EN
+ * etiketleri i18n katmanındadır (packages/i18n storefront `cancellations`). `displayOrder` müşteriye
+ * gösterim sırası (kategori sonra kod). Taksonomi değişikliği gelecekteki "Store → Platform Request"
+ * domain'i üzerinden yapılacak (bu fazda IMPLEMENT EDİLMEZ).
+ */
+export interface CancellationReasonTaxonomyEntry {
+  code: OrderCancellationReasonValue;
+  category: OrderCancellationReasonCategoryValue;
+  active: boolean;
+  displayOrder: number;
+}
+
+export const CANCELLATION_REASON_TAXONOMY: readonly CancellationReasonTaxonomyEntry[] = [
+  { code: "WRONG_PRODUCT", category: "ORDER_MISTAKE", active: true, displayOrder: 10 },
+  { code: "WRONG_VARIANT_SIZE_COLOR", category: "ORDER_MISTAKE", active: true, displayOrder: 20 },
+  { code: "WRONG_QUANTITY", category: "ORDER_MISTAKE", active: true, displayOrder: 30 },
+  { code: "DUPLICATE_ORDER", category: "ORDER_MISTAKE", active: true, displayOrder: 40 },
+  { code: "ACCIDENTAL_ORDER", category: "ORDER_MISTAKE", active: true, displayOrder: 50 },
+  { code: "FOUND_CHEAPER_ELSEWHERE", category: "PRICE_PROMOTION", active: true, displayOrder: 60 },
+  { code: "COUPON_DISCOUNT_NOT_AS_EXPECTED", category: "PRICE_PROMOTION", active: true, displayOrder: 70 },
+  { code: "TOTAL_PRICE_TOO_HIGH", category: "PRICE_PROMOTION", active: true, displayOrder: 80 },
+  { code: "DELIVERY_ESTIMATE_TOO_LONG", category: "DELIVERY", active: true, displayOrder: 90 },
+  { code: "SHIPPING_FEE_TOO_HIGH", category: "DELIVERY", active: true, displayOrder: 100 },
+  { code: "WILL_NOT_ARRIVE_IN_TIME", category: "DELIVERY", active: true, displayOrder: 110 },
+  { code: "WRONG_PAYMENT_METHOD", category: "PAYMENT", active: true, displayOrder: 120 },
+  { code: "INSTALLMENT_OR_PAYMENT_OPTION_UNSUITABLE", category: "PAYMENT", active: true, displayOrder: 130 },
+  { code: "PAYMENT_CONCERN", category: "PAYMENT", active: true, displayOrder: 140 },
+  { code: "NO_LONGER_NEEDED", category: "PRODUCT_DECISION", active: true, displayOrder: 150 },
+  { code: "CHANGED_MIND", category: "PRODUCT_DECISION", active: true, displayOrder: 160 },
+  { code: "PREFER_DIFFERENT_PRODUCT", category: "PRODUCT_DECISION", active: true, displayOrder: 170 },
+  { code: "OTHER", category: "OTHER", active: true, displayOrder: 999 },
+] as const;
+
+const CANCELLATION_REASON_INDEX: ReadonlyMap<OrderCancellationReasonValue, CancellationReasonTaxonomyEntry> =
+  new Map(CANCELLATION_REASON_TAXONOMY.map((e) => [e.code, e]));
+
+/** Aktif taksonomi girişleri (displayOrder'a göre sıralı). Client seçim listesi + server whitelist. */
+export function activeCancellationReasons(): CancellationReasonTaxonomyEntry[] {
+  return CANCELLATION_REASON_TAXONOMY.filter((e) => e.active).sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+/** Kod aktif taksonomide mi (inactive/bilinmeyen reddedilir — server whitelist). */
+export function isActiveCancellationReason(code: string): code is OrderCancellationReasonValue {
+  const entry = CANCELLATION_REASON_INDEX.get(code as OrderCancellationReasonValue);
+  return Boolean(entry && entry.active);
+}
+
+/** Kodun (server-türetilen) kategori kodu; bilinmeyen → null. */
+export function cancellationReasonCategory(
+  code: OrderCancellationReasonValue,
+): OrderCancellationReasonCategoryValue | null {
+  return CANCELLATION_REASON_INDEX.get(code)?.category ?? null;
+}
+
+export const CANCELLATION_NOTE_MAX = 1000;
+
+/** OTHER → açıklama zorunlu; diğerlerinde opsiyonel (server + client aynı kural — ADR-278). */
+export function cancellationReasonRequiresNote(code: OrderCancellationReasonValue): boolean {
+  return code === "OTHER";
+}
+
+/* ── Sipariş-bazında iptal uygunluğu özeti (customer list/detail + admin) ─────────────────────────
+ * Eligibility sınırı = CARRIER HANDOFF (shipment varlığı DEĞİL). Yalnız OUTBOUND_TO_CUSTOMER gönderiler
+ * sayılır; reverse yönler HARİÇ. ALLOWED=iptal edilebilir; BLOCKED_IN_TRANSIT=kargoya verildi (iade akışı
+ * değil, "yolda" mesajı); BLOCKED_DELIVERED=teslim edildi (→ iade akışı); NOT_CANCELLABLE=durum uygun değil
+ * (zaten iptal/fulfilled/draft). `version` = optimistic concurrency (modal expectedVersion olarak döner). */
+export const cancellationEligibilityStateSchema = z.enum([
+  "ALLOWED",
+  "BLOCKED_IN_TRANSIT",
+  "BLOCKED_DELIVERED",
+  "NOT_CANCELLABLE",
+]);
+export type CancellationEligibilityState = z.infer<typeof cancellationEligibilityStateSchema>;
+
+/** Vitrin refund durumu (MASKELİ; teknik provider kodu YOK). NONE = ödeme alınmamış / refund üretilmemiş. */
+export const cancellationRefundStatusSchema = z.enum([
+  "NONE",
+  "PENDING",
+  "PROCESSING",
+  "SUCCEEDED",
+  "FAILED",
+]);
+export type CancellationRefundStatus = z.infer<typeof cancellationRefundStatusSchema>;
+
+export const cancellationOrderSummarySchema = z.object({
+  eligibility: cancellationEligibilityStateSchema,
+  currency: currencySchema,
+  // Optimistic concurrency; modal bunu expectedVersion olarak geri gönderir.
+  version: z.number().int().nonnegative(),
+  // Ödeme alınmış mı (captured>0). false ise refund copy gösterilmez.
+  isPaid: z.boolean(),
+  // ALLOWED iken iptalde iade edilecek server-authoritative tahmini tutar (unpaid → 0). Kargo ücreti dahil.
+  estimatedRefundMinor: z.number().int().nonnegative(),
+  // Zaten iptal edilmiş sipariş provenance'i (iptal edilmemişse null).
+  cancelledAt: z.string().datetime().nullable().default(null),
+  cancelSource: orderCancellationSourceSchema.nullable().default(null),
+  reasonCode: orderCancellationReasonSchema.nullable().default(null),
+  reasonCategory: orderCancellationReasonCategorySchema.nullable().default(null),
+  reasonNote: z.string().nullable().default(null),
+  // İptal refund'unun (varsa) MASKELİ yürütme durumu.
+  refundStatus: cancellationRefundStatusSchema.nullable().default(null),
+});
+export type CancellationOrderSummary = z.infer<typeof cancellationOrderSummarySchema>;
+
+/* ── Müşteri: iptal uygunluğu (dedicated GET) + iptal talebi (POST) ──────────────────────────────── */
+export const customerOrderCancelEligibilityResponseSchema = z.object({
+  // Projeksiyon fail-open (geçici DB hatası) → null (client "bilinmiyor" olarak ele alır, yenile).
+  eligibility: cancellationOrderSummarySchema.nullable().default(null),
+});
+export type CustomerOrderCancelEligibilityResponse = z.infer<
+  typeof customerOrderCancelEligibilityResponseSchema
+>;
+
+export const customerOrderCancelRequestSchema = z
+  .object({
+    // Client YALNIZ kodu gönderir; kategori server'da registry'den türetilir + doğrulanır.
+    reasonCode: orderCancellationReasonSchema,
+    reasonNote: z.string().max(CANCELLATION_NOTE_MAX).optional(),
+    // Optimistic concurrency (opsiyonel; verilirse guard'lanır — server ayrıca kendi guard'ını uygular).
+    expectedVersion: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (cancellationReasonRequiresNote(val.reasonCode) && !val.reasonNote?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reasonNote"],
+        message: "OTHER nedeni için açıklama zorunludur.",
+      });
+    }
+  });
+export type CustomerOrderCancelRequest = z.infer<typeof customerOrderCancelRequestSchema>;
+
+export const customerOrderCancelResponseSchema = z.object({
+  order: z.lazy(() => customerOrderDetailSchema),
+  // İptal başarılı; refund AYRI durum (yanıltıcı "iade tamamlandı" gösterme — refundStatus otoritedir).
+  // Projeksiyon fail-open olursa null (order.cancellationSummary da taşınır — client oradan da okuyabilir).
+  cancellation: cancellationOrderSummarySchema.nullable().default(null),
+});
+export type CustomerOrderCancelResponse = z.infer<typeof customerOrderCancelResponseSchema>;
 
 /* ── Müşteri: iade uygunluğu (order detay üzeri) ─────────────────────────────── */
 export const returnLineEligibilityStatusSchema = z.enum([

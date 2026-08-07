@@ -27,6 +27,7 @@ function order(overrides: Partial<CustomerOrderSummary> = {}): CustomerOrderSumm
     createdAt: "2026-06-01T00:00:00.000Z",
     shipmentStatus: null,
     returnSummary: null,
+    cancellationSummary: null,
     lines: [
       {
         variantId: "v1", productSlug: "hoodie", sku: "HD-M", title: "Hoodie", variantTitle: "M", quantity: 1, imageUrl: null,

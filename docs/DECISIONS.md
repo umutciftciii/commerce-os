@@ -6130,3 +6130,35 @@ TODO-171 (Return Decision Flow Faz 1) sonrası PR2. TODO-170 (Refund Ledger) sem
 Migration additive (`20260807090000_todo172_fast_refund_controls`; 3 kolon, default kapalı, mevcut
 store'larda otomatik açılmaz). Saf 17 + gerçek-DB 20 test yeşil. **commit/push/PR/merge/deploy YOK.**
 Detay: `docs/adr/ADR-273-fast-refund-controls.md` + `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md`.
+
+## TODO-174 — Customer Self-Service Order Cancellation (ADR-275/276/277/278)
+
+Müşteri kendi siparişini self-servis iptal eder. `POST /public/stores/:slug/customer/orders/:orderNumber/cancel`
++ `GET .../cancel-eligibility`; 2 adımlı storefront modali. Store Admin yalnız raporları görür.
+
+**Kararlar:**
+- **Uygunluk = CARRIER HANDOFF** (shipment varlığı DEĞİL; ADR-275). Yalnız `OUTBOUND_TO_CUSTOMER`; reverse
+  yönler hariç. `ALLOWED` (handoff yok: DRAFT/ORDER_CREATED/LABEL_*) · `BLOCKED_IN_TRANSIT`
+  (IN_TRANSIT/OUT_FOR_DELIVERY/DELIVERY_FAILED/RETURNED → "kargoya verildi" mesajı) · `BLOCKED_DELIVERED`
+  (→ Return Flow) · `NOT_CANCELLABLE` (durum PLACED/CONFIRMED değil). Çoklu OUTBOUND'da biri bile handoff →
+  tüm sipariş kapalı (MVP; partial YOK). DELIVERED, IN_TRANSIT'ten öncelikli.
+- **İptal refund'u = intent'siz/return'süz OrderRefund ledger** (ADR-276). `RefundIntent.returnRequestId`
+  zorunlu@unique olduğundan `initiateRefund` reuse EDİLEMEZ; `OrderRefund`'un iki FK'si nullable →
+  `prepareCancellationRefund` + `runCancellationRefundExecution` (executeAutomatic/applyOutcome/cap-calc REUSE).
+  Tam refundable bakiye (captured−aktif/succeeded) + KARGO ücreti dahil; ödeme yoksa refund YOK. Refund
+  başarısızlığı order'ı CANCELLED bırakır (yeniden açma/rezerve YOK). Client refund tutarı KABUL EDİLMEZ.
+- **Coupon rollback** (ADR-277; ADR-058 no-compensation'ı bilinçli genişletir): Campaign/Coupon.usageCount
+  decrement + CampaignRedemption sil + CustomerCoupon canlı-uygunlukla AVAILABLE/REVOKED. Expired/limit-dolu
+  kampanya YENİDEN CANLANDIRILMAZ; OrderDiscount snapshot (immutable) raporlama iz'i.
+- **Taksonomi** (ADR-278): Prisma enum (stored, kalıcı) + contracts `CANCELLATION_REASON_TAXONOMY` registry
+  (code/category/active/displayOrder) + i18n TR/EN. Store Admin CRUD YOK; INACTIVE=silme değil. `reasonCode`
+  yalnız aktif taksonomiden (INVALID_REASON); kategori server türetir; `OTHER` → not zorunlu (NOTE_REQUIRED).
+- **Concurrency:** advisory lock (`refund:<store>:<order>`) + shipment `FOR UPDATE` + `Order.version` optimistic
+  guard + `/status` route sertleştirme (order-CANCELLED guard + koşullu update) + create-yolu
+  `ensureOrderNotCancelled`. Duplicate cancel idempotent (alreadyCancelled); CANCELLED sipariş
+  fulfillment/IN_TRANSIT edilemez; yalnız bir operasyon kazanır.
+- **Raporlama:** `GET /stores/:id/reports/cancellations` (count/rate/cancelled+refunded revenue/reason
+  kategori+kod dağılımı/trend/ödeme+kargo yöntemi/kaynak/top ürün) + filtreler; Store Admin YALNIZ görüntüler.
+
+Migration additive (`20260807140000_todo174_customer_order_cancellation`; Order 4 kolon + version, 3 enum).
+Saf 29 + gerçek-DB 22 test yeşil; tam api-gateway suite 2504 yeşil. Detay: ADR-275…278.

@@ -198,6 +198,76 @@ export const RETURN_CONDITION_VALUES = Object.keys(RETURN_CONDITION_LABELS) as R
 export const RETURN_INSPECTION_VALUES = Object.keys(RETURN_INSPECTION_LABELS) as ReturnInspectionResult[];
 export const RETURN_RESTOCK_VALUES = Object.keys(RETURN_RESTOCK_LABELS) as ReturnRestockDecision[];
 
+/* ── TODO-174 (ADR-275/278) — İptal taksonomisi ortak sözlükleri ────────────────────
+ * Sipariş iptal provenance'ı (kaynak + kategori + neden) store-admin görünürlüğü.
+ * Tipler `Order` alanlarından türetilir (api-client sınırı korunur; contracts'a doğrudan
+ * bağlanılmaz — ReturnConditionStatus deseniyle aynı). Etiketler yerel TR/EN.
+ */
+export type OrderCancellationSource = NonNullable<Order["cancelSource"]>;
+export type OrderCancellationReasonCategory = NonNullable<Order["cancelReasonCategory"]>;
+export type OrderCancellationReason = NonNullable<Order["cancelReasonCode"]>;
+
+const CANCELLATION_SOURCE_LABELS: Record<OrderCancellationSource, Bi> = {
+  CUSTOMER: { tr: "Müşteri", en: "Customer" },
+  ADMIN: { tr: "Yönetici", en: "Admin" },
+  SYSTEM: { tr: "Sistem", en: "System" },
+};
+
+const CANCELLATION_REASON_CATEGORY_LABELS: Record<OrderCancellationReasonCategory, Bi> = {
+  ORDER_MISTAKE: { tr: "Sipariş hatası", en: "Order mistake" },
+  PRICE_PROMOTION: { tr: "Fiyat & promosyon", en: "Price & promotion" },
+  DELIVERY: { tr: "Teslimat", en: "Delivery" },
+  PAYMENT: { tr: "Ödeme", en: "Payment" },
+  PRODUCT_DECISION: { tr: "Ürün kararı", en: "Product decision" },
+  OTHER: { tr: "Diğer", en: "Other" },
+};
+
+const CANCELLATION_REASON_LABELS: Record<OrderCancellationReason, Bi> = {
+  WRONG_PRODUCT: { tr: "Yanlış ürün", en: "Wrong product" },
+  WRONG_VARIANT_SIZE_COLOR: { tr: "Yanlış varyant (beden/renk)", en: "Wrong variant (size/color)" },
+  WRONG_QUANTITY: { tr: "Yanlış adet", en: "Wrong quantity" },
+  DUPLICATE_ORDER: { tr: "Mükerrer sipariş", en: "Duplicate order" },
+  ACCIDENTAL_ORDER: { tr: "Yanlışlıkla sipariş", en: "Accidental order" },
+  FOUND_CHEAPER_ELSEWHERE: { tr: "Başka yerde daha ucuz bulundu", en: "Found cheaper elsewhere" },
+  COUPON_DISCOUNT_NOT_AS_EXPECTED: {
+    tr: "Kupon / indirim beklendiği gibi değil",
+    en: "Coupon / discount not as expected",
+  },
+  TOTAL_PRICE_TOO_HIGH: { tr: "Toplam fiyat çok yüksek", en: "Total price too high" },
+  DELIVERY_ESTIMATE_TOO_LONG: { tr: "Teslimat süresi çok uzun", en: "Delivery estimate too long" },
+  SHIPPING_FEE_TOO_HIGH: { tr: "Kargo ücreti çok yüksek", en: "Shipping fee too high" },
+  WILL_NOT_ARRIVE_IN_TIME: { tr: "Zamanında gelmeyecek", en: "Won't arrive in time" },
+  WRONG_PAYMENT_METHOD: { tr: "Yanlış ödeme yöntemi", en: "Wrong payment method" },
+  INSTALLMENT_OR_PAYMENT_OPTION_UNSUITABLE: {
+    tr: "Taksit / ödeme seçeneği uygun değil",
+    en: "Installment or payment option unsuitable",
+  },
+  PAYMENT_CONCERN: { tr: "Ödeme endişesi", en: "Payment concern" },
+  NO_LONGER_NEEDED: { tr: "Artık ihtiyaç yok", en: "No longer needed" },
+  CHANGED_MIND: { tr: "Fikir değişti", en: "Changed mind" },
+  PREFER_DIFFERENT_PRODUCT: { tr: "Farklı ürün tercih ediliyor", en: "Prefer a different product" },
+  OTHER: { tr: "Diğer", en: "Other" },
+};
+
+export const CANCELLATION_SOURCE_VALUES = Object.keys(
+  CANCELLATION_SOURCE_LABELS,
+) as OrderCancellationSource[];
+export const CANCELLATION_REASON_CATEGORY_VALUES = Object.keys(
+  CANCELLATION_REASON_CATEGORY_LABELS,
+) as OrderCancellationReasonCategory[];
+export const CANCELLATION_REASON_VALUES = Object.keys(
+  CANCELLATION_REASON_LABELS,
+) as OrderCancellationReason[];
+
+export const cancellationSourceLabel = (value: OrderCancellationSource, locale: string) =>
+  pick(locale, CANCELLATION_SOURCE_LABELS[value]);
+export const cancellationReasonCategoryLabel = (
+  value: OrderCancellationReasonCategory,
+  locale: string,
+) => pick(locale, CANCELLATION_REASON_CATEGORY_LABELS[value]);
+export const cancellationReasonLabel = (value: OrderCancellationReason, locale: string) =>
+  pick(locale, CANCELLATION_REASON_LABELS[value]);
+
 export const returnStatusLabel = (status: ReturnStatus, locale: string) =>
   pick(locale, RETURN_STATUS_LABELS[status]);
 export const returnResolutionLabel = (value: ReturnResolutionType, locale: string) =>

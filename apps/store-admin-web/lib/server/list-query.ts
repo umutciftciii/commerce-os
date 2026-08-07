@@ -145,6 +145,25 @@ export const FINANCE_REPORT_KEYS = [
 ];
 
 /**
+ * TODO-174 (ADR-275) — İptal raporu sorgu anahtarları (Store Admin; yalnız görüntüleme).
+ * `period`/tarih finans deseniyle aynı; `reasonCategory`/`reasonCode` taksonomi kırılımı,
+ * `paymentMethod`/`shippingProvider`/`productId`/`categoryId` boyut filtreleri. Doğrulama
+ * (enum/format) gateway contract şemasındadır (cancellationReportQuerySchema).
+ */
+export const CANCELLATION_REPORT_KEYS = [
+  "period",
+  "dateFrom",
+  "dateTo",
+  "currency",
+  "reasonCategory",
+  "reasonCode",
+  "productId",
+  "categoryId",
+  "paymentMethod",
+  "shippingProvider",
+];
+
+/**
  * TODO-159C (ADR-092) — Envanter matrisi liste anahtarları. `warehouseId` matrisin
  * BAKILAN deposunu seçer; `stockStatus`/`reserved`/`variantStatus`/`productStatus`
  * sunucu-otoriter filtrelerdir. Doğrulama gateway contract şemasındadır.

@@ -11,6 +11,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type {
+  CancellationReportResponse,
   FinanceBreakdownsResponse,
   FinanceDiscountReportResponse,
   FinancePaymentReportResponse,
@@ -18,6 +19,16 @@ import type {
 } from "@commerce-os/contracts";
 import { PaymentIcon } from "../../../../components/icons";
 import { storeApi, type FinanceReportParams } from "../../../../lib/client/api";
+import {
+  cancellationReasonCategoryLabel,
+  cancellationReasonLabel,
+  cancellationSourceLabel,
+  CANCELLATION_REASON_CATEGORY_VALUES,
+  CANCELLATION_REASON_VALUES,
+  type OrderCancellationReason,
+  type OrderCancellationReasonCategory,
+  type OrderCancellationSource,
+} from "../../orders/order-shared";
 import { messageForError } from "../../../../lib/client/messages";
 import { formatMinor } from "../../../../lib/client/format";
 import {
@@ -31,7 +42,7 @@ import {
 } from "../../../../components/ui";
 import { SurfaceCard } from "../../../components/premium";
 
-type Tab = "ozet" | "urun" | "kategori" | "odeme" | "indirim";
+type Tab = "ozet" | "urun" | "kategori" | "odeme" | "indirim" | "iptal";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "ozet", label: "Satış Özeti" },
@@ -39,7 +50,35 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "kategori", label: "Kategori & Marka" },
   { key: "odeme", label: "Ödeme Raporu" },
   { key: "indirim", label: "İndirim Raporu" },
+  { key: "iptal", label: "İptal Raporu" },
 ];
+
+// TODO-174 (ADR-275) — İptal raporu filtre seçenekleri (Store Admin yalnız görüntüler).
+const CANCEL_REASON_CATEGORY_OPTIONS = [
+  { value: "", label: "Tüm kategoriler" },
+  ...CANCELLATION_REASON_CATEGORY_VALUES.map((c) => ({
+    value: c,
+    label: cancellationReasonCategoryLabel(c, "tr"),
+  })),
+];
+const CANCEL_REASON_OPTIONS = [
+  { value: "", label: "Tüm nedenler" },
+  ...CANCELLATION_REASON_VALUES.map((r) => ({ value: r, label: cancellationReasonLabel(r, "tr") })),
+];
+const CANCEL_PAYMENT_METHOD_OPTIONS = [
+  { value: "", label: "Tüm ödeme yöntemleri" },
+  { value: "CARD", label: "Kart" },
+  { value: "BANK_TRANSFER", label: "Havale / EFT" },
+  { value: "CASH_ON_DELIVERY", label: "Kapıda ödeme" },
+  { value: "PAYMENT_LINK", label: "Ödeme linki" },
+];
+
+const cancelCategoryLabel = (c: OrderCancellationReasonCategory | null) =>
+  c ? cancellationReasonCategoryLabel(c, "tr") : "Bilinmiyor";
+const cancelReasonText = (r: OrderCancellationReason | null) =>
+  r ? cancellationReasonLabel(r, "tr") : "Bilinmiyor";
+const cancelSourceText = (s: OrderCancellationSource | null) =>
+  s ? cancellationSourceLabel(s, "tr") : "Bilinmiyor";
 
 const PERIOD_OPTIONS = [
   { value: "today", label: "Bugün" },
@@ -134,6 +173,10 @@ function ReportsInner() {
       brandId: params.get("brandId") || undefined,
       campaignId: params.get("campaignId") || undefined,
       paymentMethod: params.get("paymentMethod") || undefined,
+      // TODO-174 (ADR-275) — İptal raporu taksonomi/boyut filtreleri.
+      reasonCategory: params.get("reasonCategory") || undefined,
+      reasonCode: params.get("reasonCode") || undefined,
+      shippingProvider: params.get("shippingProvider") || undefined,
     }),
     [period, currencyParam, dateFrom, dateTo, params],
   );
@@ -142,6 +185,7 @@ function ReportsInner() {
   const [breakdowns, setBreakdowns] = useState<FinanceBreakdownsResponse["data"] | null>(null);
   const [payments, setPayments] = useState<FinancePaymentReportResponse["data"] | null>(null);
   const [discounts, setDiscounts] = useState<FinanceDiscountReportResponse["data"] | null>(null);
+  const [cancellations, setCancellations] = useState<CancellationReportResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -175,6 +219,9 @@ function ReportsInner() {
         } else if (tab === "indirim") {
           const d = await storeApi.getFinanceDiscounts({ ...query, currency: sum.data.currency });
           if (active) setDiscounts(d.data);
+        } else if (tab === "iptal") {
+          const cx = await storeApi.getCancellationReport({ ...query, currency: sum.data.currency });
+          if (active) setCancellations(cx.data);
         }
       } catch (err) {
         if (active) setError(messageForError(err));
@@ -228,9 +275,12 @@ function ReportsInner() {
         title="Raporlar"
         description="Sipariş kayıtlarından türetilen finansal özet, ürün, ödeme ve indirim raporları. Tüm tutarlar sipariş anındaki kayıtlardır."
         actions={
-          <Button variant="secondary" onClick={exportForTab}>
-            CSV indir
-          </Button>
+          // İptal raporunun CSV dışa aktarımı yoktur (yalnız görüntüleme).
+          tab === "iptal" ? null : (
+            <Button variant="secondary" onClick={exportForTab}>
+              CSV indir
+            </Button>
+          )
         }
       />
 
@@ -279,6 +329,53 @@ function ReportsInner() {
               onChange={(e) => setParam({ currency: e.target.value })}
             />
           </div>
+          {/* TODO-174 (ADR-275) — İptal raporu ek filtreleri (yalnız İptal sekmesinde). */}
+          {tab === "iptal" ? (
+            <>
+              <div className="w-44">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-white/35">Neden kategorisi</label>
+                <Select
+                  aria-label="Neden kategorisi"
+                  value={params.get("reasonCategory") ?? ""}
+                  options={CANCEL_REASON_CATEGORY_OPTIONS}
+                  onChange={(e) => setParam({ reasonCategory: e.target.value || undefined })}
+                />
+              </div>
+              <div className="w-52">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-white/35">Neden</label>
+                <Select
+                  aria-label="Neden"
+                  value={params.get("reasonCode") ?? ""}
+                  options={CANCEL_REASON_OPTIONS}
+                  onChange={(e) => setParam({ reasonCode: e.target.value || undefined })}
+                />
+              </div>
+              <div className="w-44">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-white/35">Ödeme yöntemi</label>
+                <Select
+                  aria-label="Ödeme yöntemi"
+                  value={params.get("paymentMethod") ?? ""}
+                  options={CANCEL_PAYMENT_METHOD_OPTIONS}
+                  onChange={(e) => setParam({ paymentMethod: e.target.value || undefined })}
+                />
+              </div>
+              <div className="w-44">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-white/35">Kargo sağlayıcı</label>
+                <Select
+                  aria-label="Kargo sağlayıcı"
+                  value={params.get("shippingProvider") ?? ""}
+                  options={[
+                    { value: "", label: "Tüm sağlayıcılar" },
+                    ...(cancellations?.shippingMethodBreakdown ?? []).map((r) => ({
+                      value: r.key,
+                      label: r.label,
+                    })),
+                  ]}
+                  onChange={(e) => setParam({ shippingProvider: e.target.value || undefined })}
+                />
+              </div>
+            </>
+          ) : null}
           {summary ? (
             <p className="ml-auto text-xs text-white/30">
               {summary.range.from} → {summary.range.to} · {summary.range.timezone}
@@ -318,6 +415,7 @@ function ReportsInner() {
           {tab === "kategori" ? <CategoryBrandTab data={breakdowns} currency={currency} loading={loading} /> : null}
           {tab === "odeme" ? <PaymentTab data={payments} currency={currency} loading={loading} /> : null}
           {tab === "indirim" ? <DiscountTab data={discounts} currency={currency} loading={loading} /> : null}
+          {tab === "iptal" ? <CancellationTab data={cancellations} currency={currency} loading={loading} /> : null}
         </>
       ) : null}
     </div>
@@ -591,6 +689,268 @@ function DiscountTab({ data, currency, loading }: { data: FinanceDiscountReportR
         <EmptyState title="Veri yok" description="Seçili dönemde indirim kullanımı yok." icon={<PaymentIcon />} />
       )}
     </TableCard>
+  );
+}
+
+/** Sağa-hizalı ölçüt yüzdesi (0 ondalık bölünürse tam sayı; aksi halde 1 ondalık). */
+function pct(value: number): string {
+  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`;
+}
+
+/**
+ * TODO-174 (ADR-275) — İptal raporu paneli (Store Admin; YALNIZ görüntüleme, taksonomi
+ * CRUD YOK). Sunucu-türevi: KPI + neden kategorisi/neden dağılımı + trend + ödeme/kargo
+ * kırılımı + kaynak dağılımı + en çok iptal edilen ürünler. Para minor-unit; her currency ayrı.
+ */
+function CancellationTab({
+  data,
+  currency,
+  loading,
+}: {
+  data: CancellationReportResponse["data"] | null;
+  currency: string;
+  loading: boolean;
+}) {
+  if (loading && !data) {
+    return (
+      <div className="flex justify-center py-10">
+        <Spinner label="İptal raporu hesaplanıyor…" />
+      </div>
+    );
+  }
+  if (!data) return null;
+  if (data.totals.cancellationCount === 0) {
+    return (
+      <SurfaceCard>
+        <div className="p-2">
+          <EmptyState
+            title="İptal yok"
+            description="Seçili dönem ve filtrelerde iptal edilen sipariş bulunmuyor."
+            icon={<PaymentIcon />}
+          />
+        </div>
+      </SurfaceCard>
+    );
+  }
+  const t = data.totals;
+  return (
+    <div className="space-y-5">
+      {/* KPI tile'ları */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <Kpi label="İptal sayısı" value={String(t.cancellationCount)} tip="Seçili dönemde iptal edilen sipariş adedi." />
+        <Kpi label="İptal oranı" value={pct(t.cancellationRatePct)} hint={`${t.cancellationCount}/${t.ordersInRangeCount} sipariş`} tip="İptal sayısı / dönemdeki toplam sipariş." />
+        <Kpi label="İptal edilen ciro" value={money(t.cancelledRevenueMinor, currency)} tip="İptal edilen siparişlerin toplam tutarı (sipariş anı snapshot)." />
+        <Kpi label="İade edilen ciro" value={money(t.refundedRevenueMinor, currency)} tip="İptal edilen siparişlerde gerçekleşen iade toplamı." />
+        <Kpi label="Teslimat kaynaklı oran" value={pct(t.deliveryRelatedRatePct)} hint={`${t.deliveryRelatedCount} iptal`} tip="Teslimat kategorisindeki iptallerin toplam iptallere oranı." />
+      </div>
+
+      {/* Neden kategorisi dağılımı */}
+      <SurfaceCard>
+        <div className="p-3">
+          <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">Neden kategorisi dağılımı</h3>
+          <div className="overflow-x-auto">
+            {data.reasonCategoryDistribution.length > 0 ? (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <Th>Kategori</Th>
+                    <Th right>Adet</Th>
+                    <Th right>Ciro</Th>
+                    <Th right>Pay</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.reasonCategoryDistribution.map((r, i) => (
+                    <tr key={`${r.category ?? "unknown"}-${i}`} className="border-b border-white/[0.04]">
+                      <Td>{cancelCategoryLabel(r.category)}</Td>
+                      <Td right>{r.count}</Td>
+                      <Td right>{money(r.revenueMinor, currency)}</Td>
+                      <Td right>{pct(r.sharePct)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+            )}
+          </div>
+        </div>
+      </SurfaceCard>
+
+      {/* Neden dağılımı */}
+      <SurfaceCard>
+        <div className="p-3">
+          <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">Neden dağılımı</h3>
+          <div className="overflow-x-auto">
+            {data.reasonDistribution.length > 0 ? (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <Th>Neden</Th>
+                    <Th>Kategori</Th>
+                    <Th right>Adet</Th>
+                    <Th right>Ciro</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.reasonDistribution.map((r, i) => (
+                    <tr key={`${r.code ?? "unknown"}-${i}`} className="border-b border-white/[0.04]">
+                      <Td>{cancelReasonText(r.code)}</Td>
+                      <Td>{cancelCategoryLabel(r.category)}</Td>
+                      <Td right>{r.count}</Td>
+                      <Td right>{money(r.revenueMinor, currency)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+            )}
+          </div>
+        </div>
+      </SurfaceCard>
+
+      {/* Günlük trend */}
+      <SurfaceCard>
+        <div className="p-3">
+          <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">Günlük iptal trendi</h3>
+          <div className="overflow-x-auto">
+            {data.trend.length > 0 ? (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <Th>Gün</Th>
+                    <Th right>İptal</Th>
+                    <Th right>Ciro</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.trend.map((r) => (
+                    <tr key={r.date} className="border-b border-white/[0.04]">
+                      <Td>{r.date}</Td>
+                      <Td right>{r.count}</Td>
+                      <Td right>{money(r.revenueMinor, currency)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+            )}
+          </div>
+        </div>
+      </SurfaceCard>
+
+      {/* Ödeme + kargo kırılımı */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DimensionBreakdownCard title="Ödeme yöntemi kırılımı" rows={data.paymentMethodBreakdown} currency={currency} />
+        <DimensionBreakdownCard title="Kargo yöntemi kırılımı" rows={data.shippingMethodBreakdown} currency={currency} />
+      </div>
+
+      {/* Kaynak dağılımı + en çok iptal edilen ürünler */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SurfaceCard>
+          <div className="p-3">
+            <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">Kaynak dağılımı</h3>
+            <div className="overflow-x-auto">
+              {data.sourceBreakdown.length > 0 ? (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <Th>Kaynak</Th>
+                      <Th right>Adet</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sourceBreakdown.map((r, i) => (
+                      <tr key={`${r.source ?? "unknown"}-${i}`} className="border-b border-white/[0.04]">
+                        <Td>{cancelSourceText(r.source)}</Td>
+                        <Td right>{r.count}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+              )}
+            </div>
+          </div>
+        </SurfaceCard>
+
+        <SurfaceCard>
+          <div className="p-3">
+            <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">En çok iptal edilen ürünler</h3>
+            <div className="overflow-x-auto">
+              {data.topProducts.length > 0 ? (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <Th>Ürün</Th>
+                      <Th right>İptal</Th>
+                      <Th right>Adet</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topProducts.map((r) => (
+                      <tr key={r.productId} className="border-b border-white/[0.04]">
+                        <Td>{r.title}</Td>
+                        <Td right>{r.count}</Td>
+                        <Td right>{r.quantity}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+              )}
+            </div>
+          </div>
+        </SurfaceCard>
+      </div>
+    </div>
+  );
+}
+
+/** İptal raporu boyut (ödeme/kargo) kırılım kartı — key/label/count/revenue. */
+function DimensionBreakdownCard({
+  title,
+  rows,
+  currency,
+}: {
+  title: string;
+  rows: CancellationReportResponse["data"]["paymentMethodBreakdown"];
+  currency: string;
+}) {
+  return (
+    <SurfaceCard>
+      <div className="p-3">
+        <h3 className="mb-2 px-1 text-sm font-semibold text-white/80">{title}</h3>
+        <div className="overflow-x-auto">
+          {rows.length > 0 ? (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <Th>{title}</Th>
+                  <Th right>Adet</Th>
+                  <Th right>Ciro</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key} className="border-b border-white/[0.04]">
+                    <Td>{r.label}</Td>
+                    <Td right>{r.count}</Td>
+                    <Td right>{money(r.revenueMinor, currency)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="px-1 py-6 text-sm text-white/40">Veri yok.</p>
+          )}
+        </div>
+      </div>
+    </SurfaceCard>
   );
 }
 

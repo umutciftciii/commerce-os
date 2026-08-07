@@ -18,6 +18,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
 import { prisma } from "@commerce-os/db";
 import type {
+  OrderStatus,
   Shipment,
   ShipmentEvent,
   ShipmentEventType,
@@ -578,6 +579,19 @@ export function registerShippingAdminRoutes(
    * "Gönderi Oluştur"u ayrıca gizler/pasifleştirir ama backend guard NİHAİ otoritedir.
    * Döner: uygunsa `true`; değilse yanıtı gönderip `false`.
    */
+  /**
+   * TODO-174 (ADR-275) — İptal edilmiş sipariş için gönderi OLUŞTURULAMAZ/İLERLETİLEMEZ. Self-servis iptal
+   * ile handoff yarışının create tarafındaki guard'ı (concurrency: "cancellation sonrası outbound shipment
+   * IN_TRANSIT yapılamamalı"). Döner: iptal edilmemişse true; edilmişse 409 gönderip false.
+   */
+  function ensureOrderNotCancelled(order: { status: OrderStatus }, reply: FastifyReply): boolean {
+    if (order.status !== "CANCELLED") return true;
+    reply
+      .code(409)
+      .send(errorBody("ORDER_CANCELLED", "Sipariş iptal edilmiş; gönderi oluşturulamaz."));
+    return false;
+  }
+
   function ensureOrderPaidForShipment(
     order: { paymentStatus: PaymentStatus },
     reply: FastifyReply,
@@ -674,6 +688,7 @@ export function registerShippingAdminRoutes(
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz (sağlayıcı çağrısı/Shipment YOK).
     if (!ensureOrderPaidForShipment(order, reply)) return;
+    if (!ensureOrderNotCancelled(order, reply)) return;
     const cfg = await loadConfig(params.storeId, input.providerConfigId);
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     try {
@@ -1070,6 +1085,7 @@ export function registerShippingAdminRoutes(
     // TODO-136 — Ödeme alınmadan gönderi oluşturulamaz: createRecipient/createOrder ÇAĞRILMAZ,
     // Shipment/ShipmentEvent OLUŞTURULMAZ (backend NİHAİ otorite).
     if (!ensureOrderPaidForShipment(order, reply)) return;
+    if (!ensureOrderNotCancelled(order, reply)) return;
 
     // Duplicate guard: aktif gonderi varsa TEKRAR createOrder cagirma.
     const existing = await findActiveShipment(params.storeId, order.id);
@@ -1187,6 +1203,7 @@ export function registerShippingAdminRoutes(
     if (!cfg) return reply.code(404).send(errorBody("SHIPPING_PROVIDER_NOT_FOUND", "Sağlayıcı bulunamadı."));
     // TODO-136 — Manuel taslak da olsa ödeme alınmadan gönderi kaydı OLUŞTURULMAZ.
     if (!ensureOrderPaidForShipment(order, reply)) return;
+    if (!ensureOrderNotCancelled(order, reply)) return;
 
     const existing = await findActiveShipment(params.storeId, order.id);
     if (existing) {
@@ -1627,8 +1644,17 @@ export function registerShippingAdminRoutes(
     const now = new Date();
     const markOrderFulfilled = input.status === "DELIVERED";
     const updated = await prisma.$transaction(async (tx) => {
-      const s = await tx.shipment.update({
-        where: { id: loaded.shipment.id },
+      // TODO-174 (ADR-275) — Concurrency: iptal edilmiş siparişin gönderisi İLERLETİLEMEZ (özellikle
+      // IN_TRANSIT). Sipariş durumunu tx İÇİNDE yeniden oku (self-servis iptal ile yarış); CANCELLED ise
+      // abort. Ayrıca update KOŞULLU (status=current): iptal bu satırı CANCELLED yaptıysa count=0 → conflict
+      // (yarışta yalnız biri kazanır; stale-overwrite yok).
+      const guardOrder = await tx.order.findFirst({
+        where: { id: loaded.shipment.orderId, storeId: params.storeId },
+        select: { status: true },
+      });
+      if (guardOrder?.status === "CANCELLED") return "ORDER_CANCELLED" as const;
+      const bumped = await tx.shipment.updateMany({
+        where: { id: loaded.shipment.id, storeId: params.storeId, status: current },
         data: {
           status: input.status,
           // TODO-169 (ADR-269) — İade penceresi ankoru: DELIVERED geçişinde stabil teslim tarihi.
@@ -1636,6 +1662,8 @@ export function registerShippingAdminRoutes(
           ...(input.status === "DELIVERED" && !loaded.shipment.deliveredAt ? { deliveredAt: now } : {}),
         },
       });
+      if (bumped.count === 0) return "CONFLICT" as const;
+      const s = await tx.shipment.findUniqueOrThrow({ where: { id: loaded.shipment.id } });
       await tx.shipmentEvent.create({
         data: {
           storeId: params.storeId,
@@ -1674,6 +1702,17 @@ export function registerShippingAdminRoutes(
       }
       return s;
     });
+
+    if (updated === "ORDER_CANCELLED") {
+      return reply
+        .code(409)
+        .send(errorBody("ORDER_CANCELLED", "Sipariş iptal edilmiş; gönderi durumu değiştirilemez."));
+    }
+    if (updated === "CONFLICT") {
+      return reply
+        .code(409)
+        .send(errorBody("SHIPMENT_STATUS_CONFLICT", "Gönderi durumu eşzamanlı olarak değişti; tekrar deneyin."));
+    }
 
     await deps.recordAudit({
       action: "UPDATE",

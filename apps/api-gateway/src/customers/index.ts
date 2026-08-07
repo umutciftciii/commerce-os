@@ -35,6 +35,10 @@ import { buildProductCoverUrlMap, type ListProductImagesFn } from "../media/cove
 // TODO-169 (blocker #5/#6/#8) — ORTAK iade özeti projeksiyonu (sipariş listesi/detayı aynı otoriteyi kullanır).
 import { computeReturnOrderSummaries } from "../returns/projection.js";
 import { resolveStoreReturnPolicy } from "../returns/service.js";
+// TODO-174 (ADR-275) — Customer self-service order cancellation projeksiyonu + servisi.
+import { computeCancellationOrderSummaries } from "../orders/cancellation/projection.js";
+import { cancelCustomerOrder, type CancelOrderErrorCode } from "../orders/cancellation/service.js";
+import { createRefundProviderPort } from "../refunds/mock-refund.js";
 import type {
   BillingType,
   CustomerCredentialTokenPurpose,
@@ -59,7 +63,11 @@ import {
   customerSessionExtendResponseSchema,
   customerOrderListResponseSchema,
   customerOrderDetailResponseSchema,
+  customerOrderCancelRequestSchema,
+  customerOrderCancelResponseSchema,
+  customerOrderCancelEligibilityResponseSchema,
   type ReturnOrderSummary,
+  type CancellationOrderSummary,
   pickOrderShipmentStatus,
   customerOtpChallengeResponseSchema,
   customerOtpVerifyRequestSchema,
@@ -1365,6 +1373,8 @@ function serializeCustomerOrderSummary(
   coverUrlByProductId: Map<string, string>,
   // TODO-169 (blocker #5) — ORTAK iade özeti (server-authoritative); iade yoksa null.
   returnSummary: ReturnOrderSummary | null = null,
+  // TODO-174 (ADR-275) — iptal uygunluğu özeti (CTA/mesaj kararı); yoksa null.
+  cancellationSummary: CancellationOrderSummary | null = null,
 ) {
   return {
     orderNumber: order.orderNumber,
@@ -1392,6 +1402,8 @@ function serializeCustomerOrderSummary(
     shipmentStatus: order.shipmentStatus,
     // TODO-169 — Teslim rozetini DEĞİŞTİRMEZ; iade durumunu AYRI taşır.
     returnSummary,
+    // TODO-174 — iptal uygunluğu/provenance (CTA/mesaj); AYRI taşınır.
+    cancellationSummary,
   };
 }
 
@@ -1406,6 +1418,8 @@ function serializeCustomerOrderDetail(
   coverUrlByProductId: Map<string, string>,
   // TODO-169 (blocker #6/#7) — ORTAK iade özeti; iade yoksa null.
   returnSummary: ReturnOrderSummary | null = null,
+  // TODO-174 (ADR-275) — iptal uygunluğu/provenance özeti; yoksa null.
+  cancellationSummary: CancellationOrderSummary | null = null,
 ) {
   const shipping = order.addresses.find((address) => address.type === "SHIPPING") ?? null;
   let billing: {
@@ -1518,6 +1532,8 @@ function serializeCustomerOrderDetail(
         : null,
     // TODO-169 — Teslimat/finansal orijinal özeti DEĞİŞTİRMEZ; iade etkisini AYRI taşır.
     returnSummary,
+    // TODO-174 — iptal uygunluğu/provenance (CTA/mesaj); AYRI taşınır.
+    cancellationSummary,
   };
 }
 
@@ -2378,12 +2394,19 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
       customer.id,
       orders.map((o) => o.orderNumber),
     );
+    // TODO-174 (ADR-275) — iptal uygunluğu özeti (batched, fail-open); CTA/mesaj kararının tek otoritesi.
+    const cancellationByOrderNumber = await buildOrderCancellationSummaries(
+      store.id,
+      customer.id,
+      orders.map((o) => o.orderNumber),
+    );
     return customerOrderListResponseSchema.parse({
       data: orders.map((order) =>
         serializeCustomerOrderSummary(
           order,
           coverUrlByProductId,
           returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
+          cancellationByOrderNumber.get(order.orderNumber) ?? null,
         ),
       ),
     });
@@ -2411,12 +2434,87 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     const returnSummaryByOrderNumber = await buildOrderReturnSummaries(store.id, customer.id, [
       order.orderNumber,
     ]);
+    // TODO-174 (ADR-275) — iptal uygunluğu/provenance özeti (fail-open).
+    const cancellationByOrderNumber = await buildOrderCancellationSummaries(store.id, customer.id, [
+      order.orderNumber,
+    ]);
     return customerOrderDetailResponseSchema.parse({
       order: serializeCustomerOrderDetail(
         order,
         coverUrlByProductId,
         returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
+        cancellationByOrderNumber.get(order.orderNumber) ?? null,
       ),
+    });
+  });
+
+  // --- TODO-174 (ADR-275) Self-service order cancellation --------------------
+  // GET iptal uygunluğu (dedicated) — return-eligibility deseni; modal öncesi + CTA doğrulama.
+  app.get("/public/stores/:storeSlug/customer/orders/:orderNumber/cancel-eligibility", async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const { orderNumber } = request.params as { orderNumber: string };
+    const map = await buildOrderCancellationSummaries(store.id, customer.id, [orderNumber]);
+    const eligibility = map.get(orderNumber);
+    if (!eligibility) {
+      // Sipariş yok/başka müşteri → 404 (enumeration sızıntısı yok).
+      const exists = await prisma.order.findFirst({
+        where: { storeId: store.id, customerId: customer.id, orderNumber },
+        select: { id: true },
+      });
+      if (!exists) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    }
+    return customerOrderCancelEligibilityResponseSchema.parse({
+      eligibility: eligibility ?? null,
+    });
+  });
+
+  // POST iptal — 2 adımlı modal onayının server tarafı. Refund tutarı client'tan KABUL EDİLMEZ.
+  app.post("/public/stores/:storeSlug/customer/orders/:orderNumber/cancel", async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const { orderNumber } = request.params as { orderNumber: string };
+    const input = customerOrderCancelRequestSchema.parse(request.body);
+    const result = await cancelCustomerOrder(
+      {
+        storeId: store.id,
+        customerId: customer.id,
+        orderNumber,
+        reasonCode: input.reasonCode,
+        reasonNote: input.reasonNote ?? null,
+        expectedVersion: input.expectedVersion,
+      },
+      { providerPort: cancellationRefundProviderPort },
+    );
+    if (!result.ok) {
+      return reply
+        .code(cancelErrorStatus(result.code))
+        .send(errorBody(result.code, cancelErrorMessage(result.code)));
+    }
+    // Güncel detay + iptal özeti (refund AYRI durum; yanıltıcı "iade tamamlandı" gösterme).
+    const order = await customers.getOrderDetail(store.id, customer.id, orderNumber);
+    if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
+    const coverUrlByProductId = await buildProductCoverUrlMap(
+      listProductImages,
+      config.MEDIA_PUBLIC_BASE_URL,
+      store.id,
+      order.lines.map((line) => line.productId),
+    );
+    const returnSummaryByOrderNumber = await buildOrderReturnSummaries(store.id, customer.id, [orderNumber]);
+    const cancellationByOrderNumber = await buildOrderCancellationSummaries(store.id, customer.id, [orderNumber]);
+    const cancellation = cancellationByOrderNumber.get(orderNumber);
+    return customerOrderCancelResponseSchema.parse({
+      order: serializeCustomerOrderDetail(
+        order,
+        coverUrlByProductId,
+        returnSummaryByOrderNumber.get(orderNumber) ?? null,
+        cancellation ?? null,
+      ),
+      cancellation,
     });
   });
 }
@@ -2457,6 +2555,104 @@ async function buildOrderReturnSummaries(
     return new Map();
   }
   return byOrderNumber;
+}
+
+// TODO-174 (ADR-275/276) — İptal refund'u için provider port (routes-admin deseni; MOCK bu fazda gerçek).
+const cancellationRefundProviderPort = createRefundProviderPort();
+
+/**
+ * TODO-174 (ADR-275) — verilen (customer-scoped) sipariş numaraları için ORTAK iptal uygunluğu özeti.
+ * buildOrderReturnSummaries deseni: customer+store scoped çöz, batched projeksiyon, FAIL-OPEN (özet
+ * sipariş görünümünü 500'e düşürmemeli). Dönüş: orderNumber → CancellationOrderSummary.
+ */
+async function buildOrderCancellationSummaries(
+  storeId: string,
+  customerId: string,
+  orderNumbers: string[],
+): Promise<Map<string, CancellationOrderSummary>> {
+  const byOrderNumber = new Map<string, CancellationOrderSummary>();
+  if (orderNumbers.length === 0) return byOrderNumber;
+  try {
+    const orders = await prisma.order.findMany({
+      where: { storeId, customerId, orderNumber: { in: orderNumbers } },
+      select: {
+        id: true,
+        orderNumber: true,
+        currency: true,
+        status: true,
+        version: true,
+        cancelSource: true,
+        cancelledAt: true,
+        cancelReasonCode: true,
+        cancelReasonCategory: true,
+        cancelReasonNote: true,
+      },
+    });
+    if (orders.length === 0) return byOrderNumber;
+    const byId = await computeCancellationOrderSummaries(
+      prisma,
+      storeId,
+      orders.map((o) => ({
+        id: o.id,
+        currency: o.currency,
+        status: o.status,
+        version: o.version,
+        cancelSource: o.cancelSource,
+        cancelledAt: o.cancelledAt,
+        cancelReasonCode: o.cancelReasonCode,
+        cancelReasonCategory: o.cancelReasonCategory,
+        cancelReasonNote: o.cancelReasonNote,
+      })),
+      new Date(),
+    );
+    for (const o of orders) {
+      const summary = byId.get(o.id);
+      if (summary) byOrderNumber.set(o.orderNumber, summary);
+    }
+  } catch {
+    return new Map();
+  }
+  return byOrderNumber;
+}
+
+/** İptal servis hata kodu → HTTP durum. */
+function cancelErrorStatus(code: CancelOrderErrorCode): number {
+  switch (code) {
+    case "ORDER_NOT_FOUND":
+      return 404;
+    case "INVALID_REASON":
+    case "NOTE_REQUIRED":
+      return 400;
+    case "NOT_CANCELLABLE":
+    case "BLOCKED_IN_TRANSIT":
+    case "BLOCKED_DELIVERED":
+    case "CANCEL_CONFLICT":
+      return 409;
+    default:
+      return 409;
+  }
+}
+
+/** İptal servis hata kodu → müşteri-facing TR mesaj. */
+function cancelErrorMessage(code: CancelOrderErrorCode): string {
+  switch (code) {
+    case "ORDER_NOT_FOUND":
+      return "Sipariş bulunamadı.";
+    case "INVALID_REASON":
+      return "Geçersiz iptal nedeni.";
+    case "NOTE_REQUIRED":
+      return "Bu neden için açıklama zorunludur.";
+    case "BLOCKED_IN_TRANSIT":
+      return "Siparişiniz kargoya verildiği için artık doğrudan iptal edilemiyor.";
+    case "BLOCKED_DELIVERED":
+      return "Siparişiniz teslim edildiği için iade talebi oluşturmanız gerekir.";
+    case "NOT_CANCELLABLE":
+      return "Bu sipariş iptal edilemez.";
+    case "CANCEL_CONFLICT":
+      return "Sipariş durumu değişti; lütfen sayfayı yenileyip tekrar deneyin.";
+    default:
+      return "Sipariş iptal edilemedi.";
+  }
 }
 
 /* ── Store-admin müşteri yönetimi (F3B.3) ─────────────────────────────────────
