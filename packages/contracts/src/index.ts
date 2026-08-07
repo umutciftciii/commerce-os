@@ -1759,6 +1759,11 @@ export const storeSettingsSchema = z.object({
   fastRefundEnabled: z.boolean(),
   fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable(),
   fastRefundCurrency: z.string().nullable(),
+  // TODO-174B (ADR-281) — Goodwill / Store Credit compensation policy (additive). null =
+  // maxGoodwillCreditPerActionMinor: özellik KAPALI (normal operatör kredi VEREMEZ; SUPER_ADMIN override).
+  // Değer = aksiyon başına üst sınır (KANONİK STRING). currency null = mağaza para biriminde.
+  maxGoodwillCreditPerActionMinor: canonicalMinorAmountString.nullable(),
+  goodwillCreditCurrency: z.string().nullable(),
 });
 
 // null = bagi kaldir (FK NULL); absent = dokunma; string = bagla/degistir. Tenant +
@@ -1780,10 +1785,86 @@ export const storeSettingsUpdateRequestSchema = z
     fastRefundEnabled: z.boolean().optional(),
     fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable().optional(),
     fastRefundCurrency: z.string().min(3).max(3).nullable().optional(),
+    // TODO-174B (ADR-281) — Goodwill policy (additive; absent=dokunma). null = özelliği kapat.
+    // Bu alanlar yalnız SUPER_ADMIN düzenler (route-seviyesi guard, fast-refund deseni).
+    maxGoodwillCreditPerActionMinor: canonicalMinorAmountString.nullable().optional(),
+    goodwillCreditCurrency: z.string().min(3).max(3).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   });
+
+// ============================================================================
+// TODO-174B (ADR-281/282/284) — Customer Shopping Balance / Store Credit contracts.
+// ============================================================================
+
+/** Grant expiry süresi (gün) — yalnız 30/60/120/180 (ADR-284, maks 180). */
+export const creditExpiryDaysSchema = z.union([
+  z.literal(30),
+  z.literal(60),
+  z.literal(120),
+  z.literal(180),
+]);
+
+export const creditLedgerTypeSchema = z.enum([
+  "ADMIN_GOODWILL_CREDIT",
+  "RECOVERY_GOODWILL_CREDIT",
+  "ORDER_PAYMENT_DEBIT",
+  "ORDER_CANCELLATION_RESTORE",
+  "REFUND_RESTORE",
+  "ADMIN_ADJUSTMENT_CREDIT",
+  "ADMIN_ADJUSTMENT_DEBIT",
+  "EXPIRE",
+]);
+
+export const creditDirectionSchema = z.enum(["CREDIT", "DEBIT"]);
+
+/** Pozitif kanonik minor (0 reddedilir) — kredi tutarı. */
+export const positiveMinorAmountString = canonicalMinorAmountString.refine((s) => s !== "0", {
+  message: "Amount must be positive.",
+});
+
+/** Admin/recovery goodwill kredi verme isteği. */
+export const adminIssueCreditRequestSchema = z.object({
+  amountMinor: positiveMinorAmountString,
+  expiryDays: creditExpiryDaysSchema,
+  // Yapısal neden etiketi (storefront'a sızmaz; audit + admin). Serbest metin değil, kısa etiket.
+  reason: z.string().min(1).max(80),
+  internalNote: z.string().max(500).optional(),
+  // Opsiyonel: recovery case'e bağla (bağlıysa idempotency case-bazlı; duplicate credit engeli).
+  recoveryCaseId: z.string().min(1).max(64).optional(),
+  // Sayfa refresh / çift-submit koruması (client modal-open başına üretir).
+  idempotencyKey: z.string().min(8).max(200),
+});
+
+/**
+ * Tek ledger hareketi (admin + storefront ortak). `description` bir SEMANTİK KEY'dir (ör. "credit.goodwill",
+ * "credit.orderPayment") — client TR/EN lokalize eder; RAW ENUM/internal note ASLA taşınmaz. `orderNumber`
+ * sipariş ilişkili hareketlerde insan-okur numara (OS-000123) — client copy'de interpolate eder.
+ */
+export const creditLedgerEntrySchema = z.object({
+  id: z.string().min(1),
+  type: creditLedgerTypeSchema,
+  direction: creditDirectionSchema,
+  amountMinor: canonicalMinorAmountString,
+  balanceAfterMinor: canonicalMinorAmountString,
+  currency: z.string(),
+  description: z.string(),
+  orderId: z.string().nullable(),
+  orderNumber: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** Müşteri bakiyesi + hareket geçmişi (admin + storefront). */
+export const customerCreditBalanceResponseSchema = z.object({
+  currency: z.string(),
+  availableMinor: canonicalMinorAmountString,
+  entries: z.array(creditLedgerEntrySchema),
+});
+
+export type AdminIssueCreditRequest = z.infer<typeof adminIssueCreditRequestSchema>;
+export type CreditLedgerEntryDto = z.infer<typeof creditLedgerEntrySchema>;
+export type CustomerCreditBalanceResponse = z.infer<typeof customerCreditBalanceResponseSchema>;
 
 // ADR-065 (Faz 2/Dilim 5) — Yayin durumu (hero slide gibi vitrin icerikleri).
 // DRAFT admin'de gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.

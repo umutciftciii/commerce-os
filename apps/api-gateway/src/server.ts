@@ -214,6 +214,7 @@ import {
 import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
 import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
+import { registerCustomerCreditAdminRoutes } from "./customer-credit/routes.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
@@ -562,6 +563,9 @@ type StoreSettingsRecord = {
   fastRefundEnabled: boolean;
   fastRefundMaxAmountMinor: bigint | null;
   fastRefundCurrency: string | null;
+  // TODO-174B (ADR-281) — Goodwill / Store Credit policy (limit BigInt; serileştirmede kanonik string).
+  maxGoodwillCreditPerActionMinor: bigint | null;
+  goodwillCreditCurrency: string | null;
 };
 type ProductRecord = Pick<
   Product,
@@ -1166,6 +1170,10 @@ export interface AppDataAccess extends CampaignDataAccess {
       fastRefundEnabled?: boolean;
       fastRefundMaxAmountMinor?: string | null;
       fastRefundCurrency?: string | null;
+      // TODO-174B (ADR-281) — Goodwill / Store Credit policy (absent=dokunma; null=kapat). Limit KANONİK
+      // ONDALIK STRING; server parseMinorString ile BigInt'e doğrular.
+      maxGoodwillCreditPerActionMinor?: string | null;
+      goodwillCreditCurrency?: string | null;
     },
   ): Promise<StoreSettingsRecord>;
   // TODO-163 (ADR-208…ADR-210) — Tenant Module & Capability persistence (sparse override + plan default).
@@ -1890,6 +1898,12 @@ function serializeStoreSettings(
     fastRefundMaxAmountMinor:
       row?.fastRefundMaxAmountMinor == null ? null : minorToCanonicalString(row.fastRefundMaxAmountMinor),
     fastRefundCurrency: row?.fastRefundCurrency ?? null,
+    // TODO-174B (ADR-281) — Goodwill policy (satır yoksa null = özellik kapalı). BigInt → kanonik string.
+    maxGoodwillCreditPerActionMinor:
+      row?.maxGoodwillCreditPerActionMinor == null
+        ? null
+        : minorToCanonicalString(row.maxGoodwillCreditPerActionMinor),
+    goodwillCreditCurrency: row?.goodwillCreditCurrency ?? null,
   });
 }
 
@@ -2956,6 +2970,9 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
     fastRefundEnabled: true,
     fastRefundMaxAmountMinor: true,
     fastRefundCurrency: true,
+    // TODO-174B (ADR-281) — Goodwill / Store Credit policy.
+    maxGoodwillCreditPerActionMinor: true,
+    goodwillCreditCurrency: true,
   } satisfies Prisma.StoreSettingsSelect;
   const productSelect = {
     id: true,
@@ -3626,6 +3643,11 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             ? { fastRefundMaxAmountMinor: input.fastRefundMaxAmountMinor === null ? null : parseMinorString(input.fastRefundMaxAmountMinor) }
             : {}),
           ...(input.fastRefundCurrency !== undefined ? { fastRefundCurrency: input.fastRefundCurrency } : {}),
+          // TODO-174B — Goodwill policy (null=kapalı; number → BigInt).
+          ...(input.maxGoodwillCreditPerActionMinor !== undefined
+            ? { maxGoodwillCreditPerActionMinor: input.maxGoodwillCreditPerActionMinor === null ? null : parseMinorString(input.maxGoodwillCreditPerActionMinor) }
+            : {}),
+          ...(input.goodwillCreditCurrency !== undefined ? { goodwillCreditCurrency: input.goodwillCreditCurrency } : {}),
         },
         // Guncelleme: absent=dokunma, null=temizle. Yalniz gonderilen anahtarlari yaz
         // (bir alani set ederken digerinin korunmasi bu spread'e bagli — KRITIK).
@@ -3643,6 +3665,11 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             ? { fastRefundMaxAmountMinor: input.fastRefundMaxAmountMinor === null ? null : parseMinorString(input.fastRefundMaxAmountMinor) }
             : {}),
           ...(input.fastRefundCurrency !== undefined ? { fastRefundCurrency: input.fastRefundCurrency } : {}),
+          // TODO-174B — Goodwill policy (absent=dokunma; null=kapat; number → BigInt).
+          ...(input.maxGoodwillCreditPerActionMinor !== undefined
+            ? { maxGoodwillCreditPerActionMinor: input.maxGoodwillCreditPerActionMinor === null ? null : parseMinorString(input.maxGoodwillCreditPerActionMinor) }
+            : {}),
+          ...(input.goodwillCreditCurrency !== undefined ? { goodwillCreditCurrency: input.goodwillCreditCurrency } : {}),
         },
         select: storeSettingsSelect,
       }),
@@ -7688,6 +7715,18 @@ export function createServer(
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
+  // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit: store-admin bakiye görüntüle +
+  // goodwill kredi tanımla (policy-gated; SUPER_ADMIN limiti aşabilir). Store-scoped; cross-store 404.
+  registerCustomerCreditAdminRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access
+        ? { actorUserId: access.session.platformUser.id, isSuperAdmin: access.session.platformUser.role === "SUPER_ADMIN" }
+        : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
   // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
   registerPendingWorkRoutes(app, {
     requireStoreAdmin: async (request, reply, storeId) => {
@@ -9250,6 +9289,14 @@ export function createServer(
       input.fastRefundCurrency !== undefined;
     if (touchesFastRefund && access.session.platformUser.role !== "SUPER_ADMIN") {
       await reply.code(403).send(errorBody("FORBIDDEN", "Hızlı iade ayarları için yetki yetersiz."));
+      return;
+    }
+    // TODO-174B (ADR-281) — Goodwill / Store Credit policy güçlü yetki (fast-refund deseniyle birebir):
+    // compensation limitini yalnız SUPER_ADMIN belirler (client'a kör güven yok; backend-enforced).
+    const touchesGoodwill =
+      input.maxGoodwillCreditPerActionMinor !== undefined || input.goodwillCreditCurrency !== undefined;
+    if (touchesGoodwill && access.session.platformUser.role !== "SUPER_ADMIN") {
+      await reply.code(403).send(errorBody("FORBIDDEN", "Alışveriş bakiyesi politikası için yetki yetersiz."));
       return;
     }
     // R3: her media alani icin AYRI BRANDING dogrulamasi (cross-tenant/yanlis-context
