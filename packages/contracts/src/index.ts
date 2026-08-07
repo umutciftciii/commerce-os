@@ -1988,9 +1988,12 @@ export const recoveryActionRequestSchema = z.object({
 export const manualOpenCaseRequestSchema = z.object({ reviewId: z.string().min(1) });
 
 export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
+export type ExperienceListRow = z.infer<typeof experienceListRowSchema>;
 export type ExperienceKpiDto = z.infer<typeof experienceKpiSchema>;
 export type RecoveryCaseDetailDto = z.infer<typeof recoveryCaseDetailSchema>;
+export type RecoveryActivityDto = z.infer<typeof recoveryActivitySchema>;
 export type RecoveryActionRequest = z.infer<typeof recoveryActionRequestSchema>;
+export type ManualOpenCaseRequest = z.infer<typeof manualOpenCaseRequestSchema>;
 
 // ADR-065 (Faz 2/Dilim 5) — Yayin durumu (hero slide gibi vitrin icerikleri).
 // DRAFT admin'de gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.

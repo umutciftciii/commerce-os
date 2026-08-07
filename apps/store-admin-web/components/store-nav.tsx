@@ -170,6 +170,13 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
         },
         { href: "/customers", label: t.customers, icon: <CustomerIcon /> },
         { href: "/reviews", label: t.reviews, icon: <ReviewIcon /> },
+        {
+          // TODO-174B (ADR-283) — Müşteri Deneyimi > Sipariş Deneyimi (ProductReview'dan AYRIK;
+          // yerel locale etiket, paylaşılan i18n'e dokunulmaz — İadeler deseni).
+          href: "/order-experience",
+          label: locale === "tr" ? "Sipariş Deneyimi" : "Order Experience",
+          icon: <ReviewIcon />,
+        },
         { href: "/payment-providers", label: t.paymentProviders, icon: <PaymentIcon /> },
         { href: "/shipping/shipments", label: t.shipments, icon: <ShippingIcon /> },
         { href: "/shipping/providers", label: t.shippingProviders, icon: <ShippingIcon /> },

@@ -40,6 +40,14 @@ import type {
   AdminRefundVersionActionRequest,
   AdminCancelRefundRequest,
   PendingWorkSummary,
+  // TODO-174B — Store Credit + Order Experience Recovery.
+  ExperienceListResponse,
+  ExperienceKpiDto,
+  RecoveryCaseDetailDto,
+  RecoveryActionRequest,
+  ManualOpenCaseRequest,
+  AdminIssueCreditRequest,
+  CustomerCreditBalanceResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -379,6 +387,17 @@ export type {
   AdminStoreCreateRequest,
   AdminStoreListResponse,
   AdminStoreUpdateRequest,
+  // TODO-174B — Order Experience Recovery + Store Credit (consumer'lara re-export).
+  ExperienceListResponse,
+  ExperienceListRow,
+  ExperienceKpiDto,
+  RecoveryCaseDetailDto,
+  RecoveryActivityDto,
+  RecoveryActionRequest,
+  ManualOpenCaseRequest,
+  AdminIssueCreditRequest,
+  CreditLedgerEntryDto,
+  CustomerCreditBalanceResponse,
   // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management.
   StoreModuleState,
   StoreModuleMatrixEntry,
@@ -2327,6 +2346,33 @@ export interface ApiClient {
         token?: string,
       ): Promise<AdminRefundResponse>;
     };
+    // TODO-174B (ADR-283) — Order Experience Recovery Operations.
+    orderExperience: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<ExperienceListResponse>;
+      kpi(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<ExperienceKpiDto>;
+      caseDetail(storeId: string, caseId: string, token?: string): Promise<RecoveryCaseDetailDto>;
+      action(storeId: string, caseId: string, input: RecoveryActionRequest, token?: string): Promise<RecoveryCaseDetailDto>;
+      openManual(storeId: string, input: ManualOpenCaseRequest, token?: string): Promise<RecoveryCaseDetailDto>;
+    };
+    // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
+    customerCredit: {
+      balance(
+        storeId: string,
+        customerId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<CustomerCreditBalanceResponse>;
+      issue(
+        storeId: string,
+        customerId: string,
+        input: AdminIssueCreditRequest,
+        token?: string,
+      ): Promise<CustomerCreditBalanceResponse>;
+    };
     // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
     pendingWork: {
       get(storeId: string, token?: string): Promise<PendingWorkSummary>;
@@ -4091,6 +4137,34 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           ),
         cancel: (storeId, refundId, input, token) =>
           sendJson<AdminRefundResponse>(`/stores/${storeId}/refunds/${refundId}/cancel`, "POST", input, token),
+      },
+      // TODO-174B (ADR-283) — Order Experience Recovery Operations.
+      orderExperience: {
+        list: (storeId, token, query) =>
+          getJson<ExperienceListResponse>(`/stores/${storeId}/order-experience${buildQueryString(query)}`, token),
+        kpi: (storeId, token, query) =>
+          getJson<ExperienceKpiDto>(`/stores/${storeId}/order-experience/kpi${buildQueryString(query)}`, token),
+        caseDetail: (storeId, caseId, token) =>
+          getJson<RecoveryCaseDetailDto>(`/stores/${storeId}/order-experience/cases/${caseId}`, token),
+        action: (storeId, caseId, input, token) =>
+          sendJson<RecoveryCaseDetailDto>(`/stores/${storeId}/order-experience/cases/${caseId}/actions`, "POST", input, token),
+        openManual: (storeId, input, token) =>
+          sendJson<RecoveryCaseDetailDto>(`/stores/${storeId}/order-experience/cases`, "POST", input, token),
+      },
+      // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
+      customerCredit: {
+        balance: (storeId, customerId, token, query) =>
+          getJson<CustomerCreditBalanceResponse>(
+            `/stores/${storeId}/customers/${customerId}/credit${buildQueryString(query)}`,
+            token,
+          ),
+        issue: (storeId, customerId, input, token) =>
+          sendJson<CustomerCreditBalanceResponse>(
+            `/stores/${storeId}/customers/${customerId}/credit`,
+            "POST",
+            input,
+            token,
+          ),
       },
       pendingWork: {
         get: (storeId, token) =>
