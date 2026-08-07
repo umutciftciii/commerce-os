@@ -1122,6 +1122,24 @@ export const enStorefront: StorefrontDictionary = {
         writeItem: "Review",
         viewReview: "View your review",
       },
+      // TODO-174A (ADR-279) — Order EXPERIENCE review (cancelled, undelivered order). NOT a product
+      // review — carries no "I used the product" meaning; never affects product ratings.
+      experience: {
+        cta: "Rate your order experience",
+        submittedCta: "You rated your experience",
+        panelTitle: "Rate your order experience",
+        panelHelp: "Tell us about the experience of the order you cancelled (this is not a product review).",
+        ratingLabel: "Your rating",
+        commentLabel: "Your comment (optional)",
+        commentPlaceholder: "Briefly describe your experience",
+        submit: "Submit",
+        submitting: "Submitting…",
+        cancel: "Cancel",
+        ratingRequired: "Please select a rating.",
+        successTitle: "Thank you",
+        successBody: "Your order experience feedback has been received.",
+        error: "Could not submit, please try again.",
+      },
       detail: {
         backToList: "Back to my orders",
         summary: "Order summary",
@@ -1225,10 +1243,29 @@ export const enStorefront: StorefrontDictionary = {
     returns: {
       menuTitle: "My returns",
       listTitle: "My returns",
-      listSubtitle: "View and track your return requests.",
-      listEmpty: "You have no return requests yet.",
-      listEmptyDescription: "You can track your return requests here. To return an item, browse your orders.",
+      listSubtitle: "View and track your return requests and order-cancellation refunds.",
+      listEmpty: "You have no returns or refunds yet.",
+      listEmptyDescription: "You can track your return requests and order-cancellation refunds here. To return an item, browse your orders.",
       listEmptyCta: "Go to my orders",
+      // TODO-174A — Unified "My returns": order-cancellation refund card (NOT a separate ReturnRequest).
+      refunds: {
+        cancellationTitle: "Order cancellation refund",
+        orderRef: "Order",
+        amountLabel: "Refund amount",
+        reasonLabel: "Cancellation reason",
+        methodLabel: "Refund method",
+        createdAt: "Cancelled on",
+        completedAt: "Completed on",
+        statusValues: {
+          NONE: "No refund was created for this order",
+          PENDING: "Refund in progress",
+          PROCESSING: "Refund in progress",
+          SUCCEEDED: "Refund completed",
+          FAILED: "Refund could not be completed",
+        },
+        failedSupport:
+          "Your refund could not be completed. Our team is reviewing it and will contact you shortly.",
+      },
       reference: "Return no.",
       orderRef: "Order",
       createdAt: "Requested on",
@@ -1545,6 +1582,7 @@ export const enStorefront: StorefrontDictionary = {
       cancelled: {
         title: "Order cancelled",
         reasonLabel: "Cancellation reason",
+        noteLabel: "Note",
         refundStatusLabel: "Refund status",
         cancelledAt: "Cancellation date",
       },

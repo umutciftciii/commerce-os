@@ -12,7 +12,7 @@ import type {
   CustomerReturnCreateRequest,
   CustomerReturnDetail,
   CustomerReturnEligibility,
-  CustomerReturnSummary,
+  CustomerRefundVisibilityItem,
   CustomerReturnTrackingRequest,
 } from "@commerce-os/contracts";
 import { customerBasePath } from "./customer";
@@ -40,11 +40,17 @@ export async function getReturnEligibility(
   return result.ok ? result.data.eligibility : null;
 }
 
-/** Müşterinin iade talepleri (yalnız kendi). Oturum yok/hata → boş liste. */
-export async function listReturns(): Promise<CustomerReturnSummary[]> {
+/**
+ * Müşterinin BİRLEŞİK "İadelerim" listesi (yalnız kendi): iade talepleri + sipariş iptali geri
+ * ödemeleri (TODO-174A). Her satır `source` ile etiketli. Oturum yok/hata → boş liste.
+ */
+export async function listReturns(): Promise<CustomerRefundVisibilityItem[]> {
   const token = await readCustomerToken();
   if (!token) return [];
-  const result = await getCustomer<{ data: CustomerReturnSummary[] }>(returnsBasePath(), token);
+  const result = await getCustomer<{ data: CustomerRefundVisibilityItem[] }>(
+    returnsBasePath(),
+    token,
+  );
   return result.ok ? result.data.data : [];
 }
 

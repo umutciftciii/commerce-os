@@ -1159,6 +1159,24 @@ export const trStorefront = {
         writeItem: "Değerlendir",
         viewReview: "Değerlendirmeni görüntüle",
       },
+      // TODO-174A (ADR-279) — Sipariş DENEYİMİ değerlendirmesi (iptal edilmiş, teslim edilmemiş
+      // sipariş). ÜRÜN yorumu DEĞİL — "ürünü kullandım" anlamı üretmez; ürün puanına yansımaz.
+      experience: {
+        cta: "Sipariş deneyimini değerlendir",
+        submittedCta: "Deneyimini değerlendirdin",
+        panelTitle: "Sipariş deneyimini değerlendir",
+        panelHelp: "İptal ettiğiniz siparişin deneyimini bizimle paylaşın (ürün değerlendirmesi değildir).",
+        ratingLabel: "Puanınız",
+        commentLabel: "Yorumunuz (opsiyonel)",
+        commentPlaceholder: "Deneyiminizi kısaca anlatın",
+        submit: "Gönder",
+        submitting: "Gönderiliyor…",
+        cancel: "Vazgeç",
+        ratingRequired: "Lütfen bir puan seçin.",
+        successTitle: "Teşekkürler",
+        successBody: "Sipariş deneyimi değerlendirmeniz alındı.",
+        error: "Gönderilemedi, lütfen tekrar deneyin.",
+      },
       detail: {
         backToList: "Siparişlerime dön",
         summary: "Tutar özeti",
@@ -1266,10 +1284,29 @@ export const trStorefront = {
     returns: {
       menuTitle: "İadelerim",
       listTitle: "İadelerim",
-      listSubtitle: "İade taleplerinizi görüntüleyin ve takip edin.",
-      listEmpty: "Henüz bir iade talebiniz yok.",
-      listEmptyDescription: "İade taleplerinizi buradan takip edebilirsiniz. Bir siparişi iade etmek için siparişlerinize göz atın.",
+      listSubtitle: "İade taleplerinizi ve sipariş iptali geri ödemelerinizi görüntüleyin ve takip edin.",
+      listEmpty: "Henüz bir iade veya geri ödeme kaydınız yok.",
+      listEmptyDescription: "İade taleplerinizi ve sipariş iptali geri ödemelerinizi buradan takip edebilirsiniz. Bir siparişi iade etmek için siparişlerinize göz atın.",
       listEmptyCta: "Siparişlerime git",
+      // TODO-174A — Birleşik "İadelerim": sipariş iptali geri ödemesi kartı (ayrı ReturnRequest DEĞİL).
+      refunds: {
+        cancellationTitle: "Sipariş iptali geri ödemesi",
+        orderRef: "Sipariş",
+        amountLabel: "İade tutarı",
+        reasonLabel: "İptal nedeni",
+        methodLabel: "Geri ödeme yöntemi",
+        createdAt: "İptal tarihi",
+        completedAt: "Tamamlanma tarihi",
+        statusValues: {
+          NONE: "Bu sipariş için geri ödeme oluşturulmadı",
+          PENDING: "Geri ödeme işleniyor",
+          PROCESSING: "Geri ödeme işleniyor",
+          SUCCEEDED: "Geri ödeme tamamlandı",
+          FAILED: "Geri ödeme işlemi tamamlanamadı",
+        },
+        failedSupport:
+          "Geri ödemeniz tamamlanamadı. Ekibimiz durumu inceliyor; kısa süre içinde sizinle iletişime geçeceğiz.",
+      },
       reference: "İade No",
       orderRef: "Sipariş",
       createdAt: "Talep tarihi",
@@ -1612,6 +1649,7 @@ export const trStorefront = {
       cancelled: {
         title: "Sipariş iptal edildi",
         reasonLabel: "İptal nedeni",
+        noteLabel: "Açıklama",
         refundStatusLabel: "İade durumu",
         cancelledAt: "İptal tarihi",
       },

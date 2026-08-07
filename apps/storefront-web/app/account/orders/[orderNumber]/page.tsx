@@ -2,12 +2,13 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { format, formatDate, type Locale } from "@commerce-os/i18n";
 import type { CustomerOrderDetail } from "@commerce-os/api-client";
-import type { CustomerReturnSummary } from "@commerce-os/contracts";
+import type { CustomerRefundVisibilityItem } from "@commerce-os/contracts";
 import { getRequestLocale, getStorefrontDict } from "../../../../lib/i18n";
 import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
 import { getMyReviews } from "../../../../lib/server/reviews";
 import { listReturns } from "../../../../lib/server/returns";
+import { listOrderExperience } from "../../../../lib/server/order-experience";
 import {
   canCancelOrder,
   canRequestReturn,
@@ -15,7 +16,7 @@ import {
   resolveCancelEligibility,
 } from "../../../../lib/orders";
 import { resolveReturnWindowLabel } from "../../../../lib/returns-summary";
-import { resolveOrderReview } from "../../../../lib/orders-review";
+import { resolveOrderReview, resolveOrderExperience } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
@@ -50,10 +51,11 @@ export default async function OrderDetailPage({
   const locale = await getRequestLocale();
   // TODO-159E hotfix — Detay sayfasında da gerçek yorum aksiyonu için sunucu-otoriter
   // uygunluk + mevcut yorumlar (yeni uç YOK; account/reviews ile aynı veri).
-  const [order, reviewData, allReturns] = await Promise.all([
+  const [order, reviewData, allReturns, experienceList] = await Promise.all([
     getCustomerOrderDetail(orderNumber),
     getMyReviews(),
     listReturns(),
+    listOrderExperience(),
   ]);
   if (!order) {
     notFound();
@@ -64,13 +66,19 @@ export default async function OrderDetailPage({
   const c = t.cancellations;
   const cancelEligibility = resolveCancelEligibility(order);
   // TODO-169 (blocker #6) — bu siparişe ait iade talepleri (yalnız kendi; server-scoped liste filtreli).
-  const orderReturns = allReturns.filter((rr) => rr.orderNumber === order.orderNumber);
+  // TODO-174A — allReturns artık BİRLEŞİK (iade + iptal geri ödemesi); burada yalnız iade TALEPLERİ
+  // listelenir (iptal geri ödemesi CANCELLED bloğunda gösterilir → tekrar edilmez).
+  const orderReturns = allReturns.filter(
+    (rr) => rr.orderNumber === order.orderNumber && rr.source === "RETURN_REQUEST",
+  );
   const windowLabel = resolveReturnWindowLabel(order.returnSummary ?? null);
   const reviewState = resolveOrderReview(
     order,
     reviewData?.eligible ?? [],
     reviewData?.reviews ?? [],
   );
+  // TODO-174A — iptal edilmiş + teslim-edilmemiş siparişte deneyim değerlendirme CTA durumu.
+  const experienceState = resolveOrderExperience(order.orderNumber, experienceList);
 
   return (
     <Container className="py-12">
@@ -186,6 +194,7 @@ export default async function OrderDetailPage({
             cancelT={c}
             review={reviewState}
             reviewsT={dict.reviews}
+            experience={experienceState}
             layout="detail"
           />
           {/* Kargoya verildi → doğrudan iptal edilemez; iade akışına yönlendiren nötr mesaj (CTA yok).
@@ -370,7 +379,8 @@ function ReturnsSection({
 }: {
   o: OrdersDict;
   r: ReturnsDict;
-  returns: CustomerReturnSummary[];
+  // TODO-174A — birleşik satırdan yalnız RETURN_REQUEST kaynaklılar geçilir (bkz. orderReturns filtresi).
+  returns: CustomerRefundVisibilityItem[];
   locale: Locale;
 }) {
   return (
@@ -392,26 +402,29 @@ function ReturnsSection({
       <ul className="space-y-3">
         {returns.map((rr) => (
           <li
-            key={rr.returnNumber}
-            id={`return-${rr.returnNumber}`}
+            key={rr.reference}
+            id={`return-${rr.reference}`}
             tabIndex={-1}
             className="flex scroll-mt-24 flex-wrap items-center justify-between gap-3 border border-line p-3 outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-ink">
-                {o.detail.returnRef}: {rr.returnNumber}
+                {o.detail.returnRef}: {rr.reference}
               </p>
               <p className="text-xs text-ink-muted">
-                {formatDate(rr.createdAt, locale)} · {format(r.itemCount, { count: rr.itemCount })} ·{" "}
-                {r.resolutions[rr.resolutionType]}
+                {formatDate(rr.createdAt, locale)}
+                {rr.itemCount !== null ? ` · ${format(r.itemCount, { count: rr.itemCount })}` : ""}
+                {rr.resolutionType ? ` · ${r.resolutions[rr.resolutionType]}` : ""}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center rounded-full border border-ink-subtle bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink">
-                {r.statuses[rr.status]}
-              </span>
+              {rr.returnStatus ? (
+                <span className="inline-flex items-center rounded-full border border-ink-subtle bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink">
+                  {r.statuses[rr.returnStatus]}
+                </span>
+              ) : null}
               <Link
-                href={`/account/returns/${encodeURIComponent(rr.returnNumber)}`}
+                href={`/account/returns/${encodeURIComponent(rr.reference)}`}
                 className="text-xs font-medium text-ink underline decoration-line underline-offset-2 hover:decoration-ink"
               >
                 {o.detail.viewReturn}
@@ -446,6 +459,10 @@ function CancelledBlock({
       <div className="space-y-2">
         {summary.reasonCode ? (
           <Row label={c.cancelled.reasonLabel} value={c.reasons[summary.reasonCode]} />
+        ) : null}
+        {/* TODO-174A — OTHER (ve not girilmiş) durumda müşteri açıklaması AYRI satırda. */}
+        {summary.reasonNote ? (
+          <Row label={c.cancelled.noteLabel} value={summary.reasonNote} />
         ) : null}
         {summary.cancelledAt ? (
           <Row label={c.cancelled.cancelledAt} value={formatDate(summary.cancelledAt, locale)} />

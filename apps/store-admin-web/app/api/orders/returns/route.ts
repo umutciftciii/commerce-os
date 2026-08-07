@@ -18,6 +18,9 @@ function readReturnFilters(params: URLSearchParams): AdminReturnListQuery {
   if (resolutionType) query.resolutionType = resolutionType as AdminReturnListQuery["resolutionType"];
   const reason = params.get("reason");
   if (reason) query.reason = reason as AdminReturnListQuery["reason"];
+  // TODO-174A — kaynak filtresi (İade talebi / Sipariş iptali).
+  const source = params.get("source");
+  if (source) query.source = source as AdminReturnListQuery["source"];
   const orderNumber = params.get("orderNumber")?.trim();
   if (orderNumber) query.orderNumber = orderNumber;
   const search = params.get("search")?.trim();

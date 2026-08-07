@@ -8,9 +8,11 @@ import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { ProductReviewStatus } from "@commerce-os/api-client";
 import type { CancellationOrderSummary } from "@commerce-os/contracts";
 import { buyAgainAction, type BuyAgainState } from "../../lib/server/order-actions";
+import { submitOrderExperienceAction } from "../../lib/server/order-experience-actions";
 import { ReviewForm } from "../reviews/pdp-reviews";
 import { CancelOrderModal } from "./cancellations/cancel-order-modal";
 import type {
+  OrderExperienceState,
   OrderReviewReason,
   OrderReviewState,
   ReviewableItem,
@@ -18,6 +20,7 @@ import type {
 } from "../../lib/orders-review";
 
 type OrdersDict = StorefrontDictionary["account"]["orders"];
+type ExperienceDict = OrdersDict["experience"];
 type ReviewsDict = StorefrontDictionary["reviews"];
 type CancellationsDict = StorefrontDictionary["account"]["cancellations"];
 
@@ -39,6 +42,9 @@ export function OrderActions({
   cancelT,
   review,
   reviewsT,
+  // TODO-174A — Sipariş DENEYİMİ değerlendirmesi durumu (yalnız iptal+teslim-edilmemiş siparişte
+  // dolu; server-otoriter). null → deneyim CTA'sı gösterilmez (ürün-review CTA'sı kendi mantığında).
+  experience = null,
   layout = "card",
 }: {
   orderNumber: string;
@@ -53,6 +59,7 @@ export function OrderActions({
   cancelT?: CancellationsDict;
   review: OrderReviewState;
   reviewsT: ReviewsDict;
+  experience?: OrderExperienceState | null;
   layout?: "card" | "detail";
 }) {
   const [pending, startTransition] = useTransition();
@@ -61,6 +68,9 @@ export function OrderActions({
   // TODO-169 (blocker #5 regresyon) — review paneli AYRI aç/kapa state'i. Panel action-bar'ın DIŞINDA
   // (altında) render edilir → aksiyon çubuğu SABİT kalır, iade CTA alt satıra İTİLMEZ.
   const [reviewOpen, setReviewOpen] = useState(false);
+  // TODO-174A — sipariş deneyimi paneli aç/kapa + bu oturumda gönderildi mi.
+  const [experienceOpen, setExperienceOpen] = useState(false);
+  const [experienceDone, setExperienceDone] = useState(false);
   // TODO-174 — iptal modalı aç/kapa state'i.
   const [cancelOpen, setCancelOpen] = useState(false);
   const cancelEnabled = canCancel && cancelSummary !== null && cancelT !== undefined;
@@ -95,12 +105,25 @@ export function OrderActions({
         <Button size="sm" variant="secondary" onClick={() => togglePanel("support")}>
           {t.actions.support}
         </Button>
-        <OrderReviewTrigger
-          state={review}
-          t={t}
-          open={reviewOpen}
-          onToggle={() => setReviewOpen((v) => !v)}
-        />
+        {/* TODO-174A — İptal edilmiş + teslim-edilmemiş siparişte ürün-review CTA'sı (disabled)
+            YERİNE aktif "Sipariş deneyimini değerlendir" CTA'sı gösterilir. Aksi hâlde mevcut
+            ürün-review CTA'sı korunur (DELIVERED akışı değişmez). */}
+        {experience ? (
+          <OrderExperienceTrigger
+            experience={experience}
+            t={t.experience}
+            done={experienceDone}
+            open={experienceOpen}
+            onToggle={() => setExperienceOpen((v) => !v)}
+          />
+        ) : (
+          <OrderReviewTrigger
+            state={review}
+            t={t}
+            open={reviewOpen}
+            onToggle={() => setReviewOpen((v) => !v)}
+          />
+        )}
         {canReturn ? (
           <ButtonLink
             href={`/account/returns/new?order=${encodeURIComponent(orderNumber)}`}
@@ -129,8 +152,21 @@ export function OrderActions({
       ) : null}
 
       {/* Review paneli — action-bar'ın DIŞINDA (destek notu gibi), sabit çubuğu bozmadan. */}
-      {reviewOpen && review.visible ? (
+      {!experience && reviewOpen && review.visible ? (
         <OrderReviewPanel state={review} t={t} reviewsT={reviewsT} />
+      ) : null}
+
+      {/* TODO-174A — Sipariş deneyimi paneli (action-bar'ın DIŞINDA). Yalnız uygun + gönderilmemiş
+          + açıkken render edilir. */}
+      {experience && experience.eligible && !experience.submitted && !experienceDone && experienceOpen ? (
+        <OrderExperiencePanel
+          orderNumber={orderNumber}
+          t={t.experience}
+          onDone={() => {
+            setExperienceDone(true);
+            setExperienceOpen(false);
+          }}
+        />
       ) : null}
 
       {buyAgain.status === "success" ? (
@@ -197,6 +233,144 @@ function OrderReviewTrigger({
     <Button size="sm" variant="secondary" onClick={onToggle} aria-expanded={open}>
       {t.actions.review}
     </Button>
+  );
+}
+
+/**
+ * TODO-174A (ADR-279) — Sipariş DENEYİMİ değerlendirmesi CTA'sı (ürün-review'dan AYRIK).
+ * İptal edilmiş + teslim-edilmemiş siparişte AKTİF. Zaten değerlendirilmişse disabled "değerlendirdin".
+ * Bu buton "ürünü kullandım" anlamı taşımaz; kopyası ürün yorumu gibi görünmez.
+ */
+function OrderExperienceTrigger({
+  experience,
+  t,
+  done,
+  open,
+  onToggle,
+}: {
+  experience: OrderExperienceState;
+  t: ExperienceDict;
+  done: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (experience.submitted || done) {
+    return (
+      <Button size="sm" variant="secondary" disabled>
+        {t.submittedCta}
+      </Button>
+    );
+  }
+  return (
+    <Button size="sm" variant="secondary" onClick={onToggle} aria-expanded={open}>
+      {t.cta}
+    </Button>
+  );
+}
+
+/** Sipariş deneyimi formu (puan + opsiyonel yorum). Başarıda teşekkür gösterir; ürün puanına yansımaz. */
+function OrderExperiencePanel({
+  orderNumber,
+  t,
+  onDone,
+}: {
+  orderNumber: string;
+  t: ExperienceDict;
+  onDone: () => void;
+}) {
+  const [rating, setRating] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const submit = async () => {
+    setError(null);
+    if (rating < 1) {
+      setError(t.ratingRequired);
+      return;
+    }
+    setBusy(true);
+    const result = await submitOrderExperienceAction({
+      orderNumber,
+      rating,
+      comment: comment.trim() || null,
+    });
+    if (result.ok) {
+      setSuccess(true);
+    } else {
+      setError(t.error);
+      setBusy(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <Alert tone="success">
+        <span className="font-medium">{t.successTitle}</span> {t.successBody}
+      </Alert>
+    );
+  }
+
+  return (
+    <div
+      className="w-full rounded-lg border border-slate-200 bg-white p-3"
+      role="group"
+      aria-label={t.panelTitle}
+    >
+      <p className="text-sm font-semibold text-slate-900">{t.panelTitle}</p>
+      <p className="mt-0.5 text-xs text-slate-500">{t.panelHelp}</p>
+      <div className="mt-3">
+        <p className="mb-1 text-xs font-medium text-slate-700">{t.ratingLabel}</p>
+        <div className="flex gap-1" onMouseLeave={() => setHover(0)}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              type="button"
+              aria-label={String(star)}
+              onMouseEnter={() => setHover(star)}
+              onClick={() => setRating(star)}
+              className="text-xl leading-none"
+            >
+              <span className={(hover || rating) >= star ? "text-slate-900" : "text-slate-300"}>
+                ★
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-3">
+        <label className="mb-1 block text-xs font-medium text-slate-700">{t.commentLabel}</label>
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          maxLength={1000}
+          rows={3}
+          placeholder={t.commentPlaceholder}
+          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+        />
+      </div>
+      {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={busy}
+          className="rounded-md bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          {busy ? t.submitting : t.submit}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          disabled={busy}
+          className="rounded-md border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700"
+        >
+          {t.cancel}
+        </button>
+      </div>
+    </div>
   );
 }
 
