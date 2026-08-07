@@ -212,6 +212,118 @@ export async function issueCredit(params: IssueCreditParams): Promise<IssueCredi
 }
 
 // ---------------------------------------------------------------------------
+// 1b) ADMIN ADJUSTMENT: manuel düzeltme (CREDIT ekle / DEBIT çıkar). GÜÇLÜ YETKİ (SUPER_ADMIN;
+//     route-seviyesi guard). CREDIT → issueCredit reuse (adjustment tipi, policy bypass). DEBIT →
+//     FEFO azaltma + ADMIN_ADJUSTMENT_DEBIT (no-negative; idempotent — advisory lock serialize eder).
+// ---------------------------------------------------------------------------
+
+export interface AdjustBalanceParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  direction: "CREDIT" | "DEBIT";
+  amountMinor: bigint;
+  /** İç neden kodu (audit); müşteri-facing ledger description'ı ayrıdır ("credit.adjustment"). */
+  reason: string;
+  note?: string | null;
+  actor: CreditActor;
+  idempotencyKey: string;
+  /** CREDIT için zorunlu (grant expiry). DEBIT'te yoksayılır. */
+  expiryDays?: number;
+}
+
+export type AdjustBalanceResult =
+  | { ok: true; entryIds: string[]; deduped: boolean }
+  | { ok: false; code: CreditErrorCode };
+
+export async function adminAdjustBalance(params: AdjustBalanceParams): Promise<AdjustBalanceResult> {
+  if (params.amountMinor <= 0n) return { ok: false, code: "INVALID_AMOUNT" };
+
+  if (params.direction === "CREDIT") {
+    // Adjustment CREDIT = issueCredit (adjustment tipi + policy bypass; expiry zorunlu).
+    if (!isValidExpiryDays(params.expiryDays ?? -1)) return { ok: false, code: "INVALID_EXPIRY" };
+    const res = await issueCredit({
+      storeId: params.storeId,
+      customerId: params.customerId,
+      currency: params.currency,
+      amountMinor: params.amountMinor,
+      expiryDays: params.expiryDays as CreditExpiryDays,
+      sourceType: "ADMIN_ADJUSTMENT",
+      ledgerType: "ADMIN_ADJUSTMENT_CREDIT",
+      description: "credit.adjustment",
+      actor: params.actor,
+      idempotencyKey: `adjust:${params.idempotencyKey}`,
+      overridePolicy: true, // SUPER_ADMIN düzeltmesi; policy limitine tabi değil.
+    });
+    if (!res.ok) return res;
+    return { ok: true, entryIds: [res.entryId], deduped: res.deduped };
+  }
+
+  // DEBIT: FEFO azaltma (bakiyeyi düşür). No-negative; advisory lock + koşullu guard.
+  const { storeId, customerId, currency } = params;
+  const groupKey = `adjust:${params.idempotencyKey}`;
+  return prisma.$transaction(async (tx) => {
+    await lockCustomer(tx, storeId, customerId);
+    // Idempotency (kilit altında güvenilir): bu grup zaten işlendiyse dedup.
+    const dupe = await tx.customerCreditLedgerEntry.findFirst({
+      where: { storeId, groupKey },
+      select: { id: true },
+    });
+    if (dupe) return { ok: true as const, entryIds: [], deduped: true };
+
+    const account = await tx.customerCreditAccount.findUnique({
+      where: { storeId_customerId_currency: { storeId, customerId, currency } },
+      select: { id: true },
+    });
+    if (!account) return { ok: false as const, code: "ACCOUNT_NOT_FOUND" };
+
+    const now = new Date();
+    const lots = await loadActiveLots(tx, storeId, customerId, currency);
+    const alloc = allocateFefo(lots, params.amountMinor, now);
+    if (!alloc.ok) return { ok: false as const, code: "INSUFFICIENT_BALANCE" };
+
+    const preAvailable = availableBalanceMinor(lots, now);
+    let running = preAvailable;
+    const entryIds: string[] = [];
+    for (const a of alloc.allocations) {
+      const updated = await tx.customerCreditLot.updateMany({
+        where: { id: a.lotId, storeId, status: "ACTIVE", remainingAmountMinor: { gte: a.amountMinor } },
+        data: { remainingAmountMinor: { decrement: a.amountMinor }, version: { increment: 1 } },
+      });
+      if (updated.count !== 1) return { ok: false as const, code: "INSUFFICIENT_BALANCE" };
+      await tx.customerCreditLot.updateMany({
+        where: { id: a.lotId, storeId, remainingAmountMinor: 0n, status: "ACTIVE" },
+        data: { status: "CONSUMED" },
+      });
+      running -= a.amountMinor;
+      const entry = await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          lotId: a.lotId,
+          type: "ADMIN_ADJUSTMENT_DEBIT",
+          direction: "DEBIT",
+          amountMinor: a.amountMinor,
+          balanceAfterMinor: running,
+          currency,
+          sourceType: "ADMIN_ADJUSTMENT",
+          description: "credit.adjustment",
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          groupKey,
+          idempotencyKey: `${groupKey}:${a.lotId}`,
+        },
+        select: { id: true },
+      });
+      entryIds.push(entry.id);
+    }
+    await refreshCache(tx, account.id, storeId, customerId, currency, now);
+    return { ok: true as const, entryIds, deduped: false };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 2) DEBIT: checkout harcaması (FEFO). Çağıranın tx'i İÇİNDE çalışır (placeOrder ile atomik).
 // ---------------------------------------------------------------------------
 

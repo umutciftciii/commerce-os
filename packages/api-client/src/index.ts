@@ -47,6 +47,7 @@ import type {
   RecoveryActionRequest,
   ManualOpenCaseRequest,
   AdminIssueCreditRequest,
+  AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
@@ -396,6 +397,7 @@ export type {
   RecoveryActionRequest,
   ManualOpenCaseRequest,
   AdminIssueCreditRequest,
+  AdminAdjustCreditRequest,
   CreditLedgerEntryDto,
   CustomerCreditBalanceResponse,
   // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management.
@@ -2372,6 +2374,13 @@ export interface ApiClient {
         input: AdminIssueCreditRequest,
         token?: string,
       ): Promise<CustomerCreditBalanceResponse>;
+      // Manuel düzeltme (CREDIT ekle / DEBIT çıkar) — SUPER_ADMIN.
+      adjust(
+        storeId: string,
+        customerId: string,
+        input: AdminAdjustCreditRequest,
+        token?: string,
+      ): Promise<CustomerCreditBalanceResponse>;
     };
     // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
     pendingWork: {
@@ -4161,6 +4170,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         issue: (storeId, customerId, input, token) =>
           sendJson<CustomerCreditBalanceResponse>(
             `/stores/${storeId}/customers/${customerId}/credit`,
+            "POST",
+            input,
+            token,
+          ),
+        adjust: (storeId, customerId, input, token) =>
+          sendJson<CustomerCreditBalanceResponse>(
+            `/stores/${storeId}/customers/${customerId}/credit/adjust`,
             "POST",
             input,
             token,
