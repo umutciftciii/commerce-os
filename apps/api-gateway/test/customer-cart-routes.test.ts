@@ -322,6 +322,62 @@ describe("customer cart routes: auth deselection threading (BUG-CART-002)", () =
   });
 });
 
+describe("customer cart routes: coupon/shipping repricing threading (BUG-CART-003 / BUG 2)", () => {
+  /** projectCart girdisini yakalayan app: GET query'sinden gelen kupon/kargo/claim'i dogrular. */
+  function buildCaptureApp(capture: { last?: Record<string, unknown> }): FastifyInstance {
+    const data = createInMemoryCartData();
+    const app = Fastify({ logger: false });
+    registerCustomerCartRoutes(app, {
+      logger: { info() {}, warn() {} },
+      resolvePublicStore: async (slug) => (slug === STORE.slug ? STORE : null),
+      data,
+      ackData: createInMemoryAckData(),
+      catalog: {
+        findVariantsByIds: async (storeId, ids) =>
+          ids.filter((id) => validVariants[storeId]?.has(id)).map((id) => ({ id, storeId })) as never,
+      },
+      resolveCustomer: async (request, storeId) => {
+        const header = request.headers["x-customer-session"];
+        const token = Array.isArray(header) ? header[0] : header;
+        const s = token ? sessions[token] : undefined;
+        return s && s.storeId === storeId ? { id: s.customerId, storeId: s.storeId } : null;
+      },
+      projectCart: async (input) => {
+        capture.last = input as unknown as Record<string, unknown>;
+        return {
+          storeSlug: input.store.slug,
+          currency: "TRY",
+          lines: input.items.map((i) => ({ variantId: i.variantId, quantity: i.quantity })),
+          itemCount: input.items.reduce((s, i) => s + i.quantity, 0),
+          checkoutReady: input.items.length > 0,
+        } as never;
+      },
+    });
+    return app;
+  }
+
+  it("GET threads ?coupon=, ?shippingOption= and ?claimed= into projectCart", async () => {
+    const capture: { last?: Record<string, unknown> } = {};
+    const capApp = buildCaptureApp(capture);
+    const res = await capApp.inject({
+      method: "GET",
+      url: `${base}?coupon=WELCOME10&shippingOption=rp1&claimed=SUMMER,VIP`,
+      headers: A,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(capture.last?.couponCode).toBe("WELCOME10");
+    expect(capture.last?.shippingOptionId).toBe("rp1");
+    expect(capture.last?.claimedCodes).toEqual(["SUMMER", "VIP"]);
+  });
+
+  it("GET without coupon query leaves couponCode null (automatic campaigns only)", async () => {
+    const capture: { last?: Record<string, unknown> } = {};
+    const capApp = buildCaptureApp(capture);
+    await capApp.inject({ method: "GET", url: base, headers: A });
+    expect(capture.last?.couponCode ?? null).toBeNull();
+  });
+});
+
 describe("customer cart routes: guest merge", () => {
   it("merges valid guest items and reports overflow count", async () => {
     await app.inject({ method: "GET", url: base, headers: A });

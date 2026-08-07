@@ -1909,6 +1909,9 @@ cart-data(10)/customer-cart-routes(8)/cart-expiry-service(3).
 **Yeni açık borçlar:**
 - **TD-174** — authenticated cart kupon-kodu + kargo-seçeneği SEÇİMİ persist edilmiyor (otomatik kampanyalar
   uygulanır; seçim threading follow-up). Faz A membership + cross-device odaklı.
+  **KISMEN ÇÖZÜLDÜ (2026-08-08, BUG-CART-003):** uygulanan kupon/kargo artık auth cart READ yoluna query ile
+  thread edilir → anonim yolla AYNI motorla yeniden fiyatlanır (explicit kupon totals'i etkiler). Seçimin DB
+  cart'ta **cross-device persist'i** hâlâ future (seçim cookie'de yaşar). Bkz. `docs/analysis/BUG-CART-003-variant-media-coupon-checkout.md`.
 - **TD-175** — cart CONVERTED order PLACE anında (anonim cookie-temizleme ile parity), strictly-on-paid
   değil; "başarısız ödeme cart'ı korur" refinement ödeme-yolu hook'ları gerektirir (future).
 

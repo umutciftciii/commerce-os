@@ -234,7 +234,7 @@ import { LocalDiskDriver } from "./media/local-disk-driver.js";
 import { resolveMediaUrl } from "./media/url.js";
 // Faz 3/Dilim 6a+6b — sepet/onay + hesap-siparisleri kapak URL haritasi (paylasilan,
 // tek allowlist noktasi; N+1'siz). buildCartCoverUrlMap bunu delege eder.
-import { buildProductCoverUrlMap } from "./media/cover.js";
+import { buildProductCoverUrlMap, buildCartVariantCoverUrlMap } from "./media/cover.js";
 // F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
 import {
   computeDiscounts,
@@ -2345,6 +2345,11 @@ interface CartResolvableVariant {
   variantId: string;
   /** F4A — Kampanya urun/kategori kapsam eslesmesi icin (public yanita TASINMAZ). */
   productId: string;
+  /**
+   * BUG-CART-003 (BUG 1) — Urunun media-tanimlayici ekseni (Renk) id'si; null = klasik.
+   * Sepet satiri kapagini SECILI VARYANTIN renk gorseline cozmek icin (public yanita TASINMAZ).
+   */
+  mediaDefiningAttributeId: string | null;
   categoryIds: string[];
   productSlug: string;
   productTitle: string;
@@ -2574,10 +2579,10 @@ function assemblePublicCart(
   discountCtx: CartDiscountContext,
   shippingCtx: CartShippingContext,
   walletCtx?: CartWalletContext,
-  // ADR-065 (Faz 3/Dilim 6a) — productId -> turetilmis kapak URL'i. Cagiran (cart route)
-  // TEK batched listProductImages ile hazirlar (N+1 yok); verilmezse tum satirlar
-  // imageUrl:null (geriye-uyumlu — mevcut cagiranlar degismez).
-  coverUrlByProductId?: Map<string, string>,
+  // BUG-CART-003 (BUG 1) — variantId -> turetilmis kapak URL'i (SECILI VARYANTIN efektif
+  // medyasi). Cagiran (cart route) buildCartVariantCoverUrlMap ile hazirlar (N+1 yok);
+  // verilmezse tum satirlar imageUrl:null (geriye-uyumlu — checkout placement cagirisi gibi).
+  coverUrlByVariantId?: Map<string, string>,
   // Dilim 6a-refine — Secimi kaldirilan variantId'ler (checkbox). Bu satirlar yanitta
   // gorunur (selected:false) ama subtotal/itemCount/checkoutReady/indirim/kargo'ya GIRMEZ.
   deselectedVariantIds?: string[],
@@ -2594,7 +2599,7 @@ function assemblePublicCart(
       buildPublicCartLine(
         entry,
         item.quantity,
-        coverUrlByProductId?.get(entry.productId) ?? null,
+        coverUrlByVariantId?.get(entry.variantId) ?? null,
         !deselected.has(entry.variantId),
       ),
     );
@@ -6365,6 +6370,8 @@ export function createServer(
       index.set(variant.id, {
         variantId: variant.id,
         productId: product.id,
+        // BUG-CART-003 (BUG 1) — sepet kapagini varyantin renk gorseline cozmek icin.
+        mediaDefiningAttributeId: product.mediaDefiningAttributeId ?? null,
         categoryIds: product.categoryIds,
         productSlug: product.slug,
         productTitle: product.title,
@@ -6513,11 +6520,23 @@ export function createServer(
       email: cartCustomer?.email ?? null,
       claimedCodes: (opts?.claimedCodes ?? []).map((code) => normalizeCouponCode(code) ?? "").filter(Boolean),
     });
-    // ADR-065 (Faz 3/Dilim 6a) — Sepet satiri kapaklari: variantId'ler index'ten
-    // productId'ye cozulur, TEK batched sorguyla kapak URL'leri hazirlanir (N+1 yok).
-    const coverUrlByProductId = await buildCartCoverUrlMap(
+    // BUG-CART-003 (BUG 1) — Sepet satiri kapaklari SECILI VARYANTIN efektif medyasindan
+    // cozulur (Variant Media Engine ile tutarli): renk eksenli urunde varyantin renk gorseli,
+    // aksi halde urun kapagi. variantId ile anahtarlanir; TEK batched gorsel sorgusu (N+1 yok).
+    const coverEntries = items
+      .map((item) => index.get(item.variantId))
+      .filter((entry): entry is CartResolvableVariant => Boolean(entry))
+      .map((entry) => ({
+        variantId: entry.variantId,
+        productId: entry.productId,
+        mediaDefiningAttributeId: entry.mediaDefiningAttributeId,
+      }));
+    const coverUrlByVariantId = await buildCartVariantCoverUrlMap(
+      (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
+      (sid, pid, attrId) => dataAccess.resolveVariantMediaOptions(sid, pid, attrId),
+      config.MEDIA_PUBLIC_BASE_URL,
       store.id,
-      items.map((item) => index.get(item.variantId)?.productId).filter((id): id is string => Boolean(id)),
+      coverEntries,
     );
     const { cart } = assemblePublicCart(
       store.slug,
@@ -6532,7 +6551,7 @@ export function createServer(
         requestedOptionId: opts?.shippingOptionId ?? null,
       },
       { candidates: walletCandidates },
-      coverUrlByProductId,
+      coverUrlByVariantId,
       opts?.deselectedVariantIds ?? [],
     );
     // TODO-168 (ADR-267) — ANONIM cart-change: snapshot/ack cookie meta'dan (body). Fiyat/stok TAZE
@@ -6601,11 +6620,17 @@ export function createServer(
       },
     },
     // Faz A: authenticated cart projeksiyonu membership + OTOMATIK kampanya/stok/fiyat
-    // uzerine kuruludur. Kupon-kodu + kargo-secenegi persist'i (auth cart) follow-up (TD-174).
+    // uzerine kuruludur.
     // BUG-CART-002 — deselection (checkbox) auth yolda da uygulanir (ayni ORTAK assembler girdisi).
-    projectCart: ({ store, request, items, deselectedVariantIds }) =>
+    // BUG-CART-003 (BUG 2, TD-174 kapanisi) — explicit kupon-kodu + secili kargo secenegi +
+    // misafir-claim kodlari da ANONIM yolla AYNI ORTAK motorla thread edilir; boylece auth cart'ta
+    // uygulanan kupon totals'i gercekten yeniden fiyatlar (onceden yalniz otomatik kampanya gecerdi).
+    projectCart: ({ store, request, items, deselectedVariantIds, couponCode, shippingOptionId, claimedCodes }) =>
       resolvePublicCartProjection(store, request as FastifyRequest, items, {
         deselectedVariantIds: deselectedVariantIds ?? [],
+        couponCode: couponCode ?? null,
+        shippingOptionId: shippingOptionId ?? null,
+        claimedCodes: claimedCodes ?? [],
       }),
   });
 

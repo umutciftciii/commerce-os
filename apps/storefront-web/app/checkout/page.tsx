@@ -3,12 +3,11 @@ import { redirect } from "next/navigation";
 import { ButtonLink, Container, EmptyState, Heading } from "../../components/ui";
 import { getStorefrontDict } from "../../lib/i18n";
 import {
-  readCartItems,
   readCoupon,
   readDeselectedItems,
   readShippingOption,
 } from "../../lib/server/cart-cookie";
-import { getPaymentAvailability, resolveCart } from "../../lib/server/cart";
+import { getPaymentAvailability, resolveCheckoutView } from "../../lib/server/cart";
 import { getCurrentCustomer, listCustomerAddresses } from "../../lib/server/customer";
 import { CheckoutForm } from "../../components/checkout-form";
 
@@ -34,22 +33,19 @@ export default async function CheckoutPage() {
     redirect("/auth/login?next=/checkout");
   }
 
-  // Dilim 6a-refine — Checkout YALNIZCA secili satirlardan olusur (sepette secimi
-  // kaldirilan satirlar siparise/ozete girmez). Hic secili satir yoksa bos-checkout.
-  const allItems = await readCartItems();
-  if (allItems.length === 0) {
-    return <EmptyCheckout t={t} />;
-  }
-  const deselected = await readDeselectedItems();
-  const items = allItems.filter((item) => !deselected.includes(item.variantId));
-  if (items.length === 0) {
-    return <EmptyCheckout t={t} />;
-  }
-
+  // BUG-CART-003 (BUG 3) — Checkout, cart sayfasıyla AYNI kanonik sepeti çözer: oturum açmış
+  // müşteride DB cart OTORİTER (cross-device; login-merge sonrası cookie boş olabilir). Önceden
+  // burada yalnız cookie (`readCartItems`) okunuyordu → DB cart dolu olsa bile "Sepetiniz boş".
+  // Checkout YALNIZCA seçili + sipariş verilebilir satırlardan oluşur; hiç yoksa boş-checkout.
   const coupon = await readCoupon();
   const shippingOption = await readShippingOption();
-  const result = await resolveCart(items, coupon, shippingOption);
-  if (!result.ok) {
+  const deselected = await readDeselectedItems();
+  const checkoutView = await resolveCheckoutView({
+    couponCode: coupon,
+    shippingOptionId: shippingOption,
+    deselectedVariantIds: deselected,
+  });
+  if (checkoutView.kind === "error") {
     return (
       <Container className="py-12">
         <Heading as="h1" className="mb-6">
@@ -62,9 +58,11 @@ export default async function CheckoutPage() {
     );
   }
 
-  if (result.data.isEmpty) {
+  if (checkoutView.kind === "empty") {
     return <EmptyCheckout t={t} />;
   }
+
+  const result = { data: checkoutView.view };
 
   // 2) Adres defteri — kayitli adres yoksa checkout devam etmez; adres ekleme cagrisi.
   const addresses = await listCustomerAddresses();
