@@ -28,6 +28,7 @@ import {
   type CancellationRefundPrep,
   type RefundServiceDeps,
 } from "../../refunds/service.js";
+import { restoreCreditForOrderInTx } from "../../customer-credit/service.js";
 import { releaseOrderCampaignConsumption } from "../../campaigns/cancellation-rollback.js";
 import {
   computeCancellationEligibility,
@@ -207,7 +208,26 @@ export async function cancelCustomerOrder(
     // 6) Coupon/campaign rollback (ADR-277).
     const rollback = await releaseOrderCampaignConsumption(tx, input.storeId, orderId, now);
 
-    // 7) Refund PENDING ledger (ADR-276; intent'siz). Ödeme yoksa SKIPPED. Provider commit SONRASI.
+    // 6b) TODO-174B (ADR-282) — Store credit restore: alışveriş bakiyesiyle ödenen kısım BAKİYEYE geri
+    // (canlı lot revive → ACTIVE; süresi geçmiş lot CANLANMAZ). Idempotent (duplicate restore YOK). Kart
+    // kısmı bundan BAĞIMSIZ olarak (adım 7) PSP'ye iade edilir — kaynak-bazlı allocation korunur.
+    const cancelOrder = await tx.order.findUnique({ where: { id: orderId }, select: { currency: true } });
+    let creditRestore = { restoredMinor: 0n, skippedExpiredMinor: 0n, entriesCreated: 0 };
+    if (cancelOrder && input.customerId) {
+      creditRestore = await restoreCreditForOrderInTx(tx, {
+        storeId: input.storeId,
+        customerId: input.customerId,
+        currency: cancelOrder.currency,
+        orderId,
+        ledgerType: "ORDER_CANCELLATION_RESTORE",
+        sourceType: "ORDER_CANCELLATION",
+        actor: { type: "CUSTOMER", id: input.customerId },
+        description: "credit.cancellationRestore",
+      });
+    }
+
+    // 7) Refund PENDING ledger (ADR-276; intent'siz). STORE_CREDIT HÂRİÇ external tahsilat iade edilir.
+    // Ödeme yoksa (veya yalnız credit ödendiyse) SKIPPED. Provider commit SONRASI.
     const refund = await prepareCancellationRefund(tx, {
       storeId: input.storeId,
       orderId,
@@ -263,6 +283,12 @@ export async function cancelCustomerOrder(
             couponsRevoked: rollback.couponsRevoked,
           },
           refund: { status: refund.status, refundId: refund.refundId },
+          // TODO-174B — store credit restore provenance (bakiyeye geri yüklenen + süresi geçmiş için atlanan).
+          creditRestore: {
+            restoredMinor: creditRestore.restoredMinor.toString(),
+            skippedExpiredMinor: creditRestore.skippedExpiredMinor.toString(),
+            entriesCreated: creditRestore.entriesCreated,
+          },
         },
       },
     });

@@ -282,6 +282,14 @@ export const envSchema = z.object({
   // Inaktivite esigi (gun; ADR-266 = 90). Alt sinir 30 (guvenlik tabani).
   CART_EXPIRY_RETENTION_DAYS: optionalNumberEnv(z.coerce.number().int().min(30).default(90)),
   CART_EXPIRY_SWEEP_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(1000)),
+  // ── TODO-174B (ADR-284) — Store Credit lot expiry sweep (housekeeping/materialization; default OFF).
+  // KRİTİK: available bakiye ZATEN expiresAt>now filtresiyle doğru hesaplanır; bu worker finansal
+  // doğruluk için DEĞİL, yalnız süresi dolmuş lot'ları EXPIRED işaretleyip EXPIRE ledger entry ("Süresi
+  // doldu") yazmak içindir. env gate: açıkça etkinleştirilmeden ASLA otomatik materialization (production'da
+  // zorlanmaz/default-open değildir). Diğer worker'larla birebir governance.
+  CREDIT_EXPIRY_SWEEP_ENABLED: optionalBooleanEnv(false),
+  CREDIT_EXPIRY_SWEEP_INTERVAL_SECONDS: optionalNumberEnv(z.coerce.number().int().min(3600).default(86400)),
+  CREDIT_EXPIRY_SWEEP_BATCH_SIZE: optionalNumberEnv(z.coerce.number().int().positive().max(10000).default(200)),
   // ── TODO-162 (ADR-205) — Home Discovery section-analytics (event domain). ─────────────────────
   // Discovery event kayit ucu rate limit (IP-hash kayan pencere): pencere basina azami istek. Section
   // impression'lari yogun oldugundan recommendation'dan biraz yuksek varsayilan (funnel gurultusu).

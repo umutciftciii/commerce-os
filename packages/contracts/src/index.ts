@@ -1759,6 +1759,11 @@ export const storeSettingsSchema = z.object({
   fastRefundEnabled: z.boolean(),
   fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable(),
   fastRefundCurrency: z.string().nullable(),
+  // TODO-174B (ADR-281) — Goodwill / Store Credit compensation policy (additive). null =
+  // maxGoodwillCreditPerActionMinor: özellik KAPALI (normal operatör kredi VEREMEZ; SUPER_ADMIN override).
+  // Değer = aksiyon başına üst sınır (KANONİK STRING). currency null = mağaza para biriminde.
+  maxGoodwillCreditPerActionMinor: canonicalMinorAmountString.nullable(),
+  goodwillCreditCurrency: z.string().nullable(),
 });
 
 // null = bagi kaldir (FK NULL); absent = dokunma; string = bagla/degistir. Tenant +
@@ -1780,10 +1785,215 @@ export const storeSettingsUpdateRequestSchema = z
     fastRefundEnabled: z.boolean().optional(),
     fastRefundMaxAmountMinor: canonicalMinorAmountString.nullable().optional(),
     fastRefundCurrency: z.string().min(3).max(3).nullable().optional(),
+    // TODO-174B (ADR-281) — Goodwill policy (additive; absent=dokunma). null = özelliği kapat.
+    // Bu alanlar yalnız SUPER_ADMIN düzenler (route-seviyesi guard, fast-refund deseni).
+    maxGoodwillCreditPerActionMinor: canonicalMinorAmountString.nullable().optional(),
+    goodwillCreditCurrency: z.string().min(3).max(3).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required.",
   });
+
+// ============================================================================
+// TODO-174B (ADR-281/282/284) — Customer Shopping Balance / Store Credit contracts.
+// ============================================================================
+
+/** Grant expiry süresi (gün) — yalnız 30/60/120/180 (ADR-284, maks 180). */
+export const creditExpiryDaysSchema = z.union([
+  z.literal(30),
+  z.literal(60),
+  z.literal(120),
+  z.literal(180),
+]);
+
+export const creditLedgerTypeSchema = z.enum([
+  "ADMIN_GOODWILL_CREDIT",
+  "RECOVERY_GOODWILL_CREDIT",
+  "ORDER_PAYMENT_DEBIT",
+  "ORDER_CANCELLATION_RESTORE",
+  "REFUND_RESTORE",
+  "ADMIN_ADJUSTMENT_CREDIT",
+  "ADMIN_ADJUSTMENT_DEBIT",
+  "EXPIRE",
+]);
+
+export const creditDirectionSchema = z.enum(["CREDIT", "DEBIT"]);
+
+/** Pozitif kanonik minor (0 reddedilir) — kredi tutarı. */
+export const positiveMinorAmountString = canonicalMinorAmountString.refine((s) => s !== "0", {
+  message: "Amount must be positive.",
+});
+
+/** Admin/recovery goodwill kredi verme isteği. */
+export const adminIssueCreditRequestSchema = z.object({
+  amountMinor: positiveMinorAmountString,
+  expiryDays: creditExpiryDaysSchema,
+  // Yapısal neden etiketi (storefront'a sızmaz; audit + admin). Serbest metin değil, kısa etiket.
+  reason: z.string().min(1).max(80),
+  internalNote: z.string().max(500).optional(),
+  // Opsiyonel: recovery case'e bağla (bağlıysa idempotency case-bazlı; duplicate credit engeli).
+  recoveryCaseId: z.string().min(1).max(64).optional(),
+  // Sayfa refresh / çift-submit koruması (client modal-open başına üretir).
+  idempotencyKey: z.string().min(8).max(200),
+});
+
+/**
+ * Tek ledger hareketi (admin + storefront ortak). `description` bir SEMANTİK KEY'dir (ör. "credit.goodwill",
+ * "credit.orderPayment") — client TR/EN lokalize eder; RAW ENUM/internal note ASLA taşınmaz. `orderNumber`
+ * sipariş ilişkili hareketlerde insan-okur numara (OS-000123) — client copy'de interpolate eder.
+ */
+export const creditLedgerEntrySchema = z.object({
+  id: z.string().min(1),
+  type: creditLedgerTypeSchema,
+  direction: creditDirectionSchema,
+  amountMinor: canonicalMinorAmountString,
+  balanceAfterMinor: canonicalMinorAmountString,
+  currency: z.string(),
+  description: z.string(),
+  orderId: z.string().nullable(),
+  orderNumber: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** Müşteri bakiyesi + hareket geçmişi (admin + storefront). */
+export const customerCreditBalanceResponseSchema = z.object({
+  currency: z.string(),
+  availableMinor: canonicalMinorAmountString,
+  entries: z.array(creditLedgerEntrySchema),
+});
+
+export type AdminIssueCreditRequest = z.infer<typeof adminIssueCreditRequestSchema>;
+export type CreditLedgerEntryDto = z.infer<typeof creditLedgerEntrySchema>;
+export type CustomerCreditBalanceResponse = z.infer<typeof customerCreditBalanceResponseSchema>;
+
+// ============================================================================
+// TODO-174B (ADR-283) — Order Experience Recovery Operations contracts.
+// ============================================================================
+
+export const recoveryCaseStatusSchema = z.enum([
+  "OPEN",
+  "ASSIGNED",
+  "CONTACT_ATTEMPTED",
+  "CUSTOMER_REACHED",
+  "ACTION_REQUIRED",
+  "RESOLVED",
+  "CLOSED",
+  "UNREACHABLE",
+  "NO_ACTION_REQUIRED",
+]);
+export const recoveryPrioritySchema = z.enum(["LOW", "MEDIUM", "HIGH"]);
+export const recoveryOutcomeSchema = z.enum([
+  "ISSUE_RESOLVED",
+  "APOLOGY_ACCEPTED",
+  "REFUND_QUESTION",
+  "DELIVERY_COMPLAINT",
+  "PRICE_COMPLAINT",
+  "PRODUCT_EXPECTATION_MISMATCH",
+  "CUSTOMER_UNREACHABLE",
+  "CUSTOMER_DECLINED",
+  "OTHER",
+]);
+export const recoveryResolutionTypeSchema = z.enum(["GOODWILL_CREDIT", "APOLOGY", "REFUND_FOLLOWUP", "NO_ACTION", "OTHER"]);
+export const recoveryActionTypeSchema = z.enum([
+  "ASSIGN",
+  "CONTACT_CALL",
+  "CONTACT_EMAIL",
+  "UNREACHABLE",
+  "ISSUE_HEARD",
+  "ACTION_REQUIRED",
+  "RESOLVE",
+  "CLOSE",
+  "NO_ACTION_REQUIRED",
+  "NOTE",
+]);
+
+export const experienceRatingBucketSchema = z.enum(["ONE_TWO", "THREE", "FOUR_FIVE"]);
+
+export const experienceListRowSchema = z.object({
+  reviewId: z.string(),
+  rating: z.number().int(),
+  comment: z.string().nullable(),
+  customerId: z.string(),
+  customerName: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  orderStatus: z.string(),
+  cancelReasonCode: z.string().nullable(),
+  reviewCreatedAt: z.string(),
+  recovery: z
+    .object({
+      caseId: z.string(),
+      status: recoveryCaseStatusSchema,
+      priority: recoveryPrioritySchema,
+      assigneePlatformUserId: z.string().nullable(),
+      dueAt: z.string(),
+      overdue: z.boolean(),
+    })
+    .nullable(),
+});
+export const experienceListResponseSchema = z.object({
+  rows: z.array(experienceListRowSchema),
+  total: z.number().int().nonnegative(),
+});
+
+export const experienceKpiSchema = z.object({
+  averageRating: z.number(),
+  totalReviews: z.number().int().nonnegative(),
+  lowRatingRatio: z.number(),
+  highRatingRatio: z.number(),
+  openRecoveryCount: z.number().int().nonnegative(),
+  slaOverdueCount: z.number().int().nonnegative(),
+  reachedRatio: z.number(),
+  resolutionRatio: z.number(),
+  totalGoodwillCreditMinor: canonicalMinorAmountString,
+});
+
+export const recoveryActivitySchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  actorId: z.string().nullable(),
+  outcome: z.string().nullable(),
+  note: z.string().nullable(),
+  creditLedgerEntryId: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const recoveryCaseDetailSchema = z.object({
+  caseId: z.string(),
+  status: recoveryCaseStatusSchema,
+  priority: recoveryPrioritySchema,
+  version: z.number().int(),
+  assigneePlatformUserId: z.string().nullable(),
+  openedAt: z.string(),
+  firstContactAt: z.string().nullable(),
+  dueAt: z.string(),
+  overdue: z.boolean(),
+  resolvedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  resolutionType: z.string().nullable(),
+  resolutionNote: z.string().nullable(),
+  review: z.object({ id: z.string(), rating: z.number().int(), comment: z.string().nullable(), createdAt: z.string() }),
+  order: z.object({ id: z.string(), orderNumber: z.string(), status: z.string(), cancelReasonCode: z.string().nullable() }),
+  customer: z.object({ id: z.string(), name: z.string(), email: z.string() }),
+  activities: z.array(recoveryActivitySchema),
+});
+
+export const recoveryActionRequestSchema = z.object({
+  action: recoveryActionTypeSchema,
+  expectedVersion: z.number().int().nonnegative().optional(),
+  assigneePlatformUserId: z.string().min(1).nullable().optional(),
+  outcome: recoveryOutcomeSchema.nullable().optional(),
+  resolutionType: recoveryResolutionTypeSchema.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+export const manualOpenCaseRequestSchema = z.object({ reviewId: z.string().min(1) });
+
+export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
+export type ExperienceListRow = z.infer<typeof experienceListRowSchema>;
+export type ExperienceKpiDto = z.infer<typeof experienceKpiSchema>;
+export type RecoveryCaseDetailDto = z.infer<typeof recoveryCaseDetailSchema>;
+export type RecoveryActivityDto = z.infer<typeof recoveryActivitySchema>;
+export type RecoveryActionRequest = z.infer<typeof recoveryActionRequestSchema>;
+export type ManualOpenCaseRequest = z.infer<typeof manualOpenCaseRequestSchema>;
 
 // ADR-065 (Faz 2/Dilim 5) — Yayin durumu (hero slide gibi vitrin icerikleri).
 // DRAFT admin'de gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.
@@ -4356,6 +4566,12 @@ export const publicCheckoutRequestSchema = z
      * yazılır. Influencer attributionGrant'inden BAĞIMSIZ (ADR-120 coexistence). Geçersiz → atlanır.
      */
     sponsoredGrants: z.array(z.string().max(2048)).max(48).nullable().optional(),
+    /**
+     * TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle. true → sunucu min(availableCredit,
+     * payableOrderAmount) kadarını otomatik uygular (kısmi tutar girişi YOK). Yalnız oturum açmış
+     * müşteride etkilidir (anonim checkout'ta yoksayılır). Tutar İSTEMCİDEN GELMEZ (server-authoritative).
+     */
+    useShoppingCredit: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.billing && value.billing.sameAsShipping === false && !value.billingAddress) {
@@ -4900,7 +5116,9 @@ export const orderPaymentAttemptSchema = z.object({
   type: paymentAttemptTypeSchema.default("ONLINE"),
   provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
   mode: z.enum(["TEST", "LIVE"]).nullable(),
-  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
+  // TODO-174B (ADR-282) — STORE_CREDIT: alışveriş bakiyesiyle ödenen MANUAL attempt sipariş ödeme
+  // listesinde görünür (external ödemeden ayrı; admin ödeme özetinde ayrı satır).
+  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]),
   amount: z.number().int().nonnegative(),
   currency: currencySchema,
   status: z.enum([
@@ -12492,7 +12710,9 @@ export const orderRefundEventTypeSchema = z.enum([
   "DUPLICATE_CALLBACK",
 ]);
 const refundProviderEnum = z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]);
-const refundMethodEnum = z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]);
+// TODO-174B (ADR-282) — STORE_CREDIT eklendi: iade edilen attempt'in yöntemi store credit olabilir
+// (bu attempt provider'a iade EDİLMEZ, bakiyeye restore edilir; ancak method serileştirilir).
+const refundMethodEnum = z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]);
 
 export const adminRefundCapabilitySchema = z.object({
   mode: refundExecutionModeSchema,

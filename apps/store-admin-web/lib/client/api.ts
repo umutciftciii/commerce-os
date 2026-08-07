@@ -304,6 +304,14 @@ import type {
   AdminRedirectUpdateRequest,
   AdminSlugListResponse,
   AdminSlugDetailResponse,
+  // TODO-174B — Order Experience Recovery + Store Credit.
+  ExperienceListResponse,
+  ExperienceKpiDto,
+  RecoveryCaseDetailDto,
+  RecoveryActionRequest,
+  ManualOpenCaseRequest,
+  AdminIssueCreditRequest,
+  CustomerCreditBalanceResponse,
 } from "@commerce-os/api-client";
 // TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
 // re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
@@ -1804,6 +1812,33 @@ export const storeApi = {
   updateStoreSettings: (input: StoreSettingsUpdateRequest) =>
     mutatingCall<StoreSettings>("/api/store/settings", {
       method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-174B (ADR-283) — Order Experience Recovery.
+  listOrderExperience: (query?: AdminListRequestQuery) =>
+    call<ExperienceListResponse>(`/api/order-experience${listQueryString(query)}`),
+  getOrderExperienceKpi: (query?: AdminListRequestQuery) =>
+    call<ExperienceKpiDto>(`/api/order-experience/kpi${listQueryString(query)}`),
+  getRecoveryCase: (caseId: string) =>
+    call<RecoveryCaseDetailDto>(`/api/order-experience/cases/${caseId}`),
+  recoveryAction: (caseId: string, input: RecoveryActionRequest) =>
+    mutatingCall<RecoveryCaseDetailDto>(`/api/order-experience/cases/${caseId}/actions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  openRecoveryCase: (input: ManualOpenCaseRequest) =>
+    mutatingCall<RecoveryCaseDetailDto>("/api/order-experience/cases", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
+  getCustomerCredit: (customerId: string, query?: AdminListRequestQuery) =>
+    call<CustomerCreditBalanceResponse>(`/api/customers/${customerId}/credit${listQueryString(query)}`),
+  issueCustomerCredit: (customerId: string, input: AdminIssueCreditRequest) =>
+    mutatingCall<CustomerCreditBalanceResponse>(`/api/customers/${customerId}/credit`, {
+      method: "POST",
       body: JSON.stringify(input),
     }),
 

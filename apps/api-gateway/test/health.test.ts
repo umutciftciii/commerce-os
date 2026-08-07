@@ -3417,6 +3417,9 @@ describe("api gateway", () => {
       fastRefundEnabled: false,
       fastRefundMaxAmountMinor: null,
       fastRefundCurrency: null,
+      // TODO-174B (ADR-281) — satir yoksa goodwill/store-credit policy null (özellik kapali) doner.
+      maxGoodwillCreditPerActionMinor: null,
+      goodwillCreditCurrency: null,
     });
     // GET olusturma YAPMAZ (satir hala yok).
     expect(dataAccess.storeSettings).toHaveLength(0);

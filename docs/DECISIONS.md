@@ -6208,3 +6208,56 @@ menşeyi AÇIKÇA yazar. Domain tabloları BİRLEŞTİRİLMEZ; yalnız **projeks
 Migration additive (`20260807150000_todo174a_experience_review_refund_origin`; `RefundOrigin` enum +
 `OrderRefund.origin` + backfill + index; `OrderExperienceReview` tablosu). Saf + gerçek-DB testleri yeşil;
 tam workspace test iki run yeşil; browser smoke (gerçek enterprise-demo verisi) her iki yüzeyde yeşil.
+
+## ADR-281 — Customer Shopping Balance / Store Credit: lot-tabanlı FEFO immutable ledger (TODO-174B) — ACCEPTED (2026-08-07)
+
+**Bağlam:** Müşteri geri kazanımı için gerçek TL alışveriş bakiyesi gerekiyordu. Repoda hiç store-credit/balance
+kavramı yoktu; kupon "wallet" (`CustomerCoupon`) bir state tablosu, finansal defter DEĞİL.
+
+**Karar:** 3-tablo, IMMUTABLE, lot-tabanlı FEFO ledger (şablon: `OrderRefund`+`OrderRefundEvent`):
+- `CustomerCreditAccount` — (store,customer,currency) çıpası + `cachedAvailableMinor` (yalnız perf).
+- `CustomerCreditLot` — bir grant = spendable lot (mutable head; `remaining` kilit altında azalır); `expiresAt`
+  ZORUNLU; `status ACTIVE|CONSUMED|EXPIRED`.
+- `CustomerCreditLedgerEntry` — append-only, her hareket bir satır; lot'a bağlı; `idempotencyKey` unique.
+Para her yerde minor-unit **BigInt**; API sınırında kanonik string (`@commerce-os/utils`), float YOK. Bakiye
+OTORİTESİ = Σ spendable lot remaining (`status=ACTIVE ∧ remaining>0 ∧ expiresAt>now`); cache deterministik
+doğrulanabilir. Concurrency: `pg_advisory_xact_lock(credit:<store>:<customer>)` + koşullu lot güncellemesi
+(`remaining>=take`) + version guard → no-negative-balance + çift-harcama engeli. Idempotency: unique key + P2002
+dedup. Policy: `StoreSettings.maxGoodwillCreditPerActionMinor` (null=kapalı; SUPER_ADMIN override; PATCH guard);
+manuel DEBIT ayrı+yüksek yetki. Admin credit `description`=müşteri-facing i18n KEY; internal note yalnız AuditLog.
+Migration additive (`20260807160000_todo174b...`). Saf (14) + gerçek-DB (11) invariant testleri yeşil.
+
+## ADR-282 — Store Credit checkout allocation & STORE_CREDIT PaymentAttempt (TODO-174B) — ACCEPTED (2026-08-07)
+
+**Karar:** Store credit bir ÖDEME yöntemidir, sipariş toplamını düşüren indirim DEĞİL. `PaymentMethodType.STORE_CREDIT`
+(additive) + MANUAL `PaymentAttempt` (status **PAID** — yeni status İCAT EDİLMEZ; mevcut `sumCapturedMinor`/
+`resolveOrderPaymentTransition` projeksiyonu değişmeden). Checkout allocation server-authoritative:
+`creditUsed = min(availableCredit, payableOrderAmount)` (kısmi tutar girişi YOK, tek toggle); FEFO harcama +
+STORE_CREDIT attempt + Order snapshot (`shoppingCreditUsedMinor`/`externalPaymentAmountMinor`, BigInt; finansal
+source-of-truth DEĞİL, denormalize). Tam-credit (external=0) → sipariş DOĞAL olarak PAID + rezervasyon SALE_COMMIT
++ cart CONVERTED (hacky fake PSP YOK); kısmi → kalan external ödemeye bırakılır (STORE_CREDIT attempt
+`sumCapturedMinor`'a girer → remaining doğru). İptalde `prepareCancellationRefund` STORE_CREDIT'i HÂRİÇ tutar
+(external captured yalnız kart) — credit kısmı bakiyeye restore edilir, sağlayıcıya iade edilmez. 4 checkout
+allocation testi + mixed credit+kart split testi yeşil.
+
+## ADR-283 — Order Experience Recovery Operations (TODO-174B) — ACCEPTED (2026-08-07)
+
+**Karar:** `OrderExperienceReview`'dan (ADR-279) recovery operasyonu türetilir: `OrderRecoveryCase` (lifecycle
+OPEN→ASSIGNED→CONTACT_ATTEMPTED→CUSTOMER_REACHED→ACTION_REQUIRED→RESOLVED→CLOSED + UNREACHABLE/NO_ACTION_REQUIRED;
+review başına @unique tek case; version guard) + append-only `OrderRecoveryActivity` (actorId scalar; internal note
+storefront'a ASLA sızmaz). Otomasyon: 1-2★ review create → AUTO case (atomik, idempotent); 3★ → yalnız MANUEL;
+4-5★ → case yok. Öncelik: 1★=HIGH/2★=MEDIUM/3★=LOW; SLA HIGH 24h/MEDIUM 48h/LOW 72h. Store Admin `Müşteri Deneyimi
+> Sipariş Deneyimi` yüzeyi (liste [case OPSİYONEL] + KPI ayrı endpoint + case detay + lifecycle aksiyonları +
+manuel case açma). Recovery detayından goodwill credit (ADR-281; recoveryCaseId'e idempotent bağlı; case history'e
+GOODWILL_CREDIT activity). ProductReview/ProductRatingAggregate'e SIFIR dokunuş. 8 recovery integration testi yeşil.
+
+## ADR-284 — Store Credit expiry policy: grant-level 30/60/120/180, FEFO, restore semantics (TODO-174B) — ACCEPTED (2026-08-07)
+
+**Karar:** Her goodwill/store-credit grant'ta son kullanım ZORUNLU; yalnız {30,60,120,180} gün (maks 180). Expiry
+LOT (grant) seviyesinde (müşteri farklı tarihlerde biten birden çok bakiyeye sahip olabilir). FEFO tüketim: en erken
+sona erecek lot önce (expiresAt ASC). Available bakiye OTORİTESİ = `expiresAt>now` filtresi — worker'dan BAĞIMSIZ
+(worker gecikse/çalışmasa bile süresi geçen lot available'a girmez). Expiry worker (`CREDIT_EXPIRY_SWEEP_ENABLED=false`
+default; production'da zorlanmaz) yalnız housekeeping: EXPIRED materialize + EXPIRE ledger entry ("Süresi doldu").
+İptal/iade restore: harcanan lot'un expiry'si HÂLÂ gelecekteyse remaining geri yüklenir + lot ACTIVE'e döner (revive);
+süresi GEÇMİŞ lot KESİNLİKLE revive edilmez (yapay canlandırma yok) — o porsiyon skippedExpired yapısal kaydı.
+Restore orijinal lot expiry'sini KORUR (uzatma yok). Saf + gerçek-DB testleri (expired-no-revive, sweep-idempotent) yeşil.

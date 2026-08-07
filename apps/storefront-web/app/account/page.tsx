@@ -16,12 +16,14 @@ import {
 } from "../../components/account/account-sidebar";
 import { OrdersSection } from "../../components/account/sections/orders-section";
 import { CouponsSection } from "../../components/account/sections/coupons-section";
+import { BalanceSection } from "../../components/account/sections/balance-section";
 import { FavoritesSection } from "../../components/account/sections/favorites-section";
 import { ListsSection } from "../../components/account/sections/lists-section";
 import { ReviewsSection } from "../../components/account/sections/reviews-section";
 // TODO-161B (ADR-137) — Hesabım > Görüntüleme Geçmişi (client island; temizle + bounded liste).
 import { ViewHistorySection } from "../../components/account/sections/view-history-section";
 import { getCouponCenter } from "../../lib/server/coupons";
+import { getShoppingBalance } from "../../lib/server/balance";
 import { getCustomerLists, getCustomerListDetail } from "../../lib/server/lists";
 import { getMyReviews } from "../../lib/server/reviews";
 import { listOrderExperience } from "../../lib/server/order-experience";
@@ -47,6 +49,7 @@ const SECTIONS: AccountSection[] = [
   "favorites",
   "lists",
   "coupons",
+  "balance",
   "viewHistory",
 ];
 
@@ -198,6 +201,11 @@ async function renderSection(
     case "coupons": {
       const center = await getCouponCenter();
       return <CouponsSection coupons={center.coupons} t={t.coupons} />;
+    }
+    case "balance": {
+      // TODO-174B (ADR-281) — Alışveriş Bakiyem (kullanılabilir bakiye + hareketler).
+      const balance = await getShoppingBalance();
+      return <BalanceSection data={balance} locale={locale} />;
     }
     case "viewHistory":
       // TODO-161B — Görüntüleme geçmişi client island'da çözülür (kimlik = müşteri cookie).

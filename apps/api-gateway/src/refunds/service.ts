@@ -89,9 +89,18 @@ async function writeEvent(
 }
 
 /** Bir order için tahsil edilmiş (captured) toplam — order.currency ile eşleşen settled attempt'ler. */
-async function loadCapturedMinor(tx: Tx, storeId: string, orderId: string, currency: string): Promise<number> {
+async function loadCapturedMinor(
+  tx: Tx,
+  storeId: string,
+  orderId: string,
+  currency: string,
+  opts?: { excludeStoreCredit?: boolean },
+): Promise<number> {
+  // TODO-174B (ADR-282) — İptal PSP-refund'unda STORE_CREDIT tahsilatı HÂRİÇ tutulur: alışveriş
+  // bakiyesiyle ödenen kısım sağlayıcıya iade EDİLMEZ, bakiyeye geri yüklenir (ayrı ledger). Diğer
+  // çağrılarda (return refund cap) davranış DEĞİŞMEZ (excludeStoreCredit=false varsayılan).
   const attempts = await tx.paymentAttempt.findMany({
-    where: { storeId, orderId, currency },
+    where: { storeId, orderId, currency, ...(opts?.excludeStoreCredit ? { method: { not: "STORE_CREDIT" } } : {}) },
     select: { status: true, amount: true },
   });
   return sumCapturedMinor(attempts);
@@ -675,20 +684,23 @@ export async function prepareCancellationRefund(
   });
   if (!order) return { status: "SKIPPED_NO_CAPTURE", refundId: null, mode: null };
 
-  const captured = await loadCapturedMinor(tx, input.storeId, order.id, order.currency);
+  // TODO-174B (ADR-282) — External (STORE_CREDIT HÂRİÇ) tahsilat: yalnız kart/PSP kısmı sağlayıcıya
+  // iade edilir. Alışveriş bakiyesiyle ödenen kısım restoreCreditForOrderInTx ile bakiyeye geri döner.
+  const captured = await loadCapturedMinor(tx, input.storeId, order.id, order.currency, { excludeStoreCredit: true });
   const ledger = await loadLedgerRows(tx, input.storeId, order.id);
   const remaining = computeRefundableRemainingMinor(captured, ledger, order.currency);
   if (remaining <= 0) return { status: "SKIPPED_NO_CAPTURE", refundId: null, mode: null };
 
-  // Tahsil edilmiş attempt (PAID öncelik; yoksa AUTHORIZED). Refund çağrısı bu attempt'i referanslar.
+  // Tahsil edilmiş external attempt (PAID öncelik; yoksa AUTHORIZED). STORE_CREDIT attempt'i HÂRİÇ
+  // (sağlayıcıya iade edilmez). Refund çağrısı bu attempt'i referanslar.
   const attempt =
     (await tx.paymentAttempt.findFirst({
-      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "PAID" },
+      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "PAID", method: { not: "STORE_CREDIT" } },
       orderBy: { createdAt: "desc" },
       select: { id: true, provider: true, method: true, type: true, manualMethod: true },
     })) ??
     (await tx.paymentAttempt.findFirst({
-      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "AUTHORIZED" },
+      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "AUTHORIZED", method: { not: "STORE_CREDIT" } },
       orderBy: { createdAt: "desc" },
       select: { id: true, provider: true, method: true, type: true, manualMethod: true },
     }));

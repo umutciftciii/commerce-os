@@ -14,6 +14,7 @@ export type AccountSection =
   | "favorites"
   | "lists"
   | "coupons"
+  | "balance"
   | "viewHistory";
 
 const PROFILE_GROUP: AccountSection[] = [
@@ -120,6 +121,10 @@ export function AccountSidebar({
           {t.menu.coupons}
         </Link>
       ) : null}
+      {/* TODO-174B (ADR-281) — Alışveriş Bakiyem (her zaman görünür; store credit çekirdek). */}
+      <Link href="/account?section=balance" className={itemClass(section === "balance")}>
+        {t.menu.balance}
+      </Link>
       {on("RECENTLY_VIEWED") ? (
         <Link href="/account?section=viewHistory" className={itemClass(section === "viewHistory")}>
           {t.menu.viewHistory}

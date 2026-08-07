@@ -8,6 +8,7 @@
  * yine de savunma-derinliği için delivered kontrolü açıkça yapılır.
  */
 import { prisma } from "@commerce-os/db";
+import { openRecoveryCaseForReview } from "./recovery-service.js";
 
 /**
  * Saf uygunluk kuralı (birim-test edilebilir): iptal edilmiş + teslim EDİLMEMİŞ sipariş uygundur.
@@ -121,14 +122,27 @@ export async function createOrderExperienceReview(input: {
   rating: number;
   comment: string | null;
 }) {
-  return prisma.orderExperienceReview.create({
-    data: {
+  // TODO-174B (ADR-283) — review + otomatik recovery case atomik. 1-2★ → AUTO case (idempotent,
+  // review başına tek). 3★/4-5★ → case AÇILMAZ (3★ yalnız admin manuel). ProductReview/aggregate'e dokunmaz.
+  return prisma.$transaction(async (tx) => {
+    const review = await tx.orderExperienceReview.create({
+      data: {
+        storeId: input.storeId,
+        orderId: input.orderId,
+        customerId: input.customerId,
+        rating: input.rating,
+        comment: input.comment,
+      },
+      select: { id: true, rating: true, comment: true, createdAt: true },
+    });
+    await openRecoveryCaseForReview(tx, {
       storeId: input.storeId,
-      orderId: input.orderId,
+      orderExperienceReviewId: review.id,
       customerId: input.customerId,
+      orderId: input.orderId,
       rating: input.rating,
-      comment: input.comment,
-    },
-    select: { id: true, rating: true, comment: true, createdAt: true },
+      mode: "AUTO",
+    });
+    return review;
   });
 }

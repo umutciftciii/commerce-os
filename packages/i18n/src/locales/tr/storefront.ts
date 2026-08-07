@@ -707,6 +707,9 @@ export const trStorefront = {
     paymentTestNote: "Test ödeme yöntemi aktif.",
     paymentTestHint:
       "Siparişi oluşturduğunuzda güvenli test ödeme adımına yönlendirileceksiniz. Bu ortamda gerçek tahsilat yapılmaz.",
+    creditToggleLabel: "Alışveriş bakiyemi kullan",
+    creditToggleHint:
+      "Kullanılabilir alışveriş bakiyeniz otomatik olarak uygulanır; kalan tutar için ödeme adımına geçilir.",
     summaryTitle: "Sipariş özeti",
     summaryNote: "Tutarlara KDV dahildir. Tutarlar siparişiniz oluşturulduğunda son kez doğrulanır.",
     subtotal: "Ara toplam",
@@ -980,6 +983,7 @@ export const trStorefront = {
       favorites: "Beğendiklerim",
       lists: "Tüm Listelerim",
       coupons: "Kuponlarım",
+      balance: "Alışveriş Bakiyem",
       viewHistory: "Son İncelediklerim",
       logout: "Çıkış Yap",
     },

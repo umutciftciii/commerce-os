@@ -679,6 +679,9 @@ export const enStorefront: StorefrontDictionary = {
     paymentTestNote: "Test payment method is active.",
     paymentTestHint:
       "After placing your order you'll be taken to a secure test payment step. No real charge is made in this environment.",
+    creditToggleLabel: "Use my shopping balance",
+    creditToggleHint:
+      "Your available shopping balance is applied automatically; any remaining amount proceeds to payment.",
     summaryTitle: "Order summary",
     summaryNote: "Prices include VAT. Amounts are re-validated when your order is placed.",
     subtotal: "Subtotal",
@@ -948,6 +951,7 @@ export const enStorefront: StorefrontDictionary = {
       favorites: "My favourites",
       lists: "All my lists",
       coupons: "My coupons",
+      balance: "My shopping balance",
       viewHistory: "Recently viewed",
       logout: "Sign out",
     },

@@ -151,6 +151,15 @@ export function CheckoutForm({
           ) : (
             <p className="mt-2 text-sm leading-relaxed text-ink-muted">{t.paymentNote}</p>
           )}
+          {/* TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle. Server-authoritative:
+              min(available, payable) uygulanır; bakiye 0 ise no-op (yalnız oturum açmış müşteride etkili). */}
+          <label className="mt-4 flex items-start gap-3 rounded-xl border border-line/60 p-3 text-sm">
+            <input type="checkbox" name="useShoppingCredit" value="true" className="mt-0.5" />
+            <span>
+              <span className="font-medium text-ink">{t.creditToggleLabel}</span>
+              <span className="mt-0.5 block text-ink-muted">{t.creditToggleHint}</span>
+            </span>
+          </label>
         </div>
       </div>
 

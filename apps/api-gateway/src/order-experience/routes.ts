@@ -8,12 +8,16 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
 import {
+  customerCreditBalanceResponseSchema,
   orderExperienceListResponseSchema,
   orderExperienceReviewCreateSchema,
   orderExperienceReviewResponseSchema,
 } from "@commerce-os/contracts";
+import { prisma } from "@commerce-os/db";
+import { minorToCanonicalString } from "@commerce-os/utils";
 import type { CustomerAuthRecord, CustomerDataAccess } from "../customers/index.js";
 import { resolveCustomerFromRequest } from "../customers/index.js";
+import { getCustomerBalance } from "../customer-credit/service.js";
 import {
   createOrderExperienceReview,
   findOrderExperienceReview,
@@ -21,6 +25,8 @@ import {
   resolveOrderForExperience,
   sanitizeExperienceComment,
 } from "./service.js";
+
+const STOREFRONT_CREDIT_CURRENCY = "TRY";
 
 export interface OrderExperienceRoutesDeps {
   config: AppConfig;
@@ -124,5 +130,38 @@ export function registerOrderExperienceRoutes(
       }
       throw error;
     }
+  });
+
+  // ── TODO-174B (ADR-281) — Müşteri alışveriş bakiyesi + hareket geçmişi (storefront). ──────────
+  app.get(`${base}/balance`, async (request, reply) => {
+    const store = await requireStore(request, reply);
+    if (!store) return;
+    const customer = await requireCustomer(request, reply, store.id);
+    if (!customer) return;
+    const view = await getCustomerBalance(store.id, customer.id, STOREFRONT_CREDIT_CURRENCY);
+    // orderId → orderNumber (insan-okur; description KEY client'ta lokalize edilir).
+    const orderIds = [...new Set(view.entries.map((e) => e.orderId).filter((v): v is string => !!v))];
+    const orders = orderIds.length
+      ? await prisma.order.findMany({ where: { storeId: store.id, id: { in: orderIds } }, select: { id: true, orderNumber: true } })
+      : [];
+    const orderNumberById = new Map(orders.map((o) => [o.id, o.orderNumber]));
+    return reply.send(
+      customerCreditBalanceResponseSchema.parse({
+        currency: view.currency,
+        availableMinor: minorToCanonicalString(view.availableMinor),
+        entries: view.entries.map((e) => ({
+          id: e.id,
+          type: e.type,
+          direction: e.direction,
+          amountMinor: minorToCanonicalString(e.amountMinor),
+          balanceAfterMinor: minorToCanonicalString(e.balanceAfterMinor),
+          currency: e.currency,
+          description: e.description,
+          orderId: e.orderId,
+          orderNumber: e.orderId ? orderNumberById.get(e.orderId) ?? null : null,
+          createdAt: e.createdAt.toISOString(),
+        })),
+      }),
+    );
   });
 }
