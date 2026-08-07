@@ -2288,3 +2288,17 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 > reject iki-mutation sequencing (business). Ayrıca CI governance ve TD-173-1…4 FUTURE kalır.
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #190 (merge `ab1bbec`); CI lint·test·build 5m59s PASS. Deploy: docker `storefront-web` + `store-admin-web` main'den rebuild+recreate (api-gateway/worker/postgres/redis DOKUNULMADI — i18n reverseShipment/wizard yalnız web dict). Post-deploy smoke: store-admin returns list + R000001 detay production build render + SA-1 friendly ödeme rozeti + taşma yok; storefront home/PLP 200, account/returns login-render, reverseShipment key deployed bundle'da. İzole browser-smoke fixture FK-güvenli temizlendi (enterprise-demo R000001 değişmedi).
+
+## TODO-174 Customer Self-Service Order Cancellation — açık borç (FUTURE)
+
+- **TD-CXL-1** `Order.version` yalnız self-servis iptal akışında bump edilir (genel optimistic-lock değil).
+  İleride sipariş mutasyonlarına yaygınlaştırılabilir. Şu an iptal-vs-handoff yarışı için yeterli.
+- **TD-CXL-2** Shipment create-yolu (`create-order`/`shipment-draft`/`dhl/prepare`) `ensureOrderNotCancelled`
+  guard'ı ile korunur ama tx-dışı okuma nedeniyle DRAFT shipment oluşturmada teorik mikro-yarış penceresi kalır
+  (yeni shipment DRAFT = handoff değil, zararsız). IN_TRANSIT handoff `/status` route'unda tx-içi guard +
+  koşullu update ile airtight'tır (ADR-275).
+- **TD-CXL-3** Legacy/admin `cancelOrder` (server.ts) taksonomi alanlarını (cancelSource/reasonCode/Category)
+  YAZMAZ → İptal Raporu'nda source=null bucket'ında görünür. Admin iptalini taksonomiye taşımak FUTURE.
+- **TD-CXL-4** İptal Raporu CSV export'u YOK (finance raporlarının aksine); tab'da export butonu gizli. FUTURE.
+- **TD-CXL-5** Taksonomi değişikliği (yeni reason ekleme/INACTIVE) gelecekteki `Store → Platform Request & Task
+  Management` domain'i üzerinden yapılacak; bu fazda enum + registry çift-kaynak elle güncellenir (ADR-278).

@@ -6,8 +6,10 @@ import { Alert, Button, ButtonLink } from "../ui";
 import { format } from "@commerce-os/i18n";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type { ProductReviewStatus } from "@commerce-os/api-client";
+import type { CancellationOrderSummary } from "@commerce-os/contracts";
 import { buyAgainAction, type BuyAgainState } from "../../lib/server/order-actions";
 import { ReviewForm } from "../reviews/pdp-reviews";
+import { CancelOrderModal } from "./cancellations/cancel-order-modal";
 import type {
   OrderReviewReason,
   OrderReviewState,
@@ -17,6 +19,7 @@ import type {
 
 type OrdersDict = StorefrontDictionary["account"]["orders"];
 type ReviewsDict = StorefrontDictionary["reviews"];
+type CancellationsDict = StorefrontDictionary["account"]["cancellations"];
 
 /**
  * TODO-079 / TODO-159E hotfix — Sipariş kartı/detayı post-order CTA grubu (istemci).
@@ -31,6 +34,9 @@ export function OrderActions({
   t,
   reorderable,
   canReturn,
+  canCancel = false,
+  cancelSummary = null,
+  cancelT,
   review,
   reviewsT,
   layout = "card",
@@ -40,6 +46,11 @@ export function OrderActions({
   reorderable: boolean;
   // TODO-169 — İade CTA görünürlüğü (yalnız kaba kapı; uygunluk sunucuda). Bkz. canRequestReturn.
   canReturn: boolean;
+  // TODO-174 — İptal CTA görünürlüğü (yalnız kaba kapı; uygunluk sunucuda). Bkz. canCancelOrder.
+  canCancel?: boolean;
+  // İptal modalının ihtiyaç duyduğu server-otoriter özet (version/isPaid/estimatedRefund).
+  cancelSummary?: CancellationOrderSummary | null;
+  cancelT?: CancellationsDict;
   review: OrderReviewState;
   reviewsT: ReviewsDict;
   layout?: "card" | "detail";
@@ -50,6 +61,9 @@ export function OrderActions({
   // TODO-169 (blocker #5 regresyon) — review paneli AYRI aç/kapa state'i. Panel action-bar'ın DIŞINDA
   // (altında) render edilir → aksiyon çubuğu SABİT kalır, iade CTA alt satıra İTİLMEZ.
   const [reviewOpen, setReviewOpen] = useState(false);
+  // TODO-174 — iptal modalı aç/kapa state'i.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const cancelEnabled = canCancel && cancelSummary !== null && cancelT !== undefined;
 
   function runBuyAgain() {
     setPanel(null);
@@ -96,7 +110,23 @@ export function OrderActions({
             {t.actions.return}
           </ButtonLink>
         ) : null}
+        {cancelEnabled ? (
+          <Button size="sm" variant="secondary" onClick={() => setCancelOpen(true)}>
+            {t.actions.cancel}
+          </Button>
+        ) : null}
       </div>
+
+      {/* TODO-174 — İptal modalı action-bar'ın DIŞINDA render edilir (overlay); çubuk sabit kalır.
+          Koşul cancelSummary/cancelT'yi TS için AÇIKÇA daraltır (türetilmiş bool narrow etmez). */}
+      {cancelOpen && cancelSummary && cancelT ? (
+        <CancelOrderModal
+          orderNumber={orderNumber}
+          summary={cancelSummary}
+          t={cancelT}
+          onClose={() => setCancelOpen(false)}
+        />
+      ) : null}
 
       {/* Review paneli — action-bar'ın DIŞINDA (destek notu gibi), sabit çubuğu bozmadan. */}
       {reviewOpen && review.visible ? (

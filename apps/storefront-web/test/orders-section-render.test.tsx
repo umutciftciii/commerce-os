@@ -23,6 +23,7 @@ function order(lines: CustomerOrderSummary["lines"]): CustomerOrderSummary {
     createdAt: "2026-07-01T10:00:00.000Z",
     shipmentStatus: null,
     returnSummary: null,
+    cancellationSummary: null,
   };
 }
 

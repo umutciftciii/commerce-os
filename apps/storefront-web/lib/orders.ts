@@ -1,4 +1,5 @@
 import type { CustomerOrderSummary } from "@commerce-os/api-client";
+import type { CancellationEligibilityState } from "@commerce-os/contracts";
 
 /**
  * TODO-079 — Hesabım > Siparişlerim saf yardımcıları (sunucu+istemci ortak).
@@ -88,6 +89,26 @@ export function canRequestReturn(
   const shipped =
     order.fulfillmentStatus === "FULFILLED" || order.fulfillmentStatus === "PARTIAL";
   return !closed && shipped;
+}
+
+/**
+ * TODO-174 (ADR-275/277/278) — İptal CTA'sı yalnız GÖRÜNÜRLÜK kapısıdır; UYGUNLUK
+ * KARARI DEĞİLDİR (canRequestReturn deseniyle birebir). İstemci iptal penceresini
+ * TAHMİN ETMEZ: gerçek uygunluk/version/tahmini iade sunucudan (cancellationSummary)
+ * gelir. Burada yalnız "iptal CTA'sını göster" kaba koşulu var: sunucu-türetilmiş
+ * eligibility === "ALLOWED". Diğer durumlar (BLOCKED_x / NOT_CANCELLABLE / null) → CTA yok.
+ */
+export function canCancelOrder(
+  order: Pick<CustomerOrderSummary, "cancellationSummary">,
+): boolean {
+  return order.cancellationSummary?.eligibility === "ALLOWED";
+}
+
+/** İptal uygunluk durumunu (server-türetilen) okur; özet yoksa null. Mesajlama kapısı. */
+export function resolveCancelEligibility(
+  order: Pick<CustomerOrderSummary, "cancellationSummary">,
+): CancellationEligibilityState | null {
+  return order.cancellationSummary?.eligibility ?? null;
 }
 
 /** Ürün yorumu CTA: yalnız teslim/tamamlanmış (FULFILLED) siparişte aktif. */

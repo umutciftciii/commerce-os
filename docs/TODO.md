@@ -2,6 +2,25 @@
 
 ## Yakin Isler
 
+- **TODO-174 Customer Self-Service Order Cancellation — 🚧 IMPLEMENTED (PR/deploy bekliyor).** Müşteri kendi
+  siparişini self-servis iptal eder (`POST /public/stores/:slug/customer/orders/:orderNumber/cancel` +
+  `GET .../cancel-eligibility`; 2 adımlı storefront modali). **Uygunluk = CARRIER HANDOFF** (shipment varlığı
+  DEĞİL; ADR-275): ALLOWED (handoff yok) / BLOCKED_IN_TRANSIT ("kargoya verildi") / BLOCKED_DELIVERED (→ Return
+  Flow) / NOT_CANCELLABLE. Başarılı iptal: Order→CANCELLED + cancelSource=CUSTOMER + reason kodu/kategori/not +
+  rezervasyon release (paylaşılan helper) + pre-handoff outbound shipment CANCELLED + coupon/campaign rollback
+  (ADR-277) + PAID'de tam refundable bakiye (kargo dahil) üzerinden **intent'siz OrderRefund** otomatik refund
+  (ADR-276) + OrderEvent/AuditLog. Refund tutarı client'tan KABUL EDİLMEZ. Refund başarısızlığı order'ı CANCELLED
+  bırakır. Concurrency: advisory lock + shipment FOR UPDATE + `Order.version` guard + `/status`/create-yolu
+  handoff sertleştirme (yalnız biri kazanır; CANCELLED sipariş IN_TRANSIT/fulfillment edilemez). Taksonomi
+  platform-tanımlı (Prisma enum + contracts registry + i18n; Store Admin CRUD YOK; ADR-278). Store Admin: iptal
+  detay paneli + Finans>Raporlar "İptal Raporu" sekmesi (count/rate/ciro/reason dağılımı/trend/ödeme+kargo/kaynak/
+  top ürün + filtreler). Migration additive `20260807140000_todo174...` (Order 4 kolon + version, 3 enum; fresh
+  replay + existing DB upgrade doğrulandı). **Gate YEŞİL:** build 27/27 · lint 0 hata · typecheck · test Run1+Run2
+  (api-gateway 2504 [+51 iptal], storefront 550, store-admin 368) · `git diff --check` temiz. Browser smoke
+  (gerçek auth + izole fixture, FK-güvenli teardown, enterprise-demo pristine): storefront eligible cancel/2-step
+  modal/OTHER validation/refund özeti/success+ayrı refund durumu/IN_TRANSIT mesajı/DELIVERED no-CTA + store-admin
+  iptal paneli/rapor, 375/768/1024/1440 taşma yok. ADR-275…278.
+
 - **TODO-169 Returns Management Foundation — ✅ CLOSED & DEPLOYED** (PR #171 merge `360fb96`; ADR-269; 2026-08-04).
   api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (`--no-deps`; postgres/redis/worker/
   admin-web DOKUNULMADI, volume korundu); migration `20260804090000_todo169...` `migrate deploy`; post-deploy

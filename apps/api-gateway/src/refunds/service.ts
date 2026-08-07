@@ -642,6 +642,122 @@ export async function cancelRefund(input: {
   });
 }
 
+// ── TODO-174 (ADR-276) Cancellation Refund — intent'siz/return'süz ledger girişi ─────────────────
+// Self-servis iptal, ReturnRequest/RefundIntent OLMADAN tam refundable bakiyeyi iade eder. OrderRefund
+// ledger'ı (returnRequestId=null, refundIntentId=null) şema-yasaldır. Aynı executeAutomatic/applyOutcome/
+// cap-calc/capability makinesi REUSE edilir; tryCompleteReturn returnRequestId null olduğu için no-op.
+// Prep (ledger PENDING) iptal transaction'ı İÇİNDE çağrılır (obligation cancel ile atomik durur); provider
+// yürütmesi commit SONRASI (executeAutomatic). Provider başarısızlığı order'ı CANCELLED bırakır (ADR-276).
+
+export type CancellationRefundPrepStatus = "CREATED" | "SKIPPED_NO_CAPTURE" | "DEDUPED";
+
+export interface CancellationRefundPrep {
+  status: CancellationRefundPrepStatus;
+  refundId: string | null;
+  mode: import("@prisma/client").RefundExecutionMode | null;
+}
+
+/**
+ * İptal refund'unu ledger'a PENDING olarak yazar (iptal tx İÇİNDE). Tam refundable bakiye (captured − aktif/
+ * succeeded) iade edilir; kargo ücreti dahil. Ödeme alınmamışsa (remaining<=0) refund ÜRETİLMEZ. Idempotent:
+ * `order-cancel-refund:<orderId>` unique → ikinci iptal refund'u oluşturmaz (DEDUPED). Provider ÇAĞRILMAZ.
+ */
+export async function prepareCancellationRefund(
+  tx: Tx,
+  input: { storeId: string; orderId: string; actorUserId: string | null },
+): Promise<CancellationRefundPrep> {
+  await lockOrder(tx, input.storeId, input.orderId);
+  const order = await tx.order.findFirst({
+    where: { id: input.orderId, storeId: input.storeId },
+    select: { id: true, currency: true, shippingAmount: true, taxAmount: true },
+  });
+  if (!order) return { status: "SKIPPED_NO_CAPTURE", refundId: null, mode: null };
+
+  const captured = await loadCapturedMinor(tx, input.storeId, order.id, order.currency);
+  const ledger = await loadLedgerRows(tx, input.storeId, order.id);
+  const remaining = computeRefundableRemainingMinor(captured, ledger, order.currency);
+  if (remaining <= 0) return { status: "SKIPPED_NO_CAPTURE", refundId: null, mode: null };
+
+  // Tahsil edilmiş attempt (PAID öncelik; yoksa AUTHORIZED). Refund çağrısı bu attempt'i referanslar.
+  const attempt =
+    (await tx.paymentAttempt.findFirst({
+      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "PAID" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, provider: true, method: true, type: true, manualMethod: true },
+    })) ??
+    (await tx.paymentAttempt.findFirst({
+      where: { storeId: input.storeId, orderId: order.id, currency: order.currency, status: "AUTHORIZED" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, provider: true, method: true, type: true, manualMethod: true },
+    }));
+  if (!attempt) return { status: "SKIPPED_NO_CAPTURE", refundId: null, mode: null };
+
+  // Split (disclosure): total = product + shipping; tax product İÇİNDE. Kargo tamamı iade (remaining ile cap).
+  const shippingRefundMinor = Math.min(Math.max(0, order.shippingAmount), remaining);
+  const productRefundMinor = remaining - shippingRefundMinor;
+  const taxRefundMinor = Math.min(Math.max(0, order.taxAmount), productRefundMinor);
+
+  const capability: RefundCapability = resolveRefundCapability({
+    type: attempt.type,
+    provider: attempt.provider,
+    method: attempt.method,
+    manualMethod: attempt.manualMethod,
+  });
+
+  const idempotencyKey = `order-cancel-refund:${order.id}`;
+  try {
+    const refund = await tx.orderRefund.create({
+      data: {
+        storeId: input.storeId,
+        orderId: order.id,
+        returnRequestId: null,
+        refundIntentId: null,
+        paymentAttemptId: attempt.id,
+        provider: capability.provider,
+        executionMode: capability.mode,
+        method: capability.method,
+        status: "PENDING",
+        currency: order.currency,
+        productRefundMinor,
+        shippingRefundMinor,
+        taxRefundMinor,
+        totalRefundMinor: remaining,
+        manualMethod: capability.mode === "MANUAL_OFFLINE" ? capability.manualMethod : null,
+        idempotencyKey,
+        requestedByPlatformUserId: input.actorUserId,
+      },
+      select: { id: true },
+    });
+    await writeEvent(tx, input.storeId, refund.id, "REQUESTED", ACTOR_SYSTEM, input.actorUserId, remaining, {
+      metadata: { source: "ORDER_CANCELLATION" },
+    });
+    return { status: "CREATED", refundId: refund.id, mode: capability.mode };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const existing = await tx.orderRefund.findFirst({
+        where: { storeId: input.storeId, idempotencyKey },
+        select: { id: true, executionMode: true },
+      });
+      if (existing) return { status: "DEDUPED", refundId: existing.id, mode: existing.executionMode };
+    }
+    throw err;
+  }
+}
+
+/**
+ * İptal refund'unu (PROVIDER_AUTOMATIC) commit SONRASI yürütür. Var olan executeAutomatic'i sarar
+ * (aynı applyOutcome/reprojectOrderPaymentStatus; tryCompleteReturn no-op). Başarısızlık order'ı
+ * CANCELLED bırakır; ledger FAILED olur (admin recovery: retry/manual).
+ */
+export async function runCancellationRefundExecution(
+  storeId: string,
+  refundId: string,
+  deps: RefundServiceDeps,
+  actorUserId: string | null,
+): Promise<void> {
+  await executeAutomatic(storeId, refundId, deps, actorUserId);
+}
+
 // ── Read modeli (admin/customer bağlamları) ────────────────────────────────────────────────────
 
 export interface OrderRefundContext {

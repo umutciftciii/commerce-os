@@ -1072,6 +1072,8 @@ export const trStorefront = {
         support: "Ürün desteği al",
         review: "Ürün yorumu yaz",
         return: "İade talebi oluştur",
+        // TODO-174 (ADR-275/277/278) — Müşteri self-servis sipariş iptali CTA'sı.
+        cancel: "Siparişi İptal Et",
       },
       statusValues: {
         DRAFT: "Taslak",
@@ -1513,6 +1515,105 @@ export const trStorefront = {
         WINDOW_EXPIRED: "İade süresi doldu",
         FULLY_RETURNED: "Tamamı iade edildi",
         NOT_ELIGIBLE: "İadeye uygun değil",
+      },
+    },
+    // TODO-174 (ADR-275/277/278) — Müşteri self-servis sipariş iptali (2 adımlı modal +
+    // uygunsuz sipariş mesajları + iptal edilmiş sipariş bloğu). Enum DEĞERLERİ sabittir;
+    // yalnız etiketler yerelleştirilir. Uygunluk/tutar SUNUCU-OTORİTERDİR — bu metinler
+    // yalnız sunum içindir. İstemci refund tutarı GÖNDERMEZ.
+    cancellations: {
+      title: "Siparişi İptal Et",
+      modalAria: "Sipariş iptal akışı",
+      close: "Kapat",
+      stepAria: "Sipariş iptal adımları",
+      stepCompleted: "tamamlandı",
+      stepCurrent: "geçerli adım",
+      steps: {
+        reason: "İptal nedeni",
+        confirm: "Özet ve onay",
+      },
+      // Adım 1 — neden seçimi.
+      reasonTitle: "İptal nedenini seçin",
+      reasonHelp: "Siparişinizi neden iptal etmek istediğinizi belirtin.",
+      reasonPlaceholder: "Bir neden seçin",
+      noteLabel: "Açıklama",
+      noteRequiredHint: "Lütfen iptal nedeninizi kısaca açıklayın.",
+      noteRequiredError: "Bu neden için açıklama zorunludur.",
+      // Kategori etiketleri (server-türetilen; yalnız gösterim gruplaması).
+      categories: {
+        ORDER_MISTAKE: "Sipariş hatası",
+        PRICE_PROMOTION: "Fiyat ve kampanya",
+        DELIVERY: "Teslimat",
+        PAYMENT: "Ödeme",
+        PRODUCT_DECISION: "Ürün kararı",
+        OTHER: "Diğer",
+      },
+      // Neden kodu etiketleri (18 enum değeri).
+      reasons: {
+        WRONG_PRODUCT: "Yanlış ürün sipariş ettim",
+        WRONG_VARIANT_SIZE_COLOR: "Yanlış beden/renk seçtim",
+        WRONG_QUANTITY: "Yanlış adet sipariş ettim",
+        DUPLICATE_ORDER: "Siparişi mükerrer verdim",
+        ACCIDENTAL_ORDER: "Yanlışlıkla sipariş verdim",
+        FOUND_CHEAPER_ELSEWHERE: "Başka yerde daha uygun fiyat buldum",
+        COUPON_DISCOUNT_NOT_AS_EXPECTED: "Kupon/indirim beklediğim gibi uygulanmadı",
+        TOTAL_PRICE_TOO_HIGH: "Toplam tutar beklediğimden yüksek",
+        DELIVERY_ESTIMATE_TOO_LONG: "Tahmini teslim süresi çok uzun",
+        SHIPPING_FEE_TOO_HIGH: "Kargo ücreti çok yüksek",
+        WILL_NOT_ARRIVE_IN_TIME: "Zamanında ulaşmayacak",
+        WRONG_PAYMENT_METHOD: "Yanlış ödeme yöntemi kullandım",
+        INSTALLMENT_OR_PAYMENT_OPTION_UNSUITABLE: "Taksit/ödeme seçeneği uygun değil",
+        PAYMENT_CONCERN: "Ödemeyle ilgili endişem var",
+        NO_LONGER_NEEDED: "Artık ihtiyacım yok",
+        CHANGED_MIND: "Fikrim değişti",
+        PREFER_DIFFERENT_PRODUCT: "Farklı bir ürünü tercih ediyorum",
+        OTHER: "Diğer",
+      },
+      // Adım 2 — özet + kesin onay.
+      confirmTitle: "İptali onaylayın",
+      summaryOrder: "Sipariş No",
+      summaryReason: "İptal nedeni",
+      refundLabel: "İade edilecek toplam",
+      refundNote: "Siparişiniz iptal edilecek ve ödemeniz otomatik olarak iade edilecektir.",
+      confirmCta: "Siparişi iptal et",
+      confirming: "İptal ediliyor…",
+      back: "Geri",
+      next: "Devam et",
+      // Başarı — iptal edildi. Refund durumu AYRI gösterilir (yanıltıcı "iade tamamlandı" yok).
+      successTitle: "Sipariş iptal edildi",
+      successBody: "Siparişiniz iptal edildi.",
+      refundStatusLabel: "İade durumu",
+      // MASKELİ refund durumu → müşteri-dostu tek satır. PENDING/PROCESSING işleniyor;
+      // SUCCEEDED tamamlandı; FAILED nötr ("güncellenecek", yanıltıcı değil); NONE ödeme yok.
+      refundStatusValues: {
+        NONE: "Bu sipariş için iade oluşturulmadı.",
+        PENDING: "İade işleniyor",
+        PROCESSING: "İade işleniyor",
+        SUCCEEDED: "İade tamamlandı",
+        FAILED: "İade durumu güncellenecek",
+      },
+      // Hata mesajları (server error.code → mesaj).
+      errors: {
+        generic: "İşlem tamamlanamadı, lütfen tekrar deneyin.",
+        conflict: "Sipariş durumu değişti, sayfayı yenileyin.",
+        notFound: "Sipariş bulunamadı.",
+        invalidReason: "Lütfen geçerli bir iptal nedeni seçin.",
+        noteRequired: "Bu neden için açıklama zorunludur.",
+        blockedInTransit:
+          "Siparişiniz kargoya verildiği için artık doğrudan iptal edilemiyor.",
+        blockedDelivered:
+          "Teslim edilen siparişler iptal edilemez; iade talebi oluşturabilirsiniz.",
+        notCancellable: "Bu sipariş artık iptal edilemez.",
+      },
+      // Sipariş detayında uygunsuz durum mesajı (kargoya verildi → iptal yok, iade akışı).
+      blockedInTransitNote:
+        "Siparişiniz kargoya verildiği için artık doğrudan iptal edilemiyor. Ürün size ulaştıktan sonra iade talebi oluşturabilirsiniz.",
+      // Zaten iptal edilmiş sipariş bloğu (detay sayfası).
+      cancelled: {
+        title: "Sipariş iptal edildi",
+        reasonLabel: "İptal nedeni",
+        refundStatusLabel: "İade durumu",
+        cancelledAt: "İptal tarihi",
       },
     },
     membership: {

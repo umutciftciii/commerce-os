@@ -8,12 +8,16 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
+  cancellationReportQuerySchema,
+  cancellationReportResponseSchema,
   financeBreakdownsResponseSchema,
   financeDiscountReportResponseSchema,
   financePaymentReportResponseSchema,
   financeReportQuerySchema,
   financeSummaryResponseSchema,
 } from "@commerce-os/contracts";
+import { prisma } from "@commerce-os/db";
+import { buildCancellationReport } from "../orders/cancellation-report.js";
 import type { ResolvedRange } from "../influencers/analytics-range.js";
 import { resolveFinanceRange, type FinancePeriodPreset } from "./date-range.js";
 import {
@@ -237,6 +241,31 @@ export function registerFinanceRoutes(app: FastifyInstance, deps: FinanceRoutesD
     return reply.send(
       financeDiscountReportResponseSchema.parse({ data: { range: rangeMeta(range.current), currency, rows } }),
     );
+  });
+
+  // ── TODO-174 (ADR-275) İptal raporu (Store Admin YALNIZ görüntüler) ─────────
+  app.get("/stores/:storeId/reports/cancellations", async (request, reply) => {
+    const { storeId } = request.params as { storeId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const parsed = cancellationReportQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send(errorBody("INVALID_QUERY", "Invalid query."));
+    }
+    const query = parsed.data;
+    const timezone = await getStoreTimezone(storeId);
+    const preset: FinancePeriodPreset = query.period ?? (query.dateFrom || query.dateTo ? "custom" : "last30");
+    const range = resolveFinanceRange({ preset, timezone, nowMs: nowMs(), dateFrom: query.dateFrom, dateTo: query.dateTo });
+    const data = await buildCancellationReport(prisma, storeId, range.current, {
+      currency: query.currency,
+      reasonCategory: query.reasonCategory,
+      reasonCode: query.reasonCode,
+      productId: query.productId,
+      categoryId: query.categoryId,
+      paymentMethod: query.paymentMethod,
+      shippingProvider: query.shippingProvider,
+    });
+    return reply.send(cancellationReportResponseSchema.parse({ data }));
   });
 
   // ── CSV export'ları (aktif filtreler; server-side; BOM'lu) ──────────────────

@@ -8,16 +8,22 @@ import { formatMinor } from "../../../../lib/money";
 import { getCurrentCustomer, getCustomerOrderDetail } from "../../../../lib/server/customer";
 import { getMyReviews } from "../../../../lib/server/reviews";
 import { listReturns } from "../../../../lib/server/returns";
-import { canRequestReturn, isReorderable } from "../../../../lib/orders";
+import {
+  canCancelOrder,
+  canRequestReturn,
+  isReorderable,
+  resolveCancelEligibility,
+} from "../../../../lib/orders";
 import { resolveReturnWindowLabel } from "../../../../lib/returns-summary";
 import { resolveOrderReview } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
 import { ReturnsDeepLinkFocus } from "../../../../components/account/returns/returns-deep-link-focus";
-import { ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
+import { Alert, ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
 
 type ReturnsDict = Awaited<ReturnType<typeof getStorefrontDict>>["account"]["returns"];
+type CancellationsDict = Awaited<ReturnType<typeof getStorefrontDict>>["account"]["cancellations"];
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +60,9 @@ export default async function OrderDetailPage({
   }
   const o = t.orders;
   const r = t.returns;
+  // TODO-174 (ADR-275/277/278) — self-servis iptal: server-otoriter uygunluk + modal sözlüğü.
+  const c = t.cancellations;
+  const cancelEligibility = resolveCancelEligibility(order);
   // TODO-169 (blocker #6) — bu siparişe ait iade talepleri (yalnız kendi; server-scoped liste filtreli).
   const orderReturns = allReturns.filter((rr) => rr.orderNumber === order.orderNumber);
   const windowLabel = resolveReturnWindowLabel(order.returnSummary ?? null);
@@ -161,16 +170,29 @@ export default async function OrderDetailPage({
 
         <BillingBlock o={o} order={order} />
 
-        <section className="border border-line p-4">
+        {/* TODO-174 — Zaten iptal edilmiş sipariş: iptal provenance + refund durumu (AYRI, otoriter). */}
+        {order.status === "CANCELLED" && order.cancellationSummary ? (
+          <CancelledBlock c={c} summary={order.cancellationSummary} locale={locale} />
+        ) : null}
+
+        <section className="border border-line p-4 space-y-3">
           <OrderActions
             orderNumber={order.orderNumber}
             t={o}
             reorderable={isReorderable(order)}
             canReturn={canRequestReturn(order)}
+            canCancel={canCancelOrder(order)}
+            cancelSummary={order.cancellationSummary}
+            cancelT={c}
             review={reviewState}
             reviewsT={dict.reviews}
             layout="detail"
           />
+          {/* Kargoya verildi → doğrudan iptal edilemez; iade akışına yönlendiren nötr mesaj (CTA yok).
+              BLOCKED_DELIVERED: mevcut "İade Talebi Oluştur" akışı kapsar (burada tekrar edilmez). */}
+          {cancelEligibility === "BLOCKED_IN_TRANSIT" ? (
+            <Alert tone="info">{c.blockedInTransitNote}</Alert>
+          ) : null}
         </section>
       </div>
     </Container>
@@ -398,6 +420,43 @@ function ReturnsSection({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * TODO-174 (ADR-275/277/278) — İptal edilmiş sipariş bloğu. İptal provenance'i (neden) +
+ * refund durumunu AYRI gösterir. Refund durumu MASKELİdir ve yanıltıcı değildir: NONE
+ * (ödeme yok) → refund satırı gizli. reasonCode server'dan gelir; etiket i18n'den türetilir.
+ */
+function CancelledBlock({
+  c,
+  summary,
+  locale,
+}: {
+  c: CancellationsDict;
+  summary: NonNullable<CustomerOrderDetail["cancellationSummary"]>;
+  locale: Locale;
+}) {
+  return (
+    <section className="border border-line p-4">
+      <Subheading as="h2" className="mb-3">
+        {c.cancelled.title}
+      </Subheading>
+      <div className="space-y-2">
+        {summary.reasonCode ? (
+          <Row label={c.cancelled.reasonLabel} value={c.reasons[summary.reasonCode]} />
+        ) : null}
+        {summary.cancelledAt ? (
+          <Row label={c.cancelled.cancelledAt} value={formatDate(summary.cancelledAt, locale)} />
+        ) : null}
+        {summary.isPaid && summary.refundStatus && summary.refundStatus !== "NONE" ? (
+          <Row
+            label={c.cancelled.refundStatusLabel}
+            value={c.refundStatusValues[summary.refundStatus]}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }
