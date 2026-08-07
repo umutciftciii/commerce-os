@@ -13,6 +13,7 @@ import {
   PageHeader,
   Select,
   SkeletonRows,
+  Textarea,
   useLocale,
   type DataTableColumn,
 } from "../../../../components/ui";
@@ -28,6 +29,7 @@ import type {
   StoreAdminCustomerErasurePreviewResponse,
   StoreAdminCustomerListSummaryResponse,
   StoreAdminCustomerSecurity,
+  CustomerCreditBalanceResponse,
 } from "@commerce-os/api-client";
 import { CustomerIcon } from "../../../../components/icons";
 import { storeApi, type ActivationInfo } from "../../../../lib/client/api";
@@ -217,6 +219,7 @@ export default function CustomerDetailPage() {
             onError={fail}
           />
           <OrdersCard orders={orders} />
+          <CustomerCreditCard customerId={customerId} onError={fail} onChanged={flash} />
           <CustomerCouponsCard
             customerId={customerId}
             onChanged={(message) => { flash(message); }}
@@ -356,6 +359,143 @@ function CustomerListsSummaryCard({
           </div>
         ))}
       </dl>
+    </SurfaceCard>
+  );
+}
+
+/* ── Alışveriş Bakiyesi (TODO-174B / ADR-281) ─────────────────────────────────
+ * Kullanılabilir bakiye + son hareketler + "Bakiye Ekle" (policy-gated, idempotent). description
+ * SEMANTİK KEY → yerel TR/EN copy (raw enum gösterilmez). Kendi verisini ayrı uçtan çeker. */
+const CREDIT_DESC: Record<string, [string, string]> = {
+  "credit.goodwill": ["Müşteri memnuniyeti kapsamında bakiye eklendi", "Goodwill balance added"],
+  "credit.orderPayment": ["Siparişte alışveriş bakiyesi kullanıldı", "Shopping balance used on order"],
+  "credit.cancellationRestore": ["İptal nedeniyle bakiye geri yüklendi", "Balance restored on cancellation"],
+  "credit.refundRestore": ["İade nedeniyle bakiye geri yüklendi", "Balance restored on refund"],
+  "credit.expired": ["Süresi doldu", "Expired"],
+  "credit.adjustment": ["Bakiye düzeltmesi", "Balance adjustment"],
+};
+function creditDescLabel(key: string, orderNumber: string | null, tr: boolean): string {
+  const base = CREDIT_DESC[key];
+  const text = base ? (tr ? base[0] : base[1]) : key;
+  return orderNumber ? text.replace(/OS-\d+|sipariş|order/i, (m) => m) + ` (${orderNumber})` : text;
+}
+function fmtMinorStr(minor: string, currency: string): string {
+  const n = Number(minor);
+  const major = (n / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sym = currency === "TRY" ? "₺" : currency === "USD" ? "$" : currency === "EUR" ? "€" : `${currency} `;
+  return `${sym}${major}`;
+}
+
+function CustomerCreditCard({
+  customerId,
+  onError,
+  onChanged,
+}: {
+  customerId: string;
+  onError: (error: unknown) => void;
+  onChanged: (message: string) => void;
+}) {
+  const locale = useLocale();
+  const tr = locale === "tr";
+  const [data, setData] = useState<CustomerCreditBalanceResponse | null | "error">(null);
+  const [modal, setModal] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [expiry, setExpiry] = useState(60);
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [key, setKey] = useState(() => `ac-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    storeApi
+      .getCustomerCredit(customerId)
+      .then(setData)
+      .catch((error) => {
+        setData("error");
+        onError(error);
+      });
+  }, [customerId, onError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const submit = useCallback(async () => {
+    setBusy(true);
+    try {
+      await storeApi.issueCustomerCredit(customerId, {
+        amountMinor: amount,
+        expiryDays: expiry as never,
+        reason: reason || "admin-goodwill",
+        internalNote: note || undefined,
+        idempotencyKey: key,
+      });
+      setModal(false);
+      setAmount("");
+      setReason("");
+      setNote("");
+      setKey(`ac-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`);
+      onChanged(tr ? "Bakiye eklendi." : "Balance added.");
+      load();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(false);
+    }
+  }, [customerId, amount, expiry, reason, note, key, onChanged, onError, load, tr]);
+
+  const title = tr ? "Alışveriş Bakiyesi" : "Shopping Balance";
+  if (data === null) return <SurfaceCard title={title} icon={<CustomerIcon />}><SkeletonRows rows={3} /></SurfaceCard>;
+  if (data === "error") return <SurfaceCard title={title} icon={<CustomerIcon />}><p className="text-sm text-white/40">{tr ? "Yüklenemedi." : "Failed to load."}</p></SurfaceCard>;
+
+  return (
+    <SurfaceCard
+      title={title}
+      icon={<CustomerIcon />}
+      actions={<Button variant="secondary" onClick={() => setModal(true)}>{tr ? "Bakiye Ekle" : "Add balance"}</Button>}
+    >
+      <div className="mb-4">
+        <div className="text-xs text-white/40">{tr ? "Kullanılabilir bakiye" : "Available balance"}</div>
+        <div className="text-2xl font-semibold text-white/90">{fmtMinorStr(data.availableMinor, data.currency)}</div>
+      </div>
+      <div className="space-y-2">
+        {data.entries.length === 0 && <p className="text-sm text-white/40">{tr ? "Henüz hareket yok." : "No movements yet."}</p>}
+        {data.entries.slice(0, 8).map((e) => (
+          <div key={e.id} className="flex items-center justify-between gap-3 border-t border-white/5 pt-2 text-sm">
+            <div>
+              <div className="text-white/80">{creditDescLabel(e.description, e.orderNumber, tr)}</div>
+              <div className="text-xs text-white/40">{formatDate(e.createdAt)}</div>
+            </div>
+            <div className="text-right">
+              <div className={e.direction === "CREDIT" ? "text-emerald-400" : "text-white/70"}>
+                {e.direction === "CREDIT" ? "+" : "−"}
+                {fmtMinorStr(e.amountMinor, e.currency)}
+              </div>
+              <div className="text-xs text-white/40">{fmtMinorStr(e.balanceAfterMinor, e.currency)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {modal && (
+        <Modal open onClose={() => setModal(false)} closeLabel={tr ? "Kapat" : "Close"} title={tr ? "Bakiye Ekle" : "Add balance"}>
+          <div className="space-y-3">
+            <Input label={tr ? "Tutar (kuruş)" : "Amount (minor)"} value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="10000" />
+            <Select
+              label={tr ? "Son kullanım" : "Expiry"}
+              value={String(expiry)}
+              onChange={(e) => setExpiry(Number(e.target.value))}
+              options={[30, 60, 120, 180].map((d) => ({ value: String(d), label: `${d} ${tr ? "gün" : "days"}` }))}
+            />
+            <Input label={tr ? "Neden" : "Reason"} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Textarea label={tr ? "Dahili not" : "Internal note"} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr ? "Müşteriye görünmez" : "Not shown to customer"} />
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setModal(false)}>{tr ? "Vazgeç" : "Cancel"}</Button>
+              <Button variant="primary" disabled={busy || !amount} onClick={submit}>{tr ? "Ekle" : "Add"}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </SurfaceCard>
   );
 }
