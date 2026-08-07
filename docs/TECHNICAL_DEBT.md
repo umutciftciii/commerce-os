@@ -2242,3 +2242,47 @@ first-try). Reverse Shipment ile ayrı PR (feature diff kapsamı korundu).
 > **Ayrı FUTURE — CI governance (Actions outage'dan öğrenilen):** `workflow_dispatch` desteği · main branch
 > protection · required CI checks · Actions outage runbook. Reverse/test-infra PR'larına KARIŞTIRILMADI;
 > bağımsız iş olarak ele alınacak.
+
+## Post-PR163 Returns/Refund/Reverse Shipment UI Alignment — 2026-08-07
+
+PR #163 (Final Enterprise UI Polish) SONRASI eklenen Returns/Refund/Fast-Refund/Reverse-Shipment yüzeyleri
+(TODO-169…173), o polish'in kapattığı enterprise UI standardına (typography/spacing/badge/empty-loading-error/
+ProductMediaFrame/responsive/a11y/focus) göre hizalandı. **Bu iş B1/C1/D1/TD-170/TD-173/TD-157/FP-3'ü YENİDEN
+AÇMAZ** — onlar CLOSED & DEPLOYED kalır. Yalnız yeni yüzeylerde doğrulanan drift/eksik düzeltildi (polish +
+gerçek UI bug); backend/business/API/migration DEĞİŞMEDİ. 9 dosya (+258/−106).
+
+**Store Admin (dark kit):**
+- Ham-enum ödeme rozeti (return detail): `{orderPaymentStatus}` → friendly label (`paymentStatusLabel`, admin
+  `paymentLabels` sözcükleri) + paylaşılan `PAYMENT_STATUS_TONES` (yerel 4-key tone map kaldırıldı; standart #1).
+- Reverse-shipment panel yıkıcı iptaller (disposition cancel + shipment cancel) tek-tık ham link → **onay modali**
+  (refund-panel `ConfirmDialog` deseni; danger flag). Shipment cancel `danger` Button (ters hiyerarşi düzeldi).
+- Responsive: disposition/shipment satırları `flex-wrap`/`min-w-0`/`shrink-0`, uzun tracking `break-all`
+  (375px yatay taşma giderildi). Modal footer çift-`div` sarma → fragment (Modal zaten flex/justify-end/gap).
+  Modal cancel `ghost`→`secondary` (kardeş dialog'larla tutarlı). Disposition badge `dot` (ship-status ile eş).
+- Alert "Kapat" ham underlined `<button>` → `Button variant="ghost"` (focus state). Returns list SLA checkbox
+  `accent` + `focus-visible:ring` (klavye a11y).
+
+**Storefront (light editorial kit):**
+- **Reverse-shipment section i18n (tek gerçek standart ihlali):** hardcoded TR/EN `isTr` dallanması kaldırıldı;
+  yeni `account.returns.detail.reverseShipment` sözlük bloğu (title/disclaimer/ariaLabel + **11-değerli** tam
+  `statuses` map, ham enum sızmaz + shipped/estimatedDelivery/delivered). Failed-durum için danger tonu
+  EKLENMEDİ (editorial Badge nötr — design language korundu; durum metinle iletilir).
+- Wizard: `QuantityStepper` `aria-label="−/+"` → açıklayıcı lokalize (`decreaseQuantity`/`increaseQuantity`).
+  Submit hatası çift-render (role=alert özet + inline `red-600` kopya) → tek kaynak (kullanılmayan `submitState`
+  state kaldırıldı).
+- Return detail status badge tone parite (`ink`→`outline`, list ile). Returns list boş-state description + CTA
+  (kardeş yüzeylerle tutarlı).
+- **Browser smoke sırasında bulunup düzeltilen gerçek bug:** return-detail `Row` bileşeni uzun değerleri
+  (48-karakter takip no) 375px'de yatay taşırıyordu → `min-w-0 break-all text-right` + label `shrink-0`.
+
+**Gate:** typecheck (i18n+2 app) ✅ · lint 9/9 ✅ · test Run1 = Run2 (storefront 550/550, store-admin 368/368,
+flake yok) ✅ · build 8/8 ✅ · `git diff --check` temiz ✅. **Browser smoke** izole throwaway fixture ile
+(store `zzz-uitest-reverse` + admin + customer + order + return + rejected item + RETURN_TO_CUSTOMER disposition
++ IN_TRANSIT reverse shipment + SUCCEEDED refund): Store Admin (returns list · return detail · reverse panel ·
+disposition modal · confirm dialog + focus-trap + ESC-restore · refund panel) ve Storefront (return detail ·
+reverse section · refund-vs-reverse ayrımı · returns list) 375/768/1024/1440'ta doğrulandı; 4 breakpoint'te
+yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, enterprise-demo (R000001) değişmedi.
+
+> **FUTURE (bu PR'a alınmadı, TODO-173 kapsamına bırakıldı):** reverse-shipment quantity input `Number(...)`→
+> `NaN` guard'ı (empty input'ta submit butonu enable kalabilir — client validation/business sınırı); inspect→
+> reject iki-mutation sequencing (business). Ayrıca CI governance ve TD-173-1…4 FUTURE kalır.

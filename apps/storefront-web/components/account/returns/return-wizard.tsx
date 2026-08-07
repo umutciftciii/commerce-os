@@ -15,7 +15,6 @@ import { RETURN_COMMENT_MAX, returnReasonRequiresComment } from "@commerce-os/co
 import {
   createReturnAction,
   uploadAttachmentAction,
-  type CreateReturnState,
 } from "../../../lib/server/return-actions";
 import {
   Button,
@@ -108,7 +107,6 @@ export function ReturnWizard({
   const [customerNote, setCustomerNote] = useState("");
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
-  const [submitState, setSubmitState] = useState<CreateReturnState>({ status: "idle" });
   const [submitting, setSubmitting] = useState(false);
 
   const headingRef = useRef<HTMLDivElement>(null);
@@ -204,7 +202,6 @@ export function ReturnWizard({
     setSubmitting(true);
     const result = await createReturnAction(body);
     setSubmitting(false);
-    setSubmitState(result);
     if (result.status === "success") {
       router.push(`/account/returns/${encodeURIComponent(result.returnNumber)}`);
     } else {
@@ -298,10 +295,8 @@ export function ReturnWizard({
               t={t}
             />
           ) : null}
-
-          {submitState.status === "error" ? (
-            <p className="text-sm text-red-600">{t.error}</p>
-          ) : null}
+          {/* Submit hatası tek yerden gösterilir: yukarıdaki role="alert" özet kutusu (setErrors([t.error])).
+              Ayrı inline kopya kaldırıldı — çift render + palet-dışı renk. */}
         </div>
 
         <SummaryPanel
@@ -377,6 +372,8 @@ function StepItems({
                     value={d.quantity}
                     max={line.remainingReturnableQty}
                     onChange={(q) => patch(line.orderLineId, { quantity: q })}
+                    decreaseLabel={w.decreaseQuantity}
+                    increaseLabel={w.increaseQuantity}
                   />
                   <p className="text-xs text-ink-subtle">
                     {format(w.remainingQty, { count: line.remainingReturnableQty })}
@@ -425,11 +422,15 @@ function QuantityStepper({
   value,
   max,
   onChange,
+  decreaseLabel,
+  increaseLabel,
 }: {
   label: string;
   value: number;
   max: number;
   onChange: (q: number) => void;
+  decreaseLabel: string;
+  increaseLabel: string;
 }) {
   return (
     <label className="flex items-center gap-3 text-sm text-ink">
@@ -442,7 +443,7 @@ function QuantityStepper({
           className="flex h-8 w-8 items-center justify-center text-ink hover:bg-surface-muted disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => onChange(Math.max(1, value - 1))}
           disabled={value <= 1}
-          aria-label="−"
+          aria-label={decreaseLabel}
         >
           −
         </button>
@@ -452,7 +453,7 @@ function QuantityStepper({
           className="flex h-8 w-8 items-center justify-center text-ink hover:bg-surface-muted disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           onClick={() => onChange(Math.min(max, value + 1))}
           disabled={value >= max}
-          aria-label="+"
+          aria-label={increaseLabel}
         >
           +
         </button>

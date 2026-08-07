@@ -37,6 +37,7 @@ import {
 import { RefundPanel } from "./refund-panel";
 import { ReverseShipmentPanel } from "./reverse-shipment-panel";
 import {
+  PAYMENT_STATUS_TONES,
   RETURN_STATUS_TONES,
   RETURN_RESOLUTION_TONES,
   RETURN_REASON_TONES,
@@ -107,12 +108,31 @@ type LoadState =
 
 type Dialog = "reject" | "partial" | "inspect" | "refund" | "fast-refund" | null;
 
-const PAYMENT_TONES: Record<AdminReturnDetail["orderPaymentStatus"], Tone> = {
-  UNPAID: "warning",
-  AUTHORIZED: "info",
-  PAID: "success",
-  REFUNDED: "neutral",
-};
+// Ham enum ASLA gösterilmez (standart #1). Tone paylaşılan `PAYMENT_STATUS_TONES`'tan; etiket
+// admin genelindeki `paymentLabels` sözcükleriyle birebir (dosya idiom'u: isTr-tabanlı helper).
+function paymentStatusLabel(status: AdminReturnDetail["orderPaymentStatus"], isTr: boolean): string {
+  const tr: Record<string, string> = {
+    UNPAID: "Ödenmedi",
+    PAYMENT_PENDING: "Ödeme bekliyor",
+    AUTHORIZED: "Yetkilendirildi",
+    PAID: "Ödendi",
+    PARTIALLY_REFUNDED: "Kısmen iade edildi",
+    REFUNDED: "İade edildi",
+    PAYMENT_FAILED: "Ödeme başarısız",
+    CANCELLED: "İptal edildi",
+  };
+  const en: Record<string, string> = {
+    UNPAID: "Unpaid",
+    PAYMENT_PENDING: "Payment pending",
+    AUTHORIZED: "Authorised",
+    PAID: "Paid",
+    PARTIALLY_REFUNDED: "Partially refunded",
+    REFUNDED: "Refunded",
+    PAYMENT_FAILED: "Payment failed",
+    CANCELLED: "Cancelled",
+  };
+  return (isTr ? tr : en)[status] ?? status;
+}
 
 export default function ReturnDetailPage() {
   const params = useParams<{ id: string }>();
@@ -326,14 +346,14 @@ export default function ReturnDetailPage() {
 
       {notice ? (
         <div className="mb-4">
-          <Alert tone="success" action={<button type="button" className="text-emerald-300 underline" onClick={() => setNotice(null)}>{isTr ? "Kapat" : "Dismiss"}</button>}>
+          <Alert tone="success" action={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{isTr ? "Kapat" : "Dismiss"}</Button>}>
             {notice}
           </Alert>
         </div>
       ) : null}
       {actionError ? (
         <div className="mb-4">
-          <Alert tone="error" action={<button type="button" className="text-red-300 underline" onClick={() => setActionError(null)}>{isTr ? "Kapat" : "Dismiss"}</button>}>
+          <Alert tone="error" action={<Button variant="ghost" size="sm" onClick={() => setActionError(null)}>{isTr ? "Kapat" : "Dismiss"}</Button>}>
             {actionError}
           </Alert>
         </div>
@@ -423,7 +443,11 @@ export default function ReturnDetailPage() {
             <RailCard title={isTr ? "Ödeme & İade Tutarı" : "Payment & refund"}>
               <RailRow
                 label={isTr ? "Sipariş ödemesi" : "Order payment"}
-                value={<Badge tone={PAYMENT_TONES[ret.orderPaymentStatus]}>{ret.orderPaymentStatus}</Badge>}
+                value={
+                  <Badge tone={PAYMENT_STATUS_TONES[ret.orderPaymentStatus]}>
+                    {paymentStatusLabel(ret.orderPaymentStatus, isTr)}
+                  </Badge>
+                }
               />
               <RailRow
                 label={isTr ? "Kargo iadesi" : "Refund shipping"}

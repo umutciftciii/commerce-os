@@ -438,7 +438,7 @@ function ReturnsView() {
               <label className="flex items-end gap-2 pb-2 text-sm text-white/70">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-white/20 bg-transparent"
+                  className="h-4 w-4 rounded border-white/20 bg-transparent accent-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
                   checked={form.overdue}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, overdue: event.target.checked }))

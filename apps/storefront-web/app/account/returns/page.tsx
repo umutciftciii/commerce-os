@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { format, formatDate } from "@commerce-os/i18n";
-import { Badge, Container, EmptyState, Heading, Text } from "../../../components/ui";
+import { Badge, ButtonLink, Container, EmptyState, Heading, Text } from "../../../components/ui";
 import { getRequestLocale, getStorefrontDict } from "../../../lib/i18n";
 import { getCurrentCustomer } from "../../../lib/server/customer";
 import { listReturns } from "../../../lib/server/returns";
@@ -38,7 +38,15 @@ export default async function ReturnsListPage() {
           </header>
 
           {returns.length === 0 ? (
-            <EmptyState title={r.listEmpty} />
+            <EmptyState
+              title={r.listEmpty}
+              description={r.listEmptyDescription}
+              action={
+                <ButtonLink href="/account/orders" variant="secondary" size="sm">
+                  {r.listEmptyCta}
+                </ButtonLink>
+              }
+            />
           ) : (
             <ul className="space-y-3">
               {returns.map((item) => (
