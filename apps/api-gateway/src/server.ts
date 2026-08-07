@@ -217,7 +217,6 @@ import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
 import { registerCustomerCreditAdminRoutes } from "./customer-credit/routes.js";
 import { registerRecoveryAdminRoutes } from "./order-experience/recovery-routes.js";
 import { applyStoreCreditToOrderInTx } from "./customer-credit/checkout.js";
-import { restoreCreditForOrderInTx } from "./customer-credit/service.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";

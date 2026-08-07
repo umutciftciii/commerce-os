@@ -12,7 +12,7 @@ import { experienceKpi, getRecoveryCaseDetail, listExperienceReviews, resolveRev
 const hasTestDb = Boolean(process.env.DATABASE_URL);
 const created: string[] = [];
 
-async function seedOrder(rating?: never): Promise<{ storeId: string; customerId: string; orderId: string }> {
+async function seedOrder(): Promise<{ storeId: string; customerId: string; orderId: string }> {
   const sfx = randomUUID().slice(0, 12);
   const storeId = `rec-store-${sfx}`;
   const customerId = `rec-cust-${sfx}`;

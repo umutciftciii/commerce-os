@@ -247,4 +247,3 @@ ALTER TABLE "OrderRecoveryActivity" ADD CONSTRAINT "OrderRecoveryActivity_storeI
 
 -- AddForeignKey
 ALTER TABLE "OrderRecoveryActivity" ADD CONSTRAINT "OrderRecoveryActivity_recoveryCaseId_fkey" FOREIGN KEY ("recoveryCaseId") REFERENCES "OrderRecoveryCase"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
