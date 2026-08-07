@@ -16,6 +16,7 @@ import {
   customerCreditBalanceResponseSchema,
 } from "@commerce-os/contracts";
 import { getCustomerBalance, issueCredit, type CreditErrorCode, type CustomerBalanceView } from "./service.js";
+import { recordGoodwillCreditActivity } from "../order-experience/recovery-service.js";
 
 const DEFAULT_CURRENCY = "TRY";
 
@@ -167,6 +168,18 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
       const http = CREDIT_HTTP[result.code];
       await reply.code(http.status).send(errorBody(result.code, http.message));
       return;
+    }
+
+    // Recovery case'e bağlıysa goodwill aktivitesi yaz (yalnız YENİ kredide; dedup'ta zaten yazılmış →
+    // duplicate activity YOK). RecoveryAction ↔ ledger entry idempotent bağ.
+    if (input.recoveryCaseId && !result.deduped) {
+      await recordGoodwillCreditActivity(prisma, {
+        storeId: params.storeId,
+        caseId: input.recoveryCaseId,
+        actorPlatformUserId: access.actorUserId,
+        creditLedgerEntryId: result.entryId,
+        amountLabel: `${input.amountMinor} ${currency}`,
+      });
     }
 
     // AuditLog (internal — reason/note burada; müşteriye sızmaz). deduped ise de idempotent kayıt.

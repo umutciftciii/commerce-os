@@ -1866,6 +1866,132 @@ export type AdminIssueCreditRequest = z.infer<typeof adminIssueCreditRequestSche
 export type CreditLedgerEntryDto = z.infer<typeof creditLedgerEntrySchema>;
 export type CustomerCreditBalanceResponse = z.infer<typeof customerCreditBalanceResponseSchema>;
 
+// ============================================================================
+// TODO-174B (ADR-283) — Order Experience Recovery Operations contracts.
+// ============================================================================
+
+export const recoveryCaseStatusSchema = z.enum([
+  "OPEN",
+  "ASSIGNED",
+  "CONTACT_ATTEMPTED",
+  "CUSTOMER_REACHED",
+  "ACTION_REQUIRED",
+  "RESOLVED",
+  "CLOSED",
+  "UNREACHABLE",
+  "NO_ACTION_REQUIRED",
+]);
+export const recoveryPrioritySchema = z.enum(["LOW", "MEDIUM", "HIGH"]);
+export const recoveryOutcomeSchema = z.enum([
+  "ISSUE_RESOLVED",
+  "APOLOGY_ACCEPTED",
+  "REFUND_QUESTION",
+  "DELIVERY_COMPLAINT",
+  "PRICE_COMPLAINT",
+  "PRODUCT_EXPECTATION_MISMATCH",
+  "CUSTOMER_UNREACHABLE",
+  "CUSTOMER_DECLINED",
+  "OTHER",
+]);
+export const recoveryResolutionTypeSchema = z.enum(["GOODWILL_CREDIT", "APOLOGY", "REFUND_FOLLOWUP", "NO_ACTION", "OTHER"]);
+export const recoveryActionTypeSchema = z.enum([
+  "ASSIGN",
+  "CONTACT_CALL",
+  "CONTACT_EMAIL",
+  "UNREACHABLE",
+  "ISSUE_HEARD",
+  "ACTION_REQUIRED",
+  "RESOLVE",
+  "CLOSE",
+  "NO_ACTION_REQUIRED",
+  "NOTE",
+]);
+
+export const experienceRatingBucketSchema = z.enum(["ONE_TWO", "THREE", "FOUR_FIVE"]);
+
+export const experienceListRowSchema = z.object({
+  reviewId: z.string(),
+  rating: z.number().int(),
+  comment: z.string().nullable(),
+  customerId: z.string(),
+  customerName: z.string(),
+  orderId: z.string(),
+  orderNumber: z.string(),
+  orderStatus: z.string(),
+  cancelReasonCode: z.string().nullable(),
+  reviewCreatedAt: z.string(),
+  recovery: z
+    .object({
+      caseId: z.string(),
+      status: recoveryCaseStatusSchema,
+      priority: recoveryPrioritySchema,
+      assigneePlatformUserId: z.string().nullable(),
+      dueAt: z.string(),
+      overdue: z.boolean(),
+    })
+    .nullable(),
+});
+export const experienceListResponseSchema = z.object({
+  rows: z.array(experienceListRowSchema),
+  total: z.number().int().nonnegative(),
+});
+
+export const experienceKpiSchema = z.object({
+  averageRating: z.number(),
+  totalReviews: z.number().int().nonnegative(),
+  lowRatingRatio: z.number(),
+  highRatingRatio: z.number(),
+  openRecoveryCount: z.number().int().nonnegative(),
+  slaOverdueCount: z.number().int().nonnegative(),
+  reachedRatio: z.number(),
+  resolutionRatio: z.number(),
+  totalGoodwillCreditMinor: canonicalMinorAmountString,
+});
+
+export const recoveryActivitySchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  actorId: z.string().nullable(),
+  outcome: z.string().nullable(),
+  note: z.string().nullable(),
+  creditLedgerEntryId: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const recoveryCaseDetailSchema = z.object({
+  caseId: z.string(),
+  status: recoveryCaseStatusSchema,
+  priority: recoveryPrioritySchema,
+  version: z.number().int(),
+  assigneePlatformUserId: z.string().nullable(),
+  openedAt: z.string(),
+  firstContactAt: z.string().nullable(),
+  dueAt: z.string(),
+  overdue: z.boolean(),
+  resolvedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  resolutionType: z.string().nullable(),
+  resolutionNote: z.string().nullable(),
+  review: z.object({ id: z.string(), rating: z.number().int(), comment: z.string().nullable(), createdAt: z.string() }),
+  order: z.object({ id: z.string(), orderNumber: z.string(), status: z.string(), cancelReasonCode: z.string().nullable() }),
+  customer: z.object({ id: z.string(), name: z.string(), email: z.string() }),
+  activities: z.array(recoveryActivitySchema),
+});
+
+export const recoveryActionRequestSchema = z.object({
+  action: recoveryActionTypeSchema,
+  expectedVersion: z.number().int().nonnegative().optional(),
+  assigneePlatformUserId: z.string().min(1).nullable().optional(),
+  outcome: recoveryOutcomeSchema.nullable().optional(),
+  resolutionType: recoveryResolutionTypeSchema.nullable().optional(),
+  note: z.string().max(2000).nullable().optional(),
+});
+export const manualOpenCaseRequestSchema = z.object({ reviewId: z.string().min(1) });
+
+export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
+export type ExperienceKpiDto = z.infer<typeof experienceKpiSchema>;
+export type RecoveryCaseDetailDto = z.infer<typeof recoveryCaseDetailSchema>;
+export type RecoveryActionRequest = z.infer<typeof recoveryActionRequestSchema>;
+
 // ADR-065 (Faz 2/Dilim 5) — Yayin durumu (hero slide gibi vitrin icerikleri).
 // DRAFT admin'de gorunur ama vitrine cikmaz; PUBLISHED vitrinde yayinlanir.
 // (schema.prisma ContentStatus enum'unun kontrat karsiligi.)

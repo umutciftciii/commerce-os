@@ -215,6 +215,7 @@ import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
 import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
 import { registerCustomerCreditAdminRoutes } from "./customer-credit/routes.js";
+import { registerRecoveryAdminRoutes } from "./order-experience/recovery-routes.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
@@ -7723,6 +7724,16 @@ export function createServer(
       return access
         ? { actorUserId: access.session.platformUser.id, isSuperAdmin: access.session.platformUser.role === "SUPER_ADMIN" }
         : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // TODO-174B (ADR-283) — Order Experience Recovery Operations: store-admin Sipariş Deneyimi listesi +
+  // KPI + case detay + lifecycle aksiyonları + manuel case açma. Store-scoped; cross-store 404.
+  registerRecoveryAdminRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
