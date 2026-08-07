@@ -2286,3 +2286,5 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 > **FUTURE (bu PR'a alınmadı, TODO-173 kapsamına bırakıldı):** reverse-shipment quantity input `Number(...)`→
 > `NaN` guard'ı (empty input'ta submit butonu enable kalabilir — client validation/business sınırı); inspect→
 > reject iki-mutation sequencing (business). Ayrıca CI governance ve TD-173-1…4 FUTURE kalır.
+
+**CLOSED & DEPLOYED (2026-08-07):** PR #190 (merge `ab1bbec`); CI lint·test·build 5m59s PASS. Deploy: docker `storefront-web` + `store-admin-web` main'den rebuild+recreate (api-gateway/worker/postgres/redis DOKUNULMADI — i18n reverseShipment/wizard yalnız web dict). Post-deploy smoke: store-admin returns list + R000001 detay production build render + SA-1 friendly ödeme rozeti + taşma yok; storefront home/PLP 200, account/returns login-render, reverseShipment key deployed bundle'da. İzole browser-smoke fixture FK-güvenli temizlendi (enterprise-demo R000001 değişmedi).

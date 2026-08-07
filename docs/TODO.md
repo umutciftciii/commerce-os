@@ -2851,3 +2851,5 @@ modalleri (danger) + responsive/modal/badge tutarlılığı + Alert dismiss ghos
 Storefront: reverse-shipment section i18n sözlüğü + wizard aria-label/çift-hata + badge parite + boş-state CTA +
 `Row` uzun-değer taşma fix. Gate tam yeşil; izole fixture browser smoke 375/768/1024/1440 (store-admin +
 storefront), FK-güvenli teardown. Detay: `docs/TECHNICAL_DEBT.md`. **Backend/API/migration değişmedi.**
+
+**CLOSED & DEPLOYED (2026-08-07):** PR #190 (merge `ab1bbec`); CI lint·test·build 5m59s PASS. Deploy: docker `storefront-web` + `store-admin-web` main'den rebuild+recreate (api-gateway/worker/postgres/redis DOKUNULMADI — i18n reverseShipment/wizard yalnız web dict). Post-deploy smoke: store-admin returns list + R000001 detay production build render + SA-1 friendly ödeme rozeti + taşma yok; storefront home/PLP 200, account/returns login-render, reverseShipment key deployed bundle'da. İzole browser-smoke fixture FK-güvenli temizlendi (enterprise-demo R000001 değişmedi).
