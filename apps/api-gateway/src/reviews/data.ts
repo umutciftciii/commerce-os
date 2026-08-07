@@ -286,7 +286,7 @@ export function createReviewData(): ReviewData {
             customerId,
             status: { not: "CANCELLED" },
             paymentStatus: "PAID",
-            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { status: "DELIVERED" } } }],
+            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { direction: "OUTBOUND_TO_CUSTOMER", status: "DELIVERED" } } }],
           },
           product: { reviews: { none: { customerId } } },
         },
@@ -331,7 +331,7 @@ export function createReviewData(): ReviewData {
             customerId,
             status: { not: "CANCELLED" },
             paymentStatus: "PAID",
-            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { status: "DELIVERED" } } }],
+            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { direction: "OUTBOUND_TO_CUSTOMER", status: "DELIVERED" } } }],
           },
         },
         select: {
@@ -369,7 +369,7 @@ export function createReviewData(): ReviewData {
             customerId,
             status: { not: "CANCELLED" },
             paymentStatus: "PAID",
-            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { status: "DELIVERED" } } }],
+            OR: [{ fulfillmentStatus: "FULFILLED" }, { shipments: { some: { direction: "OUTBOUND_TO_CUSTOMER", status: "DELIVERED" } } }],
           },
         },
         select: {

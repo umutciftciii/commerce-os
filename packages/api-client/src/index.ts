@@ -24,6 +24,11 @@ import type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnFastRefundRequest,
+  AdminReturnDispositionCreateRequest,
+  AdminReturnDispositionCancelRequest,
+  AdminReverseShipmentCreateRequest,
+  AdminReverseShipmentStatusRequest,
+  AdminReverseShipmentTrackingRequest,
   AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
   AdminOrderReturnsResponse,
@@ -411,6 +416,11 @@ export type {
   AdminReturnRejectRequest,
   AdminReturnInspectRequest,
   AdminReturnFastRefundRequest,
+  AdminReturnDispositionCreateRequest,
+  AdminReturnDispositionCancelRequest,
+  AdminReverseShipmentCreateRequest,
+  AdminReverseShipmentStatusRequest,
+  AdminReverseShipmentTrackingRequest,
   AdminReturnFastRefundContext,
   AdminReturnFastRefundContextResponse,
   AdminReturnTransitionRequest,
@@ -2232,6 +2242,41 @@ export interface ApiClient {
       ): Promise<AdminReturnFastRefundContextResponse>;
       // TODO-169 (blocker #6) — sipariş detayına iade entegrasyonu (özet + o siparişin talepleri).
       orderReturns(storeId: string, orderId: string, token?: string): Promise<AdminOrderReturnsResponse>;
+      // TODO-173 (ADR-274) — reddedilen adet disposition + reverse shipment (STORE_RETURN_TO_CUSTOMER).
+      // Tümü güncellenmiş iade detayını döndürür (UI reprojection).
+      setDisposition(
+        storeId: string,
+        returnId: string,
+        input: AdminReturnDispositionCreateRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      cancelDisposition(
+        storeId: string,
+        returnId: string,
+        dispositionId: string,
+        input: AdminReturnDispositionCancelRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      createReverseShipment(
+        storeId: string,
+        returnId: string,
+        input: AdminReverseShipmentCreateRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      reverseShipmentStatus(
+        storeId: string,
+        returnId: string,
+        shipmentId: string,
+        input: AdminReverseShipmentStatusRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
+      reverseShipmentTracking(
+        storeId: string,
+        returnId: string,
+        shipmentId: string,
+        input: AdminReverseShipmentTrackingRequest,
+        token?: string,
+      ): Promise<AdminReturnDetailResponse>;
     };
     // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal (para iadesi başlat/yenile/tekrar/iptal/manuel).
     refunds: {
@@ -3961,6 +4006,41 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         orderReturns: (storeId, orderId, token) =>
           getJson<AdminOrderReturnsResponse>(
             `/stores/${storeId}/orders/${orderId}/return-summary`,
+            token,
+          ),
+        setDisposition: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/dispositions`,
+            "POST",
+            input,
+            token,
+          ),
+        cancelDisposition: (storeId, returnId, dispositionId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/dispositions/${dispositionId}/cancel`,
+            "POST",
+            input,
+            token,
+          ),
+        createReverseShipment: (storeId, returnId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/reverse-shipments`,
+            "POST",
+            input,
+            token,
+          ),
+        reverseShipmentStatus: (storeId, returnId, shipmentId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/reverse-shipments/${shipmentId}/status`,
+            "POST",
+            input,
+            token,
+          ),
+        reverseShipmentTracking: (storeId, returnId, shipmentId, input, token) =>
+          sendJson<AdminReturnDetailResponse>(
+            `/stores/${storeId}/returns/${returnId}/reverse-shipments/${shipmentId}/tracking`,
+            "POST",
+            input,
             token,
           ),
       },

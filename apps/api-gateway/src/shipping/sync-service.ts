@@ -401,6 +401,9 @@ export function createPrismaShipmentSyncPersistence(): ShipmentSyncPersistence {
       return prisma.shipment.findMany({
         where: {
           ...(query.storeId ? { storeId: query.storeId } : {}),
+          // TODO-173 (ADR-274) — provider-sync yalnız OUTBOUND_TO_CUSTOMER: reverse gönderiler MANUEL
+          // (provider null) ve durumları elle taşınır; sync worker onları SEÇMEZ.
+          direction: "OUTBOUND_TO_CUSTOMER",
           status: { in: query.statuses },
           ...(query.maxAttempts != null ? { syncAttempts: { lt: query.maxAttempts } } : {}),
           ...(scheduleFilters.length > 0 ? { AND: scheduleFilters } : {}),

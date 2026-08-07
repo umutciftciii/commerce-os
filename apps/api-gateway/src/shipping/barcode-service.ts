@@ -514,6 +514,8 @@ export function createPrismaBarcodeRetryPersistence(): BarcodeRetryPersistence {
       return prisma.shipment.findMany({
         where: {
           ...(query.storeId ? { storeId: query.storeId } : {}),
+          // TODO-173 (ADR-274) — reverse gönderiler MANUEL (provider null → zaten dışlanır); açık guard.
+          direction: "OUTBOUND_TO_CUSTOMER",
           status: { in: query.statuses },
           provider: { in: query.providers },
           // Bloklu (DATA_FIX/TERMINAL/MAX_ATTEMPTS) veya hatasiz gonderi SECILMEZ.

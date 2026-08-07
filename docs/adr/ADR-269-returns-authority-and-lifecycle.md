@@ -310,3 +310,7 @@ deploy YOK**, migration YOK (K2). Aşağıdakiler §4'ün revizyonudur:
 
 PR2 (Fast Refund Controls) ve PR3 (Reverse Shipment) bu fazda **PLANNED** — implementasyon YAPILMADI.
 Detay: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` §3–§7 + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`.
+
+> **Guncelleme (TODO-173 / ADR-274):** Kalem-bazli red disposition + ters-kargo (Faz 3) UYGULANDI —
+> ayri ReturnRejectedDisposition/ReturnItemDisposition domenidir (bu ADR-in ReturnRestockDecision stok
+> karari KORUNUR, genisletilmedi). Bkz. docs/adr/ADR-274-reverse-shipment.md.

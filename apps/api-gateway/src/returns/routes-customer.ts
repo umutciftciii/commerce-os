@@ -19,6 +19,7 @@ import {
 } from "@commerce-os/contracts";
 import type { CustomerAuthRecord, CustomerDataAccess } from "../customers/index.js";
 import { resolveCustomerFromRequest } from "../customers/index.js";
+import { serializeCustomerReverseShipment } from "./reverse-serialize.js";
 import type { StorageDriver } from "../media/storage.js";
 import { buildStorageKey } from "../media/storage-key.js";
 import { buildCustomerRefundSummary, maskPaymentMethodLabel } from "../refunds/serialize.js";
@@ -123,7 +124,11 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
             product: { select: { slug: true } },
           },
         },
-        shipments: { select: { status: true, deliveredAt: true, updatedAt: true } },
+        // TODO-173 (ADR-274) — iade uygunluğu teslim ankoru yalnız OUTBOUND_TO_CUSTOMER'dan.
+        shipments: {
+          where: { direction: "OUTBOUND_TO_CUSTOMER" },
+          select: { status: true, deliveredAt: true, updatedAt: true },
+        },
       },
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
@@ -423,6 +428,11 @@ async function loadCustomerDetail(
         },
       },
       history: { orderBy: { createdAt: "asc" } },
+      // TODO-173 (ADR-274) — "Ürün size geri gönderiliyor": yalnız STORE_RETURN_TO_CUSTOMER; sade tracking.
+      shipments: {
+        where: { direction: "STORE_RETURN_TO_CUSTOMER" },
+        orderBy: { createdAt: "asc" },
+      },
       // TODO-170 (ADR-272) — müşteri refund durumu (MASKELİ) için intent + ledger + ödeme yöntemi.
       refundIntent: {
         select: {
@@ -501,6 +511,15 @@ async function loadCustomerDetail(
       actorType: h.actorType,
       createdAt: h.createdAt.toISOString(),
     })),
+    // TODO-173 (ADR-274) — reverse tracking (internal reason / PII / disposition kodu YOK). Ürün başlığı
+    // eşleşen ReturnItem'dan; yoksa genel etiket.
+    reverseShipments: rr.shipments.map((s) => {
+      const item = rr.items.find((i) => i.id === s.returnItemId);
+      return serializeCustomerReverseShipment(s, {
+        title: item?.orderLine.title ?? "Ürün",
+        variantTitle: item?.orderLine.variantTitle ?? null,
+      });
+    }),
   };
 }
 

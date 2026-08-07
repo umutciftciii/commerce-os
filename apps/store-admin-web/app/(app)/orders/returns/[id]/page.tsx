@@ -35,6 +35,7 @@ import {
 } from "../../../../components/premium";
 // TODO-170 (ADR-270) — İade defteri & ödeme ters çevirme paneli (REFUND_TO_ORIGINAL_PAYMENT).
 import { RefundPanel } from "./refund-panel";
+import { ReverseShipmentPanel } from "./reverse-shipment-panel";
 import {
   RETURN_STATUS_TONES,
   RETURN_RESOLUTION_TONES,
@@ -382,6 +383,9 @@ export default function ReturnDetailPage() {
                 refreshKey={refreshKey}
               />
             ) : null}
+
+            {/* TODO-173 (ADR-274) — reddedilen adet disposition + ters gönderi (para iadesinden AYRI). */}
+            <ReverseShipmentPanel ret={ret} locale={locale} onChanged={load} />
           </>
         }
         rail={

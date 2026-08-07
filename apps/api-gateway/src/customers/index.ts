@@ -912,7 +912,9 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           },
           // TODO-135 — Liste rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
           // shipment durumu (yalnız DURUM; müşteri-güvenli, statusText/iç alan yok).
-          shipments: { select: { status: true } },
+          // TODO-173 (ADR-274) — yalnız OUTBOUND_TO_CUSTOMER: reverse/customer-return gönderiler
+          // sipariş teslim rozetini KİRLETMEZ.
+          shipments: { where: { direction: "OUTBOUND_TO_CUSTOMER" }, select: { status: true } },
         },
       });
       return orders.map((order) => ({
@@ -1023,7 +1025,10 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
       // ÇEKİLMEZ. Operasyonel-iç event'ler (barkod/webhook) müşteri timeline'ından
       // dışlanır; konum "işlem noktası" olarak gösterilir (ADR-045).
       const shipmentRow = await prisma.shipment.findFirst({
-        where: { storeId, orderId: order.id },
+        // TODO-173 (ADR-274) — müşteri sipariş tracking'i yalnız OUTBOUND_TO_CUSTOMER (normal teslimat).
+        // Reverse gönderiler (STORE_RETURN_TO_CUSTOMER) müşterinin outbound tracking'ini GİZLEMEZ;
+        // ayrı reverse tracking görünümünde sunulur.
+        where: { storeId, orderId: order.id, direction: "OUTBOUND_TO_CUSTOMER" },
         orderBy: { createdAt: "desc" },
         select: {
           status: true,

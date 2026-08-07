@@ -6062,12 +6062,33 @@ de rollback olur). Ayrı `reviewStartedAt` kolonu / ikinci tarih otoritesi oluş
 yorumlanmaz) + gerekirse `fastRefundCurrency`. Server-side currency eşleşme zorunlu; audit; ayrı
 return-config tablosu kurulmayacak. Bu faz henüz UYGULANMADI.
 
-**K4 → Üç yönlü enum baştan (PR3, PLANNED).** Reverse shipment `Shipment.direction` genel "OUTBOUND"
-belirsiz ismiyle DEĞİL, baştan üç yönlü additive enum ile modellenecek: `OUTBOUND_TO_CUSTOMER` (mevcut
-satırlar migrate) / `CUSTOMER_RETURN_TO_STORE` / `STORE_RETURN_TO_CUSTOMER`. Her direction için ayrı
+**K4 → Üç yönlü enum baştan (PR3 / TODO-173, IMPLEMENTED — ADR-274).** Reverse shipment `Shipment.direction`
+genel "OUTBOUND" belirsiz ismiyle DEĞİL, baştan üç yönlü additive enum ile modellendi: `OUTBOUND_TO_CUSTOMER`
+(mevcut satırlar default) / `CUSTOMER_RETURN_TO_STORE` / `STORE_RETURN_TO_CUSTOMER`. Her direction için ayrı
 davranış (create-guard, duplicate kontrolü, fulfillment projeksiyonu yalnız `OUTBOUND_TO_CUSTOMER`,
-müşteri/ters-gönderi tracking, stok hareketi) baştan direction-aware kurgulanacak. Bu faz henüz
-UYGULANMADI.
+müşteri/ters-gönderi tracking, stok hareketi, iade-penceresi teslim ankoru) direction-aware kurgulandı.
+
+> **K4 DÜZELTMESİ (2026-08-07, kullanıcı — K1 kararı):** Önceki not "`ReturnRestockDecision`'a
+> `STORE_RETURN_TO_CUSTOMER` ekle" diyordu. Kanıtlı denetim bunu reddetti: `ReturnRestockDecision` yalnız
+> KABUL edilen (received) adedin stok kararıdır ve 5 disposition seçeneği (müşteriye geri gönder/imha/
+> tedarikçiye/mağazada tut/iletişim) ona 1:1 oturmaz. Yerine **ayrı domain** kuruldu: `ReturnRejectedDisposition`
+> enum + `ReturnItemDisposition` modeli (status'lu lifecycle: CANCELLED quantity serbest, COMPLETED immutable;
+> Σ ≤ rejectedQuantity cap invariant). `ReturnRestockDecision` GENİŞLETİLMEDİ.
+>
+> **K2 (kapsam):** Bu PR'da yalnız `STORE_RETURN_TO_CUSTOMER` gerçek akış; `CUSTOMER_RETURN_TO_STORE` =
+> RESERVED domain value (mevcut `ReturnRequest.returnCarrier/returnTrackingNumber/shippedAt` KORUNUR; Shipment
+> kaydı/backfill üretilmez). Müşteri-iade bacağını Shipment'e taşıma ayrı FUTURE fazı.
+>
+> **K3 (yetki):** `requireStoreAdmin` (refund/payment yetkisinden AYRI). Reverse shipment OrderRefund/
+> RefundIntent/envanter/paymentStatus ÜRETMEZ. SUPER_ADMIN yalnız gelecekteki istisna (carrier override/
+> manuel ücret/force-cancel-complete) için.
+>
+> **K5 (model):** `Shipment` REUSE (ayrı tablo yok); `provider`/`providerConfigId` NOT NULL kalır (reverse
+> siparişin outbound gönderisinin config'ini REUSE eder; `direction` filtreleriyle sync/webhook/barcode
+> worker'larından dışlanır). Manuel lifecycle mevcut `ShipmentStatus` + `status-map.ts` REUSE + CANCELLED.
+
+Additive migration replay ✓ (gerçek PG); gerçek-DB concurrency (advisory lock) + 20 yeni test + tam gate
+yeşil (2453 api-gateway). **Commit/push/PR/merge/deploy YOK.**
 
 Kod tamamlandı, tüm review temiz, **2396 test yeşil**; **commit/push/PR/merge/deploy YOK**, migration YOK
 (K2). **TODO-170 (Refund Ledger) semantiği KORUNUR** — `OrderRefund`/`RefundIntent`/cap invariant/

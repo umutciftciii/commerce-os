@@ -15,6 +15,11 @@ import type {
   AddressType,
 } from "@prisma/client";
 import type { AdminReturnRefundSummary } from "@commerce-os/contracts";
+import {
+  serializeReverseForItem,
+  type DispositionRow,
+  type ReverseShipmentRow,
+} from "./reverse-serialize.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -109,6 +114,9 @@ export interface AdminReturnDetailRow {
       unitPriceAmount: number;
     };
     attachments: Array<{ id: string; type: string }>;
+    // TODO-173 (ADR-274) — reddedilen adet disposition'ları + bu kalemin reverse shipment'ları.
+    dispositions: DispositionRow[];
+    shipments: ReverseShipmentRow[];
   }>;
   history: Array<{
     fromStatus: ReturnStatus | null;
@@ -199,6 +207,12 @@ export function serializeAdminReturnDetail(
         // Auth-gate'li admin attachment stream yolu (store-admin BFF proxy'ler).
         url: `/stores/${row.storeId}/returns/${row.id}/attachments/${att.id}`,
       })),
+      // TODO-173 (ADR-274) — disposition + reverse shipment türetmeleri (in-memory; ek sorgu yok).
+      ...serializeReverseForItem({
+        rejectedQuantity: item.rejectedQuantity,
+        dispositions: item.dispositions,
+        reverseShipments: item.shipments,
+      }),
     })),
     history: row.history.map((h) => ({
       fromStatus: h.fromStatus,
