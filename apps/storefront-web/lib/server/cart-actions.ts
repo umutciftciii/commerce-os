@@ -539,6 +539,8 @@ export async function submitCheckoutAction(
     shippingOptionId || null,
     // BUG-CART-002 — Secim-disi varyantlar checkout'a katilmaz (auth: gateway DB cart'tan diser).
     deselectedForCheckout,
+    // TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle (checkbox → on/true).
+    formData.get("useShoppingCredit") === "on" || formData.get("useShoppingCredit") === "true",
   );
 
   if (!result.ok) {

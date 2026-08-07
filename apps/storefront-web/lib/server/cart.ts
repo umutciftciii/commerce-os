@@ -761,6 +761,8 @@ export async function submitCheckout(
   shippingOptionId?: string | null,
   // BUG-CART-002 — Secim-disi varyantlar; auth checkout'ta DB cart satirlarindan dislanir.
   deselectedVariantIds?: string[],
+  // TODO-174B (ADR-282) — "Alışveriş bakiyemi kullan" toggle (yalnız oturum açmış müşteride etkili).
+  useShoppingCredit?: boolean,
 ): Promise<CheckoutResult> {
   try {
     // F3B.3: Oturum acmis musteride checkout, `x-customer-session` ile gonderilir;
@@ -815,6 +817,8 @@ export async function submitCheckout(
       ...(attributionGrant ? { attributionGrant } : {}),
       ...(sponsoredGrants.length > 0 ? { sponsoredGrants } : {}),
       ...(checkoutChangeContext ? { changeContext: checkoutChangeContext } : {}),
+      // TODO-174B — bakiye toggle yalnız oturum açmış müşteride anlamlı (gateway anon'da yoksayar).
+      ...(useShoppingCredit && customerToken ? { useShoppingCredit: true } : {}),
     };
     const result = customerToken
       ? await sendCustomer<PublicOrderConfirmation>("POST", checkoutPath(), customerToken, body)
