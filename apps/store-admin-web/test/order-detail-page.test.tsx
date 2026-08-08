@@ -29,6 +29,8 @@ const { storeApiMock, MockUiError } = vi.hoisted(() => {
         }),
       // TD-FR-7 (Faz 1) — sipariş detayı order-level refund-context (fail-open); varsayılan: gerçekleşen iade yok.
       getOrderRefundContext: vi.fn().mockResolvedValue({ context: null }),
+      // TD-174B-1 — sipariş detayı deneyim özeti (fail-open); varsayılan: review yok (null).
+      getOrderExperienceForOrder: vi.fn().mockResolvedValue(null),
     },
   };
 });
@@ -88,6 +90,8 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
     reservations: [],
     events: [],
     paymentAttempts: [],
+    // TD-174B-1 — ödeme dağılımı (settled attempt'lerden). Testlerde varsayılan boş.
+    paymentAllocations: [],
     billing: null,
     ...overrides,
   };

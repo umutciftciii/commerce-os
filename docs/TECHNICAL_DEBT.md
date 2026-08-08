@@ -2316,15 +2316,27 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 
 ## TODO-174B Order Experience Recovery + Store Credit — açık borç (FUTURE)
 
-- **TD-174B-1** Store Admin **sipariş detayı** "Sipariş Deneyimi" kartı + payment-summary "alışveriş bakiyesi
-  kullanıldı" satırı henüz sipariş-detay yüzeyine eklenmedi (order detail response enrichment gerekir). Recovery
-  verisi ayrı `Sipariş Deneyimi` yüzeyinde tam görünür; order-detail çapraz-link FUTURE. Storefront sipariş
-  detayında credit-used satırı da (order snapshot `shoppingCreditUsedMinor` hazır) FUTURE.
-- **TD-174B-2** Gelişmiş credit reporting (outstanding liability / issued / spent / restored / expired /
-  adjustments finans ekranı) henüz ayrı rapor yüzeyi değil — veriler ledger'dan türetilebilir (KPI endpoint
-  goodwill toplamı sağlar). Finans>Raporlar entegrasyonu FUTURE.
-- **TD-174B-3** 4-viewport browser smoke (izole fixture, gerçek auth) merge öncesi manuel adım olarak önerilir;
-  otomatik kapsama güçlü (33 yeni test + ~4000 regresyon yeşil + iki app tam production build).
+- **TD-174B-1** ✅ **RESOLVED (2026-08-08, TD-174B follow-up; PR aşağıda):** Store Admin **sipariş detayı** "Sipariş
+  Deneyimi" kartı (rating + yorum + recovery durumu + atanan + tanımlanan goodwill + geri kazanım detayına
+  köprü) + payment-summary **Ödeme dağılımı** satırları eklendi. Ödeme dağılımı BUG-CART-005
+  `buildPaymentAllocations` projeksiyonu REUSE edilerek serializeOrder'a additive `paymentAllocations` alanı
+  olarak taşındı (STORE_CREDIT → "Mağaza bakiyesi"; toplam = captured toplamı invariant). Tek-sipariş özet ucu
+  `GET /stores/:storeId/order-experience/orders/:orderId` (review yoksa 200+null; fail-open kart gizlenir).
+  Storefront credit-used satırı (`shoppingCreditUsedMinor`) hâlâ FUTURE (bu iş yalnız store-admin).
+- **TD-174B-2** ✅ **RESOLVED (2026-08-08, TD-174B follow-up; PR aşağıda):** (a) **Alışveriş bakiyesi finansal raporu** —
+  Finans>Raporlar yeni "Alışveriş Bakiyesi" sekmesi (`GET /stores/:storeId/finance/credit-report`): NOKTA-ANLIK
+  outstanding liability (canlı lot Σ remaining, expiresAt>now) + dönem-içi issued/spent/restored/expired/
+  goodwill/adjustments-net; tek para birimi (mixed-currency toplamı yok). (b) **Recovery raporu** — Sipariş
+  Deneyimi sayfası yeni "Geri kazanım raporu" bölümü (`GET /stores/:storeId/order-experience/report`): puan
+  trendi (zero-fill gün serisi) + ort. ilk temas / ort. çözüm süresi + ulaşma oranı + outcome dağılımı +
+  goodwill; KPI grid'ine goodwill toplamı kartı eklendi. Tümü storeId-scoped + bounded aralık (finance
+  date-range REUSE).
+- **TD-174B-3** ✅ **RESOLVED (2026-08-08):** 4-viewport (375/768/1024/1440) gerçek-auth izole-fixture browser
+  smoke koşuldu (worktree gateway :4100 + store-admin :3102, enterprise-demo): order-detail ödeme dağılımı
+  (Mağaza bakiyesi ₺300 + Visa ••••4242 ₺700 = ₺1000 invariant) + Sipariş Deneyimi kartı (1★/Açık/goodwill
+  ₺250/link) · recovery raporu (trend/timing/outcome) · credit raporu (outstanding = issued−spent invariant,
+  recovery goodwill ₺250) · 4 viewport yatay taşma YOK · fixture FK-güvenli temizlendi (enterprise-demo PRISTINE
+  471). 6 yeni gerçek-DB test (getOrderExperienceForOrder + recoveryReport + creditReport; store-izolasyon dahil).
 - **Gift Card Purchase / Code Redemption** — hediye kartı satın alma / kod üretme / redeem / 3. kişiye hediye /
   e-posta teslim / gift-card ürün-expiry politikası bu fazda KAPSAM DIŞI (spec §13). Customer Shopping Balance /
   Store Credit foundation ACTIVE; gift-card ürünü FUTURE.

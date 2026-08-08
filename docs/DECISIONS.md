@@ -6261,3 +6261,29 @@ default; production'da zorlanmaz) yalnız housekeeping: EXPIRED materialize + EX
 İptal/iade restore: harcanan lot'un expiry'si HÂLÂ gelecekteyse remaining geri yüklenir + lot ACTIVE'e döner (revive);
 süresi GEÇMİŞ lot KESİNLİKLE revive edilmez (yapay canlandırma yok) — o porsiyon skippedExpired yapısal kaydı.
 Restore orijinal lot expiry'sini KORUR (uzatma yok). Saf + gerçek-DB testleri (expired-no-revive, sweep-idempotent) yeşil.
+
+## ADR-285 — Order-detail deneyim/ödeme-dağılımı görünürlüğü + credit/recovery raporlama (TD-174B-1/2) — ACCEPTED (2026-08-08)
+
+**Bağlam:** TODO-174B kapanışında 3 açık borç kaldı (TD-174B-1 order-detail görünürlük, TD-174B-2 raporlama,
+TD-174B-3 smoke). Finansal çekirdek (FEFO ledger, STORE_CREDIT PaymentAttempt semantiği, migration'lar) DEPLOYED
+ve DOKUNULMAZ; bu iş yalnız READ/UI eklemesidir.
+
+**Karar:**
+- **Ödeme dağılımı (order-detail):** BUG-CART-005 `buildPaymentAllocations` projeksiyonu TEK OTORİTE olarak
+  REUSE edilir (yeniden icat YOK); admin `serializeOrder`'a additive `paymentAllocations` alanı eklenir
+  (settled PAID/AUTHORIZED attempt'lerden; toplam = captured toplamı invariant). STORE_CREDIT satırı i18n
+  "Mağaza bakiyesi"; CARD maskeli marka+son4; ham PAN/provider/enum UI'a SIZMAZ. Alan opsiyonel (legacy boş dizi).
+- **Deneyim kartı (order-detail):** yeni tek-sipariş özet ucu `GET /stores/:storeId/order-experience/orders/:orderId`
+  (review yoksa 200+`null` → kart fail-open gizlenir). Goodwill = case'e bağlı `RECOVERY_GOODWILL` ledger Σ.
+  Internal note TAŞINMAZ. `OrderExperienceReview`/case verisi order snapshot'a GÖMÜLMEZ (ayrı fetch; düşük blast-radius).
+- **Credit raporu:** `GET /stores/:storeId/finance/credit-report` — `outstandingLiabilityMinor` NOKTA-ANLIK
+  (canlı lot Σ remaining, `status=ACTIVE ∧ remaining>0 ∧ expiresAt>now`; ADR-281/284 ile aynı otorite, worker'dan
+  bağımsız); issued/spent/restored/expired/adjustments-net dönem-içi ledger `type`'a göre ayrıştırılır
+  (amountMinor pozitif büyüklük + `direction`). TEK para birimi (H-2 mixed-currency guard; toplama yok).
+- **Recovery raporu:** `GET /stores/:storeId/order-experience/report` — puan trendi (tz-yerel gün zero-fill),
+  ort. ilk-temas/çözüm (case timestamp farkları), ulaşma oranı (KPI reachedRatio ile HİZALI durum kümesi),
+  outcome dağılımı (activity `outcome` group-by), goodwill. Aralık = finance `resolveFinanceRange` REUSE
+  (bounded/tz-aware). Tüm uçlar `requireStoreAdmin` + storeId-first scoped. Yeni migration/şema YOK.
+
+TD-174B-3: 4-viewport gerçek-auth izole-fixture browser smoke PASS (order-detail dağılım ₺300+₺700=₺1000
+invariant · credit outstanding = issued−spent invariant · enterprise-demo PRISTINE). 6 yeni gerçek-DB test.

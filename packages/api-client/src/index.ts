@@ -46,6 +46,10 @@ import type {
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
+  // TD-174B-1/2 — Order-detail experience summary + recovery/credit reporting.
+  OrderExperienceSummaryDto,
+  RecoveryReportDto,
+  CreditReportDto,
   AdminIssueCreditRequest,
   AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
@@ -396,6 +400,10 @@ export type {
   RecoveryActivityDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
+  // TD-174B-1/2 — Order-detail experience summary + recovery/credit reporting.
+  OrderExperienceSummaryDto,
+  RecoveryReportDto,
+  CreditReportDto,
   AdminIssueCreditRequest,
   AdminAdjustCreditRequest,
   CreditLedgerEntryDto,
@@ -2359,6 +2367,10 @@ export interface ApiClient {
       caseDetail(storeId: string, caseId: string, token?: string): Promise<RecoveryCaseDetailDto>;
       action(storeId: string, caseId: string, input: RecoveryActionRequest, token?: string): Promise<RecoveryCaseDetailDto>;
       openManual(storeId: string, input: ManualOpenCaseRequest, token?: string): Promise<RecoveryCaseDetailDto>;
+      // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill).
+      report(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<RecoveryReportDto>;
+      // TD-174B-1 — Tek-sipariş deneyim özeti (order-detail kartı). Review yoksa null.
+      byOrder(storeId: string, orderId: string, token?: string): Promise<OrderExperienceSummaryDto | null>;
     };
     // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
     customerCredit: {
@@ -2562,6 +2574,8 @@ export interface ApiClient {
       exportDiscounts(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<string>;
       // TODO-174 (ADR-275) — İptal raporu (yalnız görüntüleme; taksonomi CRUD yok).
       cancellations(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CancellationReportResponse>;
+      // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
+      creditReport(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CreditReportDto>;
     };
     // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
     sponsoredProducts: {
@@ -4159,6 +4173,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           sendJson<RecoveryCaseDetailDto>(`/stores/${storeId}/order-experience/cases/${caseId}/actions`, "POST", input, token),
         openManual: (storeId, input, token) =>
           sendJson<RecoveryCaseDetailDto>(`/stores/${storeId}/order-experience/cases`, "POST", input, token),
+        report: (storeId, token, query) =>
+          getJson<RecoveryReportDto>(`/stores/${storeId}/order-experience/report${buildQueryString(query)}`, token),
+        byOrder: (storeId, orderId, token) =>
+          getJson<OrderExperienceSummaryDto | null>(`/stores/${storeId}/order-experience/orders/${orderId}`, token),
       },
       // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
       customerCredit: {
@@ -4415,6 +4433,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         // TODO-174 (ADR-275) — İptal raporu (yalnız görüntüleme; taksonomi CRUD yok).
         cancellations: (storeId, token, query) =>
           getJson<CancellationReportResponse>(`/stores/${storeId}/reports/cancellations${buildQueryString(query)}`, token),
+        // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
+        creditReport: (storeId, token, query) =>
+          getJson<CreditReportDto>(`/stores/${storeId}/finance/credit-report${buildQueryString(query)}`, token),
       },
       // TODO-161 (ADR-114…120) — Sponsored Product Management.
       sponsoredProducts: {

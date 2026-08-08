@@ -20,10 +20,44 @@ import {
 import { SurfaceCard } from "../../components/premium";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
-import { formatDate } from "../../../lib/client/format";
-import type { ExperienceKpiDto, ExperienceListResponse, ExperienceListRow } from "@commerce-os/api-client";
+import { formatDate, formatMinor } from "../../../lib/client/format";
+import type {
+  ExperienceKpiDto,
+  ExperienceListResponse,
+  ExperienceListRow,
+  RecoveryReportDto,
+} from "@commerce-os/api-client";
 
 type Tone = "neutral" | "success" | "warning" | "info" | "danger";
+
+/** TD-174B-2 — Dakikayı insan-okur süreye çevirir (gün/saat/dakika). null → "—". */
+function formatDuration(minutes: number | null, tr: boolean): string {
+  if (minutes == null) return "—";
+  if (minutes < 60) return `${minutes} ${tr ? "dk" : "min"}`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h < 24) return m > 0 ? `${h} ${tr ? "sa" : "h"} ${m} ${tr ? "dk" : "min"}` : `${h} ${tr ? "sa" : "h"}`;
+  const days = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh > 0 ? `${days} ${tr ? "g" : "d"} ${rh} ${tr ? "sa" : "h"}` : `${days} ${tr ? "g" : "d"}`;
+}
+
+/** TD-174B-2 — RecoveryOutcome enum → insan-okur etiket (ham enum sızmaz). */
+function outcomeLabel(outcome: string, tr: boolean): string {
+  const map: Record<string, [string, string]> = {
+    ISSUE_RESOLVED: ["Sorun çözüldü", "Issue resolved"],
+    APOLOGY_ACCEPTED: ["Özür kabul edildi", "Apology accepted"],
+    REFUND_QUESTION: ["İade sorusu", "Refund question"],
+    DELIVERY_COMPLAINT: ["Teslimat şikâyeti", "Delivery complaint"],
+    PRICE_COMPLAINT: ["Fiyat şikâyeti", "Price complaint"],
+    PRODUCT_EXPECTATION_MISMATCH: ["Ürün beklentisi uyuşmadı", "Product expectation mismatch"],
+    CUSTOMER_UNREACHABLE: ["Müşteriye ulaşılamadı", "Customer unreachable"],
+    CUSTOMER_DECLINED: ["Müşteri reddetti", "Customer declined"],
+    OTHER: ["Diğer", "Other"],
+  };
+  const v = map[outcome];
+  return v ? (tr ? v[0] : v[1]) : outcome;
+}
 
 const RECOVERY_TONE: Record<string, Tone> = {
   OPEN: "warning",
@@ -66,6 +100,8 @@ export default function OrderExperiencePage() {
   >({ status: "loading" });
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // TD-174B-2 — Recovery raporu (son 30 gün; trend + zamanlama + outcome + goodwill).
+  const [report, setReport] = useState<RecoveryReportDto | null>(null);
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -88,6 +124,22 @@ export default function OrderExperiencePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Rapor mağaza-geneli/son-30-gün; filtrelerden bağımsız (bir kez yüklenir). Fail-open.
+  useEffect(() => {
+    let cancelled = false;
+    void storeApi
+      .getRecoveryReport()
+      .then((res) => {
+        if (!cancelled) setReport(res);
+      })
+      .catch(() => {
+        if (!cancelled) setReport(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const openManual = useCallback(
     async (row: ExperienceListRow) => {
@@ -127,7 +179,83 @@ export default function OrderExperiencePage() {
           <StatCard label={tr ? "SLA geciken" : "SLA overdue"} value={String(kpi.slaOverdueCount)} badgeTone="warning" />
           <StatCard label={tr ? "Ulaşılan oranı" : "Reached ratio"} value={pct(kpi.reachedRatio)} />
           <StatCard label={tr ? "Çözüm oranı" : "Resolution ratio"} value={pct(kpi.resolutionRatio)} />
+          <StatCard
+            label={tr ? "Goodwill bakiyesi" : "Goodwill issued"}
+            value={formatMinor(Number(kpi.totalGoodwillCreditMinor), "TRY")}
+            badgeTone="info"
+          />
         </div>
+      )}
+
+      {report && (
+        <SurfaceCard>
+          <div className="space-y-4 p-4">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-white/80">
+                {tr ? "Geri kazanım raporu" : "Recovery report"}
+              </h3>
+              <span className="text-xs text-white/40">
+                {report.range.dateFrom} — {report.range.dateTo}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatCard
+                label={tr ? "Ort. ilk temas" : "Avg first contact"}
+                value={formatDuration(report.avgFirstContactMinutes, tr)}
+              />
+              <StatCard
+                label={tr ? "Ort. çözüm süresi" : "Avg resolution"}
+                value={formatDuration(report.avgResolutionMinutes, tr)}
+              />
+              <StatCard
+                label={tr ? "Ulaşma oranı" : "Contact success"}
+                value={pct(report.contactSuccessRatio)}
+              />
+              <StatCard
+                label={tr ? "İyi niyet bakiyesi" : "Goodwill issued"}
+                value={formatMinor(Number(report.goodwill.totalMinor), "TRY")}
+                badgeTone="info"
+              />
+            </div>
+
+            {/* Puan trendi — basit dikey çubuk (son 30 gün; zero-fill). */}
+            <div>
+              <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
+                {tr ? "Puan trendi (değerlendirme sayısı)" : "Rating trend (review count)"}
+              </p>
+              <div className="flex h-20 items-end gap-[3px]">
+                {report.ratingTrend.map((point) => {
+                  const max = Math.max(1, ...report.ratingTrend.map((p) => p.count));
+                  const heightPct = point.count > 0 ? Math.max(6, (point.count / max) * 100) : 2;
+                  const tone = point.lowCount > 0 ? "bg-amber-400/70" : "bg-sky-400/60";
+                  return (
+                    <div
+                      key={point.date}
+                      className={`flex-1 rounded-t ${point.count > 0 ? tone : "bg-white/10"}`}
+                      style={{ height: `${heightPct}%` }}
+                      title={`${point.date}: ${point.count} · ★${point.averageRating.toFixed(1)}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            {report.outcomeDistribution.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
+                  {tr ? "Sonuç dağılımı" : "Outcome distribution"}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {report.outcomeDistribution.map((slice) => (
+                    <Badge key={slice.outcome} tone="neutral">
+                      {outcomeLabel(slice.outcome, tr)}: {slice.count}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </SurfaceCard>
       )}
 
       <SurfaceCard>

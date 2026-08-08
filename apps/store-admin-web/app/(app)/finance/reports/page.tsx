@@ -12,6 +12,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import { useRouter, useSearchParams } from "next/navigation";
 import type {
   CancellationReportResponse,
+  CreditReportDto,
   FinanceBreakdownsResponse,
   FinanceDiscountReportResponse,
   FinancePaymentReportResponse,
@@ -42,7 +43,7 @@ import {
 } from "../../../../components/ui";
 import { SurfaceCard } from "../../../components/premium";
 
-type Tab = "ozet" | "urun" | "kategori" | "odeme" | "indirim" | "iptal";
+type Tab = "ozet" | "urun" | "kategori" | "odeme" | "indirim" | "iptal" | "bakiye";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "ozet", label: "Satış Özeti" },
@@ -51,6 +52,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "odeme", label: "Ödeme Raporu" },
   { key: "indirim", label: "İndirim Raporu" },
   { key: "iptal", label: "İptal Raporu" },
+  // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
+  { key: "bakiye", label: "Alışveriş Bakiyesi" },
 ];
 
 // TODO-174 (ADR-275) — İptal raporu filtre seçenekleri (Store Admin yalnız görüntüler).
@@ -186,6 +189,7 @@ function ReportsInner() {
   const [payments, setPayments] = useState<FinancePaymentReportResponse["data"] | null>(null);
   const [discounts, setDiscounts] = useState<FinanceDiscountReportResponse["data"] | null>(null);
   const [cancellations, setCancellations] = useState<CancellationReportResponse["data"] | null>(null);
+  const [creditReport, setCreditReport] = useState<CreditReportDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -222,6 +226,10 @@ function ReportsInner() {
         } else if (tab === "iptal") {
           const cx = await storeApi.getCancellationReport({ ...query, currency: sum.data.currency });
           if (active) setCancellations(cx.data);
+        } else if (tab === "bakiye") {
+          // Store credit para birimi satış para biriminden bağımsız; backend çözer (currency zorlamıyoruz).
+          const cr = await storeApi.getCreditReport(query);
+          if (active) setCreditReport(cr);
         }
       } catch (err) {
         if (active) setError(messageForError(err));
@@ -275,8 +283,8 @@ function ReportsInner() {
         title="Raporlar"
         description="Sipariş kayıtlarından türetilen finansal özet, ürün, ödeme ve indirim raporları. Tüm tutarlar sipariş anındaki kayıtlardır."
         actions={
-          // İptal raporunun CSV dışa aktarımı yoktur (yalnız görüntüleme).
-          tab === "iptal" ? null : (
+          // İptal + Alışveriş Bakiyesi raporlarının CSV dışa aktarımı yoktur (yalnız görüntüleme).
+          tab === "iptal" || tab === "bakiye" ? null : (
             <Button variant="secondary" onClick={exportForTab}>
               CSV indir
             </Button>
@@ -416,8 +424,64 @@ function ReportsInner() {
           {tab === "odeme" ? <PaymentTab data={payments} currency={currency} loading={loading} /> : null}
           {tab === "indirim" ? <DiscountTab data={discounts} currency={currency} loading={loading} /> : null}
           {tab === "iptal" ? <CancellationTab data={cancellations} currency={currency} loading={loading} /> : null}
+          {tab === "bakiye" ? <StoreCreditTab data={creditReport} loading={loading} /> : null}
         </>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu sekmesi. Kaynak =
+ * append-only kredi defteri (ADR-281). `Ödenmemiş bakiye (yükümlülük)` NOKTA-ANLIK
+ * (canlı lot Σ remaining, expiresAt>now); diğer tutarlar dönem-içi hareket toplamı.
+ * Tek para birimi (mixed-currency toplamı yok). Ham enum GÖSTERİLMEZ.
+ */
+function StoreCreditTab({ data, loading }: { data: CreditReportDto | null; loading: boolean }) {
+  if (!data) {
+    return loading ? (
+      <div className="flex justify-center p-10">
+        <Spinner />
+      </div>
+    ) : (
+      <EmptyState title="Veri yok" description="Seçili dönemde alışveriş bakiyesi hareketi bulunmuyor." />
+    );
+  }
+  const c = data.currency;
+  return (
+    <div className="space-y-5">
+      <SurfaceCard>
+        <div className="p-4">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-white/80">Ödenmemiş bakiye yükümlülüğü</h3>
+            <span className="text-xs text-white/40">
+              {data.range.dateFrom} — {data.range.dateTo}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Kpi
+              label="Ödenmemiş bakiye (canlı)"
+              value={formatMinor(Number(data.outstandingLiabilityMinor), c)}
+              hint="Şu an geçerli (süresi dolmamış) lot toplamı"
+            />
+            <Kpi label="Bakiyeli müşteri" value={String(data.customersWithBalance)} hint={`${data.activeLotCount} aktif lot`} />
+            <Kpi label="Verilen (goodwill)" value={formatMinor(Number(data.issuedMinor), c)} hint="Dönem içi tanımlanan" />
+          </div>
+        </div>
+      </SurfaceCard>
+
+      <SurfaceCard>
+        <div className="p-4">
+          <h3 className="mb-3 text-sm font-semibold text-white/80">Dönem içi hareketler</h3>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Kpi label="Harcanan" value={formatMinor(Number(data.spentMinor), c)} hint="Siparişlerde kullanılan" />
+            <Kpi label="Geri yüklenen" value={formatMinor(Number(data.restoredMinor), c)} hint="İptal/iade ile iade edilen" />
+            <Kpi label="Süresi dolan" value={formatMinor(Number(data.expiredMinor), c)} hint="Kullanılmadan sona eren" />
+            <Kpi label="Recovery goodwill" value={formatMinor(Number(data.goodwillIssuedMinor), c)} hint="Geri kazanım kaynaklı" />
+            <Kpi label="Manuel düzeltme (net)" value={formatMinor(Number(data.adjustmentsNetMinor), c)} hint="Alacak − borç" />
+          </div>
+        </div>
+      </SurfaceCard>
     </div>
   );
 }
