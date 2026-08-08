@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cardLast4,
+  customerOrderPaymentSummarySchema,
   detectCardBrand,
   digitsOnly,
   isValidTaxNumber,
@@ -83,5 +84,51 @@ describe("F3B.2 billing + payment helpers", () => {
     expect(publicPaymentSubmitRequestSchema.safeParse({ token: "t", scenario: "success" }).success).toBe(true);
     // Ne kart ne senaryo → reddedilir.
     expect(publicPaymentSubmitRequestSchema.safeParse({ token: "t" }).success).toBe(false);
+  });
+});
+
+/**
+ * BUG-CART-004 (order-detail 404 regresyonu) — Müşteri sipariş detayı ödeme özeti,
+ * STORE_CREDIT (Alışveriş bakiyesi, TODO-174B/ADR-282) ile ödenmiş siparişleri de
+ * kabul etmelidir. Store-credit PaymentAttempt provider'sızdır (sağlayıcı yok) ve
+ * method=STORE_CREDIT'tir. Eskiden şema provider'ı zorunlu enum + method'u kart-yalnız
+ * enum tuttuğu için bu siparişin detay ucu 500 veriyor, storefront bunu null→notFound
+ * yapıp yanlış ÜRÜN-404 ekranı gösteriyordu.
+ */
+describe("customerOrderPaymentSummarySchema — store credit paid attempt", () => {
+  const base = {
+    cardBrand: null,
+    cardLast4: null,
+    installmentCount: 1,
+    transactionId: null,
+    threeDsApplied: false,
+    paidAt: new Date().toISOString(),
+  };
+
+  it("accepts a store-credit payment (no external provider, method STORE_CREDIT)", () => {
+    const result = customerOrderPaymentSummarySchema.safeParse({
+      ...base,
+      provider: null,
+      method: "STORE_CREDIT",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("still accepts a normal card payment (MOCK / CARD)", () => {
+    const result = customerOrderPaymentSummarySchema.safeParse({
+      ...base,
+      provider: "MOCK",
+      method: "CARD",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an unknown method value", () => {
+    const result = customerOrderPaymentSummarySchema.safeParse({
+      ...base,
+      provider: null,
+      method: "TOTALLY_UNKNOWN",
+    });
+    expect(result.success).toBe(false);
   });
 });

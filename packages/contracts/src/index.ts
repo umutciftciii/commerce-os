@@ -6634,8 +6634,13 @@ export const customerOrderBillingSummarySchema = z.object({
  * Full PAN/CVC/token/hash ASLA bu yüzeyde yer almaz.
  */
 export const customerOrderPaymentSummarySchema = z.object({
-  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]),
-  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK"]),
+  // BUG-CART-004 — provider NULLABLE: store-credit (TODO-174B/ADR-282) ve manuel (ADR-098)
+  // tahsilatların dış ödeme sağlayıcısı YOKTUR. Prisma `PaymentAttempt.provider` da nullable.
+  // Eskiden zorunlu enum olması, store-credit ile ödenmiş siparişin detay ucunu 500'e düşürüp
+  // storefront'ta yanlış ÜRÜN-404 ekranına yol açıyordu.
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
+  // BUG-CART-004 — method Prisma `PaymentMethodType` ile hizalı (STORE_CREDIT dahil).
+  method: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]),
   cardBrand: z.string().nullable(),
   cardLast4: z.string().nullable(),
   installmentCount: z.number().int().positive(),

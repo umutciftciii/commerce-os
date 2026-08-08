@@ -299,7 +299,12 @@ function PaymentBlock({
       <Subheading as="h2" className="mb-2">{o.detail.paymentInfo}</Subheading>
       {p ? (
         <div className="space-y-1.5">
-          <Row label={o.detail.provider} value={p.provider} />
+          {/* BUG-CART-004 — provider artık nullable (store-credit/manuel tahsilatta yok).
+              Store-credit'te sağlayıcı yerine yöntem satırı gösterilir. */}
+          {p.provider ? <Row label={o.detail.provider} value={p.provider} /> : null}
+          {p.method === "STORE_CREDIT" ? (
+            <Row label={o.detail.method} value={o.detail.storeCredit} />
+          ) : null}
           {p.cardBrand || p.cardLast4 ? (
             <Row
               label={o.detail.card}

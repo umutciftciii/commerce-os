@@ -262,7 +262,11 @@ export interface CustomerOrderAddressRecord {
 
 /** Ödeme GÜVENLİ alanları; full PAN/CVC/token/hash ASLA taşınmaz. */
 export interface CustomerOrderPaymentRecord {
-  provider: string;
+  // BUG-CART-004 — provider NULLABLE: store-credit (TODO-174B) ve manuel (ADR-098)
+  // tahsilatların dış ödeme sağlayıcısı yoktur. Eskiden `string` olması, null provider'ı
+  // sentetik "MANUAL" string'ine çevirip customer ödeme şemasını (geçerli enum) 400'e
+  // düşürüyordu → storefront'ta yanlış ÜRÜN-404. Store-admin muadili de nullable.
+  provider: string | null;
   method: string;
   cardBrand: string | null;
   cardLast4: string | null;
@@ -1132,8 +1136,10 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         })),
         payment: payment
           ? {
-              // TODO-159F — MANUAL (offline) tahsilatta provider yoktur; müşteri görünümünde "MANUAL".
-              provider: payment.provider ?? "MANUAL",
+              // TODO-159F / BUG-CART-004 — MANUAL (offline) ve store-credit tahsilatta dış provider
+              // YOKTUR → null. Eski `?? "MANUAL"` coercion'ı customer ödeme şemasında GEÇERSİZ enum
+              // değeriydi (400 → yanlış ÜRÜN-404). Gerçek provider döner; yöntem satırı UI'da gösterilir.
+              provider: payment.provider,
               method: payment.method,
               cardBrand: payment.cardBrand,
               cardLast4: payment.cardLast4,
