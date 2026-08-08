@@ -17,6 +17,10 @@
 - **Idempotency:** Her para hareketi deterministik idempotency key; concurrent execution advisory lock `refund:<storeId>:<orderId>` + version guard + unique constraint ile güvenli.
 - **Isolation:** Tüm sorgular `storeId` (+ customer sahiplik) scoped. İlgisiz domain (ProductReview vb.) ellenmez.
 - **Copy:** Müşteri-facing yerlerde raw enum gösterilmez; semantic description key → i18n copy. TR+EN zorunlu.
+- **Düzeltme A — Invalid destination reject:** Geçersiz/eligible-olmayan refund destination için SESSIZ fallback YOK. Sunucu `INVALID_DESTINATION` sentinel'i ile reddeder (örn. external=0 iken ORIGINAL_PAYMENT). UI eligibility'yi zaten gösterir; execution yine de sunucu tarafında doğrular.
+- **Düzeltme B — expiryDays=null allowlist:** `expiryDays=null` (non-expiring) yalnız ALLOWLISTED internal refund-origin sistem yollarında mümkün: `REFUND_ORIGIN_SYSTEM_SOURCE_TYPES = { ORDER_REFUND, ORDER_CANCELLATION, ORDER_RETURN }` + `actor.type === "SYSTEM"` + açık `refundOriginSystemPath: true` bayrağı. Goodwill/admin/route yolları asla null geçemez (`INVALID_EXPIRY`).
+- **Düzeltme C — Safe-integer money math:** Proportional split ara matematiği `BigInt` ile yapılır; girdi/çıktıya `Number.isSafeInteger` guard. Overflow/precision riski yok.
+- **Düzeltme D — Adoption rate paydası:** Shopping-balance adoption rate paydası yalnız müşterinin GERÇEK destination seçimi yapabildiği refund'ları içerir: `externalComponentMinor > 0` VE `offerOriginalPayment && offerShoppingBalance` (iki seçenek de sunulmuş). Credit-only / external=0 refund'lar payda dışı.
 - **Gate/worktree:** Komutlar worktree kökünden; Edit'ler worktree path ile. `pnpm -r`/`--filter` turbo tuzağına dikkat (memory: worktree-path-and-turbo-gotcha).
 - **Referans spec:** `docs/superpowers/specs/2026-08-08-todo-175-refund-destination-choice-design.md` (bölüm numaraları §N ile atıflanır).
 
@@ -363,6 +367,16 @@ describe("computeRefundSourceSplit (proportional, residual to credit)", () => {
     const r = computeRefundSourceSplit({ externalRefundableRemaining: 50, creditRestorableRemaining: 50, refundAmountMinor: 100 });
     expect(r).toEqual({ externalPortionMinor: 50, creditPortionMinor: 50 });
   });
+  it("large minor amounts stay exact (BigInt intermediate, no precision loss)", () => {
+    const ext = 9_000_000_000, credit = 1_000_000_000, R = 10_000_000_000;
+    const r = computeRefundSourceSplit({ externalRefundableRemaining: ext, creditRestorableRemaining: credit, refundAmountMinor: R });
+    expect(r.externalPortionMinor + r.creditPortionMinor).toBe(R);
+    expect(r.externalPortionMinor).toBe(9_000_000_000);
+  });
+  it("rejects non-safe-integer / negative input", () => {
+    expect(() => computeRefundSourceSplit({ externalRefundableRemaining: Number.MAX_SAFE_INTEGER + 1, creditRestorableRemaining: 0, refundAmountMinor: 1 })).toThrow();
+    expect(() => computeRefundSourceSplit({ externalRefundableRemaining: -1, creditRestorableRemaining: 0, refundAmountMinor: 1 })).toThrow();
+  });
 });
 
 describe("resolveDestinationEligibility", () => {
@@ -405,25 +419,37 @@ export interface RefundSourceSplit {
   creditPortionMinor: number;
 }
 
-export function computeRefundSourceSplit(input: RefundSourceSplitInput): RefundSourceSplit {
-  const ext = Math.max(0, input.externalRefundableRemaining);
-  const credit = Math.max(0, input.creditRestorableRemaining);
-  const total = ext + credit;
-  const R = Math.max(0, Math.min(input.refundAmountMinor, total));
-  if (R === 0 || total === 0) return { externalPortionMinor: 0, creditPortionMinor: 0 };
+function assertSafeMinor(n: number, label: string): void {
+  if (!Number.isSafeInteger(n) || n < 0) {
+    throw new Error(`destination-calc: ${label} must be a non-negative safe integer (got ${n})`);
+  }
+}
 
-  // Oransal, external floor; residual credit'e.
-  let externalPortion = Math.floor((R * ext) / total);
-  // Cap'ler (defensive): external havuzu aşamaz.
-  if (externalPortion > ext) externalPortion = ext;
+export function computeRefundSourceSplit(input: RefundSourceSplitInput): RefundSourceSplit {
+  // Düzeltme C: girdiler safe-integer; ara matematik BigInt.
+  assertSafeMinor(input.externalRefundableRemaining, "externalRefundableRemaining");
+  assertSafeMinor(input.creditRestorableRemaining, "creditRestorableRemaining");
+  assertSafeMinor(input.refundAmountMinor, "refundAmountMinor");
+
+  const ext = BigInt(input.externalRefundableRemaining);
+  const credit = BigInt(input.creditRestorableRemaining);
+  const total = ext + credit;
+  const R = input.refundAmountMinor > input.externalRefundableRemaining + input.creditRestorableRemaining
+    ? total
+    : BigInt(input.refundAmountMinor);
+  if (R === 0n || total === 0n) return { externalPortionMinor: 0, creditPortionMinor: 0 };
+
+  // Oransal, external floor (BigInt bölme zaten floor); residual credit'e.
+  let externalPortion = (R * ext) / total;
+  if (externalPortion > ext) externalPortion = ext; // defensive cap
   let creditPortion = R - externalPortion;
   // Credit havuzu aşarsa fazlayı external'a kaydır (external hâlâ havuzunu aşmasın).
   if (creditPortion > credit) {
     const overflow = creditPortion - credit;
     creditPortion = credit;
-    externalPortion = Math.min(ext, externalPortion + overflow);
+    externalPortion = externalPortion + overflow > ext ? ext : externalPortion + overflow;
   }
-  return { externalPortionMinor: externalPortion, creditPortionMinor: creditPortion };
+  return { externalPortionMinor: Number(externalPortion), creditPortionMinor: Number(creditPortion) };
 }
 
 export interface DestinationEligibilityInput {
@@ -550,19 +576,32 @@ git commit -m "feat(returns): TODO-175 isRefundResolution + legacy destination m
 
 **Interfaces:**
 - Consumes: mevcut `issueCredit` imzası.
-- Produces: `IssueCreditParams.expiryDays: CreditExpiryDays | null` — `null` verildiğinde `expiresAt = null` (non-expiring) lot oluşturulur; policy limiti atlanır (refund-origin sistem yolu). Goodwill yolu (route) hâlâ 30/60/120/180 zorunlu — bu değişiklik yalnız sistem çağrılarına non-expiring seçeneği açar.
+- Produces: `IssueCreditParams.expiryDays: CreditExpiryDays | null` + `IssueCreditParams.refundOriginSystemPath?: boolean` — `null` yalnız Düzeltme B allowlist'i sağlandığında kabul edilir; aksi halde `INVALID_EXPIRY`. Goodwill yolu (route) hâlâ 30/60/120/180 zorunlu.
+- `REFUND_ORIGIN_SYSTEM_SOURCE_TYPES = new Set(["ORDER_REFUND","ORDER_CANCELLATION","ORDER_RETURN"])` export edilir (allowlist).
 
 - [ ] **Step 1: Failing test yaz** — mevcut credit servis test harness'ını (izole test DB / prisma mock) kullanarak: `issueCredit({..., expiryDays: null, sourceType: "ORDER_REFUND", ledgerType: "REFUND_RESTORE"})` çağır; oluşan lot'un `expiresAt` null ve `availableBalanceMinor` içinde sayıldığını doğrula. (Test dosyası mevcut `service.test.ts` desenine göre; DB harness yoksa `expireLotsForStore`+`issueCredit` çevresindeki mevcut testleri referans al.)
 
 ```ts
-it("issueCredit with expiryDays=null creates non-expiring lot", async () => {
+it("issueCredit expiryDays=null needs allowlisted refund-origin system path", async () => {
   const res = await issueCredit({ storeId, customerId, currency: "TRY", amountMinor: 500n,
-    expiryDays: null, sourceType: "ORDER_REFUND", ledgerType: "REFUND_RESTORE",
+    expiryDays: null, refundOriginSystemPath: true, sourceType: "ORDER_REFUND", ledgerType: "REFUND_RESTORE",
     description: "credit.returnRefund", actor: { type: "SYSTEM", id: "sys" },
     idempotencyKey: "return-refund:R1" });
   expect(res.ok).toBe(true);
-  const lot = await prisma.customerCreditLot.findFirstOrThrow({ where: { sourceId: null, sourceType: "ORDER_REFUND" } });
+  const lot = await prisma.customerCreditLot.findFirstOrThrow({ where: { sourceType: "ORDER_REFUND" } });
   expect(lot.expiresAt).toBeNull();
+});
+it("issueCredit expiryDays=null REJECTED without allowlist (goodwill cannot bypass)", async () => {
+  const res = await issueCredit({ storeId, customerId, currency: "TRY", amountMinor: 500n,
+    expiryDays: null, sourceType: "ADMIN_GOODWILL", ledgerType: "ADMIN_GOODWILL_CREDIT",
+    description: "credit.goodwill", actor: { type: "PLATFORM_USER", id: "u1" }, idempotencyKey: "g:1" });
+  expect(res).toEqual({ ok: false, code: "INVALID_EXPIRY" });
+});
+it("issueCredit expiryDays=null REJECTED when source not in allowlist even if flag set", async () => {
+  const res = await issueCredit({ storeId, customerId, currency: "TRY", amountMinor: 500n,
+    expiryDays: null, refundOriginSystemPath: true, sourceType: "ADMIN_ADJUSTMENT", ledgerType: "ADMIN_ADJUSTMENT_CREDIT",
+    description: "credit.adjustment", actor: { type: "SYSTEM", id: "s" }, idempotencyKey: "a:1" });
+  expect(res).toEqual({ ok: false, code: "INVALID_EXPIRY" });
 });
 ```
 
@@ -571,7 +610,21 @@ it("issueCredit with expiryDays=null creates non-expiring lot", async () => {
 Run: `pnpm --filter @commerce-os/api-gateway test -- customer-credit/service`
 Expected: FAIL (expiryDays null tipi kabul edilmiyor / `computeExpiresAt` patlar / `INVALID_EXPIRY`).
 
-- [ ] **Step 3: Implement** — `IssueCreditParams.expiryDays` tipini `CreditExpiryDays | null` yap. `issueCredit` içinde: `const expiresAt = params.expiryDays === null ? null : computeExpiresAt(now, params.expiryDays);`. Validasyon: `expiryDays === null` iken `INVALID_EXPIRY` atlanır; policy check (`policyMaxMinor`) yalnız `expiryDays !== null` (goodwill) yolunda anlamlı — non-expiring sistem yolu `overridePolicy`/policy-skip ile. Lot create'te `expiresAt` null geçilebilir (şema nullable). Ledger entry aynen.
+- [ ] **Step 3: Implement** — `IssueCreditParams.expiryDays: CreditExpiryDays | null` + `refundOriginSystemPath?: boolean`. Allowlist guard:
+```ts
+export const REFUND_ORIGIN_SYSTEM_SOURCE_TYPES = new Set<CreditSourceType>(["ORDER_REFUND","ORDER_CANCELLATION","ORDER_RETURN"]);
+// issueCredit başında:
+if (params.expiryDays === null) {
+  const allowed = params.refundOriginSystemPath === true
+    && params.actor.type === "SYSTEM"
+    && REFUND_ORIGIN_SYSTEM_SOURCE_TYPES.has(params.sourceType);
+  if (!allowed) return { ok: false, code: "INVALID_EXPIRY" };
+} else if (!isValidExpiryDays(params.expiryDays)) {
+  return { ok: false, code: "INVALID_EXPIRY" };
+}
+const expiresAt = params.expiryDays === null ? null : computeExpiresAt(now, params.expiryDays);
+```
+Non-expiring yolda policy check (`policyMaxMinor`) atlanır (allowlisted sistem yolu). Lot create'te `expiresAt` null geçilir (şema nullable). Ledger entry aynen.
 
 - [ ] **Step 4: Test pass doğrula**
 
@@ -680,6 +733,10 @@ it("card-only cancellation SHOPPING_BALANCE issues non-expiring credit, no PSP",
   expect(lot.remainingAmountMinor).toBeGreaterThan(0n);
 });
 it("mixed cancellation ORIGINAL_PAYMENT splits external to PSP, credit restore", async () => { /* ... */ });
+it("credit-only order rejects ORIGINAL_PAYMENT with INVALID_DESTINATION (no silent fallback)", async () => {
+  const res = await cancelCustomerOrder({ ...creditOnlyInput, refundDestination: "ORIGINAL_PAYMENT" }, deps);
+  expect(res).toMatchObject({ ok: false, code: "INVALID_DESTINATION" });
+});
 ```
 
 - [ ] **Step 2: Test fail doğrula**
@@ -687,7 +744,7 @@ it("mixed cancellation ORIGINAL_PAYMENT splits external to PSP, credit restore",
 Run: `pnpm --filter @commerce-os/api-gateway test -- cancellation/service`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — `CancelOrderInput.refundDestination` ekle; `cancelCustomerOrder` bunu `prepareCancellationRefund`'a geçirir (persisted validated input, UI'ya değil). `prepareCancellationRefund`: external captured (`excludeStoreCredit:true`) = external pool; `resolveDestinationEligibility` ile geçersiz seçim reddi (external=0 iken ORIGINAL_PAYMENT → SHOPPING_BALANCE'a düş veya `INVALID_DESTINATION`; §6.1'e göre credit-only zaten sormaz). `SHOPPING_BALANCE` dalı: OrderRefund INTERNAL_CREDIT SUCCEEDED tx-içi + `issueCredit`. `ORIGINAL_PAYMENT`: mevcut PSP dalı. Projection split döndür.
+- [ ] **Step 3: Implement** — `CancelOrderInput.refundDestination` ekle; `cancelCustomerOrder` bunu `prepareCancellationRefund`'a geçirir (persisted validated input, UI'ya değil). `prepareCancellationRefund`: external captured (`excludeStoreCredit:true`) = external pool; `resolveDestinationEligibility` ile **Düzeltme A: geçersiz seçim SESSIZ fallback YOK → `{ ok: false, code: "INVALID_DESTINATION" }`** (external=0 iken ORIGINAL_PAYMENT seçilirse reddet; credit-only akış zaten destination sormaz ve default SHOPPING_BALANCE gelir). `SHOPPING_BALANCE` dalı: OrderRefund INTERNAL_CREDIT SUCCEEDED tx-içi + `issueCredit(expiryDays:null, refundOriginSystemPath:true, sourceType ORDER_CANCELLATION)`. `ORIGINAL_PAYMENT`: mevcut PSP dalı. Projection split döndür.
 
 - [ ] **Step 4: Test pass doğrula**
 
@@ -736,7 +793,7 @@ it("store-credit-origin never becomes PSP refund", async () => {
 Run: `pnpm --filter @commerce-os/api-gateway test -- refunds/service`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — `initiateRefund`: `resolveEffectiveRefundDestination(returnRequest)` ile destination al; external pool + credit pool hesapla (`cap-calc` + credit ledger); `computeRefundSourceSplit(intent.totalRefundMinor)` → Re/Rc. Tx-içinde: Rc>0 → `restoreCreditAmountForOrderInTx`; Re>0 → destination ORIGINAL_PAYMENT ise OrderRefund PENDING (tutar Re) + post-commit provider (mevcut), SHOPPING_BALANCE ise OrderRefund INTERNAL_CREDIT SUCCEEDED + `issueCredit(expiryDays:null, sourceType ORDER_RETURN, REFUND_RESTORE, desc credit.returnRefund)`. `initiateRefund`'ün `resolutionType === "REFUND_TO_ORIGINAL_PAYMENT"` guard'ı (satır ~419) `isRefundResolution` ile değiştir. `isCompletionAllowed`: credit restore toplamını da say.
+- [ ] **Step 3: Implement** — `initiateRefund`: `resolveEffectiveRefundDestination(returnRequest)` ile destination al; external pool + credit pool hesapla (`cap-calc` + credit ledger); **Düzeltme A: `resolveDestinationEligibility` ile geçersiz seçim → `{ ok:false, code:"INVALID_DESTINATION" }` (sessiz fallback yok)**; `computeRefundSourceSplit(intent.totalRefundMinor)` → Re/Rc. Tx-içinde: Rc>0 → `restoreCreditAmountForOrderInTx`; Re>0 → destination ORIGINAL_PAYMENT ise OrderRefund PENDING (tutar Re) + post-commit provider (mevcut), SHOPPING_BALANCE ise OrderRefund INTERNAL_CREDIT SUCCEEDED + `issueCredit(expiryDays:null, refundOriginSystemPath:true, sourceType ORDER_RETURN, REFUND_RESTORE, desc credit.returnRefund)`. `initiateRefund`'ün `resolutionType === "REFUND_TO_ORIGINAL_PAYMENT"` guard'ı (satır ~419) `isRefundResolution` ile değiştir. `isCompletionAllowed`: credit restore toplamını da say.
 
 - [ ] **Step 4: Test pass doğrula**
 
@@ -791,9 +848,22 @@ git commit -m "feat(returns): TODO-175 persist immutable refund destination + el
 - Test: `apps/api-gateway/src/refunds/visibility.test.ts`, `apps/api-gateway/src/customer-credit/report.test.ts`
 
 **Interfaces:**
-- Produces: `RefundVisibilityItem += { refundDestination, actualAllocation: { externalRefundMinor, creditRestoreMinor, shoppingBalanceRefundMinor }, ... }`; list `destination` filtresi; reporting: `refundToOriginalMinor`, `refundToShoppingBalanceMinor`, `shoppingBalanceAdoptionRate`, `cancellationVsReturnBreakdown`.
+- Produces: `RefundVisibilityItem += { refundDestination, actualAllocation: { externalRefundMinor, creditRestoreMinor, shoppingBalanceRefundMinor }, choiceEligible: boolean, ... }`; list `destination` filtresi; reporting: `refundToOriginalMinor`, `refundToShoppingBalanceMinor`, `shoppingBalanceAdoptionRate`, `cancellationVsReturnBreakdown`.
+- **Düzeltme D — adoption rate paydası:** `choiceEligible = externalComponentMinor > 0 && offerOriginalPayment && offerShoppingBalance` (müşteri gerçek seçim yapabildi). `shoppingBalanceAdoptionRate = count(choiceEligible && destination==SHOPPING_BALANCE) / count(choiceEligible)`. Credit-only / external=0 refund'lar paydaya girmez. Payda 0 ise oran `null` (NaN değil).
 
-- [ ] **Step 1: Failing test yaz** — allocation DTO OrderRefund(external legs) + credit ledger(restore+balance) `groupKey`/`returnRequestId`/`orderId` ile birleştirir; reporting bucket'ları doğru toplar; destination filter yalnız eşleşenleri döndürür.
+- [ ] **Step 1: Failing test yaz** — allocation DTO OrderRefund(external legs) + credit ledger(restore+balance) `groupKey`/`returnRequestId`/`orderId` ile birleştirir; reporting bucket'ları doğru toplar; destination filter yalnız eşleşenleri döndürür; **adoption rate paydası yalnız `choiceEligible` refund'ları sayar (credit-only refund payda dışı; payda 0 → null)**.
+
+```ts
+it("adoption rate denominator only counts choice-eligible refunds", () => {
+  const rate = computeAdoptionRate([
+    { choiceEligible: true, destination: "SHOPPING_BALANCE" },
+    { choiceEligible: true, destination: "ORIGINAL_PAYMENT" },
+    { choiceEligible: false, destination: "SHOPPING_BALANCE" }, // credit-only, payda dışı
+  ]);
+  expect(rate).toBe(0.5);
+  expect(computeAdoptionRate([{ choiceEligible: false, destination: "SHOPPING_BALANCE" }])).toBeNull();
+});
+```
 
 - [ ] **Step 2: Test fail doğrula** — Run: `pnpm --filter @commerce-os/api-gateway test -- visibility report` → FAIL.
 
