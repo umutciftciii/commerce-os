@@ -11,10 +11,16 @@
  */
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
-import type { OrderRefundActorType, OrderRefundEventType, PrismaClient } from "@prisma/client";
+import type { OrderRefundActorType, OrderRefundEventType, PrismaClient, RefundDestination } from "@prisma/client";
 import { sumCapturedMinor, resolveRefundedPaymentStatus } from "../payments/payment-state.js";
-import { evaluateReturnTransition } from "../returns/status-map.js";
+import { evaluateReturnTransition, isRefundResolution, resolveEffectiveRefundDestination } from "../returns/status-map.js";
 import { resolveRefundCapability, type RefundCapability } from "./capability.js";
+import { computeRefundSourceSplit, resolveDestinationEligibility } from "./destination-calc.js";
+import {
+  issueCreditInTx,
+  getOrderCreditRestorableMinor,
+  restoreCreditAmountForOrderInTx,
+} from "../customer-credit/service.js";
 import {
   computeRefundableRemainingMinor,
   isWithinRefundable,
@@ -112,6 +118,22 @@ async function loadLedgerRows(tx: Tx, storeId: string, orderId: string): Promise
     select: { status: true, totalRefundMinor: true, currency: true },
   });
   return rows;
+}
+
+/**
+ * TODO-175 — Order'ın EXTERNAL (STORE_CREDIT hariç) refund edilebilir KALAN tutarı (minor):
+ * captured(non-credit) − Σ reserved refund (SUCCEEDED + active). INTERNAL_CREDIT legleri de external
+ * cap'e sayılır (aynı OrderRefund ledger'ında). Refund destination split'inin external havuzu (Re cap).
+ */
+export async function getOrderExternalRefundableMinor(
+  tx: Tx,
+  storeId: string,
+  orderId: string,
+  currency: string,
+): Promise<number> {
+  const captured = await loadCapturedMinor(tx, storeId, orderId, currency, { excludeStoreCredit: true });
+  const ledger = await loadLedgerRows(tx, storeId, orderId);
+  return computeRefundableRemainingMinor(captured, ledger, currency);
 }
 
 /**
@@ -675,7 +697,14 @@ export interface CancellationRefundPrep {
  */
 export async function prepareCancellationRefund(
   tx: Tx,
-  input: { storeId: string; orderId: string; actorUserId: string | null },
+  input: {
+    storeId: string;
+    orderId: string;
+    customerId: string;
+    actorUserId: string | null;
+    // TODO-175 — external refundable'ın hedefi. Yok/ORIGINAL_PAYMENT → PSP; SHOPPING_BALANCE → non-expiring credit.
+    refundDestination?: RefundDestination;
+  },
 ): Promise<CancellationRefundPrep> {
   await lockOrder(tx, input.storeId, input.orderId);
   const order = await tx.order.findFirst({
@@ -711,6 +740,73 @@ export async function prepareCancellationRefund(
   const productRefundMinor = remaining - shippingRefundMinor;
   const taxRefundMinor = Math.min(Math.max(0, order.taxAmount), productRefundMinor);
 
+  const destination: RefundDestination = input.refundDestination ?? "ORIGINAL_PAYMENT";
+  const idempotencyKey = `order-cancel-refund:${order.id}`;
+
+  // TODO-175 — SHOPPING_BALANCE: external refundable PSP'ye GİTMEZ; non-expiring credit'e döner.
+  // OrderRefund INTERNAL_CREDIT + tx-içi SUCCEEDED (finansal/audit record); credit issue ile eşleşir.
+  if (destination === "SHOPPING_BALANCE") {
+    try {
+      const now = new Date();
+      const refund = await tx.orderRefund.create({
+        data: {
+          storeId: input.storeId,
+          orderId: order.id,
+          origin: "ORDER_CANCELLATION",
+          refundDestination: "SHOPPING_BALANCE",
+          returnRequestId: null,
+          refundIntentId: null,
+          paymentAttemptId: attempt.id,
+          provider: null,
+          executionMode: "INTERNAL_CREDIT",
+          method: attempt.method,
+          status: "SUCCEEDED",
+          currency: order.currency,
+          productRefundMinor,
+          shippingRefundMinor,
+          taxRefundMinor,
+          totalRefundMinor: remaining,
+          idempotencyKey,
+          requestedByPlatformUserId: input.actorUserId,
+          processingStartedAt: now,
+          completedAt: now,
+        },
+        select: { id: true },
+      });
+      await writeEvent(tx, input.storeId, refund.id, "REQUESTED", ACTOR_SYSTEM, input.actorUserId, remaining, {
+        metadata: { source: "ORDER_CANCELLATION", destination: "SHOPPING_BALANCE" },
+      });
+      await writeEvent(tx, input.storeId, refund.id, "SUCCEEDED", ACTOR_SYSTEM, input.actorUserId, remaining, {
+        metadata: { source: "ORDER_CANCELLATION", destination: "SHOPPING_BALANCE" },
+      });
+      // Non-expiring refund-origin credit (external→balance). Idempotent (order başına tek).
+      const credit = await issueCreditInTx(tx, {
+        storeId: input.storeId,
+        customerId: input.customerId,
+        currency: order.currency,
+        amountMinor: BigInt(remaining),
+        expiryDays: null,
+        refundOriginSystemPath: true,
+        sourceType: "ORDER_CANCELLATION",
+        ledgerType: "REFUND_RESTORE",
+        description: "credit.cancellationRefund",
+        actor: { type: "SYSTEM", id: null },
+        idempotencyKey: `order-cancel-balance-refund:${order.id}`,
+      });
+      if (!credit.ok) throw new Error(`cancellation shopping-balance credit failed: ${credit.code}`);
+      return { status: "CREATED", refundId: refund.id, mode: "INTERNAL_CREDIT" };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        const existing = await tx.orderRefund.findFirst({
+          where: { storeId: input.storeId, idempotencyKey },
+          select: { id: true, executionMode: true },
+        });
+        if (existing) return { status: "DEDUPED", refundId: existing.id, mode: existing.executionMode };
+      }
+      throw err;
+    }
+  }
+
   const capability: RefundCapability = resolveRefundCapability({
     type: attempt.type,
     provider: attempt.provider,
@@ -718,7 +814,6 @@ export async function prepareCancellationRefund(
     manualMethod: attempt.manualMethod,
   });
 
-  const idempotencyKey = `order-cancel-refund:${order.id}`;
   try {
     const refund = await tx.orderRefund.create({
       data: {
@@ -726,6 +821,7 @@ export async function prepareCancellationRefund(
         orderId: order.id,
         // TODO-174A (ADR-280) — pozitif menşe: intent'siz sipariş iptali geri ödemesi.
         origin: "ORDER_CANCELLATION",
+        refundDestination: "ORIGINAL_PAYMENT",
         returnRequestId: null,
         refundIntentId: null,
         paymentAttemptId: attempt.id,
@@ -745,7 +841,7 @@ export async function prepareCancellationRefund(
       select: { id: true },
     });
     await writeEvent(tx, input.storeId, refund.id, "REQUESTED", ACTOR_SYSTEM, input.actorUserId, remaining, {
-      metadata: { source: "ORDER_CANCELLATION" },
+      metadata: { source: "ORDER_CANCELLATION", destination: "ORIGINAL_PAYMENT" },
     });
     return { status: "CREATED", refundId: refund.id, mode: capability.mode };
   } catch (err) {

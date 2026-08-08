@@ -14,7 +14,7 @@
  */
 import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
-import type { OrderStatus, ShipmentDirection, ShipmentStatus, ShippingProviderType } from "@prisma/client";
+import type { OrderStatus, RefundDestination, ShipmentDirection, ShipmentStatus, ShippingProviderType } from "@prisma/client";
 import {
   isActiveCancellationReason,
   cancellationReasonCategory,
@@ -23,12 +23,14 @@ import {
 } from "@commerce-os/contracts";
 import { releaseOrderReservations } from "@commerce-os/inventory";
 import {
+  getOrderExternalRefundableMinor,
   prepareCancellationRefund,
   runCancellationRefundExecution,
   type CancellationRefundPrep,
   type RefundServiceDeps,
 } from "../../refunds/service.js";
-import { restoreCreditForOrderInTx } from "../../customer-credit/service.js";
+import { getOrderCreditRestorableMinor, restoreCreditForOrderInTx } from "../../customer-credit/service.js";
+import { resolveDestinationEligibility } from "../../refunds/destination-calc.js";
 import { releaseOrderCampaignConsumption } from "../../campaigns/cancellation-rollback.js";
 import {
   computeCancellationEligibility,
@@ -45,6 +47,7 @@ export type CancelOrderErrorCode =
   | "BLOCKED_DELIVERED"
   | "INVALID_REASON"
   | "NOTE_REQUIRED"
+  | "INVALID_DESTINATION"
   | "CANCEL_CONFLICT";
 
 export interface CancelOrderInput {
@@ -53,6 +56,8 @@ export interface CancelOrderInput {
   orderNumber: string;
   reasonCode: OrderCancellationReasonValue;
   reasonNote?: string | null;
+  /** TODO-175 — external refundable'ın hedefi (opsiyonel; unpaid/credit-only akışta gönderilmez). */
+  refundDestination?: RefundDestination;
   /** Optimistic concurrency (opsiyonel; verilirse guard'lanır). */
   expectedVersion?: number;
 }
@@ -107,6 +112,7 @@ export async function cancelCustomerOrder(
     select: {
       id: true,
       status: true,
+      currency: true,
       shipments: { select: { direction: true, status: true } },
     },
   });
@@ -119,6 +125,23 @@ export async function cancelCustomerOrder(
     shipments: pre.shipments as CancellationShipmentInput[],
   });
   if (preState !== "ALLOWED") return { ok: false, code: mapEligibilityToError(preState) };
+
+  // TODO-175 (Düzeltme A) — Refund hedefi eligibility (server-authoritative; SESSIZ fallback YOK).
+  // Yalnız açıkça hedef verilmişse doğrulanır; unpaid/credit-only akışta hedef gönderilmez.
+  if (input.refundDestination) {
+    const externalRefundable = await getOrderExternalRefundableMinor(prisma, input.storeId, pre.id, pre.currency);
+    const creditRestorable = await getOrderCreditRestorableMinor(prisma, input.storeId, pre.id);
+    const elig = resolveDestinationEligibility({
+      externalRefundableRemaining: externalRefundable,
+      totalRefundableMinor: externalRefundable + Number(creditRestorable),
+    });
+    if (input.refundDestination === "ORIGINAL_PAYMENT" && !elig.offerOriginalPayment) {
+      return { ok: false, code: "INVALID_DESTINATION" };
+    }
+    if (input.refundDestination === "SHOPPING_BALANCE" && !elig.offerShoppingBalance) {
+      return { ok: false, code: "INVALID_DESTINATION" };
+    }
+  }
 
   const orderId = pre.id;
   const now = new Date();
@@ -231,6 +254,8 @@ export async function cancelCustomerOrder(
     const refund = await prepareCancellationRefund(tx, {
       storeId: input.storeId,
       orderId,
+      customerId: input.customerId,
+      refundDestination: input.refundDestination,
       actorUserId: null, // müşteri aktörü (platform user değil); provenance metadata'da.
     });
 

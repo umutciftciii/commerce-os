@@ -12880,7 +12880,8 @@ export const adminRefundVisibilityListResponseSchema = z.object({
 export type AdminRefundVisibilityListResponse = z.infer<
   typeof adminRefundVisibilityListResponseSchema
 >;
-export const refundExecutionModeSchema = z.enum(["PROVIDER_AUTOMATIC", "MANUAL_OFFLINE"]);
+// TODO-175 (ADR-285) — INTERNAL_CREDIT: SHOPPING_BALANCE external legi (provider yok, tx-içi SUCCEEDED).
+export const refundExecutionModeSchema = z.enum(["PROVIDER_AUTOMATIC", "MANUAL_OFFLINE", "INTERNAL_CREDIT"]);
 export type RefundExecutionModeValue = z.infer<typeof refundExecutionModeSchema>;
 export const refundCapabilityReasonSchema = z.enum([
   "PROVIDER_AUTOMATIC",
