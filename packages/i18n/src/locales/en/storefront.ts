@@ -1504,8 +1504,15 @@ export const enStorefront: StorefrontDictionary = {
         OTHER: "Other",
       },
       resolutions: {
+        REFUND: "Refund to original payment",
         REFUND_TO_ORIGINAL_PAYMENT: "Refund to original payment",
         REPLACEMENT: "Replace with the same item",
+      },
+      // TODO-175 (ADR-285) — Where the refund amount is sent (raw enum is NEVER shown).
+      refundDestinationLabel: "Refund destination",
+      refundDestinations: {
+        ORIGINAL_PAYMENT: "To your original payment method",
+        SHOPPING_BALANCE: "To your shopping balance",
       },
       statuses: {
         REQUESTED: "Requested",

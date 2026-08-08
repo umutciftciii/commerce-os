@@ -63,6 +63,12 @@ import {
   type ReturnResolutionType,
 } from "../../order-shared";
 
+// TODO-175 (ADR-285) — nötr "REFUND" çözümü de (hedef ayrı `refundDestination` alanında) orijinal
+// REFUND_TO_ORIGINAL_PAYMENT ile aynı iade defteri/akışını kullanır. Refund-yolu kapıları bu helper'la.
+function isRefundResolution(resolutionType: ReturnResolutionType): boolean {
+  return resolutionType === "REFUND" || resolutionType === "REFUND_TO_ORIGINAL_PAYMENT";
+}
+
 // TODO-170 (ADR-272) — ledger-otoriteli refund özeti durumu → tone/glyph/etiket. Durum RENK-TEK-BAŞINA
 // değil (glyph + metin). Tamamlanmış refund sonrası ASLA "beklemede" göstermez.
 const REFUND_SUMMARY_TONE: Record<string, Tone> = {
@@ -176,7 +182,7 @@ export default function ReturnDetailPage() {
   const readyRet = state.status === "ready" ? state.ret : null;
   const fastEligibleStatus =
     readyRet?.status === "AWAITING_SHIPMENT" || readyRet?.status === "RECEIVED";
-  const fastRefundResolution = readyRet?.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT";
+  const fastRefundResolution = readyRet != null && isRefundResolution(readyRet.resolutionType);
   useEffect(() => {
     if (!readyRet || !fastEligibleStatus || !fastRefundResolution) {
       setFastCtx(null);
@@ -288,7 +294,7 @@ export default function ReturnDetailPage() {
           {isTr ? "Hızlı iade yap" : "Fast refund"}
         </Button>
       ) : null}
-      {canRefundPending(s) && ret.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" ? (
+      {canRefundPending(s) && isRefundResolution(ret.resolutionType) ? (
         <Button size="sm" disabled={busy} onClick={() => setDialog("refund")}>
           {isTr ? "İade sürecine al" : "Move to refund"}
         </Button>
@@ -394,7 +400,7 @@ export default function ReturnDetailPage() {
                 TD-FR-7 ship-polish #1 — refreshKey inspect-decision/reject sonrası panelin
                 KENDİ getRefundContext state'ini de tazeler (aksi halde elle yenileyene kadar
                 eski "henüz para iadesi kaydı yok" görünümü kalırdı). */}
-            {ret.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" ? (
+            {isRefundResolution(ret.resolutionType) ? (
               <RefundPanel
                 returnId={ret.id}
                 returnVersion={ret.version}
@@ -1163,7 +1169,8 @@ function InspectDialog({
   // advanceInspectedToRefundPending resolutionType kontrolü yapar). REPLACEMENT çözümünde
   // aynı çağrı yalnız inceleme kararını kaydeder (INSPECTED'de kalır) — admin ayrıca üstteki
   // "Değişim sürecine al" butonuna tıklamalıdır. Copy bunu YANLIŞ VAAT ETMEDEN yansıtır.
-  const isRefundResolution = resolutionType === "REFUND_TO_ORIGINAL_PAYMENT";
+  // TODO-175 — nötr "REFUND" çözümü de refund-yoludur (hedef ayrı alanda); modül helper'ıyla kapsanır.
+  const isRefund = isRefundResolution(resolutionType);
   const [rows, setRows] = useState<
     Record<string, { condition: ReturnConditionStatus; inspection: ReturnInspectionResult; restock: ReturnRestockDecision }>
   >(() =>
@@ -1196,7 +1203,7 @@ function InspectDialog({
       onClose={onClose}
       title={isTr ? "İnceleme sonucu" : "Inspection result"}
       description={
-        isRefundResolution
+        isRefund
           ? isTr
             ? "Kalem başına durum, sonuç ve stok kararı. Yalnız 'Satılabilir stoğa al' stok artırır. Ardından iadeyi kabul edip para iadesini başlatın veya gerekçeli şekilde reddedin."
             : "Per-item condition, result and restock decision. Only 'Restock as sellable' increments stock. Then either accept the return to start the refund, or reject it with a reason."
@@ -1218,7 +1225,7 @@ function InspectDialog({
             {busy ? (isTr ? "Reddediliyor…" : "Rejecting…") : isTr ? "Reddet" : "Reject"}
           </Button>
           <Button disabled={busy} onClick={() => onAccept(itemDecisions(), note.trim() || undefined)}>
-            {isRefundResolution
+            {isRefund
               ? busy
                 ? isTr
                   ? "İşleniyor…"

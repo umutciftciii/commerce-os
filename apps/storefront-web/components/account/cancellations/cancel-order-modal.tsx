@@ -7,6 +7,7 @@ import type {
   CancellationOrderSummary,
   OrderCancellationReasonCategoryValue,
   OrderCancellationReasonValue,
+  RefundDestinationValue,
 } from "@commerce-os/contracts";
 import {
   activeCancellationReasons,
@@ -15,7 +16,7 @@ import {
 } from "@commerce-os/contracts";
 import { formatMinor } from "../../../lib/money";
 import { cancelOrderAction, type CancelOrderState } from "../../../lib/server/cancellation-actions";
-import { Alert, Button, CharCounter, Stepper, Text, Textarea } from "../../ui";
+import { Alert, Button, CharCounter, Radio, Stepper, Text, Textarea } from "../../ui";
 
 type CancellationsDict = StorefrontDictionary["account"]["cancellations"];
 
@@ -62,13 +63,16 @@ function errorMessage(code: string | null, t: CancellationsDict): string {
 }
 
 /**
- * TODO-174 (ADR-275/277/278) — Müşteri self-servis sipariş iptali 2 adımlı modal.
+ * TODO-174 (ADR-275/277/278) — Müşteri self-servis sipariş iptali çok adımlı modal.
  *
  * `return-wizard.tsx` deseninden türetildi (adım state, doğrulama, submit, hata özeti)
- * ama iki adım + hafif overlay olarak sadeleştirildi. Uygunluk/tutar SUNUCU-OTORİTERDİR
+ * ama hafif overlay olarak sadeleştirildi. Uygunluk/tutar SUNUCU-OTORİTERDİR
  * (prop `summary`); istemci refund tutarı HESAPLAMAZ ve GÖNDERMEZ (yalnız reasonCode/
- * reasonNote/expectedVersion). Adım 1: neden (+ OTHER için zorunlu açıklama). Adım 2:
- * özet + kesin onay. Başarıda refundStatus AYRI gösterilir (yanıltıcı "iade tamamlandı" yok).
+ * reasonNote/expectedVersion + opsiyonel refundDestination SEÇİMİ). Adım 1: neden
+ * (+ OTHER için zorunlu açıklama). Adım 2 (KOŞULLU, TODO-175/ADR-285): iade yöntemi —
+ * YALNIZ gerçek bir seçim varken (ödeme alınmış + hem original hem shopping-balance
+ * teklif ediliyor). Son adım: özet + kesin onay. İstemci yalnız DESTINATION seçer,
+ * tutar hesaplamaz. Başarıda refundStatus AYRI gösterilir (yanıltıcı "iade tamamlandı" yok).
  */
 export function CancelOrderModal({
   orderNumber,
@@ -87,6 +91,7 @@ export function CancelOrderModal({
   const [step, setStep] = useState(0);
   const [reason, setReason] = useState<OrderCancellationReasonValue | "">("");
   const [note, setNote] = useState("");
+  const [destination, setDestination] = useState<RefundDestinationValue>("ORIGINAL_PAYMENT");
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CancelOrderState>({ status: "idle" });
@@ -94,7 +99,25 @@ export function CancelOrderModal({
   const errorRef = useRef<HTMLDivElement>(null);
   const noteRequired = reason ? cancellationReasonRequiresNote(reason) : false;
 
-  const steps = [{ label: t.steps.reason }, { label: t.steps.confirm }];
+  // TODO-175 — İade yöntemi adımı YALNIZ gerçek bir seçim varken görünür: ödeme alınmış
+  // (isPaid) VE hem original-payment hem shopping-balance teklif ediliyor. Aksi halde
+  // (unpaid, ya da external=0 → yalnız balance) adım gizlenir ve refundDestination GÖNDERİLMEZ.
+  const hasDestinationChoice =
+    summary.isPaid && summary.offerOriginalPayment && summary.offerShoppingBalance;
+
+  // Adım anahtarları; destination adımı koşullu olarak neden↔onay arasına eklenir.
+  const stepKeys: ("reason" | "destination" | "confirm")[] = hasDestinationChoice
+    ? ["reason", "destination", "confirm"]
+    : ["reason", "confirm"];
+  const currentKey = stepKeys[step];
+  const confirmIndex = stepKeys.length - 1;
+  const steps = stepKeys.map((key) =>
+    key === "reason"
+      ? { label: t.steps.reason }
+      : key === "destination"
+        ? { label: t.refundDestinationTitle }
+        : { label: t.steps.confirm },
+  );
   const succeeded = result.status === "success";
 
   function focusErrors() {
@@ -112,18 +135,21 @@ export function CancelOrderModal({
   }
 
   function goNext() {
-    const found = validateReasonStep();
-    setErrors(found);
-    if (found.length > 0) {
-      focusErrors();
-      return;
+    // Neden adımında ilerlemeden önce doğrula; sonraki adımlar (destination) doğrulama gerektirmez.
+    if (currentKey === "reason") {
+      const found = validateReasonStep();
+      setErrors(found);
+      if (found.length > 0) {
+        focusErrors();
+        return;
+      }
     }
-    setStep(1);
+    setStep((s) => s + 1);
   }
 
   function goBack() {
     setErrors([]);
-    setStep(0);
+    setStep((s) => Math.max(0, s - 1));
   }
 
   async function submit() {
@@ -139,6 +165,8 @@ export function CancelOrderModal({
       reasonCode: reason,
       reasonNote: note.trim() ? note.trim() : undefined,
       expectedVersion: summary.version,
+      // İstemci YALNIZ hedefi seçer (tutar değil); adım gösterilmediyse GÖNDERME (server default).
+      ...(hasDestinationChoice ? { refundDestination: destination } : {}),
     });
     setSubmitting(false);
     setResult(state);
@@ -206,7 +234,7 @@ export function CancelOrderModal({
               </div>
             ) : null}
 
-            {step === 0 ? (
+            {currentKey === "reason" ? (
               <ReasonStep
                 reason={reason}
                 setReason={(next) => {
@@ -219,21 +247,24 @@ export function CancelOrderModal({
                 groups={groups}
                 t={t}
               />
+            ) : currentKey === "destination" ? (
+              <DestinationStep
+                destination={destination}
+                setDestination={setDestination}
+                t={t}
+              />
             ) : (
               <ConfirmStep
                 orderNumber={orderNumber}
                 summary={summary}
                 reason={reason}
+                destination={hasDestinationChoice ? destination : null}
                 t={t}
               />
             )}
 
             <div className="flex flex-col gap-2 border-t border-line pt-4 sm:flex-row-reverse">
-              {step === 0 ? (
-                <Button variant="primary" size="sm" onClick={goNext} className="w-full sm:w-auto">
-                  {t.next}
-                </Button>
-              ) : (
+              {step === confirmIndex ? (
                 <Button
                   variant="primary"
                   size="sm"
@@ -243,8 +274,12 @@ export function CancelOrderModal({
                 >
                   {submitting ? t.confirming : t.confirmCta}
                 </Button>
+              ) : (
+                <Button variant="primary" size="sm" onClick={goNext} className="w-full sm:w-auto">
+                  {t.next}
+                </Button>
               )}
-              {step === 1 ? (
+              {step > 0 ? (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -342,16 +377,63 @@ function ReasonStep({
   );
 }
 
-/* ── Adım 2: özet + kesin onay ───────────────────────────────────────────────── */
+/* ── İade yöntemi adımı (KOŞULLU, TODO-175/ADR-285) ──────────────────────────────
+ * YALNIZ gerçek bir seçim varken render edilir (hasDestinationChoice). İki radyo:
+ * ORIGINAL_PAYMENT (varsayılan) ve SHOPPING_BALANCE, ipuçlarıyla. İstemci tutar
+ * HESAPLAMAZ; yalnız hedefi seçer. Tek isim (radio group) → biri seçili. */
+function DestinationStep({
+  destination,
+  setDestination,
+  t,
+}: {
+  destination: RefundDestinationValue;
+  setDestination: (next: RefundDestinationValue) => void;
+  t: CancellationsDict;
+}) {
+  return (
+    <div className="space-y-4">
+      <h3 className="text-[11px] font-medium uppercase tracking-wideish text-ink-muted">
+        {t.refundDestinationTitle}
+      </h3>
+      <div className="space-y-3" role="radiogroup" aria-label={t.refundDestinationTitle}>
+        <Radio
+          id="refund-destination-original"
+          name="refund-destination"
+          value="ORIGINAL_PAYMENT"
+          checked={destination === "ORIGINAL_PAYMENT"}
+          onChange={() => setDestination("ORIGINAL_PAYMENT")}
+          label={t.refundDestinationOriginal}
+          description={t.refundDestinationOriginalHint}
+        />
+        <Radio
+          id="refund-destination-balance"
+          name="refund-destination"
+          value="SHOPPING_BALANCE"
+          checked={destination === "SHOPPING_BALANCE"}
+          onChange={() => setDestination("SHOPPING_BALANCE")}
+          label={t.refundDestinationBalance}
+          description={t.refundDestinationBalanceHint}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── Son adım: özet + kesin onay ─────────────────────────────────────────────────
+ * İade satırı YALNIZ ödeme alınmışsa (isPaid) gösterilir. `destination` yalnız gerçek
+ * seçim yapıldığında (adım gösterildi) dolu gelir; null → mevcut tek-satır davranışı.
+ * Tutarlar server-otoriter (summary); istemci hesaplamaz — yalnız uygun alanı gösterir. */
 function ConfirmStep({
   orderNumber,
   summary,
   reason,
+  destination,
   t,
 }: {
   orderNumber: string;
   summary: CancellationOrderSummary;
   reason: OrderCancellationReasonValue | "";
+  destination: RefundDestinationValue | null;
   t: CancellationsDict;
 }) {
   return (
@@ -368,17 +450,66 @@ function ConfirmStep({
           <dt className="text-ink-muted">{t.summaryReason}</dt>
           <dd className="text-right text-ink">{reason ? t.reasons[reason] : "—"}</dd>
         </div>
-        {/* İade satırı YALNIZ ödeme alınmışsa (isPaid) gösterilir; aksi halde tamamen gizli. */}
         {summary.isPaid ? (
-          <div className="flex items-center justify-between gap-3 border-t border-line pt-2">
-            <dt className="text-ink-muted">{t.refundLabel}</dt>
-            <dd className="font-semibold text-ink tabular-nums">
-              {formatMinor(summary.estimatedRefundMinor, summary.currency)}
-            </dd>
-          </div>
+          <RefundSplitRows summary={summary} destination={destination} t={t} />
         ) : null}
       </dl>
       {summary.isPaid ? <Text className="text-xs text-ink-subtle">{t.refundNote}</Text> : null}
+    </div>
+  );
+}
+
+/* İade tutarı satır(lar)ı — hedef seçimine göre böler (server-otoriter tutarlar). */
+function RefundSplitRows({
+  summary,
+  destination,
+  t,
+}: {
+  summary: CancellationOrderSummary;
+  destination: RefundDestinationValue | null;
+  t: CancellationsDict;
+}) {
+  const money = (minor: number) => formatMinor(minor, summary.currency);
+
+  // SHOPPING_BALANCE seçildi → tüm iade tutarı bakiyeye.
+  if (destination === "SHOPPING_BALANCE") {
+    return (
+      <div className="flex items-center justify-between gap-3 border-t border-line pt-2">
+        <dt className="text-ink-muted">{t.refundToBalanceLabel}</dt>
+        <dd className="font-semibold text-ink tabular-nums">
+          {money(summary.estimatedRefundMinor)}
+        </dd>
+      </div>
+    );
+  }
+
+  // ORIGINAL_PAYMENT seçildi ve kredi-menşeli bileşen var → böl (bakiye + ödeme yöntemi).
+  if (destination === "ORIGINAL_PAYMENT" && summary.creditRestorableMinor > 0) {
+    return (
+      <>
+        <div className="flex items-center justify-between gap-3 border-t border-line pt-2">
+          <dt className="text-ink-muted">{t.refundSplitBalanceLabel}</dt>
+          <dd className="font-medium text-ink tabular-nums">
+            {money(summary.creditRestorableMinor)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-ink-muted">{t.refundDestinationOriginal}</dt>
+          <dd className="font-semibold text-ink tabular-nums">
+            {money(summary.externalRefundableMinor)}
+          </dd>
+        </div>
+      </>
+    );
+  }
+
+  // Seçim yok VEYA kredi-menşeli bileşen yok → mevcut tek-satır (toplam iade).
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-line pt-2">
+      <dt className="text-ink-muted">{t.refundLabel}</dt>
+      <dd className="font-semibold text-ink tabular-nums">
+        {money(summary.estimatedRefundMinor)}
+      </dd>
     </div>
   );
 }

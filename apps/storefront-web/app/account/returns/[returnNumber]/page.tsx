@@ -83,6 +83,12 @@ export default async function ReturnDetailPage({
             <p className="text-xs text-ink-subtle">
               {r.detail.windowEndsAt}: {formatDate(detail.returnWindowEndsAt, locale)}
             </p>
+            {/* TODO-175 (ADR-285) — İade tutarının nereye aktarılacağı (raw enum GÖSTERİLMEZ). */}
+            {detail.refundDestination ? (
+              <p className="text-xs text-ink-subtle">
+                {r.refundDestinationLabel}: {r.refundDestinations[detail.refundDestination]}
+              </p>
+            ) : null}
           </header>
 
           {/* TODO-169 (blocker #4) — mevcut aşama açıklaması (müşteri-facing tek cümle). */}

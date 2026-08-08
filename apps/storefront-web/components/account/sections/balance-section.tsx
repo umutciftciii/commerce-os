@@ -10,6 +10,17 @@ const DESC: Record<string, [string, string]> = {
   "credit.orderPayment": ["{n} siparişinde alışveriş bakiyesi kullanıldı", "Shopping balance used on order {n}"],
   "credit.cancellationRestore": ["{n} iptali nedeniyle bakiye geri yüklendi", "Balance restored on cancellation of {n}"],
   "credit.refundRestore": ["{n} iadesi nedeniyle bakiye geri yüklendi", "Balance restored on refund of {n}"],
+  // TODO-175 (ADR-285) — refund hedefi = alışveriş bakiyesi olduğunda backend'in yaydığı semantik key'ler.
+  "credit.cancellationRefund": ["OS-{n} sipariş iptali iadesi", "OS-{n} order cancellation refund"],
+  "credit.returnRefund": ["OS-{n} ürün iadesi", "OS-{n} product return refund"],
+  "credit.returnCreditRestore": [
+    "Siparişte kullanılan alışveriş bakiyesi geri yüklendi",
+    "Store credit used on the order was restored",
+  ],
+  "credit.returnCreditReissued": [
+    "Siparişte kullanılan alışveriş bakiyesi geri yüklendi",
+    "Store credit used on the order was restored",
+  ],
   "credit.expired": ["Süresi doldu", "Expired"],
   "credit.adjustment": ["Bakiye düzeltmesi", "Balance adjustment"],
 };

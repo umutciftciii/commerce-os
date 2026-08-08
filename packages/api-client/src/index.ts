@@ -441,6 +441,8 @@ export type {
   AdminRefundVisibilityListResponse,
   AdminRefundVisibilityItem,
   RefundOriginValue,
+  // TODO-175 (ADR-285) — Refund destination (müşteri tercihi: orijinal ödeme / alışveriş bakiyesi).
+  RefundDestinationValue,
   OrderRefundStatusValue,
   AdminReturnDetail,
   AdminReturnItem,

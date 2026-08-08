@@ -33,8 +33,10 @@ import {
   RETURN_REASON_VALUES,
   REFUND_SOURCE_TONES,
   REFUND_STATUS_TONES,
+  REFUND_DESTINATION_TONES,
   refundSourceLabel,
   refundStatusLabel,
+  refundDestinationLabel,
   returnStatusLabel,
   returnResolutionLabel,
   returnReasonLabel,
@@ -342,6 +344,21 @@ function ReturnsView() {
           <span className="text-white/60">
             {cancellationReasonLabel(r.cancellationReasonCode, locale)}
           </span>
+        ) : (
+          <span className="text-white/30">—</span>
+        ),
+    },
+    {
+      // TODO-175 (ADR-285) — müşterinin iade yöntemi tercihi (iki-defter ayrımı). Ham enum değil,
+      // insani etiket; REPLACEMENT / legacy satırlarda null → "—".
+      key: "refundDestination",
+      header: isTr ? "İade yöntemi" : "Refund method",
+      className: "whitespace-nowrap",
+      cell: (r) =>
+        r.refundDestination ? (
+          <Badge tone={REFUND_DESTINATION_TONES[r.refundDestination]}>
+            {refundDestinationLabel(r.refundDestination, locale)}
+          </Badge>
         ) : (
           <span className="text-white/30">—</span>
         ),

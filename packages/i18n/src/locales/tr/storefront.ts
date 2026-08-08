@@ -1557,8 +1557,17 @@ export const trStorefront = {
         OTHER: "Diğer",
       },
       resolutions: {
+        // TODO-175 — nötr REFUND çözümü (hedef ayrı `refundDestination` alanında seçilir);
+        // etiket legacy REFUND_TO_ORIGINAL_PAYMENT ile aynı tutulur.
+        REFUND: "Orijinal ödeme yöntemine iade",
         REFUND_TO_ORIGINAL_PAYMENT: "Orijinal ödeme yöntemine iade",
         REPLACEMENT: "Aynı ürünle değişim",
+      },
+      // TODO-175 (ADR-285) — İade tutarının nereye aktarılacağı (raw enum GÖSTERİLMEZ).
+      refundDestinationLabel: "İade hedefi",
+      refundDestinations: {
+        ORIGINAL_PAYMENT: "Orijinal ödeme yöntemine",
+        SHOPPING_BALANCE: "Alışveriş bakiyesine",
       },
       statuses: {
         REQUESTED: "Talep alındı",

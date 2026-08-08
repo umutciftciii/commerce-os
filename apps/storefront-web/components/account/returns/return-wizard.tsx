@@ -8,6 +8,7 @@ import type {
   CustomerReturnCreateRequest,
   CustomerReturnEligibility,
   CustomerReturnEligibilityLine,
+  RefundDestinationValue,
   ReturnReasonValue,
   ReturnResolutionTypeValue,
 } from "@commerce-os/contracts";
@@ -96,13 +97,21 @@ export function ReturnWizard({
 
   const resolutionOptions = useMemo<ReturnResolutionTypeValue[]>(() => {
     const options: ReturnResolutionTypeValue[] = [];
-    if (eligibility.allowOriginalPaymentRefund) options.push("REFUND_TO_ORIGINAL_PAYMENT");
+    // TODO-175 — nötr REFUND çözümü sunulur (hedef ayrı `refundDestination` alt-seçiminde belirlenir);
+    // legacy REFUND_TO_ORIGINAL_PAYMENT artık gönderilmez.
+    if (eligibility.allowOriginalPaymentRefund) options.push("REFUND");
     if (eligibility.allowReplacement) options.push("REPLACEMENT");
     return options;
   }, [eligibility.allowOriginalPaymentRefund, eligibility.allowReplacement]);
 
   const [resolution, setResolution] = useState<ReturnResolutionTypeValue | "">(
     resolutionOptions.length === 1 ? resolutionOptions[0] : "",
+  );
+  // TODO-175 — REFUND çözümünde zorunlu iade yöntemi (ORIGINAL_PAYMENT ön-seçili). REPLACEMENT'ta gönderilmez.
+  // Ödeme bilgisi prop'ta yok → her iki seçenek de gösterilir; sunucu geçersiz seçimi REFUND_DESTINATION_INVALID
+  // ile reddeder (istemci tutar HESAPLAMAZ/GÖNDERMEZ).
+  const [refundDestination, setRefundDestination] = useState<RefundDestinationValue | "">(
+    "ORIGINAL_PAYMENT",
   );
   const [customerNote, setCustomerNote] = useState("");
   const [step, setStep] = useState(0);
@@ -151,6 +160,8 @@ export function ReturnWizard({
     }
     if (current === 2) {
       if (!resolution) found.push(w.resolutionMissing);
+      // TODO-175 — REFUND çözümünde iade yöntemi zorunlu (sözleşme superRefine + sunucu da doğrular).
+      else if (resolution === "REFUND" && !refundDestination) found.push(w.refundDestinationMissing);
     }
     return found;
   }
@@ -185,6 +196,9 @@ export function ReturnWizard({
     const body: CustomerReturnCreateRequest = {
       orderNumber: eligibility.orderNumber,
       resolutionType: resolution,
+      // TODO-175 — REFUND çözümünde müşteri hedefi gönderilir; REPLACEMENT'ta atlanır (istemci tutar göndermez).
+      refundDestination:
+        resolution === "REFUND" && refundDestination ? refundDestination : undefined,
       customerNote: customerNote.trim() ? customerNote.trim() : undefined,
       items: selectedLines.map((line) => {
         const d = drafts[line.orderLineId];
@@ -280,6 +294,8 @@ export function ReturnWizard({
               options={resolutionOptions}
               resolution={resolution}
               setResolution={setResolution}
+              refundDestination={refundDestination}
+              setRefundDestination={setRefundDestination}
               customerNote={customerNote}
               setCustomerNote={setCustomerNote}
               t={t}
@@ -291,6 +307,7 @@ export function ReturnWizard({
               selectedLines={selectedLines}
               drafts={drafts}
               resolution={resolution}
+              refundDestination={refundDestination}
               customerNote={customerNote}
               t={t}
             />
@@ -545,6 +562,8 @@ function StepResolution({
   options,
   resolution,
   setResolution,
+  refundDestination,
+  setRefundDestination,
   customerNote,
   setCustomerNote,
   t,
@@ -552,12 +571,15 @@ function StepResolution({
   options: ReturnResolutionTypeValue[];
   resolution: ReturnResolutionTypeValue | "";
   setResolution: (r: ReturnResolutionTypeValue) => void;
+  refundDestination: RefundDestinationValue | "";
+  setRefundDestination: (d: RefundDestinationValue) => void;
   customerNote: string;
   setCustomerNote: (v: string) => void;
   t: ReturnsDict;
 }) {
   const w = t.wizard;
   const desc: Record<ReturnResolutionTypeValue, string> = {
+    REFUND: w.resolutionRefundDesc,
     REFUND_TO_ORIGINAL_PAYMENT: w.resolutionRefundDesc,
     REPLACEMENT: w.resolutionReplacementDesc,
   };
@@ -582,6 +604,53 @@ function StepResolution({
               label={t.resolutions[option]}
               description={desc[option]}
             />
+
+            {/* TODO-175 — REFUND seçilince iade yöntemi alt-seçimi (ORIGINAL_PAYMENT ön-seçili). */}
+            {option === "REFUND" && resolution === "REFUND" ? (
+              <div className="mt-4 space-y-2 border-t border-line pt-4 pl-7">
+                <p className="text-[11px] font-medium uppercase tracking-wideish text-ink-muted">
+                  {w.refundDestinationTitle}
+                </p>
+                <div
+                  className="space-y-2"
+                  role="radiogroup"
+                  aria-label={w.refundDestinationTitle}
+                >
+                  <div
+                    className={
+                      refundDestination === "ORIGINAL_PAYMENT"
+                        ? "border border-ink p-3"
+                        : "border border-line p-3"
+                    }
+                  >
+                    <Radio
+                      name="refund-destination"
+                      id="refund-dest-original"
+                      checked={refundDestination === "ORIGINAL_PAYMENT"}
+                      onChange={() => setRefundDestination("ORIGINAL_PAYMENT")}
+                      label={w.refundDestinationOriginal}
+                      description={w.refundDestinationOriginalDesc}
+                    />
+                  </div>
+                  <div
+                    className={
+                      refundDestination === "SHOPPING_BALANCE"
+                        ? "border border-ink p-3"
+                        : "border border-line p-3"
+                    }
+                  >
+                    <Radio
+                      name="refund-destination"
+                      id="refund-dest-balance"
+                      checked={refundDestination === "SHOPPING_BALANCE"}
+                      onChange={() => setRefundDestination("SHOPPING_BALANCE")}
+                      label={w.refundDestinationBalance}
+                      description={w.refundDestinationBalanceDesc}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -602,6 +671,7 @@ function StepReview({
   selectedLines,
   drafts,
   resolution,
+  refundDestination,
   customerNote,
   t,
 }: {
@@ -609,6 +679,7 @@ function StepReview({
   selectedLines: CustomerReturnEligibilityLine[];
   drafts: Record<string, LineDraft>;
   resolution: ReturnResolutionTypeValue | "";
+  refundDestination: RefundDestinationValue | "";
   customerNote: string;
   t: ReturnsDict;
 }) {
@@ -664,6 +735,15 @@ function StepReview({
         <p className="text-sm text-ink">
           {resolution ? t.resolutions[resolution] : "—"}
         </p>
+        {/* TODO-175 — REFUND çözümünde seçilen iade yöntemini de özetle. */}
+        {resolution === "REFUND" && refundDestination ? (
+          <p className="text-xs text-ink-muted">
+            {w.refundDestinationTitle}:{" "}
+            {refundDestination === "SHOPPING_BALANCE"
+              ? w.refundDestinationBalance
+              : w.refundDestinationOriginal}
+          </p>
+        ) : null}
       </section>
 
       {customerNote.trim() ? (

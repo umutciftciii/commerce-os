@@ -15,7 +15,7 @@ import type { OrderRefundActorType, OrderRefundEventType, PrismaClient, RefundDe
 import { sumCapturedMinor, resolveRefundedPaymentStatus } from "../payments/payment-state.js";
 import { evaluateReturnTransition, isRefundResolution, resolveEffectiveRefundDestination } from "../returns/status-map.js";
 import { resolveRefundCapability, type RefundCapability } from "./capability.js";
-import { computeRefundSourceSplit, resolveDestinationEligibility } from "./destination-calc.js";
+import { computeRefundSourceSplit } from "./destination-calc.js";
 import {
   issueCreditInTx,
   getOrderCreditRestorableMinor,
@@ -23,7 +23,6 @@ import {
 } from "../customer-credit/service.js";
 import {
   computeRefundableRemainingMinor,
-  isWithinRefundable,
   sumActiveRefundMinor,
   sumSucceededRefundMinor,
   type RefundLedgerRow,
@@ -461,6 +460,14 @@ export async function initiateRefund(input: InitiateInput, deps: RefundServiceDe
     }
     if (!isRefundResolution(rr.resolutionType)) return { ok: false as const, code: "NOT_REFUND_RESOLUTION" as RefundErrorCode };
     const destination = resolveEffectiveRefundDestination({ resolutionType: rr.resolutionType, refundDestination: rr.refundDestination }) ?? "ORIGINAL_PAYMENT";
+
+    // Intent referans attempt sağlık kontrolü (semantik korunur): var + tahsil edilmiş + para birimi eşleşir.
+    // (Execution'da external leg attempt'i AYRICA seçilir; bu guard intent bütünlüğünü doğrular.)
+    if (!intent.paymentAttemptId || !intent.paymentAttempt) return { ok: false as const, code: "NO_PAYMENT_ATTEMPT" as RefundErrorCode };
+    if (intent.paymentAttempt.status !== "PAID" && intent.paymentAttempt.status !== "AUTHORIZED") {
+      return { ok: false as const, code: "PAYMENT_NOT_CAPTURED" as RefundErrorCode };
+    }
+    if (intent.paymentAttempt.currency !== intent.currency) return { ok: false as const, code: "CURRENCY_MISMATCH" as RefundErrorCode };
 
     // Aktif/gerçekleşmiş refund varsa yeni attempt YASAK (intent tek obligation; retry yalnız FAILED sonrası).
     const activeExisting = await tx.orderRefund.findFirst({

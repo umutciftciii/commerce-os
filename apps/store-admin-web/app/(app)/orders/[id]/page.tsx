@@ -39,6 +39,9 @@ import {
   RETURN_STATUS_TONES,
   returnStatusLabel,
   returnResolutionLabel,
+  // TODO-175 (ADR-285) — iptal geri ödemesi hedefi (müşteri tercihi) etiket/tonu.
+  refundDestinationLabel,
+  REFUND_DESTINATION_TONES,
   type OrderStatus,
   type PaymentStatus,
   type ReservationStatus,
@@ -608,6 +611,12 @@ function OrderCancellationSection({
   const succeeded = refundContext?.succeededRefundMinor ?? 0;
   const active = refundContext?.activeRefundMinor ?? 0;
   const currency = refundContext?.currency ?? order.currency;
+  // TODO-175 (ADR-285) — müşterinin iptal geri ödemesi hedefi (iki-defter ayrımı). Refund satırları
+  // taşır (legacy null olabilir); INTERNAL_CREDIT yürütmesi = alışveriş bakiyesi (dış PSP legi yok).
+  const cancellationDestination =
+    refundContext?.refunds.find((r) => r.refundDestination)?.refundDestination ?? null;
+  const hasInternalCredit =
+    refundContext?.refunds.some((r) => r.executionMode === "INTERNAL_CREDIT") ?? false;
 
   // Otomatik iade durumu — refund-context'ten türetilir (sıra önemli).
   type RefundView = { tone: "success" | "info" | "warning" | "neutral"; text: string; hint?: string; failed?: boolean };
@@ -674,7 +683,27 @@ function OrderCancellationSection({
         {order.cancelReasonNote ? (
           <RailRow label={isTr ? "Müşteri notu" : "Customer note"} value={order.cancelReasonNote} />
         ) : null}
+        {/* TODO-175 (ADR-285) — müşterinin seçtiği iade yöntemi (varsa). Ham enum değil, insani etiket. */}
+        {cancellationDestination ? (
+          <RailRow
+            label={isTr ? "İade yöntemi" : "Refund method"}
+            value={
+              <Badge tone={REFUND_DESTINATION_TONES[cancellationDestination]}>
+                {refundDestinationLabel(cancellationDestination, locale)}
+              </Badge>
+            }
+          />
+        ) : null}
       </div>
+
+      {/* INTERNAL_CREDIT yürütmesi = alışveriş bakiyesi (dahili); dış ödeme sağlayıcısı kullanılmaz. */}
+      {hasInternalCredit ? (
+        <p className="mt-3 text-xs leading-relaxed text-white/45">
+          {isTr
+            ? "Bu iade alışveriş bakiyesine (dahili kredi) yapıldı — dış ödeme sağlayıcısı kullanılmadı."
+            : "This refund was issued to the shopping balance (internal credit) — no external payment provider was used."}
+        </p>
+      ) : null}
 
       {/* Otomatik iade durumu (refund-context türevi). */}
       {refundView ? (
