@@ -3266,6 +3266,7 @@ enum CreditSourceType {
   ORDER_REFUND
   EXPIRY
   SYSTEM
+  ORDER_RETURN // TODO-175 — return-context credit hareketi (restore/reissue/refund-to-balance)
 }
 
 enum CreditLedgerType {
@@ -3277,6 +3278,7 @@ enum CreditLedgerType {
   ADMIN_ADJUSTMENT_CREDIT
   ADMIN_ADJUSTMENT_DEBIT
   EXPIRE
+  RETURN_CREDIT_RESTORE // TODO-175 — onaylı return credit-origin restore (expired lot → non-expiring reissue)
 }
 
 // Müşteri başına (store, currency) bakiye çıpası + perf cache. Otorite lot toplamıdır.
@@ -3300,8 +3302,9 @@ model CustomerCreditAccount {
   @@index([customerId])
 }
 
-// Bir grant = spendable "lot" (mutable head; remaining lock altında azalır). expiresAt ZORUNLU
-// (grant'ta 30/60/120/180 günden biri). FEFO: expiresAt ASC, createdAt ASC tüketilir.
+// Bir grant = spendable "lot" (mutable head; remaining lock altında azalır). Goodwill lot'ta expiresAt
+// ZORUNLU (30/60/120/180 günden biri). TODO-175: refund-origin lot NON-EXPIRING (expiresAt = null).
+// FEFO: expiresAt ASC (null en sona), createdAt ASC tüketilir.
 model CustomerCreditLot {
   id                   String           @id @default(cuid())
   storeId              String
@@ -3310,7 +3313,7 @@ model CustomerCreditLot {
   currency             String
   originalAmountMinor  BigInt
   remainingAmountMinor BigInt
-  expiresAt            DateTime
+  expiresAt            DateTime? // null = non-expiring (TODO-175 refund-origin credit)
   status               CreditLotStatus  @default(ACTIVE)
   sourceType           CreditSourceType
   sourceId             String?
@@ -5455,9 +5458,19 @@ enum ReturnStatus {
 
 // İlk faz çözüm türleri. STORE_CREDIT/GIFT_CARD_BALANCE/MANUFACTURER_SUPPORT/INSTANT_REFUND/
 // EXCHANGE_WITH_DIFFERENT_PRODUCT gelecekte additive eklenecek (bkz. ADR-269 §1).
+// TODO-175 (ADR-285): REFUND = nötr refund çözümü (destination ayrı refundDestination alanında).
+// REFUND_TO_ORIGINAL_PAYMENT legacy olarak korunur (= REFUND + ORIGINAL_PAYMENT semantiği).
 enum ReturnResolutionType {
+  REFUND
   REFUND_TO_ORIGINAL_PAYMENT
   REPLACEMENT
+}
+
+// TODO-175 (ADR-285) — Refund geri ödeme hedefi. Yalnız external-origin bileşeni yönetir;
+// credit-origin bileşen her zaman shopping balance'a restore edilir.
+enum RefundDestination {
+  ORIGINAL_PAYMENT
+  SHOPPING_BALANCE
 }
 
 // Governed iade nedeni. TR/EN kullanıcı etiketleri i18n katmanındadır; enum stable/dildir.
@@ -5574,6 +5587,11 @@ model ReturnRequest {
   returnTrackingNumber String?
   // Admin kararı: kargo ücreti iade edilsin mi (refund-calc shippingRefundMinor bunu esas alır).
   refundShipping       Boolean              @default(false)
+  // TODO-175 (ADR-285) — müşterinin submit anında seçtiği IMMUTABLE refund hedefi. REFUND çözümünde
+  // set edilir; REPLACEMENT'ta null. Admin değiştiremez; execution UI'ya değil bu snapshot'a güvenir.
+  refundDestination            RefundDestination?
+  refundDestinationSelectedBy  ReturnActorType?
+  refundDestinationSelectedAt  DateTime?
   requestedAt          DateTime             @default(now())
   reviewedAt           DateTime?
   approvedAt           DateTime?
@@ -5771,6 +5789,7 @@ enum OrderRefundStatus {
 enum RefundExecutionMode {
   PROVIDER_AUTOMATIC
   MANUAL_OFFLINE
+  INTERNAL_CREDIT // TODO-175 — SHOPPING_BALANCE external legi: provider yok, tx-içi SUCCEEDED
 }
 
 enum OrderRefundEventType {
@@ -5808,6 +5827,8 @@ model OrderRefund {
   orderId                         String
   // TODO-174A (ADR-280) — refund menşei; birleşik iade/refund görünürlüğü + admin kaynak filtresi.
   origin                          RefundOrigin         @default(RETURN_REQUEST)
+  // TODO-175 (ADR-285) — external legin hedefi (ORIGINAL_PAYMENT: PSP; SHOPPING_BALANCE: INTERNAL_CREDIT).
+  refundDestination               RefundDestination?
   returnRequestId                 String?
   refundIntentId                  String?
   paymentAttemptId                String
